@@ -24,8 +24,9 @@ pub use schema::{
     SpaceRole, TextAlign, TextOverflow, Theme, TypeRole, WidgetKind,
 };
 pub use widgets::{
-    Button, Card, Column, ComposeBox as Box, Dialog, KeyEvent, LazyColumn, LazyRow, Menu,
-    RangeRequest, Row, ScrollColumn, Spacer, Surface, Tabs, Text, TextField, Tooltip, TopAppBar,
+    Button, Card, Checkbox, Column, ComposeBox as Box, Dialog, Divider, KeyEvent, LazyColumn,
+    LazyRow, Menu, ProgressIndicator, RadioButton, RangeRequest, Row, ScrollColumn, Slider, Spacer,
+    Surface, Switch, Tabs, Text, TextField, Tooltip, TopAppBar,
 };
 
 pub mod prelude {
@@ -34,11 +35,12 @@ pub mod prelude {
     // Exporting the Compose `Box` through this glob prelude shadows it. Use
     // `dioxus_compose::Box { ... }` in RSX until upstream qualifies std::boxed::Box.
     pub use crate::{
-        Alignment, Arrangement, Button, ButtonVariant, Card, Color, ColorRole, ColorScheme, Column,
-        DesignSystem, Dialog, Element, Key, KeyEvent, LaunchBuilder, LazyColumn, LazyRow,
-        LinearProgressIndicator, LoopMode, Menu, Modifier, Paint, RangeRequest, Row, ScrollColumn,
-        ShapeRole, SpaceRole, Spacer, Surface, Tabs, Text, TextAlign, TextField, TextOverflow,
-        Theme, Tooltip, TopAppBar, TypeRole, component, launch, rsx,
+        Alignment, Arrangement, Button, ButtonVariant, Card, Checkbox, Color, ColorRole,
+        ColorScheme, Column, DesignSystem, Dialog, Divider, Element, Key, KeyEvent, LaunchBuilder,
+        LazyColumn, LazyRow, LinearProgressIndicator, LoopMode, Menu, Modifier, Paint,
+        ProgressIndicator, RadioButton, RangeRequest, Row, ScrollColumn, ShapeRole, Slider,
+        SpaceRole, Spacer, Surface, Switch, Tabs, Text, TextAlign, TextField, TextOverflow, Theme,
+        Tooltip, TopAppBar, TypeRole, component, launch, rsx,
     };
     pub use dioxus_core::{Callback, Event, EventHandler, Properties, VirtualDom};
     pub use dioxus_hooks::*;
@@ -125,6 +127,28 @@ pub mod elements {
     element!(button, "Button", [text, enabled, variant]);
     element!(spacer, "Spacer", [width, height]);
     element!(lazycolumn, "LazyColumn", [item_count]);
+    // Widget tags 12 to 17. The toggles are controlled: `checked` is the whole of what they
+    // draw, and a press comes back as a click, so the Host is the one that flips the value
+    // and the Renderer can never disagree with it.
+    element!(checkbox, "Checkbox", [checked, enabled]);
+    element!(radiobutton, "RadioButton", [checked, enabled]);
+    element!(switch, "Switch", [checked, enabled]);
+    // The in-flight drag position is the Renderer's, like scroll and focus, so a drag does
+    // not cross the boundary once per frame. `value` seeds it and carries outside changes.
+    element!(
+        slider,
+        "Slider",
+        [value, min_value, max_value, steps, enabled]
+    );
+    // `determinate` says whether `value` means anything, and `circular` picks the form. How
+    // fast an indeterminate indicator travels is the design system's rule, not a property.
+    element!(
+        progressindicator,
+        "ProgressIndicator",
+        [value, determinate, circular]
+    );
+    // Thickness and colour come from the design system. The axis is the only choice left.
+    element!(divider, "Divider", [vertical]);
     // Widget tags 18 to 25. Each one emits roles and children only: how a card, a bar or a
     // popup is drawn belongs to the design system, not to the Host that declared it.
     element!(card, "Card", []);
@@ -159,6 +183,12 @@ pub mod elements {
             spacer {},
             lazycolumn {},
             scrollcolumn {},
+            checkbox {},
+            radiobutton {},
+            switch {},
+            slider {},
+            progressindicator {},
+            divider {},
             card {},
             surface {},
             dialog {},
@@ -208,6 +238,9 @@ pub mod events {
     event!(onfocuslost, ());
     event!(onkeydown, crate::KeyEvent);
     event!(onrangerequest, crate::RangeRequest);
+    // A slider reports where it was dragged to. The toggles use `onclick` instead, because
+    // a boolean the Host already holds needs no payload to flip.
+    event!(onvaluechanged, f32);
     // A dismissal carries no value, so it reuses the empty event payload a click uses.
     event!(ondismiss, ());
 }

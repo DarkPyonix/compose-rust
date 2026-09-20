@@ -51,6 +51,7 @@ pub enum EventPayloadType {
     ProtocolError,
     KeyDown,
     Range,
+    Value,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -63,11 +64,11 @@ pub struct EventSchema {
 /// Canonical schema text. Variant order is wire-significant and must only be appended to.
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "dioxus-compose/v1;",
-    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,open,on_dismiss,selected_index;",
+    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,checked,value,min_value,max_value,steps,determinate,circular,vertical,open,on_dismiss,selected_index;",
     "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation;",
     "keys=Enter;",
-    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested;",
+    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged;",
     "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme"
 );
 
@@ -153,6 +154,7 @@ const fn schema_hash() -> u64 {
                 EventPayloadType::ProtocolError => 2,
                 EventPayloadType::KeyDown => 3,
                 EventPayloadType::Range => 4,
+                EventPayloadType::Value => 5,
             }],
         );
         index += 1;
@@ -225,6 +227,12 @@ crate::extensions::define_widget_schema_with_extensions!(define_wire_enum; WIDGE
     Spacer = 7,
     LazyColumn = 8,
     ScrollColumn = 9,
+    Checkbox = 12,
+    RadioButton = 13,
+    Switch = 14,
+    Slider = 15,
+    ProgressIndicator = 16,
+    Divider = 17,
     Card = 18,
     Surface = 19,
     Dialog = 20,
@@ -809,6 +817,19 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     SpaceRole = 24,
     Alignment = 25,
     Variant = 26,
+    // The selection controls and the indicators. One bool says "is this on" for all three
+    // toggles: a radio button that is selected and a switch that is on are the same fact on
+    // the wire, and the schema carries each concept once.
+    Checked = 32,
+    // The slider's position, and the progress indicator's completion.
+    Value = 33,
+    MinValue = 34,
+    MaxValue = 35,
+    // Discrete stops between the two ends. Zero means the slider is continuous.
+    Steps = 36,
+    Determinate = 37,
+    Circular = 38,
+    Vertical = 39,
     // Whether an overlay is showing. The Renderer owns the state; this seeds it and
     // carries changes that came from outside the Renderer.
     Open = 40,
@@ -837,6 +858,11 @@ pub enum EventPayload<'a> {
     RangeRequested {
         start: u32,
         count: u32,
+    },
+    /// A continuous value the Host cannot derive from what it already sent. A slider drag
+    /// lands here; the toggles do not, because flipping a boolean needs no payload.
+    ValueChanged {
+        value: f32,
     },
 }
 
@@ -875,5 +901,11 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
         name: "RangeRequested",
         tag: 7,
         payload: EventPayloadType::Range,
+    },
+    // Tags 8 to 15 are held for the pointer gesture events, so this one starts at 16.
+    EventSchema {
+        name: "ValueChanged",
+        tag: 16,
+        payload: EventPayloadType::Value,
     },
 ];

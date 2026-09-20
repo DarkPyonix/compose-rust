@@ -206,6 +206,7 @@ impl Host {
             EventPayload::RangeRequested { start, count } => {
                 Event::new(Rc::new(RangeRequest::new(start, count)), true).into_any()
             }
+            EventPayload::ValueChanged { value } => Event::new(Rc::new(value), true).into_any(),
         };
         let _dispatch_guard = EventDispatchGuard::enter();
         self.dom.runtime().handle_event(name, event_data, element);

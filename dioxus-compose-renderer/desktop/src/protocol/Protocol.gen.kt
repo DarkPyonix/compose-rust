@@ -7,9 +7,9 @@ import java.nio.ByteOrder
 import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
 
-enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, LinearProgressIndicator }
+enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Open, OnDismiss, SelectedIndex, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Checked, Value, MinValue, MaxValue, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Progress }
 
 enum class Key { Enter }
 
@@ -99,13 +99,14 @@ sealed interface HostEvent {
     data class ProtocolError(override val nodeId: Int, override val handlerId: Long, val code: Int, val message: String) : HostEvent
     data class KeyDown(override val nodeId: Int, override val handlerId: Long, val key: Key, val shiftKey: Boolean, val ctrlKey: Boolean, val altKey: Boolean, val metaKey: Boolean) : HostEvent
     data class RangeRequested(override val nodeId: Int, override val handlerId: Long, val start: Int, val count: Int) : HostEvent
+    data class ValueChanged(override val nodeId: Int, override val handlerId: Long, val value: kotlin.Float) : HostEvent
 }
 
 class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -4135051450166659538L
+    const val SCHEMA_HASH: Long = -679195012835885672L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -279,6 +280,7 @@ object Protocol {
                 is HostEvent.ProtocolError -> event.message.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.KeyDown -> null
                 is HostEvent.RangeRequested -> null
+                is HostEvent.ValueChanged -> null
             }
             val recordLength = when (event) {
                 is HostEvent.Clicked -> 16
@@ -288,6 +290,7 @@ object Protocol {
                 is HostEvent.ProtocolError -> 28
                 is HostEvent.KeyDown -> 20
                 is HostEvent.RangeRequested -> 24
+                is HostEvent.ValueChanged -> 20
             }
             val totalLength = recordLength.toLong() + (text?.size ?: 0)
             if (totalLength > Int.MAX_VALUE || totalLength > out.remaining().toLong()) {
@@ -301,6 +304,7 @@ object Protocol {
                 is HostEvent.ProtocolError -> 5
                 is HostEvent.KeyDown -> 6
                 is HostEvent.RangeRequested -> 7
+                is HostEvent.ValueChanged -> 16
             }
             out.putShort(tag.toShort())
             out.putShort(recordLength.toShort())
@@ -329,6 +333,7 @@ object Protocol {
                     out.putInt(event.start)
                     out.putInt(event.count)
                 }
+                is HostEvent.ValueChanged -> out.putFloat(event.value)
             }
             if (text != null) out.put(text)
             return out.position() - start
@@ -371,6 +376,12 @@ object Protocol {
         7 -> WidgetKind.Spacer
         8 -> WidgetKind.LazyColumn
         9 -> WidgetKind.ScrollColumn
+        12 -> WidgetKind.Checkbox
+        13 -> WidgetKind.RadioButton
+        14 -> WidgetKind.Switch
+        15 -> WidgetKind.Slider
+        16 -> WidgetKind.ProgressIndicator
+        17 -> WidgetKind.Divider
         18 -> WidgetKind.Card
         19 -> WidgetKind.Surface
         20 -> WidgetKind.Dialog
@@ -410,6 +421,14 @@ object Protocol {
         24 -> PropertyKind.SpaceRole
         25 -> PropertyKind.Alignment
         26 -> PropertyKind.Variant
+        32 -> PropertyKind.Checked
+        33 -> PropertyKind.Value
+        34 -> PropertyKind.MinValue
+        35 -> PropertyKind.MaxValue
+        36 -> PropertyKind.Steps
+        37 -> PropertyKind.Determinate
+        38 -> PropertyKind.Circular
+        39 -> PropertyKind.Vertical
         40 -> PropertyKind.Open
         41 -> PropertyKind.OnDismiss
         42 -> PropertyKind.SelectedIndex

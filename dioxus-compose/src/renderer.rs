@@ -509,6 +509,7 @@ fn event_property(name: &str) -> Option<PropertyKind> {
         "focuslost" | "onfocuslost" => Some(PropertyKind::OnFocusLost),
         "keydown" | "onkeydown" => Some(PropertyKind::OnKeyDown),
         "rangerequest" | "onrangerequest" => Some(PropertyKind::OnRangeRequested),
+        "valuechanged" | "onvaluechanged" => Some(PropertyKind::OnValueChange),
         "dismiss" | "ondismiss" => Some(PropertyKind::OnDismiss),
         _ => None,
     }

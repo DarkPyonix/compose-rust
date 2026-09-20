@@ -1,16 +1,16 @@
 {
   "format": "dioxus-compose protocol vectors v1",
-  "schemaHashUnsigned": "14311692623542892078",
+  "schemaHashUnsigned": "17767549060873665944",
   "byteOrder": "little-endian",
   "mutations": {
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, and modifier layout",
-    "recordCount": 30,
+    "recordCount": 47,
     "strings": ["안녕", "compose", " token"]
   },
   "events": {
     "file": "events.bin",
-    "description": "Seven independently decodable event records concatenated in schema order",
+    "description": "Eight independently decodable event records concatenated in schema order",
     "records": [
       { "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 },
       { "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" },
@@ -18,7 +18,8 @@
       { "type": "FocusLost", "offset": 74, "length": 16, "nodeId": 8, "handlerId": 14 },
       { "type": "ProtocolError", "offset": 90, "length": 35, "nodeId": 0, "handlerId": 0, "code": 9, "message": "bad tag" },
       { "type": "KeyDown", "offset": 125, "length": 20, "nodeId": 9, "handlerId": 15, "key": "Enter", "shiftKey": true, "ctrlKey": true, "altKey": true, "metaKey": true },
-      { "type": "RangeRequested", "offset": 145, "length": 24, "nodeId": 10, "handlerId": 16, "start": 100, "count": 20 }
+      { "type": "RangeRequested", "offset": 145, "length": 24, "nodeId": 10, "handlerId": 16, "start": 100, "count": 20 },
+      { "type": "ValueChanged", "offset": 169, "length": 20, "nodeId": 15, "handlerId": 17, "value": 0.75 }
     ]
   }
 }

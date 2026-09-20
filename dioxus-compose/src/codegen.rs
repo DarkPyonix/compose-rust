@@ -120,6 +120,7 @@ data class Theme(
                 output.push_str(", val key: Key, val shiftKey: Boolean, val ctrlKey: Boolean, val altKey: Boolean, val metaKey: Boolean");
             }
             EventPayloadType::Range => output.push_str(", val start: Int, val count: Int"),
+            EventPayloadType::Value => output.push_str(", val value: kotlin.Float"),
         }
         output.push_str(") : HostEvent\n");
     }
@@ -337,7 +338,7 @@ object Protocol {
                 )
                 .unwrap();
             }
-            EventPayloadType::KeyDown | EventPayloadType::Range => {
+            EventPayloadType::KeyDown | EventPayloadType::Range | EventPayloadType::Value => {
                 writeln!(
                     output,
                     "                is HostEvent.{} -> null",
@@ -359,6 +360,7 @@ object Protocol {
             EventPayloadType::ProtocolError => 28,
             EventPayloadType::KeyDown => 20,
             EventPayloadType::Range => 24,
+            EventPayloadType::Value => 20,
         };
         writeln!(
             output,
@@ -444,6 +446,14 @@ object Protocol {
                 output.push_str("                    out.putInt(event.start)\n");
                 output.push_str("                    out.putInt(event.count)\n");
                 output.push_str("                }\n");
+            }
+            EventPayloadType::Value => {
+                writeln!(
+                    output,
+                    "                is HostEvent.{} -> out.putFloat(event.value)",
+                    event.name
+                )
+                .unwrap();
             }
         }
     }
@@ -917,6 +927,88 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             node_id: 4,
             text: " token",
         },
+        // The selection controls and the indicators, each with the property that is its
+        // own: the toggles share one boolean, the slider carries its range, the indicator
+        // says what form it takes, and the divider says which way it runs.
+        Mutation::Create {
+            node_id: 12,
+            widget: WidgetKind::Checkbox,
+        },
+        Mutation::SetProp {
+            node_id: 12,
+            property: PropertyKind::Checked,
+            value: PropertyValue::Bool(true),
+        },
+        Mutation::Create {
+            node_id: 13,
+            widget: WidgetKind::RadioButton,
+        },
+        Mutation::SetProp {
+            node_id: 13,
+            property: PropertyKind::Checked,
+            value: PropertyValue::Bool(false),
+        },
+        Mutation::Create {
+            node_id: 14,
+            widget: WidgetKind::Switch,
+        },
+        Mutation::SetProp {
+            node_id: 14,
+            property: PropertyKind::Checked,
+            value: PropertyValue::Bool(true),
+        },
+        Mutation::Create {
+            node_id: 15,
+            widget: WidgetKind::Slider,
+        },
+        Mutation::SetProp {
+            node_id: 15,
+            property: PropertyKind::Value,
+            value: PropertyValue::Float(0.25),
+        },
+        Mutation::SetProp {
+            node_id: 15,
+            property: PropertyKind::MinValue,
+            value: PropertyValue::Float(0.0),
+        },
+        Mutation::SetProp {
+            node_id: 15,
+            property: PropertyKind::MaxValue,
+            value: PropertyValue::Float(10.0),
+        },
+        Mutation::SetProp {
+            node_id: 15,
+            property: PropertyKind::Steps,
+            value: PropertyValue::Integer(4),
+        },
+        Mutation::Create {
+            node_id: 16,
+            widget: WidgetKind::ProgressIndicator,
+        },
+        Mutation::SetProp {
+            node_id: 16,
+            property: PropertyKind::Determinate,
+            value: PropertyValue::Bool(true),
+        },
+        Mutation::SetProp {
+            node_id: 16,
+            property: PropertyKind::Circular,
+            value: PropertyValue::Bool(true),
+        },
+        Mutation::SetProp {
+            node_id: 16,
+            property: PropertyKind::Value,
+            value: PropertyValue::Float(0.5),
+        },
+        Mutation::Create {
+            node_id: 17,
+            widget: WidgetKind::Divider,
+        },
+        Mutation::SetProp {
+            node_id: 17,
+            property: PropertyKind::Vertical,
+            value: PropertyValue::Bool(true),
+        },
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {
@@ -974,6 +1066,11 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
                 count: 20,
             },
         },
+        HostEvent {
+            node_id: 15,
+            handler_id: 17,
+            payload: EventPayload::ValueChanged { value: 0.75 },
+        },
     ];
     let mut output = Vec::new();
     let mut encoded = Vec::new();
@@ -993,12 +1090,12 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, and modifier layout",
-    "recordCount": 30,
+    "recordCount": 47,
     "strings": ["안녕", "compose", " token"]
   }},
   "events": {{
     "file": "events.bin",
-    "description": "Seven independently decodable event records concatenated in schema order",
+    "description": "Eight independently decodable event records concatenated in schema order",
     "records": [
       {{ "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 }},
       {{ "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" }},
@@ -1006,7 +1103,8 @@ pub fn generate_vector_description() -> String {
       {{ "type": "FocusLost", "offset": 74, "length": 16, "nodeId": 8, "handlerId": 14 }},
       {{ "type": "ProtocolError", "offset": 90, "length": 35, "nodeId": 0, "handlerId": 0, "code": 9, "message": "bad tag" }},
       {{ "type": "KeyDown", "offset": 125, "length": 20, "nodeId": 9, "handlerId": 15, "key": "Enter", "shiftKey": true, "ctrlKey": true, "altKey": true, "metaKey": true }},
-      {{ "type": "RangeRequested", "offset": 145, "length": 24, "nodeId": 10, "handlerId": 16, "start": 100, "count": 20 }}
+      {{ "type": "RangeRequested", "offset": 145, "length": 24, "nodeId": 10, "handlerId": 16, "start": 100, "count": 20 }},
+      {{ "type": "ValueChanged", "offset": 169, "length": 20, "nodeId": 15, "handlerId": 17, "value": 0.75 }}
     ]
   }}
 }}

@@ -419,3 +419,117 @@ pub fn Tooltip(#[props(into)] text: String, children: Element) -> Element {
         tooltip { text, {children} }
     }
 }
+
+/// A two-state box. The widget is controlled: it draws exactly what `checked` says and
+/// reports a press, so the value the Host holds and the box on screen can never disagree.
+/// What the mark looks like, and whether pressing it ripples or dims, is the design
+/// system's rule.
+#[component]
+pub fn Checkbox(
+    #[props(default)] checked: bool,
+    #[props(default = true)] enabled: bool,
+    #[props(default)] on_click: EventHandler<()>,
+) -> Element {
+    rsx! {
+        checkbox {
+            checked,
+            enabled,
+            onclick: move |_| on_click.call(()),
+        }
+    }
+}
+
+/// One choice out of several. Which siblings it excludes is the Host's business, so the
+/// widget carries only whether this one is the chosen one.
+///
+/// `selected` is the Compose name for that state, and it is what the rsx attribute is
+/// called. On the wire it is the same "is this on" boolean the other two toggles send.
+#[component]
+pub fn RadioButton(
+    #[props(default)] selected: bool,
+    #[props(default = true)] enabled: bool,
+    #[props(default)] on_click: EventHandler<()>,
+) -> Element {
+    rsx! {
+        radiobutton {
+            checked: selected,
+            enabled,
+            onclick: move |_| on_click.call(()),
+        }
+    }
+}
+
+/// An on/off control. Same contract as `Checkbox`: the Host owns the value and the design
+/// system owns the track, the thumb and the way the change is animated.
+#[component]
+pub fn Switch(
+    #[props(default)] checked: bool,
+    #[props(default = true)] enabled: bool,
+    #[props(default)] on_click: EventHandler<()>,
+) -> Element {
+    rsx! {
+        switch {
+            checked,
+            enabled,
+            onclick: move |_| on_click.call(()),
+        }
+    }
+}
+
+/// A value picked from a range.
+///
+/// Unlike the toggles this one needs a payload, because the position a drag lands on is a
+/// continuous value the Host cannot work out from what it already sent. The in-flight
+/// position stays in the Renderer, so following a finger costs no boundary calls, and
+/// `value` seeds that position and moves it when the change came from elsewhere.
+///
+/// `steps` is the number of stops between the two ends; zero leaves the slider continuous.
+#[component]
+pub fn Slider(
+    #[props(default)] value: f32,
+    #[props(default = 0.0)] min_value: f32,
+    #[props(default = 1.0)] max_value: f32,
+    #[props(default)] steps: u32,
+    #[props(default = true)] enabled: bool,
+    #[props(default)] on_value_change: EventHandler<f32>,
+) -> Element {
+    rsx! {
+        slider {
+            value: f64::from(value),
+            min_value: f64::from(min_value),
+            max_value: f64::from(max_value),
+            steps: i64::from(steps),
+            enabled,
+            onvaluechanged: move |event| on_value_change.call(*event.data()),
+        }
+    }
+}
+
+/// Work in progress. `determinate` says whether `value` means anything, and `circular`
+/// picks between the two forms every one of the design systems has.
+///
+/// There is no speed, no easing and no track colour here: how an indeterminate indicator
+/// travels is motion, and motion is the design system's rule.
+#[component]
+pub fn ProgressIndicator(
+    #[props(default)] value: f32,
+    #[props(default = true)] determinate: bool,
+    #[props(default)] circular: bool,
+) -> Element {
+    rsx! {
+        progressindicator {
+            value: f64::from(value),
+            determinate,
+            circular,
+        }
+    }
+}
+
+/// A line between two things. The axis is the only decision the Host makes: the thickness,
+/// the colour and the inset all come from the design system.
+#[component]
+pub fn Divider(#[props(default)] vertical: bool) -> Element {
+    rsx! {
+        divider { vertical }
+    }
+}

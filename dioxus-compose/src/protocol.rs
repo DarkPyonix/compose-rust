@@ -108,6 +108,8 @@ const EVENT_FOCUS_LOST: u16 = 4;
 const EVENT_PROTOCOL_ERROR: u16 = 5;
 const EVENT_KEY_DOWN: u16 = 6;
 const EVENT_RANGE_REQUESTED: u16 = 7;
+// Tags 8 to 15 are held for the pointer gesture events.
+const EVENT_VALUE_CHANGED: u16 = 16;
 
 const MODIFIER_SHIFT: u8 = 1 << 0;
 const MODIFIER_CTRL: u8 = 1 << 1;
@@ -155,7 +157,12 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
             start: read_u32(bytes, 16)?,
             count: read_u32(bytes, 20)?,
         },
-        EVENT_CLICK..=EVENT_RANGE_REQUESTED => return Err(ProtocolError::InvalidRecordLength),
+        EVENT_VALUE_CHANGED if record_len == 20 => crate::schema::EventPayload::ValueChanged {
+            value: f32::from_bits(read_u32(bytes, 16)?),
+        },
+        EVENT_CLICK..=EVENT_RANGE_REQUESTED | EVENT_VALUE_CHANGED => {
+            return Err(ProtocolError::InvalidRecordLength);
+        }
         other => return Err(ProtocolError::InvalidTag(other)),
     };
     Ok(HostEvent {
@@ -198,6 +205,14 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.extend_from_slice(&count.to_le_bytes());
         return Ok(());
     }
+    if let crate::schema::EventPayload::ValueChanged { value } = event.payload {
+        output.extend_from_slice(&EVENT_VALUE_CHANGED.to_le_bytes());
+        output.extend_from_slice(&20_u16.to_le_bytes());
+        output.extend_from_slice(&event.node_id.to_le_bytes());
+        output.extend_from_slice(&event.handler_id.to_le_bytes());
+        output.extend_from_slice(&value.to_bits().to_le_bytes());
+        return Ok(());
+    }
     let (tag, record_len, text, error_code) = match &event.payload {
         crate::schema::EventPayload::Clicked => (EVENT_CLICK, 16_u16, None, None),
         crate::schema::EventPayload::TextChanged(value) => {
@@ -211,7 +226,8 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
             (EVENT_PROTOCOL_ERROR, 28, Some(*message), Some(*code))
         }
         crate::schema::EventPayload::KeyDown { .. }
-        | crate::schema::EventPayload::RangeRequested { .. } => unreachable!(),
+        | crate::schema::EventPayload::RangeRequested { .. }
+        | crate::schema::EventPayload::ValueChanged { .. } => unreachable!(),
     };
     output.extend_from_slice(&tag.to_le_bytes());
     output.extend_from_slice(&record_len.to_le_bytes());
