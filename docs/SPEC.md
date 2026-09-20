@@ -397,6 +397,41 @@ FR-13.8이 코어 속성 태그를 26까지 썼고, FR-11 확장 예제가 27을
 - **고도**: `Surface`와 `Card`는 `Modifier::Elevation`(FR-13.5)을 그대로 받습니다. 값이 없으면 디자인 시스템이 정한 기본 고도를 씁니다.
 - **`LazyRow`**: FR-8의 `item_count`, `item_key`, `on_range_requested`를 그대로 씁니다. 가로 축이라는 것 말고 다른 점이 없어야 하고, 선읽기 버퍼도 같은 이유로 Renderer가 소유합니다.
 
+#### 15.2.4 선택 컨트롤과 표시기(태그 12-17)
+
+`Checkbox`, `RadioButton`, `Switch`, `Slider`, `ProgressIndicator`, `Divider`입니다. 15.2.2의 속성 태그 블록 28-39를 둘로 나눕니다. **28-31은 `Image`와 `Icon`(태그 10-11)이 쓰고, 32-39는 이 여섯 위젯이 씁니다.** 두 묶음이 서로 다른 시점에 구현되므로 블록을 다시 쪼개 두지 않으면 같은 태그를 두 번 배정하게 됩니다.
+
+**새 속성은 여덟입니다.**
+
+| 태그 | 속성 | 값 | 쓰는 위젯 |
+|---|---|---|---|
+| 32 | `Checked` | bool | `Checkbox`, `RadioButton`, `Switch` |
+| 33 | `Value` | f32 | `Slider`의 위치, `ProgressIndicator`의 진행도 |
+| 34 | `MinValue` | f32 | `Slider` |
+| 35 | `MaxValue` | f32 | `Slider` |
+| 36 | `Steps` | i64 | `Slider`의 양 끝 사이 불연속 지점 개수. 0이면 연속 |
+| 37 | `Determinate` | bool | `ProgressIndicator` |
+| 38 | `Circular` | bool | `ProgressIndicator` |
+| 39 | `Vertical` | bool | `Divider` |
+
+`RadioButton`의 선택 여부도 `Checked`를 씁니다. 와이어에서는 "켜져 있는가"라는 bool 하나이고, 13.1이 색에 요구한 것과 같은 이유로 같은 개념을 스키마에 두 번 넣지 않습니다. `selected`라는 이름은 Compose 관례이므로 rsx 속성 이름으로만 남습니다(PR-7).
+
+변경 핸들러는 기존 `OnValueChange`(태그 6)와 `OnClick`(태그 5)을 그대로 씁니다.
+
+**새 이벤트 태그는 하나입니다.**
+
+| 태그 | 이벤트 | 페이로드 |
+|---|---|---|
+| 16 | `ValueChanged` | `value: f32` |
+
+1-7은 배정이 끝났고 8-15는 FR-18이 가져갔으므로 16부터 이어 붙입니다. 레코드 길이는 20바이트입니다.
+
+- `Checkbox`, `RadioButton`, `Switch`는 **제어(controlled) 위젯입니다.** Renderer는 `Checked`가 말하는 그대로 그리고, 사용자가 누르면 `Clicked`만 보냅니다. 값을 뒤집는 쪽은 Host입니다. 15.2.3의 탭 선택과 같은 이유로 새 페이로드가 필요 없고, Renderer가 자체 상태를 들고 있다가 Host와 어긋나는 일도 없습니다.
+- `Slider`만 `ValueChanged`를 씁니다. 드래그 중의 위치는 연속값이라 Host가 유추할 수 없기 때문입니다. **드래그 중의 임시 위치는 Renderer가 소유합니다(D5).** 손가락을 따라가는 움직임이 프레임마다 경계를 넘지 않고, Renderer는 바뀐 값만 알립니다.
+- **역할만 내보냅니다**(FR-14.1). 체크 표시의 모양과 크기, 스위치가 리플을 내는지 눌린 동안 흐려지는지, 트랙과 엄지의 치수, 부정형 표시기가 도는 속도, 구분선의 두께와 색은 전부 디자인 시스템의 규칙입니다. Host가 지정할 속성을 두지 않습니다. Renderer 쪽 확장은 `ComponentRules`에 `controls()` 하나를 더하는 것으로 끝나고, 네 번째 디자인 시스템은 여전히 구현 하나입니다.
+- `ProgressIndicator`는 `determinate`가 거짓이면 `Value`를 읽지 않습니다. `circular`는 모양을 고르는 것이지 치수를 정하는 것이 아닙니다.
+- `Divider`는 `vertical`이 정하는 축 말고는 아무것도 싣지 않습니다.
+
 #### 15.3 넣지 않는 것
 
 | 제외 | 이유 |
