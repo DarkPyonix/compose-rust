@@ -293,3 +293,115 @@ pub fn LazyColumn(
         }
     }
 }
+
+/// An image drawn from an asset the Host registered with `Host::register_asset`.
+///
+/// Only the handle is a property. The bytes reached the Renderer once, through their own
+/// command, and the Renderer owns the decoded result, so a frame that redraws this image
+/// moves four bytes.
+#[component]
+pub fn Image(asset_id: u32) -> Element {
+    rsx! { image { asset_id: i64::from(asset_id) } }
+}
+
+/// An icon drawn from an asset registered with `AssetKind::VectorIcon`, which names a role
+/// rather than a picture.
+///
+/// The tint is a `Paint`, so `Paint::Role(..)` lets the design system choose the colour.
+#[component]
+pub fn Icon(asset_id: u32, #[props(default)] color: Option<Paint>) -> Element {
+    rsx! {
+        icon {
+            asset_id: i64::from(asset_id),
+            color: color.map_or(0, |paint| paint.to_bits() as i64),
+        }
+    }
+}
+
+/// A date chosen by the user, as whole days since 1970-01-01.
+///
+/// The value is an integer and never a formatted string, because the calendar, the time
+/// zone, the first day of the week and the way the date is written belong to the Renderer.
+/// The moment a format string crossed the boundary, "follows the platform" would stop being
+/// true: the Host would be deciding what the user sees.
+///
+/// There is no property for how the date is picked either. Material shows a calendar grid,
+/// Cupertino shows a wheel and Fluent shows a calendar flyout, and those are three ways of
+/// operating the same widget, not three skins.
+#[component]
+pub fn DatePicker(
+    /// Whole days since 1970-01-01.
+    value: i64,
+    #[props(default)] min: Option<i64>,
+    #[props(default)] max: Option<i64>,
+    #[props(default = true)] enabled: bool,
+    #[props(default)] on_change: EventHandler<i64>,
+) -> Element {
+    rsx! {
+        datepicker {
+            value,
+            min_value: min.unwrap_or(i64::MIN),
+            max_value: max.unwrap_or(i64::MAX),
+            enabled,
+            onpick: move |event: dioxus_core::Event<i64>| on_change.call(*event.data()),
+        }
+    }
+}
+
+/// A time of day chosen by the user, as whole minutes since midnight.
+///
+/// Whether the user sees a 12 hour or a 24 hour clock is the platform's setting, read by
+/// the Renderer. The Host neither sends nor receives that choice.
+#[component]
+pub fn TimePicker(
+    /// Whole minutes since midnight, 0 to 1439.
+    value: u32,
+    #[props(default)] min: Option<u32>,
+    #[props(default)] max: Option<u32>,
+    #[props(default = true)] enabled: bool,
+    #[props(default)] on_change: EventHandler<u32>,
+) -> Element {
+    rsx! {
+        timepicker {
+            value: i64::from(value),
+            min_value: i64::from(min.unwrap_or(0)),
+            max_value: i64::from(max.unwrap_or(MINUTES_PER_DAY - 1)),
+            enabled,
+            onpick: move |event: dioxus_core::Event<i64>| {
+                on_change.call(u32::try_from(*event.data()).unwrap_or(0))
+            },
+        }
+    }
+}
+
+const MINUTES_PER_DAY: u32 = 24 * 60;
+
+/// One choice out of a list. The children are the options, in order, and the value is the
+/// index of the chosen one, or `None` for nothing chosen yet.
+///
+/// Material opens a menu under the field, Cupertino turns a wheel, Fluent opens a combo box
+/// flyout. The widget says none of that.
+#[component]
+pub fn Dropdown(
+    #[props(default)] selected: Option<usize>,
+    #[props(default = true)] enabled: bool,
+    #[props(default)] on_change: EventHandler<usize>,
+    children: Element,
+) -> Element {
+    rsx! {
+        dropdown {
+            value: selected.map_or(NOTHING_SELECTED, |index| index as i64),
+            enabled,
+            onpick: move |event: dioxus_core::Event<i64>| {
+                if let Ok(index) = usize::try_from(*event.data()) {
+                    on_change.call(index);
+                }
+            },
+            {children}
+        }
+    }
+}
+
+/// A dropdown with no choice made yet. Index 0 is a real choice, so "none" needs a value
+/// that cannot be an index.
+const NOTHING_SELECTED: i64 = -1;

@@ -4,10 +4,10 @@ use crate::protocol::{
     BatchEncoder, HostEvent, Mutation, PropertyValue, ProtocolError, encode_event,
 };
 use crate::schema::{
-    Color, ColorRole, ColorScheme, DesignSystem, EVENT_SCHEMA, EventPayloadType, FieldSchema,
-    FieldSlot, FieldType, KEY_SCHEMA, Key, MODIFIER_SCHEMA, PROPERTY_SCHEMA, PROTOCOL_VERSION,
-    Paint, PropertyKind, ROLE_ENUM_SCHEMA, SCHEMA_HASH, Selection, ShapeRole, SpaceRole, Theme,
-    WIDGET_SCHEMA, WidgetKind,
+    AssetKind, Color, ColorRole, ColorScheme, DesignSystem, EVENT_SCHEMA, EventPayloadType,
+    FieldSchema, FieldSlot, FieldType, IconRole, KEY_SCHEMA, Key, MODIFIER_SCHEMA, PROPERTY_SCHEMA,
+    PROTOCOL_VERSION, Paint, PropertyKind, ROLE_ENUM_SCHEMA, SCHEMA_HASH, Selection, ShapeRole,
+    SpaceRole, Theme, WIDGET_SCHEMA, WidgetKind,
 };
 use crate::tokens::DESIGN_TOKENS;
 use crate::{EventPayload, Modifier};
@@ -94,6 +94,17 @@ data class Theme(
     data class SetText(val nodeId: Int, val text: String, val selectionStart: Int, val selectionEnd: Int) : Mutation
     data class AppendText(val nodeId: Int, val text: String) : Mutation
     data class SetTheme(val theme: Theme) : Mutation
+
+    /**
+     * Bytes that have to outlive the call that delivered them, so the Renderer copies them
+     * into its own cache here and nowhere else. `bytes` is already that copy.
+     *
+     * Compared by identity rather than content: an asset is identified by its id, and
+     * comparing megabytes of pixels on every equality check would be a trap.
+     */
+    class RegisterAsset(val assetId: Int, val kind: AssetKind, val bytes: ByteArray) : Mutation
+
+    data class ReleaseAsset(val assetId: Int) : Mutation
 }
 
 "#,
@@ -119,6 +130,7 @@ data class Theme(
                 output.push_str(", val key: Key, val shiftKey: Boolean, val ctrlKey: Boolean, val altKey: Boolean, val metaKey: Boolean");
             }
             EventPayloadType::Range => output.push_str(", val start: Int, val count: Int"),
+            EventPayloadType::Integer => output.push_str(", val value: Long"),
         }
         output.push_str(") : HostEvent\n");
     }
@@ -154,6 +166,8 @@ object Protocol {
     private const val TAG_SET_TEXT = 7
     private const val TAG_APPEND_TEXT = 8
     private const val TAG_SET_THEME = 9
+    private const val TAG_REGISTER_ASSET = 10
+    private const val TAG_RELEASE_ASSET = 11
     private const val ENVELOPE_LENGTH = 12
 
     private const val VALUE_NONE = 0
@@ -287,6 +301,18 @@ object Protocol {
                             ),
                         )
                     }
+                    TAG_REGISTER_ASSET -> {
+                        requireRecordLength(length, 20, offset)
+                        Mutation.RegisterAsset(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            assetKind(readU16(batch, base, available, offset + 8), offset + 8),
+                            readBytes(batch, base, available, offset + 12),
+                        )
+                    }
+                    TAG_RELEASE_ASSET -> {
+                        requireRecordLength(length, 8, offset)
+                        Mutation.ReleaseAsset(readU32(batch, base, available, offset + 4).toInt())
+                    }
                     else -> throw ProtocolException("unknown mutation tag $tag", offset)
                 }
                 onMutation(mutation)
@@ -336,7 +362,7 @@ object Protocol {
                 )
                 .unwrap();
             }
-            EventPayloadType::KeyDown | EventPayloadType::Range => {
+            EventPayloadType::KeyDown | EventPayloadType::Range | EventPayloadType::Integer => {
                 writeln!(
                     output,
                     "                is HostEvent.{} -> null",
@@ -358,6 +384,7 @@ object Protocol {
             EventPayloadType::ProtocolError => 28,
             EventPayloadType::KeyDown => 20,
             EventPayloadType::Range => 24,
+            EventPayloadType::Integer => 24,
         };
         writeln!(
             output,
@@ -443,6 +470,14 @@ object Protocol {
                 output.push_str("                    out.putInt(event.start)\n");
                 output.push_str("                    out.putInt(event.count)\n");
                 output.push_str("                }\n");
+            }
+            EventPayloadType::Integer => {
+                writeln!(
+                    output,
+                    "                is HostEvent.{} -> out.putLong(event.value)",
+                    event.name
+                )
+                .unwrap();
             }
         }
     }
@@ -575,6 +610,29 @@ object Protocol {
     }
     output.push_str(
         r#"        else -> throw ProtocolException("unknown modifier tag $tag", offset)
+    }
+
+    /**
+     * Copies a payload out of the batch arena.
+     *
+     * This is the one copy an asset costs. The batch is only valid for the length of the
+     * call that carried it, and an image has to survive many frames, so the bytes have to
+     * leave the buffer before the call returns.
+     */
+    private fun readBytes(batch: ByteBuffer, base: Int, available: Int, referenceOffset: Int): ByteArray {
+        val offsetLong = readU32(batch, base, available, referenceOffset)
+        val lengthLong = readU32(batch, base, available, referenceOffset + 4)
+        if (offsetLong > Int.MAX_VALUE || lengthLong > Int.MAX_VALUE) {
+            throw ProtocolException("payload range is too large", referenceOffset)
+        }
+        val offset = offsetLong.toInt()
+        val length = lengthLong.toInt()
+        requireRange(available, offset, length, referenceOffset)
+        val view = batch.duplicate()
+        view.position(base + offset)
+        val copy = ByteArray(length)
+        view.get(copy)
+        return copy
     }
 
     private fun readString(batch: ByteBuffer, base: Int, available: Int, referenceOffset: Int): String {
@@ -915,6 +973,17 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             node_id: 4,
             text: " token",
         },
+        Mutation::RegisterAsset {
+            asset_id: 1,
+            kind: AssetKind::Png,
+            bytes: &[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0x00],
+        },
+        Mutation::RegisterAsset {
+            asset_id: 2,
+            kind: AssetKind::VectorIcon,
+            bytes: &(IconRole::Search as u16).to_le_bytes(),
+        },
+        Mutation::ReleaseAsset { asset_id: 2 },
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {
@@ -971,6 +1040,11 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
                 start: 100,
                 count: 20,
             },
+        },
+        HostEvent {
+            node_id: 11,
+            handler_id: 17,
+            payload: EventPayload::ValueChanged { value: 20_000 },
         },
     ];
     let mut output = Vec::new();

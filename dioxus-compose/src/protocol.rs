@@ -1,8 +1,8 @@
 //! Fixed-layout little-endian boundary protocol.
 
 use crate::schema::{
-    ColorScheme, DesignSystem, Key, Modifier, Paint, PropertyKind, Selection, ShapeRole, SpaceRole,
-    Theme, WidgetKind,
+    AssetKind, ColorScheme, DesignSystem, Key, Modifier, Paint, PropertyKind, Selection, ShapeRole,
+    SpaceRole, Theme, WidgetKind,
 };
 use core::fmt;
 
@@ -16,6 +16,8 @@ const TAG_REMOVE: u16 = 6;
 const TAG_SET_TEXT: u16 = 7;
 const TAG_APPEND_TEXT: u16 = 8;
 const TAG_SET_THEME: u16 = 9;
+const TAG_REGISTER_ASSET: u16 = 10;
+const TAG_RELEASE_ASSET: u16 = 11;
 const ENVELOPE_LEN: usize = 12;
 /// The shortest mutation record on the wire (`Remove`: 4-byte header + `node_id`).
 const MIN_RECORD_LEN: usize = 8;
@@ -76,6 +78,23 @@ pub enum Mutation<'a> {
     },
     /// FR-14.5: the root theme. Sent once as the first record of the initial batch.
     SetTheme(Theme),
+    /// Hands the Renderer a resource that has to outlive the call that delivered it.
+    ///
+    /// A batch is consumed inside the call stack that passed it, so every pointer in it
+    /// dies when the call returns, and image bytes do not fit in a fixed-layout record
+    /// anyway. The bytes therefore travel in the batch arena exactly like a string, and the
+    /// Renderer copies them into its own cache before returning. That copy happens once per
+    /// asset, not once per frame, so it is outside the frame budget.
+    RegisterAsset {
+        asset_id: u32,
+        kind: AssetKind,
+        bytes: &'a [u8],
+    },
+    /// Drops a registered asset. The Host owns the asset's lifetime, so nothing is
+    /// evicted behind its back, and a later use of the id is reported as a protocol error.
+    ReleaseAsset {
+        asset_id: u32,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -89,6 +108,7 @@ pub enum ProtocolError {
     InvalidValueKind(u16),
     InvalidModifier(u16),
     InvalidTheme(u16),
+    InvalidAssetKind(u16),
     InvalidStringRange,
     InvalidUtf8,
     LengthOverflow,
@@ -108,6 +128,7 @@ const EVENT_FOCUS_LOST: u16 = 4;
 const EVENT_PROTOCOL_ERROR: u16 = 5;
 const EVENT_KEY_DOWN: u16 = 6;
 const EVENT_RANGE_REQUESTED: u16 = 7;
+const EVENT_VALUE_CHANGED: u16 = 8;
 
 const MODIFIER_SHIFT: u8 = 1 << 0;
 const MODIFIER_CTRL: u8 = 1 << 1;
@@ -155,7 +176,10 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
             start: read_u32(bytes, 16)?,
             count: read_u32(bytes, 20)?,
         },
-        EVENT_CLICK..=EVENT_RANGE_REQUESTED => return Err(ProtocolError::InvalidRecordLength),
+        EVENT_VALUE_CHANGED if record_len == 24 => crate::schema::EventPayload::ValueChanged {
+            value: read_u64(bytes, 16)? as i64,
+        },
+        EVENT_CLICK..=EVENT_VALUE_CHANGED => return Err(ProtocolError::InvalidRecordLength),
         other => return Err(ProtocolError::InvalidTag(other)),
     };
     Ok(HostEvent {
@@ -189,6 +213,14 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.push(0);
         return Ok(());
     }
+    if let crate::schema::EventPayload::ValueChanged { value } = event.payload {
+        output.extend_from_slice(&EVENT_VALUE_CHANGED.to_le_bytes());
+        output.extend_from_slice(&24_u16.to_le_bytes());
+        output.extend_from_slice(&event.node_id.to_le_bytes());
+        output.extend_from_slice(&event.handler_id.to_le_bytes());
+        output.extend_from_slice(&(value as u64).to_le_bytes());
+        return Ok(());
+    }
     if let crate::schema::EventPayload::RangeRequested { start, count } = event.payload {
         output.extend_from_slice(&EVENT_RANGE_REQUESTED.to_le_bytes());
         output.extend_from_slice(&24_u16.to_le_bytes());
@@ -211,7 +243,8 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
             (EVENT_PROTOCOL_ERROR, 28, Some(*message), Some(*code))
         }
         crate::schema::EventPayload::KeyDown { .. }
-        | crate::schema::EventPayload::RangeRequested { .. } => unreachable!(),
+        | crate::schema::EventPayload::RangeRequested { .. }
+        | crate::schema::EventPayload::ValueChanged { .. } => unreachable!(),
     };
     output.extend_from_slice(&tag.to_le_bytes());
     output.extend_from_slice(&record_len.to_le_bytes());
@@ -376,6 +409,21 @@ impl BatchEncoder {
                 self.put_u32(*node_id);
                 self.put_string_ref(text)?;
             }
+            Mutation::RegisterAsset {
+                asset_id,
+                kind,
+                bytes,
+            } => {
+                self.begin_record(TAG_REGISTER_ASSET, 16);
+                self.put_u32(*asset_id);
+                self.put_u16(*kind as u16);
+                self.put_u16(0);
+                self.put_bytes_ref(bytes)?;
+            }
+            Mutation::ReleaseAsset { asset_id } => {
+                self.begin_record(TAG_RELEASE_ASSET, 4);
+                self.put_u32(*asset_id);
+            }
             Mutation::SetTheme(theme) => {
                 self.begin_record(TAG_SET_THEME, 8);
                 self.put_u16(theme.design_system as u16);
@@ -427,13 +475,20 @@ impl BatchEncoder {
     }
 
     fn put_string_ref(&mut self, value: &str) -> Result<(), ProtocolError> {
+        self.put_bytes_ref(value.as_bytes())
+    }
+
+    /// Writes an `(offset, len)` pair into the record and the payload into the arena that
+    /// follows the records. Asset bytes travel the same way strings do, so the record stays
+    /// fixed length however large the asset is.
+    fn put_bytes_ref(&mut self, value: &[u8]) -> Result<(), ProtocolError> {
         let offset =
             u32::try_from(self.strings.len()).map_err(|_| ProtocolError::LengthOverflow)?;
         let len = u32::try_from(value.len()).map_err(|_| ProtocolError::LengthOverflow)?;
         self.string_fixups.push(self.records.len());
         self.put_u32(offset);
         self.put_u32(len);
-        self.strings.extend_from_slice(value.as_bytes());
+        self.strings.extend_from_slice(value);
         Ok(())
     }
 
@@ -560,7 +615,19 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                     adaptive: adaptive == 1,
                 })
             }
-            TAG_CREATE..=TAG_SET_THEME => {
+            TAG_REGISTER_ASSET if len == 20 => {
+                let raw_kind = read_u16(bytes, payload + 4)?;
+                Mutation::RegisterAsset {
+                    asset_id: read_u32(bytes, payload)?,
+                    kind: AssetKind::try_from(raw_kind)
+                        .map_err(|()| ProtocolError::InvalidAssetKind(raw_kind))?,
+                    bytes: read_bytes(bytes, payload + 8, records_len)?,
+                }
+            }
+            TAG_RELEASE_ASSET if len == 8 => Mutation::ReleaseAsset {
+                asset_id: read_u32(bytes, payload)?,
+            },
+            TAG_CREATE..=TAG_RELEASE_ASSET => {
                 return Err(ProtocolError::InvalidRecordLength);
             }
             other => return Err(ProtocolError::InvalidTag(other)),
@@ -678,6 +745,16 @@ fn decode_modifier(tag: u16, first: u64, second: u64) -> Result<Modifier, Protoc
 /// aim a string at the record region and have the decoder reinterpret record headers as
 /// text - garbage decoding into a valid-looking mutation (NFR-7).
 fn read_string(bytes: &[u8], position: usize, arena_start: usize) -> Result<&str, ProtocolError> {
+    let value = read_bytes(bytes, position, arena_start)?;
+    std::str::from_utf8(value).map_err(|_| ProtocolError::InvalidUtf8)
+}
+
+/// Reads an `(offset: u32, len: u32)` payload reference at `position`.
+///
+/// `arena_start` is the same floor `read_string` relies on: a reference that pointed back
+/// into the record region would let a hostile sender have the decoder reinterpret record
+/// headers as payload.
+fn read_bytes(bytes: &[u8], position: usize, arena_start: usize) -> Result<&[u8], ProtocolError> {
     let offset =
         usize::try_from(read_u32(bytes, position)?).map_err(|_| ProtocolError::LengthOverflow)?;
     let len = usize::try_from(read_u32(bytes, position + 4)?)
@@ -688,10 +765,9 @@ fn read_string(bytes: &[u8], position: usize, arena_start: usize) -> Result<&str
     if offset < arena_start {
         return Err(ProtocolError::InvalidStringRange);
     }
-    let value = bytes
+    bytes
         .get(offset..end)
-        .ok_or(ProtocolError::InvalidStringRange)?;
-    std::str::from_utf8(value).map_err(|_| ProtocolError::InvalidUtf8)
+        .ok_or(ProtocolError::InvalidStringRange)
 }
 
 fn read_u16(bytes: &[u8], position: usize) -> Result<u16, ProtocolError> {

@@ -117,6 +117,20 @@ impl ComposeRenderer {
         self.write(Mutation::AppendText { node_id, text });
     }
 
+    /// Puts an asset's bytes in the batch arena for the Renderer to copy into its cache.
+    pub fn register_asset(&mut self, asset_id: u32, kind: crate::schema::AssetKind, bytes: &[u8]) {
+        self.write(Mutation::RegisterAsset {
+            asset_id,
+            kind,
+            bytes,
+        });
+    }
+
+    /// Drops the asset from the Renderer's cache. Using the id afterwards is an error.
+    pub fn release_asset(&mut self, asset_id: u32) {
+        self.write(Mutation::ReleaseAsset { asset_id });
+    }
+
     fn write(&mut self, mutation: Mutation<'_>) {
         if self.error.is_none() {
             if let Err(error) = self.encoder.encode(&mutation) {
@@ -509,6 +523,9 @@ fn event_property(name: &str) -> Option<PropertyKind> {
         "focuslost" | "onfocuslost" => Some(PropertyKind::OnFocusLost),
         "keydown" | "onkeydown" => Some(PropertyKind::OnKeyDown),
         "rangerequest" | "onrangerequest" => Some(PropertyKind::OnRangeRequested),
+        // A picker reports through the same handler slot a TextField uses; the slot names
+        // where the handler lives, the event record names what it carries.
+        "pick" | "onpick" => Some(PropertyKind::OnValueChange),
         _ => None,
     }
 }

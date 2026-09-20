@@ -6,14 +6,15 @@
 //! regenerates `Protocol.gen.kt`. The paired Kotlin source still has to render the new kind.
 
 /// Hash input for extension property types, which the flat enum tables cannot express.
-pub(crate) const SCHEMA_DESCRIPTOR: &str = "extension=LinearProgressIndicator#10(progress:f32#27);";
+pub(crate) const SCHEMA_DESCRIPTOR: &str = "extension=LinearProgressIndicator#30(progress:f32#27);";
 
 macro_rules! define_widget_schema_with_extensions {
     ($define:ident; $schema:ident, $name:ident { $($base:tt)* }) => {
         $define!($schema, $name {
             $($base)*
-            // Extension widget tags are append-only.
-            LinearProgressIndicator = 10,
+            // Extension widget tags are append-only, and they start above the core
+            // vocabulary so an extension can never shadow a widget the core adds later.
+            LinearProgressIndicator = 30,
         });
     };
 }

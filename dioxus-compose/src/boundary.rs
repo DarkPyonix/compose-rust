@@ -1,6 +1,8 @@
 use crate::protocol::{HostEvent, ProtocolError, decode_event};
 use crate::renderer::ComposeRenderer;
-use crate::schema::{EventPayload, LoopMode, PROTOCOL_VERSION, SCHEMA_HASH, Theme};
+use crate::schema::{
+    AssetKind, EventPayload, IconRole, LoopMode, PROTOCOL_VERSION, SCHEMA_HASH, Theme,
+};
 use crate::{Element, KeyEvent, RangeRequest, Selection, VirtualDom};
 use dioxus_core::{ElementId, Event};
 use std::cell::RefCell;
@@ -204,6 +206,9 @@ impl Host {
             EventPayload::RangeRequested { start, count } => {
                 Event::new(Rc::new(RangeRequest::new(start, count)), true).into_any()
             }
+            // The picker's unit, not a formatted string: days for a date, minutes for a
+            // time, a child index for a dropdown. The widget component gives it a name.
+            EventPayload::ValueChanged { value } => Event::new(Rc::new(value), true).into_any(),
         };
         let _dispatch_guard = EventDispatchGuard::enter();
         self.dom.runtime().handle_event(name, event_data, element);
@@ -270,6 +275,45 @@ impl Host {
     ) -> Result<&[u8], ProtocolError> {
         self.renderer.begin_frame();
         self.renderer.set_text_node(node_id, text, selection);
+        self.renderer.finish_frame()
+    }
+
+    /// Hands an asset's bytes to the Renderer under `asset_id`.
+    ///
+    /// The Renderer copies them into its own cache inside this call and decodes them there,
+    /// so the slice only has to stay valid until this returns. The copy is per asset, not
+    /// per frame, which is why it does not show up in the frame budget.
+    ///
+    /// The id space belongs to the application: the Host decides what an id means and when
+    /// it is released, and the Renderer never evicts one on its own.
+    pub fn register_asset(
+        &mut self,
+        asset_id: u32,
+        kind: AssetKind,
+        bytes: &[u8],
+    ) -> Result<&[u8], ProtocolError> {
+        self.renderer.begin_frame();
+        self.renderer.register_asset(asset_id, kind, bytes);
+        self.renderer.finish_frame()
+    }
+
+    /// Registers one of the Renderer's own icons under `asset_id`.
+    ///
+    /// The payload is the role, not a picture and not a name: the artwork lives in the
+    /// Renderer's bundle, and each design system answers the role with its own drawing.
+    pub fn register_icon(&mut self, asset_id: u32, role: IconRole) -> Result<&[u8], ProtocolError> {
+        self.register_asset(
+            asset_id,
+            AssetKind::VectorIcon,
+            &(role as u16).to_le_bytes(),
+        )
+    }
+
+    /// Drops the asset from the Renderer's cache. A widget that still names `asset_id`
+    /// afterwards produces a protocol error rather than a blank space or a crash.
+    pub fn release_asset(&mut self, asset_id: u32) -> Result<&[u8], ProtocolError> {
+        self.renderer.begin_frame();
+        self.renderer.release_asset(asset_id);
         self.renderer.finish_frame()
     }
 
@@ -652,6 +696,8 @@ mod tests {
                     | Mutation::SetModifier { .. }
                     | Mutation::SetText { .. }
                     | Mutation::AppendText { .. }
+                    | Mutation::RegisterAsset { .. }
+                    | Mutation::ReleaseAsset { .. }
                     | Mutation::SetTheme(_) => {}
                 }
             }

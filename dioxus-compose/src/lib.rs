@@ -19,13 +19,13 @@ pub use dioxus_core_macro::{component, rsx};
 pub use elements::*;
 pub use extensions::LinearProgressIndicator;
 pub use schema::{
-    Alignment, Arrangement, ButtonVariant, Color, ColorRole, ColorScheme, DesignSystem,
-    EventPayload, Key, LoopMode, Modifier, Paint, PropertyKind, SCHEMA_HASH, Selection, ShapeRole,
-    SpaceRole, TextAlign, TextOverflow, Theme, TypeRole, WidgetKind,
+    Alignment, Arrangement, AssetKind, ButtonVariant, Color, ColorRole, ColorScheme, DesignSystem,
+    EventPayload, IconRole, Key, LoopMode, Modifier, Paint, PropertyKind, SCHEMA_HASH, Selection,
+    ShapeRole, SpaceRole, TextAlign, TextOverflow, Theme, TypeRole, WidgetKind,
 };
 pub use widgets::{
-    Button, Column, ComposeBox as Box, KeyEvent, LazyColumn, RangeRequest, Row, ScrollColumn,
-    Spacer, Text, TextField,
+    Button, Column, ComposeBox as Box, DatePicker, Dropdown, Icon, Image, KeyEvent, LazyColumn,
+    RangeRequest, Row, ScrollColumn, Spacer, Text, TextField, TimePicker,
 };
 
 pub mod prelude {
@@ -34,10 +34,11 @@ pub mod prelude {
     // Exporting the Compose `Box` through this glob prelude shadows it. Use
     // `dioxus_compose::Box { ... }` in RSX until upstream qualifies std::boxed::Box.
     pub use crate::{
-        Alignment, Arrangement, Button, ButtonVariant, Color, ColorRole, ColorScheme, Column,
-        DesignSystem, Element, Key, KeyEvent, LaunchBuilder, LazyColumn, LinearProgressIndicator,
-        LoopMode, Modifier, Paint, RangeRequest, Row, ScrollColumn, ShapeRole, SpaceRole, Spacer,
-        Text, TextAlign, TextField, TextOverflow, Theme, TypeRole, component, launch, rsx,
+        Alignment, Arrangement, AssetKind, Button, ButtonVariant, Color, ColorRole, ColorScheme,
+        Column, DatePicker, DesignSystem, Dropdown, Element, Icon, IconRole, Image, Key, KeyEvent,
+        LaunchBuilder, LazyColumn, LinearProgressIndicator, LoopMode, Modifier, Paint,
+        RangeRequest, Row, ScrollColumn, ShapeRole, SpaceRole, Spacer, Text, TextAlign, TextField,
+        TextOverflow, Theme, TimePicker, TypeRole, component, launch, rsx,
     };
     pub use dioxus_core::{Callback, Event, EventHandler, Properties, VirtualDom};
     pub use dioxus_hooks::*;
@@ -115,6 +116,24 @@ pub mod elements {
     element!(button, "Button", [text, enabled, variant]);
     element!(spacer, "Spacer", [width, height]);
     element!(lazycolumn, "LazyColumn", [item_count]);
+    // The asset handle and nothing else: the bytes reached the Renderer through
+    // RegisterAsset, so the per-frame record stays fixed length.
+    element!(image, "Image", [asset_id]);
+    element!(icon, "Icon", [asset_id, color]);
+    // A picker carries a value, a range and a change handler. There is deliberately no
+    // attribute for how the user picks: a calendar grid, a dial and a wheel are the same
+    // widget here, and which one appears is the design system's decision.
+    element!(
+        datepicker,
+        "DatePicker",
+        [value, min_value, max_value, enabled]
+    );
+    element!(
+        timepicker,
+        "TimePicker",
+        [value, min_value, max_value, enabled]
+    );
+    element!(dropdown, "Dropdown", [value, enabled]);
     // FR-13.6: whole content plus a vertical scroll. The position stays in the Renderer.
     element!(
         scrollcolumn,
@@ -135,6 +154,11 @@ pub mod elements {
             spacer {},
             lazycolumn {},
             scrollcolumn {},
+            image {},
+            icon {},
+            datepicker {},
+            timepicker {},
+            dropdown {},
         }
     }
 }
@@ -176,4 +200,5 @@ pub mod events {
     event!(onfocuslost, ());
     event!(onkeydown, crate::KeyEvent);
     event!(onrangerequest, crate::RangeRequest);
+    event!(onpick, i64);
 }

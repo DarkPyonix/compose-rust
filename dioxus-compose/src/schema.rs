@@ -51,6 +51,8 @@ pub enum EventPayloadType {
     ProtocolError,
     KeyDown,
     Range,
+    /// One signed integer. The pickers report their value this way, in their own unit.
+    Integer,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -63,12 +65,12 @@ pub struct EventSchema {
 /// Canonical schema text. Variant order is wire-significant and must only be appended to.
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "dioxus-compose/v1;",
-    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant;",
+    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,DatePicker,TimePicker,Dropdown;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset_id,value,min_value,max_value;",
     "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation;",
     "keys=Enter;",
-    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested;",
-    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme"
+    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged;",
+    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,RegisterAsset,ReleaseAsset"
 );
 
 const fn hash_bytes(mut hash: u64, bytes: &[u8]) -> u64 {
@@ -153,6 +155,7 @@ const fn schema_hash() -> u64 {
                 EventPayloadType::ProtocolError => 2,
                 EventPayloadType::KeyDown => 3,
                 EventPayloadType::Range => 4,
+                EventPayloadType::Integer => 5,
             }],
         );
         index += 1;
@@ -225,6 +228,11 @@ crate::extensions::define_widget_schema_with_extensions!(define_wire_enum; WIDGE
     Spacer = 7,
     LazyColumn = 8,
     ScrollColumn = 9,
+    Image = 10,
+    Icon = 11,
+    DatePicker = 27,
+    TimePicker = 28,
+    Dropdown = 29,
 });
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -382,6 +390,42 @@ define_wire_enum!(COLOR_SCHEME_SCHEMA, ColorScheme {
     FollowSystem = 3,
 });
 
+// The encodings the Renderer is asked to decode. The Renderer answers a kind it cannot
+// decode with a protocol error rather than drawing nothing, so a Host that ships an
+// unsupported format learns about it instead of seeing a blank rectangle.
+define_wire_enum!(ASSET_KIND_SCHEMA, AssetKind {
+    Png = 1,
+    Jpeg = 2,
+    Svg = 3,
+    VectorIcon = 4,
+});
+
+// The closed set of icon meanings an application may ask for.
+//
+// This is a set of roles and not a set of icon names on purpose. A name ("chevron.left",
+// "arrow_back") would be checked for existence only when the Renderer tried to look it up,
+// and it would name one platform's artwork, so the same request would be wrong everywhere
+// else. A role is checked by the compiler, and each design system answers it with its own
+// artwork: the Cupertino set follows SF Symbols, the Material 3 set follows Material
+// Symbols, and the Fluent set follows the Fluent icon geometry. That is what makes one
+// `Icon` in the application look native in all three.
+//
+// Adding a role means drawing it in every set, which is the cost that keeps the promise.
+define_wire_enum!(ICON_ROLE_SCHEMA, IconRole {
+    Back = 1,
+    Forward = 2,
+    Close = 3,
+    Search = 4,
+    Add = 5,
+    Delete = 6,
+    Check = 7,
+    More = 8,
+    ChevronDown = 9,
+    Settings = 10,
+    Calendar = 11,
+    Clock = 12,
+});
+
 /// Every role enum codegen mirrors, in wire order. Appending is the only allowed edit.
 pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
     RoleEnumSchema {
@@ -427,6 +471,14 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
     RoleEnumSchema {
         name: "ColorScheme",
         variants: COLOR_SCHEME_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "AssetKind",
+        variants: ASSET_KIND_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "IconRole",
+        variants: ICON_ROLE_SCHEMA,
     },
 ];
 
@@ -791,6 +843,13 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     SpaceRole = 24,
     Alignment = 25,
     Variant = 26,
+    // Tags 27 to 39 are left free for the widgets between Checkbox and Canvas, whose
+    // properties are assigned with those widgets. Asset delivery and the pickers start at
+    // 40 so the two sets can be added in either order without either renumbering.
+    AssetId = 40,
+    Value = 41,
+    MinValue = 42,
+    MaxValue = 43,
 });
 
 #[derive(Clone, Debug, PartialEq)]
@@ -814,6 +873,13 @@ pub enum EventPayload<'a> {
     RangeRequested {
         start: u32,
         count: u32,
+    },
+    /// A picker reports the value the user chose, in the picker's own unit: whole days
+    /// since 1970-01-01 for a date, whole minutes since midnight for a time, and the index
+    /// of the chosen child for a dropdown. No formatted text crosses the boundary, because
+    /// the calendar, the locale and the clock convention belong to the Renderer.
+    ValueChanged {
+        value: i64,
     },
 }
 
@@ -852,5 +918,10 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
         name: "RangeRequested",
         tag: 7,
         payload: EventPayloadType::Range,
+    },
+    EventSchema {
+        name: "ValueChanged",
+        tag: 8,
+        payload: EventPayloadType::Integer,
     },
 ];
