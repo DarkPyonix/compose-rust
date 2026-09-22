@@ -1355,8 +1355,8 @@ FR-14의 계층을 거꾸로 세우게 됩니다.
   기본값은 `Standard`이며 기존 버튼의 모양을 바꾸지 않습니다. `ActionKey`는 색이나 중요도를
   말하지 않고, 조밀한 동작 격자에 놓인 키라는 정체만 말합니다. 채움과 강조는 기존
   `ButtonVariant`가 계속 답합니다.
-- 와이어 열거형 태그는 `Standard=1, ActionKey=2`이고, 속성은 추가 전용 태그
-  `ButtonKind=61`을 씁니다. 기존 태그는 움직이지 않습니다.
+- 와이어 열거형 태그는 `Standard=1, ActionKey=2`이고, 속성은 제스처용으로 예약된
+  60번대 뒤의 추가 전용 태그 `ButtonKind=68`을 씁니다. 기존 태그는 움직이지 않습니다.
 - `ComponentRules`의 일곱 구현이 모두 동작 키의 모양을 직접 답합니다. Host는 반경이나
   `ShapeRole`을 보내지 않습니다. Cupertino와 Liquid Glass는 원, Fluent 2는 Windows 11의
   작은 반경, Deepin은 그보다 큰 반경을 답하며 Material 3 Expressive, GNOME 50, Breeze도
