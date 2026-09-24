@@ -45,22 +45,10 @@ fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
         // either would reach: asking for the Windows window on a Mac would open an AppKit
         // window and read its view as a Direct3D device. Which platform this is decides,
         // rather than which variable was set.
-        val platform = System.getProperty("os.name", "")
-        if (System.getenv("DXC_APPKIT_WINDOW") != null && platform.startsWith("Mac")) {
-            runAppKitSpike()
-            return@rendererRun 0
-        }
-        if (System.getenv("DXC_WIN32_WINDOW") != null && platform.startsWith("Windows")) {
-            runWin32Spike()
-            return@rendererRun 0
-        }
-        dioxus.compose.ui.node.platformWindowMaterial = { asked ->
-            setWindowMaterial(if (asked) 1 else 0)
-        }
-        // Lets automated smoke tests close the window; unset in normal use.
-        runRenderer(System.getenv("DIOXUS_COMPOSE_AUTOEXIT_MS")?.toLongOrNull()) {
-            NativeHostConnection()
-        }
+        // Measuring what the toolkit costs. This build can only open the window it opens
+        // for itself, so nothing of the toolkit is reachable from here and none of it is
+        // compiled into the image.
+        runAppKitSpike()
         0
     } catch (t: Throwable) {
         // Nothing may unwind across the C boundary: a Kotlin exception crossing into C is

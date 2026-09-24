@@ -49,7 +49,6 @@ awt_archive="$GRAALVM_HOME/lib/static/darwin-$([[ "$arch" == "arm64" ]] && echo 
 [[ -f "$awt_archive" ]] || { echo "error: missing $awt_archive" >&2; exit 1; }
 
 linker_args=("-H:NativeLinkerOption=-Wl,-undefined,dynamic_lookup"
-             "-H:NativeLinkerOption=-Wl,-force_load,$awt_archive"
              "-H:NativeLinkerOption=$obj/renderer_entry.o" "-H:NativeLinkerOption=$obj/macos_awt_compat.o"
              "-H:NativeLinkerOption=$obj/macos_main_thread.o"
              "-H:NativeLinkerOption=$obj/appkit_window.o"
@@ -85,7 +84,7 @@ done < <(nm -g "$awt_archive" 2>/dev/null |
     "AppKit looks these classes up by name at runtime, so nothing references them by symbol" \
     "and the linker is free to drop them. When it does, the build and the window are fine" \
     "and the process aborts the moment an assistive technology attaches."
-linker_args+=("${a11y_classes[@]}")
+# linker_args+=("${a11y_classes[@]}")  # measuring without the toolkit
 
 # Heap and GC settings, in service of the desktop memory target (an empty window under
 # 56MB of physical footprint). `-R:` options are baked in as the image's runtime defaults. Measure with desktop/scripts/measure-memory.sh.
@@ -192,8 +191,6 @@ fi
     -cp "$classpath" \
     -o "$LIBRARY_NAME" \
     --no-fallback \
-    --features=dioxus.compose.ui.platform.ImeReachabilityFeature \
-    --features=dioxus.compose.ui.platform.AccessibilityReachabilityFeature \
     -Djava.awt.headless=false \
     -H:IncludeLocales=en,ko \
     -Os \

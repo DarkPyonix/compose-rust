@@ -91,6 +91,21 @@ private external fun setAccessibility(elements: Pointer?, count: Int, view: Poin
 @CFunction("dxc_native_set_cursor")
 private external fun setCursorShape(shape: Int)
 
+@CFunction("dxc_native_pump")
+private external fun pumpEvents(seconds: Double)
+
+@CFunction("dxc_native_clipboard_read")
+private external fun clipboardRead(out: Pointer?, capacity: Int): Int
+
+@CFunction("dxc_native_clipboard_write")
+private external fun clipboardWrite(text: CCharPointer?)
+
+@CFunction("dxc_native_install_menu")
+private external fun installMenu(name: CCharPointer?)
+
+@CFunction("dxc_native_window_closed")
+private external fun windowClosed(): Int
+
 /**
  * The four pointers a window is, once AppKit has made one.
  *
@@ -247,6 +262,63 @@ fun NativeWindow.describeTo(elements: List<AccessibleElement>) {
  */
 fun setPointerShape(shape: Int) = setCursorShape(shape)
 
+/**
+ * Lets the window answer for itself for a moment.
+ *
+ * Called once a frame. The thread that draws is the thread the platform delivers on, so a
+ * loop that never gave it a turn would be a window that heard nothing.
+ */
+fun pumpWindowEvents(seconds: Double) = pumpEvents(seconds)
+
+/** True once the reader has closed the window. */
+fun isWindowClosed(): Boolean = windowClosed() != 0
+
+/**
+ * Gives the application the menu bar every application on this platform has.
+ *
+ * Without one, the shortcuts a reader expects do nothing: command-Q does not quit and
+ * command-C does not copy. The items are the system's own actions and are sent to
+ * whatever holds focus, so no window is asked to implement them.
+ */
+fun installApplicationMenu(name: String) {
+    val holder = CTypeConversion.toCString(name)
+    try {
+        installMenu(holder.get())
+    } finally {
+        holder.close()
+    }
+}
+
+/** What is on the clipboard, or empty where it holds something that is not text. */
+fun readClipboard(): String {
+    val buffer = StackValue.get<Pointer>(CLIPBOARD_BYTES)
+    val length = clipboardRead(buffer, CLIPBOARD_BYTES)
+    if (length <= 0) return ""
+    val bytes = ByteArray(length)
+    for (index in 0 until length) {
+        bytes[index] = buffer.readByte(index)
+    }
+    return String(bytes, Charsets.UTF_8)
+}
+
+/** Puts text on the clipboard, replacing what was there. */
+fun writeClipboard(text: String) {
+    val holder = CTypeConversion.toCString(text)
+    try {
+        clipboardWrite(holder.get())
+    } finally {
+        holder.close()
+    }
+}
+
+/**
+ * How much of the clipboard a paste may carry.
+ *
+ * A paragraph rather than a book. What crosses is stack storage, and a field that is
+ * handed a novel has a different problem from the one this is solving.
+ */
+private const val CLIPBOARD_BYTES = 64 * 1024
+
 /** What a pointer can look like, in the small set both sides agree on. */
 object PointerShape {
     const val ARROW = 0
@@ -354,14 +426,23 @@ internal fun runAppKitSpike() {
     // The application's own tree, drawn by the same interpreter the toolkit path uses.
     // Nothing in it knows which of the two it is running on, which is the point.
     scene.setContent { dioxus.compose.runtime.DioxusContent(host) }
+    installApplicationMenu(asked?.title?.takeIf { it.isNotEmpty() } ?: "dioxus-compose")
 
     try {
         // A plain loop rather than a clock. Pacing is the frame clock's work and comes
         // later; what this has to show is that what the window hears reaches the scene
         // and changes what the next frame draws.
         var painted = false
-        repeat(SPIKE_FRAMES) { frame ->
+        var frame = 0
+        while (!isWindowClosed()) {
+            frame++
+            // The window's own turn, before anything is read from it. This thread is the
+            // one AppKit delivers on, so the events of this frame arrive here or not at
+            // all. Waiting the frame's length rather than sleeping afterwards, because a
+            // window with nothing happening should rest rather than spin.
+            pumpWindowEvents(FRAME_SECONDS)
             var heard = false
+            var drew = false
             for (event in drainWindowEvents()) {
                 if (report && event.kind != WindowEvent.POINTER_MOVE) {
                     System.err.println("dioxus-compose: window heard $event")
@@ -386,8 +467,14 @@ internal fun runAppKitSpike() {
             if (!painted || heard || scene.hasInvalidations()) {
                 drawFrame(window, context, scene, frame.toLong() * FRAME_NANOS, size)
                 painted = true
+                drew = true
             }
-            Thread.sleep(FRAME_MILLIS)
+            // Every frame, and after the drawing. After, because that is when what is in
+            // the window has been placed and can say where it is. Every frame, because a
+            // tree that changed on the last one is a tree nobody has been told about, and
+            // a window that has gone still is exactly where that would be forgotten.
+            // Costs a comparison when nothing has changed, which is almost always.
+            semantics.pushIfChanged(afterDrawing = drew)
         }
     } finally {
         scene.close()
@@ -619,6 +706,5 @@ private fun NativeTextInput.receive(event: WindowEvent) {
  */
 internal val spikeDroppedFiles = androidx.compose.runtime.mutableStateOf("")
 
-private const val SPIKE_FRAMES = 1_200
-private const val FRAME_MILLIS = 16L
+private const val FRAME_SECONDS = 0.016
 private const val FRAME_NANOS = 16_000_000L

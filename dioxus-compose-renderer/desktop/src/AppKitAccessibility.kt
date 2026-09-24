@@ -99,26 +99,62 @@ internal class NativeSemantics(private val push: (List<AccessibleElement>) -> Un
     PlatformContext.SemanticsOwnerListener {
 
     private var owner: SemanticsOwner? = null
+    private var changed = false
 
+    // Noted here and read after the next frame. What these say is that the tree is
+    // different, not that it has been placed: asked for its bounds at this moment every
+    // control answers with an empty rectangle, and a reader given those finds the whole
+    // window stacked in its top left corner. Measured after the frame, they are real.
     override fun onSemanticsOwnerAppended(semanticsOwner: SemanticsOwner) {
         owner = semanticsOwner
-        push(semanticsOwner.describe())
+        changed = true
     }
 
     override fun onSemanticsOwnerRemoved(semanticsOwner: SemanticsOwner) {
         if (owner === semanticsOwner) {
             owner = null
-            push(emptyList())
+            changed = true
         }
     }
 
+    // Every one of these remembers which tree it was about, not only the one whose name
+    // says a tree arrived. That one is not always called: a scene can report its first
+    // change without ever having reported an appearance, and a listener that waits for
+    // the appearance waits for good. This window described nothing at all until the
+    // other callbacks were allowed to say which tree they meant.
     override fun onSemanticsChange(semanticsOwner: SemanticsOwner) {
-        push(semanticsOwner.describe())
+        owner = semanticsOwner
+        changed = true
     }
 
-    // A control that moved says the same things from a different place, so the tree is
-    // pushed again rather than rebuilt differently.
+    // A control that moved says the same things from a different place.
     override fun onLayoutChange(semanticsOwner: SemanticsOwner, semanticsNodeId: Int) {
-        push(semanticsOwner.describe())
+        owner = semanticsOwner
+        changed = true
     }
+
+    /**
+     * Hands over the tree if it has changed since the last time.
+     *
+     * Called after a frame, which is when everything in it has been placed. Doing nothing
+     * is the ordinary case: a screen that is not changing has nothing new to say.
+     */
+    fun pushIfChanged(afterDrawing: Boolean = false) {
+        // Read again after a frame that painted, whether or not anything said so. What
+        // the listener reports is that a tree changed, and a tree that was placed
+        // differently without changing says nothing: a control that moved is at a new
+        // place and a reader pointed at the old one finds nothing there.
+        if (!changed && !afterDrawing) return
+        changed = false
+        val owner = owner ?: return
+        val described = owner.describe()
+        if (described == last) return
+        last = described
+        push(described)
+    }
+
+    // What was last handed over, so that reading again costs a comparison rather than a
+    // crossing. A screen that is animating is placed anew on every frame and says the
+    // same thing about itself throughout.
+    private var last: List<AccessibleElement> = emptyList()
 }

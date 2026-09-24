@@ -911,6 +911,25 @@ int32_t dioxus_compose_renderer_run(void) {
 
 #ifdef __APPLE__
     dioxus_compose_prepare_main_thread();
+    // A window this library opens for itself runs on the main thread, which is the
+    // thread AppKit answers on and the only one it will make a window from. Everything
+    // else follows from that: the frame is drawn there, the scene is composed there, and
+    // the Host is started there, so nothing ever waits on another thread to reach the
+    // platform. Three separate faults came from a renderer thread waiting on this one,
+    // and the last of them left a window that heard nothing because the thread that
+    // drains its events was waiting for the thread delivering them.
+    //
+    // The toolkit's own window keeps the older arrangement, because the toolkit occupies
+    // the main thread itself and a renderer that took it would leave neither able to run.
+    if (getenv("DXC_APPKIT_WINDOW") != NULL) {
+        graal_isolate_t *isolate;
+        graal_isolatethread_t *thread;
+        if (graal_create_isolate(NULL, &isolate, &thread) != 0) {
+            return RUN_ISOLATE_FAILED;
+        }
+        atomic_store(&renderer_isolate, isolate);
+        return dioxus_compose_renderer_run_impl(thread, run.library_dir);
+    }
     pthread_t unifier;
     if (pthread_create(&unifier, NULL, dxc_unify_titlebars, NULL) == 0) {
         pthread_detach(unifier);
