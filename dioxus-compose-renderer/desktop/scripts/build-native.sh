@@ -182,9 +182,7 @@ fi
     -cp "$classpath" \
     -o "$LIBRARY_NAME" \
     --no-fallback \
-    --features=dioxus.compose.ui.platform.ImeReachabilityFeature \
-    --features=dioxus.compose.ui.platform.AccessibilityReachabilityFeature \
-    -Djava.awt.headless=false \
+    -Djava.awt.headless=true \
     -H:IncludeLocales=en,ko \
     -Os \
     -H:+UnlockExperimentalVMOptions \
