@@ -46,7 +46,7 @@ fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
         // window and read its view as a Direct3D device. Which platform this is decides,
         // rather than which variable was set.
         val platform = System.getProperty("os.name", "")
-        if (System.getenv("DXC_APPKIT_WINDOW") != null && platform.startsWith("Mac")) {
+        if (platform.startsWith("Mac")) {
             // Before anything else on this path. The toolkit, if it is ever woken, asks
             // the main thread to run the application, and this thread is the one drawing
             // the frames: that request is delivered on the first frame and never comes
@@ -60,14 +60,7 @@ fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
             runWin32Spike()
             return@rendererRun 0
         }
-        dioxus.compose.ui.node.platformWindowMaterial = { asked ->
-            setWindowMaterial(if (asked) 1 else 0)
-        }
-        // Lets automated smoke tests close the window; unset in normal use.
-        runRenderer(System.getenv("DIOXUS_COMPOSE_AUTOEXIT_MS")?.toLongOrNull()) {
-            NativeHostConnection()
-        }
-        0
+        -5
     } catch (t: Throwable) {
         // Nothing may unwind across the C boundary: a Kotlin exception crossing into C is
         // undefined behaviour, and a protocol error must never abort the process. Report it
