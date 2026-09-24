@@ -34,8 +34,9 @@ cc -c -O2 -arch "$arch" -o "$obj/macos_main_thread.o" "$NATIVE_DIR/c/macos_main_
 # this project has no reason to invite.
 cc -c -O2 -fobjc-arc -arch "$arch" -o "$obj/appkit_window.o" "$NATIVE_DIR/c/appkit_window.m"
 
-exported=(dioxus_compose_renderer_run dioxus_compose_renderer_request_frame
-          dioxus_compose_jawt_get_awt JNI_OnLoad_osxui)
+# Measuring without the toolkit: the two toolkit JNI entry points are not exported, so
+# nothing registers the Java classes they bind to.
+exported=(dioxus_compose_renderer_run dioxus_compose_renderer_request_frame)
 # The renderer calls the Host's dioxus_compose_host_* functions, which live in the Rust
 # executable that loads this library. They are resolved at load time, so the link must
 # tolerate them being undefined here.
@@ -124,7 +125,19 @@ memory_args=("-R:MaxHeapSize=64m"
 # Not `--initialize-at-build-time` for it, which is what a previous note proposed: that
 # freezes the whole System.getProperties() table into the artifact, including the build
 # machine's java.home and user.home.
-initialisation_args=("--initialize-at-run-time=org.jetbrains.skiko.SkikoProperties")
+initialisation_args=("--initialize-at-run-time=org.jetbrains.skiko.SkikoProperties"
+                     # Measuring without the toolkit. Initialising these while the image
+                     # is being built runs their static setup and puts whatever it made
+                     # into the image heap, which is how a window nobody opens still
+                     # costs what a window costs.
+                     "--initialize-at-run-time=java.awt"
+                     "--initialize-at-run-time=javax.swing"
+                     "--initialize-at-run-time=sun.awt"
+                     "--initialize-at-run-time=sun.lwawt"
+                     "--initialize-at-run-time=sun.java2d"
+                     "--initialize-at-run-time=sun.font"
+                     "--initialize-at-run-time=com.apple.laf"
+                     "--initialize-at-run-time=com.apple.eawt")
 
 # Skia inside the image rather than beside it, when an archive has been built for it.
 #
