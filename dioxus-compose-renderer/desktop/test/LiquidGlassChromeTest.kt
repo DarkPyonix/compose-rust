@@ -180,14 +180,61 @@ class LiquidGlassChromeTest {
     }
 
     /**
-     * A bar on a phone, a rail on a tablet and a sidebar on a desktop, and none of the
-     * three is a strip on the window's edge.
+     * In a strip down the side, a selected destination is marked by its fill and keeps the
+     * colour of the words around it.
+     *
+     * The Apple references put a rounded fill behind the selected row and leave its words
+     * the colour every other row's words are. Blue words with no fill is what a link looks
+     * like, and a sidebar of links reads as a list of things to go and fetch rather than as
+     * a place you already are.
+     *
+     * A tab bar is the other way round and stays that way: iOS tints the selected tab and
+     * draws no fill at all, because a fill behind one tab of five is a button in a row of
+     * labels.
+     */
+    @Test
+    fun fr21_a_selected_destination_in_a_strip_keeps_the_colour_of_the_others() {
+        for (sizeClass in WindowSizeClass.entries) {
+            val theme = glass(sizeClass)
+            val style = theme.rules.navigation(sizeClass, theme)
+            if (style.presentation == NavigationPresentation.Bar) {
+                assertEquals(
+                    0f,
+                    style.indicator.alpha,
+                    "a tab bar fills its selected tab, which makes one tab a button",
+                )
+                continue
+            }
+            assertEquals(
+                style.content,
+                style.selectedContent,
+                "the $sizeClass navigation colours its selected words differently, so the " +
+                    "fill is not what says which one you are on",
+            )
+            assertTrue(
+                style.indicator.alpha > 0f,
+                "nothing fills the selected destination, so with the words left alone " +
+                    "there is no mark on it at all",
+            )
+        }
+    }
+
+    /**
+     * A bar on a phone and a sidebar from a tablet up, and neither is a strip on the
+     * window's edge.
+     *
+     * No rail. A column of icons without their labels is Material's answer to a medium
+     * window and it is not Apple's: Notes, Mail and Finder keep a sidebar with its labels
+     * at every width a Mac window can be dragged to, and the one thing they do when there
+     * is no room is take it away entirely behind a button. None of the three shows icons
+     * with the words removed. A rail at 780dp was this project's own invention in an
+     * Apple language.
      */
     @Test
     fun fr21_liquid_glass_floats_its_navigation_at_every_width() {
         val expected = mapOf(
             WindowSizeClass.Compact to NavigationPresentation.Bar,
-            WindowSizeClass.Medium to NavigationPresentation.Rail,
+            WindowSizeClass.Medium to NavigationPresentation.Drawer,
             WindowSizeClass.Expanded to NavigationPresentation.Drawer,
         )
         for ((sizeClass, presentation) in expected) {

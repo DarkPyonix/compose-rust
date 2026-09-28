@@ -804,7 +804,12 @@ internal object CupertinoRules : ComponentRules {
     override fun navigation(sizeClass: WindowSizeClass, theme: ResolvedTheme): NavigationStyle {
         val presentation = when (sizeClass) {
             WindowSizeClass.Compact -> NavigationPresentation.Bar
-            WindowSizeClass.Medium -> NavigationPresentation.Rail
+            // No rail. A column of icons with the words taken off is Material's answer to
+            // a medium window and it is not this language's: Notes, Mail and Finder keep a
+            // sidebar with its labels at every width a window can be dragged to, and the
+            // one thing they do when there is truly no room is put the whole thing away
+            // behind a button. None of them shows icons without their words.
+            WindowSizeClass.Medium -> NavigationPresentation.Drawer
             WindowSizeClass.Expanded -> NavigationPresentation.Drawer
         }
         val bar = presentation == NavigationPresentation.Bar
@@ -812,7 +817,12 @@ internal object CupertinoRules : ComponentRules {
             presentation = presentation,
             container = theme.color(ColorRole.SurfaceContainer),
             content = theme.color(ColorRole.OnSurfaceVariant),
-            selectedContent = theme.color(ColorRole.Primary),
+            // The same split as the glass system: the bar tints, the sidebar fills.
+            selectedContent = if (bar) {
+                theme.color(ColorRole.Primary)
+            } else {
+                theme.color(ColorRole.OnSurfaceVariant)
+            },
             indicator = if (bar) Color.Transparent else theme.color(ColorRole.SurfaceVariant),
             indicatorShape = theme.shape(ShapeRole.Medium),
             indicatorKind = if (bar) NavigationIndicator.None else NavigationIndicator.Pill,
@@ -3177,7 +3187,12 @@ internal object LiquidGlassRules : ComponentRules {
     override fun navigation(sizeClass: WindowSizeClass, theme: ResolvedTheme): NavigationStyle {
         val presentation = when (sizeClass) {
             WindowSizeClass.Compact -> NavigationPresentation.Bar
-            WindowSizeClass.Medium -> NavigationPresentation.Rail
+            // No rail. A column of icons with the words taken off is Material's answer to
+            // a medium window and it is not this language's: Notes, Mail and Finder keep a
+            // sidebar with its labels at every width a window can be dragged to, and the
+            // one thing they do when there is truly no room is put the whole thing away
+            // behind a button. None of them shows icons without their words.
+            WindowSizeClass.Medium -> NavigationPresentation.Drawer
             WindowSizeClass.Expanded -> NavigationPresentation.Drawer
         }
         val bar = presentation == NavigationPresentation.Bar
@@ -3211,8 +3226,16 @@ internal object LiquidGlassRules : ComponentRules {
             presentation = presentation,
             container = theme.color(ColorRole.SurfaceContainer).copy(alpha = NAVIGATION_ALPHA),
             content = theme.color(ColorRole.OnSurfaceVariant),
-            selectedContent = theme.color(ColorRole.Primary),
-            indicator = tintedFill(theme.dark, TONAL_ALPHA),
+            // A tab bar tints the tab you are on and draws no fill; a strip down the side
+            // fills the row and leaves its words alone. Blue words with no fill under them
+            // is what a link looks like, and a sidebar of links reads as a list of places
+            // to go rather than as the one you are in.
+            selectedContent = if (bar) {
+                theme.color(ColorRole.Primary)
+            } else {
+                theme.color(ColorRole.OnSurfaceVariant)
+            },
+            indicator = if (bar) Color.Transparent else tintedFill(theme.dark, TONAL_ALPHA),
             indicatorShape = theme.shape(ShapeRole.Full),
             indicatorKind = NavigationIndicator.Pill,
             indicatorExtent = NavigationExtent.Destination,
