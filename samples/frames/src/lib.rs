@@ -13,7 +13,8 @@
 
 use dioxus_compose::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
 use dioxus_compose::schema::{
-    ColorScheme, DesignSystem, EventPayload, PropertyKind, Theme, WidgetKind, WindowSizeClass,
+    ColorScheme, DesignSystem, EventPayload, PropertyKind, Theme, WidgetKind, WindowHeightClass,
+    WindowSizeClass,
 };
 use dioxus_compose::{Element, Host};
 use std::path::{Path, PathBuf};
@@ -424,6 +425,7 @@ pub fn record_as(
                     width_dp: viewport.width_dp,
                     height_dp: viewport.height_dp,
                     class: WindowSizeClass::from_width_dp(viewport.width_dp),
+                    height_class: WindowHeightClass::from_height_dp(viewport.height_dp),
                 },
             });
             prepare(&mut recording);

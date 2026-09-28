@@ -1086,6 +1086,7 @@ mod tests {
                     width_dp,
                     height_dp: 780.0,
                     class: WindowSizeClass::from_width_dp(width_dp),
+                    height_class: WindowHeightClass::from_height_dp(780.0),
                 },
             });
         }
@@ -1584,6 +1585,7 @@ mod tests {
                         width_dp,
                         height_dp: 780.0,
                         class: WindowSizeClass::from_width_dp(width_dp),
+                        height_class: WindowHeightClass::from_height_dp(780.0),
                     },
                 },
                 &mut bytes,

@@ -991,6 +991,7 @@ mod tests {
                     width_dp,
                     height_dp: 900.0,
                     class: dioxus_compose::WindowSizeClass::from_width_dp(width_dp),
+                    height_class: dioxus_compose::WindowHeightClass::from_height_dp(900.0),
                 },
             );
         }
@@ -1181,6 +1182,7 @@ mod tests {
                 width_dp,
                 height_dp: 900.0,
                 class: dioxus_compose::WindowSizeClass::from_width_dp(width_dp),
+                height_class: dioxus_compose::WindowHeightClass::from_height_dp(900.0),
             },
         };
         let mut bytes = Vec::new();
