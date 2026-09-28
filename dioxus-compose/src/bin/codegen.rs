@@ -3,10 +3,9 @@ use dioxus_compose::codegen::{
     GENERATED_RELATIVE_PATH, JNI_RUST_RELATIVE_PATH, MUTATION_VECTOR_RELATIVE_PATH,
     SCHEMA_HASH_RELATIVE_PATH, VECTOR_DESCRIPTION_RELATIVE_PATH, WASM_RUST_RELATIVE_PATH,
     WEB_BRIDGE_RELATIVE_PATH, WEB_LOADER_RELATIVE_PATH, generate_android_bridge_kotlin,
-    generate_event_vector,
-    generate_fast_native_kotlin, generate_jni_rust, generate_kotlin, generate_mutation_vector,
-    generate_schema_hash, generate_vector_description, generate_wasm_rust,
-    generate_web_bridge_kotlin, generate_web_loader_js,
+    generate_event_vector, generate_fast_native_kotlin, generate_jni_rust, generate_kotlin,
+    generate_mutation_vector, generate_schema_hash, generate_vector_description,
+    generate_wasm_rust, generate_web_bridge_kotlin, generate_web_loader_js,
 };
 use std::path::{Path, PathBuf};
 

@@ -1,7 +1,6 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 pub mod asset;
-pub mod brush;
 pub mod boundary;
 /// Generated JNI shims. Compiled only for Android, where the Host is a cdylib that the
 /// Kotlin Activity loads.
@@ -13,21 +12,22 @@ mod boundary_jni;
 #[cfg(target_family = "wasm")]
 #[path = "boundary_wasm.gen.rs"]
 mod boundary_wasm;
+pub mod brush;
 #[cfg(target_family = "wasm")]
 #[doc(hidden)]
 pub use boundary_wasm::web_start as __web_start;
 #[doc(hidden)]
 pub mod codegen;
+pub mod design;
 pub mod drawing;
 mod extensions;
 pub mod message;
 pub mod protocol;
 pub mod renderer;
 pub mod schema;
+pub mod spans;
 pub mod tokens;
 mod widgets;
-pub mod design;
-pub mod spans;
 pub mod window;
 
 pub use asset::asset;
@@ -40,25 +40,26 @@ pub use dioxus_core::{Element, VirtualDom};
 // `#[derive(Props)]`. Without it an application that writes a component of its own fails
 // to compile on a macro it never typed, and the fix is to add `dioxus-core-macro` as a
 // second dependency, which defeats the promise that one dependency is enough.
+pub use brush::{Brush, Stop, brush};
+pub use design::{design_system, use_design_system};
 pub use dioxus_core_macro::{Props, component, rsx};
 pub use drawing::{DrawCommand, DrawList, DrawListBuilder};
-pub use brush::{Brush, Stop, brush};
 pub use elements::*;
 pub use extensions::LinearProgressIndicator;
 pub use message::{Message, show_message};
 pub use schema::{
     Alignment, Arrangement, AssetKind, ButtonVariant, Chrome, Color, ColorRole, ColorScheme,
-    DesignSystem, EventPayload, IconRole, Key, LoopMode, MessageDuration, Modifier, Paint,
-    MaterialRole, MotionRole, PropertyKind, TileMode, SCHEMA_HASH, Selection, ShapeRole, SpaceRole, TextAlign, TextOverflow, Theme,
-    TypeRole, WidgetKind, WindowSizeClass,
+    DesignSystem, EventPayload, IconRole, Key, LoopMode, MaterialRole, MessageDuration, Modifier,
+    MotionRole, Paint, PropertyKind, SCHEMA_HASH, Selection, ShapeRole, SpaceRole, TextAlign,
+    TextOverflow, Theme, TileMode, TypeRole, WidgetKind, WindowSizeClass,
 };
 pub use widgets::{
     Button, Canvas, Card, Checkbox, Column, ComposeBox as Box, DatePicker, Dialog, Divider,
-    Dropdown, FileDrop, FileDropTarget, Icon, Image, KeyEvent, LazyColumn, LazyGrid, LazyRow, Menu, Navigation, NavigationItem,
-    ProgressIndicator, RadioButton, RangeRequest, Row, Scaffold, ScrollColumn, Separator, Sheet,
-    Slider, Spacer, Surface, Switch, Tabs, Text, TextField, TimePicker, Tooltip, TopAppBar,
+    Dropdown, FileDrop, FileDropTarget, Icon, Image, KeyEvent, LazyColumn, LazyGrid, LazyRow, Menu,
+    Navigation, NavigationItem, ProgressIndicator, RadioButton, RangeRequest, Row, Scaffold,
+    ScrollColumn, Separator, Sheet, Slider, Spacer, Surface, Switch, Tabs, Text, TextField,
+    TimePicker, Tooltip, TopAppBar,
 };
-pub use design::{design_system, use_design_system};
 pub use window::{NodeSize, WindowSize, node_size, use_node_size, use_window_size, window_size};
 
 /// Declares the Android entry point for an application's cdylib.
@@ -151,17 +152,16 @@ pub mod prelude {
     // Exporting the Compose `Box` through this glob prelude shadows it. Use
     // `dioxus_compose::Box { ... }` in RSX until upstream qualifies std::boxed::Box.
     pub use crate::{
-        Alignment, Arrangement, AssetKind, Button, ButtonVariant, Canvas, Card, Checkbox, Color,
-        ColorRole, ColorScheme, Column, DatePicker, DesignSystem, Dialog, Divider, DrawCommand,
-        DrawList, Dropdown, Element, FileDrop, FileDropTarget, Icon, IconRole, Image, Key, KeyEvent,
-        LaunchBuilder,
-        LazyColumn, LazyGrid, LazyRow, LinearProgressIndicator, LoopMode, Menu, Message, MessageDuration,
-        Brush, MaterialRole, Modifier, MotionRole, Navigation, NavigationItem, Paint, ProgressIndicator, Props, RadioButton,
-        RangeRequest, Row, Scaffold, ScrollColumn, Separator, ShapeRole, Sheet, Slider, SpaceRole,
-        Spacer,
-        Surface, Switch, Tabs, Text, TextAlign, TextField, TextOverflow, Theme, TimePicker,
-        Tooltip, TopAppBar, TypeRole, WindowSize, WindowSizeClass, asset, component, launch, rsx,
-        Stop, TileMode, brush, show_message, use_design_system, use_node_size, use_window_size,
+        Alignment, Arrangement, AssetKind, Brush, Button, ButtonVariant, Canvas, Card, Checkbox,
+        Color, ColorRole, ColorScheme, Column, DatePicker, DesignSystem, Dialog, Divider,
+        DrawCommand, DrawList, Dropdown, Element, FileDrop, FileDropTarget, Icon, IconRole, Image,
+        Key, KeyEvent, LaunchBuilder, LazyColumn, LazyGrid, LazyRow, LinearProgressIndicator,
+        LoopMode, MaterialRole, Menu, Message, MessageDuration, Modifier, MotionRole, Navigation,
+        NavigationItem, Paint, ProgressIndicator, Props, RadioButton, RangeRequest, Row, Scaffold,
+        ScrollColumn, Separator, ShapeRole, Sheet, Slider, SpaceRole, Spacer, Stop, Surface,
+        Switch, Tabs, Text, TextAlign, TextField, TextOverflow, Theme, TileMode, TimePicker,
+        Tooltip, TopAppBar, TypeRole, WindowSize, WindowSizeClass, asset, brush, component, launch,
+        rsx, show_message, use_design_system, use_node_size, use_window_size,
     };
     // Under its own name, and the one thing in this list that could shadow something a
     // reader already has: an application that draws its own `Window` component would find
@@ -366,7 +366,11 @@ pub mod elements {
     // A grid whose window is the list's, unchanged. The two ways of saying how wide a column is
     // are separate attributes because they are separate questions: a count the screen
     // insists on, or a width below which the Renderer drops one.
-    element!(lazygrid, "LazyGrid", [item_count, columns, min_column_width]);
+    element!(
+        lazygrid,
+        "LazyGrid",
+        [item_count, columns, min_column_width]
+    );
     element!(filedroptarget, "FileDropTarget", [alignment]);
 
     #[doc(hidden)]

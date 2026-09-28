@@ -1548,9 +1548,9 @@ fn nfr10_a_renderer_from_another_schema_is_caught_at_build_time() {
 /// Renderer measure, so a batch that carries none of them is the proof.
 #[test]
 fn fr28_a_tree_that_observes_nothing_sends_no_observation() {
+    use dioxus_compose::prelude::*;
     use dioxus_compose::protocol::{Mutation, decode_batch};
     use dioxus_compose::schema::Modifier;
-    use dioxus_compose::prelude::*;
 
     fn quiet() -> Element {
         rsx! { Column { Text { text: "nothing is watching this" } } }
@@ -1575,9 +1575,9 @@ fn fr28_a_tree_that_observes_nothing_sends_no_observation() {
 /// A node that asked carries the token its screen gave it.
 #[test]
 fn fr28_an_observed_node_carries_its_own_token() {
+    use dioxus_compose::prelude::*;
     use dioxus_compose::protocol::{Mutation, decode_batch};
     use dioxus_compose::schema::Modifier;
-    use dioxus_compose::prelude::*;
 
     fn watched() -> Element {
         let panel = use_node_size();
@@ -1693,8 +1693,14 @@ fn fr26_markdown_becomes_runs_and_never_crosses_the_boundary() {
     assert_eq!(runs.len(), 2);
     assert!(runs[0].bold);
     assert!(runs[1].italic);
-    assert_eq!(&text[runs[0].start as usize..][..runs[0].length as usize], "bold");
-    assert_eq!(&text[runs[1].start as usize..][..runs[1].length as usize], "slanted");
+    assert_eq!(
+        &text[runs[0].start as usize..][..runs[0].length as usize],
+        "bold"
+    );
+    assert_eq!(
+        &text[runs[1].start as usize..][..runs[1].length as usize],
+        "slanted"
+    );
 
     // A marker with nothing closing it is a character the reader typed, not a marker.
     let (kept, none) = TextSpans::from_markdown("2 * 3 = 6");
@@ -1753,7 +1759,10 @@ fn fr27_a_node_that_did_not_ask_is_not_a_drop_target() {
             )
         })
         .count();
-    assert_eq!(said, 0, "a node that said nothing was offered as a drop target");
+    assert_eq!(
+        said, 0,
+        "a node that said nothing was offered as a drop target"
+    );
 }
 
 /// The widget that exists to receive files is the one that carries the handlers.
@@ -1778,7 +1787,10 @@ fn fr27_a_drop_target_carries_both_handlers() {
     let mutations = decode_batch(host.rebuild().expect("encode")).expect("decode");
     assert!(mutations.iter().any(|mutation| matches!(
         mutation,
-        Mutation::Create { widget: WidgetKind::FileDropTarget, .. }
+        Mutation::Create {
+            widget: WidgetKind::FileDropTarget,
+            ..
+        }
     )));
     for wanted in [PropertyKind::OnFilesEntered, PropertyKind::OnFilesDropped] {
         assert!(
@@ -1809,7 +1821,10 @@ fn fr24_a_motion_role_reaches_the_renderer_as_a_role() {
     assert!(
         mutations.iter().any(|mutation| matches!(
             mutation,
-            Mutation::SetModifier { modifier: Modifier::Motion(MotionRole::Emphasized), .. }
+            Mutation::SetModifier {
+                modifier: Modifier::Motion(MotionRole::Emphasized),
+                ..
+            }
         )),
         "the motion role did not reach the Renderer: {mutations:?}",
     );
@@ -1830,7 +1845,10 @@ fn fr24_silence_about_motion_costs_no_record() {
     let mutations = decode_batch(host.rebuild().expect("encode")).expect("decode");
     assert!(!mutations.iter().any(|mutation| matches!(
         mutation,
-        Mutation::SetModifier { modifier: Modifier::Motion(_), .. }
+        Mutation::SetModifier {
+            modifier: Modifier::Motion(_),
+            ..
+        }
     )));
 }
 
@@ -1864,7 +1882,10 @@ fn fr24_every_motion_role_survives_the_wire() {
     let arrived: Vec<MotionRole> = mutations
         .iter()
         .filter_map(|mutation| match mutation {
-            Mutation::SetModifier { modifier: Modifier::Motion(role), .. } => Some(*role),
+            Mutation::SetModifier {
+                modifier: Modifier::Motion(role),
+                ..
+            } => Some(*role),
             _ => None,
         })
         .collect();
@@ -1889,7 +1910,10 @@ fn fr23_a_material_role_reaches_the_renderer_as_a_role() {
     assert!(
         mutations.iter().any(|mutation| matches!(
             mutation,
-            Mutation::SetModifier { modifier: Modifier::Material(MaterialRole::Regular), .. }
+            Mutation::SetModifier {
+                modifier: Modifier::Material(MaterialRole::Regular),
+                ..
+            }
         )),
         "the material role did not reach the Renderer: {mutations:?}",
     );
@@ -1924,7 +1948,10 @@ fn fr23_every_material_role_survives_the_wire() {
     let arrived: Vec<MaterialRole> = mutations
         .iter()
         .filter_map(|mutation| match mutation {
-            Mutation::SetModifier { modifier: Modifier::Material(role), .. } => Some(*role),
+            Mutation::SetModifier {
+                modifier: Modifier::Material(role),
+                ..
+            } => Some(*role),
             _ => None,
         })
         .collect();
@@ -1946,7 +1973,10 @@ fn fr23_silence_about_material_costs_no_record() {
     let mutations = decode_batch(host.rebuild().expect("encode")).expect("decode");
     assert!(!mutations.iter().any(|mutation| matches!(
         mutation,
-        Mutation::SetModifier { modifier: Modifier::Material(_), .. }
+        Mutation::SetModifier {
+            modifier: Modifier::Material(_),
+            ..
+        }
     )));
 }
 
@@ -1973,9 +2003,11 @@ fn fr23_a_gradient_is_registered_once_and_named_by_id() {
     let registration = mutations
         .iter()
         .find_map(|mutation| match mutation {
-            Mutation::RegisterAsset { asset_id, kind: AssetKind::Brush, bytes } => {
-                Some((*asset_id, *bytes))
-            }
+            Mutation::RegisterAsset {
+                asset_id,
+                kind: AssetKind::Brush,
+                bytes,
+            } => Some((*asset_id, *bytes)),
             _ => None,
         })
         .expect("the brush was never registered");
@@ -1985,12 +2017,17 @@ fn fr23_a_gradient_is_registered_once_and_named_by_id() {
         dioxus_compose::brush::HEADER_LEN + 3 * dioxus_compose::brush::STOP_LEN,
     );
 
-    let named = mutations.iter().any(|mutation| matches!(
-        mutation,
-        Mutation::SetModifier { modifier: Modifier::Background(Paint::Asset(id)), .. }
-            if *id == registration.0
-    ));
-    assert!(named, "the surface did not name the brush it registered: {mutations:?}");
+    let named = mutations.iter().any(|mutation| {
+        matches!(
+            mutation,
+            Mutation::SetModifier { modifier: Modifier::Background(Paint::Asset(id)), .. }
+                if *id == registration.0
+        )
+    });
+    assert!(
+        named,
+        "the surface did not name the brush it registered: {mutations:?}"
+    );
 }
 
 /// The same gradient asked for twice is one registration.
@@ -2015,7 +2052,11 @@ fn fr23_the_same_brush_is_registered_once() {
 fn fr23_a_brush_paint_survives_the_wire() {
     use dioxus_compose::schema::{ColorRole, Paint};
 
-    for paint in [Paint::Asset(1), Paint::Asset(4_000_000), Paint::Role(ColorRole::Primary)] {
+    for paint in [
+        Paint::Asset(1),
+        Paint::Asset(4_000_000),
+        Paint::Role(ColorRole::Primary),
+    ] {
         assert_eq!(Paint::from_bits(paint.to_bits()), Some(paint));
     }
 }

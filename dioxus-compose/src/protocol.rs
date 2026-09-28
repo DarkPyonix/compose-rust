@@ -1144,7 +1144,12 @@ mod tests {
     fn fr23_a_font_is_named_for_one_role_and_no_others() {
         let theme = Theme::unified(DesignSystem::Material3).with_font(TypeRole::Display, 3);
         assert_eq!(theme.font(TypeRole::Display), Some(3));
-        for role in [TypeRole::Body, TypeRole::Title, TypeRole::Mono, TypeRole::Caption] {
+        for role in [
+            TypeRole::Body,
+            TypeRole::Title,
+            TypeRole::Mono,
+            TypeRole::Caption,
+        ] {
             assert_eq!(theme.font(role), None);
         }
     }

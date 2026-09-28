@@ -6,12 +6,11 @@ use crate::protocol::{
 use crate::schema::{
     ANDROID_BRIDGE_CLASS, BOUNDARY_SCHEMA, BoundaryOp, BoundaryParam, Color, ColorRole,
     ColorScheme, DESIGN_SYSTEM_SCHEMA, DesignSystem, EVENT_SCHEMA, EventPayloadType, FieldSchema,
-    FieldSlot, FieldType,
-    KEY_SCHEMA, Key, MODIFIER_SCHEMA, PROPERTY_SCHEMA, PROTOCOL_VERSION, Paint, PropertyKind,
-    ROLE_ENUM_SCHEMA, SCHEMA_HASH, Selection, ShapeRole, SpaceRole, Theme, WEB_BATCH_BYTES,
-    WEB_BATCH_FIELDS, WEB_EVENT_BUFFER_BYTES, WEB_EVENT_BUFFER_OFFSET, WEB_HOST_GLOBAL,
-    WEB_MODULE_GLOBAL, WEB_RENDERER_IMPORT_MODULE, WEB_RUST_REGION_BASE, WEB_START_SYMBOL,
-    WIDGET_SCHEMA, WINDOW_SIZE_CLASS_SCHEMA, WidgetKind,
+    FieldSlot, FieldType, KEY_SCHEMA, Key, MODIFIER_SCHEMA, PROPERTY_SCHEMA, PROTOCOL_VERSION,
+    Paint, PropertyKind, ROLE_ENUM_SCHEMA, SCHEMA_HASH, Selection, ShapeRole, SpaceRole, Theme,
+    WEB_BATCH_BYTES, WEB_BATCH_FIELDS, WEB_EVENT_BUFFER_BYTES, WEB_EVENT_BUFFER_OFFSET,
+    WEB_HOST_GLOBAL, WEB_MODULE_GLOBAL, WEB_RENDERER_IMPORT_MODULE, WEB_RUST_REGION_BASE,
+    WEB_START_SYMBOL, WIDGET_SCHEMA, WINDOW_SIZE_CLASS_SCHEMA, WidgetKind,
 };
 use crate::tokens::DESIGN_TOKENS;
 use crate::{EventPayload, Modifier};
@@ -651,9 +650,7 @@ object Protocol {
             }
             EventPayloadType::DesignSystem => {
                 writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
-                output.push_str(
-                    "                    out.putInt(designSystemTag(event.system))\n",
-                );
+                output.push_str("                    out.putInt(designSystemTag(event.system))\n");
                 output.push_str("                }\n");
             }
             EventPayloadType::Double => {
@@ -765,9 +762,8 @@ object Protocol {
     // The one role enum that travels the other way as well: the Renderer reports which
     // system it resolved the theme to, so it needs the tag for one as well as the value
     // for a tag.
-    output.push_str(
-        "    private fun designSystemTag(system: DesignSystem): Int = when (system) {\n",
-    );
+    output
+        .push_str("    private fun designSystemTag(system: DesignSystem): Int = when (system) {\n");
     for variant in DESIGN_SYSTEM_SCHEMA {
         writeln!(
             output,

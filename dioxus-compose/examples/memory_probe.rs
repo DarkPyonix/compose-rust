@@ -73,8 +73,10 @@ fn app() -> Element {
 }
 
 fn main() {
-    let window = dioxus_compose::schema::Window::new()
-        .with_size(number("DXC_PROBE_WIDTH", 800) as u16, number("DXC_PROBE_HEIGHT", 600) as u16);
+    let window = dioxus_compose::schema::Window::new().with_size(
+        number("DXC_PROBE_WIDTH", 800) as u16,
+        number("DXC_PROBE_HEIGHT", 600) as u16,
+    );
     dioxus_compose::LaunchBuilder::new()
         .with_theme(dioxus_compose::demo_theme())
         .with_window(window)

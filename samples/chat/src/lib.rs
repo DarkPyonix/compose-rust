@@ -336,17 +336,14 @@ pub fn app() -> Element {
         // Spelled out, because this file already has a `Message` and it is a line of a
         // conversation. The library's is the one sentence an application says after
         // something happened.
-        dioxus_compose::Message::new(format!(
-            "Deleted \u{201c}{}\u{201d}",
-            removed.label()
-        ))
-        .with_action("Undo", move |()| {
-            conversations.write().insert(at, removed.clone());
-            messages.set(lines.clone());
-            current.set(gone);
-        })
-        .with_duration(MessageDuration::Long)
-        .show();
+        dioxus_compose::Message::new(format!("Deleted \u{201c}{}\u{201d}", removed.label()))
+            .with_action("Undo", move |()| {
+                conversations.write().insert(at, removed.clone());
+                messages.set(lines.clone());
+                current.set(gone);
+            })
+            .with_duration(MessageDuration::Long)
+            .show();
     };
 
     // What is on screen is one conversation's messages. The list holds every
@@ -716,7 +713,8 @@ fn launch_builder() -> dioxus_compose::LaunchBuilder {
     // The name the window carries. A desktop lists windows by it, so a window that said
     // nothing was listed under whatever the renderer happened to be called, and every
     // sample here was listed as DioxusCompose until this line existed.
-    dioxus_compose::LaunchBuilder::new().with_theme(dioxus_compose::demo_theme())
+    dioxus_compose::LaunchBuilder::new()
+        .with_theme(dioxus_compose::demo_theme())
         .with_window(
             dioxus_compose::schema::Window::new()
                 .with_title("Chat")
@@ -1568,9 +1566,10 @@ mod tests {
             })
             .collect();
         assert!(
-            modifiers
-                .iter()
-                .any(|modifier| matches!(modifier, dioxus_compose::Modifier::ShapeRole(ShapeRole::Full))),
+            modifiers.iter().any(|modifier| matches!(
+                modifier,
+                dioxus_compose::Modifier::ShapeRole(ShapeRole::Full)
+            )),
             "the composer is not the reference's pill: {modifiers:?}"
         );
         assert!(

@@ -133,8 +133,16 @@ fn main() {
             // are the frameworks Compose and Skia reach through, and the compression the
             // Kotlin runtime uses for its own resources.
             for framework in [
-                "AppKit", "Foundation", "Metal", "QuartzCore", "CoreGraphics",
-                "CoreText", "CoreServices", "IOKit", "Carbon", "OpenGL",
+                "AppKit",
+                "Foundation",
+                "Metal",
+                "QuartzCore",
+                "CoreGraphics",
+                "CoreText",
+                "CoreServices",
+                "IOKit",
+                "Carbon",
+                "OpenGL",
             ] {
                 println!("cargo:rustc-link-lib=framework={framework}");
             }
@@ -681,7 +689,9 @@ fn read_hash(path: &Path) -> Option<String> {
 /// directory, `examples/` and `deps/` beside it are where examples and tests land, and the
 /// parents of those two are the profile directory and the target directory.
 fn copy_renderer_beside_executables(lib_dir: &Path) {
-    let Some(out_dir) = std::env::var_os("OUT_DIR") else { return };
+    let Some(out_dir) = std::env::var_os("OUT_DIR") else {
+        return;
+    };
     let out_dir = PathBuf::from(out_dir);
     let Some(profile_dir) = out_dir
         .parent()
@@ -703,7 +713,9 @@ fn copy_renderer_beside_executables(lib_dir: &Path) {
     // Whole, for AWT: the parent of every executable's directory. The distribution root is
     // the parent of the directory the libraries are in, which is `bin` on Windows and
     // `lib` everywhere else.
-    let Some(distribution) = lib_dir.parent() else { return };
+    let Some(distribution) = lib_dir.parent() else {
+        return;
+    };
     let mut roots = vec![profile_dir.to_path_buf()];
     if let Some(target_dir) = profile_dir.parent() {
         roots.push(target_dir.to_path_buf());
@@ -723,7 +735,9 @@ fn copy_renderer_beside_executables(lib_dir: &Path) {
 /// These are tens of megabytes and they are copied into five places, so every build would
 /// otherwise move half a gigabyte to no purpose.
 fn copy_newer_files(from: &Path, to: &Path) {
-    let Ok(entries) = std::fs::read_dir(from) else { return };
+    let Ok(entries) = std::fs::read_dir(from) else {
+        return;
+    };
     if std::fs::create_dir_all(to).is_err() {
         return;
     }

@@ -118,21 +118,22 @@ pub fn node_size(token: u32) -> WindowSize {
 /// Returns whether anything was woken, so a report about a node nobody is reading costs
 /// a lookup and nothing else.
 pub(crate) fn publish_node(token: u32, size: WindowSize) -> bool {
-    let changed = NODES.with_borrow_mut(|nodes| {
-        match nodes.iter_mut().find(|(name, _)| *name == token) {
-            Some(entry) => {
-                if entry.1 == size {
-                    return false;
+    let changed =
+        NODES.with_borrow_mut(
+            |nodes| match nodes.iter_mut().find(|(name, _)| *name == token) {
+                Some(entry) => {
+                    if entry.1 == size {
+                        return false;
+                    }
+                    entry.1 = size;
+                    true
                 }
-                entry.1 = size;
-                true
-            }
-            None => {
-                nodes.push((token, size));
-                true
-            }
-        }
-    });
+                None => {
+                    nodes.push((token, size));
+                    true
+                }
+            },
+        );
     if !changed {
         return false;
     }
@@ -261,7 +262,10 @@ pub fn use_node_size() -> NodeSize {
             next.set(token + 1);
             token
         });
-        Rc::new(NodeSizeSubscription::new(token, dioxus_core::schedule_update()))
+        Rc::new(NodeSizeSubscription::new(
+            token,
+            dioxus_core::schedule_update(),
+        ))
     });
     NodeSize {
         token: token.token,

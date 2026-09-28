@@ -10,9 +10,7 @@ use crate::Key;
 use crate::drawing::DrawList;
 use crate::schema::{
     Alignment, Arrangement, ButtonVariant, IconRole, MaterialRole, MotionRole, Paint, ShapeRole,
-    SlotRole,
-    SpaceRole,
-    TextAlign, TextOverflow, TypeRole,
+    SlotRole, SpaceRole, TextAlign, TextOverflow, TypeRole,
 };
 use std::cell::Cell;
 use std::rc::Rc;

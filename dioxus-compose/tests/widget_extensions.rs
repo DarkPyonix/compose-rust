@@ -58,7 +58,11 @@ fn fr11_typed_extension_uses_fixed_layout_mutations() {
     // Four and not eight. The comment here used to say eight while the numbers beside it
     // included a twelve, so the first rewrite asserted the sentence rather than the data
     // and failed on a record that had always been there.
-    assert_eq!(lengths.len(), 4, "the batch holds four records: {lengths:?}");
+    assert_eq!(
+        lengths.len(),
+        4,
+        "the batch holds four records: {lengths:?}"
+    );
     for length in &lengths {
         assert_eq!(
             length % 4,
