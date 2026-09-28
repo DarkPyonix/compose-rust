@@ -786,6 +786,11 @@ fn launch_builder() -> dioxus_compose::LaunchBuilder {
         .with_window(
             dioxus_compose::schema::Window::new()
                 .with_title("Chat")
+                // The window this is clone coded from, which on macOS has its buttons a
+                // step in from the corner and a larger radius than a plain window. Said
+                // out loud even though it is the default, because it is a fact about this
+                // application's window rather than something to be inherited quietly.
+                .with_title_bar(dioxus_compose::schema::TitleBar::Normal)
                 // Without one the window wears the toolkit's picture, which on
                 // Windows is the Java coffee cup, wherever the system lists
                 // windows. The bytes travel as an asset and the renderer refers

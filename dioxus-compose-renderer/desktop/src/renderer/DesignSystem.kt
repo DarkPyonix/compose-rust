@@ -29,6 +29,7 @@ import dioxus.compose.protocol.TypeRole
 import dioxus.compose.protocol.TypeToken
 import dioxus.compose.protocol.WindowSizeClass
 import java.lang.System
+import dioxus.compose.protocol.TitleBar
 
 /**
  * The platforms `Theme::adaptive` distinguishes.
@@ -472,7 +473,7 @@ interface ComponentRules {
      * The default is a plain set at the trailing edge with a tinted hover, which is what
      * most of these systems do. A system overrides what it actually differs about.
      */
-    fun caption(theme: ResolvedTheme): CaptionStyle = CaptionStyle(
+    fun caption(theme: ResolvedTheme, titleBar: TitleBar = TitleBar.Normal): CaptionStyle = CaptionStyle(
         side = CaptionSide.End,
         buttonWidth = 32.dp,
         buttonHeight = 32.dp,
@@ -561,6 +562,29 @@ data class CaptionStyle(
     val spacing: Dp,
     val edgePadding: Dp,
     val titleAlignment: CaptionTitleAlignment,
+    /**
+     * How far in from the window's corner the platform's own buttons sit.
+     *
+     * macOS only, and only where the window's buttons are the system's. Everywhere else
+     * the caption's buttons are ours and drawn where [side] says, so there is no corner to
+     * come in from. Zero leaves them where the system put them.
+     */
+    val platformButtonInset: Dp = 0.dp,
+    /**
+     * How round the window's own corners are, or zero to leave the system's.
+     *
+     * macOS only, for the same reason. On Windows and Linux the window's outline belongs
+     * to the compositor rather than to the application.
+     */
+    val windowCornerRadius: Dp = 0.dp,
+    /**
+     * How tall the caption is where the application draws it.
+     *
+     * Windows and Linux. Zero means the design system has nothing to say and the caption
+     * is whatever it was, which is what every system answered before the two title bar
+     * modes existed.
+     */
+    val height: Dp = 0.dp,
 )
 
 /**

@@ -87,6 +87,10 @@ import platform.CoreGraphics.CGRectMake
 import platform.Foundation.NSMakeRect
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
+import platform.CoreGraphics.CGPointMake
+import platform.AppKit.NSWindowMiniaturizeButton
+import androidx.compose.ui.unit.Dp
+import platform.AppKit.NSWindowButton
 
 /**
  * A window of this renderer's own, rather than the one Compose opens for this platform.
@@ -101,7 +105,15 @@ import androidx.compose.runtime.getValue
  * So the scene is built here, with a context that listens. Everything else is what
  * Compose's own window does and is kept close to it deliberately.
  */
-internal class MacosWindow(private val name: String, width: Int, height: Int) {
+internal class MacosWindow(
+    private val name: String,
+    width: Int,
+    height: Int,
+    /** How far in from the corner the system's three buttons sit. Zero leaves them. */
+    private val buttonInset: Dp = 0.dp,
+    /** How round the window is. Zero leaves the system's own. */
+    private val cornerRadius: Dp = 0.dp,
+) {
     private var measured = IntSize(width, height)
     private val components = DefaultArchitectureComponentsOwner()
     /**
@@ -225,6 +237,51 @@ internal class MacosWindow(private val name: String, width: Int, height: Int) {
      */
     val caption = mutableStateOf(WindowCaption.None)
 
+    /**
+     * Moves the system's three buttons in from the corner and rounds the window.
+     *
+     * Both are what a window on this platform looks like in its ordinary mode, and both
+     * are measurements the design system answered rather than numbers written here.
+     *
+     * The buttons are moved by their frames rather than by a layout: they are the
+     * system's, they are laid out by the system's own title bar, and the only thing an
+     * application is given is where they ended up. Moving them again on every caption
+     * measurement keeps them there when the system puts them back, which it does whenever
+     * it rebuilds that bar.
+     */
+    /**
+     * Where the system put each of its three buttons, read once.
+     *
+     * The system lays that bar out again whenever it rebuilds it, so the answer is taken
+     * the first time each button is seen and the offset is applied to that rather than to
+     * wherever the button happens to be now.
+     */
+    private val systemButtonOrigins = mutableMapOf<NSWindowButton, Pair<Double, Double>>()
+
+    private fun dressTheTitleBar() {
+        if (buttonInset > 0.dp) {
+            val step = buttonInset.value.toDouble()
+            for (which in listOf(NSWindowCloseButton, NSWindowMiniaturizeButton, NSWindowZoomButton)) {
+                val button = window.standardWindowButton(which) ?: continue
+                // Measured from where the system put them, not from where they are. This
+                // runs again on every caption measurement, which is every resize, and
+                // adding the step to the current origin each time marches the buttons off
+                // the corner one step per drag.
+                val home = systemButtonOrigins.getOrPut(which) {
+                    button.frame.useContents { origin.x to origin.y }
+                }
+                button.setFrameOrigin(CGPointMake(home.first + step, home.second - step))
+            }
+        }
+        if (cornerRadius > 0.dp) {
+            // The window's own corner, not the layer's clip. The backing layer is where the
+            // drawing lands, so rounding it is what rounds what anyone sees; the window
+            // stays square underneath and nothing is drawn out there.
+            metal.layer.cornerRadius = cornerRadius.value.toDouble()
+            metal.layer.masksToBounds = true
+        }
+    }
+
     private fun measureCaption() {
         val scale = 1.0
         val height = window.frame.useContents { size.height } -
@@ -235,6 +292,7 @@ internal class MacosWindow(private val name: String, width: Int, height: Int) {
             val leading = close.frame.useContents { origin.x }
             zoom.frame.useContents { origin.x + size.width } + leading
         }
+        dressTheTitleBar()
         caption.value = WindowCaption(
             height = (height * scale).dp,
             // The platform's own, and this platform puts them at the leading edge.

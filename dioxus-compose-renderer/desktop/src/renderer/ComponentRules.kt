@@ -22,6 +22,7 @@ import dioxus.compose.protocol.ShapeRole
 import dioxus.compose.protocol.SpaceRole
 import dioxus.compose.protocol.TypeRole
 import dioxus.compose.protocol.WindowSizeClass
+import dioxus.compose.protocol.TitleBar
 
 /**
  * Material 3 Expressive rules: elevation, button variants and motion.
@@ -412,7 +413,7 @@ internal object Material3Rules : ComponentRules {
      * uses, and the error colour under close. The title sits at the start, where a
      * Material top app bar puts it.
      */
-    override fun caption(theme: ResolvedTheme): CaptionStyle = CaptionStyle(
+    override fun caption(theme: ResolvedTheme, titleBar: TitleBar): CaptionStyle = CaptionStyle(
         side = CaptionSide.End,
         buttonWidth = 40.dp,
         buttonHeight = 40.dp,
@@ -429,6 +430,10 @@ internal object Material3Rules : ComponentRules {
         spacing = theme.space(SpaceRole.Xs),
         edgePadding = theme.space(SpaceRole.Sm),
         titleAlignment = CaptionTitleAlignment.Start,
+        // The window's outline belongs to the compositor here and the buttons are drawn at
+        // the end this platform puts them, so there is no corner to come in from. What the
+        // mode chooses is how tall the caption is.
+        height = if (titleBar == TitleBar.Normal) TALL_CAPTION else PLAIN_CAPTION,
     )
 
     /** A bottom sheet with a drag handle, or a side sheet once there is room for one. */
@@ -864,7 +869,7 @@ internal object CupertinoRules : ComponentRules {
      * The discs carry no glyphs until the pointer is over the set, which is the behaviour
      * that makes them read as Apple's rather than as three coloured dots.
      */
-    override fun caption(theme: ResolvedTheme): CaptionStyle = CaptionStyle(
+    override fun caption(theme: ResolvedTheme, titleBar: TitleBar): CaptionStyle = CaptionStyle(
         side = CaptionSide.Start,
         buttonWidth = 12.dp,
         buttonHeight = 12.dp,
@@ -882,6 +887,15 @@ internal object CupertinoRules : ComponentRules {
         spacing = 8.dp,
         edgePadding = 20.dp,
         titleAlignment = CaptionTitleAlignment.Center,
+        // A window on this platform in its ordinary mode has the system's buttons a step in
+        // from the corner and a larger radius than a plain window does. Simple is the plain
+        // window, so the system keeps both where it put them.
+        platformButtonInset = if (titleBar == TitleBar.Normal) APPLE_BUTTON_INSET else 0.dp,
+        windowCornerRadius = if (titleBar == TitleBar.Normal) {
+            APPLE_WINDOW_RADIUS
+        } else {
+            APPLE_PLAIN_WINDOW_RADIUS
+        },
     )
 
     /** A card sheet pulled up over a dimmed screen, with the grabber along its top edge. */
@@ -1355,7 +1369,7 @@ internal object FluentRules : ComponentRules {
      * than this palette's error colour, because it is the same red on every Windows
      * window whatever an application's accent is.
      */
-    override fun caption(theme: ResolvedTheme): CaptionStyle = CaptionStyle(
+    override fun caption(theme: ResolvedTheme, titleBar: TitleBar): CaptionStyle = CaptionStyle(
         side = CaptionSide.End,
         buttonWidth = 46.dp,
         buttonHeight = 32.dp,
@@ -1372,6 +1386,10 @@ internal object FluentRules : ComponentRules {
         spacing = 0.dp,
         edgePadding = 0.dp,
         titleAlignment = CaptionTitleAlignment.Start,
+        // The window's outline belongs to the compositor here and the buttons are drawn at
+        // the end this platform puts them, so there is no corner to come in from. What the
+        // mode chooses is how tall the caption is.
+        height = if (titleBar == TitleBar.Normal) TALL_CAPTION else PLAIN_CAPTION,
     )
 
     /** The red Windows puts under a close button, on every window and every accent. */
@@ -1792,7 +1810,7 @@ internal object GnomeRules : ComponentRules {
      * in it, and they are the two things that make a header bar read as GNOME's before
      * anything inside it is read at all.
      */
-    override fun caption(theme: ResolvedTheme): CaptionStyle = CaptionStyle(
+    override fun caption(theme: ResolvedTheme, titleBar: TitleBar): CaptionStyle = CaptionStyle(
         side = CaptionSide.End,
         buttonWidth = 26.dp,
         buttonHeight = 26.dp,
@@ -1813,6 +1831,10 @@ internal object GnomeRules : ComponentRules {
         spacing = theme.space(SpaceRole.Sm),
         edgePadding = theme.space(SpaceRole.Sm),
         titleAlignment = CaptionTitleAlignment.Center,
+        // The window's outline belongs to the compositor here and the buttons are drawn at
+        // the end this platform puts them, so there is no corner to come in from. What the
+        // mode chooses is how tall the caption is.
+        height = if (titleBar == TitleBar.Normal) TALL_CAPTION else PLAIN_CAPTION,
     )
 
     /** A fill that darkens a light bar and lightens a dark one, whatever colour it is. */
@@ -2247,7 +2269,7 @@ internal object BreezeRules : ComponentRules {
      * three small glyphs where GNOME puts three circles. The title is centred, which both
      * Breeze windows in the reference do.
      */
-    override fun caption(theme: ResolvedTheme): CaptionStyle = CaptionStyle(
+    override fun caption(theme: ResolvedTheme, titleBar: TitleBar): CaptionStyle = CaptionStyle(
         side = CaptionSide.End,
         buttonWidth = 24.dp,
         buttonHeight = 24.dp,
@@ -2264,6 +2286,10 @@ internal object BreezeRules : ComponentRules {
         spacing = theme.space(SpaceRole.Xs),
         edgePadding = theme.space(SpaceRole.Sm),
         titleAlignment = CaptionTitleAlignment.Center,
+        // The window's outline belongs to the compositor here and the buttons are drawn at
+        // the end this platform puts them, so there is no corner to come in from. What the
+        // mode chooses is how tall the caption is.
+        height = if (titleBar == TitleBar.Normal) TALL_CAPTION else PLAIN_CAPTION,
     )
 
     private const val SCRIM_ALPHA = 0.5f
@@ -2684,7 +2710,7 @@ internal object DeepinRules : ComponentRules {
      * borrowed. Both reference screens put the glyphs on the same line as the rest of the
      * bar's content, which the caption layout already does.
      */
-    override fun caption(theme: ResolvedTheme): CaptionStyle = CaptionStyle(
+    override fun caption(theme: ResolvedTheme, titleBar: TitleBar): CaptionStyle = CaptionStyle(
         side = CaptionSide.End,
         buttonWidth = 40.dp,
         buttonHeight = 40.dp,
@@ -2701,6 +2727,10 @@ internal object DeepinRules : ComponentRules {
         spacing = 0.dp,
         edgePadding = theme.space(SpaceRole.Xs),
         titleAlignment = CaptionTitleAlignment.Center,
+        // The window's outline belongs to the compositor here and the buttons are drawn at
+        // the end this platform puts them, so there is no corner to come in from. What the
+        // mode chooses is how tall the caption is.
+        height = if (titleBar == TitleBar.Normal) TALL_CAPTION else PLAIN_CAPTION,
     )
 
     private const val SCRIM_ALPHA = 0.35f
@@ -3412,7 +3442,7 @@ internal object LiquidGlassRules : ComponentRules {
      * in the reference screens carries the same traffic lights, sitting straight on the
      * translucent chrome with no strip of their own.
      */
-    override fun caption(theme: ResolvedTheme): CaptionStyle = CaptionStyle(
+    override fun caption(theme: ResolvedTheme, titleBar: TitleBar): CaptionStyle = CaptionStyle(
         side = CaptionSide.Start,
         buttonWidth = 12.dp,
         buttonHeight = 12.dp,
@@ -3431,6 +3461,15 @@ internal object LiquidGlassRules : ComponentRules {
         // is inset from the window edge rather than flush with it.
         edgePadding = 22.dp,
         titleAlignment = CaptionTitleAlignment.Center,
+        // A window on this platform in its ordinary mode has the system's buttons a step in
+        // from the corner and a larger radius than a plain window does. Simple is the plain
+        // window, so the system keeps both where it put them.
+        platformButtonInset = if (titleBar == TitleBar.Normal) APPLE_BUTTON_INSET else 0.dp,
+        windowCornerRadius = if (titleBar == TitleBar.Normal) {
+            APPLE_WINDOW_RADIUS
+        } else {
+            APPLE_PLAIN_WINDOW_RADIUS
+        },
     )
 
     private const val SCRIM_ALPHA = 0.4f
@@ -3440,3 +3479,26 @@ internal object LiquidGlassRules : ComponentRules {
     private const val SPOT_ALPHA = 0.12f
     private const val SPREAD = 2f
 }
+
+/**
+ * How far in from the window's corner an Apple window in its ordinary mode puts the
+ * system's buttons.
+ *
+ * Read off the applications this project is drawn from rather than chosen: a window there
+ * has its three buttons a step down and in from where a plain window has them, which is
+ * what leaves room for the sidebar's own rounded corner to pass behind them.
+ */
+private val APPLE_BUTTON_INSET = 8.dp
+
+/** How round that window is, and how round a plain one is. */
+private val APPLE_WINDOW_RADIUS = 14.dp
+private val APPLE_PLAIN_WINDOW_RADIUS = 10.dp
+
+/**
+ * The two caption heights the other five systems choose between.
+ *
+ * Height is all they choose. A window's outline belongs to the compositor on those
+ * platforms, and their caption buttons sit at the end the platform puts them.
+ */
+private val TALL_CAPTION = 44.dp
+private val PLAIN_CAPTION = 32.dp
