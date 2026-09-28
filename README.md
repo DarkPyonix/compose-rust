@@ -63,18 +63,33 @@ on iOS), so there is no JVM in the shipped artifact.
 
 ### Weight, roughly
 
-All figures are **approximate**, taken from [`docs/INTENT.md`](docs/INTENT.md). They are
-order-of-magnitude comparisons, not benchmarks.
+The comparisons are **approximate**, taken from [`docs/INTENT.md`](docs/INTENT.md), and are
+order-of-magnitude rather than benchmarks. What this project weighs is measured.
 
 | Approach | Approximate weight | Notes |
 |---|---|---|
 | Webview stack (Electron, Tauri-class) | Heaviest: a browser engine per app or per system | Rejected by **C1**: memory and size |
 | Compose + bundled JVM (jlink) | ~80–120 MB of JVM alone | Rejected by **C2**. AppCDS fixes startup, not size |
 | Pure Rust toolkit (Iced-class) | ~10–20 MB | Rejected by **C5**: text and IME maturity |
-| **dioxus-compose** | ~64 MB renderer + ~21 MB Skia | Larger than Iced, far smaller than a webview or JVM stack |
+| **dioxus-compose** | 28.76 MB on macOS, one file | Larger than Iced, far smaller than a webview or JVM stack |
 
-The target in `NFR-3` is **under 100 MB distribution size and under 100 MB RSS for an empty
-window**. That requirement is still `Draft`: it gets confirmed by measurement at milestone M1.
+### What it actually weighs
+
+The notepad sample, built for release and stripped. One executable: no runtime beside it, no
+virtual machine inside it, and nothing linked but the system's own libraries.
+
+| Platform | Executable | Physical footprint | How it is built |
+|---|---|---|---|
+| macOS (arm64) | **28.76 MB** | **35.1 MB** | Kotlin/Native, drawing through Metal |
+| Linux (x86-64) | **37.93 MB** | not yet measured | Kotlin/Native, drawing through GLX |
+| Windows | not yet measured | not yet measured | GraalVM native image, drawing through Direct3D 12 |
+
+For scale, the same sample on macOS before the Kotlin/Native path was four files weighing
+93.1 MB with a 56 MB footprint. Most of that was the Java runtime the native image carried.
+
+`NFR-3` asks for under 100 MB distributed and under 56 MB of physical footprint for an empty
+window. macOS meets both with room, measured on an application rather than an empty window.
+Linux and Windows are not measured for footprint yet, and nothing here is claimed for them.
 
 ### Non-negotiables
 
