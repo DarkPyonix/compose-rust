@@ -52,10 +52,10 @@ trap 'rm -rf "$empty_home"' EXIT
 assert_run "setup_check_reports_missing_cargo" 1 "cargo not found on PATH" \
     env -u GRAALVM_HOME PATH=/usr/bin:/bin HOME="$empty_home" "$setup_check"
 
-# Which toolchain is missing, and whether its absence is fatal, depends on the platform.
-# macOS cannot build the renderer without Liberica NIK Full, so that is an error. Anywhere
-# else upstream GraalVM is the right toolchain and not having it only blocks the renderer,
-# which is why it warns and exits zero: the Rust side is the whole loop apart from that.
+# Which toolchain is missing depends on the platform: macOS needs Liberica NIK Full for the
+# native image because upstream GraalVM ships no AWT there, and everywhere else upstream
+# GraalVM is the right one. Not having it is never fatal. It blocks the native image and
+# nothing else, and on macOS the renderer that ships is not the native image at all.
 if [[ "$(uname -s)" == "Darwin" ]]; then
     assert_run "setup_check_reports_missing_nik" 1 "no Liberica NIK found" \
         env -u GRAALVM_HOME HOME="$empty_home" "$setup_check"
@@ -78,19 +78,38 @@ assert_run "setup_check_reports_graalvm_home_without_native_image" 1 "has no bin
     env GRAALVM_HOME="$bogus_home" "$setup_check"
 
 # A GraalVM-shaped install with native-image but no static AWT archive: this is
-# what upstream GraalVM looks like on macOS (oracle/graal#13272).
+# what upstream GraalVM looks like on macOS (oracle/graal#13272). It cannot build the
+# native image, which used to be how macOS shipped and is not any more, so saying so is
+# worth a line and is not a reason to call the machine misconfigured.
 fake_graal="$empty_home/fake-graalvm"
 mkdir -p "$fake_graal/bin" "$fake_graal/lib/static/darwin-aarch64"
 printf '#!/bin/sh\nexit 0\n' > "$fake_graal/bin/native-image"
 chmod +x "$fake_graal/bin/native-image"
 if [[ "$(uname -s)" == "Darwin" ]]; then
-    assert_run "setup_check_rejects_plain_graalvm_on_macos" 1 "libawt_lwawt.a" \
+    assert_run "setup_check_accepts_plain_graalvm_on_macos" 0 "libawt_lwawt.a" \
         env GRAALVM_HOME="$fake_graal" "$setup_check"
 
-    # Adding the archive is what makes a NIK Full install acceptable.
+    # Adding the archive is what makes a NIK Full install able to build the native image.
     : > "$fake_graal/lib/static/darwin-aarch64/libawt_lwawt.a"
     assert_run "setup_check_accepts_nik_full_shaped_install" 0 "static AWT archive" \
         env GRAALVM_HOME="$fake_graal" "$setup_check"
+fi
+
+# What the macOS renderer actually cannot be built without: the patched Compose in the
+# local Maven repository. An empty HOME is an empty repository, so the missing branch is
+# reachable without touching the real one.
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    # Exit zero, and that is the point: it blocks the renderer build and nothing else, so
+    # a machine working on the Rust side is not a misconfigured one. rustup lives under
+    # HOME, so its own directories are handed back or the run reports tools that are there.
+    assert_run "setup_check_reports_missing_patched_compose" 0 "no patched Compose" \
+        env -u GRAALVM_HOME HOME="$empty_home" \
+            RUSTUP_HOME="${RUSTUP_HOME:-$real_home/.rustup}" \
+            CARGO_HOME="${CARGO_HOME:-$real_home/.cargo}" \
+            "$setup_check"
+
+    assert_run "setup_check_names_the_patched_compose_it_found" 0 "patched Compose:" \
+        "$setup_check"
 fi
 
 printf '\n%d test(s), %d failure(s)\n' "$tests_run" "$tests_failed"

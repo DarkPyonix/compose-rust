@@ -88,10 +88,16 @@ case "$uname_s" in
 esac
 
 # --- The native-image toolchain ---------------------------------------------
-# Which toolchain is correct depends on the platform. macOS needs Liberica NIK Full,
-# because upstream GraalVM ships no AWT on Darwin (oracle/graal#13272) and the Compose
-# renderer cannot link without it. Everywhere else upstream GraalVM is the right one and
-# NIK is not required, so demanding it on Linux failed a setup that was in fact correct.
+# Which toolchain is correct depends on the platform. The native image needs Liberica NIK
+# Full on macOS, because upstream GraalVM ships no AWT on Darwin (oracle/graal#13272) and
+# AWT is what the image draws through. Everywhere else upstream GraalVM is the right one
+# and NIK is not required, so demanding it on Linux failed a setup that was in fact
+# correct.
+#
+# None of this is required to build the renderer this platform ships. That one is
+# Kotlin/Native, it links no AWT and carries no Java runtime, and what it needs instead is
+# checked below. The native image is still how Windows is built and still what
+# smoke-test.sh links against, so an installation that cannot produce one is worth a line.
 graalvm_home="${GRAALVM_HOME:-}"
 if [[ -z "$graalvm_home" && "$uname_s" == "Darwin" ]]; then
     # Same discovery order as dioxus-compose-renderer/desktop/scripts/env.sh.
@@ -102,6 +108,8 @@ fi
 
 if [[ "$uname_s" == "Darwin" ]]; then
     nik_install_hint=(
+        "Only the native image needs this. The renderer macOS ships is Kotlin/Native and"
+        "does not, so a machine without it builds and runs everything but that image."
         "fix: install Liberica NIK 25 Full (Java 25, 'Full' variant, NOT the standard one):"
         "       https://bell-sw.com/pages/downloads/native-image-kit/"
         "     or: brew install --cask liberica-nik-full"
@@ -141,10 +149,39 @@ else
         if [[ -n "$awt_archive" ]]; then
             ok "static AWT archive: $awt_archive"
         else
-            fail "$graalvm_home has no lib/static/darwin-*/libawt_lwawt.a" \
-                 "This looks like upstream GraalVM (or a non-Full NIK). On macOS it skips" \
-                 "AWT entirely (oracle/graal#13272), so the Compose renderer cannot link." \
-                 "${nik_install_hint[@]}"
+            warn "$graalvm_home has no lib/static/darwin-*/libawt_lwawt.a"
+            warn "      This looks like upstream GraalVM (or a non-Full NIK). On macOS it skips"
+            warn "      AWT entirely (oracle/graal#13272), so the native image cannot be linked"
+            warn "      with it. The renderer this platform ships does not need it."
+            for hint in "${nik_install_hint[@]}"; do
+                warn "      $hint"
+            done
+        fi
+    fi
+fi
+
+# --- The patched Compose ----------------------------------------------------
+# What the macOS renderer cannot be built without. It resolves Compose from the local
+# Maven repository, because the entries a text selection offers and the keys that copy are
+# empty in the build JetBrains publishes for this platform and cannot be filled from
+# outside the module that holds them. The version is read from the script that publishes
+# it so that there is one place to change it.
+if [[ "$uname_s" == "Darwin" ]]; then
+    compose_build_script="$renderer_dir/scripts/build-compose.sh"
+    patched_version="$(sed -n 's/^PUBLISHED_AS="\([^"]*\)"$/\1/p' "$compose_build_script" 2>/dev/null)"
+    if [[ -z "$patched_version" ]]; then
+        fail "cannot tell which Compose version $compose_build_script publishes" \
+             "It is read from the PUBLISHED_AS assignment there. Either the script is" \
+             "missing or that line was renamed, and this check has nothing to look for."
+    else
+        patched_compose="$HOME/.m2/repository/org/jetbrains/compose/ui/ui-macosarm64/$patched_version"
+        if [[ -d "$patched_compose" ]]; then
+            ok "patched Compose: $patched_compose"
+        else
+            warn "no patched Compose at $patched_compose"
+            warn "      The macOS renderer resolves Compose from the local Maven repository, so"
+            warn "      its build cannot start until this is published. Everything else works."
+            warn "      fix: $compose_build_script"
         fi
     fi
 fi

@@ -111,7 +111,7 @@ notepad 샘플을 릴리스로 빌드해 스트립한 것입니다. 실행 파�
 
 | 플랫폼 | 상태 | 내용 |
 |---|---|---|
-| 🍎 **macOS (arm64)** | **처음부터 끝까지 동작** | Rust 호스트 → C ABI → native-image 렌더러 → 화면의 창까지. Liberica NIK 25 Full에서 확인. 한글 입력의 기본 경로는 동작하고, IME 체크리스트(`SPEC §6`) 전체는 아직 미완 |
+| 🍎 **macOS (arm64)** | **처음부터 끝까지 동작** | Rust 호스트 → C ABI → Kotlin/Native 렌더러 → 화면의 창까지. 자바 런타임이 들어 있지 않은 파일 하나입니다. 창과 Metal 레이어, 텍스트 입력은 이 렌더러가 직접 소유합니다. 한글 입력의 기본 경로는 동작하고, IME 체크리스트(`SPEC §6`) 전체는 아직 미완 |
 | 🪟 Windows 데스크톱 | 빌드되고 실행됨 | 업스트림 GraalVM 25로 빌드되며, 렌더러가 바뀔 때마다 스모크 테스트를 통과합니다. |
 | 🐧 Linux 데스크톱 | 빌드되고 실행됨 | 두 아키텍처(x64, arm64) 모두 CI의 Xvfb 환경에서 빌드 및 헤드리스 시작 스모크 테스트를 통과합니다. |
 | 📱 iOS | 빌드되고 실행됨 | Kotlin/Native `-produce static`으로 동일한 C 심볼을 내보냅니다. XCFramework로 배포됩니다. |
@@ -280,7 +280,11 @@ PTY 같은 무거운 작업은 Host 워커 스레드에서 돌면서 시그널�
 왕복하지 않습니다. 스크롤 위치, 포커스, 애니메이션 상태도 Renderer의 것입니다.
 
 <details>
-<summary><b>macOS에 Liberica NIK과 작은 우회책 세 개가 필요한 이유</b></summary>
+<summary><b>네이티브 이미지에 Liberica NIK과 작은 우회책 세 개가 필요한 이유</b></summary>
+
+아래는 GraalVM 네이티브 이미지 이야기입니다. Windows를 빌드하는 방식이고, macOS도 Kotlin/Native
+경로 이전에는 이것이었습니다. macOS가 배포하는 렌더러는 AWT를 링크하지 않으므로 아래의 어떤 것도
+필요하지 않습니다.
 
 Compose Desktop의 창은 AWT `JFrame`이고, AOT 컴파일은 어떤 코드 경로가 도는지를 바꾸지 않습니다.
 그래서 native-image에서도 AWT의 IME 경로가 유지됩니다(`D4`). 문제는 upstream GraalVM이 **Darwin에서
@@ -356,7 +360,10 @@ dioxus-compose = "0.0.0"
 rustup component add rustfmt clippy
 ```
 
-### 2. Liberica NIK 25 **Full**, 렌더러 네이티브 빌드에만 필요
+### 2. Liberica NIK 25 **Full**, GraalVM 네이티브 이미지에만 필요
+
+macOS가 배포하는 렌더러를 빌드하는 데는 필요하지 않습니다. 그쪽은 Kotlin/Native이고, 필요한 것은
+3번의 패치된 Compose입니다.
 
 > ⚠️ **macOS에서는 upstream GraalVM이 동작하지 않습니다.** Darwin에서 AWT 지원을 건너뛰기
 > 때문에([oracle/graal#13272](https://github.com/oracle/graal/issues/13272), 2026-09 기준 open)
@@ -384,23 +391,49 @@ macOS에서는 Xcode 명령줄 도구(`xcode-select --install`)도 필요합니�
 
 **현재 스크립트가 지원하는 것은 macOS뿐입니다.** Linux와 Windows native-image 빌드는 아직입니다.
 
-### 3. Kotlin
+### 3. 패치된 Compose
+
+렌더러는 JetBrains가 발행한 것이 아니라 로컬 Maven 저장소에서 Compose를 찾습니다. 필요한 세 가지가
+이 플랫폼용 공개 빌드에서는 비어 있고, 그것을 담고 있는 모듈 밖에서는 채울 수 없기 때문입니다.
+텍스트 선택 메뉴가 내주는 항목, 복사에 쓰이는 키, 그리고 Linux 타깃입니다. 패치는
+`dioxus-compose-renderer/patches/`에 있고, Compose 리비전 하나에 고정돼 있으며, 각각 무엇을 위한
+것인지 적혀 있습니다.
+
+```bash
+./dioxus-compose-renderer/scripts/build-compose.sh
+```
+
+고정된 리비전을 받아 패치를 얹고, 렌더러가 요구하는 모듈을 발행합니다. 오래 걸리지만 빌드마다 할
+일은 아니고 한 번이면 됩니다. 나머지는 여전히 JetBrains가 발행한 것에서 해결됩니다.
+
+### 4. Kotlin
 
 설치할 것이 없습니다. `dioxus-compose-renderer/kotlin`(Windows는 `kotlin.bat`)이 자체 부트스트랩
 래퍼라, 처음 실행할 때 고정된 버전의 툴체인을 내려받습니다.
 
-### 4. 렌더러 빌드
+### 5. 렌더러 빌드
 
-`dioxus-compose-renderer/build/native-image/dist/lib/`에 렌더러와 Skia, `libjawt`/`libawt_lwawt`
-보조 라이브러리를 만듭니다(`PR-8`). 몇 분 걸립니다.
+`dioxus-compose-renderer/build/macos/`에 Compose와 Skia, 인터프리터가 들어 있는 정적 라이브러리
+하나를 만듭니다(`PR-8`). 몇 분 걸립니다.
 
 ```bash
 cd dioxus-compose-renderer
-./desktop/scripts/build-native.sh
+./desktop/scripts/build-macos.sh --release
+```
+
+```
+build/macos/
+  libdioxus_compose_renderer.a       렌더러 (Compose, Skia, 인터프리터, 우리 코드)
+  libdioxus_compose_renderer_api.h   Kotlin/Native가 생성한 헤더
 ```
 
 <details>
-<summary><b><code>dist/lib/</code>에 생기는 것</b></summary>
+<summary><b>GraalVM 네이티브 이미지와 <code>dist/lib/</code>에 생기는 것</b></summary>
+
+`./desktop/scripts/build-native.sh`는 대신 네이티브 이미지를 빌드합니다. Windows를 빌드하는
+방식이고 `smoke-test.sh`가 링크하는 대상이며, macOS의 배포 방식은 더 이상 이것이 아닙니다.
+결과물은 파일 하나가 아니라 디렉터리입니다. 정적으로 링크된 AWT가 일부 항목을 경로로 찾기
+때문입니다.
 
 ```
 build/native-image/dist/lib/
@@ -411,7 +444,7 @@ build/native-image/dist/lib/
 ```
 </details>
 
-### 5. 스모크 테스트
+### 6. 스모크 테스트
 
 최소한의 C 호스트를 라이브러리에 링크해 `dioxus_compose_renderer_run`을 호출합니다. 창이 뜨고,
 닫으면 0을 반환해야 합니다. `PR-8`의 수용 기준입니다.
@@ -423,7 +456,7 @@ cd dioxus-compose-renderer
 
 무인 실행이 필요하면 `DIOXUS_COMPOSE_AUTOEXIT_MS=6000`으로 창이 스스로 닫히게 할 수 있습니다.
 
-### 6. Rust 데모 실행
+### 7. Rust 데모 실행
 
 ```bash
 cargo run -p dioxus-compose --example desktop_demo --features native-renderer
@@ -434,7 +467,7 @@ cargo run -p dioxus-compose --example desktop_demo --features native-renderer
 `DIOXUS_COMPOSE_RENDERER_DIR`, 워크스페이스 빌드 결과물, 캐시, 크레이트 버전의 릴리스
 순입니다(`NFR-10`).
 
-### 7. JVM 개발 셸
+### 8. JVM 개발 셸
 
 렌더러 자체를 손볼 때 가장 빠른 반복 경로입니다. hot reload와 `@Preview`를 쓸 수 있고
 native-image 빌드가 필요 없습니다(`NFR-5`, `D7`).

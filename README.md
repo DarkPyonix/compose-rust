@@ -113,7 +113,7 @@ the API will change.
 
 | Platform | State | Detail |
 |---|---|---|
-| 🍎 **macOS (arm64)** | **Works end to end** | Rust host → C ABI → native-image renderer → window on screen, verified on Liberica NIK 25 Full. Basic Korean IME input works; the full IME checklist (`SPEC §6`) is not finished |
+| 🍎 **macOS (arm64)** | **Works end to end** | Rust host → C ABI → Kotlin/Native renderer → window on screen, one file with no Java runtime in it. The window, its Metal layer and its text input are this renderer's own. Basic Korean IME input works; the full IME checklist (`SPEC §6`) is not finished |
 | 🪟 Windows desktop | Builds and starts | Built with upstream GraalVM 25 and smoke-tested on every renderer change. |
 | 🐧 Linux desktop | Builds and starts | Both architectures (x64 and arm64) build under Xvfb in CI and pass a headless startup smoke test. |
 | 📱 iOS | Builds and starts | Kotlin/Native `-produce static` exporting the same C symbols. Released as an XCFramework. |
@@ -285,7 +285,10 @@ makes a round trip through Rust. Scroll position, focus and animation state belo
 too.
 
 <details>
-<summary><b>Why macOS needs Liberica NIK, and three small shims</b></summary>
+<summary><b>Why the native image needs Liberica NIK, and three small shims</b></summary>
+
+This is the GraalVM native image, which is how Windows is built and how macOS was built before the
+Kotlin/Native path. The renderer macOS ships links no AWT and needs none of what follows.
 
 Compose Desktop's window is an AWT `JFrame`, and AOT compilation does not change which code path
 runs, so the AWT IME path survives native-image (`D4`). But upstream GraalVM **skips AWT entirely
@@ -361,7 +364,10 @@ so both components are required. The workspace targets Rust **1.85+** (edition 2
 rustup component add rustfmt clippy
 ```
 
-### 2. Liberica NIK 25 **Full**, only for the native renderer build
+### 2. Liberica NIK 25 **Full**, only for the GraalVM native image
+
+Not needed to build the renderer macOS ships. That one is Kotlin/Native, and what it needs is the
+patched Compose in step 3.
 
 > ⚠️ **Upstream GraalVM does not work on macOS.** It skips AWT support on Darwin
 > ([oracle/graal#13272](https://github.com/oracle/graal/issues/13272), still open as of 2026-09), so
@@ -390,23 +396,49 @@ AppKit headers used by `dioxus-compose-renderer/desktop/c/`.
 
 **The scripts support macOS only today.** Linux and Windows native-image builds are not scripted.
 
-### 3. Kotlin
+### 3. The patched Compose
+
+The renderer resolves Compose from your local Maven repository, not from what JetBrains published.
+Three things it needs are empty in the published build for this platform and cannot be filled from
+outside the module that holds them: the entries a text selection's menu offers, the keys that copy,
+and the Linux targets. The patches are in `dioxus-compose-renderer/patches/`, pinned to one Compose
+revision, and each one says what it is for.
+
+```bash
+./dioxus-compose-renderer/scripts/build-compose.sh
+```
+
+It fetches the pinned revision, applies the patches, and publishes the modules the renderer asks
+for. Slow, and run once rather than once per build. Everything else still resolves from what
+JetBrains published.
+
+### 4. Kotlin
 
 Nothing to install. `dioxus-compose-renderer/kotlin` (`kotlin.bat` on Windows) is a
 self-bootstrapping wrapper that downloads the pinned toolchain on first use.
 
-### 4. Build the renderer
+### 5. Build the renderer
 
-Produces the renderer, Skia and the `libjawt` / `libawt_lwawt` helpers in
-`dioxus-compose-renderer/build/native-image/dist/lib/` (`PR-8`). Takes several minutes.
+Produces one static library, with Compose, Skia and the interpreter inside it, in
+`dioxus-compose-renderer/build/macos/` (`PR-8`). Takes several minutes.
 
 ```bash
 cd dioxus-compose-renderer
-./desktop/scripts/build-native.sh
+./desktop/scripts/build-macos.sh --release
+```
+
+```
+build/macos/
+  libdioxus_compose_renderer.a       the renderer (Compose, Skia, the interpreter, our code)
+  libdioxus_compose_renderer_api.h   the header Kotlin/Native generates for it
 ```
 
 <details>
-<summary><b>What lands in <code>dist/lib/</code></b></summary>
+<summary><b>The GraalVM native image, and what lands in <code>dist/lib/</code></b></summary>
+
+`./desktop/scripts/build-native.sh` builds the native image instead. That is how Windows is built
+and what `smoke-test.sh` links against, and it is no longer how macOS ships. Its output is a
+directory rather than one file, because statically linked AWT resolves some things by path:
 
 ```
 build/native-image/dist/lib/
@@ -417,7 +449,7 @@ build/native-image/dist/lib/
 ```
 </details>
 
-### 5. Smoke-test it
+### 6. Smoke-test it
 
 Links a minimal C host against the library and calls `dioxus_compose_renderer_run`. A window should
 open, and closing it should return 0, the `PR-8` acceptance criterion.
@@ -429,7 +461,7 @@ cd dioxus-compose-renderer
 
 For an unattended run, set `DIOXUS_COMPOSE_AUTOEXIT_MS=6000` to make the window close itself.
 
-### 6. Run the Rust demo
+### 7. Run the Rust demo
 
 ```bash
 cargo run -p dioxus-compose --example desktop_demo --features native-renderer
@@ -440,7 +472,7 @@ In a checkout of this repository the build script prefers the renderer you just 
 order is `DIOXUS_COMPOSE_RENDERER_DIR`, then that workspace build, then the cache, then the release
 for the crate's version (`NFR-10`).
 
-### 7. The JVM dev shell
+### 8. The JVM dev shell
 
 The fastest loop when you are working on the renderer itself: hot reload and `@Preview` work, and no
 native-image build is needed (`NFR-5`, `D7`).

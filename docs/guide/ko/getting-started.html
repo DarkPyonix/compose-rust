@@ -113,22 +113,43 @@ dioxus-compose = "0.0.0"</code></pre>
       <table>
         <thead><tr><th scope="col">무엇</th><th scope="col">왜</th></tr></thead>
         <tbody>
-          <tr><td>macOS (Apple Silicon 또는 Intel)</td><td>네이티브 빌드 스크립트는 Darwin이 아니면 바로 종료합니다.</td></tr>
-          <tr><td>Xcode 커맨드라인 도구</td><td>C와 Objective-C 파일 몇 개를 컴파일하고 라이브러리를 링크합니다.</td></tr>
+          <tr><td>macOS (Apple Silicon)</td><td>Kotlin/Native는 이 타깃을 macOS에서만 빌드하고, 빌드 스크립트가 다루는 것은 arm64입니다.</td></tr>
+          <tr><td>Xcode 커맨드라인 도구</td><td>링크 단계가 <code>xcrun</code>으로 macOS SDK를 찾고, C와 Objective-C 파일 몇 개도 컴파일합니다.</td></tr>
           <tr><td>Rust 툴체인 (stable)</td><td>Host 크레이트를 빌드합니다. 보통 <code>rustup</code>으로 설치합니다.</td></tr>
-          <tr><td><strong>Liberica NIK 25 Full</strong></td><td><code>native-image</code>로 렌더러를 빌드합니다. 일반 GraalVM으로는 안 됩니다. 아래 설명을 보세요.</td></tr>
+          <tr><td><strong>패치된 Compose</strong></td><td><code>dioxus-compose-renderer/scripts/build-compose.sh</code>가 로컬 Maven 저장소에 발행합니다. 아래를 보세요.</td></tr>
+          <tr><td>Liberica NIK 25 Full <em>(선택)</em></td><td>GraalVM 네이티브 이미지에만 필요하고, macOS는 더 이상 그것으로 배포하지 않습니다. 아래 설명을 보세요.</td></tr>
         </tbody>
       </table>
     </div>
 
+    <p>
+      렌더러는 JetBrains가 발행한 것이 아니라 로컬 Maven 저장소에서 Compose를 찾습니다. 이
+      프로젝트에 필요한 세 가지가 이 플랫폼용 공개 빌드에서는 비어 있고, 그 어느 것도 그것을 담고
+      있는 모듈 밖에서는 채울 수 없기 때문입니다. 텍스트 선택 메뉴가 내주는 항목, 복사에 쓰이는
+      키, 그리고 Linux 타깃입니다. 패치는 <code>dioxus-compose-renderer/patches/</code>에 있고,
+      Compose 리비전 하나에 고정돼 있으며, 각각 무엇을 위한 것인지 적혀 있습니다.
+    </p>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>shell</figcaption>
+<pre><code>./dioxus-compose-renderer/scripts/build-compose.sh</code></pre>
+    </figure>
+
+    <p>
+      고정된 리비전을 받아 패치를 얹고, 렌더러가 요구하는 모듈을 발행합니다. 오래 걸리지만 빌드마다
+      할 일은 아니고 한 번이면 됩니다. 나머지는 여전히 JetBrains가 발행한 것에서 해결됩니다.
+    </p>
+
     <div class="warn">
-      <span class="label">upstream GraalVM이 아니라 Liberica NIK입니다</span>
+      <span class="label">네이티브 이미지를 빌드한다면 Liberica NIK입니다</span>
       <p>
         upstream GraalVM은 Darwin에서 AWT 지원을 건너뜁니다
         (<a href="https://github.com/oracle/graal/issues/13272">oracle/graal#13272</a>, 2026-09
-        기준 여전히 open). Compose Desktop은 AWT를 거쳐 그리기 때문에, upstream으로 만든 이미지는
-        띄울 창 자체가 없습니다. Liberica NIK Full은 AWT를 정적으로 링크하므로, macOS에서는 이쪽이
-        필수 툴체인입니다.
+        기준 여전히 open). 네이티브 이미지는 AWT를 거쳐 그리기 때문에, upstream으로 만든 이미지는
+        띄울 창 자체가 없습니다. Liberica NIK Full은 AWT를 정적으로 링크합니다. macOS가 배포하는
+        렌더러에는 해당하지 않는 이야기입니다. 그쪽은 Kotlin/Native이고 AWT를 전혀 링크하지
+        않습니다. 네이티브 이미지는 Windows를 빌드하는 방식이고,
+        <code>desktop/scripts/smoke-test.sh</code>가 링크하는 대상입니다.
       </p>
     </div>
 
@@ -148,9 +169,9 @@ dioxus-compose = "0.0.0"</code></pre>
     <p>
       NIK 자체가 없다면 <code>./scripts/install-nik.sh</code>가 설치해 줍니다. 버전으로 주소를
       잡기 때문에 캐시가 따뜻하면 두 번째 실행은 아무 일도 하지 않습니다. 내려받기는 호출할 때마다가
-      아니라 NIK 버전마다 한 번입니다. 빌드 스크립트는 <code>lib/static/darwin-*/libawt_lwawt.a</code>가
-      없는 설치를 거부합니다. 순정 GraalVM을 긴 빌드 끝의 링크 실패가 아니라 시작 전에 잡아내려는
-      장치입니다.
+      아니라 NIK 버전마다 한 번입니다. 네이티브 이미지 빌드는
+      <code>lib/static/darwin-*/libawt_lwawt.a</code>가 없는 설치를 거부합니다. 순정 GraalVM을 긴
+      빌드 끝의 링크 실패가 아니라 시작 전에 잡아내려는 장치입니다.
     </p>
 
     <p>

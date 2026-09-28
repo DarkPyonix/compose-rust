@@ -114,21 +114,44 @@ dioxus-compose = "0.0.0"</code></pre>
       <table>
         <thead><tr><th scope="col">What</th><th scope="col">Why</th></tr></thead>
         <tbody>
-          <tr><td>macOS on Apple silicon or Intel</td><td>The native build script exits immediately on anything but Darwin.</td></tr>
-          <tr><td>Xcode command line tools</td><td>The build compiles a few C and Objective-C files and links the library.</td></tr>
+          <tr><td>macOS on Apple silicon</td><td>Kotlin/Native builds this target on macOS only, and the build script covers arm64.</td></tr>
+          <tr><td>Xcode command line tools</td><td>The link step reaches the macOS SDK through <code>xcrun</code>, and a few C and Objective-C files are compiled.</td></tr>
           <tr><td>A Rust toolchain (stable)</td><td>The Host crate. <code>rustup</code> is the usual way in.</td></tr>
-          <tr><td><strong>Liberica NIK 25 Full</strong></td><td>Builds the renderer with <code>native-image</code>. See the note below, an ordinary GraalVM will not do.</td></tr>
+          <tr><td><strong>The patched Compose</strong></td><td>Published into your local Maven repository by <code>dioxus-compose-renderer/scripts/build-compose.sh</code>. See below.</td></tr>
+          <tr><td>Liberica NIK 25 Full <em>(optional)</em></td><td>Only for the GraalVM native image, which macOS no longer ships. See the note below.</td></tr>
         </tbody>
       </table>
     </div>
 
+    <p>
+      The renderer resolves Compose from your local Maven repository, not from what JetBrains
+      published. Three things this project needs are empty in the published build for this
+      platform, and none of them can be filled from outside the module that holds them: the
+      entries a text selection's menu offers, the keys that copy, and the Linux targets. The
+      patches are in <code>dioxus-compose-renderer/patches/</code>, pinned to one Compose
+      revision, and each says what it is for.
+    </p>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>shell</figcaption>
+<pre><code>./dioxus-compose-renderer/scripts/build-compose.sh</code></pre>
+    </figure>
+
+    <p>
+      It fetches the pinned revision, applies the patches, and publishes the modules the renderer
+      asks for. This is slow and you run it once, not once per build. Everything else still
+      resolves from what JetBrains published.
+    </p>
+
     <div class="warn">
-      <span class="label">Use Liberica NIK, not upstream GraalVM</span>
+      <span class="label">If you do build the native image, use Liberica NIK</span>
       <p>
         Upstream GraalVM skips AWT support on Darwin (<a href="https://github.com/oracle/graal/issues/13272">oracle/graal#13272</a>,
-        still open as of 2026-09). Compose Desktop draws through AWT, so an image built with upstream
-        GraalVM has no window to show. Liberica NIK Full links AWT statically, which is why it is the
-        required toolchain on macOS.
+        still open as of 2026-09), and the native image draws through AWT, so an image built with
+        upstream GraalVM has no window to show. Liberica NIK Full links AWT statically. This does
+        not apply to the renderer macOS ships, which is Kotlin/Native and links no AWT at all: the
+        native image is how Windows is built and what
+        <code>desktop/scripts/smoke-test.sh</code> links against.
       </p>
     </div>
 
@@ -149,9 +172,9 @@ dioxus-compose = "0.0.0"</code></pre>
     <p>
       If you have no NIK at all, <code>./scripts/install-nik.sh</code> installs it. The install is
       addressed by version, so a warm cache makes a second run a no-op, the download happens once
-      per NIK version, not once per invocation. The build script itself refuses an installation
-      without <code>lib/static/darwin-*/libawt_lwawt.a</code>, which catches a stock GraalVM up
-      front instead of at the end of a long build.
+      per NIK version, not once per invocation. The native-image build itself refuses an
+      installation without <code>lib/static/darwin-*/libawt_lwawt.a</code>, which catches a stock
+      GraalVM up front instead of at the end of a long build.
     </p>
 
     <p>
