@@ -10,6 +10,12 @@ whichever the session has), the URI handler (xdg-open), drag and drop, focus, th
 pointer icon, tracing, the font resolver and the string delegate, plus the
 target itself in each module's build.gradle.
 
+Also here: the two dispatchers a snapshot's apply notifications are sent from. The
+other native targets use the main dispatcher, which is Apple's main run loop and
+which Linux has not got. Asking for it does not fail where it is used but where
+that file is initialised, so a window died before it opened with "Dispatchers.Main
+is missing on the current platform".
+
 Nothing outside a source set is changed, so this does not alter what any other
 target builds or publishes.
 --
@@ -2641,6 +2647,84 @@ index 00000000..90836b3c
 +actual typealias InteropView = Any
 +
 +internal actual typealias InteropViewGroup = Any
+diff --git a/compose/ui/ui/src/nativeMain/kotlin/androidx/compose/ui/platform/GlobalSnapshotManager.native.kt b/compose/ui/ui/src/nativeMain/kotlin/androidx/compose/ui/platform/GlobalSnapshotManager.native.kt
+index f476d031..ba3c1e00 100644
+--- a/compose/ui/ui/src/nativeMain/kotlin/androidx/compose/ui/platform/GlobalSnapshotManager.native.kt
++++ b/compose/ui/ui/src/nativeMain/kotlin/androidx/compose/ui/platform/GlobalSnapshotManager.native.kt
+@@ -16,7 +16,23 @@
+ 
+ package androidx.compose.ui.platform
+ 
++import androidx.compose.ui.platformMainDispatcher
+ import kotlinx.coroutines.CoroutineDispatcher
+ import kotlinx.coroutines.Dispatchers
+ 
+-internal actual val GlobalSnapshotManagerDispatcher: CoroutineDispatcher = Dispatchers.Main
+\ No newline at end of file
++/**
++ * Where a snapshot's apply notifications are sent from.
++ *
++ * The main dispatcher on the platforms that have one, which here is Apple's main run loop.
++ * Linux has none, and asking for it does not fail where it is used but where this file is
++ * initialised, so a window died before it opened with "Dispatchers.Main is missing on the
++ * current platform".
++ *
++ * Unconfined there means the thread that wrote the state. A window on Linux owns its loop
++ * and everything that composes, draws and applies state runs on it, so that thread is the
++ * one an apply notification should come from anyway. What this does not survive is a second
++ * thread writing composable state, and neither would a queue nobody drains, which is the
++ * only other thing a platform without a loop of its own can offer.
++ */
++internal actual val GlobalSnapshotManagerDispatcher: CoroutineDispatcher =
++    platformMainDispatcher ?: Dispatchers.Unconfined
+diff --git a/compose/ui/ui/src/nonJvmMain/kotlin/androidx/compose/ui/Actuals.nonJvm.kt b/compose/ui/ui/src/nonJvmMain/kotlin/androidx/compose/ui/Actuals.nonJvm.kt
+index d79080db..bcf22025 100644
+--- a/compose/ui/ui/src/nonJvmMain/kotlin/androidx/compose/ui/Actuals.nonJvm.kt
++++ b/compose/ui/ui/src/nonJvmMain/kotlin/androidx/compose/ui/Actuals.nonJvm.kt
+@@ -19,6 +19,7 @@ package androidx.compose.ui
+ import androidx.compose.ui.node.ModifierNodeElement
+ import androidx.compose.ui.platform.InspectorInfo
+ import kotlin.coroutines.CoroutineContext
++import kotlinx.coroutines.CoroutineDispatcher
+ import kotlinx.coroutines.Dispatchers
+ 
+ internal actual fun classKeyForObject(a: Any): Any {
+@@ -33,5 +34,34 @@ internal actual fun InspectorInfo.tryPopulateReflectively(
+ ) {
+ }
+ 
++/**
++ * The main dispatcher, or nothing where the platform has not got one.
++ *
++ * Asked once and kept. Every target that reaches this file has one except Linux, which has
++ * no loop for coroutines to attach to.
++ *
++ * Asked for by `immediate` rather than by name, because asking by name succeeds everywhere:
++ * where there is none the answer is a stub that throws the first time something dispatches
++ * to it, which is inside a coroutine start and a long way from here. `immediate` is the
++ * property that stub refuses, so it is the question that gets an answer now rather than a
++ * crash later. Reading only the name is what the first version of this did, and the window
++ * still died, in `GlobalSnapshotManager.ensureStarted`.
++ */
++private val mainDispatcherIfThereIsOne: CoroutineDispatcher? = try {
++    Dispatchers.Main.immediate
++} catch (missing: Throwable) {
++    null
++}
++
++/**
++ * Where work that was asked to happen a moment from now is run.
++ *
++ * Unconfined where there is no main dispatcher, which means the thread that asked. A
++ * platform without one owns its own loop and everything that composes and draws is already
++ * on it, so that thread is where this work belongs anyway.
++ */
+ internal actual val PostDelayedDispatcher: CoroutineContext
+-    get() = Dispatchers.Main
++    get() = mainDispatcherIfThereIsOne ?: Dispatchers.Unconfined
++
++/** The same question, for whatever else in this build needs to know. */
++internal val platformMainDispatcher: CoroutineDispatcher? get() = mainDispatcherIfThereIsOne
 diff --git a/navigation/navigation-compose/build.gradle b/navigation/navigation-compose/build.gradle
 index 01f2d88f..bf203c6d 100644
 --- a/navigation/navigation-compose/build.gradle

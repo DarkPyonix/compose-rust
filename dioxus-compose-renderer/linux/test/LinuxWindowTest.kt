@@ -3,7 +3,10 @@
 package dioxus.compose.ui.platform
 
 import kotlin.test.Test
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlinx.cinterop.toKString
+import platform.posix.getenv
 import platform.posix.unsetenv
 
 /**
@@ -20,6 +23,30 @@ import platform.posix.unsetenv
  * `WindowEventLogTest` on the JVM cover the two ways the code can get that wrong.
  */
 class LinuxWindowTest {
+
+    /**
+     * A window opens where there is a display server to open it on.
+     *
+     * The other test here is about the machine that has none. This is about the one that has,
+     * and what it covers is everything `open` does before a frame is ever asked for: choosing a
+     * visual with a depth buffer, making a colormap for it, creating the window, and making a
+     * GLX context current on it. Every one of those can fail against a real server and none of
+     * them can fail without one, which is why this could not be written until there was a Linux
+     * to run it on.
+     *
+     * Skipped where there is no display. The machine that has one answers this; the machine that
+     * has none is answered by the test below.
+     */
+    @Test
+    fun nfr1_a_window_opens_where_there_is_a_display_server() {
+        if (getenv("DISPLAY")?.toKString().isNullOrEmpty()) return
+        val window = LinuxWindow.open(title = "opens", width = 320, height = 240)
+        assertNotNull(
+            window,
+            "a display server is present and the window did not open: the visual, the colormap, " +
+                "the window or the GL context was refused",
+        )
+    }
 
     @Test
     fun nfr1_a_window_refuses_to_open_where_there_is_no_display_server() {
