@@ -130,17 +130,6 @@ fn thread_width(window: &WindowSize) -> Option<f32> {
     }
 }
 
-/// The bar across the top of the window, with its contents held to the thread's measure.
-///
-/// A bar spans the window because it belongs to the window. Its contents belong to the
-/// conversation, and a title that starts at the window's edge while the thread it names
-/// starts two hundred dp further in is a window whose two halves disagree about where the
-/// left side is. So the bar fills, and the row inside it is the same width as the thread
-/// and carries the same inset.
-///
-/// `measure` is `None` on a window with nothing to spare, where the row fills the bar and
-/// the bar's own inset is already the thread's.
-
 /// The assistant's settings, as a panel that can stand on its own.
 ///
 /// Everything here changes what the worker does with the next reply, which is the
@@ -242,6 +231,7 @@ pub fn app() -> Element {
     let mut settings = use_signal(Settings::default);
     let mut settings_open = use_signal(|| false);
     let mut length_open = use_signal(|| false);
+    let mut more_open = use_signal(|| false);
     let mut search_open = use_signal(|| false);
     let mut search_query = use_signal(String::new);
     // The conversations, newest last, and the one being read. A chat application with one
@@ -300,6 +290,65 @@ pub fn app() -> Element {
         assistant::stream_reply(text, token, turns.peek().clone(), settings(), messages);
     };
 
+    // Nothing is thrown away: the conversation that was on screen stays in the sidebar,
+    // which is what the reference does and what makes the sidebar worth having.
+    let mut start_conversation = move || {
+        let id = next_conversation();
+        next_conversation.set(id + 1);
+        conversations.write().push(Conversation {
+            id,
+            title: String::new(),
+        });
+        current.set(id);
+    };
+
+    // Deleting is the one thing here that throws a conversation away, so it says what it
+    // did and offers it back.
+    let mut delete_current = move || {
+        let gone = current();
+        let entries = conversations();
+        let Some(at) = entries.iter().position(|entry| entry.id == gone) else {
+            return;
+        };
+        let removed = entries[at].clone();
+        let lines = messages();
+        // The worker is already handled: beginning a turn bumps the token, and a worker
+        // whose token is no longer current stops at its next chunk rather than appending
+        // to a conversation that has gone.
+        turns.peek().begin();
+        conversations.write().remove(at);
+        messages
+            .write()
+            .retain(|message| message.conversation != gone);
+        // There is always somewhere to be. Deleting the last one leaves an empty
+        // conversation rather than a screen with no conversation in it, which is a state
+        // the rest of this screen cannot draw.
+        if conversations.read().is_empty() {
+            let id = next_conversation();
+            next_conversation.set(id + 1);
+            conversations.write().push(Conversation {
+                id,
+                title: String::new(),
+            });
+        }
+        let next = conversations.read()[at.min(conversations.read().len() - 1)].id;
+        current.set(next);
+        // Spelled out, because this file already has a `Message` and it is a line of a
+        // conversation. The library's is the one sentence an application says after
+        // something happened.
+        dioxus_compose::Message::new(format!(
+            "Deleted \u{201c}{}\u{201d}",
+            removed.label()
+        ))
+        .with_action("Undo", move |()| {
+            conversations.write().insert(at, removed.clone());
+            messages.set(lines.clone());
+            current.set(gone);
+        })
+        .with_duration(MessageDuration::Long)
+        .show();
+    };
+
     // What is on screen is one conversation's messages. The list holds every
     // conversation's, so this is the window into it, the same shape the task list uses
     // for its filters.
@@ -330,217 +379,278 @@ pub fn app() -> Element {
         .cloned()
         .collect();
     let show_search = window.is_expanded();
-    let _selected = recent
+    let selected = recent
         .iter()
         .position(|entry| entry.id == current())
         .map_or(0, |index| index + usize::from(show_search));
 
     rsx! {
-        // A frame with only its page filled. This screen has no bar and no destinations:
-        // its controls float over the page, which is what its reference does, and the
-        // window buttons sit on the page beside them. What the frame is for here is the
-        // inset, so the page starts clear of the caption without this screen working out
-        // where the caption is.
+        // The reference's window has three parts and no bar: a sidebar the window buttons
+        // sit on, a page, and a composer floating at the foot of the page. The frame is
+        // told which is which and the Renderer decides what each becomes at this width:
+        // the destinations are a sidebar on a desktop, a rail on a tablet and a bar along
+        // the bottom of a phone, and the two actions float in a capsule rather than
+        // standing in a strip across the top.
+        //
+        // The window itself is chrome. Where the platform can put its own material behind
+        // a window, that is what asking for it here does, and the desktop shows through
+        // the sidebar and, more faintly, through the page.
         Scaffold {
+            material: MaterialRole::Chrome,
+            top_bar: rsx! {
+                TopAppBar {
+                    fill_max_width: true,
+                    Spacer { weight: 1.0 }
+                    // The reference's two trailing actions. One starts a conversation and
+                    // the other holds what is done to the one on screen.
+                    Button {
+                        text: "",
+                        icon: IconRole::Add,
+                        variant: ButtonVariant::Text,
+                        on_click: move |_| start_conversation(),
+                    }
+                    Menu {
+                        expanded: more_open(),
+                        on_dismiss: move |_| more_open.set(false),
+                        anchor: rsx! {
+                            Button {
+                                text: "",
+                                icon: IconRole::More,
+                                variant: ButtonVariant::Text,
+                                on_click: move |_| more_open.set(true),
+                            }
+                        },
+                        Button {
+                            text: "Assistant settings",
+                            variant: ButtonVariant::Text,
+                            fill_max_width: true,
+                            on_click: move |_| {
+                                more_open.set(false);
+                                settings_open.set(true);
+                            },
+                        }
+                        Button {
+                            text: "Delete conversation",
+                            variant: ButtonVariant::Text,
+                            color: Paint::Role(ColorRole::Error),
+                            fill_max_width: true,
+                            enabled: conversations.read().len() > 1,
+                            on_click: move |_| {
+                                more_open.set(false);
+                                delete_current();
+                            },
+                        }
+                    }
+                }
+            },
+            // The conversations are the destination set, which is the reference's
+            // sidebar. This code never asks how wide the window is for it.
+            bottom_bar: rsx! {
+                Navigation {
+                    selected_index: selected,
+                    if show_search {
+                        NavigationItem {
+                            text: "Search",
+                            icon: IconRole::Search,
+                            on_click: move |()| search_open.set(true),
+                        }
+                    }
+                    for conversation in recent.iter().cloned() {
+                        NavigationItem {
+                            key: "{conversation.id}",
+                            text: conversation.label(),
+                            // A rail is allowed to drop the labels, so a destination that
+                            // is nothing but a title would be a blank strip in one of the
+                            // three presentations.
+                            icon: IconRole::Inbox,
+                            on_click: {
+                                let id = conversation.id;
+                                move |()| current.set(id)
+                            },
+                        }
+                    }
+                }
+            },
+
+            // On a narrow window the thread is the window. On anything wider it is a
+            // column of its own, centred, with the page showing either side of it. The
+            // page is the frame's, so the column paints nothing: what is behind it is the
+            // design system's page, and on a window made of glass, the desktop.
             dioxus_compose::Box {
                 fill_max_width: true,
                 fill_max_height: true,
-
+                alignment: Alignment::TopCenter,
                 Column {
-                    fill_max_width: true,
+                    fill_max_width: measure.is_none(),
+                    width: measure,
                     fill_max_height: true,
+                    padding_role: SpaceRole::Md,
+                    space_role: SpaceRole::Md,
 
-                    // Floating buttons at the top
-                    Row {
-                        fill_max_width: true,
-                        padding_role: SpaceRole::Md,
-                        alignment: Alignment::CenterStart,
-                        // Window buttons sit on the page, so just a little spacer if needed,
-                        // but we'll just put the menu button.
-                        Button {
-                            text: "\u{2630}",
-                            variant: ButtonVariant::Tonal,
-                            shape_role: ShapeRole::Full,
-                            on_click: move |_| search_open.set(true),
-                        }
-                        Spacer { weight: 1.0 }
-                        Card {
-                            shape_role: ShapeRole::Full,
-                            Row {
-                                Button {
-                                    text: "+",
-                                    variant: ButtonVariant::Text,
-                                    on_click: move |_| {
-                                        let id = next_conversation();
-                                        next_conversation.set(id + 1);
-                                        conversations.write().push(Conversation {
-                                            id,
-                                            title: String::new(),
-                                        });
-                                        current.set(id);
-                                    },
-                                }
-                                Button {
-                                    text: "\u{2026}",
-                                    variant: ButtonVariant::Text,
-                                    on_click: move |_| settings_open.set(true),
-                                }
-                            }
-                        }
-                    }
-
+                    // A reply arriving is work in progress, and a line is what every one
+                    // of these systems uses to say so. Indeterminate, because the
+                    // assistant does not know how long its answer is going to be either.
                     if busy {
                         ProgressIndicator { determinate: false }
                     }
 
+                    // The scrollback and, while there is nothing in it, what the screen
+                    // is. The list is declared either way: a conversation that begins by
+                    // building a list is a conversation whose first message arrives a
+                    // frame late.
                     dioxus_compose::Box {
                         fill_max_width: true,
-                        fill_max_height: true,
-                        alignment: Alignment::TopCenter,
-                        Column {
-                            fill_max_width: measure.is_none(),
-                            width: measure,
+                        weight: 1.0,
+                        alignment: Alignment::Center,
+                        LazyColumn {
+                            fill_max_width: true,
                             fill_max_height: true,
-                            background: Paint::Role(ColorRole::SurfaceContainer),
-                            padding_role: SpaceRole::Md,
-                            space_role: SpaceRole::Md,
-
-                            dioxus_compose::Box {
-                                fill_max_width: true,
-                                weight: 1.0,
-                                alignment: Alignment::Center,
-                                LazyColumn {
-                                    fill_max_width: true,
-                                    fill_max_height: true,
-                                    item_count: count,
-                                    key_of: move |index: usize| keys[index].clone(),
-                                    item: move |position: usize| {
-                                        let index = rows[position];
-                                        let message = messages.read()[index].clone();
-                                        let starts_a_run = position == 0
-                                            || messages.read()[rows[position - 1]].from_user != message.from_user;
-                                        let (fill, ink) = if message.from_user {
-                                            (ColorRole::Primary, ColorRole::OnPrimary)
+                            item_count: count,
+                            key_of: move |index: usize| keys[index].clone(),
+                            item: move |position: usize| {
+                                let index = rows[position];
+                                let message = messages.read()[index].clone();
+                                // A name over every bubble is a name repeated once per
+                                // line, so it is printed once at the head of a run.
+                                let starts_a_run = position == 0
+                                    || messages.read()[rows[position - 1]].from_user != message.from_user;
+                                // Who said it is the side the bubble sits on and the colour
+                                // it is filled with, with the name left as confirmation.
+                                let (fill, ink) = if message.from_user {
+                                    (ColorRole::Primary, ColorRole::OnPrimary)
+                                } else {
+                                    (ColorRole::SurfaceVariant, ColorRole::OnSurfaceVariant)
+                                };
+                                rsx! {
+                                    dioxus_compose::Box {
+                                        fill_max_width: true,
+                                        padding_role: if starts_a_run {
+                                            SpaceRole::Sm
                                         } else {
-                                            (ColorRole::SurfaceVariant, ColorRole::OnSurfaceVariant)
-                                        };
-                                        rsx! {
-                                            dioxus_compose::Box {
-                                                fill_max_width: true,
-                                                padding_role: if starts_a_run {
-                                                    SpaceRole::Sm
-                                                } else {
-                                                    SpaceRole::Xs
-                                                },
-                                                alignment: if message.from_user {
-                                                    Alignment::CenterEnd
-                                                } else {
-                                                    Alignment::CenterStart
-                                                },
-                                                Column {
-                                                    space_role: SpaceRole::Xs,
-                                                    alignment: if message.from_user {
-                                                        Alignment::CenterEnd
+                                            SpaceRole::Xs
+                                        },
+                                        alignment: if message.from_user {
+                                            Alignment::CenterEnd
+                                        } else {
+                                            Alignment::CenterStart
+                                        },
+                                        Column {
+                                            space_role: SpaceRole::Xs,
+                                            alignment: if message.from_user {
+                                                Alignment::CenterEnd
+                                            } else {
+                                                Alignment::CenterStart
+                                            },
+                                            if starts_a_run {
+                                                Text {
+                                                    text: if message.from_user { "You" } else { "Assistant" },
+                                                    type_role: TypeRole::Caption,
+                                                    color: Paint::Role(ColorRole::OnSurfaceVariant),
+                                                }
+                                            }
+                                            Column {
+                                                background: Paint::Role(fill),
+                                                shape_role: ShapeRole::Large,
+                                                padding_role: SpaceRole::Md,
+                                                Text {
+                                                    // A message still arriving shows a
+                                                    // caret so an empty reply does not look
+                                                    // like a dead one.
+                                                    text: if message.streaming {
+                                                        format!("{}\u{2589}", message.text)
                                                     } else {
-                                                        Alignment::CenterStart
+                                                        message.text.clone()
                                                     },
-                                                    if starts_a_run {
-                                                        Text {
-                                                            text: if message.from_user { "You" } else { "Assistant" },
-                                                            type_role: TypeRole::Caption,
-                                                            color: Paint::Role(ColorRole::OnSurfaceVariant),
-                                                        }
-                                                    }
-                                                    Column {
-                                                        background: Paint::Role(fill),
-                                                        shape_role: ShapeRole::Large,
-                                                        padding_role: SpaceRole::Md,
-                                                        Text {
-                                                            text: if message.streaming {
-                                                                format!("{}\u{2589}", message.text)
-                                                            } else {
-                                                                message.text.clone()
-                                                            },
-                                                            type_role: TypeRole::Body,
-                                                            color: Paint::Role(ink),
-                                                        }
-                                                    }
+                                                    type_role: TypeRole::Body,
+                                                    color: Paint::Role(ink),
                                                 }
                                             }
                                         }
+                                    }
+                                }
+                            },
+                        }
+                        if count == 0 {
+                            {opening_greeting()}
+                        }
+                    }
+
+                    // The composer, as the reference has it: one capsule floating at the
+                    // foot of the page, held in from both sides and the bottom, holding
+                    // everything that belongs to sending a message.
+                    //
+                    // Made of a material rather than being a `Card`. A card is the
+                    // document in a desktop window and stays opaque there; the composer is
+                    // chrome at every width, and a regular material is what a design
+                    // system draws chrome in: glass where it draws glass, its own raised
+                    // surface where it does not.
+                    Row {
+                        fill_max_width: true,
+                        material: MaterialRole::Regular,
+                        shape_role: ShapeRole::Full,
+                        // A step of room inside the pill. A stadium's edge curves in at
+                        // the top and bottom, and the field is a rectangle: at the
+                        // system's own padding its corners came out through the curve.
+                        padding_role: SpaceRole::Sm,
+                        space_role: SpaceRole::Sm,
+                        alignment: Alignment::CenterStart,
+                        // No `on_key_down` here on purpose. The Renderer already treats
+                        // Enter in a multiline field that has a submit handler as "send"
+                        // and Shift+Enter as "new line", and `on_submit` carries the text
+                        // the field holds at that instant.
+                        TextField {
+                            weight: 1.0,
+                            multiline: true,
+                            // The long form needs a line to itself, and on a phone there
+                            // is no line to spare.
+                            placeholder: if crowded {
+                                "Message"
+                            } else {
+                                "Message. Enter sends, Shift+Enter starts a new line"
+                            },
+                            on_value_change: move |value| draft.set(value),
+                            on_submit: move |value: String| send(value),
+                        }
+                        // What the reference calls the model, which is the one thing about
+                        // an answer you can choose before asking for it. A menu behind its
+                        // own label rather than a `Dropdown`: a picker is a wheel in some
+                        // of these systems, taller than the composer it would sit in.
+                        Menu {
+                            expanded: length_open(),
+                            on_dismiss: move |_| length_open.set(false),
+                            anchor: rsx! {
+                                Button {
+                                    text: settings().length.label(),
+                                    variant: ButtonVariant::Text,
+                                    color: Paint::Role(ColorRole::OnSurfaceVariant),
+                                    on_click: move |_| length_open.set(true),
+                                }
+                            },
+                            for length in Length::ALL {
+                                Button {
+                                    key: "{length.label()}",
+                                    text: length.label(),
+                                    variant: ButtonVariant::Text,
+                                    fill_max_width: true,
+                                    on_click: move |_| {
+                                        length_open.set(false);
+                                        settings.set(Settings { length, ..settings() });
                                     },
                                 }
-                                if count == 0 {
-                                    {opening_greeting()}
-                                }
                             }
-
-                            Card {
-                                fill_max_width: true,
-                                shape_role: ShapeRole::Full,
-                                padding_role: SpaceRole::Sm,
-                                Row {
-                                    fill_max_width: true,
-                                    space_role: SpaceRole::Sm,
-                                    alignment: Alignment::CenterStart,
-                                    Button {
-                                        text: "+",
-                                        variant: ButtonVariant::Outlined,
-                                        shape_role: ShapeRole::Full,
-                                        on_click: move |_| {},
-                                    }
-                                    TextField {
-                                        weight: 1.0,
-                                        multiline: true,
-                                        placeholder: if crowded {
-                                            "Message"
-                                        } else {
-                                            "Message. Enter sends, Shift+Enter starts a new line"
-                                        },
-                                        on_value_change: move |value| draft.set(value),
-                                        on_submit: move |value: String| send(value),
-                                    }
-                                    Menu {
-                                        expanded: length_open(),
-                                        on_dismiss: move |_| length_open.set(false),
-                                        anchor: rsx! {
-                                            Button {
-                                                text: settings().length.label(),
-                                                variant: ButtonVariant::Text,
-                                                color: Paint::Role(ColorRole::OnSurfaceVariant),
-                                                on_click: move |_| length_open.set(true),
-                                            }
-                                        },
-                                        for length in Length::ALL {
-                                            Button {
-                                                key: "{length.label()}",
-                                                text: length.label(),
-                                                variant: ButtonVariant::Text,
-                                                fill_max_width: true,
-                                                on_click: move |_| {
-                                                    length_open.set(false);
-                                                    settings.set(Settings { length, ..settings() });
-                                                },
-                                            }
-                                        }
-                                    }
-                                    Button {
-                                        text: "\u{1f3a4}",
-                                        variant: ButtonVariant::Text,
-                                        on_click: move |_| {},
-                                    }
-                                    Button {
-                                        text: "\u{2191}",
-                                        variant: ButtonVariant::Filled,
-                                        shape_role: ShapeRole::Full,
-                                        on_click: move |_| send(draft()),
-                                    }
-                                }
-                            }
+                        }
+                        Button {
+                            text: "Send",
+                            variant: ButtonVariant::Filled,
+                            shape_role: ShapeRole::Full,
+                            on_click: move |_| send(draft()),
                         }
                     }
                 }
 
+                // The settings arrive from an edge rather than taking the screen: what they
+                // change is the conversation behind them, and covering it to change it
+                // would hide the thing being changed. Which edge is the Renderer's.
                 Sheet {
                     open: settings_open(),
                     on_dismiss: move |_| settings_open.set(false),
@@ -585,7 +695,8 @@ pub fn app() -> Element {
                     }
                 }
             }
-        }    }
+        }
+    }
 }
 
 // Samples are demonstrations, so they let you see any of the design systems rather than
@@ -895,6 +1006,36 @@ mod tests {
             self.dispatch(node_id, handler, EventPayload::Clicked);
         }
 
+        /// Presses the button that carries this glyph and no label, which is what the
+        /// actions in the reference's toolbar are.
+        fn press_icon(&mut self, icon: IconRole) {
+            let batch = decode_batch(&self.first).expect("the first frame did not decode");
+            let buttons: HashSet<u32> = batch
+                .iter()
+                .filter_map(|mutation| match mutation {
+                    Mutation::Create {
+                        node_id,
+                        widget: WidgetKind::Button,
+                    } => Some(*node_id),
+                    _ => None,
+                })
+                .collect();
+            let node_id = batch
+                .iter()
+                .find_map(|mutation| match mutation {
+                    Mutation::SetProp {
+                        node_id,
+                        property: PropertyKind::Icon,
+                        value: PropertyValue::Integer(value),
+                    } if buttons.contains(node_id) && *value == icon as i64 => Some(*node_id),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("the screen has no {icon:?} button"));
+            drop(batch);
+            let handler = self.handler_of(node_id, PropertyKind::OnClick);
+            self.dispatch(node_id, handler, EventPayload::Clicked);
+        }
+
         /// Polls frames until the assistant has stopped typing, the way the Renderer does
         /// after the Host asks for one.
         fn settle(&mut self) -> String {
@@ -1035,6 +1176,16 @@ mod tests {
     /// is over: one picture cannot be of both. This one holds a radio group, a switch and
     /// a slider, which is three of the newest widgets in the vocabulary and the place a
     /// design system that has not drawn them yet would show it.
+    #[test]
+    fn fr21_the_settings_sheet_is_recorded_under_every_design_system_and_width() {
+        sample_frames::record("ChatSettings", app, |screen| {
+            screen.fill_lists(8);
+            assert!(
+                screen.press("Assistant settings"),
+                "the screen has no way to open the assistant's settings"
+            );
+        });
+    }
 
     /// Every property this screen sets has to be one the wire can name. A property the
     /// schema does not have fails the whole batch rather than just itself, so a screen that
@@ -1218,15 +1369,6 @@ mod tests {
         );
     }
 
-    /// The bar's contents and the thread are held to the same measure, so the title starts
-    /// where the conversation starts.
-    ///
-    /// A window has one left edge for the conversation in it. The bar used to span the
-    /// window while the thread was centred, so on a desktop window the title began a
-    /// hundred and seventy dp to the left of the thread it named. Two nodes carrying the
-    /// measure is what that agreement looks like on the wire: one is the row inside the
-    /// bar, the other is the thread.
-
     /// The assistant's settings reach the worker. A reply length that changed nothing
     /// about the reply would be a control wired to a signal and nothing else.
     #[test]
@@ -1258,14 +1400,231 @@ mod tests {
 
     /// Deleting throws a conversation away, so it offers it back. Starting a new one no
     /// longer destroys anything, because the old conversation stays in the sidebar.
+    #[test]
+    fn fr21_deleting_a_conversation_offers_it_back() {
+        let mut screen = Screen::new();
+        screen.open_window();
+        screen.send("tell me about streaming");
+        screen.settle();
+
+        screen.press_icon(IconRole::Add);
+        screen.press("Delete conversation");
+        assert_eq!(
+            screen.messages,
+            vec![(
+                "Deleted \u{201c}New chat\u{201d}".to_owned(),
+                "Undo".to_owned()
+            )],
+            "deleting should say what it did and offer it back"
+        );
+    }
 
     /// The conversations are the destination set, which is what the reference's sidebar
     /// is. One declaration, and the Renderer draws it as a bar, a rail or a sidebar from
     /// the width it measured.
+    #[test]
+    fn fr22_the_conversations_are_the_destination_set() {
+        let mut screen = Screen::new();
+        screen.open_window();
+        assert_eq!(
+            screen.nodes_of(WidgetKind::Navigation).len(),
+            1,
+            "the destinations should be one declaration the Renderer can turn into a bar, \
+             a rail or a sidebar"
+        );
+        let before = screen.destinations();
+        assert_eq!(
+            before,
+            vec!["New chat".to_owned()],
+            "a fresh screen should offer the one conversation it has"
+        );
+
+        screen.send("tell me about streaming");
+        screen.settle();
+        screen.press_icon(IconRole::Add);
+        let after = screen.destinations();
+        assert_eq!(
+            after,
+            vec!["New chat".to_owned(), "tell me about streaming".to_owned()],
+            "the conversation that was on screen should still be in the sidebar, named \
+             after its opening line"
+        );
+    }
+
+    /// On a desktop the sidebar opens with search, and pressing it opens the filter.
+    #[test]
+    fn fr22_the_desktop_search_destination_opens_the_filter_sheet() {
+        dioxus_compose::window::reset_window_size();
+        let mut host = Host::new(app);
+        host.rebuild().expect("the first frame failed to encode");
+
+        let resize = HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: EventPayload::WindowSizeChanged {
+                width_dp: 1_000.0,
+                height_dp: 700.0,
+                class: dioxus_compose::WindowSizeClass::Expanded,
+            },
+        };
+        let mut event = Vec::new();
+        encode_event(&resize, &mut event).expect("the resize did not encode");
+        let (batch, _) = host.dispatch_event(&event).expect("the resize failed");
+        let mutations = decode_batch(batch).expect("the resize batch did not decode");
+        let search = mutations
+            .iter()
+            .find_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::Text,
+                    value: PropertyValue::String("Search"),
+                } => Some(*node_id),
+                _ => None,
+            })
+            .expect("the expanded destination set has no search action");
+        let handler = mutations
+            .iter()
+            .find_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::OnClick,
+                    value: PropertyValue::Integer(handler),
+                } if *node_id == search => Some(*handler as u64),
+                _ => None,
+            })
+            .expect("the search action cannot be pressed");
+
+        encode_event(
+            &HostEvent {
+                node_id: search,
+                handler_id: handler,
+                payload: EventPayload::Clicked,
+            },
+            &mut event,
+        )
+        .expect("the search click did not encode");
+        let (batch, _) = host
+            .dispatch_event(&event)
+            .expect("the search click failed");
+        assert!(
+            decode_batch(batch)
+                .expect("the search frame did not decode")
+                .iter()
+                .any(|mutation| matches!(
+                    mutation,
+                    Mutation::SetProp {
+                        property: PropertyKind::Open,
+                        value: PropertyValue::Bool(true),
+                        ..
+                    }
+                )),
+            "pressing Search did not open its sheet"
+        );
+        dioxus_compose::window::reset_window_size();
+    }
 
     /// The reference puts everything that belongs to sending a message inside one rounded
     /// bar. A field with a button parked next to it is two controls that happen to be
     /// adjacent, which is what this used to be.
+    ///
+    /// And the bar floats: it is made of a material rather than being a panel, because it
+    /// is chrome over the conversation at every width, and a card is the document in a
+    /// desktop window.
+    #[test]
+    fn fr22_the_composer_is_one_rounded_bar_holding_the_send() {
+        let screen = Screen::new();
+        let batch = decode_batch(&screen.first).expect("the first frame did not decode");
+
+        let mut parents = HashMap::new();
+        for mutation in &batch {
+            if let Mutation::Insert {
+                parent_id, node_id, ..
+            } = mutation
+            {
+                parents.insert(*node_id, *parent_id);
+            }
+        }
+        let bar = parents[&screen.composer];
+
+        let send = *screen
+            .texts
+            .iter()
+            .find(|(_, text)| *text == "Send")
+            .map(|(node_id, _)| node_id)
+            .expect("the screen has nothing labelled Send");
+        assert_eq!(
+            parents[&send], bar,
+            "the send button is outside the bar the field is in, so the composer is not \
+             one control"
+        );
+
+        let modifiers: Vec<&dioxus_compose::Modifier> = batch
+            .iter()
+            .filter_map(|mutation| match mutation {
+                Mutation::SetModifier {
+                    node_id, modifier, ..
+                } if *node_id == bar => Some(modifier),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            modifiers
+                .iter()
+                .any(|modifier| matches!(modifier, dioxus_compose::Modifier::ShapeRole(ShapeRole::Full))),
+            "the composer is not the reference's pill: {modifiers:?}"
+        );
+        assert!(
+            modifiers.iter().any(|modifier| matches!(
+                modifier,
+                dioxus_compose::Modifier::Material(MaterialRole::Regular)
+            )),
+            "the composer is not made of a material, so it cannot float as chrome: {modifiers:?}"
+        );
+    }
+
+    /// The window is chrome, said on the frame at the root of the tree. That is what asks
+    /// the platform to put its own material behind the window, and without it every
+    /// surface in the window sits on an opaque page and the desktop never shows through.
+    #[test]
+    fn fr29_the_window_asks_to_be_made_of_chrome() {
+        let screen = Screen::new();
+        let batch = decode_batch(&screen.first).expect("the first frame did not decode");
+        // The root is the one node nothing else holds.
+        let held: HashSet<u32> = batch
+            .iter()
+            .filter_map(|mutation| match mutation {
+                Mutation::Insert {
+                    parent_id, node_id, ..
+                } if *parent_id != 0 => Some(*node_id),
+                _ => None,
+            })
+            .collect();
+        let root = batch
+            .iter()
+            .find_map(|mutation| match mutation {
+                Mutation::Create { node_id, .. } if !held.contains(node_id) => Some(*node_id),
+                _ => None,
+            })
+            .expect("every node the first frame created hangs from another");
+        assert!(
+            batch.iter().any(|mutation| matches!(
+                mutation,
+                Mutation::Create { node_id, widget: WidgetKind::Scaffold } if *node_id == root
+            )),
+            "the root of the chat is not its frame"
+        );
+        assert!(
+            batch.iter().any(|mutation| matches!(
+                mutation,
+                Mutation::SetModifier {
+                    node_id,
+                    modifier: dioxus_compose::Modifier::Material(MaterialRole::Chrome),
+                    ..
+                } if *node_id == root
+            )),
+            "the frame does not ask for the window's material"
+        );
+    }
 
     /// Nothing has been said yet, so the middle of the screen says what the screen is.
     /// It is not a message: an introduction under the assistant's name is something the

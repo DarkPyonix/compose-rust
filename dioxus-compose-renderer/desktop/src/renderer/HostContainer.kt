@@ -27,7 +27,13 @@ import androidx.compose.ui.unit.dp
 import dioxus.compose.design.ContainerRole
 import dioxus.compose.design.ContainerStyle
 import dioxus.compose.design.ResolvedTheme
+import dioxus.compose.design.SurfaceMaterial
+import dioxus.compose.design.glassLift
 import dioxus.compose.design.glassSurface
+import dioxus.compose.protocol.ButtonVariant
+import dioxus.compose.protocol.WidgetKind
+import dioxus.compose.ui.node.OnGlass
+import dioxus.compose.ui.variant
 import dioxus.compose.protocol.Modifier as ProtocolModifier
 import dioxus.compose.protocol.SpaceRole
 import dioxus.compose.runtime.EventDispatcher
@@ -150,6 +156,10 @@ internal fun HostTopAppBar(
 ) {
     val style = theme.rules.container(ContainerRole.TopAppBar, theme)
     val caption = LocalWindowCaption.current
+    if (style.floats) {
+        FloatingTopAppBar(node, modifier, table, dispatcher, theme, style)
+        return
+    }
     Column(modifier) {
         Row(
             modifier = Modifier
@@ -217,6 +227,117 @@ private fun RowScope.BarChild(childId: Int, table: NodeTable, dispatcher: EventD
         dispatcher,
         if (weight == null) Modifier else Modifier.weight(weight),
     )
+}
+
+/**
+ * A top bar that paints nothing across the window.
+ *
+ * The title sits on the page as it is. Each run of plain actions is gathered into one
+ * capsule of the bar's material floating over the page, the way a toolbar groups its
+ * buttons in the systems that draw glass: the two trailing actions of a chat window share
+ * one capsule, and a back button standing on its own is a capsule of its own.
+ *
+ * An action that fills itself, a filled button above all, is a capsule already and stands
+ * alone rather than inside another. Anything that is not an action is laid out as it is,
+ * so a weighted spacer still pushes the actions to the far end.
+ *
+ * The caption is honoured exactly as the strip does: the row is at least as tall as the
+ * strip the window buttons sit in, shares their line, and keeps clear of them.
+ */
+@Composable
+private fun FloatingTopAppBar(
+    node: Node,
+    modifier: Modifier,
+    table: NodeTable,
+    dispatcher: EventDispatcher,
+    theme: ResolvedTheme,
+    style: ContainerStyle,
+) {
+    val caption = LocalWindowCaption.current
+    val material = style.material ?: SurfaceMaterial.Opaque(style.container)
+    val capsule = style.shape
+    val edge = theme.space(SpaceRole.Sm)
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = caption.height)
+            .padding(
+                start = (if (caption.buttonsAtStart) caption.buttonsWidth else 0.dp) + edge,
+                end = (if (caption.buttonsAtStart) 0.dp else caption.buttonsWidth) + edge,
+                top = caption.insetTop + theme.space(SpaceRole.Xs),
+                bottom = theme.space(SpaceRole.Xs),
+            ),
+        horizontalArrangement = Arrangement.spacedBy(theme.space(SpaceRole.Sm)),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val title = node.text(PropertyKind.Text)
+        if (title.isNotEmpty()) {
+            BarTitle(node, title, theme)
+        }
+        for (group in floatingGroups(node.children, table)) {
+            if (group.size == 1 && !table.gathersIntoCapsule(group[0])) {
+                key(group[0]) { BarChild(group[0], table, dispatcher) }
+                continue
+            }
+            key(group[0]) {
+                Row(
+                    Modifier
+                        .glassLift(material, capsule)
+                        .clip(capsule)
+                        .glassSurface(material, capsule)
+                        .padding(horizontal = theme.space(SpaceRole.Xs)),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OnGlass(true) {
+                        group.forEach { childId ->
+                            key(childId) { RenderNode(childId, table, dispatcher) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The bar's children split into what floats together: each run of plain actions is one
+ * group, and everything else is a group of its own.
+ */
+internal fun floatingGroups(children: List<Int>, table: NodeTable): List<List<Int>> {
+    val groups = mutableListOf<List<Int>>()
+    var run = mutableListOf<Int>()
+    for (childId in children) {
+        if (table.gathersIntoCapsule(childId)) {
+            run.add(childId)
+            continue
+        }
+        if (run.isNotEmpty()) {
+            groups.add(run)
+            run = mutableListOf()
+        }
+        groups.add(listOf(childId))
+    }
+    if (run.isNotEmpty()) groups.add(run)
+    return groups
+}
+
+/**
+ * Whether a bar child is a plain action, which floats in a capsule shared with its
+ * neighbours.
+ *
+ * A button that paints no fill of its own, and a menu, whose anchor is one. A button that
+ * fills itself is already a capsule, and one drawn inside another is a pill in a pill.
+ */
+internal fun NodeTable.gathersIntoCapsule(childId: Int): Boolean {
+    val child = node(childId) ?: return false
+    return when (child.widget) {
+        WidgetKind.Button -> when (child.variant()) {
+            ButtonVariant.Text, ButtonVariant.Tonal, ButtonVariant.Outlined -> true
+            ButtonVariant.Filled, ButtonVariant.Operator -> false
+        }
+        WidgetKind.Menu -> true
+        else -> false
+    }
 }
 
 /** The thinnest line that still draws on every density. */

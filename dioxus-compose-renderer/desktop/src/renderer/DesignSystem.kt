@@ -3,6 +3,7 @@ package dioxus.compose.design
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.Brush as ComposeBrush
 import androidx.compose.ui.graphics.SolidColor
@@ -137,6 +138,17 @@ class ResolvedTheme(
      * whole table for the one node that asked.
      */
     val brushes: (Int) -> ComposeBrush? = { null },
+    /**
+     * Whether the window this theme draws into has the platform's own material behind
+     * it, so that what the renderer leaves unpainted shows the desktop.
+     *
+     * A design system that draws chrome as glass has to know, because the right recipe
+     * differs. Over app content the glass carries its own tint; straight over the
+     * platform's material that tint would cover the thing the platform was asked to show,
+     * and the chrome should be mostly the desktop. False everywhere the window is opaque,
+     * which is every platform but one and every window that did not ask.
+     */
+    val windowBackdrop: Boolean = false,
 ) {
     fun color(role: ColorRole): Color =
         rules.color(role, dark, sizeClass) ?: Color(tokens.color(role, dark))
@@ -606,6 +618,49 @@ data class NavigationStyle(
     val pageGradientEnd: Color? = null,
     /** A search destination becomes a field-shaped action when this is non-null. */
     val searchContainer: Color? = null,
+    /**
+     * What the strip is made of when it floats, or null for a strip painted [container]
+     * straight onto the window's edge.
+     */
+    val stripMaterial: SurfaceMaterial? = null,
+    /** The outline of a floating strip. A strip on the window's edge has none. */
+    val stripShape: Shape = RectangleShape,
+    /**
+     * How far a floating strip stands off the edges of the window it is laid along.
+     *
+     * Zero is a strip attached to the edge, which is what every system but one draws. A
+     * bar keeps this much room at its sides and under it; a rail or a drawer at its
+     * leading edge, top and bottom.
+     */
+    val floatingInset: Dp = 0.dp,
+    /**
+     * Whether a rail or a drawer runs to the top of the window and carries the window
+     * buttons on its own surface.
+     *
+     * Where it does, the strip is the top of the window on its side, the caption is laid
+     * out inside it, and the page beside it starts its own content clear of the caption
+     * without a band of page colour across the top of the whole window.
+     */
+    val carriesCaption: Boolean = false,
+    /**
+     * Whether the page gradient runs behind a rail or a drawer as well as behind the page.
+     *
+     * True where the strip is translucent over the page, so it takes the page's colour.
+     * False where the strip sits straight on the window's own backdrop instead, and the
+     * page is painted only beside it.
+     */
+    val pageBehindStrip: Boolean = true,
+    /**
+     * How far down the page the gradient's first colour holds before it starts to turn,
+     * as a fraction of the page's height. Zero is an even gradient from top to bottom.
+     */
+    val pageGradientHold: Float = 0f,
+    /**
+     * The gap between one destination and the next down a rail or a drawer, or null to
+     * use [itemSpacing]. Separate because [itemSpacing] is also the gap between an icon
+     * and its label, and a drawer wants the rows closer together than that.
+     */
+    val destinationGap: Dp? = null,
 )
 
 /** The edge a sheet comes in from. */
@@ -775,6 +830,14 @@ data class FieldStyle(
     val cursor: Color,
     /** How tall an empty single line field is before anything is typed into it. */
     val minHeight: Dp,
+    /**
+     * The fill a field takes when it sits on a glass surface, or null to keep [container].
+     *
+     * A field inside a glass bar is part of the bar in the systems that draw glass: the
+     * composer at the foot of a chat is one capsule with the text in it, not a capsule
+     * holding a second, greyer capsule.
+     */
+    val containerOnGlass: Color? = null,
 )
 
 /**
@@ -814,6 +877,15 @@ data class ContainerStyle(
      * has asked for reduced transparency.
      */
     val material: SurfaceMaterial? = null,
+    /**
+     * Whether this container is drawn as floating pieces rather than as a strip.
+     *
+     * Only a top app bar asks the question. Where it is true the bar paints nothing
+     * across the window: its title sits on the page as it is, and each run of plain
+     * actions in it is gathered into a capsule of [material] floating over the page,
+     * which is how a toolbar looks in the systems that draw glass.
+     */
+    val floats: Boolean = false,
 )
 
 /**
@@ -1054,6 +1126,8 @@ fun resolveTheme(
     fontOf: (Int) -> FontFamily? = { null },
     /** What a registered brush became, or null for an id naming nothing. */
     brushOf: (Int) -> ComposeBrush? = { null },
+    /** Whether the window has the platform's own material behind it. */
+    windowBackdrop: Boolean = false,
 ): ResolvedTheme {
     val system = when {
         theme == null -> adaptiveSystem(platform, DesignSystem.Material3)
@@ -1084,6 +1158,7 @@ fun resolveTheme(
         sizeClass,
         fonts,
         brushOf,
+        windowBackdrop,
     )
 }
 

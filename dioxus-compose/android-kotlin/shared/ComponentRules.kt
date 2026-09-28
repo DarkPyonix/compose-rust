@@ -2891,10 +2891,15 @@ internal object LiquidGlassRules : ComponentRules {
             // screens make glass over opaque content. No hairline under it: the lit edge
             // of the glass is the division, and a rule under a lit edge is one line too
             // many.
+            //
+            // And not a strip. The toolbars in the reference screens paint nothing across
+            // the window: the title sits on the page and the actions float in capsules of
+            // glass, one capsule to a group, at every size.
             ContainerRole.TopAppBar -> base.copy(
-                shape = theme.shape(ShapeRole.None),
+                shape = theme.shape(ShapeRole.Full),
                 verticalPadding = theme.space(SpaceRole.Sm),
                 typeRole = TypeRole.BodyStrong,
+                floats = true,
             )
 
             // An alert: centred, capsule buttons inside, over a dimmed screen.
@@ -3062,6 +3067,9 @@ internal object LiquidGlassRules : ComponentRules {
         verticalPadding = theme.space(SpaceRole.Sm),
         cursor = theme.color(ColorRole.Primary),
         minHeight = 40.dp,
+        // On glass the field is the glass. The composer in the reference is one capsule
+        // with the text in it, not a capsule holding a second, greyer one.
+        containerOnGlass = Color.Transparent,
     )
 
     /**
@@ -3101,6 +3109,17 @@ internal object LiquidGlassRules : ComponentRules {
      * over anything at all.
      */
     override fun material(role: MaterialRole, theme: ResolvedTheme): SurfaceMaterial {
+        // Chrome over a window the platform has backed is the window's own material with
+        // a rim on it. Drawn with the ordinary recipe it would cover most of the desktop
+        // the platform was asked to show, which is exactly how every window drawn in this
+        // system came out grey.
+        if (role == MaterialRole.Chrome && theme.windowBackdrop) {
+            return LiquidGlass.windowMaterial(
+                dark = theme.dark,
+                backdrop = theme.color(ColorRole.Background),
+                content = theme.color(ColorRole.OnSurface),
+            )
+        }
         val glass = LiquidGlass.material(
             dark = theme.dark,
             prominence = if (role == MaterialRole.Thin) {
@@ -3136,12 +3155,24 @@ internal object LiquidGlassRules : ComponentRules {
     )
 
     /**
-     * A floating tab bar on a phone, a sidebar once the window is wide enough.
+     * A floating tab bar on a phone, a floating rail on a tablet, a floating sidebar on a
+     * desktop.
+     *
+     * Floating is the whole of it. None of the three is a strip attached to the window's
+     * edge: the bar is a capsule held off the bottom and the sides, and the rail and the
+     * sidebar are panels held off the leading edge, the top and the bottom, with a corner
+     * concentric with the window's. The sidebar runs to the top of the window and the
+     * window buttons sit on it, which is what macOS 26 does and why there is no bar
+     * across the top of such a window.
      *
      * The bar marks its selection with a filled capsule behind the destination rather
-     * than with colour alone, which is where this differs from the flat tab bar beside
-     * it, and it is separated from the content by its own lit edge rather than by a
-     * hairline: the bar floats over the content instead of sitting under it.
+     * than with colour alone, and it is separated from the content by its own lit edge
+     * rather than by a hairline.
+     *
+     * Where the platform has put its own material behind the window, the rail and the
+     * sidebar sit straight on it, drawn mostly as rim so the desktop shows through them,
+     * and the page is painted only beside them. Everywhere else they are clear glass over
+     * the page, so they take its colour.
      */
     override fun navigation(sizeClass: WindowSizeClass, theme: ResolvedTheme): NavigationStyle {
         val presentation = when (sizeClass) {
@@ -3149,6 +3180,33 @@ internal object LiquidGlassRules : ComponentRules {
             WindowSizeClass.Medium -> NavigationPresentation.Rail
             WindowSizeClass.Expanded -> NavigationPresentation.Drawer
         }
+        val bar = presentation == NavigationPresentation.Bar
+        val onWindow = theme.windowBackdrop && !bar
+        val content = theme.color(ColorRole.OnSurface)
+        val strip = when {
+            onWindow -> LiquidGlass.windowMaterial(
+                dark = theme.dark,
+                backdrop = theme.color(ColorRole.Background),
+                content = content,
+            )
+            bar -> LiquidGlass.material(
+                dark = theme.dark,
+                prominence = GlassProminence.Regular,
+                backdrop = theme.color(ColorRole.Background),
+                content = content,
+            )
+            else -> LiquidGlass.material(
+                dark = theme.dark,
+                prominence = GlassProminence.Clear,
+                backdrop = theme.color(ColorRole.PrimaryContainer),
+                content = content,
+            )
+        }
+        val inset = if (bar) theme.space(SpaceRole.Md) else SIDEBAR_INSET
+        // Over the window's own material the page gives some of its opacity up, so the
+        // desktop reaches the page as well as the sidebar, only less of it.
+        val start = theme.color(ColorRole.Background)
+        val end = theme.color(ColorRole.PrimaryContainer)
         return NavigationStyle(
             presentation = presentation,
             container = theme.color(ColorRole.SurfaceContainer).copy(alpha = NAVIGATION_ALPHA),
@@ -3162,13 +3220,39 @@ internal object LiquidGlassRules : ComponentRules {
             barHeight = 56.dp,
             railWidth = 76.dp,
             drawerWidth = 260.dp,
-            itemSpacing = theme.space(SpaceRole.Xs),
-            itemPadding = theme.space(SpaceRole.Xs),
+            itemSpacing = if (presentation == NavigationPresentation.Drawer) {
+                theme.space(SpaceRole.Sm)
+            } else {
+                theme.space(SpaceRole.Xs)
+            },
+            itemPadding = if (presentation == NavigationPresentation.Drawer) {
+                DRAWER_ROW_PADDING
+            } else {
+                theme.space(SpaceRole.Xs)
+            },
             labelInRail = true,
-            typeRole = TypeRole.Caption,
-            pageGradientStart = theme.color(ColorRole.Background),
-            pageGradientEnd = theme.color(ColorRole.PrimaryContainer),
+            // A sidebar row is a line of text beside its icon, set at the size of the rest
+            // of the window's text. The small label is for a bar and a rail, where it sits
+            // under the icon in a column a finger wide.
+            typeRole = if (presentation == NavigationPresentation.Drawer) {
+                TypeRole.Body
+            } else {
+                TypeRole.Caption
+            },
+            pageGradientStart = if (theme.windowBackdrop) start.copy(alpha = PAGE_OVER_WINDOW_TOP) else start,
+            pageGradientEnd = if (theme.windowBackdrop) end.copy(alpha = PAGE_OVER_WINDOW_FOOT) else end,
             searchContainer = tintedFill(theme.dark, TONAL_ALPHA),
+            stripMaterial = strip,
+            stripShape = if (bar) {
+                theme.shape(ShapeRole.Full)
+            } else {
+                ContinuousCornerShape(concentricRadius(WINDOW_CORNER, inset))
+            },
+            floatingInset = inset,
+            carriesCaption = !bar,
+            pageBehindStrip = !onWindow,
+            pageGradientHold = PAGE_GRADIENT_HOLD,
+            destinationGap = if (presentation == NavigationPresentation.Drawer) 2.dp else null,
         )
     }
 
@@ -3244,6 +3328,36 @@ internal object LiquidGlassRules : ComponentRules {
     private const val TONAL_ALPHA = 0.08f
     private const val TONAL_PRESSED_ALPHA = 0.16f
     private const val NAVIGATION_ALPHA = 0.72f
+
+    /**
+     * The corner of a macOS 26 window, which a sidebar held inside it is cut concentric
+     * with.
+     */
+    private val WINDOW_CORNER = 26.dp
+
+    /**
+     * How far a rail or a sidebar stands off the window's leading edge, top and bottom.
+     * Measured off the reference, where the sidebar's edge is eight points in from the
+     * window's all the way round.
+     */
+    private val SIDEBAR_INSET = 8.dp
+
+    /** The room around a sidebar row's icon and label, which is what sets its height. */
+    private val DRAWER_ROW_PADDING = 8.dp
+
+    /**
+     * How opaque the page is at its top and at its foot over a window that shows the
+     * desktop. Enough that text on it reads as text on a page, little enough that the
+     * wallpaper's colour carries across the whole window and not only the sidebar.
+     */
+    private const val PAGE_OVER_WINDOW_TOP = 0.62f
+    private const val PAGE_OVER_WINDOW_FOOT = 0.82f
+
+    /**
+     * The page stays its own colour down a little under half its height before it turns,
+     * which is where the reference's wash begins.
+     */
+    private const val PAGE_GRADIENT_HOLD = 0.45f
 
     /**
      * The glass caption. Three coloured discs at the leading edge, exactly as the flat

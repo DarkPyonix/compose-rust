@@ -130,6 +130,53 @@ class GlassMaterialTest {
     }
 
     @Test
+    fun fr14_glass_is_coloured_by_what_is_behind_it() {
+        // At least a quarter of the backdrop reaches the eye through a surface that
+        // carries text. At 0.85 of a grey tint a composer over a blue page and one over a
+        // white page came out the same grey, which is the flat look this module exists
+        // not to have.
+        for (dark in listOf(false, true)) {
+            val material = LiquidGlass.material(
+                dark = dark,
+                backdrop = if (dark) Color.Black else Color.White,
+                content = if (dark) Color.White else Color.Black,
+            )
+            assertTrue(material.tintAlpha <= 0.75f, "regular glass is ${material.tintAlpha} opaque")
+        }
+        val material = LiquidGlass.material(dark = false, backdrop = Color.White, content = Color.Black)
+        val fill = material.tint.copy(alpha = material.tintAlpha)
+        val overWhite = compositeOver(fill, Color.White)
+        val overBlue = compositeOver(fill, Color(0xFFD6E4FF))
+        assertTrue(
+            (overWhite.red - overBlue.red) * 255f >= 10f,
+            "the same glass over white and over blue should not come out the same colour",
+        )
+    }
+
+    @Test
+    fun fr29_window_material_is_mostly_the_window_behind_it() {
+        // Chrome that sits straight on a platform material leaves most of the desktop
+        // showing, and still has an opaque fallback whose contrast is guaranteed.
+        for (dark in listOf(false, true)) {
+            val content = if (dark) Color.White else Color.Black
+            val window = LiquidGlass.windowMaterial(
+                dark = dark,
+                backdrop = if (dark) Color(0xFF2C2C2E) else Color.White,
+                content = content,
+            )
+            val regular = LiquidGlass.material(
+                dark = dark,
+                backdrop = if (dark) Color(0xFF2C2C2E) else Color.White,
+                content = content,
+            )
+            assertTrue(window.tintAlpha <= 0.35f, "window chrome covers ${window.tintAlpha} of the desktop")
+            assertTrue(window.tintAlpha < regular.tintAlpha)
+            assertEquals(1f, window.fallback.alpha)
+            assertTrue(contrastRatio(window.fallback, content) >= LiquidGlass.MIN_CONTRAST_BODY)
+        }
+    }
+
+    @Test
     fun fr14_the_edge_is_lit_along_the_top_and_shaded_along_the_bottom() {
         for (dark in listOf(false, true)) {
             val material = LiquidGlass.material(

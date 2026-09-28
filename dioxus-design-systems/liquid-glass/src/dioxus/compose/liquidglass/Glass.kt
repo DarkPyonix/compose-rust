@@ -11,7 +11,16 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.ClipOp
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.addOutline
+import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Dp
@@ -106,6 +115,62 @@ fun Modifier.glassSurface(
             .border(borderWidth, litEdge(resolved.highlight, resolved.shade), shape)
     }
 }
+
+/**
+ * The soft shadow a floating glass surface casts, drawn around it.
+ *
+ * Separate from [glassSurface] because of where it has to go in a chain. It is drawn
+ * outside the surface's bounds, and a clip earlier in the chain cuts it off, so a caller
+ * puts this before the clip and [glassSurface] after it.
+ *
+ * Only outside. A shadow laid under a see-through surface shows through it and greys the
+ * glass from the inside, which is what an elevation shadow does on the platforms that
+ * draw one under the whole outline; this one is clipped to what lies beyond the edge, so
+ * the inside of the glass is only its tint and what is behind it.
+ *
+ * Only glass that is drawn as glass lifts. The opaque fallback sits on the page as a
+ * panel, and an opaque material is a flat fill in a system that does not float things.
+ */
+@Composable
+fun Modifier.glassLift(material: SurfaceMaterial, shape: Shape): Modifier =
+    if (material is SurfaceMaterial.Glass && isGlassDrawn()) {
+        this.drawBehind { drawLift(shape) }
+    } else {
+        this
+    }
+
+/**
+ * Rings of the outline, each a little larger and fainter in sum than the last, clipped to
+ * what lies outside the surface. They overlap most at the edge, so the shadow is darkest
+ * there and fades to nothing [LiquidGlass.LIFT] out, and they sit a little lower than they
+ * are wide because the light comes from above.
+ */
+private fun DrawScope.drawLift(shape: Shape) {
+    val spread = LiquidGlass.LIFT.toPx()
+    if (spread <= 0f || size.minDimension <= 0f) return
+    val surface = Path()
+    surface.addOutline(shape.createOutline(size, layoutDirection, this))
+    val ring = Color.Black.copy(alpha = LiquidGlass.LIFT_ALPHA / LIFT_RINGS)
+    clipPath(surface, ClipOp.Difference) {
+        for (step in LIFT_RINGS downTo 1) {
+            val grow = spread * step / LIFT_RINGS
+            val grown = shape.createOutline(
+                Size(size.width + grow * 2f, size.height + grow * 2f),
+                layoutDirection,
+                this,
+            )
+            translate(left = -grow, top = -grow * (1f - LIFT_DROP)) {
+                drawOutline(grown, ring)
+            }
+        }
+    }
+}
+
+/** How many rings the lift is drawn in. Enough that no step between them shows. */
+private const val LIFT_RINGS = 6
+
+/** How much further below the surface its shadow reaches than above it, as a fraction. */
+private const val LIFT_DROP = 0.35f
 
 /**
  * The gradient that makes a glass edge read as a lit rim rather than a drawn outline.

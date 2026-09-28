@@ -43,6 +43,7 @@ import dioxus.compose.runtime.EventDispatcher
 import dioxus.compose.ui.node.Node
 import dioxus.compose.ui.textStyle
 import dioxus.compose.ui.node.HostText
+import dioxus.compose.design.LocalGlassDepth
 
 /**
  * Quiet period before a `TextChanged` notification is sent.
@@ -151,7 +152,15 @@ internal fun HostTextField(node: Node, modifier: Modifier, dispatcher: EventDisp
     // The frame is the design system's, not the Host's: a fill, a line, room inside, and
     // whatever each of them changes when the caret arrives. Focus is read here rather than
     // reported, so none of that transition crosses the boundary.
-    val frame = theme.rules.field(theme).forHeight(multiline, theme)
+    val frame = theme.rules.field(theme).forHeight(multiline, theme).let { style ->
+        // On glass the field may take the glass as its fill, where the system says so.
+        val onGlass = style.containerOnGlass
+        if (onGlass != null && LocalGlassDepth.current > 0) {
+            style.copy(container = onGlass, containerFocused = onGlass)
+        } else {
+            style
+        }
+    }
 
     BasicTextField(
         value = value,

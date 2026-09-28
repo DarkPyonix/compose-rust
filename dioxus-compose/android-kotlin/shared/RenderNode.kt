@@ -12,6 +12,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
@@ -22,6 +23,9 @@ import dioxus.compose.protocol.WidgetKind
 import dioxus.compose.design.ContainerRole
 import dioxus.compose.design.ToggleRole
 import dioxus.compose.design.LocalDesignTheme
+import dioxus.compose.design.LocalGlassDepth
+import dioxus.compose.design.SurfaceMaterial
+import dioxus.compose.protocol.Modifier as ProtocolModifier
 import dioxus.compose.design.ResolvedTheme
 import dioxus.compose.foundation.HostButton
 import dioxus.compose.foundation.HostLazyGrid
@@ -108,25 +112,29 @@ fun RenderNode(
     // Only where the node said it is a place files may be dropped. Everywhere else this
     // adds nothing to the chain and the platform shows no drop cursor.
     val modifier = platformFileDrop(withKeys, node, dispatcher)
+    // A layout made of glass tells what is inside it so. A field in a glass bar is part of
+    // the bar in the systems that draw glass, and it can only take that shape if it knows
+    // what it is sitting on.
+    val glass = node.isMadeOfGlass(theme)
     when (node.widget) {
         WidgetKind.Column -> Column(
             modifier = modifier,
             verticalArrangement = node.verticalArrangement(theme),
             horizontalAlignment = node.horizontalAlignment(),
-        ) { Children(node, table, dispatcher) }
+        ) { OnGlass(glass) { Children(node, table, dispatcher) } }
 
         WidgetKind.Row -> Row(
             modifier = modifier,
             horizontalArrangement = node.horizontalArrangement(theme),
             verticalAlignment = node.verticalAlignment(),
-        ) { Children(node, table, dispatcher) }
+        ) { OnGlass(glass) { Children(node, table, dispatcher) } }
 
         // A place files may be dropped is laid out as a plain box. Being this widget is
         // the whole of the difference: the drop target is set up for it and for nothing
         // else in the tree.
         WidgetKind.Box, WidgetKind.FileDropTarget ->
             Box(modifier, contentAlignment = node.boxAlignment()) {
-            Children(node, table, dispatcher)
+            OnGlass(glass) { Children(node, table, dispatcher) }
         }
 
         // One widget whether or not it carries runs. A paragraph with a bold phrase in
@@ -295,6 +303,27 @@ internal fun NodeTable.stackingAxis(nodeId: Int): StackingAxis = when (node(node
     -> StackingAxis.Horizontal
 
     else -> StackingAxis.None
+}
+
+/** Whether this node asked for a material that the running design system draws as glass. */
+private fun Node.isMadeOfGlass(theme: ResolvedTheme): Boolean = modifiers.any { value ->
+    value is ProtocolModifier.Material &&
+        theme.rules.material(value.role, theme) is SurfaceMaterial.Glass
+}
+
+/**
+ * Runs [content] one glass layer deeper where [glass] is true, and unchanged otherwise.
+ *
+ * Unchanged is the ordinary case and costs nothing: no provider is composed for a node
+ * that is not made of glass.
+ */
+@Composable
+internal fun OnGlass(glass: Boolean, content: @Composable () -> Unit) {
+    if (!glass) {
+        content()
+        return
+    }
+    CompositionLocalProvider(LocalGlassDepth provides LocalGlassDepth.current + 1, content = content)
 }
 
 /**
