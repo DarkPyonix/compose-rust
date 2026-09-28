@@ -39,6 +39,17 @@ for launcher in "${launchers[@]}"; do
             note "$launcher does not name '$forbidden' among what a run must not do"
     done
 
+    # No quotation marks in what is injected. The rules are assembled inside a double
+    # quoted shell string, so a sentence that quotes a phrase closes that string and
+    # hands the rest of the paragraph to the shell as commands. It is valid shell and it
+    # is not a prompt: a launcher died with `asked: command not found` after a quoted
+    # phrase was added to the scope rule, and every check below this one passed while it
+    # did, because they read the file rather than run it.
+    stray=$(awk '/^prompt="Your working directory/ , /^\$prompt"$/' "$launcher" |
+        sed '1s/^prompt="//; $s/^\$prompt"$//' | tr -cd '"' | wc -c | tr -d ' ')
+    [ "${stray:-0}" -eq 0 ] ||
+        note "$launcher quotes something inside the prompt, which ends the string early"
+
     # Scope. A run that quietly delivers less than it was asked for, and says nothing,
     # costs more than one that argues: the gap is found later by someone who assumed it
     # was there.
