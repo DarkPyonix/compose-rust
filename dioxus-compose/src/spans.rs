@@ -118,6 +118,10 @@ impl TextSpan {
     }
 }
 
+/// What a marker turns its body into: the bytes that open and close it, and the span the
+/// enclosed run becomes.
+type Marked = (&'static [u8], fn(u32, u32) -> TextSpan);
+
 /// An encoded list of spans, ready to travel.
 ///
 /// Shared rather than copied, for the same reason a draw list is: the same list redrawn
@@ -199,20 +203,19 @@ impl TextSpans {
         let bytes = source.as_bytes();
         let mut at = 0;
         while at < bytes.len() {
-            let (marker, span_of): (&[u8], fn(u32, u32) -> TextSpan) =
-                if bytes[at..].starts_with(b"**") {
-                    (b"**", |start, length| TextSpan::new(start, length).bold())
-                } else if bytes[at] == b'*' {
-                    (b"*", |start, length| TextSpan::new(start, length).italic())
-                } else if bytes[at] == b'`' {
-                    (b"`", |start, length| {
-                        TextSpan::new(start, length).with_role(TypeRole::Mono)
-                    })
-                } else {
-                    text.push(source[at..].chars().next().expect("a char boundary"));
-                    at += source[at..].chars().next().map_or(1, char::len_utf8);
-                    continue;
-                };
+            let (marker, span_of): Marked = if bytes[at..].starts_with(b"**") {
+                (b"**", |start, length| TextSpan::new(start, length).bold())
+            } else if bytes[at] == b'*' {
+                (b"*", |start, length| TextSpan::new(start, length).italic())
+            } else if bytes[at] == b'`' {
+                (b"`", |start, length| {
+                    TextSpan::new(start, length).with_role(TypeRole::Mono)
+                })
+            } else {
+                text.push(source[at..].chars().next().expect("a char boundary"));
+                at += source[at..].chars().next().map_or(1, char::len_utf8);
+                continue;
+            };
             let body = at + marker.len();
             let Some(end) = find(&bytes[body..], marker).map(|offset| body + offset) else {
                 // No closing marker, so this is not a marker at all.

@@ -631,13 +631,13 @@ define_wire_enum!(COLOR_SCHEME_SCHEMA, ColorScheme {
     FollowSystem = 3,
 });
 
-/// Which part of the screen's frame a `Scaffold` slot fills.
-///
-/// What each one becomes is the Renderer's: a top bar may be the window's caption, an
-/// ordinary bar under the system title bar, or a large title that shrinks as the page
-/// scrolls; a bottom bar may be a bar, a rail or a permanent drawer; a floating action
-/// may float, sit in the toolbar, or fold into a menu. The application says which slot
-/// it filled and nothing about the answer.
+// Which part of the screen's frame a `Scaffold` slot fills.
+//
+// What each one becomes is the Renderer's: a top bar may be the window's caption, an
+// ordinary bar under the system title bar, or a large title that shrinks as the page
+// scrolls; a bottom bar may be a bar, a rail or a permanent drawer; a floating action
+// may float, sit in the toolbar, or fold into a menu. The application says which slot
+// it filled and nothing about the answer.
 define_wire_enum!(SLOT_ROLE_SCHEMA, SlotRole {
     TopBar = 1,
     BottomBar = 2,

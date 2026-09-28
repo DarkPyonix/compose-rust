@@ -22,22 +22,14 @@ const TICK_LENGTH: f32 = 0.12;
 /// reference draws and what a reader can count without counting.
 const TICKS: usize = 12;
 
-/// How thick the arc that shows the reading is, against the dial's width.
-const SWEEP_WIDTH: f32 = 0.05;
-/// How far inside the tick ring the arc sits, against the dial's width.
+/// A dial reading `fraction` of the way round: a ring of ticks, a pale disc for the number
+/// to sit on, and a marker where the reading ends.
 ///
-/// Inside rather than on the ring. An arc's stroke is centred on its radius, so one drawn
-/// at the ring's own radius is painted over the ticks from both sides and the ring it is
-/// meant to be read against disappears under it.
-const SWEEP_INSET: f32 = 0.055;
-
-/// A dial reading `fraction` of the way round: a ring of ticks, the arc the reading fills,
-/// and a marker where it ends.
-///
-/// The arc is the reading. Without it the dial announced a number in the middle and drew
-/// nothing that showed it: twelve identical ticks and one small dot, which is a clock face
-/// rather than a gauge, and the fifty-five per cent it said was the only place the fifty
-/// five existed.
+/// The marker is the reading. Without it the dial announced a number in the middle and drew
+/// nothing that showed it: twelve identical ticks, which is a clock face rather than a
+/// gauge, and the fifty-five per cent it said was the only place the fifty five existed.
+/// A dot on the ring rather than an arc along it, because that is what the reference puts
+/// there.
 ///
 /// The ticks stay because they are what the reading is read against, and they are drawn as
 /// short lines rather than as a dashed arc because an arc command has one sweep and a

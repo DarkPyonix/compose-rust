@@ -2,8 +2,7 @@
 
 use crate::schema::{
     AssetKind, ColorScheme, DesignSystem, Key, MaterialRole, MessageDuration, Modifier, MotionRole,
-    Paint, PropertyKind, Selection, ShapeRole, SpaceRole, TYPE_ROLE_COUNT, Theme, TypeRole,
-    WidgetKind,
+    Paint, PropertyKind, Selection, ShapeRole, SpaceRole, TYPE_ROLE_COUNT, Theme, WidgetKind,
 };
 use core::fmt;
 
@@ -983,6 +982,7 @@ fn read_u64(bytes: &[u8], position: usize) -> Result<u64, ProtocolError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::schema::TypeRole;
 
     #[test]
     fn round_trips_all_m0_mutations() {

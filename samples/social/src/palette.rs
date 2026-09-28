@@ -34,8 +34,8 @@ pub const ON_ART: Color = Color::rgb(0xFFFFFF);
 /// The reference lays its hero caption over the picture rather than under it, on a panel
 /// dark enough to read white text on. These are that panel and the round play badge that
 /// shares it.
-pub const SCRIM: Color = Color::argb(0xd9_2E2A4F);
+pub const SCRIM: Color = Color::argb(0xD9_2E2A4F);
 pub const SCRIM_BADGE: Color = Color::argb(0x40_FFFFFF);
 
 /// The support line in a caption drawn over an illustration.
-pub const ON_ART_MUTED: Color = Color::argb(0xcc_FFFFFF);
+pub const ON_ART_MUTED: Color = Color::argb(0xCC_FFFFFF);
