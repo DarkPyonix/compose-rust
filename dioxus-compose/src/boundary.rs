@@ -229,12 +229,16 @@ impl Host {
         // Messages queued against a Host that is going away would otherwise be said by
         // the one replacing it, out of any context that made them make sense.
         //
-        // The asset table goes with them. The Renderer this Host is about to talk to has
-        // an empty cache, so an id the one before it handed out names nothing, and a
-        // screen built on those ids would draw no pictures while every batch it sent
-        // looked correct.
         crate::message::reset_messages();
-        crate::asset::reset_assets();
+        // The assets do not go with them. The Renderer this Host is about to talk to has
+        // an empty cache, so every registration has to be made again, which is what this
+        // does: the ids stay as they were and the bytes are queued for the first batch.
+        //
+        // Forgetting them instead is what this used to do, and it was wrong in a way that
+        // only showed on the screen. A theme names its fonts by id and a window names its
+        // icon by id, and both are built by the caller before the Host is made out of
+        // them, so the ids travelled and the bytes they named had been thrown away.
+        crate::asset::requeue_all();
         Self {
             app,
             theme,

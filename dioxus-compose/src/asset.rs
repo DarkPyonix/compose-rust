@@ -20,7 +20,11 @@ pub(crate) struct PendingAsset {
 
 thread_local! {
     /// What has been registered, so the same picture asked for twice is one registration.
-    static REGISTERED: RefCell<Vec<(&'static [u8], u32)>> = const { RefCell::new(Vec::new()) };
+    ///
+    /// The kind is kept beside the bytes because a new Renderer has to be told all of this
+    /// again, and a registration is bytes, an id and what the bytes are.
+    static REGISTERED: RefCell<Vec<(&'static [u8], u32, AssetKind)>> =
+        const { RefCell::new(Vec::new()) };
     static QUEUE: RefCell<Vec<PendingAsset>> = const { RefCell::new(Vec::new()) };
 }
 
@@ -47,7 +51,7 @@ pub fn asset(kind: AssetKind, bytes: &'static [u8]) -> u32 {
     // out would make "no picture" and "the first picture" the same value on the wire.
     let asset_id = REGISTERED.with_borrow_mut(|registered| {
         let asset_id = registered.len() as u32 + 1;
-        registered.push((bytes, asset_id));
+        registered.push((bytes, asset_id, kind));
         asset_id
     });
     QUEUE.with_borrow_mut(|queue| {
@@ -73,8 +77,8 @@ pub fn register_owned(kind: AssetKind, bytes: Vec<u8>) -> u32 {
     if let Some(id) = REGISTERED.with_borrow(|registered| {
         registered
             .iter()
-            .find(|(known, _)| *known == bytes.as_slice())
-            .map(|(_, id)| *id)
+            .find(|(known, _, _)| *known == bytes.as_slice())
+            .map(|(_, id, _)| *id)
     }) {
         return id;
     }
@@ -89,12 +93,15 @@ pub fn register_owned(kind: AssetKind, bytes: Vec<u8>) -> u32 {
 /// own, so a catalogue written as a `const` array hands out two pointers to one file and
 /// the shop registers the same cover twice under two ids. The full comparison only runs
 /// when the address misses, which is once per new picture and never in the steady state.
-fn registered_id(registered: &[(&'static [u8], u32)], bytes: &'static [u8]) -> Option<u32> {
+fn registered_id(
+    registered: &[(&'static [u8], u32, AssetKind)],
+    bytes: &'static [u8],
+) -> Option<u32> {
     registered
         .iter()
-        .find(|(known, _)| std::ptr::eq(*known, bytes))
-        .or_else(|| registered.iter().find(|(known, _)| *known == bytes))
-        .map(|(_, id)| *id)
+        .find(|(known, _, _)| std::ptr::eq(*known, bytes))
+        .or_else(|| registered.iter().find(|(known, _, _)| *known == bytes))
+        .map(|(_, id, _)| *id)
 }
 
 /// Hands every queued registration to `emit` and empties the queue.
@@ -117,14 +124,44 @@ pub(crate) fn drain(mut emit: impl FnMut(&PendingAsset)) {
     });
 }
 
-/// Forgets every registration and every id. Used between tests and when a new `Host` takes
-/// over the thread.
-///
-/// A new Host means a Renderer whose cache is empty, so an id handed out by the one before
-/// it names nothing. Keeping the table would leave a screen drawing pictures that were
-/// never registered.
+/// Forgets every registration and every id. Used between tests.
 #[doc(hidden)]
 pub fn reset_assets() {
     REGISTERED.with_borrow_mut(Vec::clear);
     QUEUE.with_borrow_mut(Vec::clear);
+}
+
+/// Queues every registration again, for a Renderer that has not been told any of them.
+///
+/// What a new `Host` does instead of forgetting them. A new Host means a Renderer whose
+/// cache is empty, so an id handed out before it names nothing over there, and the cure
+/// for that is to say all of them again rather than to drop them.
+///
+/// Dropping them was wrong in a way that only shows on the screen. A theme names its fonts
+/// by id and a window names its icon by id, and both are built by the caller before the
+/// Host is made out of them: the ids travelled and the bytes they named had been thrown
+/// away, so the window wore no icon and the screen was set in the machine's own face while
+/// every batch looked correct.
+///
+/// Ids do not move. The same bytes keep the id they were given, which is what lets a theme
+/// built before this still name the right thing after it.
+pub(crate) fn requeue_all() {
+    let all: Vec<PendingAsset> = REGISTERED.with_borrow(|registered| {
+        registered
+            .iter()
+            .map(|(bytes, asset_id, kind)| PendingAsset {
+                asset_id: *asset_id,
+                kind: *kind,
+                bytes,
+            })
+            .collect()
+    });
+    if all.is_empty() {
+        return;
+    }
+    QUEUE.with_borrow_mut(|queue| {
+        // Anything already waiting is in `all` as well, because everything queued was
+        // registered. Replacing rather than appending is what keeps it sent once.
+        *queue = all;
+    });
 }

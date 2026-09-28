@@ -330,3 +330,40 @@ fn fr16_the_same_bytes_under_two_names_are_one_registration() {
         vec![(1, AssetKind::Svg, TINY_SVG.to_vec())],
     );
 }
+
+/// An asset registered before the Host exists still reaches the Renderer.
+///
+/// A theme names its fonts by id and a window names its icon by id, and both are built by
+/// the caller before `launch` makes a Host out of them. The Host was clearing the asset
+/// table on the way in, on the reasoning that a new Renderer has an empty cache and an
+/// old id names nothing there. True, and the cure threw away the registrations the ids it
+/// was about to send belonged to: the theme travelled naming font 2, the window travelled
+/// naming icon 3, and nothing in the batch said what either of them was.
+///
+/// The cache being empty is the reason to send them all again, not the reason to forget
+/// them.
+#[test]
+fn fr16_an_asset_registered_before_the_host_is_sent_by_it() {
+    use dioxus_compose::protocol::{Mutation, decode_batch};
+    use dioxus_compose::schema::AssetKind;
+
+    static PICTURE: &[u8] = b"not really a picture, and nothing decodes it here";
+    dioxus_compose::asset::reset_assets();
+    // Before the Host, which is where a theme's fonts and a window's icon are registered.
+    let registered = dioxus_compose::asset::asset(AssetKind::Png, PICTURE);
+
+    let mut host = dioxus_compose::Host::new(|| dioxus_compose::rsx! {});
+    let first = host.rebuild().expect("the first frame failed to encode");
+    let sent: Vec<u32> = decode_batch(first)
+        .expect("the first batch did not decode")
+        .iter()
+        .filter_map(|mutation| match mutation {
+            Mutation::RegisterAsset { asset_id, .. } => Some(*asset_id),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        sent.contains(&registered),
+        "asset {registered} was registered before the Host and the first batch sent {sent:?}",
+    );
+}
