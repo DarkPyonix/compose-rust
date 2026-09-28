@@ -68,6 +68,12 @@ fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
         dioxus.compose.ui.node.platformWindowMaterial = { asked ->
             setWindowMaterial(if (asked) 1 else 0)
         }
+        // And the other half of that: whether asking actually put anything there. This
+        // build's C entry does, on macOS, which is what the line above calls. The
+        // Kotlin/Native renderer opens its own window and has no effect view to put under
+        // it, so it leaves the default alone and its design system draws for an opaque
+        // window rather than for a desktop that never shows through.
+        dioxus.compose.runtime.platformBacksWindowWithMaterial = { platform.startsWith("Mac") }
         // Lets automated smoke tests close the window; unset in normal use.
         runRenderer(System.getenv("DIOXUS_COMPOSE_AUTOEXIT_MS")?.toLongOrNull()) {
             NativeHostConnection()

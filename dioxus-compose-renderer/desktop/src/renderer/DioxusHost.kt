@@ -688,15 +688,24 @@ private fun Color.letTheWindowShowThrough(): Color =
     if (platformBacksWindowWithMaterial()) Color.Transparent else this
 
 /**
- * True where the window has a material behind it for a translucent page to reveal.
+ * True where the window really has a material behind it for a translucent page to reveal.
  *
- * macOS only, and only because the renderer puts one there. Everywhere else a page with
- * alpha would show whatever the toolkit leaves behind a window, which is nothing to look
- * at and on some systems is black.
+ * A hook with `false` for its default, because only the build that puts the material there
+ * can answer and the others have to be safe. It used to be read off the operating system's
+ * name, which is true of every macOS build and describes only one of them: the native
+ * image, whose C entry puts an `NSVisualEffectView` under the window. The Kotlin/Native
+ * renderer opens its own window and puts nothing behind it, and it was answering yes.
+ *
+ * What a wrong yes costs is the whole look of the window. Chrome becomes the recipe meant
+ * to sit on the desktop, a tint at 0.18 with a rim, and the page gradient is made
+ * translucent so the desktop can reach it. With nothing behind either, a window in light
+ * mode comes up with a grey page and a grey sidebar: nothing transparent, everything drawn
+ * as though it were.
+ *
+ * Everywhere else a page with alpha would show whatever the toolkit leaves behind a
+ * window, which is nothing to look at and on some systems is black.
  */
-internal fun platformBacksWindowWithMaterial(
-    osName: String = System.getProperty("os.name").orEmpty(),
-): Boolean = osName.startsWith("Mac")
+var platformBacksWindowWithMaterial: () -> Boolean = { false }
 
 /**
  * How many wrappers deep the search for that bar goes.
