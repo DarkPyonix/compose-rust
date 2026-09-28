@@ -33,6 +33,7 @@ import dioxus.compose.protocol.HostEvent
 import dioxus.compose.protocol.Mutation
 import androidx.compose.runtime.SideEffect
 import dioxus.compose.protocol.DesignSystem
+import dioxus.compose.protocol.Paint
 import dioxus.compose.protocol.PropertyKind
 import dioxus.compose.protocol.PropertyValue
 import dioxus.compose.protocol.SlotRole
@@ -544,10 +545,63 @@ internal fun NodeTable.opensWithANavigation(roots: List<Int>): Boolean {
  * the fill the application named wins, applied to the window.
  */
 internal fun NodeTable.windowFill(roots: List<Int>, theme: ResolvedTheme): Color {
-    val root = roots.firstOrNull()?.let(::node)
-    val own = root?.modifiers?.firstNotNullOfOrNull { it as? ProtocolModifier.Background }
-    val fill = own?.let { theme.color(it.paint) } ?: theme.color(ColorRole.Background)
+    val named = paintAtTheTopOfTheWindow(roots)
+    val fill = named?.let(theme::color) ?: theme.color(ColorRole.Background)
     return if (asksForWindowMaterial(roots)) fill.letTheWindowShowThrough() else fill
+}
+
+/**
+ * The colour of whatever reaches the top of the window, or null where nothing named one.
+ *
+ * The root is asked first and then the leading edge below it, because the thing that fills
+ * a window is not always the root: an application writes a frame and puts a page in it, so
+ * what paints is a step or two down and nothing above it names a colour at all. Reading
+ * only the root left the strip above the page in the design system's background while the
+ * page under it was the application's own, which is the leftover title bar this section
+ * exists to avoid.
+ */
+private fun NodeTable.paintAtTheTopOfTheWindow(roots: List<Int>): Paint? {
+    var id = roots.firstOrNull() ?: return null
+    var atTheRoot = true
+    repeat(BAR_SEARCH_DEPTH) {
+        val node = node(id) ?: return null
+        val painted = node.modifiers.firstNotNullOfOrNull {
+            (it as? ProtocolModifier.Background)?.paint
+        }
+        when (node.widget) {
+            // Chrome, not the window. A bar or a picture takes the caption and paints that
+            // strip itself, so lending the window its colour would paint every screen that
+            // opens with one in the chrome's colour.
+            WidgetKind.TopAppBar, WidgetKind.Image -> return null
+            // A shell holds the whole page, so the colour it paints is the colour the
+            // window is.
+            WidgetKind.Navigation -> return painted
+            // A frame paints nothing itself and names its parts, so the window's colour is
+            // the content's rather than the bar's.
+            WidgetKind.Scaffold -> {
+                painted?.let { return it }
+                atTheRoot = false
+                id = slotChild(node, SlotRole.Content) ?: return null
+            }
+            WidgetKind.ScaffoldSlot -> {
+                painted?.let { return it }
+                atTheRoot = false
+                id = node.children.firstOrNull() ?: return null
+            }
+            // The same wrappers the caption search passes through, and for the same
+            // reason: they are not things the reader sees. Their own colour counts only at
+            // the root, where it is the page's; deeper down a painted Column is a card or
+            // a bubble, and painting the window in a bubble's colour hides the rounding
+            // that makes it one.
+            WidgetKind.Column, WidgetKind.Box -> {
+                if (atTheRoot && painted != null) return painted
+                atTheRoot = false
+                id = node.children.firstOrNull() ?: return null
+            }
+            else -> return if (atTheRoot) painted else null
+        }
+    }
+    return null
 }
 
 /**

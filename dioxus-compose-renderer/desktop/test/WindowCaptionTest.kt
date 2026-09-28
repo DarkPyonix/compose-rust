@@ -61,6 +61,14 @@ private val TREE_WITH_A_BAR =
 private val TREE_WITHOUT_A_BAR =
     listOf(Mutation.Create(ROOT, WidgetKind.Column)) + label(LABEL, ROOT, 0, "Title")
 
+/** A bar that paints itself at the top of the window: `Column { TopAppBar(cream) }`. */
+private val TREE_WITH_A_PAINTED_BAR = listOf(
+    Mutation.Create(ROOT, WidgetKind.Column),
+    Mutation.Create(BAR, WidgetKind.TopAppBar),
+    Mutation.SetModifier(BAR, 0, ProtocolModifier.Background(Paint.Literal(CREAM))),
+    Mutation.Insert(ROOT, BAR, 0),
+)
+
 /** A window whose top is a picture: `Column { Image }`. */
 private val TREE_WITH_A_PICTURE = listOf(
     Mutation.Create(ROOT, WidgetKind.Column),
@@ -104,6 +112,20 @@ private val TREE_IN_A_PAINTED_SHELL = listOf(
     Mutation.Create(ROOT, WidgetKind.Navigation),
     Mutation.SetModifier(ROOT, 0, ProtocolModifier.Background(Paint.Literal(CREAM))),
 ) + label(LABEL, ROOT, 0, "Title")
+
+/**
+ * A page inside a wrapper that paints: `Column { Navigation(cream) { Text } }`.
+ *
+ * How a shell reaches the top of the window in practice. The application writes a
+ * navigation and the renderer wraps it, so nothing at the root names a colour and the one
+ * that fills the window is a step down.
+ */
+private val TREE_UNDER_A_PAINTED_SHELL = listOf(
+    Mutation.Create(ROOT, WidgetKind.Column),
+    Mutation.Create(BAR, WidgetKind.Navigation),
+    Mutation.SetModifier(BAR, 0, ProtocolModifier.Background(Paint.Literal(CREAM))),
+    Mutation.Insert(ROOT, BAR, 0),
+) + label(LABEL, BAR, 0, "Title")
 
 /** `Column { Text }` with the page painted cream by the application. */
 private val TREE_PAINTED_BY_THE_APPLICATION = listOf(
@@ -217,6 +239,47 @@ class WindowCaptionTest {
         val plain = tableOf(TREE_WITHOUT_A_BAR)
         assertEquals(theme.color(ColorRole.Background), plain.windowFill(plain.roots, theme))
     }
+
+    /**
+     * The window takes the colour of whatever reaches its top, not only of the root.
+     *
+     * A tree that opens with a shell keeps the caption on the page, so the content starts
+     * below the window buttons and the strip above it is painted by the window. Reading
+     * only the root left that strip in the design system's background while the page under
+     * it was the application's own, which is the leftover title bar this section exists to
+     * avoid.
+     */
+    @Test
+    fun fr19_the_window_takes_the_colour_that_fills_it() {
+        val theme = lightMaterial3()
+        val shell = tableOf(TREE_UNDER_A_PAINTED_SHELL)
+        assertEquals(Color(CREAM), shell.windowFill(shell.roots, theme))
+    }
+
+    /**
+     * A bar at the top of the window does not lend the window its colour.
+     *
+     * The bar takes the caption, so what it paints is the strip it draws rather than the
+     * window behind the page. Taking it here would paint every screen that opens with a
+     * bar in the chrome's colour.
+     */
+    @Test
+    fun fr19_a_bar_does_not_lend_the_window_its_colour() {
+        val theme = lightMaterial3()
+        val barred = tableOf(TREE_WITH_A_PAINTED_BAR)
+        assertEquals(theme.color(ColorRole.Background), barred.windowFill(barred.roots, theme))
+    }
+
+    private fun lightMaterial3() = resolveTheme(
+        theme = Theme(
+            DesignSystem.Material3,
+            DesignSystem.Material3,
+            ColorScheme.Light,
+            adaptive = false,
+        ),
+        platform = HostPlatform.MacOs,
+        systemDark = false,
+    )
 
     /**
      * A page made of chrome keeps its colour and stops painting all of it.
