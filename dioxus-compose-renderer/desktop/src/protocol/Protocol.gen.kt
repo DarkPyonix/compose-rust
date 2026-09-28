@@ -14,6 +14,8 @@ enum class Key { Enter }
 
 enum class WindowSizeClass { Compact, Medium, Expanded }
 
+enum class WindowHeightClass { Compact, Medium, Expanded }
+
 enum class ColorRole { Primary, OnPrimary, Secondary, OnSecondary, Surface, OnSurface, SurfaceVariant, OnSurfaceVariant, Background, OnBackground, Outline, OutlineVariant, Error, OnError, SurfaceContainer, Tertiary, OnTertiary, PrimaryContainer, OnPrimaryContainer, SecondaryContainer, OnSecondaryContainer, TertiaryContainer, OnTertiaryContainer }
 
 enum class TypeRole { Display, Headline, Title, Subtitle, Body, BodyStrong, Label, Caption, Mono }
@@ -329,7 +331,7 @@ sealed interface HostEvent {
     data class KeyDown(override val nodeId: Int, override val handlerId: Long, val key: Key, val shiftKey: Boolean, val ctrlKey: Boolean, val altKey: Boolean, val metaKey: Boolean) : HostEvent
     data class RangeRequested(override val nodeId: Int, override val handlerId: Long, val start: Int, val count: Int) : HostEvent
     data class ValueChanged(override val nodeId: Int, override val handlerId: Long, val value: Double) : HostEvent
-    data class WindowSizeChanged(override val nodeId: Int, override val handlerId: Long, val widthDp: kotlin.Float, val heightDp: kotlin.Float, val sizeClass: WindowSizeClass) : HostEvent
+    data class WindowSizeChanged(override val nodeId: Int, override val handlerId: Long, val widthDp: kotlin.Float, val heightDp: kotlin.Float, val sizeClass: WindowSizeClass, val heightClass: WindowHeightClass) : HostEvent
     data class Resync(override val nodeId: Int, override val handlerId: Long) : HostEvent
     data class LifecycleStart(override val nodeId: Int, override val handlerId: Long) : HostEvent
     data class LifecycleStop(override val nodeId: Int, override val handlerId: Long) : HostEvent
@@ -342,7 +344,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -2513130958258615401L
+    const val SCHEMA_HASH: Long = -2864875678340308953L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -594,7 +596,7 @@ object Protocol {
                 is HostEvent.KeyDown -> 20
                 is HostEvent.RangeRequested -> 24
                 is HostEvent.ValueChanged -> 24
-                is HostEvent.WindowSizeChanged -> 28
+                is HostEvent.WindowSizeChanged -> 32
                 is HostEvent.Resync -> 16
                 is HostEvent.LifecycleStart -> 16
                 is HostEvent.LifecycleStop -> 16
@@ -655,6 +657,7 @@ object Protocol {
                     out.putFloat(event.widthDp)
                     out.putFloat(event.heightDp)
                     out.putInt(windowSizeClassTag(event.sizeClass))
+                    out.putInt(windowHeightClassTag(event.heightClass))
                 }
                 is HostEvent.Resync -> Unit
                 is HostEvent.LifecycleStart -> Unit
@@ -801,6 +804,12 @@ object Protocol {
         WindowSizeClass.Compact -> 0
         WindowSizeClass.Medium -> 1
         WindowSizeClass.Expanded -> 2
+    }
+
+    private fun windowHeightClassTag(heightClass: WindowHeightClass): Int = when (heightClass) {
+        WindowHeightClass.Compact -> 0
+        WindowHeightClass.Medium -> 1
+        WindowHeightClass.Expanded -> 2
     }
 
     private fun designSystemTag(system: DesignSystem): Int = when (system) {

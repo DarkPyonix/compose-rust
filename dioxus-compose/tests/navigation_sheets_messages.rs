@@ -9,7 +9,8 @@
 use dioxus_compose::prelude::*;
 use dioxus_compose::protocol::{HostEvent, Mutation, PropertyValue, decode_batch};
 use dioxus_compose::{
-    EventPayload, Host, MessageDuration, PropertyKind, WidgetKind, WindowSizeClass,
+    EventPayload, Host, MessageDuration, PropertyKind, WidgetKind, WindowHeightClass,
+    WindowSizeClass,
 };
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -90,6 +91,7 @@ fn resize(host: &mut Host, width_dp: f32) -> Vec<Record> {
                 width_dp,
                 height_dp: 800.0,
                 class: WindowSizeClass::from_width_dp(width_dp),
+                height_class: WindowHeightClass::from_height_dp(800.0),
             },
         })
         .unwrap();

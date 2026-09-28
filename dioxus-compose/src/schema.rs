@@ -75,6 +75,7 @@ pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "keys=Enter;",
     "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped;",
     "windowsizeclasses=Compact,Medium,Expanded;",
+    "windowheightclasses=Compact,Medium,Expanded;",
     "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage"
 );
 
@@ -105,6 +106,7 @@ const fn schema_hash() -> u64 {
     hash = hash_enum_schema(hash, PROPERTY_SCHEMA);
     hash = hash_enum_schema(hash, KEY_SCHEMA);
     hash = hash_enum_schema(hash, WINDOW_SIZE_CLASS_SCHEMA);
+    hash = hash_enum_schema(hash, WINDOW_HEIGHT_CLASS_SCHEMA);
     let mut role_index = 0;
     while role_index < ROLE_ENUM_SCHEMA.len() {
         hash = hash_bytes(hash, ROLE_ENUM_SCHEMA[role_index].name.as_bytes());
@@ -354,6 +356,33 @@ impl WindowSizeClass {
         if width_dp >= Self::EXPANDED_MIN_WIDTH_DP {
             Self::Expanded
         } else if width_dp >= Self::MEDIUM_MIN_WIDTH_DP {
+            Self::Medium
+        } else {
+            Self::Compact
+        }
+    }
+}
+
+define_wire_enum!(WINDOW_HEIGHT_CLASS_SCHEMA, WindowHeightClass {
+    Compact = 0,
+    Medium = 1,
+    Expanded = 2,
+});
+
+impl WindowHeightClass {
+    /// The height in dp at which `Medium` begins, and the height at which `Expanded` does.
+    ///
+    /// The same published table the width boundaries came from, so a layout that folds
+    /// when it runs out of vertical room folds at the height Compose's own components
+    /// treat as short.
+    pub const MEDIUM_MIN_HEIGHT_DP: f32 = 480.0;
+    pub const EXPANDED_MIN_HEIGHT_DP: f32 = 900.0;
+
+    /// The class a window of this height belongs to. Width does not take part.
+    pub fn from_height_dp(height_dp: f32) -> Self {
+        if height_dp >= Self::EXPANDED_MIN_HEIGHT_DP {
+            Self::Expanded
+        } else if height_dp >= Self::MEDIUM_MIN_HEIGHT_DP {
             Self::Medium
         } else {
             Self::Compact
@@ -1366,12 +1395,15 @@ pub enum EventPayload<'a> {
     /// One `f64` holds all of them: integers up to 2^53 survive it exactly, so splitting
     /// the event in two would only give the same concept two names.
     ValueChanged(f64),
-    /// The window moved into a different size class. The Renderer measures the root
-    /// content and sends this only when the class changes, never on every layout pass.
+    /// The window, or one observed node, moved into a different size class. The Renderer
+    /// measures it and sends this only when a class changes, never on every layout pass.
+    /// A `node_id` of 0 is the window; anything else is the node that asked to be
+    /// measured.
     WindowSizeChanged {
         width_dp: f32,
         height_dp: f32,
         class: WindowSizeClass,
+        height_class: WindowHeightClass,
     },
     /// Files are over a node that said it would take them. Nothing about what they are:
     /// the platforms disagree about what is knowable before a drop, and a screen that

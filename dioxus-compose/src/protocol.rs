@@ -211,16 +211,22 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
         EVENT_VALUE_CHANGED if record_len == 24 => {
             crate::schema::EventPayload::ValueChanged(f64::from_bits(read_u64(bytes, 16)?))
         }
-        EVENT_WINDOW_SIZE_CHANGED if record_len == 28 => {
+        EVENT_WINDOW_SIZE_CHANGED if record_len == 32 => {
             let raw_class = read_u32(bytes, 24)?;
             let class = u16::try_from(raw_class)
                 .ok()
                 .and_then(|value| crate::schema::WindowSizeClass::try_from(value).ok())
                 .ok_or(ProtocolError::InvalidValueKind(raw_class as u16))?;
+            let raw_height_class = read_u32(bytes, 28)?;
+            let height_class = u16::try_from(raw_height_class)
+                .ok()
+                .and_then(|value| crate::schema::WindowHeightClass::try_from(value).ok())
+                .ok_or(ProtocolError::InvalidValueKind(raw_height_class as u16))?;
             crate::schema::EventPayload::WindowSizeChanged {
                 width_dp: f32::from_bits(read_u32(bytes, 16)?),
                 height_dp: f32::from_bits(read_u32(bytes, 20)?),
                 class,
+                height_class,
             }
         }
         EVENT_DESIGN_SYSTEM_RESOLVED if record_len == 20 => {
@@ -286,15 +292,17 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         width_dp,
         height_dp,
         class,
+        height_class,
     } = event.payload
     {
         output.extend_from_slice(&EVENT_WINDOW_SIZE_CHANGED.to_le_bytes());
-        output.extend_from_slice(&28_u16.to_le_bytes());
+        output.extend_from_slice(&32_u16.to_le_bytes());
         output.extend_from_slice(&event.node_id.to_le_bytes());
         output.extend_from_slice(&event.handler_id.to_le_bytes());
         output.extend_from_slice(&width_dp.to_bits().to_le_bytes());
         output.extend_from_slice(&height_dp.to_bits().to_le_bytes());
         output.extend_from_slice(&u32::from(u16::from(class)).to_le_bytes());
+        output.extend_from_slice(&u32::from(u16::from(height_class)).to_le_bytes());
         return Ok(());
     }
     if let crate::schema::EventPayload::DesignSystemResolved(system) = event.payload {
@@ -1226,7 +1234,7 @@ mod tests {
     }
 
     #[test]
-    fn fr20_window_size_changed_round_trips_in_twenty_eight_bytes() {
+    fn fr20_window_size_changed_round_trips_in_thirty_two_bytes() {
         let event = HostEvent {
             node_id: 0,
             handler_id: 0,
@@ -1234,11 +1242,12 @@ mod tests {
                 width_dp: 841.5,
                 height_dp: 600.25,
                 class: crate::WindowSizeClass::Expanded,
+                height_class: crate::WindowHeightClass::Medium,
             },
         };
         let mut bytes = Vec::new();
         encode_event(&event, &mut bytes).unwrap();
-        assert_eq!(bytes.len(), 28);
+        assert_eq!(bytes.len(), 32);
         assert_eq!(decode_event(&bytes).unwrap(), event);
     }
 
@@ -1251,11 +1260,33 @@ mod tests {
                 width_dp: 320.0,
                 height_dp: 640.0,
                 class: crate::WindowSizeClass::Compact,
+                height_class: crate::WindowHeightClass::Medium,
             },
         };
         let mut bytes = Vec::new();
         encode_event(&event, &mut bytes).unwrap();
         bytes[24..28].copy_from_slice(&99_u32.to_le_bytes());
+        assert_eq!(
+            decode_event(&bytes),
+            Err(ProtocolError::InvalidValueKind(99))
+        );
+    }
+
+    #[test]
+    fn fr20_unknown_window_height_class_is_a_protocol_error() {
+        let event = HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: crate::EventPayload::WindowSizeChanged {
+                width_dp: 320.0,
+                height_dp: 640.0,
+                class: crate::WindowSizeClass::Compact,
+                height_class: crate::WindowHeightClass::Medium,
+            },
+        };
+        let mut bytes = Vec::new();
+        encode_event(&event, &mut bytes).unwrap();
+        bytes[28..32].copy_from_slice(&99_u32.to_le_bytes());
         assert_eq!(
             decode_event(&bytes),
             Err(ProtocolError::InvalidValueKind(99))
@@ -1280,6 +1311,27 @@ mod tests {
         assert_eq!(
             WindowSizeClass::from_width_dp(840.0),
             WindowSizeClass::Expanded
+        );
+    }
+
+    #[test]
+    fn fr20_window_height_classes_follow_the_material_boundaries() {
+        use crate::WindowHeightClass;
+        assert_eq!(
+            WindowHeightClass::from_height_dp(479.9),
+            WindowHeightClass::Compact
+        );
+        assert_eq!(
+            WindowHeightClass::from_height_dp(480.0),
+            WindowHeightClass::Medium
+        );
+        assert_eq!(
+            WindowHeightClass::from_height_dp(899.9),
+            WindowHeightClass::Medium
+        );
+        assert_eq!(
+            WindowHeightClass::from_height_dp(900.0),
+            WindowHeightClass::Expanded
         );
     }
 }
