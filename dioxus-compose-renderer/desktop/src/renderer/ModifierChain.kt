@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import dioxus.compose.protocol.HostEvent
 import dioxus.compose.protocol.Modifier as ProtocolModifier
 import dioxus.compose.design.ResolvedTheme
+import dioxus.compose.design.glassLift
 import dioxus.compose.design.glassSurface
 import dioxus.compose.runtime.EventDispatcher
 import dioxus.compose.ui.node.TableError
@@ -50,7 +51,25 @@ internal fun List<ProtocolModifier>.toComposeModifier(
     // The last Shape or ShapeRole in the list is what clips, what the border
     // follows and what the background fills, whatever their order in the chain.
     val shape = resolvedShape(theme)
-    return fold(Modifier as Modifier) { chain, value ->
+    // What this node's surface is made of is its surface, so it is drawn round the whole
+    // node the way a background is: under the padding, and outside the clip so a surface
+    // that floats can cast its lift beyond its own edge. Taken at its place in the list it
+    // came last, after the padding and the clip, and a glass composer was drawn as a
+    // capsule inside its own padding with the lift cut off at the edge.
+    val material = lastOrNull { it is ProtocolModifier.Material } as ProtocolModifier.Material?
+    val surface = if (material == null) {
+        Modifier
+    } else {
+        // Resolved by the running design system, which answers with blur where it blurs
+        // and with a lifted or flat fill where it does not. Glass floats, so it lifts off
+        // what is behind it before it is painted: a glass capsule on a page of its own
+        // colour is otherwise a rim and nothing else.
+        Modifier.composed {
+            val resolved = theme.rules.material(material.role, theme)
+            glassLift(resolved, shape).glassSurface(resolved, shape)
+        }
+    }
+    return fold(surface) { chain, value ->
         when (value) {
             is ProtocolModifier.Empty -> chain
             is ProtocolModifier.Padding -> chain.padding(value.value.dp)
@@ -88,11 +107,8 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             // user has asked to hold still answers every role with no run at all.
             is ProtocolModifier.Motion -> chain.animateContentSize(theme.motion(value.role))
 
-            // What this node's surface is made of. The role is resolved by the running
-            // design system, which answers with blur where it blurs and with a lifted or
-            // flat fill where it does not, and the surface draws whichever it was given.
-            is ProtocolModifier.Material ->
-                chain.composed { glassSurface(theme.rules.material(value.role, theme), shape) }
+            // What this node's surface is made of, drawn above at the outside of the chain.
+            is ProtocolModifier.Material -> chain
 
             // Weight is parent data: it is applied by the Column or Row that owns this node,
             // not here. See `weightOf` and `Children` in RenderNode.kt.

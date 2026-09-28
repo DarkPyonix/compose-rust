@@ -587,10 +587,17 @@ static void dxc_unify_window(id window) {
         window, sel_registerName("setToolbarStyle:"), DXC_TOOLBAR_STYLE_UNIFIED);
 }
 
-// From NSVisualEffectView.h. The material a window uses for its own background, blended
-// with what is behind the window rather than with what is behind the view.
+// From NSVisualEffectView.h, blended with what is behind the window rather than with what
+// is behind the view.
+//
+// The sidebar material rather than the window background one. The window background
+// material is nearly opaque grey in the light appearance, so the desktop behind it reached
+// the eye as a faint cast at best; the sidebar material is the one AppKit puts behind a
+// source list, and it is what lets a pink wallpaper read as pink through the chrome that
+// sits on it. The renderer paints the page over it at most of its opacity, so the page
+// still reads as a page and only the chrome carries the desktop's colour at full strength.
 enum {
-    DXC_MATERIAL_UNDER_WINDOW_BACKGROUND = 21,
+    DXC_MATERIAL_SIDEBAR = 7,
     DXC_BLENDING_BEHIND_WINDOW = 0,
     DXC_EFFECT_STATE_ACTIVE = 1,
 };
@@ -790,7 +797,7 @@ static void dxc_back_window_with_material(id window) {
         return;
     }
     ((void (*)(id, SEL, long))objc_msgSend)(
-        effect, sel_registerName("setMaterial:"), DXC_MATERIAL_UNDER_WINDOW_BACKGROUND);
+        effect, sel_registerName("setMaterial:"), DXC_MATERIAL_SIDEBAR);
     ((void (*)(id, SEL, long))objc_msgSend)(
         effect, sel_registerName("setBlendingMode:"), DXC_BLENDING_BEHIND_WINDOW);
     ((void (*)(id, SEL, long))objc_msgSend)(

@@ -277,6 +277,11 @@ fun DioxusContent(
             reporter.report(widthDp, size.height.toDp().value, host)
         }
     }
+    // Whether anything in the tree asked to be made of a material, and so whether the
+    // window is stood up with the platform's own material behind it. The design system is
+    // told the answer, because chrome that sits straight on the desktop is drawn
+    // differently from chrome over the application's own page.
+    val asked = host.table.asksForWindowMaterial(host.roots)
     val theme = resolveTheme(
         host.table.theme,
         platform,
@@ -284,6 +289,7 @@ fun DioxusContent(
         sizeClass,
         fontOf = { asset -> (host.table.assets.asset(asset) as? Asset.Font)?.family },
         brushOf = { asset -> (host.table.assets.asset(asset) as? Asset.Brush)?.brush },
+        windowBackdrop = asked && platformBacksWindowWithMaterial(),
     )
     // The answer goes back to the Host, which asked a question it cannot answer itself:
     // an adaptive theme names no system, and the one that ends up running is worked out
@@ -315,13 +321,22 @@ fun DioxusContent(
         val safe = WindowInsets.safeDrawing.exclude(WindowInsets.ime)
         SystemBars(top = safe.getTop(this).toDp(), bottom = safe.getBottom(this).toDp())
     }
+    // A rail or a sidebar that runs to the top of the window takes the caption the same
+    // way a bar does: the window buttons sit on its surface and the page beside it starts
+    // its own content clear of them. Leaving the page to take the strip instead drew a band
+    // of page colour across the whole window above the sidebar, which is the leftover
+    // title bar this exists to avoid.
+    val navigation = theme.rules.navigation(sizeClass, theme)
+    val stripTakesTheTop = navigation.carriesCaption &&
+        navigation.presentation != NavigationPresentation.Bar &&
+        host.table.opensWithANavigation(host.roots)
     val barIsCaption = (caption.height > 0.dp || bars.top > 0.dp) &&
-        host.table.opensWithABar(host.roots)
+        (host.table.opensWithABar(host.roots) || stripTakesTheTop)
     // A navigation showing a bar along the bottom grows into the bottom strip, so the page
     // must not stop short of it as well. The same question the navigation itself asks,
     // asked here because the page is laid out before anything inside it.
     val navigationTakesTheBottom = bars.bottom > 0.dp &&
-        theme.rules.navigation(sizeClass, theme).presentation == NavigationPresentation.Bar &&
+        navigation.presentation == NavigationPresentation.Bar &&
         host.table.opensWithANavigation(host.roots)
     val (pageTop, pageBottom) = pageInsets(caption, bars, barIsCaption, navigationTakesTheBottom)
     // The clock and the gesture bar are drawn by the system over what this window drew, so
@@ -351,6 +366,7 @@ fun DioxusContent(
         LocalDesignTheme provides theme,
         LocalReduceTransparency provides reduceTransparency,
         LocalWindowCaption provides barCaption,
+        LocalStripTakesTheTop provides (barIsCaption && stripTakesTheTop),
         LocalSystemBars provides bars,
     ) {
         // The background fills the whole window and the inset is applied inside it. Putting
@@ -359,7 +375,6 @@ fun DioxusContent(
         // than as content extending underneath one.
         // Told once, and again only when the answer changes. A window that never asks is
         // never told, and comes up on exactly the path it did before any of this existed.
-        val asked = host.table.asksForWindowMaterial(host.roots)
         SideEffect { platformWindowMaterial(asked) }
         CompositionLocalProvider(LocalWindowSizeClass provides sizeClass) {
             Box(modifier.then(measured).background(host.table.windowFill(host.roots, theme))) {
@@ -479,6 +494,16 @@ data class WindowCaption(
  * line with everything beside it.
  */
 val LocalWindowCaption = staticCompositionLocalOf { WindowCaption.None }
+
+/**
+ * Whether a rail or a sidebar at the root of the tree runs to the top of the window and
+ * carries the caption on its own surface.
+ *
+ * Separate from [LocalWindowCaption], which a bar opening the tree also receives. A strip
+ * that stepped its destinations down by the caption whenever one was handed out would
+ * step them down under a bar that had already taken it, and leave a blank band beside it.
+ */
+val LocalStripTakesTheTop = staticCompositionLocalOf { false }
 
 /** The child of a frame that fills [slot], if the application filled it. */
 private fun NodeTable.slotChild(node: Node, slot: SlotRole): Int? =

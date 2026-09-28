@@ -8,6 +8,18 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.CompositionLocalProvider
+import dioxus.compose.design.glassLift
+import dioxus.compose.design.glassSurface
+import dioxus.compose.protocol.SpaceRole
+import dioxus.compose.runtime.LocalStripTakesTheTop
+import dioxus.compose.runtime.LocalWindowCaption
+import androidx.compose.ui.unit.Dp
+import dioxus.compose.runtime.WindowCaption
+import dioxus.compose.runtime.opensWithABar
+import dioxus.compose.ui.node.OnGlass
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -143,7 +155,7 @@ internal fun HostNavigation(
         // to clear what is on the screen rather than what the design system nominally
         // asked for.
         style.presentation == NavigationPresentation.Bar ->
-            style.barHeight + LocalSystemBars.current.bottom
+            style.barHeight + LocalSystemBars.current.bottom + style.floatingInset
         else -> 0.dp
     }
     DisposableEffect(table, barHeight) {
@@ -184,11 +196,17 @@ internal fun HostNavigation(
         return
     }
 
+    // The page's own colour belongs to the page, so a navigation that holds nothing but its
+    // destinations paints none of it. That is what a frame does with this: the strip goes
+    // in one slot and the frame paints the page behind both.
+    val holdsAPage = content.isNotEmpty()
     when (style.presentation) {
-        NavigationPresentation.Bar -> Column(modifier.navigationBackdrop(style)) {
+        NavigationPresentation.Bar -> Column(
+            modifier.then(if (holdsAPage) Modifier.pageBackdrop(style) else Modifier),
+        ) {
             // Same reason as the rail below: with nothing to show above it, this is a
             // strip and not a screen with a strip under it.
-            if (content.isNotEmpty()) {
+            if (holdsAPage) {
                 Box(Modifier.fillMaxWidth().weight(1f)) {
                     Screen(content, table, dispatcher)
                 }
@@ -196,88 +214,265 @@ internal fun HostNavigation(
                     Box(Modifier.fillMaxWidth().height(1.dp).background(line))
                 }
             }
-            Row(
-                Modifier
-                    .testTag(navigationStripTestTag(node.id))
-                    .fillMaxWidth()
-                    .background(style.container)
-                    // The strip the system's gesture bar sits in belongs to this bar: its
-                    // own colour runs to the bottom edge of the window and the
-                    // destinations sit above the gesture bar rather than under it. A bar
-                    // that stopped short would leave a band of the system's own
-                    // background below it that no other application on the device has.
-                    .height(style.barHeight + LocalSystemBars.current.bottom)
-                    .padding(bottom = LocalSystemBars.current.bottom),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                destinations.forEachIndexed { index, childId ->
-                    key(childId) {
-                        table.node(childId)?.let { destination ->
-                            Destination(
-                                node = destination,
-                                selected = index == selected,
-                                style = style,
-                                presentation = style.presentation,
-                                theme = theme,
-                                modifier = Modifier.weight(1f),
-                                onSelect = { choose(index, childId) },
-                            )
-                        }
-                    }
-                }
-            }
+            BarStrip(node.id, destinations, selected, style, theme, table, choose)
         }
 
         NavigationPresentation.Rail, NavigationPresentation.Drawer -> Row(
-            modifier.navigationBackdrop(style),
+            modifier.then(
+                if (holdsAPage && style.pageBehindStrip) Modifier.pageBackdrop(style) else Modifier,
+            ),
         ) {
-            val width = if (style.presentation == NavigationPresentation.Rail) {
-                style.railWidth
-            } else {
-                style.drawerWidth
-            }
-            Column(
-                Modifier
-                    .testTag(navigationStripTestTag(node.id))
-                    .width(width)
-                    .fillMaxHeight()
-                    .background(style.container)
-                    .verticalScroll(rememberScrollState())
-                    .padding(vertical = style.itemPadding),
-                verticalArrangement = Arrangement.spacedBy(style.itemSpacing),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                destinations.forEachIndexed { index, childId ->
-                    key(childId) {
-                        table.node(childId)?.let { destination ->
-                            Destination(
-                                node = destination,
-                                selected = index == selected,
-                                style = style,
-                                presentation = style.presentation,
-                                theme = theme,
-                                modifier = Modifier.fillMaxWidth(),
-                                onSelect = { choose(index, childId) },
-                            )
-                        }
-                    }
-                }
-            }
+            SideStrip(node.id, destinations, selected, style, theme, table, choose)
             // The rule and the room for a screen belong to the screen. A navigation
             // holding nothing but its destinations is a strip, and a strip that reserved
             // the rest of the window would leave whatever is beside it with no width at
             // all. That is what a frame does with this: the destinations go in one slot
             // and the page in another, and the two are laid out by the frame.
-            if (content.isNotEmpty()) {
+            if (holdsAPage) {
                 style.separator?.let { line ->
                     Box(Modifier.width(1.dp).fillMaxHeight().background(line))
                 }
-                Box(Modifier.fillMaxHeight().weight(1f)) {
-                    Screen(content, table, dispatcher)
+                Box(
+                    Modifier
+                        .fillMaxHeight()
+                        .weight(1f)
+                        .then(if (style.pageBehindStrip) Modifier else Modifier.pageBackdrop(style)),
+                ) {
+                    PageBesideStrip(style, opensWithABar = table.opensWithABar(content)) {
+                        Screen(content, table, dispatcher)
+                    }
                 }
             }
         }
+    }
+}
+
+/**
+ * The destinations along the bottom: a strip on the window's edge, or a capsule floating
+ * over the page where the design system floats its bar.
+ */
+@Composable
+private fun BarStrip(
+    navigationId: Int,
+    destinations: List<Int>,
+    selected: Int,
+    style: NavigationStyle,
+    theme: ResolvedTheme,
+    table: NodeTable,
+    choose: (Int, Int) -> Unit,
+) {
+    val systemBottom = LocalSystemBars.current.bottom
+    val material = style.stripMaterial
+    @Composable
+    fun Destinations(scope: RowScope) = with(scope) {
+        destinations.forEachIndexed { index, childId ->
+            key(childId) {
+                table.node(childId)?.let { destination ->
+                    Destination(
+                        node = destination,
+                        selected = index == selected,
+                        style = style,
+                        presentation = style.presentation,
+                        theme = theme,
+                        modifier = Modifier.weight(1f),
+                        onSelect = { choose(index, childId) },
+                    )
+                }
+            }
+        }
+    }
+    if (material == null || style.floatingInset <= 0.dp) {
+        Row(
+            Modifier
+                .testTag(navigationStripTestTag(navigationId))
+                .fillMaxWidth()
+                .background(style.container)
+                // The strip the system's gesture bar sits in belongs to this bar: its
+                // own colour runs to the bottom edge of the window and the
+                // destinations sit above the gesture bar rather than under it. A bar
+                // that stopped short would leave a band of the system's own
+                // background below it that no other application on the device has.
+                .height(style.barHeight + systemBottom)
+                .padding(bottom = systemBottom),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically,
+        ) { Destinations(this) }
+        return
+    }
+    // Floating. The capsule is held off both sides and off the bottom, above the gesture
+    // bar rather than grown into it, and the page's own colour runs on around it, which is
+    // what the glass takes its colour from. The page's content stops above the capsule
+    // rather than scrolling under it, so the last line of a list is never behind it.
+    val inset = style.floatingInset
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = inset, end = inset, top = inset / 2, bottom = inset / 2 + systemBottom),
+    ) {
+        // The tag is on the capsule rather than on the room around it, so the strip a
+        // test measures is the one on the screen.
+        Row(
+            Modifier
+                .testTag(navigationStripTestTag(navigationId))
+                .fillMaxWidth()
+                .height(style.barHeight)
+                .glassLift(material, style.stripShape)
+                .clip(style.stripShape)
+                .glassSurface(material, style.stripShape)
+                .padding(horizontal = theme.space(SpaceRole.Xs)),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OnGlass(true) { Destinations(this) }
+        }
+    }
+}
+
+/**
+ * The destinations down the leading edge: a rail or a drawer on the window's edge, or a
+ * panel floating inside it where the design system floats them.
+ *
+ * A floating one that carries the caption runs to the top of the window, and its first
+ * destination starts below the window buttons that sit on it.
+ */
+@Composable
+private fun SideStrip(
+    navigationId: Int,
+    destinations: List<Int>,
+    selected: Int,
+    style: NavigationStyle,
+    theme: ResolvedTheme,
+    table: NodeTable,
+    choose: (Int, Int) -> Unit,
+) {
+    val width = if (style.presentation == NavigationPresentation.Rail) {
+        style.railWidth
+    } else {
+        style.drawerWidth
+    }
+    val material = style.stripMaterial
+    val floating = material != null && style.floatingInset > 0.dp
+    val caption = LocalWindowCaption.current
+    // The caption only reaches a strip that carries it; anywhere else the page above has
+    // already taken it and the strip starts where it was put.
+    val carries = style.carriesCaption && LocalStripTakesTheTop.current
+    val captionTop = if (carries) caption.height + caption.insetTop else 0.dp
+    @Composable
+    fun Destinations() {
+        destinations.forEachIndexed { index, childId ->
+            key(childId) {
+                table.node(childId)?.let { destination ->
+                    Destination(
+                        node = destination,
+                        selected = index == selected,
+                        style = style,
+                        presentation = style.presentation,
+                        theme = theme,
+                        modifier = Modifier.fillMaxWidth(),
+                        onSelect = { choose(index, childId) },
+                    )
+                }
+            }
+        }
+    }
+    val gap = style.destinationGap ?: style.itemSpacing
+    if (!floating) {
+        Column(
+            Modifier
+                .testTag(navigationStripTestTag(navigationId))
+                .width(width)
+                .fillMaxHeight()
+                .background(style.container)
+                .verticalScroll(rememberScrollState())
+                .padding(top = captionTop + style.itemPadding, bottom = style.itemPadding),
+            verticalArrangement = Arrangement.spacedBy(gap),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) { Destinations() }
+        return
+    }
+    val inset = style.floatingInset
+    val shape = style.stripShape
+    Box(
+        Modifier
+            .width(width + inset)
+            .fillMaxHeight()
+            .padding(start = inset, top = inset, bottom = inset + LocalSystemBars.current.bottom),
+    ) {
+        Column(
+            Modifier
+                .testTag(navigationStripTestTag(navigationId))
+                .fillMaxSize()
+                .glassLift(material!!, shape)
+                .clip(shape)
+                .glassSurface(material, shape)
+                .verticalScroll(rememberScrollState())
+                .padding(
+                    // The panel starts [inset] down from the top of the window, and the
+                    // window buttons sit on it, so its first row starts below them.
+                    top = (captionTop - inset).coerceAtLeast(0.dp) + style.itemPadding,
+                    bottom = style.itemPadding,
+                    start = style.itemPadding,
+                    end = style.itemPadding,
+                ),
+            verticalArrangement = Arrangement.spacedBy(gap),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            OnGlass(true) { Destinations() }
+        }
+    }
+}
+
+/**
+ * The page beside a strip that carries the caption.
+ *
+ * The strip took the top of the window, so the page has to keep its own content clear of
+ * the caption. A page that opens with a bar hands the caption to the bar, which lays its
+ * content out on the same line as the window buttons; the buttons are on the strip, so
+ * the bar is told there is nothing of theirs to make room for.
+ */
+@Composable
+internal fun PageBesideStrip(
+    style: NavigationStyle,
+    opensWithABar: Boolean,
+    content: @Composable () -> Unit,
+) {
+    val caption = LocalWindowCaption.current
+    val carries = style.carriesCaption && LocalStripTakesTheTop.current
+    if (!carries || caption.height <= 0.dp && caption.insetTop <= 0.dp) {
+        content()
+        return
+    }
+    if (opensWithABar) {
+        // Whatever of the window buttons does not fit on the strip still reaches into the
+        // bar beside it, and a rail is narrower than some platforms' three buttons. Buttons
+        // at the trailing end are on the bar's side of the window altogether.
+        val strip = sideStripOuterWidth(style)
+        val left = if (caption.buttonsAtStart) {
+            (caption.buttonsWidth - strip).coerceAtLeast(0.dp)
+        } else {
+            caption.buttonsWidth
+        }
+        CompositionLocalProvider(LocalWindowCaption provides caption.copy(buttonsWidth = left)) {
+            content()
+        }
+    } else {
+        CompositionLocalProvider(LocalWindowCaption provides WindowCaption.None) {
+            Box(Modifier.padding(top = caption.height + caption.insetTop)) { content() }
+        }
+    }
+}
+
+/** How much of the window's width a rail or a drawer takes, its inset included. */
+internal fun sideStripOuterWidth(style: NavigationStyle): Dp {
+    val width = if (style.presentation == NavigationPresentation.Rail) {
+        style.railWidth
+    } else {
+        style.drawerWidth
+    }
+    return if (style.stripMaterial != null && style.floatingInset > 0.dp) {
+        width + style.floatingInset
+    } else {
+        width
     }
 }
 
@@ -381,10 +576,18 @@ internal fun Destination(
     }
 }
 
-private fun Modifier.navigationBackdrop(style: NavigationStyle): Modifier {
+/**
+ * The page's own colour, where the design system gives the page a gradient.
+ *
+ * Painted once, by whatever holds the page: a navigation that holds its screen, or the
+ * frame a navigation strip was put in. Painting it twice would lay a translucent gradient
+ * over itself.
+ */
+internal fun Modifier.pageBackdrop(style: NavigationStyle): Modifier {
     val start = style.pageGradientStart ?: return this
     val end = style.pageGradientEnd ?: return this
-    return background(Brush.verticalGradient(listOf(start, end)))
+    val hold = style.pageGradientHold.coerceIn(0f, 0.99f)
+    return background(Brush.verticalGradient(0f to start, hold to start, 1f to end))
 }
 
 @Composable

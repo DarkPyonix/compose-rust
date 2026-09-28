@@ -33,6 +33,7 @@ import dioxus.compose.protocol.HostEvent
 import dioxus.compose.protocol.Mutation
 import androidx.compose.runtime.SideEffect
 import dioxus.compose.protocol.DesignSystem
+import dioxus.compose.protocol.Paint
 import dioxus.compose.protocol.PropertyKind
 import dioxus.compose.protocol.PropertyValue
 import dioxus.compose.protocol.SlotRole
@@ -130,10 +131,7 @@ class DioxusHost(private val connection: HostConnection) : EventDispatcher {
                 // A malformed batch must not take the process down: it becomes a reported
                 // protocol error instead.
                 if (error is InterruptedException) throw error
-                protocolErrors += TableError(
-                    PROTOCOL_DECODE_ERROR,
-                    error.message ?: error::class.qualifiedName ?: "unknown error",
-                )
+                protocolErrors += TableError(PROTOCOL_DECODE_ERROR, error.describe())
             }
             protocolErrors += table.drainErrors()
         }
@@ -175,6 +173,33 @@ class DioxusHost(private val connection: HostConnection) : EventDispatcher {
 internal var onProtocolError: (TableError) -> Unit = { error ->
     System.err.println("dioxus-compose protocol error ${error.code}: ${error.message}")
 }
+
+/**
+ * What to say about a failure, all the way down.
+ *
+ * The cause as well as the throwable, because some of them say nothing on their own. A
+ * class whose initialiser failed reports "There was an error during file or class
+ * initialization" and keeps which class and why in its cause, and a reader given only the
+ * first line has been told that something went wrong and nothing else. That message was
+ * printed twice a second by a window that came up black, and finding what it meant took
+ * a debugger and an address arithmetic.
+ */
+private fun Throwable.describe(): String {
+    val parts = mutableListOf<String>()
+    var current: Throwable? = this
+    var depth = 0
+    while (current != null && depth < CAUSE_DEPTH) {
+        val name = current::class.qualifiedName ?: current::class.simpleName ?: "error"
+        val said = current.message
+        parts += if (said.isNullOrBlank()) name else "$name: $said"
+        current = current.cause
+        depth++
+    }
+    return parts.joinToString(", caused by ")
+}
+
+/** How far down a cause chain is worth printing before it is noise. */
+private const val CAUSE_DEPTH = 6
 
 /** Creates a Host bound to the composition's lifetime. */
 @Composable
@@ -252,6 +277,11 @@ fun DioxusContent(
             reporter.report(widthDp, size.height.toDp().value, host)
         }
     }
+    // Whether anything in the tree asked to be made of a material, and so whether the
+    // window is stood up with the platform's own material behind it. The design system is
+    // told the answer, because chrome that sits straight on the desktop is drawn
+    // differently from chrome over the application's own page.
+    val asked = host.table.asksForWindowMaterial(host.roots)
     val theme = resolveTheme(
         host.table.theme,
         platform,
@@ -259,6 +289,7 @@ fun DioxusContent(
         sizeClass,
         fontOf = { asset -> (host.table.assets.asset(asset) as? Asset.Font)?.family },
         brushOf = { asset -> (host.table.assets.asset(asset) as? Asset.Brush)?.brush },
+        windowBackdrop = asked && platformBacksWindowWithMaterial(),
     )
     // The answer goes back to the Host, which asked a question it cannot answer itself:
     // an adaptive theme names no system, and the one that ends up running is worked out
@@ -290,13 +321,22 @@ fun DioxusContent(
         val safe = WindowInsets.safeDrawing.exclude(WindowInsets.ime)
         SystemBars(top = safe.getTop(this).toDp(), bottom = safe.getBottom(this).toDp())
     }
+    // A rail or a sidebar that runs to the top of the window takes the caption the same
+    // way a bar does: the window buttons sit on its surface and the page beside it starts
+    // its own content clear of them. Leaving the page to take the strip instead drew a band
+    // of page colour across the whole window above the sidebar, which is the leftover
+    // title bar this exists to avoid.
+    val navigation = theme.rules.navigation(sizeClass, theme)
+    val stripTakesTheTop = navigation.carriesCaption &&
+        navigation.presentation != NavigationPresentation.Bar &&
+        host.table.opensWithANavigation(host.roots)
     val barIsCaption = (caption.height > 0.dp || bars.top > 0.dp) &&
-        host.table.opensWithABar(host.roots)
+        (host.table.opensWithABar(host.roots) || stripTakesTheTop)
     // A navigation showing a bar along the bottom grows into the bottom strip, so the page
     // must not stop short of it as well. The same question the navigation itself asks,
     // asked here because the page is laid out before anything inside it.
     val navigationTakesTheBottom = bars.bottom > 0.dp &&
-        theme.rules.navigation(sizeClass, theme).presentation == NavigationPresentation.Bar &&
+        navigation.presentation == NavigationPresentation.Bar &&
         host.table.opensWithANavigation(host.roots)
     val (pageTop, pageBottom) = pageInsets(caption, bars, barIsCaption, navigationTakesTheBottom)
     // The clock and the gesture bar are drawn by the system over what this window drew, so
@@ -326,6 +366,7 @@ fun DioxusContent(
         LocalDesignTheme provides theme,
         LocalReduceTransparency provides reduceTransparency,
         LocalWindowCaption provides barCaption,
+        LocalStripTakesTheTop provides (barIsCaption && stripTakesTheTop),
         LocalSystemBars provides bars,
     ) {
         // The background fills the whole window and the inset is applied inside it. Putting
@@ -334,7 +375,6 @@ fun DioxusContent(
         // than as content extending underneath one.
         // Told once, and again only when the answer changes. A window that never asks is
         // never told, and comes up on exactly the path it did before any of this existed.
-        val asked = host.table.asksForWindowMaterial(host.roots)
         SideEffect { platformWindowMaterial(asked) }
         CompositionLocalProvider(LocalWindowSizeClass provides sizeClass) {
             Box(modifier.then(measured).background(host.table.windowFill(host.roots, theme))) {
@@ -455,6 +495,16 @@ data class WindowCaption(
  */
 val LocalWindowCaption = staticCompositionLocalOf { WindowCaption.None }
 
+/**
+ * Whether a rail or a sidebar at the root of the tree runs to the top of the window and
+ * carries the caption on its own surface.
+ *
+ * Separate from [LocalWindowCaption], which a bar opening the tree also receives. A strip
+ * that stepped its destinations down by the caption whenever one was handed out would
+ * step them down under a bar that had already taken it, and leave a blank band beside it.
+ */
+val LocalStripTakesTheTop = staticCompositionLocalOf { false }
+
 /** The child of a frame that fills [slot], if the application filled it. */
 private fun NodeTable.slotChild(node: Node, slot: SlotRole): Int? =
     node.children.firstOrNull { childId ->
@@ -544,10 +594,63 @@ internal fun NodeTable.opensWithANavigation(roots: List<Int>): Boolean {
  * the fill the application named wins, applied to the window.
  */
 internal fun NodeTable.windowFill(roots: List<Int>, theme: ResolvedTheme): Color {
-    val root = roots.firstOrNull()?.let(::node)
-    val own = root?.modifiers?.firstNotNullOfOrNull { it as? ProtocolModifier.Background }
-    val fill = own?.let { theme.color(it.paint) } ?: theme.color(ColorRole.Background)
+    val named = paintAtTheTopOfTheWindow(roots)
+    val fill = named?.let(theme::color) ?: theme.color(ColorRole.Background)
     return if (asksForWindowMaterial(roots)) fill.letTheWindowShowThrough() else fill
+}
+
+/**
+ * The colour of whatever reaches the top of the window, or null where nothing named one.
+ *
+ * The root is asked first and then the leading edge below it, because the thing that fills
+ * a window is not always the root: an application writes a frame and puts a page in it, so
+ * what paints is a step or two down and nothing above it names a colour at all. Reading
+ * only the root left the strip above the page in the design system's background while the
+ * page under it was the application's own, which is the leftover title bar this section
+ * exists to avoid.
+ */
+private fun NodeTable.paintAtTheTopOfTheWindow(roots: List<Int>): Paint? {
+    var id = roots.firstOrNull() ?: return null
+    var atTheRoot = true
+    repeat(BAR_SEARCH_DEPTH) {
+        val node = node(id) ?: return null
+        val painted = node.modifiers.firstNotNullOfOrNull {
+            (it as? ProtocolModifier.Background)?.paint
+        }
+        when (node.widget) {
+            // Chrome, not the window. A bar or a picture takes the caption and paints that
+            // strip itself, so lending the window its colour would paint every screen that
+            // opens with one in the chrome's colour.
+            WidgetKind.TopAppBar, WidgetKind.Image -> return null
+            // A shell holds the whole page, so the colour it paints is the colour the
+            // window is.
+            WidgetKind.Navigation -> return painted
+            // A frame paints nothing itself and names its parts, so the window's colour is
+            // the content's rather than the bar's.
+            WidgetKind.Scaffold -> {
+                painted?.let { return it }
+                atTheRoot = false
+                id = slotChild(node, SlotRole.Content) ?: return null
+            }
+            WidgetKind.ScaffoldSlot -> {
+                painted?.let { return it }
+                atTheRoot = false
+                id = node.children.firstOrNull() ?: return null
+            }
+            // The same wrappers the caption search passes through, and for the same
+            // reason: they are not things the reader sees. Their own colour counts only at
+            // the root, where it is the page's; deeper down a painted Column is a card or
+            // a bubble, and painting the window in a bubble's colour hides the rounding
+            // that makes it one.
+            WidgetKind.Column, WidgetKind.Box -> {
+                if (atTheRoot && painted != null) return painted
+                atTheRoot = false
+                id = node.children.firstOrNull() ?: return null
+            }
+            else -> return if (atTheRoot) painted else null
+        }
+    }
+    return null
 }
 
 /**
