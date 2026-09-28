@@ -764,6 +764,10 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
         variants: CHROME_SCHEMA,
     },
     RoleEnumSchema {
+        name: "TitleBar",
+        variants: TITLE_BAR_SCHEMA,
+    },
+    RoleEnumSchema {
         name: "SlotRole",
         variants: SLOT_ROLE_SCHEMA,
     },
@@ -824,6 +828,22 @@ define_wire_enum!(CHROME_SCHEMA, Chrome {
     System = 2,
 });
 
+// Which of two title bars this window has. `Chrome` chooses who draws the caption; this
+// chooses, inside that, what kind of window the caption belongs to.
+//
+// What each one means is not the same on every platform, and the numbers are never the
+// Host's. On macOS the buttons sit further in and the window is rounded more; on Windows
+// and Linux the caption is a different height and the buttons stay where that platform
+// puts them.
+define_wire_enum!(TITLE_BAR_SCHEMA, TitleBar {
+    // What an application on that platform actually looks like now, which is why it is the
+    // default.
+    Normal = 1,
+    // An ordinary window. For tool applications, for the places the other reads oddly, and
+    // as the way back.
+    Simple = 2,
+});
+
 /// What an application may decide about its own window.
 ///
 /// The window belongs to the Renderer, so this is short and stays short. What is here is
@@ -833,6 +853,8 @@ define_wire_enum!(CHROME_SCHEMA, Chrome {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Window {
     pub chrome: Chrome,
+    /// Which of the two title bars this window has.
+    pub title_bar: TitleBar,
     /// What the window calls itself.
     ///
     /// Empty means the application said nothing, and the renderer uses its own name for
@@ -859,6 +881,7 @@ impl Window {
     pub const fn new() -> Self {
         Self {
             chrome: Chrome::Modern,
+            title_bar: TitleBar::Normal,
             title: "",
             icon: 0,
             width: 0,
@@ -867,6 +890,16 @@ impl Window {
             min_height: 0,
             resizable: true,
         }
+    }
+
+    /// Which of the two title bars this window has.
+    ///
+    /// `Normal` unless it is said otherwise, because that is the window an application on
+    /// this platform has now. What the mode is worth in pixels is the design system's, so
+    /// nothing here is a measurement.
+    pub const fn with_title_bar(mut self, title_bar: TitleBar) -> Self {
+        self.title_bar = title_bar;
+        self
     }
 
     /// Names the window. A literal, because this is read once before the window is stood

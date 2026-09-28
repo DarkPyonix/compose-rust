@@ -120,6 +120,15 @@ data class Theme(
 data class Window(
     val chrome: Chrome,
     /**
+     * Which of the two title bars this window has.
+     *
+     * `Chrome` says who draws the caption; this says, inside that, what kind of window the
+     * caption belongs to. What it is worth in pixels is this side's answer: on macOS how
+     * far in the buttons sit and how round the window is, on Windows and Linux how tall
+     * the caption is.
+     */
+    val titleBar: TitleBar,
+    /**
      * What the window calls itself.
      *
      * Empty means the application said nothing and the renderer uses its own name. A
@@ -446,20 +455,21 @@ object Protocol {
                         )
                     }
                     TAG_SET_WINDOW -> {
-                        requireRecordLength(length, 28, offset)
-                        val resizable = readU16(batch, base, available, offset + 14)
+                        requireRecordLength(length, 32, offset)
+                        val resizable = readU16(batch, base, available, offset + 16)
                         if (resizable > 1) {
-                            throw ProtocolException("invalid resizable flag $resizable", offset + 14)
+                            throw ProtocolException("invalid resizable flag $resizable", offset + 16)
                         }
                         Mutation.SetWindow(
                             Window(
                                 chrome(readU16(batch, base, available, offset + 4), offset + 4),
-                                readString(batch, base, available, offset + 16),
-                                readU32(batch, base, available, offset + 24).toInt(),
-                                readU16(batch, base, available, offset + 6),
+                                titleBar(readU16(batch, base, available, offset + 6), offset + 6),
+                                readString(batch, base, available, offset + 20),
+                                readU32(batch, base, available, offset + 28).toInt(),
                                 readU16(batch, base, available, offset + 8),
                                 readU16(batch, base, available, offset + 10),
                                 readU16(batch, base, available, offset + 12),
+                                readU16(batch, base, available, offset + 14),
                                 resizable == 1,
                             ),
                         )

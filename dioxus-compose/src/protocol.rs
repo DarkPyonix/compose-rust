@@ -559,13 +559,17 @@ impl BatchEncoder {
                 }
             }
             Mutation::SetWindow(window) => {
-                self.begin_record(TAG_SET_WINDOW, 24);
+                self.begin_record(TAG_SET_WINDOW, 28);
                 self.put_u16(window.chrome as u16);
+                self.put_u16(window.title_bar as u16);
                 self.put_u16(window.width);
                 self.put_u16(window.height);
                 self.put_u16(window.min_width);
                 self.put_u16(window.min_height);
                 self.put_u16(u16::from(window.resizable));
+                // The padding that keeps the record a multiple of four, which the envelope
+                // requires. Seven of these words is an odd number of them.
+                self.put_u16(0);
                 self.put_string_ref(window.title)?;
                 self.put_u32(window.icon);
             }
@@ -770,26 +774,29 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                     fonts,
                 })
             }
-            TAG_SET_WINDOW if len == 28 => {
+            TAG_SET_WINDOW if len == 32 => {
                 let chrome = read_u16(bytes, payload)?;
-                let resizable = read_u16(bytes, payload + 10)?;
+                let title_bar = read_u16(bytes, payload + 2)?;
+                let resizable = read_u16(bytes, payload + 12)?;
                 if resizable > 1 {
                     return Err(ProtocolError::InvalidValueKind(resizable));
                 }
                 Mutation::SetWindow(crate::schema::Window {
                     chrome: crate::schema::Chrome::try_from(chrome)
                         .map_err(|()| ProtocolError::InvalidValueKind(chrome))?,
-                    width: read_u16(bytes, payload + 2)?,
-                    height: read_u16(bytes, payload + 4)?,
-                    min_width: read_u16(bytes, payload + 6)?,
-                    min_height: read_u16(bytes, payload + 8)?,
+                    title_bar: crate::schema::TitleBar::try_from(title_bar)
+                        .map_err(|()| ProtocolError::InvalidValueKind(title_bar))?,
+                    width: read_u16(bytes, payload + 4)?,
+                    height: read_u16(bytes, payload + 6)?,
+                    min_width: read_u16(bytes, payload + 8)?,
+                    min_height: read_u16(bytes, payload + 10)?,
                     resizable: resizable == 1,
                     // Leaked on purpose, once per window. The record's owner is the
                     // window, the window outlives the batch it arrived in, and there is
                     // one of these per process.
-                    icon: read_u32(bytes, payload + 20)?,
+                    icon: read_u32(bytes, payload + 24)?,
                     title: Box::leak(
-                        read_string(bytes, payload + 12, records_len)?
+                        read_string(bytes, payload + 16, records_len)?
                             .to_owned()
                             .into_boxed_str(),
                     ),

@@ -52,6 +52,8 @@ enum class MessageDuration { Short, Long }
 
 enum class Chrome { Modern, System }
 
+enum class TitleBar { Normal, Simple }
+
 enum class SlotRole { TopBar, BottomBar, FloatingAction, Content }
 
 enum class LoopMode(val wire: Byte) {
@@ -106,6 +108,15 @@ data class Theme(
  */
 data class Window(
     val chrome: Chrome,
+    /**
+     * Which of the two title bars this window has.
+     *
+     * `Chrome` says who draws the caption; this says, inside that, what kind of window the
+     * caption belongs to. What it is worth in pixels is this side's answer: on macOS how
+     * far in the buttons sit and how round the window is, on Windows and Linux how tall
+     * the caption is.
+     */
+    val titleBar: TitleBar,
     /**
      * What the window calls itself.
      *
@@ -344,7 +355,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 2144604807497988963L
+    const val SCHEMA_HASH: Long = 8313790901842316542L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -511,20 +522,21 @@ object Protocol {
                         )
                     }
                     TAG_SET_WINDOW -> {
-                        requireRecordLength(length, 28, offset)
-                        val resizable = readU16(batch, base, available, offset + 14)
+                        requireRecordLength(length, 32, offset)
+                        val resizable = readU16(batch, base, available, offset + 16)
                         if (resizable > 1) {
-                            throw ProtocolException("invalid resizable flag $resizable", offset + 14)
+                            throw ProtocolException("invalid resizable flag $resizable", offset + 16)
                         }
                         Mutation.SetWindow(
                             Window(
                                 chrome(readU16(batch, base, available, offset + 4), offset + 4),
-                                readString(batch, base, available, offset + 16),
-                                readU32(batch, base, available, offset + 24).toInt(),
-                                readU16(batch, base, available, offset + 6),
+                                titleBar(readU16(batch, base, available, offset + 6), offset + 6),
+                                readString(batch, base, available, offset + 20),
+                                readU32(batch, base, available, offset + 28).toInt(),
                                 readU16(batch, base, available, offset + 8),
                                 readU16(batch, base, available, offset + 10),
                                 readU16(batch, base, available, offset + 12),
+                                readU16(batch, base, available, offset + 14),
                                 resizable == 1,
                             ),
                         )
@@ -1018,6 +1030,12 @@ object Protocol {
         1 -> Chrome.Modern
         2 -> Chrome.System
         else -> throw ProtocolException("unknown Chrome tag $tag", offset)
+    }
+
+    private fun titleBar(tag: Int, offset: Int): TitleBar = when (tag) {
+        1 -> TitleBar.Normal
+        2 -> TitleBar.Simple
+        else -> throw ProtocolException("unknown TitleBar tag $tag", offset)
     }
 
     private fun slotRole(tag: Int, offset: Int): SlotRole = when (tag) {
