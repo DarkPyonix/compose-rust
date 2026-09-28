@@ -3428,11 +3428,11 @@ internal object LiquidGlassRules : ComponentRules {
     /**
      * The room around a sidebar row's icon and label, which is what sets its height.
      *
-     * Six rather than eight, because the rows in the reference are 32 apart and at eight
-     * these came out at forty. A quarter looser across twenty rows is the difference
-     * between that product's list and a generic application menu.
+     * Measured twice. At eight the rows came out forty apart against the reference's
+     * thirty two, and at six they came out thirty six. A quarter looser across twenty
+     * rows is the difference between that product's list and a generic application menu.
      */
-    private val DRAWER_ROW_PADDING = 6.dp
+    private val DRAWER_ROW_PADDING = 4.dp
 
     /**
      * How opaque the page is at its top and at its foot over a window that shows the
@@ -3446,7 +3446,11 @@ internal object LiquidGlassRules : ComponentRules {
      * The page stays its own colour down a little under half its height before it turns,
      * which is where the reference's wash begins.
      */
-    private const val PAGE_GRADIENT_HOLD = 0.45f
+    // Where the page stops being white and starts turning. Measured against the
+    // reference: at 0.45 the page was already tinted halfway up, and there it is still
+    // white at the same height. The turn belongs in the lower half, so most of a page of
+    // text is read on white.
+    private const val PAGE_GRADIENT_HOLD = 0.58f
 
     /**
      * The glass caption. Three coloured discs at the leading edge, exactly as the flat

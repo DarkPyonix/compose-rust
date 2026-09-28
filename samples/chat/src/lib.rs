@@ -88,6 +88,32 @@ fn opening_messages() -> Vec<Message> {
     Vec::new()
 }
 
+/// How big the mark is where it opens an empty screen, and how far the greeting sits under
+/// it. Both read off the reference.
+const SPARK_ON_THE_EMPTY_SCREEN: f32 = 34.0;
+const SPARK_TO_GREETING: f32 = 20.0;
+
+/// And how big it is beside the application's name in the strip.
+const SPARK_IN_THE_STRIP: f32 = 20.0;
+
+/// The application's mark.
+///
+/// An SVG rather than a draw list, because the shape has four colours meeting at a point
+/// and the draw vocabulary has no filled path to say that with. It is registered once and
+/// referred to by id wherever it is drawn, so the bytes cross the boundary a single time.
+fn spark(size: f32) -> Element {
+    rsx! {
+        Image {
+            asset_id: dioxus_compose::asset::asset(
+                dioxus_compose::schema::AssetKind::Svg,
+                include_bytes!("../assets/spark.svg"),
+            ),
+            width: size,
+            height: size,
+        }
+    }
+}
+
 /// What stands in the middle of a conversation that has not started.
 ///
 /// Not a widget in the scrollback: the list is genuinely empty, and this sits over it. It
@@ -99,11 +125,11 @@ fn opening_greeting() -> Element {
             padding_role: SpaceRole::Lg,
             space_role: SpaceRole::Xs,
             alignment: Alignment::Center,
-            // Two lines at the title rung, not a headline over a paragraph. The reference
-            // greets you and asks one question, in the weight ordinary text is set in: a
-            // bold headline reads as a page title, and this screen has no page to title.
-            // How to use the composer is not written anywhere on it, because a composer
-            // that has to explain itself is the thing to fix instead.
+            {spark(SPARK_ON_THE_EMPTY_SCREEN)}
+            Spacer { height: SPARK_TO_GREETING }
+            // Two lines, not a headline over a paragraph. The reference greets you and
+            // asks one question. How to use the composer is not written anywhere on it,
+            // because a composer that has to explain itself is the thing to fix instead.
             Text {
                 text: "Hello.",
                 type_role: TypeRole::Headline,
@@ -129,9 +155,19 @@ fn thread_width(window: &WindowSize) -> Option<f32> {
     match window.class {
         WindowSizeClass::Compact => None,
         WindowSizeClass::Medium => Some(WindowSizeClass::MEDIUM_MIN_WIDTH_DP),
-        WindowSizeClass::Expanded => Some(WindowSizeClass::EXPANDED_MIN_WIDTH_DP),
+        // Not the class's own boundary. The column in the reference is narrower than the
+        // width at which its class begins, and it has to be: a line of text stops being
+        // readable somewhere around seventy characters and the boundary is about the
+        // window rather than about the line.
+        WindowSizeClass::Expanded => Some(THREAD_COLUMN),
     }
 }
+
+/// How wide the thread and the composer under it are on a window with room to choose.
+///
+/// Measured off the reference, whose composer is 751 across with the page showing either
+/// side of it. At the size class's own boundary the column came out fifty wider.
+const THREAD_COLUMN: f32 = 787.0;
 
 /// The assistant's settings, as a panel that can stand on its own.
 ///
@@ -406,10 +442,14 @@ pub fn app() -> Element {
                     // reference draws there. It also leaves Add to the composer's own key,
                     // and two buttons wearing one meaning is two buttons nobody can tell
                     // apart, including a test reaching for one of them.
+                    // Quiet, not accent. The reference's two chips at the top of the
+                    // window are dark grey on white; in the accent they were the loudest
+                    // thing on the screen and what they are loud about is a corner.
                     Button {
                         text: "",
                         icon: IconRole::Compose,
                         variant: ButtonVariant::Text,
+                        color: Paint::Role(ColorRole::OnSurfaceVariant),
                         on_click: move |_| start_conversation(),
                     }
                     Menu {
@@ -420,6 +460,7 @@ pub fn app() -> Element {
                                 text: "",
                                 icon: IconRole::More,
                                 variant: ButtonVariant::Text,
+                                color: Paint::Role(ColorRole::OnSurfaceVariant),
                                 on_click: move |_| more_open.set(true),
                             }
                         },
@@ -458,7 +499,7 @@ pub fn app() -> Element {
                             padding_role: SpaceRole::Sm,
                             space_role: SpaceRole::Sm,
                             alignment: Alignment::CenterStart,
-                            Text { text: "\u{25c6}", type_role: TypeRole::Subtitle, color: Paint::Role(ColorRole::Primary) }
+                            {spark(SPARK_IN_THE_STRIP)}
                             Text { text: "Chat", type_role: TypeRole::Subtitle }
                         }
                     },
@@ -526,6 +567,7 @@ pub fn app() -> Element {
                     fill_max_height: true,
                     padding_role: SpaceRole::Md,
                     space_role: SpaceRole::Md,
+
 
                     // A reply arriving is work in progress, and a line is what every one
                     // of these systems uses to say so. Indeterminate, because the
@@ -1515,8 +1557,14 @@ mod tests {
             "a compact window should not size the thread"
         );
         assert!(widths_at(700.0).contains(&dioxus_compose::WindowSizeClass::MEDIUM_MIN_WIDTH_DP));
+        // Not the class's own boundary on a wide window. The column is the reference's,
+        // which is narrower than the width at which its class begins, because a line of
+        // text stops being readable long before a window stops being wide.
+        assert!(widths_at(1200.0).contains(&THREAD_COLUMN));
         assert!(
-            widths_at(1200.0).contains(&dioxus_compose::WindowSizeClass::EXPANDED_MIN_WIDTH_DP)
+            !widths_at(1200.0).contains(&dioxus_compose::WindowSizeClass::EXPANDED_MIN_WIDTH_DP),
+            "the thread grew to the width the class starts at, which is a window \
+             measurement rather than a reading one"
         );
     }
 

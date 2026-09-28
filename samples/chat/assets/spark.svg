@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <!-- A four pointed spark, drawn as two crossed quadrilaterals so each arm can take a
+       colour of its own. The arms meet at the centre and the waists pull in, which is what
+       makes the shape read as light rather than as a compass. -->
+  <defs>
+    <linearGradient id="a" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4285F4"/>
+      <stop offset="1" stop-color="#9B72CB"/>
+    </linearGradient>
+    <linearGradient id="b" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#D96570"/>
+      <stop offset="1" stop-color="#F9AB00"/>
+    </linearGradient>
+  </defs>
+  <path d="M24 2 C26 14 34 22 46 24 C34 26 26 34 24 46 C22 34 14 26 2 24 C14 22 22 14 24 2 Z" fill="url(#a)"/>
+  <path d="M24 2 C26 14 34 22 46 24 C34 26 26 34 24 46 Z" fill="url(#b)" opacity="0.85"/>
+</svg>
