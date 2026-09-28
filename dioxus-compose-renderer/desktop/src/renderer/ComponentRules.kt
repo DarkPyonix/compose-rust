@@ -803,12 +803,24 @@ internal object CupertinoRules : ComponentRules {
      */
     override fun navigation(sizeClass: WindowSizeClass, theme: ResolvedTheme): NavigationStyle {
         val presentation = when (sizeClass) {
-            WindowSizeClass.Compact -> NavigationPresentation.Bar
+            // Two platforms draw this language and they answer a narrow window
+            // differently. A phone has its own tab bar and the destinations are handed to
+            // it (FR-14.9), so the presentation there stays the bar the shell is offered.
+            // A narrow window on a desktop has no tab bar to hand them to, and that
+            // platform's answer for a list with no room is to take it off the screen and
+            // leave the button that brings it back.
+            WindowSizeClass.Compact -> if (theme.platform == HostPlatform.Ios ||
+                theme.platform == HostPlatform.Android
+            ) {
+                NavigationPresentation.Bar
+            } else {
+                NavigationPresentation.PutAway
+            }
             // No rail. A column of icons with the words taken off is Material's answer to
             // a medium window and it is not this language's: Notes, Mail and Finder keep a
             // sidebar with its labels at every width a window can be dragged to, and the
-            // one thing they do when there is truly no room is put the whole thing away
-            // behind a button. None of them shows icons without their words.
+            // one thing they do when there is truly no room is put the whole thing away.
+            // None of them shows icons without their words.
             WindowSizeClass.Medium -> NavigationPresentation.Drawer
             WindowSizeClass.Expanded -> NavigationPresentation.Drawer
         }
@@ -3186,12 +3198,24 @@ internal object LiquidGlassRules : ComponentRules {
      */
     override fun navigation(sizeClass: WindowSizeClass, theme: ResolvedTheme): NavigationStyle {
         val presentation = when (sizeClass) {
-            WindowSizeClass.Compact -> NavigationPresentation.Bar
+            // Two platforms draw this language and they answer a narrow window
+            // differently. A phone has its own tab bar and the destinations are handed to
+            // it (FR-14.9), so the presentation there stays the bar the shell is offered.
+            // A narrow window on a desktop has no tab bar to hand them to, and that
+            // platform's answer for a list with no room is to take it off the screen and
+            // leave the button that brings it back.
+            WindowSizeClass.Compact -> if (theme.platform == HostPlatform.Ios ||
+                theme.platform == HostPlatform.Android
+            ) {
+                NavigationPresentation.Bar
+            } else {
+                NavigationPresentation.PutAway
+            }
             // No rail. A column of icons with the words taken off is Material's answer to
             // a medium window and it is not this language's: Notes, Mail and Finder keep a
             // sidebar with its labels at every width a window can be dragged to, and the
-            // one thing they do when there is truly no room is put the whole thing away
-            // behind a button. None of them shows icons without their words.
+            // one thing they do when there is truly no room is put the whole thing away.
+            // None of them shows icons without their words.
             WindowSizeClass.Medium -> NavigationPresentation.Drawer
             WindowSizeClass.Expanded -> NavigationPresentation.Drawer
         }

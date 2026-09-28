@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.getValue
 import androidx.compose.foundation.isSystemInDarkTheme
+import dioxus.compose.design.HostPlatform
 
 /**
  * Sends one event to the Host and reports whether the Host consumed it.
@@ -249,7 +250,7 @@ fun DioxusContent(
     }
     // The theme is resolved once here, and every node reads it from the CompositionLocal. A `SetTheme` is therefore one record on the wire and one
     // invalidation in Compose, not a SetProp per node.
-    val platform = remember { detectHostPlatform() }
+    val platform = remember { hostPlatformOverride ?: detectHostPlatform() }
     // Compose's isSystemInDarkTheme() reads the setting once on the desktop and never
     // notices it change, so a window there keeps its original colours while the rest of
     // the screen switches. The desktop installs an observer that does follow the system;
@@ -417,6 +418,16 @@ fun DioxusContent(
  * `ColorScheme.FollowSystem` reads the platform; nothing else consults this.
  */
 var systemDarkOverride: Boolean? = null
+
+/**
+ * Overrides which platform this is, for tests and for the dev harness.
+ *
+ * A design system is allowed to answer differently on two platforms that draw the same
+ * language, so a test about one of those answers has to be able to say which platform it
+ * means. Without this it gets the machine the test happens to be running on, which for a
+ * test about a phone's tab bar is whatever laptop is in front of you.
+ */
+var hostPlatformOverride: HostPlatform? = null
 
 /**
  * How to find out whether the system is in dark mode, when the platform knows better than

@@ -180,6 +180,57 @@ class LiquidGlassChromeTest {
     }
 
     /**
+     * A narrow window puts the sidebar away and leaves the button that brings it back.
+     *
+     * The state FR-21.2 did not have. Notes, Mail, Finder and the application the chat
+     * sample is drawn from all do this, and none of them shows a column of icons with the
+     * words taken off instead. A sidebar that cannot be put away is not this platform's
+     * sidebar.
+     *
+     * Compact is where it happens, because that is the width at which a sidebar and a page
+     * cannot both be read. Above it the sidebar stays, with its labels, at every width.
+     */
+    @Test
+    fun fr21_2_1_a_narrow_window_puts_the_destinations_away() {
+        val phone = glass(WindowSizeClass.Compact)
+        val put = phone.rules.navigation(WindowSizeClass.Compact, phone)
+        assertEquals(
+            NavigationPresentation.PutAway,
+            put.presentation,
+            "a phone width still draws a strip of destinations, so the page does not have " +
+                "the window",
+        )
+        for (sizeClass in listOf(WindowSizeClass.Medium, WindowSizeClass.Expanded)) {
+            val theme = glass(sizeClass)
+            assertEquals(
+                NavigationPresentation.Drawer,
+                theme.rules.navigation(sizeClass, theme).presentation,
+                "$sizeClass does not keep its sidebar",
+            )
+        }
+
+        // The other platform this language is drawn on answers the same width differently,
+        // and has to: a phone has its own tab bar and the destinations are handed to it
+        // rather than put away behind a button nobody on a phone would look for.
+        val onIos = resolveTheme(
+            theme = Theme(
+                DesignSystem.LiquidGlass,
+                DesignSystem.LiquidGlass,
+                ColorScheme.Light,
+                adaptive = false,
+            ),
+            platform = HostPlatform.Ios,
+            systemDark = false,
+            sizeClass = WindowSizeClass.Compact,
+        )
+        assertEquals(
+            NavigationPresentation.Bar,
+            onIos.rules.navigation(WindowSizeClass.Compact, onIos).presentation,
+            "a phone lost its tab bar, which is the one the platform itself draws",
+        )
+    }
+
+    /**
      * In a strip down the side, a selected destination is marked by its fill and keeps the
      * colour of the words around it.
      *
@@ -233,7 +284,7 @@ class LiquidGlassChromeTest {
     @Test
     fun fr21_liquid_glass_floats_its_navigation_at_every_width() {
         val expected = mapOf(
-            WindowSizeClass.Compact to NavigationPresentation.Bar,
+            WindowSizeClass.Compact to NavigationPresentation.PutAway,
             WindowSizeClass.Medium to NavigationPresentation.Drawer,
             WindowSizeClass.Expanded to NavigationPresentation.Drawer,
         )
@@ -243,18 +294,11 @@ class LiquidGlassChromeTest {
             assertEquals(presentation, style.presentation)
             assertTrue(style.floatingInset > 0.dp, "the $presentation is attached to the window's edge")
             assertTrue(style.stripMaterial is SurfaceMaterial.Glass, "the $presentation is not glass")
-            assertEquals(
-                presentation != NavigationPresentation.Bar,
+            assertTrue(
                 style.carriesCaption,
-                "only a strip down the side runs to the top of the window and carries its buttons",
+                "a strip down the side runs to the top of the window and carries its buttons",
             )
         }
-        val phone = glass(WindowSizeClass.Compact)
-        assertEquals(
-            phone.shape(ShapeRole.Full),
-            phone.rules.navigation(WindowSizeClass.Compact, phone).stripShape,
-            "the bar on a phone is a capsule",
-        )
 
         // And the flat systems keep their strips, exactly as they were.
         for (system in listOf(DesignSystem.Material3, DesignSystem.Fluent, DesignSystem.Cupertino)) {
@@ -348,9 +392,17 @@ class LiquidGlassChromeTest {
         assertNear(260.dp, strip.right - strip.left, "the sidebar's width")
     }
 
-    /** On a phone the destinations are a capsule held off both sides and the bottom. */
+    /**
+     * On a phone the destinations are not on the screen until they are asked for.
+     *
+     * This used to draw a capsule along the bottom, which is a tab bar, which is for a set
+     * of places an application switches between. A list of conversations or of folders is
+     * not that, and the platform's answer for a list with no room is to take it off the
+     * screen. So the strip is absent until the button brings it out, and the page has the
+     * whole window in the meantime.
+     */
     @Test
-    fun fr21_the_bar_floats_off_the_edges_of_a_phone() = runDesktopComposeUiTest(400, 800) {
+    fun fr21_2_1_a_phone_has_no_strip_until_it_is_asked_for() = runDesktopComposeUiTest(400, 800) {
         setContent {
             CompositionLocalProvider(
                 LocalFrameRequests provides frames,
@@ -363,11 +415,7 @@ class LiquidGlassChromeTest {
             }
         }
         waitForIdle()
-        val bar = onNodeWithTag(navigationStripTestTag(NAVIGATION)).getBoundsInRoot()
-        assertTrue(bar.left >= 8.dp, "the bar touches the leading edge at ${bar.left}")
-        assertTrue(bar.right <= 392.dp, "the bar touches the trailing edge at ${bar.right}")
-        assertTrue(bar.bottom <= 796.dp, "the bar sits on the bottom edge at ${bar.bottom}")
-        assertNear(56.dp, bar.bottom - bar.top, "the bar's height")
+        onNodeWithTag(navigationStripTestTag(NAVIGATION)).assertDoesNotExist()
     }
 
     /**

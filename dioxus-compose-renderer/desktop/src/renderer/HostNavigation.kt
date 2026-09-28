@@ -66,6 +66,10 @@ import dioxus.compose.ui.node.RenderNode
 import dioxus.compose.ui.node.nodeTestTag
 import dioxus.compose.ui.role
 import dioxus.compose.ui.textStyle
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.runtime.mutableStateOf
+import dioxus.compose.protocol.ShapeRole
 
 /** How thick the bar Fluent draws along the leading edge of the selected row is. */
 private val LEADING_BAR_THICKNESS = 3.dp
@@ -215,6 +219,44 @@ internal fun HostNavigation(
                 }
             }
             BarStrip(node.id, destinations, selected, style, theme, table, choose)
+        }
+
+        // Not on the screen. The page has the whole window, and one button brings the
+        // destinations back over it.
+        //
+        // Whether it is open is kept here and nowhere else: a sidebar being shown is not a
+        // fact about the application, and the Host neither sets it nor hears about it.
+        NavigationPresentation.PutAway -> {
+            var open by remember(node.id) { mutableStateOf(false) }
+            Box(modifier.then(if (holdsAPage) Modifier.pageBackdrop(style) else Modifier)) {
+                if (holdsAPage) {
+                    Screen(content, table, dispatcher)
+                }
+                // Over the page rather than beside it, and the page stays where it is
+                // while it is open: choosing a destination is what changes the page, and a
+                // page that disappeared and came back would hide what changed.
+                if (open) {
+                    // Anywhere else dismisses it, which is what every sidebar that can be
+                    // put away does and the only way out on a screen with no keyboard.
+                    Box(
+                        Modifier
+                            .matchParentSize()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                            ) { open = false },
+                    )
+                    SideStrip(node.id, destinations, selected, style, theme, table) { index, id ->
+                        open = false
+                        choose(index, id)
+                    }
+                }
+                PutAwayButton(
+                    style = style,
+                    theme = theme,
+                    modifier = Modifier.align(Alignment.TopStart),
+                ) { open = !open }
+            }
         }
 
         NavigationPresentation.Rail, NavigationPresentation.Drawer -> Row(
@@ -679,3 +721,38 @@ internal fun HostNavigationItem(
 
 /** Test tag of the strip of destinations, which is the half that changes shape. */
 fun navigationStripTestTag(nodeId: Int): String = "${nodeTestTag(nodeId)}-strip"
+
+/**
+ * The button that brings a put-away navigation back.
+ *
+ * Placed after the window's own buttons where the platform hands its caption over, because
+ * that is where every sidebar this is drawn from puts it, and dropping it on top of the
+ * traffic lights is the one place it cannot go.
+ */
+@Composable
+private fun PutAwayButton(
+    style: NavigationStyle,
+    theme: ResolvedTheme,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val caption = LocalWindowCaption.current
+    val leading = if (caption.buttonsAtStart) caption.buttonsWidth else 0.dp
+    val padding = theme.space(SpaceRole.Sm)
+    Box(
+        modifier
+            .padding(
+                start = leading + padding,
+                top = caption.insetTop + padding,
+            )
+            .size(PUT_AWAY_BUTTON)
+            .clip(theme.shape(ShapeRole.Small))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        RoleIcon(IconRole.Menu, style.content, theme, Modifier)
+    }
+}
+
+/** How big that button is. A caption's height, so it sits on the caption's line. */
+private val PUT_AWAY_BUTTON = 28.dp

@@ -43,6 +43,9 @@ import androidx.compose.ui.test.captureToImage
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import dioxus.compose.runtime.hostPlatformOverride
+import dioxus.compose.design.HostPlatform
+import kotlin.test.AfterTest
 
 private const val NAVIGATION = 1
 private const val FIRST = 2
@@ -80,6 +83,11 @@ private fun assertNear(expected: Dp, actual: Dp, what: String) {
 
 @OptIn(ExperimentalTestApi::class)
 class NavigationTest {
+    @AfterTest
+    fun clearPlatform() {
+        hostPlatformOverride = null
+    }
+
     private val frames = FrameRequestSource()
 
     /**
@@ -269,6 +277,11 @@ class NavigationTest {
     @OptIn(ExperimentalTestApi::class)
     @Test
     fun fr14_a_destination_is_drawn_in_the_colour_the_host_named() = runComposeUiTest {
+        // Said out loud, because this test is about the colour of a destination and needs
+        // one on the screen to look at. With no theme sent the system follows the machine
+        // the test runs on, and the Apple systems put their destinations away at this
+        // width on a desktop, which leaves nothing to read the colour off.
+        hostPlatformOverride = HostPlatform.Ios
         // A colour no design system holds, so finding it proves it came from the Host.
         val named = 0xffff00ff.toInt()
         val batch = listOf(

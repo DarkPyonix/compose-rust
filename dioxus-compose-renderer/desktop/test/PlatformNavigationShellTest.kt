@@ -37,6 +37,9 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import dioxus.compose.runtime.hostPlatformOverride
+import dioxus.compose.design.HostPlatform
+import kotlin.test.BeforeTest
 
 private const val NAVIGATION = 1
 private const val FIRST = 2
@@ -111,9 +114,21 @@ private class RecordingShell(override val drawsStrip: Boolean = true) : Platform
 class PlatformNavigationShellTest {
     private val frames = FrameRequestSource()
 
+    /**
+     * Every test here is about a phone, because the shell is the platform's own strip and
+     * only a phone has one. Said out loud rather than inherited from whatever machine the
+     * test runs on: the Apple systems answer a narrow window differently on a desktop,
+     * where there is no tab bar to hand the destinations to.
+     */
+    @BeforeTest
+    fun sayThisIsAPhone() {
+        hostPlatformOverride = HostPlatform.Ios
+    }
+
     @AfterTest
     fun clearShell() {
         platformNavigationShell = null
+        hostPlatformOverride = null
     }
 
     /**
