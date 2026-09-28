@@ -12,13 +12,22 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.ProvidableCompositionLocal
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Path
@@ -29,6 +38,12 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.layer.GraphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -109,15 +124,165 @@ fun Modifier.glassSurface(
     is SurfaceMaterial.Glass -> {
         val depth = LocalGlassDepth.current
         val resolved = material.atDepth(depth)
+        val reduce = LocalReduceTransparency.current
+        val available = LocalBlurAvailable.current
         val fill = glassFill(
             material = material,
-            reduceTransparency = LocalReduceTransparency.current,
-            blurAvailable = LocalBlurAvailable.current,
+            reduceTransparency = reduce,
+            blurAvailable = available,
             depth = depth,
         )
+        // The page this surface is a lens over, and where this surface is on it. Without a
+        // recording there is nothing to blur and the surface is its tint and its rim, which
+        // is what every glass surface here was before the recording existed.
+        val backdrop = LocalGlassBackdrop.current
+        val radius = glassBlurRadius(material, reduce, available)
+        var here by remember { mutableStateOf(Offset.Zero) }
         this
+            .onGloballyPositioned { here = it.positionInWindow() }
+            .drawBehind { drawGlassBackdrop(backdrop, here, shape, radius) }
             .background(fill, shape)
             .border(borderWidth, litEdge(resolved.highlight, resolved.shade), shape)
+    }
+}
+
+/**
+ * The page a glass surface is a lens over, recorded so the surface can blur it.
+ *
+ * Compose has no API that samples what is already on the screen behind an element, so a
+ * surface cannot reach backwards. What it can do is be handed the drawing: the content that
+ * is meant to show through records itself into a layer, and every glass surface over it
+ * draws that layer again, blurred, clipped to its own outline.
+ *
+ * Held in an object rather than passed down, because the recorder and the readers sit in
+ * different parts of the tree and neither composes the other.
+ */
+@Stable
+class GlassBackdropState {
+    /** The recorded page. Null until a frame has recorded one. */
+    internal var layer: GraphicsLayer? = null
+
+    /** Where the recording starts, in the window's coordinates. */
+    internal var origin: Offset = Offset.Zero
+
+    /**
+     * True while the page is drawing itself into the layer.
+     *
+     * A glass surface inside the page would otherwise draw the layer it is at that moment
+     * being recorded into, which is a call to draw the thing currently being drawn. It
+     * does not smear, it overflows the stack, and it takes the window with it.
+     *
+     * Anything inside the recording is the backdrop rather than something over it, so the
+     * right answer for all of it is no backdrop at all.
+     */
+    internal var recording: Boolean = false
+}
+
+/** The page under the glass, or null where nothing has offered one. */
+val LocalGlassBackdrop: ProvidableCompositionLocal<GlassBackdropState?> =
+    compositionLocalOf { null }
+
+/**
+ * The page under the glass and the chrome over it, with the page recorded so the chrome
+ * can blur it.
+ *
+ * Two slots rather than one, and that is the whole point of the shape. [page] is recorded
+ * into a layer and drawn exactly where it would have been, so wrapping it changes nothing
+ * about how it looks. [over] is not recorded, and it is where the bars and the panels go.
+ *
+ * A surface blurring a recording of itself feeds its own output back in, and after a few
+ * frames that is a smear, so the chrome has to be outside the recording. It also has to be
+ * able to read it, which is why both slots are inside the provider and only one of them is
+ * inside the layer.
+ */
+@Composable
+fun GlassBackdrop(
+    modifier: Modifier = Modifier,
+    state: GlassBackdropState = rememberGlassBackdropState(),
+    over: @Composable BoxScope.() -> Unit = {},
+    page: @Composable BoxScope.() -> Unit,
+) {
+    CompositionLocalProvider(LocalGlassBackdrop provides state) {
+        Box(modifier) {
+            Box(Modifier.recordsGlassBackdrop(state), content = page)
+            over()
+        }
+    }
+}
+
+/**
+ * A backdrop that lasts as long as the composition it is made in, with its layer.
+ *
+ * The layer is remembered here rather than inside the recording modifier so that the
+ * recorder and the surfaces reading it agree about which layer they mean even while the
+ * page is being rebuilt underneath them.
+ */
+@Composable
+fun rememberGlassBackdropState(): GlassBackdropState {
+    val state = remember { GlassBackdropState() }
+    val layer = rememberGraphicsLayer()
+    DisposableEffect(state, layer) {
+        state.layer = layer
+        onDispose { if (state.layer === layer) state.layer = null }
+    }
+    return state
+}
+
+/**
+ * Records what this element draws as [state]'s page, and draws it where it already was.
+ *
+ * A layer recorded and drawn in the same place is invisible to everything except the
+ * surfaces that read it back, so putting this on the page changes nothing about how the
+ * page looks.
+ *
+ * Only the page. Chrome inside the recording would be blurring its own output, which after
+ * a few frames is a smear.
+ */
+fun Modifier.recordsGlassBackdrop(state: GlassBackdropState): Modifier = this
+    .onGloballyPositioned { state.origin = it.positionInWindow() }
+    .drawWithContent {
+        val layer = state.layer
+        if (layer == null) {
+            drawContent()
+        } else {
+            // Cleared before recording: the effect a surface set to blur its own copy
+            // belongs to that draw and not to the page's own.
+            layer.renderEffect = null
+            state.recording = true
+            try {
+                layer.record { this@drawWithContent.drawContent() }
+            } finally {
+                state.recording = false
+            }
+            drawLayer(layer)
+        }
+    }
+
+/**
+ * Draws the recorded page under a surface, blurred and clipped to [shape].
+ *
+ * Moved back by the distance between where the recording started and where the surface
+ * sits, so the pixels that land inside the outline are the ones that were behind it.
+ *
+ * The effect is set before each draw rather than once, because two surfaces over the same
+ * page can ask for different thicknesses and a layer holds one effect at a time.
+ */
+private fun DrawScope.drawGlassBackdrop(
+    state: GlassBackdropState?,
+    here: Offset,
+    shape: Shape,
+    radius: Dp,
+) {
+    if (state == null || state.recording) return
+    val layer = state.layer ?: return
+    if (radius <= 0.dp) return
+    val blur = radius.toPx()
+    layer.renderEffect = BlurEffect(blur, blur, TileMode.Clamp)
+    val path = Path().apply { addOutline(shape.createOutline(size, layoutDirection, this@drawGlassBackdrop)) }
+    clipPath(path) {
+        translate(state.origin.x - here.x, state.origin.y - here.y) {
+            drawLayer(layer)
+        }
     }
 }
 
