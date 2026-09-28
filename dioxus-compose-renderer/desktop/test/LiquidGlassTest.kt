@@ -89,6 +89,39 @@ class LiquidGlassTest {
      * yours, and a window that kept showing through after it stopped being yours would be
      * the only one on the screen that did not sink.
      */
+    /**
+     * A tinted button is tinted with the accent, not with grey.
+     *
+     * This language's tinted style is the accent at low opacity carrying accent content:
+     * a pale blue capsule with blue in it. Ours was black or white at low opacity, which
+     * over a white surface is grey, and grey is what every other neutral fill on the
+     * screen already is. The one in the reference's composer reads as a quiet blue and
+     * ours read as a disabled control.
+     *
+     * Checked by the channels rather than by a stored colour. Composited over the surface
+     * it sits on, a neutral tint leaves red, green and blue equal; an accent tint in a
+     * language whose accent is blue leaves blue ahead of red.
+     */
+    @Test
+    fun fr14_1_2_a_tinted_button_is_tinted_with_the_accent() {
+        for (dark in listOf(false, true)) {
+            val theme = glassTheme(dark, WindowSizeClass.Expanded)
+            val tonal = theme.rules.button(ButtonVariant.Tonal, theme)
+            val over = compositeOver(tonal.container, theme.color(ColorRole.Surface))
+            assertTrue(
+                over.blue > over.red + ACCENT_LEAD,
+                "the tinted button came out neutral in ${if (dark) "dark" else "light"}: " +
+                    "red ${over.red}, blue ${over.blue}. A grey capsule is what every " +
+                    "other neutral fill on the screen already is",
+            )
+        }
+    }
+
+    private companion object {
+        /** How far ahead of red the blue has to be before the fill is carrying a hue. */
+        const val ACCENT_LEAD = 0.02f
+    }
+
     @Test
     fun fr14_1_5_an_inactive_window_draws_its_fallback() {
         assertFalse(

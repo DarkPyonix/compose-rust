@@ -2884,15 +2884,21 @@ internal object LiquidGlassRules : ComponentRules {
                 content = theme.color(ColorRole.OnPrimary),
             )
 
-            // A glass button: a translucent fill rather than a solid grey, so it is
-            // always a step away from whatever it sits on. A stored grey cannot be: the
-            // secondary fill and the tint of a bar are neighbours, so a tinted button on
-            // a toolbar came out the colour of the toolbar and vanished. Apple's own fill
-            // colours are defined this way too, dark in light mode and light in dark,
-            // which is why the direction flips with the scheme.
+            // A tinted button: the accent at low opacity, carrying the accent. A pale
+            // blue capsule with blue in it, which is what this language's tinted style is
+            // and what the reference's composer puts at its trailing end.
+            //
+            // Translucent rather than a stored colour, for the reason a stored grey could
+            // not be used either: the secondary fill and the tint of a bar are
+            // neighbours, so a fill chosen once comes out the colour of whatever it lands
+            // on. What changed is the hue it is translucent in. Black or white at low
+            // opacity over a white surface is grey, and grey is what every other neutral
+            // fill on the screen already is, so the one control meant to say "this is the
+            // action" read as a disabled one.
             ButtonVariant.Tonal -> base.copy(
-                container = tintedFill(theme.dark, TONAL_ALPHA),
-                pressedContainer = tintedFill(theme.dark, TONAL_PRESSED_ALPHA),
+                container = theme.color(ColorRole.Primary).copy(alpha = TONAL_ALPHA),
+                pressedContainer = theme.color(ColorRole.Primary)
+                    .copy(alpha = TONAL_PRESSED_ALPHA),
                 content = theme.color(ColorRole.Primary),
             )
 
@@ -3134,9 +3140,12 @@ internal object LiquidGlassRules : ComponentRules {
      * reads most as Apple's icon set, and it is shared with the flat language because it
      * is the same icon set.
      */
+    // Twenty at a point and a half, which is what the reference's are. At twenty two and
+    // two the same glyphs came out heavier than everything around them and made a sidebar
+    // of them read darker than the list it belongs to.
     override fun icon(role: IconRole, theme: ResolvedTheme): IconStyle = IconStyle(
-        size = 22.dp,
-        strokeWidth = 2.dp,
+        size = 20.dp,
+        strokeWidth = 1.5.dp,
         cap = StrokeCap.Round,
         join = StrokeJoin.Round,
     )
@@ -3408,8 +3417,11 @@ internal object LiquidGlassRules : ComponentRules {
     private val SWITCH_ON = Color(0xFF34C759)
 
     /** How far a tinted button moves what is under it, resting and pressed. */
-    private const val TONAL_ALPHA = 0.08f
-    private const val TONAL_PRESSED_ALPHA = 0.16f
+    // The accent at a fifth is the reference's pale blue over white. At the 0.08 a neutral
+    // tint used it was a hint of colour rather than a colour, and the control it is on is
+    // the one the eye is meant to find.
+    private const val TONAL_ALPHA = 0.20f
+    private const val TONAL_PRESSED_ALPHA = 0.32f
     private const val NAVIGATION_ALPHA = 0.72f
 
     /**
