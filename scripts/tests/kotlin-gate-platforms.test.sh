@@ -53,6 +53,16 @@ if ! adb devices 2>/dev/null | awk 'NR > 1 && $2 == "device" { found = 1 } END {
         fail "no Android device is attached and the gate still runs its tests"
 fi
 
+# The iOS simulator target is the same shape of answer: built always, tested only where
+# there is a simulator to test in. This is the one that was actually failing the gate, and
+# it failed after every other platform had passed, so it read as the gate breaking.
+echo "$listed" | grep -qx iosSimulatorArm64 || fail "iosSimulatorArm64 is not built"
+if ! xcrun simctl list devices available 2>/dev/null |
+        grep -qE '^[[:space:]]+[^[:space:]].*\([0-9A-F-]{36}\)'; then
+    echo "$testable" | grep -qx iosSimulatorArm64 &&
+        fail "this machine has no simulator and the gate still runs the simulator's tests"
+fi
+
 # Everything else a module declares has to be built.
 while read -r platform; do
     [[ "$platform" == "linuxX64" ]] && continue

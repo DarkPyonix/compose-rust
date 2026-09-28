@@ -17,6 +17,13 @@
 #              needs neither, so it is only left out of the test run.
 #   iosArm64   a device target has no test task at all, and naming one that has none is an
 #              error rather than a skip.
+#   iosSimulatorArm64
+#              the tests run in a simulator, so there has to be one installed. Building
+#              needs none, so this too is only left out of the test run. A machine with no
+#              simulators is what this was written for: the failure it gives is an internal
+#              error reading `No available device`, thrown after every other platform's
+#              tests have already passed, which reads as the gate breaking rather than as
+#              something not installed.
 set -euo pipefail
 
 case "${1:-}" in
@@ -46,6 +53,13 @@ has_x11() {
     [[ -e /usr/include/X11/Xlib.h || -e /opt/X11/include/X11/Xlib.h ]]
 }
 
+has_ios_simulator() {
+    command -v xcrun >/dev/null 2>&1 || return 1
+    # Available rather than booted: the test runner starts one, but it cannot install one.
+    xcrun simctl list devices available 2>/dev/null |
+        grep -qE '^[[:space:]]+[^[:space:]].*\([0-9A-F-]{36}\)'
+}
+
 has_android_device() {
     command -v adb >/dev/null 2>&1 || return 1
     # A device line is anything after the header that is not a blank line. `-l` is asked for
@@ -58,6 +72,7 @@ all_platforms | while read -r platform; do
         linuxX64) has_x11 || continue ;;
         android) [[ "$phase" == "build" ]] || has_android_device || continue ;;
         iosArm64) [[ "$phase" == "build" ]] || continue ;;
+        iosSimulatorArm64) [[ "$phase" == "build" ]] || has_ios_simulator || continue ;;
     esac
     echo "$platform"
 done
