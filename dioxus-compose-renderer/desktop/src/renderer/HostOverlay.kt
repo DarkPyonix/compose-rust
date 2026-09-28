@@ -33,6 +33,8 @@ import dioxus.compose.ui.node.NodeTable
 import dioxus.compose.ui.node.RenderNode
 import dioxus.compose.ui.node.nodeTestTag
 import dioxus.compose.ui.textStyle
+import dioxus.compose.design.LocalGlassBackdrop
+import androidx.compose.runtime.CompositionLocalProvider
 
 /** Whether an overlay is showing, and the way to change it without asking the Host. */
 internal class OverlayOpen(val value: Boolean, val set: (Boolean) -> Unit)
@@ -88,7 +90,7 @@ internal fun HostDialog(
             Modifier.fillMaxSize().background(style.scrim),
             contentAlignment = Alignment.Center,
         ) {
-            Column(modifier.containerDecoration(node, style, theme)) {
+            Column(modifier.containerDecoration(node, style, theme, overlay = true)) {
                 node.children.forEach { childId ->
                     key(childId) { RenderNode(childId, table, dispatcher) }
                 }
@@ -129,14 +131,22 @@ internal fun HostMenu(
                     dismiss(node, dispatcher)
                 },
             ) {
+                // The recorded page does not reach in here. A popup is its own platform
+                // window, so a position measured against "the window" means a different
+                // window on each side of this line, and the difference between the two is
+                // not a distance: drawing the page by it puts a piece of the page
+                // somewhere inside the menu. A menu that hangs past the window's edge has
+                // nothing of ours behind it there anyway.
+                CompositionLocalProvider(LocalGlassBackdrop provides null) {
                 Column(
                     Modifier
                         .testTag(menuPopupTestTag(node.id))
-                        .containerDecoration(node, style, theme),
+                        .containerDecoration(node, style, theme, overlay = true),
                 ) {
                     entries.forEach { childId ->
                         key(childId) { RenderNode(childId, table, dispatcher) }
                     }
+                }
                 }
             }
         }
@@ -186,7 +196,7 @@ internal fun HostTooltip(
                 Box(
                     Modifier
                         .testTag(tooltipPopupTestTag(node.id))
-                        .containerDecoration(node, style, theme),
+                        .containerDecoration(node, style, theme, overlay = true),
                 ) {
                     BasicText(
                         text = description,

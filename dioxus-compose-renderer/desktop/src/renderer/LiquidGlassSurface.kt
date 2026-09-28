@@ -299,6 +299,21 @@ private fun DrawScope.drawGlassBackdrop(
 }
 
 /**
+ * Whether a surface made of [material] is a sheet over the page rather than part of it.
+ *
+ * Only an overlay lifts. A menu, a dialog and a tooltip are sheets held clear of what they
+ * cover, and the shadow is what says so; a card in the middle of a document is not floating
+ * over it, and a shadow under every glass surface in the tree turns a page into a pile of
+ * cards.
+ *
+ * An opaque system lifts nothing either way. A design system that draws flat fills has no
+ * sheets to float, and a shadow under one of its panels would be this language leaking into
+ * a language that refused it.
+ */
+fun liftsOffThePage(material: SurfaceMaterial, overlay: Boolean): Boolean =
+    overlay && material is SurfaceMaterial.Glass
+
+/**
  * The soft shadow a floating glass surface casts, drawn around it.
  *
  * Separate from [glassSurface] because of where it has to go in a chain. It is drawn
