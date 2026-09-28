@@ -4,11 +4,11 @@ package dioxus.compose.design
 
 import kotlinx.cinterop.convert
 import kotlinx.cinterop.toKString
-import langinfo.ABDAY_1
-import langinfo.MON_1
-import langinfo.T_FMT
-import langinfo._NL_TIME_FIRST_WEEKDAY
-import langinfo.nl_langinfo
+import langinfo.dxc_langinfo
+import langinfo.dxc_langinfo_abbreviated_day
+import langinfo.dxc_langinfo_first_weekday
+import langinfo.dxc_langinfo_month
+import langinfo.dxc_langinfo_time_format
 import platform.posix.LC_ALL
 import platform.posix.setlocale
 
@@ -30,9 +30,9 @@ internal fun platformFormats(): PlatformFormats {
     // window would show English month names on a Korean desktop and nobody would see why.
     setlocale(LC_ALL, "")
 
-    val months = List(12) { index -> item(MON_1.toInt() + index) }
-    val weekdays = List(7) { index -> item(ABDAY_1.toInt() + index) }
-    val timeFormat = item(T_FMT.toInt())
+    val months = List(12) { index -> item(dxc_langinfo_month + index) }
+    val weekdays = List(7) { index -> item(dxc_langinfo_abbreviated_day + index) }
+    val timeFormat = item(dxc_langinfo_time_format)
 
     return PlatformFormats(
         firstDayOfWeek = firstDayOfWeek(),
@@ -50,7 +50,7 @@ internal fun platformFormats(): PlatformFormats {
     )
 }
 
-private fun item(which: Int): String = nl_langinfo(which.convert())?.toKString().orEmpty()
+private fun item(which: Int): String = dxc_langinfo(which)?.toKString().orEmpty()
 
 /**
  * Which day this locale starts its weeks on, counting Sunday as 0.
@@ -62,7 +62,7 @@ private fun item(which: Int): String = nl_langinfo(which.convert())?.toKString()
  * answer should look like rather than empty.
  */
 private fun firstDayOfWeek(): Int {
-    val answer = item(_NL_TIME_FIRST_WEEKDAY.toInt())
+    val answer = item(dxc_langinfo_first_weekday)
     val day = answer.firstOrNull()?.code ?: return PlatformFormats.Fallback.firstDayOfWeek
     if (day < 1 || day > 7) return PlatformFormats.Fallback.firstDayOfWeek
     return day - 1

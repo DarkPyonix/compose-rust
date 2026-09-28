@@ -37,4 +37,14 @@ compilerOpts = -idirafter /usr/include -idirafter /opt/X11/include
 # Resolved when a Host executable is finally linked on Linux, not here: this module produces
 # a klib. Xext is where the sync counter calls live, which is easy to miss because they are
 # declared under X11/extensions and everything else in that directory is in libX11.
-linkerOpts = -lX11 -lXext -lGL
+# The search paths as well as the names. The toolchain links inside its own sysroot, which
+# holds a C library and nothing of a desktop, so the three below are found only if it is
+# told where a distribution keeps them. Both layouts are named because distributions do not
+# agree: Debian and its derivatives put them under a triplet directory, Fedora and openSUSE
+# under lib64. A path that is not there costs nothing.
+#
+# Fontconfig and FreeType are here because Skia asks for them: it finds a font by asking the
+# desktop's own font configuration rather than carrying a copy of one. They are named beside
+# the window's libraries because this is where the module says what it links against, not
+# because the window uses them.
+linkerOpts = -L/usr/lib/x86_64-linux-gnu -L/usr/lib64 -L/usr/X11R6/lib -lX11 -lXext -lGL -lfontconfig -lfreetype

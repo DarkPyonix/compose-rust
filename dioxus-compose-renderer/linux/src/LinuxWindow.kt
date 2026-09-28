@@ -31,6 +31,7 @@ import kotlinx.cinterop.pointed
 import kotlinx.cinterop.ptr
 import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.set
+import kotlinx.cinterop.value
 import platform.posix.CLOCK_MONOTONIC
 import platform.posix.POLLIN
 import platform.posix.clock_gettime

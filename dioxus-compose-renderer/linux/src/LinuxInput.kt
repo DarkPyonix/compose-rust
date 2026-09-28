@@ -42,10 +42,13 @@ import x11.XK_space
 
 /** The buttons the shared reader knows about, in the bits it reads them from. */
 internal fun buttonsOf(state: UInt): Int {
-    val bits = state.toLong()
-    return (if (bits and Button1Mask != 0L) 1 else 0) or
-        (if (bits and Button3Mask != 0L) 2 else 0) or
-        (if (bits and Button2Mask != 0L) 4 else 0)
+    // Compared as Int, which is the width the masks come across as. Widening them to Long
+    // first looks harmless and does not compile: a mask is a constant of the header's own
+    // type, not a number this code chose.
+    val bits = state.toInt()
+    return (if (bits and Button1Mask != 0) 1 else 0) or
+        (if (bits and Button3Mask != 0) 2 else 0) or
+        (if (bits and Button2Mask != 0) 4 else 0)
 }
 
 /**
@@ -57,11 +60,11 @@ internal fun buttonsOf(state: UInt): Int {
  * the other, and neither platform has both.
  */
 internal fun modifiersOf(state: UInt): Int {
-    val bits = state.toLong()
-    return (if (bits and ShiftMask != 0L) MODIFIER_SHIFT else 0) or
-        (if (bits and ControlMask != 0L) MODIFIER_CONTROL else 0) or
-        (if (bits and Mod1Mask != 0L) MODIFIER_ALT else 0) or
-        (if (bits and Mod4Mask != 0L) MODIFIER_SUPER else 0)
+    val bits = state.toInt()
+    return (if (bits and ShiftMask != 0) MODIFIER_SHIFT else 0) or
+        (if (bits and ControlMask != 0) MODIFIER_CONTROL else 0) or
+        (if (bits and Mod1Mask != 0) MODIFIER_ALT else 0) or
+        (if (bits and Mod4Mask != 0) MODIFIER_SUPER else 0)
 }
 
 /**
