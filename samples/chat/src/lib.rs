@@ -106,12 +106,12 @@ fn opening_greeting() -> Element {
             // that has to explain itself is the thing to fix instead.
             Text {
                 text: "Hello.",
-                type_role: TypeRole::Title,
+                type_role: TypeRole::Headline,
                 text_align: TextAlign::Center,
             }
             Text {
                 text: "What are you thinking about?",
-                type_role: TypeRole::Title,
+                type_role: TypeRole::Headline,
                 text_align: TextAlign::Center,
             }
         }
@@ -402,9 +402,13 @@ pub fn app() -> Element {
                     Spacer { weight: 1.0 }
                     // The reference's two trailing actions. One starts a conversation and
                     // the other holds what is done to the one on screen.
+                    // Compose rather than Add, which is what it means and what the
+                    // reference draws there. It also leaves Add to the composer's own key,
+                    // and two buttons wearing one meaning is two buttons nobody can tell
+                    // apart, including a test reaching for one of them.
                     Button {
                         text: "",
-                        icon: IconRole::Add,
+                        icon: IconRole::Compose,
                         variant: ButtonVariant::Text,
                         on_click: move |_| start_conversation(),
                     }
@@ -499,7 +503,6 @@ pub fn app() -> Element {
                             // does with everything that is a conversation rather than a
                             // place in the application.
                             section: "Chats",
-                            icon: IconRole::Inbox,
                             on_click: {
                                 let id = conversation.id;
                                 move |()| current.set(id)
@@ -635,6 +638,43 @@ pub fn app() -> Element {
                         // Enter in a multiline field that has a submit handler as "send"
                         // and Shift+Enter as "new line", and `on_submit` carries the text
                         // the field holds at that instant.
+                        // What the reference puts at the leading end. Its menu attaches
+                        // things; this one holds what this screen can actually do, because
+                        // a key that opens a menu of nothing is worse than no key.
+                        Menu {
+                            expanded: more_open(),
+                            on_dismiss: move |_| more_open.set(false),
+                            anchor: rsx! {
+                                Button {
+                                    text: "",
+                                    icon: IconRole::Add,
+                                    variant: ButtonVariant::Text,
+                                    color: Paint::Role(ColorRole::OnSurfaceVariant),
+                                    on_click: move |_| more_open.set(true),
+                                }
+                            },
+                            Button {
+                                text: "Search conversations",
+                                icon: IconRole::Search,
+                                variant: ButtonVariant::Text,
+                                fill_max_width: true,
+                                on_click: move |_| {
+                                    more_open.set(false);
+                                    search_open.set(true);
+                                },
+                            }
+                            Divider {}
+                            Button {
+                                text: "Settings",
+                                icon: IconRole::Settings,
+                                variant: ButtonVariant::Text,
+                                fill_max_width: true,
+                                on_click: move |_| {
+                                    more_open.set(false);
+                                    settings_open.set(true);
+                                },
+                            }
+                        }
                         TextField {
                             weight: 1.0,
                             multiline: true,
@@ -670,10 +710,15 @@ pub fn app() -> Element {
                                 }
                             }
                         }
+                        // Tonal rather than filled, and the arrow points up. The
+                        // reference's send is a small tinted circle, not a saturated one:
+                        // a solid accent circle at the end of the composer is the loudest
+                        // thing on the screen, and what it is loud about is a button you
+                        // press after you have already decided.
                         Button {
                             text: "",
-                            icon: IconRole::Forward,
-                            variant: ButtonVariant::Filled,
+                            icon: IconRole::Send,
+                            variant: ButtonVariant::Tonal,
                             shape_role: ShapeRole::Full,
                             on_click: move |_| send(draft()),
                         }
@@ -1513,7 +1558,7 @@ mod tests {
         screen.send("tell me about streaming");
         screen.settle();
 
-        screen.press_icon(IconRole::Add);
+        screen.press_icon(IconRole::Compose);
         screen.press("Delete conversation");
         assert_eq!(
             screen.messages,
@@ -1547,7 +1592,7 @@ mod tests {
 
         screen.send("tell me about streaming");
         screen.settle();
-        screen.press_icon(IconRole::Add);
+        screen.press_icon(IconRole::Compose);
         let mut after = screen.conversations();
         after.sort();
         assert_eq!(
@@ -1663,7 +1708,7 @@ mod tests {
                     node_id,
                     property: PropertyKind::Icon,
                     value: PropertyValue::Integer(role),
-                } if *role == i64::from(IconRole::Forward as u8) => Some(*node_id),
+                } if *role == i64::from(IconRole::Send as u8) => Some(*node_id),
                 _ => None,
             })
             .expect("the composer holds no send");

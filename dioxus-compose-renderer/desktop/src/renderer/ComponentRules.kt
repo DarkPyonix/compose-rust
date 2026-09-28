@@ -3296,9 +3296,13 @@ internal object LiquidGlassRules : ComponentRules {
             separator = null,
             barHeight = 56.dp,
             railWidth = 76.dp,
-            drawerWidth = 260.dp,
+            // Measured off the application this is drawn from rather than rounded to a
+            // comfortable number: its sidebar is 230 wide and its rows are 32 apart, and
+            // at 260 by 40 the same list read as a generic application menu instead of
+            // that product's dense one.
+            drawerWidth = SIDEBAR_WIDTH,
             itemSpacing = if (presentation == NavigationPresentation.Drawer) {
-                theme.space(SpaceRole.Sm)
+                theme.space(SpaceRole.Xs)
             } else {
                 theme.space(SpaceRole.Xs)
             },
@@ -3308,11 +3312,13 @@ internal object LiquidGlassRules : ComponentRules {
                 theme.space(SpaceRole.Xs)
             },
             labelInRail = true,
-            // A sidebar row is a line of text beside its icon, set at the size of the rest
-            // of the window's text. The small label is for a bar and a rail, where it sits
+            // A sidebar row is a line of text beside its icon, and it is set smaller than
+            // the window's body text rather than at the same size: the reference sets its
+            // rows at a rung below the page, which is what keeps a list of twenty of them
+            // readable as a list. The small label is for a bar and a rail, where it sits
             // under the icon in a column a finger wide.
             typeRole = if (presentation == NavigationPresentation.Drawer) {
-                TypeRole.Body
+                TypeRole.Label
             } else {
                 TypeRole.Caption
             },
@@ -3419,8 +3425,14 @@ internal object LiquidGlassRules : ComponentRules {
      */
     private val SIDEBAR_INSET = 8.dp
 
-    /** The room around a sidebar row's icon and label, which is what sets its height. */
-    private val DRAWER_ROW_PADDING = 8.dp
+    /**
+     * The room around a sidebar row's icon and label, which is what sets its height.
+     *
+     * Six rather than eight, because the rows in the reference are 32 apart and at eight
+     * these came out at forty. A quarter looser across twenty rows is the difference
+     * between that product's list and a generic application menu.
+     */
+    private val DRAWER_ROW_PADDING = 6.dp
 
     /**
      * How opaque the page is at its top and at its foot over a window that shows the
@@ -3502,3 +3514,12 @@ private val APPLE_PLAIN_WINDOW_RADIUS = 10.dp
  */
 private val TALL_CAPTION = 44.dp
 private val PLAIN_CAPTION = 32.dp
+
+/**
+ * How wide this language's sidebar is.
+ *
+ * Measured off the application the chat sample is drawn from. It was 260 here, and beside
+ * the reference at 230 the extra thirty read as a generic application menu rather than
+ * that product's dense one.
+ */
+private val SIDEBAR_WIDTH = 230.dp

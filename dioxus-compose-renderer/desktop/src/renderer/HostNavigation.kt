@@ -501,6 +501,17 @@ private fun SideStrip(
                 }
             }
         }
+    }
+
+    /**
+     * What sits at the strip's foot, held there.
+     *
+     * Below the destinations and below the bottom of the list rather than after the last
+     * row. An account row that follows the last conversation floats in the middle of the
+     * panel with the rest of the strip empty under it, which is where this one was.
+     */
+    @Composable
+    fun Foot() {
         foot?.let { key(it) { Screen(listOf(it), table, dispatcher) } }
     }
     val gap = style.destinationGap ?: style.itemSpacing
@@ -511,11 +522,19 @@ private fun SideStrip(
                 .width(width)
                 .fillMaxHeight()
                 .background(style.container)
-                .verticalScroll(rememberScrollState())
                 .padding(top = captionTop + style.itemPadding, bottom = style.itemPadding),
-            verticalArrangement = Arrangement.spacedBy(gap),
             horizontalAlignment = Alignment.CenterHorizontally,
-        ) { Destinations() }
+        ) {
+            // The destinations scroll and the foot does not. The scroll is on the list
+            // rather than on the strip, so a long list runs under nothing and the foot
+            // stays on the floor.
+            Column(
+                Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(gap),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) { Destinations() }
+            Foot()
+        }
         return
     }
     val inset = style.floatingInset
@@ -533,7 +552,6 @@ private fun SideStrip(
                 .glassLift(material!!, shape)
                 .clip(shape)
                 .glassSurface(material, shape)
-                .verticalScroll(rememberScrollState())
                 .padding(
                     // The panel starts [inset] down from the top of the window, and the
                     // window buttons sit on it, so its first row starts below them.
@@ -542,10 +560,16 @@ private fun SideStrip(
                     start = style.itemPadding,
                     end = style.itemPadding,
                 ),
-            verticalArrangement = Arrangement.spacedBy(gap),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            OnGlass(true) { Destinations() }
+            OnGlass(true) {
+                Column(
+                    Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(gap),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) { Destinations() }
+                Foot()
+            }
         }
     }
 }

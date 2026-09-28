@@ -389,7 +389,10 @@ class LiquidGlassChromeTest {
         assertNear(8.dp, strip.left, "the sidebar's leading edge")
         assertNear(8.dp, strip.top, "the sidebar's top")
         assertNear(792.dp, strip.bottom, "the sidebar's foot")
-        assertNear(260.dp, strip.right - strip.left, "the sidebar's width")
+        // Measured off the application the chat sample is drawn from. It was 260 here, and
+        // beside the reference the extra thirty read as a generic application menu rather
+        // than that product's dense one.
+        assertNear(230.dp, strip.right - strip.left, "the sidebar's width")
     }
 
     /**
