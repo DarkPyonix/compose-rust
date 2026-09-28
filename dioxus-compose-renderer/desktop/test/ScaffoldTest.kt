@@ -20,6 +20,22 @@ import kotlin.test.assertTrue
  */
 class ScaffoldTest {
 
+    /**
+     * A navigation that is put away takes no room in the frame.
+     *
+     * It is not beside the page and it is not under it: it is over it, and only when it is
+     * asked for. A frame that stood it beside the page left the width the destinations
+     * would have had as an empty band, and the page came out pushed off centre by it,
+     * which is what the first wiring of this did on a phone.
+     */
+    @Test
+    fun fr21_2_1_a_put_away_navigation_is_over_the_page_rather_than_beside_it() {
+        assertEquals(
+            ScaffoldFrame.Overlaid,
+            scaffoldFrame(NavigationPresentation.PutAway, destinationsCanTurn = true),
+        )
+    }
+
     @Test
     fun fr31_a_phone_stacks_the_bars_and_anything_wider_sets_them_beside() {
         assertEquals(
@@ -37,10 +53,12 @@ class ScaffoldTest {
         // decided separately could put a rail down the side and still leave room for a
         // bar at the bottom, and nothing would report that as wrong.
         for (presentation in NavigationPresentation.entries) {
-            val expected = if (presentation == NavigationPresentation.Bar) {
-                ScaffoldFrame.Stacked
-            } else {
-                ScaffoldFrame.SideBySide
+            val expected = when (presentation) {
+                NavigationPresentation.Bar -> ScaffoldFrame.Stacked
+                // Not in the frame at all: over the page, and only when asked for.
+                NavigationPresentation.PutAway -> ScaffoldFrame.Overlaid
+                NavigationPresentation.Rail, NavigationPresentation.Drawer ->
+                    ScaffoldFrame.SideBySide
             }
             assertEquals(expected, scaffoldFrame(presentation, destinationsCanTurn = true), "$presentation")
         }

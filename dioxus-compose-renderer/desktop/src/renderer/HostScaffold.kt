@@ -43,6 +43,12 @@ internal enum class ScaffoldFrame {
 
     /** The destinations run down the leading edge beside the page. A tablet or a desktop. */
     SideBySide,
+
+    /**
+     * The destinations are over the page rather than in the frame, and only when asked
+     * for. The page has the whole window.
+     */
+    Overlaid,
 }
 
 /**
@@ -66,6 +72,10 @@ internal fun scaffoldFrame(
     when {
         !destinationsCanTurn -> ScaffoldFrame.Stacked
         presentation == NavigationPresentation.Bar -> ScaffoldFrame.Stacked
+        // Neither beside the page nor under it. A frame that stood it beside the page left
+        // the width the destinations would have had as an empty band, and the page came
+        // out pushed off centre by a strip that was not on the screen.
+        presentation == NavigationPresentation.PutAway -> ScaffoldFrame.Overlaid
         else -> ScaffoldFrame.SideBySide
     }
 
@@ -181,8 +191,9 @@ internal fun HostScaffold(
         return@CompositionLocalProvider
     }
 
+    Box(modifier.fillMaxSize()) {
     Column(
-        modifier.fillMaxSize().then(
+        Modifier.fillMaxSize().then(
             if (holdsNavigation) Modifier.pageBackdrop(navigation) else Modifier,
         ),
     ) {
@@ -213,6 +224,12 @@ internal fun HostScaffold(
                 horizontalArrangement = Arrangement.Center,
             ) { slot(bottomBar) }
         }
+    }
+    // Over the page and taking none of it. The slot draws the button that brings the
+    // destinations out and, while they are out, the strip and the press that dismisses it.
+    if (frame == ScaffoldFrame.Overlaid) {
+        slot(bottomBar)
+    }
     }
     }
 }
