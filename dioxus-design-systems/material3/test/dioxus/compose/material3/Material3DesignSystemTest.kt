@@ -140,15 +140,21 @@ class Material3DesignSystemTest {
     }
 
     @Test
-    fun fr14_every_button_variant_is_painted_differently_from_the_others() {
+    fun fr14_the_two_filled_variants_differ_and_the_other_two_carry_no_fill() {
         for (system in listOf(light, dark)) {
-            val containers = ButtonVariant.entries.map { system.button(it).container }
-            val filled = system.button(ButtonVariant.Filled)
-            val tonal = system.button(ButtonVariant.Tonal)
-            assertNotEquals(filled.container, tonal.container)
+            assertNotEquals(
+                system.button(ButtonVariant.Filled).container,
+                system.button(ButtonVariant.Tonal).container,
+            )
             assertEquals(Color.Transparent, system.button(ButtonVariant.Outlined).container)
             assertEquals(Color.Transparent, system.button(ButtonVariant.Text).container)
-            assertEquals(4, containers.size)
+            // An operator key borrows the tonal fill rather than inventing a fifth one.
+            // Material has no operator button, and a colour made up for one would be a
+            // colour this table does not hold.
+            assertEquals(
+                system.button(ButtonVariant.Tonal).container,
+                system.button(ButtonVariant.Operator).container,
+            )
         }
     }
 
@@ -182,7 +188,7 @@ class Material3DesignSystemTest {
     fun fr14_material_surfaces_are_opaque_fills_rather_than_glass() {
         val material = light.material(ColorRole.Surface)
         assertTrue(material is SurfaceMaterial.Opaque)
-        assertEquals(light.color(ColorRole.Surface), (material as SurfaceMaterial.Opaque).color)
+        assertEquals(light.color(ColorRole.Surface), material.color)
     }
 
     @Test

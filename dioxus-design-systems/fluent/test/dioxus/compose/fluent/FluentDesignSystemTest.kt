@@ -218,7 +218,7 @@ class FluentDesignSystemTest {
     fun fr14_fluent_surfaces_are_opaque_fills_rather_than_glass() {
         val material = dark.material(ColorRole.Surface)
         assertTrue(material is SurfaceMaterial.Opaque)
-        assertEquals(dark.color(ColorRole.Surface), (material as SurfaceMaterial.Opaque).color)
+        assertEquals(dark.color(ColorRole.Surface), material.color)
     }
 
     @Test

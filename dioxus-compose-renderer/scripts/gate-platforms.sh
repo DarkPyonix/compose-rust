@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: ./dioxus-compose-renderer/scripts/gate-platforms.sh <build|test>
+# Usage: ./dioxus-compose-renderer/scripts/gate-platforms.sh <build|test> [project-dir]
 #
 # Prints, one per line, the platforms this machine can build, or can run tests for. Used by
 # scripts/check.sh so that the Kotlin gate runs everywhere rather than only on a machine
@@ -31,7 +31,11 @@ case "${1:-}" in
     *) echo "usage: $0 <build|test>" >&2; exit 2 ;;
 esac
 
-project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Which project to read. The renderer by default, and the design systems project when it
+# is named, because both are Amper projects gated the same way and the reasons to leave a
+# platform out are the machine's rather than either project's.
+project_dir="${2:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+[[ -d "$project_dir" ]] || { echo "no such project directory: $project_dir" >&2; exit 2; }
 cd "$project_dir"
 
 all_platforms() {

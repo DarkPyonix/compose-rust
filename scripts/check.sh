@@ -69,6 +69,8 @@ if [[ "$skip_kotlin" != "0" ]]; then
     exit 0
 fi
 
+renderer_gate="$repo_root/dioxus-compose-renderer/scripts/gate-platforms.sh"
+
 cd "$repo_root/dioxus-compose-renderer"
 # Which platforms this machine can build, and which it can run tests for. Named rather than
 # left to the default, because three of them need something the machine may not have: the
@@ -79,13 +81,33 @@ cd "$repo_root/dioxus-compose-renderer"
 build_platforms=()
 while read -r platform; do
     build_platforms+=(--platform "$platform")
-done < <(./scripts/gate-platforms.sh build)
+done < <("$renderer_gate" build)
 test_platforms=()
 while read -r platform; do
     test_platforms+=(--platform "$platform")
-done < <(./scripts/gate-platforms.sh test)
+done < <("$renderer_gate" test)
 
 echo "building for: ${build_platforms[*]//--platform /}"
 echo "testing on:   ${test_platforms[*]//--platform /}"
 ./kotlin build "${build_platforms[@]}"
 ./kotlin test "${test_platforms[@]}"
+
+# The design systems are their own Amper project, so they have their own build and their
+# own tests, and nothing here ran either of them. Ten test files, including every rule the
+# Liquid Glass material is checked by, went unrun by the gate that is supposed to be the
+# thing you can believe. Same platform question, asked of that project.
+design_systems="$repo_root/dioxus-design-systems"
+design_build=()
+while read -r platform; do
+    design_build+=(--platform "$platform")
+done < <("$renderer_gate" build "$design_systems")
+design_test=()
+while read -r platform; do
+    design_test+=(--platform "$platform")
+done < <("$renderer_gate" test "$design_systems")
+
+cd "$design_systems"
+echo "design systems, building for: ${design_build[*]//--platform /}"
+echo "design systems, testing on:   ${design_test[*]//--platform /}"
+./kotlin build "${design_build[@]}"
+./kotlin test "${design_test[@]}"
