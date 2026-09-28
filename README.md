@@ -58,8 +58,9 @@ ago. For an app where typing *is* the interface, an IME that works 90% of the ti
 does not work. Korean, Japanese and Chinese composition is not a nice-to-have.
 
 dioxus-compose takes Compose's renderer without taking Compose's runtime cost: the Kotlin side is
-compiled ahead of time into a native shared library (GraalVM native-image on desktop, Kotlin/Native
-on iOS), so there is no JVM in the shipped artifact.
+compiled ahead of time into a native library (Kotlin/Native on macOS, Linux and iOS, a GraalVM
+native image where Kotlin has no target that can be linked against Skia), so there is no JVM in the
+shipped artifact.
 
 ### Weight, roughly
 

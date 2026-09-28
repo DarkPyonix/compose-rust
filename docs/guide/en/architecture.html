@@ -186,16 +186,16 @@
 
     <h2 id="runtimes">What runs where</h2>
     <p>
-      The renderer is built two ways. Where Compose publishes a target of its own, it is compiled
-      for the platform directly and there is no virtual machine in the result. Where it does not,
-      the renderer is a native image with a Java runtime inside it.
+      The renderer is built two ways. Where Compose can be built for the platform as a target of
+      its own, it is compiled directly and there is no virtual machine in the result. Where it
+      cannot, the renderer is a native image with a Java runtime inside it.
     </p>
     <div class="tablewrap">
       <table>
         <thead><tr><th scope="col">Platform</th><th scope="col">Built as</th><th scope="col">Carries a Java runtime</th></tr></thead>
         <tbody>
           <tr><td>macOS</td><td>Kotlin/Native</td><td>No</td></tr>
-          <tr><td>Linux</td><td>Native image</td><td>Yes</td></tr>
+          <tr><td>Linux</td><td>Kotlin/Native</td><td>No</td></tr>
           <tr><td>Windows</td><td>Native image</td><td>Yes</td></tr>
           <tr><td>Web</td><td>Kotlin/Wasm</td><td>No</td></tr>
           <tr><td>iOS</td><td>Kotlin/Native</td><td>No</td></tr>
@@ -203,15 +203,17 @@
       </table>
     </div>
     <p>
-      The difference is most of the weight. A calculator on macOS is one 29MB file with nothing
-      beside it; the same calculator as a native image is 64MB across four. What the runtime costs
-      is not Compose and not this project's own code, which come to about 5MB between them, but
-      the Java runtime and the metadata a closed world needs.
+      The difference is most of the weight. The notepad sample on macOS is one 28.76MB file with
+      nothing beside it, and 37.93MB on Linux. The same sample built as a native image was 93.1MB
+      across four files. The extra is not Compose and not this project's own code, but the Java
+      runtime and the metadata a closed world needs.
     </p>
     <p>
-      Linux and Windows are not a choice. Compose publishes no UI layer for either as a native
-      target, and Windows is blocked twice over: Kotlin's target there is MinGW and Skia's build
-      is MSVC, so the two cannot be linked even if the artifacts existed.
+      Windows is not a choice. Compose publishes no UI layer for it as a native target, and it is
+      blocked twice over: Kotlin's target there is MinGW and Skia's build is MSVC, so the two
+      cannot be linked even if the artifacts existed. Linux publishes none either, but nothing
+      stands in the way of building them, so this project keeps a small set of patches against a
+      pinned Compose revision and builds the Linux targets from source.
     </p>
     <div class="note">
       <span class="label">The application does not know which</span>
@@ -223,41 +225,34 @@
 
     <h2 id="macos">The macOS runtime</h2>
     <p>
-      Window ownership was deliberately left to Compose Desktop's AWT path. Taking it over would
-      mean wiring <code>NSTextInputClient</code>, TSF and ibus/fcitx by hand, exactly the text
-      quality this project refuses to risk. <code>ComposeWindow</code> is an AWT
-      <code>JFrame</code>, and ahead-of-time compilation does not change which code paths run, so
-      the AWT IME path survives into the native image.
+      The window is the renderer's own <code>NSWindow</code>, not the one Compose opens for this
+      platform. Compose's draws correctly, but nothing in it is named: a screen reader is handed
+      the title and the three title bar buttons, and every control the application drew is
+      invisible to it. Owning the window is what makes the contents readable.
     </p>
     <p>
-      Statically linked AWT on macOS still resolves three things by file path, which is why the
-      distribution is a single <code>lib/</code> directory:
+      The view's backing layer is a <code>CAMetalLayer</code>, and Skia draws into its drawable
+      through a Metal context. The layer is created with <code>presentsWithTransaction</code> set,
+      so a frame is presented inside the same transaction that resizes the window rather than a
+      moment after it. That is the difference between contents that follow the window edge while
+      you drag it and contents that trail behind it: the gap reached 350 pixels at speed before
+      this, and it is now none.
     </p>
-    <div class="tablewrap">
-      <table>
-        <thead><tr><th scope="col">File</th><th scope="col">Why it is there</th></tr></thead>
-        <tbody>
-          <tr><td><code>libawt_lwawt.dylib</code></td><td>libawt's initialisation loads it by path. The JNI functions already resolve inside the image, so a placeholder fills the slot.</td></tr>
-          <tr><td><code>libjawt.dylib</code></td><td>Skiko <code>dlopen</code>s it from <code>&lt;java.home&gt;/lib</code>. Ours forwards to <code>JAWT_GetAWT</code> inside the image.</td></tr>
-          <tr><td><code>JNI_OnLoad_osxui</code></td><td>A symbol every statically linked JNI library must define; NIK's archive does not, so the build defines it.</td></tr>
-          <tr><td><code>libskiko-macos-&lt;arch&gt;.dylib</code></td><td>Skia, which Skiko loads by path.</td></tr>
-        </tbody>
-      </table>
-    </div>
-    <div class="note">
-      <span class="label">These JNI details are internal to the JDK</span>
-      <p>
-        <code>java.desktop</code> has always bound Java and native code together with JNI, including
-        when Compose runs on an ordinary JVM. None of it touches the Host↔Renderer boundary, which
-        is pure C ABI. The project's ban on hand-written JNI is about the Android boundary.
-      </p>
-    </div>
     <p>
-      One more macOS fact shapes the process: AppKit demands the main thread. The renderer runs on
-      a secondary thread while the main thread creates and runs <code>NSApplication</code> itself,
-      which puts AWT into the embedded mode it uses under SWT or JavaFX hosts. If AWT is allowed to
-      own the loop, it re-enters <code>[NSApp run]</code> and control never returns to the Host
-      after the window closes. Accordingly <code>dioxus_compose_renderer_run</code> must be called
+      Text goes through the platform rather than around it. The view implements
+      <code>NSTextInputClient</code>, so marked text, the candidate window and Korean, Japanese and
+      Chinese composition are the input method's own work, and the menu a selection offers is a
+      real <code>NSMenu</code> that the system draws.
+    </p>
+    <p>
+      Nothing is loaded by file path at runtime and nothing sits beside the executable. Skia,
+      Compose, the interpreter and the application's own code are one static library the linker
+      folds into the binary, which is why what you ship is a single file.
+    </p>
+    <p>
+      One more macOS fact shapes the process: AppKit demands the main thread. The renderer creates
+      and runs <code>NSApplication</code> on the thread it was called on, and that call returns
+      when the window closes. Accordingly <code>dioxus_compose_renderer_run</code> must be called
       on the process main thread; otherwise it returns <code>RUN_NOT_MAIN_THREAD</code>.
     </p>
 
@@ -272,7 +267,7 @@
   <div class="inner">
     <span>dioxus-compose &middot; Apache License 2.0</span>
     <span><a class="footer-repo" href="https://github.com/DarkPyonix/dioxus-compose">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/INTENT.md">INTENT.md</a></span>
-    <span>Guide last reviewed against the repository on 2026-09-20</span>
+    <span>Guide last reviewed against the repository on 2026-09-28</span>
   </div>
 </footer>
 

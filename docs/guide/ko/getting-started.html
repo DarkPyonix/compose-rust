@@ -160,31 +160,37 @@ dioxus-compose = "0.0.0"</code></pre>
 
     <h2 id="renderer">렌더러 빌드</h2>
     <p>
-      스크립트 하나가 전부를 합니다. NIK JVM에서 렌더러를 잠깐 띄워 실제 런타임 클래스패스를
-      확보하고, C 진입점을 컴파일한 다음 공유 라이브러리를 만듭니다.
+      macOS에서는 스크립트 하나가 전부를 합니다. 렌더러를 Kotlin/Native 정적 라이브러리로
+      컴파일하고, Compose와 Skia와 인터프리터가 그 안에 들어갑니다.
     </p>
 
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
       <figcaption>shell</figcaption>
-<pre><code>./dioxus-compose-renderer/desktop/scripts/build-native.sh</code></pre>
+<pre><code>./dioxus-compose-renderer/desktop/scripts/build-macos.sh --release</code></pre>
     </figure>
 
-    <p>결과물은 그 자체로 완결된 런타임 디렉터리입니다.</p>
+    <p>결과물은 아카이브 하나와 그에 맞춰 생성된 헤더입니다.</p>
 
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
-      <figcaption>dioxus-compose-renderer/build/native-image/dist/lib/</figcaption>
-<pre><code>libdioxus_compose_renderer.dylib   <span class="c"># 렌더러: AWT, Skiko JNI, Compose, 우리 코드</span>
-libskiko-macos-&lt;arch&gt;.dylib        <span class="c"># Skiko가 경로로 로드하는 Skia</span>
-libjawt.dylib                      <span class="c"># JAWT_GetAWT를 렌더러 안으로 넘기는 포워더</span>
-libawt_lwawt.dylib                 <span class="c"># libawt가 경로로 찾는 자리 채우기</span></code></pre>
+      <figcaption>dioxus-compose-renderer/build/macos/&lt;target&gt;/</figcaption>
+<pre><code>libdioxus_compose_renderer.a       <span class="c"># 렌더러: Compose, Skia, 인터프리터, 우리 코드</span>
+libdioxus_compose_renderer_api.h   <span class="c"># Kotlin/Native가 생성한 헤더</span></code></pre>
     </figure>
 
     <p>
-      곁에 있는 작은 라이브러리 셋은 군더더기가 아닙니다. macOS에서 정적으로 링크된 AWT도 일부
-      항목은 런타임에 파일 경로로 찾기 때문에, 그 자리를 메우는 것입니다. 자세한 내용은
-      <a href="architecture.html#macos">아키텍처</a>에 있고, 요점은 배포 레이아웃이
-      <code>lib/</code> 디렉터리 하나이며 그 부모가 렌더러가 보고하는 <code>java.home</code>이라는
-      점입니다.
+      옆에 따로 설치되는 것은 없습니다. 링커가 아카이브를 실행 파일 안으로 접어 넣으므로, 배포물은
+      런타임 디렉터리도 없고 파일 경로로 로드되는 것도 없는 파일 하나입니다. Host가 부르는 두
+      심볼 <code>dioxus_compose_renderer_run</code>과
+      <code>dioxus_compose_renderer_request_frame</code>은 어느 플랫폼에서나 이름과 시그니처가
+      같습니다.
+    </p>
+
+    <p>
+      Windows에는 Skia와 링크할 수 있는 Kotlin/Native 타깃이 없어서, 대신 GraalVM 네이티브
+      이미지로 빌드합니다. 유닉스 호스트에서는 <code>build-native.sh</code>, Windows에서는
+      <code>build-native-windows.ps1</code>이 그 일을 합니다. 이 빌드는 자바 런타임을 품고 있고,
+      결과물도 파일 하나가 아니라 <code>lib/</code> 디렉터리입니다. 정적으로 링크된 AWT도 일부
+      항목은 런타임에 파일 경로로 찾기 때문입니다.
     </p>
 
     <p>
@@ -194,9 +200,8 @@ libawt_lwawt.dylib                 <span class="c"># libawt가 경로로 찾는 
     </p>
 
     <p>
-      첫 빌드는 느립니다. <code>native-image</code>가 Compose, Skiko, AWT를 통째로 AOT
-      컴파일하기 때문입니다. 다시 빌드할 일은 Kotlin 쪽이 바뀔 때뿐이고, 평소 Rust 작업은 이미
-      만들어 둔 라이브러리를 그대로 씁니다.
+      첫 빌드는 느립니다. Compose와 Skia를 통째로 AOT 컴파일하기 때문입니다. 다시 빌드할 일은
+      Kotlin 쪽이 바뀔 때뿐이고, 평소 Rust 작업은 이미 만들어 둔 라이브러리를 그대로 씁니다.
     </p>
 
     <h2 id="smoke">라이브러리 스모크 테스트</h2>
@@ -275,7 +280,7 @@ libawt_lwawt.dylib                 <span class="c"># libawt가 경로로 찾는 
   <div class="inner">
     <span>dioxus-compose &middot; Apache License 2.0</span>
     <span><a class="footer-repo" href="https://github.com/DarkPyonix/dioxus-compose">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/INTENT.md">INTENT.md</a></span>
-    <span>이 가이드는 2026-09-20 기준 저장소 내용과 대조했습니다</span>
+    <span>이 가이드는 2026-09-28 기준 저장소 내용과 대조했습니다</span>
   </div>
 </footer>
 

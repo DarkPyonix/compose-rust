@@ -161,31 +161,37 @@ dioxus-compose = "0.0.0"</code></pre>
 
     <h2 id="renderer">Build the renderer</h2>
     <p>
-      One script does the whole thing: it runs the renderer briefly on the NIK JVM to capture the
-      exact runtime classpath, compiles the C entry points, and then builds the shared library.
+      On macOS one script does the whole thing. It compiles the renderer as a Kotlin/Native static
+      library, with Compose, Skia and the interpreter inside it:
     </p>
 
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
       <figcaption>shell</figcaption>
-<pre><code>./dioxus-compose-renderer/desktop/scripts/build-native.sh</code></pre>
+<pre><code>./dioxus-compose-renderer/desktop/scripts/build-macos.sh --release</code></pre>
     </figure>
 
-    <p>The result is a self-contained runtime directory:</p>
+    <p>The result is one archive and the header generated for it:</p>
 
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
-      <figcaption>dioxus-compose-renderer/build/native-image/dist/lib/</figcaption>
-<pre><code>libdioxus_compose_renderer.dylib   <span class="c"># the renderer: AWT, Skiko JNI, Compose, our code</span>
-libskiko-macos-&lt;arch&gt;.dylib        <span class="c"># Skia, which Skiko loads by path</span>
-libjawt.dylib                      <span class="c"># forwards JAWT_GetAWT into the renderer</span>
-libawt_lwawt.dylib                 <span class="c"># placeholder that libawt loads by path</span></code></pre>
+      <figcaption>dioxus-compose-renderer/build/macos/&lt;target&gt;/</figcaption>
+<pre><code>libdioxus_compose_renderer.a       <span class="c"># the renderer: Compose, Skia, the interpreter, our code</span>
+libdioxus_compose_renderer_api.h   <span class="c"># the header Kotlin/Native generates for it</span></code></pre>
     </figure>
 
     <p>
-      The three small libraries alongside the renderer are not padding. Statically linked AWT on
-      macOS still looks for some things by file path at runtime, and these fill those slots.
-      <a href="architecture.html#macos">Architecture</a> explains the detail; the short version is
-      that the whole deployment layout is one <code>lib/</code> directory whose parent the renderer
-      reports as <code>java.home</code>.
+      Nothing is installed beside it. The linker folds the archive into your executable, so what
+      you ship is a single file with no runtime directory and nothing loaded by file path. The two
+      symbols the Host calls, <code>dioxus_compose_renderer_run</code> and
+      <code>dioxus_compose_renderer_request_frame</code>, have the same names and signatures on
+      every platform.
+    </p>
+
+    <p>
+      Windows has no Kotlin/Native target that can be linked against Skia, so it is built as a
+      GraalVM native image instead, by <code>build-native.sh</code> on a Unix host and
+      <code>build-native-windows.ps1</code> on Windows. That build carries a Java runtime, and its
+      output is a <code>lib/</code> directory rather than one file, because statically linked AWT
+      still resolves some things by path at runtime.
     </p>
 
     <p>
@@ -193,9 +199,10 @@ libawt_lwawt.dylib                 <span class="c"># placeholder that libawt loa
       anything it could download. The full order is <code>DIOXUS_COMPOSE_RENDERER_DIR</code>, then
       this workspace build, then the cache, then the release for the crate's version (NFR-10).
     </p>
+
     <p>
-      The first build is slow, <code>native-image</code> compiles Compose, Skiko and AWT ahead of
-      time. You only repeat it when the Kotlin side changes; normal Rust work reuses the library.
+      The first build is slow: Compose and Skia are compiled ahead of time. You only repeat it when
+      the Kotlin side changes; normal Rust work reuses the library.
     </p>
 
     <h2 id="smoke">Smoke-test the library</h2>
@@ -274,7 +281,7 @@ libawt_lwawt.dylib                 <span class="c"># placeholder that libawt loa
   <div class="inner">
     <span>dioxus-compose &middot; Apache License 2.0</span>
     <span><a class="footer-repo" href="https://github.com/DarkPyonix/dioxus-compose">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/INTENT.md">INTENT.md</a></span>
-    <span>Guide last reviewed against the repository on 2026-09-20</span>
+    <span>Guide last reviewed against the repository on 2026-09-28</span>
   </div>
 </footer>
 
