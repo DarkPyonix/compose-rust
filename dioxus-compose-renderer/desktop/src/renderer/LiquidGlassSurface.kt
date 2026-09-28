@@ -45,7 +45,9 @@ import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 
 /**
  * Whether the reader has asked for reduced transparency.
@@ -304,7 +306,8 @@ private fun DrawScope.drawGlassBackdrop(
 @Composable
 fun Modifier.glassLift(material: SurfaceMaterial, shape: Shape): Modifier =
     if (material is SurfaceMaterial.Glass && isGlassDrawn()) {
-        this.drawBehind { drawLift(shape) }
+        val layer = rememberGraphicsLayer()
+        this.drawBehind { drawLift(layer, shape) }
     } else {
         this
     }
@@ -315,31 +318,46 @@ fun Modifier.glassLift(material: SurfaceMaterial, shape: Shape): Modifier =
  * there and fades to nothing [LiquidGlass.LIFT] out, and they sit a little lower than they
  * are wide because the light comes from above.
  */
-private fun DrawScope.drawLift(shape: Shape) {
-    val spread = LiquidGlass.LIFT.toPx()
-    if (spread <= 0f || size.minDimension <= 0f) return
+private fun DrawScope.drawLift(layer: GraphicsLayer, shape: Shape) {
+    val blur = LiquidGlass.LIFT.toPx()
+    if (blur <= 0f || size.minDimension <= 0f) return
+    val surfaceSize = size
+    val outline = shape.createOutline(surfaceSize, layoutDirection, this)
+    // Room round the shape for the blur to fall away in. A gaussian is not finished at its
+    // radius, and a layer that ended there would cut the shadow off with a straight line.
+    val pad = blur * PAD_IN_RADII
+    layer.renderEffect = BlurEffect(blur, blur, TileMode.Decal)
+    layer.record(
+        size = IntSize(
+            (surfaceSize.width + pad * 2f).roundToInt(),
+            (surfaceSize.height + pad * 2f).roundToInt(),
+        ),
+    ) {
+        translate(pad, pad) {
+            drawOutline(outline, Color.Black.copy(alpha = LiquidGlass.LIFT_ALPHA))
+        }
+    }
     val surface = Path()
-    surface.addOutline(shape.createOutline(size, layoutDirection, this))
-    val ring = Color.Black.copy(alpha = LiquidGlass.LIFT_ALPHA / LIFT_RINGS)
+    surface.addOutline(outline)
+    // Outside only. A shadow laid under a surface you can see through shows through it and
+    // greys the glass from the inside, which is what an elevation shadow does on the
+    // platforms that draw one under the whole outline.
     clipPath(surface, ClipOp.Difference) {
-        for (step in LIFT_RINGS downTo 1) {
-            val grow = spread * step / LIFT_RINGS
-            val grown = shape.createOutline(
-                Size(size.width + grow * 2f, size.height + grow * 2f),
-                layoutDirection,
-                this,
-            )
-            translate(left = -grow, top = -grow * (1f - LIFT_DROP)) {
-                drawOutline(grown, ring)
-            }
+        translate(left = -pad, top = -pad + blur * LIFT_DROP) {
+            drawLayer(layer)
         }
     }
 }
 
-/** How many rings the lift is drawn in. Enough that no step between them shows. */
-private const val LIFT_RINGS = 6
+/**
+ * How far past the blur's radius the layer reaches, in radii.
+ *
+ * A gaussian is not finished at one radius. Two is where what is left is under a tenth of
+ * a percent, and stopping short of that ends the shadow on a straight edge.
+ */
+private const val PAD_IN_RADII = 2f
 
-/** How much further below the surface its shadow reaches than above it, as a fraction. */
+/** How far the shadow is dropped below the surface, as a fraction of the blur. */
 private const val LIFT_DROP = 0.35f
 
 /**

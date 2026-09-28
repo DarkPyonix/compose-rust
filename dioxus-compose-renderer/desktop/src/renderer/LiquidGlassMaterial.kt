@@ -226,10 +226,10 @@ object LiquidGlass {
      * Wide and faint. A capsule floating over a page of its own colour is visible because
      * of this and the rim, not because of its tint.
      */
-    val LIFT: Dp = 12.dp
+    val LIFT: Dp = 20.dp
 
     /** How dark that shadow is at the surface's edge, where it is darkest. */
-    const val LIFT_ALPHA: Float = 0.10f
+    const val LIFT_ALPHA: Float = 0.14f
 
     /**
      * The ratio the opaque fallback is held to: WCAG 2.2 AA for body text.
