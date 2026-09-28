@@ -85,6 +85,8 @@ import platform.AppKit.NSAccessibilityStaticTextRole
 import platform.AppKit.NSAccessibilityTextFieldRole
 import platform.CoreGraphics.CGRectMake
 import platform.Foundation.NSMakeRect
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 
 /**
  * A window of this renderer's own, rather than the one Compose opens for this platform.
@@ -102,8 +104,30 @@ import platform.Foundation.NSMakeRect
 internal class MacosWindow(private val name: String, width: Int, height: Int) {
     private var measured = IntSize(width, height)
     private val components = DefaultArchitectureComponentsOwner()
+    /**
+     * Whether this window is the one being used.
+     *
+     * Read rather than assumed, because a material that keeps showing through after the
+     * window has stopped being yours is the only thing on the screen that does not sink.
+     * Asked of the window each time rather than cached: the notifications that would keep
+     * a cache honest are two more observers to take down, and this is read a handful of
+     * times per frame.
+     */
+    /**
+     * Whether this window is the one being used.
+     *
+     * Snapshot state rather than a call to `isKeyWindow`, and that is the whole of it.
+     * A plain getter is read once during composition and never again: nothing invalidates
+     * when the answer changes, so the window would flatten only if something else happened
+     * to redraw it. Written from the two overrides below, which is where AppKit says so.
+     */
+    // Named around `NSWindow.keyWindow`, which this would otherwise shadow inside the
+    // window's own subclass: an assignment there would silently mean the platform's
+    // read only property and refuse to compile, which is what it did.
+    private var isTheKeyWindow by mutableStateOf(true)
+
     private val windowInfo = object : WindowInfo {
-        override val isWindowFocused: Boolean get() = true
+        override val isWindowFocused: Boolean get() = isTheKeyWindow
         override val containerSize: IntSize get() = measured
     }
     private val metal = MetalSurface()
@@ -233,6 +257,20 @@ internal class MacosWindow(private val name: String, width: Int, height: Int) {
     ) {
         override fun canBecomeKeyWindow() = true
         override fun canBecomeMainWindow() = true
+
+        // Where the flattening comes from. A material in a window that has stopped being
+        // the one you are using goes opaque, the way every material the system draws does.
+        override fun becomeKeyWindow() {
+            super.becomeKeyWindow()
+            isTheKeyWindow = true
+            view.needsDisplay = true
+        }
+
+        override fun resignKeyWindow() {
+            super.resignKeyWindow()
+            isTheKeyWindow = false
+            view.needsDisplay = true
+        }
     }
 
 

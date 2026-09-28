@@ -32,6 +32,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
+import kotlin.test.assertFalse
 
 /**
  * The Liquid Glass design system, and the window width that decides how far its glass
@@ -79,6 +80,44 @@ class LiquidGlassTest {
      * used. macOS 26 and iOS 26 draw themselves in glass, so answering with the previous
      * generation's language would be a choice the application never made.
      */
+    /**
+     * A window that has lost the key draws no glass.
+     *
+     * The third condition, beside reduced transparency and a platform that cannot blur,
+     * and it takes the same answer: the opaque fallback, no blur pass, no lift. On a
+     * screen with several windows open, which one is translucent is what says which one is
+     * yours, and a window that kept showing through after it stopped being yours would be
+     * the only one on the screen that did not sink.
+     */
+    @Test
+    fun fr14_1_5_an_inactive_window_draws_its_fallback() {
+        assertFalse(
+            drawsAsGlass(reduceTransparency = false, blurAvailable = true, windowActive = false),
+            "an inactive window still draws glass, so nothing on the screen says which " +
+                "window is the one being used",
+        )
+        assertTrue(
+            drawsAsGlass(reduceTransparency = false, blurAvailable = true, windowActive = true),
+            "the active window stopped drawing glass",
+        )
+    }
+
+    /** And the blur pass goes with it, which is the cost rather than the look. */
+    @Test
+    fun fr14_1_5_an_inactive_window_pays_for_no_blur() {
+        val glass = LiquidGlass.material(
+            dark = false,
+            prominence = GlassProminence.Regular,
+            backdrop = Color.White,
+            content = Color.Black,
+        )
+        assertEquals(
+            0.dp,
+            glassBlurRadius(glass, reduceTransparency = false, blurAvailable = true, windowActive = false),
+            "an inactive window is still blurring a backdrop nobody is looking through",
+        )
+    }
+
     @Test
     fun fr14_1_3_adaptive_takes_the_apple_slot_for_glass_and_the_flat_system_is_named() {
         assertEquals(

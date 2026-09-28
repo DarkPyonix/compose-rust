@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
+import androidx.compose.ui.platform.LocalWindowInfo
 
 /**
  * Whether the reader has asked for reduced transparency.
@@ -94,7 +95,11 @@ val LocalGlassDepth: ProvidableCompositionLocal<Int> = compositionLocalOf { 0 }
  */
 @Composable
 fun isGlassDrawn(): Boolean =
-    drawsAsGlass(LocalReduceTransparency.current, LocalBlurAvailable.current)
+    drawsAsGlass(
+        LocalReduceTransparency.current,
+        LocalBlurAvailable.current,
+        LocalWindowInfo.current.isWindowFocused,
+    )
 
 /**
  * Paints [material] into the background of this element, clipped to [shape].
@@ -128,17 +133,22 @@ fun Modifier.glassSurface(
         val resolved = material.atDepth(depth)
         val reduce = LocalReduceTransparency.current
         val available = LocalBlurAvailable.current
+        // A window that is not the one being used flattens, the way every material the
+        // system draws does. On a screen with several open, which one shows through is
+        // what says which one is yours.
+        val active = LocalWindowInfo.current.isWindowFocused
         val fill = glassFill(
             material = material,
             reduceTransparency = reduce,
             blurAvailable = available,
             depth = depth,
+            windowActive = active,
         )
         // The page this surface is a lens over, and where this surface is on it. Without a
         // recording there is nothing to blur and the surface is its tint and its rim, which
         // is what every glass surface here was before the recording existed.
         val backdrop = LocalGlassBackdrop.current
-        val radius = glassBlurRadius(material, reduce, available)
+        val radius = glassBlurRadius(material, reduce, available, active)
         var here by remember { mutableStateOf(Offset.Zero) }
         this
             .onGloballyPositioned { here = it.positionInWindow() }
@@ -414,6 +424,7 @@ fun GlassLayer(
         material,
         LocalReduceTransparency.current,
         LocalBlurAvailable.current,
+        LocalWindowInfo.current.isWindowFocused,
     )
 
     Box(modifier) {
