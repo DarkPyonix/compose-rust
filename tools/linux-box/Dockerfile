@@ -20,16 +20,30 @@ ENV DEBIAN_FRONTEND=noninteractive
 #                     JDK to run the build with, plus the usual fetch and unpack tools
 #   the window        X11, its extensions, and GL: the headers the cinterop definitions
 #                     name, and at run time the libraries themselves
-#   the measuring     a server that draws into memory, a way to take a picture of it, and
-#                     a way to move a pointer, so that a drag can be performed and the
-#                     result counted in pixels
+#   the measuring     a server that draws into memory, a window manager, a way to take a
+#                     picture of it, a way to move a pointer, and a way to look. The
+#                     manager is not decoration: an edge is dragged through one, and the
+#                     protocol that holds a frame until the drawing has caught up is a
+#                     conversation with one, so without it there is nothing to measure.
+#                     The VNC server is how someone on the machine running this container
+#                     sees the window with their own eyes, through the screen sharing
+#                     every Mac already has.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         openjdk-17-jdk ca-certificates curl unzip git bash file \
         build-essential pkg-config \
         libx11-dev libxext-dev libxrandr-dev libgl1-mesa-dev libglu1-mesa-dev \
         libfontconfig1-dev libfreetype-dev \
         xvfb x11-apps xdotool imagemagick mesa-utils libgl1-mesa-dri \
+        openbox x11vnc \
     && rm -rf /var/lib/apt/lists/*
+
+# Rust, so that a sample can be linked against the archive the renderer builds into and
+# actually run. Installed by rustup rather than from the distribution, because a
+# distribution carries whatever it froze and this links against a checkout's own
+# Cargo.lock.
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+        | sh -s -- -y --default-toolchain stable --profile minimal
+ENV PATH="/root/.cargo/bin:$PATH"
 
 ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 ENV PATH="$JAVA_HOME/bin:$PATH"
