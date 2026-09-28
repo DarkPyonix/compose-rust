@@ -910,9 +910,11 @@ Renderer가 AOT 컴파일된 바이너리이므로 Host가 그리기 코드를 �
 
 #### 18.1.1 핸들러 속성 태그
 
-제스처는 어느 위젯에나 붙으므로 15.2.2의 위젯별 블록에 들어가지 않습니다. 그 블록들 뒤인 60번부터 이어 붙입니다.
+제스처는 어느 위젯에나 붙으므로 15.2.2의 위젯별 블록에 들어가지 않습니다. 그 블록들 뒤에 이어 붙입니다.
 
-`OnPointerEnter=60, OnPointerExit=61, OnLongPress=62, OnContextMenu=63, OnDragStart=64, OnDragMove=65, OnDragEnd=66, OnScroll=67`
+`OnPointerEnter=67, OnPointerExit=68, OnLongPress=69, OnContextMenu=70, OnDragStart=71, OnDragMove=72, OnDragEnd=73, OnScroll=74`
+
+**처음에는 60번부터였습니다.** 그 사이에 60에서 66이 실제로 쓰였습니다. `Icon=60`, `Slot=61`, `Columns=62`, `MinColumnWidth=63`, `Spans=64`, `OnFilesEntered=65`, `OnFilesDropped=66`이고, 모두 구현되어 프로토콜에 들어가 있습니다. 예약은 구현된 태그를 비켜야 하므로 블록 전체가 그 뒤인 67번으로 옮겨집니다. 제스처는 아직 구현되지 않았으므로 이 이동으로 움직이는 바이트는 없습니다. 태그는 추가 전용이고, 그 규칙이 지켜야 하는 것은 이미 전송된 값이지 아직 전송된 적 없는 예약이 아닙니다.
 
 값은 기존 핸들러 속성과 같은 핸들러 id이고, 값이 없으면(`None`) 구독이 사라집니다. Renderer는 핸들러 id가 있는 축에만 인식기를 붙입니다.
 
@@ -1458,8 +1460,9 @@ FR-14의 계층을 거꾸로 세우게 됩니다.
   기본값은 `Standard`이며 기존 버튼의 모양을 바꾸지 않습니다. `ActionKey`는 색이나 중요도를
   말하지 않고, 조밀한 동작 격자에 놓인 키라는 정체만 말합니다. 채움과 강조는 기존
   `ButtonVariant`가 계속 답합니다.
-- 와이어 열거형 태그는 `Standard=1, ActionKey=2`이고, 속성은 제스처용으로 예약된
-  60번대 뒤의 추가 전용 태그 `ButtonKind=68`을 씁니다. 기존 태그는 움직이지 않습니다.
+- 와이어 열거형 태그는 `Standard=1, ActionKey=2`이고, 속성은 18.1.1이 제스처로 예약한
+  블록(67에서 74) 뒤의 추가 전용 태그 `ButtonKind=75`를 씁니다. 기존 태그는 움직이지
+  않습니다.
 - `ComponentRules`의 일곱 구현이 모두 동작 키의 모양을 직접 답합니다. Host는 반경이나
   `ShapeRole`을 보내지 않습니다. Cupertino와 Liquid Glass는 원, Fluent 2는 Windows 11의
   작은 반경, Deepin은 그보다 큰 반경을 답하며 Material 3 Expressive, GNOME 50, Breeze도
