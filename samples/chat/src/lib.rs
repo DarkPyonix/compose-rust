@@ -706,12 +706,45 @@ pub fn launch() {
 /// The theme above all: a sample that names one and then reaches a platform through an
 /// entry point that makes its own builder is a sample that draws the same screens in a
 /// different design system depending on where it runs.
+/// The typeface the application this is clone coded from is set in.
+///
+/// Roboto rather than the machine's own UI face. Comparing this screen with the reference
+/// is the point of the sample, and two screens in two different typefaces differ in a way
+/// that hides every other way they differ: the letters are the first thing the eye reads
+/// and the last thing it stops reading.
+///
+/// Two weights, because a role is one asset and a static face has one weight. Asking a
+/// regular face for a semibold gets a synthesised one, which is the outline smeared
+/// sideways and looks like nothing anybody drew. The rungs a design system sets in a
+/// heavier weight get the medium face and the rest get the regular one.
+///
+/// Apache 2.0, the same licence as this project. `assets/Roboto-LICENSE.txt` is its copy.
+fn with_the_references_typeface(theme: Theme) -> Theme {
+    let regular = dioxus_compose::asset::asset(
+        dioxus_compose::schema::AssetKind::Font,
+        include_bytes!("../assets/Roboto-Regular.ttf"),
+    );
+    let medium = dioxus_compose::asset::asset(
+        dioxus_compose::schema::AssetKind::Font,
+        include_bytes!("../assets/Roboto-Medium.ttf"),
+    );
+    theme
+        .with_font(TypeRole::Display, medium)
+        .with_font(TypeRole::Headline, medium)
+        .with_font(TypeRole::Title, medium)
+        .with_font(TypeRole::Subtitle, medium)
+        .with_font(TypeRole::BodyStrong, medium)
+        .with_font(TypeRole::Label, medium)
+        .with_font(TypeRole::Body, regular)
+        .with_font(TypeRole::Caption, regular)
+}
+
 fn launch_builder() -> dioxus_compose::LaunchBuilder {
     // The name the window carries. A desktop lists windows by it, so a window that said
     // nothing was listed under whatever the renderer happened to be called, and every
     // sample here was listed as DioxusCompose until this line existed.
     dioxus_compose::LaunchBuilder::new()
-        .with_theme(dioxus_compose::demo_theme())
+        .with_theme(with_the_references_typeface(dioxus_compose::demo_theme()))
         .with_window(
             dioxus_compose::schema::Window::new()
                 .with_title("Chat")
