@@ -70,5 +70,22 @@ if [[ "$skip_kotlin" != "0" ]]; then
 fi
 
 cd "$repo_root/dioxus-compose-renderer"
-./kotlin build
-./kotlin test
+# Which platforms this machine can build, and which it can run tests for. Named rather than
+# left to the default, because three of them need something the machine may not have: the
+# X11 development headers that the Linux window's cinterop compiles against, a device or an
+# emulator for Android's instrumented tests, and a test task that an iOS device target does
+# not have at all. The same reasoning as the Android and wasm targets above: a gate that
+# demands an install nobody needs is a gate that stops being run.
+build_platforms=()
+while read -r platform; do
+    build_platforms+=(--platform "$platform")
+done < <(./scripts/gate-platforms.sh build)
+test_platforms=()
+while read -r platform; do
+    test_platforms+=(--platform "$platform")
+done < <(./scripts/gate-platforms.sh test)
+
+echo "building for: ${build_platforms[*]//--platform /}"
+echo "testing on:   ${test_platforms[*]//--platform /}"
+./kotlin build "${build_platforms[@]}"
+./kotlin test "${test_platforms[@]}"

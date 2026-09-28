@@ -34,7 +34,12 @@ class AppKitMouseInputTest {
         )
         setContent { DioxusContent(rememberDioxusHost(connection)) }
 
-        onNodeWithTag(nodeTestTag(button)).performMouseInput { click() }
+        // Pressed and released rather than clicked, because what is being defended is that
+        // the two halves of a click arrive as one event and not as two.
+        onNodeWithTag(nodeTestTag(button)).performMouseInput {
+            press()
+            release()
+        }
         waitForIdle()
 
         assertEquals(
