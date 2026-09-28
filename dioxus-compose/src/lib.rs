@@ -353,7 +353,7 @@ pub mod elements {
     element!(
         navigationitem,
         "NavigationItem",
-        [text, icon, color, enabled]
+        [text, icon, color, enabled, section]
     );
     // Like a Dialog on the wire: `open` seeds the Renderer's own state and `on_dismiss`
     // says once that the user asked to close it. Which edge it enters from is the

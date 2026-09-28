@@ -70,6 +70,12 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.runtime.mutableStateOf
 import dioxus.compose.protocol.ShapeRole
+import dioxus.compose.protocol.SlotRole
+import dioxus.compose.protocol.TypeRole
+import androidx.compose.ui.text.TextStyle
+import dioxus.compose.design.fontSize
+import dioxus.compose.design.composeLineHeight
+import dioxus.compose.design.composeLetterSpacing
 
 /** How thick the bar Fluent draws along the leading edge of the selected row is. */
 private val LEADING_BAR_THICKNESS = 3.dp
@@ -100,6 +106,18 @@ private const val DISABLED_ALPHA = 0.38f
  * came from the Host; choosing a destination moves it here and then reports it as that
  * destination's own click, so switching screens costs one event and no rebuilt strip.
  */
+/**
+ * Whether this child is a slot filling [role] of the strip it is in.
+ *
+ * The same widget and the same property a `Scaffold`'s slots use, because the meaning is
+ * the same one: a slot says where its content goes inside its parent. A strip has two
+ * places to put something, above its destinations and below them.
+ */
+private fun Node?.fillsStrip(role: SlotRole): Boolean =
+    this != null &&
+        widget == WidgetKind.ScaffoldSlot &&
+        this.role(PropertyKind.Slot, SlotRole.entries.toTypedArray()) == role
+
 @Composable
 internal fun HostNavigation(
     node: Node,
@@ -110,7 +128,17 @@ internal fun HostNavigation(
 ) {
     val style = theme.rules.navigation(LocalWindowSizeClass.current, theme)
     val destinations = node.children.filter { table.node(it)?.widget == WidgetKind.NavigationItem }
-    val content = node.children.filter { table.node(it)?.widget != WidgetKind.NavigationItem }
+    // A slot names where its content goes inside its parent, and inside a strip that means
+    // above the destinations or below them. Everything else that is not a destination is
+    // the screen, which is what it always was.
+    val head = node.children.firstOrNull { table.node(it).fillsStrip(SlotRole.TopBar) }
+    val foot = node.children.firstOrNull { table.node(it).fillsStrip(SlotRole.BottomBar) }
+    val content = node.children.filter {
+        val child = table.node(it)
+        child?.widget != WidgetKind.NavigationItem &&
+            !child.fillsStrip(SlotRole.TopBar) &&
+            !child.fillsStrip(SlotRole.BottomBar)
+    }
     val fromHost = (node.property(PropertyKind.SelectedIndex) as? PropertyValue.Integer)
         ?.value
         ?.toInt()
@@ -246,7 +274,17 @@ internal fun HostNavigation(
                                 indication = null,
                             ) { open = false },
                     )
-                    SideStrip(node.id, destinations, selected, style, theme, table) { index, id ->
+                    SideStrip(
+                        node.id,
+                        destinations,
+                        selected,
+                        style,
+                        theme,
+                        table,
+                        dispatcher,
+                        head,
+                        foot,
+                    ) { index, id ->
                         open = false
                         choose(index, id)
                     }
@@ -264,7 +302,7 @@ internal fun HostNavigation(
                 if (holdsAPage && style.pageBehindStrip) Modifier.pageBackdrop(style) else Modifier,
             ),
         ) {
-            SideStrip(node.id, destinations, selected, style, theme, table, choose)
+            SideStrip(node.id, destinations, selected, style, theme, table, dispatcher, head, foot, choose)
             // The rule and the room for a screen belong to the screen. A navigation
             // holding nothing but its destinations is a strip, and a strip that reserved
             // the rest of the window would leave whatever is beside it with no width at
@@ -371,6 +409,39 @@ private fun BarStrip(
 }
 
 /**
+ * The name over a group of destinations.
+ *
+ * Set at the caption rung in the strip's own secondary ink, which is what both references
+ * do: a heading is there to be found when it is looked for and to stay out of the way when
+ * it is not, so it is smaller and quieter than the rows under it rather than louder.
+ */
+@Composable
+private fun SectionHeading(name: String, style: NavigationStyle, theme: ResolvedTheme) {
+    val token = theme.type(TypeRole.Caption)
+    BasicText(
+        text = name,
+        style = TextStyle(
+            fontSize = token.fontSize,
+            fontFamily = theme.family(TypeRole.Caption),
+            lineHeight = token.composeLineHeight,
+            letterSpacing = token.composeLetterSpacing,
+            color = style.content.copy(alpha = SECTION_HEADING_ALPHA),
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                start = style.itemPadding,
+                end = style.itemPadding,
+                top = theme.space(SpaceRole.Sm),
+                bottom = theme.space(SpaceRole.Xs),
+            ),
+    )
+}
+
+/** How much quieter a heading is than the rows under it. */
+private const val SECTION_HEADING_ALPHA = 0.7f
+
+/**
  * The destinations down the leading edge: a rail or a drawer on the window's edge, or a
  * panel floating inside it where the design system floats them.
  *
@@ -385,6 +456,9 @@ private fun SideStrip(
     style: NavigationStyle,
     theme: ResolvedTheme,
     table: NodeTable,
+    dispatcher: EventDispatcher,
+    head: Int?,
+    foot: Int?,
     choose: (Int, Int) -> Unit,
 ) {
     val width = if (style.presentation == NavigationPresentation.Rail) {
@@ -401,9 +475,20 @@ private fun SideStrip(
     val captionTop = if (carries) caption.height + caption.insetTop else 0.dp
     @Composable
     fun Destinations() {
+        head?.let { key(it) { Screen(listOf(it), table, dispatcher) } }
+        var group: String? = null
         destinations.forEachIndexed { index, childId ->
             key(childId) {
                 table.node(childId)?.let { destination ->
+                    // A heading once, where the name changes. Neighbouring destinations
+                    // carrying the same name are one group, so a name that comes back
+                    // later is a second group with the same heading rather than a
+                    // continuation of the first.
+                    val named = destination.text(PropertyKind.Section).takeIf { it.isNotEmpty() }
+                    if (named != null && named != group) {
+                        SectionHeading(named, style, theme)
+                    }
+                    group = named
                     Destination(
                         node = destination,
                         selected = index == selected,
@@ -416,6 +501,7 @@ private fun SideStrip(
                 }
             }
         }
+        foot?.let { key(it) { Screen(listOf(it), table, dispatcher) } }
     }
     val gap = style.destinationGap ?: style.itemSpacing
     if (!floating) {

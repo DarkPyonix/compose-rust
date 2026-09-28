@@ -1670,6 +1670,15 @@ pub fn Navigation(
     #[props(default)] fill_max_width: bool,
     #[props(default)] fill_max_height: bool,
     #[props(default)] selected_index: usize,
+    /// What sits above the destinations in a strip: a mark, a name, a control.
+    ///
+    /// Drawn only where the destinations are a strip down the side. A bar along the bottom
+    /// is five destinations standing side by side and has nowhere to put this.
+    #[props(default)]
+    head: Option<Element>,
+    /// What sits below them. An account row, usually.
+    #[props(default)]
+    foot: Option<Element>,
     children: Element,
 ) -> Element {
     rsx! {
@@ -1688,6 +1697,14 @@ pub fn Navigation(
             fill_max_width,
             fill_max_height,
             selected_index: selected_index as i64,
+            // The same slot widget a Scaffold's bars arrive in, because it says the same
+            // thing: where inside my parent this content goes.
+            if let Some(head) = head {
+                scaffoldslot { slot: i64::from(u16::from(SlotRole::TopBar)), {head} }
+            }
+            if let Some(foot) = foot {
+                scaffoldslot { slot: i64::from(u16::from(SlotRole::BottomBar)), {foot} }
+            }
             {children}
         }
     }
@@ -1729,6 +1746,13 @@ pub fn NavigationItem(
     #[props(default)]
     color: Option<Paint>,
     #[props(default = true)] enabled: bool,
+    /// The named group of the strip this destination belongs to.
+    ///
+    /// Neighbouring destinations carrying the same name are one group and the name is its
+    /// heading. A destination that names none belongs to no group and is drawn where it
+    /// always was. What a heading looks like is the design system's.
+    #[props(default)]
+    section: Option<String>,
     #[props(default)] on_click: EventHandler<()>,
 ) -> Element {
     rsx! {
@@ -1750,6 +1774,7 @@ pub fn NavigationItem(
             icon: opt_role(icon),
             color: opt_paint(color),
             enabled,
+            section,
             onclick: move |_| on_click.call(()),
         }
     }

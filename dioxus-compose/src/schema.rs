@@ -624,6 +624,21 @@ define_wire_enum!(ICON_ROLE_SCHEMA, IconRole {
     // neither could be said with the three above.
     Menu = 12,
     History = 13,
+    // What putting the samples beside the applications they are drawn from turned up: eight
+    // meanings the set could not say. Each is a meaning rather than a picture, so a system
+    // that draws sending as a paper aeroplane is still answering `Send`.
+    //
+    // None of them is an existing role used loosely. A composer's send was drawn with
+    // `Forward` for a while, and an arrow pointing sideways says "on to the next one"
+    // rather than "send this".
+    Send = 14,
+    Mic = 15,
+    Image = 16,
+    Video = 17,
+    Library = 18,
+    Sidebar = 19,
+    Compose = 20,
+    Collapse = 21,
 });
 
 // How long a transient message stays on screen. Closed, and deliberately short: a message
@@ -1364,6 +1379,12 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // screen from lighting up every container it has.
     OnFilesEntered = 65,
     OnFilesDropped = 66,
+    // Which named group of a navigation's strip this destination belongs to. Neighbouring
+    // destinations carrying the same string are one group and the string is its heading.
+    //
+    // 76 rather than 67, because 67 through 74 are reserved for the gestures and 75 for a
+    // button's kind. A reservation is not a free tag.
+    Section = 76,
 });
 
 #[derive(Clone, Debug, PartialEq)]

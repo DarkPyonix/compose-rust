@@ -447,6 +447,40 @@ pub fn app() -> Element {
             bottom_bar: rsx! {
                 Navigation {
                     selected_index: selected,
+                    // The reference opens its strip with the application's mark and name.
+                    head: rsx! {
+                        Row {
+                            fill_max_width: true,
+                            padding_role: SpaceRole::Sm,
+                            space_role: SpaceRole::Sm,
+                            alignment: Alignment::CenterStart,
+                            Text { text: "\u{25c6}", type_role: TypeRole::Subtitle, color: Paint::Role(ColorRole::Primary) }
+                            Text { text: "Chat", type_role: TypeRole::Subtitle }
+                        }
+                    },
+                    // And closes it with who is signed in.
+                    foot: rsx! {
+                        Row {
+                            fill_max_width: true,
+                            padding_role: SpaceRole::Sm,
+                            space_role: SpaceRole::Sm,
+                            alignment: Alignment::CenterStart,
+                            Text { text: "\u{25cf}", type_role: TypeRole::Body, color: Paint::Role(ColorRole::Primary) }
+                            Column {
+                                Text { text: "Signed in", type_role: TypeRole::Label }
+                                Text {
+                                    text: "Local",
+                                    type_role: TypeRole::Caption,
+                                    color: Paint::Role(ColorRole::OnSurfaceVariant),
+                                }
+                            }
+                        }
+                    },
+                    NavigationItem {
+                        text: "New chat",
+                        icon: IconRole::Compose,
+                        on_click: move |()| start_conversation(),
+                    }
                     if show_search {
                         NavigationItem {
                             text: "Search",
@@ -454,13 +488,17 @@ pub fn app() -> Element {
                             on_click: move |()| search_open.set(true),
                         }
                     }
+                    NavigationItem { text: "Images", icon: IconRole::Image }
+                    NavigationItem { text: "Videos", icon: IconRole::Video }
+                    NavigationItem { text: "Library", icon: IconRole::Library }
                     for conversation in recent.iter().cloned() {
                         NavigationItem {
                             key: "{conversation.id}",
                             text: conversation.label(),
-                            // A rail is allowed to drop the labels, so a destination that
-                            // is nothing but a title would be a blank strip in one of the
-                            // three presentations.
+                            // Under a heading of their own, which is what the reference
+                            // does with everything that is a conversation rather than a
+                            // place in the application.
+                            section: "Chats",
                             icon: IconRole::Inbox,
                             on_click: {
                                 let id = conversation.id;
@@ -862,6 +900,8 @@ mod tests {
         texts: HashMap<u32, String>,
         /// The destination nodes that are still on screen, which is the sidebar.
         destinations: Vec<u32>,
+        /// Which named group each destination said it was in, for the ones that said.
+        sections: HashMap<u32, String>,
         /// Every message the screen has said, in order, with its action label.
         messages: Vec<(String, String)>,
         event: Vec<u8>,
@@ -926,6 +966,17 @@ mod tests {
                     _ => None,
                 })
                 .collect();
+            let sections = first
+                .iter()
+                .filter_map(|mutation| match mutation {
+                    Mutation::SetProp {
+                        node_id,
+                        property: PropertyKind::Section,
+                        value: PropertyValue::String(name),
+                    } => Some((*node_id, (*name).to_owned())),
+                    _ => None,
+                })
+                .collect();
             drop(first);
             Self {
                 host,
@@ -937,6 +988,7 @@ mod tests {
                 change_handler,
                 texts,
                 destinations,
+                sections,
                 messages: Vec::new(),
                 event: Vec::new(),
             }
@@ -987,6 +1039,13 @@ mod tests {
                         node_id,
                         widget: WidgetKind::NavigationItem,
                     } => self.destinations.push(node_id),
+                    Mutation::SetProp {
+                        node_id,
+                        property: PropertyKind::Section,
+                        value: PropertyValue::String(name),
+                    } => {
+                        self.sections.insert(node_id, (*name).to_owned());
+                    }
                     Mutation::Remove { node_id } => {
                         self.destinations.retain(|found| *found != node_id);
                     }
@@ -1008,6 +1067,19 @@ mod tests {
                 .collect();
             labels.sort();
             labels
+        }
+
+        /// The destinations in the strip's conversation group, in declaration order.
+        ///
+        /// The strip carries places as well as conversations now, so "every destination"
+        /// and "every conversation" are no longer the same list. The group is what tells
+        /// them apart, and it is the same string the screen sends.
+        fn conversations(&self) -> Vec<String> {
+            self.destinations
+                .iter()
+                .filter(|node| self.sections.get(node).map(String::as_str) == Some("Chats"))
+                .filter_map(|node| self.texts.get(node).cloned())
+                .collect()
         }
 
         /// Sends an event and keeps what came back.
@@ -1461,7 +1533,7 @@ mod tests {
             "the destinations should be one declaration the Renderer can turn into a bar, \
              a rail or a sidebar"
         );
-        let before = screen.destinations();
+        let before = screen.conversations();
         assert_eq!(
             before,
             vec!["New chat".to_owned()],
@@ -1471,7 +1543,8 @@ mod tests {
         screen.send("tell me about streaming");
         screen.settle();
         screen.press_icon(IconRole::Add);
-        let after = screen.destinations();
+        let mut after = screen.conversations();
+        after.sort();
         assert_eq!(
             after,
             vec!["New chat".to_owned(), "tell me about streaming".to_owned()],
