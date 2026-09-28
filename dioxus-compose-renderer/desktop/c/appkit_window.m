@@ -15,6 +15,7 @@
 // asked, which is the arrangement the frame clock already assumes.
 
 #import <AppKit/AppKit.h>
+#import <Carbon/Carbon.h>
 #import <QuartzCore/CAMetalLayer.h>
 #import <Metal/Metal.h>
 #include <stdatomic.h>
@@ -678,8 +679,8 @@ struct dxc_native_window {
 /**
  * Opens a window with a Metal layer filling it.
  *
- * Returns zero on success; a non-zero answer means the machine has no Metal device, which
- * is the one failure here that is not a mistake of ours.
+ * Returns zero on success, one or two for unavailable Metal resources, and three if the
+ * process cannot be registered as a foreground application.
  */
 int32_t dxc_native_window_open(
     const char *title,
@@ -690,6 +691,17 @@ int32_t dxc_native_window_open(
     __block int32_t status = 0;
     dxc_on_main(^{
     @autoreleasepool {
+        // This library is loaded by a command-line executable, which the process manager
+        // initially treats as a background process. AppKit's activation policy changes
+        // the application's Dock/menu behavior; the process manager also has to know
+        // that this executable owns a foreground window. AWT performs this registration
+        // for its own window, but the headless path bypasses it.
+        ProcessSerialNumber process = {0, kCurrentProcess};
+        if (TransformProcessType(&process, kProcessTransformToForegroundApplication) != noErr) {
+            status = 3;
+            return;
+        }
+
         id<MTLDevice> device = MTLCreateSystemDefaultDevice();
         if (device == nil) {
             status = 1;

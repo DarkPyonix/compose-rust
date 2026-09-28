@@ -321,9 +321,11 @@ fun openNativeWindow(title: String, width: Int, height: Int): NativeWindow? {
     try {
         // Four pointers, in the order the C struct declares them.
         val out = StackValue.get<Pointer>(WINDOW_STRUCT_BYTES)
-        if (openWindow(holder.get(), width, height, out) != 0) {
+        val status = openWindow(holder.get(), width, height, out)
+        if (status == 1 || status == 2) {
             return null
         }
+        check(status == 0) { "AppKit could not register the process for mouse input ($status)" }
         return NativeWindow(
             window = out.readWord<Pointer>(0).rawValue(),
             view = out.readWord<Pointer>(8).rawValue(),

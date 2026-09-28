@@ -57,6 +57,7 @@ linker_args=("-H:NativeLinkerOption=-Wl,-undefined,dynamic_lookup"
              # toolkit has already opened it; a window that does not use the toolkit has
              # nobody to borrow it from.
              "-H:NativeLinkerOption=-framework" "-H:NativeLinkerOption=AppKit"
+             "-H:NativeLinkerOption=-framework" "-H:NativeLinkerOption=Carbon"
              "-H:NativeLinkerOption=-framework" "-H:NativeLinkerOption=Metal"
              "-H:NativeLinkerOption=-framework" "-H:NativeLinkerOption=MetalKit"
              "-H:NativeLinkerOption=-framework" "-H:NativeLinkerOption=QuartzCore"
