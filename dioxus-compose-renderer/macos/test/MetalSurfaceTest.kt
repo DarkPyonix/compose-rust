@@ -3,6 +3,7 @@
 package dioxus.compose.ui.platform
 
 import kotlinx.cinterop.useContents
+import org.jetbrains.skia.Surface
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -26,6 +27,46 @@ import kotlin.test.assertTrue
  * at every speed.
  */
 class MetalSurfaceTest {
+
+    /**
+     * A frame starts from nothing, rather than from whatever was in the texture.
+     *
+     * Metal hands out drawables from a pool, so the texture a frame is given holds a frame
+     * from two or three back. Painting straight onto it is invisible while everything
+     * drawn is opaque, and it is exactly what the screen shows once anything is not:
+     * translucent glass over a page lets an older frame through, and a window that had
+     * been resized showed the previous layout standing behind the current one, complete
+     * with a second composer and a second sidebar. Nothing in the frame was wrong. What
+     * was wrong was underneath it.
+     *
+     * Cleared to transparent rather than to a colour, because what is behind the window is
+     * the platform's business: a window made of chrome has the desktop behind it, and a
+     * clear to any colour would paint over that.
+     */
+    @Test
+    fun nfr9_a_frame_does_not_start_from_the_one_before_it() {
+        val surface = Surface.makeRasterN32Premul(4, 4)
+        try {
+            surface.canvas.clear(0xFFFF0000.toInt())
+            MetalSurface.startFrame(surface.canvas)
+            val pixels = surface.makeImageSnapshot().peekPixels()
+            assertTrue(pixels != null, "the raster surface gave up no pixels to read")
+            var left = 0
+            for (x in 0 until 4) {
+                for (y in 0 until 4) {
+                    if (pixels.getColor(x, y) != 0) left++
+                }
+            }
+            assertEquals(
+                0,
+                left,
+                "a pixel left over from the frame before shows through anything drawn on " +
+                    "top of it that is not opaque",
+            )
+        } finally {
+            surface.close()
+        }
+    }
 
     @Test
     fun nfr9_the_layer_presents_with_the_transaction() {

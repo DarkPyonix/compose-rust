@@ -91,6 +91,7 @@ internal class MetalSurface {
             return false
         }
         try {
+            startFrame(surface.canvas)
             paint(surface.canvas, width, height)
             surface.flushAndSubmit()
             // Presenting is done by hand because the layer presents with the transaction:
@@ -125,5 +126,24 @@ internal class MetalSurface {
 
     fun close() {
         context.close()
+    }
+
+    companion object {
+        /**
+         * Empties the canvas a frame is about to be drawn on.
+         *
+         * Metal hands out drawables from a pool, so the texture is not blank: it holds a
+         * frame from two or three back. That is invisible while everything drawn is
+         * opaque and it is what the screen shows the moment anything is not. Glass over a
+         * page is not, so a window that had been resized stood its previous layout behind
+         * its current one.
+         *
+         * Transparent rather than a colour. What is behind the window belongs to the
+         * platform, and a window made of chrome has the desktop back there; clearing to
+         * any colour would paint over it.
+         */
+        internal fun startFrame(canvas: Canvas) {
+            canvas.clear(0)
+        }
     }
 }
