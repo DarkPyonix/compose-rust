@@ -2,6 +2,7 @@ package dioxus.compose.test
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Alignment
@@ -34,6 +35,7 @@ import dioxus.compose.design.resolveTheme
 import dioxus.compose.protocol.ColorRole
 import dioxus.compose.protocol.ColorScheme
 import dioxus.compose.protocol.DesignSystem
+import dioxus.compose.protocol.Modifier as ProtocolModifier
 import dioxus.compose.protocol.Mutation
 import dioxus.compose.protocol.PropertyKind
 import dioxus.compose.protocol.PropertyValue
@@ -400,6 +402,71 @@ class DesignSystemDifferenceTest {
     }
 
     /**
+     * A field holding a page of text is not drawn as an ellipse.
+     *
+     * The Liquid Glass notepad drew its whole editing area as a grey egg with the writing
+     * clipped off both sides, and no assertion noticed: the rule asked for that system's
+     * widest corner, its widest corner is a stadium, and a stadium on something six
+     * hundred dp tall is an ellipse.
+     *
+     * What is looked at is a point a tenth of the way in from the top left corner. Inside
+     * any rounded rectangle whose corner is a corner, that point is on the field. Inside
+     * an ellipse it is outside it, and what is drawn there is the page. Every system is
+     * checked, because the next one to round a field that far fails the same way.
+     */
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun fr14_7_a_field_holding_a_page_is_not_drawn_as_an_ellipse() {
+        DesignSystem.entries.forEach { system ->
+            runComposeUiTest {
+                setContent {
+                    Box(Modifier.size(FIELD_PAGE).background(Color.White)) {
+                        DioxusContent(
+                            rememberDioxusHost(
+                                FakeHostConnection(
+                                    listOf(
+                                        Mutation.SetTheme(
+                                            Theme(system, system, ColorScheme.Light, false),
+                                        ),
+                                        Mutation.Create(FIELD, WidgetKind.TextField),
+                                        Mutation.SetProp(
+                                            FIELD,
+                                            PropertyKind.Multiline,
+                                            PropertyValue.Bool(true),
+                                        ),
+                                        Mutation.SetModifier(
+                                            FIELD,
+                                            FILL_WIDTH,
+                                            ProtocolModifier.FillMaxWidth,
+                                        ),
+                                        Mutation.SetModifier(
+                                            FIELD,
+                                            FILL_HEIGHT,
+                                            ProtocolModifier.FillMaxHeight,
+                                        ),
+                                    ),
+                                ),
+                            ),
+                            Modifier.fillMaxSize(),
+                        )
+                    }
+                }
+                waitForIdle()
+                val pixels = onRoot().captureToImage().toPixelMap()
+                val x = (pixels.width * FIELD_CORNER_FRACTION).toInt()
+                val y = (pixels.height * FIELD_CORNER_FRACTION).toInt()
+                val middle = pixels[pixels.width / 2, pixels.height / 2].toArgb()
+                assertTrue(
+                    pixels[x, y].toArgb() == middle,
+                    "$system draws a page-tall field with its corner cut away: the point " +
+                        "a tenth in from the top left is not on the field, which is what " +
+                        "an ellipse looks like",
+                )
+            }
+        }
+    }
+
+    /**
      * A field with no Modifier on it at all comes out framed, and differently framed under
      * each system.
      *
@@ -518,6 +585,16 @@ private const val FIELD = 1
 
 /** A scene big enough to hold a field and show the page around it. */
 private val FIELD_SCENE = DpSize(220.dp, 90.dp)
+
+/** A field the size of a note taking up a phone screen. The height is what matters. */
+private val FIELD_PAGE = DpSize(390.dp, 620.dp)
+
+/** How far in from the corner the ellipse test looks. */
+private const val FIELD_CORNER_FRACTION = 0.1f
+
+/** The two modifier slots the page-tall field fills itself with. */
+private const val FILL_WIDTH = 1
+private const val FILL_HEIGHT = 2
 
 /**
  * How light a switch handle has to be to read as the white knob those desktops draw.

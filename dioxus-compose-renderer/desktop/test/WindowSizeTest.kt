@@ -12,6 +12,7 @@ import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import dioxus.compose.protocol.HostEvent
+import dioxus.compose.protocol.Modifier as ProtocolModifier
 import dioxus.compose.protocol.Mutation
 import dioxus.compose.protocol.PropertyKind
 import dioxus.compose.protocol.PropertyValue
@@ -32,6 +33,9 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 private const val LABEL = 1
+
+/** The token the Host would have handed out for a node it wants the size of. */
+private const val SIZE_TOKEN = 7
 
 /** Recording dispatcher: the Host is not involved in what the reporter decides to send. */
 private class RecordingDispatcher : EventDispatcher {
@@ -127,6 +131,62 @@ class WindowSizeTest {
         val both = dispatcher.events[1] as HostEvent.WindowSizeChanged
         assertEquals(WindowSizeClass.Expanded, both.sizeClass)
         assertEquals(WindowHeightClass.Expanded, both.heightClass)
+    }
+
+    /**
+     * A node that was asked to report its size answers on both axes, in one event.
+     *
+     * The same record the window uses, so the same rule: a resize that stays inside both
+     * classes says nothing, and a resize that leaves either one says it once. This is the
+     * node path rather than the root path, and it had its own copy of the remembering,
+     * which is how it came to remember only the width.
+     */
+    @Test
+    fun fr28_an_observed_node_reports_both_classes_in_one_event() = runComposeUiTest {
+        val connection = FakeHostConnection(
+            listOf(
+                Mutation.Create(LABEL, WidgetKind.Text),
+                Mutation.SetProp(LABEL, PropertyKind.Text, PropertyValue.Text("hello")),
+                // Filling the space, or the node measures to the width of the word and a
+                // window that changed size would not change the node's size at all.
+                Mutation.SetModifier(LABEL, 1, ProtocolModifier.FillMaxWidth),
+                Mutation.SetModifier(LABEL, 2, ProtocolModifier.FillMaxHeight),
+                Mutation.SetModifier(LABEL, 3, ProtocolModifier.ObserveSize(SIZE_TOKEN)),
+            ),
+        )
+        var height by mutableStateOf(300.dp)
+        setContent {
+            CompositionLocalProvider(
+                LocalFrameRequests provides frames,
+                LocalDensity provides Density(1f),
+            ) {
+                DioxusContent(
+                    rememberDioxusHost(connection),
+                    Modifier.requiredSize(400.dp, height),
+                )
+            }
+        }
+        waitForIdle()
+        val sizes = {
+            connection.events
+                .filterIsInstance<HostEvent.WindowSizeChanged>()
+                .filter { it.nodeId == LABEL }
+        }
+        val before = sizes().size
+
+        // Taller, and across the first height boundary. The width has not moved, so an
+        // event here can only have come from the height.
+        height = 500.dp
+        waitForIdle()
+        assertEquals(before + 1, sizes().size)
+        val taller = sizes().last()
+        assertEquals(WindowSizeClass.Compact, taller.sizeClass)
+        assertEquals(WindowHeightClass.Medium, taller.heightClass)
+
+        // Taller again, inside the same class, so nothing is sent.
+        height = 700.dp
+        waitForIdle()
+        assertEquals(before + 1, sizes().size)
     }
 
     @Test
