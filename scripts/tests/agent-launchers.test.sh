@@ -46,6 +46,14 @@ for launcher in "${launchers[@]}"; do
         note "$launcher does not forbid a run narrowing its own task"
     grep -q 'say so in your final report' "$launcher" ||
         note "$launcher does not tell a run to report what it did not do"
+    # The report clause on its own is a licence to skip anything, so long as the skipping
+    # is confessed. A run took it that way: it left out the build that turns its module
+    # into something linkable, called that outside its task, and said so. The report was
+    # honest and the work was unfinished.
+    grep -q 'The report is not a licence' "$launcher" ||
+        note "$launcher lets a run discharge the work by confessing it skipped it"
+    grep -q 'Nothing the thing cannot work without is out of scope' "$launcher" ||
+        note "$launcher does not say the deliverable is the working whole"
 
     # The planning documents. A run that cannot meet a requirement and edits the
     # requirement leaves a document that records whatever the code already did, and the
@@ -62,4 +70,4 @@ if [[ "$failures" -gt 0 ]]; then
     echo "$failures problem(s) in the agent launchers" >&2
     exit 1
 fi
-echo "ok: all ${#launchers[@]} launchers state the working directory, the build ban, the scope rule and the planning documents"
+echo "ok: all ${#launchers[@]} launchers state the working directory, the build ban, the scope rule and what it does not let a run do, and the planning documents"

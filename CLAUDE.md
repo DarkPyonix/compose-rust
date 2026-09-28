@@ -111,6 +111,30 @@ the launchers inject them ahead of whatever the prompt says.
    disagreement: a gap nobody mentions is found later by someone who assumed it was
    there.
 
+   **The final report is not a licence.** Saying what was skipped does not discharge the
+   obligation to do it. That clause is for work that turned out to be impossible or
+   blocked, not for work judged not worth doing, and the difference is whether anything
+   stopped you. "Nobody asked for it" and "the task did not name it" are not blockers.
+
+   **Nothing that the thing cannot work without is out of scope.** The deliverable is the
+   working whole, not the part the task happened to name. A platform whose renderer
+   compiles into a library that nothing can link is not delivered; the build that produces
+   it and the path that links it are part of it, named or not. The test is whether someone
+   can use what you built without writing the missing piece themselves.
+
+   This is written down because it happened, and because the rule above was already here
+   when it did. A Linux window was built, and its report said a build script and the
+   host-side link were "outside the task's stated scope" because writing them "seemed
+   worse than naming it". They were the difference between a renderer and a directory of
+   source files. The report was honest and the work was unfinished, and those are not
+   alternatives.
+
+3. **Whoever reads the report is bound by the same rule.** An "out of scope" in a report
+   is not an answer to be relayed onward; it is a thing to send back. Passing it up as
+   though the question were settled makes the reader the second person to decide it,
+   which is exactly what rule 2 forbids the first from doing. The same incident above
+   travelled a whole message further because it was repeated rather than caught.
+
 ## Writing
 
 1. **Never use em dashes.** Not in docs, code comments, commit messages, pull request text or UI copy. Use a comma, a colon, parentheses, or start a new sentence. Hyphens in compound words and en dashes in numeric ranges are fine.
