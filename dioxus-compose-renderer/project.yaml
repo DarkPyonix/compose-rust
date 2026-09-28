@@ -2,7 +2,9 @@ modules:
   - android
   - desktop
   - ios
+  - linux
   - macos
   - staticlib
+  - staticlib-linux
   - staticlib-macos
   - web

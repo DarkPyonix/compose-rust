@@ -17,6 +17,9 @@ set -euo pipefail
 UPSTREAM="https://github.com/JetBrains/compose-multiplatform-core.git"
 REVISION="73ac84978a9e4ddca7e062dc0ee357ad875450fa"
 PUBLISHED_AS="1.11.1"
+# Material 3 is versioned on its own line and the renderer asks for it by that version, so
+# publishing it as the others would leave a coordinate nobody looks for.
+MATERIAL3_PUBLISHED_AS="1.11.0-alpha07"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RENDERER_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -41,9 +44,48 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Which Gradle publication to ask for, and which modules have to be published at all.
+#
+# These differ by target and not by accident. On macOS the only thing missing from what JetBrains
+# published is the text context menu, which lives in two modules, so those two are rebuilt and
+# everything else still resolves from upstream. On Linux there is no published Kotlin/Native target
+# at all: `runtime` is the one module upstream builds for linuxX64, and every other module the
+# renderer draws with has to be built here. A module left off this list is not a build failure in
+# this script; it is an unresolvable dependency in the renderer's own build, tens of minutes later,
+# naming a coordinate nobody recognises.
+#
+# What is left off, and why it has to be: the renderer's closure and nothing beyond it.
+# Material 2's navigation, the adaptive family and the navigation suite each ask for a
+# published artifact that has no Linux variant at all, so building them here is not slow,
+# it is impossible. None of them is reachable from what the renderer draws, which is
+# runtime, ui, foundation and material3.
 case "$target" in
-    macosArm64) publication="MacosArm64" ;;
-    linuxX64) publication="LinuxX64" ;;
+    macosArm64)
+        publication="MacosArm64"
+        modules=(
+            compose:foundation:foundation
+            compose:ui:ui
+        )
+        ;;
+    linuxX64)
+        publication="LinuxX64"
+        modules=(
+            compose:animation:animation
+            compose:animation:animation-core
+            compose:foundation:foundation
+            compose:foundation:foundation-layout
+            compose:material:material-ripple
+            compose:material3:material3
+            compose:ui:ui
+            compose:ui:ui-backhandler
+            compose:ui:ui-geometry
+            compose:ui:ui-graphics
+            compose:ui:ui-text
+            compose:ui:ui-tooling-preview
+            compose:ui:ui-unit
+            compose:ui:ui-util
+        )
+        ;;
     *) die "unknown target '$target'" "known: macosArm64, linuxX64" ;;
 esac
 
@@ -81,15 +123,24 @@ done
 [[ -n "${JAVA_HOME:-}" ]] || die "JAVA_HOME is not set" \
     "The Compose build needs a JDK 17; the toolchain wrapper's does not apply here."
 
-echo "==> publishing compose foundation and ui for $target as $PUBLISHED_AS"
+echo "==> publishing ${#modules[@]} compose module(s) for $target as $PUBLISHED_AS"
+# Two publications per module, not one. The target's own carries the klib; the root one
+# carries the metadata that says which targets exist. Without the root, a consumer asking
+# for the module is told the library does not support this platform, which is true of what
+# was published and not of what was built.
+tasks=()
+for module in "${modules[@]}"; do
+    tasks+=(":$module:publish${publication}PublicationToMavenLocal")
+    tasks+=(":$module:publishKotlinMultiplatformPublicationToMavenLocal")
+done
 (
     cd "$WORK"
     ./gradlew --no-daemon --no-configuration-cache \
         "-Pjetbrains.publication.version.COMPOSE=$PUBLISHED_AS" \
-        ":compose:foundation:foundation:publish${publication}PublicationToMavenLocal" \
-        ":compose:ui:ui:publish${publication}PublicationToMavenLocal"
+        "-Pjetbrains.publication.version.COMPOSE_MATERIAL3=$MATERIAL3_PUBLISHED_AS" \
+        "${tasks[@]}"
 )
 
 echo
 echo "published to $HOME/.m2/repository/org/jetbrains/compose as $PUBLISHED_AS"
-echo "the renderer's macos module reads mavenLocal first, so the next build links these"
+echo "the renderer's macos and linux modules read mavenLocal first, so the next build links these"

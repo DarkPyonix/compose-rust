@@ -1,0 +1,26 @@
+# The two C symbols the Host links against on Linux without a virtual machine.
+#
+# The twin of `staticlib-macos`, and for the same reason it is a module of its own: `-produce
+# static` writes a C adapter for everything public in the module it compiles, so the module it
+# compiles has to be only the entry points.
+#
+# The entry points themselves are shared rather than written three times. They name no platform:
+# `@CName` on two argument-free functions, and whatever `RendererApi` in the platform module says
+# about which thread may call them.
+product:
+  type: lib
+  platforms: [ linuxX64 ]
+
+# Where the patched Compose comes from. Compose Multiplatform publishes no Kotlin/Native target
+# for Linux at all; `patches/` says what the target needs and `scripts/build-compose.sh --target
+# linuxX64` builds and publishes it.
+repositories:
+  - mavenLocal
+
+dependencies:
+  - ../linux
+
+settings:
+  kotlin:
+    optIns:
+      - kotlin.experimental.ExperimentalNativeApi

@@ -18,6 +18,9 @@ import androidx.compose.ui.unit.IntSize
  * no longer has, and a second frame started on top of one already being drawn, are both
  * invisible in a screenshot and both visible to a test.
  */
+/** The size of a window's drawable in pixels, and how many of them go to a point. */
+data class WindowMeasurement(val width: Int, val height: Int, val scale: Float)
+
 internal class WindowFrames(
     private val measure: () -> WindowMeasurement,
     private val paint: (IntSize, Density) -> Unit,

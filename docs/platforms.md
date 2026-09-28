@@ -7,7 +7,7 @@
 | | 경로 | 가상 머신 | 상태 |
 | --- | --- | --- | --- |
 | macOS | Kotlin/Native | 없음 | 동작 |
-| Linux | GraalVM 네이티브 이미지 | 있음 | 동작 |
+| Linux | Kotlin/Native | 없음 | 모듈과 창까지, 패키징 전 |
 | Windows | GraalVM 네이티브 이미지 | 있음 | 동작 |
 | Web | Kotlin/Wasm | 없음 | 동작 |
 | iOS | Kotlin/Native | 없음 | 동작 |
@@ -118,7 +118,8 @@ Kotlin/Native로 갈 수 있는지는 상류가 그 타깃을 발행하느냐에
 
 **리눅스**는 `runtime`만 있습니다. 그것은 컴포지션 엔진이라 레이아웃도 그리기도 위젯도
 없습니다. 흥미로운 것은 skiko가 리눅스 네이티브를 발행한다는 점입니다: 기술적으로 막힌
-것이 아니라 Compose가 그 타깃을 빌드하지 않을 뿐입니다.
+것이 아니라 Compose가 그 타깃을 빌드하지 않을 뿐입니다. 그래서 이 저장소가 빌드합니다
+(`patches/0001-linux-native-targets.patch`). 아래를 보십시오.
 
 **윈도우**는 두 겹으로 막혀 있습니다. Kotlin/Native의 윈도우 타깃은 MinGW ABI이고 Skia와
 skiko의 윈도우 빌드는 MSVC입니다. C++ ABI가 달라 링크가 성립하지 않고, 애초에
@@ -127,21 +128,63 @@ skiko의 윈도우 빌드는 MSVC입니다. C++ ABI가 달라 링크가 성립�
 다른 플랫폼의 아티팩트를 가져다 쓸 수는 없습니다. klib은 타깃 정보를 품고 있어 컴파일러가
 거부하고, macOS용 `ui`는 AppKit에 묶여 있습니다.
 
-## 리눅스를 네이티브로 가려면
+## 리눅스 Kotlin/Native의 모양
 
-Compose를 소스에서 `linuxX64` 타깃을 켜고 빌드해야 합니다. 분기를 유지하는 포크와는
+Compose를 소스에서 `linuxX64` 타깃을 켜고 빌드합니다. 분기를 유지하는 포크와는
 다릅니다: 타깃을 더하기만 하는 변경이라 상류와 충돌할 일이 거의 없고, 그대로 상류에
-보낼 수 있는 모양입니다.
+보낼 수 있는 모양입니다. 그 변경이
+`dioxus-compose-renderer/patches/0001-linux-native-targets.patch`이고, 빌드와 발행은
+`scripts/build-compose.sh --target linuxX64`입니다. `runtime` 하나만 상류에서 오고
+나머지는 전부 여기서 발행되므로, macOS와 달리 발행할 모듈이 스무 개가 넘습니다.
 
-크기는 `macosMain`이 알려줍니다. 플랫폼마다 따로 써야 하는 것이 그 소스셋이고, 데모를
-빼면 파일 40개입니다. 그중 25개가량은 데스크톱 동작이라 베끼거나 스텁이면 됩니다
-(`Clickable`, `Overscroll`, `Scrollable`, `TouchMode`, `Focusability`, 텍스트 필드
-관련 다수, 그리고 이 렌더러가 창을 직접 만들므로 `ComposeWindow`와 `InteropView`).
-진짜 구현이 필요한 것은 열 개 남짓입니다: 클립보드, URI 열기, 키 매핑, 커서,
-드래그앤드롭, 입력기.
+모듈은 `linux/`입니다. macOS 모듈과 같은 모양입니다: 인터프리터와 생성된 프로토콜을
+`src/shared/`의 심볼릭 링크로 공유하고, 경계는 iOS의 것을 그대로 씁니다. 따로 쓴 것은
+갈라지는 부분뿐입니다. `java.lang.System` 심은 `os.name`을 `linux`로 답하고 환경 변수를
+실제로 읽습니다(GNOME, KDE, Deepin 중 어느 세션인지가 `XDG_CURRENT_DESKTOP`에 있기
+때문입니다). `platformFormats`는 Foundation이 없으므로 `nl_langinfo`로 로케일을 읽습니다.
+`RendererApi`는 주 스레드를 요구하지 않습니다. X11에는 디스플레이 연결을 소유하는
+스레드가 없습니다.
 
-그 열 개가 이 저장소에 이미 있습니다. 네이티브 이미지 경로의 AppKit 창이 같은 일을
-하고, X11 창은 `feat/x11-window`에 있습니다.
+창은 `linux/src/LinuxWindow.kt`이고, Xlib과 GLX와 sync 확장을 직접 부릅니다.
+`desktop/c/x11_window.c`를 가져오지 않았습니다. 그 파일은 그대로 남아 있고 윈도우가
+링크하며 네이티브 이미지가 여는 창입니다. 다만 그 모양은 X11의 모양이 아니라 GraalVM의
+모양입니다: 워드 값이 만들어진 메서드를 떠날 수 없어서 이벤트를 링 버퍼에 적고,
+`IsolateThread*`를 들고 함수 포인터로 되돌아옵니다. Kotlin/Native에는 그중 어느 것도
+의미가 없습니다.
+
+C를 부르지 않는 대신 cinterop 정의가 하나 필요합니다. `linux/cinterop/x11.def`이고,
+Kotlin 툴체인이 그 디렉터리의 `.def`를 알아서 찾으므로 module.yaml에는 아무것도 적지
+않습니다. 헤더는 시스템의 것을 그대로 씁니다. 여기에 복사해 두면 X11이 없는 기계에서도
+빌드되겠지만, XEvent와 XSetWindowAttributes의 배치를 손으로 적는다는 뜻이고, 필드
+오프셋이 하나 틀리면 소스를 읽어서는 아무도 알 수 없는 방식으로 창이 오작동합니다.
+그래서 이 모듈을 빌드하려면 X11, Xext, GL 개발 헤더가 필요합니다. 리눅스에서는 패키지
+한 줄이고, macOS 교차 빌드에서는 XQuartz입니다.
+
+`_NET_WM_SYNC_REQUEST`가 macOS의 `presentsWithTransaction` 자리에 있습니다. 창 관리자가
+리사이즈와 함께 번호를 하나 건네고, 카운터가 그 번호를 실을 때까지 보여주려던 프레임을
+붙들고 있습니다. 순서가 전부입니다: 먼저 그린 것을 서버에 넘기고, 그다음에 알립니다.
+프레임이 나오지 않은 요청도 값을 치러야 합니다. 그러지 않으면 관리자가 포기할 때까지
+창이 멈춥니다. 그 순서는 `desktop/src/ResizeSync.kt`에 있고 JVM에서 테스트합니다.
+
+### 아직 없는 것
+
+정적 라이브러리를 만드는 빌드 스크립트와 Host 쪽 링크가 없습니다. macOS에는
+`desktop/scripts/build-macos.sh`가 있고 Cargo가 그 아카이브를 링크하는데, 리눅스에는
+대응하는 것이 아직 없습니다. 그래서 리눅스 배포물은 지금도 네이티브 이미지 쪽에서 나옵니다.
+여기 있는 것은 모듈과 창과 그 테스트입니다.
+
+### 검증되지 않은 것
+
+컴파일도 실행도 확인하지 않았습니다. `linux/test/`의 테스트는 linuxX64로 컴파일되므로
+리눅스에서만 돌고, 드래그되는 창의 테두리와 그 안의 그림이 함께 도착하는지는 컴포지터가
+합성한 결과에 대한 사실이라 손으로 확인해야 합니다. 머지하는 쪽이 할 일:
+
+```bash
+cd dioxus-compose-renderer
+./scripts/build-compose.sh --target linuxX64   # JAVA_HOME은 JDK 17
+./kotlin build -p linuxX64                     # X11, Xext, GL 헤더 필요
+./kotlin test -p linuxX64                      # 리눅스에서만
+```
 
 ## macOS Kotlin/Native의 모양
 
