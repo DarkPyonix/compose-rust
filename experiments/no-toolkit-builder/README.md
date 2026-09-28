@@ -61,3 +61,14 @@ much compiles; it has not been through a build that finished.
 
 This is worth as much to Windows and Linux as to macOS, and more: they have no other path
 than this one.
+
+## `NoToolkitSubstitutions.java`
+
+The substitutions the second attempt needed, kept here rather than under the renderer's
+own sources so that nothing compiles them. Three places where Compose keeps a toolkit
+answer as its default, reached even by an image that never opens a toolkit window. Read
+the file's own comment for what each one was for.
+
+Recorded, not adopted: the four attempts this directory holds are the ones that did not
+work. What the macOS renderer does instead is Kotlin/Native, which has no toolkit in it
+to take out.
