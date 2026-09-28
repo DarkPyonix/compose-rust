@@ -51,7 +51,7 @@ pub use schema::{
     Alignment, Arrangement, AssetKind, ButtonVariant, Chrome, Color, ColorRole, ColorScheme,
     DesignSystem, EventPayload, IconRole, Key, LoopMode, MaterialRole, MessageDuration, Modifier,
     MotionRole, Paint, PropertyKind, SCHEMA_HASH, Selection, ShapeRole, SpaceRole, TextAlign,
-    TextOverflow, Theme, TileMode, TypeRole, WidgetKind, WindowSizeClass,
+    TextOverflow, Theme, TileMode, TypeRole, WidgetKind, WindowHeightClass, WindowSizeClass,
 };
 pub use widgets::{
     Button, Canvas, Card, Checkbox, Column, ComposeBox as Box, DatePicker, Dialog, Divider,
@@ -160,8 +160,8 @@ pub mod prelude {
         NavigationItem, Paint, ProgressIndicator, Props, RadioButton, RangeRequest, Row, Scaffold,
         ScrollColumn, Separator, ShapeRole, Sheet, Slider, SpaceRole, Spacer, Stop, Surface,
         Switch, Tabs, Text, TextAlign, TextField, TextOverflow, Theme, TileMode, TimePicker,
-        Tooltip, TopAppBar, TypeRole, WindowSize, WindowSizeClass, asset, brush, component, launch,
-        rsx, show_message, use_design_system, use_node_size, use_window_size,
+        Tooltip, TopAppBar, TypeRole, WindowHeightClass, WindowSize, WindowSizeClass, asset, brush,
+        component, launch, rsx, show_message, use_design_system, use_node_size, use_window_size,
     };
     // Under its own name, and the one thing in this list that could shadow something a
     // reader already has: an application that draws its own `Window` component would find

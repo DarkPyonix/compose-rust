@@ -1,6 +1,6 @@
 {
   "format": "dioxus-compose protocol vectors v1",
-  "schemaHashUnsigned": "15933613115450936215",
+  "schemaHashUnsigned": "15581868395369242663",
   "byteOrder": "little-endian",
   "mutations": {
     "file": "mutations.bin",
@@ -21,7 +21,7 @@
       { "type": "KeyDown", "offset": 125, "length": 20, "nodeId": 9, "handlerId": 15, "key": "Enter", "shiftKey": true, "ctrlKey": true, "altKey": true, "metaKey": true },
       { "type": "RangeRequested", "offset": 145, "length": 24, "nodeId": 10, "handlerId": 16, "start": 100, "count": 20 },
       { "type": "ValueChanged", "offset": 169, "length": 24, "nodeId": 11, "handlerId": 17, "value": -19723.5 },
-      { "type": "WindowSizeChanged", "offset": 193, "length": 28, "nodeId": 0, "handlerId": 0, "widthDp": 840.0, "heightDp": 600.0, "sizeClass": "Expanded" }
+      { "type": "WindowSizeChanged", "offset": 193, "length": 32, "nodeId": 0, "handlerId": 0, "widthDp": 840.0, "heightDp": 600.0, "sizeClass": "Expanded", "heightClass": "Medium" }
     ]
   }
 }

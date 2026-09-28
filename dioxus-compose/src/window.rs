@@ -5,7 +5,7 @@
 //! event when the size class changes and nothing in between, so this module is a single
 //! current value plus the list of components that asked to be told when it changes.
 
-use crate::schema::WindowSizeClass;
+use crate::schema::{WindowHeightClass, WindowSizeClass};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -21,14 +21,21 @@ pub struct WindowSize {
     pub width_dp: f32,
     pub height_dp: f32,
     pub class: WindowSizeClass,
+    pub height_class: WindowHeightClass,
 }
 
 impl WindowSize {
-    pub const fn new(width_dp: f32, height_dp: f32, class: WindowSizeClass) -> Self {
+    pub const fn new(
+        width_dp: f32,
+        height_dp: f32,
+        class: WindowSizeClass,
+        height_class: WindowHeightClass,
+    ) -> Self {
         Self {
             width_dp,
             height_dp,
             class,
+            height_class,
         }
     }
 
@@ -46,6 +53,22 @@ impl WindowSize {
     pub fn is_expanded(&self) -> bool {
         matches!(self.class, WindowSizeClass::Expanded)
     }
+
+    /// Short: under 480dp tall. A phone lying on its side is the usual one, and a column
+    /// of stacked sections is what has to fold there.
+    pub fn is_short(&self) -> bool {
+        matches!(self.height_class, WindowHeightClass::Compact)
+    }
+
+    /// The ordinary height: 480dp to 900dp.
+    pub fn is_medium_height(&self) -> bool {
+        matches!(self.height_class, WindowHeightClass::Medium)
+    }
+
+    /// Tall: 900dp and more. A portrait tablet, or a window someone stretched.
+    pub fn is_tall(&self) -> bool {
+        matches!(self.height_class, WindowHeightClass::Expanded)
+    }
 }
 
 impl Default for WindowSize {
@@ -55,7 +78,12 @@ impl Default for WindowSize {
     /// the single render that happens before the first measurement arrives is never
     /// broken, only narrower than it needs to be.
     fn default() -> Self {
-        Self::new(0.0, 0.0, WindowSizeClass::Compact)
+        Self::new(
+            0.0,
+            0.0,
+            WindowSizeClass::Compact,
+            WindowHeightClass::Compact,
+        )
     }
 }
 
@@ -75,6 +103,7 @@ thread_local! {
         width_dp: 0.0,
         height_dp: 0.0,
         class: WindowSizeClass::Compact,
+        height_class: WindowHeightClass::Compact,
     }) };
     static SUBSCRIBERS: RefCell<Vec<Subscriber>> = const { RefCell::new(Vec::new()) };
     static NEXT_SUBSCRIBER_ID: Cell<u64> = const { Cell::new(1) };
@@ -339,6 +368,23 @@ mod tests {
     }
 
     #[component]
+    fn ShortOrTall() -> Element {
+        let window = use_window_size();
+        let label = if window.is_tall() {
+            "tall"
+        } else if window.is_medium_height() {
+            "ordinary"
+        } else {
+            "short"
+        };
+        rsx! { Text { text: label } }
+    }
+
+    fn height_app() -> Element {
+        rsx! { Column { ShortOrTall {} } }
+    }
+
+    #[component]
     fn Sibling() -> Element {
         SIBLING_RENDERS.fetch_add(1, Ordering::SeqCst);
         rsx! { Text { text: "fixed" } }
@@ -354,13 +400,18 @@ mod tests {
     }
 
     fn resize(host: &mut Host, width_dp: f32) -> Vec<String> {
+        resize_to(host, width_dp, 800.0)
+    }
+
+    fn resize_to(host: &mut Host, width_dp: f32, height_dp: f32) -> Vec<String> {
         let event = HostEvent {
             node_id: 0,
             handler_id: 0,
             payload: EventPayload::WindowSizeChanged {
                 width_dp,
-                height_dp: 800.0,
+                height_dp,
                 class: WindowSizeClass::from_width_dp(width_dp),
+                height_class: WindowHeightClass::from_height_dp(height_dp),
             },
         };
         let (batch, _) = host.dispatch(event).unwrap();
@@ -405,6 +456,27 @@ mod tests {
     }
 
     #[test]
+    fn fr20_crossing_a_height_boundary_rerenders_and_resizing_within_one_does_not() {
+        reset_window_size();
+        let mut host = Host::new(height_app);
+        host.rebuild().unwrap();
+
+        // 300dp tall is the class the Host already holds, so growing to 479dp inside it
+        // changes nothing.
+        assert!(resize_to(&mut host, 400.0, 479.0).is_empty());
+
+        // 480dp crosses into the ordinary height, and 900dp into the tall one. One
+        // mutation each, and nothing for the step in between.
+        assert_eq!(
+            resize_to(&mut host, 400.0, 480.0),
+            vec!["ordinary".to_owned()]
+        );
+        assert!(resize_to(&mut host, 400.0, 899.0).is_empty());
+        assert_eq!(resize_to(&mut host, 400.0, 900.0), vec!["tall".to_owned()]);
+        reset_window_size();
+    }
+
+    #[test]
     fn fr20_window_size_starts_compact_before_the_renderer_measures_anything() {
         reset_window_size();
         assert_eq!(window_size(), WindowSize::default());
@@ -414,7 +486,12 @@ mod tests {
     #[test]
     fn fr20_publishing_the_same_size_twice_wakes_nobody() {
         reset_window_size();
-        let size = WindowSize::new(700.0, 800.0, WindowSizeClass::Medium);
+        let size = WindowSize::new(
+            700.0,
+            800.0,
+            WindowSizeClass::Medium,
+            WindowHeightClass::Medium,
+        );
         assert!(publish(size));
         assert!(!publish(size));
         reset_window_size();

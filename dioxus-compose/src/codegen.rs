@@ -10,7 +10,8 @@ use crate::schema::{
     Paint, PropertyKind, ROLE_ENUM_SCHEMA, SCHEMA_HASH, Selection, ShapeRole, SpaceRole, Theme,
     WEB_BATCH_BYTES, WEB_BATCH_FIELDS, WEB_EVENT_BUFFER_BYTES, WEB_EVENT_BUFFER_OFFSET,
     WEB_HOST_GLOBAL, WEB_MODULE_GLOBAL, WEB_RENDERER_IMPORT_MODULE, WEB_RUST_REGION_BASE,
-    WEB_START_SYMBOL, WIDGET_SCHEMA, WINDOW_SIZE_CLASS_SCHEMA, WidgetKind,
+    WEB_START_SYMBOL, WIDGET_SCHEMA, WINDOW_HEIGHT_CLASS_SCHEMA, WINDOW_SIZE_CLASS_SCHEMA,
+    WidgetKind,
 };
 use crate::tokens::DESIGN_TOKENS;
 use crate::{EventPayload, Modifier};
@@ -52,6 +53,7 @@ pub fn generate_kotlin() -> String {
     write_enum(&mut output, "PropertyKind", PROPERTY_SCHEMA);
     write_enum(&mut output, "Key", KEY_SCHEMA);
     write_enum(&mut output, "WindowSizeClass", WINDOW_SIZE_CLASS_SCHEMA);
+    write_enum(&mut output, "WindowHeightClass", WINDOW_HEIGHT_CLASS_SCHEMA);
     for role in ROLE_ENUM_SCHEMA {
         write_enum(&mut output, role.name, role.variants);
     }
@@ -251,7 +253,7 @@ data class Window(
             EventPayloadType::Double => output.push_str(", val value: Double"),
             EventPayloadType::WindowSize => {
                 output.push_str(
-                    ", val widthDp: kotlin.Float, val heightDp: kotlin.Float, val sizeClass: WindowSizeClass",
+                    ", val widthDp: kotlin.Float, val heightDp: kotlin.Float, val sizeClass: WindowSizeClass, val heightClass: WindowHeightClass",
                 );
             }
             EventPayloadType::DesignSystem => output.push_str(", val system: DesignSystem"),
@@ -559,7 +561,7 @@ object Protocol {
             EventPayloadType::KeyDown => 20,
             EventPayloadType::Range => 24,
             EventPayloadType::Double => 24,
-            EventPayloadType::WindowSize => 28,
+            EventPayloadType::WindowSize => 32,
             // A tag and the padding that keeps the record a multiple of four.
             EventPayloadType::DesignSystem => 20,
         };
@@ -668,6 +670,9 @@ object Protocol {
                 output.push_str(
                     "                    out.putInt(windowSizeClassTag(event.sizeClass))\n",
                 );
+                output.push_str(
+                    "                    out.putInt(windowHeightClassTag(event.heightClass))\n",
+                );
                 output.push_str("                }\n");
             }
         }
@@ -754,6 +759,18 @@ object Protocol {
         writeln!(
             output,
             "        WindowSizeClass.{} -> {}",
+            variant.name, variant.tag
+        )
+        .unwrap();
+    }
+    output.push_str("    }\n\n");
+    output.push_str(
+        "    private fun windowHeightClassTag(heightClass: WindowHeightClass): Int = when (heightClass) {\n",
+    );
+    for variant in WINDOW_HEIGHT_CLASS_SCHEMA {
+        writeln!(
+            output,
+            "        WindowHeightClass.{} -> {}",
             variant.name, variant.tag
         )
         .unwrap();
@@ -1454,6 +1471,7 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
                 width_dp: 840.0,
                 height_dp: 600.0,
                 class: crate::schema::WindowSizeClass::Expanded,
+                height_class: crate::schema::WindowHeightClass::Medium,
             },
         },
     ];
@@ -1491,7 +1509,7 @@ pub fn generate_vector_description() -> String {
       {{ "type": "KeyDown", "offset": 125, "length": 20, "nodeId": 9, "handlerId": 15, "key": "Enter", "shiftKey": true, "ctrlKey": true, "altKey": true, "metaKey": true }},
       {{ "type": "RangeRequested", "offset": 145, "length": 24, "nodeId": 10, "handlerId": 16, "start": 100, "count": 20 }},
       {{ "type": "ValueChanged", "offset": 169, "length": 24, "nodeId": 11, "handlerId": 17, "value": -19723.5 }},
-      {{ "type": "WindowSizeChanged", "offset": 193, "length": 28, "nodeId": 0, "handlerId": 0, "widthDp": 840.0, "heightDp": 600.0, "sizeClass": "Expanded" }}
+      {{ "type": "WindowSizeChanged", "offset": 193, "length": 32, "nodeId": 0, "handlerId": 0, "widthDp": 840.0, "heightDp": 600.0, "sizeClass": "Expanded", "heightClass": "Medium" }}
     ]
   }}
 }}

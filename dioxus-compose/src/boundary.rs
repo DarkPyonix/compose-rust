@@ -338,12 +338,13 @@ impl Host {
             width_dp,
             height_dp,
             class,
+            height_class,
         } = event.payload
         {
             // Node id zero is the window; anything else is one of its nodes. One event
             // for both, because they are the same fact measured at two scales and a
             // second way of saying it would be a second thing to keep in step.
-            let size = crate::window::WindowSize::new(width_dp, height_dp, class);
+            let size = crate::window::WindowSize::new(width_dp, height_dp, class, height_class);
             if event.node_id != 0 {
                 let woke = self
                     .renderer

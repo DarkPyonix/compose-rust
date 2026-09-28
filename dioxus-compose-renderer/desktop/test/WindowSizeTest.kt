@@ -16,11 +16,13 @@ import dioxus.compose.protocol.Mutation
 import dioxus.compose.protocol.PropertyKind
 import dioxus.compose.protocol.PropertyValue
 import dioxus.compose.protocol.WidgetKind
+import dioxus.compose.protocol.WindowHeightClass
 import dioxus.compose.protocol.WindowSizeClass
 import dioxus.compose.runtime.DioxusContent
 import dioxus.compose.runtime.EventDispatcher
 import dioxus.compose.runtime.WindowSizeReporter
 import dioxus.compose.runtime.rememberDioxusHost
+import dioxus.compose.runtime.windowHeightClassOf
 import dioxus.compose.runtime.windowSizeClassOf
 import dioxus.compose.tooling.FakeHostConnection
 import dioxus.compose.ui.platform.FrameRequestSource
@@ -59,36 +61,72 @@ class WindowSizeTest {
     }
 
     @Test
+    fun fr20_height_classes_split_at_four_hundred_and_eighty_and_nine_hundred_dp() {
+        assertEquals(WindowHeightClass.Compact, windowHeightClassOf(0f))
+        assertEquals(WindowHeightClass.Compact, windowHeightClassOf(479.9f))
+        assertEquals(WindowHeightClass.Medium, windowHeightClassOf(480f))
+        assertEquals(WindowHeightClass.Medium, windowHeightClassOf(899.9f))
+        assertEquals(WindowHeightClass.Expanded, windowHeightClassOf(900f))
+    }
+
+    @Test
     fun fr20_crossing_a_boundary_sends_one_event_and_resizing_within_a_class_sends_none() {
         val dispatcher = RecordingDispatcher()
         val reporter = WindowSizeReporter()
 
-        // A window that opens phone-sized says nothing: the Host already assumes Compact.
-        // Nor does any width from 300dp to 599dp, all of them the same class.
+        // A window that opens small in both axes says nothing: the Host already assumes
+        // Compact for each. Nor does any width from 300dp to 599dp at the same height,
+        // all of them the same pair of classes.
         for (widthDp in 300..599) {
-            reporter.report(widthDp.toFloat(), 800f, dispatcher)
+            reporter.report(widthDp.toFloat(), 400f, dispatcher)
         }
         assertEquals(0, dispatcher.events.size)
 
         // 599dp to 601dp crosses the boundary: exactly one event.
-        assertTrue(reporter.report(601f, 800f, dispatcher))
+        assertTrue(reporter.report(601f, 400f, dispatcher))
         assertEquals(1, dispatcher.events.size)
         val event = dispatcher.events[0] as HostEvent.WindowSizeChanged
         assertEquals(WindowSizeClass.Medium, event.sizeClass)
+        assertEquals(WindowHeightClass.Compact, event.heightClass)
         assertEquals(601f, event.widthDp)
-        assertEquals(800f, event.heightDp)
+        assertEquals(400f, event.heightDp)
         assertEquals(0, event.nodeId)
         assertEquals(0L, event.handlerId)
 
         // And back down is another single event, not a stream of them.
         for (widthDp in 600 downTo 300) {
-            reporter.report(widthDp.toFloat(), 800f, dispatcher)
+            reporter.report(widthDp.toFloat(), 400f, dispatcher)
         }
         assertEquals(2, dispatcher.events.size)
         assertEquals(
             WindowSizeClass.Compact,
             (dispatcher.events[1] as HostEvent.WindowSizeChanged).sizeClass,
         )
+    }
+
+    @Test
+    fun fr20_crossing_a_height_boundary_sends_one_event_and_the_two_axes_share_it() {
+        val dispatcher = RecordingDispatcher()
+        val reporter = WindowSizeReporter()
+
+        // Growing from 300dp to 479dp tall stays in one class, so nothing is sent.
+        for (heightDp in 300..479) {
+            reporter.report(400f, heightDp.toFloat(), dispatcher)
+        }
+        assertEquals(0, dispatcher.events.size)
+
+        assertTrue(reporter.report(400f, 480f, dispatcher))
+        assertEquals(1, dispatcher.events.size)
+        val taller = dispatcher.events[0] as HostEvent.WindowSizeChanged
+        assertEquals(WindowSizeClass.Compact, taller.sizeClass)
+        assertEquals(WindowHeightClass.Medium, taller.heightClass)
+
+        // Both axes crossing at once is still one event, because one record holds both.
+        assertTrue(reporter.report(900f, 900f, dispatcher))
+        assertEquals(2, dispatcher.events.size)
+        val both = dispatcher.events[1] as HostEvent.WindowSizeChanged
+        assertEquals(WindowSizeClass.Expanded, both.sizeClass)
+        assertEquals(WindowHeightClass.Expanded, both.heightClass)
     }
 
     @Test
@@ -109,13 +147,13 @@ class WindowSizeTest {
             ) {
                 DioxusContent(
                     rememberDioxusHost(connection),
-                    Modifier.requiredSize(width, 800.dp),
+                    Modifier.requiredSize(width, 400.dp),
                 )
             }
         }
         waitForIdle()
         val sizes = { connection.events.filterIsInstance<HostEvent.WindowSizeChanged>() }
-        // A Compact window is what the Host already assumes, so nothing was sent.
+        // Compact in both axes is what the Host already assumes, so nothing was sent.
         assertEquals(0, sizes().size)
 
         // Still Compact: the window changed size and the Host is not told.
@@ -127,6 +165,7 @@ class WindowSizeTest {
         waitForIdle()
         assertEquals(1, sizes().size)
         assertEquals(WindowSizeClass.Medium, sizes()[0].sizeClass)
+        assertEquals(WindowHeightClass.Compact, sizes()[0].heightClass)
         assertEquals(700f, sizes()[0].widthDp)
 
         width = 900.dp
