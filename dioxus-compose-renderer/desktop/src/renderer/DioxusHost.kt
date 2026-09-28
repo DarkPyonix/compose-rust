@@ -131,10 +131,7 @@ class DioxusHost(private val connection: HostConnection) : EventDispatcher {
                 // A malformed batch must not take the process down: it becomes a reported
                 // protocol error instead.
                 if (error is InterruptedException) throw error
-                protocolErrors += TableError(
-                    PROTOCOL_DECODE_ERROR,
-                    error.message ?: error::class.qualifiedName ?: "unknown error",
-                )
+                protocolErrors += TableError(PROTOCOL_DECODE_ERROR, error.describe())
             }
             protocolErrors += table.drainErrors()
         }
@@ -176,6 +173,33 @@ class DioxusHost(private val connection: HostConnection) : EventDispatcher {
 internal var onProtocolError: (TableError) -> Unit = { error ->
     System.err.println("dioxus-compose protocol error ${error.code}: ${error.message}")
 }
+
+/**
+ * What to say about a failure, all the way down.
+ *
+ * The cause as well as the throwable, because some of them say nothing on their own. A
+ * class whose initialiser failed reports "There was an error during file or class
+ * initialization" and keeps which class and why in its cause, and a reader given only the
+ * first line has been told that something went wrong and nothing else. That message was
+ * printed twice a second by a window that came up black, and finding what it meant took
+ * a debugger and an address arithmetic.
+ */
+private fun Throwable.describe(): String {
+    val parts = mutableListOf<String>()
+    var current: Throwable? = this
+    var depth = 0
+    while (current != null && depth < CAUSE_DEPTH) {
+        val name = current::class.qualifiedName ?: current::class.simpleName ?: "error"
+        val said = current.message
+        parts += if (said.isNullOrBlank()) name else "$name: $said"
+        current = current.cause
+        depth++
+    }
+    return parts.joinToString(", caused by ")
+}
+
+/** How far down a cause chain is worth printing before it is noise. */
+private const val CAUSE_DEPTH = 6
 
 /** Creates a Host bound to the composition's lifetime. */
 @Composable
