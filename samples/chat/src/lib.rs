@@ -97,19 +97,22 @@ fn opening_greeting() -> Element {
     rsx! {
         Column {
             padding_role: SpaceRole::Lg,
-            space_role: SpaceRole::Sm,
+            space_role: SpaceRole::Xs,
             alignment: Alignment::Center,
+            // Two lines at the title rung, not a headline over a paragraph. The reference
+            // greets you and asks one question, in the weight ordinary text is set in: a
+            // bold headline reads as a page title, and this screen has no page to title.
+            // How to use the composer is not written anywhere on it, because a composer
+            // that has to explain itself is the thing to fix instead.
             Text {
-                text: "Ask me something",
-                type_role: TypeRole::Headline,
+                text: "Hello.",
+                type_role: TypeRole::Title,
                 text_align: TextAlign::Center,
             }
             Text {
-                text: "I answer slowly and at length, on a thread that is not this one. \
-                       Enter sends, Shift+Enter starts a new line.",
-                type_role: TypeRole::Body,
+                text: "What are you thinking about?",
+                type_role: TypeRole::Title,
                 text_align: TextAlign::Center,
-                color: Paint::Role(ColorRole::OnSurfaceVariant),
             }
         }
     }
@@ -220,7 +223,6 @@ fn settings_panel(
 pub fn app() -> Element {
     let window = use_window_size();
     let measure = thread_width(&window);
-    let crowded = window.is_compact();
     // Shared with the assistant thread, so it is a sync signal rather than the usual one.
     // Writing it from the worker marks this scope dirty through a channel the scheduler
     // owns, and the Host asks for the frame.
@@ -598,13 +600,7 @@ pub fn app() -> Element {
                         TextField {
                             weight: 1.0,
                             multiline: true,
-                            // The long form needs a line to itself, and on a phone there
-                            // is no line to spare.
-                            placeholder: if crowded {
-                                "Message"
-                            } else {
-                                "Message. Enter sends, Shift+Enter starts a new line"
-                            },
+                            placeholder: "Message",
                             on_value_change: move |value| draft.set(value),
                             on_submit: move |value: String| send(value),
                         }
@@ -637,7 +633,8 @@ pub fn app() -> Element {
                             }
                         }
                         Button {
-                            text: "Send",
+                            text: "",
+                            icon: IconRole::Forward,
                             variant: ButtonVariant::Filled,
                             shape_role: ShapeRole::Full,
                             on_click: move |_| send(draft()),
@@ -1332,6 +1329,7 @@ mod tests {
                 width_dp,
                 height_dp: 900.0,
                 class: dioxus_compose::WindowSizeClass::from_width_dp(width_dp),
+                height_class: dioxus_compose::WindowHeightClass::from_height_dp(900.0),
             },
         };
         let mut bytes = Vec::new();
@@ -1463,6 +1461,7 @@ mod tests {
                 width_dp: 1_000.0,
                 height_dp: 700.0,
                 class: dioxus_compose::WindowSizeClass::Expanded,
+                height_class: dioxus_compose::WindowHeightClass::Medium,
             },
         };
         let mut event = Vec::new();
@@ -1544,12 +1543,19 @@ mod tests {
         }
         let bar = parents[&screen.composer];
 
-        let send = *screen
-            .texts
+        // Found by its icon rather than by a label. The reference's send is a filled
+        // circle with an arrow in it, and a word in a pill is a form's submit button.
+        let send = batch
             .iter()
-            .find(|(_, text)| *text == "Send")
-            .map(|(node_id, _)| node_id)
-            .expect("the screen has nothing labelled Send");
+            .find_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::Icon,
+                    value: PropertyValue::Integer(role),
+                } if *role == i64::from(IconRole::Forward as u8) => Some(*node_id),
+                _ => None,
+            })
+            .expect("the composer holds no send");
         assert_eq!(
             parents[&send], bar,
             "the send button is outside the bar the field is in, so the composer is not \
@@ -1632,10 +1638,23 @@ mod tests {
     fn fr22_an_empty_conversation_says_what_it_is_in_the_middle() {
         let mut screen = Screen::new();
         screen.open_window();
-        let greeting = "Ask me something";
+        // Two lines, and a question rather than an instruction. The reference greets you
+        // and asks what you are thinking about; it does not tell you which key sends.
+        let greeting = "What are you thinking about?";
+        assert!(
+            screen.texts.values().any(|text| text == "Hello."),
+            "an empty conversation does not greet"
+        );
         assert!(
             screen.texts.values().any(|text| text == greeting),
             "an empty conversation does not say what the screen is"
+        );
+        assert!(
+            screen
+                .texts
+                .values()
+                .all(|text| !text.contains("Shift+Enter")),
+            "the screen explains its own composer, which the reference does not"
         );
         assert!(
             screen
