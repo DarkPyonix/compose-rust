@@ -27,7 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         openjdk-17-jdk ca-certificates curl unzip git bash file \
         build-essential pkg-config \
         libx11-dev libxext-dev libxrandr-dev libgl1-mesa-dev libglu1-mesa-dev \
-        libfontconfig1 libfreetype6 \
+        libfontconfig1-dev libfreetype-dev \
         xvfb x11-apps xdotool imagemagick mesa-utils libgl1-mesa-dri \
     && rm -rf /var/lib/apt/lists/*
 
