@@ -114,6 +114,9 @@ const ROOM_INSIDE_THE_COMPOSER: f32 = 8.0;
 /// How big the key that sends the message is, across and down.
 const THE_SEND_KEY: f32 = 36.0;
 
+/// The room between the composer's keys and what they stand beside.
+const BESIDE_A_COMPOSER_KEY: f32 = 4.0;
+
 /// How far the page's own content stands off the window it is drawn in.
 ///
 /// The same eight the sidebar stands off it, so the composer at the foot of the page and
@@ -708,7 +711,12 @@ pub fn app() -> Element {
                         // key off the trailing end: at the ladder's ten the bar came out
                         // sixty and the key sat off centre.
                         padding: ROOM_INSIDE_THE_COMPOSER,
-                        space_role: SpaceRole::Sm,
+                        // Tight, because what the room in a composer does is hold the
+                        // message clear of the keys either side of it, and the keys carry
+                        // their own. At the ladder's step the placeholder started forty
+                        // four points after the menu key against the reference's twenty
+                        // two.
+                        spacing: BESIDE_A_COMPOSER_KEY,
                         alignment: Alignment::CenterStart,
                         // No `on_key_down` here on purpose. The Renderer already treats
                         // Enter in a multiline field that has a submit handler as "send"
@@ -798,6 +806,11 @@ pub fn app() -> Element {
                             shape_role: ShapeRole::Full,
                             width: THE_SEND_KEY,
                             height: THE_SEND_KEY,
+                            // The arrow reads as ink on a tinted key rather than as more
+                            // of the same tint. In the accent it was a blue mark on a
+                            // pale blue disc, which at this size is a disc with something
+                            // faint on it.
+                            color: Paint::Role(ColorRole::OnSurface),
                             on_click: move |_| send(draft()),
                         }
                     }

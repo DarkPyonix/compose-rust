@@ -470,7 +470,12 @@ private fun SectionHeading(name: String, style: NavigationStyle, theme: Resolved
             .padding(
                 start = style.destinationInset ?: style.itemPadding,
                 end = style.destinationInset ?: style.itemPadding,
-                top = theme.space(SpaceRole.Sm),
+                // More room over a heading than under it, because what the room does is
+                // end the group above rather than open the one below. At the same step top
+                // and bottom the heading sat between two lists instead of over one, which
+                // is what it looked like: measured, the reference leaves twenty five over
+                // its headings and eleven under them.
+                top = theme.space(SpaceRole.Lg),
                 bottom = theme.space(SpaceRole.Xs),
             ),
     )

@@ -3448,7 +3448,7 @@ internal object LiquidGlassRules : ComponentRules {
      * The corner of a macOS 26 window, which a sidebar held inside it is cut concentric
      * with.
      */
-    private val WINDOW_CORNER = APPLE_WINDOW_RADIUS
+    private val WINDOW_CORNER = 26.dp
 
     /**
      * How far a rail or a sidebar stands off the window's leading edge, top and bottom.
@@ -3596,18 +3596,22 @@ internal object LiquidGlassRules : ComponentRules {
  * has its three buttons a step down and in from where a plain window has them, which is
  * what leaves room for the sidebar's own rounded corner to pass behind them.
  */
-private val APPLE_BUTTON_INSET = 8.dp
+private val APPLE_BUTTON_INSET = 10.dp
 
 /**
  * How round that window is, and how round a plain one is.
  *
  * Measured off the reference window rather than carried over from the previous system,
- * which is where the fourteen came from. A window in the current one is cut a good deal
- * deeper: at fourteen the corner read as a rounded rectangle beside the reference's, and
- * the sidebar inside it was already being cut concentric with twenty six, so the window and
- * the panel it holds were being drawn to two different ladders.
+ * which is where the fourteen came from: a window in the current one is cut a good deal
+ * deeper. The arc leaves the top edge thirty eight points in from the corner there, and at
+ * fourteen ours left it at twelve.
+ *
+ * Not the same number the panels inside it are cut concentric with, though it was made the
+ * same number once. The window's corner belongs to the system and the panel's is the
+ * application's, and the reference has a thirty eight point window holding an eighteen
+ * point sidebar: two measurements that happen to sit inside one another, not one ladder.
  */
-private val APPLE_WINDOW_RADIUS = 26.dp
+private val APPLE_WINDOW_RADIUS = 34.dp
 private val APPLE_PLAIN_WINDOW_RADIUS = 10.dp
 
 /**
