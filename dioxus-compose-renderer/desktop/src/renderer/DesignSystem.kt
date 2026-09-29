@@ -977,6 +977,15 @@ data class ContainerStyle(
      * which is how a toolbar looks in the systems that draw glass.
      */
     val floats: Boolean = false,
+    /**
+     * How far the floating pieces of a bar stand off the edges of the window, or null to
+     * take the space ladder's own step.
+     *
+     * Named where a window already holds something else off its edge, so that the capsule
+     * at one corner and the panel at the other are held off by one measurement rather than
+     * by two that happen to be close.
+     */
+    val floatingInset: Dp? = null,
 )
 
 /**

@@ -2958,6 +2958,12 @@ internal object LiquidGlassRules : ComponentRules {
                 verticalPadding = theme.space(SpaceRole.Sm),
                 typeRole = TypeRole.BodyStrong,
                 floats = true,
+                // The same eight the sidebar stands off the window at the other corner.
+                // At the ladder's own steps the capsule sat ten in from the trailing edge
+                // and four down from the top while the panel opposite it sat eight from
+                // both, which is three measurements in one window where there is one thing
+                // being measured.
+                floatingInset = SIDEBAR_INSET,
             )
 
             // An alert: centred, capsule buttons inside, over a dimmed screen.

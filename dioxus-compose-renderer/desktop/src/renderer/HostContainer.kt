@@ -267,7 +267,7 @@ private fun FloatingTopAppBar(
     val caption = LocalWindowCaption.current
     val material = style.material ?: SurfaceMaterial.Opaque(style.container)
     val capsule = style.shape
-    val edge = theme.space(SpaceRole.Sm)
+    val edge = style.floatingInset ?: theme.space(SpaceRole.Sm)
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -275,8 +275,8 @@ private fun FloatingTopAppBar(
             .padding(
                 start = (if (caption.buttonsAtStart) caption.buttonsWidth else 0.dp) + edge,
                 end = (if (caption.buttonsAtStart) 0.dp else caption.buttonsWidth) + edge,
-                top = caption.insetTop + theme.space(SpaceRole.Xs),
-                bottom = theme.space(SpaceRole.Xs),
+                top = caption.insetTop + (style.floatingInset ?: theme.space(SpaceRole.Xs)),
+                bottom = style.floatingInset ?: theme.space(SpaceRole.Xs),
             ),
         horizontalArrangement = Arrangement.spacedBy(theme.space(SpaceRole.Sm)),
         verticalAlignment = Alignment.CenterVertically,

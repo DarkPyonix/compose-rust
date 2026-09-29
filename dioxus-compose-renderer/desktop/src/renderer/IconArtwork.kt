@@ -155,10 +155,13 @@ fun iconGeometry(role: IconRole): IconGeometry = when (role) {
 
     // Up and away. The arrow a composer sends with, which points up because the message
     // goes up the page it is about to join.
+    // An arrow that fills the box it is given. It used to sit inside two thirds of it,
+    // which in the round key at the end of a composer left ten points of glyph in a
+    // thirty five point button: a pale disc with something small and grey on it.
     IconRole.Send -> IconGeometry(
         strokes = listOf(
-            listOf(Offset(0.50f, 0.82f), Offset(0.50f, 0.20f)),
-            listOf(Offset(0.24f, 0.44f), Offset(0.50f, 0.18f), Offset(0.76f, 0.44f)),
+            listOf(Offset(0.50f, 0.92f), Offset(0.50f, 0.12f)),
+            listOf(Offset(0.16f, 0.44f), Offset(0.50f, 0.10f), Offset(0.84f, 0.44f)),
         ),
         dots = emptyList(),
     )

@@ -1000,7 +1000,12 @@ private fun PutAwayButton(
     ) {
         // The sidebar's own glyph rather than the three lines. Three lines mean "a menu
         // of things", and this is not that: it puts a panel away and brings it back.
-        RoleIcon(IconRole.Sidebar, style.content, theme, Modifier)
+        //
+        // In the heading ink and not the rows'. It is a control on the chrome rather than
+        // a line in the list, and once the rows were moved to the reading ink this was the
+        // blackest thing in the window: the panel's own hide button, drawn louder than
+        // anything it hides and louder than the button that starts a conversation.
+        RoleIcon(IconRole.Sidebar, style.headingContent ?: style.content, theme, Modifier)
     }
 }
 

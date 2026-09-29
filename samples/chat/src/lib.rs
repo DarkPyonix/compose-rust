@@ -565,15 +565,24 @@ pub fn app() -> Element {
                             // A round picture, not a bullet with the accent on it. The
                             // character stood in a twenty point slot and inked eight of
                             // it, which reads as a status light rather than as a person.
+                            // Someone's initial on a quiet disc. There is no photograph
+                            // to put here, and the two things this was before were both
+                            // wrong for the same reason: a disc of the accent was the most
+                            // saturated thing on the screen, louder than the key that sends
+                            // the message, and a disc of the quiet fill landed two levels
+                            // from the mark behind the row the sidebar was marking. An
+                            // empty circle is a placeholder either way; a letter is not.
                             dioxus_compose::Box {
                                 width: THE_ACCOUNT_PICTURE,
                                 height: THE_ACCOUNT_PICTURE,
                                 shape_role: ShapeRole::Full,
-                                // The quiet fill, not the accent. There is no photograph
-                                // to put here, and a disc of the accent in the corner of
-                                // the panel was the most saturated thing on the screen,
-                                // louder than the key that sends the message.
-                                background: Paint::Role(ColorRole::SurfaceVariant),
+                                background: Paint::Role(ColorRole::SecondaryContainer),
+                                alignment: Alignment::Center,
+                                Text {
+                                    text: "L",
+                                    type_role: TypeRole::Caption,
+                                    color: Paint::Role(ColorRole::OnSecondaryContainer),
+                                }
                             }
                             Column {
                                 Text { text: "Signed in", type_role: TypeRole::Label }
