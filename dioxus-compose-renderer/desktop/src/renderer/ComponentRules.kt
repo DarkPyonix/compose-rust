@@ -3150,6 +3150,7 @@ internal object LiquidGlassRules : ComponentRules {
         strokeWidth = 1.25.dp,
         cap = StrokeCap.Round,
         join = StrokeJoin.Round,
+        corner = ICON_CORNER,
     )
 
     /**
@@ -3515,6 +3516,15 @@ internal object LiquidGlassRules : ComponentRules {
      * different heights is a list with no rhythm.
      */
     private val DRAWER_ROW_HEIGHT = 32.dp
+
+    /**
+     * How far back from a corner an icon's line starts to turn.
+     *
+     * Measured off the reference's set, whose frames turn through an arc two or three
+     * points wide at this size: a picture and a film strip drawn with square corners read
+     * as the placeholder a browser draws for an image it could not load.
+     */
+    private val ICON_CORNER = 2.5.dp
 
     /**
      * From a row's icon to its label.

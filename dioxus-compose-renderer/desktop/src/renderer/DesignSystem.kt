@@ -1009,6 +1009,16 @@ data class IconStyle(
     val strokeWidth: Dp,
     val cap: androidx.compose.ui.graphics.StrokeCap,
     val join: androidx.compose.ui.graphics.StrokeJoin,
+    /**
+     * How far back from each corner the line starts to turn, or zero for a corner that is
+     * met rather than turned.
+     *
+     * A join says what happens where two strokes meet at a point; this says that they do
+     * not meet at a point at all. The rounded sets draw a frame as a square with its
+     * corners cut into arcs a good deal wider than the stroke, and a join cannot say that
+     * however round it is.
+     */
+    val corner: Dp = 0.dp,
 )
 
 /** Which of the three toggles is being drawn. */
