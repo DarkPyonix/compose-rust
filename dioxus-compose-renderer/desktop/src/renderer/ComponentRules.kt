@@ -3378,7 +3378,7 @@ internal object LiquidGlassRules : ComponentRules {
             },
             pageGradientStart = if (theme.windowBackdrop) start.copy(alpha = PAGE_OVER_WINDOW_TOP) else start,
             pageGradientEnd = if (theme.windowBackdrop) end.copy(alpha = PAGE_OVER_WINDOW_FOOT) else end,
-            searchContainer = tintedFill(theme.dark, SEARCH_FIELD_ALPHA),
+            searchContainer = Color.Transparent,
             searchOutline = tintedFill(theme.dark, SEARCH_FIELD_EDGE_ALPHA),
             stripMaterial = strip,
             stripShape = if (bar) {
@@ -3562,17 +3562,17 @@ internal object LiquidGlassRules : ComponentRules {
      * 0xC5C5C5 slab in the middle of a list of rows: a field is recessed into the panel,
      * and a fifth of black is a control sitting on top of one.
      */
-    private const val SEARCH_FIELD_ALPHA = 0.05f
-
     /**
-     * And the hairline round it.
+     * The hairline round a search destination drawn as a field, which is all there is to
+     * it: the well itself is empty.
      *
-     * The fill alone is not enough here, because a drawer marks the row you are on with a
-     * fill too: measured, the field came out seven levels from the selected row, which is
-     * two different things reading as the same state. The field is lighter than the mark
-     * now and carries a line the mark does not.
+     * A fill will not do here whatever its weight, because a drawer marks the row you are
+     * on with a fill too, and the two sat next to each other in the same list at five
+     * levels apart. One is a place you can type and the other is the place you are, and
+     * the difference has to be the kind of mark rather than its strength: the field is
+     * drawn and the state is filled.
      */
-    private const val SEARCH_FIELD_EDGE_ALPHA = 0.14f
+    private const val SEARCH_FIELD_EDGE_ALPHA = 0.16f
 
     /**
      * How opaque the page is at its top and at its foot over a window that shows the
