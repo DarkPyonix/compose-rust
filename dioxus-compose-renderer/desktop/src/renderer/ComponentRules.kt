@@ -3298,11 +3298,18 @@ internal object LiquidGlassRules : ComponentRules {
         // well as the red: at a third of the way the foot came out 0x8DB9FF against the
         // reference's 0x92CCFF, right in the red and nineteen low in the green, which is
         // the difference between a wash that reads as sky and one that reads as violet.
-        val end = lerp(
+        val tinted = lerp(
             theme.color(ColorRole.PrimaryContainer),
             theme.color(ColorRole.Primary),
             PAGE_FOOT_TOWARDS_ACCENT,
         )
+        // Both of the colours that were mixed have the blue channel at the top of its
+        // range, so the mix does too, and measured the wash arrived there a third of the
+        // way down the window and stayed: from that line to the foot the ramp had two
+        // channels to move in instead of three, which flattens it and turns it violet as
+        // it goes. The foot keeps a little of the channel back so the ramp has somewhere
+        // to run.
+        val end = tinted.copy(blue = tinted.blue * FOOT_KEEPS_BACK)
         return NavigationStyle(
             presentation = presentation,
             container = theme.color(ColorRole.SurfaceContainer).copy(alpha = NAVIGATION_ALPHA),
@@ -3325,6 +3332,7 @@ internal object LiquidGlassRules : ComponentRules {
             } else {
                 theme.color(ColorRole.OnSurface)
             },
+            headingContent = theme.color(ColorRole.OnSurfaceVariant),
             indicator = if (bar) Color.Transparent else tintedFill(theme.dark, SELECTED_ROW_ALPHA),
             indicatorShape = theme.shape(ShapeRole.Full),
             indicatorKind = NavigationIndicator.Pill,
@@ -3502,10 +3510,11 @@ internal object LiquidGlassRules : ComponentRules {
     /**
      * From a row's edge to its icon, which is what sets the icon column.
      *
-     * Measured off the reference: its icons start eighteen in from the panel's edge, and
-     * the mark behind the selected row starts eight in, so ten is what is left.
+     * Measured off the reference twice: its icon column is centred thirty three and a half
+     * in from the window's edge, which is eight for the panel and eight for the mark behind
+     * the selected row, then this, then half the box the glyph is drawn in.
      */
-    private val DRAWER_ROW_INSET = 10.dp
+    private val DRAWER_ROW_INSET = 8.dp
 
     /**
      * How tall one row is, whatever it holds.
@@ -3530,10 +3539,11 @@ internal object LiquidGlassRules : ComponentRules {
      * From a row's icon to its label.
      *
      * Wider than the space ladder's smallest step. At four the label crowded its icon into
-     * one dark shape; the reference leaves twelve, which is what keeps the icon column and
-     * the label column reading as two columns.
+     * one dark shape. The reference leaves twelve between the ink of one and the ink of the
+     * other, and the glyph does not fill the box it is drawn in, so the box asks for less
+     * than twelve to leave twelve.
      */
-    private val DRAWER_ICON_GAP = 12.dp
+    private val DRAWER_ICON_GAP = 10.dp
 
     /**
      * The mark behind the selected sidebar row.
@@ -3588,6 +3598,9 @@ internal object LiquidGlassRules : ComponentRules {
      * towards the accent itself.
      */
     private const val PAGE_FOOT_TOWARDS_ACCENT = 0.30f
+
+    /** How much of the blue channel the foot of the page leaves itself to run into. */
+    private const val FOOT_KEEPS_BACK = 0.965f
 
     /**
      * The glass caption. Three coloured discs at the leading edge, exactly as the flat

@@ -122,6 +122,12 @@ const THE_SEND_KEY: f32 = 36.0;
 /// The room between the composer's keys and what they stand beside.
 const BESIDE_A_COMPOSER_KEY: f32 = 4.0;
 
+/// The ink the line under someone's name is set in.
+///
+/// Written out rather than taken from a role because the palette has two inks for text and
+/// this is a third: the line above it is already the secondary one.
+const UNDER_THE_NAME: dioxus_compose::schema::Color = dioxus_compose::schema::Color::rgb(0x8A8A8E);
+
 /// How big the picture beside who is signed in is, across and down.
 const THE_ACCOUNT_PICTURE: f32 = 20.0;
 
@@ -446,6 +452,13 @@ pub fn app() -> Element {
     let recent: Vec<Conversation> = conversations()
         .iter()
         .rev()
+        // A conversation nobody has said anything in yet is not in the list. It has no
+        // name of its own, so it was listed under the same words as the row that starts
+        // one: two rows reading "New chat" two hundred points apart, in the same face at
+        // the same size, one a command and the other a document, with nothing but an
+        // indent between them. The reference does not list one either, and the row that
+        // starts a conversation is the row it marks while you are in an empty one.
+        .filter(|entry| !entry.title.is_empty())
         .filter(|entry| query.is_empty() || entry.label().to_lowercase().contains(&query))
         .take(RECENT_CONVERSATIONS)
         .cloned()
@@ -556,14 +569,21 @@ pub fn app() -> Element {
                                 width: THE_ACCOUNT_PICTURE,
                                 height: THE_ACCOUNT_PICTURE,
                                 shape_role: ShapeRole::Full,
-                                background: Paint::Role(ColorRole::Primary),
+                                // The quiet fill, not the accent. There is no photograph
+                                // to put here, and a disc of the accent in the corner of
+                                // the panel was the most saturated thing on the screen,
+                                // louder than the key that sends the message.
+                                background: Paint::Role(ColorRole::SurfaceVariant),
                             }
                             Column {
                                 Text { text: "Signed in", type_role: TypeRole::Label }
                                 Text {
                                     text: "Local",
                                     type_role: TypeRole::Caption,
-                                    color: Paint::Role(ColorRole::OnSurfaceVariant),
+                                    // Quieter than the secondary ink, which is where the
+                                    // line above it already sits: a second line that is
+                                    // the same weight as the first is not a second line.
+                                    color: Paint::Literal(UNDER_THE_NAME),
                                 }
                             }
                         }
@@ -1756,23 +1776,22 @@ mod tests {
             "the destinations should be one declaration the Renderer can turn into a bar, \
              a rail or a sidebar"
         );
-        let before = screen.conversations();
         assert_eq!(
-            before,
-            vec!["New chat".to_owned()],
-            "a fresh screen should offer the one conversation it has"
+            screen.conversations(),
+            Vec::<String>::new(),
+            "a conversation nobody has said anything in yet has no name of its own, so it \
+             is not in the list: it was listed under the same words as the row that starts \
+             one, which put the command and the document side by side in the same face"
         );
 
         screen.send("tell me about streaming");
         screen.settle();
         screen.press_icon(IconRole::Compose);
-        let mut after = screen.conversations();
-        after.sort();
         assert_eq!(
-            after,
-            vec!["New chat".to_owned(), "tell me about streaming".to_owned()],
-            "the conversation that was on screen should still be in the sidebar, named \
-             after its opening line"
+            screen.conversations(),
+            vec!["tell me about streaming".to_owned()],
+            "the conversation that was on screen should be in the sidebar, named after \
+             its opening line, and the empty one just started should not"
         );
     }
 

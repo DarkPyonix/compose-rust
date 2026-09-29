@@ -647,6 +647,13 @@ data class NavigationStyle(
     val indicatorKind: NavigationIndicator,
     /** Whether that mark covers the icon alone or the whole destination. */
     val indicatorExtent: NavigationExtent = NavigationExtent.Icon,
+    /**
+     * The ink a group's heading is set in, or null to take a quieter shade of the rows'.
+     *
+     * Named where the rows are set in the reading ink, because then there is a role for
+     * this and a fraction of black is not it.
+     */
+    val headingContent: Color? = null,
     /** The hairline between the destinations and the screen, null where there is none. */
     val separator: Color?,
     val barHeight: Dp,

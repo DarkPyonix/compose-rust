@@ -271,9 +271,9 @@ class DesignTokenWiringTest {
     /**
      * The sidebar's measurements, all four read off the reference window.
      *
-     * Asserted together because they are one measurement: the icon column is where the
-     * strip's own inset and the room inside a row add up to, and the row pitch is the icon
-     * plus the room above and below it with nothing between one row and the next.
+     * Asserted together because they are one measurement: the icon column is where every
+     * inset from the window's edge inwards adds up to, and the row pitch is the icon plus
+     * the room above and below it with nothing between one row and the next.
      */
     @Test
     fun fr21_2_1_a_glass_sidebar_is_measured_off_the_reference() {
@@ -284,9 +284,16 @@ class DesignTokenWiringTest {
         val padding = style.itemPadding
         assertEquals(32.dp, icon + padding * 2, "a row is not as tall as the reference's")
         assertEquals(0.dp, style.destinationGap, "the rows do not touch")
-        val column = (style.stripPadding ?: padding) + (style.destinationInset ?: padding)
-        assertEquals(18.dp, column, "the icon column is not where the reference's is")
-        assertEquals(12.dp, style.itemSpacing, "the label does not clear its icon")
+        // Where the middle of the icon column falls, measured from the window's own edge:
+        // the panel stands off it, the mark behind the selected row stands off the panel,
+        // the row's own room stands off the mark, and then half the box the glyph is drawn
+        // in. The reference's is thirty three and a half.
+        val column = style.floatingInset +
+            (style.stripPadding ?: padding) +
+            (style.destinationInset ?: padding) +
+            icon / 2
+        assertEquals(34.dp, column, "the icon column is not where the reference's is")
+        assertEquals(10.dp, style.itemSpacing, "the label does not clear its icon")
     }
 
     /**

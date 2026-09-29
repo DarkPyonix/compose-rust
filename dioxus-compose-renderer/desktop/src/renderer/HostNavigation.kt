@@ -463,7 +463,7 @@ private fun SectionHeading(name: String, style: NavigationStyle, theme: Resolved
             fontFamily = theme.family(TypeRole.Caption),
             lineHeight = token.composeLineHeight,
             letterSpacing = token.composeLetterSpacing,
-            color = style.content.copy(alpha = SECTION_HEADING_ALPHA),
+            color = style.headingContent ?: style.content.copy(alpha = SECTION_HEADING_ALPHA),
         ),
         modifier = Modifier
             .fillMaxWidth()
@@ -481,7 +481,15 @@ private fun SectionHeading(name: String, style: NavigationStyle, theme: Resolved
     )
 }
 
-/** How much quieter a heading is than the rows under it. */
+/**
+ * How much quieter a heading is than the rows under it, where the design system does not
+ * name a colour for one.
+ *
+ * A fraction of the row ink, which works while that ink is the secondary one and stops
+ * working the moment it is not: with the rows set in the reading ink, seven tenths of it
+ * came out 0x434343 against the reference's 0x6F7071, and a heading that dark competes
+ * with the rows it heads instead of standing off them.
+ */
 private const val SECTION_HEADING_ALPHA = 0.7f
 
 /** The hairline round a search field in a drawer. */
