@@ -232,7 +232,17 @@ internal fun HostNavigation(
     // destinations paints none of it. That is what a frame does with this: the strip goes
     // in one slot and the frame paints the page behind both.
     val holdsAPage = content.isNotEmpty()
-    when (style.presentation) {
+    // A sidebar the reader has put away. FR-21.2.1 makes being put away the Renderer's
+    // state, and a sidebar that can only be put away by making the window narrower is one
+    // the reader cannot put away at all: every sidebar this language is drawn from has a
+    // button on it that does exactly this.
+    var putAway by remember(node.id) { mutableStateOf(false) }
+    val presentation = if (putAway && style.presentation == NavigationPresentation.Drawer) {
+        NavigationPresentation.PutAway
+    } else {
+        style.presentation
+    }
+    when (presentation) {
         NavigationPresentation.Bar -> Column(
             modifier.then(if (holdsAPage) Modifier.pageBackdrop(style) else Modifier),
         ) {
@@ -256,6 +266,10 @@ internal fun HostNavigation(
         // fact about the application, and the Host neither sets it nor hears about it.
         NavigationPresentation.PutAway -> {
             var open by remember(node.id) { mutableStateOf(false) }
+            // Brought back for good rather than opened over the page, where the width is
+            // there for it: a reader who put a sidebar away on a wide window and asked for
+            // it again wants it back, not a panel that leaves as soon as it is used.
+            val bringBack = { putAway = false }
             Box(modifier.then(if (holdsAPage) Modifier.pageBackdrop(style) else Modifier)) {
                 if (holdsAPage) {
                     Screen(content, table, dispatcher)
@@ -284,6 +298,7 @@ internal fun HostNavigation(
                         dispatcher,
                         head,
                         foot,
+                        onPutAway = null,
                     ) { index, id ->
                         open = false
                         choose(index, id)
@@ -293,7 +308,13 @@ internal fun HostNavigation(
                     style = style,
                     theme = theme,
                     modifier = Modifier.align(Alignment.TopStart),
-                ) { open = !open }
+                ) {
+                    if (style.presentation == NavigationPresentation.Drawer) {
+                        bringBack()
+                    } else {
+                        open = !open
+                    }
+                }
             }
         }
 
@@ -302,7 +323,19 @@ internal fun HostNavigation(
                 if (holdsAPage && style.pageBehindStrip) Modifier.pageBackdrop(style) else Modifier,
             ),
         ) {
-            SideStrip(node.id, destinations, selected, style, theme, table, dispatcher, head, foot, choose)
+            SideStrip(
+                node.id,
+                destinations,
+                selected,
+                style,
+                theme,
+                table,
+                dispatcher,
+                head,
+                foot,
+                onPutAway = { putAway = true },
+                choose = choose,
+            )
             // The rule and the room for a screen belong to the screen. A navigation
             // holding nothing but its destinations is a strip, and a strip that reserved
             // the rest of the window would leave whatever is beside it with no width at
@@ -459,6 +492,8 @@ private fun SideStrip(
     dispatcher: EventDispatcher,
     head: Int?,
     foot: Int?,
+    /** What puts this strip away, or null where it is already the thing that came back. */
+    onPutAway: (() -> Unit)?,
     choose: (Int, Int) -> Unit,
 ) {
     val width = if (style.presentation == NavigationPresentation.Rail) {
@@ -570,6 +605,17 @@ private fun SideStrip(
                 ) { Destinations() }
                 Foot()
             }
+        }
+        // Over the strip's own top trailing corner, which is where every sidebar this is
+        // drawn from puts it: the thing that puts a panel away belongs on the panel.
+        if (onPutAway != null) {
+            PutAwayButton(
+                style = style,
+                theme = theme,
+                modifier = Modifier.align(Alignment.TopEnd),
+                fromTheCorner = false,
+                onClick = onPutAway,
+            )
         }
     }
 }
@@ -844,23 +890,28 @@ private fun PutAwayButton(
     style: NavigationStyle,
     theme: ResolvedTheme,
     modifier: Modifier = Modifier,
+    /** True where it sits at the window's own leading corner, beside the platform's buttons. */
+    fromTheCorner: Boolean = true,
     onClick: () -> Unit,
 ) {
     val caption = LocalWindowCaption.current
-    val leading = if (caption.buttonsAtStart) caption.buttonsWidth else 0.dp
+    val leading = if (fromTheCorner && caption.buttonsAtStart) caption.buttonsWidth else 0.dp
     val padding = theme.space(SpaceRole.Sm)
     Box(
         modifier
             .padding(
                 start = leading + padding,
-                top = caption.insetTop + padding,
+                end = padding,
+                top = if (fromTheCorner) caption.insetTop + padding else padding,
             )
             .size(PUT_AWAY_BUTTON)
             .clip(theme.shape(ShapeRole.Small))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        RoleIcon(IconRole.Menu, style.content, theme, Modifier)
+        // The sidebar's own glyph rather than the three lines. Three lines mean "a menu
+        // of things", and this is not that: it puts a panel away and brings it back.
+        RoleIcon(IconRole.Sidebar, style.content, theme, Modifier)
     }
 }
 

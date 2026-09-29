@@ -107,6 +107,9 @@ internal fun HostButton(
     // pill, and asking for a variant instead hands the question to whichever design
     // system is active, which answers with its own accent.
     val ownFill = node.setsOwnBackground()
+    // Read before the decoration, because how much room the button needs depends on it.
+    val wordless = node.text(PropertyKind.Text).isEmpty() &&
+        node.role(PropertyKind.Icon, IconRole.entries.toTypedArray()) != null
     val decorated = theme.rules
         .elevation(clickable.then(available), elevation, style.shape, theme)
         .clip(style.shape)
@@ -120,7 +123,15 @@ internal fun HostButton(
         )
         .topHighlight(style.topHighlight)
         .defaultMinSize(minHeight = style.minHeight)
-        .padding(horizontal = style.horizontalPadding, vertical = style.verticalPadding)
+        // A button with a glyph and no word gets the same room on both axes. The
+        // horizontal padding is there to keep a word off the button's ends, and a button
+        // with no word has nothing to keep off them: using it anyway makes every icon
+        // control half as wide again as it needs to be, which two of them in a floating
+        // group and one at the head of a composer both showed.
+        .padding(
+            horizontal = if (wordless) style.verticalPadding else style.horizontalPadding,
+            vertical = style.verticalPadding,
+        )
 
     // The variant decides the label colour, unless the node names one itself. A
     // destructive action is the case that needs it: it is a plain button in every design

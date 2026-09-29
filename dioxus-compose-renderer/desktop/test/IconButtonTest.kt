@@ -22,6 +22,8 @@ import dioxus.compose.ui.node.nodeTestTag
 import kotlin.test.Test
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.test.getBoundsInRoot
 
 /**
  * A button wearing an icon role.
@@ -92,6 +94,33 @@ class IconButtonTest {
             }
         }
 
+    /**
+     * A button with a glyph and no word is not a wide pill with a dot in the middle.
+     *
+     * The horizontal padding is there to keep a word off the button's ends. A button with
+     * no word has nothing to keep off them, and using it anyway makes every icon control
+     * half as wide again as it needs to be: two of them in a floating group came out at
+     * 120 points against the reference's 82, and the composer's leading key pushed its
+     * placeholder 59 points in where the reference puts it 24.
+     *
+     * Square enough is the assertion rather than exactly square, because the glyph's own
+     * optical size and the minimum height a control may be are both the design system's
+     * and neither is obliged to agree with the other.
+     */
+    @Test
+    fun fr16_4_a_button_with_no_word_is_not_a_wide_pill() {
+        for (system in DesignSystem.entries) {
+            val size = drawn(system, IconRole.Add, "") { it.getBoundsInRoot() }
+            val width = size.right - size.left
+            val height = size.bottom - size.top
+            assertTrue(
+                width <= height + SQUARE_ENOUGH,
+                "$system draws a wordless button ${width} by ${height}, which is a pill " +
+                    "with a dot in the middle",
+            )
+        }
+    }
+
     @Test
     fun fr16_4_a_button_with_an_icon_draws_its_system_s_own_glyph() {
         val byDesignSystem = DesignSystem.entries.associateWith { system ->
@@ -134,5 +163,10 @@ class IconButtonTest {
         drawn(DesignSystem.Material3, IconRole.Search, text = "") { node ->
             node.assertContentDescriptionEquals(IconRole.Search.name)
         }
+    }
+
+    private companion object {
+        /** How much wider than tall a wordless button may be before it is a pill. */
+        val SQUARE_ENOUGH = 8.dp
     }
 }
