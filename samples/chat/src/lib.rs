@@ -77,6 +77,13 @@ fn title_from(text: &str) -> String {
 /// system this project takes its size classes from.
 const RECENT_CONVERSATIONS: usize = 5;
 
+/// How many places in the application come before the conversations in the strip.
+///
+/// The conversations are destinations in the same set, so a conversation's position in the
+/// list is not its position among the destinations. Without this the conversation you were
+/// in marked the wrong row: starting one lit "Search", which is a row you are never on.
+const DESTINATIONS_ABOVE_THE_CHATS: usize = 4;
+
 /// A new conversation has nothing in it.
 ///
 /// It used to open with one message from the assistant explaining what the screen was,
@@ -90,11 +97,30 @@ fn opening_messages() -> Vec<Message> {
 
 /// How big the mark is where it opens an empty screen, and how far the greeting sits under
 /// it. Both read off the reference.
-const SPARK_ON_THE_EMPTY_SCREEN: f32 = 34.0;
-const SPARK_TO_GREETING: f32 = 20.0;
+///
+/// The gap is measured to the top of the letters and set to the room between them, which is
+/// a smaller number: a line of type carries its own leading above the letters, so a gap
+/// asked for at the reference's twenty came out at thirty five on screen and the mark
+/// floated away from the words it belongs to.
+const SPARK_ON_THE_EMPTY_SCREEN: f32 = 36.0;
+const SPARK_TO_GREETING: f32 = 6.0;
 
 /// And how big it is beside the application's name in the strip.
 const SPARK_IN_THE_STRIP: f32 = 20.0;
+
+/// The room above, below and either end of what the composer holds.
+const ROOM_INSIDE_THE_COMPOSER: f32 = 8.0;
+
+/// How big the key that sends the message is, across and down.
+const THE_SEND_KEY: f32 = 36.0;
+
+/// How far the page's own content stands off the window it is drawn in.
+///
+/// The same eight the sidebar stands off it, so the composer at the foot of the page and
+/// the panel beside it stop the same distance from the window's edge. At the space ladder's
+/// own step the composer floated eighteen off the floor against the reference's eight, and
+/// two things held off one edge by two different amounts read as neither being held.
+const PAGE_INSET: f32 = 8.0;
 
 /// The application's mark.
 ///
@@ -132,12 +158,12 @@ fn opening_greeting() -> Element {
             // because a composer that has to explain itself is the thing to fix instead.
             Text {
                 text: "Hello.",
-                type_role: TypeRole::Headline,
+                type_role: TypeRole::Display,
                 text_align: TextAlign::Center,
             }
             Text {
                 text: "What are you thinking about?",
-                type_role: TypeRole::Headline,
+                type_role: TypeRole::Display,
                 text_align: TextAlign::Center,
             }
         }
@@ -417,7 +443,9 @@ pub fn app() -> Element {
     let selected = recent
         .iter()
         .position(|entry| entry.id == current())
-        .map_or(0, |index| index + usize::from(show_search));
+        .map_or(0, |index| {
+            index + DESTINATIONS_ABOVE_THE_CHATS + usize::from(show_search)
+        });
 
     rsx! {
         // The reference's window has three parts and no bar: a sidebar the window buttons
@@ -565,7 +593,7 @@ pub fn app() -> Element {
                     fill_max_width: measure.is_none(),
                     width: measure,
                     fill_max_height: true,
-                    padding_role: SpaceRole::Md,
+                    padding: PAGE_INSET,
                     space_role: SpaceRole::Md,
 
 
@@ -673,7 +701,13 @@ pub fn app() -> Element {
                         // A step of room inside the pill. A stadium's edge curves in at
                         // the top and bottom, and the field is a rectangle: at the
                         // system's own padding its corners came out through the curve.
-                        padding_role: SpaceRole::Sm,
+                        //
+                        // Measured rather than taken from the ladder. The reference's bar
+                        // is fifty two tall and its send key is thirty six, which leaves
+                        // exactly this much above and below, and the same number holds the
+                        // key off the trailing end: at the ladder's ten the bar came out
+                        // sixty and the key sat off centre.
+                        padding: ROOM_INSIDE_THE_COMPOSER,
                         space_role: SpaceRole::Sm,
                         alignment: Alignment::CenterStart,
                         // No `on_key_down` here on purpose. The Renderer already treats
@@ -762,6 +796,8 @@ pub fn app() -> Element {
                             icon: IconRole::Send,
                             variant: ButtonVariant::Tonal,
                             shape_role: ShapeRole::Full,
+                            width: THE_SEND_KEY,
+                            height: THE_SEND_KEY,
                             on_click: move |_| send(draft()),
                         }
                     }
@@ -996,6 +1032,8 @@ mod tests {
         sections: HashMap<u32, String>,
         /// Every message the screen has said, in order, with its action label.
         messages: Vec<(String, String)>,
+        /// Which of the destinations the strip last said was the one being looked at.
+        selected: usize,
         event: Vec<u8>,
     }
 
@@ -1069,6 +1107,20 @@ mod tests {
                     _ => None,
                 })
                 .collect();
+            // Read from the first frame rather than waited for, because a property that
+            // never changes is never set again: a strip that opens on the row it means
+            // says so once.
+            let selected = first
+                .iter()
+                .find_map(|mutation| match mutation {
+                    Mutation::SetProp {
+                        property: PropertyKind::SelectedIndex,
+                        value: PropertyValue::Integer(index),
+                        ..
+                    } => Some((*index).max(0) as usize),
+                    _ => None,
+                })
+                .unwrap_or(0);
             drop(first);
             Self {
                 host,
@@ -1082,6 +1134,7 @@ mod tests {
                 destinations,
                 sections,
                 messages: Vec::new(),
+                selected,
                 event: Vec::new(),
             }
         }
@@ -1141,6 +1194,13 @@ mod tests {
                     Mutation::Remove { node_id } => {
                         self.destinations.retain(|found| *found != node_id);
                     }
+                    Mutation::SetProp {
+                        property: PropertyKind::SelectedIndex,
+                        value: PropertyValue::Integer(index),
+                        ..
+                    } => {
+                        self.selected = index.max(0) as usize;
+                    }
                     Mutation::ShowMessage { text, action, .. } => {
                         self.messages.push((text.to_owned(), action.to_owned()));
                     }
@@ -1149,16 +1209,24 @@ mod tests {
             }
         }
 
-        /// What the sidebar is offering, by label. Sorted, because what the destination
-        /// set holds is the claim here and the order it is drawn in is the Renderer's.
+        /// What the sidebar is offering, by label, in the order it was declared in.
+        ///
+        /// Declaration order and not sorted, because the strip says which destination is
+        /// the one being looked at by its position in this list, so the order is part of
+        /// what the screen means rather than the Renderer's business.
         fn destinations(&self) -> Vec<String> {
-            let mut labels: Vec<String> = self
-                .destinations
+            self.destinations
                 .iter()
                 .filter_map(|node| self.texts.get(node).cloned())
-                .collect();
-            labels.sort();
-            labels
+                .collect()
+        }
+
+        /// The label of the destination the strip is marking.
+        fn marked_destination(&self) -> String {
+            self.destinations()
+                .get(self.selected)
+                .cloned()
+                .unwrap_or_default()
         }
 
         /// The destinations in the strip's conversation group, in declaration order.
@@ -1615,6 +1683,34 @@ mod tests {
                 "Undo".to_owned()
             )],
             "deleting should say what it did and offer it back"
+        );
+    }
+
+    /// Which row the strip marks, which is the conversation being read.
+    ///
+    /// The conversations share one set of destinations with the places in the application,
+    /// so a conversation's position among the conversations is not its position among the
+    /// destinations. Without that offset the row marked on a fresh screen was "Search",
+    /// which is a row nobody is ever on.
+    #[test]
+    fn fr22_the_marked_row_is_the_conversation_being_read() {
+        let mut screen = Screen::new();
+        screen.open_window();
+        assert_eq!(
+            screen.marked_destination(),
+            "New chat",
+            "the strip should mark the conversation on screen, and the places in the \
+             application come before the conversations in the same set"
+        );
+
+        screen.send("tell me about streaming");
+        screen.settle();
+        let marked = screen.marked_destination();
+        assert!(
+            screen.conversations().contains(&marked),
+            "the strip marked {marked:?}, which is not one of its conversations {:?}: the \
+             row being read is always a conversation and never a place",
+            screen.conversations()
         );
     }
 
