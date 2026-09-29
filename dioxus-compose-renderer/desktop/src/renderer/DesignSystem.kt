@@ -723,20 +723,28 @@ data class NavigationStyle(
      */
     val stripPadding: Dp? = null,
     /**
-     * The colour of the light that blooms up from the foot of the page, or null for a page
-     * whose gradient is the same all the way across.
+     * The colour that rises from the window's two bottom corners, or null for a page whose
+     * wash is level all the way across.
      *
-     * A wash that is one colour at every horizontal position is a ramp, and a ramp reads
-     * as a fill rather than as light: the reference's foot is brightest under the middle of
-     * the window and turns deeper towards both bottom corners, which is what says the
-     * colour is coming from somewhere.
+     * A wash that turns at the same height at every horizontal position is a band, and a
+     * band reads as a fill rather than as light. Measured across the reference, the height
+     * its wash begins at runs from six hundred and forty two under the middle of the window
+     * to four hundred and ninety six at the trailing edge: two glows anchored in the bottom
+     * corners, arcing up over a level ramp.
      */
-    val pageBloom: Color? = null,
+    val pageCornerGlow: Color? = null,
     /**
      * The room inside one drawer row, from the row's edge to its icon, or null to use
      * [itemPadding].
      */
     val destinationInset: Dp? = null,
+    /**
+     * How tall one drawer row is, or null to let what it holds decide.
+     *
+     * A row with an icon and a row with only a name are not the same height when nothing
+     * says they are, and a list whose rows are two heights has no rhythm.
+     */
+    val destinationHeight: Dp? = null,
 )
 
 /** The edge a sheet comes in from. */

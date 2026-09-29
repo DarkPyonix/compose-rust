@@ -327,7 +327,7 @@ class DesignTokenWiringTest {
         )
         // And the light that rises from it, without which the wash is one colour across the
         // whole window and reads as a fill.
-        assertTrue(style.pageBloom != null, "the page has no light at its foot")
+        assertTrue(style.pageCornerGlow != null, "the page has no light at its corners")
         assertTrue(style.searchContainer != null, "the search destination has no pill fill")
         // And it is not the mark behind the row you are on. A drawer says "selected" with a
         // fill, so a field drawn as a fill and nothing else is a second thing in the list
@@ -342,7 +342,7 @@ class DesignTokenWiringTest {
         val flat = fluent.rules.navigation(WindowSizeClass.Expanded, fluent)
         assertEquals(null, flat.pageGradientStart)
         assertEquals(null, flat.pageGradientEnd)
-        assertEquals(null, flat.pageBloom)
+        assertEquals(null, flat.pageCornerGlow)
         assertEquals(null, flat.searchContainer)
         assertEquals(null, flat.searchOutline)
     }

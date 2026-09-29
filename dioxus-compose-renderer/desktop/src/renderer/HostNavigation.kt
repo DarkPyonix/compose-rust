@@ -2,12 +2,11 @@ package dioxus.compose.foundation
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.RadialGradientShader
-import androidx.compose.ui.graphics.Shader
-import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -771,10 +770,15 @@ internal fun Destination(
         }
         if (presentation == NavigationPresentation.Drawer) {
             Row(
-                Modifier.fillMaxWidth().padding(
-                    horizontal = style.destinationInset ?: style.itemPadding,
-                    vertical = style.itemPadding,
-                ),
+                Modifier
+                    .fillMaxWidth()
+                    .then(
+                        style.destinationHeight?.let { Modifier.height(it) } ?: Modifier,
+                    )
+                    .padding(
+                        horizontal = style.destinationInset ?: style.itemPadding,
+                        vertical = style.itemPadding,
+                    ),
                 horizontalArrangement = Arrangement.spacedBy(style.itemSpacing),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -805,37 +809,52 @@ internal fun Modifier.pageBackdrop(style: NavigationStyle): Modifier {
     val start = style.pageGradientStart ?: return this
     val end = style.pageGradientEnd ?: return this
     val hold = style.pageGradientHold.coerceIn(0f, 0.99f)
-    val wash = background(Brush.verticalGradient(0f to start, hold to start, 1f to end))
-    val bloom = style.pageBloom ?: return wash
-    return wash.then(background(FootBloom(bloom)))
+    val wash = Brush.verticalGradient(0f to start, hold to start, 1f to end)
+    val glow = style.pageCornerGlow ?: return background(wash)
+    return drawBehind {
+        drawRect(wash)
+        // Laid over the ramp rather than folded into it, because the two run in different
+        // directions: the ramp turns from top to bottom and these spread from a point, and
+        // one brush cannot do both.
+        glow(glow, Offset(0f, size.height), size.width * LEADING_GLOW_WIDE, size.height * LEADING_GLOW_TALL)
+        glow(glow, Offset(size.width, size.height), size.width * TRAILING_GLOW_WIDE, size.height * TRAILING_GLOW_TALL)
+    }
 }
 
 /**
- * Light rising from the middle of the page's bottom edge.
+ * One corner's glow: the wash's own colour, at full strength where it is anchored and gone
+ * at the edge of an ellipse.
  *
- * Laid over the wash rather than folded into it, because the two run in different
- * directions: the wash turns from top to bottom and this spreads from one point, and a
- * single brush cannot do both.
+ * An ellipse rather than a circle, and a different one at each corner, because that is what
+ * is there to copy. Measured across the reference, the leading corner's reach is wide and
+ * shallow and the trailing corner's is narrow and tall; a pair of circles draws a wash that
+ * is symmetrical, which reads as a shape laid on the page rather than as light in a room.
  */
-private class FootBloom(private val core: Color) : ShaderBrush() {
-    override fun createShader(size: Size): Shader = RadialGradientShader(
-        center = Offset(size.width / 2f, size.height),
-        radius = (size.width * BLOOM_SPREAD).coerceAtLeast(1f),
+private fun DrawScope.glow(core: Color, at: Offset, wide: Float, tall: Float) {
+    val radius = maxOf(wide, tall)
+    if (radius <= 0f) return
+    val brush = Brush.radialGradient(
         colors = listOf(core, core.copy(alpha = 0f)),
+        center = at,
+        radius = radius,
     )
-
-    override fun equals(other: Any?): Boolean = other is FootBloom && other.core == core
-
-    override fun hashCode(): Int = core.hashCode()
+    scale(wide / radius, tall / radius, pivot = at) {
+        drawCircle(brush, radius = radius, center = at)
+    }
 }
 
 /**
- * How far across the window the bloom reaches, as a fraction of its width.
+ * How far each corner's glow reaches, as a fraction of the window's width and height.
  *
- * Just over half, so the two bottom corners fall outside it and keep the wash's own
- * deeper colour. At one the whole foot lit evenly and there was no bloom left to see.
+ * Fitted to the height the reference's wash begins at, read off nine columns across the
+ * window: the two ellipses those points lie on come out at about eleven twentieths of the
+ * width by a third of the height at the leading corner, and a little under a quarter of the
+ * width by three sevenths of the height at the trailing one.
  */
-private const val BLOOM_SPREAD = 0.6f
+private const val LEADING_GLOW_WIDE = 0.55f
+private const val LEADING_GLOW_TALL = 0.33f
+private const val TRAILING_GLOW_WIDE = 0.23f
+private const val TRAILING_GLOW_TALL = 0.43f
 
 @Composable
 private fun DestinationIcon(role: IconRole?, tint: Color, theme: ResolvedTheme) {

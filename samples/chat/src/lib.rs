@@ -102,11 +102,16 @@ fn opening_messages() -> Vec<Message> {
 /// a smaller number: a line of type carries its own leading above the letters, so a gap
 /// asked for at the reference's twenty came out at thirty five on screen and the mark
 /// floated away from the words it belongs to.
-const SPARK_ON_THE_EMPTY_SCREEN: f32 = 36.0;
+const SPARK_ON_THE_EMPTY_SCREEN: f32 = 39.0;
 const SPARK_TO_GREETING: f32 = 6.0;
 
 /// And how big it is beside the application's name in the strip.
-const SPARK_IN_THE_STRIP: f32 = 20.0;
+///
+/// Both of these are the box the drawing is given, and the drawing does not fill it: the
+/// mark is inked from two to forty six across a forty eight unit square, so a box asked for
+/// at the reference's thirty six measured thirty two on screen. The numbers are the box, so
+/// they carry the difference.
+const SPARK_IN_THE_STRIP: f32 = 22.0;
 
 /// The room above, below and either end of what the composer holds.
 const ROOM_INSIDE_THE_COMPOSER: f32 = 8.0;
@@ -116,6 +121,9 @@ const THE_SEND_KEY: f32 = 36.0;
 
 /// The room between the composer's keys and what they stand beside.
 const BESIDE_A_COMPOSER_KEY: f32 = 4.0;
+
+/// How big the picture beside who is signed in is, across and down.
+const THE_ACCOUNT_PICTURE: f32 = 20.0;
 
 /// How far the page's own content stands off the window it is drawn in.
 ///
@@ -541,7 +549,15 @@ pub fn app() -> Element {
                             padding_role: SpaceRole::Sm,
                             space_role: SpaceRole::Sm,
                             alignment: Alignment::CenterStart,
-                            Text { text: "\u{25cf}", type_role: TypeRole::Body, color: Paint::Role(ColorRole::Primary) }
+                            // A round picture, not a bullet with the accent on it. The
+                            // character stood in a twenty point slot and inked eight of
+                            // it, which reads as a status light rather than as a person.
+                            dioxus_compose::Box {
+                                width: THE_ACCOUNT_PICTURE,
+                                height: THE_ACCOUNT_PICTURE,
+                                shape_role: ShapeRole::Full,
+                                background: Paint::Role(ColorRole::Primary),
+                            }
                             Column {
                                 Text { text: "Signed in", type_role: TypeRole::Label }
                                 Text {

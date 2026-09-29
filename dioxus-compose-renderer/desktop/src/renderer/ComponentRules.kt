@@ -3140,12 +3140,14 @@ internal object LiquidGlassRules : ComponentRules {
      * reads most as Apple's icon set, and it is shared with the flat language because it
      * is the same icon set.
      */
-    // Twenty at a point and a half, which is what the reference's are. At twenty two and
-    // two the same glyphs came out heavier than everything around them and made a sidebar
-    // of them read darker than the list it belongs to.
+    // Twenty at a point and a quarter. At twenty two and two the same glyphs came out
+    // heavier than everything around them and made a sidebar of them read darker than the
+    // list it belongs to; at a point and a half they were still a third heavier than the
+    // reference's, counted in inked pixels per glyph, because a stroke that wide reaches
+    // full ink in the middle and the reference's hairline never does.
     override fun icon(role: IconRole, theme: ResolvedTheme): IconStyle = IconStyle(
         size = 20.dp,
-        strokeWidth = 1.5.dp,
+        strokeWidth = 1.25.dp,
         cap = StrokeCap.Round,
         join = StrokeJoin.Round,
     )
@@ -3297,7 +3299,16 @@ internal object LiquidGlassRules : ComponentRules {
         return NavigationStyle(
             presentation = presentation,
             container = theme.color(ColorRole.SurfaceContainer).copy(alpha = NAVIGATION_ALPHA),
-            content = theme.color(ColorRole.OnSurfaceVariant),
+            // A sidebar's rows are read, so they take the reading ink; a bar's are glanced
+            // at under a thumb, so they take the quieter one and the accent marks the tab
+            // you are on. Both of Apple's sidebars set their rows in the label colour and
+            // keep the secondary one for the headings over them, which is what tells a
+            // heading from a row when neither is marked.
+            content = if (bar) {
+                theme.color(ColorRole.OnSurfaceVariant)
+            } else {
+                theme.color(ColorRole.OnSurface)
+            },
             // A tab bar tints the tab you are on and draws no fill; a strip down the side
             // fills the row and leaves its words alone. Blue words with no fill under them
             // is what a link looks like, and a sidebar of links reads as a list of places
@@ -3305,7 +3316,7 @@ internal object LiquidGlassRules : ComponentRules {
             selectedContent = if (bar) {
                 theme.color(ColorRole.Primary)
             } else {
-                theme.color(ColorRole.OnSurfaceVariant)
+                theme.color(ColorRole.OnSurface)
             },
             indicator = if (bar) Color.Transparent else tintedFill(theme.dark, SELECTED_ROW_ALPHA),
             indicatorShape = theme.shape(ShapeRole.Full),
@@ -3364,8 +3375,13 @@ internal object LiquidGlassRules : ComponentRules {
             carriesCaption = !bar,
             pageBehindStrip = !onWindow,
             pageGradientHold = PAGE_GRADIENT_HOLD,
-            pageBloom = start.copy(alpha = PAGE_BLOOM_ALPHA),
+            pageCornerGlow = end,
             destinationGap = if (presentation == NavigationPresentation.Drawer) 0.dp else null,
+            destinationHeight = if (presentation == NavigationPresentation.Drawer) {
+                DRAWER_ROW_HEIGHT
+            } else {
+                null
+            },
         )
     }
 
@@ -3485,6 +3501,16 @@ internal object LiquidGlassRules : ComponentRules {
     private val DRAWER_ROW_INSET = 10.dp
 
     /**
+     * How tall one row is, whatever it holds.
+     *
+     * Asked for rather than left to the content, because the content differs: a place in
+     * the application carries an icon and a conversation carries only its name, and the two
+     * came out thirty two and thirty apart in the same list. A list whose rows are two
+     * different heights is a list with no rhythm.
+     */
+    private val DRAWER_ROW_HEIGHT = 32.dp
+
+    /**
      * From a row's icon to its label.
      *
      * Wider than the space ladder's smallest step. At four the label crowded its icon into
@@ -3546,14 +3572,6 @@ internal object LiquidGlassRules : ComponentRules {
      * towards the accent itself.
      */
     private const val PAGE_FOOT_TOWARDS_ACCENT = 0.35f
-
-    /**
-     * How strong the light at the foot of the page is where it is brightest.
-     *
-     * The page's own colour, so the bloom lightens the wash rather than adding a colour of
-     * its own: what the eye reads is the corners going deeper, not the middle going white.
-     */
-    private const val PAGE_BLOOM_ALPHA = 0.45f
 
     /**
      * The glass caption. Three coloured discs at the leading edge, exactly as the flat
