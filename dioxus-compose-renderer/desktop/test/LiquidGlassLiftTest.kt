@@ -17,7 +17,9 @@ import androidx.compose.ui.unit.dp
 import dioxus.compose.design.GlassProminence
 import dioxus.compose.design.LiquidGlass
 import dioxus.compose.design.glassLift
+import kotlin.math.ceil
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
@@ -48,32 +50,69 @@ class LiquidGlassLiftTest {
         val pixels = liftOnWhite()
         val middle = pixels.width / 2
         // Walking down and out from the surface's foot. Two things have to hold, and they
-        // are not the same thing: the walk never gets darker as it goes out, and it never
-        // holds one value for long. A stack of rings holds its value right across each ring
-        // and drops at the seam, which is a long run followed by a step.
+        // are not the same thing: the walk never gets darker as it goes out, and no one
+        // step in it drops much more than the rest. A stack of rings holds its value right
+        // across each ring and drops at the seam, so its walk is flat, flat, flat, cliff.
         //
-        // Counting every repeat was the first way this was written, against a quarter of
-        // the walk. It fails a shadow that is merely faint: a faint one falls away in less
-        // than a level per step, so the eighth bit rounds neighbouring samples together and
-        // the count of repeats rises with no band anywhere. What says "band" is the length
-        // of a run, not how many there are.
+        // Said this way rather than by counting repeats or measuring the longest run of
+        // them, which is how it was written twice. Both fail a shadow that is merely faint:
+        // under a level of fall per step the eighth bit rounds neighbouring samples
+        // together, so the repeats and the runs grow with no band anywhere, and the test
+        // starts reporting the shadow's weight as its shape. How steep the steepest step is
+        // against the average does not move when the whole shadow is scaled.
         val walk = (1..WALK).map { step -> darkness(pixels, middle, BOTTOM + step) }
+        assertTrue(seam(walk) == null, "${seam(walk)}: $walk")
+    }
+
+    /**
+     * The same judgement run over walks written by hand, so that what it rejects is on the
+     * record rather than inferred.
+     *
+     * Worth its own test because the criterion has now been written three ways. The first
+     * two counted how often the walk held its value, and both passed a ring stack and
+     * failed a gaussian once the gaussian was faint enough for the eighth bit to round
+     * neighbouring samples together: they were reporting the shadow's weight as its shape.
+     */
+    @Test
+    fun fr14_1_a_banded_walk_is_told_from_a_smooth_one() {
+        // What the renderer draws, and what it drew when the shadow was six rings: the same
+        // total fall, put into six steps instead of spread across twenty.
+        assertEquals(null, seam(listOf(14, 13, 13, 12, 12, 11, 11, 10, 10, 9, 9, 8, 8, 7, 7, 6, 6, 5, 5, 5)))
+        assertEquals(null, seam(listOf(19, 19, 18, 17, 17, 16, 15, 14, 14, 13, 12, 12, 11, 10, 9, 9, 8, 7, 7, 6)))
+        assertTrue(
+            seam(listOf(14, 14, 14, 12, 12, 12, 11, 11, 11, 9, 9, 9, 8, 8, 8, 6, 6, 6, 5, 5)) != null,
+            "a walk that holds flat and then drops twice the average is a stack of rings",
+        )
+        assertTrue(
+            seam(listOf(14, 14, 13, 13, 14, 12, 12, 11, 10, 9, 9, 8, 8, 7, 7, 6, 6, 5, 5, 5)) != null,
+            "a walk that gets darker again on the way out is not a shadow falling away",
+        )
+    }
+
+    /**
+     * What is wrong with a walk out from a surface's foot, or null where nothing is.
+     *
+     * Two things have to hold, and they are not the same thing: the walk never gets darker
+     * as it goes out, and no one step in it drops much more than the rest. A stack of rings
+     * holds its value right across each ring and drops at the seam, so its walk is flat,
+     * flat, flat, cliff. How steep the steepest step is against the average does not move
+     * when the whole shadow is scaled, which is the point: this has to say the same thing
+     * about a faint shadow and a heavy one.
+     */
+    private fun seam(walk: List<Int>): String? {
         val rose = walk.zipWithNext().count { (near, far) -> far > near }
-        assertTrue(
-            rose == 0,
-            "the shadow gets darker again $rose times on the way out: $walk",
-        )
-        var run = 1
-        var longest = 1
-        for ((near, far) in walk.zipWithNext()) {
-            run = if (far == near) run + 1 else 1
-            if (run > longest) longest = run
+        if (rose > 0) return "the shadow gets darker again $rose times on the way out"
+        val fall = walk.first() - walk.last()
+        if (fall <= 0) return "the shadow does not fall away at all across the walk"
+        val average = fall.toFloat() / (walk.size - 1)
+        val steepest = walk.zipWithNext().maxOf { (near, far) -> near - far }
+        // One level is a rounding step and can never be a seam, whatever the average is.
+        val cliff = maxOf(1, ceil(CLIFF_IN_AVERAGES * average).toInt())
+        if (steepest > cliff) {
+            return "the shadow's steepest step drops $steepest where the average is " +
+                "$average, so it falls in bands with seams between them rather than smoothly"
         }
-        assertTrue(
-            longest <= LONGEST_HELD,
-            "the shadow holds one value for $longest steps running, so it is drawn in " +
-                "bands rather than falling away: $walk",
-        )
+        return null
     }
 
     @Test
@@ -133,12 +172,12 @@ class LiquidGlassLiftTest {
         const val WALK = 20
 
         /**
-         * How many samples in a row may read the same before the walk is a band.
+         * How many times the average fall the steepest step may be before it is a seam.
          *
-         * Two, because a shadow faint enough to be right falls away in less than a level
-         * per step and the eighth bit rounds neighbours together. A ring holds its value
-         * for a good deal longer than two.
+         * Twice. A gaussian's steepest point is near the surface and is not far off its
+         * own average across a walk this short; a ring stack puts its whole fall into one
+         * step per ring and nothing into the rest.
          */
-        const val LONGEST_HELD = 2
+        const val CLIFF_IN_AVERAGES = 2f
     }
 }

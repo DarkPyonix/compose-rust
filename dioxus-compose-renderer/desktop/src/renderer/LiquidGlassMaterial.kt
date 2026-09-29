@@ -231,12 +231,14 @@ object LiquidGlass {
     /**
      * How dark that shadow is at the surface's edge, where it is darkest.
      *
-     * Measured off the reference window. Its sidebar's edge is eleven levels below the page
-     * beside it and is still showing thirty five points out; at fourteen hundredths over a
-     * twenty point blur ours was fifteen below and gone by twenty eight, which reads as an
-     * outline drawn round the panel rather than as the panel standing off the page.
+     * Measured off the reference window three times over. Its sidebar's edge is eleven
+     * levels below the page beside it and is still showing thirty five points out. At
+     * fourteen hundredths over a twenty point blur ours was twenty one below and gone by
+     * twenty eight, which reads as an outline drawn round the panel rather than as the
+     * panel standing off the page; the wider blur brought the reach to thirty three and
+     * eleven hundredths brought the edge to fifteen.
      */
-    const val LIFT_ALPHA: Float = 0.11f
+    const val LIFT_ALPHA: Float = 0.08f
 
     /**
      * The ratio the opaque fallback is held to: WCAG 2.2 AA for body text.
