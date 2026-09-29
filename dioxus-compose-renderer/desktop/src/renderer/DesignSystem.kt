@@ -663,6 +663,14 @@ data class NavigationStyle(
     /** A search destination becomes a field-shaped action when this is non-null. */
     val searchContainer: Color? = null,
     /**
+     * The hairline round that field, or null where the fill alone says what it is.
+     *
+     * A drawer marks the destination you are on with a fill as well, so a field drawn as a
+     * fill and nothing else is a second thing in the list that looks selected. The line is
+     * what tells a place you can go from a place you can type.
+     */
+    val searchOutline: Color? = null,
+    /**
      * What the strip is made of when it floats, or null for a strip painted [container]
      * straight onto the window's edge.
      */

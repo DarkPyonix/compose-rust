@@ -1,6 +1,7 @@
 package dioxus.compose.foundation
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -484,6 +485,9 @@ private fun SectionHeading(name: String, style: NavigationStyle, theme: Resolved
 /** How much quieter a heading is than the rows under it. */
 private const val SECTION_HEADING_ALPHA = 0.7f
 
+/** The hairline round a search field in a drawer. */
+private val SEARCH_FIELD_EDGE = 1.dp
+
 /**
  * The destinations down the leading edge: a rail or a drawer on the window's edge, or a
  * panel floating inside it where the design system floats them.
@@ -737,6 +741,11 @@ internal fun Destination(
                     Modifier
                         .clip(style.indicatorShape)
                         .background(style.searchContainer)
+                        .then(
+                            style.searchOutline?.let { edge ->
+                                Modifier.border(SEARCH_FIELD_EDGE, edge, style.indicatorShape)
+                            } ?: Modifier,
+                        )
                 } else {
                     Modifier
                 },

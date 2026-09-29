@@ -3353,6 +3353,7 @@ internal object LiquidGlassRules : ComponentRules {
             pageGradientStart = if (theme.windowBackdrop) start.copy(alpha = PAGE_OVER_WINDOW_TOP) else start,
             pageGradientEnd = if (theme.windowBackdrop) end.copy(alpha = PAGE_OVER_WINDOW_FOOT) else end,
             searchContainer = tintedFill(theme.dark, SEARCH_FIELD_ALPHA),
+            searchOutline = tintedFill(theme.dark, SEARCH_FIELD_EDGE_ALPHA),
             stripMaterial = strip,
             stripShape = if (bar) {
                 theme.shape(ShapeRole.Full)
@@ -3509,7 +3510,17 @@ internal object LiquidGlassRules : ComponentRules {
      * 0xC5C5C5 slab in the middle of a list of rows: a field is recessed into the panel,
      * and a fifth of black is a control sitting on top of one.
      */
-    private const val SEARCH_FIELD_ALPHA = 0.10f
+    private const val SEARCH_FIELD_ALPHA = 0.05f
+
+    /**
+     * And the hairline round it.
+     *
+     * The fill alone is not enough here, because a drawer marks the row you are on with a
+     * fill too: measured, the field came out seven levels from the selected row, which is
+     * two different things reading as the same state. The field is lighter than the mark
+     * now and carries a line the mark does not.
+     */
+    private const val SEARCH_FIELD_EDGE_ALPHA = 0.14f
 
     /**
      * How opaque the page is at its top and at its foot over a window that shows the

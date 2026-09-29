@@ -329,6 +329,14 @@ class DesignTokenWiringTest {
         // whole window and reads as a fill.
         assertTrue(style.pageBloom != null, "the page has no light at its foot")
         assertTrue(style.searchContainer != null, "the search destination has no pill fill")
+        // And it is not the mark behind the row you are on. A drawer says "selected" with a
+        // fill, so a field drawn as a fill and nothing else is a second thing in the list
+        // wearing the same state.
+        assertTrue(
+            style.searchContainer!!.alpha < style.indicator.alpha,
+            "the search field is as heavy as the selected row's mark",
+        )
+        assertTrue(style.searchOutline != null, "nothing tells the search field from a row")
 
         val fluent = resolved(DesignSystem.Fluent)
         val flat = fluent.rules.navigation(WindowSizeClass.Expanded, fluent)
@@ -336,6 +344,7 @@ class DesignTokenWiringTest {
         assertEquals(null, flat.pageGradientEnd)
         assertEquals(null, flat.pageBloom)
         assertEquals(null, flat.searchContainer)
+        assertEquals(null, flat.searchOutline)
     }
 }
 
