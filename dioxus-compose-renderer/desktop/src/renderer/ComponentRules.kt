@@ -3352,7 +3352,7 @@ internal object LiquidGlassRules : ComponentRules {
             },
             pageGradientStart = if (theme.windowBackdrop) start.copy(alpha = PAGE_OVER_WINDOW_TOP) else start,
             pageGradientEnd = if (theme.windowBackdrop) end.copy(alpha = PAGE_OVER_WINDOW_FOOT) else end,
-            searchContainer = tintedFill(theme.dark, TONAL_ALPHA),
+            searchContainer = tintedFill(theme.dark, SEARCH_FIELD_ALPHA),
             stripMaterial = strip,
             stripShape = if (bar) {
                 theme.shape(ShapeRole.Full)
@@ -3501,6 +3501,15 @@ internal object LiquidGlassRules : ComponentRules {
      * on. Selection in a list is the quietest state in the system.
      */
     private const val SELECTED_ROW_ALPHA = 0.08f
+
+    /**
+     * The well a search destination sits in when a sidebar draws it as a field.
+     *
+     * Apple's tertiary fill. It took the fill a tinted button takes, which put a solid
+     * 0xC5C5C5 slab in the middle of a list of rows: a field is recessed into the panel,
+     * and a fifth of black is a control sitting on top of one.
+     */
+    private const val SEARCH_FIELD_ALPHA = 0.10f
 
     /**
      * How opaque the page is at its top and at its foot over a window that shows the
