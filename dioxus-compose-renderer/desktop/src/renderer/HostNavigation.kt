@@ -833,8 +833,17 @@ internal fun Modifier.pageBackdrop(style: NavigationStyle): Modifier {
 private fun DrawScope.glow(core: Color, at: Offset, wide: Float, tall: Float) {
     val radius = maxOf(wide, tall)
     if (radius <= 0f) return
+    // Falling away fast and then trailing, rather than evenly. An even radial puts half
+    // the colour at half the reach, and measured against the reference that came out
+    // twenty levels too deep across the middle of the page while the height the wash began
+    // at was right: the arc is drawn by the last of the light, so what sets where it starts
+    // is the tail and what sets how the page reads is the near half.
     val brush = Brush.radialGradient(
-        colors = listOf(core, core.copy(alpha = 0f)),
+        colorStops = arrayOf(
+            0f to core,
+            GLOW_KNEE to core.copy(alpha = GLOW_KNEE_ALPHA),
+            1f to core.copy(alpha = 0f),
+        ),
         center = at,
         radius = radius,
     )
@@ -851,6 +860,10 @@ private fun DrawScope.glow(core: Color, at: Offset, wide: Float, tall: Float) {
  * width by a third of the height at the leading corner, and a little under a quarter of the
  * width by three sevenths of the height at the trailing one.
  */
+/** Where the glow stops falling away quickly, and how much of it is left there. */
+private const val GLOW_KNEE = 0.35f
+private const val GLOW_KNEE_ALPHA = 0.35f
+
 private const val LEADING_GLOW_WIDE = 0.55f
 private const val LEADING_GLOW_TALL = 0.33f
 private const val TRAILING_GLOW_WIDE = 0.23f

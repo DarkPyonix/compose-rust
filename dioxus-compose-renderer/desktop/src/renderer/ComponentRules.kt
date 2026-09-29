@@ -3289,8 +3289,14 @@ internal object LiquidGlassRules : ComponentRules {
         // The container role on its own is the palest tint of the accent, which is what a
         // filled chip is made of. The foot of a glass page is a good deal deeper than that:
         // measured against the reference, the container alone came out at 0xD1E1FF where
-        // the reference's foot is 0x92CCFF, so the tint is carried a third of the way back
-        // towards the accent it is a tint of.
+        // the reference's foot is 0x92CCFF, so the tint is carried back towards the accent
+        // it is a tint of.
+        //
+        // Not as far as looked right at first. This platform's accent is a bluer blue than
+        // the reference's wash, so carrying the tint towards it takes the green down as
+        // well as the red: at a third of the way the foot came out 0x8DB9FF against the
+        // reference's 0x92CCFF, right in the red and nineteen low in the green, which is
+        // the difference between a wash that reads as sky and one that reads as violet.
         val end = lerp(
             theme.color(ColorRole.PrimaryContainer),
             theme.color(ColorRole.Primary),
@@ -3571,7 +3577,7 @@ internal object LiquidGlassRules : ComponentRules {
      * How far the foot of the page is carried from the palest tint of the accent back
      * towards the accent itself.
      */
-    private const val PAGE_FOOT_TOWARDS_ACCENT = 0.35f
+    private const val PAGE_FOOT_TOWARDS_ACCENT = 0.30f
 
     /**
      * The glass caption. Three coloured discs at the leading edge, exactly as the flat
