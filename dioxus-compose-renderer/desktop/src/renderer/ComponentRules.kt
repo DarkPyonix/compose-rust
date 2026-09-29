@@ -3601,17 +3601,20 @@ private val APPLE_BUTTON_INSET = 10.dp
 /**
  * How round that window is, and how round a plain one is.
  *
- * Measured off the reference window rather than carried over from the previous system,
- * which is where the fourteen came from: a window in the current one is cut a good deal
- * deeper. The arc leaves the top edge thirty eight points in from the corner there, and at
- * fourteen ours left it at twelve.
+ * Read as a ceiling rather than as a measurement. The window this reaches on macOS is the
+ * system's, and the system rounds it: raising this from fourteen to twenty six and again
+ * to thirty four left the corner pixel for pixel identical, because what it sets is the
+ * backing layer's radius and the window in front of it is already cut tighter. Only a
+ * value below the system's own would show, which is what the plain mode's is for.
  *
- * Not the same number the panels inside it are cut concentric with, though it was made the
- * same number once. The window's corner belongs to the system and the panel's is the
- * application's, and the reference has a thirty eight point window holding an eighteen
- * point sidebar: two measurements that happen to sit inside one another, not one ladder.
+ * So a window whose corner has to be deeper than the system's cannot get there this way.
+ * The reference's is, measurably, and matching it means a window that draws its own frame
+ * rather than a number here.
+ *
+ * Not the same number the panels inside it are cut concentric with. The window's corner
+ * belongs to the system and the panel's to the application.
  */
-private val APPLE_WINDOW_RADIUS = 34.dp
+private val APPLE_WINDOW_RADIUS = 26.dp
 private val APPLE_PLAIN_WINDOW_RADIUS = 10.dp
 
 /**
