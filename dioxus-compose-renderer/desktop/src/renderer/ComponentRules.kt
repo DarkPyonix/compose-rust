@@ -3284,7 +3284,16 @@ internal object LiquidGlassRules : ComponentRules {
         // Over the window's own material the page gives some of its opacity up, so the
         // desktop reaches the page as well as the sidebar, only less of it.
         val start = theme.color(ColorRole.Background)
-        val end = theme.color(ColorRole.PrimaryContainer)
+        // The container role on its own is the palest tint of the accent, which is what a
+        // filled chip is made of. The foot of a glass page is a good deal deeper than that:
+        // measured against the reference, the container alone came out at 0xD1E1FF where
+        // the reference's foot is 0x92CCFF, so the tint is carried a third of the way back
+        // towards the accent it is a tint of.
+        val end = lerp(
+            theme.color(ColorRole.PrimaryContainer),
+            theme.color(ColorRole.Primary),
+            PAGE_FOOT_TOWARDS_ACCENT,
+        )
         return NavigationStyle(
             presentation = presentation,
             container = theme.color(ColorRole.SurfaceContainer).copy(alpha = NAVIGATION_ALPHA),
@@ -3298,7 +3307,7 @@ internal object LiquidGlassRules : ComponentRules {
             } else {
                 theme.color(ColorRole.OnSurfaceVariant)
             },
-            indicator = if (bar) Color.Transparent else tintedFill(theme.dark, TONAL_ALPHA),
+            indicator = if (bar) Color.Transparent else tintedFill(theme.dark, SELECTED_ROW_ALPHA),
             indicatorShape = theme.shape(ShapeRole.Full),
             indicatorKind = NavigationIndicator.Pill,
             indicatorExtent = NavigationExtent.Destination,
@@ -3311,7 +3320,7 @@ internal object LiquidGlassRules : ComponentRules {
             // that product's dense one.
             drawerWidth = SIDEBAR_WIDTH,
             itemSpacing = if (presentation == NavigationPresentation.Drawer) {
-                theme.space(SpaceRole.Xs)
+                DRAWER_ICON_GAP
             } else {
                 theme.space(SpaceRole.Xs)
             },
@@ -3319,6 +3328,16 @@ internal object LiquidGlassRules : ComponentRules {
                 DRAWER_ROW_PADDING
             } else {
                 theme.space(SpaceRole.Xs)
+            },
+            stripPadding = if (presentation == NavigationPresentation.Drawer) {
+                DRAWER_STRIP_PADDING
+            } else {
+                null
+            },
+            destinationInset = if (presentation == NavigationPresentation.Drawer) {
+                DRAWER_ROW_INSET
+            } else {
+                null
             },
             labelInRail = true,
             // A sidebar row is a line of text beside its icon, and it is set smaller than
@@ -3344,7 +3363,8 @@ internal object LiquidGlassRules : ComponentRules {
             carriesCaption = !bar,
             pageBehindStrip = !onWindow,
             pageGradientHold = PAGE_GRADIENT_HOLD,
-            destinationGap = if (presentation == NavigationPresentation.Drawer) 2.dp else null,
+            pageBloom = start.copy(alpha = PAGE_BLOOM_ALPHA),
+            destinationGap = if (presentation == NavigationPresentation.Drawer) 0.dp else null,
         )
     }
 
@@ -3428,7 +3448,7 @@ internal object LiquidGlassRules : ComponentRules {
      * The corner of a macOS 26 window, which a sidebar held inside it is cut concentric
      * with.
      */
-    private val WINDOW_CORNER = 26.dp
+    private val WINDOW_CORNER = APPLE_WINDOW_RADIUS
 
     /**
      * How far a rail or a sidebar stands off the window's leading edge, top and bottom.
@@ -3444,7 +3464,43 @@ internal object LiquidGlassRules : ComponentRules {
      * thirty two, and at six they came out thirty six. A quarter looser across twenty
      * rows is the difference between that product's list and a generic application menu.
      */
-    private val DRAWER_ROW_PADDING = 4.dp
+    private val DRAWER_ROW_PADDING = 6.dp
+
+    /**
+     * How far the strip's own edge stands off the mark behind the selected row.
+     *
+     * The same eight the panel itself stands off the window, so the mark stops short of
+     * the panel by exactly as much as the panel stops short of the window and the two
+     * insets read as one measurement rather than two.
+     */
+    private val DRAWER_STRIP_PADDING = 8.dp
+
+    /**
+     * From a row's edge to its icon, which is what sets the icon column.
+     *
+     * Measured off the reference: its icons start eighteen in from the panel's edge, and
+     * the mark behind the selected row starts eight in, so ten is what is left.
+     */
+    private val DRAWER_ROW_INSET = 10.dp
+
+    /**
+     * From a row's icon to its label.
+     *
+     * Wider than the space ladder's smallest step. At four the label crowded its icon into
+     * one dark shape; the reference leaves twelve, which is what keeps the icon column and
+     * the label column reading as two columns.
+     */
+    private val DRAWER_ICON_GAP = 12.dp
+
+    /**
+     * The mark behind the selected sidebar row.
+     *
+     * Apple's quaternary fill, not the fill a tonal button takes. A fifth of black over a
+     * white panel is a solid grey slab: measured, the row came out at 0xC5C5C5 against the
+     * reference's 0xEAE7E7, which reads as a pressed button rather than as the row you are
+     * on. Selection in a list is the quietest state in the system.
+     */
+    private const val SELECTED_ROW_ALPHA = 0.08f
 
     /**
      * How opaque the page is at its top and at its foot over a window that shows the
@@ -3455,14 +3511,29 @@ internal object LiquidGlassRules : ComponentRules {
     private const val PAGE_OVER_WINDOW_FOOT = 0.82f
 
     /**
-     * The page stays its own colour down a little under half its height before it turns,
-     * which is where the reference's wash begins.
+     * Where the page stops being its own colour and starts turning, as a fraction of its
+     * height.
+     *
+     * Measured against the reference three times. At 0.45 the page was tinted halfway up;
+     * at 0.58 the blue still crept a third of the way up the window where the reference
+     * holds flat white to within a quarter of its foot. The wash belongs in the bottom
+     * quarter, so a whole page of text is read on white.
      */
-    // Where the page stops being white and starts turning. Measured against the
-    // reference: at 0.45 the page was already tinted halfway up, and there it is still
-    // white at the same height. The turn belongs in the lower half, so most of a page of
-    // text is read on white.
-    private const val PAGE_GRADIENT_HOLD = 0.58f
+    private const val PAGE_GRADIENT_HOLD = 0.74f
+
+    /**
+     * How far the foot of the page is carried from the palest tint of the accent back
+     * towards the accent itself.
+     */
+    private const val PAGE_FOOT_TOWARDS_ACCENT = 0.35f
+
+    /**
+     * How strong the light at the foot of the page is where it is brightest.
+     *
+     * The page's own colour, so the bloom lightens the wash rather than adding a colour of
+     * its own: what the eye reads is the corners going deeper, not the middle going white.
+     */
+    private const val PAGE_BLOOM_ALPHA = 0.45f
 
     /**
      * The glass caption. Three coloured discs at the leading edge, exactly as the flat
@@ -3518,8 +3589,16 @@ internal object LiquidGlassRules : ComponentRules {
  */
 private val APPLE_BUTTON_INSET = 8.dp
 
-/** How round that window is, and how round a plain one is. */
-private val APPLE_WINDOW_RADIUS = 14.dp
+/**
+ * How round that window is, and how round a plain one is.
+ *
+ * Measured off the reference window rather than carried over from the previous system,
+ * which is where the fourteen came from. A window in the current one is cut a good deal
+ * deeper: at fourteen the corner read as a rounded rectangle beside the reference's, and
+ * the sidebar inside it was already being cut concentric with twenty six, so the window and
+ * the panel it holds were being drawn to two different ladders.
+ */
+private val APPLE_WINDOW_RADIUS = 26.dp
 private val APPLE_PLAIN_WINDOW_RADIUS = 10.dp
 
 /**

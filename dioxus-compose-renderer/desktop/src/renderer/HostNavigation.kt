@@ -1,7 +1,12 @@
 package dioxus.compose.foundation
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.RadialGradientShader
+import androidx.compose.ui.graphics.Shader
+import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -463,8 +468,8 @@ private fun SectionHeading(name: String, style: NavigationStyle, theme: Resolved
         modifier = Modifier
             .fillMaxWidth()
             .padding(
-                start = style.itemPadding,
-                end = style.itemPadding,
+                start = style.destinationInset ?: style.itemPadding,
+                end = style.destinationInset ?: style.itemPadding,
                 top = theme.space(SpaceRole.Sm),
                 bottom = theme.space(SpaceRole.Xs),
             ),
@@ -550,6 +555,7 @@ private fun SideStrip(
         foot?.let { key(it) { Screen(listOf(it), table, dispatcher) } }
     }
     val gap = style.destinationGap ?: style.itemSpacing
+    val strip = style.stripPadding ?: style.itemPadding
     if (!floating) {
         Column(
             Modifier
@@ -557,7 +563,7 @@ private fun SideStrip(
                 .width(width)
                 .fillMaxHeight()
                 .background(style.container)
-                .padding(top = captionTop + style.itemPadding, bottom = style.itemPadding),
+                .padding(top = captionTop + strip, bottom = strip),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             // The destinations scroll and the foot does not. The scroll is on the list
@@ -590,10 +596,10 @@ private fun SideStrip(
                 .padding(
                     // The panel starts [inset] down from the top of the window, and the
                     // window buttons sit on it, so its first row starts below them.
-                    top = (captionTop - inset).coerceAtLeast(0.dp) + style.itemPadding,
-                    bottom = style.itemPadding,
-                    start = style.itemPadding,
-                    end = style.itemPadding,
+                    top = (captionTop - inset).coerceAtLeast(0.dp) + strip,
+                    bottom = strip,
+                    start = strip,
+                    end = strip,
                 ),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -752,7 +758,7 @@ internal fun Destination(
         if (presentation == NavigationPresentation.Drawer) {
             Row(
                 Modifier.fillMaxWidth().padding(
-                    horizontal = style.itemPadding,
+                    horizontal = style.destinationInset ?: style.itemPadding,
                     vertical = style.itemPadding,
                 ),
                 horizontalArrangement = Arrangement.spacedBy(style.itemSpacing),
@@ -785,8 +791,37 @@ internal fun Modifier.pageBackdrop(style: NavigationStyle): Modifier {
     val start = style.pageGradientStart ?: return this
     val end = style.pageGradientEnd ?: return this
     val hold = style.pageGradientHold.coerceIn(0f, 0.99f)
-    return background(Brush.verticalGradient(0f to start, hold to start, 1f to end))
+    val wash = background(Brush.verticalGradient(0f to start, hold to start, 1f to end))
+    val bloom = style.pageBloom ?: return wash
+    return wash.then(background(FootBloom(bloom)))
 }
+
+/**
+ * Light rising from the middle of the page's bottom edge.
+ *
+ * Laid over the wash rather than folded into it, because the two run in different
+ * directions: the wash turns from top to bottom and this spreads from one point, and a
+ * single brush cannot do both.
+ */
+private class FootBloom(private val core: Color) : ShaderBrush() {
+    override fun createShader(size: Size): Shader = RadialGradientShader(
+        center = Offset(size.width / 2f, size.height),
+        radius = (size.width * BLOOM_SPREAD).coerceAtLeast(1f),
+        colors = listOf(core, core.copy(alpha = 0f)),
+    )
+
+    override fun equals(other: Any?): Boolean = other is FootBloom && other.core == core
+
+    override fun hashCode(): Int = core.hashCode()
+}
+
+/**
+ * How far across the window the bloom reaches, as a fraction of its width.
+ *
+ * Just over half, so the two bottom corners fall outside it and keep the wash's own
+ * deeper colour. At one the whole foot lit evenly and there was no bloom left to see.
+ */
+private const val BLOOM_SPREAD = 0.6f
 
 @Composable
 private fun DestinationIcon(role: IconRole?, tint: Color, theme: ResolvedTheme) {

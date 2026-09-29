@@ -705,6 +705,30 @@ data class NavigationStyle(
      * and its label, and a drawer wants the rows closer together than that.
      */
     val destinationGap: Dp? = null,
+    /**
+     * The room the strip keeps around its destinations, or null to use [itemPadding].
+     *
+     * Separate because the two are measured against different things. The strip's own
+     * inset is what sets how far the selected row's mark stops short of the panel's edge,
+     * and the room inside a row is what sets where the icon column falls; a sidebar that
+     * uses one number for both puts its icons wherever its mark happens to want to stop.
+     */
+    val stripPadding: Dp? = null,
+    /**
+     * The colour of the light that blooms up from the foot of the page, or null for a page
+     * whose gradient is the same all the way across.
+     *
+     * A wash that is one colour at every horizontal position is a ramp, and a ramp reads
+     * as a fill rather than as light: the reference's foot is brightest under the middle of
+     * the window and turns deeper towards both bottom corners, which is what says the
+     * colour is coming from somewhere.
+     */
+    val pageBloom: Color? = null,
+    /**
+     * The room inside one drawer row, from the row's edge to its icon, or null to use
+     * [itemPadding].
+     */
+    val destinationInset: Dp? = null,
 )
 
 /** The edge a sheet comes in from. */

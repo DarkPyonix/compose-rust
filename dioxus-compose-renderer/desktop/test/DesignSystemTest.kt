@@ -8,6 +8,8 @@ import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.unit.dp
+import dioxus.compose.design.NavigationPresentation
+import dioxus.compose.protocol.IconRole
 import androidx.compose.ui.unit.height
 import androidx.compose.ui.unit.width
 import kotlin.test.Test
@@ -266,19 +268,73 @@ class DesignTokenWiringTest {
         assertNotEquals(deepinNumber.content, deepinOperator.content)
     }
 
+    /**
+     * The sidebar's measurements, all four read off the reference window.
+     *
+     * Asserted together because they are one measurement: the icon column is where the
+     * strip's own inset and the room inside a row add up to, and the row pitch is the icon
+     * plus the room above and below it with nothing between one row and the next.
+     */
+    @Test
+    fun fr21_2_1_a_glass_sidebar_is_measured_off_the_reference() {
+        val glass = resolved(DesignSystem.LiquidGlass)
+        val style = glass.rules.navigation(WindowSizeClass.Expanded, glass)
+        assertEquals(NavigationPresentation.Drawer, style.presentation)
+        val icon = glass.rules.icon(IconRole.Search, glass).size
+        val padding = style.itemPadding
+        assertEquals(32.dp, icon + padding * 2, "a row is not as tall as the reference's")
+        assertEquals(0.dp, style.destinationGap, "the rows do not touch")
+        val column = (style.stripPadding ?: padding) + (style.destinationInset ?: padding)
+        assertEquals(18.dp, column, "the icon column is not where the reference's is")
+        assertEquals(12.dp, style.itemSpacing, "the label does not clear its icon")
+    }
+
+    /**
+     * The mark behind the row you are on is the quietest state in the system, and quieter
+     * than any button. A fifth of black over a white panel came out a solid grey slab.
+     */
+    @Test
+    fun fr21_2_1_the_selected_sidebar_row_is_quieter_than_a_button() {
+        val glass = resolved(DesignSystem.LiquidGlass)
+        val style = glass.rules.navigation(WindowSizeClass.Expanded, glass)
+        val tonal = glass.rules.button(ButtonVariant.Tonal, glass)
+        assertTrue(
+            style.indicator.alpha < tonal.container.alpha,
+            "the selected row is as loud as a tinted button",
+        )
+    }
+
     @Test
     fun fr22_liquid_glass_navigation_has_a_translucent_gradient_and_search_pill() {
         val glass = resolved(DesignSystem.LiquidGlass)
         val style = glass.rules.navigation(WindowSizeClass.Expanded, glass)
         assertTrue(style.container.alpha < 1f, "the drawer hides the page behind it")
         assertEquals(glass.color(ColorRole.Background), style.pageGradientStart)
-        assertEquals(glass.color(ColorRole.PrimaryContainer), style.pageGradientEnd)
+        // The foot of the page is the container role carried back towards the accent it is
+        // a tint of, so it is deeper than the container on its own and still short of the
+        // accent: the palest tint alone reads as a fill rather than as light.
+        val container = glass.color(ColorRole.PrimaryContainer)
+        val accent = glass.color(ColorRole.Primary)
+        val foot = style.pageGradientEnd
+        assertTrue(foot != null, "the page has no foot colour")
+        assertTrue(
+            foot!!.red < container.red && foot.red > accent.red,
+            "the foot is not between the container and the accent",
+        )
+        assertTrue(
+            foot.green < container.green && foot.green > accent.green,
+            "the foot is not between the container and the accent",
+        )
+        // And the light that rises from it, without which the wash is one colour across the
+        // whole window and reads as a fill.
+        assertTrue(style.pageBloom != null, "the page has no light at its foot")
         assertTrue(style.searchContainer != null, "the search destination has no pill fill")
 
         val fluent = resolved(DesignSystem.Fluent)
         val flat = fluent.rules.navigation(WindowSizeClass.Expanded, fluent)
         assertEquals(null, flat.pageGradientStart)
         assertEquals(null, flat.pageGradientEnd)
+        assertEquals(null, flat.pageBloom)
         assertEquals(null, flat.searchContainer)
     }
 }
