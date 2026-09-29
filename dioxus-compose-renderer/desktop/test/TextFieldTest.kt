@@ -1,6 +1,9 @@
 package dioxus.compose.test
 
+import androidx.compose.ui.graphics.toPixelMap
+import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTextInput
@@ -32,8 +35,58 @@ private fun field(vararg extra: Mutation) = listOf(
     *extra,
 )
 
+/**
+ * How dark the darkest ink in a captured field is, from nothing to 255.
+ *
+ * The darkest pixel rather than an average: what is being compared is the colour the
+ * letters are set in, and most of a field is the space around them.
+ */
+@OptIn(ExperimentalTestApi::class)
+private fun ComposeUiTest.darkestInk(): Int {
+    val pixels = onNodeWithTag(nodeTestTag(FIELD)).captureToImage().toPixelMap()
+    var darkest = 255
+    for (y in 0 until pixels.height) {
+        for (x in 0 until pixels.width) {
+            val pixel = pixels[x, y]
+            val level = ((pixel.red + pixel.green + pixel.blue) / 3f * 255f).toInt()
+            if (level < darkest) darkest = level
+        }
+    }
+    return darkest
+}
+
 @OptIn(ExperimentalTestApi::class)
 class TextFieldTest {
+    /**
+     * A placeholder is not text, and it is not set as though it were.
+     *
+     * It was. The word in an empty composer came out in exactly the colour a real label
+     * beside it was set in, so nothing on screen said which of the two would disappear the
+     * moment you started typing.
+     */
+    @Test
+    fun fr5_a_placeholder_is_quieter_than_what_replaces_it() = runComposeUiTest {
+        val hint = FakeHostConnection(
+            field(Mutation.SetProp(FIELD, PropertyKind.Placeholder, PropertyValue.Text("Message"))),
+        )
+        setContent { DioxusContent(rememberDioxusHost(hint)) }
+        waitForIdle()
+        val placeholder = darkestInk()
+
+        val typed = FakeHostConnection(
+            field(Mutation.SetProp(FIELD, PropertyKind.Text, PropertyValue.Text("Message"))),
+        )
+        setContent { DioxusContent(rememberDioxusHost(typed)) }
+        waitForIdle()
+        val text = darkestInk()
+
+        assertTrue(
+            placeholder > text,
+            "the placeholder's ink is $placeholder and the text that replaces it is $text, " +
+                "so an empty field looks like a field with something in it",
+        )
+    }
+
     @Test
     fun fr5_editing_value_stays_in_the_renderer_and_notifies_the_host() = runComposeUiTest {
         val connection = FakeHostConnection(field())

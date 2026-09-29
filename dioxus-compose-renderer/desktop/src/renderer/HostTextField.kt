@@ -187,7 +187,10 @@ internal fun HostTextField(node: Node, modifier: Modifier, dispatcher: EventDisp
                 if (value.text.isEmpty() && placeholder.isNotEmpty()) {
                     BasicText(
                         placeholder,
-                        style = textStyle.copy(color = theme.color(ColorRole.OnSurfaceVariant)),
+                        style = textStyle.copy(
+                            color = theme.color(ColorRole.OnSurfaceVariant)
+                                .copy(alpha = PLACEHOLDER_ALPHA),
+                        ),
                     )
                 }
                 inner()
@@ -195,6 +198,16 @@ internal fun HostTextField(node: Node, modifier: Modifier, dispatcher: EventDisp
         },
     )
 }
+
+/**
+ * How much of the strength of the secondary ink a placeholder is set in.
+ *
+ * Quieter than secondary ink, because a placeholder is not text. At the full strength the
+ * word in an empty composer read as something already typed, and the field beside it that
+ * held a real label was set in exactly the same colour, so nothing said which of the two
+ * was going to be replaced the moment you started typing.
+ */
+private const val PLACEHOLDER_ALPHA = 0.55f
 
 /** The box around a field, or nothing where the system draws none in this state. */
 private fun Modifier.fieldBorder(style: FieldStyle, focused: Boolean): Modifier {
