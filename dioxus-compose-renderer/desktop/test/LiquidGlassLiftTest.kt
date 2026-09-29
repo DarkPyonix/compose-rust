@@ -47,15 +47,32 @@ class LiquidGlassLiftTest {
     fun fr14_1_the_shadow_falls_away_rather_than_stepping() = runComposeUiTest {
         val pixels = liftOnWhite()
         val middle = pixels.width / 2
-        // Walking down and out from the surface's foot. Every sample has to be lighter
-        // than the one before it: a stack of rings holds its value across each ring and
-        // drops at the seam, which shows up here as two samples reading the same.
+        // Walking down and out from the surface's foot. Two things have to hold, and they
+        // are not the same thing: the walk never gets darker as it goes out, and it never
+        // holds one value for long. A stack of rings holds its value right across each ring
+        // and drops at the seam, which is a long run followed by a step.
+        //
+        // Counting every repeat was the first way this was written, against a quarter of
+        // the walk. It fails a shadow that is merely faint: a faint one falls away in less
+        // than a level per step, so the eighth bit rounds neighbouring samples together and
+        // the count of repeats rises with no band anywhere. What says "band" is the length
+        // of a run, not how many there are.
         val walk = (1..WALK).map { step -> darkness(pixels, middle, BOTTOM + step) }
-        val held = walk.zipWithNext().count { (near, far) -> far >= near }
+        val rose = walk.zipWithNext().count { (near, far) -> far > near }
         assertTrue(
-            held <= WALK / 4,
-            "the shadow holds its value for $held of ${walk.size - 1} steps out, so it is " +
-                "drawn in bands rather than falling away: $walk",
+            rose == 0,
+            "the shadow gets darker again $rose times on the way out: $walk",
+        )
+        var run = 1
+        var longest = 1
+        for ((near, far) in walk.zipWithNext()) {
+            run = if (far == near) run + 1 else 1
+            if (run > longest) longest = run
+        }
+        assertTrue(
+            longest <= LONGEST_HELD,
+            "the shadow holds one value for $longest steps running, so it is drawn in " +
+                "bands rather than falling away: $walk",
         )
     }
 
@@ -114,5 +131,14 @@ class LiquidGlassLiftTest {
 
         /** How many steps out the falloff is walked. */
         const val WALK = 20
+
+        /**
+         * How many samples in a row may read the same before the walk is a band.
+         *
+         * Two, because a shadow faint enough to be right falls away in less than a level
+         * per step and the eighth bit rounds neighbours together. A ring holds its value
+         * for a good deal longer than two.
+         */
+        const val LONGEST_HELD = 2
     }
 }
