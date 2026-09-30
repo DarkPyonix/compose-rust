@@ -16,6 +16,7 @@ import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.platform.DefaultArchitectureComponentsOwner
 import androidx.compose.ui.platform.PlatformContext
 import androidx.compose.ui.platform.PlatformTextInputMethodRequest
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.platform.WindowInfo
@@ -40,7 +41,16 @@ import platform.CoreGraphics.CGSize
 import platform.Foundation.NSProcessInfo
 import platform.QuartzCore.CALayer
 import platform.QuartzCore.CALayerDelegateProtocol
+import platform.AppKit.NSColor
 import platform.AppKit.NSCursor
+import platform.AppKit.NSMenu
+import platform.AppKit.NSMenuItem
+import platform.AppKit.NSViewHeightSizable
+import platform.AppKit.NSViewWidthSizable
+import platform.AppKit.NSVisualEffectBlendingMode
+import platform.AppKit.NSVisualEffectMaterialUnderWindowBackground
+import platform.AppKit.NSVisualEffectState
+import platform.AppKit.NSVisualEffectView
 import platform.AppKit.NSDragOperation
 import platform.AppKit.NSDragOperationCopy
 import platform.AppKit.NSDragOperationNone
@@ -279,6 +289,12 @@ internal class MacosWindow(
             // stays square underneath and nothing is drawn out there.
             metal.layer.cornerRadius = cornerRadius.value.toDouble()
             metal.layer.masksToBounds = true
+            // And the material behind it, which is a second thing that reaches the corner
+            // now. Left square it would stand outside the drawing's own corner as four
+            // grey wedges.
+            backdrop.wantsLayer = true
+            backdrop.layer?.cornerRadius = cornerRadius.value.toDouble()
+            backdrop.layer?.masksToBounds = true
         }
     }
 
@@ -293,6 +309,13 @@ internal class MacosWindow(
             zoom.frame.useContents { origin.x + size.width } + leading
         }
         dressTheTitleBar()
+        // Read while the window's frame is changing, which is now as the content view is
+        // sized and before the window has worked out its new layout rect, the difference
+        // between the two can come out negative for a moment. A caption is never shorter
+        // than nothing, and the page's top is made of this: a negative one was a negative
+        // padding, and the window closed the instant it was resized. The last reading
+        // stands until there is a real one.
+        if (height < 0.0 || width < 0.0) return
         caption.value = WindowCaption(
             height = (height * scale).dp,
             // The platform's own, and this platform puts them at the leading edge.
@@ -331,6 +354,37 @@ internal class MacosWindow(
         }
     }
 
+
+    /**
+     * What the window is made of, behind everything the application draws.
+     *
+     * A window on this platform has nothing behind it unless something is put there, and
+     * glass over nothing is a tinted rectangle: a white surface at seven tenths over a
+     * white page composites to white exactly, so the sidebar could only ever be told from
+     * the page by its shadow. The whole of the material is the desktop showing through it.
+     *
+     * `UnderWindowBackground` rather than a named material like `Sidebar`, because what
+     * this is behind is the whole window and the application decides which parts of it let
+     * the material through. It follows the window's active state, which is what makes
+     * everything drawn on it flatten together when the window stops being the one in use.
+     */
+    // A subclass for one reason: it is the content view now, so it is the view AppKit sizes
+    // when the window's frame changes, and a change of size is when the system lays its
+    // three buttons out again and puts them back where it keeps them. The drawing used to
+    // be the content view and moved the buttons back from its own resize; once it became a
+    // view inside this one, nothing moved them back and the ordinary mode's inset was gone
+    // from the moment the window first came up.
+    private val backdrop = object : NSVisualEffectView(window.frame) {
+        override fun setFrameSize(newSize: CValue<CGSize>) {
+            super.setFrameSize(newSize)
+            measureCaption()
+        }
+    }.also {
+        it.material = NSVisualEffectMaterialUnderWindowBackground
+        it.blendingMode = NSVisualEffectBlendingMode.NSVisualEffectBlendingModeBehindWindow
+        it.state = NSVisualEffectState.NSVisualEffectStateFollowsWindowActiveState
+        it.autoresizingMask = NSViewWidthSizable or NSViewHeightSizable
+    }
 
     private val view: NSView = object : NSView(window.frame), CALayerDelegateProtocol, NSTextInputClientProtocol,
         NSDraggingDestinationProtocol {
@@ -513,8 +567,14 @@ internal class MacosWindow(
         override fun mouseUp(event: NSEvent) =
             send(event, PointerEventType.Release, PointerButton.Primary)
 
-        override fun rightMouseDown(event: NSEvent) =
+        override fun rightMouseDown(event: NSEvent) {
             send(event, PointerEventType.Press, PointerButton.Secondary)
+            // Put up ourselves rather than left to the view's own handling. What asks a
+            // view for its menu is the default `rightMouseDown`, and this one is
+            // overridden to reach the scene: with no call back to it, the menu was built
+            // and never asked for.
+            NSMenu.popUpContextMenu(editingMenu(), withEvent = event, forView = this)
+        }
 
         override fun rightMouseUp(event: NSEvent) =
             send(event, PointerEventType.Release, PointerButton.Secondary)
@@ -524,6 +584,14 @@ internal class MacosWindow(
         override fun mouseDragged(event: NSEvent) = send(event, PointerEventType.Move)
 
         override fun scrollWheel(event: NSEvent) = send(event, PointerEventType.Scroll)
+
+        // And the same menu wherever else AppKit asks for one, which is Control held with
+        // the pointer and whatever a trackpad is set to.
+        //
+        // Compose draws one of its own on some platforms and not on this one: with the
+        // path that would turned on, the menu came up at the window's top left corner
+        // instead of under the pointer and every item in it was dead.
+        override fun menuForEvent(event: NSEvent): NSMenu? = editingMenu()
 
         override fun keyDown(event: NSEvent) {
             // Both, and in this order. The scene reads the key as a key: arrows, Enter,
@@ -550,7 +618,14 @@ internal class MacosWindow(
         window.setTitle(name)
         window.titlebarAppearsTransparent = true
         window.titleVisibility = NSWindowTitleHidden
-        window.contentView = view
+        // The material is the content view and the application draws inside it. The window
+        // itself stops being opaque and stops painting a colour, because either one is a
+        // sheet of paint laid over the thing this was all for.
+        window.contentView = backdrop
+        backdrop.addSubview(view)
+        view.autoresizingMask = NSViewWidthSizable or NSViewHeightSizable
+        window.opaque = false
+        window.backgroundColor = NSColor.clearColor
 
         // Said before the view is asked for its layer, because the answer is ours and a
         // view that was not told to have one never asks.
@@ -560,6 +635,13 @@ internal class MacosWindow(
         window.center()
         window.makeKeyAndOrderFront(null)
         window.makeFirstResponder(view)
+        // Once more on the next turn of the loop. The first time a window is shown the
+        // system lays its title bar out after this call returns, and that lay out puts the
+        // buttons back in the corner; measured, the only two times they were moved both came
+        // before it, so the window came up in the plain mode's position whatever it asked.
+        platform.darwin.dispatch_async(platform.darwin.dispatch_get_main_queue()) {
+            measureCaption()
+        }
         // Said so that the window is offered drags at all: a view that has registered for
         // nothing is never asked.
         view.registerForDraggedTypes(listOf(NSFilenamesPboardType))
@@ -620,6 +702,49 @@ internal class MacosWindow(
         view.setAccessibilityChildren(built)
     }
 
+    /**
+     * Cut, copy, paste and select all, as a menu of the system's own.
+     *
+     * Each item presses the shortcut it is named after rather than calling into the editor,
+     * because the editor is Compose's and the keys are the way in that this window already
+     * has. Nothing here decides whether an item applies: the field the keys reach ignores a
+     * copy with nothing selected, which is the same answer as a greyed out item and is one
+     * fewer thing to keep in step with what is on screen.
+     */
+    private fun editingMenu(): NSMenu {
+        val menu = NSMenu()
+        shortcut(menu, "Cut", Key.X)
+        shortcut(menu, "Copy", Key.C)
+        shortcut(menu, "Paste", Key.V)
+        menu.addItem(NSMenuItem.separatorItem())
+        shortcut(menu, "Select All", Key.A)
+        return menu
+    }
+
+    private fun shortcut(menu: NSMenu, title: String, key: Key) {
+        val item = NSMenuItem()
+        item.setTitle(title)
+        item.setTarget(
+            MenuShortcut {
+                scene.sendKeyEvent(command(key, KeyEventType.KeyDown))
+                scene.sendKeyEvent(command(key, KeyEventType.KeyUp))
+            },
+        )
+        item.setAction(platform.darwin.sel_registerName("perform"))
+        menu.addItem(item)
+    }
+
+    /** One key held with Command, built from parts the way a platform event is. */
+    private fun command(key: Key, type: KeyEventType): KeyEvent = KeyEvent(
+        key = key,
+        type = type,
+        codePoint = 0,
+        isAltPressed = false,
+        isCtrlPressed = false,
+        isMetaPressed = true,
+        isShiftPressed = false,
+    )
+
     private fun send(event: NSEvent, kind: PointerEventType, button: PointerButton? = null) {
         scene.sendPointerEvent(
             eventType = kind,
@@ -673,3 +798,9 @@ private val Int.readerRole: String
         ElementRole.IMAGE -> NSAccessibilityImageRole
         else -> NSAccessibilityGroupRole
     } ?: NSAccessibilityGroupRole ?: "AXGroup"
+
+/** Holds the closure a menu item runs, because a menu item calls a selector on a target. */
+private class MenuShortcut(private val run: () -> Unit) : platform.darwin.NSObject() {
+    @kotlinx.cinterop.ObjCAction
+    fun perform() = run()
+}

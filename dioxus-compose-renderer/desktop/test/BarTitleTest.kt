@@ -57,6 +57,28 @@ class BarTitleTest {
     )
 
     /**
+     * A caption measured shorter than nothing does not take the window down.
+     *
+     * A platform reads its caption as the difference between two rectangles, and while a
+     * window is being resized one of them can be updated before the other, so the
+     * difference is negative for a moment. The page's top is made of it, a negative padding
+     * throws from inside composition, and the window closed the first time anyone dragged
+     * its edge.
+     */
+    @Test
+    fun fr19_a_caption_measured_below_nothing_does_not_close_the_window() = runComposeUiTest {
+        setContent {
+            CompositionLocalProvider(LocalFrameRequests provides frames) {
+                DioxusContent(
+                    rememberDioxusHost(FakeHostConnection(batch(DesignSystem.LiquidGlass))),
+                    caption = WindowCaption(height = (-12).dp, buttonsWidth = 0.dp),
+                )
+            }
+        }
+        onNodeWithText(TITLE).assertIsDisplayed()
+    }
+
+    /**
      * Under GNOME the title is centred in the window, not between the bar's children.
      *
      * A title that sat in the middle of whatever else the bar held would drift as buttons

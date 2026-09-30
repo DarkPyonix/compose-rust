@@ -785,7 +785,10 @@ internal fun pageInsets(
     barTakesTheTop: Boolean,
     navigationTakesTheBottom: Boolean,
 ): Pair<Dp, Dp> {
-    val top = if (barTakesTheTop) 0.dp else caption.height + bars.top
+    // Never below nothing, whatever a platform measured. This is a padding, and a negative
+    // one does not draw oddly: it throws, from inside composition, and takes the window
+    // with it.
+    val top = if (barTakesTheTop) 0.dp else (caption.height + bars.top).coerceAtLeast(0.dp)
     val bottom = if (navigationTakesTheBottom) 0.dp else bars.bottom
     return top to bottom
 }

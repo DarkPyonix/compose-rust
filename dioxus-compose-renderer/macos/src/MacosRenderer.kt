@@ -39,11 +39,19 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // Started before there is a window, because what the window should look like is in
     // the first batch and a window cannot be told afterwards: how big it is and what it
     // is called are settled when it is made.
-    // The menu a selection offers, drawn by the system rather than by Compose. The path
-    // that asks the platform for one is behind a flag while it is being finished
-    // upstream, and this window has a platform that answers, so it is turned on.
-    ComposeFoundationFlags.isNewContextMenuEnabled = true
+    // The menu a selection offers, drawn by the system rather than by Compose.
+    //
+    // Off, and that is the opposite of what it was. The new path was turned on because it
+    // is the one that asks the platform for a menu and this platform answers, through the
+    // `NSMenu` the text toolbar builds. It does not ask on this platform: what it draws is
+    // a menu of its own, at the window's top left corner rather than under the pointer,
+    // with every item in it dead. The old path goes through the toolbar, which is ours.
+    //
+    // To be turned back on when the new path reaches this platform, and the way to tell is
+    // that the menu comes up where the pointer is.
+    ComposeFoundationFlags.isNewContextMenuEnabled = false
 
+    declareWindowBackdrop()
     val host = DioxusHost(connection())
     host.start()
     // What the application asked for. A window that said nothing is listed under whatever
@@ -73,4 +81,22 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     application.activateIgnoringOtherApps(true)
     application.run()
     return 0
+}
+
+/**
+ * Tells the design systems that a page or a piece of chrome drawn with alpha has something
+ * behind it to show.
+ *
+ * True because [MacosWindow] puts the system's own material behind everything it draws.
+ * Said here rather than read off the operating system's name: that name is true of every
+ * build for this platform and describes only the ones that put a material there.
+ *
+ * Its own function so that the answer this renderer gives can be exercised. What went
+ * wrong before was not the answer but that nothing checked it against what the window had
+ * actually done, and a claim of a backdrop that is not there costs the whole look of the
+ * window: chrome takes the recipe meant to sit on the desktop and the page is made
+ * translucent for a desktop that never arrives, so both come out grey.
+ */
+internal fun declareWindowBackdrop() {
+    dioxus.compose.runtime.platformBacksWindowWithMaterial = { true }
 }

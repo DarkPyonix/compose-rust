@@ -48,6 +48,10 @@ internal class MetalSurface {
         it.pixelFormat = MTLPixelFormatBGRA8Unorm
         // Skia draws into the texture rather than only sampling it.
         it.framebufferOnly = false
+        // Whatever the window puts behind this reaches the screen only where the drawing
+        // did not cover it, and an opaque layer covers all of it whatever the alpha in the
+        // texture says.
+        it.opaque = false
         // The whole reason this layer is ours. See above.
         it.presentsWithTransaction = true
     }
