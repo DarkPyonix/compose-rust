@@ -1,0 +1,12 @@
+# Outside the repository's workspace for the same reason the breakdown crate is: this
+# measures and probes the design, and is not part of what the project publishes.
+[workspace]
+members = ["macro", "runtime"]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+publish = false
+
+[profile.release]
+debug = true
