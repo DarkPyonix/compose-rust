@@ -54,7 +54,9 @@ internal fun HostButton(
 ) {
     val enabled = node.flag(PropertyKind.Enabled, default = true)
     val handlerId = node.handler(PropertyKind.OnClick)
-    val style = theme.rules.button(node.variant(), theme)
+    val style = theme.rules.button(node.variant(), theme).let {
+        if (LocalInAMenu.current) theme.rules.menuEntry(it, theme) else it
+    }
     val interactions = remember { MutableInteractionSource() }
     val pressed by interactions.collectIsPressedAsState()
     val motion = theme.rules.motion

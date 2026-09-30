@@ -1,7 +1,6 @@
 package dioxus.compose.foundation
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -492,9 +491,6 @@ private fun SectionHeading(name: String, style: NavigationStyle, theme: Resolved
  */
 private const val SECTION_HEADING_ALPHA = 0.7f
 
-/** The hairline round a search field in a drawer. */
-private val SEARCH_FIELD_EDGE = 1.dp
-
 /**
  * The destinations down the leading edge: a rail or a drawer on the window's edge, or a
  * panel floating inside it where the design system floats them.
@@ -722,9 +718,6 @@ internal fun Destination(
     val label = node.text(PropertyKind.Text)
     val role = node.role(PropertyKind.Icon, IconRole.entries.toTypedArray())
     val enabled = node.flag(PropertyKind.Enabled, default = true)
-    val search = role == IconRole.Search &&
-        presentation == NavigationPresentation.Drawer &&
-        style.searchContainer != null
     // The design system decides what "selected" looks like, unless the node names a
     // colour itself. A unified sample is what needs the exception: its reference bar is
     // white icons on black with no accent anywhere, and asking the active system instead
@@ -734,29 +727,15 @@ internal fun Destination(
     // is saying it about itself, not about half of itself, and a sample wanting the two
     // states apart says so by giving each destination its own colour.
     val named = node.paintProp(PropertyKind.Color)?.let { theme.color(it) }
-    val tint = named ?: if (selected && !search) style.selectedContent else style.content
+    val tint = named ?: if (selected) style.selectedContent else style.content
     val showLabel = label.isNotEmpty() &&
         (presentation != NavigationPresentation.Rail || style.labelInRail)
-    val pill = selected && !search && style.indicatorKind == NavigationIndicator.Pill
-    val bar = selected && !search && style.indicatorKind == NavigationIndicator.LeadingEdgeBar
+    val pill = selected && style.indicatorKind == NavigationIndicator.Pill
+    val bar = selected && style.indicatorKind == NavigationIndicator.LeadingEdgeBar
 
     Box(
         modifier
             .testTag(nodeTestTag(node.id))
-            .then(
-                if (search) {
-                    Modifier
-                        .clip(style.indicatorShape)
-                        .background(style.searchContainer)
-                        .then(
-                            style.searchOutline?.let { edge ->
-                                Modifier.border(SEARCH_FIELD_EDGE, edge, style.indicatorShape)
-                            } ?: Modifier,
-                        )
-                } else {
-                    Modifier
-                },
-            )
             // `selectable` rather than `clickable`: one of a set is chosen, and saying so
             // is what puts "selected" in the accessibility tree instead of leaving a
             // screen reader to announce every destination identically.
@@ -894,9 +873,10 @@ private fun DestinationLabel(
     theme: ResolvedTheme,
 ) {
     if (!show) return
+    val rung = node.textStyle(theme, style.typeRole)
     BasicText(
         text = label,
-        style = node.textStyle(theme, style.typeRole).copy(color = tint),
+        style = rung.copy(color = tint, fontWeight = style.destinationWeight ?: rung.fontWeight),
     )
 }
 

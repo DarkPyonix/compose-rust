@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -137,7 +138,7 @@ internal fun HostMenu(
                 // not a distance: drawing the page by it puts a piece of the page
                 // somewhere inside the menu. A menu that hangs past the window's edge has
                 // nothing of ours behind it there anyway.
-                CompositionLocalProvider(LocalGlassBackdrop provides null) {
+                CompositionLocalProvider(LocalGlassBackdrop provides null, LocalInAMenu provides true) {
                 Column(
                     Modifier
                         .testTag(menuPopupTestTag(node.id))
@@ -152,6 +153,17 @@ internal fun HostMenu(
         }
     }
 }
+
+/**
+ * Whether what is being drawn is inside a menu's popup.
+ *
+ * A menu's entries are declared as buttons, because that is what they are to the
+ * application: a thing with a name that does something when it is chosen. What they are to
+ * the reader is a list, and a system that cuts every button into a capsule drew the list as
+ * a stack of pills with room between them, which is a sheet of actions on a phone rather
+ * than a menu on a desktop.
+ */
+val LocalInAMenu = compositionLocalOf { false }
 
 /** Test tag of the popup half of a menu, which is its own window, not part of the anchor. */
 fun menuPopupTestTag(nodeId: Int): String = "${nodeTestTag(nodeId)}-popup"

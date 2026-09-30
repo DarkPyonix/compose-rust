@@ -315,6 +315,16 @@ interface ComponentRules {
         theme: ResolvedTheme,
     ): androidx.compose.ui.Modifier
 
+    /**
+     * What that button becomes when it is a line in a menu rather than a control on a page.
+     *
+     * The default is that it becomes nothing: the system draws its menu out of its own
+     * buttons. Override it where a menu row is its own thing, which on the Apple systems it
+     * is: a row there runs the width of the menu, is cut shallow rather than into a capsule,
+     * and is read as a list rather than as a stack of controls.
+     */
+    fun menuEntry(base: ButtonStyle, theme: ResolvedTheme): ButtonStyle = base
+
     /** How a `ButtonVariant` looks, resting and pressed. */
     fun button(
         variant: dioxus.compose.protocol.ButtonVariant,
@@ -664,19 +674,19 @@ data class NavigationStyle(
     /** Whether a rail, which is narrow, still writes the label under the icon. */
     val labelInRail: Boolean,
     val typeRole: TypeRole,
+    /**
+     * The weight a drawer's rows are set in, or null to take the rung's own.
+     *
+     * Named where the rung a sidebar row borrows is heavier than a row should be. The
+     * rungs that label something are set heavier in the systems that draw on glass,
+     * because a label on a translucent surface competes with whatever shows through it,
+     * and that reasoning is about the label on a button, a segment or a section head. A
+     * sidebar row is not labelling a control; it is a line in a list you read.
+     */
+    val destinationWeight: FontWeight? = null,
     /** Optional page gradient behind both the destinations and their content. */
     val pageGradientStart: Color? = null,
     val pageGradientEnd: Color? = null,
-    /** A search destination becomes a field-shaped action when this is non-null. */
-    val searchContainer: Color? = null,
-    /**
-     * The hairline round that field, or null where the fill alone says what it is.
-     *
-     * A drawer marks the destination you are on with a fill as well, so a field drawn as a
-     * fill and nothing else is a second thing in the list that looks selected. The line is
-     * what tells a place you can go from a place you can type.
-     */
-    val searchOutline: Color? = null,
     /**
      * What the strip is made of when it floats, or null for a strip painted [container]
      * straight onto the window's edge.

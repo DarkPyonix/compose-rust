@@ -297,6 +297,49 @@ class DesignTokenWiringTest {
     }
 
     /**
+     * The sidebar's corner, traced the way the reference was: how far in the outline is at
+     * each of a few rows down from the panel's top edge.
+     *
+     * Measured along the reference's lit rim, those are fifteen, eleven, seven, three and
+     * one points at one, two, four, eight and twelve rows down. The panel was cut to the
+     * right radius and drawn as a superellipse squarer than the reference's, so it came in
+     * seven, five, three, one and nothing: a corner that read as half the size it was.
+     */
+    @Test
+    fun fr21_2_1_the_glass_sidebar_corner_is_the_reference_corner() {
+        val glass = resolved(DesignSystem.LiquidGlass)
+        val shape = glass.rules.navigation(WindowSizeClass.Expanded, glass).stripShape
+        val size = androidx.compose.ui.geometry.Size(230f, 844f)
+        val outline = shape.createOutline(
+            size,
+            androidx.compose.ui.unit.LayoutDirection.Ltr,
+            androidx.compose.ui.unit.Density(1f),
+        ) as androidx.compose.ui.graphics.Outline.Generic
+        val measure = androidx.compose.ui.graphics.PathMeasure()
+        measure.setPath(outline.path, false)
+        // The furthest right the outline reaches on a row, which near the top right corner
+        // is how far in the corner has pulled it.
+        fun inset(rowsDown: Float): Float {
+            var furthest = 0f
+            val steps = 20_000
+            for (i in 0..steps) {
+                val p = measure.getPosition(measure.length * i / steps)
+                if (kotlin.math.abs(p.y - rowsDown) < 0.35f && p.x > furthest) furthest = p.x
+            }
+            return size.width - furthest
+        }
+        val reference = listOf(1f to 15f, 2f to 11f, 4f to 7f, 8f to 3f, 12f to 1f)
+        for ((rows, expected) in reference) {
+            val actual = inset(rows)
+            assertTrue(
+                kotlin.math.abs(actual - expected) <= 2f,
+                "$rows rows down the sidebar's corner is $actual in where the reference's " +
+                    "is $expected, so the corner reads as a different size",
+            )
+        }
+    }
+
+    /**
      * The mark behind the row you are on is the quietest state in the system, and quieter
      * than any button. A fifth of black over a white panel came out a solid grey slab.
      */
@@ -311,8 +354,32 @@ class DesignTokenWiringTest {
         )
     }
 
+    /**
+     * A menu's entries are declared as buttons and are not drawn as ones.
+     *
+     * What they are to the application is a thing with a name that does something; what
+     * they are to the reader is a list. Drawn as buttons under a system that cuts every
+     * button into a capsule, the list came out as a stack of pills with air between them.
+     */
     @Test
-    fun fr22_liquid_glass_navigation_has_a_translucent_gradient_and_search_pill() {
+    fun fr14_a_glass_menu_row_is_a_line_in_a_list_and_not_a_capsule() {
+        val glass = resolved(DesignSystem.LiquidGlass)
+        val button = glass.rules.button(ButtonVariant.Text, glass)
+        val row = glass.rules.menuEntry(button, glass)
+        assertNotEquals(button.shape, row.shape, "a menu row is cut like a button")
+        assertTrue(row.minHeight < button.minHeight, "a menu row is as tall as a button")
+        assertTrue(
+            row.verticalPadding < button.verticalPadding,
+            "a menu row keeps as much room round it as a button does",
+        )
+        // And the systems that draw their menus out of their own buttons are left alone.
+        val fluent = resolved(DesignSystem.Fluent)
+        val plain = fluent.rules.button(ButtonVariant.Text, fluent)
+        assertEquals(plain, fluent.rules.menuEntry(plain, fluent))
+    }
+
+    @Test
+    fun fr22_liquid_glass_navigation_has_a_translucent_gradient() {
         val glass = resolved(DesignSystem.LiquidGlass)
         val style = glass.rules.navigation(WindowSizeClass.Expanded, glass)
         assertTrue(style.container.alpha < 1f, "the drawer hides the page behind it")
@@ -335,28 +402,13 @@ class DesignTokenWiringTest {
         // And the light that rises from it, without which the wash is one colour across the
         // whole window and reads as a fill.
         assertTrue(style.pageCornerGlow != null, "the page has no light at its corners")
-        assertTrue(style.searchContainer != null, "the search destination has no pill fill")
-        // And it is not marked the way the row you are on is. A drawer says "selected" with
-        // a fill, so the field is drawn instead: one is a place you can type and the other
-        // is the place you are, and at five levels of the same kind of mark apart they were
-        // two things in one list wearing one state.
-        assertTrue(
-            style.searchContainer!!.alpha < style.indicator.alpha,
-            "the search field is filled like the selected row's mark",
-        )
-        assertTrue(style.searchOutline != null, "nothing tells the search field from a row")
-        assertTrue(
-            style.searchOutline!!.alpha > style.indicator.alpha,
-            "the line round the field is fainter than the fill it has to be told from",
-        )
+
 
         val fluent = resolved(DesignSystem.Fluent)
         val flat = fluent.rules.navigation(WindowSizeClass.Expanded, fluent)
         assertEquals(null, flat.pageGradientStart)
         assertEquals(null, flat.pageGradientEnd)
         assertEquals(null, flat.pageCornerGlow)
-        assertEquals(null, flat.searchContainer)
-        assertEquals(null, flat.searchOutline)
     }
 }
 

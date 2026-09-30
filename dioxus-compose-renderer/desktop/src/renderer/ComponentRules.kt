@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dioxus.compose.protocol.ButtonVariant
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.StrokeJoin
 import dioxus.compose.protocol.ColorRole
 import dioxus.compose.protocol.IconRole
@@ -2847,6 +2848,23 @@ internal object LiquidGlassRules : ComponentRules {
     }
 
     /**
+     * A menu row, which is not a capsule and not a control with room round it.
+     *
+     * The menus this language draws are lists: each row runs the full width of the menu,
+     * is cut shallow so the highlight is a band rather than a pill, and sits on the tight
+     * rhythm a list of names is read at. Left as buttons they came out as a stack of
+     * capsules with air between them, which is the sheet of actions a phone slides up and
+     * not the menu a desktop drops down.
+     */
+    override fun menuEntry(base: ButtonStyle, theme: ResolvedTheme): ButtonStyle = base.copy(
+        shape = theme.shape(ShapeRole.ExtraSmall),
+        horizontalPadding = theme.space(SpaceRole.Sm),
+        verticalPadding = MENU_ROW_PADDING,
+        minHeight = MENU_ROW_HEIGHT,
+        typeRole = TypeRole.Body,
+    )
+
+    /**
      * Every button is a capsule, at every size.
      *
      * That is the single loudest difference from the flat language beside it, where a
@@ -3339,6 +3357,11 @@ internal object LiquidGlassRules : ComponentRules {
                 theme.color(ColorRole.OnSurface)
             },
             headingContent = theme.color(ColorRole.OnSurfaceVariant),
+            destinationWeight = if (presentation == NavigationPresentation.Drawer) {
+                FontWeight.Normal
+            } else {
+                null
+            },
             indicator = if (bar) Color.Transparent else tintedFill(theme.dark, SELECTED_ROW_ALPHA),
             indicatorShape = theme.shape(ShapeRole.Full),
             indicatorKind = NavigationIndicator.Pill,
@@ -3384,13 +3407,14 @@ internal object LiquidGlassRules : ComponentRules {
             },
             pageGradientStart = if (theme.windowBackdrop) start.copy(alpha = PAGE_OVER_WINDOW_TOP) else start,
             pageGradientEnd = if (theme.windowBackdrop) end.copy(alpha = PAGE_OVER_WINDOW_FOOT) else end,
-            searchContainer = Color.Transparent,
-            searchOutline = tintedFill(theme.dark, SEARCH_FIELD_EDGE_ALPHA),
             stripMaterial = strip,
             stripShape = if (bar) {
                 theme.shape(ShapeRole.Full)
             } else {
-                ContinuousCornerShape(concentricRadius(WINDOW_CORNER, inset))
+                ContinuousCornerShape(
+                    concentricRadius(WINDOW_CORNER, inset),
+                    exponent = SIDEBAR_CORNER_EXPONENT,
+                )
             },
             floatingInset = inset,
             carriesCaption = !bar,
@@ -3486,7 +3510,7 @@ internal object LiquidGlassRules : ComponentRules {
      * The corner of a macOS 26 window, which a sidebar held inside it is cut concentric
      * with.
      */
-    private val WINDOW_CORNER = 26.dp
+    private val WINDOW_CORNER = APPLE_WINDOW_RADIUS
 
     /**
      * How far a rail or a sidebar stands off the window's leading edge, top and bottom.
@@ -3533,6 +3557,22 @@ internal object LiquidGlassRules : ComponentRules {
     private val DRAWER_ROW_HEIGHT = 32.dp
 
     /**
+     * How square the sidebar's corners are, as a superellipse exponent.
+     *
+     * Traced off the reference along the panel's lit rim, row by row down from its top
+     * edge: the rim comes in fifteen, eleven, seven, three and one points at one, two,
+     * four, eight and twelve rows down. The panel's own radius drawn at 2.8 lands on every
+     * one of those within a point. At the shape's default of 5 the same radius came in
+     * seven, five, three, one and nothing, which is a corner half the size: the sidebar was
+     * cut to twenty six and read as though it were cut to eleven.
+     */
+    private const val SIDEBAR_CORNER_EXPONENT = 2.8
+
+    /** How tall one row of a menu is, and the room above and below what it says. */
+    private val MENU_ROW_HEIGHT = 28.dp
+    private val MENU_ROW_PADDING = 4.dp
+
+    /**
      * How far back from a corner an icon's line starts to turn.
      *
      * Measured off the reference's set, whose frames turn through an arc two or three
@@ -3560,25 +3600,6 @@ internal object LiquidGlassRules : ComponentRules {
      * on. Selection in a list is the quietest state in the system.
      */
     private const val SELECTED_ROW_ALPHA = 0.08f
-
-    /**
-     * The well a search destination sits in when a sidebar draws it as a field.
-     *
-     * Apple's tertiary fill. It took the fill a tinted button takes, which put a solid
-     * 0xC5C5C5 slab in the middle of a list of rows: a field is recessed into the panel,
-     * and a fifth of black is a control sitting on top of one.
-     */
-    /**
-     * The hairline round a search destination drawn as a field, which is all there is to
-     * it: the well itself is empty.
-     *
-     * A fill will not do here whatever its weight, because a drawer marks the row you are
-     * on with a fill too, and the two sat next to each other in the same list at five
-     * levels apart. One is a place you can type and the other is the place you are, and
-     * the difference has to be the kind of mark rather than its strength: the field is
-     * drawn and the state is filled.
-     */
-    private const val SEARCH_FIELD_EDGE_ALPHA = 0.16f
 
     /**
      * How opaque the page is at its top and at its foot over a window that shows the
@@ -3665,20 +3686,19 @@ private val APPLE_BUTTON_INSET = 10.dp
 /**
  * How round that window is, and how round a plain one is.
  *
- * Read as a ceiling rather than as a measurement. The window this reaches on macOS is the
- * system's, and the system rounds it: raising this from fourteen to twenty six and again
- * to thirty four left the corner pixel for pixel identical, because what it sets is the
- * backing layer's radius and the window in front of it is already cut tighter. Only a
- * value below the system's own would show, which is what the plain mode's is for.
+ * This did nothing for a long time and the reason is worth keeping. The window was opaque,
+ * so the system painted its own rounded background at its own radius and the number here
+ * only rounded the layer drawn on top: raising it from fourteen to twenty six and again to
+ * thirty four left the corner pixel for pixel identical, and what showed at the corner was
+ * the system's square shoulder behind the drawing. The window is neither opaque nor painted
+ * now, so the corner on the screen is the one asked for here.
  *
- * So a window whose corner has to be deeper than the system's cannot get there this way.
- * The reference's is, measurably, and matching it means a window that draws its own frame
- * rather than a number here.
- *
- * Not the same number the panels inside it are cut concentric with. The window's corner
- * belongs to the system and the panel's to the application.
+ * The ordinary mode is cut a good deal deeper than the plain one, which keeps the system's
+ * own. That is the visible difference between a window that belongs to this language and
+ * one that does not, and it is the same difference the buttons a step in from the corner
+ * make.
  */
-private val APPLE_WINDOW_RADIUS = 26.dp
+private val APPLE_WINDOW_RADIUS = 34.dp
 private val APPLE_PLAIN_WINDOW_RADIUS = 10.dp
 
 /**

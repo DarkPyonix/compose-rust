@@ -6,6 +6,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
+import kotlin.test.assertEquals
+import dioxus.compose.ui.node.nodeTestTag
+import dioxus.compose.protocol.IconRole
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import androidx.compose.ui.unit.Density
@@ -87,6 +93,34 @@ class NavigationStripTest {
             onNodeWithText(FOOT_TEXT).assertDoesNotExist()
         }
 
+    /**
+     * A search destination is a destination.
+     *
+     * It was drawn as a bar of its own, filled and cut into a capsule, which put a second
+     * filled thing in a list whose one filled thing means "this is where you are". The
+     * rule came from a memory of how this platform's sidebars hold their search, and the
+     * platform does not hold it there at all.
+     *
+     * Asserted by drawing two destinations that are both not the one you are on, one of
+     * them the search, and reading the same pixel inside each: whatever they mean, two
+     * rows in the same state look the same.
+     */
+    @Test
+    fun fr22_a_search_destination_is_drawn_like_any_other() =
+        runDesktopComposeUiTest(1200, 800) {
+            open(1200.dp, 800.dp)
+            val search = onNodeWithTag(nodeTestTag(FIRST)).captureToImage().toPixelMap()
+            val plain = onNodeWithTag(nodeTestTag(SECOND)).captureToImage().toPixelMap()
+            // Inside the row and clear of its glyph and its word, which is where a fill of
+            // its own would show and nothing else does.
+            val corner = 2
+            assertEquals(
+                plain[plain.width - corner, corner],
+                search[search.width - corner, corner],
+                "the search destination is filled where the destination beside it is not",
+            )
+        }
+
     private fun androidx.compose.ui.test.ComposeUiTest.open(width: androidx.compose.ui.unit.Dp, height: androidx.compose.ui.unit.Dp) {
         setContent {
             CompositionLocalProvider(
@@ -110,6 +144,8 @@ class NavigationStripTest {
         Mutation.Create(NAVIGATION, WidgetKind.Navigation),
         Mutation.SetModifier(NAVIGATION, 0, ProtocolModifier.FillMaxWidth),
         Mutation.SetModifier(NAVIGATION, 1, ProtocolModifier.FillMaxHeight),
+        // The page, so that neither destination is the one being looked at.
+        Mutation.SetProp(NAVIGATION, PropertyKind.SelectedIndex, PropertyValue.Integer(2)),
 
         Mutation.Create(HEAD, WidgetKind.ScaffoldSlot),
         Mutation.SetProp(HEAD, PropertyKind.Slot, PropertyValue.Integer(SlotRole.TopBar.ordinal + 1L)),
@@ -120,6 +156,9 @@ class NavigationStripTest {
 
         Mutation.Create(FIRST, WidgetKind.NavigationItem),
         Mutation.SetProp(FIRST, PropertyKind.Text, PropertyValue.Text("first")),
+        // The search, and not the one being looked at: what it used to be drawn as showed
+        // only where it was neither.
+        Mutation.SetProp(FIRST, PropertyKind.Icon, PropertyValue.Integer(IconRole.Search.ordinal + 1L)),
         Mutation.SetProp(FIRST, PropertyKind.Section, PropertyValue.Text(GROUP)),
         Mutation.Insert(NAVIGATION, FIRST, 1),
         Mutation.Create(SECOND, WidgetKind.NavigationItem),
