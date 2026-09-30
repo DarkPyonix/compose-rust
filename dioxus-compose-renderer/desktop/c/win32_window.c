@@ -53,14 +53,11 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-<<<<<<< HEAD
 #include <stdlib.h>
 #include <stddef.h>
 
 #include "win32_resize.h"
-=======
 #include "win32_ime_text.h"
->>>>>>> feat/win32-ime
 
 // What happened in the window, waiting to be read.
 //
@@ -133,7 +130,6 @@ static ID3D12Fence *dxc_fence;
 static HANDLE dxc_fence_signalled;
 static UINT64 dxc_fence_value;
 static UINT dxc_frame_index;
-<<<<<<< HEAD
 // The size the window has been given and the size it is drawn at, which are the same
 // except while a resize is being taken. A swapchain cannot be refitted while the buffer
 // being refitted is the one being drawn into, so the size is written down here and acted
@@ -182,11 +178,8 @@ static void dxc_draw_one_frame(void) {
     if (dxc_draw_frame != NULL) {
         dxc_draw_frame(dxc_draw_thread);
     }
-=======
-// Set when the window changed size and acted on at the start of the next frame, because a
-// swapchain cannot be resized while the buffer being resized is the one being drawn into.
-static int32_t dxc_pending_width;
-static int32_t dxc_pending_height;
+}
+
 static int dxc_ime_composing;
 static WCHAR dxc_pending_high_surrogate;
 static LPCWSTR dxc_cursor = IDC_ARROW;
@@ -201,7 +194,6 @@ void dxc_native_set_cursor(int32_t shape) {
     default: dxc_cursor = IDC_ARROW; break;
     }
     SetCursor(LoadCursorW(NULL, dxc_cursor));
->>>>>>> feat/win32-ime
 }
 
 static void dxc_push_event(struct dxc_event event) {
@@ -1255,7 +1247,6 @@ static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM
     case WM_SYSKEYUP:
         dxc_push_key(DXC_EVENT_KEY_UP, wparam);
         return 0;
-<<<<<<< HEAD
     case WM_ENTERSIZEMOVE:
         // The reader has taken hold of an edge, or of the title bar. From here until the
         // matching message below, everything this window hears is dispatched from a loop
@@ -1268,7 +1259,6 @@ static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM
         // written down and taken by the next frame.
         dxc_resize_end_drag(&dxc_sizing);
         return 0;
-=======
     case WM_IME_STARTCOMPOSITION:
         dxc_ime_composing = 1;
         dxc_pending_high_surrogate = 0;
@@ -1325,7 +1315,6 @@ static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM
         }
         return 0;
     }
->>>>>>> feat/win32-ime
     case WM_SIZE:
         // Written down rather than acted on. The buffer being refitted may be the one the
         // frame in flight is drawing into, so the swapchain is refitted where a frame
