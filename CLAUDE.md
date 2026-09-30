@@ -76,6 +76,33 @@ under `docs/`.
    working pulls the files out from under it. Work has been lost that way. Give a
    background agent its own worktree and leave that checkout alone until it finishes.
 
+## Where files go
+
+1. **Everything this project makes stays inside this repository.** Worktrees, experiments,
+   probes, scratch files, build outputs, and anything downloaded to build or test with.
+   Not `/tmp`, not a directory beside this checkout, not the home directory. The owner has
+   to be able to find all of it in one place and remove it by removing one place, and has
+   never agreed to anything being written anywhere else.
+2. Where inside:
+   - worktrees: `.claude/worktrees/<name>/` (ignored by git);
+   - throwaway work, probes and downloads: `.scratch/<name>/` (ignored by git);
+   - experiments worth keeping: `experiments/<name>/`, committed;
+   - build outputs: `target/` and `build/`, where the tools already put them.
+3. A change to another project this one builds on (Compose, skiko) is kept here as a patch
+   under `dioxus-compose-renderer/patches/`, the way the Compose patches already are, and
+   applied to a checkout inside `.scratch/`. A checkout of that project elsewhere is not
+   where the change lives.
+4. Caches a toolchain keeps for itself (`~/.cargo`, `~/.rustup`, `~/.gradle`, `~/.m2`,
+   `~/.konan`, cargo-xwin's cache) belong to the tool and stay where it puts them.
+   Downloading or installing a tool this project does not already use is not a cache: ask
+   first, and put it inside `.scratch/`.
+5. If a task seems to need a path outside the repository, ask before writing there. Being
+   asked and told yes is the only exception, and it covers that path for that task.
+
+This is written down because it happened. Probes and their builds went to `/tmp`, a Wine
+download went to `/tmp`, and worktrees went to `../agent-runs`, and the owner had agreed to
+none of it.
+
 ## Background agents
 
 These bind the agent and whoever dispatches it equally. Both have been broken by the

@@ -27,6 +27,9 @@ target
 .claude/
 .agent-salvage/
 
+# Throwaway work, probes and downloads (CLAUDE.md, "Where files go")
+.scratch/
+
 # Machine local cargo settings. Nothing in this repository writes this file any more:
 # scripts/setup-worktrees.sh removes a target-dir from it, because two checkouts
 # sharing one build directory run each other's binaries.
