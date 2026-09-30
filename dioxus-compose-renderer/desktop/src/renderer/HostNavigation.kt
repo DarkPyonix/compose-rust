@@ -236,10 +236,10 @@ internal fun HostNavigation(
     // destinations paints none of it. That is what a frame does with this: the strip goes
     // in one slot and the frame paints the page behind both.
     val holdsAPage = content.isNotEmpty()
-    // A sidebar the reader has put away. FR-21.2.1 makes being put away the Renderer's
-    // state, and a sidebar that can only be put away by making the window narrower is one
-    // the reader cannot put away at all: every sidebar this language is drawn from has a
-    // button on it that does exactly this.
+    // A sidebar the reader has put away. Whether it is away is the Renderer's state rather
+    // than the application's, and a sidebar that can only be put away by making the window
+    // narrower is one the reader cannot put away at all: every sidebar this language is
+    // drawn from has a button on it that does exactly this.
     var putAway by remember(node.id) { mutableStateOf(false) }
     val presentation = if (putAway && style.presentation == NavigationPresentation.Drawer) {
         NavigationPresentation.PutAway

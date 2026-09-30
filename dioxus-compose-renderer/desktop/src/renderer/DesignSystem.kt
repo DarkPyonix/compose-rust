@@ -157,7 +157,7 @@ class ResolvedTheme(
      * A design system is not a platform and mostly does not need to know, which is why
      * this arrived late. One rule does: the Apple language is drawn on two platforms whose
      * answer for a set of destinations with no room differs, because one of them has its
-     * own tab bar to hand the destinations to (FR-14.9) and the other has a sidebar that
+     * own tab bar to hand the destinations to and the other has a sidebar that
      * is put away behind a button.
      */
     val platform: HostPlatform = HostPlatform.Unknown,

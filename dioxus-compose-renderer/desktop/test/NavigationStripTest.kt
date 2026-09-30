@@ -39,8 +39,8 @@ import kotlin.test.Test
  * What a strip carries besides its destinations.
  *
  * The references open with the application's mark and its name, break the destinations
- * into named groups, and close with an account row. FR-21.2 settled the destinations and
- * nothing else, so the sample was drawing a sidebar with two rows in it.
+ * into named groups, and close with an account row. Only the destinations were ever said
+ * to be the strip's, so the sample was drawing a sidebar with two rows in it.
  */
 @OptIn(ExperimentalTestApi::class)
 class NavigationStripTest {

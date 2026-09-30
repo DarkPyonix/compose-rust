@@ -182,7 +182,7 @@ class LiquidGlassChromeTest {
     /**
      * A narrow window puts the sidebar away and leaves the button that brings it back.
      *
-     * The state FR-21.2 did not have. Notes, Mail, Finder and the application the chat
+     * A state the destinations used to lack. Notes, Mail, Finder and the application the chat
      * sample is drawn from all do this, and none of them shows a column of icons with the
      * words taken off instead. A sidebar that cannot be put away is not this platform's
      * sidebar.
