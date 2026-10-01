@@ -11,8 +11,9 @@
 #   branch      created from origin/develop if it does not exist, reused if it does
 #   prompt-file a file holding the task
 #
-# The runs directory is a sibling of this checkout called agent-runs. Set DXC_AGENT_RUNS
-# to put it somewhere else.
+# The runs directory is .claude/worktrees inside this checkout, ignored by git, because
+# everything this project makes stays inside the repository. Set DXC_AGENT_RUNS to put
+# it somewhere else, and only after the owner has agreed to that place.
 #
 # Watch one with:   tail -f <runs>/<name>.log
 # Stop one with:    kill "$(cat <runs>/<name>.pid)"
@@ -46,7 +47,7 @@ prompt_file="$3"
 model="${4:-}"
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-runs="${DXC_AGENT_RUNS:-$(dirname "$repo")/agent-runs}"
+runs="${DXC_AGENT_RUNS:-$repo/.claude/worktrees}"
 tree="$runs/$name"
 log="$runs/$name.log"
 
