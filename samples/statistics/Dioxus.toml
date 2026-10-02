@@ -11,6 +11,9 @@ asset_dir = "assets"
 [bundle]
 identifier = "dev.darkpyonix.dioxus.compose.samples.statistics"
 publisher = "DarkPyonix"
+# The picture a bundle wears: a Dock tile, a Start menu tile, a desktop launcher. The
+# 64 pixel icon.png the window carries is drawn again at this size rather than stretched.
+icon = ["assets/icon-512.png"]
 short_description = "Charts drawn from the role vocabulary."
 long_description = "A dial, a week of costs and where the money went, all of it drawn with Canvas and painted with roles."
 

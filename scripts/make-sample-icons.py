@@ -14,7 +14,13 @@ thing that stands out.
 Marks are drawn from squares, circles and bars only. An icon is read at 16 pixels more
 often than at 64, and a drawing that needs detail to be recognised is not one.
 
-Run from the repository root. Writes samples/<name>/assets/icon.png.
+Each mark is drawn twice from the same shapes. `icon.png`, 64 pixels, is the one the
+window carries at run time. `icon-512.png` is the one an installable bundle carries: a Dock
+tile, a Start menu tile and a desktop launcher are drawn far larger than a title bar, and a
+64 pixel picture stretched to fill one is visibly soft. Drawing it again from the shapes
+rather than scaling the small one up is the reason the marks are described as shapes.
+
+Run from the repository root. Writes samples/<name>/assets/icon.png and icon-512.png.
 """
 
 import math
@@ -22,8 +28,11 @@ import os
 import struct
 import zlib
 
+# The grid every mark below is described on. A larger picture draws the same shapes with
+# each pixel standing for a smaller piece of this grid.
 SIZE = 64
 CORNER = 14
+LARGE = 512
 
 
 def blend(dst, src, alpha):
@@ -31,11 +40,13 @@ def blend(dst, src, alpha):
 
 
 class Canvas:
-    def __init__(self):
-        self.pixels = [[(0, 0, 0, 0)] * SIZE for _ in range(SIZE)]
+    def __init__(self, size=SIZE):
+        self.size = size
+        self.unit = SIZE / size
+        self.pixels = [[(0, 0, 0, 0)] * size for _ in range(size)]
 
     def put(self, x, y, colour, alpha=1.0):
-        if not (0 <= x < SIZE and 0 <= y < SIZE) or alpha <= 0:
+        if not (0 <= x < self.size and 0 <= y < self.size) or alpha <= 0:
             return
         r, g, b = colour
         existing = self.pixels[y][x]
@@ -53,15 +64,16 @@ class Canvas:
         where a 64 pixel circle stops showing steps.
         """
         hits = 0
+        u = self.unit
         for sy in range(4):
             for sx in range(4):
-                if inside(x + (sx + 0.5) / 4, y + (sy + 0.5) / 4):
+                if inside((x + (sx + 0.5) / 4) * u, (y + (sy + 0.5) / 4) * u):
                     hits += 1
         return hits / 16
 
     def fill(self, inside, colour):
-        for y in range(SIZE):
-            for x in range(SIZE):
+        for y in range(self.size):
+            for x in range(self.size):
                 a = self.coverage(x, y, inside)
                 if a > 0:
                     self.put(x, y, colour, a)
@@ -121,6 +133,7 @@ def stroke(ax, ay, bx, by, width):
 
 
 def write_png(path, pixels):
+    size = len(pixels)
     raw = bytearray()
     for row in pixels:
         raw.append(0)
@@ -131,7 +144,7 @@ def write_png(path, pixels):
         return (struct.pack(">I", len(payload)) + kind + payload
                 + struct.pack(">I", zlib.crc32(kind + payload) & 0xFFFFFFFF))
 
-    header = struct.pack(">IIBBBBB", SIZE, SIZE, 8, 6, 0, 0, 0)
+    header = struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0)
     data = (b"\x89PNG\r\n\x1a\n"
             + chunk(b"IHDR", header)
             + chunk(b"IDAT", zlib.compress(bytes(raw), 9))
@@ -143,7 +156,8 @@ def write_png(path, pixels):
 
 
 # Each entry is the sample, its background, its mark colour, and the shapes of the mark.
-# The comment on each says where the colour comes from.
+# The comment on each says where the colour comes from. A background of None is a mark
+# with no tile under it, and a mark colour of None means each shape carries its own.
 def marks():
     white = (255, 255, 255)
     ink = (17, 17, 17)
@@ -191,18 +205,40 @@ def marks():
         "social": ((240, 230, 210), (58, 74, 92), [
             disc(26, 32, 11), disc(40, 32, 11),
         ]),
+        # Unified, light. The mark this sample draws on its own page, a black disc over a
+        # pale one, with nothing under them. Its 64 pixel window icon was drawn by hand
+        # before this script knew it, at 128 pixels, so only the large one is written.
+        "minimal": (None, None, [
+            (disc(38, 32, 19), (229, 229, 234)), (disc(26.5, 32, 19), (0, 0, 0)),
+        ]),
     }
+
+
+# Marks whose window icon is not this script's to rewrite.
+HAND_DRAWN = {"minimal"}
+
+
+def draw(size, background, mark, shapes):
+    canvas = Canvas(size)
+    if background is not None:
+        canvas.fill(rounded_square(), background)
+    for shape in shapes:
+        if mark is None:
+            shape, colour = shape
+        else:
+            colour = mark
+        canvas.fill(shape, colour)
+    return canvas.pixels
 
 
 def main():
     for name, (background, mark, shapes) in marks().items():
-        canvas = Canvas()
-        canvas.fill(rounded_square(), background)
-        for shape in shapes:
-            canvas.fill(shape, mark)
-        path = os.path.join("samples", name, "assets", "icon.png")
-        size = write_png(path, canvas.pixels)
-        print(f"{path} ({size} bytes)")
+        outputs = [] if name in HAND_DRAWN else [(SIZE, "icon.png")]
+        outputs.append((LARGE, f"icon-{LARGE}.png"))
+        for size, file_name in outputs:
+            path = os.path.join("samples", name, "assets", file_name)
+            written = write_png(path, draw(size, background, mark, shapes))
+            print(f"{path} ({written} bytes)")
 
 
 if __name__ == "__main__":

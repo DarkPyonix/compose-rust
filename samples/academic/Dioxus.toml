@@ -11,6 +11,9 @@ asset_dir = "assets"
 [bundle]
 identifier = "dev.darkpyonix.dioxus.compose.samples.academic"
 publisher = "DarkPyonix"
+# The picture a bundle wears: a Dock tile, a Start menu tile, a desktop launcher. The
+# 64 pixel icon.png the window carries is drawn again at this size rather than stretched.
+icon = ["assets/icon-512.png"]
 short_description = "A drum school: subjects, stages and locked lessons."
 long_description = "Four subjects as coloured tiles, four stages of lessons, and what is still locked."
 
