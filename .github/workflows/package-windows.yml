@@ -224,7 +224,7 @@ jobs:
             $summary = Join-Path $env:RUNNER_TEMP "sideload-$revision.txt"
             & $tool --project $env:PROJECT --out $out --summary $summary `
               --channel sideload --revision $revision `
-              --feed-base '\\localhost\msixfeed' `
+              --feed-base 'http://localhost:8642' `
               --exe 'target\release\examples\fixture-app.exe'
             if ($LASTEXITCODE -ne 0) { throw "packaging revision $revision failed" }
             Get-Content (Join-Path $out '*.appinstaller')
@@ -254,6 +254,6 @@ jobs:
           ./tools/msix/scripts/test-update.ps1
           -Older "$env:RUNNER_TEMP\sideload-1"
           -Newer "$env:RUNNER_TEMP\sideload-2"
-          -Share "$env:RUNNER_TEMP\feed"
-          -ShareName msixfeed
+          -Serve "$env:RUNNER_TEMP\feed"
+          -Port 8642
           -Name '${{ steps.pack.outputs.identity }}'
