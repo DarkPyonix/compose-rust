@@ -1,0 +1,259 @@
+# Windows package -- builds an MSIX and an .msixbundle from one executable, signs them
+# with a throwaway certificate, runs the Windows App Certification Kit against them, and
+# proves that a newer bundle published to an App Installer feed replaces an installed one.
+#
+# The kit is what Partner Center runs on a submission, so a package that passes here is
+# not refused there for the same reasons. The Store signs what it takes in itself; the
+# test certificate exists only so that this machine will install the package.
+#
+# What gets packaged: by default a tiny windowed stand-in built from this repository,
+# described by the notepad sample's metadata, because the pipeline is what is under test
+# and the renderer takes most of an hour to build. Dispatched with a run id, it packages
+# a real build instead: an artifact from that run, unpacked, with the program and the
+# renderer beside it.
+
+name: Windows package
+
+on:
+  push:
+    paths:
+      - 'tools/msix/**'
+      - '.github/workflows/package-windows.yml'
+  pull_request:
+    paths:
+      - 'tools/msix/**'
+      - '.github/workflows/package-windows.yml'
+  workflow_dispatch:
+    inputs:
+      project:
+        description: 'Application directory holding Dioxus.toml and Cargo.toml'
+        default: 'samples/notepad'
+        type: string
+      payload_run_id:
+        description: 'Run id whose artifact holds the build to package (empty: the stand-in)'
+        default: ''
+        type: string
+      payload_artifact:
+        description: 'Artifact name in that run'
+        default: 'samples-windows-x64'
+        type: string
+      payload_archive:
+        description: 'Archive inside the artifact'
+        default: 'notepad-windows-x64.tar.gz'
+        type: string
+      payload_root:
+        description: 'Directory inside the archive that becomes the package root'
+        default: 'notepad'
+        type: string
+      payload_exe:
+        description: 'The program, relative to that directory'
+        default: 'bin/sample-notepad.exe'
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: package-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  PROJECT: ${{ inputs.project || 'samples/notepad' }}
+
+jobs:
+  test:
+    name: Packager tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy
+          rustup default stable
+
+      - name: Format
+        run: cargo fmt -p dioxus-compose-msix -- --check
+
+      - name: Clippy
+        run: cargo clippy -p dioxus-compose-msix --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test -p dioxus-compose-msix
+
+      - name: Keep the resolved lock file
+        # The packager's dependencies are resolved here rather than on a developer
+        # machine, so the lock file that resolution produced is kept for committing.
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-lock
+          path: Cargo.lock
+
+  package:
+    name: Package, sign and certify
+    needs: test
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Build the packager and the stand-in program
+        run: |
+          cargo build --release -p dioxus-compose-msix --bin dioxus-compose-msix --example fixture-app
+
+      - name: Fetch the build to package
+        if: inputs.payload_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ inputs.payload_run_id }}
+          name: ${{ inputs.payload_artifact }}
+          path: payload-artifact
+          github-token: ${{ github.token }}
+
+      - name: Package
+        id: pack
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tool = 'target\release\dioxus-compose-msix.exe'
+          $out = Join-Path $env:RUNNER_TEMP 'msix'
+          $summary = Join-Path $env:RUNNER_TEMP 'msix-summary.txt'
+          if ('${{ inputs.payload_run_id }}' -ne '') {
+            $unpacked = Join-Path $env:RUNNER_TEMP 'payload'
+            New-Item -ItemType Directory -Force -Path $unpacked | Out-Null
+            tar -xzf "payload-artifact\${{ inputs.payload_archive }}" -C $unpacked
+            & $tool --project $env:PROJECT --out $out --summary $summary --test-identity `
+              --payload-dir (Join-Path $unpacked '${{ inputs.payload_root }}') `
+              --exe '${{ inputs.payload_exe }}'
+          } else {
+            & $tool --project $env:PROJECT --out $out --summary $summary --test-identity `
+              --exe 'target\release\examples\fixture-app.exe'
+          }
+          if ($LASTEXITCODE -ne 0) { throw "packaging failed" }
+          Get-Content $summary | Add-Content -Path $env:GITHUB_OUTPUT -Encoding utf8
+          Get-Content (Join-Path $out 'layout\AppxManifest.xml')
+
+      - name: Create and trust a test certificate
+        id: cert
+        run: >
+          ./tools/msix/scripts/new-test-certificate.ps1
+          -Publisher '${{ steps.pack.outputs.publisher }}'
+          -OutDir "$env:RUNNER_TEMP\cert" -Trust
+
+      - name: Sign
+        run: >
+          ./tools/msix/scripts/sign.ps1
+          -Path '${{ steps.pack.outputs.package }}','${{ steps.pack.outputs.bundle }}'
+          -Pfx '${{ steps.cert.outputs.pfx }}' -Password '${{ steps.cert.outputs.password }}'
+
+      - name: Install and uninstall the bundle
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Add-AppxPackage -Path '${{ steps.pack.outputs.bundle }}'
+          $installed = Get-AppxPackage -Name '${{ steps.pack.outputs.identity }}'
+          if (-not $installed) { throw "the bundle did not install" }
+          Write-Host "installed $($installed.PackageFullName) at $($installed.InstallLocation)"
+          if ($installed.Version -ne '${{ steps.pack.outputs.version }}') { throw "installed $($installed.Version), packaged ${{ steps.pack.outputs.version }}" }
+          $installed | Remove-AppxPackage
+
+      - name: Windows App Certification Kit (package)
+        run: >
+          ./tools/msix/scripts/run-wack.ps1
+          -Package '${{ steps.pack.outputs.package }}'
+          -Report "$env:RUNNER_TEMP\wack\package-report.xml"
+
+      - name: Windows App Certification Kit (bundle)
+        run: >
+          ./tools/msix/scripts/run-wack.ps1
+          -Package '${{ steps.pack.outputs.bundle }}'
+          -Report "$env:RUNNER_TEMP\wack\bundle-report.xml"
+
+      - name: Upload the reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wack-reports
+          path: ${{ runner.temp }}/wack/
+          if-no-files-found: warn
+
+      - name: Upload the packages
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: msix-packages
+          path: |
+            ${{ runner.temp }}/msix/*.msix
+            ${{ runner.temp }}/msix/*.msixbundle
+            ${{ runner.temp }}/cert/test-signing.cer
+          if-no-files-found: warn
+
+  update:
+    name: App Installer update
+    needs: test
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Build the packager and the stand-in program
+        run: cargo build --release -p dioxus-compose-msix --bin dioxus-compose-msix --example fixture-app
+
+      - name: Package two builds of one release for the sideload channel
+        id: pack
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tool = 'target\release\dioxus-compose-msix.exe'
+          foreach ($revision in 1, 2) {
+            $out = Join-Path $env:RUNNER_TEMP "sideload-$revision"
+            $summary = Join-Path $env:RUNNER_TEMP "sideload-$revision.txt"
+            & $tool --project $env:PROJECT --out $out --summary $summary `
+              --channel sideload --revision $revision `
+              --feed-base '\\localhost\msixfeed' `
+              --exe 'target\release\examples\fixture-app.exe'
+            if ($LASTEXITCODE -ne 0) { throw "packaging revision $revision failed" }
+            Get-Content (Join-Path $out '*.appinstaller')
+          }
+          Get-Content (Join-Path $env:RUNNER_TEMP 'sideload-1.txt') |
+            Where-Object { $_ -match '^(identity|publisher|bundle)=' } |
+            Add-Content -Path $env:GITHUB_OUTPUT -Encoding utf8
+          $bundle2 = (Get-Content (Join-Path $env:RUNNER_TEMP 'sideload-2.txt') | Where-Object { $_ -match '^bundle=' }) -replace '^bundle=', ''
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "bundle2=$bundle2" -Encoding utf8
+
+      - name: Create and trust a test certificate
+        id: cert
+        run: >
+          ./tools/msix/scripts/new-test-certificate.ps1
+          -Publisher '${{ steps.pack.outputs.publisher }}'
+          -OutDir "$env:RUNNER_TEMP\cert" -Trust
+
+      - name: Sign both bundles
+        run: >
+          ./tools/msix/scripts/sign.ps1
+          -Path '${{ steps.pack.outputs.bundle }}','${{ steps.pack.outputs.bundle2 }}'
+          -Pfx '${{ steps.cert.outputs.pfx }}' -Password '${{ steps.cert.outputs.password }}'
+
+      - name: Install from the feed, publish a newer build, update
+        shell: powershell
+        run: >
+          ./tools/msix/scripts/test-update.ps1
+          -Older "$env:RUNNER_TEMP\sideload-1"
+          -Newer "$env:RUNNER_TEMP\sideload-2"
+          -Share "$env:RUNNER_TEMP\feed"
+          -ShareName msixfeed
+          -Name '${{ steps.pack.outputs.identity }}'
