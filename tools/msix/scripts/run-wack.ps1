@@ -4,10 +4,10 @@ Runs the Windows App Certification Kit against a package and fails on a failed t
 
 .DESCRIPTION
 The kit is the check Partner Center runs when a package is submitted, so a package that
-passes it here is not refused for the same reasons there. It installs the package,
-launches it, inspects the binaries and the manifest, and writes an XML report. The
-package has to be signed by a certificate the machine trusts, or the install step fails
-before any test runs.
+passes it here is not refused for the same reasons there. It inspects the manifest, the
+binaries and the package contents and writes an XML report; for a full-trust desktop
+package run from the command line it does not launch the program. Sign the package
+with a certificate this machine trusts first, as a machine installing it would.
 
 Warnings and failures of tests the kit marks optional do not fail the run; they are
 printed, and listed in the step summary, so that they are read. The Store accepts a
