@@ -12,6 +12,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dioxus.compose.BadgePlacement
+import dioxus.compose.BadgeStyle
 import dioxus.compose.ButtonStyle
 import dioxus.compose.ButtonVariant
 import dioxus.compose.ColorRole
@@ -284,6 +286,24 @@ class CupertinoDesignSystem private constructor(
         )
         else -> SurfaceMaterial.Opaque(color(role))
     }
+
+    /**
+     * Apple's red count on a tab bar item or an app icon: over the corner, written out in
+     * full however large, with the larger dot Apple uses for "something new".
+     */
+    override fun badge(): BadgeStyle = BadgeStyle(
+        placement = BadgePlacement.Overlap,
+        maxCount = null,
+        container = color(ColorRole.Error),
+        content = color(ColorRole.OnError),
+        height = 18.dp,
+        dotSize = 10.dp,
+        horizontalPadding = 5.dp,
+        shape = ShapeRole.Full,
+        labelSize = 13.sp,
+        ring = null,
+        ringWidth = 0.dp,
+    )
 
     companion object {
         val Light: CupertinoDesignSystem =

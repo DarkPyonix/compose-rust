@@ -11,6 +11,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dioxus.compose.BadgePlacement
+import dioxus.compose.BadgeStyle
 import dioxus.compose.ButtonStyle
 import dioxus.compose.ButtonVariant
 import dioxus.compose.ColorRole
@@ -320,6 +322,21 @@ class DeepinDesignSystem private constructor(
         pressMillis = 250,
         releaseMillis = 200,
         easing = CubicBezierEasing(0.2f, 0.0f, 0.2f, 1.0f),
+    )
+
+    /** DTK's badge: a capsule over the corner, cut at 99, ringed in the page colour. */
+    override fun badge(): BadgeStyle = BadgeStyle(
+        placement = BadgePlacement.Overlap,
+        maxCount = 99,
+        container = color(ColorRole.Error),
+        content = color(ColorRole.OnError),
+        height = 18.dp,
+        dotSize = 8.dp,
+        horizontalPadding = 5.dp,
+        shape = ShapeRole.Full,
+        labelSize = 11.sp,
+        ring = color(ColorRole.Surface),
+        ringWidth = 1.5.dp,
     )
 
     companion object {

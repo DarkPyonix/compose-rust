@@ -377,4 +377,39 @@ class LayeringIsVisibleTest {
             }
         }
     }
+
+    /**
+     * A count of 120 is not written and placed the same way six times. Some systems write
+     * it out, some cut it at their ceiling, and one sets it beside what it counts instead
+     * of on its corner.
+     */
+    @Test
+    fun fr15_2_11_a_large_count_is_not_drawn_the_same_way_by_every_system() {
+        for (dark in listOf(false, true)) {
+            val answers = systems(dark).associate { system ->
+                val badge = system.badge()
+                system.id to (badge.label(120) to badge.placement)
+            }
+            assertTrue(answers.values.toSet().size >= 2, "every system drew 120 alike: $answers")
+            assertEquals("120", answers.getValue(DesignSystemId.Material3).first)
+            assertEquals("99+", answers.getValue(DesignSystemId.Fluent).first)
+            assertEquals(
+                dioxus.compose.BadgePlacement.Trailing,
+                answers.getValue(DesignSystemId.Gnome).second,
+            )
+        }
+    }
+
+    /** Every system draws a badge, in its own error colours, with a legible figure on it. */
+    @Test
+    fun fr15_2_11_every_system_draws_a_legible_badge() {
+        for (dark in listOf(false, true)) {
+            for (system in systems(dark)) {
+                val badge = system.badge()
+                assertEquals(system.color(ColorRole.Error), badge.container, "${system.id}")
+                assertNotEquals(badge.container, badge.content, "${system.id} hides its figure")
+                assertTrue(badge.height > badge.dotSize, "${system.id} draws a dot as big as a count")
+            }
+        }
+    }
 }
