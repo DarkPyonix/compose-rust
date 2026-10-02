@@ -18,7 +18,9 @@ import androidx.compose.ui.composed
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalDensity
+import dioxus.compose.protocol.WindowHeightClass
 import dioxus.compose.protocol.WindowSizeClass
+import dioxus.compose.runtime.windowHeightClassOf
 import dioxus.compose.runtime.windowSizeClassOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -204,13 +206,18 @@ private fun Modifier.hostClickable(
 private fun Modifier.reportSizeTo(nodeId: Int, dispatcher: EventDispatcher): Modifier =
     composed {
         val density = LocalDensity.current
-        val reported = remember(nodeId) { arrayOfNulls<WindowSizeClass>(1) }
+        val reportedWidth = remember(nodeId) { arrayOfNulls<WindowSizeClass>(1) }
+        val reportedHeight = remember(nodeId) { arrayOfNulls<WindowHeightClass>(1) }
         onSizeChanged { size ->
             val widthDp = with(density) { size.width.toDp().value }
             val heightDp = with(density) { size.height.toDp().value }
             val sizeClass = windowSizeClassOf(widthDp)
-            if (reported[0] != sizeClass) {
-                reported[0] = sizeClass
+            val heightClass = windowHeightClassOf(heightDp)
+            // Either axis changing is one event, because one record holds both. Sending
+            // two would mean two boundary crossings for one resize.
+            if (reportedWidth[0] != sizeClass || reportedHeight[0] != heightClass) {
+                reportedWidth[0] = sizeClass
+                reportedHeight[0] = heightClass
                 dispatcher.dispatch(
                     HostEvent.WindowSizeChanged(
                         nodeId = nodeId,
@@ -218,6 +225,7 @@ private fun Modifier.reportSizeTo(nodeId: Int, dispatcher: EventDispatcher): Mod
                         widthDp = widthDp,
                         heightDp = heightDp,
                         sizeClass = sizeClass,
+                        heightClass = heightClass,
                     ),
                 )
             }

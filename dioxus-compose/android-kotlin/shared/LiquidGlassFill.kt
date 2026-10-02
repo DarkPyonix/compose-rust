@@ -29,6 +29,7 @@ fun glassFill(
     reduceTransparency: Boolean,
     blurAvailable: Boolean,
     depth: Int = 0,
+    windowActive: Boolean = true,
 ): Color {
     // An opaque material has one colour and neither setting changes it. Taking any
     // SurfaceMaterial rather than only the glass case means a caller styling a surface
@@ -36,7 +37,7 @@ fun glassFill(
     // of them uses glass before it can ask.
     if (material !is SurfaceMaterial.Glass) return (material as SurfaceMaterial.Opaque).color
     val resolved = material.atDepth(depth)
-    return if (drawsAsGlass(reduceTransparency, blurAvailable)) {
+    return if (drawsAsGlass(reduceTransparency, blurAvailable, windowActive)) {
         resolved.tint.copy(alpha = resolved.tintAlpha)
     } else {
         resolved.fallback
@@ -44,8 +45,11 @@ fun glassFill(
 }
 
 /** Whether these conditions leave a glass material drawing as glass. */
-fun drawsAsGlass(reduceTransparency: Boolean, blurAvailable: Boolean): Boolean =
-    !reduceTransparency && blurAvailable
+fun drawsAsGlass(
+    reduceTransparency: Boolean,
+    blurAvailable: Boolean,
+    windowActive: Boolean = true,
+): Boolean = !reduceTransparency && blurAvailable && windowActive
 
 /**
  * The blur radius these conditions actually call for.
@@ -59,7 +63,11 @@ fun glassBlurRadius(
     material: SurfaceMaterial,
     reduceTransparency: Boolean,
     blurAvailable: Boolean,
-): Dp = if (material is SurfaceMaterial.Glass && drawsAsGlass(reduceTransparency, blurAvailable)) {
+    windowActive: Boolean = true,
+): Dp = if (
+    material is SurfaceMaterial.Glass &&
+    drawsAsGlass(reduceTransparency, blurAvailable, windowActive)
+) {
     material.blurRadius
 } else {
     0.dp
