@@ -23,6 +23,10 @@ sparkle = ["dep:dioxus-compose-update", "dep:objc2"]
 
 [dependencies]
 dioxus-compose = "=0.0.0"
+# The published 0.0.0's rsx! expands to paths in these two crates, so an application of
+# that version names them itself. Later versions re-export what the macro needs.
+dioxus-core = "0.7.10"
+dioxus-signals = "0.7"
 dioxus-compose-update = { path = "../../../dioxus-compose-update", optional = true }
 
 # Only for the rehearsal's "quit after N seconds", which stands in for the person choosing
