@@ -424,11 +424,16 @@ pub fn app() -> Element {
             top_bar: rsx! {
                 TopAppBar {
                     fill_max_width: true,
+                    // Where the Windows reference lists its other modes. This sample is
+                    // the standard calculator only, and a menu key that does nothing
+                    // reads as a broken one, so it says so.
                     Button {
                         text: "",
                         icon: IconRole::Menu,
                         variant: ButtonVariant::Text,
-                        on_click: move |_| {},
+                        on_click: move |_| {
+                            Message::new("Standard is the only mode in this sample").show();
+                        },
                     }
                     // Apple's calculator names no mode across its bar: the two icons are
                     // the whole of it, and the mode is where the menu leads. Windows'
@@ -965,6 +970,20 @@ mod tests {
                 .any(|node| self.icons.get(node) == Some(&(role as u8)))
         }
 
+        /// Presses the button that carries this icon and no label.
+        fn press_icon(&mut self, role: IconRole) {
+            let node_id = *self
+                .buttons
+                .iter()
+                .find(|node| self.icons.get(*node) == Some(&(role as u8)))
+                .unwrap_or_else(|| panic!("the screen has no {role:?} button"));
+            let handler = *self
+                .clicks
+                .get(&node_id)
+                .unwrap_or_else(|| panic!("the {role:?} button cannot be pressed"));
+            self.dispatch(node_id, handler, EventPayload::Clicked);
+        }
+
         /// Whether anything of this kind carrying this text stands on the screen itself
         /// rather than inside a sheet.
         ///
@@ -1133,6 +1152,20 @@ mod tests {
         assert!(
             screen.labelled(MEMORY_LABEL).is_none(),
             "recalling should put the list away"
+        );
+    }
+
+    /// The menu key answers rather than doing nothing.
+    #[test]
+    fn fr22_the_menu_key_answers() {
+        let mut screen = Screen::new();
+        screen.press_icon(IconRole::Menu);
+        assert_eq!(
+            screen.messages,
+            vec![(
+                "Standard is the only mode in this sample".to_owned(),
+                String::new()
+            )],
         );
     }
 
