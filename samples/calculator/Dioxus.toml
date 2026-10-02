@@ -19,7 +19,7 @@ publisher = "DarkPyonix"
 # 64 pixel icon.png the window carries is drawn again at this size rather than stretched.
 icon = ["assets/icon-512.png"]
 short_description = "A calculator built with dioxus-compose."
-long_description = "Dense button grids, nested Row and Column, keyboard input."
+long_description = "Dense button grids, nested Row and Column, a memory register and a tape."
 
 [macos]
 # The window draws its own title bar, so the bundle asks for a plain window and the

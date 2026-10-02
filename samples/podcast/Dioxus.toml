@@ -15,7 +15,7 @@ publisher = "DarkPyonix"
 # 64 pixel icon.png the window carries is drawn again at this size rather than stretched.
 icon = ["assets/icon-512.png"]
 short_description = "A podcast hub with a drawn waveform."
-long_description = "New episodes, an episode you can open, and a player whose waveform is a Canvas painted entirely in roles."
+long_description = "New episodes, an episode you can open, and a player whose waveform is a Canvas in the design's own orange."
 
 [macos]
 bundle_name = "Podcast"

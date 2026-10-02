@@ -15,7 +15,7 @@ publisher = "DarkPyonix"
 # 64 pixel icon.png the window carries is drawn again at this size rather than stretched.
 icon = ["assets/icon-512.png"]
 short_description = "A meditation app whose cards are drawn."
-long_description = "A course of the day, shelves of courses and sleep stories, with every card's picture built from the design system's own accents."
+long_description = "A course of the day, shelves of courses and sleep stories, with a drawn picture on every card."
 
 [macos]
 bundle_name = "Social"
