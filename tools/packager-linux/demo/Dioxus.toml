@@ -28,6 +28,3 @@ bugtracker = "https://github.com/darkpyonix/compose-rust/issues"
 vcs_browser = "https://github.com/darkpyonix/compose-rust"
 brand_light = "#dbe7ff"
 brand_dark = "#1d2b4f"
-screenshots = [
-    { url = "https://raw.githubusercontent.com/darkpyonix/compose-rust/develop/tools/packager-linux/demo/screenshot.png", caption = "Checking for an update" },
-]

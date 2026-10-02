@@ -22,7 +22,7 @@ use crate::icons::{Icon, IconKind};
 use crate::metadata::AppMetadata;
 
 /// The runtime branch used when the application's file does not name one.
-pub const DEFAULT_RUNTIME_VERSION: &str = "25.08";
+pub const DEFAULT_RUNTIME_VERSION: &str = "26.08";
 
 /// Where a source comes from.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -155,7 +155,11 @@ pub fn manifest(meta: &AppMetadata, options: &FlatpakOptions) -> String {
             commands.push(build);
             commands.push(format!("mkdir -p {lib} /app/bin"));
             if renderer.is_some() {
-                commands.push(format!("cp -a renderer/. {lib}/"));
+                // The renderer's files go beside the executable, the layout it finds its
+                // companions from. A release archive keeps them in `lib/`.
+                commands.push(format!(
+                    "if [ -d renderer/lib ]; then cp -a renderer/lib/. {lib}/; else cp -a renderer/. {lib}/; fi"
+                ));
             }
             commands.push(format!(
                 "install -m755 target/release/{bin} {lib}/{}",
@@ -231,10 +235,48 @@ pub fn manifest(meta: &AppMetadata, options: &FlatpakOptions) -> String {
                 .collect(),
         ),
     ));
-    top.push((
-        "modules".to_owned(),
-        Json::Array(vec![Json::Object(module_fields)]),
-    ));
+    let needs_patchelf = matches!(
+        &options.payload,
+        Payload::FromSource {
+            renderer: Some(_),
+            ..
+        }
+    );
+    let mut modules = Vec::new();
+    if needs_patchelf {
+        modules.push(patchelf_module());
+    }
+    modules.push(Json::Object(module_fields));
+    top.push(("modules".to_owned(), Json::Array(modules)));
+    render_manifest(top)
+}
+
+/// The SDK has `readelf` but not `patchelf`, so a build that has to rewrite the
+/// executable's library names builds it first. `cleanup` keeps it out of the application.
+pub const PATCHELF_URL: &str =
+    "https://github.com/NixOS/patchelf/releases/download/0.19.1/patchelf-0.19.1.tar.gz";
+pub const PATCHELF_SHA256: &str =
+    "491108728f120ce05b539934b41a750235031a6df8abc6b47e57aff7de15094d";
+
+fn patchelf_module() -> Json {
+    Json::Object(vec![
+        ("name".to_owned(), Json::str("patchelf")),
+        ("buildsystem".to_owned(), Json::str("autotools")),
+        ("cleanup".to_owned(), Json::Array(vec![Json::str("*")])),
+        (
+            "sources".to_owned(),
+            Json::Array(vec![archive_source(
+                &SourceRef::Url {
+                    url: PATCHELF_URL.to_owned(),
+                    sha256: PATCHELF_SHA256.to_owned(),
+                },
+                None,
+            )]),
+        ),
+    ])
+}
+
+fn render_manifest(top: Vec<(String, Json)>) -> String {
     let mut out = Json::Object(top).render(0);
     out.push('\n');
     out

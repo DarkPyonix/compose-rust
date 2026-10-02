@@ -376,7 +376,7 @@ fn fr34_flathub_needs_a_large_enough_icon() {
     let small = Icon::classify(Path::new("64.png"), &png(64)).unwrap();
     let large = Icon::classify(Path::new("128.png"), &png(128)).unwrap();
     assert!(
-        check_for_flathub(&[small.clone()])
+        check_for_flathub(std::slice::from_ref(&small))
             .unwrap_err()
             .0
             .contains("128")
@@ -618,6 +618,7 @@ fn fr34_flatpak_manifest_for_a_prebuilt_archive() {
         assert!(text.contains(expected), "missing {expected} in\n{text}");
     }
     assert!(!text.contains("rust-stable"), "{text}");
+    assert!(!text.contains("patchelf"), "{text}");
     assert!(!text.contains("cargo"), "{text}");
 }
 
@@ -658,13 +659,20 @@ fn fr34_flatpak_manifest_builds_from_source_offline() {
         "\"cargo --offline fetch --manifest-path Cargo.toml --verbose\"",
         "\"cargo --offline build --release --locked -p sample-calculator --bin sample-calculator --no-default-features 'it'\\\\''s'\"",
         "\"install -m755 target/release/sample-calculator /app/lib/sample-calculator/sample-calculator\"",
-        "\"cp -a renderer/. /app/lib/sample-calculator/\"",
+        "\"if [ -d renderer/lib ]; then cp -a renderer/lib/. /app/lib/sample-calculator/; else cp -a renderer/. /app/lib/sample-calculator/; fi\"",
+        "\"name\": \"patchelf\"",
+        "\"buildsystem\": \"autotools\"",
         "patchelf --set-rpath '$ORIGIN' /app/lib/sample-calculator/sample-calculator",
         "\"--socket=wayland\"",
         "\"--socket=fallback-x11\"",
     ] {
         assert!(text.contains(expected), "missing {expected} in\n{text}");
     }
+    // patchelf is built before the application that needs it.
+    assert!(
+        text.find("\"name\": \"patchelf\"").unwrap()
+            < text.find("\"name\": \"sample-calculator\"").unwrap()
+    );
     // The vendored crates come before the build that needs them.
     assert!(
         text.find("cargo --offline fetch").unwrap() < text.find("cargo --offline build").unwrap()

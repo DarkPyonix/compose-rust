@@ -96,7 +96,8 @@ if [[ -n "$cargo_lock" ]]; then
     passthrough+=(--cargo-sources cargo-sources.json)
 fi
 
-manifest="$(packager flatpak "${passthrough[@]}")"
+# The packager prints the manifest's path as it was given; make it absolute.
+manifest="$out/$(basename "$(packager flatpak "${passthrough[@]}")")"
 echo "== $manifest"
 
 builder() {

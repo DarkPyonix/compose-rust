@@ -42,7 +42,11 @@ env:
   # companions and the executable, already pointed at each other by relative paths.
   CALCULATOR_URL: https://github.com/DarkPyonix/dioxus-compose/releases/download/sample-v0.1.1/calculator-linux-x64.tar.gz
   CALCULATOR_SHA256: ebc52967d02bfbd2eb22317cb23d023417ec2029eac811f3ce6b018e1950fded
-  FLATPAK_RUNTIME: "25.08"
+  FLATPAK_RUNTIME: "26.08"
+  # The renderer release archive, built into the from-source Flatpak so that the step
+  # which points an executable at the renderer beside it runs for real.
+  RENDERER_URL: https://github.com/DarkPyonix/dioxus-compose/releases/download/v0.0.0/dioxus-compose-renderer-v0.0.0-linux-x64.tar.gz
+  RENDERER_SHA256: 5fe6ba31e359753a8e3c3a743f2f8ecadac409fda2634ba3b569e00f27ec19aa
 
 jobs:
   rust:
@@ -98,9 +102,25 @@ jobs:
         run: exit 1
 
   appimage:
-    name: AppImage updates itself
-    runs-on: ubuntu-24.04
+    name: AppImage updates itself (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x86_64
+            calculator: calculator-linux-x64.tar.gz
+            calculator_sha256: ebc52967d02bfbd2eb22317cb23d023417ec2029eac811f3ce6b018e1950fded
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+            calculator: calculator-linux-arm64.tar.gz
+            calculator_sha256: b264dbc9efa2d7dc7e1ff9559743840d63c2aeca01f69a0e6d1ea1da9d97306f
+    env:
+      ARCH: ${{ matrix.arch }}
+      CALCULATOR_URL: https://github.com/DarkPyonix/dioxus-compose/releases/download/sample-v0.1.1/${{ matrix.calculator }}
+      CALCULATOR_SHA256: ${{ matrix.calculator_sha256 }}
     steps:
       - uses: actions/checkout@v4
 
@@ -141,7 +161,7 @@ jobs:
       - name: Package all three versions
         run: |
           set -euo pipefail
-          url=http://127.0.0.1:8080/latest/UpdateDemo-x86_64.AppImage.zsync
+          url=http://127.0.0.1:8080/latest/UpdateDemo-$ARCH.AppImage.zsync
           for v in 1.0.0 1.0.1 1.0.2; do
             key="$RELEASE_KEY"; [[ $v == 1.0.2 ]] && key="$IMPOSTOR_KEY"
             tools/packager-linux/appimage.sh \
@@ -150,15 +170,15 @@ jobs:
               --zsync-url "$url" --sign-key "$key" --out-dir "work/dist"
           done
           ls -l work/dist
-          head -c 400 work/dist/UpdateDemo-1.0.1-x86_64.AppImage.zsync | sed -n '1,/^$/p'
+          head -c 400 work/dist/UpdateDemo-1.0.1-$ARCH.AppImage.zsync | sed -n '1,/^$/p'
 
       - name: The AppImage carries its update information and its updater
         run: |
           set -euo pipefail
-          app=work/dist/UpdateDemo-1.0.0-x86_64.AppImage
+          app=work/dist/UpdateDemo-1.0.0-$ARCH.AppImage
           info="$("$app" --appimage-updateinformation)"
           echo "$info"
-          [[ "$info" == "zsync|http://127.0.0.1:8080/latest/UpdateDemo-x86_64.AppImage.zsync" ]]
+          [[ "$info" == "zsync|http://127.0.0.1:8080/latest/UpdateDemo-$ARCH.AppImage.zsync" ]]
           "$app" --appimage-signature | head -3
           "$app" --appimage-extract >/dev/null
           test -e squashfs-root/usr/lib/appimageupdatetool/AppRun
@@ -197,14 +217,14 @@ jobs:
           set -euo pipefail
           publish() {
             rm -f "$SERVER/latest/"*
-            cp "work/dist/UpdateDemo-$1-x86_64.AppImage" "$SERVER/latest/"
+            cp "work/dist/UpdateDemo-$1-$ARCH.AppImage" "$SERVER/latest/"
             # One fixed name for the newest .zsync; it names the AppImage beside it.
-            cp "work/dist/UpdateDemo-$1-x86_64.AppImage.zsync" "$SERVER/latest/UpdateDemo-x86_64.AppImage.zsync"
+            cp "work/dist/UpdateDemo-$1-$ARCH.AppImage.zsync" "$SERVER/latest/UpdateDemo-$ARCH.AppImage.zsync"
           }
           declare -f publish > work/publish.sh
           publish 1.0.0
           mkdir -p work/installed
-          cp work/dist/UpdateDemo-1.0.0-x86_64.AppImage work/installed/UpdateDemo.AppImage
+          cp work/dist/UpdateDemo-1.0.0-$ARCH.AppImage work/installed/UpdateDemo.AppImage
           app=work/installed/UpdateDemo.AppImage
           "$app" --version | tee /dev/stderr | grep -qx "update-demo 1.0.0"
           "$app" --delivery
@@ -226,7 +246,7 @@ jobs:
           "$app" --version | grep -qx "update-demo 1.0.1"
           "$app" --check
           after="$(sha256sum "$app" | cut -d' ' -f1)"
-          published="$(sha256sum "$SERVER/latest/UpdateDemo-1.0.1-x86_64.AppImage" | cut -d' ' -f1)"
+          published="$(sha256sum "$SERVER/latest/UpdateDemo-1.0.1-$ARCH.AppImage" | cut -d' ' -f1)"
           echo "before $before"; echo "after  $after"; echo "served $published"
           [[ "$after" == "$published" && "$before" != "$after" ]]
           echo "--- requests"
@@ -271,7 +291,7 @@ jobs:
             --payload work/calculator/calculator --version 0.1.1 \
             --github darkpyonix/compose-rust --sign-key "$RELEASE_KEY" \
             --out-dir work/dist
-          app=work/dist/Calculator-0.1.1-x86_64.AppImage
+          app=work/dist/Calculator-0.1.1-$ARCH.AppImage
           "$app" --appimage-updateinformation
           xvfb-run -a -s "-screen 0 1280x800x24" bash -c "
             '$app' > work/calculator.log 2>&1 &
@@ -286,7 +306,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: appimage
+          name: appimage-${{ matrix.arch }}
           path: |
             work/dist/*.AppImage
             work/dist/*.zsync
@@ -331,11 +351,16 @@ jobs:
             --dioxus-toml tools/packager-linux/demo/Dioxus.toml --version 1.0.0 \
             --source-path source.tar.gz --cargo-lock Cargo.lock \
             --package packager-linux-demo --bin update-demo \
+            --renderer-url "$RENDERER_URL" --renderer-sha256 "$RENDERER_SHA256" \
             --out work/flatpak-src --build work/repo --lint
           id=dev.darkpyonix.compose.UpdateDemo
           flatpak run "$id" --version | tee /dev/stderr | grep -qx "update-demo 1.0.0"
           flatpak run "$id" --delivery
           flatpak run "$id" --update --yes | tee /dev/stderr | grep -q "store"
+          # The renderer travelled beside the executable and the executable looks beside
+          # itself for libraries.
+          flatpak run --devel --command=sh "$id" -c 'ls /app/lib/update-demo; readelf -d /app/lib/update-demo/update-demo | grep -E "RUNPATH|RPATH|NEEDED"'
+          flatpak run --command=sh "$id" -c 'test -f /app/lib/update-demo/libdioxus_compose_renderer.so' 
           cat work/flatpak-src/$id.json
 
       - name: Build 1.0.1 into the same repository, and flatpak update installs it
@@ -353,6 +378,7 @@ jobs:
             --dioxus-toml tools/packager-linux/demo/Dioxus.toml --version 1.0.1 \
             --source-path source.tar.gz --cargo-lock Cargo.lock \
             --package packager-linux-demo --bin update-demo \
+            --renderer-url "$RENDERER_URL" --renderer-sha256 "$RENDERER_SHA256" \
             --out work/flatpak-src
           (cd work/flatpak-src && flatpak run --command=flatpak-builder org.flatpak.Builder \
             --user --force-clean --repo="$PWD/../repo" build "$id.json")
