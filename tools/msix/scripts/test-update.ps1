@@ -5,8 +5,9 @@ and checks that Windows sees the update and replaces the installed package with 
 
 .DESCRIPTION
 This is the update path a downloaded application takes, exercised end to end on one
-machine. The feed is served over HTTP from a directory this script fills, standing in
-for the web server a release would publish to:
+machine. The feed is served over HTTP (by serve_feed.py, because Windows fetches the
+bundle in byte ranges) from a directory this script fills, standing in for the web
+server a release would publish to:
 
   1. the older bundle and its feed go on the share, and the feed is installed;
   2. the newer bundle goes on the share and its feed replaces the older one;
@@ -72,7 +73,7 @@ function Publish-Feed([string]$from) {
 New-Item -ItemType Directory -Force -Path $Serve | Out-Null
 $python = (Get-Command python -ErrorAction Stop).Source
 $server = Start-Process -FilePath $python -PassThru -WindowStyle Hidden `
-    -ArgumentList '-m', 'http.server', "$Port", '--bind', '127.0.0.1', '--directory', $Serve
+    -ArgumentList (Join-Path $PSScriptRoot 'serve_feed.py'), $Serve, "$Port"
 try {
     Start-Sleep -Seconds 2
     Get-Installed | Remove-AppxPackage
