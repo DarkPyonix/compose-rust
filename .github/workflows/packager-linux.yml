@@ -42,6 +42,8 @@ env:
   # companions and the executable, already pointed at each other by relative paths.
   CALCULATOR_URL: https://github.com/DarkPyonix/dioxus-compose/releases/download/sample-v0.1.1/calculator-linux-x64.tar.gz
   CALCULATOR_SHA256: ebc52967d02bfbd2eb22317cb23d023417ec2029eac811f3ce6b018e1950fded
+  CALCULATOR_ARM64_URL: https://github.com/DarkPyonix/dioxus-compose/releases/download/sample-v0.1.1/calculator-linux-arm64.tar.gz
+  CALCULATOR_ARM64_SHA256: b264dbc9efa2d7dc7e1ff9559743840d63c2aeca01f69a0e6d1ea1da9d97306f
   FLATPAK_RUNTIME: "26.08"
   # The renderer release archive, built into the from-source Flatpak so that the step
   # which points an executable at the renderer beside it runs for real.
@@ -288,6 +290,7 @@ jobs:
             --dioxus-toml samples/calculator/Dioxus.toml \
             --overlay tools/packager-linux/samples.toml \
             --exec sample-calculator --icon samples/calculator/assets/icon.png \
+            --icon samples/calculator/assets/icon-256.png \
             --payload work/calculator/calculator --version 0.1.1 \
             --github darkpyonix/compose-rust --sign-key "$RELEASE_KEY" \
             --out-dir work/dist
@@ -328,7 +331,7 @@ jobs:
           # bubblewrap, which builds and runs every sandbox, needs them.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends flatpak xvfb xauth imagemagick python3-pip
+          sudo apt-get install -y --no-install-recommends flatpak dbus-daemon xvfb xauth imagemagick python3-pip
           pip install --user 'aiohttp>=3.9.5,<4' 'tomlkit>=0.13.3,<1'
           flatpak --user remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
           flatpak --user remote-ls flathub --runtime --columns=ref | grep -E '^runtime/org\.freedesktop\.Platform/x86_64/[0-9.]+$' || true
@@ -347,7 +350,9 @@ jobs:
           mkdir -p work/flatpak-src
           # What a release publishes: the tagged source as an archive.
           git archive --format=tar.gz --prefix=compose-rust/ -o work/flatpak-src/source.tar.gz HEAD
-          tools/packager-linux/flatpak.sh \
+          # Flathub's builder runs in its own sandbox and reaches the host's flatpak
+          # through the session bus, which a runner has none of until one is started.
+          dbus-run-session -- tools/packager-linux/flatpak.sh \
             --dioxus-toml tools/packager-linux/demo/Dioxus.toml --version 1.0.0 \
             --source-path source.tar.gz --cargo-lock Cargo.lock \
             --package packager-linux-demo --bin update-demo \
@@ -374,14 +379,16 @@ jobs:
           flatpak --user uninstall --noninteractive "$id"
           flatpak --user install --noninteractive local-repo "$id"
           flatpak run "$id" --version | grep -qx "update-demo 1.0.0"
-          tools/packager-linux/flatpak.sh \
+          # Flathub's builder runs in its own sandbox and reaches the host's flatpak
+          # through the session bus, which a runner has none of until one is started.
+          dbus-run-session -- tools/packager-linux/flatpak.sh \
             --dioxus-toml tools/packager-linux/demo/Dioxus.toml --version 1.0.1 \
             --source-path source.tar.gz --cargo-lock Cargo.lock \
             --package packager-linux-demo --bin update-demo \
             --renderer-url "$RENDERER_URL" --renderer-sha256 "$RENDERER_SHA256" \
             --out work/flatpak-src
-          (cd work/flatpak-src && flatpak run --command=flatpak-builder org.flatpak.Builder \
-            --user --force-clean --repo="$PWD/../repo" build "$id.json")
+          (cd work/flatpak-src && dbus-run-session -- flatpak run --command=flatpak-builder org.flatpak.Builder \
+            --user --force-clean --state-dir="$PWD/.flatpak-builder" --repo="$PWD/../repo" build "$id.json")
           flatpak --user update --noninteractive "$id"
           flatpak run "$id" --version | tee /dev/stderr | grep -qx "update-demo 1.0.1"
           flatpak --user info "$id"
@@ -391,13 +398,15 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p work/flatpak-calculator
-          # Flathub needs an icon of at least 128 pixels; the sample's is 64.
-          convert samples/calculator/assets/icon.png -filter point -resize 256x256 work/calculator-256.png
-          tools/packager-linux/flatpak.sh \
+          # Flathub's builder runs in its own sandbox and reaches the host's flatpak
+          # through the session bus, which a runner has none of until one is started.
+          dbus-run-session -- tools/packager-linux/flatpak.sh \
             --dioxus-toml samples/calculator/Dioxus.toml \
             --overlay tools/packager-linux/samples.toml \
-            --exec sample-calculator --icon work/calculator-256.png --version 0.1.1 \
-            --prebuilt-url "$CALCULATOR_URL" --prebuilt-sha256 "$CALCULATOR_SHA256" \
+            --exec sample-calculator --icon samples/calculator/assets/icon.png \
+            --icon samples/calculator/assets/icon-256.png --version 0.1.1 \
+            --prebuilt-url "$CALCULATOR_URL" --prebuilt-sha256 "$CALCULATOR_SHA256" --prebuilt-arch x86_64 \
+            --prebuilt-url "$CALCULATOR_ARM64_URL" --prebuilt-sha256 "$CALCULATOR_ARM64_SHA256" --prebuilt-arch aarch64 \
             --out work/flatpak-calculator --build work/repo-calculator --lint
           id=dev.darkpyonix.dioxus.compose.samples.calculator
           cat "work/flatpak-calculator/$id.json"
@@ -411,6 +420,30 @@ jobs:
           cat work/calculator-flatpak.log
           grep -q 'still running' work/calculator-flatpak-run.txt
 
+      - name: Prepare the Flathub submission under a placeholder ID
+        # Everything a flathub/<app-id> repository holds, generated for an ID nobody owns
+        # yet. Submitting means running the same command with the chosen ID; the
+        # checklist for the rest is in tools/packager-linux/FLATHUB.md.
+        run: |
+          set -euo pipefail
+          dbus-run-session -- tools/packager-linux/flatpak.sh \
+            --dioxus-toml samples/calculator/Dioxus.toml \
+            --overlay tools/packager-linux/samples.toml \
+            --app-id dev.darkpyonix.PlaceholderAppId \
+            --exec sample-calculator --icon samples/calculator/assets/icon.png \
+            --icon samples/calculator/assets/icon-256.png --version 0.1.1 \
+            --prebuilt-url "$CALCULATOR_URL" --prebuilt-sha256 "$CALCULATOR_SHA256" --prebuilt-arch x86_64 \
+            --prebuilt-url "$CALCULATOR_ARM64_URL" --prebuilt-sha256 "$CALCULATOR_ARM64_SHA256" --prebuilt-arch aarch64 \
+            --out work/flathub-submission --lint
+          rm -rf work/flathub-submission/.flatpak-builder work/flathub-submission/build
+          find work/flathub-submission -type f | sort
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: flathub-submission-placeholder
+          path: work/flathub-submission/
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -422,5 +455,7 @@ jobs:
             work/flatpak-calculator/*.json
             work/flatpak-calculator/*.xml
             work/flatpak-calculator/*.desktop
+            work/flatpak-src/lint-*.json
+            work/flatpak-calculator/lint-*.json
             work/*.log
             work/*.png
