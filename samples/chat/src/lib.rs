@@ -77,12 +77,20 @@ fn title_from(text: &str) -> String {
 /// system this project takes its size classes from.
 const RECENT_CONVERSATIONS: usize = 5;
 
+/// What the search field says while it is empty, and how a test finds it.
+const SEARCH_PLACEHOLDER: &str = "Search conversations";
+
 /// How many places in the application come before the conversations in the strip.
 ///
 /// The conversations are destinations in the same set, so a conversation's position in the
 /// list is not its position among the destinations. Without this the conversation you were
 /// in marked the wrong row: starting one lit "Search", which is a row you are never on.
-const DESTINATIONS_ABOVE_THE_CHATS: usize = 4;
+///
+/// Five: new chat, search, images, videos and the library. Search is one of them at every
+/// width, because it is a destination like the others rather than a desktop extra; it used
+/// to appear only on an expanded window, so a phone could reach it only through the
+/// composer's menu.
+const DESTINATIONS_ABOVE_THE_CHATS: usize = 5;
 
 /// A new conversation has nothing in it.
 ///
@@ -307,8 +315,15 @@ pub fn app() -> Element {
     let mut settings_open = use_signal(|| false);
     let mut length_open = use_signal(|| false);
     let mut more_open = use_signal(|| false);
+    // The composer's own menu. It shared the top bar's signal, so pressing either key
+    // opened both menus at once.
+    let mut attach_open = use_signal(|| false);
     let mut search_open = use_signal(|| false);
     let mut search_query = use_signal(String::new);
+    // Which search field is on screen. The field keeps its own text, so clearing the query
+    // has to put a fresh field in its place or the old words stay visible while the list
+    // behind them has stopped being filtered by them.
+    let mut search_field = use_signal(|| 0_u64);
     // The conversations, newest last, and the one being read. A chat application with one
     // conversation is a chat application with the part people use missing, and the
     // reference's sidebar is mostly this list.
@@ -375,6 +390,12 @@ pub fn app() -> Element {
             title: String::new(),
         });
         current.set(id);
+    };
+
+    // The places in the reference this sample does not make.
+    let not_here = |place: &str| {
+        // The library's message, not this file's line of a conversation.
+        dioxus_compose::Message::new(format!("{place} is not part of this sample")).show();
     };
 
     // Deleting is the one thing here that throws a conversation away, so it says what it
@@ -457,13 +478,10 @@ pub fn app() -> Element {
         .take(RECENT_CONVERSATIONS)
         .cloned()
         .collect();
-    let show_search = window.is_expanded();
     let selected = recent
         .iter()
         .position(|entry| entry.id == current())
-        .map_or(0, |index| {
-            index + DESTINATIONS_ABOVE_THE_CHATS + usize::from(show_search)
-        });
+        .map_or(0, |index| index + DESTINATIONS_ABOVE_THE_CHATS);
 
     rsx! {
         // The reference's window has three parts and no bar: a sidebar the window buttons
@@ -593,16 +611,29 @@ pub fn app() -> Element {
                         icon: IconRole::Compose,
                         on_click: move |()| start_conversation(),
                     }
-                    if show_search {
-                        NavigationItem {
-                            text: "Search",
-                            icon: IconRole::Search,
-                            on_click: move |()| search_open.set(true),
-                        }
+                    NavigationItem {
+                        text: "Search",
+                        icon: IconRole::Search,
+                        on_click: move |()| search_open.set(true),
                     }
-                    NavigationItem { text: "Images", icon: IconRole::Image }
-                    NavigationItem { text: "Videos", icon: IconRole::Video }
-                    NavigationItem { text: "Library", icon: IconRole::Library }
+                    // The reference's other places. This sample makes none of them, and a
+                    // row that does nothing when pressed reads as a broken one, so each
+                    // says so.
+                    NavigationItem {
+                        text: "Images",
+                        icon: IconRole::Image,
+                        on_click: move |()| not_here("Images"),
+                    }
+                    NavigationItem {
+                        text: "Videos",
+                        icon: IconRole::Video,
+                        on_click: move |()| not_here("Videos"),
+                    }
+                    NavigationItem {
+                        text: "Library",
+                        icon: IconRole::Library,
+                        on_click: move |()| not_here("Library"),
+                    }
                     for conversation in recent.iter().cloned() {
                         NavigationItem {
                             key: "{conversation.id}",
@@ -762,15 +793,15 @@ pub fn app() -> Element {
                         // things; this one holds what this screen can actually do, because
                         // a key that opens a menu of nothing is worse than no key.
                         Menu {
-                            expanded: more_open(),
-                            on_dismiss: move |_| more_open.set(false),
+                            expanded: attach_open(),
+                            on_dismiss: move |_| attach_open.set(false),
                             anchor: rsx! {
                                 Button {
                                     text: "",
                                     icon: IconRole::Add,
                                     variant: ButtonVariant::Text,
                                     color: Paint::Role(ColorRole::OnSurfaceVariant),
-                                    on_click: move |_| more_open.set(true),
+                                    on_click: move |_| attach_open.set(true),
                                 }
                             },
                             Button {
@@ -779,7 +810,7 @@ pub fn app() -> Element {
                                 variant: ButtonVariant::Text,
                                 fill_max_width: true,
                                 on_click: move |_| {
-                                    more_open.set(false);
+                                    attach_open.set(false);
                                     search_open.set(true);
                                 },
                             }
@@ -790,7 +821,7 @@ pub fn app() -> Element {
                                 variant: ButtonVariant::Text,
                                 fill_max_width: true,
                                 on_click: move |_| {
-                                    more_open.set(false);
+                                    attach_open.set(false);
                                     settings_open.set(true);
                                 },
                             }
@@ -883,17 +914,25 @@ pub fn app() -> Element {
                                 on_click: move |_| search_open.set(false),
                             }
                         }
-                        TextField {
-                            fill_max_width: true,
-                            placeholder: "Search conversations",
-                            on_value_change: move |value| search_query.set(value),
+                        // A list of one, keyed by which field this is, so clearing replaces
+                        // the field rather than leaving its words behind.
+                        for field in [search_field()] {
+                            TextField {
+                                key: "{field}",
+                                fill_max_width: true,
+                                placeholder: SEARCH_PLACEHOLDER,
+                                on_value_change: move |value| search_query.set(value),
+                            }
                         }
                         if !search_query().is_empty() {
                             Button {
                                 text: "Clear search",
                                 fill_max_width: true,
                                 variant: ButtonVariant::Text,
-                                on_click: move |_| search_query.set(String::new()),
+                                on_click: move |_| {
+                                    search_query.set(String::new());
+                                    *search_field.write() += 1;
+                                },
                             }
                         }
                     }
@@ -1083,6 +1122,13 @@ mod tests {
         messages: Vec<(String, String)>,
         /// Which of the destinations the strip last said was the one being looked at.
         selected: usize,
+        /// How many text fields have been created since the first frame.
+        created_text_fields: usize,
+        /// How many menus and sheets were opened since the first frame.
+        opened: usize,
+        /// The click handlers of nodes created after the first frame, which the first
+        /// frame cannot answer for.
+        clicks: HashMap<u32, u64>,
         event: Vec<u8>,
     }
 
@@ -1184,8 +1230,26 @@ mod tests {
                 sections,
                 messages: Vec::new(),
                 selected,
+                created_text_fields: 0,
+                opened: 0,
+                clicks: HashMap::new(),
                 event: Vec::new(),
             }
+        }
+
+        /// The first node the first frame gave this string property, if any did.
+        fn first_with(&self, property: PropertyKind, text: &str) -> Option<u32> {
+            decode_batch(&self.first)
+                .expect("the first frame did not decode")
+                .iter()
+                .find_map(|mutation| match mutation {
+                    Mutation::SetProp {
+                        node_id,
+                        property: found,
+                        value: PropertyValue::String(value),
+                    } if *found == property && *value == text => Some(*node_id),
+                    _ => None,
+                })
         }
 
         /// Every node the screen created as this widget, in declaration order.
@@ -1233,6 +1297,22 @@ mod tests {
                         node_id,
                         widget: WidgetKind::NavigationItem,
                     } => self.destinations.push(node_id),
+                    Mutation::Create {
+                        widget: WidgetKind::TextField,
+                        ..
+                    } => self.created_text_fields += 1,
+                    Mutation::SetProp {
+                        property: PropertyKind::Open,
+                        value: PropertyValue::Bool(true),
+                        ..
+                    } => self.opened += 1,
+                    Mutation::SetProp {
+                        node_id,
+                        property: PropertyKind::OnClick,
+                        value: PropertyValue::Integer(id),
+                    } => {
+                        self.clicks.insert(node_id, id as u64);
+                    }
                     Mutation::SetProp {
                         node_id,
                         property: PropertyKind::Section,
@@ -1311,7 +1391,10 @@ mod tests {
                 .find(|(_, text)| *text == label)
                 .map(|(node_id, _)| node_id)
                 .unwrap_or_else(|| panic!("the screen has nothing labelled {label}"));
-            let handler = self.handler_of(node_id, PropertyKind::OnClick);
+            let handler = match self.clicks.get(&node_id) {
+                Some(handler) => *handler,
+                None => self.handler_of(node_id, PropertyKind::OnClick),
+            };
             self.dispatch(node_id, handler, EventPayload::Clicked);
         }
 
@@ -1795,12 +1878,113 @@ mod tests {
         );
     }
 
+    /// Search is a destination at every width, not a desktop extra. On a phone it used to
+    /// be missing from the strip, reachable only through the composer's menu.
+    #[test]
+    fn fr22_search_is_a_destination_on_a_phone_too() {
+        let screen = Screen::new();
+        let destinations = screen.destinations();
+        assert_eq!(
+            destinations.get(1).map(String::as_str),
+            Some("Search"),
+            "the strip on a compact window is {destinations:?}"
+        );
+    }
+
+    /// What is typed into the search sheet narrows the conversations in the strip, and
+    /// clearing it brings them back with an empty field.
+    #[test]
+    fn fr22_typing_in_search_filters_the_conversations() {
+        let mut screen = Screen::new();
+        screen.open_window();
+        screen.send("tell me about streaming");
+        screen.settle();
+        screen.press_icon(IconRole::Compose);
+        screen.send("what is a sheet");
+        screen.settle();
+        assert_eq!(screen.conversations().len(), 2);
+
+        let field = screen
+            .first_with(PropertyKind::Placeholder, SEARCH_PLACEHOLDER)
+            .expect("the search sheet has no field");
+        let change = screen.handler_of(field, PropertyKind::OnValueChange);
+        screen.dispatch(field, change, EventPayload::TextChanged("STREAM"));
+        assert_eq!(
+            screen.conversations(),
+            vec!["tell me about streaming".to_owned()],
+            "the query should keep the one conversation that matches, ignoring case"
+        );
+
+        let before = screen.created_text_fields;
+        screen.press("Clear search");
+        assert_eq!(
+            screen.conversations().len(),
+            2,
+            "clearing should bring both back"
+        );
+        assert_eq!(
+            screen.created_text_fields,
+            before + 1,
+            "clearing should put an empty field in place of the one holding the old words"
+        );
+    }
+
+    /// The composer's menu and the top bar's are two menus. They shared one switch, so
+    /// opening either opened both.
+    #[test]
+    fn fr22_the_composer_menu_opens_alone() {
+        let mut screen = Screen::new();
+        screen.press_icon(IconRole::Add);
+        assert_eq!(
+            screen.opened, 1,
+            "pressing the composer's key should open its menu and nothing else"
+        );
+    }
+
+    /// The reference's other places answer when pressed, rather than doing nothing.
+    #[test]
+    fn fr22_every_destination_answers() {
+        let mut screen = Screen::new();
+        for place in ["Images", "Videos", "Library"] {
+            screen.press(place);
+        }
+        assert_eq!(screen.messages.len(), 3, "{:?}", screen.messages);
+    }
+
     /// On a desktop the sidebar opens with search, and pressing it opens the filter.
     #[test]
     fn fr22_the_desktop_search_destination_opens_the_filter_sheet() {
         dioxus_compose::window::reset_window_size();
         let mut host = Host::new(app);
-        host.rebuild().expect("the first frame failed to encode");
+        // Search is in the strip from the first frame at every width, so it is looked up
+        // there; the resize below only makes this the desktop's sidebar.
+        let first = host
+            .rebuild()
+            .expect("the first frame failed to encode")
+            .to_vec();
+        let first = decode_batch(&first).expect("the first frame did not decode");
+        let search = first
+            .iter()
+            .find_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::Text,
+                    value: PropertyValue::String("Search"),
+                } => Some(*node_id),
+                _ => None,
+            })
+            .expect("the destination set has no search action");
+        let handler = first
+            .iter()
+            .find_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::OnClick,
+                    value: PropertyValue::Integer(handler),
+                } if *node_id == search => Some(*handler as u64),
+                _ => None,
+            })
+            .expect("the search action cannot be pressed");
 
         let resize = HostEvent {
             node_id: 0,
@@ -1814,30 +1998,7 @@ mod tests {
         };
         let mut event = Vec::new();
         encode_event(&resize, &mut event).expect("the resize did not encode");
-        let (batch, _) = host.dispatch_event(&event).expect("the resize failed");
-        let mutations = decode_batch(batch).expect("the resize batch did not decode");
-        let search = mutations
-            .iter()
-            .find_map(|mutation| match mutation {
-                Mutation::SetProp {
-                    node_id,
-                    property: PropertyKind::Text,
-                    value: PropertyValue::String("Search"),
-                } => Some(*node_id),
-                _ => None,
-            })
-            .expect("the expanded destination set has no search action");
-        let handler = mutations
-            .iter()
-            .find_map(|mutation| match mutation {
-                Mutation::SetProp {
-                    node_id,
-                    property: PropertyKind::OnClick,
-                    value: PropertyValue::Integer(handler),
-                } if *node_id == search => Some(*handler as u64),
-                _ => None,
-            })
-            .expect("the search action cannot be pressed");
+        host.dispatch_event(&event).expect("the resize failed");
 
         encode_event(
             &HostEvent {
