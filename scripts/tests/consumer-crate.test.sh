@@ -53,7 +53,9 @@ command -v cargo >/dev/null || fail "cargo is not on PATH" \
 
 # Its own target directory: the fixture is a separate workspace, and pointing it at the
 # repository's target directory would make this wait on any build already running there.
-target="${TMPDIR:-/tmp}/dioxus-compose-consumer-crate"
+# A directory of its own inside target/ keeps it apart from that build and still inside
+# this checkout, which is where everything the project makes belongs.
+target="$repo_root/target/consumer-crate"
 export CARGO_TARGET_DIR="$target"
 
 echo "== building a crate that depends on compose-rust and nothing else"
