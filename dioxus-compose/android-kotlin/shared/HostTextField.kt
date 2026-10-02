@@ -4,6 +4,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
@@ -156,7 +159,19 @@ internal fun HostTextField(node: Node, modifier: Modifier, dispatcher: EventDisp
         // On glass the field may take the glass as its fill, where the system says so.
         val onGlass = style.containerOnGlass
         if (onGlass != null && LocalGlassDepth.current > 0) {
-            style.copy(container = onGlass, containerFocused = onGlass)
+            // And no line either, in neither state. A field whose fill is the surface it
+            // sits in is that surface, so a ring drawn round it when the caret arrives is
+            // a second field drawn inside the first: in the composer it came up as a blue
+            // capsule inside the glass capsule, round the words and not round the bar.
+            // What says the caret is there is the caret.
+            style.copy(
+                container = onGlass,
+                containerFocused = onGlass,
+                border = Color.Transparent,
+                borderFocused = Color.Transparent,
+                borderWidth = 0.dp,
+                borderWidthFocused = 0.dp,
+            )
         } else {
             style
         }
@@ -173,6 +188,11 @@ internal fun HostTextField(node: Node, modifier: Modifier, dispatcher: EventDisp
         decorationBox = { inner ->
             Box(
                 Modifier
+                    // The whole of the room it was given, not the width of what is typed
+                    // in it. A field that wraps its own text leaves the rest of the space
+                    // it was laid out in belonging to nothing: the composer was a bar you
+                    // could only put the caret in by hitting the words.
+                    .fillMaxWidth()
                     .defaultMinSize(minHeight = frame.minHeight)
                     .clip(frame.shape)
                     .background(if (focused) frame.containerFocused else frame.container)
@@ -187,7 +207,10 @@ internal fun HostTextField(node: Node, modifier: Modifier, dispatcher: EventDisp
                 if (value.text.isEmpty() && placeholder.isNotEmpty()) {
                     BasicText(
                         placeholder,
-                        style = textStyle.copy(color = theme.color(ColorRole.OnSurfaceVariant)),
+                        style = textStyle.copy(
+                            color = theme.color(ColorRole.OnSurfaceVariant)
+                                .copy(alpha = PLACEHOLDER_ALPHA),
+                        ),
                     )
                 }
                 inner()
@@ -195,6 +218,16 @@ internal fun HostTextField(node: Node, modifier: Modifier, dispatcher: EventDisp
         },
     )
 }
+
+/**
+ * How much of the strength of the secondary ink a placeholder is set in.
+ *
+ * Quieter than secondary ink, because a placeholder is not text. At the full strength the
+ * word in an empty composer read as something already typed, and the field beside it that
+ * held a real label was set in exactly the same colour, so nothing said which of the two
+ * was going to be replaced the moment you started typing.
+ */
+private const val PLACEHOLDER_ALPHA = 0.55f
 
 /** The box around a field, or nothing where the system draws none in this state. */
 private fun Modifier.fieldBorder(style: FieldStyle, focused: Boolean): Modifier {

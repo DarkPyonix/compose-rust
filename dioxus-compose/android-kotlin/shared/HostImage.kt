@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import dioxus.compose.design.IconStyle
 import dioxus.compose.design.ResolvedTheme
+import androidx.compose.ui.graphics.Path
 import dioxus.compose.design.iconGeometry
 import dioxus.compose.protocol.ColorRole
 import dioxus.compose.protocol.HostEvent
@@ -187,6 +188,53 @@ private fun DrawScope.drawVector(asset: Asset.Vector) {
 private fun DrawScope.drawSymbol(asset: Asset.Symbol, style: IconStyle, tint: Color) =
     drawRole(asset.role, style, tint)
 
+/**
+ * A run of points as a path, with each corner turned through an arc rather than met.
+ *
+ * A run whose last point repeats its first is a closed shape, and the path starts halfway
+ * along one of its edges so that the corner where it began and ended is turned like the
+ * others. Left as it came, that one corner stayed square while the other three were round,
+ * which is more obviously wrong than four square ones.
+ *
+ * The turn is shortened where an edge is too short to give it room, so a small glyph does
+ * not round itself away.
+ */
+internal fun turnedPath(points: List<Offset>, corner: Float): Path {
+    val closed = points.size >= 4 && points.first() == points.last()
+    val run = if (!closed) {
+        points
+    } else {
+        val ring = points.dropLast(1)
+        val seam = (ring.last() + ring.first()) / 2f
+        listOf(seam) + ring + listOf(seam)
+    }
+    val path = Path()
+    path.moveTo(run.first().x, run.first().y)
+    if (corner <= 0f || run.size < 3) {
+        run.drop(1).forEach { path.lineTo(it.x, it.y) }
+        return path
+    }
+    for (index in 1 until run.size - 1) {
+        val before = run[index - 1]
+        val here = run[index]
+        val after = run[index + 1]
+        val back = (before - here).getDistance()
+        val on = (after - here).getDistance()
+        if (back == 0f || on == 0f) {
+            path.lineTo(here.x, here.y)
+            continue
+        }
+        val entry = minOf(corner, back / 2f)
+        val exit = minOf(corner, on / 2f)
+        val from = here + (before - here) * (entry / back)
+        val to = here + (after - here) * (exit / on)
+        path.lineTo(from.x, from.y)
+        path.quadraticTo(here.x, here.y, to.x, to.y)
+    }
+    path.lineTo(run.last().x, run.last().y)
+    return path
+}
+
 private fun DrawScope.drawRole(role: IconRole, style: IconStyle, tint: Color) {
     val stroke = style.strokeWidth.toPx()
     val inset = stroke / 2f
@@ -197,16 +245,12 @@ private fun DrawScope.drawRole(role: IconRole, style: IconStyle, tint: Color) {
 
     val geometry = iconGeometry(role)
     val outline = Stroke(width = stroke, cap = style.cap, join = style.join)
+    // As a path per run, not a line per pair. Drawn pair by pair, every corner in every
+    // glyph was two ends laid over each other and the design system's join never applied
+    // to anything: a frame came out with four blunt corners whatever the system asked for.
     geometry.strokes.forEach { points ->
-        points.zipWithNext { from, to ->
-            drawLine(
-                color = tint,
-                start = at(from),
-                end = at(to),
-                strokeWidth = stroke,
-                cap = style.cap,
-            )
-        }
+        if (points.size < 2) return@forEach
+        drawPath(turnedPath(points.map(::at), style.corner.toPx()), tint, style = outline)
     }
     geometry.dots.forEach { dot ->
         drawCircle(

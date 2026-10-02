@@ -226,10 +226,19 @@ object LiquidGlass {
      * Wide and faint. A capsule floating over a page of its own colour is visible because
      * of this and the rim, not because of its tint.
      */
-    val LIFT: Dp = 12.dp
+    val LIFT: Dp = 26.dp
 
-    /** How dark that shadow is at the surface's edge, where it is darkest. */
-    const val LIFT_ALPHA: Float = 0.10f
+    /**
+     * How dark that shadow is at the surface's edge, where it is darkest.
+     *
+     * Measured off the reference window three times over. Its sidebar's edge is eleven
+     * levels below the page beside it and is still showing thirty five points out. At
+     * fourteen hundredths over a twenty point blur ours was twenty one below and gone by
+     * twenty eight, which reads as an outline drawn round the panel rather than as the
+     * panel standing off the page; the wider blur brought the reach to thirty three and
+     * eleven hundredths brought the edge to fifteen.
+     */
+    const val LIFT_ALPHA: Float = 0.08f
 
     /**
      * The ratio the opaque fallback is held to: WCAG 2.2 AA for body text.
