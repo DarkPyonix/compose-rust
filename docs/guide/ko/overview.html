@@ -100,7 +100,7 @@
 
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
       <figcaption>dioxus-compose/examples/desktop_demo.rs</figcaption>
-<pre><code><span class="k">use</span> dioxus_compose::prelude::*;
+<pre><code><span class="k">use</span> compose_rust::prelude::*;
 
 <span class="k">fn</span> <span class="f">app</span>() -&gt; <span class="ty">Element</span> {
     <span class="k">let</span> <span class="k">mut</span> messages = <span class="f">use_signal</span>(<span class="ty">Vec</span>::&lt;<span class="ty">String</span>&gt;::new);
@@ -129,7 +129,7 @@
 }
 
 <span class="k">fn</span> <span class="f">main</span>() {
-    dioxus_compose::<span class="f">launch</span>(app);
+    compose_rust::<span class="f">launch</span>(app);
 }</code></pre>
     </figure>
 

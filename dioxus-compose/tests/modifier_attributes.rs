@@ -1,6 +1,6 @@
-use dioxus_compose::Host;
-use dioxus_compose::prelude::*;
-use dioxus_compose::protocol::{Mutation, decode_batch};
+use compose_rust::Host;
+use compose_rust::prelude::*;
+use compose_rust::protocol::{Mutation, decode_batch};
 
 fn app() -> Element {
     rsx! {
@@ -243,7 +243,7 @@ fn fr13_every_widget_takes_the_modifier_chain() {
         .filter_map(|mutation| match mutation {
             Mutation::SetModifier {
                 node_id,
-                modifier: dioxus_compose::Modifier::FillMaxWidth,
+                modifier: compose_rust::Modifier::FillMaxWidth,
                 ..
             } => Some(*node_id),
             _ => None,
@@ -263,7 +263,7 @@ fn fr13_every_widget_takes_the_modifier_chain() {
         .filter_map(|mutation| match mutation {
             Mutation::SetModifier {
                 node_id,
-                modifier: dioxus_compose::Modifier::Height(_),
+                modifier: compose_rust::Modifier::Height(_),
                 ..
             } => Some(*node_id),
             _ => None,

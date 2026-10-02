@@ -1,4 +1,4 @@
-use dioxus_compose::prelude::*;
+use compose_rust::prelude::*;
 
 fn app() -> Element {
     let mut messages = use_signal(Vec::<String>::new);
@@ -41,5 +41,5 @@ fn app() -> Element {
 }
 
 fn main() {
-    dioxus_compose::launch(app);
+    compose_rust::launch(app);
 }

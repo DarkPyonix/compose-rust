@@ -1,8 +1,8 @@
 //! Pickers: a value, a range and a change event, and nothing that says how to pick.
 
-use dioxus_compose::prelude::*;
-use dioxus_compose::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
-use dioxus_compose::{EventPayload, Host, PropertyKind, WidgetKind};
+use compose_rust::prelude::*;
+use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
+use compose_rust::{EventPayload, Host, PropertyKind, WidgetKind};
 use std::cell::RefCell;
 
 fn node_of(batch: &[u8], widget: WidgetKind) -> u32 {
@@ -195,7 +195,7 @@ fn fr15_dropdown_carries_its_options_as_children() {
 /// the assertion that fails the day someone adds `mode: "wheel"`.
 #[test]
 fn fr15_no_property_lets_the_host_choose_how_a_picker_is_operated() {
-    let named: Vec<_> = dioxus_compose::schema::PROPERTY_SCHEMA
+    let named: Vec<_> = compose_rust::schema::PROPERTY_SCHEMA
         .iter()
         .map(|property| property.name.to_ascii_lowercase())
         .filter(|name| {

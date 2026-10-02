@@ -20,7 +20,7 @@
 mod mood;
 mod palette;
 
-use dioxus_compose::prelude::*;
+use compose_rust::prelude::*;
 use mood::{Mood, SESSIONS, Session, WORRIES, week_line};
 
 /// A phone design in a desktop window is still a phone design.
@@ -100,7 +100,7 @@ fn feeling_step(
             // showing, which is the reference's whole idea: the answer is the colour. It
             // runs to the window's edges, so it is outside the inset column below rather
             // than the first row of it.
-            dioxus_compose::Box {
+            compose_rust::Box {
                 fill_max_width: true,
                 height: FACE_SIDE * 1.4,
                 background: Paint::Literal(fill),
@@ -388,7 +388,7 @@ fn listen_page() -> Element {
                 key_of: move |position: usize| SESSIONS[position].title.to_owned(),
                 item: move |position: usize| {
                     rsx! {
-                        dioxus_compose::Box {
+                        compose_rust::Box {
                             width: CARD_WIDTH,
                             fill_max_height: true,
                             padding_role: SpaceRole::Xs,
@@ -467,7 +467,7 @@ fn library_page() -> Element {
                         fill_max_width: true,
                         space_role: SpaceRole::Sm,
                         alignment: Alignment::CenterStart,
-                        dioxus_compose::Box {
+                        compose_rust::Box {
                             width: 48.0,
                             height: 48.0,
                             background: Paint::Literal(session.mood.pair().0),
@@ -664,7 +664,7 @@ pub fn app() -> Element {
                 fill_max_width: true,
                 fill_max_height: true,
                 background: Paint::Literal(palette::PAGE),
-                dioxus_compose::Box {
+                compose_rust::Box {
                     fill_max_width: true,
                     fill_max_height: true,
                     alignment: Alignment::TopCenter,
@@ -717,14 +717,14 @@ pub fn launch() {
 /// The theme above all: a sample that names one and then reaches a platform through an
 /// entry point that makes its own builder is a sample that draws the same screens in a
 /// different design system depending on where it runs.
-fn launch_builder() -> dioxus_compose::LaunchBuilder {
+fn launch_builder() -> compose_rust::LaunchBuilder {
     // The name the window carries. A desktop lists windows by it, so a window that said
     // nothing was listed under whatever the renderer happened to be called, and every
     // sample here was listed as DioxusCompose until this line existed.
-    dioxus_compose::LaunchBuilder::new()
-        .with_theme(dioxus_compose::demo_theme_for(THEME))
+    compose_rust::LaunchBuilder::new()
+        .with_theme(compose_rust::demo_theme_for(THEME))
         .with_window(
-            dioxus_compose::schema::Window::new()
+            compose_rust::schema::Window::new()
                 .with_title("Self-care")
                 // Without one the window wears the toolkit's picture, which on
                 // Windows is the Java coffee cup, wherever the system lists
@@ -732,8 +732,8 @@ fn launch_builder() -> dioxus_compose::LaunchBuilder {
                 // to them by id: a path would be a fact about the machine this
                 // was built on, and a name would ask the toolkit to find
                 // something it may not have.
-                .with_icon(dioxus_compose::asset::asset(
-                    dioxus_compose::schema::AssetKind::Png,
+                .with_icon(compose_rust::asset::asset(
+                    compose_rust::schema::AssetKind::Png,
                     include_bytes!("../assets/icon.png"),
                 )),
         )
@@ -746,18 +746,18 @@ fn launch_builder() -> dioxus_compose::LaunchBuilder {
 // Both are declared unconditionally. Each macro compiles into nothing that runs off its
 // own platform, and gating them here instead would mean a desktop build never checks that
 // this sample can still be built for the other two.
-dioxus_compose::android_main!({ launch_builder() }, app);
-dioxus_compose::web_main!({ launch_builder() }, app);
-dioxus_compose::ios_main!(launch);
+compose_rust::android_main!({ launch_builder() }, app);
+compose_rust::web_main!({ launch_builder() }, app);
+compose_rust::ios_main!(launch);
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dioxus_compose::Host;
-    use dioxus_compose::protocol::{
+    use compose_rust::Host;
+    use compose_rust::protocol::{
         HostEvent, Mutation, PropertyValue, decode_batch, encode_event,
     };
-    use dioxus_compose::schema::{EventPayload, PropertyKind, WidgetKind};
+    use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind};
 
     /// Named for what it defends: the reference is a dark design, and a machine set the
     /// other way drew this sample light with nothing to compare against.
@@ -766,7 +766,7 @@ mod tests {
         // Through the wire rather than off the constant: what settles the question is the
         // record the Renderer reads, and a scheme that never leaves the Host is a scheme
         // nobody is drawn in.
-        dioxus_compose::window::reset_window_size();
+        compose_rust::window::reset_window_size();
         let mut host = Host::with_theme(app, THEME);
         let batch = host.rebuild().expect("the first frame failed").to_vec();
         let first = decode_batch(&batch)
@@ -790,7 +790,7 @@ mod tests {
 
     impl Screen {
         fn new() -> Self {
-            dioxus_compose::window::reset_window_size();
+            compose_rust::window::reset_window_size();
             let mut host = Host::new(app);
             let first = host.rebuild().expect("the first frame failed").to_vec();
             Self {
@@ -876,7 +876,7 @@ mod tests {
     /// id names nothing is a blank square, which on this screen is most of the screen.
     #[test]
     fn fr16_the_check_in_draws_a_face() {
-        dioxus_compose::window::reset_window_size();
+        compose_rust::window::reset_window_size();
         let batch = Host::new(app)
             .rebuild()
             .expect("the first frame failed")
@@ -917,7 +917,7 @@ mod tests {
             )),
             "the face draws an id that was never registered"
         );
-        dioxus_compose::window::reset_window_size();
+        compose_rust::window::reset_window_size();
     }
 
     /// Choosing a mood changes the picture rather than only the label under it. A picker
@@ -948,7 +948,7 @@ mod tests {
             )),
             "the mood changed and the face did not"
         );
-        dioxus_compose::window::reset_window_size();
+        compose_rust::window::reset_window_size();
     }
 
     /// The check-in is three steps and the last one has to be reachable. A flow whose end
@@ -973,7 +973,7 @@ mod tests {
                 .any(|text| text.contains(WORRIES[2])),
             "the summary does not carry what was chosen"
         );
-        dioxus_compose::window::reset_window_size();
+        compose_rust::window::reset_window_size();
     }
 
     /// Every destination has to encode, not just the one the app opens on.
@@ -987,7 +987,7 @@ mod tests {
                 choice.label()
             );
         }
-        dioxus_compose::window::reset_window_size();
+        compose_rust::window::reset_window_size();
     }
 
     /// The check-in, in the design system it ships, in both schemes, at all three widths.

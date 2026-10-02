@@ -23,7 +23,7 @@ use std::os::raw::c_void;
 use std::sync::OnceLock;
 
 unsafe extern "C" {
-    /// Defined by the application's cdylib through `dioxus_compose::android_main!`. It
+    /// Defined by the application's cdylib through `compose_rust::android_main!`. It
     /// registers the root component before the Renderer's first init call.
     fn dioxus_compose_android_main();
 }

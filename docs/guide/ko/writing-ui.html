@@ -69,7 +69,7 @@
 
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
       <figcaption>rust</figcaption>
-<pre><code><span class="k">use</span> dioxus_compose::prelude::*;
+<pre><code><span class="k">use</span> compose_rust::prelude::*;
 
 <span class="k">fn</span> <span class="f">app</span>() -&gt; <span class="ty">Element</span> {
     <span class="k">let</span> <span class="k">mut</span> count = <span class="f">use_signal</span>(|| <span class="n">0</span>i32);
@@ -87,7 +87,7 @@
 }
 
 <span class="k">fn</span> <span class="f">main</span>() {
-    dioxus_compose::<span class="f">launch</span>(app);
+    compose_rust::<span class="f">launch</span>(app);
 }</code></pre>
     </figure>
 
@@ -142,7 +142,7 @@
     </div>
 
     <div class="warn">
-      <span class="label"><code>Box</code>가 아니라 <code>dioxus_compose::Box</code></span>
+      <span class="label"><code>Box</code>가 아니라 <code>compose_rust::Box</code></span>
       <p>
         dioxus-core 0.7의 <code>rsx!</code> 전개 코드는 내부에서 한정 없는
         <code>Box&lt;T&gt;</code>를 씁니다. Compose의 <code>Box</code>를 glob prelude로 가져오면
@@ -154,7 +154,7 @@
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
       <figcaption>rust, dioxus-compose/tests/rsx_api.rs</figcaption>
 <pre><code><span class="f">rsx!</span> {
-    dioxus_compose::<span class="ty">Box</span> {
+    compose_rust::<span class="ty">Box</span> {
         <span class="at">fill_max_width</span>: <span class="k">true</span>,
         <span class="ty">Text</span> { <span class="at">text</span>: <span class="s">"qualified Box"</span> }
     }

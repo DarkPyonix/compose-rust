@@ -19,7 +19,7 @@ crate-type = ["rlib", "cdylib", "staticlib"]
 bench = false
 
 [dependencies]
-dioxus-compose = { path = "../../dioxus-compose" }
+compose-rust = { path = "../../dioxus-compose" }
 dioxus-hooks.workspace = true
 
 [dev-dependencies]

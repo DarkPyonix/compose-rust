@@ -10,13 +10,13 @@
 //! stopped being two: a diff that needed collecting, a result that needed asking for, or a
 //! frame that had to be rendered before the change was visible would each show up here.
 
-use dioxus_compose::boundary::{
+use compose_rust::boundary::{
     MutationBatch, STATUS_OK, dioxus_compose_host_dispatch_event, dioxus_compose_host_init,
     dioxus_compose_host_release_batch, dioxus_compose_host_render_frame,
 };
-use dioxus_compose::prelude::*;
-use dioxus_compose::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
-use dioxus_compose::schema::{
+use compose_rust::prelude::*;
+use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
+use compose_rust::schema::{
     EventPayload, PROTOCOL_VERSION, PropertyKind, SCHEMA_HASH, WidgetKind,
 };
 

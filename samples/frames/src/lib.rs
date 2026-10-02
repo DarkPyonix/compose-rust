@@ -11,12 +11,12 @@
 //! looked at. The width is part of the file name, so the Renderer draws each recording in
 //! a window of the size the Host was told about rather than guessing one.
 
-use dioxus_compose::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
-use dioxus_compose::schema::{
+use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
+use compose_rust::schema::{
     ColorScheme, DesignSystem, EventPayload, PropertyKind, Theme, WidgetKind, WindowHeightClass,
     WindowSizeClass,
 };
-use dioxus_compose::{Element, Host};
+use compose_rust::{Element, Host};
 use std::path::{Path, PathBuf};
 
 /// A window the Host is told about and the Renderer draws into.
@@ -168,7 +168,7 @@ impl Screen {
         lists.len()
     }
 
-    pub fn press_icon(&mut self, icon: dioxus_compose::schema::IconRole) -> bool {
+    pub fn press_icon(&mut self, icon: compose_rust::schema::IconRole) -> bool {
         let found = {
             let mutations = self.mutations();
             let node = mutations.iter().find_map(|mutation| match mutation {
@@ -399,7 +399,7 @@ pub fn record_as(
         let system = theme.design_system;
         let scheme = theme.color_scheme;
         for viewport in VIEWPORTS {
-            dioxus_compose::window::reset_window_size();
+            compose_rust::window::reset_window_size();
             let mut host = Host::with_theme(app, theme);
             let first = host
                 .rebuild()
@@ -437,7 +437,7 @@ pub fn record_as(
             }
         }
     }
-    dioxus_compose::window::reset_window_size();
+    compose_rust::window::reset_window_size();
 }
 
 /// The name carries the window it was recorded for, so the Renderer draws each recording

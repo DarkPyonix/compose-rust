@@ -1802,7 +1802,7 @@ use std::os::raw::c_void;
 use std::sync::OnceLock;
 
 unsafe extern "C" {
-    /// Defined by the application's cdylib through `dioxus_compose::android_main!`. It
+    /// Defined by the application's cdylib through `compose_rust::android_main!`. It
     /// registers the root component before the Renderer's first init call.
     fn dioxus_compose_android_main();
 }
@@ -2708,7 +2708,7 @@ fn lent(address: u32) -> bool {
 /// in that case.
 ///
 /// The application exports this as `{WEB_START_SYMBOL}` through
-/// `dioxus_compose::web_main!`, and the export lives there rather than here because a wasm
+/// `compose_rust::web_main!`, and the export lives there rather than here because a wasm
 /// module cannot be linked with an undefined symbol the way an ELF shared library can: an
 /// import nobody satisfies stops the module from being instantiated, so this crate's own
 /// module must not name a function only an application can define.

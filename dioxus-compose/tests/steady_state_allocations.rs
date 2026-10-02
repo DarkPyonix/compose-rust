@@ -2,8 +2,8 @@
 //! the allocator. The Host's per-event ceiling is asserted against the chat sample, where
 //! there is a real conversation behind the keystroke being measured.
 
-use dioxus_compose::protocol::{BatchEncoder, Mutation, PropertyValue};
-use dioxus_compose::schema::PropertyKind;
+use compose_rust::protocol::{BatchEncoder, Mutation, PropertyValue};
+use compose_rust::schema::PropertyKind;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 

@@ -150,7 +150,7 @@ Rust **Host**가 Kotlin **Renderer**보다 앞서 있습니다. 지금 마무리
 줄인 것입니다. 이 저장소에서 컴파일됩니다.
 
 ```rust
-use dioxus_compose::prelude::*;
+use compose_rust::prelude::*;
 
 fn app() -> Element {
     let mut messages = use_signal(Vec::<String>::new);
@@ -187,7 +187,7 @@ fn app() -> Element {
 }
 
 fn main() {
-    dioxus_compose::launch(app);
+    compose_rust::launch(app);
 }
 ```
 
@@ -199,7 +199,7 @@ fn main() {
 - **IME 조합 중에는 키 이벤트를 Rust로 보내지 않습니다.** 조합 중의 Enter는 제출이 아니라 조합
   확정입니다. 이걸 어기면 한글 입력 중이던 글자가 사라진 채 제출됩니다.
 
-> ⚠️ `rsx!` 안에서는 `dioxus_compose::Box`처럼 경로를 붙여 써야 합니다. `dioxus-core` 0.7의 매크로
+> ⚠️ `rsx!` 안에서는 `compose_rust::Box`처럼 경로를 붙여 써야 합니다. `dioxus-core` 0.7의 매크로
 > 확장이 경로 없는 `Box<T>`를 쓰는데, prelude의 glob이 그것을 가리기 때문입니다.
 
 ---
@@ -321,7 +321,7 @@ JavaFX 호스트가 쓰는 것과 같은 방식입니다. AWT가 자기 루프�
 
 ```toml
 [dependencies]
-dioxus-compose = "0.0.0"
+compose-rust = "0.1.0"
 ```
 
 설정할 환경 변수도, 손으로 내려받을 파일도, 실행할 스크립트도 없습니다. 캐시는 버전과
@@ -459,7 +459,7 @@ cd dioxus-compose-renderer
 ### 7. Rust 데모 실행
 
 ```bash
-cargo run -p dioxus-compose --example desktop_demo --features native-renderer
+cargo run -p compose-rust --example desktop_demo --features native-renderer
 ```
 
 이 저장소의 체크아웃에서는 빌드 스크립트가 방금 빌드한 워크스페이스의

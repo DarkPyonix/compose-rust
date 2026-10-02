@@ -829,7 +829,7 @@ fn nfr11_no_message_names_a_file_that_is_not_in_the_repository() {
 
     let mut messages = every_failure_message(temp.path());
     // The run-time half of the same promise: what an application with no renderer prints.
-    messages.push(dioxus_compose::boundary::no_renderer_message());
+    messages.push(compose_rust::boundary::no_renderer_message());
 
     let mut checked = 0;
     for message in &messages {
@@ -885,15 +885,15 @@ fn repository_path(token: &str) -> Option<&str> {
 /// prints has to say what is missing and how a build gets one.
 #[test]
 fn nfr11_the_no_renderer_message_says_what_is_missing_and_how_builds_get_one() {
-    let message = dioxus_compose::boundary::no_renderer_message();
+    let message = compose_rust::boundary::no_renderer_message();
     assert!(message.contains("without a renderer"), "{message}");
     assert!(
         message.contains("default-features = false"),
         "the message has to name what turns the renderer off: {message}"
     );
     assert_ne!(
-        dioxus_compose::boundary::STATUS_NO_RENDERER,
-        dioxus_compose::boundary::STATUS_OK,
+        compose_rust::boundary::STATUS_NO_RENDERER,
+        compose_rust::boundary::STATUS_OK,
         "a build with no renderer must not report success"
     );
 }
@@ -906,8 +906,8 @@ fn nfr11_the_no_renderer_message_says_what_is_missing_and_how_builds_get_one() {
 #[cfg(not(any(renderer_linked, feature = "mock-renderer")))]
 #[test]
 fn nfr11_launching_without_a_renderer_does_not_return_success() {
-    use dioxus_compose::boundary::{STATUS_NO_RENDERER, STATUS_OK};
-    use dioxus_compose::prelude::*;
+    use compose_rust::boundary::{STATUS_NO_RENDERER, STATUS_OK};
+    use compose_rust::prelude::*;
 
     fn app() -> Element {
         rsx! { Text { text: "nothing will draw this" } }
@@ -1393,7 +1393,7 @@ fn pr5_compose_is_added_to_a_generated_gradle_project() {
 /// A sample that asked for the platform's design says so on the wire.
 #[test]
 fn fr14_an_adaptive_sample_sends_an_adaptive_theme() {
-    let theme = dioxus_compose::demo_theme();
+    let theme = compose_rust::demo_theme();
     assert!(
         theme.adaptive,
         "the theme a sample launches with is fixed to {:?}, so it draws the same design \
@@ -1446,11 +1446,11 @@ fn nfr11_the_profile_directory_is_three_levels_above_out_dir() {
 /// built on, and a name asks the toolkit to find something it may not have.
 #[test]
 fn fr19_3_a_window_carries_the_icon_it_was_given() {
-    use dioxus_compose::protocol::{BatchEncoder, Mutation};
-    let window = dioxus_compose::schema::Window::new().with_icon(7);
+    use compose_rust::protocol::{BatchEncoder, Mutation};
+    let window = compose_rust::schema::Window::new().with_icon(7);
     assert_eq!(window.icon, 7);
     assert_eq!(
-        dioxus_compose::schema::Window::new().icon,
+        compose_rust::schema::Window::new().icon,
         0,
         "an application that said nothing keeps the toolkit's icon, and zero is how it \
          says nothing"
@@ -1461,7 +1461,7 @@ fn fr19_3_a_window_carries_the_icon_it_was_given() {
         .encode(&Mutation::SetWindow(window))
         .expect("the record encodes");
     let bytes = encoder.finish().expect("the batch finishes");
-    let decoded = dioxus_compose::protocol::decode_batch(bytes).expect("the batch decodes");
+    let decoded = compose_rust::protocol::decode_batch(bytes).expect("the batch decodes");
     let Some(Mutation::SetWindow(round_tripped)) = decoded.first() else {
         panic!("the batch holds something other than the window: {decoded:?}");
     };
@@ -1480,8 +1480,8 @@ fn fr19_3_a_window_carries_the_icon_it_was_given() {
 /// sample-todo.exe read DioxusCompose.
 #[test]
 fn fr19_3_a_window_carries_the_title_it_was_given() {
-    use dioxus_compose::protocol::{BatchEncoder, Mutation};
-    let window = dioxus_compose::schema::Window::new().with_title("Todo");
+    use compose_rust::protocol::{BatchEncoder, Mutation};
+    let window = compose_rust::schema::Window::new().with_title("Todo");
     assert_eq!(window.title, "Todo");
 
     let mut encoder = BatchEncoder::with_capacity(64, 64, 4);
@@ -1489,7 +1489,7 @@ fn fr19_3_a_window_carries_the_title_it_was_given() {
         .encode(&Mutation::SetWindow(window))
         .expect("the record encodes");
     let bytes = encoder.finish().expect("the batch finishes");
-    let decoded = dioxus_compose::protocol::decode_batch(bytes).expect("the batch decodes");
+    let decoded = compose_rust::protocol::decode_batch(bytes).expect("the batch decodes");
     let Some(Mutation::SetWindow(round_tripped)) = decoded.first() else {
         panic!("the batch holds something other than the window: {decoded:?}");
     };
@@ -1548,16 +1548,16 @@ fn nfr10_a_renderer_from_another_schema_is_caught_at_build_time() {
 /// Renderer measure, so a batch that carries none of them is the proof.
 #[test]
 fn fr28_a_tree_that_observes_nothing_sends_no_observation() {
-    use dioxus_compose::prelude::*;
-    use dioxus_compose::protocol::{Mutation, decode_batch};
-    use dioxus_compose::schema::Modifier;
+    use compose_rust::prelude::*;
+    use compose_rust::protocol::{Mutation, decode_batch};
+    use compose_rust::schema::Modifier;
 
     fn quiet() -> Element {
         rsx! { Column { Text { text: "nothing is watching this" } } }
     }
 
-    dioxus_compose::window::reset_window_size();
-    let mut host = dioxus_compose::Host::new(quiet);
+    compose_rust::window::reset_window_size();
+    let mut host = compose_rust::Host::new(quiet);
     let batch = host.rebuild().expect("the first frame failed to encode");
     let mutations = decode_batch(batch).expect("decode");
     assert!(
@@ -1575,9 +1575,9 @@ fn fr28_a_tree_that_observes_nothing_sends_no_observation() {
 /// A node that asked carries the token its screen gave it.
 #[test]
 fn fr28_an_observed_node_carries_its_own_token() {
-    use dioxus_compose::prelude::*;
-    use dioxus_compose::protocol::{Mutation, decode_batch};
-    use dioxus_compose::schema::Modifier;
+    use compose_rust::prelude::*;
+    use compose_rust::protocol::{Mutation, decode_batch};
+    use compose_rust::schema::Modifier;
 
     fn watched() -> Element {
         let panel = use_node_size();
@@ -1589,8 +1589,8 @@ fn fr28_an_observed_node_carries_its_own_token() {
         }
     }
 
-    dioxus_compose::window::reset_window_size();
-    let mut host = dioxus_compose::Host::new(watched);
+    compose_rust::window::reset_window_size();
+    let mut host = compose_rust::Host::new(watched);
     let batch = host.rebuild().expect("the first frame failed to encode");
     let mutations = decode_batch(batch).expect("decode");
     let observed: Vec<_> = mutations
@@ -1614,16 +1614,16 @@ fn fr28_an_observed_node_carries_its_own_token() {
 /// one record per node.
 #[test]
 fn fr26_a_text_without_runs_carries_no_run_record() {
-    use dioxus_compose::prelude::*;
-    use dioxus_compose::protocol::{Mutation, decode_batch};
-    use dioxus_compose::schema::PropertyKind;
+    use compose_rust::prelude::*;
+    use compose_rust::protocol::{Mutation, decode_batch};
+    use compose_rust::schema::PropertyKind;
 
     fn plain() -> Element {
         rsx! { Text { text: "nothing special about this" } }
     }
 
-    dioxus_compose::window::reset_window_size();
-    let mut host = dioxus_compose::Host::new(plain);
+    compose_rust::window::reset_window_size();
+    let mut host = compose_rust::Host::new(plain);
     let batch = host.rebuild().expect("the first frame failed to encode");
     assert!(
         !decode_batch(batch)
@@ -1643,10 +1643,10 @@ fn fr26_a_text_without_runs_carries_no_run_record() {
 /// Runs survive the wire exactly as they were written.
 #[test]
 fn fr26_runs_round_trip_through_the_boundary() {
-    use dioxus_compose::prelude::*;
-    use dioxus_compose::protocol::{Mutation, PropertyValue, decode_batch};
-    use dioxus_compose::schema::PropertyKind;
-    use dioxus_compose::spans::{TextSpan, TextSpans};
+    use compose_rust::prelude::*;
+    use compose_rust::protocol::{Mutation, PropertyValue, decode_batch};
+    use compose_rust::schema::PropertyKind;
+    use compose_rust::spans::{TextSpan, TextSpans};
 
     fn marked() -> Element {
         let spans = TextSpans::new([
@@ -1658,8 +1658,8 @@ fn fr26_runs_round_trip_through_the_boundary() {
         rsx! { Text { text: "Plain link here", spans } }
     }
 
-    dioxus_compose::window::reset_window_size();
-    let mut host = dioxus_compose::Host::new(marked);
+    compose_rust::window::reset_window_size();
+    let mut host = compose_rust::Host::new(marked);
     let batch = host.rebuild().expect("the first frame failed to encode");
     let bytes = decode_batch(batch)
         .expect("decode")
@@ -1685,7 +1685,7 @@ fn fr26_runs_round_trip_through_the_boundary() {
 /// The markdown convenience is a Host convenience, and leaves what it does not know.
 #[test]
 fn fr26_markdown_becomes_runs_and_never_crosses_the_boundary() {
-    use dioxus_compose::spans::TextSpans;
+    use compose_rust::spans::TextSpans;
 
     let (text, spans) = TextSpans::from_markdown("a **bold** and *slanted* word");
     assert_eq!(text, "a bold and slanted word");
@@ -1711,7 +1711,7 @@ fn fr26_markdown_becomes_runs_and_never_crosses_the_boundary() {
 /// Paths arrive together and come apart again as they were.
 #[test]
 fn fr27_two_paths_arrive_as_one_event() {
-    use dioxus_compose::FileDrop;
+    use compose_rust::FileDrop;
 
     let drop = FileDrop::new("/tmp/one.txt\0/tmp/two.txt");
     assert_eq!(drop.paths(), ["/tmp/one.txt", "/tmp/two.txt"]);
@@ -1723,7 +1723,7 @@ fn fr27_two_paths_arrive_as_one_event() {
 /// nine and must not end the process.
 #[test]
 fn fr27_an_unreadable_path_is_dropped_and_the_rest_arrive() {
-    use dioxus_compose::FileDrop;
+    use compose_rust::FileDrop;
 
     let drop = FileDrop::new("/tmp/kept.txt\0\0/tmp/also-kept.txt");
     assert_eq!(drop.paths(), ["/tmp/kept.txt", "/tmp/also-kept.txt"]);
@@ -1735,16 +1735,16 @@ fn fr27_an_unreadable_path_is_dropped_and_the_rest_arrive() {
 /// about files is the common case: every Box, Column, Card and Surface in every screen.
 #[test]
 fn fr27_a_node_that_did_not_ask_is_not_a_drop_target() {
-    use dioxus_compose::prelude::*;
-    use dioxus_compose::protocol::{Mutation, decode_batch};
-    use dioxus_compose::schema::PropertyKind;
+    use compose_rust::prelude::*;
+    use compose_rust::protocol::{Mutation, decode_batch};
+    use compose_rust::schema::PropertyKind;
 
     fn plain() -> Element {
-        rsx! { dioxus_compose::Box { Text { text: "not a target" } } }
+        rsx! { compose_rust::Box { Text { text: "not a target" } } }
     }
 
-    dioxus_compose::window::reset_window_size();
-    let mut host = dioxus_compose::Host::new(plain);
+    compose_rust::window::reset_window_size();
+    let mut host = compose_rust::Host::new(plain);
     let batch = host.rebuild().expect("the first frame failed to encode");
     let said = decode_batch(batch)
         .expect("decode")
@@ -1768,9 +1768,9 @@ fn fr27_a_node_that_did_not_ask_is_not_a_drop_target() {
 /// The widget that exists to receive files is the one that carries the handlers.
 #[test]
 fn fr27_a_drop_target_carries_both_handlers() {
-    use dioxus_compose::prelude::*;
-    use dioxus_compose::protocol::{Mutation, decode_batch};
-    use dioxus_compose::schema::{PropertyKind, WidgetKind};
+    use compose_rust::prelude::*;
+    use compose_rust::protocol::{Mutation, decode_batch};
+    use compose_rust::schema::{PropertyKind, WidgetKind};
 
     fn target() -> Element {
         rsx! {
@@ -1782,8 +1782,8 @@ fn fr27_a_drop_target_carries_both_handlers() {
         }
     }
 
-    dioxus_compose::window::reset_window_size();
-    let mut host = dioxus_compose::Host::new(target);
+    compose_rust::window::reset_window_size();
+    let mut host = compose_rust::Host::new(target);
     let mutations = decode_batch(host.rebuild().expect("encode")).expect("decode");
     assert!(mutations.iter().any(|mutation| matches!(
         mutation,
@@ -1806,8 +1806,8 @@ fn fr27_a_drop_target_carries_both_handlers() {
 /// A node says how important its changes are, and nothing about how long they take.
 #[test]
 fn fr24_a_motion_role_reaches_the_renderer_as_a_role() {
-    use dioxus_compose::prelude::*;
-    use dioxus_compose::protocol::{Mutation, decode_batch};
+    use compose_rust::prelude::*;
+    use compose_rust::protocol::{Mutation, decode_batch};
 
     fn moving() -> Element {
         rsx! {
@@ -1815,8 +1815,8 @@ fn fr24_a_motion_role_reaches_the_renderer_as_a_role() {
         }
     }
 
-    dioxus_compose::window::reset_window_size();
-    let mut host = dioxus_compose::Host::new(moving);
+    compose_rust::window::reset_window_size();
+    let mut host = compose_rust::Host::new(moving);
     let mutations = decode_batch(host.rebuild().expect("encode")).expect("decode");
     assert!(
         mutations.iter().any(|mutation| matches!(
@@ -1833,15 +1833,15 @@ fn fr24_a_motion_role_reaches_the_renderer_as_a_role() {
 /// A node that said nothing about motion pays nothing.
 #[test]
 fn fr24_silence_about_motion_costs_no_record() {
-    use dioxus_compose::prelude::*;
-    use dioxus_compose::protocol::{Mutation, decode_batch};
+    use compose_rust::prelude::*;
+    use compose_rust::protocol::{Mutation, decode_batch};
 
     fn still() -> Element {
         rsx! { Card { Text { text: "still" } } }
     }
 
-    dioxus_compose::window::reset_window_size();
-    let mut host = dioxus_compose::Host::new(still);
+    compose_rust::window::reset_window_size();
+    let mut host = compose_rust::Host::new(still);
     let mutations = decode_batch(host.rebuild().expect("encode")).expect("decode");
     assert!(!mutations.iter().any(|mutation| matches!(
         mutation,
@@ -1855,8 +1855,8 @@ fn fr24_silence_about_motion_costs_no_record() {
 /// The five roles survive the round trip in the order the wire fixes them in.
 #[test]
 fn fr24_every_motion_role_survives_the_wire() {
-    use dioxus_compose::prelude::*;
-    use dioxus_compose::protocol::{Mutation, decode_batch};
+    use compose_rust::prelude::*;
+    use compose_rust::protocol::{Mutation, decode_batch};
 
     const ROLES: [MotionRole; 5] = [
         MotionRole::Instant,
@@ -1876,8 +1876,8 @@ fn fr24_every_motion_role_survives_the_wire() {
         }
     }
 
-    dioxus_compose::window::reset_window_size();
-    let mut host = dioxus_compose::Host::new(all_five);
+    compose_rust::window::reset_window_size();
+    let mut host = compose_rust::Host::new(all_five);
     let mutations = decode_batch(host.rebuild().expect("encode")).expect("decode");
     let arrived: Vec<MotionRole> = mutations
         .iter()
@@ -1895,8 +1895,8 @@ fn fr24_every_motion_role_survives_the_wire() {
 /// A surface says what it is made of, and nothing about blur.
 #[test]
 fn fr23_a_material_role_reaches_the_renderer_as_a_role() {
-    use dioxus_compose::prelude::*;
-    use dioxus_compose::protocol::{Mutation, decode_batch};
+    use compose_rust::prelude::*;
+    use compose_rust::protocol::{Mutation, decode_batch};
 
     fn sheet() -> Element {
         rsx! {
@@ -1904,8 +1904,8 @@ fn fr23_a_material_role_reaches_the_renderer_as_a_role() {
         }
     }
 
-    dioxus_compose::window::reset_window_size();
-    let mut host = dioxus_compose::Host::new(sheet);
+    compose_rust::window::reset_window_size();
+    let mut host = compose_rust::Host::new(sheet);
     let mutations = decode_batch(host.rebuild().expect("encode")).expect("decode");
     assert!(
         mutations.iter().any(|mutation| matches!(
@@ -1922,8 +1922,8 @@ fn fr23_a_material_role_reaches_the_renderer_as_a_role() {
 /// The four roles survive the round trip in the order the wire fixes them in.
 #[test]
 fn fr23_every_material_role_survives_the_wire() {
-    use dioxus_compose::prelude::*;
-    use dioxus_compose::protocol::{Mutation, decode_batch};
+    use compose_rust::prelude::*;
+    use compose_rust::protocol::{Mutation, decode_batch};
 
     const ROLES: [MaterialRole; 4] = [
         MaterialRole::Thin,
@@ -1942,8 +1942,8 @@ fn fr23_every_material_role_survives_the_wire() {
         }
     }
 
-    dioxus_compose::window::reset_window_size();
-    let mut host = dioxus_compose::Host::new(all_four);
+    compose_rust::window::reset_window_size();
+    let mut host = compose_rust::Host::new(all_four);
     let mutations = decode_batch(host.rebuild().expect("encode")).expect("decode");
     let arrived: Vec<MaterialRole> = mutations
         .iter()
@@ -1961,15 +1961,15 @@ fn fr23_every_material_role_survives_the_wire() {
 /// A node that said nothing about material pays nothing.
 #[test]
 fn fr23_silence_about_material_costs_no_record() {
-    use dioxus_compose::prelude::*;
-    use dioxus_compose::protocol::{Mutation, decode_batch};
+    use compose_rust::prelude::*;
+    use compose_rust::protocol::{Mutation, decode_batch};
 
     fn plain() -> Element {
         rsx! { Surface { Text { text: "flat" } } }
     }
 
-    dioxus_compose::window::reset_window_size();
-    let mut host = dioxus_compose::Host::new(plain);
+    compose_rust::window::reset_window_size();
+    let mut host = compose_rust::Host::new(plain);
     let mutations = decode_batch(host.rebuild().expect("encode")).expect("decode");
     assert!(!mutations.iter().any(|mutation| matches!(
         mutation,
@@ -1983,9 +1983,9 @@ fn fr23_silence_about_material_costs_no_record() {
 /// A gradient reaches the Renderer as a registration and an id, not as a list of stops.
 #[test]
 fn fr23_a_gradient_is_registered_once_and_named_by_id() {
-    use dioxus_compose::prelude::*;
-    use dioxus_compose::protocol::{Mutation, decode_batch};
-    use dioxus_compose::schema::{AssetKind, Color, Paint};
+    use compose_rust::prelude::*;
+    use compose_rust::protocol::{Mutation, decode_batch};
+    use compose_rust::schema::{AssetKind, Color, Paint};
 
     fn sky() -> Element {
         let paint = brush(Brush::vertical(vec![
@@ -1996,8 +1996,8 @@ fn fr23_a_gradient_is_registered_once_and_named_by_id() {
         rsx! { Surface { background: paint, Text { text: "over a gradient" } } }
     }
 
-    dioxus_compose::window::reset_window_size();
-    let mut host = dioxus_compose::Host::new(sky);
+    compose_rust::window::reset_window_size();
+    let mut host = compose_rust::Host::new(sky);
     let mutations = decode_batch(host.rebuild().expect("encode")).expect("decode");
 
     let registration = mutations
@@ -2014,7 +2014,7 @@ fn fr23_a_gradient_is_registered_once_and_named_by_id() {
     // Header, then one record per stop.
     assert_eq!(
         registration.1.len(),
-        dioxus_compose::brush::HEADER_LEN + 3 * dioxus_compose::brush::STOP_LEN,
+        compose_rust::brush::HEADER_LEN + 3 * compose_rust::brush::STOP_LEN,
     );
 
     let named = mutations.iter().any(|mutation| {
@@ -2033,8 +2033,8 @@ fn fr23_a_gradient_is_registered_once_and_named_by_id() {
 /// The same gradient asked for twice is one registration.
 #[test]
 fn fr23_the_same_brush_is_registered_once() {
-    use dioxus_compose::prelude::*;
-    use dioxus_compose::schema::Color;
+    use compose_rust::prelude::*;
+    use compose_rust::schema::Color;
 
     let first = brush(Brush::horizontal(vec![
         Stop::new(0.0, Color::rgb(0x101010)),
@@ -2050,7 +2050,7 @@ fn fr23_the_same_brush_is_registered_once() {
 /// A brush travels as the two words a Paint has, whichever kind it is.
 #[test]
 fn fr23_a_brush_paint_survives_the_wire() {
-    use dioxus_compose::schema::{ColorRole, Paint};
+    use compose_rust::schema::{ColorRole, Paint};
 
     for paint in [
         Paint::Asset(1),

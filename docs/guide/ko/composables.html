@@ -76,7 +76,7 @@
 
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
       <figcaption>rust</figcaption>
-<pre><code><span class="k">use</span> dioxus_compose::prelude::*;</code></pre>
+<pre><code><span class="k">use</span> compose_rust::prelude::*;</code></pre>
     </figure>
 
     <p>
@@ -90,7 +90,7 @@
     </p>
 
     <div class="warn">
-      <span class="label"><code>Box</code>가 아니라 <code>dioxus_compose::Box</code>로 쓰세요</span>
+      <span class="label"><code>Box</code>가 아니라 <code>compose_rust::Box</code>로 쓰세요</span>
       <p>
         dioxus-core 0.7의 <code>rsx!</code> 확장은 내부적으로 수식되지 않은
         <code>Box&lt;T&gt;</code>를 참조합니다. Compose의 <code>Box</code>를 glob prelude로
@@ -104,7 +104,7 @@
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
       <figcaption>rust</figcaption>
 <pre><code><span class="f">rsx!</span> {
-    dioxus_compose::<span class="ty">Box</span> {
+    compose_rust::<span class="ty">Box</span> {
         <span class="at">fill_max_width</span>: <span class="k">true</span>,
         <span class="at">alignment</span>: <span class="ty">Alignment</span>::Center,
         <span class="ty">Text</span> { <span class="at">text</span>: <span class="s">"가운데"</span> }
@@ -338,7 +338,7 @@
     <p>
       겹쳐 놓는 컨테이너입니다. 자식이 서로 위에 쌓이고 <code>alignment</code>로 자리를
       잡습니다. 자기 것으로는 <code>alignment</code>와 자식만 받습니다.
-      <code>dioxus_compose::Box</code>로 쓰세요.
+      <code>compose_rust::Box</code>로 쓰세요.
     </p>
 
     <h3>ScrollColumn</h3>

@@ -15,7 +15,7 @@
 //! scaffolding sitting under the keypad, doing nothing a calculator does. A keypad is
 //! pressed. When the protocol can name the keys, typing comes back as typing.
 
-use dioxus_compose::prelude::*;
+use compose_rust::prelude::*;
 
 mod engine;
 
@@ -158,7 +158,7 @@ fn memory_row(memory_set: bool, press: EventHandler<&'static str>) -> Element {
 /// reading area, which is mostly the room above the number.
 fn readout(status: String, display: String) -> Element {
     rsx! {
-        dioxus_compose::Box {
+        compose_rust::Box {
             fill_max_width: true,
             Column {
                 fill_max_width: true,
@@ -234,7 +234,7 @@ fn tape(entries: Vec<TapeEntry>, recall: EventHandler<f64>, clear: EventHandler<
             }
             Separator {}
             if entries.is_empty() {
-                dioxus_compose::Box {
+                compose_rust::Box {
                     fill_max_width: true,
                     weight: 1.0,
                     alignment: Alignment::Center,
@@ -398,7 +398,7 @@ pub fn app() -> Element {
                 // measure so their edges agree. The pad used to be the only one of the
                 // three that stopped widening, which put the number to the right of the
                 // keys it belongs to.
-                dioxus_compose::Box {
+                compose_rust::Box {
                     weight: INSTRUMENT_SHARE,
                     fill_max_height: true,
                     alignment: Alignment::TopCenter,
@@ -415,7 +415,7 @@ pub fn app() -> Element {
                         // sits at its foot, which is where all three references put it:
                         // the room above the number is what a long expression grows into
                         // rather than something that pushes the keys down.
-                        dioxus_compose::Box {
+                        compose_rust::Box {
                             fill_max_width: true,
                             weight: READING_SHARE,
                             alignment: Alignment::BottomCenter,
@@ -426,7 +426,7 @@ pub fn app() -> Element {
                         if !apple {
                             {memory_row(memory_set, EventHandler::new(press))}
                         }
-                        dioxus_compose::Box {
+                        compose_rust::Box {
                             fill_max_width: true,
                             weight: KEYPAD_SHARE,
                             alignment: Alignment::BottomCenter,
@@ -476,14 +476,14 @@ pub fn launch() {
 /// The theme above all: a sample that names one and then reaches a platform through an
 /// entry point that makes its own builder is a sample that draws the same screens in a
 /// different design system depending on where it runs.
-fn launch_builder() -> dioxus_compose::LaunchBuilder {
+fn launch_builder() -> compose_rust::LaunchBuilder {
     // The name the window carries. A desktop lists windows by it, so a window that said
     // nothing was listed under whatever the renderer happened to be called, and every
     // sample here was listed as DioxusCompose until this line existed.
-    dioxus_compose::LaunchBuilder::new()
-        .with_theme(dioxus_compose::demo_theme())
+    compose_rust::LaunchBuilder::new()
+        .with_theme(compose_rust::demo_theme())
         .with_window(
-            dioxus_compose::schema::Window::new()
+            compose_rust::schema::Window::new()
                 .with_title("Calculator")
                 // A calculator is a tall narrow window on all three of the machines this
                 // is a rebuild of, and for the same reason on each: the keys are a grid
@@ -499,8 +499,8 @@ fn launch_builder() -> dioxus_compose::LaunchBuilder {
                 // to them by id: a path would be a fact about the machine this
                 // was built on, and a name would ask the toolkit to find
                 // something it may not have.
-                .with_icon(dioxus_compose::asset::asset(
-                    dioxus_compose::schema::AssetKind::Png,
+                .with_icon(compose_rust::asset::asset(
+                    compose_rust::schema::AssetKind::Png,
                     include_bytes!("../assets/icon.png"),
                 )),
         )
@@ -513,18 +513,18 @@ fn launch_builder() -> dioxus_compose::LaunchBuilder {
 // Both are declared unconditionally. Each macro compiles into nothing that runs off its
 // own platform, and gating them here instead would mean a desktop build never checks that
 // this sample can still be built for the other two.
-dioxus_compose::android_main!({ launch_builder() }, app);
-dioxus_compose::web_main!({ launch_builder() }, app);
-dioxus_compose::ios_main!(launch);
+compose_rust::android_main!({ launch_builder() }, app);
+compose_rust::web_main!({ launch_builder() }, app);
+compose_rust::ios_main!(launch);
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dioxus_compose::Host;
-    use dioxus_compose::protocol::{
+    use compose_rust::Host;
+    use compose_rust::protocol::{
         HostEvent, Mutation, PropertyValue, decode_batch, encode_event,
     };
-    use dioxus_compose::schema::{
+    use compose_rust::schema::{
         EventPayload, MessageDuration, PropertyKind, TypeRole, WidgetKind,
     };
     use std::collections::HashMap;
@@ -599,11 +599,11 @@ mod tests {
     /// declared in, because a memory row under the keypad would be a different screen.
     #[test]
     fn fr22_the_memory_row_stands_between_the_reading_area_and_the_keys() {
-        dioxus_compose::window::reset_window_size();
+        compose_rust::window::reset_window_size();
         let mut host = Host::new(app);
         let batch = host.rebuild().expect("the first frame failed to encode");
         let labels = collect_button_labels(batch);
-        dioxus_compose::window::reset_window_size();
+        compose_rust::window::reset_window_size();
 
         let memory_at = labels
             .iter()
@@ -693,7 +693,7 @@ mod tests {
     #[test]
     fn the_declared_tree_encodes_without_a_protocol_error() {
         let mut dom = VirtualDom::new(app);
-        let mut renderer = dioxus_compose::renderer::ComposeRenderer::new();
+        let mut renderer = compose_rust::renderer::ComposeRenderer::new();
         renderer.begin_frame();
         dom.rebuild(&mut renderer);
         renderer
@@ -860,7 +860,7 @@ mod tests {
         /// applies the change to it: reading the resize batch alone would show only what
         /// moved.
         fn at(width_dp: f32) -> Self {
-            dioxus_compose::window::reset_window_size();
+            compose_rust::window::reset_window_size();
             let mut screen = Self::new();
             screen.dispatch(
                 0,
@@ -868,11 +868,11 @@ mod tests {
                 EventPayload::WindowSizeChanged {
                     width_dp,
                     height_dp: 800.0,
-                    class: dioxus_compose::WindowSizeClass::from_width_dp(width_dp),
-                    height_class: dioxus_compose::WindowHeightClass::from_height_dp(800.0),
+                    class: compose_rust::WindowSizeClass::from_width_dp(width_dp),
+                    height_class: compose_rust::WindowHeightClass::from_height_dp(800.0),
                 },
             );
-            dioxus_compose::window::reset_window_size();
+            compose_rust::window::reset_window_size();
             screen
         }
 

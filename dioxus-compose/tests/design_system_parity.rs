@@ -14,8 +14,8 @@
 //! only thing that can see both sides at once, and those three are the ones that were
 //! copied by hand.
 
-use dioxus_compose::schema::{ColorScheme, DesignSystem};
-use dioxus_compose::tokens::table;
+use compose_rust::schema::{ColorScheme, DesignSystem};
+use compose_rust::tokens::table;
 use std::collections::BTreeMap;
 
 /// One standalone system: the Host-side enum and the Kotlin source that mirrors it.

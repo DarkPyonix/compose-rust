@@ -1,9 +1,9 @@
 //! Streaming text: the Host sends only the appended tail, coalesced per frame.
 
-use dioxus_compose::Host;
-use dioxus_compose::prelude::*;
-use dioxus_compose::protocol::{Mutation, decode_batch};
-use dioxus_compose::schema::WidgetKind;
+use compose_rust::Host;
+use compose_rust::prelude::*;
+use compose_rust::protocol::{Mutation, decode_batch};
+use compose_rust::schema::WidgetKind;
 
 const TOKENS_PER_SECOND: usize = 100;
 

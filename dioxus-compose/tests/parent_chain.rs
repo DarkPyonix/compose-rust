@@ -4,9 +4,9 @@
 //! node walks up from a node to find its root. A chain that loops has no root, so the walk
 //! never ends.
 
-use dioxus_compose::prelude::*;
-use dioxus_compose::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
-use dioxus_compose::{EventPayload, Host, PropertyKind, WidgetKind};
+use compose_rust::prelude::*;
+use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
+use compose_rust::{EventPayload, Host, PropertyKind, WidgetKind};
 use std::collections::HashMap;
 
 /// A screen with two branches, both of which place the same held `Element`.
@@ -414,7 +414,7 @@ fn empty_box_in_a_list_app() -> Element {
             item_count: 20,
             item: move |index: usize| rsx! {
                 Column {
-                    dioxus_compose::Box {}
+                    compose_rust::Box {}
                     Text { text: "row {index}" }
                 }
             },

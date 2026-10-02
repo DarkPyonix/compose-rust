@@ -15,7 +15,7 @@ has gone wrong at least once:
     directory that the build then refuses with a longer message about a missing library.
   - the renderer is chosen when the crate is compiled, not when the application runs,
     because Windows looks in the executable's own directory before anything on PATH. So
-    the variable has to be set before `cargo build`, and `cargo clean -p dioxus-compose`
+    the variable has to be set before `cargo build`, and `cargo clean -p compose-rust`
     has to run or the build script does not look again.
 
 .PARAMETER Run
@@ -85,6 +85,6 @@ Write-Host "Now build against it. The variable has to be set before cargo runs, 
 Write-Host "renderer is linked in rather than found at startup:"
 Write-Host ""
 Write-Host "  `$env:DIOXUS_COMPOSE_RENDERER_DIR = '$bin'"
-Write-Host "  cargo clean -p dioxus-compose"
-Write-Host "  cargo build --release -p sample-minimal --features dioxus-compose/native-renderer"
+Write-Host "  cargo clean -p compose-rust"
+Write-Host "  cargo build --release -p sample-minimal --features compose-rust/native-renderer"
 Write-Host "  .\target\release\sample-minimal.exe"
