@@ -1,0 +1,6 @@
+target
+coverage
+# Crash reproducers are promoted to regression tests in tests/protocol_hardening.rs and
+# tests/boundary_hardening.rs rather than checked in as opaque binaries.
+artifacts
+Cargo.lock

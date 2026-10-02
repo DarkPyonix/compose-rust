@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>시작하기 · dioxus-compose 가이드</title>
+<meta name="description" content="준비물, Compose 렌더러를 네이티브 공유 라이브러리로 빌드하기, macOS에서 데스크톱 데모 실행하기.">
+<link rel="alternate" hreflang="en" href="../en/getting-started.html">
+<link rel="alternate" hreflang="ko" href="getting-started.html">
+<link rel="alternate" hreflang="x-default" href="../en/getting-started.html">
+<link rel="stylesheet" href="../assets/style.css?v=20">
+<script>(function(){try{var t=localStorage.getItem("dxc-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+</head>
+<body>
+<a class="skip" href="#main">본문으로 건너뛰기</a>
+
+<header class="topbar">
+  <a class="brand" href="./"><span class="dot" aria-hidden="true"></span>dioxus-compose <small>가이드</small></a>
+  <span class="spacer"></span>
+  <button id="navtoggle" class="ghost" type="button" aria-expanded="false" aria-controls="sidebar">메뉴</button>
+  <nav class="langswitch" aria-label="언어">
+    <a href="../en/getting-started.html" hreflang="en">EN</a>
+    <a href="getting-started.html" aria-current="true" hreflang="ko">KO</a>
+  </nav>
+  <button id="themetoggle" class="ghost" type="button" data-dark="다크" data-light="라이트" aria-pressed="false">다크</button>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <nav aria-label="가이드">
+      <h2>가이드</h2>
+      <ul>
+        <li><a href="overview.html">개요</a></li>
+        <li><a href="getting-started.html" aria-current="page">시작하기</a></li>
+        <li><a href="writing-ui.html">UI 작성하기</a></li>
+        <li><a href="composables.html">컴포저블 레퍼런스</a></li>
+        <li><a href="lists-and-streaming.html">목록과 스트리밍</a></li>
+        <li><a href="design-systems.html">디자인 시스템</a></li>
+        <li><a href="architecture.html">아키텍처</a></li>
+        <li><a href="troubleshooting.html">문제 해결</a></li>
+      </ul>
+      <h2>이 페이지</h2>
+      <ul>
+        <li><a href="#install">내 프로젝트에 추가하기</a></li>
+        <li><a href="#prerequisites">준비물</a></li>
+        <li><a href="#renderer">렌더러 빌드</a></li>
+        <li><a href="#smoke">라이브러리 스모크 테스트</a></li>
+        <li><a href="#demo">데모 실행</a></li>
+        <li><a href="#checks">검사 돌리기</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <main id="main">
+    <p class="eyebrow">시작하기</p>
+    <h1>받아 온 저장소에서 창이 뜰 때까지</h1>
+    <p class="lede">
+      크레이트를 쓰는 것은 <code>Cargo.toml</code> 한 줄이면 됩니다. 필요한 렌더러는 빌드가
+      내려받습니다. 렌더러 자체를 손보는 것은 아래의 긴 경로입니다.
+    </p>
+
+    <h2 id="install">내 프로젝트에 추가하기</h2>
+    <p>
+      렌더러는 바이너리가 링크하는 공유 라이브러리이고 crates.io에 넣기에는 너무 큽니다. 그래서
+      버전마다 체크섬이 붙은 릴리스 아티팩트로 나가고, 그것을 가져오는 일은 빌드 스크립트의
+      몫입니다.
+    </p>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>Cargo.toml</figcaption>
+<pre><code>[dependencies]
+dioxus-compose = "0.0.0"</code></pre>
+    </figure>
+
+    <p>
+      <code>cargo build</code>가 이 타깃에 필요한 렌더러를 알아내고, 크레이트 버전에 정확히 맞는
+      아티팩트를 내려받고, 게시된 <code>.sha256</code>으로 검증하고, <code>target/</code> 밖의
+      캐시에 풀어서 링크합니다. 캐시는 버전과 타깃으로 키가 잡혀 있어 <code>cargo clean</code>을
+      견디고 같은 기계의 프로젝트끼리 공유됩니다. 따로 설정하거나 내려받거나 실행할 것은
+      없습니다.
+    </p>
+
+    <p>
+      필요한 경우를 위한 변수가 둘 있고, 둘 다 설치에 필요하지는 않습니다.
+      <code>DIOXUS_COMPOSE_RENDERER_DIR</code>은 이미 가지고 있는 렌더러를 가리키며 다운로드보다
+      먼저 확인하므로, 직접 빌드한 렌더러와 벤더링한 사본과 망 분리 빌드가 모두 이것으로
+      해결됩니다. <code>DIOXUS_COMPOSE_CACHE_DIR</code>은 캐시 위치를 옮깁니다. 네트워크가 없는
+      빌드는 어떤 파일 둘을 어디에 두면 되는지 말하고, 그 자리에 두면 그것으로 끝입니다.
+    </p>
+
+    <div class="note">
+      <span class="label">렌더러 없이 빌드하기</span>
+      <p>
+        <code>default-features = false</code>는 렌더러가 전혀 없는 Host를 줍니다. 헤드리스
+        빌드나 문서 빌드가 원하는 구성입니다. 그렇게 만든 바이너리를 실행하면 무엇이 없는지
+        말하고 0이 아닌 상태로 끝납니다. 창을 열지 않은 채 <code>0</code>을 반환하지는
+        않습니다. 아무것도 그리지 않은 프로그램은 할 일을 마친 프로그램과 구분되어야 합니다.
+      </p>
+    </div>
+
+    <p>
+      아래는 전부 <strong>이 저장소</strong>에서 작업할 때의 이야기이고, 렌더러 툴체인까지
+      필요합니다.
+    </p>
+
+    <h2 id="prerequisites">준비물</h2>
+    <p>
+      무엇보다 먼저 <code>./scripts/setup-check.sh</code>를 돌리세요. 빌드와 품질 게이트가 쓰는
+      도구를 전부 점검하고, 빠진 것이 있으면 그것을 설치하는 명령을 그대로 알려 줍니다. 아래 표의
+      항목은 모두 이 스크립트의 점검 목록에 들어 있습니다.
+    </p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">무엇</th><th scope="col">왜</th></tr></thead>
+        <tbody>
+          <tr><td>macOS (Apple Silicon)</td><td>Kotlin/Native는 이 타깃을 macOS에서만 빌드하고, 빌드 스크립트가 다루는 것은 arm64입니다.</td></tr>
+          <tr><td>Xcode 커맨드라인 도구</td><td>링크 단계가 <code>xcrun</code>으로 macOS SDK를 찾고, C와 Objective-C 파일 몇 개도 컴파일합니다.</td></tr>
+          <tr><td>Rust 툴체인 (stable)</td><td>Host 크레이트를 빌드합니다. 보통 <code>rustup</code>으로 설치합니다.</td></tr>
+          <tr><td><strong>패치된 Compose</strong></td><td><code>dioxus-compose-renderer/scripts/build-compose.sh</code>가 로컬 Maven 저장소에 발행합니다. 아래를 보세요.</td></tr>
+          <tr><td>Liberica NIK 25 Full <em>(선택)</em></td><td>GraalVM 네이티브 이미지에만 필요하고, macOS는 더 이상 그것으로 배포하지 않습니다. 아래 설명을 보세요.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      렌더러는 JetBrains가 발행한 것이 아니라 로컬 Maven 저장소에서 Compose를 찾습니다. 이
+      프로젝트에 필요한 세 가지가 이 플랫폼용 공개 빌드에서는 비어 있고, 그 어느 것도 그것을 담고
+      있는 모듈 밖에서는 채울 수 없기 때문입니다. 텍스트 선택 메뉴가 내주는 항목, 복사에 쓰이는
+      키, 그리고 Linux 타깃입니다. 패치는 <code>dioxus-compose-renderer/patches/</code>에 있고,
+      Compose 리비전 하나에 고정돼 있으며, 각각 무엇을 위한 것인지 적혀 있습니다.
+    </p>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>shell</figcaption>
+<pre><code>./dioxus-compose-renderer/scripts/build-compose.sh</code></pre>
+    </figure>
+
+    <p>
+      고정된 리비전을 받아 패치를 얹고, 렌더러가 요구하는 모듈을 발행합니다. 오래 걸리지만 빌드마다
+      할 일은 아니고 한 번이면 됩니다. 나머지는 여전히 JetBrains가 발행한 것에서 해결됩니다.
+    </p>
+
+    <div class="warn">
+      <span class="label">네이티브 이미지를 빌드한다면 Liberica NIK입니다</span>
+      <p>
+        upstream GraalVM은 Darwin에서 AWT 지원을 건너뜁니다
+        (<a href="https://github.com/oracle/graal/issues/13272">oracle/graal#13272</a>, 2026-09
+        기준 여전히 open). 네이티브 이미지는 AWT를 거쳐 그리기 때문에, upstream으로 만든 이미지는
+        띄울 창 자체가 없습니다. Liberica NIK Full은 AWT를 정적으로 링크합니다. macOS가 배포하는
+        렌더러에는 해당하지 않는 이야기입니다. 그쪽은 Kotlin/Native이고 AWT를 전혀 링크하지
+        않습니다. 네이티브 이미지는 Windows를 빌드하는 방식이고,
+        <code>desktop/scripts/smoke-test.sh</code>가 링크하는 대상입니다.
+      </p>
+    </div>
+
+    <p>
+      빌드 스크립트는 기본 설치 위치에서 NIK를 찾고, 없으면 <code>GRAALVM_HOME</code>을 봅니다.
+    </p>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>shell</figcaption>
+<pre><code><span class="c"># 여기에 설치돼 있으면 자동으로 찾습니다:</span>
+~/Library/Java/JavaVirtualMachines/bellsoft-liberica-vm-full-openjdk25*/Contents/Home
+
+<span class="c"># 아니면 직접 알려 줍니다:</span>
+<span class="k">export</span> GRAALVM_HOME=/path/to/bellsoft-liberica-vm-full-openjdk25/Contents/Home</code></pre>
+    </figure>
+
+    <p>
+      NIK 자체가 없다면 <code>./scripts/install-nik.sh</code>가 설치해 줍니다. 버전으로 주소를
+      잡기 때문에 캐시가 따뜻하면 두 번째 실행은 아무 일도 하지 않습니다. 내려받기는 호출할 때마다가
+      아니라 NIK 버전마다 한 번입니다. 네이티브 이미지 빌드는
+      <code>lib/static/darwin-*/libawt_lwawt.a</code>가 없는 설치를 거부합니다. 순정 GraalVM을 긴
+      빌드 끝의 링크 실패가 아니라 시작 전에 잡아내려는 장치입니다.
+    </p>
+
+    <p>
+      Kotlin은 따로 설치할 필요가 없습니다. 렌더러 프로젝트에 들어 있는 <code>./kotlin</code>
+      래퍼가 처음 실행될 때 고정된 버전의 Kotlin Toolchain을 내려받습니다.
+    </p>
+
+    <h2 id="renderer">렌더러 빌드</h2>
+    <p>
+      macOS에서는 스크립트 하나가 전부를 합니다. 렌더러를 Kotlin/Native 정적 라이브러리로
+      컴파일하고, Compose와 Skia와 인터프리터가 그 안에 들어갑니다.
+    </p>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>shell</figcaption>
+<pre><code>./dioxus-compose-renderer/desktop/scripts/build-macos.sh --release</code></pre>
+    </figure>
+
+    <p>결과물은 아카이브 하나와 그에 맞춰 생성된 헤더입니다.</p>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>dioxus-compose-renderer/build/macos/&lt;target&gt;/</figcaption>
+<pre><code>libdioxus_compose_renderer.a       <span class="c"># 렌더러: Compose, Skia, 인터프리터, 우리 코드</span>
+libdioxus_compose_renderer_api.h   <span class="c"># Kotlin/Native가 생성한 헤더</span></code></pre>
+    </figure>
+
+    <p>
+      옆에 따로 설치되는 것은 없습니다. 링커가 아카이브를 실행 파일 안으로 접어 넣으므로, 배포물은
+      런타임 디렉터리도 없고 파일 경로로 로드되는 것도 없는 파일 하나입니다. Host가 부르는 두
+      심볼 <code>dioxus_compose_renderer_run</code>과
+      <code>dioxus_compose_renderer_request_frame</code>은 어느 플랫폼에서나 이름과 시그니처가
+      같습니다.
+    </p>
+
+    <p>
+      Windows에는 Skia와 링크할 수 있는 Kotlin/Native 타깃이 없어서, 대신 GraalVM 네이티브
+      이미지로 빌드합니다. 유닉스 호스트에서는 <code>build-native.sh</code>, Windows에서는
+      <code>build-native-windows.ps1</code>이 그 일을 합니다. 이 빌드는 자바 런타임을 품고 있고,
+      결과물도 파일 하나가 아니라 <code>lib/</code> 디렉터리입니다. 정적으로 링크된 AWT도 일부
+      항목은 런타임에 파일 경로로 찾기 때문입니다.
+    </p>
+
+    <p>
+      이 저장소의 체크아웃에서는 Rust 빌드가 방금 빌드한 워크스페이스의 렌더러를 내려받기보다
+      먼저 씁니다. 전체 순서는 <code>DIOXUS_COMPOSE_RENDERER_DIR</code>, 워크스페이스 빌드
+      결과물, 캐시, 크레이트 버전의 릴리스 순입니다(NFR-10).
+    </p>
+
+    <p>
+      첫 빌드는 느립니다. Compose와 Skia를 통째로 AOT 컴파일하기 때문입니다. 다시 빌드할 일은
+      Kotlin 쪽이 바뀔 때뿐이고, 평소 Rust 작업은 이미 만들어 둔 라이브러리를 그대로 씁니다.
+    </p>
+
+    <h2 id="smoke">라이브러리 스모크 테스트</h2>
+    <p>
+      Rust를 끌어들이기 전에, 라이브러리만으로 창이 뜨는지 먼저 봅니다. 아주 작은 C 호스트를
+      링크해 <code>dioxus_compose_renderer_run</code>을 부릅니다.
+    </p>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>shell</figcaption>
+<pre><code>./dioxus-compose-renderer/desktop/scripts/smoke-test.sh</code></pre>
+    </figure>
+
+    <p>
+      창이 떠야 합니다. 창을 닫으면 <code>run</code>이 <code>0</code>을 반환하고 프로세스가 정상
+      종료됩니다. 이것이 macOS 런타임 요건(SPEC PR-8)의 수용 기준이며, 2026-09-20에
+      통과했습니다.
+    </p>
+
+    <h2 id="demo">데모 실행</h2>
+    <p>
+      데스크톱 예제는 <code>native-renderer</code> 기능을 명시적으로 요구합니다. 창이 필요한
+      예제가 해야 할 일입니다. 평범한 빌드에서는 기본으로 켜져 있습니다.
+    </p>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>shell</figcaption>
+<pre><code>cargo run -p dioxus-compose --features native-renderer --example desktop_demo</code></pre>
+    </figure>
+
+    <p>
+      메시지를 입력하고 <kbd>Enter</kbd>를 누르면 전송되고,
+      <kbd>Shift</kbd>+<kbd>Enter</kbd>는 줄바꿈입니다. 한글 IME를 쓴다면 글자를 조합하는 도중에
+      <kbd>Enter</kbd>를 눌러 보세요. 조합만 확정되고 메시지는 <em>전송되지 않아야</em> 합니다.
+      이 구분이 설계 전체의 이유이고, <a href="writing-ui.html#consumption">UI 작성하기</a>에서
+      다룹니다.
+    </p>
+
+    <div class="note">
+      <span class="label">창 없는 Host</span>
+      <p>
+        단위 테스트와 벤치마크는 렌더러도 창도 없이 Host를 직접 굴리고,
+        <code>mock-renderer</code> 기능은 임베더가 같은 것을 요청하는 방법입니다. 그런 빌드는
+        설계상 조용합니다. 그냥 렌더러가 없는 빌드는 조용하지 않습니다. 그렇다고 말하고 0이
+        아닌 상태로 끝냅니다.
+      </p>
+    </div>
+
+    <h2 id="checks">검사 돌리기</h2>
+    <p>
+      저장소의 품질 게이트는 스크립트 하나입니다. 포맷 검사, 경고를 오류로 취급하는 Clippy,
+      테스트, Criterion quick 모드 벤치마크, 그리고 Kotlin 빌드와 테스트까지 돌립니다.
+    </p>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>shell</figcaption>
+<pre><code>./scripts/check.sh              <span class="c"># 프리서브밋용 빠른 벤치마크 샘플링</span>
+./scripts/check.sh --full       <span class="c"># 전체 샘플링</span>
+./scripts/check.sh --no-kotlin  <span class="c"># Rust만. DXC_SKIP_KOTLIN=1도 같습니다</span></code></pre>
+    </figure>
+
+    <p>
+      이 중 한 테스트는 Rust 스키마가 만들어 내는 Kotlin 코드와 저장소에 들어 있는 파일을
+      비교합니다. 스키마를 고치고 재생성하지 않으면 테스트가 실패합니다. 불편이 아니라 의도된
+      동작입니다.
+    </p>
+
+    <nav class="pagenav" aria-label="페이지 이동">
+      <a class="prev" href="overview.html"><span>이전</span>&larr; 개요</a>
+      <a class="next" href="writing-ui.html"><span>다음</span>UI 작성하기 &rarr;</a>
+    </nav>
+  </main>
+</div>
+
+<footer class="site">
+  <div class="inner">
+    <span>dioxus-compose &middot; Apache License 2.0</span>
+    <span><a class="footer-repo" href="https://github.com/DarkPyonix/dioxus-compose">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/INTENT.md">INTENT.md</a></span>
+    <span>이 가이드는 2026-09-28 기준 저장소 내용과 대조했습니다</span>
+  </div>
+</footer>
+
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,41 @@
+# The renderer for macOS, without a virtual machine in it (SPEC NFR-4).
+#
+# The same renderer the desktop native image builds, compiled for the platform directly:
+# `src/shared/` holds symlinks into `desktop/src/`, so there is one copy of the interpreter
+# and one copy of the generated protocol. The boundary is the iOS one, which is Kotlin
+# native and POSIX and names nothing of either platform, so it is shared rather than
+# written twice.
+#
+# What this is for: the desktop image carries a Java runtime, and most of what it weighs is
+# that runtime rather than anything drawn. Compose publishes this target, so on this
+# platform none of it is needed.
+#
+# Windows and Linux have no such target and keep the native image path.
+product:
+  type: lib
+  platforms: [ macosArm64 ]
+
+# Where the patched Compose comes from. The macOS context menu, the entries a selection
+# offers and the keys that copy are all empty in the published build for this platform,
+# and none of them can be answered from outside the module that holds them. `patches/`
+# says which and why; `scripts/build-compose.sh` builds them and publishes them under
+# the version asked for below, and everything else still resolves from what JetBrains
+# published.
+repositories:
+  - mavenLocal
+
+dependencies:
+  - $compose.runtime
+  - $compose.foundation
+  - $compose.material3
+  - $compose.ui
+
+test-dependencies:
+  - $kotlin.test
+
+settings:
+  compose: enabled
+  kotlin:
+    optIns:
+      - kotlinx.cinterop.ExperimentalForeignApi
+      - kotlinx.cinterop.BetaInteropApi

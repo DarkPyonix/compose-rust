@@ -1,0 +1,24 @@
+# Fluent 2, implemented here rather than delegated.
+#
+# Microsoft ships no Compose implementation of Fluent, so unlike the Material module this
+# one resolves every role from the published Fluent 2 token set itself.
+# Konyaco/compose-fluent-ui is a useful cross check for the same values and is
+# deliberately not listed below: it describes its own API as experimental and subject to
+# change without notice, and this project has to keep every dependency reachable under
+# GraalVM native image.
+product:
+  type: kmp/lib
+  platforms: [ jvm, android, iosArm64, iosSimulatorArm64, wasmJs ]
+
+dependencies:
+  - //core: exported
+  - $compose.runtime
+  - $compose.foundation
+  - $compose.ui
+
+test-dependencies:
+  - $kotlin.test
+
+settings:
+  compose:
+    enabled: true

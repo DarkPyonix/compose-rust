@@ -1,0 +1,33 @@
+[package]
+name = "sample-selfcare"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+# Three shapes of the same sample. The rlib is what the binary and the tests use; the
+# cdylib is what an Android Activity loads and what a browser page fetches, because
+# neither of those platforms runs a `main` of ours.
+[lib]
+name = "sample_selfcare"
+path = "src/lib.rs"
+# The staticlib is iOS. There the renderer is a Kotlin/Native archive and the two are
+# linked into one executable, so the sample cannot be a shared library: a cdylib would
+# have to resolve the renderer's symbols at link time and they are not there yet.
+crate-type = ["rlib", "cdylib", "staticlib"]
+bench = false
+
+[dependencies]
+dioxus-compose = { path = "../../dioxus-compose" }
+dioxus-hooks.workspace = true
+
+[dev-dependencies]
+sample-frames = { path = "../frames" }
+
+# The sample is an application, not a benchmark. Without this `cargo bench` runs the
+# binary with Criterion's flags, which its plain test harness rejects.
+[[bin]]
+name = "sample-selfcare"
+path = "src/main.rs"
+bench = false

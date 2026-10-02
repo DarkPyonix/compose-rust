@@ -1,0 +1,28 @@
+# The two C symbols the Host links against on macOS without a virtual machine (SPEC PR-2).
+#
+# The twin of `staticlib`, and for the same reason it is a module of its own: `-produce
+# static` writes a C adapter for everything public in the module it compiles, so the module
+# it compiles has to be only the entry points.
+#
+# The entry points themselves are shared rather than written twice. They name neither
+# platform: `@CName` on two argument-free functions, and a main thread check.
+product:
+  type: lib
+  platforms: [ macosArm64 ]
+
+# Where the patched Compose comes from. The macOS context menu, the entries a selection
+# offers and the keys that copy are all empty in the published build for this platform,
+# and none of them can be answered from outside the module that holds them. `patches/`
+# says which and why; `scripts/build-compose.sh` builds them and publishes them under
+# the version asked for below, and everything else still resolves from what JetBrains
+# published.
+repositories:
+  - mavenLocal
+
+dependencies:
+  - ../macos
+
+settings:
+  kotlin:
+    optIns:
+      - kotlin.experimental.ExperimentalNativeApi

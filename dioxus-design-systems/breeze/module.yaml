@@ -1,0 +1,20 @@
+# KDE Breeze.
+#
+# What `adaptive` picks on Linux when the session is KDE (SPEC FR-14.3).
+
+product:
+  type: kmp/lib
+  platforms: [ jvm, android, iosArm64, iosSimulatorArm64, wasmJs ]
+
+dependencies:
+  - //core: exported
+  - $compose.runtime
+  - $compose.foundation
+  - $compose.ui
+
+test-dependencies:
+  - $kotlin.test
+
+settings:
+  compose:
+    enabled: true

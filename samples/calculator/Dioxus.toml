@@ -1,0 +1,34 @@
+# dx project configuration for the Calculator sample.
+#
+# The samples are ordinary dx projects on purpose. Someone reading one should see the
+# layout they would get from `dx new`, not a special arrangement that only works inside
+# this repository, because the point of a sample is to be copied.
+#
+# What is specific to this project is the renderer: dx builds and bundles the application,
+# and the Compose renderer is linked in by dioxus-compose's build script. Nothing in this
+# file selects a renderer.
+
+[application]
+name = "Calculator"
+asset_dir = "assets"
+
+[bundle]
+identifier = "dev.darkpyonix.dioxus.compose.samples.calculator"
+publisher = "DarkPyonix"
+short_description = "A calculator built with dioxus-compose."
+long_description = "Dense button grids, nested Row and Column, keyboard input."
+
+[macos]
+# The window draws its own title bar, so the bundle asks for a plain window and the
+# renderer takes over the chrome.
+bundle_name = "Calculator"
+
+# There is deliberately no [android] section.
+#
+# Android is the one platform where the renderer is Kotlin running on ART rather than an
+# AOT image, so it has to be compiled by this application's own Gradle build. None of that
+# appears here: the dioxus-compose build script unpacks the renderer's Kotlin into the
+# generated project, adds Compose to it, and writes the Activity that hosts it, using the
+# package and library name the build already knows.
+#
+# That is the point. An application says it depends on dioxus-compose and nothing else.

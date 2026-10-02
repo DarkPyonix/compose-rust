@@ -1,0 +1,23 @@
+# The two C symbols the Host links against on iOS (SPEC PR-2, M5).
+#
+# A module of its own, and a tiny one, because of how Kotlin/Native's `-produce static`
+# works: everything public in the module being compiled gets a C adapter in the generated
+# header. Compiling the renderer itself that way asks the compiler to build adapters for the
+# whole of Compose, which it fails at (a NullPointerException in CAdapterCodegen, Kotlin
+# 2.4.10). With the renderer as a library and only this module compiled in, the C surface is
+# exactly the two functions PR-2 defines.
+#
+# `kotlin build` type-checks this module and produces a klib that nothing consumes. The
+# static library comes from `desktop/scripts/build-ios.sh`, which compiles this same source
+# against the renderer klib with `-produce static`.
+product:
+  type: lib
+  platforms: [ iosArm64, iosSimulatorArm64 ]
+
+dependencies:
+  - ../ios
+
+settings:
+  kotlin:
+    optIns:
+      - kotlin.experimental.ExperimentalNativeApi

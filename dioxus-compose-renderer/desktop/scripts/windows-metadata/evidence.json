@@ -1,0 +1,24 @@
+{
+  "verifiedAgainst": {
+    "jdk": "25",
+    "os": "windows-x64",
+    "composeMultiplatform": "1.9.0"
+  },
+  "source": "/Volumes/macMini/thisisthepy/compose-graal-hello/metadata/graalvm-25/compose-desktop-awt/reachability-metadata.json",
+  "sourceSha256": "23fcfa234634c0004a7a477e2236330ba5895f10f3373c01e63046f9237679b2",
+  "sourceEvidence": [
+    "README.md",
+    "docs/phase0-windows-awt.md",
+    "docs/metadata-strategy.md",
+    "build.gradle.kts"
+  ],
+  "referenceStatus": "startup, first render, and mouse input verified on Windows x64",
+  "referenceCleanBuildTime": "about five minutes on its recorded Windows x64 machine",
+  "referenceRuntimeLayout": "bin contains awt.dll, fontmanager.dll, freetype.dll, java.dll, javaaccessbridge.dll, javajpeg.dll, jawt.dll, jvm.dll, lcms.dll, skiko-windows-x64.dll, and icudtl.dat; lib contains four font configuration files",
+  "overlayScope": "the reference stack bundle's whole Compose desktop AWT, Swing, Java2D and Skiko registration set, minus its test-only entries (kotlin.test, kotlinx.coroutines.test, androidx.compose.ui.test, android.os.Build), merged with the Windows toolkit entries this overlay already carried",
+  "currentStackStaticCheck": "Skiko 0.144.6 Direct3DRedrawer still declares isAdapterSupported(String); inspected with javap on macOS",
+  "dioxusRendererStatus": "untested",
+  "dioxusVerificationCommand": "powershell -ExecutionPolicy Bypass -File .\\dioxus-compose-renderer\\native\\scripts\\smoke-test-windows.ps1 -RequireClick",
+  "overlayCorrection": "An earlier overlay kept only entries whose names mention Windows. That dropped java.awt.Toolkit, whose getDefaultToolkit registration Toolkit.initIDs resolves through JNI at startup, and the smoke test died with NoSuchMethodError on it. The reference project records the same error as the first wall of a build with no metadata.",
+  "metadataLayout": "reachability-metadata.json and resources/resource-config.json go to native-image as two configuration directories; it documents one directory as holding either the unified file or the older split files, not both"
+}

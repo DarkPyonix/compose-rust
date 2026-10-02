@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Architecture · dioxus-compose guide</title>
+<meta name="description" content="The Host/Renderer split, the C ABI surface, the zero-copy protocol, the frame model and the macOS runtime layout.">
+<link rel="alternate" hreflang="en" href="architecture.html">
+<link rel="alternate" hreflang="ko" href="../ko/architecture.html">
+<link rel="alternate" hreflang="x-default" href="architecture.html">
+<link rel="stylesheet" href="../assets/style.css?v=20">
+<script>(function(){try{var t=localStorage.getItem("dxc-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <a class="brand" href="./"><span class="dot" aria-hidden="true"></span>dioxus-compose <small>guide</small></a>
+  <span class="spacer"></span>
+  <button id="navtoggle" class="ghost" type="button" aria-expanded="false" aria-controls="sidebar">Menu</button>
+  <nav class="langswitch" aria-label="Language">
+    <a href="architecture.html" aria-current="true" hreflang="en">EN</a>
+    <a href="../ko/architecture.html" hreflang="ko">KO</a>
+  </nav>
+  <button id="themetoggle" class="ghost" type="button" data-dark="Dark" data-light="Light" aria-pressed="false">Dark</button>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <nav aria-label="Guide">
+      <h2>Guide</h2>
+      <ul>
+        <li><a href="overview.html">Overview</a></li>
+        <li><a href="getting-started.html">Getting started</a></li>
+        <li><a href="writing-ui.html">Writing UI</a></li>
+        <li><a href="composables.html">Composable reference</a></li>
+        <li><a href="lists-and-streaming.html">Lists &amp; streaming</a></li>
+        <li><a href="design-systems.html">Design systems</a></li>
+        <li><a href="architecture.html" aria-current="page">Architecture</a></li>
+        <li><a href="troubleshooting.html">Troubleshooting</a></li>
+      </ul>
+      <h2>On this page</h2>
+      <ul>
+        <li><a href="#split">Host and Renderer</a></li>
+        <li><a href="#abi">The C ABI surface</a></li>
+        <li><a href="#protocol">The protocol</a></li>
+        <li><a href="#frames">The frame model</a></li>
+        <li><a href="#codegen">Schema codegen</a></li>
+        <li><a href="#runtimes">What runs where</a></li>
+        <li><a href="#macos">The macOS runtime</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <main id="main">
+    <p class="eyebrow">Architecture</p>
+    <h1>Two halves, one narrow boundary</h1>
+    <p class="lede">
+      Rust does not call Compose. It cannot: GraalVM's <code>@CEntryPoint</code> only passes
+      primitives and word-sized values, so a <code>Modifier</code> or a <code>MutableState</code>
+      could never cross. Instead Rust <em>describes</em> a UI tree as values, and Kotlin runs an
+      interpreter over a fixed schema. Redwood and Jetpack Glance work the same way.
+    </p>
+
+    <h2 id="split">Host and Renderer</h2>
+    <figure class="codeblock">
+      <figcaption>the stack</figcaption>
+<pre><code><span class="c">┌──────────────── Host (Rust) ─────────────────┐</span>
+<span class="c">│</span> your components (rsx!, hooks, signals)       <span class="c">│</span>
+<span class="c">│</span> dioxus-core VirtualDom                       <span class="c">│</span>
+<span class="c">│</span> dioxus-compose renderer: Mutations → bytes   <span class="c">│</span>
+<span class="c">└──────────────────┬───────────────────────────┘</span>
+                   <span class="c">│</span> synchronous direct calls on the UI thread
+                   <span class="c">│</span> + one batch buffer per call
+<span class="c">┌──────────────────┴──── Renderer (Kotlin) ────┐</span>
+<span class="c">│</span> generated shims (@CEntryPoint / @CName / …)  <span class="c">│</span>
+<span class="c">│</span> protocol decoder → node table (snapshot)     <span class="c">│</span>
+<span class="c">│</span> schema interpreter: @Composable RenderNode   <span class="c">│</span>
+<span class="c">│</span> Compose Desktop (AWT) / Compose iOS (UIKit)  <span class="c">│</span>
+<span class="c">└──────────────────────────────────────────────┘</span></code></pre>
+    </figure>
+
+    <dl>
+      <dt>Host</dt>
+      <dd>The Rust process. Owns your components, your domain logic and the VirtualDom.</dd>
+      <dt>Renderer</dt>
+      <dd>The AOT-compiled Kotlin/Compose native library, including the schema interpreter.</dd>
+      <dt>Schema</dt>
+      <dd>The closed set of widget types, properties, modifiers and events the renderer understands.</dd>
+      <dt>Mutation</dt>
+      <dd>One tree-change command: <code>Create</code>, <code>SetProp</code>, <code>SetModifier</code>, <code>Insert</code>, <code>Move</code>, <code>Remove</code>, <code>SetText</code>, <code>AppendText</code>.</dd>
+      <dt>Event</dt>
+      <dd>A notification travelling the other way, addressed as <code>(node_id, handler_id, payload)</code>.</dd>
+    </dl>
+
+    <h2 id="abi">The C ABI surface</h2>
+    <p>
+      The boundary is deliberately tiny, and adding to it requires a specification change. The
+      model is JSI's, not the old React Native bridge's: same thread, direct calls, synchronous
+      return values.
+    </p>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>c: Renderer → Host (exported by Rust)</figcaption>
+<pre><code><span class="ty">int32_t</span> <span class="f">dioxus_compose_host_init</span>(<span class="k">const</span> <span class="ty">uint8_t</span>* handshake, <span class="ty">uint32_t</span> len, <span class="ty">MutationBatch</span>* out);
+<span class="ty">int32_t</span> <span class="f">dioxus_compose_host_dispatch_event</span>(<span class="k">const</span> <span class="ty">uint8_t</span>* event, <span class="ty">uint32_t</span> len, <span class="ty">MutationBatch</span>* out);
+<span class="ty">int32_t</span> <span class="f">dioxus_compose_host_render_frame</span>(<span class="ty">uint64_t</span> frame_time_nanos, <span class="ty">MutationBatch</span>* out);
+<span class="ty">void</span>    <span class="f">dioxus_compose_host_release_batch</span>(<span class="ty">MutationBatch</span>* batch);
+<span class="ty">void</span>    <span class="f">dioxus_compose_host_shutdown</span>(<span class="ty">void</span>);</code></pre>
+    </figure>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>c: Host → Renderer (exported by Kotlin)</figcaption>
+<pre><code><span class="ty">int32_t</span> <span class="f">dioxus_compose_renderer_run</span>(<span class="ty">void</span>);            <span class="c">/* blocking; LoopMode::Renderer only */</span>
+<span class="ty">void</span>    <span class="f">dioxus_compose_renderer_request_frame</span>(<span class="ty">void</span>);  <span class="c">/* thread-safe */</span></code></pre>
+    </figure>
+
+    <p>That is the entire surface. Two rules follow from it:</p>
+    <ul>
+      <li>Only primitives, pointers and lengths cross. No objects, no closures.</li>
+      <li>The Rust side links with <code>-undefined,dynamic_lookup</code>, and so does the renderer
+          library: each half resolves the other's symbols when the process loads.</li>
+    </ul>
+
+    <p>
+      The handshake exchanges a schema hash, a protocol version and the loop mode. A hash mismatch
+      fails initialisation rather than producing a subtly wrong UI. The Rust status codes are
+      <code>0</code> for success and negative values for protocol errors, uninitialised state,
+      double initialisation and caught panics, nothing unwinds across the boundary, because a
+      protocol error has to become a <code>ProtocolError</code> event, never a process abort.
+    </p>
+
+    <h2 id="protocol">The protocol</h2>
+    <p>
+      Both halves are in one process, so the encoding minimises copying rather than bytes on a
+      wire. Records are fixed-layout and read in place; there is no decode step and no serde-style
+      format on the hot path.
+    </p>
+    <ul>
+      <li>A record is <code>tag: u16</code>, <code>len: u16</code>, then fixed fields
+          (<code>node_id: u32</code> and so on). Little-endian, 4-byte aligned.</li>
+      <li>Strings live in the same arena and are referenced as <code>(offset: u32, len: u32)</code>,
+          UTF-8. The renderer only materialises a Kotlin <code>String</code> at the moment it hands
+          the text to Compose.</li>
+      <li>The batch itself is
+          <code>#[repr(C)] struct MutationBatch { ptr, len, result }</code>, pointing into a
+          Host-owned arena that is reused every frame. <code>result</code> carries the handler's
+          synchronous return value, for a key event, whether it was consumed.</li>
+    </ul>
+    <p>
+      A batch is applied inside a single snapshot transaction, so an intermediate tree state can
+      never be drawn. The renderer applies the batch in the same call stack and releases it
+      immediately; no batch is ever queued.
+    </p>
+    <p>
+      The measured target for a text-change event is two boundary calls
+      (<code>dispatch_event</code> and <code>release_batch</code>) and at most one heap allocation
+      in the renderer: the Compose <code>String</code>.
+    </p>
+
+    <h2 id="frames">The frame model</h2>
+    <ol>
+      <li>The renderer receives input and calls <code>dispatch_event</code> on its UI thread.</li>
+      <li>The Host runs your handler, diffs the VirtualDom, encodes the mutations into the arena
+          and returns the batch plus a result value.</li>
+      <li>The renderer applies the batch in one snapshot, releases it, and reports the result to
+          Compose, for example as <code>true</code> from <code>onKeyEvent</code>.</li>
+      <li>Worker threads that changed state cause a frame request; requests coalesce into one
+          <code>render_frame</code> inside the next Compose frame clock tick.</li>
+    </ol>
+    <p>
+      The VirtualDom runs on the renderer's UI thread, not on a thread of its own, which is what
+      removes the need for locks and for a queue. The single piece of cross-thread communication in
+      the whole design is the frame-request wake. A frame requested while a handler is executing is
+      held until the handler returns, so the renderer is never re-entered from inside a dispatch.
+    </p>
+
+    <h2 id="codegen">Schema codegen</h2>
+    <p>
+      The C ABI only carries bytes, so type safety is layered on top of it. Widgets, properties,
+      modifiers and event payloads are defined once in Rust; the Kotlin types and codecs are
+      generated from that definition, and a checked-in test fails if the generated output is stale.
+      A schema hash compares the two sides at handshake time. Nobody writes JNI or cinterop glue by
+      hand.
+    </p>
+
+    <h2 id="runtimes">What runs where</h2>
+    <p>
+      The renderer is built two ways. Where Compose can be built for the platform as a target of
+      its own, it is compiled directly and there is no virtual machine in the result. Where it
+      cannot, the renderer is a native image with a Java runtime inside it.
+    </p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">Platform</th><th scope="col">Built as</th><th scope="col">Carries a Java runtime</th></tr></thead>
+        <tbody>
+          <tr><td>macOS</td><td>Kotlin/Native</td><td>No</td></tr>
+          <tr><td>Linux</td><td>Kotlin/Native</td><td>No</td></tr>
+          <tr><td>Windows</td><td>Native image</td><td>Yes</td></tr>
+          <tr><td>Web</td><td>Kotlin/Wasm</td><td>No</td></tr>
+          <tr><td>iOS</td><td>Kotlin/Native</td><td>No</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      The difference is most of the weight. The notepad sample on macOS is one 28.76MB file with
+      nothing beside it, and 37.93MB on Linux. The same sample built as a native image was 93.1MB
+      across four files. The extra is not Compose and not this project's own code, but the Java
+      runtime and the metadata a closed world needs.
+    </p>
+    <p>
+      Windows is not a choice. Compose publishes no UI layer for it as a native target, and it is
+      blocked twice over: Kotlin's target there is MinGW and Skia's build is MSVC, so the two
+      cannot be linked even if the artifacts existed. Linux publishes none either, but nothing
+      stands in the way of building them, so this project keeps a small set of patches against a
+      pinned Compose revision and builds the Linux targets from source.
+    </p>
+    <div class="note">
+      <span class="label">The application does not know which</span>
+      <p>
+        The boundary is the same C ABI on both, the protocol is the same bytes, and the
+        interpreter is the same source. Nothing you write changes.
+      </p>
+    </div>
+
+    <h2 id="macos">The macOS runtime</h2>
+    <p>
+      The window is the renderer's own <code>NSWindow</code>, not the one Compose opens for this
+      platform. Compose's draws correctly, but nothing in it is named: a screen reader is handed
+      the title and the three title bar buttons, and every control the application drew is
+      invisible to it. Owning the window is what makes the contents readable.
+    </p>
+    <p>
+      The view's backing layer is a <code>CAMetalLayer</code>, and Skia draws into its drawable
+      through a Metal context. The layer is created with <code>presentsWithTransaction</code> set,
+      so a frame is presented inside the same transaction that resizes the window rather than a
+      moment after it. That is the difference between contents that follow the window edge while
+      you drag it and contents that trail behind it: the gap reached 350 pixels at speed before
+      this, and it is now none.
+    </p>
+    <p>
+      Text goes through the platform rather than around it. The view implements
+      <code>NSTextInputClient</code>, so marked text, the candidate window and Korean, Japanese and
+      Chinese composition are the input method's own work, and the menu a selection offers is a
+      real <code>NSMenu</code> that the system draws.
+    </p>
+    <p>
+      Nothing is loaded by file path at runtime and nothing sits beside the executable. Skia,
+      Compose, the interpreter and the application's own code are one static library the linker
+      folds into the binary, which is why what you ship is a single file.
+    </p>
+    <p>
+      One more macOS fact shapes the process: AppKit demands the main thread. The renderer creates
+      and runs <code>NSApplication</code> on the thread it was called on, and that call returns
+      when the window closes. Accordingly <code>dioxus_compose_renderer_run</code> must be called
+      on the process main thread; otherwise it returns <code>RUN_NOT_MAIN_THREAD</code>.
+    </p>
+
+    <nav class="pagenav" aria-label="Pagination">
+      <a class="prev" href="design-systems.html"><span>Previous</span>&larr; Design systems</a>
+      <a class="next" href="troubleshooting.html"><span>Next</span>Troubleshooting &rarr;</a>
+    </nav>
+  </main>
+</div>
+
+<footer class="site">
+  <div class="inner">
+    <span>dioxus-compose &middot; Apache License 2.0</span>
+    <span><a class="footer-repo" href="https://github.com/DarkPyonix/dioxus-compose">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/INTENT.md">INTENT.md</a></span>
+    <span>Guide last reviewed against the repository on 2026-09-28</span>
+  </div>
+</footer>
+
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

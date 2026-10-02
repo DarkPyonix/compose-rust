@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Long lists and streaming text · dioxus-compose guide</title>
+<meta name="description" content="LazyColumn windowing and AppendText streaming: the design, its status, and what you can build today.">
+<link rel="alternate" hreflang="en" href="lists-and-streaming.html">
+<link rel="alternate" hreflang="ko" href="../ko/lists-and-streaming.html">
+<link rel="alternate" hreflang="x-default" href="lists-and-streaming.html">
+<link rel="stylesheet" href="../assets/style.css?v=20">
+<script>(function(){try{var t=localStorage.getItem("dxc-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <a class="brand" href="./"><span class="dot" aria-hidden="true"></span>dioxus-compose <small>guide</small></a>
+  <span class="spacer"></span>
+  <button id="navtoggle" class="ghost" type="button" aria-expanded="false" aria-controls="sidebar">Menu</button>
+  <nav class="langswitch" aria-label="Language">
+    <a href="lists-and-streaming.html" aria-current="true" hreflang="en">EN</a>
+    <a href="../ko/lists-and-streaming.html" hreflang="ko">KO</a>
+  </nav>
+  <button id="themetoggle" class="ghost" type="button" data-dark="Dark" data-light="Light" aria-pressed="false">Dark</button>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <nav aria-label="Guide">
+      <h2>Guide</h2>
+      <ul>
+        <li><a href="overview.html">Overview</a></li>
+        <li><a href="getting-started.html">Getting started</a></li>
+        <li><a href="writing-ui.html">Writing UI</a></li>
+        <li><a href="composables.html">Composable reference</a></li>
+        <li><a href="lists-and-streaming.html" aria-current="page">Lists &amp; streaming</a></li>
+        <li><a href="design-systems.html">Design systems</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="troubleshooting.html">Troubleshooting</a></li>
+      </ul>
+      <h2>On this page</h2>
+      <ul>
+        <li><a href="#today">A plain list</a></li>
+        <li><a href="#windowing">LazyColumn windowing</a></li>
+        <li><a href="#streaming">Streaming text</a></li>
+        <li><a href="#workers">Streaming from a worker</a></li>
+        <li><a href="#budget">The frame budget</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <main id="main">
+    <p class="eyebrow">Lists &amp; streaming</p>
+    <h1>Long lists and streaming text</h1>
+    <p class="lede">
+      A chat client is a very long list plus text that arrives a token at a time. Both now exist on
+      the Rust side with tests behind them, and both are only half the story until the Compose
+      interpreter catches up. This page says precisely which half you can rely on.
+    </p>
+
+    <div class="note">
+      <span class="label">Where these stand</span>
+      <p>
+        <code>LazyColumn</code> (FR-8) and <code>AppendText</code> (FR-9) are <code>Agreed</code>
+        in the SPEC and implemented in the Host: both have passing acceptance tests in
+        <code>dioxus-compose/tests/</code>. The Compose interpreter is being finished in parallel;
+        until it lands, see <a href="#renderer-gap">the renderer gap</a> below for what that means
+        on screen.
+      </p>
+    </div>
+
+    <h2 id="today">A plain list</h2>
+    <p>
+      A <code>Column</code> with a <code>for</code> loop over your data is correct and is fine for
+      the hundreds of rows that fit an ordinary screen with some scrollback. It does not
+      virtualise: every item becomes a real node on both sides.
+    </p>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>rust, the pattern used by the desktop demo</figcaption>
+<pre><code><span class="f">rsx!</span> {
+    <span class="ty">Column</span> {
+        <span class="at">fill_max_width</span>: <span class="k">true</span>,
+        <span class="k">for</span> message <span class="k">in</span> messages() {
+            <span class="ty">Text</span> { <span class="at">text</span>: message }
+        }
+    }
+}</code></pre>
+    </figure>
+
+    <p>
+      Updating one message sends exactly one <code>SetProp</code> mutation and does not recompose
+      its siblings, a tested requirement (FR-4), not an aspiration. The cost of this pattern is
+      the node count, not the update path.
+    </p>
+
+    <h2 id="windowing">LazyColumn windowing <span class="pill partial">Host side</span></h2>
+    <p>
+      A plain tree diff cannot keep a virtualised list virtual: the Host would have to describe
+      items it never built in order for the renderer to know they exist. So for lazy lists the flow
+      inverts.
+    </p>
+    <ol>
+      <li>The Host declares the total item count and a stable key per item.</li>
+      <li>The renderer decides which range is visible and asks for it with a
+          <code>RangeRequested</code> event (event tag 7, 24 bytes).</li>
+      <li>The Host materialises subtrees for that range plus a buffer on each side, and nothing
+          else.</li>
+    </ol>
+    <p>
+      Each item is wrapped in a <code>Box</code> node carrying an <code>item_key</code> string,
+      which is what the renderer hands to Compose's <code>LazyColumn</code> as the item key. Scroll
+      position and item identity stay in the renderer; the data stays in the Host. Scrolling back
+      to an item you have already seen re-materialises an identical subtree.
+    </p>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>rust, the component as defined in dioxus-compose/src/widgets.rs</figcaption>
+<pre><code><span class="f">rsx!</span> {
+    <span class="ty">LazyColumn</span> {
+        <span class="at">item_count</span>: messages.<span class="f">len</span>(),
+        <span class="at">buffer</span>: <span class="n">4</span>,                                     <span class="c">// items kept on each side; default 4</span>
+        <span class="at">key_of</span>: <span class="k">move</span> |index| messages()[index].id.<span class="f">clone</span>(),  <span class="c">// optional; defaults to the index</span>
+        <span class="at">item</span>: <span class="k">move</span> |index| <span class="f">rsx!</span> {
+            <span class="ty">Text</span> { <span class="at">text</span>: messages()[index].body.<span class="f">clone</span>() }
+        },
+    }
+}</code></pre>
+    </figure>
+
+    <p>
+      <code>item</code> and <code>key_of</code> are <code>Callback</code>s, so a closure works
+      directly. <code>item_count</code> is a <code>usize</code>; the wire carries it as an
+      <code>i64</code>. Only <code>item_count</code> and <code>item</code> are required.
+    </p>
+    <p>
+      The acceptance criterion is concrete, and it passes: with 10,000 items and a request for 20
+      visible rows with a buffer of 4, the Host materialises 28 items, proportional to the window,
+      not to the list. The test is
+      <code>fr8_node_count_is_proportional_to_the_window</code>.
+    </p>
+
+    <div class="warn" id="renderer-gap">
+      <span class="label">The renderer gap</span>
+      <p>
+        The Kotlin interpreter currently draws a <code>LazyColumn</code> node as a Compose
+        <code>Column</code> and never sends a <code>RangeRequested</code> event. The protocol,
+        the property and the event decoder are all in place, what is missing is the Compose
+        <code>LazyColumn</code> that drives them. Until that lands, a <code>LazyColumn</code>
+        renders its initial window and stays there. Write against the component now if you like;
+        do not ship a 10,000-item screen on it yet.
+      </p>
+    </div>
+
+    <h2 id="streaming">Streaming text <span class="pill partial">Host side</span></h2>
+    <p>
+      An LLM response arrives token by token. Replacing the whole <code>text</code> property on
+      every token re-sends the entire message each time, and the message grows, so the cost grows
+      quadratically. The answer is an <code>AppendText</code> command on a <code>Text</code> node
+      (mutation tag 8, 16 bytes) that carries only the new tail.
+    </p>
+    <p>
+      The Host coalesces: tokens that arrive between two frames merge into a single
+      <code>AppendText</code> record per node, flushed in <code>render_frame</code>. A token never
+      costs a batch of its own, and the accumulation buffers are reused so steady-state streaming
+      does not allocate.
+    </p>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>rust: Host::append_text, the whole streaming API today</figcaption>
+<pre><code><span class="c">// Queue a tail for the next frame. Repeated calls coalesce into one record</span>
+<span class="c">// per node and into a single frame request.</span>
+host.<span class="f">append_text</span>(node_id, <span class="s">" token"</span>);</code></pre>
+    </figure>
+
+    <div class="note">
+      <span class="label">There is no component-level streaming API yet</span>
+      <p>
+        <code>append_text</code> takes a protocol <code>node_id</code>, and component code has no
+        good way to obtain one. It is a boundary-level facility that the tests and the embedder
+        drive, not something to call from inside a component. Until an <code>rsx!</code>-level
+        affordance exists, stream by writing to a signal and letting the diff send a
+        <code>SetProp</code>: correct for short answers, and quadratic for long ones.
+      </p>
+    </div>
+
+    <p>
+      Measured on the Host side: a 36&nbsp;KB message stays under a 64-byte batch per token, and
+      the p99 streaming frame is 125&nbsp;ns. The full criterion, 100 appends per second with
+      scrolling and typing staying smooth, is an end-to-end claim and has to wait for the
+      renderer.
+    </p>
+
+    <h2 id="workers">Streaming from a worker thread</h2>
+    <p>
+      This part is not speculative, and it matters more than either feature above. Domain work must
+      not run on the UI thread, the thread that also runs your components and the whole boundary.
+      PTY reads, HTTP, LLM streaming and file I/O belong on Host worker threads.
+    </p>
+    <p>
+      A worker's only job, as far as the UI is concerned, is to write to a signal. Waking the
+      renderer is internal: the Host requests a frame for you, and repeated requests coalesce into
+      a single <code>render_frame</code> call inside the Compose frame clock. User code never calls
+      a boundary function, and there is no queue between the two sides to fill up.
+    </p>
+
+    <div class="note">
+      <span class="label">One consequence worth remembering</span>
+      <p>
+        Since a handler runs inside the renderer's call into the Host, a frame requested from
+        inside a handler is deferred until that call returns. Re-entering the renderer from a
+        handler is not allowed. Change state and let the frame happen.
+      </p>
+    </div>
+
+    <h2 id="budget">The frame budget</h2>
+    <p>
+      The performance target is a comparison, not a number in isolation: the same screen written
+      directly in Kotlin and Compose is the baseline, and this stack is allowed at most 10% more
+      frame time than that, against an 8.33&nbsp;ms budget on a 120&nbsp;Hz display. A few of the
+      budgets that shape how you write code:
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">Item</th><th scope="col">Budget (p99, release)</th></tr></thead>
+        <tbody>
+          <tr><td>Host work: handler + diff + batch encoding</td><td>≤ 0.5&nbsp;ms for ordinary interaction, ≤ 1&nbsp;ms for a streaming frame</td></tr>
+          <tr><td>One boundary call</td><td>≤ 100&nbsp;ns on desktop and iOS, ≤ 200&nbsp;ns on Android</td></tr>
+          <tr><td>Applying a batch in the renderer</td><td>≤ 0.3&nbsp;ms per 100 mutations</td></tr>
+          <tr><td>Input to pixels</td><td>Same frame count as the baseline; zero extra frames of latency</td></tr>
+          <tr><td>Dropped frames</td><td>Zero while streaming 100 tokens/s and scrolling a 10,000-message conversation</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      Allocation is measured as a trend rather than an absolute: Dioxus allocates internally while
+      diffing and dispatching (99 allocations per click, measured 2026-09-20), and Rust has no GC,
+      so those allocations do not produce pauses. What matters is that repeating the same
+      interaction does not increase the count. Growth means a leak or a cache that stopped working,
+      and is investigated as a bug.
+    </p>
+
+    <nav class="pagenav" aria-label="Pagination">
+      <a class="prev" href="composables.html"><span>Previous</span>&larr; Composable reference</a>
+      <a class="next" href="design-systems.html"><span>Next</span>Design systems &rarr;</a>
+    </nav>
+</main>
+</div>
+
+<footer class="site">
+  <div class="inner">
+    <span>dioxus-compose &middot; Apache License 2.0</span>
+    <span><a class="footer-repo" href="https://github.com/DarkPyonix/dioxus-compose">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/INTENT.md">INTENT.md</a></span>
+    <span>Guide last reviewed against the repository on 2026-09-20</span>
+  </div>
+</footer>
+
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+product: jvm/app
+
+dependencies:
+  - $compose.desktop.currentOs
+  # FR-11's example extension draws a Material 3 progress indicator.
+  - $compose.material3
+  - $libs.kotlinx.coroutines.swing
+  - $libs.androidx.lifecycle.runtime.compose
+  - $libs.androidx.lifecycle.viewmodel.compose
+  # Annotations and C interop types for @CEntryPoint. Supplied by the native-image
+  # builder at image build time, so it is not bundled into the jar.
+  - org.graalvm.sdk:nativeimage:25.0.1: compile-only
+
+test-dependencies:
+  - $compose.desktop.uiTestJUnit4
+  - $kotlin.test
+
+settings:
+  compose: enabled
+  jvm:
+    # Used only for JVM runs that collect reachability metadata with the tracing agent.
+    # The native image is built as a shared library and is entered through C entry points.
+    mainClass: dioxus.compose.ui.platform.MetadataCollectionMainKt

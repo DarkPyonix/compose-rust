@@ -1,0 +1,42 @@
+# Not a member of the root workspace. cargo-fuzz builds on nightly with sanitizer
+# and libFuzzer link flags that would otherwise leak into `cargo build/test/clippy
+# --workspace` and into `scripts/check.sh`. The `[workspace]` table at the bottom
+# makes this a separate workspace root, so the repository gates are unaffected.
+[package]
+name = "dioxus-compose-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+
+[dependencies.dioxus-compose]
+path = ".."
+
+[[bin]]
+name = "decode_batch"
+path = "fuzz_targets/decode_batch.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "decode_event"
+path = "fuzz_targets/decode_event.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "roundtrip"
+path = "fuzz_targets/roundtrip.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]

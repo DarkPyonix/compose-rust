@@ -1,0 +1,7 @@
+# Build outputs produced by ./build.sh. The measurements in results-*.json are
+# checked in; the binaries they were produced from are not.
+target-import/
+kotlin-renderer/build/
+kotlin-renderer/.kotlin/
+harness/*.wasm
+harness/kotlin/

@@ -1,0 +1,18 @@
+# dx project configuration for the Store sample.
+#
+# The samples are ordinary dx projects on purpose. Someone reading one should see the
+# layout they would get from `dx new`, not a special arrangement that only works inside
+# this repository, because the point of a sample is to be copied.
+
+[application]
+name = "Store"
+asset_dir = "assets"
+
+[bundle]
+identifier = "dev.darkpyonix.dioxus.compose.samples.store"
+publisher = "DarkPyonix"
+short_description = "A clothing shop built with dioxus-compose."
+long_description = "A catalogue you can browse by category, a product you can size and count, and a bag that adds up."
+
+[macos]
+bundle_name = "Store"

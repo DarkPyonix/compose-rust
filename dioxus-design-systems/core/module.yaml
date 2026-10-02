@@ -1,0 +1,19 @@
+# The vocabulary every design system speaks: roles in, styles out.
+#
+# This module defines the contract and nothing else. It has no opinion about how a
+# Primary colour looks; that is what the three implementations are for. It must stay free
+# of any dependency on dioxus-compose-renderer, which is what lets this project ship on
+# its own.
+
+product:
+  type: kmp/lib
+  platforms: [ jvm, android, iosArm64, iosSimulatorArm64, wasmJs ]
+
+dependencies:
+  - $compose.runtime
+  - $compose.foundation
+  - $compose.ui
+
+settings:
+  compose:
+    enabled: true

@@ -1,0 +1,18 @@
+# dx project configuration for the Social sample.
+#
+# The samples are ordinary dx projects on purpose. Someone reading one should see the
+# layout they would get from `dx new`, not a special arrangement that only works inside
+# this repository, because the point of a sample is to be copied.
+
+[application]
+name = "Social"
+asset_dir = "assets"
+
+[bundle]
+identifier = "dev.darkpyonix.dioxus.compose.samples.social"
+publisher = "DarkPyonix"
+short_description = "A meditation app whose cards are drawn."
+long_description = "A course of the day, shelves of courses and sleep stories, with every card's picture built from the design system's own accents."
+
+[macos]
+bundle_name = "Social"

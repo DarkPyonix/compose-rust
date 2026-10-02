@@ -1,0 +1,6 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='100%' height='100%' viewBox='0 0 120 120' fill='none'>
+  <path d='M30 26 L42 20 L52 26 L62 20 L74 26 L82 40 L74 46 L72 74 Q52 78 32 74 L30 46 L22 40 Z'
+        fill='#f0c23c'/>
+  <path d='M60 56 h32 l4 18 -4 32 h-12 l-4 -26 -4 26 h-12 l-4 -32 z' fill='#20232a'/>
+  <path d='M42 20 L52 26 L62 20' stroke='#e7e9ee' stroke-width='3' fill='none'/>
+</svg>

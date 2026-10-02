@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Design systems · dioxus-compose guide</title>
+<meta name="description" content="Design primitives and design systems (SPEC FR-13, FR-14): colour, type, shape and spacing roles, Material 3 / Cupertino / WinUI Fluent, and the unified and adaptive theme modes. Specified, not yet implemented.">
+<link rel="alternate" hreflang="en" href="design-systems.html">
+<link rel="alternate" hreflang="ko" href="../ko/design-systems.html">
+<link rel="alternate" hreflang="x-default" href="design-systems.html">
+<link rel="stylesheet" href="../assets/style.css?v=20">
+<script>(function(){try{var t=localStorage.getItem("dxc-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <a class="brand" href="./"><span class="dot" aria-hidden="true"></span>dioxus-compose <small>guide</small></a>
+  <span class="spacer"></span>
+  <button id="navtoggle" class="ghost" type="button" aria-expanded="false" aria-controls="sidebar">Menu</button>
+  <nav class="langswitch" aria-label="Language">
+    <a href="design-systems.html" aria-current="true" hreflang="en">EN</a>
+    <a href="../ko/design-systems.html" hreflang="ko">KO</a>
+  </nav>
+  <button id="themetoggle" class="ghost" type="button" data-dark="Dark" data-light="Light" aria-pressed="false">Dark</button>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <nav aria-label="Guide">
+      <h2>Guide</h2>
+      <ul>
+        <li><a href="overview.html">Overview</a></li>
+        <li><a href="getting-started.html">Getting started</a></li>
+        <li><a href="writing-ui.html">Writing UI</a></li>
+        <li><a href="composables.html">Composable reference</a></li>
+        <li><a href="lists-and-streaming.html">Lists &amp; streaming</a></li>
+        <li><a href="design-systems.html" aria-current="page">Design systems</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="troubleshooting.html">Troubleshooting</a></li>
+      </ul>
+      <h2>On this page</h2>
+      <ul>
+        <li><a href="#principle">Roles first</a></li>
+        <li><a href="#primitives">The primitives</a></li>
+        <li><a href="#excluded">What was left out</a></li>
+        <li><a href="#systems">Three systems</a></li>
+        <li><a href="#modes">Unified and adaptive</a></li>
+        <li><a href="#wire">What it adds to the wire</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <main id="main">
+    <p class="eyebrow">Design systems</p>
+    <h1>Roles, not pixels <span class="pill planned">Planned</span></h1>
+    <p class="lede">
+      A widget set is not a design. The layer that turns <code>Column</code> and
+      <code>Button</code> into something that looks like a macOS app, an Android app or a Windows
+      app is specified in SPEC FR-13 and FR-14. Both are <code>Agreed</code>, down to the wire
+      tags, and neither is implemented. Nothing on this page exists in the crate yet; it is here so
+      you can see the shape your code will take and why the seams fall where they do.
+    </p>
+
+    <div class="warn">
+      <span class="label">Nothing here is implemented</span>
+      <p>
+        As of 2026-09-20 the wire schema carries nine modifiers, <code>Empty</code>,
+        <code>Padding</code>, <code>FillMaxWidth</code>, <code>FillMaxHeight</code>,
+        <code>Width</code>, <code>Height</code>, <code>Size</code>, <code>Background</code> and
+        <code>Clickable</code>, and no theme command. There is no <code>Paint</code>, no
+        <code>TypeRole</code>, no <code>DesignSystem</code> and no <code>Theme</code> in the Rust
+        crate. The specification is settled; the code is not written. Every code sample below is
+        <em>illustrative</em> and will not compile.
+      </p>
+    </div>
+
+    <h2 id="principle">Roles first, literals as the escape hatch</h2>
+    <p>
+      The governing rule is that a widget emits a <em>role</em>: "this is a title", "this is the
+      surface colour", "this is medium spacing", and the renderer decides what that role looks
+      like. A literal value is always available too, and always means "draw exactly this".
+    </p>
+    <p>
+      The reason is not taste, it is the frame budget. The Host runs on the renderer's UI thread,
+      so any work it does comes straight out of the per-interaction budget. If the Host resolved
+      tokens, switching to dark mode would re-send a <code>SetProp</code> for every affected
+      property on every node: O(nodes). With the renderer resolving them, the same switch is one
+      <code>SetTheme</code> record and Compose invalidates what it needs to through a
+      <code>CompositionLocal</code>.
+    </p>
+    <p>
+      There is a second reason. The system colour scheme and the host platform are facts the
+      renderer already knows. For the Host to resolve them it would have to ask, and the boundary
+      is a one-way synchronous call model with a deliberately frozen surface
+      (<a href="architecture.html#abi">PR-2</a>). A query would mean a new entry point.
+    </p>
+
+    <h2 id="primitives">The primitives (FR-13)</h2>
+    <p>
+      Every value has to fit a fixed-layout record, which gives one modifier variant exactly
+      <code>(tag: u16, first: u64, second: u64)</code> of room. That constraint is what kept the
+      list short, and it is why gradients and custom fonts are out.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">Primitive</th><th scope="col">Values</th><th scope="col">Resolved by</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>ColorRole</code></td>
+            <td>23 semantic slots: <code>Primary</code>, <code>OnPrimary</code>, <code>Secondary</code>, <code>OnSecondary</code>, <code>Tertiary</code>, <code>OnTertiary</code>, <code>Background</code>, <code>OnBackground</code>, <code>Surface</code>, <code>OnSurface</code>, <code>SurfaceVariant</code>, <code>OnSurfaceVariant</code>, <code>SurfaceContainer</code>, <code>PrimaryContainer</code>, <code>OnPrimaryContainer</code>, <code>SecondaryContainer</code>, <code>OnSecondaryContainer</code>, <code>TertiaryContainer</code>, <code>OnTertiaryContainer</code>, <code>Outline</code>, <code>OutlineVariant</code>, <code>Error</code>, <code>OnError</code></td>
+            <td>The design system, per colour scheme</td>
+          </tr>
+          <tr>
+            <td><code>Paint</code></td>
+            <td><code>Paint::Role(ColorRole)</code> or <code>Paint::Literal(Color)</code>, packed into one <code>u64</code></td>
+            <td>Both. Every colour-shaped slot takes a <code>Paint</code>, so colour is described once in the schema rather than twice</td>
+          </tr>
+          <tr>
+            <td><code>TypeRole</code></td>
+            <td>A nine-rung ladder: <code>Display</code>, <code>Headline</code>, <code>Title</code>, <code>Subtitle</code>, <code>Body</code>, <code>BodyStrong</code>, <code>Label</code>, <code>Caption</code>, <code>Mono</code></td>
+            <td>The design system; individual axes are overridable per <code>Text</code></td>
+          </tr>
+          <tr>
+            <td><code>ShapeRole</code></td>
+            <td><code>None</code>, <code>ExtraSmall</code>, <code>Small</code>, <code>Medium</code>, <code>Large</code>, <code>Full</code></td>
+            <td>The design system, 12&nbsp;dp on Material 3, continuous curvature on HIG, 4&nbsp;dp on Fluent</td>
+          </tr>
+          <tr>
+            <td><code>SpaceRole</code></td>
+            <td><code>None</code>, <code>Xs</code>, <code>Sm</code>, <code>Md</code>, <code>Lg</code>, <code>Xl</code>, <code>Xxl</code></td>
+            <td>The design system; density is exactly where the systems disagree most</td>
+          </tr>
+          <tr>
+            <td><code>Elevation(dp)</code></td>
+            <td>A single float</td>
+            <td>The design system. Shadow colour, offset and blur are never sent: Material 3 raises the surface tone, HIG draws a wide soft shadow, Fluent layers a shadow with a hairline stroke</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      A <code>Text</code> that carries only <code>type_role</code> takes the system's size, weight,
+      line height and tracking wholesale. Adding <code>font_size</code> overrides that one axis and
+      nothing else, each override is an independent <code>SetProp</code>, so the change-only
+      transport described in <a href="architecture.html#protocol">the protocol</a> survives.
+    </p>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>illustrative: FR-13 is specified but not built, so this does not compile</figcaption>
+<pre><code><span class="c">// Illustrative. Roles are resolved by whichever design system is active.</span>
+<span class="f">rsx!</span> {
+    <span class="ty">Column</span> {
+        <span class="at">padding_role</span>: <span class="ty">SpaceRole</span>::Lg,
+        <span class="at">space_role</span>: <span class="ty">SpaceRole</span>::Md,
+        <span class="ty">Text</span> { <span class="at">type_role</span>: <span class="ty">TypeRole</span>::Title, <span class="at">text</span>: <span class="s">"Conversations"</span> }
+        <span class="ty">Text</span> {
+            <span class="at">type_role</span>: <span class="ty">TypeRole</span>::Body,
+            <span class="at">color</span>: <span class="ty">Paint</span>::<span class="f">Role</span>(<span class="ty">ColorRole</span>::OnSurfaceVariant),
+            <span class="at">text</span>: <span class="s">"Nothing here yet."</span>
+        }
+        <span class="ty">Button</span> { <span class="at">variant</span>: <span class="ty">ButtonVariant</span>::Filled, <span class="at">text</span>: <span class="s">"New chat"</span> }
+    }
+}</code></pre>
+    </figure>
+
+    <h2 id="excluded">What was left out, and why</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">Excluded</th><th scope="col">Reason</th></tr></thead>
+        <tbody>
+          <tr><td>Gradients, image brushes</td><td>They do not fit in <code>(u64, u64)</code>, and a resource would have to cross the boundary.</td></tr>
+          <tr><td>Font families, custom fonts</td><td>Fonts live in the renderer bundle. A name sent from the Host defers "does it exist" to runtime.</td></tr>
+          <tr><td>Icon and image widgets</td><td>They need an asset protocol, which is a separate requirement rather than a footnote to this one.</td></tr>
+          <tr><td>Animation specs (duration, easing)</td><td>Motion is a design-system rule. A Host-supplied curve turns the system into a shell that only receives values.</td></tr>
+          <tr><td>Blur, HIG vibrancy, ripple configuration</td><td>Platform-specific effects; not an axis the systems share.</td></tr>
+          <tr><td>A token table sent by the Host</td><td>It would reverse the decision that the renderer resolves tokens.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 id="systems">Seven systems, one widget tree (FR-14)</h2>
+    <p>
+      A design system here is a pair: a token table and a set of component rules. There are seven systems implemented:
+      <strong>Material&nbsp;3</strong>, <strong>Cupertino</strong>, <strong>WinUI/Fluent&nbsp;2</strong>,
+      <strong>GNOME</strong>, <strong>Breeze</strong>, <strong>Deepin</strong>, and <strong>Liquid Glass</strong>.
+      The same <code>rsx!</code> drawn under a different system is <em>meant</em> to look different; that is the feature, not a bug to file.
+    </p>
+    <p>
+      Component rules attach to variant properties whose names are design-system-neutral.
+      <code>Button.variant</code> is <code>Filled | Tonal | Outlined | Text</code>, and each system
+      reads it differently: Material 3 gives its filled, tonal, outlined and text buttons with a
+      large corner radius and a ripple; HIG gives an accent button with continuous curvature and no
+      shadow, a grey tonal button, and a plain text button that highlights instead of rippling;
+      Fluent gives accent, standard, standard-with-stroke and subtle at 4&nbsp;dp with a lighter
+      top border.
+    </p>
+    <p>
+      The payoff is FR-14's acceptance criterion: adding a fourth design system must not change
+      <code>widgets.rs</code>, the property schema or the wire format. One variant in a Rust enum,
+      one token table and one rule implementation in Kotlin.
+    </p>
+
+    <h2 id="modes">Unified and adaptive</h2>
+    <p>The application chooses explicitly, at launch.</p>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>illustrative: <code>Theme</code> does not exist in the crate yet</figcaption>
+<pre><code><span class="c">// The same design system on every platform.</span>
+<span class="ty">LaunchBuilder</span>::<span class="f">new</span>()
+    .<span class="f">with_theme</span>(<span class="ty">Theme</span>::<span class="f">unified</span>(<span class="ty">DesignSystem</span>::Material3))
+    .<span class="f">launch</span>(app);
+
+<span class="c">// Follow the host platform. The fallback argument is mandatory.</span>
+<span class="ty">LaunchBuilder</span>::<span class="f">new</span>()
+    .<span class="f">with_theme</span>(<span class="ty">Theme</span>::<span class="f">adaptive</span>(<span class="ty">DesignSystem</span>::Material3))
+    .<span class="f">launch</span>(app);</code></pre>
+    </figure>
+
+    <p>
+      <code>adaptive</code> is <strong>not</strong> the default. An app that never calls
+      <code>with_theme</code> gets <code>Theme::unified(DesignSystem::Material3)</code>, because a
+      default that quietly looks different on every platform is a surprise rather than a
+      convenience. And because the fallback argument is required, adaptive has no platform it
+      cannot answer for.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">Platform</th><th scope="col">What <code>adaptive</code> picks</th></tr></thead>
+        <tbody>
+          <tr><td>Android</td><td>Material 3</td></tr>
+          <tr><td>macOS, iOS</td><td>Liquid Glass</td></tr>
+          <tr><td>Windows</td><td>WinUI/Fluent 2</td></tr>
+          <tr><td>Linux (GNOME)</td><td>GNOME 50 <span class="pill planned">Planned</span></td></tr>
+          <tr><td>Linux (KDE)</td><td>KDE Breeze <span class="pill planned">Planned</span></td></tr>
+          <tr><td>Linux (anything else, or undetectable)</td><td>Deepin <span class="pill planned">Planned</span></td></tr>
+          <tr><td>Web</td><td>WinUI/Fluent 2, switchable to Material 3 by configuration</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      The Linux rows read the desktop environment once at startup: <code>XDG_CURRENT_DESKTOP</code>
+      first, then <code>DESKTOP_SESSION</code> if that is empty. A value containing
+      <code>GNOME</code> selects GNOME 50, <code>KDE</code> selects Breeze, and anything else, or a
+      failure to tell, selects Deepin. Until those phase-two tables exist, Linux uses the fallback
+      you passed.
+    </p>
+    <p>
+      The web row is a choice rather than a fact. A browser has no design language of its own, so
+      <code>adaptive</code> has nothing to adapt to; the default is Fluent 2 and an app can
+      configure Material 3 instead. On the web, saying <code>unified</code> outright is the clearer
+      thing to write.
+    </p>
+    <p>
+      Light and dark are a separate axis from the design system: <code>ColorScheme</code> is
+      <code>Light | Dark | FollowSystem</code> and defaults to <code>FollowSystem</code>. The
+      renderer learns of a system change first and applies it itself. The Host is not involved, the same rule that keeps scroll position and focus on the Kotlin side.
+    </p>
+
+    <h2 id="wire">What it adds to the wire</h2>
+    <p>
+      One mutation: <code>SetTheme { design_system, fallback, color_scheme, adaptive }</code>,
+      command tag&nbsp;9, a 12-byte record of four <code>u16</code> fields after <code>tag</code>
+      and <code>len</code>, applied to the root rather than to a node. The Host sends it once as the
+      first record of the initial batch, and again only when the application changes the theme. The
+      design system tags are <code>Material3 = 1</code>, <code>AppleHig = 2</code>,
+      <code>Fluent = 3</code>; the colour scheme tags are <code>Light = 1</code>,
+      <code>Dark = 2</code>, <code>FollowSystem = 3</code>.
+    </p>
+    <p>
+      The primitives are tagged too, and the tags are fixed: every role enum starts at 1, because 0
+      means "not sent" and can never be a role. The new modifiers append to the existing list as
+      <code>PaddingRole = 9</code>, <code>PaddingEach = 10</code>, <code>Weight = 11</code>,
+      <code>Shape = 12</code>, <code>ShapeRole = 13</code>, <code>Border = 14</code> and
+      <code>Elevation = 15</code>, and the new text and layout properties append after
+      <code>OnRangeRequested</code> as <code>TypeRole = 13</code> through
+      <code>Variant = 26</code>. One existing field changes shape rather than tag:
+      <code>Modifier::Background</code> (tag 7) carries a <code>Paint</code> as a <code>u64</code>
+      instead of a raw <code>argb: u32</code>, so that colour has exactly one representation in the
+      schema. The record length is unchanged and only the schema hash moves.
+    </p>
+    <p>
+      The token tables themselves are authored in Rust and executed in the renderer. The colour,
+      type, shape and spacing values live in the Rust schema as data, and codegen emits them into
+      <code>Protocol.gen.kt</code>; they are baked into the renderer binary at build time and never
+      cross the boundary at runtime. A renderer implementer fills in the rules, not the numbers.
+    </p>
+    <p>
+      Implementing a design system is then seven tables: the 23 colour roles in both schemes, the 9
+      type roles, the 6 shape roles, the 7 spacing roles, the elevation rendering rule, the 4 button
+      variants, and the motion durations and easing. The first four are generated; the last three
+      are the renderer's own work. Once those are filled in, no widget code changes.
+    </p>
+
+    <div class="note">
+      <span class="label">A cost worth naming</span>
+      <p>
+        Because the renderer resolves the tokens, a Rust-side unit test can only assert
+        <em>which role was sent</em>. The actual colours and dimensions are verified in renderer
+        tests. The specification accepts that split rather than pretending it does not exist.
+      </p>
+    </div>
+
+    <nav class="pagenav" aria-label="Pagination">
+      <a class="prev" href="lists-and-streaming.html"><span>Previous</span>&larr; Lists &amp; streaming</a>
+      <a class="next" href="architecture.html"><span>Next</span>Architecture &rarr;</a>
+    </nav>
+</main>
+</div>
+
+<footer class="site">
+  <div class="inner">
+    <span>dioxus-compose &middot; Apache License 2.0</span>
+    <span><a class="footer-repo" href="https://github.com/DarkPyonix/dioxus-compose">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/INTENT.md">INTENT.md</a></span>
+    <span>Guide last reviewed against the repository on 2026-09-20</span>
+  </div>
+</footer>
+
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

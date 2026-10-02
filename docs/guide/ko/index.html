@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ko" class="landing">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dioxus-compose: Rust로 선언하고 Compose가 그리는 네이티브 UI</title>
+<meta name="description" content="Rust에서 Dioxus 방식으로 UI를 선언하면 미리 컴파일해 둔 Compose Multiplatform 렌더러가 화면을 그립니다. 웹뷰도 JVM도 없이 도는 네이티브 데스크톱 앱을 만듭니다.">
+<link rel="canonical" href="http://darkpyonix.dev/dioxus-compose/ko/">
+<link rel="alternate" hreflang="en" href="http://darkpyonix.dev/dioxus-compose/en/">
+<link rel="alternate" hreflang="ko" href="http://darkpyonix.dev/dioxus-compose/ko/">
+<link rel="alternate" hreflang="x-default" href="http://darkpyonix.dev/dioxus-compose/en/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="dioxus-compose">
+<meta property="og:locale" content="ko_KR">
+<meta property="og:locale:alternate" content="en_US">
+<meta property="og:title" content="dioxus-compose: Rust로 선언하고 Compose가 그리는 네이티브 UI">
+<meta property="og:description" content="Rust에서 UI를 선언하면 Compose 렌더러가 화면을 그립니다. 웹뷰도 JVM도 없이 도는 네이티브 데스크톱 앱.">
+<meta property="og:url" content="http://darkpyonix.dev/dioxus-compose/ko/">
+<meta property="og:image" content="http://darkpyonix.dev/dioxus-compose/assets/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="dioxus-compose: Rust로 선언하고 Compose가 그리는 네이티브 UI">
+<meta name="twitter:description" content="Rust에서 UI를 선언하면 Compose 렌더러가 화면을 그립니다. 웹뷰도 JVM도 없이 도는 네이티브 데스크톱 앱.">
+<meta name="twitter:image" content="http://darkpyonix.dev/dioxus-compose/assets/og.png">
+<link rel="stylesheet" href="../assets/style.css?v=20">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareSourceCode",
+  "name": "dioxus-compose",
+  "description": "Rust에서 UI를 선언하면 미리 컴파일해 둔 Compose Multiplatform 엔진이 화면을 그립니다.",
+  "codeRepository": "https://github.com/DarkPyonix/dioxus-compose",
+  "url": "http://darkpyonix.dev/dioxus-compose/",
+  "programmingLanguage": ["Rust", "Kotlin"],
+  "license": "https://www.apache.org/licenses/LICENSE-2.0",
+  "runtimePlatform": "macOS"
+}
+</script>
+<script>(function(){try{var t=localStorage.getItem("dxc-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+</head>
+<body>
+<a class="skip" href="#main">본문으로 건너뛰기</a>
+
+<header class="topbar">
+  <a class="brand" href="./"><span class="dot" aria-hidden="true"></span>dioxus-compose</a>
+  <span class="spacer"></span>
+  <nav class="langswitch" aria-label="Language">
+    <a href="../en/" hreflang="en">EN</a>
+    <a href="./" aria-current="true" hreflang="ko">KO</a>
+  </nav>
+  <button id="themetoggle" class="ghost" type="button" data-dark="다크" data-light="라이트" aria-pressed="false">다크</button>
+</header>
+
+<main id="main">
+  <div class="herowrap">
+    <div class="backdrop" aria-hidden="true">
+      <svg class="tree" viewBox="0 0 400 300" preserveAspectRatio="xMidYMid meet" focusable="false" aria-hidden="true">
+        <g class="still">
+          <rect x="10" y="10" width="380" height="280" rx="14"/>
+          <rect x="34" y="42" width="116" height="16" rx="5"/>
+          <rect x="168" y="42" width="34" height="16" rx="8"/>
+          <rect x="34" y="84" width="332" height="30" rx="7"/>
+          <rect x="34" y="124" width="332" height="30" rx="7"/>
+          <rect x="34" y="164" width="332" height="30" rx="7"/>
+          <rect x="34" y="222" width="332" height="44" rx="10"/>
+          <rect class="caret" x="52" y="236" width="2" height="16" rx="1"/>
+        </g>
+        <g class="lit">
+          <rect x="168" y="42" width="34" height="16" rx="8" style="--at:0s"/>
+          <rect x="34" y="124" width="332" height="30" rx="7" style="--at:4.6s"/>
+          <rect x="34" y="222" width="332" height="44" rx="10" style="--at:9.8s"/>
+          <rect class="caret" x="52" y="236" width="2" height="16" rx="1" style="--at:11.4s"/>
+          <rect x="34" y="84" width="332" height="30" rx="7" style="--at:16.6s"/>
+        </g>
+      </svg>
+    </div>
+    <span class="edge" aria-hidden="true"></span>
+  <section class="hero">
+    <h1>UI는 Rust로 선언하고,<span class="said">화면은 Compose가 그립니다.</span></h1>
+    <p class="lede"><code>rsx!</code>와 훅, 시그널로 컴포넌트를 작성하면 미리 컴파일해 둔 Compose
+      Multiplatform 렌더러가 화면을 그립니다. 텍스트 레이아웃도, 위젯도, 입력기도 Compose가
+      쓰던 것을 그대로 씁니다.</p>
+    <p class="sub">웹뷰 없이, JVM 없이 도는 네이티브 데스크톱 앱을 Rust로 만듭니다.</p>
+    <div class="cta">
+      <a class="btn" href="getting-started.html">시작하기</a>
+      <a class="btn secondary" href="overview.html">가이드 보기</a>
+      <a class="btn secondary" href="https://github.com/DarkPyonix/dioxus-compose">GitHub</a>
+    </div>
+      <ul class="claims">
+        <li>웹뷰 없음</li>
+        <li>배포 바이너리에 JVM 없음</li>
+        <li>한글 포함 플랫폼 IME 그대로</li>
+        <li>복사 없는 경계</li>
+      </ul>
+  </section>
+  </div>
+
+  <div class="showcase" id="how">
+<pre><code><span class="k">rsx!</span> {
+    <span class="t">Column</span> {
+        <span class="a">fill_max_width</span>: <span class="k">true</span>,
+        <span class="t">Text</span> { <span class="a">text</span>: <span class="s">"대화"</span> }
+        <span class="t">TextField</span> {
+            <span class="a">placeholder</span>: <span class="s">"메시지를 입력하세요"</span>,
+            <span class="c">// Enter는 제출, Shift+Enter는 줄바꿈</span>
+            <span class="a">on_key_down</span>: <span class="k">move</span> |e| {
+                <span class="k">if</span> e.key() == <span class="t">Key</span>::Enter &amp;&amp; !e.shift_key() {
+                    submit();
+                    e.consume();
+                }
+            },
+        }
+    }
+}</code></pre>
+    <div class="note">
+      <h2>코드는 Rust에, 픽셀은 Compose에</h2>
+      <p>컴포넌트와 상태는 Rust가 관리하고, 화면과 텍스트 입력은 Compose가 담당합니다. 둘
+        사이에는 좁은 C ABI 하나뿐입니다. 같은 스레드에서 동기로 호출하고 데이터를 복사하지
+        않으니, 키를 누른 그 프레임 안에서 결과가 돌아옵니다.</p>
+      <p>직렬화도, 비동기 브리지도, 웹뷰도 없습니다. 배포되는 바이너리 안에 JVM도 들어가지
+        않습니다.</p>
+    </div>
+  </div>
+
+  <div class="metrics">
+    <div class="metric"><b>35.1 MB</b><span>창을 띄웠을 때 실제 메모리 사용량 (M1 기준)</span></div>
+    <div class="metric"><b>12.5 &micro;s</b><span>클릭 처리부터 배치 인코딩까지 (p99)</span></div>
+    <div class="metric"><b>0</b><span>경계에서 한 프레임당 힙 할당</span></div>
+    <div class="metric"><b>JVM 없음</b><span>Java가 깔리지 않은 컴퓨터에서도 실행</span></div>
+  </div>
+  <p class="fineprint">Mac mini(M1, 16GiB, macOS 26.5.1)에서 릴리스 빌드로 측정한 값입니다. 측정
+    방법은 <a href="architecture.html">아키텍처</a> 문서에 적어 두었습니다.</p>
+
+  <section>
+    <h2>현재 상태</h2>
+    <table>
+      <thead><tr><th>플랫폼</th><th>상태</th></tr></thead>
+      <tbody>
+        <tr><td>macOS 데스크톱</td><td>한글 입력까지 포함해 처음부터 끝까지 동작합니다</td></tr>
+        <tr><td>Windows, Linux 데스크톱</td><td>빌드되고 실행됩니다</td></tr>
+        <tr><td>iOS</td><td>빌드되고 실행됩니다 (XCFramework)</td></tr>
+        <tr><td>Android</td><td>설계는 끝났고 구현은 아직입니다</td></tr>
+        <tr><td>Web</td><td>연결 방식은 실측으로 정했고 구현은 아직입니다</td></tr>
+      </tbody>
+    </table>
+    <p class="fineprint">아직 초기 단계 프로젝트입니다. 무엇이 확정됐고 무엇이 검증되지 않았는지는
+      <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/SPEC.md">명세 문서</a>에
+      구분해 두었습니다.</p>
+  </section>
+
+  <section>
+    <h2>어디서부터 볼까요</h2>
+    <div class="cards">
+      <a class="card" href="getting-started.html"><h3>시작하기</h3><p>툴체인 설치부터 렌더러 빌드, 데모 실행까지.</p></a>
+      <a class="card" href="writing-ui.html"><h3>UI 작성</h3><p>위젯과 Modifier, 이벤트 처리, 그리고 한글 입력이 깨지지 않게 하는 텍스트 필드 규칙.</p></a>
+      <a class="card" href="composables.html"><h3>컴포저블 레퍼런스</h3><p>모든 컴포저블과 그 프로퍼티, 기본값, 역할 어휘, 그리고 각각의 상태가 어디에 있는지.</p></a>
+      <a class="card" href="design-systems.html"><h3>디자인 시스템</h3><p>Material 3, Cupertino, Fluent를 하나로 통일하거나 플랫폼에 맞춰 바꾸거나.</p></a>
+      <a class="card" href="architecture.html"><h3>아키텍처</h3><p>Host와 Renderer를 나눈 구조, 둘을 잇는 프로토콜, 프레임이 도는 방식.</p></a>
+    </div>
+  </section>
+</main>
+
+<footer class="site">
+  <div class="inner">
+    <span>dioxus-compose &middot; Apache License 2.0</span>
+    <span><a class="footer-repo" href="https://github.com/DarkPyonix/dioxus-compose">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/INTENT.md">INTENT.md</a></span>
+  </div>
+</footer>
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

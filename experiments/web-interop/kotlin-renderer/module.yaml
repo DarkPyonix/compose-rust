@@ -1,0 +1,4 @@
+# Standalone Kotlin/Wasm module for the PR-6 experiment. It deliberately has no
+# dependency on //shared or Compose: the question is what the raw Kotlin/Wasm
+# target can do at the module boundary, not what Compose can do.
+product: wasm-js/app

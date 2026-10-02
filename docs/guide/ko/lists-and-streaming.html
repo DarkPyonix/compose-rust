@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>목록과 스트리밍 · dioxus-compose 가이드</title>
+<meta name="description" content="LazyColumn 윈도잉과 AppendText 스트리밍의 설계, 현재 상태, 그리고 지금 만들 수 있는 것.">
+<link rel="alternate" hreflang="en" href="../en/lists-and-streaming.html">
+<link rel="alternate" hreflang="ko" href="lists-and-streaming.html">
+<link rel="alternate" hreflang="x-default" href="../en/lists-and-streaming.html">
+<link rel="stylesheet" href="../assets/style.css?v=20">
+<script>(function(){try{var t=localStorage.getItem("dxc-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+</head>
+<body>
+<a class="skip" href="#main">본문으로 건너뛰기</a>
+
+<header class="topbar">
+  <a class="brand" href="./"><span class="dot" aria-hidden="true"></span>dioxus-compose <small>가이드</small></a>
+  <span class="spacer"></span>
+  <button id="navtoggle" class="ghost" type="button" aria-expanded="false" aria-controls="sidebar">메뉴</button>
+  <nav class="langswitch" aria-label="언어">
+    <a href="../en/lists-and-streaming.html" hreflang="en">EN</a>
+    <a href="lists-and-streaming.html" aria-current="true" hreflang="ko">KO</a>
+  </nav>
+  <button id="themetoggle" class="ghost" type="button" data-dark="다크" data-light="라이트" aria-pressed="false">다크</button>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <nav aria-label="가이드">
+      <h2>가이드</h2>
+      <ul>
+        <li><a href="overview.html">개요</a></li>
+        <li><a href="getting-started.html">시작하기</a></li>
+        <li><a href="writing-ui.html">UI 작성하기</a></li>
+        <li><a href="composables.html">컴포저블 레퍼런스</a></li>
+        <li><a href="lists-and-streaming.html" aria-current="page">목록과 스트리밍</a></li>
+        <li><a href="design-systems.html">디자인 시스템</a></li>
+        <li><a href="architecture.html">아키텍처</a></li>
+        <li><a href="troubleshooting.html">문제 해결</a></li>
+      </ul>
+      <h2>이 페이지</h2>
+      <ul>
+        <li><a href="#today">평범한 목록</a></li>
+        <li><a href="#windowing">LazyColumn 윈도잉</a></li>
+        <li><a href="#streaming">스트리밍 텍스트</a></li>
+        <li><a href="#workers">워커에서 스트리밍하기</a></li>
+        <li><a href="#budget">프레임 예산</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <main id="main">
+    <p class="eyebrow">목록과 스트리밍</p>
+    <h1>긴 목록과 스트리밍 텍스트</h1>
+    <p class="lede">
+      채팅 클라이언트는 아주 긴 목록에 토큰 단위로 도착하는 텍스트를 더한 것입니다. 두 기능 모두
+      이제 Rust 쪽에 구현이 있고 테스트도 붙어 있습니다. 다만 Compose 인터프리터가 따라오기
+      전까지는 절반만 완성된 상태입니다. 이 페이지는 그 절반이 정확히 어디까지인지 적습니다.
+    </p>
+
+    <div class="note">
+      <span class="label">현재 위치</span>
+      <p>
+        <code>LazyColumn</code>(FR-8)과 <code>AppendText</code>(FR-9)는 SPEC에서
+        <code>Agreed</code>이고 Host 쪽 구현이 끝났습니다. 둘 다 <code>dioxus-compose/tests/</code>에
+        통과하는 수용 테스트가 있습니다. Compose 인터프리터는 지금 병행해서 작업 중이고, 그전까지
+        화면에서 어떻게 보이는지는 아래 <a href="#renderer-gap">Renderer 쪽 공백</a>을 보세요.
+      </p>
+    </div>
+
+    <h2 id="today">평범한 목록</h2>
+    <p>
+      데이터를 <code>for</code>로 돌리는 <code>Column</code>은 올바르게 동작하고, 화면 하나에
+      스크롤백을 조금 더한 수백 줄 규모에는 충분합니다. 다만 가상화는 하지 않습니다. 아이템 하나가
+      양쪽 모두에서 실제 노드 하나가 됩니다.
+    </p>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>rust, 데스크톱 데모가 쓰는 패턴</figcaption>
+<pre><code><span class="f">rsx!</span> {
+    <span class="ty">Column</span> {
+        <span class="at">fill_max_width</span>: <span class="k">true</span>,
+        <span class="k">for</span> message <span class="k">in</span> messages() {
+            <span class="ty">Text</span> { <span class="at">text</span>: message }
+        }
+    }
+}</code></pre>
+    </figure>
+
+    <p>
+      메시지 하나를 고치면 <code>SetProp</code> 한 건만 나가고 형제 노드는 recomposition되지
+      않습니다. 바람이 아니라 테스트로 지키는 요구사항입니다(FR-4). 그러니 이 패턴의 비용은 갱신
+      경로가 아니라 노드 개수입니다.
+    </p>
+
+    <h2 id="windowing">LazyColumn 윈도잉 <span class="pill partial">Host 쪽 완료</span></h2>
+    <p>
+      평범한 트리 diff로는 가상 목록을 가상으로 유지할 수 없습니다. Renderer가 아이템의 존재를
+      알려면 Host가 만들지도 않은 아이템을 설명해야 하기 때문입니다. 그래서 lazy 목록에서는 흐름을
+      뒤집습니다.
+    </p>
+    <ol>
+      <li>Host가 전체 아이템 개수와 아이템마다의 안정적인 key를 알립니다.</li>
+      <li>Renderer가 보이는 범위를 정해 <code>RangeRequested</code> 이벤트로 요청합니다(이벤트 태그 7, 24바이트).</li>
+      <li>Host는 그 범위에 양옆 버퍼를 더한 만큼만 서브트리를 만들고, 나머지는 만들지 않습니다.</li>
+    </ol>
+    <p>
+      아이템마다 <code>item_key</code> 문자열을 실은 <code>Box</code> 노드로 감싸고, Renderer는 그
+      값을 Compose <code>LazyColumn</code>의 key로 씁니다. 스크롤 위치와 아이템 식별은 Renderer가,
+      데이터는 Host가 갖습니다. 이미 본 아이템으로 다시 스크롤하면 같은 서브트리가 다시
+      만들어집니다.
+    </p>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>rust, dioxus-compose/src/widgets.rs의 컴포넌트 정의 그대로</figcaption>
+<pre><code><span class="f">rsx!</span> {
+    <span class="ty">LazyColumn</span> {
+        <span class="at">item_count</span>: messages.<span class="f">len</span>(),
+        <span class="at">buffer</span>: <span class="n">4</span>,                                     <span class="c">// 양옆으로 더 만들 개수. 기본 4</span>
+        <span class="at">key_of</span>: <span class="k">move</span> |index| messages()[index].id.<span class="f">clone</span>(),  <span class="c">// 선택. 없으면 인덱스</span>
+        <span class="at">item</span>: <span class="k">move</span> |index| <span class="f">rsx!</span> {
+            <span class="ty">Text</span> { <span class="at">text</span>: messages()[index].body.<span class="f">clone</span>() }
+        },
+    }
+}</code></pre>
+    </figure>
+
+    <p>
+      <code>item</code>과 <code>key_of</code>는 <code>Callback</code>이라 클로저를 그대로 넘기면
+      됩니다. <code>item_count</code>는 <code>usize</code>이고 와이어에는 <code>i64</code>로
+      실립니다. 필수 속성은 <code>item_count</code>와 <code>item</code> 둘뿐입니다.
+    </p>
+    <p>
+      수용 기준은 구체적이고, 통과합니다. 아이템 1만 개짜리 목록에서 가시 20개와 버퍼 4를
+      요청하면 Host가 만드는 아이템은 28개입니다. 목록 길이가 아니라 창 크기에 비례합니다. 테스트
+      이름은 <code>fr8_node_count_is_proportional_to_the_window</code>입니다.
+    </p>
+
+    <div class="warn" id="renderer-gap">
+      <span class="label">Renderer 쪽 공백</span>
+      <p>
+        Kotlin 인터프리터는 지금 <code>LazyColumn</code> 노드를 Compose <code>Column</code>으로
+        그리고 <code>RangeRequested</code>를 한 번도 보내지 않습니다. 프로토콜과 속성, 이벤트
+        디코더는 이미 다 있고, 없는 것은 그것들을 굴릴 Compose <code>LazyColumn</code>입니다.
+        그때까지 <code>LazyColumn</code>은 처음 만든 창을 그린 채로 머뭅니다. 지금부터 이 컴포넌트에
+        맞춰 코드를 써 두는 것은 괜찮지만, 아이템 1만 개짜리 화면을 이 위에 얹어 배포하지는 마세요.
+      </p>
+    </div>
+
+    <h2 id="streaming">스트리밍 텍스트 <span class="pill partial">Host 쪽 완료</span></h2>
+    <p>
+      LLM 응답은 토큰 단위로 도착합니다. 토큰마다 <code>text</code> 속성을 통째로 바꾸면 매번 메시지
+      전체를 다시 보내게 되고, 메시지는 계속 길어지므로 비용이 제곱으로 늡니다. 그래서
+      <code>Text</code> 노드에 늘어난 꼬리만 싣는 <code>AppendText</code> 명령을
+      둡니다(Mutation 태그 8, 16바이트).
+    </p>
+    <p>
+      모으는 일은 Host가 합니다. 프레임 사이에 도착한 토큰들은 노드별로 <code>AppendText</code> 한
+      건으로 합쳐지고, <code>render_frame</code>에서 flush됩니다. 토큰 하나가 배치 하나를 잡아먹지
+      않고, 누적 버퍼를 재사용하므로 정상 상태 스트리밍에서 할당이 늘지 않습니다.
+    </p>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>rust, 현재 존재하는 스트리밍 API의 전부</figcaption>
+<pre><code><span class="c">// 다음 프레임에 보낼 꼬리를 쌓아 둡니다. 반복 호출은 노드별 한 건과</span>
+<span class="c">// 프레임 요청 한 번으로 합쳐집니다.</span>
+host.<span class="f">append_text</span>(node_id, <span class="s">" token"</span>);</code></pre>
+    </figure>
+
+    <div class="note">
+      <span class="label">컴포넌트 수준 스트리밍 API는 아직 없습니다</span>
+      <p>
+        <code>append_text</code>는 프로토콜의 <code>node_id</code>를 받는데, 컴포넌트 코드에는 그
+        값을 얻을 마땅한 방법이 없습니다. 테스트와 임베더가 쓰는 경계 수준 기능이지 컴포넌트
+        안에서 부를 것이 아닙니다. <code>rsx!</code> 수준의 수단이 생기기 전까지는 시그널에 쓰고
+        diff가 <code>SetProp</code>을 보내게 하세요. 짧은 답변에는 문제없고, 긴 답변에서는 제곱으로
+        비쌉니다.
+      </p>
+    </div>
+
+    <p>
+      Host 쪽 실측치입니다. 36&nbsp;KB 텍스트에서도 토큰당 배치가 64바이트 미만이고, 스트리밍
+      프레임 p99는 125&nbsp;ns입니다. 초당 100회 추가 중에도 스크롤과 입력이 끊기지 않는다는 전체
+      수용 기준은 끝에서 끝까지의 이야기라 Renderer를 기다려야 합니다.
+    </p>
+
+    <h2 id="workers">워커 스레드에서 스트리밍하기</h2>
+    <p>
+      이 부분은 가정이 아니고, 앞의 두 기능보다 중요합니다. 도메인 작업은 UI 스레드에서 돌면 안
+      됩니다. 그 스레드는 여러분의 컴포넌트와 경계 전체가 함께 쓰는 스레드입니다. PTY 읽기, HTTP,
+      LLM 스트리밍, 파일 I/O는 Host 워커 스레드의 몫입니다.
+    </p>
+    <p>
+      UI 입장에서 워커가 할 일은 시그널에 쓰는 것뿐입니다. Renderer를 깨우는 일은 내부에서
+      처리합니다. Host가 대신 프레임을 요청하고, 요청이 여러 번 겹쳐도 Compose 프레임 클록 안에서
+      <code>render_frame</code> 한 번으로 합쳐집니다. 사용자 코드가 경계 함수를 부르는 일은 없고,
+      양쪽 사이에 채워질 큐도 없습니다.
+    </p>
+
+    <div class="note">
+      <span class="label">기억해 둘 결과 하나</span>
+      <p>
+        핸들러는 Renderer가 Host를 부른 호출 안에서 실행됩니다. 그래서 핸들러 안에서 요청한
+        프레임은 그 호출이 끝날 때까지 미뤄집니다. 핸들러에서 Renderer로 재진입하는 것은
+        금지입니다. 상태만 바꾸고 프레임에 맡기세요.
+      </p>
+    </div>
+
+    <h2 id="budget">프레임 예산</h2>
+    <p>
+      성능 목표는 숫자 하나가 아니라 비교입니다. 같은 화면을 Kotlin과 Compose로 직접 쓴 것이
+      기준선이고, 이 스택은 그보다 프레임 시간을 10%까지만 더 써도 됩니다. 기준은 120&nbsp;Hz
+      디스플레이, 프레임당 8.33&nbsp;ms입니다. 코드 작성 방식에 영향을 주는 항목 몇 가지입니다.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">항목</th><th scope="col">기준 (p99, 릴리스)</th></tr></thead>
+        <tbody>
+          <tr><td>Host 처리: 핸들러 + diff + 배치 인코딩</td><td>일반 상호작용 ≤ 0.5&nbsp;ms, 스트리밍 프레임 ≤ 1&nbsp;ms</td></tr>
+          <tr><td>경계 호출 1회</td><td>데스크톱·iOS ≤ 100&nbsp;ns, Android ≤ 200&nbsp;ns</td></tr>
+          <tr><td>Renderer의 배치 적용</td><td>Mutation 100건당 ≤ 0.3&nbsp;ms</td></tr>
+          <tr><td>입력에서 화면까지</td><td>기준선과 같은 프레임 수. 추가 지연 0프레임</td></tr>
+          <tr><td>프레임 드랍</td><td>초당 100토큰 스트리밍 + 1만 건 대화 스크롤 중 0</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      할당은 절대 수치가 아니라 추세로 봅니다. Dioxus는 diff와 이벤트 처리 과정에서 내부적으로
+      할당하고(2026-09-20 측정: 클릭당 99회), Rust에는 GC가 없어서 이 할당이 멈춤으로 이어지지
+      않습니다. 중요한 것은 같은 상호작용을 반복했을 때 횟수가 늘지 않는 것입니다. 늘어난다면
+      누수이거나 캐시가 동작하지 않는 것이고, 버그로 보고 조사합니다.
+    </p>
+
+    <nav class="pagenav" aria-label="페이지 이동">
+      <a class="prev" href="composables.html"><span>이전</span>&larr; 컴포저블 레퍼런스</a>
+      <a class="next" href="design-systems.html"><span>다음</span>디자인 시스템 &rarr;</a>
+    </nav>
+</main>
+</div>
+
+<footer class="site">
+  <div class="inner">
+    <span>dioxus-compose &middot; Apache License 2.0</span>
+    <span><a class="footer-repo" href="https://github.com/DarkPyonix/dioxus-compose">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/INTENT.md">INTENT.md</a></span>
+    <span>이 가이드는 2026-09-20 기준 저장소 내용과 대조했습니다</span>
+  </div>
+</footer>
+
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

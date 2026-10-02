@@ -1,0 +1,18 @@
+# dx project configuration for the Minimal sample.
+#
+# The samples are ordinary dx projects on purpose. Someone reading one should see the
+# layout they would get from `dx new`, not a special arrangement that only works inside
+# this repository, because the point of a sample is to be copied.
+
+[application]
+name = "Minimal"
+asset_dir = "assets"
+
+[bundle]
+identifier = "dev.darkpyonix.dioxus.compose.samples.minimal"
+publisher = "DarkPyonix"
+short_description = "A playground for the role vocabulary."
+long_description = "Every control the schema has, every accent, every rung of the ladders, on one screen."
+
+[macos]
+bundle_name = "Minimal"

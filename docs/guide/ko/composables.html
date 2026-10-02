@@ -1,0 +1,1056 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>컴포저블 레퍼런스 · dioxus-compose 가이드</title>
+<meta name="description" content="애플리케이션이 쓸 수 있는 모든 컴포저블: 프로퍼티와 기본값, 예제, 모두가 공유하는 Modifier 속성, 역할 어휘, 그리고 각 위젯의 상태가 어디에 있는지.">
+<link rel="alternate" hreflang="en" href="../en/composables.html">
+<link rel="alternate" hreflang="ko" href="composables.html">
+<link rel="alternate" hreflang="x-default" href="../en/composables.html">
+<link rel="stylesheet" href="../assets/style.css?v=20">
+<script>(function(){try{var t=localStorage.getItem("dxc-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+</head>
+<body>
+<a class="skip" href="#main">본문으로 건너뛰기</a>
+
+<header class="topbar">
+  <a class="brand" href="./"><span class="dot" aria-hidden="true"></span>dioxus-compose <small>가이드</small></a>
+  <span class="spacer"></span>
+  <button id="navtoggle" class="ghost" type="button" aria-expanded="false" aria-controls="sidebar">메뉴</button>
+  <nav class="langswitch" aria-label="언어">
+    <a href="../en/composables.html" hreflang="en">EN</a>
+    <a href="composables.html" aria-current="true" hreflang="ko">KO</a>
+  </nav>
+  <button id="themetoggle" class="ghost" type="button" data-dark="다크" data-light="라이트" aria-pressed="false">다크</button>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <nav aria-label="가이드">
+      <h2>가이드</h2>
+      <ul>
+        <li><a href="overview.html">개요</a></li>
+        <li><a href="getting-started.html">시작하기</a></li>
+        <li><a href="writing-ui.html">UI 작성하기</a></li>
+        <li><a href="composables.html" aria-current="page">컴포저블 레퍼런스</a></li>
+        <li><a href="lists-and-streaming.html">목록과 스트리밍</a></li>
+        <li><a href="design-systems.html">디자인 시스템</a></li>
+        <li><a href="architecture.html">아키텍처</a></li>
+        <li><a href="troubleshooting.html">문제 해결</a></li>
+      </ul>
+      <h2>이 페이지</h2>
+      <ul>
+        <li><a href="#prelude">prelude가 주는 것</a></li>
+        <li><a href="#modifiers">Modifier 속성</a></li>
+        <li><a href="#roles">역할 어휘</a></li>
+        <li><a href="#layout">레이아웃</a></li>
+        <li><a href="#text">텍스트와 입력</a></li>
+        <li><a href="#controls">컨트롤</a></li>
+        <li><a href="#containers">컨테이너와 구분선</a></li>
+        <li><a href="#lists">윈도잉 목록</a></li>
+        <li><a href="#navigation">내비게이션과 탭</a></li>
+        <li><a href="#overlays">오버레이와 메시지</a></li>
+        <li><a href="#graphics">그림과 드로잉</a></li>
+        <li><a href="#window">창 크기</a></li>
+        <li><a href="#state">각 위젯의 상태는 어디에 있나</a></li>
+        <li><a href="#extensions">확장</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <main id="main">
+    <p class="eyebrow">레퍼런스</p>
+    <h1>컴포저블 레퍼런스</h1>
+    <p class="lede">
+      애플리케이션이 쓸 수 있는 모든 컴포저블과, 그 프로퍼티, 기본값, 그리고 디자인 시스템에
+      맡기는 부분입니다. 목록은 닫혀 있습니다. <code>dioxus-compose</code>의 prelude가 내보내는
+      것이 전부이고, 렌더러는 그 밖의 어떤 것도 해석하지 않습니다. 알지 못하는 위젯 종류는
+      프로세스를 죽이는 대신 <code>ProtocolError</code> 이벤트가 됩니다.
+    </p>
+
+    <h2 id="prelude">prelude가 주는 것</h2>
+    <p>
+      import 한 줄이면 위젯, 역할, 훅, 시그널, 매크로가 모두 들어옵니다.
+    </p>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>rust</figcaption>
+<pre><code><span class="k">use</span> dioxus_compose::prelude::*;</code></pre>
+    </figure>
+
+    <p>
+      컴포저블 33개와 역할 enum들, <code>Paint</code>, <code>Color</code>, <code>Theme</code>,
+      <code>DesignSystem</code>, <code>LaunchBuilder</code>, <code>Message</code>,
+      <code>show_message</code>, <code>use_window_size</code>, 그리고 <code>rsx!</code>가
+      펼쳐지며 참조하는 Dioxus 항목들입니다. <code>dioxus-core</code>,
+      <code>dioxus-hooks</code>, <code>dioxus-signals</code>를 따로 의존성에 추가할 필요는
+      없습니다. prelude가 매크로가 찾는 이름 그대로 다시 내보냅니다. <code>Box</code>가
+      서른네 번째이고, prelude가 일부러 빼 놓은 하나입니다.
+    </p>
+
+    <div class="warn">
+      <span class="label"><code>Box</code>가 아니라 <code>dioxus_compose::Box</code>로 쓰세요</span>
+      <p>
+        dioxus-core 0.7의 <code>rsx!</code> 확장은 내부적으로 수식되지 않은
+        <code>Box&lt;T&gt;</code>를 참조합니다. Compose의 <code>Box</code>를 glob prelude로
+        내보내면 <code>std::boxed::Box</code>를 가려서 그 확장이 깨지므로, prelude는 일부러
+        빼 놓았습니다. 타입 자체는 크레이트 루트에서 <code>Box</code>라는 이름으로 내보내고
+        있으므로(러스트 아이템 이름은 <code>ComposeBox</code>입니다), 업스트림이 자기 쪽을
+        수식할 때까지는 <code>rsx!</code> 안에서 경로를 붙여 쓰면 됩니다.
+      </p>
+    </div>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>rust</figcaption>
+<pre><code><span class="f">rsx!</span> {
+    dioxus_compose::<span class="ty">Box</span> {
+        <span class="at">fill_max_width</span>: <span class="k">true</span>,
+        <span class="at">alignment</span>: <span class="ty">Alignment</span>::Center,
+        <span class="ty">Text</span> { <span class="at">text</span>: <span class="s">"가운데"</span> }
+    }
+}</code></pre>
+    </figure>
+
+    <h2 id="modifiers">Modifier 속성</h2>
+    <p>
+      Compose에서 <code>Modifier</code>가 어떤 컴포저블에나 붙듯이 여기서도 그렇습니다.
+      <strong>이 페이지의 모든 위젯이 아래 열세 가지를 전부 받습니다.</strong>
+      <code>Text</code>와 <code>Spacer</code>도 마찬가지이므로, 위젯마다 다시 적지 않습니다.
+      예외는 <code>Separator</code> 하나뿐인데, 프로퍼티가 하나인 단축 표현이라
+      <code>color</code>만 받습니다.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">속성</th><th scope="col">타입</th><th scope="col">기본값</th><th scope="col">효과</th></tr></thead>
+        <tbody>
+          <tr><td><code>weight</code></td><td><code>f32</code></td><td>없음</td><td><code>Row</code>나 <code>Column</code> 안에서 남은 주축 공간의 몫.</td></tr>
+          <tr><td><code>fill_max_width</code></td><td><code>bool</code></td><td><code>false</code></td><td>가능한 너비를 모두 차지합니다.</td></tr>
+          <tr><td><code>fill_max_height</code></td><td><code>bool</code></td><td><code>false</code></td><td>가능한 높이를 모두 차지합니다.</td></tr>
+          <tr><td><code>width</code></td><td><code>f32</code> dp</td><td>없음</td><td>고정 너비.</td></tr>
+          <tr><td><code>height</code></td><td><code>f32</code> dp</td><td>없음</td><td>고정 높이.</td></tr>
+          <tr><td><code>padding</code></td><td><code>f32</code> dp</td><td>없음</td><td>네 변에 같은 여백을, 직접 고른 dp로.</td></tr>
+          <tr><td><code>padding_role</code></td><td><code>SpaceRole</code></td><td>없음</td><td>같은 여백을, 디자인 시스템이 고른 dp로. 이쪽이 낫습니다.</td></tr>
+          <tr><td><code>background</code></td><td><code>Paint</code></td><td>없음</td><td>위젯 뒤의 채움.</td></tr>
+          <tr><td><code>shape_role</code></td><td><code>ShapeRole</code></td><td>없음</td><td>반지름을 디자인 시스템이 정하는 모서리.</td></tr>
+          <tr><td><code>corner_radius</code></td><td><code>f32</code> dp</td><td>없음</td><td>직접 고른 dp의 모서리 반지름.</td></tr>
+          <tr><td><code>border_width</code></td><td><code>f32</code> dp</td><td>없음</td><td>테두리의 절반. <code>border_color</code>까지 있어야 그려집니다.</td></tr>
+          <tr><td><code>border_color</code></td><td><code>Paint</code></td><td>없음</td><td>나머지 절반.</td></tr>
+          <tr><td><code>elevation</code></td><td><code>f32</code> dp</td><td>없음</td><td>디자인 시스템이 정했을 기본 높이를 덮어씁니다.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      <strong>설정하지 않음은 0이 아닙니다.</strong> 쓰지 않은 Modifier는 0이 아니라 아무것도
+      보내지 않습니다. 여백이 없는 것과 여백이 0인 것은 화면에서 같아 보이지만, 그중 하나만
+      뮤테이션 비용을 치러야 하기 때문입니다. 슬롯을 공유하는 쌍이 셋 있어서 둘 다 의미 있게
+      설정할 수는 없습니다. <code>padding</code>과 <code>padding_role</code>,
+      <code>shape_role</code>과 <code>corner_radius</code>, 그리고 <code>border_width</code>와
+      <code>border_color</code>입니다. 마지막 쌍은 하나의 Modifier이고 양쪽이 모두 필요합니다.
+    </p>
+
+    <div class="note">
+      <span class="label">Clickable</span>
+      <p>
+        와이어 포맷에는 <code>Clickable</code> Modifier가 있고 렌더러도 그것을 Compose 체인에
+        넣지만, 타입이 붙은 위젯 중에 이것을 프로퍼티로 노출하는 것은 없습니다. 지금 클릭은
+        <code>Button</code>이나 <code>NavigationItem</code>에서 나옵니다.
+        <code>Clickable</code>에 닿으려면 소문자 엘리먼트 형태
+        (<code>card { onclickable: move |_| ... }</code>)를 써야 하는데, 이 저장소의 어떤
+        샘플도 그렇게 하지 않으므로 위젯 API의 일부라기보다 검증되지 않은 것으로 보시기 바랍니다.
+      </p>
+    </div>
+
+    <h2 id="roles">역할 어휘</h2>
+    <p>
+      위젯은 리터럴이 아니라 <em>역할</em>을 내보냅니다. 역할은 일의 이름(&quot;강조색&quot;,
+      &quot;제목 단&quot;, &quot;중간 모서리&quot;)이고, 렌더러가 활성 디자인 시스템의 토큰
+      표에 대고 그것을 해석합니다. 하나의 <code>rsx!</code> 트리가 이 기계에서는 Material 3로,
+      저 기계에서는 Cupertino로 나오는 이유가 이것입니다. 표가 어떻게 정해지는지는
+      <a href="design-systems.html">디자인 시스템</a>에 있습니다.
+    </p>
+
+    <h3 id="paint">Paint와 Color</h3>
+    <p>
+      색을 받는 자리의 타입은 언제나 <code>Paint</code>이고, 역할이거나 리터럴 ARGB 값입니다.
+    </p>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>rust</figcaption>
+<pre><code><span class="ty">Paint</span>::<span class="ty">Role</span>(<span class="ty">ColorRole</span>::Primary)          <span class="c">// 디자인 시스템이 해석합니다</span>
+<span class="ty">Paint</span>::<span class="ty">Literal</span>(<span class="ty">Color</span>::<span class="f">rgb</span>(<span class="n">0x1b6ef3</span>))    <span class="c">// 불투명, 0xRRGGBB</span>
+<span class="ty">Paint</span>::<span class="ty">Literal</span>(<span class="ty">Color</span>::<span class="f">argb</span>(<span class="n">0x80ff0000</span>))  <span class="c">// 0xAARRGGBB</span></code></pre>
+    </figure>
+
+    <p>
+      리터럴은 탈출구입니다. 디자인 시스템이 바뀌어도 그대로 남는데, 그것이 바라는 바일 때도
+      있고(브랜드 색), 대개는 아닙니다(밝은 페이지에서는 읽히고 어두운 페이지에서는 사라지는 색).
+    </p>
+
+    <h3 id="colorrole">ColorRole: 23개의 역할</h3>
+    <p>
+      잉크를 가리키는 역할에는 그 잉크가 얹히는 면이 짝으로 붙어 있습니다.
+      <code>OnPrimary</code>는 <code>Primary</code>로 채운 것 위의 잉크이고, 표 전체가 그렇습니다.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">묶음</th><th scope="col">역할</th><th scope="col">쓰임</th></tr></thead>
+        <tbody>
+          <tr><td>강조</td><td><code>Primary</code>, <code>OnPrimary</code>, <code>Secondary</code>, <code>OnSecondary</code>, <code>Tertiary</code>, <code>OnTertiary</code></td><td>세 개의 강조색. 눈이 첫 번째, 두 번째, 세 번째로 가는 곳.</td></tr>
+          <tr><td>페이지</td><td><code>Background</code>, <code>OnBackground</code></td><td>페이지 자체와 그 위의 잉크.</td></tr>
+          <tr><td>면</td><td><code>Surface</code>, <code>OnSurface</code>, <code>SurfaceVariant</code>, <code>OnSurfaceVariant</code>, <code>SurfaceContainer</code></td><td>읽는 면. <code>SurfaceVariant</code>의 잉크는 흐린 쪽이라 본문보다 캡션과 레이블에 맞습니다.</td></tr>
+          <tr><td>컨테이너</td><td><code>PrimaryContainer</code>, <code>OnPrimaryContainer</code>, <code>SecondaryContainer</code>, <code>OnSecondaryContainer</code>, <code>TertiaryContainer</code>, <code>OnTertiaryContainer</code></td><td>각자의 강조색과 친척으로 읽히는 조용한 채움. 각각 자기 잉크를 가지고 있고, 그 잉크는 본문 대비 기준까지 지킵니다.</td></tr>
+          <tr><td>선</td><td><code>Outline</code>, <code>OutlineVariant</code></td><td>테두리와 가는 선, 진한 쪽과 조용한 쪽.</td></tr>
+          <tr><td>오류</td><td><code>Error</code>, <code>OnError</code></td><td>무엇이 잘못되었는지, 그리고 파괴적인 동작의 레이블.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      <strong>패널이 페이지 위에서 보여야 할 때 집어야 하는 것은 <code>SurfaceContainer</code>입니다.</strong>
+      Material 3는 <code>Surface</code>와 <code>Background</code>에 일부러 같은 값을 주고 깊이를
+      톤 컨테이너로 표현하므로, <code>Background</code> 페이지 위에 <code>Surface</code>로 채운
+      패널은 제 크기로, 제 색으로 그려지고도 보이지 않습니다. 지원하는 모든 디자인 시스템이
+      페이지 위에서 보이게 하겠다고 약속하는 역할이 <code>SurfaceContainer</code>이고, 그 위에
+      읽히는 것이 <code>OnSurface</code>입니다.
+    </p>
+
+    <p>
+      세 컨테이너가 서로 구별된다고는 <em>약속하지 않습니다</em>. Material 3의 기본
+      primary 컨테이너와 secondary 컨테이너는 한 팔레트의 이웃한 톤입니다. 한눈에 갈라지는 채움
+      셋이 필요하다면 그 일을 해 주는 것은 tertiary 쌍입니다.
+    </p>
+
+    <h3 id="typerole">TypeRole: 아홉 단</h3>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">단</th><th scope="col">쓰임</th></tr></thead>
+        <tbody>
+          <tr><td><code>Display</code></td><td>화면에서 가장 큰 것. 한 번만 씁니다.</td></tr>
+          <tr><td><code>Headline</code></td><td>화면의 제목.</td></tr>
+          <tr><td><code>Title</code></td><td>구역의 제목, 바의 제목.</td></tr>
+          <tr><td><code>Subtitle</code></td><td>제목 아래 한 줄.</td></tr>
+          <tr><td><code>Body</code></td><td>본문. 기본 단입니다.</td></tr>
+          <tr><td><code>BodyStrong</code></td><td>무게를 실어야 하는 본문.</td></tr>
+          <tr><td><code>Label</code></td><td>버튼의 글자, 칩, 필드 레이블.</td></tr>
+          <tr><td><code>Caption</code></td><td>읽을 수 있는 가장 작은 단. 시각, 각주.</td></tr>
+          <tr><td><code>Mono</code></td><td>고정폭. 코드, 경로, 자리를 맞춰야 하는 숫자.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 id="shaperole">ShapeRole과 SpaceRole</h3>
+    <p>
+      <code>ShapeRole</code>은 <code>None</code>, <code>ExtraSmall</code>, <code>Small</code>,
+      <code>Medium</code>, <code>Large</code>, <code>Full</code>입니다. dp 단위 반지름은 디자인
+      시스템의 답이고, <code>Full</code>은 숫자가 아니라 캡슐을 뜻합니다.
+    </p>
+    <p>
+      <code>SpaceRole</code>은 <code>None</code>, <code>Xs</code>, <code>Sm</code>,
+      <code>Md</code>, <code>Lg</code>, <code>Xl</code>, <code>Xxl</code>입니다. 모든 위젯에
+      <code>padding_role</code>로, <code>Row</code>와 <code>Column</code>에는
+      <code>space_role</code>로도 나타납니다. 밀도는 디자인 시스템마다 다르고, 간격을 dp 숫자가
+      아니라 역할로 적는 이유가 그것입니다.
+    </p>
+
+    <h3 id="iconrole">IconRole</h3>
+    <p>
+      아이콘은 플랫폼의 아이콘 이름이 아니라 쓰임으로 지목합니다. 의미는 열세 가지입니다.
+      <code>Back</code>, <code>Forward</code>, <code>Close</code>, <code>Search</code>,
+      <code>Add</code>, <code>Check</code>, <code>Settings</code>, <code>More</code>,
+      <code>Home</code>, <code>List</code>, <code>Inbox</code>, <code>Menu</code>,
+      <code>History</code>. 하나의 선언이 Cupertino에서는 SF Symbols로, Material 3에서는
+      Material Symbols로 나오게 하는 것이 이 역할입니다.
+    </p>
+    <p>
+      뒤의 둘은 목적지가 아니라 창 자신의 막대가 필요로 하는 것입니다. <code>Menu</code>는 창이
+      보여줄 자리가 없는 것들로 들어가는 입구이고, <code>History</code>는 이미 지나간 것으로
+      돌아갑니다. 둘 다 <code>List</code>로는 말할 수 없습니다. 그것은 무언가의 목록이지 더 많은
+      것으로 가는 입구가 아니기 때문입니다.
+    </p>
+
+    <h3 id="layoutroles">레이아웃과 텍스트 역할</h3>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">enum</th><th scope="col">변종</th><th scope="col">쓰이는 곳</th></tr></thead>
+        <tbody>
+          <tr><td><code>Arrangement</code></td><td><code>Start</code>, <code>Center</code>, <code>End</code>, <code>SpaceBetween</code>, <code>SpaceAround</code>, <code>SpaceEvenly</code></td><td><code>Row</code>와 <code>Column</code>의 주축</td></tr>
+          <tr><td><code>Alignment</code></td><td><code>TopStart</code>, <code>TopCenter</code>, <code>TopEnd</code>, <code>CenterStart</code>, <code>Center</code>, <code>CenterEnd</code>, <code>BottomStart</code>, <code>BottomCenter</code>, <code>BottomEnd</code></td><td><code>Row</code>와 <code>Column</code>의 교차축, <code>Box</code>의 양축</td></tr>
+          <tr><td><code>TextAlign</code></td><td><code>Start</code>, <code>Center</code>, <code>End</code>, <code>Justify</code></td><td><code>Text</code></td></tr>
+          <tr><td><code>TextOverflow</code></td><td><code>Clip</code>, <code>Ellipsis</code>, <code>Visible</code></td><td><code>max_lines</code>와 함께 <code>Text</code></td></tr>
+          <tr><td><code>ButtonVariant</code></td><td><code>Filled</code>, <code>Tonal</code>, <code>Outlined</code>, <code>Text</code></td><td><code>Button</code></td></tr>
+          <tr><td><code>MessageDuration</code></td><td><code>Short</code>, <code>Long</code></td><td><code>Message</code></td></tr>
+          <tr><td><code>WindowSizeClass</code></td><td><code>Compact</code>, <code>Medium</code>, <code>Expanded</code></td><td><code>use_window_size</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 id="layout">레이아웃</h2>
+
+    <h3>Column과 Row</h3>
+    <p>
+      세로로 쌓는 것과 가로로 쌓는 것입니다. 주축의 배치는 <code>arrangement</code>, 자식 사이의
+      간격은 <code>spacing</code> 또는 <code>space_role</code>, 교차축은
+      <code>alignment</code>가 정합니다.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">프로퍼티</th><th scope="col">타입</th><th scope="col">기본값</th><th scope="col">효과</th></tr></thead>
+        <tbody>
+          <tr><td><code>arrangement</code></td><td><code>Arrangement</code></td><td>없음</td><td>주축을 따라 자식을 어떻게 분배할지.</td></tr>
+          <tr><td><code>spacing</code></td><td><code>f32</code> dp</td><td>없음</td><td>자식 사이의 간격을 직접 고른 dp로.</td></tr>
+          <tr><td><code>space_role</code></td><td><code>SpaceRole</code></td><td>없음</td><td>같은 간격을 디자인 시스템이 고른 dp로.</td></tr>
+          <tr><td><code>alignment</code></td><td><code>Alignment</code></td><td>없음</td><td>자식의 교차축 정렬.</td></tr>
+          <tr><td>children</td><td><code>Element</code></td><td>필수</td><td>쌓이는 내용, 순서대로.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>rust</figcaption>
+<pre><code><span class="f">rsx!</span> {
+    <span class="ty">Column</span> {
+        <span class="at">fill_max_width</span>: <span class="k">true</span>,
+        <span class="at">padding_role</span>: <span class="ty">SpaceRole</span>::Md,
+        <span class="at">space_role</span>: <span class="ty">SpaceRole</span>::Sm,
+        <span class="ty">Text</span> { <span class="at">text</span>: <span class="s">"오늘"</span>, <span class="at">type_role</span>: <span class="ty">TypeRole</span>::Title }
+        <span class="ty">Row</span> {
+            <span class="at">fill_max_width</span>: <span class="k">true</span>,
+            <span class="at">arrangement</span>: <span class="ty">Arrangement</span>::SpaceBetween,
+            <span class="at">alignment</span>: <span class="ty">Alignment</span>::CenterStart,
+            <span class="ty">Text</span> { <span class="at">text</span>: <span class="s">"걸음"</span> }
+            <span class="ty">Text</span> { <span class="at">text</span>: <span class="s">"8,421"</span>, <span class="at">type_role</span>: <span class="ty">TypeRole</span>::BodyStrong }
+        }
+    }
+}</code></pre>
+    </figure>
+
+    <p class="fineprint">
+      디자인 시스템이 정하는 것: <code>SpaceRole::Md</code>가 몇 dp인지, 그리고
+      <code>Title</code>이 해석되는 타입 사다리.
+    </p>
+
+    <h3>Box</h3>
+    <p>
+      겹쳐 놓는 컨테이너입니다. 자식이 서로 위에 쌓이고 <code>alignment</code>로 자리를
+      잡습니다. 자기 것으로는 <code>alignment</code>와 자식만 받습니다.
+      <code>dioxus_compose::Box</code>로 쓰세요.
+    </p>
+
+    <h3>ScrollColumn</h3>
+    <p>
+      내용 전체에 세로 스크롤을 붙인 것입니다. Modifier와 자식 말고 자기 프로퍼티가 없는데,
+      <strong>스크롤 위치가 렌더러의 것</strong>이기 때문입니다. 스크롤은 러스트까지 오지
+      않고, 오프셋을 읽거나 설정할 수 있는 프로퍼티도 없습니다. 내용의 양이 정해져 있을 때
+      쓰시고, 긴 목록이라면 화면에 있는 것만 만들어 내는
+      <a href="#lists"><code>LazyColumn</code></a>을 쓰세요.
+    </p>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>rust</figcaption>
+<pre><code><span class="f">rsx!</span> {
+    <span class="ty">ScrollColumn</span> {
+        <span class="at">fill_max_width</span>: <span class="k">true</span>,
+        <span class="at">fill_max_height</span>: <span class="k">true</span>,
+        <span class="at">padding_role</span>: <span class="ty">SpaceRole</span>::Md,
+        <span class="k">for</span> paragraph <span class="k">in</span> <span class="f">article</span>() {
+            <span class="ty">Text</span> { <span class="at">key</span>: <span class="s">"{paragraph.id}"</span>, <span class="at">text</span>: paragraph.body }
+        }
+    }
+}</code></pre>
+    </figure>
+
+    <h3>Spacer</h3>
+    <p>
+      빈칸입니다. 자기 프로퍼티는 하나도 없고, 크기는 모든 위젯이 가진 Modifier 속성에서
+      옵니다. Compose의 <code>Spacer</code>도 그렇게 크기를 정합니다.
+      <code>Spacer { weight: 1.0 }</code>은 뒤따르는 것을 <code>Row</code>의 끝으로 밀어냅니다.
+    </p>
+
+    <h2 id="text">텍스트와 입력</h2>
+
+    <h3>Text</h3>
+    <p>
+      <code>type_role</code> 하나가 디자인 시스템의 크기, 굵기, 행간, 자간을 한꺼번에
+      가져옵니다. 각 오버라이드는 정확히 한 축만 바꾸고 프로퍼티 갱신 하나만큼의 비용이 드므로,
+      글자 크기를 바꾸어도 나머지 스타일은 다시 보내지 않습니다.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">프로퍼티</th><th scope="col">타입</th><th scope="col">기본값</th><th scope="col">효과</th></tr></thead>
+        <tbody>
+          <tr><td><code>text</code></td><td><code>String</code>(변환되는 것이면 무엇이든)</td><td>필수</td><td>글자 자체.</td></tr>
+          <tr><td><code>type_role</code></td><td><code>TypeRole</code></td><td>없음</td><td>타입 사다리의 단.</td></tr>
+          <tr><td><code>font_size</code></td><td><code>f32</code> sp</td><td>없음</td><td>그 단의 크기를 덮어씁니다.</td></tr>
+          <tr><td><code>font_weight</code></td><td><code>u16</code></td><td>없음</td><td>그 단의 굵기를 덮어씁니다. 100에서 900.</td></tr>
+          <tr><td><code>line_height</code></td><td><code>f32</code></td><td>없음</td><td>그 단의 행간을 덮어씁니다.</td></tr>
+          <tr><td><code>letter_spacing</code></td><td><code>f32</code></td><td>없음</td><td>그 단의 자간을 덮어씁니다.</td></tr>
+          <tr><td><code>color</code></td><td><code>Paint</code></td><td>없음</td><td>잉크. 보통은 역할로.</td></tr>
+          <tr><td><code>text_align</code></td><td><code>TextAlign</code></td><td>없음</td><td>텍스트 자신의 상자 안에서의 정렬.</td></tr>
+          <tr><td><code>max_lines</code></td><td><code>u32</code></td><td>없음</td><td>이 줄 수를 넘으면 자릅니다.</td></tr>
+          <tr><td><code>overflow</code></td><td><code>TextOverflow</code></td><td>없음</td><td>자를 때의 모양.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>rust</figcaption>
+<pre><code><span class="f">rsx!</span> {
+    <span class="ty">Text</span> {
+        <span class="at">text</span>: entry.summary,
+        <span class="at">type_role</span>: <span class="ty">TypeRole</span>::Body,
+        <span class="at">color</span>: <span class="ty">Paint</span>::<span class="ty">Role</span>(<span class="ty">ColorRole</span>::OnSurfaceVariant),
+        <span class="at">max_lines</span>: <span class="n">2</span>,
+        <span class="at">overflow</span>: <span class="ty">TextOverflow</span>::Ellipsis,
+    }
+}</code></pre>
+    </figure>
+
+    <p class="fineprint">
+      디자인 시스템이 정하는 것: 타입 사다리 전체, 그리고 밝을 때와 어두울 때
+      <code>OnSurfaceVariant</code>가 어떤 색인지.
+    </p>
+
+    <h3>TextField</h3>
+    <p>
+      <strong><code>TextField</code>는 비제어이고 <code>value</code> 프로퍼티가 없습니다.</strong>
+      편집 버퍼, 선택 영역, IME 조합 상태는 렌더러에 있고, 러스트는 이벤트로 변화를 알게 됩니다.
+      이것은 단순화가 아니라 이 프로젝트의 핵심 결정입니다. 작성 중인 글자를 왕복시키면 조립
+      중인 한글 음절이 초기화되기 때문입니다. 자세한 이야기는
+      <a href="writing-ui.html#textfield">UI 작성하기</a>에 있습니다.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">프로퍼티</th><th scope="col">타입</th><th scope="col">기본값</th><th scope="col">효과</th></tr></thead>
+        <tbody>
+          <tr><td><code>placeholder</code></td><td><code>String</code></td><td><code>""</code></td><td>비어 있을 때 보여 줍니다.</td></tr>
+          <tr><td><code>enabled</code></td><td><code>bool</code></td><td><code>true</code></td><td>입력을 받을지.</td></tr>
+          <tr><td><code>multiline</code></td><td><code>bool</code></td><td><code>false</code></td><td>Enter가 줄바꿈이 될 수 있는지.</td></tr>
+          <tr><td><code>type_role</code></td><td><code>TypeRole</code></td><td>없음</td><td>필드 자신의 글자가 놓이는 단. 경로나 코드 조각이면 <code>Mono</code>.</td></tr>
+          <tr><td><code>on_value_change</code></td><td><code>EventHandler&lt;String&gt;</code></td><td>동작 없음</td><td>현재 글자를 알려 줍니다.</td></tr>
+          <tr><td><code>on_submit</code></td><td><code>EventHandler&lt;String&gt;</code></td><td>동작 없음</td><td>확정된 값.</td></tr>
+          <tr><td><code>on_focus_lost</code></td><td><code>EventHandler&lt;()&gt;</code></td><td>동작 없음</td><td>포커스를 잃었습니다.</td></tr>
+          <tr><td><code>on_key_down</code></td><td><code>EventHandler&lt;KeyEvent&gt;</code></td><td>동작 없음</td><td>키 하나. 처리했다고 말하려면 <code>consume()</code>.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>rust</figcaption>
+<pre><code><span class="f">rsx!</span> {
+    <span class="ty">TextField</span> {
+        <span class="at">placeholder</span>: <span class="s">"메시지를 쓰세요"</span>,
+        <span class="at">multiline</span>: <span class="k">true</span>,
+        <span class="at">fill_max_width</span>: <span class="k">true</span>,
+        <span class="at">on_value_change</span>: <span class="k">move</span> |value| draft.<span class="f">set</span>(value),
+        <span class="at">on_key_down</span>: <span class="k">move</span> |event: <span class="ty">KeyEvent</span>| {
+            <span class="k">if</span> event.<span class="f">key</span>() == <span class="ty">Key</span>::Enter &amp;&amp; !event.<span class="f">shift_key</span>() {
+                <span class="f">send</span>();
+                event.<span class="f">consume</span>();
+            }
+        },
+    }
+}</code></pre>
+    </figure>
+
+    <p>
+      <code>KeyEvent</code>는 <code>key()</code>, <code>shift_key()</code>,
+      <code>ctrl_key()</code>, <code>alt_key()</code>, <code>meta_key()</code>,
+      <code>consume()</code>, <code>consumed()</code>를 내놓습니다. <code>Key</code> enum에는
+      오늘 <code>Key::Enter</code> 하나가 있습니다. IME가 조합 중일 때는 키 이벤트가 러스트로
+      아예 오지 않으며, 위 조건이 그저 편한 것이 아니라 옳은 이유가 그것입니다.
+    </p>
+
+    <h2 id="controls">컨트롤</h2>
+
+    <h3>Button</h3>
+    <p>
+      variant는 디자인 시스템의 컴포넌트 규칙이 붙는 이음매입니다. 같은 <code>rsx!</code>가
+      Material의 채운 버튼으로도, Cupertino의 캡슐로도, Fluent의 강조 버튼으로도 그려지며,
+      그것은 새는 것이 아니라 옳은 동작입니다.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">프로퍼티</th><th scope="col">타입</th><th scope="col">기본값</th><th scope="col">효과</th></tr></thead>
+        <tbody>
+          <tr><td><code>text</code></td><td><code>String</code></td><td>필수</td><td>레이블.</td></tr>
+          <tr><td><code>enabled</code></td><td><code>bool</code></td><td><code>true</code></td><td>누를 수 있는지.</td></tr>
+          <tr><td><code>variant</code></td><td><code>ButtonVariant</code></td><td>없음</td><td><code>Filled</code>, <code>Tonal</code>, <code>Outlined</code>, <code>Text</code>.</td></tr>
+          <tr><td><code>color</code></td><td><code>Paint</code></td><td>없음</td><td>레이블의 색. 의미가 variant의 것이 아닌 드문 버튼을 위해. 파괴적인 동작이 그 경우입니다. 평범한 버튼인데 레이블이 <code>ColorRole::Error</code>인 것.</td></tr>
+          <tr><td><code>icon</code></td><td><code>Option&lt;IconRole&gt;</code></td><td>없음</td><td>버튼 위의 글리프를 그림이 아니라 뜻으로 지정합니다. <code>text</code>가 비어 있으면 그 아이콘이 버튼의 접근성 이름이기도 하므로, 막대에 놓인 아이콘 버튼에 이름이 없는 일이 생기지 않습니다.</td></tr>
+          <tr><td><code>background</code></td><td><code>Paint</code></td><td>없음</td><td>채움. 지정하면 variant의 채움을 대신하고, 모양과 테두리와 높이와 안쪽 여백은 디자인 시스템의 것으로 남습니다.</td></tr>
+          <tr><td><code>on_click</code></td><td><code>EventHandler&lt;()&gt;</code></td><td>동작 없음</td><td>눌렸습니다.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>rust</figcaption>
+<pre><code><span class="f">rsx!</span> {
+    <span class="ty">Button</span> {
+        <span class="at">text</span>: <span class="s">"삭제"</span>,
+        <span class="at">variant</span>: <span class="ty">ButtonVariant</span>::Text,
+        <span class="at">color</span>: <span class="ty">Paint</span>::<span class="ty">Role</span>(<span class="ty">ColorRole</span>::Error),
+        <span class="at">on_click</span>: <span class="k">move</span> |_| <span class="f">remove</span>(id),
+    }
+}</code></pre>
+    </figure>
+
+    <p class="fineprint">
+      디자인 시스템이 정하는 것: 모양, 채움, 여백, 눌림 피드백, 그리고 <code>Tonal</code>
+      버튼이 정말 톤을 쓰는지까지.
+    </p>
+
+    <h3>Checkbox, RadioButton, Switch</h3>
+    <p>
+      셋 다 <strong>제어형</strong>입니다. 프로퍼티가 말하는 그대로 그리고 사용자가 무엇을
+      원했는지 보고하므로, 호스트가 쥔 값과 화면의 컨트롤이 어긋날 수 없습니다. 라디오 버튼이
+      어떤 형제를 배제하는지는 애플리케이션의 일이므로, 위젯은 자기가 선택된 것인지만 들고
+      있습니다.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">위젯</th><th scope="col">상태 프로퍼티</th><th scope="col">기본값</th><th scope="col">그 밖에</th></tr></thead>
+        <tbody>
+          <tr><td><code>Checkbox</code></td><td><code>checked: bool</code></td><td><code>false</code></td><td><code>enabled: bool</code> = <code>true</code>, <code>on_change: EventHandler&lt;bool&gt;</code></td></tr>
+          <tr><td><code>RadioButton</code></td><td><code>selected: bool</code></td><td><code>false</code></td><td>같은 둘</td></tr>
+          <tr><td><code>Switch</code></td><td><code>checked: bool</code></td><td><code>false</code></td><td>같은 둘</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>rust</figcaption>
+<pre><code><span class="f">rsx!</span> {
+    <span class="ty">Row</span> {
+        <span class="at">alignment</span>: <span class="ty">Alignment</span>::CenterStart,
+        <span class="at">space_role</span>: <span class="ty">SpaceRole</span>::Sm,
+        <span class="ty">Checkbox</span> {
+            <span class="at">checked</span>: task.done,
+            <span class="at">on_change</span>: <span class="k">move</span> |done| <span class="f">set_done</span>(task.id, done),
+        }
+        <span class="ty">Text</span> { <span class="at">text</span>: task.title }
+    }
+}</code></pre>
+    </figure>
+
+    <h3>Slider</h3>
+    <p>
+      드래그가 지나가는 위치는 렌더러에 남으므로 손가락을 따라가는 데에는 경계 호출이 들지
+      않습니다. <code>value</code>는 그 위치의 출발점이고, 변화가 다른 데서 왔을 때 그것을
+      옮깁니다.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">프로퍼티</th><th scope="col">타입</th><th scope="col">기본값</th><th scope="col">효과</th></tr></thead>
+        <tbody>
+          <tr><td><code>value</code></td><td><code>f32</code></td><td><code>0.0</code></td><td>손잡이의 자리.</td></tr>
+          <tr><td><code>min</code></td><td><code>f32</code></td><td><code>0.0</code></td><td>아래쪽 끝.</td></tr>
+          <tr><td><code>max</code></td><td><code>f32</code></td><td><code>1.0</code></td><td>위쪽 끝.</td></tr>
+          <tr><td><code>steps</code></td><td><code>u32</code></td><td><code>0</code></td><td>양 끝 사이의 멈춤점. 0이면 연속입니다.</td></tr>
+          <tr><td><code>enabled</code></td><td><code>bool</code></td><td><code>true</code></td><td>끌 수 있는지.</td></tr>
+          <tr><td><code>on_change</code></td><td><code>EventHandler&lt;f32&gt;</code></td><td>동작 없음</td><td>사용자가 멈춘 값.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Dropdown</h3>
+    <p>
+      목록에서 하나를 고르는 것입니다. 자식 하나가 선택지 하나이고, 렌더러가 사용자가 멈춘
+      위치를 보고합니다. 팝업이 열렸는지는 렌더러의 상태입니다.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">프로퍼티</th><th scope="col">타입</th><th scope="col">기본값</th><th scope="col">효과</th></tr></thead>
+        <tbody>
+          <tr><td><code>selected_index</code></td><td><code>usize</code></td><td><code>0</code></td><td>어느 자식이 현재의 선택인지.</td></tr>
+          <tr><td><code>enabled</code></td><td><code>bool</code></td><td><code>true</code></td><td>열리는지.</td></tr>
+          <tr><td><code>on_change</code></td><td><code>EventHandler&lt;usize&gt;</code></td><td>동작 없음</td><td>고른 인덱스.</td></tr>
+          <tr><td>children</td><td><code>Element</code></td><td>필수</td><td>선택지마다 자식 하나.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>DatePicker와 TimePicker</h3>
+    <p>
+      날짜는 1970-01-01부터의 날 수를 <code>i64</code>로, 시각은 자정부터의 분을
+      <code>u32</code>로 셉니다. 둘 다 <code>value</code>(필수), 같은 타입의 선택적
+      <code>min</code>과 <code>max</code>, 기본값이 <code>true</code>인
+      <code>enabled</code>, 그리고 <code>value</code>와 같은 타입을 실어 나르는
+      <code>on_change</code>를 받습니다.
+    </p>
+    <p>
+      달력 격자나 휠이나 플라이아웃을 요청하는 프로퍼티는 없고, 포맷 문자열도 없습니다. 시간대,
+      로케일, 한 주의 첫 요일, 표시 형식은 렌더러에 남습니다. 플랫폼의 설정을 읽을 수 있는 쪽이
+      렌더러뿐이기 때문입니다. 포맷 문자열이 경계를 넘는 순간 &quot;플랫폼을 따른다&quot;는
+      말은 렌더러가 지킬 수 없는 주장이 됩니다.
+    </p>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>rust</figcaption>
+<pre><code><span class="f">rsx!</span> {
+    <span class="ty">DatePicker</span> {
+        <span class="at">value</span>: <span class="f">due</span>(),
+        <span class="at">min</span>: today,
+        <span class="at">on_change</span>: <span class="k">move</span> |day| due.<span class="f">set</span>(day),
+    }
+    <span class="ty">TimePicker</span> {
+        <span class="at">value</span>: <span class="f">remind_at</span>(),
+        <span class="at">on_change</span>: <span class="k">move</span> |minutes| remind_at.<span class="f">set</span>(minutes),
+    }
+}</code></pre>
+    </figure>
+
+    <h3>ProgressIndicator</h3>
+    <p>
+      <code>value</code>(<code>f32</code>, 기본값 <code>0.0</code>)는 얼마나 진행했는지,
+      <code>determinate</code>(<code>bool</code>, 기본값 <code>true</code>)는
+      <code>value</code>가 의미를 갖는지, <code>circular</code>(<code>bool</code>, 기본값
+      <code>false</code>)는 지원하는 모든 디자인 시스템이 가진 두 형태 중 하나를 고릅니다.
+      속도도, 이징도, 트랙 색도 없습니다. 비확정 표시기가 어떻게 움직이는지는 모션이고, 모션은
+      디자인 시스템의 규칙입니다.
+    </p>
+
+    <h2 id="containers">컨테이너와 구분선</h2>
+
+    <h3>Card, Surface, TopAppBar</h3>
+    <p>
+      자기 겉모습을 가지지 않는 컨테이너 셋입니다. 각각 열세 개의 Modifier 속성과 자식을 받고,
+      그 밖에는 아무것도 받지 않습니다.
+    </p>
+    <ul>
+      <li><code>Card</code>는 묶습니다. 카드가 어떻게 생겼는지, 채움과 모서리와 기본 높이는
+        디자인 시스템의 결정입니다. 기본 높이를 덮어쓸 이유가 있을 때
+        <code>elevation</code>을 주세요.</li>
+      <li><code>Surface</code>는 배경과 높이만 있는 컨테이너입니다. 카드의 &quot;묶는다&quot;는
+        뜻이 틀릴 때, 면만 필요할 때 씁니다.</li>
+      <li><code>TopAppBar</code>는 화면 위를 가로지르는 바이고, 자식이 왼쪽에서 오른쪽으로
+        놓입니다. 바의 크기와 간격, 아래 내용과 어떻게 갈라지는지는 디자인 시스템의 규칙입니다.</li>
+    </ul>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>rust</figcaption>
+<pre><code><span class="f">rsx!</span> {
+    <span class="ty">TopAppBar</span> {
+        <span class="at">fill_max_width</span>: <span class="k">true</span>,
+        <span class="ty">Text</span> { <span class="at">text</span>: <span class="s">"드럼 학원"</span>, <span class="at">type_role</span>: <span class="ty">TypeRole</span>::Title, <span class="at">weight</span>: <span class="n">1.0</span> }
+        <span class="ty">Button</span> { <span class="at">text</span>: <span class="s">"추가"</span>, <span class="at">variant</span>: <span class="ty">ButtonVariant</span>::Text, <span class="at">on_click</span>: <span class="k">move</span> |_| <span class="f">add</span>() }
+    }
+    <span class="ty">Card</span> {
+        <span class="at">fill_max_width</span>: <span class="k">true</span>,
+        <span class="at">padding_role</span>: <span class="ty">SpaceRole</span>::Md,
+        <span class="ty">Text</span> { <span class="at">text</span>: <span class="s">"네 마디, 손만"</span> }
+    }
+}</code></pre>
+    </figure>
+
+    <h3>Divider와 Separator</h3>
+    <p>
+      <code>Divider</code>는 두 가지 사이의 선입니다. <code>vertical</code>(<code>bool</code>,
+      기본값 <code>false</code>)이 애플리케이션이 하는 유일한 결정이고, 두께와 색과 들여쓰기는
+      모두 디자인 시스템에서 옵니다.
+    </p>
+    <p>
+      <code>Separator</code>는 그룹 목록 코드가 이미 쓰는 이름으로 부르는 같은 선이며, Modifier
+      속성을 받지 않는 유일한 위젯입니다. 프로퍼티는
+      <code>color: Option&lt;Paint&gt;</code> 하나이고 기본값은 없음입니다. 조용한 가장자리가
+      아닌 다른 것으로 줄을 긋는 드문 목록을 위한 것입니다.
+    </p>
+
+    <h3>Tooltip</h3>
+    <p>
+      자식에 붙는 설명입니다. <code>text</code>(<code>String</code>, 필수)와 자식을 받습니다.
+      호버 팝업이기도 하지만 그만큼 설명이기도 한데, 렌더러가 그 글자를 접근성 트리에도
+      내보내기 때문입니다. 포인터만이 그곳에 닿는 길은 아닙니다.
+    </p>
+
+    <h2 id="lists">윈도잉 목록</h2>
+    <p>
+      <code>LazyColumn</code>과 <code>LazyRow</code>는 한 프로토콜의 두 축입니다. 항목이 몇
+      개인지와 하나를 어떻게 만드는지를 선언하면, 렌더러가 자기가 볼 수 있는 범위를 요청하고,
+      컴포넌트는 <strong>정확히</strong> 그 범위만 만들어 냅니다.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">프로퍼티</th><th scope="col">타입</th><th scope="col">기본값</th><th scope="col">효과</th></tr></thead>
+        <tbody>
+          <tr><td><code>item_count</code></td><td><code>usize</code></td><td>필수</td><td>전체 항목 수.</td></tr>
+          <tr><td><code>item</code></td><td><code>Callback&lt;usize, Element&gt;</code></td><td>필수</td><td>인덱스의 항목을 만듭니다.</td></tr>
+          <tr><td><code>key_of</code></td><td><code>Option&lt;Callback&lt;usize, String&gt;&gt;</code></td><td>없음</td><td>항목마다의 안정된 정체성. 없으면 인덱스를 쓰는데, 목록이 재정렬되거나 걸러지는 순간 그것은 틀린 답입니다.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>rust</figcaption>
+<pre><code><span class="f">rsx!</span> {
+    <span class="ty">LazyColumn</span> {
+        <span class="at">fill_max_width</span>: <span class="k">true</span>,
+        <span class="at">fill_max_height</span>: <span class="k">true</span>,
+        <span class="at">item_count</span>: tasks.<span class="f">read</span>().<span class="f">len</span>(),
+        <span class="at">key_of</span>: <span class="k">move</span> |index: <span class="ty">usize</span>| tasks.<span class="f">read</span>()[index].id.<span class="f">to_string</span>(),
+        <span class="at">item</span>: <span class="k">move</span> |index: <span class="ty">usize</span>| {
+            <span class="k">let</span> task = tasks.<span class="f">read</span>()[index].<span class="f">clone</span>();
+            <span class="f">rsx!</span> { <span class="ty">Text</span> { <span class="at">text</span>: task.title } }
+        },
+    }
+}</code></pre>
+    </figure>
+
+    <p>
+      <code>buffer</code> 프로퍼티도, 스크롤 오프셋도 없습니다. <strong>미리 읽는 버퍼는
+      렌더러의 것</strong>입니다. 스크롤 위치를 가진 쪽이 렌더러이고, 얼마나 앞서 요청해야
+      하는지 아는 쪽도 렌더러뿐이기 때문입니다. 러스트에서 범위를 넓히면 렌더러의 배치가
+      깨집니다. 렌더러가 받는 첫 인덱스가 <code>item_count</code>개짜리 진짜 Compose 지연
+      목록을 그릴 수 있게 하는 것이기 때문입니다. 데이터는 호스트에 남으므로 되돌아 스크롤하면
+      똑같은 하위 트리가 다시 만들어집니다. 전체 이야기는
+      <a href="lists-and-streaming.html">목록과 스트리밍</a>에 있습니다.
+    </p>
+
+    <h2 id="navigation">내비게이션과 탭</h2>
+
+    <h3>Navigation과 NavigationItem</h3>
+    <p>
+      목적지들과 그중 선택된 하나, 그리고 그것이 이끄는 화면입니다.
+      <code>NavigationItem</code>인 자식이 목적지이고, 나머지 자식은 선택된 화면의 내용입니다.
+      인덱스가 아니라 종류로 가르므로, 어떤 조건에서만 존재하는 목적지가 있어도 두 목록을 손으로
+      맞춰 둘 필요가 없습니다.
+    </p>
+
+    <p>
+      <strong>여기에는 바인지 레일인지 드로어인지를 말하는 것이 없습니다.</strong> 렌더러는 이미
+      창을 재 보았으므로 스스로 고릅니다. 휴대폰 모양의 창에서는 아래를 가로지르는 바, 태블릿
+      모양이면 옆의 레일, 데스크톱이면 열려 있는 드로어입니다. 그중 하나를 요청할 수 있는
+      프로퍼티는 없습니다.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">위젯</th><th scope="col">프로퍼티</th><th scope="col">타입</th><th scope="col">기본값</th></tr></thead>
+        <tbody>
+          <tr><td><code>Navigation</code></td><td><code>selected_index</code></td><td><code>usize</code>, 자식이 아니라 목적지를 셉니다</td><td><code>0</code></td></tr>
+          <tr><td></td><td>children</td><td><code>Element</code></td><td>필수</td></tr>
+          <tr><td><code>NavigationItem</code></td><td><code>text</code></td><td><code>String</code></td><td><code>""</code></td></tr>
+          <tr><td></td><td><code>icon</code></td><td><code>Option&lt;IconRole&gt;</code></td><td>없음</td></tr>
+          <tr><td></td><td><code>color</code></td><td><code>Option&lt;Paint&gt;</code></td><td>없음</td></tr>
+          <tr><td></td><td><code>enabled</code></td><td><code>bool</code></td><td><code>true</code></td></tr>
+          <tr><td></td><td><code>on_click</code></td><td><code>EventHandler&lt;()&gt;</code></td><td>동작 없음</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      목적지의 레이블과 아이콘이 자식 트리가 아니라 프로퍼티인 이유는, 자식 트리가 배치를
+      고정해 버리기 때문입니다. 세 가지 표현이 존재하는 이유가 바로 그 배치가 다르다는 것입니다.
+      바는 레이블을 아이콘 아래에 쌓고, 드로어는 옆에 놓습니다.
+    </p>
+
+    <p>
+      <strong><code>color</code>를 비워 두면 선택된 모습을 디자인 시스템이 정합니다.</strong>
+      애플리케이션이 플랫폼을 따라갈 때 원하는 동작입니다. 지정하면 그 색이 선택된 상태와 아닌
+      상태 모두에 쓰입니다. 양쪽 모두인 것은 의도입니다. 자기 색을 말하는 목적지는 자기 절반이
+      아니라 자기 자신에 대해 말하는 것이므로, 두 상태를 다르게 두고 싶은 화면은 목적지마다 색을
+      따로 줍니다. 이 속성이 필요한 경우는 막대에 강조색이 아예 없는 디자인입니다. 그때 활성
+      시스템에 물으면 없어야 할 강조색이 생깁니다.
+    </p>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>rust, samples/academic이 쓰는 모양</figcaption>
+<pre><code><span class="f">rsx!</span> {
+    <span class="ty">Navigation</span> {
+        <span class="at">fill_max_width</span>: <span class="k">true</span>,
+        <span class="at">fill_max_height</span>: <span class="k">true</span>,
+        <span class="at">selected_index</span>: <span class="f">destination</span>().<span class="f">index</span>(),
+        <span class="k">for</span> choice <span class="k">in</span> <span class="ty">Destination</span>::STRIP {
+            <span class="ty">NavigationItem</span> {
+                <span class="at">key</span>: <span class="s">"{choice.label()}"</span>,
+                <span class="at">text</span>: choice.<span class="f">label</span>(),
+                <span class="at">icon</span>: choice.<span class="f">icon</span>(),
+                <span class="at">on_click</span>: <span class="k">move</span> |()| destination.<span class="f">set</span>(choice),
+            }
+        }
+        <span class="ty">Column</span> { <span class="at">fill_max_width</span>: <span class="k">true</span>, {page} }
+    }
+}</code></pre>
+    </figure>
+
+    <p>
+      <code>selected_index</code>는 렌더러의 선택에 출발점을 주고, 변화가 탭이 아닌 다른 데서
+      왔을 때 그것을 옮깁니다. 탭은 렌더러 안에서 선택을 옮기고 그 목적지 자신의
+      <code>on_click</code>을 발생시켜 보고하므로, 화면을 바꾸는 데에는 이벤트 하나가 들고
+      목적지 목록을 다시 만들지는 않습니다.
+    </p>
+
+    <h3>Tabs</h3>
+    <p>
+      세그먼트가 늘어선 줄이고, 자식 하나가 탭 하나입니다.
+      <code>selected_index</code>(<code>usize</code>, 기본값 <code>0</code>)는
+      <code>Navigation</code>의 것과 똑같이 동작합니다. 렌더러의 선택에 출발점을 주고, 탭을
+      누르면 그 탭 자신의 <code>on_click</code>이 발생할 뿐 줄 전체를 다시 만들지 않습니다.
+    </p>
+
+    <h2 id="overlays">오버레이와 메시지</h2>
+    <p>
+      <code>Dialog</code>, <code>Menu</code>, <code>Sheet</code>는 하나의 계약을 공유합니다.
+      <strong>열림 상태는 렌더러의 것</strong>입니다. 넘기는 불리언은 그 상태의 출발점이고,
+      렌더러가 아닌 다른 데서 온 변화를 실어 나릅니다. 들어오고 나가는 동작은 렌더러가 직접
+      돌리므로 애니메이션이 러스트를 왕복하지 않습니다. 닫기 핸들러는 사용자가 닫아 달라고 할 때
+      한 번 발생하며, 불리언을 false로 바꿔 그 요청을 들어줄지는 애플리케이션이 정합니다.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">위젯</th><th scope="col">열림 프로퍼티</th><th scope="col">그 밖에</th></tr></thead>
+        <tbody>
+          <tr><td><code>Dialog</code></td><td><code>open: bool</code> = <code>false</code></td><td><code>on_dismiss: EventHandler&lt;()&gt;</code>, 자식</td></tr>
+          <tr><td><code>Menu</code></td><td><code>expanded: bool</code> = <code>false</code></td><td><code>on_dismiss</code>, <code>anchor: Element</code>(필수), 자식</td></tr>
+          <tr><td><code>Sheet</code></td><td><code>open: bool</code> = <code>false</code></td><td><code>on_dismiss</code>, 자식</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      <code>Menu</code>의 <code>anchor</code>는 팝업이 매달리는 위젯이고, 첫 번째 자식으로
+      건너가므로 러스트가 화면 좌표를 하나도 모르는 채로 렌더러가 팝업을 놓을 수 있습니다.
+      항목마다 자기 <code>on_click</code>을 주고, 그것이 어느 것이 골라졌는지 알려 줍니다.
+      팝업을 닫는 것은 렌더러가 스스로 합니다.
+    </p>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>rust, samples/todo가 쓰는 모양</figcaption>
+<pre><code><span class="f">rsx!</span> {
+    <span class="ty">Menu</span> {
+        <span class="at">expanded</span>: <span class="f">menu_open</span>() == <span class="ty">Some</span>(task.id),
+        <span class="at">on_dismiss</span>: <span class="k">move</span> |_| menu_open.<span class="f">set</span>(<span class="ty">None</span>),
+        <span class="at">anchor</span>: <span class="f">rsx!</span> {
+            <span class="ty">Button</span> {
+                <span class="at">text</span>: <span class="s">"\u{22ef}"</span>,
+                <span class="at">variant</span>: <span class="ty">ButtonVariant</span>::Text,
+                <span class="at">on_click</span>: <span class="k">move</span> |_| menu_open.<span class="f">set</span>(<span class="ty">Some</span>(task.id)),
+            }
+        },
+        <span class="ty">Button</span> { <span class="at">text</span>: <span class="s">"편집"</span>, <span class="at">variant</span>: <span class="ty">ButtonVariant</span>::Text, <span class="at">on_click</span>: <span class="k">move</span> |_| <span class="f">edit</span>(task.id) }
+    }
+}</code></pre>
+    </figure>
+
+    <p>
+      <code>Sheet</code>가 어느 가장자리에서 들어오는지는 렌더러가 재 본 너비를 보고 정합니다.
+      좁은 창에서는 아래에서 위로, 넓은 창에서는 옆에서 안으로 들어옵니다. 시트를 끌고 있는
+      동안 러스트는 아무것도 듣지 못하고, 닫힘으로 끝난 드래그만 한 번 보고됩니다.
+    </p>
+
+    <div class="note">
+      <span class="label">지연 목록 안의 Menu는 항목을 조건 없이 선언합니다</span>
+      <p>
+        <code>Menu</code>의 자식을 열려 있을 때만 만들면 더 싸고, 끝나지 않습니다.
+        <code>LazyColumn</code> 항목 안에서 자식이 조건문이나 반복문인 <code>Menu</code>는
+        스택이 넘칠 때까지 재귀합니다. 열려 있든 아니든 항목을 선언하면 보이는 행마다 앵커
+        하나와 항목 몇 개의 비용이 드는데, 그것은 목록이 아니라 창의 크기를 따라갑니다.
+        <code>samples/todo</code>가 그렇게 하고 있고 주석으로도 적어 두었습니다.
+      </p>
+    </div>
+
+    <h3>한 번 지나가는 메시지</h3>
+    <p>
+      메시지는 트리의 일부가 아닙니다. 자리가 아니라 수명을 가지고, 그 수명은 렌더러의
+      것입니다. 얼마나 머무를지, 어디에 앉을지, 첫 번째가 아직 떠 있는데 두 번째가 오면 어떻게
+      할지 모두 그렇습니다. 그래서 메시지는 띄워 보내고 잊는 것이며, 지금 호출이 만들어 내는
+      배치에 실려 나갑니다.
+    </p>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>rust</figcaption>
+<pre><code><span class="f">show_message</span>(<span class="s">"저장했습니다"</span>);
+
+<span class="ty">Message</span>::<span class="f">new</span>(<span class="s">"할 일을 지웠습니다"</span>)
+    .<span class="f">with_action</span>(<span class="s">"실행 취소"</span>, <span class="k">move</span> |()| <span class="f">restore</span>())
+    .<span class="f">with_duration</span>(<span class="ty">MessageDuration</span>::Long)
+    .<span class="f">show</span>();</code></pre>
+    </figure>
+
+    <p>
+      메시지가 어디에 나타나는지, 어떻게 생겼는지를 말하는 것은 여기에 없습니다. Material은
+      스낵바라 부르고, Apple은 한 번 지나가는 오버레이, GNOME은 토스트라 부릅니다.
+      <code>Dialog</code>의 생김새를 정하는 것과 같은 방식으로 디자인 시스템이 정합니다.
+      길이는 <code>MessageDuration::Short</code> 또는 <code>Long</code>이고, 그것이 몇
+      밀리초인지도 디자인 시스템의 답입니다. 무기한이 없는 것은 일부러입니다. 확인을 받아야 하는
+      메시지는 <code>Dialog</code>입니다.
+    </p>
+
+    <h2 id="graphics">그림과 드로잉</h2>
+
+    <h3>Image와 Icon</h3>
+    <p>
+      둘 다 <code>asset_id: u32</code>를 받고, 필수입니다. 바이트는
+      <code>Host::register_asset</code>으로 렌더러에 한 번 건너갔고, 프레임마다 건너가는 것은
+      id입니다. <code>Icon</code>은 <code>color: Option&lt;Paint&gt;</code> 틴트도 받습니다.
+    </p>
+    <p>
+      <code>Host::register_icon</code>은 그림이 아니라 <em>의미</em>를 등록하므로, 그렇게 등록한
+      id는 활성 디자인 시스템이 그 <code>IconRole</code>에 대해 그리는 그림으로 나옵니다.
+    </p>
+
+    <h3>Canvas</h3>
+    <p>
+      위젯 어휘로는 만들 수 없는 픽셀입니다. 차트, 스파크라인, 서명판, 링.
+      <code>commands: DrawList</code>가 필수이고 유일한 프로퍼티입니다.
+    </p>
+    <p>
+      목록이 콜백이 아니라 값인 이유는, 미리 컴파일된 렌더러 안으로 그리기 코드가 경계를 넘어갈
+      수 없기 때문입니다. 같은 목록 둘은 속성 비교 한 번이므로, 같은 차트를 다시 그리는 프레임은
+      아무것도 보내지 않습니다. 크기는 Modifier 속성에서 오고, 좌표는 위젯 왼쪽 위 모서리에서
+      잰 dp입니다. 색은 <code>Paint</code>를 지나므로, 역할로 칠한 차트는 다른 모든 것처럼
+      디자인 시스템을 따릅니다.
+    </p>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>rust</figcaption>
+<pre><code><span class="k">let</span> commands = <span class="ty">DrawList</span>::<span class="f">builder</span>()
+    <span class="c">// paint, x, y, width, height, radius, stroke_width. 선 두께가 0이면 채웁니다.</span>
+    .<span class="f">round_rect</span>(<span class="ty">Paint</span>::<span class="ty">Role</span>(<span class="ty">ColorRole</span>::SurfaceContainer), <span class="n">0.0</span>, <span class="n">0.0</span>, <span class="n">220.0</span>, <span class="n">96.0</span>, <span class="n">12.0</span>, <span class="n">0.0</span>)
+    <span class="c">// paint, 중심 x, 중심 y, 반지름, stroke_width</span>
+    .<span class="f">circle</span>(<span class="ty">Paint</span>::<span class="ty">Role</span>(<span class="ty">ColorRole</span>::Primary), <span class="n">48.0</span>, <span class="n">48.0</span>, <span class="n">24.0</span>, <span class="n">2.0</span>)
+    .<span class="f">build</span>();
+
+<span class="f">rsx!</span> {
+    <span class="ty">Canvas</span> { <span class="at">width</span>: <span class="n">220.0</span>, <span class="at">height</span>: <span class="n">96.0</span>, <span class="at">commands</span> }
+}</code></pre>
+    </figure>
+
+    <p>
+      <code>DrawListBuilder</code>에는 <code>line</code>, <code>rect</code>,
+      <code>round_rect</code>, <code>circle</code>, <code>arc</code>,
+      <code>polyline_ref</code>, <code>text_at</code>이 있습니다. 긴 목록을 쓰기 전에
+      <code>dioxus-compose/src/drawing.rs</code>에서 시그니처를 확인하세요. 인자는 위치로
+      구분되고, 채움인지 선인지는 따로 둔 플래그나 다른 메서드가 아니라 끝에 오는 선 두께입니다.
+    </p>
+
+    <h2 id="window">창 크기</h2>
+    <p>
+      UI는 러스트에서 쓰지만 재는 것은 렌더러이므로, 컴포넌트가 창이 얼마나 넓은지 알 수 있는
+      길은 렌더러가 알려 주는 것뿐입니다. <code>use_window_size()</code>가 그 통로입니다.
+    </p>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>rust</figcaption>
+<pre><code><span class="k">let</span> window = <span class="f">use_window_size</span>();
+
+<span class="f">rsx!</span> {
+    <span class="k">if</span> window.<span class="f">is_expanded</span>() {
+        <span class="ty">Row</span> { <span class="ty">Sidebar</span> {} <span class="ty">Content</span> {} }
+    } <span class="k">else</span> {
+        <span class="ty">Content</span> {}
+    }
+}</code></pre>
+    </figure>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">클래스</th><th scope="col">너비</th><th scope="col">모양</th></tr></thead>
+        <tbody>
+          <tr><td><code>WindowSizeClass::Compact</code></td><td>600 dp 미만</td><td>휴대폰 모양. 한 단.</td></tr>
+          <tr><td><code>WindowSizeClass::Medium</code></td><td>600 dp 이상 840 dp 미만</td><td>태블릿 모양.</td></tr>
+          <tr><td><code>WindowSizeClass::Expanded</code></td><td>840 dp 이상</td><td>데스크톱 모양. 상시 사이드바를 둘 자리가 있습니다.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      훅은 <code>width_dp</code>, <code>height_dp</code>, <code>class</code>를 가진
+      <code>WindowSize</code>와 <code>is_compact()</code>, <code>is_medium()</code>,
+      <code>is_expanded()</code>를 돌려줍니다. 컴포넌트 밖에서는 <code>window_size()</code>가
+      같은 값입니다.
+    </p>
+
+    <p>
+      <strong>보고되는 것은 클래스를 넘는 순간뿐입니다.</strong> 렌더러는 클래스가 바뀔 때 이벤트
+      하나를 보내고 그 사이에는 아무것도 보내지 않으므로, 창을 700 dp에서 800 dp로 끌어도 다시
+      그려지는 것은 하나도 없고, 실제로 바뀔 때에도 훅을 부른 컴포넌트만 깨어납니다. 수치는
+      클래스가 마지막으로 바뀐 순간에 잰 값이지 드래그의 모든 픽셀을 따라가는 값이 아닙니다.
+      레이아웃 패스마다 바뀌는 크기는 레이아웃 패스마다 VirtualDom을 돌리게 됩니다.
+    </p>
+
+    <p>
+      렌더러가 아직 아무것도 재지 않았을 때 훅은 0 곱하기 0의 <code>Compact</code>를 보고합니다.
+      의도된 것입니다. 한 단짜리 레이아웃은 어떤 너비에서도 쓸 만하므로, 첫 측정이 오기 전의 단
+      한 번의 렌더는 망가지지 않고 다만 필요보다 좁을 뿐입니다.
+    </p>
+
+    <div class="note">
+      <span class="label">훅은 마지막에 꺼내세요</span>
+      <p>
+        <code>Navigation</code>과 <code>Sheet</code>는 부탁하지 않아도 이미 적응하고, 그것도
+        러스트에서 트리를 다시 만드는 대신 렌더러가 이미 가진 노드를 옮기는 방식으로 합니다.
+        <code>use_window_size()</code>는 위젯 집합이 대신 내려 줄 수 없는 레이아웃 결정에
+        쓰세요. 한 단 대신 두 단, 늘 열려 있는 사이드바, 단 수가 바뀌는 격자 같은 것입니다.
+      </p>
+    </div>
+
+    <h2 id="state">각 위젯의 상태는 어디에 있나</h2>
+    <p>
+      큰 규칙은 애플리케이션 상태는 애플리케이션의 것이고 UI에 국한된 상태는 렌더러의 것이라는
+      것입니다. 아래는 사람들이 놀라는 자리의 목록입니다. 제어형처럼 보이는데 아니거나, 비제어처럼
+      보이는데 제어형인 것들입니다.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">위젯</th><th scope="col">렌더러가 가진 것</th><th scope="col">애플리케이션이 넘기는 것</th></tr></thead>
+        <tbody>
+          <tr><td><code>TextField</code></td><td>편집 버퍼 전체, 선택 영역, IME 조합</td><td>값은 아예 없습니다. 변화는 이벤트로 알게 됩니다.</td></tr>
+          <tr><td><code>Dialog</code>, <code>Sheet</code>, <code>Menu</code></td><td>열림 상태, 그리고 들어오고 나가는 애니메이션</td><td><code>open</code> 또는 <code>expanded</code>가 출발점이자 바깥의 변화를 싣습니다.</td></tr>
+          <tr><td><code>Dropdown</code></td><td>팝업이 열렸는지</td><td><code>selected_index</code>만.</td></tr>
+          <tr><td><code>Navigation</code>, <code>Tabs</code></td><td>어느 것에 표시가 붙었는지, 그 사이의 이동</td><td><code>selected_index</code>가 출발점. 탭은 그 자식의 <code>on_click</code>을 발생시킵니다.</td></tr>
+          <tr><td><code>Slider</code></td><td>드래그가 지나가는 위치</td><td><code>value</code>가 출발점이자 바깥에서 옮기는 수단.</td></tr>
+          <tr><td><code>ScrollColumn</code>, <code>LazyColumn</code>, <code>LazyRow</code></td><td>스크롤 위치, 미리 읽는 버퍼</td><td><code>item_count</code>, <code>item</code>, <code>key_of</code>.</td></tr>
+          <tr><td><code>Checkbox</code>, <code>RadioButton</code>, <code>Switch</code></td><td>없습니다. 완전한 제어형입니다</td><td><code>checked</code>나 <code>selected</code>가 그려지는 그대로입니다.</td></tr>
+          <tr><td><code>DatePicker</code>, <code>TimePicker</code></td><td>고르는 방식, 로케일, 시간대, 표시 형식</td><td><code>value</code>, <code>min</code>, <code>max</code>.</td></tr>
+          <tr><td>모든 위젯</td><td>포커스, 호버, 눌림 피드백, 애니메이션 진행</td><td>없습니다.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 id="extensions">확장</h2>
+    <p>
+      확장은 러스트 하나와 코틀린 하나로 이루어진 컴파일 시점의 소스 쌍이고, 양쪽에 함께
+      빌드됩니다. 런타임 플러그인이 아닙니다. 배포된 렌더러에는 새 위젯을 불러올 방법이 없습니다.
+      크레이트에는 예제가 하나 들어 있습니다. <code>LinearProgressIndicator</code>는
+      <code>progress: f32</code> 프로퍼티 하나를 받고 다른 위젯처럼 prelude에서 나옵니다.
+    </p>
+    <p>
+      직접 만들려면 <code>dioxus-compose/src/extensions.rs</code>의 레지스트리를 고친 사본을
+      두고, 위젯과 프로퍼티 태그를 덧붙이고, 짝이 되는 코틀린 렌더러에서 새 종류를 그려야
+      합니다. 확장 위젯 태그는 100부터 시작하므로 나중에 추가되는 코어 위젯과 절대 부딪히지
+      않습니다.
+    </p>
+
+    <nav class="pagenav" aria-label="페이지 이동">
+      <a class="prev" href="writing-ui.html"><span>이전</span>&larr; UI 작성하기</a>
+      <a class="next" href="lists-and-streaming.html"><span>다음</span>목록과 스트리밍 &rarr;</a>
+    </nav>
+  </main>
+</div>
+
+<footer class="site">
+  <div class="inner">
+    <span>dioxus-compose &middot; Apache License 2.0</span>
+    <span><a class="footer-repo" href="https://github.com/DarkPyonix/dioxus-compose">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/INTENT.md">INTENT.md</a></span>
+    <span>이 가이드는 2026-09-22 기준 저장소 내용과 대조했습니다</span>
+  </div>
+</footer>
+
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

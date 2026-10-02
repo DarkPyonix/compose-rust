@@ -1,0 +1,18 @@
+# dx project configuration for the Academic sample.
+#
+# The samples are ordinary dx projects on purpose. Someone reading one should see the
+# layout they would get from `dx new`, not a special arrangement that only works inside
+# this repository, because the point of a sample is to be copied.
+
+[application]
+name = "Academic"
+asset_dir = "assets"
+
+[bundle]
+identifier = "dev.darkpyonix.dioxus.compose.samples.academic"
+publisher = "DarkPyonix"
+short_description = "A drum school: subjects, stages and locked lessons."
+long_description = "Four subjects as coloured tiles, four stages of lessons, and what is still locked."
+
+[macos]
+bundle_name = "Academic"

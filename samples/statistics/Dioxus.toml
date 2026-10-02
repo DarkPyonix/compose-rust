@@ -1,0 +1,18 @@
+# dx project configuration for the Statistics sample.
+#
+# The samples are ordinary dx projects on purpose. Someone reading one should see the
+# layout they would get from `dx new`, not a special arrangement that only works inside
+# this repository, because the point of a sample is to be copied.
+
+[application]
+name = "Statistics"
+asset_dir = "assets"
+
+[bundle]
+identifier = "dev.darkpyonix.dioxus.compose.samples.statistics"
+publisher = "DarkPyonix"
+short_description = "Charts drawn from the role vocabulary."
+long_description = "A dial, a week of costs and where the money went, all of it drawn with Canvas and painted with roles."
+
+[macos]
+bundle_name = "Statistics"

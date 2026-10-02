@@ -1,0 +1,21 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='100%' height='100%' viewBox='0 0 320 200' fill='none'>
+  <rect width='320' height='200' fill='#9ec7bb'/>
+  <path d='M0 128 Q80 104 160 124 Q240 144 320 116 L320 200 L0 200 Z' fill='#7fb3a4'/>
+  <g stroke='#37325c' stroke-width='4' stroke-linecap='round' fill='none'>
+    <path d='M44 176 V112'/>
+    <path d='M44 132 q-18 -12 -22 -30'/><path d='M44 118 q18 -12 22 -30'/>
+    <path d='M44 150 q-18 -10 -24 -26'/><path d='M44 140 q18 -10 24 -26'/>
+  </g>
+  <g stroke='#37325c' stroke-width='4' stroke-linecap='round' fill='none'>
+    <path d='M286 178 V120'/>
+    <path d='M286 140 q16 -14 20 -32'/><path d='M286 126 q-16 -14 -20 -32'/>
+  </g>
+  <g transform='translate(0,-34)'>
+  <path d='M118 178 Q124 150 150 150 Q176 150 182 178 Z' fill='#37325c'/>
+  <path d='M128 152 Q150 132 172 152 L176 166 Q150 174 124 166 Z' fill='#f4796b'/>
+  <circle cx='150' cy='120' r='17' fill='#c98b62'/>
+  <path d='M133 118 Q134 100 150 100 Q166 100 167 118 Q160 108 150 108 Q140 108 133 118 Z' fill='#37325c'/>
+  <path d='M128 160 q-16 4 -18 16' stroke='#c98b62' stroke-width='9' stroke-linecap='round' fill='none'/>
+  <path d='M172 160 q16 4 18 16' stroke='#c98b62' stroke-width='9' stroke-linecap='round' fill='none'/>
+  </g>
+</svg>

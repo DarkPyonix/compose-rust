@@ -1,0 +1,1071 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Composable reference · dioxus-compose guide</title>
+<meta name="description" content="Every composable an application can write: props, defaults, examples, the modifier attributes they all share, the role vocabulary, and where each widget keeps its state.">
+<link rel="alternate" hreflang="en" href="composables.html">
+<link rel="alternate" hreflang="ko" href="../ko/composables.html">
+<link rel="alternate" hreflang="x-default" href="composables.html">
+<link rel="stylesheet" href="../assets/style.css?v=20">
+<script>(function(){try{var t=localStorage.getItem("dxc-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <a class="brand" href="./"><span class="dot" aria-hidden="true"></span>dioxus-compose <small>guide</small></a>
+  <span class="spacer"></span>
+  <button id="navtoggle" class="ghost" type="button" aria-expanded="false" aria-controls="sidebar">Menu</button>
+  <nav class="langswitch" aria-label="Language">
+    <a href="composables.html" aria-current="true" hreflang="en">EN</a>
+    <a href="../ko/composables.html" hreflang="ko">KO</a>
+  </nav>
+  <button id="themetoggle" class="ghost" type="button" data-dark="Dark" data-light="Light" aria-pressed="false">Dark</button>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <nav aria-label="Guide">
+      <h2>Guide</h2>
+      <ul>
+        <li><a href="overview.html">Overview</a></li>
+        <li><a href="getting-started.html">Getting started</a></li>
+        <li><a href="writing-ui.html">Writing UI</a></li>
+        <li><a href="composables.html" aria-current="page">Composable reference</a></li>
+        <li><a href="lists-and-streaming.html">Lists &amp; streaming</a></li>
+        <li><a href="design-systems.html">Design systems</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="troubleshooting.html">Troubleshooting</a></li>
+      </ul>
+      <h2>On this page</h2>
+      <ul>
+        <li><a href="#prelude">What the prelude gives you</a></li>
+        <li><a href="#modifiers">Modifier attributes</a></li>
+        <li><a href="#roles">The role vocabulary</a></li>
+        <li><a href="#layout">Layout</a></li>
+        <li><a href="#text">Text and input</a></li>
+        <li><a href="#controls">Controls</a></li>
+        <li><a href="#containers">Containers and separators</a></li>
+        <li><a href="#lists">Windowed lists</a></li>
+        <li><a href="#navigation">Navigation and tabs</a></li>
+        <li><a href="#overlays">Overlays and messages</a></li>
+        <li><a href="#graphics">Pictures and drawing</a></li>
+        <li><a href="#window">Window size</a></li>
+        <li><a href="#state">Where each widget keeps its state</a></li>
+        <li><a href="#extensions">Extensions</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <main id="main">
+    <p class="eyebrow">Reference</p>
+    <h1>Composable reference</h1>
+    <p class="lede">
+      Every composable an application can write, with its props, its defaults and what it leaves to
+      the design system. The list is closed: it is exactly what
+      <code>dioxus-compose</code>'s prelude exports, and the renderer interprets nothing else. A
+      widget kind it does not recognise produces a <code>ProtocolError</code> event rather than a
+      crash.
+    </p>
+
+    <h2 id="prelude">What the prelude gives you</h2>
+    <p>
+      One import brings in the widgets, the roles, the hooks, the signals and the macros.
+    </p>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>rust</figcaption>
+<pre><code><span class="k">use</span> dioxus_compose::prelude::*;</code></pre>
+    </figure>
+
+    <p>
+      That is thirty-three composables, the role enums, <code>Paint</code>,
+      <code>Color</code>, <code>Theme</code>, <code>DesignSystem</code>,
+      <code>LaunchBuilder</code>, <code>Message</code>, <code>show_message</code>,
+      <code>use_window_size</code>, and the Dioxus pieces <code>rsx!</code> expands into. You do
+      not add <code>dioxus-core</code>, <code>dioxus-hooks</code> or <code>dioxus-signals</code> as
+      separate dependencies; the prelude re-exports them under the names the macro looks for.
+      <code>Box</code> is the thirty-fourth, and is the one the prelude leaves out on purpose.
+    </p>
+
+    <div class="warn">
+      <span class="label">Write <code>dioxus_compose::Box</code>, not <code>Box</code></span>
+      <p>
+        The <code>rsx!</code> expansion in dioxus-core 0.7 refers to an unqualified
+        <code>Box&lt;T&gt;</code> internally. Exporting the Compose <code>Box</code> through the
+        glob prelude would shadow <code>std::boxed::Box</code> and break that expansion, so the
+        prelude deliberately leaves it out. The type is exported from the crate root under the
+        name <code>Box</code> (its Rust item is called <code>ComposeBox</code>), so write it
+        qualified inside <code>rsx!</code> until upstream qualifies its own.
+      </p>
+    </div>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>rust</figcaption>
+<pre><code><span class="f">rsx!</span> {
+    dioxus_compose::<span class="ty">Box</span> {
+        <span class="at">fill_max_width</span>: <span class="k">true</span>,
+        <span class="at">alignment</span>: <span class="ty">Alignment</span>::Center,
+        <span class="ty">Text</span> { <span class="at">text</span>: <span class="s">"centred"</span> }
+    }
+}</code></pre>
+    </figure>
+
+    <h2 id="modifiers">Modifier attributes</h2>
+    <p>
+      In Compose a <code>Modifier</code> applies to any composable, and the same is true here:
+      <strong>every widget on this page takes all thirteen of these</strong>, including
+      <code>Text</code> and <code>Spacer</code>. They are not listed again per widget.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">Attribute</th><th scope="col">Type</th><th scope="col">Default</th><th scope="col">Effect</th></tr></thead>
+        <tbody>
+          <tr><td><code>weight</code></td><td><code>f32</code></td><td>unset</td><td>Share of the leftover main-axis space inside a <code>Row</code> or <code>Column</code>.</td></tr>
+          <tr><td><code>fill_max_width</code></td><td><code>bool</code></td><td><code>false</code></td><td>Take the whole available width.</td></tr>
+          <tr><td><code>fill_max_height</code></td><td><code>bool</code></td><td><code>false</code></td><td>Take the whole available height.</td></tr>
+          <tr><td><code>width</code></td><td><code>f32</code> dp</td><td>unset</td><td>A fixed width.</td></tr>
+          <tr><td><code>height</code></td><td><code>f32</code> dp</td><td>unset</td><td>A fixed height.</td></tr>
+          <tr><td><code>padding</code></td><td><code>f32</code> dp</td><td>unset</td><td>The same inset on all four sides, in dp you chose.</td></tr>
+          <tr><td><code>padding_role</code></td><td><code>SpaceRole</code></td><td>unset</td><td>The same inset, in dp the design system chose. Prefer this one.</td></tr>
+          <tr><td><code>background</code></td><td><code>Paint</code></td><td>unset</td><td>A fill behind the widget.</td></tr>
+          <tr><td><code>shape_role</code></td><td><code>ShapeRole</code></td><td>unset</td><td>Corner rounding the design system picks a radius for.</td></tr>
+          <tr><td><code>corner_radius</code></td><td><code>f32</code> dp</td><td>unset</td><td>Corner rounding in dp you chose.</td></tr>
+          <tr><td><code>border_width</code></td><td><code>f32</code> dp</td><td>unset</td><td>Half of a border. Nothing is drawn until <code>border_color</code> is set too.</td></tr>
+          <tr><td><code>border_color</code></td><td><code>Paint</code></td><td>unset</td><td>The other half.</td></tr>
+          <tr><td><code>elevation</code></td><td><code>f32</code> dp</td><td>unset</td><td>Resting height, overriding whatever the design system would have chosen.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      <strong>Unset is not zero.</strong> A modifier you did not write sends nothing at all rather
+      than a zero, because no padding and a padding of zero look the same on screen but only one of
+      them should cost a mutation. Three pairs share one slot each and so cannot both be set
+      usefully: <code>padding</code> with <code>padding_role</code>, <code>shape_role</code> with
+      <code>corner_radius</code>, and <code>border_width</code> with <code>border_color</code>
+      (that last pair is one modifier, and both halves are required).
+    </p>
+
+    <div class="note">
+      <span class="label">Clickable</span>
+      <p>
+        The wire format carries a <code>Clickable</code> modifier, and the renderer builds it into
+        the Compose chain, but no typed widget exposes it as a prop. Today a click comes from
+        <code>Button</code> or <code>NavigationItem</code>. Reaching <code>Clickable</code> means
+        writing the lowercase element form (<code>card { onclickable: move |_| ... }</code>), which
+        no sample in this repository does, so treat it as unproven rather than as part of the
+        widget API.
+      </p>
+    </div>
+
+    <h2 id="roles">The role vocabulary</h2>
+    <p>
+      Widgets emit <em>roles</em>, not literals. A role is a name for a job (&quot;the accent
+      colour&quot;, &quot;the heading rung&quot;, &quot;a medium corner&quot;) and the renderer
+      resolves it against the active design system's token table. That is what lets one
+      <code>rsx!</code> tree come out as Material 3 on one machine and Cupertino on another. See
+      <a href="design-systems.html">Design systems</a> for how the table is chosen.
+    </p>
+
+    <h3 id="paint">Paint and Color</h3>
+    <p>
+      Anywhere a colour is taken, the type is <code>Paint</code>, which is either a role or a
+      literal ARGB value.
+    </p>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>rust</figcaption>
+<pre><code><span class="ty">Paint</span>::<span class="ty">Role</span>(<span class="ty">ColorRole</span>::Primary)          <span class="c">// resolved by the design system</span>
+<span class="ty">Paint</span>::<span class="ty">Literal</span>(<span class="ty">Color</span>::<span class="f">rgb</span>(<span class="n">0x1b6ef3</span>))    <span class="c">// opaque, 0xRRGGBB</span>
+<span class="ty">Paint</span>::<span class="ty">Literal</span>(<span class="ty">Color</span>::<span class="f">argb</span>(<span class="n">0x80ff0000</span>))  <span class="c">// 0xAARRGGBB</span></code></pre>
+    </figure>
+
+    <p>
+      A literal is the escape hatch. It survives a design-system change unchanged, which is
+      sometimes what you want (a brand colour) and usually not (a colour that reads on a light page
+      and disappears on a dark one).
+    </p>
+
+    <h3 id="colorrole">ColorRole: 23 roles</h3>
+    <p>
+      Every role that names ink is paired with the surface it reads on. <code>OnPrimary</code> is
+      the ink for something filled with <code>Primary</code>, and so on down the table.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">Group</th><th scope="col">Roles</th><th scope="col">For</th></tr></thead>
+        <tbody>
+          <tr><td>Accent</td><td><code>Primary</code>, <code>OnPrimary</code>, <code>Secondary</code>, <code>OnSecondary</code>, <code>Tertiary</code>, <code>OnTertiary</code></td><td>The three accents: what the eye goes to first, second and third.</td></tr>
+          <tr><td>Page</td><td><code>Background</code>, <code>OnBackground</code></td><td>The page itself and the ink on it.</td></tr>
+          <tr><td>Surface</td><td><code>Surface</code>, <code>OnSurface</code>, <code>SurfaceVariant</code>, <code>OnSurfaceVariant</code>, <code>SurfaceContainer</code></td><td>Reading surfaces. <code>SurfaceVariant</code>'s ink is the muted one, so it suits captions and labels rather than body text.</td></tr>
+          <tr><td>Container</td><td><code>PrimaryContainer</code>, <code>OnPrimaryContainer</code>, <code>SecondaryContainer</code>, <code>OnSecondaryContainer</code>, <code>TertiaryContainer</code>, <code>OnTertiaryContainer</code></td><td>Quiet fills that read as relatives of their accent, each carrying its own ink held to the body-text contrast bound.</td></tr>
+          <tr><td>Line</td><td><code>Outline</code>, <code>OutlineVariant</code></td><td>Borders and hairlines, strong and quiet.</td></tr>
+          <tr><td>Error</td><td><code>Error</code>, <code>OnError</code></td><td>What went wrong, and a destructive action's label.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      <strong><code>SurfaceContainer</code> is the one to reach for when a panel has to be
+      visible against the page.</strong> Material 3 gives <code>Surface</code> and
+      <code>Background</code> the same value on purpose and expresses depth through tonal
+      containers instead, so a panel filled with <code>Surface</code> on a page of
+      <code>Background</code> is drawn, in the right colour, and cannot be seen.
+      <code>SurfaceContainer</code> is the role every supported design system promises to make
+      visible against the page, and <code>OnSurface</code> is what reads on it.
+    </p>
+
+    <p>
+      The three containers are <em>not</em> promised to be distinguishable from one another.
+      Material 3's baseline primary and secondary containers are neighbouring tones of one palette.
+      If you need three fills that separate at a glance, the tertiary pair is the one that does it.
+    </p>
+
+    <h3 id="typerole">TypeRole: nine rungs</h3>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">Rung</th><th scope="col">For</th></tr></thead>
+        <tbody>
+          <tr><td><code>Display</code></td><td>The largest thing on a screen, used once.</td></tr>
+          <tr><td><code>Headline</code></td><td>A screen's title.</td></tr>
+          <tr><td><code>Title</code></td><td>A section's title, a bar's title.</td></tr>
+          <tr><td><code>Subtitle</code></td><td>The line under a title.</td></tr>
+          <tr><td><code>Body</code></td><td>Paragraphs. The default rung.</td></tr>
+          <tr><td><code>BodyStrong</code></td><td>Body text that has to carry weight.</td></tr>
+          <tr><td><code>Label</code></td><td>A button's text, a chip, a field label.</td></tr>
+          <tr><td><code>Caption</code></td><td>The smallest readable rung: timestamps, footnotes.</td></tr>
+          <tr><td><code>Mono</code></td><td>Monospace: code, paths, figures that have to line up.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 id="shaperole">ShapeRole and SpaceRole</h3>
+    <p>
+      <code>ShapeRole</code> is <code>None</code>, <code>ExtraSmall</code>, <code>Small</code>,
+      <code>Medium</code>, <code>Large</code>, <code>Full</code>. The radius in dp is the design
+      system's answer, and <code>Full</code> means a capsule rather than a number.
+    </p>
+    <p>
+      <code>SpaceRole</code> is <code>None</code>, <code>Xs</code>, <code>Sm</code>,
+      <code>Md</code>, <code>Lg</code>, <code>Xl</code>, <code>Xxl</code>. It appears as
+      <code>padding_role</code> on every widget and as <code>space_role</code> on
+      <code>Row</code> and <code>Column</code>. Density differs per design system, which is the
+      reason to spell a gap as a role rather than as a number of dp.
+    </p>
+
+    <h3 id="iconrole">IconRole</h3>
+    <p>
+      An icon is addressed by what it is for, never by a platform icon name. There are thirteen
+      meanings: <code>Back</code>, <code>Forward</code>, <code>Close</code>, <code>Search</code>,
+      <code>Add</code>, <code>Check</code>, <code>Settings</code>, <code>More</code>,
+      <code>Home</code>, <code>List</code>, <code>Inbox</code>, <code>Menu</code>,
+      <code>History</code>. The role is what lets one declaration come out as an SF Symbol under
+      Cupertino and a Material Symbol under Material 3.
+    </p>
+    <p>
+      The last two are what a window's own bar needs rather than a destination:
+      <code>Menu</code> opens what the window has no room to show, and <code>History</code> goes
+      back over what has already happened. Neither could be said with <code>List</code>, which is a
+      list of things rather than a way in to more of them.
+    </p>
+
+    <h3 id="layoutroles">Layout and text roles</h3>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">Enum</th><th scope="col">Variants</th><th scope="col">Where</th></tr></thead>
+        <tbody>
+          <tr><td><code>Arrangement</code></td><td><code>Start</code>, <code>Center</code>, <code>End</code>, <code>SpaceBetween</code>, <code>SpaceAround</code>, <code>SpaceEvenly</code></td><td>Main axis of <code>Row</code> and <code>Column</code></td></tr>
+          <tr><td><code>Alignment</code></td><td><code>TopStart</code>, <code>TopCenter</code>, <code>TopEnd</code>, <code>CenterStart</code>, <code>Center</code>, <code>CenterEnd</code>, <code>BottomStart</code>, <code>BottomCenter</code>, <code>BottomEnd</code></td><td>Cross axis of <code>Row</code> and <code>Column</code>; both axes of <code>Box</code></td></tr>
+          <tr><td><code>TextAlign</code></td><td><code>Start</code>, <code>Center</code>, <code>End</code>, <code>Justify</code></td><td><code>Text</code></td></tr>
+          <tr><td><code>TextOverflow</code></td><td><code>Clip</code>, <code>Ellipsis</code>, <code>Visible</code></td><td><code>Text</code>, with <code>max_lines</code></td></tr>
+          <tr><td><code>ButtonVariant</code></td><td><code>Filled</code>, <code>Tonal</code>, <code>Outlined</code>, <code>Text</code></td><td><code>Button</code></td></tr>
+          <tr><td><code>MessageDuration</code></td><td><code>Short</code>, <code>Long</code></td><td><code>Message</code></td></tr>
+          <tr><td><code>WindowSizeClass</code></td><td><code>Compact</code>, <code>Medium</code>, <code>Expanded</code></td><td><code>use_window_size</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 id="layout">Layout</h2>
+
+    <h3>Column and Row</h3>
+    <p>
+      A vertical stack and a horizontal one. The main axis is arranged by
+      <code>arrangement</code>, the gap between children by <code>spacing</code> or
+      <code>space_role</code>, and the cross axis by <code>alignment</code>.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">Prop</th><th scope="col">Type</th><th scope="col">Default</th><th scope="col">Effect</th></tr></thead>
+        <tbody>
+          <tr><td><code>arrangement</code></td><td><code>Arrangement</code></td><td>unset</td><td>How the children are distributed along the main axis.</td></tr>
+          <tr><td><code>spacing</code></td><td><code>f32</code> dp</td><td>unset</td><td>The gap between children, in dp you chose.</td></tr>
+          <tr><td><code>space_role</code></td><td><code>SpaceRole</code></td><td>unset</td><td>The gap, in dp the design system chose.</td></tr>
+          <tr><td><code>alignment</code></td><td><code>Alignment</code></td><td>unset</td><td>Cross-axis alignment of the children.</td></tr>
+          <tr><td>children</td><td><code>Element</code></td><td>required</td><td>The stack's contents, in order.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>rust</figcaption>
+<pre><code><span class="f">rsx!</span> {
+    <span class="ty">Column</span> {
+        <span class="at">fill_max_width</span>: <span class="k">true</span>,
+        <span class="at">padding_role</span>: <span class="ty">SpaceRole</span>::Md,
+        <span class="at">space_role</span>: <span class="ty">SpaceRole</span>::Sm,
+        <span class="ty">Text</span> { <span class="at">text</span>: <span class="s">"Today"</span>, <span class="at">type_role</span>: <span class="ty">TypeRole</span>::Title }
+        <span class="ty">Row</span> {
+            <span class="at">fill_max_width</span>: <span class="k">true</span>,
+            <span class="at">arrangement</span>: <span class="ty">Arrangement</span>::SpaceBetween,
+            <span class="at">alignment</span>: <span class="ty">Alignment</span>::CenterStart,
+            <span class="ty">Text</span> { <span class="at">text</span>: <span class="s">"Steps"</span> }
+            <span class="ty">Text</span> { <span class="at">text</span>: <span class="s">"8,421"</span>, <span class="at">type_role</span>: <span class="ty">TypeRole</span>::BodyStrong }
+        }
+    }
+}</code></pre>
+    </figure>
+
+    <p class="fineprint">
+      The design system decides: what <code>SpaceRole::Md</code> is worth in dp, and the type
+      ladder <code>Title</code> resolves against.
+    </p>
+
+    <h3>Box</h3>
+    <p>
+      An overlay container: children are stacked on top of one another and placed by
+      <code>alignment</code>. It takes <code>alignment</code> and its children, and nothing else of
+      its own. Write it as <code>dioxus_compose::Box</code>.
+    </p>
+
+    <h3>ScrollColumn</h3>
+    <p>
+      The whole content with a vertical scroll attached. It has no props of its own beyond the
+      modifiers and its children, because <strong>the scroll position belongs to the
+      renderer</strong>: scrolling never reaches Rust, and there is no property that could set or
+      read the offset. Use it when the content is bounded. When it is a long list, use
+      <a href="#lists"><code>LazyColumn</code></a> instead, which materialises only what is on
+      screen.
+    </p>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>rust</figcaption>
+<pre><code><span class="f">rsx!</span> {
+    <span class="ty">ScrollColumn</span> {
+        <span class="at">fill_max_width</span>: <span class="k">true</span>,
+        <span class="at">fill_max_height</span>: <span class="k">true</span>,
+        <span class="at">padding_role</span>: <span class="ty">SpaceRole</span>::Md,
+        <span class="k">for</span> paragraph <span class="k">in</span> <span class="f">article</span>() {
+            <span class="ty">Text</span> { <span class="at">key</span>: <span class="s">"{paragraph.id}"</span>, <span class="at">text</span>: paragraph.body }
+        }
+    }
+}</code></pre>
+    </figure>
+
+    <h3>Spacer</h3>
+    <p>
+      A gap. It carries no props of its own at all: its size comes from the modifier attributes
+      every widget has, which is also how a Compose <code>Spacer</code> is sized.
+      <code>Spacer { weight: 1.0 }</code> pushes what follows it to the far end of a
+      <code>Row</code>.
+    </p>
+
+    <h2 id="text">Text and input</h2>
+
+    <h3>Text</h3>
+    <p>
+      <code>type_role</code> alone takes the design system's size, weight, line height and letter
+      spacing together. Each override replaces exactly one axis and costs one property update, so
+      changing the font size does not resend the rest of the styling.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">Prop</th><th scope="col">Type</th><th scope="col">Default</th><th scope="col">Effect</th></tr></thead>
+        <tbody>
+          <tr><td><code>text</code></td><td><code>String</code> (anything that converts)</td><td>required</td><td>The text itself.</td></tr>
+          <tr><td><code>type_role</code></td><td><code>TypeRole</code></td><td>unset</td><td>The rung of the type ladder.</td></tr>
+          <tr><td><code>font_size</code></td><td><code>f32</code> sp</td><td>unset</td><td>Overrides the rung's size.</td></tr>
+          <tr><td><code>font_weight</code></td><td><code>u16</code></td><td>unset</td><td>Overrides the rung's weight, 100 to 900.</td></tr>
+          <tr><td><code>line_height</code></td><td><code>f32</code></td><td>unset</td><td>Overrides the rung's line height.</td></tr>
+          <tr><td><code>letter_spacing</code></td><td><code>f32</code></td><td>unset</td><td>Overrides the rung's tracking.</td></tr>
+          <tr><td><code>color</code></td><td><code>Paint</code></td><td>unset</td><td>The ink. Usually a role.</td></tr>
+          <tr><td><code>text_align</code></td><td><code>TextAlign</code></td><td>unset</td><td>Alignment inside the text's own box.</td></tr>
+          <tr><td><code>max_lines</code></td><td><code>u32</code></td><td>unset</td><td>Truncate after this many lines.</td></tr>
+          <tr><td><code>overflow</code></td><td><code>TextOverflow</code></td><td>unset</td><td>What truncation looks like.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>rust</figcaption>
+<pre><code><span class="f">rsx!</span> {
+    <span class="ty">Text</span> {
+        <span class="at">text</span>: entry.summary,
+        <span class="at">type_role</span>: <span class="ty">TypeRole</span>::Body,
+        <span class="at">color</span>: <span class="ty">Paint</span>::<span class="ty">Role</span>(<span class="ty">ColorRole</span>::OnSurfaceVariant),
+        <span class="at">max_lines</span>: <span class="n">2</span>,
+        <span class="at">overflow</span>: <span class="ty">TextOverflow</span>::Ellipsis,
+    }
+}</code></pre>
+    </figure>
+
+    <p class="fineprint">
+      The design system decides: the whole type ladder, and what colour
+      <code>OnSurfaceVariant</code> is in light and in dark.
+    </p>
+
+    <h3>TextField</h3>
+    <p>
+      <strong><code>TextField</code> is uncontrolled and has no <code>value</code> prop.</strong>
+      The edit buffer, the selection and the IME composition state live in the renderer, and Rust
+      learns about changes through events. This is the central design decision of the project, not
+      a simplification: round-tripping in-progress text would reset a Hangul syllable mid-assembly.
+      <a href="writing-ui.html#textfield">Writing UI</a> explains it in full.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">Prop</th><th scope="col">Type</th><th scope="col">Default</th><th scope="col">Effect</th></tr></thead>
+        <tbody>
+          <tr><td><code>placeholder</code></td><td><code>String</code></td><td><code>""</code></td><td>Shown while the field is empty.</td></tr>
+          <tr><td><code>enabled</code></td><td><code>bool</code></td><td><code>true</code></td><td>Whether it accepts input.</td></tr>
+          <tr><td><code>multiline</code></td><td><code>bool</code></td><td><code>false</code></td><td>Whether Enter can insert a newline.</td></tr>
+          <tr><td><code>type_role</code></td><td><code>TypeRole</code></td><td>unset</td><td>The rung the field's own text is set in. <code>Mono</code> for a path or a snippet.</td></tr>
+          <tr><td><code>on_value_change</code></td><td><code>EventHandler&lt;String&gt;</code></td><td>no-op</td><td>The current text, as a notification.</td></tr>
+          <tr><td><code>on_submit</code></td><td><code>EventHandler&lt;String&gt;</code></td><td>no-op</td><td>A committed value.</td></tr>
+          <tr><td><code>on_focus_lost</code></td><td><code>EventHandler&lt;()&gt;</code></td><td>no-op</td><td>The field lost focus.</td></tr>
+          <tr><td><code>on_key_down</code></td><td><code>EventHandler&lt;KeyEvent&gt;</code></td><td>no-op</td><td>A key, with <code>consume()</code> to say you handled it.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>rust</figcaption>
+<pre><code><span class="f">rsx!</span> {
+    <span class="ty">TextField</span> {
+        <span class="at">placeholder</span>: <span class="s">"Write a message"</span>,
+        <span class="at">multiline</span>: <span class="k">true</span>,
+        <span class="at">fill_max_width</span>: <span class="k">true</span>,
+        <span class="at">on_value_change</span>: <span class="k">move</span> |value| draft.<span class="f">set</span>(value),
+        <span class="at">on_key_down</span>: <span class="k">move</span> |event: <span class="ty">KeyEvent</span>| {
+            <span class="k">if</span> event.<span class="f">key</span>() == <span class="ty">Key</span>::Enter &amp;&amp; !event.<span class="f">shift_key</span>() {
+                <span class="f">send</span>();
+                event.<span class="f">consume</span>();
+            }
+        },
+    }
+}</code></pre>
+    </figure>
+
+    <p>
+      <code>KeyEvent</code> exposes <code>key()</code>, <code>shift_key()</code>,
+      <code>ctrl_key()</code>, <code>alt_key()</code>, <code>meta_key()</code>,
+      <code>consume()</code> and <code>consumed()</code>. The <code>Key</code> enum carries one
+      variant today, <code>Key::Enter</code>. While an IME is composing, key events are not sent to
+      Rust at all, which is why the condition above is correct rather than merely convenient.
+    </p>
+
+    <h2 id="controls">Controls</h2>
+
+    <h3>Button</h3>
+    <p>
+      The variant is the seam the design system's component rule attaches to. The same
+      <code>rsx!</code> draws as a filled Material button, a Cupertino capsule or a Fluent accent
+      button, and that is correct behaviour rather than a leak.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">Prop</th><th scope="col">Type</th><th scope="col">Default</th><th scope="col">Effect</th></tr></thead>
+        <tbody>
+          <tr><td><code>text</code></td><td><code>String</code></td><td>required</td><td>The label.</td></tr>
+          <tr><td><code>enabled</code></td><td><code>bool</code></td><td><code>true</code></td><td>Whether it can be pressed.</td></tr>
+          <tr><td><code>variant</code></td><td><code>ButtonVariant</code></td><td>unset</td><td><code>Filled</code>, <code>Tonal</code>, <code>Outlined</code> or <code>Text</code>.</td></tr>
+          <tr><td><code>color</code></td><td><code>Paint</code></td><td>unset</td><td>The label's colour, for the rare button whose meaning is not its variant's. A destructive action is the case: a plain button whose label is <code>ColorRole::Error</code>.</td></tr>
+          <tr><td><code>icon</code></td><td><code>Option&lt;IconRole&gt;</code></td><td>unset</td><td>A glyph on the button, by meaning rather than by picture. With an empty <code>text</code> the icon is also the button's accessible name, so an icon-only button in a bar is not left nameless.</td></tr>
+          <tr><td><code>background</code></td><td><code>Paint</code></td><td>unset</td><td>The fill. Setting it replaces the variant's fill and leaves the shape, border, resting height and padding to the design system.</td></tr>
+          <tr><td><code>on_click</code></td><td><code>EventHandler&lt;()&gt;</code></td><td>no-op</td><td>Pressed.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>rust</figcaption>
+<pre><code><span class="f">rsx!</span> {
+    <span class="ty">Button</span> {
+        <span class="at">text</span>: <span class="s">"Delete"</span>,
+        <span class="at">variant</span>: <span class="ty">ButtonVariant</span>::Text,
+        <span class="at">color</span>: <span class="ty">Paint</span>::<span class="ty">Role</span>(<span class="ty">ColorRole</span>::Error),
+        <span class="at">on_click</span>: <span class="k">move</span> |_| <span class="f">remove</span>(id),
+    }
+}</code></pre>
+    </figure>
+
+    <p class="fineprint">
+      The design system decides: the shape, the fill, the padding, the press feedback, and whether
+      a <code>Tonal</code> button is tonal at all.
+    </p>
+
+    <h3>Checkbox, RadioButton and Switch</h3>
+    <p>
+      All three are <strong>controlled</strong>: they draw exactly what the prop says and report
+      what the user asked for, so the value the Host holds and the control on screen cannot
+      disagree. Which siblings a radio button excludes is your business, so it carries only whether
+      this one is the chosen one.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">Widget</th><th scope="col">State prop</th><th scope="col">Default</th><th scope="col">Also</th></tr></thead>
+        <tbody>
+          <tr><td><code>Checkbox</code></td><td><code>checked: bool</code></td><td><code>false</code></td><td><code>enabled: bool</code> = <code>true</code>, <code>on_change: EventHandler&lt;bool&gt;</code></td></tr>
+          <tr><td><code>RadioButton</code></td><td><code>selected: bool</code></td><td><code>false</code></td><td>the same two</td></tr>
+          <tr><td><code>Switch</code></td><td><code>checked: bool</code></td><td><code>false</code></td><td>the same two</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>rust</figcaption>
+<pre><code><span class="f">rsx!</span> {
+    <span class="ty">Row</span> {
+        <span class="at">alignment</span>: <span class="ty">Alignment</span>::CenterStart,
+        <span class="at">space_role</span>: <span class="ty">SpaceRole</span>::Sm,
+        <span class="ty">Checkbox</span> {
+            <span class="at">checked</span>: task.done,
+            <span class="at">on_change</span>: <span class="k">move</span> |done| <span class="f">set_done</span>(task.id, done),
+        }
+        <span class="ty">Text</span> { <span class="at">text</span>: task.title }
+    }
+}</code></pre>
+    </figure>
+
+    <h3>Slider</h3>
+    <p>
+      The position a drag is passing through stays in the renderer, so following a finger costs no
+      boundary call. <code>value</code> seeds that position and moves it when the change came from
+      somewhere else.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">Prop</th><th scope="col">Type</th><th scope="col">Default</th><th scope="col">Effect</th></tr></thead>
+        <tbody>
+          <tr><td><code>value</code></td><td><code>f32</code></td><td><code>0.0</code></td><td>Where the thumb sits.</td></tr>
+          <tr><td><code>min</code></td><td><code>f32</code></td><td><code>0.0</code></td><td>The low end.</td></tr>
+          <tr><td><code>max</code></td><td><code>f32</code></td><td><code>1.0</code></td><td>The high end.</td></tr>
+          <tr><td><code>steps</code></td><td><code>u32</code></td><td><code>0</code></td><td>Stops between the ends. Zero leaves it continuous.</td></tr>
+          <tr><td><code>enabled</code></td><td><code>bool</code></td><td><code>true</code></td><td>Whether it can be dragged.</td></tr>
+          <tr><td><code>on_change</code></td><td><code>EventHandler&lt;f32&gt;</code></td><td>no-op</td><td>The value the user landed on.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Dropdown</h3>
+    <p>
+      One choice out of a list. Each child is one option, and the renderer reports the position the
+      user landed on. The popup's own open state is the renderer's.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">Prop</th><th scope="col">Type</th><th scope="col">Default</th><th scope="col">Effect</th></tr></thead>
+        <tbody>
+          <tr><td><code>selected_index</code></td><td><code>usize</code></td><td><code>0</code></td><td>Which child is the current choice.</td></tr>
+          <tr><td><code>enabled</code></td><td><code>bool</code></td><td><code>true</code></td><td>Whether it opens.</td></tr>
+          <tr><td><code>on_change</code></td><td><code>EventHandler&lt;usize&gt;</code></td><td>no-op</td><td>The index chosen.</td></tr>
+          <tr><td>children</td><td><code>Element</code></td><td>required</td><td>One child per option.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>DatePicker and TimePicker</h3>
+    <p>
+      A date is whole days since 1970-01-01, as <code>i64</code>. A time is minutes since midnight,
+      as <code>u32</code>. Both take <code>value</code> (required), optional <code>min</code> and
+      <code>max</code> of the same type, <code>enabled</code> defaulting to <code>true</code>, and
+      an <code>on_change</code> carrying the same type as <code>value</code>.
+    </p>
+    <p>
+      There is no prop that asks for a calendar grid, a wheel or a flyout, and there is no format
+      string. Time zone, locale, the first day of the week and the display format stay in the
+      renderer, which is the only side that can read the platform's settings. A format string
+      crossing the boundary would turn &quot;follows the platform&quot; into a claim the renderer
+      cannot keep.
+    </p>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>rust</figcaption>
+<pre><code><span class="f">rsx!</span> {
+    <span class="ty">DatePicker</span> {
+        <span class="at">value</span>: due(),
+        <span class="at">min</span>: today,
+        <span class="at">on_change</span>: <span class="k">move</span> |day| due.<span class="f">set</span>(day),
+    }
+    <span class="ty">TimePicker</span> {
+        <span class="at">value</span>: remind_at(),
+        <span class="at">on_change</span>: <span class="k">move</span> |minutes| remind_at.<span class="f">set</span>(minutes),
+    }
+}</code></pre>
+    </figure>
+
+    <h3>ProgressIndicator</h3>
+    <p>
+      <code>value</code> (<code>f32</code>, default <code>0.0</code>) is how far along;
+      <code>determinate</code> (<code>bool</code>, default <code>true</code>) says whether
+      <code>value</code> means anything; <code>circular</code> (<code>bool</code>, default
+      <code>false</code>) picks between the two forms every supported design system has. There is
+      no speed, no easing and no track colour: how an indeterminate indicator travels is motion,
+      and motion is the design system's rule.
+    </p>
+
+    <h2 id="containers">Containers and separators</h2>
+
+    <h3>Card, Surface and TopAppBar</h3>
+    <p>
+      Three containers that carry no appearance of their own. Each takes the thirteen modifier
+      attributes and its children, and nothing else.
+    </p>
+    <ul>
+      <li><code>Card</code> groups things. What a card looks like, its fill, its corner and its
+        resting elevation, is the design system's decision. Set <code>elevation</code> when you
+        have a reason to override the resting height.</li>
+      <li><code>Surface</code> is a plain background-and-elevation container, for where a card's
+        grouping meaning would be wrong and only the surface is wanted.</li>
+      <li><code>TopAppBar</code> is the bar across the top of a screen, its children laid out left
+        to right. How the bar is sized, spaced and separated from what is below it is the design
+        system's rule.</li>
+    </ul>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>rust</figcaption>
+<pre><code><span class="f">rsx!</span> {
+    <span class="ty">TopAppBar</span> {
+        <span class="at">fill_max_width</span>: <span class="k">true</span>,
+        <span class="ty">Text</span> { <span class="at">text</span>: <span class="s">"Drum school"</span>, <span class="at">type_role</span>: <span class="ty">TypeRole</span>::Title, <span class="at">weight</span>: <span class="n">1.0</span> }
+        <span class="ty">Button</span> { <span class="at">text</span>: <span class="s">"Add"</span>, <span class="at">variant</span>: <span class="ty">ButtonVariant</span>::Text, <span class="at">on_click</span>: <span class="k">move</span> |_| <span class="f">add</span>() }
+    }
+    <span class="ty">Card</span> {
+        <span class="at">fill_max_width</span>: <span class="k">true</span>,
+        <span class="at">padding_role</span>: <span class="ty">SpaceRole</span>::Md,
+        <span class="ty">Text</span> { <span class="at">text</span>: <span class="s">"Four bars, hands only"</span> }
+    }
+}</code></pre>
+    </figure>
+
+    <h3>Divider and Separator</h3>
+    <p>
+      <code>Divider</code> is a line between two things. <code>vertical</code>
+      (<code>bool</code>, default <code>false</code>) is the only decision you make: the thickness,
+      the colour and the inset all come from the design system.
+    </p>
+    <p>
+      <code>Separator</code> is the same line under the name grouped-list code already uses, and is
+      the one widget that takes no modifier attributes. Its single prop is
+      <code>color: Option&lt;Paint&gt;</code>, unset by default, for the rare list that rules
+      itself in something other than the quiet edge.
+    </p>
+
+    <h3>Tooltip</h3>
+    <p>
+      An explanation attached to its child: <code>text</code> (<code>String</code>, required) plus
+      children. It is a description as much as a hover popup, because the renderer also exposes the
+      text to the accessibility tree, so a pointer is not the only way to reach it.
+    </p>
+
+    <h2 id="lists">Windowed lists</h2>
+    <p>
+      <code>LazyColumn</code> and <code>LazyRow</code> are the two axes of one protocol. You
+      declare how many items there are and how to build one; the renderer asks for the range it can
+      see, and the component materialises <strong>exactly</strong> that range and no more.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">Prop</th><th scope="col">Type</th><th scope="col">Default</th><th scope="col">Effect</th></tr></thead>
+        <tbody>
+          <tr><td><code>item_count</code></td><td><code>usize</code></td><td>required</td><td>How many items exist in total.</td></tr>
+          <tr><td><code>item</code></td><td><code>Callback&lt;usize, Element&gt;</code></td><td>required</td><td>Builds the item at an index.</td></tr>
+          <tr><td><code>key_of</code></td><td><code>Option&lt;Callback&lt;usize, String&gt;&gt;</code></td><td>unset</td><td>A stable identity per item. Without it the index is used, which is wrong as soon as the list can be reordered or filtered.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>rust</figcaption>
+<pre><code><span class="f">rsx!</span> {
+    <span class="ty">LazyColumn</span> {
+        <span class="at">fill_max_width</span>: <span class="k">true</span>,
+        <span class="at">fill_max_height</span>: <span class="k">true</span>,
+        <span class="at">item_count</span>: tasks.<span class="f">read</span>().<span class="f">len</span>(),
+        <span class="at">key_of</span>: <span class="k">move</span> |index: <span class="ty">usize</span>| tasks.<span class="f">read</span>()[index].id.<span class="f">to_string</span>(),
+        <span class="at">item</span>: <span class="k">move</span> |index: <span class="ty">usize</span>| {
+            <span class="k">let</span> task = tasks.<span class="f">read</span>()[index].<span class="f">clone</span>();
+            <span class="f">rsx!</span> { <span class="ty">Text</span> { <span class="at">text</span>: task.title } }
+        },
+    }
+}</code></pre>
+    </figure>
+
+    <p>
+      There is no <code>buffer</code> prop and no scroll offset. <strong>The read-ahead buffer
+      belongs to the renderer</strong>, which owns the scroll position and so is the only side that
+      knows how far ahead to ask. Widening the range in Rust would break the renderer's placement,
+      because the first index it receives is what lets it draw a real Compose lazy list of
+      <code>item_count</code> items. Your data stays in the Host, so scrolling back rebuilds an
+      identical subtree. <a href="lists-and-streaming.html">Lists &amp; streaming</a> has the whole
+      story.
+    </p>
+
+    <h2 id="navigation">Navigation and tabs</h2>
+
+    <h3>Navigation and NavigationItem</h3>
+    <p>
+      A set of destinations with one of them selected, plus the screen they lead to. Children that
+      are <code>NavigationItem</code> are the destinations; every other child is the content of the
+      selected screen. Splitting by kind rather than by index means a destination that only exists
+      under some condition does not force you to keep two lists in step by hand.
+    </p>
+
+    <p>
+      <strong>Nothing here says bar, rail or drawer.</strong> The renderer has already measured the
+      window, so it chooses: a bar across the bottom of a phone-shaped window, a rail down the side
+      of a tablet-shaped one, a drawer standing open on a desktop. There is no prop that could ask
+      for one of them.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">Widget</th><th scope="col">Prop</th><th scope="col">Type</th><th scope="col">Default</th></tr></thead>
+        <tbody>
+          <tr><td><code>Navigation</code></td><td><code>selected_index</code></td><td><code>usize</code>, counting destinations rather than children</td><td><code>0</code></td></tr>
+          <tr><td></td><td>children</td><td><code>Element</code></td><td>required</td></tr>
+          <tr><td><code>NavigationItem</code></td><td><code>text</code></td><td><code>String</code></td><td><code>""</code></td></tr>
+          <tr><td></td><td><code>icon</code></td><td><code>Option&lt;IconRole&gt;</code></td><td>unset</td></tr>
+          <tr><td></td><td><code>color</code></td><td><code>Option&lt;Paint&gt;</code></td><td>unset</td></tr>
+          <tr><td></td><td><code>enabled</code></td><td><code>bool</code></td><td><code>true</code></td></tr>
+          <tr><td></td><td><code>on_click</code></td><td><code>EventHandler&lt;()&gt;</code></td><td>no-op</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      A destination's label and icon are properties rather than a child tree, because a child tree
+      would fix the arrangement, and the three presentations exist precisely because it differs: a
+      bar stacks the label under the icon, a drawer sets it beside.
+    </p>
+
+    <p>
+      <strong>Leave <code>color</code> unset and the design system decides what selected looks
+      like</strong>, which is what you want when the application follows the platform. Set it and
+      that colour is used in both states. Both states on purpose: a destination saying what colour
+      it is is saying it about itself rather than about half of itself, so a screen that wants the
+      two apart gives each destination its own colour. What this is for is a design that has no
+      accent in its bar at all, where asking the active system would put one there.
+    </p>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>rust, in the shape samples/academic uses</figcaption>
+<pre><code><span class="f">rsx!</span> {
+    <span class="ty">Navigation</span> {
+        <span class="at">fill_max_width</span>: <span class="k">true</span>,
+        <span class="at">fill_max_height</span>: <span class="k">true</span>,
+        <span class="at">selected_index</span>: <span class="f">destination</span>().<span class="f">index</span>(),
+        <span class="k">for</span> choice <span class="k">in</span> <span class="ty">Destination</span>::STRIP {
+            <span class="ty">NavigationItem</span> {
+                <span class="at">key</span>: <span class="s">"{choice.label()}"</span>,
+                <span class="at">text</span>: choice.<span class="f">label</span>(),
+                <span class="at">icon</span>: choice.<span class="f">icon</span>(),
+                <span class="at">on_click</span>: <span class="k">move</span> |()| destination.<span class="f">set</span>(choice),
+            }
+        }
+        <span class="ty">Column</span> { <span class="at">fill_max_width</span>: <span class="k">true</span>, {page} }
+    }
+}</code></pre>
+    </figure>
+
+    <p>
+      <code>selected_index</code> seeds the renderer's selection and moves it when the change came
+      from somewhere other than a tap. A tap moves the selection in the renderer and reports it by
+      firing that destination's own <code>on_click</code>, so switching screens costs one event and
+      no rebuild of the strip.
+    </p>
+
+    <h3>Tabs</h3>
+    <p>
+      A row of segments, one child per tab. <code>selected_index</code> (<code>usize</code>,
+      default <code>0</code>) works exactly as <code>Navigation</code>'s does: it seeds the
+      renderer's selection, and tapping a tab fires that tab's own <code>on_click</code> rather
+      than rebuilding the strip.
+    </p>
+
+    <h2 id="overlays">Overlays and messages</h2>
+    <p>
+      <code>Dialog</code>, <code>Menu</code> and <code>Sheet</code> share one contract:
+      <strong>the open state belongs to the renderer</strong>. The boolean you pass seeds it and
+      carries a change that came from somewhere other than the renderer; the renderer runs the
+      enter and the exit itself, so the animation never round-trips through Rust. The dismissal
+      handler fires once when the user asks to close, and it is up to you whether to honour it by
+      setting the boolean false.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">Widget</th><th scope="col">Open prop</th><th scope="col">Also</th></tr></thead>
+        <tbody>
+          <tr><td><code>Dialog</code></td><td><code>open: bool</code> = <code>false</code></td><td><code>on_dismiss: EventHandler&lt;()&gt;</code>, children</td></tr>
+          <tr><td><code>Menu</code></td><td><code>expanded: bool</code> = <code>false</code></td><td><code>on_dismiss</code>, <code>anchor: Element</code> (required), children</td></tr>
+          <tr><td><code>Sheet</code></td><td><code>open: bool</code> = <code>false</code></td><td><code>on_dismiss</code>, children</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      <code>Menu</code>'s <code>anchor</code> is the widget the popup hangs off, and it travels as
+      the first child so the renderer can place the popup without Rust knowing any screen
+      coordinates. Each entry supplies its own <code>on_click</code>, which is what tells you which
+      one was chosen; the renderer closes the popup itself.
+    </p>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>rust, in the shape samples/todo uses</figcaption>
+<pre><code><span class="f">rsx!</span> {
+    <span class="ty">Menu</span> {
+        <span class="at">expanded</span>: <span class="f">menu_open</span>() == <span class="ty">Some</span>(task.id),
+        <span class="at">on_dismiss</span>: <span class="k">move</span> |_| menu_open.<span class="f">set</span>(<span class="ty">None</span>),
+        <span class="at">anchor</span>: <span class="f">rsx!</span> {
+            <span class="ty">Button</span> {
+                <span class="at">text</span>: <span class="s">"\u{22ef}"</span>,
+                <span class="at">variant</span>: <span class="ty">ButtonVariant</span>::Text,
+                <span class="at">on_click</span>: <span class="k">move</span> |_| menu_open.<span class="f">set</span>(<span class="ty">Some</span>(task.id)),
+            }
+        },
+        <span class="ty">Button</span> { <span class="at">text</span>: <span class="s">"Edit"</span>, <span class="at">variant</span>: <span class="ty">ButtonVariant</span>::Text, <span class="at">on_click</span>: <span class="k">move</span> |_| <span class="f">edit</span>(task.id) }
+    }
+}</code></pre>
+    </figure>
+
+    <p>
+      For <code>Sheet</code>, which edge it comes in from is the renderer's decision, made from the
+      width it measured: up from the bottom in a narrow window, in from the side in a wide one.
+      While the sheet is being dragged about, Rust hears nothing; only a drag that ends in a
+      dismissal is reported, once.
+    </p>
+
+    <div class="note">
+      <span class="label">A Menu inside a lazy list declares its entries unconditionally</span>
+      <p>
+        Building a <code>Menu</code>'s children only while it is open would be cheaper, and it does
+        not terminate: a <code>Menu</code> whose children are a conditional or a loop, inside a
+        <code>LazyColumn</code> item, recurses until the stack overflows. Declaring the entries
+        whether the menu is open or not costs one anchor and a few entries per visible row, which
+        tracks the window rather than the list. <code>samples/todo</code> does it this way and says
+        so in a comment.
+      </p>
+    </div>
+
+    <h3>Transient messages</h3>
+    <p>
+      A message is not part of the tree. It has a lifetime rather than a position, and that
+      lifetime belongs to the renderer: how long it stays, where it sits, and what it does when a
+      second one arrives while the first is still up. So a message is posted and forgotten, and it
+      rides out on the batch the current call produces.
+    </p>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>rust</figcaption>
+<pre><code><span class="f">show_message</span>(<span class="s">"Saved"</span>);
+
+<span class="ty">Message</span>::<span class="f">new</span>(<span class="s">"Task deleted"</span>)
+    .<span class="f">with_action</span>(<span class="s">"Undo"</span>, <span class="k">move</span> |()| <span class="f">restore</span>())
+    .<span class="f">with_duration</span>(<span class="ty">MessageDuration</span>::Long)
+    .<span class="f">show</span>();</code></pre>
+    </figure>
+
+    <p>
+      Nothing here says where the message appears or what it looks like. Material calls it a
+      snackbar, Apple a transient overlay, GNOME a toast: the design system decides, the same way
+      it decides what a <code>Dialog</code> looks like. The duration is
+      <code>MessageDuration::Short</code> or <code>Long</code>, and what those are worth in
+      milliseconds is the design system's answer too. There is no indefinite duration on purpose:
+      a message that has to be acknowledged is a <code>Dialog</code>.
+    </p>
+
+    <h2 id="graphics">Pictures and drawing</h2>
+
+    <h3>Image and Icon</h3>
+    <p>
+      Both take an <code>asset_id: u32</code>, which is required. The bytes reached the renderer
+      once, through <code>Host::register_asset</code>, and what crosses per frame is the id.
+      <code>Icon</code> takes a <code>color: Option&lt;Paint&gt;</code> tint as well.
+    </p>
+    <p>
+      <code>Host::register_icon</code> registers a <em>meaning</em> rather than a picture, so an
+      id registered that way comes out as whichever artwork the active design system draws for
+      that <code>IconRole</code>.
+    </p>
+
+    <h3>Canvas</h3>
+    <p>
+      Pixels the widget vocabulary cannot produce: charts, sparklines, signature pads, rings.
+      <code>commands: DrawList</code> is required and is its only prop.
+    </p>
+    <p>
+      The list is a value rather than a callback, because drawing code cannot cross the boundary
+      into an ahead-of-time compiled renderer. Two equal lists are one attribute comparison, so a
+      frame that redraws the same chart sends nothing at all. Size comes from the modifier
+      attributes, and coordinates are dp from the widget's top-left corner. Colour goes through
+      <code>Paint</code>, so a chart painted in roles follows the design system like everything
+      else.
+    </p>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>rust</figcaption>
+<pre><code><span class="k">let</span> commands = <span class="ty">DrawList</span>::<span class="f">builder</span>()
+    <span class="c">// paint, x, y, width, height, radius, stroke_width. A stroke width of 0 fills.</span>
+    .<span class="f">round_rect</span>(<span class="ty">Paint</span>::<span class="ty">Role</span>(<span class="ty">ColorRole</span>::SurfaceContainer), <span class="n">0.0</span>, <span class="n">0.0</span>, <span class="n">220.0</span>, <span class="n">96.0</span>, <span class="n">12.0</span>, <span class="n">0.0</span>)
+    <span class="c">// paint, centre x, centre y, radius, stroke_width</span>
+    .<span class="f">circle</span>(<span class="ty">Paint</span>::<span class="ty">Role</span>(<span class="ty">ColorRole</span>::Primary), <span class="n">48.0</span>, <span class="n">48.0</span>, <span class="n">24.0</span>, <span class="n">2.0</span>)
+    .<span class="f">build</span>();
+
+<span class="f">rsx!</span> {
+    <span class="ty">Canvas</span> { <span class="at">width</span>: <span class="n">220.0</span>, <span class="at">height</span>: <span class="n">96.0</span>, <span class="at">commands</span> }
+}</code></pre>
+    </figure>
+
+    <p>
+      <code>DrawListBuilder</code> has <code>line</code>, <code>rect</code>,
+      <code>round_rect</code>, <code>circle</code>, <code>arc</code>, <code>polyline_ref</code> and
+      <code>text_at</code>. Check the signatures in
+      <code>dioxus-compose/src/drawing.rs</code> before writing a long list: the arguments are
+      positional, and filled-versus-stroked is the trailing stroke width rather than a separate
+      flag or a second method.
+    </p>
+
+    <h2 id="window">Window size</h2>
+    <p>
+      The UI is authored in Rust but measured by the renderer, so the only way a component can know
+      how wide the window is, is for the renderer to tell it. <code>use_window_size()</code> is
+      that channel.
+    </p>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>rust</figcaption>
+<pre><code><span class="k">let</span> window = <span class="f">use_window_size</span>();
+
+<span class="f">rsx!</span> {
+    <span class="k">if</span> window.<span class="f">is_expanded</span>() {
+        <span class="ty">Row</span> { <span class="ty">Sidebar</span> {} <span class="ty">Content</span> {} }
+    } <span class="k">else</span> {
+        <span class="ty">Content</span> {}
+    }
+}</code></pre>
+    </figure>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">Class</th><th scope="col">Width</th><th scope="col">Shape</th></tr></thead>
+        <tbody>
+          <tr><td><code>WindowSizeClass::Compact</code></td><td>under 600 dp</td><td>Phone-shaped. One column.</td></tr>
+          <tr><td><code>WindowSizeClass::Medium</code></td><td>600 dp to 840 dp</td><td>Tablet-shaped.</td></tr>
+          <tr><td><code>WindowSizeClass::Expanded</code></td><td>840 dp and wider</td><td>Desktop-shaped. Room for a permanent sidebar.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      The hook returns a <code>WindowSize</code> with <code>width_dp</code>,
+      <code>height_dp</code> and <code>class</code>, plus <code>is_compact()</code>,
+      <code>is_medium()</code> and <code>is_expanded()</code>. <code>window_size()</code> is the
+      same value outside a component.
+    </p>
+
+    <p>
+      <strong>Only the class crossing is reported.</strong> The renderer sends one event when the
+      class changes and nothing in between, so dragging a window from 700 dp to 800 dp re-renders
+      nothing at all, and only the components that called the hook are woken when it does change.
+      The measurements are the ones taken at the moment the class last changed, not a value that
+      follows every pixel of a drag: a size that changed every layout pass would run the VirtualDom
+      every layout pass.
+    </p>
+
+    <p>
+      Before the renderer has measured anything the hook reports
+      <code>Compact</code> at 0 by 0. That is deliberate: a one-column layout is usable at any
+      width, so the single render that happens before the first measurement is never broken, only
+      narrower than it needs to be.
+    </p>
+
+    <div class="note">
+      <span class="label">Reach for the hook last</span>
+      <p>
+        <code>Navigation</code> and <code>Sheet</code> already adapt without being asked, and they
+        do it by moving nodes the renderer already has rather than by rebuilding a tree in Rust.
+        Use <code>use_window_size()</code> for the layout decisions the widget set cannot make for
+        you: two columns instead of one, a sidebar that is always open, a grid that changes its
+        column count.
+      </p>
+    </div>
+
+    <h2 id="state">Where each widget keeps its state</h2>
+    <p>
+      The general rule is that application state is yours and UI-local state is the renderer's.
+      This is the list of places that surprises people, because the widget looks controlled and is
+      not, or looks uncontrolled and is.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">Widget</th><th scope="col">What the renderer owns</th><th scope="col">What you pass</th></tr></thead>
+        <tbody>
+          <tr><td><code>TextField</code></td><td>The whole edit buffer, the selection, the IME composition</td><td>No value at all. You learn about changes through events.</td></tr>
+          <tr><td><code>Dialog</code>, <code>Sheet</code>, <code>Menu</code></td><td>Open state, and the enter and exit animation</td><td><code>open</code> or <code>expanded</code> seeds it and carries an outside change.</td></tr>
+          <tr><td><code>Dropdown</code></td><td>Whether the popup is open</td><td><code>selected_index</code> only.</td></tr>
+          <tr><td><code>Navigation</code>, <code>Tabs</code></td><td>Which one is marked, and the move between them</td><td><code>selected_index</code> seeds it; a tap fires that child's <code>on_click</code>.</td></tr>
+          <tr><td><code>Slider</code></td><td>The position a drag is passing through</td><td><code>value</code> seeds it and moves it from outside.</td></tr>
+          <tr><td><code>ScrollColumn</code>, <code>LazyColumn</code>, <code>LazyRow</code></td><td>Scroll position, and the read-ahead buffer</td><td><code>item_count</code>, <code>item</code>, <code>key_of</code>.</td></tr>
+          <tr><td><code>Checkbox</code>, <code>RadioButton</code>, <code>Switch</code></td><td>Nothing. These are fully controlled</td><td><code>checked</code> or <code>selected</code> is exactly what is drawn.</td></tr>
+          <tr><td><code>DatePicker</code>, <code>TimePicker</code></td><td>The picking surface, the locale, the time zone, the format</td><td><code>value</code>, <code>min</code>, <code>max</code>.</td></tr>
+          <tr><td>every widget</td><td>Focus, hover, press feedback, animation progress</td><td>Nothing.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 id="extensions">Extensions</h2>
+    <p>
+      An extension is a compile-time pair of source files, one Rust and one Kotlin, built into both
+      sides. It is not a runtime plugin: a deployed renderer has no way to load a new widget. The
+      crate ships one worked example, <code>LinearProgressIndicator</code>, which takes a single
+      <code>progress: f32</code> prop and is exported from the prelude like any other widget.
+    </p>
+    <p>
+      Adding your own means owning a patched copy of the registry in
+      <code>dioxus-compose/src/extensions.rs</code>, appending the widget and property tags, and
+      rendering the new kind in a paired Kotlin renderer. Extension widget tags start at 100 so
+      they can never collide with a core widget added later.
+    </p>
+
+    <nav class="pagenav" aria-label="Pagination">
+      <a class="prev" href="writing-ui.html"><span>Previous</span>&larr; Writing UI</a>
+      <a class="next" href="lists-and-streaming.html"><span>Next</span>Lists &amp; streaming &rarr;</a>
+    </nav>
+  </main>
+</div>
+
+<footer class="site">
+  <div class="inner">
+    <span>dioxus-compose &middot; Apache License 2.0</span>
+    <span><a class="footer-repo" href="https://github.com/DarkPyonix/dioxus-compose">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/INTENT.md">INTENT.md</a></span>
+    <span>Guide last reviewed against the repository on 2026-09-22</span>
+  </div>
+</footer>
+
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

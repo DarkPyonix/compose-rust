@@ -1,0 +1,16 @@
+# What the C library will say about reading dates and times in this locale.
+#
+# The pickers ask `platformFormats()` what a month is called, which day a week starts on and
+# whether the clock reads to twelve or to twenty four, and the answer has to come from the
+# machine the application is running on rather than from anything the Host sent. On iOS and
+# macOS that is Foundation; on Linux it is `nl_langinfo`, which Kotlin/Native's posix platform
+# library does not declare.
+#
+# Reached through `include/dxc_langinfo.h` rather than by naming the system's header. See
+# that file: a header in the toolchain's own sysroot is taken to be already answered by the
+# posix platform library and is dropped whole, which produces a definition that builds and
+# a library with nothing in it.
+package = langinfo
+
+headers = dxc_langinfo.h
+compilerOpts = -D_GNU_SOURCE

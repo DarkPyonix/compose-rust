@@ -1,0 +1,20 @@
+# A consumer of this crate, with nothing else in it.
+#
+# The point of this crate is what it does not contain: there is no build.rs. An
+# application that adds `dioxus-compose` to its Cargo.toml and writes an app writes
+# exactly this much, and it has to build, link and start. Every sample in this repository
+# used to carry a build script to make that work, which meant the case a real consumer
+# hits was the one case nothing tested.
+#
+# `[workspace]` makes this its own workspace root. Without it, cargo would see the
+# enclosing workspace, find this crate is not one of its members, and refuse to build it.
+[workspace]
+
+[package]
+name = "consumer"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+dioxus-compose = { path = "../../.." }

@@ -1,0 +1,28 @@
+# Material 3, by delegation.
+#
+# androidx.compose.material3 is the reference implementation and is already a first party
+# dependency, so this module maps roles onto MaterialTheme and calls the real composables.
+# It does not redraw them from foundation: hand written Material is always a worse
+# Material, and ripple, state layers, motion and accessibility semantics come free here.
+
+product:
+  type: kmp/lib
+  platforms: [ jvm, android, iosArm64, iosSimulatorArm64, wasmJs ]
+
+dependencies:
+  - //core: exported
+  - $compose.material3: exported
+  - $compose.runtime
+  - $compose.foundation
+  - $compose.ui
+
+test-dependencies:
+  - $kotlin.test
+  # Test only, and never a production dependency in either direction. The claim that
+  # these are two design systems and not one with two palettes can only be checked by
+  # asking both the same question in the same test.
+  - //fluent
+
+settings:
+  compose:
+    enabled: true

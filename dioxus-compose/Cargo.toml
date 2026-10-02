@@ -1,0 +1,74 @@
+[package]
+name = "dioxus-compose"
+# 0.0.0 on purpose: the boundary works and so do the desktop and iOS renderers, but the
+# widget vocabulary is still being filled in and nothing here is stable yet. A number that
+# says so is more honest than one that implies a first usable release.
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Declarative UI in Rust, rendered by an AOT-compiled Compose Multiplatform engine"
+repository = "https://github.com/DarkPyonix/dioxus-compose"
+homepage = "http://darkpyonix.dev/dioxus-compose/"
+keywords = ["ui", "gui", "dioxus", "compose", "desktop"]
+categories = ["gui"]
+readme = "../README.md"
+
+[lib]
+crate-type = ["rlib", "cdylib", "staticlib"]
+# The lib has no #[bench] items, but `cargo bench` would still run its default test
+# harness, which rejects Criterion's flags (--quick, --noplot). Benchmarks live in
+# benches/host.rs with harness = false.
+bench = false
+
+[[bin]]
+name = "codegen"
+path = "src/bin/codegen.rs"
+bench = false
+
+[features]
+# The renderer is what draws, so it is on by default. Adding this crate to a Cargo.toml is
+# meant to be the whole setup: the build script finds a renderer for the target or
+# downloads the release artifact for this exact version, checksum first. Turn it off with
+# `default-features = false` for a headless or documentation build, and know that the
+# resulting binary says so on standard error and exits non-zero rather than opening no
+# window and returning 0.
+default = ["native-renderer"]
+# Drives the boundary with no renderer at all, for tests and for embedding the Host in
+# something that draws for itself. Suppresses the renderer download.
+mock-renderer = []
+native-renderer = []
+
+[dependencies]
+dioxus-core.workspace = true
+dioxus-core-macro.workspace = true
+dioxus-hooks.workspace = true
+dioxus-signals.workspace = true
+
+# The Android shims are generated against jni-rs. Nothing here is linked into a desktop,
+# iOS or web build, and the alternative bindings generators were rejected for their
+# per-call cost.
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+
+# Criterion is not built for the browser. Its default features pull in rayon, which
+# refuses to compile for a wasm target, and building the Host as a wasm module compiles
+# dev-dependencies because an example is a dev target. The benchmarks only ever run on the
+# machine that records their numbers.
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+criterion = "0.7"
+
+[[bench]]
+name = "host"
+harness = false
+
+[[example]]
+name = "desktop_demo"
+required-features = ["native-renderer"]
+
+# The browser's Host is a wasm module the page fetches. It has no `main` either: the
+# Renderer's module owns the loop, and `web_main!` registers this example's root component
+# from the entry point the page calls once both modules exist.
+[[example]]
+name = "web_demo"
+crate-type = ["cdylib"]

@@ -1,0 +1,27 @@
+# Deepin (DDE).
+#
+# The Linux fallback: what `adaptive` picks when the session is neither GNOME nor KDE, or
+# cannot be identified at all (SPEC FR-14.3). It therefore has to look reasonable on an
+# unknown desktop, not just on Deepin.
+
+product:
+  type: kmp/lib
+  platforms: [ jvm, android, iosArm64, iosSimulatorArm64, wasmJs ]
+
+dependencies:
+  - //core: exported
+  - $compose.runtime
+  - $compose.foundation
+  - $compose.ui
+
+test-dependencies:
+  # The test that the three Linux systems have not collapsed onto the same values
+  # needs all three on its classpath. It lives here because this one is the fallback,
+  # the system most likely to drift towards a neutral grey theme.
+  - //gnome
+  - //breeze
+  - $kotlin.test
+
+settings:
+  compose:
+    enabled: true

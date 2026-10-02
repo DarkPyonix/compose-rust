@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>dioxus-compose PR-6: Rust wasm &harr; Kotlin/Wasm direct link</title>
+<script type="importmap">
+{ "imports": { "host": "./host-module.mjs" } }
+</script>
+<style>
+  body { font: 13px/1.5 ui-monospace, Menlo, monospace; margin: 2rem; max-width: 70rem; }
+  pre { background: #f4f4f4; padding: 1rem; white-space: pre-wrap; }
+  .fail { color: #b00; } .ok { color: #070; }
+</style>
+</head>
+<body>
+<h1>PR-6: can a Rust wasm module and a Kotlin/Wasm module talk directly?</h1>
+<p>Run both wirings: <a href="?mode=direct">?mode=direct</a> | <a href="?mode=shim">?mode=shim</a></p>
+<pre id="out">running...</pre>
+<script type="module">
+const out = document.getElementById("out");
+const lines = [];
+function log(s) { lines.push(s); out.textContent = lines.join("\n"); }
+
+const results = {
+  userAgent: navigator.userAgent,
+  mode: new URLSearchParams(location.search).get("mode") ?? "direct",
+  timestamp: new Date().toISOString(),
+  probes: {},
+  benchmarks: {},
+  errors: [],
+};
+
+function record(name, value) { results.probes[name] = value; log(`${name}: ${JSON.stringify(value)}`); }
+
+/**
+ * Times `fn(n)`, which performs n boundary calls inside wasm, and returns
+ * nanoseconds per call. Takes the best of several repeats: the minimum is the
+ * run least disturbed by the scheduler, which is what a per-call cost is.
+ */
+function timePerCall(label, fn, n, repeats = 9) {
+  fn(Math.min(n, 100000), 0); // warm up / let the JIT tier up
+  const samples = [];
+  for (let r = 0; r < repeats; r++) {
+    const t0 = performance.now();
+    const v = fn(n, 0);
+    const t1 = performance.now();
+    if (v !== n) results.errors.push(`${label}: expected ${n}, got ${v}`);
+    samples.push(((t1 - t0) * 1e6) / n);
+  }
+  samples.sort((a, b) => a - b);
+  const res = {
+    calls: n,
+    ns_per_call_min: +samples[0].toFixed(2),
+    ns_per_call_median: +samples[(samples.length / 2) | 0].toFixed(2),
+  };
+  results.benchmarks[label] = res;
+  log(`${label}: ${res.ns_per_call_min} ns/call (min), ${res.ns_per_call_median} ns/call (median), n=${n}`);
+  return res;
+}
+
+try {
+  const host = await import("host");
+  log(`wiring mode: ${host.mode}`);
+
+  // Importing the Kotlin glue instantiates the Kotlin module. In mode=direct
+  // its `host` imports are already bound to Rust's exported functions.
+  const kt = await import("./kotlin/kotlin-renderer.mjs");
+  log("kotlin module instantiated");
+
+  record("kotlin_module_defines_own_memory", kt.memory instanceof WebAssembly.Memory);
+  record("kotlin_memory_pages_at_start", kt.memory.buffer.byteLength / 65536);
+
+  if (host.mode === "shim") {
+    host.setRendererBumpTarget(kt.renderer_bump);
+    await host.instantiateRustOnMemory(kt.memory);
+    record("rust_imported_kotlin_memory", true);
+    record("memory_is_the_same_object", host.sharedMemoryObject() === kt.memory);
+  } else {
+    record("rust_owns_memory", host.rustInstance().memory instanceof WebAssembly.Memory);
+    record("memory_is_the_same_object", host.rustInstance().memory === kt.memory);
+  }
+
+  const rust = host.rustInstance();
+  const arena = rust.arena_ptr();
+  record("arena_ptr", arena);
+  record("kotlin_sees_same_arena_ptr", kt.arena_ptr_from_host() === arena);
+
+  // --- Can Kotlin read and write the arena? ---
+  const LEN = 4096, SEED = 7;
+  try {
+    record("round_trip_rust_writes_kotlin_reads", kt.round_trip(LEN, SEED) === 1);
+  } catch (e) {
+    record("round_trip_rust_writes_kotlin_reads", `TRAP: ${e.constructor.name}: ${e.message}`);
+  }
+  try {
+    record("round_trip_kotlin_writes_rust_reads", kt.round_trip_back(LEN, SEED + 1) === 1);
+  } catch (e) {
+    record("round_trip_kotlin_writes_rust_reads", `TRAP: ${e.constructor.name}: ${e.message}`);
+  }
+
+  // --- Call cost ---
+  // Safari quantises performance.now() to ~1ms, so N has to be large enough
+  // that a whole run is tens of milliseconds.
+  const N = 20_000_000;
+  timePerCall("kotlin_to_rust_via_wasm_import", kt.bench_import, N);
+  timePerCall("kotlin_to_rust_via_js_shim", kt.bench_js_shim, N);
+  timePerCall("kotlin_local_call_baseline", kt.bench_local, N);
+  timePerCall("rust_to_kotlin_via_js_stub", rust.call_renderer_n, N);
+  timePerCall("js_to_rust_export", (n, x) => { let a = x; for (let i = 0; i < n; i++) a = rust.bump(a); return a; }, N);
+
+  // --- Memory access cost from Kotlin ---
+  try {
+    const bytes = 4096, reps = 2000;
+    rust.write_pattern(bytes, 1);
+    const t0 = performance.now();
+    kt.bench_read_memory(arena, bytes, reps);
+    const t1 = performance.now();
+    const perByte = ((t1 - t0) * 1e6) / (bytes * reps);
+    results.benchmarks.kotlin_linear_memory_read = {
+      bytes, reps, ns_per_byte: +perByte.toFixed(3),
+      ms_per_4kb: +(((t1 - t0) / reps)).toFixed(4),
+    };
+    log(`kotlin_linear_memory_read: ${perByte.toFixed(3)} ns/byte over ${bytes}B x ${reps}`);
+  } catch (e) {
+    results.benchmarks.kotlin_linear_memory_read = `TRAP: ${e.constructor.name}: ${e.message}`;
+    log(`kotlin_linear_memory_read: TRAP ${e.message}`);
+  }
+} catch (e) {
+  results.errors.push(`${e.constructor.name}: ${e.message}`);
+  log(`FAILED: ${e.constructor.name}: ${e.message}\n${e.stack}`);
+}
+
+log("\n--- posting results ---");
+await fetch("/result", { method: "POST", body: JSON.stringify(results, null, 2) });
+log("done");
+</script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+[package]
+name = "positional"
+version = "0.0.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+composable-macro = { path = "../macro" }
+dioxus-compose = { path = "../../../../dioxus-compose" }

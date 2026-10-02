@@ -1,0 +1,44 @@
+{
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15",
+  "mode": "direct",
+  "timestamp": "2026-09-20T09:25:52.287Z",
+  "probes": {
+    "kotlin_module_defines_own_memory": true,
+    "kotlin_memory_pages_at_start": 0,
+    "rust_owns_memory": true,
+    "memory_is_the_same_object": false,
+    "arena_ptr": 1048576,
+    "kotlin_sees_same_arena_ptr": true,
+    "round_trip_rust_writes_kotlin_reads": "TRAP: RuntimeError: Out of bounds memory access (evaluating 'kt.round_trip(LEN, SEED)')",
+    "round_trip_kotlin_writes_rust_reads": "TRAP: RuntimeError: Out of bounds memory access (evaluating 'kt.round_trip_back(LEN, SEED + 1)')"
+  },
+  "benchmarks": {
+    "kotlin_to_rust_via_wasm_import": {
+      "calls": 20000000,
+      "ns_per_call_min": 1.45,
+      "ns_per_call_median": 1.5
+    },
+    "kotlin_to_rust_via_js_shim": {
+      "calls": 20000000,
+      "ns_per_call_min": 12.05,
+      "ns_per_call_median": 12.75
+    },
+    "kotlin_local_call_baseline": {
+      "calls": 20000000,
+      "ns_per_call_min": 0.3,
+      "ns_per_call_median": 0.3
+    },
+    "rust_to_kotlin_via_js_stub": {
+      "calls": 20000000,
+      "ns_per_call_min": 4.35,
+      "ns_per_call_median": 4.5
+    },
+    "js_to_rust_export": {
+      "calls": 20000000,
+      "ns_per_call_min": 1.4,
+      "ns_per_call_median": 1.45
+    },
+    "kotlin_linear_memory_read": "TRAP: RuntimeError: Out of bounds memory access (evaluating 'kt.bench_read_memory(arena, bytes, reps)')"
+  },
+  "errors": []
+}

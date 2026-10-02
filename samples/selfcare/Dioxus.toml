@@ -1,0 +1,18 @@
+# dx project configuration for the Self-care sample.
+#
+# The samples are ordinary dx projects on purpose. Someone reading one should see the
+# layout they would get from `dx new`, not a special arrangement that only works inside
+# this repository, because the point of a sample is to be copied.
+
+[application]
+name = "Self-care"
+asset_dir = "assets"
+
+[bundle]
+identifier = "dev.darkpyonix.dioxus.compose.samples.selfcare"
+publisher = "DarkPyonix"
+short_description = "A daily check-in and a shelf of guided sessions."
+long_description = "Say how the day felt, say what is behind it, and pick something to listen to."
+
+[macos]
+bundle_name = "Self-care"

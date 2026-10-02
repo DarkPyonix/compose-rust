@@ -1,0 +1,27 @@
+Subject: Publish this build under the version the renderer asks for
+
+The renderer depends on published Compose artifacts and takes the patched modules
+from a local repository. For that to work the patched build has to publish under
+the same version as the one it stands in for, and the modules that are not built
+here have to keep resolving from what JetBrains published.
+
+Two properties, no source change.
+--
+diff --git a/gradle.properties b/gradle.properties
+index 5b42862e..2751345e 100644
+--- a/gradle.properties
++++ b/gradle.properties
+@@ -135,6 +135,13 @@ kotlinx.atomicfu.enableNativeIrTransformation=true
+ #   covers all sub-module projects
+ #   (artifactRedirection.version.androidx.compose covers androidx.compose.*:*)
+ artifactRedirection.version.androidx.compose=1.11.2
++# The modules this checkout does not build resolve from what JetBrains published, and what
++# it does build is published under the same version, so a renderer asking for 1.11.1 gets
++# the patched module here and the untouched ones from upstream. Matched to the version the
++# renderer resolves, because a few files are changed and everything else has to keep
++# resolving as it did.
++artifactRedirection.version.compose-multiplatform-core=1.11.1
++jetbrains.publication.version.COMPOSE=1.11.1
+ artifactRedirection.version.androidx.compose.material3=1.5.0-alpha17
+ artifactRedirection.version.androidx.compose.material3.adaptive=1.3.0-alpha10
+ artifactRedirection.version.androidx.compose.material3.common=1.0.0-alpha01

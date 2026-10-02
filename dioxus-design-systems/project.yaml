@@ -1,0 +1,18 @@
+# dioxus-design-systems: a standalone Compose Multiplatform project.
+#
+# Deliberately NOT a module of the renderer's Amper project. These design systems are
+# meant to be published as a library in their own right, and the surest way to keep that
+# possible is to build them somewhere the renderer's internals are not on the classpath.
+# Nothing here may depend on the wire protocol, the node table or anything else from
+# dioxus-compose-renderer (SPEC FR-14).
+
+modules:
+  - core
+  - liquid-glass
+  # The six systems `adaptive` can pick (SPEC FR-14.3).
+  - material3
+  - cupertino
+  - fluent
+  - gnome
+  - breeze
+  - deepin
