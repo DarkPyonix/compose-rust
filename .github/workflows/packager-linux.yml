@@ -14,12 +14,18 @@
 #             release is packaged as a prebuilt archive, started in the sandbox under a
 #             virtual display, and both manifests go through Flathub's linter.
 #
-# Dispatched by hand. It downloads two Flatpak SDKs and builds a Rust program inside one,
-# which is not something to repeat on every push.
+# Runs when the packaging code changes, or by hand. It downloads Flatpak SDKs and builds a
+# Rust program inside one, which is not something to repeat on every push.
 
 name: Linux packaging
 
 on:
+  push:
+    paths:
+      - tools/packager-linux/**
+      - dioxus-compose/src/update.rs
+      - dioxus-compose/tests/appimage_update.rs
+      - .github/workflows/packager-linux.yml
   workflow_dispatch:
 
 permissions:
