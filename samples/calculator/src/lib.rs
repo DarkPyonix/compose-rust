@@ -781,7 +781,7 @@ mod tests {
     ///
     /// So `DXC_FRAME_DIR` writes the frames out, exactly as the Renderer decodes them, and
     /// the Renderer's screenshot test turns each one into a picture. Unset, which is the
-    /// normal run, this still builds all thirty-six: a width or a design system nobody can
+    /// normal run, this still builds all forty-two: a width or a design system nobody can
     /// encode is the failure the tables exist to avoid.
     #[test]
     fn fr14_the_screen_is_recorded_under_every_design_system_and_width() {

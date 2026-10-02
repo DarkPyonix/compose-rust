@@ -30,12 +30,12 @@ them name Cupertino.
 
 | Sample | What it exercises |
 |---|---|
-| `minimal` | A playground: every control the schema has, all nine fills with the ink each carries, the type and corner ladders, and a `Canvas` drawing |
+| `minimal` | A playground: every control the schema has, the sheet's nine colours with the ink each carries, the type and corner ladders, and a `Canvas` drawing |
 | `store` | A clothing shop: a carousel with page dots, a category strip, a two-up grid, a product page with sizes and a stepper, and a bag that adds up |
-| `statistics` | Charts: a dial and a week of costs drawn with `Canvas`, both painted entirely in roles, on a tinted page |
+| `statistics` | Charts: a dial and a week of costs drawn with `Canvas` in the reference's grey and orange, on a sage page |
 | `selfcare` | A mood picker whose answers are colours, a drawn face per feeling, a chip grid, a windowing row of session cards and a week as a line |
 | `podcast` | A player whose waveform is a `Canvas`, a cover per show, and a full-screen page that covers the navigation bar |
-| `academic` | A grid of subject tiles, a stage strip, open and locked lessons, and the one place the role vocabulary ran out |
+| `academic` | A grid of four subject tiles in four peer colours, a stage strip, and open and locked lessons |
 | `social` | A meditation app whose every card carries an illustration, three shelves, and a course page that covers the navigation bar |
 
 Each of them names its colour scheme as well as its design system, because the design each
@@ -84,9 +84,10 @@ picture on every frame costs a lookup. A drawing has to say its `viewBox`, or it
 size to be scaled from and is drawn at one user unit to the pixel in the corner of whatever
 box it was given.
 
-Each one is an ordinary dx project: a `Dioxus.toml`, an `assets/` directory and
-`src/main.rs`, the layout `dx new` produces. That is deliberate, because a sample exists to
-be copied, and an arrangement that only works inside this repository teaches nothing.
+Each one is an ordinary dx project: a `Dioxus.toml`, an `assets/` directory, the screens in
+`src/lib.rs` and a one line `src/main.rs`. That is deliberate, because a sample exists to
+be copied, and an arrangement that only works inside this repository teaches nothing. Why
+the screens are a library is under "The other platforms" below.
 
 ```
 cd samples/calculator
@@ -132,8 +133,24 @@ issued, against a provisioning profile naming that device, and a self-signed one
 refused; the simulator does not check.
 
 Pushing a `sample-v*` tag builds all of them for all seven platforms and attaches the
-results to a GitHub Release: four desktop archives, an APK, a simulator bundle, and the
-pages as one archive.
+results to a GitHub Release: per sample, a `.app` (zipped) and a `.dmg` for macOS on Apple
+silicon, a `.zip` and an unsigned `.msix` for Windows x64, an `.AppImage` each for Linux x64
+and arm64, an APK, a simulator bundle, and the pages as one archive.
+
+The desktop bundles are made by `scripts/package-sample.sh`, which reads each sample's
+name, identifier and descriptions from its `Dioxus.toml` and its picture from
+`assets/icon-512.png`, puts the renderer inside the bundle, and points the program at that
+copy by a path relative to itself:
+
+```
+scripts/package-sample.sh calculator macos-aarch64 \
+    target/release/sample-calculator \
+    dioxus-compose-renderer/build/native-image/dist/lib out
+```
+
+The MSIX is unsigned. Install it with Developer Mode on, from PowerShell, with
+`Add-AppxPackage -AllowUnsigned <file>.msix`, or re-sign it with a certificate the machine
+trusts after setting the manifest's `Publisher` to that certificate's subject.
 
 ## Pictures
 
@@ -145,6 +162,6 @@ name carries. Nothing is restated in Kotlin, so what comes out is what an applic
 really have produced.
 
 ```
-./scripts/sample-shots.sh /tmp/shots            # all of them
-./scripts/sample-shots.sh /tmp/shots Todo-      # one sample, everywhere
+./scripts/sample-shots.sh .scratch/shots            # all of them
+./scripts/sample-shots.sh .scratch/shots Todo-      # one sample, everywhere
 ```

@@ -336,19 +336,20 @@ pub fn frame_dir() -> Option<PathBuf> {
 /// Builds `app` once per design system, colour scheme and window, hands each screen to
 /// `prepare`, and writes the results out when `DXC_FRAME_DIR` says where.
 ///
-/// Unset, which is the normal run, it still builds all thirty-six: a design system or a
-/// width nobody can encode is exactly the failure this is here to catch, and catching it
-/// should not depend on someone having asked for pictures.
+/// Unset, which is the normal run, it still builds all forty-two (seven design systems, two
+/// schemes, three widths): a design system or a width nobody can encode is exactly the
+/// failure this is here to catch, and catching it should not depend on someone having
+/// asked for pictures.
 pub fn record(screen: &str, app: fn() -> Element, prepare: impl FnMut(&mut Screen)) {
     record_in(screen, &SYSTEMS, app, prepare);
 }
 
 /// The same, for a screen that ships one design system rather than adapting to the host.
 ///
-/// An adaptive sample is drawn by whichever system the platform picks, so all six of them
-/// are its real appearance and all six have to be looked at. A unified sample names one,
-/// and the other five are screens it will never show: recording them would be five sixths
-/// of the pictures being of something nobody can reach.
+/// An adaptive sample is drawn by whichever system the platform picks, so all seven of
+/// them are its real appearance and all seven have to be looked at. A unified sample names
+/// one, and the others are screens it will never show: recording them would be most of
+/// the pictures being of something nobody can reach.
 ///
 /// What is still worth checking is that the screen encodes, which `record` does for every
 /// system it is given, so a caller who wants that breadth passes the whole list.
