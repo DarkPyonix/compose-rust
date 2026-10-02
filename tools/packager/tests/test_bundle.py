@@ -162,6 +162,36 @@ class SparkleBundle(unittest.TestCase):
         self.assertIn("@executable_path/../Frameworks/lib/" + bundle.RENDERER_LIBRARY, loads)
         self.assertEqual(bundle.absolute_references(self.app), [])
 
+    def test_fr34_1_a_renderer_named_through_rpath_needs_its_directory_given(self):
+        renderer = self.scratch / "rpath-renderer" / "lib"
+        renderer.mkdir(parents=True)
+        library = renderer / bundle.RENDERER_LIBRARY
+        compile_c(
+            "int dioxus_compose_renderer_stand_in(void) { return 0; }",
+            library, "-dynamiclib", "-install_name", "@rpath/" + bundle.RENDERER_LIBRARY,
+        )
+        executable = self.scratch / "rpath-demo"
+        compile_c(
+            "int dioxus_compose_renderer_stand_in(void);\n"
+            "int main(void) { return dioxus_compose_renderer_stand_in(); }",
+            executable, str(library),
+        )
+        meta = metadata.with_overrides(
+            metadata.load(project(CARGO, DIOXUS)), executable="sample-demo"
+        )
+        store = dict(uses_non_exempt_encryption=False)
+        with self.assertRaisesRegex(metadata.PackagingError, "--renderer-dir"):
+            bundle.assemble(meta, executable, self.scratch / "rpath", plist.APP_STORE, **store)
+        app = bundle.assemble(
+            meta, executable, self.scratch / "rpath", plist.APP_STORE, renderer_dir=renderer,
+            **store,
+        )
+        self.assertTrue((app / "Contents/Frameworks/lib" / bundle.RENDERER_LIBRARY).is_file())
+        self.assertIn(
+            "@executable_path/../Frameworks/lib/" + bundle.RENDERER_LIBRARY,
+            bundle.load_commands(app / "Contents/MacOS/sample-demo"),
+        )
+
     def test_fr34_1_a_renderer_directory_holding_data_is_refused_by_name(self):
         renderer = self.scratch / "renderer" / "lib"
         (renderer / "fonts.conf").write_text("data")

@@ -83,17 +83,44 @@ def load_commands(path):
     ]
 
 
-def renderer_dir_of(executable):
-    """The directory the executable loads the renderer from, or None if it does not."""
+def renderer_reference(executable):
+    """How the executable names the renderer library, or None if it does not load one."""
     for path in load_commands(executable):
         if path.endswith("/" + RENDERER_LIBRARY):
-            if not path.startswith("/"):
-                raise PackagingError(
-                    f"{executable} already loads the renderer by a relative path ({path}); "
-                    f"package the executable cargo built, not one taken from a bundle"
-                )
-            return Path(path).parent
+            return path
     return None
+
+
+def renderer_dir_of(executable, explicit=None):
+    """The directory to copy the renderer from, or None for an executable without one.
+
+    The crate's build records the renderer's absolute path in the executable, and that
+    path is where the directory is. An executable that names it through @rpath (what the
+    first published crate did) does not say where it is, and `explicit` has to.
+    """
+    reference = renderer_reference(executable)
+    if reference is None:
+        if explicit is not None:
+            raise PackagingError(
+                f"--renderer-dir was given, but {executable} does not load "
+                f"{RENDERER_LIBRARY}; it is either the whole application already or not a "
+                f"dioxus-compose executable"
+            )
+        return None
+    if explicit is not None:
+        return Path(explicit)
+    if reference.startswith("@executable_path/"):
+        raise PackagingError(
+            f"{executable} already loads the renderer relative to itself ({reference}); "
+            f"package the executable cargo built, not one taken from a bundle"
+        )
+    if not reference.startswith("/"):
+        raise PackagingError(
+            f"{executable} loads the renderer as {reference}, which does not say where the "
+            f"renderer is. Pass --renderer-dir with the directory that holds "
+            f"{RENDERER_LIBRARY}."
+        )
+    return Path(reference).parent
 
 
 def is_mach_o(path):
@@ -158,6 +185,7 @@ def assemble(
     uses_non_exempt_encryption=None,
     extra_plist=None,
     provisioning_profile=None,
+    renderer_dir=None,
 ):
     """Build Name.app in `out_dir` and return its path. Replaces one already there."""
     executable = Path(executable)
@@ -199,13 +227,10 @@ def assemble(
     shutil.copy2(executable, staged)
     os.chmod(staged, 0o755)
 
-    renderer = renderer_dir_of(executable)
+    renderer = renderer_dir_of(executable, renderer_dir)
     if renderer is not None:
         if not (renderer / RENDERER_LIBRARY).exists():
-            raise PackagingError(
-                f"{executable} was linked against {renderer / RENDERER_LIBRARY}, which is "
-                f"no longer there"
-            )
+            raise PackagingError(f"there is no {RENDERER_LIBRARY} in {renderer}")
         # Contents/Frameworks may hold only code. codesign seals anything else there as an
         # unsigned subcomponent and refuses the bundle, so say which file it is now rather
         # than leave the person to read that out of a codesign failure. The macOS renderer

@@ -46,6 +46,9 @@ def _add_app_arguments(parser):
                         help="directory holding the application's Cargo.toml and Dioxus.toml")
     parser.add_argument("--executable", required=True, type=Path,
                         help="the executable cargo built (not one already taken from a bundle)")
+    parser.add_argument("--renderer-dir", type=Path,
+                        help="the renderer's lib directory, when the executable names it "
+                             "through @rpath rather than by its path")
     parser.add_argument("--channel", required=True, choices=plist.CHANNELS)
     parser.add_argument("--out", required=True, type=Path, help="directory to put Name.app in")
     parser.add_argument("--version", help="CFBundleShortVersionString; default from Cargo.toml")
@@ -117,6 +120,7 @@ def command_app(args):
         uses_non_exempt_encryption=args.uses_non_exempt_encryption,
         extra_plist=extra,
         provisioning_profile=args.provisioning_profile,
+        renderer_dir=args.renderer_dir,
     )
     capabilities = plist.Capabilities(
         network_client=args.network_client,

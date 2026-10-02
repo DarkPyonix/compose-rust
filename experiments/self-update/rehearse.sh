@@ -37,6 +37,7 @@ identifier="dev.darkpyonix.dioxus.compose.experiments.selfupdate"
 executable="self-update-demo"
 archive_name="SelfUpdateDemo-2.0.0.zip"
 
+renderer_version="0.0.0"
 sparkle_version="2.10.0"
 sparkle_sha256="c2bf58aa8387266ac179357b1415d6f2635f044da8be41042af32425dae6da0c"
 
@@ -108,6 +109,19 @@ if [[ ! -x "$sparkle/bin/sign_update" ]]; then
     tar -xf "$sparkle/Sparkle.tar.xz" -C "$sparkle"
 fi
 
+step "Renderer $renderer_version, as released for the dioxus-compose the demo depends on"
+renderer="$work/renderer"
+if [[ ! -f "$renderer/lib/libdioxus_compose_renderer.dylib" ]]; then
+    artifact="dioxus-compose-renderer-v$renderer_version-macos-aarch64.tar.gz"
+    release="https://github.com/DarkPyonix/dioxus-compose/releases/download/v$renderer_version"
+    mkdir -p "$work/downloads" "$renderer"
+    curl -fsSL -o "$work/downloads/$artifact" "$release/$artifact"
+    curl -fsSL -o "$work/downloads/$artifact.sha256" "$release/$artifact.sha256"
+    (cd "$work/downloads" && shasum -a 256 -c "$artifact.sha256")
+    tar -xzf "$work/downloads/$artifact" -C "$renderer"
+fi
+export DIOXUS_COMPOSE_RENDERER_DIR="$renderer"
+
 step "EdDSA key (kept in $work/keys, never in the repository)"
 key="$work/keys/sparkle.key"
 [[ -f "$key" ]] || "$package" keygen --out "$key"
@@ -135,7 +149,7 @@ step "Build and package 1.0.0 and 2.0.0 for the sparkle channel"
 for major in 1 2; do
     build "$major.0.0" "$work/build/$executable-$major"
     "$package" app --channel sparkle --manifest-dir "$app_dir" \
-        --executable "$work/build/$executable-$major" \
+        --executable "$work/build/$executable-$major" --renderer-dir "$renderer/lib" \
         --version "$major.0.0" --build "$major" --out "$work/dist-$major" \
         --feed-url "http://127.0.0.1:$port/appcast.xml" --ed-key-file "$key" \
         --sparkle-framework "$sparkle/Sparkle.framework" --automatically-update \
@@ -249,7 +263,8 @@ fi
 step "Mac App Store: the same application without the updater"
 build 1.0.0 "$work/build/$executable-store" --no-default-features
 "$package" app --channel app-store --manifest-dir "$app_dir" \
-    --executable "$work/build/$executable-store" --version 1.0.0 --build 1 \
+    --executable "$work/build/$executable-store" --renderer-dir "$renderer/lib" \
+    --version 1.0.0 --build 1 \
     --out "$work/dist-store" --uses-non-exempt-encryption no --network-client \
     --user-selected-files read-write | tee "$evidence/package-store.txt"
 store_app="$work/dist-store/$name.app"
