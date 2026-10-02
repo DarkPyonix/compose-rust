@@ -1,11 +1,7 @@
 //! A self-care app: say how the day felt, say what is behind it, and pick something to
 //! listen to.
 //!
-//! The screen the sample exists for is the check-in. A picker whose answers are colours
-//! is the thing the role vocabulary was hardest pressed by: four feelings need four fills
-//! that read as relatives, are quiet enough to hold a drawn face, and each arrive with an
-//! ink that stays readable on them. A literal would have been easier and would have kept
-//! its light-mode pink when the reader asked for dark.
+//! The screen the sample exists for is the check-in, a picker whose answers are colours.
 //!
 //! Unified, naming Cupertino and dark: the reference's check-in is black, and that is
 //! the screen this opens on. `THEME` says both.
@@ -65,13 +61,6 @@ impl Destination {
             Destination::Library => IconRole::List,
             Destination::Profile => IconRole::Settings,
         }
-    }
-
-    fn index(self) -> usize {
-        Self::STRIP
-            .iter()
-            .position(|found| *found == self)
-            .unwrap_or(0)
     }
 }
 
@@ -217,6 +206,7 @@ fn worry_step(
                 type_role: TypeRole::Headline,
                 text_align: TextAlign::Center,
                 fill_max_width: true,
+                color: Paint::Literal(palette::INK),
             }
 
             Column {
@@ -228,14 +218,23 @@ fn worry_step(
                         fill_max_width: true,
                         space_role: SpaceRole::Sm,
                         for worry in row.iter().copied() {
+                            // Chosen worries are the accent with the page's black on them,
+                            // the rest the quiet grey the feelings' strip uses.
                             Button {
                                 key: "{worry}",
                                 text: worry,
                                 weight: 1.0,
-                                variant: if chosen.contains(&worry) {
-                                    ButtonVariant::Filled
+                                variant: ButtonVariant::Filled,
+                                shape_role: ShapeRole::Full,
+                                background: if chosen.contains(&worry) {
+                                    Paint::Literal(palette::ACCENT)
                                 } else {
-                                    ButtonVariant::Tonal
+                                    Paint::Literal(palette::CHIP)
+                                },
+                                color: if chosen.contains(&worry) {
+                                    Paint::Literal(palette::ON_MOOD)
+                                } else {
+                                    Paint::Literal(palette::INK)
                                 },
                                 on_click: move |_| {
                                     let mut list = picked.write();
@@ -261,12 +260,16 @@ fn worry_step(
                 Button {
                     text: "Skip",
                     variant: ButtonVariant::Text,
+                    color: Paint::Literal(palette::INK),
                     on_click: move |_| on_skip.call(()),
                 }
                 Button {
                     text: "Next",
                     weight: 1.0,
                     variant: ButtonVariant::Filled,
+                    shape_role: ShapeRole::Full,
+                    background: Paint::Literal(palette::INK),
+                    color: Paint::Literal(palette::PAGE),
                     on_click: move |_| on_next.call(()),
                 }
             }
@@ -316,7 +319,10 @@ fn checked_in(chosen: Mood, worries: Vec<&'static str>, again: EventHandler<()>)
             Button {
                 text: "Check in again",
                 fill_max_width: true,
-                variant: ButtonVariant::Tonal,
+                variant: ButtonVariant::Filled,
+                shape_role: ShapeRole::Full,
+                background: Paint::Literal(palette::CHIP),
+                color: Paint::Literal(palette::INK),
                 on_click: move |_| again.call(()),
             }
             Spacer { weight: 1.0 }
@@ -353,9 +359,13 @@ fn session_card(session: &Session) -> Element {
                     color: Paint::Literal(ink),
                 }
                 Spacer { weight: 1.0 }
+                // A white disc on the pastel, as the reference draws its play keys.
                 Button {
                     text: "\u{25b6}",
                     variant: ButtonVariant::Filled,
+                    shape_role: ShapeRole::Full,
+                    background: Paint::Literal(palette::INK),
+                    color: Paint::Literal(palette::ON_MOOD),
                     on_click: move |_| {
                         Message::new("Playback is not part of this sample").show();
                     },
@@ -373,13 +383,22 @@ fn listen_page() -> Element {
             padding_role: SpaceRole::Md,
             space_role: SpaceRole::Md,
 
-            Text { text: "Hello, Paul", type_role: TypeRole::Headline }
-            TextField { fill_max_width: true, placeholder: "Search" }
+            Text {
+                text: "Hello, Paul",
+                type_role: TypeRole::Headline,
+                color: Paint::Literal(palette::INK),
+            }
+            TextField {
+                fill_max_width: true,
+                placeholder: "Search",
+                background: Paint::Literal(palette::CARD),
+                shape_role: ShapeRole::Full,
+            }
 
             Text {
                 text: "Picked for today",
                 type_role: TypeRole::Label,
-                color: Paint::Role(ColorRole::OnSurfaceVariant),
+                color: Paint::Literal(palette::MUTED),
             }
             LazyRow {
                 fill_max_width: true,
@@ -401,10 +420,11 @@ fn listen_page() -> Element {
             Text {
                 text: "Special for you",
                 type_role: TypeRole::Label,
-                color: Paint::Role(ColorRole::OnSurfaceVariant),
+                color: Paint::Literal(palette::MUTED),
             }
-            Surface {
+            Column {
                 fill_max_width: true,
+                background: Paint::Literal(palette::CARD),
                 shape_role: ShapeRole::Large,
                 Column {
                     fill_max_width: true,
@@ -421,18 +441,22 @@ fn listen_page() -> Element {
                                     Text {
                                         text: session.title,
                                         type_role: TypeRole::Body,
+                                        color: Paint::Literal(palette::INK),
                                         max_lines: 1,
                                         overflow: TextOverflow::Ellipsis,
                                     }
                                     Text {
                                         text: "{session.minutes} min \u{00b7} {session.when}",
                                         type_role: TypeRole::Caption,
-                                        color: Paint::Role(ColorRole::OnSurfaceVariant),
+                                        color: Paint::Literal(palette::MUTED),
                                     }
                                 }
                                 Button {
                                     text: "\u{25b6}",
-                                    variant: ButtonVariant::Tonal,
+                                    variant: ButtonVariant::Filled,
+                                    shape_role: ShapeRole::Full,
+                                    background: Paint::Literal(palette::ACCENT),
+                                    color: Paint::Literal(palette::ON_MOOD),
                                     on_click: move |_| {
                                         Message::new("Playback is not part of this sample")
                                             .show();
@@ -457,7 +481,11 @@ fn library_page() -> Element {
             fill_max_width: true,
             padding_role: SpaceRole::Md,
             space_role: SpaceRole::Md,
-            Text { text: "Library", type_role: TypeRole::Headline }
+            Text {
+                text: "Library",
+                type_role: TypeRole::Headline,
+                color: Paint::Literal(palette::INK),
+            }
             Column {
                 fill_max_width: true,
                 space_role: SpaceRole::Sm,
@@ -478,13 +506,14 @@ fn library_page() -> Element {
                             Text {
                                 text: session.title,
                                 type_role: TypeRole::Body,
+                                color: Paint::Literal(palette::INK),
                                 max_lines: 1,
                                 overflow: TextOverflow::Ellipsis,
                             }
                             Text {
                                 text: "{session.minutes} min \u{00b7} {session.when}",
                                 type_role: TypeRole::Caption,
-                                color: Paint::Role(ColorRole::OnSurfaceVariant),
+                                color: Paint::Literal(palette::MUTED),
                             }
                         }
                     }
@@ -512,7 +541,11 @@ fn profile_page(chosen: Mood) -> Element {
                     height: 96.0,
                     asset_id: asset(AssetKind::Svg, chosen.picture()),
                 }
-                Text { text: "Paul Wilson", type_role: TypeRole::Title }
+                Text {
+                    text: "Paul Wilson",
+                    type_role: TypeRole::Title,
+                    color: Paint::Literal(palette::INK),
+                }
                 Text {
                     text: chosen.label(),
                     type_role: TypeRole::Label,
@@ -523,8 +556,9 @@ fn profile_page(chosen: Mood) -> Element {
                 }
             }
 
-            Surface {
+            Column {
                 fill_max_width: true,
+                background: Paint::Literal(palette::CARD),
                 shape_role: ShapeRole::Large,
                 padding_role: SpaceRole::Md,
                 Column {
@@ -533,43 +567,46 @@ fn profile_page(chosen: Mood) -> Element {
                     Text {
                         text: "This week",
                         type_role: TypeRole::Label,
-                        color: Paint::Role(ColorRole::OnSurfaceVariant),
+                        color: Paint::Literal(palette::MUTED),
                     }
                     Canvas {
                         width: CHART.0,
                         height: CHART.1,
-                        commands: week_line(
-                            CHART.0,
-                            CHART.1,
-                            ColorRole::OnSurfaceVariant,
-                            ColorRole::Primary,
-                        ),
+                        commands: week_line(CHART.0, CHART.1, palette::MUTED, palette::ACCENT),
                     }
                 }
             }
 
-            // The quote card, which is the one place on the screen where a paragraph sits
-            // on an accent fill rather than on a reading surface.
-            Column {
+            // The quote card. The reference draws it as a dark card with the quotation
+            // mark on a small tile of the accent, not as a panel of an accent container:
+            // that came out of the running design system as a pale lilac the picture does
+            // not have anywhere.
+            Row {
                 fill_max_width: true,
-                background: Paint::Role(ColorRole::PrimaryContainer),
+                background: Paint::Literal(palette::CARD),
                 shape_role: ShapeRole::Large,
                 padding_role: SpaceRole::Md,
-                space_role: SpaceRole::Xs,
+                space_role: SpaceRole::Md,
+                alignment: Alignment::CenterStart,
                 Text {
                     text: "\u{201c}",
-                    type_role: TypeRole::Display,
-                    color: Paint::Role(ColorRole::OnPrimaryContainer),
+                    type_role: TypeRole::Title,
+                    color: Paint::Literal(palette::ON_MOOD),
+                    background: Paint::Literal(palette::ACCENT),
+                    shape_role: ShapeRole::Small,
+                    padding_role: SpaceRole::Sm,
                 }
                 Text {
                     text: "Every day is a new opportunity for growth and positive change.",
                     type_role: TypeRole::Body,
-                    color: Paint::Role(ColorRole::OnPrimaryContainer),
+                    color: Paint::Literal(palette::INK),
+                    weight: 1.0,
                 }
             }
 
-            Surface {
+            Column {
                 fill_max_width: true,
+                background: Paint::Literal(palette::CARD),
                 shape_role: ShapeRole::Large,
                 Column {
                     fill_max_width: true,
@@ -579,16 +616,58 @@ fn profile_page(chosen: Mood) -> Element {
                                 fill_max_width: true,
                                 padding_role: SpaceRole::Md,
                                 alignment: Alignment::CenterStart,
-                                Text { text: *entry, type_role: TypeRole::Body, weight: 1.0 }
+                                Text {
+                                    text: *entry,
+                                    type_role: TypeRole::Body,
+                                    color: Paint::Literal(palette::INK),
+                                    weight: 1.0,
+                                }
                                 Text {
                                     text: "\u{203a}",
                                     type_role: TypeRole::Body,
-                                    color: Paint::Role(ColorRole::OnSurfaceVariant),
+                                    color: Paint::Literal(palette::MUTED),
                                 }
                             }
                             if index < 2 {
                                 Separator {}
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The bar along the bottom: four icons and nothing else.
+///
+/// Drawn here rather than declared as a `Navigation`, which is the widget for "the
+/// destinations, in whatever shape this design system and this window call for": a
+/// labelled bar with a selection pill, in the running system's accent. This design marks
+/// the destination you are on with its own colour, so the bar is the sample's to draw.
+fn bottom_bar(destination: Destination, on_go: EventHandler<Destination>) -> Element {
+    rsx! {
+        Row {
+            fill_max_width: true,
+            background: Paint::Literal(palette::PAGE),
+            padding_role: SpaceRole::Sm,
+            arrangement: Arrangement::SpaceAround,
+            alignment: Alignment::Center,
+            for choice in Destination::STRIP {
+                {
+                    let tint = if choice == destination {
+                        palette::ACCENT
+                    } else {
+                        palette::MUTED
+                    };
+                    rsx! {
+                        Button {
+                            key: "{choice.label()}",
+                            text: "",
+                            icon: choice.icon(),
+                            variant: ButtonVariant::Text,
+                            color: Paint::Literal(tint),
+                            on_click: move |_| on_go.call(choice),
                         }
                     }
                 }
@@ -646,18 +725,9 @@ pub fn app() -> Element {
         Scaffold {
             background: Paint::Literal(palette::PAGE),
             bottom_bar: rsx! {
-                Navigation {
-                    background: Paint::Literal(palette::PAGE),
-                    selected_index: destination().index(),
-                    for choice in Destination::STRIP {
-                        NavigationItem {
-                            key: "{choice.label()}",
-                            text: choice.label(),
-                            icon: choice.icon(),
-                            on_click: move |()| destination.set(choice),
-                        }
-                    }
-                }
+                {bottom_bar(destination(), EventHandler::new(move |choice: Destination| {
+                    destination.set(choice);
+                }))}
             },
 
             Column {
@@ -848,6 +918,64 @@ mod tests {
             true
         }
 
+        /// Presses a destination along the bottom, which is an icon with no words.
+        fn press_icon(&mut self, icon: IconRole) -> bool {
+            let found = {
+                let mutations = self.mutations();
+                let node = mutations.iter().rev().find_map(|mutation| match mutation {
+                    Mutation::SetProp {
+                        node_id,
+                        property: PropertyKind::Icon,
+                        value: PropertyValue::Integer(value),
+                    } if *value == icon as i64 => Some(*node_id),
+                    _ => None,
+                });
+                node.and_then(|node| {
+                    mutations.iter().rev().find_map(|mutation| match mutation {
+                        Mutation::SetProp {
+                            node_id,
+                            property: PropertyKind::OnClick,
+                            value: PropertyValue::Integer(handler),
+                        } if *node_id == node => Some((node, *handler as u64)),
+                        _ => None,
+                    })
+                })
+            };
+            let Some((node_id, handler_id)) = found else {
+                return false;
+            };
+            let mut bytes = Vec::new();
+            encode_event(
+                &HostEvent {
+                    node_id,
+                    handler_id,
+                    payload: EventPayload::Clicked,
+                },
+                &mut bytes,
+            )
+            .expect("the click did not encode");
+            let (batch, _) = self.host.dispatch_event(&bytes).expect("the click failed");
+            if !batch.is_empty() {
+                self.frames.push(batch.to_vec());
+            }
+            true
+        }
+
+        /// Every colour the screen set as a property, as the paint it decodes to.
+        fn tints(&self) -> Vec<Paint> {
+            self.mutations()
+                .iter()
+                .filter_map(|mutation| match mutation {
+                    Mutation::SetProp {
+                        property: PropertyKind::Color,
+                        value: PropertyValue::Integer(bits),
+                        ..
+                    } => Paint::from_bits(*bits as u64),
+                    _ => None,
+                })
+                .collect()
+        }
+
         fn latest_texts(&self) -> Vec<String> {
             let Some(frame) = self.frames.last() else {
                 return Vec::new();
@@ -982,9 +1110,97 @@ mod tests {
         let mut screen = Screen::new();
         for choice in Destination::STRIP {
             assert!(
-                screen.press(choice.label()),
-                "the bar has no destination called {}",
+                screen.press_icon(choice.icon()),
+                "the bar has no way to {}",
                 choice.label()
+            );
+        }
+        dioxus_compose::window::reset_window_size();
+    }
+
+    /// The bar is icons alone, drawn by the sample, with the one you are on in the
+    /// accent.
+    #[test]
+    fn fr22_the_bar_is_icons_with_the_accent_on_the_destination() {
+        let screen = Screen::new();
+        assert!(
+            !screen.mutations().iter().any(|mutation| matches!(
+                mutation,
+                Mutation::Create {
+                    widget: WidgetKind::Navigation | WidgetKind::NavigationItem,
+                    ..
+                }
+            )),
+            "a Navigation draws the design system's labelled bar, not the reference's"
+        );
+        let bar: Vec<Paint> = Destination::STRIP
+            .iter()
+            .map(|choice| {
+                let mutations = screen.mutations();
+                let node = mutations
+                    .iter()
+                    .find_map(|mutation| match mutation {
+                        Mutation::SetProp {
+                            node_id,
+                            property: PropertyKind::Icon,
+                            value: PropertyValue::Integer(value),
+                        } if *value == choice.icon() as i64 => Some(*node_id),
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| panic!("the bar has no {} icon", choice.label()));
+                mutations
+                    .iter()
+                    .find_map(|mutation| match mutation {
+                        Mutation::SetProp {
+                            node_id,
+                            property: PropertyKind::Color,
+                            value: PropertyValue::Integer(bits),
+                        } if *node_id == node => Paint::from_bits(*bits as u64),
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| panic!("the {} icon has no ink", choice.label()))
+            })
+            .collect();
+        assert_eq!(
+            bar,
+            vec![
+                Paint::Literal(palette::ACCENT),
+                Paint::Literal(palette::MUTED),
+                Paint::Literal(palette::MUTED),
+                Paint::Literal(palette::MUTED),
+            ],
+            "the destination you are on is the accent and the rest are quiet"
+        );
+    }
+
+    /// Nothing on any page is painted or inked by the design system.
+    ///
+    /// Named for what it defends: the profile's quote card was an accent container, which
+    /// came out of the running system as a pale lilac, and the week's line was drawn in
+    /// that system's accent. Neither is in the picture.
+    #[test]
+    fn fr22_nothing_on_the_screen_is_painted_by_a_role() {
+        let mut screen = Screen::new();
+        for choice in Destination::STRIP {
+            screen.press_icon(choice.icon());
+        }
+        for mutation in screen.mutations() {
+            if let Mutation::SetModifier {
+                modifier: Modifier::Background(paint) | Modifier::Border { paint, .. },
+                node_id,
+                ..
+            } = mutation
+            {
+                assert!(
+                    matches!(paint, Paint::Literal(_)),
+                    "node {node_id} is filled with {paint:?}, which the design system picks"
+                );
+            }
+        }
+        for paint in screen.tints() {
+            assert!(
+                matches!(paint, Paint::Literal(_)),
+                "something is inked with {paint:?}, which the design system picks"
             );
         }
         dioxus_compose::window::reset_window_size();
@@ -1011,7 +1227,7 @@ mod tests {
             app,
             |screen| {
                 assert!(
-                    screen.press(Destination::Profile.label()),
+                    screen.press_icon(Destination::Profile.icon()),
                     "the bar has no way to the profile"
                 );
             },
@@ -1027,7 +1243,7 @@ mod tests {
             app,
             |screen| {
                 assert!(
-                    screen.press(Destination::Listen.label()),
+                    screen.press_icon(Destination::Listen.icon()),
                     "the bar has no way to the sessions"
                 );
                 assert_eq!(

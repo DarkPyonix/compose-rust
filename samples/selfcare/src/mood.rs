@@ -162,7 +162,7 @@ pub const WEEK: [(&str, f32); 7] = [
 /// A polyline would be one record, and a polyline's points live in a registered asset that
 /// application code has no way to register, so the line is drawn as segments. Seven
 /// readings is six of them.
-pub fn week_line(width: f32, height: f32, ink: ColorRole, mark: ColorRole) -> DrawList {
+pub fn week_line(width: f32, height: f32, ink: Color, mark: Color) -> DrawList {
     let label_band = height * 0.22;
     let plot = height - label_band;
     let baseline = plot + label_band * 0.62;
@@ -184,7 +184,7 @@ pub fn week_line(width: f32, height: f32, ink: ColorRole, mark: ColorRole) -> Dr
     let mut list = DrawListBuilder::with_capacity(WEEK.len() * 3, WEEK.len() * 4);
     for index in 1..WEEK.len() {
         list = list.line(
-            Paint::Role(ink),
+            Paint::Literal(ink),
             x_of(index - 1),
             y_of(WEEK[index - 1].1),
             x_of(index),
@@ -194,9 +194,9 @@ pub fn week_line(width: f32, height: f32, ink: ColorRole, mark: ColorRole) -> Dr
     }
     for (index, (day, value)) in WEEK.iter().enumerate() {
         list = list
-            .circle(Paint::Role(mark), x_of(index), y_of(*value), 3.0, 0.0)
+            .circle(Paint::Literal(mark), x_of(index), y_of(*value), 3.0, 0.0)
             .text_at(
-                Paint::Role(ink),
+                Paint::Literal(ink),
                 day,
                 (index as f32 * slot + label_inset).min(last_label_start),
                 baseline,
@@ -245,23 +245,19 @@ mod tests {
         }
     }
 
-    /// Every colour in the week's line is a role. The faces are pictures and carry their
-    /// own, which is what makes them pictures; everything a draw list says is a role.
+    /// Every colour in the week's line is one the palette holds. It used to be a pair of
+    /// roles, which drew the line in the running design system's accent rather than the
+    /// reference's own; a unified sample names its picture's colours instead, and the
+    /// guarantee a role gave, that no drawing invents a shade of its own, is given here.
     #[test]
-    fn fr13_nothing_drawn_here_carries_a_literal_colour() {
-        let drawings = [week_line(
-            300.0,
-            160.0,
-            ColorRole::OnSurface,
-            ColorRole::Primary,
-        )];
-        for drawing in drawings {
-            for command in drawing.decode().expect("a drawing did not decode") {
-                assert!(
-                    matches!(command.paint(), Paint::Role(_)),
-                    "{command:?} is painted with something other than a role"
-                );
-            }
+    fn fr22_the_week_is_drawn_in_the_palette() {
+        let allowed = [crate::palette::MUTED, crate::palette::ACCENT];
+        let drawing = week_line(300.0, 160.0, crate::palette::MUTED, crate::palette::ACCENT);
+        for command in drawing.decode().expect("a drawing did not decode") {
+            assert!(
+                matches!(command.paint(), Paint::Literal(color) if allowed.contains(&color)),
+                "{command:?} is painted with something the palette does not hold"
+            );
         }
     }
 
@@ -271,7 +267,7 @@ mod tests {
     #[test]
     fn fr16_the_last_day_is_written_inside_the_chart() {
         let width = 300.0;
-        let commands = week_line(width, 160.0, ColorRole::OnSurface, ColorRole::Primary)
+        let commands = week_line(width, 160.0, crate::palette::MUTED, crate::palette::ACCENT)
             .decode()
             .expect("the week did not decode");
         let days: Vec<f32> = commands
@@ -294,7 +290,7 @@ mod tests {
     /// gap in it that reads as missing data.
     #[test]
     fn fr16_the_week_joins_every_reading_to_the_next() {
-        let commands = week_line(300.0, 160.0, ColorRole::OnSurface, ColorRole::Primary)
+        let commands = week_line(300.0, 160.0, crate::palette::MUTED, crate::palette::ACCENT)
             .decode()
             .expect("the week did not decode");
         assert_eq!(
