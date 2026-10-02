@@ -6,11 +6,19 @@
 # not refused there for the same reasons. The Store signs what it takes in itself; the
 # test certificate exists only so that this machine will install the package.
 #
-# What gets packaged: by default a tiny windowed stand-in built from this repository,
-# described by the notepad sample's metadata, because the pipeline is what is under test
-# and the renderer takes most of an hour to build. Dispatched with a run id, it packages
-# a real build instead: an artifact from that run, unpacked, with the program and the
-# renderer beside it.
+# Two things are packaged, side by side:
+#
+#   stand-in  a tiny windowed program built here, described by the notepad sample's
+#             metadata. It proves the pipeline in minutes and owes nothing to the
+#             renderer.
+#   sample    a real build: the program with the renderer and its companion files
+#             beside it, the shape a dioxus-compose application ships in. By default the
+#             notepad archive from a published sample release; dispatched with a run id,
+#             an artifact from that run instead (a samples-windows-x64 artifact, or any
+#             build packed the same way).
+#
+# Building the renderer is not part of this workflow. It takes most of an hour and a
+# released build is exactly the input the packager is meant to take.
 
 name: Windows package
 
@@ -29,8 +37,12 @@ on:
         description: 'Application directory holding Dioxus.toml and Cargo.toml'
         default: 'samples/notepad'
         type: string
+      payload_url:
+        description: 'URL of a .tar.gz holding a real build (used when no run id is given)'
+        default: 'https://github.com/DarkPyonix/dioxus-compose/releases/download/sample-v0.1.1/notepad-windows-x64.tar.gz'
+        type: string
       payload_run_id:
-        description: 'Run id whose artifact holds the build to package (empty: the stand-in)'
+        description: 'Run id whose artifact holds the build to package instead of the URL'
         default: ''
         type: string
       payload_artifact:
@@ -61,6 +73,10 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   PROJECT: ${{ inputs.project || 'samples/notepad' }}
+  PAYLOAD_URL: ${{ inputs.payload_url || 'https://github.com/DarkPyonix/dioxus-compose/releases/download/sample-v0.1.1/notepad-windows-x64.tar.gz' }}
+  PAYLOAD_ARCHIVE: ${{ inputs.payload_archive || 'notepad-windows-x64.tar.gz' }}
+  PAYLOAD_ROOT: ${{ inputs.payload_root || 'notepad' }}
+  PAYLOAD_EXE: ${{ inputs.payload_exe || 'bin/sample-notepad.exe' }}
 
 jobs:
   test:
@@ -82,25 +98,20 @@ jobs:
         run: cargo fmt -p dioxus-compose-msix -- --check
 
       - name: Clippy
-        run: cargo clippy -p dioxus-compose-msix --all-targets -- -D warnings
+        run: cargo clippy --locked -p dioxus-compose-msix --all-targets -- -D warnings
 
       - name: Tests
-        run: cargo test -p dioxus-compose-msix
-
-      - name: Keep the resolved lock file
-        # The packager's dependencies are resolved here rather than on a developer
-        # machine, so the lock file that resolution produced is kept for committing.
-        if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
-        with:
-          name: cargo-lock
-          path: Cargo.lock
+        run: cargo test --locked -p dioxus-compose-msix
 
   package:
-    name: Package, sign and certify
+    name: Package, sign and certify (${{ matrix.payload }})
     needs: test
     runs-on: windows-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        payload: [stand-in, sample]
     steps:
       - uses: actions/checkout@v4
 
@@ -110,17 +121,23 @@ jobs:
           rustup default stable
 
       - name: Build the packager and the stand-in program
-        run: |
-          cargo build --release -p dioxus-compose-msix --bin dioxus-compose-msix --example fixture-app
+        run: cargo build --locked --release -p dioxus-compose-msix --bin dioxus-compose-msix --example fixture-app
 
-      - name: Fetch the build to package
-        if: inputs.payload_run_id != ''
+      - name: Fetch the build from a run
+        if: matrix.payload == 'sample' && inputs.payload_run_id != ''
         uses: actions/download-artifact@v4
         with:
           run-id: ${{ inputs.payload_run_id }}
           name: ${{ inputs.payload_artifact }}
           path: payload-artifact
           github-token: ${{ github.token }}
+
+      - name: Fetch the build from a release
+        if: matrix.payload == 'sample' && inputs.payload_run_id == ''
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path payload-artifact | Out-Null
+          Invoke-WebRequest -Uri $env:PAYLOAD_URL -OutFile "payload-artifact\$env:PAYLOAD_ARCHIVE"
 
       - name: Package
         id: pack
@@ -129,13 +146,14 @@ jobs:
           $tool = 'target\release\dioxus-compose-msix.exe'
           $out = Join-Path $env:RUNNER_TEMP 'msix'
           $summary = Join-Path $env:RUNNER_TEMP 'msix-summary.txt'
-          if ('${{ inputs.payload_run_id }}' -ne '') {
+          if ('${{ matrix.payload }}' -eq 'sample') {
             $unpacked = Join-Path $env:RUNNER_TEMP 'payload'
             New-Item -ItemType Directory -Force -Path $unpacked | Out-Null
-            tar -xzf "payload-artifact\${{ inputs.payload_archive }}" -C $unpacked
+            tar -xzf "payload-artifact\$env:PAYLOAD_ARCHIVE" -C $unpacked
+            if ($LASTEXITCODE -ne 0) { throw "could not unpack $env:PAYLOAD_ARCHIVE" }
+            Get-ChildItem -Recurse (Join-Path $unpacked $env:PAYLOAD_ROOT) | Select-Object -ExpandProperty FullName
             & $tool --project $env:PROJECT --out $out --summary $summary --test-identity `
-              --payload-dir (Join-Path $unpacked '${{ inputs.payload_root }}') `
-              --exe '${{ inputs.payload_exe }}'
+              --payload-dir (Join-Path $unpacked $env:PAYLOAD_ROOT) --exe $env:PAYLOAD_EXE
           } else {
             & $tool --project $env:PROJECT --out $out --summary $summary --test-identity `
               --exe 'target\release\examples\fixture-app.exe'
@@ -183,7 +201,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: wack-reports
+          name: wack-reports-${{ matrix.payload }}
           path: ${{ runner.temp }}/wack/
           if-no-files-found: warn
 
@@ -191,7 +209,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: msix-packages
+          name: msix-packages-${{ matrix.payload }}
           path: |
             ${{ runner.temp }}/msix/*.msix
             ${{ runner.temp }}/msix/*.msixbundle
@@ -212,7 +230,7 @@ jobs:
           rustup default stable
 
       - name: Build the packager and the stand-in program
-        run: cargo build --release -p dioxus-compose-msix --bin dioxus-compose-msix --example fixture-app
+        run: cargo build --locked --release -p dioxus-compose-msix --bin dioxus-compose-msix --example fixture-app
 
       - name: Package two builds of one release for the sideload channel
         id: pack
