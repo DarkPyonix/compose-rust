@@ -402,7 +402,9 @@ class NodeTable {
                         // caption. It is a property rather than a child because three
                         // design systems centre it, and a bar whose children are an
                         // arbitrary tree gives no way to tell which of them to centre.
-                        widget == WidgetKind.TopAppBar
+                        widget == WidgetKind.TopAppBar ||
+                        // A badge's short word, shown where a count would be.
+                        widget == WidgetKind.Badge
 
                 // Note: SpacerProps has width and height in the Rust schema, but there are
                 // no matching PropertyKind variants, so a Spacer can only be sized with
@@ -445,7 +447,10 @@ class NodeTable {
                                     // than written, so there is no Text underneath to
                                     // colour instead.
                                     widget == WidgetKind.Tabs ||
-                                    widget == WidgetKind.Slider
+                                    widget == WidgetKind.Slider ||
+                                    // A badge's fill. Only its role is read: a badge
+                                    // has no literal colour.
+                                    widget == WidgetKind.Badge
                                 )
                         )
 
@@ -531,6 +536,9 @@ class NodeTable {
 
                 // Runs of different treatment inside one string.
                 PropertyKind.Spans -> widget == WidgetKind.Text
+
+                // How many a badge counts. Nothing else counts anything.
+                PropertyKind.Count -> widget == WidgetKind.Badge
 
                 // Files over a node and files let go on it. Only the widget that exists
                 // to receive them, because a handler is attached whether or not a screen

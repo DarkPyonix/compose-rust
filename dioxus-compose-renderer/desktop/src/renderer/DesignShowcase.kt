@@ -3,6 +3,8 @@ package dioxus.compose.tooling
 import androidx.compose.runtime.remember
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
+import dioxus.compose.protocol.Alignment
+import dioxus.compose.protocol.Arrangement
 import dioxus.compose.protocol.ButtonVariant
 import dioxus.compose.protocol.ColorRole
 import dioxus.compose.protocol.ColorScheme
@@ -266,6 +268,60 @@ fun designShowcaseRecords(theme: Theme): List<Mutation> {
         records += Mutation.SetProp(tab, PropertyKind.Text, PropertyValue.Text(label))
         records += Mutation.SetProp(tab, PropertyKind.OnClick, PropertyValue.Integer(1L))
         records += Mutation.Insert(tabs, tab, index)
+    }
+
+    // Badges, attached and standing alone, carrying a count, a word and nothing at all.
+    // The count of 120 is the one to compare: some systems write it out, some cut it at
+    // their ceiling, and one puts it at the end of the line instead of on the corner.
+    text(root, slot++, "badges", TypeRole.Headline, ColorRole.OnSurfaceVariant)
+
+    fun badge(parent: Int, index: Int, count: Long?, word: String?): Int {
+        val node = id()
+        records += Mutation.Create(node, WidgetKind.Badge)
+        if (count != null) {
+            records += Mutation.SetProp(node, PropertyKind.Count, PropertyValue.Integer(count))
+        }
+        if (word != null) {
+            records += Mutation.SetProp(node, PropertyKind.Text, PropertyValue.Text(word))
+        }
+        records += Mutation.Insert(parent, node, index)
+        return node
+    }
+
+    val attached = id()
+    records += Mutation.Create(attached, WidgetKind.Row)
+    records += Mutation.SetProp(attached, PropertyKind.SpaceRole, PropertyValue.Integer(SpaceRole.Lg.ordinal + 1L))
+    records += Mutation.Insert(root, attached, slot++)
+    listOf(
+        Triple("Inbox", 3L, null),
+        Triple("Updates", 120L, null),
+        Triple("Drafts", null, null),
+        Triple("Releases", null, "new"),
+    ).forEachIndexed { index, (label, count, word) ->
+        val holder = badge(attached, index, count, word)
+        val button = id()
+        records += Mutation.Create(button, WidgetKind.Button)
+        records += Mutation.SetProp(button, PropertyKind.Text, PropertyValue.Text(label))
+        records += Mutation.SetProp(button, PropertyKind.Variant, PropertyValue.Integer(ButtonVariant.Tonal.ordinal + 1L))
+        records += Mutation.SetProp(button, PropertyKind.OnClick, PropertyValue.Integer(1L))
+        records += Mutation.Insert(holder, button, 0)
+    }
+
+    // Alone, at the end of a list row, which is where a count stands when there is no icon
+    // to put it on.
+    listOf(
+        Triple("Unread", 120L, null),
+        Triple("Mentions", null, null),
+        Triple("Labels", null, "beta"),
+    ).forEach { (label, count, word) ->
+        val line = id()
+        records += Mutation.Create(line, WidgetKind.Row)
+        records += Mutation.SetModifier(line, 0, ProtocolModifier.FillMaxWidth)
+        records += Mutation.SetProp(line, PropertyKind.Arrangement, PropertyValue.Integer(Arrangement.SpaceBetween.ordinal + 1L))
+        records += Mutation.SetProp(line, PropertyKind.Alignment, PropertyValue.Integer(Alignment.CenterStart.ordinal + 1L))
+        records += Mutation.Insert(root, line, slot++)
+        text(line, 0, label, TypeRole.Body)
+        badge(line, 1, count, word)
     }
 
     return records

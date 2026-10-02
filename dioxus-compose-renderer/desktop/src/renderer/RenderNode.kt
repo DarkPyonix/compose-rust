@@ -27,6 +27,7 @@ import dioxus.compose.design.LocalGlassDepth
 import dioxus.compose.design.SurfaceMaterial
 import dioxus.compose.protocol.Modifier as ProtocolModifier
 import dioxus.compose.design.ResolvedTheme
+import dioxus.compose.foundation.HostBadge
 import dioxus.compose.foundation.HostButton
 import dioxus.compose.foundation.HostLazyGrid
 import dioxus.compose.foundation.HostRichText
@@ -237,6 +238,14 @@ fun RenderNode(
         WidgetKind.ScaffoldSlot -> Column(modifier = modifier) {
             Children(node, table, dispatcher)
         }
+
+        // A count, a word or a dot, on its child or on its own. Where it sits and how a
+        // large count is written are the design system's.
+        WidgetKind.Badge -> HostBadge(node, modifier, table, dispatcher, theme)
+
+        // Interpreted once text selection lands. Until then it lays its children out
+        // as a plain column, so nothing inside is lost.
+        WidgetKind.SelectionContainer -> Column(modifier) { Children(node, table, dispatcher) }
     }
 }
 
