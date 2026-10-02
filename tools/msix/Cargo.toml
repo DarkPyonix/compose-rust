@@ -1,0 +1,31 @@
+[package]
+name = "dioxus-compose-msix"
+version = "0.1.0"
+description = "Packages a dioxus-compose desktop executable as an MSIX for the Microsoft Store and App Installer."
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+# The packager runs on the machine that ships the application, not inside it, so it is a
+# plain command line tool. Everything it decides (identity, version, manifest, icons,
+# update feed) is ordinary Rust and is tested on any host; only the last step, handing
+# the staged directory to the Windows SDK's MakeAppx, needs Windows.
+[dependencies]
+png = "0.17"
+toml = "0.8"
+
+[[bin]]
+name = "dioxus-compose-msix"
+path = "src/main.rs"
+bench = false
+
+[lib]
+bench = false
+
+# A tiny windowed program the pipeline can package when no application build is at hand.
+# It shows a message box and waits, which is what the certification kit's launch test
+# needs: a process that starts, draws a window and stays up until it is closed.
+[[example]]
+name = "fixture-app"
+path = "examples/fixture_app.rs"

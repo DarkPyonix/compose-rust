@@ -13,6 +13,7 @@ members = [
     "samples/statistics",
     "samples/store",
     "samples/todo",
+    "tools/msix",
 ]
 resolver = "2"
 
