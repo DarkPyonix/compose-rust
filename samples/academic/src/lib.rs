@@ -3,12 +3,10 @@
 //! The marks on the tiles are pictures: the reference puts a rendered object on each, and
 //! three concentric circles in four colours is four subjects nobody can tell apart.
 //!
-//! The screen this sample exists for is the grid of subjects, and it is the one place in
-//! the seven references where the role vocabulary ran out. Four subjects want four fills
-//! that are peers of each other. There are three accent families and nothing else that is
-//! a peer of them, so the fourth tile is the neutral fill and reads quieter than its
-//! neighbours. That is written down in `school.rs` rather than papered over with a
-//! literal.
+//! The screen this sample exists for is the grid of subjects: four fills that are peers of
+//! each other. The role vocabulary has three accent families and nothing else that is a
+//! peer of them, which is the reason this sample, like every unified one, names its
+//! picture's colours in `palette` instead.
 //!
 //! Unified, naming Cupertino and dark: the reference is drawn on black, both screens,
 //! and a drum school that comes up white on a machine set to light is not that design.
@@ -16,14 +14,32 @@
 
 mod school;
 
+/// The colours the reference picture is drawn in, named once.
+///
+/// `Color` rather than `Paint`, so a role cannot be written here at all: what the type
+/// holds is a literal, and every use wraps it as `Paint::Literal`.
 mod palette {
     use dioxus_compose::prelude::Color;
+    /// The page, black throughout.
     pub const PAGE: Color = Color::rgb(0x000000);
+    /// Everything written on the page and on the four tiles.
     pub const TEXT: Color = Color::rgb(0xFFFFFF);
+    /// The four subjects.
     pub const PURPLE: Color = Color::rgb(0x3B2C63);
     pub const RED: Color = Color::rgb(0xFF5A5F);
     pub const TEAL: Color = Color::rgb(0x2DD4BF);
+    /// The fourth subject, and the one accent: the chosen stage, the destination you are
+    /// on, and the key that starts a lesson.
     pub const AMBER: Color = Color::rgb(0xFBBF24);
+    /// The one white card: the lesson you can open. Its ink is the page's black.
+    pub const OPEN_CARD: Color = Color::rgb(0xFFFFFF);
+    /// What supports rather than says, on the white card and on the page: a lesson's
+    /// number and summary, and a stage that is not the one chosen.
+    pub const MUTED: Color = Color::rgb(0x8A8A8E);
+    /// A locked lesson and the progress panel: dark cards one step up from the page.
+    pub const LOCKED_CARD: Color = Color::rgb(0x24252D);
+    /// What is written on a locked lesson, quiet because it cannot be opened yet.
+    pub const LOCKED_INK: Color = Color::rgb(0x9A9AA5);
 }
 
 use dioxus_compose::prelude::*;
@@ -74,24 +90,13 @@ impl Destination {
             Destination::Profile => IconRole::Settings,
         }
     }
-
-    fn index(self) -> usize {
-        Self::STRIP
-            .iter()
-            .position(|found| *found == self)
-            .unwrap_or(0)
-    }
 }
 
 /// One subject as a tile: the mark, the name, and how far through it you are.
 fn subject_tile(subject: &Subject, on_open: EventHandler<&'static str>) -> Element {
     let name = subject.name;
-    let fill = match name {
-        "Technique" => Paint::Literal(palette::PURPLE),
-        "Arsenal" => Paint::Literal(palette::RED),
-        "Coordination" => Paint::Literal(palette::TEAL),
-        _ => Paint::Literal(palette::AMBER),
-    };
+    let (fill, ink) = subject.tile.colors();
+    let fill = Paint::Literal(fill);
     rsx! {
         dioxus_compose::Box {
             fill_max_width: true,
@@ -115,7 +120,7 @@ fn subject_tile(subject: &Subject, on_open: EventHandler<&'static str>) -> Eleme
                 Button {
                     text: name,
                     variant: ButtonVariant::Text,
-                    color: Paint::Literal(palette::TEXT),
+                    color: Paint::Literal(ink),
                     padding_role: SpaceRole::None,
                     on_click: move |_| on_open.call(name),
                 }
@@ -174,35 +179,43 @@ fn skills_page(on_open: EventHandler<&'static str>) -> Element {
 
 /// One lesson as a card. What is locked is quiet and says so in a word, because a padlock
 /// is an icon and an icon cannot be placed from application code.
+///
+/// An open lesson is the reference's one white card with black ink; a locked one is a
+/// dark card one step up from the page with its writing quietened.
 fn lesson_card(lesson: &Lesson) -> Element {
-    let (fill, ink) = if lesson.open {
-        (ColorRole::SurfaceContainer, ColorRole::OnSurface)
+    let (fill, ink, quiet) = if lesson.open {
+        (palette::OPEN_CARD, palette::PAGE, palette::MUTED)
     } else {
-        (ColorRole::SurfaceVariant, ColorRole::OnSurfaceVariant)
+        (
+            palette::LOCKED_CARD,
+            palette::LOCKED_INK,
+            palette::LOCKED_INK,
+        )
     };
     rsx! {
         Column {
             fill_max_width: true,
-            background: Paint::Role(fill),
+            background: Paint::Literal(fill),
             shape_role: ShapeRole::Large,
             padding_role: SpaceRole::Md,
             space_role: SpaceRole::Xs,
             if lesson.recent {
+                // The reference marks it with a red dot beside the word.
                 Text {
                     text: "Recent",
                     type_role: TypeRole::Label,
-                    color: Paint::Role(ColorRole::Primary),
+                    color: Paint::Literal(palette::RED),
                 }
             }
             Text {
                 text: lesson.title,
                 type_role: TypeRole::Title,
-                color: Paint::Role(ink),
+                color: Paint::Literal(ink),
             }
             Text {
                 text: lesson.summary,
                 type_role: TypeRole::Body,
-                color: Paint::Role(ColorRole::OnSurfaceVariant),
+                color: Paint::Literal(quiet),
             }
             Row {
                 fill_max_width: true,
@@ -211,13 +224,16 @@ fn lesson_card(lesson: &Lesson) -> Element {
                 Text {
                     text: "{ordinal(lesson.number)} lesson",
                     type_role: TypeRole::Caption,
-                    color: Paint::Role(ColorRole::OnSurfaceVariant),
+                    color: Paint::Literal(quiet),
                     weight: 1.0,
                 }
                 if lesson.open {
                     Button {
                         text: "Start",
                         variant: ButtonVariant::Filled,
+                        shape_role: ShapeRole::Full,
+                        background: Paint::Literal(palette::AMBER),
+                        color: Paint::Literal(palette::PAGE),
                         on_click: move |_| {
                             Message::new("Lessons are not part of this sample").show();
                         },
@@ -226,7 +242,7 @@ fn lesson_card(lesson: &Lesson) -> Element {
                     Text {
                         text: "Locked",
                         type_role: TypeRole::Label,
-                        color: Paint::Role(ColorRole::OnSurfaceVariant),
+                        color: Paint::Literal(quiet),
                     }
                 }
             }
@@ -244,7 +260,11 @@ fn plan_page(chosen: Signal<u32>) -> Element {
             padding_role: SpaceRole::Md,
             space_role: SpaceRole::Md,
 
-            Text { text: "Lesson plan", type_role: TypeRole::Headline }
+            Text {
+                text: "Lesson plan",
+                type_role: TypeRole::Headline,
+                color: Paint::Literal(palette::TEXT),
+            }
 
             // A strip rather than a segmented control. `Tabs` divides its width equally
             // and does not scroll, so four stages on a phone is four segments of seventy
@@ -260,12 +280,25 @@ fn plan_page(chosen: Signal<u32>) -> Element {
                         dioxus_compose::Box {
                             padding_role: SpaceRole::Xs,
                             alignment: Alignment::Center,
+                            // The chosen stage is an amber capsule with white on it, and the
+                            // rest are words on the page, as the reference draws its strip.
                             Button {
                                 text: "Stage {number}",
                                 variant: if number == chosen() {
                                     ButtonVariant::Filled
                                 } else {
                                     ButtonVariant::Text
+                                },
+                                shape_role: ShapeRole::Full,
+                                background: if number == chosen() {
+                                    Some(Paint::Literal(palette::AMBER))
+                                } else {
+                                    None
+                                },
+                                color: if number == chosen() {
+                                    Paint::Literal(palette::TEXT)
+                                } else {
+                                    Paint::Literal(palette::MUTED)
                                 },
                                 on_click: move |_| chosen.set(number),
                             }
@@ -297,10 +330,15 @@ fn progress_page() -> Element {
             padding_role: SpaceRole::Md,
             space_role: SpaceRole::Md,
 
-            Text { text: "Your progress", type_role: TypeRole::Headline }
+            Text {
+                text: "Your progress",
+                type_role: TypeRole::Headline,
+                color: Paint::Literal(palette::TEXT),
+            }
 
-            Surface {
+            Column {
                 fill_max_width: true,
+                background: Paint::Literal(palette::LOCKED_CARD),
                 shape_role: ShapeRole::Large,
                 padding_role: SpaceRole::Md,
                 Column {
@@ -309,6 +347,7 @@ fn progress_page() -> Element {
                     Text {
                         text: "{done} of {LESSONS.len()} lessons open",
                         type_role: TypeRole::Body,
+                        color: Paint::Literal(palette::TEXT),
                     }
                     ProgressIndicator { fill_max_width: true, value: overall }
                 }
@@ -321,7 +360,7 @@ fn progress_page() -> Element {
                     Column {
                         key: "{subject.name}",
                         fill_max_width: true,
-                        background: Paint::Role(subject.tile.roles().0),
+                        background: Paint::Literal(subject.tile.colors().0),
                         shape_role: ShapeRole::Large,
                         padding_role: SpaceRole::Md,
                         space_role: SpaceRole::Xs,
@@ -331,23 +370,61 @@ fn progress_page() -> Element {
                             Text {
                                 text: subject.name,
                                 type_role: TypeRole::BodyStrong,
-                                color: Paint::Role(subject.tile.roles().1),
+                                color: Paint::Literal(subject.tile.colors().1),
                                 weight: 1.0,
                             }
                             Text {
                                 text: "{(subject.progress * 100.0).round() as i32}%",
                                 type_role: TypeRole::Label,
-                                color: Paint::Role(subject.tile.roles().1),
+                                color: Paint::Literal(subject.tile.colors().1),
                             }
                         }
-                        // A whole sentence on the tint, which is the promise the container
-                        // roles make and the reason they are a colour of their own.
+                        // The subject's own colour, the same one its tile on the grid has,
+                        // so a subject is recognisable from one page to the other.
                         Text {
                             text: subject.blurb,
                             type_role: TypeRole::Caption,
-                            color: Paint::Role(subject.tile.roles().1),
+                            color: Paint::Literal(subject.tile.colors().1),
                         }
                         ProgressIndicator { fill_max_width: true, value: subject.progress }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The bar along the bottom: four icons and nothing else.
+///
+/// Drawn here rather than declared as a `Navigation`, which is the widget for "the
+/// destinations, in whatever shape this design system and this window call for": a
+/// labelled bar with a selection pill in the running system's accent. The reference's bar
+/// is four white icons on the black page, and the destination you are on is marked in the
+/// design's own amber.
+fn bottom_bar(destination: Destination, on_go: EventHandler<Destination>) -> Element {
+    rsx! {
+        Row {
+            fill_max_width: true,
+            background: Paint::Literal(palette::PAGE),
+            padding_role: SpaceRole::Sm,
+            arrangement: Arrangement::SpaceAround,
+            alignment: Alignment::Center,
+            for choice in Destination::STRIP {
+                {
+                    let tint = if choice == destination {
+                        palette::AMBER
+                    } else {
+                        palette::TEXT
+                    };
+                    rsx! {
+                        Button {
+                            key: "{choice.label()}",
+                            text: "",
+                            icon: choice.icon(),
+                            variant: ButtonVariant::Text,
+                            color: Paint::Literal(tint),
+                            on_click: move |_| on_go.call(choice),
+                        }
                     }
                 }
             }
@@ -393,21 +470,9 @@ pub fn app() -> Element {
         Scaffold {
             background: Paint::Literal(palette::PAGE),
             bottom_bar: rsx! {
-                Navigation {
-                    background: Paint::Literal(palette::PAGE),
-                    selected_index: destination().index(),
-                    for choice in Destination::STRIP {
-                        NavigationItem {
-                            key: "{choice.label()}",
-                            // The reference's bar has no accent in it: every icon is white and
-                            // the selected one is marked by nothing but being the one you are on.
-                            color: Paint::Literal(palette::TEXT),
-                            text: "",
-                            icon: choice.icon(),
-                            on_click: move |()| destination.set(choice),
-                        }
-                    }
-                }
+                {bottom_bar(destination(), EventHandler::new(move |choice: Destination| {
+                    destination.set(choice);
+                }))}
             },
 
             Column {
@@ -711,14 +776,95 @@ mod tests {
         }
     }
 
+    /// The drum school's colours are the picture's, not the running design system's, and
+    /// each is the value read off the reference.
     #[test]
-    fn fr14_the_palette_is_pinned() {
+    fn fr22_the_palette_is_the_reference_colours_rather_than_the_theme() {
         assert_eq!(palette::PAGE.to_argb(), 0xFF000000);
         assert_eq!(palette::TEXT.to_argb(), 0xFFFFFFFF);
         assert_eq!(palette::PURPLE.to_argb(), 0xFF3B2C63);
         assert_eq!(palette::RED.to_argb(), 0xFFFF5A5F);
         assert_eq!(palette::TEAL.to_argb(), 0xFF2DD4BF);
         assert_eq!(palette::AMBER.to_argb(), 0xFFFBBF24);
+        assert_eq!(palette::OPEN_CARD.to_argb(), 0xFFFFFFFF);
+        assert_eq!(palette::MUTED.to_argb(), 0xFF8A8A8E);
+        assert_eq!(palette::LOCKED_CARD.to_argb(), 0xFF24252D);
+        assert_eq!(palette::LOCKED_INK.to_argb(), 0xFF9A9AA5);
+    }
+
+    /// Every colour the screen set as a property, as the paint it decodes to.
+    fn tints(screen: &Screen) -> Vec<Paint> {
+        screen
+            .mutations()
+            .iter()
+            .filter_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    property: PropertyKind::Color,
+                    value: PropertyValue::Integer(bits),
+                    ..
+                } => Paint::from_bits(*bits as u64),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Nothing on any page is painted or inked by the design system.
+    ///
+    /// Named for what it defends: the lesson cards were surface roles and the progress
+    /// page painted the four subjects in the running system's three accent containers and
+    /// its neutral one, so the same subject was amber on one page and pale grey on the
+    /// next.
+    #[test]
+    fn fr22_nothing_on_the_screen_is_painted_by_a_role() {
+        let mut screen = Screen::new();
+        for choice in Destination::STRIP {
+            screen.press_icon(choice.icon());
+            if choice == Destination::Plan {
+                screen.fill_lists(STAGES.len() as u32);
+            }
+        }
+        for mutation in screen.mutations() {
+            if let Mutation::SetModifier {
+                modifier: Modifier::Background(paint) | Modifier::Border { paint, .. },
+                node_id,
+                ..
+            } = mutation
+            {
+                assert!(
+                    matches!(paint, Paint::Literal(_)),
+                    "node {node_id} is filled with {paint:?}, which the design system picks"
+                );
+            }
+        }
+        for paint in tints(&screen) {
+            assert!(
+                matches!(paint, Paint::Literal(_)),
+                "something is inked with {paint:?}, which the design system picks"
+            );
+        }
+        dioxus_compose::window::reset_window_size();
+    }
+
+    /// The bar is icons alone, drawn by the sample, and the destination you are on is the
+    /// only thing on the grid in amber that is not a subject's tile.
+    #[test]
+    fn fr22_the_bar_is_icons_with_the_accent_on_the_destination() {
+        let screen = Screen::new();
+        assert!(
+            !screen.mutations().iter().any(|mutation| matches!(
+                mutation,
+                Mutation::Create {
+                    widget: WidgetKind::Navigation | WidgetKind::NavigationItem,
+                    ..
+                }
+            )),
+            "a Navigation draws the design system's labelled bar, not the reference's"
+        );
+        let amber = tints(&screen)
+            .iter()
+            .filter(|paint| **paint == Paint::Literal(palette::AMBER))
+            .count();
+        assert_eq!(amber, 1, "the accent marks the destination you are on");
     }
 
     #[test]

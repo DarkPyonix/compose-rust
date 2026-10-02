@@ -10,8 +10,8 @@ use dioxus_compose::prelude::*;
 /// targets in four colours.
 ///
 /// These are original drawings of the things a drummer actually touches, registered once
-/// and drawn by id. The tile behind a mark, the name under it and the ink on both are
-/// still roles, so the four tiles are still the design system's four colours.
+/// and drawn by id. The tile behind a mark is the subject's own colour from the sample's
+/// palette, as in the reference.
 pub static MARKS: [&[u8]; 4] = [
     include_bytes!("../assets/mark-technique.svg"),
     include_bytes!("../assets/mark-arsenal.svg"),
@@ -33,47 +33,30 @@ pub struct Subject {
 
 /// The fill a subject's tile takes, and the ink that reads on it.
 ///
-/// Four subjects, three accent families. The vocabulary has `Primary`, `Secondary` and
-/// `Tertiary` with a container each, and nothing else that is a peer of those: `Error` is
-/// a warning rather than a fourth colour, and using it for a subject would mean the tile
-/// marked "Songs" is the one the design system reserves for something going wrong.
-///
-/// So the fourth tile is the neutral fill. It reads as quieter than its three neighbours,
-/// which is a real loss against the reference, where the four subjects are four equals. A
-/// fourth accent family is what the picture actually asked for.
+/// Four subjects, four peers: the reference's purple, red, teal and amber. These were
+/// roles once, and the vocabulary has three accent families with a container each and
+/// nothing else that is a peer of them, so the fourth subject came out as the neutral
+/// fill, quieter than its neighbours, and the three others came out as whichever pale
+/// containers the running design system had. A unified sample names its picture's
+/// colours, and this picture has four.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Tile {
-    First,
-    Second,
-    Third,
-    Neutral,
+    Purple,
+    Red,
+    Teal,
+    Amber,
 }
 
 impl Tile {
-    /// The fill, the ink on it, and the stronger colour of the same family for a mark.
-    pub fn roles(self) -> (ColorRole, ColorRole, ColorRole) {
-        match self {
-            Tile::First => (
-                ColorRole::PrimaryContainer,
-                ColorRole::OnPrimaryContainer,
-                ColorRole::Primary,
-            ),
-            Tile::Second => (
-                ColorRole::SecondaryContainer,
-                ColorRole::OnSecondaryContainer,
-                ColorRole::Secondary,
-            ),
-            Tile::Third => (
-                ColorRole::TertiaryContainer,
-                ColorRole::OnTertiaryContainer,
-                ColorRole::Tertiary,
-            ),
-            Tile::Neutral => (
-                ColorRole::SurfaceVariant,
-                ColorRole::OnSurfaceVariant,
-                ColorRole::Outline,
-            ),
-        }
+    /// The fill, and the ink on it. White on all four, as the reference writes them.
+    pub fn colors(self) -> (Color, Color) {
+        let fill = match self {
+            Tile::Purple => crate::palette::PURPLE,
+            Tile::Red => crate::palette::RED,
+            Tile::Teal => crate::palette::TEAL,
+            Tile::Amber => crate::palette::AMBER,
+        };
+        (fill, crate::palette::TEXT)
     }
 }
 
@@ -83,28 +66,28 @@ pub const SUBJECTS: [Subject; 4] = [
         mark: MARKS[0],
         blurb: "Grip, rebound and the four strokes",
         progress: 0.75,
-        tile: Tile::First,
+        tile: Tile::Purple,
     },
     Subject {
         name: "Arsenal",
         mark: MARKS[1],
         blurb: "Fills, rolls and where to put them",
         progress: 0.4,
-        tile: Tile::Second,
+        tile: Tile::Red,
     },
     Subject {
         name: "Coordination",
         mark: MARKS[2],
         blurb: "Limbs that disagree, on purpose",
         progress: 0.55,
-        tile: Tile::Third,
+        tile: Tile::Teal,
     },
     Subject {
         name: "Songs",
         mark: MARKS[3],
         blurb: "Whole tunes, start to finish",
         progress: 0.2,
-        tile: Tile::Neutral,
+        tile: Tile::Amber,
     },
 ];
 
@@ -268,8 +251,8 @@ mod tests {
         for (index, first) in SUBJECTS.iter().enumerate() {
             for second in &SUBJECTS[index + 1..] {
                 assert_ne!(
-                    first.tile.roles().0,
-                    second.tile.roles().0,
+                    first.tile.colors().0,
+                    second.tile.colors().0,
                     "{} and {} are drawn in one colour",
                     first.name,
                     second.name
