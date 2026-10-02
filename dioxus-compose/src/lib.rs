@@ -27,6 +27,7 @@ pub mod renderer;
 pub mod schema;
 pub mod spans;
 pub mod tokens;
+pub mod update;
 mod widgets;
 pub mod window;
 
