@@ -117,7 +117,8 @@ jobs:
             libx11-dev libxext-dev libxi-dev libxrender-dev libxtst-dev libxrandr-dev \
             libfontconfig1-dev libfreetype6-dev libgl1 libgl1-mesa-dri libegl1 \
             fonts-noto-cjk \
-            patchelf xvfb xauth dbus-x11
+            patchelf xvfb xauth dbus-x11 \
+            zsync desktop-file-utils appstream gnupg
 
       - name: Cache the Kotlin toolchain and Maven dependencies
         uses: actions/cache@v4
@@ -221,9 +222,54 @@ jobs:
             fi
             tar -czf "artifacts/$app-${{ matrix.target }}.tar.gz" -C staging "$app"
           done < built.txt
+
+      - name: Wrap each Linux sample as an AppImage that updates itself
+        # The same staged directory, as one file that carries the address of its newer
+        # versions: the newest release of this repository whose assets include a matching
+        # .zsync. A sample that fails here keeps its archive and loses only the AppImage.
+        #
+        # Signed when the repository has a signing key. An installed AppImage that was
+        # signed refuses an update signed by any other key, so the first public AppImage
+        # decides whether every later one has to be signed.
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          SIGNING_KEY: ${{ secrets.APPIMAGE_SIGNING_KEY }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -uo pipefail
+          version="${TAG#sample-v}"
+          sign=()
+          if [[ -n "$SIGNING_KEY" ]]; then
+            export GNUPGHOME="$PWD/.scratch/gnupg" && mkdir -p -m 700 "$GNUPGHOME"
+            gpg --batch --import <<<"$SIGNING_KEY"
+            sign=(--sign-key "$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/ {print $10; exit}')")
+          else
+            echo "::warning title=Unsigned AppImages::APPIMAGE_SIGNING_KEY is not set, so the AppImages are not signed"
+          fi
+          cargo build --release -p packager-linux
+          export PACKAGER_LINUX="$PWD/target/release/packager-linux"
+          while read -r app; do
+            [[ -n "$app" ]] || continue
+            if ! tools/packager-linux/appimage.sh \
+                --dioxus-toml "samples/$app/Dioxus.toml" \
+                --overlay tools/packager-linux/samples.toml \
+                --exec "sample-$app" --icon "samples/$app/assets/icon.png" \
+                --payload "staging/$app" --version "$version" \
+                --github "${{ github.repository }}" "${sign[@]}" \
+                --out-dir artifacts; then
+              echo "::warning title=No AppImage::sample-$app was not wrapped as an AppImage for ${{ matrix.target }}"
+            fi
+          done < built.txt
+
+      - name: Record checksums
+        shell: bash
+        run: |
+          set -euo pipefail
           cd artifacts
-          if command -v sha256sum >/dev/null; then sha256sum *.tar.gz > "SHA256SUMS-${{ matrix.target }}"
-          else shasum -a 256 *.tar.gz > "SHA256SUMS-${{ matrix.target }}"; fi
+          shopt -s nullglob
+          if command -v sha256sum >/dev/null; then sha256sum *.tar.gz *.AppImage *.zsync > "SHA256SUMS-${{ matrix.target }}"
+          else shasum -a 256 *.tar.gz *.AppImage *.zsync > "SHA256SUMS-${{ matrix.target }}"; fi
           cat "SHA256SUMS-${{ matrix.target }}"
 
       - uses: actions/upload-artifact@v4
@@ -429,7 +475,10 @@ jobs:
             echo
             echo "Built in this release:"
             echo
-            for archive in artifacts/*.tar.gz artifacts/*.apk; do
+            echo "Linux also ships each sample as an AppImage. Make it executable and run it;"
+            echo "it checks this repository's newest release for a newer version of itself."
+            echo
+            for archive in artifacts/*.tar.gz artifacts/*.AppImage artifacts/*.apk; do
               [ -e "$archive" ] || continue
               echo "- $(basename "$archive")"
             done
