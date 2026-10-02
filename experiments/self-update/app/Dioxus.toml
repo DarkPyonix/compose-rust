@@ -1,0 +1,15 @@
+# dx project configuration for the self-update rehearsal. The packager reads the bundle
+# name, identifier and category from here.
+
+[application]
+name = "Self Update Demo"
+asset_dir = "assets"
+
+[bundle]
+identifier = "dev.darkpyonix.dioxus.compose.experiments.selfupdate"
+publisher = "DarkPyonix"
+category = "DeveloperTool"
+short_description = "Installs at one version and updates itself to the next."
+
+[macos]
+bundle_name = "Self Update Demo"

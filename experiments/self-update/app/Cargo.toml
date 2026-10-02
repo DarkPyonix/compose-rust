@@ -1,0 +1,31 @@
+# The application the self-update rehearsal installs at one version and watches replace
+# itself with the next.
+#
+# It depends on the published dioxus-compose, not the one in this checkout, because the
+# published crate fetches the renderer released for its own version: building this needs
+# no renderer build, and the two halves are guaranteed to be from the same schema.
+[package]
+name = "self-update-demo"
+version = "1.0.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+# Its own workspace: this directory is inside the repository's but is not one of its
+# members, and the repository's lock file should not carry a crate it only rehearses with.
+[workspace]
+
+[features]
+default = ["sparkle"]
+# The updater. The Mac App Store build turns default features off, and the packager
+# checks that nothing of Sparkle is left in what it builds.
+sparkle = ["dep:dioxus-compose-update", "dep:objc2"]
+
+[dependencies]
+dioxus-compose = "=0.0.0"
+dioxus-compose-update = { path = "../../../dioxus-compose-update", optional = true }
+
+# Only for the rehearsal's "quit after N seconds", which stands in for the person choosing
+# Quit so that installing on quit can be watched without anyone at the keyboard.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { version = "0.6", optional = true }

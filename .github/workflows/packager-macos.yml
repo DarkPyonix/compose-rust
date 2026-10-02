@@ -1,0 +1,133 @@
+# macOS packaging: the packager's tests, the updater crate's tests, and the rehearsal that
+# installs one version of an application and watches it update itself to the next.
+#
+# The rehearsal is the only place the two halves meet a real renderer: it builds the demo
+# against the published dioxus-compose, whose build script fetches the renderer released for
+# its version, so nothing here builds the renderer. It signs ad hoc, because no Apple
+# identity exists on a runner; what that leaves unproven (Developer ID signing, notarization,
+# App Store Connect accepting the package) is the owner's to run with real certificates.
+#
+# Its evidence (logs, Info.plists, signatures, the appcast, screenshots) is uploaded as the
+# self-update-evidence artifact whether or not it passed.
+
+name: macOS packaging
+
+on:
+  push:
+    branches: [develop, main, 'feature/packager-*']
+    paths:
+      - 'tools/packager/**'
+      - 'dioxus-compose-update/**'
+      - 'experiments/self-update/**'
+      - 'scripts/bundle-renderer.sh'
+      - '.github/workflows/packager-macos.yml'
+  pull_request:
+    paths:
+      - 'tools/packager/**'
+      - 'dioxus-compose-update/**'
+      - 'experiments/self-update/**'
+      - 'scripts/bundle-renderer.sh'
+      - '.github/workflows/packager-macos.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: packager-macos-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  SPARKLE_VERSION: '2.10.0'
+  SPARKLE_SHA256: c2bf58aa8387266ac179357b1415d6f2635f044da8be41042af32425dae6da0c
+
+jobs:
+  packager:
+    name: Packager tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Unpack Sparkle
+        # On macOS the tests also compare against Sparkle's own tools and sign a real
+        # Sparkle.framework. Linux has neither codesign nor Sparkle, and runs the rest.
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/sparkle"
+          mkdir -p "$dir"
+          curl -fsSL -o "$dir/Sparkle.tar.xz" \
+            "https://github.com/sparkle-project/Sparkle/releases/download/$SPARKLE_VERSION/Sparkle-$SPARKLE_VERSION.tar.xz"
+          echo "$SPARKLE_SHA256  $dir/Sparkle.tar.xz" | shasum -a 256 -c -
+          tar -xf "$dir/Sparkle.tar.xz" -C "$dir"
+          echo "SPARKLE_DIR=$dir" >> "$GITHUB_ENV"
+
+      - name: Run the packager's tests
+        run: python -m unittest discover -s tools/packager/tests -v
+
+  updater:
+    name: Updater crate (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy
+          rustup default stable
+
+      - name: Test
+        run: cargo test -p dioxus-compose-update
+
+      - name: Lint
+        run: cargo clippy -p dioxus-compose-update --all-targets -- -D warnings
+
+      - name: Lint the rehearsal application
+        # It depends on the published dioxus-compose, so this fetches the released renderer.
+        if: runner.os == 'macOS'
+        run: |
+          cargo clippy --manifest-path experiments/self-update/app/Cargo.toml -- -D warnings
+          cargo clippy --manifest-path experiments/self-update/app/Cargo.toml --no-default-features -- -D warnings
+
+  rehearsal:
+    name: Self-update rehearsal (macOS)
+    needs: [packager, updater]
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install the Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Rehearse both channels
+        env:
+          DEMO_WORK: ${{ runner.temp }}/self-update
+        run: experiments/self-update/rehearse.sh
+
+      - name: Keep the evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: self-update-evidence
+          path: ${{ runner.temp }}/self-update/evidence/
+          if-no-files-found: warn
