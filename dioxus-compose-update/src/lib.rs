@@ -9,14 +9,12 @@
 //! this crate only starts Sparkle and passes on the person's requests.
 //!
 //! ```no_run
-//! fn main() {
-//!     // Before launch: the request waits on the main thread's queue and runs once
-//!     // the renderer has AppKit running there.
-//!     if let Err(error) = dioxus_compose_update::start(Default::default()) {
-//!         eprintln!("updates are off: {error}");
-//!     }
-//!     // dioxus_compose::launch(app);
+//! // In main, before launch: the request waits on the main thread's queue and runs
+//! // once the renderer has AppKit running there.
+//! if let Err(error) = dioxus_compose_update::start(Default::default()) {
+//!     eprintln!("updates are off: {error}");
 //! }
+//! // dioxus_compose::launch(app);
 //!
 //! // From a menu item or a button:
 //! // on_click: move |_| dioxus_compose_update::check_for_updates(),
