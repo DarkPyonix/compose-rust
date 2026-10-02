@@ -1,0 +1,25 @@
+[package]
+name = "dioxus-compose-update"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Lets a dioxus-compose application handed out outside a store update itself (Sparkle 2 on macOS)"
+repository = "https://github.com/DarkPyonix/dioxus-compose"
+keywords = ["update", "sparkle", "dioxus", "compose", "macos"]
+categories = ["gui"]
+# Not published yet. The crate is new, and an application that ships through the Mac App
+# Store must not depend on it at all, which is easier to keep straight while it lives in
+# this repository beside the packager that checks for it.
+publish = false
+
+[lib]
+bench = false
+
+# Sparkle is not linked. The framework is loaded at run time from the application's own
+# Contents/Frameworks, so this crate builds on a machine that has never seen Sparkle and a
+# binary built with it starts, and says why, when the framework is missing.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString"] }
+block2 = "0.6"
