@@ -37,5 +37,40 @@ pub const ON_ART: Color = Color::rgb(0xFFFFFF);
 pub const SCRIM: Color = Color::argb(0xD9_2E2A4F);
 pub const SCRIM_BADGE: Color = Color::argb(0x40_FFFFFF);
 
-/// The support line in a caption drawn over an illustration.
+/// The support line in a caption drawn over an illustration, and on the night page.
 pub const ON_ART_MUTED: Color = Color::argb(0xCC_FFFFFF);
+
+/// The sleep stories page. The reference draws that one destination dark navy, inside an
+/// app whose other pages are cream.
+pub const NIGHT: Color = Color::rgb(0x2C2B4D);
+
+/// The one accent: the coral of the reference's heart badge, which marks the destination
+/// you are on along the bottom.
+pub const ACCENT: Color = Color::rgb(0xE8625A);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The app's colours are the picture's, not the running design system's.
+    ///
+    /// `Color` rather than `Paint`, so a role cannot be written in this file at all; what
+    /// this pins is that each value is still the one read off the reference, so an edit
+    /// that drifts from the picture says so here first.
+    #[test]
+    fn fr22_the_palette_is_the_reference_colours_rather_than_the_theme() {
+        assert_eq!(PAGE.to_argb(), 0xfffd_f3e7);
+        assert_eq!(CARD.to_argb(), 0xffff_ffff);
+        assert_eq!(INK.to_argb(), 0xff2e_2a4f);
+        assert_eq!(MUTED.to_argb(), 0xff7a_7596);
+        assert_eq!(META.to_argb(), 0xff5e_8c87);
+        assert_eq!(SAGE.to_argb(), 0xffa8_c5bf);
+        assert_eq!(BLUSH.to_argb(), 0xfff4_938a);
+        assert_eq!(ON_ART.to_argb(), 0xffff_ffff);
+        assert_eq!(SCRIM.to_argb(), 0xd92e_2a4f);
+        assert_eq!(SCRIM_BADGE.to_argb(), 0x40ff_ffff);
+        assert_eq!(ON_ART_MUTED.to_argb(), 0xccff_ffff);
+        assert_eq!(NIGHT.to_argb(), 0xff2c_2b4d);
+        assert_eq!(ACCENT.to_argb(), 0xffe8_625a);
+    }
+}

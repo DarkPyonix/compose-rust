@@ -2,8 +2,9 @@
 //!
 //! Every card in the reference carries a drawn illustration, and now so does every card
 //! here: three original drawings in `assets/`, one per accent family, registered once and
-//! drawn by id. The card behind an illustration, the title on it and the row it sits in
-//! are still roles, so only the artwork carries colours of its own.
+//! drawn by id. Everything around the artwork is drawn in `palette`, the reference's own
+//! cream, navy and coral, because a role would hand those back to the running design
+//! system.
 //!
 //! Unified, naming Cupertino and light: the reference is a cream page carrying
 //! illustrated cards. `THEME` says both.
@@ -60,12 +61,36 @@ impl Destination {
         }
     }
 
-    fn index(self) -> usize {
-        Self::STRIP
-            .iter()
-            .position(|found| *found == self)
-            .unwrap_or(0)
+    /// The page this destination stands on, and the inks that read on it.
+    fn ground(self) -> Ground {
+        match self {
+            Destination::Sleep => Ground {
+                page: palette::NIGHT,
+                ink: palette::ON_ART,
+                muted: palette::ON_ART_MUTED,
+                meta: palette::ON_ART_MUTED,
+            },
+            Destination::Today | Destination::Meditate => Ground {
+                page: palette::PAGE,
+                ink: palette::INK,
+                muted: palette::MUTED,
+                meta: palette::META,
+            },
+        }
     }
+}
+
+/// A page's colour and the three inks written on it.
+///
+/// Two of them, because the reference has two: the cream every light screen sits on, and
+/// the navy of the sleep stories. One app with one destination drawn dark, rather than a
+/// dark scheme.
+#[derive(Clone, Copy)]
+struct Ground {
+    page: Color,
+    ink: Color,
+    muted: Color,
+    meta: Color,
 }
 
 /// A card whose picture fills it, with a band along the bottom carrying the title.
@@ -132,7 +157,7 @@ fn hero_card(found: &Course, size: (f32, f32), on_open: EventHandler<u32>) -> El
 }
 
 /// A small card: the picture, then the title under it.
-fn tile_card(found: &Course, on_open: EventHandler<u32>) -> Element {
+fn tile_card(found: &Course, ground: Ground, on_open: EventHandler<u32>) -> Element {
     let id = found.id;
     rsx! {
         Column {
@@ -166,12 +191,12 @@ fn tile_card(found: &Course, on_open: EventHandler<u32>) -> Element {
             Text {
                 text: sessions_label(found).to_uppercase(),
                 type_role: TypeRole::Caption,
-                color: Paint::Literal(palette::META),
+                color: Paint::Literal(ground.meta),
             }
             Text {
                 text: found.title,
                 type_role: TypeRole::Body,
-                color: Paint::Literal(palette::INK),
+                color: Paint::Literal(ground.ink),
                 max_lines: 2,
                 overflow: TextOverflow::Ellipsis,
             }
@@ -183,7 +208,7 @@ fn tile_card(found: &Course, on_open: EventHandler<u32>) -> Element {
 ///
 /// Two, because there is no wrapping row in the vocabulary: a grid is rows of a fixed
 /// count and the code says how many rather than the layout working it out from the width.
-fn grid(items: &[&'static Course], on_open: EventHandler<u32>) -> Element {
+fn grid(items: &[&'static Course], ground: Ground, on_open: EventHandler<u32>) -> Element {
     let rows: Vec<Vec<&'static Course>> = items.chunks(2).map(<[_]>::to_vec).collect();
     rsx! {
         Column {
@@ -197,7 +222,7 @@ fn grid(items: &[&'static Course], on_open: EventHandler<u32>) -> Element {
                     alignment: Alignment::TopStart,
                     for found in row.iter().copied() {
                         dioxus_compose::Box { key: "{found.id}", weight: 1.0,
-                            {tile_card(found, on_open)}
+                            {tile_card(found, ground, on_open)}
                         }
                     }
                     // An odd shelf leaves a gap rather than letting the last card stretch
@@ -221,6 +246,7 @@ fn shelf_page(
 ) -> Element {
     let items = on(destination.shelf());
     let (hero, rest) = items.split_first().expect("every shelf has a course on it");
+    let ground = destination.ground();
     rsx! {
         Column {
             fill_max_width: true,
@@ -230,11 +256,15 @@ fn shelf_page(
             Column {
                 fill_max_width: true,
                 space_role: SpaceRole::Xs,
-                Text { text: heading, type_role: TypeRole::Headline }
+                Text {
+                    text: heading,
+                    type_role: TypeRole::Headline,
+                    color: Paint::Literal(ground.ink),
+                }
                 Text {
                     text: strapline,
                     type_role: TypeRole::Body,
-                    color: Paint::Literal(palette::MUTED),
+                    color: Paint::Literal(ground.muted),
                 }
             }
 
@@ -243,16 +273,16 @@ fn shelf_page(
             Text {
                 text: "Recommended for you",
                 type_role: TypeRole::Label,
-                color: Paint::Literal(palette::MUTED),
+                color: Paint::Literal(ground.muted),
             }
-            {grid(rest, on_open)}
+            {grid(rest, ground, on_open)}
 
             // The wide card the reference ends each shelf with: one course, given the
             // whole width, because a shelf that is all the same size has no shape.
             Text {
                 text: "Recommended category",
                 type_role: TypeRole::Label,
-                color: Paint::Literal(palette::MUTED),
+                color: Paint::Literal(ground.muted),
             }
             {hero_card(items[items.len() - 1], WIDE, on_open)}
         }
@@ -344,6 +374,45 @@ fn course_page(found: &Course, on_back: EventHandler<()>) -> Element {
     }
 }
 
+/// The bar along the bottom: three icons and nothing else.
+///
+/// Drawn here rather than declared as a `Navigation`, which is the widget for "the
+/// destinations, in whatever shape this design system and this window call for": a
+/// labelled bar with a selection pill. This design's bar is bare icons on the page, the one
+/// you are on in the accent, and no design system would be right to give a set of
+/// destinations that shape.
+fn bottom_bar(destination: Destination, on_go: EventHandler<Destination>) -> Element {
+    let ground = destination.ground();
+    rsx! {
+        Row {
+            fill_max_width: true,
+            background: Paint::Literal(ground.page),
+            padding_role: SpaceRole::Sm,
+            arrangement: Arrangement::SpaceAround,
+            alignment: Alignment::Center,
+            for choice in Destination::STRIP {
+                {
+                    let tint = if choice == destination {
+                        palette::ACCENT
+                    } else {
+                        ground.ink
+                    };
+                    rsx! {
+                        Button {
+                            key: "{choice.label()}",
+                            text: "",
+                            icon: choice.icon(),
+                            variant: ButtonVariant::Text,
+                            color: Paint::Literal(tint),
+                            on_click: move |_| on_go.call(choice),
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 pub fn app() -> Element {
     let window = use_window_size();
     let measure = if window.is_compact() {
@@ -401,25 +470,15 @@ pub fn app() -> Element {
         // screen never has to know.
         Scaffold {
             bottom_bar: rsx! {
-                Navigation {
-                    selected_index: destination().index(),
-                    for choice in Destination::STRIP {
-                        NavigationItem {
-                            key: "{choice.label()}",
-                            // The reference's bar is the page's own ink rather than an accent.
-                            color: Paint::Literal(palette::INK),
-                            text: choice.label(),
-                            icon: choice.icon(),
-                            on_click: move |()| destination.set(choice),
-                        }
-                    }
-                }
+                {bottom_bar(destination(), EventHandler::new(move |choice: Destination| {
+                    destination.set(choice);
+                }))}
             },
 
             Column {
                 fill_max_width: true,
                 fill_max_height: true,
-                background: Paint::Literal(palette::PAGE),
+                background: Paint::Literal(destination().ground().page),
                 dioxus_compose::Box {
                     fill_max_width: true,
                     fill_max_height: true,
@@ -599,6 +658,64 @@ mod tests {
             true
         }
 
+        /// Presses a destination along the bottom, which is an icon with no words.
+        fn press_icon(&mut self, icon: IconRole) -> bool {
+            let found = {
+                let mutations = self.mutations();
+                let node = mutations.iter().rev().find_map(|mutation| match mutation {
+                    Mutation::SetProp {
+                        node_id,
+                        property: PropertyKind::Icon,
+                        value: PropertyValue::Integer(value),
+                    } if *value == icon as i64 => Some(*node_id),
+                    _ => None,
+                });
+                node.and_then(|node| {
+                    mutations.iter().rev().find_map(|mutation| match mutation {
+                        Mutation::SetProp {
+                            node_id,
+                            property: PropertyKind::OnClick,
+                            value: PropertyValue::Integer(handler),
+                        } if *node_id == node => Some((node, *handler as u64)),
+                        _ => None,
+                    })
+                })
+            };
+            let Some((node_id, handler_id)) = found else {
+                return false;
+            };
+            let mut bytes = Vec::new();
+            encode_event(
+                &HostEvent {
+                    node_id,
+                    handler_id,
+                    payload: EventPayload::Clicked,
+                },
+                &mut bytes,
+            )
+            .expect("the click did not encode");
+            let (batch, _) = self.host.dispatch_event(&bytes).expect("the click failed");
+            if !batch.is_empty() {
+                self.frames.push(batch.to_vec());
+            }
+            true
+        }
+
+        /// Every colour the screen set as a property, as the paint it decodes to.
+        fn tints(&self) -> Vec<Paint> {
+            self.mutations()
+                .iter()
+                .filter_map(|mutation| match mutation {
+                    Mutation::SetProp {
+                        property: PropertyKind::Color,
+                        value: PropertyValue::Integer(bits),
+                        ..
+                    } => Paint::from_bits(*bits as u64),
+                    _ => None,
+                })
+                .collect()
+        }
+
         fn latest_texts(&self) -> Vec<String> {
             let Some(frame) = self.frames.last() else {
                 return Vec::new();
@@ -629,9 +746,88 @@ mod tests {
         let mut screen = Screen::new();
         for choice in Destination::STRIP {
             assert!(
-                screen.press(choice.label()),
-                "the bar has no destination called {}",
+                screen.press_icon(choice.icon()),
+                "the bar has no way to {}",
                 choice.label()
+            );
+        }
+        dioxus_compose::window::reset_window_size();
+    }
+
+    /// The bar is the reference's: icons alone, drawn by the sample, with the one you are
+    /// on in the accent and nothing else on the screen in it.
+    #[test]
+    fn fr22_the_bar_is_icons_with_the_accent_on_the_destination() {
+        let screen = Screen::new();
+        let mutations = screen.mutations();
+        assert!(
+            !mutations.iter().any(|mutation| matches!(
+                mutation,
+                Mutation::Create {
+                    widget: WidgetKind::Navigation | WidgetKind::NavigationItem,
+                    ..
+                }
+            )),
+            "a Navigation draws the design system's labelled bar, not the reference's"
+        );
+        drop(mutations);
+        let accented = screen
+            .tints()
+            .iter()
+            .filter(|paint| **paint == Paint::Literal(palette::ACCENT))
+            .count();
+        assert_eq!(
+            accented, 1,
+            "the accent marks the destination you are on and nothing else"
+        );
+    }
+
+    /// The sleep stories are the one dark page in a light app, as the reference draws them.
+    #[test]
+    fn fr22_the_sleep_stories_stand_on_the_night_page() {
+        let mut screen = Screen::new();
+        assert!(screen.press_icon(Destination::Sleep.icon()));
+        let night = screen.mutations().iter().any(|mutation| {
+            matches!(
+                mutation,
+                Mutation::SetModifier {
+                    modifier: Modifier::Background(Paint::Literal(color)),
+                    ..
+                } if *color == palette::NIGHT
+            )
+        });
+        assert!(night, "the sleep stories are drawn on the cream page");
+        dioxus_compose::window::reset_window_size();
+    }
+
+    /// Nothing on the shelves is painted or inked by the design system.
+    ///
+    /// Named for what it defends: a unified sample whose colours came from roles was drawn
+    /// in the running system's blue and pale accent containers, none of which is in the
+    /// picture.
+    #[test]
+    fn fr22_nothing_on_the_screen_is_painted_by_a_role() {
+        let mut screen = Screen::new();
+        for choice in Destination::STRIP {
+            screen.press_icon(choice.icon());
+        }
+        for mutation in screen.mutations() {
+            if let Mutation::SetModifier {
+                modifier: Modifier::Background(paint) | Modifier::Border { paint, .. },
+                node_id,
+                ..
+            } = mutation
+            {
+                assert!(
+                    matches!(paint, Paint::Literal(_)),
+                    "node {node_id} is filled with {paint:?}, which the design system picks"
+                );
+            }
+        }
+        for paint in screen.tints() {
+            assert!(
+                matches!(paint, Paint::Literal(_)),
+                "something is inked with {paint:?}, which the design system picks"
             );
         }
         dioxus_compose::window::reset_window_size();
@@ -753,7 +949,7 @@ mod tests {
             app,
             |screen| {
                 assert!(
-                    screen.press(Destination::Sleep.label()),
+                    screen.press_icon(Destination::Sleep.icon()),
                     "the bar has no way to the sleep stories"
                 );
             },
