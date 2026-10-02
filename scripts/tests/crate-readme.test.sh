@@ -23,7 +23,7 @@ grep -q '^readme = ' "$manifest" || {
     exit 1
 }
 
-listing="$(cargo package -p dioxus-compose --list --allow-dirty 2>/dev/null)"
+listing="$(cargo package -p compose-rust --list --allow-dirty 2>/dev/null)"
 grep -qx 'README.md' <<< "$listing" || {
     echo "error: the packaged crate does not contain README.md" >&2
     echo "       Files it would contain:" >&2

@@ -12,13 +12,22 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.ProvidableCompositionLocal
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Path
@@ -29,8 +38,17 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.layer.GraphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
+import androidx.compose.ui.platform.LocalWindowInfo
 
 /**
  * Whether the reader has asked for reduced transparency.
@@ -77,7 +95,11 @@ val LocalGlassDepth: ProvidableCompositionLocal<Int> = compositionLocalOf { 0 }
  */
 @Composable
 fun isGlassDrawn(): Boolean =
-    drawsAsGlass(LocalReduceTransparency.current, LocalBlurAvailable.current)
+    drawsAsGlass(
+        LocalReduceTransparency.current,
+        LocalBlurAvailable.current,
+        LocalWindowInfo.current.isWindowFocused,
+    )
 
 /**
  * Paints [material] into the background of this element, clipped to [shape].
@@ -109,17 +131,187 @@ fun Modifier.glassSurface(
     is SurfaceMaterial.Glass -> {
         val depth = LocalGlassDepth.current
         val resolved = material.atDepth(depth)
+        val reduce = LocalReduceTransparency.current
+        val available = LocalBlurAvailable.current
+        // A window that is not the one being used flattens, the way every material the
+        // system draws does. On a screen with several open, which one shows through is
+        // what says which one is yours.
+        val active = LocalWindowInfo.current.isWindowFocused
         val fill = glassFill(
             material = material,
-            reduceTransparency = LocalReduceTransparency.current,
-            blurAvailable = LocalBlurAvailable.current,
+            reduceTransparency = reduce,
+            blurAvailable = available,
             depth = depth,
+            windowActive = active,
         )
+        // The page this surface is a lens over, and where this surface is on it. Without a
+        // recording there is nothing to blur and the surface is its tint and its rim, which
+        // is what every glass surface here was before the recording existed.
+        val backdrop = LocalGlassBackdrop.current
+        val radius = glassBlurRadius(material, reduce, available, active)
+        var here by remember { mutableStateOf(Offset.Zero) }
         this
+            .onGloballyPositioned { here = it.positionInWindow() }
+            .drawBehind { drawGlassBackdrop(backdrop, here, shape, radius) }
             .background(fill, shape)
             .border(borderWidth, litEdge(resolved.highlight, resolved.shade), shape)
     }
 }
+
+/**
+ * The page a glass surface is a lens over, recorded so the surface can blur it.
+ *
+ * Compose has no API that samples what is already on the screen behind an element, so a
+ * surface cannot reach backwards. What it can do is be handed the drawing: the content that
+ * is meant to show through records itself into a layer, and every glass surface over it
+ * draws that layer again, blurred, clipped to its own outline.
+ *
+ * Held in an object rather than passed down, because the recorder and the readers sit in
+ * different parts of the tree and neither composes the other.
+ */
+@Stable
+class GlassBackdropState {
+    /** The recorded page. Null until a frame has recorded one. */
+    internal var layer: GraphicsLayer? = null
+
+    /** Where the recording starts, in the window's coordinates. */
+    internal var origin: Offset = Offset.Zero
+
+    /**
+     * True while the page is drawing itself into the layer.
+     *
+     * A glass surface inside the page would otherwise draw the layer it is at that moment
+     * being recorded into, which is a call to draw the thing currently being drawn. It
+     * does not smear, it overflows the stack, and it takes the window with it.
+     *
+     * Anything inside the recording is the backdrop rather than something over it, so the
+     * right answer for all of it is no backdrop at all.
+     */
+    internal var recording: Boolean = false
+}
+
+/** The page under the glass, or null where nothing has offered one. */
+val LocalGlassBackdrop: ProvidableCompositionLocal<GlassBackdropState?> =
+    compositionLocalOf { null }
+
+/**
+ * The page under the glass and the chrome over it, with the page recorded so the chrome
+ * can blur it.
+ *
+ * Two slots rather than one, and that is the whole point of the shape. [page] is recorded
+ * into a layer and drawn exactly where it would have been, so wrapping it changes nothing
+ * about how it looks. [over] is not recorded, and it is where the bars and the panels go.
+ *
+ * A surface blurring a recording of itself feeds its own output back in, and after a few
+ * frames that is a smear, so the chrome has to be outside the recording. It also has to be
+ * able to read it, which is why both slots are inside the provider and only one of them is
+ * inside the layer.
+ */
+@Composable
+fun GlassBackdrop(
+    modifier: Modifier = Modifier,
+    state: GlassBackdropState = rememberGlassBackdropState(),
+    over: @Composable BoxScope.() -> Unit = {},
+    page: @Composable BoxScope.() -> Unit,
+) {
+    CompositionLocalProvider(LocalGlassBackdrop provides state) {
+        Box(modifier) {
+            Box(Modifier.recordsGlassBackdrop(state), content = page)
+            over()
+        }
+    }
+}
+
+/**
+ * A backdrop that lasts as long as the composition it is made in, with its layer.
+ *
+ * The layer is remembered here rather than inside the recording modifier so that the
+ * recorder and the surfaces reading it agree about which layer they mean even while the
+ * page is being rebuilt underneath them.
+ */
+@Composable
+fun rememberGlassBackdropState(): GlassBackdropState {
+    val state = remember { GlassBackdropState() }
+    val layer = rememberGraphicsLayer()
+    DisposableEffect(state, layer) {
+        state.layer = layer
+        onDispose { if (state.layer === layer) state.layer = null }
+    }
+    return state
+}
+
+/**
+ * Records what this element draws as [state]'s page, and draws it where it already was.
+ *
+ * A layer recorded and drawn in the same place is invisible to everything except the
+ * surfaces that read it back, so putting this on the page changes nothing about how the
+ * page looks.
+ *
+ * Only the page. Chrome inside the recording would be blurring its own output, which after
+ * a few frames is a smear.
+ */
+fun Modifier.recordsGlassBackdrop(state: GlassBackdropState): Modifier = this
+    .onGloballyPositioned { state.origin = it.positionInWindow() }
+    .drawWithContent {
+        val layer = state.layer
+        if (layer == null) {
+            drawContent()
+        } else {
+            // Cleared before recording: the effect a surface set to blur its own copy
+            // belongs to that draw and not to the page's own.
+            layer.renderEffect = null
+            state.recording = true
+            try {
+                layer.record { this@drawWithContent.drawContent() }
+            } finally {
+                state.recording = false
+            }
+            drawLayer(layer)
+        }
+    }
+
+/**
+ * Draws the recorded page under a surface, blurred and clipped to [shape].
+ *
+ * Moved back by the distance between where the recording started and where the surface
+ * sits, so the pixels that land inside the outline are the ones that were behind it.
+ *
+ * The effect is set before each draw rather than once, because two surfaces over the same
+ * page can ask for different thicknesses and a layer holds one effect at a time.
+ */
+private fun DrawScope.drawGlassBackdrop(
+    state: GlassBackdropState?,
+    here: Offset,
+    shape: Shape,
+    radius: Dp,
+) {
+    if (state == null || state.recording) return
+    val layer = state.layer ?: return
+    if (radius <= 0.dp) return
+    val blur = radius.toPx()
+    layer.renderEffect = BlurEffect(blur, blur, TileMode.Clamp)
+    val path = Path().apply { addOutline(shape.createOutline(size, layoutDirection, this@drawGlassBackdrop)) }
+    clipPath(path) {
+        translate(state.origin.x - here.x, state.origin.y - here.y) {
+            drawLayer(layer)
+        }
+    }
+}
+
+/**
+ * Whether a surface made of [material] is a sheet over the page rather than part of it.
+ *
+ * Only an overlay lifts. A menu, a dialog and a tooltip are sheets held clear of what they
+ * cover, and the shadow is what says so; a card in the middle of a document is not floating
+ * over it, and a shadow under every glass surface in the tree turns a page into a pile of
+ * cards.
+ *
+ * An opaque system lifts nothing either way. A design system that draws flat fills has no
+ * sheets to float, and a shadow under one of its panels would be this language leaking into
+ * a language that refused it.
+ */
+fun liftsOffThePage(material: SurfaceMaterial, overlay: Boolean): Boolean =
+    overlay && material is SurfaceMaterial.Glass
 
 /**
  * The soft shadow a floating glass surface casts, drawn around it.
@@ -139,7 +331,8 @@ fun Modifier.glassSurface(
 @Composable
 fun Modifier.glassLift(material: SurfaceMaterial, shape: Shape): Modifier =
     if (material is SurfaceMaterial.Glass && isGlassDrawn()) {
-        this.drawBehind { drawLift(shape) }
+        val layer = rememberGraphicsLayer()
+        this.drawBehind { drawLift(layer, shape) }
     } else {
         this
     }
@@ -150,31 +343,46 @@ fun Modifier.glassLift(material: SurfaceMaterial, shape: Shape): Modifier =
  * there and fades to nothing [LiquidGlass.LIFT] out, and they sit a little lower than they
  * are wide because the light comes from above.
  */
-private fun DrawScope.drawLift(shape: Shape) {
-    val spread = LiquidGlass.LIFT.toPx()
-    if (spread <= 0f || size.minDimension <= 0f) return
+private fun DrawScope.drawLift(layer: GraphicsLayer, shape: Shape) {
+    val blur = LiquidGlass.LIFT.toPx()
+    if (blur <= 0f || size.minDimension <= 0f) return
+    val surfaceSize = size
+    val outline = shape.createOutline(surfaceSize, layoutDirection, this)
+    // Room round the shape for the blur to fall away in. A gaussian is not finished at its
+    // radius, and a layer that ended there would cut the shadow off with a straight line.
+    val pad = blur * PAD_IN_RADII
+    layer.renderEffect = BlurEffect(blur, blur, TileMode.Decal)
+    layer.record(
+        size = IntSize(
+            (surfaceSize.width + pad * 2f).roundToInt(),
+            (surfaceSize.height + pad * 2f).roundToInt(),
+        ),
+    ) {
+        translate(pad, pad) {
+            drawOutline(outline, Color.Black.copy(alpha = LiquidGlass.LIFT_ALPHA))
+        }
+    }
     val surface = Path()
-    surface.addOutline(shape.createOutline(size, layoutDirection, this))
-    val ring = Color.Black.copy(alpha = LiquidGlass.LIFT_ALPHA / LIFT_RINGS)
+    surface.addOutline(outline)
+    // Outside only. A shadow laid under a surface you can see through shows through it and
+    // greys the glass from the inside, which is what an elevation shadow does on the
+    // platforms that draw one under the whole outline.
     clipPath(surface, ClipOp.Difference) {
-        for (step in LIFT_RINGS downTo 1) {
-            val grow = spread * step / LIFT_RINGS
-            val grown = shape.createOutline(
-                Size(size.width + grow * 2f, size.height + grow * 2f),
-                layoutDirection,
-                this,
-            )
-            translate(left = -grow, top = -grow * (1f - LIFT_DROP)) {
-                drawOutline(grown, ring)
-            }
+        translate(left = -pad, top = -pad + blur * LIFT_DROP) {
+            drawLayer(layer)
         }
     }
 }
 
-/** How many rings the lift is drawn in. Enough that no step between them shows. */
-private const val LIFT_RINGS = 6
+/**
+ * How far past the blur's radius the layer reaches, in radii.
+ *
+ * A gaussian is not finished at one radius. Two is where what is left is under a tenth of
+ * a percent, and stopping short of that ends the shadow on a straight edge.
+ */
+private const val PAD_IN_RADII = 2f
 
-/** How much further below the surface its shadow reaches than above it, as a fraction. */
+/** How far the shadow is dropped below the surface, as a fraction of the blur. */
 private const val LIFT_DROP = 0.35f
 
 /**
@@ -231,6 +439,7 @@ fun GlassLayer(
         material,
         LocalReduceTransparency.current,
         LocalBlurAvailable.current,
+        LocalWindowInfo.current.isWindowFocused,
     )
 
     Box(modifier) {

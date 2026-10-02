@@ -5,11 +5,11 @@
 //! of this boundary a test on this machine can reach. What the browser does with it is
 //! checked by running the page.
 
-use dioxus_compose::codegen::{
+use compose_rust::codegen::{
     WEB_HOST_WASM_NAME, WEB_MEMORY_MIN_PAGES, generate_wasm_rust, generate_web_bridge_kotlin,
     generate_web_loader_js,
 };
-use dioxus_compose::schema::{
+use compose_rust::schema::{
     BOUNDARY_SCHEMA, BoundaryOp, BoundaryParam, WEB_BATCH_BYTES, WEB_BATCH_FIELDS,
     WEB_EVENT_BUFFER_BYTES, WEB_EVENT_BUFFER_OFFSET, WEB_RUST_REGION_BASE, WEB_START_SYMBOL,
 };
@@ -104,7 +104,7 @@ fn pr6_generated_web_bindings_match_the_boundary_schema() {
             "/src/boundary_wasm.gen.rs"
         )),
         rust,
-        "generated wasm shims are stale; run `cargo run -p dioxus-compose --bin codegen`",
+        "generated wasm shims are stale; run `cargo run -p compose-rust --bin codegen`",
     );
     assert_eq!(
         include_str!(concat!(
@@ -112,7 +112,7 @@ fn pr6_generated_web_bindings_match_the_boundary_schema() {
             "/../dioxus-compose-renderer/web/src/bridge/HostBridge.gen.kt"
         )),
         kotlin,
-        "generated Kotlin bridge is stale; run `cargo run -p dioxus-compose --bin codegen`",
+        "generated Kotlin bridge is stale; run `cargo run -p compose-rust --bin codegen`",
     );
     assert_eq!(
         include_str!(concat!(
@@ -120,7 +120,7 @@ fn pr6_generated_web_bindings_match_the_boundary_schema() {
             "/../dioxus-compose-renderer/web/resources/dioxus-compose-host.gen.mjs"
         )),
         loader,
-        "the generated loader is stale; run `cargo run -p dioxus-compose --bin codegen`",
+        "the generated loader is stale; run `cargo run -p compose-rust --bin codegen`",
     );
 }
 

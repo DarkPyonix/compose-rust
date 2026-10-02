@@ -9,7 +9,7 @@
 //! boundary function: writing the signal marks the reading scope dirty, and the Host asks
 //! the Renderer for the next frame on its own.
 
-use dioxus_compose::prelude::*;
+use compose_rust::prelude::*;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;

@@ -13,8 +13,8 @@
 //! dial sitting on a tinted panel need different ink, and which panel it is on is
 //! something only the screen knows.
 
-use dioxus_compose::prelude::*;
-use dioxus_compose::{DrawList, DrawListBuilder};
+use compose_rust::prelude::*;
+use compose_rust::{DrawList, DrawListBuilder};
 
 /// How much of the dial's radius a tick takes.
 const TICK_LENGTH: f32 = 0.12;
@@ -193,7 +193,7 @@ pub fn week(width: f32, height: f32, bars: &[Bar]) -> DrawList {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dioxus_compose::DrawCommand;
+    use compose_rust::DrawCommand;
 
     #[test]
     fn fr16_a_dial_draws_a_tick_for_every_step_and_one_marker() {

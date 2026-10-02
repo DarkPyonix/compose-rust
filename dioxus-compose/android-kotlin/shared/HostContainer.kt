@@ -44,6 +44,7 @@ import dioxus.compose.ui.node.Children
 import dioxus.compose.ui.node.RenderNode
 import dioxus.compose.ui.resolvedShape
 import dioxus.compose.ui.weightOf
+import dioxus.compose.design.liftsOffThePage
 
 /**
  * The corner this container is drawn with: the one the Host asked for if it asked, and the
@@ -86,6 +87,8 @@ internal fun Modifier.containerDecoration(
     node: Node,
     style: ContainerStyle,
     theme: ResolvedTheme,
+    /** True for a menu, a dialog or a tooltip: a sheet over the page rather than in it. */
+    overlay: Boolean = false,
 ): Modifier {
     val shape = node.containerShape(style, theme)
     val raised = if (node.setsOwnElevation()) {
@@ -105,7 +108,15 @@ internal fun Modifier.containerDecoration(
         // one effect: the tint is what lets the backdrop through and the edge is what
         // gives the sheet thickness. Clipping still happens first so a child cannot spill
         // past the corner.
-        raised.clip(shape).glassSurface(material, shape)
+        //
+        // The lift goes before the clip, because it is drawn outside the outline and a
+        // clip earlier in the chain cuts it off. Only an overlay gets one: a menu is a
+        // sheet held clear of what it covers and the shadow is what says so, and a shadow
+        // under every glass surface in a tree turns a page into a pile of cards.
+        raised
+            .then(if (liftsOffThePage(material, overlay)) Modifier.glassLift(material, shape) else Modifier)
+            .clip(shape)
+            .glassSurface(material, shape)
     }
     return filled
         .then(
@@ -256,7 +267,7 @@ private fun FloatingTopAppBar(
     val caption = LocalWindowCaption.current
     val material = style.material ?: SurfaceMaterial.Opaque(style.container)
     val capsule = style.shape
-    val edge = theme.space(SpaceRole.Sm)
+    val edge = style.floatingInset ?: theme.space(SpaceRole.Sm)
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -264,8 +275,8 @@ private fun FloatingTopAppBar(
             .padding(
                 start = (if (caption.buttonsAtStart) caption.buttonsWidth else 0.dp) + edge,
                 end = (if (caption.buttonsAtStart) 0.dp else caption.buttonsWidth) + edge,
-                top = caption.insetTop + theme.space(SpaceRole.Xs),
-                bottom = theme.space(SpaceRole.Xs),
+                top = caption.insetTop + (style.floatingInset ?: theme.space(SpaceRole.Xs)),
+                bottom = style.floatingInset ?: theme.space(SpaceRole.Xs),
             ),
         horizontalArrangement = Arrangement.spacedBy(theme.space(SpaceRole.Sm)),
         verticalAlignment = Alignment.CenterVertically,

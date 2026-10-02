@@ -1,8 +1,8 @@
 //! The design primitives as seen from rsx.
 
-use dioxus_compose::prelude::*;
-use dioxus_compose::protocol::{Mutation, PropertyValue, decode_batch};
-use dioxus_compose::{Host, PropertyKind, WidgetKind};
+use compose_rust::prelude::*;
+use compose_rust::protocol::{Mutation, PropertyValue, decode_batch};
+use compose_rust::{Host, PropertyKind, WidgetKind};
 
 fn titled_text() -> Element {
     rsx! {

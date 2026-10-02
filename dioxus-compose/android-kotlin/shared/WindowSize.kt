@@ -2,6 +2,7 @@ package dioxus.compose.runtime
 
 import androidx.compose.runtime.compositionLocalOf
 import dioxus.compose.protocol.HostEvent
+import dioxus.compose.protocol.WindowHeightClass
 import dioxus.compose.protocol.WindowSizeClass
 
 /**
@@ -13,6 +14,15 @@ import dioxus.compose.protocol.WindowSizeClass
  */
 const val MEDIUM_MIN_WIDTH_DP: Float = 600f
 const val EXPANDED_MIN_WIDTH_DP: Float = 840f
+
+/**
+ * The height in dp at which each height class begins.
+ *
+ * From the same table as the width boundaries. A layout folds at the height Compose's own
+ * components already treat as short, so the two sides fold together.
+ */
+const val MEDIUM_MIN_HEIGHT_DP: Float = 480f
+const val EXPANDED_MIN_HEIGHT_DP: Float = 900f
 
 /**
  * The size class of the window this content is in.
@@ -35,6 +45,13 @@ fun windowSizeClassOf(widthDp: Float): WindowSizeClass = when {
     else -> WindowSizeClass.Compact
 }
 
+/** The class a window of this height belongs to. Width does not take part. */
+fun windowHeightClassOf(heightDp: Float): WindowHeightClass = when {
+    heightDp >= EXPANDED_MIN_HEIGHT_DP -> WindowHeightClass.Expanded
+    heightDp >= MEDIUM_MIN_HEIGHT_DP -> WindowHeightClass.Medium
+    else -> WindowHeightClass.Compact
+}
+
 /**
  * Tells the Host which size class the window is in, and only when that changes.
  *
@@ -55,16 +72,21 @@ fun windowSizeClassOf(widthDp: Float): WindowSizeClass = when {
  */
 class WindowSizeReporter {
     private var lastClass: WindowSizeClass = WindowSizeClass.Compact
+    private var lastHeightClass: WindowHeightClass = WindowHeightClass.Compact
 
     /**
      * Reports one measurement. Returns whether an event was sent.
      *
-     * Nothing is allocated when the class is unchanged, which is the common case.
+     * Nothing is allocated when neither class has changed, which is the common case. The
+     * two classes ride in one record, so a window that gets wider and shorter in the same
+     * drag costs one event rather than two.
      */
     fun report(widthDp: Float, heightDp: Float, dispatcher: EventDispatcher): Boolean {
         val sizeClass = windowSizeClassOf(widthDp)
-        if (sizeClass == lastClass) return false
+        val heightClass = windowHeightClassOf(heightDp)
+        if (sizeClass == lastClass && heightClass == lastHeightClass) return false
         lastClass = sizeClass
+        lastHeightClass = heightClass
         dispatcher.dispatch(
             HostEvent.WindowSizeChanged(
                 nodeId = 0,
@@ -72,6 +94,7 @@ class WindowSizeReporter {
                 widthDp = widthDp,
                 heightDp = heightDp,
                 sizeClass = sizeClass,
+                heightClass = heightClass,
             ),
         )
         return true

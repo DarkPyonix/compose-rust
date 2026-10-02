@@ -134,6 +134,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "compose-rust"
+version = "0.0.0"
+dependencies = [
+ "criterion",
+ "dioxus-core",
+ "dioxus-core-macro",
+ "dioxus-hooks",
+ "dioxus-signals",
+ "jni",
+]
+
+[[package]]
 name = "const_format"
 version = "0.2.36"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -226,18 +238,6 @@ name = "crunchy"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
-
-[[package]]
-name = "dioxus-compose"
-version = "0.0.0"
-dependencies = [
- "criterion",
- "dioxus-core",
- "dioxus-core-macro",
- "dioxus-hooks",
- "dioxus-signals",
- "jni",
-]
 
 [[package]]
 name = "dioxus-core"
@@ -770,7 +770,7 @@ dependencies = [
 name = "sample-academic"
 version = "0.1.0"
 dependencies = [
- "dioxus-compose",
+ "compose-rust",
  "dioxus-hooks",
  "sample-frames",
 ]
@@ -779,7 +779,7 @@ dependencies = [
 name = "sample-calculator"
 version = "0.1.0"
 dependencies = [
- "dioxus-compose",
+ "compose-rust",
  "dioxus-hooks",
  "sample-frames",
 ]
@@ -788,7 +788,7 @@ dependencies = [
 name = "sample-chat"
 version = "0.1.0"
 dependencies = [
- "dioxus-compose",
+ "compose-rust",
  "dioxus-hooks",
  "sample-frames",
 ]
@@ -797,14 +797,14 @@ dependencies = [
 name = "sample-frames"
 version = "0.1.0"
 dependencies = [
- "dioxus-compose",
+ "compose-rust",
 ]
 
 [[package]]
 name = "sample-minimal"
 version = "0.1.0"
 dependencies = [
- "dioxus-compose",
+ "compose-rust",
  "dioxus-hooks",
  "sample-frames",
 ]
@@ -813,7 +813,7 @@ dependencies = [
 name = "sample-notepad"
 version = "0.1.0"
 dependencies = [
- "dioxus-compose",
+ "compose-rust",
  "dioxus-hooks",
  "futures-channel",
  "sample-frames",
@@ -823,7 +823,7 @@ dependencies = [
 name = "sample-podcast"
 version = "0.1.0"
 dependencies = [
- "dioxus-compose",
+ "compose-rust",
  "dioxus-hooks",
  "sample-frames",
 ]
@@ -832,7 +832,7 @@ dependencies = [
 name = "sample-selfcare"
 version = "0.1.0"
 dependencies = [
- "dioxus-compose",
+ "compose-rust",
  "dioxus-hooks",
  "sample-frames",
 ]
@@ -841,7 +841,7 @@ dependencies = [
 name = "sample-social"
 version = "0.1.0"
 dependencies = [
- "dioxus-compose",
+ "compose-rust",
  "dioxus-hooks",
  "sample-frames",
 ]
@@ -850,7 +850,7 @@ dependencies = [
 name = "sample-statistics"
 version = "0.1.0"
 dependencies = [
- "dioxus-compose",
+ "compose-rust",
  "dioxus-hooks",
  "sample-frames",
 ]
@@ -859,7 +859,7 @@ dependencies = [
 name = "sample-store"
 version = "0.1.0"
 dependencies = [
- "dioxus-compose",
+ "compose-rust",
  "dioxus-hooks",
  "sample-frames",
 ]
@@ -868,7 +868,7 @@ dependencies = [
 name = "sample-todo"
 version = "0.1.0"
 dependencies = [
- "dioxus-compose",
+ "compose-rust",
  "dioxus-hooks",
  "sample-frames",
 ]

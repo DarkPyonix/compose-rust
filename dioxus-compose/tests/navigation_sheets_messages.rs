@@ -6,9 +6,9 @@
 //! the one declaration comes out as a bar, a rail and a drawer, is checked in the
 //! Renderer's tests, because only the Renderer knows how wide the window is.
 
-use dioxus_compose::prelude::*;
-use dioxus_compose::protocol::{HostEvent, Mutation, PropertyValue, decode_batch};
-use dioxus_compose::{
+use compose_rust::prelude::*;
+use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch};
+use compose_rust::{
     EventPayload, Host, MessageDuration, PropertyKind, WidgetKind, WindowHeightClass,
     WindowSizeClass,
 };

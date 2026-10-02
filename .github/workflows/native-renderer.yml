@@ -4,7 +4,7 @@
 # verification, then attaches what they produced to a GitHub Release and publishes
 # the crate. The renderer distribution is the native-image shared library plus Skia, about
 # 85MB, which crates.io will not take and which has no business in a source crate anyway,
-# so the split is: `dioxus-compose` stays an ordinary crate that builds with no renderer
+# so the split is: `compose-rust` stays an ordinary crate that builds with no renderer
 # present, and the renderer ships as a checksummed tarball on the release for its tag.
 #
 # Building it twice, once to check and once to ship, is what the separate release workflow
@@ -617,7 +617,7 @@ jobs:
           fi
 
   publish-crate:
-    name: Publish dioxus-compose to crates.io
+    name: Publish compose-rust to crates.io
     needs: release
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
@@ -641,9 +641,9 @@ jobs:
           set -euo pipefail
           tag="${{ github.ref_name }}"
           manifest="$(cargo metadata --no-deps --format-version 1 |
-            python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="dioxus-compose"))')"
+            python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="compose-rust"))')"
           if [[ "$tag" != "v$manifest" ]]; then
-            echo "tag $tag does not match dioxus-compose $manifest in Cargo.toml" >&2
+            echo "tag $tag does not match compose-rust $manifest in Cargo.toml" >&2
             echo "Publishing would release a version that no commit claims. Fix one or the other." >&2
             exit 1
           fi
@@ -657,4 +657,4 @@ jobs:
         # nobody can build.
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo publish -p dioxus-compose
+        run: cargo publish -p compose-rust

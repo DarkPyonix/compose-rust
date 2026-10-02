@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.getValue
 import androidx.compose.foundation.isSystemInDarkTheme
+import dioxus.compose.design.HostPlatform
 
 /**
  * Sends one event to the Host and reports whether the Host consumed it.
@@ -249,7 +250,7 @@ fun DioxusContent(
     }
     // The theme is resolved once here, and every node reads it from the CompositionLocal. A `SetTheme` is therefore one record on the wire and one
     // invalidation in Compose, not a SetProp per node.
-    val platform = remember { detectHostPlatform() }
+    val platform = remember { hostPlatformOverride ?: detectHostPlatform() }
     // Compose's isSystemInDarkTheme() reads the setting once on the desktop and never
     // notices it change, so a window there keeps its original colours while the rest of
     // the screen switches. The desktop installs an observer that does follow the system;
@@ -417,6 +418,16 @@ fun DioxusContent(
  * `ColorScheme.FollowSystem` reads the platform; nothing else consults this.
  */
 var systemDarkOverride: Boolean? = null
+
+/**
+ * Overrides which platform this is, for tests and for the dev harness.
+ *
+ * A design system is allowed to answer differently on two platforms that draw the same
+ * language, so a test about one of those answers has to be able to say which platform it
+ * means. Without this it gets the machine the test happens to be running on, which for a
+ * test about a phone's tab bar is whatever laptop is in front of you.
+ */
+var hostPlatformOverride: HostPlatform? = null
 
 /**
  * How to find out whether the system is in dark mode, when the platform knows better than
@@ -688,15 +699,24 @@ private fun Color.letTheWindowShowThrough(): Color =
     if (platformBacksWindowWithMaterial()) Color.Transparent else this
 
 /**
- * True where the window has a material behind it for a translucent page to reveal.
+ * True where the window really has a material behind it for a translucent page to reveal.
  *
- * macOS only, and only because the renderer puts one there. Everywhere else a page with
- * alpha would show whatever the toolkit leaves behind a window, which is nothing to look
- * at and on some systems is black.
+ * A hook with `false` for its default, because only the build that puts the material there
+ * can answer and the others have to be safe. It used to be read off the operating system's
+ * name, which is true of every macOS build and describes only one of them: the native
+ * image, whose C entry puts an `NSVisualEffectView` under the window. The Kotlin/Native
+ * renderer opens its own window and puts nothing behind it, and it was answering yes.
+ *
+ * What a wrong yes costs is the whole look of the window. Chrome becomes the recipe meant
+ * to sit on the desktop, a tint at 0.18 with a rim, and the page gradient is made
+ * translucent so the desktop can reach it. With nothing behind either, a window in light
+ * mode comes up with a grey page and a grey sidebar: nothing transparent, everything drawn
+ * as though it were.
+ *
+ * Everywhere else a page with alpha would show whatever the toolkit leaves behind a
+ * window, which is nothing to look at and on some systems is black.
  */
-internal fun platformBacksWindowWithMaterial(
-    osName: String = System.getProperty("os.name").orEmpty(),
-): Boolean = osName.startsWith("Mac")
+var platformBacksWindowWithMaterial: () -> Boolean = { false }
 
 /**
  * How many wrappers deep the search for that bar goes.
@@ -765,7 +785,10 @@ internal fun pageInsets(
     barTakesTheTop: Boolean,
     navigationTakesTheBottom: Boolean,
 ): Pair<Dp, Dp> {
-    val top = if (barTakesTheTop) 0.dp else caption.height + bars.top
+    // Never below nothing, whatever a platform measured. This is a padding, and a negative
+    // one does not draw oddly: it throws, from inside composition, and takes the window
+    // with it.
+    val top = if (barTakesTheTop) 0.dp else (caption.height + bars.top).coerceAtLeast(0.dp)
     val bottom = if (navigationTakesTheBottom) 0.dp else bars.bottom
     return top to bottom
 }
