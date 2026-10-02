@@ -33,6 +33,7 @@ common options:
   --exec <name>          installed executable name; overrides [linux.store] exec
   --icon <file>          a square PNG or an SVG (repeatable); overrides [bundle] icon
   --arch <arch>          x86_64 or aarch64; defaults to this machine's
+  --app-id <id>          overrides the identifier, for a store listing under another ID
 
 appdir:
   --payload <dir|file>   the executable, or a directory holding it and its renderer
@@ -45,10 +46,12 @@ update-information:
 
 flatpak:
   --out <dir>
-  --prebuilt-url <url> --prebuilt-sha256 <hex> | --prebuilt-path <archive>
+  --prebuilt-url <url> --prebuilt-sha256 <hex> [--prebuilt-arch <arch>] (repeatable,
+      one per architecture) | --prebuilt-path <archive>
   --source-url <url> --source-sha256 <hex> | --source-path <archive>
       with --cargo-sources <file> --package <name> --bin <name> [--cargo-arg <arg>]...
-      and optionally --renderer-url <url> --renderer-sha256 <hex> | --renderer-path <archive>
+      and optionally --renderer-url <url> --renderer-sha256 <hex> [--renderer-arch <arch>]
+      (repeatable) | --renderer-path <archive>
   --wayland              Wayland socket with X11 as fallback, for a Wayland-capable renderer
 ";
 
@@ -134,6 +137,7 @@ const COMMON: &[&str] = &[
     "exec",
     "icon",
     "arch",
+    "app-id",
 ];
 
 fn run(args: &[String]) -> Result<(), String> {
@@ -151,6 +155,7 @@ fn run(args: &[String]) -> Result<(), String> {
             "prebuilt-url",
             "prebuilt-sha256",
             "prebuilt-path",
+            "prebuilt-arch",
             "source-url",
             "source-sha256",
             "source-path",
@@ -161,6 +166,7 @@ fn run(args: &[String]) -> Result<(), String> {
             "renderer-url",
             "renderer-sha256",
             "renderer-path",
+            "renderer-arch",
             "wayland",
         ],
         "help" | "--help" | "-h" => {
@@ -257,11 +263,17 @@ fn run(args: &[String]) -> Result<(), String> {
 fn load(options: &Options) -> Result<(AppMetadata, Vec<Icon>), String> {
     let toml_path = PathBuf::from(options.required("dioxus-toml")?);
     let text = read_text(&toml_path)?;
-    let overlays: Vec<String> = options
+    let mut overlays: Vec<String> = options
         .all("overlay")
         .iter()
         .map(|path| read_text(Path::new(path)))
         .collect::<Result<_, _>>()?;
+    if let Some(id) = options.one("app-id")? {
+        if id.contains(['"', '\\', '\n']) {
+            return Err(format!("--app-id `{id}` is not an application identifier"));
+        }
+        overlays.push(format!("[linux]\nidentifier = \"{id}\"\n"));
+    }
     let overlay_refs: Vec<&str> = overlays.iter().map(String::as_str).collect();
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -295,33 +307,55 @@ fn load(options: &Options) -> Result<(AppMetadata, Vec<Icon>), String> {
     Ok((meta, icons))
 }
 
-fn source_ref(options: &Options, prefix: &str) -> Result<Option<SourceRef>, String> {
-    let url = options.one(&format!("{prefix}-url"))?;
-    let sha = options.one(&format!("{prefix}-sha256"))?;
+/// The sources named by `--<prefix>-url`/`--<prefix>-sha256` (repeatable, with an
+/// optional `--<prefix>-arch` for each) or by one `--<prefix>-path`.
+fn sources(options: &Options, prefix: &str) -> Result<Vec<SourceRef>, String> {
+    let urls = options.all(&format!("{prefix}-url"));
+    let shas = options.all(&format!("{prefix}-sha256"));
+    let arches = options.all(&format!("{prefix}-arch"));
     let path = options.one(&format!("{prefix}-path"))?;
-    match (url, sha, path) {
-        (None, None, None) => Ok(None),
-        (Some(url), Some(sha256), None) => {
+    if let Some(path) = path {
+        if !urls.is_empty() || !shas.is_empty() || !arches.is_empty() {
+            return Err(format!("--{prefix}-path stands alone"));
+        }
+        return Ok(vec![SourceRef::Path(path)]);
+    }
+    if urls.len() != shas.len() {
+        return Err(format!(
+            "every --{prefix}-url needs its own --{prefix}-sha256, in the same order"
+        ));
+    }
+    if !arches.is_empty() && arches.len() != urls.len() {
+        return Err(format!(
+            "give --{prefix}-arch for every --{prefix}-url or for none"
+        ));
+    }
+    if urls.len() > 1 && arches.is_empty() {
+        return Err(format!(
+            "several --{prefix}-url need a --{prefix}-arch each"
+        ));
+    }
+    urls.into_iter()
+        .zip(shas)
+        .enumerate()
+        .map(|(index, (url, sha256))| {
             if sha256.len() != 64 || !sha256.chars().all(|c| c.is_ascii_hexdigit()) {
                 return Err(format!("--{prefix}-sha256 must be 64 hex digits"));
             }
-            Ok(Some(SourceRef::Url {
+            Ok(SourceRef::Url {
                 url,
                 sha256: sha256.to_ascii_lowercase(),
-            }))
-        }
-        (None, None, Some(path)) => Ok(Some(SourceRef::Path(path))),
-        _ => Err(format!(
-            "pass --{prefix}-url with --{prefix}-sha256, or --{prefix}-path alone"
-        )),
-    }
+                arch: arches.get(index).cloned(),
+            })
+        })
+        .collect()
 }
 
 fn flatpak_payload(options: &Options) -> Result<Payload, String> {
-    let prebuilt = source_ref(options, "prebuilt")?;
-    let source = source_ref(options, "source")?;
-    match (prebuilt, source) {
-        (Some(archive), None) => {
+    let prebuilt = sources(options, "prebuilt")?;
+    let source = sources(options, "source")?;
+    match (prebuilt.is_empty(), source.len()) {
+        (false, 0) => {
             for name in [
                 "cargo-sources",
                 "package",
@@ -334,17 +368,17 @@ fn flatpak_payload(options: &Options) -> Result<Payload, String> {
                     return Err(format!("--{name} belongs to a build from source"));
                 }
             }
-            Ok(Payload::Prebuilt { archive })
+            Ok(Payload::Prebuilt { archives: prebuilt })
         }
-        (None, Some(source)) => Ok(Payload::FromSource {
-            source,
+        (true, 1) => Ok(Payload::FromSource {
+            source: source.into_iter().next().expect("one source"),
             cargo_sources: options.required("cargo-sources")?,
             package: options.required("package")?,
             bin: options.required("bin")?,
             cargo_args: options.all("cargo-arg"),
-            renderer: source_ref(options, "renderer")?,
+            renderer: sources(options, "renderer")?,
         }),
-        _ => Err("pass a prebuilt archive or a source archive, not both and not neither".into()),
+        _ => Err("pass prebuilt archives or one source archive, not both and not neither".into()),
     }
 }
 

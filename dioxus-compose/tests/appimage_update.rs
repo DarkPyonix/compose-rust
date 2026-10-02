@@ -133,7 +133,7 @@ fn scratch(test: &str) -> PathBuf {
 const LOCAL: &str = "zsync|http://127.0.0.1:8080/Demo-x86_64.AppImage.zsync";
 
 #[test]
-fn fr34_reads_update_information_from_every_elf_layout() {
+fn fr35_reads_update_information_from_every_elf_layout() {
     for wide in [true, false] {
         for big in [false, true] {
             let file = elf(
@@ -156,7 +156,7 @@ fn fr34_reads_update_information_from_every_elf_layout() {
 }
 
 #[test]
-fn fr34_an_empty_or_missing_section_means_no_update_information() {
+fn fr35_an_empty_or_missing_section_means_no_update_information() {
     let reserved = elf(true, false, &[(".upd_info", &[0; 1024])]);
     assert_eq!(
         read_update_information(&mut Cursor::new(reserved)).unwrap(),
@@ -170,7 +170,7 @@ fn fr34_an_empty_or_missing_section_means_no_update_information() {
 }
 
 #[test]
-fn fr34_a_file_that_is_not_elf_is_an_error_not_a_panic() {
+fn fr35_a_file_that_is_not_elf_is_an_error_not_a_panic() {
     for bytes in [
         b"#!/bin/sh\necho hi\n".to_vec(),
         Vec::new(),
@@ -186,7 +186,7 @@ fn fr34_a_file_that_is_not_elf_is_an_error_not_a_panic() {
 }
 
 #[test]
-fn fr34_update_information_parses_the_three_forms_and_prints_them_back() {
+fn fr35_update_information_parses_the_three_forms_and_prints_them_back() {
     let lines = [
         LOCAL,
         "gh-releases-zsync|darkpyonix|compose-rust|latest|Calculator-*-x86_64.AppImage.zsync",
@@ -209,7 +209,7 @@ fn fr34_update_information_parses_the_three_forms_and_prints_them_back() {
 }
 
 #[test]
-fn fr34_malformed_update_information_says_what_is_wrong() {
+fn fr35_malformed_update_information_says_what_is_wrong() {
     for line in [
         "",
         "zsync|",
@@ -237,7 +237,7 @@ fn env_of(pairs: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Op
 }
 
 #[test]
-fn fr34_delivery_tells_an_appimage_from_a_flatpak_from_neither() {
+fn fr35_delivery_tells_an_appimage_from_a_flatpak_from_neither() {
     assert_eq!(
         delivery_from(
             env_of(&[
@@ -265,7 +265,7 @@ fn fr34_delivery_tells_an_appimage_from_a_flatpak_from_neither() {
 }
 
 #[test]
-fn fr34_a_flatpak_never_offers_to_update_itself() {
+fn fr35_a_flatpak_never_offers_to_update_itself() {
     // Even an AppImage variable leaking into the sandbox does not make it one.
     let inside = delivery_from(
         env_of(&[
@@ -286,7 +286,7 @@ fn fr34_a_flatpak_never_offers_to_update_itself() {
 }
 
 #[test]
-fn fr34_the_bundled_updater_wins_over_path_and_the_override_wins_over_both() {
+fn fr35_the_bundled_updater_wins_over_path_and_the_override_wins_over_both() {
     let dir = scratch("find_tool");
     let mount = dir.join("mount");
     let bin = dir.join("bin");
@@ -312,7 +312,7 @@ fn fr34_the_bundled_updater_wins_over_path_and_the_override_wins_over_both() {
 }
 
 #[test]
-fn fr34_an_appimage_without_update_information_cannot_be_updated() {
+fn fr35_an_appimage_without_update_information_cannot_be_updated() {
     let dir = scratch("no_information");
     let appimage = dir.join("Demo.AppImage");
     std::fs::write(&appimage, elf(true, false, &[(".upd_info", &[0; 1024])])).unwrap();
@@ -369,7 +369,7 @@ exit 2
     }
 
     #[test]
-    fn fr34_check_then_apply_replaces_the_appimage_with_the_published_one() {
+    fn fr35_check_then_apply_replaces_the_appimage_with_the_published_one() {
         let (_dir, appimage, tool) = setup("check_apply");
         let updater = AppImageUpdater::with_tool(&appimage, &tool).unwrap();
         assert_eq!(updater.update_information().to_string(), LOCAL);
@@ -395,7 +395,7 @@ exit 2
     }
 
     #[test]
-    fn fr34_a_failing_updater_is_reported_with_its_output() {
+    fn fr35_a_failing_updater_is_reported_with_its_output() {
         let (_dir, appimage, tool) = setup("failure");
         std::fs::write(
             &tool,

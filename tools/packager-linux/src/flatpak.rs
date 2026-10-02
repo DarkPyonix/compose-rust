@@ -28,7 +28,12 @@ pub const DEFAULT_RUNTIME_VERSION: &str = "26.08";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SourceRef {
     /// Fetched by `flatpak-builder`, checked against the digest. What Flathub requires.
-    Url { url: String, sha256: String },
+    /// `arch` limits it to one architecture, for an archive built per architecture.
+    Url {
+        url: String,
+        sha256: String,
+        arch: Option<String>,
+    },
     /// A file beside the manifest. For local builds and tests; Flathub refuses it for
     /// anything but small packaging files.
     Path(String),
@@ -36,8 +41,9 @@ pub enum SourceRef {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Payload {
-    /// An archive whose top directory holds the executable and everything beside it.
-    Prebuilt { archive: SourceRef },
+    /// An archive whose top directory holds the executable and everything beside it, one
+    /// per architecture.
+    Prebuilt { archives: Vec<SourceRef> },
     /// A source archive of a Cargo workspace.
     FromSource {
         source: SourceRef,
@@ -47,8 +53,8 @@ pub enum Payload {
         bin: String,
         /// Extra arguments for `cargo build`, such as `--no-default-features`.
         cargo_args: Vec<String>,
-        /// The renderer's release archive, when the program draws.
-        renderer: Option<SourceRef>,
+        /// The renderer's release archive, when the program draws, one per architecture.
+        renderer: Vec<SourceRef>,
     },
 }
 
@@ -102,10 +108,18 @@ pub fn manifest(meta: &AppMetadata, options: &FlatpakOptions) -> String {
     let mut top_extra: Vec<(String, Json)> = Vec::new();
 
     match &options.payload {
-        Payload::Prebuilt { archive } => {
-            sources.push(archive_source(archive, Some("payload")));
+        Payload::Prebuilt { archives } => {
+            for archive in archives {
+                sources.push(archive_source(archive, Some("payload")));
+            }
             commands.push(format!("mkdir -p {lib} /app/bin"));
             commands.push(format!("cp -a payload/. {lib}/"));
+            // A release archive whose executable was built without an rpath only finds the
+            // renderer beside it when told to look there.
+            commands.push(format!(
+                "readelf -d {lib}/{exec} | grep -qE '\\((RPATH|RUNPATH)\\)' || patchelf --set-rpath '$ORIGIN' {lib}/{exec}",
+                exec = meta.exec
+            ));
         }
         Payload::FromSource {
             source,
@@ -136,8 +150,10 @@ pub fn manifest(meta: &AppMetadata, options: &FlatpakOptions) -> String {
             ];
             sources.push(archive_source(source, None));
             sources.push(Json::str(cargo_sources));
-            if let Some(renderer) = renderer {
-                sources.push(archive_source(renderer, Some("renderer")));
+            for archive in renderer {
+                sources.push(archive_source(archive, Some("renderer")));
+            }
+            if !renderer.is_empty() {
                 env.push((
                     "DIOXUS_COMPOSE_RENDERER_DIR".to_owned(),
                     Json::str(&format!("/run/build/{module}/renderer")),
@@ -154,7 +170,7 @@ pub fn manifest(meta: &AppMetadata, options: &FlatpakOptions) -> String {
             commands.push("cargo --offline fetch --manifest-path Cargo.toml --verbose".into());
             commands.push(build);
             commands.push(format!("mkdir -p {lib} /app/bin"));
-            if renderer.is_some() {
+            if !renderer.is_empty() {
                 // The renderer's files go beside the executable, the layout it finds its
                 // companions from. A release archive keeps them in `lib/`.
                 commands.push(format!(
@@ -165,7 +181,7 @@ pub fn manifest(meta: &AppMetadata, options: &FlatpakOptions) -> String {
                 "install -m755 target/release/{bin} {lib}/{}",
                 meta.exec
             ));
-            if renderer.is_some() {
+            if !renderer.is_empty() {
                 // The build records where the renderer was inside the build sandbox. Point
                 // the executable at the copy installed beside it instead.
                 commands.push(format!(
@@ -235,13 +251,10 @@ pub fn manifest(meta: &AppMetadata, options: &FlatpakOptions) -> String {
                 .collect(),
         ),
     ));
-    let needs_patchelf = matches!(
-        &options.payload,
-        Payload::FromSource {
-            renderer: Some(_),
-            ..
-        }
-    );
+    let needs_patchelf = match &options.payload {
+        Payload::Prebuilt { .. } => true,
+        Payload::FromSource { renderer, .. } => !renderer.is_empty(),
+    };
     let mut modules = Vec::new();
     if needs_patchelf {
         modules.push(patchelf_module());
@@ -269,6 +282,7 @@ fn patchelf_module() -> Json {
                 &SourceRef::Url {
                     url: PATCHELF_URL.to_owned(),
                     sha256: PATCHELF_SHA256.to_owned(),
+                    arch: None,
                 },
                 None,
             )]),
@@ -285,9 +299,12 @@ fn render_manifest(top: Vec<(String, Json)>) -> String {
 fn archive_source(source: &SourceRef, dest: Option<&str>) -> Json {
     let mut fields = vec![("type".to_owned(), Json::str("archive"))];
     match source {
-        SourceRef::Url { url, sha256 } => {
+        SourceRef::Url { url, sha256, arch } => {
             fields.push(("url".to_owned(), Json::str(url)));
             fields.push(("sha256".to_owned(), Json::str(sha256)));
+            if let Some(arch) = arch {
+                fields.push(("only-arches".to_owned(), Json::Array(vec![Json::str(arch)])));
+            }
         }
         SourceRef::Path(path) => fields.push(("path".to_owned(), Json::str(path))),
     }
