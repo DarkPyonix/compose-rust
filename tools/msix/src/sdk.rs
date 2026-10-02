@@ -92,7 +92,7 @@ mod tests {
 
     #[test]
     fn fr34_sdk_versions_order_numerically() {
-        let mut v = vec![
+        let mut v = [
             sdk_version("10.0.9999.0").unwrap(),
             sdk_version("10.0.22621.0").unwrap(),
             sdk_version("10.0.19041.0").unwrap(),
