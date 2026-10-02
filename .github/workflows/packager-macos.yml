@@ -95,13 +95,6 @@ jobs:
       - name: Lint
         run: cargo clippy -p dioxus-compose-update --all-targets -- -D warnings
 
-      - name: Lint the rehearsal application
-        # It depends on the published dioxus-compose, so this fetches the released renderer.
-        if: runner.os == 'macOS'
-        run: |
-          cargo clippy --manifest-path experiments/self-update/app/Cargo.toml -- -D warnings
-          cargo clippy --manifest-path experiments/self-update/app/Cargo.toml --no-default-features -- -D warnings
-
   rehearsal:
     name: Self-update rehearsal (macOS)
     needs: [packager, updater]
@@ -116,13 +109,22 @@ jobs:
 
       - name: Install the Rust toolchain
         run: |
-          rustup toolchain install stable --profile minimal
+          rustup toolchain install stable --profile minimal --component clippy
           rustup default stable
 
       - name: Rehearse both channels
         env:
           DEMO_WORK: ${{ runner.temp }}/self-update
         run: experiments/self-update/rehearse.sh
+
+      - name: Lint the rehearsal application
+        # After the rehearsal, which fetched the released renderer its build script needs.
+        if: success() || failure()
+        env:
+          DIOXUS_COMPOSE_RENDERER_DIR: ${{ runner.temp }}/self-update/renderer
+        run: |
+          cargo clippy --manifest-path experiments/self-update/app/Cargo.toml -- -D warnings
+          cargo clippy --manifest-path experiments/self-update/app/Cargo.toml --no-default-features -- -D warnings
 
       - name: Keep the evidence
         if: always()
