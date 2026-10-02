@@ -251,10 +251,14 @@ jobs:
           export PACKAGER_LINUX="$PWD/target/release/packager-linux"
           while read -r app; do
             [[ -n "$app" ]] || continue
+            # scripts/make-sample-icons.py draws a 256 pixel icon beside the 64 pixel
+            # one the window wears; a sample that brings its own may have only the one.
+            icons=(--icon "samples/$app/assets/icon.png")
+            [[ -f "samples/$app/assets/icon-256.png" ]] && icons+=(--icon "samples/$app/assets/icon-256.png")
             if ! tools/packager-linux/appimage.sh \
                 --dioxus-toml "samples/$app/Dioxus.toml" \
                 --overlay tools/packager-linux/samples.toml \
-                --exec "sample-$app" --icon "samples/$app/assets/icon.png" \
+                --exec "sample-$app" "${icons[@]}" \
                 --payload "staging/$app" --version "$version" \
                 --github "${{ github.repository }}" "${sign[@]}" \
                 --out-dir artifacts; then

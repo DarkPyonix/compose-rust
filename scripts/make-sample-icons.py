@@ -14,7 +14,8 @@ thing that stands out.
 Marks are drawn from squares, circles and bars only. An icon is read at 16 pixels more
 often than at 64, and a drawing that needs detail to be recognised is not one.
 
-Run from the repository root. Writes samples/<name>/assets/icon.png.
+Run from the repository root. Writes samples/<name>/assets/icon.png (64 pixels) and
+icon-256.png.
 """
 
 import math
@@ -22,7 +23,11 @@ import os
 import struct
 import zlib
 
+# The marks are drawn in a 64 unit square. Each icon is rendered at every size in SIZES:
+# 64 is what the window wears, and 256 is what a Linux store asks for (Flathub refuses
+# anything under 128, and an icon scaled up from 64 is the first thing a reviewer sees).
 SIZE = 64
+SIZES = (64, 256)
 CORNER = 14
 
 
@@ -31,11 +36,13 @@ def blend(dst, src, alpha):
 
 
 class Canvas:
-    def __init__(self):
-        self.pixels = [[(0, 0, 0, 0)] * SIZE for _ in range(SIZE)]
+    def __init__(self, size=SIZE):
+        self.size = size
+        self.scale = size / SIZE
+        self.pixels = [[(0, 0, 0, 0)] * size for _ in range(size)]
 
     def put(self, x, y, colour, alpha=1.0):
-        if not (0 <= x < SIZE and 0 <= y < SIZE) or alpha <= 0:
+        if not (0 <= x < self.size and 0 <= y < self.size) or alpha <= 0:
             return
         r, g, b = colour
         existing = self.pixels[y][x]
@@ -55,13 +62,14 @@ class Canvas:
         hits = 0
         for sy in range(4):
             for sx in range(4):
-                if inside(x + (sx + 0.5) / 4, y + (sy + 0.5) / 4):
+                if inside((x + (sx + 0.5) / 4) / self.scale,
+                          (y + (sy + 0.5) / 4) / self.scale):
                     hits += 1
         return hits / 16
 
     def fill(self, inside, colour):
-        for y in range(SIZE):
-            for x in range(SIZE):
+        for y in range(self.size):
+            for x in range(self.size):
                 a = self.coverage(x, y, inside)
                 if a > 0:
                     self.put(x, y, colour, a)
@@ -131,7 +139,8 @@ def write_png(path, pixels):
         return (struct.pack(">I", len(payload)) + kind + payload
                 + struct.pack(">I", zlib.crc32(kind + payload) & 0xFFFFFFFF))
 
-    header = struct.pack(">IIBBBBB", SIZE, SIZE, 8, 6, 0, 0, 0)
+    size = len(pixels)
+    header = struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0)
     data = (b"\x89PNG\r\n\x1a\n"
             + chunk(b"IHDR", header)
             + chunk(b"IDAT", zlib.compress(bytes(raw), 9))
@@ -196,13 +205,16 @@ def marks():
 
 def main():
     for name, (background, mark, shapes) in marks().items():
-        canvas = Canvas()
-        canvas.fill(rounded_square(), background)
-        for shape in shapes:
-            canvas.fill(shape, mark)
-        path = os.path.join("samples", name, "assets", "icon.png")
-        size = write_png(path, canvas.pixels)
-        print(f"{path} ({size} bytes)")
+        for size in SIZES:
+            canvas = Canvas(size)
+            canvas.fill(rounded_square(), background)
+            for shape in shapes:
+                canvas.fill(shape, mark)
+            # icon.png keeps its name: every sample embeds it for its window.
+            file = "icon.png" if size == SIZE else f"icon-{size}.png"
+            path = os.path.join("samples", name, "assets", file)
+            written = write_png(path, canvas.pixels)
+            print(f"{path} ({written} bytes)")
 
 
 if __name__ == "__main__":
