@@ -5,14 +5,14 @@
 //! read belongs to this file alone. They still take `FRAME_STATE` in turn, because that
 //! state is one set of flags and the test harness runs them on several threads.
 
-use dioxus_compose::boundary::STATUS_OK;
-use dioxus_compose::codegen::{
+use compose_rust::boundary::STATUS_OK;
+use compose_rust::codegen::{
     generate_android_bridge_kotlin, generate_fast_native_kotlin, generate_jni_rust,
 };
-use dioxus_compose::prelude::*;
-use dioxus_compose::protocol::{HostEvent, Mutation, decode_batch, encode_event};
-use dioxus_compose::schema::{BOUNDARY_SCHEMA, BoundaryParam, EventPayload};
-use dioxus_compose::{Host, RendererApi, install_renderer_api, request_frame_from_worker};
+use compose_rust::prelude::*;
+use compose_rust::protocol::{HostEvent, Mutation, decode_batch, encode_event};
+use compose_rust::schema::{BOUNDARY_SCHEMA, BoundaryParam, EventPayload};
+use compose_rust::{Host, RendererApi, install_renderer_api, request_frame_from_worker};
 use std::ffi::c_int;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard};
@@ -180,7 +180,7 @@ fn pr5_generated_shims_match_the_boundary_schema() {
             "/src/boundary_jni.gen.rs"
         )),
         rust,
-        "generated JNI shims are stale; run `cargo run -p dioxus-compose --bin codegen`",
+        "generated JNI shims are stale; run `cargo run -p compose-rust --bin codegen`",
     );
     assert_eq!(
         include_str!(concat!(
@@ -188,7 +188,7 @@ fn pr5_generated_shims_match_the_boundary_schema() {
             "/../dioxus-compose-renderer/android/src/bridge/HostBridge.gen.kt"
         )),
         kotlin,
-        "generated Kotlin bridge is stale; run `cargo run -p dioxus-compose --bin codegen`",
+        "generated Kotlin bridge is stale; run `cargo run -p compose-rust --bin codegen`",
     );
     assert_eq!(
         include_str!(concat!(
@@ -196,7 +196,7 @@ fn pr5_generated_shims_match_the_boundary_schema() {
             "/../dioxus-compose-renderer/android/src/bridge/FastNative.gen.kt"
         )),
         generate_fast_native_kotlin(),
-        "the generated annotation is stale; run `cargo run -p dioxus-compose --bin codegen`",
+        "the generated annotation is stale; run `cargo run -p compose-rust --bin codegen`",
     );
 }
 

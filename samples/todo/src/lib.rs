@@ -13,7 +13,7 @@
 
 mod store;
 
-use dioxus_compose::prelude::*;
+use compose_rust::prelude::*;
 use store::{Filter, Task};
 
 /// Enough rows that the window is a small fraction of the list.
@@ -37,7 +37,7 @@ fn list_bar(measure: Option<f32>, done: usize, total: usize, children: Element) 
             fill_max_width: true,
             TopAppBar {
                 fill_max_width: true,
-                dioxus_compose::Box {
+                compose_rust::Box {
                     weight: 1.0,
                     alignment: Alignment::Center,
                     Row {
@@ -241,7 +241,7 @@ pub fn app() -> Element {
         // list rather than sitting above it, so it gets the whole of the space the
         // list would have taken.
         if rows.is_empty() {
-            dioxus_compose::Box {
+            compose_rust::Box {
                 fill_max_width: true,
                 weight: 1.0,
                 alignment: Alignment::Center,
@@ -534,7 +534,7 @@ pub fn app() -> Element {
             fill_max_height: true,
 
 
-            dioxus_compose::Box {
+            compose_rust::Box {
                 fill_max_width: true,
                 fill_max_height: true,
                 alignment: Alignment::TopCenter,
@@ -634,14 +634,14 @@ pub fn launch() {
 /// The theme above all: a sample that names one and then reaches a platform through an
 /// entry point that makes its own builder is a sample that draws the same screens in a
 /// different design system depending on where it runs.
-fn launch_builder() -> dioxus_compose::LaunchBuilder {
+fn launch_builder() -> compose_rust::LaunchBuilder {
     // The name the window carries. A desktop lists windows by it, so a window that said
     // nothing was listed under whatever the renderer happened to be called, and every
     // sample here was listed as DioxusCompose until this line existed.
-    dioxus_compose::LaunchBuilder::new()
-        .with_theme(dioxus_compose::demo_theme())
+    compose_rust::LaunchBuilder::new()
+        .with_theme(compose_rust::demo_theme())
         .with_window(
-            dioxus_compose::schema::Window::new()
+            compose_rust::schema::Window::new()
                 .with_title("Todo")
                 // Without one the window wears the toolkit's picture, which on
                 // Windows is the Java coffee cup, wherever the system lists
@@ -649,8 +649,8 @@ fn launch_builder() -> dioxus_compose::LaunchBuilder {
                 // to them by id: a path would be a fact about the machine this
                 // was built on, and a name would ask the toolkit to find
                 // something it may not have.
-                .with_icon(dioxus_compose::asset::asset(
-                    dioxus_compose::schema::AssetKind::Png,
+                .with_icon(compose_rust::asset::asset(
+                    compose_rust::schema::AssetKind::Png,
                     include_bytes!("../assets/icon.png"),
                 )),
         )
@@ -670,30 +670,30 @@ fn prepare() {
 // Both are declared unconditionally. Each macro compiles into nothing that runs off its
 // own platform, and gating them here instead would mean a desktop build never checks that
 // this sample can still be built for the other two.
-dioxus_compose::android_main!(
+compose_rust::android_main!(
     {
         prepare();
         launch_builder()
     },
     app
 );
-dioxus_compose::web_main!(
+compose_rust::web_main!(
     {
         prepare();
         launch_builder()
     },
     app
 );
-dioxus_compose::ios_main!(launch);
+compose_rust::ios_main!(launch);
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dioxus_compose::Host;
-    use dioxus_compose::protocol::{
+    use compose_rust::Host;
+    use compose_rust::protocol::{
         HostEvent, Mutation, PropertyValue, decode_batch, encode_event,
     };
-    use dioxus_compose::schema::{EventPayload, PropertyKind, WidgetKind};
+    use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind};
     use std::collections::HashMap;
     use std::sync::OnceLock;
 
@@ -955,7 +955,7 @@ mod tests {
 
         /// The screen after the Renderer has reported a window of this width.
         fn at(width_dp: f32) -> Self {
-            dioxus_compose::window::reset_window_size();
+            compose_rust::window::reset_window_size();
             let mut screen = Self::new();
             screen.dispatch(HostEvent {
                 node_id: 0,
@@ -963,11 +963,11 @@ mod tests {
                 payload: EventPayload::WindowSizeChanged {
                     width_dp,
                     height_dp: 900.0,
-                    class: dioxus_compose::WindowSizeClass::from_width_dp(width_dp),
-                    height_class: dioxus_compose::WindowHeightClass::from_height_dp(900.0),
+                    class: compose_rust::WindowSizeClass::from_width_dp(width_dp),
+                    height_class: compose_rust::WindowHeightClass::from_height_dp(900.0),
                 },
             });
-            dioxus_compose::window::reset_window_size();
+            compose_rust::window::reset_window_size();
             screen
         }
 
@@ -1120,7 +1120,7 @@ mod tests {
     /// Every string the screen holds after the Renderer reports a window of this width.
     fn texts_at(width_dp: f32) -> Vec<String> {
         saved_list();
-        dioxus_compose::window::reset_window_size();
+        compose_rust::window::reset_window_size();
         let mut screen = Screen::new();
         screen.request_range(0, WINDOW);
         let event = HostEvent {
@@ -1129,8 +1129,8 @@ mod tests {
             payload: EventPayload::WindowSizeChanged {
                 width_dp,
                 height_dp: 900.0,
-                class: dioxus_compose::WindowSizeClass::from_width_dp(width_dp),
-                height_class: dioxus_compose::WindowHeightClass::from_height_dp(900.0),
+                class: compose_rust::WindowSizeClass::from_width_dp(width_dp),
+                height_class: compose_rust::WindowHeightClass::from_height_dp(900.0),
             },
         };
         encode_event(&event, &mut screen.event).expect("the resize did not encode");
@@ -1142,14 +1142,14 @@ mod tests {
         let decoded = decode_batch(batch).expect("the resize batch did not decode");
         screen.mock.apply(&decoded);
         let texts = screen.mock.texts.values().cloned().collect();
-        dioxus_compose::window::reset_window_size();
+        compose_rust::window::reset_window_size();
         texts
     }
 
     /// The widths the screen asks for after the Renderer reports a window of this width.
     fn widths_at(width_dp: f32) -> Vec<f32> {
         saved_list();
-        dioxus_compose::window::reset_window_size();
+        compose_rust::window::reset_window_size();
         let mut host = Host::new(app);
         host.rebuild().expect("the first frame failed to encode");
         let event = HostEvent {
@@ -1158,8 +1158,8 @@ mod tests {
             payload: EventPayload::WindowSizeChanged {
                 width_dp,
                 height_dp: 900.0,
-                class: dioxus_compose::WindowSizeClass::from_width_dp(width_dp),
-                height_class: dioxus_compose::WindowHeightClass::from_height_dp(900.0),
+                class: compose_rust::WindowSizeClass::from_width_dp(width_dp),
+                height_class: compose_rust::WindowHeightClass::from_height_dp(900.0),
             },
         };
         let mut bytes = Vec::new();
@@ -1170,13 +1170,13 @@ mod tests {
             .iter()
             .filter_map(|mutation| match mutation {
                 Mutation::SetModifier {
-                    modifier: dioxus_compose::Modifier::Width(width),
+                    modifier: compose_rust::Modifier::Width(width),
                     ..
                 } => Some(*width),
                 _ => None,
             })
             .collect();
-        dioxus_compose::window::reset_window_size();
+        compose_rust::window::reset_window_size();
         widths
     }
 
@@ -1200,7 +1200,7 @@ mod tests {
 
         assert!(widths_at(420.0).is_empty());
         assert!(
-            widths_at(1200.0).contains(&dioxus_compose::WindowSizeClass::EXPANDED_MIN_WIDTH_DP),
+            widths_at(1200.0).contains(&compose_rust::WindowSizeClass::EXPANDED_MIN_WIDTH_DP),
             "the screen did not take a measure"
         );
     }
@@ -1209,7 +1209,7 @@ mod tests {
     /// where the list starts.
     #[test]
     fn fr20_the_bar_holds_its_contents_to_the_same_measure_as_the_list() {
-        let measure = dioxus_compose::WindowSizeClass::EXPANDED_MIN_WIDTH_DP;
+        let measure = compose_rust::WindowSizeClass::EXPANDED_MIN_WIDTH_DP;
         let widths = widths_at(1200.0);
         assert_eq!(
             widths.iter().filter(|width| **width == measure).count(),

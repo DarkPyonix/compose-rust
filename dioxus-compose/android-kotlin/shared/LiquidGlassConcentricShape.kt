@@ -46,9 +46,16 @@ data class ContinuousCornerShape(
     val topEnd: Dp,
     val bottomEnd: Dp,
     val bottomStart: Dp,
+    /**
+     * How square the corner is: 2 is a circle, and higher holds the edge straight for
+     * longer and turns it more sharply at the end. The same radius drawn at 5 and at 3 are
+     * two visibly different corners, and at 5 a panel cut to twenty six reads as though it
+     * were cut to eleven.
+     */
+    val exponent: Double = EXPONENT,
 ) : Shape {
 
-    constructor(all: Dp) : this(all, all, all, all)
+    constructor(all: Dp, exponent: Double = EXPONENT) : this(all, all, all, all, exponent)
 
     override fun createOutline(
         size: Size,
@@ -102,8 +109,8 @@ data class ContinuousCornerShape(
         for (i in 1..SEGMENTS) {
             val t = (i.toFloat() / SEGMENTS) * (PI / 2.0)
             // Superellipse quarter, signed into the quadrant being drawn.
-            val u = abs(cos(t)).pow(2.0 / EXPONENT).toFloat()
-            val v = abs(sin(t)).pow(2.0 / EXPONENT).toFloat()
+            val u = abs(cos(t)).pow(2.0 / exponent).toFloat()
+            val v = abs(sin(t)).pow(2.0 / exponent).toFloat()
             when (quadrant) {
                 // Each quadrant starts on the edge it was entered from and ends on the
                 // next edge, so u and v swap roles between the horizontal and vertical

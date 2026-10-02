@@ -153,6 +153,147 @@ fun iconGeometry(role: IconRole): IconGeometry = when (role) {
         dots = emptyList(),
     )
 
+    // Up and away. The arrow a composer sends with, which points up because the message
+    // goes up the page it is about to join.
+    // An arrow that fills the box it is given. It used to sit inside two thirds of it,
+    // which in the round key at the end of a composer left ten points of glyph in a
+    // thirty five point button: a pale disc with something small and grey on it.
+    IconRole.Send -> IconGeometry(
+        strokes = listOf(
+            listOf(Offset(0.50f, 0.92f), Offset(0.50f, 0.12f)),
+            listOf(Offset(0.16f, 0.44f), Offset(0.50f, 0.10f), Offset(0.84f, 0.44f)),
+        ),
+        dots = emptyList(),
+    )
+
+    // A capsule on a stand: the head, the arc that catches it, and the post.
+    IconRole.Mic -> IconGeometry(
+        strokes = listOf(
+            listOf(
+                Offset(0.38f, 0.30f),
+                Offset(0.38f, 0.50f),
+                Offset(0.50f, 0.60f),
+                Offset(0.62f, 0.50f),
+                Offset(0.62f, 0.30f),
+                Offset(0.50f, 0.20f),
+                Offset(0.38f, 0.30f),
+            ),
+            listOf(
+                Offset(0.24f, 0.50f),
+                Offset(0.28f, 0.68f),
+                Offset(0.50f, 0.76f),
+                Offset(0.72f, 0.68f),
+                Offset(0.76f, 0.50f),
+            ),
+            listOf(Offset(0.50f, 0.76f), Offset(0.50f, 0.88f)),
+        ),
+        dots = emptyList(),
+    )
+
+    // A frame with a hill in it and the sun over the hill, which is what a picture is in
+    // every icon set anyone has drawn.
+    IconRole.Image -> IconGeometry(
+        strokes = listOf(
+            listOf(
+                Offset(0.14f, 0.18f),
+                Offset(0.86f, 0.18f),
+                Offset(0.86f, 0.82f),
+                Offset(0.14f, 0.82f),
+                Offset(0.14f, 0.18f),
+            ),
+            listOf(Offset(0.14f, 0.66f), Offset(0.36f, 0.44f), Offset(0.58f, 0.66f)),
+            listOf(Offset(0.50f, 0.74f), Offset(0.68f, 0.56f), Offset(0.86f, 0.74f)),
+        ),
+        dots = listOf(IconDot(Offset(0.66f, 0.34f), 0.07f, filled = true)),
+    )
+
+    // A frame with a play triangle in it.
+    IconRole.Video -> IconGeometry(
+        strokes = listOf(
+            listOf(
+                Offset(0.10f, 0.24f),
+                Offset(0.90f, 0.24f),
+                Offset(0.90f, 0.76f),
+                Offset(0.10f, 0.76f),
+                Offset(0.10f, 0.24f),
+            ),
+            listOf(Offset(0.42f, 0.38f), Offset(0.66f, 0.50f), Offset(0.42f, 0.62f), Offset(0.42f, 0.38f)),
+        ),
+        dots = emptyList(),
+    )
+
+    // Four panes. A collection is more than one of something, arranged.
+    IconRole.Library -> IconGeometry(
+        strokes = listOf(
+            listOf(
+                Offset(0.14f, 0.14f),
+                Offset(0.44f, 0.14f),
+                Offset(0.44f, 0.44f),
+                Offset(0.14f, 0.44f),
+                Offset(0.14f, 0.14f),
+            ),
+            listOf(
+                Offset(0.56f, 0.14f),
+                Offset(0.86f, 0.14f),
+                Offset(0.86f, 0.44f),
+                Offset(0.56f, 0.44f),
+                Offset(0.56f, 0.14f),
+            ),
+            listOf(
+                Offset(0.14f, 0.56f),
+                Offset(0.44f, 0.56f),
+                Offset(0.44f, 0.86f),
+                Offset(0.14f, 0.86f),
+                Offset(0.14f, 0.56f),
+            ),
+            listOf(
+                Offset(0.56f, 0.56f),
+                Offset(0.86f, 0.56f),
+                Offset(0.86f, 0.86f),
+                Offset(0.56f, 0.86f),
+                Offset(0.56f, 0.56f),
+            ),
+        ),
+        dots = emptyList(),
+    )
+
+    // A window with a column ruled off down its leading edge, which is the thing the
+    // button puts away and brings back.
+    IconRole.Sidebar -> IconGeometry(
+        strokes = listOf(
+            listOf(
+                Offset(0.12f, 0.20f),
+                Offset(0.88f, 0.20f),
+                Offset(0.88f, 0.80f),
+                Offset(0.12f, 0.80f),
+                Offset(0.12f, 0.20f),
+            ),
+            listOf(Offset(0.40f, 0.20f), Offset(0.40f, 0.80f)),
+        ),
+        dots = emptyList(),
+    )
+
+    // A pen laid across the box it writes in, nib to the lower left.
+    IconRole.Compose -> IconGeometry(
+        strokes = listOf(
+            listOf(
+                Offset(0.82f, 0.46f),
+                Offset(0.82f, 0.84f),
+                Offset(0.16f, 0.84f),
+                Offset(0.16f, 0.22f),
+                Offset(0.52f, 0.22f),
+            ),
+            listOf(Offset(0.44f, 0.62f), Offset(0.78f, 0.16f), Offset(0.90f, 0.26f), Offset(0.56f, 0.72f), Offset(0.40f, 0.76f), Offset(0.44f, 0.62f)),
+        ),
+        dots = emptyList(),
+    )
+
+    // A chevron pointing down: what is folded is below, and this is the way to it.
+    IconRole.Collapse -> IconGeometry(
+        strokes = listOf(listOf(Offset(0.24f, 0.38f), Offset(0.50f, 0.66f), Offset(0.76f, 0.38f))),
+        dots = emptyList(),
+    )
+
     // A tray: the open box with a lip that things arrive in.
     IconRole.Inbox -> IconGeometry(
         strokes = listOf(

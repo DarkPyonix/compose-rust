@@ -163,7 +163,7 @@ if ($rendererDir) {
             Write-Host "ignored. To measure a particular renderer, build against it:"
             Write-Host ""
             Write-Host "  `$env:DIOXUS_COMPOSE_RENDERER_DIR = '$rendererDir'"
-            Write-Host "  cargo clean -p dioxus-compose"
+            Write-Host "  cargo clean -p compose-rust"
             Write-Host "  cargo build --release --example memory_probe --features native-renderer"
             Write-Host ''
         }

@@ -2,7 +2,7 @@
 //! Renderer could hand it, never panic, abort, or read out of bounds.
 #![no_main]
 
-use dioxus_compose::protocol::{decode_event, encode_event};
+use compose_rust::protocol::{decode_event, encode_event};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {

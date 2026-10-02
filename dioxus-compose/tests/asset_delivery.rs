@@ -1,8 +1,8 @@
 //! Asset delivery: registering bytes once, drawing them by id, and releasing them.
 
-use dioxus_compose::prelude::*;
-use dioxus_compose::protocol::{Mutation, PropertyValue, ProtocolError, decode_batch};
-use dioxus_compose::{AssetKind, Host, IconRole, PropertyKind, WidgetKind};
+use compose_rust::prelude::*;
+use compose_rust::protocol::{Mutation, PropertyValue, ProtocolError, decode_batch};
+use compose_rust::{AssetKind, Host, IconRole, PropertyKind, WidgetKind};
 
 const PNG_HEADER: &[u8] = &[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
 
@@ -344,15 +344,15 @@ fn fr16_the_same_bytes_under_two_names_are_one_registration() {
 /// them.
 #[test]
 fn fr16_an_asset_registered_before_the_host_is_sent_by_it() {
-    use dioxus_compose::protocol::{Mutation, decode_batch};
-    use dioxus_compose::schema::AssetKind;
+    use compose_rust::protocol::{Mutation, decode_batch};
+    use compose_rust::schema::AssetKind;
 
     static PICTURE: &[u8] = b"not really a picture, and nothing decodes it here";
-    dioxus_compose::asset::reset_assets();
+    compose_rust::asset::reset_assets();
     // Before the Host, which is where a theme's fonts and a window's icon are registered.
-    let registered = dioxus_compose::asset::asset(AssetKind::Png, PICTURE);
+    let registered = compose_rust::asset::asset(AssetKind::Png, PICTURE);
 
-    let mut host = dioxus_compose::Host::new(|| dioxus_compose::rsx! {});
+    let mut host = compose_rust::Host::new(|| compose_rust::rsx! {});
     let first = host.rebuild().expect("the first frame failed to encode");
     let sent: Vec<u32> = decode_batch(first)
         .expect("the first batch did not decode")

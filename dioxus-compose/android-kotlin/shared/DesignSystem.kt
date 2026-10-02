@@ -29,6 +29,7 @@ import dioxus.compose.protocol.TypeRole
 import dioxus.compose.protocol.TypeToken
 import dioxus.compose.protocol.WindowSizeClass
 import java.lang.System
+import dioxus.compose.protocol.TitleBar
 
 /**
  * The platforms `Theme::adaptive` distinguishes.
@@ -149,6 +150,17 @@ class ResolvedTheme(
      * which is every platform but one and every window that did not ask.
      */
     val windowBackdrop: Boolean = false,
+
+    /**
+     * Which platform this is running on.
+     *
+     * A design system is not a platform and mostly does not need to know, which is why
+     * this arrived late. One rule does: the Apple language is drawn on two platforms whose
+     * answer for a set of destinations with no room differs, because one of them has its
+     * own tab bar to hand the destinations to and the other has a sidebar that
+     * is put away behind a button.
+     */
+    val platform: HostPlatform = HostPlatform.Unknown,
 ) {
     fun color(role: ColorRole): Color =
         rules.color(role, dark, sizeClass) ?: Color(tokens.color(role, dark))
@@ -302,6 +314,16 @@ interface ComponentRules {
         shape: Shape,
         theme: ResolvedTheme,
     ): androidx.compose.ui.Modifier
+
+    /**
+     * What that button becomes when it is a line in a menu rather than a control on a page.
+     *
+     * The default is that it becomes nothing: the system draws its menu out of its own
+     * buttons. Override it where a menu row is its own thing, which on the Apple systems it
+     * is: a row there runs the width of the menu, is cut shallow rather than into a capsule,
+     * and is read as a list rather than as a stack of controls.
+     */
+    fun menuEntry(base: ButtonStyle, theme: ResolvedTheme): ButtonStyle = base
 
     /** How a `ButtonVariant` looks, resting and pressed. */
     fun button(
@@ -461,7 +483,7 @@ interface ComponentRules {
      * The default is a plain set at the trailing edge with a tinted hover, which is what
      * most of these systems do. A system overrides what it actually differs about.
      */
-    fun caption(theme: ResolvedTheme): CaptionStyle = CaptionStyle(
+    fun caption(theme: ResolvedTheme, titleBar: TitleBar = TitleBar.Normal): CaptionStyle = CaptionStyle(
         side = CaptionSide.End,
         buttonWidth = 32.dp,
         buttonHeight = 32.dp,
@@ -550,6 +572,29 @@ data class CaptionStyle(
     val spacing: Dp,
     val edgePadding: Dp,
     val titleAlignment: CaptionTitleAlignment,
+    /**
+     * How far in from the window's corner the platform's own buttons sit.
+     *
+     * macOS only, and only where the window's buttons are the system's. Everywhere else
+     * the caption's buttons are ours and drawn where [side] says, so there is no corner to
+     * come in from. Zero leaves them where the system put them.
+     */
+    val platformButtonInset: Dp = 0.dp,
+    /**
+     * How round the window's own corners are, or zero to leave the system's.
+     *
+     * macOS only, for the same reason. On Windows and Linux the window's outline belongs
+     * to the compositor rather than to the application.
+     */
+    val windowCornerRadius: Dp = 0.dp,
+    /**
+     * How tall the caption is where the application draws it.
+     *
+     * Windows and Linux. Zero means the design system has nothing to say and the caption
+     * is whatever it was, which is what every system answered before the two title bar
+     * modes existed.
+     */
+    val height: Dp = 0.dp,
 )
 
 /**
@@ -583,6 +628,15 @@ enum class NavigationPresentation {
 
     /** A wide column down the leading edge, labels beside their icons. */
     Drawer,
+
+    /**
+     * Not on the screen, with a button that brings it back over the page.
+     *
+     * What every macOS sidebar does when there is no room for it, and the only one of
+     * these four where the page has the whole window. The button belongs with the window's
+     * own buttons where the platform hands its caption over.
+     */
+    PutAway,
 }
 
 /**
@@ -603,6 +657,13 @@ data class NavigationStyle(
     val indicatorKind: NavigationIndicator,
     /** Whether that mark covers the icon alone or the whole destination. */
     val indicatorExtent: NavigationExtent = NavigationExtent.Icon,
+    /**
+     * The ink a group's heading is set in, or null to take a quieter shade of the rows'.
+     *
+     * Named where the rows are set in the reading ink, because then there is a role for
+     * this and a fraction of black is not it.
+     */
+    val headingContent: Color? = null,
     /** The hairline between the destinations and the screen, null where there is none. */
     val separator: Color?,
     val barHeight: Dp,
@@ -613,11 +674,19 @@ data class NavigationStyle(
     /** Whether a rail, which is narrow, still writes the label under the icon. */
     val labelInRail: Boolean,
     val typeRole: TypeRole,
+    /**
+     * The weight a drawer's rows are set in, or null to take the rung's own.
+     *
+     * Named where the rung a sidebar row borrows is heavier than a row should be. The
+     * rungs that label something are set heavier in the systems that draw on glass,
+     * because a label on a translucent surface competes with whatever shows through it,
+     * and that reasoning is about the label on a button, a segment or a section head. A
+     * sidebar row is not labelling a control; it is a line in a list you read.
+     */
+    val destinationWeight: FontWeight? = null,
     /** Optional page gradient behind both the destinations and their content. */
     val pageGradientStart: Color? = null,
     val pageGradientEnd: Color? = null,
-    /** A search destination becomes a field-shaped action when this is non-null. */
-    val searchContainer: Color? = null,
     /**
      * What the strip is made of when it floats, or null for a strip painted [container]
      * straight onto the window's edge.
@@ -661,6 +730,38 @@ data class NavigationStyle(
      * and its label, and a drawer wants the rows closer together than that.
      */
     val destinationGap: Dp? = null,
+    /**
+     * The room the strip keeps around its destinations, or null to use [itemPadding].
+     *
+     * Separate because the two are measured against different things. The strip's own
+     * inset is what sets how far the selected row's mark stops short of the panel's edge,
+     * and the room inside a row is what sets where the icon column falls; a sidebar that
+     * uses one number for both puts its icons wherever its mark happens to want to stop.
+     */
+    val stripPadding: Dp? = null,
+    /**
+     * The colour that rises from the window's two bottom corners, or null for a page whose
+     * wash is level all the way across.
+     *
+     * A wash that turns at the same height at every horizontal position is a band, and a
+     * band reads as a fill rather than as light. Measured across the reference, the height
+     * its wash begins at runs from six hundred and forty two under the middle of the window
+     * to four hundred and ninety six at the trailing edge: two glows anchored in the bottom
+     * corners, arcing up over a level ramp.
+     */
+    val pageCornerGlow: Color? = null,
+    /**
+     * The room inside one drawer row, from the row's edge to its icon, or null to use
+     * [itemPadding].
+     */
+    val destinationInset: Dp? = null,
+    /**
+     * How tall one drawer row is, or null to let what it holds decide.
+     *
+     * A row with an icon and a row with only a name are not the same height when nothing
+     * says they are, and a list whose rows are two heights has no rhythm.
+     */
+    val destinationHeight: Dp? = null,
 )
 
 /** The edge a sheet comes in from. */
@@ -886,6 +987,15 @@ data class ContainerStyle(
      * which is how a toolbar looks in the systems that draw glass.
      */
     val floats: Boolean = false,
+    /**
+     * How far the floating pieces of a bar stand off the edges of the window, or null to
+     * take the space ladder's own step.
+     *
+     * Named where a window already holds something else off its edge, so that the capsule
+     * at one corner and the panel at the other are held off by one measurement rather than
+     * by two that happen to be close.
+     */
+    val floatingInset: Dp? = null,
 )
 
 /**
@@ -925,6 +1035,16 @@ data class IconStyle(
     val strokeWidth: Dp,
     val cap: androidx.compose.ui.graphics.StrokeCap,
     val join: androidx.compose.ui.graphics.StrokeJoin,
+    /**
+     * How far back from each corner the line starts to turn, or zero for a corner that is
+     * met rather than turned.
+     *
+     * A join says what happens where two strokes meet at a point; this says that they do
+     * not meet at a point at all. The rounded sets draw a frame as a square with its
+     * corners cut into arcs a good deal wider than the stroke, and a join cannot say that
+     * however round it is.
+     */
+    val corner: Dp = 0.dp,
 )
 
 /** Which of the three toggles is being drawn. */
@@ -1159,6 +1279,7 @@ fun resolveTheme(
         fonts,
         brushOf,
         windowBackdrop,
+        platform,
     )
 }
 

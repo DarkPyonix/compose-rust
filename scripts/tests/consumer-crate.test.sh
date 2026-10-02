@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# A crate whose Cargo.toml says only "dioxus-compose" builds, links, and starts.
+# A crate whose Cargo.toml says only "compose-rust" builds, links, and starts.
 #
 # This is the case the rest of the test suite could not reach. Every sample in this
 # repository used to carry a build script that repeated the library's rpath, so the
@@ -42,7 +42,7 @@ case "$(uname -s)" in
 esac
 
 command -v cargo >/dev/null || fail "cargo is not on PATH" \
-    "This builds a crate that depends on dioxus-compose, so it needs the toolchain."
+    "This builds a crate that depends on compose-rust, so it needs the toolchain."
 
 [[ -f "$fixture/Cargo.toml" ]] || fail "no consumer fixture at $fixture" \
     "The regression this defends is a crate with no build.rs of its own, so the fixture" \
@@ -53,10 +53,12 @@ command -v cargo >/dev/null || fail "cargo is not on PATH" \
 
 # Its own target directory: the fixture is a separate workspace, and pointing it at the
 # repository's target directory would make this wait on any build already running there.
-target="${TMPDIR:-/tmp}/dioxus-compose-consumer-crate"
+# A directory of its own inside target/ keeps it apart from that build and still inside
+# this checkout, which is where everything the project makes belongs.
+target="$repo_root/target/consumer-crate"
 export CARGO_TARGET_DIR="$target"
 
-echo "== building a crate that depends on dioxus-compose and nothing else"
+echo "== building a crate that depends on compose-rust and nothing else"
 cargo build --manifest-path "$fixture/Cargo.toml" --quiet
 
 binary="$target/debug/consumer"
@@ -108,7 +110,7 @@ echo "== starting it"
 # Those are the three things that used to fail and all three happen before main.
 "$binary" >/dev/null
 
-echo "ok    a crate depending only on dioxus-compose builds, has no rpath, and starts"
+echo "ok    a crate depending only on compose-rust builds, has no rpath, and starts"
 echo "      renderer: $renderer"
 
 # ------------------------------------------------------------------------------------

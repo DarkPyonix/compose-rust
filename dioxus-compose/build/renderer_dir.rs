@@ -32,7 +32,7 @@ pub const RENDERER_DIR_ENV: &str = "DIOXUS_COMPOSE_RENDERER_DIR";
 pub const CACHE_DIR_ENV: &str = "DIOXUS_COMPOSE_CACHE_DIR";
 
 /// Where the release artifacts live. One release per crate version, tagged `v{version}`.
-pub const RELEASE_BASE_URL: &str = "https://github.com/DarkPyonix/dioxus-compose/releases";
+pub const RELEASE_BASE_URL: &str = "https://github.com/DarkPyonix/compose-rust/releases";
 
 /// The targets the release publishes a renderer for. Anything else has to say so in
 /// those words: a bare 404 cannot tell "this platform is not built" from "the release is
