@@ -8,7 +8,7 @@ import kotlin.wasm.unsafe.Pointer
 /**
  * The slice of `java.nio` that the generated protocol codec uses, over wasm linear memory.
  *
- * `Protocol.gen.kt` is generated from the Rust schema by `cargo run -p dioxus-compose --bin
+ * `Protocol.gen.kt` is generated from the Rust schema by `cargo run -p compose-rust --bin
  * codegen` and is written against `java.nio.ByteBuffer`. Kotlin/Wasm has no JDK, so this
  * file supplies the same names and the same semantics for the operations the codec performs.
  * Compiling the generated file unchanged is the point: the web renderer must decode exactly
