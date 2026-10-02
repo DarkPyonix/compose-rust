@@ -1,0 +1,33 @@
+# What the packaging workflow wraps: a program that updates itself, described the way an
+# application describes itself to dx, plus the [linux.store] facts a store listing needs.
+
+[application]
+name = "UpdateDemo"
+
+[bundle]
+identifier = "dev.darkpyonix.compose.UpdateDemo"
+publisher = "DarkPyonix"
+icon = ["icon.png"]
+short_description = "Shows a packaged application updating itself"
+long_description = """
+A small program built with dioxus-compose that checks for a newer version of itself, asks,
+downloads only the parts that changed, and restarts into it.
+
+Delivered as an AppImage it updates itself from the .zsync file published beside each
+release. Delivered as a Flatpak it leaves updating to the store that installed it."""
+
+[linux]
+categories = ["Development"]
+keywords = ["update", "appimage", "flatpak"]
+
+[linux.store]
+exec = "update-demo"
+license = "Apache-2.0"
+homepage = "https://github.com/darkpyonix/compose-rust"
+bugtracker = "https://github.com/darkpyonix/compose-rust/issues"
+vcs_browser = "https://github.com/darkpyonix/compose-rust"
+brand_light = "#dbe7ff"
+brand_dark = "#1d2b4f"
+screenshots = [
+    { url = "https://raw.githubusercontent.com/darkpyonix/compose-rust/develop/tools/packager-linux/demo/screenshot.png", caption = "Checking for an update" },
+]

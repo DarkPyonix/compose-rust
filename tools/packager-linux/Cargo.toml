@@ -1,0 +1,21 @@
+[package]
+name = "packager-linux"
+# Tooling for this repository's releases, not a library anyone depends on.
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Wraps a built dioxus-compose application as an AppImage and a Flatpak"
+
+[lib]
+bench = false
+
+[[bin]]
+name = "packager-linux"
+path = "src/main.rs"
+bench = false
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+toml = { version = "1", default-features = false, features = ["std", "parse", "serde"] }

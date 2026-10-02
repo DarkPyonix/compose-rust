@@ -13,6 +13,8 @@ members = [
     "samples/statistics",
     "samples/store",
     "samples/todo",
+    "tools/packager-linux",
+    "tools/packager-linux/demo",
 ]
 resolver = "2"
 
