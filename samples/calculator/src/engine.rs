@@ -122,7 +122,12 @@ pub struct Completed {
 /// Every desk calculator has had these, and both the Windows and the Deepin reference
 /// give them a row of their own above the keypad. They are a second register beside the
 /// running value: somewhere to put a number while working out the next one.
-pub const MEMORY_KEYS: [&str; 6] = ["MC", "MR", "M+", "M\u{2212}", "MS", "M\u{25be}"];
+pub const MEMORY_KEYS: [&str; 6] = ["MC", "MR", "M+", "M\u{2212}", "MS", MEMORY_LIST];
+
+/// The last memory key, which shows what the memory holds rather than changing it. The
+/// Windows reference opens a list from it; what the list is drawn as is the screen's
+/// business, so the engine only names the key.
+pub const MEMORY_LIST: &str = "M\u{25be}";
 
 #[derive(Clone, Debug)]
 pub struct Calculator {
@@ -143,6 +148,13 @@ pub struct Calculator {
     /// disagrees with what you just did.
     memory: f64,
     memory_set: bool,
+    /// The calculation the big line is the answer to, once equals has worked one out.
+    ///
+    /// All three references keep it on the small line above the answer, so `38670 ÷
+    /// 50000` stays readable over `0.7734` rather than vanishing the moment the answer
+    /// appears. Anything that changes the number on the big line makes it a different
+    /// number from the one this produced, so every such key forgets it.
+    expression: Option<String>,
 }
 
 impl Default for Calculator {
@@ -163,7 +175,13 @@ impl Calculator {
             completed: None,
             memory: 0.0,
             memory_set: false,
+            expression: None,
         }
+    }
+
+    /// What the memory holds, if anything was ever put in it.
+    pub fn memory(&self) -> Option<f64> {
+        self.memory_set.then_some(self.memory)
     }
 
     /// Whether the memory holds anything. Recalling and clearing are dead keys until it
@@ -188,11 +206,15 @@ impl Calculator {
     }
 
     /// The small line above the display: the running value and the operation waiting for
-    /// its right-hand side.
+    /// its right-hand side, or, once equals has answered it, the calculation the big line
+    /// is the answer to.
     pub fn status(&self) -> String {
-        match self.pending {
-            Some(operation) => format!("{} {}", format_number(self.value), operation.symbol()),
-            None => String::new(),
+        match (self.pending, &self.expression) {
+            (Some(operation), _) => {
+                format!("{} {}", format_number(self.value), operation.symbol())
+            }
+            (None, Some(expression)) => expression.clone(),
+            (None, None) => String::new(),
         }
     }
 
@@ -213,6 +235,7 @@ impl Calculator {
         }
         self.entry = format_number(value);
         self.typing = true;
+        self.expression = None;
     }
 
     /// The value the next operation will use: what is being typed, or the running result.
@@ -247,7 +270,11 @@ impl Calculator {
             "MS" => self.store(self.shown_value()),
             "M+" => self.store(self.memory + self.shown_value()),
             "M\u{2212}" | "M-" => self.store(self.memory - self.shown_value()),
-            "C" => {
+            // Listing the memory changes nothing in it.
+            MEMORY_LIST => {}
+            // Apple's pad says AC where Windows' and Deepin's say C, and both clear the
+            // calculation.
+            "C" | "AC" => {
                 // Clearing clears the calculation, not the memory. Every one of the
                 // three references keeps the two apart, and a C that emptied the memory
                 // would throw away the number that was put somewhere safe.
@@ -292,6 +319,7 @@ impl Calculator {
         if !self.typing {
             self.entry.clear();
             self.typing = true;
+            self.expression = None;
         }
         if self.entry == "0" {
             self.entry.clear();
@@ -311,6 +339,7 @@ impl Calculator {
         if !self.typing {
             self.entry = "0.".to_owned();
             self.typing = true;
+            self.expression = None;
             return;
         }
         if self.entry.contains('.') {
@@ -323,6 +352,7 @@ impl Calculator {
     }
 
     fn flip_sign(&mut self) {
+        self.expression = None;
         if self.typing {
             if let Some(rest) = self.entry.strip_prefix('-') {
                 self.entry = rest.to_owned();
@@ -340,6 +370,7 @@ impl Calculator {
         if self.error {
             return;
         }
+        self.expression = None;
         let operand = self.operand();
         let result = match self.pending {
             Some(Operation::Add) | Some(Operation::Subtract) => self.value * operand / 100.0,
@@ -354,6 +385,7 @@ impl Calculator {
             *self = Self::new();
             return;
         }
+        self.expression = None;
         if self.typing {
             self.entry.pop();
             if self.entry.is_empty() || self.entry == "-" {
@@ -370,6 +402,7 @@ impl Calculator {
         if self.error {
             return;
         }
+        self.expression = None;
         let operand = self.operand();
         let result = match self.pending {
             // Two operators in a row replace each other rather than folding a value in
@@ -408,13 +441,15 @@ impl Calculator {
     }
 
     fn record(&mut self, left: f64, operation: Operation, right: f64, result: f64) {
+        let expression = format!(
+            "{} {} {}",
+            format_number(left),
+            operation.symbol(),
+            format_number(right)
+        );
+        self.expression = Some(expression.clone());
         self.completed = Some(Completed {
-            expression: format!(
-                "{} {} {}",
-                format_number(left),
-                operation.symbol(),
-                format_number(right)
-            ),
+            expression,
             result: format_number(result),
             value: result,
             failed: !result.is_finite(),
@@ -525,6 +560,59 @@ mod tests {
         assert!(calculator.memory_set());
         calculator.press("MR");
         assert_eq!(calculator.display(), "8");
+    }
+
+    /// Apple's pad clears with AC. It is the same key as C under another name, and a key
+    /// on the face that does nothing is a calculator that looks broken.
+    #[test]
+    fn fr22_all_clear_clears_the_calculation_and_keeps_the_memory() {
+        let mut calculator = Calculator::new();
+        press_all(&mut calculator, "9");
+        calculator.press("MS");
+        press_all(&mut calculator, "12+3");
+        calculator.press("AC");
+        assert_eq!(calculator.display(), "0");
+        assert_eq!(
+            calculator.status(),
+            "",
+            "AC should drop the waiting operation"
+        );
+        assert_eq!(calculator.memory(), Some(9.0), "AC is not a memory key");
+    }
+
+    /// The list key reads the memory and leaves it as it was.
+    #[test]
+    fn fr22_the_memory_list_key_changes_nothing() {
+        let mut calculator = Calculator::new();
+        assert_eq!(calculator.memory(), None);
+        press_all(&mut calculator, "5");
+        calculator.press("MS");
+        calculator.press(MEMORY_LIST);
+        assert_eq!(calculator.memory(), Some(5.0));
+        assert_eq!(calculator.display(), "5");
+        assert!(MEMORY_KEYS.contains(&MEMORY_LIST));
+    }
+
+    /// The expression line stays over the answer, the way all three references keep it,
+    /// and goes as soon as the big line holds a number it did not produce.
+    #[test]
+    fn fr22_the_expression_stays_above_its_answer() {
+        let mut calculator = Calculator::new();
+        press_all(&mut calculator, "38670/50000");
+        assert_eq!(calculator.status(), "38670 \u{00f7}");
+        press_all(&mut calculator, "=");
+        assert_eq!(calculator.display(), "0.7734");
+        assert_eq!(calculator.status(), "38670 \u{00f7} 50000");
+
+        press_all(&mut calculator, "2");
+        assert_eq!(
+            calculator.status(),
+            "",
+            "a new entry is not the answer to it"
+        );
+
+        press_all(&mut calculator, "c3*3=~");
+        assert_eq!(calculator.status(), "", "the sign key changed the answer");
     }
 
     #[test]

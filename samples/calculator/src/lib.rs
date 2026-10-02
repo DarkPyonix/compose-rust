@@ -139,15 +139,61 @@ fn memory_row(memory_set: bool, press: EventHandler<&'static str>) -> Element {
                     weight: 1.0,
                     variant: ButtonVariant::Text,
                     color: Paint::Role(ColorRole::OnSurfaceVariant),
-                    // Recalling and clearing act on what is stored, so they are dead keys
-                    // until something is. The reference greys them the same way.
-                    enabled: memory_set || !matches!(label, "MC" | "MR"),
+                    // Recalling, clearing and listing act on what is stored, so they are
+                    // dead keys until something is. The reference greys them the same way.
+                    enabled: memory_set || !matches!(label, "MC" | "MR" | engine::MEMORY_LIST),
                     on_click: move |_| press.call(label),
                 }
             }
         }
     }
 }
+
+/// What the memory holds, opened from the last key of the memory row.
+///
+/// The Windows reference opens a list there, one line per stored number, each a way back
+/// into the entry and each with its own clear. This calculator has one register, so the
+/// list has one line.
+fn memory_sheet(
+    memory: Option<f64>,
+    recall: EventHandler<f64>,
+    clear: EventHandler<()>,
+) -> Element {
+    let value = memory.unwrap_or_default();
+    let shown = engine::format_number(value);
+    rsx! {
+        Column {
+            fill_max_width: true,
+            space_role: SpaceRole::Sm,
+            Text { text: MEMORY_LABEL, type_role: TypeRole::Subtitle }
+            Separator {}
+            if memory.is_some() {
+                Button {
+                    text: shown,
+                    fill_max_width: true,
+                    variant: ButtonVariant::Text,
+                    color: Paint::Role(ColorRole::OnSurface),
+                    on_click: move |_| recall.call(value),
+                }
+                Button {
+                    text: "Clear memory",
+                    variant: ButtonVariant::Text,
+                    color: Paint::Role(ColorRole::Error),
+                    on_click: move |_| clear.call(()),
+                }
+            } else {
+                Text {
+                    text: "Nothing is saved in memory.",
+                    type_role: TypeRole::Body,
+                    color: Paint::Role(ColorRole::OnSurfaceVariant),
+                }
+            }
+        }
+    }
+}
+
+/// What the memory sheet is headed with.
+const MEMORY_LABEL: &str = "Memory";
 
 /// The readout: what is being worked out, and what it comes to.
 ///
@@ -299,10 +345,12 @@ pub fn app() -> Element {
     let mut entries = use_signal(Vec::<TapeEntry>::new);
     let mut next_entry = use_signal(|| 1_u64);
     let mut tape_open = use_signal(|| false);
+    let mut memory_open = use_signal(|| false);
 
     let display = calculator.read().display();
     let status = calculator.read().status();
     let memory_set = calculator.read().memory_set();
+    let memory = calculator.read().memory();
     // A desktop window has room for the tape to stand beside the keypad. Narrower than
     // that it is a sheet, which is the same tape arriving from an edge instead.
     let tape_beside = window.is_expanded();
@@ -316,6 +364,10 @@ pub fn app() -> Element {
     // One key press, whichever key it was. The tape is written here rather than in the
     // engine because a tape is a thing the application keeps, not a thing arithmetic has.
     let press = move |label: &'static str| {
+        if label == engine::MEMORY_LIST {
+            memory_open.set(true);
+            return;
+        }
         let finished = {
             let mut state = calculator.write();
             state.press(label);
@@ -342,6 +394,14 @@ pub fn app() -> Element {
     let recall = EventHandler::new(move |value: f64| {
         calculator.write().recall(value);
         tape_open.set(false);
+    });
+    let recall_memory = EventHandler::new(move |value: f64| {
+        calculator.write().recall(value);
+        memory_open.set(false);
+    });
+    let clear_memory = EventHandler::new(move |()| {
+        calculator.write().press("MC");
+        memory_open.set(false);
     });
     let clear_tape = EventHandler::new(move |()| {
         let thrown_away = std::mem::take(&mut *entries.write());
@@ -457,6 +517,17 @@ pub fn app() -> Element {
                 // calculation, twice, and a scroll position each.
                 if !tape_beside {
                     {tape(entries(), recall, clear_tape)}
+                }
+            }
+
+            // The memory list. Declared only while it is open: unlike the tape it has no
+            // place on the screen to stand otherwise.
+            Sheet {
+                open: memory_open(),
+                on_dismiss: move |_| memory_open.set(false),
+                fill_max_width: true,
+                if memory_open() {
+                    {memory_sheet(memory, recall_memory, clear_memory)}
                 }
             }
         }
@@ -625,9 +696,8 @@ mod tests {
         );
     }
 
-    /// A phone keypad and a desk keypad are different keypads, not the same one scaled.
-    /// Narrow, the four function keys share the top row with an operator. Wide, they are a
-    /// column of their own and the grid is four rows of digits.
+    /// One keypad at every width. What a wider window changes is where the tape stands,
+    /// not the keys: all three references keep the same four columns however wide they get.
     #[test]
     fn fr20_the_keypad_is_one_shape_and_the_tape_is_what_moves() {
         let narrow = keys_at(420.0);
@@ -1030,6 +1100,52 @@ mod tests {
             "42",
             "pressing a tape line should put its answer back in the entry"
         );
+    }
+
+    /// The last memory key lists what is stored, and the line it lists is a way back into
+    /// the entry. It used to be drawn and do nothing.
+    #[test]
+    fn fr22_the_memory_list_key_opens_what_is_stored() {
+        let mut screen = Screen::new();
+        for label in ["4", "2", "MS", "C"] {
+            screen.press(label);
+        }
+        assert_eq!(screen.display(), "0");
+        assert!(
+            screen.labelled(MEMORY_LABEL).is_none(),
+            "the memory list is open before anyone asked for it"
+        );
+
+        screen.press(engine::MEMORY_LIST);
+        let stored = screen
+            .texts
+            .iter()
+            .find(|(node, text)| text.as_str() == "42" && screen.hangs_from_a_sheet(**node))
+            .map(|(node, _)| *node);
+        assert!(stored.is_some(), "the sheet does not list the stored 42");
+
+        screen.press("42");
+        assert_eq!(
+            screen.display(),
+            "42",
+            "the listed number should go back into the entry"
+        );
+        assert!(
+            screen.labelled(MEMORY_LABEL).is_none(),
+            "recalling should put the list away"
+        );
+    }
+
+    /// Apple's clear key is labelled AC, and pressing it clears.
+    #[test]
+    fn fr22_the_apple_clear_key_clears() {
+        let mut calculator = Calculator::new();
+        for label in ["7", "+", "1"] {
+            calculator.press(label);
+        }
+        calculator.press(APPLE_ROWS[0][1]);
+        assert_eq!(calculator.display(), "0");
+        assert_eq!(calculator.status(), "");
     }
 
     /// Nothing that cannot be worked out goes on the tape, and the user is told once.
