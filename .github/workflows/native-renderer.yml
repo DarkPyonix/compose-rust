@@ -4,7 +4,7 @@
 # verification, then attaches what they produced to a GitHub Release and publishes
 # the crate. The renderer distribution is the native-image shared library plus Skia, about
 # 85MB, which crates.io will not take and which has no business in a source crate anyway,
-# so the split is: `dioxus-compose` stays an ordinary crate that builds with no renderer
+# so the split is: `compose-rust` stays an ordinary crate that builds with no renderer
 # present, and the renderer ships as a checksummed tarball on the release for its tag.
 #
 # Building it twice, once to check and once to ship, is what the separate release workflow

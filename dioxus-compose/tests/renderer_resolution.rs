@@ -73,15 +73,15 @@ fn nfr11_the_downloadable_targets_are_the_ones_the_release_builds() {
 /// has to be a deliberate edit to a test rather than a silent 404 on someone's machine.
 #[test]
 fn nfr11_the_download_address_is_the_release_for_this_crate_version() {
-    let artifact = artifact_file_name("0.1.0", "macos-aarch64");
+    let artifact = artifact_file_name("0.0.0", "macos-aarch64");
     assert_eq!(
         artifact,
-        "dioxus-compose-renderer-v0.1.0-macos-aarch64.tar.gz"
+        "dioxus-compose-renderer-v0.0.0-macos-aarch64.tar.gz"
     );
     assert_eq!(
-        artifact_url("0.1.0", &artifact),
-        "https://github.com/DarkPyonix/compose-rust/releases/download/v0.1.0/\
-         dioxus-compose-renderer-v0.1.0-macos-aarch64.tar.gz"
+        artifact_url("0.0.0", &artifact),
+        "https://github.com/DarkPyonix/compose-rust/releases/download/v0.0.0/\
+         dioxus-compose-renderer-v0.0.0-macos-aarch64.tar.gz"
     );
     assert_eq!(
         sibling_checksum(Path::new(&artifact)).to_string_lossy(),
