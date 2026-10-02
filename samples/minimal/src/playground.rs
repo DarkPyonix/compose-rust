@@ -1,4 +1,5 @@
-//! What the playground is made of: the three groups and the marks drawn on the hero.
+//! What the playground is made of: the three groups, the marks drawn on the hero, and the
+//! colours the colour group lays out.
 
 use dioxus_compose::prelude::*;
 use dioxus_compose::{DrawList, DrawListBuilder};
@@ -45,19 +46,15 @@ impl Group {
         match self {
             Group::Controls => "Everything a person can operate.",
             Group::Surfaces => "The containers those controls sit in.",
-            Group::Colour => "Nine fills, each with the ink that reads on it.",
+            Group::Colour => "The nine colours of the sheet, each with the ink that reads on it.",
         }
     }
 }
 
 /// The mark at the top of the screen: one solid disc with a second overlapping it.
 ///
-/// The reference draws the second disc as a gradient, and a gradient is not something this
-/// vocabulary can say: a fill is one colour, deliberately, because a gradient does not fit
-/// the two words a modifier has and would need a resource to cross the boundary. So the
-/// overlap is said with two roles instead, which is the part of the idea that survives
-/// into a design system: a dense mark and a quiet one, in whatever the active system calls
-/// those.
+/// The reference draws the second disc as a gradient. Here it is the sheet's pale grey,
+/// which is the part of the idea a flat fill can carry: a dense mark and a quiet one.
 ///
 /// `size` is the square the canvas was given, so the mark scales with the window instead
 /// of the drawing carrying its own idea of how big it is.
@@ -66,14 +63,14 @@ pub fn hero_marks(size: f32) -> DrawList {
     let middle = size / 2.0;
     DrawListBuilder::with_capacity(2, 0)
         .circle(
-            Paint::Role(ColorRole::OutlineVariant),
+            Paint::Literal(crate::palette::PALE),
             middle + radius * 0.55,
             middle,
             radius,
             0.0,
         )
         .circle(
-            Paint::Role(ColorRole::OnBackground),
+            Paint::Literal(crate::palette::INK),
             middle - radius * 0.55,
             middle,
             radius,
@@ -82,38 +79,22 @@ pub fn hero_marks(size: f32) -> DrawList {
         .build()
 }
 
-/// The nine fills the colour group shows, each with the ink that is promised to read on
-/// it.
+/// The nine fills the sheet is made of, each with the ink that reads on it.
 ///
-/// Ordered as three accents, three accent containers, then the three neutral layers, so
-/// reading down the column is reading the table in the order a screen is built: what marks
-/// a thing, what a panel of it is filled with, and what the page under both is.
-pub const SWATCHES: [(&str, ColorRole, ColorRole); 9] = [
-    ("Primary", ColorRole::Primary, ColorRole::OnPrimary),
-    ("Secondary", ColorRole::Secondary, ColorRole::OnSecondary),
-    ("Tertiary", ColorRole::Tertiary, ColorRole::OnTertiary),
-    (
-        "Primary container",
-        ColorRole::PrimaryContainer,
-        ColorRole::OnPrimaryContainer,
-    ),
-    (
-        "Secondary container",
-        ColorRole::SecondaryContainer,
-        ColorRole::OnSecondaryContainer,
-    ),
-    (
-        "Tertiary container",
-        ColorRole::TertiaryContainer,
-        ColorRole::OnTertiaryContainer,
-    ),
-    ("Surface", ColorRole::Surface, ColorRole::OnSurface),
-    (
-        "Surface variant",
-        ColorRole::SurfaceVariant,
-        ColorRole::OnSurfaceVariant,
-    ),
-    ("Error", ColorRole::Error, ColorRole::OnError),
+/// This group used to show the design system's accents and their containers, which is a
+/// picture of whichever system is running rather than of this design: the sheet has no
+/// accent and no container in it. What it does have is paper, three greys, ink, and the
+/// two colours a delete and a switch carry, so those are what the colour group shows.
+pub const SWATCHES: [(&str, Color, Color); 9] = [
+    ("Page", crate::palette::PAGE, crate::palette::INK),
+    ("Panel", crate::palette::PANEL, crate::palette::INK),
+    ("Recess", crate::palette::RECESS, crate::palette::INK),
+    ("Grey card", crate::palette::GREY, crate::palette::ON_DARK),
+    ("Dark card", crate::palette::DARK, crate::palette::ON_DARK),
+    ("Ink", crate::palette::INK, crate::palette::ON_DARK),
+    ("Muted", crate::palette::MUTED, crate::palette::ON_DARK),
+    ("Delete", crate::palette::ALERT, crate::palette::ON_DARK),
+    ("Switched on", crate::palette::ON, crate::palette::INK),
 ];
 
 /// The nine rungs of the type ladder, in the order they descend.

@@ -6,11 +6,13 @@
 //! It names Cupertino and draws the same way on every platform, which is what an
 //! application does when the design is the product rather than the platform's convention.
 //!
-//! The rule the whole screen keeps is that appearance comes from roles. There is no hex
-//! literal here and no magic dp: a fill is a `ColorRole`, a size is a `TypeRole`, a corner
-//! is a `ShapeRole` and a gap is a `SpaceRole`. That is what lets the colour group at the
-//! end be a picture of the design system rather than a picture of this file.
+//! Its colours are the reference sheet's own, named in `palette`: white paper, three
+//! greys, black ink, a red delete and a green switch. A colour role would hand each of
+//! those to whichever design system is running, and they answer with an accent this sheet
+//! does not have. Sizes, corners and gaps stay roles: a size is a `TypeRole`, a corner a
+//! `ShapeRole` and a gap a `SpaceRole`.
 
+mod palette;
 mod playground;
 
 use dioxus_compose::prelude::*;
@@ -40,7 +42,7 @@ fn block(title: &str, children: Element) -> Element {
             Text {
                 text: title,
                 type_role: TypeRole::Label,
-                color: Paint::Role(ColorRole::OnSurfaceVariant),
+                color: Paint::Literal(palette::MUTED),
             }
             {children}
         }
@@ -49,21 +51,20 @@ fn block(title: &str, children: Element) -> Element {
 
 /// One of the two counters at the top of the controls group.
 ///
-/// Two of them, one filled with the reading surface and one filled with its ink, because
-/// that pair is the whole of what the reference's light and dark card is saying. Drawn
-/// with the same declaration twice and two role arguments, rather than with two blocks of
-/// code, which is the point: an inverted card is not a second component.
-/// One stepper card.
+/// Two of them, the light card and the dark one, because that pair is the whole of what
+/// the reference's light and dark card is saying. Drawn with the same declaration twice
+/// and two colours as arguments, rather than with two blocks of code, which is the point:
+/// an inverted card is not a second component.
 ///
 /// The keys are drawn in the card's own two colours rather than in the design system's
 /// accent: the reference is a sheet of black and white components and has no accent in
 /// it, so a Tonal button left to itself puts the one colour there that the design does
 /// not use. The pair is inverted on the dark card, which is the point of showing two.
-fn counter(fill: ColorRole, ink: ColorRole, amount: i32, step: EventHandler<i32>) -> Element {
+fn counter(fill: Color, ink: Color, amount: i32, step: EventHandler<i32>) -> Element {
     rsx! {
         Surface {
             weight: 1.0,
-            background: Paint::Role(fill),
+            background: Paint::Literal(fill),
             shape_role: ShapeRole::Large,
             padding_role: SpaceRole::Md,
             Column {
@@ -73,12 +74,12 @@ fn counter(fill: ColorRole, ink: ColorRole, amount: i32, step: EventHandler<i32>
                 Text {
                     text: "Amount",
                     type_role: TypeRole::Label,
-                    color: Paint::Role(ink),
+                    color: Paint::Literal(ink),
                 }
                 Text {
                     text: "{amount}",
                     type_role: TypeRole::Display,
-                    color: Paint::Role(ink),
+                    color: Paint::Literal(ink),
                 }
                 Row {
                     space_role: SpaceRole::Sm,
@@ -89,16 +90,16 @@ fn counter(fill: ColorRole, ink: ColorRole, amount: i32, step: EventHandler<i32>
                         text: "\u{2212}",
                         variant: ButtonVariant::Filled,
                         shape_role: ShapeRole::Full,
-                        background: Paint::Role(ink),
-                        color: Paint::Role(fill),
+                        background: Paint::Literal(ink),
+                        color: Paint::Literal(fill),
                         on_click: move |_| step.call(-1),
                     }
                     Button {
                         text: "+",
                         variant: ButtonVariant::Filled,
                         shape_role: ShapeRole::Full,
-                        background: Paint::Role(ink),
-                        color: Paint::Role(fill),
+                        background: Paint::Literal(ink),
+                        color: Paint::Literal(fill),
                         on_click: move |_| step.call(1),
                     }
                 }
@@ -132,24 +133,26 @@ fn controls_group(
                 Row {
                     fill_max_width: true,
                     space_role: SpaceRole::Sm,
-                    {counter(ColorRole::SurfaceContainer, ColorRole::OnSurface, amount(), step)}
-                    {counter(ColorRole::OnSurface, ColorRole::Surface, amount(), step)}
+                    {counter(palette::PANEL, palette::INK, amount(), step)}
+                    {counter(palette::DARK, palette::ON_DARK, amount(), step)}
                 }
             })}
 
             {block("Field", rsx! {
-                // No background, no border, no padding and no corner. The frame around a
-                // field is the design system's to draw, and a field that arrives here
-                // wearing one drawn by the application would look the same in all six.
+                // The sheet's own field: a grey capsule, as on its header.
                 TextField {
                     fill_max_width: true,
                     placeholder: "Search",
+                    background: Paint::Literal(palette::PANEL),
+                    shape_role: ShapeRole::Full,
                 }
             })}
 
             {block("Slider", rsx! {
+                // On the grey card the reference sets its slider on, written in white.
                 Surface {
                     fill_max_width: true,
+                    background: Paint::Literal(palette::GREY),
                     shape_role: ShapeRole::Large,
                     padding_role: SpaceRole::Md,
                     Column {
@@ -161,23 +164,31 @@ fn controls_group(
                             alignment: Alignment::CenterStart,
                             // The small A and the large A are the two ends of the thing
                             // being set, said in the ladder rather than in point sizes.
-                            Text { text: "A", type_role: TypeRole::Caption }
+                            Text {
+                                text: "A",
+                                type_role: TypeRole::Caption,
+                                color: Paint::Literal(palette::ON_DARK),
+                            }
                             Slider {
                                 weight: 1.0,
                                 value: reading(),
-                                // The sheet is ink on paper and has no accent in it, so
-                                // the filled part of the track is ink too. Left unsaid,
-                                // the design system answers with a blue that belongs to
-                                // it rather than to this design.
-                                color: Paint::Role(ColorRole::OnSurface),
+                                // The sheet has no accent in it, so the filled part of the
+                                // track is the card's white. Left unsaid, the design
+                                // system answers with a blue that belongs to it rather
+                                // than to this design.
+                                color: Paint::Literal(palette::ON_DARK),
                                 on_change: move |value| reading.set(value),
                             }
-                            Text { text: "A", type_role: TypeRole::Title }
+                            Text {
+                                text: "A",
+                                type_role: TypeRole::Title,
+                                color: Paint::Literal(palette::ON_DARK),
+                            }
                         }
                         Text {
                             text: "Reading size {percent}%",
                             type_role: TypeRole::Label,
-                            color: Paint::Role(ColorRole::OnSurfaceVariant),
+                            color: Paint::Literal(palette::ON_DARK),
                         }
                     }
                 }
@@ -186,6 +197,7 @@ fn controls_group(
             {block("Toggles", rsx! {
                 Surface {
                     fill_max_width: true,
+                    background: Paint::Literal(palette::PANEL),
                     shape_role: ShapeRole::Large,
                     padding_role: SpaceRole::Md,
                     Column {
@@ -194,24 +206,39 @@ fn controls_group(
                         Row {
                             fill_max_width: true,
                             alignment: Alignment::CenterStart,
-                            Text { text: "Notifications", type_role: TypeRole::Body, weight: 1.0 }
+                            Text {
+                                text: "Notifications",
+                                type_role: TypeRole::Body,
+                                color: Paint::Literal(palette::INK),
+                                weight: 1.0,
+                            }
                             Switch { checked: notify(), on_change: move |value| notify.set(value) }
                         }
-                        Separator {}
+                        Separator { color: Paint::Literal(palette::OUTLINE) }
                         Row {
                             fill_max_width: true,
                             alignment: Alignment::CenterStart,
-                            Text { text: "Remember me", type_role: TypeRole::Body, weight: 1.0 }
+                            Text {
+                                text: "Remember me",
+                                type_role: TypeRole::Body,
+                                color: Paint::Literal(palette::INK),
+                                weight: 1.0,
+                            }
                             Checkbox {
                                 checked: remember(),
                                 on_change: move |value| remember.set(value),
                             }
                         }
-                        Separator {}
+                        Separator { color: Paint::Literal(palette::OUTLINE) }
                         Row {
                             fill_max_width: true,
                             alignment: Alignment::CenterStart,
-                            Text { text: "Daily digest", type_role: TypeRole::Body, weight: 1.0 }
+                            Text {
+                                text: "Daily digest",
+                                type_role: TypeRole::Body,
+                                color: Paint::Literal(palette::INK),
+                                weight: 1.0,
+                            }
                             RadioButton {
                                 selected: digest(),
                                 on_change: move |value| digest.set(value),
@@ -238,26 +265,65 @@ fn controls_group(
                     Row {
                         fill_max_width: true,
                         space_role: SpaceRole::Sm,
-                        Button { text: "Filled", weight: 1.0, variant: ButtonVariant::Filled, on_click: move |_| {} }
-                        Button { text: "Tonal", weight: 1.0, variant: ButtonVariant::Tonal, on_click: move |_| {} }
+                        // The sheet's keys are black with white on them, or a grey card
+                        // with black on it. Each variant is given those colours, because
+                        // left to itself a filled key is the running system's blue.
+                        Button {
+                            text: "Filled",
+                            weight: 1.0,
+                            variant: ButtonVariant::Filled,
+                            background: Paint::Literal(palette::INK),
+                            color: Paint::Literal(palette::ON_DARK),
+                            on_click: move |_| {},
+                        }
+                        Button {
+                            text: "Tonal",
+                            weight: 1.0,
+                            variant: ButtonVariant::Tonal,
+                            background: Paint::Literal(palette::PANEL),
+                            color: Paint::Literal(palette::INK),
+                            on_click: move |_| {},
+                        }
                     }
                     Row {
                         fill_max_width: true,
                         space_role: SpaceRole::Sm,
-                        Button { text: "Outlined", weight: 1.0, variant: ButtonVariant::Outlined, on_click: move |_| {} }
-                        Button { text: "Text", weight: 1.0, variant: ButtonVariant::Text, on_click: move |_| {} }
+                        Button {
+                            text: "Outlined",
+                            weight: 1.0,
+                            variant: ButtonVariant::Outlined,
+                            border_width: 1.0,
+                            border_color: Paint::Literal(palette::INK),
+                            color: Paint::Literal(palette::INK),
+                            on_click: move |_| {},
+                        }
+                        Button {
+                            text: "Text",
+                            weight: 1.0,
+                            variant: ButtonVariant::Text,
+                            color: Paint::Literal(palette::INK),
+                            on_click: move |_| {},
+                        }
                     }
                     Row {
                         fill_max_width: true,
                         space_role: SpaceRole::Sm,
-                        Button { text: "Disabled", weight: 1.0, variant: ButtonVariant::Filled, enabled: false, on_click: move |_| {} }
-                        // What marks a destructive action is its label's colour, in every
-                        // one of the six. The variant stays whatever a plain button is.
+                        Button {
+                            text: "Disabled",
+                            weight: 1.0,
+                            variant: ButtonVariant::Filled,
+                            enabled: false,
+                            background: Paint::Literal(palette::RECESS),
+                            color: Paint::Literal(palette::MUTED),
+                            on_click: move |_| {},
+                        }
+                        // What marks a destructive action is its label's colour: the
+                        // sheet's one red.
                         Button {
                             text: "Delete",
                             weight: 1.0,
                             variant: ButtonVariant::Text,
-                            color: Paint::Role(ColorRole::Error),
+                            color: Paint::Literal(palette::ALERT),
                             on_click: move |_| {},
                         }
                     }
@@ -275,12 +341,11 @@ fn surfaces_group() -> Element {
             space_role: SpaceRole::Lg,
 
             {block("Inverted bar", rsx! {
-                // The reference's dark header: a bar filled with the reading ink, holding
-                // the reading surface as its own ink. Said with the pair the other way
-                // round rather than with a colour of its own.
+                // The reference's dark header: a bar filled with the ink, holding the page's
+                // white as its own ink.
                 Surface {
                     fill_max_width: true,
-                    background: Paint::Role(ColorRole::OnSurface),
+                    background: Paint::Literal(palette::INK),
                     shape_role: ShapeRole::Large,
                     padding_role: SpaceRole::Md,
                     Column {
@@ -291,19 +356,26 @@ fn surfaces_group() -> Element {
                             alignment: Alignment::CenterStart,
                             Button {
                                 text: "\u{2190}",
-                                variant: ButtonVariant::Text,
-                                color: Paint::Role(ColorRole::Surface),
+                                variant: ButtonVariant::Filled,
+                                shape_role: ShapeRole::Full,
+                                background: Paint::Literal(palette::ON_DARK),
+                                color: Paint::Literal(palette::INK),
                                 on_click: move |_| {},
                             }
                             Text {
                                 text: "Title",
                                 type_role: TypeRole::Title,
-                                color: Paint::Role(ColorRole::Surface),
+                                color: Paint::Literal(palette::ON_DARK),
                                 weight: 1.0,
                                 text_align: TextAlign::End,
                             }
                         }
-                        TextField { fill_max_width: true, placeholder: "Search" }
+                        TextField {
+                            fill_max_width: true,
+                            placeholder: "Search",
+                            background: Paint::Literal(palette::DARK),
+                            shape_role: ShapeRole::Full,
+                        }
                     }
                 }
             })}
@@ -315,29 +387,37 @@ fn surfaces_group() -> Element {
                     alignment: Alignment::CenterStart,
                     Surface {
                         weight: 1.0,
+                        background: Paint::Literal(palette::PANEL),
                         shape_role: ShapeRole::Large,
                         padding_role: SpaceRole::Md,
                         Column {
                             fill_max_width: true,
                             space_role: SpaceRole::Xs,
-                            Text { text: "Title", type_role: TypeRole::Subtitle }
+                            Text {
+                                text: "Title",
+                                type_role: TypeRole::Subtitle,
+                                color: Paint::Literal(palette::INK),
+                            }
                             Text {
                                 text: "Subtitle",
                                 type_role: TypeRole::Body,
-                                color: Paint::Role(ColorRole::OnSurfaceVariant),
+                                color: Paint::Literal(palette::INK),
                             }
                             Text {
                                 text: "A paragraph sitting on a panel, which is the \
                                        reason the panel has a colour of its own.",
                                 type_role: TypeRole::Caption,
-                                color: Paint::Role(ColorRole::OnSurfaceVariant),
+                                color: Paint::Literal(palette::MUTED),
                             }
                         }
                     }
+                    // The reference's red tile beside the panel, with the action on it.
                     Button {
                         text: "Delete",
-                        variant: ButtonVariant::Text,
-                        color: Paint::Role(ColorRole::Error),
+                        variant: ButtonVariant::Filled,
+                        shape_role: ShapeRole::Large,
+                        background: Paint::Literal(palette::ALERT),
+                        color: Paint::Literal(palette::ON_DARK),
                         on_click: move |_| {},
                     }
                 }
@@ -345,28 +425,28 @@ fn surfaces_group() -> Element {
 
             {block("Layers", rsx! {
                 // Three fills that are meant to be told apart from each other: the page,
-                // the layer raised off it, and the recessed region inside that layer.
+                // the card on it, and the region set into that card.
                 Row {
                     fill_max_width: true,
                     space_role: SpaceRole::Sm,
-                    for (label, role, ink) in [
-                        ("Page", ColorRole::Background, ColorRole::OnBackground),
-                        ("Panel", ColorRole::SurfaceContainer, ColorRole::OnSurface),
-                        ("Recess", ColorRole::SurfaceVariant, ColorRole::OnSurfaceVariant),
+                    for (label, fill) in [
+                        ("Page", palette::PAGE),
+                        ("Panel", palette::PANEL),
+                        ("Recess", palette::RECESS),
                     ] {
                         dioxus_compose::Box {
                             key: "{label}",
                             weight: 1.0,
                             height: 72.0,
-                            background: Paint::Role(role),
+                            background: Paint::Literal(fill),
                             shape_role: ShapeRole::Medium,
                             border_width: 1.0,
-                            border_color: Paint::Role(ColorRole::OutlineVariant),
+                            border_color: Paint::Literal(palette::OUTLINE),
                             alignment: Alignment::Center,
                             Text {
                                 text: label,
                                 type_role: TypeRole::Label,
-                                color: Paint::Role(ink),
+                                color: Paint::Literal(palette::INK),
                             }
                         }
                     }
@@ -388,13 +468,13 @@ fn surfaces_group() -> Element {
                             key: "{label}",
                             weight: 1.0,
                             height: 56.0,
-                            background: Paint::Role(ColorRole::SurfaceVariant),
+                            background: Paint::Literal(palette::RECESS),
                             shape_role: shape,
                             alignment: Alignment::Center,
                             Text {
                                 text: label,
                                 type_role: TypeRole::Caption,
-                                color: Paint::Role(ColorRole::OnSurfaceVariant),
+                                color: Paint::Literal(palette::INK),
                             }
                         }
                     }
@@ -411,6 +491,7 @@ fn surfaces_group() -> Element {
                             weight: 1.0,
                             height: 72.0,
                             elevation: step,
+                            background: Paint::Literal(palette::PAGE),
                             shape_role: ShapeRole::Medium,
                             dioxus_compose::Box {
                                 fill_max_width: true,
@@ -419,7 +500,7 @@ fn surfaces_group() -> Element {
                                 Text {
                                     text: "{step} dp",
                                     type_role: TypeRole::Caption,
-                                    color: Paint::Role(ColorRole::OnSurfaceVariant),
+                                    color: Paint::Literal(palette::MUTED),
                                 }
                             }
                         }
@@ -445,22 +526,25 @@ fn colour_group() -> Element {
                         Column {
                             key: "{name}",
                             fill_max_width: true,
-                            background: Paint::Role(fill),
+                            background: Paint::Literal(fill),
                             shape_role: ShapeRole::Medium,
+                            // The page's own white would vanish into the page without it.
+                            border_width: 1.0,
+                            border_color: Paint::Literal(palette::OUTLINE),
                             padding_role: SpaceRole::Md,
                             space_role: SpaceRole::Xs,
                             Text {
                                 text: name,
                                 type_role: TypeRole::BodyStrong,
-                                color: Paint::Role(ink),
+                                color: Paint::Literal(ink),
                             }
-                            // A sentence rather than a word, because that is the promise
-                            // the container roles make and the one a swatch of colour
-                            // beside a label would never test.
+                            // A sentence rather than a word, because whether a paragraph
+                            // reads on a fill is the question, and a single word beside a
+                            // swatch would never ask it.
                             Text {
-                                text: "The ink this fill promises to carry.",
+                                text: "The ink this fill carries.",
                                 type_role: TypeRole::Caption,
-                                color: Paint::Role(ink),
+                                color: Paint::Literal(ink),
                             }
                         }
                     }
@@ -470,6 +554,7 @@ fn colour_group() -> Element {
             {block("The type ladder", rsx! {
                 Surface {
                     fill_max_width: true,
+                    background: Paint::Literal(palette::PANEL),
                     shape_role: ShapeRole::Large,
                     padding_role: SpaceRole::Md,
                     Column {
@@ -480,6 +565,7 @@ fn colour_group() -> Element {
                                 key: "{name}",
                                 text: name,
                                 type_role: rung,
+                                color: Paint::Literal(palette::INK),
                                 max_lines: 1,
                                 overflow: TextOverflow::Ellipsis,
                             }
@@ -519,15 +605,20 @@ pub fn app() -> Element {
         // The frame is named rather than built: what the bar becomes, and where the page
         // starts under it, are answers this screen never has to know.
         Scaffold {
-            background: Paint::Role(ColorRole::Background),
+            background: Paint::Literal(palette::PAGE),
             top_bar: rsx! {
                 TopAppBar {
                     fill_max_width: true,
-                    Text { text: "Minimal", type_role: TypeRole::Title, weight: 1.0 }
+                    Text {
+                        text: "Minimal",
+                        type_role: TypeRole::Title,
+                        color: Paint::Literal(palette::INK),
+                        weight: 1.0,
+                    }
                     Text {
                         text: "one design, every platform",
                         type_role: TypeRole::Label,
-                        color: Paint::Role(ColorRole::OnSurfaceVariant),
+                        color: Paint::Literal(palette::MUTED),
                     }
                 }
             },
@@ -559,12 +650,13 @@ pub fn app() -> Element {
                             Text {
                                 text: "Every component",
                                 type_role: TypeRole::Display,
+                                color: Paint::Literal(palette::INK),
                                 text_align: TextAlign::Center,
                             }
                             Text {
                                 text: "Including dark theme",
                                 type_role: TypeRole::Body,
-                                color: Paint::Role(ColorRole::OnSurfaceVariant),
+                                color: Paint::Literal(palette::MUTED),
                                 text_align: TextAlign::Center,
                             }
                         }
@@ -579,6 +671,9 @@ pub fn app() -> Element {
                             Tabs {
                                 fill_max_width: true,
                                 selected_index: group().index(),
+                                // The mark under the chosen segment is ink, like
+                                // everything else on the sheet that is not paper.
+                                color: Paint::Literal(palette::INK),
                                 for choice in Group::STRIP {
                                     Button {
                                         key: "{choice.label()}",
@@ -588,10 +683,10 @@ pub fn app() -> Element {
                                         // default, which is the one colour this sheet does
                                         // not have. The chosen segment is ink and the rest
                                         // is the quieter grey beside it.
-                                        color: Paint::Role(if choice == group() {
-                                            ColorRole::OnSurface
+                                        color: Paint::Literal(if choice == group() {
+                                            palette::INK
                                         } else {
-                                            ColorRole::OnSurfaceVariant
+                                            palette::MUTED
                                         }),
                                         on_click: move |_| group.set(choice),
                                     }
@@ -600,7 +695,7 @@ pub fn app() -> Element {
                             Text {
                                 text: group().caption(),
                                 type_role: TypeRole::Caption,
-                                color: Paint::Role(ColorRole::OnSurfaceVariant),
+                                color: Paint::Literal(palette::MUTED),
                             }
                         }
 
@@ -775,11 +870,10 @@ mod tests {
         }
     }
 
-    /// The colour group is the screen this sample exists for: it is the only place the
-    /// three accents and their containers are all visible at once, and a swatch that
-    /// quietly went missing would leave a role nobody ever looks at.
+    /// The colour group lays out the sheet's own colours, every one of them, and a swatch
+    /// that quietly went missing would leave a colour nobody ever looks at.
     #[test]
-    fn fr13_the_colour_group_shows_every_accent_and_container() {
+    fn fr22_the_colour_group_shows_every_colour_of_the_sheet() {
         let mut host = Host::new(app);
         let first = host.rebuild().expect("the first frame failed").to_vec();
         let (node_id, handler_id) =
@@ -801,7 +895,73 @@ mod tests {
         for (name, _, _) in SWATCHES {
             assert!(
                 showing.iter().any(|text| text == name),
-                "the colour group does not show {name}, so that role is never looked at"
+                "the colour group does not show {name}, so that colour is never looked at"
+            );
+        }
+    }
+
+    /// Nothing in any of the three groups is painted or inked by the design system, and
+    /// neither is the hero mark.
+    ///
+    /// Named for what it defends: the colour group showed the running system's accents
+    /// and accent containers, and every fill on the sheet was a role, so the black and
+    /// white sheet came out in that system's blue and pale lilac.
+    #[test]
+    fn fr22_nothing_on_the_screen_is_painted_by_a_role() {
+        let mut host = Host::new(app);
+        let first = host.rebuild().expect("the first frame failed").to_vec();
+        let mut frames = vec![first.clone()];
+        for group in Group::STRIP {
+            let (node_id, handler_id) = click_handler(&first, group.label())
+                .unwrap_or_else(|| panic!("the strip has no segment called {}", group.label()));
+            let mut bytes = Vec::new();
+            dioxus_compose::protocol::encode_event(
+                &dioxus_compose::protocol::HostEvent {
+                    node_id,
+                    handler_id,
+                    payload: dioxus_compose::schema::EventPayload::Clicked,
+                },
+                &mut bytes,
+            )
+            .expect("the click did not encode");
+            let (batch, _) = host
+                .dispatch_event(&bytes)
+                .unwrap_or_else(|error| panic!("{} failed to encode: {error:?}", group.label()));
+            frames.push(batch.to_vec());
+        }
+        for frame in &frames {
+            for mutation in decode_batch(frame).expect("a batch did not decode") {
+                match mutation {
+                    Mutation::SetModifier {
+                        modifier: Modifier::Background(paint) | Modifier::Border { paint, .. },
+                        node_id,
+                        ..
+                    } => assert!(
+                        matches!(paint, Paint::Literal(_)),
+                        "node {node_id} is filled with {paint:?}, which the design system picks"
+                    ),
+                    Mutation::SetProp {
+                        node_id,
+                        property: PropertyKind::Color,
+                        value: PropertyValue::Integer(bits),
+                    } => {
+                        let paint = Paint::from_bits(bits as u64);
+                        assert!(
+                            matches!(paint, Some(Paint::Literal(_))),
+                            "node {node_id} is inked with {paint:?}, which the design system picks"
+                        );
+                    }
+                    _ => {}
+                }
+            }
+        }
+        for command in hero_marks(HERO_SIDE)
+            .decode()
+            .expect("the hero did not decode")
+        {
+            assert!(
+                matches!(command.paint(), Paint::Literal(_)),
+                "the hero mark draws {command:?} in a colour the design system picks"
             );
         }
     }
@@ -925,8 +1085,8 @@ mod tests {
         );
     }
 
-    /// The colour group, which is a different picture from the one above and the reason
-    /// the accent containers were added at all.
+    /// The colour group, which is a different picture from the one above: the sheet's own
+    /// colours laid out with the ink each carries.
     #[test]
     fn fr13_the_colour_group_is_recorded() {
         sample_frames::record_as(
