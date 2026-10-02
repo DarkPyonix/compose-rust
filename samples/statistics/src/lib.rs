@@ -3,8 +3,9 @@
 //! This is the sample that pushes on `Canvas`. A dial with a tick ring and a marker, and a
 //! bar chart with a day under each column, are pixels the widget vocabulary has no name
 //! for, and they are the two most common things a statistics screen is made of. Both are
-//! draw lists, and every colour in them is a role, so they follow the reader into dark and
-//! come out in each design system's own accent.
+//! draw lists, and every colour in them comes from `palette`: the reference is one
+//! picture with its own sage, orange and powder blue, and a role would have handed those
+//! back to whichever design system is running.
 //!
 //! Unified, naming Cupertino and light: the reference is a light iOS design, and a
 //! design that flips to dark on a machine set that way is not the design being compared
@@ -20,16 +21,48 @@ use spending::{
     peak,
 };
 
+/// The colours the reference picture is drawn in, named once.
+///
+/// `Color` rather than `Paint`, so a role cannot be written here at all: what the type
+/// holds is a literal, and every use wraps it as `Paint::Literal`.
 mod palette {
     use dioxus_compose::prelude::Color;
+    /// The near white page.
     pub const PAGE: Color = Color::rgb(0xF2F2F0);
+    /// The dial's card.
     pub const CARD: Color = Color::rgb(0xFFFFFF);
+    /// Everything that is read.
     pub const INK: Color = Color::rgb(0x000000);
+    /// The panel under the dial, and the whole of the costs page.
     pub const SAGE: Color = Color::rgb(0xB0C1AE);
+    /// The second source tile.
     pub const POWDER: Color = Color::rgb(0xAFC3DC);
+    /// The one accent: the dial's marker and the dearest day.
     pub const ORANGE: Color = Color::rgb(0xF58220);
+    /// The dial's ring and what supports rather than says.
     pub const GREY: Color = Color::rgb(0x999999);
+    /// The columns that are not the dearest day.
     pub const LIGHT_GREY: Color = Color::rgb(0xEEEEEE);
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// The statistics screen's colours are the picture's, not the running design
+        /// system's, and each is the value read off the reference. Pinned so an edit that
+        /// drifts from the picture says so here first.
+        #[test]
+        fn fr22_the_palette_is_the_reference_colours_rather_than_the_theme() {
+            assert_eq!(PAGE.to_argb(), 0xfff2_f2f0);
+            assert_eq!(CARD.to_argb(), 0xffff_ffff);
+            assert_eq!(INK.to_argb(), 0xff00_0000);
+            assert_eq!(SAGE.to_argb(), 0xffb0_c1ae);
+            assert_eq!(POWDER.to_argb(), 0xffaf_c3dc);
+            assert_eq!(ORANGE.to_argb(), 0xfff5_8220);
+            assert_eq!(GREY.to_argb(), 0xff99_9999);
+            assert_eq!(LIGHT_GREY.to_argb(), 0xffee_eeee);
+        }
+    }
 }
 
 /// A phone design in a desktop window is still a phone design.
@@ -112,10 +145,9 @@ fn dial_card() -> Element {
 
 /// The week's columns on a tinted panel, which is the shape the reference gives them.
 ///
-/// The panel is `SecondaryContainer` and the chart's ink is its paired ink, so the chart
-/// is guaranteed to be readable on it in every design system and in both schemes. Before
-/// those roles existed the only way to say "a panel in a colour" was a literal, and a
-/// literal is a colour the design system never sees.
+/// The panel is the reference's sage rather than an accent container. A container role
+/// came out as the running design system's pale accent, which is a colour the picture
+/// does not have anywhere.
 fn costs_panel(title_role: TypeRole, (width, height): (f32, f32)) -> Element {
     let bars = week_bars();
     rsx! {
@@ -498,6 +530,40 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    /// Nothing on the screen is painted or inked by the design system.
+    ///
+    /// Named for what it defends: a unified sample whose colours came from roles was drawn
+    /// in the running system's blue and pale accent containers, none of which is in the
+    /// picture. Every fill, edge and ink on the first screen is a literal.
+    #[test]
+    fn fr22_nothing_on_the_screen_is_painted_by_a_role() {
+        let batch = first_frame();
+        for mutation in decode_batch(&batch).expect("the batch did not decode") {
+            match mutation {
+                Mutation::SetModifier {
+                    modifier: Modifier::Background(paint) | Modifier::Border { paint, .. },
+                    node_id,
+                    ..
+                } => assert!(
+                    matches!(paint, Paint::Literal(_)),
+                    "node {node_id} is filled with {paint:?}, which the design system picks"
+                ),
+                Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::Color,
+                    value: PropertyValue::Integer(bits),
+                } => {
+                    let paint = Paint::from_bits(bits as u64);
+                    assert!(
+                        matches!(paint, Some(Paint::Literal(_))),
+                        "node {node_id} is inked with {paint:?}, which the design system picks"
+                    );
+                }
+                _ => {}
+            }
+        }
     }
 
     #[test]
