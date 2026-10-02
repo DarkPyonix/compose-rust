@@ -143,7 +143,7 @@ Modifier는 값 리스트로 직렬화합니다. 예: `[Padding(16), FillMaxWidt
 
 #### 13.1 색: `Color`와 `ColorRole`, 그리고 `Paint`
 - `Color`는 `u32` ARGB 한 개입니다(`#[repr(transparent)]`). 그라데이션과 이미지 브러시는 넣지 않습니다.
-- `ColorRole`은 의미 슬롯입니다: `Primary`, `OnPrimary`, `Secondary`, `OnSecondary`, `Surface`, `OnSurface`, `SurfaceVariant`, `OnSurfaceVariant`, `Background`, `OnBackground`, `Outline`, `OutlineVariant`, `Error`, `OnError`, `SurfaceContainer`, 그리고 13.1-2의 강조색 계열 8개.
+- `ColorRole`은 의미 슬롯입니다: `Primary`, `OnPrimary`, `Secondary`, `OnSecondary`, `Surface`, `OnSurface`, `SurfaceVariant`, `OnSurfaceVariant`, `Background`, `OnBackground`, `Outline`, `OutlineVariant`, `Error`, `OnError`, `SurfaceContainer`, 그리고 13.1-2의 강조색 계열 8개와 13.1-3의 코드 색 역할 22개.
 - `Paint`는 둘 중 하나입니다: `Paint::Role(ColorRole)` 또는 `Paint::Literal(Color)`. `u64` 하나로 인코딩합니다(상위 32비트 = 종류, 하위 32비트 = 값).
 - 색을 받는 자리는 전부 `Paint`를 씁니다. 색 표현이 스키마에 두 번 등장하지 않게 하기 위해서입니다.
 - 수용 기준: `Modifier::Background(Paint::Role(ColorRole::Surface))`와 `Modifier::Background(Paint::Literal(Color::rgb(0x1B1B1F)))`가 같은 레코드 길이로 왕복하고, 디코드 결과가 입력과 같습니다.
@@ -158,6 +158,71 @@ Modifier는 값 리스트로 직렬화합니다. 예: `[Padding(16), FillMaxWidt
 - 컨테이너 3개는 각각 `Background`와 구분되어야 합니다. 보이지 않는 틴트는 없는 패널입니다.
 - **세 컨테이너끼리는 구분을 요구하지 않습니다.** Material 3의 기준 배색에서 primary와 secondary 컨테이너는 한 팔레트의 이웃한 톤이라 10단계 남짓 떨어져 있고, 그것은 공개된 배색이지 실수가 아닙니다. 한눈에 갈라지는 채움 세 개가 필요한 호출자는 tertiary 쌍을 씁니다.
 - 수용 기준: 6개 디자인 시스템 × 2개 명암 전부에서 컨테이너 3쌍이 4.5:1을 넘고, `Tertiary`가 3:1을 넘으며, 컨테이너 3개가 `Background`와 구분됩니다. **(2026-09-21 통과: `tokens.rs`의 `fr14_on_roles_stay_readable`, `fr14_surface_variant_is_visible_against_the_page_and_the_surface`)**
+
+#### 13.1-3 코드 색 역할 (`Draft`)
+
+대화 화면은 코드를 보여 줍니다. 코드 블록과 diff입니다. 지금 Host 쪽 강조기(tree-sitter 같은)가 토큰을 칠하려면 `Paint::Literal`밖에 없고, 그러면 같은 색이 일곱 시스템과 두 명암에 똑같이 박힙니다. 다크 모드에서 라이트용 주석 회색이 사라지는 일이 정확히 그것입니다.
+
+- **코드 색도 역할입니다.** `ColorRole`에 아래를 덧붙입니다(태그 24부터, 추가 전용). 강조기는 토큰의 종류를 역할로 바꿔 스팬(FR-26)의 `Paint::Role`로 보냅니다. 스팬 레코드는 이미 `Paint`를 싣고 있으므로 **글자색을 위해서는 와이어 형식이 바뀌지 않습니다.** 바뀌는 것은 역할 열거형과 토큰 표의 길이뿐입니다. 역할은 Rust 스키마(`schema.rs`)의 `ColorRole`에 정의하고 Kotlin 쪽은 codegen이 생성합니다(FR-7).
+
+| 태그 | 역할 | 무엇을 칠하는가 | tree-sitter 이름 예 |
+|---|---|---|---|
+| 24 | `SyntaxKeyword` | 예약어, 제어 흐름 | `keyword`, `keyword.*` |
+| 25 | `SyntaxString` | 문자열과 문자 리터럴 | `string`, `character` |
+| 26 | `SyntaxComment` | 주석, 문서 주석 | `comment`, `comment.documentation` |
+| 27 | `SyntaxNumber` | 숫자 리터럴 | `number`, `float` |
+| 28 | `SyntaxConstant` | 불, null, 열거 멤버, 상수 | `constant`, `constant.builtin`, `boolean` |
+| 29 | `SyntaxType` | 타입 이름, 트레잇, 인터페이스 | `type`, `type.builtin` |
+| 30 | `SyntaxFunction` | 함수와 메서드 이름 | `function`, `function.method`, `constructor` |
+| 31 | `SyntaxVariable` | 변수, 매개변수 | `variable`, `variable.parameter` |
+| 32 | `SyntaxProperty` | 필드, 속성, 객체 키 | `property`, `field` |
+| 33 | `SyntaxOperator` | 연산자 | `operator` |
+| 34 | `SyntaxPunctuation` | 괄호, 구분자 | `punctuation.*` |
+| 35 | `SyntaxTag` | 마크업 태그 이름 | `tag` |
+| 36 | `SyntaxAttribute` | 마크업 속성 이름 | `attribute` |
+| 37 | `SyntaxEscape` | 문자열 안의 이스케이프, 정규식 | `string.escape`, `string.regexp` |
+| 38 | `SyntaxMacro` | 매크로, 데코레이터, 애너테이션, 전처리기 | `function.macro`, `attribute`(언어별), `preproc` |
+| 39 | `DiffAdded` | 더해진 줄의 표시와 글자 | `diff.plus` |
+| 40 | `DiffRemoved` | 지워진 줄의 표시와 글자 | `diff.minus` |
+| 41 | `DiffModified` | 바뀐 줄의 여백 표시 | `diff.delta` |
+| 42 | `DiffAddedContainer` | 더해진 줄의 배경 | |
+| 43 | `DiffRemovedContainer` | 지워진 줄의 배경 | |
+| 44 | `DiffAddedEmphasis` | 더해진 줄 안에서 실제로 바뀐 글자의 배경 | |
+| 45 | `DiffRemovedEmphasis` | 지워진 줄 안에서 실제로 바뀐 글자의 배경 | |
+
+- 고른 기준은 tree-sitter 강조 이름, VS Code의 의미 토큰 종류, TextMate 범위가 공통으로 나누는 것입니다. 셋 다 이것보다 잘게 나누지만, 잘게 나눈 이름은 대부분 이 중 하나로 접히고(`keyword.return`은 `SyntaxKeyword`), 일곱 시스템 × 두 명암의 표를 사람이 참조와 대조할 수 있는 크기여야 합니다(INTENT D14). 어디에도 맞지 않는 토큰은 칠하지 않고 본문 잉크(`OnSurface`)로 둡니다.
+- **강조기와 언어 지식은 Host 쪽에 있습니다.** 마크다운(FR-26)과 같은 규칙입니다. 이름에서 역할로 가는 표는 Host 쪽 편의 함수이고, Renderer는 언어를 모릅니다.
+- **줄 배경은 노드의 배경입니다.** diff 한 줄은 `Modifier::Background(Paint::Role(DiffAddedContainer))`를 단 줄이고, 줄 안의 글자 배경(`*Emphasis`)은 스팬의 배경 `Paint`가 싣습니다(FR-26).
+- **대비 기준**: 문법 역할 열다섯(24-38)은 코드 블록이 놓이는 `SurfaceContainer` 위에서 본문 기준 4.5:1을 지킵니다. 주석도 예외가 아닙니다. 흐리게 보이는 것은 색조와 명도로 하되 읽을 수 있어야 하고, 읽을 수 없는 주석은 없는 주석입니다. `DiffAdded`/`DiffRemoved`는 자기 컨테이너 위에서 4.5:1을, 두 컨테이너 위의 `OnSurface`도 4.5:1을 지킵니다. `*Emphasis`는 같은 줄의 컨테이너와 구분되어야 합니다. 더해진 줄과 지워진 줄은 색만으로 구분하지 않습니다(줄 머리의 `+`, `-`는 Host가 그대로 둡니다). 적록 색각 이상에서 두 배경은 같아 보일 수 있기 때문입니다.
+- **값은 디자인 시스템마다 다릅니다.** 각 시스템의 표가 그 플랫폼의 대표 코드 편집기 배색에서 옵니다(INTENT D14, 참조 이미지). Cupertino와 Liquid Glass는 Xcode의 기본 라이트·다크, Fluent는 VS Code의 Light+/Dark+, GNOME은 GtkSourceView의 Adwaita와 Adwaita-dark, Breeze는 KSyntaxHighlighting의 Breeze Light/Dark입니다.
+- **Material 3과 Deepin은 공개된 코드 배색이 없으므로 그 시스템의 기반 색 역할에서 유도합니다.** INTENT D14의 예외이고, 유도 규칙은 아래와 같습니다. 같은 시스템, 같은 명암의 표에서 읽습니다.
+  - 문법 역할은 기반 역할 하나의 값을 그대로 가져옵니다.
+
+    | 코드 역할 | 가져오는 기반 역할 |
+    |---|---|
+    | `SyntaxKeyword`, `SyntaxTag` | `Primary` |
+    | `SyntaxType`, `SyntaxAttribute`, `SyntaxMacro` | `Secondary` |
+    | `SyntaxString` | `Tertiary` |
+    | `SyntaxFunction` | `OnPrimaryContainer` |
+    | `SyntaxProperty` | `OnSecondaryContainer` |
+    | `SyntaxNumber`, `SyntaxConstant` | `OnTertiaryContainer` |
+    | `SyntaxEscape` | `Error` |
+    | `SyntaxVariable` | `OnSurface` |
+    | `SyntaxComment`, `SyntaxOperator`, `SyntaxPunctuation` | `OnSurfaceVariant` |
+
+  - `DiffRemoved`는 `Error`입니다. `DiffAdded`는 `Error`의 HCT 톤과 채도를 그대로 두고 색상(hue)만 145도(초록)로 돌린 색입니다. 두 시스템 모두 성공을 뜻하는 기반 역할이 없고, 지워진 줄과 더해진 줄이 같은 무게로 읽혀야 하기 때문입니다. `DiffModified`는 `Tertiary`입니다.
+  - 컨테이너는 짝이 되는 잉크(`DiffAdded`, `DiffRemoved`)를 `SurfaceContainer` 위에 라이트 12%, 다크 20% 불투명도로 겹친 결과의 불투명한 색이고, `*Emphasis`는 같은 방법으로 라이트 30%, 다크 40%입니다.
+  - 이렇게 얻은 값이 위의 대비 기준을 지키지 못하면, 색상과 채도는 그대로 두고 HCT 톤만 기준을 넘는 첫 값까지 옮깁니다. 라이트에서는 어둡게, 다크에서는 밝게입니다. 다른 기반 역할에서 온 두 문법 역할이 같은 색이 되는 것은 허용하고, 같은 기반 역할에서 온 역할끼리는 원래 같습니다.
+  - 유도는 빌드 시점에 Rust의 토큰 표를 만들 때 한 번 합니다. 값은 다른 다섯 시스템과 같이 표에 적힌 색이고, Renderer가 실행 중에 계산하지 않습니다.
+- **앱이 덮어쓸 수 있습니다.** 14.10의 팔레트가 이 역할들에도 똑같이 적용됩니다. 앱이 자기 코드 배색을 가지려면 이 역할들을 팔레트에 넣으면 됩니다.
+- 비용: `ColorRole`이 23개에서 45개로, 토큰 표가 시스템당 23행에서 45행으로 늡니다. 빌드 시점에 Renderer 바이너리로 들어가는 표이고 런타임에 경계를 넘지 않습니다(14.4). Rust의 `DesignTokenTable.colors`가 `[ColorToken; 45]`가 되며, `tokens.rs`와 `dioxus-design-systems/`의 Kotlin 표를 비교하는 테스트가 새 행도 비교합니다.
+
+수용 기준:
+1. 일곱 시스템 × 두 명암에서 문법 역할 열다섯이 `SurfaceContainer` 위에서 4.5:1을 넘고, diff 잉크가 자기 컨테이너 위에서 4.5:1을 넘으며, `*Emphasis`가 같은 줄의 컨테이너와 구분됩니다. Rust 표 테스트로 확인합니다.
+2. Rust 코드 한 토막을 강조해 보낸 `Text`가 라이트와 다크에서 서로 다른 색으로 그려지고, 와이어에는 리터럴 색이 하나도 없습니다(스팬의 `Paint` 종류가 전부 `Role`).
+3. 같은 코드 블록이 최소 두 시스템에서 다른 키워드 색으로 그려집니다. 일곱 번 같은 색이면 실패입니다.
+4. 역할을 추가해도 위젯 정의와 속성·Modifier 스키마가 바뀌지 않습니다(FR-14.1 회귀 검사).
+5. Material 3와 Deepin의 코드 역할 값이 위의 유도 규칙으로 그 시스템의 기반 역할에서 다시 계산한 값과 같습니다. Rust 표 테스트로 확인합니다.
 
 #### 13.2 타이포그래피
 - `TypeRole`은 9단 사다리입니다: `Display`, `Headline`, `Title`, `Subtitle`, `Body`, `BodyStrong`, `Label`, `Caption`, `Mono`. 세 디자인 시스템의 타입 스케일이 모두 이 사다리에 대응합니다.
@@ -437,7 +502,7 @@ LaunchBuilder::new().with_theme(Theme::adaptive(DesignSystem::Material3)).launch
 - **D5.** 테마는 UI 로컬 상태입니다. 스크롤 위치·포커스와 같은 부류입니다.
 - 비용: Host 쪽 단위 테스트는 "어떤 역할을 보냈는가"까지만 검증할 수 있고, 실제 색·치수는 Renderer 테스트에서 검증합니다. 이 분리를 받아들입니다.
 
-**토큰 테이블의 저작 위치는 Rust이고, 실행 위치는 Renderer입니다.** 23개 `ColorRole` × 2개 명암, 9단 `TypeRole`, `ShapeRole`/`SpaceRole` 치수 같은 값 표는 Rust 스키마에 데이터로 두고, FR-7 코드젠이 `Protocol.gen.kt`에 Kotlin `object`로 내보냅니다. 근거:
+**토큰 테이블의 저작 위치는 Rust이고, 실행 위치는 Renderer입니다.** `ColorRole` 23개(13.1-3이 들어오면 45개) × 2개 명암, 9단 `TypeRole`, `ShapeRole`/`SpaceRole` 치수 같은 값 표는 Rust 스키마에 데이터로 두고, FR-7 코드젠이 `Protocol.gen.kt`에 Kotlin `object`로 내보냅니다. 근거:
 - D6(단일 소스는 Rust)를 토큰에도 그대로 적용합니다. Kotlin에 손으로 적으면 세 시스템 × 7개 표가 검증되지 않은 채 남습니다.
 - 값 표는 Rust 테스트로 검증할 수 있습니다(대비비, 사다리 단조성, 표가 비어 있지 않은지). 14.4가 포기한 것은 "화면에 그려진 결과"이지 "표의 내용"이 아닙니다.
 - 경계는 그대로입니다. 표는 **빌드 시점에** Renderer 바이너리로 들어가고, 런타임에 경계를 넘지 않습니다. 13.7의 "Host가 보내는 토큰 테이블"은 여전히 금지입니다.
@@ -454,7 +519,7 @@ LaunchBuilder::new().with_theme(Theme::adaptive(DesignSystem::Material3)).launch
 디자인 시스템마다 아래 8개가 필요합니다. 채워지면 위젯 코드는 건드리지 않습니다.
 
 1~4번은 14.4에 따라 Rust 스키마에서 코드젠으로 생성되어 `Protocol.gen.kt`의 `DesignTokens`에 이미 들어 있습니다. Renderer 구현자는 **5~8번과, 1~4번을 Compose에 배선하는 일**을 맡습니다.
-1. `ColorRole` 23개 × {Light, Dark} 색값
+1. `ColorRole` 23개(13.1-3이 들어오면 45개) × {Light, Dark} 색값
 2. `TypeRole` 9개 → 크기/굵기/행간/자간/폰트
 3. `ShapeRole` 6개 → 곡률(HIG는 연속 곡률)
 4. `SpaceRole` 7개 → dp
@@ -573,6 +638,75 @@ LaunchBuilder::new().with_theme(Theme::adaptive(DesignSystem::Material3)).launch
 **자동화할 수 없는 것을 분명히 해 둡니다.** 시스템이 그 막대를 Liquid Glass로 칠했는지는 이 코드가 끝난 뒤 시스템이 내리는 그리기 결정이고, 픽셀을 세어 가릴 수 있는 것이 아닙니다. `tabBarMinimizeBehavior`가 실제로 막대를 접는 것도 스크롤 뷰가 있는 화면에서만 볼 수 있고, 지금 탭 안의 화면은 비어 있습니다.
 
 **알려진 한계 둘.** 잰 높이는 `present`가 불릴 때 갱신되므로 회전만으로는 다시 재지 않습니다. 그리고 창이 넓은 상태로 시작하면(아이패드) 폭이 측정되기 전 첫 컴포지션이 좁은 창으로 잡혀 막대를 한 프레임 세웠다가 내립니다. 둘 다 스스로 복구되지만 기록해 둡니다.
+
+#### 14.10 애플리케이션 색 (`Draft`)
+
+지금 `Theme`은 일곱 디자인 시스템 중 하나와 명암 하나, 그리고 역할별 폰트(FR-23.2)를 고릅니다. **앱이 자기 색을 정할 길이 없습니다.** 색을 칠하는 유일한 방법은 노드마다 `Paint::Literal`을 쓰는 것이고, 리터럴은 디자인 시스템이 영영 보지 못하는 색이라 버튼의 눌림 표현, 비활성 흐림, 유리의 틴트, 다크 모드 전환이 전부 그 색을 모릅니다. 요청한 앱(Ember)은 자기 브랜드 색이 있고, 그 색은 런처와 대화 화면의 모든 버튼과 선택 표시에 나와야 합니다.
+
+코드 색 역할(13.1-3)을 앱이 덮어쓰는 경로도 이 항목입니다.
+
+##### 14.10.1 바꾸는 것은 색 역할의 값이고, 나머지는 디자인 시스템의 것입니다
+
+```rust
+const EMBER: Palette = Palette::new()
+    .with(ColorRole::Primary, Color::rgb(0xE8590C), Color::rgb(0xFF8A4C))
+    .with(ColorRole::OnPrimary, Color::rgb(0xFFFFFF), Color::rgb(0x2B0E00))
+    .with(ColorRole::Background, Color::rgb(0xFFFBF8), Color::rgb(0x141110));
+
+LaunchBuilder::new()
+    .with_theme(Theme::adaptive(DesignSystem::Material3).with_palette(&EMBER))
+    .launch(app);
+```
+
+- **앱이 덮어쓰는 단위는 `ColorRole` 하나와 명암 하나입니다.** 값은 `Color`(ARGB 리터럴)입니다. 역할을 다른 역할로 돌리는 것(`Primary`를 `Tertiary`로)이나 브러시(FR-23.1)는 받지 않습니다. Renderer의 규칙은 역할을 하나의 색으로 풀어서 그 위에서 계산합니다(눌림 상태 층, 비활성 흐림, 유리 틴트). 그라데이션은 그 계산의 입력이 될 수 없습니다.
+- **모양, 타이포그래피, 간격, 고도, 모션, 컴포넌트 규칙은 그대로 디자인 시스템의 것입니다.** 같은 브랜드 색을 Material 3로 그리면 큰 곡률과 리플이고, Liquid Glass로 그리면 캡슐과 유리입니다. 이것이 FR-14.1이 지키는 경계이며, 앱 색은 그 경계를 넘지 않습니다. 13.7의 "Host가 보내는 토큰 테이블" 금지는 그대로입니다. 보내는 것은 색 역할의 값 일부이지, 치수나 규칙의 표가 아닙니다.
+- **명암별로 따로 줍니다.** 한 색을 라이트와 다크에 같이 쓰면 거의 늘 한쪽에서 틀립니다. 밝은 페이지에 맞춘 진한 주황은 어두운 페이지에서 가라앉습니다.
+- **두 명암의 값이 한 번에 갑니다.** `FollowSystem`에서 시스템이 다크로 바뀌면 Renderer가 이미 든 표에서 고릅니다. Host로 묻지 않습니다(14.4의 근거 그대로. 명암 전환이 `SetTheme` 재전송이 되면 안 됩니다).
+- `Theme::adaptive`에서는 Renderer가 고른 시스템이 무엇이든 같은 팔레트가 얹힙니다. 브랜드 색은 플랫폼마다 달라지는 것이 아니기 때문입니다.
+- **역할로만 덮어씁니다.** 노드 하나의 색을 바꾸는 길은 지금처럼 `Paint`이고, 이것은 앱 전체의 역할을 바꾸는 길입니다. 둘 다 있어야 하고, 둘이 같은 일을 하지 않습니다.
+
+##### 14.10.2 앱이 정하지 않은 역할
+
+- **앱이 정하지 않은 역할은 디자인 시스템의 값입니다.** 역할마다, 명암마다 따로 그렇습니다. 라이트의 `Primary`만 준 앱은 다크의 `Primary`가 디자인 시스템의 것이고, `Background`를 주지 않은 앱의 페이지는 그 시스템의 페이지입니다.
+- **잉크 짝을 주지 않은 채움은 Renderer가 잉크를 고릅니다.** `Primary`만 주고 `OnPrimary`를 주지 않으면, 디자인 시스템의 `OnPrimary`가 새 `Primary` 위에서 그 짝에 요구되는 대비(13.1-2: 강조색 3:1, 컨테이너 4.5:1)를 지키면 그것을 쓰고, 지키지 못하면 흰색과 검정 중 대비가 더 높은 쪽을 씁니다. 브랜드 주황 위에 시스템의 흰 글자가 읽히면 흰 글자가 맞고, 노란 브랜드 위에서는 검정이 맞습니다. 앱이 잉크까지 정하면 그 값이 이깁니다.
+  - 반대 방향(잉크만 주고 채움은 주지 않음)에는 이 규칙을 적용하지 않습니다. 앱이 잉크만 정했다면 그 잉크가 의도이고, 고칠 대상은 앱의 표입니다.
+- **대비는 Rust에서 검사합니다.** `Palette::check(design_system)`이 주어진 디자인 시스템의 표 위에 팔레트를 얹은 결과에서 13.1-2, 13.1-3과 14장의 대비 기준을 어기는 쌍을 돌려줍니다. 앱은 이것을 자기 테스트에서 일곱 시스템 모두에 대해 부릅니다. 디버그 빌드는 시작할 때 어기는 쌍을 한 번 로그로 남깁니다. 실행을 막지는 않습니다. 대비가 조금 모자란 화면이 아무것도 안 뜨는 화면보다 낫고, 판단은 앱의 몫입니다.
+- **고대비 모드에서는 앱 색을 쓰지 않습니다.** Windows의 대비 테마나 그에 해당하는 플랫폼 설정이 켜져 있으면 Renderer는 팔레트를 무시하고 디자인 시스템의 고대비 값(없으면 기본 값)으로 그립니다. 사용자가 접근성을 위해 고른 색을 브랜드가 덮어쓰면 안 됩니다(NFR-8).
+- **시스템 강조색과의 관계**: 사용자가 OS에서 고른 강조색을 따르는 디자인 시스템(Fluent, Breeze, GNOME 같은)에서 앱이 `Primary`를 정하면 앱의 값이 이깁니다. 정하지 않으면 지금처럼 시스템의 답입니다. 앱이 브랜드 색을 정했다는 것이 "시스템 강조색을 따르지 않겠다"는 말이기 때문입니다.
+
+##### 14.10.3 와이어: 테마 레코드
+
+- **`SetTheme`(명령 태그 9)에 팔레트 참조 하나를 더합니다.** 지금 레코드는 머리 4바이트, u16 넷, 폰트 슬롯 아홉(`TYPE_ROLE_COUNT`, FR-23.2)으로 48바이트입니다. 그 뒤에 `palette: (offset: u32, len: u32)` 8바이트를 붙여 **56바이트**가 됩니다. 팔레트가 없으면 `len = 0`입니다.
+- 팔레트 본체는 PR-4의 문자열·블롭 규약대로 같은 arena에 놓이는 고정 길이 항목의 나열입니다. 항목 하나는 8바이트 `(role: u16, scheme: u16, argb: u32)`이고, `scheme`은 `Light=1` 또는 `Dark=2`입니다. `FollowSystem`(3)은 항목에 쓸 수 없습니다. 그것은 고르는 방법이지 명암이 아니기 때문입니다.
+- 고정 배열(역할 수 × 2)이 아니라 항목 나열인 이유는 둘입니다. "정하지 않음"을 값 하나(예: 0)로 표시하면 그 값이 색으로 쓰일 수 없게 되는데, 투명 검정도 색이고 앱이 실제로 쓸 수 있습니다. 그리고 `ColorRole`이 늘 때마다(13.1-3이 바로 그런 경우입니다) 레코드 길이가 바뀌지 않습니다.
+- 크기: 역할 45개(13.1-3 이후) × 명암 2 = 최대 90항목, 720바이트입니다. 테마가 바뀔 때 한 번이고, 프레임마다 가지 않습니다.
+- 모르는 역할 태그, 범위 밖의 `scheme`, 같은 (역할, 명암)의 중복, 8로 나누어지지 않는 `len`은 `ProtocolError`입니다. 프로세스는 죽지 않고, 테마는 잘못된 항목만 빼고 적용됩니다. 테마 하나가 통째로 버려지면 앱이 아무 색도 없는 화면으로 뜨는데, 잘못은 항목 하나에 있습니다.
+- 레코드와 항목은 Rust 스키마에 정의하고, 코드젠(FR-7)이 Kotlin 쪽 디코더를 생성합니다. 스키마 해시가 움직이므로 양쪽이 어긋나면 핸드셰이크에서 잡힙니다.
+- `Theme`은 지금 `Copy`이고 `const`로 만들 수 있습니다. 팔레트는 `&'static Palette`로 실어 그 성질을 유지합니다. 런타임에 만든 팔레트가 필요하면 `Theme`을 다시 보내는 앱 API(`use_theme`의 설정 경로)가 소유권을 가집니다.
+
+##### 14.10.4 와이어 비용 정리
+
+- `SetTheme` 레코드 48바이트에서 56바이트로. 명령 태그는 그대로 9입니다.
+- 팔레트 블롭, 최대 720바이트, 테마가 바뀔 때만.
+- `ColorRole` 태그 24-45 추가(13.1-3). 위젯 태그, 속성 태그, 이벤트 태그, 경계 진입점은 늘지 않습니다.
+
+##### 14.10.5 수용 기준
+
+1. `Primary`의 라이트·다크 값을 준 앱의 `Filled` 버튼이 일곱 디자인 시스템 모두에서 그 색으로 채워지고, 버튼의 모양과 눌림 표현은 시스템마다 다릅니다.
+2. 같은 앱을 `FollowSystem`으로 띄우고 시스템 명암을 바꾸면, Host로 가는 이벤트와 Host가 보내는 `SetTheme` 없이 다크 값으로 바뀝니다.
+3. 앱이 정하지 않은 역할(예: `Outline`)은 그 디자인 시스템의 값과 같습니다. 라이트 값만 준 역할의 다크 값은 디자인 시스템의 다크 값입니다.
+4. `Primary`만 주고 `OnPrimary`를 주지 않은 경우, Renderer가 고른 잉크가 3:1 이상입니다. 밝은 노랑과 진한 남색 두 경우에서 서로 다른 잉크(검정과 흰색)가 나옵니다.
+5. `Palette::check`가 대비를 어기는 쌍을 돌려주고, 어기지 않는 팔레트에는 빈 목록을 돌려줍니다.
+6. 고대비 모드가 켜진 Windows에서 팔레트를 준 앱이 팔레트 없이 띄운 앱과 같은 색으로 그려집니다. 수동 확인입니다.
+7. 56바이트 `SetTheme`과 팔레트 블롭이 PR-4 프로토콜 벡터에 들어가 양쪽에서 같은 바이트로 왕복합니다. 팔레트가 없는 테마는 `len = 0`입니다.
+8. 모르는 역할 태그, `scheme = 3`, 중복 항목이 각각 `ProtocolError`가 되고, 나머지 항목은 적용되며, 프로세스가 죽지 않습니다.
+
+코드 색 역할에 대한 기준(일곱 시스템의 대비, 리터럴 없는 강조, 시스템마다 다른 키워드 색, 스키마 회귀)은 13.1-3에 있습니다.
+
+##### 14.10.6 열린 질문
+
+- **팔레트를 디자인 시스템별로 줄 것인가.** 이 항목은 `adaptive`에서 한 팔레트가 어느 시스템에나 얹히게 했습니다. 브랜드가 "macOS에서는 유리 위에서 더 밝은 주황"처럼 시스템별 값을 원하면 `(design_system, role, scheme)` 항목이 필요합니다. 지금은 넣지 않았고, 요청한 앱의 브랜드 지침이 그것을 요구하는지 확인이 필요합니다.
+- **씨앗 색에서 팔레트 만들기.** Material 3는 색 하나에서 배색 전체를 만드는 알고리즘(dynamic color)이 있습니다. 다른 여섯 시스템에는 없으므로 이 항목은 값을 직접 주게 했습니다. Material 3 전용 편의 함수(`Palette::from_seed`)를 Host 쪽에 둘지는 정하지 않았습니다.
 
 ### FR-15 위젯 어휘 (`Agreed`)
 
