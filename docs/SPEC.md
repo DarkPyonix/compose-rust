@@ -1929,6 +1929,116 @@ if design.is_apple() {
 5. 선택 영역 안의 버튼은 눌리고, 선택에 들어가지 않습니다.
 6. 데스크톱 셋에서 단축키와 우클릭 메뉴 양쪽으로 복사됩니다. 모바일의 길게 누르기는 수동 확인입니다(§6과 같은 방식으로 기록).
 
+### FR-36 OS 알림 (`Draft`)
+
+창 밖에서 사용자를 부르는 것입니다. 요청한 앱(Ember)에서는 "세션이 끝났습니다"와 "승인을 기다리고 있습니다" 둘이고, 둘 다 사용자가 다른 창에 가 있을 때 의미가 있습니다. 그 플랫폼의 알림으로 나와야 합니다. macOS 알림 센터(`UNUserNotificationCenter`), Windows 토스트(앱 알림), Linux 데스크톱 알림(`org.freedesktop.Notifications`), iOS(`UNUserNotificationCenter`), Android(`NotificationManager`), 그리고 브라우저(Web Notifications API)입니다.
+
+**FR-21.4의 일시 메시지와 다른 것입니다.** 일시 메시지는 창 안에서, 사용자가 방금 한 조작에 대해 몇 초 동안 말합니다. 알림은 창 밖에서, 사용자가 하지 않은 일(작업이 끝남, 무엇이 기다림)에 대해 사용자가 치울 때까지 남습니다. 수명도 주인도 다르므로 하나로 합치지 않습니다.
+
+#### 36.1 누가 보내는가
+
+- **Host가 명령 레코드로 보냅니다. 위젯이 아닙니다.** 알림은 트리의 어디에도 자리가 없고, 그것을 낸 컴포넌트가 사라진 뒤에도 남습니다. 노드로 만들면 Host가 "알림이 떠 있음"이라는 노드를 들고 있어야 하는데, 그 노드가 언제 사라져야 하는지는 사용자가 알림 센터에서 무엇을 했는지에 달려 있고 Host는 그것을 모릅니다. 21.4가 일시 메시지를 노드로 만들지 않은 이유와 같습니다.
+- **Host는 플랫폼 API를 부르지 않습니다. 알림을 띄우는 것은 Renderer입니다.** 플랫폼은 Renderer가 소유합니다(D4, D5). Host가 `UNUserNotificationCenter`나 D-Bus를 직접 부르면, 플랫폼마다 Rust 쪽 바인딩이 생기고(손으로 쓴 FFI, C3에 걸립니다), 알림을 누른 사건이 Renderer를 거치지 않고 다른 스레드에서 Host로 들어오는 두 번째 입구가 생깁니다(PR-1, PR-3). 권한 요청 대화상자도 창을 가진 쪽이 띄워야 합니다.
+- **워커에서도 보낼 수 있습니다.** 세션이 끝났다는 것은 워커가 먼저 아는 사실입니다(PR-3). Host API는 `Send`인 손잡이(`NotificationSender`)를 주고, 그 손잡이로 보낸 알림은 Host 안의 대기열에 들어간 뒤 Host가 내부에서 프레임을 요청해 다음 `render_frame` 배치에 실립니다. 사용자 코드는 경계 함수를 부르지 않으며(PR-3), 이 대기열은 Host 안의 것이지 경계 위의 큐가 아닙니다(PR-1). UI 스레드의 컴포넌트와 이벤트 핸들러에서는 `Message`처럼 바로 보냅니다.
+
+```rust
+Notification::new("세션이 끝났습니다")
+    .body("refactor-parser: 테스트 214개 통과")
+    .key(format!("session/{id}"))
+    .channel("세션")
+    .presentation(Presentation::WhenInactive)
+    .post();
+```
+
+#### 36.2 알림 하나가 싣는 것
+
+- `title`, `body`(문자열). 앱의 이름과 아이콘은 싣지 않습니다. 플랫폼이 앱의 번들 정보에서 붙이고, 그것은 창의 아이콘과 같은 출처입니다(FR-19.3, FR-22.6).
+- **`key`(문자열)는 앱이 정하는 이름입니다.** 같은 `key`로 다시 보내면 앞의 알림을 바꿉니다. 세션 하나의 상태가 바뀔 때마다 알림이 쌓이지 않고 하나가 갱신됩니다. 누른 사건도 이 `key`로 돌아옵니다(36.3). 빈 `key`는 Renderer가 알림마다 새 이름을 붙이는 것이고, 그 알림은 바꾸거나 거둘 수 없습니다.
+- **`WithdrawNotification(key)`로 거둡니다.** 승인 요청을 사용자가 창 안에서 이미 처리했다면 알림 센터에 남은 "승인을 기다리고 있습니다"는 거짓말이 됩니다. 거두는 길이 없으면 앱은 그 거짓말을 지울 수 없습니다.
+- **동작 버튼은 둘까지입니다**(`action_1`, `action_2`, 라벨 문자열, 비우면 없음). 플랫폼 다섯이 모두 알림의 동작 버튼을 지원하지만 그 수가 다르고(Windows는 다섯, Android는 셋, macOS는 펼쳐야 보임), 둘이면 어디서나 같은 모양으로 들어갑니다. 버튼을 누른 사건은 그 번호를 싣고 돌아옵니다.
+- **`importance`는 `Normal=1`, `Urgent=2`인 닫힌 열거형입니다.** 실제 효과(소리, Android 채널의 중요도, 방해 금지 중 표시 여부)는 Renderer가 플랫폼별로 정합니다. `MessageDuration`(21.4)과 같은 이유로, Host가 소리 파일이나 우선순위 숫자를 보내는 길을 두지 않습니다. 요청한 앱에서는 "승인 대기"가 `Urgent`, "세션 끝남"이 `Normal`입니다.
+- **`channel`(문자열)은 사용자가 알림을 종류별로 끌 수 있게 하는 묶음입니다.** Android 8 이상은 알림마다 채널이 필수이고, 채널의 이름은 사용자가 설정에서 보는 글자이므로 앱의 언어로 앱이 정해야 합니다. Renderer는 처음 보는 채널 이름에 대해 채널을 만듭니다. 비우면 앱 이름의 기본 채널입니다. 채널 개념이 없는 플랫폼은 이 값을 무시합니다(Linux에는 `category` 힌트로 넘깁니다).
+- **`presentation`은 `Always=1`, `WhenInactive=2`입니다.** `WhenInactive`는 앱의 창이 활성(포커스를 가진 상태)이면 Renderer가 알림을 띄우지 않고 버리는 것입니다. 창이 활성인지는 Renderer의 상태이고(D5), Host가 이것을 판단하려면 포커스 이벤트를 매번 받아야 합니다. "사용자가 보고 있으면 부르지 않는다"는 판단을 그 상태를 가진 쪽에 둡니다.
+
+#### 36.3 사용자가 누르면
+
+- **누른 사건은 Host 앞으로 가는 이벤트입니다.** 새 이벤트 `NotificationActivated`(이벤트 태그 24)이고, `node_id = 0`, `handler_id = 0`이며, 페이로드는 `key`(문자열)와 `action: u32`(본문을 눌렀으면 0, 동작 버튼이면 1 또는 2)입니다. `DesignSystemResolved`(21)처럼 노드가 아니라 Host 자신에게 오는 사건이라 핸들러 조회를 거치지 않습니다.
+- **핸들러 id가 아니라 `key`인 이유**: 알림은 몇 시간, 몇 날 동안 알림 센터에 남습니다. 그 사이 알림을 낸 컴포넌트는 사라지고, 콜백은 그 스코프와 함께 사라집니다. 21.4의 일시 메시지는 줄이 유한해서(8개) 콜백을 16개까지만 들고 있으면 되었지만, 알림에는 그런 상한이 없습니다. 그래서 알림이 들고 다니는 것은 살아 있는 콜백이 아니라 앱이 언제든 해석할 수 있는 이름입니다.
+- Host API는 앱 단위의 훅 하나입니다. `use_notification_activated(move |activation| ...)`가 `key`와 `action`을 받고, 앱은 `session/{id}`를 보고 그 세션을 엽니다. 훅을 부른 컴포넌트가 없으면 사건은 버려집니다.
+- **본문을 누르면 Renderer가 앱의 창을 앞으로 가져옵니다.** 창을 앞으로 가져오는 것은 플랫폼의 일이고, 그다음 무엇을 보일지는 Host의 일입니다. 동작 버튼을 누르면 창을 가져오지 않습니다. 동작 버튼이 있는 이유가 창을 열지 않고 처리하는 것이기 때문입니다.
+- **알림을 눌러 앱이 새로 시작되는 경우**(iOS와 Android에서 프로세스가 없을 때): Renderer는 그 사건을 들고 있다가 `dioxus_compose_host_init`이 끝난 뒤 첫 이벤트로 보냅니다. Host가 존재하기 전에 Host로 갈 수는 없으므로, 새 진입점이 아니라 순서로 해결합니다.
+- **데스크톱에서 프로세스가 끝나면 Renderer는 자기가 띄운 알림을 거둡니다.** macOS 알림 센터에 남은 알림을 누르면 앱이 다시 시작되는데, 그 알림이 가리키는 세션은 끝난 프로세스의 것이고 새 프로세스는 그것을 모릅니다. 사용자가 앱을 닫은 뒤에 남는 알림은 대부분 누를 수 없는 약속입니다.
+
+#### 36.4 권한
+
+- **권한은 처음 보낼 때 묻습니다.** 앱을 처음 실행하자마자 묻는 것은 사용자가 아직 무엇에 대한 알림인지 모를 때 묻는 것이고, 거절당하기 가장 쉬운 시점입니다. Apple의 지침도 맥락 안에서 물으라고 합니다. 권한 상태가 "아직 묻지 않음"일 때 첫 `PostNotification`이 오면 Renderer가 플랫폼의 권한 요청을 띄우고, 허락되면 그 알림을 띄웁니다.
+- **앱이 먼저 물을 수도 있습니다.** 명령 `RequestNotificationPermission`(본문 없음)입니다. 설정 화면에 "세션이 끝나면 알림 받기" 스위치를 두고, 사용자가 켤 때 묻는 경우입니다. 브라우저는 사용자 조작 안에서만 권한을 물을 수 있게 하는데, 이 명령은 그 조작을 처리한 `dispatch_event`가 돌려준 배치에 실려 같은 호출 스택 안에서 적용되므로(PR-1) 그 조건을 그대로 만족합니다. 비동기 경계였다면 이 성질이 없었습니다.
+- **권한 상태는 Host가 읽을 수 있습니다.** 이벤트 `NotificationPermissionChanged`(이벤트 태그 25), 페이로드 `state: u32`이고 값은 `NotDetermined=1`, `Granted=2`, `Denied=3`, `Unsupported=4`인 닫힌 열거형입니다. 모르는 값은 `ProtocolError`입니다. Renderer는 시작 후 한 번, 그리고 값이 바뀔 때만 보냅니다(사용자가 OS 설정에서 바꾼 것을 창이 다시 활성이 될 때 확인합니다). `WindowSizeChanged`(20.4)와 같은 규칙이고, 양쪽의 시작값은 `NotDetermined`입니다. Host API는 `use_notification_permission()`입니다.
+- 거절된 상태에서 온 `PostNotification`은 Renderer가 버립니다. 오류가 아니므로 `ProtocolError`가 아닙니다. 다시 묻지도 않습니다. 거절한 사용자를 다시 조르는 앱은 그 플랫폼이 금지하거나(iOS는 두 번째 요청을 아예 띄우지 않습니다) 사용자가 싫어하는 앱입니다.
+- **Renderer가 알림 대신 일시 메시지를 띄우지 않습니다.** 알림이 필요한 순간은 사용자가 창을 보지 않는 순간이고, 그때 창 안에 뜬 메시지는 아무도 보지 않습니다. 대신 무엇을 보여 줄지는 권한 상태를 읽은 앱이 정합니다.
+
+#### 36.5 플랫폼별 조건과 지원되지 않는 경우
+
+| 플랫폼 | 경로 | 띄우기 위한 조건 |
+|---|---|---|
+| macOS | `UNUserNotificationCenter` | 앱 번들과 번들 식별자. 서명된 배포 번들(FR-22.6)에서 동작합니다 |
+| Windows | 앱 알림(토스트) | AppUserModelID와 그것을 단 시작 메뉴 바로 가기. Renderer가 시작할 때 프로세스의 AppUserModelID를 정하고, 배포 번들이 바로 가기를 만듭니다 |
+| Linux | `org.freedesktop.Notifications`(D-Bus) | 그 이름을 가진 알림 데몬이 세션 버스에 있을 것. 동작 버튼은 데몬이 `actions` 기능을 알릴 때만 |
+| iOS | `UNUserNotificationCenter` | 권한 |
+| Android | `NotificationManager` | Android 13 이상은 `POST_NOTIFICATIONS` 런타임 권한, 8 이상은 채널. 매니페스트의 권한 선언은 앱 빌드가 넣습니다(PR-5.1) |
+| Web | Notifications API | 보안 컨텍스트(HTTPS)와 권한. 페이지가 열려 있는 동안만 |
+
+- **조건을 채우지 못하는 환경에서는 권한 상태가 `Unsupported`입니다.** 번들이 없는 JVM 개발 셸의 macOS, AppUserModelID가 없는 Windows 실행, 알림 데몬이 없는 Linux 세션이 여기 해당합니다. 그때 `PostNotification`과 `WithdrawNotification`은 아무 일도 하지 않고, 프로세스가 죽지 않으며, `ProtocolError`도 아닙니다. 플랫폼에 그 기능이 없는 것은 프로토콜 오류가 아니기 때문입니다. FR-27이 모바일의 파일 드롭에 대해, FR-19.3이 창이 이미 있는 플랫폼의 창 설정에 대해 정한 것과 같은 규칙입니다. Host 코드는 플랫폼마다 갈라지지 않습니다.
+- 개발 셸에서 `Unsupported`가 되는 것은 숨기지 않습니다. 디버그 빌드는 첫 `PostNotification`에서 그 이유("이 실행에는 번들 식별자가 없어 알림 센터가 알림을 받지 않습니다")를 한 번 로그로 남깁니다.
+- **창이 그려지지 않는 동안에도 알림은 나가야 합니다.** 창이 최소화되어 있거나 가려져 있거나 앱이 백그라운드에 있으면 Compose의 프레임 클록이 멈출 수 있고, 그대로 두면 알림이 가장 필요한 순간(사용자가 창을 보지 않을 때)에 배치가 나가지 않습니다. 그래서 PR-3(2026-10-03 개정)에 따라 Renderer는 프레임 클록이 멈춘 동안 온 `request_frame`에 대해 UI 스레드에서 `render_frame`을 직접 한 번 부릅니다. 경계 함수는 그대로이고 바뀌는 것은 Renderer의 예약 방법뿐입니다. Android에서 멈춘(`onStop`) 동안 Host가 프레임 요청을 미뤄 두는 규칙(PR-5)도 알림 대기열이 비어 있지 않을 때는 미루지 않습니다.
+- **이 항목은 실행 중인 프로세스가 띄우는 지역 알림입니다.** iOS가 백그라운드 앱을 일시 정지시키거나 Android가 프로세스를 정리하면 Host가 돌지 않으므로 알림을 낼 쪽이 없습니다. 그 경우를 덮는 것은 서버가 보내는 원격 푸시(APNs, FCM)이고, 서버와 기기 토큰이 필요한 다른 기능입니다(36.8).
+
+#### 36.6 와이어
+
+경계 진입점은 하나도 늘지 않습니다. 보내는 것은 기존 배치의 레코드이고, 돌아오는 것은 기존 `dispatch_event`의 이벤트입니다. PR-2의 변경이 아니라 FR-7의 스키마 변경이고, 스키마 해시가 움직입니다. 명령과 이벤트, 세 열거형은 Rust 스키마(`schema.rs`)에 정의하고 Kotlin 쪽 코덱은 codegen이 생성합니다.
+
+명령(Mutation) 레코드, `SetWindow=13` 뒤에 덧붙입니다:
+
+| 태그 | 명령 | 레코드 |
+|---|---|---|
+| 14 | `PostNotification` | 56바이트: 머리 4, `key`, `title`, `body`, `channel`, `action_1`, `action_2`(각각 `(offset: u32, len: u32)`, 48), `importance: u16`, `presentation: u16` |
+| 15 | `WithdrawNotification` | 12바이트: 머리 4, `key`(8) |
+| 16 | `RequestNotificationPermission` | 4바이트: 머리만 |
+
+이벤트 레코드, `FilesDropped=23` 뒤에 덧붙입니다:
+
+| 태그 | 이벤트 | 페이로드 |
+|---|---|---|
+| 24 | `NotificationActivated` | 공통 머리 16바이트(`node_id = 0`, `handler_id = 0`) 뒤에 `action: u32`, `key: (offset, len)` |
+| 25 | `NotificationPermissionChanged` | 공통 머리 뒤에 `state: u32` |
+
+- 문자열은 전부 PR-4 규약입니다. 새 전달 수단이 없습니다.
+- `importance`, `presentation`, `state`는 닫힌 열거형이고 스키마 해시에 들어갑니다. 모르는 값은 `ProtocolError`입니다.
+- 두 이벤트의 페이로드(`u32` 하나와 문자열 하나, 그리고 `u32` 하나)는 지금 `EventPayloadType`에 없는 모양이라 둘을 더합니다.
+- Renderer 쪽은 플랫폼별 알림 어댑터 하나씩입니다. 공유 인터프리터는 명령을 해석해 어댑터에 넘기고, 어댑터가 없는 플랫폼은 `Unsupported`를 답하는 기본 구현을 씁니다. 손으로 쓴 경계 접착 코드는 없습니다. 어댑터가 부르는 것은 Renderer가 이미 소유한 플랫폼 API이고(macOS와 iOS는 Kotlin/Native의 플랫폼 라이브러리, Windows와 Linux는 데스크톱 렌더러가 이미 쓰는 경로), Host와 Renderer 사이의 경계가 아닙니다.
+
+#### 36.7 수용 기준
+
+1. macOS, Windows, Linux(GNOME) 배포 빌드에서 `PostNotification`이 그 플랫폼의 알림으로 나타나고, 제목과 본문이 보낸 글자와 같습니다. 수동 확인이며 native-image 빌드에서 기록합니다.
+2. 본문을 누르면 `NotificationActivated`가 보낸 `key`와 `action = 0`을 싣고 **정확히 한 번** 오고, 앱의 창이 앞으로 옵니다. 동작 버튼을 누르면 그 번호가 오고 창은 앞으로 오지 않습니다.
+3. 같은 `key`로 두 번 보내면 알림 센터에 하나만 남고 두 번째 내용이 보입니다. `WithdrawNotification`을 보내면 사라집니다.
+4. 권한이 `NotDetermined`일 때 첫 `PostNotification`이 플랫폼의 권한 요청을 띄우고, 허락하면 그 알림이 나타나며 `NotificationPermissionChanged(Granted)`가 한 번 옵니다. 거절하면 알림이 나타나지 않고 `Denied`가 한 번 오며, 그 뒤의 `PostNotification`은 권한을 다시 묻지 않습니다.
+5. 창이 활성인 동안 `WhenInactive` 알림은 나타나지 않고 `Always` 알림은 나타납니다.
+6. 워커 스레드에서 `NotificationSender`로 보낸 알림이, 창이 최소화된 상태에서 1초 안에 나타납니다. 그동안 사용자 코드가 경계 함수를 부르지 않습니다.
+7. 번들 식별자가 없는 실행(JVM 개발 셸)에서 권한 상태가 `Unsupported`이고, `PostNotification`이 프로세스를 죽이지 않으며 `ProtocolError`를 내지 않습니다.
+8. iOS와 Android에서 프로세스가 없을 때 알림을 눌러 앱이 시작되면, `NotificationActivated`가 `dioxus_compose_host_init` 다음의 첫 이벤트로 옵니다. 수동 확인입니다.
+9. 데스크톱 앱을 끝내면 그 앱이 띄운 알림이 알림 센터에서 사라집니다.
+10. 세 명령과 두 이벤트가 PR-4 프로토콜 벡터에 들어가 양쪽에서 같은 바이트로 왕복합니다. 모르는 `importance`와 `state` 값이 `ProtocolError`가 되고 프로세스가 죽지 않습니다.
+11. 경계 진입점 목록(PR-2)이 이 변경 전과 같습니다.
+12. Android 13 이상에서 `POST_NOTIFICATIONS` 권한 요청이 나타나고, 서로 다른 `channel` 두 개가 설정 화면에 두 채널로 보입니다. 수동 확인입니다.
+
+#### 36.8 열린 질문
+
+1. **원격 푸시.** 백그라운드에서 정지된 iOS 앱과 정리된 Android 프로세스는 지역 알림을 낼 수 없습니다. 요청한 앱의 세션이 원격 기계에서 돈다면, 폰에서 "세션이 끝났습니다"를 받으려면 APNs/FCM 원격 푸시가 필요합니다. 그것은 서버, 기기 토큰 등록, 그리고 토큰을 Host에 알리는 이벤트가 필요한 별도 요구사항입니다. 요청한 앱이 폰에서 이것을 필요로 하는지 확인이 필요하고, 필요하다면 별도 SPEC 항목으로 씁니다.
+2. **알림에서 바로 승인하기.** 동작 버튼 둘이 있으면 앱은 "승인/거절"을 알림 위에 둘 수 있습니다. 사용자가 요청 내용을 보지 않고 승인하게 되는 길이기도 합니다. 이것은 요청한 앱의 제품 판단이고 프레임워크는 버튼을 막지 않지만, 그쪽 결정이 필요합니다.
+3. **데스크톱에서 종료 시 알림 거두기(36.3).** 정했지만 macOS 관례(종료 뒤에도 알림이 남고 누르면 앱이 뜸)와 다릅니다. 반대로 정하면 "앱이 새로 시작되며 받은 `key`를 Host가 해석할 수 있어야 한다"는 요건이 데스크톱에도 생깁니다.
+4. **Windows의 바로 가기.** 압축을 푼 실행 파일 하나(INTENT D17)는 시작 메뉴 바로 가기가 없어 토스트를 띄울 수 없습니다. Renderer가 첫 실행에 바로 가기를 만드는 것은 사용자의 시작 메뉴를 앱이 건드리는 일이라 설치 프로그램(FR-22.6의 배포 번들)의 일로 두었습니다. 설치 없이 도는 단일 실행 파일에서는 `Unsupported`가 됩니다. 이 결과를 받아들일지 확인이 필요합니다.
+
 ## 4. 경계 프로토콜
 
 ### PR-1 호출 모델: 동기·동일 스레드 직접 호출 (`Done`)
@@ -1994,7 +2104,10 @@ dioxus_compose_host_dispatch_event: click 1
 ### PR-3 스레드 규칙 (`Done`)
 - VirtualDom, 사용자 컴포넌트, 모든 `dioxus_compose_host_*` 호출은 Renderer UI 스레드에서만 실행합니다. 그래서 락이 필요 없습니다.
 - **UI 스레드에서 도메인 작업을 금지합니다.** 네트워크, 파일 I/O, 프로세스 관리 같은 작업은 Host 워커 스레드(tokio 등)에서 돌립니다. 워커는 Dioxus signal로 상태를 갱신하고, Host가 내부에서 `request_frame`을 호출합니다. 사용자 코드는 경계 함수를 직접 부르지 않습니다.
-- `request_frame`은 여러 번 불러도 다음 프레임에 `render_frame` 1회로 합쳐집니다. Compose frame clock(`withFrameNanos`) 안에서 실행됩니다.
+- `request_frame`은 여러 번 불러도 다음 프레임에 `render_frame` 1회로 합쳐집니다. Compose frame clock(`withFrameNanos`)이 돌고 있으면 그 안에서 실행됩니다.
+- **프레임 클록이 멈춰 있으면 Renderer가 `render_frame`을 직접 한 번 부릅니다** (2026-10-03 개정, `Draft`). 창이 최소화되거나 가려지거나 앱이 백그라운드로 가면 Compose의 프레임 클록이 멈출 수 있고, 그때 온 요청을 다음 그리기까지 미루면 워커가 낸 결과(FR-36의 알림이 대표적입니다)가 사용자가 창을 보지 않는 동안 나가지 않습니다. 그래서 그 동안 온 `request_frame`에 대해 Renderer는 UI 스레드에 작업 하나를 올리고, 그 안에서 `render_frame`을 한 번 부른 뒤 돌아온 배치를 같은 호출 스택 안에서 적용합니다. 여러 요청이 한 번으로 합쳐지는 것은 같고, `frame_time_nanos`는 프레임 클록과 같은 단조 시계의 현재 값입니다.
+  - 바뀌는 것은 Renderer가 호출을 예약하는 방법뿐입니다. 경계 함수, 스레드 간 wake 신호 하나(PR-1), VirtualDom이 UI 스레드에서만 돈다는 규칙은 그대로이고, 새 진입점도 큐도 없습니다.
+  - 수용 기준: 창이 최소화되어 프레임 클록이 멈춘 동안 워커가 낸 요청이 1초 안에 `render_frame` 한 번으로 처리되고, 그 배치가 적용됩니다. 클록이 다시 돌면 요청은 이전처럼 클록 안에서 처리됩니다. **(미구현)**
 - macOS에서 `dioxus_compose_renderer_run`은 프로세스 메인 스레드에서 호출해야 합니다(AppKit 요구사항).
 - Android: Host 워커 스레드는 `request_frame`을 부르기 위해 JavaVM에 **1회 영구 attach**합니다. 호출마다 attach하는 것은 금지합니다. `@FastNative`/`@CriticalNative`는 짧은 호출에만 허용합니다.
 - 프레임 예산은 NFR-9를 따릅니다.
@@ -2043,6 +2156,7 @@ dioxus_compose_host_dispatch_event: click 1
   - Surface 파괴와 config change: Compose만 재구성됩니다. VirtualDom도 노드 테이블도 프로세스에 남으므로, 다시 만들어진 Activity는 같은 테이블을 그대로 그립니다. 경계 호출도 상태 손실도 없고, `Resync`는 이 자리에서 보내지 않습니다.
   - `Resync`는 노드 테이블을 지킬 수 없는 Renderer를 위한 것입니다. Host는 이미 보낸 트리의 사본을 들고 있지 않아서 애플리케이션을 처음부터 다시 만들어 답하며, 그래서 돌아오는 배치의 노드 id는 1부터 다시 시작하고 컴포넌트 상태는 사라집니다. 받는 쪽은 그 배치가 오기 전에 기존 트리와 에셋과 메시지를 먼저 버려야 합니다. 지킬 수 있는 테이블은 지키는 쪽이 언제나 낫습니다.
   - `onStop`/`onStart`: `LifecycleStop`과 `LifecycleStart`를 보냅니다. Host는 그 사이에 도착한 워커의 프레임 요청을 기억만 해 두었다가 시작할 때 한 번 내보내고, 그동안 타이머와 애니메이션은 억제됩니다. `Resumed`/`Paused`/`Destroyed`로 나누지 않습니다. 그리는 일이 실제로 멈추는 경계는 `onStop`이고, `Destroyed`는 프로세스가 사라지는 자리라 Host가 들을 수 없습니다.
+    - 예외는 알림입니다(FR-36, 2026-10-03, `Draft`). 멈춘 동안 Host의 알림 대기열에 알림이 들어오면 Host는 그 요청을 미루지 않고 내보내고, Renderer는 PR-3의 개정대로 멈춘 클록 밖에서 `render_frame`을 한 번 부릅니다. 알림은 사용자가 화면을 보지 않을 때 나가야 하는 것이기 때문입니다. 타이머와 애니메이션의 억제는 그대로입니다.
   - 프로세스 kill: 메모리 상태는 복원하지 않습니다. 필요하면 `SaveState`로 작은 blob을 `onSaveInstanceState`에 저장합니다.
 - 에셋: Android는 자기 그래픽 스택으로 그리므로 SVG 파서가 없습니다. `Svg` 종류의 등록은 FR-16이 정한 대로 읽을 수 없다고 보고하고, 나머지 배치는 그대로 적용됩니다. `VectorIcon`은 영향이 없습니다. 모양을 그리는 것은 디자인 시스템이기 때문입니다.
 - android-activity, NativeActivity, GameActivity 진입점은 쓰지 않습니다. ComposeView와 공존한 사례가 없고 IME 충돌 위험이 있습니다. JavaVM은 `JNI_OnLoad`에서 얻습니다.
