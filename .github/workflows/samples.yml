@@ -187,43 +187,54 @@ jobs:
             exit 1
           fi
 
-      - name: Package each sample with the renderer beside it
-        # A sample is only runnable next to the renderer library it was linked against, so
-        # ship them together rather than leaving the download to fail at startup.
-        #
-        # The build records the absolute path the renderer was at on this runner, which is
-        # the only way a binary that merely depends on the crate finds it without an rpath.
-        # That path means nothing on the machine someone downloads this to, so the last
-        # step points each executable at the copy travelling with it. Without it the
-        # archives would ship a runner's directory layout and fail to start.
+      - name: Fetch appimagetool
+        # Pinned by version and by digest, so a tagged sample release is packaged by the
+        # same tool whenever it is rebuilt. Downloaded on the runner only: nothing a
+        # developer runs locally needs it.
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ matrix.target }}" in
+            linux-x64)
+              arch=x86_64
+              digest=ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0 ;;
+            linux-arm64)
+              arch=aarch64
+              digest=f0837e7448a0c1e4e650a93bb3e85802546e60654ef287576f46c71c126a9158 ;;
+          esac
+          tool="$RUNNER_TEMP/appimagetool"
+          curl -fsSL -o "$tool" \
+            "https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-$arch.AppImage"
+          echo "$digest  $tool" | sha256sum -c -
+          chmod +x "$tool"
+          echo "APPIMAGETOOL=$tool" >> "$GITHUB_ENV"
+
+      - name: Package each sample as the platform installs it
+        # A .app and a .dmg on macOS, a .zip and an unsigned .msix on Windows, an
+        # AppImage on Linux. Each carries the renderer inside it and points its program
+        # at that copy by a relative path, because the build recorded the absolute path
+        # the renderer had on this runner, and that path means nothing anywhere else.
+        # scripts/package-sample.sh says how each one is laid out and why.
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p artifacts
+          exe=""
+          [[ "${{ runner.os }}" == "Windows" ]] && exe=".exe"
           while read -r app; do
             [[ -n "$app" ]] || continue
-            stage="staging/$app"
-            mkdir -p "$stage"
-            cp -R "${{ matrix.dist }}/." "$stage/"
-            if [[ "${{ runner.os }}" == "Windows" ]]; then
-              # The executable goes in beside the DLL rather than above it. Windows
-              # searches the directory the executable is in, and the renderer's DLL lives
-              # in `bin` because AWT reads its font configuration from the `lib` next to
-              # it: the renderer sets java.home to their parent, so the two have to stay
-              # where they are and the program comes to them.
-              cp "target/release/sample-$app.exe" "$stage/bin/"
-            else
-              cp "target/release/sample-$app" "$stage/"
-              # Everywhere else the library records the absolute path it was built at,
-              # which means nothing on the machine this is unpacked on, so each executable
-              # is pointed at the copy travelling with it.
-              ./scripts/bundle-renderer.sh "$stage/sample-$app" .
-            fi
-            tar -czf "artifacts/$app-${{ matrix.target }}.tar.gz" -C staging "$app"
+            ./scripts/package-sample.sh "$app" "${{ matrix.target }}" \
+              "target/release/sample-$app$exe" "${{ matrix.dist }}" artifacts
           done < built.txt
+          rm -rf artifacts/stage
           cd artifacts
-          if command -v sha256sum >/dev/null; then sha256sum *.tar.gz > "SHA256SUMS-${{ matrix.target }}"
-          else shasum -a 256 *.tar.gz > "SHA256SUMS-${{ matrix.target }}"; fi
+          # *.zip covers the .app.zip too. Spelled without arrays, because the bash a
+          # macOS runner starts may be the 3.2 Apple ships.
+          files="$(ls *.dmg *.zip *.msix *.AppImage 2>/dev/null | sort -u)"
+          [[ -n "$files" ]] || { echo "::error::nothing was packaged"; exit 1; }
+          if command -v sha256sum >/dev/null; then sha256sum $files > "SHA256SUMS-${{ matrix.target }}"
+          else shasum -a 256 $files > "SHA256SUMS-${{ matrix.target }}"; fi
           cat "SHA256SUMS-${{ matrix.target }}"
 
       - uses: actions/upload-artifact@v4
@@ -418,8 +429,23 @@ jobs:
           {
             echo "Sample applications, one archive per sample per platform."
             echo
-            echo "A desktop archive contains the program and the renderer library it was"
-            echo "linked against; run it from the extracted directory. Android ships an"
+            echo "Each desktop download carries the program and the renderer it was"
+            echo "linked against inside it:"
+            echo
+            echo "- macOS (Apple silicon): open the .dmg and drag the application to"
+            echo "  Applications, or unpack the .app.zip. The bundle is signed ad hoc"
+            echo "  rather than by a Developer ID, so the first launch needs Open from"
+            echo "  the Finder's context menu."
+            echo "- Windows (x64): unpack the .zip and run the program in its bin"
+            echo "  directory, or install the .msix. The MSIX is not signed. Install it"
+            echo "  with Developer Mode on, from PowerShell:"
+            echo '  `Add-AppxPackage -AllowUnsigned <file>.msix`. To install it'
+            echo "  anywhere else, re-sign it with a certificate that machine trusts:"
+            echo "  unpack it with makeappx, set the Publisher in AppxManifest.xml to"
+            echo "  your certificate's subject, pack it again and sign it with signtool."
+            echo "- Linux (x64 and arm64): mark the .AppImage executable and run it."
+            echo
+            echo "Android ships an"
             echo "APK per sample. iOS ships a simulator bundle per sample, because a"
             echo "bundle for a device has to be signed by a certificate Apple issued"
             echo "against a profile naming that device. The web archive is every sample"
@@ -429,7 +455,8 @@ jobs:
             echo
             echo "Built in this release:"
             echo
-            for archive in artifacts/*.tar.gz artifacts/*.apk; do
+            for archive in artifacts/*.tar.gz artifacts/*.apk artifacts/*.dmg \
+                artifacts/*.zip artifacts/*.msix artifacts/*.AppImage; do
               [ -e "$archive" ] || continue
               echo "- $(basename "$archive")"
             done
