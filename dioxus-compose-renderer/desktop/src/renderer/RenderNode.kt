@@ -54,6 +54,8 @@ import dioxus.compose.foundation.HostTabs
 import dioxus.compose.foundation.HostTooltip
 import dioxus.compose.foundation.HostTopAppBar
 import dioxus.compose.foundation.HostTextField
+import dioxus.compose.foundation.SelectableRegion
+import dioxus.compose.foundation.Unselectable
 import dioxus.compose.foundation.hostKeyEvents
 import dioxus.compose.runtime.EventDispatcher
 import dioxus.compose.ui.boxAlignment
@@ -143,8 +145,11 @@ fun RenderNode(
         WidgetKind.Text -> HostRichText(node, modifier, dispatcher, theme)
 
         WidgetKind.Spacer -> Spacer(modifier)
-        WidgetKind.Button -> HostButton(node, modifier, dispatcher, theme)
-        WidgetKind.TextField -> HostTextField(node, modifier, dispatcher)
+        // The controls are drawn through `Unselectable`, which leaves them out of a
+        // selectable region around them: a label is pressed, not copied. Outside a region
+        // it adds nothing.
+        WidgetKind.Button -> Unselectable { HostButton(node, modifier, dispatcher, theme) }
+        WidgetKind.TextField -> Unselectable { HostTextField(node, modifier, dispatcher) }
         WidgetKind.LazyColumn -> HostLazyColumn(node, modifier, table, dispatcher)
 
         // The same window as a list, rounded to whole rows because a row is what a grid
@@ -185,7 +190,7 @@ fun RenderNode(
         WidgetKind.TopAppBar -> HostTopAppBar(node, modifier, table, dispatcher, theme)
         WidgetKind.Dialog -> HostDialog(node, modifier, table, dispatcher, theme)
         WidgetKind.Menu -> HostMenu(node, modifier, table, dispatcher, theme)
-        WidgetKind.Tabs -> HostTabs(node, modifier, table, dispatcher, theme)
+        WidgetKind.Tabs -> Unselectable { HostTabs(node, modifier, table, dispatcher, theme) }
         WidgetKind.Tooltip -> HostTooltip(node, modifier, table, dispatcher, theme)
         WidgetKind.LazyRow -> HostLazyRow(node, modifier, table, dispatcher)
 
@@ -193,14 +198,19 @@ fun RenderNode(
         // was sent: the tick, the track, the thumb, the sweep and the weight of a rule are
         // the design system's, so the same declaration is a Material control here and a
         // Cupertino one there.
-        WidgetKind.Checkbox ->
+        WidgetKind.Checkbox -> Unselectable {
             HostToggle(ToggleRole.Checkbox, node, modifier, dispatcher, theme)
+        }
 
-        WidgetKind.RadioButton ->
+        WidgetKind.RadioButton -> Unselectable {
             HostToggle(ToggleRole.RadioButton, node, modifier, dispatcher, theme)
+        }
 
-        WidgetKind.Switch -> HostToggle(ToggleRole.Switch, node, modifier, dispatcher, theme)
-        WidgetKind.Slider -> HostSlider(node, modifier, dispatcher, theme)
+        WidgetKind.Switch -> Unselectable {
+            HostToggle(ToggleRole.Switch, node, modifier, dispatcher, theme)
+        }
+
+        WidgetKind.Slider -> Unselectable { HostSlider(node, modifier, dispatcher, theme) }
         WidgetKind.ProgressIndicator -> HostProgressIndicator(node, modifier, theme)
         WidgetKind.Divider -> HostDivider(node, modifier, theme)
 
@@ -212,9 +222,10 @@ fun RenderNode(
         // The pickers carry a value, a range and a change handler. Which way of picking the
         // user gets, a calendar grid, a wheel, a dial or a flyout, is the design system's
         // decision, and there is no property that could ask for one of them.
-        WidgetKind.DatePicker -> HostDatePicker(node, modifier, dispatcher, theme)
-        WidgetKind.TimePicker -> HostTimePicker(node, modifier, dispatcher, theme)
-        WidgetKind.Dropdown -> HostDropdown(node, modifier, table, dispatcher, theme)
+        WidgetKind.DatePicker -> Unselectable { HostDatePicker(node, modifier, dispatcher, theme) }
+        WidgetKind.TimePicker -> Unselectable { HostTimePicker(node, modifier, dispatcher, theme) }
+        WidgetKind.Dropdown ->
+            Unselectable { HostDropdown(node, modifier, table, dispatcher, theme) }
 
         // One declaration, three presentations. Which one this is comes from the design
         // system, asked about the size class this window is in, so the Host that declared
@@ -223,7 +234,7 @@ fun RenderNode(
 
         // Normally drawn by the Navigation it belongs to, which knows whether it is the
         // selected one. On its own it is a destination nobody has chosen.
-        WidgetKind.NavigationItem -> HostNavigationItem(node, modifier, theme)
+        WidgetKind.NavigationItem -> Unselectable { HostNavigationItem(node, modifier, theme) }
 
         // A temporary surface from an edge of the window. Which edge is this side's
         // decision, and so is everything about the drag that closes it.
@@ -243,9 +254,12 @@ fun RenderNode(
         // large count is written are the design system's.
         WidgetKind.Badge -> HostBadge(node, modifier, table, dispatcher, theme)
 
-        // Interpreted once text selection lands. Until then it lays its children out
-        // as a plain column, so nothing inside is lost.
-        WidgetKind.SelectionContainer -> Column(modifier) { Children(node, table, dispatcher) }
+        // Every Text inside, however deep, is one selection. The modifier goes on the
+        // region rather than the column inside it, so a weight the parent gave it still
+        // reaches the parent's scope.
+        WidgetKind.SelectionContainer -> SelectableRegion(modifier) {
+            Column { Children(node, table, dispatcher) }
+        }
     }
 }
 
@@ -305,6 +319,7 @@ internal fun NodeTable.stackingAxis(nodeId: Int): StackingAxis = when (node(node
     WidgetKind.ScrollColumn,
     WidgetKind.Card,
     WidgetKind.Surface,
+    WidgetKind.SelectionContainer,
     -> StackingAxis.Vertical
 
     WidgetKind.Row,

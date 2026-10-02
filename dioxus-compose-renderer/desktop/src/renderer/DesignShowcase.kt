@@ -324,6 +324,22 @@ fun designShowcaseRecords(theme: Theme): List<Mutation> {
         badge(line, 1, count, word)
     }
 
+    // A message whose text can be dragged over and copied in one go: a paragraph, a list
+    // item and a line of code, with a button inside that is pressed rather than selected.
+    text(root, slot++, "selectable text", TypeRole.Headline, ColorRole.OnSurfaceVariant)
+    val region = id()
+    records += Mutation.Create(region, WidgetKind.SelectionContainer)
+    records += Mutation.SetModifier(region, 0, ProtocolModifier.FillMaxWidth)
+    records += Mutation.Insert(root, region, slot++)
+    text(region, 0, "Drag across these three blocks and copy them.", TypeRole.Body)
+    text(region, 1, "- each block arrives on its own line", TypeRole.Body)
+    text(region, 2, "let copied = clipboard.text();", TypeRole.Mono)
+    val inside = id()
+    records += Mutation.Create(inside, WidgetKind.Button)
+    records += Mutation.SetProp(inside, PropertyKind.Text, PropertyValue.Text("Pressed, not selected"))
+    records += Mutation.SetProp(inside, PropertyKind.OnClick, PropertyValue.Integer(1L))
+    records += Mutation.Insert(region, inside, 3)
+
     return records
 }
 
