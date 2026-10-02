@@ -131,3 +131,13 @@ jobs:
           name: self-update-evidence
           path: ${{ runner.temp }}/self-update/evidence/
           if-no-files-found: warn
+
+      - name: Keep the bundles
+        # Zipped by ditto in the script, so the framework's links survive the upload.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: self-update-bundles
+          path: ${{ runner.temp }}/self-update/bundles/
+          if-no-files-found: warn
+          retention-days: 7

@@ -49,7 +49,21 @@ step() { printf '\n== %s\n' "$*"; }
 pass() { echo "PASS  $*" | tee -a "$result"; }
 fail() {
     echo "FAIL  $*" | tee -a "$result"
+    diagnose
     exit 1
+}
+# What a failure leaves to read: which demo processes are alive, and any crash reports.
+diagnose() {
+    {
+        echo "== processes"
+        ps -axo pid,ppid,stat,etime,command | grep -i "self.update\|Autoupdate\|Updater" | grep -v grep || true
+        echo "== crash reports"
+        ls -la "$HOME/Library/Logs/DiagnosticReports" 2>/dev/null | grep -i "self-update\|Autoupdate\|Updater" || true
+    } >"$evidence/diagnosis.txt" 2>&1
+    for report in "$HOME"/Library/Logs/DiagnosticReports/*self-update*; do
+        [[ -f "$report" ]] && cp "$report" "$evidence/"
+    done
+    return 0
 }
 shot() {
     # The whole screen. A runner without screen recording permission gets a black or
@@ -129,6 +143,10 @@ for major in 1 2; do
     plutil -p "$work/dist-$major/$name.app/Contents/Info.plist" >"$evidence/Info-$major.plist.txt"
     codesign -dvv "$work/dist-$major/$name.app" >"$evidence/codesign-$major.txt" 2>&1
     otool -L "$work/dist-$major/$name.app/Contents/MacOS/$executable" >"$evidence/otool-$major.txt"
+    # Kept whole (ditto keeps the framework's links, which an artifact upload would not),
+    # so a failure here can be reproduced by running the very bundle elsewhere.
+    mkdir -p "$work/bundles"
+    ditto -c -k --keepParent "$work/dist-$major/$name.app" "$work/bundles/sparkle-$major.0.0.zip"
 done
 pass "1.0.0 and 2.0.0 packaged, signed and verified for the sparkle channel"
 
@@ -191,6 +209,7 @@ ditto "$work/dist-1/$name.app" "$install/$name.app"
 DEMO_CHECK_AFTER_SECS=10 "$install/$name.app/Contents/MacOS/$executable" \
     >"$evidence/immediately-1.0.0.stderr" 2>&1 &
 shot immediately-1-installed-1.0.0 7
+ps -axo pid,stat,etime,command | grep "$install" | grep -v grep >"$evidence/immediately-processes-at-7s.txt" || true
 [[ "$(installed_build "$install/$name.app")" == 1 ]] || fail "1.0.0 was replaced before it was seen"
 relaunched() { grep -q "version 2.0.0 started" "$install/self-update-demo.log" 2>/dev/null; }
 wait_for 180 relaunched || {
@@ -234,6 +253,7 @@ build 1.0.0 "$work/build/$executable-store" --no-default-features
     --out "$work/dist-store" --uses-non-exempt-encryption no --network-client \
     --user-selected-files read-write | tee "$evidence/package-store.txt"
 store_app="$work/dist-store/$name.app"
+ditto -c -k --keepParent "$store_app" "$work/bundles/store-1.0.0.zip"
 "$package" verify --app "$store_app" --channel app-store | tee -a "$evidence/package-store.txt"
 codesign -d --entitlements - --xml "$store_app" >"$evidence/store-entitlements.plist" 2>/dev/null
 plutil -p "$store_app/Contents/Info.plist" >"$evidence/store-Info.plist.txt"
