@@ -23,6 +23,9 @@ target
 # macOS
 .DS_Store
 
+# Python bytecode from running tools/packager and its tests
+__pycache__/
+
 # Agent worktrees
 .claude/
 .agent-salvage/
