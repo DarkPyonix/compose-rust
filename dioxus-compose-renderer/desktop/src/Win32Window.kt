@@ -283,12 +283,12 @@ internal fun runWin32Window() {
     host.start()
     val asked = host.table.window
     val window = openWin32Window(
-        asked?.title?.takeIf { it.isNotEmpty() } ?: "dioxus-compose",
+        asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
         if (asked != null && asked.width > 0) asked.width else 520,
         if (asked != null && asked.height > 0) asked.height else 360,
     )
     if (window == null) {
-        System.err.println("dioxus-compose: this machine has no Direct3D 12 adapter")
+        System.err.println("compose-rust: this machine has no Direct3D 12 adapter")
         host.shutdown()
         return
     }
@@ -299,7 +299,7 @@ internal fun runWin32Window() {
     )
     val measured = window.measure()
     System.err.println(
-        "dioxus-compose: a window of our own, ${measured.width}x${measured.height} " +
+        "compose-rust: a window of our own, ${measured.width}x${measured.height} " +
             "at ${measured.scale}x, with no toolkit in it",
     )
 
@@ -313,7 +313,7 @@ internal fun runWin32Window() {
     // the window answers for rather than this file.
     val semantics = NativeSemantics { elements ->
         if (report) {
-            System.err.println("dioxus-compose: the window has ${elements.size} things to say")
+            System.err.println("compose-rust: the window has ${elements.size} things to say")
         }
         window.describeTo(elements)
     }
@@ -371,7 +371,7 @@ internal fun runWin32Window() {
             var heard = false
             for (event in drainWindowEvents()) {
                 if (report && event.kind != WindowEvent.POINTER_MOVE) {
-                    System.err.println("dioxus-compose: window heard $event")
+                    System.err.println("compose-rust: window heard $event")
                 }
                 // Told which desktop it is, because the key numbers differ: the shared
                 // table is macOS's, and without this Home arrives as Enter.

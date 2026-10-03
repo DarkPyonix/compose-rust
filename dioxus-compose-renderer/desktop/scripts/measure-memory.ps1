@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Measures what a dioxus-compose application costs in memory on Windows.
+Measures what a compose-rust application costs in memory on Windows.
 
 .DESCRIPTION
 The companion to measure-memory.sh, which does the same on macOS. The two do not print the

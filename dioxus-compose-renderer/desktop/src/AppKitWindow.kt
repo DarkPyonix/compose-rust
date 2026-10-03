@@ -359,18 +359,18 @@ internal fun runAppKitSpike() {
     host.start()
     val asked = host.table.window
     val window = openNativeWindow(
-        asked?.title?.takeIf { it.isNotEmpty() } ?: "dioxus-compose",
+        asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
         if (asked != null && asked.width > 0) asked.width else 520,
         if (asked != null && asked.height > 0) asked.height else 360,
     )
     if (window == null) {
-        System.err.println("dioxus-compose: this machine has no Metal device")
+        System.err.println("compose-rust: this machine has no Metal device")
         return
     }
     val context = org.jetbrains.skia.DirectContext.makeMetal(window.device, window.queue)
     val measured = window.measure()
     System.err.println(
-        "dioxus-compose: a window of our own, ${measured.width}x${measured.height} " +
+        "compose-rust: a window of our own, ${measured.width}x${measured.height} " +
             "at ${measured.scale}x, with no toolkit in it",
     )
 
@@ -382,7 +382,7 @@ internal fun runAppKitSpike() {
     val textInput = NativeTextInput()
     val semantics = NativeSemantics { elements ->
         if (report) {
-            System.err.println("dioxus-compose: the window has ${elements.size} things to say")
+            System.err.println("compose-rust: the window has ${elements.size} things to say")
         }
         window.describeTo(elements)
     }
@@ -400,7 +400,7 @@ internal fun runAppKitSpike() {
     // The application's own tree, drawn by the same interpreter the toolkit path uses.
     // Nothing in it knows which of the two it is running on, which is the point.
     scene.setContent { dioxus.compose.runtime.DioxusContent(host) }
-    installApplicationMenu(asked?.title?.takeIf { it.isNotEmpty() } ?: "dioxus-compose")
+    installApplicationMenu(asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust")
 
     try {
         // A plain loop rather than a clock. Pacing is the frame clock's work and comes
@@ -423,7 +423,7 @@ internal fun runAppKitSpike() {
             var drew = false
             for (event in drainWindowEvents()) {
                 if (report && event.kind != WindowEvent.POINTER_MOVE) {
-                    System.err.println("dioxus-compose: window heard $event")
+                    System.err.println("compose-rust: window heard $event")
                 }
                 if (event.kind == WindowEvent.FILES_DROPPED) {
                     val paths = event.text.split('\u0000').filter { it.isNotEmpty() }

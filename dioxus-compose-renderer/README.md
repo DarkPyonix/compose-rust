@@ -1,6 +1,6 @@
 # dioxus-compose-renderer
 
-The Kotlin half of dioxus-compose: the Compose Multiplatform renderer that interprets the
+The Kotlin half of compose-rust: the Compose Multiplatform renderer that interprets the
 protocol the Rust Host sends and draws it with real Compose widgets.
 
 Built with the [Kotlin Toolchain](https://kotlin-toolchain.org/dev/). The `kotlin` (macOS,
@@ -76,7 +76,7 @@ halves of that boundary are generated from the Rust schema, so the symbol names 
 argument order cannot drift apart.
 
 This module is a library and has no application in it. An Android application is built by
-the Dioxus CLI, which generates the Gradle project; the `dioxus-compose` crate's build
+the Dioxus CLI, which generates the Gradle project; the `compose-rust` crate's build
 script unpacks this Kotlin into it and generates the Activity that hosts it, with that
 application's own package and library name.
 
@@ -92,4 +92,4 @@ Building an application any other way is how this repository once shipped sample
 route no user takes, so there is deliberately no second way to do it here.
 
 See the root [README](../README.md) for prerequisites and the
-[guide](http://darkpyonix.dev/dioxus-compose/) for everything else.
+[guide](http://darkpyonix.dev/compose-rust/) for everything else.

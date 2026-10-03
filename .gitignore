@@ -37,7 +37,7 @@ target
 
 # The consumer fixture is a crate of its own, built by
 # scripts/tests/consumer-crate.test.sh to prove that an application which depends only on
-# dioxus-compose links and starts. Its lock file is the resolution of whatever the crate
+# compose-rust links and starts. Its lock file is the resolution of whatever the crate
 # needs at the time, and tracking it would mean a second lock file to update on every
 # dependency change, plus a dirty working tree every time the test runs.
 dioxus-compose/tests/fixtures/consumer/Cargo.lock

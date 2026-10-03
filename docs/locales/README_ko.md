@@ -1,4 +1,4 @@
-# dioxus-compose
+# compose-rust
 
 [![CI](https://github.com/DarkPyonix/compose-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/DarkPyonix/compose-rust/actions/workflows/ci.yml)
 [![Native renderer](https://github.com/DarkPyonix/compose-rust/actions/workflows/native-renderer.yml/badge.svg)](https://github.com/DarkPyonix/compose-rust/actions/workflows/native-renderer.yml)
@@ -15,7 +15,7 @@
 rsx! {
     Column {
         fill_max_width: true,
-        Text { text: "dioxus-compose chat" }
+        Text { text: "compose-rust chat" }
         Button { text: "Send", on_click: move |_| send() }
     }
 }
@@ -56,7 +56,7 @@ rsx! {
 미치지 못합니다. 타이핑이 곧 인터페이스인 앱에서 90%만 동작하는 IME는 동작하지 않는 앱입니다.
 한글·일본어·중국어 조합은 있으면 좋은 기능이 아닙니다.
 
-dioxus-compose는 Compose의 런타임 비용을 빼고 렌더러만 가져옵니다. Kotlin 쪽은 사전에 네이티브
+compose-rust는 Compose의 런타임 비용을 빼고 렌더러만 가져옵니다. Kotlin 쪽은 사전에 네이티브
 라이브러리로 컴파일되므로(macOS와 Linux, iOS는 Kotlin/Native, Skia와 링크할 수 있는 Kotlin 타깃이
 없는 플랫폼은 GraalVM 네이티브 이미지) 배포 산출물에 JVM이 없습니다.
 
@@ -70,7 +70,7 @@ dioxus-compose는 Compose의 런타임 비용을 빼고 렌더러만 가져옵�
 | 웹뷰 스택 (Electron, Tauri 계열) | 가장 무거움. 앱마다 혹은 시스템마다 브라우저 엔진 | **C1**으로 탈락: 메모리와 용량 |
 | Compose + JVM 동봉 (jlink) | JVM만 약 80~120MB | **C2**로 탈락. AppCDS는 시작 시간 해법이지 용량 해법이 아님 |
 | 순수 Rust 툴킷 (Iced 계열) | 약 10~20MB | **C5**로 탈락: 텍스트와 IME 성숙도 |
-| **dioxus-compose** | macOS에서 28.76MB, 파일 하나 | Iced보다는 크고, 웹뷰나 JVM 스택보다는 훨씬 작음 |
+| **compose-rust** | macOS에서 28.76MB, 파일 하나 | Iced보다는 크고, 웹뷰나 JVM 스택보다는 훨씬 작음 |
 
 ### 실제로 얼마인가
 
@@ -159,7 +159,7 @@ fn app() -> Element {
     rsx! {
         Column {
             fill_max_width: true,
-            Text { text: "dioxus-compose chat" }
+            Text { text: "compose-rust chat" }
             for message in messages() {
                 Text { text: message }
             }
@@ -244,7 +244,7 @@ LaunchBuilder::new().with_theme(Theme::adaptive(DesignSystem::Material3)).launch
 ┌────────────────────── Host (Rust) ───────────────────────┐
 │  사용자 컴포넌트, rsx!, hooks, signals                    │
 │  dioxus-core VirtualDom                                  │
-│  dioxus-compose 렌더러:  Mutations ──► 고정 레이아웃        │
+│  compose-rust 렌더러:    Mutations ──► 고정 레이아웃        │
 │                                        바이트 레코드       │
 └───────────────────────────┬──────────────────────────────┘
                             │
@@ -529,7 +529,7 @@ cd dioxus-compose-renderer
 ## 🗂 저장소 구조
 
 ```
-dioxus-compose/
+compose-rust/
 ├─ dioxus-compose/                  # Rust: Host, Dioxus 렌더러 크레이트
 │  ├─ src/
 │  │  ├─ lib.rs                     #   공개 API, rsx! 엘리먼트, 이벤트 속성
@@ -614,7 +614,7 @@ CI도 같은 방식으로 나뉩니다. [`ci.yml`](../../.github/workflows/ci.ym
 
 ## 📚 문서
 
-**📖 가이드 사이트: <http://darkpyonix.dev/dioxus-compose/>**, 영어와 한국어로 시작하기, UI
+**📖 가이드: [docs/guide](https://github.com/DarkPyonix/compose-rust/tree/develop/docs/guide)**, 영어와 한국어로 시작하기, UI
 작성, 목록과 스트리밍, 아키텍처, 문제 해결을 다룹니다.
 
 | 문서 | 내용 |

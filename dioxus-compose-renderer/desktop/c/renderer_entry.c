@@ -152,7 +152,7 @@ static BOOL CALLBACK load_host_exports(PINIT_ONCE once, PVOID parameter, PVOID *
     (void)parameter;
     (void)context;
     if (host == NULL) {
-        fprintf(stderr, "dioxus-compose: GetModuleHandleW(NULL) failed (%lu)\n", GetLastError());
+        fprintf(stderr, "compose-rust: GetModuleHandleW(NULL) failed (%lu)\n", GetLastError());
         return FALSE;
     }
 
@@ -169,7 +169,7 @@ static BOOL CALLBACK load_host_exports(PINIT_ONCE once, PVOID parameter, PVOID *
         host_exports.render_frame == NULL || host_exports.release_batch == NULL ||
         host_exports.shutdown == NULL) {
         fprintf(stderr,
-                "dioxus-compose: host executable must export all dioxus_compose_host_* functions\n");
+                "compose-rust: host executable must export all dioxus_compose_host_* functions\n");
         return FALSE;
     }
     return TRUE;

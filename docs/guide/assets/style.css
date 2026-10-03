@@ -3,7 +3,7 @@
    so a mixed line keeps one weight and one rhythm. */
 @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Sans+KR:wght@300;400;500;600;700&family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&display=swap");
 
-/* dioxus-compose guide: one hand-written stylesheet, no build step.
+/* compose-rust guide: one hand-written stylesheet, no build step.
    Sections: tokens, reset, top bar, layout, typography, code, tables,
    callouts, landing, footer, responsive. */
 

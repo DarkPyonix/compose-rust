@@ -2640,7 +2640,7 @@ const INSTALL_HOST_KOTLIN: &str = r##"/**
   // would go stale. Nothing on the boundary goes near one.
   const unbound = (namespace) => new Proxy({}, {
     get: (_, name) => () => {
-      throw new Error('dioxus-compose: the Host called ' + namespace + '.' + String(name) +
+      throw new Error('compose-rust: the Host called ' + namespace + '.' + String(name) +
         ', which is a wasm-bindgen import this page does not provide. Nothing on the ' +
         'boundary uses one, so a call here means the Host reached JavaScript through a ' +
         'dependency rather than through the boundary.');
@@ -2664,7 +2664,7 @@ const INSTALL_HOST_KOTLIN: &str = r##"/**
     // module's allocator uses. The second draws a wrong screen instead of failing, so
     // neither is allowed to become the first boundary call.
     globalThis.HOST_GLOBAL = undefined;
-    throw new Error('dioxus-compose: the Host reported its boundary block at ' + block +
+    throw new Error('compose-rust: the Host reported its boundary block at ' + block +
       ', which is not inside the region above REGION_BASE that it was linked into. ' +
       'Check that it was linked with --import-memory and --global-base.');
   }
@@ -2857,7 +2857,7 @@ pub fn generate_web_loader_js() -> String {
   // falls back to its scripted development host, and this says why on the console rather
   // than leaving an empty screen to be puzzled over.
   console.info(
-    `dioxus-compose: no Host module beside this page (${HOST_WASM}: ${error}). ` +
+    `compose-rust: no Host module beside this page (${HOST_WASM}: ${error}). ` +
       'The renderer will draw its development host instead.',
   );
 }
