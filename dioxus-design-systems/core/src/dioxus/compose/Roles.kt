@@ -42,6 +42,17 @@ enum class ColorRole {
     PrimaryContainer, OnPrimaryContainer,
     SecondaryContainer, OnSecondaryContainer,
     TertiaryContainer, OnTertiaryContainer,
+    // What a highlighter paints code with, answered from each platform's own code editor:
+    // fifteen syntax inks held to the body-text bound on SurfaceContainer, the panel a code
+    // block sits on, and the diff inks with the line and word backgrounds they mark.
+    // Material 3 and Deepin have no editor scheme, so theirs are derived from their own
+    // base roles by a fixed rule.
+    SyntaxKeyword, SyntaxString, SyntaxComment, SyntaxNumber, SyntaxConstant,
+    SyntaxType, SyntaxFunction, SyntaxVariable, SyntaxProperty, SyntaxOperator,
+    SyntaxPunctuation, SyntaxTag, SyntaxAttribute, SyntaxEscape, SyntaxMacro,
+    DiffAdded, DiffRemoved, DiffModified,
+    DiffAddedContainer, DiffRemovedContainer,
+    DiffAddedEmphasis, DiffRemovedEmphasis,
 }
 
 enum class TypeRole {
@@ -87,6 +98,19 @@ enum class ControlKind { Checkbox, RadioButton, Switch, Slider }
  * difference is where the mark is, not only how it looks, so it is a role and not a style.
  */
 enum class BadgePlacement { Overlap, Trailing }
+
+/**
+ * How wide a place is, in the window size classes' terms: below 600 dp, below 840 dp, or
+ * wider. A split pane asks this of its own width rather than the window's.
+ */
+enum class WidthClass { Compact, Medium, Expanded }
+
+/**
+ * How a split pane shows its side pane and its body: two columns, the side pane laid over
+ * the body, or one pane at a time. Which one a width gets is the system's answer, so it is
+ * a role rather than a style.
+ */
+enum class SplitPanePresentation { SideBySide, Overlay, Stacked }
 
 /**
  * How a value is chosen, which is the part of a picker that is not a matter of styling.

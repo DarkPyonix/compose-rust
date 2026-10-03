@@ -14,14 +14,25 @@
 use crate::schema::{Paint, TypeRole};
 use std::rc::Rc;
 
-/// Bytes of one span record: two ranges' worth of offsets, a role, flags, a paint and a
-/// handler. Four-byte aligned throughout, which is the protocol's invariant.
-pub const SPAN_LEN: usize = 28;
+/// Bytes of one span record: two ranges' worth of offsets, a role, flags, the text's paint,
+/// the background's paint and a handler. Four-byte aligned throughout, which is the
+/// protocol's invariant.
+pub const SPAN_LEN: usize = 36;
 
-const FLAG_BOLD: u16 = 1;
-const FLAG_ITALIC: u16 = 2;
-const FLAG_UNDERLINE: u16 = 4;
-const FLAG_STRIKETHROUGH: u16 = 8;
+/// Where each field of a span record starts. The Kotlin decoder is generated from these, so
+/// the two sides read the same bytes.
+pub const SPAN_START_AT: usize = 0;
+pub const SPAN_LENGTH_AT: usize = 4;
+pub const SPAN_ROLE_AT: usize = 8;
+pub const SPAN_FLAGS_AT: usize = 10;
+pub const SPAN_COLOR_AT: usize = 12;
+pub const SPAN_BACKGROUND_AT: usize = 20;
+pub const SPAN_HANDLER_AT: usize = 28;
+
+pub const FLAG_BOLD: u16 = 1;
+pub const FLAG_ITALIC: u16 = 2;
+pub const FLAG_UNDERLINE: u16 = 4;
+pub const FLAG_STRIKETHROUGH: u16 = 8;
 
 /// One run, given in bytes into the string rather than characters.
 ///
@@ -33,6 +44,14 @@ pub struct TextSpan {
     pub length: u32,
     pub type_role: Option<TypeRole>,
     pub color: Option<Paint>,
+    /// What is painted behind this run's letters, and only behind them.
+    ///
+    /// The word that actually changed inside a changed line is what this is for: the line
+    /// is the node's own background, and this marks the part of it that differs. A run
+    /// that wraps is painted on each line it reaches. There is no shape and no inset,
+    /// because nothing yet needs one, and when something does it is the design system's
+    /// to say.
+    pub background: Option<Paint>,
     pub bold: bool,
     pub italic: bool,
     pub underline: bool,
@@ -49,6 +68,7 @@ impl TextSpan {
             length,
             type_role: None,
             color: None,
+            background: None,
             bold: false,
             italic: false,
             underline: false,
@@ -87,6 +107,13 @@ impl TextSpan {
         self
     }
 
+    /// Paints behind this run. A role first, as everywhere else a colour is taken: the
+    /// diff's word backgrounds are roles, so they follow the scheme and the system.
+    pub const fn with_background(mut self, background: Paint) -> Self {
+        self.background = Some(background);
+        self
+    }
+
     fn flags(&self) -> u16 {
         let mut flags = 0;
         if self.bold {
@@ -109,9 +136,14 @@ impl TextSpan {
         out.extend_from_slice(&self.length.to_le_bytes());
         out.extend_from_slice(&self.type_role.map_or(0, u16::from).to_le_bytes());
         out.extend_from_slice(&self.flags().to_le_bytes());
+        // Zero is "none" for both paints, which no real paint encodes to: every kind
+        // has a non-zero tag in its high word.
         let paint = self.color.map_or(0, Paint::to_bits);
         out.extend_from_slice(&(paint as u32).to_le_bytes());
         out.extend_from_slice(&((paint >> 32) as u32).to_le_bytes());
+        let background = self.background.map_or(0, Paint::to_bits);
+        out.extend_from_slice(&(background as u32).to_le_bytes());
+        out.extend_from_slice(&((background >> 32) as u32).to_le_bytes());
         let handler = self.on_click.unwrap_or(0);
         out.extend_from_slice(&(handler as u32).to_le_bytes());
         out.extend_from_slice(&((handler >> 32) as u32).to_le_bytes());
@@ -172,14 +204,18 @@ impl TextSpans {
                 u32::from_le_bytes([record[at], record[at + 1], record[at + 2], record[at + 3]])
             };
             let half = |at: usize| u16::from_le_bytes([record[at], record[at + 1]]);
-            let flags = half(10);
-            let paint = u64::from(word(12)) | (u64::from(word(16)) << 32);
-            let handler = u64::from(word(20)) | (u64::from(word(24)) << 32);
+            let flags = half(SPAN_FLAGS_AT);
+            let paint = u64::from(word(SPAN_COLOR_AT)) | (u64::from(word(SPAN_COLOR_AT + 4)) << 32);
+            let background = u64::from(word(SPAN_BACKGROUND_AT))
+                | (u64::from(word(SPAN_BACKGROUND_AT + 4)) << 32);
+            let handler =
+                u64::from(word(SPAN_HANDLER_AT)) | (u64::from(word(SPAN_HANDLER_AT + 4)) << 32);
             TextSpan {
-                start: word(0),
-                length: word(4),
-                type_role: TypeRole::try_from(half(8)).ok(),
+                start: word(SPAN_START_AT),
+                length: word(SPAN_LENGTH_AT),
+                type_role: TypeRole::try_from(half(SPAN_ROLE_AT)).ok(),
                 color: Paint::from_bits(paint),
+                background: Paint::from_bits(background),
                 bold: flags & FLAG_BOLD != 0,
                 italic: flags & FLAG_ITALIC != 0,
                 underline: flags & FLAG_UNDERLINE != 0,

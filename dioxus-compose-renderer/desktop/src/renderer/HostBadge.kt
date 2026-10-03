@@ -124,6 +124,32 @@ internal fun contentOn(role: ColorRole): ColorRole = when (role) {
     ColorRole.OnSecondaryContainer -> ColorRole.SecondaryContainer
     ColorRole.TertiaryContainer -> ColorRole.OnTertiaryContainer
     ColorRole.OnTertiaryContainer -> ColorRole.TertiaryContainer
+    // The code inks are drawn on the code panel, so that is what reads under them; the
+    // diff backgrounds carry body text.
+    ColorRole.SyntaxKeyword,
+    ColorRole.SyntaxString,
+    ColorRole.SyntaxComment,
+    ColorRole.SyntaxNumber,
+    ColorRole.SyntaxConstant,
+    ColorRole.SyntaxType,
+    ColorRole.SyntaxFunction,
+    ColorRole.SyntaxVariable,
+    ColorRole.SyntaxProperty,
+    ColorRole.SyntaxOperator,
+    ColorRole.SyntaxPunctuation,
+    ColorRole.SyntaxTag,
+    ColorRole.SyntaxAttribute,
+    ColorRole.SyntaxEscape,
+    ColorRole.SyntaxMacro,
+    ColorRole.DiffAdded,
+    ColorRole.DiffRemoved,
+    ColorRole.DiffModified,
+    -> ColorRole.SurfaceContainer
+    ColorRole.DiffAddedContainer,
+    ColorRole.DiffRemovedContainer,
+    ColorRole.DiffAddedEmphasis,
+    ColorRole.DiffRemovedEmphasis,
+    -> ColorRole.OnSurface
 }
 
 /**

@@ -92,6 +92,30 @@ class CupertinoDesignSystem private constructor(
         ColorRole.OnSecondaryContainer -> palette.onAccentSecondaryContainer
         ColorRole.TertiaryContainer -> palette.accentTertiaryContainer
         ColorRole.OnTertiaryContainer -> palette.onAccentTertiaryContainer
+        // Code colours, the same values the renderer's token table holds.
+        ColorRole.SyntaxKeyword,
+        ColorRole.SyntaxString,
+        ColorRole.SyntaxComment,
+        ColorRole.SyntaxNumber,
+        ColorRole.SyntaxConstant,
+        ColorRole.SyntaxType,
+        ColorRole.SyntaxFunction,
+        ColorRole.SyntaxVariable,
+        ColorRole.SyntaxProperty,
+        ColorRole.SyntaxOperator,
+        ColorRole.SyntaxPunctuation,
+        ColorRole.SyntaxTag,
+        ColorRole.SyntaxAttribute,
+        ColorRole.SyntaxEscape,
+        ColorRole.SyntaxMacro,
+        ColorRole.DiffAdded,
+        ColorRole.DiffRemoved,
+        ColorRole.DiffModified,
+        ColorRole.DiffAddedContainer,
+        ColorRole.DiffRemovedContainer,
+        ColorRole.DiffAddedEmphasis,
+        ColorRole.DiffRemovedEmphasis,
+        -> codeColor(role, isDark)
     }
 
     /**
@@ -287,6 +311,18 @@ class CupertinoDesignSystem private constructor(
         else -> SurfaceMaterial.Opaque(color(role))
     }
 
+    /** `NSSplitView`: a hairline in the separator colour and a sidebar that folds when pushed. */
+    override fun splitPane(width: dioxus.compose.WidthClass): dioxus.compose.SplitPaneStyle =
+        super.splitPane(width).copy(
+            defaultWidth = 260.dp,
+            minWidth = 180.dp,
+            collapseDistance = 60.dp,
+            keyStep = 10.dp,
+            lineColor = color(ColorRole.Outline),
+            grabWidth = 9.dp,
+            sideBackground = color(ColorRole.Background),
+        )
+
     /**
      * Apple's red count on a tab bar item or an app icon: over the corner, written out in
      * full however large, with the larger dot Apple uses for "something new".
@@ -346,3 +382,62 @@ private fun style(
     fontFamily = family,
     letterSpacing = tracking,
 )
+
+/**
+ * The code colours, after Xcode's Default (Light) and Default (Dark), moved in tone where a
+ * value missed 4.5:1 on the panel. Unverified: Xcode's themes are not published as files, so
+ * these need checking against Xcode itself. The same values as the renderer's token table, so
+ * a code block reads the same through either.
+ */
+private val LIGHT_CODE: Map<ColorRole, Color> = mapOf(
+    ColorRole.SyntaxKeyword to Color(0xFF9B2393),
+    ColorRole.SyntaxString to Color(0xFFC41A16),
+    ColorRole.SyntaxComment to Color(0xFF5D6C79),
+    ColorRole.SyntaxNumber to Color(0xFF1C00CF),
+    ColorRole.SyntaxConstant to Color(0xFF6C36A9),
+    ColorRole.SyntaxType to Color(0xFF3900A0),
+    ColorRole.SyntaxFunction to Color(0xFF326D74),
+    ColorRole.SyntaxVariable to Color(0xFF000000),
+    ColorRole.SyntaxProperty to Color(0xFF326D74),
+    ColorRole.SyntaxOperator to Color(0xFF000000),
+    ColorRole.SyntaxPunctuation to Color(0xFF000000),
+    ColorRole.SyntaxTag to Color(0xFF0B4F79),
+    ColorRole.SyntaxAttribute to Color(0xFF815F03),
+    ColorRole.SyntaxEscape to Color(0xFF1C00CF),
+    ColorRole.SyntaxMacro to Color(0xFF643820),
+    ColorRole.DiffAdded to Color(0xFF087A2F),
+    ColorRole.DiffRemoved to Color(0xFFCE0014),
+    ColorRole.DiffModified to Color(0xFF007AFF),
+    ColorRole.DiffAddedContainer to Color(0xFFE1EFE6),
+    ColorRole.DiffRemovedContainer to Color(0xFFF9E0E3),
+    ColorRole.DiffAddedEmphasis to Color(0xFFB5D7C1),
+    ColorRole.DiffRemovedEmphasis to Color(0xFFF0B3B9),
+)
+
+private val DARK_CODE: Map<ColorRole, Color> = mapOf(
+    ColorRole.SyntaxKeyword to Color(0xFFFC5FA3),
+    ColorRole.SyntaxString to Color(0xFFFC6A5D),
+    ColorRole.SyntaxComment to Color(0xFF798693),
+    ColorRole.SyntaxNumber to Color(0xFFD0BF69),
+    ColorRole.SyntaxConstant to Color(0xFFA167E6),
+    ColorRole.SyntaxType to Color(0xFFD0A8FF),
+    ColorRole.SyntaxFunction to Color(0xFF67B7A4),
+    ColorRole.SyntaxVariable to Color(0xFFDFDFE0),
+    ColorRole.SyntaxProperty to Color(0xFF67B7A4),
+    ColorRole.SyntaxOperator to Color(0xFFDFDFE0),
+    ColorRole.SyntaxPunctuation to Color(0xFFDFDFE0),
+    ColorRole.SyntaxTag to Color(0xFF5DD8FF),
+    ColorRole.SyntaxAttribute to Color(0xFFBF8555),
+    ColorRole.SyntaxEscape to Color(0xFFD0BF69),
+    ColorRole.SyntaxMacro to Color(0xFFFD8F3F),
+    ColorRole.DiffAdded to Color(0xFF30D158),
+    ColorRole.DiffRemoved to Color(0xFFFF6E66),
+    ColorRole.DiffModified to Color(0xFF0A84FF),
+    ColorRole.DiffAddedContainer to Color(0xFF20402A),
+    ColorRole.DiffRemovedContainer to Color(0xFF492C2C),
+    ColorRole.DiffAddedEmphasis to Color(0xFF246435),
+    ColorRole.DiffRemovedEmphasis to Color(0xFF773D3B),
+)
+
+private fun codeColor(role: ColorRole, dark: Boolean): Color =
+    (if (dark) DARK_CODE else LIGHT_CODE).getValue(role)

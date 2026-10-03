@@ -41,6 +41,7 @@ import dioxus.compose.foundation.HostDialog
 import dioxus.compose.foundation.HostDivider
 import dioxus.compose.foundation.HostProgressIndicator
 import dioxus.compose.foundation.HostSlider
+import dioxus.compose.foundation.HostSplitPane
 import dioxus.compose.foundation.HostToggle
 import dioxus.compose.foundation.HostCanvas
 import dioxus.compose.foundation.HostDatePicker
@@ -282,6 +283,11 @@ fun RenderNode(
         WidgetKind.SelectionContainer -> SelectableRegion(modifier) {
             Column { Children(node, table, dispatcher) }
         }
+
+        // A side pane and a body. Whether they are side by side, laid over one another or
+        // shown one at a time is the design system's answer for the split pane's own width,
+        // and the drag on the divider never leaves this side until it is let go.
+        WidgetKind.SplitPane -> HostSplitPane(node, modifier, table, dispatcher, theme)
     }
 }
 
@@ -310,6 +316,19 @@ var platformFileDrop: @Composable (Modifier, Node, EventDispatcher) -> Modifier 
  * asks the question.
  */
 var platformReducedMotion: () -> Boolean = { false }
+
+/**
+ * Whether the person at this machine has asked the platform for high contrast colours:
+ * Windows' contrast themes, macOS's increased contrast, GNOME's high contrast setting.
+ *
+ * A hook for the same reason as the one above. When it says yes, an application's palette
+ * is set aside and the design system's own colours are drawn: those colours were chosen
+ * by the person so they could see the screen, and a brand must not paint over them.
+ *
+ * Read when the theme is resolved. The desktop answers once and keeps the answer; a
+ * target that does not install anything answers no.
+ */
+var platformHighContrast: () -> Boolean = { false }
 
 /**
  * Tells the platform whether this window wants a material behind it.

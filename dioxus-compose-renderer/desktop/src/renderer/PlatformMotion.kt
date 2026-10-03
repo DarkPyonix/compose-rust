@@ -1,5 +1,6 @@
 package dioxus.compose.ui
 
+import dioxus.compose.ui.node.platformHighContrast
 import dioxus.compose.ui.node.platformReducedMotion
 import java.util.concurrent.TimeUnit
 
@@ -68,4 +69,67 @@ internal fun readAnswer(answer: String, inverted: Boolean): Boolean {
 internal fun installReducedMotion() {
     val answer = lazy { askThePlatform() }
     platformReducedMotion = { answer.value }
+}
+
+/**
+ * What the running desktop says about high contrast.
+ *
+ * Windows keeps it as a bit in the contrast theme's flags (`HCF_HIGHCONTRASTON`, the low
+ * bit), macOS as the increased contrast setting, and GNOME as its own boolean. Unknown
+ * counts as no, for the same reason it does for motion: a machine that cannot be asked
+ * has not been asked for anything.
+ */
+private fun askForHighContrast(): Boolean {
+    val name = System.getProperty("os.name").orEmpty().lowercase()
+    val query = when {
+        name.contains("mac") ->
+            listOf("defaults", "read", "com.apple.universalaccess", "increaseContrast")
+
+        name.contains("win") -> listOf(
+            "reg",
+            "query",
+            "HKCU\\Control Panel\\Accessibility\\HighContrast",
+            "/v",
+            "Flags",
+        )
+
+        else -> listOf("gsettings", "get", "org.gnome.desktop.a11y.interface", "high-contrast")
+    }
+    val answer = runCatching {
+        val process = ProcessBuilder(query).redirectErrorStream(true).start()
+        val text = process.inputStream.bufferedReader().readText().trim()
+        process.waitFor(QUERY_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        text
+    }.getOrNull() ?: return false
+    return readContrastAnswer(answer, windows = name.contains("win"))
+}
+
+/**
+ * Whether [answer] means high contrast is on.
+ *
+ * Windows answers with a whole flags word, such as `REG_SZ 126` or `REG_SZ 127`, and only
+ * its low bit says the contrast theme is on. The others answer a plain yes or no.
+ */
+internal fun readContrastAnswer(answer: String, windows: Boolean): Boolean {
+    val text = answer.trim().substringAfterLast(' ').lowercase()
+    if (windows) {
+        val flags = if (text.startsWith("0x")) {
+            text.removePrefix("0x").toLongOrNull(16)
+        } else {
+            text.toLongOrNull()
+        } ?: return false
+        return flags and 1L == 1L
+    }
+    return readAnswer(text, inverted = false)
+}
+
+/**
+ * Hands the desktop's answer to the theme resolution. Called once, before the first frame.
+ *
+ * Lazily, so that an application with no palette never starts a process to ask: nothing
+ * reads the answer unless there is a palette to set aside.
+ */
+internal fun installHighContrast() {
+    val answer = lazy { askForHighContrast() }
+    platformHighContrast = { answer.value }
 }

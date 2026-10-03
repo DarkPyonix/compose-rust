@@ -48,7 +48,7 @@ fn fr7_generated_kotlin_matches_schema() {
 fn fr14_generated_kotlin_carries_the_roles_and_token_tables() {
     let generated = generate_kotlin();
     for role in [
-        "enum class ColorRole { Primary, OnPrimary, Secondary, OnSecondary, Surface, OnSurface, SurfaceVariant, OnSurfaceVariant, Background, OnBackground, Outline, OutlineVariant, Error, OnError, SurfaceContainer, Tertiary, OnTertiary, PrimaryContainer, OnPrimaryContainer, SecondaryContainer, OnSecondaryContainer, TertiaryContainer, OnTertiaryContainer }",
+        "enum class ColorRole { Primary, OnPrimary, Secondary, OnSecondary, Surface, OnSurface, SurfaceVariant, OnSurfaceVariant, Background, OnBackground, Outline, OutlineVariant, Error, OnError, SurfaceContainer, Tertiary, OnTertiary, PrimaryContainer, OnPrimaryContainer, SecondaryContainer, OnSecondaryContainer, TertiaryContainer, OnTertiaryContainer, SyntaxKeyword, SyntaxString, SyntaxComment, SyntaxNumber, SyntaxConstant, SyntaxType, SyntaxFunction, SyntaxVariable, SyntaxProperty, SyntaxOperator, SyntaxPunctuation, SyntaxTag, SyntaxAttribute, SyntaxEscape, SyntaxMacro, DiffAdded, DiffRemoved, DiffModified, DiffAddedContainer, DiffRemovedContainer, DiffAddedEmphasis, DiffRemovedEmphasis }",
         "enum class TypeRole { Display, Headline, Title, Subtitle, Body, BodyStrong, Label, Caption, Mono }",
         "enum class ShapeRole { None, ExtraSmall, Small, Medium, Large, Full }",
         "enum class SpaceRole { None, Xs, Sm, Md, Lg, Xl, Xxl }",

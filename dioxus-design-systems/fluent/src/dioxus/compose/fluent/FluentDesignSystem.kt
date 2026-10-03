@@ -80,6 +80,30 @@ class FluentDesignSystem private constructor(
         ColorRole.OnSecondaryContainer -> palette.onAccentSecondaryContainer
         ColorRole.TertiaryContainer -> palette.accentTertiaryContainer
         ColorRole.OnTertiaryContainer -> palette.onAccentTertiaryContainer
+        // Code colours, the same values the renderer's token table holds.
+        ColorRole.SyntaxKeyword,
+        ColorRole.SyntaxString,
+        ColorRole.SyntaxComment,
+        ColorRole.SyntaxNumber,
+        ColorRole.SyntaxConstant,
+        ColorRole.SyntaxType,
+        ColorRole.SyntaxFunction,
+        ColorRole.SyntaxVariable,
+        ColorRole.SyntaxProperty,
+        ColorRole.SyntaxOperator,
+        ColorRole.SyntaxPunctuation,
+        ColorRole.SyntaxTag,
+        ColorRole.SyntaxAttribute,
+        ColorRole.SyntaxEscape,
+        ColorRole.SyntaxMacro,
+        ColorRole.DiffAdded,
+        ColorRole.DiffRemoved,
+        ColorRole.DiffModified,
+        ColorRole.DiffAddedContainer,
+        ColorRole.DiffRemovedContainer,
+        ColorRole.DiffAddedEmphasis,
+        ColorRole.DiffRemovedEmphasis,
+        -> codeColor(role, isDark)
     }
 
     /**
@@ -223,6 +247,14 @@ class FluentDesignSystem private constructor(
         easing = androidx.compose.animation.core.CubicBezierEasing(0.1f, 0.9f, 0.2f, 1f),
     )
 
+    /** WinUI's `SplitView`: a 320 pane and a one pixel divider stroke. */
+    override fun splitPane(width: dioxus.compose.WidthClass): dioxus.compose.SplitPaneStyle =
+        super.splitPane(width).copy(
+            defaultWidth = 320.dp,
+            maxWidth = 480.dp,
+            sideBackground = color(ColorRole.Background),
+        )
+
     /** Fluent's `CounterBadge`: a round counter over the corner whose overflow count is 99. */
     override fun badge(): BadgeStyle = BadgeStyle(
         placement = BadgePlacement.Overlap,
@@ -273,3 +305,62 @@ internal fun fluentShadowStep(elevation: Dp): Dp {
 }
 
 private val FluentShadowDepths = listOf(2.dp, 4.dp, 8.dp, 16.dp, 28.dp, 64.dp)
+
+/**
+ * The code colours, read from VS Code's Light+ and Dark+ (microsoft/vscode,
+ * extensions/theme-defaults/themes) with its default diff highlights from editorColors.ts
+ * resolved over the panel. The same values as the renderer's token table, so a code block
+ * reads the same through either.
+ */
+private val LIGHT_CODE: Map<ColorRole, Color> = mapOf(
+    ColorRole.SyntaxKeyword to Color(0xFF0000FF),
+    ColorRole.SyntaxString to Color(0xFFA31515),
+    ColorRole.SyntaxComment to Color(0xFF008000),
+    ColorRole.SyntaxNumber to Color(0xFF098658),
+    ColorRole.SyntaxConstant to Color(0xFF0070C1),
+    ColorRole.SyntaxType to Color(0xFF267F99),
+    ColorRole.SyntaxFunction to Color(0xFF795E26),
+    ColorRole.SyntaxVariable to Color(0xFF001080),
+    ColorRole.SyntaxProperty to Color(0xFF001080),
+    ColorRole.SyntaxOperator to Color(0xFF000000),
+    ColorRole.SyntaxPunctuation to Color(0xFF000000),
+    ColorRole.SyntaxTag to Color(0xFF800000),
+    ColorRole.SyntaxAttribute to Color(0xFFE50000),
+    ColorRole.SyntaxEscape to Color(0xFFEE0000),
+    ColorRole.SyntaxMacro to Color(0xFFAF00DB),
+    ColorRole.DiffAdded to Color(0xFF007B50),
+    ColorRole.DiffRemoved to Color(0xFFA31515),
+    ColorRole.DiffModified to Color(0xFF0451A5),
+    ColorRole.DiffAddedContainer to Color(0xFFEBF1DD),
+    ColorRole.DiffRemovedContainer to Color(0xFFFFCCCC),
+    ColorRole.DiffAddedEmphasis to Color(0xFFD7E8B1),
+    ColorRole.DiffRemovedEmphasis to Color(0xFFFF9999),
+)
+
+private val DARK_CODE: Map<ColorRole, Color> = mapOf(
+    ColorRole.SyntaxKeyword to Color(0xFF569CD6),
+    ColorRole.SyntaxString to Color(0xFFCE9178),
+    ColorRole.SyntaxComment to Color(0xFF6F9E5A),
+    ColorRole.SyntaxNumber to Color(0xFFB5CEA8),
+    ColorRole.SyntaxConstant to Color(0xFF4FC1FF),
+    ColorRole.SyntaxType to Color(0xFF4EC9B0),
+    ColorRole.SyntaxFunction to Color(0xFFDCDCAA),
+    ColorRole.SyntaxVariable to Color(0xFF9CDCFE),
+    ColorRole.SyntaxProperty to Color(0xFF9CDCFE),
+    ColorRole.SyntaxOperator to Color(0xFFD4D4D4),
+    ColorRole.SyntaxPunctuation to Color(0xFFD4D4D4),
+    ColorRole.SyntaxTag to Color(0xFF569CD6),
+    ColorRole.SyntaxAttribute to Color(0xFF9CDCFE),
+    ColorRole.SyntaxEscape to Color(0xFFD7BA7D),
+    ColorRole.SyntaxMacro to Color(0xFFC586C0),
+    ColorRole.DiffAdded to Color(0xFFB5CEA8),
+    ColorRole.DiffRemoved to Color(0xFFCE9178),
+    ColorRole.DiffModified to Color(0xFF569CD6),
+    ColorRole.DiffAddedContainer to Color(0xFF414733),
+    ColorRole.DiffRemovedContainer to Color(0xFF552222),
+    ColorRole.DiffAddedEmphasis to Color(0xFF536232),
+    ColorRole.DiffRemovedEmphasis to Color(0xFF771B1B),
+)
+
+private fun codeColor(role: ColorRole, dark: Boolean): Color =
+    (if (dark) DARK_CODE else LIGHT_CODE).getValue(role)
