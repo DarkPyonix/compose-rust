@@ -93,11 +93,12 @@ interface NotificationPlatform {
     fun processEnding()
 
     /**
-     * One turn of a loop that has no other way to hear from the platform.
+     * Collects what the platform has queued on its own side and reports it.
      *
-     * Only a platform whose renderer runs its own loop on one thread, and whose notification
-     * centre answers through a socket rather than a callback, needs this. Everything else
-     * leaves it alone.
+     * Called on the UI thread at the top of every delivery, and on every turn of a loop
+     * that has no other way to hear from the platform. A platform whose answers already
+     * arrive through the reports leaves it alone; one that keeps them in a C queue, or
+     * reads them off a socket, reports them from here.
      */
     fun pump() {}
 }
@@ -315,6 +316,9 @@ class NotificationCenter(
      * that a report asked for.
      */
     fun drain() {
+        // A platform that queues its answers on its own side is asked for them first, so a
+        // frame its own wake asked for delivers what it was asked for.
+        if (started) platform.pump()
         dispatcher?.let { host ->
             if (early.isNotEmpty()) {
                 val held = early.toList()
