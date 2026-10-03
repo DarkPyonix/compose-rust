@@ -249,7 +249,9 @@ macro_rules! define_wire_enum {
         }
 
         impl $name {
-            #[allow(dead_code)]
+            // A miss carries no detail worth a type: the caller reports the name it looked
+            // up, which is the only thing it could say.
+            #[allow(dead_code, clippy::result_unit_err)]
             #[doc(hidden)]
             pub fn from_name(value: &str) -> Result<Self, ()> {
                 $(if wire_name_eq(value, stringify!($variant)) {
