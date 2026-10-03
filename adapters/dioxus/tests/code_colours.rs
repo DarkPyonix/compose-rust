@@ -166,7 +166,13 @@ fn fr13_1_3_highlighted_code_travels_as_roles_and_differs_between_schemes() {
 fn fr13_1_3_code_roles_leave_the_widget_property_and_modifier_schema_alone() {
     assert_eq!(COLOR_ROLE_SCHEMA.len(), COLOR_ROLE_COUNT);
     assert_eq!(COLOR_ROLE_COUNT, 45);
-    for variant in WIDGET_SCHEMA.iter().chain(PROPERTY_SCHEMA.iter()) {
+    // The code editor's own property for highlighted ranges is not a colour: it carries
+    // the ranges the roles are applied to, and arrived with the editor, not with the roles.
+    for variant in WIDGET_SCHEMA
+        .iter()
+        .chain(PROPERTY_SCHEMA.iter())
+        .filter(|variant| variant.name != "SyntaxSpans")
+    {
         assert!(
             !variant.name.starts_with("Syntax") && !variant.name.starts_with("Diff"),
             "{} is a code colour turned into schema",

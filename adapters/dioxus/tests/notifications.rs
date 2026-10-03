@@ -528,7 +528,8 @@ fn fr36_notification_records_are_in_the_protocol_vectors() {
                 | EventPayload::TextSubmitted(text)
                 | EventPayload::FilesDropped(text)
                 | EventPayload::ProtocolError { message: text, .. }
-                | EventPayload::NotificationActivated { key: text, .. } => text.len(),
+                | EventPayload::NotificationActivated { key: text, .. }
+                | EventPayload::CodeChanged { text, .. } => text.len(),
                 _ => 0,
             };
             kinds.push(std::mem::discriminant(&event.payload));

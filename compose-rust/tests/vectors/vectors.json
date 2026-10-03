@@ -1,23 +1,23 @@
 {
   "format": "compose-rust protocol vectors v1",
-  "schemaHashUnsigned": "12364285977311193248",
+  "schemaHashUnsigned": "7264167434031886735",
   "byteOrder": "little-endian",
   "mutations": {
     "file": "mutations.bin",
-    "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run and split pane property",
-    "recordCount": 46,
+    "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property and code editor record",
+    "recordCount": 51,
     "palette": [
       { "role": "Primary", "scheme": "Light", "argb": "ffe8590c" },
       { "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" },
       { "role": "SyntaxKeyword", "scheme": "Light", "argb": "80112233" }
     ],
     "spanRecordLength": 36,
-    "strings": ["안녕", "compose", " token", "필터", "New", "삭제했습니다", "Undo", "session/7", "세션이 끝났습니다", "테스트 214개 통과", "세션", "열기", "", "session/7"],
+    "strings": ["안녕", "compose", " token", "필터", "New", "삭제했습니다", "Undo", "session/7", "세션이 끝났습니다", "테스트 214개 통과", "세션", "열기", "", "session/7", "fn main() {\n    let 한 = \"😀\";\n}\n", "mut "],
     "assets": [{ "assetId": 5, "kind": "Png", "bytes": "89504e47" }]
   },
   "events": {
     "file": "events.bin",
-    "description": "Eleven independently decodable event records concatenated in schema order",
+    "description": "Sixteen independently decodable event records concatenated in schema order",
     "records": [
       { "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 },
       { "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" },
@@ -29,7 +29,12 @@
       { "type": "ValueChanged", "offset": 169, "length": 24, "nodeId": 11, "handlerId": 17, "value": -19723.5 },
       { "type": "WindowSizeChanged", "offset": 193, "length": 32, "nodeId": 0, "handlerId": 0, "widthDp": 840.0, "heightDp": 600.0, "sizeClass": "Expanded", "heightClass": "Medium" },
       { "type": "NotificationActivated", "offset": 225, "length": 37, "nodeId": 0, "handlerId": 0, "action": 1, "key": "session/7" },
-      { "type": "NotificationPermissionChanged", "offset": 262, "length": 20, "nodeId": 0, "handlerId": 0, "state": "Denied" }
+      { "type": "NotificationPermissionChanged", "offset": 262, "length": 20, "nodeId": 0, "handlerId": 0, "state": "Denied" },
+      { "type": "CodeChanged", "offset": 282, "length": 48, "nodeId": 12, "handlerId": 18, "version": 1, "startLine": 1, "startColumn": 8, "endLine": 1, "endColumn": 8, "text": "mut " },
+      { "type": "CodeEditRejected", "offset": 330, "length": 44, "nodeId": 12, "handlerId": 19, "requestId": 7, "baseVersion": 0, "currentVersion": 2, "startLine": 1, "startColumn": 8, "endLine": 1, "endColumn": 9 },
+      { "type": "CodeHovered", "offset": 374, "length": 36, "nodeId": 12, "handlerId": 20, "decoration": 42, "line": 0, "column": 4, "phase": "Rest" },
+      { "type": "CodeSaveRequested", "offset": 410, "length": 24, "nodeId": 12, "handlerId": 21, "version": 2 },
+      { "type": "DecorationActivated", "offset": 434, "length": 24, "nodeId": 12, "handlerId": 22, "decoration": 41 }
     ]
   }
 }

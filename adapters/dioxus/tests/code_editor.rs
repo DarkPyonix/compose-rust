@@ -130,7 +130,7 @@ thread_local! {
 fn editor_app() -> Element {
     rsx! {
         CodeEditor {
-            text: "fn main() {}\n",
+            text: "fn main() {{}}\n",
             syntax_spans: SyntaxSpans::new([SyntaxSpan::role(
                 0,
                 CodeRange::of(0, 0, 0, 2),

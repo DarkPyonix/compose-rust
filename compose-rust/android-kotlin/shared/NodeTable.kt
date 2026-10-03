@@ -274,9 +274,9 @@ class NodeTable {
      * document rather than applied, and the two lists are read record by record, so a bad
      * record costs that record and nothing else.
      */
-    private fun feedCode(node: Node, property: PropertyKind, value: PropertyValue) {
+    private fun feedCode(node: Node, kind: PropertyKind, value: PropertyValue) {
         val code = node.code ?: return
-        when (property) {
+        when (kind) {
             PropertyKind.Text -> code.setHostText((value as? PropertyValue.Text)?.value ?: "")
             PropertyKind.Decorations -> code.setDecorations(
                 (value as? PropertyValue.Bytes)?.value?.let { bytes ->

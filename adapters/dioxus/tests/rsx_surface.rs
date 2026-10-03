@@ -37,6 +37,14 @@ fn take_fired() -> Vec<String> {
 
 const SPANS_SOURCE: &str = "every **widget** in `rsx`";
 
+/// The two lists a code editor carries, built the same way in surface() and expectations().
+fn code_lists() -> (SyntaxSpans, Decorations) {
+    (
+        SyntaxSpans::new([SyntaxSpan::role(0, CodeRange::of(0, 0, 0, 1), ColorRole::Primary)]),
+        Decorations::new([Decoration::underline(0, CodeRange::of(0, 4, 0, 5), Severity::Warning)]),
+    )
+}
+
 fn spans() -> (String, TextSpans) {
     TextSpans::from_markdown(SPANS_SOURCE)
 }
@@ -167,6 +175,17 @@ fn surface() -> Element {
                     on_dismiss: move |_| fired("SplitPane.on_dismiss"),
                     Column {}
                     Column {}
+                }
+                CodeEditor {
+                    text: "x = 1",
+                    syntax_spans: code_lists().0,
+                    decorations: code_lists().1,
+                    tab_width: 4_u32,
+                    on_change: move |_| fired("CodeEditor.on_change"),
+                    on_edit_rejected: move |_| fired("CodeEditor.on_edit_rejected"),
+                    on_hover: move |_| fired("CodeEditor.on_hover"),
+                    on_save: move |_| fired("CodeEditor.on_save"),
+                    on_decoration_click: move |id: u64| fired(format!("CodeEditor.on_decoration_click({id})")),
                 }
                 SelectionContainer {
                     Badge {
@@ -541,6 +560,20 @@ fn expectations() -> Vec<(WidgetKind, Vec<(PropertyKind, Expect)>)> {
         ),
         (W::ScrollColumn, vec![]),
         (W::ScrollRow, vec![]),
+        (
+            W::CodeEditor,
+            vec![
+                (P::Text, text("x = 1")),
+                (P::SyntaxSpans, is(Value::Bytes(code_lists().0.as_bytes().to_vec()))),
+                (P::Decorations, is(Value::Bytes(code_lists().1.as_bytes().to_vec()))),
+                (P::TabWidth, int(4)),
+                (P::OnValueChange, Handler),
+                (P::OnEditRejected, Handler),
+                (P::OnHover, Handler),
+                (P::OnSave, Handler),
+                (P::OnDecorationClick, Handler),
+            ],
+        ),
         (
             W::SplitPane,
             vec![

@@ -404,7 +404,13 @@ class CodeEditorModel(
             inverses += applyRaw(change.start, change.newEnd, change.removed)
         }
         selection = entry.selectionBefore
-        return UndoEntry(inverses, entry.selectionAfter, mergeable = false, at = 0L)
+        return UndoEntry(
+            inverses,
+            selectionBefore = entry.selectionAfter,
+            selectionAfter = entry.selectionBefore,
+            mergeable = false,
+            at = 0L,
+        )
     }
 
     private fun apply(start: CodePosition, end: CodePosition, text: String, origin: EditOrigin): AppliedChange {

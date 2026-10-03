@@ -6,9 +6,9 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.charset.StandardCharsets
 
-enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, LinearProgressIndicator }
+enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Progress }
 
 enum class Key { Enter }
 
@@ -61,6 +61,12 @@ enum class NotificationImportance { Normal, Urgent }
 enum class NotificationPresentation { Always, WhenInactive }
 
 enum class NotificationPermission { NotDetermined, Granted, Denied, Unsupported }
+
+enum class DecorationKind { Underline, CodeLens, HoverAnchor, GhostText }
+
+enum class Severity { Error, Warning, Information, Hint }
+
+enum class HoverPhase { Rest, Leave }
 
 enum class LoopMode(val wire: Byte) {
     /** The Renderer runs the loop and the Host blocks inside it. Desktop. */
@@ -443,6 +449,192 @@ object SpanRecords {
 
 }
 
+/** One decoration over a code editor's document: an underline, a lens above a line, a hover anchor or an inline suggestion. The range is in the document at `version`; columns are UTF-16 units. `id` is the application's own name for it, zero where it cannot be pressed. */
+data class DecorationRecord(
+    val version: Int,
+    val kind: DecorationKind,
+    val severity: Severity?,
+    val color: ColorRole?,
+    val startLine: Int,
+    val startColumn: Int,
+    val endLine: Int,
+    val endColumn: Int,
+    val id: Long,
+    val text: String,
+)
+
+/** One colour run of a code editor's syntax. The range is in the document at `version`; columns are UTF-16 units. */
+data class SyntaxSpanRecord(
+    val version: Int,
+    val startLine: Int,
+    val startColumn: Int,
+    val endLine: Int,
+    val endColumn: Int,
+    val paint: Paint,
+)
+
+/**
+ * Reads the blobs a code editor carries.
+ *
+ * A record that cannot be read, a kind or a role this side does not know or a text that
+ * points outside the blob, is reported through `onError` and left out. The rest of the list
+ * is read regardless.
+ */
+object CodeEditorRecords {
+    const val DECORATION_LENGTH = 44
+
+    fun decodeDecorations(bytes: ByteArray, onError: (String) -> Unit): List<DecorationRecord> {
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val records = ArrayList<DecorationRecord>(bytes.size / DECORATION_LENGTH)
+        var end = bytes.size
+        var offset = 0
+        var index = 0
+        while (offset + DECORATION_LENGTH <= end) {
+            val textOffset = buffer.getInt(offset + 36)
+            val textLength = buffer.getInt(offset + 40)
+            if (textLength != 0 && textOffset >= 0 && textOffset < end) end = textOffset
+            readDecorationRecord(buffer, bytes, offset, index, onError)?.let(records::add)
+            offset += DECORATION_LENGTH
+            index += 1
+        }
+        return records
+    }
+
+    private fun readDecorationRecord(buffer: ByteBuffer, bytes: ByteArray, offset: Int, index: Int, onError: (String) -> Unit): DecorationRecord? {
+        val version = buffer.getInt(offset + 0)
+        val kindTag = buffer.getShort(offset + 4).toInt() and 0xffff
+        val kind = decorationKindOrNull(kindTag) ?: run { onError("record $index has an unknown kind ${kindTag}"); return null }
+        val severityTag = buffer.getShort(offset + 6).toInt() and 0xffff
+        val severity = if (severityTag == 0) null else severityOrNull(severityTag) ?: run { onError("record $index has an unknown severity ${severityTag}"); return null }
+        val colorTag = buffer.getShort(offset + 8).toInt() and 0xffff
+        val color = if (colorTag == 0) null else colorRoleOrNull(colorTag) ?: run { onError("record $index has an unknown color ${colorTag}"); return null }
+        val startLine = buffer.getInt(offset + 12)
+        val startColumn = buffer.getInt(offset + 16)
+        val endLine = buffer.getInt(offset + 20)
+        val endColumn = buffer.getInt(offset + 24)
+        val id = buffer.getLong(offset + 28)
+        val text = textOf(bytes, buffer.getInt(offset + 36), buffer.getInt(offset + 40)) ?: run { onError("record $index names text outside the list"); return null }
+        return DecorationRecord(version, kind, severity, color, startLine, startColumn, endLine, endColumn, id, text)
+    }
+
+    const val SYNTAX_SPAN_LENGTH = 28
+
+    fun decodeSyntaxSpans(bytes: ByteArray, onError: (String) -> Unit): List<SyntaxSpanRecord> {
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val records = ArrayList<SyntaxSpanRecord>(bytes.size / SYNTAX_SPAN_LENGTH)
+        var end = bytes.size
+        var offset = 0
+        var index = 0
+        while (offset + SYNTAX_SPAN_LENGTH <= end) {
+            readSyntaxSpanRecord(buffer, bytes, offset, index, onError)?.let(records::add)
+            offset += SYNTAX_SPAN_LENGTH
+            index += 1
+        }
+        if (offset != bytes.size) {
+            onError("${bytes.size - offset} bytes after the last whole record")
+        }
+        return records
+    }
+
+    private fun readSyntaxSpanRecord(buffer: ByteBuffer, bytes: ByteArray, offset: Int, index: Int, onError: (String) -> Unit): SyntaxSpanRecord? {
+        val version = buffer.getInt(offset + 0)
+        val startLine = buffer.getInt(offset + 4)
+        val startColumn = buffer.getInt(offset + 8)
+        val endLine = buffer.getInt(offset + 12)
+        val endColumn = buffer.getInt(offset + 16)
+        val paint = paintOrNull(buffer.getLong(offset + 20)) ?: run { onError("record $index has an unreadable paint"); return null }
+        return SyntaxSpanRecord(version, startLine, startColumn, endLine, endColumn, paint)
+    }
+
+    /** UTF-8 text behind the records, or null where the range leaves the blob or is not text. */
+    private fun textOf(bytes: ByteArray, offset: Int, length: Int): String? {
+        if (length == 0) return ""
+        if (offset < 0 || length < 0 || offset.toLong() + length.toLong() > bytes.size.toLong()) return null
+        val decoder = StandardCharsets.UTF_8.newDecoder()
+        return try {
+            decoder.decode(ByteBuffer.wrap(bytes, offset, length)).toString()
+        } catch (error: java.nio.charset.CharacterCodingException) {
+            null
+        }
+    }
+
+    private fun paintOrNull(bits: Long): Paint? {
+        val value = bits.toInt()
+        return when ((bits ushr 32).toInt()) {
+            1 -> colorRoleOrNull(value)?.let { Paint.Role(it) }
+            2 -> Paint.Literal(value)
+            3 -> Paint.Asset(value)
+            else -> null
+        }
+    }
+
+    private fun colorRoleOrNull(tag: Int): ColorRole? = when (tag) {
+        1 -> ColorRole.Primary
+        2 -> ColorRole.OnPrimary
+        3 -> ColorRole.Secondary
+        4 -> ColorRole.OnSecondary
+        5 -> ColorRole.Surface
+        6 -> ColorRole.OnSurface
+        7 -> ColorRole.SurfaceVariant
+        8 -> ColorRole.OnSurfaceVariant
+        9 -> ColorRole.Background
+        10 -> ColorRole.OnBackground
+        11 -> ColorRole.Outline
+        12 -> ColorRole.OutlineVariant
+        13 -> ColorRole.Error
+        14 -> ColorRole.OnError
+        15 -> ColorRole.SurfaceContainer
+        16 -> ColorRole.Tertiary
+        17 -> ColorRole.OnTertiary
+        18 -> ColorRole.PrimaryContainer
+        19 -> ColorRole.OnPrimaryContainer
+        20 -> ColorRole.SecondaryContainer
+        21 -> ColorRole.OnSecondaryContainer
+        22 -> ColorRole.TertiaryContainer
+        23 -> ColorRole.OnTertiaryContainer
+        24 -> ColorRole.SyntaxKeyword
+        25 -> ColorRole.SyntaxString
+        26 -> ColorRole.SyntaxComment
+        27 -> ColorRole.SyntaxNumber
+        28 -> ColorRole.SyntaxConstant
+        29 -> ColorRole.SyntaxType
+        30 -> ColorRole.SyntaxFunction
+        31 -> ColorRole.SyntaxVariable
+        32 -> ColorRole.SyntaxProperty
+        33 -> ColorRole.SyntaxOperator
+        34 -> ColorRole.SyntaxPunctuation
+        35 -> ColorRole.SyntaxTag
+        36 -> ColorRole.SyntaxAttribute
+        37 -> ColorRole.SyntaxEscape
+        38 -> ColorRole.SyntaxMacro
+        39 -> ColorRole.DiffAdded
+        40 -> ColorRole.DiffRemoved
+        41 -> ColorRole.DiffModified
+        42 -> ColorRole.DiffAddedContainer
+        43 -> ColorRole.DiffRemovedContainer
+        44 -> ColorRole.DiffAddedEmphasis
+        45 -> ColorRole.DiffRemovedEmphasis
+        else -> null
+    }
+
+    private fun decorationKindOrNull(tag: Int): DecorationKind? = when (tag) {
+        1 -> DecorationKind.Underline
+        2 -> DecorationKind.CodeLens
+        3 -> DecorationKind.HoverAnchor
+        4 -> DecorationKind.GhostText
+        else -> null
+    }
+
+    private fun severityOrNull(tag: Int): Severity? = when (tag) {
+        1 -> Severity.Error
+        2 -> Severity.Warning
+        3 -> Severity.Information
+        4 -> Severity.Hint
+        else -> null
+    }
+
+}
+
 sealed interface Modifier {
     data object Empty : Modifier
     data class Padding(val value: kotlin.Float) : Modifier
@@ -537,6 +729,26 @@ sealed interface Mutation {
 
     /** Asks the platform for permission. The answer comes back as an event. */
     data object RequestNotificationPermission : Mutation
+
+    /**
+     * An edit the application asks of a code editor: replace a range of the document as it
+     * stood at `baseVersion` with `text`.
+     *
+     * The document is this side's, so this is a request. Where the reader has typed since
+     * `baseVersion` the range is moved along with what they typed; where they typed in the
+     * same place the edit is refused and `CodeEditRejected` returns `requestId`. Lines and
+     * columns count from zero and columns are UTF-16 units.
+     */
+    data class EditCode(
+        val nodeId: Int,
+        val requestId: Int,
+        val baseVersion: Int,
+        val startLine: Int,
+        val startColumn: Int,
+        val endLine: Int,
+        val endColumn: Int,
+        val text: String,
+    ) : Mutation
 }
 
 sealed interface HostEvent {
@@ -560,13 +772,18 @@ sealed interface HostEvent {
     data class FilesDropped(override val nodeId: Int, override val handlerId: Long, val text: String) : HostEvent
     data class NotificationActivated(override val nodeId: Int, override val handlerId: Long, val action: Int, val key: String) : HostEvent
     data class NotificationPermissionChanged(override val nodeId: Int, override val handlerId: Long, val state: NotificationPermission) : HostEvent
+    data class CodeChanged(override val nodeId: Int, override val handlerId: Long, val version: Int, val startLine: Int, val startColumn: Int, val endLine: Int, val endColumn: Int, val text: String) : HostEvent
+    data class CodeEditRejected(override val nodeId: Int, override val handlerId: Long, val requestId: Int, val baseVersion: Int, val currentVersion: Int, val startLine: Int, val startColumn: Int, val endLine: Int, val endColumn: Int) : HostEvent
+    data class CodeHovered(override val nodeId: Int, override val handlerId: Long, val decoration: Long, val line: Int, val column: Int, val phase: HoverPhase) : HostEvent
+    data class CodeSaveRequested(override val nodeId: Int, override val handlerId: Long, val version: Int) : HostEvent
+    data class DecorationActivated(override val nodeId: Int, override val handlerId: Long, val decoration: Long) : HostEvent
 }
 
 class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -6082458096398358368L
+    const val SCHEMA_HASH: Long = 7264167434031886735L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -586,6 +803,7 @@ object Protocol {
     private const val TAG_POST_NOTIFICATION = 14
     private const val TAG_WITHDRAW_NOTIFICATION = 15
     private const val TAG_REQUEST_NOTIFICATION_PERMISSION = 16
+    private const val TAG_EDIT_CODE = 17
     private const val ENVELOPE_LENGTH = 12
     /** Four role tags, one font asset id per type role, then the palette's reference. */
     private val THEME_RECORD_LENGTH = 20 + 4 * TypeRole.entries.size
@@ -805,6 +1023,19 @@ object Protocol {
                         requireRecordLength(length, 4, offset)
                         Mutation.RequestNotificationPermission
                     }
+                    TAG_EDIT_CODE -> {
+                        requireRecordLength(length, 40, offset)
+                        Mutation.EditCode(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            readU32(batch, base, available, offset + 8).toInt(),
+                            readU32(batch, base, available, offset + 12).toInt(),
+                            readU32(batch, base, available, offset + 16).toInt(),
+                            readU32(batch, base, available, offset + 20).toInt(),
+                            readU32(batch, base, available, offset + 24).toInt(),
+                            readU32(batch, base, available, offset + 28).toInt(),
+                            readString(batch, base, available, offset + 32),
+                        )
+                    }
                     else -> throw ProtocolException("unknown mutation tag $tag", offset)
                 }
                 onMutation(mutation)
@@ -889,6 +1120,11 @@ object Protocol {
                 is HostEvent.FilesDropped -> event.text.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.NotificationActivated -> event.key.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.NotificationPermissionChanged -> null
+                is HostEvent.CodeChanged -> event.text.toByteArray(StandardCharsets.UTF_8)
+                is HostEvent.CodeEditRejected -> null
+                is HostEvent.CodeHovered -> null
+                is HostEvent.CodeSaveRequested -> null
+                is HostEvent.DecorationActivated -> null
             }
             val recordLength = when (event) {
                 is HostEvent.Clicked -> 16
@@ -908,6 +1144,11 @@ object Protocol {
                 is HostEvent.FilesDropped -> 24
                 is HostEvent.NotificationActivated -> 28
                 is HostEvent.NotificationPermissionChanged -> 20
+                is HostEvent.CodeChanged -> 44
+                is HostEvent.CodeEditRejected -> 44
+                is HostEvent.CodeHovered -> 36
+                is HostEvent.CodeSaveRequested -> 24
+                is HostEvent.DecorationActivated -> 24
             }
             val totalLength = recordLength.toLong() + (text?.size ?: 0)
             if (totalLength > Int.MAX_VALUE || totalLength > out.remaining().toLong()) {
@@ -931,6 +1172,11 @@ object Protocol {
                 is HostEvent.FilesDropped -> 23
                 is HostEvent.NotificationActivated -> 24
                 is HostEvent.NotificationPermissionChanged -> 25
+                is HostEvent.CodeChanged -> 26
+                is HostEvent.CodeEditRejected -> 27
+                is HostEvent.CodeHovered -> 28
+                is HostEvent.CodeSaveRequested -> 29
+                is HostEvent.DecorationActivated -> 30
             }
             out.putShort(tag.toShort())
             out.putShort(recordLength.toShort())
@@ -981,6 +1227,34 @@ object Protocol {
                 is HostEvent.NotificationPermissionChanged -> {
                     out.putInt(notificationPermissionTag(event.state))
                 }
+                is HostEvent.CodeChanged -> {
+                    out.putInt(event.version)
+                    out.putInt(event.startLine)
+                    out.putInt(event.startColumn)
+                    out.putInt(event.endLine)
+                    out.putInt(event.endColumn)
+                    writeStringReference(out, recordLength, text!!)
+                }
+                is HostEvent.CodeEditRejected -> {
+                    out.putInt(event.requestId)
+                    out.putInt(event.baseVersion)
+                    out.putInt(event.currentVersion)
+                    out.putInt(event.startLine)
+                    out.putInt(event.startColumn)
+                    out.putInt(event.endLine)
+                    out.putInt(event.endColumn)
+                }
+                is HostEvent.CodeHovered -> {
+                    out.putLong(event.decoration)
+                    out.putInt(event.line)
+                    out.putInt(event.column)
+                    out.putInt(hoverPhaseTag(event.phase))
+                }
+                is HostEvent.CodeSaveRequested -> {
+                    out.putInt(event.version)
+                    out.putInt(0)
+                }
+                is HostEvent.DecorationActivated -> out.putLong(event.decoration)
             }
             if (text != null) out.put(text)
             return out.position() - start
@@ -1061,6 +1335,7 @@ object Protocol {
         40 -> WidgetKind.Badge
         41 -> WidgetKind.SelectionContainer
         42 -> WidgetKind.SplitPane
+        43 -> WidgetKind.CodeEditor
         100 -> WidgetKind.LinearProgressIndicator
         else -> throw ProtocolException("unknown widget tag $tag", offset)
     }
@@ -1115,6 +1390,13 @@ object Protocol {
         76 -> PropertyKind.Section
         80 -> PropertyKind.Count
         90 -> PropertyKind.Collapsible
+        100 -> PropertyKind.Decorations
+        101 -> PropertyKind.SyntaxSpans
+        102 -> PropertyKind.TabWidth
+        103 -> PropertyKind.OnEditRejected
+        104 -> PropertyKind.OnHover
+        105 -> PropertyKind.OnSave
+        106 -> PropertyKind.OnDecorationClick
         27 -> PropertyKind.Progress
         else -> throw ProtocolException("unknown property tag $tag", offset)
     }
@@ -1143,6 +1425,11 @@ object Protocol {
         DesignSystem.Breeze -> 5
         DesignSystem.Deepin -> 6
         DesignSystem.LiquidGlass -> 7
+    }
+
+    private fun hoverPhaseTag(phase: HoverPhase): Int = when (phase) {
+        HoverPhase.Rest -> 1
+        HoverPhase.Leave -> 2
     }
 
     private fun notificationPermissionTag(state: NotificationPermission): Int = when (state) {
@@ -1452,6 +1739,28 @@ object Protocol {
         3 -> NotificationPermission.Denied
         4 -> NotificationPermission.Unsupported
         else -> throw ProtocolException("unknown NotificationPermission tag $tag", offset)
+    }
+
+    private fun decorationKind(tag: Int, offset: Int): DecorationKind = when (tag) {
+        1 -> DecorationKind.Underline
+        2 -> DecorationKind.CodeLens
+        3 -> DecorationKind.HoverAnchor
+        4 -> DecorationKind.GhostText
+        else -> throw ProtocolException("unknown DecorationKind tag $tag", offset)
+    }
+
+    private fun severity(tag: Int, offset: Int): Severity = when (tag) {
+        1 -> Severity.Error
+        2 -> Severity.Warning
+        3 -> Severity.Information
+        4 -> Severity.Hint
+        else -> throw ProtocolException("unknown Severity tag $tag", offset)
+    }
+
+    private fun hoverPhase(tag: Int, offset: Int): HoverPhase = when (tag) {
+        1 -> HoverPhase.Rest
+        2 -> HoverPhase.Leave
+        else -> throw ProtocolException("unknown HoverPhase tag $tag", offset)
     }
 
     private fun paint(bits: Long, offset: Int): Paint {
