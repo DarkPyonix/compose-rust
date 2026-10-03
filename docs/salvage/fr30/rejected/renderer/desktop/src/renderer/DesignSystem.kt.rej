@@ -1,9 +1,0 @@
-diff a/renderer/desktop/src/renderer/DesignSystem.kt b/renderer/desktop/src/renderer/DesignSystem.kt	(rejected hunks)
-@@ -449,6 +456,7 @@ data class CaptionStyle(
-     val spacing: Dp,
-     val edgePadding: Dp,
-     val titleAlignment: CaptionTitleAlignment,
-+    val titlePlacement: CaptionTitlePlacement,
- )
- 
- /**
