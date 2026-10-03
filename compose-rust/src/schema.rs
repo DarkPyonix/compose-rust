@@ -62,6 +62,9 @@ pub enum EventPayloadType {
     NotificationActivation,
     /// One `u32`: the notification permission the Renderer last saw.
     NotificationPermission,
+    /// Two `f32` and an `i32`: the whole zoom factor, the system's text size, and the
+    /// application's zoom level.
+    Zoom,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -78,7 +81,7 @@ pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible;",
     "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material;",
     "keys=Enter;",
-    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged;",
+    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,ZoomChanged;",
     "windowsizeclasses=Compact,Medium,Expanded;",
     "windowheightclasses=Compact,Medium,Expanded;",
     "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission"
@@ -198,6 +201,7 @@ const fn schema_hash() -> u64 {
                 EventPayloadType::DesignSystem => 7,
                 EventPayloadType::NotificationActivation => 8,
                 EventPayloadType::NotificationPermission => 9,
+                EventPayloadType::Zoom => 10,
             }],
         );
         index += 1;
@@ -1003,6 +1007,12 @@ pub struct Window {
     pub min_width: u16,
     pub min_height: u16,
     pub resizable: bool,
+    /// The application's zoom level, where it asked for one.
+    ///
+    /// `None` leaves the level to the Renderer, which starts from what the reader chose
+    /// last time. A level set here is applied, remembered and reported back the way one
+    /// chosen with the keys is. Kept inside `-8..=8`.
+    pub zoom_level: Option<i8>,
 }
 
 impl Window {
@@ -1017,6 +1027,7 @@ impl Window {
             min_width: 0,
             min_height: 0,
             resizable: true,
+            zoom_level: None,
         }
     }
 
@@ -1062,6 +1073,18 @@ impl Window {
 
     pub const fn resizable(mut self, resizable: bool) -> Self {
         self.resizable = resizable;
+        self
+    }
+
+    /// Starts the window at an application zoom level, kept inside `-8..=8`.
+    pub const fn with_zoom_level(mut self, level: i8) -> Self {
+        self.zoom_level = Some(if level < -8 {
+            -8
+        } else if level > 8 {
+            8
+        } else {
+            level
+        });
         self
     }
 }
@@ -1651,6 +1674,14 @@ pub enum EventPayload<'a> {
     /// Whether notifications may be shown, sent once after start and then only when the
     /// answer changes.
     NotificationPermissionChanged(NotificationPermission),
+    /// How large the Renderer is drawing: `k = os × 1.2^level`. Sent once at start and
+    /// again whenever any of the three changes. A move to a screen of another density
+    /// changes none of them and is not reported.
+    ZoomChanged {
+        k: f32,
+        os: f32,
+        level: i32,
+    },
 }
 
 pub const EVENT_SCHEMA: &[EventSchema] = &[
@@ -1747,6 +1778,12 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
         name: "NotificationPermissionChanged",
         tag: 25,
         payload: EventPayloadType::NotificationPermission,
+    },
+    // Tags 26 to 32 are taken by events other requirements have numbered.
+    EventSchema {
+        name: "ZoomChanged",
+        tag: 33,
+        payload: EventPayloadType::Zoom,
     },
 ];
 

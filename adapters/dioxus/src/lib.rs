@@ -32,7 +32,7 @@ pub use elements::*;
 pub use extensions::LinearProgressIndicator;
 pub use hooks::{
     use_design_system, use_node_size, use_notification_activated, use_notification_permission,
-    use_theme, use_window_size,
+    use_theme, use_window_size, use_zoom,
 };
 pub use host::{DioxusRuntime, Host, LaunchBuilder, launch, runtime_for};
 pub use widgets::{
@@ -131,9 +131,9 @@ pub mod prelude {
         RadioButton, RangeRequest, Row, Scaffold, ScrollColumn, ScrollRow, SelectionContainer,
         Separator, ShapeRole, Sheet, Slider, SpaceRole, Spacer, SplitPane, Stop, Surface, Switch,
         Tabs, Text, TextAlign, TextField, TextOverflow, Theme, TileMode, TimePicker, Tooltip,
-        TopAppBar, TypeRole, WindowHeightClass, WindowSize, WindowSizeClass, asset, brush,
-        component, launch, rsx, show_message, use_design_system, use_node_size, use_theme,
-        use_window_size,
+        TopAppBar, TypeRole, WindowHeightClass, WindowSize, WindowSizeClass, Zoom, ZoomHandle,
+        asset, brush, component, launch, rsx, show_message, use_design_system, use_node_size,
+        use_theme, use_window_size, use_zoom,
     };
     // Under its own name, and the one thing in this list that could shadow something a
     // reader already has: an application that draws its own `Window` component would find

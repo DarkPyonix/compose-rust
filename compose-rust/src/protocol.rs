@@ -200,6 +200,8 @@ const EVENT_FILES_ENTERED: u16 = 22;
 const EVENT_FILES_DROPPED: u16 = 23;
 const EVENT_NOTIFICATION_ACTIVATED: u16 = 24;
 const EVENT_NOTIFICATION_PERMISSION_CHANGED: u16 = 25;
+// Tags 26 to 32 belong to events other requirements have numbered.
+const EVENT_ZOOM_CHANGED: u16 = 33;
 
 const MODIFIER_SHIFT: u8 = 1 << 0;
 const MODIFIER_CTRL: u8 = 1 << 1;
@@ -304,11 +306,25 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
                 ))?;
             crate::schema::EventPayload::NotificationPermissionChanged(state)
         }
+        EVENT_ZOOM_CHANGED if record_len == 28 => {
+            let level = read_u32(bytes, 24)? as i32;
+            if !(i32::from(crate::zoom::MIN_ZOOM_LEVEL)..=i32::from(crate::zoom::MAX_ZOOM_LEVEL))
+                .contains(&level)
+            {
+                return Err(ProtocolError::InvalidValueKind(level as u16));
+            }
+            crate::schema::EventPayload::ZoomChanged {
+                k: f32::from_bits(read_u32(bytes, 16)?),
+                os: f32::from_bits(read_u32(bytes, 20)?),
+                level,
+            }
+        }
         EVENT_RESYNC if record_len == 16 => crate::schema::EventPayload::Resync,
         EVENT_LIFECYCLE_START if record_len == 16 => crate::schema::EventPayload::LifecycleStart,
         EVENT_LIFECYCLE_STOP if record_len == 16 => crate::schema::EventPayload::LifecycleStop,
         EVENT_CLICK..=EVENT_RANGE_REQUESTED
-        | EVENT_VALUE_CHANGED..=EVENT_NOTIFICATION_PERMISSION_CHANGED => {
+        | EVENT_VALUE_CHANGED..=EVENT_NOTIFICATION_PERMISSION_CHANGED
+        | EVENT_ZOOM_CHANGED => {
             return Err(ProtocolError::InvalidRecordLength);
         }
         other => return Err(ProtocolError::InvalidTag(other)),
@@ -387,6 +403,16 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.extend_from_slice(&u32::from(u16::from(state)).to_le_bytes());
         return Ok(());
     }
+    if let crate::schema::EventPayload::ZoomChanged { k, os, level } = event.payload {
+        output.extend_from_slice(&EVENT_ZOOM_CHANGED.to_le_bytes());
+        output.extend_from_slice(&28_u16.to_le_bytes());
+        output.extend_from_slice(&event.node_id.to_le_bytes());
+        output.extend_from_slice(&event.handler_id.to_le_bytes());
+        output.extend_from_slice(&k.to_bits().to_le_bytes());
+        output.extend_from_slice(&os.to_bits().to_le_bytes());
+        output.extend_from_slice(&level.to_le_bytes());
+        return Ok(());
+    }
     if let crate::schema::EventPayload::RangeRequested { start, count } = event.payload {
         output.extend_from_slice(&EVENT_RANGE_REQUESTED.to_le_bytes());
         output.extend_from_slice(&24_u16.to_le_bytes());
@@ -424,7 +450,8 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::ValueChanged(_)
         | crate::schema::EventPayload::WindowSizeChanged { .. }
         | crate::schema::EventPayload::DesignSystemResolved(_)
-        | crate::schema::EventPayload::NotificationPermissionChanged(_) => unreachable!(),
+        | crate::schema::EventPayload::NotificationPermissionChanged(_)
+        | crate::schema::EventPayload::ZoomChanged { .. } => unreachable!(),
     };
     output.extend_from_slice(&tag.to_le_bytes());
     output.extend_from_slice(&record_len.to_le_bytes());
@@ -649,9 +676,14 @@ impl BatchEncoder {
                 self.put_u16(window.min_width);
                 self.put_u16(window.min_height);
                 self.put_u16(u16::from(window.resizable));
-                // The padding that keeps the record a multiple of four, which the envelope
-                // requires. Seven of these words is an odd number of them.
-                self.put_u16(0);
+                // The application's zoom level, in what used to be the padding that keeps
+                // the record a multiple of four: a byte saying whether there is one, then
+                // the level as a signed byte. Zero is "none", so a window that asks for
+                // nothing reads exactly as it did before the level existed.
+                self.put_u16(match window.zoom_level {
+                    None => 0,
+                    Some(level) => 1 | (u16::from(crate::zoom::clamp_level(level) as u8) << 8),
+                });
                 self.put_string_ref(window.title)?;
                 self.put_u32(window.icon);
             }
@@ -922,6 +954,20 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                 if resizable > 1 {
                     return Err(ProtocolError::InvalidValueKind(resizable));
                 }
+                let zoom = read_u16(bytes, payload + 14)?;
+                let zoom_level = match zoom & 0xFF {
+                    0 => None,
+                    1 => {
+                        let level = (zoom >> 8) as u8 as i8;
+                        if !(crate::zoom::MIN_ZOOM_LEVEL..=crate::zoom::MAX_ZOOM_LEVEL)
+                            .contains(&level)
+                        {
+                            return Err(ProtocolError::InvalidValueKind(zoom));
+                        }
+                        Some(level)
+                    }
+                    _ => return Err(ProtocolError::InvalidValueKind(zoom)),
+                };
                 Mutation::SetWindow(crate::schema::Window {
                     chrome: crate::schema::Chrome::try_from(chrome)
                         .map_err(|()| ProtocolError::InvalidValueKind(chrome))?,
@@ -932,6 +978,7 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                     min_width: read_u16(bytes, payload + 8)?,
                     min_height: read_u16(bytes, payload + 10)?,
                     resizable: resizable == 1,
+                    zoom_level,
                     // Leaked on purpose, once per window. The record's owner is the
                     // window, the window outlives the batch it arrived in, and there is
                     // one of these per process.
@@ -1660,6 +1707,85 @@ mod tests {
         assert_eq!(
             decode_event(&bytes),
             Err(ProtocolError::InvalidValueKind(3))
+        );
+    }
+
+    /// How large the Renderer is drawing: two floats and a signed level after the head.
+    #[test]
+    fn fr43_zoom_changed_round_trips_fixed_layout() {
+        let event = HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: crate::EventPayload::ZoomChanged {
+                k: 1.25 * 1.44,
+                os: 1.25,
+                level: 2,
+            },
+        };
+        let mut bytes = Vec::new();
+        encode_event(&event, &mut bytes).unwrap();
+        assert_eq!(read_u16(&bytes, 0).unwrap(), 33);
+        assert_eq!(read_u16(&bytes, 2).unwrap(), 28);
+        assert_eq!(bytes.len(), 28);
+        assert_eq!(decode_event(&bytes).unwrap(), event);
+
+        let smaller = HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: crate::EventPayload::ZoomChanged {
+                k: 0.5,
+                os: 1.0,
+                level: -4,
+            },
+        };
+        encode_event(&smaller, &mut bytes).unwrap();
+        assert_eq!(decode_event(&bytes).unwrap(), smaller);
+    }
+
+    /// A level outside the range the Renderer can be at is a protocol error.
+    #[test]
+    fn fr43_a_zoom_level_out_of_range_is_rejected() {
+        let event = HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: crate::EventPayload::ZoomChanged {
+                k: 1.0,
+                os: 1.0,
+                level: 9,
+            },
+        };
+        let mut bytes = Vec::new();
+        encode_event(&event, &mut bytes).unwrap();
+        assert_eq!(
+            decode_event(&bytes),
+            Err(ProtocolError::InvalidValueKind(9))
+        );
+        bytes[2..4].copy_from_slice(&24_u16.to_le_bytes());
+        assert_eq!(
+            decode_event(&bytes),
+            Err(ProtocolError::InvalidRecordLength)
+        );
+    }
+
+    /// The window record carries the application's zoom level where it asked for one, and
+    /// a window that asked for nothing is byte for byte what it was before the level.
+    #[test]
+    fn fr43_the_window_record_carries_a_zoom_level() {
+        for level in [None, Some(-8), Some(0), Some(2), Some(8)] {
+            let mut window = crate::schema::Window::new().with_title("zoom");
+            window.zoom_level = level;
+            let mut encoder = BatchEncoder::default();
+            encoder.encode(&Mutation::SetWindow(window)).unwrap();
+            let bytes = encoder.finish().unwrap().to_vec();
+            if level.is_none() {
+                assert_eq!(read_u16(&bytes, ENVELOPE_LEN + 18).unwrap(), 0);
+            }
+            let decoded = decode_batch(&bytes).unwrap();
+            assert_eq!(decoded, vec![Mutation::SetWindow(window)]);
+        }
+        assert_eq!(
+            crate::schema::Window::new().with_zoom_level(20).zoom_level,
+            Some(8)
         );
     }
 }
