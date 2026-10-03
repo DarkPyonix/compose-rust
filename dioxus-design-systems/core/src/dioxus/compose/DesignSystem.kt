@@ -204,6 +204,30 @@ interface DesignSystem {
         ring = null,
         ringWidth = 0.dp,
     )
+
+    /**
+     * How a code editor is drawn. The default is read from this system's own colours: its
+     * surface, its quiet ink for the numbers, a squiggle in its error colour for a problem.
+     */
+    fun codeEditor(): CodeEditorStyle = CodeEditorStyle(
+        container = color(ColorRole.Surface),
+        text = color(ColorRole.OnSurface),
+        gutter = color(ColorRole.Surface),
+        lineNumber = color(ColorRole.OnSurfaceVariant),
+        currentLineNumber = color(ColorRole.OnSurface),
+        currentLine = color(ColorRole.SurfaceVariant).copy(alpha = 0.5f),
+        currentLineBorder = Color.Transparent,
+        gutterDivider = Color.Transparent,
+        underline = UnderlineShape.Wavy,
+        hintUnderline = UnderlineShape.Dotted,
+        underlineWidth = 1.dp,
+        errorColor = color(ColorRole.Error),
+        warningColor = color(ColorRole.Tertiary),
+        informationColor = color(ColorRole.Primary),
+        hintColor = color(ColorRole.OnSurfaceVariant),
+        ghostTextAlpha = 0.5f,
+        tabWidth = 4,
+    )
 }
 
 /**

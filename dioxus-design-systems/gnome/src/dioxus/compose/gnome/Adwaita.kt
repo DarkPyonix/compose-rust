@@ -337,6 +337,13 @@ class GnomeDesignSystem private constructor(
         ringWidth = 0.dp,
     )
 
+    /** GtkSourceView under Adwaita: a light wash of the ink and the eight column tab it sets by default. */
+    override fun codeEditor(): dioxus.compose.CodeEditorStyle = super.codeEditor().copy(
+        currentLine = color(ColorRole.OnSurface).copy(alpha = 0.05f),
+        lineNumber = color(ColorRole.OnSurface).copy(alpha = 0.45f),
+        tabWidth = 8,
+    )
+
     companion object {
         val Light: GnomeDesignSystem = GnomeDesignSystem(isDark = false)
         val Dark: GnomeDesignSystem = GnomeDesignSystem(isDark = true)

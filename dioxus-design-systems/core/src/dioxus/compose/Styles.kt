@@ -264,3 +264,33 @@ data class BadgeStyle(
         return if (count > ceiling) "$ceiling+" else count.toString()
     }
 }
+
+/**
+ * How a code editor is drawn: the gutter and its numbers, how the current line is shown,
+ * how a diagnostic is marked, how faint a suggestion is, and how far a tab advances.
+ */
+@Immutable
+data class CodeEditorStyle(
+    val container: Color,
+    val text: Color,
+    val gutter: Color,
+    val lineNumber: Color,
+    val currentLineNumber: Color,
+    /** A fill behind the caret's line, transparent where the system draws none. */
+    val currentLine: Color,
+    /** A frame around the caret's line, transparent where the system draws none. */
+    val currentLineBorder: Color,
+    /** A rule between the gutter and the text, transparent where there is none. */
+    val gutterDivider: Color,
+    val underline: UnderlineShape,
+    val hintUnderline: UnderlineShape,
+    val underlineWidth: Dp,
+    /** The role a diagnostic of each severity is drawn in, Error first, Hint last. */
+    val errorColor: Color,
+    val warningColor: Color,
+    val informationColor: Color,
+    val hintColor: Color,
+    /** How much of the text's ink a suggestion shown in place gets. */
+    val ghostTextAlpha: Float,
+    val tabWidth: Int,
+)

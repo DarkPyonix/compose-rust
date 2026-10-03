@@ -343,6 +343,13 @@ class BreezeDesignSystem private constructor(
         ringWidth = 0.dp,
     )
 
+    /** Kate: a gutter a shade off the text with a rule along it, and the current line filled. */
+    override fun codeEditor(): dioxus.compose.CodeEditorStyle = super.codeEditor().copy(
+        gutter = color(ColorRole.SurfaceContainer),
+        gutterDivider = color(ColorRole.OutlineVariant),
+        currentLine = color(ColorRole.Primary).copy(alpha = 0.1f),
+    )
+
     companion object {
         val Light: BreezeDesignSystem = BreezeDesignSystem(isDark = false)
         val Dark: BreezeDesignSystem = BreezeDesignSystem(isDark = true)

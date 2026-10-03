@@ -236,6 +236,12 @@ class Material3DesignSystem(
         ringWidth = 0.dp,
     )
 
+    /** Material's surfaces put to the job: a container-toned gutter and a 38 percent suggestion. */
+    override fun codeEditor(): dioxus.compose.CodeEditorStyle = super.codeEditor().copy(
+        gutter = color(ColorRole.SurfaceContainer),
+        ghostTextAlpha = 0.38f,
+    )
+
     companion object {
 
         /** Material 3's baseline scheme, unmodified, for a light surface. */
