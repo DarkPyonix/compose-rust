@@ -27,11 +27,15 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.pow
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import dev.darkpyonix.composerust.design.ContainerRole
 import dev.darkpyonix.composerust.design.HostPlatform
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.design.resolveTheme
+import dev.darkpyonix.composerust.foundation.buttonStyle
+import dev.darkpyonix.composerust.protocol.ButtonKind
+import dev.darkpyonix.composerust.protocol.ButtonVariant
 import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.ColorScheme
 import dev.darkpyonix.composerust.protocol.DesignSystem
@@ -97,6 +101,12 @@ private fun cornerRadius(shape: Shape, size: Dp): Float {
     return rounded.topStart.toPx(Size(size.value, size.value), Density(1f))
 }
 
+/** The corner this shape would round a [width] by [height] rectangle to, in dp. */
+private fun cornerRadius(shape: Shape, width: Dp, height: Dp): Float {
+    val rounded = shape as? RoundedCornerShape ?: return 0f
+    return rounded.topStart.toPx(Size(width.value, height.value), Density(1f))
+}
+
 /**
  * The places where one design system's answer has to stay its own, and where an answer
  * that is merely plausible turns out to be invisible on screen.
@@ -111,22 +121,23 @@ class DesignSystemDifferenceTest {
      * One action-key declaration takes the silhouette of the platform's calculator.
      *
      * The radius is measured against an eighty dp square: Apple's forty is a circle,
-     * Windows keeps a four dp corner, and Deepin visibly rounds farther at ten. The other
-     * systems are included so adding a design system cannot silently inherit another
-     * platform's key.
+     * Windows keeps its four dp control corner, and Deepin's lozenge rounds farther at ten.
+     * Every system is listed, so a new one cannot silently inherit another platform's key,
+     * and a change to any answer has to be made here on purpose.
      */
     @Test
     fun fr30_every_design_system_answers_the_shape_of_an_action_key() {
         val size = 80.dp
         val expected = mapOf(
-            DesignSystem.Material3 to 16f,
+            DesignSystem.Material3 to 40f,
             DesignSystem.Cupertino to 40f,
             DesignSystem.Fluent to 4f,
             DesignSystem.Gnome to 6f,
-            DesignSystem.Breeze to 2f,
+            DesignSystem.Breeze to 4f,
             DesignSystem.Deepin to 10f,
             DesignSystem.LiquidGlass to 40f,
         )
+        assertEquals(DesignSystem.entries.toSet(), expected.keys, "a design system has no expected action key")
         expected.forEach { (system, radius) ->
             val theme = resolved(system, dark = false)
             val measured = cornerRadius(theme.rules.actionKeyShape(theme), size)
@@ -135,8 +146,72 @@ class DesignSystemDifferenceTest {
                 "$system rounds an $size action key by $measured dp, expected $radius dp",
             )
         }
-        assertTrue(expected.getValue(DesignSystem.Cupertino) > expected.getValue(DesignSystem.Fluent))
-        assertTrue(expected.getValue(DesignSystem.Deepin) > expected.getValue(DesignSystem.Fluent))
+    }
+
+    /**
+     * The same key under Cupertino and Fluent 2: Apple's corner is half the short side,
+     * which makes a circle of a square key and a capsule of a wide one, and Windows' is
+     * smaller. A wide key is measured as well as a square one, because a corner that only
+     * happened to equal forty on an eighty dp square would pass the square alone.
+     */
+    @Test
+    fun fr30_a_cupertino_action_key_is_round_and_a_fluent_one_is_not() {
+        val cupertino = resolved(DesignSystem.Cupertino, dark = false)
+        val fluent = resolved(DesignSystem.Fluent, dark = false)
+        for ((width, height) in listOf(80.dp to 80.dp, 120.dp to 60.dp, 64.dp to 96.dp)) {
+            val half = minOf(width.value, height.value) / 2f
+            val apple = cornerRadius(cupertino.rules.actionKeyShape(cupertino), width, height)
+            val windows = cornerRadius(fluent.rules.actionKeyShape(fluent), width, height)
+            assertTrue(
+                abs(apple - half) < 0.5f,
+                "Cupertino rounds a $width by $height action key by $apple dp, not by half its short side, $half dp",
+            )
+            assertTrue(
+                windows < apple,
+                "Fluent rounds a $width by $height action key by $windows dp, which is not less than Cupertino's $apple dp",
+            )
+        }
+    }
+
+    /** The same key under Fluent 2 and Deepin: Deepin's corner is the larger one. */
+    @Test
+    fun fr30_a_deepin_action_key_is_rounder_than_a_fluent_one() {
+        val fluent = resolved(DesignSystem.Fluent, dark = false)
+        val deepin = resolved(DesignSystem.Deepin, dark = false)
+        val size = 80.dp
+        val windows = cornerRadius(fluent.rules.actionKeyShape(fluent), size)
+        val uos = cornerRadius(deepin.rules.actionKeyShape(deepin), size)
+        assertTrue(uos > windows, "Deepin rounds an action key by $uos dp, which is not more than Fluent's $windows dp")
+    }
+
+    /**
+     * A kind changes the outline and nothing else, and only when it is asked for.
+     *
+     * A standard button is exactly the variant's answer, in every system and for every
+     * variant, so no screen written before kinds existed looks any different. An action
+     * key keeps every part of the variant except the shape: the fill, the ink, the border
+     * and the press are still the variant's, because a kind says what a button is and the
+     * variant says how loud it is.
+     */
+    @Test
+    fun fr30_a_kind_changes_only_the_outline_of_an_action_key() {
+        for (system in DesignSystem.entries) {
+            val theme = resolved(system, dark = false)
+            for (variant in ButtonVariant.entries) {
+                val base = theme.rules.button(variant, theme)
+                assertEquals(
+                    base,
+                    buttonStyle(variant, ButtonKind.Standard, theme),
+                    "a standard $variant button under $system is not the variant's own style",
+                )
+                val key = buttonStyle(variant, ButtonKind.ActionKey, theme)
+                assertEquals(
+                    base.copy(shape = theme.rules.actionKeyShape(theme)),
+                    key,
+                    "a $variant action key under $system changed more than its outline",
+                )
+            }
+        }
     }
 
     /**

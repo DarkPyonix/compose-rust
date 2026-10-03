@@ -24,6 +24,15 @@ written down, because their failing is what found the cause.
 
 `docs/platforms.md` has the measurements, what each platform can and cannot do, and why.
 
+### A calculator's keys are each platform's own
+
+`Button` takes a `kind`. `ButtonKind::ActionKey` says the button is one key of a dense grid,
+and the design system draws its own calculator's key: a circle on macOS, a rectangle at the
+4 dp control corner on Windows 11, a rounder 10 dp lozenge on Deepin. The application names
+no radius and asks no question about which system is running; the variant still chooses the
+fill. A button that names no kind is unchanged and sends nothing new. The calculator sample
+declares every key of its pad this way.
+
 ### Checked by hand on the macOS native path
 
 The calculator draws, a screen reader is given every button by name, a press reaches the

@@ -90,6 +90,7 @@ fn property_of(attribute: &str) -> Option<&'static str> {
         "space_role" => "SpaceRole",
         "alignment" => "Alignment",
         "variant" => "Variant",
+        "button_kind" => "ButtonKind",
         "asset" => "Asset",
         "checked" => "Checked",
         "steps" => "Steps",

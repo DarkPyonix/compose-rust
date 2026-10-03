@@ -1691,6 +1691,13 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             property: PropertyKind::Collapsible,
             value: PropertyValue::Bool(true),
         },
+        // A button's kind: a role tag in the fixed record, like the variant, so both sides
+        // agree on the property tag and on the value it carries.
+        Mutation::SetProp {
+            node_id: 2,
+            property: PropertyKind::ButtonKind,
+            value: PropertyValue::Integer(crate::schema::ButtonKind::ActionKey as i64),
+        },
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {

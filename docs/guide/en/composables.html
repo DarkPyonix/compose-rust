@@ -284,6 +284,7 @@
           <tr><td><code>TextAlign</code></td><td><code>Start</code>, <code>Center</code>, <code>End</code>, <code>Justify</code></td><td><code>Text</code></td></tr>
           <tr><td><code>TextOverflow</code></td><td><code>Clip</code>, <code>Ellipsis</code>, <code>Visible</code></td><td><code>Text</code>, with <code>max_lines</code></td></tr>
           <tr><td><code>ButtonVariant</code></td><td><code>Filled</code>, <code>Tonal</code>, <code>Outlined</code>, <code>Text</code></td><td><code>Button</code></td></tr>
+          <tr><td><code>ButtonKind</code></td><td><code>Standard</code>, <code>ActionKey</code></td><td><code>Button</code></td></tr>
           <tr><td><code>MessageDuration</code></td><td><code>Short</code>, <code>Long</code></td><td><code>Message</code></td></tr>
           <tr><td><code>WindowSizeClass</code></td><td><code>Compact</code>, <code>Medium</code>, <code>Expanded</code></td><td><code>use_window_size</code></td></tr>
         </tbody>
@@ -551,6 +552,7 @@
           <tr><td><code>text</code></td><td><code>String</code></td><td>required</td><td>The label.</td></tr>
           <tr><td><code>enabled</code></td><td><code>bool</code></td><td><code>true</code></td><td>Whether it can be pressed.</td></tr>
           <tr><td><code>variant</code></td><td><code>ButtonVariant</code></td><td>unset</td><td><code>Filled</code>, <code>Tonal</code>, <code>Outlined</code> or <code>Text</code>.</td></tr>
+          <tr><td><code>kind</code></td><td><code>ButtonKind</code></td><td><code>Standard</code></td><td>What the button is, apart from how loud it is. <code>ActionKey</code> is a key in a dense grid of them, such as a calculator's keypad: the design system draws it in its own calculator's silhouette (a circle on macOS, a small-radius rectangle on Windows 11, a rounder one on Deepin) and the variant still chooses the fill.</td></tr>
           <tr><td><code>color</code></td><td><code>Paint</code></td><td>unset</td><td>The label's colour, for the rare button whose meaning is not its variant's. A destructive action is the case: a plain button whose label is <code>ColorRole::Error</code>.</td></tr>
           <tr><td><code>icon</code></td><td><code>Option&lt;IconRole&gt;</code></td><td>unset</td><td>A glyph on the button, by meaning rather than by picture. With an empty <code>text</code> the icon is also the button's accessible name, so an icon-only button in a bar is not left nameless.</td></tr>
           <tr><td><code>background</code></td><td><code>Paint</code></td><td>unset</td><td>The fill. Setting it replaces the variant's fill and leaves the shape, border, resting height and padding to the design system.</td></tr>

@@ -56,11 +56,12 @@ pub use notification::{
 pub use palette::{Palette, PaletteViolation};
 pub use runtime::{Batch, Runtime};
 pub use schema::{
-    Alignment, Arrangement, AssetKind, ButtonVariant, Chrome, Color, ColorRole, ColorScheme,
-    DesignSystem, EventPayload, IconRole, Key, LoopMode, MaterialRole, MessageDuration, Modifier,
-    MotionRole, NotificationImportance, NotificationPermission, NotificationPresentation, Paint,
-    PropertyKind, SCHEMA_HASH, Selection, ShapeRole, SpaceRole, TextAlign, TextOverflow, Theme,
-    TileMode, TypeRole, WidgetKind, WindowHeightClass, WindowSizeClass,
+    Alignment, Arrangement, AssetKind, ButtonKind, ButtonVariant, Chrome, Color, ColorRole,
+    ColorScheme, DesignSystem, EventPayload, IconRole, Key, LoopMode, MaterialRole,
+    MessageDuration, Modifier, MotionRole, NotificationImportance, NotificationPermission,
+    NotificationPresentation, Paint, PropertyKind, SCHEMA_HASH, Selection, ShapeRole, SpaceRole,
+    TextAlign, TextOverflow, Theme, TileMode, TypeRole, WidgetKind, WindowHeightClass,
+    WindowSizeClass,
 };
 pub use theme::ThemeHandle;
 pub use window::{NodeSize, WindowSize, node_size, window_size};

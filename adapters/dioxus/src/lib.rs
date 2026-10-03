@@ -122,9 +122,9 @@ pub mod prelude {
     // Exporting the Compose `Box` through this glob prelude shadows it. Use
     // `dioxus_compose_adapter::Box { ... }` in RSX until upstream qualifies std::boxed::Box.
     pub use crate::{
-        Alignment, Arrangement, AssetKind, Badge, Brush, Button, ButtonVariant, Canvas, Card,
-        Checkbox, Chip, Color, ColorRole, ColorScheme, Column, DatePicker, DesignSystem, Dialog,
-        Divider, DrawCommand, DrawList, Dropdown, Element, FileDrop, FileDropTarget,
+        Alignment, Arrangement, AssetKind, Badge, Brush, Button, ButtonKind, ButtonVariant, Canvas,
+        Card, Checkbox, Chip, Color, ColorRole, ColorScheme, Column, DatePicker, DesignSystem,
+        Dialog, Divider, DrawCommand, DrawList, Dropdown, Element, FileDrop, FileDropTarget,
         FloatingAction, Icon, IconRole, Image, Key, KeyEvent, LaunchBuilder, LazyColumn, LazyGrid,
         LazyRow, LinearProgressIndicator, LoopMode, MaterialRole, Menu, Message, MessageDuration,
         Modifier, MotionRole, Navigation, NavigationItem, Paint, Palette, ProgressIndicator, Props,

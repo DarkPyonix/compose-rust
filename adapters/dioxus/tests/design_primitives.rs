@@ -116,13 +116,72 @@ fn fr13_layout_roles_and_variant_are_sent_as_tags() {
     );
 }
 
+/// A key in a dense grid says what it is and nothing about its corners. The design system
+/// answers with the shape, so neither a radius nor a shape role goes with it, and the
+/// variant still travels as the emphasis it always was.
 #[test]
 fn fr30_action_key_declares_what_the_button_is() {
     let props = props_of(action_key);
+    assert!(
+        props.contains(&(
+            PropertyKind::ButtonKind,
+            PropertyValue::Integer(ButtonKind::ActionKey as i64),
+        )),
+        "the key did not say it is an action key: {props:?}"
+    );
     assert!(props.contains(&(
-        PropertyKind::ButtonKind,
-        PropertyValue::Integer(ButtonKind::ActionKey as i64),
+        PropertyKind::Variant,
+        PropertyValue::Integer(ButtonVariant::Tonal as i64),
     )));
+    assert_eq!(PropertyKind::ButtonKind as u16, 75);
+    assert_eq!(ButtonKind::Standard as u16, 1);
+    assert_eq!(ButtonKind::ActionKey as u16, 2);
+}
+
+/// A button that never mentions a kind is the button it always was, on the wire as well:
+/// it sends no kind at all rather than a zero, so no existing screen pays a record for it.
+#[test]
+fn fr30_a_standard_button_sends_no_kind() {
+    let props = props_of(styled_column);
+    assert!(
+        !props
+            .iter()
+            .any(|(property, _)| *property == PropertyKind::ButtonKind),
+        "a button that named no kind sent one: {props:?}"
+    );
+}
+
+/// The kind travels in the fixed record every property uses, under tag 75, and the
+/// checked-in protocol vector carries it so the Renderer's decoder is tested against the
+/// same bytes.
+#[test]
+fn fr30_button_kind_round_trips_under_its_tag() {
+    use dioxus_compose_adapter::protocol::BatchEncoder;
+    let record = Mutation::SetProp {
+        node_id: 9,
+        property: PropertyKind::ButtonKind,
+        value: PropertyValue::Integer(ButtonKind::ActionKey as i64),
+    };
+    let mut encoder = BatchEncoder::default();
+    encoder.encode(&record).unwrap();
+    let bytes = encoder.finish().unwrap();
+    assert_eq!(bytes.len(), 12 + 24);
+    assert_eq!(u16::from_le_bytes([bytes[20], bytes[21]]), 75);
+    assert_eq!(decode_batch(bytes).unwrap(), [record]);
+
+    let vector = dioxus_compose_adapter::codegen::generate_mutation_vector().unwrap();
+    assert!(
+        decode_batch(&vector)
+            .unwrap()
+            .iter()
+            .any(|mutation| *mutation
+                == Mutation::SetProp {
+                    node_id: 2,
+                    property: PropertyKind::ButtonKind,
+                    value: PropertyValue::Integer(ButtonKind::ActionKey as i64),
+                }),
+        "the protocol vector does not carry ButtonKind"
+    );
 }
 
 fn monospaced_field() -> Element {

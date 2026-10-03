@@ -39,7 +39,11 @@ import dev.darkpyonix.composerust.protocol.TitleBar
  * expressive ladder, which is the part of this that a reader sees first.
  */
 internal object Material3Rules : ComponentRules {
-    override fun actionKeyShape(theme: ResolvedTheme): Shape = theme.shape(ShapeRole.Medium)
+    /**
+     * Google's Calculator draws its keys round: a circle where the cell is square and a
+     * pill where it is wider, the full shape every Material 3 button rests at.
+     */
+    override fun actionKeyShape(theme: ResolvedTheme): Shape = theme.shape(ShapeRole.Full)
 
     override fun elevation(modifier: Modifier, elevation: Dp, shape: Shape, theme: ResolvedTheme): Modifier {
         if (elevation.value <= 0f) return modifier
@@ -583,6 +587,10 @@ internal object Material3Rules : ComponentRules {
  * shadow at all, and the press feedback is a dim, not a ripple.
  */
 internal object CupertinoRules : ComponentRules {
+    /**
+     * Apple's Calculator keys are circles, half the short side in radius, rather than the
+     * continuous rounded rectangle a button on a page is.
+     */
     override fun actionKeyShape(theme: ResolvedTheme): Shape = theme.shape(ShapeRole.Full)
 
     override fun elevation(modifier: Modifier, elevation: Dp, shape: Shape, theme: ResolvedTheme): Modifier {
@@ -1148,6 +1156,10 @@ internal val TRAFFIC_GREEN = Color(0xFF28C840)
  * lighter top edge, and the press is an immediate tone change with no travel.
  */
 internal object FluentRules : ComponentRules {
+    /**
+     * The Windows 11 Calculator's keys are rectangles at the control corner, 4 dp, set
+     * almost edge to edge. A capsule would be someone else's calculator.
+     */
     override fun actionKeyShape(theme: ResolvedTheme): Shape = theme.shape(ShapeRole.Medium)
 
     override fun elevation(modifier: Modifier, elevation: Dp, shape: Shape, theme: ResolvedTheme): Modifier {
@@ -1675,6 +1687,10 @@ internal object FluentRules : ComponentRules {
  * and stops: nothing ripples and nothing rises.
  */
 internal object GnomeRules : ComponentRules {
+    /**
+     * GNOME Calculator's keys are ordinary GTK buttons, so they keep the 6 dp button
+     * corner, which is ShapeRole.Small in the Adwaita table.
+     */
     override fun actionKeyShape(theme: ResolvedTheme): Shape = theme.shape(ShapeRole.Small)
 
     // The same value Material, Cupertino and Fluent use for a control nobody can press.
@@ -2221,7 +2237,11 @@ internal object GnomeRules : ComponentRules {
  * line on press rather than filling in.
  */
 internal object BreezeRules : ComponentRules {
-    override fun actionKeyShape(theme: ResolvedTheme): Shape = theme.shape(ShapeRole.ExtraSmall)
+    /**
+     * KCalc's keys are Breeze push buttons, so they keep the 4 dp control corner, which is
+     * ShapeRole.Medium in the Breeze table.
+     */
+    override fun actionKeyShape(theme: ResolvedTheme): Shape = theme.shape(ShapeRole.Medium)
 
     // The same value Material, Cupertino and Fluent use for a control nobody can press.
     private const val DISABLED_ALPHA = 0.38f
@@ -2771,6 +2791,10 @@ internal object BreezeRules : ComponentRules {
  * is.
  */
 internal object DeepinRules : ComponentRules {
+    /**
+     * Deepin's Calculator keys are the 10 dp lozenge with room between them, visibly
+     * rounder than the Windows key and nowhere near a circle.
+     */
     override fun actionKeyShape(theme: ResolvedTheme): Shape = theme.shape(ShapeRole.Medium)
 
     // The same value Material, Cupertino and Fluent use for a control nobody can press.
@@ -3306,8 +3330,8 @@ internal object DeepinRules : ComponentRules {
  * is where that decision lives.
  */
 internal object LiquidGlassRules : ComponentRules {
+    /** The same circular key as Apple's Calculator under the earlier material. */
     override fun actionKeyShape(theme: ResolvedTheme): Shape = theme.shape(ShapeRole.Full)
-
 
     /**
      * Which container roles are glass in a window of this class.

@@ -8,8 +8,8 @@ use dioxus_signals::WritableExt as _;
 use crate as dioxus_elements;
 use compose_rust::drawing::DrawList;
 use compose_rust::schema::{
-    Alignment, Arrangement, ButtonVariant, ColorRole, IconRole, MaterialRole, MotionRole, Paint,
-    ShapeRole, SlotRole, SpaceRole, TextAlign, TextOverflow, TypeRole,
+    Alignment, Arrangement, ButtonKind, ButtonVariant, ColorRole, IconRole, MaterialRole,
+    MotionRole, Paint, ShapeRole, SlotRole, SpaceRole, TextAlign, TextOverflow, TypeRole,
 };
 use compose_rust::{FileDrop, KeyEvent, RangeRequest};
 
@@ -438,8 +438,15 @@ pub fn Button(
     icon: Option<IconRole>,
     #[props(default = true)] enabled: bool,
     #[props(default)] variant: Option<ButtonVariant>,
-    /// What component this button is, independently from how strongly it is emphasised.
-    /// An action key lets the design system choose the silhouette of a dense key grid.
+    /// What the button is, apart from how loud it is.
+    ///
+    /// `ButtonKind::ActionKey` is one key of a dense grid of them, a calculator's keypad
+    /// above all. The design system answers with its own calculator's key: a circle on
+    /// macOS, a small-radius rectangle on Windows 11, a rounder one on Deepin. Nothing
+    /// here names a radius, so the same keypad is right under every one of them. The
+    /// variant still chooses the fill.
+    ///
+    /// Unset is a standard button, and sends nothing.
     #[props(default)]
     kind: Option<ButtonKind>,
     /// The label's colour, for the rare button whose meaning is not the variant's.
@@ -468,7 +475,7 @@ pub fn Button(
             icon: opt_role(icon),
             enabled,
             variant: role(variant),
-            button_kind: role(kind),
+            button_kind: opt_role(kind),
             color: opt_paint(color),
             onclick: move |_| on_click.call(()),
         }

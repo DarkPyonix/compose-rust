@@ -345,7 +345,19 @@ interface ComponentRules {
         theme: ResolvedTheme,
     ): ButtonStyle
 
-    /** The silhouette of a repeated action in a dense key grid. */
+    /**
+     * The silhouette of a key in a dense grid of them: a button whose kind is
+     * `ButtonKind.ActionKey`, a calculator's pad above all.
+     *
+     * A key is a different component from a button on a page, and the systems disagree
+     * about it in ways a shape role cannot say: Apple draws a circle, Windows 11 a
+     * rectangle at its small control corner, Deepin a rounder one. The Host sends neither a
+     * radius nor a role for it, so this is the only place the answer can come from.
+     *
+     * Deliberately without a default. A system that inherited someone else's key would draw
+     * another platform's calculator, so every system has to say what its own is. The
+     * variant still chooses the fill; only the outline is answered here.
+     */
     fun actionKeyShape(theme: ResolvedTheme): Shape
 
     /**
@@ -517,7 +529,6 @@ interface ComponentRules {
         spacing = theme.space(SpaceRole.Xs),
         edgePadding = theme.space(SpaceRole.Sm),
         titleAlignment = CaptionTitleAlignment.Start,
-        titlePlacement = CaptionTitlePlacement.Bar,
     )
 
     /**
@@ -778,9 +789,6 @@ enum class CaptionSide { Start, End }
 
 /** Where the window's title sits along the caption. */
 enum class CaptionTitleAlignment { Start, Center }
-
-/** Whether the bar or the platform-owned caption draws the window title. */
-enum class CaptionTitlePlacement { Bar, SystemCaption }
 
 /**
  * How the window's own caption is drawn: the three buttons, and where the title sits.
