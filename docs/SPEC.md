@@ -352,7 +352,7 @@ Property 태그(기존 `OnRangeRequested=12` 뒤에 덧붙입니다): `TypeRole=
 
 2단계 세 시스템은 구현되어 실행 경로 위에 있습니다. 세 개 모두 `DesignSystem` 변형 1개(태그 4, 5, 6 추가, 기존 태그는 그대로), `tokens.rs`의 토큰 테이블 1개, Renderer의 `ComponentRules` 구현 1개로 끝났고 위젯·속성·Modifier·와이어 포맷은 움직이지 않았습니다. 값은 `dioxus-design-systems/`의 Kotlin 구현에서 그대로 옮겨 왔습니다.
 
-사본이 둘인데 아무것도 비교하지 않으면 조용히 갈라집니다. 실제로 두 행이 갈라졌습니다. GNOME의 어두운 보조 강조색 위 글자색은 한쪽이 흰색, 다른 쪽이 거의 검정이었고, Breeze의 어두운 패널 색은 한쪽이 뷰 색, 다른 쪽이 `SurfaceVariant` 회색이었습니다. 이제 Rust 쪽 테스트가 `tokens.rs`의 테이블과 `dioxus-design-systems/`의 Kotlin 리터럴 테이블을 직접 비교합니다. 색, 반경, 간격이 하나라도 다르면 실패합니다.
+사본이 둘인데 아무것도 비교하지 않으면 조용히 갈라집니다. 실제로 두 행이 갈라졌습니다. GNOME의 어두운 보조 강조색 위 글자색은 한쪽이 흰색, 다른 쪽이 거의 검정이었고, Breeze의 어두운 패널 색은 한쪽이 뷰 색, 다른 쪽이 `SurfaceVariant` 회색이었습니다. 이제 Rust 쪽 테스트가 `tokens.rs`의 테이블과 `dioxus-design-systems/`의 Kotlin 리터럴 테이블을 직접 비교합니다. 색, 반경, 간격이 하나라도 다르면 실패합니다. **2026-10-03(INTENT D19): 디자인 시스템은 `compose-multiplatform-core-extended`로 옮겨 갑니다.** 옮긴 뒤 이 비교의 상대는 이 저장소가 고정한 포크 커밋의 표이고, 비교 자체는 그대로 남습니다.
 
 3단계는 Liquid Glass 하나이며, 같은 방식으로 끝났습니다. `DesignSystem` 변형 1개(태그 7), 토큰 테이블 1개, `ComponentRules` 구현 1개입니다. **Cupertino를 대체하지 않고 그 옆에 놓습니다**(INTENT D13). 두 언어는 서로 다른 화면을 만들며 둘 다 지금 쓰입니다.
 
