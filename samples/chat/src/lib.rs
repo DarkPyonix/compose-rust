@@ -15,7 +15,7 @@
 mod assistant;
 
 use assistant::{Length, Settings, Turns};
-use dioxus_compose::prelude::*;
+use compose_rust::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Message {
@@ -141,8 +141,8 @@ const PAGE_INSET: f32 = 8.0;
 fn spark(size: f32) -> Element {
     rsx! {
         Image {
-            asset_id: dioxus_compose::asset::asset(
-                dioxus_compose::schema::AssetKind::Svg,
+            asset_id: compose_rust::asset::asset(
+                compose_rust::schema::AssetKind::Svg,
                 include_bytes!("../assets/spark.svg"),
             ),
             width: size,
@@ -411,7 +411,7 @@ pub fn app() -> Element {
         // Spelled out, because this file already has a `Message` and it is a line of a
         // conversation. The library's is the one sentence an application says after
         // something happened.
-        dioxus_compose::Message::new(format!("Deleted \u{201c}{}\u{201d}", removed.label()))
+        compose_rust::Message::new(format!("Deleted \u{201c}{}\u{201d}", removed.label()))
             .with_action("Undo", move |()| {
                 conversations.write().insert(at, removed.clone());
                 messages.set(lines.clone());
@@ -566,7 +566,7 @@ pub fn app() -> Element {
                             // the message, and a disc of the quiet fill landed two levels
                             // from the mark behind the row the sidebar was marking. An
                             // empty circle is a placeholder either way; a letter is not.
-                            dioxus_compose::Box {
+                            compose_rust::Box {
                                 width: THE_ACCOUNT_PICTURE,
                                 height: THE_ACCOUNT_PICTURE,
                                 shape_role: ShapeRole::Full,
@@ -624,7 +624,7 @@ pub fn app() -> Element {
             // column of its own, centred, with the page showing either side of it. The
             // page is the frame's, so the column paints nothing: what is behind it is the
             // design system's page, and on a window made of glass, the desktop.
-            dioxus_compose::Box {
+            compose_rust::Box {
                 fill_max_width: true,
                 fill_max_height: true,
                 alignment: Alignment::TopCenter,
@@ -647,7 +647,7 @@ pub fn app() -> Element {
                     // is. The list is declared either way: a conversation that begins by
                     // building a list is a conversation whose first message arrives a
                     // frame late.
-                    dioxus_compose::Box {
+                    compose_rust::Box {
                         fill_max_width: true,
                         weight: 1.0,
                         alignment: Alignment::Center,
@@ -671,7 +671,7 @@ pub fn app() -> Element {
                                     (ColorRole::SurfaceVariant, ColorRole::OnSurfaceVariant)
                                 };
                                 rsx! {
-                                    dioxus_compose::Box {
+                                    compose_rust::Box {
                                         fill_max_width: true,
                                         padding_role: if starts_a_run {
                                             SpaceRole::Sm
@@ -930,12 +930,12 @@ pub fn launch() {
 ///
 /// Apache 2.0, the same licence as this project. `assets/Roboto-LICENSE.txt` is its copy.
 fn with_the_references_typeface(theme: Theme) -> Theme {
-    let regular = dioxus_compose::asset::asset(
-        dioxus_compose::schema::AssetKind::Font,
+    let regular = compose_rust::asset::asset(
+        compose_rust::schema::AssetKind::Font,
         include_bytes!("../assets/Roboto-Regular.ttf"),
     );
-    let medium = dioxus_compose::asset::asset(
-        dioxus_compose::schema::AssetKind::Font,
+    let medium = compose_rust::asset::asset(
+        compose_rust::schema::AssetKind::Font,
         include_bytes!("../assets/Roboto-Medium.ttf"),
     );
     theme
@@ -949,28 +949,28 @@ fn with_the_references_typeface(theme: Theme) -> Theme {
         .with_font(TypeRole::Caption, regular)
 }
 
-fn launch_builder() -> dioxus_compose::LaunchBuilder {
+fn launch_builder() -> compose_rust::LaunchBuilder {
     // The name the window carries. A desktop lists windows by it, so a window that said
     // nothing was listed under whatever the renderer happened to be called, and every
-    // sample here was listed as DioxusCompose until this line existed.
-    dioxus_compose::LaunchBuilder::new()
-        .with_theme(with_the_references_typeface(dioxus_compose::demo_theme()))
+    // sample here was listed under the toolkit's default name until this line existed.
+    compose_rust::LaunchBuilder::new()
+        .with_theme(with_the_references_typeface(compose_rust::demo_theme()))
         .with_window(
-            dioxus_compose::schema::Window::new()
+            compose_rust::schema::Window::new()
                 .with_title("Chat")
                 // The window this is clone coded from, which on macOS has its buttons a
                 // step in from the corner and a larger radius than a plain window. Said
                 // out loud even though it is the default, because it is a fact about this
                 // application's window rather than something to be inherited quietly.
-                .with_title_bar(dioxus_compose::schema::TitleBar::Normal)
+                .with_title_bar(compose_rust::schema::TitleBar::Normal)
                 // Without one the window wears the toolkit's picture, which on
                 // Windows is the Java coffee cup, wherever the system lists
                 // windows. The bytes travel as an asset and the renderer refers
                 // to them by id: a path would be a fact about the machine this
                 // was built on, and a name would ask the toolkit to find
                 // something it may not have.
-                .with_icon(dioxus_compose::asset::asset(
-                    dioxus_compose::schema::AssetKind::Png,
+                .with_icon(compose_rust::asset::asset(
+                    compose_rust::schema::AssetKind::Png,
                     include_bytes!("../assets/icon.png"),
                 )),
         )
@@ -983,18 +983,16 @@ fn launch_builder() -> dioxus_compose::LaunchBuilder {
 // Both are declared unconditionally. Each macro compiles into nothing that runs off its
 // own platform, and gating them here instead would mean a desktop build never checks that
 // this sample can still be built for the other two.
-dioxus_compose::android_main!({ launch_builder() }, app);
-dioxus_compose::web_main!({ launch_builder() }, app);
-dioxus_compose::ios_main!(launch);
+compose_rust::android_main!({ launch_builder() }, app);
+compose_rust::web_main!({ launch_builder() }, app);
+compose_rust::ios_main!(launch);
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dioxus_compose::Host;
-    use dioxus_compose::protocol::{
-        HostEvent, Mutation, PropertyValue, decode_batch, encode_event,
-    };
-    use dioxus_compose::schema::{EventPayload, PropertyKind, WidgetKind};
+    use compose_rust::Host;
+    use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
+    use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind};
     use std::alloc::{GlobalAlloc, Layout, System};
     use std::cell::Cell;
     use std::collections::{HashMap, HashSet};
@@ -1633,7 +1631,7 @@ mod tests {
     /// The widths a thread takes, read back off the wire after the Renderer reports a
     /// window of the given width.
     fn widths_at(width_dp: f32) -> Vec<f32> {
-        dioxus_compose::window::reset_window_size();
+        compose_rust::window::reset_window_size();
         let mut host = Host::new(app);
         host.rebuild().expect("the first frame failed to encode");
         let event = HostEvent {
@@ -1642,8 +1640,8 @@ mod tests {
             payload: EventPayload::WindowSizeChanged {
                 width_dp,
                 height_dp: 900.0,
-                class: dioxus_compose::WindowSizeClass::from_width_dp(width_dp),
-                height_class: dioxus_compose::WindowHeightClass::from_height_dp(900.0),
+                class: compose_rust::WindowSizeClass::from_width_dp(width_dp),
+                height_class: compose_rust::WindowHeightClass::from_height_dp(900.0),
             },
         };
         let mut bytes = Vec::new();
@@ -1654,13 +1652,13 @@ mod tests {
             .iter()
             .filter_map(|mutation| match mutation {
                 Mutation::SetModifier {
-                    modifier: dioxus_compose::Modifier::Width(width),
+                    modifier: compose_rust::Modifier::Width(width),
                     ..
                 } => Some(*width),
                 _ => None,
             })
             .collect();
-        dioxus_compose::window::reset_window_size();
+        compose_rust::window::reset_window_size();
         widths
     }
 
@@ -1673,13 +1671,13 @@ mod tests {
             widths_at(420.0).is_empty(),
             "a compact window should not size the thread"
         );
-        assert!(widths_at(700.0).contains(&dioxus_compose::WindowSizeClass::MEDIUM_MIN_WIDTH_DP));
+        assert!(widths_at(700.0).contains(&compose_rust::WindowSizeClass::MEDIUM_MIN_WIDTH_DP));
         // Not the class's own boundary on a wide window. The column is the reference's,
         // which is narrower than the width at which its class begins, because a line of
         // text stops being readable long before a window stops being wide.
         assert!(widths_at(1200.0).contains(&THREAD_COLUMN));
         assert!(
-            !widths_at(1200.0).contains(&dioxus_compose::WindowSizeClass::EXPANDED_MIN_WIDTH_DP),
+            !widths_at(1200.0).contains(&compose_rust::WindowSizeClass::EXPANDED_MIN_WIDTH_DP),
             "the thread grew to the width the class starts at, which is a window \
              measurement rather than a reading one"
         );
@@ -1798,7 +1796,7 @@ mod tests {
     /// On a desktop the sidebar opens with search, and pressing it opens the filter.
     #[test]
     fn fr22_the_desktop_search_destination_opens_the_filter_sheet() {
-        dioxus_compose::window::reset_window_size();
+        compose_rust::window::reset_window_size();
         let mut host = Host::new(app);
         host.rebuild().expect("the first frame failed to encode");
 
@@ -1808,8 +1806,8 @@ mod tests {
             payload: EventPayload::WindowSizeChanged {
                 width_dp: 1_000.0,
                 height_dp: 700.0,
-                class: dioxus_compose::WindowSizeClass::Expanded,
-                height_class: dioxus_compose::WindowHeightClass::Medium,
+                class: compose_rust::WindowSizeClass::Expanded,
+                height_class: compose_rust::WindowHeightClass::Medium,
             },
         };
         let mut event = Vec::new();
@@ -1865,7 +1863,7 @@ mod tests {
                 )),
             "pressing Search did not open its sheet"
         );
-        dioxus_compose::window::reset_window_size();
+        compose_rust::window::reset_window_size();
     }
 
     /// The reference puts everything that belongs to sending a message inside one rounded
@@ -1910,7 +1908,7 @@ mod tests {
              one control"
         );
 
-        let modifiers: Vec<&dioxus_compose::Modifier> = batch
+        let modifiers: Vec<&compose_rust::Modifier> = batch
             .iter()
             .filter_map(|mutation| match mutation {
                 Mutation::SetModifier {
@@ -1922,14 +1920,14 @@ mod tests {
         assert!(
             modifiers.iter().any(|modifier| matches!(
                 modifier,
-                dioxus_compose::Modifier::ShapeRole(ShapeRole::Full)
+                compose_rust::Modifier::ShapeRole(ShapeRole::Full)
             )),
             "the composer is not the reference's pill: {modifiers:?}"
         );
         assert!(
             modifiers.iter().any(|modifier| matches!(
                 modifier,
-                dioxus_compose::Modifier::Material(MaterialRole::Regular)
+                compose_rust::Modifier::Material(MaterialRole::Regular)
             )),
             "the composer is not made of a material, so it cannot float as chrome: {modifiers:?}"
         );
@@ -1971,7 +1969,7 @@ mod tests {
                 mutation,
                 Mutation::SetModifier {
                     node_id,
-                    modifier: dioxus_compose::Modifier::Material(MaterialRole::Chrome),
+                    modifier: compose_rust::Modifier::Material(MaterialRole::Chrome),
                     ..
                 } if *node_id == root
             )),

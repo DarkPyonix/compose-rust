@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# A crate whose Cargo.toml says only "dioxus-compose" builds, links, and starts.
+# A crate whose Cargo.toml says only "compose-rust" builds, links, and starts.
 #
 # This is the case the rest of the test suite could not reach. Every sample in this
 # repository used to carry a build script that repeated the library's rpath, so the
 # samples passed while an application that merely depends on the crate linked cleanly and
 # then died at start up with
 #
-#     Library not loaded: @rpath/libdioxus_compose_renderer.dylib, no LC_RPATH's found
+#     Library not loaded: @rpath/libcompose_rust_renderer.dylib, no LC_RPATH's found
 #
 # because Cargo does not pass a dependency's link arguments on to the binary that uses it.
-# dioxus-compose/tests/fixtures/consumer/ is that application, and it has no build script.
+# compose-rust/tests/fixtures/consumer/ is that application, and it has no build script.
 #
 # Why this is a shell script and not a cargo test. It has to run cargo, and a cargo test
 # that runs cargo either shares the outer target directory, where it blocks on the build
@@ -21,7 +21,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-fixture="$repo_root/dioxus-compose/tests/fixtures/consumer"
+fixture="$repo_root/compose-rust/tests/fixtures/consumer"
 
 fail() {
     echo "fail  $1" >&2
@@ -42,7 +42,7 @@ case "$(uname -s)" in
 esac
 
 command -v cargo >/dev/null || fail "cargo is not on PATH" \
-    "This builds a crate that depends on dioxus-compose, so it needs the toolchain."
+    "This builds a crate that depends on compose-rust, so it needs the toolchain."
 
 [[ -f "$fixture/Cargo.toml" ]] || fail "no consumer fixture at $fixture" \
     "The regression this defends is a crate with no build.rs of its own, so the fixture" \
@@ -53,18 +53,39 @@ command -v cargo >/dev/null || fail "cargo is not on PATH" \
 
 # Its own target directory: the fixture is a separate workspace, and pointing it at the
 # repository's target directory would make this wait on any build already running there.
-target="${TMPDIR:-/tmp}/dioxus-compose-consumer-crate"
+# A directory of its own inside target/ keeps it apart from that build and still inside
+# this checkout, which is where everything the project makes belongs.
+target="$repo_root/target/consumer-crate"
 export CARGO_TARGET_DIR="$target"
 
-echo "== building a crate that depends on dioxus-compose and nothing else"
+echo "== building a crate that depends on compose-rust and nothing else"
+# The real renderer, found the way a consumer's build finds it: the published one for this
+# version unless the environment or the workspace has another.
+#
+# A branch can have no published renderer that fits it, for reasons this test is not
+# about: the schema moved since the release, so the build script refuses the release's
+# renderer, or the version moved ahead of a release that does not exist yet. Either stays
+# true on every branch until the next release, and no branch can fix it. What this test
+# checks is how the binary finds its renderer, and a library with the renderer's name and
+# this checkout's schema answers that just as well. So in those two cases, and only those,
+# stand-in-renderer.sh builds one and the test links it and says so. Every other failure
+# to find a renderer is a failure.
+stand_in="$("$repo_root/scripts/stand-in-renderer.sh" --if-refused "$target/stand-in-renderer")" ||
+    fail "the crate did not build"
+if [[ -n "$stand_in" ]]; then
+    echo "note  no published renderer fits this checkout, so it links a stand-in with this"
+    echo "      checkout's schema instead. Everything below holds for the stand-in exactly as"
+    echo "      for the real one."
+    export "${stand_in?}"
+fi
 cargo build --manifest-path "$fixture/Cargo.toml" --quiet
 
 binary="$target/debug/consumer"
 [[ -x "$binary" ]] || fail "the build produced no $binary"
 
 library_name() {
-    [[ "$(uname -s)" == "Darwin" ]] && echo libdioxus_compose_renderer.dylib \
-                                    || echo libdioxus_compose_renderer.so
+    [[ "$(uname -s)" == "Darwin" ]] && echo libcompose_rust_renderer.dylib \
+                                    || echo libcompose_rust_renderer.so
 }
 
 # The recorded dependency has to be an absolute path to a file that is really there. That
@@ -102,13 +123,29 @@ count="$(rpath_count)"
     "It must load the renderer without one, because that is all a consumer's binary gets." \
     "An rpath here means something put it there and the absolute name is not being tested."
 
+exported_host_symbols() {
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        nm -gU "$binary"
+    else
+        nm -D --defined-only "$binary"
+    fi | grep -cE ' _?compose_rust_host_(init|dispatch_event|render_frame|release_batch|shutdown)$' || true
+}
+
+# The renderer finds the Host's entry points by name in the executable, which only works
+# if the executable exports them. That is decided here, at link time, whatever renderer
+# was linked, so it is read off the binary rather than left to a window to discover.
+exported="$(exported_host_symbols)"
+[[ "$exported" == "5" ]] || fail "the binary exports $exported of the Host's 5 entry points" \
+    "The renderer looks them up by name in the executable, so a missing one is a window" \
+    "that opens and stays empty."
+
 echo "== starting it"
 # Not --launch: this opens no window. By the time main runs, the loader has already found
-# the renderer, mapped it, and bound the dioxus_compose_host_* symbols it calls back into.
-# Those are the three things that used to fail and all three happen before main.
+# the renderer and mapped it, which is what used to fail, and the exports it calls back
+# into were checked above.
 "$binary" >/dev/null
 
-echo "ok    a crate depending only on dioxus-compose builds, has no rpath, and starts"
+echo "ok    a crate depending only on compose-rust builds, has no rpath, and starts"
 echo "      renderer: $renderer"
 
 # ------------------------------------------------------------------------------------

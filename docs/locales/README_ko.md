@@ -1,7 +1,7 @@
-# dioxus-compose
+# compose-rust
 
-[![CI](https://github.com/DarkPyonix/dioxus-compose/actions/workflows/ci.yml/badge.svg)](https://github.com/DarkPyonix/dioxus-compose/actions/workflows/ci.yml)
-[![Native renderer](https://github.com/DarkPyonix/dioxus-compose/actions/workflows/native-renderer.yml/badge.svg)](https://github.com/DarkPyonix/dioxus-compose/actions/workflows/native-renderer.yml)
+[![CI](https://github.com/DarkPyonix/compose-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/DarkPyonix/compose-rust/actions/workflows/ci.yml)
+[![Native renderer](https://github.com/DarkPyonix/compose-rust/actions/workflows/native-renderer.yml/badge.svg)](https://github.com/DarkPyonix/compose-rust/actions/workflows/native-renderer.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](../../LICENSE)
 [![Rust 1.85+](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org)
 
@@ -15,7 +15,7 @@
 rsx! {
     Column {
         fill_max_width: true,
-        Text { text: "dioxus-compose chat" }
+        Text { text: "compose-rust chat" }
         Button { text: "Send", on_click: move |_| send() }
     }
 }
@@ -56,7 +56,7 @@ rsx! {
 미치지 못합니다. 타이핑이 곧 인터페이스인 앱에서 90%만 동작하는 IME는 동작하지 않는 앱입니다.
 한글·일본어·중국어 조합은 있으면 좋은 기능이 아닙니다.
 
-dioxus-compose는 Compose의 런타임 비용을 빼고 렌더러만 가져옵니다. Kotlin 쪽은 사전에 네이티브
+compose-rust는 Compose의 런타임 비용을 빼고 렌더러만 가져옵니다. Kotlin 쪽은 사전에 네이티브
 라이브러리로 컴파일되므로(macOS와 Linux, iOS는 Kotlin/Native, Skia와 링크할 수 있는 Kotlin 타깃이
 없는 플랫폼은 GraalVM 네이티브 이미지) 배포 산출물에 JVM이 없습니다.
 
@@ -70,7 +70,7 @@ dioxus-compose는 Compose의 런타임 비용을 빼고 렌더러만 가져옵�
 | 웹뷰 스택 (Electron, Tauri 계열) | 가장 무거움. 앱마다 혹은 시스템마다 브라우저 엔진 | **C1**으로 탈락: 메모리와 용량 |
 | Compose + JVM 동봉 (jlink) | JVM만 약 80~120MB | **C2**로 탈락. AppCDS는 시작 시간 해법이지 용량 해법이 아님 |
 | 순수 Rust 툴킷 (Iced 계열) | 약 10~20MB | **C5**로 탈락: 텍스트와 IME 성숙도 |
-| **dioxus-compose** | macOS에서 28.76MB, 파일 하나 | Iced보다는 크고, 웹뷰나 JVM 스택보다는 훨씬 작음 |
+| **compose-rust** | macOS에서 28.76MB, 파일 하나 | Iced보다는 크고, 웹뷰나 JVM 스택보다는 훨씬 작음 |
 
 ### 실제로 얼마인가
 
@@ -146,11 +146,11 @@ Rust **Host**가 Kotlin **Renderer**보다 앞서 있습니다. 지금 마무리
 ## ✨ API 맛보기
 
 아래는 실제
-[`dioxus-compose/examples/desktop_demo.rs`](../../dioxus-compose/examples/desktop_demo.rs)를 길이만
+[`compose-rust/examples/desktop_demo.rs`](../../compose-rust/examples/desktop_demo.rs)를 길이만
 줄인 것입니다. 이 저장소에서 컴파일됩니다.
 
 ```rust
-use dioxus_compose::prelude::*;
+use compose_rust::prelude::*;
 
 fn app() -> Element {
     let mut messages = use_signal(Vec::<String>::new);
@@ -159,7 +159,7 @@ fn app() -> Element {
     rsx! {
         Column {
             fill_max_width: true,
-            Text { text: "dioxus-compose chat" }
+            Text { text: "compose-rust chat" }
             for message in messages() {
                 Text { text: message }
             }
@@ -187,7 +187,7 @@ fn app() -> Element {
 }
 
 fn main() {
-    dioxus_compose::launch(app);
+    compose_rust::launch(app);
 }
 ```
 
@@ -199,7 +199,7 @@ fn main() {
 - **IME 조합 중에는 키 이벤트를 Rust로 보내지 않습니다.** 조합 중의 Enter는 제출이 아니라 조합
   확정입니다. 이걸 어기면 한글 입력 중이던 글자가 사라진 채 제출됩니다.
 
-> ⚠️ `rsx!` 안에서는 `dioxus_compose::Box`처럼 경로를 붙여 써야 합니다. `dioxus-core` 0.7의 매크로
+> ⚠️ `rsx!` 안에서는 `compose_rust::Box`처럼 경로를 붙여 써야 합니다. `dioxus-core` 0.7의 매크로
 > 확장이 경로 없는 `Box<T>`를 쓰는데, prelude의 glob이 그것을 가리기 때문입니다.
 
 ---
@@ -231,7 +231,7 @@ LaunchBuilder::new().with_theme(Theme::adaptive(DesignSystem::Material3)).launch
   적절하지 않기 때문입니다.
 
 > **상태: `Draft`, 설계뿐입니다.** ⚠️ 아직 코드는 하나도 없습니다. `Theme`, `DesignSystem`,
-> `ColorRole`, `TypeRole`, `ScrollColumn`은 지금 `dioxus-compose/src/`에도 Kotlin 렌더러에도
+> `ColorRole`, `TypeRole`, `ScrollColumn`은 지금 `compose-rust/src/`에도 Kotlin 렌더러에도
 > 없습니다. 현재 동작하는 것은 리터럴 부분집합, 즉 `Modifier::Background(u32 ARGB)`와
 > `Modifier::Padding(f32)` 같은 것들입니다. 위 코드는 **명세된 API의 예시(illustrative)**이며
 > 동작하는 API가 아닙니다.
@@ -244,7 +244,7 @@ LaunchBuilder::new().with_theme(Theme::adaptive(DesignSystem::Material3)).launch
 ┌────────────────────── Host (Rust) ───────────────────────┐
 │  사용자 컴포넌트, rsx!, hooks, signals                    │
 │  dioxus-core VirtualDom                                  │
-│  dioxus-compose 렌더러:  Mutations ──► 고정 레이아웃        │
+│  compose-rust 렌더러:    Mutations ──► 고정 레이아웃        │
 │                                        바이트 레코드       │
 └───────────────────────────┬──────────────────────────────┘
                             │
@@ -293,7 +293,7 @@ AWT를 통째로 건너뛴다**는 점입니다([oracle/graal#13272](https://git
 링크합니다.
 
 그렇게 정적 링크된 macOS AWT는 런타임에 세 가지를 파일 경로로 찾습니다. 각각
-`dioxus-compose-renderer/desktop/c/`의 얇은 우회책으로 메웁니다.
+`renderer/desktop/c/`의 얇은 우회책으로 메웁니다.
 
 | 찾는 것 | 우회책 |
 |---|---|
@@ -321,7 +321,7 @@ JavaFX 호스트가 쓰는 것과 같은 방식입니다. AWT가 자기 루프�
 
 ```toml
 [dependencies]
-dioxus-compose = "0.0.0"
+compose-rust = "0.0.1"
 ```
 
 설정할 환경 변수도, 손으로 내려받을 파일도, 실행할 스크립트도 없습니다. 캐시는 버전과
@@ -332,8 +332,8 @@ dioxus-compose = "0.0.0"
 
 | 변수 | 효과 |
 |---|---|
-| `DIOXUS_COMPOSE_RENDERER_DIR` | 이 디렉터리의 렌더러를 씁니다. 가장 먼저 확인하고, 설정돼 있으면 아무것도 내려받지 않습니다. 직접 빌드한 렌더러, 벤더링한 사본, 망 분리 빌드가 모두 이것 하나로 해결됩니다. |
-| `DIOXUS_COMPOSE_CACHE_DIR` | 캐시를 `$HOME/.cache/dioxus-compose`(Windows는 `%LOCALAPPDATA%\dioxus-compose`)에서 옮깁니다. |
+| `COMPOSE_RUST_RENDERER_DIR` | 이 디렉터리의 렌더러를 씁니다. 가장 먼저 확인하고, 설정돼 있으면 아무것도 내려받지 않습니다. 직접 빌드한 렌더러, 벤더링한 사본, 망 분리 빌드가 모두 이것 하나로 해결됩니다. |
+| `COMPOSE_RUST_CACHE_DIR` | 캐시를 `$HOME/.cache/compose-rust`(Windows는 `%LOCALAPPDATA%\compose-rust`)에서 옮깁니다. |
 
 네트워크가 없는 빌드는 어떤 파일 둘을 어디에 두면 되는지 말하고, 그 자리에 두면 그것으로
 끝입니다. `default-features = false`는 렌더러 없이 빌드합니다(헤드리스, 문서 빌드). 그렇게
@@ -377,7 +377,7 @@ brew install --cask liberica-nik-full
 ./scripts/install-nik.sh
 ```
 
-`dioxus-compose-renderer/desktop/scripts/env.sh`가 다음 순서로 찾습니다.
+`renderer/desktop/scripts/env.sh`가 다음 순서로 찾습니다.
 
 1. `$GRAALVM_HOME`(설정된 경우)
 2. `~/Library/Java/JavaVirtualMachines/bellsoft-liberica-vm-full-openjdk25*/Contents/Home` 중 최신
@@ -387,7 +387,7 @@ brew install --cask liberica-nik-full
 링크 실패가 아니라 시작 전에 잡아내기 위한 것입니다.
 
 macOS에서는 Xcode 명령줄 도구(`xcode-select --install`)도 필요합니다. `cc`, `ld`와
-`dioxus-compose-renderer/desktop/c/`가 쓰는 AppKit 헤더 때문입니다.
+`renderer/desktop/c/`가 쓰는 AppKit 헤더 때문입니다.
 
 **현재 스크립트가 지원하는 것은 macOS뿐입니다.** Linux와 Windows native-image 빌드는 아직입니다.
 
@@ -395,36 +395,36 @@ macOS에서는 Xcode 명령줄 도구(`xcode-select --install`)도 필요합니�
 
 렌더러는 JetBrains가 발행한 것이 아니라 로컬 Maven 저장소에서 Compose를 찾습니다. 필요한 세 가지가
 이 플랫폼용 공개 빌드에서는 비어 있고, 그것을 담고 있는 모듈 밖에서는 채울 수 없기 때문입니다.
-텍스트 선택 메뉴가 내주는 항목, 복사에 쓰이는 키, 그리고 Linux 타깃입니다. 패치는
-`dioxus-compose-renderer/patches/`에 있고, Compose 리비전 하나에 고정돼 있으며, 각각 무엇을 위한
-것인지 적혀 있습니다.
+텍스트 선택 메뉴가 내주는 항목, 복사에 쓰이는 키, 그리고 Linux 타깃입니다. 이 변경은 Compose의 포크
+[`thisisthepy/compose-multiplatform-core-extended`](https://github.com/thisisthepy/compose-multiplatform-core-extended)에
+커밋으로 들어 있고, 빌드 스크립트가 그 커밋 하나에 고정합니다.
 
 ```bash
-./dioxus-compose-renderer/scripts/build-compose.sh
+./renderer/scripts/build-compose.sh
 ```
 
-고정된 리비전을 받아 패치를 얹고, 렌더러가 요구하는 모듈을 발행합니다. 오래 걸리지만 빌드마다 할
+고정된 커밋을 받아, 렌더러가 요구하는 모듈을 발행합니다. 오래 걸리지만 빌드마다 할
 일은 아니고 한 번이면 됩니다. 나머지는 여전히 JetBrains가 발행한 것에서 해결됩니다.
 
 ### 4. Kotlin
 
-설치할 것이 없습니다. `dioxus-compose-renderer/kotlin`(Windows는 `kotlin.bat`)이 자체 부트스트랩
+설치할 것이 없습니다. `renderer/kotlin`(Windows는 `kotlin.bat`)이 자체 부트스트랩
 래퍼라, 처음 실행할 때 고정된 버전의 툴체인을 내려받습니다.
 
 ### 5. 렌더러 빌드
 
-`dioxus-compose-renderer/build/macos/`에 Compose와 Skia, 인터프리터가 들어 있는 정적 라이브러리
+`renderer/build/macos/`에 Compose와 Skia, 인터프리터가 들어 있는 정적 라이브러리
 하나를 만듭니다(`PR-8`). 몇 분 걸립니다.
 
 ```bash
-cd dioxus-compose-renderer
+cd renderer
 ./desktop/scripts/build-macos.sh --release
 ```
 
 ```
 build/macos/
-  libdioxus_compose_renderer.a       렌더러 (Compose, Skia, 인터프리터, 우리 코드)
-  libdioxus_compose_renderer_api.h   Kotlin/Native가 생성한 헤더
+  libcompose_rust_renderer.a       렌더러 (Compose, Skia, 인터프리터, 우리 코드)
+  libcompose_rust_renderer_api.h   Kotlin/Native가 생성한 헤더
 ```
 
 <details>
@@ -437,7 +437,7 @@ build/macos/
 
 ```
 build/native-image/dist/lib/
-  libdioxus_compose_renderer.dylib   렌더러 (AWT, Skiko JNI, Compose, 우리 코드)
+  libcompose_rust_renderer.dylib   렌더러 (AWT, Skiko JNI, Compose, 우리 코드)
   libskiko-macos-<arch>.dylib        Skia. Skiko가 경로로 로드합니다
   libjawt.dylib                      JAWT_GetAWT를 렌더러로 넘기는 포워더
   libawt_lwawt.dylib                 libawt가 경로로 로드하는 자리 채움
@@ -446,25 +446,25 @@ build/native-image/dist/lib/
 
 ### 6. 스모크 테스트
 
-최소한의 C 호스트를 라이브러리에 링크해 `dioxus_compose_renderer_run`을 호출합니다. 창이 뜨고,
+최소한의 C 호스트를 라이브러리에 링크해 `compose_rust_renderer_run`을 호출합니다. 창이 뜨고,
 닫으면 0을 반환해야 합니다. `PR-8`의 수용 기준입니다.
 
 ```bash
-cd dioxus-compose-renderer
+cd renderer
 ./desktop/scripts/smoke-test.sh
 ```
 
-무인 실행이 필요하면 `DIOXUS_COMPOSE_AUTOEXIT_MS=6000`으로 창이 스스로 닫히게 할 수 있습니다.
+무인 실행이 필요하면 `COMPOSE_RUST_AUTOEXIT_MS=6000`으로 창이 스스로 닫히게 할 수 있습니다.
 
 ### 7. Rust 데모 실행
 
 ```bash
-cargo run -p dioxus-compose --example desktop_demo --features native-renderer
+cargo run -p compose-rust --example desktop_demo --features native-renderer
 ```
 
 이 저장소의 체크아웃에서는 빌드 스크립트가 방금 빌드한 워크스페이스의
-`dioxus-compose-renderer/build/native-image/dist/lib`를 내려받기보다 먼저 씁니다. 전체 순서는
-`DIOXUS_COMPOSE_RENDERER_DIR`, 워크스페이스 빌드 결과물, 캐시, 크레이트 버전의 릴리스
+`renderer/build/native-image/dist/lib`를 내려받기보다 먼저 씁니다. 전체 순서는
+`COMPOSE_RUST_RENDERER_DIR`, 워크스페이스 빌드 결과물, 캐시, 크레이트 버전의 릴리스
 순입니다(`NFR-10`).
 
 ### 8. JVM 개발 셸
@@ -473,7 +473,7 @@ cargo run -p dioxus-compose --example desktop_demo --features native-renderer
 native-image 빌드가 필요 없습니다(`NFR-5`, `D7`).
 
 ```bash
-cd dioxus-compose-renderer
+cd renderer
 ./kotlin run -m desktop   # Compose 개발 셸
 ./kotlin run -m desktop    # 렌더러 모듈 자체를 JVM에서, 스크립트된 Host로 구동
 ```
@@ -503,7 +503,7 @@ cd dioxus-compose-renderer
 
 ### 실측, 2026-09-20
 
-[`dioxus-compose/benches/baseline.json`](../../dioxus-compose/benches/baseline.json)에 기록되어
+[`compose-rust/benches/baseline.json`](../../compose-rust/benches/baseline.json)에 기록되어
 있고, `scripts/check.sh` 안에서 `cargo bench`로 다시 돌립니다.
 
 > **측정 환경:** Mac mini (Macmini9,1) · Apple M1, 8코어(성능 4 + 효율 4) · 16GiB ·
@@ -529,8 +529,8 @@ cd dioxus-compose-renderer
 ## 🗂 저장소 구조
 
 ```
-dioxus-compose/
-├─ dioxus-compose/                  # Rust: Host, Dioxus 렌더러 크레이트
+compose-rust/
+├─ compose-rust/                  # Rust: Host, Dioxus 렌더러 크레이트
 │  ├─ src/
 │  │  ├─ lib.rs                     #   공개 API, rsx! 엘리먼트, 이벤트 속성
 │  │  ├─ widgets.rs                 #   Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn
@@ -541,7 +541,7 @@ dioxus-compose/
 │  ├─ examples/desktop_demo.rs      #   실행 가능한 데모
 │  ├─ benches/baseline.json         #   기록된 성능 기준선
 │  └─ tests/vectors/                #   양쪽이 함께 검증하는 프로토콜 벡터
-├─ dioxus-compose-renderer/         # Kotlin: Renderer (Kotlin Toolchain / Amper)
+├─ renderer/         # Kotlin: Renderer (Kotlin Toolchain / Amper)
 │  ├─ native/                       #   인터프리터, C 심, native-image 빌드 스크립트
 │  ├─ desktop/                      #   JVM 개발 셸
 │  ├─ shared/                       #   공용 Compose 코드
@@ -614,7 +614,7 @@ CI도 같은 방식으로 나뉩니다. [`ci.yml`](../../.github/workflows/ci.ym
 
 ## 📚 문서
 
-**📖 가이드 사이트: <http://darkpyonix.dev/dioxus-compose/>**, 영어와 한국어로 시작하기, UI
+**📖 가이드: [docs/guide](https://github.com/DarkPyonix/compose-rust/tree/develop/docs/guide)**, 영어와 한국어로 시작하기, UI
 작성, 목록과 스트리밍, 아키텍처, 문제 해결을 다룹니다.
 
 | 문서 | 내용 |
@@ -622,7 +622,7 @@ CI도 같은 방식으로 나뉩니다. [`ci.yml`](../../.github/workflows/ci.ym
 | [PROJECT.md](../../PROJECT.md) | 범위, 개발 방식, 마일스톤 M0~M8, 열린 질문 |
 | [docs/INTENT.md](../INTENT.md) | 동기, 협상 불가 조건, 결정 D1~D10, 폐기한 대안 |
 | [docs/SPEC.md](../SPEC.md) | 기능·비기능 요구사항, 경계 프로토콜, 수용 기준 |
-| [CLAUDE.md](../../CLAUDE.md) | 이 저장소에서 일하는 방식 |
+| [AGENTS.md](../../AGENTS.md) | 이 저장소에서 일하는 방식 |
 
 기획 문서(`PROJECT.md`, `INTENT.md`, `SPEC.md`)는 한국어로 씁니다. README와 가이드 사이트는
 영어가 기본이고 한국어 번역을 함께 둡니다.

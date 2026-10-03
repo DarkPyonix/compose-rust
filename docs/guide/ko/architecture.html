@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>아키텍처 · dioxus-compose 가이드</title>
+<title>아키텍처 · compose-rust 가이드</title>
 <meta name="description" content="Host/Renderer 분리, C ABI 표면, zero-copy 프로토콜, 프레임 모델, macOS 런타임 레이아웃.">
 <link rel="alternate" hreflang="en" href="../en/architecture.html">
 <link rel="alternate" hreflang="ko" href="architecture.html">
@@ -15,7 +15,7 @@
 <a class="skip" href="#main">본문으로 건너뛰기</a>
 
 <header class="topbar">
-  <a class="brand" href="./"><span class="dot" aria-hidden="true"></span>dioxus-compose <small>가이드</small></a>
+  <a class="brand" href="./"><span class="dot" aria-hidden="true"></span>compose-rust <small>가이드</small></a>
   <span class="spacer"></span>
   <button id="navtoggle" class="ghost" type="button" aria-expanded="false" aria-controls="sidebar">메뉴</button>
   <nav class="langswitch" aria-label="언어">
@@ -69,7 +69,7 @@
 <pre><code><span class="c">┌──────────────── Host (Rust) ─────────────────┐</span>
 <span class="c">│</span> 사용자 컴포넌트 (rsx!, hooks, signals)        <span class="c">│</span>
 <span class="c">│</span> dioxus-core VirtualDom                       <span class="c">│</span>
-<span class="c">│</span> dioxus-compose renderer: Mutations → bytes   <span class="c">│</span>
+<span class="c">│</span> compose-rust renderer: Mutations → bytes   <span class="c">│</span>
 <span class="c">└──────────────────┬───────────────────────────┘</span>
                    <span class="c">│</span> UI 스레드에서의 동기 직접 호출
                    <span class="c">│</span> + 호출마다 배치 버퍼 하나
@@ -102,17 +102,17 @@
 
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
       <figcaption>c: Renderer → Host (Rust가 export)</figcaption>
-<pre><code><span class="ty">int32_t</span> <span class="f">dioxus_compose_host_init</span>(<span class="k">const</span> <span class="ty">uint8_t</span>* handshake, <span class="ty">uint32_t</span> len, <span class="ty">MutationBatch</span>* out);
-<span class="ty">int32_t</span> <span class="f">dioxus_compose_host_dispatch_event</span>(<span class="k">const</span> <span class="ty">uint8_t</span>* event, <span class="ty">uint32_t</span> len, <span class="ty">MutationBatch</span>* out);
-<span class="ty">int32_t</span> <span class="f">dioxus_compose_host_render_frame</span>(<span class="ty">uint64_t</span> frame_time_nanos, <span class="ty">MutationBatch</span>* out);
-<span class="ty">void</span>    <span class="f">dioxus_compose_host_release_batch</span>(<span class="ty">MutationBatch</span>* batch);
-<span class="ty">void</span>    <span class="f">dioxus_compose_host_shutdown</span>(<span class="ty">void</span>);</code></pre>
+<pre><code><span class="ty">int32_t</span> <span class="f">compose_rust_host_init</span>(<span class="k">const</span> <span class="ty">uint8_t</span>* handshake, <span class="ty">uint32_t</span> len, <span class="ty">MutationBatch</span>* out);
+<span class="ty">int32_t</span> <span class="f">compose_rust_host_dispatch_event</span>(<span class="k">const</span> <span class="ty">uint8_t</span>* event, <span class="ty">uint32_t</span> len, <span class="ty">MutationBatch</span>* out);
+<span class="ty">int32_t</span> <span class="f">compose_rust_host_render_frame</span>(<span class="ty">uint64_t</span> frame_time_nanos, <span class="ty">MutationBatch</span>* out);
+<span class="ty">void</span>    <span class="f">compose_rust_host_release_batch</span>(<span class="ty">MutationBatch</span>* batch);
+<span class="ty">void</span>    <span class="f">compose_rust_host_shutdown</span>(<span class="ty">void</span>);</code></pre>
     </figure>
 
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
       <figcaption>c: Host → Renderer (Kotlin이 export)</figcaption>
-<pre><code><span class="ty">int32_t</span> <span class="f">dioxus_compose_renderer_run</span>(<span class="ty">void</span>);            <span class="c">/* 블로킹. LoopMode::Renderer 전용 */</span>
-<span class="ty">void</span>    <span class="f">dioxus_compose_renderer_request_frame</span>(<span class="ty">void</span>);  <span class="c">/* 스레드 안전 */</span></code></pre>
+<pre><code><span class="ty">int32_t</span> <span class="f">compose_rust_renderer_run</span>(<span class="ty">void</span>);            <span class="c">/* 블로킹. LoopMode::Renderer 전용 */</span>
+<span class="ty">void</span>    <span class="f">compose_rust_renderer_request_frame</span>(<span class="ty">void</span>);  <span class="c">/* 스레드 안전 */</span></code></pre>
     </figure>
 
     <p>이것이 표면 전부입니다. 여기서 두 가지가 따라옵니다.</p>
@@ -208,8 +208,8 @@
       Windows는 고른 것이 아닙니다. Compose가 Windows용 UI 계층을 네이티브 타깃으로 발행하지
       않고, 두 겹으로 막혀 있습니다. Kotlin의 그쪽 타깃은 MinGW이고 Skia의 빌드는 MSVC라,
       아티팩트가 있었더라도 링크가 성립하지 않습니다. Linux도 발행되지는 않지만 빌드를 막는 것은
-      없어서, 이 프로젝트는 고정한 Compose 리비전에 패치 몇 개를 얹어 Linux 타깃을 직접
-      빌드합니다.
+      없어서, 이 프로젝트는 Linux 타깃을 더한 Compose 포크를 커밋 하나에 고정해 Linux 타깃을
+      직접 빌드합니다.
     </p>
     <div class="note">
       <span class="label">응용 프로그램은 어느 쪽인지 모릅니다</span>
@@ -246,7 +246,7 @@
     <p>
       프로세스 구조를 결정짓는 macOS 사실이 하나 더 있습니다. AppKit은 메인 스레드를 요구합니다.
       렌더러는 호출된 그 스레드에서 <code>NSApplication</code>을 만들어 실행하고, 그 호출은 창이
-      닫힐 때 돌아옵니다. 따라서 <code>dioxus_compose_renderer_run</code>은 프로세스 메인
+      닫힐 때 돌아옵니다. 따라서 <code>compose_rust_renderer_run</code>은 프로세스 메인
       스레드에서 호출해야 하고, 아니면 <code>RUN_NOT_MAIN_THREAD</code>를 반환합니다.
     </p>
 
@@ -259,8 +259,8 @@
 
 <footer class="site">
   <div class="inner">
-    <span>dioxus-compose &middot; Apache License 2.0</span>
-    <span><a class="footer-repo" href="https://github.com/DarkPyonix/dioxus-compose">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/INTENT.md">INTENT.md</a></span>
+    <span>compose-rust &middot; Apache License 2.0</span>
+    <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/INTENT.md">INTENT.md</a></span>
     <span>이 가이드는 2026-09-28 기준 저장소 내용과 대조했습니다</span>
   </div>
 </footer>

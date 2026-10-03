@@ -1,1 +1,1 @@
-../../../dioxus-compose-renderer/desktop/src/renderer/DrawnCodeInput.kt
+../../../renderer/desktop/src/renderer/DrawnCodeInput.kt

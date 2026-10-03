@@ -25,15 +25,15 @@ done
 output="${output:-$repo_root/target/sample-pages}"
 case "$output" in /*) ;; *) output="$PWD/$output" ;; esac
 
-web_dir="$repo_root/dioxus-compose-renderer/web"
-renderer_out="$repo_root/dioxus-compose-renderer/build/tasks/_web_buildWasmJs"
+web_dir="$repo_root/renderer/web"
+renderer_out="$repo_root/renderer/build/tasks/_web_buildWasmJs"
 
 # The runtime the toolchain unpacks here refuses to overwrite itself, so a second build
 # in the same tree fails on a file that is already correct.
-rm -rf "$repo_root/dioxus-compose-renderer/build/temp/skiko-js-wasm-runtime"
+rm -rf "$repo_root/renderer/build/temp/skiko-js-wasm-runtime"
 
 echo "==> building the renderer's module once"
-(cd "$repo_root/dioxus-compose-renderer" && ./kotlin build -p wasmJs -m web) ||
+(cd "$repo_root/renderer" && ./kotlin build -p wasmJs -m web) ||
     { echo "the renderer's wasm module did not build" >&2; exit 1; }
 
 # The directory the toolchain assembled, not the sources it assembled it from. The page
@@ -41,7 +41,7 @@ echo "==> building the renderer's module once"
 # tags go, so copying that one gives a page that loads nothing and sits on a spinner.
 # Which directory it is depends on the toolchain version, so it is found rather than
 # named.
-bundle_dir="$(dirname "$(find "$repo_root/dioxus-compose-renderer/build/tasks" \
+bundle_dir="$(dirname "$(find "$repo_root/renderer/build/tasks" \
     -name 'index.html' -path '*web*' -not -path '*node_modules*' -print -quit 2>/dev/null)")"
 [[ -d "$bundle_dir" && -f "$bundle_dir/index.html" ]] ||
     { echo "the renderer's page bundle is not where this looked" >&2; exit 1; }
@@ -59,7 +59,7 @@ for manifest in samples/*/Cargo.toml; do
     # through and it has no application in it. The binary is what says so.
     [[ -f "samples/$sample/src/main.rs" ]] || continue
     echo "== $sample"
-    if ! ./dioxus-compose-renderer/web/scripts/build-host.sh ${profile_flag:+$profile_flag} \
+    if ! ./renderer/web/scripts/build-host.sh ${profile_flag:+$profile_flag} \
         --sample "$sample"; then
         skipped+=("$sample")
         continue
@@ -70,7 +70,7 @@ for manifest in samples/*/Cargo.toml; do
     cp -R "$bundle_dir/." "$page/"
     # The Host's module is the one thing that differs per sample, and the bundle carries
     # whichever one was built last, so it is overwritten with this sample's.
-    cp "$web_dir/resources/dioxus_compose_host.wasm" "$page/"
+    cp "$web_dir/resources/compose_rust_host.wasm" "$page/"
     built+=("$sample")
 done
 
@@ -79,10 +79,10 @@ done
 {
     echo '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
     echo '<meta name="viewport" content="width=device-width, initial-scale=1">'
-    echo '<title>dioxus-compose samples</title>'
+    echo '<title>compose-rust samples</title>'
     echo '<style>body{font:16px/1.6 system-ui,sans-serif;margin:3rem auto;max-width:34rem;padding:0 1rem}'
     echo 'h1{font-size:1.5rem}li{margin:.4rem 0}</style></head><body>'
-    echo '<h1>dioxus-compose samples</h1>'
+    echo '<h1>compose-rust samples</h1>'
     echo '<p>The same Rust source these ship as desktop programs, drawn in a browser.</p><ul>'
     for sample in "${built[@]}"; do
         echo "<li><a href=\"$sample/\">$sample</a></li>"

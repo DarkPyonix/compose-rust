@@ -37,7 +37,7 @@ The recommendation is to take the shared memory and pay the ~11 ns: see
 | `harness/serve.py` | Serves the harness and writes `results-<mode>.json`. |
 | `build.sh` | Builds everything into `harness/`. |
 
-`dioxus-compose-renderer/kotlin` (the Amper/Kotlin CLI wrapper) builds a
+`renderer/kotlin` (the Amper/Kotlin CLI wrapper) builds a
 standalone Kotlin/Wasm module fine; `kotlin-renderer/kotlin` is a copy of that
 wrapper and `kotlin-renderer/module.yaml` is four lines.
 

@@ -4,11 +4,11 @@
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-source_file="$repo_root/dioxus-compose-renderer/desktop/c/x11_window.c"
-appkit_source="$repo_root/dioxus-compose-renderer/desktop/c/appkit_window.m"
-win32_source="$repo_root/dioxus-compose-renderer/desktop/c/win32_window.c"
-kotlin_file="$repo_root/dioxus-compose-renderer/desktop/src/X11Window.kt"
-event_reader="$repo_root/dioxus-compose-renderer/desktop/src/AppKitWindow.kt"
+source_file="$repo_root/renderer/desktop/c/x11_window.c"
+appkit_source="$repo_root/renderer/desktop/c/appkit_window.m"
+win32_source="$repo_root/renderer/desktop/c/win32_window.c"
+kotlin_file="$repo_root/renderer/desktop/src/X11Window.kt"
+event_reader="$repo_root/renderer/desktop/src/AppKitWindow.kt"
 for file in "$source_file" "$appkit_source" "$win32_source" "$kotlin_file" "$event_reader"; do
     [[ -f "$file" ]] || { echo "missing $file"; exit 1; }
 done

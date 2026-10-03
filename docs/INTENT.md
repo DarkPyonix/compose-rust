@@ -26,7 +26,46 @@ Rust에서 Compose API를 직접 호출하지 않습니다. GraalVM `@CEntryPoin
 
 대신 UI 트리를 **값**으로 보냅니다. Kotlin 측에 고정된 위젯 스키마를 해석하는 범용 인터프리터를 두고, Rust는 트리 변경분을 바이트로 보냅니다. Cash App Redwood, Jetpack Glance와 같은 계열의 검증된 패턴입니다.
 
-### D2. Rust 측 작성 모델은 Dioxus
+### D2. Rust 측 작성 모델은 compose-rust 자신의 Compose 모양 API이고, Dioxus는 그 위에 얹힌다
+
+**소유자의 결정입니다(2026-10-03).** 2026-09-28부터 같은 말로 여러 번 주어졌고, 이 문서에 적히지 않은 채 다시 질문으로 돌아갔습니다.
+
+> "이미 결정했는데 왜 대체 안하는거야? 왜 다시 물어보는거야?" (2026-10-03)
+>
+> "recomposition으로 전부 만들어서 diff가 없게 하고 싶은데" (2026-09-28)
+>
+> "compose-rust: Compose 모양 API + 슬롯 테이블. ember의 네이티브 부분" (2026-10-01)
+>
+> "compose-rust는 혼자 작성될 수도 있다는거야"
+>
+> "사용자들은 dioxus가 앞에 있는거보다 compose가 앞에 있는게 더 나아"
+
+**결정.**
+
+- compose-rust는 **자기 작성 API**를 가집니다. 모양은 Compose입니다. 함수 하나가 composable이고, 상태는 `remember`와 그 위의 상태 객체로, 부수 효과는 effect로 말합니다. 그 아래는 **슬롯 테이블 위의 recomposition 런타임**입니다. 무엇이 바뀌었는지를 트리 비교로 찾지 않고, 바뀐 상태를 읽은 스코프만 다시 실행해서 찾습니다. 다시 실행된 스코프 안에서 인자가 같은 그룹은 건너뜁니다.
+- **Dioxus 없이 씁니다.** compose-rust만 의존하는 애플리케이션이 화면을 작성하고, 실행하고, 이벤트를 받을 수 있어야 합니다. `dioxus-core`는 compose-rust의 의존성이 아닙니다.
+- **dioxus-compose는 compose-rust 위에 얹힙니다.** `rsx!`와 `dioxus-core` VirtualDom으로 쓰고 싶은 사람을 위한 층이고, compose-rust가 내놓는 같은 노드 트리와 같은 와이어로 내려갑니다(D19의 `darkpyonix/dioxus-compose`). 사용자 앞에 놓이는 이름과 모양은 Compose입니다.
+- **경계 아래는 바뀌지 않습니다.** D1(트리를 값으로 보내고 Kotlin 인터프리터가 그린다), D5(UI 로컬 상태는 Kotlin), D6(Rust 단일 소스 스키마), D8(동기 직접 호출, zero-copy 배치)과 PR-1~PR-6은 그대로입니다. Compose 모양이라는 것은 Rust 쪽 작성 API의 모양이지 Rust에서 Kotlin의 Compose API를 부른다는 뜻이 아닙니다. 런타임이 내보내는 것은 지금과 같은 Mutation 레코드이고, 같은 렌더러가 그것을 그립니다.
+- **1.0.0 범위입니다(2026-10-20).** 요구사항과 수용 기준은 SPEC FR-39입니다.
+
+**측정이 말하는 것과 말하지 않는 것.** `experiments/recomposition-host`(2026-09-30, Apple M1, 릴리스 빌드)가 이 결정 이전에 잰 숫자입니다.
+
+- **diff를 없애서 아끼는 몫은 작습니다.** 값이 바뀐 동적 슬롯 하나에 `dioxus-core` 경로가 2315ns를 쓰고, 그중 와이어 인코더 몫은 30ns(1.3%)입니다. 1904ns는 sink가 불리기 전 `dioxus-core` 안에서 쓰이며, 값의 타입(숫자 1961ns, 문자열 1934ns)에도 props 폭에도 기대지 않고 바뀐 슬롯 수에 비례합니다. 비교가 아니라 **스코프를 다시 실행하는 값**입니다.
+- **스코프 재실행 값은 슬롯 테이블에서 한 자릿수 작습니다.** 같은 모양을 슬롯 테이블로 돌린 탐침은 바뀐 슬롯 225ns, 바뀌지 않은 슬롯 189ns였고(같은 실행의 `dioxus-core`는 2287ns, 381ns), 실제 `Text` props와 compose-rust의 `BatchEncoder`를 붙인 뒤에도 바뀐 슬롯 276ns, 슬롯 하나가 바뀐 프레임의 중앙값 1292ns였습니다(같은 실행의 Dioxus는 2275ns, 7250ns).
+- **그룹은 사용자 코드에서 숨길 수 있습니다.** `positional/`의 `#[composable]` 매크로가 그룹을 넣고, 소스에 그룹이 하나도 없는 컴포넌트에 대해 테스트 열한 개가 통과합니다. 분기가 사라졌을 때 평평한 오프셋이 다른 호출 자리의 상태를 넘겨주는 대조군이 그룹이 왜 필요한지를 결과로 보여 줍니다.
+- **아직 재지 않은 것**: 상태(스냅샷 시스템, 시그널에 해당하는 것, 워커 스레드가 composition을 깨우는 경로), 이벤트 전달, 재배치 시의 `Move`, 그리고 마흔일곱 속성과 열네 Modifier 칸과 디자인 시스템 전부를 붙인 위젯 층 전체. 실험 README가 경고하듯 탐침의 숫자는 비교가 아니라 하한입니다. 그래서 FR-39의 성능 기준은 이 숫자가 아니라 **같은 화면을 지금의 Dioxus 경로로 돌린 측정**에 대해 잽니다.
+
+실험 README는 측정만으로는 이 결정을 내리기에 부족하다고 맺었습니다. 그 판단은 숫자에 대한 것으로 맞고, 결정은 숫자만으로 내린 것이 아닙니다. 남는 이유는 소유자가 말한 셋입니다: diff가 없는 모델, Dioxus 없이 쓸 수 있는 compose-rust, 사용자 앞의 Compose.
+
+**치르는 값.**
+
+- 작성 모델이 둘이 됩니다. compose-rust의 API와 그 위의 dioxus-compose입니다. 둘이 같은 노드 트리로 내려가므로 렌더러는 하나지만, `rsx!`가 오늘 말할 수 있는 것을 compose-rust API도 말할 수 있어야 하고(FR-39 기준 6) 그 짝을 테스트가 지킵니다.
+- 컴파일러 플러그인이 없으므로 그룹은 프로시저 매크로가 넣습니다. 매크로가 본문을 다시 쓰는 방식이 `continue`, `break`, `return`, `?`, 되감기에서 틀리지 않아야 하고, 실험이 그중 셋을 한 번 틀렸습니다(클로저로 감쌌을 때). `Drop` 가드로 그룹을 닫는 형태가 그 답이었습니다.
+- `dioxus-core`가 이미 해 둔 일(템플릿 분리, 성숙한 스코프 관리)을 우리가 다시 합니다. 처음 만든 슬롯 테이블은 빠르기보다 느리기 쉽다는 실험의 경고가 그대로 적용되고, 그것이 FR-39의 성능 기준이 Dioxus 경로를 기준선으로 삼는 이유입니다.
+
+#### D2의 이전 결정: Rust 측 작성 모델은 Dioxus (2026-10-03에 대체됨)
+
+아래는 대체되기 전의 결정이고, 기록으로 남깁니다.
 
 `dioxus-core`는 렌더러와 무관한 리컨사일러입니다. VirtualDom이 `Mutations` 스트림을 내보내므로 커스텀 렌더러를 붙이기 좋습니다(dioxus-tui, blitz가 같은 방식입니다). `rsx!`, 컴포넌트, 훅이 그대로 딸려오고 Compose에서 넘어온 개발자에게 사용감이 가깝습니다.
 
@@ -37,12 +76,40 @@ Rust에서 Compose API를 직접 호출하지 않습니다. GraalVM `@CEntryPoin
 
 | 플랫폼 | 방식 |
 |---|---|
-| 데스크톱 | native-image `--shared`. macOS는 **Liberica NIK Full**, Windows와 Linux는 upstream GraalVM. macOS에서는 선택의 여지가 없었습니다: upstream은 Darwin에서 AWT 지원을 건너뜁니다(oracle/graal#13272, 2026-09 기준 open). **세 플랫폼을 NIK으로 통일하려 시도했고 2026-09-23에 되돌렸습니다.** 동기는 분명합니다. upstream의 Windows AWT는 JDK DLL 열두 개를 이미지 옆에 내놓고 애플리케이션이 전부 들고 다녀야 해서 배포물이 16개 파일이고, macOS는 NIK이 같은 라이브러리를 `lib/static/`의 정적 아카이브로 실어 주어 4개입니다. Windows NIK에도 그 아카이브가 있다는 것까지 확인했습니다(`lib/static/windows-amd64/`에 `.lib` 52개). 막힌 곳은 링크가 아니라 그 다음입니다: **아카이브를 이미지에 넣는 것과 JVM이 "그 라이브러리는 이미 안에 있다"고 아는 것은 다른 일이고**, AWT의 `Toolkit.loadLibraries`는 런타임에 `System.loadLibrary("awt")`를 부릅니다. GraalVM은 macOS에서 AWT를 빌트인 라이브러리로 등록해 주고 Windows에서는 해 주지 않습니다. 우리가 등록하면 됩니다(skiko에 대해 `StaticSkikoFeature`가 하는 일과 같습니다). 작업은 `feat/windows-nik-static-awt`에 있고, 되돌린 이유는 **확인할 수단 없이 시도할 때마다 CI 한 사이클이 들고 그 사이 Windows 렌더러가 빌드되지 않는 상태로 남기 때문**입니다 |
+| 데스크톱 | **2026-10-03부터 AWT 없는 Kotlin/Native 정적 라이브러리가 기본입니다(D4). macOS와 Linux는 Kotlin/Native, Windows는 D18.** 이 칸의 나머지는 그 전의 GraalVM native-image 경로에 대한 기록입니다. native-image `--shared`. macOS는 **Liberica NIK Full**, Windows와 Linux는 upstream GraalVM. macOS에서는 선택의 여지가 없었습니다: upstream은 Darwin에서 AWT 지원을 건너뜁니다(oracle/graal#13272, 2026-09 기준 open). **세 플랫폼을 NIK으로 통일하려 시도했고 2026-09-23에 되돌렸습니다.** 동기는 분명합니다. upstream의 Windows AWT는 JDK DLL 열두 개를 이미지 옆에 내놓고 애플리케이션이 전부 들고 다녀야 해서 배포물이 16개 파일이고, macOS는 NIK이 같은 라이브러리를 `lib/static/`의 정적 아카이브로 실어 주어 4개입니다. Windows NIK에도 그 아카이브가 있다는 것까지 확인했습니다(`lib/static/windows-amd64/`에 `.lib` 52개). 막힌 곳은 링크가 아니라 그 다음입니다: **아카이브를 이미지에 넣는 것과 JVM이 "그 라이브러리는 이미 안에 있다"고 아는 것은 다른 일이고**, AWT의 `Toolkit.loadLibraries`는 런타임에 `System.loadLibrary("awt")`를 부릅니다. GraalVM은 macOS에서 AWT를 빌트인 라이브러리로 등록해 주고 Windows에서는 해 주지 않습니다. 우리가 등록하면 됩니다(skiko에 대해 `StaticSkikoFeature`가 하는 일과 같습니다). 작업은 `feat/windows-nik-static-awt`에 있고, 되돌린 이유는 **확인할 수단 없이 시도할 때마다 CI 한 사이클이 들고 그 사이 Windows 렌더러가 빌드되지 않는 상태로 남기 때문**입니다 |
 | iOS | Kotlin/Native `-produce static` + `@CName` C 심볼 |
 | Android | 대상 플랫폼. ART라서 native-image가 불가능합니다. Kotlin/Android 앱이 Rust cdylib을 로드하고, 생성된 JNI 심을 씁니다(D9) |
 | Web | 대상 플랫폼. Compose wasmJs + Dioxus wasm. 브라우저에서 실행하는 것이라 앱이 웹뷰를 내장하는 것과는 다르고 C1에 해당하지 않습니다. 메모리는 공유하고 호출만 생성된 JS forwarder를 거칩니다(SPEC PR-6) |
 
-### D4. 창 소유권은 관심사가 아니다. Compose Desktop의 AWT 경로를 그대로 쓴다
+### D4. 데스크톱 렌더러는 AWT 없이 만들고, 그것을 기본으로 배포한다
+
+**소유자의 결정입니다(2026-10-03).**
+
+> "아니 그래 당연한거 아냐 빨리 하라고" (2026-10-03)
+>
+> "AWT가 별로 맘에 안들어 나는", "시키는 대로 해. AWT 재거해." (2026-09-24)
+>
+> "리눅스까지도 네이티브였으면 좋겠는데" (2026-09-25)
+
+**결정.**
+
+- **배포되는 데스크톱 렌더러는 AWT를 쓰지 않습니다.** 렌더러가 자기 창을 직접 열고(macOS는 AppKit, Linux는 X11, Windows는 Win32), Compose의 장면(scene)을 그 창에 붙여 그립니다. 앱을 빌드하는 사람이 아무것도 고르지 않아도 이 경로가 나옵니다.
+- **macOS와 Linux는 Kotlin/Native입니다.** 렌더러는 Kotlin/Native 정적 라이브러리이고 Rust 실행 파일에 링크됩니다. JVM도 GraalVM native-image도 없습니다. **Windows는 D18을 따릅니다**(Kotlin/Native `mingwX64`, MSVC 실행 파일에 정적 링크).
+- **AWT 경로는 기본값에서 빠집니다.** GraalVM native-image로 AWT 위의 Compose Desktop을 싣는 경로(아래 이전 결정, D3의 데스크톱 행, D9-macOS)는 D18의 Windows 렌더러가 SPEC NFR-13을 통과하기 전까지 Windows가 지금 내는 것으로만 남고, 새 기능을 그 경로에 맞추지 않습니다.
+- **C5는 움직이지 않습니다.** 창을 AWT가 아니라 렌더러가 가지므로, 입력기는 AWT의 IME 경로가 아니라 그 창이 Compose의 플랫폼 텍스트 입력에 이어 주는 경로로 들어옵니다(macOS `NSTextInputClient`, Windows IMM32/TSF, Linux XIM과 ibus/fcitx). Compose의 플랫폼 텍스트 입력을 우회하는 경로는 여전히 두지 않습니다. §6 IME 체크리스트와 §7 접근성은 이 빌드에서 확인하고, 실패는 이 경로에서 고칩니다. AWT 경로로 돌아가는 것은 고치는 방법이 아닙니다.
+- **창 코드는 Compose의 포크가 가집니다(D19).** 툴킷 없는 창과 Kotlin/Native 데스크톱 창은 Rust와 무관한 Compose의 일이므로 `compose-multiplatform-core-extended`로 옮깁니다. 옮기는 동안의 기준은 SPEC FR-19.8입니다.
+
+**왜 지금 뒤집는가.** 이전 결정은 "AOT 컴파일은 코드 경로를 바꾸지 않으므로 AWT의 IME가 그대로 따라온다"는 데 기댔고, 그 판단은 IME에 대해서는 맞았습니다. 그러나 그 값으로 치른 것이 이후에 드러났습니다. macOS에서 JDK의 AWT를 정적으로 붙이기 위한 우회 셋(D9-macOS), 정적 링크에서 접근성 클래스가 사라진 사건(SPEC §7), 통합 툴바와 vibrancy처럼 AWT 피어가 읽어 주지 않는 창의 성질(D15), Windows에서 JDK DLL 열두 개가 배포물에 따라붙는 것(D17)이 전부 AWT에서 왔습니다. 같은 계산기 샘플이 macOS Kotlin/Native에서 파일 하나 28.95MB, 실제 점유 39MB였고, 툴킷 경로는 파일 넷 93.1MB, 56MB였습니다(`CHANGELOG.md`, `docs/platforms.md`).
+
+**치르는 값.**
+
+- 창과 입력기 배선을 플랫폼마다 우리가 들고 있습니다. 이전 결정이 피하려던 바로 그 일이고, C5를 지키는 책임이 설정이 아니라 코드에 있게 됩니다.
+- Compose가 Kotlin/Native 데스크톱 타깃을 발행하지 않는 플랫폼(Linux, Windows)은 포크에서 타깃을 더해 빌드합니다(D19). 장면을 창에 붙이는 데 필요한 내부 API는 NFR-6에 따라 어댑터 한 파일에 격리하고 버전을 고정합니다.
+- JVM 개발 셸(D7)은 여전히 AWT 위에서 돕니다. 개발 루프와 배포물이 다른 창 코드를 지나므로, 창에 관한 확인은 배포 빌드에서 합니다.
+
+#### D4의 이전 결정: 창 소유권은 관심사가 아니다. Compose Desktop의 AWT 경로를 그대로 쓴다 (2026-10-03에 대체됨)
+
+아래는 대체되기 전의 결정이고, 기록으로 남깁니다.
 
 ComposeScene과 커스텀 `PlatformContext`로 Rust가 창을 소유하는 경로는 **채택하지 않습니다.** 그 경로에서는 IME(`NSTextInputClient`, TSF, ibus/fcitx)를 직접 배선해야 하고, 이는 C5를 위협합니다.
 
@@ -101,14 +168,14 @@ ART에서는 호스트 관계가 뒤집힙니다. 경계를 호출 방향과 무
 
 - **렌더러는 기본 기능입니다.** `native-renderer`가 기본에서 빠져 있던 동안 평범한 `cargo build`는 렌더러 없는 바이너리를 만들었고, 그 바이너리는 실행하면 아무것도 그리지 않은 채 0을 반환했습니다. 화면에 아무것도 없는데 종료 코드가 0이면 사용자는 무엇을 고쳐야 할지 알 방법이 없습니다. 렌더러 없이 빌드하고 싶은 쪽(헤드리스 CI, 문서 빌드)이 `default-features = false`로 꺼야 합니다.
 - **렌더러가 링크되지 않은 빌드는 실행 시 조용히 성공하지 않습니다.** 무엇이 없는지와 어떻게 얻는지를 표준 오류로 말하고, 0이 아닌 상태로 끝냅니다. `mock-renderer`와 테스트 빌드는 예외입니다. 그쪽은 렌더러가 없는 것이 정상이며, 이미 그 전제로 쓰입니다.
-- **탐색 순서**: `DIOXUS_COMPOSE_RENDERER_DIR` → 워크스페이스 빌드 결과물 → 버전·타깃별 캐시 → 릴리스에서 내려받기. 변수는 언제나 최우선입니다. 직접 빌드한 렌더러, 벤더링한 사본, 오프라인 빌드가 모두 이 변수 하나로 해결되고, 자동 다운로드가 그 경로를 가로채지 않습니다.
+- **탐색 순서**: `COMPOSE_RUST_RENDERER_DIR` → 워크스페이스 빌드 결과물 → 버전·타깃별 캐시 → 릴리스에서 내려받기. 변수는 언제나 최우선입니다. 직접 빌드한 렌더러, 벤더링한 사본, 오프라인 빌드가 모두 이 변수 하나로 해결되고, 자동 다운로드가 그 경로를 가로채지 않습니다.
 - **캐시는 `target/` 밖에 두고 버전과 타깃으로 키를 만듭니다.** `cargo clean`을 견디고, 같은 버전을 쓰는 프로젝트끼리 한 벌을 공유합니다. `target/` 안에 두면 청소할 때마다 수십 MB를 다시 받게 됩니다.
 - **푸는 매 번 체크섬을 검증합니다.** 신뢰 경계는 GitHub 릴리스 자체입니다. `.sha256`이 아티팩트와 같은 릴리스에서 오므로 이 검증이 막는 것은 잘린 다운로드와 손상된 캐시이지 공급망 공격이 아닙니다. 그 이상이 필요하면 서명을 도입해야 하고, 그것은 별도 결정입니다.
 - **네트워크가 없으면 파일 이름과 둘 위치를 말하고 실패합니다.** "네트워크 오류"만 남기면 오프라인 빌드를 할 방법이 없습니다.
 - **해당 타깃의 아티팩트가 없으면 그렇게 말합니다.** 404를 그대로 보여주면 릴리스가 통째로 없는 것인지 그 플랫폼만 없는 것인지 구분할 수 없습니다.
 - **docs.rs는 네트워크가 없습니다.** `DOCS_RS`가 설정되면 내려받지 않고 렌더러 없이 문서를 빌드합니다. 그렇게 만들어진 바이너리는 위의 "조용히 성공하지 않는다"에 해당합니다.
 - **링크되었는지는 기능 플래그가 아니라 빌드가 정합니다.** 빌드 스크립트가 렌더러를 실제로 링크했을 때만 `renderer_linked`를 내보내고, Host는 그것으로 갈립니다. 기능 플래그로 갈랐다면 docs.rs 빌드가 존재하지 않는 심벌을 부릅니다.
-- **"설치가 끝났다"는 실행되는 바이너리까지입니다.** Cargo는 의존성 빌드 스크립트의 링크 탐색 경로와 라이브러리는 최종 바이너리로 넘기지만 링크 인자는 넘기지 않습니다. 그래서 rpath로 해결하던 두 가지를 크레이트 안에서 해결합니다: 라이브러리는 자기가 놓인 절대 경로를 자기 이름으로 달고, `dioxus_compose_host_*` 심벌은 `#[used]`로 죽은 코드 제거에서 지킵니다. 링크는 되는데 시작하자마자 죽는 바이너리는 렌더러가 없는 바이너리와 같은 종류의 실패입니다(SPEC 5.3.4).
+- **"설치가 끝났다"는 실행되는 바이너리까지입니다.** Cargo는 의존성 빌드 스크립트의 링크 탐색 경로와 라이브러리는 최종 바이너리로 넘기지만 링크 인자는 넘기지 않습니다. 그래서 rpath로 해결하던 두 가지를 크레이트 안에서 해결합니다: 라이브러리는 자기가 놓인 절대 경로를 자기 이름으로 달고, `compose_rust_host_*` 심벌은 `#[used]`로 죽은 코드 제거에서 지킵니다. 링크는 되는데 시작하자마자 죽는 바이너리는 렌더러가 없는 바이너리와 같은 종류의 실패입니다(SPEC 5.3.4).
 - 이 스택을 쓰는 애플리케이션의 배포는 이 프로젝트의 범위 밖입니다. 렌더러를 어떻게 번들에 넣을지는 해당 애플리케이션이 정합니다. 다만 그것이 가능하도록 남겨 두는 것은 이 프로젝트의 책임입니다(D12).
 
 ### D11. Android는 Kotlin을 소스로 배포한다
@@ -146,11 +213,11 @@ sourceSets { getByName("main") { java.srcDirs("src/main/kotlin", "src/main/java"
 
 ### D12. 링크 시점 링크를 유지하고, rpath 대신 라이브러리의 절대 이름으로 찾게 한다
 
-D10이 약속한 "`Cargo.toml` 한 줄"은 `cargo build`뿐 아니라 `cargo run`까지입니다. 그런데 빌드 스크립트가 렌더러를 받아 링크해 두어도, 그 크레이트에 의존하기만 한 바이너리는 시작하자마자 `Library not loaded: @rpath/libdioxus_compose_renderer.dylib, no LC_RPATH's found`로 죽었습니다. Cargo가 의존성의 링크 인자를 넘기지 않으므로 rpath가 최종 바이너리에 도달하지 못하기 때문입니다.
+D10이 약속한 "`Cargo.toml` 한 줄"은 `cargo build`뿐 아니라 `cargo run`까지입니다. 그런데 빌드 스크립트가 렌더러를 받아 링크해 두어도, 그 크레이트에 의존하기만 한 바이너리는 시작하자마자 `Library not loaded: @rpath/libcompose_rust_renderer.dylib, no LC_RPATH's found`로 죽었습니다. Cargo가 의존성의 링크 인자를 넘기지 않으므로 rpath가 최종 바이너리에 도달하지 못하기 때문입니다.
 
 **링크 시점 링크는 그대로 두고, 개발 중에도 rpath에 기대지 않습니다.** 빌드 스크립트가 렌더러를 확보하면 그 라이브러리가 지금 놓인 절대 경로를 라이브러리 자신의 이름으로 새겨 넣습니다. 소비자의 바이너리는 그 절대 경로를 그대로 기록하고, 로더는 rpath 하나 없이 찾아냅니다.
 
-- **획득 경로 네 가지 모두에 적용합니다.** `DIOXUS_COMPOSE_RENDERER_DIR`, 워크스페이스 빌드 결과물, 캐시, 다운로드 어디서 왔든 같습니다. 캐시에만 적용하면 이 저장소에서 렌더러를 직접 빌드해 쓰는 개발 경로만 rpath에 남게 되고, 개발자가 매일 쓰는 경로가 소비자가 쓰는 경로와 달라집니다. 그 차이가 이 버그를 오래 숨겨 왔습니다.
+- **획득 경로 네 가지 모두에 적용합니다.** `COMPOSE_RUST_RENDERER_DIR`, 워크스페이스 빌드 결과물, 캐시, 다운로드 어디서 왔든 같습니다. 캐시에만 적용하면 이 저장소에서 렌더러를 직접 빌드해 쓰는 개발 경로만 rpath에 남게 되고, 개발자가 매일 쓰는 경로가 소비자가 쓰는 경로와 달라집니다. 그 차이가 이 버그를 오래 숨겨 왔습니다.
 - **우리 빌드 스크립트도 rpath를 내보내지 않습니다.** 내보내면 이 저장소의 테스트 바이너리만 rpath로 살아나고, 이름 새기기가 고장나도 소비자 쪽에서만 터집니다. rpath를 없애면 우리 테스트 바이너리가 소비자 바이너리와 정확히 같은 방식으로 적재됩니다.
 - **샘플에는 `build.rs`가 없습니다.** 샘플은 소비자의 대역이고, 소비자가 쓰지 않는 빌드 스크립트를 샘플이 쓰면 대역이 아닙니다.
 - **macOS**: `install_name_tool -id <절대 경로>`. Xcode 명령줄 도구에 들어 있고, Rust 링커가 어차피 그것을 필요로 합니다.
@@ -237,7 +304,25 @@ macOS 26과 iOS 26은 같은 재질을 쓰지만 같은 방식으로 쓰지 않�
 - **설정만으로 막지 않고 코드로도 막습니다.** codegen은 자기가 컴파일된 크레이트 디렉터리와 cargo가 실행 시점에 알려 준 크레이트 디렉터리가 다르면 아무것도 쓰지 않고 두 경로를 찍으며 실패합니다. 설정이 다시 어긋나도 남의 트리에 쓰는 대신 멈춥니다.
 - **초록의 신뢰성도 같은 문제입니다.** 오염되는 것은 쓰기만이 아닙니다. 다른 워크트리에서 컴파일된 테스트 바이너리는 그 워크트리의 벡터 파일과 픽스처를 읽습니다. 그렇게 얻은 통과는 이 워크트리에 대한 사실이 아닙니다.
 
-### D17. 데스크톱 배포물은 실행 파일 하나를 목표로 한다
+### D17. compose-rust 데스크톱 애플리케이션은 실행 파일 하나다
+
+**소유자의 결정입니다(2026-10-03). 1.0.0의 요구사항입니다.**
+
+> "내가 지시한지가 언제인데 아직 물어보나?" (2026-10-03)
+
+**결정.** compose-rust로 만든 데스크톱 애플리케이션은 macOS, Windows, Linux 모두에서 **실행 파일 하나**입니다. 옆에 놓이는 렌더러 라이브러리, Skia 라이브러리, `icudtl.dat`, JDK DLL, `lib/` 디렉터리가 없습니다. 실행 파일이 불러오는 것은 그 플랫폼의 시스템 라이브러리뿐입니다. 이것은 "목표"가 아니라 compose-rust 1.0.0(2026-10-20)의 요구사항이고, SPEC NFR-15가 수용 기준입니다. 번들(`.app`, msix, AppImage)은 이 실행 파일을 감싸는 것이지 대신하는 것이 아닙니다.
+
+**D2와 D4에서 이렇게 따라 나옵니다.**
+
+- **실행 파일은 Rust의 것입니다(D2).** compose-rust 애플리케이션은 compose-rust의 작성 API로 쓰인 Rust 프로그램이고, `cargo build`가 내는 실행 파일이 곧 애플리케이션입니다. Dioxus 층을 쓰는 애플리케이션도 같습니다. 다른 실행 파일이 Rust를 싣는 구조가 아니므로, 하나로 만들 자리는 Rust 링커입니다.
+- **렌더러는 그 실행 파일에 정적으로 링크됩니다(D4).** AWT 없는 렌더러는 Kotlin/Native 정적 라이브러리입니다(macOS, Linux는 D4, Windows는 D18). 아래 이전 결정의 1번(native-image가 정적 라이브러리를 내지 않음)과 3번(AWT를 이미지 안으로)은 이 경로에서 질문 자체가 사라집니다.
+- **Skia가 안에 있습니다.** Skia와 skiko의 C++ 부분은 렌더러와 함께 같은 실행 파일에 링크됩니다. 경로로 라이브러리를 찾는 로더가 없으므로 이전 결정의 2번이 사라집니다.
+- **ICU가 안에 있습니다.** ICU 데이터는 실행 파일 안에 들어가고, Skia가 ICU를 불러오는 자리(Windows에서는 `SkLoadICU`)가 그 데이터를 넘깁니다. 이전 결정의 4번입니다.
+- **설치는 여전히 `Cargo.toml` 한 줄입니다(D10).** 앱을 빌드하는 사람은 JDK도 GraalVM도 Kotlin 툴체인도 MinGW도 돌리지 않습니다. 정적 렌더러 아티팩트는 D10대로 빌드 스크립트가 받아 옵니다.
+
+#### D17의 이전 결정: 데스크톱 배포물은 실행 파일 하나를 목표로 한다 (2026-10-03에 요구사항으로 바뀜)
+
+아래는 GraalVM native-image 경로에서 쓴 분석이고, 기록으로 남깁니다. 네 항목이 어디서 막혔는지가 D4와 D18이 그 경로를 떠난 이유의 일부입니다.
 
 지금 Windows 배포물은 파일 16개입니다. 렌더러 DLL 101.6MB, `skiko-windows-x64.dll` 13.4MB, `icudtl.dat` 10.0MB, 그리고 JDK의 AWT DLL 열두 개입니다. macOS는 4개입니다. 앱을 받는 사람이 폴더 하나를 통째로 들고 다녀야 하고, 그중 어느 하나가 빠지면 창이 뜨지 않습니다.
 
@@ -255,6 +340,59 @@ macOS 26과 iOS 26은 같은 재질을 쓰지만 같은 방식으로 쓰지 않�
 **검증은 macOS에서 먼저 합니다.** 네 항목 모두 Windows에서만 의미가 있지만, 넷 중 셋은 macOS에서도 같은 모양으로 막히고 이 기계에서 바로 돌려 볼 수 있습니다. Windows에서만 확인 가능한 것을 시도마다 CI 한 사이클씩 쓰는 것이 NIK 통일을 되돌린 이유였습니다(D3). 같은 실수를 반복하지 않습니다.
 
 **2026-09-23의 "단일 exe는 비용이 너무 크니 번들을 먼저"는 제안이었고 결정이 아니었습니다.** 기록하지 않아서 결정처럼 굳었고, 그래서 이 항목이 뒤늦게 적힙니다.
+
+### D18. Windows 렌더러는 Kotlin/Native로 만들고, MinGW는 Kotlin 오브젝트 안에 가둔다
+
+**소유자의 결정입니다(2026-10-03). 실험이 아니라 정식 통합입니다.**
+
+> "작업 하시라고요" (2026-10-03)
+>
+> "옮겨. 단순 윈도우를 실험으로 보지 말고 정식 통합을 진행해야지" (2026-10-01)
+
+이 결정은 dioxus-compose의 `feat/windows-kotlin-native` 브랜치에서 처음 적혔고, 그 브랜치의 빌드와 링크가 근거입니다. compose-rust에 맞춰 옮겨 적습니다: 크레이트는 `compose-rust`(`dioxus-compose/` 디렉터리), 렌더러 모듈은 Linux의 `linux/`, `staticlib-linux/`와 같은 모양의 `renderer/windows/`와 `staticlib-windows/`, Compose와 skiko의 `mingwX64` 변경은 이 저장소의 패치가 아니라 `compose-multiplatform-core-extended`의 커밋입니다(D19).
+
+Windows 렌더러는 GraalVM native-image가 아니라 Kotlin/Native(`mingwX64`)로 컴파일하고, Rust 앱이 만드는 MSVC 실행 파일 하나에 정적으로 링크합니다. macOS, Linux와 같은 길입니다(D4).
+
+**MinGW를 어디에 가두는가.** 소유자는 MinGW를 좋아하지 않고, 앱을 빌드하는 사람에게 MinGW를 요구하지 않는 것이 이 결정의 조건입니다. 그런데 Kotlin/Native의 Windows 타깃은 MinGW뿐입니다. Rust의 기본 Windows 타깃과 Skia의 Windows 빌드는 MSVC이고, 두 C++ 방식은 한 파일에 섞이지 않습니다. 그래서 경계를 이렇게 긋습니다.
+
+- **MSVC**: Rust, Skia, skiko의 C++ 부분, C 런타임(정적, `/MT`). 앱을 빌드하는 사람이 보는 툴체인은 이것뿐입니다.
+- **MinGW**: Kotlin/Native가 만든 오브젝트(Compose, skiko의 Kotlin 부분, 렌더러)와, 그것이 원래 정적으로 끌고 오는 libstdc++, libgcc, winpthread. 렌더러 아티팩트를 만드는 빌드 안에만 있고, 아티팩트에서 나올 때는 MSVC 링커가 읽을 수 있게 고쳐진 오브젝트입니다.
+- **둘 사이**: C 함수 호출만. skiko가 원래 그렇게 생겼습니다.
+
+MinGW 오브젝트를 MSVC 링커에 그대로 주면 두 군데가 조용히 틀립니다. 그래서 빌드가 링크 전에 오브젝트를 고칩니다.
+
+1. **정적 생성자.** MinGW는 `.ctors`에 두고, MSVC 런타임은 `.CRT$XCU`만 실행합니다. 섹션 이름을 바꿉니다. 안 바꾸면 링크는 되는데 실행하면 멈춥니다.
+2. **예외 되감기 정보.** MinGW는 `.pdata$함수`를 독립 COMDAT으로 두고 이름으로 짝짓습니다. MSVC 링커는 이것을 버리고, Kotlin 예외가 함수 둘 이상을 지나면 되감기가 무한 루프에 빠집니다. COFF 규격의 '딸린 섹션'(associative)으로 표시를 바꿉니다.
+
+MinGW 보조 라이브러리(`libmingwex`)는 링크하지 않습니다. MSVC 정적 런타임과 함수가 중복 정의되기 때문입니다. 실제로 쓰는 함수(`__mingw_vsnprintf`, `sleep`, `gettimeofday`)와 스레드 시작 함수는 작은 C 파일이 MSVC 런타임으로 이어 줍니다. MinGW가 실행 파일에 남기는 것은 Kotlin 오브젝트와 그것이 끌고 온 C++ 런타임뿐이고, 사용자의 툴체인, 실행 파일 옆의 DLL, 앱의 Rust 타깃 어디에도 MinGW가 나오지 않습니다.
+
+**D17의 네 항목은 이 경로에서 이렇게 풀립니다.**
+
+1. 정적 라이브러리: Kotlin/Native가 `-produce static`을 냅니다.
+2. Skia를 안으로: Skia와 skiko C++를 우리가 링크합니다. 경로로 찾는 로더가 없습니다.
+3. AWT: 필요 없습니다(D4). 창은 렌더러가 직접 여는 Win32 창입니다.
+4. ICU 데이터: Skia가 부르는 `SkLoadICU`를 우리가 정의해서, 실행 파일 안에 넣은 데이터를 ICU에 넘깁니다.
+
+skiko는 `mingwX64`를 발행하지 않고 Compose도 Windows용 Kotlin/Native 타깃을 발행하지 않습니다. 둘 다 포크에서 `mingwX64` 타깃을 더해 빌드합니다(skiko 0.144.6, Compose는 Linux 타깃을 더한 것과 같은 방식). skiko의 C++ 부분은 Skia의 ABI에 맞아야 하므로 JetBrains가 미리 빌드한 Windows Skia에 대해 MSVC로 컴파일합니다.
+
+**근거 (2026-10-01, macOS의 Wine 11.0에서 확인):** 실행 파일 하나가 시스템 DLL 외에 아무것도 불러오지 않고, skiko API로 그림과 글자를 그려 픽셀이 맞고, 함수 셋을 지나는 Kotlin 예외 1000회가 정상이고, 잡히지 않은 예외는 Kotlin이 보고하고 종료하고, ICU 파일 없이 한국어 단어 경계가 맞습니다. 생성자와 되감기 정보를 고치지 않은 대조군은 각각 멈추고 무한 루프에 빠졌습니다. 그 뒤 minimal 샘플이 Windows 시스템 DLL만 불러오는 디버그 실행 파일 하나(58MB)로 링크되었고, Wine에서 창을 열어 샘플을 그렸습니다. **진짜 Windows에서는 아직 확인하지 않았습니다.**
+
+**치르는 값:**
+
+- 실행 파일 안에 C++ 런타임이 둘 들어갑니다. 이름 규칙이 달라 부딪히지는 않지만 크기는 그만큼 늡니다.
+- MinGW 오브젝트를 고치는 빌드 단계가 하나 생깁니다. Kotlin/Native가 오브젝트를 만드는 방식을 바꾸면 이 단계도 다시 확인해야 합니다.
+- MinGW의 크래시 필터 대신 '처리 안 함'을 돌려주는 함수를 둡니다. Kotlin 스레드의 크래시는 MinGW식 신호 변환 대신 Windows 기본 처리로 갑니다.
+- Skia가 MSVC 정적 C 런타임으로 빌드되어 있지만, 앱에 `+crt-static`을 요구하지 않습니다. **크레이트의 빌드 스크립트가 정적 C 런타임을 대신 링크하고, 부딪히는 기본 라이브러리는 막습니다**(`/NODEFAULTLIB`). compose-multiplatform-extended 플러그인이 Windows 단일 실행 파일에서 검증한 방식과 같습니다. 앱을 만드는 사람이 할 일은 `Cargo.toml` 한 줄뿐입니다(NFR-15 기준 5).
+
+  > "(b)안으로 가자" (2026-10-03, 소유자. 세 선택지 가운데 "크레이트의 build.rs가 정적 C 런타임을 링크하고 충돌을 막는다"를 고름)
+- Wine으로 확인한 것은 Windows에서 다시 확인해야 하고, 창, 입력기, 화면 낭독기는 Wine으로 확인할 수 없습니다.
+
+**폐기한 대안:**
+
+- Rust를 `windows-gnu`로: 앱을 빌드하는 사람이 전부 기본값이 아닌 타깃을 써야 해서 D10과 부딪히고, MinGW가 가둔 자리를 벗어나 사용자의 툴체인이 됩니다.
+- Skia를 MinGW로 빌드: Skia가 공식 지원하지 않습니다.
+- 렌더러를 DLL로 나누기: 파일이 3개가 되어 D17을 어깁니다.
+- GraalVM 유지: JVM이 남고(D4), JDK DLL 열두 개가 배포물에 따라붙습니다(D17).
 
 ### D19. Compose를 확장하는 일은 이 프로젝트 밖, Compose의 포크에서 한다
 
@@ -279,7 +417,32 @@ macOS 26과 iOS 26은 같은 재질을 쓰지만 같은 방식으로 쓰지 않�
 - pythonx-compose 쪽은 Compose 1.6.11에 묶여 있고 GraalVM도 다른 배포판을 씁니다. 같은 포크를 쓰려면 그쪽이 버전을 올려야 하고, 그쪽 바인딩은 Compose jar에서 생성되므로 포크가 공개 API를 바꾸면 바인딩이 함께 움직입니다. **포크의 변경은 공개 API를 바꾸지 않는 쪽으로 둡니다.**
 - 옮기는 동안 렌더러가 빌드되지 않는 기간이 생기면 안 됩니다. `patches/`와 `scripts/build-compose.sh`는 포크가 같은 결과를 내는 것이 확인될 때까지 남깁니다.
 
-**아직 정하지 않은 것.** 디자인 시스템 일곱 개와 Liquid Glass 재질(`dioxus-design-systems/`, 그리고 렌더러 안의 어긋난 복사본)이 어느 저장소로 갈지. Rust와 무관한 Compose 코드라 포크 쪽이 자연스러워 보이지만, pythonx-compose가 실제로 쓸 수 있는지 확인하고 정합니다.
+**디자인 시스템은 `compose-multiplatform-core-extended`로 갑니다. 소유자의 결정입니다(2026-10-03).**
+
+> "디자인 시스템 extended쪽에 넣어. 다만 기존 material3와 같은 부모 패키지에 넣을지 아니면 새 패키지를 만들지는 결정해야 할거같은데 논의하고 알려줘봐." (2026-10-03)
+
+이 문단은 전에 "디자인 시스템 일곱 개와 Liquid Glass 재질이 어느 저장소로 갈지"를 정하지 않은 것으로 두고 있었습니다. 이제 정해졌습니다. `design-systems/`와 렌더러 안의 복사본이 포크로 옮겨 가고, 그 뒤 이 저장소와 렌더러는 포크가 내놓는 것을 씁니다. Rust와 무관한 Compose 코드이고, 포크로 가면 pythonx-compose도 같은 것을 쓸 수 있습니다.
+
+**패키지와 모듈의 자리: 정해졌습니다(2026-10-03).** 소유자가 네임스페이스를 라이브러리와 앱으로 나눴습니다.
+
+> "우리도 그러면 실제 앱으로 배포 나가는거에는 io.github.thisisthepy를, 라이브러리에는 org.thisisthepy를 써야겠구만. compose는 org.thisisthepy로 나가는거 허용할게" (2026-10-03)
+
+- 디자인 시스템은 `org.thisisthepy.compose.<시스템>` 패키지(`material3`, `cupertino`, `fluent`, `gnome`, `breeze`, `deepin`, `liquidglass`)이고, 공통 부분은 `org.thisisthepy.compose.designsystem`입니다. 모듈은 포크의 `extended/design-systems/<시스템>/` 아래에 둡니다.
+- 포크가 내는 라이브러리의 Maven 그룹은 `org.thisisthepy.compose.*`입니다. JetBrains가 라이브러리와 플러그인 모두 `org.jetbrains.compose`를 쓰는 것과 같은 방식입니다.
+- 앱으로 배포되는 것의 식별자는 `io.github.thisisthepy.<앱>`입니다. darkpyonix 제품(예: `dev.darkpyonix.Ember`)에 같은 규칙을 적용할지는 따로 정합니다.
+- `androidx.compose.*` 아래에 두지 않는 이유는 위의 둘째 선택지 설명 그대로입니다. upstream과 부딪히지 않고, 포크가 더한 것이 이름만으로 구별되며, 공개 API를 바꾸지 않는다는 원칙을 지킵니다.
+
+**디자인 시스템은 두 층으로 냅니다. 소유자의 결정입니다(2026-10-03).**
+
+> "컴포넌트 라이브러리로 하되" (2026-10-03)
+
+> "2층으로 가고, 개들은 adaptive 디자인 시스템 패키지 명을 쓰면 될거같네." (2026-10-03)
+
+- **1층은 디자인 시스템마다 하나씩인 컴포넌트 라이브러리입니다.** `org.thisisthepy.compose.{material3, cupertino, fluent, gnome, breeze, deepin, liquidglass}`이고, 일곱 개가 모두 material3와 같은 모양을 가집니다: `XxxTheme` 컴포저블, `ColorScheme`, `Typography`, `Shapes`, 그리고 컴포넌트. 공개 API는 `androidx.compose.material3`를 본뜹니다. Compose를 아는 사람이 `MaterialTheme` 자리에 `FluentTheme`을 쓰면 나머지가 같은 이름으로 따라오게 하려는 것입니다. `org.thisisthepy.compose.material3`는 새로 그리지 않고 `androidx.compose.material3` 위의 어댑터입니다. Material은 이미 있는 것을 다시 만들 이유가 없습니다.
+- **2층은 `org.thisisthepy.compose.adaptive`입니다.** 디자인 시스템에 매이지 않는 중립 컴포넌트(`Button`, `TextField`, `DatePicker`, ...)가 현재 테마의 1층 구현에 위임합니다. 진입점은 `MaterialTheme`의 관례를 따라 `AdaptiveTheme(designSystem: DesignSystem = DesignSystem.platformDefault(), darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit)`이고, 기본값은 실행 중인 플랫폼의 디자인 시스템입니다. **compose-rust의 렌더러는 기본으로 이 층을 씁니다.** FR-14.3의 `Theme::adaptive`가 Compose 쪽에서 갖는 모양이 이것입니다.
+- **공통 계약은 별도 모듈 `org.thisisthepy.compose.designsystem`에 남깁니다.** 역할 enum, `DesignSystem` 인터페이스, 토큰입니다. 두 층이 모두 이것에 의존합니다. adaptive에 합치지 않는 이유는 의존 방향입니다. adaptive는 1층 일곱 개 전부에 의존하고, 1층은 adaptive에 의존하면 안 됩니다. 계약이 adaptive 안에 있으면 1층이 계약을 쓰려고 adaptive에 의존하게 되어 순환이 생깁니다.
+- **이름이 비슷한 것 하나.** JetBrains의 `androidx.compose.material3.adaptive`는 적응형 레이아웃(창 크기 클래스)이고 `org.thisisthepy.compose.adaptive`와 무관합니다. 네임스페이스가 달라 부딪히지 않습니다.
+- 요구사항과 수용 기준은 SPEC FR-14.11입니다.
 
 ### D15. iOS의 Liquid Glass는 시스템에게 받아 온다. UIKit을 Kotlin이 직접 몬다
 
@@ -326,7 +489,7 @@ JetBrains의 안내([ios-liquid-glass](https://kotlinlang.org/docs/multiplatform
 | Compose + JVM 동봉 (jlink, AppCDS, JNI Invocation) | C2. AppCDS는 시작 시간 해법이지 용량 해법이 아닙니다 |
 | UniFFI/JNI 기반 Kotlin 호스트 + Rust dylib | JVM이 필요하고(C2), UI 코드가 Kotlin에 있게 됩니다(C4) |
 | Iced 단독 | 텍스트/IME 성숙도(C5) 부족. 모바일은 upstream이 out of scope로 선언했습니다 |
-| Rust 소유 창 + ComposeScene + 직접 IME 배선 | C5 위험, `@InternalComposeUiApi` 의존, 접근성 상실 |
+| Rust 소유 창 + ComposeScene + 직접 IME 배선 | C5 위험, `@InternalComposeUiApi` 의존, 접근성 상실. **2026-10-03의 D4는 이것과 다릅니다.** 창은 Rust가 아니라 Kotlin 렌더러가 가지고, 입력은 Compose의 플랫폼 텍스트 입력을 지납니다. 여기 적힌 위험은 사라진 것이 아니라 D4가 SPEC NFR-14의 수용 기준으로 떠안은 것입니다 |
 | Rust가 AWT 네이티브 피어를 대체 | JDK 내부 인터페이스라 사실상 AWT를 재구현하는 분량입니다 |
 | 네이티브 위젯 바인딩(objc2, windows-rs, gtk-rs) | 크로스플랫폼 선언형 프레임워크가 아니라 FFI입니다 |
 | 렌더러를 opt-in 기능으로 두기(`default = []`) | 기본 빌드가 렌더러 없는 바이너리를 만들고, 그 바이너리가 조용히 성공했습니다. 기본값이 동작하지 않는 설정은 기본값이 아닙니다 |
@@ -334,6 +497,8 @@ JetBrains의 안내([ios-liquid-glass](https://kotlinlang.org/docs/multiplatform
 | `build-dependencies`로 HTTP 클라이언트(ureq, reqwest) 추가 | 모든 소비자의 빌드에 TLS 스택을 포함한 의존성 트리가 들어옵니다. `curl`과 `wget`은 세 플랫폼에 이미 있고, 빌드 스크립트가 필요한 것은 GET 한 번입니다 |
 | 체크섬 검증을 `shasum`/`sha256sum`/`certutil`에 위임 | 검증이 외부 도구의 존재와 출력 형식에 의존합니다. 도구가 없으면 검증을 건너뛰게 되고, 그것은 검증하지 않는 것과 같습니다. SHA-256은 빌드 스크립트 안에 직접 구현했습니다 |
 | 아티팩트를 `target/` 안에 캐시 | `cargo clean` 한 번에 사라지고, 프로젝트마다 한 벌씩 받습니다 |
+| Dioxus(`dioxus-core` VirtualDom)를 compose-rust의 유일한 작성 모델로 두기 | 2026-10-03에 소유자가 대체했습니다(D2). compose-rust를 Dioxus 없이 쓸 수 없고, 사용자 앞에 Compose가 아니라 Dioxus가 놓입니다. 실측으로 diff 자체의 몫은 바뀐 슬롯당 30ns로 작았지만, 스코프 재실행 값은 슬롯 테이블 탐침보다 한 자릿수 컸습니다 |
+| 단일 실행 파일을 "목표"로 두고 번들을 먼저 내기 | 2026-10-03에 소유자가 1.0.0 요구사항으로 정했습니다(D17). 번들은 사용자 눈에 하나로 보이게 할 뿐 실행 파일 옆의 파일을 없애지 않습니다 |
 | Compose 변경을 포크 대신 고정 리비전에 대한 패치로 유지(`patches/`) | 2026-10-02에 뒤집었습니다(D19). 포크가 살려 둘 저장소 하나를 더 만든다는 비용은 이제 두 프로젝트가 나눠 지고, 변경이 이백 줄 남짓에 머물지 않게 되었습니다. GraalVM 경로와 데스크톱 창까지 같은 곳으로 가면 Compose의 이력 안에서 리뷰되는 편이 맞습니다 |
 | 푼 뒤 `.tar.gz`를 지우기 | 캐시가 32MB 줄지만, 오프라인 안내가 "이 두 파일을 여기 두라"고 말하는 그 자리에서 사용자가 놓은 파일을 지우게 됩니다. 다운로드 경로와 손으로 놓는 경로를 같은 코드로 두면 안내가 실제로 동작하는지 테스트할 수 있습니다 |
 | 소비자에게 `build.rs` 한 줄(`-export_dynamic`)을 요구하기 | 실행할 스크립트 대신 붙여 넣을 빌드 스크립트가 생길 뿐입니다. 한 줄이라도 사용자가 하는 설정이면 D10이 아닙니다 |
@@ -358,4 +523,5 @@ JetBrains의 안내([ios-liquid-glass](https://kotlinlang.org/docs/multiplatform
 - 스키마에 없는 Compose 기능은 쓸 수 없습니다. 위젯을 추가할 때마다 스키마, 인터프리터, 코드젠을 확장해야 합니다.
 - native-image 바이너리는 Skia를 포함해 수십 MB가 하한입니다. Iced(10~20MB)보다는 크지만 웹뷰나 JVM 스택보다는 작습니다.
 - LazyColumn은 단순 트리 diff로 가상화를 유지할 수 없어서 전용 윈도잉 프로토콜이 필요합니다.
+- recomposition 런타임을 직접 만들고 유지합니다(D2). 슬롯 테이블, 그룹을 넣는 매크로, 상태와 effect, 그리고 그 위에 얹히는 Dioxus 층과의 표현력 짝 맞추기가 전부 이 프로젝트의 몫입니다.
 - 워크트리마다 자기 `target/`을 가지므로 체크아웃 하나가 1GB에서 2GB를 차지합니다. 열어 둔 워크트리 수가 곧 디스크 비용이고, 그것이 D16이 공유 대신 받아들인 값입니다.

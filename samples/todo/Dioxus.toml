@@ -5,7 +5,7 @@
 # this repository, because the point of a sample is to be copied.
 #
 # What is specific to this project is the renderer: dx builds and bundles the application,
-# and the Compose renderer is linked in by dioxus-compose's build script. Nothing in this
+# and the Compose renderer is linked in by compose-rust's build script. Nothing in this
 # file selects a renderer.
 
 [application]
@@ -13,9 +13,9 @@ name = "Todo"
 asset_dir = "assets"
 
 [bundle]
-identifier = "dev.darkpyonix.dioxus.compose.samples.todo"
+identifier = "dev.darkpyonix.composerust.samples.todo"
 publisher = "DarkPyonix"
-short_description = "A task list built with dioxus-compose."
+short_description = "A task list built with compose-rust."
 long_description = "Stable keys, lazy list windowing, persistence."
 
 [macos]
@@ -27,8 +27,8 @@ bundle_name = "Todo"
 #
 # Android is the one platform where the renderer is Kotlin running on ART rather than an
 # AOT image, so it has to be compiled by this application's own Gradle build. None of that
-# appears here: the dioxus-compose build script unpacks the renderer's Kotlin into the
+# appears here: the compose-rust build script unpacks the renderer's Kotlin into the
 # generated project, adds Compose to it, and writes the Activity that hosts it, using the
 # package and library name the build already knows.
 #
-# That is the point. An application says it depends on dioxus-compose and nothing else.
+# That is the point. An application says it depends on compose-rust and nothing else.

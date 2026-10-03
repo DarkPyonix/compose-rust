@@ -1,7 +1,7 @@
 //! The shows, the episodes, and the two drawings a podcast screen is made of.
 
-use dioxus_compose::prelude::*;
-use dioxus_compose::{DrawList, DrawListBuilder};
+use compose_rust::prelude::*;
+use compose_rust::{DrawList, DrawListBuilder};
 
 /// The covers, drawn.
 ///
@@ -291,7 +291,7 @@ pub fn share(size: f32, paint: Paint) -> DrawList {
 mod tests {
     use super::*;
     use crate::palette;
-    use dioxus_compose::DrawCommand;
+    use compose_rust::DrawCommand;
 
     #[test]
     fn a_clock_reads_as_minutes_and_seconds() {

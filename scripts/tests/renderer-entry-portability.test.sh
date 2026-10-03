@@ -16,7 +16,7 @@ set -uo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
 
-entry="dioxus-compose-renderer/desktop/c/renderer_entry.c"
+entry="renderer/desktop/c/renderer_entry.c"
 status=0
 
 if [ ! -f "$entry" ]; then

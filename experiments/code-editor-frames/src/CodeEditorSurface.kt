@@ -1,1 +1,1 @@
-../../../dioxus-compose-renderer/desktop/src/renderer/CodeEditorSurface.kt
+../../../renderer/desktop/src/renderer/CodeEditorSurface.kt

@@ -9,4 +9,4 @@ dependencies:
 settings:
   compose: enabled
   jvm:
-    mainClass: dioxus.compose.bench.FrameBenchKt
+    mainClass: dev.darkpyonix.composerust.bench.FrameBenchKt

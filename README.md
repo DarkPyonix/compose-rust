@@ -1,7 +1,7 @@
-# dioxus-compose
+# compose-rust
 
-[![CI](https://github.com/DarkPyonix/dioxus-compose/actions/workflows/ci.yml/badge.svg)](https://github.com/DarkPyonix/dioxus-compose/actions/workflows/ci.yml)
-[![Native renderer](https://github.com/DarkPyonix/dioxus-compose/actions/workflows/native-renderer.yml/badge.svg)](https://github.com/DarkPyonix/dioxus-compose/actions/workflows/native-renderer.yml)
+[![CI](https://github.com/DarkPyonix/compose-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/DarkPyonix/compose-rust/actions/workflows/ci.yml)
+[![Native renderer](https://github.com/DarkPyonix/compose-rust/actions/workflows/native-renderer.yml/badge.svg)](https://github.com/DarkPyonix/compose-rust/actions/workflows/native-renderer.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust 1.85+](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org)
 
@@ -15,7 +15,7 @@
 rsx! {
     Column {
         fill_max_width: true,
-        Text { text: "dioxus-compose chat" }
+        Text { text: "compose-rust chat" }
         Button { text: "Send", on_click: move |_| send() }
     }
 }
@@ -57,7 +57,7 @@ shaping, selection, accessibility and above all **IME** are not at the level Com
 ago. For an app where typing *is* the interface, an IME that works 90% of the time is an app that
 does not work. Korean, Japanese and Chinese composition is not a nice-to-have.
 
-dioxus-compose takes Compose's renderer without taking Compose's runtime cost: the Kotlin side is
+compose-rust takes Compose's renderer without taking Compose's runtime cost: the Kotlin side is
 compiled ahead of time into a native library (Kotlin/Native on macOS, Linux and iOS, a GraalVM
 native image where Kotlin has no target that can be linked against Skia), so there is no JVM in the
 shipped artifact.
@@ -72,7 +72,7 @@ order-of-magnitude rather than benchmarks. What this project weighs is measured.
 | Webview stack (Electron, Tauri-class) | Heaviest: a browser engine per app or per system | Rejected by **C1**: memory and size |
 | Compose + bundled JVM (jlink) | ~80–120 MB of JVM alone | Rejected by **C2**. AppCDS fixes startup, not size |
 | Pure Rust toolkit (Iced-class) | ~10–20 MB | Rejected by **C5**: text and IME maturity |
-| **dioxus-compose** | 28.76 MB on macOS, one file | Larger than Iced, far smaller than a webview or JVM stack |
+| **compose-rust** | 28.76 MB on macOS, one file | Larger than Iced, far smaller than a webview or JVM stack |
 
 ### What it actually weighs
 
@@ -149,11 +149,11 @@ composition holds up in a native-image build, the rest is volume of work.
 ## ✨ A taste of the API
 
 The snippet below is the real
-[`dioxus-compose/examples/desktop_demo.rs`](dioxus-compose/examples/desktop_demo.rs), trimmed for
+[`compose-rust/examples/desktop_demo.rs`](compose-rust/examples/desktop_demo.rs), trimmed for
 length. It compiles in this repository.
 
 ```rust
-use dioxus_compose::prelude::*;
+use compose_rust::prelude::*;
 
 fn app() -> Element {
     let mut messages = use_signal(Vec::<String>::new);
@@ -162,7 +162,7 @@ fn app() -> Element {
     rsx! {
         Column {
             fill_max_width: true,
-            Text { text: "dioxus-compose chat" }
+            Text { text: "compose-rust chat" }
             for message in messages() {
                 Text { text: message }
             }
@@ -190,7 +190,7 @@ fn app() -> Element {
 }
 
 fn main() {
-    dioxus_compose::launch(app);
+    compose_rust::launch(app);
 }
 ```
 
@@ -203,7 +203,7 @@ Two details worth noticing:
   composition commits the composition; it does not submit. Getting this wrong is exactly how Korean
   input loses the syllable being typed.
 
-> ⚠️ `dioxus_compose::Box` has to be written qualified inside `rsx!`, `dioxus-core` 0.7's macro
+> ⚠️ `compose_rust::Box` has to be written qualified inside `rsx!`, `dioxus-core` 0.7's macro
 > expansion uses an unqualified `Box<T>`, which the prelude glob would shadow.
 
 ---
@@ -234,7 +234,7 @@ The design is worked out in detail in `FR-13` and `FR-14` of [`docs/SPEC.md`](do
   platform is a bad default.
 
 > **Status: `Draft`, design only.** ⚠️ None of this exists in code yet. `Theme`, `DesignSystem`,
-> `ColorRole`, `TypeRole` and `ScrollColumn` appear nowhere in `dioxus-compose/src/` or in the Kotlin
+> `ColorRole`, `TypeRole` and `ScrollColumn` appear nowhere in `compose-rust/src/` or in the Kotlin
 > renderer today. What ships now is the literal subset: `Modifier::Background(u32 ARGB)`,
 > `Modifier::Padding(f32)` and friends. The snippet above is **illustrative of the specified API**,
 > not of a working one.
@@ -247,7 +247,7 @@ The design is worked out in detail in `FR-13` and `FR-14` of [`docs/SPEC.md`](do
 ┌────────────────────── Host (Rust) ───────────────────────┐
 │  your components, rsx!, hooks, signals                  │
 │  dioxus-core VirtualDom                                  │
-│  dioxus-compose renderer:  Mutations ──► fixed-layout    │
+│  compose-rust renderer:    Mutations ──► fixed-layout    │
 │                                          byte records    │
 └───────────────────────────┬──────────────────────────────┘
                             │
@@ -296,7 +296,7 @@ on Darwin** ([oracle/graal#13272](https://github.com/oracle/graal/issues/13272))
 static AWT archive and no way to link the renderer. Liberica NIK Full links AWT statically.
 
 Statically linked macOS AWT then looks for three things by file path at runtime, each met by a thin
-shim in `dioxus-compose-renderer/desktop/c/`:
+shim in `renderer/desktop/c/`:
 
 | Missing thing | Shim |
 |---|---|
@@ -324,7 +324,7 @@ into a cache outside `target/`, and links it.
 
 ```toml
 [dependencies]
-dioxus-compose = "0.0.0"
+compose-rust = "0.0.1"
 ```
 
 There is no environment variable to set, no artifact to fetch by hand and no script to run. The
@@ -335,8 +335,8 @@ Two variables exist for the cases that need them, and neither is part of install
 
 | Variable | Effect |
 |---|---|
-| `DIOXUS_COMPOSE_RENDERER_DIR` | Use the renderer in this directory. Checked first, and nothing is downloaded when it is set, so a renderer you built yourself, a vendored copy or an air-gapped build all work through it. |
-| `DIOXUS_COMPOSE_CACHE_DIR` | Move the cache off `$HOME/.cache/dioxus-compose` (`%LOCALAPPDATA%\dioxus-compose` on Windows). |
+| `COMPOSE_RUST_RENDERER_DIR` | Use the renderer in this directory. Checked first, and nothing is downloaded when it is set, so a renderer you built yourself, a vendored copy or an air-gapped build all work through it. |
+| `COMPOSE_RUST_CACHE_DIR` | Move the cache off `$HOME/.cache/compose-rust` (`%LOCALAPPDATA%\compose-rust` on Windows). |
 
 A build with no network says which two files to put where, and putting them there is all it takes.
 `default-features = false` builds with no renderer at all, for a headless or documentation build;
@@ -381,7 +381,7 @@ brew install --cask liberica-nik-full
 ./scripts/install-nik.sh
 ```
 
-`dioxus-compose-renderer/desktop/scripts/env.sh` discovers it in this order:
+`renderer/desktop/scripts/env.sh` discovers it in this order:
 
 1. `$GRAALVM_HOME`, if set
 2. the newest match of
@@ -392,7 +392,7 @@ without `lib/static/darwin-*/libawt_lwawt.a`. That catches plain GraalVM up fron
 a long build ends in a link failure.
 
 macOS also needs the Xcode command line tools (`xcode-select --install`) for `cc`, `ld` and the
-AppKit headers used by `dioxus-compose-renderer/desktop/c/`.
+AppKit headers used by `renderer/desktop/c/`.
 
 **The scripts support macOS only today.** Linux and Windows native-image builds are not scripted.
 
@@ -401,36 +401,36 @@ AppKit headers used by `dioxus-compose-renderer/desktop/c/`.
 The renderer resolves Compose from your local Maven repository, not from what JetBrains published.
 Three things it needs are empty in the published build for this platform and cannot be filled from
 outside the module that holds them: the entries a text selection's menu offers, the keys that copy,
-and the Linux targets. The patches are in `dioxus-compose-renderer/patches/`, pinned to one Compose
-revision, and each one says what it is for.
+and the Linux targets. The changes are commits in a fork of Compose,
+[`thisisthepy/compose-multiplatform-core-extended`](https://github.com/thisisthepy/compose-multiplatform-core-extended),
+and the build script pins one commit of it.
 
 ```bash
-./dioxus-compose-renderer/scripts/build-compose.sh
+./renderer/scripts/build-compose.sh
 ```
 
-It fetches the pinned revision, applies the patches, and publishes the modules the renderer asks
-for. Slow, and run once rather than once per build. Everything else still resolves from what
+It fetches the pinned commit and publishes the modules the renderer asks for. Slow, and run once rather than once per build. Everything else still resolves from what
 JetBrains published.
 
 ### 4. Kotlin
 
-Nothing to install. `dioxus-compose-renderer/kotlin` (`kotlin.bat` on Windows) is a
+Nothing to install. `renderer/kotlin` (`kotlin.bat` on Windows) is a
 self-bootstrapping wrapper that downloads the pinned toolchain on first use.
 
 ### 5. Build the renderer
 
 Produces one static library, with Compose, Skia and the interpreter inside it, in
-`dioxus-compose-renderer/build/macos/` (`PR-8`). Takes several minutes.
+`renderer/build/macos/` (`PR-8`). Takes several minutes.
 
 ```bash
-cd dioxus-compose-renderer
+cd renderer
 ./desktop/scripts/build-macos.sh --release
 ```
 
 ```
 build/macos/
-  libdioxus_compose_renderer.a       the renderer (Compose, Skia, the interpreter, our code)
-  libdioxus_compose_renderer_api.h   the header Kotlin/Native generates for it
+  libcompose_rust_renderer.a       the renderer (Compose, Skia, the interpreter, our code)
+  libcompose_rust_renderer_api.h   the header Kotlin/Native generates for it
 ```
 
 <details>
@@ -442,7 +442,7 @@ directory rather than one file, because statically linked AWT resolves some thin
 
 ```
 build/native-image/dist/lib/
-  libdioxus_compose_renderer.dylib   the renderer (AWT, Skiko JNI, Compose, our code)
+  libcompose_rust_renderer.dylib   the renderer (AWT, Skiko JNI, Compose, our code)
   libskiko-macos-<arch>.dylib        Skia, loaded by Skiko by path
   libjawt.dylib                      forwards JAWT_GetAWT into the renderer
   libawt_lwawt.dylib                 placeholder that libawt loads by path
@@ -451,25 +451,25 @@ build/native-image/dist/lib/
 
 ### 6. Smoke-test it
 
-Links a minimal C host against the library and calls `dioxus_compose_renderer_run`. A window should
+Links a minimal C host against the library and calls `compose_rust_renderer_run`. A window should
 open, and closing it should return 0, the `PR-8` acceptance criterion.
 
 ```bash
-cd dioxus-compose-renderer
+cd renderer
 ./desktop/scripts/smoke-test.sh
 ```
 
-For an unattended run, set `DIOXUS_COMPOSE_AUTOEXIT_MS=6000` to make the window close itself.
+For an unattended run, set `COMPOSE_RUST_AUTOEXIT_MS=6000` to make the window close itself.
 
 ### 7. Run the Rust demo
 
 ```bash
-cargo run -p dioxus-compose --example desktop_demo --features native-renderer
+cargo run -p compose-rust --example desktop_demo --features native-renderer
 ```
 
 In a checkout of this repository the build script prefers the renderer you just built, at
-`dioxus-compose-renderer/build/native-image/dist/lib`, over anything it could download. The full
-order is `DIOXUS_COMPOSE_RENDERER_DIR`, then that workspace build, then the cache, then the release
+`renderer/build/native-image/dist/lib`, over anything it could download. The full
+order is `COMPOSE_RUST_RENDERER_DIR`, then that workspace build, then the cache, then the release
 for the crate's version (`NFR-10`).
 
 ### 8. The JVM dev shell
@@ -478,7 +478,7 @@ The fastest loop when you are working on the renderer itself: hot reload and `@P
 native-image build is needed (`NFR-5`, `D7`).
 
 ```bash
-cd dioxus-compose-renderer
+cd renderer
 ./kotlin run -m desktop   # the Compose development shell
 ./kotlin run -m desktop    # the renderer module itself on the JVM, driven by a scripted Host
 ```
@@ -508,7 +508,7 @@ Budget regressions are treated as bugs, and CI fails the build on them.
 
 ### Measured, 2026-09-20
 
-Recorded in [`dioxus-compose/benches/baseline.json`](dioxus-compose/benches/baseline.json) and
+Recorded in [`compose-rust/benches/baseline.json`](compose-rust/benches/baseline.json) and
 re-run by `cargo bench` inside `scripts/check.sh`.
 
 > **Machine:** Mac mini (Macmini9,1) · Apple M1, 8 cores (4 performance + 4 efficiency) · 16 GiB ·
@@ -534,8 +534,8 @@ still have to be measured on the native-image build.
 ## 🗂 Project layout
 
 ```
-dioxus-compose/
-├─ dioxus-compose/                  # Rust: the Host, Dioxus renderer crate
+compose-rust/
+├─ compose-rust/                  # Rust: the Host, Dioxus renderer crate
 │  ├─ src/
 │  │  ├─ lib.rs                     #   public API, rsx! elements, event attributes
 │  │  ├─ widgets.rs                 #   Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn
@@ -546,7 +546,7 @@ dioxus-compose/
 │  ├─ examples/desktop_demo.rs      #   the runnable demo
 │  ├─ benches/baseline.json         #   the recorded performance baseline
 │  └─ tests/vectors/                #   protocol vectors both sides assert against
-├─ dioxus-compose-renderer/         # Kotlin: the Renderer (Kotlin Toolchain / Amper)
+├─ renderer/         # Kotlin: the Renderer (Kotlin Toolchain / Amper)
 │  ├─ native/                       #   the interpreter, C shims, native-image build scripts
 │  ├─ desktop/                      #   JVM development shell
 │  ├─ shared/                       #   shared Compose code
@@ -619,7 +619,7 @@ trailers or any AI attribution.
 
 ## 📚 Documentation
 
-**📖 Guide site: <http://darkpyonix.dev/dioxus-compose/>**, English and Korean, covering getting
+**📖 Guide: [docs/guide](https://github.com/DarkPyonix/compose-rust/tree/develop/docs/guide)**, English and Korean, covering getting
 started, writing UI, lists and streaming, architecture and troubleshooting.
 
 | Document | What is in it |
@@ -627,7 +627,7 @@ started, writing UI, lists and streaming, architecture and troubleshooting.
 | [PROJECT.md](PROJECT.md) | Scope, method, milestones M0–M8, open questions |
 | [docs/INTENT.md](docs/INTENT.md) | Motivation, non-negotiables, decisions D1–D10, rejected alternatives |
 | [docs/SPEC.md](docs/SPEC.md) | Functional and non-functional requirements, boundary protocol, acceptance criteria |
-| [CLAUDE.md](CLAUDE.md) | Working agreements for this repository |
+| [AGENTS.md](AGENTS.md) | Working agreements for this repository |
 
 The planning documents (`PROJECT.md`, `INTENT.md`, `SPEC.md`) are written in Korean. This README and
 the guide site are English, with Korean translations.

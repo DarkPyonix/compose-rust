@@ -9,7 +9,8 @@
 
 | 용어 | 정의 |
 |---|---|
-| Host | Rust 프로세스. 사용자 UI 코드(Dioxus 컴포넌트)와 도메인 로직을 소유합니다 |
+| Host | Rust 프로세스. 사용자 UI 코드(compose-rust의 composable 함수, 또는 그 위에 얹힌 Dioxus 컴포넌트)와 도메인 로직을 소유합니다 |
+| Composition | compose-rust 런타임이 슬롯 테이블에 들고 있는 composable 호출의 기록. 상태가 바뀌면 그 상태를 읽은 스코프만 다시 실행됩니다(FR-39) |
 | Renderer | AOT 컴파일된 Kotlin/Compose 네이티브 라이브러리. 스키마 인터프리터를 포함합니다 |
 | Schema | Renderer가 해석할 수 있는 위젯 타입, 속성, Modifier, 이벤트의 닫힌 집합 |
 | Mutation | 노드 트리 변경 명령 한 단위 |
@@ -21,16 +22,18 @@
 
 ```
 ┌──────────────── Host (Rust) ────────────────┐
-│ 사용자 컴포넌트 (rsx!, hooks)                  │
-│ dioxus-core VirtualDom                       │
-│ dioxus-compose renderer: Mutations → bytes   │
+│ 사용자 composable (compose-rust API)          │
+│   또는 dioxus-compose: rsx!, hooks, VirtualDom │
+│ compose-rust recomposition 런타임 (슬롯 테이블) │
+│ 노드 트리 → Mutation 레코드 → 배치 버퍼          │
 └───────────────────┬─────────────────────────┘
                     │  동기 직접 호출 (UI 스레드) + 배치 버퍼
 ┌───────────────────┴──── Renderer (Kotlin) ───┐
 │ 코드젠 심 (@CEntryPoint / @CName / JNI / wasm) │
 │ 프로토콜 디코더 → Node 테이블 (snapshot state)  │
 │ 스키마 인터프리터 @Composable RenderNode       │
-│ Compose Desktop(AWT) / Compose iOS(UIKit)    │
+│ 렌더러 소유 창 + Compose 장면 (AWT 없음)       │
+│   / Compose iOS(UIKit)                       │
 └──────────────────────────────────────────────┘
 ```
 
@@ -70,6 +73,7 @@ Host 상태가 변경되면 변경분만 전송하고, Renderer는 해당 노드
 
 ### FR-6 Dioxus 렌더러 (`Done`)
 `dioxus-core` VirtualDom의 `Mutations`를 프로토콜 Mutation으로 변환하는 렌더러를 제공합니다.
+- **2026-10-03부터 이 렌더러는 compose-rust 위에 얹히는 층입니다(INTENT D2).** compose-rust의 작성 API는 FR-39이고, Dioxus 층은 그것과 같은 노드 트리와 같은 와이어로 내려갑니다. 이 요구사항의 수용 기준은 그대로 유효합니다.
 - 사용자 코드는 `rsx!`와 훅만으로 작성하고, 프로토콜을 직접 다루지 않습니다.
 - 수용 기준: M0 화면을 `rsx!` 컴포넌트로 재작성했을 때 동일하게 동작합니다.
 
@@ -215,7 +219,7 @@ Modifier는 값 리스트로 직렬화합니다. 예: `[Padding(16), FillMaxWidt
   - 이렇게 얻은 값이 위의 대비 기준을 지키지 못하면, 색상과 채도는 그대로 두고 HCT 톤만 기준을 넘는 첫 값까지 옮깁니다. 라이트에서는 어둡게, 다크에서는 밝게입니다. 다른 기반 역할에서 온 두 문법 역할이 같은 색이 되는 것은 허용하고, 같은 기반 역할에서 온 역할끼리는 원래 같습니다.
   - 유도는 빌드 시점에 Rust의 토큰 표를 만들 때 한 번 합니다. 값은 다른 다섯 시스템과 같이 표에 적힌 색이고, Renderer가 실행 중에 계산하지 않습니다.
 - **앱이 덮어쓸 수 있습니다.** 14.10의 팔레트가 이 역할들에도 똑같이 적용됩니다. 앱이 자기 코드 배색을 가지려면 이 역할들을 팔레트에 넣으면 됩니다.
-- 비용: `ColorRole`이 23개에서 45개로, 토큰 표가 시스템당 23행에서 45행으로 늡니다. 빌드 시점에 Renderer 바이너리로 들어가는 표이고 런타임에 경계를 넘지 않습니다(14.4). Rust의 `DesignTokenTable.colors`가 `[ColorToken; 45]`가 되며, `tokens.rs`와 `dioxus-design-systems/`의 Kotlin 표를 비교하는 테스트가 새 행도 비교합니다.
+- 비용: `ColorRole`이 23개에서 45개로, 토큰 표가 시스템당 23행에서 45행으로 늡니다. 빌드 시점에 Renderer 바이너리로 들어가는 표이고 런타임에 경계를 넘지 않습니다(14.4). Rust의 `DesignTokenTable.colors`가 `[ColorToken; 45]`가 되며, `tokens.rs`와 `design-systems/`의 Kotlin 표를 비교하는 테스트가 새 행도 비교합니다.
 
 수용 기준:
 1. 일곱 시스템 × 두 명암에서 문법 역할 열다섯이 `SurfaceContainer` 위에서 4.5:1을 넘고, diff 잉크가 자기 컨테이너 위에서 4.5:1을 넘으며, `*Emphasis`가 같은 줄의 컨테이너와 구분됩니다. Rust 표 테스트로 확인합니다.
@@ -346,9 +350,9 @@ Property 태그(기존 `OnRangeRequested=12` 뒤에 덧붙입니다): `TypeRole=
 
 2단계는 1단계가 동작한 뒤에 추가합니다. 14.1의 추상화가 성립하면 각각 `DesignSystem` 변형 1개와 Renderer 측 테이블 1개, 규칙 구현 1개로 끝나야 하며, 이것이 그 추상화의 실제 검증입니다.
 
-2단계 세 시스템은 구현되어 실행 경로 위에 있습니다. 세 개 모두 `DesignSystem` 변형 1개(태그 4, 5, 6 추가, 기존 태그는 그대로), `tokens.rs`의 토큰 테이블 1개, Renderer의 `ComponentRules` 구현 1개로 끝났고 위젯·속성·Modifier·와이어 포맷은 움직이지 않았습니다. 값은 `dioxus-design-systems/`의 Kotlin 구현에서 그대로 옮겨 왔습니다.
+2단계 세 시스템은 구현되어 실행 경로 위에 있습니다. 세 개 모두 `DesignSystem` 변형 1개(태그 4, 5, 6 추가, 기존 태그는 그대로), `tokens.rs`의 토큰 테이블 1개, Renderer의 `ComponentRules` 구현 1개로 끝났고 위젯·속성·Modifier·와이어 포맷은 움직이지 않았습니다. 값은 `design-systems/`의 Kotlin 구현에서 그대로 옮겨 왔습니다.
 
-사본이 둘인데 아무것도 비교하지 않으면 조용히 갈라집니다. 실제로 두 행이 갈라졌습니다. GNOME의 어두운 보조 강조색 위 글자색은 한쪽이 흰색, 다른 쪽이 거의 검정이었고, Breeze의 어두운 패널 색은 한쪽이 뷰 색, 다른 쪽이 `SurfaceVariant` 회색이었습니다. 이제 Rust 쪽 테스트가 `tokens.rs`의 테이블과 `dioxus-design-systems/`의 Kotlin 리터럴 테이블을 직접 비교합니다. 색, 반경, 간격이 하나라도 다르면 실패합니다.
+사본이 둘인데 아무것도 비교하지 않으면 조용히 갈라집니다. 실제로 두 행이 갈라졌습니다. GNOME의 어두운 보조 강조색 위 글자색은 한쪽이 흰색, 다른 쪽이 거의 검정이었고, Breeze의 어두운 패널 색은 한쪽이 뷰 색, 다른 쪽이 `SurfaceVariant` 회색이었습니다. 이제 Rust 쪽 테스트가 `tokens.rs`의 테이블과 `design-systems/`의 Kotlin 리터럴 테이블을 직접 비교합니다. 색, 반경, 간격이 하나라도 다르면 실패합니다. **2026-10-03(INTENT D19): 디자인 시스템은 `compose-multiplatform-core-extended`로 옮겨 갑니다.** 옮긴 뒤 이 비교의 상대는 이 저장소가 고정한 포크 커밋의 표이고, 비교 자체는 그대로 남습니다.
 
 3단계는 Liquid Glass 하나이며, 같은 방식으로 끝났습니다. `DesignSystem` 변형 1개(태그 7), 토큰 테이블 1개, `ComponentRules` 구현 1개입니다. **Cupertino를 대체하지 않고 그 옆에 놓습니다**(INTENT D13). 두 언어는 서로 다른 화면을 만들며 둘 다 지금 쓰입니다.
 
@@ -707,6 +711,59 @@ LaunchBuilder::new()
 
 - **팔레트를 디자인 시스템별로 줄 것인가.** 이 항목은 `adaptive`에서 한 팔레트가 어느 시스템에나 얹히게 했습니다. 브랜드가 "macOS에서는 유리 위에서 더 밝은 주황"처럼 시스템별 값을 원하면 `(design_system, role, scheme)` 항목이 필요합니다. 지금은 넣지 않았고, 요청한 앱의 브랜드 지침이 그것을 요구하는지 확인이 필요합니다.
 - **씨앗 색에서 팔레트 만들기.** Material 3는 색 하나에서 배색 전체를 만드는 알고리즘(dynamic color)이 있습니다. 다른 여섯 시스템에는 없으므로 이 항목은 값을 직접 주게 했습니다. Material 3 전용 편의 함수(`Palette::from_seed`)를 Host 쪽에 둘지는 정하지 않았습니다.
+
+#### 14.11 디자인 시스템 라이브러리의 두 층 (`Agreed`)
+
+INTENT D19의 2026-10-03 결정입니다. 디자인 시스템은 `compose-multiplatform-core-extended`에서 Compose 라이브러리로 나가고, 두 층으로 나뉩니다.
+
+> "컴포넌트 라이브러리로 하되" (2026-10-03)
+
+> "2층으로 가고, 개들은 adaptive 디자인 시스템 패키지 명을 쓰면 될거같네." (2026-10-03)
+
+##### 14.11.1 1층: 디자인 시스템마다 하나의 컴포넌트 라이브러리
+
+- 패키지는 `org.thisisthepy.compose.material3`, `org.thisisthepy.compose.cupertino`, `org.thisisthepy.compose.fluent`, `org.thisisthepy.compose.gnome`, `org.thisisthepy.compose.breeze`, `org.thisisthepy.compose.deepin`, `org.thisisthepy.compose.liquidglass` 일곱 개입니다.
+- **일곱 개 모두 material3의 모양을 가집니다.** `XxxTheme` 컴포저블(`CupertinoTheme`, `FluentTheme`, ...), `ColorScheme`, `Typography`, `Shapes`, 그리고 컴포넌트입니다. 공개 API의 이름, 매개변수, 기본값을 두는 방식은 `androidx.compose.material3`를 본뜹니다. 그 시스템에 대응물이 없는 material3 컴포넌트는 만들지 않아도 되지만, 있는 것은 material3와 같은 이름과 같은 모양의 시그니처를 씁니다.
+- **`org.thisisthepy.compose.material3`는 `androidx.compose.material3` 위의 어댑터입니다.** 컴포넌트를 다시 그리지 않고 위임합니다. 어댑터가 하는 일은 공통 계약(14.11.3)의 역할과 토큰을 material3의 `ColorScheme`, `Typography`, `Shapes`로 옮기는 것입니다.
+- 1층 라이브러리는 서로에게도, 2층에도 의존하지 않습니다. 의존하는 것은 공통 계약(14.11.3)과 Compose뿐입니다.
+
+##### 14.11.2 2층: `org.thisisthepy.compose.adaptive`
+
+- 디자인 시스템에 매이지 않는 중립 컴포넌트(`Button`, `TextField`, `DatePicker`, ...)를 둡니다. 각 컴포넌트는 **현재 테마의 1층 구현에 위임합니다.** 스스로 그리지 않습니다.
+- 진입점은 `MaterialTheme`의 관례를 따릅니다.
+
+```kotlin
+@Composable
+fun AdaptiveTheme(
+    designSystem: DesignSystem = DesignSystem.platformDefault(),
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    content: @Composable () -> Unit,
+)
+```
+
+- `designSystem`의 기본값은 실행 중인 플랫폼의 디자인 시스템입니다. 어느 플랫폼이 어느 시스템인지는 14.3의 adaptive 기본값과 같은 대응입니다.
+- **compose-rust의 렌더러는 기본으로 이 층을 씁니다.** 14.3의 `Theme::adaptive`는 `AdaptiveTheme`의 기본값으로, `Theme::unified(ds)`는 `designSystem = ds`로 내려갑니다. 렌더러가 1층을 직접 부르는 길을 따로 두지 않습니다.
+- 2층은 1층 일곱 개 전부와 공통 계약에 의존합니다.
+
+##### 14.11.3 공통 계약: `org.thisisthepy.compose.designsystem`
+
+- 역할 enum(`ColorRole`, `TypeRole`, `ShapeRole`, `SpaceRole`과 컴포넌트 변형), `DesignSystem` 인터페이스, 토큰을 둡니다. 두 층이 모두 이것에 의존합니다.
+- **adaptive에 합치지 않습니다.** adaptive는 1층 전부에 의존하고 1층은 adaptive에 의존하면 안 됩니다. 계약이 adaptive 안에 있으면 1층이 계약을 쓰려고 adaptive에 의존하게 되어 순환이 생깁니다. 별도 모듈로 두면 의존은 `designsystem ← 1층 ← adaptive` 한 방향입니다.
+
+##### 14.11.4 이름이 비슷한 다른 것
+
+JetBrains의 `androidx.compose.material3.adaptive`는 적응형 레이아웃(창 크기 클래스) 라이브러리이며 `org.thisisthepy.compose.adaptive`와 무관합니다. 네임스페이스가 달라 부딪히지 않습니다.
+
+##### 14.11.5 수용 기준
+
+1. **"adaptive 컴포넌트 × 일곱 디자인 시스템" 표에 빈 칸이 하나라도 있으면 실패하는 테스트가 있습니다.** adaptive의 모든 컴포넌트가 일곱 시스템 각각에서 1층 구현으로 해석되어야 합니다. 1층에 대응물이 없는 칸도 비워 두지 않고, 그 시스템의 컴포넌트로 채웁니다.
+2. **"material3 컴포넌트 목록 × 각 1층 라이브러리" 표를 진행 척도로 기록합니다.** 이 표는 통과와 실패를 가르지 않습니다. 1층 라이브러리 각각이 material3의 모양을 얼마나 덮었는지를 보여 주는 숫자이고, 바뀔 때마다 갱신합니다.
+3. 1층 일곱 모듈 어디에도 `org.thisisthepy.compose.adaptive`에 대한 의존이 없고, 1층 모듈 사이의 의존도 없습니다. 빌드 설정을 읽는 검사로 확인합니다.
+4. `AdaptiveTheme`을 인자 없이 부르면 실행 중인 플랫폼의 디자인 시스템이 선택되고, `darkTheme`의 기본값은 시스템의 명암을 따릅니다.
+5. `org.thisisthepy.compose.material3`의 컴포넌트가 `androidx.compose.material3`의 같은 컴포넌트로 그려집니다(어댑터이며 다시 그린 것이 아님).
+6. compose-rust 렌더러가 `Theme::adaptive`와 `Theme::unified`를 2층의 `AdaptiveTheme`으로 내립니다.
+
+**1.0.0의 범위**: 1번 표의 행은 compose-rust가 먼저 쓰는 컴포넌트(FR-15의 위젯 어휘)입니다. 그 행들이 일곱 칸 모두 채워진 것이 1.0.0이고, material3 목록의 나머지(2번 표)는 그 뒤에 채웁니다.
 
 ### FR-15 위젯 어휘 (`Agreed`)
 
@@ -1239,10 +1296,10 @@ LaunchBuilder::new()
 - `Chrome::System`은 없애지 않습니다. 시스템 타이틀바가 필요한 도구형 앱이 있고, 무엇보다 **Modern이 깨졌을 때 돌아갈 곳**이 있어야 합니다.
 - 창 버튼의 색, 위치, 모양을 Host가 지정하는 경로는 두지 않습니다. 그것은 디자인 시스템과 플랫폼의 몫입니다(FR-14).
 
-**어떻게 건너가는가: 경계 함수는 바뀌지 않습니다.** `dioxus_compose_renderer_run`에 인자를 붙이는 길은 PR-2에 걸리고, C 심과 iOS의 `@CName`과 스모크 하네스와 Rust 선언을 모두 따라가야 합니다. 그럴 필요가 없습니다.
+**어떻게 건너가는가: 경계 함수는 바뀌지 않습니다.** `compose_rust_renderer_run`에 인자를 붙이는 길은 PR-2에 걸리고, C 심과 iOS의 `@CName`과 스모크 하네스와 Rust 선언을 모두 따라가야 합니다. 그럴 필요가 없습니다.
 
 - **창 설정은 `SetTheme`과 같은 모양의 레코드입니다.** 노드에 대한 것이 아니라 창 전체에 대한 것이고, rebuild마다 한 번 쓰이며 프레임마다 쓰이지 않습니다. 테마가 이미 그 자리를 쓰고 있으므로 새로운 개념이 아닙니다.
-- **렌더러는 창을 만들기 전에 그것을 읽습니다.** `dioxus_compose_host_init`이 초기 배치를 돌려주므로, Renderer는 `Window`를 세우기 전에 init을 부르고 그 배치에서 창 설정을 꺼낸 다음, 그 값으로 창을 만듭니다. 배치는 창이 생긴 뒤 콘텐츠가 조립될 때 그대로 적용됩니다. init은 UI 스레드에서 도는 동기 호출이므로(PR-1) 창을 만드는 스레드와 같은 스레드입니다.
+- **렌더러는 창을 만들기 전에 그것을 읽습니다.** `compose_rust_host_init`이 초기 배치를 돌려주므로, Renderer는 `Window`를 세우기 전에 init을 부르고 그 배치에서 창 설정을 꺼낸 다음, 그 값으로 창을 만듭니다. 배치는 창이 생긴 뒤 콘텐츠가 조립될 때 그대로 적용됩니다. init은 UI 스레드에서 도는 동기 호출이므로(PR-1) 창을 만드는 스레드와 같은 스레드입니다.
 - **그래서 경계 표면은 그대로입니다.** 진입점이 늘지 않고 시그니처도 바뀌지 않으므로 PR-2의 변경이 아니라 FR-7의 스키마 변경입니다. 스키마 해시는 움직이고, 그것이 양쪽이 어긋나면 빌드 타임에 잡히는 이유입니다.
 - **창이 이미 있는 플랫폼은 이 레코드를 무시합니다.** iOS와 Android와 브라우저에서 창은 우리 것이 아닙니다. 읽을 값이 없는 것이 아니라 적용할 곳이 없는 것이므로, 무시가 오류보다 옳습니다.
 
@@ -1306,6 +1363,26 @@ Window::new().with_title_bar(TitleBar::Normal)
 - 네이티브 진입점이 창 절차를 바꿔 끼웁니다. 창은 AWT가 자기 스레드에서 나중에 만들므로, Kotlin과 이 파일 사이에 손으로 쓴 다리를 놓지 않기 위해 진입점이 스레드 하나를 띄워 `SunAwtFrame` 클래스의 우리 창이 나타나기를 기다린 뒤 한 번 바꿔 끼웁니다. 실패하면 평범한 시스템 타이틀바가 남습니다. 더 나쁜 모습이고 동작하는 창이므로 시작을 거부할 일이 아닙니다.
 - 캡션 띠의 버튼 자리는 클라이언트 영역으로 남기고 나머지는 `HTCAPTION`을 돌려줍니다. 그래서 끌기, 두 번 눌러 최대화, 오른쪽 눌러 시스템 메뉴가 전부 시스템 것으로 돌아옵니다.
 - **Snap Layouts의 최대화 버튼 호버 플라이아웃은 아직 없습니다.** 그것은 `HTMAXBUTTON`을 최대화 버튼의 사각형에서만 돌려줘야 하는데, 그 사각형은 디자인 시스템이 정하고 Kotlin이 압니다. 네이티브가 그것을 알려면 Kotlin에서 네이티브로 값을 보내는 경로가 필요하고 지금은 없습니다. 끌어서 스냅하는 것과 키보드 스냅은 프레임이 그대로이므로 동작합니다.
+
+#### 19.8 데스크톱 창 코드는 Compose의 포크가 가집니다 (`Agreed`)
+
+INTENT D19가 Compose 자체를 고치는 일을 `thisisthepy/compose-multiplatform-core-extended`(브랜치 `extended`)로 옮겼고, 데스크톱 창은 그 일에 속합니다. Rust와 무관하고, Python에서 Compose를 쓰는 다른 프로젝트도 같은 창을 필요로 합니다. **아래 창 코드의 주인은 포크이고, 이 저장소에서 포크로 옮기는 중입니다.**
+
+- Windows 캡션 되찾기(19.1, 19.6)와 캡션의 색 (`renderer_entry.c`, `WindowChrome.kt`)
+- Windows DPI 인식 선언
+- 크기를 바꾸는 동안 그리기, 끄는 도중에도 내용이 창 크기를 따라 그려지는 것 (`WindowResize.kt`, `ResizeSync.kt`, `WindowFrames.kt`, `win32_resize.h`, NFR-9)
+- 창 아이콘(19.3, `WindowIcon.kt`)
+- 툴킷 없는 창: AWT 없이 렌더러가 여는 Win32, X11, AppKit 창(`win32_window.c`, `x11_window.c`, `appkit_window.m`, NFR-14)
+- Kotlin/Native 데스크톱 창: 렌더러의 `macos/`, `linux/` 모듈과 D18의 `windows/` 모듈의 창 부분
+- 이슈 #26이 함께 꼽는 것: GraalVM native-image에서 AWT를 걷어내는 경로, macOS 창 재질(FR-29)
+
+지금 이 코드는 `renderer/desktop/c/`와 렌더러의 Kotlin 소스, 플랫폼 모듈에 있습니다. 옮긴 뒤 이 저장소에는 포크가 내놓는 창을 쓰는 코드만 남고, 창에 관한 변경은 포크의 커밋으로 들어갑니다. 옮기는 동안 창이 빌드되지 않거나 나빠지는 기간이 생기면 안 되므로, 이 저장소의 사본은 포크가 아래 기준을 통과할 때까지 남깁니다.
+
+수용 기준 (이슈 #26):
+
+1. 지금 이 저장소가 창에 대해 돌리는 검사(19.4, 19.7의 수용 기준, 그리고 `scripts/tests/`의 창 검사: 캡션 기하, Win32와 X11 창 배치, 크기 조절 중 그리기)가 포크의 샘플(`compose-multiplatform-extended`의 hello 앱)에 대해 같은 결과로 통과합니다. 캡션의 색과 크기 조절 중 그리기가 그 샘플에 지금 없는 것이 이 이전이 끝나지 않았다는 표시입니다.
+2. 그 확인을 화면 배율 100%와 200%에서 각각 하고, 각 배율의 스크린숏을 기록합니다.
+3. 옮긴 뒤 compose-rust의 샘플이 포크의 창으로 같은 검사를 통과하고, 이 저장소의 창 사본이 지워집니다.
 
 ### FR-20 반응형 레이아웃 기반 (창 크기 클래스) (`Done`)
 
@@ -1560,6 +1637,8 @@ tag 12, 32바이트: handler_id: u64, text: (offset, len), action: (offset, len)
 
 샘플 릴리스는 각 데스크톱 대상에 설치하거나 바로 실행할 수 있는 플랫폼 형식을 제공합니다. macOS arm64는 실행 가능한 `.app`과 전달용 `.dmg`, Windows x64는 압축을 푼 자리에서 실행되는 `.zip`과 `.msix`, Linux x64와 arm64는 `.AppImage`를 만듭니다. 이름, 번들 식별자, 설명은 각 샘플의 `Dioxus.toml`에서 읽고 아이콘과 플랫폼 메타데이터에 사용합니다.
 
+**2026-10-03(INTENT D17, NFR-15): 번들이 담는 것은 실행 파일 하나입니다.** 렌더러와 Skia와 ICU 데이터가 실행 파일 안에 있으므로, 아래 문단의 라이브러리 배치는 GraalVM native-image 경로의 기록이고 1.0.0의 번들에는 해당하지 않습니다.
+
 렌더러 라이브러리와 동반 파일은 각 번들 안에 그대로 들어갑니다. macOS는 렌더러의 `lib` 디렉터리 전체를 `Contents/Frameworks/lib`에 두며 실행 파일의 참조를 상대 경로로 바꿉니다. Windows는 DLL을 실행 파일 옆에 두고 렌더러의 `lib` 디렉터리를 보존합니다. Linux는 실행 파일 옆 `lib` 디렉터리를 두고 `DT_NEEDED`와 rpath를 상대 경로로 바꿉니다. 라이브러리 파일 자체를 압축하지 않습니다.
 
 수용 기준:
@@ -1577,8 +1656,8 @@ tag 12, 32바이트: handler_id: u64, text: (offset, len), action: (offset, len)
 |---|---|---|---|
 | Android | 우리 Amper 모듈에 cdylib을 넣어 빌드 | `dx build --platform android`로 APK가 나오고 에뮬레이터에서 같은 화면을 그림 | 2026-09-23 고침 |
 | 데스크톱 | `cargo build` 뒤 `scripts/bundle-renderer.sh`로 렌더러를 옆에 넣고 install name 수정 | `.app`이 나오고 이 기계에서는 뜨지만, 렌더러 dylib을 빌드 트리의 절대 경로로 참조함 | 만들어지기는 하나 남에게 줄 수 없음 |
-| iOS | `build-sample-ios.sh`가 `xcrun clang`으로 직접 링크하고 Info.plist를 직접 씀 | `dx build --platform ios` 링크 실패. `dioxus_compose_renderer_run`과 `..._request_frame`이 undefined | 사용자 경로 없음 |
-| 웹 | 우리 Amper 빌드와 `build-sample-pages.sh` | `dx build --platform web`이 **성공을 보고하고** 뜨지 않는 페이지를 냄. Rust 모듈이 `dioxus_compose_renderer`를 import하는데 그것을 주는 모듈이 산출물에 없음 | 사용자 경로 없음, 게다가 조용히 실패 |
+| iOS | `build-sample-ios.sh`가 `xcrun clang`으로 직접 링크하고 Info.plist를 직접 씀 | `dx build --platform ios` 링크 실패. `compose_rust_renderer_run`과 `..._request_frame`이 undefined | 사용자 경로 없음 |
+| 웹 | 우리 Amper 빌드와 `build-sample-pages.sh` | `dx build --platform web`이 **성공을 보고하고** 뜨지 않는 페이지를 냄. Rust 모듈이 `compose_rust_renderer`를 import하는데 그것을 주는 모듈이 산출물에 없음 | 사용자 경로 없음, 게다가 조용히 실패 |
 
 세 가지가 남습니다. 데스크톱은 번들이 자기 완결적이어야 합니다(`bundle-renderer.sh`가 하는 일이 크레이트 쪽으로 들어가야 하고, 저장소 스크립트로 남아 있으면 크레이트만 쓰는 사람에게는 없는 것입니다). iOS는 `dx`가 만드는 바이너리에 렌더러 아카이브가 링크되어야 합니다. 웹은 `dx`의 산출물에 Kotlin/Wasm 모듈과 그 둘을 싣는 페이지가 없습니다.
 
@@ -1972,7 +2051,7 @@ Notification::new("세션이 끝났습니다")
 - **핸들러 id가 아니라 `key`인 이유**: 알림은 몇 시간, 몇 날 동안 알림 센터에 남습니다. 그 사이 알림을 낸 컴포넌트는 사라지고, 콜백은 그 스코프와 함께 사라집니다. 21.4의 일시 메시지는 줄이 유한해서(8개) 콜백을 16개까지만 들고 있으면 되었지만, 알림에는 그런 상한이 없습니다. 그래서 알림이 들고 다니는 것은 살아 있는 콜백이 아니라 앱이 언제든 해석할 수 있는 이름입니다.
 - Host API는 앱 단위의 훅 하나입니다. `use_notification_activated(move |activation| ...)`가 `key`와 `action`을 받고, 앱은 `session/{id}`를 보고 그 세션을 엽니다. 훅을 부른 컴포넌트가 없으면 사건은 버려집니다.
 - **본문을 누르면 Renderer가 앱의 창을 앞으로 가져옵니다.** 창을 앞으로 가져오는 것은 플랫폼의 일이고, 그다음 무엇을 보일지는 Host의 일입니다. 동작 버튼을 누르면 창을 가져오지 않습니다. 동작 버튼이 있는 이유가 창을 열지 않고 처리하는 것이기 때문입니다.
-- **알림을 눌러 앱이 새로 시작되는 경우**(iOS와 Android에서 프로세스가 없을 때): Renderer는 그 사건을 들고 있다가 `dioxus_compose_host_init`이 끝난 뒤 첫 이벤트로 보냅니다. Host가 존재하기 전에 Host로 갈 수는 없으므로, 새 진입점이 아니라 순서로 해결합니다.
+- **알림을 눌러 앱이 새로 시작되는 경우**(iOS와 Android에서 프로세스가 없을 때): Renderer는 그 사건을 들고 있다가 `compose_rust_host_init`이 끝난 뒤 첫 이벤트로 보냅니다. Host가 존재하기 전에 Host로 갈 수는 없으므로, 새 진입점이 아니라 순서로 해결합니다.
 - **데스크톱에서 프로세스가 끝나면 Renderer는 자기가 띄운 알림을 거둡니다.** macOS 알림 센터에 남은 알림을 누르면 앱이 다시 시작되는데, 그 알림이 가리키는 세션은 끝난 프로세스의 것이고 새 프로세스는 그것을 모릅니다. 사용자가 앱을 닫은 뒤에 남는 알림은 대부분 누를 수 없는 약속입니다.
 
 #### 36.4 권한
@@ -2032,7 +2111,7 @@ Notification::new("세션이 끝났습니다")
 5. 창이 활성인 동안 `WhenInactive` 알림은 나타나지 않고 `Always` 알림은 나타납니다.
 6. 워커 스레드에서 `NotificationSender`로 보낸 알림이, 창이 최소화된 상태에서 1초 안에 나타납니다. 그동안 사용자 코드가 경계 함수를 부르지 않습니다.
 7. 번들 식별자가 없는 실행(JVM 개발 셸)에서 권한 상태가 `Unsupported`이고, `PostNotification`이 프로세스를 죽이지 않으며 `ProtocolError`를 내지 않습니다.
-8. iOS와 Android에서 프로세스가 없을 때 알림을 눌러 앱이 시작되면, `NotificationActivated`가 `dioxus_compose_host_init` 다음의 첫 이벤트로 옵니다. 수동 확인입니다.
+8. iOS와 Android에서 프로세스가 없을 때 알림을 눌러 앱이 시작되면, `NotificationActivated`가 `compose_rust_host_init` 다음의 첫 이벤트로 옵니다. 수동 확인입니다.
 9. 데스크톱 앱을 끝내면 그 앱이 띄운 알림이 알림 센터에서 사라집니다.
 10. 세 명령과 두 이벤트가 PR-4 프로토콜 벡터에 들어가 양쪽에서 같은 바이트로 왕복합니다. 모르는 `importance`와 `state` 값이 `ProtocolError`가 되고 프로세스가 죽지 않습니다.
 11. 경계 진입점 목록(PR-2)이 이 변경 전과 같습니다.
@@ -2160,6 +2239,67 @@ Notification::new("세션이 끝났습니다")
 
 비용: 위젯 태그 하나(43), 속성 일곱(100-106), 명령 하나(17), 이벤트 다섯(26-30), `EventPayloadType` 다섯. 디자인 시스템 규칙 일곱 벌에 편집기 모양(줄 번호 영역, 현재 줄, 밑줄 굵기). 측정 결과가 (나)이면 Renderer 쪽 텍스트 그리기 코드가 새로 생깁니다.
 
+### FR-39 compose-rust 작성 API와 recomposition 런타임 (`Agreed`, 1.0.0 범위)
+
+**2026-10-03 소유자 결정(INTENT D2).** compose-rust는 Dioxus 없이 쓸 수 있는 자기 작성 API를 가집니다. 모양은 Compose이고, 그 아래는 슬롯 테이블 위의 recomposition 런타임입니다. dioxus-compose는 이 위에 얹힙니다. compose-rust 1.0.0(2026-10-20)의 범위입니다.
+
+#### 39.1 모양
+
+```rust
+#[composable]
+fn counter() {
+    let count = remember(|| mutable_state_of(0));
+    Column(Modifier::new().fill_max_width(), || {
+        Text(format!("{}", count.get()));
+        Button(|| count.set(count.get() + 1), || Text("+1"));
+    });
+}
+
+fn main() {
+    compose_rust::launch(counter);
+}
+```
+
+위 코드는 모양을 보이기 위한 것이고 이름을 확정하지 않습니다. 확정되는 것은 다음입니다.
+
+- **composable은 함수입니다.** `#[composable]` 속성이 본문에 그룹을 넣고, 사용자는 그룹도 키도 손으로 쓰지 않습니다. 분기, `match`, 반복문, 조기 `return`, `continue`, `break`, `?`, 되감기를 지나도 그룹이 맞게 닫힙니다(INTENT D2가 기록한 클로저 방식의 실패를 되풀이하지 않습니다).
+- **이름은 Compose를 따릅니다.** Compose에 같은 개념이 있으면 그 이름을 Rust 관례(함수와 메서드는 snake_case, 위젯은 FR-15의 Compose 이름)로 옮깁니다. PR-7의 "Rust 공개 API는 Dioxus 관례" 행은 dioxus-compose 층에 대한 것이 됩니다.
+- **위젯 어휘는 하나입니다.** FR-15의 위젯과 FR-13의 프리미티브, FR-10의 Modifier가 같은 스키마(FR-7)에서 나옵니다. compose-rust API를 위해 위젯이나 속성을 따로 정의하지 않습니다.
+
+#### 39.2 런타임
+
+- **diff가 없습니다.** 무엇이 바뀌었는지는 트리를 비교해서가 아니라, 바뀐 상태를 읽은 스코프를 다시 실행해서 압니다. 다시 실행된 스코프 안에서 인자가 이전과 같은 composable 호출은 건너뜁니다.
+- **위치 기반 기억.** `remember`는 호출 자리(그룹 경로와 그 안의 순서)에 묶입니다. 반복문 안에서 항목의 정체성이 순서가 아니라 값에 묶여야 할 때 쓰는 키(Compose의 `key`)를 둡니다. 키가 있는 항목이 자리를 바꾸면 런타임은 노드를 지우고 다시 만들지 않고 이동을 내보냅니다.
+- **상태.** 상태 객체를 읽은 스코프가 기록되고, 쓰면 그 스코프들이 무효가 됩니다. 한 프레임 안의 여러 쓰기는 한 번의 recomposition이 됩니다. 워커 스레드의 쓰기도 같은 상태 객체로 하며, Host가 내부적으로 프레임을 요청합니다. 사용자 코드는 경계 함수를 부르지 않습니다(PR-3).
+- **effect.** composition이 적용된 뒤 실행되는 효과(Compose의 `SideEffect`), 키가 바뀌면 다시 시작하고 composition을 떠나면 취소되는 효과(`LaunchedEffect`), 떠날 때 정리하는 효과(`DisposableEffect`)를 둡니다. 이벤트 핸들러 안의 상태 쓰기는 recomposition을 부르고, recomposition 도중의 상태 쓰기는 다음 프레임으로 미뤄집니다.
+- **UI 로컬 상태는 여전히 Kotlin에 있습니다(D5).** `TextField`는 비제어이고(FR-5), 스크롤, 포커스, 애니메이션 진행 상태는 Renderer가 가집니다. recomposition 런타임이 생겼다고 그것들이 Rust로 옮겨 오지 않습니다.
+
+#### 39.3 경계
+
+런타임이 내보내는 것은 지금과 같은 Mutation 레코드(PR-4)이고, 같은 배치 버퍼로 같은 경계 함수(PR-2)를 건너 같은 렌더러가 그립니다. 경계 진입점, 와이어 포맷, 스키마 해시, 렌더러 바이너리는 작성 모델 때문에 바뀌지 않습니다. 윈도잉(FR-8)과 스트리밍(FR-9)은 같은 레코드로 말합니다.
+
+#### 39.4 수용 기준
+
+1. **Dioxus 없이.** compose-rust만 의존하는 애플리케이션의 의존성 그래프(`cargo tree`)에 `dioxus-*` 크레이트가 없고, 그 애플리케이션이 데스크톱 창을 띄워 그리고 이벤트를 받습니다. compose-rust 크레이트 자체의 의존성에도 `dioxus-*`가 없습니다.
+2. **변경되지 않은 그룹을 건너뜀.** 상태 하나를 바꾸면 그 상태를 읽은 스코프만 다시 실행되고, 형제와 부모의 본문은 실행되지 않습니다(실행 카운터로 확인). 인자가 같은 composable 호출은 본문이 실행되지 않습니다. Text 하나의 내용을 바꾸는 상호작용이 내보내는 Mutation은 `SetProp` 1건입니다(FR-4와 같은 기준).
+3. **위치 기반 기억.** 분기가 사라지거나 다시 나타날 때, 반복이 줄거나 늘 때, `match` 갈래가 바뀔 때 각 호출 자리가 자기 값을 유지하고 남의 값을 받지 않습니다. 같은 컴포넌트를 평평한 오프셋으로 돌린 대조군이 실패하는 것을 테스트가 함께 보입니다. 조기 `return`, `continue`, `break`, `?`, 되감기 뒤에도 그룹이 맞게 닫힙니다. 키가 있는 항목의 재배치가 이동으로 나가고 항목의 `remember` 값이 따라갑니다.
+4. **상태.** UI 스레드의 쓰기와 워커 스레드의 쓰기가 모두 다음 프레임에 반영되고, 한 프레임 안의 여러 쓰기가 recomposition 한 번이 됩니다. 사용자 코드에 경계 함수 호출이 없습니다.
+5. **effect.** 적용 후 효과는 적용된 composition마다 한 번 실행되고, 키 있는 효과는 키가 바뀔 때 취소 후 다시 시작하며, composition을 떠난 스코프의 효과는 취소되고 정리 함수가 한 번 실행됩니다.
+6. **같은 와이어, 같은 렌더러.** 경계 진입점과 스키마 해시가 바뀌지 않고, 체크인된 프로토콜 벡터가 그대로 통과하며, 같은 렌더러 아티팩트가 compose-rust 애플리케이션과 dioxus-compose 애플리케이션을 모두 그립니다.
+7. **`rsx!`와 같은 표현력.** 오늘 `rsx!`로 말할 수 있는 것을 compose-rust API로 전부 말할 수 있습니다. FR-15의 위젯 전부와 그 속성, FR-10의 Modifier, FR-13의 프리미티브, 이벤트와 그 소비(FR-3, FR-12), 비제어 `TextField`와 `SetText`(FR-5), 윈도잉(FR-8), 스트리밍(FR-9), 디자인 시스템과 테마(FR-14), 에셋(FR-16), 커스텀 드로잉(FR-17), 창 설정(FR-19.3), 창 크기 클래스(FR-20), 탐색과 시트와 일시 메시지(FR-21), 워커 스레드의 갱신(PR-3)입니다. 저장소의 샘플을 compose-rust API로 옮긴 것과 지금의 `rsx!` 판이 같은 상호작용 뒤에 Renderer 쪽에서 같은 노드 트리를 만드는 것으로 확인합니다.
+8. **성능: Dioxus 경로보다 10배.** 소유자가 정한 목표이고, 측정이 숫자에 맞춰 바뀌지 않도록 아래 규칙을 함께 정합니다.
+
+   > "나는 성능 목표 10배로 잡으면 하는데 니가 말한 측정 조건을 사기치는 경우가 발생할 수 있다는 우려에 동의해. 니가 잘 지시해봐 그러면" (2026-10-03)
+
+   1. **시나리오는 구현 전에 고정합니다.** 벤치 시나리오를 구현보다 먼저 커밋하고, 그 뒤에 바꾸려면 소유자의 승인이 필요합니다. 두 묶음입니다. (a) 바뀐 동적 슬롯 수 1, 5, 17, 33, 65, 129의 스윕. (b) 샘플에 기록해 둔 실제 상호작용의 재생: 계산기 입력, todo 추가와 삭제, chat 스트리밍, 긴 목록의 스크롤과 윈도잉, 탭 전환. 벤치를 위해 만든 화면이나 한쪽에 유리하게 만든 화면은 넣지 않습니다.
+   2. **같은 결과일 때만 셉니다.** 측정을 실행할 때마다 두 경로가 Renderer 쪽에 같은 노드 트리를 만드는지 확인하고, 다르면 그 측정은 무효입니다. 내보낸 Mutation 수와 바이트 수를 함께 기록하며, compose-rust 경로가 Dioxus 경로보다 많으면 안 됩니다.
+   3. **일을 옮겨서 얻은 숫자는 세지 않습니다.** Host 시간(핸들러, recomposition, 배치 인코딩)과 함께 Renderer 적용 시간과 프레임 전체 시간을 잽니다. Host에서 줄어든 만큼 Renderer나 다른 스레드로 일이 넘어갔다면 그만큼 실패입니다. 워커 스레드, 지연 처리, 캐시 예열로 측정 구간 밖에 일을 빼는 것도 금지합니다.
+   4. **기준선을 건드리지 않습니다.** Dioxus 경로는 측정을 시작한 시점의 커밋으로 고정하고, 비교할 때마다 같은 날, 같은 기계, 같은 빌드 프로필(release, 같은 플래그)로 나란히 잽니다. 기준선 쪽 코드가 바뀌면 그 측정 묶음 전체를 다시 잽니다.
+   5. **벤치 전용 경로가 없습니다.** 측정은 공개 API로만 합니다. 런타임에 `cfg(bench)`, 벤치를 감지하는 분기, 측정 전용 플래그가 없어야 하고, 이것을 확인하는 검사가 CI에 있습니다.
+   6. **판정.** 목표는 (a)와 (b)의 모든 시나리오에 걸쳐 p50 배수의 기하평균 10배 이상, p99 배수의 기하평균 5배 이상입니다. 최소선으로, 어느 시나리오도 Dioxus 경로보다 느리면 안 됩니다. §5.1의 절대 기준(일반 상호작용 0.5ms, 스트리밍 프레임 1ms, 인코딩 할당 0회, 반복해도 늘지 않는 메모리)은 그대로입니다. 시나리오별 배수를 전부 표로 남기고, 평균만 보고하지 않습니다.
+   7. **실행 조건을 기록합니다.** 기계, 부하 평균, 반복 횟수, 워밍업 횟수, 시나리오마다 p50, p99, 최대값과 원시 데이터의 경로를 `benches/baseline.json`에 남깁니다. 부하 평균이 높을 때 잰 값은 그 사실과 함께 기록하고, 판정에는 한가한 기계에서 잰 값을 씁니다.
+   8. **결과는 그대로 보고합니다.** 10배에 못 미치면 실측 배수를 그대로 보고합니다. 목표를 맞추려고 시나리오, 지표, 판정 방법을 바꾸는 것은 금지입니다. 이 기준을 `Done`으로 표시하는 것은 측정한 쪽이 아니라, 다른 세션이 같은 벤치를 다시 돌려 같은 결과를 확인한 뒤입니다.
+
 ## 4. 경계 프로토콜
 
 ### PR-1 호출 모델: 동기·동일 스레드 직접 호출 (`Done`)
@@ -2185,24 +2325,24 @@ C 심볼은 Rust 쪽 관례(snake_case, 크레이트 이름 접두사)를 따릅
 Renderer → Host (Rust가 export):
 ```c
 // 핸드셰이크: 스키마 해시, 버전, LoopMode를 교환하고 초기 트리 배치를 받습니다
-int32_t dioxus_compose_host_init(const uint8_t* handshake, uint32_t len, MutationBatch* out);
+int32_t compose_rust_host_init(const uint8_t* handshake, uint32_t len, MutationBatch* out);
 // 이벤트 1건 처리: 핸들러를 실행한 뒤 diff를 계산하고, 결과 배치와 반환값을 돌려줍니다
-int32_t dioxus_compose_host_dispatch_event(const uint8_t* event, uint32_t len, MutationBatch* out);
+int32_t compose_rust_host_dispatch_event(const uint8_t* event, uint32_t len, MutationBatch* out);
 // 프레임 요청 이후 호출: 워커에서 온 상태 변경을 반영해 diff를 계산합니다
-int32_t dioxus_compose_host_render_frame(uint64_t frame_time_nanos, MutationBatch* out);
-void    dioxus_compose_host_release_batch(MutationBatch* batch);
-void    dioxus_compose_host_shutdown(void);
+int32_t compose_rust_host_render_frame(uint64_t frame_time_nanos, MutationBatch* out);
+void    compose_rust_host_release_batch(MutationBatch* batch);
+void    compose_rust_host_shutdown(void);
 ```
 
 Host → Renderer (Kotlin이 export):
 ```c
-int32_t dioxus_compose_renderer_run(void);            // LoopMode::Renderer일 때만. 블로킹
-void    dioxus_compose_renderer_request_frame(void);  // 스레드 안전. 다음 프레임에 render_frame 예약
+int32_t compose_rust_renderer_run(void);            // LoopMode::Renderer일 때만. 블로킹
+void    compose_rust_renderer_request_frame(void);  // 스레드 안전. 다음 프레임에 render_frame 예약
 ```
 
 - `LoopMode`
-  - `LoopMode::Renderer`: Desktop, iOS. Rust `main`에서 `dioxus_compose::launch(app)`가 `dioxus_compose_renderer_run`을 호출합니다.
-  - `LoopMode::Platform`: Android, Web. 플랫폼이 루프를 소유하고, Renderer가 먼저 `dioxus_compose_host_init`을 호출합니다.
+  - `LoopMode::Renderer`: Desktop, iOS. Rust `main`에서 `dioxus_compose::launch(app)`가 `compose_rust_renderer_run`을 호출합니다.
+  - `LoopMode::Platform`: Android, Web. 플랫폼이 루프를 소유하고, Renderer가 먼저 `compose_rust_host_init`을 호출합니다.
   - 사용자 코드는 `fn app() -> Element`뿐이라 두 모드에서 동일합니다.
 - GraalVM에서는 진입점마다 `IsolateThread*`가 붙습니다. 코드젠이 이를 숨깁니다. isolate는 프로세스당 1개입니다.
 - `dispatch_event`와 `render_frame`이 반환한 배치는 Renderer가 **같은 호출 스택 안에서** 적용하고 즉시 `release_batch`합니다. 배치를 쌓아 두는 큐는 없습니다.
@@ -2210,11 +2350,11 @@ void    dioxus_compose_renderer_request_frame(void);  // 스레드 안전. 다�
 
 **검증 (2026-09-21, macOS arm64 + iOS 시뮬레이터)**
 
-데스크톱용 C 스모크 호스트(`desktop/c/smoke_host.c`)를 **한 글자도 고치지 않고** iOS 정적 아카이브에 링크해 실행했습니다. 같은 `main`, 같은 다섯 개 `dioxus_compose_host_*` 함수가 GraalVM native-image 공유 라이브러리와 Kotlin/Native 아카이브 양쪽에 그대로 붙습니다. 경계 표면이 두 런타임에서 하나라는 근거입니다.
+데스크톱용 C 스모크 호스트(`desktop/c/smoke_host.c`)를 **한 글자도 고치지 않고** iOS 정적 아카이브에 링크해 실행했습니다. 같은 `main`, 같은 다섯 개 `compose_rust_host_*` 함수가 GraalVM native-image 공유 라이브러리와 Kotlin/Native 아카이브 양쪽에 그대로 붙습니다. 경계 표면이 두 런타임에서 하나라는 근거입니다.
 
 ```
-dioxus_compose_host_init: 180 bytes, 8 records
-dioxus_compose_host_dispatch_event: click 1
+compose_rust_host_init: 180 bytes, 8 records
+compose_rust_host_dispatch_event: click 1
 ```
 
 - 핸드셰이크와 초기 배치(180바이트, 8레코드)가 양쪽에서 바이트 단위로 동일합니다.
@@ -2223,13 +2363,13 @@ dioxus_compose_host_dispatch_event: click 1
 - Web은 검증되었습니다(PR-6의 검증 절). 같은 다섯 개 논리 연산이 브라우저에서도 그대로 서고, 초기 배치와 클릭 왕복이 공유 메모리 위에서 돕니다. **Android는 2026-09-22 API 36 에뮬레이터에서 확인했습니다.** 같은 다섯 연산이 생성된 JNI 심을 통해 서고, 화면이 그려지며, 워커의 프레임 요청이 경계를 넘어옵니다. 호출당 비용도 그 자리에서 쟀습니다(PR-5의 수용 기준 1).
 
 ### PR-3 스레드 규칙 (`Done`)
-- VirtualDom, 사용자 컴포넌트, 모든 `dioxus_compose_host_*` 호출은 Renderer UI 스레드에서만 실행합니다. 그래서 락이 필요 없습니다.
+- VirtualDom, 사용자 컴포넌트, 모든 `compose_rust_host_*` 호출은 Renderer UI 스레드에서만 실행합니다. 그래서 락이 필요 없습니다.
 - **UI 스레드에서 도메인 작업을 금지합니다.** 네트워크, 파일 I/O, 프로세스 관리 같은 작업은 Host 워커 스레드(tokio 등)에서 돌립니다. 워커는 Dioxus signal로 상태를 갱신하고, Host가 내부에서 `request_frame`을 호출합니다. 사용자 코드는 경계 함수를 직접 부르지 않습니다.
 - `request_frame`은 여러 번 불러도 다음 프레임에 `render_frame` 1회로 합쳐집니다. Compose frame clock(`withFrameNanos`)이 돌고 있으면 그 안에서 실행됩니다.
 - **프레임 클록이 멈춰 있으면 Renderer가 `render_frame`을 직접 한 번 부릅니다** (2026-10-03 개정, `Draft`). 창이 최소화되거나 가려지거나 앱이 백그라운드로 가면 Compose의 프레임 클록이 멈출 수 있고, 그때 온 요청을 다음 그리기까지 미루면 워커가 낸 결과(FR-36의 알림이 대표적입니다)가 사용자가 창을 보지 않는 동안 나가지 않습니다. 그래서 그 동안 온 `request_frame`에 대해 Renderer는 UI 스레드에 작업 하나를 올리고, 그 안에서 `render_frame`을 한 번 부른 뒤 돌아온 배치를 같은 호출 스택 안에서 적용합니다. 여러 요청이 한 번으로 합쳐지는 것은 같고, `frame_time_nanos`는 프레임 클록과 같은 단조 시계의 현재 값입니다.
   - 바뀌는 것은 Renderer가 호출을 예약하는 방법뿐입니다. 경계 함수, 스레드 간 wake 신호 하나(PR-1), VirtualDom이 UI 스레드에서만 돈다는 규칙은 그대로이고, 새 진입점도 큐도 없습니다.
   - 수용 기준: 창이 최소화되어 프레임 클록이 멈춘 동안 워커가 낸 요청이 1초 안에 `render_frame` 한 번으로 처리되고, 그 배치가 적용됩니다. 클록이 다시 돌면 요청은 이전처럼 클록 안에서 처리됩니다. **(미구현)**
-- macOS에서 `dioxus_compose_renderer_run`은 프로세스 메인 스레드에서 호출해야 합니다(AppKit 요구사항).
+- macOS에서 `compose_rust_renderer_run`은 프로세스 메인 스레드에서 호출해야 합니다(AppKit 요구사항).
 - Android: Host 워커 스레드는 `request_frame`을 부르기 위해 JavaVM에 **1회 영구 attach**합니다. 호출마다 attach하는 것은 금지합니다. `@FastNative`/`@CriticalNative`는 짧은 호출에만 허용합니다.
 - 프레임 예산은 NFR-9를 따릅니다.
 - 수용 기준: 여러 번의 `request_frame`이 다음 프레임의 `render_frame` 한 번으로 합쳐집니다(`pr3_frame_request_applies_exactly_one_frame_batch`). **(통과)**
@@ -2302,7 +2442,7 @@ dioxus_compose_host_dispatch_event: click 1
   - `scripts/build-sample-apks.sh`는 이제 `dx build --platform android`를 돕니다. minimal 샘플로 다시 확인했습니다. Activity도 manifest도 없는 상태에서 APK가 나오고 에뮬레이터에서 같은 화면을 그립니다.
   - 크레이트가 실어 나르는 Kotlin에는 Activity도 manifest도 없어야 합니다. `pr5_no_application_of_ours_travels_with_the_renderer`가 그것을 봅니다.
 - **수용 기준 3은 2026-09-22 API 36 에뮬레이터에서 통과했습니다.** 화면 회전, 다크모드 전환, 홈에서 복귀는 모두 크래시 없이 **같은 프로세스가 유지**되었고(위 생명주기 항목이 규정한 대로 Compose만 재구성되고 노드 테이블은 남습니다), 백그라운드로 보낸 뒤 `am kill`한 다음 다시 띄운 것도 새 프로세스로 정상 동작했습니다. `FATAL EXCEPTION`은 한 건도 없습니다. 다크모드는 실제로 팔레트가 바뀌는 것까지 화면으로 확인했고, 그 동안 Rust 워커의 스트리밍이 끊기지 않았으므로 워커의 프레임 요청이 JNI 경계를 계속 넘어온다는 것도 같이 확인됩니다.
-- **이 검증에서 결함이 하나 나왔습니다.** Rust cdylib이 `dioxus_compose_renderer_run`을 선언하고 있어서 `dlopen`이 실패하고 `onCreate`에서 매번 죽었습니다. 빌드 스크립트가 타깃을 데스크톱과 그 외로만 갈라서 Android를 iOS와 같이 취급했기 때문입니다. iOS는 Xcode가 그 심벌을 실제로 링크하지만 Android의 렌더러는 ART 안의 Kotlin이라 그런 네이티브 심벌이 없습니다. Android는 `JNI_OnLoad`에서 진입점을 설치하므로 브라우저와 같은 갈래입니다. 빌드 스크립트는 테스트로 컴파일되지 않아 이 규칙이 어디에서도 검증되지 않고 있었고, 지금은 테스트가 닿는 모듈로 나와 있습니다.
+- **이 검증에서 결함이 하나 나왔습니다.** Rust cdylib이 `compose_rust_renderer_run`을 선언하고 있어서 `dlopen`이 실패하고 `onCreate`에서 매번 죽었습니다. 빌드 스크립트가 타깃을 데스크톱과 그 외로만 갈라서 Android를 iOS와 같이 취급했기 때문입니다. iOS는 Xcode가 그 심벌을 실제로 링크하지만 Android의 렌더러는 ART 안의 Kotlin이라 그런 네이티브 심벌이 없습니다. Android는 `JNI_OnLoad`에서 진입점을 설치하므로 브라우저와 같은 갈래입니다. 빌드 스크립트는 테스트로 컴파일되지 않아 이 규칙이 어디에서도 검증되지 않고 있었고, 지금은 테스트가 닿는 모듈로 나와 있습니다.
 - **수용 기준 1은 2026-09-22 API 36 에뮬레이터에서 쟀습니다.** 빈 shim을 워밍업 20만 번 뒤 200만 번씩 불러서 전환 비용만 뽑은 값입니다.
 
   | | 실측 | 공개 수치 |
@@ -2325,12 +2465,12 @@ dioxus_compose_host_dispatch_event: click 1
   - **dx는 한 패키지의 디렉터리를 알려 주고 우리는 열두 패키지를 풉니다.** 그래서 알려 준 디렉터리에서 패키지 성분 수만큼 올라간 곳이 소스 루트입니다. `kotlin`이라는 이름을 찾는 대신 성분을 세는 것은 소스 루트 이름이 다른 프로젝트에서도 맞기 위해서입니다.
   - **Compose는 빌드 스크립트가 생성된 Gradle 파일에 넣습니다.** dx의 `gradle_plugins` 항목은 파일에 닿기 전에 이스케이프되므로 버전이 붙은 플러그인을 적을 방법이 없고, Kotlin 2.0에서 `@Composable`을 컴파일하려면 컴파일러 플러그인이 반드시 필요합니다. 그래서 모듈의 `build.gradle.kts`에는 플러그인과 androidx 좌표를, 루트에는 그 플러그인의 classpath를 더합니다. 버전은 템플릿이 이미 고정해 둔 Kotlin 버전을 읽어서 씁니다. 둘은 같이 릴리스되고 어긋나면 구성 단계에서 거부됩니다. 넣을 것이 없으면 아무것도 쓰지 않으므로 매 빌드가 Gradle을 다시 구성하게 만들지 않습니다. **이것은 dx가 고치는 편이 옳은 자리입니다.** 생성된 파일을 우리가 손보는 것이므로, `gradle_plugins`가 버전을 받게 되면 이 보정은 없어져야 합니다.
   - **생성된 파일은 매 빌드 다시 쓰이므로 `rerun-if-changed`로 걸어 둡니다.** 걸지 않으면 두 번째 빌드에서 빌드 스크립트가 캐시되어 보정이 사라지고, Compose를 하나도 못 찾는 에러가 수십 개 납니다. 실제로 그렇게 한 번 났습니다.
-  - **cdylib 이름은 애플리케이션의 것입니다.** 런타임이 `android_demo`를 상수로 들고 있어서 dx가 만든 APK가 `libandroid_demo.so`를 찾다가 죽었습니다. 지금은 생성된 Activity가 `DioxusRuntime.load(name)`으로 이름을 넘깁니다.
+  - **cdylib 이름은 애플리케이션의 것입니다.** 런타임이 `android_demo`를 상수로 들고 있어서 dx가 만든 APK가 `libandroid_demo.so`를 찾다가 죽었습니다. 지금은 생성된 Activity가 `ComposeRustRuntime.load(name)`으로 이름을 넘깁니다.
   - **크레이트의 `MainActivity.kt`와 `AndroidManifest.xml`은 따라가지 않습니다.** 둘 다 이 저장소 자신의 Android 애플리케이션 것이지 렌더러의 것이 아닙니다. 따라가면 남의 프로젝트에 Activity가 둘이 되고 매니페스트가 두 번 선언됩니다.
   - **`ByteBuffer.get(index, array, offset, length)`는 Java 13의 것입니다.** 우리 Amper 모듈은 더 높은 compileSdk로 빌드해서 통과했지만, dx 템플릿의 compileSdk 34에서는 후보가 없다고 거부됩니다. 생성 코드가 버퍼 자신의 position을 거쳐 읽고 되돌려 놓도록 바꿨습니다. `duplicate()`는 배치마다 문자열 수만큼 객체를 만들므로 쓰지 않습니다.
   - **로컬 도구 사슬 메모.** AGP 8.7의 `jlink` 변환은 JDK 25에서 실패합니다. `JAVA_HOME`이 21을 가리켜야 빌드가 끝납니다. 이것은 우리 쪽 문제가 아니라 AGP와 JDK의 조합입니다.
   - `scripts/tests/android-kotlin-travels.test.sh`가 담긴 사본이 렌더러와 같은지와 패키지 목록에 들어 있는지를 봅니다. 사본이 뒤처지면 애플리케이션이 Host보다 낡은 인터프리터를 컴파일하고 핸드셰이크가 거부합니다.
-  - **`sample-v0.1.1`의 APK는 이 경로로 만든 것이 아닙니다.** 우리 Amper 모듈(`dioxus-compose-renderer/android`)에 샘플의 cdylib을 넣어 빌드한 것이고, 그것이 증명하는 것은 Android에서 렌더러와 Host가 동작한다는 것이지 사용자가 겪을 경로가 동작한다는 것은 아닙니다. 다음 샘플 릴리스의 APK는 dx로 만듭니다.
+  - **`sample-v0.1.1`의 APK는 이 경로로 만든 것이 아닙니다.** 우리 Amper 모듈(`renderer/android`)에 샘플의 cdylib을 넣어 빌드한 것이고, 그것이 증명하는 것은 Android에서 렌더러와 Host가 동작한다는 것이지 사용자가 겪을 경로가 동작한다는 것은 아닙니다. 다음 샘플 릴리스의 APK는 dx로 만듭니다.
 
 ### PR-6 Web 경계 (`Done`)
 Rust(wasm32)와 Kotlin/Wasm 모듈을 연결합니다. `LoopMode::Platform`입니다. 2026-09-20 실측으로 확정했습니다(`experiments/web-interop/`).
@@ -2343,10 +2483,10 @@ Rust(wasm32)와 Kotlin/Wasm 모듈을 연결합니다. `LoopMode::Platform`입�
 - 실측(Safari 26.5, Apple silicon): 같은 모듈 호출 0.30ns, wasm 직접 바인딩 1.45ns, JS forwarder 12.05ns, Kotlin에서 메모리 읽기 0.977ns/byte.
 - **방향에 따라 비용이 다릅니다.** forwarder를 거치는 것은 Renderer에서 Host로 가는 호출뿐입니다. 반대 방향, 곧 Host가 프레임을 요청하는 `request_frame`은 Rust의 wasm import를 Kotlin이 `@WasmExport`로 내놓은 함수에 직접 묶으므로 JS가 없습니다. Rust가 나중에 인스턴스화되고 그 시점에 Kotlin export는 이미 존재하기 때문입니다.
 - **주소 영역을 상수로 못박습니다.** 0부터 `WEB_RUST_REGION_BASE`(4MiB) 미만은 Kotlin `kotlin.wasm.unsafe` 할당자의 것이고, 그 위는 Rust의 데이터와 스택과 힙입니다. Rust는 `--global-base`로 그 자리에 놓입니다. Renderer는 할당자가 준 주소가 경계 아래인지 시작할 때 확인하고, 아니면 경계 호출을 시작하지 않습니다. 두 할당자가 같은 주소를 쓰면 화면이 조용히 틀리는 것으로 끝나므로, 겹침은 자라기 전에 잡아야 합니다.
-- 경계 함수 목록은 PR-2 그대로입니다. 여기에 Rust wasm 모듈은 `dioxus_compose_host_web_start`를 하나 더 export합니다. 경계 연산이 아니라, 라이브러리 로더가 없는 환경에서 Android의 `JNI_OnLoad`가 하던 일(루트 컴포넌트 등록과 RendererApi 설치)을 놓을 자리입니다.
+- 경계 함수 목록은 PR-2 그대로입니다. 여기에 Rust wasm 모듈은 `compose_rust_host_web_start`를 하나 더 export합니다. 경계 연산이 아니라, 라이브러리 로더가 없는 환경에서 Android의 `JNI_OnLoad`가 하던 일(루트 컴포넌트 등록과 RendererApi 설치)을 놓을 자리입니다.
 - **`web_start`는 Host가 Renderer에게 빌려주는 블록의 주소를 돌려줍니다.** 앞 16바이트가 `MutationBatch` out 레코드이고, 그 뒤 4KiB가 이벤트 버퍼입니다. Host가 소유하는 이유는 Renderer가 붙잡아 둘 수 없기 때문입니다. `kotlin.wasm.unsafe`의 할당자는 `withScopedMemoryAllocator` 블록 안에서만 살아 있어서, 프레임을 넘겨 쓸 주소를 얻는 방법이 없습니다. 호출마다 스코프를 열면 정상 상태 할당 0회(NFR-9)를 잃습니다. 그래서 두 버퍼는 Rust 영역에 정적으로 놓이고, Renderer는 주소만 기억합니다. 0이 돌아오면 Host가 없는 것이고, Renderer는 경계 호출을 시작하지 않습니다.
 - **forwarder는 Kotlin `@JsFun` 선언입니다.** 경계 함수마다 하나씩, 인자를 그대로 넘기는 고정 형태의 JS 화살표 함수를 코드젠이 생성합니다(`(a, b, c) => host.symbol(a, b, c)`). 실측한 12.05ns가 바로 이 모양입니다. 별도의 `@WasmImport` 모듈을 두는 길은 같은 순환에 걸립니다. Kotlin의 import는 인스턴스화 시점에 채워져야 하는데 그때 Rust는 아직 없습니다.
-- **인스턴스화 순서**를 페이지가 정합니다. 코드젠이 만든 로더 모듈이 `web.mjs`보다 먼저 평가되어 Rust 모듈을 `compileStreaming`으로 컴파일해 둡니다. 그다음 Kotlin 모듈이 인스턴스화되면서 메모리가 생기고, Kotlin `main`이 로더를 한 번 불러 그 메모리 위에 Rust를 동기로 인스턴스화합니다(`new WebAssembly.Instance`). 이 시점에 Kotlin export가 이미 있으므로 `dioxus_compose_renderer_request_frame`은 wasm export 객체를 그대로 넘겨 직접 바인딩합니다. Renderer 쪽에 새 진입점은 없습니다.
+- **인스턴스화 순서**를 페이지가 정합니다. 코드젠이 만든 로더 모듈이 `web.mjs`보다 먼저 평가되어 Rust 모듈을 `compileStreaming`으로 컴파일해 둡니다. 그다음 Kotlin 모듈이 인스턴스화되면서 메모리가 생기고, Kotlin `main`이 로더를 한 번 불러 그 메모리 위에 Rust를 동기로 인스턴스화합니다(`new WebAssembly.Instance`). 이 시점에 Kotlin export가 이미 있으므로 `compose_rust_renderer_request_frame`은 wasm export 객체를 그대로 넘겨 직접 바인딩합니다. Renderer 쪽에 새 진입점은 없습니다.
 - 수용 기준(M7):
   1. Kotlin이 정의해 export한 메모리 하나를 Rust가 import하고, 한쪽이 쓴 arena를 다른 쪽이 제자리에서 읽습니다. 복사한 바이트가 없습니다.
   2. 이벤트 하나가 경계 호출 2회로 끝납니다(PR-4와 같은 기준).
@@ -2356,7 +2496,7 @@ Rust(wasm32)와 Kotlin/Wasm 모듈을 연결합니다. `LoopMode::Platform`입�
 
 **검증 (2026-09-22, Chrome for Testing 149 / V8, Apple silicon)**
 
-`dioxus-compose-renderer/web/test/WebBoundaryTest.kt`가 Kotlin/Wasm 테스트 러너가 이미 띄우는
+`renderer/web/test/WebBoundaryTest.kt`가 Kotlin/Wasm 테스트 러너가 이미 띄우는
 브라우저 안에서 경계를 직접 돕니다. 대상은 실물입니다. 생성된 forwarder, 생성된 wasm 심, 생성된
 인스턴스화, 그리고 양쪽이 제자리에서 읽는 `WebAssembly.Memory` 하나입니다. Host는 데스크톱과 같은
 Rust 소스(`examples/web_demo.rs`)를 `--import-memory --global-base=4194304 --initial-memory=8388608`로
@@ -2392,31 +2532,35 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 
 ### PR-7 명명 규칙 (`Done`)
 
-**검증 방식에 관하여(2026-09-22):** 대부분은 판단의 문제입니다. 어떤 이름이 Compose나 Dioxus가 썼을 이름인지는 스크립트가 답할 수 없고 검토가 답합니다. 다만 한 조항은 정확하고, 그것은 이상하게 읽히는 데 그치지 않고 남의 빌드를 깨뜨리는 조항입니다. **C로 내보내는 심볼은 모두 `dioxus_compose_` 접두사를 답니다.** C 심볼은 프로세스 전역이라, 두 라이브러리가 같은 맨이름을 내보내면 둘 다 쓰는 사람에게는 링크 오류입니다.
+**검증 방식에 관하여(2026-09-22):** 대부분은 판단의 문제입니다. 어떤 이름이 Compose나 Dioxus가 썼을 이름인지는 스크립트가 답할 수 없고 검토가 답합니다. 다만 한 조항은 정확하고, 그것은 이상하게 읽히는 데 그치지 않고 남의 빌드를 깨뜨리는 조항입니다. **C로 내보내는 심볼은 모두 `compose_rust_` 접두사를 답니다.** C 심볼은 프로세스 전역이라, 두 라이브러리가 같은 맨이름을 내보내면 둘 다 쓰는 사람에게는 링크 오류입니다.
 
 - 수용 기준: C 익스포트 13개가 전부 접두사를 답니다(`scripts/tests/naming-conventions.test.sh`). **(통과)**
 각 언어 생태계의 관례를 따릅니다. 한쪽 관례를 다른 쪽에 억지로 맞추지 않습니다.
 
 | 영역 | 관례 | 예 |
 |---|---|---|
-| C ABI 심볼 | snake_case, `dioxus_compose_{host,renderer}_` 접두사, 동사구 | `dioxus_compose_host_dispatch_event` |
+| C ABI 심볼 | snake_case, `compose_rust_{host,renderer}_` 접두사, 동사구 | `compose_rust_host_dispatch_event` |
 | Rust 공개 API | Dioxus 관례를 따릅니다: `launch`, `LaunchBuilder`, `use_*` 훅, PascalCase 컴포넌트 | `dioxus_compose::launch(app)`, `use_text_field()` |
 | Rust 타입 | PascalCase, `#[repr(C)]` 경계 타입은 역할 이름 | `MutationBatch`, `LoopMode`, `HostEvent` |
 | rsx 위젯 | Compose 이름을 그대로 씁니다 | `Column`, `Row`, `LazyColumn`, `TextField` |
 | rsx 속성과 Modifier | snake_case, Compose 이름을 옮긴 것 | `fill_max_width`, `padding`, `on_click`, `on_value_change` |
-| Kotlin 선언 | camelCase 함수, PascalCase 타입, 컴포저블은 PascalCase 명사 | `DioxusContent(host)`, `rememberDioxusHost()`, `HostBridge.dispatchEvent()` |
-| Kotlin 생성 코드 | `generated` 패키지, 파일 이름 접미사 `.gen.kt` | `dioxus.compose.protocol` |
+| Kotlin 선언 | camelCase 함수, PascalCase 타입, 컴포저블은 PascalCase 명사 | `ComposeRustContent(host)`, `rememberComposeRustHost()`, `HostBridge.dispatchEvent()` |
+| Kotlin 생성 코드 | `generated` 패키지, 파일 이름 접미사 `.gen.kt` | `dev.darkpyonix.composerust.protocol` |
 | 이벤트/Mutation 태그 | Rust `enum` 변형은 PascalCase, Kotlin `sealed interface` 하위 타입은 같은 이름 | `SetText`, `TextSubmitted` |
 
 - Compose에 같은 개념이 있으면 그 이름을 씁니다(`Modifier`, `Recomposition`, `requestFrame`). 새 이름을 만들지 않습니다.
 - Dioxus에 같은 개념이 있으면 Rust 쪽은 Dioxus 이름을 씁니다(`VirtualDom`, `Mutations`, `ElementId`).
 - 두 이름이 충돌하면 Rust 쪽은 Dioxus 이름을, Kotlin 쪽은 Compose 이름을 쓰고, 대응 관계를 코드젠 스키마에 기록합니다.
+- **2026-10-03(INTENT D2): 위의 Dioxus 관례는 dioxus-compose 층에 적용됩니다.** compose-rust 자신의 작성 API(FR-39)는 Compose의 이름을 Rust 관례로 옮겨 씁니다(`remember`, composable 함수, 상태 객체, effect). 두 층이 같은 개념을 가리킬 때 compose-rust 쪽 이름은 Compose를, dioxus-compose 쪽 이름은 Dioxus를 따릅니다.
 
 ### PR-8 macOS 런타임 요건 (`Done`)
+
+**2026-10-03(INTENT D4, NFR-14): 이 항목은 GraalVM native-image(AWT) 경로의 요건입니다.** 배포되는 macOS 렌더러는 이제 Kotlin/Native 정적 라이브러리이고 `java.home`도 `lib/`도 없습니다. 메인 스레드 요건(`RUN_NOT_MAIN_THREAD`)은 AppKit의 요건이므로 두 경로 모두에 적용됩니다.
+
 - 빌드 도구는 Liberica NIK 25 Full입니다(INTENT D9-macOS).
 - 배포 레이아웃은 `<root>/lib/` 하나이며 `java.home`은 그 부모입니다. 렌더러는 자기 라이브러리 경로를 dladdr로 얻어 `java.home`, `skiko.library.path`, `skiko.data.path`를 설정합니다.
 - `lib/`에 함께 두는 파일: 렌더러 라이브러리, Skia(`libskiko-macos-<arch>.dylib`), `libjawt.dylib` 포워더, `libawt_lwawt.dylib` 자리 채우기.
-- `dioxus_compose_renderer_run`은 프로세스 메인 스레드에서 호출해야 합니다. 아니면 `RUN_NOT_MAIN_THREAD`를 반환합니다.
+- `compose_rust_renderer_run`은 프로세스 메인 스레드에서 호출해야 합니다. 아니면 `RUN_NOT_MAIN_THREAD`를 반환합니다.
 - 빌드 스크립트는 `lib/static/darwin-*/libawt_lwawt.a`가 없는 설치를 이미지 빌드 시작 전에 거부합니다. 순정 GraalVM과 비 Full NIK을 걸러내기 위한 것입니다.
 - 수용 기준
   1. C 호스트가 라이브러리를 링크해 `run`을 호출하면 창이 뜨고, 창을 닫으면 `run`이 0을 반환하며 프로세스가 정상 종료됩니다. **(2026-09-20 통과)**
@@ -2435,11 +2579,14 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 | NFR-5 | 개발 경험 | Renderer는 JVM 개발 셸에서 hot reload와 `@Preview`로 작업 가능. native-image 빌드는 개발 루프에 필요 없음. 새 머신의 준비 상태를 `scripts/setup-check.sh` 한 번으로 확인 가능 | Agreed |
 | NFR-6 | 안정 API만 사용 | `@InternalComposeUiApi`, `@ExperimentalComposeUiApi` 의존을 금지하거나, 쓰더라도 어댑터 한 파일에 격리하고 버전 핀을 둠. **2026-09-22 충족**: 실험 API를 쓰는 파일은 `web/src/main.kt` 하나이고 `@OptIn`이 그 자리에 붙어 있습니다 | Done |
 | NFR-7 | 크래시 격리 | 프로토콜 오류로 프로세스가 종료되지 않고 `ProtocolError` 이벤트를 보냄 | Agreed |
-| NFR-8 | 데스크톱 접근성 | native-image 빌드의 접근성 트리가 JVM 개발 셸과 같은 구조로 노출될 것. smoke test의 종료 코드 0은 근거가 되지 않습니다(접근성을 질의하지 않으므로). **2026-09-21 트리 노출 충족**, VoiceOver 수동 확인은 미완료(§7) | Agreed |
+| NFR-8 | 데스크톱 접근성 | 배포 빌드(2026-10-03부터 AWT 없는 렌더러, NFR-14)의 접근성 트리가 JVM 개발 셸과 같은 구조로 노출될 것. smoke test의 종료 코드 0은 근거가 되지 않습니다(접근성을 질의하지 않으므로). **2026-09-21 트리 노출 충족**, VoiceOver 수동 확인은 미완료(§7) | Agreed |
 | NFR-9 | 네이티브 수준 프레임 성능 | §5.1 기준 충족 | Agreed |
-| NFR-10 | 렌더러 탐색 경로 | `DIOXUS_COMPOSE_RENDERER_DIR` → 워크스페이스 빌드 결과물 → 버전·타깃별 캐시 → 릴리스 다운로드 순서로 찾음. 규격과 수용 기준은 §5.3. **2026-09-21 충족** | Done |
+| NFR-10 | 렌더러 탐색 경로 | `COMPOSE_RUST_RENDERER_DIR` → 워크스페이스 빌드 결과물 → 버전·타깃별 캐시 → 릴리스 다운로드 순서로 찾음. 규격과 수용 기준은 §5.3. **2026-09-21 충족** | Done |
 | NFR-11 | 배포 | 크레이트는 crates.io, 렌더러는 플랫폼별 체크섬 릴리스 아티팩트. 설치는 `Cargo.toml` 한 줄이 전부이고 빌드 스크립트가 아티팩트를 가져옵니다. 규격과 수용 기준은 §5.3 (INTENT D10). **2026-09-21 macOS에서 충족**, Windows와 Linux는 실행 확인 미완료 | Agreed |
 | NFR-12 | 워크트리 빌드 격리 | 워크트리마다 자기 `target/`에 빌드하고, 다른 워크트리의 빌드 디렉터리를 가리키는 설정이 없음. 한 트리에서 컴파일된 codegen 바이너리가 다른 트리에 쓸 수 없음. 규격과 수용 기준은 §5.4 (INTENT D16). **2026-09-22 충족** | Done |
+| NFR-13 | Windows 단일 실행 파일 | Windows 렌더러를 Kotlin/Native로 빌드해 앱 실행 파일 하나에 링크함. JVM이 없고, 앱을 빌드하는 사람에게 MinGW를 요구하지 않음. 규격과 수용 기준은 §5.6 (INTENT D18, 2026-10-03 소유자 결정) | Agreed |
+| NFR-14 | AWT 없는 데스크톱 렌더러가 기본 | 배포되는 데스크톱 렌더러가 AWT도 JVM도 쓰지 않음. macOS와 Linux는 Kotlin/Native 정적 라이브러리, Windows는 NFR-13. 앱이 아무것도 고르지 않아도 이 경로가 나옴. 규격과 수용 기준은 §5.5 (INTENT D4, 2026-10-03 소유자 결정) | Agreed |
+| NFR-15 | 데스크톱 애플리케이션은 실행 파일 하나 | compose-rust 애플리케이션이 macOS, Windows, Linux에서 실행 파일 하나이고, 시스템 라이브러리 외에 아무것도 불러오지 않음. 렌더러, Skia, ICU 데이터가 안에 있음. 1.0.0 요구사항. 규격과 수용 기준은 §5.7 (INTENT D17, 2026-10-03 소유자 결정) | Agreed |
 
 ### 5.1 프레임 예산 (NFR-9)
 
@@ -2456,7 +2603,7 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 | 프레임 드랍 | 초당 100회 추가되는 스트리밍 + 스크롤 중 드랍 0 (아이템 1만 개 목록) |
 
 - 모든 수치는 실측으로 확인하고, 측정 환경(기기, OS, 빌드 설정)과 함께 기록합니다. 측정 결과는 `dioxus-compose/benches/baseline.json`에 있습니다.
-- 할당은 횟수 자체보다 **증가하지 않는지**가 기준입니다. Dioxus는 diff와 이벤트 처리 과정에서 내부적으로 할당하며(2026-09-20 측정: 클릭당 99회), 이를 0으로 만들려면 Dioxus를 포크해야 해서 D2와 충돌합니다. Rust에는 GC가 없어 이 할당이 프레임 멈춤으로 이어지지 않습니다. 반복 상호작용에서 할당 수가 늘어나면 누수나 캐시 미작동으로 보고 조사합니다.
+- 할당은 횟수 자체보다 **증가하지 않는지**가 기준입니다. Dioxus는 diff와 이벤트 처리 과정에서 내부적으로 할당하며(2026-09-20 측정: 클릭당 99회), 이를 0으로 만들려면 Dioxus를 포크해야 합니다. 이 문장은 Dioxus 경로에 대한 것이고, 2026-10-03부터 compose-rust의 자기 런타임(INTENT D2, FR-39)은 Dioxus의 내부 할당에 묶이지 않습니다. 같은 표의 기준이 두 경로 모두에 적용됩니다. Rust에는 GC가 없어 이 할당이 프레임 멈춤으로 이어지지 않습니다. 반복 상호작용에서 할당 수가 늘어나면 누수나 캐시 미작동으로 보고 조사합니다.
 - 벤치마크 하네스는 M0에서 함께 만들고, CI에서 회귀를 감시합니다. 기준 초과는 빌드 실패로 처리합니다.
 - 개발 빌드에서는 Host 처리가 1ms를 넘는 프레임을 경고로 남깁니다.
 - native-image의 GC pause도 프레임 드랍 요인으로 측정합니다. 기준을 넘으면 GC 설정(Serial/Epsilon, 힙 크기) 조정을 SPEC에 기록합니다.
@@ -2534,7 +2681,7 @@ macOS의 고정분은 약 33MB이므로, **100MB가 Windows에만 있고 창을 
 
 | 항목 | 값 |
 |---|---|
-| 파일 이름 | `dioxus-compose-renderer-v{crate_version}-{target}.tar.gz` |
+| 파일 이름 | `compose-rust-renderer-v{crate_version}-{target}.tar.gz` |
 | 체크섬 파일 | 같은 이름에 `.sha256`. 내용은 `shasum -a 256` 출력(`<64자리 16진수>  <파일 이름>`) |
 | 주소 | `https://github.com/DarkPyonix/dioxus-compose/releases/download/v{crate_version}/{파일 이름}` |
 | `{target}` | `macos-aarch64`, `windows-x64`, `linux-x64`, `linux-arm64` |
@@ -2544,14 +2691,14 @@ macOS의 고정분은 약 33MB이므로, **100MB가 Windows에만 있고 창을 
 
 #### 5.3.2 탐색 순서
 
-1. `DIOXUS_COMPOSE_RENDERER_DIR`. 설정돼 있으면 언제나 이깁니다. 없으면 실패하고, 다음 단계로 넘어가지 않습니다. 직접 빌드한 렌더러를 가리켜 둔 빌드가 조용히 다운로드로 바뀌면 안 됩니다.
+1. `COMPOSE_RUST_RENDERER_DIR`. 설정돼 있으면 언제나 이깁니다. 없으면 실패하고, 다음 단계로 넘어가지 않습니다. 직접 빌드한 렌더러를 가리켜 둔 빌드가 조용히 다운로드로 바뀌면 안 됩니다.
 2. 워크스페이스 빌드 결과물. 이 저장소의 체크아웃에만 있습니다.
 3. 버전·타깃별 캐시. 있으면 네트워크를 쓰지 않습니다.
 4. 릴리스에서 내려받아 캐시에 풉니다.
 
 #### 5.3.3 캐시
 
-- 위치는 `target/` 밖입니다. Unix는 `$HOME/.cache/dioxus-compose/renderer/v{version}/{target}`, Windows는 `%LOCALAPPDATA%\dioxus-compose\renderer\v{version}\{target}`입니다. `DIOXUS_COMPOSE_CACHE_DIR`로 뿌리를 옮길 수 있습니다(선택이며, 설치에 필요하지 않습니다).
+- 위치는 `target/` 밖입니다. Unix는 `$HOME/.cache/compose-rust/renderer/v{version}/{target}`, Windows는 `%LOCALAPPDATA%\compose-rust\renderer\v{version}\{target}`입니다. `COMPOSE_RUST_CACHE_DIR`로 뿌리를 옮길 수 있습니다(선택이며, 설치에 필요하지 않습니다).
 - 키는 버전과 타깃입니다. `cargo clean`을 견디고 프로젝트 사이에서 공유됩니다.
 - 내려받은 `.tar.gz`와 `.sha256`은 캐시 뿌리의 `downloads/`에 그대로 둡니다. 이 디렉터리가 오프라인 안내가 가리키는 자리이기도 합니다. 여기에 두 파일을 놓으면 다음 빌드가 네트워크 없이 검증하고 풉니다. 다운로드 경로와 손으로 놓는 경로가 같은 코드라서, 안내한 방법이 실제로 동작하는지 테스트가 확인할 수 있습니다.
 - 푸는 매 번 체크섬을 검증합니다. 맞지 않으면 풀지 않고, 받은 값과 기대값을 모두 출력합니다.
@@ -2561,8 +2708,8 @@ macOS의 고정분은 약 33MB이므로, **100MB가 Windows에만 있고 창을 
 
 크레이트를 의존성으로 추가한 애플리케이션이 링크에 성공하고 실행에 실패하면 설치가 끝난 것이 아닙니다. Cargo는 의존성 빌드 스크립트의 링크 탐색 경로와 링크 라이브러리는 최종 바이너리까지 넘기지만 **링크 인자는 넘기지 않습니다.** rpath가 링크 인자이므로 소비자 바이너리에는 rpath가 없습니다. 그래서 다음 두 가지를 크레이트 안에서 해결합니다(INTENT D12).
 
-- **라이브러리는 자기가 놓인 절대 경로를 자기 이름으로 답니다.** 빌드 스크립트가 렌더러를 확보한 직후, 그 라이브러리가 지금 있는 절대 경로를 라이브러리 자신에게 새깁니다. 소비자 바이너리는 그 절대 경로를 기록하고 로더는 rpath 없이 찾습니다. `DIOXUS_COMPOSE_RENDERER_DIR`, 워크스페이스 빌드 결과물, 캐시, 다운로드 네 경로 모두에 적용하며, 이미 그 이름이면 아무것도 하지 않습니다.
-- **`dioxus_compose_host_*` 심벌의 보존.** 렌더러는 적재된 뒤 이름으로 이 심벌들을 찾습니다. 애플리케이션 코드는 그 이름을 한 번도 쓰지 않으므로 링커가 죽은 코드로 판단해 지웁니다. 지워진 바이너리는 실행 첫 순간에 심벌을 못 찾고 죽습니다. 주소를 담은 `#[used]` static이 죽은 코드 제거의 뿌리 역할을 합니다.
+- **라이브러리는 자기가 놓인 절대 경로를 자기 이름으로 답니다.** 빌드 스크립트가 렌더러를 확보한 직후, 그 라이브러리가 지금 있는 절대 경로를 라이브러리 자신에게 새깁니다. 소비자 바이너리는 그 절대 경로를 기록하고 로더는 rpath 없이 찾습니다. `COMPOSE_RUST_RENDERER_DIR`, 워크스페이스 빌드 결과물, 캐시, 다운로드 네 경로 모두에 적용하며, 이미 그 이름이면 아무것도 하지 않습니다.
+- **`compose_rust_host_*` 심벌의 보존.** 렌더러는 적재된 뒤 이름으로 이 심벌들을 찾습니다. 애플리케이션 코드는 그 이름을 한 번도 쓰지 않으므로 링커가 죽은 코드로 판단해 지웁니다. 지워진 바이너리는 실행 첫 순간에 심벌을 못 찾고 죽습니다. 주소를 담은 `#[used]` static이 죽은 코드 제거의 뿌리 역할을 합니다.
 
 **이 크레이트의 빌드 스크립트는 rpath를 내보내지 않습니다.** 내보내면 이 저장소의 테스트 바이너리와 예제만 rpath로 살아나고, 이름 새기기가 고장나도 소비자 쪽에서만 드러납니다. rpath가 없으면 우리 바이너리가 소비자 바이너리와 같은 방식으로 적재되므로 같은 고장을 같은 자리에서 봅니다. 같은 이유로 `samples/`에는 `build.rs`가 없습니다.
 
@@ -2570,7 +2717,7 @@ macOS의 고정분은 약 33MB이므로, **100MB가 Windows에만 있고 창을 
 
 | 플랫폼 | 파일 안의 이름 | 빌드 스크립트가 하는 일 |
 |---|---|---|
-| macOS | `LC_ID_DYLIB`. 아티팩트는 `@rpath/libdioxus_compose_renderer.dylib`로 나옵니다 | `install_name_tool -id <절대 경로>`. Xcode 명령줄 도구에 들어 있고 Rust 링커가 어차피 필요로 합니다 |
+| macOS | `LC_ID_DYLIB`. 아티팩트는 `@rpath/libcompose_rust_renderer.dylib`로 나옵니다 | `install_name_tool -id <절대 경로>`. Xcode 명령줄 도구에 들어 있고 Rust 링커가 어차피 필요로 합니다 |
 | Linux | `DT_SONAME`. 아티팩트에는 없습니다 | SONAME이 없으면 링커가 연 경로를 그대로 `DT_NEEDED`에 적으므로 할 일이 없습니다. 있으면 푸는 시점에 `.dynamic`에서 그 항목을 들어냅니다. patchelf는 쓰지 않습니다 |
 | Windows | 없습니다. DLL은 로더의 탐색 경로로만 찾습니다 | 렌더러 디렉터리를 이름으로 말합니다. 소비자가 그 디렉터리를 `PATH`에 넣거나 안의 파일을 실행 파일 옆에 두어야 합니다 |
 
@@ -2584,7 +2731,7 @@ Linux 공유 객체에는 `$ORIGIN` 런패스가 붙어 있어 심이 옆에 있
 
 | 단계 | 누가 | 라이브러리 이름 | 지켜야 할 것 |
 |---|---|---|---|
-| 1. 우리가 배포 | 릴리스 아티팩트를 만드는 쪽 | 상대 이름. macOS는 `@rpath/libdioxus_compose_renderer.dylib`, Linux는 SONAME 없음 | 아티팩트는 어디에 풀어도 되어야 합니다. 절대 경로를 박아 배포하면 그 경로가 있는 기계에서만 동작합니다 |
+| 1. 우리가 배포 | 릴리스 아티팩트를 만드는 쪽 | 상대 이름. macOS는 `@rpath/libcompose_rust_renderer.dylib`, Linux는 SONAME 없음 | 아티팩트는 어디에 풀어도 되어야 합니다. 절대 경로를 박아 배포하면 그 경로가 있는 기계에서만 동작합니다 |
 | 2. 소비자의 빌드 | `dioxus-compose`의 빌드 스크립트 | 그 기계에서의 절대 경로 | 이름을 바꾸는 대상은 소비자의 캐시나 작업 트리 안에 있는 사본입니다. 원본 아티팩트(`.tar.gz`)는 건드리지 않으므로 1단계는 그대로 유지됩니다 |
 | 3. 소비자가 앱을 출하 | 애플리케이션의 번들러 | 다시 상대 이름. macOS는 `@executable_path/../Frameworks/lib/...`, Linux는 `$ORIGIN/lib` 런패스와 짧은 `DT_NEEDED` | 2단계가 실행 파일에 남긴 절대 경로를 반드시 지워야 합니다. 지우지 않으면 개발자의 홈 디렉터리 경로가 출하된 바이너리에 남고, 다른 기계에서는 적재에 실패합니다 |
 
@@ -2614,7 +2761,7 @@ Linux 공유 객체에는 `$ORIGIN` 런패스가 붙어 있어 심이 옆에 있
 1. 캐시가 이미 있으면 네트워크 접근 없이 빌드가 성공합니다.
 2. 체크섬이 맞지 않는 아티팩트는 풀리지 않고 빌드가 실패합니다.
 3. 게시되지 않은 타깃은 게시된 목록을 이름으로 말합니다.
-4. `DIOXUS_COMPOSE_RENDERER_DIR`은 캐시와 다운로드보다 우선합니다.
+4. `COMPOSE_RUST_RENDERER_DIR`은 캐시와 다운로드보다 우선합니다.
 5. 렌더러도 mock도 없이 앱을 시작하면 성공을 반환하지 않습니다.
 6. 빌드 스크립트가 출력하는 어떤 메시지도 저장소에 없는 파일을 실행하라고 안내하지 않습니다.
 7. 비어 있는 캐시에서 실제 다운로드가 동작하고, 걸린 시간과 캐시 크기를 기록합니다.
@@ -2666,13 +2813,80 @@ Cargo는 path 패키지의 유닛 해시에 패키지 경로를 넣지 않습니
 
 **2026-09-22 측정.** 자기 `target/`에 처음부터 빌드하는 데(`cargo build --workspace --tests`, 레지스트리 캐시는 더운 상태) 23초가 걸렸고 `target/`은 1.0GB가 됐습니다. `scripts/check.sh`를 한 번 돌리면 벤치마크까지 포함해 2.0GB가 됩니다. 워크트리 여덟 개가 같이 쓰던 빌드 디렉터리 하나는 그때 16GB였습니다. 워크트리마다 나누는 쪽이 이 기계에서는 디스크도 덜 씁니다. 공유 디렉터리는 워크트리 여덟 개분의 핑거프린트를 한꺼번에 들고 있으면서 아무도 치우지 않기 때문입니다.
 
+### 5.5 AWT 없는 데스크톱 렌더러 (NFR-14)
+
+**2026-10-03 소유자 결정(INTENT D4).** 배포되는 데스크톱 렌더러는 AWT를 쓰지 않습니다. 렌더러가 자기 창을 직접 열고 Compose 장면을 그 창에 붙여 그립니다. macOS와 Linux는 Kotlin/Native 정적 라이브러리이고, Windows는 Kotlin/Native `mingwX64`로 같은 길을 갑니다(§5.6, NFR-13). GraalVM native-image 위의 AWT 경로는 Windows 렌더러가 NFR-13을 통과할 때까지 Windows가 지금 내는 것으로만 남습니다.
+
+| 플랫폼 | 창 | 렌더러 | 입력기 경로 |
+|---|---|---|---|
+| macOS | AppKit `NSWindow`를 렌더러가 직접 엶 | Kotlin/Native 정적 라이브러리 | `NSTextInputClient`에서 Compose의 플랫폼 텍스트 입력으로 |
+| Linux | X11 창을 렌더러가 직접 엶 | Kotlin/Native 정적 라이브러리 | XIM, ibus, fcitx에서 Compose의 플랫폼 텍스트 입력으로 |
+| Windows | Win32 창을 렌더러가 직접 엶 | Kotlin/Native `mingwX64` 정적 라이브러리(NFR-13) | IMM32/TSF에서 Compose의 플랫폼 텍스트 입력으로 |
+
+창 코드의 자리는 Compose의 포크입니다(INTENT D19, FR-19.8).
+
+수용 기준:
+
+1. 아무 설정 없이 빌드한 데스크톱 샘플이 macOS와 Linux에서 Kotlin/Native 렌더러를 링크합니다. 링크된 실행 파일에 AWT와 JVM이 없습니다(`libawt`, `libjvm`, `JNI_OnLoad_*` 심볼이 없고, 실행 중 `java.home`을 찾지 않음). 빌드 산출물을 검사하는 테스트로 확인합니다. Windows는 NFR-13의 기준이 같은 것을 확인합니다.
+2. 앱을 빌드하는 기계에 JDK도 GraalVM도 필요 없습니다. 렌더러는 D10대로 아티팩트로 옵니다.
+3. 스모크 호스트가 세 플랫폼에서 창을 띄워 그리고, 창을 닫으면 `run`이 0을 돌려줍니다(CI).
+4. FR-19의 수용 기준(19.4, 19.7)이 이 경로에서 통과합니다.
+5. §6 IME 체크리스트 아홉 항목이 세 플랫폼의 이 빌드에서 통과합니다(사람이 확인). Compose의 플랫폼 텍스트 입력을 우회하는 경로가 코드에 없습니다.
+6. §7 접근성: 접근성 트리가 노출되고, macOS VoiceOver, Windows Narrator, Linux Orca(AT-SPI)가 Text와 Button 라벨을 읽습니다(사람이 확인).
+7. §5.1 프레임 예산과 NFR-3 무게 기준을 이 빌드에서 잽니다.
+
+### 5.6 Windows 단일 실행 파일 (NFR-13)
+
+**2026-10-03 소유자 결정(INTENT D18). 실험이 아니라 정식 통합입니다.** Windows 렌더러는 Kotlin/Native(`mingwX64`)로 빌드한 정적 라이브러리(`renderer/windows/`, `staticlib-windows/`)이고, Rust 앱의 MSVC 실행 파일에 링크됩니다. Skia와 skiko의 C++ 부분은 MSVC로 빌드해 같은 실행 파일에 들어갑니다. Compose와 skiko의 `mingwX64` 타깃은 Compose 포크의 커밋입니다(INTENT D19). 경계와 그 이유는 INTENT D18에 있습니다.
+
+**MinGW는 렌더러 아티팩트를 만드는 빌드 안에만 있습니다.** 앱을 빌드하는 사람의 툴체인은 Rust의 기본 Windows 타깃(`x86_64-pc-windows-msvc`)과 MSVC 링커이고, MinGW 툴체인, MinGW DLL, `windows-gnu` 타깃 어느 것도 요구하지 않습니다. 렌더러 아티팩트에 들어가는 MinGW 오브젝트는 MSVC 링커가 뜻을 바꾸지 않고 읽도록 고쳐진 것입니다(생성자 섹션, 되감기 정보).
+
+수용 기준:
+
+1. 샘플을 빌드한 결과물이 실행 파일 하나이고, 불러오는 DLL이 Windows 시스템 DLL뿐입니다. 빌드 산출물의 import 표를 검사하는 테스트로 확인합니다.
+2. `icudtl.dat` 없이 글자가 그려집니다.
+3. 함수 여러 개를 지나는 Kotlin 예외가 잡히고, 잡히지 않은 예외는 보고된 뒤 종료됩니다(테스트).
+4. MinGW 오브젝트를 고치는 단계를 빼면 2와 3이 실패하는 것을 대조 테스트가 확인합니다.
+5. 스모크 호스트가 창을 띄우고 0으로 끝납니다(Windows CI).
+6. §6 IME 체크리스트 핵심 5개를 통과합니다(Windows에서 손으로 확인).
+7. 접근성 트리가 노출됩니다(NFR-8과 같은 기준, Windows).
+8. 앱을 빌드하는 기계에 MinGW 툴체인이 없어도 `cargo build`가 성공하고, 앱의 Rust 타깃은 `x86_64-pc-windows-msvc`입니다.
+
+### 5.7 데스크톱 애플리케이션은 실행 파일 하나 (NFR-15)
+
+**2026-10-03 소유자 결정(INTENT D17). compose-rust 1.0.0(2026-10-20)의 요구사항입니다.** compose-rust로 만든 데스크톱 애플리케이션은 macOS, Windows, Linux 모두에서 실행 파일 하나입니다.
+
+이것은 INTENT D2와 D4에서 따라 나옵니다. 애플리케이션은 `cargo build`가 내는 Rust 실행 파일이고(D2), AWT 없는 렌더러는 Kotlin/Native 정적 라이브러리라 그 실행 파일에 링크됩니다(D4, Windows는 D18). Skia와 skiko의 C++ 부분, ICU 데이터도 같은 실행 파일 안에 들어갑니다.
+
+| 플랫폼 | 실행 파일 안에 있는 것 | 실행 파일이 불러오는 것 |
+|---|---|---|
+| macOS | 앱, compose-rust, 렌더러, Compose, Skia, skiko C++ | 시스템 프레임워크와 `/usr/lib`의 시스템 라이브러리 |
+| Windows | 위와 같고 ICU 데이터 포함(§5.6) | Windows 시스템 DLL |
+| Linux | 위와 같고 ICU 데이터 포함 | 배포판의 시스템 라이브러리(libc, X11, GL, fontconfig, FreeType 계열) |
+
+수용 기준:
+
+1. 세 플랫폼에서 샘플을 릴리스로 빌드한 결과물이 실행 파일 하나입니다. 그 실행 파일을 빈 디렉터리에 홀로 복사해 실행하면 창이 뜨고 샘플을 그립니다.
+2. 실행 파일이 불러오는 라이브러리가 위 표의 시스템 라이브러리뿐입니다. macOS는 `otool -L`, Linux는 `DT_NEEDED`, Windows는 import 표를 검사하는 테스트로 확인합니다. 렌더러, Skia(`libskiko-*`, `skiko-windows-*.dll`), JVM, AWT 라이브러리 이름이 나오면 실패입니다.
+3. `icudtl.dat`이 실행 파일 옆에도 시스템 경로에도 없는 상태에서 한국어 단어 경계와 글자 그리기가 맞습니다.
+4. 실행 중 렌더러가 경로로 라이브러리를 찾는 일이 없습니다(`dlopen`, `LoadLibrary`, `System.load`로 우리 라이브러리를 여는 코드가 없음).
+5. 앱을 빌드하는 기계에 필요한 것은 Rust 툴체인과 그 플랫폼의 기본 링커뿐이고, 렌더러 아티팩트는 D10대로 빌드 스크립트가 받아 옵니다. 앱의 `Cargo.toml`에 compose-rust 한 줄 외에 빌드 설정(`.cargo/config.toml`, `RUSTFLAGS` 포함)을 요구하지 않습니다. Windows의 C 런타임은 2026-10-03 소유자 결정("(b)안으로 가자")대로 크레이트의 빌드 스크립트가 정적 C 런타임을 링크하고 부딪히는 기본 라이브러리를 막아서 맞춥니다(INTENT D18).
+   - `.cargo/config.toml`도 `RUSTFLAGS`도 없는 새 앱이 windows-latest에서 빌드됩니다.
+   - 그 실행 파일의 `dumpbin /dependents` 결과에 Windows 시스템 DLL만 나오고 `vcruntime140.dll`, `msvcp140.dll`이 없습니다.
+   - 그 실행 파일이 빈 폴더에서 실행되어 창을 띄웁니다.
+   - 동적 C 런타임으로 미리 빌드된 C/C++ 라이브러리와 섞여 링커가 `RuntimeLibrary` 불일치(LNK2038)를 내면, 빌드 스크립트가 어느 라이브러리가 동적 런타임인지와 무엇을 하면 되는지를 짚는 메시지를 냅니다. 테스트로 확인합니다.
+   - 같은 샘플을 동적 런타임과 정적 런타임으로 각각 링크한 실행 파일 크기를 재서 여기에 적습니다(측정 전).
+6. FR-22.6의 번들(`.app`, `.dmg`, `.zip`, `.msix`, `.AppImage`)은 이 실행 파일 하나와 아이콘, 메타데이터만 담습니다.
+
 ## 6. IME 수용 체크리스트 (FR-5, M1)
 
 native-image 빌드에서 macOS와 Windows 각각 수동으로 확인합니다.
 
+**2026-10-03(INTENT D4, NFR-14): 확인 대상은 배포되는 빌드, 즉 AWT 없는 렌더러입니다.** 아래의 macOS 결과는 그 전의 native-image(AWT) 빌드에서 얻은 것이므로, macOS, Linux, Windows의 AWT 없는 빌드에서 아홉 항목을 다시 확인합니다.
+
 **macOS arm64 결과 (2026-09-21, Liberica NIK 25, native-image 빌드)**: 5개 항목을 사람이 직접 확인했습니다. 조합 과정 표시, 조합 중 자모 단위 백스페이스, 조합 중 화살표 이동 시 확정 후 이동, 문장 중간 삽입, 한글 폰트 폴백입니다. **M1의 관문이 이 항목이었고, 통과했습니다.**
 
-확인 절차: `DIOXUS_COMPOSE_SMOKE_IME=1 desktop/scripts/smoke-test.sh`로 텍스트 필드가 있는 스모크 창을 띄우고 한국어 입력기로 입력합니다. 이 플래그가 없으면 창에 라벨과 버튼만 있어서 타이핑할 곳이 없습니다.
+확인 절차: `COMPOSE_RUST_SMOKE_IME=1 desktop/scripts/smoke-test.sh`로 텍스트 필드가 있는 스모크 창을 띄우고 한국어 입력기로 입력합니다. 이 플래그가 없으면 창에 라벨과 버튼만 있어서 타이핑할 곳이 없습니다.
 
 남은 4개는 미확인이며, 자동화할 수 없으므로 사람이 실행해야 합니다.
 
@@ -2688,7 +2902,7 @@ native-image 빌드에서 macOS와 Windows 각각 수동으로 확인합니다.
 - [ ] Host가 `TextChanged`를 받는 동안 조합이 리셋되지 않음
 - [x] 한글 폰트 폴백 (두부 문자 없음)
 
-실패하면 INTENT D4에 따라 native-image 설정(ServiceLoader, JNI/리플렉션 config, 로케일/문자셋)부터 점검합니다.
+native-image(AWT) 빌드에서 실패하면 INTENT D4의 이전 결정에 따라 native-image 설정(ServiceLoader, JNI/리플렉션 config, 로케일/문자셋)부터 점검합니다. AWT 없는 빌드에서는 그 플랫폼의 창이 입력기 사건을 Compose의 플랫폼 텍스트 입력에 넘기는 자리부터 봅니다.
 
 **입력 경로 등록은 반드시 빌드 시점 Feature(`ImeReachabilityFeature`)로 합니다.** 메타데이터에 `allDeclaredMethods`를 쓰면 안 됩니다. JDK가 선언만 하고 라이브러리에 넣지 않은 네이티브 메서드(`CInputMethod.nativeHandleEvent`)까지 링크 대상이 되어, Java 스택 트레이스 없이 dyld 단계에서 라이브러리 로드가 실패합니다. 반대로 등록이 부족하면 렌더링까지 정상 동작한 뒤 입력기가 텍스트 필드를 건드리는 순간 프로세스가 abort합니다.
 

@@ -13,7 +13,7 @@ other and against plain Compose.
 | `baseline` | Plain Compose: a `LazyColumn` of every line beside a small `BasicTextField`, for what the toolkit does on its own. |
 
 Every path takes input through Compose's platform text input. The editor sources are the
-renderer's own, linked from `dioxus-compose-renderer/desktop/src/`, so what is measured is
+renderer's own, linked from `renderer/desktop/src/`, so what is measured is
 what ships; only `src/FrameBench.kt` belongs to this directory. `Protocol.gen.kt` is linked
 too, so run the codegen binary first if the schema has moved.
 
@@ -22,9 +22,9 @@ too, so run the codegen binary first if the schema has moved.
 Not part of any build. From this directory, on a machine with a display:
 
 ```sh
-../../dioxus-compose-renderer/kotlin run
+../../renderer/kotlin run
 # or one path at a time, with a different size or length:
-../../dioxus-compose-renderer/kotlin run -- windowed --lines=100000 --frames=600
+../../renderer/kotlin run -- windowed --lines=100000 --frames=600
 ```
 
 Each run opens a window, lets it settle for 60 frames, then posts real AWT events, one
