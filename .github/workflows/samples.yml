@@ -1,5 +1,7 @@
 # Sample apps -- builds every sample for every desktop platform when a `sample-v*` tag is
-# pushed, and attaches the binaries to a GitHub Release.
+# pushed, and publishes the binaries as a release of DarkPyonix/compose-rust-samples, the
+# repository the samples' AppImages update from. Writing there needs the
+# SAMPLES_RELEASE_TOKEN secret (tools/packager-linux/README.md).
 #
 # A sample that does not build on a platform is skipped and the release goes ahead with
 # the rest. Eleven samples across three platforms is thirty-three builds, and holding all
@@ -31,7 +33,32 @@ permissions:
   contents: read
 
 jobs:
+  preflight:
+    # The release goes to DarkPyonix/compose-rust-samples, the repository the samples'
+    # AppImages look in for their updates, and the token this workflow gets cannot write
+    # anywhere but here. Checked first, so that a missing token stops the run in seconds
+    # rather than after two hours of builds. tools/packager-linux/README.md says how to
+    # create it.
+    name: Release token
+    runs-on: ubuntu-latest
+    steps:
+      - name: SAMPLES_RELEASE_TOKEN can reach the samples repository
+        env:
+          GH_TOKEN: ${{ secrets.SAMPLES_RELEASE_TOKEN }}
+          SAMPLES_REPO: DarkPyonix/compose-rust-samples
+        run: |
+          set -euo pipefail
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo "::error title=SAMPLES_RELEASE_TOKEN is missing::Create a fine-grained personal access token with Contents: read and write on $SAMPLES_REPO only, and save it as the repository secret SAMPLES_RELEASE_TOKEN (tools/packager-linux/README.md)."
+            exit 1
+          fi
+          if ! gh api "repos/$SAMPLES_REPO" --jq .full_name; then
+            echo "::error title=SAMPLES_RELEASE_TOKEN cannot see $SAMPLES_REPO::The token exists but GitHub refused it for $SAMPLES_REPO. Give it access to that repository (tools/packager-linux/README.md)."
+            exit 1
+          fi
+
   build:
+    needs: preflight
     name: ${{ matrix.target }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
@@ -225,8 +252,9 @@ jobs:
 
       - name: Wrap each Linux sample as an AppImage that updates itself
         # The same staged directory, as one file that carries the address of its newer
-        # versions: the newest release of this repository whose assets include a matching
-        # .zsync. A sample that fails here keeps its archive and loses only the AppImage.
+        # versions: the newest release of DarkPyonix/compose-rust-samples whose assets
+        # include a matching .zsync. The samples are released there rather than here so
+        # that `latest` means the newest samples, not the newest library release. A sample that fails here keeps its archive and loses only the AppImage.
         #
         # Signed when the repository has a signing key. An installed AppImage that was
         # signed refuses an update signed by any other key, so the first public AppImage
@@ -260,7 +288,7 @@ jobs:
                 --overlay tools/packager-linux/samples.toml \
                 --exec "sample-$app" "${icons[@]}" \
                 --payload "staging/$app" --version "$version" \
-                --github "${{ github.repository }}" "${sign[@]}" \
+                --github DarkPyonix/compose-rust-samples "${sign[@]}" \
                 --out-dir artifacts; then
               echo "::warning title=No AppImage::sample-$app was not wrapped as an AppImage for ${{ matrix.target }}"
             fi
@@ -284,6 +312,7 @@ jobs:
 
   android:
     name: android
+    needs: preflight
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -344,6 +373,7 @@ jobs:
 
   ios:
     name: ios-simulator
+    needs: preflight
     runs-on: macos-26
     timeout-minutes: 120
     steps:
@@ -398,6 +428,7 @@ jobs:
 
   web:
     name: web
+    needs: preflight
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -482,6 +513,8 @@ jobs:
             echo "Linux also ships each sample as an AppImage. Make it executable and run it;"
             echo "it checks this repository's newest release for a newer version of itself."
             echo
+            echo "Built from DarkPyonix/compose-rust at $(git rev-parse --short HEAD)."
+            echo
             for archive in artifacts/*.tar.gz artifacts/*.AppImage artifacts/*.apk; do
               [ -e "$archive" ] || continue
               echo "- $(basename "$archive")"
@@ -493,20 +526,33 @@ jobs:
           } > notes.md
           cat notes.md
 
-      - name: Create or update the release
+      - name: Create or update the release in the samples repository
         # Published rather than drafted. A draft is invisible to everyone but the people
-        # with write access to this repository, so a release nobody can download is the
-        # same as no release at all.
+        # with write access, so a release nobody can download is the same as no release
+        # at all. It goes to DarkPyonix/compose-rust-samples, whose newest release is what
+        # every installed sample AppImage checks for an update.
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.SAMPLES_RELEASE_TOKEN }}
+          SAMPLES_REPO: DarkPyonix/compose-rust-samples
           TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" artifacts/* --clobber
-            gh release edit "$TAG" --draft=false --notes-file notes.md
+          [[ -n "$GH_TOKEN" ]] || { echo "::error::SAMPLES_RELEASE_TOKEN is missing (tools/packager-linux/README.md)"; exit 1; }
+          # A release needs a commit to tag, and the repository starts empty.
+          if ! gh api "repos/$SAMPLES_REPO/commits?per_page=1" >/dev/null 2>&1; then
+            readme="$(printf '%s\n' \
+              '# compose-rust samples' '' \
+              'Release downloads and self-update feeds for the sample applications of' \
+              '[compose-rust](https://github.com/DarkPyonix/compose-rust). The releases are' \
+              'published by its Sample apps workflow.' | base64 -w0)"
+            gh api -X PUT "repos/$SAMPLES_REPO/contents/README.md" \
+              -f message="Describe the repository" -f content="$readme" >/dev/null
+          fi
+          if gh release view "$TAG" --repo "$SAMPLES_REPO" >/dev/null 2>&1; then
+            gh release upload "$TAG" artifacts/* --repo "$SAMPLES_REPO" --clobber
+            gh release edit "$TAG" --repo "$SAMPLES_REPO" --draft=false --latest --notes-file notes.md
           else
-            gh release create "$TAG" \
+            gh release create "$TAG" --repo "$SAMPLES_REPO" --latest \
               --title "Sample apps $TAG" \
               --notes-file notes.md \
               artifacts/*
