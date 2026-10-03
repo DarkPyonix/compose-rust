@@ -13,6 +13,7 @@
 use crate::boundary::{
     MutationBatch, RendererApi, STATUS_OK, STATUS_PROTOCOL_ERROR, install_renderer_api,
 };
+use crate::measure::MeasureResult;
 use crate::schema::{
     WEB_BATCH_BYTES, WEB_EVENT_BUFFER_BYTES, WEB_EVENT_BUFFER_OFFSET, WEB_RUST_REGION_BASE,
 };
@@ -26,6 +27,16 @@ unsafe extern "C" {
     /// hands the exported function object straight to this module's instantiation, which it
     /// can because this module is instantiated second.
     fn compose_rust_renderer_request_frame();
+
+    /// Bound the same way, to the Renderer's measure export. The two buffers are addresses
+    /// in the shared memory, in this module's region, and the Renderer reads and writes
+    /// them where they lie.
+    fn compose_rust_renderer_measure(
+        requests: *const u8,
+        length: u32,
+        count: u32,
+        results: *mut MeasureResult,
+    ) -> i32;
 }
 
 /// The record layout the generated Kotlin reads a reply out of.
@@ -79,6 +90,19 @@ extern "C" fn request_frame() {
     // SAFETY: the page supplied this import from the Renderer's exports before this
     // module was instantiated, so there is a function here to call.
     unsafe { compose_rust_renderer_request_frame() };
+}
+
+/// # Safety
+/// `requests` must address `length` readable bytes and `results` room for `count` results.
+unsafe extern "C" fn measure(
+    requests: *const u8,
+    length: u32,
+    count: u32,
+    results: *mut MeasureResult,
+) -> i32 {
+    // SAFETY: supplied by the page from the Renderer's exports, like the frame request,
+    // and the caller's promise about the buffers is passed on unchanged.
+    unsafe { compose_rust_renderer_measure(requests, length, count, results) }
 }
 
 /// Whether an address the Renderer passed is one this side lent it.
@@ -195,6 +219,7 @@ pub fn web_start(
     let _ = install_renderer_api(RendererApi {
         run: platform_run,
         request_frame,
+        measure,
     });
     let status = builder
         .with_mode(LoopMode::Platform)

@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets
 
 enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, Progress }
 
 enum class Key { Enter }
 
@@ -61,6 +61,19 @@ enum class NotificationImportance { Normal, Urgent }
 enum class NotificationPresentation { Always, WhenInactive }
 
 enum class NotificationPermission { NotDetermined, Granted, Denied, Unsupported }
+
+enum class WordBreak { Normal, KeepAll, BreakAll }
+
+enum class OverflowWrap { Normal, Anywhere, BreakWord }
+
+enum class GenericFamily { SystemUi, SansSerif, Serif, Monospace }
+
+/**
+ * The `TypeRole` property of text with no rung of the ladder at all: CSS text, whose
+ * size, weight and font are its own. Present and zero; an absent property is the
+ * widget's default rung.
+ */
+const val TYPE_ROLE_NONE: Int = 0
 
 enum class LoopMode(val wire: Byte) {
     /** The Renderer runs the loop and the Host blocks inside it. Desktop. */
@@ -350,21 +363,38 @@ object SpanRecords {
     fun decode(bytes: ByteArray): List<TextSpanRecord>? {
         if (bytes.size % SPAN_LENGTH != 0) return null
         val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
-        return List(bytes.size / SPAN_LENGTH) { index ->
-            val at = index * SPAN_LENGTH
-            val flags = buffer.getShort(at + FLAGS_AT).toInt() and 0xffff
-            TextSpanRecord(
-                start = buffer.getInt(at + START_AT),
-                length = buffer.getInt(at + LENGTH_AT),
-                typeRole = typeRoleOrNull(buffer.getShort(at + ROLE_AT).toInt() and 0xffff),
-                color = paintOrNull(buffer.getLong(at + COLOR_AT)),
-                background = paintOrNull(buffer.getLong(at + BACKGROUND_AT)),
-                bold = flags and FLAG_BOLD != 0,
-                italic = flags and FLAG_ITALIC != 0,
-                underline = flags and FLAG_UNDERLINE != 0,
-                strikethrough = flags and FLAG_STRIKETHROUGH != 0,
-                handlerId = buffer.getLong(at + HANDLER_AT),
-            )
+        return decodeAt(buffer, bytes.size, 0, bytes.size / SPAN_LENGTH)
+    }
+
+    /**
+     * The [count] runs whose records start at [at] in [buffer], or null where they reach
+     * past [limit]. What a measure request carries, in place.
+     */
+    fun decodeAt(buffer: ByteBuffer, limit: Int, at: Int, count: Int): List<TextSpanRecord>? {
+        if (count < 0 || at < 0 || at.toLong() + count.toLong() * SPAN_LENGTH > limit.toLong()) {
+            return null
+        }
+        val previous = buffer.order()
+        buffer.order(ByteOrder.LITTLE_ENDIAN)
+        try {
+            return List(count) { index ->
+                val record = at + index * SPAN_LENGTH
+                val flags = buffer.getShort(record + FLAGS_AT).toInt() and 0xffff
+                TextSpanRecord(
+                    start = buffer.getInt(record + START_AT),
+                    length = buffer.getInt(record + LENGTH_AT),
+                    typeRole = typeRoleOrNull(buffer.getShort(record + ROLE_AT).toInt() and 0xffff),
+                    color = paintOrNull(buffer.getLong(record + COLOR_AT)),
+                    background = paintOrNull(buffer.getLong(record + BACKGROUND_AT)),
+                    bold = flags and FLAG_BOLD != 0,
+                    italic = flags and FLAG_ITALIC != 0,
+                    underline = flags and FLAG_UNDERLINE != 0,
+                    strikethrough = flags and FLAG_STRIKETHROUGH != 0,
+                    handlerId = buffer.getLong(record + HANDLER_AT),
+                )
+            }
+        } finally {
+            buffer.order(previous)
         }
     }
 
@@ -441,6 +471,194 @@ object SpanRecords {
         else -> null
     }
 
+}
+
+/**
+ * One font to try for text with no role, in the order a CSS font list gives them. The first
+ * one the Renderer can resolve is the one the text is set in.
+ */
+sealed interface FontRef {
+    /** A font the application registered as an asset. */
+    data class Asset(val assetId: Int) : FontRef
+
+    /** A family installed on the machine, by name. */
+    data class System(val name: String) : FontRef
+
+    /** A family CSS names without naming a font. */
+    data class Generic(val family: GenericFamily) : FontRef
+}
+
+/** Decodes font candidate lists, wherever they sit: a property, a run or a measure request. */
+object FontRefRecords {
+    const val RECORD_LENGTH = 12
+    const val MAX_REFS = 8
+    private const val KIND_AT = 0
+    private const val VALUE_AT = 4
+    private const val LENGTH_AT = 8
+    private const val ASSET = 1
+    private const val SYSTEM = 2
+    private const val GENERIC = 3
+
+    /**
+     * The [count] candidates whose records start at [at] in [buffer], each name read from
+     * the same buffer, or null where anything reaches past [limit] or names a kind this
+     * decoder does not know.
+     */
+    fun decode(buffer: ByteBuffer, limit: Int, at: Int, count: Int): List<FontRef>? {
+        if (count < 0 || count > MAX_REFS) return null
+        if (at < 0 || at.toLong() + count.toLong() * RECORD_LENGTH > limit.toLong()) return null
+        val previous = buffer.order()
+        buffer.order(ByteOrder.LITTLE_ENDIAN)
+        try {
+            val refs = ArrayList<FontRef>(count)
+            for (index in 0 until count) {
+                val record = at + index * RECORD_LENGTH
+                val value = buffer.getInt(record + VALUE_AT)
+                refs += when (buffer.getInt(record + KIND_AT)) {
+                    ASSET -> FontRef.Asset(value)
+                    SYSTEM -> {
+                        val length = buffer.getInt(record + LENGTH_AT)
+                        if (value < 0 || length < 0 || value.toLong() + length > limit.toLong()) {
+                            return null
+                        }
+                        // Relative rather than absolute: the absolute bulk read is not on
+                        // every Android runtime this has to compile against.
+                        val name = ByteArray(length)
+                        val mark = buffer.position()
+                        buffer.position(value)
+                        buffer.get(name, 0, length)
+                        buffer.position(mark)
+                        FontRef.System(name.decodeToString())
+                    }
+                    GENERIC -> FontRef.Generic(genericFamilyOrNull(value) ?: return null)
+                    else -> return null
+                }
+            }
+            return refs
+        } finally {
+            buffer.order(previous)
+        }
+    }
+
+    /** The list a `Font` property carries: a count, then the records and their names. */
+    fun decodeBlob(bytes: ByteArray): List<FontRef>? {
+        if (bytes.isEmpty()) return emptyList()
+        if (bytes.size < 4) return null
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        return decode(buffer, bytes.size, 4, buffer.getInt(0))
+    }
+
+    private fun genericFamilyOrNull(tag: Int): GenericFamily? = when (tag) {
+        1 -> GenericFamily.SystemUi
+        2 -> GenericFamily.SansSerif
+        3 -> GenericFamily.Serif
+        4 -> GenericFamily.Monospace
+        else -> null
+    }
+}
+
+/**
+ * Which runs of a Text name fonts of their own, and which: the `SpanFonts` property, or
+ * the same table inside a measure request. Keyed by the run's index in its run list.
+ */
+object SpanFontRecords {
+    const val ENTRY_LENGTH = 12
+    private const val SPAN_AT = 0
+    private const val OFFSET_AT = 4
+    private const val COUNT_AT = 8
+
+    /** The [count] entries starting at [at] in [buffer], or null where any is malformed. */
+    fun decode(buffer: ByteBuffer, limit: Int, at: Int, count: Int): Map<Int, List<FontRef>>? {
+        if (count < 0 || at < 0 || at.toLong() + count.toLong() * ENTRY_LENGTH > limit.toLong()) {
+            return null
+        }
+        val previous = buffer.order()
+        buffer.order(ByteOrder.LITTLE_ENDIAN)
+        val entries = try {
+            List(count) { index ->
+                val entry = at + index * ENTRY_LENGTH
+                Triple(
+                    buffer.getInt(entry + SPAN_AT),
+                    buffer.getInt(entry + OFFSET_AT),
+                    buffer.getInt(entry + COUNT_AT),
+                )
+            }
+        } finally {
+            buffer.order(previous)
+        }
+        val fonts = HashMap<Int, List<FontRef>>(count)
+        for ((span, offset, refs) in entries) {
+            fonts[span] = FontRefRecords.decode(buffer, limit, offset, refs) ?: return null
+        }
+        return fonts
+    }
+
+    /** The table a `SpanFonts` property carries: a count, then the entries and their lists. */
+    fun decodeBlob(bytes: ByteArray): Map<Int, List<FontRef>>? {
+        if (bytes.isEmpty()) return emptyMap()
+        if (bytes.size < 4) return null
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        return decode(buffer, bytes.size, 4, buffer.getInt(0))
+    }
+}
+
+/**
+ * The layout of a measure call: the request records the Host writes, the result records
+ * the Renderer writes back, and what each status means. The records and their offsets are
+ * the Host's, generated from its schema, so nobody counts bytes by hand on this side.
+ */
+object MeasureRecords {
+    const val RECORD_LENGTH = 72
+    const val RESULT_LENGTH = 32
+    const val KIND_TEXT = 1
+    const val KIND_NODE = 2
+    const val KIND_AT = 0
+    const val TEXT_TYPE_ROLE_AT = 2
+    const val TEXT_TEXT_OFFSET_AT = 4
+    const val TEXT_TEXT_LENGTH_AT = 8
+    const val TEXT_SPANS_OFFSET_AT = 12
+    const val TEXT_SPANS_COUNT_AT = 16
+    const val TEXT_SPAN_FONTS_OFFSET_AT = 20
+    const val TEXT_SPAN_FONTS_COUNT_AT = 24
+    const val TEXT_FONT_OFFSET_AT = 28
+    const val TEXT_FONT_COUNT_AT = 32
+    const val TEXT_FONT_SIZE_AT = 36
+    const val TEXT_FONT_WEIGHT_AT = 40
+    const val TEXT_ITALIC_AT = 42
+    const val TEXT_WRAP_AT = 43
+    const val TEXT_LETTER_SPACING_AT = 44
+    const val TEXT_LINE_HEIGHT_AT = 48
+    const val TEXT_MAX_LINES_AT = 52
+    const val TEXT_TAB_SIZE_AT = 56
+    const val TEXT_WORD_BREAK_AT = 57
+    const val TEXT_OVERFLOW_WRAP_AT = 58
+    const val TEXT_ABSOLUTE_SIZE_AT = 59
+    const val TEXT_CONSTRAINT_AT = 60
+    const val TEXT_WIDTH_AT = 64
+    const val NODE_ID_AT = 4
+    const val NODE_MIN_WIDTH_AT = 8
+    const val NODE_MAX_WIDTH_AT = 12
+    const val NODE_MIN_HEIGHT_AT = 16
+    const val NODE_MAX_HEIGHT_AT = 20
+    const val CONSTRAINT_MIN_CONTENT = 1
+    const val CONSTRAINT_MAX_CONTENT = 2
+    const val CONSTRAINT_AT_MOST = 3
+    const val RESULT_WIDTH_AT = 0
+    const val RESULT_HEIGHT_AT = 4
+    const val RESULT_FIRST_BASELINE_AT = 8
+    const val RESULT_LAST_BASELINE_AT = 12
+    const val RESULT_LAST_LINE_WIDTH_AT = 16
+    const val RESULT_LINE_COUNT_AT = 20
+    const val RESULT_FLAGS_AT = 24
+    const val RESULT_STATUS_AT = 28
+    const val FLAG_TRUNCATED = 1
+    const val STATUS_OK = 0
+    const val STATUS_UNKNOWN_NODE = 1
+    const val STATUS_MALFORMED = 2
+    const val CALL_OK = 0
+    const val CALL_UNREADABLE = -1
+    const val CALL_OFF_UI_THREAD = -4
+    const val CALL_UNAVAILABLE = -5
 }
 
 sealed interface Modifier {
@@ -566,7 +784,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -6082458096398358368L
+    const val SCHEMA_HASH: Long = -794855757488596421L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1115,6 +1333,13 @@ object Protocol {
         76 -> PropertyKind.Section
         80 -> PropertyKind.Count
         90 -> PropertyKind.Collapsible
+        100 -> PropertyKind.Font
+        101 -> PropertyKind.WordBreak
+        102 -> PropertyKind.OverflowWrap
+        103 -> PropertyKind.TabSize
+        104 -> PropertyKind.AbsoluteSize
+        105 -> PropertyKind.SoftWrap
+        106 -> PropertyKind.SpanFonts
         27 -> PropertyKind.Progress
         else -> throw ProtocolException("unknown property tag $tag", offset)
     }
@@ -1452,6 +1677,28 @@ object Protocol {
         3 -> NotificationPermission.Denied
         4 -> NotificationPermission.Unsupported
         else -> throw ProtocolException("unknown NotificationPermission tag $tag", offset)
+    }
+
+    private fun wordBreak(tag: Int, offset: Int): WordBreak = when (tag) {
+        1 -> WordBreak.Normal
+        2 -> WordBreak.KeepAll
+        3 -> WordBreak.BreakAll
+        else -> throw ProtocolException("unknown WordBreak tag $tag", offset)
+    }
+
+    private fun overflowWrap(tag: Int, offset: Int): OverflowWrap = when (tag) {
+        1 -> OverflowWrap.Normal
+        2 -> OverflowWrap.Anywhere
+        3 -> OverflowWrap.BreakWord
+        else -> throw ProtocolException("unknown OverflowWrap tag $tag", offset)
+    }
+
+    private fun genericFamily(tag: Int, offset: Int): GenericFamily = when (tag) {
+        1 -> GenericFamily.SystemUi
+        2 -> GenericFamily.SansSerif
+        3 -> GenericFamily.Serif
+        4 -> GenericFamily.Monospace
+        else -> throw ProtocolException("unknown GenericFamily tag $tag", offset)
     }
 
     private fun paint(bits: Long, offset: Int): Paint {

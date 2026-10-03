@@ -120,6 +120,8 @@ external fun hostShutdown(): Int
       // engine builds no JavaScript frame for the call.
       compose_rust_renderer_request_frame:
         wasmExports.compose_rust_renderer_request_frame,
+      compose_rust_renderer_measure:
+        wasmExports.compose_rust_renderer_measure,
     },
     __wbindgen_placeholder__: unbound('__wbindgen_placeholder__'),
     __wbindgen_externref_xform__: unbound('__wbindgen_externref_xform__'),
@@ -152,3 +154,13 @@ external fun installHost(): Int
 fun onFrameRequested() {
     FrameRequests.request()
 }
+
+/**
+ * Called by the Host to measure, inside a call this side made. A browser tab is one
+ * thread, so this is always the thread that answers. Both addresses are in the Host's
+ * region of the shared memory, and the requests and results are read and written
+ * where they lie.
+ */
+@WasmExport("compose_rust_renderer_measure")
+fun onMeasure(requests: Int, length: Int, count: Int, results: Int): Int =
+    measureInSharedMemory(requests, length, count, results)

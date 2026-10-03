@@ -12,12 +12,16 @@ use crate::boundary::{
     MutationBatch, RendererApi, STATUS_OK, STATUS_PROTOCOL_ERROR, current_arena,
     install_renderer_api,
 };
+use crate::measure::{
+    MEASURE_OFF_UI_THREAD, MEASURE_RESULT_LEN, MEASURE_UNAVAILABLE, MEASURE_UNREADABLE,
+    MeasureResult,
+};
 use jni::JNIEnv;
 use jni::JavaVM;
-use jni::objects::{GlobalRef, JByteBuffer, JClass, JLongArray, JStaticMethodID};
+use jni::objects::{GlobalRef, JByteBuffer, JClass, JLongArray, JStaticMethodID, JValue};
 use jni::signature::{Primitive, ReturnType};
 use jni::sys::jobject;
-use jni::sys::{JNI_ERR, JNI_VERSION_1_6, jint, jlong};
+use jni::sys::{JNI_ERR, JNI_VERSION_1_6, jint, jlong, jvalue};
 use std::ffi::c_int;
 use std::os::raw::c_void;
 use std::sync::OnceLock;
@@ -34,6 +38,8 @@ pub const OUT_SLOTS: usize = 5;
 struct FrameRequestUpcall {
     class: GlobalRef,
     method: JStaticMethodID,
+    /// `onMeasure`, on the same class.
+    measure: JStaticMethodID,
 }
 
 static VM: OnceLock<JavaVM> = OnceLock::new();
@@ -71,6 +77,70 @@ extern "C" fn request_frame() {
         // exception leaves the VM usable.
         let _ = env.exception_clear();
     }
+}
+
+/// Called by the Host, inside a call the Renderer made, to measure.
+///
+/// The thread is the UI thread the call came in on, which the VM already knows, so its
+/// environment is taken rather than attached: a thread the VM does not know cannot be the
+/// UI thread, and attaching it would only hide that. Both buffers are wrapped where they
+/// lie, for this call only, and nothing is copied either way.
+unsafe extern "C" fn measure(
+    requests: *const u8,
+    length: u32,
+    count: u32,
+    results: *mut MeasureResult,
+) -> i32 {
+    let (Some(vm), Some(upcall)) = (VM.get(), UPCALL.get()) else {
+        return MEASURE_UNAVAILABLE;
+    };
+    let Ok(mut env) = vm.get_env() else {
+        return MEASURE_OFF_UI_THREAD;
+    };
+    if requests.is_null() || results.is_null() {
+        return MEASURE_UNREADABLE;
+    }
+    let Some(result_bytes) = (count as usize).checked_mul(MEASURE_RESULT_LEN) else {
+        return MEASURE_UNREADABLE;
+    };
+    // SAFETY: the Host lends `length` bytes of requests and room for `count` results for
+    // the length of this call, and the views made here do not outlive it.
+    let Ok(request_view) =
+        (unsafe { env.new_direct_byte_buffer(requests.cast_mut(), length as usize) })
+    else {
+        return MEASURE_UNREADABLE;
+    };
+    // SAFETY: as above.
+    let Ok(result_view) = (unsafe { env.new_direct_byte_buffer(results.cast(), result_bytes) })
+    else {
+        return MEASURE_UNREADABLE;
+    };
+    let class = <&JClass>::from(upcall.class.as_obj());
+    let arguments = [
+        JValue::Object(&request_view).as_jni(),
+        jvalue { i: count as jint },
+        JValue::Object(&result_view).as_jni(),
+    ];
+    // SAFETY: the method id was resolved on this class for the signature
+    // `(Ljava/nio/ByteBuffer;ILjava/nio/ByteBuffer;)I`, and the arguments match it.
+    let answer = unsafe {
+        env.call_static_method_unchecked(
+            class,
+            upcall.measure,
+            ReturnType::Primitive(Primitive::Int),
+            &arguments,
+        )
+    };
+    let status = match answer.and_then(|value| value.i()) {
+        Ok(status) => status,
+        Err(_) => {
+            let _ = env.exception_clear();
+            MEASURE_UNAVAILABLE
+        }
+    };
+    let _ = env.delete_local_ref(request_view);
+    let _ = env.delete_local_ref(result_view);
+    status
 }
 
 /// Resolves a direct byte buffer to the address the Host may read `length` bytes from.
@@ -241,17 +311,26 @@ pub unsafe extern "system" fn JNI_OnLoad(
     let Ok(method) = env.get_static_method_id(&class, "onFrameRequested", "()V") else {
         return JNI_ERR;
     };
+    let Ok(measure_method) = env.get_static_method_id(
+        &class,
+        "onMeasure",
+        "(Ljava/nio/ByteBuffer;ILjava/nio/ByteBuffer;)I",
+    ) else {
+        return JNI_ERR;
+    };
     let Ok(global) = env.new_global_ref(&class) else {
         return JNI_ERR;
     };
     let _ = UPCALL.set(FrameRequestUpcall {
         class: global,
         method,
+        measure: measure_method,
     });
     let _ = VM.set(vm);
     let _ = install_renderer_api(RendererApi {
         run: platform_run,
         request_frame,
+        measure,
     });
     // SAFETY: the application's cdylib defines this symbol.
     unsafe { compose_rust_android_main() };
