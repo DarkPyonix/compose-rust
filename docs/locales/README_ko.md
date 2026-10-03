@@ -146,11 +146,11 @@ Rust **Host**가 Kotlin **Renderer**보다 앞서 있습니다. 지금 마무리
 ## ✨ API 맛보기
 
 아래는 실제
-[`compose-rust/examples/desktop_demo.rs`](../../compose-rust/examples/desktop_demo.rs)를 길이만
+[`adapters/dioxus/examples/desktop_demo.rs`](../../adapters/dioxus/examples/desktop_demo.rs)를 길이만
 줄인 것입니다. 이 저장소에서 컴파일됩니다.
 
 ```rust
-use compose_rust::prelude::*;
+use dioxus_compose_adapter::prelude::*;
 
 fn app() -> Element {
     let mut messages = use_signal(Vec::<String>::new);
@@ -459,7 +459,7 @@ cd renderer
 ### 7. Rust 데모 실행
 
 ```bash
-cargo run -p compose-rust --example desktop_demo --features native-renderer
+cargo run -p dioxus-compose-adapter --example desktop_demo --features native-renderer
 ```
 
 이 저장소의 체크아웃에서는 빌드 스크립트가 방금 빌드한 워크스페이스의
@@ -503,7 +503,7 @@ cd renderer
 
 ### 실측, 2026-09-20
 
-[`compose-rust/benches/baseline.json`](../../compose-rust/benches/baseline.json)에 기록되어
+[`adapters/dioxus/benches/baseline.json`](../../adapters/dioxus/benches/baseline.json)에 기록되어
 있고, `scripts/check.sh` 안에서 `cargo bench`로 다시 돌립니다.
 
 > **측정 환경:** Mac mini (Macmini9,1) · Apple M1, 8코어(성능 4 + 효율 4) · 16GiB ·
@@ -530,18 +530,24 @@ cd renderer
 
 ```
 compose-rust/
-├─ compose-rust/                  # Rust: Host, Dioxus 렌더러 크레이트
+├─ compose-rust/                    # Rust: Host (크레이트 compose-rust), Dioxus 없음
 │  ├─ src/
-│  │  ├─ lib.rs                     #   공개 API, rsx! 엘리먼트, 이벤트 속성
-│  │  ├─ widgets.rs                 #   Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn
+│  │  ├─ lib.rs                     #   공개 API
+│  │  ├─ runtime.rs                 #   Runtime: 경계에서 본, 트리를 만드는 쪽
 │  │  ├─ schema.rs                  #   와이어 스키마의 단일 소스
 │  │  ├─ protocol.rs                #   고정 레이아웃 인코딩 (PR-4)
-│  │  ├─ boundary.rs                #   C ABI 표면, launch / LaunchBuilder
+│  │  ├─ boundary.rs                #   C ABI 표면, Host, LaunchBuilder
 │  │  └─ codegen.rs                 #   Rust 스키마 → Kotlin 타입
-│  ├─ examples/desktop_demo.rs      #   실행 가능한 데모
-│  ├─ benches/baseline.json         #   기록된 성능 기준선
 │  └─ tests/vectors/                #   양쪽이 함께 검증하는 프로토콜 벡터
-├─ renderer/         # Kotlin: Renderer (Kotlin Toolchain / Amper)
+├─ adapters/dioxus/                 # Rust: Dioxus 어댑터 (rsx!, 훅, VirtualDom 런타임)
+│  ├─ src/
+│  │  ├─ lib.rs                     #   rsx! 엘리먼트, 이벤트 속성, prelude
+│  │  ├─ widgets.rs                 #   Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn
+│  │  └─ renderer.rs                #   VirtualDom 변경 → Compose 레코드
+│  ├─ examples/desktop_demo.rs      #   실행 가능한 데모
+│  └─ benches/baseline.json         #   기록된 성능 기준선
+├─ bench/dioxus-baseline/           # Dioxus 기준선으로 모은 rsx! 샘플
+├─ renderer/                        # Kotlin: Renderer (Kotlin Toolchain / Amper)
 │  ├─ native/                       #   인터프리터, C 심, native-image 빌드 스크립트
 │  ├─ desktop/                      #   JVM 개발 셸
 │  ├─ shared/                       #   공용 Compose 코드
