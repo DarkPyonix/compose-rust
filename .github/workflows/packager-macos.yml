@@ -113,7 +113,8 @@ jobs:
           rustup toolchain install stable --profile minimal --component clippy
           rustup default stable
 
-      - name: Rehearse both channels
+      - name: Rehearse the update
+        timeout-minutes: 25
         env:
           DEMO_WORK: ${{ runner.temp }}/self-update
         run: experiments/self-update/rehearse.sh

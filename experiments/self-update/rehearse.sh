@@ -8,9 +8,10 @@
 #   1. Builds the demo application at 1.0.0 and 2.0.0 and packages both (ad hoc).
 #   2. Publishes 2.0.0: a zip, and an appcast signed with a key made here, checked against
 #      Sparkle's own sign_update and generate_appcast.
-#   3. Gatekeeper: a copy marked as downloaded (com.apple.quarantine, as a browser leaves
-#      it) is held at launch; after `xattr -dr com.apple.quarantine`, the step the install
-#      notes give, the same copy launches.
+#   3. Gatekeeper: a copy is marked as downloaded (com.apple.quarantine, as a browser
+#      leaves it), and after `xattr -dr com.apple.quarantine`, the step the install notes
+#      give, it launches. DEMO_GATEKEEPER_HELD=1 also shows the marked copy being held at
+#      launch first, which leaves a dialog on the screen for someone to close.
 #   4. That copy, 1.0.0, finds 2.0.0 in the appcast served from 127.0.0.1, installs it at
 #      once and relaunches as 2.0.0. The new bundle carries no quarantine mark, so
 #      Gatekeeper lets the relaunch through, and 2.0.0 checks the feed and downloads
@@ -123,7 +124,9 @@ launch() {
     shift 2
     local env_args=()
     for assignment in "$@"; do env_args+=(--env "$assignment"); done
-    open -n ${env_args[@]+"${env_args[@]}"} --stdout "$log" --stderr "$log" "$app"
+    # In the background: open waits for the launch to finish, and a launch Gatekeeper holds
+    # for the person never finishes on a machine with nobody at it.
+    open -n ${env_args[@]+"${env_args[@]}"} --stdout "$log" --stderr "$log" "$app" &
 }
 
 step "Sparkle $sparkle_version"
@@ -260,23 +263,27 @@ pids+=($!)
 downloads() { grep -c "GET /$archive_name" "$evidence/http.log" || true; }
 running_from() { pgrep -f "$1/Contents/MacOS/$executable" >/dev/null; }
 
-step "Gatekeeper holds a downloaded copy until its quarantine mark is removed"
+step "Gatekeeper and a downloaded copy"
 install="$work/install-immediately"
 mkdir -p "$install"
 ditto "$work/dist-1/$name.app" "$install/$name.app"
 quarantine "$install/$name.app"
 xattr -p com.apple.quarantine "$install/$name.app" >"$evidence/quarantine-before.txt"
 spctl --assess --type execute -vv "$install/$name.app" >>"$evidence/quarantine-before.txt" 2>&1 || true
-# Checked after 20 seconds: a copy Gatekeeper holds has a process, parked until the person
-# answers, but it never reaches main, so it never writes its launch line.
-launch "$install/$name.app" "$evidence/held-1.0.0.log" DEMO_CHECK_AFTER_SECS=1000
-shot gatekeeper-1-quarantined-copy-held 20
-if grep -q "version 1.0.0 started" "$install/self-update-demo.log" 2>/dev/null; then
-    fail "a quarantined ad hoc signed copy started without being approved"
+if [[ "${DEMO_GATEKEEPER_HELD:-0}" == 1 ]]; then
+    # Opt in: this leaves Gatekeeper's dialog on the screen, which on an unattended runner
+    # nobody answers and which has stalled a whole run. Run it where someone can close it.
+    # A held copy has a process, parked until the person answers, but it never reaches
+    # main, so it never writes its launch line.
+    launch "$install/$name.app" "$evidence/held-1.0.0.log" DEMO_CHECK_AFTER_SECS=1000
+    shot gatekeeper-1-quarantined-copy-held 20
+    if grep -q "version 1.0.0 started" "$install/self-update-demo.log" 2>/dev/null; then
+        fail "a quarantined ad hoc signed copy started without being approved"
+    fi
+    pass "a copy marked as downloaded does not start until the person approves it"
+    pkill -f "$name.app/Contents/MacOS/$executable" || true
+    sleep 2
 fi
-pass "a copy marked as downloaded does not start until the person approves it"
-pkill -f "$name.app/Contents/MacOS/$executable" || true
-sleep 2
 
 xattr -dr com.apple.quarantine "$install/$name.app"
 xattr -l "$install/$name.app" >"$evidence/quarantine-after-xattr.txt"
