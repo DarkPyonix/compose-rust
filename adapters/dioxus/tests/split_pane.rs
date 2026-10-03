@@ -379,15 +379,11 @@ fn fr15_2_12_collapsible_round_trips_as_a_bool() {
 
     let vector = dioxus_compose_adapter::codegen::generate_mutation_vector().unwrap();
     assert!(
-        decode_batch(&vector)
-            .unwrap()
-            .iter()
-            .any(|mutation| *mutation
-                == Mutation::SetProp {
-                    node_id: 2,
-                    property: PropertyKind::Collapsible,
-                    value: PropertyValue::Bool(true),
-                }),
+        decode_batch(&vector).unwrap().contains(&Mutation::SetProp {
+            node_id: 2,
+            property: PropertyKind::Collapsible,
+            value: PropertyValue::Bool(true),
+        }),
         "the protocol vector does not carry Collapsible"
     );
 }

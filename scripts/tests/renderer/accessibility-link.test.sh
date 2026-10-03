@@ -13,12 +13,12 @@
 # experiments/accessibility/ax-dump.swift against the smoke test, which proves the tree is
 # actually built rather than merely linkable.
 set -euo pipefail
-source "$(cd "$(dirname "$0")/.." && pwd)/env.sh"
+source "$(cd "$(dirname "$0")/../../../renderer/desktop/scripts" && pwd)/env.sh"
 
 library="$DIST_DIR/lib/$LIBRARY_NAME.dylib"
 [[ -f "$library" ]] || die \
     "$library not found" \
-    "fix: run $(dirname "$0")/../build-native.sh first"
+    "fix: run $(dirname "$0")/../../../renderer/desktop/scripts/build-native.sh first"
 
 # The expectation comes from the archive that defines the classes, not from a list written
 # down here, so a JDK that adds a role is covered without anyone remembering to edit this.

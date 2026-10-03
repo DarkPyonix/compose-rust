@@ -12,6 +12,10 @@ repository = "https://github.com/DarkPyonix/compose-rust"
 keywords = ["ui", "gui", "compose", "declarative", "desktop"]
 categories = ["gui"]
 readme = "../README.md"
+# What a user of the crate needs and nothing else: the library, its build script, the
+# Android sources the build stages, the schema hash, the README and the licence. The
+# protocol tests, their vectors and the fuzz targets stay in the repository.
+exclude = ["tests/", "fuzz/", "examples/", "benches/"]
 
 [lib]
 name = "compose_rust"
