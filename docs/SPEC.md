@@ -9,7 +9,8 @@
 
 | 용어 | 정의 |
 |---|---|
-| Host | Rust 프로세스. 사용자 UI 코드(Dioxus 컴포넌트)와 도메인 로직을 소유합니다 |
+| Host | Rust 프로세스. 사용자 UI 코드(compose-rust의 composable 함수, 또는 그 위에 얹힌 Dioxus 컴포넌트)와 도메인 로직을 소유합니다 |
+| Composition | compose-rust 런타임이 슬롯 테이블에 들고 있는 composable 호출의 기록. 상태가 바뀌면 그 상태를 읽은 스코프만 다시 실행됩니다(FR-39) |
 | Renderer | AOT 컴파일된 Kotlin/Compose 네이티브 라이브러리. 스키마 인터프리터를 포함합니다 |
 | Schema | Renderer가 해석할 수 있는 위젯 타입, 속성, Modifier, 이벤트의 닫힌 집합 |
 | Mutation | 노드 트리 변경 명령 한 단위 |
@@ -21,9 +22,10 @@
 
 ```
 ┌──────────────── Host (Rust) ────────────────┐
-│ 사용자 컴포넌트 (rsx!, hooks)                  │
-│ dioxus-core VirtualDom                       │
-│ dioxus-compose renderer: Mutations → bytes   │
+│ 사용자 composable (compose-rust API)          │
+│   또는 dioxus-compose: rsx!, hooks, VirtualDom │
+│ compose-rust recomposition 런타임 (슬롯 테이블) │
+│ 노드 트리 → Mutation 레코드 → 배치 버퍼          │
 └───────────────────┬─────────────────────────┘
                     │  동기 직접 호출 (UI 스레드) + 배치 버퍼
 ┌───────────────────┴──── Renderer (Kotlin) ───┐
@@ -70,6 +72,7 @@ Host 상태가 변경되면 변경분만 전송하고, Renderer는 해당 노드
 
 ### FR-6 Dioxus 렌더러 (`Done`)
 `dioxus-core` VirtualDom의 `Mutations`를 프로토콜 Mutation으로 변환하는 렌더러를 제공합니다.
+- **2026-10-03부터 이 렌더러는 compose-rust 위에 얹히는 층입니다(INTENT D2).** compose-rust의 작성 API는 FR-39이고, Dioxus 층은 그것과 같은 노드 트리와 같은 와이어로 내려갑니다. 이 요구사항의 수용 기준은 그대로 유효합니다.
 - 사용자 코드는 `rsx!`와 훅만으로 작성하고, 프로토콜을 직접 다루지 않습니다.
 - 수용 기준: M0 화면을 `rsx!` 컴포넌트로 재작성했을 때 동일하게 동작합니다.
 
@@ -2160,6 +2163,56 @@ Notification::new("세션이 끝났습니다")
 
 비용: 위젯 태그 하나(43), 속성 일곱(100-106), 명령 하나(17), 이벤트 다섯(26-30), `EventPayloadType` 다섯. 디자인 시스템 규칙 일곱 벌에 편집기 모양(줄 번호 영역, 현재 줄, 밑줄 굵기). 측정 결과가 (나)이면 Renderer 쪽 텍스트 그리기 코드가 새로 생깁니다.
 
+### FR-39 compose-rust 작성 API와 recomposition 런타임 (`Agreed`, 1.0.0 범위)
+
+**2026-10-03 소유자 결정(INTENT D2).** compose-rust는 Dioxus 없이 쓸 수 있는 자기 작성 API를 가집니다. 모양은 Compose이고, 그 아래는 슬롯 테이블 위의 recomposition 런타임입니다. dioxus-compose는 이 위에 얹힙니다. compose-rust 1.0.0(2026-10-20)의 범위입니다.
+
+#### 39.1 모양
+
+```rust
+#[composable]
+fn counter() {
+    let count = remember(|| mutable_state_of(0));
+    Column(Modifier::new().fill_max_width(), || {
+        Text(format!("{}", count.get()));
+        Button(|| count.set(count.get() + 1), || Text("+1"));
+    });
+}
+
+fn main() {
+    compose_rust::launch(counter);
+}
+```
+
+위 코드는 모양을 보이기 위한 것이고 이름을 확정하지 않습니다. 확정되는 것은 다음입니다.
+
+- **composable은 함수입니다.** `#[composable]` 속성이 본문에 그룹을 넣고, 사용자는 그룹도 키도 손으로 쓰지 않습니다. 분기, `match`, 반복문, 조기 `return`, `continue`, `break`, `?`, 되감기를 지나도 그룹이 맞게 닫힙니다(INTENT D2가 기록한 클로저 방식의 실패를 되풀이하지 않습니다).
+- **이름은 Compose를 따릅니다.** Compose에 같은 개념이 있으면 그 이름을 Rust 관례(함수와 메서드는 snake_case, 위젯은 FR-15의 Compose 이름)로 옮깁니다. PR-7의 "Rust 공개 API는 Dioxus 관례" 행은 dioxus-compose 층에 대한 것이 됩니다.
+- **위젯 어휘는 하나입니다.** FR-15의 위젯과 FR-13의 프리미티브, FR-10의 Modifier가 같은 스키마(FR-7)에서 나옵니다. compose-rust API를 위해 위젯이나 속성을 따로 정의하지 않습니다.
+
+#### 39.2 런타임
+
+- **diff가 없습니다.** 무엇이 바뀌었는지는 트리를 비교해서가 아니라, 바뀐 상태를 읽은 스코프를 다시 실행해서 압니다. 다시 실행된 스코프 안에서 인자가 이전과 같은 composable 호출은 건너뜁니다.
+- **위치 기반 기억.** `remember`는 호출 자리(그룹 경로와 그 안의 순서)에 묶입니다. 반복문 안에서 항목의 정체성이 순서가 아니라 값에 묶여야 할 때 쓰는 키(Compose의 `key`)를 둡니다. 키가 있는 항목이 자리를 바꾸면 런타임은 노드를 지우고 다시 만들지 않고 이동을 내보냅니다.
+- **상태.** 상태 객체를 읽은 스코프가 기록되고, 쓰면 그 스코프들이 무효가 됩니다. 한 프레임 안의 여러 쓰기는 한 번의 recomposition이 됩니다. 워커 스레드의 쓰기도 같은 상태 객체로 하며, Host가 내부적으로 프레임을 요청합니다. 사용자 코드는 경계 함수를 부르지 않습니다(PR-3).
+- **effect.** composition이 적용된 뒤 실행되는 효과(Compose의 `SideEffect`), 키가 바뀌면 다시 시작하고 composition을 떠나면 취소되는 효과(`LaunchedEffect`), 떠날 때 정리하는 효과(`DisposableEffect`)를 둡니다. 이벤트 핸들러 안의 상태 쓰기는 recomposition을 부르고, recomposition 도중의 상태 쓰기는 다음 프레임으로 미뤄집니다.
+- **UI 로컬 상태는 여전히 Kotlin에 있습니다(D5).** `TextField`는 비제어이고(FR-5), 스크롤, 포커스, 애니메이션 진행 상태는 Renderer가 가집니다. recomposition 런타임이 생겼다고 그것들이 Rust로 옮겨 오지 않습니다.
+
+#### 39.3 경계
+
+런타임이 내보내는 것은 지금과 같은 Mutation 레코드(PR-4)이고, 같은 배치 버퍼로 같은 경계 함수(PR-2)를 건너 같은 렌더러가 그립니다. 경계 진입점, 와이어 포맷, 스키마 해시, 렌더러 바이너리는 작성 모델 때문에 바뀌지 않습니다. 윈도잉(FR-8)과 스트리밍(FR-9)은 같은 레코드로 말합니다.
+
+#### 39.4 수용 기준
+
+1. **Dioxus 없이.** compose-rust만 의존하는 애플리케이션의 의존성 그래프(`cargo tree`)에 `dioxus-*` 크레이트가 없고, 그 애플리케이션이 데스크톱 창을 띄워 그리고 이벤트를 받습니다. compose-rust 크레이트 자체의 의존성에도 `dioxus-*`가 없습니다.
+2. **변경되지 않은 그룹을 건너뜀.** 상태 하나를 바꾸면 그 상태를 읽은 스코프만 다시 실행되고, 형제와 부모의 본문은 실행되지 않습니다(실행 카운터로 확인). 인자가 같은 composable 호출은 본문이 실행되지 않습니다. Text 하나의 내용을 바꾸는 상호작용이 내보내는 Mutation은 `SetProp` 1건입니다(FR-4와 같은 기준).
+3. **위치 기반 기억.** 분기가 사라지거나 다시 나타날 때, 반복이 줄거나 늘 때, `match` 갈래가 바뀔 때 각 호출 자리가 자기 값을 유지하고 남의 값을 받지 않습니다. 같은 컴포넌트를 평평한 오프셋으로 돌린 대조군이 실패하는 것을 테스트가 함께 보입니다. 조기 `return`, `continue`, `break`, `?`, 되감기 뒤에도 그룹이 맞게 닫힙니다. 키가 있는 항목의 재배치가 이동으로 나가고 항목의 `remember` 값이 따라갑니다.
+4. **상태.** UI 스레드의 쓰기와 워커 스레드의 쓰기가 모두 다음 프레임에 반영되고, 한 프레임 안의 여러 쓰기가 recomposition 한 번이 됩니다. 사용자 코드에 경계 함수 호출이 없습니다.
+5. **effect.** 적용 후 효과는 적용된 composition마다 한 번 실행되고, 키 있는 효과는 키가 바뀔 때 취소 후 다시 시작하며, composition을 떠난 스코프의 효과는 취소되고 정리 함수가 한 번 실행됩니다.
+6. **같은 와이어, 같은 렌더러.** 경계 진입점과 스키마 해시가 바뀌지 않고, 체크인된 프로토콜 벡터가 그대로 통과하며, 같은 렌더러 아티팩트가 compose-rust 애플리케이션과 dioxus-compose 애플리케이션을 모두 그립니다.
+7. **`rsx!`와 같은 표현력.** 오늘 `rsx!`로 말할 수 있는 것을 compose-rust API로 전부 말할 수 있습니다. FR-15의 위젯 전부와 그 속성, FR-10의 Modifier, FR-13의 프리미티브, 이벤트와 그 소비(FR-3, FR-12), 비제어 `TextField`와 `SetText`(FR-5), 윈도잉(FR-8), 스트리밍(FR-9), 디자인 시스템과 테마(FR-14), 에셋(FR-16), 커스텀 드로잉(FR-17), 창 설정(FR-19.3), 창 크기 클래스(FR-20), 탐색과 시트와 일시 메시지(FR-21), 워커 스레드의 갱신(PR-3)입니다. 저장소의 샘플을 compose-rust API로 옮긴 것과 지금의 `rsx!` 판이 같은 상호작용 뒤에 Renderer 쪽에서 같은 노드 트리를 만드는 것으로 확인합니다.
+8. **성능.** 같은 화면, 같은 상호작용, 같은 기계, 같은 실행에서 지금의 Dioxus 경로와 비교해 잽니다. Host 처리 시간(핸들러, recomposition, 배치 인코딩)의 p50과 p99가 바뀐 동적 슬롯 수 1, 5, 17, 33, 65, 129 각각에서 Dioxus 경로를 넘지 않습니다. §5.1의 절대 기준(일반 상호작용 0.5ms, 스트리밍 프레임 1ms, 경계 인코딩 할당 0회, 반복해도 늘지 않는 Host 할당)도 그대로 적용됩니다. 측정 환경과 수치는 §5.1의 측정이 있는 `dioxus-compose/benches/baseline.json`에 Dioxus 경로의 같은 날 수치와 나란히 기록합니다.
+
 ## 4. 경계 프로토콜
 
 ### PR-1 호출 모델: 동기·동일 스레드 직접 호출 (`Done`)
@@ -2411,6 +2464,7 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 - Compose에 같은 개념이 있으면 그 이름을 씁니다(`Modifier`, `Recomposition`, `requestFrame`). 새 이름을 만들지 않습니다.
 - Dioxus에 같은 개념이 있으면 Rust 쪽은 Dioxus 이름을 씁니다(`VirtualDom`, `Mutations`, `ElementId`).
 - 두 이름이 충돌하면 Rust 쪽은 Dioxus 이름을, Kotlin 쪽은 Compose 이름을 쓰고, 대응 관계를 코드젠 스키마에 기록합니다.
+- **2026-10-03(INTENT D2): 위의 Dioxus 관례는 dioxus-compose 층에 적용됩니다.** compose-rust 자신의 작성 API(FR-39)는 Compose의 이름을 Rust 관례로 옮겨 씁니다(`remember`, composable 함수, 상태 객체, effect). 두 층이 같은 개념을 가리킬 때 compose-rust 쪽 이름은 Compose를, dioxus-compose 쪽 이름은 Dioxus를 따릅니다.
 
 ### PR-8 macOS 런타임 요건 (`Done`)
 - 빌드 도구는 Liberica NIK 25 Full입니다(INTENT D9-macOS).
@@ -2456,7 +2510,7 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 | 프레임 드랍 | 초당 100회 추가되는 스트리밍 + 스크롤 중 드랍 0 (아이템 1만 개 목록) |
 
 - 모든 수치는 실측으로 확인하고, 측정 환경(기기, OS, 빌드 설정)과 함께 기록합니다. 측정 결과는 `dioxus-compose/benches/baseline.json`에 있습니다.
-- 할당은 횟수 자체보다 **증가하지 않는지**가 기준입니다. Dioxus는 diff와 이벤트 처리 과정에서 내부적으로 할당하며(2026-09-20 측정: 클릭당 99회), 이를 0으로 만들려면 Dioxus를 포크해야 해서 D2와 충돌합니다. Rust에는 GC가 없어 이 할당이 프레임 멈춤으로 이어지지 않습니다. 반복 상호작용에서 할당 수가 늘어나면 누수나 캐시 미작동으로 보고 조사합니다.
+- 할당은 횟수 자체보다 **증가하지 않는지**가 기준입니다. Dioxus는 diff와 이벤트 처리 과정에서 내부적으로 할당하며(2026-09-20 측정: 클릭당 99회), 이를 0으로 만들려면 Dioxus를 포크해야 합니다. 이 문장은 Dioxus 경로에 대한 것이고, 2026-10-03부터 compose-rust의 자기 런타임(INTENT D2, FR-39)은 Dioxus의 내부 할당에 묶이지 않습니다. 같은 표의 기준이 두 경로 모두에 적용됩니다. Rust에는 GC가 없어 이 할당이 프레임 멈춤으로 이어지지 않습니다. 반복 상호작용에서 할당 수가 늘어나면 누수나 캐시 미작동으로 보고 조사합니다.
 - 벤치마크 하네스는 M0에서 함께 만들고, CI에서 회귀를 감시합니다. 기준 초과는 빌드 실패로 처리합니다.
 - 개발 빌드에서는 Host 처리가 1ms를 넘는 프레임을 경고로 남깁니다.
 - native-image의 GC pause도 프레임 드랍 요인으로 측정합니다. 기준을 넘으면 GC 설정(Serial/Epsilon, 힙 크기) 조정을 SPEC에 기록합니다.
