@@ -28,6 +28,9 @@ const TAG_REQUEST_NOTIFICATION_PERMISSION: u16 = 16;
 /// error rather than an unknown tag.
 const TAG_LAST: u16 = TAG_REQUEST_NOTIFICATION_PERMISSION;
 const ENVELOPE_LEN: usize = 12;
+/// `SetTheme` after its header: four `u16` fields, one font slot per type role, and the
+/// palette's `(offset, len)` reference. 52 bytes, so the record is 56.
+pub const THEME_PAYLOAD_LEN: usize = 8 + 4 * TYPE_ROLE_COUNT + 8;
 /// The shortest mutation record on the wire (`RequestNotificationPermission`: the 4-byte
 /// header and nothing else).
 const MIN_RECORD_LEN: usize = 4;
@@ -620,7 +623,7 @@ impl BatchEncoder {
                 self.put_u16(0);
             }
             Mutation::SetTheme(theme) => {
-                self.begin_record(TAG_SET_THEME, 8 + 4 * TYPE_ROLE_COUNT as u16);
+                self.begin_record(TAG_SET_THEME, THEME_PAYLOAD_LEN as u16);
                 self.put_u16(theme.design_system as u16);
                 self.put_u16(theme.fallback as u16);
                 self.put_u16(theme.color_scheme as u16);
@@ -631,6 +634,11 @@ impl BatchEncoder {
                 for asset in theme.fonts {
                     self.put_u32(asset);
                 }
+                // The application's colours, as a run of eight byte entries behind the
+                // records the way a string is. Zero long where there is no palette, so a
+                // theme without one costs the eight bytes of the reference and nothing
+                // else.
+                self.put_palette_ref(theme.palette)?;
             }
             Mutation::SetWindow(window) => {
                 self.begin_record(TAG_SET_WINDOW, 28);
@@ -725,6 +733,25 @@ impl BatchEncoder {
     fn begin_record(&mut self, tag: u16, payload_len: u16) {
         self.put_u16(tag);
         self.put_u16(payload_len + 4);
+    }
+
+    /// Writes a palette's entries straight into the trailing region, so encoding a theme
+    /// allocates nothing beyond what that region already has.
+    fn put_palette_ref(
+        &mut self,
+        palette: Option<&crate::palette::Palette>,
+    ) -> Result<(), ProtocolError> {
+        let start = self.strings.len();
+        let offset = u32::try_from(start).map_err(|_| ProtocolError::LengthOverflow)?;
+        if let Some(palette) = palette {
+            palette.write_into(&mut self.strings);
+        }
+        let len =
+            u32::try_from(self.strings.len() - start).map_err(|_| ProtocolError::LengthOverflow)?;
+        self.string_fixups.push(self.records.len());
+        self.put_u32(offset);
+        self.put_u32(len);
+        Ok(())
     }
 
     fn put_string_ref(&mut self, value: &str) -> Result<(), ProtocolError> {
@@ -852,7 +879,7 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                 node_id: read_u32(bytes, payload)?,
                 text: read_string(bytes, payload + 4, records_len)?,
             },
-            TAG_SET_THEME if len == 12 + 4 * TYPE_ROLE_COUNT => {
+            TAG_SET_THEME if len == 4 + THEME_PAYLOAD_LEN => {
                 let design_system = read_u16(bytes, payload)?;
                 let fallback = read_u16(bytes, payload + 2)?;
                 let color_scheme = read_u16(bytes, payload + 4)?;
@@ -864,6 +891,18 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                 for (index, slot) in fonts.iter_mut().enumerate() {
                     *slot = read_u32(bytes, payload + 8 + 4 * index)?;
                 }
+                // Entries that are wrong are left out and the rest stand, which is what
+                // the Renderer does with them as well. Leaked like the window's title: a
+                // theme holds its palette for the life of the program, and this decoder
+                // is what tests and the mock renderer read a batch back with.
+                let palette_bytes =
+                    read_bytes(bytes, payload + 8 + 4 * TYPE_ROLE_COUNT, records_len)?;
+                let palette = if palette_bytes.is_empty() {
+                    None
+                } else {
+                    let (palette, _problems) = crate::palette::decode_palette(palette_bytes);
+                    Some(&*Box::leak(Box::new(palette)))
+                };
                 Mutation::SetTheme(Theme {
                     design_system: DesignSystem::try_from(design_system)
                         .map_err(|()| ProtocolError::InvalidTheme(design_system))?,
@@ -873,6 +912,7 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                         .map_err(|()| ProtocolError::InvalidTheme(color_scheme))?,
                     adaptive: adaptive == 1,
                     fonts,
+                    palette,
                 })
             }
             TAG_SET_WINDOW if len == 32 => {
@@ -1267,7 +1307,7 @@ mod tests {
         let theme = Theme::adaptive(DesignSystem::Cupertino)
             .with_color_scheme(ColorScheme::Dark)
             .with_font(TypeRole::Display, 7);
-        let length = 12 + 4 * TYPE_ROLE_COUNT as u16;
+        let length = 20 + 4 * TYPE_ROLE_COUNT as u16;
         let mut encoder = BatchEncoder::default();
         encoder.encode(&Mutation::SetTheme(theme)).unwrap();
         let bytes = encoder.finish().unwrap();

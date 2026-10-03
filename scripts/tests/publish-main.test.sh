@@ -44,7 +44,9 @@ make_repo() {
 files_on() { git -C "$1" ls-tree -r --name-only "$2" | sort; }
 
 # --- refuses to run with uncommitted changes -------------------------------
-tmp="$(mktemp -d)"
+# Inside this repository's ignored .scratch/, like everything else the project makes.
+mkdir -p "$script_dir/../../.scratch"
+tmp="$(mktemp -d "$script_dir/../../.scratch/publish-main-test.XXXXXX")"
 repo="$tmp/dirty"
 make_repo "$repo"
 echo "scratch" >> "$repo/README.md"

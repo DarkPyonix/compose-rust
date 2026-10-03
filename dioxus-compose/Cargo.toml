@@ -1,5 +1,5 @@
 [package]
-name = "dioxus-compose"
+name = "compose-rust"
 # 0.0.0 on purpose: the boundary works and so do the desktop and iOS renderers, but the
 # widget vocabulary is still being filled in and nothing here is stable yet. A number that
 # says so is more honest than one that implies a first usable release.
@@ -7,14 +7,14 @@ version = "0.0.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Declarative UI in Rust, rendered by an AOT-compiled Compose Multiplatform engine"
-repository = "https://github.com/DarkPyonix/dioxus-compose"
-homepage = "http://darkpyonix.dev/dioxus-compose/"
+description = "Declarative UI in Rust, rendered by an AOT-compiled Compose Multiplatform engine."
+repository = "https://github.com/DarkPyonix/compose-rust"
 keywords = ["ui", "gui", "dioxus", "compose", "desktop"]
 categories = ["gui"]
 readme = "../README.md"
 
 [lib]
+name = "compose_rust"
 crate-type = ["rlib", "cdylib", "staticlib"]
 # The lib has no #[bench] items, but `cargo bench` would still run its default test
 # harness, which rejects Criterion's flags (--quick, --noplot). Benchmarks live in

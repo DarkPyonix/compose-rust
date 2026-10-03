@@ -386,7 +386,7 @@ class LayeringIsVisibleTest {
     @Test
     fun fr15_2_11_a_large_count_is_not_drawn_the_same_way_by_every_system() {
         for (dark in listOf(false, true)) {
-            val answers = systems(dark).associate { system ->
+            val answers = systems(dark).map { it.second }.associate { system ->
                 val badge = system.badge()
                 system.id to (badge.label(120) to badge.placement)
             }
@@ -404,12 +404,56 @@ class LayeringIsVisibleTest {
     @Test
     fun fr15_2_11_every_system_draws_a_legible_badge() {
         for (dark in listOf(false, true)) {
-            for (system in systems(dark)) {
+            for ((_, system) in systems(dark)) {
                 val badge = system.badge()
                 assertEquals(system.color(ColorRole.Error), badge.container, "${system.id}")
                 assertNotEquals(badge.container, badge.content, "${system.id} hides its figure")
                 assertTrue(badge.height > badge.dotSize, "${system.id} draws a dot as big as a count")
             }
         }
+    }
+
+    /**
+     * Every syntax ink reads at 4.5:1 on the panel a code block sits on, and the same
+     * keyword is not painted alike by all six systems.
+     */
+    @Test
+    fun fr13_1_3_code_colours_read_on_the_code_panel_and_differ_between_systems() {
+        val syntax = ColorRole.entries.filter { it.name.startsWith("Syntax") }
+        assertEquals(15, syntax.size)
+        for (dark in listOf(false, true)) {
+            val keywords = mutableSetOf<Color>()
+            for ((_, system) in systems(dark)) {
+                val panel = system.color(ColorRole.SurfaceContainer)
+                for (role in syntax) {
+                    val ratio = contrastRatio(system.color(role), panel)
+                    assertTrue(ratio >= 4.5f, "${system.id} $role is $ratio:1 on its code panel")
+                }
+                keywords += system.color(ColorRole.SyntaxKeyword)
+            }
+            assertTrue(keywords.size >= 2, "every system paints keywords alike")
+        }
+    }
+
+    /**
+     * The divider is not drawn alike everywhere, a medium width does not get the same answer
+     * everywhere, and every system stacks a compact place.
+     */
+    @Test
+    fun fr15_2_12_split_panes_differ_in_divider_and_medium_answer() {
+        val looks = mutableSetOf<Pair<Boolean, Float>>()
+        val medium = mutableSetOf<dioxus.compose.SplitPanePresentation>()
+        for ((_, system) in systems(false)) {
+            val style = system.splitPane(dioxus.compose.WidthClass.Medium)
+            looks += (style.handle != null) to style.lineWidth.value
+            medium += style.presentation
+            assertEquals(
+                dioxus.compose.SplitPanePresentation.Stacked,
+                system.splitPane(dioxus.compose.WidthClass.Compact).presentation,
+                "${system.id} shows two panes in a compact place",
+            )
+        }
+        assertTrue(looks.size >= 2, "every system draws the same divider: $looks")
+        assertTrue(medium.size >= 2, "every system answers a medium width the same way")
     }
 }

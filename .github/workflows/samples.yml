@@ -170,7 +170,7 @@ jobs:
               continue
             fi
             echo "== sample-$app"
-            if cargo build --release -p "sample-$app" --features dioxus-compose/native-renderer; then
+            if cargo build --release -p "sample-$app" --features compose-rust/native-renderer; then
               echo "$app" >> built.txt
             else
               echo "$app" >> skipped.txt

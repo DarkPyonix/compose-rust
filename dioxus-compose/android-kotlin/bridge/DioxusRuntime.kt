@@ -65,6 +65,7 @@ object DioxusRuntime {
                 "are not in the process yet. An Activity calls DioxusRuntime.load() with " +
                 "the name of the application's own library before asking for the Host."
         }
+        installAndroidBack()
         val created = DioxusHost(connection)
         created.start()
         host = created

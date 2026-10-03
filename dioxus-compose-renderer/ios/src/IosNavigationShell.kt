@@ -52,6 +52,14 @@ private fun symbolName(role: IconRole?): String? = when (role) {
     // here is a role somebody added without deciding what iOS draws for it.
     IconRole.Menu -> "line.3.horizontal"
     IconRole.History -> "clock.arrow.circlepath"
+    IconRole.Send -> "arrow.up"
+    IconRole.Mic -> "mic"
+    IconRole.Image -> "photo"
+    IconRole.Video -> "video"
+    IconRole.Library -> "books.vertical"
+    IconRole.Sidebar -> "sidebar.left"
+    IconRole.Compose -> "square.and.pencil"
+    IconRole.Collapse -> "chevron.up"
     null -> null
 }
 

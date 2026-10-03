@@ -318,6 +318,9 @@ $NativeImageArgs = @(
     "-H:NativeLinkerOption=dxgi.lib",
     "-H:NativeLinkerOption=dxguid.lib",
     "-H:NativeLinkerOption=user32.lib",
+    # GetDeviceCaps, which the window's scale falls back to where per-monitor DPI is not
+    # available.
+    "-H:NativeLinkerOption=gdi32.lib",
     "-H:NativeLinkerOption=uiautomationcore.lib",
     "-H:NativeLinkerOption=oleaut32.lib",
     "-H:NativeLinkerOption=imm32.lib",

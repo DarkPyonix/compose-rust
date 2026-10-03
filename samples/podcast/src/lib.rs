@@ -18,8 +18,8 @@
 mod library;
 mod palette;
 
-use dioxus_compose::DrawList;
-use dioxus_compose::prelude::*;
+use compose_rust::DrawList;
+use compose_rust::prelude::*;
 use library::{EPISODES, Episode, SHOWS, Show, clock, episode, short_count, show_of, waveform};
 
 /// A phone design in a desktop window is still a phone design.
@@ -61,7 +61,7 @@ const CARD_PLAYED: f32 = 1.0;
 /// a house looks like. The three marks under an episode are not in that set, so they are
 /// drawings instead; they live in `library` beside the waveform.
 mod icon {
-    use dioxus_compose::prelude::IconRole;
+    use compose_rust::prelude::IconRole;
 
     pub static NEW: [u8; 2] = (IconRole::Home as u16).to_le_bytes();
     pub static SHOWS: [u8; 2] = (IconRole::Search as u16).to_le_bytes();
@@ -103,7 +103,7 @@ impl Destination {
 /// whatever was drawn underneath.
 fn round_button(size: f32, fill: Paint, face: Element, on_click: EventHandler<()>) -> Element {
     rsx! {
-        dioxus_compose::Box {
+        compose_rust::Box {
             width: size,
             height: size,
             background: fill,
@@ -161,7 +161,7 @@ fn action(mark: DrawList, count: u32, on_press: EventHandler<()>) -> Element {
         Row {
             space_role: SpaceRole::Xs,
             alignment: Alignment::Center,
-            dioxus_compose::Box {
+            compose_rust::Box {
                 width: ACTION,
                 height: ACTION,
                 shape_role: ShapeRole::Full,
@@ -389,13 +389,13 @@ fn new_page(
                     item: move |position: usize| {
                         let found = EPISODES[position];
                         rsx! {
-                            dioxus_compose::Box {
+                            compose_rust::Box {
                                 padding_role: SpaceRole::Xs,
                                 // The inner box is measured, not wrapped. A child that
                                 // fills its parent inside a box with no size of its own
                                 // takes the whole width the shelf was offered, and the
                                 // strip becomes one cover per screen.
-                                dioxus_compose::Box {
+                                compose_rust::Box {
                                     width: COVER_SMALL,
                                     height: COVER_SMALL,
                                     alignment: Alignment::Center,
@@ -428,7 +428,7 @@ fn new_page(
                     {
                         let is_followed = following.contains(&index);
                         rsx! {
-                            dioxus_compose::Box { key: "{show.name}", fill_max_width: true,
+                            compose_rust::Box { key: "{show.name}", fill_max_width: true,
                                 {show_row(show, is_followed, index == 0, EventHandler::new(move |()| {
                                     let mut list = followed.write();
                                     match list.iter().position(|found| *found == index) {
@@ -606,7 +606,7 @@ fn player_page(found: &Episode, position: Signal<u32>, on_back: EventHandler<()>
 
             // The artwork, on the accent, which is the reference's player: a cover that
             // runs to the edges of the page rather than a dark screen behind it.
-            dioxus_compose::Box {
+            compose_rust::Box {
                 fill_max_width: true,
                 background: palette::ACCENT,
                 shape_role: ShapeRole::Large,
@@ -741,7 +741,7 @@ fn bottom_bar(destination: Destination, on_go: EventHandler<Destination>) -> Ele
                         palette::INK
                     };
                     rsx! {
-                        dioxus_compose::Box { key: "{choice.label()}",
+                        compose_rust::Box { key: "{choice.label()}",
                             {round_button(
                                 ROUND,
                                 fill,
@@ -776,7 +776,7 @@ pub fn app() -> Element {
     // a screen whose only way out is its own back button.
     if let Some(found) = playing().and_then(episode) {
         return rsx! {
-            dioxus_compose::Box {
+            compose_rust::Box {
                 fill_max_width: true,
                 fill_max_height: true,
                 background: palette::PAGE,
@@ -808,7 +808,7 @@ pub fn app() -> Element {
         Scaffold {
             background: palette::PAGE,
             bottom_bar: rsx! {
-                dioxus_compose::Box {
+                compose_rust::Box {
                     fill_max_width: true,
                     alignment: Alignment::Center,
                     Column {
@@ -821,7 +821,7 @@ pub fn app() -> Element {
                 }
             },
 
-            dioxus_compose::Box {
+            compose_rust::Box {
                 weight: 1.0,
                 alignment: Alignment::TopCenter,
                 ScrollColumn {
@@ -859,14 +859,14 @@ pub fn launch() {
 /// The theme above all: a sample that names one and then reaches a platform through an
 /// entry point that makes its own builder is a sample that draws the same screens in a
 /// different design system depending on where it runs.
-fn launch_builder() -> dioxus_compose::LaunchBuilder {
+fn launch_builder() -> compose_rust::LaunchBuilder {
     // The name the window carries. A desktop lists windows by it, so a window that said
     // nothing was listed under whatever the renderer happened to be called, and every
     // sample here was listed as DioxusCompose until this line existed.
-    dioxus_compose::LaunchBuilder::new()
-        .with_theme(dioxus_compose::demo_theme_for(THEME))
+    compose_rust::LaunchBuilder::new()
+        .with_theme(compose_rust::demo_theme_for(THEME))
         .with_window(
-            dioxus_compose::schema::Window::new()
+            compose_rust::schema::Window::new()
                 .with_title("Podcast")
                 // Without one the window wears the toolkit's picture, which on
                 // Windows is the Java coffee cup, wherever the system lists
@@ -874,8 +874,8 @@ fn launch_builder() -> dioxus_compose::LaunchBuilder {
                 // to them by id: a path would be a fact about the machine this
                 // was built on, and a name would ask the toolkit to find
                 // something it may not have.
-                .with_icon(dioxus_compose::asset::asset(
-                    dioxus_compose::schema::AssetKind::Png,
+                .with_icon(compose_rust::asset::asset(
+                    compose_rust::schema::AssetKind::Png,
                     include_bytes!("../assets/icon.png"),
                 )),
         )
@@ -888,19 +888,19 @@ fn launch_builder() -> dioxus_compose::LaunchBuilder {
 // Both are declared unconditionally. Each macro compiles into nothing that runs off its
 // own platform, and gating them here instead would mean a desktop build never checks that
 // this sample can still be built for the other two.
-dioxus_compose::android_main!({ launch_builder() }, app);
-dioxus_compose::web_main!({ launch_builder() }, app);
-dioxus_compose::ios_main!(launch);
+compose_rust::android_main!({ launch_builder() }, app);
+compose_rust::web_main!({ launch_builder() }, app);
+compose_rust::ios_main!(launch);
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use dioxus_compose::Host;
-    use dioxus_compose::protocol::{
+    use compose_rust::Host;
+    use compose_rust::protocol::{
         HostEvent, Mutation, PropertyValue, decode_batch, encode_event,
     };
-    use dioxus_compose::schema::{EventPayload, PropertyKind, WidgetKind};
+    use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind};
 
     /// Named for what it defends: the reference is a light design, and a machine set
     /// the other way drew this sample dark with nothing to compare against.
@@ -909,7 +909,7 @@ mod tests {
         // Through the wire rather than off the constant: what settles the question is the
         // record the Renderer reads, and a scheme that never leaves the Host is a scheme
         // nobody is drawn in.
-        dioxus_compose::window::reset_window_size();
+        compose_rust::window::reset_window_size();
         let mut host = Host::with_theme(app, THEME);
         let batch = host.rebuild().expect("the first frame failed").to_vec();
         let first = decode_batch(&batch)
@@ -933,7 +933,7 @@ mod tests {
 
     impl Screen {
         fn new() -> Self {
-            dioxus_compose::window::reset_window_size();
+            compose_rust::window::reset_window_size();
             let mut host = Host::new(app);
             let first = host.rebuild().expect("the first frame failed").to_vec();
             Self {
@@ -1134,7 +1134,7 @@ mod tests {
                 choice.label()
             );
         }
-        dioxus_compose::window::reset_window_size();
+        compose_rust::window::reset_window_size();
     }
 
     /// Opening the player replaces the whole screen and its back button returns.
@@ -1157,7 +1157,7 @@ mod tests {
                 .any(|text| text == "New Episodes"),
             "closing the player did not bring the shelf back"
         );
-        dioxus_compose::window::reset_window_size();
+        compose_rust::window::reset_window_size();
     }
 
     /// Skipping back moves the readout.
@@ -1183,7 +1183,7 @@ mod tests {
             screen.latest_texts().contains(&clock(START_SECONDS - 15)),
             "skipping back left the readout where it was"
         );
-        dioxus_compose::window::reset_window_size();
+        compose_rust::window::reset_window_size();
     }
 
     /// Every show's cover reaches the Renderer as a picture, and each one crosses once.
@@ -1215,7 +1215,7 @@ mod tests {
     /// with none is a blank square, and on this screen most of the artwork is canvases.
     #[test]
     fn fr16_every_canvas_on_the_shelf_carries_a_draw_list() {
-        dioxus_compose::window::reset_window_size();
+        compose_rust::window::reset_window_size();
         let batch = Host::new(app)
             .rebuild()
             .expect("the first frame failed")
@@ -1245,7 +1245,7 @@ mod tests {
                 "a canvas reached the Renderer with no draw list"
             );
         }
-        dioxus_compose::window::reset_window_size();
+        compose_rust::window::reset_window_size();
     }
 
     /// Nothing on the screen is painted by the design system.

@@ -17,6 +17,7 @@ import dioxus.compose.design.NavigationPresentation
 import androidx.compose.foundation.layout.height
 import androidx.compose.ui.Alignment
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -382,7 +383,12 @@ fun DioxusContent(
             buttonsAtStart = captionStyle.side == CaptionSide.Start,
         )
     }
+    // The window's collapsible split panes, so the platform's sidebar command reaches one
+    // wherever focus is. Heard on the way back up from the focused node, so a text field
+    // that wants the key keeps it.
+    val sidebarShortcuts = remember(host) { dioxus.compose.foundation.SidebarShortcuts() }
     CompositionLocalProvider(
+        dioxus.compose.foundation.LocalSidebarShortcuts provides sidebarShortcuts,
         LocalDesignTheme provides theme,
         LocalReduceTransparency provides reduceTransparency,
         LocalWindowCaption provides barCaption,
@@ -397,7 +403,12 @@ fun DioxusContent(
         // never told, and comes up on exactly the path it did before any of this existed.
         SideEffect { platformWindowMaterial(asked) }
         CompositionLocalProvider(LocalWindowSizeClass provides sizeClass) {
-            Box(modifier.then(measured).background(host.table.windowFill(host.roots, theme))) {
+            Box(
+                modifier
+                    .then(measured)
+                    .onKeyEvent { event -> sidebarShortcuts.handle(event, platform) }
+                    .background(host.table.windowFill(host.roots, theme)),
+            ) {
                 Box(Modifier.padding(top = pageTop, bottom = pageBottom)) {
                     host.roots.forEach { rootId ->
                         androidx.compose.runtime.key(rootId) {

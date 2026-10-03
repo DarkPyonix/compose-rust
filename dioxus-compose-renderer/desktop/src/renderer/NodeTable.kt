@@ -70,6 +70,8 @@ data class TableError(val code: Int, val message: String) {
         const val UNSUPPORTED_ASSET = 6
         const val UNREADABLE_ASSET = 7
         const val CYCLIC_INSERT = 8
+        const val INVALID_PALETTE = 9
+        const val INVALID_CHILDREN = 10
     }
 }
 
@@ -172,7 +174,15 @@ class NodeTable {
             is Mutation.AppendText -> appendText(mutation)
             // One record changes the whole tree's appearance. `DioxusContent`
             // resolves it into tokens and rules, and Compose invalidates the readers.
-            is Mutation.SetTheme -> theme = mutation.theme
+            is Mutation.SetTheme -> {
+                theme = mutation.theme
+                // The entries that were wrong are already out of the palette and the rest
+                // of it applies. Each one is still said, so an application whose brand
+                // colour did not arrive can find out why.
+                mutation.theme.paletteProblems.forEach { problem ->
+                    fail(TableError.INVALID_PALETTE, "theme palette: $problem")
+                }
+            }
             // Read before there is a window to apply it to. The platform layer asks for
             // this out of the first batch and builds the window from it, so by the time
             // the batch is applied the window already looks the way it says. Keeping it
@@ -422,8 +432,15 @@ class NodeTable {
                         // design systems centre it, and a bar whose children are an
                         // arbitrary tree gives no way to tell which of them to centre.
                         widget == WidgetKind.TopAppBar ||
+                        // A chip's label, and the name of the one action a screen is about,
+                        // which is its accessible name where the system draws the glyph
+                        // alone.
+                        widget == WidgetKind.Chip ||
+                        widget == WidgetKind.FloatingAction ||
                         // A badge's short word, shown where a count would be.
-                        widget == WidgetKind.Badge
+                        widget == WidgetKind.Badge ||
+                        // A split pane's is its divider's name for a screen reader.
+                        widget == WidgetKind.SplitPane
 
                 // Note: SpacerProps has width and height in the Rust schema, but there are
                 // no matching PropertyKind variants, so a Spacer can only be sized with
@@ -483,6 +500,7 @@ class NodeTable {
                     widget == WidgetKind.LazyColumn ||
                     widget == WidgetKind.LazyRow ||
                     widget == WidgetKind.ScrollColumn ||
+                    widget == WidgetKind.ScrollRow ||
                     widget == WidgetKind.FileDropTarget
 
                 PropertyKind.Variant -> widget == WidgetKind.Button
@@ -501,6 +519,9 @@ class NodeTable {
                 -> widget == WidgetKind.DatePicker ||
                     widget == WidgetKind.TimePicker ||
                     widget == WidgetKind.Slider ||
+                    // A split pane's side pane width in dp, and the range it may be dragged
+                    // over.
+                    widget == WidgetKind.SplitPane ||
                     // An indicator's value is how far along it is, and it has no range.
                     (property == PropertyKind.Value && widget == WidgetKind.ProgressIndicator)
 
@@ -509,7 +530,10 @@ class NodeTable {
                 PropertyKind.Checked ->
                     widget == WidgetKind.Checkbox ||
                         widget == WidgetKind.RadioButton ||
-                        widget == WidgetKind.Switch
+                        widget == WidgetKind.Switch ||
+                        // A chosen chip is the same fact again. It is the Host's, so it
+                        // arrives here and is never set by the chip itself.
+                        widget == WidgetKind.Chip
 
                 PropertyKind.Steps -> widget == WidgetKind.Slider
 
@@ -532,7 +556,9 @@ class NodeTable {
                         widget == WidgetKind.Dropdown ||
                         // Which destination of a set is the current one, counted over the
                         // destinations rather than over all the children.
-                        widget == WidgetKind.Navigation
+                        widget == WidgetKind.Navigation ||
+                        // Which pane shows when a split pane shows one at a time.
+                        widget == WidgetKind.SplitPane
                 // Drawing commands belong to the Canvas alone: no other widget draws
                 // anything the Host described command by command.
                 PropertyKind.Commands -> widget == WidgetKind.Canvas
@@ -542,7 +568,12 @@ class NodeTable {
                 // because every toolbar worth copying is a row of icon buttons and
                 // nothing else in the vocabulary can place one.
                 PropertyKind.Icon ->
-                    widget == WidgetKind.NavigationItem || widget == WidgetKind.Button
+                    widget == WidgetKind.NavigationItem ||
+                        widget == WidgetKind.Button ||
+                        // A glyph before a chip's label, and what the one action a screen
+                        // is about means.
+                        widget == WidgetKind.Chip ||
+                        widget == WidgetKind.FloatingAction
 
                 // Which part of a screen's frame a subtree fills. Only the wrapper a
                 // Scaffold puts around a slot carries it.
@@ -558,6 +589,9 @@ class NodeTable {
 
                 // How many a badge counts. Nothing else counts anything.
                 PropertyKind.Count -> widget == WidgetKind.Badge
+
+                // Whether a split pane's side pane may be folded away.
+                PropertyKind.Collapsible -> widget == WidgetKind.SplitPane
 
                 // Files over a node and files let go on it. Only the widget that exists
                 // to receive them, because a handler is attached whether or not a screen

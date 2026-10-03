@@ -2055,7 +2055,7 @@ Notification::new("세션이 끝났습니다")
 - **IME 조합 중인 글자는 Host로 가지 않습니다(D5).** 조합이 확정된 뒤에만 변경으로 나갑니다.
 - 입력은 Compose의 플랫폼 텍스트 입력을 거칩니다(C5). 편집기가 키 이벤트를 직접 받아 글자를 넣는 경로는 두지 않습니다.
 - 문서에는 버전이 있습니다. Host가 처음 준 내용이 버전 0이고, 확정된 변경 하나마다 1씩 늘어납니다.
-- 처음 내용은 `Text`(속성 1)입니다. Host가 다른 `Text`를 보내면 문서 전체를 바꾸고 버전 0부터 다시 시작합니다(파일 열기). 앱은 받은 변경을 자기 신호에 반영해 두지 않으므로, 같은 글자를 다시 보내면 diff가 아무것도 보내지 않습니다. 같은 내용으로 다시 열려면 노드의 key를 바꿔 새 노드로 엽니다. 새 노드는 새 문서입니다.
+- 처음 내용은 `Text`(속성 1)입니다. Host가 보낸 `Text`가 Renderer의 현재 버퍼와 글자 단위로 같으면 아무것도 하지 않습니다. 다른 컨트롤처럼 앱이 받은 변경을 자기 신호에 다시 써도 커서와 실행 취소 기록이 남습니다. 다르면 문서 전체를 바꾸고 버전 0부터 다시 시작합니다(파일 열기). 같은 내용으로 다시 열려면 노드의 key를 바꿔 새 노드로 엽니다. 새 노드는 새 문서입니다.
 
 #### 38.2 증분 변경 이벤트
 
@@ -2067,7 +2067,7 @@ Notification::new("세션이 끝났습니다")
 
 #### 38.3 Host가 문서를 바꾸는 경로
 
-- Host는 편집 명령 `EditCode(base_version, range, text)`로 바꿉니다(서식 맞춤, 완성 수락, 원격 파일 다시 읽기).
+- Host는 편집 명령 `EditCode(request_id, base_version, range, text)`로 바꿉니다(서식 맞춤, 완성 수락, 원격 파일 다시 읽기).
 - Renderer는 `base_version`이 현재 버전보다 오래되었으면 그 사이의 변경을 거쳐 범위를 옮긴 뒤 적용합니다. 옮긴 범위가 사용자가 그 사이에 고친 곳과 겹치면 적용하지 않고 거절 이벤트(`CodeEditRejected`, 핸들러 `OnEditRejected`)를 보냅니다. Host가 사용자의 입력을 덮어쓰지 않습니다.
 - Host가 적용한 편집도 변경 이벤트로 다시 나갑니다. 그래서 Host와 그 너머(언어 서버, 확장 호스트)가 보는 버전이 하나로 이어집니다.
 - 문서 전체 교체(파일 열기)는 버전 0부터 다시 시작합니다(38.1).
@@ -2076,9 +2076,9 @@ Notification::new("세션이 끝났습니다")
 
 - 장식은 `(version, range, kind, ...)` 목록이고, Host가 `Decorations` 속성으로 통째로 보냅니다. 종류는 넷입니다.
   - **밑줄**: 심각도(오류, 경고, 정보, 힌트)마다 `ColorRole`. 리터럴 색은 받지 않습니다. 역할을 보내지 않으면 디자인 시스템이 심각도에 맞는 역할을 고릅니다. 밑줄의 모양(물결인지, 굵기)은 디자인 시스템이 정합니다.
-  - **줄 위 인레이**: 한 줄 위에 끼우는 짧은 글(CodeLens). 누르면 그 장식의 핸들러 id로 기존 `Clicked`가 갑니다.
-  - **호버 앵커**: 그 범위 위에 포인터가 머물면 Host로 호버 이벤트(`CodeHovered`, 장식의 핸들러 id)가 갑니다. 앵커가 없는 자리에 머물면 장식 없이 위치만 싣고 갑니다. 포인터가 떠나면 같은 이벤트가 떠남으로 한 번 갑니다. 머무는 시간은 디자인 시스템이 정하고(`Tooltip`의 지연과 같은 부류), 머무는 동안 다시 보내지 않습니다. 팝업 내용은 Host가 기존 `Tooltip`/오버레이 위젯으로 그립니다.
-  - **고스트 텍스트**: 커서 위치에 흐리게 보이는 제안(인라인 완성). Tab으로 수락하면 Renderer가 그 장식의 핸들러 id로 `Clicked`를 보내고, 일반 편집으로 넣은 뒤 변경 이벤트를 보냅니다. Esc나 다른 입력이면 사라집니다.
+  - **줄 위 인레이**: 한 줄 위에 끼우는 짧은 글(CodeLens). 누르면 장식 활성 이벤트(`DecorationActivated`, 핸들러 `OnDecorationClick`)가 앱이 그 장식에 붙인 id를 싣고 갑니다.
+  - **호버 앵커**: 그 범위 위에 포인터가 머물면 Host로 호버 이벤트(`CodeHovered`, 앱이 그 장식에 붙인 id)가 갑니다. 앵커가 없는 자리에 머물면 장식 없이 위치만 싣고 갑니다. 포인터가 떠나면 같은 이벤트가 떠남으로 한 번 갑니다. 머무는 시간은 디자인 시스템이 정하고(`Tooltip`의 지연과 같은 부류), 머무는 동안 다시 보내지 않습니다. 팝업 내용은 Host가 기존 `Tooltip`/오버레이 위젯으로 그립니다.
+  - **고스트 텍스트**: 커서 위치에 흐리게 보이는 제안(인라인 완성). Tab으로 수락하면 Renderer가 일반 편집으로 넣어 변경 이벤트를 먼저 보내고, 이어서 같은 프레임 안에 그 장식의 id를 실은 `DecorationActivated`를 보냅니다. 순서는 늘 이렇습니다. Esc나 다른 입력이면 사라집니다.
 - **장식은 편집을 따라갑니다.** Host가 버전 n 기준으로 보낸 장식은, 그 뒤 사용자가 고칠 때마다 Renderer가 범위를 옮깁니다. 지워진 범위의 장식은 사라집니다. 새 목록이 올 때까지 Host는 아무것도 하지 않아도 됩니다.
 - 구문 색은 장식이 아니라 색 역할이 붙은 스팬입니다(`SyntaxSpans`). 역할은 코드 색 역할(FR-13.1-3)의 22개이고, 강조기는 FR-13.1-3처럼 Host 쪽에 있습니다. 장식과 같이 편집을 따라갑니다.
 
@@ -2106,27 +2106,30 @@ Notification::new("세션이 끝났습니다")
 | 103 | `OnEditRejected` | 핸들러 id |
 | 104 | `OnHover` | 핸들러 id |
 | 105 | `OnSave` | 핸들러 id |
+| 106 | `OnDecorationClick` | 핸들러 id |
 
   나머지는 기존 태그입니다. 처음 내용은 `Text`(1), 변경 이벤트의 핸들러는 `OnValueChange`(6)입니다.
-- 장식 레코드, 44바이트: `version: u32`, `kind: u16`(`Underline=1`, `CodeLens=2`, `HoverAnchor=3`, `GhostText=4`), `severity: u16`(`Error=1`, `Warning=2`, `Information=3`, `Hint=4`, 밑줄이 아니면 0), `color: u16`(`ColorRole`, 0이면 디자인 시스템이 고름), 예약 `u16`, `start_line`, `start_column`, `end_line`, `end_column`(각 `u32`), `handler_id: u64`(0이면 누를 수 없음), `text: (offset: u32, len: u32)`(CodeLens와 고스트 텍스트의 글자, 블롭 끝에 놓임. `Canvas`의 글자 명령과 같은 방식).
+- 장식 레코드, 44바이트: `version: u32`, `kind: u16`(`Underline=1`, `CodeLens=2`, `HoverAnchor=3`, `GhostText=4`), `severity: u16`(`Error=1`, `Warning=2`, `Information=3`, `Hint=4`, 밑줄이 아니면 0), `color: u16`(`ColorRole`, 0이면 디자인 시스템이 고름), 예약 `u16`, `start_line`, `start_column`, `end_line`, `end_column`(각 `u32`), `id: u64`(앱이 고른 장식 id. 0이면 누를 수 없고 활성, 호버 이벤트에 실리지 않음), `text: (offset: u32, len: u32)`(CodeLens와 고스트 텍스트의 글자, 블롭 끝에 놓임. `Canvas`의 글자 명령과 같은 방식).
 - 구문 스팬 레코드, 28바이트: `version: u32`, `start_line`, `start_column`, `end_line`, `end_column`(각 `u32`), `paint: Paint`(u64).
 - 명령(Mutation), FR-36의 16 뒤에 덧붙입니다:
 
 | 태그 | 명령 | 레코드 |
 |---|---|---|
-| 17 | `EditCode` | 36바이트: 머리 4, `node_id: u32`, `base_version: u32`, `start_line`, `start_column`, `end_line`, `end_column`(각 `u32`), `text: (offset, len)` |
+| 17 | `EditCode` | 40바이트: 머리 4, `node_id: u32`, `request_id: u32`(앱이 고르며 거절 이벤트가 그대로 돌려줌), `base_version: u32`, `start_line`, `start_column`, `end_line`, `end_column`(각 `u32`), `text: (offset, len)` |
 
 - 이벤트, FR-36의 25 뒤에 덧붙입니다. 공통 머리 16바이트(`node_id`, `handler_id`) 뒤에 페이로드가 오고, 바이트 수는 머리를 포함한 레코드 길이입니다.
 
 | 태그 | 이벤트 | 페이로드 |
 |---|---|---|
 | 26 | `CodeChanged` | 44바이트: `version: u32`(이 변경 뒤의 버전), `start_line`, `start_column`, `end_line`, `end_column`(바뀌기 전 문서 기준), `text: (offset, len)` |
-| 27 | `CodeEditRejected` | 40바이트: `base_version: u32`, `current_version: u32`, 보낸 그대로의 `start_line`, `start_column`, `end_line`, `end_column` |
-| 28 | `CodeHovered` | 36바이트: `decoration: u64`(장식의 핸들러 id, 앵커가 없으면 0), `line: u32`, `column: u32`, `phase: u32`(`Rest=1`, `Leave=2`) |
+| 27 | `CodeEditRejected` | 44바이트: `request_id: u32`(거절된 `EditCode`가 실어 보낸 값), `base_version: u32`, `current_version: u32`, 보낸 그대로의 `start_line`, `start_column`, `end_line`, `end_column` |
+| 28 | `CodeHovered` | 36바이트: `decoration: u64`(앱이 장식에 붙인 id, 앵커가 없으면 0), `line: u32`, `column: u32`, `phase: u32`(`Rest=1`, `Leave=2`) |
 | 29 | `CodeSaveRequested` | 24바이트: `version: u32`, 예약 `u32` |
+| 30 | `DecorationActivated` | 24바이트: `decoration: u64`(앱이 장식에 붙인 id) |
 
-- CodeLens 클릭과 고스트 텍스트 수락은 새 이벤트가 아니라 기존 `Clicked`(이벤트 태그 1)를 그 장식의 핸들러 id로 보냅니다. 스팬의 링크(FR-26)와 같은 규약입니다.
-- 네 이벤트의 페이로드는 지금 `EventPayloadType`에 없는 모양이라 넷을 더합니다. `kind`, `severity`, `phase`는 닫힌 열거형이고 모르는 값은 `ProtocolError`입니다. 범위가 문서 밖이거나 시작이 끝보다 뒤인 장식, 스팬, 편집은 그 항목만 버리고 `ProtocolError`를 보내며, 프로세스는 죽지 않습니다.
+- CodeLens 클릭과 고스트 텍스트 수락은 `DecorationActivated`(이벤트 태그 30)입니다. 장식 블롭 안의 id에는 Host 쪽 리스너가 붙어 있지 않으므로, 편집기 노드의 리스너 하나(`OnDecorationClick`)로 받고 페이로드의 id로 어느 장식인지 가립니다.
+- 장식의 id는 앱이 고르는 `u64`이며 0은 "장식 없음"이라 쓰지 않습니다.
+- 다섯 이벤트의 페이로드는 지금 `EventPayloadType`에 없는 모양이라 다섯을 더합니다. `kind`, `severity`, `phase`는 닫힌 열거형이고 모르는 값은 `ProtocolError`입니다. 범위가 문서 밖이거나 시작이 끝보다 뒤인 장식, 스팬, 편집은 그 항목만 버리고 `ProtocolError`를 보내며, 프로세스는 죽지 않습니다.
 
 #### 38.7 수용 기준
 
@@ -2155,7 +2158,7 @@ Notification::new("세션이 끝났습니다")
 - 2026-10-18: 장식 넷과 큰 파일(기준 3~5, 7, 8).
 - 측정 결과가 (나)이면 10-15 산출물이 하루나 이틀 늦어질 수 있습니다.
 
-비용: 위젯 태그 하나(43), 속성 여섯(100-105), 명령 하나(17), 이벤트 넷(26-29), `EventPayloadType` 넷. 디자인 시스템 규칙 일곱 벌에 편집기 모양(줄 번호 영역, 현재 줄, 밑줄 굵기). 측정 결과가 (나)이면 Renderer 쪽 텍스트 그리기 코드가 새로 생깁니다.
+비용: 위젯 태그 하나(43), 속성 일곱(100-106), 명령 하나(17), 이벤트 다섯(26-30), `EventPayloadType` 다섯. 디자인 시스템 규칙 일곱 벌에 편집기 모양(줄 번호 영역, 현재 줄, 밑줄 굵기). 측정 결과가 (나)이면 Renderer 쪽 텍스트 그리기 코드가 새로 생깁니다.
 
 ## 4. 경계 프로토콜
 

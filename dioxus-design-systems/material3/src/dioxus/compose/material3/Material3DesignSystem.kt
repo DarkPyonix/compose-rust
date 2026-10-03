@@ -87,6 +87,30 @@ class Material3DesignSystem(
         ColorRole.OnSecondaryContainer -> colorScheme.onSecondaryContainer
         ColorRole.TertiaryContainer -> colorScheme.tertiaryContainer
         ColorRole.OnTertiaryContainer -> colorScheme.onTertiaryContainer
+        // Code colours, the same values the renderer's token table holds.
+        ColorRole.SyntaxKeyword,
+        ColorRole.SyntaxString,
+        ColorRole.SyntaxComment,
+        ColorRole.SyntaxNumber,
+        ColorRole.SyntaxConstant,
+        ColorRole.SyntaxType,
+        ColorRole.SyntaxFunction,
+        ColorRole.SyntaxVariable,
+        ColorRole.SyntaxProperty,
+        ColorRole.SyntaxOperator,
+        ColorRole.SyntaxPunctuation,
+        ColorRole.SyntaxTag,
+        ColorRole.SyntaxAttribute,
+        ColorRole.SyntaxEscape,
+        ColorRole.SyntaxMacro,
+        ColorRole.DiffAdded,
+        ColorRole.DiffRemoved,
+        ColorRole.DiffModified,
+        ColorRole.DiffAddedContainer,
+        ColorRole.DiffRemovedContainer,
+        ColorRole.DiffAddedEmphasis,
+        ColorRole.DiffRemovedEmphasis,
+        -> codeColor(role, isDark)
     }
 
     /**
@@ -218,6 +242,21 @@ class Material3DesignSystem(
         easing = StandardEasing,
     )
 
+    /** The list-detail panes: no line, Material's pill drag handle in the gap, a 360 list. */
+    override fun splitPane(width: dioxus.compose.WidthClass): dioxus.compose.SplitPaneStyle =
+        super.splitPane(width).copy(
+            defaultWidth = 360.dp,
+            minWidth = 240.dp,
+            maxWidth = 412.dp,
+            collapseDistance = 64.dp,
+            keyStep = 16.dp,
+            lineWidth = 0.dp,
+            lineColor = Color.Transparent,
+            handle = dioxus.compose.SplitHandleStyle(4.dp, 48.dp, color(ColorRole.Outline), ShapeRole.Full),
+            grabWidth = 24.dp,
+            sideBackground = color(ColorRole.SurfaceContainer),
+        )
+
     /**
      * Material's `Badge`: a small error capsule over the top end corner, a six dp dot, and
      * a count written out to 999 before it becomes `999+`.
@@ -292,3 +331,61 @@ private fun surfaceTintAlpha(elevation: Dp): Float {
     if (elevation.value <= 0f) return 0f
     return ((4.5f * ln(elevation.value + 1f)) + 2f) / 100f
 }
+
+/**
+ * The code colours, derived from the base roles by the rule the renderer's tables follow,
+ * because Material 3 publishes no code editor scheme. The same values as the renderer's token
+ * table, so a code block reads the same through either.
+ */
+private val LIGHT_CODE: Map<ColorRole, Color> = mapOf(
+    ColorRole.SyntaxKeyword to Color(0xFF6750A4),
+    ColorRole.SyntaxString to Color(0xFF7D5260),
+    ColorRole.SyntaxComment to Color(0xFF49454F),
+    ColorRole.SyntaxNumber to Color(0xFF31111D),
+    ColorRole.SyntaxConstant to Color(0xFF31111D),
+    ColorRole.SyntaxType to Color(0xFF625B71),
+    ColorRole.SyntaxFunction to Color(0xFF21005D),
+    ColorRole.SyntaxVariable to Color(0xFF1D1B20),
+    ColorRole.SyntaxProperty to Color(0xFF1D192B),
+    ColorRole.SyntaxOperator to Color(0xFF49454F),
+    ColorRole.SyntaxPunctuation to Color(0xFF49454F),
+    ColorRole.SyntaxTag to Color(0xFF6750A4),
+    ColorRole.SyntaxAttribute to Color(0xFF625B71),
+    ColorRole.SyntaxEscape to Color(0xFFB3261E),
+    ColorRole.SyntaxMacro to Color(0xFF625B71),
+    ColorRole.DiffAdded to Color(0xFF006D17),
+    ColorRole.DiffRemoved to Color(0xFFB3261E),
+    ColorRole.DiffModified to Color(0xFF7D5260),
+    ColorRole.DiffAddedContainer to Color(0xFFD6DEDC),
+    ColorRole.DiffRemovedContainer to Color(0xFFEBD5DD),
+    ColorRole.DiffAddedEmphasis to Color(0xFFAAC7B4),
+    ColorRole.DiffRemovedEmphasis to Color(0xFFE0B1B6),
+)
+
+private val DARK_CODE: Map<ColorRole, Color> = mapOf(
+    ColorRole.SyntaxKeyword to Color(0xFFD0BCFF),
+    ColorRole.SyntaxString to Color(0xFFEFB8C8),
+    ColorRole.SyntaxComment to Color(0xFFCAC4D0),
+    ColorRole.SyntaxNumber to Color(0xFFFFD8E4),
+    ColorRole.SyntaxConstant to Color(0xFFFFD8E4),
+    ColorRole.SyntaxType to Color(0xFFCCC2DC),
+    ColorRole.SyntaxFunction to Color(0xFFEADDFF),
+    ColorRole.SyntaxVariable to Color(0xFFE6E0E9),
+    ColorRole.SyntaxProperty to Color(0xFFE8DEF8),
+    ColorRole.SyntaxOperator to Color(0xFFCAC4D0),
+    ColorRole.SyntaxPunctuation to Color(0xFFCAC4D0),
+    ColorRole.SyntaxTag to Color(0xFFD0BCFF),
+    ColorRole.SyntaxAttribute to Color(0xFFCCC2DC),
+    ColorRole.SyntaxEscape to Color(0xFFF2B8B5),
+    ColorRole.SyntaxMacro to Color(0xFFCCC2DC),
+    ColorRole.DiffAdded to Color(0xFFB2CEAA),
+    ColorRole.DiffRemoved to Color(0xFFF2B8B5),
+    ColorRole.DiffModified to Color(0xFFEFB8C8),
+    ColorRole.DiffAddedContainer to Color(0xFF3E4240),
+    ColorRole.DiffRemovedContainer to Color(0xFF4B3E43),
+    ColorRole.DiffAddedEmphasis to Color(0xFF5B655B),
+    ColorRole.DiffRemovedEmphasis to Color(0xFF755C5F),
+)
+
+private fun codeColor(role: ColorRole, dark: Boolean): Color =
+    (if (dark) DARK_CODE else LIGHT_CODE).getValue(role)

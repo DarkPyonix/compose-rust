@@ -46,6 +46,7 @@
         <li><a href="#excluded">넣지 않은 것</a></li>
         <li><a href="#systems">세 개의 시스템</a></li>
         <li><a href="#modes">unified와 adaptive</a></li>
+        <li><a href="#palette">앱의 색</a></li>
         <li><a href="#wire">와이어 추가분</a></li>
       </ul>
     </nav>
@@ -258,6 +259,35 @@
       위치와 포커스를 Kotlin 쪽에 두는 것과 같은 규칙입니다.
     </p>
 
+    <h2 id="palette">앱의 색</h2>
+    <p>
+      자기 브랜드가 있는 앱은 디자인 시스템 위에 <code>Palette</code>를 얹습니다. 바꾸는 것은 색 역할의
+      값, 역할 하나와 명암 하나씩이고 그것뿐입니다. 모양, 타이포그래피, 간격, 고도, 모션, 컴포넌트를
+      그리는 방법은 시스템의 것이므로, 같은 주황이 Material 3에서는 Material 3 버튼이고 Liquid
+      Glass에서는 유리 캡슐입니다.
+    </p>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>rust</figcaption>
+<pre><code><span class="k">const</span> EMBER: <span class="ty">Palette</span> = <span class="ty">Palette</span>::<span class="f">new</span>()
+    .<span class="f">with</span>(<span class="ty">ColorRole</span>::Primary, <span class="ty">Color</span>::<span class="f">rgb</span>(<span class="n">0xE8590C</span>), <span class="ty">Color</span>::<span class="f">rgb</span>(<span class="n">0xFF8A4C</span>))
+    .<span class="f">with</span>(<span class="ty">ColorRole</span>::Background, <span class="ty">Color</span>::<span class="f">rgb</span>(<span class="n">0xFFFBF8</span>), <span class="ty">Color</span>::<span class="f">rgb</span>(<span class="n">0x141110</span>));
+
+<span class="ty">LaunchBuilder</span>::<span class="f">new</span>()
+    .<span class="f">with_theme</span>(<span class="ty">Theme</span>::<span class="f">adaptive</span>(<span class="ty">DesignSystem</span>::Material3).<span class="f">with_palette</span>(&amp;EMBER))
+    .<span class="f">launch</span>(app);</code></pre>
+    </figure>
+
+    <p>
+      라이트와 다크는 따로 줍니다(<code>with</code>는 둘 다, <code>with_light</code>와
+      <code>with_dark</code>는 하나씩). 두 값이 함께 가므로 시스템을 따라 다크로 바뀔 때 Host에 묻지
+      않습니다. 주지 않은 역할은 그 명암에서 시스템의 값입니다. 잉크 없이 준 채움은 시스템의 잉크가
+      여전히 읽히면 그것을, 아니면 흰색과 검정 중 더 잘 읽히는 쪽을 씁니다. 코드 색 역할도 같은 방법으로
+      줄 수 있습니다. <code>Palette::check(design_system)</code>가 대비가 모자란 쌍을 돌려주므로 앱의
+      테스트에서 일곱 시스템 모두에 대해 부르십시오. 디버그 빌드는 시작할 때 한 번 출력합니다.
+      플랫폼의 고대비 모드에서는 팔레트를 쓰지 않고 시스템의 색으로 그립니다.
+    </p>
+
     <h2 id="wire">와이어에 더해지는 것</h2>
     <p>
       Mutation 하나입니다. <code>SetTheme { design_system, fallback, color_scheme, adaptive }</code>,
@@ -310,7 +340,7 @@
 <footer class="site">
   <div class="inner">
     <span>dioxus-compose &middot; Apache License 2.0</span>
-    <span><a class="footer-repo" href="https://github.com/DarkPyonix/dioxus-compose">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/INTENT.md">INTENT.md</a></span>
+    <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/INTENT.md">INTENT.md</a></span>
     <span>이 가이드는 2026-09-20 기준 저장소 내용과 대조했습니다</span>
   </div>
 </footer>

@@ -1,6 +1,6 @@
 //! What the school teaches, and what a pupil has got through.
 
-use dioxus_compose::prelude::*;
+use compose_rust::prelude::*;
 
 /// The four subject marks, drawn.
 ///

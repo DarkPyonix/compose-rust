@@ -282,6 +282,9 @@ impl Host {
         // icon by id, and both are built by the caller before the Host is made out of
         // them, so the ids travelled and the bytes they named had been thrown away.
         crate::asset::requeue_all();
+        // The theme a running application changes from, and nothing queued against the
+        // Host this one replaces.
+        crate::theme::install(theme);
         Self {
             app,
             theme,
@@ -593,6 +596,12 @@ impl Host {
     /// A message therefore arrives in the same call as the change it is about, which is
     /// what makes "deleted" and the row disappearing one frame rather than two.
     fn flush_messages(&mut self) {
+        // A theme the application changed during this call, one record for the whole
+        // tree. Kept as the Host's own as well, so a resync rebuilds with it.
+        if let Some(theme) = crate::theme::take_pending() {
+            self.theme = theme;
+            self.renderer.set_theme(theme);
+        }
         let renderer = &mut self.renderer;
         // Registrations first. Not because the Renderer needs them first, it applies the
         // whole batch before drawing any of it, but because a batch read by a person
@@ -835,6 +844,13 @@ impl LaunchBuilder {
         if let Ok(mut slot) = THEME.lock() {
             *slot = self.theme;
         }
+        // A palette that leaves something unreadable is said once, at start, in a debug
+        // build. It does not stop the launch: a screen whose contrast is a little short is
+        // better than no screen, and what to do about it is the application's call.
+        #[cfg(debug_assertions)]
+        for line in palette_report(&self.theme) {
+            eprintln!("{line}");
+        }
         if let Ok(mut slot) = WINDOW.lock() {
             *slot = self.window;
         }
@@ -849,6 +865,34 @@ impl LaunchBuilder {
 
 pub fn launch(app: fn() -> Element) {
     LaunchBuilder::new().launch(app);
+}
+
+/// What a theme's palette leaves short of contrast, as lines to print.
+///
+/// Every system an adaptive theme could land on is checked, because which one it lands on
+/// is decided by the Renderer on a machine this code has not seen. A unified theme is
+/// checked against the one system it names. Empty where there is no palette or nothing is
+/// short.
+pub fn palette_report(theme: &Theme) -> Vec<String> {
+    let Some(palette) = theme.palette else {
+        return Vec::new();
+    };
+    let systems: Vec<crate::schema::DesignSystem> = if theme.adaptive {
+        crate::schema::DESIGN_SYSTEM_SCHEMA
+            .iter()
+            .filter_map(|variant| crate::schema::DesignSystem::try_from(variant.tag).ok())
+            .collect()
+    } else {
+        vec![theme.design_system]
+    };
+    systems
+        .into_iter()
+        .flat_map(|system| {
+            palette.check(system).into_iter().map(move |violation| {
+                format!("dioxus-compose: palette under {system:?}: {violation}")
+            })
+        })
+        .collect()
 }
 
 fn parse_handshake(bytes: &[u8]) -> Result<LoopMode, ProtocolError> {
@@ -1333,6 +1377,7 @@ mod tests {
                 color_scheme: ColorScheme::FollowSystem,
                 adaptive: false,
                 fonts: [0; crate::schema::TYPE_ROLE_COUNT],
+                palette: None,
             })
         );
         assert_eq!(
@@ -1343,6 +1388,7 @@ mod tests {
                 color_scheme: ColorScheme::FollowSystem,
                 adaptive: true,
                 fonts: [0; crate::schema::TYPE_ROLE_COUNT],
+                palette: None,
             })
         );
     }

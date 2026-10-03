@@ -9,6 +9,7 @@ import dioxus.compose.protocol.ButtonVariant
 import dioxus.compose.protocol.ColorRole
 import dioxus.compose.protocol.ColorScheme
 import dioxus.compose.protocol.DesignSystem
+import dioxus.compose.protocol.IconRole
 import dioxus.compose.protocol.Modifier as ProtocolModifier
 import dioxus.compose.protocol.Mutation
 import dioxus.compose.protocol.Paint
@@ -270,6 +271,72 @@ fun designShowcaseRecords(theme: Theme): List<Mutation> {
         records += Mutation.Insert(tabs, tab, index)
     }
 
+    // A strip wider than the window, scrolled sideways without the Host windowing it.
+    // Twelve tiles is more than any of the seven systems fits across this window, so the
+    // strip always has somewhere to go, and how its tiles and its scroll edge look is the
+    // design system's like everything above.
+    text(root, slot++, "horizontal scroll", TypeRole.Headline, ColorRole.OnSurfaceVariant)
+    val strip = id()
+    records += Mutation.Create(strip, WidgetKind.ScrollRow)
+    records += Mutation.SetModifier(strip, 0, ProtocolModifier.FillMaxWidth)
+    records += Mutation.SetProp(strip, PropertyKind.SpaceRole, PropertyValue.Integer(SpaceRole.Sm.ordinal + 1L))
+    records += Mutation.Insert(root, strip, slot++)
+    (1..12).forEach { number ->
+        val tile = id()
+        records += Mutation.Create(tile, WidgetKind.Box)
+        records += Mutation.SetModifier(tile, 0, ProtocolModifier.Width(120f))
+        records += Mutation.SetModifier(tile, 1, ProtocolModifier.ShapeRole(ShapeRole.Medium))
+        records += Mutation.SetModifier(tile, 2, ProtocolModifier.Background(Paint.Role(ColorRole.SecondaryContainer)))
+        records += Mutation.SetModifier(tile, 3, ProtocolModifier.PaddingRole(SpaceRole.Md))
+        records += Mutation.Insert(strip, tile, number - 1)
+        text(tile, 0, "Tile $number", TypeRole.Label, ColorRole.OnSecondaryContainer)
+    }
+
+    // A row of chips, one chosen, one not and one with a glyph, then a page holding its one
+    // action. The chips are where a filled pill, an outlined tag and a ticked filter chip
+    // part company. The page is where the action shows which corner its system puts it
+    // in: over the bottom of the page, at the top beside the bar's actions, or at the head
+    // of the command bar. Six of them drawn in one place would mean nobody answered.
+    text(root, slot++, "chips and the primary action", TypeRole.Headline, ColorRole.OnSurfaceVariant)
+
+    val chips = id()
+    records += Mutation.Create(chips, WidgetKind.Row)
+    records += Mutation.SetProp(chips, PropertyKind.SpaceRole, PropertyValue.Integer(SpaceRole.Sm.ordinal + 1L))
+    records += Mutation.Insert(root, chips, slot++)
+    listOf(
+        Triple("All", true, null),
+        Triple("Unread", false, null),
+        Triple("Recent", false, IconRole.History),
+    ).forEachIndexed { index, (label, chosen, icon) ->
+        val chip = id()
+        records += Mutation.Create(chip, WidgetKind.Chip)
+        records += Mutation.SetProp(chip, PropertyKind.Text, PropertyValue.Text(label))
+        records += Mutation.SetProp(chip, PropertyKind.Checked, PropertyValue.Bool(chosen))
+        if (icon != null) {
+            records += Mutation.SetProp(chip, PropertyKind.Icon, PropertyValue.Integer(icon.ordinal + 1L))
+        }
+        // The Host holds which chip is chosen, so pressing one here reports the click and
+        // nothing on screen moves.
+        records += Mutation.SetProp(chip, PropertyKind.OnClick, PropertyValue.Integer(1L))
+        records += Mutation.Insert(chips, chip, index)
+    }
+
+    val page = id()
+    records += Mutation.Create(page, WidgetKind.Box)
+    records += Mutation.SetModifier(page, 0, ProtocolModifier.FillMaxWidth)
+    records += Mutation.SetModifier(page, 1, ProtocolModifier.Height(180f))
+    records += Mutation.SetModifier(page, 2, ProtocolModifier.ShapeRole(ShapeRole.Medium))
+    records += Mutation.SetModifier(page, 3, ProtocolModifier.Background(Paint.Role(ColorRole.Surface)))
+    records += Mutation.SetModifier(page, 4, ProtocolModifier.PaddingRole(SpaceRole.Md))
+    records += Mutation.SetProp(page, PropertyKind.Alignment, PropertyValue.Integer(Alignment.Center.ordinal + 1L))
+    records += Mutation.Insert(root, page, slot++)
+    text(page, 0, "A page with one action on it", TypeRole.Body, ColorRole.OnSurfaceVariant)
+    val action = id()
+    records += Mutation.Create(action, WidgetKind.FloatingAction)
+    records += Mutation.SetProp(action, PropertyKind.Text, PropertyValue.Text("New"))
+    records += Mutation.SetProp(action, PropertyKind.Icon, PropertyValue.Integer(IconRole.Add.ordinal + 1L))
+    records += Mutation.SetProp(action, PropertyKind.OnClick, PropertyValue.Integer(1L))
+    records += Mutation.Insert(page, action, 1)
     // Badges, attached and standing alone, carrying a count, a word and nothing at all.
     // The count of 120 is the one to compare: some systems write it out, some cut it at
     // their ceiling, and one puts it at the end of the line instead of on the corner.
@@ -340,7 +407,145 @@ fun designShowcaseRecords(theme: Theme): List<Mutation> {
     records += Mutation.SetProp(inside, PropertyKind.OnClick, PropertyValue.Integer(1L))
     records += Mutation.Insert(region, inside, 3)
 
+    // A side pane and a body. The divider's look, the side pane's width and whether the
+    // two stack in a narrow window are the design system's; the drag never leaves the
+    // Renderer until it is let go.
+    text(root, slot++, "split pane", TypeRole.Headline, ColorRole.OnSurfaceVariant)
+    val splitPane = id()
+    records += Mutation.Create(splitPane, WidgetKind.SplitPane)
+    records += Mutation.SetModifier(splitPane, 0, ProtocolModifier.FillMaxWidth)
+    records += Mutation.SetModifier(splitPane, 1, ProtocolModifier.Height(220f))
+    records += Mutation.SetModifier(splitPane, 2, ProtocolModifier.ShapeRole(ShapeRole.Medium))
+    records += Mutation.SetModifier(splitPane, 3, ProtocolModifier.Background(Paint.Role(ColorRole.Surface)))
+    records += Mutation.SetProp(splitPane, PropertyKind.Value, PropertyValue.Float(220f))
+    records += Mutation.SetProp(splitPane, PropertyKind.Min, PropertyValue.Float(160f))
+    records += Mutation.SetProp(splitPane, PropertyKind.Max, PropertyValue.Float(320f))
+    records += Mutation.SetProp(splitPane, PropertyKind.Collapsible, PropertyValue.Bool(true))
+    records += Mutation.SetProp(splitPane, PropertyKind.Text, PropertyValue.Text("Sessions"))
+    records += Mutation.SetProp(splitPane, PropertyKind.OnValueChange, PropertyValue.Integer(1L))
+    records += Mutation.SetProp(splitPane, PropertyKind.OnDismiss, PropertyValue.Integer(1L))
+    records += Mutation.Insert(root, splitPane, slot++)
+    val sessions = id()
+    records += Mutation.Create(sessions, WidgetKind.Column)
+    records += Mutation.SetModifier(sessions, 0, ProtocolModifier.PaddingRole(SpaceRole.Md))
+    records += Mutation.SetProp(sessions, PropertyKind.SpaceRole, PropertyValue.Integer(SpaceRole.Sm.ordinal + 1L))
+    records += Mutation.Insert(splitPane, sessions, 0)
+    listOf("Refactor the parser", "Release notes", "Flaky test on CI").forEachIndexed { index, title ->
+        text(sessions, index, title, TypeRole.Body)
+    }
+    val conversation = id()
+    records += Mutation.Create(conversation, WidgetKind.Column)
+    records += Mutation.SetModifier(conversation, 0, ProtocolModifier.PaddingRole(SpaceRole.Md))
+    records += Mutation.Insert(splitPane, conversation, 1)
+    text(conversation, 0, "Refactor the parser", TypeRole.Title)
+    text(conversation, 1, "Drag the divider, or focus it and use the arrow keys.", TypeRole.Body, ColorRole.OnSurfaceVariant)
+
+    // Code, painted only with roles: one line highlighted, then a diff with the changed
+    // word marked inside each changed line. Every system answers these from its own
+    // platform's code editor, so the same lines come out in seven palettes.
+    text(root, slot++, "code colours", TypeRole.Headline, ColorRole.OnSurfaceVariant)
+    val code = id()
+    records += Mutation.Create(code, WidgetKind.Column)
+    records += Mutation.SetModifier(code, 0, ProtocolModifier.FillMaxWidth)
+    records += Mutation.SetModifier(code, 1, ProtocolModifier.ShapeRole(ShapeRole.Medium))
+    records += Mutation.SetModifier(code, 2, ProtocolModifier.Background(Paint.Role(ColorRole.SurfaceContainer)))
+    records += Mutation.SetModifier(code, 3, ProtocolModifier.PaddingRole(SpaceRole.Md))
+    records += Mutation.Insert(root, code, slot++)
+
+    fun codeLine(parent: Int, index: Int, source: String, runs: List<CodeRun>, line: ColorRole? = null) {
+        val holder = id()
+        records += Mutation.Create(holder, WidgetKind.Row)
+        records += Mutation.SetModifier(holder, 0, ProtocolModifier.FillMaxWidth)
+        if (line != null) {
+            records += Mutation.SetModifier(holder, 1, ProtocolModifier.Background(Paint.Role(line)))
+        }
+        records += Mutation.Insert(parent, holder, index)
+        val node = id()
+        records += Mutation.Create(node, WidgetKind.Text)
+        records += Mutation.SetProp(node, PropertyKind.Text, PropertyValue.Text(source))
+        records += Mutation.SetProp(node, PropertyKind.TypeRole, PropertyValue.Integer(TypeRole.Mono.ordinal + 1L))
+        records += Mutation.SetProp(node, PropertyKind.Color, PropertyValue.Integer(roleBits(ColorRole.OnSurface)))
+        records += Mutation.SetProp(node, PropertyKind.Spans, PropertyValue.Bytes(codeRuns(source, runs)))
+        records += Mutation.Insert(holder, node, 0)
+    }
+
+    codeLine(
+        code,
+        0,
+        "fn total(items: &[u32]) -> u32 { // \"sum\"",
+        listOf(
+            CodeRun("fn", ColorRole.SyntaxKeyword),
+            CodeRun("total", ColorRole.SyntaxFunction),
+            CodeRun("items", ColorRole.SyntaxVariable),
+            CodeRun("u32", ColorRole.SyntaxType),
+            CodeRun("->", ColorRole.SyntaxOperator),
+            CodeRun("// \"sum\"", ColorRole.SyntaxComment),
+        ),
+    )
+    codeLine(
+        code,
+        1,
+        "    items.iter().sum::<u32>() + 0x2A",
+        listOf(
+            CodeRun("iter", ColorRole.SyntaxFunction),
+            CodeRun("sum", ColorRole.SyntaxMacro),
+            CodeRun("0x2A", ColorRole.SyntaxNumber),
+        ),
+    )
+    codeLine(
+        code,
+        2,
+        "- let limit = 42;",
+        listOf(
+            CodeRun("-", ColorRole.DiffRemoved),
+            CodeRun("let", ColorRole.SyntaxKeyword),
+            CodeRun("42", ColorRole.SyntaxNumber, background = ColorRole.DiffRemovedEmphasis),
+        ),
+        line = ColorRole.DiffRemovedContainer,
+    )
+    codeLine(
+        code,
+        3,
+        "+ let limit = 64;",
+        listOf(
+            CodeRun("+", ColorRole.DiffAdded),
+            CodeRun("let", ColorRole.SyntaxKeyword),
+            CodeRun("64", ColorRole.SyntaxNumber, background = ColorRole.DiffAddedEmphasis),
+        ),
+        line = ColorRole.DiffAddedContainer,
+    )
+
     return records
+}
+
+/** One run of a showcase code line: the first occurrence of [text] and the roles it takes. */
+private data class CodeRun(val text: String, val color: ColorRole, val background: ColorRole? = null)
+
+/**
+ * The run records for a code line, in the layout the Host writes them.
+ *
+ * Each run finds the first occurrence of its text after the one before it, so the order
+ * of the runs is the order of the line and none of them overlap.
+ */
+private fun codeRuns(source: String, runs: List<CodeRun>): ByteArray {
+    val buffer = java.nio.ByteBuffer.allocate(runs.size * dioxus.compose.protocol.SpanRecords.SPAN_LENGTH)
+        .order(java.nio.ByteOrder.LITTLE_ENDIAN)
+    var from = 0
+    for (run in runs) {
+        val at = source.indexOf(run.text, from)
+        check(at >= 0) { "${run.text} is not in $source after $from" }
+        val start = source.substring(0, at).encodeToByteArray().size
+        val length = run.text.encodeToByteArray().size
+        buffer.putInt(start)
+        buffer.putInt(length)
+        buffer.putShort(0)
+        buffer.putShort(0)
+        buffer.putLong(roleBits(run.color))
+        buffer.putLong(run.background?.let(::roleBits) ?: 0L)
+        buffer.putLong(0L)
+        from = at + run.text.length
+    }
+    return buffer.array()
 }
 
 private fun roleBits(role: ColorRole): Long = (1L shl 32) or (role.ordinal + 1L)

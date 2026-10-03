@@ -9,15 +9,15 @@
 //! The queue a worker posts into is process wide, and so is the frame request counter, so
 //! every test here takes `STATE` in turn and starts from an empty queue.
 
-use dioxus_compose::boundary::STATUS_OK;
-use dioxus_compose::codegen::{generate_event_vector, generate_mutation_vector};
-use dioxus_compose::notification::reset_notifications;
-use dioxus_compose::prelude::*;
-use dioxus_compose::protocol::{
+use compose_rust::boundary::STATUS_OK;
+use compose_rust::codegen::{generate_event_vector, generate_mutation_vector};
+use compose_rust::notification::reset_notifications;
+use compose_rust::prelude::*;
+use compose_rust::protocol::{
     HostEvent, Mutation, PropertyValue, decode_batch, decode_event, encode_event,
 };
-use dioxus_compose::schema::BOUNDARY_SCHEMA;
-use dioxus_compose::{
+use compose_rust::schema::BOUNDARY_SCHEMA;
+use compose_rust::{
     EventPayload, Host, PropertyKind, RendererApi, WidgetKind, install_renderer_api,
     request_frame_from_worker,
 };

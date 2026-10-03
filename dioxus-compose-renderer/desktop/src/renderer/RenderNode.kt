@@ -8,6 +8,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.verticalScroll
@@ -27,8 +28,11 @@ import dioxus.compose.design.LocalGlassDepth
 import dioxus.compose.design.SurfaceMaterial
 import dioxus.compose.protocol.Modifier as ProtocolModifier
 import dioxus.compose.design.ResolvedTheme
+import dioxus.compose.foundation.FloatingActionArea
 import dioxus.compose.foundation.HostBadge
 import dioxus.compose.foundation.HostButton
+import dioxus.compose.foundation.HostChip
+import dioxus.compose.foundation.HostFloatingAction
 import dioxus.compose.foundation.HostLazyGrid
 import dioxus.compose.foundation.HostRichText
 import dioxus.compose.foundation.HostScaffold
@@ -37,6 +41,7 @@ import dioxus.compose.foundation.HostDialog
 import dioxus.compose.foundation.HostDivider
 import dioxus.compose.foundation.HostProgressIndicator
 import dioxus.compose.foundation.HostSlider
+import dioxus.compose.foundation.HostSplitPane
 import dioxus.compose.foundation.HostToggle
 import dioxus.compose.foundation.HostCanvas
 import dioxus.compose.foundation.HostDatePicker
@@ -178,6 +183,16 @@ fun RenderNode(
             horizontalAlignment = node.horizontalAlignment(),
         ) { Children(node, table, dispatcher) }
 
+        // The same thing on its side: a row that scrolls without the Host windowing it,
+        // so every child is materialised. Use LazyRow when the strip is long. The scroll
+        // state is remembered here, under the node's own key, so a recomposition of the
+        // row or of any child leaves the position where the user put it.
+        WidgetKind.ScrollRow -> Row(
+            modifier = modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = node.horizontalArrangement(theme),
+            verticalAlignment = node.verticalAlignment(),
+        ) { Children(node, table, dispatcher) }
+
         // The containers, the overlays and the tab strip carry no appearance of their own:
         // each one names the kind of container it is and the design system decides what
         // that looks like.
@@ -250,6 +265,14 @@ fun RenderNode(
             Children(node, table, dispatcher)
         }
 
+        // A label, perhaps a glyph, and the chosen state exactly as the Host sent it. The
+        // shape of the token is the design system's.
+        WidgetKind.Chip -> HostChip(node, modifier, dispatcher, theme)
+
+        // The one action a screen is about, in the form its design system gives it. Where
+        // it goes is decided by the frame it is in, which asks the same rule.
+        WidgetKind.FloatingAction -> HostFloatingAction(node, modifier, dispatcher, theme)
+
         // A count, a word or a dot, on its child or on its own. Where it sits and how a
         // large count is written are the design system's.
         WidgetKind.Badge -> HostBadge(node, modifier, table, dispatcher, theme)
@@ -260,6 +283,11 @@ fun RenderNode(
         WidgetKind.SelectionContainer -> SelectableRegion(modifier) {
             Column { Children(node, table, dispatcher) }
         }
+
+        // A side pane and a body. Whether they are side by side, laid over one another or
+        // shown one at a time is the design system's answer for the split pane's own width,
+        // and the drag on the divider never leaves this side until it is let go.
+        WidgetKind.SplitPane -> HostSplitPane(node, modifier, table, dispatcher, theme)
     }
 }
 
@@ -288,6 +316,19 @@ var platformFileDrop: @Composable (Modifier, Node, EventDispatcher) -> Modifier 
  * asks the question.
  */
 var platformReducedMotion: () -> Boolean = { false }
+
+/**
+ * Whether the person at this machine has asked the platform for high contrast colours:
+ * Windows' contrast themes, macOS's increased contrast, GNOME's high contrast setting.
+ *
+ * A hook for the same reason as the one above. When it says yes, an application's palette
+ * is set aside and the design system's own colours are drawn: those colours were chosen
+ * by the person so they could see the screen, and a brand must not paint over them.
+ *
+ * Read when the theme is resolved. The desktop answers once and keeps the answer; a
+ * target that does not install anything answers no.
+ */
+var platformHighContrast: () -> Boolean = { false }
 
 /**
  * Tells the platform whether this window wants a material behind it.
@@ -323,6 +364,7 @@ internal fun NodeTable.stackingAxis(nodeId: Int): StackingAxis = when (node(node
     -> StackingAxis.Vertical
 
     WidgetKind.Row,
+    WidgetKind.ScrollRow,
     WidgetKind.TopAppBar,
     -> StackingAxis.Horizontal
 
@@ -390,10 +432,24 @@ private fun RowScope.WeightedChild(childId: Int, table: NodeTable, dispatcher: E
     )
 }
 
-/** A Box has no weight axis, so its children are drawn as they are. */
+/**
+ * A Box has no weight axis, so its children are drawn as they are.
+ *
+ * Except the one action a screen is about. A Box is how a screen holds its page, so an
+ * action declared in one belongs to that page and is laid over it, at the corner the design
+ * system names, without taking any of the room the page is laid out in.
+ */
 @Composable
 private fun BoxScope.Children(node: Node, table: NodeTable, dispatcher: EventDispatcher) {
-    node.children.forEach { childId -> key(childId) { RenderNode(childId, table, dispatcher) } }
+    node.children.forEach { childId ->
+        key(childId) {
+            if (table.node(childId)?.widget == WidgetKind.FloatingAction) {
+                FloatingActionArea(LocalDesignTheme.current) { RenderNode(childId, table, dispatcher) }
+            } else {
+                RenderNode(childId, table, dispatcher)
+            }
+        }
+    }
 }
 
 /** The label of a Button follows the design system's button type role unless overridden. */

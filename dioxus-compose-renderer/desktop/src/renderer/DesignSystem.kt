@@ -161,8 +161,22 @@ class ResolvedTheme(
      * is put away behind a button.
      */
     val platform: HostPlatform = HostPlatform.Unknown,
+
+    /**
+     * The application's own colours for this scheme, indexed by role ordinal, with null
+     * where the design system's value stands. Empty where the application gave none, or
+     * where the platform is in a high contrast mode.
+     *
+     * Only colour. Everything else this theme answers is still the design system's, so a
+     * brand colour is drawn the way this system draws a colour.
+     */
+    val applicationColors: List<Color?> = emptyList(),
 ) {
     fun color(role: ColorRole): Color =
+        applicationColors.getOrNull(role.ordinal) ?: systemColor(role)
+
+    /** What the design system alone says a role is, before the application's palette. */
+    fun systemColor(role: ColorRole): Color =
         rules.color(role, dark, sizeClass) ?: Color(tokens.color(role, dark))
 
     /**
@@ -527,6 +541,71 @@ interface ComponentRules {
     )
 
     /**
+     * How a chip looks, chosen and not.
+     *
+     * The chip sends a label, perhaps a glyph, and whether it is chosen, and nothing else.
+     * The corner, the height, whether choosing it fills it or ticks it, and whether it has a
+     * line around it are all answered here, which is why one declaration comes out as a
+     * Material filter chip, an Apple filter pill and a Fluent tag button.
+     *
+     * The default is an outlined capsule that fills with the accent when chosen, made of
+     * this system's own tokens.
+     */
+    fun chip(theme: ResolvedTheme): ChipStyle = ChipStyle(
+        container = Color.Transparent,
+        selectedContainer = theme.color(ColorRole.Primary),
+        content = theme.color(ColorRole.OnSurface),
+        selectedContent = theme.color(ColorRole.OnPrimary),
+        borderWidth = 1.dp,
+        borderColor = theme.color(ColorRole.Outline),
+        selectedBorderColor = Color.Transparent,
+        shape = theme.shape(ShapeRole.Full),
+        height = 32.dp,
+        horizontalPadding = theme.space(SpaceRole.Md),
+        iconGap = theme.space(SpaceRole.Xs),
+        typeRole = TypeRole.Label,
+        leadingCheck = false,
+        pressedAlpha = 0.7f,
+        disabledAlpha = 0.38f,
+    )
+
+    /**
+     * How the one action a screen is about is drawn, and where the frame it is in puts it.
+     *
+     * **Floating is one system's answer, not the concept.** The Host sends an icon, a label
+     * and a click, so whether this is a disc over the corner of the page, a plus at the
+     * end of the bar or an accent button at the head of a command bar is decided here and
+     * nowhere else. The width is part of the question because a few systems answer it
+     * differently on a phone, where the thumb is at the bottom, and on a desktop, where the
+     * pointer is already at the top.
+     *
+     * The default floats a disc where the window is phone-shaped and sets a labelled button
+     * at the trailing end of the top elsewhere, in this system's own colours.
+     */
+    fun floatingAction(sizeClass: WindowSizeClass, theme: ResolvedTheme): FloatingActionStyle {
+        val floats = dioxus.compose.foundation.floatingActionFloats(sizeClass)
+        return FloatingActionStyle(
+            placement = if (floats) {
+                FloatingActionPlacement.OverPageBottomEnd
+            } else {
+                FloatingActionPlacement.BarEnd
+            },
+            form = if (floats) FloatingActionForm.Disc else FloatingActionForm.Labelled,
+            container = theme.color(ColorRole.Primary),
+            content = theme.color(ColorRole.OnPrimary),
+            shape = theme.shape(ShapeRole.Full),
+            size = if (floats) 56.dp else 36.dp,
+            horizontalPadding = theme.space(SpaceRole.Md),
+            elevation = if (floats) 6.dp else 0.dp,
+            borderWidth = 0.dp,
+            borderColor = Color.Transparent,
+            typeRole = TypeRole.Label,
+            inset = if (floats) theme.space(SpaceRole.Lg) else theme.space(SpaceRole.Sm),
+            pressedAlpha = 0.8f,
+        )
+    }
+
+    /**
      * How a badge is drawn: where it sits on what it is attached to, what shape it is, and
      * how a large count is written.
      *
@@ -553,7 +632,97 @@ interface ComponentRules {
         ring = Color.Transparent,
         gap = theme.space(SpaceRole.Sm),
     )
+
+    /**
+     * How a split pane is shown at a size class, and what its divider looks like.
+     *
+     * The size class is the split pane's own width, not the window's, because a split pane
+     * can sit in a narrow place inside a wide window. The default stacks when compact and
+     * puts the panes side by side otherwise; the split pane itself lays the side pane over
+     * the body instead when the side pane's minimum and the body's minimum do not both fit.
+     * A system that answers differently overrides this, and no widget code changes.
+     */
+    fun splitPane(sizeClass: WindowSizeClass, theme: ResolvedTheme): SplitPaneStyle = SplitPaneStyle(
+        presentation = when (sizeClass) {
+            WindowSizeClass.Compact -> SplitPanePresentation.Stacked
+            WindowSizeClass.Medium -> SplitPanePresentation.SideBySide
+            WindowSizeClass.Expanded -> SplitPanePresentation.SideBySide
+        },
+        defaultWidth = 280.dp,
+        minWidth = 200.dp,
+        maxWidth = 400.dp,
+        bodyMinWidth = 360.dp,
+        collapseDistance = 48.dp,
+        keyStep = 8.dp,
+        lineWidth = 1.dp,
+        lineColor = theme.color(ColorRole.OutlineVariant),
+        handle = null,
+        grabWidth = 8.dp,
+        resizeCursor = true,
+        sideBackground = Color.Transparent,
+        scrim = Color.Black.copy(alpha = 0.32f),
+        backButton = true,
+        edgeSwipeBack = false,
+        focusRing = theme.color(ColorRole.Primary),
+    )
 }
+
+/**
+ * How a split pane shows its two panes in the room it was measured to have.
+ *
+ * `SideBySide` is two columns with a divider between them. `Overlay` gives the body the
+ * whole width and lays the side pane over it from the leading edge. `Stacked` shows one
+ * pane at a time, and the Host's `SelectedIndex` says which.
+ */
+enum class SplitPanePresentation { SideBySide, Overlay, Stacked }
+
+/** The grip a system draws on a split pane's divider, where it draws one. */
+data class SplitHandle(
+    /** Across the divider. */
+    val thickness: Dp,
+    /** Along the divider. */
+    val length: Dp,
+    val color: Color,
+    val shape: Shape,
+)
+
+/** Everything a split pane needs from the design system, answered in one call. */
+data class SplitPaneStyle(
+    val presentation: SplitPanePresentation,
+    /** The side pane's width where the Host did not say one. */
+    val defaultWidth: Dp,
+    /** The narrowest and widest the side pane may be dragged where the Host did not say. */
+    val minWidth: Dp,
+    val maxWidth: Dp,
+    /**
+     * The narrowest the body may become beside the side pane. Below it, two columns are
+     * not an answer in any system, and the side pane is laid over the body instead.
+     */
+    val bodyMinWidth: Dp,
+    /** How far past its minimum the side pane has to be dragged before it folds. */
+    val collapseDistance: Dp,
+    /** How far one arrow key moves the divider. */
+    val keyStep: Dp,
+    /** The visible line between the panes. Zero for none. */
+    val lineWidth: Dp,
+    val lineColor: Color,
+    /** A grip on the divider, or null where the line alone is the divider. */
+    val handle: SplitHandle?,
+    /** How wide the strip that takes a drag is. Usually wider than what is drawn. */
+    val grabWidth: Dp,
+    /** Whether the pointer shows the left and right resize shape over the divider. */
+    val resizeCursor: Boolean,
+    /** What the side pane is filled with. Transparent leaves it the page. */
+    val sideBackground: Color,
+    /** What is laid over the body behind a side pane drawn over it. */
+    val scrim: Color,
+    /** Whether the body shown on its own carries a back button this system draws. */
+    val backButton: Boolean,
+    /** Whether a swipe in from the leading edge of the body goes back. */
+    val edgeSwipeBack: Boolean,
+    /** The ring around the divider when the keyboard has it. */
+    val focusRing: Color,
+)
 
 /**
  * Where a badge goes relative to the thing it is attached to.
@@ -1296,6 +1465,95 @@ data class ButtonStyle(
 )
 
 /**
+ * How a chip is drawn, chosen and not.
+ *
+ * Both states are fields of one style rather than two calls, so a chip that the Host has
+ * just chosen can move from one to the other without asking the rules again. The chip
+ * never decides which of the two it is in: that arrives from the Host.
+ */
+data class ChipStyle(
+    val container: Color,
+    val selectedContainer: Color,
+    val content: Color,
+    val selectedContent: Color,
+    val borderWidth: Dp,
+    val borderColor: Color,
+    /** The edge of a chosen chip. Transparent where choosing one drops the line. */
+    val selectedBorderColor: Color,
+    val shape: Shape,
+    val height: Dp,
+    val horizontalPadding: Dp,
+    /** The room between a glyph and the label. */
+    val iconGap: Dp,
+    val typeRole: TypeRole,
+    /**
+     * Whether a chosen chip leads with a tick.
+     *
+     * Material's filter chip does, which is how it tells a chosen chip from a merely
+     * tinted one without colour alone. The pills of the other systems say it with the fill.
+     */
+    val leadingCheck: Boolean,
+    /** How much of the chip is left while it is held down. */
+    val pressedAlpha: Float,
+    val disabledAlpha: Float,
+)
+
+/**
+ * Where the one action a screen is about is put.
+ *
+ * Read by whatever frame the action is in, never by the action itself: a Scaffold and the
+ * Box that holds a page both know where their corners and their bar are, and the action
+ * does not.
+ */
+enum class FloatingActionPlacement {
+    /** Over the page at its bottom trailing corner, taking none of it. Material's answer. */
+    OverPageBottomEnd,
+
+    /** At the trailing end of the top of the page, where a bar's actions are. Apple's plus. */
+    BarEnd,
+
+    /**
+     * At the leading end of the top of the page, where a command bar or a header bar
+     * starts. The Fluent primary command and the GNOME header button sit here.
+     */
+    BarStart,
+}
+
+/** What the action is drawn as. */
+enum class FloatingActionForm {
+    /** A raised disc, or a rounded square, holding the glyph alone. */
+    Disc,
+
+    /**
+     * The glyph alone, as a bar button is: on no container at all, or on the quiet fill
+     * the system gives a bar's buttons. Never raised.
+     */
+    Glyph,
+
+    /** A button carrying the glyph and the label side by side. */
+    Labelled,
+}
+
+/** How the one action a screen is about is drawn, and where its frame puts it. */
+data class FloatingActionStyle(
+    val placement: FloatingActionPlacement,
+    val form: FloatingActionForm,
+    val container: Color,
+    val content: Color,
+    val shape: Shape,
+    /** The height, and for a [FloatingActionForm.Disc] the width as well. */
+    val size: Dp,
+    val horizontalPadding: Dp,
+    val elevation: Dp,
+    val borderWidth: Dp,
+    val borderColor: Color,
+    val typeRole: TypeRole,
+    /** How far in from the edges of its frame the action is put. */
+    val inset: Dp,
+    val pressedAlpha: Float,
+)
+
+/**
  * Resolves the Host's `SetTheme` into the table and rules used for this frame.
  *
  * The Host's choice is read, never second-guessed: `adaptive` follows the platform only
@@ -1321,6 +1579,11 @@ fun resolveTheme(
     brushOf: (Int) -> ComposeBrush? = { null },
     /** Whether the window has the platform's own material behind it. */
     windowBackdrop: Boolean = false,
+    /**
+     * Whether the platform is in a high contrast mode, where the application's palette is
+     * set aside and the design system's own colours are drawn.
+     */
+    highContrast: () -> Boolean = { dioxus.compose.ui.node.platformHighContrast() },
 ): ResolvedTheme {
     val system = when {
         theme == null -> adaptiveSystem(platform, DesignSystem.Material3)
@@ -1343,16 +1606,25 @@ fun resolveTheme(
             }
         }
     }
+    val tokens = DesignTokens.of(system)
+    val rules = rulesFor(system)
+    // The same palette goes onto whichever system was chosen, and both of its schemes are
+    // already here, so following the platform from light to dark reads the other half
+    // rather than asking the Host for anything.
+    val application = applicationColors(theme, dark, highContrast) { role ->
+        rules.color(role, dark, sizeClass) ?: Color(tokens.color(role, dark))
+    }
     return ResolvedTheme(
         system,
-        DesignTokens.of(system),
-        rulesFor(system),
+        tokens,
+        rules,
         dark,
         sizeClass,
         fonts,
         brushOf,
         windowBackdrop,
         platform,
+        application,
     )
 }
 

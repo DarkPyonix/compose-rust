@@ -24,7 +24,7 @@ on first use, so nothing has to be installed separately.
 | `web` | **The renderer for the browser.** The same interpreter sources (`web/src/shared/` symlinks `desktop/src/`), plus the web half of the boundary under `web/src/bridge/`: the generated forwarders and instantiation, a `HostConnection` that reads the Host's arena in place through a `java.nio` shim over wasm linear memory, and the browser's own `Intl` tables for the pickers. `web/scripts/build-host.sh` builds the Rust Host beside the page, `serve.sh` serves them together, and `test-boundary.sh` runs the boundary tests against a real Host. |
 
 The generated protocol bindings live in `desktop/src/protocol/Protocol.gen.kt`. They are
-produced from the Rust schema by `cargo run -p dioxus-compose --bin codegen`, edit the Rust
+produced from the Rust schema by `cargo run -p compose-rust --bin codegen`, edit the Rust
 schema, never that file.
 
 ## Running

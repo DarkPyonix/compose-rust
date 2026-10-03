@@ -74,8 +74,8 @@ pub struct EventSchema {
 /// Canonical schema text. Variant order is wire-significant and must only be appended to.
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "dioxus-compose/v1;",
-    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,Badge,SelectionContainer;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,count;",
+    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible;",
     "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material;",
     "keys=Enter;",
     "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged;",
@@ -322,9 +322,19 @@ crate::extensions::define_widget_schema_with_extensions!(define_wire_enum; WIDGE
     // not one is never offered as a target, so the platform shows no drop cursor over it
     // and nothing is reported.
     FileDropTarget = 36,
-    // Tags 37, 38 and 39 are taken by the horizontal scroll container, the chip and the
-    // floating action, which land separately. A reservation is not a free tag.
-    //
+    // The whole content with a horizontal scroll, which is a ScrollColumn turned on its
+    // side. Every child is materialised and the scroll position is the Renderer's, so
+    // nothing about scrolling crosses the boundary; a long horizontal list is a LazyRow.
+    ScrollRow = 37,
+    // A small token that is chosen or filters. It carries its label and whether it is
+    // chosen, and the chosen state is the Host's: it changes only because the Host's own
+    // click handler changed it. The shape is the design system's.
+    Chip = 38,
+    // The one action a screen is about. It carries an icon, a label and a click. Where it
+    // goes and what it is drawn as is the design system's: a disc floating over the page
+    // is one system's answer, a plus at the trailing end of the bar is another's, and an
+    // accent button at the head of the command bar is a third.
+    FloatingAction = 39,
     // A small mark on something else that says how many, that there is something new, or
     // one short word. With one child it is attached to that child; with none it stands on
     // its own, at the end of a row. Where it sits on the child, its shape, and how a large
@@ -335,6 +345,16 @@ crate::extensions::define_widget_schema_with_extensions!(define_wire_enum; WIDGE
     // Text inside it. Text outside one cannot be selected. The selection and the copy are
     // the Renderer's entirely, so nothing about either crosses the boundary.
     SelectionContainer = 41,
+    // Two panes side by side, a side pane and a body, with a divider the user drags to
+    // change the side pane's width. Exactly two children, the side pane first.
+    //
+    // The drag is the Renderer's, like a scroll position: nothing crosses the boundary
+    // while it moves, and the width it ends on is reported once through the value change
+    // event. How the divider looks and how far its grip reaches, the side pane's default
+    // width, the body's minimum, and whether a narrow place shows the two panes side by
+    // side, with the side pane laid over the body, or one at a time, are the design
+    // system's answers.
+    SplitPane = 42,
 });
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -490,7 +510,53 @@ define_wire_enum!(COLOR_ROLE_SCHEMA, ColorRole {
     OnSecondaryContainer = 21,
     TertiaryContainer = 22,
     OnTertiaryContainer = 23,
+    // What a highlighter paints code with. A conversation shows code blocks and diffs, and
+    // with only literals to paint them the same grey comment would be stamped into seven
+    // systems and two schemes, which is how a light comment grey disappears on a dark page.
+    // So a token kind is a role like any other, and each system answers it from the code
+    // editor of its own platform.
+    //
+    // The split follows what tree-sitter's highlight names, VS Code's semantic token kinds
+    // and TextMate scopes all agree on. Each of those divides more finely, and the finer
+    // names fold into one of these (`keyword.return` is a keyword). A token that fits none
+    // is left in the body ink rather than given a colour of its own.
+    //
+    // The fifteen syntax inks hold the body-text bound on the code block's panel, comments
+    // included: a comment can be quieter in hue and lightness, but one nobody can read is
+    // a comment that is not there.
+    SyntaxKeyword = 24,
+    SyntaxString = 25,
+    SyntaxComment = 26,
+    SyntaxNumber = 27,
+    SyntaxConstant = 28,
+    SyntaxType = 29,
+    SyntaxFunction = 30,
+    SyntaxVariable = 31,
+    SyntaxProperty = 32,
+    SyntaxOperator = 33,
+    SyntaxPunctuation = 34,
+    SyntaxTag = 35,
+    SyntaxAttribute = 36,
+    SyntaxEscape = 37,
+    SyntaxMacro = 38,
+    // A diff. The ink marks an added or removed line and its text; the container is the
+    // whole line's background, drawn as the line node's own background; the emphasis is
+    // the background behind the words that actually changed, drawn by the span. Added and
+    // removed are never told apart by colour alone: the `+` and `-` at the head of a line
+    // stay, because the two backgrounds can look the same to a red-green colour blind
+    // reader.
+    DiffAdded = 39,
+    DiffRemoved = 40,
+    DiffModified = 41,
+    DiffAddedContainer = 42,
+    DiffRemovedContainer = 43,
+    DiffAddedEmphasis = 44,
+    DiffRemovedEmphasis = 45,
 });
+
+/// How many colour roles there are, which is how many rows every token table has and how
+/// many slots a palette carries per scheme.
+pub const COLOR_ROLE_COUNT: usize = 45;
 
 // The nine-rung type ladder every supported design system maps onto.
 define_wire_enum!(TYPE_ROLE_SCHEMA, TypeRole {
@@ -1020,6 +1086,14 @@ pub struct Theme {
     /// Indexed by the role's wire tag minus one, so the array and the enum cannot drift
     /// apart without the compiler saying so.
     pub fonts: [u32; TYPE_ROLE_COUNT],
+    /// The application's own colours, laid over whichever design system is chosen.
+    ///
+    /// A reference to something that lives for the whole program, so that a theme stays
+    /// `Copy` and can still be built in a `const`. The same palette goes onto every system
+    /// an adaptive theme may pick, because a brand colour does not change with the
+    /// platform. A palette built while the application runs is handed to `use_theme`,
+    /// which owns it, so application code never has to give it that lifetime itself.
+    pub palette: Option<&'static crate::palette::Palette>,
 }
 
 /// How many type roles there are, which is how many font slots a theme carries.
@@ -1034,6 +1108,7 @@ impl Theme {
             color_scheme: ColorScheme::FollowSystem,
             adaptive: false,
             fonts: [0; TYPE_ROLE_COUNT],
+            palette: None,
         }
     }
 
@@ -1045,6 +1120,7 @@ impl Theme {
             color_scheme: ColorScheme::FollowSystem,
             adaptive: true,
             fonts: [0; TYPE_ROLE_COUNT],
+            palette: None,
         }
     }
 
@@ -1061,6 +1137,17 @@ impl Theme {
     /// better than no screen.
     pub const fn with_font(mut self, role: TypeRole, asset: u32) -> Self {
         self.fonts[role as usize - 1] = asset;
+        self
+    }
+
+    /// Lays the application's own colours over the design system.
+    ///
+    /// Only colour roles change. Shape, type, spacing, elevation, motion and how each
+    /// component is drawn stay the design system's, so the same brand colour reads as
+    /// that system's button rather than as a copy of another's. Both schemes go to the
+    /// Renderer at once, so a switch between light and dark never asks the Host.
+    pub const fn with_palette(mut self, palette: &'static crate::palette::Palette) -> Self {
+        self.palette = Some(palette);
         self
     }
 
@@ -1484,6 +1571,13 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // 80 opens a fresh block of ten for widget tags 40 onwards, after the last tag in use
     // anywhere, so two pieces of work landing in either order cannot collide.
     Count = 80,
+    // Whether a split pane's side pane may be folded away by dragging past its minimum, or
+    // by the keyboard, or by the platform's own show and hide sidebar command. Whether a
+    // side pane can be hidden is a fact about the screen rather than about the design
+    // system: a list of sessions can, a settings screen's list of sections cannot.
+    //
+    // 90 opens the split pane's block of ten, after the badge's.
+    Collapsible = 90,
 });
 
 #[derive(Clone, Debug, PartialEq)]

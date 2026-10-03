@@ -97,7 +97,7 @@ changed slot. The unmeasured ones are props and the widget schema.
 ## With the real widget layer
 
 `src/widgets.rs` adds what the first numbers lacked: `text` takes the same props as
-`dioxus_compose::Text`, compares them the same way, and writes Create, Insert, SetProp,
+`compose_rust::Text`, compares them the same way, and writes Create, Insert, SetProp,
 SetModifier and Remove through the project's own `BatchEncoder`. `tests/wire.rs` checks the
 records are the ones the Dioxus path sends for the same change. Same sweep, same run:
 

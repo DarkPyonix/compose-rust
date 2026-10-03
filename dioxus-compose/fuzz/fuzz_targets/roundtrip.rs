@@ -5,8 +5,8 @@
 #![no_main]
 
 use arbitrary::Arbitrary;
-use dioxus_compose::protocol::{BatchEncoder, Mutation, PropertyValue, decode_batch};
-use dioxus_compose::schema::{Modifier, PropertyKind, Selection, WidgetKind};
+use compose_rust::protocol::{BatchEncoder, Mutation, PropertyValue, decode_batch};
+use compose_rust::schema::{Modifier, PropertyKind, Selection, WidgetKind};
 use libfuzzer_sys::fuzz_target;
 
 /// An owned mirror of `Mutation`, so `arbitrary` can build one without lifetimes.

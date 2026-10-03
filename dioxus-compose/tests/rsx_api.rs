@@ -1,10 +1,10 @@
-use dioxus_compose::prelude::*;
-use dioxus_compose::protocol::{Mutation, decode_batch};
-use dioxus_compose::{Host, WidgetKind};
+use compose_rust::prelude::*;
+use compose_rust::protocol::{Mutation, decode_batch};
+use compose_rust::{Host, WidgetKind};
 
 fn app() -> Element {
     rsx! {
-        dioxus_compose::Box {
+        compose_rust::Box {
             fill_max_width: true,
             Text { text: "qualified Box" }
         }
