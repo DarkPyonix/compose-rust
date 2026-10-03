@@ -15,9 +15,9 @@ set -uo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
 
-entry="dioxus-compose-renderer/desktop/c/renderer_entry.c"
-chrome="dioxus-compose-renderer/desktop/src/WindowChrome.kt"
-rules="dioxus-compose-renderer/desktop/src/renderer/ComponentRules.kt"
+entry="renderer/desktop/c/renderer_entry.c"
+chrome="renderer/desktop/src/WindowChrome.kt"
+rules="renderer/desktop/src/renderer/ComponentRules.kt"
 status=0
 
 fail() {

@@ -19,9 +19,9 @@ cd "$repo_root"
 # The directive lives in the crate rather than in the build script, because a build
 # script's link arguments reach that package's own binaries and stop there, and the
 # binaries that matter belong to whoever depends on this one.
-build_script=dioxus-compose/src/boundary.rs
-shim=dioxus-compose-renderer/desktop/c/renderer_entry.c
-host=dioxus-compose/src/boundary.rs
+build_script=compose-rust/src/boundary.rs
+shim=renderer/desktop/c/renderer_entry.c
+host=compose-rust/src/boundary.rs
 
 for file in "$build_script" "$shim" "$host"; do
     [[ -f "$file" ]] || { echo "fail  $file is missing" >&2; exit 1; }
@@ -38,14 +38,14 @@ grep -q '\.drectve' "$build_script" || {
 }
 
 # What the build script asks the linker to export.
-exported="$(grep -oE '/EXPORT:dioxus_compose_host_[a-z_]+' "$build_script" |
+exported="$(grep -oE '/EXPORT:compose_rust_host_[a-z_]+' "$build_script" |
     sed 's|/EXPORT:||' | sort -u)"
-# What the shim looks up. `LOAD_HOST_EXPORT(init, ...)` means dioxus_compose_host_init.
+# What the shim looks up. `LOAD_HOST_EXPORT(init, ...)` means compose_rust_host_init.
 # The macro's own definition names its parameter `field`, so only the call sites count.
 looked_up="$(grep -oE '^ *LOAD_HOST_EXPORT\([a-z_]+' "$shim" |
-    sed 's/^ *LOAD_HOST_EXPORT(/dioxus_compose_host_/' | grep -v '_field$' | sort -u)"
+    sed 's/^ *LOAD_HOST_EXPORT(/compose_rust_host_/' | grep -v '_field$' | sort -u)"
 # What the Host actually defines.
-defined="$(grep -oE 'fn dioxus_compose_host_[a-z_]+' "$host" |
+defined="$(grep -oE 'fn compose_rust_host_[a-z_]+' "$host" |
     sed 's/fn //' | sort -u)"
 
 failures=0
@@ -114,14 +114,14 @@ echo "ok    the Windows link makes a window application that can still be run fr
 #
 # It has to be declared before anything creates a window, which is why the check is that
 # it happens in the entry point rather than merely somewhere in the file.
-grep -q 'dioxus_compose_declare_dpi_awareness' "$shim" || {
+grep -q 'compose_rust_declare_dpi_awareness' "$shim" || {
     echo "fail  the renderer does not declare DPI awareness on Windows" >&2
     echo "      Windows renders an unaware window at 96 DPI and stretches it, so the" >&2
     echo "      application looks blurred against everything else on a scaled display." >&2
     exit 1
 }
-grep -A 4 'int32_t dioxus_compose_renderer_run(void) {' "$shim" |
-    grep -q 'dioxus_compose_declare_dpi_awareness();' || {
+grep -A 4 'int32_t compose_rust_renderer_run(void) {' "$shim" |
+    grep -q 'compose_rust_declare_dpi_awareness();' || {
     echo "fail  DPI awareness is declared somewhere other than the entry point" >&2
     echo "      It has no effect once a window or a device context exists." >&2
     exit 1

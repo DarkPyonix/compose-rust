@@ -69,9 +69,9 @@ if [[ "$skip_kotlin" != "0" ]]; then
     exit 0
 fi
 
-renderer_gate="$repo_root/dioxus-compose-renderer/scripts/gate-platforms.sh"
+renderer_gate="$repo_root/renderer/scripts/gate-platforms.sh"
 
-cd "$repo_root/dioxus-compose-renderer"
+cd "$repo_root/renderer"
 # Which platforms this machine can build, and which it can run tests for. Named rather than
 # left to the default, because three of them need something the machine may not have: the
 # X11 development headers that the Linux window's cinterop compiles against, a device or an
@@ -96,7 +96,7 @@ echo "testing on:   ${test_platforms[*]//--platform /}"
 # own tests, and nothing here ran either of them. Ten test files, including every rule the
 # Liquid Glass material is checked by, went unrun by the gate that is supposed to be the
 # thing you can believe. Same platform question, asked of that project.
-design_systems="$repo_root/dioxus-design-systems"
+design_systems="$repo_root/design-systems"
 design_build=()
 while read -r platform; do
     design_build+=(--platform "$platform")

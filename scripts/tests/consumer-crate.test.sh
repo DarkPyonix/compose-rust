@@ -6,10 +6,10 @@
 # samples passed while an application that merely depends on the crate linked cleanly and
 # then died at start up with
 #
-#     Library not loaded: @rpath/libdioxus_compose_renderer.dylib, no LC_RPATH's found
+#     Library not loaded: @rpath/libcompose_rust_renderer.dylib, no LC_RPATH's found
 #
 # because Cargo does not pass a dependency's link arguments on to the binary that uses it.
-# dioxus-compose/tests/fixtures/consumer/ is that application, and it has no build script.
+# compose-rust/tests/fixtures/consumer/ is that application, and it has no build script.
 #
 # Why this is a shell script and not a cargo test. It has to run cargo, and a cargo test
 # that runs cargo either shares the outer target directory, where it blocks on the build
@@ -21,7 +21,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-fixture="$repo_root/dioxus-compose/tests/fixtures/consumer"
+fixture="$repo_root/compose-rust/tests/fixtures/consumer"
 
 fail() {
     echo "fail  $1" >&2
@@ -84,8 +84,8 @@ binary="$target/debug/consumer"
 [[ -x "$binary" ]] || fail "the build produced no $binary"
 
 library_name() {
-    [[ "$(uname -s)" == "Darwin" ]] && echo libdioxus_compose_renderer.dylib \
-                                    || echo libdioxus_compose_renderer.so
+    [[ "$(uname -s)" == "Darwin" ]] && echo libcompose_rust_renderer.dylib \
+                                    || echo libcompose_rust_renderer.so
 }
 
 # The recorded dependency has to be an absolute path to a file that is really there. That
@@ -128,7 +128,7 @@ exported_host_symbols() {
         nm -gU "$binary"
     else
         nm -D --defined-only "$binary"
-    fi | grep -cE ' _?dioxus_compose_host_(init|dispatch_event|render_frame|release_batch|shutdown)$' || true
+    fi | grep -cE ' _?compose_rust_host_(init|dispatch_event|render_frame|release_batch|shutdown)$' || true
 }
 
 # The renderer finds the Host's entry points by name in the executable, which only works

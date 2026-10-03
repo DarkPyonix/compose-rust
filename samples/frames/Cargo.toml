@@ -10,4 +10,4 @@ publish = false
 bench = false
 
 [dependencies]
-compose-rust = { path = "../../dioxus-compose" }
+compose-rust = { path = "../../compose-rust" }

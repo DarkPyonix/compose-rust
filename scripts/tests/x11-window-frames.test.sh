@@ -10,12 +10,12 @@
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-window_source="$repo_root/dioxus-compose-renderer/desktop/c/x11_window.c"
-loop_file="$repo_root/dioxus-compose-renderer/desktop/src/X11Window.kt"
-callback_file="$repo_root/dioxus-compose-renderer/desktop/src/X11FrameCallback.kt"
-frames_file="$repo_root/dioxus-compose-renderer/desktop/src/WindowFrames.kt"
-model_file="$repo_root/dioxus-compose-renderer/desktop/src/AppKitWindow.kt"
-build_script="$repo_root/dioxus-compose-renderer/desktop/scripts/build-native-linux.sh"
+window_source="$repo_root/renderer/desktop/c/x11_window.c"
+loop_file="$repo_root/renderer/desktop/src/X11Window.kt"
+callback_file="$repo_root/renderer/desktop/src/X11FrameCallback.kt"
+frames_file="$repo_root/renderer/desktop/src/WindowFrames.kt"
+model_file="$repo_root/renderer/desktop/src/AppKitWindow.kt"
+build_script="$repo_root/renderer/desktop/scripts/build-native-linux.sh"
 for file in "$window_source" "$loop_file" "$callback_file" "$frames_file" "$model_file" \
             "$build_script"; do
     [[ -f "$file" ]] || { echo "missing $file"; exit 1; }
@@ -135,7 +135,7 @@ for symbol in dxc_native_window_open dxc_native_window_size dxc_native_frame_beg
               dxc_native_set_frame_callback; do
     grep -Eq "^(void|int32_t) $symbol\(" "$window_source" ||
         fail "x11_window.c does not define $symbol"
-    grep -rqF "@CFunction(\"$symbol\")" "$repo_root/dioxus-compose-renderer/desktop/src" ||
+    grep -rqF "@CFunction(\"$symbol\")" "$repo_root/renderer/desktop/src" ||
         fail "nothing declares $symbol, so this list has outlived the code"
 done
 

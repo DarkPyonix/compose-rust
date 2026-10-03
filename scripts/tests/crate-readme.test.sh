@@ -15,7 +15,7 @@ if ! command -v cargo >/dev/null; then
     exit 0
 fi
 
-manifest="dioxus-compose/Cargo.toml"
+manifest="compose-rust/Cargo.toml"
 grep -q '^readme = ' "$manifest" || {
     echo "error: $manifest declares no readme, so crates.io will show an empty page" >&2
     echo "       The README is at the repository root, outside this package, so it is" >&2
