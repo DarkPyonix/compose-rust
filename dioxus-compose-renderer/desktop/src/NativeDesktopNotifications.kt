@@ -1,4 +1,4 @@
-@file:JvmName("NativeDesktopNotifications")
+@file:JvmName("NativeDesktopNotificationCalls")
 
 package dioxus.compose.ui.platform
 

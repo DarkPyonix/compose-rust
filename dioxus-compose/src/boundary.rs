@@ -1179,7 +1179,10 @@ mod tests {
                     | Mutation::ReleaseAsset { .. }
                     | Mutation::ShowMessage { .. }
                     | Mutation::SetTheme(_)
-                    | Mutation::SetWindow(_) => {}
+                    | Mutation::SetWindow(_)
+                    | Mutation::PostNotification { .. }
+                    | Mutation::WithdrawNotification { .. }
+                    | Mutation::RequestNotificationPermission => {}
                 }
             }
         }
