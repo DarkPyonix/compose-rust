@@ -384,8 +384,10 @@ private fun style(
 )
 
 /**
- * The code colours, Xcode's Default (Light) and Default (Dark), moved in tone where a value missed 4.5:1 on the panel. The same values as the renderer's token table, so a code block
- * reads the same through either.
+ * The code colours, after Xcode's Default (Light) and Default (Dark), moved in tone where a
+ * value missed 4.5:1 on the panel. Unverified: Xcode's themes are not published as files, so
+ * these need checking against Xcode itself. The same values as the renderer's token table, so
+ * a code block reads the same through either.
  */
 private val LIGHT_CODE: Map<ColorRole, Color> = mapOf(
     ColorRole.SyntaxKeyword to Color(0xFF9B2393),

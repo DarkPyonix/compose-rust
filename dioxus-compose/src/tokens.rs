@@ -272,10 +272,12 @@ const APPLE_HIG: DesignTokenTable = DesignTokenTable {
         OnSecondaryContainer: 0x2a1b70 / 0xdedcff,
         TertiaryContainer: 0xf3ddfb / 0x3f1a52,
         OnTertiaryContainer: 0x3d0b52 / 0xf1d9fa,
-        // Code colours, from Xcode's Default (Light) and Default (Dark). Xcode has no diff
-        // palette of its own, so the diff inks are the platform's accessible green and red and
-        // the line and word backgrounds are those inks laid over the panel. Where a value had to
-        // be moved in tone to keep 4.5:1 on this system's panel, the editor's own value is noted.
+        // Code colours, after Xcode's Default (Light) and Default (Dark). UNVERIFIED: Xcode's
+        // themes are not published as files, so these were written from the shipped editor
+        // rather than read from a source, and need checking against Xcode itself. Xcode has no
+        // diff palette of its own, so the diff inks are the platform's accessible green and red
+        // and the line and word backgrounds are those inks laid over the panel. Where a value
+        // had to be moved in tone to keep 4.5:1 on this system's panel, the original is noted.
         SyntaxKeyword: 0x9b2393 / 0xfc5fa3,
         SyntaxString: 0xc41a16 / 0xfc6a5d,
         // SyntaxComment is 0x5d6c79 / 0x6c7986 in the editor.
@@ -375,10 +377,15 @@ const FLUENT: DesignTokenTable = DesignTokenTable {
         OnSecondaryContainer: 0x0b3350 / 0xb4d6fa,
         TertiaryContainer: 0xe8dcf7 / 0x3b2159,
         OnTertiaryContainer: 0x341a5e / 0xe8dcf7,
-        // Code colours, from VS Code's Light+ and Dark+. The diff backgrounds are VS Code's own
-        // translucent line and word highlights resolved over this system's panel, the word one
-        // laid over the line one. Where a value had to be moved in tone to keep 4.5:1 on this
-        // system's panel, the editor's own value is noted.
+        // Code colours, read from VS Code's Light+ and Dark+ in microsoft/vscode:
+        // extensions/theme-defaults/themes/light_vs.json (f93fdeb4), light_plus.json (09fe3fcb),
+        // dark_vs.json (f93fdeb4), dark_plus.json (e061feef). Punctuation is the editor
+        // foreground and macros take keyword.control, which is what a preprocessor directive is
+        // scoped as. The diff backgrounds are VS Code's own defaults from
+        // src/vs/platform/theme/common/colors/editorColors.ts (463b5e85): lines at
+        // rgba(155,185,85,.2) and rgba(255,0,0,.2), words at #9ccc2c40/33 and #ff000033 over
+        // them, resolved over this system's panel. Where a value had to be moved in tone to keep
+        // 4.5:1 on this system's panel, the editor's own value is noted.
         SyntaxKeyword: 0x0000ff / 0x569cd6,
         SyntaxString: 0xa31515 / 0xce9178,
         // SyntaxComment is 0x008000 / 0x6a9955 in the editor.
@@ -485,39 +492,50 @@ const ADWAITA: DesignTokenTable = DesignTokenTable {
         OnSecondaryContainer: 0x45164f / 0xecd9f1,
         TertiaryContainer: 0xcfe9ed / 0x134249,
         OnTertiaryContainer: 0x0a3d45 / 0xcfe9ed,
-        // Code colours, from GtkSourceView's Adwaita and Adwaita-dark schemes in the GNOME
-        // palette. The line and word backgrounds are the diff inks laid over the panel. Where a
-        // value had to be moved in tone to keep 4.5:1 on this system's grey panel, the scheme's
-        // own value is noted.
+        // Code colours, read from GtkSourceView's styles in GNOME/gtksourceview:
+        // data/styles/Adwaita.xml (f9e0f254) and Adwaita-dark.xml (c4604e35). Keywords are
+        // def:statement, variables def:identifier, tags and attributes xml:element-name and
+        // xml:attribute-name, escapes def:special-char, macros def:preprocessor, and property,
+        // operator and punctuation the text foreground. The diff inks are diff:added-line,
+        // diff:removed-line and diff:changed-line; the line and word backgrounds are those inks
+        // laid over the panel. Where a value had to be moved in tone to keep 4.5:1 on this
+        // system's grey panel, the scheme's own value is noted.
         // SyntaxKeyword is 0xc64600 / 0xffa348 in the editor.
         SyntaxKeyword: 0xba4100 / 0xffa348,
-        // SyntaxString is 0x26a269 / 0x8ff0a4 in the editor.
-        SyntaxString: 0x00784a / 0x8ff0a4,
-        // SyntaxComment is 0x77767b / 0x9a9996 in the editor.
-        SyntaxComment: 0x6a6a6e / 0x9a9996,
-        SyntaxNumber: 0x813d9c / 0xdc8add,
-        SyntaxConstant: 0x813d9c / 0xdc8add,
-        SyntaxType: 0x1a5fb4 / 0x99c1f1,
+        // SyntaxString is 0x218787 / 0x5bc8af in the editor.
+        SyntaxString: 0x007778 / 0x5bc8af,
+        // SyntaxComment is 0x77767b / 0x777777 in the editor.
+        SyntaxComment: 0x6a6a6e / 0x999898,
+        // SyntaxNumber is 0x4e57ba / 0x7d8ac7 in the editor.
+        SyntaxNumber: 0x4e57ba / 0x8794d2,
+        // SyntaxConstant is 0x4e57ba / 0x7d8ac7 in the editor.
+        SyntaxConstant: 0x4e57ba / 0x8794d2,
+        // SyntaxType is 0x218787 / 0x5bc8af in the editor.
+        SyntaxType: 0x007778 / 0x5bc8af,
         // SyntaxFunction is 0x1c71d8 / 0x62a0ea in the editor.
         SyntaxFunction: 0x0067cd / 0x62a0ea,
-        SyntaxVariable: 0x241f31 / 0xdeddda,
-        SyntaxProperty: 0x3d3846 / 0xc0bfbc,
-        SyntaxOperator: 0x3d3846 / 0xc0bfbc,
-        SyntaxPunctuation: 0x3d3846 / 0xc0bfbc,
-        SyntaxTag: 0x1a5fb4 / 0x99c1f1,
-        SyntaxAttribute: 0x813d9c / 0xdc8add,
-        // SyntaxEscape is 0xc01c28 / 0xf66151 in the editor.
-        SyntaxEscape: 0xc01c28 / 0xfd6656,
-        SyntaxMacro: 0x63452c / 0xcdab8f,
-        // DiffAdded is 0x26a269 / 0x8ff0a4 in the editor.
-        DiffAdded: 0x006d43 / 0x8ff0a4,
-        // DiffRemoved is 0xc01c28 / 0xf66151 in the editor.
-        DiffRemoved: 0xb91524 / 0xffa295,
-        DiffModified: 0x1c71d8 / 0x62a0ea,
-        DiffAddedContainer: 0xcfdcd7 / 0x435647,
-        DiffRemovedContainer: 0xe5d1d3 / 0x594744,
-        DiffAddedEmphasis: 0xa5c5b9 / 0x567d5e,
-        DiffRemovedEmphasis: 0xdcabaf / 0x835e58,
+        // SyntaxVariable is 0x4e9a06 / 0x4e9a06 in the editor.
+        SyntaxVariable: 0x3b7800 / 0x5dab1e,
+        SyntaxProperty: 0x504e55 / 0xc0bfbc,
+        SyntaxOperator: 0x504e55 / 0xc0bfbc,
+        SyntaxPunctuation: 0x504e55 / 0xc0bfbc,
+        // SyntaxTag is 0x218787 / 0x33b2a4 in the editor.
+        SyntaxTag: 0x007778 / 0x33b2a4,
+        // SyntaxAttribute is 0xc64600 / 0xff7800 in the editor.
+        SyntaxAttribute: 0xba4100 / 0xff7800,
+        // SyntaxEscape is 0xed333b / 0xf66151 in the editor.
+        SyntaxEscape: 0xd01a2a / 0xfd6656,
+        // SyntaxMacro is 0xc64600 / 0xe66100 in the editor.
+        SyntaxMacro: 0xba4100 / 0xfb7018,
+        // DiffAdded is 0x26a1a2 / 0x33b2a4 in the editor.
+        DiffAdded: 0x006a6b / 0x56cebf,
+        // DiffRemoved is 0xf66151 / 0xf66151 in the editor.
+        DiffRemoved: 0xae2d23 / 0xffa295,
+        DiffModified: 0xe66100 / 0xff7800,
+        DiffAddedContainer: 0xcfdcdc / 0x38504d,
+        DiffRemovedContainer: 0xe4d4d3 / 0x594744,
+        DiffAddedEmphasis: 0xa5c4c5 / 0x3f6f69,
+        DiffRemovedEmphasis: 0xd9b2af / 0x835e58,
     },
     // libadwaita declares its title classes in points against an 11pt Cantarell body, and
     // they are heavy: the largest title is weight 800, not 700. Those point values are
@@ -608,11 +626,13 @@ const BREEZE: DesignTokenTable = DesignTokenTable {
         OnSecondaryContainer: 0x083b31 / 0xcfe8e0,
         TertiaryContainer: 0xfae0c4 / 0x4a3113,
         OnTertiaryContainer: 0x4a2c00 / 0xf8dfc3,
-        // Code colours, from KSyntaxHighlighting's Breeze Light and Breeze Dark. Keywords are
-        // the normal text colour there, set bold by the editor. The diff inks are Breeze's
-        // positive, negative and neutral, and the backgrounds are those inks laid over the
-        // panel. Where a value had to be moved in tone to keep 4.5:1, the scheme's own value is
-        // noted.
+        // Code colours, read from KSyntaxHighlighting in KDE/syntax-highlighting:
+        // data/themes/breeze-light.theme (b5576b24) and breeze-dark.theme (9d1d9a4e). Keywords
+        // are the normal text colour there, set bold by the editor. The diff inks follow
+        // data/syntax/diff.xml (f8b28165), which draws an added line as Variable and a removed
+        // line as String, and the modified ink is the theme's ModifiedLines. The backgrounds are
+        // those inks laid over the panel. Where a value had to be moved in tone to keep 4.5:1,
+        // the scheme's own value is noted.
         SyntaxKeyword: 0x1f1c1b / 0xcfcfc2,
         SyntaxString: 0xbf0303 / 0xf44f4f,
         // SyntaxComment is 0x898887 / 0x7a7c7d in the editor.
@@ -625,8 +645,7 @@ const BREEZE: DesignTokenTable = DesignTokenTable {
         // SyntaxFunction is 0x644a9b / 0x8e44ad in the editor.
         SyntaxFunction: 0x644a9b / 0xb266d1,
         SyntaxVariable: 0x0057ae / 0x27aeae,
-        // SyntaxProperty is 0x0057ae / 0x2980b9 in the editor.
-        SyntaxProperty: 0x0057ae / 0x3b8dc7,
+        SyntaxProperty: 0x0057ae / 0x27aeae,
         // SyntaxOperator is 0xca60ca / 0x3f8058 in the editor.
         SyntaxOperator: 0xaf48b1 / 0x519269,
         SyntaxPunctuation: 0x1f1c1b / 0xcfcfc2,
@@ -636,15 +655,15 @@ const BREEZE: DesignTokenTable = DesignTokenTable {
         // SyntaxEscape is 0x3daee9 / 0x3daee9 in the editor.
         SyntaxEscape: 0x007bac / 0x3daee9,
         SyntaxMacro: 0x006e28 / 0x27ae60,
-        // DiffAdded is 0x27ae60 / 0x27ae60 in the editor.
-        DiffAdded: 0x00783d / 0x33b667,
-        // DiffRemoved is 0xda4453 / 0xda4453 in the editor.
-        DiffRemoved: 0xbf2f41 / 0xff727a,
-        DiffModified: 0xf67400 / 0xf67400,
-        DiffAddedContainer: 0xdeece5 / 0x203c2e,
-        DiffRemovedContainer: 0xf5e3e6 / 0x492f32,
-        DiffAddedEmphasis: 0xb0d4c3 / 0x255b3c,
-        DiffRemovedEmphasis: 0xeabec4 / 0x764044,
+        // DiffAdded is 0x0057ae / 0x27aeae in the editor.
+        DiffAdded: 0x0057ae / 0x2cb1b1,
+        // DiffRemoved is 0xbf0303 / 0xf44f4f in the editor.
+        DiffRemoved: 0xbf0303 / 0xff736e,
+        DiffModified: 0xfdbc4b / 0xc04900,
+        DiffAddedContainer: 0xdee8f3 / 0x1e3b3d,
+        DiffRemovedContainer: 0xf5dede / 0x492f30,
+        DiffAddedEmphasis: 0xb0cae5 / 0x22595a,
+        DiffRemovedEmphasis: 0xeab1b1 / 0x76403f,
     },
     // Plasma sets its interface in Noto Sans at 10pt, a step smaller than Adwaita's 11pt
     // Cantarell, and its headings are semi bold rather than the near black weights
@@ -851,8 +870,9 @@ const LIQUID_GLASS: DesignTokenTable = DesignTokenTable {
         OnSecondaryContainer: 0x2a1b70 / 0xdedcff,
         TertiaryContainer: 0xf3ddfb / 0x3f1a52,
         OnTertiaryContainer: 0x3d0b52 / 0xf1d9fa,
-        // Code colours, from Xcode as Cupertino's are. The panel is a step greyer here, so the
-        // diff inks are moved further in tone and the backgrounds resolve differently.
+        // Code colours, after Xcode as Cupertino's are, and UNVERIFIED for the same reason. The
+        // panel is a step greyer here, so the diff inks are moved further in tone and the
+        // backgrounds resolve differently.
         SyntaxKeyword: 0x9b2393 / 0xfc5fa3,
         SyntaxString: 0xc41a16 / 0xfc6a5d,
         // SyntaxComment is 0x5d6c79 / 0x6c7986 in the editor.

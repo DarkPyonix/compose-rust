@@ -307,7 +307,9 @@ internal fun fluentShadowStep(elevation: Dp): Dp {
 private val FluentShadowDepths = listOf(2.dp, 4.dp, 8.dp, 16.dp, 28.dp, 64.dp)
 
 /**
- * The code colours, VS Code's Light+ and Dark+, with its diff highlights resolved over the panel. The same values as the renderer's token table, so a code block
+ * The code colours, read from VS Code's Light+ and Dark+ (microsoft/vscode,
+ * extensions/theme-defaults/themes) with its default diff highlights from editorColors.ts
+ * resolved over the panel. The same values as the renderer's token table, so a code block
  * reads the same through either.
  */
 private val LIGHT_CODE: Map<ColorRole, Color> = mapOf(

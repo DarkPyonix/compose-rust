@@ -1034,8 +1034,8 @@ pub struct Theme {
     /// A reference to something that lives for the whole program, so that a theme stays
     /// `Copy` and can still be built in a `const`. The same palette goes onto every system
     /// an adaptive theme may pick, because a brand colour does not change with the
-    /// platform. An application that builds a palette while it runs gives it that lifetime
-    /// itself, with `Box::leak`, once per palette it switches to.
+    /// platform. A palette built while the application runs is handed to `use_theme`,
+    /// which owns it, so application code never has to give it that lifetime itself.
     pub palette: Option<&'static crate::palette::Palette>,
 }
 

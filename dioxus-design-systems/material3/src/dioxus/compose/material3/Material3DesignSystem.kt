@@ -333,8 +333,9 @@ private fun surfaceTintAlpha(elevation: Dp): Float {
 }
 
 /**
- * The code colours, derived from the base roles by the rule the renderer's tables follow, because Material 3 publishes no code editor scheme. The same values as the renderer's token table, so a code block
- * reads the same through either.
+ * The code colours, derived from the base roles by the rule the renderer's tables follow,
+ * because Material 3 publishes no code editor scheme. The same values as the renderer's token
+ * table, so a code block reads the same through either.
  */
 private val LIGHT_CODE: Map<ColorRole, Color> = mapOf(
     ColorRole.SyntaxKeyword to Color(0xFF6750A4),
