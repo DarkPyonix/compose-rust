@@ -128,8 +128,9 @@ compose-rust = "0.0.0"</code></pre>
       published. Three things this project needs are empty in the published build for this
       platform, and none of them can be filled from outside the module that holds them: the
       entries a text selection's menu offers, the keys that copy, and the Linux targets. The
-      patches are in <code>dioxus-compose-renderer/patches/</code>, pinned to one Compose
-      revision, and each says what it is for.
+      changes are commits in a fork of Compose,
+      <a href="https://github.com/thisisthepy/compose-multiplatform-core-extended"><code>thisisthepy/compose-multiplatform-core-extended</code></a>,
+      and the build script pins one commit of it.
     </p>
 
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
@@ -138,8 +139,7 @@ compose-rust = "0.0.0"</code></pre>
     </figure>
 
     <p>
-      It fetches the pinned revision, applies the patches, and publishes the modules the renderer
-      asks for. This is slow and you run it once, not once per build. Everything else still
+      It fetches the pinned commit and publishes the modules the renderer asks for. This is slow and you run it once, not once per build. Everything else still
       resolves from what JetBrains published.
     </p>
 
