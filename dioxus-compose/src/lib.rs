@@ -22,6 +22,7 @@ pub mod design;
 pub mod drawing;
 mod extensions;
 pub mod message;
+pub mod notification;
 pub mod protocol;
 pub mod renderer;
 pub mod schema;
@@ -47,11 +48,17 @@ pub use drawing::{DrawCommand, DrawList, DrawListBuilder};
 pub use elements::*;
 pub use extensions::LinearProgressIndicator;
 pub use message::{Message, show_message};
+pub use notification::{
+    Notification, NotificationActivation, NotificationSender, notification_permission,
+    request_notification_permission, use_notification_activated, use_notification_permission,
+    withdraw_notification,
+};
 pub use schema::{
     Alignment, Arrangement, AssetKind, ButtonVariant, Chrome, Color, ColorRole, ColorScheme,
     DesignSystem, EventPayload, IconRole, Key, LoopMode, MaterialRole, MessageDuration, Modifier,
-    MotionRole, Paint, PropertyKind, SCHEMA_HASH, Selection, ShapeRole, SpaceRole, TextAlign,
-    TextOverflow, Theme, TileMode, TypeRole, WidgetKind, WindowHeightClass, WindowSizeClass,
+    MotionRole, NotificationImportance, NotificationPermission, NotificationPresentation, Paint,
+    PropertyKind, SCHEMA_HASH, Selection, ShapeRole, SpaceRole, TextAlign, TextOverflow, Theme,
+    TileMode, TypeRole, WidgetKind, WindowHeightClass, WindowSizeClass,
 };
 pub use widgets::{
     Badge, Button, Canvas, Card, Checkbox, Column, ComposeBox as Box, DatePicker, Dialog, Divider,
@@ -169,6 +176,13 @@ pub mod prelude {
     // this one instead. It is here because the alternative is a fully qualified path in
     // every `main`, and because `Chrome` beside it is meaningless on its own.
     pub use crate::schema::{Chrome, Window};
+    // Notifications, from a component or from a worker thread.
+    pub use crate::{
+        Notification, NotificationActivation, NotificationImportance, NotificationPermission,
+        NotificationPresentation, NotificationSender, notification_permission,
+        request_notification_permission, use_notification_activated, use_notification_permission,
+        withdraw_notification,
+    };
     // The crates `rsx!` expands into references to, under the names it expands into. A
     // consumer who added only `dioxus-compose` does not have `dioxus_core` or
     // `dioxus_signals` in their dependency graph by name, so without these the macro
