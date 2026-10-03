@@ -52,7 +52,7 @@ What the crate contains today:
   checks it and links it (see [Getting started](#-getting-started)).
 
 What it does **not** contain yet is its own authoring API. `#[composable]`, the `Recomposer`
-and `launch` are in progress, targeting **1.0.0 on 2026-10-20**. Until then the crate is a
+and `launch` are in progress ([#23](https://github.com/DarkPyonix/compose-rust/issues/23), [#64](https://github.com/DarkPyonix/compose-rust/issues/64)), targeting **1.0.0 on 2026-10-20**. Until then the crate is a
 foundation for a layer that builds the tree, not something you write screens with directly.
 
 ### The planned shape
@@ -81,18 +81,40 @@ Names follow Compose. The widget vocabulary is the one in the schema; nothing is
 
 > 🧩 **Prefer Dioxus and `rsx!`?** Use [dioxus-compose](https://github.com/DarkPyonix/dioxus-compose), which runs on top of compose-rust and supports both HTML/CSS `rsx!` and Compose-widget `rsx!`.
 
+### Designed, not yet on develop
+
+These are designed and agreed, but none of them is in the crate or the renderer on `develop`.
+Where work exists, it sits in an open pull request or a branch.
+
+| Item | Status | Issue | Work in progress |
+|---|---|---|---|
+| The authoring API (`#[composable]`, `remember`, `launch`) | partial | [#23](https://github.com/DarkPyonix/compose-rust/issues/23), [#64](https://github.com/DarkPyonix/compose-rust/issues/64) | branch `feature/compose-api` |
+| Direct Kotlin to Rust calls on the web, replacing the JavaScript forwarder | partial | [#54](https://github.com/DarkPyonix/compose-rust/issues/54) | [#84](https://github.com/DarkPyonix/compose-rust/pull/84) |
+| HTML/CSS drawing elements (`AbsoluteBox` and its modifiers) | partial | [#104](https://github.com/DarkPyonix/compose-rust/issues/104) | [#74](https://github.com/DarkPyonix/compose-rust/pull/74) |
+| Transforms and animations the renderer plays | partial | [#105](https://github.com/DarkPyonix/compose-rust/issues/105) | [#83](https://github.com/DarkPyonix/compose-rust/pull/83) |
+| HTML text properties and the measure call | partial | [#106](https://github.com/DarkPyonix/compose-rust/issues/106) | branch `feat/measure-call` |
+| OS text size and app zoom | partial | [#68](https://github.com/DarkPyonix/compose-rust/issues/68) | [#77](https://github.com/DarkPyonix/compose-rust/pull/77) (OS text size on the desktop only) |
+| Action keys (dense keypad buttons) | partial | [#57](https://github.com/DarkPyonix/compose-rust/issues/57) | [#76](https://github.com/DarkPyonix/compose-rust/pull/76) |
+| The bar's title in the platform caption | planned | [#79](https://github.com/DarkPyonix/compose-rust/issues/79) | none |
+| Design systems split into per-system libraries and an adaptive layer | partial | [#39](https://github.com/DarkPyonix/compose-rust/issues/39) | branch `chore/thisisthepy-coordinates` in the Compose forks |
+| The AWT-free Kotlin/Native renderer as the default on macOS and Linux | partial | [#22](https://github.com/DarkPyonix/compose-rust/issues/22) | branch `feature/native-default-renderer` |
+| The Windows Kotlin/Native renderer | partial | [#24](https://github.com/DarkPyonix/compose-rust/issues/24) | branch `feature/windows-kotlin-native` |
+| Samples rewritten on the authoring API | planned | [#85](https://github.com/DarkPyonix/compose-rust/issues/85) | none |
+| An event when the system colour scheme changes | proposed, awaiting approval | [#97](https://github.com/DarkPyonix/compose-rust/issues/97) | none |
+| Focus-gained and key-up events per node | proposed, awaiting approval | [#98](https://github.com/DarkPyonix/compose-rust/issues/98) | none |
+
 ---
 
 ## 🖥 Platforms
 
 | Platform | State | Renderer |
 |---|---|---|
-| 🍎 **macOS (arm64)** | **Works end to end** | 0.0.1 ships a GraalVM native-image library beside the app. The Kotlin/Native renderer linked into the executable (its own window, drawing through Metal) runs in CI and replaces it in a following release. Basic Korean IME input works; the full IME checklist is not finished |
-| 🐧 Linux (x64, arm64) | Builds and starts | 0.0.1 ships a GraalVM native-image library. The Kotlin/Native renderer (its own X11 window, drawing through GLX) passes a headless startup test for both architectures in CI and replaces it in a following release |
-| 🪟 Windows | Builds and starts | GraalVM native image, smoke-tested on every renderer change. Moving to Kotlin/Native so that Windows is one executable too |
+| 🍎 **macOS (arm64)** | **Works end to end** | 0.0.1 ships a GraalVM native-image library beside the app. The Kotlin/Native renderer linked into the executable (its own window, drawing through Metal) runs in CI and is planned to replace it ([#22](https://github.com/DarkPyonix/compose-rust/issues/22)). Basic Korean IME input works; the full IME checklist is not finished |
+| 🐧 Linux (x64, arm64) | Builds and starts | 0.0.1 ships a GraalVM native-image library. The Kotlin/Native renderer (its own X11 window, drawing through GLX) passes a headless startup test for both architectures in CI and is planned to replace it ([#22](https://github.com/DarkPyonix/compose-rust/issues/22)) |
+| 🪟 Windows | Builds and starts | GraalVM native image, smoke-tested on every renderer change. The Kotlin/Native renderer that makes Windows one executable too is planned ([#24](https://github.com/DarkPyonix/compose-rust/issues/24)) |
 | 📱 iOS | Builds and starts | Kotlin/Native static archive exporting the same C symbols, released as an XCFramework |
 | 🤖 Android | **Works end to end** | A Kotlin Activity owns the process and the loop, Rust is a cdylib, and the JNI shims on both sides are generated from the schema. The crate carries the renderer's Kotlin sources and its build script stages them into the Gradle project |
-| 🌐 Web (wasm) | **Works end to end** | One `WebAssembly.Memory`, owned by the Kotlin/Wasm module and imported by the Rust one, so a batch is read where it was written. Calls from the renderer to the Host cross a generated JavaScript forwarder, measured at about 12 ns |
+| 🌐 Web (wasm) | **Works end to end** | One `WebAssembly.Memory`, owned by the Kotlin/Wasm module and imported by the Rust one, so a batch is read where it was written. Calls from the renderer to the Host cross a generated JavaScript forwarder, measured at about 12 ns. Direct calls without the forwarder are planned ([#54](https://github.com/DarkPyonix/compose-rust/issues/54)) |
 
 ### What it weighs
 
@@ -235,7 +257,7 @@ cd renderer && ./kotlin run -m desktop
 ```
 compose-rust/     the crate: boundary, protocol, schema, codegen, renderer download
 renderer/         the Kotlin renderer: interpreter, generated shims, one module per platform
-samples/          sample applications: only a README until they return (#85)
+samples/          12 sample applications, being rewritten; they do not build until then (#85)
 docs/             the user guide (docs/guide) and translations (docs/locales)
 experiments/      measured experiments kept for their results
 scripts/          setup check, quality gate, release and publishing scripts, script tests
