@@ -7,7 +7,8 @@ import platform.Foundation.NSSelectorFromString
 import platform.UserNotifications.UNAuthorizationOptionAlert
 import platform.UserNotifications.UNAuthorizationOptionBadge
 import platform.UserNotifications.UNAuthorizationOptionSound
-import platform.UserNotifications.UNAuthorizationStatus
+import platform.UserNotifications.UNAuthorizationStatusDenied
+import platform.UserNotifications.UNAuthorizationStatusNotDetermined
 import platform.UserNotifications.UNMutableNotificationContent
 import platform.UserNotifications.UNNotification
 import platform.UserNotifications.UNNotificationAction
@@ -133,9 +134,8 @@ class AppleNotifications(
         val center = center ?: return
         center.getNotificationSettingsWithCompletionHandler { settings ->
             val state = when (settings?.authorizationStatus) {
-                UNAuthorizationStatus.UNAuthorizationStatusNotDetermined ->
-                    NotificationPermission.NotDetermined
-                UNAuthorizationStatus.UNAuthorizationStatusDenied -> NotificationPermission.Denied
+                UNAuthorizationStatusNotDetermined -> NotificationPermission.NotDetermined
+                UNAuthorizationStatusDenied -> NotificationPermission.Denied
                 null -> NotificationPermission.NotDetermined
                 // Authorized, provisional and ephemeral all show what is posted.
                 else -> NotificationPermission.Granted
@@ -158,22 +158,23 @@ class AppleNotifications(
     override fun post(notification: PlatformNotification) {
         val center = center ?: return
         val content = UNMutableNotificationContent()
-        content.title = notification.title
-        content.body = notification.body
-        content.sound = UNNotificationSound.defaultSound()
+        content.setTitle(notification.title)
+        content.setBody(notification.body)
+        content.setSound(UNNotificationSound.defaultSound())
         // The channel groups them, which is the nearest this platform has to a channel:
         // the notification centre stacks a thread together and settings stay per
         // application.
-        if (notification.channel.isNotEmpty()) content.threadIdentifier = notification.channel
-        categoryFor(notification)?.let { content.categoryIdentifier = it }
+        if (notification.channel.isNotEmpty()) content.setThreadIdentifier(notification.channel)
+        categoryFor(notification)?.let { content.setCategoryIdentifier(it) }
         // Urgent is time sensitive: it is shown through a focus mode that lets those
         // through. Asked about first, because a system older than the level has no such
         // property and setting it would stop the process.
         if (notification.importance == NotificationImportance.Urgent &&
             content.respondsToSelector(NSSelectorFromString("setInterruptionLevel:"))
         ) {
-            content.interruptionLevel =
-                UNNotificationInterruptionLevel.UNNotificationInterruptionLevelTimeSensitive
+            content.setInterruptionLevel(
+                UNNotificationInterruptionLevel.UNNotificationInterruptionLevelTimeSensitive,
+            )
         }
         // The key is the request's identifier, so a second request under the same key
         // replaces the first rather than standing beside it.

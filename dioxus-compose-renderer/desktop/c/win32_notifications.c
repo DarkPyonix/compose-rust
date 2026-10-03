@@ -94,6 +94,12 @@ static const KNOWNFOLDERID DXC_FOLDERID_CommonPrograms =
 static const PROPERTYKEY DXC_PKEY_AppUserModel_ID =
     {{0x9f4c2855, 0x9f79, 0x4b39, {0xa8, 0xd0, 0xe1, 0xd4, 0x2d, 0xe1, 0xd5, 0xf3}}, 5};
 
+/* What adding an event handler answers with. The SDK declares it in eventtoken.h; it is one
+ * 64-bit value, declared here so that this file needs no header beyond the C ones. */
+typedef struct {
+    int64_t value;
+} DxcEventToken;
+
 /* The first six slots of every Windows Runtime interface. */
 #define DXC_INSPECTABLE_SLOTS(Self)                                                           \
     HRESULT(STDMETHODCALLTYPE *QueryInterface)(Self *, REFIID, void **);                    \
@@ -124,7 +130,7 @@ typedef struct {
     void *get_ExpirationTime;
     void *add_Dismissed;
     void *remove_Dismissed;
-    HRESULT(STDMETHODCALLTYPE *add_Activated)(DxcToastNotification *, void *, EventRegistrationToken *);
+    HRESULT(STDMETHODCALLTYPE *add_Activated)(DxcToastNotification *, void *, DxcEventToken *);
     void *remove_Activated;
     void *add_Failed;
     void *remove_Failed;
@@ -692,7 +698,7 @@ void dxc_notify_post(const char *key, const char *title, const char *body, const
             toast2->lpVtbl->put_Tag(toast2, tag_string);
             toast2->lpVtbl->put_Group(toast2, group_string);
         }
-        EventRegistrationToken token;
+        DxcEventToken token;
         toast->lpVtbl->add_Activated(toast, &dxc_handler, &token);
         if (SUCCEEDED(dxc_notifier->lpVtbl->Show(dxc_notifier, toast))) {
             dxc_forget(tag);

@@ -5,7 +5,7 @@ package dioxus.compose.ui.platform
 import dioxus.compose.protocol.NotificationImportance
 import dioxus.compose.protocol.NotificationPermission
 import org.graalvm.nativeimage.StackValue
-import org.graalvm.nativeimage.UnmanagedMemory
+import org.graalvm.nativeimage.c.type.CTypeConversion
 import org.graalvm.nativeimage.c.function.CFunction
 import org.graalvm.nativeimage.c.type.CCharPointer
 import org.graalvm.nativeimage.c.type.CIntPointer
@@ -79,48 +79,41 @@ internal class NativeDesktopNotifications : NotificationPlatform {
     override fun refreshPermission() = notifyRefreshPermission()
 
     override fun post(notification: PlatformNotification) {
-        val texts = listOf(
-            notification.key,
-            notification.title,
-            notification.body,
-            notification.channel,
-            notification.action1,
-            notification.action2,
-        ).map { it.toByteArray(Charsets.UTF_8) }
-        val offsets = offsetsOf(texts)
-        // Pointers are read and used inside this one method and carried nowhere else: a
-        // native image accepts a word in straight-line code and not in a field or a lambda.
-        val block: CCharPointer = UnmanagedMemory.malloc(offsets.last())
+        // Each string is copied into C memory by a holder, which is an ordinary object, and
+        // the pointer it holds is read only as the argument of the C call itself: a native
+        // image accepts a word as a plain argument and nowhere a reference is expected.
+        val key = cBytes(notification.key)
+        val title = cBytes(notification.title)
+        val body = cBytes(notification.body)
+        val channel = cBytes(notification.channel)
+        val action1 = cBytes(notification.action1)
+        val action2 = cBytes(notification.action2)
         try {
-            for (index in texts.indices) {
-                val bytes = texts[index]
-                val start = offsets[index]
-                for (position in bytes.indices) block.write(start + position, bytes[position])
-                block.write(start + bytes.size, 0)
-            }
             notifyPost(
-                block.addressOf(offsets[0]),
-                block.addressOf(offsets[1]),
-                block.addressOf(offsets[2]),
-                block.addressOf(offsets[3]),
-                block.addressOf(offsets[4]),
-                block.addressOf(offsets[5]),
+                key.get(),
+                title.get(),
+                body.get(),
+                channel.get(),
+                action1.get(),
+                action2.get(),
                 if (notification.importance == NotificationImportance.Urgent) 1 else 0,
             )
         } finally {
-            UnmanagedMemory.free(block)
+            key.close()
+            title.close()
+            body.close()
+            channel.close()
+            action1.close()
+            action2.close()
         }
     }
 
     override fun withdraw(key: String) {
-        val bytes = key.toByteArray(Charsets.UTF_8)
-        val block: CCharPointer = UnmanagedMemory.malloc(bytes.size + 1)
+        val holder = cBytes(key)
         try {
-            for (position in bytes.indices) block.write(position, bytes[position])
-            block.write(bytes.size, 0)
-            notifyWithdraw(block)
+            notifyWithdraw(holder.get())
         } finally {
-            UnmanagedMemory.free(block)
+            holder.close()
         }
     }
 
@@ -154,15 +147,11 @@ internal class NativeDesktopNotifications : NotificationPlatform {
 }
 
 /**
- * Where each of several terminated strings starts in one block, and, last, how long the
- * block is.
+ * A string as terminated UTF-8 in C memory.
  *
- * Encoded by this side rather than by the conversion GraalVM offers, because that one uses
- * the platform's default character set, which on Windows is a code page that cannot carry
- * most of what a notification says.
+ * Encoded by this side rather than by the string conversion GraalVM offers, because that one
+ * uses the platform's default character set, which on Windows is a code page that cannot
+ * carry most of what a notification says.
  */
-private fun offsetsOf(texts: List<ByteArray>): IntArray {
-    val offsets = IntArray(texts.size + 1)
-    for (index in texts.indices) offsets[index + 1] = offsets[index] + texts[index].size + 1
-    return offsets
-}
+private fun cBytes(text: String): CTypeConversion.CCharPointerHolder =
+    CTypeConversion.toCBytes(text.toByteArray(Charsets.UTF_8) + byteArrayOf(0))
