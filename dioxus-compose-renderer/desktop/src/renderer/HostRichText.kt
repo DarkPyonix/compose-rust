@@ -2,6 +2,8 @@ package dioxus.compose.foundation
 
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -20,7 +22,6 @@ import dioxus.compose.protocol.PropertyValue
 import dioxus.compose.protocol.SpanRecords
 import dioxus.compose.protocol.TypeRole
 import dioxus.compose.runtime.EventDispatcher
-import dioxus.compose.runtime.onProtocolError
 import dioxus.compose.ui.node.Node
 import dioxus.compose.ui.node.TableError
 import dioxus.compose.ui.maxLines
@@ -127,7 +128,7 @@ internal fun HostRichText(
 
     if (blob == null || runs == null || runs.isEmpty()) {
         if (blob != null && runs == null) {
-            reportRuns("the run list is not a whole number of records")
+            ReportRuns(node.id, "the run list is not a whole number of records", dispatcher)
         }
         BasicText(
             text = raw,
@@ -142,7 +143,7 @@ internal fun HostRichText(
     val utf8 = raw.encodeToByteArray()
     val problem = runsProblem(runs, utf8.size)
     if (problem != null) {
-        reportRuns(problem)
+        ReportRuns(node.id, problem, dispatcher)
         BasicText(
             text = raw,
             modifier = modifier,
@@ -207,10 +208,24 @@ internal fun HostRichText(
 /**
  * Says a set of runs is wrong, and goes on drawing the string without them.
  *
- * The requirement is explicit that this must not end the process: a miscounted run is a
- * Host's arithmetic being wrong about its own string, and the reader still wants to read
- * the paragraph.
+ * The report goes to the Host as a `ProtocolError`, like every other protocol error, so the
+ * application that miscounted can find out; it never ends the process, because the reader
+ * still wants to read the paragraph. Once per problem, after composition and on the thread
+ * composition runs on, which is the thread the Host was started on.
  */
-private fun reportRuns(problem: String) {
-    onProtocolError(TableError(TableError.UNSUPPORTED_PROPERTY, "text runs: $problem"))
+@Composable
+private fun ReportRuns(nodeId: Int, problem: String, dispatcher: EventDispatcher) {
+    val said = remember(nodeId) { arrayOfNulls<String>(1) }
+    SideEffect {
+        if (said[0] == problem) return@SideEffect
+        said[0] = problem
+        dispatcher.dispatch(
+            HostEvent.ProtocolError(
+                nodeId = nodeId,
+                handlerId = 0,
+                code = TableError.UNSUPPORTED_PROPERTY,
+                message = "text runs on node $nodeId: $problem; the string is drawn without them",
+            ),
+        )
+    }
 }

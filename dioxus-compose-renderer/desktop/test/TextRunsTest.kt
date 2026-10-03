@@ -2,6 +2,7 @@ package dioxus.compose.test
 
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.runComposeUiTest
@@ -9,6 +10,7 @@ import dioxus.compose.foundation.TextRun
 import dioxus.compose.foundation.decodeRuns
 import dioxus.compose.foundation.runsProblem
 import dioxus.compose.protocol.ColorRole
+import dioxus.compose.protocol.HostEvent
 import dioxus.compose.protocol.Mutation
 import dioxus.compose.protocol.Paint
 import dioxus.compose.protocol.PropertyKind
@@ -174,5 +176,29 @@ class TextRunsTest {
         val plain = drawn(record(0, 4), "WWWW")
         val red = 0xFFFF0000.toInt()
         assertEquals(0, count(plain, red, 0, plain.width))
+    }
+
+    /**
+     * A run past the end of its string reaches the Host as one protocol error, and the
+     * string is still drawn.
+     */
+    @Test
+    fun fr26_a_bad_run_is_reported_to_the_host_and_the_text_still_draws() = runComposeUiTest {
+        val connection = FakeHostConnection(
+            listOf(
+                Mutation.Create(1, WidgetKind.Column),
+                Mutation.Create(2, WidgetKind.Text),
+                Mutation.SetProp(2, PropertyKind.Text, PropertyValue.Text("short")),
+                Mutation.SetProp(2, PropertyKind.Spans, PropertyValue.Bytes(record(2, 40))),
+                Mutation.Insert(1, 2, 0),
+            ),
+        )
+        setContent { DioxusContent(rememberDioxusHost(connection)) }
+        waitForIdle()
+        val errors = connection.events.filterIsInstance<HostEvent.ProtocolError>()
+        assertEquals(1, errors.size, "${connection.events}")
+        assertEquals(2, errors.single().nodeId)
+        assertTrue(errors.single().message.contains("text runs"))
+        onNodeWithTag(nodeTestTag(2)).assertIsDisplayed()
     }
 }
