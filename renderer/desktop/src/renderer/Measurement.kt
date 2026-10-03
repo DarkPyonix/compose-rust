@@ -7,6 +7,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.layout.SubcomposeLayoutState
 import androidx.compose.ui.layout.SubcomposeSlotReusePolicy
+import androidx.compose.ui.text.MultiParagraph
 import androidx.compose.ui.text.MultiParagraphIntrinsics
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextMeasurer
@@ -197,7 +198,8 @@ internal class MeasureContext(
         val input = textInput(requests, limit, at) ?: return Measured.MALFORMED
         val constraint = requests.getInt(at + MeasureRecords.TEXT_CONSTRAINT_AT)
         val width = Float.fromBits(requests.getInt(at + MeasureRecords.TEXT_WIDTH_AT))
-        val resolved = resolveText(input, theme, table.assets, density, fontFamilyResolver)
+        val resolved = resolveText(input, theme, table.assets, density, fontFamilyResolver, forMeasure = true)
+        resolved.runsProblem?.let { table.report(TableError.UNSUPPORTED_PROPERTY, "text runs in a measure request: $it") }
         resolved.problems.forEach { table.report(TableError.UNKNOWN_ASSET, it) }
         return when (constraint) {
             MeasureRecords.CONSTRAINT_MIN_CONTENT -> intrinsic(resolved, minimum = true, density)
@@ -219,27 +221,39 @@ internal class MeasureContext(
      * The narrowest or the widest the text can be, which is what Compose's paragraph
      * intrinsics answer, laid out at that width for everything else the answer carries.
      *
+     * The paragraph is laid out from the same intrinsics the width came from, rather than
+     * handed to a measurer that would work them out a second time.
+     *
      * Text that does not wrap is as narrow as it is wide: there is nowhere for it to break.
      */
     private fun intrinsic(resolved: ResolvedText, minimum: Boolean, density: Density): Measured {
-        val pixels = if (minimum && resolved.softWrap) {
-            MultiParagraphIntrinsics(
-                resolved.minContentText ?: resolved.text,
-                resolved.style,
-                if (resolved.minContentText != null) resolved.minContentPlaceholders else resolved.placeholders,
-                density,
-                fontFamilyResolver,
-            ).minIntrinsicWidth
-        } else {
-            MultiParagraphIntrinsics(
-                resolved.text,
-                resolved.style,
-                resolved.placeholders,
-                density,
-                fontFamilyResolver,
-            ).maxIntrinsicWidth
-        }
-        return described(layout(resolved, ceil(pixels).toInt(), density), width = pixels / density.density, density)
+        val narrowest = minimum && resolved.softWrap
+        val intrinsics = MultiParagraphIntrinsics(
+            if (narrowest) resolved.minContentText ?: resolved.text else resolved.text,
+            resolved.style,
+            if (narrowest && resolved.minContentText != null) resolved.minContentPlaceholders else resolved.placeholders,
+            density,
+            fontFamilyResolver,
+        )
+        val pixels = if (narrowest) intrinsics.minIntrinsicWidth else intrinsics.maxIntrinsicWidth
+        val paragraph = MultiParagraph(
+            intrinsics,
+            Constraints.fitPrioritizingWidth(0, ceil(pixels).toInt(), 0, Constraints.Infinity),
+            resolved.maxLines,
+            resolved.overflow,
+        )
+        val scale = density.density
+        val last = paragraph.lineCount - 1
+        return Measured(
+            width = pixels / scale,
+            height = ceil(paragraph.height) / scale,
+            firstBaseline = paragraph.firstBaseline / scale,
+            lastBaseline = paragraph.lastBaseline / scale,
+            lastLineWidth = if (last >= 0) (paragraph.getLineRight(last) - paragraph.getLineLeft(last)) / scale else 0f,
+            lineCount = paragraph.lineCount,
+            flags = if (paragraph.didExceedMaxLines) MeasureRecords.FLAG_TRUNCATED else 0,
+            status = MeasureRecords.STATUS_OK,
+        )
     }
 
     private fun layout(resolved: ResolvedText, maxWidth: Int, density: Density): TextLayoutResult =

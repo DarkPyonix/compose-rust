@@ -115,7 +115,9 @@ internal class ResolvedText(
      */
     val minContentText: AnnotatedString?,
     val minContentPlaceholders: List<AnnotatedString.Range<Placeholder>>,
-    /** What was wrong with the input, one sentence each, for the caller to report. */
+    /** What was wrong with the runs, which were left out, or null where nothing was. */
+    val runsProblem: String?,
+    /** What was wrong with the fonts, one sentence each, for the caller to report. */
     val problems: List<String>,
 )
 
@@ -132,6 +134,11 @@ internal fun resolveText(
     density: Density,
     fontFamilyResolver: FontFamily.Resolver,
     link: ((TextRun) -> LinkAnnotation.Clickable)? = null,
+    /**
+     * Leaves out what only paints: the colour. Nothing about a size depends on it, and
+     * resolving a colour through the design system is the dearest thing done here.
+     */
+    forMeasure: Boolean = false,
 ): ResolvedText {
     val problems = mutableListOf<String>()
     // Sizes are sp. Text in CSS pixels is not given smaller sp to undo the font scale:
@@ -161,7 +168,10 @@ internal fun resolveText(
         )
     }.merge(
         TextStyle(
-            color = input.color?.let(theme::color) ?: theme.color(ColorRole.OnSurface),
+            color = when {
+                forMeasure -> androidx.compose.ui.graphics.Color.Unspecified
+                else -> input.color?.let(theme::color) ?: theme.color(ColorRole.OnSurface)
+            },
             fontStyle = if (input.italic) FontStyle.Italic else null,
             textAlign = when (input.textAlign) {
                 TextAlign.Start -> ComposeTextAlign.Start
@@ -173,13 +183,8 @@ internal fun resolveText(
         ),
     )
 
-    val runs = input.runs.takeIf { runsProblem(it, input.text.encodeToByteArray().size) == null }
-        ?: run {
-            runsProblem(input.runs, input.text.encodeToByteArray().size)?.let {
-                problems += "$it; the string is set without its runs"
-            }
-            emptyList()
-        }
+    val badRuns = if (input.runs.isEmpty()) null else runsProblem(input.runs, input.text.encodeToByteArray().size)
+    val runs = if (badRuns == null) input.runs else emptyList()
     val mode = when (input.wordBreak) {
         WordBreak.KeepAll -> BreakMode.KeepAll
         WordBreak.BreakAll -> BreakMode.BreakAll
@@ -211,6 +216,7 @@ internal fun resolveText(
         inlineContent = inline,
         minContentText = minContent,
         minContentPlaceholders = minContentPlaceholders,
+        runsProblem = badRuns,
         problems = problems,
     )
 }
@@ -459,17 +465,22 @@ internal fun Node.textInput(): TextInput {
     )
 }
 
-/** What is malformed among a `Text` node's own text properties, or null where nothing is. */
-internal fun Node.textInputProblem(): String? {
+/** What is malformed about a `Text` node's run list, or null where nothing is. */
+internal fun Node.runsDecodeProblem(): String? {
     val spans = (property(PropertyKind.Spans) as? PropertyValue.Bytes)?.value
     if (spans != null && decodeRuns(spans) == null) {
         return "the run list is not a whole number of records"
     }
-    bytes(PropertyKind.Font)?.let {
-        if (FontRefRecords.decodeBlob(it) == null) return "the font list does not decode"
-    }
     bytes(PropertyKind.SpanFonts)?.let {
         if (SpanFontRecords.decodeBlob(it) == null) return "the run font table does not decode"
+    }
+    return null
+}
+
+/** What is malformed about a `Text` node's font list, or null where nothing is. */
+internal fun Node.fontListProblem(): String? {
+    bytes(PropertyKind.Font)?.let {
+        if (FontRefRecords.decodeBlob(it) == null) return "the font list does not decode"
     }
     return null
 }

@@ -154,8 +154,10 @@ class HtmlTextTest {
                 .text("abcd\tb", role = 0, fonts = mono, wrap = false, tabSize = 4, constraint = MeasureRecords.CONSTRAINT_MAX_CONTENT)
                 .text("abcdaaaab", role = 0, fonts = mono, wrap = false, constraint = MeasureRecords.CONSTRAINT_MAX_CONTENT),
         )
-        assertTrue(abs(results[0].width - results[1].width) < 0.5f, "a tab after one column reaches column four: ${results[0].width} against ${results[1].width}")
-        assertTrue(abs(results[2].width - results[3].width) < 0.5f, "a tab at a stop goes on to the next one: ${results[2].width} against ${results[3].width}")
+        // Within a pixel: each width is a whole number of pixels, rounded up from the
+        // paragraph's own, and a tab's advance is not rounded the way a glyph's is.
+        assertTrue(abs(results[0].width - results[1].width) <= 1f, "a tab after one column reaches column four: ${results[0].width} against ${results[1].width}")
+        assertTrue(abs(results[2].width - results[3].width) <= 1f, "a tab at a stop goes on to the next one: ${results[2].width} against ${results[3].width}")
     }
 
     /** A registered icon font's private use glyph is drawn in that font, at its own width. */

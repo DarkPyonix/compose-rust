@@ -135,7 +135,13 @@ internal fun HostRichText(
             },
         )
     }
-    val problem = node.textInputProblem() ?: resolved.problems.firstOrNull()
+    val runs = node.runsDecodeProblem() ?: resolved.runsProblem
+    val fonts = node.fontListProblem() ?: resolved.problems.firstOrNull()
+    val problem = when {
+        runs != null -> "text runs on node ${node.id}: $runs; the string is drawn without them"
+        fonts != null -> "text fonts on node ${node.id}: $fonts"
+        else -> null
+    }
     if (problem != null) ReportRuns(node.id, problem, dispatcher)
     // Text in CSS pixels is laid out in a density whose font scale is one, so the system's
     // text size does not reach it. Everything else is laid out where it stands.
@@ -171,7 +177,7 @@ private fun ReportRuns(nodeId: Int, problem: String, dispatcher: EventDispatcher
                 nodeId = nodeId,
                 handlerId = 0,
                 code = TableError.UNSUPPORTED_PROPERTY,
-                message = "text on node $nodeId: $problem",
+                message = problem,
             ),
         )
     }
