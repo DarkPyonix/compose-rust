@@ -41,10 +41,14 @@ compilerOpts = -idirafter /usr/include -idirafter /opt/X11/include
 # holds a C library and nothing of a desktop, so the three below are found only if it is
 # told where a distribution keeps them. Both layouts are named because distributions do not
 # agree: Debian and its derivatives put them under a triplet directory, Fedora and openSUSE
-# under lib64. A path that is not there costs nothing.
+# under lib64. A path that is not there costs nothing. An arm64 build, cross linked on
+# x86-64, is pointed at the arm64 triplet directory alone, so it never meets an x86-64
+# library of the same name first.
 #
 # Fontconfig and FreeType are here because Skia asks for them: it finds a font by asking the
 # desktop's own font configuration rather than carrying a copy of one. They are named beside
 # the window's libraries because this is where the module says what it links against, not
 # because the window uses them.
-linkerOpts = -L/usr/lib/x86_64-linux-gnu -L/usr/lib64 -L/usr/X11R6/lib -lX11 -lXext -lGL -lfontconfig -lfreetype
+linkerOpts = -lX11 -lXext -lGL -lfontconfig -lfreetype
+linkerOpts.linux_x64 = -L/usr/lib/x86_64-linux-gnu -L/usr/lib64 -L/usr/X11R6/lib
+linkerOpts.linux_arm64 = -L/usr/lib/aarch64-linux-gnu

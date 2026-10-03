@@ -10,7 +10,7 @@
 # edits by hand and publishes the result under the version the renderer asks for, so that
 # the modules that are not changed keep resolving from JetBrains.
 #
-# Usage: build-compose.sh [--target macosArm64|linuxX64] [--clean]
+# Usage: build-compose.sh [--target macosArm64|linuxX64|linuxArm64] [--clean]
 #
 # The work directory is a sibling of the renderer called compose-build. Set
 # DXC_COMPOSE_BUILD to put it elsewhere. It is not inside the renderer because it is a
@@ -76,8 +76,10 @@ case "$target" in
             compose:ui:ui
         )
         ;;
-    linuxX64)
-        publication="LinuxX64"
+    linuxArm64|linuxX64)
+        # arm64 is the same list for the other architecture, cross compiled on an x86-64
+        # machine: Kotlin/Native has no arm64 Linux host.
+        if [[ "$target" == linuxX64 ]]; then publication="LinuxX64"; else publication="LinuxArm64"; fi
         modules=(
             compose:animation:animation
             compose:animation:animation-core
@@ -95,7 +97,7 @@ case "$target" in
             compose:ui:ui-util
         )
         ;;
-    *) die "unknown target '$target'" "known: macosArm64, linuxX64" ;;
+    *) die "unknown target '$target'" "known: macosArm64, linuxX64, linuxArm64" ;;
 esac
 
 [[ $clean -eq 1 ]] && rm -rf "$WORK"

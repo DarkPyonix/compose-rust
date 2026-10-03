@@ -62,8 +62,14 @@ grep -Eq '^ +- linux$' "$project" ||
     fail "project.yaml does not list the linux module, so nothing builds it"
 grep -Eq '^ +- staticlib-linux$' "$project" ||
     fail "project.yaml does not list staticlib-linux, so the Host has no symbols to link"
-grep -Fq 'platforms: [ linuxX64 ]' "$module" ||
+grep -Eq '^  platforms: \[ linuxX64(, linuxArm64)? \]' "$module" ||
     fail "the linux module does not declare linuxX64"
+# Each architecture names the same Compose modules, by its own coordinate.
+x64_modules="$(sed -n '/^dependencies@linuxX64:/,/^$/p' "$module" | grep -c 'linuxx64:')"
+arm64_modules="$(sed -n '/^dependencies@linuxArm64:/,/^$/p' "$module" | grep -c 'linuxarm64:')"
+if grep -q 'linuxArm64' "$module" && [[ "$x64_modules" != "$arm64_modules" ]]; then
+    fail "the linux module names $x64_modules Compose modules for x64 and $arm64_modules for arm64"
+fi
 grep -Fq 'mavenLocal' "$module" ||
     fail "the linux module does not read the local Maven repository, which is the only place the patched Compose for this target is"
 
