@@ -1,14 +1,15 @@
 # macOS packaging: the packager's tests, the updater crate's tests, and the rehearsal that
 # installs one version of an application and watches it update itself to the next.
 #
-# The rehearsal is the only place the two halves meet a real renderer: it builds the demo
-# against the published dioxus-compose, whose build script fetches the renderer released for
-# its version, so nothing here builds the renderer. It signs ad hoc, because no Apple
-# identity exists on a runner; what that leaves unproven (Developer ID signing, notarization,
-# App Store Connect accepting the package) is the owner's to run with real certificates.
+# Everything is signed ad hoc, which is what the project ships without an Apple developer
+# account, and Sparkle trusts an update by its EdDSA signature alone. The rehearsal is the
+# only place the two halves meet a real renderer: it builds the demo against the published
+# dioxus-compose and the renderer released for it, so nothing here builds the renderer.
 #
 # Its evidence (logs, Info.plists, signatures, the appcast, screenshots) is uploaded as the
-# self-update-evidence artifact whether or not it passed.
+# self-update-evidence artifact whether or not it passed, and the bundles and served site
+# as self-update-bundles, so the same update can be watched on a Mac that built nothing
+# (DEMO_REUSE=1 experiments/self-update/rehearse.sh).
 
 name: macOS packaging
 

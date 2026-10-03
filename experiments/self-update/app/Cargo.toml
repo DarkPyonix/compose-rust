@@ -19,8 +19,8 @@ publish = false
 
 [features]
 default = ["sparkle"]
-# The updater. The Mac App Store build turns default features off, and the packager
-# checks that nothing of Sparkle is left in what it builds.
+# The updater. Without it (default features off) the application does not update itself,
+# and the packager makes it a bundle with no Sparkle in it.
 sparkle = ["dep:dioxus-compose-update", "dep:objc2"]
 
 [dependencies]

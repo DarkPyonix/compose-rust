@@ -27,7 +27,7 @@ fn app() -> Element {
     let channel = if cfg!(feature = "sparkle") {
         "Updates itself with Sparkle."
     } else {
-        "Updated by the Mac App Store."
+        "Does not update itself."
     };
     rsx! {
         Column {
