@@ -5,15 +5,15 @@
 //! Each test runs on its own thread, and the Host lives in a thread-local, so the
 //! lifecycle state of one test cannot leak into another.
 
-use dioxus_compose::boundary::{
+use compose_rust::boundary::{
     MutationBatch, STATUS_ALREADY_INITIALIZED, STATUS_NOT_INITIALIZED, STATUS_OK, STATUS_PANIC,
     STATUS_PROTOCOL_ERROR, dioxus_compose_host_dispatch_event, dioxus_compose_host_init,
     dioxus_compose_host_release_batch, dioxus_compose_host_render_frame,
     dioxus_compose_host_shutdown,
 };
-use dioxus_compose::prelude::*;
-use dioxus_compose::protocol::{HostEvent, encode_event};
-use dioxus_compose::schema::{EventPayload, PROTOCOL_VERSION, SCHEMA_HASH};
+use compose_rust::prelude::*;
+use compose_rust::protocol::{HostEvent, encode_event};
+use compose_rust::schema::{EventPayload, PROTOCOL_VERSION, SCHEMA_HASH};
 
 fn app() -> Element {
     rsx! {

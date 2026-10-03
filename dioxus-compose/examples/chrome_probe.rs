@@ -1,9 +1,9 @@
 //! A window asking for the platform's own title bar.
-use dioxus_compose::prelude::*;
+use compose_rust::prelude::*;
 
 fn app() -> Element {
     rsx! {
-        dioxus_compose::Box {
+        compose_rust::Box {
             fill_max_width: true,
             fill_max_height: true,
             background: Paint::Literal(Color::rgb(0xFFDD55)),
@@ -14,7 +14,7 @@ fn app() -> Element {
 }
 
 fn main() {
-    dioxus_compose::LaunchBuilder::new()
+    compose_rust::LaunchBuilder::new()
         .with_window(
             Window::new()
                 .with_chrome(Chrome::System)

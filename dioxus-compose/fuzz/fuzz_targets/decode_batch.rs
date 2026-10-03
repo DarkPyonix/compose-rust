@@ -2,7 +2,7 @@
 //! Renderer could hand it, never panic, abort, or read out of bounds.
 #![no_main]
 
-use dioxus_compose::protocol::{BatchEncoder, Mutation, decode_batch};
+use compose_rust::protocol::{BatchEncoder, Mutation, decode_batch};
 use libfuzzer_sys::fuzz_target;
 
 fn reencode(mutations: &[Mutation<'_>]) -> Vec<u8> {

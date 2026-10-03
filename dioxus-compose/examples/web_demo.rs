@@ -10,7 +10,7 @@
 //! dioxus-compose-renderer/web/scripts/build-host.sh
 //! ```
 
-use dioxus_compose::prelude::*;
+use compose_rust::prelude::*;
 
 fn app() -> Element {
     let mut messages = use_signal(Vec::<String>::new);
@@ -52,4 +52,4 @@ fn app() -> Element {
     }
 }
 
-dioxus_compose::web_main!(app);
+compose_rust::web_main!(app);

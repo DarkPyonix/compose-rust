@@ -150,7 +150,9 @@ internal fun HostBadge(
     if (children.isEmpty()) {
         // On its own there is nothing to add the description to, so the mark carries it,
         // in full rather than in the shortened form the mark may show.
-        BadgeMark(node, style, theme, modifier, standalone = true)
+        // The node's own modifier carries the node's test tag; the mark is a layout node of
+        // its own inside it, so the two tags do not compete for one node.
+        Box(modifier) { BadgeMark(node, style, theme, Modifier, standalone = true) }
         return
     }
     val description = remember(node) { derivedStateOf { node.badgeContent().description() } }
@@ -220,13 +222,15 @@ private fun BadgeMark(
     val role = node.badgeRole()
     val fill = theme.color(role)
     val ink = theme.color(contentOn(role))
-    val described = if (standalone) {
+    // The tag goes outside the semantics that are cleared: clearAndSetSemantics drops every
+    // semantics modifier after it on the chain, a test tag included.
+    val tag = modifier.testTag(badgeMarkTestTag(node.id))
+    val tagged = if (standalone) {
         val spoken = content.description()
-        modifier.clearAndSetSemantics { contentDescription = spoken }
+        tag.clearAndSetSemantics { contentDescription = spoken }
     } else {
-        modifier.clearAndSetSemantics { }
+        tag.clearAndSetSemantics { }
     }
-    val tagged = described.testTag(badgeMarkTestTag(node.id))
     val ringed = if (style.ringWidth > 0.dp) {
         tagged.border(style.ringWidth, style.ring, style.shape)
     } else {

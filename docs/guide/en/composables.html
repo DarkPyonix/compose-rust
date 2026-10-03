@@ -77,7 +77,7 @@
 
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
       <figcaption>rust</figcaption>
-<pre><code><span class="k">use</span> dioxus_compose::prelude::*;</code></pre>
+<pre><code><span class="k">use</span> compose_rust::prelude::*;</code></pre>
     </figure>
 
     <p>
@@ -91,7 +91,7 @@
     </p>
 
     <div class="warn">
-      <span class="label">Write <code>dioxus_compose::Box</code>, not <code>Box</code></span>
+      <span class="label">Write <code>compose_rust::Box</code>, not <code>Box</code></span>
       <p>
         The <code>rsx!</code> expansion in dioxus-core 0.7 refers to an unqualified
         <code>Box&lt;T&gt;</code> internally. Exporting the Compose <code>Box</code> through the
@@ -105,7 +105,7 @@
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
       <figcaption>rust</figcaption>
 <pre><code><span class="f">rsx!</span> {
-    dioxus_compose::<span class="ty">Box</span> {
+    compose_rust::<span class="ty">Box</span> {
         <span class="at">fill_max_width</span>: <span class="k">true</span>,
         <span class="at">alignment</span>: <span class="ty">Alignment</span>::Center,
         <span class="ty">Text</span> { <span class="at">text</span>: <span class="s">"centred"</span> }
@@ -340,7 +340,7 @@
     <p>
       An overlay container: children are stacked on top of one another and placed by
       <code>alignment</code>. It takes <code>alignment</code> and its children, and nothing else of
-      its own. Write it as <code>dioxus_compose::Box</code>.
+      its own. Write it as <code>compose_rust::Box</code>.
     </p>
 
     <h3>ScrollColumn</h3>
@@ -1087,7 +1087,7 @@
 <footer class="site">
   <div class="inner">
     <span>dioxus-compose &middot; Apache License 2.0</span>
-    <span><a class="footer-repo" href="https://github.com/DarkPyonix/dioxus-compose">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/INTENT.md">INTENT.md</a></span>
+    <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/INTENT.md">INTENT.md</a></span>
     <span>Guide last reviewed against the repository on 2026-09-22</span>
   </div>
 </footer>

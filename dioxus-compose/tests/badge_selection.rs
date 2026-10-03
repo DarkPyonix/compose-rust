@@ -1,9 +1,9 @@
 //! Widget tags 40 and 41: a badge, attached to a child or standing on its own, and a region
 //! whose text can be selected and copied. Each is taken through the wire and back.
 
-use dioxus_compose::prelude::*;
-use dioxus_compose::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
-use dioxus_compose::{EventPayload, Host, PropertyKind, WidgetKind};
+use compose_rust::prelude::*;
+use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
+use compose_rust::{EventPayload, Host, PropertyKind, WidgetKind};
 
 /// One decoded record, with borrowed strings turned into owned ones so the batch can be
 /// dropped and the record compared.
@@ -359,7 +359,7 @@ fn fr33_the_selectable_text_is_the_text_inside_the_region() {
 /// clipboard from the Renderer, so the copied text never crosses either.
 #[test]
 fn fr33_no_event_tag_exists_for_selecting_or_copying() {
-    for event in dioxus_compose::schema::EVENT_SCHEMA {
+    for event in compose_rust::schema::EVENT_SCHEMA {
         let name = event.name.to_ascii_lowercase();
         assert!(
             !name.contains("select") && !name.contains("copy") && !name.contains("clipboard"),

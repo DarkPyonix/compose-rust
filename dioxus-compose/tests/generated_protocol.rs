@@ -1,9 +1,9 @@
-use dioxus_compose::codegen::{
+use compose_rust::codegen::{
     generate_event_vector, generate_kotlin, generate_mutation_vector, generate_vector_description,
 };
-use dioxus_compose::protocol::{HostEvent, decode_event, encode_event};
-use dioxus_compose::tokens::DESIGN_TOKENS;
-use dioxus_compose::{EventPayload, Key};
+use compose_rust::protocol::{HostEvent, decode_event, encode_event};
+use compose_rust::tokens::DESIGN_TOKENS;
+use compose_rust::{EventPayload, Key};
 
 #[test]
 fn fr7_generated_kotlin_matches_schema() {
@@ -35,7 +35,7 @@ fn fr7_generated_kotlin_matches_schema() {
             "/../dioxus-compose-renderer/desktop/src/protocol/Protocol.gen.kt"
         )),
         generated,
-        "generated Kotlin is stale; run `cargo run -p dioxus-compose --bin codegen`",
+        "generated Kotlin is stale; run `cargo run -p compose-rust --bin codegen`",
     );
 }
 
@@ -68,17 +68,17 @@ fn fr7_generated_vectors_match_schema() {
     assert_eq!(
         include_bytes!("vectors/mutations.bin").as_slice(),
         generate_mutation_vector().unwrap(),
-        "mutation vector is stale; run `cargo run -p dioxus-compose --bin codegen`",
+        "mutation vector is stale; run `cargo run -p compose-rust --bin codegen`",
     );
     assert_eq!(
         include_bytes!("vectors/events.bin").as_slice(),
         generate_event_vector().unwrap(),
-        "event vector is stale; run `cargo run -p dioxus-compose --bin codegen`",
+        "event vector is stale; run `cargo run -p compose-rust --bin codegen`",
     );
     assert_eq!(
         include_str!("vectors/vectors.json"),
         generate_vector_description(),
-        "vector description is stale; run `cargo run -p dioxus-compose --bin codegen`",
+        "vector description is stale; run `cargo run -p compose-rust --bin codegen`",
     );
 }
 

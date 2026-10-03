@@ -1,7 +1,7 @@
 //! What the playground is made of: the three groups and the marks drawn on the hero.
 
-use dioxus_compose::prelude::*;
-use dioxus_compose::{DrawList, DrawListBuilder};
+use compose_rust::prelude::*;
+use compose_rust::{DrawList, DrawListBuilder};
 
 /// The three groups of the playground, which is what the tab strip selects.
 ///

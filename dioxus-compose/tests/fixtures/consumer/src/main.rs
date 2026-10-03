@@ -1,4 +1,4 @@
-//! An application that depends on `dioxus-compose` and nothing else.
+//! An application that depends on `compose-rust` and nothing else.
 //!
 //! Run with `--launch` to open the window. Without it the program returns as soon as it
 //! starts, which is what `scripts/tests/consumer-crate.test.sh` wants: by the time `main`
@@ -10,7 +10,7 @@
 //! That is what makes the renderer a load-time dependency of this executable rather than
 //! a library the linker drops for being unused.
 
-use dioxus_compose::prelude::*;
+use compose_rust::prelude::*;
 
 fn app() -> Element {
     rsx! {
