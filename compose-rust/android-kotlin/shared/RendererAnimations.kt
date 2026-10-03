@@ -158,13 +158,18 @@ internal object WebAnimationTiming {
         return (step / jumps).toFloat()
     }
 
-    /** One keyframe's timing function applied to the progress through its segment. */
-    fun ease(timing: Timing, input: Float, beforeFlag: Boolean): Float = when (timing) {
+    /**
+     * One keyframe's timing function applied to the progress through its segment. [curve]
+     * is the keyframe's cubic-bezier, made once when the animation arrives, so easing a
+     * frame allocates nothing.
+     */
+    fun ease(timing: Timing, input: Float, beforeFlag: Boolean, curve: CubicBezierEasing? = null): Float = when (timing) {
         Timing.Linear -> input
         is Timing.CubicBezier -> when {
             // Outside 0..1 a cubic-bezier is extended along its end tangents; inside, it is
             // Compose's own curve.
-            input in 0f..1f -> CubicBezierEasing(timing.x1, timing.y1, timing.x2, timing.y2).transform(input)
+            input in 0f..1f ->
+                (curve ?: CubicBezierEasing(timing.x1, timing.y1, timing.x2, timing.y2)).transform(input)
             input < 0f -> if (timing.x1 > 0f) input * timing.y1 / timing.x1 else 0f
             else -> if (timing.x2 < 1f) 1f + (input - 1f) * (1f - timing.y2) / (1f - timing.x2) else 1f
         }
@@ -228,7 +233,11 @@ class AnimatedNode internal constructor() {
  */
 class AnimationTable internal constructor(private val table: NodeTable) {
 
-    private class Entry(val animation: Animation) {
+    private class Entry(val animation: Animation, val holder: AnimatedNode) {
+        /** Each keyframe's cubic-bezier, made once here rather than every frame. */
+        val curves: Array<CubicBezierEasing?> = Array(animation.keyframes.size) { index ->
+            (animation.keyframes[index].timing as? Timing.CubicBezier)?.let { CubicBezierEasing(it.x1, it.y1, it.x2, it.y2) }
+        }
         /** Resolved on the first frame where the record said zero. Nanoseconds. */
         var startNanos: Long = animation.startTimeNanos
         var pausedAtNanos: Long = if (animation.playState == PlayState.Paused) PAUSED_AT_START else NOT_PAUSED
@@ -264,9 +273,10 @@ class AnimationTable internal constructor(private val table: NodeTable) {
                 it.animation.property == animation.property &&
                 it.animation.slot == animation.slot
         }
-        entries += Entry(animation)
+        val holder = animated(animation.nodeId)
+        entries += Entry(animation, holder)
         if (animation.property == AnimatedProperty.Transform) {
-            animated(animation.nodeId).twoLayers.value = true
+            holder.twoLayers.value = true
         }
         generation.intValue += 1
     }
@@ -281,7 +291,7 @@ class AnimationTable internal constructor(private val table: NodeTable) {
         when (mutation.op) {
             AnimationControl.Cancel -> {
                 entries.remove(entry)
-                clearValue(mutation.nodeId, mutation.property)
+                clearValue(entry.holder, mutation.property)
             }
             else -> {
                 if (mutation.atTimeNanos == 0L) {
@@ -335,7 +345,7 @@ class AnimationTable internal constructor(private val table: NodeTable) {
             val problem = baseProblem(animation)
             if (problem != null) {
                 iterator.remove()
-                clearValue(animation.nodeId, animation.property)
+                clearValue(entry.holder, animation.property)
                 if (entry.newInBatch) fail(TableError.INVALID_ANIMATION, problem)
             }
             entry.newInBatch = false
@@ -355,8 +365,14 @@ class AnimationTable internal constructor(private val table: NodeTable) {
     }
 
     /** Whether any animation is waiting to start or still running, and so needs frames. */
-    internal fun needsFrames(): Boolean = entries.any { entry ->
-        !entry.finished && (entry.pausedAtNanos == NOT_PAUSED || entry.pendingControl != null || !entry.started)
+    internal fun needsFrames(): Boolean {
+        for (index in entries.indices) {
+            val entry = entries[index]
+            if (!entry.finished && (entry.pausedAtNanos == NOT_PAUSED || entry.pendingControl != null || !entry.started)) {
+                return true
+            }
+        }
+        return false
     }
 
     /**
@@ -367,7 +383,8 @@ class AnimationTable internal constructor(private val table: NodeTable) {
     internal fun tick(frameNanos: Long, theme: ResolvedTheme, dispatch: (HostEvent) -> Unit) {
         pendingEvents.clear()
         // Settle starts and controls that were waiting for a frame time, and evaluate.
-        for (entry in entries) {
+        for (position in entries.indices) {
+            val entry = entries[position]
             val animation = entry.animation
             if (!entry.started) {
                 entry.started = true
@@ -407,7 +424,7 @@ class AnimationTable internal constructor(private val table: NodeTable) {
                 // Ended with no fill: it is gone, and the underlying value shows again
                 // unless another slot still has one.
                 entries.removeAt(index)
-                clearValue(animation.nodeId, animation.property)
+                clearValue(entry.holder, animation.property)
                 continue
             }
             index++
@@ -423,17 +440,24 @@ class AnimationTable internal constructor(private val table: NodeTable) {
                     break
                 }
             }
-            if (first) writeWinner(animation.nodeId, animation.property, frameNanos, theme)
+            if (first) writeWinner(entries[position].holder, animation.nodeId, animation.property, frameNanos, theme)
         }
         // Handed over once every value is written: a handler that starts the next animation
         // has it applied in this same frame, before anything is drawn.
-        for (event in pendingEvents) dispatch(event)
+        for (position in pendingEvents.indices) dispatch(pendingEvents[position])
         pendingEvents.clear()
     }
 
-    private fun writeWinner(nodeId: Int, property: AnimatedProperty, frameNanos: Long, theme: ResolvedTheme) {
+    private fun writeWinner(
+        node: AnimatedNode,
+        nodeId: Int,
+        property: AnimatedProperty,
+        frameNanos: Long,
+        theme: ResolvedTheme,
+    ) {
         var winner: Entry? = null
-        for (entry in entries) {
+        for (position in entries.indices) {
+            val entry = entries[position]
             val animation = entry.animation
             if (animation.nodeId != nodeId || animation.property != property) continue
             if (winner == null || animation.slot > winner.animation.slot) {
@@ -441,7 +465,7 @@ class AnimationTable internal constructor(private val table: NodeTable) {
             }
         }
         if (winner == null) {
-            clearValue(nodeId, property)
+            clearValue(node, property)
             return
         }
         val time = if (winner.pausedAtNanos != NOT_PAUSED) winner.pausedAtNanos else frameNanos
@@ -463,9 +487,8 @@ class AnimationTable internal constructor(private val table: NodeTable) {
         val to = keyframes[segment + 1]
         val span = to.offset - from.offset
         val local = if (span == 0f) 0f else (p - from.offset) / span
-        val eased = WebAnimationTiming.ease(from.timing, local, sample.beforeFlag)
+        val eased = WebAnimationTiming.ease(from.timing, local, sample.beforeFlag, winner.curves[segment])
         val fromValue: Any = if (segment == 0 && winner.fromPresented != null) winner.fromPresented!! else from.value
-        val node = animated(nodeId)
         when (property) {
             AnimatedProperty.Alpha -> {
                 val start = (fromValue as? KeyframeValue.Alpha)?.value ?: (fromValue as Float)
@@ -502,8 +525,7 @@ class AnimationTable internal constructor(private val table: NodeTable) {
         return sample.inEffect
     }
 
-    private fun clearValue(nodeId: Int, property: AnimatedProperty) {
-        val node = nodes[nodeId] ?: return
+    private fun clearValue(node: AnimatedNode, property: AnimatedProperty) {
         when (property) {
             AnimatedProperty.Alpha -> if (!node.alpha.floatValue.isNaN()) node.alpha.floatValue = Float.NaN
             AnimatedProperty.Color -> if (node.textColor.longValue != AnimatedNode.NO_COLOR) node.textColor.longValue = AnimatedNode.NO_COLOR
@@ -613,7 +635,7 @@ class AnimationTable internal constructor(private val table: NodeTable) {
     private fun transformBetween(from: Any, to: KeyframeValue.Transform, t: Float, into: FloatArray) {
         if (from is KeyframeValue.Transform && from.functions.size == to.functions.size) {
             identity(into)
-            for (index in from.functions.indices) {
+            for (index in 0 until from.functions.size) {
                 val a = from.functions[index]
                 val b = to.functions[index]
                 if (a.kind == TransformFunctionKind.Matrix) {
@@ -638,7 +660,8 @@ class AnimationTable internal constructor(private val table: NodeTable) {
 
     private fun fold(functions: List<TransformFunction>, into: FloatArray) {
         identity(into)
-        for (function in functions) {
+        for (index in 0 until functions.size) {
+            val function = functions[index]
             functionMatrix(function, 0f, null, scratch)
             multiply(into, scratch, into)
         }
