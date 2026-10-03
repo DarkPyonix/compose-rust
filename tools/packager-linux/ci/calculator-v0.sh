@@ -12,7 +12,8 @@
 # function it does not export (a renderer and host from different commits), and the
 # renderer sits beside the executable rather than in lib/, where AWT looks for its
 # companions. So the workflow builds the calculator at the v0.0.0 tag of
-# DarkPyonix/dioxus-compose against that tag's own released renderer. That is a Rust
+# DarkPyonix/dioxus-compose against that tag's own released renderer. At that tag the
+# renderer is a feature that is off by default, so the build turns it on. That is a Rust
 # build only; the renderer is the published artifact, checked by its digest.
 
 set -euo pipefail
@@ -35,7 +36,7 @@ echo "$renderer_sha256  $work/renderer.tar.gz" | sha256sum -c -
 tar -xzf "$work/renderer.tar.gz" -C "$work/renderer"
 
 (cd "$work/dioxus-compose" &&
-    DIOXUS_COMPOSE_RENDERER_DIR="$work/renderer" cargo build --quiet --release -p sample-calculator)
+    DIOXUS_COMPOSE_RENDERER_DIR="$work/renderer" cargo build --quiet --release -p sample-calculator --features dioxus-compose/native-renderer)
 
 stage="$work/calculator/calculator"
 rm -rf "$work/calculator"
@@ -46,5 +47,10 @@ cp -a "$work/renderer/lib/." "$stage/lib/"
 # bundle-renderer.sh only sets the rpath when it had a path to rewrite.
 patchelf --set-rpath '$ORIGIN/lib' "$stage/sample-calculator"
 readelf -d "$stage/sample-calculator" | grep -E '\((NEEDED|RUNPATH|RPATH)\)'
+# The renderer is not optional: an executable built without it exits without a window.
+readelf -d "$stage/sample-calculator" | grep -q 'libdioxus_compose_renderer.so' || {
+    echo "error: the calculator was built without the renderer" >&2
+    exit 1
+}
 tar -czf "$work/calculator-linux-x64.tar.gz" -C "$work/calculator" calculator
 sha256sum "$work/calculator-linux-x64.tar.gz"
