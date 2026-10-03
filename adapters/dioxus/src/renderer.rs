@@ -463,9 +463,8 @@ impl ComposeRenderer {
                             KeyframeValue::Paint(paint.target),
                             paint.spec,
                         )
-                    } else if let Some(offset) =
-                        any.downcast_ref::<crate::hooks::Animated<(f32, f32)>>()
-                    {
+                    } else {
+                        let offset = any.downcast_ref::<crate::hooks::Animated<(f32, f32)>>()?;
                         let (x, y) = offset.target;
                         (
                             Modifier::Transform {
@@ -484,8 +483,6 @@ impl ComposeRenderer {
                             ])),
                             offset.spec,
                         )
-                    } else {
-                        return None;
                     };
                 if !self.animated.insert((node_id, name)) {
                     let animation_id = self.next_animation_id;
