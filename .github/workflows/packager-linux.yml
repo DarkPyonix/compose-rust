@@ -27,6 +27,7 @@ on:
       - scripts/packager-linux/**
       - compose-rust/src/update.rs
       - compose-rust/tests/appimage_update.rs
+      - .github/scripts/packager-linux-calculator-v0.sh
       - .github/workflows/packager-linux.yml
   workflow_dispatch:
 
@@ -283,8 +284,9 @@ jobs:
 
       - name: Wrap a calculator as an AppImage and start it
         # A calculator whose executable and renderer belong together: the v0.0.0 tag
-        # built against its own released renderer (ci/calculator-v0.sh says why the
-        # published sample archives cannot be used). That renderer exists for x86_64
+        # built against its own released renderer
+        # (.github/scripts/packager-linux-calculator-v0.sh says why the published sample
+        # archives cannot be used). That renderer exists for x86_64
         # only, so on aarch64 there is nothing that can start, and the step says so.
         run: |
           set -euo pipefail
@@ -292,7 +294,7 @@ jobs:
             echo "::notice title=No aarch64 calculator::no renderer was published for linux-arm64 at v0.0.0; the self-update steps above ran on aarch64"
             exit 0
           fi
-          scripts/packager-linux/ci/calculator-v0.sh work
+          .github/scripts/packager-linux-calculator-v0.sh work
           # Unsigned: these are test builds, and the signing key is not created yet.
           scripts/packager-linux/appimage.sh \
             --dioxus-toml samples/calculator/Dioxus.toml \
@@ -408,7 +410,7 @@ jobs:
       - name: Package a calculator as a prebuilt archive and start it in the sandbox
         run: |
           set -euo pipefail
-          scripts/packager-linux/ci/calculator-v0.sh work
+          .github/scripts/packager-linux-calculator-v0.sh work
           mkdir -p work/flatpak-calculator
           cp work/calculator-linux-x64.tar.gz work/flatpak-calculator/
           # flatpak talks to its system helper over the session bus, which a runner has

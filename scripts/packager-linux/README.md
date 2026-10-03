@@ -18,7 +18,6 @@ application's `Dioxus.toml`:
 | `FLATHUB.md` | Checklist for submitting to Flathub |
 | `samples.toml` | Store facts shared by the sample applications, passed as an overlay |
 | `demo/` | The small program the packaging workflow updates from 1.0.0 to 1.0.1 |
-| `ci/` | Helpers the packaging workflow uses |
 
 Run `packager-linux` with no arguments for its options. `.github/workflows/packager-linux.yml`
 runs everything here on GitHub's Ubuntu runners.

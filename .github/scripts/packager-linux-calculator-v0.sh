@@ -2,7 +2,7 @@
 # Stages a calculator whose executable and renderer belong together, for the packaging
 # workflow to wrap and start. x86_64 only.
 #
-#     scripts/packager-linux/ci/calculator-v0.sh <work dir>
+#     .github/scripts/packager-linux-calculator-v0.sh <work dir>
 #
 # leaves <work dir>/calculator/ (the executable, and the renderer in lib/ beside it) and
 # <work dir>/calculator-linux-x64.tar.gz (the same directory as a release archive).
@@ -19,7 +19,7 @@
 set -euo pipefail
 
 work="$1"
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 renderer_url=https://github.com/DarkPyonix/dioxus-compose/releases/download/v0.0.0/dioxus-compose-renderer-v0.0.0-linux-x64.tar.gz
 renderer_sha256=5fe6ba31e359753a8e3c3a743f2f8ecadac409fda2634ba3b569e00f27ec19aa
 
