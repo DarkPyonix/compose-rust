@@ -190,7 +190,7 @@
       and disappears on a dark one).
     </p>
 
-    <h3 id="colorrole">ColorRole: 23 roles</h3>
+    <h3 id="colorrole">ColorRole: 45 roles</h3>
     <p>
       Every role that names ink is paired with the surface it reads on. <code>OnPrimary</code> is
       the ink for something filled with <code>Primary</code>, and so on down the table.
@@ -289,6 +289,28 @@
         </tbody>
       </table>
     </div>
+
+    <h3 id="coderoles">Code colours</h3>
+    <p>
+      Twenty two more colour roles paint code: <code>SyntaxKeyword</code>, <code>SyntaxString</code>,
+      <code>SyntaxComment</code>, <code>SyntaxNumber</code>, <code>SyntaxConstant</code>,
+      <code>SyntaxType</code>, <code>SyntaxFunction</code>, <code>SyntaxVariable</code>,
+      <code>SyntaxProperty</code>, <code>SyntaxOperator</code>, <code>SyntaxPunctuation</code>,
+      <code>SyntaxTag</code>, <code>SyntaxAttribute</code>, <code>SyntaxEscape</code>,
+      <code>SyntaxMacro</code>, and for a diff <code>DiffAdded</code>, <code>DiffRemoved</code>,
+      <code>DiffModified</code>, the line backgrounds <code>DiffAddedContainer</code> and
+      <code>DiffRemovedContainer</code>, and the backgrounds behind the words that changed,
+      <code>DiffAddedEmphasis</code> and <code>DiffRemovedEmphasis</code>. Each system answers them
+      from its own platform's code editor (Xcode, VS Code, GtkSourceView, KSyntaxHighlighting), and
+      every syntax ink reads at 4.5:1 on <code>SurfaceContainer</code>, the panel a code block sits on.
+    </p>
+    <p>
+      The highlighter stays on the Rust side. <code>highlight::role_for_highlight</code> turns a
+      tree-sitter capture name such as <code>keyword.return</code> into a role, and
+      <code>highlight::highlight_span</code> makes the run for it, so what crosses is a role and
+      never a literal colour. A diff line is a <code>Row</code> whose background is the line's
+      container, and the changed word is a run with a background (see Text below).
+    </p>
 
     <h2 id="layout">Layout</h2>
 
@@ -418,6 +440,15 @@
     <p class="fineprint">
       The design system decides: the whole type ladder, and what colour
       <code>OnSurfaceVariant</code> is in light and in dark.
+    </p>
+
+    <p>
+      Runs inside one string travel as <code>spans</code>, a <code>TextSpans</code> list. Each
+      <code>TextSpan</code> covers a byte range and can carry a type role, a text colour, bold,
+      italic, underline, strikethrough, a link handler, and with <code>with_background</code> a
+      <code>Paint</code> painted behind its letters only, line by line where it wraps. That is how
+      the word that changed inside a changed line is marked: the line's background is the row's, and
+      the word's is the run's.
     </p>
 
     <h3>TextField</h3>
@@ -703,6 +734,33 @@
       its shape and whether 120 is written out or cut to <code>99+</code> are the design system's,
       so the same declaration sits on the corner in one system and at the end of the line in
       another. What it says is read out as part of the child it is attached to, never on its own.
+    </p>
+
+    <h3>SplitPane</h3>
+    <p>
+      A side pane and a body with a divider between them. Exactly two children, the side pane first;
+      it sits at the start of the reading direction. <code>value</code>
+      (<code>Option&lt;f32&gt;</code>, dp) is the width the side pane opens at, left out for the
+      design system's sidebar width; <code>min</code> and <code>max</code> bound the drag.
+      The drag never reaches Rust while it moves: <code>on_change</code> is called once with the
+      width it was let go at, and once when a width set from the keyboard is released. Write it
+      back into the signal that feeds <code>value</code>, the way a slider's value is kept, so the
+      next run can open at the same width. With <code>collapsible</code>, dragging past the minimum
+      folds the side pane and <code>on_change</code> reports <code>0.0</code>;
+      <code>value: 0.0</code> opens it folded, and a sidebar toggle is a button that sends
+      <code>0.0</code> or the last width.
+    </p>
+    <p>
+      In a narrow place, measured by the split pane's own width rather than the window's, the
+      design system may lay the side pane over the body or show one pane at a time.
+      <code>selected_index</code> then says which (<code>0</code> the side pane, <code>1</code> the
+      body), and going back from the body (the platform's back, or the back button the system
+      draws) shows the side pane at once and calls <code>on_dismiss</code>, which is where the
+      application sends <code>0</code> again. Narrowing the window squeezes the side pane without
+      reporting anything, and widening it brings the chosen width back. The divider takes focus:
+      the arrow keys move it, Home and End go to the ends, Enter folds and unfolds, and
+      <code>label</code> names it for a screen reader. How the divider looks is the design
+      system's: a hairline, a grip, or only a gap.
     </p>
 
     <h2 id="lists">Windowed lists</h2>

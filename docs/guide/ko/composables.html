@@ -189,7 +189,7 @@
       있고(브랜드 색), 대개는 아닙니다(밝은 페이지에서는 읽히고 어두운 페이지에서는 사라지는 색).
     </p>
 
-    <h3 id="colorrole">ColorRole: 23개의 역할</h3>
+    <h3 id="colorrole">ColorRole: 45개의 역할</h3>
     <p>
       잉크를 가리키는 역할에는 그 잉크가 얹히는 면이 짝으로 붙어 있습니다.
       <code>OnPrimary</code>는 <code>Primary</code>로 채운 것 위의 잉크이고, 표 전체가 그렇습니다.
@@ -287,6 +287,28 @@
         </tbody>
       </table>
     </div>
+
+    <h3 id="coderoles">코드 색</h3>
+    <p>
+      코드를 칠하는 색 역할이 스물두 개 더 있습니다. 문법 역할 열다섯(<code>SyntaxKeyword</code>,
+      <code>SyntaxString</code>, <code>SyntaxComment</code>, <code>SyntaxNumber</code>,
+      <code>SyntaxConstant</code>, <code>SyntaxType</code>, <code>SyntaxFunction</code>,
+      <code>SyntaxVariable</code>, <code>SyntaxProperty</code>, <code>SyntaxOperator</code>,
+      <code>SyntaxPunctuation</code>, <code>SyntaxTag</code>, <code>SyntaxAttribute</code>,
+      <code>SyntaxEscape</code>, <code>SyntaxMacro</code>)과 diff의 <code>DiffAdded</code>,
+      <code>DiffRemoved</code>, <code>DiffModified</code>, 줄 배경 <code>DiffAddedContainer</code>,
+      <code>DiffRemovedContainer</code>, 바뀐 글자의 배경 <code>DiffAddedEmphasis</code>,
+      <code>DiffRemovedEmphasis</code>입니다. 각 시스템이 자기 플랫폼의 코드 편집기(Xcode, VS Code,
+      GtkSourceView, KSyntaxHighlighting) 배색으로 답하고, 문법 역할은 코드 블록이 놓이는
+      <code>SurfaceContainer</code> 위에서 모두 4.5:1을 지킵니다.
+    </p>
+    <p>
+      강조기는 Rust 쪽에 있습니다. <code>highlight::role_for_highlight</code>가
+      <code>keyword.return</code> 같은 tree-sitter 이름을 역할로 바꾸고
+      <code>highlight::highlight_span</code>이 그 구간을 만들므로, 경계를 넘는 것은 역할이지 리터럴
+      색이 아닙니다. diff 한 줄은 배경이 그 줄의 컨테이너인 <code>Row</code>이고, 바뀐 단어는 배경을
+      가진 구간입니다(아래 Text).
+    </p>
 
     <h2 id="layout">레이아웃</h2>
 
@@ -414,6 +436,14 @@
     <p class="fineprint">
       디자인 시스템이 정하는 것: 타입 사다리 전체, 그리고 밝을 때와 어두울 때
       <code>OnSurfaceVariant</code>가 어떤 색인지.
+    </p>
+
+    <p>
+      한 문자열 안의 구간은 <code>spans</code>(<code>TextSpans</code> 목록)로 갑니다.
+      <code>TextSpan</code> 하나가 바이트 범위를 덮고 타입 역할, 글자색, 굵게, 기울임, 밑줄, 취소선,
+      링크 핸들러를 실을 수 있으며, <code>with_background</code>로 그 글자 뒤에만 칠하는
+      <code>Paint</code>를 더합니다. 줄이 바뀌면 줄마다 따로 칠합니다. 바뀐 줄 안에서 실제로 바뀐
+      단어를 표시하는 방법이 이것입니다. 줄의 배경은 행의 것이고, 단어의 배경은 구간의 것입니다.
     </p>
 
     <h3>TextField</h3>
@@ -694,6 +724,29 @@
       탐색 항목)에 붙고, 없으면 혼자 섭니다(목록 행 끝의 개수). 붙는 자리, 모양, 120을 그대로 쓸지
       <code>99+</code>로 줄일지는 디자인 시스템이 정하므로, 같은 선언이 어떤 시스템에서는 모서리에, 다른
       시스템에서는 줄 끝에 놓입니다. 배지의 내용은 붙은 자식의 설명에 덧붙어 읽히고 따로 읽히지 않습니다.
+    </p>
+
+    <h3>SplitPane</h3>
+    <p>
+      옆 칸과 본문, 그리고 그 사이의 경계선입니다. 자식은 정확히 둘이고 첫째가 옆 칸이며, 옆 칸은 읽는
+      방향의 시작 쪽에 놓입니다. <code>value</code>(<code>Option&lt;f32&gt;</code>, dp)가 옆 칸이 여는
+      폭이고, 빼면 디자인 시스템의 사이드바 폭입니다. <code>min</code>과 <code>max</code>가 끌 수 있는
+      범위입니다. 끄는 동안에는 Rust로 아무것도 오지 않습니다. <code>on_change</code>는 놓은 폭으로
+      한 번, 키보드로 바꾼 폭은 키를 뗄 때 한 번 불립니다. 슬라이더처럼 그 값을 <code>value</code>를
+      채우는 신호에 다시 써 두면 다음 실행에서 같은 폭으로 열 수 있습니다. <code>collapsible</code>이면
+      최소보다 더 끌어 옆 칸을 접고 <code>on_change</code>가 <code>0.0</code>을 보고합니다.
+      <code>value: 0.0</code>은 접힌 채로 열고, 사이드바 토글은 <code>0.0</code>과 마지막 폭을 보내는
+      버튼입니다.
+    </p>
+    <p>
+      좁은 자리에서는(창이 아니라 분할 창 자신의 폭으로 셉니다) 디자인 시스템이 옆 칸을 본문 위에
+      덮거나 한 칸씩 보입니다. 그때 <code>selected_index</code>가 어느 칸인지 말하고(<code>0</code>
+      옆 칸, <code>1</code> 본문), 본문에서 돌아오면(플랫폼의 뒤로 가기나 시스템이 그리는 뒤로 버튼)
+      곧바로 옆 칸이 보이고 <code>on_dismiss</code>가 불립니다. 앱은 거기서 <code>0</code>을 다시
+      보냅니다. 창을 좁혀 옆 칸이 줄어드는 것은 보고하지 않고, 다시 넓히면 정한 폭으로 돌아옵니다.
+      경계선은 포커스를 받습니다. 화살표가 옮기고 Home과 End가 양 끝으로 보내며 Enter가 접고 펼치고,
+      <code>label</code>이 화면 낭독기에게 이름을 줍니다. 경계선의 생김새(머리카락 선, 손잡이, 틈)는
+      디자인 시스템의 것입니다.
     </p>
 
     <h2 id="lists">윈도잉 목록</h2>
