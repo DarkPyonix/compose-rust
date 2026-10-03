@@ -991,9 +991,7 @@ compose_rust::ios_main!(launch);
 mod tests {
     use super::*;
     use compose_rust::Host;
-    use compose_rust::protocol::{
-        HostEvent, Mutation, PropertyValue, decode_batch, encode_event,
-    };
+    use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
     use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind};
     use std::alloc::{GlobalAlloc, Layout, System};
     use std::cell::Cell;

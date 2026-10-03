@@ -255,7 +255,7 @@ impl ComposeRenderer {
     ///
     /// Like a message it names no node: what it asks for happens outside the window, and
     /// the Renderer is the side that owns the platform it happens on.
-    pub fn notification(&mut self, command: &crate::notification::NotificationCommand) {
+    pub(crate) fn notification(&mut self, command: &crate::notification::NotificationCommand) {
         use crate::notification::NotificationCommand;
         match command {
             NotificationCommand::Post(notification) => {

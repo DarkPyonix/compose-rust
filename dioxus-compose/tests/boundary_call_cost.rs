@@ -16,9 +16,7 @@ use compose_rust::boundary::{
 };
 use compose_rust::prelude::*;
 use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
-use compose_rust::schema::{
-    EventPayload, PROTOCOL_VERSION, PropertyKind, SCHEMA_HASH, WidgetKind,
-};
+use compose_rust::schema::{EventPayload, PROTOCOL_VERSION, PropertyKind, SCHEMA_HASH, WidgetKind};
 
 fn app() -> Element {
     let mut typed = use_signal(String::new);

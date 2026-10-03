@@ -108,8 +108,17 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
             CARGO_HOME="${CARGO_HOME:-$real_home/.cargo}" \
             "$setup_check"
 
+    # The found branch, in a HOME that holds the published directory and nothing else.
+    # The real HOME is not asked: whether this machine has published Compose says nothing
+    # about whether the check recognises it, and a CI runner never has.
+    patched_version="$(sed -n 's/^PUBLISHED_AS="\([^"]*\)"$/\1/p' \
+        "$repo_root/dioxus-compose-renderer/scripts/build-compose.sh")"
+    mkdir -p "$empty_home/with-compose/.m2/repository/org/jetbrains/compose/ui/ui-macosarm64/$patched_version"
     assert_run "setup_check_names_the_patched_compose_it_found" 0 "patched Compose:" \
-        "$setup_check"
+        env -u GRAALVM_HOME HOME="$empty_home/with-compose" \
+            RUSTUP_HOME="${RUSTUP_HOME:-$real_home/.rustup}" \
+            CARGO_HOME="${CARGO_HOME:-$real_home/.cargo}" \
+            "$setup_check"
 fi
 
 printf '\n%d test(s), %d failure(s)\n' "$tests_run" "$tests_failed"

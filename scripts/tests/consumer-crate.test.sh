@@ -59,6 +59,25 @@ target="$repo_root/target/consumer-crate"
 export CARGO_TARGET_DIR="$target"
 
 echo "== building a crate that depends on compose-rust and nothing else"
+# The real renderer, found the way a consumer's build finds it: the published one for this
+# version unless the environment or the workspace has another.
+#
+# A branch can have no published renderer that fits it, for reasons this test is not
+# about: the schema moved since the release, so the build script refuses the release's
+# renderer, or the version moved ahead of a release that does not exist yet. Either stays
+# true on every branch until the next release, and no branch can fix it. What this test
+# checks is how the binary finds its renderer, and a library with the renderer's name and
+# this checkout's schema answers that just as well. So in those two cases, and only those,
+# stand-in-renderer.sh builds one and the test links it and says so. Every other failure
+# to find a renderer is a failure.
+stand_in="$("$repo_root/scripts/stand-in-renderer.sh" --if-refused "$target/stand-in-renderer")" ||
+    fail "the crate did not build"
+if [[ -n "$stand_in" ]]; then
+    echo "note  no published renderer fits this checkout, so it links a stand-in with this"
+    echo "      checkout's schema instead. Everything below holds for the stand-in exactly as"
+    echo "      for the real one."
+    export "${stand_in?}"
+fi
 cargo build --manifest-path "$fixture/Cargo.toml" --quiet
 
 binary="$target/debug/consumer"
@@ -104,10 +123,26 @@ count="$(rpath_count)"
     "It must load the renderer without one, because that is all a consumer's binary gets." \
     "An rpath here means something put it there and the absolute name is not being tested."
 
+exported_host_symbols() {
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        nm -gU "$binary"
+    else
+        nm -D --defined-only "$binary"
+    fi | grep -cE ' _?dioxus_compose_host_(init|dispatch_event|render_frame|release_batch|shutdown)$' || true
+}
+
+# The renderer finds the Host's entry points by name in the executable, which only works
+# if the executable exports them. That is decided here, at link time, whatever renderer
+# was linked, so it is read off the binary rather than left to a window to discover.
+exported="$(exported_host_symbols)"
+[[ "$exported" == "5" ]] || fail "the binary exports $exported of the Host's 5 entry points" \
+    "The renderer looks them up by name in the executable, so a missing one is a window" \
+    "that opens and stays empty."
+
 echo "== starting it"
 # Not --launch: this opens no window. By the time main runs, the loader has already found
-# the renderer, mapped it, and bound the dioxus_compose_host_* symbols it calls back into.
-# Those are the three things that used to fail and all three happen before main.
+# the renderer and mapped it, which is what used to fail, and the exports it calls back
+# into were checked above.
 "$binary" >/dev/null
 
 echo "ok    a crate depending only on compose-rust builds, has no rpath, and starts"

@@ -506,9 +506,7 @@ mod tests {
     use super::*;
 
     use compose_rust::Host;
-    use compose_rust::protocol::{
-        HostEvent, Mutation, PropertyValue, decode_batch, encode_event,
-    };
+    use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
     use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind};
 
     /// Named for what it defends: the reference is a dark design, and a machine set
