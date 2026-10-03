@@ -11,6 +11,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dioxus.compose.BadgePlacement
+import dioxus.compose.BadgeStyle
 import dioxus.compose.ButtonStyle
 import dioxus.compose.ButtonVariant
 import dioxus.compose.ColorRole
@@ -315,6 +317,24 @@ class GnomeDesignSystem private constructor(
         pressMillis = 200,
         releaseMillis = 200,
         easing = CubicBezierEasing(0.25f, 0.46f, 0.45f, 0.94f),
+    )
+
+    /**
+     * The count pill at the end of a libadwaita sidebar row: beside what it counts rather
+     * than on its corner, and written out in full.
+     */
+    override fun badge(): BadgeStyle = BadgeStyle(
+        placement = BadgePlacement.Trailing,
+        maxCount = null,
+        container = color(ColorRole.Error),
+        content = color(ColorRole.OnError),
+        height = 20.dp,
+        dotSize = 8.dp,
+        horizontalPadding = 7.dp,
+        shape = ShapeRole.Full,
+        labelSize = 12.sp,
+        ring = null,
+        ringWidth = 0.dp,
     )
 
     companion object {

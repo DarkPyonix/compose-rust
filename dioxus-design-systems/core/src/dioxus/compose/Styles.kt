@@ -4,6 +4,7 @@ import androidx.compose.animation.core.Easing
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 
 /**
  * What a raised surface looks like, as the three systems each understand raising.
@@ -230,3 +231,36 @@ data class IconStyle(
     /** Systems differ on whether an icon is drawn as an outline or filled in. */
     val filled: Boolean,
 )
+
+/**
+ * A small mark that says how many, that there is something new, or one short word.
+ *
+ * The systems disagree about more than its colour: where it goes, how big it is, and
+ * whether a large count is written out or cut at a ceiling. Material writes 120 out to
+ * 999, Fluent and the Linux systems that follow it cut at 99, and Apple shows the real
+ * number however large it is.
+ */
+@Immutable
+data class BadgeStyle(
+    val placement: BadgePlacement,
+    /** The largest count written out. Above it the mark reads this and a plus; null never cuts. */
+    val maxCount: Int?,
+    val container: Color,
+    val content: Color,
+    /** Height of a mark carrying a count or a word. It is never narrower than this. */
+    val height: Dp,
+    /** Diameter of a mark carrying neither. */
+    val dotSize: Dp,
+    val horizontalPadding: Dp,
+    val shape: ShapeRole,
+    val labelSize: TextUnit,
+    /** A ring separating the mark from what it overlaps, where the system draws one. */
+    val ring: Color?,
+    val ringWidth: Dp,
+) {
+    /** A count as this system writes it. */
+    fun label(count: Long): String {
+        val ceiling = maxCount ?: return count.toString()
+        return if (count > ceiling) "$ceiling+" else count.toString()
+    }
+}

@@ -12,6 +12,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dioxus.compose.BadgePlacement
+import dioxus.compose.BadgeStyle
 import dioxus.compose.ButtonStyle
 import dioxus.compose.ButtonVariant
 import dioxus.compose.ColorRole
@@ -219,6 +221,21 @@ class FluentDesignSystem private constructor(
         pressMillis = 100,
         releaseMillis = 150,
         easing = androidx.compose.animation.core.CubicBezierEasing(0.1f, 0.9f, 0.2f, 1f),
+    )
+
+    /** Fluent's `CounterBadge`: a round counter over the corner whose overflow count is 99. */
+    override fun badge(): BadgeStyle = BadgeStyle(
+        placement = BadgePlacement.Overlap,
+        maxCount = 99,
+        container = color(ColorRole.Error),
+        content = color(ColorRole.OnError),
+        height = 20.dp,
+        dotSize = 8.dp,
+        horizontalPadding = 6.dp,
+        shape = ShapeRole.Full,
+        labelSize = 12.sp,
+        ring = null,
+        ringWidth = 0.dp,
     )
 
     companion object {

@@ -69,8 +69,8 @@ pub struct EventSchema {
 /// Canonical schema text. Variant order is wire-significant and must only be appended to.
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "dioxus-compose/v1;",
-    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped;",
+    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,Badge,SelectionContainer;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,count;",
     "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material;",
     "keys=Enter;",
     "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped;",
@@ -315,6 +315,19 @@ crate::extensions::define_widget_schema_with_extensions!(define_wire_enum; WIDGE
     // not one is never offered as a target, so the platform shows no drop cursor over it
     // and nothing is reported.
     FileDropTarget = 36,
+    // Tags 37, 38 and 39 are taken by the horizontal scroll container, the chip and the
+    // floating action, which land separately. A reservation is not a free tag.
+    //
+    // A small mark on something else that says how many, that there is something new, or
+    // one short word. With one child it is attached to that child; with none it stands on
+    // its own, at the end of a row. Where it sits on the child, its shape, and how a large
+    // count is shortened are the design system's: nothing here can ask for a corner or a
+    // ceiling.
+    Badge = 40,
+    // A region whose text can be dragged over and copied, as one selection across every
+    // Text inside it. Text outside one cannot be selected. The selection and the copy are
+    // the Renderer's entirely, so nothing about either crosses the boundary.
+    SelectionContainer = 41,
 });
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -1418,6 +1431,12 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // 76 rather than 67, because 67 through 74 are reserved for the gestures and 75 for a
     // button's kind. A reservation is not a free tag.
     Section = 76,
+    // How many a badge counts. Absent rather than zero when the badge is a dot or a word,
+    // because "no count" and "a count of nothing" are different things to show.
+    //
+    // 80 opens a fresh block of ten for widget tags 40 onwards, after the last tag in use
+    // anywhere, so two pieces of work landing in either order cannot collide.
+    Count = 80,
 });
 
 #[derive(Clone, Debug, PartialEq)]
