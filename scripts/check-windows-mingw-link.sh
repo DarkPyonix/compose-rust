@@ -69,10 +69,18 @@ done
 [[ -n "$konanc" ]] || fail "no Kotlin/Native compiler in the toolchain cache" "Run build-windows.sh first."
 
 echo "== the Kotlin half, for mingwX64, as Kotlin/Native writes it"
-"$konanc" -produce static -target mingw_x64 -opt-in kotlin.experimental.ExperimentalNativeApi \
-    "$(cygpath -m "$fixture/Exceptions.kt")" -o "$(cygpath -m "$work/probe")" >"$work/konanc.log" 2>&1 ||
+# The arguments in a file, the way build-windows.sh hands them over: konanc is a batch file,
+# and what cmd.exe makes of arguments passed to one is not worth finding out twice.
+arguments="$work/konanc.args"
+printf '%s\n' -produce static -target mingw_x64 -opt-in kotlin.experimental.ExperimentalNativeApi \
+    "\"$(cygpath -m "$fixture/Exceptions.kt")\"" -o "\"$(cygpath -m "$work/probe")\"" > "$arguments"
+"$konanc" "@$(cygpath -m "$arguments")" >"$work/konanc.log" 2>&1 ||
     { cat "$work/konanc.log" >&2; fail "konanc did not build the probe"; }
-[[ -f "$work/probe.a" ]] || fail "konanc wrote no probe.a"
+if [[ ! -f "$work/probe.a" ]]; then
+    cat "$work/konanc.log" >&2
+    ls -la "$work" >&2
+    fail "konanc wrote no probe.a"
+fi
 cp "$work/probe.a" "$work/probe-unfixed.a"
 "$python" "$fixer" "$(cygpath -m "$work/probe.a")"
 

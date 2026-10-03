@@ -235,6 +235,7 @@ jobs:
         run: cargo test -p compose-rust --no-default-features --test windows_crt
 
       - name: Build the static renderer
+        id: renderer
         run: ./renderer/desktop/scripts/build-windows.sh
 
       - name: Show what the renderer build left behind
@@ -258,9 +259,11 @@ jobs:
           du -sh renderer/build/windows
 
       - name: Kotlin exceptions and startup in an MSVC executable, with and without the rewrite
+        if: always() && steps.renderer.outcome == 'success'
         run: ./scripts/check-windows-mingw-link.sh renderer/build/windows "$(cygpath -u "$RUNNER_TEMP")/mingw-link-probe"
 
       - name: Build, check, move and run an application
+        if: always() && steps.renderer.outcome == 'success'
         run: ./scripts/check-windows-consumer.sh renderer/build/windows "$(cygpath -u "$RUNNER_TEMP")/consumer-windows"
 
       - name: Keep the application
