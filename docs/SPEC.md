@@ -32,7 +32,8 @@
 │ 코드젠 심 (@CEntryPoint / @CName / JNI / wasm) │
 │ 프로토콜 디코더 → Node 테이블 (snapshot state)  │
 │ 스키마 인터프리터 @Composable RenderNode       │
-│ Compose Desktop(AWT) / Compose iOS(UIKit)    │
+│ 렌더러 소유 창 + Compose 장면 (AWT 없음)       │
+│   / Compose iOS(UIKit)                       │
 └──────────────────────────────────────────────┘
 ```
 
@@ -2467,6 +2468,9 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 - **2026-10-03(INTENT D2): 위의 Dioxus 관례는 dioxus-compose 층에 적용됩니다.** compose-rust 자신의 작성 API(FR-39)는 Compose의 이름을 Rust 관례로 옮겨 씁니다(`remember`, composable 함수, 상태 객체, effect). 두 층이 같은 개념을 가리킬 때 compose-rust 쪽 이름은 Compose를, dioxus-compose 쪽 이름은 Dioxus를 따릅니다.
 
 ### PR-8 macOS 런타임 요건 (`Done`)
+
+**2026-10-03(INTENT D4, NFR-14): 이 항목은 GraalVM native-image(AWT) 경로의 요건입니다.** 배포되는 macOS 렌더러는 이제 Kotlin/Native 정적 라이브러리이고 `java.home`도 `lib/`도 없습니다. 메인 스레드 요건(`RUN_NOT_MAIN_THREAD`)은 AppKit의 요건이므로 두 경로 모두에 적용됩니다.
+
 - 빌드 도구는 Liberica NIK 25 Full입니다(INTENT D9-macOS).
 - 배포 레이아웃은 `<root>/lib/` 하나이며 `java.home`은 그 부모입니다. 렌더러는 자기 라이브러리 경로를 dladdr로 얻어 `java.home`, `skiko.library.path`, `skiko.data.path`를 설정합니다.
 - `lib/`에 함께 두는 파일: 렌더러 라이브러리, Skia(`libskiko-macos-<arch>.dylib`), `libjawt.dylib` 포워더, `libawt_lwawt.dylib` 자리 채우기.
@@ -2489,11 +2493,12 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 | NFR-5 | 개발 경험 | Renderer는 JVM 개발 셸에서 hot reload와 `@Preview`로 작업 가능. native-image 빌드는 개발 루프에 필요 없음. 새 머신의 준비 상태를 `scripts/setup-check.sh` 한 번으로 확인 가능 | Agreed |
 | NFR-6 | 안정 API만 사용 | `@InternalComposeUiApi`, `@ExperimentalComposeUiApi` 의존을 금지하거나, 쓰더라도 어댑터 한 파일에 격리하고 버전 핀을 둠. **2026-09-22 충족**: 실험 API를 쓰는 파일은 `web/src/main.kt` 하나이고 `@OptIn`이 그 자리에 붙어 있습니다 | Done |
 | NFR-7 | 크래시 격리 | 프로토콜 오류로 프로세스가 종료되지 않고 `ProtocolError` 이벤트를 보냄 | Agreed |
-| NFR-8 | 데스크톱 접근성 | native-image 빌드의 접근성 트리가 JVM 개발 셸과 같은 구조로 노출될 것. smoke test의 종료 코드 0은 근거가 되지 않습니다(접근성을 질의하지 않으므로). **2026-09-21 트리 노출 충족**, VoiceOver 수동 확인은 미완료(§7) | Agreed |
+| NFR-8 | 데스크톱 접근성 | 배포 빌드(2026-10-03부터 AWT 없는 렌더러, NFR-14)의 접근성 트리가 JVM 개발 셸과 같은 구조로 노출될 것. smoke test의 종료 코드 0은 근거가 되지 않습니다(접근성을 질의하지 않으므로). **2026-09-21 트리 노출 충족**, VoiceOver 수동 확인은 미완료(§7) | Agreed |
 | NFR-9 | 네이티브 수준 프레임 성능 | §5.1 기준 충족 | Agreed |
 | NFR-10 | 렌더러 탐색 경로 | `DIOXUS_COMPOSE_RENDERER_DIR` → 워크스페이스 빌드 결과물 → 버전·타깃별 캐시 → 릴리스 다운로드 순서로 찾음. 규격과 수용 기준은 §5.3. **2026-09-21 충족** | Done |
 | NFR-11 | 배포 | 크레이트는 crates.io, 렌더러는 플랫폼별 체크섬 릴리스 아티팩트. 설치는 `Cargo.toml` 한 줄이 전부이고 빌드 스크립트가 아티팩트를 가져옵니다. 규격과 수용 기준은 §5.3 (INTENT D10). **2026-09-21 macOS에서 충족**, Windows와 Linux는 실행 확인 미완료 | Agreed |
 | NFR-12 | 워크트리 빌드 격리 | 워크트리마다 자기 `target/`에 빌드하고, 다른 워크트리의 빌드 디렉터리를 가리키는 설정이 없음. 한 트리에서 컴파일된 codegen 바이너리가 다른 트리에 쓸 수 없음. 규격과 수용 기준은 §5.4 (INTENT D16). **2026-09-22 충족** | Done |
+| NFR-14 | AWT 없는 데스크톱 렌더러가 기본 | 배포되는 데스크톱 렌더러가 AWT도 JVM도 쓰지 않음. macOS와 Linux는 Kotlin/Native 정적 라이브러리, Windows는 NFR-13. 앱이 아무것도 고르지 않아도 이 경로가 나옴. 규격과 수용 기준은 §5.5 (INTENT D4, 2026-10-03 소유자 결정) | Agreed |
 
 ### 5.1 프레임 예산 (NFR-9)
 
@@ -2720,9 +2725,33 @@ Cargo는 path 패키지의 유닛 해시에 패키지 경로를 넣지 않습니
 
 **2026-09-22 측정.** 자기 `target/`에 처음부터 빌드하는 데(`cargo build --workspace --tests`, 레지스트리 캐시는 더운 상태) 23초가 걸렸고 `target/`은 1.0GB가 됐습니다. `scripts/check.sh`를 한 번 돌리면 벤치마크까지 포함해 2.0GB가 됩니다. 워크트리 여덟 개가 같이 쓰던 빌드 디렉터리 하나는 그때 16GB였습니다. 워크트리마다 나누는 쪽이 이 기계에서는 디스크도 덜 씁니다. 공유 디렉터리는 워크트리 여덟 개분의 핑거프린트를 한꺼번에 들고 있으면서 아무도 치우지 않기 때문입니다.
 
+### 5.5 AWT 없는 데스크톱 렌더러 (NFR-14)
+
+**2026-10-03 소유자 결정(INTENT D4).** 배포되는 데스크톱 렌더러는 AWT를 쓰지 않습니다. 렌더러가 자기 창을 직접 열고 Compose 장면을 그 창에 붙여 그립니다. macOS와 Linux는 Kotlin/Native 정적 라이브러리이고, Windows는 Kotlin/Native `mingwX64`로 같은 길을 갑니다(§5.6, NFR-13). GraalVM native-image 위의 AWT 경로는 Windows 렌더러가 NFR-13을 통과할 때까지 Windows가 지금 내는 것으로만 남습니다.
+
+| 플랫폼 | 창 | 렌더러 | 입력기 경로 |
+|---|---|---|---|
+| macOS | AppKit `NSWindow`를 렌더러가 직접 엶 | Kotlin/Native 정적 라이브러리 | `NSTextInputClient`에서 Compose의 플랫폼 텍스트 입력으로 |
+| Linux | X11 창을 렌더러가 직접 엶 | Kotlin/Native 정적 라이브러리 | XIM, ibus, fcitx에서 Compose의 플랫폼 텍스트 입력으로 |
+| Windows | Win32 창을 렌더러가 직접 엶 | Kotlin/Native `mingwX64` 정적 라이브러리(NFR-13) | IMM32/TSF에서 Compose의 플랫폼 텍스트 입력으로 |
+
+창 코드의 자리는 Compose의 포크입니다(INTENT D19, FR-19.8).
+
+수용 기준:
+
+1. 아무 설정 없이 빌드한 데스크톱 샘플이 macOS와 Linux에서 Kotlin/Native 렌더러를 링크합니다. 링크된 실행 파일에 AWT와 JVM이 없습니다(`libawt`, `libjvm`, `JNI_OnLoad_*` 심볼이 없고, 실행 중 `java.home`을 찾지 않음). 빌드 산출물을 검사하는 테스트로 확인합니다. Windows는 NFR-13의 기준이 같은 것을 확인합니다.
+2. 앱을 빌드하는 기계에 JDK도 GraalVM도 필요 없습니다. 렌더러는 D10대로 아티팩트로 옵니다.
+3. 스모크 호스트가 세 플랫폼에서 창을 띄워 그리고, 창을 닫으면 `run`이 0을 돌려줍니다(CI).
+4. FR-19의 수용 기준(19.4, 19.7)이 이 경로에서 통과합니다.
+5. §6 IME 체크리스트 아홉 항목이 세 플랫폼의 이 빌드에서 통과합니다(사람이 확인). Compose의 플랫폼 텍스트 입력을 우회하는 경로가 코드에 없습니다.
+6. §7 접근성: 접근성 트리가 노출되고, macOS VoiceOver, Windows Narrator, Linux Orca(AT-SPI)가 Text와 Button 라벨을 읽습니다(사람이 확인).
+7. §5.1 프레임 예산과 NFR-3 무게 기준을 이 빌드에서 잽니다.
+
 ## 6. IME 수용 체크리스트 (FR-5, M1)
 
 native-image 빌드에서 macOS와 Windows 각각 수동으로 확인합니다.
+
+**2026-10-03(INTENT D4, NFR-14): 확인 대상은 배포되는 빌드, 즉 AWT 없는 렌더러입니다.** 아래의 macOS 결과는 그 전의 native-image(AWT) 빌드에서 얻은 것이므로, macOS, Linux, Windows의 AWT 없는 빌드에서 아홉 항목을 다시 확인합니다.
 
 **macOS arm64 결과 (2026-09-21, Liberica NIK 25, native-image 빌드)**: 5개 항목을 사람이 직접 확인했습니다. 조합 과정 표시, 조합 중 자모 단위 백스페이스, 조합 중 화살표 이동 시 확정 후 이동, 문장 중간 삽입, 한글 폰트 폴백입니다. **M1의 관문이 이 항목이었고, 통과했습니다.**
 
@@ -2742,7 +2771,7 @@ native-image 빌드에서 macOS와 Windows 각각 수동으로 확인합니다.
 - [ ] Host가 `TextChanged`를 받는 동안 조합이 리셋되지 않음
 - [x] 한글 폰트 폴백 (두부 문자 없음)
 
-실패하면 INTENT D4에 따라 native-image 설정(ServiceLoader, JNI/리플렉션 config, 로케일/문자셋)부터 점검합니다.
+native-image(AWT) 빌드에서 실패하면 INTENT D4의 이전 결정에 따라 native-image 설정(ServiceLoader, JNI/리플렉션 config, 로케일/문자셋)부터 점검합니다. AWT 없는 빌드에서는 그 플랫폼의 창이 입력기 사건을 Compose의 플랫폼 텍스트 입력에 넘기는 자리부터 봅니다.
 
 **입력 경로 등록은 반드시 빌드 시점 Feature(`ImeReachabilityFeature`)로 합니다.** 메타데이터에 `allDeclaredMethods`를 쓰면 안 됩니다. JDK가 선언만 하고 라이브러리에 넣지 않은 네이티브 메서드(`CInputMethod.nativeHandleEvent`)까지 링크 대상이 되어, Java 스택 트레이스 없이 dyld 단계에서 라이브러리 로드가 실패합니다. 반대로 등록이 부족하면 렌더링까지 정상 동작한 뒤 입력기가 텍스트 필드를 건드리는 순간 프로세스가 abort합니다.
 

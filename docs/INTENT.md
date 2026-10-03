@@ -76,12 +76,40 @@ Rust에서 Compose API를 직접 호출하지 않습니다. GraalVM `@CEntryPoin
 
 | 플랫폼 | 방식 |
 |---|---|
-| 데스크톱 | native-image `--shared`. macOS는 **Liberica NIK Full**, Windows와 Linux는 upstream GraalVM. macOS에서는 선택의 여지가 없었습니다: upstream은 Darwin에서 AWT 지원을 건너뜁니다(oracle/graal#13272, 2026-09 기준 open). **세 플랫폼을 NIK으로 통일하려 시도했고 2026-09-23에 되돌렸습니다.** 동기는 분명합니다. upstream의 Windows AWT는 JDK DLL 열두 개를 이미지 옆에 내놓고 애플리케이션이 전부 들고 다녀야 해서 배포물이 16개 파일이고, macOS는 NIK이 같은 라이브러리를 `lib/static/`의 정적 아카이브로 실어 주어 4개입니다. Windows NIK에도 그 아카이브가 있다는 것까지 확인했습니다(`lib/static/windows-amd64/`에 `.lib` 52개). 막힌 곳은 링크가 아니라 그 다음입니다: **아카이브를 이미지에 넣는 것과 JVM이 "그 라이브러리는 이미 안에 있다"고 아는 것은 다른 일이고**, AWT의 `Toolkit.loadLibraries`는 런타임에 `System.loadLibrary("awt")`를 부릅니다. GraalVM은 macOS에서 AWT를 빌트인 라이브러리로 등록해 주고 Windows에서는 해 주지 않습니다. 우리가 등록하면 됩니다(skiko에 대해 `StaticSkikoFeature`가 하는 일과 같습니다). 작업은 `feat/windows-nik-static-awt`에 있고, 되돌린 이유는 **확인할 수단 없이 시도할 때마다 CI 한 사이클이 들고 그 사이 Windows 렌더러가 빌드되지 않는 상태로 남기 때문**입니다 |
+| 데스크톱 | **2026-10-03부터 AWT 없는 Kotlin/Native 정적 라이브러리가 기본입니다(D4). macOS와 Linux는 Kotlin/Native, Windows는 D18.** 이 칸의 나머지는 그 전의 GraalVM native-image 경로에 대한 기록입니다. native-image `--shared`. macOS는 **Liberica NIK Full**, Windows와 Linux는 upstream GraalVM. macOS에서는 선택의 여지가 없었습니다: upstream은 Darwin에서 AWT 지원을 건너뜁니다(oracle/graal#13272, 2026-09 기준 open). **세 플랫폼을 NIK으로 통일하려 시도했고 2026-09-23에 되돌렸습니다.** 동기는 분명합니다. upstream의 Windows AWT는 JDK DLL 열두 개를 이미지 옆에 내놓고 애플리케이션이 전부 들고 다녀야 해서 배포물이 16개 파일이고, macOS는 NIK이 같은 라이브러리를 `lib/static/`의 정적 아카이브로 실어 주어 4개입니다. Windows NIK에도 그 아카이브가 있다는 것까지 확인했습니다(`lib/static/windows-amd64/`에 `.lib` 52개). 막힌 곳은 링크가 아니라 그 다음입니다: **아카이브를 이미지에 넣는 것과 JVM이 "그 라이브러리는 이미 안에 있다"고 아는 것은 다른 일이고**, AWT의 `Toolkit.loadLibraries`는 런타임에 `System.loadLibrary("awt")`를 부릅니다. GraalVM은 macOS에서 AWT를 빌트인 라이브러리로 등록해 주고 Windows에서는 해 주지 않습니다. 우리가 등록하면 됩니다(skiko에 대해 `StaticSkikoFeature`가 하는 일과 같습니다). 작업은 `feat/windows-nik-static-awt`에 있고, 되돌린 이유는 **확인할 수단 없이 시도할 때마다 CI 한 사이클이 들고 그 사이 Windows 렌더러가 빌드되지 않는 상태로 남기 때문**입니다 |
 | iOS | Kotlin/Native `-produce static` + `@CName` C 심볼 |
 | Android | 대상 플랫폼. ART라서 native-image가 불가능합니다. Kotlin/Android 앱이 Rust cdylib을 로드하고, 생성된 JNI 심을 씁니다(D9) |
 | Web | 대상 플랫폼. Compose wasmJs + Dioxus wasm. 브라우저에서 실행하는 것이라 앱이 웹뷰를 내장하는 것과는 다르고 C1에 해당하지 않습니다. 메모리는 공유하고 호출만 생성된 JS forwarder를 거칩니다(SPEC PR-6) |
 
-### D4. 창 소유권은 관심사가 아니다. Compose Desktop의 AWT 경로를 그대로 쓴다
+### D4. 데스크톱 렌더러는 AWT 없이 만들고, 그것을 기본으로 배포한다
+
+**소유자의 결정입니다(2026-10-03).**
+
+> "아니 그래 당연한거 아냐 빨리 하라고" (2026-10-03)
+>
+> "AWT가 별로 맘에 안들어 나는", "시키는 대로 해. AWT 재거해." (2026-09-24)
+>
+> "리눅스까지도 네이티브였으면 좋겠는데" (2026-09-25)
+
+**결정.**
+
+- **배포되는 데스크톱 렌더러는 AWT를 쓰지 않습니다.** 렌더러가 자기 창을 직접 열고(macOS는 AppKit, Linux는 X11, Windows는 Win32), Compose의 장면(scene)을 그 창에 붙여 그립니다. 앱을 빌드하는 사람이 아무것도 고르지 않아도 이 경로가 나옵니다.
+- **macOS와 Linux는 Kotlin/Native입니다.** 렌더러는 Kotlin/Native 정적 라이브러리이고 Rust 실행 파일에 링크됩니다. JVM도 GraalVM native-image도 없습니다. **Windows는 D18을 따릅니다**(Kotlin/Native `mingwX64`, MSVC 실행 파일에 정적 링크).
+- **AWT 경로는 기본값에서 빠집니다.** GraalVM native-image로 AWT 위의 Compose Desktop을 싣는 경로(아래 이전 결정, D3의 데스크톱 행, D9-macOS)는 D18의 Windows 렌더러가 SPEC NFR-13을 통과하기 전까지 Windows가 지금 내는 것으로만 남고, 새 기능을 그 경로에 맞추지 않습니다.
+- **C5는 움직이지 않습니다.** 창을 AWT가 아니라 렌더러가 가지므로, 입력기는 AWT의 IME 경로가 아니라 그 창이 Compose의 플랫폼 텍스트 입력에 이어 주는 경로로 들어옵니다(macOS `NSTextInputClient`, Windows IMM32/TSF, Linux XIM과 ibus/fcitx). Compose의 플랫폼 텍스트 입력을 우회하는 경로는 여전히 두지 않습니다. §6 IME 체크리스트와 §7 접근성은 이 빌드에서 확인하고, 실패는 이 경로에서 고칩니다. AWT 경로로 돌아가는 것은 고치는 방법이 아닙니다.
+- **창 코드는 Compose의 포크가 가집니다(D19).** 툴킷 없는 창과 Kotlin/Native 데스크톱 창은 Rust와 무관한 Compose의 일이므로 `compose-multiplatform-core-extended`로 옮깁니다. 옮기는 동안의 기준은 SPEC FR-19.8입니다.
+
+**왜 지금 뒤집는가.** 이전 결정은 "AOT 컴파일은 코드 경로를 바꾸지 않으므로 AWT의 IME가 그대로 따라온다"는 데 기댔고, 그 판단은 IME에 대해서는 맞았습니다. 그러나 그 값으로 치른 것이 이후에 드러났습니다. macOS에서 JDK의 AWT를 정적으로 붙이기 위한 우회 셋(D9-macOS), 정적 링크에서 접근성 클래스가 사라진 사건(SPEC §7), 통합 툴바와 vibrancy처럼 AWT 피어가 읽어 주지 않는 창의 성질(D15), Windows에서 JDK DLL 열두 개가 배포물에 따라붙는 것(D17)이 전부 AWT에서 왔습니다. 같은 계산기 샘플이 macOS Kotlin/Native에서 파일 하나 28.95MB, 실제 점유 39MB였고, 툴킷 경로는 파일 넷 93.1MB, 56MB였습니다(`CHANGELOG.md`, `docs/platforms.md`).
+
+**치르는 값.**
+
+- 창과 입력기 배선을 플랫폼마다 우리가 들고 있습니다. 이전 결정이 피하려던 바로 그 일이고, C5를 지키는 책임이 설정이 아니라 코드에 있게 됩니다.
+- Compose가 Kotlin/Native 데스크톱 타깃을 발행하지 않는 플랫폼(Linux, Windows)은 포크에서 타깃을 더해 빌드합니다(D19). 장면을 창에 붙이는 데 필요한 내부 API는 NFR-6에 따라 어댑터 한 파일에 격리하고 버전을 고정합니다.
+- JVM 개발 셸(D7)은 여전히 AWT 위에서 돕니다. 개발 루프와 배포물이 다른 창 코드를 지나므로, 창에 관한 확인은 배포 빌드에서 합니다.
+
+#### D4의 이전 결정: 창 소유권은 관심사가 아니다. Compose Desktop의 AWT 경로를 그대로 쓴다 (2026-10-03에 대체됨)
+
+아래는 대체되기 전의 결정이고, 기록으로 남깁니다.
 
 ComposeScene과 커스텀 `PlatformContext`로 Rust가 창을 소유하는 경로는 **채택하지 않습니다.** 그 경로에서는 IME(`NSTextInputClient`, TSF, ibus/fcitx)를 직접 배선해야 하고, 이는 C5를 위협합니다.
 
@@ -365,7 +393,7 @@ JetBrains의 안내([ios-liquid-glass](https://kotlinlang.org/docs/multiplatform
 | Compose + JVM 동봉 (jlink, AppCDS, JNI Invocation) | C2. AppCDS는 시작 시간 해법이지 용량 해법이 아닙니다 |
 | UniFFI/JNI 기반 Kotlin 호스트 + Rust dylib | JVM이 필요하고(C2), UI 코드가 Kotlin에 있게 됩니다(C4) |
 | Iced 단독 | 텍스트/IME 성숙도(C5) 부족. 모바일은 upstream이 out of scope로 선언했습니다 |
-| Rust 소유 창 + ComposeScene + 직접 IME 배선 | C5 위험, `@InternalComposeUiApi` 의존, 접근성 상실 |
+| Rust 소유 창 + ComposeScene + 직접 IME 배선 | C5 위험, `@InternalComposeUiApi` 의존, 접근성 상실. **2026-10-03의 D4는 이것과 다릅니다.** 창은 Rust가 아니라 Kotlin 렌더러가 가지고, 입력은 Compose의 플랫폼 텍스트 입력을 지납니다. 여기 적힌 위험은 사라진 것이 아니라 D4가 SPEC NFR-14의 수용 기준으로 떠안은 것입니다 |
 | Rust가 AWT 네이티브 피어를 대체 | JDK 내부 인터페이스라 사실상 AWT를 재구현하는 분량입니다 |
 | 네이티브 위젯 바인딩(objc2, windows-rs, gtk-rs) | 크로스플랫폼 선언형 프레임워크가 아니라 FFI입니다 |
 | 렌더러를 opt-in 기능으로 두기(`default = []`) | 기본 빌드가 렌더러 없는 바이너리를 만들고, 그 바이너리가 조용히 성공했습니다. 기본값이 동작하지 않는 설정은 기본값이 아닙니다 |
