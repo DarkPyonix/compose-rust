@@ -69,7 +69,7 @@ esac
 # failure later.
 if [[ "$(uname -s)" != "Linux" ]]; then
     die "Linux builds run on Linux (this is $(uname -s))" \
-        "There is a container for it: tools/linux-box, which carries the headers as well."
+        "There is a container for it: renderer/desktop/linux-box, which carries the headers as well."
 fi
 for library in x11 xext gl; do
     pkg-config --exists "$library" ||
