@@ -127,8 +127,20 @@ the launchers inject them ahead of whatever the prompt says.
    real cost and it is the deal: the Kotlin side is verified at the merge, not in the
    worktree. **Cargo is a build too: an agent runs no `cargo build`, `test`, `check`,
    `clippy` or `run`.** Rust builds alone have overloaded this machine (load 120 to 160)
-   with several agents compiling at once. The session that merges the branch builds, one
-   build at a time with `CARGO_BUILD_JOBS=2`, or pushes and lets CI build.
+   with several agents compiling at once. The owner's words: "서브 에이전트 알바들한테는
+   러스트 빌드 시키지 마라고. 규정에도 추가시켜".
+
+   **The one exception is a single temporary builder sub-agent, and the session does not
+   build either.** The owner, 2026-10-03: "빌드 작업 니가 직접 하지 말고 서브 에이전트 하나
+   임시로 만들어서 개한테 시켜야지", "니가 작업 붙잡고 있으면 다른 일들도 진행이 안되잖아".
+   A session that holds a build holds up every other piece of work it is running, so it
+   does not run builds or tests itself. It starts one builder for them with `--builder`
+   (or `DXC_AGENT_BUILDER=1`) on any of the three launchers, and only one at a time. The
+   builder builds and tests one command at a time with `CARGO_BUILD_JOBS=2`, in its own
+   worktree and its own `target/`, never with a shared `CARGO_TARGET_DIR`, and edits no
+   code beyond the minimal fixes a build needs, which it reports with the commands it ran
+   and their output. Coding, research and documentation agents still build nothing. When
+   no builder is needed, push and let CI build.
 
 2. **A background agent never decides that part of its task is out of scope.** If the
    task says implement it, it gets implemented. No narrowing, no deferring, no "future
