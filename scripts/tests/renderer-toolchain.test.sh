@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Usage: ./scripts/tests/renderer-toolchain.test.sh
 #
-# Exercises dioxus-compose-renderer/desktop/scripts/env.sh, the file every native build
+# Exercises renderer/desktop/scripts/env.sh, the file every native build
 # script sources before it does anything else. Its job is to refuse a toolchain that
 # cannot link Compose Desktop, and to say what to install instead, rather than letting the
 # build discover it tens of minutes later in an unreadable linker failure.
@@ -12,7 +12,7 @@
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-scripts_dir="$repo_root/dioxus-compose-renderer/desktop/scripts"
+scripts_dir="$repo_root/renderer/desktop/scripts"
 env_sh="$scripts_dir/env.sh"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then

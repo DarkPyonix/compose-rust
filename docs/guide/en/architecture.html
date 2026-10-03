@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Architecture · dioxus-compose guide</title>
+<title>Architecture · compose-rust guide</title>
 <meta name="description" content="The Host/Renderer split, the C ABI surface, the zero-copy protocol, the frame model and the macOS runtime layout.">
 <link rel="alternate" hreflang="en" href="architecture.html">
 <link rel="alternate" hreflang="ko" href="../ko/architecture.html">
@@ -15,7 +15,7 @@
 <a class="skip" href="#main">Skip to content</a>
 
 <header class="topbar">
-  <a class="brand" href="./"><span class="dot" aria-hidden="true"></span>dioxus-compose <small>guide</small></a>
+  <a class="brand" href="./"><span class="dot" aria-hidden="true"></span>compose-rust <small>guide</small></a>
   <span class="spacer"></span>
   <button id="navtoggle" class="ghost" type="button" aria-expanded="false" aria-controls="sidebar">Menu</button>
   <nav class="langswitch" aria-label="Language">
@@ -68,7 +68,7 @@
 <pre><code><span class="c">┌──────────────── Host (Rust) ─────────────────┐</span>
 <span class="c">│</span> your components (rsx!, hooks, signals)       <span class="c">│</span>
 <span class="c">│</span> dioxus-core VirtualDom                       <span class="c">│</span>
-<span class="c">│</span> dioxus-compose renderer: Mutations → bytes   <span class="c">│</span>
+<span class="c">│</span> compose-rust renderer: Mutations → bytes   <span class="c">│</span>
 <span class="c">└──────────────────┬───────────────────────────┘</span>
                    <span class="c">│</span> synchronous direct calls on the UI thread
                    <span class="c">│</span> + one batch buffer per call
@@ -102,17 +102,17 @@
 
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
       <figcaption>c: Renderer → Host (exported by Rust)</figcaption>
-<pre><code><span class="ty">int32_t</span> <span class="f">dioxus_compose_host_init</span>(<span class="k">const</span> <span class="ty">uint8_t</span>* handshake, <span class="ty">uint32_t</span> len, <span class="ty">MutationBatch</span>* out);
-<span class="ty">int32_t</span> <span class="f">dioxus_compose_host_dispatch_event</span>(<span class="k">const</span> <span class="ty">uint8_t</span>* event, <span class="ty">uint32_t</span> len, <span class="ty">MutationBatch</span>* out);
-<span class="ty">int32_t</span> <span class="f">dioxus_compose_host_render_frame</span>(<span class="ty">uint64_t</span> frame_time_nanos, <span class="ty">MutationBatch</span>* out);
-<span class="ty">void</span>    <span class="f">dioxus_compose_host_release_batch</span>(<span class="ty">MutationBatch</span>* batch);
-<span class="ty">void</span>    <span class="f">dioxus_compose_host_shutdown</span>(<span class="ty">void</span>);</code></pre>
+<pre><code><span class="ty">int32_t</span> <span class="f">compose_rust_host_init</span>(<span class="k">const</span> <span class="ty">uint8_t</span>* handshake, <span class="ty">uint32_t</span> len, <span class="ty">MutationBatch</span>* out);
+<span class="ty">int32_t</span> <span class="f">compose_rust_host_dispatch_event</span>(<span class="k">const</span> <span class="ty">uint8_t</span>* event, <span class="ty">uint32_t</span> len, <span class="ty">MutationBatch</span>* out);
+<span class="ty">int32_t</span> <span class="f">compose_rust_host_render_frame</span>(<span class="ty">uint64_t</span> frame_time_nanos, <span class="ty">MutationBatch</span>* out);
+<span class="ty">void</span>    <span class="f">compose_rust_host_release_batch</span>(<span class="ty">MutationBatch</span>* batch);
+<span class="ty">void</span>    <span class="f">compose_rust_host_shutdown</span>(<span class="ty">void</span>);</code></pre>
     </figure>
 
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
       <figcaption>c: Host → Renderer (exported by Kotlin)</figcaption>
-<pre><code><span class="ty">int32_t</span> <span class="f">dioxus_compose_renderer_run</span>(<span class="ty">void</span>);            <span class="c">/* blocking; LoopMode::Renderer only */</span>
-<span class="ty">void</span>    <span class="f">dioxus_compose_renderer_request_frame</span>(<span class="ty">void</span>);  <span class="c">/* thread-safe */</span></code></pre>
+<pre><code><span class="ty">int32_t</span> <span class="f">compose_rust_renderer_run</span>(<span class="ty">void</span>);            <span class="c">/* blocking; LoopMode::Renderer only */</span>
+<span class="ty">void</span>    <span class="f">compose_rust_renderer_request_frame</span>(<span class="ty">void</span>);  <span class="c">/* thread-safe */</span></code></pre>
     </figure>
 
     <p>That is the entire surface. Two rules follow from it:</p>
@@ -212,8 +212,8 @@
       Windows is not a choice. Compose publishes no UI layer for it as a native target, and it is
       blocked twice over: Kotlin's target there is MinGW and Skia's build is MSVC, so the two
       cannot be linked even if the artifacts existed. Linux publishes none either, but nothing
-      stands in the way of building them, so this project keeps a small set of patches against a
-      pinned Compose revision and builds the Linux targets from source.
+      stands in the way of building them, so this project builds the Linux targets from source,
+      from a fork of Compose that adds them, pinned to one commit.
     </p>
     <div class="note">
       <span class="label">The application does not know which</span>
@@ -252,7 +252,7 @@
     <p>
       One more macOS fact shapes the process: AppKit demands the main thread. The renderer creates
       and runs <code>NSApplication</code> on the thread it was called on, and that call returns
-      when the window closes. Accordingly <code>dioxus_compose_renderer_run</code> must be called
+      when the window closes. Accordingly <code>compose_rust_renderer_run</code> must be called
       on the process main thread; otherwise it returns <code>RUN_NOT_MAIN_THREAD</code>.
     </p>
 
@@ -265,8 +265,8 @@
 
 <footer class="site">
   <div class="inner">
-    <span>dioxus-compose &middot; Apache License 2.0</span>
-    <span><a class="footer-repo" href="https://github.com/DarkPyonix/dioxus-compose">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/INTENT.md">INTENT.md</a></span>
+    <span>compose-rust &middot; Apache License 2.0</span>
+    <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/INTENT.md">INTENT.md</a></span>
     <span>Guide last reviewed against the repository on 2026-09-28</span>
   </div>
 </footer>

@@ -16,7 +16,7 @@
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-renderer="$repo_root/dioxus-compose-renderer"
+renderer="$repo_root/renderer"
 project="$renderer/project.yaml"
 module="$renderer/linux/module.yaml"
 window="$renderer/linux/src/LinuxWindow.kt"
@@ -29,7 +29,7 @@ frames_source="$renderer/desktop/src/WindowFrames.kt"
 model="$renderer/desktop/src/X11Window.kt"
 staticlib="$renderer/staticlib-linux/module.yaml"
 compose_script="$renderer/scripts/build-compose.sh"
-compose_patch="$renderer/patches/0001-linux-native-targets.patch"
+compose_changes="$renderer/scripts/compose-fork.changes"
 
 red=0
 
@@ -40,7 +40,7 @@ fail() {
 
 for file in "$project" "$module" "$window" "$surface" "$entry" "$definition" \
             "$sync_source" "$log_source" "$frames_source" "$model" "$staticlib" \
-            "$compose_script" "$compose_patch"; do
+            "$compose_script" "$compose_changes"; do
     [[ -f "$file" ]] || fail "missing $file"
 done
 (( red == 0 )) || exit 1
@@ -121,17 +121,52 @@ grep -Eq '^compilerOpts = .*-idirafter' "$definition" ||
 # ---------------------------------------------------------------------------
 #
 # Compose Multiplatform publishes `runtime` for linuxX64 and nothing else, so every module the
-# patch teaches the target has to be built and published here. One left off the list is not a
+# Compose fork teaches the target has to be built and published here. One left off the list is not a
 # failure of that script: it is an unresolvable dependency tens of minutes into the renderer's own
-# build, naming a coordinate nobody recognises. `ui-test` is the one exception and is deliberate,
-# because nothing the renderer links reaches it.
-linux_publications="$(sed -n '/linuxX64)/,/;;/p' "$compose_script")"
+# build, naming a coordinate nobody recognises.
+#
+# The exceptions are deliberate, and each is named so that a new one has to be argued for here.
+# The fork gives these the target so that the Compose build configures with it, but the
+# renderer draws with runtime, ui, foundation and material3, and none of these is in that
+# closure. Several cannot be built for Linux at all: Material 2's navigation, the adaptive
+# family and the navigation suite each ask for a published artifact with no Linux variant.
+# Building in the container settled the list: the published modules are the closure, and the
+# renderer compiles against them. `ui-test` is left off because nothing the renderer links
+# reaches it.
+not_published_for_linux=(
+    compose:animation:animation-graphics
+    compose:material:material
+    compose:material:material-navigation
+    compose:material3:adaptive:adaptive
+    compose:material3:adaptive:adaptive-layout
+    compose:material3:adaptive:adaptive-navigation
+    compose:material3:adaptive:adaptive-navigation3
+    compose:material3:material3-adaptive-navigation-suite
+    compose:material3:material3-window-size-class
+    compose:ui:ui-test
+    navigation:navigation-compose
+)
+# One module per line, so a name is matched whole: compose:material:material must not pass
+# because compose:material:material-ripple is on the list.
+linux_publications="$(sed -n '/linuxX64)/,/;;/p' "$compose_script" | tr -d ' \t')"
 while IFS= read -r gradle_path; do
-    [[ "$gradle_path" == "compose:ui:ui-test" ]] && continue
-    grep -Fq "$gradle_path" <<< "$linux_publications" ||
-        fail "the patch adds a linuxX64 target to $gradle_path and build-compose.sh does not publish it"
-done < <(grep -E '^\+\+\+ b/.*/build\.gradle$' "$compose_patch" |
-    sed -E 's#^\+\+\+ b/##; s#/build\.gradle$##; s#/#:#g' | sort -u)
+    skip=0
+    for excepted in "${not_published_for_linux[@]}"; do
+        [[ "$gradle_path" == "$excepted" ]] && skip=1
+    done
+    [[ $skip -eq 1 ]] && continue
+    grep -Fxq "$gradle_path" <<< "$linux_publications" ||
+        fail "the Compose fork adds a linuxX64 target to $gradle_path and build-compose.sh does not publish it"
+done < <(grep -E '^[0-9a-f]{40} .*/build\.gradle$' "$compose_changes" |
+    sed -E 's#^[0-9a-f]{40} ##; s#/build\.gradle$##; s#/#:#g' | sort -u)
+
+# And the other way: an exception the build script does publish is not an exception, and
+# leaving it here would let it be dropped from the build without anything noticing.
+for excepted in "${not_published_for_linux[@]}"; do
+    if grep -Fxq "$excepted" <<< "$linux_publications"; then
+        fail "$excepted is listed as not published for Linux, and build-compose.sh publishes it"
+    fi
+done
 
 # ---------------------------------------------------------------------------
 # The frame that belongs to a resize is drawn where the resize is handled.

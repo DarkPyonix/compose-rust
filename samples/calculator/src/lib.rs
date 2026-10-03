@@ -15,7 +15,7 @@
 //! scaffolding sitting under the keypad, doing nothing a calculator does. A keypad is
 //! pressed. When the protocol can name the keys, typing comes back as typing.
 
-use dioxus_compose::prelude::*;
+use dioxus_compose_adapter::prelude::*;
 
 mod engine;
 
@@ -158,7 +158,7 @@ fn memory_row(memory_set: bool, press: EventHandler<&'static str>) -> Element {
 /// reading area, which is mostly the room above the number.
 fn readout(status: String, display: String) -> Element {
     rsx! {
-        dioxus_compose::Box {
+        dioxus_compose_adapter::Box {
             fill_max_width: true,
             Column {
                 fill_max_width: true,
@@ -234,7 +234,7 @@ fn tape(entries: Vec<TapeEntry>, recall: EventHandler<f64>, clear: EventHandler<
             }
             Separator {}
             if entries.is_empty() {
-                dioxus_compose::Box {
+                dioxus_compose_adapter::Box {
                     fill_max_width: true,
                     weight: 1.0,
                     alignment: Alignment::Center,
@@ -398,7 +398,7 @@ pub fn app() -> Element {
                 // measure so their edges agree. The pad used to be the only one of the
                 // three that stopped widening, which put the number to the right of the
                 // keys it belongs to.
-                dioxus_compose::Box {
+                dioxus_compose_adapter::Box {
                     weight: INSTRUMENT_SHARE,
                     fill_max_height: true,
                     alignment: Alignment::TopCenter,
@@ -415,7 +415,7 @@ pub fn app() -> Element {
                         // sits at its foot, which is where all three references put it:
                         // the room above the number is what a long expression grows into
                         // rather than something that pushes the keys down.
-                        dioxus_compose::Box {
+                        dioxus_compose_adapter::Box {
                             fill_max_width: true,
                             weight: READING_SHARE,
                             alignment: Alignment::BottomCenter,
@@ -426,7 +426,7 @@ pub fn app() -> Element {
                         if !apple {
                             {memory_row(memory_set, EventHandler::new(press))}
                         }
-                        dioxus_compose::Box {
+                        dioxus_compose_adapter::Box {
                             fill_max_width: true,
                             weight: KEYPAD_SHARE,
                             alignment: Alignment::BottomCenter,
@@ -476,14 +476,14 @@ pub fn launch() {
 /// The theme above all: a sample that names one and then reaches a platform through an
 /// entry point that makes its own builder is a sample that draws the same screens in a
 /// different design system depending on where it runs.
-fn launch_builder() -> dioxus_compose::LaunchBuilder {
+fn launch_builder() -> dioxus_compose_adapter::LaunchBuilder {
     // The name the window carries. A desktop lists windows by it, so a window that said
     // nothing was listed under whatever the renderer happened to be called, and every
-    // sample here was listed as DioxusCompose until this line existed.
-    dioxus_compose::LaunchBuilder::new()
-        .with_theme(dioxus_compose::demo_theme())
+    // sample here was listed under the toolkit's default name until this line existed.
+    dioxus_compose_adapter::LaunchBuilder::new()
+        .with_theme(dioxus_compose_adapter::demo_theme())
         .with_window(
-            dioxus_compose::schema::Window::new()
+            dioxus_compose_adapter::schema::Window::new()
                 .with_title("Calculator")
                 // A calculator is a tall narrow window on all three of the machines this
                 // is a rebuild of, and for the same reason on each: the keys are a grid
@@ -499,8 +499,8 @@ fn launch_builder() -> dioxus_compose::LaunchBuilder {
                 // to them by id: a path would be a fact about the machine this
                 // was built on, and a name would ask the toolkit to find
                 // something it may not have.
-                .with_icon(dioxus_compose::asset::asset(
-                    dioxus_compose::schema::AssetKind::Png,
+                .with_icon(dioxus_compose_adapter::asset::asset(
+                    dioxus_compose_adapter::schema::AssetKind::Png,
                     include_bytes!("../assets/icon.png"),
                 )),
         )
@@ -513,18 +513,18 @@ fn launch_builder() -> dioxus_compose::LaunchBuilder {
 // Both are declared unconditionally. Each macro compiles into nothing that runs off its
 // own platform, and gating them here instead would mean a desktop build never checks that
 // this sample can still be built for the other two.
-dioxus_compose::android_main!({ launch_builder() }, app);
-dioxus_compose::web_main!({ launch_builder() }, app);
-dioxus_compose::ios_main!(launch);
+dioxus_compose_adapter::android_main!({ launch_builder() }, app);
+dioxus_compose_adapter::web_main!({ launch_builder() }, app);
+dioxus_compose_adapter::ios_main!(launch);
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dioxus_compose::Host;
-    use dioxus_compose::protocol::{
+    use dioxus_compose_adapter::Host;
+    use dioxus_compose_adapter::protocol::{
         HostEvent, Mutation, PropertyValue, decode_batch, encode_event,
     };
-    use dioxus_compose::schema::{
+    use dioxus_compose_adapter::schema::{
         EventPayload, MessageDuration, PropertyKind, TypeRole, WidgetKind,
     };
     use std::collections::HashMap;
@@ -599,11 +599,11 @@ mod tests {
     /// declared in, because a memory row under the keypad would be a different screen.
     #[test]
     fn fr22_the_memory_row_stands_between_the_reading_area_and_the_keys() {
-        dioxus_compose::window::reset_window_size();
+        dioxus_compose_adapter::window::reset_window_size();
         let mut host = Host::new(app);
         let batch = host.rebuild().expect("the first frame failed to encode");
         let labels = collect_button_labels(batch);
-        dioxus_compose::window::reset_window_size();
+        dioxus_compose_adapter::window::reset_window_size();
 
         let memory_at = labels
             .iter()
@@ -693,7 +693,7 @@ mod tests {
     #[test]
     fn the_declared_tree_encodes_without_a_protocol_error() {
         let mut dom = VirtualDom::new(app);
-        let mut renderer = dioxus_compose::renderer::ComposeRenderer::new();
+        let mut renderer = dioxus_compose_adapter::renderer::ComposeRenderer::new();
         renderer.begin_frame();
         dom.rebuild(&mut renderer);
         renderer
@@ -860,7 +860,7 @@ mod tests {
         /// applies the change to it: reading the resize batch alone would show only what
         /// moved.
         fn at(width_dp: f32) -> Self {
-            dioxus_compose::window::reset_window_size();
+            dioxus_compose_adapter::window::reset_window_size();
             let mut screen = Self::new();
             screen.dispatch(
                 0,
@@ -868,11 +868,11 @@ mod tests {
                 EventPayload::WindowSizeChanged {
                     width_dp,
                     height_dp: 800.0,
-                    class: dioxus_compose::WindowSizeClass::from_width_dp(width_dp),
-                    height_class: dioxus_compose::WindowHeightClass::from_height_dp(800.0),
+                    class: dioxus_compose_adapter::WindowSizeClass::from_width_dp(width_dp),
+                    height_class: dioxus_compose_adapter::WindowHeightClass::from_height_dp(800.0),
                 },
             );
-            dioxus_compose::window::reset_window_size();
+            dioxus_compose_adapter::window::reset_window_size();
             screen
         }
 

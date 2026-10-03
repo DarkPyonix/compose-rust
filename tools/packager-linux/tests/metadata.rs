@@ -30,7 +30,7 @@ asset_dir = "assets"
 [bundle]
 identifier = "dev.example.Calculator"
 publisher = "Example & Sons"
-short_description = "A calculator built with dioxus-compose."
+short_description = "A calculator built with compose-rust."
 long_description = """
 Dense button grids, nested Row and Column,
 keyboard input.
@@ -80,7 +80,7 @@ fn fr35_metadata_comes_from_dioxus_toml() {
     assert_eq!(meta.id, "dev.example.Calculator");
     assert_eq!(meta.name, "Calculator");
     // A summary is a fragment, not a sentence.
-    assert_eq!(meta.summary, "A calculator built with dioxus-compose");
+    assert_eq!(meta.summary, "A calculator built with compose-rust");
     assert_eq!(
         meta.description,
         vec![
@@ -223,7 +223,7 @@ fn fr35_bad_values_are_refused_before_any_file_is_written() {
 #[test]
 fn fr35_application_ids_follow_flatpak_and_dbus_rules() {
     for good in [
-        "dev.darkpyonix.dioxus.compose.samples.calculator",
+        "dev.darkpyonix.composerust.samples.calculator",
         "org.example.My_App",
         "org.example.my-app",
     ] {
@@ -251,7 +251,7 @@ fn fr35_desktop_entry_names_the_icon_and_executable() {
          Type=Application\n\
          Version=1.5\n\
          Name=Calculator\n\
-         Comment=A calculator built with dioxus-compose\n\
+         Comment=A calculator built with compose-rust\n\
          Exec=sample-calculator\n\
          Icon=dev.example.Calculator\n\
          Terminal=false\n\
@@ -292,7 +292,7 @@ fn fr35_metainfo_carries_what_flathub_requires() {
         "<id>dev.example.Calculator</id>",
         "<metadata_license>CC0-1.0</metadata_license>",
         "<project_license>Apache-2.0</project_license>",
-        "<summary>A calculator built with dioxus-compose</summary>",
+        "<summary>A calculator built with compose-rust</summary>",
         "<developer id=\"dev.example\">",
         "<name>Example &amp; Sons</name>",
         "<p>Memory keys that &lt;really&gt; remember.</p>",
@@ -461,7 +461,7 @@ fn fr35_appdir_holds_entry_icon_metainfo_payload_and_updater() {
     std::fs::write(payload.join("sample-calculator"), b"#!/bin/sh\necho hi\n").unwrap();
     std::fs::create_dir_all(payload.join("lib")).unwrap();
     std::fs::write(
-        payload.join("lib/libdioxus_compose_renderer.so"),
+        payload.join("lib/libcompose_rust_renderer.so"),
         b"\x7fELF",
     )
     .unwrap();
@@ -495,7 +495,7 @@ fn fr35_appdir_holds_entry_icon_metainfo_payload_and_updater() {
         "usr/share/metainfo/dev.example.Calculator.appdata.xml",
         "usr/share/icons/hicolor/256x256/apps/dev.example.Calculator.png",
         "usr/lib/sample-calculator/sample-calculator",
-        "usr/lib/sample-calculator/lib/libdioxus_compose_renderer.so",
+        "usr/lib/sample-calculator/lib/libcompose_rust_renderer.so",
     ] {
         assert!(out.join(path).is_file(), "missing {path}");
     }
@@ -675,8 +675,8 @@ fn fr35_flatpak_manifest_builds_from_source_offline() {
         "\"append-path\": \"/usr/lib/sdk/rust-stable/bin\"",
         "\"CARGO_HOME\": \"/run/build/sample-calculator/cargo\"",
         "\"CARGO_NET_OFFLINE\": \"true\"",
-        "\"DIOXUS_COMPOSE_APP_VERSION\": \"1.2.3\"",
-        "\"DIOXUS_COMPOSE_RENDERER_DIR\": \"/run/build/sample-calculator/renderer\"",
+        "\"COMPOSE_RUST_APP_VERSION\": \"1.2.3\"",
+        "\"COMPOSE_RUST_RENDERER_DIR\": \"/run/build/sample-calculator/renderer\"",
         "\"path\": \"source.tar.gz\"",
         "\"cargo-sources.json\"",
         "\"dest\": \"renderer\"",

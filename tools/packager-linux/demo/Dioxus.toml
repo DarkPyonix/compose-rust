@@ -10,7 +10,7 @@ publisher = "DarkPyonix"
 icon = ["icon.png"]
 short_description = "Shows a packaged application updating itself"
 long_description = """
-A small program built with dioxus-compose that checks for a newer version of itself, asks,
+A small program built with compose-rust that checks for a newer version of itself, asks,
 downloads only the parts that changed, and restarts into it.
 
 Delivered as an AppImage it updates itself from the .zsync file published beside each

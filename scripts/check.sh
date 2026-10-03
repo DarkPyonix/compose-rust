@@ -38,13 +38,15 @@ cargo test --workspace
 # The renderer is a default feature, so the run above never builds the crate the way a
 # headless or documentation build gets it. That build has to compile, and the tests that
 # assert it does not quietly pretend to have a renderer only exist in it.
-cargo test -p dioxus-compose --no-default-features
+cargo test -p compose-rust --no-default-features
 # The generated JNI shims are behind cfg(target_os = "android"), so nothing above compiles
 # them. The staleness test proves the checked-in file is what the generator writes; this
 # proves the generator writes something that builds. Skipped where the target is missing,
 # because adding it is a download and this gate is meant to run anywhere.
 if rustup target list --installed | grep -qx aarch64-linux-android; then
-    cargo clippy -p dioxus-compose --target aarch64-linux-android -- -D warnings
+    cargo clippy -p compose-rust --target aarch64-linux-android -- -D warnings
+    # Every Android application is built on the Dioxus adapter, so it has to build there too.
+    cargo clippy -p dioxus-compose-adapter --target aarch64-linux-android -- -D warnings
 else
     echo "skipping the Android target (rustup target add aarch64-linux-android)"
 fi
@@ -52,14 +54,17 @@ fi
 # renderer feature is off because a browser links no renderer: the generated web shims
 # install the renderer API from the entry point the page calls.
 if rustup target list --installed | grep -qx wasm32-unknown-unknown; then
-    cargo clippy -p dioxus-compose --no-default-features \
+    cargo clippy -p compose-rust --no-default-features \
+        --target wasm32-unknown-unknown -- -D warnings
+    # The browser's start that takes a root component is the Dioxus adapter's.
+    cargo clippy -p dioxus-compose-adapter --no-default-features \
         --target wasm32-unknown-unknown -- -D warnings
 else
     echo "skipping the wasm target (rustup target add wasm32-unknown-unknown)"
 fi
 # What docs.rs does: the feature is on and there is no network to fetch a renderer with.
 # The documentation still has to build.
-DOCS_RS=1 cargo check -p dioxus-compose --all-features
+DOCS_RS=1 cargo check -p compose-rust --all-features
 # --benches restricts the run to Criterion bench targets. Without it cargo also runs the
 # lib's default test harness in bench mode, and that harness rejects Criterion's flags.
 cargo bench --workspace --benches -- "${bench_args[@]}"
@@ -69,9 +74,9 @@ if [[ "$skip_kotlin" != "0" ]]; then
     exit 0
 fi
 
-renderer_gate="$repo_root/dioxus-compose-renderer/scripts/gate-platforms.sh"
+renderer_gate="$repo_root/renderer/scripts/gate-platforms.sh"
 
-cd "$repo_root/dioxus-compose-renderer"
+cd "$repo_root/renderer"
 # Which platforms this machine can build, and which it can run tests for. Named rather than
 # left to the default, because three of them need something the machine may not have: the
 # X11 development headers that the Linux window's cinterop compiles against, a device or an
@@ -96,7 +101,7 @@ echo "testing on:   ${test_platforms[*]//--platform /}"
 # own tests, and nothing here ran either of them. Ten test files, including every rule the
 # Liquid Glass material is checked by, went unrun by the gate that is supposed to be the
 # thing you can believe. Same platform question, asked of that project.
-design_systems="$repo_root/dioxus-design-systems"
+design_systems="$repo_root/design-systems"
 design_build=()
 while read -r platform; do
     design_build+=(--platform "$platform")

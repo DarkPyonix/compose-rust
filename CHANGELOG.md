@@ -29,6 +29,29 @@ written down, because their failing is what found the cause.
 The calculator draws, a screen reader is given every button by name, a press reaches the
 scene, and the window is the one the application asked for.
 
+## v0.0.1
+
+Published 2026-10-03. The first compose-rust release an application can use as named:
+0.0.0 reserved the crate name with a README that still introduced the project as
+dioxus-compose.
+
+- The project is called compose-rust everywhere a reader sees its name: the README and
+  its Korean translation, the guide, build and renderer messages, and the default window
+  title.
+- New widgets: ScrollRow, Chip and FloatingAction (taken from dioxus-compose, the schema
+  hash matches it), Badge, SelectionContainer, SplitPane.
+- Application colours over the design system (`use_theme`, palettes), 22 code colour
+  roles for all seven design systems, and a background paint on text runs.
+- OS notifications on macOS, Windows, Linux, Android, iOS and the web, posted from
+  components or Host worker threads; the Renderer serves one frame itself when the frame
+  clock is stopped, so a minimised window still delivers them.
+- Linux: an application that depends only on this crate finds the renderer and exports
+  the Host functions the renderer calls, on both the native-image and the Kotlin/Native
+  static renderer; proven by building and running a consumer in CI.
+- Compose is built from the thisisthepy/compose-multiplatform-core-extended fork at a
+  pinned commit instead of upstream plus patches; the two produce identical artifacts.
+- The renderer builds on every platform again (macOS, Windows, Linux x64 and arm64, iOS).
+
 ## v0.0.0
 
 The first published version. It is numbered 0.0.0 because the approach is proven and the

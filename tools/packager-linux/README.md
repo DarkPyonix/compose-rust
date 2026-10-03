@@ -5,7 +5,7 @@ application's `Dioxus.toml`:
 
 - an **AppImage** that updates itself. It carries zsync update information and
   `appimageupdatetool`, and the application asks before it updates, through
-  `dioxus_compose::update`;
+  `compose_rust::update`;
 - a **Flatpak** manifest in the form Flathub reviews. A Flatpak is updated by the store that
   installed it.
 

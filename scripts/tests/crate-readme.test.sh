@@ -15,7 +15,7 @@ if ! command -v cargo >/dev/null; then
     exit 0
 fi
 
-manifest="dioxus-compose/Cargo.toml"
+manifest="compose-rust/Cargo.toml"
 grep -q '^readme = ' "$manifest" || {
     echo "error: $manifest declares no readme, so crates.io will show an empty page" >&2
     echo "       The README is at the repository root, outside this package, so it is" >&2
@@ -23,7 +23,7 @@ grep -q '^readme = ' "$manifest" || {
     exit 1
 }
 
-listing="$(cargo package -p dioxus-compose --list --allow-dirty 2>/dev/null)"
+listing="$(cargo package -p compose-rust --list --allow-dirty 2>/dev/null)"
 grep -qx 'README.md' <<< "$listing" || {
     echo "error: the packaged crate does not contain README.md" >&2
     echo "       Files it would contain:" >&2

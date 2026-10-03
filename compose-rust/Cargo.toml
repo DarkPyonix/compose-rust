@@ -1,0 +1,50 @@
+[package]
+name = "compose-rust"
+# 0.0.x on purpose: the boundary works and so do the desktop and iOS renderers, but the
+# widget vocabulary is still being filled in and nothing here is stable yet. A number that
+# says so is more honest than one that implies a first usable release.
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Declarative UI in Rust, rendered by an AOT-compiled Compose Multiplatform engine."
+repository = "https://github.com/DarkPyonix/compose-rust"
+keywords = ["ui", "gui", "compose", "declarative", "desktop"]
+categories = ["gui"]
+readme = "../README.md"
+
+[lib]
+name = "compose_rust"
+crate-type = ["rlib", "cdylib", "staticlib"]
+# The lib has no #[bench] items, but `cargo bench --workspace` would still run its default
+# test harness, which rejects Criterion's flags (--quick, --noplot).
+bench = false
+
+[[bin]]
+name = "codegen"
+path = "src/bin/codegen.rs"
+bench = false
+
+[features]
+# The renderer is what draws, so it is on by default. Adding this crate to a Cargo.toml is
+# meant to be the whole setup: the build script finds a renderer for the target or
+# downloads the release artifact for this exact version, checksum first. Turn it off with
+# `default-features = false` for a headless or documentation build, and know that the
+# resulting binary says so on standard error and exits non-zero rather than opening no
+# window and returning 0.
+default = ["native-renderer"]
+# Drives the boundary with no renderer at all, for tests and for embedding the Host in
+# something that draws for itself. Suppresses the renderer download.
+mock-renderer = []
+native-renderer = []
+
+# Nothing from Dioxus, on purpose. This crate is the boundary, the protocol and the records,
+# and its own dependency graph has no Dioxus crate in it. The Dioxus authoring layer is
+# `dioxus-compose-adapter`, which depends on this crate and not the other way round. `scripts/tests/core-has-no-dioxus.test.sh` fails the build if that changes.
+[dependencies]
+
+# The Android shims are generated against jni-rs. Nothing here is linked into a desktop,
+# iOS or web build, and the alternative bindings generators were rejected for their
+# per-call cost.
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"

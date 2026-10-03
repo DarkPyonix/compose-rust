@@ -1,5 +1,12 @@
 # Sample apps
 
+> **These `rsx!` versions are the Dioxus baseline, not the public samples.** compose-rust
+> is getting an authoring API of its own, and the samples will be rewritten on it; that
+> version becomes the public set. What is here stays as written, built against the Dioxus
+> adapter (`adapters/dioxus`, the workspace's `dioxus-compose-adapter` dependency), so the
+> rewrite has the same screens to be compared with. `bench/dioxus-baseline` gathers them
+> under one name for that comparison. Change them only to keep them building.
+
 Each of these is a real application written the way someone using this project would
 write one: Rust only, `rsx!` and hooks, no Kotlin.
 
@@ -104,7 +111,7 @@ renderer you have just built instead, name it. The path must be absolute: a buil
 with the package directory as its working directory, not the workspace root.
 
 ```
-DIOXUS_COMPOSE_RENDERER_DIR=$PWD/dioxus-compose-renderer/build/native-image/dist/lib \
+COMPOSE_RUST_RENDERER_DIR=$PWD/renderer/build/native-image/dist/lib \
   cargo run -p sample-calculator
 ```
 
@@ -119,7 +126,7 @@ library.
 ```
 ./scripts/build-sample-apks.sh                  # an APK per sample
 ./scripts/build-sample-pages.sh                 # a browser page per sample, plus an index
-./dioxus-compose-renderer/desktop/scripts/build-sample-ios.sh calculator
+./renderer/desktop/scripts/build-sample-ios.sh calculator
 ```
 
 Everything a sample settles before it launches is in one `launch_builder()` that all

@@ -25,8 +25,8 @@ on:
   push:
     paths:
       - tools/packager-linux/**
-      - dioxus-compose/src/update.rs
-      - dioxus-compose/tests/appimage_update.rs
+      - compose-rust/src/update.rs
+      - compose-rust/tests/appimage_update.rs
       - .github/workflows/packager-linux.yml
   workflow_dispatch:
 
@@ -88,13 +88,13 @@ jobs:
       - name: Clippy
         run: |
           cargo clippy -p packager-linux -p packager-linux-demo --all-targets -- -D warnings
-          cargo clippy -p dioxus-compose --no-default-features --lib --test appimage_update -- -D warnings
+          cargo clippy -p compose-rust --no-default-features --lib --test appimage_update -- -D warnings
 
       - name: Tests
         run: |
           cargo test -p packager-linux
-          cargo test -p dioxus-compose --no-default-features --test appimage_update
-          cargo test -p dioxus-compose --no-default-features --doc update
+          cargo test -p compose-rust --no-default-features --test appimage_update
+          cargo test -p compose-rust --no-default-features --doc update
 
       - name: Repository rules
         run: |
@@ -144,7 +144,7 @@ jobs:
           cargo build --release -p packager-linux
           mkdir -p work/1.0.0 work/1.0.1 work/1.0.2
           for v in 1.0.0 1.0.1 1.0.2; do
-            DIOXUS_COMPOSE_APP_VERSION=$v cargo build --release -p packager-linux-demo
+            COMPOSE_RUST_APP_VERSION=$v cargo build --release -p packager-linux-demo
             cp target/release/update-demo "work/$v/update-demo"
             "work/$v/update-demo" --version
           done
@@ -417,7 +417,7 @@ jobs:
             --icon samples/calculator/assets/icon-256.png --version 0.0.0 \
             --prebuilt-path calculator-linux-x64.tar.gz \
             --out work/flatpak-calculator --build work/repo-calculator --lint
-          id=dev.darkpyonix.dioxus.compose.samples.calculator
+          id=dev.darkpyonix.composerust.samples.calculator
           cat "work/flatpak-calculator/$id.json"
           xvfb-run -a -s "-screen 0 1280x800x24" bash -c "
             flatpak run $id > work/calculator-flatpak.log 2>&1 &

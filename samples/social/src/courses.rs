@@ -1,6 +1,6 @@
 //! The courses, the categories, and the scenes drawn on their cards.
 
-use dioxus_compose::prelude::*;
+use dioxus_compose_adapter::prelude::*;
 
 /// The scenes, drawn.
 ///

@@ -6,7 +6,7 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 publish = false
-description = "Wraps a built dioxus-compose application as an AppImage and a Flatpak"
+description = "Wraps a built compose-rust application as an AppImage and a Flatpak"
 
 [lib]
 bench = false

@@ -144,7 +144,7 @@ pub fn manifest(meta: &AppMetadata, options: &FlatpakOptions) -> String {
                 ),
                 ("CARGO_NET_OFFLINE".to_owned(), Json::str("true")),
                 (
-                    "DIOXUS_COMPOSE_APP_VERSION".to_owned(),
+                    "COMPOSE_RUST_APP_VERSION".to_owned(),
                     Json::str(&meta.version),
                 ),
             ];
@@ -155,7 +155,7 @@ pub fn manifest(meta: &AppMetadata, options: &FlatpakOptions) -> String {
             }
             if !renderer.is_empty() {
                 env.push((
-                    "DIOXUS_COMPOSE_RENDERER_DIR".to_owned(),
+                    "COMPOSE_RUST_RENDERER_DIR".to_owned(),
                     Json::str(&format!("/run/build/{module}/renderer")),
                 ));
             }
@@ -184,11 +184,13 @@ pub fn manifest(meta: &AppMetadata, options: &FlatpakOptions) -> String {
             ));
             if !renderer.is_empty() {
                 // The build records where the renderer was inside the build sandbox. Point
-                // the executable at the copy installed beside it instead.
+                // the executable at the copy installed beside it instead. Executables built
+                // before the rename to compose-rust name the renderer
+                // libdioxus_compose_renderer.so, so the match takes either name.
                 commands.push(format!(
-                    "recorded=\"$(readelf -d {lib}/{exec} | sed -n 's/.*(NEEDED).*\\[\\(.*libdioxus_compose_renderer.so\\)\\]/\\1/p')\"; \
-                     if [ -n \"$recorded\" ] && [ \"$recorded\" != libdioxus_compose_renderer.so ]; then \
-                     patchelf --replace-needed \"$recorded\" libdioxus_compose_renderer.so {lib}/{exec}; fi; \
+                    "recorded=\"$(readelf -d {lib}/{exec} | sed -n 's/.*(NEEDED).*\\[\\(.*lib[a-z_]*_renderer.so\\)\\]/\\1/p')\"; \
+                     if [ -n \"$recorded\" ] && [ \"$recorded\" != \"${{recorded##*/}}\" ]; then \
+                     patchelf --replace-needed \"$recorded\" \"${{recorded##*/}}\" {lib}/{exec}; fi; \
                      patchelf --set-rpath '$ORIGIN/lib' {lib}/{exec}",
                     exec = meta.exec
                 ));

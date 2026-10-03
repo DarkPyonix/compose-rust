@@ -17,10 +17,10 @@
 use std::io::{BufRead, Write};
 use std::process::ExitCode;
 
-use dioxus_compose::update::{Delivery, UpdateCheck, delivery};
+use compose_rust::update::{Delivery, UpdateCheck, delivery};
 
 /// Set by the build, so two builds of the same source differ the way two releases do.
-const VERSION: &str = match option_env!("DIOXUS_COMPOSE_APP_VERSION") {
+const VERSION: &str = match option_env!("COMPOSE_RUST_APP_VERSION") {
     Some(version) => version,
     None => env!("CARGO_PKG_VERSION"),
 };
