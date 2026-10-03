@@ -141,7 +141,7 @@ jobs:
     name: Windows x64 Kotlin/Native static renderer and an application that depends on the crate
     needs: compose
     runs-on: windows-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     defaults:
       run:
         shell: bash
@@ -228,6 +228,11 @@ jobs:
           python --version || true
           command -v clang && clang --version || true
           df -h . || true
+
+      - name: The C runtime the build script chooses, and the rewriting that lets it
+        # Pure functions of bytes, so they run anywhere; here because this is the one job that
+        # also links what they decide.
+        run: cargo test -p compose-rust --no-default-features --test windows_crt
 
       - name: Build the static renderer
         run: ./dioxus-compose-renderer/desktop/scripts/build-windows.sh

@@ -4,20 +4,31 @@
 # Builds an application the way someone using this crate would, against the Kotlin/Native
 # Windows renderer, checks that the executable needs nothing but Windows itself, moves it into
 # an empty directory and starts it until the renderer has drawn. Runs on Windows, from Git Bash,
-# with the MSVC tools reachable (a Visual Studio developer environment, or vswhere to find one).
+# with the MSVC tools installed (Visual Studio or its Build Tools, "Desktop development with
+# C++"), and cl.exe and dumpbin.exe reachable on PATH or through vswhere.
 #
 #   <renderer>           the directory desktop/scripts/build-windows.sh writes; the application
 #                        finds it through DXC_WINDOWS_NATIVE_LIB
-#   <scratch directory>  where the application is copied to; emptied first, and it should be
+#   <scratch directory>  where the applications are copied to; emptied first, and it should be
 #                        somewhere that has nothing to do with the build
 #
-# What it proves, and why each part is here. The renderer is linked into the executable, so the
-# executable is the whole application: it has to start from a directory holding nothing but
-# itself, which is the test of every claim at once. No Java runtime, no Visual C++ runtime DLL
-# (Skia is built with the C runtime linked in and so is the application), no MinGW DLL (the
-# Kotlin/Native object's GCC runtime is linked in statically), and no icudtl.dat (Skia's ICU
-# data is compiled in). dumpbin says which DLLs the loader will look for, and each has to be
-# one Windows ships.
+# What it proves, and why each part is here.
+#
+# 1. The application is built with nothing but its Cargo.toml line: no .cargo/config.toml and
+#    no RUSTFLAGS. In particular nobody asks it for +crt-static, although Skia is built for the
+#    static C runtime; the crate decides the runtime (dioxus-compose/build/windows_crt.rs).
+# 2. The renderer is linked into the executable, so the executable is the whole application.
+#    dumpbin says which DLLs the loader will look for, and every one has to be part of
+#    Windows: no Java runtime, no VCRUNTIME140.dll or MSVCP140.dll, no MinGW DLL, no renderer
+#    DLL. The UCRT's DLLs are part of Windows 10 and later and are allowed.
+# 3. Copied alone into an empty directory it starts and draws its frames: no icudtl.dat, no
+#    library beside it.
+# 4. An application that also links a C++ library built for the runtime DLL (/MD), which is
+#    what the `cc` crate builds by default, still links (the MSVC linker would otherwise stop
+#    on LNK2038, a RuntimeLibrary mismatch), still needs only Windows, and runs.
+# 5. The same application linked with vcruntime and the C++ library from their DLLs
+#    (DXC_WINDOWS_CRT=dynamic) and with everything static (+crt-static), measured beside the
+#    default, so what each costs is a number and not a guess.
 #
 # A hosted runner has no graphics card. Windows' software adapter draws instead, which the
 # window takes only when DXC_D3D12_WARP asks it to; this sets it unless the caller already has.
@@ -30,6 +41,7 @@ fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fixture="$repo_root/dioxus-compose/tests/fixtures/consumer"
+mixed_fixture="$repo_root/dioxus-compose/tests/fixtures/consumer-mixed-runtime"
 
 fail() {
     echo "fail  $1" >&2
@@ -56,68 +68,154 @@ case "$scratch/" in
             "Use one that is not, so nothing the build left can stand in for what the executable lacks." ;;
 esac
 
-# dumpbin is Visual Studio's. On PATH inside a developer prompt; found through vswhere
-# otherwise.
-dumpbin="$(command -v dumpbin || true)"
-if [[ -z "$dumpbin" ]]; then
-    vswhere="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
-    [[ -f "$vswhere" ]] || fail "no dumpbin on PATH and no vswhere to find Visual Studio with"
-    found="$("$vswhere" -latest -products '*' -find 'VC/Tools/MSVC/**/bin/Hostx64/x64/dumpbin.exe' | tr -d '\r' | head -1)"
-    [[ -n "$found" ]] || fail "Visual Studio has no dumpbin.exe; install the C++ build tools"
-    dumpbin="$(cygpath -u "$found")"
-fi
+# Visual Studio's tools, on PATH inside a developer prompt and found through vswhere otherwise.
+vs_tool() {
+    local name="$1" found vswhere
+    found="$(command -v "$name" || true)"
+    if [[ -z "$found" ]]; then
+        vswhere="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
+        [[ -f "$vswhere" ]] || fail "no $name on PATH and no vswhere to find Visual Studio with"
+        found="$("$vswhere" -latest -products '*' -find "VC/Tools/MSVC/**/bin/Hostx64/x64/$name" | tr -d '\r' | head -1)"
+        [[ -n "$found" ]] || fail "Visual Studio has no $name; install the C++ build tools"
+        found="$(cygpath -u "$found")"
+    fi
+    echo "$found"
+}
+dumpbin="$(vs_tool dumpbin.exe)"
+cl="$(vs_tool cl.exe)"
+lib_tool="$(vs_tool lib.exe)"
 
-# Its own target directory inside the checkout, as the Linux check does, so this never shares
-# a build with anything else running there. The static C runtime is asked for the way an
-# application asks for it, and the build script stops the build with that advice when it is not.
-target_dir="$repo_root/target/windows-consumer-check"
-echo "== building the consumer against $renderer"
-unset DIOXUS_COMPOSE_RENDERER_DIR
-DXC_WINDOWS_NATIVE_LIB="$(cygpath -w "$renderer")" \
-    CARGO_TARGET_DIR="$target_dir" \
-    RUSTFLAGS="-C target-feature=+crt-static" \
-    cargo build --manifest-path "$fixture/Cargo.toml" >&2
-binary="$target_dir/debug/consumer.exe"
+# 1. Nothing but the Cargo.toml line. Cargo reads a config file from the directory it runs in
+# and every one above it, so there must be none on the way up from where it is run, and none
+# of the variables that carry flags.
+unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS CARGO_BUILD_RUSTFLAGS
+unset CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS DIOXUS_COMPOSE_RENDERER_DIR DXC_WINDOWS_CRT
+directory="$repo_root"
+while :; do
+    for config in "$directory/.cargo/config.toml" "$directory/.cargo/config"; do
+        [[ ! -f "$config" ]] || fail "$config exists" \
+            "This proves an application needs no build settings, and Cargo would read that one."
+    done
+    parent="$(dirname "$directory")"
+    [[ "$parent" != "$directory" ]] || break
+    directory="$parent"
+done
+
+export DXC_WINDOWS_NATIVE_LIB
+DXC_WINDOWS_NATIVE_LIB="$(cygpath -w "$renderer")"
+
+# Target directories of its own inside the checkout, as the Linux check does, so this never
+# shares a build with anything else running there. The builds with the same flags share one,
+# so the dependencies are compiled once; each executable is measured and copied out before
+# the next build writes over it.
+build() {
+    local manifest="$1" name="$2"
+    CARGO_TARGET_DIR="$repo_root/target/windows-consumer-check/$name" \
+        cargo build --manifest-path "$manifest" >&2
+}
+target="$repo_root/target/windows-consumer-check"
+
+dependents() {
+    "$dumpbin" -nologo -dependents "$(cygpath -w "$1")" | tr -d '\r' |
+        sed -n 's/^ *\([A-Za-z0-9_.-]*\.[dD][lL][lL]\)$/\1/p' | sort -fu
+}
+
+system="$(cygpath -u "${SystemRoot:-C:\\Windows}")/System32"
+
+# 2. Only Windows beneath it.
+only_windows() {
+    local binary="$1" dlls dll lower not_ours=()
+    echo "-- dumpbin -dependents $(basename "$binary")"
+    "$dumpbin" -nologo -dependents "$(cygpath -w "$binary")" | tr -d '\r' | sed -n '/Image has the following dependencies/,/Summary/p'
+    dlls="$(dependents "$binary")"
+    [[ -n "$dlls" ]] || fail "dumpbin named no DLL at all, which is not a Windows executable that opens a window"
+    for dll in $dlls; do
+        lower="$(echo "$dll" | tr '[:upper:]' '[:lower:]')"
+        case "$lower" in
+            vcruntime*|msvcp*|concrt*)
+                fail "$(basename "$binary") needs $dll, the Visual C++ runtime" \
+                    "vcruntime and the C++ library are to be linked in; see dioxus-compose/build/windows_crt.rs." ;;
+            libgcc*|libstdc++*|libwinpthread*|*mingw*)
+                fail "$(basename "$binary") needs $dll, part of MinGW" \
+                    "MinGW is to stay inside the renderer's object; its runtime is linked in statically." ;;
+            libdioxus_compose_renderer*|*jvm*|*java*|awt*|skiko*|icu*)
+                fail "$(basename "$binary") needs $dll, which is not part of Windows" \
+                    "The renderer is meant to be inside the executable." ;;
+            # API sets, which the loader resolves to Windows' own DLLs. The UCRT's among them
+            # (api-ms-win-crt-*) are part of Windows 10 and later.
+            api-ms-win-*|ext-ms-win-*) ;;
+            *) [[ -f "$system/$dll" || -f "$system/$lower" ]] || not_ours+=("$dll") ;;
+        esac
+    done
+    [[ "${#not_ours[@]}" -eq 0 ]] || fail "$(basename "$binary") needs DLLs Windows does not ship: ${not_ours[*]}"
+    echo "-- $(echo "$dlls" | wc -l | tr -d ' ') DLLs, every one part of Windows: $(echo $dlls)"
+}
+
+size_of() { wc -c < "$1" | tr -d ' '; }
+megabytes() { awk -v bytes="$1" 'BEGIN { printf "%.1f MB", bytes / 1048576 }'; }
+
+echo "== 1. building the consumer with nothing but its Cargo.toml line"
+build "$fixture/Cargo.toml" shared
+binary="$target/shared/debug/consumer.exe"
 [[ -f "$binary" ]] || fail "the build produced no $binary"
 
-echo "== what it needs to start"
-dependents="$("$dumpbin" -nologo -dependents "$(cygpath -w "$binary")" | tr -d '\r')"
-echo "$dependents"
-dlls="$(echo "$dependents" | sed -n 's/^ *\([A-Za-z0-9_.-]*\.[dD][lL][lL]\)$/\1/p' | sort -fu)"
-[[ -n "$dlls" ]] || fail "dumpbin named no DLL at all, which is not a Windows executable that opens a window"
-system="$(cygpath -u "${SystemRoot:-C:\\Windows}")/System32"
-not_ours=()
-for dll in $dlls; do
-    lower="$(echo "$dll" | tr '[:upper:]' '[:lower:]')"
-    case "$lower" in
-        vcruntime*|msvcp*|ucrtbase*|api-ms-win-crt-*)
-            fail "the executable needs $dll, the Visual C++ runtime" \
-                "It should be linked in: build with -C target-feature=+crt-static." ;;
-        libgcc*|libstdc++*|libwinpthread*|*mingw*)
-            fail "the executable needs $dll, part of MinGW" \
-                "MinGW is to stay inside the renderer's object; its runtime is linked in statically." ;;
-        libdioxus_compose_renderer*|*jvm*|*java*|awt*|skiko*|icu*)
-            fail "the executable needs $dll, which is not part of Windows" \
-                "The renderer is meant to be inside the executable." ;;
-        api-ms-win-*|ext-ms-win-*) ;;  # API sets the loader resolves to Windows' own DLLs
-        *) [[ -f "$system/$dll" || -f "$system/$lower" ]] || not_ours+=("$dll") ;;
-    esac
-done
-[[ "${#not_ours[@]}" -eq 0 ]] || fail "the executable needs DLLs Windows does not ship: ${not_ours[*]}"
-size="$(wc -c < "$binary" | tr -d ' ')"
-echo "-- $(echo "$dlls" | wc -l | tr -d ' ') DLLs, every one part of Windows: $(echo $dlls)"
-echo "-- consumer.exe is $size bytes ($((size / 1048576)) MB)"
+echo "== 2. what it needs to start"
+only_windows "$binary"
+default_size="$(size_of "$binary")"
 
-echo "== starting it from an empty directory"
+echo "== 3. starting it from an empty directory"
 rm -rf "$scratch"
-mkdir -p "$scratch"
-cp "$binary" "$scratch/consumer.exe"
-ls -la "$scratch"
+mkdir -p "$scratch/alone"
+cp "$binary" "$scratch/alone/consumer.exe"
+ls -la "$scratch/alone"
 # The renderer cannot close its own window here, so the self-check ends the process once the
 # frames are in.
 unset DIOXUS_COMPOSE_AUTOEXIT_MS
 export DXC_D3D12_WARP="${DXC_D3D12_WARP:-1}"
-( cd "$scratch" && ./consumer.exe --self-check )
+( cd "$scratch/alone" && ./consumer.exe --self-check )
 
-echo "ok    an application depending only on compose-rust links the Kotlin/Native renderer into"
-echo "      one executable that needs only Windows, and draws from an empty directory"
+echo "== 4. beside a C++ library built for the runtime DLL (/MD)"
+mixed_lib="$scratch/mixed-runtime-lib"
+mkdir -p "$mixed_lib"
+(
+    cd "$mixed_lib"
+    MSYS_NO_PATHCONV=1 "$cl" /nologo /c /MD /EHsc /O2 "$(cygpath -w "$mixed_fixture/mixed_runtime.cpp")" \
+        /Fomixed_runtime.obj
+    MSYS_NO_PATHCONV=1 "$lib_tool" /nologo /OUT:mixed_runtime.lib mixed_runtime.obj
+) || fail "cl.exe could not build the /MD library"
+# The library has to carry what makes the link fail when the runtime is not decided once,
+# or this proves nothing.
+grep -aq 'RuntimeLibrary=MD_DynamicRelease' "$mixed_lib/mixed_runtime.lib" ||
+    fail "the /MD library carries no RuntimeLibrary guard, so it tests nothing"
+MIXED_RUNTIME_LIB_DIR="$(cygpath -w "$mixed_lib")" build "$mixed_fixture/Cargo.toml" shared ||
+    fail "an application with a C++ library built for the runtime DLL did not link" \
+        "Look for LNK2038 (a RuntimeLibrary mismatch) above: some library still decides the runtime."
+mixed_binary="$target/shared/debug/consumer-mixed-runtime.exe"
+only_windows "$mixed_binary"
+mkdir -p "$scratch/mixed"
+cp "$mixed_binary" "$scratch/mixed/"
+( cd "$scratch/mixed" && ./consumer-mixed-runtime.exe )
+
+echo "== 5. the same application with the runtime from its DLLs, and with all of it static"
+DXC_WINDOWS_CRT=dynamic build "$fixture/Cargo.toml" shared
+dynamic_binary="$target/shared/debug/consumer.exe"
+dependents "$dynamic_binary" | grep -qi '^vcruntime140' ||
+    fail "the dynamic runtime build does not import VCRUNTIME140.dll, so it measured something else"
+dynamic_size="$(size_of "$dynamic_binary")"
+RUSTFLAGS="-C target-feature=+crt-static" build "$fixture/Cargo.toml" crt-static
+static_binary="$target/crt-static/debug/consumer.exe"
+only_windows "$static_binary"
+mkdir -p "$scratch/crt-static"
+cp "$static_binary" "$scratch/crt-static/consumer.exe"
+( cd "$scratch/crt-static" && ./consumer.exe --self-check )
+static_size="$(size_of "$static_binary")"
+
+echo
+echo "consumer.exe, debug build, by C runtime:"
+echo "  vcruntime and C++ library linked in, UCRT from Windows (the default): $default_size bytes ($(megabytes "$default_size"))"
+echo "  vcruntime and C++ library from their DLLs (DXC_WINDOWS_CRT=dynamic):  $dynamic_size bytes ($(megabytes "$dynamic_size"))"
+echo "  everything static, UCRT too (+crt-static):                           $static_size bytes ($(megabytes "$static_size"))"
+echo
+echo "ok    an application depending only on compose-rust, with no build settings, links the"
+echo "      Kotlin/Native renderer into one executable that needs only Windows, draws from an"
+echo "      empty directory, and links beside a library built for the runtime DLL"
