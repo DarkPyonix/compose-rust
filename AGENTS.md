@@ -120,7 +120,7 @@ none of it.
    file. Propose it first: what it is, why it is needed, and why no existing directory
    can hold it. Then wait for the answer.
 2. The approved root entries are:
-   - folders: `.github/`, `bench/`, `compose-rust/`, `docs/`, `experiments/`,
+   - folders: `.github/`, `compose-rust/`, `docs/`, `experiments/`,
      `renderer/`, `samples/`, `scripts/`;
    - files: `.gitignore`, `Cargo.toml`, `Cargo.lock`, `CHANGELOG.md`, `LICENSE`,
      `README.md`, `AGENTS.md`, `CLAUDE.md`, `PROJECT.md`;
@@ -129,13 +129,13 @@ none of it.
    step 4); `design-systems/` moved to compose-multiplatform-core-extended (#39). The
    twelve samples under `samples/` stay and are being rewritten on the compose-rust API
    (#85); until then they are outside the workspace and their release builds are skipped.
-   `bench/` holds the pin of the Dioxus baseline FR-39 compares against
-   (`bench/fr39-baseline.env`).
+   `scripts/bench/` holds the pin of the Dioxus baseline FR-39 compares against
+   (`scripts/bench/fr39-baseline.env`).
 
    Ignored local directories (`.claude/`, `.scratch/`, `target/`, `build/`) are not part
    of the tree and are covered by "Where files go" above.
 3. A crate, benchmark or tool that needs a home goes inside the folder it belongs to
-   (`compose-rust/macros/`, `bench/<name>/`, `renderer/desktop/<name>/`), not beside it.
+   (`compose-rust/macros/`, `compose-rust/benches/<name>/`, `renderer/desktop/<name>/`), not beside it.
 4. Scripts that only CI runs live in `.github/scripts/`. `scripts/tests/` is the one test
    folder outside the crates.
 
