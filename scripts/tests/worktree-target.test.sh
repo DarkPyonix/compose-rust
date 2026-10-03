@@ -50,10 +50,14 @@ if [[ ! -f "$launcher" ]]; then
          "this test can hold it to the same rule as scripts/setup-worktrees.sh."
 else
     launcher_body="$(grep -vE '^[[:space:]]*#' "$launcher")"
-    if grep -qE 'target[-_]dir|CARGO_TARGET_DIR' <<<"$launcher_body"; then
+    # What deciding looks like: setting the variable, passing the flag, or writing the key
+    # into a cargo config. The launcher's rules for the agents it starts name the variable
+    # in order to forbid it, and a sentence that says "never set it" decides nothing.
+    deciding='CARGO_TARGET_DIR=|--target-dir|target-dir[[:space:]]*=|target_dir[[:space:]]*='
+    if grep -qE "$deciding" <<<"$launcher_body"; then
         fail "nfr12_the_launcher_leaves_the_build_directory_to_one_script" \
              "$launcher decides the build directory itself:" \
-             "$(grep -nE 'target[-_]dir|CARGO_TARGET_DIR' <<<"$launcher_body")" \
+             "$(grep -nE "$deciding" <<<"$launcher_body")" \
              "It has to call scripts/setup-worktrees.sh instead."
     elif ! grep -q 'setup-worktrees.sh' <<<"$launcher_body"; then
         fail "nfr12_the_launcher_leaves_the_build_directory_to_one_script" \
