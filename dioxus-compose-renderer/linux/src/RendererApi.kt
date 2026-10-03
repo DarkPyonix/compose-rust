@@ -43,7 +43,7 @@ object RendererApi {
                 runRenderer { IosHostConnection() }
             }
         } catch (error: Throwable) {
-            java.lang.System.err.println("dioxus-compose: renderer run failed: ${error.message}")
+            java.lang.System.err.println("compose-rust: renderer run failed: ${error.message}")
             RUN_FAILED
         }
 

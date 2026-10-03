@@ -2,6 +2,10 @@ package dioxus.compose.ui.platform
 
 import dioxus.compose.protocol.HostEvent
 import dioxus.compose.runtime.DioxusHost
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.launch
 
 /**
  * The process-wide Host.
@@ -18,7 +22,7 @@ object DioxusRuntime {
      * The application's cdylib, once it has been named.
      *
      * It is the Rust side of the app: it links this crate, declares its root component
-     * through `dioxus_compose::android_main!`, and carries the generated JNI shims and
+     * through `compose_rust::android_main!`, and carries the generated JNI shims and
      * `JNI_OnLoad` with it. Its file name is the application's to choose, which is why it
      * is not a constant here: an application built by the Dioxus CLI gets one name, a
      * Gradle project put together by hand another.
@@ -88,6 +92,40 @@ object DioxusRuntime {
      */
     fun resync() {
         host?.resync()
+    }
+
+    private val scope = MainScope()
+    private var unattended: Job? = null
+
+    /**
+     * An Activity is drawing the Host's tree again, and its frame loop serves the Host's
+     * frame requests.
+     */
+    fun attached() {
+        unattended?.cancel()
+        unattended = null
+    }
+
+    /**
+     * No Activity is drawing, and none may be for a while: the user went back out of the
+     * application and the process stayed.
+     *
+     * The Host is still running and a worker can still finish. Its frame request has no
+     * frame loop to reach, so it is served here, on the UI thread, straight away. The UI is
+     * stopped, so the Host renders nothing for it but what has to go out while nobody is
+     * looking, which is a notification.
+     */
+    fun detached() {
+        val host = host ?: return
+        if (unattended != null) return
+        unattended = scope.launch {
+            serveFrameRequests(
+                FrameRequests.global.counter,
+                awaitFrame = { awaitCancellation() },
+                serve = host::renderFrame,
+                stoppedAfterMillis = 0,
+            )
+        }
     }
 
     /** True once the Host exists, so a recreated Activity can tell the two cases apart. */

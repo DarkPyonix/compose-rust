@@ -66,6 +66,7 @@ $MetadataDir = Join-Path $ScriptsDir "windows-metadata"
 $LibraryName = "libdioxus_compose_renderer"
 $RendererSource = Join-Path $NativeDir "c\renderer_entry.c"
 $WindowSource = Join-Path $NativeDir "c\win32_window.c"
+$NotificationsSource = Join-Path $NativeDir "c\win32_notifications.c"
 $KotlinWrapper = Join-Path $ProjectDir "kotlin.bat"
 $ClasspathFile = Join-Path $BuildDir "classpath-windows.txt"
 $JvmLog = Join-Path $BuildDir "jvm-run-windows.log"
@@ -267,6 +268,15 @@ if ($LASTEXITCODE -ne 0) {
     Fail "MSVC could not compile $WindowSource"
 }
 
+# Toasts, through the Windows Runtime's notification manager. C11 like the two above: the
+# runtime interfaces it calls are declared in the file itself, so it needs no C++ compiler
+# and brings no C++ runtime with it.
+$NotificationsObject = Join-Path $ObjDir "win32_notifications.obj"
+Invoke-Native { & cl.exe /nologo /c /O2 /std:c11 "/Fo$NotificationsObject" $NotificationsSource }
+if ($LASTEXITCODE -ne 0) {
+    Fail "MSVC could not compile $NotificationsSource"
+}
+
 # PE/COFF requires the Host boundary to resolve at DLL link time. renderer_entry.obj supplies
 # forwarding definitions that use GetProcAddress on the host executable. Only the two public
 # Renderer functions are exported from the DLL.
@@ -298,6 +308,7 @@ $NativeImageArgs = @(
     "-H:Preserve=module=java.desktop",
     "-H:NativeLinkerOption=$RendererObject",
     "-H:NativeLinkerOption=$WindowObject",
+    "-H:NativeLinkerOption=$NotificationsObject",
     # Named rather than left to the linker. Direct3D and DXGI resolve nowhere else, and
     # dxguid carries the interface identifiers that C code has to name as values because
     # it cannot ask for them the way C++ does. user32 is where the window, its messages
@@ -313,6 +324,11 @@ $NativeImageArgs = @(
     "-H:NativeLinkerOption=uiautomationcore.lib",
     "-H:NativeLinkerOption=oleaut32.lib",
     "-H:NativeLinkerOption=imm32.lib",
+    # The toast manager and the strings it takes are the Windows Runtime's; the shortcut a
+    # toast's identity is read from is the shell's, reached through COM.
+    "-H:NativeLinkerOption=runtimeobject.lib",
+    "-H:NativeLinkerOption=ole32.lib",
+    "-H:NativeLinkerOption=shell32.lib",
     "-H:NativeLinkerOption=/EXPORT:dioxus_compose_renderer_run",
     "-H:NativeLinkerOption=/EXPORT:dioxus_compose_renderer_request_frame"
 )

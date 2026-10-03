@@ -177,7 +177,7 @@ private fun runRendererWithHost(
                 // have chosen on its own.
                 dioxus.compose.design.platformUiFamily
                 System.err.println(
-                    "dioxus-compose: using ${dioxus.compose.design.platformUiFamilyName}" +
+                    "compose-rust: using ${dioxus.compose.design.platformUiFamilyName}" +
                         ", toolkit default would be ${forLetter?.familyName}",
                 )
             }
@@ -187,7 +187,7 @@ private fun runRendererWithHost(
                 val transform = window.graphicsConfiguration?.defaultTransform
                 val density = window.graphicsConfiguration?.device?.displayMode
                 System.err.println(
-                    "dioxus-compose: display scale x=${transform?.scaleX} y=${transform?.scaleY}" +
+                    "compose-rust: display scale x=${transform?.scaleX} y=${transform?.scaleY}" +
                         ", mode ${density?.width}x${density?.height}" +
                         ", window ${window.width}x${window.height}",
                 )

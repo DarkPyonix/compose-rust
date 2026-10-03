@@ -1,4 +1,4 @@
-# dioxus-compose
+# compose-rust
 
 [![CI](https://github.com/DarkPyonix/compose-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/DarkPyonix/compose-rust/actions/workflows/ci.yml)
 [![Native renderer](https://github.com/DarkPyonix/compose-rust/actions/workflows/native-renderer.yml/badge.svg)](https://github.com/DarkPyonix/compose-rust/actions/workflows/native-renderer.yml)
@@ -15,7 +15,7 @@
 rsx! {
     Column {
         fill_max_width: true,
-        Text { text: "dioxus-compose chat" }
+        Text { text: "compose-rust chat" }
         Button { text: "Send", on_click: move |_| send() }
     }
 }
@@ -57,7 +57,7 @@ shaping, selection, accessibility and above all **IME** are not at the level Com
 ago. For an app where typing *is* the interface, an IME that works 90% of the time is an app that
 does not work. Korean, Japanese and Chinese composition is not a nice-to-have.
 
-dioxus-compose takes Compose's renderer without taking Compose's runtime cost: the Kotlin side is
+compose-rust takes Compose's renderer without taking Compose's runtime cost: the Kotlin side is
 compiled ahead of time into a native library (Kotlin/Native on macOS, Linux and iOS, a GraalVM
 native image where Kotlin has no target that can be linked against Skia), so there is no JVM in the
 shipped artifact.
@@ -72,7 +72,7 @@ order-of-magnitude rather than benchmarks. What this project weighs is measured.
 | Webview stack (Electron, Tauri-class) | Heaviest: a browser engine per app or per system | Rejected by **C1**: memory and size |
 | Compose + bundled JVM (jlink) | ~80–120 MB of JVM alone | Rejected by **C2**. AppCDS fixes startup, not size |
 | Pure Rust toolkit (Iced-class) | ~10–20 MB | Rejected by **C5**: text and IME maturity |
-| **dioxus-compose** | 28.76 MB on macOS, one file | Larger than Iced, far smaller than a webview or JVM stack |
+| **compose-rust** | 28.76 MB on macOS, one file | Larger than Iced, far smaller than a webview or JVM stack |
 
 ### What it actually weighs
 
@@ -162,7 +162,7 @@ fn app() -> Element {
     rsx! {
         Column {
             fill_max_width: true,
-            Text { text: "dioxus-compose chat" }
+            Text { text: "compose-rust chat" }
             for message in messages() {
                 Text { text: message }
             }
@@ -247,7 +247,7 @@ The design is worked out in detail in `FR-13` and `FR-14` of [`docs/SPEC.md`](do
 ┌────────────────────── Host (Rust) ───────────────────────┐
 │  your components, rsx!, hooks, signals                  │
 │  dioxus-core VirtualDom                                  │
-│  dioxus-compose renderer:  Mutations ──► fixed-layout    │
+│  compose-rust renderer:    Mutations ──► fixed-layout    │
 │                                          byte records    │
 └───────────────────────────┬──────────────────────────────┘
                             │
@@ -534,7 +534,7 @@ still have to be measured on the native-image build.
 ## 🗂 Project layout
 
 ```
-dioxus-compose/
+compose-rust/
 ├─ dioxus-compose/                  # Rust: the Host, Dioxus renderer crate
 │  ├─ src/
 │  │  ├─ lib.rs                     #   public API, rsx! elements, event attributes
@@ -619,7 +619,7 @@ trailers or any AI attribution.
 
 ## 📚 Documentation
 
-**📖 Guide site: <http://darkpyonix.dev/dioxus-compose/>**, English and Korean, covering getting
+**📖 Guide: [docs/guide](https://github.com/DarkPyonix/compose-rust/tree/develop/docs/guide)**, English and Korean, covering getting
 started, writing UI, lists and streaming, architecture and troubleshooting.
 
 | Document | What is in it |

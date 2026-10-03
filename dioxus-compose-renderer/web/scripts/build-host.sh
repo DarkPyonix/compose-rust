@@ -3,7 +3,7 @@
 # Usage: ./build-host.sh [--debug] [--sample <name>] [example]
 #
 # The default example is web_demo, the vertical slice. Any target that calls
-# `dioxus_compose::web_main!` works the same way, which is what --sample reaches: a
+# `compose_rust::web_main!` works the same way, which is what --sample reaches: a
 # sample is an rlib for its desktop binary and a cdylib here, because a page owns the
 # loop and there is no `main` of ours to run.
 #

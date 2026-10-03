@@ -6,12 +6,13 @@ use crate::protocol::{
 use crate::schema::{
     ANDROID_BRIDGE_CLASS, BOUNDARY_SCHEMA, BoundaryOp, BoundaryParam, Color, ColorRole,
     ColorScheme, DESIGN_SYSTEM_SCHEMA, DesignSystem, EVENT_SCHEMA, EventPayloadType, FieldSchema,
-    FieldSlot, FieldType, KEY_SCHEMA, Key, MODIFIER_SCHEMA, PROPERTY_SCHEMA, PROTOCOL_VERSION,
-    Paint, PropertyKind, ROLE_ENUM_SCHEMA, SCHEMA_HASH, Selection, ShapeRole, SpaceRole, Theme,
-    WEB_BATCH_BYTES, WEB_BATCH_FIELDS, WEB_EVENT_BUFFER_BYTES, WEB_EVENT_BUFFER_OFFSET,
-    WEB_HOST_GLOBAL, WEB_MODULE_GLOBAL, WEB_RENDERER_IMPORT_MODULE, WEB_RUST_REGION_BASE,
-    WEB_START_SYMBOL, WIDGET_SCHEMA, WINDOW_HEIGHT_CLASS_SCHEMA, WINDOW_SIZE_CLASS_SCHEMA,
-    WidgetKind,
+    FieldSlot, FieldType, KEY_SCHEMA, Key, MODIFIER_SCHEMA, NOTIFICATION_PERMISSION_SCHEMA,
+    NotificationImportance, NotificationPermission, NotificationPresentation, PROPERTY_SCHEMA,
+    PROTOCOL_VERSION, Paint, PropertyKind, ROLE_ENUM_SCHEMA, SCHEMA_HASH, Selection, ShapeRole,
+    SpaceRole, Theme, WEB_BATCH_BYTES, WEB_BATCH_FIELDS, WEB_EVENT_BUFFER_BYTES,
+    WEB_EVENT_BUFFER_OFFSET, WEB_HOST_GLOBAL, WEB_MODULE_GLOBAL, WEB_RENDERER_IMPORT_MODULE,
+    WEB_RUST_REGION_BASE, WEB_START_SYMBOL, WIDGET_SCHEMA, WINDOW_HEIGHT_CLASS_SCHEMA,
+    WINDOW_SIZE_CLASS_SCHEMA, WidgetKind,
 };
 use crate::tokens::DESIGN_TOKENS;
 use crate::{EventPayload, Modifier};
@@ -257,6 +258,31 @@ data class Window(
         val action: String,
         val duration: MessageDuration,
     ) : Mutation
+
+    /**
+     * One notification to show outside the window.
+     *
+     * Not a node: it outlives the component that posted it, and when it goes away is up to
+     * the user in the notification centre. Posting again under the same `key` replaces it;
+     * an empty `key` is named by the Renderer and can be neither replaced nor withdrawn. An
+     * empty action label is no button.
+     */
+    data class PostNotification(
+        val key: String,
+        val title: String,
+        val body: String,
+        val channel: String,
+        val action1: String,
+        val action2: String,
+        val importance: NotificationImportance,
+        val presentation: NotificationPresentation,
+    ) : Mutation
+
+    /** Takes back the notification posted under `key`, if it is still showing. */
+    data class WithdrawNotification(val key: String) : Mutation
+
+    /** Asks the platform for permission. The answer comes back as an event. */
+    data object RequestNotificationPermission : Mutation
 }
 
 "#,
@@ -289,6 +315,12 @@ data class Window(
                 );
             }
             EventPayloadType::DesignSystem => output.push_str(", val system: DesignSystem"),
+            EventPayloadType::NotificationActivation => {
+                output.push_str(", val action: Int, val key: String");
+            }
+            EventPayloadType::NotificationPermission => {
+                output.push_str(", val state: NotificationPermission");
+            }
         }
         output.push_str(") : HostEvent\n");
     }
@@ -328,6 +360,9 @@ object Protocol {
     private const val TAG_RELEASE_ASSET = 11
     private const val TAG_SHOW_MESSAGE = 12
     private const val TAG_SET_WINDOW = 13
+    private const val TAG_POST_NOTIFICATION = 14
+    private const val TAG_WITHDRAW_NOTIFICATION = 15
+    private const val TAG_REQUEST_NOTIFICATION_PERMISSION = 16
     private const val ENVELOPE_LENGTH = 12
     /** Four role tags, one font asset id per type role, then the palette's reference. */
     private val THEME_RECORD_LENGTH = 20 + 4 * TypeRole.entries.size
@@ -526,6 +561,27 @@ object Protocol {
                             messageDuration(readU16(batch, base, available, offset + 28), offset + 28),
                         )
                     }
+                    TAG_POST_NOTIFICATION -> {
+                        requireRecordLength(length, 56, offset)
+                        Mutation.PostNotification(
+                            readString(batch, base, available, offset + 4),
+                            readString(batch, base, available, offset + 12),
+                            readString(batch, base, available, offset + 20),
+                            readString(batch, base, available, offset + 28),
+                            readString(batch, base, available, offset + 36),
+                            readString(batch, base, available, offset + 44),
+                            notificationImportance(readU16(batch, base, available, offset + 52), offset + 52),
+                            notificationPresentation(readU16(batch, base, available, offset + 54), offset + 54),
+                        )
+                    }
+                    TAG_WITHDRAW_NOTIFICATION -> {
+                        requireRecordLength(length, 12, offset)
+                        Mutation.WithdrawNotification(readString(batch, base, available, offset + 4))
+                    }
+                    TAG_REQUEST_NOTIFICATION_PERMISSION -> {
+                        requireRecordLength(length, 4, offset)
+                        Mutation.RequestNotificationPermission
+                    }
                     else -> throw ProtocolException("unknown mutation tag $tag", offset)
                 }
                 onMutation(mutation)
@@ -613,6 +669,14 @@ object Protocol {
                 )
                 .unwrap();
             }
+            EventPayloadType::NotificationActivation => {
+                writeln!(
+                    output,
+                    "                is HostEvent.{} -> event.key.toByteArray(StandardCharsets.UTF_8)",
+                    event.name
+                )
+                .unwrap();
+            }
             EventPayloadType::None => {
                 writeln!(
                     output,
@@ -625,7 +689,8 @@ object Protocol {
             | EventPayloadType::Range
             | EventPayloadType::Double
             | EventPayloadType::WindowSize
-            | EventPayloadType::DesignSystem => {
+            | EventPayloadType::DesignSystem
+            | EventPayloadType::NotificationPermission => {
                 writeln!(
                     output,
                     "                is HostEvent.{} -> null",
@@ -651,6 +716,9 @@ object Protocol {
             EventPayloadType::WindowSize => 32,
             // A tag and the padding that keeps the record a multiple of four.
             EventPayloadType::DesignSystem => 20,
+            // A word and a string reference, the protocol error's shape.
+            EventPayloadType::NotificationActivation => 28,
+            EventPayloadType::NotificationPermission => 20,
         };
         writeln!(
             output,
@@ -740,6 +808,21 @@ object Protocol {
             EventPayloadType::DesignSystem => {
                 writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
                 output.push_str("                    out.putInt(designSystemTag(event.system))\n");
+                output.push_str("                }\n");
+            }
+            EventPayloadType::NotificationActivation => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(event.action)\n");
+                output.push_str(
+                    "                    writeStringReference(out, recordLength, text!!)\n",
+                );
+                output.push_str("                }\n");
+            }
+            EventPayloadType::NotificationPermission => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str(
+                    "                    out.putInt(notificationPermissionTag(event.state))\n",
+                );
                 output.push_str("                }\n");
             }
             EventPayloadType::Double => {
@@ -872,6 +955,19 @@ object Protocol {
         writeln!(
             output,
             "        DesignSystem.{} -> {}",
+            variant.name, variant.tag
+        )
+        .unwrap();
+    }
+    output.push_str("    }\n\n");
+    // The permission travels this way too: the Renderer is the side that learns it.
+    output.push_str(
+        "    private fun notificationPermissionTag(state: NotificationPermission): Int = when (state) {\n",
+    );
+    for variant in NOTIFICATION_PERMISSION_SCHEMA {
+        writeln!(
+            output,
+            "        NotificationPermission.{} -> {}",
             variant.name, variant.tag
         )
         .unwrap();
@@ -1568,6 +1664,20 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             action: "Undo",
             duration: crate::schema::MessageDuration::Long,
         },
+        // The three notification commands: six string references and two closed enums, one
+        // string reference, and a bare header that is the shortest record on the wire.
+        Mutation::PostNotification {
+            key: "session/7",
+            title: "세션이 끝났습니다",
+            body: "테스트 214개 통과",
+            channel: "세션",
+            action_1: "열기",
+            action_2: "",
+            importance: NotificationImportance::Urgent,
+            presentation: NotificationPresentation::WhenInactive,
+        },
+        Mutation::WithdrawNotification { key: "session/7" },
+        Mutation::RequestNotificationPermission,
         // Text runs with a text colour and a background each, so both sides read the
         // same 36 byte records.
         Mutation::SetProp {
@@ -1653,6 +1763,19 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
                 height_class: crate::schema::WindowHeightClass::Medium,
             },
         },
+        HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: EventPayload::NotificationActivated {
+                action: 1,
+                key: "session/7",
+            },
+        },
+        HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: EventPayload::NotificationPermissionChanged(NotificationPermission::Denied),
+        },
     ];
     let mut output = Vec::new();
     let mut encoded = Vec::new();
@@ -1671,20 +1794,20 @@ pub fn generate_vector_description() -> String {
   "byteOrder": "little-endian",
   "mutations": {{
     "file": "mutations.bin",
-    "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, palette entry, text run and split pane property",
-    "recordCount": 43,
+    "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run and split pane property",
+    "recordCount": 46,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
       {{ "role": "SyntaxKeyword", "scheme": "Light", "argb": "80112233" }}
     ],
     "spanRecordLength": 36,
-    "strings": ["안녕", "compose", " token", "필터", "New", "삭제했습니다", "Undo"],
+    "strings": ["안녕", "compose", " token", "필터", "New", "삭제했습니다", "Undo", "session/7", "세션이 끝났습니다", "테스트 214개 통과", "세션", "열기", "", "session/7"],
     "assets": [{{ "assetId": 5, "kind": "Png", "bytes": "89504e47" }}]
   }},
   "events": {{
     "file": "events.bin",
-    "description": "Nine independently decodable event records concatenated in schema order",
+    "description": "Eleven independently decodable event records concatenated in schema order",
     "records": [
       {{ "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 }},
       {{ "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" }},
@@ -1694,7 +1817,9 @@ pub fn generate_vector_description() -> String {
       {{ "type": "KeyDown", "offset": 125, "length": 20, "nodeId": 9, "handlerId": 15, "key": "Enter", "shiftKey": true, "ctrlKey": true, "altKey": true, "metaKey": true }},
       {{ "type": "RangeRequested", "offset": 145, "length": 24, "nodeId": 10, "handlerId": 16, "start": 100, "count": 20 }},
       {{ "type": "ValueChanged", "offset": 169, "length": 24, "nodeId": 11, "handlerId": 17, "value": -19723.5 }},
-      {{ "type": "WindowSizeChanged", "offset": 193, "length": 32, "nodeId": 0, "handlerId": 0, "widthDp": 840.0, "heightDp": 600.0, "sizeClass": "Expanded", "heightClass": "Medium" }}
+      {{ "type": "WindowSizeChanged", "offset": 193, "length": 32, "nodeId": 0, "handlerId": 0, "widthDp": 840.0, "heightDp": 600.0, "sizeClass": "Expanded", "heightClass": "Medium" }},
+      {{ "type": "NotificationActivated", "offset": 225, "length": 37, "nodeId": 0, "handlerId": 0, "action": 1, "key": "session/7" }},
+      {{ "type": "NotificationPermissionChanged", "offset": 262, "length": 20, "nodeId": 0, "handlerId": 0, "state": "Denied" }}
     ]
   }}
 }}
@@ -2639,7 +2764,7 @@ const INSTALL_HOST_KOTLIN: &str = r##"/**
   // would go stale. Nothing on the boundary goes near one.
   const unbound = (namespace) => new Proxy({}, {
     get: (_, name) => () => {
-      throw new Error('dioxus-compose: the Host called ' + namespace + '.' + String(name) +
+      throw new Error('compose-rust: the Host called ' + namespace + '.' + String(name) +
         ', which is a wasm-bindgen import this page does not provide. Nothing on the ' +
         'boundary uses one, so a call here means the Host reached JavaScript through a ' +
         'dependency rather than through the boundary.');
@@ -2663,7 +2788,7 @@ const INSTALL_HOST_KOTLIN: &str = r##"/**
     // module's allocator uses. The second draws a wrong screen instead of failing, so
     // neither is allowed to become the first boundary call.
     globalThis.HOST_GLOBAL = undefined;
-    throw new Error('dioxus-compose: the Host reported its boundary block at ' + block +
+    throw new Error('compose-rust: the Host reported its boundary block at ' + block +
       ', which is not inside the region above REGION_BASE that it was linked into. ' +
       'Check that it was linked with --import-memory and --global-base.');
   }
@@ -2856,7 +2981,7 @@ pub fn generate_web_loader_js() -> String {
   // falls back to its scripted development host, and this says why on the console rather
   // than leaving an empty screen to be puzzled over.
   console.info(
-    `dioxus-compose: no Host module beside this page (${HOST_WASM}: ${error}). ` +
+    `compose-rust: no Host module beside this page (${HOST_WASM}: ${error}). ` +
       'The renderer will draw its development host instead.',
   );
 }
