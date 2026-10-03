@@ -471,7 +471,7 @@ pub fn launch() {
 fn launch_builder() -> compose_rust::LaunchBuilder {
     // The name the window carries. A desktop lists windows by it, so a window that said
     // nothing was listed under whatever the renderer happened to be called, and every
-    // sample here was listed as DioxusCompose until this line existed.
+    // sample here was listed under the toolkit's default name until this line existed.
     compose_rust::LaunchBuilder::new()
         .with_theme(compose_rust::demo_theme_for(THEME))
         .with_window(
@@ -506,9 +506,7 @@ mod tests {
     use super::*;
 
     use compose_rust::Host;
-    use compose_rust::protocol::{
-        HostEvent, Mutation, PropertyValue, decode_batch, encode_event,
-    };
+    use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
     use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind};
 
     /// Named for what it defends: the reference is a dark design, and a machine set

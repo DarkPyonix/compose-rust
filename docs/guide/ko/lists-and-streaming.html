@@ -63,7 +63,7 @@
       <span class="label">현재 위치</span>
       <p>
         <code>LazyColumn</code>(FR-8)과 <code>AppendText</code>(FR-9)는 SPEC에서
-        <code>Agreed</code>이고 Host 쪽 구현이 끝났습니다. 둘 다 <code>dioxus-compose/tests/</code>에
+        <code>Agreed</code>이고 Host 쪽 구현이 끝났습니다. 둘 다 <code>compose-rust/tests/</code>에
         통과하는 수용 테스트가 있습니다. Compose 인터프리터는 지금 병행해서 작업 중이고, 그전까지
         화면에서 어떻게 보이는지는 아래 <a href="#renderer-gap">Renderer 쪽 공백</a>을 보세요.
       </p>
@@ -113,7 +113,7 @@
     </p>
 
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
-      <figcaption>rust, dioxus-compose/src/widgets.rs의 컴포넌트 정의 그대로</figcaption>
+      <figcaption>rust, compose-rust/src/widgets.rs의 컴포넌트 정의 그대로</figcaption>
 <pre><code><span class="f">rsx!</span> {
     <span class="ty">LazyColumn</span> {
         <span class="at">item_count</span>: messages.<span class="f">len</span>(),

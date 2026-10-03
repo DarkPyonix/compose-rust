@@ -168,14 +168,14 @@ ART에서는 호스트 관계가 뒤집힙니다. 경계를 호출 방향과 무
 
 - **렌더러는 기본 기능입니다.** `native-renderer`가 기본에서 빠져 있던 동안 평범한 `cargo build`는 렌더러 없는 바이너리를 만들었고, 그 바이너리는 실행하면 아무것도 그리지 않은 채 0을 반환했습니다. 화면에 아무것도 없는데 종료 코드가 0이면 사용자는 무엇을 고쳐야 할지 알 방법이 없습니다. 렌더러 없이 빌드하고 싶은 쪽(헤드리스 CI, 문서 빌드)이 `default-features = false`로 꺼야 합니다.
 - **렌더러가 링크되지 않은 빌드는 실행 시 조용히 성공하지 않습니다.** 무엇이 없는지와 어떻게 얻는지를 표준 오류로 말하고, 0이 아닌 상태로 끝냅니다. `mock-renderer`와 테스트 빌드는 예외입니다. 그쪽은 렌더러가 없는 것이 정상이며, 이미 그 전제로 쓰입니다.
-- **탐색 순서**: `DIOXUS_COMPOSE_RENDERER_DIR` → 워크스페이스 빌드 결과물 → 버전·타깃별 캐시 → 릴리스에서 내려받기. 변수는 언제나 최우선입니다. 직접 빌드한 렌더러, 벤더링한 사본, 오프라인 빌드가 모두 이 변수 하나로 해결되고, 자동 다운로드가 그 경로를 가로채지 않습니다.
+- **탐색 순서**: `COMPOSE_RUST_RENDERER_DIR` → 워크스페이스 빌드 결과물 → 버전·타깃별 캐시 → 릴리스에서 내려받기. 변수는 언제나 최우선입니다. 직접 빌드한 렌더러, 벤더링한 사본, 오프라인 빌드가 모두 이 변수 하나로 해결되고, 자동 다운로드가 그 경로를 가로채지 않습니다.
 - **캐시는 `target/` 밖에 두고 버전과 타깃으로 키를 만듭니다.** `cargo clean`을 견디고, 같은 버전을 쓰는 프로젝트끼리 한 벌을 공유합니다. `target/` 안에 두면 청소할 때마다 수십 MB를 다시 받게 됩니다.
 - **푸는 매 번 체크섬을 검증합니다.** 신뢰 경계는 GitHub 릴리스 자체입니다. `.sha256`이 아티팩트와 같은 릴리스에서 오므로 이 검증이 막는 것은 잘린 다운로드와 손상된 캐시이지 공급망 공격이 아닙니다. 그 이상이 필요하면 서명을 도입해야 하고, 그것은 별도 결정입니다.
 - **네트워크가 없으면 파일 이름과 둘 위치를 말하고 실패합니다.** "네트워크 오류"만 남기면 오프라인 빌드를 할 방법이 없습니다.
 - **해당 타깃의 아티팩트가 없으면 그렇게 말합니다.** 404를 그대로 보여주면 릴리스가 통째로 없는 것인지 그 플랫폼만 없는 것인지 구분할 수 없습니다.
 - **docs.rs는 네트워크가 없습니다.** `DOCS_RS`가 설정되면 내려받지 않고 렌더러 없이 문서를 빌드합니다. 그렇게 만들어진 바이너리는 위의 "조용히 성공하지 않는다"에 해당합니다.
 - **링크되었는지는 기능 플래그가 아니라 빌드가 정합니다.** 빌드 스크립트가 렌더러를 실제로 링크했을 때만 `renderer_linked`를 내보내고, Host는 그것으로 갈립니다. 기능 플래그로 갈랐다면 docs.rs 빌드가 존재하지 않는 심벌을 부릅니다.
-- **"설치가 끝났다"는 실행되는 바이너리까지입니다.** Cargo는 의존성 빌드 스크립트의 링크 탐색 경로와 라이브러리는 최종 바이너리로 넘기지만 링크 인자는 넘기지 않습니다. 그래서 rpath로 해결하던 두 가지를 크레이트 안에서 해결합니다: 라이브러리는 자기가 놓인 절대 경로를 자기 이름으로 달고, `dioxus_compose_host_*` 심벌은 `#[used]`로 죽은 코드 제거에서 지킵니다. 링크는 되는데 시작하자마자 죽는 바이너리는 렌더러가 없는 바이너리와 같은 종류의 실패입니다(SPEC 5.3.4).
+- **"설치가 끝났다"는 실행되는 바이너리까지입니다.** Cargo는 의존성 빌드 스크립트의 링크 탐색 경로와 라이브러리는 최종 바이너리로 넘기지만 링크 인자는 넘기지 않습니다. 그래서 rpath로 해결하던 두 가지를 크레이트 안에서 해결합니다: 라이브러리는 자기가 놓인 절대 경로를 자기 이름으로 달고, `compose_rust_host_*` 심벌은 `#[used]`로 죽은 코드 제거에서 지킵니다. 링크는 되는데 시작하자마자 죽는 바이너리는 렌더러가 없는 바이너리와 같은 종류의 실패입니다(SPEC 5.3.4).
 - 이 스택을 쓰는 애플리케이션의 배포는 이 프로젝트의 범위 밖입니다. 렌더러를 어떻게 번들에 넣을지는 해당 애플리케이션이 정합니다. 다만 그것이 가능하도록 남겨 두는 것은 이 프로젝트의 책임입니다(D12).
 
 ### D11. Android는 Kotlin을 소스로 배포한다
@@ -213,11 +213,11 @@ sourceSets { getByName("main") { java.srcDirs("src/main/kotlin", "src/main/java"
 
 ### D12. 링크 시점 링크를 유지하고, rpath 대신 라이브러리의 절대 이름으로 찾게 한다
 
-D10이 약속한 "`Cargo.toml` 한 줄"은 `cargo build`뿐 아니라 `cargo run`까지입니다. 그런데 빌드 스크립트가 렌더러를 받아 링크해 두어도, 그 크레이트에 의존하기만 한 바이너리는 시작하자마자 `Library not loaded: @rpath/libdioxus_compose_renderer.dylib, no LC_RPATH's found`로 죽었습니다. Cargo가 의존성의 링크 인자를 넘기지 않으므로 rpath가 최종 바이너리에 도달하지 못하기 때문입니다.
+D10이 약속한 "`Cargo.toml` 한 줄"은 `cargo build`뿐 아니라 `cargo run`까지입니다. 그런데 빌드 스크립트가 렌더러를 받아 링크해 두어도, 그 크레이트에 의존하기만 한 바이너리는 시작하자마자 `Library not loaded: @rpath/libcompose_rust_renderer.dylib, no LC_RPATH's found`로 죽었습니다. Cargo가 의존성의 링크 인자를 넘기지 않으므로 rpath가 최종 바이너리에 도달하지 못하기 때문입니다.
 
 **링크 시점 링크는 그대로 두고, 개발 중에도 rpath에 기대지 않습니다.** 빌드 스크립트가 렌더러를 확보하면 그 라이브러리가 지금 놓인 절대 경로를 라이브러리 자신의 이름으로 새겨 넣습니다. 소비자의 바이너리는 그 절대 경로를 그대로 기록하고, 로더는 rpath 하나 없이 찾아냅니다.
 
-- **획득 경로 네 가지 모두에 적용합니다.** `DIOXUS_COMPOSE_RENDERER_DIR`, 워크스페이스 빌드 결과물, 캐시, 다운로드 어디서 왔든 같습니다. 캐시에만 적용하면 이 저장소에서 렌더러를 직접 빌드해 쓰는 개발 경로만 rpath에 남게 되고, 개발자가 매일 쓰는 경로가 소비자가 쓰는 경로와 달라집니다. 그 차이가 이 버그를 오래 숨겨 왔습니다.
+- **획득 경로 네 가지 모두에 적용합니다.** `COMPOSE_RUST_RENDERER_DIR`, 워크스페이스 빌드 결과물, 캐시, 다운로드 어디서 왔든 같습니다. 캐시에만 적용하면 이 저장소에서 렌더러를 직접 빌드해 쓰는 개발 경로만 rpath에 남게 되고, 개발자가 매일 쓰는 경로가 소비자가 쓰는 경로와 달라집니다. 그 차이가 이 버그를 오래 숨겨 왔습니다.
 - **우리 빌드 스크립트도 rpath를 내보내지 않습니다.** 내보내면 이 저장소의 테스트 바이너리만 rpath로 살아나고, 이름 새기기가 고장나도 소비자 쪽에서만 터집니다. rpath를 없애면 우리 테스트 바이너리가 소비자 바이너리와 정확히 같은 방식으로 적재됩니다.
 - **샘플에는 `build.rs`가 없습니다.** 샘플은 소비자의 대역이고, 소비자가 쓰지 않는 빌드 스크립트를 샘플이 쓰면 대역이 아닙니다.
 - **macOS**: `install_name_tool -id <절대 경로>`. Xcode 명령줄 도구에 들어 있고, Rust 링커가 어차피 그것을 필요로 합니다.
@@ -349,7 +349,7 @@ macOS 26과 iOS 26은 같은 재질을 쓰지만 같은 방식으로 쓰지 않�
 >
 > "옮겨. 단순 윈도우를 실험으로 보지 말고 정식 통합을 진행해야지" (2026-10-01)
 
-이 결정은 dioxus-compose의 `feat/windows-kotlin-native` 브랜치에서 처음 적혔고, 그 브랜치의 빌드와 링크가 근거입니다. compose-rust에 맞춰 옮겨 적습니다: 크레이트는 `compose-rust`(`dioxus-compose/` 디렉터리), 렌더러 모듈은 Linux의 `linux/`, `staticlib-linux/`와 같은 모양의 `dioxus-compose-renderer/windows/`와 `staticlib-windows/`, Compose와 skiko의 `mingwX64` 변경은 이 저장소의 패치가 아니라 `compose-multiplatform-core-extended`의 커밋입니다(D19).
+이 결정은 dioxus-compose의 `feat/windows-kotlin-native` 브랜치에서 처음 적혔고, 그 브랜치의 빌드와 링크가 근거입니다. compose-rust에 맞춰 옮겨 적습니다: 크레이트는 `compose-rust`(`dioxus-compose/` 디렉터리), 렌더러 모듈은 Linux의 `linux/`, `staticlib-linux/`와 같은 모양의 `renderer/windows/`와 `staticlib-windows/`, Compose와 skiko의 `mingwX64` 변경은 이 저장소의 패치가 아니라 `compose-multiplatform-core-extended`의 커밋입니다(D19).
 
 Windows 렌더러는 GraalVM native-image가 아니라 Kotlin/Native(`mingwX64`)로 컴파일하고, Rust 앱이 만드는 MSVC 실행 파일 하나에 정적으로 링크합니다. macOS, Linux와 같은 길입니다(D4).
 
@@ -382,7 +382,9 @@ skiko는 `mingwX64`를 발행하지 않고 Compose도 Windows용 Kotlin/Native �
 - 실행 파일 안에 C++ 런타임이 둘 들어갑니다. 이름 규칙이 달라 부딪히지는 않지만 크기는 그만큼 늡니다.
 - MinGW 오브젝트를 고치는 빌드 단계가 하나 생깁니다. Kotlin/Native가 오브젝트를 만드는 방식을 바꾸면 이 단계도 다시 확인해야 합니다.
 - MinGW의 크래시 필터 대신 '처리 안 함'을 돌려주는 함수를 둡니다. Kotlin 스레드의 크래시는 MinGW식 신호 변환 대신 Windows 기본 처리로 갑니다.
-- Skia가 MSVC 정적 C 런타임으로 빌드되어 있으므로, 앱도 정적 C 런타임(`+crt-static`)으로 빌드해야 합니다. 빌드 스크립트가 그렇지 않은 앱에 무엇을 하라고 말합니다.
+- Skia가 MSVC 정적 C 런타임으로 빌드되어 있지만, 앱에 `+crt-static`을 요구하지 않습니다. **크레이트의 빌드 스크립트가 정적 C 런타임을 대신 링크하고, 부딪히는 기본 라이브러리는 막습니다**(`/NODEFAULTLIB`). compose-multiplatform-extended 플러그인이 Windows 단일 실행 파일에서 검증한 방식과 같습니다. 앱을 만드는 사람이 할 일은 `Cargo.toml` 한 줄뿐입니다(NFR-15 기준 5).
+
+  > "(b)안으로 가자" (2026-10-03, 소유자. 세 선택지 가운데 "크레이트의 build.rs가 정적 C 런타임을 링크하고 충돌을 막는다"를 고름)
 - Wine으로 확인한 것은 Windows에서 다시 확인해야 하고, 창, 입력기, 화면 낭독기는 Wine으로 확인할 수 없습니다.
 
 **폐기한 대안:**
@@ -419,7 +421,7 @@ skiko는 `mingwX64`를 발행하지 않고 Compose도 Windows용 Kotlin/Native �
 
 > "디자인 시스템 extended쪽에 넣어. 다만 기존 material3와 같은 부모 패키지에 넣을지 아니면 새 패키지를 만들지는 결정해야 할거같은데 논의하고 알려줘봐." (2026-10-03)
 
-이 문단은 전에 "디자인 시스템 일곱 개와 Liquid Glass 재질이 어느 저장소로 갈지"를 정하지 않은 것으로 두고 있었습니다. 이제 정해졌습니다. `dioxus-design-systems/`와 렌더러 안의 복사본이 포크로 옮겨 가고, 그 뒤 이 저장소와 렌더러는 포크가 내놓는 것을 씁니다. Rust와 무관한 Compose 코드이고, 포크로 가면 pythonx-compose도 같은 것을 쓸 수 있습니다.
+이 문단은 전에 "디자인 시스템 일곱 개와 Liquid Glass 재질이 어느 저장소로 갈지"를 정하지 않은 것으로 두고 있었습니다. 이제 정해졌습니다. `design-systems/`와 렌더러 안의 복사본이 포크로 옮겨 가고, 그 뒤 이 저장소와 렌더러는 포크가 내놓는 것을 씁니다. Rust와 무관한 Compose 코드이고, 포크로 가면 pythonx-compose도 같은 것을 쓸 수 있습니다.
 
 **패키지와 모듈의 자리: 정해졌습니다(2026-10-03).** 소유자가 네임스페이스를 라이브러리와 앱으로 나눴습니다.
 
@@ -429,6 +431,18 @@ skiko는 `mingwX64`를 발행하지 않고 Compose도 Windows용 Kotlin/Native �
 - 포크가 내는 라이브러리의 Maven 그룹은 `org.thisisthepy.compose.*`입니다. JetBrains가 라이브러리와 플러그인 모두 `org.jetbrains.compose`를 쓰는 것과 같은 방식입니다.
 - 앱으로 배포되는 것의 식별자는 `io.github.thisisthepy.<앱>`입니다. darkpyonix 제품(예: `dev.darkpyonix.Ember`)에 같은 규칙을 적용할지는 따로 정합니다.
 - `androidx.compose.*` 아래에 두지 않는 이유는 위의 둘째 선택지 설명 그대로입니다. upstream과 부딪히지 않고, 포크가 더한 것이 이름만으로 구별되며, 공개 API를 바꾸지 않는다는 원칙을 지킵니다.
+
+**디자인 시스템은 두 층으로 냅니다. 소유자의 결정입니다(2026-10-03).**
+
+> "컴포넌트 라이브러리로 하되" (2026-10-03)
+
+> "2층으로 가고, 개들은 adaptive 디자인 시스템 패키지 명을 쓰면 될거같네." (2026-10-03)
+
+- **1층은 디자인 시스템마다 하나씩인 컴포넌트 라이브러리입니다.** `org.thisisthepy.compose.{material3, cupertino, fluent, gnome, breeze, deepin, liquidglass}`이고, 일곱 개가 모두 material3와 같은 모양을 가집니다: `XxxTheme` 컴포저블, `ColorScheme`, `Typography`, `Shapes`, 그리고 컴포넌트. 공개 API는 `androidx.compose.material3`를 본뜹니다. Compose를 아는 사람이 `MaterialTheme` 자리에 `FluentTheme`을 쓰면 나머지가 같은 이름으로 따라오게 하려는 것입니다. `org.thisisthepy.compose.material3`는 새로 그리지 않고 `androidx.compose.material3` 위의 어댑터입니다. Material은 이미 있는 것을 다시 만들 이유가 없습니다.
+- **2층은 `org.thisisthepy.compose.adaptive`입니다.** 디자인 시스템에 매이지 않는 중립 컴포넌트(`Button`, `TextField`, `DatePicker`, ...)가 현재 테마의 1층 구현에 위임합니다. 진입점은 `MaterialTheme`의 관례를 따라 `AdaptiveTheme(designSystem: DesignSystem = DesignSystem.platformDefault(), darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit)`이고, 기본값은 실행 중인 플랫폼의 디자인 시스템입니다. **compose-rust의 렌더러는 기본으로 이 층을 씁니다.** FR-14.3의 `Theme::adaptive`가 Compose 쪽에서 갖는 모양이 이것입니다.
+- **공통 계약은 별도 모듈 `org.thisisthepy.compose.designsystem`에 남깁니다.** 역할 enum, `DesignSystem` 인터페이스, 토큰입니다. 두 층이 모두 이것에 의존합니다. adaptive에 합치지 않는 이유는 의존 방향입니다. adaptive는 1층 일곱 개 전부에 의존하고, 1층은 adaptive에 의존하면 안 됩니다. 계약이 adaptive 안에 있으면 1층이 계약을 쓰려고 adaptive에 의존하게 되어 순환이 생깁니다.
+- **이름이 비슷한 것 하나.** JetBrains의 `androidx.compose.material3.adaptive`는 적응형 레이아웃(창 크기 클래스)이고 `org.thisisthepy.compose.adaptive`와 무관합니다. 네임스페이스가 달라 부딪히지 않습니다.
+- 요구사항과 수용 기준은 SPEC FR-14.11입니다.
 
 ### D15. iOS의 Liquid Glass는 시스템에게 받아 온다. UIKit을 Kotlin이 직접 몬다
 

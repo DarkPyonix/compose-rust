@@ -21,10 +21,10 @@
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-source_file="$repo_root/dioxus-compose-renderer/desktop/c/win32_window.c"
-kotlin_file="$repo_root/dioxus-compose-renderer/desktop/src/Win32Window.kt"
-appkit_source="$repo_root/dioxus-compose-renderer/desktop/c/appkit_window.m"
-appkit_kotlin="$repo_root/dioxus-compose-renderer/desktop/src/AppKitWindow.kt"
+source_file="$repo_root/renderer/desktop/c/win32_window.c"
+kotlin_file="$repo_root/renderer/desktop/src/Win32Window.kt"
+appkit_source="$repo_root/renderer/desktop/c/appkit_window.m"
+appkit_kotlin="$repo_root/renderer/desktop/src/AppKitWindow.kt"
 red=0
 
 for file in "$source_file" "$kotlin_file" "$appkit_source" "$appkit_kotlin"; do

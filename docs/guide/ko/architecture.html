@@ -102,17 +102,17 @@
 
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
       <figcaption>c: Renderer → Host (Rust가 export)</figcaption>
-<pre><code><span class="ty">int32_t</span> <span class="f">dioxus_compose_host_init</span>(<span class="k">const</span> <span class="ty">uint8_t</span>* handshake, <span class="ty">uint32_t</span> len, <span class="ty">MutationBatch</span>* out);
-<span class="ty">int32_t</span> <span class="f">dioxus_compose_host_dispatch_event</span>(<span class="k">const</span> <span class="ty">uint8_t</span>* event, <span class="ty">uint32_t</span> len, <span class="ty">MutationBatch</span>* out);
-<span class="ty">int32_t</span> <span class="f">dioxus_compose_host_render_frame</span>(<span class="ty">uint64_t</span> frame_time_nanos, <span class="ty">MutationBatch</span>* out);
-<span class="ty">void</span>    <span class="f">dioxus_compose_host_release_batch</span>(<span class="ty">MutationBatch</span>* batch);
-<span class="ty">void</span>    <span class="f">dioxus_compose_host_shutdown</span>(<span class="ty">void</span>);</code></pre>
+<pre><code><span class="ty">int32_t</span> <span class="f">compose_rust_host_init</span>(<span class="k">const</span> <span class="ty">uint8_t</span>* handshake, <span class="ty">uint32_t</span> len, <span class="ty">MutationBatch</span>* out);
+<span class="ty">int32_t</span> <span class="f">compose_rust_host_dispatch_event</span>(<span class="k">const</span> <span class="ty">uint8_t</span>* event, <span class="ty">uint32_t</span> len, <span class="ty">MutationBatch</span>* out);
+<span class="ty">int32_t</span> <span class="f">compose_rust_host_render_frame</span>(<span class="ty">uint64_t</span> frame_time_nanos, <span class="ty">MutationBatch</span>* out);
+<span class="ty">void</span>    <span class="f">compose_rust_host_release_batch</span>(<span class="ty">MutationBatch</span>* batch);
+<span class="ty">void</span>    <span class="f">compose_rust_host_shutdown</span>(<span class="ty">void</span>);</code></pre>
     </figure>
 
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
       <figcaption>c: Host → Renderer (Kotlin이 export)</figcaption>
-<pre><code><span class="ty">int32_t</span> <span class="f">dioxus_compose_renderer_run</span>(<span class="ty">void</span>);            <span class="c">/* 블로킹. LoopMode::Renderer 전용 */</span>
-<span class="ty">void</span>    <span class="f">dioxus_compose_renderer_request_frame</span>(<span class="ty">void</span>);  <span class="c">/* 스레드 안전 */</span></code></pre>
+<pre><code><span class="ty">int32_t</span> <span class="f">compose_rust_renderer_run</span>(<span class="ty">void</span>);            <span class="c">/* 블로킹. LoopMode::Renderer 전용 */</span>
+<span class="ty">void</span>    <span class="f">compose_rust_renderer_request_frame</span>(<span class="ty">void</span>);  <span class="c">/* 스레드 안전 */</span></code></pre>
     </figure>
 
     <p>이것이 표면 전부입니다. 여기서 두 가지가 따라옵니다.</p>
@@ -246,7 +246,7 @@
     <p>
       프로세스 구조를 결정짓는 macOS 사실이 하나 더 있습니다. AppKit은 메인 스레드를 요구합니다.
       렌더러는 호출된 그 스레드에서 <code>NSApplication</code>을 만들어 실행하고, 그 호출은 창이
-      닫힐 때 돌아옵니다. 따라서 <code>dioxus_compose_renderer_run</code>은 프로세스 메인
+      닫힐 때 돌아옵니다. 따라서 <code>compose_rust_renderer_run</code>은 프로세스 메인
       스레드에서 호출해야 하고, 아니면 <code>RUN_NOT_MAIN_THREAD</code>를 반환합니다.
     </p>
 

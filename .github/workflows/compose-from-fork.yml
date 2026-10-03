@@ -29,8 +29,8 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
-      - dioxus-compose-renderer/scripts/build-compose.sh
-      - dioxus-compose-renderer/scripts/compose-fork.changes
+      - renderer/scripts/build-compose.sh
+      - renderer/scripts/compose-fork.changes
       - .github/workflows/compose-from-fork.yml
       - .github/actions/compose-fork/action.yml
 
@@ -120,7 +120,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.konan
-          key: konan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('dioxus-compose-renderer/scripts/build-compose.sh') }}
+          key: konan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('renderer/scripts/build-compose.sh') }}
           restore-keys: |
             konan-${{ runner.os }}-${{ runner.arch }}-
 
@@ -128,7 +128,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ matrix.toolchain_cache }}
-          key: kotlin-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('dioxus-compose-renderer/kotlin', 'dioxus-compose-renderer/libs.versions.toml', 'dioxus-compose-renderer/**/module.yaml') }}
+          key: kotlin-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('renderer/kotlin', 'renderer/libs.versions.toml', 'renderer/**/module.yaml') }}
           restore-keys: |
             kotlin-native-${{ runner.os }}-${{ runner.arch }}-
 
@@ -159,22 +159,22 @@ jobs:
         run: |
           rm -rf ~/.m2/repository
           DXC_COMPOSE_BUILD="$COMPOSE_WORK" \
-            ./dioxus-compose-renderer/scripts/build-compose.sh --target ${{ matrix.target }} --clean
+            ./renderer/scripts/build-compose.sh --target ${{ matrix.target }} --clean
           find ~/.m2/repository/org/thisisthepy -type f | wc -l
           du -sh ~/.m2/repository/org/thisisthepy
           df -h "$GITHUB_WORKSPACE"
 
       - name: Build the renderer and its static library against it
-        run: ./dioxus-compose-renderer/desktop/scripts/${{ matrix.renderer_script }}
+        run: ./renderer/desktop/scripts/${{ matrix.renderer_script }}
 
       - name: Report the static library
         run: |
-          ls -la dioxus-compose-renderer/build/${{ matrix.renderer_out }}
-          du -sh dioxus-compose-renderer/build/${{ matrix.renderer_out }}
+          ls -la renderer/build/${{ matrix.renderer_out }}
+          du -sh renderer/build/${{ matrix.renderer_out }}
 
       - name: Keep the static library
         uses: actions/upload-artifact@v4
         with:
           name: renderer-staticlib-${{ matrix.target }}
-          path: dioxus-compose-renderer/build/${{ matrix.renderer_out }}
+          path: renderer/build/${{ matrix.renderer_out }}
           retention-days: 14

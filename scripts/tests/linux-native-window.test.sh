@@ -16,7 +16,7 @@
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-renderer="$repo_root/dioxus-compose-renderer"
+renderer="$repo_root/renderer"
 project="$renderer/project.yaml"
 module="$renderer/linux/module.yaml"
 window="$renderer/linux/src/LinuxWindow.kt"
@@ -29,7 +29,7 @@ frames_source="$renderer/desktop/src/WindowFrames.kt"
 model="$renderer/desktop/src/X11Window.kt"
 staticlib="$renderer/staticlib-linux/module.yaml"
 compose_script="$renderer/scripts/build-compose.sh"
-compose_changes="$renderer/scripts/compose-fork.changes"
+compose_linux_modules="$renderer/scripts/compose-fork.linux-modules"
 
 red=0
 
@@ -40,7 +40,7 @@ fail() {
 
 for file in "$project" "$module" "$window" "$surface" "$entry" "$definition" \
             "$sync_source" "$log_source" "$frames_source" "$model" "$staticlib" \
-            "$compose_script" "$compose_changes"; do
+            "$compose_script" "$compose_linux_modules"; do
     [[ -f "$file" ]] || fail "missing $file"
 done
 (( red == 0 )) || exit 1
@@ -121,39 +121,57 @@ grep -Eq '^compilerOpts = .*-idirafter' "$definition" ||
 # ---------------------------------------------------------------------------
 #
 # The fork publishes under its own coordinates, so nothing for this target resolves from what
-# JetBrains published: every module the Compose fork teaches the target, and that the renderer
-# reaches, has to be built and published here. One left off the list is not a failure of that
-# script: it is an unresolvable dependency tens of minutes into the renderer's own build, naming
-# a coordinate nobody recognises.
+# JetBrains published: every module the renderer draws with has to be built and published here.
+# One left off the list is not a failure of that script: it is an unresolvable dependency tens
+# of minutes into the renderer's own build, naming a coordinate nobody recognises.
 #
-# The exceptions are the modules the renderer never reaches. build-compose.sh says why most of
-# them are left off: each asks for a published artifact with no Linux variant at all, so building
-# them is not slow but impossible. The rest (Material 2, animation-graphics, ui-test) are simply
-# outside what the renderer links. A fork build.gradle that changes for another reason (the
-# fork's own coordinates) also lands on this list, which is fine: such a module is either in the
-# closure already or listed here.
-not_reached=(
-    compose:animation:animation-graphics
-    compose:material:material
-    compose:material:material-navigation
-    compose:material3:adaptive:adaptive
-    compose:material3:adaptive:adaptive-layout
-    compose:material3:adaptive:adaptive-navigation
-    compose:material3:adaptive:adaptive-navigation3
-    compose:material3:material3-adaptive-navigation-suite
-    compose:material3:material3-window-size-class
-    compose:ui:ui-test
-    navigation:navigation-compose
-    navigation3:navigation3-ui
-)
-linux_publications="$(sed -n '/^        linuxX64)/,/;;/p' "$compose_script")"
+# Three lists have to agree: what the linux module asks for, what build-compose.sh publishes,
+# and what the pinned fork commit gives a Linux target (compose-fork.linux-modules, which
+# compose-fork.test.sh holds to the pin). Modules are compared whole, because
+# `compose:material:material` is a prefix of `compose:material:material-ripple` and a substring
+# match lets one stand in for the other.
+linux_publications="$(sed -n '/^ *linuxX64)/,/;;/p' "$compose_script" |
+    grep -Eo 'compose:[A-Za-z0-9:_-]+' | sort -u)"
+patched_modules="$(grep -v '^#' "$compose_linux_modules" 2>/dev/null | grep -v '^$' | sort -u)"
+[[ -n "$linux_publications" ]] ||
+    fail "found no linuxX64 module list in build-compose.sh, so nothing below compares against it"
+[[ -n "$patched_modules" ]] ||
+    fail "compose-fork.linux-modules lists nothing, so nothing below compares against it"
+
+# What the renderer links. Each coordinate names one module, and each has to be something
+# published.
+required=0
+while IFS= read -r coordinate; do
+    required=$((required + 1))
+    group="$(sed -E 's#^org\.thisisthepy\.compose\.([^:]+):.*#\1#' <<< "$coordinate")"
+    artifact="$(sed -E 's#^[^:]+:([^:]+):.*#\1#; s#-linuxx64$##' <<< "$coordinate")"
+    grep -Fxq "compose:$group:$artifact" <<< "$linux_publications" ||
+        fail "the linux module asks for $coordinate and build-compose.sh does not publish compose:$group:$artifact"
+done < <(grep -Eo 'org\.thisisthepy\.compose\.[a-z0-9]+:[A-Za-z0-9_-]+:[^ ]+' "$module")
+(( required > 0 )) ||
+    fail "the linux module names no Compose module, so nothing is checked against what is published"
+
+# A module published without the fork giving it the target has no task to publish it with.
+# The runtime and runtime-saveable are the two exceptions: upstream already builds them for
+# Linux, so the fork has nothing to add to them, and they are published here only because
+# the fork's own coordinates need their own copies.
+upstream_linux_modules=$'compose:runtime:runtime\ncompose:runtime:runtime-saveable'
 while IFS= read -r gradle_path; do
-    printf '%s\n' "${not_reached[@]}" | grep -Fxq "$gradle_path" && continue
-    # The whole entry, not a prefix of one: compose:material:material is not material-ripple.
-    grep -Eq "^[[:space:]]*${gradle_path}[[:space:]]*\$" <<< "$linux_publications" ||
-        fail "the Compose fork adds a linuxX64 target to $gradle_path and build-compose.sh does not publish it"
-done < <(grep -E '^[0-9a-f]{40} .*/build\.gradle$' "$compose_changes" |
-    sed -E 's#^[0-9a-f]{40} ##; s#/build\.gradle$##; s#/#:#g' | sort -u)
+    grep -Fxq "$gradle_path" <<< "$upstream_linux_modules" && continue
+    grep -Fxq "$gradle_path" <<< "$patched_modules" ||
+        fail "build-compose.sh publishes $gradle_path for linuxX64 and the fork does not add that target to it"
+done <<< "$linux_publications"
+
+# A module the fork gives the target and nobody publishes is a target declared and never built.
+# Two are given it on purpose: `ui-test` and Material 2 are what the test source sets of ui,
+# foundation and material3 depend on, and those source sets compile for every native target the
+# module has. Nothing the renderer links reaches either of them.
+test_only_modules=$'compose:material:material\ncompose:ui:ui-test'
+while IFS= read -r gradle_path; do
+    grep -Fxq "$gradle_path" <<< "$test_only_modules" && continue
+    grep -Fxq "$gradle_path" <<< "$linux_publications" ||
+        fail "the fork adds a linuxX64 target to $gradle_path and build-compose.sh does not publish it"
+done <<< "$patched_modules"
 
 # ---------------------------------------------------------------------------
 # The frame that belongs to a resize is drawn where the resize is handled.

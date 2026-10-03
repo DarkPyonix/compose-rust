@@ -14,8 +14,9 @@
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-script="$repo/dioxus-compose-renderer/scripts/build-compose.sh"
-changes="$repo/dioxus-compose-renderer/scripts/compose-fork.changes"
+script="$repo/renderer/scripts/build-compose.sh"
+changes="$repo/renderer/scripts/compose-fork.changes"
+linux_modules="$repo/renderer/scripts/compose-fork.linux-modules"
 failures=0
 
 fail() { echo "  FAIL: $1" >&2; failures=$((failures + 1)); }
@@ -33,8 +34,8 @@ revision="$(sed -n 's/^REVISION="\([0-9a-f]\{40\}\)"$/\1/p' "$script")"
 
 # The patches this replaced are gone, and nothing is to bring them back beside the fork: two
 # sources for the same change are two answers to which one was built.
-[ ! -e "$repo/dioxus-compose-renderer/patches" ] ||
-    fail "dioxus-compose-renderer/patches exists again; the changes belong in the fork"
+[ ! -e "$repo/renderer/patches" ] ||
+    fail "renderer/patches exists again; the changes belong in the fork"
 if grep -q 'git[^|]* apply' "$script"; then
     fail "build-compose.sh applies a patch on top of the fork"
 fi
@@ -59,7 +60,10 @@ mkdir -p "$repo/.scratch"
 work="$(mktemp -d "$repo/.scratch/compose-fork-test.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 git -C "$work" init -q --bare
-if ! git -C "$work" fetch -q --depth 1 --filter=blob:none "$fork" "$revision" 2>"$work/fetch.log"; then
+# Through a named remote, so the partial fetch records it as the place missing blobs come
+# from: the Linux check below reads a few build files, and only those are downloaded.
+git -C "$work" remote add origin "$fork"
+if ! git -C "$work" fetch -q --depth 1 --filter=blob:none origin "$revision" 2>"$work/fetch.log"; then
     if [ -n "${CI:-}" ]; then
         cat "$work/fetch.log" >&2
         fail "could not fetch $revision from $fork"
@@ -87,8 +91,29 @@ for line in "${expected[@]}"; do
     fi
 done
 
+# Which modules the pin gives a Linux target, read from the build files it changed.
+# linux-native-window.test.sh checks the same list against build-compose.sh offline, so the
+# list has to be what the pin says.
+if [ ! -f "$linux_modules" ]; then
+    fail "no compose-fork.linux-modules"
+else
+    declared="$(grep -v '^#' "$linux_modules" | grep -v '^$' | sort)"
+    pinned="$(for line in "${expected[@]}"; do
+            blob="${line%% *}"
+            path="${line#* }"
+            [ "$blob" != "-" ] || continue
+            [[ "$path" == */build.gradle ]] || continue
+            if git -C "$work" cat-file -p "$blob" | grep -qE '^[[:space:]]*linux\(\)'; then
+                printf '%s\n' "$path"
+            fi
+        done | sed -E 's#/build\.gradle$##; s#/#:#g' | sort)"
+    if [ "$declared" != "$pinned" ]; then
+        fail "compose-fork.linux-modules is not the modules $revision gives a Linux target: $(diff <(printf '%s\n' "$declared") <(printf '%s\n' "$pinned") | grep '^[<>]' | tr '\n' ' ')"
+    fi
+fi
+
 if [ "$failures" -eq 0 ]; then
-    echo "  ok: ${#expected[@]} changed paths hold what they should in $revision"
+    echo "  ok: ${#expected[@]} changed paths hold what they should in $revision, and $(printf '%s\n' "$declared" | grep -c .) have a Linux target"
 else
     echo "  $failures failed" >&2
     exit 1

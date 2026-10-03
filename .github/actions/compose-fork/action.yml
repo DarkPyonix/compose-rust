@@ -2,7 +2,7 @@
 #
 # The renderer and the design systems draw with thisisthepy/compose-multiplatform-core-extended,
 # which publishes under its own coordinates (org.thisisthepy.compose.*) and is in no public
-# repository yet. dioxus-compose-renderer/scripts/build-compose.sh builds the pinned commit;
+# repository yet. renderer/scripts/build-compose.sh builds the pinned commit;
 # this runs it once per pin and target set and keeps the result in the cache, so a job pays for
 # Compose only when the pin or the script changed.
 #
@@ -28,7 +28,7 @@ runs:
       uses: actions/cache/restore@v4
       with:
         path: ~/.m2/repository/org/thisisthepy
-        key: compose-fork-${{ runner.os }}-${{ runner.arch }}-${{ inputs.targets }}-${{ hashFiles('dioxus-compose-renderer/scripts/build-compose.sh', 'dioxus-compose-renderer/scripts/compose-fork.changes') }}
+        key: compose-fork-${{ runner.os }}-${{ runner.arch }}-${{ inputs.targets }}-${{ hashFiles('renderer/scripts/build-compose.sh', 'renderer/scripts/compose-fork.changes') }}
 
     - name: Build the fork's Compose
       if: steps.restore.outputs.cache-hit != 'true'
@@ -49,7 +49,7 @@ runs:
         PROPERTIES
         args=()
         for target in ${{ inputs.targets }}; do args+=(--target "$target"); done
-        JAVA_HOME="$jdk" ANDROIDX_JDK21="$jdk" ./dioxus-compose-renderer/scripts/build-compose.sh "${args[@]}"
+        JAVA_HOME="$jdk" ANDROIDX_JDK21="$jdk" ./renderer/scripts/build-compose.sh "${args[@]}"
 
     - name: Keep the fork's Compose for the next run
       if: steps.restore.outputs.cache-hit != 'true'

@@ -19,7 +19,7 @@ crate-type = ["rlib", "cdylib", "staticlib"]
 bench = false
 
 [dependencies]
-compose-rust = { path = "../../dioxus-compose" }
+compose-rust = { path = "../../compose-rust" }
 dioxus-hooks.workspace = true
 # A worker thread has to hand its result back to the UI thread, and the library offers no
 # channel for that, so the sample brings its own.

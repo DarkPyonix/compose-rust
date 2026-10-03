@@ -5,7 +5,7 @@
 #
 # They draw with thisisthepy/compose-multiplatform-core-extended, which publishes under its
 # own coordinates (org.thisisthepy.compose.* at <upstream version>-ext.<N>) and which
-# dioxus-compose-renderer/scripts/build-compose.sh builds into the local Maven repository.
+# renderer/scripts/build-compose.sh builds into the local Maven repository.
 # Three ways that goes wrong without any build failing where the mistake is:
 #
 #   - a module asks for JetBrains' Compose again, through the toolchain's `$compose.*`
@@ -19,8 +19,8 @@
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-renderer="$repo_root/dioxus-compose-renderer"
-design="$repo_root/dioxus-design-systems"
+renderer="$repo_root/renderer"
+design="$repo_root/design-systems"
 script="$renderer/scripts/build-compose.sh"
 
 failures=0

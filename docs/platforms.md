@@ -182,7 +182,7 @@ Kotlin 툴체인이 그 디렉터리의 `.def`를 알아서 찾으므로 module.
 합성한 결과에 대한 사실이라 손으로 확인해야 합니다. 머지하는 쪽이 할 일:
 
 ```bash
-cd dioxus-compose-renderer
+cd renderer
 ./scripts/build-compose.sh --target linuxX64   # JAVA_HOME은 JDK 17
 ./kotlin build -p linuxX64                     # X11, Xext, GL 헤더 필요
 ./kotlin test -p linuxX64                      # 리눅스에서만

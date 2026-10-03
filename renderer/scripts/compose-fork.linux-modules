@@ -1,0 +1,29 @@
+# The Compose modules the pinned fork commit gives a Linux target: every build.gradle among
+# the paths in compose-fork.changes that declares linux(). Upstream builds none of them for
+# Linux, and the fork gives the target only to the modules a Linux build publishes, plus the
+# two the published modules' test source sets need (ui-test and Material 2).
+#
+# scripts/tests/compose-fork.test.sh checks this list against the pinned commit, and
+# scripts/tests/linux-native-window.test.sh checks it against what build-compose.sh publishes
+# for linuxX64 and what the linux module asks for, without reaching the network. Moving the pin
+# means regenerating it, in a checkout of the fork:
+#
+#   for p in $(awk '$2 ~ /build\.gradle$/ {print $2}' compose-fork.changes); do
+#       git show <pinned commit>:"$p" | grep -qE '^[[:space:]]*linux\(\)' && echo "$p"
+#   done | sed -E 's#/build\.gradle$##; s#/#:#g' | sort
+compose:animation:animation
+compose:animation:animation-core
+compose:foundation:foundation
+compose:foundation:foundation-layout
+compose:material:material
+compose:material:material-ripple
+compose:material3:material3
+compose:ui:ui
+compose:ui:ui-backhandler
+compose:ui:ui-geometry
+compose:ui:ui-graphics
+compose:ui:ui-test
+compose:ui:ui-text
+compose:ui:ui-tooling-preview
+compose:ui:ui-unit
+compose:ui:ui-util
