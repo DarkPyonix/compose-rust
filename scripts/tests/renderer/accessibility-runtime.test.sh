@@ -19,7 +19,7 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-repo_root="$(cd "$script_dir/../../../.." && pwd)"
+repo_root="$(cd "$script_dir/../../.." && pwd)"
 host="$repo_root/renderer/build/native-image/smoke_host"
 ax_dump="$repo_root/experiments/accessibility/ax-dump.swift"
 
