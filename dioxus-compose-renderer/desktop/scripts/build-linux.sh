@@ -48,11 +48,6 @@ done
 
 konan_target="linux_x64"
 amper_platform="linuxX64"
-# The toolchain names a task after the platform with its first letter capitalised:
-# :linux:compileLinuxX64Debug, built into _linux_compileLinuxX64Debug. Spelling it as the
-# platform is written looked for a directory that is never made and reported a compile
-# that had succeeded as one that produced nothing.
-task_platform="${amper_platform^}"
 
 # Built where the libraries it links against are. Kotlin/Native can cross compile the code,
 # but the archive this produces is linked into an application by Cargo against the X11, Xext
@@ -85,6 +80,11 @@ mkdir -p "$OUT_DIR" "$LOG_DIR"
 # klibs the compiler resolved. Scraping the build's own log is how the desktop script gets
 # its classpath too (build-native.sh reads java.class.path from the JVM run): the linking
 # step must be handed exactly what the compile used, not a list maintained by hand.
+# The toolchain names a task after the platform with its first letter capitalised:
+# :linux:compileLinuxX64Debug, built into _linux_compileLinuxX64Debug. Spelling it as the
+# platform is written looked for a directory that is never made and reported a compile
+# that had succeeded as one that produced nothing.
+task_platform="${amper_platform^}"  # bash 4; set here, after the Linux check, as macOS ships bash 3
 build_log="$LOG_DIR/$amper_platform-build.log"
 echo "==> kotlin build -m linux -m staticlib-linux ($amper_platform)"
 # The compile has to actually run: an up-to-date task logs no arguments, and its arguments
