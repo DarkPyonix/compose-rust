@@ -1699,6 +1699,26 @@ core::arch::global_asm!(
     ".text",
 );
 
+/// Which C runtime an application linking the Kotlin/Native Windows renderer gets, said
+/// where the linker reads it from every object: the build script cannot say it, for the
+/// same reason it cannot ask for the exports above.
+///
+/// Set by the build script when it links that renderer and the application asked for
+/// nothing (`build/windows_crt.rs` says why each of these is here). The Universal C Runtime
+/// stays the DLL that is part of Windows; vcruntime and the C++ standard library are linked
+/// in, so the executable needs no Visual C++ runtime DLL beside it. An application that asked
+/// for `+crt-static` links all of it statically and needs none of these.
+#[cfg(all(target_os = "windows", target_env = "msvc", windows_crt_linked_in))]
+core::arch::global_asm!(
+    ".section .drectve,\"yni\"",
+    ".ascii \" /NODEFAULTLIB:vcruntime.lib\"",
+    ".ascii \" /DEFAULTLIB:libvcruntime.lib\"",
+    ".ascii \" /NODEFAULTLIB:msvcprt.lib\"",
+    ".ascii \" /NODEFAULTLIB:libcpmt.lib\"",
+    ".ascii \" /NODEFAULTLIB:libcmt.lib\"",
+    ".text",
+);
+
 /// Never read. Being referenced is the entire contract.
 struct BoundaryExports(#[allow(dead_code)] [*const (); 5]);
 

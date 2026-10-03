@@ -51,7 +51,8 @@ python="$(command -v python3 || command -v python || true)"
 [[ -n "$python" ]] || fail "no python on PATH"
 
 renderer="$(cd "$1" && pwd)"
-for needed in gcc/libstdc++.a gcc/libgcc.a gcc/libgcc_eh.a gcc/libwinpthread.a native/mingw_bridge.obj; do
+for needed in gcc/libstdc++.a gcc/libgcc.a gcc/libgcc_eh.a gcc/libwinpthread.a native/mingw_bridge.obj \
+              native/dxc-windows-static-ucrt.lib; do
     [[ -f "$renderer/$needed" ]] || fail "no $needed in $renderer" "Run build-windows.sh first."
 done
 
@@ -75,8 +76,10 @@ echo "== the Kotlin half, for mingwX64, as Kotlin/Native writes it"
 cp "$work/probe.a" "$work/probe-unfixed.a"
 "$python" "$fixer" "$(cygpath -m "$work/probe.a")"
 
-# Linked the way the Host links the renderer: the static C runtime, the GCC runtime the object
-# carries, the bridge to MSVC's runtime, and the system libraries the Kotlin runtime reaches.
+# Linked with the static C runtime (/MT), which is the case that needs the bridge's import
+# pointers as well; the GCC runtime the object carries, the bridge to MSVC's runtime, and the
+# system libraries the Kotlin runtime reaches. The application's own link, with the UCRT from
+# Windows, is check-windows-consumer.sh's.
 link_probe() {
     local archive="$1" executable="$2"
     (
@@ -86,6 +89,7 @@ link_probe() {
             "$(cygpath -w "$renderer/gcc/libstdc++.a")" "$(cygpath -w "$renderer/gcc/libgcc.a")" \
             "$(cygpath -w "$renderer/gcc/libgcc_eh.a")" "$(cygpath -w "$renderer/gcc/libwinpthread.a")" \
             "$(cygpath -w "$renderer/native/mingw_bridge.obj")" \
+            "$(cygpath -w "$renderer/native/dxc-windows-static-ucrt.lib")" \
             kernel32.lib user32.lib advapi32.lib shell32.lib ole32.lib bcrypt.lib ws2_32.lib \
             dbghelp.lib oldnames.lib legacy_stdio_definitions.lib \
             /link /NOLOGO >"$work/$executable.link.log" 2>&1

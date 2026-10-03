@@ -1,10 +1,12 @@
 // What the Kotlin/Native object asks of MinGW's own runtime, answered by the MSVC one.
 //
+// Compiled without naming a C runtime (/Zl), so it is answered by whichever one the
+// application links. The one thing that depends on which is in mingw_bridge_static_ucrt.c.
+//
 // The Windows renderer is a MinGW object inside an MSVC executable. Linking MinGW's extras
 // library whole brings its own strtof, stat and the rest, which collide with the static
 // UCRT, so it is not linked. These are the only things the renderer's object and the GCC
 // runtime it carries actually reach for from it.
-#include <process.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <windows.h>
@@ -43,12 +45,6 @@ long _gnu_exception_handler(void *exception) {
     (void)exception;
     return 0;
 }
-
-// winpthread was built against the DLL runtime and starts threads through import pointers.
-// The static runtime has the functions and not the pointers, so the pointers are made here.
-uintptr_t (__cdecl *__imp__beginthreadex)(void *, unsigned, _beginthreadex_proc_type, void *,
-                                         unsigned, unsigned *) = _beginthreadex;
-void (__cdecl *__imp__endthreadex)(unsigned) = _endthreadex;
 
 // libgcc's CPU feature probe. Kotlin/Native reads the table it fills, and libgcc registers
 // it as a prioritised MinGW constructor in a section the MSVC runtime never runs, so it is

@@ -10,12 +10,15 @@
 #                                       (rewritten too), libgcc, libgcc_eh, winpthread
 #     native/dxc-windows-native.lib     MSVC objects: the Win32 window, its toasts, the MinGW
 #                                       bridge and the embedded ICU loader, linked whole
+#     native/dxc-windows-static-ucrt.lib  the bridge's import pointers, for an application that
+#                                       links the UCRT statically (+crt-static) and only then
 #     skiko/                            skiko's C++ half and the prebuilt Skia libraries, MSVC
 #
 # Point DXC_WINDOWS_NATIVE_LIB at that directory and an application that depends on
 # compose-rust links all of it into its own executable (see dioxus-compose/build.rs). The
 # executable then needs nothing beside it: no Java runtime, no Visual C++ runtime DLL, no
-# MinGW DLL and no icudtl.dat.
+# MinGW DLL and no icudtl.dat. Which C runtime it links is the Host's build script's choice
+# (dioxus-compose/build/windows_crt.rs), so nothing here names one.
 #
 # Kotlin/Native's only Windows target is MinGW and the application is MSVC. The two halves
 # meet in C calls only, and two MinGW conventions are rewritten so an MSVC link keeps their
@@ -222,7 +225,11 @@ else
     llvm_ar="$(command -v llvm-ar || true)"
 fi
 [[ -n "$clang" && -n "$llvm_ar" ]] || die "no clang and llvm-ar: neither Kotlin/Native's LLVM under ~/.konan/dependencies nor one on PATH"
-c_flags=(--driver-mode=cl --target=x86_64-pc-windows-msvc /O2 /MT /c /nologo)
+# Compiled for the static runtime's headers and naming no runtime library (/Zl), with the
+# C++ library's runtime guard left out, so the objects are answered by whichever C runtime the
+# application links: the Host's build script decides that, not these.
+c_flags=(--driver-mode=cl --target=x86_64-pc-windows-msvc /O2 /MT /Zl /c /nologo
+    -D_ALLOW_RUNTIME_LIBRARY_MISMATCH)
 # On Windows clang finds the MSVC headers itself, from the environment Visual Studio's
 # developer prompt sets or from the installation. Anywhere else it is told where they are.
 if [[ "$host" != windows ]]; then
@@ -252,12 +259,19 @@ compile "$c_dir/win32_notifications.c" "$OUT_DIR/native/win32_notifications.obj"
 compile "$PROJECT_DIR/windows/native/mingw_bridge.c" "$OUT_DIR/native/mingw_bridge.obj"
 compile "$SKIKO_OUT/embedded_icu.cpp" "$OUT_DIR/native/embedded_icu.obj" \
     /std:c++17 /GR- -Wno-c23-extensions "/clang:--embed-dir=$(tool_path "$SKIKO_OUT/skia")"
-# One library holding them, which the Host links whole. An object named on a link line would
+# Apart from the rest: only an application that links the UCRT statically links it.
+static_ucrt_object="$OUT_DIR/static-ucrt/mingw_bridge_static_ucrt.obj"
+mkdir -p "$OUT_DIR/static-ucrt"
+compile "$PROJECT_DIR/windows/native/mingw_bridge_static_ucrt.c" "$static_ucrt_object"
+"$llvm_ar" rcs "$(tool_path "$OUT_DIR/native/dxc-windows-static-ucrt.lib")" "$(tool_path "$static_ucrt_object")"
+rm -rf "$OUT_DIR/static-ucrt"
+# One library holding the others, which the Host links whole. An object named on a link line would
 # do, but a build script's link arguments stop at its own package, and a library it names
 # does not: it travels in the rlib to every application. Whole, because nothing calls into
 # the ICU loader or the initialiser the bridge registers, and a member nothing calls is a
 # member the linker leaves out.
-(cd "$OUT_DIR/native" && "$llvm_ar" rcs dxc-windows-native.lib ./*.obj)
+(cd "$OUT_DIR/native" && "$llvm_ar" rcs dxc-windows-native.lib win32_window.obj \
+    win32_notifications.obj mingw_bridge.obj embedded_icu.obj)
 cp "$SKIKO_OUT/skiko-bridges.lib" "$OUT_DIR/skiko/"
 cp "$SKIKO_OUT"/skia/*.lib "$OUT_DIR/skiko/"
 

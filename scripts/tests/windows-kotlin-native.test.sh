@@ -151,8 +151,19 @@ grep -q 'static:+whole-archive,+verbatim=dxc-windows-native.lib' "$host_build" |
     fail "the Host does not link dxc-windows-native.lib whole"
 grep -q 'dxc-windows-native.lib' "$build_script" ||
     fail "build-windows.sh does not write the dxc-windows-native.lib the Host links"
-grep -q 'crt-static' "$host_build" ||
-    fail "the Host does not insist on the static C runtime that Skia for Windows is built with"
+# The application is not asked for any build setting: the Host decides the C runtime, from
+# its build script and from directives in its own object, and an application that set
+# +crt-static itself still links (with the bridge's import pointers).
+grep -q 'include!("build/windows_crt.rs")' "$host_build" ||
+    fail "the Host's build script does not decide the Windows C runtime"
+grep -q 'windows_crt_linked_in' "$repo_root/dioxus-compose/src/boundary.rs" ||
+    fail "the Host's object carries no C runtime directives, so an application would have to set them"
+grep -q 'dxc-windows-static-ucrt.lib' "$build_script" ||
+    fail "build-windows.sh does not write the bridge a statically linked UCRT needs"
+grep -q '^unset RUSTFLAGS' "$repo_root/scripts/check-windows-consumer.sh" ||
+    fail "check-windows-consumer.sh does not clear RUSTFLAGS, so it cannot show an application needs none"
+grep -Eq '^build "\$fixture/Cargo.toml" shared$' "$repo_root/scripts/check-windows-consumer.sh" ||
+    fail "check-windows-consumer.sh does not build the consumer with nothing set first"
 
 # The CI job is the only place this renderer runs on Windows, and a hosted runner has no
 # graphics card: the check has to ask for the software adapter, and the gate has to run it.
