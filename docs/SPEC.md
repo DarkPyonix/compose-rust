@@ -1804,7 +1804,7 @@ E2를 기본 경로로 삼으면 KSP가 Rust 열거형, Dioxus element, 컴포�
 #### 23.2 폰트
 - `TypeRole`은 그대로입니다. 더하는 것은 애플리케이션이 자기 폰트를 **등록**하고, 역할이 그것으로 해석되게 하는 길입니다. 이름을 보내지 않으므로 존재 검증이 런타임으로 밀리지 않습니다.
 - 등록은 FR-16의 에셋이고, 종류가 하나 늘어납니다(`AssetKind::Font`).
-- 적용은 테마 단위입니다. `Theme`에 역할별 폰트 에셋 id를 선택적으로 실어 보냅니다. 노드마다 폰트를 지정하는 길은 내지 않습니다. 그것은 13.5가 막는 것과 같은 종류입니다.
+- 역할을 가진 텍스트의 글꼴은 테마 단위입니다. `Theme`에 역할별 폰트 에셋 id를 선택적으로 실어 보냅니다. 역할을 가진 텍스트에는 노드마다 폰트를 지정하는 길을 내지 않습니다. 그것은 13.5가 막는 것과 같은 종류입니다. **역할이 없는 텍스트(`TypeRole::None`, HTML 경로)는 예외로, 노드와 스팬마다 글꼴을 받습니다(FR-40, INTENT D20, 2026-10-03 소유자 결정).**
 - 수용 기준: 등록한 폰트로 `Display` 역할을 해석하게 한 애플리케이션의 제목이 그 폰트로 그려지고, 나머지 역할은 시스템 폰트로 남습니다. 없는 id는 `ProtocolError`이고 텍스트는 시스템 폰트로 그려집니다.
 
 #### 23.3 재질 (흐림)
@@ -2309,6 +2309,37 @@ fn main() {
    7. **실행 조건을 기록합니다.** 기계, 부하 평균, 반복 횟수, 워밍업 횟수, 시나리오마다 p50, p99, 최대값과 원시 데이터의 경로를 `benches/baseline.json`에 남깁니다. 부하 평균이 높을 때 잰 값은 그 사실과 함께 기록하고, 판정에는 한가한 기계에서 잰 값을 씁니다.
    8. **결과는 그대로 보고합니다.** 10배에 못 미치면 실측 배수를 그대로 보고합니다. 목표를 맞추려고 시나리오, 지표, 판정 방법을 바꾸는 것은 금지입니다. 이 기준을 `Done`으로 표시하는 것은 측정한 쪽이 아니라, 다른 세션이 같은 벤치를 다시 돌려 같은 결과를 확인한 뒤입니다.
 
+### FR-40 HTML 텍스트 속성 (`Agreed`)
+
+CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 데 필요한 속성입니다. 측정 호출(PR-2.1)의 값이 그려진 값과 같으려면, 그리기도 같은 칸을 같은 뜻으로 받아야 합니다. 노드 단위 글꼴은 역할이 없는 텍스트에만 엽니다(INTENT D20, 2026-10-03 소유자 결정).
+
+`Text`의 기본 모양과 FR-26 스팬 레코드에 다음을 더합니다. 측정 호출(PR-2.1)의 `MeasureText` 요청은 같은 칸을 같은 뜻으로 싣습니다. **측정과 그리기는 같은 해석 함수를 씁니다.**
+
+1. `TypeRole::None`(태그 0). 타입 스케일을 쓰지 않고, 크기, 굵기, 행간, 자간, 글꼴을 명시적 값에서만 가져옵니다. 명시적 값이 없는 칸은 Renderer의 기본값(14dp, 400, normal)입니다.
+2. `font: FontRef`. `TypeRole::None`일 때만 씁니다. 다음 셋 중 하나이고, 앞에서부터 처음 해석되는 것을 씁니다(CSS 글꼴 목록).
+   - `Asset(id)`: FR-16 에셋. FR-23.2의 `AssetKind::Font`를 그대로 씁니다. 앱이 바이트를 제공하고(`@font-face src`), 크레이트가 받아오지 않습니다.
+   - `System(name)`: 시스템 패밀리 이름. 이름 문자열은 레코드 뒤 페이로드에 놓입니다.
+   - `Generic(SystemUi | SansSerif | Serif | Monospace)`
+   - 목록은 최대 8개입니다. 아무것도 해석되지 않으면 `Generic(SansSerif)`입니다. 없는 에셋 id는 `ProtocolError`이고, 목록의 다음 것으로 넘어갑니다.
+3. `word_break: Normal | KeepAll | BreakAll`, `overflow_wrap: Normal | Anywhere | BreakWord`. CSS와 같은 뜻입니다.
+   - 한국어 `Normal`은 음절 사이에서 끊을 수 있고, `KeepAll`은 공백에서만 끊습니다.
+   - Compose의 기본 줄바꿈은 플랫폼마다 다르므로, Renderer가 이 값에 맞춰 줄바꿈 전략을 정합니다.
+4. `tab_size: u8`(기본 8). 탭은 다음 탭 위치까지 차지합니다. 비례 글꼴에서는 Host가 탭을 공백으로 펼칠 수 없습니다.
+5. `absolute_size: bool`. 참이면 시스템 글꼴 배율을 적용하지 않습니다(CSS px). 측정과 그리기에 똑같이 적용됩니다.
+6. 공백 규칙: Renderer는 받은 문자열의 공백을 자르거나 접지 않습니다. 접기는 Host의 일입니다.
+
+수용 기준:
+1. 같은 HTML 텍스트를 측정한 값과 그린 값이 비트 단위로 같습니다(PR-2.1 기준 1). 아래 각 경우를 모두 확인합니다.
+   - 글꼴 종류 셋(에셋, 시스템, 일반)
+   - 한국어 `Normal`과 `KeepAll`
+   - 탭이 든 `pre`
+   - `absolute_size`를 켠 텍스트와 끈 텍스트
+2. 등록한 아이콘 글꼴의 사설 영역 글리프가 그 글꼴로 그려지고 크기가 0이 아닙니다(codicon 한 글자).
+3. 시스템 글꼴 배율을 200%로 바꿨을 때, `absolute_size` 텍스트의 측정값과 그린 크기는 그대로이고, 역할을 가진 텍스트는 커집니다.
+4. 역할을 가진 텍스트에 `font`를 보내면 무시되고 테마 글꼴로 그려집니다. 역할 원칙이 HTML 경로 밖으로 새지 않는다는 확인입니다.
+5. 다섯 플랫폼과 Web에서 기준 1의 라틴 경우가 통과합니다.
+
+- HTML 화면의 접근성 배율(시스템 글꼴 배율을 `absolute_size` 텍스트에 어떻게 반영할지)은 아직 정하지 않았습니다. 검토 문서를 만들어 소유자가 정합니다. `absolute_size` 칸 자체는 어느 결정에서도 필요합니다.
 ### FR-41 Transform과 렌더러가 재생하는 애니메이션 (`Agreed`)
 
 요청한 쪽: dioxus-compose FR-34.1(CSS transform 전부, M14 10-18)과 FR-34.2(CSS transition과 animation, 혼합안). 소유자 결정(2026-10-03): `opacity`, `color`, `background-color`, `transform`은 렌더러가 Compose 애니메이션으로 재생하고, 레이아웃 속성은 나중에(M15) Host가 매 프레임 시각을 넘겨 계산합니다. 이 초안은 그중 렌더러 쪽 둘을 compose-rust 스키마에 적습니다.
@@ -2646,6 +2677,7 @@ FR-39의 compose-rust API가 같은 레코드를 씁니다. Compose의 이름을
 - 사용자 입력이 들어오면 Renderer가 Host 핸들러를 직접 호출합니다. Host는 그 자리에서 핸들러를 실행하고 diff를 계산한 뒤, 결과 Mutation 배치와 반환값을 돌려줍니다.
 - 동기 반환값을 지원합니다. 예: `onKeyEvent`의 "처리됨" 여부. Enter는 제출, Shift+Enter는 줄바꿈으로 나누는 처리가 여기에 해당합니다. 표현 방식은 FR-12를 따릅니다.
 - 경계에 비동기 큐를 두지 않습니다. 스레드 간 통신은 PR-3의 wake 신호 하나뿐입니다.
+- 측정 호출(PR-2.1)은 Renderer가 Host를 부른 호출 안에서 Host가 Renderer를 다시 부르는 **같은 스레드의 재진입**입니다(2026-10-03 소유자 승인). 이 호출 때문에 큐나 스레드가 생기지 않습니다.
 - 수용 기준: 배치 버퍼가 큐가 아니라 한 호출의 인자입니다. 호출이 돌려준 배치는 그 호출 스택 안에서 소비되고, 다음 호출에는 남아 있지 않습니다(`pr4_the_batch_buffer_is_an_argument_and_not_a_queue`, `pr4_nothing_is_left_for_a_third_call`). **(통과)**
 - 수용 기준: 핸들러의 동기 반환값이 그 호출의 반환으로 돌아옵니다(`fr12_key_consumption_is_returned_and_does_not_leak`). **(통과)**
 - 수용 기준: Host의 초기화가 Renderer의 UI 스레드에서 돕니다(`pr3_init_runs_on_a_different_thread_than_launch`). **(통과)**
@@ -2673,6 +2705,9 @@ Host → Renderer (Kotlin이 export):
 ```c
 int32_t compose_rust_renderer_run(void);            // LoopMode::Renderer일 때만. 블로킹
 void    compose_rust_renderer_request_frame(void);  // 스레드 안전. 다음 프레임에 render_frame 예약
+// 측정: 요청 레코드 count개를 읽고 결과 레코드 count개를 채웁니다. UI 스레드에서만, 동기(PR-2.1)
+int32_t compose_rust_renderer_measure(const uint8_t* requests, uint32_t len,
+                                      uint32_t count, MeasureResult* results);
 ```
 
 - `LoopMode`
@@ -2696,6 +2731,101 @@ compose_rust_host_dispatch_event: click 1
 - 시뮬레이터에서 버튼을 탭하면 `dispatch_event`가 Rust 핸들러까지 도달합니다. `simctl`에 탭 명령이 없어 이 확인은 자동화되지 않습니다. `ios-smoke-test.sh --await-click`으로 사람이 실행합니다. CI는 이 플래그 없이 기동과 렌더링까지만 증명합니다.
 - iOS에는 isolate가 없어 `@CName`이 공개 심볼을 Kotlin 함수에 직접 붙입니다. isolate 심이 하던 나머지 역할은 Kotlin/Native 런타임과 `NSThread.isMainThread` 검사가 대신합니다.
 - Web은 검증되었습니다(PR-6의 검증 절). 같은 다섯 개 논리 연산이 브라우저에서도 그대로 서고, 초기 배치와 클릭 왕복이 공유 메모리 위에서 돕니다. **Android는 2026-09-22 API 36 에뮬레이터에서 확인했습니다.** 같은 다섯 연산이 생성된 JNI 심을 통해 서고, 화면이 그려지며, 워커의 프레임 요청이 경계를 넘어옵니다. 호출당 비용도 그 자리에서 쟀습니다(PR-5의 수용 기준 1).
+
+### PR-2.1 측정 호출 (`Agreed`)
+
+**무엇을 하나.** Host가 자기 레이아웃을 계산하는 도중에, 텍스트 한 덩이나 이미 보낸 위젯 하나가 주어진 제약 안에서 차지할 크기를 Renderer에게 묻습니다. Renderer는 **그릴 때와 같은 글꼴 해석, 같은 Density와 글꼴 배율, 같은 디자인 시스템 타입 스케일**로 재서 그 자리에서 돌려줍니다. 측정값과 그려진 크기가 같다는 것이 이 호출의 존재 이유입니다.
+
+**한 번에 여러 개.** 호출 하나가 요청 N개를 싣습니다. 레이아웃 한 번에 텍스트 잎이 수백 개 나오고(사이드바 하나에 약 200개), Taffy는 같은 잎에 min-content, max-content, 정해진 폭을 차례로 묻습니다. 잎마다 경계를 건너면 그 비용이 쌓입니다. Host는 레이아웃 한 번에 이 호출을 여러 번 불러도 됩니다.
+
+**요청 버퍼.** 배치 버퍼(PR-4)와 같은 형식입니다. 앞에 고정 길이 요청 레코드 `count`개가 있고, 그 뒤 페이로드 영역에 UTF-8 텍스트와 스팬 레코드가 놓입니다. 레코드는 페이로드를 `(offset, len)`으로 가리킵니다. serde 형식은 쓰지 않고, 레코드 레이아웃은 Rust 스키마에서 codegen이 만듭니다(FR-7).
+
+요청 레코드는 종류 태그로 시작합니다:
+
+- `MeasureText = 1`
+  - `text: (offset, len)`. UTF-8이고, 공백 접기와 `text-transform`은 Host가 이미 적용한 최종 문자열입니다.
+  - `spans: (offset, count)`. FR-26의 스팬 레코드를 그대로 씁니다. 크기에 영향을 주지 않는 칸(색, 링크 핸들러)은 무시합니다.
+  - 기본 글자 모양:
+    - `font: FontRef` (FR-40, `TypeRole::None`일 때만)
+    - `type_role: TypeRole`. 노드 단위 글꼴, `TypeRole::None`, 그리고 아래 HTML 텍스트 칸(`tab_size`, `word_break`, `overflow_wrap`, `absolute_size`)이 그리기에도 같은 뜻으로 서는 것은 FR-40의 요구사항입니다. 측정과 그리기는 그 칸들을 같은 해석 함수로 풉니다.
+    - `font_size: f32` (0이면 역할의 값)
+    - `font_weight: u16` (0이면 역할의 값)
+    - `italic: u8`
+    - `letter_spacing: f32` (NaN이면 역할의 값)
+    - `line_height: f32` (NaN이면 normal)
+    - `max_lines: u32` (0이면 제한 없음)
+    - `wrap: u8` (0은 줄을 바꾸지 않음. CSS `nowrap`, `pre`)
+    - `tab_size: u8` (CSS `tab-size`, 기본 8). 탭은 다음 탭 위치까지 차지합니다.
+    - `word_break: Normal | KeepAll | BreakAll`, `overflow_wrap: Normal | Anywhere | BreakWord`
+    - `absolute_size: u8`. 1이면 시스템 글꼴 배율을 적용하지 않습니다(CSS px). 측정과 그리기에 똑같이 적용됩니다.
+  - **Renderer는 받은 문자열의 공백을 자르거나 접지 않습니다.** 공백 접기(`normal`, `pre-line`)는 Host의 일입니다. `pre`는 그대로 보낸 문자열과 `wrap = 0`, `pre-wrap`은 그대로 보낸 문자열과 `wrap = 1`입니다.
+  - 제약 `constraint: MinContent = 1 | MaxContent = 2 | AtMost = 3`과 `width: f32`(`AtMost`일 때만 씀). 결과는 다음과 같습니다.
+    - `MinContent`: 가장 긴 끊을 수 없는 조각의 폭. Compose `ParagraphIntrinsics.minIntrinsicWidth`.
+    - `MaxContent`: 줄을 바꾸지 않은 폭. `maxIntrinsicWidth`.
+    - `AtMost(w)`: 폭 `w` 안에서 줄을 바꿨을 때의 크기.
+- `MeasureNode = 2`
+  - `node: NodeId`. Host가 이미 보냈고 Renderer가 이미 적용한 노드입니다.
+  - 제약 `min_width, max_width, min_height, max_height: f32`. 제한 없음은 `+inf`입니다.
+  - 그 노드의 하위 트리를 Compose 레이아웃이 주어진 제약에서 잴 때의 크기를 돌려줍니다.
+
+**결과 레코드** (`MeasureResult`, 32바이트):
+- `width, height: f32`
+- `first_baseline, last_baseline: f32`. 기준선이 없으면 NaN입니다.
+- `last_line_width: f32`. 마지막 줄의 폭으로, 그 뒤에 이어지는 인라인 내용을 놓는 데 씁니다. 노드면 NaN입니다.
+- `line_count: u32`. 노드면 0입니다.
+- `flags: u32`. 비트 0 `truncated`는 `max_lines` 때문에 글자가 잘렸다는 뜻입니다.
+- `status: u32`
+
+`status` 값:
+- `Ok = 0`
+- `UnknownNode = 1`: 아직 적용되지 않았거나 없는 노드
+- `Malformed = 2`: 레코드가 버퍼 밖을 가리킴
+
+단위는 레이아웃 속성과 같은 dp입니다.
+
+**반환값.** 0이면 성공입니다. 레코드 하나가 잘못된 것은 그 레코드의 `status`로 알리고 나머지는 잽니다. 버퍼 전체를 읽을 수 없으면 음수를 돌려줍니다. 이때 Host는 `ProtocolError`를 내고(NFR-7) 그 레이아웃을 크기 0으로 계속합니다. 프로세스는 멈추지 않습니다.
+
+**스레드와 재진입(PR-1, PR-3).**
+- UI 스레드에서만 부릅니다. 보통은 Renderer가 Host를 부른 호출(`render_frame`, `dispatch_event`, `init`) 안에서 Host가 다시 Renderer를 부르는 재진입이고, 같은 스레드, 같은 호출 스택입니다. 큐도 스레드 홉도 없습니다.
+- 다른 스레드에서 부르면 아무것도 재지 않고 음수를 돌려줍니다.
+- 텍스트 측정은 composition 밖에서 돕니다. 현재 `Density`, `FontFamily.Resolver`, 디자인 시스템 타입 스케일로 만든 `TextMeasurer`를 씁니다.
+- **같은 호출에서 아직 적용되지 않은 노드는 잴 수 없습니다.** 지금 계산 중인 배치는 Host가 돌려준 뒤에야 적용되기 때문입니다. 그런 노드는 `UnknownNode`가 됩니다. Host는 새로 만든 위젯을 한 프레임 동안 CSS 크기로 놓고 다음 프레임에 잴 수 있습니다.
+
+**캐시.** Host는 `(텍스트, 모양, 제약)`마다 한 프레임 동안 결과를 캐시합니다. Renderer도 캐시할 수 있지만, 결과가 캐시에 의존해서는 안 됩니다.
+
+**Rust 쪽 API.** 사용자 코드는 경계 함수를 직접 부르지 않습니다(PR-3). 어댑터와 compose-rust 런타임은 `compose_rust::measure`의 안전한 API로 부릅니다. 이 API는 Host의 프레임 작업 안에서만 측정기를 내주고, 그 밖에서는 `Err`를 돌려줍니다.
+
+**플랫폼.** desktop(K/N과 native-image), iOS, Android, Web 모두 같은 논리 연산입니다. 심은 codegen이 만듭니다.
+- Web(PR-6): 요청과 결과 버퍼가 공유 `WebAssembly.Memory` 안에 있고, Kotlin이 그 자리에서 읽고 씁니다.
+- Android: 생성된 JNI 심이 UI 스레드에 이미 붙어 있는 `JNIEnv`로 부르고, 버퍼는 direct `ByteBuffer`로 감쌉니다. 복사하지 않습니다.
+- 스키마 해시가 바뀝니다.
+
+**테스트용 Renderer.** stand-in renderer와 mock renderer도 이 함수를 갖습니다. 결정적인 가짜 메트릭(글자당 고정 폭)을 돌려주므로, Rust 테스트가 실제 렌더러 없이 돌 수 있습니다.
+
+### 수용 기준
+
+1. **측정값과 그려진 크기가 같습니다.** 같은 텍스트와 모양을 `AtMost(w)`로 잰 결과와, Renderer가 폭 `w`의 `Text` 노드로 그린 결과의 너비, 높이, 첫 기준선, 줄 수가 비트 단위로 같습니다. 대상은 다음 네 가지입니다.
+   - 라틴
+   - 한국어(단어 경계 줄바꿈)
+   - 이모지
+   - 스팬이 섞인 문단
+
+   마지막 줄 폭과 `truncated`도 같아야 합니다. 같은 기준을 FR-40의 칸에도 적용합니다. 한국어 `word_break`의 `Normal`과 `KeepAll`, 탭이 든 `pre` 문자열, `absolute_size` 문자열입니다.
+
+   (pr2_measured_text_matches_the_drawn_text, Kotlin 측 테스트)
+2. `MinContent`와 `MaxContent`가 Compose `ParagraphIntrinsics`의 `minIntrinsicWidth`, `maxIntrinsicWidth`와 같습니다(pr2_intrinsic_widths_match_compose).
+3. 이미 적용된 노드를 잰 크기가, 같은 제약에서 Compose 레이아웃이 그 노드에 준 크기와 같습니다. 대상은 `Button`, `TextField`, `Column` 안의 `Text` 둘입니다(pr2_measured_node_matches_its_layout).
+4. 아직 적용되지 않은 노드는 `UnknownNode`를 받고, 같은 호출의 나머지 요청은 정상으로 잽니다(pr2_unknown_node_is_reported_per_record).
+5. 재진입:
+   - `render_frame` 안에서 Host가 측정을 부르면 같은 스레드, 같은 호출 스택에서 답을 받습니다(pr1_measure_is_answered_inside_the_host_call).
+   - 다른 스레드에서 부르면 음수를 받고, 프로세스는 계속 돕니다(pr3_measure_off_the_ui_thread_is_refused).
+6. 잘못된 버퍼는 `ProtocolError`가 되고 프로세스를 멈추지 않습니다(nfr7_malformed_measure_buffer_is_a_protocol_error).
+7. 비용(NFR-9):
+   - 사이드바 하나 분량(텍스트 잎 200개, 잎마다 min, max, 정해진 폭 세 번, 캐시가 빈 상태)을 재는 벤치마크를 둡니다.
+   - 같은 600건을 Kotlin에서 `TextMeasurer`로 직접 잰 시간 대비, 경계를 건넌 측정의 추가 비용이 10% 이하입니다.
+   - 그 절대 시간을 플랫폼별로 기록합니다.
+   - (`benches/measure_sidebar`, 수치는 이 항목 아래에 기록)
+8. 다섯 플랫폼(macOS, Linux, Windows, iOS, Android)과 Web에서 기준 1의 라틴 경우가 통과합니다. CI 스모크로 확인합니다.
 
 ### PR-3 스레드 규칙 (`Done`)
 - VirtualDom, 사용자 컴포넌트, 모든 `compose_rust_host_*` 호출은 Renderer UI 스레드에서만 실행합니다. 그래서 락이 필요 없습니다.
