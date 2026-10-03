@@ -1,0 +1,48 @@
+diff a/renderer/desktop/test/BarTitleTest.kt b/renderer/desktop/test/BarTitleTest.kt	(rejected hunks)
+@@ -56,6 +57,46 @@ class BarTitleTest {
+         Mutation.Insert(ROOT, BAR, 0),
+     )
+ 
++    @Test
++    fun fr30_a_system_caption_and_a_bar_do_not_draw_the_same_title() = runComposeUiTest {
++        setContent {
++            CompositionLocalProvider(LocalFrameRequests provides frames) {
++                DioxusContent(
++                    rememberDioxusHost(FakeHostConnection(batch(DesignSystem.Cupertino))),
++                    caption = WindowCaption(height = 40.dp, buttonsWidth = 0.dp),
++                )
++            }
++        }
++        onNodeWithText(TITLE).assertDoesNotExist()
++        onNodeWithText("Share").assertIsDisplayed()
++    }
++
++    @Test
++    fun fr30_a_bar_draws_the_title_when_the_system_places_it_there() = runComposeUiTest {
++        setContent {
++            CompositionLocalProvider(LocalFrameRequests provides frames) {
++                DioxusContent(
++                    rememberDioxusHost(FakeHostConnection(batch(DesignSystem.Fluent))),
++                    caption = WindowCaption(height = 40.dp, buttonsWidth = 0.dp),
++                )
++            }
++        }
++        onNodeWithText(TITLE).assertIsDisplayed()
++    }
++
++    @Test
++    fun fr30_a_bar_draws_the_title_when_there_is_no_system_caption() = runComposeUiTest {
++        setContent {
++            CompositionLocalProvider(LocalFrameRequests provides frames) {
++                DioxusContent(
++                    rememberDioxusHost(FakeHostConnection(batch(DesignSystem.Cupertino))),
++                    caption = WindowCaption.None,
++                )
++            }
++        }
++        onNodeWithText(TITLE).assertIsDisplayed()
++    }
++
+     /**
+      * Under GNOME the title is centred in the window, not between the bar's children.
+      *

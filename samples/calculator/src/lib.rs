@@ -110,6 +110,7 @@ fn keypad(apple: bool, press: EventHandler<&'static str>) -> Element {
                             weight: 1.0,
                             fill_max_height: true,
                             variant: variant_for(label),
+                            kind: ButtonKind::ActionKey,
                             color: color_for(label),
                             on_click: move |_| press.call(label),
                         }

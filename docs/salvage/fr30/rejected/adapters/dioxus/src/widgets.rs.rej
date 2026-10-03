@@ -1,0 +1,32 @@
+diff a/adapters/dioxus/src/widgets.rs b/adapters/dioxus/src/widgets.rs	(rejected hunks)
+@@ -9,8 +9,8 @@ use crate as dioxus_elements;
+ use crate::Key;
+ use crate::drawing::DrawList;
+ use crate::schema::{
+-    Alignment, Arrangement, ButtonVariant, IconRole, Paint, ShapeRole, SpaceRole, TextAlign,
+-    TextOverflow, TypeRole,
++    Alignment, Arrangement, ButtonKind, ButtonVariant, IconRole, Paint, ShapeRole, SpaceRole,
++    TextAlign, TextOverflow, TypeRole,
+ };
+ use std::cell::Cell;
+ use std::rc::Rc;
+@@ -765,7 +770,8 @@ pub fn Tabs(
+     /// The design system decides where this is unset, which is what an adaptive
+     /// application wants. A unified one names it, because its reference may have no
+     /// accent at all and a system asked the question answers with its own.
+-    #[props(default)] color: Option<Paint>,
++    #[props(default)]
++    color: Option<Paint>,
+     #[props(default)] shape_role: Option<ShapeRole>,
+     #[props(default)] corner_radius: Option<f32>,
+     #[props(default)] border_width: Option<f32>,
+@@ -1387,7 +1393,8 @@ pub fn Slider(
+     /// The design system decides where this is unset, which is what an adaptive
+     /// application wants. A unified one names it, because its reference may have no
+     /// accent at all and a system asked the question answers with its own.
+-    #[props(default)] color: Option<Paint>,
++    #[props(default)]
++    color: Option<Paint>,
+     #[props(default)] shape_role: Option<ShapeRole>,
+     #[props(default)] corner_radius: Option<f32>,
+     #[props(default)] border_width: Option<f32>,

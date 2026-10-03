@@ -1,0 +1,9 @@
+diff a/compose-rust/tests/vectors/vectors.json b/compose-rust/tests/vectors/vectors.json	(rejected hunks)
+@@ -1,6 +1,6 @@
+ {
+   "format": "dioxus-compose protocol vectors v1",
+-  "schemaHashUnsigned": "1493067490765879670",
++  "schemaHashUnsigned": "3034925255180684143",
+   "byteOrder": "little-endian",
+   "mutations": {
+     "file": "mutations.bin",

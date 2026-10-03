@@ -1,0 +1,27 @@
+diff a/renderer/desktop/src/protocol/Protocol.gen.kt b/renderer/desktop/src/protocol/Protocol.gen.kt	(rejected hunks)
+@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets
+ 
+ enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, LinearProgressIndicator }
+ 
+-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Progress }
++enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, ButtonKind, Progress }
+ 
+ enum class Key { Enter }
+ 
+@@ -290,7 +292,7 @@ class ProtocolException(message: String, val offset: Int) :
+     IllegalArgumentException("$message at byte offset $offset")
+ 
+ object Protocol {
+-    const val SCHEMA_HASH: Long = 1493067490765879670L
++    const val SCHEMA_HASH: Long = 3034925255180684143L
+     const val PROTOCOL_VERSION: Int = 1
+ 
+     private const val TAG_ENVELOPE = 0
+@@ -704,6 +706,7 @@ object Protocol {
+         52 -> PropertyKind.Min
+         53 -> PropertyKind.Max
+         60 -> PropertyKind.Icon
++        75 -> PropertyKind.ButtonKind
+         27 -> PropertyKind.Progress
+         else -> throw ProtocolException("unknown property tag $tag", offset)
+     }

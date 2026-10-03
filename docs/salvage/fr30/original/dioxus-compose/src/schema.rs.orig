@@ -55,13 +55,6 @@ pub enum EventPayloadType {
     /// name on the wire whether the value counts days or slides between two ends.
     Double,
     WindowSize,
-    /// One `u16`: the tag of the design system the Renderer resolved the theme to.
-    DesignSystem,
-    /// A `u32` saying what was pressed (0 for the body, 1 or 2 for an action button), then
-    /// the notification's key as a string reference.
-    NotificationActivation,
-    /// One `u32`: the notification permission the Renderer last saw.
-    NotificationPermission,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -73,15 +66,14 @@ pub struct EventSchema {
 
 /// Canonical schema text. Variant order is wire-significant and must only be appended to.
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
-    "compose-rust/v1;",
-    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible;",
-    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material;",
+    "dioxus-compose/v1;",
+    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon;",
+    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation;",
     "keys=Enter;",
-    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged;",
+    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged;",
     "windowsizeclasses=Compact,Medium,Expanded;",
-    "windowheightclasses=Compact,Medium,Expanded;",
-    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission"
+    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage"
 );
 
 const fn hash_bytes(mut hash: u64, bytes: &[u8]) -> u64 {
@@ -111,7 +103,6 @@ const fn schema_hash() -> u64 {
     hash = hash_enum_schema(hash, PROPERTY_SCHEMA);
     hash = hash_enum_schema(hash, KEY_SCHEMA);
     hash = hash_enum_schema(hash, WINDOW_SIZE_CLASS_SCHEMA);
-    hash = hash_enum_schema(hash, WINDOW_HEIGHT_CLASS_SCHEMA);
     let mut role_index = 0;
     while role_index < ROLE_ENUM_SCHEMA.len() {
         hash = hash_bytes(hash, ROLE_ENUM_SCHEMA[role_index].name.as_bytes());
@@ -195,9 +186,6 @@ const fn schema_hash() -> u64 {
                 EventPayloadType::Range => 4,
                 EventPayloadType::Double => 5,
                 EventPayloadType::WindowSize => 6,
-                EventPayloadType::DesignSystem => 7,
-                EventPayloadType::NotificationActivation => 8,
-                EventPayloadType::NotificationPermission => 9,
             }],
         );
         index += 1;
@@ -250,8 +238,7 @@ macro_rules! define_wire_enum {
 
         impl $name {
             #[allow(dead_code)]
-            #[doc(hidden)]
-            pub fn from_name(value: &str) -> Result<Self, ()> {
+            pub(crate) fn from_name(value: &str) -> Result<Self, ()> {
                 $(if wire_name_eq(value, stringify!($variant)) {
                     return Ok(Self::$variant);
                 })+
@@ -305,57 +292,6 @@ crate::extensions::define_widget_schema_with_extensions!(define_wire_enum; WIDGE
     // A temporary surface that slides in from an edge of the screen. Which edge is the
     // Renderer's decision, for the same reason the navigation presentation is.
     Sheet = 32,
-    // The screen's frame. The application fills slots and the Renderer decides what each
-    // one becomes on this platform and at this width, which is the same decision
-    // `Navigation` already makes for itself, widened to the whole frame.
-    Scaffold = 33,
-    // One filled slot. A wrapper rather than a property on the slot's own root, because
-    // an application may put any tree in a slot and the Renderer has to know which slot
-    // it is looking at without reading into it.
-    ScaffoldSlot = 34,
-    // A lazy grid. The windowing protocol is the list's, unchanged: the Renderer asks for a
-    // range of items and the Host materialises exactly that range. What the grid adds is
-    // that the Renderer rounds the range it asks for to whole rows, because a row is what
-    // it lays out, and how many items a row holds is its own decision when the columns
-    // were given as a minimum width rather than a count.
-    LazyGrid = 35,
-    // A place files may be dropped. Being this widget is the willingness: a node that is
-    // not one is never offered as a target, so the platform shows no drop cursor over it
-    // and nothing is reported.
-    FileDropTarget = 36,
-    // The whole content with a horizontal scroll, which is a ScrollColumn turned on its
-    // side. Every child is materialised and the scroll position is the Renderer's, so
-    // nothing about scrolling crosses the boundary; a long horizontal list is a LazyRow.
-    ScrollRow = 37,
-    // A small token that is chosen or filters. It carries its label and whether it is
-    // chosen, and the chosen state is the Host's: it changes only because the Host's own
-    // click handler changed it. The shape is the design system's.
-    Chip = 38,
-    // The one action a screen is about. It carries an icon, a label and a click. Where it
-    // goes and what it is drawn as is the design system's: a disc floating over the page
-    // is one system's answer, a plus at the trailing end of the bar is another's, and an
-    // accent button at the head of the command bar is a third.
-    FloatingAction = 39,
-    // A small mark on something else that says how many, that there is something new, or
-    // one short word. With one child it is attached to that child; with none it stands on
-    // its own, at the end of a row. Where it sits on the child, its shape, and how a large
-    // count is shortened are the design system's: nothing here can ask for a corner or a
-    // ceiling.
-    Badge = 40,
-    // A region whose text can be dragged over and copied, as one selection across every
-    // Text inside it. Text outside one cannot be selected. The selection and the copy are
-    // the Renderer's entirely, so nothing about either crosses the boundary.
-    SelectionContainer = 41,
-    // Two panes side by side, a side pane and a body, with a divider the user drags to
-    // change the side pane's width. Exactly two children, the side pane first.
-    //
-    // The drag is the Renderer's, like a scroll position: nothing crosses the boundary
-    // while it moves, and the width it ends on is reported once through the value change
-    // event. How the divider looks and how far its grip reaches, the side pane's default
-    // width, the body's minimum, and whether a narrow place shows the two panes side by
-    // side, with the side pane laid over the body, or one at a time, are the design
-    // system's answers.
-    SplitPane = 42,
 });
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -397,33 +333,6 @@ impl WindowSizeClass {
         if width_dp >= Self::EXPANDED_MIN_WIDTH_DP {
             Self::Expanded
         } else if width_dp >= Self::MEDIUM_MIN_WIDTH_DP {
-            Self::Medium
-        } else {
-            Self::Compact
-        }
-    }
-}
-
-define_wire_enum!(WINDOW_HEIGHT_CLASS_SCHEMA, WindowHeightClass {
-    Compact = 0,
-    Medium = 1,
-    Expanded = 2,
-});
-
-impl WindowHeightClass {
-    /// The height in dp at which `Medium` begins, and the height at which `Expanded` does.
-    ///
-    /// The same published table the width boundaries came from, so a layout that folds
-    /// when it runs out of vertical room folds at the height Compose's own components
-    /// treat as short.
-    pub const MEDIUM_MIN_HEIGHT_DP: f32 = 480.0;
-    pub const EXPANDED_MIN_HEIGHT_DP: f32 = 900.0;
-
-    /// The class a window of this height belongs to. Width does not take part.
-    pub fn from_height_dp(height_dp: f32) -> Self {
-        if height_dp >= Self::EXPANDED_MIN_HEIGHT_DP {
-            Self::Expanded
-        } else if height_dp >= Self::MEDIUM_MIN_HEIGHT_DP {
             Self::Medium
         } else {
             Self::Compact
@@ -511,53 +420,7 @@ define_wire_enum!(COLOR_ROLE_SCHEMA, ColorRole {
     OnSecondaryContainer = 21,
     TertiaryContainer = 22,
     OnTertiaryContainer = 23,
-    // What a highlighter paints code with. A conversation shows code blocks and diffs, and
-    // with only literals to paint them the same grey comment would be stamped into seven
-    // systems and two schemes, which is how a light comment grey disappears on a dark page.
-    // So a token kind is a role like any other, and each system answers it from the code
-    // editor of its own platform.
-    //
-    // The split follows what tree-sitter's highlight names, VS Code's semantic token kinds
-    // and TextMate scopes all agree on. Each of those divides more finely, and the finer
-    // names fold into one of these (`keyword.return` is a keyword). A token that fits none
-    // is left in the body ink rather than given a colour of its own.
-    //
-    // The fifteen syntax inks hold the body-text bound on the code block's panel, comments
-    // included: a comment can be quieter in hue and lightness, but one nobody can read is
-    // a comment that is not there.
-    SyntaxKeyword = 24,
-    SyntaxString = 25,
-    SyntaxComment = 26,
-    SyntaxNumber = 27,
-    SyntaxConstant = 28,
-    SyntaxType = 29,
-    SyntaxFunction = 30,
-    SyntaxVariable = 31,
-    SyntaxProperty = 32,
-    SyntaxOperator = 33,
-    SyntaxPunctuation = 34,
-    SyntaxTag = 35,
-    SyntaxAttribute = 36,
-    SyntaxEscape = 37,
-    SyntaxMacro = 38,
-    // A diff. The ink marks an added or removed line and its text; the container is the
-    // whole line's background, drawn as the line node's own background; the emphasis is
-    // the background behind the words that actually changed, drawn by the span. Added and
-    // removed are never told apart by colour alone: the `+` and `-` at the head of a line
-    // stay, because the two backgrounds can look the same to a red-green colour blind
-    // reader.
-    DiffAdded = 39,
-    DiffRemoved = 40,
-    DiffModified = 41,
-    DiffAddedContainer = 42,
-    DiffRemovedContainer = 43,
-    DiffAddedEmphasis = 44,
-    DiffRemovedEmphasis = 45,
 });
-
-/// How many colour roles there are, which is how many rows every token table has and how
-/// many slots a palette carries per scheme.
-pub const COLOR_ROLE_COUNT: usize = 45;
 
 // The nine-rung type ladder every supported design system maps onto.
 define_wire_enum!(TYPE_ROLE_SCHEMA, TypeRole {
@@ -580,29 +443,6 @@ define_wire_enum!(SHAPE_ROLE_SCHEMA, ShapeRole {
     Medium = 4,
     Large = 5,
     Full = 6,
-});
-
-// How long a change takes and along which curve. A role rather than a duration, because
-// Material's emphasized curve and Cupertino's spring are different answers to the same
-// question, and a milliseconds figure from the application would settle it in the wrong
-// place. A system asked to reduce motion answers every one of these instantly.
-define_wire_enum!(MOTION_ROLE_SCHEMA, MotionRole {
-    Instant = 1,
-    Quick = 2,
-    Standard = 3,
-    Slow = 4,
-    Emphasized = 5,
-});
-
-// What a surface is made of. Four roles rather than a blur radius, because Cupertino and
-// Liquid Glass answer with blur, Material 3 with elevation and a tone laid over the
-// surface, and the GNOME and KDE systems with an opaque fill. A radius from the
-// application would be a blur instruction to systems that do not blur.
-define_wire_enum!(MATERIAL_ROLE_SCHEMA, MaterialRole {
-    Thin = 1,
-    Regular = 2,
-    Thick = 3,
-    Chrome = 4,
 });
 
 // Density roles, because dp density differs per design system.
@@ -672,25 +512,6 @@ define_wire_enum!(ASSET_KIND_SCHEMA, AssetKind {
     Jpeg = 2,
     Svg = 3,
     VectorIcon = 4,
-    // A font file, registered so that a type role can resolve to it. The bytes are the
-    // font, which is why this is an asset and not a name: a name would put the check that
-    // the font exists at run time on the reader's machine, and a missing one there is a
-    // screen in the wrong typeface with nobody to tell.
-    Font = 5,
-    // A gradient or an image fill, registered so that any Paint may name it. The bytes
-    // are the brush's own fixed layout rather than a file: nothing on any platform stores
-    // a list of stops as a document, and a format would be a parser to write and keep.
-    Brush = 6,
-});
-
-// How a brush carries on past the area it was given.
-define_wire_enum!(TILE_MODE_SCHEMA, TileMode {
-    // Stops at the edge and drags the last colour outwards, which is what a gradient
-    // filling a surface wants.
-    Clamp = 1,
-    Repeat = 2,
-    // Repeats, flipping every other copy, so the seams do not show.
-    Mirror = 3,
 });
 
 // The closed set of icon meanings. An icon is addressed by what it is for, never by a
@@ -717,21 +538,6 @@ define_wire_enum!(ICON_ROLE_SCHEMA, IconRole {
     // neither could be said with the three above.
     Menu = 12,
     History = 13,
-    // What putting the samples beside the applications they are drawn from turned up: eight
-    // meanings the set could not say. Each is a meaning rather than a picture, so a system
-    // that draws sending as a paper aeroplane is still answering `Send`.
-    //
-    // None of them is an existing role used loosely. A composer's send was drawn with
-    // `Forward` for a while, and an arrow pointing sideways says "on to the next one"
-    // rather than "send this".
-    Send = 14,
-    Mic = 15,
-    Image = 16,
-    Video = 17,
-    Library = 18,
-    Sidebar = 19,
-    Compose = 20,
-    Collapse = 21,
 });
 
 // How long a transient message stays on screen. Closed, and deliberately short: a message
@@ -740,34 +546,6 @@ define_wire_enum!(ICON_ROLE_SCHEMA, IconRole {
 define_wire_enum!(MESSAGE_DURATION_SCHEMA, MessageDuration {
     Short = 1,
     Long = 2,
-});
-
-// How much a notification matters. Closed for the same reason a message's duration is: what
-// it is worth in sound, in an Android channel's importance or in getting through Do Not
-// Disturb is the platform's answer, so the Host has no way to send a sound file or a
-// priority number.
-define_wire_enum!(NOTIFICATION_IMPORTANCE_SCHEMA, NotificationImportance {
-    Normal = 1,
-    Urgent = 2,
-});
-
-// Whether a notification is shown while the application's window is the active one.
-// `WhenInactive` is dropped by the Renderer when the window has focus: whether it has is
-// the Renderer's state, and a Host that wanted to judge it would need every focus change
-// sent across.
-define_wire_enum!(NOTIFICATION_PRESENTATION_SCHEMA, NotificationPresentation {
-    Always = 1,
-    WhenInactive = 2,
-});
-
-// Whether this run may show notifications. `Unsupported` is a platform or a run that has
-// no way to show one (no bundle identifier, no AppUserModelID, no notification daemon),
-// which is an answer and not an error.
-define_wire_enum!(NOTIFICATION_PERMISSION_SCHEMA, NotificationPermission {
-    NotDetermined = 1,
-    Granted = 2,
-    Denied = 3,
-    Unsupported = 4,
 });
 
 // The design systems of phase one. Later ones append variants here and nowhere else: a new
@@ -796,20 +574,6 @@ define_wire_enum!(COLOR_SCHEME_SCHEMA, ColorScheme {
     FollowSystem = 3,
 });
 
-// Which part of the screen's frame a `Scaffold` slot fills.
-//
-// What each one becomes is the Renderer's: a top bar may be the window's caption, an
-// ordinary bar under the system title bar, or a large title that shrinks as the page
-// scrolls; a bottom bar may be a bar, a rail or a permanent drawer; a floating action
-// may float, sit in the toolbar, or fold into a menu. The application says which slot
-// it filled and nothing about the answer.
-define_wire_enum!(SLOT_ROLE_SCHEMA, SlotRole {
-    TopBar = 1,
-    BottomBar = 2,
-    FloatingAction = 3,
-    Content = 4,
-});
-
 /// Every role enum codegen mirrors, in wire order. Appending is the only allowed edit.
 pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
     RoleEnumSchema {
@@ -823,18 +587,6 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
     RoleEnumSchema {
         name: "ShapeRole",
         variants: SHAPE_ROLE_SCHEMA,
-    },
-    RoleEnumSchema {
-        name: "MotionRole",
-        variants: MOTION_ROLE_SCHEMA,
-    },
-    RoleEnumSchema {
-        name: "TileMode",
-        variants: TILE_MODE_SCHEMA,
-    },
-    RoleEnumSchema {
-        name: "MaterialRole",
-        variants: MATERIAL_ROLE_SCHEMA,
     },
     RoleEnumSchema {
         name: "SpaceRole",
@@ -888,26 +640,6 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
         name: "Chrome",
         variants: CHROME_SCHEMA,
     },
-    RoleEnumSchema {
-        name: "TitleBar",
-        variants: TITLE_BAR_SCHEMA,
-    },
-    RoleEnumSchema {
-        name: "SlotRole",
-        variants: SLOT_ROLE_SCHEMA,
-    },
-    RoleEnumSchema {
-        name: "NotificationImportance",
-        variants: NOTIFICATION_IMPORTANCE_SCHEMA,
-    },
-    RoleEnumSchema {
-        name: "NotificationPresentation",
-        variants: NOTIFICATION_PRESENTATION_SCHEMA,
-    },
-    RoleEnumSchema {
-        name: "NotificationPermission",
-        variants: NOTIFICATION_PERMISSION_SCHEMA,
-    },
 ];
 
 /// Every place that takes a colour takes a `Paint`, so colour is expressed once.
@@ -917,24 +649,16 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
 pub enum Paint {
     Role(ColorRole),
     Literal(Color),
-    /// A registered brush: a gradient, or a picture laid out as a fill.
-    ///
-    /// An id rather than the thing itself, because a list of stops does not fit the two
-    /// words a modifier has and because a brush outlives the frame that draws it, which
-    /// is what the asset path already exists for.
-    Asset(u32),
 }
 
 const PAINT_KIND_ROLE: u64 = 1;
 const PAINT_KIND_LITERAL: u64 = 2;
-const PAINT_KIND_ASSET: u64 = 3;
 
 impl Paint {
     pub const fn to_bits(self) -> u64 {
         match self {
             Self::Role(role) => (PAINT_KIND_ROLE << 32) | role as u64,
             Self::Literal(color) => (PAINT_KIND_LITERAL << 32) | color.0 as u64,
-            Self::Asset(id) => (PAINT_KIND_ASSET << 32) | id as u64,
         }
     }
 
@@ -945,7 +669,6 @@ impl Paint {
                 ColorRole::try_from(u16::try_from(value).ok()?).ok()?,
             )),
             PAINT_KIND_LITERAL => Some(Self::Literal(Color(value))),
-            PAINT_KIND_ASSET => Some(Self::Asset(value)),
             _ => None,
         }
     }
@@ -965,22 +688,6 @@ define_wire_enum!(CHROME_SCHEMA, Chrome {
     System = 2,
 });
 
-// Which of two title bars this window has. `Chrome` chooses who draws the caption; this
-// chooses, inside that, what kind of window the caption belongs to.
-//
-// What each one means is not the same on every platform, and the numbers are never the
-// Host's. On macOS the buttons sit further in and the window is rounded more; on Windows
-// and Linux the caption is a different height and the buttons stay where that platform
-// puts them.
-define_wire_enum!(TITLE_BAR_SCHEMA, TitleBar {
-    // What an application on that platform actually looks like now, which is why it is the
-    // default.
-    Normal = 1,
-    // An ordinary window. For tool applications, for the places the other reads oddly, and
-    // as the way back.
-    Simple = 2,
-});
-
 /// What an application may decide about its own window.
 ///
 /// The window belongs to the Renderer, so this is short and stays short. What is here is
@@ -990,21 +697,6 @@ define_wire_enum!(TITLE_BAR_SCHEMA, TitleBar {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Window {
     pub chrome: Chrome,
-    /// Which of the two title bars this window has.
-    pub title_bar: TitleBar,
-    /// What the window calls itself.
-    ///
-    /// Empty means the application said nothing, and the renderer uses its own name for
-    /// it. It is not decoration: a desktop lists windows by this, and a window with no
-    /// title of its own is listed under whatever the renderer happened to be called.
-    pub title: &'static str,
-    /// The picture the window wears, as an asset id, or zero for none.
-    ///
-    /// An id rather than a path or a name, because a path is a fact about the machine the
-    /// application was built on and a name asks the toolkit to find something it may not
-    /// have. Registering the bytes and referring to them is what every other picture in
-    /// this protocol does.
-    pub icon: u32,
     /// Zero means the Renderer chooses, which is what an application that said nothing
     /// gets. A size is in the same density independent pixels gestures are measured in.
     pub width: u16,
@@ -1018,38 +710,12 @@ impl Window {
     pub const fn new() -> Self {
         Self {
             chrome: Chrome::Modern,
-            title_bar: TitleBar::Normal,
-            title: "",
-            icon: 0,
             width: 0,
             height: 0,
             min_width: 0,
             min_height: 0,
             resizable: true,
         }
-    }
-
-    /// Which of the two title bars this window has.
-    ///
-    /// `Normal` unless it is said otherwise, because that is the window an application on
-    /// this platform has now. What the mode is worth in pixels is the design system's, so
-    /// nothing here is a measurement.
-    pub const fn with_title_bar(mut self, title_bar: TitleBar) -> Self {
-        self.title_bar = title_bar;
-        self
-    }
-
-    /// Names the window. A literal, because this is read once before the window is stood
-    /// up and never again, so there is nothing for a computed title to change.
-    pub const fn with_title(mut self, title: &'static str) -> Self {
-        self.title = title;
-        self
-    }
-
-    /// Dresses the window in an asset that was registered with [`AssetKind::Png`].
-    pub const fn with_icon(mut self, asset_id: u32) -> Self {
-        self.icon = asset_id;
-        self
     }
 
     pub const fn with_chrome(mut self, chrome: Chrome) -> Self {
@@ -1088,27 +754,7 @@ pub struct Theme {
     pub fallback: DesignSystem,
     pub color_scheme: ColorScheme,
     pub adaptive: bool,
-    /// The font asset each type role resolves to, or zero for the system font.
-    ///
-    /// Per theme and not per node. A node that could name its own font would be a node
-    /// deciding typography, and the whole point of roles is that it does not: an
-    /// application changes what `Display` is made of, and every title changes with it.
-    ///
-    /// Indexed by the role's wire tag minus one, so the array and the enum cannot drift
-    /// apart without the compiler saying so.
-    pub fonts: [u32; TYPE_ROLE_COUNT],
-    /// The application's own colours, laid over whichever design system is chosen.
-    ///
-    /// A reference to something that lives for the whole program, so that a theme stays
-    /// `Copy` and can still be built in a `const`. The same palette goes onto every system
-    /// an adaptive theme may pick, because a brand colour does not change with the
-    /// platform. A palette built while the application runs is handed to `use_theme`,
-    /// which owns it, so application code never has to give it that lifetime itself.
-    pub palette: Option<&'static crate::palette::Palette>,
 }
-
-/// How many type roles there are, which is how many font slots a theme carries.
-pub const TYPE_ROLE_COUNT: usize = 9;
 
 impl Theme {
     /// The same design system on every platform.
@@ -1118,8 +764,6 @@ impl Theme {
             fallback: design_system,
             color_scheme: ColorScheme::FollowSystem,
             adaptive: false,
-            fonts: [0; TYPE_ROLE_COUNT],
-            palette: None,
         }
     }
 
@@ -1130,44 +774,12 @@ impl Theme {
             fallback,
             color_scheme: ColorScheme::FollowSystem,
             adaptive: true,
-            fonts: [0; TYPE_ROLE_COUNT],
-            palette: None,
         }
     }
 
     pub const fn with_color_scheme(mut self, color_scheme: ColorScheme) -> Self {
         self.color_scheme = color_scheme;
         self
-    }
-
-    /// Resolves one type role to a registered font, leaving every other role alone.
-    ///
-    /// The asset has to be registered before the theme that names it reaches the
-    /// Renderer, the same way a picture does. An id that names nothing is reported and
-    /// the role falls back to the system font, because a screen in the wrong typeface is
-    /// better than no screen.
-    pub const fn with_font(mut self, role: TypeRole, asset: u32) -> Self {
-        self.fonts[role as usize - 1] = asset;
-        self
-    }
-
-    /// Lays the application's own colours over the design system.
-    ///
-    /// Only colour roles change. Shape, type, spacing, elevation, motion and how each
-    /// component is drawn stay the design system's, so the same brand colour reads as
-    /// that system's button rather than as a copy of another's. Both schemes go to the
-    /// Renderer at once, so a switch between light and dark never asks the Host.
-    pub const fn with_palette(mut self, palette: &'static crate::palette::Palette) -> Self {
-        self.palette = Some(palette);
-        self
-    }
-
-    /// The font this role resolves to, or `None` for the system font.
-    pub const fn font(&self, role: TypeRole) -> Option<u32> {
-        match self.fonts[role as usize - 1] {
-            0 => None,
-            asset => Some(asset),
-        }
     }
 }
 
@@ -1224,34 +836,9 @@ pub enum Modifier {
     /// One dp value. How the shadow is drawn is the design system's rule: tonal lift plus a
     /// shadow, a wide soft shadow, or layered shadow plus a hairline stroke.
     Elevation(f32),
-    /// Asks the Renderer to report this node's measured size, the way it reports the
-    /// window's.
-    ///
-    /// The token is the application's own name for the node. A node id belongs to the
-    /// Renderer and is never something the Host chose, so a screen that wants to know how
-    /// wide one of its own containers ended up needs a name it gave itself. The Renderer
-    /// does not read it.
-    ObserveSize {
-        token: u32,
-    },
-    /// Which curve and length this node's changes run along.
-    ///
-    /// The node says how important the change is, not how long it takes. Appearing,
-    /// disappearing, a selection moving and a size changing all read this.
-    Motion(MotionRole),
-    /// What this node's surface is made of.
-    ///
-    /// A role, so that a system which blurs blurs and a system which does not lifts its
-    /// surface instead. Nothing here claims a particular effect was achieved.
-    Material(MaterialRole),
 }
 
 const NO_FIELDS: &[FieldSchema] = &[];
-const TOKEN_U32_FIELD: &[FieldSchema] = &[FieldSchema {
-    name: "token",
-    ty: FieldType::U32,
-    slot: FieldSlot::FirstLow,
-}];
 const VALUE_FLOAT_FIELD: &[FieldSchema] = &[FieldSchema {
     name: "value",
     ty: FieldType::Float,
@@ -1287,16 +874,6 @@ const SPACE_ROLE_FIELD: &[FieldSchema] = &[FieldSchema {
 const SHAPE_ROLE_FIELD: &[FieldSchema] = &[FieldSchema {
     name: "role",
     ty: FieldType::Role("ShapeRole"),
-    slot: FieldSlot::FirstLow,
-}];
-const MOTION_ROLE_FIELD: &[FieldSchema] = &[FieldSchema {
-    name: "role",
-    ty: FieldType::Role("MotionRole"),
-    slot: FieldSlot::FirstLow,
-}];
-const MATERIAL_ROLE_FIELD: &[FieldSchema] = &[FieldSchema {
-    name: "role",
-    ty: FieldType::Role("MaterialRole"),
     slot: FieldSlot::FirstLow,
 }];
 const PADDING_EACH_FIELDS: &[FieldSchema] = &[
@@ -1437,21 +1014,6 @@ pub const MODIFIER_SCHEMA: &[VariantSchema] = &[
         tag: 15,
         fields: VALUE_FLOAT_FIELD,
     },
-    VariantSchema {
-        name: "ObserveSize",
-        tag: 16,
-        fields: TOKEN_U32_FIELD,
-    },
-    VariantSchema {
-        name: "Motion",
-        tag: 17,
-        fields: MOTION_ROLE_FIELD,
-    },
-    VariantSchema {
-        name: "Material",
-        tag: 18,
-        fields: MATERIAL_ROLE_FIELD,
-    },
 ];
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1553,42 +1115,9 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // The meaning of the icon a destination carries, as an `IconRole` tag. Tag 0 is "not
     // sent", so a destination without an icon is label only.
     Icon = 60,
-    // Which slot of a Scaffold this subtree fills.
-    Slot = 61,
-    // How many columns a grid has, where the screen said a number.
-    Columns = 62,
-    // How narrow a column may get before the grid drops one, where the screen said a
-    // width instead of a number. The Renderer divides its own width by this, which is the
-    // same kind of judgement as a size class and for the same reason is not the Host's.
-    MinColumnWidth = 63,
-    // Runs of different treatment inside one string, as a blob of fixed-length records.
-    // A Text that says nothing about runs carries none of this and travels as it always
-    // did.
-    Spans = 64,
-    // A node that is willing to have files dropped on it. The handler is the willingness:
-    // a node without one is never told that files are over it, which is what keeps a
-    // screen from lighting up every container it has.
-    OnFilesEntered = 65,
-    OnFilesDropped = 66,
-    // Which named group of a navigation's strip this destination belongs to. Neighbouring
-    // destinations carrying the same string are one group and the string is its heading.
-    //
-    // 76 rather than 67, because 67 through 74 are reserved for the gestures and 75 for a
-    // button's kind. A reservation is not a free tag.
-    Section = 76,
-    // How many a badge counts. Absent rather than zero when the badge is a dot or a word,
-    // because "no count" and "a count of nothing" are different things to show.
-    //
-    // 80 opens a fresh block of ten for widget tags 40 onwards, after the last tag in use
-    // anywhere, so two pieces of work landing in either order cannot collide.
-    Count = 80,
-    // Whether a split pane's side pane may be folded away by dragging past its minimum, or
-    // by the keyboard, or by the platform's own show and hide sidebar command. Whether a
-    // side pane can be hidden is a fact about the screen rather than about the design
-    // system: a list of sessions can, a settings screen's list of sections cannot.
-    //
-    // 90 opens the split pane's block of ten, after the badge's.
-    Collapsible = 90,
+    // A button in a dense action grid. Its variant still chooses emphasis; this tells the
+    // design system which component shape the action occupies.
+    ButtonKind = 68,
 });
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1620,26 +1149,13 @@ pub enum EventPayload<'a> {
     /// One `f64` holds all of them: integers up to 2^53 survive it exactly, so splitting
     /// the event in two would only give the same concept two names.
     ValueChanged(f64),
-    /// The window, or one observed node, moved into a different size class. The Renderer
-    /// measures it and sends this only when a class changes, never on every layout pass.
-    /// A `node_id` of 0 is the window; anything else is the node that asked to be
-    /// measured.
+    /// The window moved into a different size class. The Renderer measures the root
+    /// content and sends this only when the class changes, never on every layout pass.
     WindowSizeChanged {
         width_dp: f32,
         height_dp: f32,
         class: WindowSizeClass,
-        height_class: WindowHeightClass,
     },
-    /// Files are over a node that said it would take them. Nothing about what they are:
-    /// the platforms disagree about what is knowable before a drop, and a screen that
-    /// only needs to light up does not need to know.
-    FilesEntered,
-    /// Files were let go over a node. The paths arrive together, separated by a byte no
-    /// path on any of the three desktops may contain.
-    FilesDropped(&'a str),
-    /// The Renderer resolved the theme and this is what it chose. Sent once and then
-    /// only when the answer changes, the same way a size class is.
-    DesignSystemResolved(DesignSystem),
     /// The Renderer lost its node table and asks for the whole tree again. A recreated
     /// Activity is the case that produces it.
     Resync,
@@ -1648,18 +1164,6 @@ pub enum EventPayload<'a> {
     /// The platform stopped the UI. Timers and animations are suppressed, so a process
     /// that is not on screen is not asked to draw.
     LifecycleStop,
-    /// The user pressed a notification the application posted. `action` is 0 for the body
-    /// and 1 or 2 for an action button; `key` is the name the application gave it.
-    ///
-    /// A name rather than a handler, because a notification outlives the component that
-    /// posted it by hours and a callback dies with its scope.
-    NotificationActivated {
-        action: u32,
-        key: &'a str,
-    },
-    /// Whether notifications may be shown, sent once after start and then only when the
-    /// answer changes.
-    NotificationPermissionChanged(NotificationPermission),
 }
 
 pub const EVENT_SCHEMA: &[EventSchema] = &[
@@ -1726,37 +1230,6 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
         tag: 20,
         payload: EventPayloadType::None,
     },
-    // Addressed to the Host rather than to a node, like the three above: it is a fact
-    // about the window, not something that happened inside it.
-    EventSchema {
-        name: "DesignSystemResolved",
-        tag: 21,
-        payload: EventPayloadType::DesignSystem,
-    },
-    EventSchema {
-        name: "FilesEntered",
-        tag: 22,
-        payload: EventPayloadType::None,
-    },
-    // One string for however many paths, which is the string convention unchanged. A
-    // second way of carrying a list would be a second thing to keep in step.
-    EventSchema {
-        name: "FilesDropped",
-        tag: 23,
-        payload: EventPayloadType::Text,
-    },
-    // Both address the Host itself, like the resolved design system: a notification is not
-    // in the tree, so there is no node and no handler to name.
-    EventSchema {
-        name: "NotificationActivated",
-        tag: 24,
-        payload: EventPayloadType::NotificationActivation,
-    },
-    EventSchema {
-        name: "NotificationPermissionChanged",
-        tag: 25,
-        payload: EventPayloadType::NotificationPermission,
-    },
 ];
 
 /// One argument of a boundary operation.
@@ -1803,21 +1276,21 @@ pub struct BoundaryOp {
 pub const BOUNDARY_SCHEMA: &[BoundaryOp] = &[
     BoundaryOp {
         name: "Init",
-        symbol: "compose_rust_host_init",
+        symbol: "dioxus_compose_host_init",
         params: &[BoundaryParam::Bytes { name: "handshake" }],
         returns_batch: true,
         fast: false,
     },
     BoundaryOp {
         name: "DispatchEvent",
-        symbol: "compose_rust_host_dispatch_event",
+        symbol: "dioxus_compose_host_dispatch_event",
         params: &[BoundaryParam::Bytes { name: "event" }],
         returns_batch: true,
         fast: false,
     },
     BoundaryOp {
         name: "RenderFrame",
-        symbol: "compose_rust_host_render_frame",
+        symbol: "dioxus_compose_host_render_frame",
         params: &[BoundaryParam::Nanos {
             name: "frameTimeNanos",
         }],
@@ -1826,14 +1299,14 @@ pub const BOUNDARY_SCHEMA: &[BoundaryOp] = &[
     },
     BoundaryOp {
         name: "ReleaseBatch",
-        symbol: "compose_rust_host_release_batch",
+        symbol: "dioxus_compose_host_release_batch",
         params: &[],
         returns_batch: false,
         fast: true,
     },
     BoundaryOp {
         name: "Shutdown",
-        symbol: "compose_rust_host_shutdown",
+        symbol: "dioxus_compose_host_shutdown",
         params: &[],
         returns_batch: false,
         fast: false,
@@ -1842,7 +1315,7 @@ pub const BOUNDARY_SCHEMA: &[BoundaryOp] = &[
 
 /// The JVM class the Android shims bind to. The Kotlin file is generated under the same
 /// name, so the two sides cannot drift.
-pub const ANDROID_BRIDGE_CLASS: &str = "dev/darkpyonix/composerust/ui/platform/HostBridge";
+pub const ANDROID_BRIDGE_CLASS: &str = "dioxus/compose/ui/platform/HostBridge";
 
 // ---------------------------------------------------------------------------------------
 // The browser's shared linear memory.
@@ -1910,7 +1383,7 @@ pub const WEB_BATCH_BYTES: u32 = 16;
 /// not fit is refused by the encoder rather than truncated.
 pub const WEB_EVENT_BUFFER_BYTES: u32 = 4096;
 
-/// Where the event buffer starts inside the block `compose_rust_host_web_start` reports.
+/// Where the event buffer starts inside the block `dioxus_compose_host_web_start` reports.
 ///
 /// The out record comes first, at offset zero, and the event buffer follows it.
 pub const WEB_EVENT_BUFFER_OFFSET: u32 = WEB_BATCH_BYTES;
@@ -1919,20 +1392,20 @@ pub const WEB_EVENT_BUFFER_OFFSET: u32 = WEB_BATCH_BYTES;
 ///
 /// It does what `JNI_OnLoad` does on Android, registering the root component and installing
 /// the renderer API, and it answers with the address of the block above.
-pub const WEB_START_SYMBOL: &str = "compose_rust_host_web_start";
+pub const WEB_START_SYMBOL: &str = "dioxus_compose_host_web_start";
 
 /// The wasm import module the Host's frame request comes from.
 ///
 /// This direction has no JavaScript on it: the page hands Kotlin's exported function object
 /// straight to the Rust instantiation, which the engine binds as a wasm-to-wasm call. It can,
 /// because Rust is instantiated second and Kotlin's exports already exist by then.
-pub const WEB_RENDERER_IMPORT_MODULE: &str = "compose_rust_renderer";
+pub const WEB_RENDERER_IMPORT_MODULE: &str = "dioxus_compose_renderer";
 
 /// The global the generated forwarders read the Host's exports off.
 ///
 /// A `@JsFun` body is inlined into the import object module Kotlin generates, so the only
 /// name it can reach the loader through is a property of the global object.
-pub const WEB_HOST_GLOBAL: &str = "__composeRustHost";
+pub const WEB_HOST_GLOBAL: &str = "__dioxusComposeHost";
 
 /// The global the loader module publishes the compiled Host module under.
 ///
@@ -1941,4 +1414,4 @@ pub const WEB_HOST_GLOBAL: &str = "__composeRustHost";
 /// before the Renderer's `main` runs. Everything after it, the memory, the imports and the
 /// entry point, is in the generated Kotlin, because only the Renderer's own module can name
 /// them.
-pub const WEB_MODULE_GLOBAL: &str = "__composeRustHostModule";
+pub const WEB_MODULE_GLOBAL: &str = "__dioxusComposeHostModule";

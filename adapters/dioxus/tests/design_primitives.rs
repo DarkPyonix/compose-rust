@@ -21,6 +21,16 @@ fn styled_column() -> Element {
     }
 }
 
+fn action_key() -> Element {
+    rsx! {
+        Button {
+            text: "7",
+            variant: ButtonVariant::Tonal,
+            kind: ButtonKind::ActionKey,
+        }
+    }
+}
+
 fn scrolling() -> Element {
     rsx! {
         ScrollColumn {
@@ -104,6 +114,15 @@ fn fr13_layout_roles_and_variant_are_sent_as_tags() {
             .iter()
             .any(|(property, _)| *property == PropertyKind::Spacing)
     );
+}
+
+#[test]
+fn fr30_action_key_declares_what_the_button_is() {
+    let props = props_of(action_key);
+    assert!(props.contains(&(
+        PropertyKind::ButtonKind,
+        PropertyValue::Integer(ButtonKind::ActionKey as i64),
+    )));
 }
 
 fn monospaced_field() -> Element {

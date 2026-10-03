@@ -1,17 +1,77 @@
 #![allow(non_snake_case)]
 
-use dioxus_core::{AttributeValue, Callback, Element, EventHandler};
+use dioxus_core::{Callback, Element, EventHandler};
 use dioxus_core_macro::{Props, component, rsx};
 use dioxus_hooks::use_signal;
 use dioxus_signals::WritableExt as _;
 
 use crate as dioxus_elements;
-use compose_rust::drawing::DrawList;
-use compose_rust::schema::{
-    Alignment, Arrangement, ButtonVariant, ColorRole, IconRole, MaterialRole, MotionRole, Paint,
-    ShapeRole, SlotRole, SpaceRole, TextAlign, TextOverflow, TypeRole,
+use crate::Key;
+use crate::drawing::DrawList;
+use crate::schema::{
+    Alignment, Arrangement, ButtonKind, ButtonVariant, IconRole, Paint, ShapeRole, SpaceRole,
+    TextAlign, TextOverflow, TypeRole,
 };
-use compose_rust::{FileDrop, KeyEvent, RangeRequest};
+use std::cell::Cell;
+use std::rc::Rc;
+
+/// A key-down event whose consumption state is shared with the Host boundary.
+#[derive(Clone, Debug)]
+pub struct KeyEvent {
+    key: Key,
+    shift_key: bool,
+    ctrl_key: bool,
+    alt_key: bool,
+    meta_key: bool,
+    consumed: Rc<Cell<bool>>,
+}
+
+impl KeyEvent {
+    pub(crate) fn new(
+        key: Key,
+        shift_key: bool,
+        ctrl_key: bool,
+        alt_key: bool,
+        meta_key: bool,
+    ) -> Self {
+        Self {
+            key,
+            shift_key,
+            ctrl_key,
+            alt_key,
+            meta_key,
+            consumed: Rc::new(Cell::new(false)),
+        }
+    }
+
+    pub fn key(&self) -> Key {
+        self.key
+    }
+
+    pub fn shift_key(&self) -> bool {
+        self.shift_key
+    }
+
+    pub fn ctrl_key(&self) -> bool {
+        self.ctrl_key
+    }
+
+    pub fn alt_key(&self) -> bool {
+        self.alt_key
+    }
+
+    pub fn meta_key(&self) -> bool {
+        self.meta_key
+    }
+
+    pub fn consume(&self) {
+        self.consumed.set(true);
+    }
+
+    pub fn consumed(&self) -> bool {
+        self.consumed.get()
+    }
+}
 
 /// A role that was not set is tag 0, which means "not sent". The Renderer
 /// never sees a zero role, so it never has to guess what an unset role meant.
@@ -40,18 +100,6 @@ fn dp(value: Option<f32>) -> f64 {
 
 #[component]
 pub fn Column(
-    /// Asks the Renderer to report this node's measured size, under the name a
-    /// screen gave it with `use_node_size`. Nothing is measured without it.
-    #[props(default)]
-    observe_size: Option<i64>,
-    /// How important this node's changes are. The curve and the length are the design
-    /// system's answer to that, and are never sent from here.
-    #[props(default)]
-    motion: Option<MotionRole>,
-    /// What this node's surface is made of. Blur on the systems that blur, a lifted tone
-    /// on the ones that lift, a flat fill on the rest.
-    #[props(default)]
-    material: Option<MaterialRole>,
     #[props(default)] weight: Option<f32>,
     #[props(default)] width: Option<f32>,
     #[props(default)] height: Option<f32>,
@@ -73,9 +121,6 @@ pub fn Column(
 ) -> Element {
     rsx! {
         column {
-            observe_size,
-            motion: opt_role(motion),
-            material: opt_role(material),
             weight: opt_dp(weight),
             width: opt_dp(width),
             height: opt_dp(height),
@@ -100,18 +145,6 @@ pub fn Column(
 
 #[component]
 pub fn Row(
-    /// Asks the Renderer to report this node's measured size, under the name a
-    /// screen gave it with `use_node_size`. Nothing is measured without it.
-    #[props(default)]
-    observe_size: Option<i64>,
-    /// How important this node's changes are. The curve and the length are the design
-    /// system's answer to that, and are never sent from here.
-    #[props(default)]
-    motion: Option<MotionRole>,
-    /// What this node's surface is made of. Blur on the systems that blur, a lifted tone
-    /// on the ones that lift, a flat fill on the rest.
-    #[props(default)]
-    material: Option<MaterialRole>,
     #[props(default)] weight: Option<f32>,
     #[props(default)] width: Option<f32>,
     #[props(default)] height: Option<f32>,
@@ -133,9 +166,6 @@ pub fn Row(
 ) -> Element {
     rsx! {
         row {
-            observe_size,
-            motion: opt_role(motion),
-            material: opt_role(material),
             weight: opt_dp(weight),
             width: opt_dp(width),
             height: opt_dp(height),
@@ -160,18 +190,6 @@ pub fn Row(
 
 #[component]
 pub fn ComposeBox(
-    /// Asks the Renderer to report this node's measured size, under the name a
-    /// screen gave it with `use_node_size`. Nothing is measured without it.
-    #[props(default)]
-    observe_size: Option<i64>,
-    /// How important this node's changes are. The curve and the length are the design
-    /// system's answer to that, and are never sent from here.
-    #[props(default)]
-    motion: Option<MotionRole>,
-    /// What this node's surface is made of. Blur on the systems that blur, a lifted tone
-    /// on the ones that lift, a flat fill on the rest.
-    #[props(default)]
-    material: Option<MaterialRole>,
     #[props(default)] weight: Option<f32>,
     #[props(default)] width: Option<f32>,
     #[props(default)] height: Option<f32>,
@@ -190,9 +208,6 @@ pub fn ComposeBox(
 ) -> Element {
     rsx! {
         composebox {
-            observe_size,
-            motion: opt_role(motion),
-            material: opt_role(material),
             weight: opt_dp(weight),
             width: opt_dp(width),
             height: opt_dp(height),
@@ -251,46 +266,6 @@ pub fn ScrollColumn(
     }
 }
 
-/// The whole content with a horizontal scroll attached: a [`ScrollColumn`] on its side.
-/// Every child is materialised, so a long horizontal list belongs in a [`LazyRow`]. The
-/// scroll position is the Renderer's, so scrolling never reaches the Host.
-#[component]
-pub fn ScrollRow(
-    #[props(default)] weight: Option<f32>,
-    #[props(default)] width: Option<f32>,
-    #[props(default)] height: Option<f32>,
-    #[props(default)] padding: Option<f32>,
-    #[props(default)] padding_role: Option<SpaceRole>,
-    #[props(default)] background: Option<Paint>,
-    #[props(default)] shape_role: Option<ShapeRole>,
-    #[props(default)] corner_radius: Option<f32>,
-    #[props(default)] border_width: Option<f32>,
-    #[props(default)] border_color: Option<Paint>,
-    #[props(default)] elevation: Option<f32>,
-    #[props(default)] fill_max_width: bool,
-    #[props(default)] fill_max_height: bool,
-    children: Element,
-) -> Element {
-    rsx! {
-        scrollrow {
-            weight: opt_dp(weight),
-            width: opt_dp(width),
-            height: opt_dp(height),
-            padding: opt_dp(padding),
-            padding_role: opt_role(padding_role),
-            background: opt_paint(background),
-            shape_role: opt_role(shape_role),
-            corner_radius: opt_dp(corner_radius),
-            border_width: opt_dp(border_width),
-            border_color: opt_paint(border_color),
-            elevation: opt_dp(elevation),
-            fill_max_width,
-            fill_max_height,
-            {children}
-        }
-    }
-}
-
 /// `type_role` alone takes the design system's size, weight, line height and letter
 /// spacing. Each override replaces one axis and costs one `SetProp`, so changing the font
 /// size does not resend the rest of the text's styling.
@@ -309,10 +284,6 @@ pub fn Text(
     #[props(default)] elevation: Option<f32>,
     #[props(default)] fill_max_width: bool,
     #[props(default)] fill_max_height: bool,
-    /// Runs of different treatment inside [text]: a bold phrase, a link, a piece of
-    /// code. Left out, the widget travels exactly as it did before runs existed.
-    #[props(default)]
-    spans: crate::spans::TextSpans,
     #[props(into)] text: String,
     #[props(default)] type_role: Option<TypeRole>,
     #[props(default)] font_size: Option<f32>,
@@ -339,9 +310,6 @@ pub fn Text(
             elevation: opt_dp(elevation),
             fill_max_width,
             fill_max_height,
-            // Left out entirely when there are none, so a Text that says nothing about
-            // runs travels exactly as it did before runs existed.
-            spans: (!spans.is_empty()).then(|| AttributeValue::any_value(spans)),
             text,
             type_role: role(type_role),
             font_size: dp(font_size),
@@ -526,6 +494,27 @@ pub fn Spacer(
     }
 }
 
+/// The visible item range the Renderer asks the Host to materialise.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RangeRequest {
+    start: u32,
+    count: u32,
+}
+
+impl RangeRequest {
+    pub(crate) fn new(start: u32, count: u32) -> Self {
+        Self { start, count }
+    }
+
+    pub fn start(&self) -> usize {
+        self.start as usize
+    }
+
+    pub fn count(&self) -> usize {
+        self.count as usize
+    }
+}
+
 /// A windowed list. The Host declares `item_count` and a stable key per item, and
 /// materialises **exactly** the range the Renderer last requested.
 ///
@@ -595,18 +584,6 @@ pub fn LazyColumn(
 /// own. `Modifier::Elevation` overrides the resting height when the Host has a reason to.
 #[component]
 pub fn Card(
-    /// Asks the Renderer to report this node's measured size, under the name a
-    /// screen gave it with `use_node_size`. Nothing is measured without it.
-    #[props(default)]
-    observe_size: Option<i64>,
-    /// How important this node's changes are. The curve and the length are the design
-    /// system's answer to that, and are never sent from here.
-    #[props(default)]
-    motion: Option<MotionRole>,
-    /// What this node's surface is made of. Blur on the systems that blur, a lifted tone
-    /// on the ones that lift, a flat fill on the rest.
-    #[props(default)]
-    material: Option<MaterialRole>,
     #[props(default)] weight: Option<f32>,
     #[props(default)] width: Option<f32>,
     #[props(default)] height: Option<f32>,
@@ -624,9 +601,6 @@ pub fn Card(
 ) -> Element {
     rsx! {
         card {
-            observe_size,
-            motion: opt_role(motion),
-            material: opt_role(material),
             weight: opt_dp(weight),
             width: opt_dp(width),
             height: opt_dp(height),
@@ -649,18 +623,6 @@ pub fn Card(
 /// would be wrong and only the surface is wanted.
 #[component]
 pub fn Surface(
-    /// Asks the Renderer to report this node's measured size, under the name a
-    /// screen gave it with `use_node_size`. Nothing is measured without it.
-    #[props(default)]
-    observe_size: Option<i64>,
-    /// How important this node's changes are. The curve and the length are the design
-    /// system's answer to that, and are never sent from here.
-    #[props(default)]
-    motion: Option<MotionRole>,
-    /// What this node's surface is made of. Blur on the systems that blur, a lifted tone
-    /// on the ones that lift, a flat fill on the rest.
-    #[props(default)]
-    material: Option<MaterialRole>,
     #[props(default)] weight: Option<f32>,
     #[props(default)] width: Option<f32>,
     #[props(default)] height: Option<f32>,
@@ -678,9 +640,6 @@ pub fn Surface(
 ) -> Element {
     rsx! {
         surface {
-            observe_size,
-            motion: opt_role(motion),
-            material: opt_role(material),
             weight: opt_dp(weight),
             width: opt_dp(width),
             height: opt_dp(height),
@@ -1037,10 +996,7 @@ pub fn Canvas(
             elevation: opt_dp(elevation),
             fill_max_width,
             fill_max_height,
-            // A command list is neither a number nor text, so it travels as a value the
-            // runtime compares and the tree writer reads back by type. An unchanged list
-            // compares equal and costs no record.
-            commands: AttributeValue::any_value(commands),
+            commands,
         }
     }
 }
@@ -1605,15 +1561,6 @@ pub fn Navigation(
     #[props(default)] fill_max_width: bool,
     #[props(default)] fill_max_height: bool,
     #[props(default)] selected_index: usize,
-    /// What sits above the destinations in a strip: a mark, a name, a control.
-    ///
-    /// Drawn only where the destinations are a strip down the side. A bar along the bottom
-    /// is five destinations standing side by side and has nowhere to put this.
-    #[props(default)]
-    head: Option<Element>,
-    /// What sits below them. An account row, usually.
-    #[props(default)]
-    foot: Option<Element>,
     children: Element,
 ) -> Element {
     rsx! {
@@ -1632,14 +1579,6 @@ pub fn Navigation(
             fill_max_width,
             fill_max_height,
             selected_index: selected_index as i64,
-            // The same slot widget a Scaffold's bars arrive in, because it says the same
-            // thing: where inside my parent this content goes.
-            if let Some(head) = head {
-                scaffoldslot { slot: i64::from(u16::from(SlotRole::TopBar)), {head} }
-            }
-            if let Some(foot) = foot {
-                scaffoldslot { slot: i64::from(u16::from(SlotRole::BottomBar)), {foot} }
-            }
             {children}
         }
     }
@@ -1681,13 +1620,6 @@ pub fn NavigationItem(
     #[props(default)]
     color: Option<Paint>,
     #[props(default = true)] enabled: bool,
-    /// The named group of the strip this destination belongs to.
-    ///
-    /// Neighbouring destinations carrying the same name are one group and the name is its
-    /// heading. A destination that names none belongs to no group and is drawn where it
-    /// always was. What a heading looks like is the design system's.
-    #[props(default)]
-    section: Option<String>,
     #[props(default)] on_click: EventHandler<()>,
 ) -> Element {
     rsx! {
@@ -1709,7 +1641,6 @@ pub fn NavigationItem(
             icon: opt_role(icon),
             color: opt_paint(color),
             enabled,
-            section,
             onclick: move |_| on_click.call(()),
         }
     }
@@ -1762,519 +1693,6 @@ pub fn Sheet(
             fill_max_width,
             fill_max_height,
             open,
-            ondismiss: move |_| on_dismiss.call(()),
-            {children}
-        }
-    }
-}
-
-/// The screen's frame: a top bar, a bottom bar, a floating action and the page.
-///
-/// Shaped after Material's `Scaffold`, because that is the vocabulary people already
-/// write, and for the same reason: a screen's frame is the same few parts every time, and
-/// assembling it by hand in every application is how every application ends up with a
-/// different one.
-///
-/// What it buys here is more than the layout. **The application says which slot it filled
-/// and nothing about what the slot becomes.** A top bar is the window's caption on a
-/// desktop that hands its caption to the application and an ordinary bar where it does
-/// not; a bottom bar is a bar on a phone, a rail on a tablet and a permanent drawer on a
-/// desktop; a floating action floats, or sits in the toolbar, or folds into a menu. Those
-/// are decisions about the running platform and the measured window, and both of those
-/// are known in the Renderer and not here.
-///
-/// The page is the children, and it is laid out clear of whatever the other slots took.
-/// Nothing about that arithmetic reaches the application, which is the point: a screen
-/// that computed its own inset would be wrong the moment the Renderer chose differently.
-///
-/// ```ignore
-/// rsx! {
-///     Scaffold {
-///         top_bar: rsx! { TopAppBar { title: "Standard" } },
-///         bottom_bar: rsx! { Navigation { /* destinations */ } },
-///         Column { /* the page */ }
-///     }
-/// }
-/// ```
-#[component]
-pub fn Scaffold(
-    /// The window's own colour, where this screen holds its own palette.
-    ///
-    /// Read off the root, so a frame that is the root is where it has to be said. A
-    /// screen that says nothing gets the theme's page colour.
-    #[props(default)]
-    background: Option<Paint>,
-    /// What the window itself is made of, where the screen wants it to be a material.
-    ///
-    /// Read off the root like the colour above, and asking for it is what stands the
-    /// window up with something behind it to show. `MaterialRole::Chrome` is the window's
-    /// own: on a platform that can put the system's material behind a window, the desktop
-    /// shows through wherever the design system draws chrome; everywhere else the design
-    /// system answers the role the way it answers it on any other node.
-    #[props(default)]
-    material: Option<MaterialRole>,
-    /// The bar across the top, where this screen wants one.
-    #[props(default)]
-    top_bar: Option<Element>,
-    /// The destinations, or the actions that belong at the bottom of a phone screen.
-    #[props(default)]
-    bottom_bar: Option<Element>,
-    /// The one action a screen is mostly about, where it has one.
-    #[props(default)]
-    floating_action: Option<Element>,
-    /// The page.
-    children: Element,
-) -> Element {
-    rsx! {
-        scaffold {
-            background: opt_paint(background),
-            material: opt_role(material),
-            if let Some(bar) = top_bar {
-                scaffoldslot { slot: i64::from(u16::from(SlotRole::TopBar)), {bar} }
-            }
-            if let Some(bar) = bottom_bar {
-                scaffoldslot { slot: i64::from(u16::from(SlotRole::BottomBar)), {bar} }
-            }
-            if let Some(action) = floating_action {
-                scaffoldslot {
-                    slot: i64::from(u16::from(SlotRole::FloatingAction)),
-                    {action}
-                }
-            }
-            scaffoldslot { slot: i64::from(u16::from(SlotRole::Content)), {children} }
-        }
-    }
-}
-
-/// A grid that only builds the rows it can show.
-///
-/// The windowing protocol is `LazyColumn`'s, unchanged: the Renderer asks for a range of
-/// items and this materialises exactly that range. What a grid adds is that the range
-/// arrives rounded to whole rows, because a row is what the Renderer lays out.
-///
-/// How wide a column is can be said two ways, and they are different questions. `columns`
-/// is a count the screen insists on. `min_column_width` is a width below which a column
-/// may not fall, and the Renderer divides its own width by it: that is the same judgement
-/// as a size class, made where the width is known, so the Host does not make it.
-///
-/// Saying both is saying the count, because a count leaves nothing for the width to
-/// decide.
-#[component]
-pub fn LazyGrid(
-    #[props(default)] weight: Option<f32>,
-    #[props(default)] width: Option<f32>,
-    #[props(default)] height: Option<f32>,
-    #[props(default)] padding: Option<f32>,
-    #[props(default)] padding_role: Option<SpaceRole>,
-    #[props(default)] background: Option<Paint>,
-    #[props(default)] shape_role: Option<ShapeRole>,
-    #[props(default)] corner_radius: Option<f32>,
-    #[props(default)] border_width: Option<f32>,
-    #[props(default)] border_color: Option<Paint>,
-    #[props(default)] elevation: Option<f32>,
-    #[props(default)] fill_max_width: bool,
-    #[props(default)] fill_max_height: bool,
-    /// A fixed number of columns.
-    #[props(default)]
-    columns: Option<u32>,
-    /// The narrowest a column may be, where the count is the Renderer's to work out.
-    #[props(default)]
-    min_column_width: Option<f32>,
-    item_count: usize,
-    #[props(default)] key_of: Option<Callback<usize, String>>,
-    item: Callback<usize, Element>,
-) -> Element {
-    let mut range = use_signal(|| (0_usize, 0_usize));
-    let (start, count) = range();
-    let first = start.min(item_count);
-    let last = first.saturating_add(count).min(item_count);
-    rsx! {
-        lazygrid {
-            weight: opt_dp(weight),
-            width: opt_dp(width),
-            height: opt_dp(height),
-            padding: opt_dp(padding),
-            padding_role: opt_role(padding_role),
-            background: opt_paint(background),
-            shape_role: opt_role(shape_role),
-            corner_radius: opt_dp(corner_radius),
-            border_width: opt_dp(border_width),
-            border_color: opt_paint(border_color),
-            elevation: opt_dp(elevation),
-            fill_max_width,
-            fill_max_height,
-            item_count: item_count as i64,
-            columns: columns.map(i64::from),
-            min_column_width: min_column_width.map(f64::from),
-            onrangerequest: move |event: dioxus_core::Event<RangeRequest>| {
-                let requested = event.data();
-                range.set((requested.start(), requested.count()));
-            },
-            for index in first..last {
-                {
-                    let item_key = key_of
-                        .map_or_else(|| index.to_string(), |key_of| key_of.call(index));
-                    rsx! {
-                        composebox { key: "{item_key}", item_key, {item.call(index)} }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// A place files may be dropped.
-///
-/// A widget rather than a property on every container, because willingness has to be
-/// absent by default and a handler cannot be: a listener is attached whether or not a
-/// screen supplied one, so four containers each grew three records for saying nothing.
-/// Being this widget is the willingness, and nothing else in the tree carries any of it.
-///
-/// Desktop only in effect. A phone has no notion of letting a file go over a window, so
-/// the events never arrive there and the same screen compiles and runs unchanged.
-#[component]
-pub fn FileDropTarget(
-    #[props(default)] weight: Option<f32>,
-    #[props(default)] width: Option<f32>,
-    #[props(default)] height: Option<f32>,
-    #[props(default)] padding: Option<f32>,
-    #[props(default)] padding_role: Option<SpaceRole>,
-    #[props(default)] background: Option<Paint>,
-    #[props(default)] shape_role: Option<ShapeRole>,
-    #[props(default)] corner_radius: Option<f32>,
-    #[props(default)] border_width: Option<f32>,
-    #[props(default)] border_color: Option<Paint>,
-    #[props(default)] elevation: Option<f32>,
-    #[props(default)] fill_max_width: bool,
-    #[props(default)] fill_max_height: bool,
-    #[props(default)] alignment: Option<Alignment>,
-    /// Files have come over this node. Nothing about what they are: the platforms
-    /// disagree about what is knowable before a drop, and a screen that only lights up
-    /// does not need to know.
-    #[props(default)]
-    on_files_entered: EventHandler<()>,
-    /// Files were let go here.
-    #[props(default)]
-    on_files_dropped: EventHandler<FileDrop>,
-    children: Element,
-) -> Element {
-    rsx! {
-        filedroptarget {
-            weight: opt_dp(weight),
-            width: opt_dp(width),
-            height: opt_dp(height),
-            padding: opt_dp(padding),
-            padding_role: opt_role(padding_role),
-            background: opt_paint(background),
-            shape_role: opt_role(shape_role),
-            corner_radius: opt_dp(corner_radius),
-            border_width: opt_dp(border_width),
-            border_color: opt_paint(border_color),
-            elevation: opt_dp(elevation),
-            fill_max_width,
-            fill_max_height,
-            alignment: opt_role(alignment),
-            onfilesentered: move |_: dioxus_core::Event<()>| on_files_entered.call(()),
-            onfilesdropped: move |event: dioxus_core::Event<FileDrop>| {
-                on_files_dropped.call(event.data().as_ref().clone());
-            },
-            {children}
-        }
-    }
-}
-
-/// A small token that is chosen or filters: a row of them narrows a list, or picks one
-/// option out of a few.
-///
-/// Whether it is chosen is the Host's. `selected` is what it draws, and the only thing that
-/// changes it is the Host's own `on_click` changing the value it passes in, so the chip on
-/// screen and the filter the Host is applying cannot disagree. A chip that is a filter
-/// toggles its own value; a chip that is one of a set clears its neighbours'. Which of the
-/// two it is is the Host's business, so the click carries nothing.
-///
-/// `selected` is the Compose name for that state. On the wire it is the same "is this on"
-/// boolean the toggles send.
-///
-/// What it looks like is the design system's: a Material filter chip with a tick, a
-/// rounded Apple filter pill, a Fluent tag button, a GNOME pill button, and the rest.
-#[component]
-pub fn Chip(
-    #[props(default)] weight: Option<f32>,
-    #[props(default)] width: Option<f32>,
-    #[props(default)] height: Option<f32>,
-    #[props(default)] padding: Option<f32>,
-    #[props(default)] padding_role: Option<SpaceRole>,
-    #[props(default)] fill_max_width: bool,
-    #[props(into)] text: String,
-    /// The meaning of a glyph before the label, never a picture.
-    #[props(default)]
-    icon: Option<IconRole>,
-    #[props(default)] selected: bool,
-    #[props(default = true)] enabled: bool,
-    #[props(default)] on_click: EventHandler<()>,
-) -> Element {
-    rsx! {
-        chip {
-            weight: opt_dp(weight),
-            width: opt_dp(width),
-            height: opt_dp(height),
-            padding: opt_dp(padding),
-            padding_role: opt_role(padding_role),
-            fill_max_width,
-            text,
-            icon: opt_role(icon),
-            checked: selected,
-            enabled,
-            onclick: move |_| on_click.call(()),
-        }
-    }
-}
-
-/// The one action a screen is about: compose, add, new.
-///
-/// It carries what the action means, what it is called and what happens when it is
-/// pressed, and nothing else. **Floating is one design system's answer, not the concept.**
-/// Material floats a disc over the bottom corner of the page; the Apple systems put a plus
-/// at the trailing end of the bar; Fluent sets an accent button at the head of the command
-/// bar. Which one this is, and where it goes, is decided where the design system is, so
-/// there is no modifier here that could place it and no property that could ask for a
-/// shape.
-///
-/// Put it in a [`Scaffold`]'s `floating_action` slot, or as a child of the [`Box`] that
-/// holds the page. Either way the frame it is in asks the design system where it goes.
-/// Anywhere else, inside a row of a bar for example, it stays where it was declared.
-///
-/// The label is always sent. A system that draws the glyph alone still names the action
-/// with it, so assistive technology never meets an unnamed control.
-///
-/// [`Box`]: crate::Box
-#[component]
-pub fn FloatingAction(
-    #[props(default)] icon: Option<IconRole>,
-    #[props(into)] text: String,
-    #[props(default)] on_click: EventHandler<()>,
-) -> Element {
-    rsx! {
-        floatingaction {
-            text,
-            icon: opt_role(icon),
-            onclick: move |_| on_click.call(()),
-        }
-    }
-}
-
-/// A small mark on something else that says how many, that there is something new, or one
-/// short word.
-///
-/// With one child it is attached to that child: an icon, an avatar, a destination. With no
-/// child it stands on its own, the count at the end of a list row. Compose calls the first
-/// a `BadgedBox` and the second a `Badge`; here they are one widget, because whether there
-/// is something to attach to is already said by the children.
-///
-/// `value` is a count and `text` is a short word. With neither it is a dot. Where it sits
-/// on its child, what shape it is, and whether 120 is written out or shortened to `99+`
-/// are the design system's, so there is no property for a corner or a ceiling.
-///
-/// The colour is a role and never a literal, and it defaults to the error role the way
-/// every one of these systems draws an unread count. The content is read out as part of
-/// the child it is attached to, and never on its own.
-#[component]
-pub fn Badge(
-    #[props(default)] weight: Option<f32>,
-    #[props(default)] width: Option<f32>,
-    #[props(default)] height: Option<f32>,
-    #[props(default)] padding: Option<f32>,
-    #[props(default)] padding_role: Option<SpaceRole>,
-    #[props(default)] background: Option<Paint>,
-    #[props(default)] shape_role: Option<ShapeRole>,
-    #[props(default)] corner_radius: Option<f32>,
-    #[props(default)] border_width: Option<f32>,
-    #[props(default)] border_color: Option<Paint>,
-    #[props(default)] elevation: Option<f32>,
-    #[props(default)] fill_max_width: bool,
-    #[props(default)] fill_max_height: bool,
-    /// How many. Leave it out for a dot or a word: no count is not the same as a count of
-    /// nothing, and only the screen knows which one it means.
-    #[props(default)]
-    value: Option<u32>,
-    /// One short word, shown where a count would be. A count wins where both are given.
-    #[props(default)]
-    text: Option<String>,
-    /// The role the mark is filled with. The error role where it is not given.
-    #[props(default)]
-    color: Option<ColorRole>,
-    #[props(default)] children: Element,
-) -> Element {
-    rsx! {
-        badge {
-            weight: opt_dp(weight),
-            width: opt_dp(width),
-            height: opt_dp(height),
-            padding: opt_dp(padding),
-            padding_role: opt_role(padding_role),
-            background: opt_paint(background),
-            shape_role: opt_role(shape_role),
-            corner_radius: opt_dp(corner_radius),
-            border_width: opt_dp(border_width),
-            border_color: opt_paint(border_color),
-            elevation: opt_dp(elevation),
-            fill_max_width,
-            fill_max_height,
-            count: value.map(i64::from),
-            text,
-            color: opt_paint(color.map(Paint::Role)),
-            {children}
-        }
-    }
-}
-
-/// A region whose text can be dragged over and copied as one selection.
-///
-/// Every `Text` inside it, however deep and however many, is part of the same selection,
-/// so a whole message of paragraphs, list items and code can be picked up in one drag and
-/// copied with a line break between each block. Text outside one cannot be selected at all,
-/// which is what keeps button labels and destinations from being dragged over as though
-/// the screen were a document.
-///
-/// Buttons, checkboxes and the other controls inside it are left out of the selection and
-/// keep working as they always do.
-///
-/// Nothing about selecting or copying reaches this side. What is selected, the copy
-/// shortcut, the context menu and the clipboard all belong to the Renderer, so there is no
-/// event to handle and no way to read or set the selection from here.
-#[component]
-pub fn SelectionContainer(
-    #[props(default)] weight: Option<f32>,
-    #[props(default)] width: Option<f32>,
-    #[props(default)] height: Option<f32>,
-    #[props(default)] padding: Option<f32>,
-    #[props(default)] padding_role: Option<SpaceRole>,
-    #[props(default)] background: Option<Paint>,
-    #[props(default)] shape_role: Option<ShapeRole>,
-    #[props(default)] corner_radius: Option<f32>,
-    #[props(default)] border_width: Option<f32>,
-    #[props(default)] border_color: Option<Paint>,
-    #[props(default)] elevation: Option<f32>,
-    #[props(default)] fill_max_width: bool,
-    #[props(default)] fill_max_height: bool,
-    children: Element,
-) -> Element {
-    rsx! {
-        selectioncontainer {
-            weight: opt_dp(weight),
-            width: opt_dp(width),
-            height: opt_dp(height),
-            padding: opt_dp(padding),
-            padding_role: opt_role(padding_role),
-            background: opt_paint(background),
-            shape_role: opt_role(shape_role),
-            corner_radius: opt_dp(corner_radius),
-            border_width: opt_dp(border_width),
-            border_color: opt_paint(border_color),
-            elevation: opt_dp(elevation),
-            fill_max_width,
-            fill_max_height,
-            {children}
-        }
-    }
-}
-
-/// A side pane and a body, with a divider between them the user drags to change the side
-/// pane's width.
-///
-/// Exactly two children: the side pane first, the body second. The side pane sits at the
-/// start of the reading direction, so it is on the right in a right to left locale.
-///
-/// **The drag is not reported while it happens.** The divider follows the pointer on the
-/// Renderer's side, like a scroll position, and `on_change` is called once, when it is let
-/// go, with the side pane's width in dp. The same happens once when the width was changed
-/// from the keyboard, when the keys are released. Narrowing the window shrinks the side
-/// pane without telling anyone, and widening it again brings back the width the user chose.
-///
-/// `value` is the width the side pane opens at and the way to change it from here. Leave it
-/// out to open at the design system's own sidebar width. Write what `on_change` reports back
-/// into the signal that feeds `value`, the way a slider's value is kept: otherwise sending
-/// the same width again later is not a change and nothing moves.
-///
-/// `min` and `max` bound the drag, in dp; left out, the design system's bounds apply.
-/// With `collapsible`, dragging past `min` folds the side pane away and `on_change` reports
-/// `0.0`; `value: Some(0.0)` opens it folded; a non-zero value, a drag back out or the
-/// keyboard unfolds it to the width it had before, which is reported once. A sidebar toggle
-/// is a button that sends `0.0` or the last width, with `IconRole::Sidebar` on it.
-///
-/// In a narrow place, measured by the split pane's own width rather than the window's, the
-/// design system may show one pane at a time. `selected_index` then says which: `0` for the
-/// side pane, `1` for the body. Choosing something in the side pane is the application's
-/// event, so it is the application that sends `1`. Going back (the platform's back gesture
-/// or the back button the design system draws) shows the side pane at once and calls
-/// `on_dismiss` once, and the application answers by sending `0` and clearing its selection.
-///
-/// `label` names the divider for a screen reader, which reads it with the current width as
-/// an adjustable control. Left out, the Renderer uses the platform's own word for a sidebar.
-#[component]
-pub fn SplitPane(
-    #[props(default)] weight: Option<f32>,
-    #[props(default)] width: Option<f32>,
-    #[props(default)] height: Option<f32>,
-    #[props(default)] padding: Option<f32>,
-    #[props(default)] padding_role: Option<SpaceRole>,
-    #[props(default)] background: Option<Paint>,
-    #[props(default)] shape_role: Option<ShapeRole>,
-    #[props(default)] corner_radius: Option<f32>,
-    #[props(default)] border_width: Option<f32>,
-    #[props(default)] border_color: Option<Paint>,
-    #[props(default)] elevation: Option<f32>,
-    #[props(default)] fill_max_width: bool,
-    #[props(default)] fill_max_height: bool,
-    /// The side pane's width in dp, or `0.0` to open it folded. Left out, the design
-    /// system's sidebar width.
-    #[props(default)]
-    value: Option<f32>,
-    /// The narrowest the side pane may be dragged, in dp.
-    #[props(default)]
-    min: Option<f32>,
-    /// The widest the side pane may be dragged, in dp.
-    #[props(default)]
-    max: Option<f32>,
-    /// Whether the side pane may be folded away.
-    #[props(default)]
-    collapsible: bool,
-    /// Which pane shows when only one fits: `0` the side pane, `1` the body.
-    #[props(default)]
-    selected_index: usize,
-    /// What a screen reader calls the divider.
-    #[props(default)]
-    label: Option<String>,
-    /// The side pane's width once a drag or a key press has finished, or `0.0` once folded.
-    #[props(default)]
-    on_change: EventHandler<f32>,
-    /// The user went back from the body to the side pane while one pane shows at a time.
-    #[props(default)]
-    on_dismiss: EventHandler<()>,
-    children: Element,
-) -> Element {
-    rsx! {
-        splitpane {
-            weight: opt_dp(weight),
-            width: opt_dp(width),
-            height: opt_dp(height),
-            padding: opt_dp(padding),
-            padding_role: opt_role(padding_role),
-            background: opt_paint(background),
-            shape_role: opt_role(shape_role),
-            corner_radius: opt_dp(corner_radius),
-            border_width: opt_dp(border_width),
-            border_color: opt_paint(border_color),
-            elevation: opt_dp(elevation),
-            fill_max_width,
-            fill_max_height,
-            value: value.map(f64::from),
-            min: min.map(f64::from),
-            max: max.map(f64::from),
-            collapsible,
-            selected_index: selected_index as i64,
-            text: label,
-            onchange: move |event: dioxus_core::Event<f64>| on_change.call(*event.data() as f32),
             ondismiss: move |_| on_dismiss.call(()),
             {children}
         }

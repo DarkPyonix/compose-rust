@@ -1,0 +1,57 @@
+diff a/renderer/desktop/src/renderer/ComponentRules.kt b/renderer/desktop/src/renderer/ComponentRules.kt	(rejected hunks)
+@@ -405,6 +407,7 @@ internal object Material3Rules : ComponentRules {
+         spacing = theme.space(SpaceRole.Xs),
+         edgePadding = theme.space(SpaceRole.Sm),
+         titleAlignment = CaptionTitleAlignment.Start,
++        titlePlacement = CaptionTitlePlacement.Bar,
+     )
+ 
+     /** A bottom sheet with a drag handle, or a side sheet once there is room for one. */
+@@ -803,6 +808,7 @@ internal object CupertinoRules : ComponentRules {
+         spacing = 8.dp,
+         edgePadding = 20.dp,
+         titleAlignment = CaptionTitleAlignment.Center,
++        titlePlacement = CaptionTitlePlacement.SystemCaption,
+     )
+ 
+     /** A card sheet pulled up over a dimmed screen, with the grabber along its top edge. */
+@@ -1250,6 +1258,7 @@ internal object FluentRules : ComponentRules {
+         spacing = 0.dp,
+         edgePadding = 0.dp,
+         titleAlignment = CaptionTitleAlignment.Start,
++        titlePlacement = CaptionTitlePlacement.Bar,
+     )
+ 
+     /** The red Windows puts under a close button, on every window and every accent. */
+@@ -1685,6 +1696,7 @@ internal object GnomeRules : ComponentRules {
+         spacing = theme.space(SpaceRole.Sm),
+         edgePadding = theme.space(SpaceRole.Sm),
+         titleAlignment = CaptionTitleAlignment.Center,
++        titlePlacement = CaptionTitlePlacement.Bar,
+     )
+ 
+     /** A fill that darkens a light bar and lightens a dark one, whatever colour it is. */
+@@ -2131,6 +2145,7 @@ internal object BreezeRules : ComponentRules {
+         spacing = theme.space(SpaceRole.Xs),
+         edgePadding = theme.space(SpaceRole.Sm),
+         titleAlignment = CaptionTitleAlignment.Center,
++        titlePlacement = CaptionTitlePlacement.Bar,
+     )
+ 
+     private const val SCRIM_ALPHA = 0.5f
+@@ -2563,6 +2580,7 @@ internal object DeepinRules : ComponentRules {
+         spacing = 0.dp,
+         edgePadding = theme.space(SpaceRole.Xs),
+         titleAlignment = CaptionTitleAlignment.Center,
++        titlePlacement = CaptionTitlePlacement.Bar,
+     )
+ 
+     private const val SCRIM_ALPHA = 0.35f
+@@ -3122,6 +3142,7 @@ internal object LiquidGlassRules : ComponentRules {
+         // is inset from the window edge rather than flush with it.
+         edgePadding = 22.dp,
+         titleAlignment = CaptionTitleAlignment.Center,
++        titlePlacement = CaptionTitlePlacement.SystemCaption,
+     )
+ 
+     private const val SCRIM_ALPHA = 0.4f

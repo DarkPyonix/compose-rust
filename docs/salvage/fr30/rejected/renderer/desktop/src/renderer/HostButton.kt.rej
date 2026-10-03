@@ -1,0 +1,15 @@
+diff a/renderer/desktop/src/renderer/HostButton.kt b/renderer/desktop/src/renderer/HostButton.kt	(rejected hunks)
+@@ -54,7 +56,12 @@ internal fun HostButton(
+ ) {
+     val enabled = node.flag(PropertyKind.Enabled, default = true)
+     val handlerId = node.handler(PropertyKind.OnClick)
+-    val style = theme.rules.button(node.variant(), theme)
++    val baseStyle = theme.rules.button(node.variant(), theme)
++    val style = if (node.buttonKind() == ButtonKind.ActionKey) {
++        baseStyle.copy(shape = theme.rules.actionKeyShape(theme))
++    } else {
++        baseStyle
++    }
+     val interactions = remember { MutableInteractionSource() }
+     val pressed by interactions.collectIsPressedAsState()
+     val motion = theme.rules.motion

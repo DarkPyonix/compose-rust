@@ -108,6 +108,38 @@ private fun cornerRadius(shape: Shape, size: Dp): Float {
 class DesignSystemDifferenceTest {
 
     /**
+     * One action-key declaration takes the silhouette of the platform's calculator.
+     *
+     * The radius is measured against an eighty dp square: Apple's forty is a circle,
+     * Windows keeps a four dp corner, and Deepin visibly rounds farther at ten. The other
+     * systems are included so adding a design system cannot silently inherit another
+     * platform's key.
+     */
+    @Test
+    fun fr30_every_design_system_answers_the_shape_of_an_action_key() {
+        val size = 80.dp
+        val expected = mapOf(
+            DesignSystem.Material3 to 16f,
+            DesignSystem.Cupertino to 40f,
+            DesignSystem.Fluent to 4f,
+            DesignSystem.Gnome to 6f,
+            DesignSystem.Breeze to 2f,
+            DesignSystem.Deepin to 10f,
+            DesignSystem.LiquidGlass to 40f,
+        )
+        expected.forEach { (system, radius) ->
+            val theme = resolved(system, dark = false)
+            val measured = cornerRadius(theme.rules.actionKeyShape(theme), size)
+            assertTrue(
+                abs(measured - radius) < 0.5f,
+                "$system rounds an $size action key by $measured dp, expected $radius dp",
+            )
+        }
+        assertTrue(expected.getValue(DesignSystem.Cupertino) > expected.getValue(DesignSystem.Fluent))
+        assertTrue(expected.getValue(DesignSystem.Deepin) > expected.getValue(DesignSystem.Fluent))
+    }
+
+    /**
      * A checkbox is drawn as a box, except in the one system that draws a circle.
      *
      * The two Apple systems are named rather than skipped. A round checkbox is Apple's own

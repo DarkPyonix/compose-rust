@@ -3,6 +3,7 @@ package dev.darkpyonix.composerust.foundation
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.ui.text.style.TextOverflow
 import dev.darkpyonix.composerust.design.CaptionTitleAlignment
+import dev.darkpyonix.composerust.design.CaptionTitlePlacement
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.TypeRole
 import dev.darkpyonix.composerust.ui.textStyle
@@ -196,9 +197,11 @@ internal fun HostTopAppBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             val title = node.text(PropertyKind.Text)
+            val titleInBar = caption.height == 0.dp ||
+                theme.rules.caption(theme).titlePlacement == CaptionTitlePlacement.Bar
             val centred = caption.height > 0.dp &&
                 theme.rules.caption(theme).titleAlignment == CaptionTitleAlignment.Center
-            if (title.isNotEmpty() && centred) {
+            if (title.isNotEmpty() && titleInBar && centred) {
                 // Centred in the window rather than between the bar's other children.
                 // GNOME, Breeze and Deepin all put the window title in the middle of the
                 // caption and everything else at the leading edge, and a title that
@@ -214,7 +217,7 @@ internal fun HostTopAppBar(
                     BarTitle(node, title, theme)
                 }
             } else {
-                if (title.isNotEmpty()) {
+                if (title.isNotEmpty() && titleInBar) {
                     BarTitle(node, title, theme)
                 }
                 node.children.forEach { childId ->

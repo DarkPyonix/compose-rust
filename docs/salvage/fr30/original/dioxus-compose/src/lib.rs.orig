@@ -1,51 +1,60 @@
-//! The Dioxus authoring layer for compose-rust.
-//!
-//! An application written with `rsx!`, components and hooks depends on this crate alone.
-//! compose-rust is underneath and re-exported whole: the boundary, the protocol, the
-//! records, the schema and the theme are its, unchanged. What this crate adds is the part
-//! that is Dioxus: the elements `rsx!` resolves, the typed widget components, the hooks,
-//! and a `VirtualDom` that runs as the Host's runtime.
-
 #![deny(unsafe_op_in_unsafe_fn)]
 
-// Everything compose-rust exports, under the paths an application has always written. An
-// item defined below with the same name (`Host`, `LaunchBuilder`, `launch`) replaces the
-// one from here: that is the Dioxus-shaped version of it.
-pub use compose_rust::*;
-// Named as well, so the one entry macro that is not the adapter's own is plainly here: an
-// iOS application starts at the C `main` it exports, whatever builds its tree.
-pub use compose_rust::ios_main;
-
+pub mod asset;
+pub mod boundary;
+/// Generated JNI shims. Compiled only for Android, where the Host is a cdylib that the
+/// Kotlin Activity loads.
+#[cfg(target_os = "android")]
+#[path = "boundary_jni.gen.rs"]
+mod boundary_jni;
+/// Generated wasm shims. Compiled only for the browser, where the page owns the loop and
+/// the Renderer's module owns the one linear memory both halves read.
+#[cfg(target_family = "wasm")]
+#[path = "boundary_wasm.gen.rs"]
+mod boundary_wasm;
+#[cfg(target_family = "wasm")]
+#[doc(hidden)]
+pub use boundary_wasm::web_start as __web_start;
+#[doc(hidden)]
+pub mod codegen;
+pub mod drawing;
 mod extensions;
-mod hooks;
-pub mod host;
+pub mod message;
+pub mod protocol;
 pub mod renderer;
+pub mod schema;
+pub mod tokens;
 mod widgets;
+pub mod window;
 
+pub use asset::asset;
+pub use boundary::{
+    Host, LaunchBuilder, MutationBatch, RendererApi, demo_theme, demo_theme_for,
+    install_renderer_api, launch, request_frame_from_worker,
+};
 pub use dioxus_core::{Element, VirtualDom};
 // `Props` goes out with `component` because `#[component]` expands into a
 // `#[derive(Props)]`. Without it an application that writes a component of its own fails
 // to compile on a macro it never typed, and the fix is to add `dioxus-core-macro` as a
 // second dependency, which defeats the promise that one dependency is enough.
 pub use dioxus_core_macro::{Props, component, rsx};
+pub use drawing::{DrawCommand, DrawList, DrawListBuilder};
 pub use elements::*;
 pub use extensions::LinearProgressIndicator;
-pub use hooks::{
-    use_design_system, use_node_size, use_notification_activated, use_notification_permission,
-    use_theme, use_window_size,
+pub use message::{Message, show_message};
+pub use schema::{
+    Alignment, Arrangement, AssetKind, ButtonKind, ButtonVariant, Chrome, Color, ColorRole,
+    ColorScheme, DesignSystem, EventPayload, IconRole, Key, LoopMode, MessageDuration, Modifier,
+    Paint, PropertyKind, SCHEMA_HASH, Selection, ShapeRole, SpaceRole, TextAlign, TextOverflow,
+    Theme, TypeRole, WidgetKind, WindowSizeClass,
 };
-pub use host::{DioxusRuntime, Host, LaunchBuilder, launch, runtime_for};
 pub use widgets::{
-    Badge, Button, Canvas, Card, Checkbox, Chip, Column, ComposeBox as Box, DatePicker, Dialog,
-    Divider, Dropdown, FileDropTarget, FloatingAction, Icon, Image, LazyColumn, LazyGrid, LazyRow,
-    Menu, Navigation, NavigationItem, ProgressIndicator, RadioButton, Row, Scaffold, ScrollColumn,
-    ScrollRow, SelectionContainer, Separator, Sheet, Slider, Spacer, SplitPane, Surface, Switch,
-    Tabs, Text, TextField, TimePicker, Tooltip, TopAppBar,
+    Button, Canvas, Card, Checkbox, Column, ComposeBox as Box, DatePicker, Dialog, Divider,
+    Dropdown, Icon, Image, KeyEvent, LazyColumn, LazyRow, Menu, Navigation, NavigationItem,
+    ProgressIndicator, RadioButton, RangeRequest, Row, ScrollColumn, Separator, Sheet, Slider,
+    Spacer, Surface, Switch, Tabs, Text, TextField, TimePicker, Tooltip, TopAppBar,
 };
-
-#[cfg(target_family = "wasm")]
-#[doc(hidden)]
-pub use host::web_start as __web_start;
+pub use window::{WindowSize, use_window_size, window_size};
 
 /// Declares the Android entry point for an application's cdylib.
 ///
@@ -54,22 +63,39 @@ pub use host::web_start as __web_start;
 /// the symbol this macro defines.
 ///
 /// ```ignore
-/// dioxus_compose_adapter::android_main!(app);
+/// dioxus_compose::android_main!(app);
 /// ```
-///
-/// The export exists only in a build for Android. Anywhere else nothing calls it, and an
-/// unconditional export would collide with the same name in every other application
-/// linked into one binary, which is what a benchmark that drives several of them does.
 #[macro_export]
 macro_rules! android_main {
     ($app:path) => {
         $crate::android_main!($crate::LaunchBuilder::new(), $app);
     };
     ($builder:expr, $app:path) => {
-        #[cfg(target_os = "android")]
         #[unsafe(no_mangle)]
-        pub extern "C" fn compose_rust_android_main() {
+        pub extern "C" fn dioxus_compose_android_main() {
             $builder.with_mode($crate::LoopMode::Platform).launch($app);
+        }
+    };
+}
+
+/// Declares the entry point an iOS application starts at.
+///
+/// iOS is the one platform where the application is the library: the renderer is a
+/// Kotlin/Native archive and the two are linked into a single executable, so there is no
+/// Activity to load anything and no page to fetch anything. What there is instead is a
+/// `main`, and a `main` in an application bundle has to be C, so this exports the launch
+/// under a name that C can call.
+///
+/// ```ignore
+/// dioxus_compose::ios_main!(launch);
+/// ```
+#[macro_export]
+macro_rules! ios_main {
+    ($launch:path) => {
+        #[unsafe(no_mangle)]
+        pub extern "C" fn dioxus_compose_ios_main() -> i32 {
+            $launch();
+            0
         }
     };
 }
@@ -82,12 +108,12 @@ macro_rules! android_main {
 ///
 /// The export is here rather than in this crate because a wasm module cannot be linked
 /// with an undefined symbol the way an ELF shared library can. Android's cdylib imports
-/// `compose_rust_android_main` from the application and the dynamic linker resolves it
+/// `dioxus_compose_android_main` from the application and the dynamic linker resolves it
 /// at load time; a browser refuses to instantiate a module whose imports are not all
 /// supplied, so the entry point is defined where the root component is.
 ///
 /// ```ignore
-/// dioxus_compose_adapter::web_main!(app);
+/// dioxus_compose::web_main!(app);
 /// ```
 #[macro_export]
 macro_rules! web_main {
@@ -97,18 +123,16 @@ macro_rules! web_main {
     ($builder:expr, $app:path) => {
         #[cfg(target_family = "wasm")]
         #[unsafe(no_mangle)]
-        pub extern "C" fn compose_rust_host_web_start() -> u32 {
+        pub extern "C" fn dioxus_compose_host_web_start() -> u32 {
             $crate::__web_start($builder, $app)
         }
 
         /// Off the web there is no page to call this and no shared memory to report an
-        /// address in, but the builder and the component are still type checked, so a
-        /// build for the machine you are working on catches what a wasm build would. Not
-        /// exported: an export here would collide with the same name in every other
-        /// application linked into one binary.
+        /// address in, but it stays defined so that a build for the machine you are
+        /// working on still compiles the component rather than leaving it unreferenced.
         #[cfg(not(target_family = "wasm"))]
-        #[allow(dead_code)]
-        fn __compose_rust_web_start_unused() -> u32 {
+        #[unsafe(no_mangle)]
+        pub extern "C" fn dioxus_compose_host_web_start() -> u32 {
             let _: fn() -> $crate::Element = $app;
             let _ = $builder;
             0
@@ -120,35 +144,25 @@ pub mod prelude {
     pub use crate as dioxus_elements;
     // dioxus-core 0.7's rsx! expansion uses unqualified `Box<T>`.
     // Exporting the Compose `Box` through this glob prelude shadows it. Use
-    // `dioxus_compose_adapter::Box { ... }` in RSX until upstream qualifies std::boxed::Box.
+    // `dioxus_compose::Box { ... }` in RSX until upstream qualifies std::boxed::Box.
     pub use crate::{
-        Alignment, Arrangement, AssetKind, Badge, Brush, Button, ButtonVariant, Canvas, Card,
-        Checkbox, Chip, Color, ColorRole, ColorScheme, Column, DatePicker, DesignSystem, Dialog,
-        Divider, DrawCommand, DrawList, Dropdown, Element, FileDrop, FileDropTarget,
-        FloatingAction, Icon, IconRole, Image, Key, KeyEvent, LaunchBuilder, LazyColumn, LazyGrid,
-        LazyRow, LinearProgressIndicator, LoopMode, MaterialRole, Menu, Message, MessageDuration,
-        Modifier, MotionRole, Navigation, NavigationItem, Paint, Palette, ProgressIndicator, Props,
-        RadioButton, RangeRequest, Row, Scaffold, ScrollColumn, ScrollRow, SelectionContainer,
-        Separator, ShapeRole, Sheet, Slider, SpaceRole, Spacer, SplitPane, Stop, Surface, Switch,
-        Tabs, Text, TextAlign, TextField, TextOverflow, Theme, TileMode, TimePicker, Tooltip,
-        TopAppBar, TypeRole, WindowHeightClass, WindowSize, WindowSizeClass, asset, brush,
-        component, launch, rsx, show_message, use_design_system, use_node_size, use_theme,
-        use_window_size,
+        Alignment, Arrangement, AssetKind, Button, ButtonKind, ButtonVariant, Canvas, Card,
+        Checkbox, Color, ColorRole, ColorScheme, Column, DatePicker, DesignSystem, Dialog, Divider, DrawCommand,
+        DrawList, Dropdown, Element, Icon, IconRole, Image, Key, KeyEvent, LaunchBuilder,
+        LazyColumn, LazyRow, LinearProgressIndicator, LoopMode, Menu, Message, MessageDuration,
+        Modifier, Navigation, NavigationItem, Paint, ProgressIndicator, Props, RadioButton,
+        RangeRequest, Row, ScrollColumn, Separator, ShapeRole, Sheet, Slider, SpaceRole, Spacer,
+        Surface, Switch, Tabs, Text, TextAlign, TextField, TextOverflow, Theme, TimePicker,
+        Tooltip, TopAppBar, TypeRole, WindowSize, WindowSizeClass, asset, component, launch, rsx,
+        show_message, use_window_size,
     };
     // Under its own name, and the one thing in this list that could shadow something a
     // reader already has: an application that draws its own `Window` component would find
     // this one instead. It is here because the alternative is a fully qualified path in
     // every `main`, and because `Chrome` beside it is meaningless on its own.
     pub use crate::schema::{Chrome, Window};
-    // Notifications, from a component or from a worker thread.
-    pub use crate::{
-        Notification, NotificationActivation, NotificationImportance, NotificationPermission,
-        NotificationPresentation, NotificationSender, notification_permission,
-        request_notification_permission, use_notification_activated, use_notification_permission,
-        withdraw_notification,
-    };
     // The crates `rsx!` expands into references to, under the names it expands into. A
-    // consumer who added only this crate does not have `dioxus_core` or
+    // consumer who added only `dioxus-compose` does not have `dioxus_core` or
     // `dioxus_signals` in their dependency graph by name, so without these the macro
     // fails to resolve them and the crate cannot be used at all with one dependency,
     // which is the whole promise.
@@ -195,17 +209,6 @@ pub mod elements {
             pub const border_color: AttributeDescription = ("border_color", None, false);
             pub const elevation: AttributeDescription = ("elevation", None, false);
             pub const onclickable: AttributeDescription = ("onclickable", None, false);
-            pub const observe_size: AttributeDescription = ("observe_size", None, false);
-            // How important this node's changes are. Every widget takes it, because
-            // anything that appears, moves or resizes has changes to run.
-            pub const motion: AttributeDescription = ("motion", None, false);
-            // What this node's surface is made of, where it has one.
-            pub const material: AttributeDescription = ("material", None, false);
-            // Willingness to have files dropped, said by having somewhere to report them.
-            // A node without a handler is never told files are over it, which is what
-            // keeps a screen from lighting up every container it has.
-            pub const onfilesentered: AttributeDescription = ("onfilesentered", None, false);
-            pub const onfilesdropped: AttributeDescription = ("onfilesdropped", None, false);
         };
     }
 
@@ -248,7 +251,6 @@ pub mod elements {
         "Text",
         [
             text,
-            spans,
             type_role,
             font_size,
             font_weight,
@@ -336,61 +338,18 @@ pub mod elements {
     element!(
         navigationitem,
         "NavigationItem",
-        [text, icon, color, enabled, section]
+        [text, icon, color, enabled]
     );
     // Like a Dialog on the wire: `open` seeds the Renderer's own state and `on_dismiss`
     // says once that the user asked to close it. Which edge it enters from is the
     // Renderer's, because it is the side that knows how wide the window is.
     element!(sheet, "Sheet", [open]);
-    // The screen's frame. It carries nothing of its own: what it is made of arrives as
-    // slots, and what each slot becomes is decided where the window's width is known.
-    element!(scaffold, "Scaffold", []);
-    element!(scaffoldslot, "ScaffoldSlot", [slot]);
-    // A grid whose window is the list's, unchanged. The two ways of saying how wide a column is
-    // are separate attributes because they are separate questions: a count the screen
-    // insists on, or a width below which the Renderer drops one.
-    element!(
-        lazygrid,
-        "LazyGrid",
-        [item_count, columns, min_column_width]
-    );
-    element!(filedroptarget, "FileDropTarget", [alignment]);
-    // Whole content plus a horizontal scroll, the same contract as the vertical one: every
-    // child is sent and the position stays in the Renderer.
-    element!(scrollrow, "ScrollRow", []);
-    // Widget tags 38 and 39. A chip is a label, an optional icon and whether it is chosen,
-    // on the same boolean the toggles use: a chosen chip and a ticked box are one fact.
-    // The chosen state is the Host's, so the chip draws exactly what `checked` says.
-    element!(chip, "Chip", [text, icon, checked, enabled]);
-    // The one action a screen is about: what it means, what it is called, and a click.
-    // Nothing that could say where it goes, because that is the design system's answer.
-    element!(floatingaction, "FloatingAction", [text, icon]);
-    // A count, a word, or with neither a dot. The colour is a role. Where it sits on its
-    // child and how a large count is written are the design system's, so there is nothing
-    // here that could ask for a corner or a ceiling.
-    element!(badge, "Badge", [count, text, color]);
-    // Nothing of its own. Being this widget is the whole of what it says: the text inside
-    // may be selected and copied, and the selection never crosses the boundary.
-    element!(selectioncontainer, "SelectionContainer", []);
-    // A side pane and a body. `value` seeds the side pane's width and carries a change from
-    // outside; the drag itself is the Renderer's, and only the width it ends on comes
-    // back. `selected_index` says which pane shows when the two are shown one at a time.
-    // `text` names the divider for a screen reader. How the divider looks and when the
-    // panes stack are the design system's, so nothing here can ask for either.
-    element!(
-        splitpane,
-        "SplitPane",
-        [value, min, max, collapsible, selected_index, text]
-    );
 
     #[doc(hidden)]
     pub mod completions {
         #[allow(non_camel_case_types)]
         pub enum CompleteWithBraces {
             column {},
-            scaffold {},
-            lazygrid {},
-            scaffoldslot {},
             row {},
             composebox {},
             text {},
@@ -399,7 +358,6 @@ pub mod elements {
             spacer {},
             lazycolumn {},
             scrollcolumn {},
-            scrollrow {},
             checkbox {},
             radiobutton {},
             switch {},
@@ -423,11 +381,6 @@ pub mod elements {
             navigation {},
             navigationitem {},
             sheet {},
-            chip {},
-            floatingaction {},
-            badge {},
-            selectioncontainer {},
-            splitpane {},
         }
     }
 }
@@ -471,11 +424,6 @@ pub mod events {
     event!(onrangerequest, crate::RangeRequest);
     // A dismissal carries no value, so it reuses the empty event payload a click uses.
     event!(ondismiss, ());
-    // Files over a node, and files let go on it. The first carries nothing: the platforms
-    // disagree about what is knowable before a drop, and a node that only lights up does
-    // not need to know.
-    event!(onfilesentered, ());
-    event!(onfilesdropped, crate::FileDrop);
     // A control reports the value the user landed on, as one f64. A picker reads it as
     // the epoch count it speaks, a slider as a position, a toggle as off or on. It shares
     // the wire property with the text field's value change, because both are "this

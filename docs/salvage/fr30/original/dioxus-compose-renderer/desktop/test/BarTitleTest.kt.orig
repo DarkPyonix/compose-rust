@@ -1,4 +1,4 @@
-package dev.darkpyonix.composerust.test
+package dioxus.compose.test
 
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -9,20 +9,20 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.unit.dp
-import dev.darkpyonix.composerust.protocol.ColorScheme
-import dev.darkpyonix.composerust.protocol.DesignSystem
-import dev.darkpyonix.composerust.protocol.Mutation
-import dev.darkpyonix.composerust.protocol.PropertyKind
-import dev.darkpyonix.composerust.protocol.PropertyValue
-import dev.darkpyonix.composerust.protocol.Theme
-import dev.darkpyonix.composerust.protocol.WidgetKind
-import dev.darkpyonix.composerust.runtime.ComposeRustContent
-import dev.darkpyonix.composerust.runtime.WindowCaption
-import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
-import dev.darkpyonix.composerust.tooling.FakeHostConnection
-import dev.darkpyonix.composerust.ui.node.nodeTestTag
-import dev.darkpyonix.composerust.ui.platform.FrameRequestSource
-import dev.darkpyonix.composerust.ui.platform.LocalFrameRequests
+import dioxus.compose.protocol.ColorScheme
+import dioxus.compose.protocol.DesignSystem
+import dioxus.compose.protocol.Mutation
+import dioxus.compose.protocol.PropertyKind
+import dioxus.compose.protocol.PropertyValue
+import dioxus.compose.protocol.Theme
+import dioxus.compose.protocol.WidgetKind
+import dioxus.compose.runtime.DioxusContent
+import dioxus.compose.runtime.WindowCaption
+import dioxus.compose.runtime.rememberDioxusHost
+import dioxus.compose.tooling.FakeHostConnection
+import dioxus.compose.ui.node.nodeTestTag
+import dioxus.compose.ui.platform.FrameRequestSource
+import dioxus.compose.ui.platform.LocalFrameRequests
 import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertTrue
@@ -57,22 +57,40 @@ class BarTitleTest {
         Mutation.Insert(ROOT, BAR, 0),
     )
 
-    /**
-     * A caption measured shorter than nothing does not take the window down.
-     *
-     * A platform reads its caption as the difference between two rectangles, and while a
-     * window is being resized one of them can be updated before the other, so the
-     * difference is negative for a moment. The page's top is made of it, a negative padding
-     * throws from inside composition, and the window closed the first time anyone dragged
-     * its edge.
-     */
     @Test
-    fun fr19_a_caption_measured_below_nothing_does_not_close_the_window() = runComposeUiTest {
+    fun fr30_a_system_caption_and_a_bar_do_not_draw_the_same_title() = runComposeUiTest {
         setContent {
             CompositionLocalProvider(LocalFrameRequests provides frames) {
-                ComposeRustContent(
-                    rememberComposeRustHost(FakeHostConnection(batch(DesignSystem.LiquidGlass))),
-                    caption = WindowCaption(height = (-12).dp, buttonsWidth = 0.dp),
+                DioxusContent(
+                    rememberDioxusHost(FakeHostConnection(batch(DesignSystem.Cupertino))),
+                    caption = WindowCaption(height = 40.dp, buttonsWidth = 0.dp),
+                )
+            }
+        }
+        onNodeWithText(TITLE).assertDoesNotExist()
+        onNodeWithText("Share").assertIsDisplayed()
+    }
+
+    @Test
+    fun fr30_a_bar_draws_the_title_when_the_system_places_it_there() = runComposeUiTest {
+        setContent {
+            CompositionLocalProvider(LocalFrameRequests provides frames) {
+                DioxusContent(
+                    rememberDioxusHost(FakeHostConnection(batch(DesignSystem.Fluent))),
+                    caption = WindowCaption(height = 40.dp, buttonsWidth = 0.dp),
+                )
+            }
+        }
+        onNodeWithText(TITLE).assertIsDisplayed()
+    }
+
+    @Test
+    fun fr30_a_bar_draws_the_title_when_there_is_no_system_caption() = runComposeUiTest {
+        setContent {
+            CompositionLocalProvider(LocalFrameRequests provides frames) {
+                DioxusContent(
+                    rememberDioxusHost(FakeHostConnection(batch(DesignSystem.Cupertino))),
+                    caption = WindowCaption.None,
                 )
             }
         }
@@ -89,8 +107,8 @@ class BarTitleTest {
     fun fr15_2_a_bar_centres_its_title_where_the_design_system_asks() = runComposeUiTest {
         setContent {
             CompositionLocalProvider(LocalFrameRequests provides frames) {
-                ComposeRustContent(
-                    rememberComposeRustHost(FakeHostConnection(batch(DesignSystem.Gnome))),
+                DioxusContent(
+                    rememberDioxusHost(FakeHostConnection(batch(DesignSystem.Gnome))),
                     caption = WindowCaption(height = 40.dp, buttonsWidth = 0.dp),
                 )
             }
@@ -114,8 +132,8 @@ class BarTitleTest {
     fun fr15_2_a_bar_leads_with_its_title_where_the_design_system_asks() = runComposeUiTest {
         setContent {
             CompositionLocalProvider(LocalFrameRequests provides frames) {
-                ComposeRustContent(
-                    rememberComposeRustHost(FakeHostConnection(batch(DesignSystem.Material3))),
+                DioxusContent(
+                    rememberDioxusHost(FakeHostConnection(batch(DesignSystem.Material3))),
                     caption = WindowCaption(height = 40.dp, buttonsWidth = 0.dp),
                 )
             }
