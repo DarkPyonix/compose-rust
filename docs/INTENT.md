@@ -79,7 +79,7 @@ Rust에서 Compose API를 직접 호출하지 않습니다. GraalVM `@CEntryPoin
 | 데스크톱 | **2026-10-03부터 AWT 없는 Kotlin/Native 정적 라이브러리가 기본입니다(D4). macOS와 Linux는 Kotlin/Native, Windows는 D18.** 이 칸의 나머지는 그 전의 GraalVM native-image 경로에 대한 기록입니다. native-image `--shared`. macOS는 **Liberica NIK Full**, Windows와 Linux는 upstream GraalVM. macOS에서는 선택의 여지가 없었습니다: upstream은 Darwin에서 AWT 지원을 건너뜁니다(oracle/graal#13272, 2026-09 기준 open). **세 플랫폼을 NIK으로 통일하려 시도했고 2026-09-23에 되돌렸습니다.** 동기는 분명합니다. upstream의 Windows AWT는 JDK DLL 열두 개를 이미지 옆에 내놓고 애플리케이션이 전부 들고 다녀야 해서 배포물이 16개 파일이고, macOS는 NIK이 같은 라이브러리를 `lib/static/`의 정적 아카이브로 실어 주어 4개입니다. Windows NIK에도 그 아카이브가 있다는 것까지 확인했습니다(`lib/static/windows-amd64/`에 `.lib` 52개). 막힌 곳은 링크가 아니라 그 다음입니다: **아카이브를 이미지에 넣는 것과 JVM이 "그 라이브러리는 이미 안에 있다"고 아는 것은 다른 일이고**, AWT의 `Toolkit.loadLibraries`는 런타임에 `System.loadLibrary("awt")`를 부릅니다. GraalVM은 macOS에서 AWT를 빌트인 라이브러리로 등록해 주고 Windows에서는 해 주지 않습니다. 우리가 등록하면 됩니다(skiko에 대해 `StaticSkikoFeature`가 하는 일과 같습니다). 작업은 `feat/windows-nik-static-awt`에 있고, 되돌린 이유는 **확인할 수단 없이 시도할 때마다 CI 한 사이클이 들고 그 사이 Windows 렌더러가 빌드되지 않는 상태로 남기 때문**입니다 |
 | iOS | Kotlin/Native `-produce static` + `@CName` C 심볼 |
 | Android | 대상 플랫폼. ART라서 native-image가 불가능합니다. Kotlin/Android 앱이 Rust cdylib을 로드하고, 생성된 JNI 심을 씁니다(D9) |
-| Web | 대상 플랫폼. Compose wasmJs + Dioxus wasm. 브라우저에서 실행하는 것이라 앱이 웹뷰를 내장하는 것과는 다르고 C1에 해당하지 않습니다. 메모리는 공유하고 호출만 생성된 JS forwarder를 거칩니다(SPEC PR-6) |
+| Web | 대상 플랫폼. Compose wasmJs + Dioxus wasm. 브라우저에서 실행하는 것이라 앱이 웹뷰를 내장하는 것과는 다르고 C1에 해당하지 않습니다. 메모리는 하나를 공유하고, 호출은 JS를 거치지 않고 직접 갑니다. Renderer에서 Host로는 코드젠이 만든 wasm `call_indirect` 트램펄린을, 반대 방향은 wasm import를 그대로 씁니다(SPEC PR-6). 소유자 결정입니다: "Q7 JS 브릿지 갔다오는건 성능이 느려서 안된다. 직결하도록 해"(2026-09-19). 2026-10-03 재측정에서 트램펄린 호출은 Safari 26.5에서 4.35ns(JS 경유 12.45ns), Chrome 154에서 7.11ns(JS 경유 25.57ns)이고 메모리 공유도 그대로입니다(#54, PR #75). 생성된 경계를 트램펄린으로 바꾸는 작업은 #54 (d)입니다 |
 
 ### D4. 데스크톱 렌더러는 AWT 없이 만들고, 그것을 기본으로 배포한다
 
@@ -141,7 +141,7 @@ native-image는 CI와 릴리스에서만 돌립니다.
 - 옛 React Native 브리지의 병목(직렬화, 비동기 전용, 스레드 홉)을 피하기 위해 JSI 방식을 택했습니다. VirtualDom은 Renderer UI 스레드에서 돌고, 양쪽은 서로를 직접 호출합니다.
 - 버퍼는 큐가 아니라 한 번의 호출에서 Mutation 여러 개를 넘기는 인자입니다. 고정 레이아웃이라 제자리에서 읽습니다.
 - 무거운 도메인 작업은 Host 워커 스레드에서 돌리고, UI 스레드에는 wake 신호만 보냅니다.
-- Web에서는 메모리를 공유해 복사를 없애고, 호출만 생성된 JS forwarder를 거칩니다(약 12ns). 직렬화, 비동기 큐, 스레드 홉, 데이터 복사는 없습니다(SPEC PR-6).
+- Web에서도 같습니다. 메모리를 공유해 복사를 없애고, 호출은 JS를 거치지 않는 wasm 사이 직접 호출입니다. Renderer에서 Host로 가는 호출은 Wasm 테이블을 거치는 `call_indirect` 트램펄린(Safari 26.5에서 4.35ns, Chrome 154에서 7.11ns)이고, Host에서 Renderer로 가는 호출은 wasm import를 Kotlin export에 그대로 묶습니다. JS 브리지는 쓰지 않습니다. 소유자 결정이며("Q7 JS 브릿지 갔다오는건 성능이 느려서 안된다. 직결하도록 해", 2026-09-19), 같은 호출을 JS로 넘기면 Safari 12.45ns, Chrome 25.57ns로 세 배 안팎 느립니다. 직렬화, 비동기 큐, 스레드 홉, 데이터 복사도 없습니다(SPEC PR-6).
 - 근거는 SPEC PR-1~PR-6에 있습니다.
 
 ### D9-macOS. macOS 실행 모델과 우회책

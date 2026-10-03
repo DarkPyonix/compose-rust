@@ -175,7 +175,7 @@
           <tr>
             <td>Web (wasm)</td>
             <td><span class="pill partial">Draws in a browser</span></td>
-            <td>Kotlin owns the wasm linear memory and Rust imports it, so the batch arena is shared in place with no copying. Each boundary call goes through a generated JS forwarder, measured at about 12&nbsp;ns in Safari and not yet re-measured elsewhere.</td>
+            <td>Kotlin owns the wasm linear memory and Rust imports it, so the batch arena is shared in place with no copying. Boundary calls are direct wasm-to-wasm calls with no JavaScript on them: Renderer to Host goes through a generated <code>call_indirect</code> trampoline, measured at 4.35&nbsp;ns in Safari 26.5 and 7.11&nbsp;ns in Chrome 154, and Host to Renderer binds a wasm import straight to a Kotlin export. Moving the generated boundary onto the trampoline is #54.</td>
           </tr>
         </tbody>
       </table>

@@ -174,7 +174,7 @@
           <tr>
             <td>Web (wasm)</td>
             <td><span class="pill partial">브라우저에서 그려짐</span></td>
-            <td>Kotlin이 wasm linear memory를 소유하고 Rust가 그것을 import합니다. 배치 arena를 제자리에서 공유하므로 복사가 없고, 경계 호출은 코드젠으로 만든 JS forwarder를 거칩니다. Safari에서 약 12&nbsp;ns로 실측했고 다른 엔진에서는 아직 재지 않았습니다.</td>
+            <td>Kotlin이 wasm linear memory를 소유하고 Rust가 그것을 import합니다. 배치 arena를 제자리에서 공유하므로 복사가 없고, 경계 호출은 JS를 거치지 않는 wasm 사이 직접 호출입니다. Renderer에서 Host로는 코드젠이 만든 <code>call_indirect</code> 트램펄린을 거치며 Safari 26.5에서 4.35&nbsp;ns, Chrome 154에서 7.11&nbsp;ns로 실측했고, Host에서 Renderer로는 wasm import를 Kotlin export에 그대로 묶습니다. 생성된 경계를 트램펄린으로 옮기는 작업은 #54입니다.</td>
           </tr>
         </tbody>
       </table>

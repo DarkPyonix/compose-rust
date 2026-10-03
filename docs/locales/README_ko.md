@@ -116,7 +116,7 @@ notepad 샘플을 릴리스로 빌드해 스트립한 것입니다. 실행 파�
 | 🐧 Linux 데스크톱 | 빌드되고 실행됨 | 두 아키텍처(x64, arm64) 모두 CI의 Xvfb 환경에서 빌드 및 헤드리스 시작 스모크 테스트를 통과합니다. |
 | 📱 iOS | 빌드되고 실행됨 | Kotlin/Native `-produce static`으로 동일한 C 심볼을 내보냅니다. XCFramework로 배포됩니다. |
 | 🤖 Android | 빌드됨, 실행 미확인 | Kotlin Activity가 프로세스와 루프를 소유하고 Rust는 cdylib이며, 양쪽 JNI 심은 스키마에서 생성됩니다. 앱과 라이브러리 모두 `arm64-v8a`로 빌드되지만 아직 기기나 에뮬레이터에서 실행해 보지 않았고, 그것이 `PR-5`가 요구하는 부분입니다 (마일스톤 M6) |
-| 🌐 Web (wasm) | **엔드 투 엔드 동작** | Kotlin/Wasm 모듈이 정의한 `WebAssembly.Memory` 하나를 Rust가 import하므로 배치를 쓴 자리에서 그대로 읽고 복사하지 않습니다. Renderer→Host 호출은 생성된 JS forwarder를 거치며 12ns로 실측했습니다. 브라우저에서 메모리 공유와 직접 바인딩을 동시에 가질 수 없기 때문이고, 반대 방향에는 JS가 없습니다. 데스크톱 데모와 같은 Rust 소스로 M0 화면이 브라우저에 뜨고, 클릭이 Rust 핸들러에 도달하며, 상태 변경이 페이지에 나타납니다. `web/scripts/test-boundary.sh`와 `screenshot.sh`가 브라우저에서 테스트하고 사진으로 남깁니다 (`PR-6`, 마일스톤 M7) |
+| 🌐 Web (wasm) | **엔드 투 엔드 동작** | Kotlin/Wasm 모듈이 정의한 `WebAssembly.Memory` 하나를 Rust가 import하므로 배치를 쓴 자리에서 그대로 읽고 복사하지 않습니다. 두 모듈 사이의 호출에는 JS가 없습니다. Renderer→Host 호출은 코드젠이 만든 작은 wasm 트램펄린(두 모듈이 모두 생긴 뒤 페이지가 채우는 테이블을 거치는 `call_indirect`)을 거치며, Safari 26.5에서 4.35ns, Chrome 154에서 7.11ns로 실측했습니다(JS forwarder는 12.45ns, 25.57ns). Host→Renderer 호출은 wasm import를 Renderer의 export에 그대로 묶습니다. 생성된 경계를 JS forwarder에서 트램펄린으로 바꾸는 작업은 #54입니다. 데스크톱 데모와 같은 Rust 소스로 M0 화면이 브라우저에 뜨고, 클릭이 Rust 핸들러에 도달하며, 상태 변경이 페이지에 나타납니다. `web/scripts/test-boundary.sh`와 `screenshot.sh`가 브라우저에서 테스트하고 사진으로 남깁니다 (`PR-6`, 마일스톤 M7) |
 
 ### 양쪽의 진도 차이
 
