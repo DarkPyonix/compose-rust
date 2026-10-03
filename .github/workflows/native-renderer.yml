@@ -462,6 +462,51 @@ jobs:
           path: dioxus-compose-renderer/build/native-image-linux/dist/
           retention-days: 7
 
+  # The two Linux jobs above prove the renderer builds and that a C host linked with an
+  # rpath and --export-dynamic can start it. Neither is what an application gets: Cargo
+  # passes none of this crate's link arguments to a binary that depends on it, so an
+  # application could not find the renderer by name and did not export the Host functions
+  # the renderer calls, and nothing here noticed. This job builds such an application from
+  # the renderer each of those jobs produced, moves it away from the build, packages it the
+  # way the documentation says to, and requires the renderer to draw before it exits 0.
+  linux-consumer:
+    needs: [linux, linux-arm64]
+    name: Linux ${{ matrix.arch }} application that depends on the crate
+    runs-on: ${{ matrix.runs-on }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runs-on: ubuntu-24.04
+          - arch: arm64
+            runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      - name: Install the renderer's runtime libraries, patchelf and a virtual display
+        # Runtime packages only, no headers: this is what a machine running the application
+        # has, not what the one building the renderer has. patchelf is what
+        # scripts/bundle-renderer.sh rewrites the executable with.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fontconfig libx11-6 libxext6 libxi6 libxrender1 libxtst6 \
+            libxrandr2 libfontconfig1 libfreetype6 libgl1 libgl1-mesa-dri libegl1 \
+            fonts-noto-cjk xvfb xauth dbus-x11 patchelf
+
+      - name: Download the renderer this run built
+        uses: actions/download-artifact@v4
+        with:
+          name: dioxus-compose-renderer-linux-${{ matrix.arch }}
+          path: renderer-dist
+
+      - name: Build, move, bundle and run an application under Xvfb
+        run: xvfb-run -a ./scripts/check-linux-consumer.sh renderer-dist "$RUNNER_TEMP/consumer-app"
+
   # iOS is Kotlin/Native, not native-image, so it shares nothing with the jobs above
   # except the interpreter source. It builds both slices (simulator and device) and
   # runs the *desktop* C smoke host against the simulator archive, which is what makes
@@ -570,7 +615,7 @@ jobs:
   # never be made to work.
   release:
     name: Publish the GitHub Release
-    needs: [changed, build, windows, linux, linux-arm64, ios]
+    needs: [changed, build, windows, linux, linux-arm64, linux-consumer, ios]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:

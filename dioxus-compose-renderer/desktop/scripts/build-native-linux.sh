@@ -28,6 +28,7 @@ mkdir -p "$obj" "$lib"
 
 cc -c -O2 -fPIC -o "$obj/renderer_entry.o" "$NATIVE_DIR/c/renderer_entry.c"
 cc -c -O2 -fPIC -o "$obj/x11_window.o" "$NATIVE_DIR/c/x11_window.c"
+cc -c -O2 -fPIC -o "$obj/linux_host_references.o" "$NATIVE_DIR/c/linux_host_references.c"
 
 # Why the C shim is not handed to native-image here, the way build-native.sh does on macOS.
 #
@@ -114,8 +115,29 @@ for required_symbol in graal_create_isolate graal_attach_thread graal_get_curren
 done
 
 # The library the Host loads: the argument-free C ABI, linked against the image library.
+#
+# linux_host_references.o leaves every dioxus_compose_host_* function undefined in this
+# library. An executable that links it then exports those functions, which is how the image
+# finds them in an application whose link nothing else configured. See that file.
 cc -shared -fPIC -pthread -o "$lib/$LIBRARY_NAME.so" "$obj/renderer_entry.o" \
+    "$obj/linux_host_references.o" \
     -L"$lib" -Wl,--no-as-needed "-l${image_name#lib}" -Wl,-rpath,'$ORIGIN'
+
+# Every Host function the image calls has to be one this library leaves undefined, or an
+# application links, starts, and dies the first time the renderer calls the missing one.
+# Read from the image rather than from a list, so a Host function added to the renderer
+# and not to linux_host_references.c fails here instead of on somebody's machine.
+host_needed="$(nm -D --undefined-only "$lib/$image_name.so" |
+    grep -oE 'dioxus_compose_host_[a-z_]+' | sort -u)"
+[[ -n "$host_needed" ]] || die "$image_name.so leaves no dioxus_compose_host_* undefined" \
+    "It calls the Host through those names, so either the image no longer does or nm could not read it."
+host_referenced="$(nm -D --undefined-only "$lib/$LIBRARY_NAME.so" |
+    grep -oE 'dioxus_compose_host_[a-z_]+' | sort -u)"
+host_missing="$(comm -23 <(echo "$host_needed") <(echo "$host_referenced"))"
+[[ -z "$host_missing" ]] || die "$LIBRARY_NAME.so does not reference $(echo $host_missing)" \
+    "$image_name.so calls it in the executable, and only a reference from the library the" \
+    "executable links makes the linker export it. Add it to c/linux_host_references.c."
+echo "host functions an application will export: $(echo $host_referenced)"
 
 for exported_symbol in dioxus_compose_renderer_run dioxus_compose_renderer_request_frame; do
     nm -D "$lib/$LIBRARY_NAME.so" | grep -Eq " [TW] ${exported_symbol}$" && continue
