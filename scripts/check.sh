@@ -34,6 +34,9 @@ fi
 
 cargo fmt --all -- --check
 cargo clippy --workspace -- -D warnings
+# The token tables are compared with the design systems in the Compose fork, at the commit
+# the renderer is built from. The test reads them from .scratch and fails if they are absent.
+./scripts/fetch-design-systems.sh > /dev/null
 cargo test --workspace
 # The renderer is a default feature, so the run above never builds the crate the way a
 # headless or documentation build gets it. That build has to compile, and the tests that
