@@ -1,6 +1,8 @@
 package dev.darkpyonix.composerust.runtime
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.layout.SubcomposeLayoutState
@@ -170,20 +172,36 @@ internal class MeasureContext(
 
     fun measure(requests: ByteBuffer, limit: Int, at: Int): Measured =
         when (requests.getShort(at + MeasureRecords.KIND_AT).toInt() and 0xffff) {
-            MeasureRecords.KIND_TEXT -> measureText(requests, limit, at)
-            MeasureRecords.KIND_NODE -> measureNode(requests, at)
+            MeasureRecords.KIND_TEXT ->
+                zoomed(requests, at + MeasureRecords.TEXT_ZOOM_AT)
+                    ?.let { measureText(requests, limit, at, it) } ?: Measured.MALFORMED
+            MeasureRecords.KIND_NODE ->
+                zoomed(requests, at + MeasureRecords.NODE_ZOOM_AT)
+                    ?.let { measureNode(requests, at, it) } ?: Measured.MALFORMED
             else -> Measured.MALFORMED
         }
 
-    private fun measureText(requests: ByteBuffer, limit: Int, at: Int): Measured {
+    /**
+     * The density a request is measured at: the composition's, times the zoom of the page
+     * region it belongs to, with no font scale. The operating system's text size reaches
+     * that region through its zoom rather than through a font scale, so it is not applied
+     * twice. A zoom of zero is one; a negative or non-finite one is a malformed request.
+     */
+    private fun zoomed(requests: ByteBuffer, at: Int): Density? {
+        val zoom = Float.fromBits(requests.getInt(at))
+        if (zoom.isNaN() || zoom.isInfinite() || zoom < 0f) return null
+        return Density(density.density * (if (zoom == 0f) 1f else zoom), 1f)
+    }
+
+    private fun measureText(requests: ByteBuffer, limit: Int, at: Int, density: Density): Measured {
         val input = textInput(requests, limit, at) ?: return Measured.MALFORMED
         val constraint = requests.getInt(at + MeasureRecords.TEXT_CONSTRAINT_AT)
         val width = Float.fromBits(requests.getInt(at + MeasureRecords.TEXT_WIDTH_AT))
         val resolved = resolveText(input, theme, table.assets, density, fontFamilyResolver)
         resolved.problems.forEach { table.report(TableError.UNKNOWN_ASSET, it) }
         return when (constraint) {
-            MeasureRecords.CONSTRAINT_MIN_CONTENT -> intrinsic(resolved, minimum = true)
-            MeasureRecords.CONSTRAINT_MAX_CONTENT -> intrinsic(resolved, minimum = false)
+            MeasureRecords.CONSTRAINT_MIN_CONTENT -> intrinsic(resolved, minimum = true, density)
+            MeasureRecords.CONSTRAINT_MAX_CONTENT -> intrinsic(resolved, minimum = false, density)
             MeasureRecords.CONSTRAINT_AT_MOST -> {
                 if (width.isNaN() || width < 0f) return Measured.MALFORMED
                 val maxWidth = if (width.isInfinite()) {
@@ -191,7 +209,7 @@ internal class MeasureContext(
                 } else {
                     (width * density.density).roundToInt()
                 }
-                described(layout(resolved, maxWidth), width = null)
+                described(layout(resolved, maxWidth, density), width = null, density)
             }
             else -> Measured.MALFORMED
         }
@@ -203,7 +221,7 @@ internal class MeasureContext(
      *
      * Text that does not wrap is as narrow as it is wide: there is nowhere for it to break.
      */
-    private fun intrinsic(resolved: ResolvedText, minimum: Boolean): Measured {
+    private fun intrinsic(resolved: ResolvedText, minimum: Boolean, density: Density): Measured {
         val pixels = if (minimum && resolved.softWrap) {
             MultiParagraphIntrinsics(
                 resolved.minContentText ?: resolved.text,
@@ -221,10 +239,10 @@ internal class MeasureContext(
                 fontFamilyResolver,
             ).maxIntrinsicWidth
         }
-        return described(layout(resolved, ceil(pixels).toInt()), width = pixels / density.density)
+        return described(layout(resolved, ceil(pixels).toInt(), density), width = pixels / density.density, density)
     }
 
-    private fun layout(resolved: ResolvedText, maxWidth: Int): TextLayoutResult =
+    private fun layout(resolved: ResolvedText, maxWidth: Int, density: Density): TextLayoutResult =
         measurer.measure(
             text = resolved.text,
             style = resolved.style,
@@ -239,7 +257,7 @@ internal class MeasureContext(
         )
 
     /** A laid out text as a result record. [width] replaces the laid out width where given. */
-    private fun described(result: TextLayoutResult, width: Float?): Measured {
+    private fun described(result: TextLayoutResult, width: Float?, density: Density): Measured {
         val scale = density.density
         val lines = result.lineCount
         val last = lines - 1
@@ -260,7 +278,7 @@ internal class MeasureContext(
         )
     }
 
-    private fun measureNode(requests: ByteBuffer, at: Int): Measured {
+    private fun measureNode(requests: ByteBuffer, at: Int, density: Density): Measured {
         val nodeId = requests.getInt(at + MeasureRecords.NODE_ID_AT)
         // A node the table does not have: never sent, removed, or sent in the batch the
         // Host is computing now, which is only applied once this call has returned.
@@ -271,8 +289,9 @@ internal class MeasureContext(
             dimension(MeasureRecords.NODE_MAX_WIDTH_AT),
             dimension(MeasureRecords.NODE_MIN_HEIGHT_AT),
             dimension(MeasureRecords.NODE_MAX_HEIGHT_AT),
+            density,
         ) ?: return Measured.MALFORMED
-        val size = station.measure(nodeId, constraints) ?: return Measured.UNKNOWN_NODE
+        val size = station.measure(nodeId, constraints, density) ?: return Measured.UNKNOWN_NODE
         return Measured(
             width = size.width / density.density,
             height = size.height / density.density,
@@ -290,7 +309,13 @@ internal class MeasureContext(
      * or null where they make no sense: negative, not a number, or a minimum past its
      * maximum. An infinite maximum is no limit.
      */
-    private fun constraintsOf(minWidth: Float, maxWidth: Float, minHeight: Float, maxHeight: Float): Constraints? {
+    private fun constraintsOf(
+        minWidth: Float,
+        maxWidth: Float,
+        minHeight: Float,
+        maxHeight: Float,
+        density: Density,
+    ): Constraints? {
         fun pixels(value: Float): Int? = when {
             value.isNaN() || value < 0f -> null
             value.isInfinite() -> Constraints.Infinity
@@ -404,9 +429,14 @@ internal class MeasuringStation(
 
     private var calls = 0
 
-    /** The node's size under [constraints], in pixels, or null where it cannot be measured. */
-    fun measure(nodeId: Int, constraints: Constraints): IntSize? {
-        val handle = state.precompose(Slot(nodeId, calls++)) { content(nodeId) }
+    /**
+     * The node's size under [constraints], in pixels, laid out at [density], or null where
+     * it cannot be measured.
+     */
+    fun measure(nodeId: Int, constraints: Constraints, density: Density): IntSize? {
+        val handle = state.precompose(Slot(nodeId, calls++)) {
+            CompositionLocalProvider(LocalDensity provides density) { content(nodeId) }
+        }
         try {
             if (handle.placeablesCount == 0) return IntSize.Zero
             var width = 0

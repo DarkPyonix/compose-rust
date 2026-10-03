@@ -2391,11 +2391,13 @@ object MeasureRecords {
         ("TEXT_ABSOLUTE_SIZE_AT", m::TEXT_ABSOLUTE_SIZE_AT as i64),
         ("TEXT_CONSTRAINT_AT", m::TEXT_CONSTRAINT_AT as i64),
         ("TEXT_WIDTH_AT", m::TEXT_WIDTH_AT as i64),
+        ("TEXT_ZOOM_AT", m::TEXT_ZOOM_AT as i64),
         ("NODE_ID_AT", m::NODE_ID_AT as i64),
         ("NODE_MIN_WIDTH_AT", m::NODE_MIN_WIDTH_AT as i64),
         ("NODE_MAX_WIDTH_AT", m::NODE_MAX_WIDTH_AT as i64),
         ("NODE_MIN_HEIGHT_AT", m::NODE_MIN_HEIGHT_AT as i64),
         ("NODE_MAX_HEIGHT_AT", m::NODE_MAX_HEIGHT_AT as i64),
+        ("NODE_ZOOM_AT", m::NODE_ZOOM_AT as i64),
         (
             "CONSTRAINT_MIN_CONTENT",
             i64::from(m::CONSTRAINT_MIN_CONTENT),

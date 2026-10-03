@@ -9,8 +9,8 @@
 use compose_rust::boundary::{RendererApi, install_renderer_api};
 use compose_rust::measure::{
     FAKE_FONT_SIZE, MEASURE_OFF_UI_THREAD, MEASURE_RECORD_LEN, MeasureError, MeasureRequests,
-    MeasureResult, MeasureStatus, NodeConstraints, TEXT_TEXT_LENGTH_AT, TEXT_TEXT_OFFSET_AT,
-    TextConstraint, TextStyle, fake_measure, measurer,
+    MeasureResult, MeasureStatus, NODE_ZOOM_AT, NodeConstraints, TEXT_TEXT_LENGTH_AT,
+    TEXT_TEXT_OFFSET_AT, TEXT_ZOOM_AT, TextConstraint, TextStyle, fake_measure, measurer,
 };
 use compose_rust::protocol::{HostEvent, Mutation, ProtocolError};
 use compose_rust::spans::TextSpans;
@@ -354,4 +354,31 @@ fn pr2_a_request_buffer_points_at_its_own_payload() {
         assert!(at >= 3 * MEASURE_RECORD_LEN, "text inside the record area");
         assert_eq!(&buffer[at..at + length], expected.as_bytes());
     }
+}
+
+/// The zoom of the region a request belongs to travels on the request itself: zero where
+/// it was never set, which the Renderer reads as one, and the value set from then on.
+#[test]
+fn fr43_every_request_carries_its_zoom() {
+    let mut requests = MeasureRequests::new();
+    let style = TextStyle::default();
+    requests.text(
+        "before",
+        &TextSpans::default(),
+        &style,
+        TextConstraint::MaxContent,
+    );
+    requests.set_zoom(1.5);
+    requests.text(
+        "after",
+        &TextSpans::default(),
+        &style,
+        TextConstraint::MaxContent,
+    );
+    requests.node(3, NodeConstraints::UNBOUNDED);
+    let buffer = requests.encoded().to_vec();
+    let real = |at: usize| f32::from_le_bytes(buffer[at..at + 4].try_into().unwrap());
+    assert_eq!(real(TEXT_ZOOM_AT), 0.0);
+    assert_eq!(real(MEASURE_RECORD_LEN + TEXT_ZOOM_AT), 1.5);
+    assert_eq!(real(2 * MEASURE_RECORD_LEN + NODE_ZOOM_AT), 1.5);
 }

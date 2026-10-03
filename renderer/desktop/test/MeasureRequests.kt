@@ -34,9 +34,17 @@ internal class MeasureRequests {
         val spans: ByteArray,
         val spanFonts: Map<Int, List<FontRef>>,
         val fonts: List<FontRef>,
+        val zoom: Float,
     ) : Request
 
-    private class Node(val nodeId: Int, val minWidth: Float, val maxWidth: Float, val minHeight: Float, val maxHeight: Float) : Request
+    private class Node(
+        val nodeId: Int,
+        val minWidth: Float,
+        val maxWidth: Float,
+        val minHeight: Float,
+        val maxHeight: Float,
+        val zoom: Float,
+    ) : Request
 
     private val requests = mutableListOf<Request>()
 
@@ -62,10 +70,12 @@ internal class MeasureRequests {
         spans: ByteArray = ByteArray(0),
         spanFonts: Map<Int, List<FontRef>> = emptyMap(),
         fonts: List<FontRef> = emptyList(),
+        zoom: Float = 0f,
     ): MeasureRequests {
         requests += Text(
             text, role, fontSize, fontWeight, italic, wrap, letterSpacing, lineHeight, maxLines,
             tabSize, wordBreak, overflowWrap, absoluteSize, constraint, width, spans, spanFonts, fonts,
+            zoom,
         )
         return this
     }
@@ -76,8 +86,9 @@ internal class MeasureRequests {
         maxWidth: Float = Float.POSITIVE_INFINITY,
         minHeight: Float = 0f,
         maxHeight: Float = Float.POSITIVE_INFINITY,
+        zoom: Float = 0f,
     ): MeasureRequests {
-        requests += Node(nodeId, minWidth, maxWidth, minHeight, maxHeight)
+        requests += Node(nodeId, minWidth, maxWidth, minHeight, maxHeight, zoom)
         return this
     }
 
@@ -96,6 +107,7 @@ internal class MeasureRequests {
                     records.putFloat(at + MeasureRecords.NODE_MAX_WIDTH_AT, request.maxWidth)
                     records.putFloat(at + MeasureRecords.NODE_MIN_HEIGHT_AT, request.minHeight)
                     records.putFloat(at + MeasureRecords.NODE_MAX_HEIGHT_AT, request.maxHeight)
+                    records.putFloat(at + MeasureRecords.NODE_ZOOM_AT, request.zoom)
                 }
                 is Text -> {
                     records.putShort(at + MeasureRecords.KIND_AT, MeasureRecords.KIND_TEXT.toShort())
@@ -131,6 +143,7 @@ internal class MeasureRequests {
                     records.put(at + MeasureRecords.TEXT_ABSOLUTE_SIZE_AT, (if (request.absoluteSize) 1 else 0).toByte())
                     records.putInt(at + MeasureRecords.TEXT_CONSTRAINT_AT, request.constraint)
                     records.putFloat(at + MeasureRecords.TEXT_WIDTH_AT, request.width)
+                    records.putFloat(at + MeasureRecords.TEXT_ZOOM_AT, request.zoom)
                 }
             }
         }

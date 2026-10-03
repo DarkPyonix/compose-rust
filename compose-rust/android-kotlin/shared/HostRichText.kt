@@ -2,6 +2,7 @@ package dev.darkpyonix.composerust.foundation
 
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -116,11 +117,13 @@ internal fun HostRichText(
     theme: ResolvedTheme,
     assets: AssetCache,
 ) {
+    val input = node.textInput()
+    val density = textDensity(input, LocalDensity.current)
     val resolved = resolveText(
-        node.textInput(),
+        input,
         theme,
         assets,
-        LocalDensity.current,
+        density,
         LocalFontFamilyResolver.current,
     ) { run ->
         // A link is a press on a range, and a press is the event the boundary already
@@ -134,15 +137,19 @@ internal fun HostRichText(
     }
     val problem = node.textInputProblem() ?: resolved.problems.firstOrNull()
     if (problem != null) ReportRuns(node.id, problem, dispatcher)
-    BasicText(
-        text = resolved.text,
-        modifier = modifier,
-        style = resolved.style,
-        overflow = resolved.overflow,
-        softWrap = resolved.softWrap,
-        maxLines = resolved.maxLines,
-        inlineContent = resolved.inlineContent,
-    )
+    // Text in CSS pixels is laid out in a density whose font scale is one, so the system's
+    // text size does not reach it. Everything else is laid out where it stands.
+    CompositionLocalProvider(LocalDensity provides density) {
+        BasicText(
+            text = resolved.text,
+            modifier = modifier,
+            style = resolved.style,
+            overflow = resolved.overflow,
+            softWrap = resolved.softWrap,
+            maxLines = resolved.maxLines,
+            inlineContent = resolved.inlineContent,
+        )
+    }
 }
 
 /**

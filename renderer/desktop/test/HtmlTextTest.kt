@@ -2,6 +2,7 @@ package dev.darkpyonix.composerust.test
 
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.runComposeUiTest
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
 import dev.darkpyonix.composerust.protocol.AssetKind
 import dev.darkpyonix.composerust.protocol.FontRef
@@ -110,15 +111,16 @@ class HtmlTextTest {
 
     @Test
     fun fr40_measured_html_text_matches_the_drawn_text() {
+        // At the system's own text size. A measure request carries the text size through its
+        // zoom rather than through a font scale, so text drawn under another font scale is
+        // compared in fr43_measure_follows_zoom, at the zoom that matches it.
         for (case in cases()) {
-            for (fontScale in listOf(1f, 2f)) {
-                runComposeUiTest {
-                    val pinned = Density(1f, fontScale)
-                    startHost(FakeHostConnection(htmlText(case.width, case.text, *case.props.toTypedArray())), pinned)
-                    val (status, results) = measure(case.request(MeasureRequests(), case.text, case.width))
-                    assertEquals(MeasureRecords.CALL_OK, status, case.name)
-                    assertSameAsDrawn(results.single(), drawnLayout(TEXT), pinned.density, "${case.name} at $fontScale")
-                }
+            runComposeUiTest {
+                val pinned = Density(1.5f, 1f)
+                startHost(FakeHostConnection(htmlText(case.width, case.text, *case.props.toTypedArray())), pinned)
+                val (status, results) = measure(case.request(MeasureRequests(), case.text, case.width))
+                assertEquals(MeasureRecords.CALL_OK, status, case.name)
+                assertSameAsDrawn(results.single(), drawnLayout(TEXT), pinned.density, case.name)
             }
         }
     }
@@ -183,6 +185,23 @@ class HtmlTextTest {
         assertEquals(GLYPH_AT_20, results.single().width, "measured in the registered font")
     }
 
+    /** Two Texts side by side: one in CSS pixels with no role, one in the Body rung. */
+    private fun absoluteAndRole(sans: List<FontRef>) = listOf(
+        Mutation.Create(COLUMN, WidgetKind.Column),
+        Mutation.SetModifier(COLUMN, 0, ProtocolModifier.Width(400f)),
+        Mutation.Create(TEXT, WidgetKind.Text),
+        Mutation.SetProp(TEXT, PropertyKind.Text, PropertyValue.Text("Absolute")),
+        noRole.let { (kind, value) -> Mutation.SetProp(TEXT, kind, value) },
+        Mutation.SetProp(TEXT, PropertyKind.Font, PropertyValue.Bytes(fontBlob(sans))),
+        Mutation.SetProp(TEXT, PropertyKind.FontSize, PropertyValue.Float(16f)),
+        Mutation.SetProp(TEXT, PropertyKind.AbsoluteSize, PropertyValue.Integer(1)),
+        Mutation.Create(ROLE_TEXT, WidgetKind.Text),
+        Mutation.SetProp(ROLE_TEXT, PropertyKind.Text, PropertyValue.Text("Absolute")),
+        Mutation.SetProp(ROLE_TEXT, PropertyKind.TypeRole, PropertyValue.Integer(5)),
+        Mutation.Insert(COLUMN, TEXT, 0),
+        Mutation.Insert(COLUMN, ROLE_TEXT, 1),
+    )
+
     /**
      * At twice the system font scale, text in CSS pixels stays the size it was, measured and
      * drawn, and text with a role grows.
@@ -191,29 +210,80 @@ class HtmlTextTest {
     fun fr40_absolute_size_ignores_the_system_font_scale() {
         val sans = listOf(FontRef.Generic(GenericFamily.SansSerif))
         val answers = listOf(1f, 2f).map { fontScale ->
-            var answer: List<MeasuredResult> = emptyList()
+            var answer: Triple<MeasuredResult, Int, Int>? = null
             runComposeUiTest {
-                startHost(
-                    FakeHostConnection(
-                        htmlText(400f, "Absolute", noRole, fonts(sans), PropertyKind.FontSize to PropertyValue.Float(16f), PropertyKind.AbsoluteSize to PropertyValue.Integer(1)),
-                    ),
-                    Density(1f, fontScale),
-                )
+                startHost(FakeHostConnection(absoluteAndRole(sans)), Density(1f, fontScale))
                 val drawn = drawnLayout(TEXT)
                 val (_, results) = measure(
-                    MeasureRequests()
-                        .text("Absolute", role = 0, fonts = sans, fontSize = 16f, absoluteSize = true, width = 400f)
-                        .text("Absolute", role = 5, width = 400f),
+                    MeasureRequests().text("Absolute", role = 0, fonts = sans, fontSize = 16f, absoluteSize = true, width = 400f),
                 )
-                assertSameAsDrawn(results[0], drawn, 1f, "absolute at $fontScale")
-                answer = results
+                assertSameAsDrawn(results.single(), drawn, 1f, "absolute at $fontScale")
+                answer = Triple(results.single(), drawn.size.width, drawnLayout(ROLE_TEXT).size.width)
             }
-            answer
+            answer!!
         }
         val (normal, doubled) = answers
-        assertEquals(normal[0].width, doubled[0].width, "absolute text grew with the font scale")
-        assertEquals(normal[0].height, doubled[0].height)
-        assertTrue(doubled[1].width > normal[1].width * 1.5f, "text with a role did not grow with the font scale")
+        assertEquals(normal.first.width, doubled.first.width, "absolute text grew with the font scale")
+        assertEquals(normal.first.height, doubled.first.height)
+        assertEquals(normal.second, doubled.second, "absolute text was drawn larger")
+        assertTrue(doubled.third > normal.third * 3 / 2, "text with a role did not grow with the font scale")
+    }
+
+    /**
+     * A request's zoom is the zoom of the region it belongs to: measured at the
+     * composition's density times the zoom, with no font scale, it is the size the same
+     * text drawn at that density is, in the region's CSS pixels.
+     */
+    @Test
+    fun fr43_measure_follows_zoom() {
+        val sans = listOf(FontRef.Generic(GenericFamily.SansSerif))
+        val text = "Zoomed text that wraps across a few lines here"
+        for (zoom in listOf(1.25f, 1.5f, 2f)) {
+            var drawn: TextLayoutResult? = null
+            runComposeUiTest {
+                // Drawn where the region would be: at the zoomed density, font scale one.
+                startHost(
+                    FakeHostConnection(htmlText(120f, text, noRole, fonts(sans), PropertyKind.FontSize to PropertyValue.Float(15f))),
+                    Density(zoom, 1f),
+                )
+                drawn = drawnLayout(TEXT)
+            }
+            runComposeUiTest {
+                // Measured from a composition at density one, through the request's zoom.
+                startHost(FakeHostConnection(htmlText(120f, "x")), Density(1f, 1f))
+                val (status, results) = measure(
+                    MeasureRequests().text(text, role = 0, fonts = sans, fontSize = 15f, width = 120f, zoom = zoom),
+                )
+                assertEquals(MeasureRecords.CALL_OK, status)
+                assertSameAsDrawn(results.single(), drawn!!, zoom, "at zoom $zoom")
+            }
+        }
+    }
+
+    /**
+     * Text in CSS pixels has no font scale whatever the composition's, and changes size only
+     * with the zoom.
+     */
+    @Test
+    fun fr43_absolute_size_ignores_font_scale() {
+        val sans = listOf(FontRef.Generic(GenericFamily.SansSerif))
+        val widths = listOf(1f, 3f).map { fontScale ->
+            var pixels = 0f to 0f
+            runComposeUiTest {
+                startHost(FakeHostConnection(htmlText(400f, "x")), Density(1f, fontScale))
+                val (_, results) = measure(
+                    MeasureRequests()
+                        .text("Absolute words", role = 0, fonts = sans, fontSize = 16f, absoluteSize = true, constraint = MeasureRecords.CONSTRAINT_MAX_CONTENT)
+                        .text("Absolute words", role = 0, fonts = sans, fontSize = 16f, absoluteSize = true, constraint = MeasureRecords.CONSTRAINT_MAX_CONTENT, zoom = 2f),
+                )
+                // In device pixels: CSS pixels times the density they were measured at.
+                pixels = results[0].width to results[1].width * 2f
+            }
+            pixels
+        }
+        assertEquals(widths[0], widths[1], "the composition's font scale reached text in CSS pixels")
+        val (atOne, atTwo) = widths[0]
+        assertTrue(abs(atTwo - 2 * atOne) <= 2f, "zoom two did not double the size: $atOne and $atTwo")
     }
 
     /** A font sent for text that has a role is ignored, and the theme's font is used. */
@@ -250,6 +320,7 @@ class HtmlTextTest {
     private companion object {
         const val COLUMN = 1
         const val TEXT = 2
+        const val ROLE_TEXT = 3
         const val ICON_FONT = 31
         const val GLYPH_AT_20 = 20f * TinyIconFont.WIDTH_PER_SIZE
     }

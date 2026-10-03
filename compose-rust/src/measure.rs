@@ -59,12 +59,14 @@ pub const TEXT_OVERFLOW_WRAP_AT: usize = 58;
 pub const TEXT_ABSOLUTE_SIZE_AT: usize = 59;
 pub const TEXT_CONSTRAINT_AT: usize = 60;
 pub const TEXT_WIDTH_AT: usize = 64;
+pub const TEXT_ZOOM_AT: usize = 68;
 
 pub const NODE_ID_AT: usize = 4;
 pub const NODE_MIN_WIDTH_AT: usize = 8;
 pub const NODE_MAX_WIDTH_AT: usize = 12;
 pub const NODE_MIN_HEIGHT_AT: usize = 16;
 pub const NODE_MAX_HEIGHT_AT: usize = 20;
+pub const NODE_ZOOM_AT: usize = 24;
 
 /// The narrowest the text can be: its longest piece that cannot be broken.
 pub const CONSTRAINT_MIN_CONTENT: u32 = 1;
@@ -109,8 +111,9 @@ pub(crate) const SCHEMA_DESCRIPTOR: &str = concat!(
     "measure=v1;record=72;result=32;",
     "text=kind@0,type_role@2,text@4,spans@12,span_fonts@20,font@28,font_size@36,",
     "font_weight@40,italic@42,wrap@43,letter_spacing@44,line_height@48,max_lines@52,",
-    "tab_size@56,word_break@57,overflow_wrap@58,absolute_size@59,constraint@60,width@64;",
-    "node=kind@0,node@4,min_width@8,max_width@12,min_height@16,max_height@20;",
+    "tab_size@56,word_break@57,overflow_wrap@58,absolute_size@59,constraint@60,width@64,",
+    "zoom@68;",
+    "node=kind@0,node@4,min_width@8,max_width@12,min_height@16,max_height@20,zoom@24;",
     "result=width@0,height@4,first_baseline@8,last_baseline@12,last_line_width@16,",
     "line_count@20,flags@24,status@28;",
     "fontref=12,kind@0,value@4,length@8;spanfont=12,span@0,offset@4,count@8;",
@@ -297,11 +300,24 @@ pub struct MeasureRequests {
     payload_patches: Vec<u32>,
     /// The laid out buffer.
     buffer: Vec<u8>,
+    /// The zoom the requests asked from here on are measured at, where it was set.
+    zoom: Option<f32>,
 }
 
 impl MeasureRequests {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Measures the requests asked from here on at zoom `zoom`: the zoom of the page
+    /// region they belong to, which is the operating system's text size times the
+    /// application's own zoom. The Renderer measures them at its density times `zoom`,
+    /// with no font scale of its own, and answers in the region's CSS pixels.
+    ///
+    /// A Host can hold several regions at different zooms, which is why this travels with
+    /// every request rather than being the Renderer's state. Never set, it is one.
+    pub fn set_zoom(&mut self, zoom: f32) {
+        self.zoom = Some(zoom);
     }
 
     /// Forgets every question, keeping the room they took.
@@ -392,6 +408,7 @@ impl MeasureRequests {
         };
         put_u32(&mut record, TEXT_CONSTRAINT_AT, constraint);
         put_f32(&mut record, TEXT_WIDTH_AT, width);
+        put_f32(&mut record, TEXT_ZOOM_AT, self.zoom.unwrap_or(0.0));
         self.records.push(PendingRecord { bytes: record });
         self.records.len() - 1
     }
@@ -406,6 +423,7 @@ impl MeasureRequests {
         put_f32(&mut record, NODE_MAX_WIDTH_AT, constraints.max_width);
         put_f32(&mut record, NODE_MIN_HEIGHT_AT, constraints.min_height);
         put_f32(&mut record, NODE_MAX_HEIGHT_AT, constraints.max_height);
+        put_f32(&mut record, NODE_ZOOM_AT, self.zoom.unwrap_or(0.0));
         self.records.push(PendingRecord { bytes: record });
         self.records.len() - 1
     }

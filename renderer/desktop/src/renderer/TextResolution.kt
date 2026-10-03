@@ -18,7 +18,6 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow as ComposeOverflow
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.TextUnit
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.design.platformUiFamily
@@ -135,11 +134,10 @@ internal fun resolveText(
     link: ((TextRun) -> LinkAnnotation.Clickable)? = null,
 ): ResolvedText {
     val problems = mutableListOf<String>()
-    // CSS pixels, which is what an absolute size is, are dp. Converting through the
-    // density rather than dividing by its scale is what keeps this right on a platform
-    // whose font scaling is not linear.
-    fun sized(value: Float): TextUnit =
-        if (input.absoluteSize) with(density) { value.dp.toSp() } else value.sp
+    // Sizes are sp. Text in CSS pixels is not given smaller sp to undo the font scale:
+    // it is set in a density whose font scale is one (see [textDensity]), which is the only
+    // way that stays right where the font scale is not linear.
+    fun sized(value: Float): TextUnit = value.sp
 
     val style = if (input.noRole) {
         TextStyle(
@@ -216,6 +214,13 @@ internal fun resolveText(
         problems = problems,
     )
 }
+
+/**
+ * The density a text is set in: the one it is drawn or measured under, with the font scale
+ * taken out for text in CSS pixels, which the system's text size does not enlarge.
+ */
+internal fun textDensity(input: TextInput, density: Density): Density =
+    if (input.absoluteSize && density.fontScale != 1f) Density(density.density, 1f) else density
 
 /**
  * The first candidate that resolves, as a CSS font list is read.
