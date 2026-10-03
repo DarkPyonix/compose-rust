@@ -5,16 +5,18 @@
 #     scripts/packager-linux/appimage.sh \
 #         --dioxus-toml samples/calculator/Dioxus.toml --overlay linux.toml \
 #         --payload staging/calculator --version 1.2.3 \
-#         --github darkpyonix/compose-rust --out-dir dist
+#         --github darkpyonix/compose-rust --release samples-latest --out-dir dist
 #
 # writes dist/Calculator-1.2.3-x86_64.AppImage and dist/Calculator-1.2.3-x86_64.AppImage.zsync.
-# Publish both as assets of the same release; every later release's AppImage finds the
-# newest .zsync through the update information embedded here.
+# Publish both as assets of that release; an installed AppImage finds the newer .zsync
+# there through the update information embedded here.
 #
 # Options:
 #   --dioxus-toml, --overlay, --version, --date, --exec, --icon   as packager-linux takes them
 #   --payload <dir|file>    the executable, or the directory holding it and its renderer
-#   --github <owner/repo>   update from that repository's newest GitHub release
+#   --github <owner/repo>   update from a GitHub release of that repository
+#   --release <tag>         with --github: the release's tag, or `latest` for the newest
+#                           release that is not a pre-release
 #   --zsync-url <url>       update from one fixed .zsync URL instead
 #   --sign-key <key id>     sign with this gpg key; an installed AppImage that was signed
 #                           refuses an update signed by any other key
@@ -59,6 +61,7 @@ declare -A DIGESTS=(
 common=()
 payload=""
 channel=()
+release=()
 sign_key=""
 bundle_updater=1
 out_dir=""
@@ -71,6 +74,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         --payload) payload="$2"; shift 2 ;;
         --github | --zsync-url) channel=("$1" "$2"); shift 2 ;;
+        --release) release=("$1" "$2"); shift 2 ;;
         --sign-key) sign_key="$2"; shift 2 ;;
         --no-updater) bundle_updater=0; shift ;;
         --out-dir) out_dir="$2"; shift 2 ;;
@@ -81,6 +85,11 @@ done
 [[ -n "$out_dir" ]] || fail "--out-dir is required"
 [[ ${#channel[@]} -eq 2 ]] || fail "pass --github <owner/repo> or --zsync-url <url>" \
     "An AppImage without update information cannot update itself."
+if [[ "${channel[0]}" == --github && ${#release[@]} -ne 2 ]]; then
+    fail "--github needs --release <tag>" \
+        "Name the release the AppImage looks in, or pass --release latest for the newest" \
+        "release that is not a pre-release."
+fi
 
 case "$(uname -m)" in
     x86_64) arch=x86_64 ;;
@@ -138,7 +147,7 @@ if [[ $bundle_updater -eq 1 ]]; then
     updater_args=(--updater "$extracted")
 fi
 
-update_information="$(packager update-information "${common[@]}" --arch "$arch" "${channel[@]}")"
+update_information="$(packager update-information "${common[@]}" --arch "$arch" "${channel[@]}" ${release[@]+"${release[@]}"})"
 file_name="$(packager file-name "${common[@]}" --arch "$arch")"
 
 mkdir -p "$out_dir"

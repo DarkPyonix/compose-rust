@@ -300,10 +300,13 @@ jobs:
             --exec sample-calculator --icon samples/calculator/assets/icon.png \
             --icon samples/calculator/assets/icon-256.png \
             --payload work/calculator/calculator --version 0.0.0 \
-            --github DarkPyonix/compose-rust-samples \
+            --github DarkPyonix/compose-rust --release samples-latest \
             --out-dir work/dist
           app=work/dist/Calculator-0.0.0-$ARCH.AppImage
-          "$app" --appimage-updateinformation
+          # The address the Sample apps workflow publishes every sample's .zsync at.
+          "$app" --appimage-updateinformation \
+            | tee /dev/stderr \
+            | grep -qxF "gh-releases-zsync|DarkPyonix|compose-rust|samples-latest|Calculator-*-$ARCH.AppImage.zsync"
           xvfb-run -a -s "-screen 0 1280x800x24" bash -c "
             '$app' > work/calculator.log 2>&1 &
             pid=\$!

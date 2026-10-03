@@ -47,7 +47,9 @@ appdir:
   --out <dir>
 
 update-information:
-  --github <owner/repo>  gh-releases-zsync, newest release
+  --github <owner/repo> --release <tag>
+                         gh-releases-zsync, the release with that tag (or `latest`,
+                         `latest-pre`, `latest-all` to search)
   --zsync-url <url>      zsync, one fixed URL
 
 flatpak:
@@ -156,7 +158,7 @@ fn run(args: &[String]) -> Result<(), String> {
     let extra: &[&str] = match command.as_str() {
         "metadata" => &["out"],
         "appdir" => &["payload", "updater", "out"],
-        "update-information" => &["github", "zsync-url"],
+        "update-information" => &["github", "release", "zsync-url"],
         "file-name" => &[],
         "flatpak" => &[
             "out",
@@ -228,9 +230,22 @@ fn run(args: &[String]) -> Result<(), String> {
             }
         }
         "update-information" => {
+            let release = options.one("release")?;
             let channel = match (options.one("github")?, options.one("zsync-url")?) {
-                (Some(slug), None) => UpdateChannel::github(&slug),
-                (None, Some(url)) => UpdateChannel::zsync(&url),
+                (Some(slug), None) => {
+                    let release = release.ok_or(
+                        "--github needs --release <tag>: the release the AppImage looks in \
+                         for its updates, or `latest` for the newest one that is not a \
+                         pre-release",
+                    )?;
+                    UpdateChannel::github(&slug, &release)
+                }
+                (None, Some(url)) => {
+                    if release.is_some() {
+                        return Err("--release goes with --github, not --zsync-url".into());
+                    }
+                    UpdateChannel::zsync(&url)
+                }
                 _ => return Err("pass exactly one of --github and --zsync-url".into()),
             }
             .map_err(|e| e.to_string())?;

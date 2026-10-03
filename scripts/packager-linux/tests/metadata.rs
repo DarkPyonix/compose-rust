@@ -398,10 +398,17 @@ fn fr35_appimage_update_information_points_at_zsync_files() {
     );
     assert_eq!(file_safe("My App: 2"), "My_App__2");
 
-    let github = UpdateChannel::github("darkpyonix/compose-rust").unwrap();
+    let github = UpdateChannel::github("darkpyonix/compose-rust", "samples-latest").unwrap();
     assert_eq!(
         github.update_information(&meta, "x86_64"),
-        "gh-releases-zsync|darkpyonix|compose-rust|latest|Calculator-*-x86_64.AppImage.zsync"
+        "gh-releases-zsync|darkpyonix|compose-rust|samples-latest|Calculator-*-x86_64.AppImage.zsync"
+    );
+    // `latest` is still available, as a choice someone makes rather than a default.
+    assert_eq!(
+        UpdateChannel::github("darkpyonix/darkpyonix-ember", "latest")
+            .unwrap()
+            .update_information(&meta, "x86_64"),
+        "gh-releases-zsync|darkpyonix|darkpyonix-ember|latest|Calculator-*-x86_64.AppImage.zsync"
     );
     // The pattern matches the file name of every later version.
     let pattern = "Calculator-*-aarch64.AppImage.zsync";
@@ -419,7 +426,10 @@ fn fr35_appimage_update_information_points_at_zsync_files() {
     );
 
     for bad in ["darkpyonix", "a/b/c", "a|b/c", "/repo"] {
-        assert!(UpdateChannel::github(bad).is_err(), "{bad}");
+        assert!(UpdateChannel::github(bad, "latest").is_err(), "{bad}");
+    }
+    for bad in ["", "a|b", "a b", "tags/x"] {
+        assert!(UpdateChannel::github("a/b", bad).is_err(), "{bad:?}");
     }
     for bad in [
         "ftp://x/y.zsync",

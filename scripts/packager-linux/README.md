@@ -25,32 +25,22 @@ runs everything here on GitHub's Ubuntu runners.
 
 ## Where updates come from
 
-Each application updates from the releases of its own repository. Its AppImage carries
-`gh-releases-zsync|<owner>|<repo>|latest|<Name>-*-<arch>.AppImage.zsync`, which matches the
-newest release that is not a pre-release. Ember updates from `DarkPyonix/darkpyonix-ember`.
+An AppImage carries `gh-releases-zsync|<owner>|<repo>|<release>|<Name>-*-<arch>.AppImage.zsync`.
+`appimage.sh --github <owner/repo> --release <tag>` writes it, and the release is always
+named: a tag, or `latest` for the newest release that is not a pre-release.
 
-The samples are released to `DarkPyonix/compose-rust-samples`, not to this repository. That
-way `latest` means the newest samples rather than the newest library release.
+The samples update from the `samples-latest` release of `DarkPyonix/compose-rust`. The
+`Sample apps` workflow attaches each `sample-v*` build to its own release and also replaces
+the files of `samples-latest` with it. That release is a pre-release and never marked
+latest, so the library's `v*` releases keep `latest`, and a sample never looks in a library
+release for its update. The workflow writes both with its own `GITHUB_TOKEN`.
+
+Ember updates from `DarkPyonix/darkpyonix-ember`.
 
 ## Secrets
 
 The owner creates these in this repository's settings (Settings, Secrets and variables,
 Actions).
-
-### SAMPLES_RELEASE_TOKEN
-
-The `Sample apps` workflow publishes to `DarkPyonix/compose-rust-samples`. The token a
-workflow is given can only write to its own repository, so it needs another one.
-
-1. On GitHub, open Settings, Developer settings, Personal access tokens, Fine-grained
-   tokens, and choose Generate new token.
-2. Resource owner: DarkPyonix. Repository access: Only select repositories, then
-   `DarkPyonix/compose-rust-samples` only.
-3. Repository permissions: Contents, Read and write. Leave everything else at No access.
-4. Save the token as the Actions secret `SAMPLES_RELEASE_TOKEN` in `DarkPyonix/compose-rust`.
-
-Without it, the workflow's first job fails within seconds and names the missing secret,
-before any build runs. Fine-grained tokens expire, so renew it before the expiry date.
 
 ### APPIMAGE_SIGNING_KEY
 

@@ -65,22 +65,35 @@ pub fn appimage_file_name(meta: &AppMetadata, arch: &str) -> String {
 /// Where newer versions are published.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UpdateChannel {
-    /// The newest non-prerelease GitHub release of `owner/repository` whose assets include
-    /// a `.zsync` for this application and architecture.
-    GitHubReleases { owner: String, repository: String },
+    /// A GitHub release of `owner/repository` whose assets include a `.zsync` for this
+    /// application and architecture. `release` is a tag, or one of the words
+    /// `appimageupdatetool` reads as a search: `latest` (the newest release that is not a
+    /// pre-release), `latest-pre` or `latest-all`. A fixed tag keeps working when the
+    /// repository also publishes other releases that would otherwise win `latest`.
+    GitHubReleases {
+        owner: String,
+        repository: String,
+        release: String,
+    },
     /// One fixed URL of a `.zsync` file, replaced by every release.
     Zsync { url: String },
 }
 
 impl UpdateChannel {
-    /// Parses `owner/repository`.
-    pub fn github(slug: &str) -> Result<Self, AppImageError> {
+    /// Parses `owner/repository` and the release to look in.
+    pub fn github(slug: &str, release: &str) -> Result<Self, AppImageError> {
+        if !valid_field(release) {
+            return Err(AppImageError(format!(
+                "`{release}` is not a release tag; use letters, digits, `.`, `_` and `-`"
+            )));
+        }
         let parts: Vec<&str> = slug.split('/').collect();
         match parts.as_slice() {
             [owner, repository] if valid_field(owner) && valid_field(repository) => {
                 Ok(UpdateChannel::GitHubReleases {
                     owner: (*owner).to_owned(),
                     repository: (*repository).to_owned(),
+                    release: release.to_owned(),
                 })
             }
             _ => Err(AppImageError(format!("`{slug}` is not owner/repository"))),
@@ -105,8 +118,12 @@ impl UpdateChannel {
     /// The update information line for this application on this architecture.
     pub fn update_information(&self, meta: &AppMetadata, arch: &str) -> String {
         match self {
-            UpdateChannel::GitHubReleases { owner, repository } => format!(
-                "gh-releases-zsync|{owner}|{repository}|latest|{}-*-{arch}.AppImage.zsync",
+            UpdateChannel::GitHubReleases {
+                owner,
+                repository,
+                release,
+            } => format!(
+                "gh-releases-zsync|{owner}|{repository}|{release}|{}-*-{arch}.AppImage.zsync",
                 file_safe(&meta.name)
             ),
             UpdateChannel::Zsync { url } => format!("zsync|{url}"),
