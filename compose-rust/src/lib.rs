@@ -40,7 +40,10 @@ pub mod theme;
 pub mod tokens;
 pub mod window;
 
-pub use animation::{AnimationMoment, control_animation, reduced_motion, start_animation};
+pub use animation::{
+    AnimationMoment, AnimationSpec, GraphicsLayer, control_animation, reduced_motion,
+    start_animation, transition,
+};
 pub use asset::asset;
 pub use boundary::{
     Host, LaunchBuilder, MutationBatch, RendererApi, RuntimeFactory, demo_theme, demo_theme_for,

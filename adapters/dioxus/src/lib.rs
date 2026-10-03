@@ -31,6 +31,7 @@ pub use dioxus_core_macro::{Props, component, rsx};
 pub use elements::*;
 pub use extensions::LinearProgressIndicator;
 pub use hooks::{
+    Animated, animate_color_as_state, animate_float_as_state, animate_offset_as_state,
     use_animation_event, use_design_system, use_node_size, use_notification_activated,
     use_notification_permission, use_reduced_motion, use_theme, use_window_size,
 };
@@ -217,6 +218,11 @@ pub mod elements {
             pub const clip: AttributeDescription = ("clip", None, false);
             pub const alpha: AttributeDescription = ("alpha", None, false);
             pub const transform: AttributeDescription = ("transform", None, false);
+            // Values the Renderer animates to on its own clock whenever they change.
+            pub const animated_alpha: AttributeDescription = ("animated_alpha", None, false);
+            pub const animated_background: AttributeDescription =
+                ("animated_background", None, false);
+            pub const animated_offset: AttributeDescription = ("animated_offset", None, false);
         };
     }
 

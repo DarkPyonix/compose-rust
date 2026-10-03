@@ -68,17 +68,63 @@ pub fn AbsoluteBox(
     /// as in CSS, when it is not given.
     #[props(default)]
     transform_origin: Option<(f32, f32)>,
+    /// Compose's `graphicsLayer`: a rotation, a scale, a translation and an opacity, drawn
+    /// as a `Transform` and an `Alpha`. It takes the place of `transform` and `alpha`.
+    #[props(default)]
+    graphics_layer: Option<compose_rust::GraphicsLayer>,
+    /// An opacity the Renderer animates to, from `animate_float_as_state`. It takes the
+    /// place of `alpha`.
+    #[props(default)]
+    animated_alpha: Option<crate::hooks::Animated<f32>>,
+    /// A background the Renderer animates to, from `animate_color_as_state`. It takes the
+    /// place of `background`.
+    #[props(default)]
+    animated_background: Option<crate::hooks::Animated<Paint>>,
+    /// A translation the Renderer animates to, from `animate_offset_as_state`. It takes the
+    /// place of `transform` and `graphics_layer`.
+    #[props(default)]
+    animated_offset: Option<crate::hooks::Animated<(f32, f32)>>,
     children: Element,
 ) -> Element {
     use compose_rust::Modifier;
     let (origin_x, origin_y) = transform_origin.unwrap_or((0.5, 0.5));
+    // An animated value takes the place of the plain one in the same slot, and a graphics
+    // layer takes the place of a bare transform and opacity.
+    let background = if animated_background.is_some() {
+        None
+    } else {
+        opt_paint(background)
+    };
+    let alpha = if animated_alpha.is_some() {
+        None
+    } else {
+        opt_dp(graphics_layer.map(|layer| layer.alpha).or(alpha))
+    };
+    let transform = if animated_offset.is_some() {
+        None
+    } else if let Some(layer) = graphics_layer {
+        Some(AttributeValue::any_value(layer.transform()))
+    } else {
+        transform.map(|(a, b, c, d, e, f)| {
+            AttributeValue::any_value(Modifier::Transform {
+                a,
+                b,
+                c,
+                d,
+                e,
+                f,
+                origin_x,
+                origin_y,
+            })
+        })
+    };
     rsx! {
         absolutebox {
             offset: offset.map(|(x, y)| AttributeValue::any_value(Modifier::Offset { x, y })),
             required_size: required_size.map(|(width, height)| {
                 AttributeValue::any_value(Modifier::RequiredSize { width, height })
             }),
-            background: opt_paint(background),
+            background,
             border_each: border.map(|(widths, paints)| {
                 AttributeValue::any_value(Modifier::border_sides(widths, paints))
             }),
@@ -87,10 +133,11 @@ pub fn AbsoluteBox(
                 AttributeValue::any_value(Modifier::Shadow { x, y, blur, spread, paint })
             }),
             clip: clip.then_some(true),
-            alpha: opt_dp(alpha),
-            transform: transform.map(|(a, b, c, d, e, f)| {
-                AttributeValue::any_value(Modifier::Transform { a, b, c, d, e, f, origin_x, origin_y })
-            }),
+            alpha,
+            transform,
+            animated_alpha: animated_alpha.map(AttributeValue::any_value),
+            animated_background: animated_background.map(AttributeValue::any_value),
+            animated_offset: animated_offset.map(AttributeValue::any_value),
             {children}
         }
     }

@@ -232,3 +232,149 @@ pub fn reset_animations() {
     SUBSCRIBERS.with_borrow_mut(Vec::clear);
     MOMENT_HANDLERS.with_borrow_mut(Vec::clear);
 }
+
+/// How long a change takes and along which curve.
+///
+/// A role is the default way to say this (`MotionRole`), and the design system answers
+/// it; this is the escape hatch for a screen whose author has already decided, as CSS
+/// does. Without one, [`AnimationSpec::STANDARD`] is used: the standard motion of
+/// Material 3, the length and curve the design systems' own standard role is built on.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AnimationSpec {
+    pub duration_ms: f32,
+    pub delay_ms: f32,
+    pub timing: crate::schema::Timing,
+}
+
+impl AnimationSpec {
+    /// 300 ms along cubic-bezier(0.2, 0, 0, 1).
+    pub const STANDARD: Self = Self {
+        duration_ms: 300.0,
+        delay_ms: 0.0,
+        timing: crate::schema::Timing::CubicBezier {
+            x1: 0.2,
+            y1: 0.0,
+            x2: 0.0,
+            y2: 1.0,
+        },
+    };
+
+    /// A change of `duration_ms` along `timing`, starting at once.
+    pub const fn tween(duration_ms: f32, timing: crate::schema::Timing) -> Self {
+        Self {
+            duration_ms,
+            delay_ms: 0.0,
+            timing,
+        }
+    }
+}
+
+impl Default for AnimationSpec {
+    fn default() -> Self {
+        Self::STANDARD
+    }
+}
+
+/// A transition to `to`: from whatever the node shows the frame it starts, to `to`, once,
+/// along `spec`, in slot 0, with no events. What a CSS transition and an
+/// `animate_*_as_state` both are.
+pub fn transition(
+    node_id: u32,
+    animation_id: u32,
+    property: AnimatedProperty,
+    to: crate::schema::KeyframeValue<'static>,
+    spec: AnimationSpec,
+) -> Animation<'static> {
+    use crate::schema::{
+        AnimationEvents, ColorInterpolation, FillMode, Keyframe, PlayState, PlaybackDirection,
+        Timing,
+    };
+    let colour = matches!(
+        property,
+        AnimatedProperty::Color | AnimatedProperty::Background
+    );
+    let transform = property == AnimatedProperty::Transform;
+    Animation {
+        node_id,
+        animation_id,
+        property,
+        slot: 0,
+        direction: PlaybackDirection::Normal,
+        fill: FillMode::None,
+        play_state: PlayState::Running,
+        interpolation: colour.then_some(ColorInterpolation::SrgbPremultiplied),
+        start_time_nanos: 0,
+        delay_ms: spec.delay_ms,
+        duration_ms: spec.duration_ms,
+        iterations: 1.0,
+        origin_x: if transform { 0.5 } else { 0.0 },
+        origin_y: if transform { 0.5 } else { 0.0 },
+        events: AnimationEvents::NONE,
+        keyframes: std::borrow::Cow::Owned(vec![
+            Keyframe {
+                offset: 0.0,
+                timing: spec.timing,
+                from_presented: true,
+                value: to.clone(),
+            },
+            Keyframe {
+                offset: 1.0,
+                timing: Timing::Linear,
+                from_presented: false,
+                value: to,
+            },
+        ]),
+    }
+}
+
+/// What Compose's `graphicsLayer` takes, drawn without moving the layout: a rotation in
+/// degrees, a scale, a translation in dp, the origin they turn about as a fraction of the
+/// node's size, and an opacity for the whole group.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GraphicsLayer {
+    pub rotation_z: f32,
+    pub scale_x: f32,
+    pub scale_y: f32,
+    pub translation_x: f32,
+    pub translation_y: f32,
+    pub transform_origin: (f32, f32),
+    pub alpha: f32,
+}
+
+impl Default for GraphicsLayer {
+    fn default() -> Self {
+        Self {
+            rotation_z: 0.0,
+            scale_x: 1.0,
+            scale_y: 1.0,
+            translation_x: 0.0,
+            translation_y: 0.0,
+            transform_origin: (0.5, 0.5),
+            alpha: 1.0,
+        }
+    }
+}
+
+impl GraphicsLayer {
+    /// The `Transform` this layer draws: scaled, then turned, about its origin, then moved,
+    /// which is the order a Compose layer applies them in.
+    pub fn transform(&self) -> crate::schema::Modifier {
+        let radians = self.rotation_z.to_radians();
+        let (sin, cos) = radians.sin_cos();
+        crate::schema::Modifier::Transform {
+            a: self.scale_x * cos,
+            b: self.scale_x * sin,
+            c: -self.scale_y * sin,
+            d: self.scale_y * cos,
+            e: self.translation_x,
+            f: self.translation_y,
+            origin_x: self.transform_origin.0,
+            origin_y: self.transform_origin.1,
+        }
+    }
+
+    /// The `Alpha` this layer fades its group with.
+    pub fn alpha(&self) -> crate::schema::Modifier {
+        crate::schema::Modifier::Alpha(self.alpha)
+    }
+}
