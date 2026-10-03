@@ -290,6 +290,19 @@ var platformFileDrop: @Composable (Modifier, Node, EventDispatcher) -> Modifier 
 var platformReducedMotion: () -> Boolean = { false }
 
 /**
+ * Whether the person at this machine has asked the platform for high contrast colours:
+ * Windows' contrast themes, macOS's increased contrast, GNOME's high contrast setting.
+ *
+ * A hook for the same reason as the one above. When it says yes, an application's palette
+ * is set aside and the design system's own colours are drawn: those colours were chosen
+ * by the person so they could see the screen, and a brand must not paint over them.
+ *
+ * Read when the theme is resolved. The desktop answers once and keeps the answer; a
+ * target that does not install anything answers no.
+ */
+var platformHighContrast: () -> Boolean = { false }
+
+/**
  * Tells the platform whether this window wants a material behind it.
  *
  * A hook because only one build can answer: the effect view is put behind the window by

@@ -70,6 +70,7 @@ data class TableError(val code: Int, val message: String) {
         const val UNSUPPORTED_ASSET = 6
         const val UNREADABLE_ASSET = 7
         const val CYCLIC_INSERT = 8
+        const val INVALID_PALETTE = 9
     }
 }
 
@@ -160,7 +161,15 @@ class NodeTable {
             is Mutation.AppendText -> appendText(mutation)
             // One record changes the whole tree's appearance. `DioxusContent`
             // resolves it into tokens and rules, and Compose invalidates the readers.
-            is Mutation.SetTheme -> theme = mutation.theme
+            is Mutation.SetTheme -> {
+                theme = mutation.theme
+                // The entries that were wrong are already out of the palette and the rest
+                // of it applies. Each one is still said, so an application whose brand
+                // colour did not arrive can find out why.
+                mutation.theme.paletteProblems.forEach { problem ->
+                    fail(TableError.INVALID_PALETTE, "theme palette: $problem")
+                }
+            }
             // Read before there is a window to apply it to. The platform layer asks for
             // this out of the first batch and builds the window from it, so by the time
             // the batch is applied the window already looks the way it says. Keeping it

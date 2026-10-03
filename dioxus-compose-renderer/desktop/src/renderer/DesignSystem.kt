@@ -161,8 +161,22 @@ class ResolvedTheme(
      * is put away behind a button.
      */
     val platform: HostPlatform = HostPlatform.Unknown,
+
+    /**
+     * The application's own colours for this scheme, indexed by role ordinal, with null
+     * where the design system's value stands. Empty where the application gave none, or
+     * where the platform is in a high contrast mode.
+     *
+     * Only colour. Everything else this theme answers is still the design system's, so a
+     * brand colour is drawn the way this system draws a colour.
+     */
+    val applicationColors: List<Color?> = emptyList(),
 ) {
     fun color(role: ColorRole): Color =
+        applicationColors.getOrNull(role.ordinal) ?: systemColor(role)
+
+    /** What the design system alone says a role is, before the application's palette. */
+    fun systemColor(role: ColorRole): Color =
         rules.color(role, dark, sizeClass) ?: Color(tokens.color(role, dark))
 
     /**
@@ -1321,6 +1335,11 @@ fun resolveTheme(
     brushOf: (Int) -> ComposeBrush? = { null },
     /** Whether the window has the platform's own material behind it. */
     windowBackdrop: Boolean = false,
+    /**
+     * Whether the platform is in a high contrast mode, where the application's palette is
+     * set aside and the design system's own colours are drawn.
+     */
+    highContrast: () -> Boolean = { dioxus.compose.ui.node.platformHighContrast() },
 ): ResolvedTheme {
     val system = when {
         theme == null -> adaptiveSystem(platform, DesignSystem.Material3)
@@ -1343,16 +1362,25 @@ fun resolveTheme(
             }
         }
     }
+    val tokens = DesignTokens.of(system)
+    val rules = rulesFor(system)
+    // The same palette goes onto whichever system was chosen, and both of its schemes are
+    // already here, so following the platform from light to dark reads the other half
+    // rather than asking the Host for anything.
+    val application = applicationColors(theme, dark, highContrast) { role ->
+        rules.color(role, dark, sizeClass) ?: Color(tokens.color(role, dark))
+    }
     return ResolvedTheme(
         system,
-        DesignTokens.of(system),
-        rulesFor(system),
+        tokens,
+        rules,
         dark,
         sizeClass,
         fonts,
         brushOf,
         windowBackdrop,
         platform,
+        application,
     )
 }
 
