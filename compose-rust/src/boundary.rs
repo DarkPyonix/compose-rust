@@ -1,19 +1,15 @@
+use crate::Selection;
 use crate::protocol::{HostEvent, ProtocolError, decode_event};
-use crate::renderer::ComposeRenderer;
+use crate::runtime::Runtime;
 use crate::schema::{
     AssetKind, EventPayload, IconRole, LoopMode, PROTOCOL_VERSION, SCHEMA_HASH, Theme,
 };
-use crate::{Element, KeyEvent, RangeRequest, Selection, VirtualDom};
-use dioxus_core::{ElementId, Event};
 use std::cell::RefCell;
 use std::ffi::c_int;
-use std::future::Future;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::pin::pin;
-use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::task::{Context, Poll, Wake, Waker};
+use std::task::{Context, Wake, Waker};
 
 pub const STATUS_OK: i32 = 0;
 pub const STATUS_PROTOCOL_ERROR: i32 = -1;
@@ -158,7 +154,7 @@ fn renderer_api() -> RendererApi {
     })
 }
 
-/// Coalesced wake used internally by the Dioxus scheduler waker.
+/// Coalesced wake used internally by the runtime's scheduler waker.
 ///
 /// The flag spans the moment of delivery, not the wait for the frame that answers it. The
 /// Renderer folds requests into its own frame clock, so however many arrive between two
@@ -263,26 +259,42 @@ struct PendingAppend {
     dirty: bool,
 }
 
+/// Makes the runtime a Host drives. Called once per Host, and again on a resync, which
+/// is the one thing a diff against a lost node table cannot answer.
+///
+/// Shared across threads because `launch` runs on the Rust main thread and the Host is
+/// built on the Renderer's UI thread, which is a different one under
+/// `LoopMode::Renderer`. The runtime it makes is not shared: it lives and dies on the UI
+/// thread.
+pub type RuntimeFactory = Arc<dyn Fn() -> Box<dyn Runtime> + Send + Sync>;
+
 pub struct Host {
     /// Kept so the tree can be built again from nothing when the Renderer asks for a
     /// resync, which is the one thing a diff against a lost node table cannot answer.
-    app: fn() -> Element,
+    factory: RuntimeFactory,
     theme: Theme,
     window: crate::schema::Window,
-    dom: VirtualDom,
-    renderer: ComposeRenderer,
+    runtime: Box<dyn Runtime>,
     frame_waker: Waker,
     pending_appends: Vec<PendingAppend>,
 }
 
 impl Host {
-    pub fn new(app: fn() -> Element) -> Self {
-        Self::with_theme(app, launched_theme())
+    /// A Host for the runtime `factory` makes, in the theme the application launched with.
+    pub fn new(factory: impl Fn() -> Box<dyn Runtime> + Send + Sync + 'static) -> Self {
+        Self::from_factory(Arc::new(factory), launched_theme())
     }
 
     /// The theme the application chose. Choosing nothing follows the host platform, with
     /// Material 3 where the platform has no look of its own.
-    pub fn with_theme(app: fn() -> Element, theme: Theme) -> Self {
+    pub fn with_theme(
+        factory: impl Fn() -> Box<dyn Runtime> + Send + Sync + 'static,
+        theme: Theme,
+    ) -> Self {
+        Self::from_factory(Arc::new(factory), theme)
+    }
+
+    fn from_factory(factory: RuntimeFactory, theme: Theme) -> Self {
         // A fresh Host has not been measured yet, and the Renderer that is about to drive
         // it starts from the same assumption. Leaving a previous Host's last measurement
         // behind would put the two sides out of step, because the Renderer reports only
@@ -292,7 +304,6 @@ impl Host {
         // the one replacing it, out of any context that made them make sense.
         //
         crate::message::reset_messages();
-        crate::code::reset_edits();
         // The assets do not go with them. The Renderer this Host is about to talk to has
         // an empty cache, so every registration has to be made again, which is what this
         // does: the ids stay as they were and the bytes are queued for the first batch.
@@ -305,32 +316,37 @@ impl Host {
         // The theme a running application changes from, and nothing queued against the
         // Host this one replaces.
         crate::theme::install(theme);
+        let runtime = factory();
         Self {
-            app,
+            factory,
             theme,
             window: launched_window(),
-            dom: VirtualDom::new(app),
-            renderer: ComposeRenderer::new(),
+            runtime,
             frame_waker: Waker::from(Arc::new(FrameWake)),
             pending_appends: Vec::new(),
         }
     }
 
+    fn batch(&mut self) -> &mut crate::runtime::Batch {
+        self.runtime.batch_mut()
+    }
+
     pub fn rebuild(&mut self) -> Result<&[u8], ProtocolError> {
         let _call = HostCallGuard::enter();
-        self.renderer.begin_frame();
+        self.batch().begin();
         // One record at the root, before any node exists. The Renderer resolves roles to
         // values, so switching theme or colour scheme costs this one record rather than a
         // SetProp for every node in the tree.
-        self.renderer.set_theme(self.theme);
+        let (theme, window) = (self.theme, self.window);
+        self.batch().set_theme(theme);
         // Beside the theme, and for the same reason: it is about the window rather than
         // any node in it, and it is settled once rather than every frame. The Renderer
         // reads it out of this batch before it stands the window up.
-        self.renderer.set_window(self.window);
-        self.dom.rebuild(&mut self.renderer);
+        self.batch().set_window(window);
+        self.runtime.rebuild();
         self.flush_messages();
         self.arm_scheduler_wake();
-        self.renderer.finish_frame()
+        self.runtime.batch_mut().finish()
     }
 
     pub fn dispatch_event(&mut self, bytes: &[u8]) -> Result<(&[u8], i64), ProtocolError> {
@@ -340,7 +356,7 @@ impl Host {
 
     /// The batch arena, reported to the Renderer on every boundary call.
     pub fn arena(&self) -> (*const u8, usize) {
-        self.renderer.arena()
+        self.runtime.batch().arena()
     }
 
     /// Answers with the whole tree, for a Renderer that no longer has a node table.
@@ -350,7 +366,7 @@ impl Host {
     /// A Renderer that keeps its node table across a configuration change never needs
     /// this call, which is what the Android host does.
     pub fn resync(&mut self) -> Result<(&[u8], i64), ProtocolError> {
-        *self = Self::with_theme(self.app, self.theme);
+        *self = Self::from_factory(self.factory.clone(), self.theme);
         Ok((self.rebuild()?, 0))
     }
 
@@ -366,8 +382,24 @@ impl Host {
         }
         // An empty batch, not a frame: starting again is the Renderer's cue to draw, and
         // it asks for that frame itself.
-        self.renderer.begin_frame();
-        Ok((self.renderer.finish_frame()?, 0))
+        self.batch().begin();
+        Ok((self.runtime.batch_mut().finish()?, 0))
+    }
+
+    /// Renders what the runtime has waiting, writes the Host's own records after it, and
+    /// closes the batch. The tail every call that renders shares.
+    fn render_and_finish(&mut self, result: i64) -> Result<(&[u8], i64), ProtocolError> {
+        self.batch().begin();
+        self.runtime.render();
+        self.flush_messages();
+        self.arm_scheduler_wake();
+        Ok((self.runtime.batch_mut().finish()?, result))
+    }
+
+    /// An empty batch, for an event that changed nothing anyone is reading.
+    fn empty_batch(&mut self) -> Result<(&[u8], i64), ProtocolError> {
+        self.batch().begin();
+        Ok((self.runtime.batch_mut().finish()?, 0))
     }
 
     /// Hands a pressed notification to the components listening for one.
@@ -386,13 +418,13 @@ impl Host {
                 action,
             })
         };
-        self.renderer.begin_frame();
+        self.batch().begin();
         if woke {
-            self.dom.render_immediate(&mut self.renderer);
+            self.runtime.render();
         }
         self.flush_messages();
         self.arm_scheduler_wake();
-        Ok((self.renderer.finish_frame()?, 0))
+        Ok((self.runtime.batch_mut().finish()?, 0))
     }
 
     /// Records whether notifications may be shown, and renders the components that asked.
@@ -403,13 +435,13 @@ impl Host {
         &mut self,
         state: crate::schema::NotificationPermission,
     ) -> Result<(&[u8], i64), ProtocolError> {
-        self.renderer.begin_frame();
+        self.batch().begin();
         if crate::notification::publish_permission(state) {
-            self.dom.render_immediate(&mut self.renderer);
+            self.runtime.render();
         }
         self.flush_messages();
         self.arm_scheduler_wake();
-        Ok((self.renderer.finish_frame()?, 0))
+        Ok((self.runtime.batch_mut().finish()?, 0))
     }
 
     /// Records which design system the Renderer resolved the theme to.
@@ -422,14 +454,9 @@ impl Host {
         system: crate::schema::DesignSystem,
     ) -> Result<(&[u8], i64), ProtocolError> {
         if crate::design::publish(system) {
-            self.renderer.begin_frame();
-            self.dom.render_immediate(&mut self.renderer);
-            self.flush_messages();
-            self.arm_scheduler_wake();
-            return Ok((self.renderer.finish_frame()?, 0));
+            return self.render_and_finish(0);
         }
-        self.renderer.begin_frame();
-        Ok((self.renderer.finish_frame()?, 0))
+        self.empty_batch()
     }
 
     pub fn dispatch(&mut self, event: HostEvent<'_>) -> Result<(&[u8], i64), ProtocolError> {
@@ -473,25 +500,16 @@ impl Host {
             let size = crate::window::WindowSize::new(width_dp, height_dp, class, height_class);
             if event.node_id != 0 {
                 let woke = self
-                    .renderer
+                    .runtime
                     .size_token(event.node_id)
                     .is_some_and(|token| crate::window::publish_node(token, size));
                 if !woke {
-                    self.renderer.begin_frame();
-                    return Ok((self.renderer.finish_frame()?, 0));
+                    return self.empty_batch();
                 }
-                self.renderer.begin_frame();
-                self.dom.render_immediate(&mut self.renderer);
-                self.flush_messages();
-                self.arm_scheduler_wake();
-                return Ok((self.renderer.finish_frame()?, 0));
+                return self.render_and_finish(0);
             }
             crate::window::publish(size);
-            self.renderer.begin_frame();
-            self.dom.render_immediate(&mut self.renderer);
-            self.flush_messages();
-            self.arm_scheduler_wake();
-            return Ok((self.renderer.finish_frame()?, 0));
+            return self.render_and_finish(0);
         }
         // The action on a transient message. It belongs to no node, because the message is
         // not in the tree, so it is found by its handler id alone and the event carries the
@@ -500,134 +518,21 @@ impl Host {
             EventPayload::Clicked => crate::message::take_action(event.handler_id),
             _ => None,
         };
-        if let Some(action) = message_action {
+        if let Some(mut action) = message_action {
             if event.node_id != 0 {
                 return Err(ProtocolError::InvalidValueKind(0));
             }
             let _dispatch_guard = EventDispatchGuard::enter();
-            action.call(());
-            self.renderer.begin_frame();
-            self.dom.render_immediate(&mut self.renderer);
-            self.flush_messages();
-            self.arm_scheduler_wake();
-            return Ok((self.renderer.finish_frame()?, 0));
+            self.runtime.run_in_context(&mut *action);
+            return self.render_and_finish(0);
         }
-        let Some((element, node_id, name)) = self.renderer.handler(event.handler_id) else {
-            return Err(ProtocolError::InvalidValueKind(0));
-        };
-        if event.node_id != node_id {
+        // Everything else names a handler on a node, and handlers belong to the runtime.
+        if let EventPayload::ProtocolError { .. } = event.payload {
             return Err(ProtocolError::InvalidValueKind(0));
         }
-        let mut key_event = None;
-        let event_data = match event.payload {
-            EventPayload::Clicked | EventPayload::FocusLost => {
-                Event::new(Rc::new(()), true).into_any()
-            }
-            EventPayload::TextChanged(text) | EventPayload::TextSubmitted(text) => {
-                Event::new(Rc::new(text.to_owned()), true).into_any()
-            }
-            EventPayload::ProtocolError { .. } => {
-                return Err(ProtocolError::InvalidValueKind(0));
-            }
-            EventPayload::KeyDown {
-                key,
-                shift_key,
-                ctrl_key,
-                alt_key,
-                meta_key,
-            } => {
-                let value = KeyEvent::new(key, shift_key, ctrl_key, alt_key, meta_key);
-                key_event = Some(value.clone());
-                Event::new(Rc::new(value), true).into_any()
-            }
-            EventPayload::FilesEntered => Event::new(Rc::new(()), true).into_any(),
-            EventPayload::FilesDropped(paths) => {
-                Event::new(Rc::new(crate::widgets::FileDrop::new(paths)), true).into_any()
-            }
-            EventPayload::RangeRequested { start, count } => {
-                Event::new(Rc::new(RangeRequest::new(start, count)), true).into_any()
-            }
-            EventPayload::ValueChanged(value) => Event::new(Rc::new(value), true).into_any(),
-            EventPayload::CodeChanged {
-                version,
-                start_line,
-                start_column,
-                end_line,
-                end_column,
-                text,
-            } => Event::new(
-                Rc::new(crate::code::CodeChange {
-                    version,
-                    range: crate::code::CodeRange::of(
-                        start_line,
-                        start_column,
-                        end_line,
-                        end_column,
-                    ),
-                    text: text.to_owned(),
-                }),
-                true,
-            )
-            .into_any(),
-            EventPayload::CodeEditRejected {
-                request_id,
-                base_version,
-                current_version,
-                start_line,
-                start_column,
-                end_line,
-                end_column,
-            } => Event::new(
-                Rc::new(crate::code::EditRejected {
-                    request_id,
-                    base_version,
-                    current_version,
-                    range: crate::code::CodeRange::of(
-                        start_line,
-                        start_column,
-                        end_line,
-                        end_column,
-                    ),
-                }),
-                true,
-            )
-            .into_any(),
-            EventPayload::CodeHovered {
-                decoration,
-                line,
-                column,
-                phase,
-            } => Event::new(
-                Rc::new(crate::code::CodeHover {
-                    decoration: (decoration != 0).then_some(decoration),
-                    position: crate::code::Position::new(line, column),
-                    phase,
-                }),
-                true,
-            )
-            .into_any(),
-            EventPayload::CodeSaveRequested { version } => {
-                Event::new(Rc::new(crate::code::SaveRequest { version }), true).into_any()
-            }
-            EventPayload::DecorationActivated { decoration } => {
-                Event::new(Rc::new(decoration), true).into_any()
-            }
-            EventPayload::WindowSizeChanged { .. }
-            | EventPayload::DesignSystemResolved(_)
-            | EventPayload::Resync
-            | EventPayload::LifecycleStart
-            | EventPayload::LifecycleStop
-            | EventPayload::NotificationActivated { .. }
-            | EventPayload::NotificationPermissionChanged(_) => unreachable!("handled above"),
-        };
         let _dispatch_guard = EventDispatchGuard::enter();
-        self.dom.runtime().handle_event(name, event_data, element);
-        self.renderer.begin_frame();
-        self.dom.render_immediate(&mut self.renderer);
-        self.flush_messages();
-        self.arm_scheduler_wake();
-        let result = i64::from(key_event.is_some_and(|event| event.consumed()));
-        Ok((self.renderer.finish_frame()?, result))
+        let result = self.runtime.handle_event(&event)?;
+        self.render_and_finish(result)
     }
 
     pub fn render_frame(&mut self, _frame_time_nanos: u64) -> Result<&[u8], ProtocolError> {
@@ -638,19 +543,19 @@ impl Host {
             // has to get out while nobody is looking. Only that goes. The components are
             // not rendered and the held frame request is left held, so timers and
             // animations stay suppressed until start delivers it.
-            self.renderer.begin_frame();
+            self.batch().begin();
             self.flush_notifications();
-            return self.renderer.finish_frame();
+            return self.runtime.batch_mut().finish();
         }
         FRAME_REQUESTED.store(false, Ordering::Release);
         EVENT_DISPATCH_ACTIVE.store(false, Ordering::Release);
         DEFERRED_FRAME_REQUEST.store(false, Ordering::Release);
-        self.renderer.begin_frame();
-        self.dom.render_immediate(&mut self.renderer);
+        self.batch().begin();
+        self.runtime.render();
         self.flush_pending_appends();
         self.flush_messages();
         self.arm_scheduler_wake();
-        self.renderer.finish_frame()
+        self.runtime.batch_mut().finish()
     }
 
     /// Queues a streamed tail for the next frame. Tokens arriving inside one frame are
@@ -684,37 +589,22 @@ impl Host {
         // tree. Kept as the Host's own as well, so a resync rebuilds with it.
         if let Some(theme) = crate::theme::take_pending() {
             self.theme = theme;
-            self.renderer.set_theme(theme);
+            self.batch().set_theme(theme);
         }
-        let renderer = &mut self.renderer;
+        let batch = self.runtime.batch_mut();
         // Registrations first. Not because the Renderer needs them first, it applies the
         // whole batch before drawing any of it, but because a batch read by a person
         // debugging one reads in the order the screen was built.
         crate::asset::drain(|pending| {
-            renderer.register_asset(pending.asset_id, pending.kind, pending.bytes);
+            batch.register_asset(pending.asset_id, pending.kind, pending.bytes);
         });
         crate::message::drain(|message| {
-            renderer.show_message(
+            batch.show_message(
                 message.handler_id,
                 &message.text,
                 &message.action,
                 message.duration,
             );
-        });
-        // Edits asked of a code editor's handle, after the tree, so an editor created in
-        // this same call already exists when its first edit arrives. A handle that is not
-        // attached to any editor names nothing, and its edit is dropped here rather than
-        // sent to a node the Renderer would have to report as unknown.
-        crate::code::drain_edits(|edit| {
-            if let Some(node_id) = renderer.editor_node(edit.token) {
-                renderer.edit_code(
-                    node_id,
-                    edit.request_id,
-                    edit.base_version,
-                    edit.range,
-                    &edit.text,
-                );
-            }
         });
         self.flush_notifications();
     }
@@ -724,17 +614,16 @@ impl Host {
     /// Workers queue them from their own threads; this is the one place they leave, on the
     /// UI thread, inside a call. One atomic read when there are none.
     fn flush_notifications(&mut self) {
-        let renderer = &mut self.renderer;
-        let posts = crate::notification::drain(|command| renderer.notification(command));
+        let batch = self.runtime.batch_mut();
+        let posts = crate::notification::drain(|command| batch.notification(command));
         crate::notification::note_posted(posts);
     }
 
     fn flush_pending_appends(&mut self) {
-        for index in 0..self.pending_appends.len() {
-            let pending = &self.pending_appends[index];
+        let batch = self.runtime.batch_mut();
+        for pending in &self.pending_appends {
             if pending.dirty {
-                self.renderer
-                    .append_text_node(pending.node_id, &pending.text);
+                batch.append_text_node(pending.node_id, &pending.text);
             }
         }
         // Buffers are kept so steady-state streaming reuses their capacity and a streamed
@@ -756,9 +645,10 @@ impl Host {
         kind: AssetKind,
         bytes: &[u8],
     ) -> Result<&[u8], ProtocolError> {
-        self.renderer.begin_frame();
-        self.renderer.register_asset(asset_id, kind, bytes);
-        self.renderer.finish_frame()
+        let batch = self.runtime.batch_mut();
+        batch.begin();
+        batch.register_asset(asset_id, kind, bytes);
+        batch.finish()
     }
 
     /// Registers an icon by the meaning it carries. The Renderer holds the artwork for
@@ -774,9 +664,10 @@ impl Host {
     /// Drops the asset from the Renderer's cache. Using the id afterwards is a reported
     /// protocol error.
     pub fn release_asset(&mut self, asset_id: u32) -> Result<&[u8], ProtocolError> {
-        self.renderer.begin_frame();
-        self.renderer.release_asset(asset_id);
-        self.renderer.finish_frame()
+        let batch = self.runtime.batch_mut();
+        batch.begin();
+        batch.release_asset(asset_id);
+        batch.finish()
     }
 
     pub fn set_text(
@@ -785,20 +676,15 @@ impl Host {
         text: &str,
         selection: Option<Selection>,
     ) -> Result<&[u8], ProtocolError> {
-        self.renderer.begin_frame();
-        self.renderer.set_text_node(node_id, text, selection);
-        self.renderer.finish_frame()
-    }
-
-    pub fn handler_target(&self, handler_id: u64) -> Option<ElementId> {
-        self.renderer.handler(handler_id).map(|value| value.0)
+        let batch = self.runtime.batch_mut();
+        batch.begin();
+        batch.set_text_node(node_id, text, selection);
+        batch.finish()
     }
 
     fn arm_scheduler_wake(&mut self) {
         let mut context = Context::from_waker(&self.frame_waker);
-        let future = self.dom.wait_for_work();
-        let mut future = pin!(future);
-        if future.as_mut().poll(&mut context) == Poll::Ready(()) {
+        if self.runtime.poll_work(&mut context).is_ready() {
             request_frame_from_worker();
         }
     }
@@ -806,11 +692,11 @@ impl Host {
 
 /// Holds the thread's `Host` and, crucially, keeps it out of thread-local teardown.
 ///
-/// Dropping a `VirtualDom` reaches back into the Dioxus runtime's own
-/// thread-locals. Thread-local destruction order is unspecified, so if the UI thread
-/// ends without `compose_rust_host_shutdown`, that drop can run after the Dioxus
-/// locals are already gone and panic with "cannot access a TLS value during or after
-/// destruction". A panic in a destructor is non-unwinding: it aborts the process, which
+/// Dropping a runtime can reach back into thread-locals of its own: a Dioxus
+/// `VirtualDom` does. Thread-local destruction order is unspecified, so if the UI thread
+/// ends without `compose_rust_host_shutdown`, that drop can run after those locals are
+/// already gone and panic with "cannot access a TLS value during or after destruction".
+/// A panic in a destructor is non-unwinding: it aborts the process, which
 /// is exactly what must not happen: a protocol or teardown fault has to stay recoverable.
 ///
 /// So the slot empties itself and leaks the `Host` when the thread is tearing down. An
@@ -832,20 +718,19 @@ impl std::ops::Deref for HostSlot {
     }
 }
 
-/// The launched application.
+/// The launched application, as the factory for its runtime.
 ///
-/// The `VirtualDom` and every `compose_rust_host_*` call run on the Renderer UI
-/// thread, and that thread is not the one that called `launch`: with `LoopMode::Renderer`
-/// the Rust main thread blocks inside `compose_rust_renderer_run` while Compose composes
-/// on the toolkit's own thread. So the app function, unlike the `Host` it builds, has to be
-/// reachable across threads. A `fn() -> Element` is a plain function pointer, so sharing it
-/// costs nothing and adds no thread affinity.
+/// The runtime and every `compose_rust_host_*` call run on the Renderer UI thread, and
+/// that thread is not the one that called `launch`: with `LoopMode::Renderer` the Rust
+/// main thread blocks inside `compose_rust_renderer_run` while Compose composes on the
+/// toolkit's own thread. So the factory, unlike the `Host` it builds, has to be reachable
+/// across threads, which is why it is `Send + Sync` and the runtime it makes is not.
 ///
 /// `shutdown` deliberately leaves this set: it belongs to `launch`, not to one UI thread's
 /// `Host`. That is also what `LoopMode::Platform` needs, where the Renderer may tear the
 /// Host down and initialize it again (Android recreates its surface on a configuration
 /// change) without relaunching.
-static APP: Mutex<Option<fn() -> Element>> = Mutex::new(None);
+static APP: Mutex<Option<RuntimeFactory>> = Mutex::new(None);
 
 /// Chosen by `LaunchBuilder::with_theme`, read once when the Host is built.
 static THEME: Mutex<Theme> = Mutex::new(Theme::unified(crate::schema::DesignSystem::Material3));
@@ -857,8 +742,8 @@ thread_local! {
     static HOST: HostSlot = const { HostSlot(RefCell::new(None)) };
 }
 
-fn launched_app() -> Option<fn() -> Element> {
-    APP.lock().map_or(None, |app| *app)
+fn launched_app() -> Option<RuntimeFactory> {
+    APP.lock().map_or(None, |app| (*app).clone())
 }
 
 fn launched_window() -> crate::schema::Window {
@@ -920,25 +805,33 @@ impl LaunchBuilder {
         self
     }
 
-    /// Runs the application. Does not return while it is running, and ends the process
-    /// with a failing status if the renderer loop could not run at all.
+    /// Runs the application whose tree `runtime` builds. Does not return while it is
+    /// running, and ends the process with a failing status if the renderer loop could
+    /// not run at all.
     ///
-    /// Exiting rather than returning is the point. `launch` is the last statement of
+    /// `runtime` is called on the Renderer's UI thread each time a Host is made: once at
+    /// start, and again whenever the Renderer asks for the whole tree back.
+    ///
+    /// Exiting rather than returning is the point. Launching is the last statement of
     /// `main` in every application that uses this crate, so returning from it means `main`
     /// returns, which means the process exits 0. A window that never opened would then be
     /// indistinguishable from a program that did its work and stopped.
-    pub fn launch(self, app: fn() -> Element) {
-        let status = self.try_launch(app);
+    pub fn launch_runtime(self, runtime: impl Fn() -> Box<dyn Runtime> + Send + Sync + 'static) {
+        let status = self.try_launch_runtime(runtime);
         if status != STATUS_OK {
             std::process::exit(EXIT_FAILURE);
         }
     }
 
-    /// [`LaunchBuilder::launch`] without the exit: the status the renderer loop ended
-    /// with, handed back for a caller that has its own idea of what to do with it.
-    pub fn try_launch(self, app: fn() -> Element) -> i32 {
+    /// [`LaunchBuilder::launch_runtime`] without the exit: the status the renderer loop
+    /// ended with, handed back for a caller that has its own idea of what to do with it.
+    pub fn try_launch_runtime(
+        self,
+        runtime: impl Fn() -> Box<dyn Runtime> + Send + Sync + 'static,
+    ) -> i32 {
+        let factory: RuntimeFactory = Arc::new(runtime);
         if let Ok(mut slot) = APP.lock() {
-            *slot = Some(app);
+            *slot = Some(factory);
         }
         if let Ok(mut slot) = THEME.lock() {
             *slot = self.theme;
@@ -962,8 +855,9 @@ impl LaunchBuilder {
     }
 }
 
-pub fn launch(app: fn() -> Element) {
-    LaunchBuilder::new().launch(app);
+/// [`LaunchBuilder::launch_runtime`] with every choice left to its default.
+pub fn launch_runtime(runtime: impl Fn() -> Box<dyn Runtime> + Send + Sync + 'static) {
+    LaunchBuilder::new().launch_runtime(runtime);
 }
 
 /// What a theme's palette leaves short of contrast, as lines to print.
@@ -1092,13 +986,13 @@ pub unsafe extern "C" fn compose_rust_host_init(
         // SAFETY: Validated according to the function's C ABI contract.
         let bytes = unsafe { input_slice(handshake, len) }.map_err(protocol_error)?;
         let _mode = parse_handshake(bytes).map_err(protocol_error)?;
-        let app = launched_app().ok_or(STATUS_NOT_INITIALIZED)?;
+        let factory = launched_app().ok_or(STATUS_NOT_INITIALIZED)?;
         HOST.with(|slot| {
             let mut host_slot = slot.borrow_mut();
             if host_slot.is_some() {
                 return Err(STATUS_ALREADY_INITIALIZED);
             }
-            let mut host = Host::new(app);
+            let mut host = Host::from_factory(factory, launched_theme());
             let batch = host.rebuild().map_err(protocol_error)?;
             // SAFETY: `out` is checked before writing.
             unsafe { write_batch(out, batch, 0) }.map_err(protocol_error)?;
@@ -1190,18 +1084,10 @@ pub extern "C" fn compose_rust_host_shutdown() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prelude::*;
-    use crate::protocol::{Mutation, PropertyValue, decode_batch};
-    use crate::schema::PropertyKind;
-    use std::collections::HashMap;
-    use std::sync::atomic::{AtomicUsize, Ordering};
 
-    static CLICKS: AtomicUsize = AtomicUsize::new(0);
-
-    /// `APP` is process-global, as `launch` is, so two tests that launch different apps at
-    /// the same time would each see the other's. Cargo runs tests on one thread each, so
-    /// the ones that launch take this first. Poisoning is ignored: a failing test has
-    /// already reported itself, and the rest still need the lock.
+    /// `APP` is process-global, as launching is, so two tests that launch at the same
+    /// time would each see the other's. Poisoning is ignored: a failing test has already
+    /// reported itself, and the rest still need the lock.
     static LAUNCH: Mutex<()> = Mutex::new(());
 
     fn launch_guard() -> std::sync::MutexGuard<'static, ()> {
@@ -1210,300 +1096,12 @@ mod tests {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    fn app() -> Element {
-        let mut count = use_signal(|| 0_i64);
-        rsx! {
-            Column {
-                Text { text: count().to_string() }
-                TextField { placeholder: "Message" }
-                Button {
-                    text: "Increment",
-                    on_click: move |_| {
-                        CLICKS.fetch_add(1, Ordering::SeqCst);
-                        *count.write() += 1;
-                    }
-                }
-            }
-        }
-    }
-
-    fn key_app() -> Element {
-        rsx! {
-            Column {
-                TextField {
-                    multiline: true,
-                    on_key_down: move |event: KeyEvent| {
-                        if event.key() == Key::Enter && !event.shift_key() {
-                            event.consume();
-                        }
-                    }
-                }
-                TextField {
-                    on_key_down: move |_event: KeyEvent| {}
-                }
-            }
-        }
-    }
-
-    #[derive(Default)]
-    struct MockRenderer {
-        widgets: HashMap<u32, crate::WidgetKind>,
-        parents: HashMap<u32, u32>,
-    }
-
-    impl MockRenderer {
-        fn apply(&mut self, batch: &[Mutation<'_>]) {
-            for mutation in batch {
-                match mutation {
-                    Mutation::Create { node_id, widget } => {
-                        self.widgets.insert(*node_id, *widget);
-                    }
-                    Mutation::Insert {
-                        parent_id, node_id, ..
-                    }
-                    | Mutation::Move {
-                        parent_id, node_id, ..
-                    } => {
-                        self.parents.insert(*node_id, *parent_id);
-                    }
-                    Mutation::Remove { node_id } => {
-                        self.widgets.remove(node_id);
-                        self.parents.remove(node_id);
-                    }
-                    Mutation::SetProp { .. }
-                    | Mutation::SetModifier { .. }
-                    | Mutation::SetText { .. }
-                    | Mutation::AppendText { .. }
-                    | Mutation::RegisterAsset { .. }
-                    | Mutation::ReleaseAsset { .. }
-                    | Mutation::ShowMessage { .. }
-                    | Mutation::EditCode { .. }
-                    | Mutation::SetTheme(_)
-                    | Mutation::SetWindow(_)
-                    | Mutation::PostNotification { .. }
-                    | Mutation::WithdrawNotification { .. }
-                    | Mutation::RequestNotificationPermission => {}
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn click_runs_once_and_emits_only_text_set_prop() {
-        CLICKS.store(0, Ordering::SeqCst);
-        let mut host = Host::new(app);
-        let initial = decode_batch(host.rebuild().unwrap()).unwrap();
-        let mut mock = MockRenderer::default();
-        mock.apply(&initial);
-        assert_eq!(mock.widgets.len(), 4);
-        assert_eq!(mock.parents.len(), 3);
-
-        let (button_node, handler_id) = initial
-            .iter()
-            .find_map(|mutation| match mutation {
-                Mutation::SetProp {
-                    node_id,
-                    property: PropertyKind::OnClick,
-                    value: PropertyValue::Integer(handler),
-                } => Some((*node_id, *handler as u64)),
-                _ => None,
-            })
-            .unwrap();
-        drop(initial);
-
-        let event = HostEvent {
-            node_id: button_node,
-            handler_id,
-            payload: EventPayload::Clicked,
-        };
-        let (batch, result) = host.dispatch(event).unwrap();
-        let mutations = decode_batch(batch).unwrap();
-        assert_eq!(CLICKS.load(Ordering::SeqCst), 1);
-        assert_eq!(result, 0);
-        assert_eq!(mutations.len(), 1);
-        assert!(matches!(
-            &mutations[0],
-            Mutation::SetProp {
-                property: PropertyKind::Text,
-                value: PropertyValue::String(value),
-                ..
-            } if *value == "1"
-        ));
-    }
-
     #[test]
     fn malformed_ffi_input_returns_protocol_error() {
         let mut output = MutationBatch::default();
         // SAFETY: The test passes a valid output pointer and intentionally null input.
         let status = unsafe { compose_rust_host_dispatch_event(std::ptr::null(), 4, &mut output) };
         assert_eq!(status, STATUS_PROTOCOL_ERROR);
-    }
-
-    #[test]
-    fn fr12_key_consumption_is_returned_and_does_not_leak() {
-        let _launch = launch_guard();
-        LaunchBuilder::new()
-            .with_mode(LoopMode::Platform)
-            .launch(key_app);
-        let mut handshake = Vec::with_capacity(12);
-        handshake.extend_from_slice(&SCHEMA_HASH.to_le_bytes());
-        handshake.extend_from_slice(&PROTOCOL_VERSION.to_le_bytes());
-        handshake.extend_from_slice(&[LoopMode::Platform as u8, 0]);
-        let mut output = MutationBatch::default();
-        // SAFETY: All pointers refer to live test-owned buffers for the duration of each call.
-        unsafe {
-            assert_eq!(
-                compose_rust_host_init(handshake.as_ptr(), handshake.len() as u32, &mut output,),
-                STATUS_OK
-            );
-        }
-        // SAFETY: A successful init returned a readable batch owned by the Host.
-        let initial = unsafe { std::slice::from_raw_parts(output.ptr, output.len as usize) };
-        let handlers: Vec<_> = decode_batch(initial)
-            .unwrap()
-            .into_iter()
-            .filter_map(|mutation| match mutation {
-                Mutation::SetProp {
-                    node_id,
-                    property: PropertyKind::OnKeyDown,
-                    value: PropertyValue::Integer(handler),
-                } => Some((node_id, handler as u64)),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(handlers.len(), 2);
-
-        let dispatch = |node_id, handler_id, shift_key, output: &mut MutationBatch| {
-            let event = HostEvent {
-                node_id,
-                handler_id,
-                payload: EventPayload::KeyDown {
-                    key: Key::Enter,
-                    shift_key,
-                    ctrl_key: false,
-                    alt_key: false,
-                    meta_key: false,
-                },
-            };
-            let mut bytes = Vec::new();
-            crate::protocol::encode_event(&event, &mut bytes).unwrap();
-            // SAFETY: The encoded event and output storage remain live for the call.
-            unsafe {
-                assert_eq!(
-                    compose_rust_host_dispatch_event(bytes.as_ptr(), bytes.len() as u32, output,),
-                    STATUS_OK
-                );
-            }
-        };
-
-        dispatch(handlers[0].0, handlers[0].1, false, &mut output);
-        assert_ne!(output.result, 0);
-        dispatch(handlers[0].0, handlers[0].1, true, &mut output);
-        assert_eq!(output.result, 0);
-        dispatch(handlers[1].0, handlers[1].1, false, &mut output);
-        assert_eq!(output.result, 0);
-        dispatch(handlers[0].0, handlers[0].1, false, &mut output);
-        assert_ne!(output.result, 0);
-        compose_rust_host_shutdown();
-    }
-
-    /// `launch` runs on the Rust main thread, but the Renderer UI thread that calls
-    /// `compose_rust_host_init` is a different thread (on macOS, AWT's event thread inside
-    /// the isolate). The app the application launched must be reachable from there.
-    #[test]
-    fn pr3_init_runs_on_a_different_thread_than_launch() {
-        let _launch = launch_guard();
-        LaunchBuilder::new()
-            .with_mode(LoopMode::Platform)
-            .launch(app);
-        let mut handshake = Vec::with_capacity(12);
-        handshake.extend_from_slice(&SCHEMA_HASH.to_le_bytes());
-        handshake.extend_from_slice(&PROTOCOL_VERSION.to_le_bytes());
-        handshake.extend_from_slice(&[LoopMode::Platform as u8, 0]);
-        std::thread::spawn(move || {
-            let mut output = MutationBatch::default();
-            // SAFETY: Both buffers are live test-owned storage for the duration of the call.
-            let status = unsafe {
-                compose_rust_host_init(handshake.as_ptr(), handshake.len() as u32, &mut output)
-            };
-            assert_eq!(status, STATUS_OK, "init must work off the launch thread");
-            assert!(output.len > 0, "init returns the initial tree batch");
-            compose_rust_host_shutdown();
-        })
-        .join()
-        .unwrap();
-    }
-
-    /// The first record of the initial batch carries the theme. Saying nothing follows the
-    /// host platform with a Material 3 fallback; `unified` is never implicit.
-    #[test]
-    fn fr14_initial_batch_opens_with_the_launched_theme() {
-        let _launch = launch_guard();
-        let first_record = |builder: LaunchBuilder| {
-            builder.with_mode(LoopMode::Platform).launch(app);
-            let mut handshake = Vec::with_capacity(12);
-            handshake.extend_from_slice(&SCHEMA_HASH.to_le_bytes());
-            handshake.extend_from_slice(&PROTOCOL_VERSION.to_le_bytes());
-            handshake.extend_from_slice(&[LoopMode::Platform as u8, 0]);
-            std::thread::spawn(move || {
-                let mut output = MutationBatch::default();
-                // SAFETY: Both buffers are live test-owned storage for this call.
-                let status = unsafe {
-                    compose_rust_host_init(handshake.as_ptr(), handshake.len() as u32, &mut output)
-                };
-                assert_eq!(status, STATUS_OK);
-                // SAFETY: A successful init returned a readable batch owned by the Host.
-                let batch = unsafe { std::slice::from_raw_parts(output.ptr, output.len as usize) };
-                let first = decode_batch(batch).unwrap().into_iter().next().unwrap();
-                compose_rust_host_shutdown();
-                first
-            })
-            .join()
-            .unwrap()
-        };
-
-        // Saying nothing follows the host platform, falling back to Material 3.
-        assert_eq!(
-            first_record(LaunchBuilder::new()),
-            Mutation::SetTheme(Theme::adaptive(DesignSystem::Material3))
-        );
-        assert_eq!(
-            first_record(LaunchBuilder::new().with_theme(Theme::unified(DesignSystem::Fluent))),
-            Mutation::SetTheme(Theme {
-                design_system: DesignSystem::Fluent,
-                fallback: DesignSystem::Fluent,
-                color_scheme: ColorScheme::FollowSystem,
-                adaptive: false,
-                fonts: [0; crate::schema::TYPE_ROLE_COUNT],
-                palette: None,
-            })
-        );
-        assert_eq!(
-            first_record(LaunchBuilder::new().with_theme(Theme::adaptive(DesignSystem::Cupertino))),
-            Mutation::SetTheme(Theme {
-                design_system: DesignSystem::Cupertino,
-                fallback: DesignSystem::Cupertino,
-                color_scheme: ColorScheme::FollowSystem,
-                adaptive: true,
-                fonts: [0; crate::schema::TYPE_ROLE_COUNT],
-                palette: None,
-            })
-        );
-    }
-
-    /// The theme is sent once, not once per frame: resending it would put a record in every
-    /// batch for a value that almost never changes.
-    #[test]
-    fn fr14_set_theme_is_not_resent_every_frame() {
-        let mut host = Host::new(app);
-        let initial = decode_batch(host.rebuild().unwrap()).unwrap();
-        assert!(matches!(initial.first(), Some(Mutation::SetTheme(_))));
-        let frame = decode_batch(host.render_frame(0).unwrap()).unwrap();
-        assert!(
-            !frame
-                .iter()
-                .any(|mutation| matches!(mutation, Mutation::SetTheme(_)))
-        );
     }
 
     #[test]

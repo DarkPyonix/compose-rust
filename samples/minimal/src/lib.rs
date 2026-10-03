@@ -13,7 +13,7 @@
 
 mod playground;
 
-use compose_rust::prelude::*;
+use dioxus_compose_adapter::prelude::*;
 use playground::{Group, LADDER, SWATCHES, hero_marks};
 
 /// The square the hero mark is drawn into.
@@ -354,7 +354,7 @@ fn surfaces_group() -> Element {
                         ("Panel", ColorRole::SurfaceContainer, ColorRole::OnSurface),
                         ("Recess", ColorRole::SurfaceVariant, ColorRole::OnSurfaceVariant),
                     ] {
-                        compose_rust::Box {
+                        dioxus_compose_adapter::Box {
                             key: "{label}",
                             weight: 1.0,
                             height: 72.0,
@@ -384,7 +384,7 @@ fn surfaces_group() -> Element {
                         ("L", ShapeRole::Large),
                         ("Full", ShapeRole::Full),
                     ] {
-                        compose_rust::Box {
+                        dioxus_compose_adapter::Box {
                             key: "{label}",
                             weight: 1.0,
                             height: 56.0,
@@ -412,7 +412,7 @@ fn surfaces_group() -> Element {
                             height: 72.0,
                             elevation: step,
                             shape_role: ShapeRole::Medium,
-                            compose_rust::Box {
+                            dioxus_compose_adapter::Box {
                                 fill_max_width: true,
                                 fill_max_height: true,
                                 alignment: Alignment::Center,
@@ -532,7 +532,7 @@ pub fn app() -> Element {
                 }
             },
 
-                        compose_rust::Box {
+                        dioxus_compose_adapter::Box {
                 fill_max_width: true,
                 weight: 1.0,
                 alignment: Alignment::TopCenter,
@@ -638,14 +638,14 @@ pub fn launch() {
 /// The theme above all: a sample that names one and then reaches a platform through an
 /// entry point that makes its own builder is a sample that draws the same screens in a
 /// different design system depending on where it runs.
-fn launch_builder() -> compose_rust::LaunchBuilder {
+fn launch_builder() -> dioxus_compose_adapter::LaunchBuilder {
     // The name the window carries. A desktop lists windows by it, so a window that said
     // nothing was listed under whatever the renderer happened to be called, and every
     // sample here was listed under the toolkit's default name until this line existed.
-    compose_rust::LaunchBuilder::new()
-        .with_theme(compose_rust::demo_theme_for(THEME))
+    dioxus_compose_adapter::LaunchBuilder::new()
+        .with_theme(dioxus_compose_adapter::demo_theme_for(THEME))
         .with_window(
-            compose_rust::schema::Window::new()
+            dioxus_compose_adapter::schema::Window::new()
                 .with_title("Minimal")
                 // The mark this sample draws on its own page, so the window in a task
                 // list and the window on screen are recognisably the same application.
@@ -653,7 +653,7 @@ fn launch_builder() -> compose_rust::LaunchBuilder {
                 // refers to them by id, because a path would be a fact about the machine
                 // this was built on and a name would ask the toolkit to find something it
                 // may not have.
-                .with_icon(compose_rust::asset::asset(
+                .with_icon(dioxus_compose_adapter::asset::asset(
                     AssetKind::Png,
                     include_bytes!("../assets/icon.png"),
                 )),
@@ -667,17 +667,17 @@ fn launch_builder() -> compose_rust::LaunchBuilder {
 // Both are declared unconditionally. Each macro compiles into nothing that runs off its
 // own platform, and gating them here instead would mean a desktop build never checks that
 // this sample can still be built for the other two.
-compose_rust::android_main!({ launch_builder() }, app);
-compose_rust::web_main!({ launch_builder() }, app);
-compose_rust::ios_main!(launch);
+dioxus_compose_adapter::android_main!({ launch_builder() }, app);
+dioxus_compose_adapter::web_main!({ launch_builder() }, app);
+dioxus_compose_adapter::ios_main!(launch);
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use compose_rust::Host;
-    use compose_rust::protocol::{Mutation, PropertyValue, decode_batch};
-    use compose_rust::schema::{PropertyKind, WidgetKind};
+    use dioxus_compose_adapter::Host;
+    use dioxus_compose_adapter::protocol::{Mutation, PropertyValue, decode_batch};
+    use dioxus_compose_adapter::schema::{PropertyKind, WidgetKind};
 
     /// Named for what it defends: the reference is a light design, and a machine set
     /// the other way drew this sample dark with nothing to compare against.
@@ -686,7 +686,7 @@ mod tests {
         // Through the wire rather than off the constant: what settles the question is the
         // record the Renderer reads, and a scheme that never leaves the Host is a scheme
         // nobody is drawn in.
-        compose_rust::window::reset_window_size();
+        dioxus_compose_adapter::window::reset_window_size();
         let mut host = Host::with_theme(app, THEME);
         let batch = host.rebuild().expect("the first frame failed").to_vec();
         let first = decode_batch(&batch)
@@ -755,11 +755,11 @@ mod tests {
             let (node_id, handler_id) = click_handler(&first, group.label())
                 .unwrap_or_else(|| panic!("the strip has no segment called {}", group.label()));
             let mut bytes = Vec::new();
-            compose_rust::protocol::encode_event(
-                &compose_rust::protocol::HostEvent {
+            dioxus_compose_adapter::protocol::encode_event(
+                &dioxus_compose_adapter::protocol::HostEvent {
                     node_id,
                     handler_id,
-                    payload: compose_rust::schema::EventPayload::Clicked,
+                    payload: dioxus_compose_adapter::schema::EventPayload::Clicked,
                 },
                 &mut bytes,
             )
@@ -785,11 +785,11 @@ mod tests {
         let (node_id, handler_id) =
             click_handler(&first, Group::Colour.label()).expect("no colour segment");
         let mut bytes = Vec::new();
-        compose_rust::protocol::encode_event(
-            &compose_rust::protocol::HostEvent {
+        dioxus_compose_adapter::protocol::encode_event(
+            &dioxus_compose_adapter::protocol::HostEvent {
                 node_id,
                 handler_id,
-                payload: compose_rust::schema::EventPayload::Clicked,
+                payload: dioxus_compose_adapter::schema::EventPayload::Clicked,
             },
             &mut bytes,
         )
@@ -843,15 +843,15 @@ mod tests {
     #[test]
     fn fr20_the_page_stops_widening_past_a_phone() {
         fn widths_at(width_dp: f32) -> Vec<f32> {
-            compose_rust::window::reset_window_size();
+            dioxus_compose_adapter::window::reset_window_size();
             let mut host = Host::new(app);
             host.rebuild().expect("the first frame failed");
             let mut bytes = Vec::new();
-            compose_rust::protocol::encode_event(
-                &compose_rust::protocol::HostEvent {
+            dioxus_compose_adapter::protocol::encode_event(
+                &dioxus_compose_adapter::protocol::HostEvent {
                     node_id: 0,
                     handler_id: 0,
-                    payload: compose_rust::schema::EventPayload::WindowSizeChanged {
+                    payload: dioxus_compose_adapter::schema::EventPayload::WindowSizeChanged {
                         width_dp,
                         height_dp: 780.0,
                         class: WindowSizeClass::from_width_dp(width_dp),
@@ -867,13 +867,13 @@ mod tests {
                 .iter()
                 .filter_map(|mutation| match mutation {
                     Mutation::SetModifier {
-                        modifier: compose_rust::Modifier::Width(dp),
+                        modifier: dioxus_compose_adapter::Modifier::Width(dp),
                         ..
                     } => Some(*dp),
                     _ => None,
                 })
                 .collect();
-            compose_rust::window::reset_window_size();
+            dioxus_compose_adapter::window::reset_window_size();
             found
         }
 
