@@ -84,8 +84,9 @@ internal suspend fun serveFrameRequests(
     awaitFrame: suspend (onFrame: (Long) -> Unit) -> Unit,
     serve: (Long) -> Unit,
     stoppedAfterMillis: Long = STOPPED_CLOCK_MILLIS,
+    alreadyServed: Long = requests.value,
 ) {
-    var applied = requests.value
+    var applied = alreadyServed
     var lastFrameNanos = 0L
     var lastFrame: TimeMark = TimeSource.Monotonic.markNow()
     requests.collect { requested ->
