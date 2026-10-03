@@ -75,6 +75,13 @@ under `docs/`.
    branches changes every file under that checkout, so a `git checkout` while an agent is
    working pulls the files out from under it. Work has been lost that way. Give a
    background agent its own worktree and leave that checkout alone until it finishes.
+8. **Work branches are named `feat/<topic>`.**
+9. **Merge with `gh pr merge --delete-branch`**, then remove the local branch and its
+   worktree.
+10. **Only `main`, `develop` and `release` stay on the remote.** A branch merged into
+    `develop` is deleted; its commits are in `develop`, so nothing is kept for it, no
+    `archive/` tag either. In the forks, `extended` and the upstream branch (`jb-main`) stay, and a branch merged
+    into `extended` is deleted the same way.
 
 ## Where files go
 
@@ -104,6 +111,32 @@ This is written down because it happened. Probes and their builds went to `/tmp`
 download went to `/tmp`, and worktrees went to `../agent-runs`, and the owner had agreed to
 none of it.
 
+## Repository root
+
+1. **Nothing new goes in the root without the owner's approval.** Not a folder, not a
+   file. Propose it first: what it is, why it is needed, and why no existing directory
+   can hold it. Then wait for the answer.
+2. The approved root entries are:
+   - folders: `.github/`, `bench/`, `compose-rust/`, `docs/`, `experiments/`,
+     `renderer/`, `samples/`, `scripts/`;
+   - files: `.gitignore`, `Cargo.toml`, `Cargo.lock`, `CHANGELOG.md`, `LICENSE`,
+     `README.md`, `AGENTS.md`, `CLAUDE.md`, `PROJECT.md`;
+   - temporary, each with the date it leaves:
+     - `adapters/`, to dioxus-compose, by 2026-10-05 (#37 step 4);
+     - `design-systems/`, to compose-multiplatform-core-extended, by 2026-10-15 (#39).
+     `bench/dioxus-baseline/` leaves with `adapters/`; `bench/` itself stays.
+
+   Ignored local directories (`.claude/`, `.scratch/`, `target/`, `build/`) are not part
+   of the tree and are covered by "Where files go" above.
+3. A crate, benchmark or tool that needs a home goes inside the folder it belongs to
+   (`compose-rust/macros/`, `bench/<name>/`, `renderer/desktop/<name>/`), not beside it.
+4. Scripts that only CI runs live in `.github/scripts/`. `scripts/tests/` is the one test
+   folder outside the crates.
+
+This is written down because it happened. One-off scripts, a stray build directory and
+a container definition each became a root folder, and the root stopped telling a reader
+what the project is made of.
+
 ## Background agents
 
 These bind the agent and whoever dispatches it equally. Both have been broken by the
@@ -127,8 +160,20 @@ the launchers inject them ahead of whatever the prompt says.
    real cost and it is the deal: the Kotlin side is verified at the merge, not in the
    worktree. **Cargo is a build too: an agent runs no `cargo build`, `test`, `check`,
    `clippy` or `run`.** Rust builds alone have overloaded this machine (load 120 to 160)
-   with several agents compiling at once. The session that merges the branch builds, one
-   build at a time with `CARGO_BUILD_JOBS=2`, or pushes and lets CI build.
+   with several agents compiling at once. The owner's words: "서브 에이전트 알바들한테는
+   러스트 빌드 시키지 마라고. 규정에도 추가시켜".
+
+   **The one exception is a single temporary builder sub-agent, and the session does not
+   build either.** The owner, 2026-10-03: "빌드 작업 니가 직접 하지 말고 서브 에이전트 하나
+   임시로 만들어서 개한테 시켜야지", "니가 작업 붙잡고 있으면 다른 일들도 진행이 안되잖아".
+   A session that holds a build holds up every other piece of work it is running, so it
+   does not run builds or tests itself. It starts one builder for them with `--builder`
+   (or `DXC_AGENT_BUILDER=1`) on any of the three launchers, and only one at a time. The
+   builder builds and tests one command at a time with `CARGO_BUILD_JOBS=2`, in its own
+   worktree and its own `target/`, never with a shared `CARGO_TARGET_DIR`, and edits no
+   code beyond the minimal fixes a build needs, which it reports with the commands it ran
+   and their output. Coding, research and documentation agents still build nothing. When
+   no builder is needed, push and let CI build.
 
 2. **A background agent never decides that part of its task is out of scope.** If the
    task says implement it, it gets implemented. No narrowing, no deferring, no "future
