@@ -88,10 +88,11 @@ under `docs/`.
    - throwaway work, probes and downloads: `.scratch/<name>/` (ignored by git);
    - experiments worth keeping: `experiments/<name>/`, committed;
    - build outputs: `target/` and `build/`, where the tools already put them.
-3. A change to another project this one builds on (Compose, skiko) is kept here as a patch
-   under `dioxus-compose-renderer/patches/`, the way the Compose patches already are, and
-   applied to a checkout inside `.scratch/`. A checkout of that project elsewhere is not
-   where the change lives.
+3. A change to Compose or skiko goes to `thisisthepy/compose-multiplatform-core-extended`
+   (branch `extended`) as a commit. This repository uses a pinned commit of that fork
+   (`dioxus-compose-renderer/scripts/build-compose.sh`,
+   `dioxus-compose-renderer/scripts/compose-fork.changes`) and builds it inside `.scratch/`.
+   No Compose or skiko change lives in this repository.
 4. Caches a toolchain keeps for itself (`~/.cargo`, `~/.rustup`, `~/.gradle`, `~/.m2`,
    `~/.konan`, cargo-xwin's cache) belong to the tool and stay where it puts them.
    Downloading or installing a tool this project does not already use is not a cache: ask
