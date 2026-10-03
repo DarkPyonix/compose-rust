@@ -80,6 +80,15 @@ enum class DesignSystemId {
 enum class ControlKind { Checkbox, RadioButton, Switch, Slider }
 
 /**
+ * Where a badge goes relative to the thing it marks.
+ *
+ * Material, Apple, Fluent, Breeze and Deepin hang a count over the top trailing corner of
+ * an icon. GNOME sets it at the end of a sidebar row instead, beside what it counts. The
+ * difference is where the mark is, not only how it looks, so it is a role and not a style.
+ */
+enum class BadgePlacement { Overlap, Trailing }
+
+/**
  * How a value is chosen, which is the part of a picker that is not a matter of styling.
  *
  * The three systems are not the same control painted differently: a Material date is

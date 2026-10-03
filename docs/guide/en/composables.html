@@ -471,6 +471,19 @@
       Rust at all, which is why the condition above is correct rather than merely convenient.
     </p>
 
+    <h3>SelectionContainer</h3>
+    <p>
+      Text is not selectable by default, so button labels and destinations are never dragged over
+      as though the screen were a document. Wrap a block of reading text in
+      <code>SelectionContainer</code> and every <code>Text</code> inside it, however deep and
+      however many, becomes one selection: a reader can drag across a paragraph, a list item and a
+      line of code in a sideways list and copy them with the platform's shortcut or context menu.
+      Each block arrives on its own line. Buttons and other controls inside stay pressable and are
+      left out of the selection. It takes no props of its own beyond the modifier attributes, and
+      nothing about selecting or copying reaches Rust: there is no event and no way to read the
+      selection, because it is the renderer's state, like scroll position and focus.
+    </p>
+
     <h2 id="controls">Controls</h2>
 
     <h3>Button</h3>
@@ -677,6 +690,19 @@
       An explanation attached to its child: <code>text</code> (<code>String</code>, required) plus
       children. It is a description as much as a hover popup, because the renderer also exposes the
       text to the accessibility tree, so a pointer is not the only way to reach it.
+    </p>
+
+    <h3>Badge</h3>
+    <p>
+      A small mark that says how many, that there is something new, or one short word.
+      <code>value</code> (<code>Option&lt;u32&gt;</code>) is a count and <code>text</code>
+      (<code>Option&lt;String&gt;</code>) a word; with neither it is a dot. <code>color</code>
+      (<code>Option&lt;ColorRole&gt;</code>) names the role it is filled with and defaults to the
+      error role; there is no literal colour. With one child the badge is attached to it, an icon or
+      a destination; with none it stands on its own, the count at the end of a row. Where it sits,
+      its shape and whether 120 is written out or cut to <code>99+</code> are the design system's,
+      so the same declaration sits on the corner in one system and at the end of the line in
+      another. What it says is read out as part of the child it is attached to, never on its own.
     </p>
 
     <h2 id="lists">Windowed lists</h2>

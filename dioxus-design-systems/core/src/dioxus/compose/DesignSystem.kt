@@ -7,6 +7,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 /**
  * The contract every design system in this project implements.
@@ -183,6 +184,26 @@ interface DesignSystem {
 
     /** The metrics of the icon family this system draws with. */
     fun icons(): IconStyle = IconStyle(size = 24.dp, strokeWidth = 2.dp, filled = false)
+
+    /**
+     * How a badge is drawn: where it sits, its size and shape, and where a count is cut.
+     *
+     * The default is a small error capsule over the corner that writes every count out,
+     * in this system's own error colours.
+     */
+    fun badge(): BadgeStyle = BadgeStyle(
+        placement = BadgePlacement.Overlap,
+        maxCount = null,
+        container = color(ColorRole.Error),
+        content = color(ColorRole.OnError),
+        height = 16.dp,
+        dotSize = 6.dp,
+        horizontalPadding = 4.dp,
+        shape = ShapeRole.Full,
+        labelSize = 11.sp,
+        ring = null,
+        ringWidth = 0.dp,
+    )
 }
 
 /**

@@ -12,6 +12,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import dioxus.compose.protocol.ButtonVariant
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
@@ -454,6 +455,28 @@ internal object Material3Rules : ComponentRules {
     )
 
     /** A snackbar: the inverse surface, low and to the leading side, with four seconds. */
+    /**
+     * Material's `Badge` in a `BadgedBox`: a small error capsule over the top end corner of
+     * an icon, and a six dp dot where there is nothing to count. A count is written out up
+     * to 999 and becomes `999+` past it, which is the ceiling the large badge is specified
+     * to hold before it would outgrow its icon.
+     */
+    override fun badge(theme: ResolvedTheme): BadgeStyle = BadgeStyle(
+        placement = BadgePlacement.Overlap,
+        maxCount = 999,
+        height = 16.dp,
+        dotSize = 6.dp,
+        horizontalPadding = 4.dp,
+        shape = theme.shape(ShapeRole.Full),
+        labelSize = 11.sp,
+        labelWeight = FontWeight.Medium,
+        offsetX = (-6).dp,
+        offsetY = 6.dp,
+        ringWidth = 0.dp,
+        ring = Color.Transparent,
+        gap = theme.space(SpaceRole.Sm),
+    )
+
     override fun message(theme: ResolvedTheme): MessageStyle = MessageStyle(
         container = theme.color(ColorRole.OnSurface),
         content = theme.color(ColorRole.Surface),
@@ -921,6 +944,28 @@ internal object CupertinoRules : ComponentRules {
      * inverted surface. Apple has no snackbar, and drawing one here would be the Material
      * answer wearing Apple's colours.
      */
+    /**
+     * The red count Apple puts on a tab bar item and an app icon: a capsule centred on the
+     * top trailing corner, written out in full however large it gets, because the system
+     * shows the real number rather than a ceiling. The dot is the larger one Apple draws
+     * for "something new", not Material's pinprick.
+     */
+    override fun badge(theme: ResolvedTheme): BadgeStyle = BadgeStyle(
+        placement = BadgePlacement.Overlap,
+        maxCount = null,
+        height = 18.dp,
+        dotSize = 10.dp,
+        horizontalPadding = 5.dp,
+        shape = theme.shape(ShapeRole.Full),
+        labelSize = 13.sp,
+        labelWeight = FontWeight.Normal,
+        offsetX = (-2).dp,
+        offsetY = 2.dp,
+        ringWidth = 0.dp,
+        ring = Color.Transparent,
+        gap = theme.space(SpaceRole.Sm),
+    )
+
     override fun message(theme: ResolvedTheme): MessageStyle = MessageStyle(
         container = theme.color(ColorRole.SurfaceContainer),
         content = theme.color(ColorRole.OnSurface),
@@ -1343,6 +1388,27 @@ internal object FluentRules : ComponentRules {
     )
 
     /** A teaching tip: a stroked layer in the corner the notifications come from. */
+    /**
+     * Fluent's `CounterBadge`: a round counter over the top end corner whose overflow count
+     * is 99, so anything larger reads `99+`. It is larger than Material's and carries a
+     * semibold figure.
+     */
+    override fun badge(theme: ResolvedTheme): BadgeStyle = BadgeStyle(
+        placement = BadgePlacement.Overlap,
+        maxCount = 99,
+        height = 20.dp,
+        dotSize = 8.dp,
+        horizontalPadding = 6.dp,
+        shape = theme.shape(ShapeRole.Full),
+        labelSize = 12.sp,
+        labelWeight = FontWeight.SemiBold,
+        offsetX = (-4).dp,
+        offsetY = 4.dp,
+        ringWidth = 0.dp,
+        ring = Color.Transparent,
+        gap = theme.space(SpaceRole.Sm),
+    )
+
     override fun message(theme: ResolvedTheme): MessageStyle = MessageStyle(
         container = theme.color(ColorRole.SurfaceContainer),
         content = theme.color(ColorRole.OnSurface),
@@ -1785,6 +1851,27 @@ internal object GnomeRules : ComponentRules {
      * the scheme. Fully rounded, which is the shape nothing else in Adwaita has, and five
      * seconds, which is what a toast is given when nobody names a time.
      */
+    /**
+     * The count pill at the end of a libadwaita sidebar row. It does not sit on a corner
+     * at all: it waits beside the thing it counts, at the end of its line, and writes the
+     * number out in full, so 120 reads as 120 at the end of the row.
+     */
+    override fun badge(theme: ResolvedTheme): BadgeStyle = BadgeStyle(
+        placement = BadgePlacement.Trailing,
+        maxCount = null,
+        height = 20.dp,
+        dotSize = 8.dp,
+        horizontalPadding = 7.dp,
+        shape = theme.shape(ShapeRole.Full),
+        labelSize = 12.sp,
+        labelWeight = FontWeight.Bold,
+        offsetX = 0.dp,
+        offsetY = 0.dp,
+        ringWidth = 0.dp,
+        ring = Color.Transparent,
+        gap = theme.space(SpaceRole.Sm),
+    )
+
     override fun message(theme: ResolvedTheme): MessageStyle = MessageStyle(
         container = OVERLAY,
         content = ON_OVERLAY,
@@ -2244,6 +2331,27 @@ internal object BreezeRules : ComponentRules {
      * than the inverted surface Material uses or the dark overlay GNOME lays over content.
      * The two timings are Kirigami's own short and long.
      */
+    /**
+     * The notification count Plasma puts on a task manager entry: a small rounded
+     * rectangle rather than a capsule, over the top end corner, cut at 99. Breeze draws
+     * its corners square enough that a pill would read as another system's.
+     */
+    override fun badge(theme: ResolvedTheme): BadgeStyle = BadgeStyle(
+        placement = BadgePlacement.Overlap,
+        maxCount = 99,
+        height = 16.dp,
+        dotSize = 6.dp,
+        horizontalPadding = 4.dp,
+        shape = theme.shape(ShapeRole.Small),
+        labelSize = 10.sp,
+        labelWeight = FontWeight.Bold,
+        offsetX = (-4).dp,
+        offsetY = 4.dp,
+        ringWidth = 0.dp,
+        ring = Color.Transparent,
+        gap = theme.space(SpaceRole.Sm),
+    )
+
     override fun message(theme: ResolvedTheme): MessageStyle = MessageStyle(
         container = theme.color(ColorRole.SurfaceContainer),
         content = theme.color(ColorRole.OnSurface),
@@ -2685,6 +2793,26 @@ internal object DeepinRules : ComponentRules {
      * notification in the corner and an application's own "done that" at the top of its
      * window, over the title bar, so this is the second of those and not a corner toast.
      */
+    /**
+     * DTK's badge: a capsule over the top end corner, cut at 99, with a thin ring in the
+     * page colour that separates it from the icon it overlaps.
+     */
+    override fun badge(theme: ResolvedTheme): BadgeStyle = BadgeStyle(
+        placement = BadgePlacement.Overlap,
+        maxCount = 99,
+        height = 18.dp,
+        dotSize = 8.dp,
+        horizontalPadding = 5.dp,
+        shape = theme.shape(ShapeRole.Full),
+        labelSize = 11.sp,
+        labelWeight = FontWeight.Medium,
+        offsetX = (-4).dp,
+        offsetY = 4.dp,
+        ringWidth = 1.5.dp,
+        ring = theme.color(ColorRole.Surface),
+        gap = theme.space(SpaceRole.Sm),
+    )
+
     override fun message(theme: ResolvedTheme): MessageStyle = MessageStyle(
         container = theme.color(ColorRole.SurfaceContainer),
         content = theme.color(ColorRole.OnSurface),
@@ -3461,6 +3589,27 @@ internal object LiquidGlassRules : ComponentRules {
      * screens are capsules with a lit edge and no line, and they are centred over the
      * window rather than tucked into a corner.
      */
+    /**
+     * Apple's count as it sits over glass: the same full number on the same corner as
+     * Cupertino, with a ring of the page colour so the red reads as a separate mark over a
+     * translucent bar rather than bleeding into what shows through it.
+     */
+    override fun badge(theme: ResolvedTheme): BadgeStyle = BadgeStyle(
+        placement = BadgePlacement.Overlap,
+        maxCount = null,
+        height = 18.dp,
+        dotSize = 10.dp,
+        horizontalPadding = 5.dp,
+        shape = theme.shape(ShapeRole.Full),
+        labelSize = 13.sp,
+        labelWeight = FontWeight.Normal,
+        offsetX = (-2).dp,
+        offsetY = 2.dp,
+        ringWidth = 2.dp,
+        ring = theme.color(ColorRole.Background),
+        gap = theme.space(SpaceRole.Sm),
+    )
+
     override fun message(theme: ResolvedTheme): MessageStyle = MessageStyle(
         container = theme.color(ColorRole.SurfaceContainer),
         content = theme.color(ColorRole.OnSurface),

@@ -525,6 +525,79 @@ interface ComponentRules {
         borderColor = Color.Transparent,
         typeRole = TypeRole.Body,
     )
+
+    /**
+     * How a badge is drawn: where it sits on what it is attached to, what shape it is, and
+     * how a large count is written.
+     *
+     * The Host sends a count, a word or neither, and a colour role. Whether the mark
+     * overlaps the corner of an icon or waits at the end of a row, and whether 120 is
+     * written out or cut to `99+`, are this system's answers, and the same declaration
+     * comes out differently under each of them.
+     *
+     * The default is the overlapping capsule most of these systems draw, writing every
+     * count out, in this system's own colours.
+     */
+    fun badge(theme: ResolvedTheme): BadgeStyle = BadgeStyle(
+        placement = BadgePlacement.Overlap,
+        maxCount = null,
+        height = 16.dp,
+        dotSize = 6.dp,
+        horizontalPadding = 4.dp,
+        shape = theme.shape(ShapeRole.Full),
+        labelSize = 11.sp,
+        labelWeight = FontWeight.Medium,
+        offsetX = (-4).dp,
+        offsetY = 4.dp,
+        ringWidth = 0.dp,
+        ring = Color.Transparent,
+        gap = theme.space(SpaceRole.Sm),
+    )
+}
+
+/**
+ * Where a badge goes relative to the thing it is attached to.
+ *
+ * `Overlap` centres the mark on the top trailing corner and lets it hang over the edge,
+ * the way an unread count sits on an icon. `Trailing` sets it beside the thing at the end
+ * of its line, the way a sidebar row carries its count. A badge with nothing attached is
+ * drawn on its own under either.
+ */
+enum class BadgePlacement { Overlap, Trailing }
+
+/** Everything a badge needs from the design system, answered in one call. */
+data class BadgeStyle(
+    val placement: BadgePlacement,
+    /**
+     * The largest count written out in full. Above it the mark reads as this number and a
+     * plus. Null where this system writes every count out.
+     */
+    val maxCount: Int?,
+    /** The height of a mark that carries a count or a word. It is never narrower. */
+    val height: Dp,
+    /** The diameter of a mark that carries neither. */
+    val dotSize: Dp,
+    val horizontalPadding: Dp,
+    val shape: Shape,
+    val labelSize: TextUnit,
+    val labelWeight: FontWeight,
+    /**
+     * How far an overlapping mark is moved from being centred on the corner. Negative x
+     * moves it in towards the start, positive y moves it down onto the child.
+     */
+    val offsetX: Dp,
+    val offsetY: Dp,
+    /** A ring around the mark that separates it from what it overlaps. Zero for none. */
+    val ringWidth: Dp,
+    val ring: Color,
+    /** The room between the thing and a trailing mark. */
+    val gap: Dp,
+) {
+    /** What a count reads as here: written out, or cut at this system's ceiling. */
+    fun label(count: Long): String {
+        val ceiling = maxCount ?: return count.toString()
+        return if (count > ceiling) "$ceiling+" else count.toString()
+    }
 }
 
 /** Which end of the caption the window buttons sit at. */

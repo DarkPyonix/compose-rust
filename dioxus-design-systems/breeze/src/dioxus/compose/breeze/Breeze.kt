@@ -11,6 +11,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dioxus.compose.BadgePlacement
+import dioxus.compose.BadgeStyle
 import dioxus.compose.ButtonStyle
 import dioxus.compose.ButtonVariant
 import dioxus.compose.ColorRole
@@ -320,6 +322,25 @@ class BreezeDesignSystem private constructor(
         pressMillis = 100,
         releaseMillis = 80,
         easing = CubicBezierEasing(0.4f, 0.0f, 0.6f, 1.0f),
+    )
+
+    /**
+     * Plasma's notification count: a small rounded rectangle over the corner, cut at 99,
+     * because Breeze's corners are square enough that a capsule would read as another
+     * system's.
+     */
+    override fun badge(): BadgeStyle = BadgeStyle(
+        placement = BadgePlacement.Overlap,
+        maxCount = 99,
+        container = color(ColorRole.Error),
+        content = color(ColorRole.OnError),
+        height = 16.dp,
+        dotSize = 6.dp,
+        horizontalPadding = 4.dp,
+        shape = ShapeRole.Small,
+        labelSize = 10.sp,
+        ring = null,
+        ringWidth = 0.dp,
     )
 
     companion object {

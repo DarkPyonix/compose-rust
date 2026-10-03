@@ -20,6 +20,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import dioxus.compose.BadgePlacement
+import dioxus.compose.BadgeStyle
 import dioxus.compose.ButtonStyle
 import dioxus.compose.ButtonVariant
 import dioxus.compose.ColorRole
@@ -213,6 +216,24 @@ class Material3DesignSystem(
         pressMillis = 100,
         releaseMillis = 100,
         easing = StandardEasing,
+    )
+
+    /**
+     * Material's `Badge`: a small error capsule over the top end corner, a six dp dot, and
+     * a count written out to 999 before it becomes `999+`.
+     */
+    override fun badge(): BadgeStyle = BadgeStyle(
+        placement = BadgePlacement.Overlap,
+        maxCount = 999,
+        container = color(ColorRole.Error),
+        content = color(ColorRole.OnError),
+        height = 16.dp,
+        dotSize = 6.dp,
+        horizontalPadding = 4.dp,
+        shape = ShapeRole.Full,
+        labelSize = 11.sp,
+        ring = null,
+        ringWidth = 0.dp,
     )
 
     companion object {
