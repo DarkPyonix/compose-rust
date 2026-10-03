@@ -2076,3 +2076,16 @@ int32_t dxc_native_text_settings(int32_t which, char *out, int32_t capacity) {
     (void)capacity;
     return -1;
 }
+
+/**
+ * The zoom level in the user defaults, which this platform does not have. The renderer
+ * keeps it in a file in the application's configuration directory instead, from Kotlin.
+ */
+int32_t dxc_native_zoom_level_load(int32_t *out) {
+    (void)out;
+    return 0;
+}
+
+void dxc_native_zoom_level_store(int32_t level) {
+    (void)level;
+}

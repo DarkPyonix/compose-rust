@@ -6,6 +6,7 @@
 package dev.darkpyonix.composerust.ui.platform
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -16,6 +17,8 @@ import androidx.compose.ui.platform.PlatformTextInputMethodRequest
 import androidx.compose.ui.platform.WindowInfo
 import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.unit.IntSize
+import dev.darkpyonix.composerust.runtime.LocalZoom
+import dev.darkpyonix.composerust.runtime.Zoom
 import java.lang.System
 import kotlinx.cinterop.ByteVar
 import kotlinx.cinterop.CPointer
@@ -265,14 +268,18 @@ internal class LinuxWindow private constructor(
         }
 
     /**
-     * The reader's text size, from what the desktop publishes to X clients: GNOME's text
-     * scaling factor, KDE's font DPI. Asked again once a turn, which costs a look at a
-     * connection that has heard nothing until the desktop changes one of them.
+     * The zoom the window is drawn at.
+     *
+     * The reader's text size comes from what the desktop publishes to X clients (GNOME's
+     * text scaling factor, KDE's font DPI), asked again once a turn, which costs a look at a
+     * connection that has heard nothing until the desktop changes one of them. The
+     * application's zoom level is stepped with Control and plus, minus or zero and kept in
+     * the application's configuration directory.
      */
-    private val textScale = TextScale(nativeLinuxTextScale())
+    private val zoom = Zoom(nativeLinuxTextScale(), nativeLinuxZoomLevelStore())
 
     private val scene = CanvasLayersComposeScene(
-        density = textScale.density(DENSITY),
+        density = zoom.density(DENSITY),
         size = measured,
         coroutineContext = work,
         platformContext = platformContext,
@@ -292,7 +299,7 @@ internal class LinuxWindow private constructor(
      */
     private val frames = WindowFrames(
         { WindowMeasurement(measured.width, measured.height, DENSITY) },
-        textScale,
+        zoom,
     ) { size, density ->
         // Told to the scene here, in the frame that is about to be drawn at that size, because
         // a framebuffer that fits and a scene that does not is a window drawing its old size
@@ -319,7 +326,7 @@ internal class LinuxWindow private constructor(
     }
 
     fun setContent(content: @Composable () -> Unit) {
-        scene.setContent(content)
+        scene.setContent { CompositionLocalProvider(LocalZoom provides zoom, content) }
     }
 
     /**
@@ -373,18 +380,25 @@ internal class LinuxWindow private constructor(
                 // own work, and a list that asked for rows on the last frame wants them in hand
                 // before this one is measured.
                 work.runPending()
-                // A text size the reader changed. Nothing in the scene has invalidated, but
-                // every line of text in it is about to be laid out again, so it is drawn.
-                val rescaled = textScale.refresh()
                 drained.clear()
                 log.drain(drained)
                 for (event in drained) {
                     if (reportInput && event.kind != WindowEvent.POINTER_MOVE) {
                         System.err.println("compose-rust: window heard $event")
                     }
-                    scene.receive(event)
+                    val consumed = scene.receive(event)
+                    // Control with plus, minus or zero, where the scene left the key alone.
+                    if (event.kind == WindowEvent.KEY_DOWN) {
+                        zoom.takeShortcut(
+                            x11ZoomShortcut(event.codePoint, event.modifiers.toLong()),
+                            consumed,
+                        )
+                    }
                     textInput.receive(event)
                 }
+                // A text size the reader changed, or a zoom level. Nothing in the scene has
+                // invalidated, but all of it is about to be laid out again, so it is drawn.
+                val rescaled = zoom.refresh()
                 // Only when there is something to draw. A window that is being resized has
                 // already had its frame drawn by the resize, and a window where nothing is
                 // happening should leave the screen alone.

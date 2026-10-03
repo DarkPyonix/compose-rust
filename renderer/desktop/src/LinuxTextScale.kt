@@ -69,22 +69,38 @@ fun linuxTextScale(settings: LinuxTextSettings): () -> Float {
  * 4. `Xft.dpi` from the X resource database, which is where a desktop with no settings
  *    manager, and KDE's settings module on apply, put the font DPI.
  *
+ * **KDE's global scale is not a text size, and is taken back out.** On X11, setting
+ * Plasma's global scale writes it into the font DPI as well: a scale of 2 forces a font DPI
+ * of 192 and records `ScaleFactor=2` under `[KScreen]` in `kdeglobals`. Read as it stands,
+ * that DPI would draw text twice the size inside a layout drawn at the original size. So in
+ * a KDE session every DPI is divided by that factor first, and what is left is the text
+ * size the reader chose on top of the scale: 192 at a scale of 2 is 1, and 240 at a scale
+ * of 2 is 1.25. Where the two cannot be told apart (a session that records no factor) the
+ * factor is taken to be 1, which is the setting KDE writes when there is no global scale.
+ *
  * Nothing found is the default size.
  */
 internal fun resolveLinuxTextScale(settings: LinuxTextSettings): Float {
-    if (isKdeSession(settings.environment)) {
-        kdeForcedFontDpi(settings)?.let { return it / BASE_DPI }
-    }
-    val announced = settings.xsettings()?.let(::parseXSettingsIntegers).orEmpty()
-    announced["Gdk/UnscaledDPI"]?.takeIf { it > 0 }?.let { return it / XSETTINGS_DPI_UNIT / BASE_DPI }
-    announced["Xft/DPI"]?.takeIf { it > 0 }?.let { return it / XSETTINGS_DPI_UNIT / BASE_DPI }
-    settings.resources()?.let(::resourceFontDpi)?.let { return it / BASE_DPI }
-    return 1f
+    val kde = isKdeSession(settings.environment)
+    // One where this is not KDE, or KDE records no global scale.
+    val globalScale = if (kde) kdeGlobalScale(settings) else 1f
+    val dpi = run dpi@{
+        if (kde) kdeForcedFontDpi(settings)?.let { return@dpi it }
+        val announced = settings.xsettings()?.let(::parseXSettingsIntegers).orEmpty()
+        announced["Gdk/UnscaledDPI"]?.takeIf { it > 0 }?.let { return@dpi it / XSETTINGS_DPI_UNIT }
+        announced["Xft/DPI"]?.takeIf { it > 0 }?.let { return@dpi it / XSETTINGS_DPI_UNIT }
+        settings.resources()?.let(::resourceFontDpi)
+    } ?: return 1f
+    return dpi / (BASE_DPI * globalScale)
 }
 
 private fun isKdeSession(environment: (String) -> String?): Boolean =
     environment("KDE_FULL_SESSION") != null ||
         environment("XDG_CURRENT_DESKTOP")?.split(':')?.any { it.equals("KDE", ignoreCase = true) } == true
+
+private fun kdeConfigHome(settings: LinuxTextSettings): String? =
+    settings.environment("XDG_CONFIG_HOME")?.takeIf { it.isNotEmpty() }
+        ?: settings.environment("HOME")?.let { "$it/.config" }
 
 /**
  * KDE's forced font DPI, from the files KDE's font settings write.
@@ -94,10 +110,7 @@ private fun isKdeSession(environment: (String) -> String?): Boolean =
  * Zero is KDE's own way of saying the DPI is not forced.
  */
 private fun kdeForcedFontDpi(settings: LinuxTextSettings): Float? {
-    val home = settings.environment("HOME")
-    val configHome = settings.environment("XDG_CONFIG_HOME")?.takeIf { it.isNotEmpty() }
-        ?: home?.let { "$it/.config" }
-        ?: return null
+    val configHome = kdeConfigHome(settings) ?: return null
     for (name in KDE_FONT_FILES) {
         val text = settings.readFile("$configHome/$name") ?: continue
         kdeConfigFontDpi(text)?.let { return it }
@@ -105,7 +118,32 @@ private fun kdeForcedFontDpi(settings: LinuxTextSettings): Float? {
     return null
 }
 
+/** Plasma's global scale, `ScaleFactor` under `[KScreen]` in `kdeglobals`, or 1 where none. */
+private fun kdeGlobalScale(settings: LinuxTextSettings): Float {
+    val configHome = kdeConfigHome(settings) ?: return 1f
+    val text = settings.readFile("$configHome/kdeglobals") ?: return 1f
+    return kdeConfigGlobalScale(text) ?: 1f
+}
+
 private val KDE_FONT_FILES = listOf("kcmfonts", "kdeglobals")
+
+/** The `ScaleFactor` entry of the `[KScreen]` group, where it is a scale at all. */
+internal fun kdeConfigGlobalScale(text: String): Float? {
+    var group = ""
+    for (line in text.lineSequence()) {
+        val trimmed = line.trim()
+        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+            group = trimmed.substring(1, trimmed.length - 1)
+            continue
+        }
+        if (group != "KScreen") continue
+        val separator = trimmed.indexOf('=')
+        if (separator < 0 || trimmed.substring(0, separator).trim() != "ScaleFactor") continue
+        val value = trimmed.substring(separator + 1).trim().toFloatOrNull() ?: continue
+        if (value > 0f) return value
+    }
+    return null
+}
 
 /** The `forceFontDPI` entry of a KDE configuration file, where it forces anything. */
 internal fun kdeConfigFontDpi(text: String): Float? {

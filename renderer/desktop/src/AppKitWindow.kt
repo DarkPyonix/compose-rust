@@ -3,6 +3,9 @@
 
 package dev.darkpyonix.composerust.ui.platform
 
+import androidx.compose.runtime.CompositionLocalProvider
+import dev.darkpyonix.composerust.runtime.LocalZoom
+import dev.darkpyonix.composerust.runtime.Zoom
 import org.graalvm.nativeimage.StackValue
 import org.graalvm.nativeimage.c.function.CFunction
 import org.graalvm.nativeimage.c.type.CCharPointer
@@ -391,19 +394,23 @@ internal fun runAppKitSpike() {
     // there: a list asking for the rows it is about to show asked from a thread with no
     // Host and was told nothing had been initialised.
     val work = FrameDispatcher()
-    // macOS publishes no text size an application can read, so the reader sets one here
-    // with Command and plus, minus or zero, the way Apple's own applications are zoomed.
-    val zoom = TextZoom()
-    val textScale = TextScale { zoom.fontScale }
+    // The zoom the window is drawn at. macOS publishes no text size an application can
+    // read, so the system's share is one; the application's zoom level is stepped with
+    // Command and plus, minus or zero and kept in the user defaults.
+    val zoom = Zoom(store = appKitZoomLevelStore())
     val scene = CanvasLayersComposeScene(
-        density = textScale.density(measured.scale),
+        density = zoom.density(measured.scale),
         size = size,
         coroutineContext = work,
         platformContext = NativePlatformContext({ size }, textInput, semantics),
     )
     // The application's own tree, drawn by the same interpreter the toolkit path uses.
     // Nothing in it knows which of the two it is running on, which is the point.
-    scene.setContent { dev.darkpyonix.composerust.runtime.ComposeRustContent(host) }
+    scene.setContent {
+        CompositionLocalProvider(LocalZoom provides zoom) {
+            dev.darkpyonix.composerust.runtime.ComposeRustContent(host)
+        }
+    }
     installApplicationMenu(asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust")
 
     try {
@@ -436,31 +443,27 @@ internal fun runAppKitSpike() {
                     size = androidx.compose.ui.unit.IntSize(event.x.toInt(), event.y.toInt())
                     scene.size = size
                 }
-                // Command with plus, minus or zero zooms the window's text. Taken here and
-                // not handed on, press and release both, so a field that has focus does
-                // not also see a shortcut it has no meaning for.
-                if (event.kind == WindowEvent.KEY_DOWN || event.kind == WindowEvent.KEY_UP) {
-                    val shortcut =
-                        macZoomShortcut(event.codePoint, event.keyCode, event.modifiers.toLong())
-                    if (shortcut != null) {
-                        val zoomed = event.kind == WindowEvent.KEY_DOWN && zoom.apply(shortcut)
-                        if (zoomed && textScale.refresh()) {
-                            scene.density = textScale.density(window.measure().scale)
-                        }
-                        heard = true
-                        continue
-                    }
+                val consumed = scene.receive(event)
+                // Command with plus, minus or zero, where the scene left the key alone.
+                if (event.kind == WindowEvent.KEY_DOWN) {
+                    zoom.takeShortcut(
+                        macZoomShortcut(event.codePoint, event.keyCode, event.modifiers.toLong()),
+                        consumed,
+                    )
                 }
-                scene.receive(event)
                 textInput.receive(event)
                 heard = true
             }
+            // A zoom level the keys or the application changed. Nothing in the scene has
+            // invalidated, but all of it is about to be laid out again at another size.
+            val rescaled = zoom.refresh()
+            if (rescaled) scene.density = zoom.density(window.measure().scale)
             // Only when there is something to draw. Every frame reaches the window by
             // asking the main thread for a drawable and waiting for it, and the main
             // thread is where AppKit answers everything else: sixty of those a second
             // left the input method unable to reach this process at all, which showed up
             // as every letter being committed on its own instead of composing.
-            if (!painted || heard || scene.hasInvalidations()) {
+            if (!painted || heard || rescaled || scene.hasInvalidations()) {
                 drawFrame(window, context, scene, clock.frameTimeNanos(), size)
                 painted = true
                 drew = true

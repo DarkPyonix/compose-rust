@@ -32,8 +32,45 @@ import dev.darkpyonix.composerust.ui.platform.WebHostConnection
 fun main() {
     // Before the Host: its first batch may already post a notification.
     dev.darkpyonix.composerust.ui.platform.Notifications.platform = dev.darkpyonix.composerust.ui.platform.WebNotifications()
+    // Where the application's zoom level is kept between visits: the page's local storage,
+    // which is the origin's own.
+    dev.darkpyonix.composerust.runtime.platformZoomLevelStore = { LocalStorageZoomLevel }
     val connection: HostConnection = WebHostConnection.install() ?: m0DemoHost()
     ComposeViewport {
         ComposeRustContent(rememberComposeRustHost(remember { connection }), Modifier.fillMaxSize())
     }
 }
+
+/** The application's zoom level in the page's local storage. */
+private object LocalStorageZoomLevel : dev.darkpyonix.composerust.runtime.ZoomLevelStore {
+    override fun load(): Int? = loadZoomLevel().takeIf { it != NO_LEVEL }
+        ?.let(dev.darkpyonix.composerust.runtime::clampZoomLevel)
+
+    override fun save(level: Int) = saveZoomLevel(dev.darkpyonix.composerust.runtime.clampZoomLevel(level))
+}
+
+/** What [loadZoomLevel] answers where nothing is saved, outside any level there can be. */
+private const val NO_LEVEL = -1000
+
+// Storage a browser refuses (a private window, a blocked origin) is no saved level, and a
+// level that cannot be saved is still the level on screen.
+private fun loadZoomLevel(): Int = js(
+    """(() => {
+        try {
+            const saved = window.localStorage.getItem("compose-rust.zoom-level");
+            const level = saved === null ? NaN : parseInt(saved, 10);
+            return Number.isNaN(level) ? -1000 : level;
+        } catch (e) {
+            return -1000;
+        }
+    })()"""
+)
+
+private fun saveZoomLevel(level: Int): Unit = js(
+    """{
+        try {
+            window.localStorage.setItem("compose-rust.zoom-level", String(level));
+        } catch (e) {
+        }
+    }"""
+)

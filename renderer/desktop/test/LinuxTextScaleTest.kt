@@ -1,8 +1,9 @@
 package dev.darkpyonix.composerust.test
 
 import dev.darkpyonix.composerust.ui.platform.LinuxTextSettings
-import dev.darkpyonix.composerust.ui.platform.TextScale
+import dev.darkpyonix.composerust.runtime.Zoom
 import dev.darkpyonix.composerust.ui.platform.kdeConfigFontDpi
+import dev.darkpyonix.composerust.ui.platform.kdeConfigGlobalScale
 import dev.darkpyonix.composerust.ui.platform.linuxTextScale
 import dev.darkpyonix.composerust.ui.platform.parseXSettingsIntegers
 import dev.darkpyonix.composerust.ui.platform.resourceFontDpi
@@ -41,7 +42,7 @@ class LinuxTextScaleTest {
     )
 
     @Test
-    fun gnome_text_scaling_factor_is_read_from_its_unscaled_dpi() {
+    fun fr43_gnome_text_scaling_factor_is_read_from_its_unscaled_dpi() {
         // GNOME at a text scaling factor of 1.25 on a display it scales by two: Xft/DPI counts
         // both, the unscaled DPI only the text.
         xsettings = xsettingsBytes(
@@ -55,14 +56,14 @@ class LinuxTextScaleTest {
     }
 
     @Test
-    fun a_settings_manager_with_only_xft_dpi_is_read_from_that() {
+    fun fr43_a_settings_manager_with_only_xft_dpi_is_read_from_that() {
         xsettings = xsettingsBytes(littleEndian = false, "Xft/DPI" to 144 * 1024)
 
         assertEquals(1.5f, linuxTextScale(settings)())
     }
 
     @Test
-    fun kde_forced_font_dpi_wins_in_a_kde_session() {
+    fun fr43_kde_forced_font_dpi_wins_in_a_kde_session() {
         environment["XDG_CURRENT_DESKTOP"] = "KDE"
         files["/home/reader/.config/kcmfonts"] = "[General]\nforceFontDPI=120\n"
         xsettings = xsettingsBytes(littleEndian = true, "Xft/DPI" to 96 * 1024)
@@ -72,7 +73,7 @@ class LinuxTextScaleTest {
     }
 
     @Test
-    fun kde_font_dpi_in_kdeglobals_is_read_where_kcmfonts_forces_nothing() {
+    fun fr43_kde_font_dpi_in_kdeglobals_is_read_where_kcmfonts_forces_nothing() {
         environment["KDE_FULL_SESSION"] = "true"
         environment["XDG_CONFIG_HOME"] = "/elsewhere"
         files["/elsewhere/kcmfonts"] = "[General]\nforceFontDPI=0\n"
@@ -81,22 +82,57 @@ class LinuxTextScaleTest {
         assertEquals(1.5f, linuxTextScale(settings)())
     }
 
+    /**
+     * Plasma's global scale on X11 is written into the font DPI too. It is a display scale,
+     * not a text size, so it is taken back out: a scale of 2 forces 192, which is text at its
+     * default size.
+     */
     @Test
-    fun kde_files_outside_a_kde_session_are_not_read() {
+    fun fr43_kde_global_scale_is_not_counted_as_a_text_size() {
+        environment["XDG_CURRENT_DESKTOP"] = "KDE"
+        files["/home/reader/.config/kcmfonts"] = "[General]\nforceFontDPI=192\n"
+        files["/home/reader/.config/kdeglobals"] = "[General]\nfont=Noto Sans\n\n[KScreen]\nScaleFactor=2\n"
+
+        assertEquals(1f, linuxTextScale(settings)())
+
+        // A larger font DPI on top of the scale is the reader's text size.
+        files["/home/reader/.config/kcmfonts"] = "[General]\nforceFontDPI=240\n"
+        assertEquals(1.25f, linuxTextScale(settings)())
+    }
+
+    /** The same factor comes off a DPI the resource database carries in a KDE session. */
+    @Test
+    fun fr43_kde_global_scale_comes_off_the_resource_database_too() {
+        environment["KDE_FULL_SESSION"] = "true"
+        files["/home/reader/.config/kdeglobals"] = "[KScreen]\nScaleFactor=1.5\n"
+        resources = "Xft.dpi:\t144\n"
+
+        assertEquals(1f, linuxTextScale(settings)())
+    }
+
+    @Test
+    fun kde_global_scale_is_read_only_from_its_own_group() {
+        assertNull(kdeConfigGlobalScale("[General]\nScaleFactor=2\n"))
+        assertEquals(2f, kdeConfigGlobalScale("[General]\nx=1\n[KScreen]\nScaleFactor=2\n"))
+        assertNull(kdeConfigGlobalScale("[KScreen]\nScaleFactor=0\n"))
+    }
+
+    @Test
+    fun fr43_kde_files_outside_a_kde_session_are_not_read() {
         files["/home/reader/.config/kcmfonts"] = "[General]\nforceFontDPI=192\n"
 
         assertEquals(1f, linuxTextScale(settings)())
     }
 
     @Test
-    fun the_resource_database_answers_where_no_settings_manager_runs() {
+    fun fr43_the_resource_database_answers_where_no_settings_manager_runs() {
         resources = "Xcursor.size:\t24\n*Xft.dpi:\t120\nXft.antialias:\t1\n"
 
         assertEquals(1.25f, linuxTextScale(settings)())
     }
 
     @Test
-    fun nothing_published_is_the_default_size() {
+    fun fr43_nothing_published_is_the_default_size() {
         assertEquals(1f, linuxTextScale(settings)())
     }
 
@@ -105,20 +141,20 @@ class LinuxTextScaleTest {
      * read again until it is announced.
      */
     @Test
-    fun a_changed_setting_is_read_when_the_desktop_announces_it() {
+    fun fr43_a_changed_setting_is_read_when_the_desktop_announces_it() {
         xsettings = xsettingsBytes(littleEndian = true, "Gdk/UnscaledDPI" to 96 * 1024)
-        val scale = TextScale(linuxTextScale(settings))
-        assertEquals(1f, scale.fontScale)
+        val scale = Zoom(linuxTextScale(settings))
+        assertEquals(1f, scale.os)
 
         // The reader moves GNOME's slider. The property changes, and so does the serial.
         xsettings = xsettingsBytes(littleEndian = true, "Gdk/UnscaledDPI" to 96 * 1024 * 3 / 2)
         repeat(3) { scale.refresh() }
-        assertEquals(1f, scale.fontScale, "not read again until the desktop says so")
+        assertEquals(1f, scale.os, "not read again until the desktop says so")
         val readsBefore = reads
 
         serial++
         assertTrue(scale.refresh())
-        assertEquals(1.5f, scale.fontScale)
+        assertEquals(1.5f, scale.os)
         repeat(3) { scale.refresh() }
         assertEquals(readsBefore + 1, reads, "read once per announced change, not once a frame")
     }

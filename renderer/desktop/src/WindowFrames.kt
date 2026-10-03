@@ -2,6 +2,7 @@ package dev.darkpyonix.composerust.ui.platform
 
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
+import dev.darkpyonix.composerust.runtime.Zoom
 
 /**
  * The one place a frame is drawn from, whoever asked for it.
@@ -24,10 +25,10 @@ data class WindowMeasurement(val width: Int, val height: Int, val scale: Float)
 internal class WindowFrames(
     private val measure: () -> WindowMeasurement,
     /**
-     * The reader's text scale as the window holds it. Read at the moment of drawing, beside
-     * the size, so a frame never pairs a new text size with an old Density.
+     * The zoom the window is drawn at. Read at the moment of drawing, beside the size, so a
+     * frame never pairs a new zoom with an old Density.
      */
-    private val textScale: TextScale = TextScale { 1f },
+    private val zoom: Zoom = Zoom(),
     private val paint: (IntSize, Density) -> Unit,
 ) {
 
@@ -54,7 +55,7 @@ internal class WindowFrames(
         }
         painting = true
         try {
-            paint(IntSize(measured.width, measured.height), textScale.density(measured.scale))
+            paint(IntSize(measured.width, measured.height), zoom.density(measured.scale))
         } finally {
             painting = false
         }

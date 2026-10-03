@@ -677,6 +677,7 @@ import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.ui.platform.AndroidNotifications
 import dev.darkpyonix.composerust.ui.platform.ComposeRustRuntime
 import dev.darkpyonix.composerust.ui.platform.installSystemChrome
+import dev.darkpyonix.composerust.ui.platform.installZoomLevelStore
 
 class MainActivity : ComponentActivity() {{
     // Registered before the Activity starts, which is the only time the platform allows.
@@ -691,6 +692,8 @@ class MainActivity : ComponentActivity() {{
         // over them, and the renderer decides whether the clock and the gesture bar are
         // dark or light against what it drew.
         installSystemChrome(this)
+        // Where the application's zoom level is kept between runs: its own preferences.
+        installZoomLevelStore(this)
         super.onCreate(savedInstanceState)
         ComposeRustRuntime.load("{library}")
         // Before the Host: a press on a notification that started this process is in the

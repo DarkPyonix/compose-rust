@@ -260,12 +260,54 @@ fun rememberStartedComposeRustHost(host: ComposeRustHost): ComposeRustHost {
  *
  * Frame requests coming from Host worker threads coalesce into at most one `render_frame`
  * per frame, inside `withFrameNanos`.
+ *
+ * Drawn at the window's zoom. A desktop window holds its [Zoom] and has already given its
+ * scene the Density it makes; inside a platform's own Compose host there is none, so one is
+ * made here, takes the system's text size from the font scale the host already carries, and
+ * is applied around the content.
  */
 @Composable
 fun ComposeRustContent(
     host: ComposeRustHost,
     modifier: Modifier = Modifier,
     caption: WindowCaption = WindowCaption.None,
+) {
+    val provided = LocalZoom.current
+    if (provided != null) {
+        ZoomReporter(host, provided)
+        ComposeRustTree(host, modifier, caption)
+        return
+    }
+    val base = LocalDensity.current
+    val zoom = remember { Zoom(store = platformZoomLevelStore()) }
+    SideEffect { zoom.followOs(base.fontScale) }
+    val apple = remember {
+        (hostPlatformOverride ?: detectHostPlatform()).let {
+            it == HostPlatform.Ios || it == HostPlatform.MacOs
+        }
+    }
+    CompositionLocalProvider(
+        LocalDensity provides zoomedDensity(base.density, zoom.app, base.fontScale),
+        LocalZoom provides zoom,
+    ) {
+        ZoomReporter(host, zoom)
+        // `onKeyEvent` rather than the preview: it runs after everything inside has had the
+        // key, so a key the application consumed never reaches it.
+        ComposeRustTree(
+            host,
+            modifier.onKeyEvent { event ->
+                zoom.takeShortcut(composeZoomShortcut(event, apple), consumedByApplication = false)
+            },
+            caption,
+        )
+    }
+}
+
+@Composable
+private fun ComposeRustTree(
+    host: ComposeRustHost,
+    modifier: Modifier,
+    caption: WindowCaption,
 ) {
     val frames = LocalFrameRequests.current
     LaunchedEffect(host, frames) {

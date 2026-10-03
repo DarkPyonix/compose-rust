@@ -864,3 +864,29 @@ int32_t dxc_native_text_settings(int32_t which, char *out, int32_t capacity) {
     (void)capacity;
     return -1;
 }
+
+#pragma mark - The application's zoom level
+
+// Kept in the user defaults, which are one domain per application already: a bundled
+// application's own identifier, or the executable's name for one that is not bundled.
+static NSString *const dxc_zoom_level_key = @"ComposeRustZoomLevel";
+
+/** Writes the saved level into `out` and answers 1, or answers 0 where none was saved. */
+int32_t dxc_native_zoom_level_load(int32_t *out) {
+    @autoreleasepool {
+        id saved = [NSUserDefaults.standardUserDefaults objectForKey:dxc_zoom_level_key];
+        if (![saved isKindOfClass:NSNumber.class]) {
+            return 0;
+        }
+        if (out != NULL) {
+            *out = (int32_t)[(NSNumber *)saved intValue];
+        }
+        return 1;
+    }
+}
+
+void dxc_native_zoom_level_store(int32_t level) {
+    @autoreleasepool {
+        [NSUserDefaults.standardUserDefaults setInteger:level forKey:dxc_zoom_level_key];
+    }
+}

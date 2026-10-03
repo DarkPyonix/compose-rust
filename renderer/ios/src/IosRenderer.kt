@@ -71,6 +71,9 @@ private class RendererAppDelegate : UIResponder, UIApplicationDelegateProtocol {
         // process goes, because pressing one is how the application is started again, and
         // bringing the application up is the system's own part of pressing one.
         Notifications.platform = AppleNotifications(withdrawAtExit = false, bringToFront = {})
+        // Where the application's zoom level is kept between runs: the user defaults, which
+        // are already the application's own.
+        dev.darkpyonix.composerust.runtime.platformZoomLevelStore = { UserDefaultsZoomLevel }
         val window = UIWindow(frame = UIScreen.mainScreen.bounds)
         val content = ComposeUIViewController {
             ComposeRustContent(
@@ -97,5 +100,23 @@ private class RendererAppDelegate : UIResponder, UIApplicationDelegateProtocol {
         window.makeKeyAndVisible()
         mainWindow = window
         return true
+    }
+}
+
+/** The application's zoom level in the user defaults. */
+private object UserDefaultsZoomLevel : dev.darkpyonix.composerust.runtime.ZoomLevelStore {
+    private const val KEY = "ComposeRustZoomLevel"
+
+    override fun load(): Int? {
+        val defaults = platform.Foundation.NSUserDefaults.standardUserDefaults
+        if (defaults.objectForKey(KEY) == null) return null
+        return dev.darkpyonix.composerust.runtime.clampZoomLevel(defaults.integerForKey(KEY).toInt())
+    }
+
+    override fun save(level: Int) {
+        platform.Foundation.NSUserDefaults.standardUserDefaults.setInteger(
+            dev.darkpyonix.composerust.runtime.clampZoomLevel(level).toLong(),
+            KEY,
+        )
     }
 }

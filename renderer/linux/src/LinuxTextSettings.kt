@@ -14,13 +14,19 @@ import kotlinx.cinterop.get
 import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.ptr
 import kotlinx.cinterop.readBytes
+import kotlinx.cinterop.set
 import kotlinx.cinterop.staticCFunction
 import kotlinx.cinterop.toKString
 import kotlinx.cinterop.value
+import dev.darkpyonix.composerust.runtime.ZoomLevelStore
+import platform.posix.S_IRWXU
 import platform.posix.fclose
 import platform.posix.fopen
+import platform.posix.fputs
 import platform.posix.fread
 import platform.posix.getenv
+import platform.posix.mkdir
+import platform.posix.readlink
 import x11.Atom
 import x11.ClientMessage
 import x11.DestroyNotify
@@ -238,6 +244,46 @@ private fun noteSettingsError(display: CPointer<Display>?, error: CPointer<XErro
     return 0
 }
 
+/**
+ * Where this window keeps the application's zoom level: a file in the application's own
+ * configuration directory, named after its executable.
+ */
+internal fun nativeLinuxZoomLevelStore(): ZoomLevelStore {
+    val path = zoomLevelPath(ConfigLayout.Linux, applicationIdentity(executablePath())) { name ->
+        getenv(name)?.toKString()
+    } ?: return ZoomLevelStore.None
+    return ZoomLevelFile(path, read = ::readTextFile, write = ::writeTextFile)
+}
+
+/** The program this renderer is linked into, as the kernel names it. */
+private fun executablePath(): String? = memScoped {
+    val buffer = allocArray<ByteVar>(PATH_BYTES)
+    val length = readlink("/proc/self/exe", buffer, (PATH_BYTES - 1).toULong()).toInt()
+    if (length <= 0) return null
+    buffer[length] = 0.toByte()
+    buffer.toKString()
+}
+
+/**
+ * Writes a whole text file, making each missing directory above it. Answers whether the
+ * file was written.
+ */
+private fun writeTextFile(path: String, text: String): Boolean {
+    var slash = path.indexOf('/', startIndex = 1)
+    while (slash > 0) {
+        // A directory that is already there answers with an error, which is the answer
+        // wanted; one that cannot be made is found out when the file cannot be opened.
+        mkdir(path.substring(0, slash), S_IRWXU.toUInt())
+        slash = path.indexOf('/', startIndex = slash + 1)
+    }
+    val file = fopen(path, "w") ?: return false
+    try {
+        return fputs(text, file) >= 0
+    } finally {
+        fclose(file)
+    }
+}
+
 /** A whole text file, or null where it cannot be read. */
 private fun readTextFile(path: String): String? {
     val file = fopen(path, "r") ?: return null
@@ -261,3 +307,4 @@ private const val NONE: ULong = 0uL
 private const val ANY_PROPERTY_TYPE: ULong = 0uL
 private const val SUCCESS = 0
 private const val FILE_CHUNK = 4096
+private const val PATH_BYTES = 4096

@@ -12,7 +12,10 @@ import org.graalvm.nativeimage.c.type.CCharPointer
 import org.graalvm.nativeimage.c.type.CIntPointer
 import org.graalvm.nativeimage.c.type.CFloatPointer
 import org.graalvm.nativeimage.c.type.CTypeConversion
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.asComposeCanvas
+import dev.darkpyonix.composerust.runtime.LocalZoom
+import dev.darkpyonix.composerust.runtime.Zoom
 import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.scene.ComposeScene
 import androidx.compose.ui.unit.IntSize
@@ -331,19 +334,25 @@ internal fun runWin32Window() {
     // there: a list asking for the rows it is about to show asked from a thread with no
     // Host and was told nothing had been initialised.
     val work = FrameDispatcher()
-    // The reader's text size from Windows' accessibility settings, held between frames and
-    // asked again once a turn. What the scene is given is the display's scale and this
-    // together, so neither is ever drawn stale beside the other.
-    val textScale = TextScale(::windowsTextScale)
+    // The zoom the window is drawn at: the reader's text size from Windows' accessibility
+    // settings, asked again once a turn, and the application's zoom level, stepped with
+    // Control and plus, minus or zero and kept in the application's configuration
+    // directory. What the scene is given is the display's scale and these together, so
+    // none of them is ever drawn stale beside the others.
+    val zoom = Zoom(::windowsTextScale, fileZoomLevelStore(ConfigLayout.Windows))
     val scene = CanvasLayersComposeScene(
-        density = textScale.density(measured.scale),
+        density = zoom.density(measured.scale),
         size = size,
         coroutineContext = work,
         platformContext = NativePlatformContext({ size }, textInput, semantics),
     )
     // The application's own tree, drawn by the same interpreter the toolkit path uses.
     // Nothing in it knows which of the two it is running on, which is the point.
-    scene.setContent { dev.darkpyonix.composerust.runtime.ComposeRustContent(host) }
+    scene.setContent {
+        CompositionLocalProvider(LocalZoom provides zoom) {
+            dev.darkpyonix.composerust.runtime.ComposeRustContent(host)
+        }
+    }
 
     // What a frame is, wherever the ask comes from. The loop below is one caller and the
     // window's own resize handling is the other, and they draw the same frame.
@@ -356,7 +365,7 @@ internal fun runWin32Window() {
         // them in hand before this one is measured, and during a drag of the window's
         // edge this is the only place that runs at all.
         work.runPending()
-        val at = drawFrame(window, context, scene, textScale, nanos)
+        val at = drawFrame(window, context, scene, zoom, nanos)
         if (at != null) {
             size = at
             painted = true
@@ -381,9 +390,6 @@ internal fun runWin32Window() {
             // at all.
             pumpWindowEvents(if (busy) 0.0 else FRAME_SECONDS)
             work.runPending()
-            // The reader moved the text size slider. Nothing in the scene has invalidated,
-            // but every line of text in it is about to be laid out again, so it is drawn.
-            val rescaled = textScale.refresh()
             var heard = false
             for (event in drainWindowEvents()) {
                 if (report && event.kind != WindowEvent.POINTER_MOVE) {
@@ -391,10 +397,18 @@ internal fun runWin32Window() {
                 }
                 // Told which desktop it is, because the key numbers differ: the shared
                 // table is macOS's, and without this Home arrives as Enter.
-                scene.receive(event, win32 = true)
+                val consumed = scene.receive(event, win32 = true)
+                // Control with plus, minus or zero, where the scene left the key alone.
+                if (event.kind == WindowEvent.KEY_DOWN) {
+                    zoom.takeShortcut(win32ZoomShortcut(event.codePoint, event.modifiers), consumed)
+                }
                 textInput.receive(event)
                 heard = true
             }
+            // The reader moved the text size slider, or the zoom level changed. Nothing in
+            // the scene has invalidated, but all of it is about to be laid out again at
+            // another size, so it is drawn.
+            val rescaled = zoom.refresh()
             // Only when there is something to draw. A window that is being looked at
             // rather than used should cost a comparison a frame.
             if (!painted || heard || rescaled || scene.hasInvalidations()) {
@@ -432,7 +446,7 @@ private fun drawFrame(
     window: Win32NativeWindow,
     context: org.jetbrains.skia.DirectContext,
     scene: ComposeScene,
-    textScale: TextScale,
+    zoom: Zoom,
     nanos: Long,
 ): IntSize? {
     val resource = window.beginFrame()
@@ -441,7 +455,7 @@ private fun drawFrame(
     // refitted is refitted, and what is measured here is the buffer that came back.
     val measured = window.measure()
     val fitted = IntSize(measured.width, measured.height)
-    val density = textScale.density(measured.scale)
+    val density = zoom.density(measured.scale)
     // The window was resized, moved onto a screen of another density, or the reader changed
     // the text size. Told to the scene here, because a buffer that fits and a scene that
     // does not is a window drawing its old size into a corner of its new one.
