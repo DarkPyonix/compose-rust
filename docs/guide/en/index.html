@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en" class="landing">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>compose-rust: declarative UI in Rust, rendered by Compose Multiplatform</title>
+<meta name="description" content="compose-rust lets you write declarative UI in Rust with Dioxus and have an AOT-compiled Compose Multiplatform renderer draw it. Native desktop UI with no webview and no bundled JVM.">
+<link rel="canonical" href="http://darkpyonix.dev/compose-rust/en/">
+<link rel="alternate" hreflang="en" href="http://darkpyonix.dev/compose-rust/en/">
+<link rel="alternate" hreflang="ko" href="http://darkpyonix.dev/compose-rust/ko/">
+<link rel="alternate" hreflang="x-default" href="http://darkpyonix.dev/compose-rust/en/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="compose-rust">
+<meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="ko_KR">
+<meta property="og:title" content="compose-rust: declarative UI in Rust, rendered by Compose">
+<meta property="og:description" content="Write declarative UI in Rust with Dioxus. An AOT-compiled Compose Multiplatform renderer draws it. No webview, no bundled JVM.">
+<meta property="og:url" content="http://darkpyonix.dev/compose-rust/en/">
+<meta property="og:image" content="http://darkpyonix.dev/compose-rust/assets/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="compose-rust: declarative UI in Rust, rendered by Compose">
+<meta name="twitter:description" content="Write declarative UI in Rust with Dioxus. An AOT-compiled Compose Multiplatform renderer draws it. No webview, no bundled JVM.">
+<meta name="twitter:image" content="http://darkpyonix.dev/compose-rust/assets/og.png">
+<link rel="stylesheet" href="../assets/style.css?v=20">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareSourceCode",
+  "name": "compose-rust",
+  "description": "Declarative UI in Rust, rendered by an AOT-compiled Compose Multiplatform engine.",
+  "codeRepository": "https://github.com/DarkPyonix/compose-rust",
+  "url": "http://darkpyonix.dev/compose-rust/",
+  "programmingLanguage": ["Rust", "Kotlin"],
+  "license": "https://www.apache.org/licenses/LICENSE-2.0",
+  "runtimePlatform": "macOS"
+}
+</script>
+<script>(function(){try{var t=localStorage.getItem("dxc-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <a class="brand" href="./"><span class="dot" aria-hidden="true"></span>compose-rust</a>
+  <span class="spacer"></span>
+  <nav class="langswitch" aria-label="Language">
+    <a href="./" aria-current="true" hreflang="en">EN</a>
+    <a href="../ko/" hreflang="ko">KO</a>
+  </nav>
+  <button id="themetoggle" class="ghost" type="button" data-dark="Dark" data-light="Light" aria-pressed="false">Dark</button>
+</header>
+
+<main id="main">
+  <div class="herowrap">
+    <div class="backdrop" aria-hidden="true">
+      <svg class="tree" viewBox="0 0 400 300" preserveAspectRatio="xMidYMid meet" focusable="false" aria-hidden="true">
+        <g class="still">
+          <rect x="10" y="10" width="380" height="280" rx="14"/>
+          <rect x="34" y="42" width="116" height="16" rx="5"/>
+          <rect x="168" y="42" width="34" height="16" rx="8"/>
+          <rect x="34" y="84" width="332" height="30" rx="7"/>
+          <rect x="34" y="124" width="332" height="30" rx="7"/>
+          <rect x="34" y="164" width="332" height="30" rx="7"/>
+          <rect x="34" y="222" width="332" height="44" rx="10"/>
+          <rect class="caret" x="52" y="236" width="2" height="16" rx="1"/>
+        </g>
+        <g class="lit">
+          <rect x="168" y="42" width="34" height="16" rx="8" style="--at:0s"/>
+          <rect x="34" y="124" width="332" height="30" rx="7" style="--at:4.6s"/>
+          <rect x="34" y="222" width="332" height="44" rx="10" style="--at:9.8s"/>
+          <rect class="caret" x="52" y="236" width="2" height="16" rx="1" style="--at:11.4s"/>
+          <rect x="34" y="84" width="332" height="30" rx="7" style="--at:16.6s"/>
+        </g>
+      </svg>
+    </div>
+    <span class="edge" aria-hidden="true"></span>
+  <section class="hero">
+    <h1>Declarative UI in Rust,<span class="said">rendered by Compose.</span></h1>
+    <p class="lede">You write components with <code>rsx!</code>, hooks and signals. An AOT-compiled
+      Compose Multiplatform renderer draws them, with Compose's text layout, its widgets and the
+      platform IME.</p>
+    <p class="sub">Native desktop UI in Rust with no webview and no bundled JVM.</p>
+    <div class="cta">
+      <a class="btn" href="getting-started.html">Get started</a>
+      <a class="btn secondary" href="overview.html">Read the guide</a>
+      <a class="btn secondary" href="https://github.com/DarkPyonix/compose-rust">GitHub</a>
+    </div>
+      <ul class="claims">
+        <li>No webview</li>
+        <li>No JVM in the shipped binary</li>
+        <li>Platform IME, including Korean</li>
+        <li>Zero-copy boundary</li>
+      </ul>
+  </section>
+  </div>
+
+  <div class="showcase" id="how">
+<pre><code><span class="k">rsx!</span> {
+    <span class="t">Column</span> {
+        <span class="a">fill_max_width</span>: <span class="k">true</span>,
+        <span class="t">Text</span> { <span class="a">text</span>: <span class="s">"Messages"</span> }
+        <span class="t">TextField</span> {
+            <span class="a">placeholder</span>: <span class="s">"Say something"</span>,
+            <span class="c">// Enter submits, Shift+Enter breaks the line</span>
+            <span class="a">on_key_down</span>: <span class="k">move</span> |e| {
+                <span class="k">if</span> e.key() == <span class="t">Key</span>::Enter &amp;&amp; !e.shift_key() {
+                    submit();
+                    e.consume();
+                }
+            },
+        }
+    }
+}</code></pre>
+    <div class="note">
+      <h2>One language for the UI, one engine for the pixels</h2>
+      <p>The Rust side owns your components and your state. The Kotlin side owns the pixels,
+        the text stack and the input method. Between them sits a narrow C ABI: synchronous,
+        same-thread, and zero-copy, so a keystroke gets its answer inside the same frame.</p>
+      <p>Nothing is serialised. There is no async bridge, no webview, and no JVM in the
+        shipped binary.</p>
+    </div>
+  </div>
+
+  <div class="metrics">
+    <div class="metric"><b>35.1 MB</b><span>Physical footprint of an open window, measured on an M1</span></div>
+    <div class="metric"><b>12.5 &micro;s</b><span>Click to diff to encoded batch, p99</span></div>
+    <div class="metric"><b>0</b><span>Allocations per frame at the boundary</span></div>
+    <div class="metric"><b>No JVM</b><span>The desktop build runs on a machine without Java</span></div>
+  </div>
+  <p class="fineprint">Measured on a Mac mini (M1, 16 GiB, macOS 26.5.1), release build. See
+    <a href="architecture.html">Architecture</a> for how these are obtained.</p>
+
+  <section>
+    <h2>Where it stands today</h2>
+    <table>
+      <thead><tr><th>Platform</th><th>State</th></tr></thead>
+      <tbody>
+        <tr><td>macOS desktop</td><td>Works end to end, including Korean IME input</td></tr>
+        <tr><td>Windows, Linux desktop</td><td>Builds and starts</td></tr>
+        <tr><td>iOS</td><td>Builds and starts (XCFramework)</td></tr>
+        <tr><td>Android</td><td>Designed, not implemented</td></tr>
+        <tr><td>Web</td><td>Boundary settled by measurement; not implemented</td></tr>
+      </tbody>
+    </table>
+    <p class="fineprint">This is an early project and it says so plainly. The
+      <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/SPEC.md">specification</a>
+      records what is agreed, what is drafted and what is still unproven.</p>
+  </section>
+
+  <section>
+    <h2>Start here</h2>
+    <div class="cards">
+      <a class="card" href="getting-started.html"><h3>Getting started</h3><p>Install the toolchain, build the renderer, run the demo.</p></a>
+      <a class="card" href="writing-ui.html"><h3>Writing UI</h3><p>Widgets, modifiers, events, and the text field rules that keep IME composition intact.</p></a>
+      <a class="card" href="composables.html"><h3>Composable reference</h3><p>Every composable, its props and defaults, the role vocabulary, and where each one keeps its state.</p></a>
+      <a class="card" href="design-systems.html"><h3>Design systems</h3><p>Material 3, Cupertino and Fluent, unified or following the host platform.</p></a>
+      <a class="card" href="architecture.html"><h3>Architecture</h3><p>The Host and Renderer split, the protocol, and the frame model.</p></a>
+    </div>
+  </section>
+</main>
+
+<footer class="site">
+  <div class="inner">
+    <span>compose-rust &middot; Apache License 2.0</span>
+    <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/INTENT.md">INTENT.md</a></span>
+  </div>
+</footer>
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

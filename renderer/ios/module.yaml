@@ -1,0 +1,29 @@
+# The renderer for iOS (SPEC NFR-4, M5, INTENT D3).
+#
+# The interpreter sources are the same files the desktop native image builds: `src/shared/`
+# holds symlinks into `desktop/src/`, so there is one copy of the interpreter and one copy of
+# the generated protocol. Everything else under `src/` is the iOS half of the boundary:
+# Kotlin/Native `@CName` entry points instead of GraalVM `@CEntryPoint`, and dlsym instead
+# of `@CFunction`.
+#
+# `kotlin build` produces a klib. The static library the Host links is produced by
+# `desktop/scripts/build-ios.sh`, which runs the Kotlin/Native compiler with `-produce static`.
+product:
+  type: lib
+  platforms: [ iosArm64, iosSimulatorArm64 ]
+
+dependencies:
+  - $compose.runtime
+  - $compose.foundation
+  - $compose.material3
+  - $compose.ui
+
+test-dependencies:
+  - $kotlin.test
+
+settings:
+  compose: enabled
+  kotlin:
+    optIns:
+      - kotlinx.cinterop.ExperimentalForeignApi
+      - kotlinx.cinterop.BetaInteropApi

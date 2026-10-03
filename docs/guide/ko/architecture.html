@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>아키텍처 · compose-rust 가이드</title>
+<meta name="description" content="Host/Renderer 분리, C ABI 표면, zero-copy 프로토콜, 프레임 모델, macOS 런타임 레이아웃.">
+<link rel="alternate" hreflang="en" href="../en/architecture.html">
+<link rel="alternate" hreflang="ko" href="architecture.html">
+<link rel="alternate" hreflang="x-default" href="../en/architecture.html">
+<link rel="stylesheet" href="../assets/style.css?v=20">
+<script>(function(){try{var t=localStorage.getItem("dxc-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+</head>
+<body>
+<a class="skip" href="#main">본문으로 건너뛰기</a>
+
+<header class="topbar">
+  <a class="brand" href="./"><span class="dot" aria-hidden="true"></span>compose-rust <small>가이드</small></a>
+  <span class="spacer"></span>
+  <button id="navtoggle" class="ghost" type="button" aria-expanded="false" aria-controls="sidebar">메뉴</button>
+  <nav class="langswitch" aria-label="언어">
+    <a href="../en/architecture.html" hreflang="en">EN</a>
+    <a href="architecture.html" aria-current="true" hreflang="ko">KO</a>
+  </nav>
+  <button id="themetoggle" class="ghost" type="button" data-dark="다크" data-light="라이트" aria-pressed="false">다크</button>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <nav aria-label="가이드">
+      <h2>가이드</h2>
+      <ul>
+        <li><a href="overview.html">개요</a></li>
+        <li><a href="getting-started.html">시작하기</a></li>
+        <li><a href="writing-ui.html">UI 작성하기</a></li>
+        <li><a href="composables.html">컴포저블 레퍼런스</a></li>
+        <li><a href="lists-and-streaming.html">목록과 스트리밍</a></li>
+        <li><a href="design-systems.html">디자인 시스템</a></li>
+        <li><a href="architecture.html" aria-current="page">아키텍처</a></li>
+        <li><a href="troubleshooting.html">문제 해결</a></li>
+      </ul>
+      <h2>이 페이지</h2>
+      <ul>
+        <li><a href="#split">Host와 Renderer</a></li>
+        <li><a href="#abi">C ABI 표면</a></li>
+        <li><a href="#protocol">프로토콜</a></li>
+        <li><a href="#frames">프레임 모델</a></li>
+        <li><a href="#codegen">스키마 코드젠</a></li>
+        <li><a href="#runtimes">어디서 무엇이 도는가</a></li>
+        <li><a href="#macos">macOS 런타임</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <main id="main">
+    <p class="eyebrow">아키텍처</p>
+    <h1>두 쪽, 그리고 아주 좁은 경계 하나</h1>
+    <p class="lede">
+      Rust는 Compose를 직접 호출하지 않습니다. 할 수도 없습니다. GraalVM의
+      <code>@CEntryPoint</code>는 primitive와 word 크기 값만 넘길 수 있어서
+      <code>Modifier</code>나 <code>MutableState</code> 같은 객체는 경계를 넘지 못합니다. 대신
+      Rust는 UI 트리를 값으로 <em>기술</em>하고, Kotlin이 고정된 스키마를 해석하는 인터프리터를
+      돌립니다. Redwood와 Jetpack Glance가 쓰는 것과 같은 방식입니다.
+    </p>
+
+    <h2 id="split">Host와 Renderer</h2>
+    <figure class="codeblock">
+      <figcaption>스택</figcaption>
+<pre><code><span class="c">┌──────────────── Host (Rust) ─────────────────┐</span>
+<span class="c">│</span> 사용자 컴포넌트 (rsx!, hooks, signals)        <span class="c">│</span>
+<span class="c">│</span> dioxus-core VirtualDom                       <span class="c">│</span>
+<span class="c">│</span> compose-rust renderer: Mutations → bytes   <span class="c">│</span>
+<span class="c">└──────────────────┬───────────────────────────┘</span>
+                   <span class="c">│</span> UI 스레드에서의 동기 직접 호출
+                   <span class="c">│</span> + 호출마다 배치 버퍼 하나
+<span class="c">┌──────────────────┴──── Renderer (Kotlin) ────┐</span>
+<span class="c">│</span> 생성된 심 (@CEntryPoint / @CName / …)        <span class="c">│</span>
+<span class="c">│</span> 프로토콜 디코더 → 노드 테이블 (snapshot)      <span class="c">│</span>
+<span class="c">│</span> 스키마 인터프리터: @Composable RenderNode     <span class="c">│</span>
+<span class="c">│</span> Compose Desktop (AWT) / Compose iOS (UIKit)  <span class="c">│</span>
+<span class="c">└──────────────────────────────────────────────┘</span></code></pre>
+    </figure>
+
+    <dl>
+      <dt>Host</dt>
+      <dd>Rust 프로세스. 사용자 컴포넌트와 도메인 로직, VirtualDom을 소유합니다.</dd>
+      <dt>Renderer</dt>
+      <dd>AOT 컴파일된 Kotlin/Compose 네이티브 라이브러리. 스키마 인터프리터를 포함합니다.</dd>
+      <dt>Schema</dt>
+      <dd>렌더러가 이해하는 위젯 타입, 속성, Modifier, 이벤트의 닫힌 집합입니다.</dd>
+      <dt>Mutation</dt>
+      <dd>트리 변경 명령 한 단위: <code>Create</code>, <code>SetProp</code>, <code>SetModifier</code>, <code>Insert</code>, <code>Move</code>, <code>Remove</code>, <code>SetText</code>, <code>AppendText</code>.</dd>
+      <dt>Event</dt>
+      <dd>반대 방향으로 올라오는 알림. <code>(node_id, handler_id, payload)</code>로 주소를 지정합니다.</dd>
+    </dl>
+
+    <h2 id="abi">C ABI 표면</h2>
+    <p>
+      경계는 의도적으로 작고, 여기에 무언가를 더하려면 명세를 고쳐야 합니다. 모델은 옛 React
+      Native 브리지가 아니라 JSI입니다. 같은 스레드, 직접 호출, 동기 반환값.
+    </p>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>c: Renderer → Host (Rust가 export)</figcaption>
+<pre><code><span class="ty">int32_t</span> <span class="f">compose_rust_host_init</span>(<span class="k">const</span> <span class="ty">uint8_t</span>* handshake, <span class="ty">uint32_t</span> len, <span class="ty">MutationBatch</span>* out);
+<span class="ty">int32_t</span> <span class="f">compose_rust_host_dispatch_event</span>(<span class="k">const</span> <span class="ty">uint8_t</span>* event, <span class="ty">uint32_t</span> len, <span class="ty">MutationBatch</span>* out);
+<span class="ty">int32_t</span> <span class="f">compose_rust_host_render_frame</span>(<span class="ty">uint64_t</span> frame_time_nanos, <span class="ty">MutationBatch</span>* out);
+<span class="ty">void</span>    <span class="f">compose_rust_host_release_batch</span>(<span class="ty">MutationBatch</span>* batch);
+<span class="ty">void</span>    <span class="f">compose_rust_host_shutdown</span>(<span class="ty">void</span>);</code></pre>
+    </figure>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>c: Host → Renderer (Kotlin이 export)</figcaption>
+<pre><code><span class="ty">int32_t</span> <span class="f">compose_rust_renderer_run</span>(<span class="ty">void</span>);            <span class="c">/* 블로킹. LoopMode::Renderer 전용 */</span>
+<span class="ty">void</span>    <span class="f">compose_rust_renderer_request_frame</span>(<span class="ty">void</span>);  <span class="c">/* 스레드 안전 */</span></code></pre>
+    </figure>
+
+    <p>이것이 표면 전부입니다. 여기서 두 가지가 따라옵니다.</p>
+    <ul>
+      <li>넘어가는 것은 primitive와 포인터, 길이뿐입니다. 객체도 클로저도 넘지 않습니다.</li>
+      <li>Rust 쪽도 렌더러 라이브러리도 <code>-undefined,dynamic_lookup</code>으로 링크합니다.
+          서로의 심볼은 프로세스가 로드될 때 해석됩니다.</li>
+    </ul>
+
+    <p>
+      핸드셰이크에서는 스키마 해시와 프로토콜 버전, 루프 모드를 교환합니다. 해시가 다르면 UI가
+      미묘하게 어긋나는 대신 초기화가 실패합니다. Rust 쪽 상태 코드는 성공이 <code>0</code>이고,
+      프로토콜 오류·미초기화·중복 초기화·붙잡은 패닉이 음수입니다. 경계를 넘어 unwind하는 것은
+      없습니다. 프로토콜 오류는 프로세스 종료가 아니라 <code>ProtocolError</code> 이벤트가 되어야
+      하기 때문입니다.
+    </p>
+
+    <h2 id="protocol">프로토콜</h2>
+    <p>
+      양쪽이 한 프로세스 안에 있으므로, 인코딩의 목표는 전송량이 아니라 복사 최소화입니다.
+      레코드는 고정 레이아웃이고 제자리에서 읽습니다. 디코드 단계도, 핫 패스의 serde류 포맷도
+      없습니다.
+    </p>
+    <ul>
+      <li>레코드는 <code>tag: u16</code>, <code>len: u16</code>, 그다음 고정 필드
+          (<code>node_id: u32</code> 등)입니다. 리틀 엔디언에 4바이트 정렬입니다.</li>
+      <li>문자열은 같은 arena에 두고 <code>(offset: u32, len: u32)</code>로 참조합니다. UTF-8이고,
+          렌더러는 Compose에 넘기는 순간에만 Kotlin <code>String</code>을 만듭니다.</li>
+      <li>배치 자체는 <code>#[repr(C)] struct MutationBatch { ptr, len, result }</code>이며,
+          프레임마다 재사용하는 Host 소유 arena를 가리킵니다. <code>result</code>에는 핸들러의 동기
+          반환값이 들어갑니다. 키 이벤트라면 소비 여부입니다.</li>
+    </ul>
+    <p>
+      배치는 단일 스냅샷 트랜잭션으로 적용되므로 중간 상태가 화면에 그려질 수 없습니다. 렌더러는
+      같은 호출 스택 안에서 배치를 적용하고 즉시 해제합니다. 쌓아 두는 배치는 없습니다.
+    </p>
+    <p>
+      텍스트 변경 이벤트 하나의 목표치는 경계 호출 2회(<code>dispatch_event</code>,
+      <code>release_batch</code>)와 렌더러 쪽 힙 할당 1회 이하, 즉 Compose
+      <code>String</code> 생성뿐입니다.
+    </p>
+
+    <h2 id="frames">프레임 모델</h2>
+    <ol>
+      <li>렌더러가 입력을 받아 자기 UI 스레드에서 <code>dispatch_event</code>를 호출합니다.</li>
+      <li>Host가 핸들러를 실행하고, VirtualDom을 diff하고, mutation을 arena에 인코딩해 배치와
+          결과값을 돌려줍니다.</li>
+      <li>렌더러가 배치를 스냅샷 하나로 적용하고 해제한 뒤, 결과값을 Compose에 알립니다. 예를 들면
+          <code>onKeyEvent</code>의 <code>true</code>입니다.</li>
+      <li>상태를 바꾼 워커 스레드 때문에 프레임 요청이 발생하고, 요청들은 다음 Compose 프레임 클록
+          안에서 <code>render_frame</code> 한 번으로 합쳐집니다.</li>
+    </ol>
+    <p>
+      VirtualDom은 자기 전용 스레드가 아니라 렌더러의 UI 스레드에서 돕니다. 그래서 락도, 큐도
+      필요 없습니다. 이 설계에서 스레드를 넘는 통신은 프레임 요청 wake 하나뿐입니다. 핸들러
+      실행 중에 요청된 프레임은 핸들러가 끝날 때까지 보류되므로, dispatch 도중에 렌더러로 다시
+      들어가는 일은 없습니다.
+    </p>
+
+    <h2 id="codegen">스키마 코드젠</h2>
+    <p>
+      C ABI는 바이트만 나르기 때문에 타입 안전은 그 위에 얹습니다. 위젯, 속성, Modifier, 이벤트
+      페이로드를 Rust에서 한 번 정의하고 Kotlin 타입과 코덱을 생성합니다. 생성물이 낡으면
+      저장소의 테스트가 실패하고, 핸드셰이크의 스키마 해시가 양쪽을 대조합니다. JNI나 cinterop
+      글루를 손으로 쓰는 사람은 없습니다.
+    </p>
+
+    <h2 id="runtimes">어디서 무엇이 도는가</h2>
+    <p>
+      렌더러는 두 가지로 빌드됩니다. Compose를 그 플랫폼의 타깃으로 빌드할 수 있는 곳에서는
+      플랫폼용으로 직접 컴파일되고, 결과물 안에 가상 머신이 없습니다. 그럴 수 없는 곳에서는
+      자바 런타임을 품은 네이티브 이미지가 됩니다.
+    </p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">플랫폼</th><th scope="col">빌드 방식</th><th scope="col">자바 런타임</th></tr></thead>
+        <tbody>
+          <tr><td>macOS</td><td>Kotlin/Native</td><td>없음</td></tr>
+          <tr><td>Linux</td><td>Kotlin/Native</td><td>없음</td></tr>
+          <tr><td>Windows</td><td>네이티브 이미지</td><td>있음</td></tr>
+          <tr><td>Web</td><td>Kotlin/Wasm</td><td>없음</td></tr>
+          <tr><td>iOS</td><td>Kotlin/Native</td><td>없음</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      그 차이가 무게의 대부분입니다. 메모장 샘플은 macOS에서 옆에 아무것도 두지 않는 28.76MB짜리
+      파일 하나이고, Linux에서는 37.93MB입니다. 같은 샘플을 네이티브 이미지로 빌드했을 때는 파일
+      넷에 93.1MB였습니다. 늘어난 쪽은 Compose도 이 프로젝트의 코드도 아니라, 자바 런타임과 닫힌
+      세계로 컴파일할 때 붙는 메타데이터입니다.
+    </p>
+    <p>
+      Windows는 고른 것이 아닙니다. Compose가 Windows용 UI 계층을 네이티브 타깃으로 발행하지
+      않고, 두 겹으로 막혀 있습니다. Kotlin의 그쪽 타깃은 MinGW이고 Skia의 빌드는 MSVC라,
+      아티팩트가 있었더라도 링크가 성립하지 않습니다. Linux도 발행되지는 않지만 빌드를 막는 것은
+      없어서, 이 프로젝트는 Linux 타깃을 더한 Compose 포크를 커밋 하나에 고정해 Linux 타깃을
+      직접 빌드합니다.
+    </p>
+    <div class="note">
+      <span class="label">응용 프로그램은 어느 쪽인지 모릅니다</span>
+      <p>
+        경계는 양쪽 모두 같은 C ABI이고, 프로토콜은 같은 바이트이며, 인터프리터는 같은
+        소스입니다. 여러분이 쓰는 코드는 달라지지 않습니다.
+      </p>
+    </div>
+
+    <h2 id="macos">macOS 런타임</h2>
+    <p>
+      창은 이 렌더러가 직접 만든 <code>NSWindow</code>이며, Compose가 이 플랫폼용으로 열어 주는
+      창이 아닙니다. Compose의 창도 제대로 그려지지만, 그 안의 무엇에도 이름이 없습니다. 화면
+      낭독기에는 제목과 타이틀 바 버튼 셋만 전달되고, 애플리케이션이 그린 컨트롤은 하나도 보이지
+      않습니다. 창을 직접 소유하는 것이 내용을 읽을 수 있게 만드는 조건입니다.
+    </p>
+    <p>
+      뷰의 백킹 레이어는 <code>CAMetalLayer</code>이고, Skia는 Metal 컨텍스트를 통해 그 드로어블에
+      그립니다. 레이어는 <code>presentsWithTransaction</code>을 켠 상태로 만들어지므로, 프레임은
+      창 크기를 바꾸는 트랜잭션이 끝난 다음이 아니라 그 안에서 표시됩니다. 드래그하는 동안 내용이
+      창 가장자리를 따라오는지 뒤처지는지를 가르는 지점입니다. 이전에는 빠르게 끌면 간격이
+      350픽셀까지 벌어졌고, 지금은 벌어지지 않습니다.
+    </p>
+    <p>
+      텍스트는 플랫폼을 우회하지 않고 통과합니다. 뷰가 <code>NSTextInputClient</code>를 구현하므로
+      조합 중인 텍스트와 후보 창, 한국어와 일본어와 중국어 조합은 입력기 자신의 일이 되고, 선택
+      영역이 내주는 메뉴는 시스템이 그리는 실제 <code>NSMenu</code>입니다.
+    </p>
+    <p>
+      런타임에 파일 경로로 로드되는 것은 없고, 실행 파일 옆에 놓이는 것도 없습니다. Skia와
+      Compose, 인터프리터, 애플리케이션의 코드는 링커가 바이너리 안으로 접어 넣는 정적 라이브러리
+      하나입니다. 배포물이 파일 하나인 이유입니다.
+    </p>
+    <p>
+      프로세스 구조를 결정짓는 macOS 사실이 하나 더 있습니다. AppKit은 메인 스레드를 요구합니다.
+      렌더러는 호출된 그 스레드에서 <code>NSApplication</code>을 만들어 실행하고, 그 호출은 창이
+      닫힐 때 돌아옵니다. 따라서 <code>compose_rust_renderer_run</code>은 프로세스 메인
+      스레드에서 호출해야 하고, 아니면 <code>RUN_NOT_MAIN_THREAD</code>를 반환합니다.
+    </p>
+
+    <nav class="pagenav" aria-label="페이지 이동">
+      <a class="prev" href="design-systems.html"><span>이전</span>&larr; 디자인 시스템</a>
+      <a class="next" href="troubleshooting.html"><span>다음</span>문제 해결 &rarr;</a>
+    </nav>
+  </main>
+</div>
+
+<footer class="site">
+  <div class="inner">
+    <span>compose-rust &middot; Apache License 2.0</span>
+    <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/INTENT.md">INTENT.md</a></span>
+    <span>이 가이드는 2026-09-28 기준 저장소 내용과 대조했습니다</span>
+  </div>
+</footer>
+
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

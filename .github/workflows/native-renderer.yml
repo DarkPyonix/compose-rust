@@ -1,0 +1,812 @@
+# Native renderer -- the slow half of the quality gate, and the release.
+#
+# A version tag runs the same three platform builds this workflow already ran for
+# verification, then attaches what they produced to a GitHub Release and publishes
+# the crate. The renderer distribution is the native-image shared library plus Skia, about
+# 85MB, which crates.io will not take and which has no business in a source crate anyway,
+# so the split is: `compose-rust` stays an ordinary crate that builds with no renderer
+# present, and the renderer ships as a checksummed tarball on the release for its tag.
+#
+# Building it twice, once to check and once to ship, is what the separate release workflow
+# used to do, and the two copies drifted: the check grew Windows and Linux while the
+# release still built macOS alone. One workflow, one platform list.
+#
+# This is the counterpart to ci.yml. ci.yml runs on every PR because it is
+# fast; this workflow builds the Compose renderer as a GraalVM native-image
+# shared library and runs the C smoke test (SPEC PR-8 acceptance criterion),
+# which costs a ~1GB Liberica NIK download plus tens of minutes of
+# native-image compilation. Putting that in front of every push would make
+# review unbearable, and SPEC NFR-5 / INTENT D7 explicitly say the
+# native-image build is not part of the development loop.
+#
+# So it runs:
+#   - on pushes to main and develop that touch the renderer or its scripts,
+#   - nightly, to catch toolchain drift (a new Xcode or runner image) even
+#     when nobody touched the renderer,
+#   - on demand.
+#
+# Every target SPEC NFR-4 names is built here: macOS, Windows, Linux and iOS. None of
+# the maintainers own a Windows or Linux machine, so these jobs are the only place
+# those platforms are exercised at all. Keep them unconditional. A job that is skipped
+# by default reports green while proving nothing, which is how Windows sat untested.
+
+name: Native renderer
+
+on:
+  # Pushes to main only, and deliberately not on the pull request that proposes them.
+  # This is the slow half of the gate: a ~1GB toolchain download and tens of minutes of
+  # native-image compilation per platform. Running it on the release proposal would hold
+  # every publication behind an hour of building, so it runs once the tree is on main and
+  # reports afterwards, with the nightly schedule catching toolchain drift in between.
+  #
+  # That is a real gap and worth naming: a renderer that stops building is found after
+  # main has moved, not before. The release workflow builds the renderer again for the
+  # artifacts, so nothing is published from a tree that cannot produce one.
+  # A version tag also runs this, and then the release jobs at the bottom attach what it
+  # built. There is no path filter on the trigger, and there cannot be one: a path filter
+  # applies to tag pushes too, so a release whose tagged commit happened not to touch the
+  # renderer would skip its own build and publish nothing. The `changed` job below does the
+  # same filtering where it can tell a tag from a branch, so main pushes that left the
+  # renderer alone cost one cheap job instead of four long ones.
+  push:
+    branches: [main]
+    tags: ['v*']
+  schedule:
+    # 03:00 UTC daily. Scheduled runs only fire on the default branch.
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: native-renderer-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # main moves on every publication, not only on releases, so without this every push of
+  # unrelated work would start four native-image builds. A tag always builds: that is the
+  # release, and it must produce artifacts whatever its commit happened to touch.
+  changed:
+    name: Is there anything to build
+    runs-on: ubuntu-latest
+    outputs:
+      renderer: ${{ steps.check.outputs.renderer }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The merge commit and its first parent, which is the previous main, so the diff
+          # is everything the publication brought in rather than one commit of it.
+          fetch-depth: 2
+      - id: check
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "a tag always builds"
+            echo "renderer=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # The nightly run exists to catch toolchain drift, which by definition changes
+          # nothing in this repository, and a manual run was asked for on purpose.
+          if [[ "$GITHUB_EVENT_NAME" != "push" ]]; then
+            echo "$GITHUB_EVENT_NAME always builds"
+            echo "renderer=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if git diff --name-only HEAD^ HEAD |
+              grep -qE '^(renderer/|scripts/install-nik\.sh|\.github/workflows/native-renderer\.yml)'; then
+            echo "the renderer changed"
+            echo "renderer=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "nothing under the renderer changed"
+            echo "renderer=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Runs on every push to develop and main, and nightly. Nobody here owns a Windows
+  # machine, so this job *is* the Windows verification: if it goes red, Windows is
+  # broken. It proves build, startup, render, clean close and exit 0. It cannot prove
+  # mouse input, because a hosted runner has no one to click (see SPEC PR-8).
+  windows:
+    needs: changed
+    if: needs.changed.outputs.renderer == 'true'
+    name: Windows x64 native-image build and smoke test
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install upstream GraalVM 25
+        # Upstream GraalVM supports AWT on Windows and Liberica NIK is a macOS requirement.
+        #
+        # NIK would be the better answer and is not ready. It carries the JDK's desktop
+        # libraries as static archives, which is why a macOS distribution is four files and
+        # this one is sixteen, and linking them in here got as far as producing an image
+        # that could not start: AWT's Toolkit still calls System.loadLibrary("awt") at run
+        # time, and an archive inside the image does not answer that call. It has to be
+        # registered as a library the image already contains, which GraalVM does for AWT on
+        # macOS and does not do here.
+        #
+        # That work is on feat/windows-nik-static-awt. It is not on this branch because
+        # every attempt at it costs a CI run to observe and four of them left the Windows
+        # renderer unbuildable in the meantime.
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          native-image-job-reports: 'true'
+
+      - name: Build the Windows renderer
+        shell: powershell
+        run: .\renderer\desktop\scripts\build-native-windows.ps1
+
+      - name: Non-interactive Windows smoke test
+        # This proves startup, rendering long enough to open, clean close, and return 0.
+        # It does not prove mouse input because a hosted runner cannot perform the required click.
+        shell: powershell
+        run: .\renderer\desktop\scripts\smoke-test-windows.ps1
+
+      # A run artifact, which is a different thing from the release asset below: it belongs
+      # to this run, lasts a fortnight, and is not published anywhere. The release asset
+      # stays tag-only, which is right.
+      #
+      # It exists because a renderer built from the current schema was otherwise
+      # unobtainable between releases. Anyone working on Windows had the choice of
+      # installing GraalVM and Visual Studio Build Tools, or using the last release's
+      # renderer and watching it fail the schema handshake, which is what an empty window
+      # on Windows turned out to be.
+      - name: Keep the distribution as an artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: renderer-windows-x64
+          path: renderer/build/native-image/dist
+          retention-days: 14
+
+      - name: Package the distribution for a release
+        id: package
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="compose-rust-renderer-${{ github.ref_name }}-windows-x64"
+          # dist/ holds the renderer, Skia and the AWT libraries, plus include/.
+          tar -czf "${name}.tar.gz" -C renderer/build/native-image/dist .
+          if command -v shasum >/dev/null; then
+            shasum -a 256 "${name}.tar.gz" > "${name}.tar.gz.sha256"
+          else
+            sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256"
+          fi
+          cat "${name}.tar.gz.sha256"
+          echo "name=${name}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the release artifact
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.name }}
+          path: |
+            ${{ steps.package.outputs.name }}.tar.gz
+            ${{ steps.package.outputs.name }}.tar.gz.sha256
+          retention-days: 7
+
+      - name: Upload the renderer
+        uses: actions/upload-artifact@v4
+        with:
+          name: compose-rust-renderer-windows-x64
+          path: renderer/build/native-image/dist/
+          retention-days: 7
+
+  build:
+    needs: changed
+    if: needs.changed.outputs.renderer == 'true'
+    name: macOS arm64 native-image build and smoke test
+    # macos-latest is Apple silicon; the renderer's AWT workarounds are
+    # arm64 macOS specific (INTENT D9-macOS).
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Liberica NIK
+        # Keyed on the installer script: bumping NIK_VERSION in it invalidates
+        # the cache, which is exactly when a fresh download is wanted.
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/compose-rust/nik
+          key: nik-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/install-nik.sh') }}
+
+      - name: Install Liberica NIK 25 Full
+        # A no-op when the cache was restored; otherwise downloads and
+        # checksum-verifies the pinned archive.
+        run: ./scripts/install-nik.sh --github-env
+
+      - name: Cache the Kotlin toolchain and Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/JetBrains/Kotlin
+            ~/.m2/repository
+          key: kotlin-${{ runner.os }}-${{ hashFiles('renderer/kotlin', 'renderer/libs.versions.toml', 'renderer/**/module.yaml') }}
+          restore-keys: |
+            kotlin-${{ runner.os }}-
+
+      - name: Windows build contract
+        # A static check of the Windows script, metadata and staging rules. It runs here
+        # because it is pure text and JSON, and because the Windows job itself only reaches
+        # its assertions after a ninety minute build.
+        run: bash renderer/desktop/scripts/windows-build-contract.test.sh
+
+      - name: Build the renderer shared library
+        # Stages build/native-image/dist/lib with the renderer, Skia, and the
+        # libjawt / libawt_lwawt shims described in SPEC PR-8.
+        run: ./renderer/desktop/scripts/build-native.sh
+
+      - name: Accessibility classes are linked in (SPEC NFR-8)
+        # They are reached only by name from AppKit, so the link is free to drop them and
+        # the only symptom is that turning VoiceOver on aborts the process.
+        run: ./renderer/desktop/scripts/tests/accessibility-link.test.sh
+
+      - name: Smoke test (SPEC PR-8 acceptance criterion)
+        env:
+          # The renderer honours this to close its window unattended; without
+          # it the smoke test would wait for a human to close the window.
+          COMPOSE_RUST_AUTOEXIT_MS: '5000'
+        run: ./renderer/desktop/scripts/smoke-test.sh
+
+      - name: Report the distribution size (NFR-3)
+        run: du -sh renderer/build/native-image/dist/lib
+
+      - name: Package the distribution for a release
+        id: package
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="compose-rust-renderer-${{ github.ref_name }}-macos-aarch64"
+          # dist/ holds the renderer, Skia and the AWT libraries, plus include/.
+          tar -czf "${name}.tar.gz" -C renderer/build/native-image/dist .
+          if command -v shasum >/dev/null; then
+            shasum -a 256 "${name}.tar.gz" > "${name}.tar.gz.sha256"
+          else
+            sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256"
+          fi
+          cat "${name}.tar.gz.sha256"
+          echo "name=${name}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the release artifact
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.name }}
+          path: |
+            ${{ steps.package.outputs.name }}.tar.gz
+            ${{ steps.package.outputs.name }}.tar.gz.sha256
+          retention-days: 7
+
+      - name: Upload the renderer for inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: compose-rust-renderer-macos-arm64
+          path: renderer/build/native-image/dist/
+          retention-days: 7
+
+  # Same reasoning as the Windows job: this is the only Linux verification the project
+  # has, so it runs unconditionally rather than behind a workflow-dispatch input. It
+  # builds and starts the renderer under Xvfb; a headless runner cannot judge what was
+  # drawn, so rendering quality on Linux stays unverified until a human looks at it.
+  linux:
+    needs: changed
+    if: needs.changed.outputs.renderer == 'true'
+    name: Linux x64 native-image build and headless smoke test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install upstream GraalVM Community for JDK 25
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25.0.1'
+          distribution: 'graalvm-community'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Linux AWT, Skia, font, and virtual-display dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential zlib1g-dev unzip pkg-config fontconfig \
+            libx11-dev libxext-dev libxi-dev libxrender-dev libxtst-dev libxrandr-dev \
+            libfontconfig1-dev libfreetype6-dev libgl1 libgl1-mesa-dri libegl1 \
+            libgl1-mesa-dev fonts-noto-cjk xvfb xauth dbus-x11
+
+      - name: Cache the Kotlin toolchain and Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/JetBrains/Kotlin
+            ~/.m2/repository
+          key: kotlin-linux-${{ hashFiles('renderer/kotlin', 'renderer/libs.versions.toml', 'renderer/**/module.yaml') }}
+          restore-keys: |
+            kotlin-linux-
+
+      - name: Run Linux script contract tests
+        run: bash renderer/desktop/scripts/tests/linux-build.test.sh
+
+      - name: Run the Linux metadata contract test
+        run: bash renderer/desktop/scripts/tests/linux-metadata.test.sh
+
+      - name: Build the Linux renderer under Xvfb
+        run: xvfb-run -a ./renderer/desktop/scripts/build-native-linux.sh
+
+      - name: Inspect staged dynamic dependencies
+        run: |
+          find renderer/build/native-image-linux/dist/lib -maxdepth 1 -type f -print | sort
+          ldd renderer/build/native-image-linux/dist/lib/*.so
+
+      - name: Headless startup smoke only
+        env:
+          COMPOSE_RUST_AUTOEXIT_MS: '5000'
+        run: xvfb-run -a ./renderer/desktop/scripts/smoke-test-linux.sh
+
+      - name: Package the distribution for a release
+        id: package
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="compose-rust-renderer-${{ github.ref_name }}-linux-x64"
+          # dist/ holds the renderer, Skia and the AWT libraries, plus include/.
+          tar -czf "${name}.tar.gz" -C renderer/build/native-image-linux/dist .
+          if command -v shasum >/dev/null; then
+            shasum -a 256 "${name}.tar.gz" > "${name}.tar.gz.sha256"
+          else
+            sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256"
+          fi
+          cat "${name}.tar.gz.sha256"
+          echo "name=${name}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the release artifact
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.name }}
+          path: |
+            ${{ steps.package.outputs.name }}.tar.gz
+            ${{ steps.package.outputs.name }}.tar.gz.sha256
+          retention-days: 7
+
+      - name: Upload the Linux renderer for inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: compose-rust-renderer-linux-x64
+          path: renderer/build/native-image-linux/dist/
+          retention-days: 7
+
+  linux-arm64:
+    needs: changed
+    if: needs.changed.outputs.renderer == 'true'
+    name: Linux arm64 native-image build and headless smoke test
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install upstream GraalVM Community for JDK 25
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25.0.1'
+          distribution: 'graalvm-community'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Linux AWT, Skia, font, and virtual-display dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential zlib1g-dev unzip pkg-config fontconfig \
+            libx11-dev libxext-dev libxi-dev libxrender-dev libxtst-dev libxrandr-dev \
+            libfontconfig1-dev libfreetype6-dev libgl1 libgl1-mesa-dri libegl1 \
+            libgl1-mesa-dev fonts-noto-cjk xvfb xauth dbus-x11
+
+      - name: Cache the Kotlin toolchain and Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/JetBrains/Kotlin
+            ~/.m2/repository
+          key: kotlin-linux-${{ hashFiles('renderer/kotlin', 'renderer/libs.versions.toml', 'renderer/**/module.yaml') }}
+          restore-keys: |
+            kotlin-linux-
+
+      - name: Build the Linux renderer under Xvfb
+        run: xvfb-run -a ./renderer/desktop/scripts/build-native-linux.sh
+
+      - name: Inspect staged dynamic dependencies
+        run: |
+          find renderer/build/native-image-linux/dist/lib -maxdepth 1 -type f -print | sort
+          ldd renderer/build/native-image-linux/dist/lib/*.so
+
+      - name: Headless startup smoke only
+        env:
+          COMPOSE_RUST_AUTOEXIT_MS: '5000'
+        run: xvfb-run -a ./renderer/desktop/scripts/smoke-test-linux.sh
+
+      - name: Package the distribution for a release
+        id: package
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="compose-rust-renderer-${{ github.ref_name }}-linux-arm64"
+          # dist/ holds the renderer, Skia and the AWT libraries, plus include/.
+          tar -czf "${name}.tar.gz" -C renderer/build/native-image-linux/dist .
+          if command -v shasum >/dev/null; then
+            shasum -a 256 "${name}.tar.gz" > "${name}.tar.gz.sha256"
+          else
+            sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256"
+          fi
+          cat "${name}.tar.gz.sha256"
+          echo "name=${name}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the release artifact
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.name }}
+          path: |
+            ${{ steps.package.outputs.name }}.tar.gz
+            ${{ steps.package.outputs.name }}.tar.gz.sha256
+          retention-days: 7
+
+      - name: Upload the Linux renderer for inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: compose-rust-renderer-linux-arm64
+          path: renderer/build/native-image-linux/dist/
+          retention-days: 7
+
+  # The two Linux jobs above prove the renderer builds and that a C host linked with an
+  # rpath and --export-dynamic can start it. Neither is what an application gets: Cargo
+  # passes none of this crate's link arguments to a binary that depends on it, so an
+  # application could not find the renderer by name and did not export the Host functions
+  # the renderer calls, and nothing here noticed. This job builds such an application from
+  # the renderer each of those jobs produced, moves it away from the build, packages it the
+  # way the documentation says to, and requires the renderer to draw before it exits 0.
+  linux-consumer:
+    needs: [linux, linux-arm64]
+    name: Linux ${{ matrix.arch }} application that depends on the crate
+    runs-on: ${{ matrix.runs-on }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runs-on: ubuntu-24.04
+          - arch: arm64
+            runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      - name: Install the renderer's runtime libraries, patchelf and a virtual display
+        # Runtime packages only, no headers: this is what a machine running the application
+        # has, not what the one building the renderer has. patchelf is what
+        # scripts/bundle-renderer.sh rewrites the executable with.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fontconfig libx11-6 libxext6 libxi6 libxrender1 libxtst6 \
+            libxrandr2 libfontconfig1 libfreetype6 libgl1 libgl1-mesa-dri libegl1 \
+            fonts-noto-cjk xvfb xauth dbus-x11 patchelf
+
+      - name: Download the renderer this run built
+        uses: actions/download-artifact@v4
+        with:
+          name: compose-rust-renderer-linux-${{ matrix.arch }}
+          path: renderer-dist
+
+      - name: Build, move, bundle and run an application under Xvfb
+        run: xvfb-run -a ./scripts/check-linux-consumer.sh renderer-dist "$RUNNER_TEMP/consumer-app"
+
+  # The other Linux renderer: Kotlin/Native, linked into the application as a static
+  # archive, with no virtual machine in it. Nothing else builds it, so this job is the only
+  # evidence that it builds at all, and its real question is the same as the job above's:
+  # whether an application that only depends on the crate can use it. That renderer finds
+  # the Host's functions with dlsym, so the application has to export them, and the flag
+  # that used to do it never reached an application's link.
+  #
+  # x64 only, because that is the only target the static renderer is built for: Compose's
+  # own build refuses an arm64 Linux host before any of it compiles.
+  #
+  # Compose publishes no Kotlin/Native target for Linux, so the modules the renderer draws
+  # with are built from source first, at the revision and with the patches the repository
+  # pins. That is the long part, and it is cached on exactly those inputs.
+  linux-static:
+    needs: changed
+    if: needs.changed.outputs.renderer == 'true'
+    name: Linux x64 Kotlin/Native static renderer and an application that depends on the crate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    env:
+      # Mesa draws with the processor; a hosted runner has no card.
+      LIBGL_ALWAYS_SOFTWARE: '1'
+      GALLIUM_DRIVER: llvmpipe
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Make room for the Compose build
+        # Its checkout and Gradle outputs take several gigabytes. These are toolchains the
+        # job never uses; the Android SDK stays, because Compose's Gradle build reads it.
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Install a JDK 17 for the Compose build
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install the Rust toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      - name: Install X11, GL and font headers, patchelf and a virtual display
+        # The same groups tools/linux-box/Dockerfile installs for this renderer.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config unzip \
+            libx11-dev libxext-dev libxrandr-dev libgl1-mesa-dev libglu1-mesa-dev \
+            libfontconfig1-dev libfreetype-dev fonts-noto-cjk \
+            xvfb xauth libgl1-mesa-dri mesa-utils patchelf
+
+      - name: Restore the patched Compose for linuxX64
+        id: compose-cache
+        # Restored and saved as two steps, so a build that fails after Compose has been
+        # published still keeps it, and the next attempt does not spend an hour on it again.
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.m2/repository
+          key: compose-linuxx64-${{ hashFiles('renderer/scripts/build-compose.sh', 'renderer/scripts/compose-fork.changes') }}
+
+      - name: Cache the Kotlin toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/JetBrains/Kotlin
+            ~/.konan
+          key: kotlin-native-linux-${{ hashFiles('renderer/kotlin', 'renderer/libs.versions.toml', 'renderer/**/module.yaml') }}
+          restore-keys: |
+            kotlin-native-linux-
+
+      - name: Build and publish the patched Compose for linuxX64
+        if: steps.compose-cache.outputs.cache-hit != 'true'
+        run: ./renderer/scripts/build-compose.sh --target linuxX64
+
+      - name: Keep the patched Compose for the next run
+        if: steps.compose-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ steps.compose-cache.outputs.cache-primary-key }}
+
+      - name: Build the static renderer
+        run: ./renderer/desktop/scripts/build-linux.sh
+
+      - name: Show what the renderer build left behind
+        if: failure()
+        run: |
+          ls renderer/build/tasks 2>/dev/null | grep -i linux || true
+          tail -n 80 renderer/build/linux-logs/*-build.log 2>/dev/null || true
+
+      - name: Keep the renderer build's logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-static-renderer-logs
+          path: renderer/build/linux-logs/
+          retention-days: 7
+
+      - name: Inspect the host exports library
+        run: |
+          lib=renderer/build/linux/libcompose_rust_host_exports.so
+          readelf -d "$lib"
+          nm -D "$lib"
+
+      - name: Build, move, bundle and run an application under Xvfb
+        run: xvfb-run -a -s '-screen 0 1280x1024x24' ./scripts/check-linux-consumer.sh renderer/build/linux "$RUNNER_TEMP/consumer-static"
+
+  # iOS is Kotlin/Native, not native-image, so it shares nothing with the jobs above
+  # except the interpreter source. It builds both slices (simulator and device) and
+  # runs the *desktop* C smoke host against the simulator archive, which is what makes
+  # it evidence for PR-2: one unmodified host, two renderers, one ABI.
+  ios:
+    needs: changed
+    if: needs.changed.outputs.renderer == 'true'
+    name: iOS build and simulator smoke test
+    # macos-26, not macos-latest. Compose Multiplatform's iOS artifacts carry
+    # precompiled Objective-C objects built against the iOS 26 SDK, and one of them
+    # references UIViewLayoutRegion, a class that does not exist in the iOS 18 SDK on the
+    # macos-15 image. Linking the smoke host there fails with an undefined symbol even
+    # though both archives built cleanly.
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache the Kotlin toolchain, konan and Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/JetBrains/Kotlin
+            ~/.konan
+            ~/.m2/repository
+          key: kotlin-ios-${{ hashFiles('renderer/kotlin', 'renderer/libs.versions.toml', 'renderer/**/module.yaml') }}
+          restore-keys: |
+            kotlin-ios-
+
+      - name: Protocol codec tests on Kotlin/Native (PR-4)
+        working-directory: renderer
+        run: ./kotlin test -m ios
+
+      - name: Build the simulator archive
+        run: ./renderer/desktop/scripts/build-ios.sh
+
+      - name: Build the device archive
+        # Never run, only linked. It proves the arm64 device slice still compiles and
+        # exports the PR-2 symbols; running it needs a signed app on real hardware.
+        run: ./renderer/desktop/scripts/build-ios.sh --target device
+
+      - name: Simulator smoke test (PR-2)
+        run: ./renderer/desktop/scripts/ios-smoke-test.sh --screenshot "${RUNNER_TEMP}/ios-smoke.png"
+
+      - name: Simulator screenshot of the system's navigation chrome
+        # The default smoke tree has no navigation, so the screenshot above shows none of
+        # the chrome iOS 26 draws as Liquid Glass. This run declares two destinations,
+        # which is what the renderer turns into a UITabBarController and a title bar.
+        run: |
+          ./renderer/desktop/scripts/ios-smoke-test.sh \
+            --navigation --screenshot "${RUNNER_TEMP}/ios-navigation.png"
+
+      - name: Package the iOS renderer as an XCFramework
+        # Both slices in one bundle, which is the only form Xcode links directly. A bare
+        # .a would make every consumer pick the right slice by hand and would break the
+        # moment they switched between a device and the simulator.
+        if: startsWith(github.ref, 'refs/tags/v')
+        id: package
+        run: |
+          set -euo pipefail
+          name="compose-rust-renderer-${GITHUB_REF_NAME}-ios"
+          build=renderer/build/ios
+          for slice in device simulator; do
+            mkdir -p "$build/$slice/include"
+            cp "$build/$slice"/*.h "$build/$slice/include/"
+          done
+          rm -rf "$name.xcframework"
+          xcodebuild -create-xcframework \
+            -library "$build/device/libcompose_rust_renderer.a" \
+            -headers "$build/device/include" \
+            -library "$build/simulator/libcompose_rust_renderer.a" \
+            -headers "$build/simulator/include" \
+            -output "$name.xcframework"
+          tar -czf "$name.tar.gz" "$name.xcframework"
+          shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
+          cat "$name.tar.gz.sha256"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the release artifact
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.name }}
+          path: |
+            ${{ steps.package.outputs.name }}.tar.gz
+            ${{ steps.package.outputs.name }}.tar.gz.sha256
+          retention-days: 7
+
+      - name: Upload the simulator screenshots
+        # The one artifact a human can judge without a Mac to hand. Whether the bars are
+        # really made of glass cannot be asserted, only looked at, so the navigation shot
+        # is uploaded beside the plain one.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-screenshot
+          path: |
+            ${{ runner.temp }}/ios-smoke.png
+            ${{ runner.temp }}/ios-navigation.png
+          retention-days: 7
+
+  # Everything below runs only for a version tag, and only after every platform above has
+  # built and smoke tested. A crates.io version can be yanked but never replaced, and the
+  # crate's build script points at the release artifact for its own version, so publishing
+  # while a platform is missing would leave anyone on that platform with a version that can
+  # never be made to work.
+  release:
+    name: Publish the GitHub Release
+    needs: [changed, build, windows, linux, linux-arm64, linux-consumer, ios]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      # The only write permission anywhere in this repository's workflows, and
+      # it is scoped to this job: it creates a release and uploads files.
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Download the platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Collect the checksums into one file
+        run: |
+          set -euo pipefail
+          cat artifacts/*.sha256 > artifacts/SHA256SUMS
+          cat artifacts/SHA256SUMS
+
+      - name: Create or update the release
+        # Published, not drafted. The crate that names these artifacts is uploaded to
+        # crates.io by the next job, and that cannot be undone, so a release left in draft
+        # means the published crate points at a download page nobody outside this
+        # repository can see. The gate is the tag: a tag only reaches here after all three
+        # platforms built and smoke tested.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" artifacts/*.tar.gz artifacts/*.sha256 artifacts/SHA256SUMS --clobber
+            # A release created by an earlier run of this tag may still be a draft.
+            gh release edit "$TAG" --draft=false
+          else
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --notes "Renderer artifacts for \`$TAG\`. Verify with \`shasum -a 256 -c SHA256SUMS\`." \
+              artifacts/*.tar.gz artifacts/*.sha256 artifacts/SHA256SUMS
+          fi
+
+  publish-crate:
+    name: Publish compose-rust to crates.io
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    # Publishing cannot be undone: a version can be yanked but never replaced, and the
+    # name is taken forever. Add a required reviewer to this environment in the repository
+    # settings if you want a human to approve each one; with no reviewer configured it
+    # runs straight through, which is the intended behaviour for a tag push.
+    environment: crates-io
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      - name: The tag and Cargo.toml must agree
+        # A tag that does not match the manifest would publish a version nobody asked for,
+        # under a number that then can never be reused.
+        run: |
+          set -euo pipefail
+          tag="${{ github.ref_name }}"
+          manifest="$(cargo metadata --no-deps --format-version 1 |
+            python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="compose-rust"))')"
+          if [[ "$tag" != "v$manifest" ]]; then
+            echo "tag $tag does not match compose-rust $manifest in Cargo.toml" >&2
+            echo "Publishing would release a version that no commit claims. Fix one or the other." >&2
+            exit 1
+          fi
+          echo "tag $tag matches Cargo.toml $manifest"
+
+      - name: Publish
+        # Default features only, so this is exactly what a consumer gets. The verification
+        # build downloads the renderer for this version from the release the job above
+        # just attached it to, which is why that job has to finish first: publishing a
+        # crate whose build script cannot find its own renderer would ship a version
+        # nobody can build.
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish -p compose-rust

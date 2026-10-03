@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UI 작성하기 · compose-rust 가이드</title>
+<meta name="description" content="rsx!, 위젯 집합의 윤곽, Modifier 속성, 이벤트 핸들러, 이벤트 소비, 그리고 비제어 TextField.">
+<link rel="alternate" hreflang="en" href="../en/writing-ui.html">
+<link rel="alternate" hreflang="ko" href="writing-ui.html">
+<link rel="alternate" hreflang="x-default" href="../en/writing-ui.html">
+<link rel="stylesheet" href="../assets/style.css?v=20">
+<script>(function(){try{var t=localStorage.getItem("dxc-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+</head>
+<body>
+<a class="skip" href="#main">본문으로 건너뛰기</a>
+
+<header class="topbar">
+  <a class="brand" href="./"><span class="dot" aria-hidden="true"></span>compose-rust <small>가이드</small></a>
+  <span class="spacer"></span>
+  <button id="navtoggle" class="ghost" type="button" aria-expanded="false" aria-controls="sidebar">메뉴</button>
+  <nav class="langswitch" aria-label="언어">
+    <a href="../en/writing-ui.html" hreflang="en">EN</a>
+    <a href="writing-ui.html" aria-current="true" hreflang="ko">KO</a>
+  </nav>
+  <button id="themetoggle" class="ghost" type="button" data-dark="다크" data-light="라이트" aria-pressed="false">다크</button>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <nav aria-label="가이드">
+      <h2>가이드</h2>
+      <ul>
+        <li><a href="overview.html">개요</a></li>
+        <li><a href="getting-started.html">시작하기</a></li>
+        <li><a href="writing-ui.html" aria-current="page">UI 작성하기</a></li>
+        <li><a href="composables.html">컴포저블 레퍼런스</a></li>
+        <li><a href="lists-and-streaming.html">목록과 스트리밍</a></li>
+        <li><a href="design-systems.html">디자인 시스템</a></li>
+        <li><a href="architecture.html">아키텍처</a></li>
+        <li><a href="troubleshooting.html">문제 해결</a></li>
+      </ul>
+      <h2>이 페이지</h2>
+      <ul>
+        <li><a href="#shape">앱의 뼈대</a></li>
+        <li><a href="#widgets">위젯 집합</a></li>
+        <li><a href="#modifiers">Modifier</a></li>
+        <li><a href="#events">이벤트 핸들러</a></li>
+        <li><a href="#consumption">이벤트 소비</a></li>
+        <li><a href="#textfield">비제어 TextField</a></li>
+        <li><a href="#state">상태는 어디에 있나</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <main id="main">
+    <p class="eyebrow">UI 작성하기</p>
+    <h1>rsx!, 위젯, 이벤트</h1>
+    <p class="lede">
+      Dioxus를 써 봤다면 대부분 익숙할 것입니다. 컴포넌트, 훅, 시그널, <code>rsx!</code>는 다른
+      렌더러에서와 똑같이 동작합니다. 이 프로젝트에만 있는 것은 닫힌 위젯 스키마, 키 이벤트를
+      소비하는 방식, 그리고 조합 중인 텍스트가 경계를 넘지 않는다는 규칙입니다.
+    </p>
+
+    <h2 id="shape">앱의 뼈대</h2>
+    <p>
+      애플리케이션은 <code>Element</code>를 돌려주는 함수 하나와 <code>launch</code> 호출입니다.
+      prelude가 위젯과 훅, 매크로를 함께 가져옵니다.
+    </p>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>rust</figcaption>
+<pre><code><span class="k">use</span> compose_rust::prelude::*;
+
+<span class="k">fn</span> <span class="f">app</span>() -&gt; <span class="ty">Element</span> {
+    <span class="k">let</span> <span class="k">mut</span> count = <span class="f">use_signal</span>(|| <span class="n">0</span>i32);
+
+    <span class="f">rsx!</span> {
+        <span class="ty">Column</span> {
+            <span class="at">fill_max_width</span>: <span class="k">true</span>,
+            <span class="ty">Text</span> { <span class="at">text</span>: <span class="f">format!</span>(<span class="s">"count: {}"</span>, count()) }
+            <span class="ty">Button</span> {
+                <span class="at">text</span>: <span class="s">"increment"</span>,
+                <span class="at">on_click</span>: <span class="k">move</span> |_| count += <span class="n">1</span>,
+            }
+        }
+    }
+}
+
+<span class="k">fn</span> <span class="f">main</span>() {
+    compose_rust::<span class="f">launch</span>(app);
+}</code></pre>
+    </figure>
+
+    <p>
+      <code>launch</code>는 <code>LaunchBuilder::new().launch(app)</code>의 축약입니다. 빌더가
+      갖는 설정은 루프 모드와 테마 둘입니다.
+    </p>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>rust</figcaption>
+<pre><code><span class="ty">LaunchBuilder</span>::<span class="f">new</span>()
+    .<span class="f">with_mode</span>(<span class="ty">LoopMode</span>::Renderer)  <span class="c">// 데스크톱·iOS: Rust main이 렌더러를 돌립니다</span>
+    .<span class="f">with_theme</span>(<span class="ty">Theme</span>::<span class="f">unified</span>(<span class="ty">DesignSystem</span>::Material3))
+    .<span class="f">launch</span>(app);</code></pre>
+    </figure>
+
+    <p>
+      <code>LoopMode::Renderer</code>가 기본값이고, 지금 실제로 도는 유일한 모드입니다.
+      Android나 브라우저가 루프를 소유하고 Host를 불러 주는 <code>LoopMode::Platform</code>은
+      프로토콜에 정의만 되어 있고 구현은 없습니다. 테마를 말하지 않으면
+      <code>Theme::adaptive(DesignSystem::Material3)</code>이 됩니다. 호스트 플랫폼의 생김새를
+      따르되, 자기 생김새가 없는 플랫폼에서는 Material 3를 씁니다.
+      <a href="design-systems.html">디자인 시스템</a>을 보세요.
+    </p>
+
+    <h2 id="widgets">위젯 집합</h2>
+    <p>
+      스키마는 의도적으로 닫혀 있습니다. 렌더러는 정확히 아래의 위젯만 해석하고, 모르는 종류를
+      받으면 크래시 대신 <code>ProtocolError</code> 이벤트를 보냅니다. 위젯을 추가한다는 것은
+      Rust 스키마, Kotlin 인터프리터, 코드젠을 함께 넓히는 일입니다.
+    </p>
+    <p>
+      아래는 어휘의 윤곽입니다. 모든 컴포저블과 그 프로퍼티, 기본값, 돌아가는 예제는
+      <a href="composables.html">컴포저블 레퍼런스</a>에 있습니다.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">묶음</th><th scope="col">컴포저블</th></tr></thead>
+        <tbody>
+          <tr><td>레이아웃</td><td><code>Column</code>, <code>Row</code>, <code>Box</code>, <code>ScrollColumn</code>, <code>ScrollRow</code>, <code>Spacer</code>, <code>SplitPane</code></td></tr>
+          <tr><td>텍스트와 입력</td><td><code>Text</code>, <code>TextField</code>, <code>SelectionContainer</code></td></tr>
+          <tr><td>컨트롤</td><td><code>Button</code>, <code>Checkbox</code>, <code>RadioButton</code>, <code>Switch</code>, <code>Slider</code>, <code>Dropdown</code>, <code>DatePicker</code>, <code>TimePicker</code>, <code>ProgressIndicator</code></td></tr>
+          <tr><td>컨테이너</td><td><code>Card</code>, <code>Surface</code>, <code>TopAppBar</code>, <code>Divider</code>, <code>Separator</code>, <code>Tooltip</code>, <code>Badge</code></td></tr>
+          <tr><td>목록</td><td><code>LazyColumn</code>, <code>LazyRow</code></td></tr>
+          <tr><td>내비게이션</td><td><code>Navigation</code>, <code>NavigationItem</code>, <code>Tabs</code></td></tr>
+          <tr><td>오버레이</td><td><code>Dialog</code>, <code>Menu</code>, <code>Sheet</code>, 그리고 트리의 일부가 아닌 <code>show_message</code>와 <code>Message</code></td></tr>
+          <tr><td>그림</td><td><code>Image</code>, <code>Icon</code>, <code>Canvas</code></td></tr>
+          <tr><td>확장 예제</td><td><code>LinearProgressIndicator</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="warn">
+      <span class="label"><code>Box</code>가 아니라 <code>compose_rust::Box</code></span>
+      <p>
+        dioxus-core 0.7의 <code>rsx!</code> 전개 코드는 내부에서 한정 없는
+        <code>Box&lt;T&gt;</code>를 씁니다. Compose의 <code>Box</code>를 glob prelude로 가져오면
+        <code>std::boxed::Box</code>를 가려서 이 전개가 깨집니다. 그래서 prelude에서 일부러
+        빼 두었습니다. upstream이 자기 쪽 이름을 한정하기 전까지는 전체 경로로 쓰세요.
+      </p>
+    </div>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>rust, compose-rust/tests/rsx_api.rs</figcaption>
+<pre><code><span class="f">rsx!</span> {
+    compose_rust::<span class="ty">Box</span> {
+        <span class="at">fill_max_width</span>: <span class="k">true</span>,
+        <span class="ty">Text</span> { <span class="at">text</span>: <span class="s">"qualified Box"</span> }
+    }
+}</code></pre>
+    </figure>
+
+    <h2 id="modifiers">Modifier</h2>
+    <p>
+      Compose에서 <code>Modifier</code>가 어떤 컴포저블에나 붙듯이 여기서도 그렇습니다. 모든
+      위젯이 같은 열세 개의 속성을 받으므로, <code>Card</code>에 적용되는 집합과
+      <code>Text</code>에 적용되는 집합은 하나입니다. <code>weight</code>,
+      <code>fill_max_width</code>, <code>fill_max_height</code>, <code>width</code>,
+      <code>height</code>, <code>padding</code>, <code>padding_role</code>,
+      <code>background</code>, <code>shape_role</code>, <code>corner_radius</code>,
+      <code>border_width</code>, <code>border_color</code>, <code>elevation</code>입니다.
+    </p>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>rust</figcaption>
+<pre><code><span class="f">rsx!</span> {
+    <span class="ty">Card</span> {
+        <span class="at">fill_max_width</span>: <span class="k">true</span>,
+        <span class="at">padding_role</span>: <span class="ty">SpaceRole</span>::Md,
+        <span class="at">shape_role</span>: <span class="ty">ShapeRole</span>::Large,
+        <span class="at">background</span>: <span class="ty">Paint</span>::<span class="ty">Role</span>(<span class="ty">ColorRole</span>::SurfaceContainer),
+        <span class="ty">Text</span> { <span class="at">text</span>: <span class="s">"패널 안"</span> }
+    }
+}</code></pre>
+    </figure>
+
+    <p>
+      Modifier는 값의 리스트로 직렬화됩니다. 예를 들면
+      <code>[PaddingRole(Md), FillMaxWidth, Background(paint)]</code>이고, 렌더러가 이것을
+      Compose <code>Modifier</code> 체인으로 되돌립니다. 쓰지 않은 속성은 0이 아니라 아무것도
+      보내지 않습니다. 여백이 없는 것과 여백이 0인 것은 화면에서 같아 보이지만 그중 하나만
+      뮤테이션 비용을 치러야 하기 때문입니다.
+    </p>
+
+    <div class="note">
+      <span class="label">역할이냐 숫자냐</span>
+      <p>
+        <code>padding_role</code>과 <code>shape_role</code>은 디자인 시스템의 답을 가져오고,
+        <code>padding</code>과 <code>corner_radius</code>는 애플리케이션의 답을 씁니다. 각 쌍은
+        슬롯 하나를 공유하므로 둘 중 하나만 쓰세요. 역할 쪽을 권합니다. 밀도와 모서리 반지름은
+        디자인 시스템마다 다르고, 숫자는 그때 열어 둔 하나에 레이아웃을 못 박습니다. 타입과
+        기본값이 붙은 전체 표는
+        <a href="composables.html#modifiers">컴포저블 레퍼런스</a>에 있습니다.
+      </p>
+    </div>
+
+    <h2 id="events">이벤트 핸들러</h2>
+    <p>
+      핸들러는 평범한 Rust 클로저입니다. 그리고 <em>동기로</em> 호출됩니다. 렌더러가 자기 UI
+      스레드에서 Host를 부르고, 핸들러가 실행되고, diff가 계산되고, 그 결과 배치가 같은 호출에서
+      돌아옵니다. 큐에 쌓이는 것은 없습니다.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">핸들러</th><th scope="col">페이로드</th><th scope="col">대상</th></tr></thead>
+        <tbody>
+          <tr><td><code>on_click</code></td><td><code>()</code></td><td><code>Button</code>, <code>NavigationItem</code></td></tr>
+          <tr><td><code>on_value_change</code></td><td><code>String</code></td><td><code>TextField</code></td></tr>
+          <tr><td><code>on_submit</code></td><td><code>String</code></td><td><code>TextField</code></td></tr>
+          <tr><td><code>on_focus_lost</code></td><td><code>()</code></td><td><code>TextField</code></td></tr>
+          <tr><td><code>on_key_down</code></td><td><code>KeyEvent</code></td><td><code>TextField</code></td></tr>
+          <tr><td><code>on_change</code></td><td><code>bool</code>, <code>f32</code>, <code>usize</code>, <code>i64</code>, <code>u32</code></td><td><code>Checkbox</code>, <code>RadioButton</code>, <code>Switch</code>, <code>Slider</code>, <code>Dropdown</code>, <code>DatePicker</code>, <code>TimePicker</code></td></tr>
+          <tr><td><code>on_dismiss</code></td><td><code>()</code></td><td><code>Dialog</code>, <code>Menu</code>, <code>Sheet</code></td></tr>
+          <tr><td>범위 요청</td><td><code>RangeRequest</code></td><td><code>LazyColumn</code>과 <code>LazyRow</code>, 컴포넌트 내부에서 처리합니다. 대신 <code>item</code>과 <code>key_of</code>를 넘깁니다</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      핸들러는 UI 스레드에서 돌기 때문에 가벼워야 합니다. PTY 읽기, 네트워크, 파일처럼 막히는
+      작업은 Host 워커 스레드의 몫입니다. 워커는 시그널만 갱신하고, 프레임 요청은 Host가 알아서
+      합니다. 경계 함수를 직접 부를 일은 없습니다.
+    </p>
+
+    <h2 id="consumption">이벤트 소비: Enter와 Shift+Enter</h2>
+    <p>
+      채팅 입력창에서는 <kbd>Enter</kbd>가 전송이고
+      <kbd>Shift</kbd>+<kbd>Enter</kbd>가 줄바꿈이어야 합니다. 그러려면 이 키를 처리했는지를
+      렌더러에게 동기로 알려 줘야 합니다. 웹의 <code>preventDefault()</code>, Compose의
+      <code>PointerInputChange.consume()</code>과 같은 모델입니다.
+    </p>
+    <p>
+      Dioxus 0.7의 핸들러는 반환값이 없습니다. 그래서 소비 표시를 이벤트 객체에 남기고, 경계가
+      그 값을 읽어 렌더러에 돌려줍니다. 렌더러 쪽에서는
+      <code>Modifier.onKeyEvent</code>가 처리됨으로 보고합니다.
+    </p>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>rust, compose-rust/examples/desktop_demo.rs</figcaption>
+<pre><code><span class="ty">TextField</span> {
+    <span class="at">placeholder</span>: <span class="s">"Write a message"</span>,
+    <span class="at">multiline</span>: <span class="k">true</span>,
+    <span class="at">on_value_change</span>: <span class="k">move</span> |value| draft.<span class="f">set</span>(value),
+    <span class="at">on_key_down</span>: <span class="k">move</span> |event: <span class="ty">KeyEvent</span>| {
+        <span class="k">if</span> event.<span class="f">key</span>() == <span class="ty">Key</span>::Enter &amp;&amp; !event.<span class="f">shift_key</span>() {
+            <span class="k">let</span> message = draft().<span class="f">trim</span>().<span class="f">to_owned</span>();
+            <span class="k">if</span> !message.<span class="f">is_empty</span>() {
+                messages.<span class="f">write</span>().<span class="f">push</span>(message);
+                draft.<span class="f">set</span>(<span class="ty">String</span>::<span class="f">new</span>());
+            }
+            event.<span class="f">consume</span>();   <span class="c">// 렌더러의 onKeyEvent가 true를 반환합니다</span>
+        }
+    }
+}</code></pre>
+    </figure>
+
+    <p>
+      <code>KeyEvent</code>는 <code>key()</code>, <code>shift_key()</code>,
+      <code>ctrl_key()</code>, <code>alt_key()</code>, <code>meta_key()</code>와
+      <code>consume()</code>, <code>consumed()</code>를 제공합니다. <code>Key</code> 열거형에는
+      지금 <code>Key::Enter</code> 하나뿐입니다. M0 스키마가 나르는 유일한 키이기 때문이고, 키를
+      늘리는 것은 앱 코드가 아니라 스키마를 고치는 일입니다.
+    </p>
+
+    <div class="note">
+      <span class="label">IME 조합 중의 Enter</span>
+      <p>
+        IME가 조합 중일 때 렌더러는 키 이벤트를 Host로 아예 보내지 않습니다. 조합 중의
+        <kbd>Enter</kbd>는 "제출"이 아니라 "이 글자를 확정"입니다. 이 규칙을 어기면 한글을 치다가
+        <kbd>Enter</kbd>를 눌렀을 때 조합 중이던 글자가 빠진 채 메시지가 전송됩니다. 핸들러는 그런
+        키 입력을 애초에 보지 못하고, 그래서 위의 단순한 조건이 편의가 아니라 정확한 코드입니다.
+      </p>
+    </div>
+
+    <h2 id="textfield">비제어 TextField</h2>
+    <p>
+      <code>TextField</code>에는 <code>value</code> 속성이 없습니다. 편집 버퍼와 선택 영역, 조합
+      상태는 렌더러의 것입니다. Rust는 이벤트로만 변화를 알게 됩니다.
+    </p>
+    <ul>
+      <li><code>on_value_change</code>, 디바운스된 현재 텍스트 알림입니다.</li>
+      <li><code>on_submit</code>, 확정된 값입니다.</li>
+      <li><code>on_focus_lost</code>, 포커스를 잃었습니다.</li>
+    </ul>
+    <p>
+      이것은 단순화가 아니라 설계의 핵심입니다. 조합 중인 텍스트를 Host로 왕복시키면, 한글 한
+      글자를 만드는 동안의 모든 입력이 렌더러를 떠났다가 되돌아오며 조합을 리셋합니다. 한글은
+      자모를 모아 글자를 만들기 때문에 조합 도중의 리셋은 입력 자체를 망가뜨립니다. 일본어와
+      중국어 입력도 마찬가지입니다. 버퍼를 Kotlin에 두면 이 실패가 드문 일이 아니라 불가능한 일이
+      됩니다.
+    </p>
+    <p>
+      Host가 정말로 텍스트를 바꿔야 할 때, 전송 후 입력창을 비우거나 임시 저장한 초안을 되돌릴
+      때, 는 명시적인 <code>SetText(node_id, text, selection)</code> 명령을 쓰고, 렌더러는 조합이
+      끝날 때까지 적용을 미룹니다. Rust 쪽에서는 <code>Host::set_text</code>이며, 컴포넌트에서
+      부르는 API가 아니라 경계 표면의 일부입니다. 컴포넌트 코드에서 입력창을 비우는 보통의 방법은
+      필드에 새 정체성을 주는 것으로, 다른 Dioxus 렌더러에서와 같습니다.
+    </p>
+
+    <h2 id="state">상태는 어디에 있나</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">상태</th><th scope="col">소유자</th><th scope="col">이유</th></tr></thead>
+        <tbody>
+          <tr><td>애플리케이션·도메인 상태</td><td>Rust (시그널)</td><td>당신의 프로그램입니다. Dioxus가 이것을 mutation으로 바꿉니다.</td></tr>
+          <tr><td>편집 중인 텍스트, IME 조합</td><td>Kotlin</td><td>조합은 왕복해서는 안 됩니다(위 참고).</td></tr>
+          <tr><td>스크롤 위치</td><td>Kotlin</td><td>UI 로컬 상태입니다. Rust가 쥐고 있으면 한 프레임 늦습니다.</td></tr>
+          <tr><td>포커스</td><td>Kotlin</td><td>같은 이유이고, 애초에 플랫폼이 포커스를 소유합니다.</td></tr>
+          <tr><td>애니메이션 진행</td><td>Kotlin</td><td>Compose 프레임 클록 위에서 돕니다.</td></tr>
+          <tr><td>다이얼로그·메뉴·드롭다운·시트가 열려 있는지</td><td>Kotlin</td><td>넘기는 불리언은 출발점일 뿐이고, 들어오고 나가는 동작은 렌더러가 소유하므로 애니메이션이 왕복하지 않습니다.</td></tr>
+          <tr><td>슬라이더 드래그가 지나가는 위치</td><td>Kotlin</td><td>손가락을 따라가는 데에 경계 호출이 들어서는 안 됩니다.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <nav class="pagenav" aria-label="페이지 이동">
+      <a class="prev" href="getting-started.html"><span>이전</span>&larr; 시작하기</a>
+      <a class="next" href="composables.html"><span>다음</span>컴포저블 레퍼런스 &rarr;</a>
+    </nav>
+  </main>
+</div>
+
+<footer class="site">
+  <div class="inner">
+    <span>compose-rust &middot; Apache License 2.0</span>
+    <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/INTENT.md">INTENT.md</a></span>
+    <span>이 가이드는 2026-09-22 기준 저장소 내용과 대조했습니다</span>
+  </div>
+</footer>
+
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

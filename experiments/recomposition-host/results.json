@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "measured_at": "2026-09-30",
+  "environment": {
+    "machine": "Mac mini (Macmini9,1)",
+    "cpu": "Apple M1, 8 cores (4 performance, 4 efficiency)",
+    "memory_gib": 16,
+    "os": "macOS 26.5.1 (25F80)",
+    "architecture": "aarch64-apple-darwin",
+    "profile": "release",
+    "iterations": 20000,
+    "load_average_during_run": 2.35,
+    "note": "Another checkout was building on the same machine throughout. The totals carry that load; the per-slot slopes reproduced within 20 percent across five runs at load averages from 2.3 to 3.1."
+  },
+  "stages_of_one_interaction_p99_ns": {
+    "whole_interaction_through_host": 12500,
+    "handler_and_dirty_mark": 417,
+    "diff_only_null_sink": 12292,
+    "diff_and_wire_encode": 12333,
+    "wire_encode_by_difference": 41,
+    "envelope_only": 42
+  },
+  "per_slot_ns": {
+    "method": "least squares on medians over widths 1, 5, 17, 33, 65, 129",
+    "changed_string_slot_total": 2315,
+    "unchanged_string_slot": 381,
+    "changed_string_slot_net": 1934,
+    "changed_slot_before_any_sink": 1904,
+    "wire_sink_share_of_a_changed_slot": 30,
+    "changed_numeric_slot_net": 1961,
+    "one_prop_component_changed_slot_net": 2315,
+    "one_prop_component_unchanged_slot": 245
+  },
+  "slot_table_probe_ns": {
+    "note": "experiments/recomposition-host/positional. A floor, not a comparison: no wire encoding, no props, no widget schema, one hook.",
+    "changed_slot": 225,
+    "unchanged_slot": 189,
+    "dioxus_changed_slot_for_reference": 2287,
+    "dioxus_unchanged_slot_for_reference": 381
+  },
+  "slot_table_with_real_widget_layer_ns": {
+    "note": "positional/runtime/src/widgets.rs: the same Text props, compared the same way, written through compose_rust's BatchEncoder. Still missing: signals, event dispatch, Move on reorder.",
+    "changed_slot": 276,
+    "unchanged_slot": 345,
+    "one_slot_frame_p50": 1292,
+    "dioxus_changed_slot_same_run": 2275,
+    "dioxus_unchanged_slot_same_run": 381,
+    "dioxus_one_slot_frame_p50": 7250
+  }
+}

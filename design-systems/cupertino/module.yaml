@@ -1,0 +1,34 @@
+# Cupertino.
+#
+# Apple ships no Compose library, so this is ours to implement. The candidate third party
+# option is alexzhirkevich/compose-cupertino, which targets an older Kotlin and Compose
+# than this project uses and predates Liquid Glass; whether it can be adopted is a
+# feasibility question, not a given. Until that is answered with a build, the
+# implementation lives here.
+
+product:
+  type: kmp/lib
+  platforms: [ jvm, android, iosArm64, iosSimulatorArm64, wasmJs ]
+
+dependencies:
+  - //core: exported
+  - //liquid-glass
+  - $compose.runtime
+  - $compose.foundation
+  - $compose.ui
+
+test-dependencies:
+  - $kotlin.test
+  # Test only, and never a production dependency in any direction. Two other modules
+  # already compare a pair and a trio, and neither of them ever asks Cupertino anything,
+  # so the claim that these are six design systems rather than one with six palettes had
+  # a gap in it exactly where this module sits. Checking it means holding all six at once.
+  - //material3
+  - //fluent
+  - //gnome
+  - //breeze
+  - //deepin
+
+settings:
+  compose:
+    enabled: true

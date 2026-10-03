@@ -1,0 +1,4 @@
+# Built here, not carried. The archive is 79MB, the stubs are generated from a link, and
+# both come back in two minutes from build-static-skiko.sh and generate-foreign-stubs.sh.
+out/
+skiko-src/
