@@ -132,7 +132,7 @@ internal fun resolveText(
     assets: AssetCache,
     density: Density,
     fontFamilyResolver: FontFamily.Resolver,
-    link: ((TextRun) -> LinkAnnotation)? = null,
+    link: ((TextRun) -> LinkAnnotation.Clickable)? = null,
 ): ResolvedText {
     val problems = mutableListOf<String>()
     // CSS pixels, which is what an absolute size is, are dp. Converting through the
@@ -318,7 +318,7 @@ private fun annotate(
     assets: AssetCache,
     density: Density,
     sized: (Float) -> TextUnit,
-    link: ((TextRun) -> LinkAnnotation)?,
+    link: ((TextRun) -> LinkAnnotation.Clickable)?,
     problems: MutableList<String>,
 ): AnnotatedString {
     val broken = breakText(input.text, mode)

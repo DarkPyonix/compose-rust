@@ -263,7 +263,9 @@ macro_rules! define_wire_enum {
         }
 
         impl $name {
-            #[allow(dead_code)]
+            // The unit error is the wire's own convention: a name either is a variant or is
+            // not, and the caller reports which name it was.
+            #[allow(dead_code, clippy::result_unit_err)]
             #[doc(hidden)]
             pub fn from_name(value: &str) -> Result<Self, ()> {
                 $(if wire_name_eq(value, stringify!($variant)) {
