@@ -300,7 +300,12 @@ fn main() {
     // because Cargo does not pass a dependency's link arguments on, and emitting one here
     // anyway would leave this repository's own binaries loading the renderer by a route no
     // consumer has. The renderer is named after the absolute path it sits at instead,
-    // which every binary that links it records for itself.
+    // which every binary that links it records for itself: on macOS that name is the
+    // install name, and on Linux it is the SONAME, which acquiring the renderer sets
+    // because the linker copies a SONAME into DT_NEEDED as it stands. Without one, GNU ld
+    // would record a library it found through `-l` and the search path by its bare file
+    // name, and the loader would have to search for it on a path the binary does not
+    // have.
     //
     // The Renderer resolves the Host's dioxus_compose_host_* symbols from this executable.
     // GNU ld spells this `--export-dynamic`. Passing the macOS spelling to it is not a
