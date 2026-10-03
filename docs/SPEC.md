@@ -1564,6 +1564,8 @@ tag 12, 32바이트: handler_id: u64, text: (offset, len), action: (offset, len)
 
 샘플 릴리스는 각 데스크톱 대상에 설치하거나 바로 실행할 수 있는 플랫폼 형식을 제공합니다. macOS arm64는 실행 가능한 `.app`과 전달용 `.dmg`, Windows x64는 압축을 푼 자리에서 실행되는 `.zip`과 `.msix`, Linux x64와 arm64는 `.AppImage`를 만듭니다. 이름, 번들 식별자, 설명은 각 샘플의 `Dioxus.toml`에서 읽고 아이콘과 플랫폼 메타데이터에 사용합니다.
 
+**2026-10-03(INTENT D17, NFR-15): 번들이 담는 것은 실행 파일 하나입니다.** 렌더러와 Skia와 ICU 데이터가 실행 파일 안에 있으므로, 아래 문단의 라이브러리 배치는 GraalVM native-image 경로의 기록이고 1.0.0의 번들에는 해당하지 않습니다.
+
 렌더러 라이브러리와 동반 파일은 각 번들 안에 그대로 들어갑니다. macOS는 렌더러의 `lib` 디렉터리 전체를 `Contents/Frameworks/lib`에 두며 실행 파일의 참조를 상대 경로로 바꿉니다. Windows는 DLL을 실행 파일 옆에 두고 렌더러의 `lib` 디렉터리를 보존합니다. Linux는 실행 파일 옆 `lib` 디렉터리를 두고 `DT_NEEDED`와 rpath를 상대 경로로 바꿉니다. 라이브러리 파일 자체를 압축하지 않습니다.
 
 수용 기준:
@@ -2500,6 +2502,7 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 | NFR-12 | 워크트리 빌드 격리 | 워크트리마다 자기 `target/`에 빌드하고, 다른 워크트리의 빌드 디렉터리를 가리키는 설정이 없음. 한 트리에서 컴파일된 codegen 바이너리가 다른 트리에 쓸 수 없음. 규격과 수용 기준은 §5.4 (INTENT D16). **2026-09-22 충족** | Done |
 | NFR-13 | Windows 단일 실행 파일 | Windows 렌더러를 Kotlin/Native로 빌드해 앱 실행 파일 하나에 링크함. JVM이 없고, 앱을 빌드하는 사람에게 MinGW를 요구하지 않음. 규격과 수용 기준은 §5.6 (INTENT D18, 2026-10-03 소유자 결정) | Agreed |
 | NFR-14 | AWT 없는 데스크톱 렌더러가 기본 | 배포되는 데스크톱 렌더러가 AWT도 JVM도 쓰지 않음. macOS와 Linux는 Kotlin/Native 정적 라이브러리, Windows는 NFR-13. 앱이 아무것도 고르지 않아도 이 경로가 나옴. 규격과 수용 기준은 §5.5 (INTENT D4, 2026-10-03 소유자 결정) | Agreed |
+| NFR-15 | 데스크톱 애플리케이션은 실행 파일 하나 | compose-rust 애플리케이션이 macOS, Windows, Linux에서 실행 파일 하나이고, 시스템 라이브러리 외에 아무것도 불러오지 않음. 렌더러, Skia, ICU 데이터가 안에 있음. 1.0.0 요구사항. 규격과 수용 기준은 §5.7 (INTENT D17, 2026-10-03 소유자 결정) | Agreed |
 
 ### 5.1 프레임 예산 (NFR-9)
 
@@ -2764,6 +2767,27 @@ Cargo는 path 패키지의 유닛 해시에 패키지 경로를 넣지 않습니
 6. §6 IME 체크리스트 핵심 5개를 통과합니다(Windows에서 손으로 확인).
 7. 접근성 트리가 노출됩니다(NFR-8과 같은 기준, Windows).
 8. 앱을 빌드하는 기계에 MinGW 툴체인이 없어도 `cargo build`가 성공하고, 앱의 Rust 타깃은 `x86_64-pc-windows-msvc`입니다.
+
+### 5.7 데스크톱 애플리케이션은 실행 파일 하나 (NFR-15)
+
+**2026-10-03 소유자 결정(INTENT D17). compose-rust 1.0.0(2026-10-20)의 요구사항입니다.** compose-rust로 만든 데스크톱 애플리케이션은 macOS, Windows, Linux 모두에서 실행 파일 하나입니다.
+
+이것은 INTENT D2와 D4에서 따라 나옵니다. 애플리케이션은 `cargo build`가 내는 Rust 실행 파일이고(D2), AWT 없는 렌더러는 Kotlin/Native 정적 라이브러리라 그 실행 파일에 링크됩니다(D4, Windows는 D18). Skia와 skiko의 C++ 부분, ICU 데이터도 같은 실행 파일 안에 들어갑니다.
+
+| 플랫폼 | 실행 파일 안에 있는 것 | 실행 파일이 불러오는 것 |
+|---|---|---|
+| macOS | 앱, compose-rust, 렌더러, Compose, Skia, skiko C++ | 시스템 프레임워크와 `/usr/lib`의 시스템 라이브러리 |
+| Windows | 위와 같고 ICU 데이터 포함(§5.6) | Windows 시스템 DLL |
+| Linux | 위와 같고 ICU 데이터 포함 | 배포판의 시스템 라이브러리(libc, X11, GL, fontconfig, FreeType 계열) |
+
+수용 기준:
+
+1. 세 플랫폼에서 샘플을 릴리스로 빌드한 결과물이 실행 파일 하나입니다. 그 실행 파일을 빈 디렉터리에 홀로 복사해 실행하면 창이 뜨고 샘플을 그립니다.
+2. 실행 파일이 불러오는 라이브러리가 위 표의 시스템 라이브러리뿐입니다. macOS는 `otool -L`, Linux는 `DT_NEEDED`, Windows는 import 표를 검사하는 테스트로 확인합니다. 렌더러, Skia(`libskiko-*`, `skiko-windows-*.dll`), JVM, AWT 라이브러리 이름이 나오면 실패입니다.
+3. `icudtl.dat`이 실행 파일 옆에도 시스템 경로에도 없는 상태에서 한국어 단어 경계와 글자 그리기가 맞습니다.
+4. 실행 중 렌더러가 경로로 라이브러리를 찾는 일이 없습니다(`dlopen`, `LoadLibrary`, `System.load`로 우리 라이브러리를 여는 코드가 없음).
+5. 앱을 빌드하는 기계에 필요한 것은 Rust 툴체인과 그 플랫폼의 기본 링커뿐이고, 렌더러 아티팩트는 D10대로 빌드 스크립트가 받아 옵니다. 앱의 `Cargo.toml`에 compose-rust 한 줄 외에 빌드 설정(`.cargo/config.toml`, `RUSTFLAGS` 포함)을 요구하지 않습니다. INTENT D18이 적은 Windows의 정적 C 런타임 조건도 이 기준 아래에 있습니다.
+6. FR-22.6의 번들(`.app`, `.dmg`, `.zip`, `.msix`, `.AppImage`)은 이 실행 파일 하나와 아이콘, 메타데이터만 담습니다.
 
 ## 6. IME 수용 체크리스트 (FR-5, M1)
 
