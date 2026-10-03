@@ -134,7 +134,10 @@ check_libraries() {
             }
             # Where the loader finds it on this machine, which has to be the system's own
             # directories: a library only this build has would be found nowhere else.
-            resolved="$(ldd "$binary" | awk -v name="$library" '$1 == name { print $3 }')"
+            # `name => path`, or for the dynamic loader itself, the path alone.
+            resolved="$(ldd "$binary" | awk -v name="$library" '
+                $1 == name { print $3; exit }
+                $1 ~ ("/" name "$") { print $1; exit }')"
             if [[ -z "$resolved" || "$resolved" == "not" ]] || ! system_library "$resolved"; then
                 echo "      $library resolves to '${resolved:-nothing}', which is not a system directory" >&2
                 failures=$((failures + 1))

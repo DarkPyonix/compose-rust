@@ -222,6 +222,9 @@ fn main() {
 struct StaticLink {
     frameworks: &'static [&'static str],
     libraries: &'static [&'static str],
+    /// On arm64 only. Skia's arm64 Linux build reaches GL through EGL, where the x86-64
+    /// one reaches it through GLX alone.
+    arm64_libraries: &'static [&'static str],
     search_paths: &'static [&'static str],
 }
 
@@ -239,8 +242,12 @@ fn static_link(target_os: &str) -> Option<StaticLink> {
                 "IOKit",
                 "Carbon",
                 "OpenGL",
+                // The notifications an application posts go through the system's own
+                // notification centre.
+                "UserNotifications",
             ],
             libraries: &["c++", "z"],
+            arm64_libraries: &[],
             search_paths: &[],
         }),
         // The window's own libraries, the font configuration Skia asks for a font through,
@@ -254,6 +261,7 @@ fn static_link(target_os: &str) -> Option<StaticLink> {
         "linux" => Some(StaticLink {
             frameworks: &[],
             libraries: &["X11", "Xext", "GL", "fontconfig", "freetype", "stdc++", "z"],
+            arm64_libraries: &["EGL"],
             search_paths: &[
                 "/usr/lib/x86_64-linux-gnu",
                 "/usr/lib/aarch64-linux-gnu",
@@ -297,7 +305,9 @@ fn link_static(target_os: &str, target: &str, lib_dir: &Path) {
     for path in link.search_paths {
         println!("cargo:rustc-link-search=native={path}");
     }
-    for library in link.libraries {
+    let arm64 = target.ends_with("arm64") || target.ends_with("aarch64");
+    let extra: &[&str] = if arm64 { link.arm64_libraries } else { &[] };
+    for library in link.libraries.iter().chain(extra) {
         println!("cargo:rustc-link-lib=dylib={library}");
     }
     println!("cargo:rustc-cfg=renderer_linked");

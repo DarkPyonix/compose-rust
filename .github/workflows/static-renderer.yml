@@ -129,7 +129,7 @@ jobs:
             libx11-dev libxext-dev libxrandr-dev libgl1-mesa-dev libglu1-mesa-dev \
             libfontconfig1-dev libfreetype-dev \
             libx11-dev:arm64 libxext-dev:arm64 libgl-dev:arm64 \
-            libfontconfig-dev:arm64 libfreetype-dev:arm64
+            libfontconfig-dev:arm64 libfreetype-dev:arm64 libegl-dev:arm64
 
       - name: Restore the patched Compose
         id: compose-cache
