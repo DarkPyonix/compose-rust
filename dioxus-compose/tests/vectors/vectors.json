@@ -1,11 +1,17 @@
 {
   "format": "dioxus-compose protocol vectors v1",
-  "schemaHashUnsigned": "2002928469790392534",
+  "schemaHashUnsigned": "10092323291973099746",
   "byteOrder": "little-endian",
   "mutations": {
     "file": "mutations.bin",
-    "description": "One batch covering every record, property value, modifier layout, drawing command, asset and message",
-    "recordCount": 41,
+    "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, palette entry, text run and split pane property",
+    "recordCount": 43,
+    "palette": [
+      { "role": "Primary", "scheme": "Light", "argb": "ffe8590c" },
+      { "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" },
+      { "role": "SyntaxKeyword", "scheme": "Light", "argb": "80112233" }
+    ],
+    "spanRecordLength": 36,
     "strings": ["안녕", "compose", " token", "필터", "New", "삭제했습니다", "Undo"],
     "assets": [{ "assetId": 5, "kind": "Png", "bytes": "89504e47" }]
   },
