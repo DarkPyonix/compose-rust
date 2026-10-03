@@ -63,12 +63,12 @@ pub fn reset_design_system() {
 }
 
 /// A component's registration, dropped with the hook state when the component unmounts.
-struct DesignSystemSubscription {
+pub(crate) struct DesignSystemSubscription {
     id: u64,
 }
 
 impl DesignSystemSubscription {
-    fn new(notify: Arc<dyn Fn() + Send + Sync>) -> Self {
+    pub(crate) fn new(notify: Arc<dyn Fn() + Send + Sync>) -> Self {
         let id = NEXT_SUBSCRIBER_ID.with(|next| {
             let id = next.get();
             next.set(id + 1);

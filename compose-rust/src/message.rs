@@ -178,6 +178,12 @@ impl MessageAction {
     }
 }
 
+/// Whether a handler id names a message's action rather than a node's handler.
+pub(crate) fn has_action(handler_id: u64) -> bool {
+    handler_id >= ACTION_HANDLER_BASE
+        && ACTIONS.with_borrow(|actions| actions.iter().any(|(id, _)| *id == handler_id))
+}
+
 pub(crate) fn take_action(handler_id: u64) -> Option<MessageAction> {
     if handler_id < ACTION_HANDLER_BASE {
         return None;

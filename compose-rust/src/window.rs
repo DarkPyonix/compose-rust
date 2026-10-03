@@ -188,12 +188,12 @@ pub fn reset_window_size() {
 }
 
 /// A component's registration, dropped with the hook state when the component unmounts.
-struct WindowSizeSubscription {
+pub(crate) struct WindowSizeSubscription {
     id: u64,
 }
 
 impl WindowSizeSubscription {
-    fn new(notify: Arc<dyn Fn() + Send + Sync>) -> Self {
+    pub(crate) fn new(notify: Arc<dyn Fn() + Send + Sync>) -> Self {
         let id = NEXT_SUBSCRIBER_ID.with(|next| {
             let id = next.get();
             next.set(id + 1);
@@ -298,11 +298,6 @@ pub(crate) fn node_size_of(token: u32, size: WindowSize) -> NodeSize {
     NodeSize { token, size }
 }
 
-/// Forgets what a node measured, once nothing will ask about it again.
-pub(crate) fn forget_node(token: u32) {
-    NODES.with_borrow_mut(|nodes| nodes.retain(|(name, _)| *name != token));
-}
-
 pub fn use_node_size() -> NodeSize {
     let token = dioxus_core::use_hook(|| {
         let token = NEXT_TOKEN.with(|next| {
@@ -322,13 +317,13 @@ pub fn use_node_size() -> NodeSize {
 }
 
 /// A component's registration for one node, dropped with its hook state.
-struct NodeSizeSubscription {
+pub(crate) struct NodeSizeSubscription {
     token: u32,
     id: u64,
 }
 
 impl NodeSizeSubscription {
-    fn new(token: u32, notify: Arc<dyn Fn() + Send + Sync>) -> Self {
+    pub(crate) fn new(token: u32, notify: Arc<dyn Fn() + Send + Sync>) -> Self {
         let id = NEXT_SUBSCRIBER_ID.with(|next| {
             let id = next.get();
             next.set(id + 1);

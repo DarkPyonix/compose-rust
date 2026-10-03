@@ -396,12 +396,12 @@ pub fn reset_notifications() {
 }
 
 /// A component's registration for permission changes, dropped with its hook state.
-struct PermissionSubscription {
+pub(crate) struct PermissionSubscription {
     id: u64,
 }
 
 impl PermissionSubscription {
-    fn new(notify: Arc<dyn Fn() + Send + Sync>) -> Self {
+    pub(crate) fn new(notify: Arc<dyn Fn() + Send + Sync>) -> Self {
         let id = next_id();
         PERMISSION_SUBSCRIBERS
             .with_borrow_mut(|subscribers| subscribers.push(Subscriber { id, notify }));

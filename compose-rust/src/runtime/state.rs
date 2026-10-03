@@ -380,7 +380,6 @@ pub(crate) struct Ambient {
     pub(crate) window: MutableState<WindowSize>,
     pub(crate) design: MutableState<DesignSystem>,
     pub(crate) permission: MutableState<NotificationPermission>,
-    pub(crate) node_sizes: HashMap<u32, MutableState<WindowSize>>,
     pub(crate) deriveds: HashMap<u64, Weak<dyn DerivedNode>>,
 }
 
@@ -390,7 +389,6 @@ impl Ambient {
             window: mutable_state_of(crate::window::window_size()),
             design: mutable_state_of(crate::design::design_system()),
             permission: mutable_state_of(crate::notification::notification_permission()),
-            node_sizes: HashMap::new(),
             deriveds: HashMap::new(),
         }
     }
@@ -494,18 +492,12 @@ const NODE_SIZE: u64 = super::composer::call_site("compose_rust::remember_node_s
 const NOTIFICATION_ACTIVATED: u64 =
     super::composer::call_site("compose_rust::on_notification_activated", 0);
 
-/// The slot a node size lives in. Leaving the composition forgets the measurement.
+/// The slot a node size lives in: the state the screen reads, and the subscription that
+/// moves it. Leaving the composition drops both, and the measurement with them.
 struct NodeSizeSlot {
     token: u32,
     state: MutableState<WindowSize>,
-}
-
-impl Drop for NodeSizeSlot {
-    fn drop(&mut self) {
-        crate::window::forget_node(self.token);
-        let token = self.token;
-        with_composer_if_idle(|composer| composer.ambient.node_sizes.remove(&token));
-    }
+    _subscription: crate::window::NodeSizeSubscription,
 }
 
 /// Follows one node's measured size, recorded as read. Compose has no single equivalent;
@@ -525,10 +517,15 @@ pub fn remember_node_size() -> crate::window::NodeSize {
         }
         let token = crate::window::next_node_token();
         let state = mutable_state_of(crate::window::node_size(token));
-        composer.ambient.node_sizes.insert(token, state.clone());
+        let follow = state.clone();
+        let subscription = crate::window::NodeSizeSubscription::new(
+            token,
+            std::sync::Arc::new(move || follow.set(crate::window::node_size(token))),
+        );
         composer.remember_new(NodeSizeSlot {
             token,
             state: state.clone(),
+            _subscription: subscription,
         });
         Some((token, state))
     })

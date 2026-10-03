@@ -46,7 +46,7 @@ pub use effects::{
     CoroutineScope, DisposableEffectResult, delay, disposable_effect, launched_effect, on_dispose,
     remember_coroutine_scope, side_effect, with_frame_nanos, with_worker,
 };
-pub use host::ComposeHost;
+pub use host::{ComposeHost, Recomposer};
 pub use state::{
     DerivedState, MutableState, SnapshotMutationPolicy, State, current_design_system,
     current_notification_permission, current_window_size, derived_state_of, mutable_state_of,
@@ -59,23 +59,23 @@ use std::cell::RefCell;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
-/// One composition and everything it owns.
-pub(crate) struct Runtime {
+/// One composition and everything it owns. Compose's `Composition`.
+pub(crate) struct Composition {
     pub(crate) composer: RefCell<Composer>,
 }
 
 thread_local! {
     /// The runtime whose Host call is running on this thread.
-    static CURRENT: RefCell<Option<Rc<Runtime>>> = const { RefCell::new(None) };
+    static CURRENT: RefCell<Option<Rc<Composition>>> = const { RefCell::new(None) };
 }
 
 /// Makes a runtime current for the length of a Host call, and puts back whatever was
 /// current before when dropped.
 pub(crate) struct Enter {
-    previous: Option<Rc<Runtime>>,
+    previous: Option<Rc<Composition>>,
 }
 
-impl Runtime {
+impl Composition {
     pub(crate) fn new() -> Rc<Self> {
         Rc::new(Self {
             composer: RefCell::new(Composer::new()),
