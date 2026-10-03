@@ -109,9 +109,7 @@ fn loops_from(parents: &HashMap<u32, u32>, node: u32) -> Option<Vec<u32>> {
     let mut chain = vec![node];
     let mut current = node;
     for _ in 0..parents.len() + 1 {
-        let Some(&parent) = parents.get(&current) else {
-            return None;
-        };
+        let &parent = parents.get(&current)?;
         if chain.contains(&parent) {
             chain.push(parent);
             return Some(chain);
@@ -165,7 +163,7 @@ fn toggle_and_follow(app: fn() -> Element, rounds: usize) {
         )
         .unwrap();
         let (batch, _) = host.dispatch_event(&wire).unwrap();
-        follow(&batch.to_vec(), &mut parents);
+        follow(batch, &mut parents);
 
         let nodes: Vec<u32> = parents.keys().copied().collect();
         for node in nodes {

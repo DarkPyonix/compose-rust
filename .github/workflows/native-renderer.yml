@@ -244,7 +244,7 @@ jobs:
       - name: Accessibility classes are linked in (SPEC NFR-8)
         # They are reached only by name from AppKit, so the link is free to drop them and
         # the only symptom is that turning VoiceOver on aborts the process.
-        run: ./renderer/desktop/scripts/tests/accessibility-link.test.sh
+        run: ./scripts/tests/renderer/accessibility-link.test.sh
 
       - name: Smoke test (SPEC PR-8 acceptance criterion)
         env:
@@ -329,10 +329,10 @@ jobs:
             kotlin-linux-
 
       - name: Run Linux script contract tests
-        run: bash renderer/desktop/scripts/tests/linux-build.test.sh
+        run: bash scripts/tests/renderer/linux-build.test.sh
 
       - name: Run the Linux metadata contract test
-        run: bash renderer/desktop/scripts/tests/linux-metadata.test.sh
+        run: bash scripts/tests/renderer/linux-metadata.test.sh
 
       - name: Build the Linux renderer under Xvfb
         run: xvfb-run -a ./renderer/desktop/scripts/build-native-linux.sh
@@ -505,7 +505,7 @@ jobs:
           path: renderer-dist
 
       - name: Build, move, bundle and run an application under Xvfb
-        run: xvfb-run -a ./scripts/check-linux-consumer.sh renderer-dist "$RUNNER_TEMP/consumer-app"
+        run: xvfb-run -a ./.github/scripts/check-linux-consumer.sh renderer-dist "$RUNNER_TEMP/consumer-app"
 
   # The other Linux renderer: Kotlin/Native, linked into the application as a static
   # archive, with no virtual machine in it. Nothing else builds it, so this job is the only
@@ -550,7 +550,7 @@ jobs:
         run: rustup toolchain install stable --profile minimal && rustup default stable
 
       - name: Install X11, GL and font headers, patchelf and a virtual display
-        # The same groups tools/linux-box/Dockerfile installs for this renderer.
+        # The same groups renderer/desktop/linux-box/Dockerfile installs for this renderer.
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential pkg-config unzip \
@@ -612,7 +612,7 @@ jobs:
           nm -D "$lib"
 
       - name: Build, move, bundle and run an application under Xvfb
-        run: xvfb-run -a -s '-screen 0 1280x1024x24' ./scripts/check-linux-consumer.sh renderer/build/linux "$RUNNER_TEMP/consumer-static"
+        run: xvfb-run -a -s '-screen 0 1280x1024x24' ./.github/scripts/check-linux-consumer.sh renderer/build/linux "$RUNNER_TEMP/consumer-static"
 
   # iOS is Kotlin/Native, not native-image, so it shares nothing with the jobs above
   # except the interpreter source. It builds both slices (simulator and device) and

@@ -34,6 +34,9 @@ fi
 
 cargo fmt --all -- --check
 cargo clippy --workspace -- -D warnings
+# The token tables are compared with the design systems in the Compose fork, at the commit
+# the renderer is built from. The test reads them from .scratch and fails if they are absent.
+./scripts/fetch-design-systems.sh > /dev/null
 cargo test --workspace
 # The renderer is a default feature, so the run above never builds the crate the way a
 # headless or documentation build gets it. That build has to compile, and the tests that
@@ -97,22 +100,3 @@ echo "testing on:   ${test_platforms[*]//--platform /}"
 ./kotlin build "${build_platforms[@]}"
 ./kotlin test "${test_platforms[@]}"
 
-# The design systems are their own Amper project, so they have their own build and their
-# own tests, and nothing here ran either of them. Ten test files, including every rule the
-# Liquid Glass material is checked by, went unrun by the gate that is supposed to be the
-# thing you can believe. Same platform question, asked of that project.
-design_systems="$repo_root/design-systems"
-design_build=()
-while read -r platform; do
-    design_build+=(--platform "$platform")
-done < <("$renderer_gate" build "$design_systems")
-design_test=()
-while read -r platform; do
-    design_test+=(--platform "$platform")
-done < <("$renderer_gate" test "$design_systems")
-
-cd "$design_systems"
-echo "design systems, building for: ${design_build[*]//--platform /}"
-echo "design systems, testing on:   ${design_test[*]//--platform /}"
-./kotlin build "${design_build[@]}"
-./kotlin test "${design_test[@]}"

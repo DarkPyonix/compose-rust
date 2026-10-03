@@ -10,8 +10,11 @@ compose-rust lets Rust code author declarative UI with **Dioxus** (`dioxus-core`
 - `renderer/`: Kotlin side (Renderer). Amper project. The schema interpreter
   lives in `desktop/src/renderer/`; `ios/src/shared/` symlinks the same files so there is one
   copy. `shared/` is the JVM development shell only, not the renderer.
-- `design-systems/`: a separate Amper project holding the six design systems and the
-  Liquid Glass material. It must never depend on the renderer, so it can be published alone.
+- The design systems and the Liquid Glass material live in the Compose fork,
+  `thisisthepy/compose-multiplatform-core-extended`, under `extended/design-systems/`. They
+  must never depend on the renderer, so they can be published alone. The token test reads
+  them at the commit `renderer/scripts/build-compose.sh` pins, fetched into `.scratch/` by
+  `scripts/fetch-design-systems.sh`.
 - `docs/INTENT.md`: why the project exists, decisions (D1–D9), rejected alternatives.
 - `docs/SPEC.md`: requirements (`FR-*`, `NFR-*`, `PR-*`) with acceptance criteria.
 - `PROJECT.md`: scope, milestones (M0–M7), open questions.
@@ -122,8 +125,7 @@ none of it.
    - files: `.gitignore`, `Cargo.toml`, `Cargo.lock`, `CHANGELOG.md`, `LICENSE`,
      `README.md`, `AGENTS.md`, `CLAUDE.md`, `PROJECT.md`;
    - temporary, each with the date it leaves:
-     - `adapters/`, to dioxus-compose, by 2026-10-05 (#37 step 4);
-     - `design-systems/`, to compose-multiplatform-core-extended, by 2026-10-15 (#39).
+     - `adapters/`, to dioxus-compose, by 2026-10-05 (#37 step 4).
      `bench/dioxus-baseline/` leaves with `adapters/`; `bench/` itself stays.
 
    Ignored local directories (`.claude/`, `.scratch/`, `target/`, `build/`) are not part

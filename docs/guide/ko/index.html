@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>compose-rust: Rust로 선언하고 Compose가 그리는 네이티브 UI</title>
-<meta name="description" content="Rust에서 Dioxus 방식으로 UI를 선언하면 미리 컴파일해 둔 Compose Multiplatform 렌더러가 화면을 그립니다. 웹뷰도 JVM도 없이 도는 네이티브 데스크톱 앱을 만듭니다.">
+<title>compose-rust: Rust로 쓰는 Compose 모양의 UI, 그리는 것은 Compose</title>
+<meta name="description" content="compose-rust는 Rust를 위한 Compose 모양의 UI API이고, AOT 컴파일된 Compose 렌더러가 그립니다. 웹뷰도 동봉된 JVM도 없는 네이티브 UI입니다.">
 <link rel="canonical" href="http://darkpyonix.dev/compose-rust/ko/">
 <link rel="alternate" hreflang="en" href="http://darkpyonix.dev/compose-rust/en/">
 <link rel="alternate" hreflang="ko" href="http://darkpyonix.dev/compose-rust/ko/">
@@ -13,13 +13,13 @@
 <meta property="og:site_name" content="compose-rust">
 <meta property="og:locale" content="ko_KR">
 <meta property="og:locale:alternate" content="en_US">
-<meta property="og:title" content="compose-rust: Rust로 선언하고 Compose가 그리는 네이티브 UI">
-<meta property="og:description" content="Rust에서 UI를 선언하면 Compose 렌더러가 화면을 그립니다. 웹뷰도 JVM도 없이 도는 네이티브 데스크톱 앱.">
+<meta property="og:title" content="compose-rust: Rust로 쓰는 Compose 모양의 UI, 그리는 것은 Compose">
+<meta property="og:description" content="Rust를 위한 Compose 모양의 UI API를 AOT 컴파일된 Compose 렌더러가 그립니다. 웹뷰도 동봉된 JVM도 없습니다.">
 <meta property="og:url" content="http://darkpyonix.dev/compose-rust/ko/">
 <meta property="og:image" content="http://darkpyonix.dev/compose-rust/assets/og.png">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="compose-rust: Rust로 선언하고 Compose가 그리는 네이티브 UI">
-<meta name="twitter:description" content="Rust에서 UI를 선언하면 Compose 렌더러가 화면을 그립니다. 웹뷰도 JVM도 없이 도는 네이티브 데스크톱 앱.">
+<meta name="twitter:title" content="compose-rust: Rust로 쓰는 Compose 모양의 UI, 그리는 것은 Compose">
+<meta name="twitter:description" content="Rust를 위한 Compose 모양의 UI API를 AOT 컴파일된 Compose 렌더러가 그립니다. 웹뷰도 동봉된 JVM도 없습니다.">
 <meta name="twitter:image" content="http://darkpyonix.dev/compose-rust/assets/og.png">
 <link rel="stylesheet" href="../assets/style.css?v=20">
 <script type="application/ld+json">
@@ -27,12 +27,12 @@
   "@context": "https://schema.org",
   "@type": "SoftwareSourceCode",
   "name": "compose-rust",
-  "description": "Rust에서 UI를 선언하면 미리 컴파일해 둔 Compose Multiplatform 엔진이 화면을 그립니다.",
+  "description": "Rust를 위한 Compose 모양의 UI API를 AOT 컴파일된 Compose Multiplatform 렌더러가 그립니다.",
   "codeRepository": "https://github.com/DarkPyonix/compose-rust",
   "url": "http://darkpyonix.dev/compose-rust/",
   "programmingLanguage": ["Rust", "Kotlin"],
   "license": "https://www.apache.org/licenses/LICENSE-2.0",
-  "runtimePlatform": "macOS"
+  "runtimePlatform": ["macOS", "Linux", "Windows", "iOS", "Android", "Web"]
 }
 </script>
 <script>(function(){try{var t=localStorage.getItem("dxc-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
@@ -75,11 +75,10 @@
     </div>
     <span class="edge" aria-hidden="true"></span>
   <section class="hero">
-    <h1>UI는 Rust로 선언하고,<span class="said">화면은 Compose가 그립니다.</span></h1>
-    <p class="lede"><code>rsx!</code>와 훅, 시그널로 컴포넌트를 작성하면 미리 컴파일해 둔 Compose
-      Multiplatform 렌더러가 화면을 그립니다. 텍스트 레이아웃도, 위젯도, 입력기도 Compose가
-      쓰던 것을 그대로 씁니다.</p>
-    <p class="sub">웹뷰 없이, JVM 없이 도는 네이티브 데스크톱 앱을 Rust로 만듭니다.</p>
+    <h1>Rust로 쓰는 Compose 모양의 UI,<span class="said">그리는 것은 Compose.</span></h1>
+    <p class="lede">Compose 모양의 Rust API, 스키마에서 생성되는 좁은 C ABI, 그리고 Compose 자신의
+      텍스트 레이아웃, 위젯, 플랫폼 IME로 그리는 미리 컴파일된 Compose 렌더러입니다.</p>
+    <p class="sub">웹뷰도, 동봉된 JVM도 없는 네이티브 UI. 데스크톱 앱 하나를 실행 파일 하나로 배포하는 것이 목표입니다.</p>
     <div class="cta">
       <a class="btn" href="getting-started.html">시작하기</a>
       <a class="btn secondary" href="overview.html">가이드 보기</a>
@@ -87,74 +86,67 @@
     </div>
       <ul class="claims">
         <li>웹뷰 없음</li>
-        <li>배포 바이너리에 JVM 없음</li>
+        <li>동봉된 JVM 없음</li>
         <li>한글 포함 플랫폼 IME 그대로</li>
-        <li>복사 없는 경계</li>
+        <li>제자리에서 읽는 레코드</li>
       </ul>
   </section>
   </div>
 
   <div class="showcase" id="how">
-<pre><code><span class="k">rsx!</span> {
-    <span class="t">Column</span> {
-        <span class="a">fill_max_width</span>: <span class="k">true</span>,
-        <span class="t">Text</span> { <span class="a">text</span>: <span class="s">"대화"</span> }
-        <span class="t">TextField</span> {
-            <span class="a">placeholder</span>: <span class="s">"메시지를 입력하세요"</span>,
-            <span class="c">// Enter는 제출, Shift+Enter는 줄바꿈</span>
-            <span class="a">on_key_down</span>: <span class="k">move</span> |e| {
-                <span class="k">if</span> e.key() == <span class="t">Key</span>::Enter &amp;&amp; !e.shift_key() {
-                    submit();
-                    e.consume();
-                }
-            },
-        }
-    }
+<pre><code><span class="c">// Planned shape for 1.0.0. Does not compile against 0.0.x.</span>
+<span class="at">#[composable]</span>
+<span class="k">fn</span> <span class="f">counter</span>() {
+    <span class="k">let</span> count = <span class="f">remember</span>(|| <span class="f">mutable_state_of</span>(<span class="n">0</span>));
+    <span class="f">Column</span>(<span class="ty">Modifier</span>::<span class="f">new</span>().<span class="f">fill_max_width</span>(), || {
+        <span class="f">Text</span>(<span class="f">format!</span>(<span class="s">"{}"</span>, count.<span class="f">get</span>()));
+        <span class="f">Button</span>(|| count.<span class="f">set</span>(count.<span class="f">get</span>() + <span class="n">1</span>), || <span class="f">Text</span>(<span class="s">"+1"</span>));
+    });
 }</code></pre>
     <div class="note">
       <h2>코드는 Rust에, 픽셀은 Compose에</h2>
-      <p>컴포넌트와 상태는 Rust가 관리하고, 화면과 텍스트 입력은 Compose가 담당합니다. 둘
-        사이에는 좁은 C ABI 하나뿐입니다. 같은 스레드에서 동기로 호출하고 데이터를 복사하지
-        않으니, 키를 누른 그 프레임 안에서 결과가 돌아옵니다.</p>
-      <p>직렬화도, 비동기 브리지도, 웹뷰도 없습니다. 배포되는 바이너리 안에 JVM도 들어가지
-        않습니다.</p>
+      <p>코드와 상태는 Rust가 갖고, 픽셀과 텍스트 스택과 입력기는 Kotlin이 갖습니다. 둘 사이에는
+        좁은 C ABI 하나뿐입니다. 한 스레드 위에서 동기로 호출하고, 레코드는 쓰인 자리에서 읽히므로,
+        키를 누르면 같은 호출 안에서 답이 돌아옵니다.</p>
+      <p>여기 보인 작성 API는 2026-10-20의 1.0.0에 들어옵니다. 그 아래의 경계, 스키마, 렌더러는
+        지금 0.0.1로 배포됩니다.</p>
     </div>
   </div>
 
   <div class="metrics">
-    <div class="metric"><b>35.1 MB</b><span>창을 띄웠을 때 실제 메모리 사용량 (M1 기준)</span></div>
-    <div class="metric"><b>12.5 &micro;s</b><span>클릭 처리부터 배치 인코딩까지 (p99)</span></div>
-    <div class="metric"><b>0</b><span>경계에서 한 프레임당 힙 할당</span></div>
-    <div class="metric"><b>JVM 없음</b><span>Java가 깔리지 않은 컴퓨터에서도 실행</span></div>
+    <div class="metric"><b>28.76 MB</b><span>실행 파일 하나, notepad 샘플, macOS arm64</span></div>
+    <div class="metric"><b>35.1 MB</b><span>그 실행 파일이 창을 띄웠을 때의 실제 점유 메모리</span></div>
+    <div class="metric"><b>약 12 ns</b><span>브라우저에서 렌더러가 Host를 부르는 호출 한 번</span></div>
+    <div class="metric"><b>6.95 MB</b><span>브라우저의 렌더러와 Skia, gzip 기준</span></div>
   </div>
-  <p class="fineprint">Mac mini(M1, 16GiB, macOS 26.5.1)에서 릴리스 빌드로 측정한 값입니다. 측정
-    방법은 <a href="architecture.html">아키텍처</a> 문서에 적어 두었습니다.</p>
+  <p class="fineprint">앞의 두 숫자는 실행 파일 안에 링크되는 Kotlin/Native 렌더러의 것이며, 이것은
+    0.0.1 다음에 기본이 됩니다. 0.0.1은 데스크톱에서 GraalVM 네이티브 이미지를 배포합니다.
+    <a href="architecture.html#runtimes">어디서 무엇이 도나</a>를 보십시오.</p>
 
   <section>
     <h2>현재 상태</h2>
     <table>
-      <thead><tr><th>플랫폼</th><th>상태</th></tr></thead>
+      <thead><tr><th>부분</th><th>상태</th></tr></thead>
       <tbody>
-        <tr><td>macOS 데스크톱</td><td>한글 입력까지 포함해 처음부터 끝까지 동작합니다</td></tr>
-        <tr><td>Windows, Linux 데스크톱</td><td>빌드되고 실행됩니다</td></tr>
-        <tr><td>iOS</td><td>빌드되고 실행됩니다 (XCFramework)</td></tr>
-        <tr><td>Android</td><td>설계는 끝났고 구현은 아직입니다</td></tr>
-        <tr><td>Web</td><td>연결 방식은 실측으로 정했고 구현은 아직입니다</td></tr>
+        <tr><td>경계, 프로토콜, 스키마, 렌더러 다운로드</td><td>0.0.1에 <span class="pill works">구현</span></td></tr>
+        <tr><td>작성 API: <code>#[composable]</code>, <code>remember</code>, <code>launch</code></td><td>2026-10-20의 1.0.0을 향한 <span class="pill planned">계획</span></td></tr>
+        <tr><td>macOS, Android, Web</td><td><span class="pill works">처음부터 끝까지 동작</span></td></tr>
+        <tr><td>Linux, Windows, iOS</td><td><span class="pill partial">빌드되고 시작됨</span></td></tr>
       </tbody>
     </table>
-    <p class="fineprint">아직 초기 단계 프로젝트입니다. 무엇이 확정됐고 무엇이 검증되지 않았는지는
-      <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/SPEC.md">명세 문서</a>에
-      구분해 두었습니다.</p>
+    <p class="fineprint">아직 초기 단계 프로젝트이고, 그렇다고 분명히 말합니다. 각 줄의 뜻은
+      <a href="overview.html#status">현재 상태</a>와 <a href="overview.html#platforms">플랫폼</a>에
+      있습니다.</p>
   </section>
 
   <section>
-    <h2>어디서부터 볼까요</h2>
+    <h2>어디서부터 볼까</h2>
     <div class="cards">
-      <a class="card" href="getting-started.html"><h3>시작하기</h3><p>툴체인 설치부터 렌더러 빌드, 데모 실행까지.</p></a>
-      <a class="card" href="writing-ui.html"><h3>UI 작성</h3><p>위젯과 Modifier, 이벤트 처리, 그리고 한글 입력이 깨지지 않게 하는 텍스트 필드 규칙.</p></a>
-      <a class="card" href="composables.html"><h3>컴포저블 레퍼런스</h3><p>모든 컴포저블과 그 프로퍼티, 기본값, 역할 어휘, 그리고 각각의 상태가 어디에 있는지.</p></a>
-      <a class="card" href="design-systems.html"><h3>디자인 시스템</h3><p>Material 3, Cupertino, Fluent를 하나로 통일하거나 플랫폼에 맞춰 바꾸거나.</p></a>
-      <a class="card" href="architecture.html"><h3>아키텍처</h3><p>Host와 Renderer를 나눈 구조, 둘을 잇는 프로토콜, 프레임이 도는 방식.</p></a>
+      <a class="card" href="getting-started.html"><h3>시작하기</h3><p>크레이트를 더하고, 빌드가 렌더러를 받아 오게 하고, 이 저장소를 빌드합니다.</p></a>
+      <a class="card" href="writing-ui.html"><h3>UI 작성하기</h3><p>계획한 작성 API입니다. composable, 상태, effect, 이벤트, 애니메이션을 다룹니다.</p></a>
+      <a class="card" href="composables.html"><h3>위젯 레퍼런스</h3><p>스키마의 위젯, Modifier, 역할 전부와, 위젯마다 상태를 어디에 두는지입니다.</p></a>
+      <a class="card" href="design-systems.html"><h3>디자인 시스템</h3><p>역할 하나 뒤의 디자인 시스템 일곱 개를 통일형 또는 적응형으로 고릅니다.</p></a>
+      <a class="card" href="architecture.html"><h3>아키텍처</h3><p>경계, 레코드, 측정 호출, 확대 배율, 플랫폼마다의 렌더러입니다.</p></a>
     </div>
   </section>
 </main>
@@ -162,7 +154,7 @@
 <footer class="site">
   <div class="inner">
     <span>compose-rust &middot; Apache License 2.0</span>
-    <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/INTENT.md">INTENT.md</a></span>
+    <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://crates.io/crates/compose-rust">crates.io</a></span>
   </div>
 </footer>
 <script src="../assets/guide.js" defer></script>

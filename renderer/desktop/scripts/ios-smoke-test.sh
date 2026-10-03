@@ -163,8 +163,10 @@ xcrun simctl launch --console-pty --terminate-running-process "$device" "$BUNDLE
 launch_pid=$!
 
 # The renderer never returns from run() on iOS (UIApplicationMain owns the process), so the
-# test waits for the window to come up rather than for the process to exit.
-for _ in $(seq 1 30); do
+# test waits for the window to come up rather than for the process to exit. A freshly
+# booted simulator on a busy CI runner has taken longer than 30 seconds to bring the app's
+# first line out, so the wait is two minutes and ends as soon as the line appears.
+for _ in $(seq 1 120); do
     grep -q "compose_rust_host_init" "$log" 2>/dev/null && break
     sleep 1
 done
@@ -194,9 +196,17 @@ xcrun simctl terminate "$device" "$BUNDLE_ID" >/dev/null 2>&1 || true
 
 echo
 cat "$log"
-grep -q "compose_rust_host_init" "$log" || die \
-    "the renderer never called compose_rust_host_init" \
-    "Console log: $log"
+if ! grep -q "compose_rust_host_init" "$log"; then
+    # An empty console says nothing about why. A crash leaves a report, and the unified log
+    # keeps what the process said before it died, so both go into the job output.
+    echo "==> crash reports for $BUNDLE_ID"
+    ls -t "$HOME/Library/Logs/DiagnosticReports" 2>/dev/null | grep -i "smoke\|compose" | head -3 |
+        while read -r report; do sed -n '1,60p' "$HOME/Library/Logs/DiagnosticReports/$report"; done
+    echo "==> simulator log for the app (last two minutes)"
+    xcrun simctl spawn "$device" log show --last 2m --style compact \
+        --predicate "process CONTAINS[c] 'smoke' OR subsystem CONTAINS[c] 'compose'" 2>/dev/null | tail -60
+    die "the renderer never called compose_rust_host_init" "Console log: $log"
+fi
 # The host measures its own label twice from inside a frame, once as text and once as the
 # node the renderer drew, and the two answers have to be the same numbers.
 grep -q "compose_rust_renderer_measure: agree" "$log" || die \
