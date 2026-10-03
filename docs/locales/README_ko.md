@@ -148,8 +148,8 @@ Material 3, Apple HIG, Fluent, Liquid Glass를 비롯한 디자인 시스템 일
 고릅니다. 위젯은 역할(색, 글꼴, 모양, 간격)을 내보내고 렌더러가 그것을 토큰으로 풀기 때문에,
 다크 모드 전환은 노드마다 속성을 고치는 일이 아니라 테마 변경 한 번입니다.
 
-디자인 시스템은 이 저장소를 떠나 thisisthepy의 Compose 포크로 옮겨 가며, `org.thisisthepy.compose.*`
-아래의 평범한 Compose 라이브러리가 됩니다. 시스템마다 컴포넌트 라이브러리 하나
+디자인 시스템은 이 저장소를 떠나 thisisthepy의 Compose 포크로 옮겨 갔고, 그곳에서 `org.thisisthepy.compose.*`
+아래의 평범한 Compose 라이브러리가 되어 갑니다. 시스템마다 컴포넌트 라이브러리 하나
 (`org.thisisthepy.compose.material3`, `.cupertino`, `.fluent`, `.liquidglass` 등), 그 위에서 기본으로
 플랫폼 자신의 시스템을 따르는 `org.thisisthepy.compose.adaptive`, 그리고 두 층이 함께 쓰는 계약인
 `org.thisisthepy.compose.designsystem`입니다.
@@ -230,8 +230,10 @@ scripts/          setup check, quality gate, release and publishing scripts, scr
 .github/          CI workflows
 ```
 
-`adapters/`와 `design-systems/`는 이 저장소를 떠납니다. `adapters/`에 있던 작성 층은 별도 프로젝트로,
-디자인 시스템은 Compose 포크로 옮겨 갑니다.
+`adapters/`는 이 저장소를 떠납니다. 그 안에 있던 작성 층은 별도 프로젝트로 옮겨 갑니다. 디자인 시스템은
+Compose 포크로 옮겨 갔으며,
+[thisisthepy/compose-multiplatform-core-extended](https://github.com/thisisthepy/compose-multiplatform-core-extended)의
+`extended/design-systems/` 아래에 있습니다.
 
 ---
 

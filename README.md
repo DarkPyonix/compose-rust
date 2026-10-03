@@ -159,8 +159,8 @@ application. Widgets emit roles (colour, type, shape, space), and the renderer r
 tokens, so switching to dark mode is one theme change rather than a property update on every
 node.
 
-The design systems are moving out of this repository into the thisisthepy Compose fork, as
-ordinary Compose libraries under `org.thisisthepy.compose.*`: one component library per system
+The design systems have moved out of this repository into the thisisthepy Compose fork, where
+they are becoming ordinary Compose libraries under `org.thisisthepy.compose.*`: one component library per system
 (`org.thisisthepy.compose.material3`, `.cupertino`, `.fluent`, `.liquidglass` and the others),
 `org.thisisthepy.compose.adaptive` on top of them, which follows the platform's own system by
 default, and `org.thisisthepy.compose.designsystem` for the contract both layers share.
@@ -243,8 +243,9 @@ scripts/          setup check, quality gate, release and publishing scripts, scr
 .github/          CI workflows
 ```
 
-`adapters/` and `design-systems/` are leaving the repository: the authoring layer that lived in
-`adapters/` moves to its own project, and the design systems move to the Compose fork.
+`adapters/` is leaving the repository: the authoring layer that lived in it moves to its own
+project. The design systems have moved to the Compose fork, under `extended/design-systems/` in
+[thisisthepy/compose-multiplatform-core-extended](https://github.com/thisisthepy/compose-multiplatform-core-extended).
 
 ---
 
