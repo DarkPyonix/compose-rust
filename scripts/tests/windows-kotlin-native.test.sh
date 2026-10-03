@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# The Kotlin/Native Windows renderer: the module, what it reaches by name, and the kit an
+# MSVC link is handed.
+#
+# None of it can be compiled from here. The module needs Compose and skiko built for
+# mingwX64 and published locally first, and what it produces is linked by an MSVC linker on
+# Windows; both are the CI job's to do (.github/workflows/windows-static.yml). What is left is
+# the wiring, and the wiring is where this renderer fails without saying so: a Compose module
+# the build does not publish is an unresolvable coordinate an hour into a build, and a C name
+# the Kotlin calls that no linked object defines is an undefined symbol at the very end of it.
+set -uo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+renderer="$repo_root/dioxus-compose-renderer"
+project="$renderer/project.yaml"
+module="$renderer/windows/module.yaml"
+staticlib="$renderer/staticlib-windows/module.yaml"
+compose_script="$renderer/scripts/build-compose.sh"
+
+red=0
+fail() {
+    echo "fail: $1"
+    red=1
+}
+
+for file in "$project" "$module" "$staticlib" "$compose_script"; do
+    [[ -f "$file" ]] || fail "missing $file"
+done
+(( red == 0 )) || exit 1
+
+# ---------------------------------------------------------------------------
+# The module, and the one platform it is for.
+# ---------------------------------------------------------------------------
+
+grep -Eq '^ +- windows$' "$project" ||
+    fail "project.yaml does not list the windows module, so nothing builds it"
+grep -Eq '^ +- staticlib-windows$' "$project" ||
+    fail "project.yaml does not list staticlib-windows, so the Host has no symbols to link"
+grep -Fq 'platforms: [ mingwX64 ]' "$module" ||
+    fail "the windows module does not declare mingwX64"
+grep -Fq 'mavenLocal' "$module" ||
+    fail "the windows module does not read the local Maven repository, which is the only place Compose for this target is"
+[[ "$(readlink "$renderer/staticlib-windows/src/WindowsEntryPoints.kt")" == "../../staticlib/src/IosEntryPoints.kt" ]] ||
+    fail "staticlib-windows does not share the entry points every other Kotlin/Native renderer uses"
+
+for source in "$renderer"/windows/src/*.kt; do
+    if grep -q 'org\.graalvm' "$source"; then
+        fail "$(basename "$source") names GraalVM, which a Kotlin/Native module has not got"
+    fi
+done
+
+# ---------------------------------------------------------------------------
+# One copy of the interpreter, reached the way the other platforms reach it.
+# ---------------------------------------------------------------------------
+
+while IFS= read -r shared; do
+    name="$(basename "$shared")"
+    [[ -L "$renderer/windows/src/shared/$name" ]] ||
+        fail "windows/src/shared/$name is not a symlink, so the module holds a second copy of the interpreter or does not compile"
+done < <(find "$renderer/macos/src/shared" -maxdepth 1 -name '*.kt')
+while IFS= read -r source; do
+    [[ -L "$source" ]] || fail "windows/src/shared/$(basename "$source") is a copy rather than a symlink"
+    [[ -e "$source" ]] || fail "windows/src/shared/$(basename "$source") points at nothing"
+done < <(find "$renderer/windows/src/shared" -maxdepth 1 -name '*.kt')
+
+# The Host is found through the executable's export table here, not dlsym.
+grep -q 'GetProcAddress' "$renderer/windows/src/HostSymbolLookup.kt" ||
+    fail "the windows module does not look the Host up with GetProcAddress"
+[[ -L "$renderer/windows/src/HostSymbolLookup.kt" ]] &&
+    fail "windows/src/HostSymbolLookup.kt is a link to the dlsym one, which Windows has not got"
+
+# ---------------------------------------------------------------------------
+# Every Compose module this target is given is one the build script publishes.
+# ---------------------------------------------------------------------------
+
+asked="$(grep -oE 'org\.jetbrains\.compose\.[a-z0-9]+:[a-z0-9-]+-mingwx64' "$module" |
+    sed -E 's/^org\.jetbrains\.compose\.([a-z0-9]+):([a-z0-9-]+)-mingwx64$/compose:\1:\2/' | sort -u)"
+published="$(awk '/^    mingwX64\)/ { inside = 1; next } inside && /;;/ { exit } inside' "$compose_script" |
+    grep -oE 'compose:[a-z0-9]+:[a-z0-9-]+' | sort -u)"
+[[ -n "$asked" ]] || fail "the windows module asks for no Compose module by its mingwx64 coordinate"
+[[ -n "$published" ]] || fail "build-compose.sh publishes nothing for mingwX64"
+if [[ -n "$asked" && -n "$published" && "$asked" != "$published" ]]; then
+    fail "the windows module and build-compose.sh --target mingwX64 disagree:
+       only asked for: $(comm -23 <(echo "$asked") <(echo "$published") | tr '\n' ' ')
+       only published: $(comm -13 <(echo "$asked") <(echo "$published") | tr '\n' ' ')"
+fi
+
+# The Windows pin has to be one with the skiko build in it, and the script has to run that
+# build before Compose, which resolves skiko from the local repository.
+grep -Eq '^MINGW_REVISION="[0-9a-f]{40}"$' "$compose_script" ||
+    fail "build-compose.sh pins no commit for the Windows build"
+grep -q 'extended/skiko/build-skiko-mingw.sh' "$compose_script" ||
+    fail "build-compose.sh does not build skiko for mingwX64 before Compose"
+
+if (( red == 0 )); then
+    echo "ok    the windows module is declared, shares the interpreter and asks for what is published"
+fi
+exit $red
