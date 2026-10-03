@@ -106,6 +106,10 @@ else
     runpath="\$ORIGIN"
     [[ -n "$prefix" ]] && runpath="\$ORIGIN/$relative"
     patchelf --set-rpath "$runpath" "$executable"
+    # As on macOS, the copy carries the build machine's path as its SONAME, which is what
+    # made the executable record that path in the first place. Nothing reads it at run
+    # time, but it would ship a directory listing of somebody's computer.
+    patchelf --set-soname "$library_name" "$staged_library"
     after="$(readelf -d "$executable" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p' |
         grep "$library_name$")"
 fi
