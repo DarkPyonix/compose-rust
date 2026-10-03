@@ -6,7 +6,7 @@
 #
 # `main` is always an ancestor of `release`, so merging that pull request leaves main with
 # exactly the tree the script produced.
-name: Publish main
+name: Release sync
 
 on:
   # develop on purpose, and the one workflow that should watch it. This is not a check on
@@ -20,7 +20,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: publish-main
+  group: release-sync
   cancel-in-progress: false
 
 jobs:

@@ -95,7 +95,7 @@
       the node count, not the update path.
     </p>
 
-    <h2 id="windowing">LazyColumn windowing <span class="pill partial">Host side</span></h2>
+    <h2 id="windowing">LazyColumn windowing <span class="pill works">Works</span></h2>
     <p>
       A plain tree diff cannot keep a virtualised list virtual: the Host would have to describe
       items it never built in order for the renderer to know they exist. So for lazy lists the flow
@@ -153,7 +153,7 @@
       </p>
     </div>
 
-    <h2 id="streaming">Streaming text <span class="pill partial">Host side</span></h2>
+    <h2 id="streaming">Streaming text <span class="pill works">Works</span></h2>
     <p>
       An LLM response arrives token by token. Replacing the whole <code>text</code> property on
       every token re-sends the entire message each time, and the message grows, so the cost grows
