@@ -601,7 +601,7 @@ internal class EditorDisplay(
 private fun Color.takeOrElse(other: Color): Color = if (this == Color.Unspecified) other else this
 
 /** How tall an editor is where nothing above it says. */
-private val DEFAULT_EDITOR_HEIGHT = 320.dp
+internal val DEFAULT_EDITOR_HEIGHT = 320.dp
 
 /**
  * Gives an editor a height where its parent offers an unbounded one, a column that scrolls
@@ -619,7 +619,7 @@ internal fun Modifier.boundedHeight(fallback: Dp): Modifier = layout { measurabl
 }
 
 /** The row height in whole pixels, so every row starts on a pixel and rows never drift. */
-private fun rowHeightPx(style: TextStyle, density: Density): Int = with(density) {
+internal fun rowHeightPx(style: TextStyle, density: Density): Int = with(density) {
     val lineHeight = if (style.lineHeight.isSp) style.lineHeight else (style.fontSize.value * 1.4f).sp
     max(1, lineHeight.toPx().roundToInt())
 }
@@ -952,7 +952,7 @@ private fun positionAt(window: FieldWindow, layout: TextLayoutResult, point: Off
 }
 
 /** Where the pointer rests, decided on the UI thread after the design system's delay. */
-private class HoverTracker {
+internal class HoverTracker {
     /** The place the pointer moved to last, and when, as a state the reporter waits on. */
     var target by mutableStateOf<HoverTarget?>(null)
 
@@ -978,11 +978,11 @@ private class HoverTracker {
     }
 }
 
-private data class HoverTarget(val decoration: Long, val position: CodePosition?, val anchor: LiveDecoration?)
+internal data class HoverTarget(val decoration: Long, val position: CodePosition?, val anchor: LiveDecoration?)
 
 /** Waits out the rest delay and reports a rest or a departure, from the composition thread. */
 @Composable
-private fun HoverReport(tracker: HoverTracker, delayMillis: Long, callbacks: CodeEditorCallbacks) {
+internal fun HoverReport(tracker: HoverTracker, delayMillis: Long, callbacks: CodeEditorCallbacks) {
     val target = tracker.target
     var settled by remember { mutableStateOf<HoverTarget?>(null) }
     LaunchedEffect(target) {
@@ -1090,7 +1090,7 @@ private fun DrawScope.drawDecorations(window: FieldWindow, layout: TextLayoutRes
     }
 }
 
-private fun DrawScope.drawUnderline(shape: UnderlineShape, color: Color, left: Float, right: Float, y: Float, stroke: Float) {
+internal fun DrawScope.drawUnderline(shape: UnderlineShape, color: Color, left: Float, right: Float, y: Float, stroke: Float) {
     when (shape) {
         UnderlineShape.Straight -> drawLine(color, Offset(left, y), Offset(right, y), stroke)
         UnderlineShape.Dotted -> drawLine(

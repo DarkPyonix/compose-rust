@@ -65,6 +65,8 @@ internal fun runRenderer(
     dioxus.compose.design.installPlatformUiFamily()
     dioxus.compose.ui.installFileDrop()
     dioxus.compose.ui.installReducedMotion()
+    // Available behind CodeEditorPath.Drawn; the default path is not changed by this.
+    dioxus.compose.foundation.code.installDrawnCodeEditor()
     val host = DioxusHost(connection())
     // Started on the thread the window will be driven from, which is not the thread this
     // function was called on.
