@@ -122,9 +122,13 @@ none of it.
    - files: `.gitignore`, `Cargo.toml`, `Cargo.lock`, `CHANGELOG.md`, `LICENSE`,
      `README.md`, `AGENTS.md`, `CLAUDE.md`, `PROJECT.md`;
    - temporary, each with the date it leaves:
-     - `adapters/`, to dioxus-compose, by 2026-10-05 (#37 step 4);
      - `design-systems/`, to compose-multiplatform-core-extended, by 2026-10-15 (#39).
-     `bench/dioxus-baseline/` leaves with `adapters/`; `bench/` itself stays.
+
+   `adapters/`, `bench/dioxus-baseline/` and the twelve `rsx!` samples moved to
+   dioxus-compose on 2026-10-04 (#37 step 4). `samples/` holds only its README until the
+   samples are rewritten on the compose-rust API and sample releases resume (#85, due
+   2026-10-06); `.github/workflows/samples.yml` is paused until then. `bench/` holds the
+   pin of the Dioxus baseline FR-39 compares against (`bench/fr39-baseline.env`).
 
    Ignored local directories (`.claude/`, `.scratch/`, `target/`, `build/`) are not part
    of the tree and are covered by "Where files go" above.

@@ -86,11 +86,10 @@ jobs:
         run: ./scripts/stand-in-renderer.sh --if-refused target/stand-in-renderer >> "$GITHUB_ENV"
 
       - name: Run the quality gate
-        # fmt, clippy -D warnings, tests, and the SPEC 5.1 budget benchmarks in
-        # Criterion's quick mode. The budgets have ~37x headroom against the
-        # recorded baseline, so shared-runner noise does not make them flaky;
-        # the benchmark *assertions* (NFR-9) still fail the build if a real
-        # regression lands.
+        # fmt, clippy -D warnings, tests, and the workspace's budget benchmarks in
+        # Criterion's quick mode. There are none at the moment: the Host budget
+        # benchmarks drove the Dioxus adapter and moved to dioxus-compose with it,
+        # and compose-rust's own arrive with its authoring API (#64).
         #
         # Without the Kotlin half. check.sh runs it by default, which is right on a
         # developer's machine and wrong here: this job is named for Rust, has no Kotlin

@@ -875,7 +875,7 @@
     </p>
 
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
-      <figcaption>rust, in the shape samples/academic uses</figcaption>
+      <figcaption>rust, in the shape dioxus-compose's samples/native-widgets/academic uses</figcaption>
 <pre><code><span class="f">rsx!</span> {
     <span class="ty">Navigation</span> {
         <span class="at">fill_max_width</span>: <span class="k">true</span>,
@@ -938,7 +938,7 @@
     </p>
 
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
-      <figcaption>rust, in the shape samples/todo uses</figcaption>
+      <figcaption>rust, in the shape dioxus-compose's samples/native-widgets/todo uses</figcaption>
 <pre><code><span class="f">rsx!</span> {
     <span class="ty">Menu</span> {
         <span class="at">expanded</span>: <span class="f">menu_open</span>() == <span class="ty">Some</span>(task.id),
@@ -969,7 +969,7 @@
         not terminate: a <code>Menu</code> whose children are a conditional or a loop, inside a
         <code>LazyColumn</code> item, recurses until the stack overflows. Declaring the entries
         whether the menu is open or not costs one anchor and a few entries per visible row, which
-        tracks the window rather than the list. <code>samples/todo</code> does it this way and says
+        tracks the window rather than the list. <code>samples/native-widgets/todo</code> in dioxus-compose does it this way and says
         so in a comment.
       </p>
     </div>

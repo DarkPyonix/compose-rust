@@ -1,20 +1,6 @@
 [workspace]
 members = [
     "compose-rust",
-    "adapters/dioxus",
-    "bench/dioxus-baseline",
-    "samples/academic",
-    "samples/calculator",
-    "samples/chat",
-    "samples/frames",
-    "samples/minimal",
-    "samples/notepad",
-    "samples/podcast",
-    "samples/selfcare",
-    "samples/social",
-    "samples/statistics",
-    "samples/store",
-    "samples/todo",
 ]
 resolver = "2"
 
@@ -22,14 +8,3 @@ resolver = "2"
 edition = "2024"
 license = "Apache-2.0"
 rust-version = "1.85"
-
-[workspace.dependencies]
-# The Dioxus adapter, for everything in this workspace that is written with rsx!: the
-# samples and the baseline built from them. One line on purpose. When the baseline is
-# frozen, this becomes `{ git = "https://github.com/DarkPyonix/compose-rust", rev = "..." }`
-# and every one of them measures the same Dioxus path.
-dioxus-compose-adapter = { path = "adapters/dioxus" }
-dioxus-core = "0.7.10"
-dioxus-core-macro = "0.7.10"
-dioxus-hooks = "0.7"
-dioxus-signals = "0.7"

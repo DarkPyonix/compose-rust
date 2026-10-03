@@ -1,6 +1,13 @@
 # Sample apps -- builds every sample for every desktop platform when a `sample-v*` tag is
 # pushed, and attaches the binaries to a GitHub Release.
 #
+# PAUSED until #85 closes. compose-rust has no samples: the rsx! samples moved to
+# dioxus-compose (https://github.com/DarkPyonix/dioxus-compose) with the Dioxus adapter,
+# and compose-rust's own come back when they are rewritten on its authoring API (#64).
+# Until then a `sample-v*` tag starts nothing, and a run started by hand fails in the
+# `paused` job with a pointer to #85, which every build job waits on. Resuming is
+# restoring the tag trigger and deleting that job.
+#
 # A sample that does not build on a platform is skipped and the release goes ahead with
 # the rest. Eleven samples across three platforms is thirty-three builds, and holding all
 # of them back because one of them broke on one platform helps nobody. A platform where
@@ -17,9 +24,6 @@
 name: Sample apps
 
 on:
-  push:
-    tags:
-      - 'sample-v*'
   workflow_dispatch:
     inputs:
       tag:
@@ -31,7 +35,17 @@ permissions:
   contents: read
 
 jobs:
+  paused:
+    name: Sample releases are paused (#85)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Say why and stop
+        run: |
+          echo "::error title=Sample releases are paused::compose-rust has no samples until #85 closes (https://github.com/DarkPyonix/compose-rust/issues/85). The rsx! samples moved to https://github.com/DarkPyonix/dioxus-compose; compose-rust's own return once they are rewritten on its authoring API (#64)."
+          exit 1
+
   build:
+    needs: paused
     name: ${{ matrix.target }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
@@ -170,7 +184,7 @@ jobs:
               continue
             fi
             echo "== sample-$app"
-            if cargo build --release -p "sample-$app" --features dioxus-compose-adapter/native-renderer; then
+            if cargo build --release -p "sample-$app" --features compose-rust/native-renderer; then
               echo "$app" >> built.txt
             else
               echo "$app" >> skipped.txt
@@ -233,6 +247,7 @@ jobs:
 
 
   android:
+    needs: paused
     name: android
     runs-on: ubuntu-24.04
     timeout-minutes: 120
@@ -293,6 +308,7 @@ jobs:
           path: artifacts/
 
   ios:
+    needs: paused
     name: ios-simulator
     runs-on: macos-26
     timeout-minutes: 120
@@ -347,6 +363,7 @@ jobs:
           path: artifacts/
 
   web:
+    needs: paused
     name: web
     runs-on: ubuntu-24.04
     timeout-minutes: 120
