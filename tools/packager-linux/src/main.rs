@@ -13,7 +13,9 @@ use packager_linux::appstream::{metainfo, metainfo_file_name};
 use packager_linux::desktop::{desktop_entry, desktop_file_name};
 use packager_linux::flatpak::{FlatpakOptions, Payload, SourceRef, icon_source_path, manifest};
 use packager_linux::icons::{Icon, check_for_flathub};
-use packager_linux::metadata::{AppMetadata, BuildFacts, release_date};
+use packager_linux::metadata::{
+    AppMetadata, BuildFacts, Screenshot, check_screenshot_url, release_date,
+};
 
 const USAGE: &str = "\
 usage: packager-linux <command> --dioxus-toml <file> [common options] [command options]
@@ -34,6 +36,10 @@ common options:
   --icon <file>          a square PNG or an SVG (repeatable); overrides [bundle] icon
   --arch <arch>          x86_64 or aarch64; defaults to this machine's
   --app-id <id>          overrides the identifier, for a store listing under another ID
+  --screenshot <url>     a screenshot for the store listing (repeatable, first is the
+                         default); replaces [linux.store] screenshots. A raw GitHub URL
+                         must be pinned to a tag or a commit
+  --screenshot-caption <text>  a caption for each --screenshot, in the same order
 
 appdir:
   --payload <dir|file>   the executable, or a directory holding it and its renderer
@@ -138,6 +144,8 @@ const COMMON: &[&str] = &[
     "icon",
     "arch",
     "app-id",
+    "screenshot",
+    "screenshot-caption",
 ];
 
 fn run(args: &[String]) -> Result<(), String> {
@@ -288,7 +296,25 @@ fn load(options: &Options) -> Result<(AppMetadata, Vec<Icon>), String> {
         date,
         exec: options.one("exec")?,
     };
-    let meta = AppMetadata::resolve(&text, &overlay_refs, &facts).map_err(|e| e.to_string())?;
+    let mut meta = AppMetadata::resolve(&text, &overlay_refs, &facts).map_err(|e| e.to_string())?;
+    let shots = options.all("screenshot");
+    let captions = options.all("screenshot-caption");
+    if !captions.is_empty() && captions.len() != shots.len() {
+        return Err("give --screenshot-caption for every --screenshot or for none".into());
+    }
+    if !shots.is_empty() {
+        meta.screenshots = shots
+            .into_iter()
+            .enumerate()
+            .map(|(index, url)| {
+                check_screenshot_url(&url).map_err(|e| e.to_string())?;
+                Ok(Screenshot {
+                    url,
+                    caption: captions.get(index).cloned(),
+                })
+            })
+            .collect::<Result<_, String>>()?;
+    }
 
     let given = options.all("icon");
     let paths: Vec<PathBuf> = if given.is_empty() {

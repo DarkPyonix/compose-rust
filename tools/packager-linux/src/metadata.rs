@@ -288,7 +288,7 @@ impl AppMetadata {
             }
         }
         for shot in &linux.screenshots {
-            check_url("screenshots.url", &shot.url)?;
+            check_screenshot_url(&shot.url)?;
         }
 
         let developer_name = linux
@@ -471,6 +471,46 @@ fn check_date(date: &str) -> Result<(), MetadataError> {
     let day = date.get(8..10).and_then(|d| d.parse::<u32>().ok());
     if !shape || !matches!(month, Some(1..=12)) || !matches!(day, Some(1..=31)) {
         return error(format!("the release date `{date}` must be YYYY-MM-DD"));
+    }
+    Ok(())
+}
+
+/// A screenshot URL a store can keep showing. Flathub copies the image when it builds, but
+/// a listing that points at a branch shows whatever the branch holds next, so a raw GitHub
+/// URL has to name a tag or a commit.
+pub fn check_screenshot_url(url: &str) -> Result<(), MetadataError> {
+    check_url("screenshots.url", url)?;
+    let Some(rest) = url
+        .strip_prefix("https://raw.githubusercontent.com/")
+        .or_else(|| url.strip_prefix("http://raw.githubusercontent.com/"))
+    else {
+        return Ok(());
+    };
+    let parts: Vec<&str> = rest.split('/').collect();
+    // owner / repository / ref / path..., or owner / repository / refs/tags/<tag> / path...
+    let reference = match parts.as_slice() {
+        [_, _, "refs", "tags", tag, _, ..] => return check_tag(url, tag),
+        [_, _, "refs", "heads", branch, _, ..] => branch,
+        [_, _, reference, _, ..] => reference,
+        _ => {
+            return error(format!(
+                "the screenshot `{url}` is not owner/repository/ref/path on raw.githubusercontent.com"
+            ));
+        }
+    };
+    if ["main", "master", "develop", "HEAD", "trunk"].contains(reference)
+        || url.contains("/refs/heads/")
+    {
+        return error(format!(
+            "the screenshot `{url}` follows the branch `{reference}`; pin it to a tag or a commit"
+        ));
+    }
+    Ok(())
+}
+
+fn check_tag(url: &str, tag: &str) -> Result<(), MetadataError> {
+    if tag.is_empty() {
+        return error(format!("the screenshot `{url}` names an empty tag"));
     }
     Ok(())
 }
