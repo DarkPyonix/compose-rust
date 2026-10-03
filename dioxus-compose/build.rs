@@ -306,7 +306,7 @@ fn main() {
         // run were this package's own examples.
         //
         // The directive travels inside the rlib now, in the `.drectve` section that the
-        // MSVC linker reads out of every object it links. See `EXPORT_DIRECTIVES` in
+        // MSVC linker reads out of every object it links. See the `global_asm!` block in
         // src/boundary.rs.
         // The subsystem is not set here, and the reason is the same one the export
         // directive ran into: a build script's link arguments reach this package's own

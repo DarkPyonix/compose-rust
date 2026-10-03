@@ -1682,27 +1682,22 @@ static BOUNDARY_EXPORTS: BoundaryExports = BoundaryExports([
 /// reads that section out of every object it links, so the directive travels inside the
 /// rlib and applies wherever the rlib ends up.
 #[cfg(all(target_os = "windows", target_env = "msvc"))]
-const EXPORT_DIRECTIVES: &str = concat!(
-    " /EXPORT:dioxus_compose_host_init",
-    " /EXPORT:dioxus_compose_host_dispatch_event",
-    " /EXPORT:dioxus_compose_host_render_frame",
-    " /EXPORT:dioxus_compose_host_release_batch",
-    " /EXPORT:dioxus_compose_host_shutdown",
+core::arch::global_asm!(
+    // A section of directives and nothing else, in the COFF flags the MSVC linker reads
+    // them from: information only ("i") and dropped from the image ("n").
+    //
+    // Assembled rather than written as a `static` placed in the section. A static is a
+    // symbol, and a crate's own DLL asks for every symbol it keeps by name; the LLVM linker
+    // takes the section's bytes as directives, keeps no symbol for them, and the DLL then
+    // fails to link on a symbol nobody can define.
+    ".section .drectve,\"yni\"",
+    ".ascii \" /EXPORT:dioxus_compose_host_init\"",
+    ".ascii \" /EXPORT:dioxus_compose_host_dispatch_event\"",
+    ".ascii \" /EXPORT:dioxus_compose_host_render_frame\"",
+    ".ascii \" /EXPORT:dioxus_compose_host_release_batch\"",
+    ".ascii \" /EXPORT:dioxus_compose_host_shutdown\"",
+    ".text",
 );
-
-#[cfg(all(target_os = "windows", target_env = "msvc"))]
-#[used]
-#[unsafe(link_section = ".drectve")]
-static EXPORT_DIRECTIVE_BYTES: [u8; EXPORT_DIRECTIVES.len()] = {
-    let source = EXPORT_DIRECTIVES.as_bytes();
-    let mut bytes = [0u8; EXPORT_DIRECTIVES.len()];
-    let mut index = 0;
-    while index < source.len() {
-        bytes[index] = source[index];
-        index += 1;
-    }
-    bytes
-};
 
 /// Never read. Being referenced is the entire contract.
 struct BoundaryExports(#[allow(dead_code)] [*const (); 5]);
