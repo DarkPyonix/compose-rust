@@ -2817,7 +2817,12 @@ Cargo는 path 패키지의 유닛 해시에 패키지 경로를 넣지 않습니
 2. 실행 파일이 불러오는 라이브러리가 위 표의 시스템 라이브러리뿐입니다. macOS는 `otool -L`, Linux는 `DT_NEEDED`, Windows는 import 표를 검사하는 테스트로 확인합니다. 렌더러, Skia(`libskiko-*`, `skiko-windows-*.dll`), JVM, AWT 라이브러리 이름이 나오면 실패입니다.
 3. `icudtl.dat`이 실행 파일 옆에도 시스템 경로에도 없는 상태에서 한국어 단어 경계와 글자 그리기가 맞습니다.
 4. 실행 중 렌더러가 경로로 라이브러리를 찾는 일이 없습니다(`dlopen`, `LoadLibrary`, `System.load`로 우리 라이브러리를 여는 코드가 없음).
-5. 앱을 빌드하는 기계에 필요한 것은 Rust 툴체인과 그 플랫폼의 기본 링커뿐이고, 렌더러 아티팩트는 D10대로 빌드 스크립트가 받아 옵니다. 앱의 `Cargo.toml`에 compose-rust 한 줄 외에 빌드 설정(`.cargo/config.toml`, `RUSTFLAGS` 포함)을 요구하지 않습니다. INTENT D18이 적은 Windows의 정적 C 런타임 조건도 이 기준 아래에 있습니다.
+5. 앱을 빌드하는 기계에 필요한 것은 Rust 툴체인과 그 플랫폼의 기본 링커뿐이고, 렌더러 아티팩트는 D10대로 빌드 스크립트가 받아 옵니다. 앱의 `Cargo.toml`에 compose-rust 한 줄 외에 빌드 설정(`.cargo/config.toml`, `RUSTFLAGS` 포함)을 요구하지 않습니다. Windows의 C 런타임은 2026-10-03 소유자 결정("(b)안으로 가자")대로 크레이트의 빌드 스크립트가 정적 C 런타임을 링크하고 부딪히는 기본 라이브러리를 막아서 맞춥니다(INTENT D18).
+   - `.cargo/config.toml`도 `RUSTFLAGS`도 없는 새 앱이 windows-latest에서 빌드됩니다.
+   - 그 실행 파일의 `dumpbin /dependents` 결과에 Windows 시스템 DLL만 나오고 `vcruntime140.dll`, `msvcp140.dll`이 없습니다.
+   - 그 실행 파일이 빈 폴더에서 실행되어 창을 띄웁니다.
+   - 동적 C 런타임으로 미리 빌드된 C/C++ 라이브러리와 섞여 링커가 `RuntimeLibrary` 불일치(LNK2038)를 내면, 빌드 스크립트가 어느 라이브러리가 동적 런타임인지와 무엇을 하면 되는지를 짚는 메시지를 냅니다. 테스트로 확인합니다.
+   - 같은 샘플을 동적 런타임과 정적 런타임으로 각각 링크한 실행 파일 크기를 재서 여기에 적습니다(측정 전).
 6. FR-22.6의 번들(`.app`, `.dmg`, `.zip`, `.msix`, `.AppImage`)은 이 실행 파일 하나와 아이콘, 메타데이터만 담습니다.
 
 ## 6. IME 수용 체크리스트 (FR-5, M1)
