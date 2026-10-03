@@ -1019,6 +1019,14 @@ pub struct Theme {
     /// Indexed by the role's wire tag minus one, so the array and the enum cannot drift
     /// apart without the compiler saying so.
     pub fonts: [u32; TYPE_ROLE_COUNT],
+    /// The application's own colours, laid over whichever design system is chosen.
+    ///
+    /// A reference to something that lives for the whole program, so that a theme stays
+    /// `Copy` and can still be built in a `const`. The same palette goes onto every system
+    /// an adaptive theme may pick, because a brand colour does not change with the
+    /// platform. An application that builds a palette while it runs gives it that lifetime
+    /// itself, with `Box::leak`, once per palette it switches to.
+    pub palette: Option<&'static crate::palette::Palette>,
 }
 
 /// How many type roles there are, which is how many font slots a theme carries.
@@ -1033,6 +1041,7 @@ impl Theme {
             color_scheme: ColorScheme::FollowSystem,
             adaptive: false,
             fonts: [0; TYPE_ROLE_COUNT],
+            palette: None,
         }
     }
 
@@ -1044,6 +1053,7 @@ impl Theme {
             color_scheme: ColorScheme::FollowSystem,
             adaptive: true,
             fonts: [0; TYPE_ROLE_COUNT],
+            palette: None,
         }
     }
 
@@ -1060,6 +1070,17 @@ impl Theme {
     /// better than no screen.
     pub const fn with_font(mut self, role: TypeRole, asset: u32) -> Self {
         self.fonts[role as usize - 1] = asset;
+        self
+    }
+
+    /// Lays the application's own colours over the design system.
+    ///
+    /// Only colour roles change. Shape, type, spacing, elevation, motion and how each
+    /// component is drawn stay the design system's, so the same brand colour reads as
+    /// that system's button rather than as a copy of another's. Both schemes go to the
+    /// Renderer at once, so a switch between light and dark never asks the Host.
+    pub const fn with_palette(mut self, palette: &'static crate::palette::Palette) -> Self {
+        self.palette = Some(palette);
         self
     }
 

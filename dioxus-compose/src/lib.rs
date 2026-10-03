@@ -28,6 +28,7 @@ pub mod drawing;
 mod extensions;
 pub mod highlight;
 pub mod message;
+pub mod palette;
 pub mod protocol;
 pub mod renderer;
 pub mod schema;
@@ -53,6 +54,7 @@ pub use drawing::{DrawCommand, DrawList, DrawListBuilder};
 pub use elements::*;
 pub use extensions::LinearProgressIndicator;
 pub use message::{Message, show_message};
+pub use palette::{Palette, PaletteViolation};
 pub use schema::{
     Alignment, Arrangement, AssetKind, ButtonVariant, Chrome, Color, ColorRole, ColorScheme,
     DesignSystem, EventPayload, IconRole, Key, LoopMode, MaterialRole, MessageDuration, Modifier,
@@ -163,12 +165,12 @@ pub mod prelude {
         DrawCommand, DrawList, Dropdown, Element, FileDrop, FileDropTarget, Icon, IconRole, Image,
         Key, KeyEvent, LaunchBuilder, LazyColumn, LazyGrid, LazyRow, LinearProgressIndicator,
         LoopMode, MaterialRole, Menu, Message, MessageDuration, Modifier, MotionRole, Navigation,
-        NavigationItem, Paint, ProgressIndicator, Props, RadioButton, RangeRequest, Row, Scaffold,
-        ScrollColumn, SelectionContainer, Separator, ShapeRole, Sheet, Slider, SpaceRole, Spacer,
-        Stop, Surface, Switch, Tabs, Text, TextAlign, TextField, TextOverflow, Theme, TileMode,
-        TimePicker, Tooltip, TopAppBar, TypeRole, WindowHeightClass, WindowSize, WindowSizeClass,
-        asset, brush, component, launch, rsx, show_message, use_design_system, use_node_size,
-        use_window_size,
+        NavigationItem, Paint, Palette, ProgressIndicator, Props, RadioButton, RangeRequest, Row,
+        Scaffold, ScrollColumn, SelectionContainer, Separator, ShapeRole, Sheet, Slider, SpaceRole,
+        Spacer, Stop, Surface, Switch, Tabs, Text, TextAlign, TextField, TextOverflow, Theme,
+        TileMode, TimePicker, Tooltip, TopAppBar, TypeRole, WindowHeightClass, WindowSize,
+        WindowSizeClass, asset, brush, component, launch, rsx, show_message, use_design_system,
+        use_node_size, use_window_size,
     };
     // Under its own name, and the one thing in this list that could shadow something a
     // reader already has: an application that draws its own `Window` component would find

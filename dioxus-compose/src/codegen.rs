@@ -104,11 +104,34 @@ data class Theme(
      * would be a node deciding typography.
      */
     val fonts: List<Int> = List(TypeRole.entries.size) { 0 },
+    /**
+     * The application's own colours, laid over whichever design system this resolves to.
+     *
+     * Both schemes arrive together, so a switch between light and dark is answered from
+     * here and never asks the Host. Empty where the application gave none.
+     */
+    val palette: List<PaletteEntry> = emptyList(),
+    /**
+     * What was wrong with entries the palette arrived with, one sentence each.
+     *
+     * Those entries are already left out of [palette] and the rest of it stands. Whoever
+     * applies the theme reports each of these as a protocol error: a theme is never thrown
+     * away whole for one bad entry, because that would open the application with no colours
+     * at all.
+     */
+    val paletteProblems: List<String> = emptyList(),
 ) {
 
     /** The font asset for [role], or null where the role keeps the system font. */
     fun font(role: TypeRole): Int? = fonts.getOrNull(role.ordinal)?.takeIf { it != 0 }
+
+    /** The colour the application gave [role] in this scheme, as 0xAARRGGBB, or null. */
+    fun paletteColor(role: ColorRole, dark: Boolean): Int? =
+        palette.firstOrNull { it.role == role && it.dark == dark }?.argb
 }
+
+/** One role's colour in one scheme, as the application gave it. */
+data class PaletteEntry(val role: ColorRole, val dark: Boolean, val argb: Int)
 
 /**
  * What the application asked of its own window.
@@ -306,8 +329,11 @@ object Protocol {
     private const val TAG_SHOW_MESSAGE = 12
     private const val TAG_SET_WINDOW = 13
     private const val ENVELOPE_LENGTH = 12
-    /** Four role tags, then one font asset id per type role. */
-    private val THEME_RECORD_LENGTH = 12 + 4 * TypeRole.entries.size
+    /** Four role tags, one font asset id per type role, then the palette's reference. */
+    private val THEME_RECORD_LENGTH = 20 + 4 * TypeRole.entries.size
+
+    /** Bytes of one palette entry: a role tag, a scheme tag and a colour. */
+    const val PALETTE_ENTRY_LENGTH = 8
 
     /**
      * The high bit of each of eight bytes, which is where UTF-8 stops being ASCII. Written
@@ -444,6 +470,9 @@ object Protocol {
                         val fonts = List(TypeRole.entries.size) { role ->
                             readU32(batch, base, available, offset + 12 + 4 * role).toInt()
                         }
+                        val (entries, problems) = palette(
+                            readBytes(batch, base, available, offset + 12 + 4 * TypeRole.entries.size),
+                        )
                         Mutation.SetTheme(
                             Theme(
                                 designSystem(readU16(batch, base, available, offset + 4), offset + 4),
@@ -451,6 +480,8 @@ object Protocol {
                                 colorScheme(readU16(batch, base, available, offset + 8), offset + 8),
                                 adaptive == 1,
                                 fonts,
+                                entries,
+                                problems,
                             ),
                         )
                     }
@@ -507,6 +538,52 @@ object Protocol {
         } finally {
             batch.order(previousOrder)
         }
+    }
+
+    /**
+     * Reads a palette, keeping every sound entry and saying what was wrong with the rest.
+     *
+     * Lenient on purpose, unlike the rest of the batch: an unknown role, a scheme that is
+     * neither light nor dark, a second value for the same role and scheme, or a length
+     * that is not a whole number of entries is one entry's fault, and the others are
+     * still what the application asked for.
+     */
+    fun palette(bytes: ByteArray): Pair<List<PaletteEntry>, List<String>> {
+        if (bytes.isEmpty()) return emptyList<PaletteEntry>() to emptyList()
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val entries = ArrayList<PaletteEntry>(bytes.size / PALETTE_ENTRY_LENGTH)
+        val problems = ArrayList<String>()
+        if (bytes.size % PALETTE_ENTRY_LENGTH != 0) {
+            problems += "a palette of ${bytes.size} bytes is not a whole number of " +
+                "$PALETTE_ENTRY_LENGTH byte entries; the bytes past the last whole one are ignored"
+        }
+        for (index in 0 until bytes.size / PALETTE_ENTRY_LENGTH) {
+            val at = index * PALETTE_ENTRY_LENGTH
+            val roleTag = buffer.getShort(at).toInt() and 0xffff
+            val schemeTag = buffer.getShort(at + 2).toInt() and 0xffff
+            val argb = buffer.getInt(at + 4)
+            val role = paletteRole(roleTag)
+            if (role == null) {
+                problems += "palette entry $index names colour role $roleTag, which does not exist"
+                continue
+            }
+            val dark = when (schemeTag) {
+                1 -> false
+                2 -> true
+                else -> {
+                    problems += "palette entry $index gives $role for scheme $schemeTag; " +
+                        "an entry is for light (1) or dark (2), and following the system is not a scheme"
+                    continue
+                }
+            }
+            if (entries.any { it.role == role && it.dark == dark }) {
+                problems += "palette entry $index gives $role in ${if (dark) "dark" else "light"} " +
+                    "a second time; the first value stands"
+                continue
+            }
+            entries += PaletteEntry(role, dark, argb)
+        }
+        return entries to problems
     }
 
     /** Encodes one event into `out` (little-endian), returns bytes written. */
@@ -800,6 +877,19 @@ object Protocol {
         .unwrap();
     }
     output.push_str("    }\n\n");
+    // The palette's own role lookup answers null rather than throwing, because an entry
+    // naming a role this side does not know is reported and skipped, not the end of the
+    // batch.
+    output.push_str("    private fun paletteRole(tag: Int): ColorRole? = when (tag) {\n");
+    for variant in crate::schema::COLOR_ROLE_SCHEMA {
+        writeln!(
+            output,
+            "        {} -> ColorRole.{}",
+            variant.tag, variant.name
+        )
+        .unwrap();
+    }
+    output.push_str("        else -> null\n    }\n\n");
     for role in ROLE_ENUM_SCHEMA {
         writeln!(
             output,
