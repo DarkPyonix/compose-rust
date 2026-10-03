@@ -569,9 +569,11 @@ pub fn on_notification_activated(handler: impl FnMut(crate::NotificationActivati
             handler.take().expect("the handler is installed once"),
         ));
         let forward = Rc::clone(&shared);
-        let subscription = crate::notification::on_activation(Rc::new(move |activation| {
-            (&mut *forward.borrow_mut())(activation)
-        }));
+        let subscription = crate::notification::on_activation(Rc::new(
+            move |activation: crate::NotificationActivation| {
+                (&mut *forward.borrow_mut())(activation)
+            },
+        ));
         composer.remember_new(ActivationSlot {
             handler: shared,
             _subscription: subscription,
