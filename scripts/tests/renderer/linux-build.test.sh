@@ -18,7 +18,7 @@ absent() {
     fi
 }
 
-scripts_dir="$(cd "$(dirname "$0")/.." && pwd)"
+scripts_dir="$(cd "$(dirname "$0")/../../../renderer/desktop/scripts" && pwd)"
 native_dir="$(cd "$scripts_dir/.." && pwd)"
 
 for script in env-linux.sh build-native-linux.sh smoke-test-linux.sh collect-metadata-linux.sh; do
