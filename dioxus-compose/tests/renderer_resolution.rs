@@ -2025,15 +2025,19 @@ fn fr23_a_brush_paint_survives_the_wire() {
 fn fr36_the_android_manifest_declares_the_notification_permission_once() {
     let manifest = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n    <application />\n</manifest>\n";
     let declared = renderer_dir::with_notification_permission(manifest).unwrap();
-    assert!(declared.contains(
-        "<uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\" />"
-    ));
+    assert!(
+        declared
+            .contains("<uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\" />")
+    );
     let manifest_at = declared.find("<manifest").unwrap();
     let permission_at = declared.find("<uses-permission").unwrap();
     let application_at = declared.find("<application").unwrap();
     assert!(manifest_at < permission_at && permission_at < application_at);
     assert_eq!(renderer_dir::with_notification_permission(&declared), None);
-    assert_eq!(renderer_dir::with_notification_permission("<application />"), None);
+    assert_eq!(
+        renderer_dir::with_notification_permission("<application />"),
+        None
+    );
 }
 
 /// The generated Activity installs the notification centre before it asks for the Host and
