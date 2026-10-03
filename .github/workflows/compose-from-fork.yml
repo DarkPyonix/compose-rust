@@ -1,7 +1,7 @@
 # Compose from the fork: build it, build the renderer against it, and prove it is the old build.
 #
 # scripts/build-compose.sh used to take JetBrains' compose-multiplatform-core at 73ac849 and
-# apply the three patches under dioxus-compose-renderer/patches/. It now fetches one pinned
+# apply the three patches under renderer/patches/. It now fetches one pinned
 # commit of thisisthepy/compose-multiplatform-core-extended that holds the same changes as
 # commits. The two source trees have the same git tree hash, and the patches are only to be
 # dropped once the fork is shown to produce the same build. This workflow is that showing, on
@@ -34,8 +34,8 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
-      - dioxus-compose-renderer/scripts/build-compose.sh
-      - dioxus-compose-renderer/scripts/compose-fork.changes
+      - renderer/scripts/build-compose.sh
+      - renderer/scripts/compose-fork.changes
       - .github/workflows/compose-from-fork.yml
       - .github/scripts/compare-maven-repos.py
 
@@ -133,7 +133,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.konan
-          key: konan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('dioxus-compose-renderer/scripts/build-compose.sh') }}
+          key: konan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('renderer/scripts/build-compose.sh') }}
           restore-keys: |
             konan-${{ runner.os }}-${{ runner.arch }}-
 
@@ -141,7 +141,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ matrix.toolchain_cache }}
-          key: kotlin-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('dioxus-compose-renderer/kotlin', 'dioxus-compose-renderer/libs.versions.toml', 'dioxus-compose-renderer/**/module.yaml') }}
+          key: kotlin-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('renderer/kotlin', 'renderer/libs.versions.toml', 'renderer/**/module.yaml') }}
           restore-keys: |
             kotlin-native-${{ runner.os }}-${{ runner.arch }}-
 
@@ -172,7 +172,7 @@ jobs:
         run: |
           rm -rf ~/.m2/repository
           DXC_COMPOSE_BUILD="$COMPOSE_WORK" \
-            ./dioxus-compose-renderer/scripts/build-compose.sh --target ${{ matrix.target }} --clean
+            ./renderer/scripts/build-compose.sh --target ${{ matrix.target }} --clean
           rm -rf "$FORK_REPO"
           cp -a ~/.m2/repository "$FORK_REPO"
           find "$FORK_REPO" -type f | wc -l
@@ -183,11 +183,11 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --no-tags --depth 1 origin "$LEGACY_REF"
-          legacy="$RUNNER_TEMP/legacy/dioxus-compose-renderer"
+          legacy="$RUNNER_TEMP/legacy/renderer"
           mkdir -p "$legacy/scripts" "$legacy/patches"
-          git show "$LEGACY_REF:dioxus-compose-renderer/scripts/build-compose.sh" > "$legacy/scripts/build-compose.sh"
+          git show "$LEGACY_REF:renderer/scripts/build-compose.sh" > "$legacy/scripts/build-compose.sh"
           chmod +x "$legacy/scripts/build-compose.sh"
-          git ls-tree --name-only "$LEGACY_REF" dioxus-compose-renderer/patches/ | grep '\.patch$' |
+          git ls-tree --name-only "$LEGACY_REF" renderer/patches/ | grep '\.patch$' |
             while read -r patch; do
               git show "$LEGACY_REF:$patch" > "$legacy/patches/$(basename "$patch")"
             done
@@ -198,7 +198,7 @@ jobs:
         run: |
           rm -rf ~/.m2/repository "$LEGACY_REPO"
           DXC_COMPOSE_BUILD="$COMPOSE_WORK" \
-            "$RUNNER_TEMP/legacy/dioxus-compose-renderer/scripts/build-compose.sh" --target ${{ matrix.target }} --clean
+            "$RUNNER_TEMP/legacy/renderer/scripts/build-compose.sh" --target ${{ matrix.target }} --clean
           mv ~/.m2/repository "$LEGACY_REPO"
           find "$LEGACY_REPO" -type f | wc -l
           du -sh "$LEGACY_REPO"
@@ -223,18 +223,18 @@ jobs:
           retention-days: 14
 
       - name: Build the renderer and its static library against it
-        run: ./dioxus-compose-renderer/desktop/scripts/${{ matrix.renderer_script }}
+        run: ./renderer/desktop/scripts/${{ matrix.renderer_script }}
 
       - name: Report the static library
         run: |
-          ls -la dioxus-compose-renderer/build/${{ matrix.renderer_out }}
-          du -sh dioxus-compose-renderer/build/${{ matrix.renderer_out }}
+          ls -la renderer/build/${{ matrix.renderer_out }}
+          du -sh renderer/build/${{ matrix.renderer_out }}
 
       - name: Keep the static library
         uses: actions/upload-artifact@v4
         with:
           name: renderer-staticlib-${{ matrix.target }}
-          path: dioxus-compose-renderer/build/${{ matrix.renderer_out }}
+          path: renderer/build/${{ matrix.renderer_out }}
           retention-days: 14
 
       - name: Fail if the two Compose builds differ

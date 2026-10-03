@@ -21,14 +21,14 @@
 # on the same terms it accepts a real one. It is never a renderer anyone can use. Asked to
 # run, it says it is a stand-in and fails.
 #
-# The layout is the one DIOXUS_COMPOSE_RENDERER_DIR accepts:
+# The layout is the one COMPOSE_RUST_RENDERER_DIR accepts:
 #
-#     <output>/lib/libdioxus_compose_renderer.{dylib,so}
+#     <output>/lib/libcompose_rust_renderer.{dylib,so}
 #     <output>/schema-hash.txt
 #
 # With --if-refused it first asks the build script, the way any build of this crate
 # would, for the renderer it finds. Only if that renderer is refused for its schema, or
-# the release has no renderer for this crate version at all, is the stand-in built, and then the one line `DIOXUS_COMPOSE_RENDERER_DIR=<output>` is written
+# the release has no renderer for this crate version at all, is the stand-in built, and then the one line `COMPOSE_RUST_RENDERER_DIR=<output>` is written
 # to standard output, ready to append to $GITHUB_ENV. When the renderer is accepted
 # nothing is built and nothing is written there, so the real one stays in use. Any other
 # failure of that build is reported and fails this script. Everything else this script
@@ -81,8 +81,8 @@ if [[ $if_refused -eq 1 ]]; then
 fi
 
 case "$(uname -s)" in
-    Darwin) library=libdioxus_compose_renderer.dylib ;;
-    Linux) library=libdioxus_compose_renderer.so ;;
+    Darwin) library=libcompose_rust_renderer.dylib ;;
+    Linux) library=libcompose_rust_renderer.so ;;
     *)
         echo "error: no stand-in renderer for $(uname -s)" >&2
         exit 1
@@ -104,15 +104,15 @@ cat > "$out/stand-in.c" <<'C'
 #include <stdint.h>
 #include <stdio.h>
 
-int32_t dioxus_compose_renderer_run(void) {
-    fputs("dioxus-compose: this is a stand-in renderer, built only so that a binary has a "
+int32_t compose_rust_renderer_run(void) {
+    fputs("compose-rust: this is a stand-in renderer, built only so that a binary has a "
           "renderer to link against. It cannot draw. Build the real one for this platform "
-          "and point DIOXUS_COMPOSE_RENDERER_DIR at it.\n",
+          "and point COMPOSE_RUST_RENDERER_DIR at it.\n",
           stderr);
     return 1;
 }
 
-void dioxus_compose_renderer_request_frame(void) {}
+void compose_rust_renderer_request_frame(void) {}
 C
 
 if [[ "$(uname -s)" == "Darwin" ]]; then
@@ -124,12 +124,12 @@ else
     # makes an application export the functions the renderer calls back into. No SONAME,
     # like the real one: the build script gives it one naming where it sits.
     "$compiler" -shared -fPIC -o "$out/lib/$library" "$out/stand-in.c" \
-        "$repo_root/dioxus-compose-renderer/desktop/c/linux_host_references.c"
+        "$repo_root/renderer/desktop/c/linux_host_references.c"
 fi
 
-cp "$repo_root/dioxus-compose/schema-hash.txt" "$out/schema-hash.txt"
+cp "$repo_root/compose-rust/schema-hash.txt" "$out/schema-hash.txt"
 
 echo "stand-in renderer: $out/lib/$library (schema $(cat "$out/schema-hash.txt"))" >&2
 if [[ $if_refused -eq 1 ]]; then
-    echo "DIOXUS_COMPOSE_RENDERER_DIR=$out"
+    echo "COMPOSE_RUST_RENDERER_DIR=$out"
 fi

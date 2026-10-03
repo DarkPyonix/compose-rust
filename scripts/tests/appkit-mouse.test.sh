@@ -8,7 +8,7 @@ if [[ "$(uname -s)" != Darwin ]]; then
 fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-source_dir="${DXC_APPKIT_SOURCE_DIR:-$repo_root/dioxus-compose-renderer/desktop/c}"
+source_dir="${DXC_APPKIT_SOURCE_DIR:-$repo_root/renderer/desktop/c}"
 work="$(mktemp -d "$repo_root/.appkit-mouse-test.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 

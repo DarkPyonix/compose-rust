@@ -14,8 +14,8 @@
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-src="$repo/dioxus-compose-renderer/desktop/src"
-scripts="$repo/dioxus-compose-renderer/desktop/scripts"
+src="$repo/renderer/desktop/src"
+scripts="$repo/renderer/desktop/scripts"
 failures=0
 
 echo "desktop C symbols"
@@ -23,7 +23,7 @@ echo "desktop C symbols"
 # The Host's own exports are left out. Those are the application's, resolved when it
 # loads the renderer, and no C file here defines them or should.
 declared="$(grep -rho '@CFunction("[a-z0-9_]*")' "$src" |
-    sed 's/@CFunction("\(.*\)")/\1/' | grep -v '^dioxus_compose_host_' | sort -u)"
+    sed 's/@CFunction("\(.*\)")/\1/' | grep -v '^compose_rust_host_' | sort -u)"
 [ -n "$declared" ] || { echo "  FAIL: no @CFunction declarations found at all" >&2; exit 1; }
 
 # Which C files each desktop compiles, read from its own build script rather than listed
@@ -73,7 +73,7 @@ check() {
     local desktop="$1" macro="$2"
     shift 2
     local files=""
-    for relative in "$@"; do files="$files $repo/dioxus-compose-renderer/desktop/$relative"; done
+    for relative in "$@"; do files="$files $repo/renderer/desktop/$relative"; done
     [ -n "$files" ] || { echo "  FAIL: no C files read for $desktop" >&2; failures=$((failures + 1)); return; }
     local missing="" duplicated=""
     for symbol in $declared; do

@@ -112,7 +112,7 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     # The real HOME is not asked: whether this machine has published Compose says nothing
     # about whether the check recognises it, and a CI runner never has.
     patched_version="$(sed -n 's/^PUBLISHED_AS="\([^"]*\)"$/\1/p' \
-        "$repo_root/dioxus-compose-renderer/scripts/build-compose.sh")"
+        "$repo_root/renderer/scripts/build-compose.sh")"
     mkdir -p "$empty_home/with-compose/.m2/repository/org/jetbrains/compose/ui/ui-macosarm64/$patched_version"
     assert_run "setup_check_names_the_patched_compose_it_found" 0 "patched Compose:" \
         env -u GRAALVM_HOME HOME="$empty_home/with-compose" \

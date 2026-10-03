@@ -9,10 +9,10 @@
 #                          - the native image: what build-native-linux.sh stages (dist/,
 #                            holding lib/), or the unpacked release artifact, which has
 #                            the same layout; the application finds it through
-#                            DIOXUS_COMPOSE_RENDERER_DIR
+#                            COMPOSE_RUST_RENDERER_DIR
 #                          - the Kotlin/Native static library: the directory
-#                            build-linux.sh writes (libdioxus_compose_renderer.a beside
-#                            libdioxus_compose_host_exports.so); the application finds it
+#                            build-linux.sh writes (libcompose_rust_renderer.a beside
+#                            libcompose_rust_host_exports.so); the application finds it
 #                            through DXC_LINUX_NATIVE_LIB
 #                        Which one it is is read from what is in the directory.
 #   <scratch directory>  where the application is copied to; emptied first, and it should
@@ -23,12 +23,12 @@
 # merely depends on compose-rust could not start on Linux, twice over:
 #
 #   1. it recorded the renderer by bare file name and the loader could not find it, and
-#   2. it did not export the dioxus_compose_host_* functions, so the renderer could not
-#      call back into it ("undefined symbol: dioxus_compose_host_release_batch" from the
-#      native image, "dioxus_compose_host_init is not in this image" from the static one).
+#   2. it did not export the compose_rust_host_* functions, so the renderer could not
+#      call back into it ("undefined symbol: compose_rust_host_release_batch" from the
+#      native image, "compose_rust_host_init is not in this image" from the static one).
 #
 # Neither is visible until something outside this repository's own build links the
-# renderer and runs it. The application here is dioxus-compose/tests/fixtures/consumer,
+# renderer and runs it. The application here is compose-rust/tests/fixtures/consumer,
 # which has no build script and depends on the crate by path. It is linked twice, with the
 # toolchain's default linker and with GNU ld, because the two do not agree on when a
 # library's needs make an executable export something, and both are checked and run from
@@ -42,7 +42,7 @@ if [[ $# -ne 2 ]]; then
 fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-fixture="$repo_root/dioxus-compose/tests/fixtures/consumer"
+fixture="$repo_root/compose-rust/tests/fixtures/consumer"
 
 fail() {
     echo "fail  $1" >&2
@@ -58,24 +58,24 @@ for tool in cargo readelf nm patchelf; do
 done
 
 distribution="$(cd "$1" && pwd)"
-if [[ -f "$distribution/libdioxus_compose_renderer.a" ]]; then
+if [[ -f "$distribution/libcompose_rust_renderer.a" ]]; then
     # The static renderer is inside the application. What it names by path is the small
     # library that makes it export the Host's functions.
     kind="Kotlin/Native static library"
     library_dir="$distribution"
-    library_name=libdioxus_compose_host_exports.so
-    unset DIOXUS_COMPOSE_RENDERER_DIR
+    library_name=libcompose_rust_host_exports.so
+    unset COMPOSE_RUST_RENDERER_DIR
     export DXC_LINUX_NATIVE_LIB="$distribution"
     # It has no way to close its own window, so the self-check ends the process itself.
-    unset DIOXUS_COMPOSE_AUTOEXIT_MS
+    unset COMPOSE_RUST_AUTOEXIT_MS
 else
     kind="native image"
     library_dir="$distribution/lib"
-    library_name=libdioxus_compose_renderer.so
+    library_name=libcompose_rust_renderer.so
     unset DXC_LINUX_NATIVE_LIB
-    export DIOXUS_COMPOSE_RENDERER_DIR="$distribution"
+    export COMPOSE_RUST_RENDERER_DIR="$distribution"
     # The self-check waits for the window to close itself, so shutdown is checked too.
-    export DIOXUS_COMPOSE_AUTOEXIT_MS="${DIOXUS_COMPOSE_AUTOEXIT_MS:-8000}"
+    export COMPOSE_RUST_AUTOEXIT_MS="${COMPOSE_RUST_AUTOEXIT_MS:-8000}"
 fi
 [[ -f "$library_dir/$library_name" ]] || fail "no $library_name in $library_dir" \
     "This is neither a native image distribution nor a static renderer directory."
@@ -92,22 +92,22 @@ esac
 
 # The Host functions, as the crate defines them. Every one has to be in the
 # application's dynamic symbol table, because that is where the renderer looks.
-host_functions="$(grep -oE 'fn dioxus_compose_host_[a-z_]+' "$repo_root/dioxus-compose/src/boundary.rs" |
+host_functions="$(grep -oE 'fn compose_rust_host_[a-z_]+' "$repo_root/compose-rust/src/boundary.rs" |
     sed 's/fn //' | sort -u)"
-[[ -n "$host_functions" ]] || fail "found no dioxus_compose_host_* definitions in the Host"
+[[ -n "$host_functions" ]] || fail "found no compose_rust_host_* definitions in the Host"
 
 needed_library() {
     readelf -d "$1" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p' | grep "$library_name$" || true
 }
 
 exported_host_functions() {
-    nm -D --defined-only "$1" | awk '{ print $NF }' | grep '^dioxus_compose_host_' | sort -u || true
+    nm -D --defined-only "$1" | awk '{ print $NF }' | grep '^compose_rust_host_' | sort -u || true
 }
 
 check_exports() {
     local executable="$1" missing
-    echo "-- nm -D --defined-only $(basename "$executable") (dioxus_compose_host_*)"
-    nm -D --defined-only "$executable" | grep ' dioxus_compose_host_' || true
+    echo "-- nm -D --defined-only $(basename "$executable") (compose_rust_host_*)"
+    nm -D --defined-only "$executable" | grep ' compose_rust_host_' || true
     missing="$(comm -23 <(echo "$host_functions") <(exported_host_functions "$executable"))"
     [[ -z "$missing" ]] || fail "$executable does not export: $(echo $missing)" \
         "The renderer looks these up in the executable, and fails on the first one missing."
@@ -157,10 +157,10 @@ echo "-- readelf -d $library_name (SONAME): $soname"
     "The Host's build script sets its SONAME to its own absolute path, which is what every" \
     "binary linking it then records."
 
-echo "-- nm -D --undefined-only $library_name (dioxus_compose_host_*)"
-nm -D --undefined-only "$library_dir/$library_name" | grep dioxus_compose_host_ || true
+echo "-- nm -D --undefined-only $library_name (compose_rust_host_*)"
+nm -D --undefined-only "$library_dir/$library_name" | grep compose_rust_host_ || true
 missing="$(comm -23 <(echo "$host_functions") <(nm -D --undefined-only "$library_dir/$library_name" |
-    awk '{ print $NF }' | grep '^dioxus_compose_host_' | sort -u))"
+    awk '{ print $NF }' | grep '^compose_rust_host_' | sort -u))"
 [[ -z "$missing" ]] || fail "$library_name does not leave $(echo $missing) undefined" \
     "Those references are what make an executable linking it export them."
 
@@ -182,7 +182,7 @@ run_self_check "$scratch/gnu-ld"
 
 echo "== bundling it the way an application that ships is packaged"
 cp "$binary" "$scratch/bundled/consumer"
-if [[ "$library_name" == libdioxus_compose_renderer.so ]]; then
+if [[ "$library_name" == libcompose_rust_renderer.so ]]; then
     cp -R "$library_dir/." "$scratch/bundled/lib/"
 else
     # The renderer is inside the executable; the library beside it is all there is to carry.
