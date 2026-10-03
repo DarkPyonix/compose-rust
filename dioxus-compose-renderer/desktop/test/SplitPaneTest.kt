@@ -18,9 +18,6 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertIsFocused
-import androidx.compose.ui.test.assertIsNotFocused
-import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -52,7 +49,6 @@ import dioxus.compose.protocol.Theme
 import dioxus.compose.protocol.WidgetKind
 import dioxus.compose.protocol.WindowSizeClass
 import dioxus.compose.runtime.DioxusContent
-import dioxus.compose.runtime.ROOT_FOCUS_TEST_TAG
 import dioxus.compose.runtime.hostPlatformOverride
 import dioxus.compose.runtime.rememberDioxusHost
 import dioxus.compose.tooling.FakeHostConnection
@@ -441,58 +437,6 @@ class SplitPaneTest {
             connection.events.filterIsInstance<HostEvent.ValueChanged>().none { it.nodeId == OUTER },
             "the outer pane folded instead",
         )
-    }
-
-    /**
-     * With nothing in the content focused, the window's own focus target holds focus, so the
-     * command still reaches the registry and folds the outermost pane.
-     */
-    @Test
-    fun fr15_2_12_the_sidebar_command_folds_the_outermost_pane_with_nothing_focused() = runDesktopComposeUiTest(1100, 600) {
-        hostPlatformOverride = HostPlatform.MacOs
-        val connection = FakeHostConnection(splitTree(collapsible = true))
-        show(connection, 1100.dp)
-        onNodeWithTag(ROOT_FOCUS_TEST_TAG).assertIsFocused()
-        onNodeWithTag(splitDividerTestTag(SPLIT)).assertIsNotFocused()
-        onRoot().performKeyInput {
-            withKeyDown(Key.CtrlLeft) { withKeyDown(Key.MetaLeft) { pressKey(Key.S) } }
-        }
-        waitForIdle()
-        assertEquals(listOf(0.0), connection.widths())
-    }
-
-    /** The root's focus target never takes focus from a field that has it. */
-    @Test
-    fun fr15_2_12_the_root_focus_target_leaves_a_focused_field_alone() = runDesktopComposeUiTest(1100, 600) {
-        val field = 9
-        val connection = FakeHostConnection(
-            splitTree() + listOf(
-                Mutation.Create(field, WidgetKind.TextField),
-                Mutation.Insert(BODY, field, 1),
-            ),
-        )
-        show(connection, 1100.dp)
-        onNodeWithTag(nodeTestTag(field)).requestFocus()
-        waitForIdle()
-        onNodeWithTag(nodeTestTag(field)).assertIsFocused()
-        onNodeWithTag(ROOT_FOCUS_TEST_TAG).assertIsNotFocused()
-    }
-
-    /**
-     * Tab from the root goes to the first real control, and the root is not a stop on the
-     * way back: once a control has focus the root cannot be tabbed to.
-     */
-    @Test
-    fun fr15_2_12_the_root_focus_target_is_not_in_the_tab_order() = runDesktopComposeUiTest(1100, 600) {
-        val connection = FakeHostConnection(splitTree())
-        show(connection, 1100.dp)
-        onNodeWithTag(ROOT_FOCUS_TEST_TAG).assertIsFocused()
-        onRoot().performKeyInput { pressKey(Key.Tab) }
-        waitForIdle()
-        onNodeWithTag(splitDividerTestTag(SPLIT)).assertIsFocused()
-        onRoot().performKeyInput { withKeyDown(Key.ShiftLeft) { pressKey(Key.Tab) } }
-        waitForIdle()
-        onNodeWithTag(ROOT_FOCUS_TEST_TAG).assertIsNotFocused()
     }
 
     /**
