@@ -58,20 +58,17 @@ int32_t dioxus_compose_renderer_run(void);
 // MSVC's C compiler has no <stdatomic.h> without an experimental switch, so Windows keeps
 // the flag with the Interlocked functions, which are full barriers like atomic_store.
 static volatile LONG dxc_window_material_asked;
+
+void dxc_set_window_material(int32_t asked) {
+    InterlockedExchange(&dxc_window_material_asked, asked != 0);
+}
 #else
 static atomic_int dxc_window_material_asked;
-#endif
 
-// One definition, with the platform difference inside it. Every desktop has to answer
-// this name exactly once, and two definitions in two branches read as two to anything
-// that checks that without running the preprocessor.
 void dxc_set_window_material(int32_t asked) {
-#ifdef _WIN32
-    InterlockedExchange(&dxc_window_material_asked, asked != 0);
-#else
     atomic_store(&dxc_window_material_asked, asked != 0);
-#endif
 }
+#endif
 
 #ifdef __APPLE__
 #include <dispatch/dispatch.h>
