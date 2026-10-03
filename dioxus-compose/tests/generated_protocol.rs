@@ -202,7 +202,7 @@ fn fr7_every_widget_kind_in_the_schema_round_trips_through_the_protocol() {
             failures.push(format!(
                 "the checked-in Kotlin decoder has no `{arm}`, so the Renderer would reject \
                  or misread a {} the Host sends; regenerate it with `cargo run -p \
-                 dioxus-compose --bin codegen`",
+                 compose-rust --bin codegen`",
                 widget.name
             ));
         }
@@ -272,7 +272,7 @@ fn fr7_every_property_kind_in_the_schema_round_trips_through_the_protocol() {
             failures.push(format!(
                 "the checked-in Kotlin decoder has no `{arm}`, so the Renderer would reject \
                  or misread a {} the Host sends; regenerate it with `cargo run -p \
-                 dioxus-compose --bin codegen`",
+                 compose-rust --bin codegen`",
                 property.name
             ));
         }

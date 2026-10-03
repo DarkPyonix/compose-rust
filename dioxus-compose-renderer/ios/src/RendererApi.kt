@@ -37,7 +37,7 @@ object RendererApi {
                 }
             }
         } catch (error: Throwable) {
-            println("dioxus-compose: renderer run failed: ${error.message}")
+            println("compose-rust: renderer run failed: ${error.message}")
             RUN_FAILED
         }
 

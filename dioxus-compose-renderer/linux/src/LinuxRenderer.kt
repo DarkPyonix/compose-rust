@@ -27,13 +27,13 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // measurement of zero means it did not ask.
     val asked = host.table.window
     val window = LinuxWindow.open(
-        title = asked?.title?.takeIf { it.isNotEmpty() } ?: "dioxus-compose",
+        title = asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
         width = if (asked != null && asked.width > 0) asked.width else DEFAULT_WIDTH,
         height = if (asked != null && asked.height > 0) asked.height else DEFAULT_HEIGHT,
     )
     if (window == null) {
         java.lang.System.err.println(
-            "dioxus-compose: no X11 display, or no double buffered GLX visual on it. " +
+            "compose-rust: no X11 display, or no double buffered GLX visual on it. " +
                 "Check DISPLAY, and that the machine has an X or XWayland server to talk to.",
         )
         host.shutdown()

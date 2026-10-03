@@ -26,7 +26,7 @@ import platform.UIKit.UIWindow
  * The desktop renderer opens a window and returns when the window closes. iOS has no such
  * moment: `UIApplicationMain` installs the run loop and never returns, and the system, not
  * the application, decides when the process ends. So on iOS `run` blocks for the lifetime of
- * the process. A Rust `main` that calls `dioxus_compose::launch(app)` gets the behaviour it
+ * the process. A Rust `main` that calls `compose_rust::launch(app)` gets the behaviour it
  * already expects on desktop, which is that nothing after the call runs while the UI is up.
  *
  * The screen is drawn entirely from the mutation batches the Host streams.

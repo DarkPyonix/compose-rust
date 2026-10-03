@@ -1,4 +1,4 @@
-/* dioxus-compose guide: the only JavaScript on the site.
+/* compose-rust guide: the only JavaScript on the site.
    Three jobs: theme toggle, sidebar toggle on narrow screens, copy buttons.
    Everything else (navigation, language switch) is plain links and works
    with JavaScript disabled. */

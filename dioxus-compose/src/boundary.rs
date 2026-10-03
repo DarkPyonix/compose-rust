@@ -116,7 +116,7 @@ extern "C" fn native_request_frame() {}
 /// whatever the build it is running in was configured with.
 pub fn no_renderer_message() -> String {
     format!(
-        "dioxus-compose: this application was built without a renderer, so there is nothing\n\
+        "compose-rust: this application was built without a renderer, so there is nothing\n\
          to draw with and nothing to draw on. Exiting {EXIT_FAILURE} rather than looking like\n\
          a program that ran and finished.\n\
          \n\
@@ -766,7 +766,7 @@ pub fn palette_report(theme: &Theme) -> Vec<String> {
         .into_iter()
         .flat_map(|system| {
             palette.check(system).into_iter().map(move |violation| {
-                format!("dioxus-compose: palette under {system:?}: {violation}")
+                format!("compose-rust: palette under {system:?}: {violation}")
             })
         })
         .collect()
@@ -795,7 +795,7 @@ fn parse_handshake(bytes: &[u8]) -> Result<LoopMode, ProtocolError> {
         // page in the default theme: a symptom that looks like a blank application rather
         // than like a stale build, and one that cost a morning to read the first time.
         eprintln!(
-            "dioxus-compose: the renderer was built from a different schema than this              program. It sent hash {hash:#x} version {version}, and this build expects              hash {SCHEMA_HASH:#x} version {PROTOCOL_VERSION}. Rebuild the renderer after              running codegen; if it was already rebuilt, its build directory is holding a              cached copy of the generated protocol and has to be cleared."
+            "compose-rust: the renderer was built from a different schema than this              program. It sent hash {hash:#x} version {version}, and this build expects              hash {SCHEMA_HASH:#x} version {PROTOCOL_VERSION}. Rebuild the renderer after              running codegen; if it was already rebuilt, its build directory is holding a              cached copy of the generated protocol and has to be cleared."
         );
         return Err(ProtocolError::InvalidEnvelope);
     }
