@@ -69,6 +69,9 @@ def layout(buf, base):
     return None
 
 
+characteristics_of = {}
+
+
 def read(path):
     """Every COFF member: its layout, section names, and COMDAT (selection, number)."""
     out = []
@@ -86,6 +89,7 @@ def read(path):
                 o = int(name[1:]); end = buf.index(b"\0", strtab + o)
                 name = buf[strtab + o:end].decode()
             names.append(name)
+        flags = [struct.unpack_from("<I", buf, table + i * 40 + 36)[0] for i in range(nsec)]
         comdat = {}
         i = 0
         while i < nsym:
@@ -105,7 +109,9 @@ def read(path):
                         number |= struct.unpack_from("<H", buf, a + 16)[0] << 16
                     comdat[section] = (buf[a + 14], number)
             i += 1 + aux
-        out.append(("big object" if record == 20 else "ordinary", names, comdat))
+        kind = "big object" if record == 20 else "ordinary"
+        characteristics_of[kind] = flags
+        out.append((kind, names, comdat))
     return out
 
 
@@ -134,6 +140,11 @@ for kind, names, comdat in read(fixed):
         fail(f"{kind}: a .ctors section is still there, and the MSVC runtime will never run it")
     if ".CRT$XCU" not in names:
         fail(f"{kind}: no .CRT$XCU section, so the constructor is not where the MSVC runtime looks")
+    else:
+        flags = characteristics_of[kind][names.index(".CRT$XCU")]
+        if flags != 0x40400040:
+            fail(f"{kind}: .CRT$XCU has flags {flags:#010x}, not the read-only 0x40400040 MSVC "
+                 "gives it, so the linker keeps it apart from the runtime's own and never runs it")
     for index, name in enumerate(names, 1):
         for prefix in (".pdata$", ".xdata$"):
             if not name.startswith(prefix):

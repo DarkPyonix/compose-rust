@@ -5,7 +5,11 @@ Two conventions differ, and both are fixed here:
 1. Static constructors. MinGW puts them in .ctors and its own startup code runs them. The
    MSVC runtime runs the function pointers it finds in .CRT$XCU. Both are arrays of
    pointers to void(void) functions, so the section is renamed. Both names fit the 8-byte
-   short name field.
+   short name field. Its flags are made the ones the MSVC compiler gives .CRT$XCU
+   (initialised data, read only, 8-byte aligned). MinGW's .ctors is writable, and the
+   linker keeps .CRT sections whose flags differ apart (LNK4078): the runtime then walks
+   the group between its own first and last entries, and a constructor in the other group
+   is never run. That left Skia's constructors, or ours, out of a Windows build.
 
 2. Unwind data. For a function in COMDAT section .text$NAME, the MinGW toolchain emits its
    unwind data as .pdata$NAME and .xdata$NAME, each a COMDAT of its own ("select any"), and
@@ -19,6 +23,9 @@ Two conventions differ, and both are fixed here:
 import struct, sys
 
 CTORS, CRT = b".ctors\0\0", b".CRT$XCU"
+# IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_ALIGN_8BYTES | IMAGE_SCN_MEM_READ, which is what
+# `#pragma section(".CRT$XCU", read)` gives a section in MSVC's own objects.
+CRT_CHARACTERISTICS = 0x40400040
 SELECT_ASSOCIATIVE = 5
 
 def section_name(buf, at, strtab):
@@ -68,6 +75,7 @@ def patch(buf, base):
         at = table + i * 40
         if bytes(buf[at:at + 8]) == CTORS:
             buf[at:at + 8] = CRT
+            struct.pack_into("<I", buf, at + 36, CRT_CHARACTERISTICS)
             ctors += 1
         names.append(section_name(buf, at, strtab))
     text_index = {n[len(".text$"):]: i + 1 for i, n in enumerate(names) if n.startswith(".text$")}
