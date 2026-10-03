@@ -137,12 +137,22 @@ dependencies = [
 name = "compose-rust"
 version = "0.0.1"
 dependencies = [
+ "compose-rust-macros",
  "criterion",
  "dioxus-core",
  "dioxus-core-macro",
  "dioxus-hooks",
  "dioxus-signals",
  "jni",
+]
+
+[[package]]
+name = "compose-rust-macros"
+version = "0.0.1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]

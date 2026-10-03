@@ -191,10 +191,10 @@ pub(crate) fn in_host_call() -> bool {
 }
 
 /// Marks the span of one Host call on this thread.
-struct HostCallGuard;
+pub(crate) struct HostCallGuard;
 
 impl HostCallGuard {
-    fn enter() -> Self {
+    pub(crate) fn enter() -> Self {
         HOST_CALL_DEPTH.with(|depth| depth.set(depth.get() + 1));
         Self
     }
@@ -222,10 +222,10 @@ pub(crate) fn request_frame_for_notifications() {
     request_frame_from_worker();
 }
 
-struct EventDispatchGuard;
+pub(crate) struct EventDispatchGuard;
 
 impl EventDispatchGuard {
-    fn enter() -> Self {
+    pub(crate) fn enter() -> Self {
         EVENT_DISPATCH_ACTIVE.store(true, Ordering::Release);
         Self
     }
@@ -257,7 +257,7 @@ impl Wake for FrameWake {
 }
 
 /// One streaming Text node's tail, accumulated between frames.
-struct PendingAppend {
+pub(crate) struct PendingAppend {
     node_id: u32,
     text: String,
     dirty: bool,
@@ -356,13 +356,7 @@ impl Host {
     /// Suppresses timers and animations while the UI is off screen, and releases the
     /// request that arrived while it was, so nothing is lost by stopping.
     fn set_lifecycle_running(&mut self, running: bool) -> Result<(&[u8], i64), ProtocolError> {
-        LIFECYCLE_SUPPRESSED.store(!running, Ordering::Release);
-        if running {
-            if DEFERRED_FRAME_REQUEST.swap(false, Ordering::AcqRel) {
-                (renderer_api().request_frame)();
-            }
-            FRAME_REQUESTED.store(false, Ordering::Release);
-        }
+        set_lifecycle_running(running);
         // An empty batch, not a frame: starting again is the Renderer's cue to draw, and
         // it asks for that frame itself.
         self.renderer.begin_frame();
@@ -504,7 +498,7 @@ impl Host {
                 return Err(ProtocolError::InvalidValueKind(0));
             }
             let _dispatch_guard = EventDispatchGuard::enter();
-            action.call(());
+            action.call();
             self.renderer.begin_frame();
             self.dom.render_immediate(&mut self.renderer);
             self.flush_messages();
@@ -567,7 +561,7 @@ impl Host {
 
     pub fn render_frame(&mut self, _frame_time_nanos: u64) -> Result<&[u8], ProtocolError> {
         let _call = HostCallGuard::enter();
-        if LIFECYCLE_SUPPRESSED.load(Ordering::Acquire) {
+        if !begin_render_frame() {
             // The platform has the UI off screen and the Renderer called anyway, which it
             // does for one reason: a notification was queued, and a notification is what
             // has to get out while nobody is looking. Only that goes. The components are
@@ -577,9 +571,6 @@ impl Host {
             self.flush_notifications();
             return self.renderer.finish_frame();
         }
-        FRAME_REQUESTED.store(false, Ordering::Release);
-        EVENT_DISPATCH_ACTIVE.store(false, Ordering::Release);
-        DEFERRED_FRAME_REQUEST.store(false, Ordering::Release);
         self.renderer.begin_frame();
         self.dom.render_immediate(&mut self.renderer);
         self.flush_pending_appends();
@@ -591,23 +582,7 @@ impl Host {
     /// Queues a streamed tail for the next frame. Tokens arriving inside one frame are
     /// merged into a single `AppendText` record, so a token never costs a batch of its own.
     pub fn append_text(&mut self, node_id: u32, tail: &str) {
-        match self
-            .pending_appends
-            .iter_mut()
-            .find(|pending| pending.node_id == node_id)
-        {
-            Some(pending) => {
-                pending.text.push_str(tail);
-                pending.dirty = true;
-            }
-            None => self.pending_appends.push(PendingAppend {
-                node_id,
-                text: tail.to_owned(),
-                dirty: true,
-            }),
-        }
-        // Repeated calls collapse into one frame request; see `request_frame_from_worker`.
-        request_frame_from_worker();
+        queue_append(&mut self.pending_appends, node_id, tail);
     }
 
     /// Writes whatever the tree asked to say during this call into the batch it produced.
@@ -615,54 +590,15 @@ impl Host {
     /// A message therefore arrives in the same call as the change it is about, which is
     /// what makes "deleted" and the row disappearing one frame rather than two.
     fn flush_messages(&mut self) {
-        // A theme the application changed during this call, one record for the whole
-        // tree. Kept as the Host's own as well, so a resync rebuilds with it.
-        if let Some(theme) = crate::theme::take_pending() {
-            self.theme = theme;
-            self.renderer.set_theme(theme);
-        }
-        let renderer = &mut self.renderer;
-        // Registrations first. Not because the Renderer needs them first, it applies the
-        // whole batch before drawing any of it, but because a batch read by a person
-        // debugging one reads in the order the screen was built.
-        crate::asset::drain(|pending| {
-            renderer.register_asset(pending.asset_id, pending.kind, pending.bytes);
-        });
-        crate::message::drain(|message| {
-            renderer.show_message(
-                message.handler_id,
-                &message.text,
-                &message.action,
-                message.duration,
-            );
-        });
-        self.flush_notifications();
+        flush_messages(self.renderer.writer(), &mut self.theme);
     }
 
-    /// Writes the notification commands waiting in the Host into this batch.
-    ///
-    /// Workers queue them from their own threads; this is the one place they leave, on the
-    /// UI thread, inside a call. One atomic read when there are none.
     fn flush_notifications(&mut self) {
-        let renderer = &mut self.renderer;
-        let posts = crate::notification::drain(|command| renderer.notification(command));
-        crate::notification::note_posted(posts);
+        flush_notifications(self.renderer.writer());
     }
 
     fn flush_pending_appends(&mut self) {
-        for index in 0..self.pending_appends.len() {
-            let pending = &self.pending_appends[index];
-            if pending.dirty {
-                self.renderer
-                    .append_text_node(pending.node_id, &pending.text);
-            }
-        }
-        // Buffers are kept so steady-state streaming reuses their capacity and a streamed
-        // token does not allocate.
-        for pending in &mut self.pending_appends {
-            pending.text.clear();
-            pending.dirty = false;
-        }
+        flush_pending_appends(&mut self.pending_appends, self.renderer.writer());
     }
 
     /// Registers one asset and returns the batch that carries it.
@@ -724,6 +660,162 @@ impl Host {
     }
 }
 
+/// Records whether the platform has the UI on screen, and releases the frame request
+/// that arrived while it did not.
+pub(crate) fn set_lifecycle_running(running: bool) {
+    LIFECYCLE_SUPPRESSED.store(!running, Ordering::Release);
+    if running {
+        if DEFERRED_FRAME_REQUEST.swap(false, Ordering::AcqRel) {
+            (renderer_api().request_frame)();
+        }
+        FRAME_REQUESTED.store(false, Ordering::Release);
+    }
+}
+
+/// Starts serving a frame. `false` while the UI is off screen, when only queued
+/// notifications may leave and the held frame request stays held.
+pub(crate) fn begin_render_frame() -> bool {
+    if LIFECYCLE_SUPPRESSED.load(Ordering::Acquire) {
+        return false;
+    }
+    FRAME_REQUESTED.store(false, Ordering::Release);
+    EVENT_DISPATCH_ACTIVE.store(false, Ordering::Release);
+    DEFERRED_FRAME_REQUEST.store(false, Ordering::Release);
+    true
+}
+
+/// Writes whatever the application asked to say during this call into the batch it
+/// produced: a changed theme, asset registrations, messages and notifications.
+///
+/// A message therefore arrives in the same call as the change it is about, which is what
+/// makes "deleted" and the row disappearing one frame rather than two. Both Hosts end every
+/// call with this.
+pub(crate) fn flush_messages(writer: &mut crate::writer::NodeWriter, theme: &mut Theme) {
+    // A theme the application changed during this call, one record for the whole tree.
+    // Kept as the Host's own as well, so a resync rebuilds with it.
+    if let Some(changed) = crate::theme::take_pending() {
+        *theme = changed;
+        writer.set_theme(changed);
+    }
+    // Registrations first. Not because the Renderer needs them first, it applies the
+    // whole batch before drawing any of it, but because a batch read by a person
+    // debugging one reads in the order the screen was built.
+    crate::asset::drain(|pending| {
+        writer.register_asset(pending.asset_id, pending.kind, pending.bytes);
+    });
+    crate::message::drain(|message| {
+        writer.show_message(
+            message.handler_id,
+            &message.text,
+            &message.action,
+            message.duration,
+        );
+    });
+    flush_notifications(writer);
+}
+
+/// Writes the notification commands waiting in the Host into this batch.
+///
+/// Workers queue them from their own threads; this is the one place they leave, on the
+/// UI thread, inside a call. One atomic read when there are none.
+pub(crate) fn flush_notifications(writer: &mut crate::writer::NodeWriter) {
+    let posts = crate::notification::drain(|command| writer.notification(command));
+    crate::notification::note_posted(posts);
+}
+
+/// Queues a streamed tail for the next frame. Tokens arriving inside one frame are merged
+/// into a single `AppendText` record, so a token never costs a batch of its own.
+pub(crate) fn queue_append(pending_appends: &mut Vec<PendingAppend>, node_id: u32, tail: &str) {
+    match pending_appends
+        .iter_mut()
+        .find(|pending| pending.node_id == node_id)
+    {
+        Some(pending) => {
+            pending.text.push_str(tail);
+            pending.dirty = true;
+        }
+        None => pending_appends.push(PendingAppend {
+            node_id,
+            text: tail.to_owned(),
+            dirty: true,
+        }),
+    }
+    // Repeated calls collapse into one frame request; see `request_frame_from_worker`.
+    request_frame_from_worker();
+}
+
+pub(crate) fn flush_pending_appends(
+    pending_appends: &mut [PendingAppend],
+    writer: &mut crate::writer::NodeWriter,
+) {
+    for pending in pending_appends.iter() {
+        if pending.dirty {
+            writer.append_text_node(pending.node_id, &pending.text);
+        }
+    }
+    // Buffers are kept so steady-state streaming reuses their capacity and a streamed
+    // token does not allocate.
+    for pending in pending_appends.iter_mut() {
+        pending.text.clear();
+        pending.dirty = false;
+    }
+}
+
+/// The application a launch runs: a Dioxus root component, or a composable.
+///
+/// A plain function pointer either way, so it can be handed from the thread that launched
+/// to the UI thread that builds the Host, with no thread affinity of its own.
+#[derive(Clone, Copy, Debug)]
+pub enum App {
+    /// A root component written with `rsx!`.
+    Dioxus(fn() -> Element),
+    /// A `#[composable]` function, run on compose-rust's own runtime.
+    Compose(fn()),
+}
+
+/// The Host the boundary calls into, of whichever kind the application is.
+pub(crate) enum AnyHost {
+    Dioxus(Host),
+    Compose(crate::runtime::ComposeHost),
+}
+
+impl AnyHost {
+    fn new(app: App) -> Self {
+        match app {
+            App::Dioxus(app) => Self::Dioxus(Host::new(app)),
+            App::Compose(content) => Self::Compose(crate::runtime::ComposeHost::new(content)),
+        }
+    }
+
+    fn rebuild(&mut self) -> Result<&[u8], ProtocolError> {
+        match self {
+            Self::Dioxus(host) => host.rebuild(),
+            Self::Compose(host) => host.rebuild(),
+        }
+    }
+
+    fn dispatch_event(&mut self, bytes: &[u8]) -> Result<(&[u8], i64), ProtocolError> {
+        match self {
+            Self::Dioxus(host) => host.dispatch_event(bytes),
+            Self::Compose(host) => host.dispatch_event(bytes),
+        }
+    }
+
+    fn render_frame(&mut self, frame_time_nanos: u64) -> Result<&[u8], ProtocolError> {
+        match self {
+            Self::Dioxus(host) => host.render_frame(frame_time_nanos),
+            Self::Compose(host) => host.render_frame(frame_time_nanos),
+        }
+    }
+
+    fn arena(&self) -> (*const u8, usize) {
+        match self {
+            Self::Dioxus(host) => host.arena(),
+            Self::Compose(host) => host.arena(),
+        }
+    }
+}
+
 /// Holds the thread's `Host` and, crucially, keeps it out of thread-local teardown.
 ///
 /// Dropping a `VirtualDom` reaches back into the Dioxus runtime's own
@@ -736,7 +828,7 @@ impl Host {
 /// So the slot empties itself and leaks the `Host` when the thread is tearing down. An
 /// orderly `shutdown` still drops it properly; only the unorderly path leaks, and that
 /// path is a thread ending anyway.
-struct HostSlot(RefCell<Option<Host>>);
+struct HostSlot(RefCell<Option<AnyHost>>);
 
 impl Drop for HostSlot {
     fn drop(&mut self) {
@@ -745,7 +837,7 @@ impl Drop for HostSlot {
 }
 
 impl std::ops::Deref for HostSlot {
-    type Target = RefCell<Option<Host>>;
+    type Target = RefCell<Option<AnyHost>>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -765,7 +857,7 @@ impl std::ops::Deref for HostSlot {
 /// `Host`. That is also what `LoopMode::Platform` needs, where the Renderer may tear the
 /// Host down and initialize it again (Android recreates its surface on a configuration
 /// change) without relaunching.
-static APP: Mutex<Option<fn() -> Element>> = Mutex::new(None);
+static APP: Mutex<Option<App>> = Mutex::new(None);
 
 /// Chosen by `LaunchBuilder::with_theme`, read once when the Host is built.
 static THEME: Mutex<Theme> = Mutex::new(Theme::unified(crate::schema::DesignSystem::Material3));
@@ -777,17 +869,17 @@ thread_local! {
     static HOST: HostSlot = const { HostSlot(RefCell::new(None)) };
 }
 
-fn launched_app() -> Option<fn() -> Element> {
+fn launched_app() -> Option<App> {
     APP.lock().map_or(None, |app| *app)
 }
 
-fn launched_window() -> crate::schema::Window {
+pub(crate) fn launched_window() -> crate::schema::Window {
     WINDOW
         .lock()
         .map_or_else(|error| *error.into_inner(), |window| *window)
 }
 
-fn launched_theme() -> Theme {
+pub(crate) fn launched_theme() -> Theme {
     THEME
         .lock()
         .map_or_else(|error| *error.into_inner(), |theme| *theme)
@@ -857,6 +949,37 @@ impl LaunchBuilder {
     /// [`LaunchBuilder::launch`] without the exit: the status the renderer loop ended
     /// with, handed back for a caller that has its own idea of what to do with it.
     pub fn try_launch(self, app: fn() -> Element) -> i32 {
+        self.try_launch_app(App::Dioxus(app))
+    }
+
+    /// Runs a composable as the application, with no Dioxus anywhere in it. Does not
+    /// return while it is running, and ends the process with a failing status if the
+    /// renderer loop could not run at all, for the reason [`LaunchBuilder::launch`] gives.
+    ///
+    /// ```ignore
+    /// #[composable]
+    /// fn App() {
+    ///     Text("Hello");
+    /// }
+    ///
+    /// fn main() {
+    ///     compose_rust::LaunchBuilder::new().application(App);
+    /// }
+    /// ```
+    pub fn application(self, content: fn()) {
+        let status = self.try_application(content);
+        if status != STATUS_OK {
+            std::process::exit(EXIT_FAILURE);
+        }
+    }
+
+    /// [`LaunchBuilder::application`] without the exit.
+    pub fn try_application(self, content: fn()) -> i32 {
+        self.try_launch_app(App::Compose(content))
+    }
+
+    /// Runs either kind of application.
+    pub fn try_launch_app(self, app: App) -> i32 {
         if let Ok(mut slot) = APP.lock() {
             *slot = Some(app);
         }
@@ -884,6 +1007,22 @@ impl LaunchBuilder {
 
 pub fn launch(app: fn() -> Element) {
     LaunchBuilder::new().launch(app);
+}
+
+/// Runs a composable as the application. Compose Desktop's `application { }`.
+///
+/// ```ignore
+/// #[composable]
+/// fn App() {
+///     Text("Hello");
+/// }
+///
+/// fn main() {
+///     compose_rust::application(App);
+/// }
+/// ```
+pub fn application(content: fn()) {
+    LaunchBuilder::new().application(content);
 }
 
 /// What a theme's palette leaves short of contrast, as lines to print.
@@ -1018,7 +1157,7 @@ pub unsafe extern "C" fn dioxus_compose_host_init(
             if host_slot.is_some() {
                 return Err(STATUS_ALREADY_INITIALIZED);
             }
-            let mut host = Host::new(app);
+            let mut host = AnyHost::new(app);
             let batch = host.rebuild().map_err(protocol_error)?;
             // SAFETY: `out` is checked before writing.
             unsafe { write_batch(out, batch, 0) }.map_err(protocol_error)?;
@@ -1095,7 +1234,7 @@ pub fn current_arena() -> (*const u8, usize) {
     HOST.with(|slot| {
         slot.borrow()
             .as_ref()
-            .map_or((std::ptr::null(), 0), Host::arena)
+            .map_or((std::ptr::null(), 0), AnyHost::arena)
     })
 }
 

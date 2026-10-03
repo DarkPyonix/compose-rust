@@ -40,6 +40,7 @@ mock-renderer = []
 native-renderer = []
 
 [dependencies]
+compose-rust-macros = { path = "../compose-rust-macros", version = "0.0.1" }
 dioxus-core.workspace = true
 dioxus-core-macro.workspace = true
 dioxus-hooks.workspace = true

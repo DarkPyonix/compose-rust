@@ -1,5 +1,10 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
+// `#[composable]` expands into paths that start at `::compose_rust`, so that an application
+// that depends on this crate alone can use it. This makes the same paths resolve inside the
+// crate, where its own composables are written.
+extern crate self as compose_rust;
+
 pub mod asset;
 pub mod boundary;
 /// Generated JNI shims. Compiled only for Android, where the Host is a cdylib that the
@@ -32,20 +37,23 @@ pub mod notification;
 pub mod palette;
 pub mod protocol;
 pub mod renderer;
+pub mod runtime;
 pub mod schema;
 pub mod spans;
 pub mod theme;
 pub mod tokens;
+pub mod ui;
 mod widgets;
 pub mod window;
 mod writer;
 
 pub use asset::asset;
 pub use boundary::{
-    Host, LaunchBuilder, MutationBatch, RendererApi, demo_theme, demo_theme_for,
+    App, Host, LaunchBuilder, MutationBatch, RendererApi, application, demo_theme, demo_theme_for,
     install_renderer_api, launch, request_frame_from_worker,
 };
 pub use dioxus_core::{Element, VirtualDom};
+pub use runtime::{ComposeHost, composable};
 // `Props` goes out with `component` because `#[component]` expands into a
 // `#[derive(Props)]`. Without it an application that writes a component of its own fails
 // to compile on a macro it never typed, and the fix is to add `dioxus-core-macro` as a

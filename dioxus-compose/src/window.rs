@@ -284,6 +284,25 @@ thread_local! {
 }
 
 /// Follows one node's size, and re-renders this component when its class changes.
+/// A fresh name for a node a screen wants measured.
+pub(crate) fn next_node_token() -> u32 {
+    NEXT_TOKEN.with(|next| {
+        let token = next.get();
+        next.set(token + 1);
+        token
+    })
+}
+
+/// A node's measurement under its name, as the composable runtime hands it out.
+pub(crate) fn node_size_of(token: u32, size: WindowSize) -> NodeSize {
+    NodeSize { token, size }
+}
+
+/// Forgets what a node measured, once nothing will ask about it again.
+pub(crate) fn forget_node(token: u32) {
+    NODES.with_borrow_mut(|nodes| nodes.retain(|(name, _)| *name != token));
+}
+
 pub fn use_node_size() -> NodeSize {
     let token = dioxus_core::use_hook(|| {
         let token = NEXT_TOKEN.with(|next| {

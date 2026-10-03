@@ -13,6 +13,7 @@ use crate::schema::MessageDuration;
 use dioxus_core::Callback;
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
+use std::rc::Rc;
 
 /// One message, ready to be written into a batch.
 pub(crate) struct PendingMessage {
@@ -40,7 +41,7 @@ const LIVE_ACTIONS: usize = 16;
 
 thread_local! {
     static QUEUE: RefCell<Vec<PendingMessage>> = const { RefCell::new(Vec::new()) };
-    static ACTIONS: RefCell<VecDeque<(u64, Callback<()>)>> = const {
+    static ACTIONS: RefCell<VecDeque<(u64, MessageAction)>> = const {
         RefCell::new(VecDeque::new())
     };
     static NEXT_ACTION_ID: Cell<u64> = const { Cell::new(ACTION_HANDLER_BASE) };
@@ -61,7 +62,7 @@ thread_local! {
 pub struct Message {
     text: String,
     action: String,
-    on_action: Option<Callback<()>>,
+    on_action: Option<MessageAction>,
     duration: MessageDuration,
 }
 
@@ -85,7 +86,15 @@ impl Message {
         on_action: impl FnMut(()) + 'static,
     ) -> Self {
         self.action = label.into();
-        self.on_action = Some(Callback::new(on_action));
+        // Inside a Dioxus component or handler the action is a callback owned by that
+        // scope, which is what lets it touch the scope's signals. A composable application
+        // has no Dioxus runtime to own one, and its states need no owner.
+        self.on_action = Some(if dioxus_core::Runtime::try_current().is_some() {
+            MessageAction::Dioxus(Callback::new(on_action))
+        } else {
+            let mut on_action = on_action;
+            MessageAction::Plain(Rc::new(RefCell::new(move || on_action(()))))
+        });
         self
     }
 
@@ -153,7 +162,23 @@ pub(crate) fn drain(mut emit: impl FnMut(&PendingMessage)) {
 ///
 /// Removed, because an action is a thing the user does once: the message goes away when it
 /// is pressed, so a second press would be a press on something that is no longer there.
-pub(crate) fn take_action(handler_id: u64) -> Option<Callback<()>> {
+/// What a message's action runs.
+#[derive(Clone)]
+pub(crate) enum MessageAction {
+    Dioxus(Callback<()>),
+    Plain(Rc<RefCell<dyn FnMut()>>),
+}
+
+impl MessageAction {
+    pub(crate) fn call(&self) {
+        match self {
+            Self::Dioxus(callback) => callback.call(()),
+            Self::Plain(action) => (&mut *action.borrow_mut())(),
+        }
+    }
+}
+
+pub(crate) fn take_action(handler_id: u64) -> Option<MessageAction> {
     if handler_id < ACTION_HANDLER_BASE {
         return None;
     }

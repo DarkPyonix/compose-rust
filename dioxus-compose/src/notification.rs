@@ -278,7 +278,7 @@ thread_local! {
     static PERMISSION: Cell<NotificationPermission> =
         const { Cell::new(NotificationPermission::NotDetermined) };
     static PERMISSION_SUBSCRIBERS: RefCell<Vec<Subscriber>> = const { RefCell::new(Vec::new()) };
-    static ACTIVATION_HANDLERS: RefCell<Vec<(u64, Callback<NotificationActivation>)>> =
+    static ACTIVATION_HANDLERS: RefCell<Vec<(u64, ActivationHandler)>> =
         const { RefCell::new(Vec::new()) };
     static NEXT_ID: Cell<u64> = const { Cell::new(1) };
 }
@@ -372,10 +372,13 @@ pub fn unsupported_reason() -> &'static str {
 pub(crate) fn activate(activation: NotificationActivation) -> bool {
     // Copied out first. A handler may mount or unmount a component that listens, and that
     // edits the list being walked.
-    let handlers: Vec<Callback<NotificationActivation>> =
-        ACTIVATION_HANDLERS.with_borrow(|handlers| handlers.iter().map(|(_, h)| *h).collect());
+    let handlers: Vec<ActivationHandler> = ACTIVATION_HANDLERS
+        .with_borrow(|handlers| handlers.iter().map(|(_, h)| h.clone()).collect());
     for handler in &handlers {
-        handler.call(activation.clone());
+        match handler {
+            ActivationHandler::Dioxus(callback) => callback.call(activation.clone()),
+            ActivationHandler::Plain(handler) => (&mut *handler.borrow_mut())(activation.clone()),
+        }
     }
     !handlers.is_empty()
 }
@@ -432,8 +435,26 @@ pub fn use_notification_permission() -> NotificationPermission {
 }
 
 /// A component's activation handler, dropped with its hook state.
-struct ActivationSubscription {
+/// What a pressed notification is handed to.
+#[derive(Clone)]
+enum ActivationHandler {
+    Dioxus(Callback<NotificationActivation>),
+    Plain(Rc<RefCell<dyn FnMut(NotificationActivation)>>),
+}
+
+/// A registration that lasts as long as this value does.
+pub(crate) struct ActivationSubscription {
     id: u64,
+}
+
+/// Registers a handler outside Dioxus, for the composable runtime.
+pub(crate) fn subscribe_activations(
+    handler: Rc<RefCell<dyn FnMut(NotificationActivation)>>,
+) -> ActivationSubscription {
+    let id = next_id();
+    ACTIVATION_HANDLERS
+        .with_borrow_mut(|handlers| handlers.push((id, ActivationHandler::Plain(handler))));
+    ActivationSubscription { id }
 }
 
 impl Drop for ActivationSubscription {
@@ -462,7 +483,8 @@ pub fn use_notification_activated(handler: impl FnMut(NotificationActivation) + 
     let callback = dioxus_hooks::use_callback(handler);
     dioxus_core::use_hook(|| {
         let id = next_id();
-        ACTIVATION_HANDLERS.with_borrow_mut(|handlers| handlers.push((id, callback)));
+        ACTIVATION_HANDLERS
+            .with_borrow_mut(|handlers| handlers.push((id, ActivationHandler::Dioxus(callback))));
         Rc::new(ActivationSubscription { id })
     });
 }
