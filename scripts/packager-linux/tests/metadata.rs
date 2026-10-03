@@ -470,11 +470,7 @@ fn fr35_appdir_holds_entry_icon_metainfo_payload_and_updater() {
     std::fs::create_dir_all(&payload).unwrap();
     std::fs::write(payload.join("sample-calculator"), b"#!/bin/sh\necho hi\n").unwrap();
     std::fs::create_dir_all(payload.join("lib")).unwrap();
-    std::fs::write(
-        payload.join("lib/libcompose_rust_renderer.so"),
-        b"\x7fELF",
-    )
-    .unwrap();
+    std::fs::write(payload.join("lib/libcompose_rust_renderer.so"), b"\x7fELF").unwrap();
     let updater = dir.join("squashfs-root");
     std::fs::create_dir_all(updater.join("usr/bin")).unwrap();
     std::fs::write(updater.join("usr/bin/appimageupdatetool"), b"tool").unwrap();
