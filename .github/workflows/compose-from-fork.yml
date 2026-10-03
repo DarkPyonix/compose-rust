@@ -101,6 +101,9 @@ jobs:
       - name: Report the machine
         run: |
           uname -a
+          # Both runner images carry an Android SDK, which the Compose build configures its
+          # Android targets against even when it publishes a native one only.
+          echo "ANDROID_HOME=${ANDROID_HOME:?the runner image has no Android SDK}"
           df -h "$GITHUB_WORKSPACE"
           if [[ "$RUNNER_OS" == macOS ]]; then
             sysctl -n hw.memsize hw.ncpu
@@ -120,9 +123,6 @@ jobs:
         # The Compose build turns toolchain auto-detection off and takes its JDK 21 from this
         # variable, the way its own CI does.
         run: echo "ANDROIDX_JDK21=$JAVA_HOME" >> "$GITHUB_ENV"
-
-      - name: Install the Android SDK
-        uses: android-actions/setup-android@v3
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
