@@ -19,9 +19,6 @@ import kotlinx.cinterop.usePinned
 import dioxus.compose.protocol.HostEvent
 import dioxus.compose.protocol.Mutation
 import dioxus.compose.protocol.Protocol
-import platform.posix.RTLD_NOW
-import platform.posix.dlopen
-import platform.posix.dlsym
 import dioxus.compose.runtime.HostConnection
 
 /**
@@ -31,7 +28,7 @@ import dioxus.compose.runtime.HostConnection
  * batch is decoded and released inside the call that produced it. Two things differ from the
  * desktop renderer, both consequences of Kotlin/Native rather than GraalVM:
  *
- * - The Host's symbols are found with `dlsym` on the running image instead of GraalVM's
+ * - The Host's symbols are found by name on the running image instead of GraalVM's
  *   `@CFunction`. Kotlin/Native can only declare a C function through cinterop, which needs a
  *   `.def` file and a header at build time; the renderer is a static library linked into a
  *   Host executable that does not exist yet when this compiles. `dlsym(RTLD_NOW image, name)`
@@ -141,8 +138,6 @@ private typealias VoidCall = CFunction<() -> Unit>
  * rather than at the first event.
  */
 private object HostSymbols {
-    private val image = dlopen(null, RTLD_NOW)
-
     private val initFn = lookup<BufferCall>("dioxus_compose_host_init")
     private val dispatchEventFn = lookup<BufferCall>("dioxus_compose_host_dispatch_event")
     private val renderFrameFn = lookup<FrameCall>("dioxus_compose_host_render_frame")
@@ -163,7 +158,7 @@ private object HostSymbols {
     fun shutdown() = shutdownFn()
 
     private fun <T : CFunction<*>> lookup(name: String): CPointer<T> =
-        dlsym(image, name)?.reinterpret()
+        hostSymbol(name)?.reinterpret()
             ?: throw HostCallException(
                 "$name is not in this image. The renderer resolves the Host's functions by " +
                     "name at startup, so the Host executable has to export all five of " +
