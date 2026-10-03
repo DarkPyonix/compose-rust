@@ -94,7 +94,7 @@
       경로가 아니라 노드 개수입니다.
     </p>
 
-    <h2 id="windowing">LazyColumn 윈도잉 <span class="pill partial">Host 쪽 완료</span></h2>
+    <h2 id="windowing">LazyColumn 윈도잉 <span class="pill works">동작</span></h2>
     <p>
       평범한 트리 diff로는 가상 목록을 가상으로 유지할 수 없습니다. Renderer가 아이템의 존재를
       알려면 Host가 만들지도 않은 아이템을 설명해야 하기 때문입니다. 그래서 lazy 목록에서는 흐름을
@@ -148,7 +148,7 @@
       </p>
     </div>
 
-    <h2 id="streaming">스트리밍 텍스트 <span class="pill partial">Host 쪽 완료</span></h2>
+    <h2 id="streaming">스트리밍 텍스트 <span class="pill works">동작</span></h2>
     <p>
       LLM 응답은 토큰 단위로 도착합니다. 토큰마다 <code>text</code> 속성을 통째로 바꾸면 매번 메시지
       전체를 다시 보내게 되고, 메시지는 계속 길어지므로 비용이 제곱으로 늡니다. 그래서
