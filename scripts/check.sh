@@ -48,8 +48,6 @@ cargo test -p compose-rust --no-default-features
 # because adding it is a download and this gate is meant to run anywhere.
 if rustup target list --installed | grep -qx aarch64-linux-android; then
     cargo clippy -p compose-rust --target aarch64-linux-android -- -D warnings
-    # Every Android application is built on the Dioxus adapter, so it has to build there too.
-    cargo clippy -p dioxus-compose-adapter --target aarch64-linux-android -- -D warnings
 else
     echo "skipping the Android target (rustup target add aarch64-linux-android)"
 fi
@@ -59,8 +57,9 @@ fi
 if rustup target list --installed | grep -qx wasm32-unknown-unknown; then
     cargo clippy -p compose-rust --no-default-features \
         --target wasm32-unknown-unknown -- -D warnings
-    # The browser's start that takes a root component is the Dioxus adapter's.
-    cargo clippy -p dioxus-compose-adapter --no-default-features \
+    # The page's entry point is exported by the application, and web_host is the one this
+    # repository builds, so it has to build for the browser too.
+    cargo clippy -p compose-rust --no-default-features --example web_host \
         --target wasm32-unknown-unknown -- -D warnings
 else
     echo "skipping the wasm target (rustup target add wasm32-unknown-unknown)"
@@ -70,6 +69,9 @@ fi
 DOCS_RS=1 cargo check -p compose-rust --all-features
 # --benches restricts the run to Criterion bench targets. Without it cargo also runs the
 # lib's default test harness in bench mode, and that harness rejects Criterion's flags.
+# The workspace has no bench target right now: the Host budget benchmarks drove the Dioxus
+# adapter and moved to dioxus-compose with it. compose-rust's own come with its authoring
+# API (#64), and this line runs them when they land.
 cargo bench --workspace --benches -- "${bench_args[@]}"
 
 if [[ "$skip_kotlin" != "0" ]]; then

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### The Dioxus path lives in dioxus-compose
+
+The Dioxus adapter, the Dioxus baseline and the twelve `rsx!` samples moved to
+[dioxus-compose](https://github.com/DarkPyonix/dioxus-compose), where the samples are
+native-widget examples. No crate in this repository depends on Dioxus any more. compose-rust's
+own samples return when they are rewritten on its authoring API (#64), and sample releases
+are paused until then (#85).
+
 ### The renderer is built for the platform where Compose publishes one
 
 macOS no longer carries a Java runtime. Where Compose publishes a target of its own, the
