@@ -32,8 +32,6 @@ name: Compose from fork
 
 on:
   workflow_dispatch:
-  push:
-    branches: [feature/compose-from-fork]
   pull_request:
     paths:
       - dioxus-compose-renderer/scripts/build-compose.sh
@@ -226,12 +224,6 @@ jobs:
 
       - name: Build the renderer and its static library against it
         run: ./dioxus-compose-renderer/desktop/scripts/${{ matrix.renderer_script }}
-
-      - name: List the renderer's task directories
-        # Temporary: shows what the toolchain names its task output directories on each
-        # platform.
-        if: always()
-        run: ls dioxus-compose-renderer/build/tasks || true
 
       - name: Report the static library
         run: |
