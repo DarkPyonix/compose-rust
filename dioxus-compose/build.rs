@@ -354,7 +354,7 @@ fn link_shared(target_os: &str, lib_dir: &Path) {
         // `<target>/<profile>/build/<crate>-<hash>/out`, so three levels up is the
         // profile directory where binaries land, and `examples/` and `deps/` beside it
         // are where examples and tests land.
-        copy_renderer_beside_executables(&lib_dir);
+        copy_renderer_beside_executables(lib_dir);
         return;
     }
 
