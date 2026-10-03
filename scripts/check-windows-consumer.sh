@@ -185,9 +185,11 @@ run_alone() {
     if [[ "$status" -ne 0 ]]; then
         echo "-- $(basename "$binary") $* ended with status $status" >&2
         explain_crash "$binary" "$@"
-        fail "$(basename "$binary") $* did not succeed from an empty directory (status $status)"
+        # Noted rather than stopped on, so the runs after this one still say what they say.
+        failed+=("$(basename "$(dirname "$binary")")/$(basename "$binary") $* (status $status)")
     fi
 }
+failed=()
 
 echo "== 3. starting it from an empty directory"
 rm -rf "$scratch"
@@ -244,6 +246,10 @@ echo "consumer.exe, debug build, by C runtime:"
 echo "  vcruntime and C++ library linked in, UCRT from Windows (the default): $default_size bytes ($(megabytes "$default_size"))"
 echo "  vcruntime and C++ library from their DLLs (DXC_WINDOWS_CRT=dynamic):  $dynamic_size bytes ($(megabytes "$dynamic_size"))"
 echo "  everything static, UCRT too (+crt-static):                           $static_size bytes ($(megabytes "$static_size"))"
+if [[ "${#failed[@]}" -ne 0 ]]; then
+    fail "these did not succeed from an empty directory: ${failed[*]}" \
+        "Each one's output and, where it crashed, its stack are above."
+fi
 echo
 echo "ok    an application depending only on compose-rust, with no build settings, links the"
 echo "      Kotlin/Native renderer into one executable that needs only Windows, draws from an"
