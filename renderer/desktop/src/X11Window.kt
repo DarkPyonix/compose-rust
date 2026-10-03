@@ -134,8 +134,12 @@ internal fun runX11Window() {
     // queue, and the Host this renderer talks to is on this thread and invisible from
     // there.
     val work = FrameDispatcher()
+    // The reader's text size, from what the desktop publishes to X clients: GNOME's text
+    // scaling factor, KDE's font DPI. Asked again once a turn, which costs a look at a
+    // connection that has heard nothing until the desktop changes one of them.
+    val textScale = TextScale(x11TextScale())
     val scene = CanvasLayersComposeScene(
-        density = androidx.compose.ui.unit.Density(measured.scale),
+        density = textScale.density(measured.scale),
         size = size,
         coroutineContext = work,
         platformContext = NativePlatformContext({ size }, textInput, semantics),
@@ -149,7 +153,7 @@ internal fun runX11Window() {
     // two frames in a row the same time and stop whatever is animating between them.
     val clock = FrameClock()
     var painted = false
-    val frames = WindowFrames({ window.measure() }) { fitted, density ->
+    val frames = WindowFrames({ window.measure() }, textScale) { fitted, density ->
         // Told to the scene here, in the frame that is about to be drawn at that size,
         // because a drawable that fits and a scene that does not is a window drawing its
         // old size into a corner of its new one.
@@ -179,6 +183,9 @@ internal fun runX11Window() {
             // scene's own work, and a list that asked for rows on the last frame wants
             // them in hand before this one is measured.
             work.runPending()
+            // A text size the reader changed. Nothing in the scene has invalidated, but every
+            // line of text in it is about to be laid out again, so it is drawn.
+            val rescaled = textScale.refresh()
             var heard = false
             var drew = false
             for (event in drainWindowEvents()) {
@@ -191,7 +198,7 @@ internal fun runX11Window() {
             // Only when there is something to draw. A window that is being resized has
             // already had its frame drawn by the resize, and a window where nothing is
             // happening should leave the screen alone.
-            if (!painted || heard || scene.hasInvalidations()) {
+            if (!painted || heard || rescaled || scene.hasInvalidations()) {
                 drew = frames.draw()
             }
             // Every frame, and after the drawing. After, because that is when what is in

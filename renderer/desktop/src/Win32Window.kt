@@ -15,7 +15,6 @@ import org.graalvm.nativeimage.c.type.CTypeConversion
 import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.scene.ComposeScene
-import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import org.graalvm.word.Pointer
 import org.graalvm.word.WordFactory
@@ -332,8 +331,12 @@ internal fun runWin32Window() {
     // there: a list asking for the rows it is about to show asked from a thread with no
     // Host and was told nothing had been initialised.
     val work = FrameDispatcher()
+    // The reader's text size from Windows' accessibility settings, held between frames and
+    // asked again once a turn. What the scene is given is the display's scale and this
+    // together, so neither is ever drawn stale beside the other.
+    val textScale = TextScale(::windowsTextScale)
     val scene = CanvasLayersComposeScene(
-        density = Density(measured.scale),
+        density = textScale.density(measured.scale),
         size = size,
         coroutineContext = work,
         platformContext = NativePlatformContext({ size }, textInput, semantics),
@@ -353,7 +356,7 @@ internal fun runWin32Window() {
         // them in hand before this one is measured, and during a drag of the window's
         // edge this is the only place that runs at all.
         work.runPending()
-        val at = drawFrame(window, context, scene, nanos)
+        val at = drawFrame(window, context, scene, textScale, nanos)
         if (at != null) {
             size = at
             painted = true
@@ -378,6 +381,9 @@ internal fun runWin32Window() {
             // at all.
             pumpWindowEvents(if (busy) 0.0 else FRAME_SECONDS)
             work.runPending()
+            // The reader moved the text size slider. Nothing in the scene has invalidated,
+            // but every line of text in it is about to be laid out again, so it is drawn.
+            val rescaled = textScale.refresh()
             var heard = false
             for (event in drainWindowEvents()) {
                 if (report && event.kind != WindowEvent.POINTER_MOVE) {
@@ -391,7 +397,7 @@ internal fun runWin32Window() {
             }
             // Only when there is something to draw. A window that is being looked at
             // rather than used should cost a comparison a frame.
-            if (!painted || heard || scene.hasInvalidations()) {
+            if (!painted || heard || rescaled || scene.hasInvalidations()) {
                 Win32Frames.draw()
             }
             // Every frame, and after the drawing. After, because that is when what is in
@@ -426,6 +432,7 @@ private fun drawFrame(
     window: Win32NativeWindow,
     context: org.jetbrains.skia.DirectContext,
     scene: ComposeScene,
+    textScale: TextScale,
     nanos: Long,
 ): IntSize? {
     val resource = window.beginFrame()
@@ -434,10 +441,10 @@ private fun drawFrame(
     // refitted is refitted, and what is measured here is the buffer that came back.
     val measured = window.measure()
     val fitted = IntSize(measured.width, measured.height)
-    val density = Density(measured.scale)
-    // The window was resized, or moved onto a screen of another density. Told to the
-    // scene here, because a buffer that fits and a scene that does not is a window drawing
-    // its old size into a corner of its new one.
+    val density = textScale.density(measured.scale)
+    // The window was resized, moved onto a screen of another density, or the reader changed
+    // the text size. Told to the scene here, because a buffer that fits and a scene that
+    // does not is a window drawing its old size into a corner of its new one.
     if (scene.size != fitted || scene.density != density) {
         scene.density = density
         scene.size = fitted

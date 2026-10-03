@@ -50,6 +50,8 @@
 #include <uiautomation.h>
 #include <uiautomationcoreapi.h>
 #include <oleauto.h>
+#include <roapi.h>
+#include <winstring.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1889,4 +1891,188 @@ void dxc_native_frame_end(void *queue_pointer) {
     // The next frame will paint into a buffer this one may still be reading from, and a
     // swapchain two buffers deep comes back around immediately.
     dxc_wait_for_gpu();
+}
+
+/* ---------------------------------------------------------------------------------------
+ * The reader's text size: Settings, Accessibility, Text size.
+ *
+ * Read through the Windows Runtime's UISettings, which is what the system's own
+ * applications read: TextScaleFactor is the size, from 1 to 2.25, and TextScaleFactorChanged
+ * says when the reader moves the slider. The event arrives on a thread of the runtime's
+ * choosing, so it only stores the new value and wakes the window; the renderer reads the
+ * value on its own thread once a frame, which costs a load.
+ *
+ * Declared by hand rather than through the SDK's headers, as the notifications file does,
+ * because those headers describe these interfaces for C++ only.
+ * ------------------------------------------------------------------------------------ */
+
+static const IID DXC_TEXT_IID_IUnknown =
+    {0x00000000, 0x0000, 0x0000, {0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}};
+static const IID DXC_TEXT_IID_IAgileObject =
+    {0x94ea2b94, 0xe9cc, 0x49e0, {0xc0, 0xff, 0xee, 0x64, 0xca, 0x8f, 0x5b, 0x90}};
+static const IID DXC_IID_IUISettings2 =
+    {0xbad82401, 0x2721, 0x44f9, {0xbb, 0x91, 0x2b, 0xb2, 0x28, 0xbe, 0x44, 0x2f}};
+/* TypedEventHandler<UISettings, Object>. A parameterised interface has no IID of its own in
+ * any header; this is the one the runtime derives from the signature
+ * pinterface({9de1c534-...};rc(Windows.UI.ViewManagement.UISettings;{85361600-...});
+ * cinterface(IInspectable)), the same derivation that gives the toast handler its IID. */
+static const IID DXC_IID_TextScaleHandler =
+    {0x2dbdba9d, 0x20da, 0x519d, {0x90, 0x78, 0x09, 0xf8, 0x35, 0xbc, 0x5b, 0xc7}};
+
+typedef struct {
+    int64_t value;
+} DxcTextEventToken;
+
+typedef struct DxcUISettings2 DxcUISettings2;
+typedef struct {
+    HRESULT(STDMETHODCALLTYPE *QueryInterface)(DxcUISettings2 *, REFIID, void **);
+    ULONG(STDMETHODCALLTYPE *AddRef)(DxcUISettings2 *);
+    ULONG(STDMETHODCALLTYPE *Release)(DxcUISettings2 *);
+    void *GetIids;
+    void *GetRuntimeClassName;
+    void *GetTrustLevel;
+    HRESULT(STDMETHODCALLTYPE *get_TextScaleFactor)(DxcUISettings2 *, double *);
+    HRESULT(STDMETHODCALLTYPE *add_TextScaleFactorChanged)(DxcUISettings2 *, void *,
+                                                           DxcTextEventToken *);
+    void *remove_TextScaleFactorChanged;
+} DxcUISettings2Vtbl;
+struct DxcUISettings2 {
+    const DxcUISettings2Vtbl *lpVtbl;
+};
+
+/* Frames between two reads where the change event could not be subscribed to. */
+#define DXC_TEXT_SCALE_REREAD 60
+
+static DxcUISettings2 *dxc_ui_settings;
+/* In thousandths, so the event's thread and the renderer's share one aligned word. */
+static volatile LONG dxc_text_scale_thousandths = 1000;
+static int dxc_text_scale_started;
+static int dxc_text_scale_listening;
+static int dxc_text_scale_asks;
+
+static void dxc_read_text_scale(void) {
+    double factor = 1.0;
+    if (dxc_ui_settings != NULL &&
+        SUCCEEDED(dxc_ui_settings->lpVtbl->get_TextScaleFactor(dxc_ui_settings, &factor)) &&
+        factor > 0.0) {
+        InterlockedExchange(&dxc_text_scale_thousandths, (LONG)(factor * 1000.0 + 0.5));
+    }
+}
+
+typedef struct DxcTextScaleHandler DxcTextScaleHandler;
+typedef struct {
+    HRESULT(STDMETHODCALLTYPE *QueryInterface)(DxcTextScaleHandler *, REFIID, void **);
+    ULONG(STDMETHODCALLTYPE *AddRef)(DxcTextScaleHandler *);
+    ULONG(STDMETHODCALLTYPE *Release)(DxcTextScaleHandler *);
+    HRESULT(STDMETHODCALLTYPE *Invoke)(DxcTextScaleHandler *, IUnknown *, IUnknown *);
+} DxcTextScaleHandlerVtbl;
+struct DxcTextScaleHandler {
+    const DxcTextScaleHandlerVtbl *lpVtbl;
+};
+
+static HRESULT STDMETHODCALLTYPE dxc_text_handler_query(DxcTextScaleHandler *self, REFIID iid,
+                                                        void **out) {
+    if (IsEqualIID(iid, &DXC_TEXT_IID_IUnknown) || IsEqualIID(iid, &DXC_TEXT_IID_IAgileObject) ||
+        IsEqualIID(iid, &DXC_IID_TextScaleHandler)) {
+        *out = self;
+        return S_OK;
+    }
+    *out = NULL;
+    return E_NOINTERFACE;
+}
+
+/* Static, so it is never freed and counting means nothing. */
+static ULONG STDMETHODCALLTYPE dxc_text_handler_add_ref(DxcTextScaleHandler *self) {
+    (void)self;
+    return 2;
+}
+static ULONG STDMETHODCALLTYPE dxc_text_handler_release(DxcTextScaleHandler *self) {
+    (void)self;
+    return 1;
+}
+
+/* The reader moved the slider. The settings object is agile, so it is asked from this
+ * thread, and the window is woken so that the next frame is not a whole rest away. */
+static HRESULT STDMETHODCALLTYPE dxc_text_handler_invoke(DxcTextScaleHandler *self,
+                                                         IUnknown *sender, IUnknown *args) {
+    (void)self;
+    (void)sender;
+    (void)args;
+    dxc_read_text_scale();
+    HWND window = dxc_window;
+    if (window != NULL) {
+        PostMessageW(window, WM_NULL, 0, 0);
+    }
+    return S_OK;
+}
+
+static const DxcTextScaleHandlerVtbl dxc_text_handler_vtbl = {
+    dxc_text_handler_query,
+    dxc_text_handler_add_ref,
+    dxc_text_handler_release,
+    dxc_text_handler_invoke,
+};
+static DxcTextScaleHandler dxc_text_handler = {&dxc_text_handler_vtbl};
+
+static void dxc_start_text_scale(void) {
+    if (dxc_text_scale_started) {
+        return;
+    }
+    dxc_text_scale_started = 1;
+    /* Either apartment will do. One already chosen for this thread answers that it was
+     * chosen differently, which is not a failure. */
+    RoInitialize(RO_INIT_SINGLETHREADED);
+    static const wchar_t class_name[] = L"Windows.UI.ViewManagement.UISettings";
+    HSTRING name = NULL;
+    if (FAILED(WindowsCreateString(class_name, (UINT32)(sizeof class_name / sizeof class_name[0] - 1),
+                                   &name))) {
+        return;
+    }
+    IInspectable *instance = NULL;
+    HRESULT activated = RoActivateInstance(name, &instance);
+    WindowsDeleteString(name);
+    if (FAILED(activated) || instance == NULL) {
+        return;
+    }
+    HRESULT found = instance->lpVtbl->QueryInterface(instance, &DXC_IID_IUISettings2,
+                                                     (void **)&dxc_ui_settings);
+    instance->lpVtbl->Release(instance);
+    if (FAILED(found)) {
+        dxc_ui_settings = NULL;
+        return;
+    }
+    dxc_read_text_scale();
+    DxcTextEventToken token;
+    dxc_text_scale_listening = SUCCEEDED(dxc_ui_settings->lpVtbl->add_TextScaleFactorChanged(
+        dxc_ui_settings, &dxc_text_handler, &token));
+}
+
+/**
+ * The reader's text size, where 1 is the default.
+ *
+ * One where the runtime could not be reached, which is a Windows too old to have the
+ * setting. Where the change event could not be subscribed to, the value is read again
+ * about once a second instead, so a change still arrives without a restart.
+ */
+float dxc_native_text_scale(void) {
+    dxc_start_text_scale();
+    if (!dxc_text_scale_listening && dxc_ui_settings != NULL &&
+        ++dxc_text_scale_asks >= DXC_TEXT_SCALE_REREAD) {
+        dxc_text_scale_asks = 0;
+        dxc_read_text_scale();
+    }
+    return (float)dxc_text_scale_thousandths / 1000.0f;
+}
+
+/** The desktop text settings Linux publishes. Windows has its own, read above. */
+int32_t dxc_native_text_settings_serial(void) {
+    return 0;
+}
+
+/** Nothing to copy: there are no X properties here. */
+int32_t dxc_native_text_settings(int32_t which, char *out, int32_t capacity) {
+    (void)which;
+    (void)out;
+    (void)capacity;
+    return -1;
 }

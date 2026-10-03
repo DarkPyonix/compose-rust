@@ -391,8 +391,12 @@ internal fun runAppKitSpike() {
     // there: a list asking for the rows it is about to show asked from a thread with no
     // Host and was told nothing had been initialised.
     val work = FrameDispatcher()
+    // macOS publishes no text size an application can read, so the reader sets one here
+    // with Command and plus, minus or zero, the way Apple's own applications are zoomed.
+    val zoom = TextZoom()
+    val textScale = TextScale { zoom.fontScale }
     val scene = CanvasLayersComposeScene(
-        density = androidx.compose.ui.unit.Density(measured.scale),
+        density = textScale.density(measured.scale),
         size = size,
         coroutineContext = work,
         platformContext = NativePlatformContext({ size }, textInput, semantics),
@@ -431,6 +435,21 @@ internal fun runAppKitSpike() {
                 if (event.kind == WindowEvent.RESIZE) {
                     size = androidx.compose.ui.unit.IntSize(event.x.toInt(), event.y.toInt())
                     scene.size = size
+                }
+                // Command with plus, minus or zero zooms the window's text. Taken here and
+                // not handed on, press and release both, so a field that has focus does
+                // not also see a shortcut it has no meaning for.
+                if (event.kind == WindowEvent.KEY_DOWN || event.kind == WindowEvent.KEY_UP) {
+                    val shortcut =
+                        macZoomShortcut(event.codePoint, event.keyCode, event.modifiers.toLong())
+                    if (shortcut != null) {
+                        val zoomed = event.kind == WindowEvent.KEY_DOWN && zoom.apply(shortcut)
+                        if (zoomed && textScale.refresh()) {
+                            scene.density = textScale.density(window.measure().scale)
+                        }
+                        heard = true
+                        continue
+                    }
                 }
                 scene.receive(event)
                 textInput.receive(event)

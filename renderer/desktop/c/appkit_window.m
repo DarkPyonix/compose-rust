@@ -839,3 +839,28 @@ void dxc_native_frame_end(void *queue_pointer) {
     }
     });
 }
+
+#pragma mark - The reader's text size
+
+// macOS has no text size an application can read: what Apple's own applications call
+// text size is a setting of each application, changed with Command and plus or minus.
+// The window answers those keys itself (`TextZoom.kt`), so the system's answer here is
+// always the default and nothing ever changes it.
+
+/** Windows' text size. This platform has none. */
+float dxc_native_text_scale(void) {
+    return 1.0f;
+}
+
+/** The desktop text settings Linux publishes. This platform has none, so nothing changes. */
+int32_t dxc_native_text_settings_serial(void) {
+    return 0;
+}
+
+/** Nothing to copy: there are no X properties here. */
+int32_t dxc_native_text_settings(int32_t which, char *out, int32_t capacity) {
+    (void)which;
+    (void)out;
+    (void)capacity;
+    return -1;
+}

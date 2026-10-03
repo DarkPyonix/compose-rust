@@ -23,6 +23,11 @@ data class WindowMeasurement(val width: Int, val height: Int, val scale: Float)
 
 internal class WindowFrames(
     private val measure: () -> WindowMeasurement,
+    /**
+     * The reader's text scale as the window holds it. Read at the moment of drawing, beside
+     * the size, so a frame never pairs a new text size with an old Density.
+     */
+    private val textScale: TextScale = TextScale { 1f },
     private val paint: (IntSize, Density) -> Unit,
 ) {
 
@@ -49,7 +54,7 @@ internal class WindowFrames(
         }
         painting = true
         try {
-            paint(IntSize(measured.width, measured.height), Density(measured.scale))
+            paint(IntSize(measured.width, measured.height), textScale.density(measured.scale))
         } finally {
             painting = false
         }

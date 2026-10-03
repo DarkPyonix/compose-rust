@@ -21,7 +21,6 @@ import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.platform.WindowInfo
 import androidx.compose.ui.scene.CanvasLayersComposeScene
-import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import kotlinx.cinterop.CValue
 import kotlinx.cinterop.useContents
@@ -160,6 +159,15 @@ internal class MacosWindow(
 
     /** Where committed and composing text goes. */
     private val textInput = NativeTextInput()
+
+    /**
+     * The window's text zoom, which is this platform's text size.
+     *
+     * macOS publishes none an application can read, so the reader sets one here with
+     * Command and plus, minus or zero, the way Apple's own applications are zoomed.
+     */
+    private val zoom = TextZoom()
+    private val textScale = TextScale { zoom.fontScale }
 
     /** Copy, paste and the rest, as the system's own menu draws them. */
     private val textToolbar = MacosTextToolbar { view }
@@ -594,6 +602,9 @@ internal class MacosWindow(
         override fun menuForEvent(event: NSEvent): NSMenu? = editingMenu()
 
         override fun keyDown(event: NSEvent) {
+            // The zoom shortcuts are the window's, and go no further: neither the scene nor
+            // the input method has any meaning for them.
+            if (zoomFor(event, down = true)) return
             // Both, and in this order. The scene reads the key as a key: arrows, Enter,
             // backspace and whatever shortcut the screen has bound. The input method
             // reads the same key as text, and hands back a letter or a syllable being
@@ -607,6 +618,7 @@ internal class MacosWindow(
         }
 
         override fun keyUp(event: NSEvent) {
+            if (zoomFor(event, down = false)) return
             if (!scene.sendKeyEvent(event.compose(KeyEventType.KeyUp))) super.keyUp(event)
         }
     }
@@ -649,7 +661,7 @@ internal class MacosWindow(
         // After the window is on screen, and in this order: the density is the screen's
         // and is not known until the window is on one, and a scene given content before
         // it has a size composes into nothing and draws a blank window.
-        scene.density = Density(window.backingScaleFactor.toFloat())
+        scene.density = textScale.density(window.backingScaleFactor.toFloat())
         scene.setContent(content)
 
         // Said, rather than assumed. Compose composes for something that is alive, and a
@@ -732,6 +744,26 @@ internal class MacosWindow(
         )
         item.setAction(platform.darwin.sel_registerName("perform"))
         menu.addItem(item)
+    }
+
+    /**
+     * Takes a zoom shortcut, and answers whether the key was one.
+     *
+     * Applied on the press and swallowed on both press and release, so a field that has focus
+     * never sees half of a shortcut. A zoom that changed the text size redraws the window,
+     * because nothing in the scene invalidated and every line of text is about to move.
+     */
+    private fun zoomFor(event: NSEvent, down: Boolean): Boolean {
+        val shortcut = macZoomShortcut(
+            character = event.charactersIgnoringModifiers?.firstOrNull()?.code ?: 0,
+            keyCode = event.keyCode.toInt(),
+            modifierFlags = event.modifierFlags.toLong(),
+        ) ?: return false
+        if (down && zoom.apply(shortcut) && textScale.refresh()) {
+            scene.density = textScale.density(window.backingScaleFactor.toFloat())
+            view.needsDisplay = true
+        }
+        return true
     }
 
     /** One key held with Command, built from parts the way a platform event is. */

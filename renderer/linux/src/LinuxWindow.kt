@@ -15,7 +15,6 @@ import androidx.compose.ui.platform.PlatformContext
 import androidx.compose.ui.platform.PlatformTextInputMethodRequest
 import androidx.compose.ui.platform.WindowInfo
 import androidx.compose.ui.scene.CanvasLayersComposeScene
-import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import java.lang.System
 import kotlinx.cinterop.ByteVar
@@ -265,8 +264,15 @@ internal class LinuxWindow private constructor(
             }
         }
 
+    /**
+     * The reader's text size, from what the desktop publishes to X clients: GNOME's text
+     * scaling factor, KDE's font DPI. Asked again once a turn, which costs a look at a
+     * connection that has heard nothing until the desktop changes one of them.
+     */
+    private val textScale = TextScale(nativeLinuxTextScale())
+
     private val scene = CanvasLayersComposeScene(
-        density = Density(DENSITY),
+        density = textScale.density(DENSITY),
         size = measured,
         coroutineContext = work,
         platformContext = platformContext,
@@ -286,6 +292,7 @@ internal class LinuxWindow private constructor(
      */
     private val frames = WindowFrames(
         { WindowMeasurement(measured.width, measured.height, DENSITY) },
+        textScale,
     ) { size, density ->
         // Told to the scene here, in the frame that is about to be drawn at that size, because
         // a framebuffer that fits and a scene that does not is a window drawing its old size
@@ -366,6 +373,9 @@ internal class LinuxWindow private constructor(
                 // own work, and a list that asked for rows on the last frame wants them in hand
                 // before this one is measured.
                 work.runPending()
+                // A text size the reader changed. Nothing in the scene has invalidated, but
+                // every line of text in it is about to be laid out again, so it is drawn.
+                val rescaled = textScale.refresh()
                 drained.clear()
                 log.drain(drained)
                 for (event in drained) {
@@ -378,7 +388,8 @@ internal class LinuxWindow private constructor(
                 // Only when there is something to draw. A window that is being resized has
                 // already had its frame drawn by the resize, and a window where nothing is
                 // happening should leave the screen alone.
-                val drew = if (!painted || drained.isNotEmpty() || scene.hasInvalidations()) {
+                val asked = !painted || drained.isNotEmpty() || rescaled
+                val drew = if (asked || scene.hasInvalidations()) {
                     frames.draw()
                 } else {
                     false
