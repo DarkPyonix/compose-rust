@@ -15,6 +15,11 @@ import dioxus.compose.protocol.MessageDuration
 import dioxus.compose.protocol.Modifier as ProtocolModifier
 import dioxus.compose.protocol.Mutation
 import dioxus.compose.protocol.Paint
+import dioxus.compose.protocol.PaletteEntry
+import dioxus.compose.protocol.PropertyKind
+import dioxus.compose.protocol.PropertyValue
+import dioxus.compose.protocol.SpanRecords
+import dioxus.compose.protocol.TextSpanRecord
 import dioxus.compose.protocol.ShapeRole
 import dioxus.compose.protocol.SpaceRole
 import dioxus.compose.protocol.ColorRole
@@ -143,6 +148,60 @@ class ProtocolVectorsTest {
                 ProtocolModifier.Elevation(6f),
             ),
             modifiers,
+        )
+    }
+
+    /** The theme record carries the palette behind it, and both sides read the same entries. */
+    @Test
+    fun fr14_10_the_theme_in_the_vector_carries_its_palette() {
+        val theme = decodeVector("mutations.bin").filterIsInstance<Mutation.SetTheme>().single().theme
+        assertEquals(
+            listOf(
+                PaletteEntry(ColorRole.Primary, dark = false, argb = 0xFFE8590C.toInt()),
+                PaletteEntry(ColorRole.Primary, dark = true, argb = 0xFFFF8A4C.toInt()),
+                PaletteEntry(ColorRole.SyntaxKeyword, dark = false, argb = 0x80112233.toInt()),
+            ),
+            theme.palette,
+        )
+        assertEquals(emptyList(), theme.paletteProblems)
+    }
+
+    /** The text runs in the vector are 36 byte records with a colour and a background each. */
+    @Test
+    fun fr26_the_runs_in_the_vector_decode_to_the_same_values() {
+        val runs = decodeVector("mutations.bin")
+            .filterIsInstance<Mutation.SetProp>()
+            .single { it.property == PropertyKind.Spans }
+            .value as PropertyValue.Bytes
+        val records = SpanRecords.decode(runs.value)
+        assertEquals(
+            listOf(
+                TextSpanRecord(
+                    start = 0,
+                    length = 4,
+                    typeRole = null,
+                    color = Paint.Role(ColorRole.SyntaxKeyword),
+                    background = Paint.Role(ColorRole.DiffAddedEmphasis),
+                    bold = true,
+                    italic = false,
+                    underline = false,
+                    strikethrough = false,
+                    handlerId = 0L,
+                ),
+                TextSpanRecord(
+                    start = 5,
+                    length = 2,
+                    typeRole = null,
+                    color = null,
+                    background = Paint.Literal(0xFF445566.toInt()),
+                    bold = false,
+                    italic = false,
+                    underline = false,
+                    strikethrough = false,
+                    handlerId = 0L,
+                ),
+            ),
+            records,
         )
     }
 

@@ -191,6 +191,7 @@ data class Window(
     output.push_str("}\n\n");
 
     write_draw_commands(&mut output);
+    write_text_spans(&mut output);
 
     output.push_str("sealed interface Modifier {\n");
     for variant in MODIFIER_SCHEMA {
@@ -1321,11 +1322,37 @@ pub fn canvas_vector() -> crate::drawing::DrawList {
         .build()
 }
 
+/// The palette the vector's theme carries: one role in both schemes and one in light only,
+/// with an alpha that is not opaque, so both sides read every field of an entry.
+pub const VECTOR_PALETTE: crate::palette::Palette = crate::palette::Palette::new()
+    .with(
+        ColorRole::Primary,
+        Color::rgb(0xe8590c),
+        Color::rgb(0xff8a4c),
+    )
+    .with_light(ColorRole::SyntaxKeyword, Color::argb(0x8011_2233));
+
+/// Two runs: one with a text colour, a background and bold, one with a literal background
+/// only, so both paints and their absence are in the vector.
+pub fn spans_vector() -> crate::spans::TextSpans {
+    use crate::spans::{TextSpan, TextSpans};
+    TextSpans::new([
+        TextSpan::new(0, 4)
+            .bold()
+            .with_color(Paint::Role(ColorRole::SyntaxKeyword))
+            .with_background(Paint::Role(ColorRole::DiffAddedEmphasis)),
+        TextSpan::new(5, 2).with_background(Paint::Literal(Color::argb(0xff44_5566))),
+    ])
+}
+
 pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
     let canvas_vector_bytes = canvas_vector();
+    let spans_vector_bytes = spans_vector();
     let mutations = [
         Mutation::SetTheme(
-            Theme::adaptive(DesignSystem::Cupertino).with_color_scheme(ColorScheme::Dark),
+            Theme::adaptive(DesignSystem::Cupertino)
+                .with_color_scheme(ColorScheme::Dark)
+                .with_palette(&VECTOR_PALETTE),
         ),
         Mutation::Create {
             node_id: 1,
@@ -1502,6 +1529,13 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             action: "Undo",
             duration: crate::schema::MessageDuration::Long,
         },
+        // Text runs with a text colour and a background each, so both sides read the
+        // same 36 byte records.
+        Mutation::SetProp {
+            node_id: 2,
+            property: PropertyKind::Spans,
+            value: PropertyValue::Bytes(spans_vector_bytes.as_bytes()),
+        },
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {
@@ -1592,8 +1626,14 @@ pub fn generate_vector_description() -> String {
   "byteOrder": "little-endian",
   "mutations": {{
     "file": "mutations.bin",
-    "description": "One batch covering every record, property value, modifier layout, drawing command, asset and message",
-    "recordCount": 33,
+    "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, palette entry and text run",
+    "recordCount": 34,
+    "palette": [
+      {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
+      {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
+      {{ "role": "SyntaxKeyword", "scheme": "Light", "argb": "80112233" }}
+    ],
+    "spanRecordLength": 36,
     "strings": ["안녕", "compose", " token", "삭제했습니다", "Undo"],
     "assets": [{{ "assetId": 5, "kind": "Png", "bytes": "89504e47" }}]
   }},
@@ -1794,6 +1834,123 @@ object DrawCommands {
             .iter()
             .find(|entry| entry.name == role)
             .expect("a drawing command names a role the schema declares")
+            .variants;
+        writeln!(
+            output,
+            "    private fun {}OrNull(tag: Int): {role}? = when (tag) {{",
+            lower_first(role)
+        )
+        .unwrap();
+        for variant in variants {
+            writeln!(output, "        {} -> {role}.{}", variant.tag, variant.name).unwrap();
+        }
+        output.push_str("        else -> null\n    }\n\n");
+    }
+    output.push_str("}\n\n");
+}
+
+/// The run list a `Text` carries, mirrored into Kotlin with its decoder.
+///
+/// The layout is read from `spans.rs`, so a field added there moves here without anyone
+/// counting bytes by hand on either side.
+fn write_text_spans(output: &mut String) {
+    use crate::spans::{
+        FLAG_BOLD, FLAG_ITALIC, FLAG_STRIKETHROUGH, FLAG_UNDERLINE, SPAN_BACKGROUND_AT,
+        SPAN_COLOR_AT, SPAN_FLAGS_AT, SPAN_HANDLER_AT, SPAN_LEN, SPAN_LENGTH_AT, SPAN_ROLE_AT,
+        SPAN_START_AT,
+    };
+    let role_kind = Paint::Role(ColorRole::Primary).to_bits() >> 32;
+    let literal_kind = Paint::Literal(Color::argb(0)).to_bits() >> 32;
+    let asset_kind = Paint::Asset(0).to_bits() >> 32;
+    output.push_str(
+        r#"/**
+ * One run of different treatment inside a Text's string, as the Host wrote it.
+ *
+ * Offsets are bytes of the string's UTF-8, because that is what the string is measured in
+ * on the side that wrote them. A null paint is a run that says nothing about that colour.
+ */
+data class TextSpanRecord(
+    val start: Int,
+    val length: Int,
+    val typeRole: TypeRole?,
+    val color: Paint?,
+    /** What is painted behind this run's letters only. */
+    val background: Paint?,
+    val bold: Boolean,
+    val italic: Boolean,
+    val underline: Boolean,
+    val strikethrough: Boolean,
+    /** The handler a press on this run reports to, or zero where it is not a link. */
+    val handlerId: Long,
+)
+
+/** Decodes the run list a Text carries in its `Spans` property. */
+object SpanRecords {
+"#,
+    );
+    writeln!(output, "    const val SPAN_LENGTH = {SPAN_LEN}").unwrap();
+    for (name, value) in [
+        ("START_AT", SPAN_START_AT),
+        ("LENGTH_AT", SPAN_LENGTH_AT),
+        ("ROLE_AT", SPAN_ROLE_AT),
+        ("FLAGS_AT", SPAN_FLAGS_AT),
+        ("COLOR_AT", SPAN_COLOR_AT),
+        ("BACKGROUND_AT", SPAN_BACKGROUND_AT),
+        ("HANDLER_AT", SPAN_HANDLER_AT),
+    ] {
+        writeln!(output, "    private const val {name} = {value}").unwrap();
+    }
+    for (name, value) in [
+        ("FLAG_BOLD", FLAG_BOLD),
+        ("FLAG_ITALIC", FLAG_ITALIC),
+        ("FLAG_UNDERLINE", FLAG_UNDERLINE),
+        ("FLAG_STRIKETHROUGH", FLAG_STRIKETHROUGH),
+    ] {
+        writeln!(output, "    private const val {name} = {value}").unwrap();
+    }
+    output.push_str(
+        r#"
+    /** The runs in [bytes], or null where it is not a whole number of records. */
+    fun decode(bytes: ByteArray): List<TextSpanRecord>? {
+        if (bytes.size % SPAN_LENGTH != 0) return null
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        return List(bytes.size / SPAN_LENGTH) { index ->
+            val at = index * SPAN_LENGTH
+            val flags = buffer.getShort(at + FLAGS_AT).toInt() and 0xffff
+            TextSpanRecord(
+                start = buffer.getInt(at + START_AT),
+                length = buffer.getInt(at + LENGTH_AT),
+                typeRole = typeRoleOrNull(buffer.getShort(at + ROLE_AT).toInt() and 0xffff),
+                color = paintOrNull(buffer.getLong(at + COLOR_AT)),
+                background = paintOrNull(buffer.getLong(at + BACKGROUND_AT)),
+                bold = flags and FLAG_BOLD != 0,
+                italic = flags and FLAG_ITALIC != 0,
+                underline = flags and FLAG_UNDERLINE != 0,
+                strikethrough = flags and FLAG_STRIKETHROUGH != 0,
+                handlerId = buffer.getLong(at + HANDLER_AT),
+            )
+        }
+    }
+
+    /** A paint, or null for zero and for anything that does not decode. */
+    private fun paintOrNull(bits: Long): Paint? {
+        val value = bits.toInt()
+        return when ((bits ushr 32).toInt()) {
+"#,
+    );
+    writeln!(
+        output,
+        "            {role_kind} -> colorRoleOrNull(value)?.let {{ Paint.Role(it) }}"
+    )
+    .unwrap();
+    writeln!(output, "            {literal_kind} -> Paint.Literal(value)").unwrap();
+    writeln!(output, "            {asset_kind} -> Paint.Asset(value)").unwrap();
+    output.push_str("            else -> null\n        }\n    }\n\n");
+    for role in ["ColorRole", "TypeRole"] {
+        let variants = ROLE_ENUM_SCHEMA
+            .iter()
+            .find(|entry| entry.name == role)
+            .expect("the span record names a role the schema declares")
             .variants;
         writeln!(
             output,

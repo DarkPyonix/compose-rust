@@ -319,3 +319,20 @@ fn fr14_10_a_bad_entry_is_reported_and_the_rest_still_apply() {
     );
     assert_eq!(palette.len(), 2);
 }
+
+/// The palette in the protocol vectors decodes to what was written.
+#[test]
+fn fr14_10_the_vector_palette_round_trips() {
+    use dioxus_compose::codegen::{VECTOR_PALETTE, generate_mutation_vector};
+    let bytes = generate_mutation_vector().unwrap();
+    let theme = decode_batch(&bytes)
+        .unwrap()
+        .into_iter()
+        .find_map(|mutation| match mutation {
+            Mutation::SetTheme(theme) => Some(theme),
+            _ => None,
+        })
+        .expect("the vector has a theme");
+    assert_eq!(theme.palette, Some(&VECTOR_PALETTE));
+    assert_eq!(VECTOR_PALETTE.len(), 3);
+}

@@ -126,6 +126,7 @@ fn fr13_1_3_highlighted_code_travels_as_roles_and_differs_between_schemes() {
             }
             other => panic!("a run carries {other:?}, and a highlighter only sends roles"),
         }
+        assert_eq!(span.background, None, "plain code has no word backgrounds");
     }
     for expected in [
         ColorRole::SyntaxKeyword,
