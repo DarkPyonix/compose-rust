@@ -1,0 +1,1913 @@
+[
+  {
+    "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15",
+    "label": "safari",
+    "checks": [
+      {
+        "name": "kotlin reads what rust wrote",
+        "actual": 34432,
+        "expected": 34432,
+        "ok": true
+      },
+      {
+        "name": "rust reads what kotlin wrote",
+        "actual": 35456,
+        "expected": 35456,
+        "ok": true
+      },
+      {
+        "name": "js sees the same memory",
+        "actual": 14,
+        "expected": 14,
+        "ok": true
+      },
+      {
+        "name": "round trip inside kotlin",
+        "actual": 33408,
+        "expected": 33408,
+        "ok": true
+      }
+    ],
+    "benches": [
+      {
+        "name": "kotlin loop, no call",
+        "n": 20000000,
+        "nsPerOp": 0.9,
+        "samples": [
+          0.75,
+          0.85,
+          0.85,
+          0.8500000000000114,
+          0.9,
+          0.95,
+          0.95,
+          0.95,
+          0.9999999999999887
+        ]
+      },
+      {
+        "name": "kotlin -> rust (trampoline)",
+        "n": 20000000,
+        "nsPerOp": 6.799999999999988,
+        "samples": [
+          5.85,
+          5.9999999999999885,
+          6.0000000000000115,
+          6.5,
+          6.799999999999988,
+          6.85,
+          7.35,
+          7.650000000000012,
+          7.85
+        ]
+      },
+      {
+        "name": "kotlin -> js -> rust",
+        "n": 20000000,
+        "nsPerOp": 16.85,
+        "samples": [
+          13.55,
+          13.9,
+          15.15,
+          15.35,
+          16.85,
+          18.15,
+          18.3,
+          18.300000000000043,
+          19.4
+        ]
+      },
+      {
+        "name": "rust loop, no call",
+        "n": 20000000,
+        "nsPerOp": 0,
+        "samples": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "rust -> kotlin (direct import)",
+        "n": 20000000,
+        "nsPerOp": 2.2999999999999545,
+        "samples": [
+          1.9499999999999547,
+          2,
+          2.15,
+          2.25,
+          2.2999999999999545,
+          2.3000000000000456,
+          2.8500000000000454,
+          3.75,
+          4.5
+        ]
+      },
+      {
+        "name": "rust -> js -> kotlin",
+        "n": 20000000,
+        "nsPerOp": 18.15,
+        "samples": [
+          15.7,
+          18,
+          18,
+          18.04999999999991,
+          18.15,
+          18.3,
+          18.55,
+          18.750000000000046,
+          19.050000000000043
+        ]
+      },
+      {
+        "name": "js loop, no call",
+        "n": 20000000,
+        "nsPerOp": 0.65,
+        "samples": [
+          0.5,
+          0.55,
+          0.55,
+          0.600000000000091,
+          0.65,
+          0.699999999999909,
+          0.75,
+          0.75,
+          0.85
+        ]
+      },
+      {
+        "name": "js -> rust export",
+        "n": 20000000,
+        "nsPerOp": 2.6,
+        "samples": [
+          2.25,
+          2.3,
+          2.4,
+          2.5,
+          2.6,
+          2.7000000000000908,
+          3.05,
+          3.099999999999909,
+          3.349999999999909
+        ]
+      },
+      {
+        "name": "js -> kotlin export",
+        "n": 20000000,
+        "nsPerOp": 2.9,
+        "samples": [
+          2.650000000000091,
+          2.650000000000091,
+          2.7,
+          2.7999999999999092,
+          2.9,
+          3.2,
+          3.35,
+          3.4,
+          4
+        ]
+      },
+      {
+        "name": "kotlin read, ns per i32",
+        "n": 80000,
+        "nsPerOp": 225,
+        "samples": [
+          150.00000000002274,
+          162.5,
+          187.49999999997726,
+          212.5,
+          225,
+          225,
+          225,
+          262.5,
+          275
+        ]
+      },
+      {
+        "name": "kotlin write, ns per i32",
+        "n": 80000,
+        "nsPerOp": 250,
+        "samples": [
+          137.5,
+          150,
+          175,
+          212.5,
+          250,
+          250,
+          250,
+          262.5,
+          337.5
+        ]
+      },
+      {
+        "name": "rust read, ns per i32",
+        "n": 80000,
+        "nsPerOp": 62.5,
+        "samples": [
+          37.5,
+          49.99999999997726,
+          50,
+          50,
+          62.5,
+          62.5,
+          87.5,
+          100,
+          112.5
+        ]
+      }
+    ],
+    "derived": {
+      "kotlinToRustDirectNs": 5.899999999999988,
+      "kotlinToRustViaJsNs": 15.950000000000001,
+      "rustToKotlinDirectNs": 2.2999999999999545,
+      "rustToKotlinViaJsNs": 18.15,
+      "jsToRustNs": 1.9500000000000002,
+      "jsToKotlinNs": 2.25,
+      "kotlinMemReadNsPerI32": 0.87890625,
+      "kotlinMemWriteNsPerI32": 0.9765625,
+      "rustMemReadNsPerI32": 0.244140625
+    },
+    "log": [
+      "kotlin memory: 0 pages at start, 768 after grow",
+      "rust imports: env.memory:memory, peer.peer_add:function, jsshim.shim_add:function",
+      "sentinel after rust instantiation: kotlin_sentinel() = 118",
+      "arena at 0x1000000 (65536 bytes) inside the shared memory",
+      "PASS kotlin reads what rust wrote: got 34432, expected 34432",
+      "PASS rust reads what kotlin wrote: got 35456, expected 35456",
+      "PASS js sees the same memory: got 14, expected 14",
+      "PASS round trip inside kotlin: got 33408, expected 33408",
+      "\n-- call overhead, loop driven from Kotlin --",
+      "kotlin loop, no call               0.90 ns/op  (n=20000000, min 0.75, max 1.00)",
+      "kotlin -> rust (trampoline)        6.80 ns/op  (n=20000000, min 5.85, max 7.85)",
+      "kotlin -> js -> rust               16.85 ns/op  (n=20000000, min 13.55, max 19.40)",
+      "\n-- call overhead, loop driven from Rust --",
+      "rust loop, no call                 0.00 ns/op  (n=20000000, min 0.00, max 0.00)",
+      "rust -> kotlin (direct import)     2.30 ns/op  (n=20000000, min 1.95, max 4.50)",
+      "rust -> js -> kotlin               18.15 ns/op  (n=20000000, min 15.70, max 19.05)",
+      "\n-- call overhead, loop driven from JS --",
+      "js loop, no call                   0.65 ns/op  (n=20000000, min 0.50, max 0.85)",
+      "js -> rust export                  2.60 ns/op  (n=20000000, min 2.25, max 3.35)",
+      "js -> kotlin export                2.90 ns/op  (n=20000000, min 2.65, max 4.00)",
+      "\n-- shared linear memory access --",
+      "kotlin read, ns per i32            225.00 ns/op  (n=80000, min 150.00, max 275.00)",
+      "kotlin write, ns per i32           250.00 ns/op  (n=80000, min 137.50, max 337.50)",
+      "rust read, ns per i32              62.50 ns/op  (n=80000, min 37.50, max 112.50)",
+      "\n-- net cost per boundary call (loop baseline subtracted) --",
+      "kotlinToRustDirectNs               5.90 ns",
+      "kotlinToRustViaJsNs                15.95 ns",
+      "rustToKotlinDirectNs               2.30 ns",
+      "rustToKotlinViaJsNs                18.15 ns",
+      "jsToRustNs                         1.95 ns",
+      "jsToKotlinNs                       2.25 ns",
+      "kotlinMemReadNsPerI32              0.88 ns",
+      "kotlinMemWriteNsPerI32             0.98 ns",
+      "rustMemReadNsPerI32                0.24 ns"
+    ],
+    "run": 0,
+    "browserVersion": "26.5"
+  },
+  {
+    "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15",
+    "label": "safari",
+    "checks": [
+      {
+        "name": "kotlin reads what rust wrote",
+        "actual": 34432,
+        "expected": 34432,
+        "ok": true
+      },
+      {
+        "name": "rust reads what kotlin wrote",
+        "actual": 35456,
+        "expected": 35456,
+        "ok": true
+      },
+      {
+        "name": "js sees the same memory",
+        "actual": 14,
+        "expected": 14,
+        "ok": true
+      },
+      {
+        "name": "round trip inside kotlin",
+        "actual": 33408,
+        "expected": 33408,
+        "ok": true
+      }
+    ],
+    "benches": [
+      {
+        "name": "kotlin loop, no call",
+        "n": 20000000,
+        "nsPerOp": 0.95,
+        "samples": [
+          0.7,
+          0.8,
+          0.85,
+          0.9000000000000058,
+          0.95,
+          0.9999999999999942,
+          1,
+          1,
+          1.0500000000000058
+        ]
+      },
+      {
+        "name": "kotlin -> rust (trampoline)",
+        "n": 20000000,
+        "nsPerOp": 7.75,
+        "samples": [
+          6.5,
+          6.5,
+          6.7,
+          6.95,
+          7.75,
+          7.85,
+          8.049999999999988,
+          8.650000000000013,
+          9.55
+        ]
+      },
+      {
+        "name": "kotlin -> js -> rust",
+        "n": 20000000,
+        "nsPerOp": 18.6,
+        "samples": [
+          17.650000000000045,
+          17.850000000000023,
+          17.899999999999977,
+          18.3,
+          18.6,
+          19.4,
+          19.749999999999954,
+          20.2,
+          22.35
+        ]
+      },
+      {
+        "name": "rust loop, no call",
+        "n": 20000000,
+        "nsPerOp": 0,
+        "samples": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "rust -> kotlin (direct import)",
+        "n": 20000000,
+        "nsPerOp": 2.95,
+        "samples": [
+          1.9000000000000454,
+          2.2,
+          2.5999999999999543,
+          2.75,
+          2.95,
+          3.3,
+          3.3,
+          3.35,
+          4.000000000000045
+        ]
+      },
+      {
+        "name": "rust -> js -> kotlin",
+        "n": 20000000,
+        "nsPerOp": 17.85,
+        "samples": [
+          17.100000000000094,
+          17.300000000000093,
+          17.75,
+          17.750000000000092,
+          17.85,
+          17.95,
+          18.05,
+          18.59999999999991,
+          20.09999999999991
+        ]
+      },
+      {
+        "name": "js loop, no call",
+        "n": 20000000,
+        "nsPerOp": 0.6,
+        "samples": [
+          0.45,
+          0.6,
+          0.6,
+          0.6,
+          0.6,
+          0.7,
+          0.7,
+          0.7,
+          0.8
+        ]
+      },
+      {
+        "name": "js -> rust export",
+        "n": 20000000,
+        "nsPerOp": 2.4,
+        "samples": [
+          2,
+          2.15,
+          2.4,
+          2.4,
+          2.4,
+          2.55,
+          2.65,
+          3,
+          3.25
+        ]
+      },
+      {
+        "name": "js -> kotlin export",
+        "n": 20000000,
+        "nsPerOp": 2.85,
+        "samples": [
+          2.2,
+          2.3,
+          2.4,
+          2.6499999999999093,
+          2.85,
+          2.85,
+          3.1000000000000907,
+          3.4,
+          3.4
+        ]
+      },
+      {
+        "name": "kotlin read, ns per i32",
+        "n": 80000,
+        "nsPerOp": 200,
+        "samples": [
+          162.5,
+          162.50000000002274,
+          175,
+          200,
+          200,
+          212.5,
+          237.5,
+          249.99999999997726,
+          299.99999999997726
+        ]
+      },
+      {
+        "name": "kotlin write, ns per i32",
+        "n": 80000,
+        "nsPerOp": 162.5,
+        "samples": [
+          137.5,
+          149.99999999997726,
+          150,
+          150,
+          162.5,
+          199.99999999997726,
+          200,
+          225,
+          250.00000000002274
+        ]
+      },
+      {
+        "name": "rust read, ns per i32",
+        "n": 80000,
+        "nsPerOp": 62.5,
+        "samples": [
+          50,
+          50,
+          50,
+          50,
+          62.5,
+          87.5,
+          100,
+          112.5,
+          125
+        ]
+      }
+    ],
+    "derived": {
+      "kotlinToRustDirectNs": 6.8,
+      "kotlinToRustViaJsNs": 17.650000000000002,
+      "rustToKotlinDirectNs": 2.95,
+      "rustToKotlinViaJsNs": 17.85,
+      "jsToRustNs": 1.7999999999999998,
+      "jsToKotlinNs": 2.25,
+      "kotlinMemReadNsPerI32": 0.78125,
+      "kotlinMemWriteNsPerI32": 0.634765625,
+      "rustMemReadNsPerI32": 0.244140625
+    },
+    "log": [
+      "kotlin memory: 0 pages at start, 768 after grow",
+      "rust imports: env.memory:memory, peer.peer_add:function, jsshim.shim_add:function",
+      "sentinel after rust instantiation: kotlin_sentinel() = 118",
+      "arena at 0x1000000 (65536 bytes) inside the shared memory",
+      "PASS kotlin reads what rust wrote: got 34432, expected 34432",
+      "PASS rust reads what kotlin wrote: got 35456, expected 35456",
+      "PASS js sees the same memory: got 14, expected 14",
+      "PASS round trip inside kotlin: got 33408, expected 33408",
+      "\n-- call overhead, loop driven from Kotlin --",
+      "kotlin loop, no call               0.95 ns/op  (n=20000000, min 0.70, max 1.05)",
+      "kotlin -> rust (trampoline)        7.75 ns/op  (n=20000000, min 6.50, max 9.55)",
+      "kotlin -> js -> rust               18.60 ns/op  (n=20000000, min 17.65, max 22.35)",
+      "\n-- call overhead, loop driven from Rust --",
+      "rust loop, no call                 0.00 ns/op  (n=20000000, min 0.00, max 0.00)",
+      "rust -> kotlin (direct import)     2.95 ns/op  (n=20000000, min 1.90, max 4.00)",
+      "rust -> js -> kotlin               17.85 ns/op  (n=20000000, min 17.10, max 20.10)",
+      "\n-- call overhead, loop driven from JS --",
+      "js loop, no call                   0.60 ns/op  (n=20000000, min 0.45, max 0.80)",
+      "js -> rust export                  2.40 ns/op  (n=20000000, min 2.00, max 3.25)",
+      "js -> kotlin export                2.85 ns/op  (n=20000000, min 2.20, max 3.40)",
+      "\n-- shared linear memory access --",
+      "kotlin read, ns per i32            200.00 ns/op  (n=80000, min 162.50, max 300.00)",
+      "kotlin write, ns per i32           162.50 ns/op  (n=80000, min 137.50, max 250.00)",
+      "rust read, ns per i32              62.50 ns/op  (n=80000, min 50.00, max 125.00)",
+      "\n-- net cost per boundary call (loop baseline subtracted) --",
+      "kotlinToRustDirectNs               6.80 ns",
+      "kotlinToRustViaJsNs                17.65 ns",
+      "rustToKotlinDirectNs               2.95 ns",
+      "rustToKotlinViaJsNs                17.85 ns",
+      "jsToRustNs                         1.80 ns",
+      "jsToKotlinNs                       2.25 ns",
+      "kotlinMemReadNsPerI32              0.78 ns",
+      "kotlinMemWriteNsPerI32             0.63 ns",
+      "rustMemReadNsPerI32                0.24 ns"
+    ],
+    "run": 1,
+    "browserVersion": "26.5"
+  },
+  {
+    "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15",
+    "label": "safari",
+    "checks": [
+      {
+        "name": "kotlin reads what rust wrote",
+        "actual": 34432,
+        "expected": 34432,
+        "ok": true
+      },
+      {
+        "name": "rust reads what kotlin wrote",
+        "actual": 35456,
+        "expected": 35456,
+        "ok": true
+      },
+      {
+        "name": "js sees the same memory",
+        "actual": 14,
+        "expected": 14,
+        "ok": true
+      },
+      {
+        "name": "round trip inside kotlin",
+        "actual": 33408,
+        "expected": 33408,
+        "ok": true
+      }
+    ],
+    "benches": [
+      {
+        "name": "kotlin loop, no call",
+        "n": 20000000,
+        "nsPerOp": 0.9,
+        "samples": [
+          0.8,
+          0.85,
+          0.85,
+          0.85,
+          0.9,
+          0.9,
+          0.9000000000000058,
+          0.95,
+          1.0499999999999943
+        ]
+      },
+      {
+        "name": "kotlin -> rust (trampoline)",
+        "n": 20000000,
+        "nsPerOp": 6.1,
+        "samples": [
+          5.6,
+          5.65,
+          5.8,
+          6,
+          6.1,
+          6.4,
+          6.5,
+          6.8,
+          6.9
+        ]
+      },
+      {
+        "name": "kotlin -> js -> rust",
+        "n": 20000000,
+        "nsPerOp": 15.15,
+        "samples": [
+          13.35,
+          13.85,
+          14.05,
+          14.9,
+          15.15,
+          15.399999999999975,
+          15.65,
+          15.950000000000024,
+          16
+        ]
+      },
+      {
+        "name": "rust loop, no call",
+        "n": 20000000,
+        "nsPerOp": 0,
+        "samples": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "rust -> kotlin (direct import)",
+        "n": 20000000,
+        "nsPerOp": 2.1,
+        "samples": [
+          1.7,
+          1.9,
+          1.9,
+          1.9,
+          2.1,
+          2.15,
+          2.15,
+          2.2,
+          2.75
+        ]
+      },
+      {
+        "name": "rust -> js -> kotlin",
+        "n": 20000000,
+        "nsPerOp": 21.75,
+        "samples": [
+          15.849999999999955,
+          19,
+          19.55,
+          20.7,
+          21.75,
+          22.1,
+          22.75,
+          22.85,
+          24.45
+        ]
+      },
+      {
+        "name": "js loop, no call",
+        "n": 20000000,
+        "nsPerOp": 0.55,
+        "samples": [
+          0.5,
+          0.5,
+          0.5,
+          0.55,
+          0.55,
+          0.6,
+          0.65,
+          0.7,
+          0.7
+        ]
+      },
+      {
+        "name": "js -> rust export",
+        "n": 20000000,
+        "nsPerOp": 2.4,
+        "samples": [
+          1.900000000000091,
+          2.0499999999999092,
+          2.05,
+          2.3,
+          2.4,
+          2.45,
+          2.6,
+          2.749999999999909,
+          2.95
+        ]
+      },
+      {
+        "name": "js -> kotlin export",
+        "n": 20000000,
+        "nsPerOp": 1.8,
+        "samples": [
+          1.75,
+          1.75,
+          1.799999999999909,
+          1.8,
+          1.8,
+          1.8,
+          1.8,
+          1.850000000000091,
+          1.9
+        ]
+      },
+      {
+        "name": "kotlin read, ns per i32",
+        "n": 80000,
+        "nsPerOp": 162.5,
+        "samples": [
+          150,
+          150.00000000002274,
+          162.49999999997726,
+          162.5,
+          162.5,
+          162.5,
+          162.5,
+          162.5,
+          162.5
+        ]
+      },
+      {
+        "name": "kotlin write, ns per i32",
+        "n": 80000,
+        "nsPerOp": 137.50000000002274,
+        "samples": [
+          137.5,
+          137.5,
+          137.5,
+          137.5,
+          137.50000000002274,
+          149.99999999997726,
+          150,
+          150,
+          150
+        ]
+      },
+      {
+        "name": "rust read, ns per i32",
+        "n": 80000,
+        "nsPerOp": 50,
+        "samples": [
+          37.5,
+          49.99999999997726,
+          50,
+          50,
+          50,
+          50,
+          50,
+          50.00000000002274,
+          62.5
+        ]
+      }
+    ],
+    "derived": {
+      "kotlinToRustDirectNs": 5.199999999999999,
+      "kotlinToRustViaJsNs": 14.25,
+      "rustToKotlinDirectNs": 2.1,
+      "rustToKotlinViaJsNs": 21.75,
+      "jsToRustNs": 1.8499999999999999,
+      "jsToKotlinNs": 1.25,
+      "kotlinMemReadNsPerI32": 0.634765625,
+      "kotlinMemWriteNsPerI32": 0.5371093750000888,
+      "rustMemReadNsPerI32": 0.1953125
+    },
+    "log": [
+      "kotlin memory: 0 pages at start, 768 after grow",
+      "rust imports: env.memory:memory, peer.peer_add:function, jsshim.shim_add:function",
+      "sentinel after rust instantiation: kotlin_sentinel() = 118",
+      "arena at 0x1000000 (65536 bytes) inside the shared memory",
+      "PASS kotlin reads what rust wrote: got 34432, expected 34432",
+      "PASS rust reads what kotlin wrote: got 35456, expected 35456",
+      "PASS js sees the same memory: got 14, expected 14",
+      "PASS round trip inside kotlin: got 33408, expected 33408",
+      "\n-- call overhead, loop driven from Kotlin --",
+      "kotlin loop, no call               0.90 ns/op  (n=20000000, min 0.80, max 1.05)",
+      "kotlin -> rust (trampoline)        6.10 ns/op  (n=20000000, min 5.60, max 6.90)",
+      "kotlin -> js -> rust               15.15 ns/op  (n=20000000, min 13.35, max 16.00)",
+      "\n-- call overhead, loop driven from Rust --",
+      "rust loop, no call                 0.00 ns/op  (n=20000000, min 0.00, max 0.00)",
+      "rust -> kotlin (direct import)     2.10 ns/op  (n=20000000, min 1.70, max 2.75)",
+      "rust -> js -> kotlin               21.75 ns/op  (n=20000000, min 15.85, max 24.45)",
+      "\n-- call overhead, loop driven from JS --",
+      "js loop, no call                   0.55 ns/op  (n=20000000, min 0.50, max 0.70)",
+      "js -> rust export                  2.40 ns/op  (n=20000000, min 1.90, max 2.95)",
+      "js -> kotlin export                1.80 ns/op  (n=20000000, min 1.75, max 1.90)",
+      "\n-- shared linear memory access --",
+      "kotlin read, ns per i32            162.50 ns/op  (n=80000, min 150.00, max 162.50)",
+      "kotlin write, ns per i32           137.50 ns/op  (n=80000, min 137.50, max 150.00)",
+      "rust read, ns per i32              50.00 ns/op  (n=80000, min 37.50, max 62.50)",
+      "\n-- net cost per boundary call (loop baseline subtracted) --",
+      "kotlinToRustDirectNs               5.20 ns",
+      "kotlinToRustViaJsNs                14.25 ns",
+      "rustToKotlinDirectNs               2.10 ns",
+      "rustToKotlinViaJsNs                21.75 ns",
+      "jsToRustNs                         1.85 ns",
+      "jsToKotlinNs                       1.25 ns",
+      "kotlinMemReadNsPerI32              0.63 ns",
+      "kotlinMemWriteNsPerI32             0.54 ns",
+      "rustMemReadNsPerI32                0.20 ns"
+    ],
+    "run": 2,
+    "browserVersion": "26.5"
+  },
+  {
+    "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15",
+    "label": "safari",
+    "checks": [
+      {
+        "name": "kotlin reads what rust wrote",
+        "actual": 34432,
+        "expected": 34432,
+        "ok": true
+      },
+      {
+        "name": "rust reads what kotlin wrote",
+        "actual": 35456,
+        "expected": 35456,
+        "ok": true
+      },
+      {
+        "name": "js sees the same memory",
+        "actual": 14,
+        "expected": 14,
+        "ok": true
+      },
+      {
+        "name": "round trip inside kotlin",
+        "actual": 33408,
+        "expected": 33408,
+        "ok": true
+      }
+    ],
+    "benches": [
+      {
+        "name": "kotlin loop, no call",
+        "n": 20000000,
+        "nsPerOp": 0.6999999999999943,
+        "samples": [
+          0.65,
+          0.65,
+          0.65,
+          0.65,
+          0.6999999999999943,
+          0.7,
+          0.7,
+          0.7000000000000057,
+          0.9
+        ]
+      },
+      {
+        "name": "kotlin -> rust (trampoline)",
+        "n": 20000000,
+        "nsPerOp": 5.2,
+        "samples": [
+          5.049999999999989,
+          5.05,
+          5.1,
+          5.2,
+          5.2,
+          5.2,
+          5.25,
+          5.300000000000011,
+          5.4
+        ]
+      },
+      {
+        "name": "kotlin -> js -> rust",
+        "n": 20000000,
+        "nsPerOp": 13.4,
+        "samples": [
+          13.3,
+          13.3,
+          13.35,
+          13.35,
+          13.4,
+          13.4,
+          13.7,
+          14.25,
+          18.8
+        ]
+      },
+      {
+        "name": "rust loop, no call",
+        "n": 20000000,
+        "nsPerOp": 0,
+        "samples": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "rust -> kotlin (direct import)",
+        "n": 20000000,
+        "nsPerOp": 1.65,
+        "samples": [
+          1.5,
+          1.5,
+          1.6499999999999546,
+          1.65,
+          1.65,
+          1.6500000000000454,
+          1.7,
+          1.75,
+          1.75
+        ]
+      },
+      {
+        "name": "rust -> js -> kotlin",
+        "n": 20000000,
+        "nsPerOp": 13.35,
+        "samples": [
+          12.85,
+          13.05,
+          13.050000000000047,
+          13.199999999999953,
+          13.35,
+          13.5,
+          13.55,
+          13.7,
+          16.1
+        ]
+      },
+      {
+        "name": "js loop, no call",
+        "n": 20000000,
+        "nsPerOp": 0.5,
+        "samples": [
+          0.5,
+          0.5,
+          0.5,
+          0.5,
+          0.5,
+          0.5,
+          0.5,
+          0.5,
+          0.5
+        ]
+      },
+      {
+        "name": "js -> rust export",
+        "n": 20000000,
+        "nsPerOp": 1.950000000000091,
+        "samples": [
+          1.85,
+          1.899999999999909,
+          1.9,
+          1.9,
+          1.950000000000091,
+          1.950000000000091,
+          1.9999999999999092,
+          2,
+          2
+        ]
+      },
+      {
+        "name": "js -> kotlin export",
+        "n": 20000000,
+        "nsPerOp": 2.2,
+        "samples": [
+          2.0499999999999092,
+          2.15,
+          2.2,
+          2.2,
+          2.2,
+          2.2,
+          2.2000000000000908,
+          2.25,
+          2.25
+        ]
+      },
+      {
+        "name": "kotlin read, ns per i32",
+        "n": 80000,
+        "nsPerOp": 162.5,
+        "samples": [
+          150,
+          150,
+          150,
+          162.5,
+          162.5,
+          162.5,
+          162.5,
+          162.5,
+          162.5
+        ]
+      },
+      {
+        "name": "kotlin write, ns per i32",
+        "n": 80000,
+        "nsPerOp": 137.5,
+        "samples": [
+          137.5,
+          137.5,
+          137.5,
+          137.5,
+          137.5,
+          137.5,
+          150,
+          150,
+          150
+        ]
+      },
+      {
+        "name": "rust read, ns per i32",
+        "n": 80000,
+        "nsPerOp": 50,
+        "samples": [
+          37.49999999997726,
+          37.5,
+          50,
+          50,
+          50,
+          50,
+          50,
+          50.00000000002274,
+          75
+        ]
+      }
+    ],
+    "derived": {
+      "kotlinToRustDirectNs": 4.500000000000006,
+      "kotlinToRustViaJsNs": 12.700000000000006,
+      "rustToKotlinDirectNs": 1.65,
+      "rustToKotlinViaJsNs": 13.35,
+      "jsToRustNs": 1.450000000000091,
+      "jsToKotlinNs": 1.7000000000000002,
+      "kotlinMemReadNsPerI32": 0.634765625,
+      "kotlinMemWriteNsPerI32": 0.537109375,
+      "rustMemReadNsPerI32": 0.1953125
+    },
+    "log": [
+      "kotlin memory: 0 pages at start, 768 after grow",
+      "rust imports: env.memory:memory, peer.peer_add:function, jsshim.shim_add:function",
+      "sentinel after rust instantiation: kotlin_sentinel() = 118",
+      "arena at 0x1000000 (65536 bytes) inside the shared memory",
+      "PASS kotlin reads what rust wrote: got 34432, expected 34432",
+      "PASS rust reads what kotlin wrote: got 35456, expected 35456",
+      "PASS js sees the same memory: got 14, expected 14",
+      "PASS round trip inside kotlin: got 33408, expected 33408",
+      "\n-- call overhead, loop driven from Kotlin --",
+      "kotlin loop, no call               0.70 ns/op  (n=20000000, min 0.65, max 0.90)",
+      "kotlin -> rust (trampoline)        5.20 ns/op  (n=20000000, min 5.05, max 5.40)",
+      "kotlin -> js -> rust               13.40 ns/op  (n=20000000, min 13.30, max 18.80)",
+      "\n-- call overhead, loop driven from Rust --",
+      "rust loop, no call                 0.00 ns/op  (n=20000000, min 0.00, max 0.00)",
+      "rust -> kotlin (direct import)     1.65 ns/op  (n=20000000, min 1.50, max 1.75)",
+      "rust -> js -> kotlin               13.35 ns/op  (n=20000000, min 12.85, max 16.10)",
+      "\n-- call overhead, loop driven from JS --",
+      "js loop, no call                   0.50 ns/op  (n=20000000, min 0.50, max 0.50)",
+      "js -> rust export                  1.95 ns/op  (n=20000000, min 1.85, max 2.00)",
+      "js -> kotlin export                2.20 ns/op  (n=20000000, min 2.05, max 2.25)",
+      "\n-- shared linear memory access --",
+      "kotlin read, ns per i32            162.50 ns/op  (n=80000, min 150.00, max 162.50)",
+      "kotlin write, ns per i32           137.50 ns/op  (n=80000, min 137.50, max 150.00)",
+      "rust read, ns per i32              50.00 ns/op  (n=80000, min 37.50, max 75.00)",
+      "\n-- net cost per boundary call (loop baseline subtracted) --",
+      "kotlinToRustDirectNs               4.50 ns",
+      "kotlinToRustViaJsNs                12.70 ns",
+      "rustToKotlinDirectNs               1.65 ns",
+      "rustToKotlinViaJsNs                13.35 ns",
+      "jsToRustNs                         1.45 ns",
+      "jsToKotlinNs                       1.70 ns",
+      "kotlinMemReadNsPerI32              0.63 ns",
+      "kotlinMemWriteNsPerI32             0.54 ns",
+      "rustMemReadNsPerI32                0.20 ns"
+    ],
+    "run": 3,
+    "browserVersion": "26.5"
+  },
+  {
+    "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15",
+    "label": "safari",
+    "checks": [
+      {
+        "name": "kotlin reads what rust wrote",
+        "actual": 34432,
+        "expected": 34432,
+        "ok": true
+      },
+      {
+        "name": "rust reads what kotlin wrote",
+        "actual": 35456,
+        "expected": 35456,
+        "ok": true
+      },
+      {
+        "name": "js sees the same memory",
+        "actual": 14,
+        "expected": 14,
+        "ok": true
+      },
+      {
+        "name": "round trip inside kotlin",
+        "actual": 33408,
+        "expected": 33408,
+        "ok": true
+      }
+    ],
+    "benches": [
+      {
+        "name": "kotlin loop, no call",
+        "n": 20000000,
+        "nsPerOp": 0.7,
+        "samples": [
+          0.65,
+          0.65,
+          0.65,
+          0.6999999999999943,
+          0.7,
+          0.7,
+          0.7,
+          0.7,
+          0.7000000000000057
+        ]
+      },
+      {
+        "name": "kotlin -> rust (trampoline)",
+        "n": 20000000,
+        "nsPerOp": 5.1,
+        "samples": [
+          5.05,
+          5.050000000000011,
+          5.099999999999989,
+          5.1,
+          5.1,
+          5.1,
+          5.199999999999989,
+          6.35,
+          6.600000000000011
+        ]
+      },
+      {
+        "name": "kotlin -> js -> rust",
+        "n": 20000000,
+        "nsPerOp": 13.4,
+        "samples": [
+          13.25,
+          13.25,
+          13.3,
+          13.3,
+          13.4,
+          13.4,
+          13.55,
+          13.55,
+          13.95
+        ]
+      },
+      {
+        "name": "rust loop, no call",
+        "n": 20000000,
+        "nsPerOp": 0,
+        "samples": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "rust -> kotlin (direct import)",
+        "n": 20000000,
+        "nsPerOp": 1.6,
+        "samples": [
+          1.5,
+          1.5,
+          1.5499999999999545,
+          1.6,
+          1.6,
+          1.65,
+          1.65,
+          1.65,
+          1.7000000000000455
+        ]
+      },
+      {
+        "name": "rust -> js -> kotlin",
+        "n": 20000000,
+        "nsPerOp": 12.85,
+        "samples": [
+          12.75,
+          12.750000000000046,
+          12.799999999999955,
+          12.800000000000047,
+          12.85,
+          12.95,
+          13.15,
+          15.65,
+          15.9
+        ]
+      },
+      {
+        "name": "js loop, no call",
+        "n": 20000000,
+        "nsPerOp": 0.5,
+        "samples": [
+          0.499999999999909,
+          0.5,
+          0.5,
+          0.5,
+          0.5,
+          0.55,
+          0.6,
+          0.65,
+          0.65
+        ]
+      },
+      {
+        "name": "js -> rust export",
+        "n": 20000000,
+        "nsPerOp": 1.95,
+        "samples": [
+          1.85,
+          1.85,
+          1.85,
+          1.9,
+          1.95,
+          1.95,
+          1.95,
+          2,
+          2
+        ]
+      },
+      {
+        "name": "js -> kotlin export",
+        "n": 20000000,
+        "nsPerOp": 1.85,
+        "samples": [
+          1.85,
+          1.85,
+          1.85,
+          1.85,
+          1.85,
+          1.9,
+          1.9,
+          1.95,
+          2.5
+        ]
+      },
+      {
+        "name": "kotlin read, ns per i32",
+        "n": 80000,
+        "nsPerOp": 162.5,
+        "samples": [
+          149.99999999997726,
+          150,
+          162.5,
+          162.5,
+          162.5,
+          162.5,
+          162.50000000002274,
+          162.50000000002274,
+          175
+        ]
+      },
+      {
+        "name": "kotlin write, ns per i32",
+        "n": 80000,
+        "nsPerOp": 150,
+        "samples": [
+          137.5,
+          137.5,
+          137.5,
+          150,
+          150,
+          175,
+          200,
+          212.5,
+          225
+        ]
+      },
+      {
+        "name": "rust read, ns per i32",
+        "n": 80000,
+        "nsPerOp": 50,
+        "samples": [
+          37.50000000002274,
+          49.99999999997726,
+          50,
+          50,
+          50,
+          50,
+          50,
+          50,
+          100
+        ]
+      }
+    ],
+    "derived": {
+      "kotlinToRustDirectNs": 4.3999999999999995,
+      "kotlinToRustViaJsNs": 12.700000000000001,
+      "rustToKotlinDirectNs": 1.6,
+      "rustToKotlinViaJsNs": 12.85,
+      "jsToRustNs": 1.45,
+      "jsToKotlinNs": 1.35,
+      "kotlinMemReadNsPerI32": 0.634765625,
+      "kotlinMemWriteNsPerI32": 0.5859375,
+      "rustMemReadNsPerI32": 0.1953125
+    },
+    "log": [
+      "kotlin memory: 0 pages at start, 768 after grow",
+      "rust imports: env.memory:memory, peer.peer_add:function, jsshim.shim_add:function",
+      "sentinel after rust instantiation: kotlin_sentinel() = 118",
+      "arena at 0x1000000 (65536 bytes) inside the shared memory",
+      "PASS kotlin reads what rust wrote: got 34432, expected 34432",
+      "PASS rust reads what kotlin wrote: got 35456, expected 35456",
+      "PASS js sees the same memory: got 14, expected 14",
+      "PASS round trip inside kotlin: got 33408, expected 33408",
+      "\n-- call overhead, loop driven from Kotlin --",
+      "kotlin loop, no call               0.70 ns/op  (n=20000000, min 0.65, max 0.70)",
+      "kotlin -> rust (trampoline)        5.10 ns/op  (n=20000000, min 5.05, max 6.60)",
+      "kotlin -> js -> rust               13.40 ns/op  (n=20000000, min 13.25, max 13.95)",
+      "\n-- call overhead, loop driven from Rust --",
+      "rust loop, no call                 0.00 ns/op  (n=20000000, min 0.00, max 0.00)",
+      "rust -> kotlin (direct import)     1.60 ns/op  (n=20000000, min 1.50, max 1.70)",
+      "rust -> js -> kotlin               12.85 ns/op  (n=20000000, min 12.75, max 15.90)",
+      "\n-- call overhead, loop driven from JS --",
+      "js loop, no call                   0.50 ns/op  (n=20000000, min 0.50, max 0.65)",
+      "js -> rust export                  1.95 ns/op  (n=20000000, min 1.85, max 2.00)",
+      "js -> kotlin export                1.85 ns/op  (n=20000000, min 1.85, max 2.50)",
+      "\n-- shared linear memory access --",
+      "kotlin read, ns per i32            162.50 ns/op  (n=80000, min 150.00, max 175.00)",
+      "kotlin write, ns per i32           150.00 ns/op  (n=80000, min 137.50, max 225.00)",
+      "rust read, ns per i32              50.00 ns/op  (n=80000, min 37.50, max 100.00)",
+      "\n-- net cost per boundary call (loop baseline subtracted) --",
+      "kotlinToRustDirectNs               4.40 ns",
+      "kotlinToRustViaJsNs                12.70 ns",
+      "rustToKotlinDirectNs               1.60 ns",
+      "rustToKotlinViaJsNs                12.85 ns",
+      "jsToRustNs                         1.45 ns",
+      "jsToKotlinNs                       1.35 ns",
+      "kotlinMemReadNsPerI32              0.63 ns",
+      "kotlinMemWriteNsPerI32             0.59 ns",
+      "rustMemReadNsPerI32                0.20 ns"
+    ],
+    "run": 4,
+    "browserVersion": "26.5"
+  },
+  {
+    "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15",
+    "label": "safari",
+    "checks": [
+      {
+        "name": "kotlin reads what rust wrote",
+        "actual": 34432,
+        "expected": 34432,
+        "ok": true
+      },
+      {
+        "name": "rust reads what kotlin wrote",
+        "actual": 35456,
+        "expected": 35456,
+        "ok": true
+      },
+      {
+        "name": "js sees the same memory",
+        "actual": 14,
+        "expected": 14,
+        "ok": true
+      },
+      {
+        "name": "round trip inside kotlin",
+        "actual": 33408,
+        "expected": 33408,
+        "ok": true
+      }
+    ],
+    "benches": [
+      {
+        "name": "kotlin loop, no call",
+        "n": 20000000,
+        "nsPerOp": 0.7,
+        "samples": [
+          0.6499999999999944,
+          0.65,
+          0.65,
+          0.6500000000000057,
+          0.7,
+          0.7,
+          0.7,
+          0.7,
+          0.85
+        ]
+      },
+      {
+        "name": "kotlin -> rust (trampoline)",
+        "n": 20000000,
+        "nsPerOp": 5.15,
+        "samples": [
+          5.1,
+          5.1,
+          5.100000000000011,
+          5.149999999999989,
+          5.15,
+          5.2,
+          5.450000000000011,
+          5.55,
+          6.199999999999989
+        ]
+      },
+      {
+        "name": "kotlin -> js -> rust",
+        "n": 20000000,
+        "nsPerOp": 13.4,
+        "samples": [
+          13.299999999999978,
+          13.3,
+          13.35,
+          13.35,
+          13.4,
+          13.4,
+          13.4,
+          13.400000000000022,
+          13.450000000000045
+        ]
+      },
+      {
+        "name": "rust loop, no call",
+        "n": 20000000,
+        "nsPerOp": 0,
+        "samples": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "rust -> kotlin (direct import)",
+        "n": 20000000,
+        "nsPerOp": 1.6,
+        "samples": [
+          1.4999999999999545,
+          1.4999999999999545,
+          1.5000000000000455,
+          1.5499999999999545,
+          1.6,
+          1.6000000000000454,
+          1.65,
+          1.65,
+          1.7000000000000455
+        ]
+      },
+      {
+        "name": "rust -> js -> kotlin",
+        "n": 20000000,
+        "nsPerOp": 16.1,
+        "samples": [
+          14.85,
+          14.949999999999955,
+          15,
+          15.2,
+          16.1,
+          16.100000000000044,
+          16.15,
+          17.15,
+          17.2
+        ]
+      },
+      {
+        "name": "js loop, no call",
+        "n": 20000000,
+        "nsPerOp": 0.550000000000091,
+        "samples": [
+          0.5,
+          0.5,
+          0.5,
+          0.549999999999909,
+          0.550000000000091,
+          0.6,
+          0.65,
+          0.7,
+          0.8
+        ]
+      },
+      {
+        "name": "js -> rust export",
+        "n": 20000000,
+        "nsPerOp": 2.7,
+        "samples": [
+          2.25,
+          2.6,
+          2.65,
+          2.7,
+          2.7,
+          2.85,
+          3.1,
+          3.3,
+          3.7
+        ]
+      },
+      {
+        "name": "js -> kotlin export",
+        "n": 20000000,
+        "nsPerOp": 2.3500000000000907,
+        "samples": [
+          2.1499999999999093,
+          2.15,
+          2.150000000000091,
+          2.35,
+          2.3500000000000907,
+          2.449999999999909,
+          2.500000000000091,
+          2.599999999999909,
+          2.7
+        ]
+      },
+      {
+        "name": "kotlin read, ns per i32",
+        "n": 80000,
+        "nsPerOp": 187.49999999997726,
+        "samples": [
+          150,
+          150,
+          162.49999999997726,
+          175,
+          187.49999999997726,
+          200,
+          212.50000000002274,
+          225,
+          225.00000000002274
+        ]
+      },
+      {
+        "name": "kotlin write, ns per i32",
+        "n": 80000,
+        "nsPerOp": 200,
+        "samples": [
+          137.5,
+          150,
+          150,
+          175,
+          200,
+          212.5,
+          212.50000000002274,
+          250,
+          287.49999999997726
+        ]
+      },
+      {
+        "name": "rust read, ns per i32",
+        "n": 80000,
+        "nsPerOp": 50,
+        "samples": [
+          37.5,
+          50,
+          50,
+          50,
+          50,
+          50,
+          50,
+          100,
+          112.5
+        ]
+      }
+    ],
+    "derived": {
+      "kotlinToRustDirectNs": 4.45,
+      "kotlinToRustViaJsNs": 12.700000000000001,
+      "rustToKotlinDirectNs": 1.6,
+      "rustToKotlinViaJsNs": 16.1,
+      "jsToRustNs": 2.1499999999999093,
+      "jsToKotlinNs": 1.7999999999999998,
+      "kotlinMemReadNsPerI32": 0.7324218749999112,
+      "kotlinMemWriteNsPerI32": 0.78125,
+      "rustMemReadNsPerI32": 0.1953125
+    },
+    "log": [
+      "kotlin memory: 0 pages at start, 768 after grow",
+      "rust imports: env.memory:memory, peer.peer_add:function, jsshim.shim_add:function",
+      "sentinel after rust instantiation: kotlin_sentinel() = 118",
+      "arena at 0x1000000 (65536 bytes) inside the shared memory",
+      "PASS kotlin reads what rust wrote: got 34432, expected 34432",
+      "PASS rust reads what kotlin wrote: got 35456, expected 35456",
+      "PASS js sees the same memory: got 14, expected 14",
+      "PASS round trip inside kotlin: got 33408, expected 33408",
+      "\n-- call overhead, loop driven from Kotlin --",
+      "kotlin loop, no call               0.70 ns/op  (n=20000000, min 0.65, max 0.85)",
+      "kotlin -> rust (trampoline)        5.15 ns/op  (n=20000000, min 5.10, max 6.20)",
+      "kotlin -> js -> rust               13.40 ns/op  (n=20000000, min 13.30, max 13.45)",
+      "\n-- call overhead, loop driven from Rust --",
+      "rust loop, no call                 0.00 ns/op  (n=20000000, min 0.00, max 0.00)",
+      "rust -> kotlin (direct import)     1.60 ns/op  (n=20000000, min 1.50, max 1.70)",
+      "rust -> js -> kotlin               16.10 ns/op  (n=20000000, min 14.85, max 17.20)",
+      "\n-- call overhead, loop driven from JS --",
+      "js loop, no call                   0.55 ns/op  (n=20000000, min 0.50, max 0.80)",
+      "js -> rust export                  2.70 ns/op  (n=20000000, min 2.25, max 3.70)",
+      "js -> kotlin export                2.35 ns/op  (n=20000000, min 2.15, max 2.70)",
+      "\n-- shared linear memory access --",
+      "kotlin read, ns per i32            187.50 ns/op  (n=80000, min 150.00, max 225.00)",
+      "kotlin write, ns per i32           200.00 ns/op  (n=80000, min 137.50, max 287.50)",
+      "rust read, ns per i32              50.00 ns/op  (n=80000, min 37.50, max 112.50)",
+      "\n-- net cost per boundary call (loop baseline subtracted) --",
+      "kotlinToRustDirectNs               4.45 ns",
+      "kotlinToRustViaJsNs                12.70 ns",
+      "rustToKotlinDirectNs               1.60 ns",
+      "rustToKotlinViaJsNs                16.10 ns",
+      "jsToRustNs                         2.15 ns",
+      "jsToKotlinNs                       1.80 ns",
+      "kotlinMemReadNsPerI32              0.73 ns",
+      "kotlinMemWriteNsPerI32             0.78 ns",
+      "rustMemReadNsPerI32                0.20 ns"
+    ],
+    "run": 5,
+    "browserVersion": "26.5"
+  },
+  {
+    "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15",
+    "label": "safari",
+    "checks": [
+      {
+        "name": "kotlin reads what rust wrote",
+        "actual": 34432,
+        "expected": 34432,
+        "ok": true
+      },
+      {
+        "name": "rust reads what kotlin wrote",
+        "actual": 35456,
+        "expected": 35456,
+        "ok": true
+      },
+      {
+        "name": "js sees the same memory",
+        "actual": 14,
+        "expected": 14,
+        "ok": true
+      },
+      {
+        "name": "round trip inside kotlin",
+        "actual": 33408,
+        "expected": 33408,
+        "ok": true
+      }
+    ],
+    "benches": [
+      {
+        "name": "kotlin loop, no call",
+        "n": 20000000,
+        "nsPerOp": 0.95,
+        "samples": [
+          0.8,
+          0.85,
+          0.9,
+          0.9,
+          0.95,
+          0.95,
+          0.95,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "kotlin -> rust (trampoline)",
+        "n": 20000000,
+        "nsPerOp": 7.05,
+        "samples": [
+          6.5,
+          6.65,
+          6.65,
+          6.85,
+          7.05,
+          7.05,
+          7.15,
+          7.5,
+          7.55
+        ]
+      },
+      {
+        "name": "kotlin -> js -> rust",
+        "n": 20000000,
+        "nsPerOp": 16.1,
+        "samples": [
+          15,
+          15.450000000000024,
+          15.850000000000044,
+          16,
+          16.1,
+          16.4,
+          16.45,
+          16.599999999999977,
+          19
+        ]
+      },
+      {
+        "name": "rust loop, no call",
+        "n": 20000000,
+        "nsPerOp": 0,
+        "samples": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "rust -> kotlin (direct import)",
+        "n": 20000000,
+        "nsPerOp": 1.6,
+        "samples": [
+          1.55,
+          1.55,
+          1.55,
+          1.6,
+          1.6,
+          1.6,
+          1.65,
+          1.65,
+          1.8
+        ]
+      },
+      {
+        "name": "rust -> js -> kotlin",
+        "n": 20000000,
+        "nsPerOp": 12.85,
+        "samples": [
+          12.75,
+          12.75,
+          12.8,
+          12.8,
+          12.85,
+          12.9,
+          12.9,
+          12.95,
+          13
+        ]
+      },
+      {
+        "name": "js loop, no call",
+        "n": 20000000,
+        "nsPerOp": 0.5,
+        "samples": [
+          0.5,
+          0.5,
+          0.5,
+          0.5,
+          0.5,
+          0.5,
+          0.5,
+          0.500000000000091,
+          0.55
+        ]
+      },
+      {
+        "name": "js -> rust export",
+        "n": 20000000,
+        "nsPerOp": 2,
+        "samples": [
+          1.9,
+          1.9,
+          1.9499999999999091,
+          1.95,
+          2,
+          2.05,
+          2.05,
+          2.1,
+          2.1
+        ]
+      },
+      {
+        "name": "js -> kotlin export",
+        "n": 20000000,
+        "nsPerOp": 1.75,
+        "samples": [
+          1.7499999999999092,
+          1.75,
+          1.75,
+          1.75,
+          1.75,
+          1.75,
+          1.75,
+          1.8000000000000909,
+          1.85
+        ]
+      },
+      {
+        "name": "kotlin read, ns per i32",
+        "n": 80000,
+        "nsPerOp": 162.5,
+        "samples": [
+          150,
+          150.00000000002274,
+          162.49999999997726,
+          162.5,
+          162.5,
+          162.5,
+          162.5,
+          162.5,
+          275.00000000002274
+        ]
+      },
+      {
+        "name": "kotlin write, ns per i32",
+        "n": 80000,
+        "nsPerOp": 174.99999999997726,
+        "samples": [
+          137.5,
+          137.50000000002274,
+          150,
+          162.5,
+          174.99999999997726,
+          212.5,
+          237.5,
+          250,
+          300
+        ]
+      },
+      {
+        "name": "rust read, ns per i32",
+        "n": 80000,
+        "nsPerOp": 50,
+        "samples": [
+          37.5,
+          37.5,
+          49.99999999997726,
+          50,
+          50,
+          50,
+          50,
+          50,
+          87.5
+        ]
+      }
+    ],
+    "derived": {
+      "kotlinToRustDirectNs": 6.1,
+      "kotlinToRustViaJsNs": 15.150000000000002,
+      "rustToKotlinDirectNs": 1.6,
+      "rustToKotlinViaJsNs": 12.85,
+      "jsToRustNs": 1.5,
+      "jsToKotlinNs": 1.25,
+      "kotlinMemReadNsPerI32": 0.634765625,
+      "kotlinMemWriteNsPerI32": 0.6835937499999112,
+      "rustMemReadNsPerI32": 0.1953125
+    },
+    "log": [
+      "kotlin memory: 0 pages at start, 768 after grow",
+      "rust imports: env.memory:memory, peer.peer_add:function, jsshim.shim_add:function",
+      "sentinel after rust instantiation: kotlin_sentinel() = 118",
+      "arena at 0x1000000 (65536 bytes) inside the shared memory",
+      "PASS kotlin reads what rust wrote: got 34432, expected 34432",
+      "PASS rust reads what kotlin wrote: got 35456, expected 35456",
+      "PASS js sees the same memory: got 14, expected 14",
+      "PASS round trip inside kotlin: got 33408, expected 33408",
+      "\n-- call overhead, loop driven from Kotlin --",
+      "kotlin loop, no call               0.95 ns/op  (n=20000000, min 0.80, max 1.00)",
+      "kotlin -> rust (trampoline)        7.05 ns/op  (n=20000000, min 6.50, max 7.55)",
+      "kotlin -> js -> rust               16.10 ns/op  (n=20000000, min 15.00, max 19.00)",
+      "\n-- call overhead, loop driven from Rust --",
+      "rust loop, no call                 0.00 ns/op  (n=20000000, min 0.00, max 0.00)",
+      "rust -> kotlin (direct import)     1.60 ns/op  (n=20000000, min 1.55, max 1.80)",
+      "rust -> js -> kotlin               12.85 ns/op  (n=20000000, min 12.75, max 13.00)",
+      "\n-- call overhead, loop driven from JS --",
+      "js loop, no call                   0.50 ns/op  (n=20000000, min 0.50, max 0.55)",
+      "js -> rust export                  2.00 ns/op  (n=20000000, min 1.90, max 2.10)",
+      "js -> kotlin export                1.75 ns/op  (n=20000000, min 1.75, max 1.85)",
+      "\n-- shared linear memory access --",
+      "kotlin read, ns per i32            162.50 ns/op  (n=80000, min 150.00, max 275.00)",
+      "kotlin write, ns per i32           175.00 ns/op  (n=80000, min 137.50, max 300.00)",
+      "rust read, ns per i32              50.00 ns/op  (n=80000, min 37.50, max 87.50)",
+      "\n-- net cost per boundary call (loop baseline subtracted) --",
+      "kotlinToRustDirectNs               6.10 ns",
+      "kotlinToRustViaJsNs                15.15 ns",
+      "rustToKotlinDirectNs               1.60 ns",
+      "rustToKotlinViaJsNs                12.85 ns",
+      "jsToRustNs                         1.50 ns",
+      "jsToKotlinNs                       1.25 ns",
+      "kotlinMemReadNsPerI32              0.63 ns",
+      "kotlinMemWriteNsPerI32             0.68 ns",
+      "rustMemReadNsPerI32                0.20 ns"
+    ],
+    "run": 6,
+    "browserVersion": "26.5"
+  }
+]

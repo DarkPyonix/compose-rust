@@ -50,3 +50,6 @@ renderer/web/testResources/compose_rust_host.wasm
 
 # The Compose fork checkout scripts/build-compose.sh fetches and builds.
 compose-build/
+
+# A test once left a cargo target directory named after itself in the root.
+/target-*/

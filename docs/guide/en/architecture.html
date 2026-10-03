@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Architecture · compose-rust guide</title>
-<meta name="description" content="The Host/Renderer split, the C ABI surface, the zero-copy protocol, the frame model and the macOS runtime layout.">
-<link rel="alternate" hreflang="en" href="architecture.html">
+<meta name="description" content="The Host and Renderer split, the C ABI boundary, the record protocol, the measure call, zoom and what runs on each platform.">
+<link rel="alternate" hreflang="en" href="../en/architecture.html">
 <link rel="alternate" hreflang="ko" href="../ko/architecture.html">
-<link rel="alternate" hreflang="x-default" href="architecture.html">
+<link rel="alternate" hreflang="x-default" href="../en/architecture.html">
 <link rel="stylesheet" href="../assets/style.css?v=20">
 <script>(function(){try{var t=localStorage.getItem("dxc-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
 </head>
@@ -33,21 +33,17 @@
         <li><a href="overview.html">Overview</a></li>
         <li><a href="getting-started.html">Getting started</a></li>
         <li><a href="writing-ui.html">Writing UI</a></li>
-        <li><a href="composables.html">Composable reference</a></li>
+        <li><a href="composables.html">Widget reference</a></li>
         <li><a href="lists-and-streaming.html">Lists &amp; streaming</a></li>
         <li><a href="design-systems.html">Design systems</a></li>
         <li><a href="architecture.html" aria-current="page">Architecture</a></li>
         <li><a href="troubleshooting.html">Troubleshooting</a></li>
       </ul>
-      <h2>On this page</h2>
+      <h2>Repository</h2>
       <ul>
-        <li><a href="#split">Host and Renderer</a></li>
-        <li><a href="#abi">The C ABI surface</a></li>
-        <li><a href="#protocol">The protocol</a></li>
-        <li><a href="#frames">The frame model</a></li>
-        <li><a href="#codegen">Schema codegen</a></li>
-        <li><a href="#runtimes">What runs where</a></li>
-        <li><a href="#macos">The macOS runtime</a></li>
+        <li><a href="https://github.com/DarkPyonix/compose-rust">GitHub</a></li>
+        <li><a href="https://crates.io/crates/compose-rust">crates.io</a></li>
+        <li><a href="https://github.com/DarkPyonix/compose-rust/issues">Issues</a></li>
       </ul>
     </nav>
   </aside>
@@ -56,52 +52,53 @@
     <p class="eyebrow">Architecture</p>
     <h1>Two halves, one narrow boundary</h1>
     <p class="lede">
-      Rust does not call Compose. It cannot: GraalVM's <code>@CEntryPoint</code> only passes
-      primitives and word-sized values, so a <code>Modifier</code> or a <code>MutableState</code>
-      could never cross. Instead Rust <em>describes</em> a UI tree as values, and Kotlin runs an
-      interpreter over a fixed schema. Redwood and Jetpack Glance work the same way.
+      Rust does not call the Compose API. It <em>describes</em> a UI tree as values, fixed-layout
+      records, and a general-purpose interpreter on the Kotlin side turns them into a real Compose
+      tree. Cash App's Redwood and Jetpack Glance use the same pattern.
     </p>
 
     <h2 id="split">Host and Renderer</h2>
     <figure class="codeblock">
       <figcaption>the stack</figcaption>
-<pre><code><span class="c">┌──────────────── Host (Rust) ─────────────────┐</span>
-<span class="c">│</span> your components (rsx!, hooks, signals)       <span class="c">│</span>
-<span class="c">│</span> dioxus-core VirtualDom                       <span class="c">│</span>
-<span class="c">│</span> compose-rust renderer: Mutations → bytes   <span class="c">│</span>
-<span class="c">└──────────────────┬───────────────────────────┘</span>
-                   <span class="c">│</span> synchronous direct calls on the UI thread
-                   <span class="c">│</span> + one batch buffer per call
-<span class="c">┌──────────────────┴──── Renderer (Kotlin) ────┐</span>
-<span class="c">│</span> generated shims (@CEntryPoint / @CName / …)  <span class="c">│</span>
-<span class="c">│</span> protocol decoder → node table (snapshot)     <span class="c">│</span>
-<span class="c">│</span> schema interpreter: @Composable RenderNode   <span class="c">│</span>
-<span class="c">│</span> Compose Desktop (AWT) / Compose iOS (UIKit)  <span class="c">│</span>
-<span class="c">└──────────────────────────────────────────────┘</span></code></pre>
+<pre><code><span class="c">┌──────────────────────── Host (Rust) ────────────────────────┐</span>
+<span class="c">│</span>  your code                                                  <span class="c">│</span>
+<span class="c">│</span>  the layer that builds the tree (Runtime)                   <span class="c">│</span>
+<span class="c">│</span>  compose-rust: schema, fixed-layout records, one batch      <span class="c">│</span>
+<span class="c">└──────────────────────────────┬──────────────────────────────┘</span>
+                               <span class="c">│</span>
+              synchronous, same-thread direct calls
+              primitives, pointers and lengths only
+                               <span class="c">│</span>
+<span class="c">┌──────────────────────────────┴──────────────────────────────┐</span>
+<span class="c">│</span>  generated shims (C exports, JNI, wasm)                     <span class="c">│</span>
+<span class="c">│</span>  protocol decoder ──► node table                            <span class="c">│</span>
+<span class="c">│</span>  schema interpreter ──► Compose                             <span class="c">│</span>
+<span class="c">└──────────────────── Renderer (Kotlin, AOT) ─────────────────┘</span></code></pre>
     </figure>
 
     <dl>
       <dt>Host</dt>
-      <dd>The Rust process. Owns your components, your domain logic and the VirtualDom.</dd>
+      <dd>The Rust side. Owns your code, your domain logic, and the runtime that builds the tree.</dd>
+      <dt>Runtime</dt>
+      <dd>Whatever builds and changes the tree, behind the <code>Runtime</code> trait. In 1.0.0 that is compose-rust's own recomposition runtime.</dd>
       <dt>Renderer</dt>
-      <dd>The AOT-compiled Kotlin/Compose native library, including the schema interpreter.</dd>
+      <dd>The ahead-of-time compiled Kotlin and Compose library, including the schema interpreter.</dd>
       <dt>Schema</dt>
-      <dd>The closed set of widget types, properties, modifiers and events the renderer understands.</dd>
+      <dd>The closed set of widgets, properties, modifiers, roles and events the renderer understands.</dd>
       <dt>Mutation</dt>
-      <dd>One tree-change command: <code>Create</code>, <code>SetProp</code>, <code>SetModifier</code>, <code>Insert</code>, <code>Move</code>, <code>Remove</code>, <code>SetText</code>, <code>AppendText</code>.</dd>
+      <dd>One tree-change record, such as <code>Create</code>, <code>SetProp</code>, <code>SetModifier</code>, <code>Insert</code>, <code>Move</code>, <code>Remove</code>, <code>SetText</code> or <code>AppendText</code>.</dd>
       <dt>Event</dt>
-      <dd>A notification travelling the other way, addressed as <code>(node_id, handler_id, payload)</code>.</dd>
+      <dd>A record travelling the other way: a click, a key, a range request, a size class change.</dd>
     </dl>
 
     <h2 id="abi">The C ABI surface</h2>
     <p>
-      The boundary is deliberately tiny, and adding to it requires a specification change. The
-      model is JSI's, not the old React Native bridge's: same thread, direct calls, synchronous
-      return values.
+      The boundary is deliberately tiny. The model is JSI's, not the old React Native bridge's: the
+      same thread, direct calls and synchronous return values.
     </p>
 
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
-      <figcaption>c: Renderer → Host (exported by Rust)</figcaption>
+      <figcaption>c: Renderer to Host (exported by Rust)</figcaption>
 <pre><code><span class="ty">int32_t</span> <span class="f">compose_rust_host_init</span>(<span class="k">const</span> <span class="ty">uint8_t</span>* handshake, <span class="ty">uint32_t</span> len, <span class="ty">MutationBatch</span>* out);
 <span class="ty">int32_t</span> <span class="f">compose_rust_host_dispatch_event</span>(<span class="k">const</span> <span class="ty">uint8_t</span>* event, <span class="ty">uint32_t</span> len, <span class="ty">MutationBatch</span>* out);
 <span class="ty">int32_t</span> <span class="f">compose_rust_host_render_frame</span>(<span class="ty">uint64_t</span> frame_time_nanos, <span class="ty">MutationBatch</span>* out);
@@ -110,150 +107,195 @@
     </figure>
 
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
-      <figcaption>c: Host → Renderer (exported by Kotlin)</figcaption>
-<pre><code><span class="ty">int32_t</span> <span class="f">compose_rust_renderer_run</span>(<span class="ty">void</span>);            <span class="c">/* blocking; LoopMode::Renderer only */</span>
-<span class="ty">void</span>    <span class="f">compose_rust_renderer_request_frame</span>(<span class="ty">void</span>);  <span class="c">/* thread-safe */</span></code></pre>
+      <figcaption>c: Host to Renderer (exported by Kotlin)</figcaption>
+<pre><code><span class="ty">int32_t</span> <span class="f">compose_rust_renderer_run</span>(<span class="ty">void</span>);            <span class="c">/* blocking; the renderer owns the loop */</span>
+<span class="ty">void</span>    <span class="f">compose_rust_renderer_request_frame</span>(<span class="ty">void</span>);  <span class="c">/* callable from any thread */</span></code></pre>
     </figure>
 
-    <p>That is the entire surface. Two rules follow from it:</p>
+    <p>Two rules follow from it.</p>
     <ul>
-      <li>Only primitives, pointers and lengths cross. No objects, no closures.</li>
-      <li>The Rust side links with <code>-undefined,dynamic_lookup</code>, and so does the renderer
-          library: each half resolves the other's symbols when the process loads.</li>
+      <li>Only primitives, pointers and lengths cross. No objects and no closures. Type safety comes
+        back above that line, because the Kotlin types are generated from the single Rust
+        definition.</li>
+      <li>Application code never calls these functions. The Host calls them, and a worker thread
+        asks for a frame through <code>request_frame_from_worker</code>.</li>
     </ul>
 
     <p>
       The handshake exchanges a schema hash, a protocol version and the loop mode. A hash mismatch
-      fails initialisation rather than producing a subtly wrong UI. The Rust status codes are
-      <code>0</code> for success and negative values for protocol errors, uninitialised state,
-      double initialisation and caught panics, nothing unwinds across the boundary, because a
+      fails initialisation rather than producing a subtly wrong UI. The status codes are
+      <code>0</code> for success and negative values for protocol errors, an uninitialised Host,
+      double initialisation and caught panics. Nothing unwinds across the boundary, because a
       protocol error has to become a <code>ProtocolError</code> event, never a process abort.
+    </p>
+    <p>
+      Two loop modes exist. On the desktop and iOS, Rust's <code>main</code> calls
+      <code>compose_rust_renderer_run</code> and the renderer owns the loop from there. On Android
+      and the web, the platform owns the loop and the renderer calls
+      <code>compose_rust_host_init</code> first. The application is the same in both.
     </p>
 
     <h2 id="protocol">The protocol</h2>
     <p>
-      Both halves are in one process, so the encoding minimises copying rather than bytes on a
-      wire. Records are fixed-layout and read in place; there is no decode step and no serde-style
-      format on the hot path.
+      Both halves are in one process, so the encoding minimises copying rather than bytes on a wire.
+      Records are fixed-layout and read in place. There is no decode step and no serde-style format
+      on the hot path.
     </p>
     <ul>
-      <li>A record is <code>tag: u16</code>, <code>len: u16</code>, then fixed fields
-          (<code>node_id: u32</code> and so on). Little-endian, 4-byte aligned.</li>
-      <li>Strings live in the same arena and are referenced as <code>(offset: u32, len: u32)</code>,
-          UTF-8. The renderer only materialises a Kotlin <code>String</code> at the moment it hands
-          the text to Compose.</li>
-      <li>The batch itself is
-          <code>#[repr(C)] struct MutationBatch { ptr, len, result }</code>, pointing into a
-          Host-owned arena that is reused every frame. <code>result</code> carries the handler's
-          synchronous return value, for a key event, whether it was consumed.</li>
+      <li>A record is a <code>u16</code> tag, a <code>u16</code> length, then fixed fields.
+        Little-endian, 4-byte aligned.</li>
+      <li>Strings live in the same arena as <code>(offset, len)</code> pairs, in UTF-8. The renderer
+        makes a Kotlin <code>String</code> only when it hands the text to Compose.</li>
+      <li>The batch is <code>MutationBatch { ptr, len, result }</code>, pointing into a Host-owned
+        arena that is reused every frame. <code>result</code> carries the handler's synchronous
+        return value: for a key event, whether it was consumed.</li>
     </ul>
     <p>
-      A batch is applied inside a single snapshot transaction, so an intermediate tree state can
-      never be drawn. The renderer applies the batch in the same call stack and releases it
-      immediately; no batch is ever queued.
-    </p>
-    <p>
-      The measured target for a text-change event is two boundary calls
-      (<code>dispatch_event</code> and <code>release_batch</code>) and at most one heap allocation
-      in the renderer: the Compose <code>String</code>.
+      A batch is applied inside a single snapshot, so an intermediate tree can never be drawn. The
+      renderer applies it in the same call stack and releases it at once. No batch is ever queued.
     </p>
 
     <h2 id="frames">The frame model</h2>
     <ol>
       <li>The renderer receives input and calls <code>dispatch_event</code> on its UI thread.</li>
-      <li>The Host runs your handler, diffs the VirtualDom, encodes the mutations into the arena
-          and returns the batch plus a result value.</li>
+      <li>The Host runs the handler, the runtime writes what changed into the arena, and the Host
+        returns the batch and the result value.</li>
       <li>The renderer applies the batch in one snapshot, releases it, and reports the result to
-          Compose, for example as <code>true</code> from <code>onKeyEvent</code>.</li>
-      <li>Worker threads that changed state cause a frame request; requests coalesce into one
-          <code>render_frame</code> inside the next Compose frame clock tick.</li>
+        Compose, for example as a handled key event.</li>
+      <li>A worker thread that changed state causes a frame request. Requests coalesce into one
+        <code>render_frame</code> on the next tick of the Compose frame clock.</li>
     </ol>
     <p>
-      The VirtualDom runs on the renderer's UI thread, not on a thread of its own, which is what
-      removes the need for locks and for a queue. The single piece of cross-thread communication in
-      the whole design is the frame-request wake. A frame requested while a handler is executing is
-      held until the handler returns, so the renderer is never re-entered from inside a dispatch.
+      The runtime runs on the renderer's UI thread, not on a thread of its own. That removes the
+      need for locks and for a queue. The only cross-thread signal in the design is the frame
+      request. A frame requested while a handler runs is held until the handler returns, so the
+      renderer is never re-entered from inside a dispatch.
+    </p>
+
+    <h2 id="measure">The measure call <span class="pill planned">Planned</span></h2>
+    <p>
+      A layer that computes its own layout needs to know how big text will be before it places it.
+      The measure call lets the Host ask the renderer, in the middle of its layout, how much room a
+      piece of text or an already-sent widget takes within given constraints.
+    </p>
+    <figure class="codeblock">
+      <figcaption>c: Host to Renderer, planned</figcaption>
+<pre><code><span class="ty">int32_t</span> <span class="f">compose_rust_renderer_measure</span>(<span class="k">const</span> <span class="ty">uint8_t</span>* requests, <span class="ty">uint32_t</span> len,
+                                      <span class="ty">uint32_t</span> count, <span class="ty">MeasureResult</span>* results);</code></pre>
+    </figure>
+    <ul>
+      <li><strong>The answer equals the drawing.</strong> The renderer measures with the same font
+        resolution, the same density and font scale, and the same type scale it draws with. That
+        equality is the reason the call exists.</li>
+      <li><strong>Many requests per call.</strong> One layout pass can ask about hundreds of text
+        leaves, so one call carries them all, as fixed-layout records in a buffer like the batch.</li>
+      <li><strong>Same thread, same stack.</strong> The Host makes the call while the renderer is
+        already inside a call into the Host. It is a re-entrant call on the UI thread, with no queue
+        and no thread hop. Called from another thread, it measures nothing and returns an error.</li>
+      <li><strong>Only applied nodes.</strong> A widget sent in the batch being built cannot be
+        measured yet, because that batch is applied only after the Host returns.</li>
+    </ul>
+    <p>
+      Application code does not call it. The layer that builds the tree reaches it through a safe
+      Rust API that only works inside the Host's frame work.
+    </p>
+
+    <h2 id="zoom">Zoom <span class="pill planned">Planned</span></h2>
+    <p>
+      compose-rust zooms the way VS Code does: the whole window scales, and the starting point is
+      the operating system's text size.
+    </p>
+    <ul>
+      <li><strong>The factor</strong> is the OS text scale times the app zoom. The app zoom is
+        <code>1.2</code> to the power of an integer level from -8 to 8, the same steps as VS Code.
+        macOS has no public text size setting, so its OS factor is 1.</li>
+      <li><strong>The keys</strong> are <kbd>⌘</kbd><kbd>+</kbd>, <kbd>⌘</kbd><kbd>-</kbd> and
+        <kbd>⌘</kbd><kbd>0</kbd> on macOS, and the same with <kbd>Ctrl</kbd> on Windows and Linux.
+        The renderer handles them, unless the application consumed the key first. The Host can also
+        set the level, for a View menu's zoom items.</li>
+      <li><strong>The level is UI-local state</strong>, so the renderer saves it per application in
+        the platform's settings store and starts from it next time.</li>
+      <li><strong>The Host is told</strong> once at startup and again whenever the factor changes,
+        with the factor, the OS part and the level. Moving the window to a monitor with a different
+        density does not change the factor and sends nothing.</li>
+      <li><strong>Measuring follows zoom.</strong> Each measure request carries the factor, so a
+        measurement and the drawing agree at every zoom level.</li>
+    </ul>
+    <p>
+      Today the desktop renderers fix the font scale at 1 and ignore the OS text size
+      (<a href="https://github.com/DarkPyonix/compose-rust/issues/68">#68</a>).
     </p>
 
     <h2 id="codegen">Schema codegen</h2>
     <p>
-      The C ABI only carries bytes, so type safety is layered on top of it. Widgets, properties,
-      modifiers and event payloads are defined once in Rust; the Kotlin types and codecs are
-      generated from that definition, and a checked-in test fails if the generated output is stale.
-      A schema hash compares the two sides at handshake time. Nobody writes JNI or cinterop glue by
-      hand.
+      The C ABI carries only bytes, so type safety is layered on top. Widgets, properties,
+      modifiers, roles and event payloads are defined once in Rust. The Kotlin types, the codecs,
+      the JNI shims for Android and the wasm shims for the web are generated from that definition,
+      and a checked-in test fails when the generated output is stale. Nobody writes JNI or cinterop
+      glue by hand.
     </p>
 
     <h2 id="runtimes">What runs where</h2>
     <p>
-      The renderer is built two ways. Where Compose can be built for the platform as a target of
-      its own, it is compiled directly and there is no virtual machine in the result. Where it
-      cannot, the renderer is a native image with a Java runtime inside it.
+      The renderer is built two ways. Where Compose can be compiled for the platform directly, there
+      is no virtual machine in the result. Where it cannot yet, the renderer is a GraalVM native
+      image with a Java runtime compiled into it. Neither needs Java installed on the user's
+      machine.
     </p>
     <div class="tablewrap">
       <table>
-        <thead><tr><th scope="col">Platform</th><th scope="col">Built as</th><th scope="col">Carries a Java runtime</th></tr></thead>
+        <thead><tr><th scope="col">Platform</th><th scope="col">0.0.1 ships</th><th scope="col">Next</th></tr></thead>
         <tbody>
-          <tr><td>macOS</td><td>Kotlin/Native</td><td>No</td></tr>
-          <tr><td>Linux</td><td>Kotlin/Native</td><td>No</td></tr>
-          <tr><td>Windows</td><td>Native image</td><td>Yes</td></tr>
-          <tr><td>Web</td><td>Kotlin/Wasm</td><td>No</td></tr>
-          <tr><td>iOS</td><td>Kotlin/Native</td><td>No</td></tr>
+          <tr><td>macOS</td><td>Native image</td><td>Kotlin/Native, linked into the executable; runs in CI (<a href="https://github.com/DarkPyonix/compose-rust/issues/22">#22</a>)</td></tr>
+          <tr><td>Linux</td><td>Native image</td><td>Kotlin/Native, linked into the executable; passes a startup test in CI (<a href="https://github.com/DarkPyonix/compose-rust/issues/22">#22</a>)</td></tr>
+          <tr><td>Windows</td><td>Native image</td><td>Kotlin/Native (<a href="https://github.com/DarkPyonix/compose-rust/issues/24">#24</a>)</td></tr>
+          <tr><td>iOS</td><td>Kotlin/Native static archive</td><td>unchanged</td></tr>
+          <tr><td>Android</td><td>Android library</td><td>unchanged</td></tr>
+          <tr><td>Web</td><td>Kotlin/Wasm</td><td>unchanged</td></tr>
         </tbody>
       </table>
     </div>
     <p>
-      The difference is most of the weight. The notepad sample on macOS is one 28.76MB file with
-      nothing beside it, and 37.93MB on Linux. The same sample built as a native image was 93.1MB
-      across four files. The extra is not Compose and not this project's own code, but the Java
-      runtime and the metadata a closed world needs.
+      The difference is most of the weight. The notepad sample on macOS with the Kotlin/Native
+      renderer is one 28.76&nbsp;MB file with nothing beside it. The same sample built with the native
+      image was 93.1&nbsp;MB across four files. The extra is not Compose and not compose-rust's own
+      code, but the Java runtime and the metadata a closed world needs.
     </p>
     <p>
-      Windows is not a choice. Compose publishes no UI layer for it as a native target, and it is
-      blocked twice over: Kotlin's target there is MinGW and Skia's build is MSVC, so the two
-      cannot be linked even if the artifacts existed. Linux publishes none either, but nothing
-      stands in the way of building them, so this project builds the Linux targets from source,
-      from a fork of Compose that adds them, pinned to one commit.
+      Linux has no published Compose UI for Kotlin/Native either, but nothing prevents building it,
+      so the pinned Compose fork adds the Linux targets. Windows is harder: Kotlin/Native's target
+      there is MinGW and Skia's build is MSVC, so the two cannot simply be linked.
     </p>
     <div class="note">
       <span class="label">The application does not know which</span>
       <p>
-        The boundary is the same C ABI on both, the protocol is the same bytes, and the
+        The boundary is the same C ABI on every renderer, the records are the same bytes, and the
         interpreter is the same source. Nothing you write changes.
       </p>
     </div>
 
-    <h2 id="macos">The macOS runtime</h2>
+    <h2 id="macos">The Kotlin/Native renderer on macOS</h2>
     <p>
       The window is the renderer's own <code>NSWindow</code>, not the one Compose opens for this
-      platform. Compose's draws correctly, but nothing in it is named: a screen reader is handed
-      the title and the three title bar buttons, and every control the application drew is
-      invisible to it. Owning the window is what makes the contents readable.
+      platform. Compose's window draws correctly, but nothing in it is named: a screen reader sees
+      the title and the three title bar buttons and nothing the application drew. Owning the window
+      makes the contents readable.
     </p>
     <p>
-      The view's backing layer is a <code>CAMetalLayer</code>, and Skia draws into its drawable
-      through a Metal context. The layer is created with <code>presentsWithTransaction</code> set,
-      so a frame is presented inside the same transaction that resizes the window rather than a
-      moment after it. That is the difference between contents that follow the window edge while
-      you drag it and contents that trail behind it: the gap reached 350 pixels at speed before
-      this, and it is now none.
+      The view's backing layer is a <code>CAMetalLayer</code>, and Skia draws into it through Metal.
+      A frame is presented inside the same transaction that resizes the window, so the contents
+      follow the window edge during a drag instead of trailing behind it.
     </p>
     <p>
       Text goes through the platform rather than around it. The view implements
       <code>NSTextInputClient</code>, so marked text, the candidate window and Korean, Japanese and
-      Chinese composition are the input method's own work, and the menu a selection offers is a
-      real <code>NSMenu</code> that the system draws.
+      Chinese composition are the input method's own work. The menu a selection offers is a real
+      <code>NSMenu</code>.
     </p>
     <p>
-      Nothing is loaded by file path at runtime and nothing sits beside the executable. Skia,
-      Compose, the interpreter and the application's own code are one static library the linker
-      folds into the binary, which is why what you ship is a single file.
-    </p>
-    <p>
-      One more macOS fact shapes the process: AppKit demands the main thread. The renderer creates
-      and runs <code>NSApplication</code> on the thread it was called on, and that call returns
-      when the window closes. Accordingly <code>compose_rust_renderer_run</code> must be called
-      on the process main thread; otherwise it returns <code>RUN_NOT_MAIN_THREAD</code>.
+      AppKit demands the main thread. The renderer runs <code>NSApplication</code> on the thread it
+      was called on, and the call returns when the window closes. So
+      <code>compose_rust_renderer_run</code> must be called on the process main thread.
     </p>
 
     <nav class="pagenav" aria-label="Pagination">
@@ -266,8 +308,8 @@
 <footer class="site">
   <div class="inner">
     <span>compose-rust &middot; Apache License 2.0</span>
-    <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/INTENT.md">INTENT.md</a></span>
-    <span>Guide last reviewed against the repository on 2026-09-28</span>
+    <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://crates.io/crates/compose-rust">crates.io</a></span>
+    <span>Guide last reviewed against the repository on 2026-10-03</span>
   </div>
 </footer>
 
