@@ -34,7 +34,9 @@ fail() {
 
 published="$(grep -o 'PUBLISHED_TARGETS: &\[&str\] = &\[[^]]*\]' dioxus-compose/build/renderer_dir.rs |
     grep -o '"[a-z0-9_-]*"' | tr -d '"' | sort)"
-built="$(grep -E '^\s+target: ' .github/workflows/samples.yml |
+# The build matrix's rows: a bare target name. The static renderer's matrix list and the
+# expression that passes a row on are not rows.
+built="$(grep -E '^\s+target: [a-z0-9-]+$' .github/workflows/samples.yml |
     sed -E 's/.*target: *//' | tr -d '"' | sort)"
 
 if [[ -z "$published" ]]; then

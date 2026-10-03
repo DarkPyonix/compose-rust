@@ -11,8 +11,9 @@
 # two should be versioned apart so a sample can be rebuilt without implying a library
 # release, and a library release is not held up by a sample that does not build.
 #
-# Each sample links the renderer for its platform, so the binary is self contained apart
-# from the renderer library shipped beside it.
+# Each sample links the renderer for its platform. On macOS and Linux that is the static
+# archive, built by static-renderer.yml, so each sample is one executable; on Windows the
+# renderer library still ships beside it.
 
 name: Sample apps
 
@@ -31,8 +32,25 @@ permissions:
   contents: read
 
 jobs:
+  # The renderers macOS and Linux ship, from the same reusable workflow the release uses,
+  # so that every sample there is one executable, built the way an application is.
+  static-renderer:
+    name: renderer
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [macos-aarch64, linux-x64, linux-arm64]
+    uses: ./.github/workflows/static-renderer.yml
+    with:
+      target: ${{ matrix.target }}
+      ref: ${{ inputs.tag || github.ref }}
+
   build:
     name: ${{ matrix.target }}
+    needs: static-renderer
+    # Windows builds its own renderer and does not need the static ones, and one platform's
+    # renderer failing does not stop the others' samples.
+    if: ${{ !cancelled() }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     strategy:
@@ -41,23 +59,16 @@ jobs:
         include:
           - runner: macos-latest
             target: macos-aarch64
-            renderer: ./dioxus-compose-renderer/desktop/scripts/build-native.sh
-            dist: dioxus-compose-renderer/build/native-image/dist/lib
+            static: true
           - runner: ubuntu-24.04
             target: linux-x64
-            renderer: ./dioxus-compose-renderer/desktop/scripts/build-native-linux.sh
-            dist: dioxus-compose-renderer/build/native-image-linux/dist/lib
+            static: true
           - runner: ubuntu-24.04-arm
             target: linux-arm64
-            renderer: ./dioxus-compose-renderer/desktop/scripts/build-native-linux.sh
-            dist: dioxus-compose-renderer/build/native-image-linux/dist/lib
-            # Community rather than the Oracle build: there is no free Oracle GraalVM for
-            # Linux on arm64, which is the same reason the renderer's own workflow pins
-            # this pair for this runner and no other.
-            distribution: graalvm-community
-            java-version: '25.0.1'
+            static: true
           - runner: windows-2022
             target: windows-x64
+            static: false
             renderer: powershell .\dioxus-compose-renderer\desktop\scripts\build-native-windows.ps1
             # `dist`, not `dist/lib`. Windows puts the DLL in `dist\bin` and the JDK's
             # font configuration in `dist\lib`, because AWT reads that from java.home and
@@ -94,54 +105,60 @@ jobs:
           fi
           echo "link.exe now resolves to: $(command -v link || echo 'nothing on PATH')"
 
-      - name: Install Liberica NIK 25 Full
-        if: runner.os == 'macOS'
-        run: ./scripts/install-nik.sh --github-env
-
       - name: Install upstream GraalVM 25
-        # Upstream GraalVM ships AWT on Windows and Linux. Only macOS needs Liberica.
-        if: runner.os != 'macOS'
+        if: runner.os == 'Windows'
         uses: graalvm/setup-graalvm@v1
         with:
-          java-version: ${{ matrix.java-version || '25' }}
-          distribution: ${{ matrix.distribution || 'graalvm' }}
+          java-version: '25'
+          distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install Linux AWT, Skia and font dependencies
+      - name: Install the libraries a Linux application links
+        # Development packages, because linking names libX11.so and friends. The
+        # executable needs only their runtime halves, which a desktop already has.
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          # patchelf rewrites each packaged executable's DT_NEEDED entry to the renderer
-          # travelling beside it, in place of the absolute path this runner built with.
-          sudo apt-get install -y build-essential zlib1g-dev pkg-config fontconfig \
-            libx11-dev libxext-dev libxi-dev libxrender-dev libxtst-dev libxrandr-dev \
-            libfontconfig1-dev libfreetype6-dev libgl1 libgl1-mesa-dri libegl1 \
-            fonts-noto-cjk \
-            patchelf xvfb xauth dbus-x11
+          sudo apt-get install -y build-essential pkg-config \
+            libx11-dev libxext-dev libgl1-mesa-dev libfontconfig1-dev libfreetype-dev
 
       - name: Cache the Kotlin toolchain and Maven dependencies
+        if: runner.os == 'Windows'
         uses: actions/cache@v4
         with:
-          path: |
-            ~/Library/Caches/JetBrains/Kotlin
-            ~/.cache/JetBrains/Kotlin
-            ~/.m2/repository
+          path: ~/.m2/repository
           key: kotlin-${{ matrix.target }}-${{ hashFiles('dioxus-compose-renderer/**/module.yaml') }}
           restore-keys: kotlin-${{ matrix.target }}-
 
-      - name: Build the renderer
-        # Linux gets its own step rather than a branch inside one. The Windows command is
-        # a PowerShell invocation with backslashes in it, and running that through bash
-        # to reach an `if` would eat them.
-        if: runner.os != 'Linux'
+      - name: Build the Windows renderer
+        if: runner.os == 'Windows'
         run: ${{ matrix.renderer }}
 
-      - name: Build the renderer under a virtual display
-        # The Linux build starts a Compose JVM to collect reachability metadata, and that
-        # needs a display even though nobody looks at it. The script says so itself when
-        # DISPLAY is unset, and says to do exactly this.
-        if: runner.os == 'Linux'
-        run: xvfb-run -a ${{ matrix.renderer }}
+      - name: Download the static renderer
+        if: matrix.static
+        uses: actions/download-artifact@v4
+        with:
+          pattern: dioxus-compose-renderer-v*-${{ matrix.target }}
+          path: renderer-artifact
+          merge-multiple: true
+
+      - name: Unpack it where the build will be pointed
+        if: matrix.static
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/renderer"
+          tar -xzf renderer-artifact/*.tar.gz -C "$RUNNER_TEMP/renderer"
+          ls -la "$RUNNER_TEMP/renderer/lib"
+          echo "RENDERER=$RUNNER_TEMP/renderer" >> "$GITHUB_ENV"
+
+      - name: Point the build at the Windows renderer
+        if: runner.os == 'Windows'
+        shell: bash
+        # Absolute. A build script runs with its crate directory as the working
+        # directory, not the workspace root, so a relative path here points at
+        # dioxus-compose/dioxus-compose-renderer/... and finds nothing.
+        run: echo "RENDERER=${{ github.workspace }}/${{ matrix.dist }}" >> "$GITHUB_ENV"
 
       - name: Build every sample against it
         # A sample that does not build is skipped rather than allowed to end the run. The
@@ -151,13 +168,9 @@ jobs:
         # reads it, so a sample that failed here cannot be packaged from a stale binary
         # left by an earlier run.
         shell: bash
-        env:
-          # Absolute. A build script runs with its crate directory as the working
-          # directory, not the workspace root, so a relative path here points at
-          # dioxus-compose/dioxus-compose-renderer/... and finds nothing.
-          DIOXUS_COMPOSE_RENDERER_DIR: ${{ github.workspace }}/${{ matrix.dist }}
         run: |
           set -uo pipefail
+          export DIOXUS_COMPOSE_RENDERER_DIR="$RENDERER"
           : > built.txt
           : > skipped.txt
           for manifest in samples/*/Cargo.toml; do
@@ -187,15 +200,10 @@ jobs:
             exit 1
           fi
 
-      - name: Package each sample with the renderer beside it
-        # A sample is only runnable next to the renderer library it was linked against, so
-        # ship them together rather than leaving the download to fail at startup.
-        #
-        # The build records the absolute path the renderer was at on this runner, which is
-        # the only way a binary that merely depends on the crate finds it without an rpath.
-        # That path means nothing on the machine someone downloads this to, so the last
-        # step points each executable at the copy travelling with it. Without it the
-        # archives would ship a runner's directory layout and fail to start.
+      - name: Package each sample
+        # On macOS and Linux a sample is one executable with the renderer inside it, and
+        # that file is the whole archive. On Windows it still runs beside the renderer
+        # library it was linked against, so the two are shipped together.
         shell: bash
         run: |
           set -euo pipefail
@@ -204,8 +212,8 @@ jobs:
             [[ -n "$app" ]] || continue
             stage="staging/$app"
             mkdir -p "$stage"
-            cp -R "${{ matrix.dist }}/." "$stage/"
             if [[ "${{ runner.os }}" == "Windows" ]]; then
+              cp -R "${{ matrix.dist }}/." "$stage/"
               # The executable goes in beside the DLL rather than above it. Windows
               # searches the directory the executable is in, and the renderer's DLL lives
               # in `bin` because AWT reads its font configuration from the `lib` next to
@@ -214,10 +222,13 @@ jobs:
               cp "target/release/sample-$app.exe" "$stage/bin/"
             else
               cp "target/release/sample-$app" "$stage/"
-              # Everywhere else the library records the absolute path it was built at,
-              # which means nothing on the machine this is unpacked on, so each executable
-              # is pointed at the copy travelling with it.
-              ./scripts/bundle-renderer.sh "$stage/sample-$app" .
+              # Nothing may travel with it, so nothing it names may be anything but the
+              # system's.
+              if [[ "${{ runner.os }}" == "macOS" ]]; then
+                otool -L "$stage/sample-$app"
+              else
+                readelf -d "$stage/sample-$app" | grep -E '\((NEEDED|RPATH|RUNPATH)\)'
+              fi
             fi
             tar -czf "artifacts/$app-${{ matrix.target }}.tar.gz" -C staging "$app"
           done < built.txt
@@ -402,6 +413,7 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
+          pattern: samples-*
           path: downloaded
 
       - name: Collect
@@ -418,8 +430,10 @@ jobs:
           {
             echo "Sample applications, one archive per sample per platform."
             echo
-            echo "A desktop archive contains the program and the renderer library it was"
-            echo "linked against; run it from the extracted directory. Android ships an"
+            echo "A macOS or Linux archive contains one executable, with the renderer inside"
+            echo "it; it runs from anywhere. A Windows archive contains the program and the"
+            echo "renderer library it was linked against; run it from the extracted"
+            echo "directory. Android ships an"
             echo "APK per sample. iOS ships a simulator bundle per sample, because a"
             echo "bundle for a device has to be signed by a certificate Apple issued"
             echo "against a profile naming that device. The web archive is every sample"
