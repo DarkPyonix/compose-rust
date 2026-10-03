@@ -11,6 +11,10 @@
 #   stand-in  a tiny windowed program built here, described by the notepad sample's
 #             metadata. It proves the pipeline in minutes and owes nothing to the
 #             renderer.
+#   host      a sample built here from this checkout, against the renderer from that
+#             same release, so that what the crate now puts into every executable (its
+#             application manifest) is in the package the kit inspects. This one has
+#             to pass the kit's DPI awareness check outright.
 #   sample    a real build: the program with the renderer and its companion files
 #             beside it, the shape a dioxus-compose application ships in. By default the
 #             notepad archive from a published sample release; dispatched with a run id,
@@ -26,10 +30,16 @@ on:
   push:
     paths:
       - 'tools/msix/**'
+      - 'dioxus-compose/build.rs'
+      - 'dioxus-compose/build/**'
+      - 'dioxus-compose/tests/windows_manifest.rs'
       - '.github/workflows/package-windows.yml'
   pull_request:
     paths:
       - 'tools/msix/**'
+      - 'dioxus-compose/build.rs'
+      - 'dioxus-compose/build/**'
+      - 'dioxus-compose/tests/windows_manifest.rs'
       - '.github/workflows/package-windows.yml'
   workflow_dispatch:
     inputs:
@@ -102,6 +112,12 @@ jobs:
 
       - name: Tests
         run: cargo test --locked -p dioxus-compose-msix
+
+      - name: Application manifest resource
+        # The resource the crate's build script writes into every Windows program. The
+        # renderer is not needed to check its bytes, so the crate is built without it.
+        if: runner.os == 'Linux'
+        run: cargo test --locked -p dioxus-compose --no-default-features --test windows_manifest
 
   package:
     name: Package, sign and certify (${{ matrix.payload }})
@@ -214,6 +230,99 @@ jobs:
             ${{ runner.temp }}/msix/*.msix
             ${{ runner.temp }}/msix/*.msixbundle
             ${{ runner.temp }}/cert/test-signing.cer
+          if-no-files-found: warn
+
+  host:
+    name: Build a sample here, package and certify it
+    needs: test
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Fetch a released renderer
+        # The renderer is not built here. The released notepad archive carries the
+        # renderer DLL, its import library and the files AWT reads, which is everything
+        # the crate needs to link a host against. It predates schema hashes, so the build
+        # warns that it cannot tell whether the two agree; the drawing is not what this
+        # job checks, the executable and its manifest are.
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path payload-artifact | Out-Null
+          Invoke-WebRequest -Uri $env:PAYLOAD_URL -OutFile "payload-artifact\$env:PAYLOAD_ARCHIVE"
+          $unpacked = Join-Path $env:RUNNER_TEMP 'renderer'
+          New-Item -ItemType Directory -Force -Path $unpacked | Out-Null
+          tar -xzf "payload-artifact\$env:PAYLOAD_ARCHIVE" -C $unpacked
+          if ($LASTEXITCODE -ne 0) { throw "could not unpack $env:PAYLOAD_ARCHIVE" }
+          Add-Content -Path $env:GITHUB_ENV -Value "DIOXUS_COMPOSE_RENDERER_DIR=$(Join-Path $unpacked $env:PAYLOAD_ROOT)" -Encoding utf8
+
+      - name: Build the packager and the notepad sample
+        run: |
+          cargo build --locked --release -p dioxus-compose-msix --bin dioxus-compose-msix
+          if ($LASTEXITCODE -ne 0) { throw "the packager did not build" }
+          cargo build --locked --release -p sample-notepad --bin sample-notepad
+          if ($LASTEXITCODE -ne 0) { throw "the sample did not build" }
+
+      - name: Show the manifest embedded in the sample
+        run: |
+          $ErrorActionPreference = 'Stop'
+          . ./tools/msix/scripts/common.ps1
+          $mt = Find-SdkTool 'mt.exe'
+          $exe = 'target\release\sample-notepad.exe'
+          & $mt -nologo "-inputresource:$exe;#1" "-out:$env:RUNNER_TEMP\embedded.manifest"
+          if ($LASTEXITCODE -ne 0) { throw "sample-notepad.exe has no embedded manifest" }
+          $text = Get-Content -Raw "$env:RUNNER_TEMP\embedded.manifest"
+          Write-Host $text
+          if ($text -notmatch 'PerMonitorV2') { throw "the embedded manifest does not declare PerMonitorV2" }
+
+      - name: Lay the sample out beside the renderer and package it
+        id: pack
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $payload = Join-Path $env:RUNNER_TEMP 'host-payload'
+          New-Item -ItemType Directory -Force -Path $payload | Out-Null
+          foreach ($child in 'bin', 'lib') {
+            Copy-Item -Recurse -Path (Join-Path $env:DIOXUS_COMPOSE_RENDERER_DIR $child) -Destination $payload
+          }
+          Copy-Item -Force 'target\release\sample-notepad.exe' (Join-Path $payload 'bin\sample-notepad.exe')
+          $out = Join-Path $env:RUNNER_TEMP 'msix'
+          $summary = Join-Path $env:RUNNER_TEMP 'msix-summary.txt'
+          & 'target\release\dioxus-compose-msix.exe' --project $env:PROJECT --out $out --summary $summary `
+            --test-identity --payload-dir $payload --exe 'bin\sample-notepad.exe'
+          if ($LASTEXITCODE -ne 0) { throw "packaging failed" }
+          Get-Content $summary | Add-Content -Path $env:GITHUB_OUTPUT -Encoding utf8
+
+      - name: Create and trust a test certificate
+        id: cert
+        run: >
+          ./tools/msix/scripts/new-test-certificate.ps1
+          -Publisher '${{ steps.pack.outputs.publisher }}'
+          -OutDir "$env:RUNNER_TEMP\cert" -Trust
+
+      - name: Sign
+        run: >
+          ./tools/msix/scripts/sign.ps1
+          -Path '${{ steps.pack.outputs.package }}','${{ steps.pack.outputs.bundle }}'
+          -Pfx '${{ steps.cert.outputs.pfx }}' -Password '${{ steps.cert.outputs.password }}'
+
+      - name: Windows App Certification Kit (DPI awareness must pass)
+        run: >
+          ./tools/msix/scripts/run-wack.ps1
+          -Package '${{ steps.pack.outputs.bundle }}'
+          -Report "$env:RUNNER_TEMP\wack\host-bundle-report.xml"
+          -RequirePass DPIAwarenessValidation
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wack-reports-host
+          path: ${{ runner.temp }}/wack/
           if-no-files-found: warn
 
   update:
