@@ -2487,14 +2487,14 @@ compose_rust_host_dispatch_event: click 1
 
    마지막 줄 폭과 `truncated`도 같아야 합니다. 같은 기준을 FR-40의 칸에도 적용합니다. 한국어 `word_break`의 `Normal`과 `KeepAll`, 탭이 든 `pre` 문자열, `absolute_size` 문자열입니다.
 
-   (`pr2_measured_text_matches_the_drawn_text`, Kotlin 측 테스트)
-2. `MinContent`와 `MaxContent`가 Compose `ParagraphIntrinsics`의 `minIntrinsicWidth`, `maxIntrinsicWidth`와 같습니다(`pr2_intrinsic_widths_match_compose`).
-3. 이미 적용된 노드를 잰 크기가, 같은 제약에서 Compose 레이아웃이 그 노드에 준 크기와 같습니다. 대상은 `Button`, `TextField`, `Column` 안의 `Text` 둘입니다(`pr2_measured_node_matches_its_layout`).
-4. 아직 적용되지 않은 노드는 `UnknownNode`를 받고, 같은 호출의 나머지 요청은 정상으로 잽니다(`pr2_unknown_node_is_reported_per_record`).
+   (pr2_measured_text_matches_the_drawn_text, Kotlin 측 테스트)
+2. `MinContent`와 `MaxContent`가 Compose `ParagraphIntrinsics`의 `minIntrinsicWidth`, `maxIntrinsicWidth`와 같습니다(pr2_intrinsic_widths_match_compose).
+3. 이미 적용된 노드를 잰 크기가, 같은 제약에서 Compose 레이아웃이 그 노드에 준 크기와 같습니다. 대상은 `Button`, `TextField`, `Column` 안의 `Text` 둘입니다(pr2_measured_node_matches_its_layout).
+4. 아직 적용되지 않은 노드는 `UnknownNode`를 받고, 같은 호출의 나머지 요청은 정상으로 잽니다(pr2_unknown_node_is_reported_per_record).
 5. 재진입:
-   - `render_frame` 안에서 Host가 측정을 부르면 같은 스레드, 같은 호출 스택에서 답을 받습니다(`pr1_measure_is_answered_inside_the_host_call`).
-   - 다른 스레드에서 부르면 음수를 받고, 프로세스는 계속 돕니다(`pr3_measure_off_the_ui_thread_is_refused`).
-6. 잘못된 버퍼는 `ProtocolError`가 되고 프로세스를 멈추지 않습니다(`nfr7_malformed_measure_buffer_is_a_protocol_error`).
+   - `render_frame` 안에서 Host가 측정을 부르면 같은 스레드, 같은 호출 스택에서 답을 받습니다(pr1_measure_is_answered_inside_the_host_call).
+   - 다른 스레드에서 부르면 음수를 받고, 프로세스는 계속 돕니다(pr3_measure_off_the_ui_thread_is_refused).
+6. 잘못된 버퍼는 `ProtocolError`가 되고 프로세스를 멈추지 않습니다(nfr7_malformed_measure_buffer_is_a_protocol_error).
 7. 비용(NFR-9):
    - 사이드바 하나 분량(텍스트 잎 200개, 잎마다 min, max, 정해진 폭 세 번, 캐시가 빈 상태)을 재는 벤치마크를 둡니다.
    - 같은 600건을 Kotlin에서 `TextMeasurer`로 직접 잰 시간 대비, 경계를 건넌 측정의 추가 비용이 10% 이하입니다.
