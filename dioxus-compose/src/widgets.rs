@@ -2163,3 +2163,105 @@ pub fn SelectionContainer(
         }
     }
 }
+
+/// A side pane and a body, with a divider between them the user drags to change the side
+/// pane's width.
+///
+/// Exactly two children: the side pane first, the body second. The side pane sits at the
+/// start of the reading direction, so it is on the right in a right to left locale.
+///
+/// **The drag is not reported while it happens.** The divider follows the pointer on the
+/// Renderer's side, like a scroll position, and `on_change` is called once, when it is let
+/// go, with the side pane's width in dp. The same happens once when the width was changed
+/// from the keyboard, when the keys are released. Narrowing the window shrinks the side
+/// pane without telling anyone, and widening it again brings back the width the user chose.
+///
+/// `value` is the width the side pane opens at and the way to change it from here. Leave it
+/// out to open at the design system's own sidebar width. Write what `on_change` reports back
+/// into the signal that feeds `value`, the way a slider's value is kept: otherwise sending
+/// the same width again later is not a change and nothing moves.
+///
+/// `min` and `max` bound the drag, in dp; left out, the design system's bounds apply.
+/// With `collapsible`, dragging past `min` folds the side pane away and `on_change` reports
+/// `0.0`; `value: Some(0.0)` opens it folded; a non-zero value, a drag back out or the
+/// keyboard unfolds it to the width it had before, which is reported once. A sidebar toggle
+/// is a button that sends `0.0` or the last width, with `IconRole::Sidebar` on it.
+///
+/// In a narrow place, measured by the split pane's own width rather than the window's, the
+/// design system may show one pane at a time. `selected_index` then says which: `0` for the
+/// side pane, `1` for the body. Choosing something in the side pane is the application's
+/// event, so it is the application that sends `1`. Going back (the platform's back gesture
+/// or the back button the design system draws) shows the side pane at once and calls
+/// `on_dismiss` once, and the application answers by sending `0` and clearing its selection.
+///
+/// `label` names the divider for a screen reader, which reads it with the current width as
+/// an adjustable control. Left out, the Renderer uses the platform's own word for a sidebar.
+#[component]
+pub fn SplitPane(
+    #[props(default)] weight: Option<f32>,
+    #[props(default)] width: Option<f32>,
+    #[props(default)] height: Option<f32>,
+    #[props(default)] padding: Option<f32>,
+    #[props(default)] padding_role: Option<SpaceRole>,
+    #[props(default)] background: Option<Paint>,
+    #[props(default)] shape_role: Option<ShapeRole>,
+    #[props(default)] corner_radius: Option<f32>,
+    #[props(default)] border_width: Option<f32>,
+    #[props(default)] border_color: Option<Paint>,
+    #[props(default)] elevation: Option<f32>,
+    #[props(default)] fill_max_width: bool,
+    #[props(default)] fill_max_height: bool,
+    /// The side pane's width in dp, or `0.0` to open it folded. Left out, the design
+    /// system's sidebar width.
+    #[props(default)]
+    value: Option<f32>,
+    /// The narrowest the side pane may be dragged, in dp.
+    #[props(default)]
+    min: Option<f32>,
+    /// The widest the side pane may be dragged, in dp.
+    #[props(default)]
+    max: Option<f32>,
+    /// Whether the side pane may be folded away.
+    #[props(default)]
+    collapsible: bool,
+    /// Which pane shows when only one fits: `0` the side pane, `1` the body.
+    #[props(default)]
+    selected_index: usize,
+    /// What a screen reader calls the divider.
+    #[props(default)]
+    label: Option<String>,
+    /// The side pane's width once a drag or a key press has finished, or `0.0` once folded.
+    #[props(default)]
+    on_change: EventHandler<f32>,
+    /// The user went back from the body to the side pane while one pane shows at a time.
+    #[props(default)]
+    on_dismiss: EventHandler<()>,
+    children: Element,
+) -> Element {
+    rsx! {
+        splitpane {
+            weight: opt_dp(weight),
+            width: opt_dp(width),
+            height: opt_dp(height),
+            padding: opt_dp(padding),
+            padding_role: opt_role(padding_role),
+            background: opt_paint(background),
+            shape_role: opt_role(shape_role),
+            corner_radius: opt_dp(corner_radius),
+            border_width: opt_dp(border_width),
+            border_color: opt_paint(border_color),
+            elevation: opt_dp(elevation),
+            fill_max_width,
+            fill_max_height,
+            value: value.map(f64::from),
+            min: min.map(f64::from),
+            max: max.map(f64::from),
+            collapsible,
+            selected_index: selected_index as i64,
+            text: label,
+            onchange: move |event: dioxus_core::Event<f64>| on_change.call(*event.data() as f32),
+            ondismiss: move |_| on_dismiss.call(()),
+            {children}
+        }
+    }
+}

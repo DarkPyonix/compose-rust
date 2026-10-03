@@ -65,8 +65,8 @@ pub use widgets::{
     Badge, Button, Canvas, Card, Checkbox, Column, ComposeBox as Box, DatePicker, Dialog, Divider,
     Dropdown, FileDrop, FileDropTarget, Icon, Image, KeyEvent, LazyColumn, LazyGrid, LazyRow, Menu,
     Navigation, NavigationItem, ProgressIndicator, RadioButton, RangeRequest, Row, Scaffold,
-    ScrollColumn, SelectionContainer, Separator, Sheet, Slider, Spacer, Surface, Switch, Tabs,
-    Text, TextField, TimePicker, Tooltip, TopAppBar,
+    ScrollColumn, SelectionContainer, Separator, Sheet, Slider, Spacer, SplitPane, Surface, Switch,
+    Tabs, Text, TextField, TimePicker, Tooltip, TopAppBar,
 };
 pub use window::{NodeSize, WindowSize, node_size, use_node_size, use_window_size, window_size};
 
@@ -167,8 +167,8 @@ pub mod prelude {
         LoopMode, MaterialRole, Menu, Message, MessageDuration, Modifier, MotionRole, Navigation,
         NavigationItem, Paint, Palette, ProgressIndicator, Props, RadioButton, RangeRequest, Row,
         Scaffold, ScrollColumn, SelectionContainer, Separator, ShapeRole, Sheet, Slider, SpaceRole,
-        Spacer, Stop, Surface, Switch, Tabs, Text, TextAlign, TextField, TextOverflow, Theme,
-        TileMode, TimePicker, Tooltip, TopAppBar, TypeRole, WindowHeightClass, WindowSize,
+        Spacer, SplitPane, Stop, Surface, Switch, Tabs, Text, TextAlign, TextField, TextOverflow,
+        Theme, TileMode, TimePicker, Tooltip, TopAppBar, TypeRole, WindowHeightClass, WindowSize,
         WindowSizeClass, asset, brush, component, launch, rsx, show_message, use_design_system,
         use_node_size, use_window_size,
     };
@@ -388,6 +388,16 @@ pub mod elements {
     // Nothing of its own. Being this widget is the whole of what it says: the text inside
     // may be selected and copied, and the selection never crosses the boundary.
     element!(selectioncontainer, "SelectionContainer", []);
+    // A side pane and a body. `value` seeds the side pane's width and carries a change from
+    // outside; the drag itself is the Renderer's, and only the width it ends on comes
+    // back. `selected_index` says which pane shows when the two are shown one at a time.
+    // `text` names the divider for a screen reader. How the divider looks and when the
+    // panes stack are the design system's, so nothing here can ask for either.
+    element!(
+        splitpane,
+        "SplitPane",
+        [value, min, max, collapsible, selected_index, text]
+    );
 
     #[doc(hidden)]
     pub mod completions {
@@ -430,6 +440,7 @@ pub mod elements {
             sheet {},
             badge {},
             selectioncontainer {},
+            splitpane {},
         }
     }
 }

@@ -1536,6 +1536,12 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             property: PropertyKind::Spans,
             value: PropertyValue::Bytes(spans_vector_bytes.as_bytes()),
         },
+        // A split pane's one property of its own.
+        Mutation::SetProp {
+            node_id: 2,
+            property: PropertyKind::Collapsible,
+            value: PropertyValue::Bool(true),
+        },
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {
@@ -1626,8 +1632,8 @@ pub fn generate_vector_description() -> String {
   "byteOrder": "little-endian",
   "mutations": {{
     "file": "mutations.bin",
-    "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, palette entry and text run",
-    "recordCount": 34,
+    "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, palette entry, text run and split pane property",
+    "recordCount": 35,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},

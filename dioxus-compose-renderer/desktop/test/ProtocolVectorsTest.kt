@@ -205,6 +205,15 @@ class ProtocolVectorsTest {
         )
     }
 
+    /** A split pane's one property of its own crosses as the boolean it is. */
+    @Test
+    fun fr15_2_12_collapsible_in_the_vector_decodes_to_the_same_value() {
+        val collapsible = decodeVector("mutations.bin")
+            .filterIsInstance<Mutation.SetProp>()
+            .single { it.property == PropertyKind.Collapsible }
+        assertEquals(Mutation.SetProp(2, PropertyKind.Collapsible, PropertyValue.Bool(true)), collapsible)
+    }
+
     private fun decodeVector(name: String): List<Mutation> {
         val bytes = vectorFile(name).readBytes()
         val mutations = mutableListOf<Mutation>()

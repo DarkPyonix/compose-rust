@@ -69,8 +69,8 @@ pub struct EventSchema {
 /// Canonical schema text. Variant order is wire-significant and must only be appended to.
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "dioxus-compose/v1;",
-    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,Badge,SelectionContainer;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,count;",
+    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,Badge,SelectionContainer,SplitPane;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,count,collapsible;",
     "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material;",
     "keys=Enter;",
     "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped;",
@@ -328,6 +328,16 @@ crate::extensions::define_widget_schema_with_extensions!(define_wire_enum; WIDGE
     // Text inside it. Text outside one cannot be selected. The selection and the copy are
     // the Renderer's entirely, so nothing about either crosses the boundary.
     SelectionContainer = 41,
+    // Two panes side by side, a side pane and a body, with a divider the user drags to
+    // change the side pane's width. Exactly two children, the side pane first.
+    //
+    // The drag is the Renderer's, like a scroll position: nothing crosses the boundary
+    // while it moves, and the width it ends on is reported once through the value change
+    // event. How the divider looks and how far its grip reaches, the side pane's default
+    // width, the body's minimum, and whether a narrow place shows the two panes side by
+    // side, with the side pane laid over the body, or one at a time, are the design
+    // system's answers.
+    SplitPane = 42,
 });
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -1504,6 +1514,13 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // 80 opens a fresh block of ten for widget tags 40 onwards, after the last tag in use
     // anywhere, so two pieces of work landing in either order cannot collide.
     Count = 80,
+    // Whether a split pane's side pane may be folded away by dragging past its minimum, or
+    // by the keyboard, or by the platform's own show and hide sidebar command. Whether a
+    // side pane can be hidden is a fact about the screen rather than about the design
+    // system: a list of sessions can, a settings screen's list of sections cannot.
+    //
+    // 90 opens the split pane's block of ten, after the badge's.
+    Collapsible = 90,
 });
 
 #[derive(Clone, Debug, PartialEq)]
