@@ -20,7 +20,24 @@ use dioxus_compose_adapter::protocol::{HostEvent, Mutation, PropertyValue, decod
 use dioxus_compose_adapter::schema::{
     EventPayload, MODIFIER_SCHEMA, PROPERTY_SCHEMA, PropertyKind, WIDGET_SCHEMA, WidgetKind,
 };
-use dioxus_compose_adapter::spans::TextSpans;
+use dioxus_compose_adapter::spans::{TextSpan, TextSpans};
+use dioxus_compose_adapter::{FontRef, FontRefs, GenericFamily, OverflowWrap, WordBreak};
+
+/// The font list of the CSS text in `surface()`.
+fn css_font() -> FontRefs {
+    FontRefs::new([
+        FontRef::System("Menlo".to_owned()),
+        FontRef::Generic(GenericFamily::Monospace),
+    ])
+}
+
+/// Its runs: one names a font of its own.
+fn css_spans() -> TextSpans {
+    TextSpans::new_with_fonts([(
+        TextSpan::new(0, 3),
+        FontRefs::new([FontRef::Generic(GenericFamily::Serif)]),
+    )])
+}
 
 thread_local! {
     /// What the handlers written in `surface()` were called with, in order.
@@ -139,6 +156,19 @@ fn surface() -> Element {
                         text_align: TextAlign::Center,
                         max_lines: 2,
                         overflow: TextOverflow::Ellipsis,
+                    }
+                    // Text laid out by CSS: no rung of the ladder, and everything it says
+                    // about itself instead.
+                    Text {
+                        text: "css\ttext",
+                        spans: css_spans(),
+                        type_role: TypeRole::None,
+                        font: css_font(),
+                        word_break: WordBreak::KeepAll,
+                        overflow_wrap: OverflowWrap::BreakWord,
+                        tab_size: 2,
+                        absolute_size: true,
+                        soft_wrap: false,
                     }
                 }
                 TextField {
@@ -505,6 +535,24 @@ fn expectations() -> Vec<(WidgetKind, Vec<(PropertyKind, Expect)>)> {
                 (P::TextAlign, role(TextAlign::Center)),
                 (P::MaxLines, int(2)),
                 (P::Overflow, role(TextOverflow::Ellipsis)),
+            ],
+        ),
+        (
+            W::Text,
+            vec![
+                (P::Text, text("css\ttext")),
+                (P::TypeRole, int(0)),
+                (P::Font, is(Value::Bytes(css_font().as_bytes().to_vec()))),
+                (P::Spans, is(Value::Bytes(css_spans().as_bytes().to_vec()))),
+                (
+                    P::SpanFonts,
+                    is(Value::Bytes(css_spans().font_table().to_vec())),
+                ),
+                (P::WordBreak, role(WordBreak::KeepAll)),
+                (P::OverflowWrap, role(OverflowWrap::BreakWord)),
+                (P::TabSize, int(2)),
+                (P::AbsoluteSize, int(1)),
+                (P::SoftWrap, flag(false)),
             ],
         ),
         (W::Text, vec![(P::Text, text("message 1"))]),
