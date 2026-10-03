@@ -236,7 +236,6 @@ cd renderer && ./kotlin run -m desktop
 compose-rust/     the crate: boundary, protocol, schema, codegen, renderer download
 renderer/         the Kotlin renderer: interpreter, generated shims, one module per platform
 samples/          sample applications: only a README until they return (#85)
-bench/            benchmarks and the pins of what they compare against
 docs/             the user guide (docs/guide) and translations (docs/locales)
 experiments/      measured experiments kept for their results
 scripts/          setup check, quality gate, release and publishing scripts, script tests
