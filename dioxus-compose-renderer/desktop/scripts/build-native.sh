@@ -14,7 +14,7 @@ arch="$HOST_ARCH"
 skiko_arch="$SKIKO_ARCH"
 
 for source_file in renderer_entry.c macos_awt_compat.c macos_main_thread.m \
-                   appkit_window.m jawt_forwarder.c lwawt_placeholder.c; do
+                   appkit_window.m macos_notifications.m jawt_forwarder.c lwawt_placeholder.c; do
     [[ -f "$NATIVE_DIR/c/$source_file" ]] || die "missing $NATIVE_DIR/c/$source_file"
 done
 
@@ -33,6 +33,8 @@ cc -c -O2 -arch "$arch" -o "$obj/macos_main_thread.o" "$NATIVE_DIR/c/macos_main_
 # holds AppKit and Metal objects, and reference counting them by hand is a class of bug
 # this project has no reason to invite.
 cc -c -O2 -fobjc-arc -arch "$arch" -o "$obj/appkit_window.o" "$NATIVE_DIR/c/appkit_window.m"
+# Notifications through UNUserNotificationCenter. With ARC for the same reason as the window.
+cc -c -O2 -fobjc-arc -arch "$arch" -o "$obj/macos_notifications.o" "$NATIVE_DIR/c/macos_notifications.m"
 
 exported=(dioxus_compose_renderer_run dioxus_compose_renderer_request_frame
           dioxus_compose_jawt_get_awt JNI_OnLoad_osxui)
@@ -53,6 +55,7 @@ linker_args=("-H:NativeLinkerOption=-Wl,-undefined,dynamic_lookup"
              "-H:NativeLinkerOption=$obj/renderer_entry.o" "-H:NativeLinkerOption=$obj/macos_awt_compat.o"
              "-H:NativeLinkerOption=$obj/macos_main_thread.o"
              "-H:NativeLinkerOption=$obj/appkit_window.o"
+             "-H:NativeLinkerOption=$obj/macos_notifications.o"
              # Named rather than left to the loader. AppKit resolves today because the
              # toolkit has already opened it; a window that does not use the toolkit has
              # nobody to borrow it from.
@@ -61,6 +64,7 @@ linker_args=("-H:NativeLinkerOption=-Wl,-undefined,dynamic_lookup"
              "-H:NativeLinkerOption=-framework" "-H:NativeLinkerOption=Metal"
              "-H:NativeLinkerOption=-framework" "-H:NativeLinkerOption=MetalKit"
              "-H:NativeLinkerOption=-framework" "-H:NativeLinkerOption=QuartzCore"
+             "-H:NativeLinkerOption=-framework" "-H:NativeLinkerOption=UserNotifications"
              "-H:NativeLinkerOption=-Wl,-install_name,@rpath/$LIBRARY_NAME.dylib")
 for symbol in "${exported[@]}"; do
     linker_args+=("-H:NativeLinkerOption=-Wl,-exported_symbol,_$symbol")

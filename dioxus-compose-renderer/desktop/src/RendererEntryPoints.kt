@@ -47,6 +47,21 @@ fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
         // and read its view as a Direct3D device. Which platform this is decides, rather
         // than which variable was set.
         val platform = System.getProperty("os.name", "")
+        // The notification centre, before the Host starts: its first batch may already post
+        // one. macOS and Windows reach theirs through the C this image was linked with;
+        // Linux speaks to the notification daemon over the session bus. A development run on
+        // a JVM never comes through here and keeps the default, which shows nothing and says
+        // so.
+        Notifications.platform = when {
+            platform.startsWith("Mac") || platform.startsWith("Windows") ->
+                NativeDesktopNotifications()
+            platform.startsWith("Linux") -> DBusNotifications(
+                open = { JvmBusConnection.open(wake = FrameRequests::request) },
+                bringToFront = ::bringAwtWindowToFront,
+                applicationName = JvmBusConnection.applicationName(),
+            )
+            else -> UnsupportedNotifications
+        }
         if (System.getenv("DXC_APPKIT_WINDOW") != null && platform.startsWith("Mac")) {
             // Before anything else on this path. The toolkit, if it is ever woken, asks
             // the main thread to run the application, and this thread is the one drawing
@@ -90,4 +105,22 @@ fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
 @CEntryPoint(name = "dioxus_compose_renderer_request_frame_impl")
 fun rendererRequestFrame(thread: IsolateThread?) {
     FrameRequests.request()
+}
+
+/**
+ * Brings the application's window up for a press on a notification's body: back from
+ * being minimised, and in front of the others.
+ *
+ * On the toolkit's thread, because that is the only thread a toolkit window may be touched
+ * from, and a press is reported from wherever the bus was read.
+ */
+private fun bringAwtWindowToFront() {
+    java.awt.EventQueue.invokeLater {
+        val window = java.awt.Window.getWindows().firstOrNull { it.isVisible } ?: return@invokeLater
+        if (window is java.awt.Frame) {
+            window.extendedState = window.extendedState and java.awt.Frame.ICONIFIED.inv()
+        }
+        window.toFront()
+        window.requestFocus()
+    }
 }

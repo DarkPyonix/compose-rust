@@ -57,6 +57,11 @@ pub enum EventPayloadType {
     WindowSize,
     /// One `u16`: the tag of the design system the Renderer resolved the theme to.
     DesignSystem,
+    /// A `u32` saying what was pressed (0 for the body, 1 or 2 for an action button), then
+    /// the notification's key as a string reference.
+    NotificationActivation,
+    /// One `u32`: the notification permission the Renderer last saw.
+    NotificationPermission,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -73,10 +78,10 @@ pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible;",
     "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material;",
     "keys=Enter;",
-    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped;",
+    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged;",
     "windowsizeclasses=Compact,Medium,Expanded;",
     "windowheightclasses=Compact,Medium,Expanded;",
-    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage"
+    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission"
 );
 
 const fn hash_bytes(mut hash: u64, bytes: &[u8]) -> u64 {
@@ -191,6 +196,8 @@ const fn schema_hash() -> u64 {
                 EventPayloadType::Double => 5,
                 EventPayloadType::WindowSize => 6,
                 EventPayloadType::DesignSystem => 7,
+                EventPayloadType::NotificationActivation => 8,
+                EventPayloadType::NotificationPermission => 9,
             }],
         );
         index += 1;
@@ -728,6 +735,34 @@ define_wire_enum!(MESSAGE_DURATION_SCHEMA, MessageDuration {
     Long = 2,
 });
 
+// How much a notification matters. Closed for the same reason a message's duration is: what
+// it is worth in sound, in an Android channel's importance or in getting through Do Not
+// Disturb is the platform's answer, so the Host has no way to send a sound file or a
+// priority number.
+define_wire_enum!(NOTIFICATION_IMPORTANCE_SCHEMA, NotificationImportance {
+    Normal = 1,
+    Urgent = 2,
+});
+
+// Whether a notification is shown while the application's window is the active one.
+// `WhenInactive` is dropped by the Renderer when the window has focus: whether it has is
+// the Renderer's state, and a Host that wanted to judge it would need every focus change
+// sent across.
+define_wire_enum!(NOTIFICATION_PRESENTATION_SCHEMA, NotificationPresentation {
+    Always = 1,
+    WhenInactive = 2,
+});
+
+// Whether this run may show notifications. `Unsupported` is a platform or a run that has
+// no way to show one (no bundle identifier, no AppUserModelID, no notification daemon),
+// which is an answer and not an error.
+define_wire_enum!(NOTIFICATION_PERMISSION_SCHEMA, NotificationPermission {
+    NotDetermined = 1,
+    Granted = 2,
+    Denied = 3,
+    Unsupported = 4,
+});
+
 // The design systems of phase one. Later ones append variants here and nowhere else: a new
 // design system is one variant plus one token table and rule implementation in the Renderer.
 //
@@ -849,6 +884,18 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
     RoleEnumSchema {
         name: "SlotRole",
         variants: SLOT_ROLE_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "NotificationImportance",
+        variants: NOTIFICATION_IMPORTANCE_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "NotificationPresentation",
+        variants: NOTIFICATION_PRESENTATION_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "NotificationPermission",
+        variants: NOTIFICATION_PERMISSION_SCHEMA,
     },
 ];
 
@@ -1590,6 +1637,18 @@ pub enum EventPayload<'a> {
     /// The platform stopped the UI. Timers and animations are suppressed, so a process
     /// that is not on screen is not asked to draw.
     LifecycleStop,
+    /// The user pressed a notification the application posted. `action` is 0 for the body
+    /// and 1 or 2 for an action button; `key` is the name the application gave it.
+    ///
+    /// A name rather than a handler, because a notification outlives the component that
+    /// posted it by hours and a callback dies with its scope.
+    NotificationActivated {
+        action: u32,
+        key: &'a str,
+    },
+    /// Whether notifications may be shown, sent once after start and then only when the
+    /// answer changes.
+    NotificationPermissionChanged(NotificationPermission),
 }
 
 pub const EVENT_SCHEMA: &[EventSchema] = &[
@@ -1674,6 +1733,18 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
         name: "FilesDropped",
         tag: 23,
         payload: EventPayloadType::Text,
+    },
+    // Both address the Host itself, like the resolved design system: a notification is not
+    // in the tree, so there is no node and no handler to name.
+    EventSchema {
+        name: "NotificationActivated",
+        tag: 24,
+        payload: EventPayloadType::NotificationActivation,
+    },
+    EventSchema {
+        name: "NotificationPermissionChanged",
+        tag: 25,
+        payload: EventPayloadType::NotificationPermission,
     },
 ];
 

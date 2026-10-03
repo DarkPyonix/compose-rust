@@ -251,6 +251,34 @@ impl ComposeRenderer {
         });
     }
 
+    /// Writes one notification command into the batch.
+    ///
+    /// Like a message it names no node: what it asks for happens outside the window, and
+    /// the Renderer is the side that owns the platform it happens on.
+    pub fn notification(&mut self, command: &crate::notification::NotificationCommand) {
+        use crate::notification::NotificationCommand;
+        match command {
+            NotificationCommand::Post(notification) => {
+                self.write(Mutation::PostNotification {
+                    key: &notification.key,
+                    title: &notification.title,
+                    body: &notification.body,
+                    channel: &notification.channel,
+                    action_1: &notification.actions[0],
+                    action_2: &notification.actions[1],
+                    importance: notification.importance,
+                    presentation: notification.presentation,
+                });
+            }
+            NotificationCommand::Withdraw(key) => {
+                self.write(Mutation::WithdrawNotification { key });
+            }
+            NotificationCommand::RequestPermission => {
+                self.write(Mutation::RequestNotificationPermission);
+            }
+        }
+    }
+
     /// Append the streamed tail to a Text node without resending its whole value.
     pub fn append_text_node(&mut self, node_id: u32, text: &str) {
         self.write(Mutation::AppendText { node_id, text });

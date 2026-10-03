@@ -56,6 +56,12 @@ enum class TitleBar { Normal, Simple }
 
 enum class SlotRole { TopBar, BottomBar, FloatingAction, Content }
 
+enum class NotificationImportance { Normal, Urgent }
+
+enum class NotificationPresentation { Always, WhenInactive }
+
+enum class NotificationPermission { NotDetermined, Granted, Denied, Unsupported }
+
 enum class LoopMode(val wire: Byte) {
     /** The Renderer runs the loop and the Host blocks inside it. Desktop. */
     Renderer(0),
@@ -506,6 +512,31 @@ sealed interface Mutation {
         val action: String,
         val duration: MessageDuration,
     ) : Mutation
+
+    /**
+     * One notification to show outside the window.
+     *
+     * Not a node: it outlives the component that posted it, and when it goes away is up to
+     * the user in the notification centre. Posting again under the same `key` replaces it;
+     * an empty `key` is named by the Renderer and can be neither replaced nor withdrawn. An
+     * empty action label is no button.
+     */
+    data class PostNotification(
+        val key: String,
+        val title: String,
+        val body: String,
+        val channel: String,
+        val action1: String,
+        val action2: String,
+        val importance: NotificationImportance,
+        val presentation: NotificationPresentation,
+    ) : Mutation
+
+    /** Takes back the notification posted under `key`, if it is still showing. */
+    data class WithdrawNotification(val key: String) : Mutation
+
+    /** Asks the platform for permission. The answer comes back as an event. */
+    data object RequestNotificationPermission : Mutation
 }
 
 sealed interface HostEvent {
@@ -527,13 +558,15 @@ sealed interface HostEvent {
     data class DesignSystemResolved(override val nodeId: Int, override val handlerId: Long, val system: DesignSystem) : HostEvent
     data class FilesEntered(override val nodeId: Int, override val handlerId: Long) : HostEvent
     data class FilesDropped(override val nodeId: Int, override val handlerId: Long, val text: String) : HostEvent
+    data class NotificationActivated(override val nodeId: Int, override val handlerId: Long, val action: Int, val key: String) : HostEvent
+    data class NotificationPermissionChanged(override val nodeId: Int, override val handlerId: Long, val state: NotificationPermission) : HostEvent
 }
 
 class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -8354420781736451870L
+    const val SCHEMA_HASH: Long = -2909142052296901092L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -550,6 +583,9 @@ object Protocol {
     private const val TAG_RELEASE_ASSET = 11
     private const val TAG_SHOW_MESSAGE = 12
     private const val TAG_SET_WINDOW = 13
+    private const val TAG_POST_NOTIFICATION = 14
+    private const val TAG_WITHDRAW_NOTIFICATION = 15
+    private const val TAG_REQUEST_NOTIFICATION_PERMISSION = 16
     private const val ENVELOPE_LENGTH = 12
     /** Four role tags, one font asset id per type role, then the palette's reference. */
     private val THEME_RECORD_LENGTH = 20 + 4 * TypeRole.entries.size
@@ -748,6 +784,27 @@ object Protocol {
                             messageDuration(readU16(batch, base, available, offset + 28), offset + 28),
                         )
                     }
+                    TAG_POST_NOTIFICATION -> {
+                        requireRecordLength(length, 56, offset)
+                        Mutation.PostNotification(
+                            readString(batch, base, available, offset + 4),
+                            readString(batch, base, available, offset + 12),
+                            readString(batch, base, available, offset + 20),
+                            readString(batch, base, available, offset + 28),
+                            readString(batch, base, available, offset + 36),
+                            readString(batch, base, available, offset + 44),
+                            notificationImportance(readU16(batch, base, available, offset + 52), offset + 52),
+                            notificationPresentation(readU16(batch, base, available, offset + 54), offset + 54),
+                        )
+                    }
+                    TAG_WITHDRAW_NOTIFICATION -> {
+                        requireRecordLength(length, 12, offset)
+                        Mutation.WithdrawNotification(readString(batch, base, available, offset + 4))
+                    }
+                    TAG_REQUEST_NOTIFICATION_PERMISSION -> {
+                        requireRecordLength(length, 4, offset)
+                        Mutation.RequestNotificationPermission
+                    }
                     else -> throw ProtocolException("unknown mutation tag $tag", offset)
                 }
                 onMutation(mutation)
@@ -830,6 +887,8 @@ object Protocol {
                 is HostEvent.DesignSystemResolved -> null
                 is HostEvent.FilesEntered -> null
                 is HostEvent.FilesDropped -> event.text.toByteArray(StandardCharsets.UTF_8)
+                is HostEvent.NotificationActivated -> event.key.toByteArray(StandardCharsets.UTF_8)
+                is HostEvent.NotificationPermissionChanged -> null
             }
             val recordLength = when (event) {
                 is HostEvent.Clicked -> 16
@@ -847,6 +906,8 @@ object Protocol {
                 is HostEvent.DesignSystemResolved -> 20
                 is HostEvent.FilesEntered -> 16
                 is HostEvent.FilesDropped -> 24
+                is HostEvent.NotificationActivated -> 28
+                is HostEvent.NotificationPermissionChanged -> 20
             }
             val totalLength = recordLength.toLong() + (text?.size ?: 0)
             if (totalLength > Int.MAX_VALUE || totalLength > out.remaining().toLong()) {
@@ -868,6 +929,8 @@ object Protocol {
                 is HostEvent.DesignSystemResolved -> 21
                 is HostEvent.FilesEntered -> 22
                 is HostEvent.FilesDropped -> 23
+                is HostEvent.NotificationActivated -> 24
+                is HostEvent.NotificationPermissionChanged -> 25
             }
             out.putShort(tag.toShort())
             out.putShort(recordLength.toShort())
@@ -911,6 +974,13 @@ object Protocol {
                 }
                 is HostEvent.FilesEntered -> Unit
                 is HostEvent.FilesDropped -> writeStringReference(out, recordLength, text!!)
+                is HostEvent.NotificationActivated -> {
+                    out.putInt(event.action)
+                    writeStringReference(out, recordLength, text!!)
+                }
+                is HostEvent.NotificationPermissionChanged -> {
+                    out.putInt(notificationPermissionTag(event.state))
+                }
             }
             if (text != null) out.put(text)
             return out.position() - start
@@ -1073,6 +1143,13 @@ object Protocol {
         DesignSystem.Breeze -> 5
         DesignSystem.Deepin -> 6
         DesignSystem.LiquidGlass -> 7
+    }
+
+    private fun notificationPermissionTag(state: NotificationPermission): Int = when (state) {
+        NotificationPermission.NotDetermined -> 1
+        NotificationPermission.Granted -> 2
+        NotificationPermission.Denied -> 3
+        NotificationPermission.Unsupported -> 4
     }
 
     private fun paletteRole(tag: Int): ColorRole? = when (tag) {
@@ -1355,6 +1432,26 @@ object Protocol {
         3 -> SlotRole.FloatingAction
         4 -> SlotRole.Content
         else -> throw ProtocolException("unknown SlotRole tag $tag", offset)
+    }
+
+    private fun notificationImportance(tag: Int, offset: Int): NotificationImportance = when (tag) {
+        1 -> NotificationImportance.Normal
+        2 -> NotificationImportance.Urgent
+        else -> throw ProtocolException("unknown NotificationImportance tag $tag", offset)
+    }
+
+    private fun notificationPresentation(tag: Int, offset: Int): NotificationPresentation = when (tag) {
+        1 -> NotificationPresentation.Always
+        2 -> NotificationPresentation.WhenInactive
+        else -> throw ProtocolException("unknown NotificationPresentation tag $tag", offset)
+    }
+
+    private fun notificationPermission(tag: Int, offset: Int): NotificationPermission = when (tag) {
+        1 -> NotificationPermission.NotDetermined
+        2 -> NotificationPermission.Granted
+        3 -> NotificationPermission.Denied
+        4 -> NotificationPermission.Unsupported
+        else -> throw ProtocolException("unknown NotificationPermission tag $tag", offset)
     }
 
     private fun paint(bits: Long, offset: Int): Paint {
