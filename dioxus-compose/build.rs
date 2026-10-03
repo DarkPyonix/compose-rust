@@ -9,14 +9,15 @@ mod renderer_dir {
 }
 
 use renderer_dir::{
-    CACHE_DIR_ENV, FetchError, RENDERER_DIR_ENV, RendererLinkage, RendererSource, Request,
-    acquire_renderer, artifact_target, default_cache_root, renderer_linkage,
+    CACHE_DIR_ENV, FetchError, RENDERER_DIR_ENV, RendererKind, RendererLinkage, RendererSource,
+    Request, acquire_renderer, artifact_target, default_cache_root, renderer_linkage,
 };
 
-/// What the Linux static renderer ships beside its archive so that an application exports
-/// the Host's functions. Linked through `-l`, so the `lib` prefix and suffix are dropped
-/// there.
-const HOST_EXPORTS_LIBRARY: &str = "libdioxus_compose_host_exports.so";
+/// Point at a directory holding a static renderer built in a checkout of this repository
+/// (`build-macos.sh` and `build-linux.sh` write one). They predate
+/// `DIOXUS_COMPOSE_RENDERER_DIR` accepting an archive and keep working, ahead of it.
+const MACOS_STATIC_ENV: &str = "DXC_MACOS_NATIVE_LIB";
+const LINUX_STATIC_ENV: &str = "DXC_LINUX_NATIVE_LIB";
 
 /// docs.rs builds with the network switched off. Linking a renderer is not what building
 /// the documentation needs, so that build skips the whole thing and produces a library
@@ -47,10 +48,9 @@ fn main() {
     // Set when a renderer is actually linked into this build, which is not the same thing
     // as the feature being on: docs.rs turns the feature on and links nothing.
     println!("cargo:rustc-check-cfg=cfg(renderer_linked)");
-    // Set when the Linux static renderer is linked, which comes with a library the Host has
-    // to refer to so that the linker keeps it. See the DXC_LINUX_NATIVE_LIB branch below.
-    println!("cargo:rustc-check-cfg=cfg(renderer_host_exports)");
     println!("cargo:rerun-if-env-changed={RENDERER_DIR_ENV}");
+    println!("cargo:rerun-if-env-changed={MACOS_STATIC_ENV}");
+    println!("cargo:rerun-if-env-changed={LINUX_STATIC_ENV}");
     println!("cargo:rerun-if-env-changed={CACHE_DIR_ENV}");
     println!("cargo:rerun-if-env-changed={DOCS_RS_ENV}");
     println!("cargo:rerun-if-changed=build/renderer_dir.rs");
@@ -115,151 +115,66 @@ fn main() {
         return;
     }
 
-    // The renderer built for this platform directly, with no virtual machine in it.
-    //
-    // Off unless DXC_MACOS_NATIVE_LIB names the directory holding
-    // `libdioxus_compose_renderer.a`, because it is not what the published crate ships:
-    // `dioxus-compose-renderer/desktop/scripts/build-macos.sh` makes one in a checkout.
-    //
-    // A static archive rather than a library beside the binary, because Kotlin/Native
-    // produces one and because what is inside it is most of Compose and all of Skia: what
-    // the application does not reach, the linker drops.
-    if target_os == "macos" {
-        if let Some(dir) = std::env::var_os("DXC_MACOS_NATIVE_LIB") {
-            let dir = PathBuf::from(dir);
-            println!("cargo:rerun-if-env-changed=DXC_MACOS_NATIVE_LIB");
-            // The archive itself, not only the variable naming it. Rebuilding the
-            // renderer and not saying so left Cargo linking yesterday's one and
-            // reporting a build that finished in no time at all.
-            println!(
-                "cargo:rerun-if-changed={}",
-                dir.join("libdioxus_compose_renderer.a").display()
-            );
-            println!("cargo:rustc-link-search=native={}", dir.display());
-            println!("cargo:rustc-link-lib=static=dioxus_compose_renderer");
-            // What the archive itself calls in. Kotlin/Native names none of these: they
-            // are the frameworks Compose and Skia reach through, and the compression the
-            // Kotlin runtime uses for its own resources.
-            for framework in [
-                "AppKit",
-                "Foundation",
-                "Metal",
-                "QuartzCore",
-                "CoreGraphics",
-                "CoreText",
-                "CoreServices",
-                "IOKit",
-                "Carbon",
-                "OpenGL",
-            ] {
-                println!("cargo:rustc-link-lib=framework={framework}");
-            }
-            println!("cargo:rustc-link-lib=dylib=c++");
-            println!("cargo:rustc-link-lib=dylib=z");
-            println!("cargo:rustc-cfg=renderer_linked");
-            return;
-        }
-    }
-
-    // The same thing on Linux, from `build-linux.sh`, and the same reasons.
-    if target_os == "linux" {
-        if let Some(dir) = std::env::var_os("DXC_LINUX_NATIVE_LIB") {
-            let dir = PathBuf::from(dir);
-            println!("cargo:rerun-if-env-changed=DXC_LINUX_NATIVE_LIB");
-            println!(
-                "cargo:rerun-if-changed={}",
-                dir.join("libdioxus_compose_renderer.a").display()
-            );
-            println!("cargo:rustc-link-search=native={}", dir.display());
-            println!("cargo:rustc-link-lib=static=dioxus_compose_renderer");
-            // What the archive itself calls in and Kotlin/Native names none of: the
-            // window's own libraries, the font configuration Skia asks for a font
-            // through, and the compression the Kotlin runtime uses for its resources.
-            // `stdc++` where macOS says `c++`: Skia is C++ and names its standard
-            // library's symbols, and the archive says nothing about which one. Without it
-            // the link fails on eight hundred references to std::string from Skia's text
-            // shaping alone.
-            for library in ["X11", "Xext", "GL", "fontconfig", "freetype", "stdc++", "z"] {
-                println!("cargo:rustc-link-lib=dylib={library}");
-            }
-            // A desktop keeps these where its own convention puts them and the
-            // conventions differ, so both are searched. One that is not there costs
-            // nothing.
-            for path in ["/usr/lib/x86_64-linux-gnu", "/usr/lib64"] {
-                println!("cargo:rustc-link-search=native={path}");
-            }
-            // The Host's own five functions, put where the renderer can find them.
-            //
-            // It resolves them by name at startup with `dlsym`, which reads the dynamic
-            // symbol table, and an executable's table holds only what its link put there.
-            // Without them the window opens, stays black and reports that
-            // `dioxus_compose_host_init is not in this image`.
-            //
-            // `-rdynamic` used to be emitted here, and it reached this package's own
-            // binaries and no application: Cargo does not pass a dependency's link
-            // arguments on. A library it names does reach every application, so the
-            // renderer build ships a small one that leaves the five undefined, and a
-            // linker exports from an executable what a library it links needs. The Host
-            // refers to one byte in it (see `native_run`) so that `--as-needed` keeps it.
-            // It is named after its absolute path, the way the desktop renderer is, so an
-            // application with no rpath can load it.
-            let exports = renderer_dir::absolute(&dir).join(HOST_EXPORTS_LIBRARY);
-            println!("cargo:rerun-if-changed={}", exports.display());
-            if !exports.is_file() {
-                panic!(
-                    "\n\ndioxus-compose: {} has the static renderer but not {HOST_EXPORTS_LIBRARY}.\n\n\
-                     The renderer finds the Host's functions in the application's dynamic \
-                     symbol table, and that library is what puts them there. Without it the \
-                     application would build, open a black window and report that \
-                     dioxus_compose_host_init is not in the image.\n\n\
-                     dioxus-compose-renderer/desktop/scripts/build-linux.sh writes both \
-                     files; build the renderer again, or point DXC_LINUX_NATIVE_LIB at the \
-                     directory it wrote them to.\n\n",
-                    dir.display()
-                );
-            }
-            let crate_version =
-                std::env::var("CARGO_PKG_VERSION").expect("Cargo sets CARGO_PKG_VERSION");
-            let target = artifact_target(
-                &target_os,
-                &std::env::var("CARGO_CFG_TARGET_ARCH").expect("Cargo sets CARGO_CFG_TARGET_ARCH"),
-            );
-            if let Err(message) = renderer_dir::name_after_its_location(
-                &exports,
-                &exports,
-                &target_os,
-                &crate_version,
-                &target,
-            ) {
-                panic!("\n\n{message}\n\n");
-            }
-            println!("cargo:rustc-link-lib=dylib=dioxus_compose_host_exports");
-            println!("cargo:rustc-cfg=renderer_host_exports");
-            println!("cargo:rustc-cfg=renderer_linked");
-            return;
-        }
-    }
-
     let manifest_dir = PathBuf::from(
         std::env::var_os("CARGO_MANIFEST_DIR").expect("Cargo sets CARGO_MANIFEST_DIR"),
     );
+    let crate_version = std::env::var("CARGO_PKG_VERSION").expect("Cargo sets CARGO_PKG_VERSION");
+    let target_arch =
+        std::env::var("CARGO_CFG_TARGET_ARCH").expect("Cargo sets CARGO_CFG_TARGET_ARCH");
+    let target = artifact_target(&target_os, &target_arch);
+
+    // A static renderer built in a checkout, named by the variable that has always named it.
+    let static_override = match target_os.as_str() {
+        "macos" => std::env::var_os(MACOS_STATIC_ENV),
+        "linux" => std::env::var_os(LINUX_STATIC_ENV),
+        _ => None,
+    };
+    if let Some(dir) = static_override {
+        let dir = renderer_dir::absolute(&PathBuf::from(dir));
+        if !dir
+            .join(renderer_dir::renderer_static_file(&target_os))
+            .is_file()
+        {
+            panic!(
+                "\n\ncompose-rust: {} does not hold {}.\n\nThe variable names the \
+                 directory a static renderer build wrote: \
+                 dioxus-compose-renderer/desktop/scripts/build-macos.sh writes \
+                 dioxus-compose-renderer/build/macos, and build-linux.sh writes \
+                 dioxus-compose-renderer/build/linux. Unset it and this build finds or \
+                 downloads a renderer by itself.\n\n",
+                dir.display(),
+                renderer_dir::renderer_static_file(&target_os)
+            );
+        }
+        check_schema_agreement(&dir);
+        link_static(&target_os, &target, &dir);
+        return;
+    }
+
     // Only present in a checkout of this repository, and only once its renderer has been
     // built. A consumer of the published crate has neither, which is why everything below
-    // it exists.
-    let workspace_lib_dir =
-        manifest_dir.join("../dioxus-compose-renderer/build/native-image/dist/lib");
-    let crate_version = std::env::var("CARGO_PKG_VERSION").expect("Cargo sets CARGO_PKG_VERSION");
-    let target = artifact_target(
-        &target_os,
-        &std::env::var("CARGO_CFG_TARGET_ARCH").expect("Cargo sets CARGO_CFG_TARGET_ARCH"),
-    );
+    // it exists. The static archive comes first, because it is what the release ships for
+    // macOS and Linux; the native image is what a checkout built before that.
+    let renderer_build = manifest_dir.join("../dioxus-compose-renderer/build");
+    let static_dir = match (target_os.as_str(), target_arch.as_str()) {
+        ("macos", _) => Some(renderer_build.join("macos")),
+        ("linux", "x86_64") => Some(renderer_build.join("linux")),
+        ("linux", "aarch64") => Some(renderer_build.join("linux-arm64")),
+        _ => None,
+    };
+    let shared_dir = renderer_build.join("native-image/dist/lib");
+    let workspace_dirs: Vec<&Path> = static_dir
+        .as_deref()
+        .into_iter()
+        .chain(std::iter::once(shared_dir.as_path()))
+        .collect();
     let cache_root = cache_root();
 
     let renderer = match acquire_renderer(&Request {
         env_dir: std::env::var_os(RENDERER_DIR_ENV)
             .map(PathBuf::from)
             .as_deref(),
-        workspace_lib_dir: &workspace_lib_dir,
+        workspace_dirs: &workspace_dirs,
         cache_root: cache_root.as_deref(),
         crate_version: &crate_version,
         target: &target,
@@ -288,6 +203,107 @@ fn main() {
 
     let lib_dir = renderer.lib_dir;
     check_schema_agreement(&lib_dir);
+    match renderer.kind {
+        RendererKind::Static => link_static(&target_os, &target, &lib_dir),
+        RendererKind::Shared => link_shared(&target_os, &lib_dir),
+    }
+}
+
+/// What a static renderer calls into on each platform, beyond what Rust links anyway.
+///
+/// Kotlin/Native names none of these: they are what Compose and Skia reach through, and
+/// the compression the Kotlin runtime uses for its own resources. Every one is part of the
+/// system, which is what lets the application be one file.
+///
+/// A platform missing here has no static renderer yet. Windows is the next one: its
+/// archive slots in by adding its system libraries as a row of this table.
+struct StaticLink {
+    frameworks: &'static [&'static str],
+    libraries: &'static [&'static str],
+    search_paths: &'static [&'static str],
+}
+
+fn static_link(target_os: &str) -> Option<StaticLink> {
+    match target_os {
+        "macos" => Some(StaticLink {
+            frameworks: &[
+                "AppKit",
+                "Foundation",
+                "Metal",
+                "QuartzCore",
+                "CoreGraphics",
+                "CoreText",
+                "CoreServices",
+                "IOKit",
+                "Carbon",
+                "OpenGL",
+            ],
+            libraries: &["c++", "z"],
+            search_paths: &[],
+        }),
+        // The window's own libraries, the font configuration Skia asks for a font through,
+        // and the compression the Kotlin runtime uses for its resources. `stdc++` where
+        // macOS says `c++`: Skia is C++ and names its standard library's symbols, and the
+        // archive says nothing about which one. Without it the link fails on eight hundred
+        // references to std::string from Skia's text shaping alone.
+        //
+        // A desktop keeps these where its own convention puts them and the conventions
+        // differ, so all of them are searched. One that is not there costs nothing.
+        "linux" => Some(StaticLink {
+            frameworks: &[],
+            libraries: &["X11", "Xext", "GL", "fontconfig", "freetype", "stdc++", "z"],
+            search_paths: &[
+                "/usr/lib/x86_64-linux-gnu",
+                "/usr/lib/aarch64-linux-gnu",
+                "/usr/lib64",
+            ],
+        }),
+        _ => None,
+    }
+}
+
+/// Links the static renderer into whatever this crate ends up in.
+///
+/// A static archive rather than a library beside the binary, because it is what makes an
+/// application one executable, and because what is inside it is most of Compose and all
+/// of Skia: what the application does not reach, the linker drops.
+///
+/// The archive needs nothing from the application's link that a dependency cannot ask
+/// for. It reaches the Host's functions by name at link time, so no symbol has to be
+/// exported for it and no library has to travel beside the executable.
+fn link_static(target_os: &str, target: &str, lib_dir: &Path) {
+    let Some(link) = static_link(target_os) else {
+        panic!(
+            "\n\n{}\n\n",
+            renderer_dir::no_static_link_message(target, lib_dir)
+        );
+    };
+    // The archive itself, not only the directory naming it. Rebuilding the renderer and
+    // not saying so left Cargo linking yesterday's one and reporting a build that finished
+    // in no time at all.
+    println!(
+        "cargo:rerun-if-changed={}",
+        lib_dir
+            .join(renderer_dir::renderer_static_file(target_os))
+            .display()
+    );
+    println!("cargo:rustc-link-search=native={}", lib_dir.display());
+    println!("cargo:rustc-link-lib=static=dioxus_compose_renderer");
+    for framework in link.frameworks {
+        println!("cargo:rustc-link-lib=framework={framework}");
+    }
+    for path in link.search_paths {
+        println!("cargo:rustc-link-search=native={path}");
+    }
+    for library in link.libraries {
+        println!("cargo:rustc-link-lib=dylib={library}");
+    }
+    println!("cargo:rustc-cfg=renderer_linked");
+}
+
+/// Links a shared renderer: the GraalVM native image, which Windows ships and a checkout
+/// can still build for macOS and Linux.
+fn link_shared(target_os: &str, lib_dir: &Path) {
     println!("cargo:rerun-if-changed={}", lib_dir.display());
     println!("cargo:rustc-link-search=native={}", lib_dir.display());
     println!("cargo:rustc-cfg=renderer_linked");

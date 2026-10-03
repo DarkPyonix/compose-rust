@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 # Builds the renderer as a Kotlin/Native static library for Linux:
 #
-#   build/linux/<target>/
+#   build/linux/          (x86-64; build/linux-arm64/ for --arch arm64)
 #     libdioxus_compose_renderer.a        the renderer (Compose, Skia, the interpreter, our code)
 #     libdioxus_compose_renderer_api.h    the header Kotlin/Native generates for it
+#     schema-hash.txt                     the schema it was generated from
+#
+# The archive is what the release ships and what an application links: the application is
+# then one executable with the renderer, Skia and ICU inside, needing only the desktop's own
+# libraries (X11, GL, fontconfig, FreeType). The renderer refers to the Host's functions at
+# link time through linux/cinterop/host.def, so nothing has to sit beside the executable.
 #
 # The two symbols the Host calls are the same ones the desktop build exports, with the same
 # names and the same signatures: dioxus_compose_renderer_run and
@@ -20,7 +26,10 @@
 # linuxX64` does that, and this script says so rather than doing it, because it is a Gradle
 # build of someone else's repository and belongs in its own step.
 #
-# Usage: build-linux.sh [--release]
+# arm64 is cross compiled on an x86-64 machine: Kotlin/Native has no arm64 Linux host, and
+# the archive it produces is linked by the arm64 machine that builds the application.
+#
+# Usage: build-linux.sh [--release] [--arch x64|arm64]
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,16 +47,21 @@ die() {
 target="linux"
 optimization="-g"
 build_type="debug"
+arch="x64"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --release) optimization="-opt"; build_type="release"; shift ;;
-        -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
-        *) die "unknown argument '$1'" "usage: build-linux.sh [--release]" ;;
+        --arch) arch="${2:-}"; shift 2 ;;
+        -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
+        *) die "unknown argument '$1'" "usage: build-linux.sh [--release] [--arch x64|arm64]" ;;
     esac
 done
 
-konan_target="linux_x64"
-amper_platform="linuxX64"
+case "$arch" in
+    x64) konan_target="linux_x64"; amper_platform="linuxX64"; out_name="linux" ;;
+    arm64) konan_target="linux_arm64"; amper_platform="linuxArm64"; out_name="linux-arm64" ;;
+    *) die "unknown architecture '$arch'" "known: x64, arm64" ;;
+esac
 
 # Built where the libraries it links against are. Kotlin/Native can cross compile the code,
 # but the archive this produces is linked into an application by Cargo against the X11, Xext
@@ -70,9 +84,14 @@ KOTLIN_WRAPPER="$PROJECT_DIR/kotlin"
     "It is the self-bootstrapping Kotlin Toolchain wrapper; no separate install is needed." \
     "fix: chmod +x $KOTLIN_WRAPPER"
 
+if [[ "$(uname -m)" != "x86_64" ]]; then
+    die "Kotlin/Native builds Linux targets on an x86-64 machine only (this is $(uname -m))" \
+        "Build on x86-64 with --arch arm64 for an arm64 archive."
+fi
+
 BUILD_DIR="$PROJECT_DIR/build"
-OUT_DIR="$BUILD_DIR/linux"
-LOG_DIR="$BUILD_DIR/linux-logs"
+OUT_DIR="$BUILD_DIR/$out_name"
+LOG_DIR="$BUILD_DIR/$out_name-logs"
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR" "$LOG_DIR"
 
@@ -102,7 +121,9 @@ compile_task_dirs() {
 # The compile has to actually run: an up-to-date task logs no arguments, and its arguments
 # are where the resolved klib list comes from.
 while IFS= read -r stale; do rm -rf "$stale"; done < <(compile_task_dirs)
-(cd "$PROJECT_DIR" && "$KOTLIN_WRAPPER" --log-level=debug build -m linux -m staticlib-linux) >"$build_log" 2>&1 ||
+# One platform only: the other needs Compose published for it as well, and a machine
+# building one architecture has published that one.
+(cd "$PROJECT_DIR" && "$KOTLIN_WRAPPER" --log-level=debug build -m linux -m staticlib-linux -p "$amper_platform") >"$build_log" 2>&1 ||
     { cat "$build_log" >&2; die "the linux module did not compile" "Full log: $build_log"; }
 
 # Exactly one: none means the compile did not run, and two would mean the toolchain wrote
@@ -188,47 +209,37 @@ done
 # nm reports a non-zero status for archive members that hold no symbols, which under
 # pipefail would look like a failed check, so its output is read from a file.
 symbols_file="$LOG_DIR/$amper_platform-symbols.txt"
-nm -g "$archive" >"$symbols_file" 2>/dev/null || true
+# The host's nm reads only its own architecture on most distributions, so an arm64 archive
+# is read with the cross binutils (binutils-aarch64-linux-gnu) or LLVM's, which reads any.
+nm_tool=nm
+if [[ "$arch" == arm64 ]]; then
+    nm_tool=""
+    for candidate in aarch64-linux-gnu-nm llvm-nm; do
+        command -v "$candidate" >/dev/null && { nm_tool="$candidate"; break; }
+    done
+    [[ -n "$nm_tool" ]] || die "no nm that reads an arm64 archive" \
+        "Debian and Ubuntu: apt-get install binutils-aarch64-linux-gnu"
+fi
+"$nm_tool" -g "$archive" >"$symbols_file" 2>/dev/null || true
 for symbol in dioxus_compose_renderer_run dioxus_compose_renderer_request_frame; do
     grep -q " T $symbol\$" "$symbols_file" ||
         die "$archive does not export $symbol" \
             "Check the @CName annotations in staticlib-linux/src/LinuxEntryPoints.kt."
 done
 
-# The library that makes an application export the Host's functions.
-#
-# The renderer looks them up with dlsym, so they have to be in the executable's dynamic
-# symbol table, and nothing the Host crate can pass to an application's link puts them
-# there except a shared library that needs them. desktop/c/linux_host_exports.c says why
-# it takes a library rather than a flag, and why it defines one byte.
-#
-# The bare SONAME is a placeholder: the Host's build script renames it to the absolute path
-# it finds the library at, as it does the desktop renderer, so an application records where
-# it is. scripts/bundle-renderer.sh sets it back when an application is packaged.
-exports_name="libdioxus_compose_host_exports.so"
-exports="$OUT_DIR/$exports_name"
-c_dir="$PROJECT_DIR/desktop/c"
-cc -shared -fPIC -O2 -o "$exports" -Wl,-soname,"$exports_name" \
-    "$c_dir/linux_host_references.c" "$c_dir/linux_host_exports.c"
-
-# Every Host function the renderer looks up has to be left undefined here, or an
-# application does not export it and the renderer fails to find it at startup. The
-# renderer names them as strings, so the list is read from linux_host_references.c, which
-# scripts/tests/linux-host-references.test.sh holds to the Host and the renderer.
-host_wanted="$(grep -oE '^ +dioxus_compose_host_[a-z_]+,' "$c_dir/linux_host_references.c" |
-    tr -d ' ,' | sort -u)"
-host_referenced="$(nm -D --undefined-only "$exports" |
-    grep -oE 'dioxus_compose_host_[a-z_]+' | sort -u)"
-[[ -n "$host_wanted" && "$host_wanted" == "$host_referenced" ]] || die \
-    "$exports_name leaves '$(echo $host_referenced)' undefined, not '$(echo $host_wanted)'" \
-    "An application exports exactly what this library needs, and the renderer looks up the rest in vain."
-nm -D --defined-only "$exports" | grep -q ' dioxus_compose_renderer_host_exports$' || die \
-    "$exports_name does not define dioxus_compose_renderer_host_exports" \
-    "The Host refers to it so the linker keeps the library; without it the library is dropped."
+# The schema this renderer was generated from, written beside it, so the Host's build script
+# can see the two disagree before a program built from them opens an empty window.
+schema_hash_decimal="$(
+    grep -o 'const val SCHEMA_HASH: Long = -\?[0-9]*' \
+        "$PROJECT_DIR/desktop/src/protocol/Protocol.gen.kt" |
+        grep -o -- '-\?[0-9]*$'
+)"
+[[ -n "$schema_hash_decimal" ]] || die "could not read SCHEMA_HASH from desktop/src/protocol/Protocol.gen.kt"
+# printf rather than awk: the hash fills all 64 bits and awk works in doubles.
+printf '0x%016x\n' "$schema_hash_decimal" > "$OUT_DIR/schema-hash.txt"
 
 echo
 echo "$archive"
-echo "$exports"
 ls -la "$OUT_DIR"
 echo
 echo "exported boundary symbols:"

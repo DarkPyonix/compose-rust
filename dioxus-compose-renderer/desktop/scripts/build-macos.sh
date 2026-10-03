@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 # Builds the renderer as a Kotlin/Native static library for macOS:
 #
-#   build/macos/<target>/
+#   build/macos/
 #     libdioxus_compose_renderer.a        the renderer (Compose, Skia, the interpreter, our code)
 #     libdioxus_compose_renderer_api.h    the header Kotlin/Native generates for it
+#     schema-hash.txt                     the schema it was generated from
+#
+# The archive is what the release ships and what an application links: the application is
+# then one executable with the renderer, Skia and ICU inside, needing only the system's own
+# frameworks.
 #
 # The two symbols the Host calls are the same ones the desktop build exports, with the same
 # names and the same signatures: dioxus_compose_renderer_run and
@@ -188,6 +193,17 @@ for symbol in dioxus_compose_renderer_run dioxus_compose_renderer_request_frame;
         die "$archive does not export $symbol" \
             "Check the @CName annotations in staticlib/src/IosEntryPoints.kt."
 done
+
+# The schema this renderer was generated from, written beside it, so the Host's build script
+# can see the two disagree before a program built from them opens an empty window.
+schema_hash_decimal="$(
+    grep -o 'const val SCHEMA_HASH: Long = -\?[0-9]*' \
+        "$PROJECT_DIR/desktop/src/protocol/Protocol.gen.kt" |
+        grep -o -- '-\?[0-9]*$'
+)"
+[[ -n "$schema_hash_decimal" ]] || die "could not read SCHEMA_HASH from desktop/src/protocol/Protocol.gen.kt"
+# printf rather than awk: the hash fills all 64 bits and awk works in doubles.
+printf '0x%016x\n' "$schema_hash_decimal" > "$OUT_DIR/schema-hash.txt"
 
 echo
 echo "$archive"

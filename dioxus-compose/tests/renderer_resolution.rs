@@ -17,10 +17,10 @@ mod renderer_dir {
 use renderer_dir::elf;
 use renderer_dir::sha256::{Sha256, checksum_from_sha256_file, sha256_file, sha256_hex};
 use renderer_dir::{
-    CACHE_DIR_ENV, Fetch, FetchError, PUBLISHED_TARGETS, RENDERER_DIR_ENV, Renderer,
-    RendererSource, Request, acquire_renderer, artifact_file_name, artifact_target, artifact_url,
-    cached_renderer_dir, default_cache_root, download_dir, every_failure_message,
-    renderer_lib_file, renderer_lib_subdir, sibling_checksum,
+    CACHE_DIR_ENV, Fetch, FetchError, PUBLISHED_TARGETS, RENDERER_DIR_ENV, Renderer, RendererKind,
+    RendererSource, Request, STATIC_TARGETS, acquire_renderer, artifact_file_name, artifact_target,
+    artifact_url, cached_renderer_dir, default_cache_root, download_dir, every_failure_message,
+    renderer_lib_file, renderer_lib_subdir, renderer_static_file, sibling_checksum,
 };
 use std::path::{Path, PathBuf};
 
@@ -341,6 +341,156 @@ fn nfr11_a_downloaded_artifact_is_verified_and_unpacked() {
 }
 
 // -------------------------------------------------------------------------------------
+// The static renderer: one executable
+// -------------------------------------------------------------------------------------
+
+/// Stand-in bytes for a static archive. Nothing reads inside one before the linker does,
+/// so its content only has to survive the trip unchanged.
+const ARCHIVE_BYTES: &[u8] = b"!<arch>\nstand-in for the renderer's static archive\n";
+
+/// A distribution holding the static renderer: `lib/` for an unpacked artifact, or the
+/// archive straight in the directory, which is how `build-macos.sh` and `build-linux.sh`
+/// lay out what they write.
+fn static_tree(root: &Path, flat: bool) -> PathBuf {
+    let lib_dir = if flat {
+        root.to_path_buf()
+    } else {
+        root.join("lib")
+    };
+    std::fs::create_dir_all(&lib_dir).unwrap();
+    std::fs::write(
+        lib_dir.join(renderer_static_file(SAMPLE_TARGET_OS)),
+        ARCHIVE_BYTES,
+    )
+    .unwrap();
+    lib_dir
+}
+
+/// Every target published as a static archive is a target the release publishes at all,
+/// so a static target cannot be one nothing can download.
+#[test]
+fn nfr11_the_static_targets_are_published_targets() {
+    assert!(!STATIC_TARGETS.is_empty());
+    for target in STATIC_TARGETS {
+        assert!(
+            PUBLISHED_TARGETS.contains(target),
+            "{target} is said to be static and is not published"
+        );
+    }
+    for target in ["macos-aarch64", "linux-x64"] {
+        assert!(
+            STATIC_TARGETS.contains(&target),
+            "{target} has a static renderer and has to be published as one"
+        );
+    }
+}
+
+/// The release artifact for macOS and Linux is the static archive. It is downloaded,
+/// verified and unpacked the same way as a shared library, and then left exactly as it
+/// arrived: it has no name for an executable to record, because it ends up inside it.
+#[test]
+fn nfr11_a_static_archive_is_downloaded_unpacked_and_left_as_it_arrived() {
+    let temp = TempDir::new("static-download");
+    let release = temp.path().join("release");
+    static_tree(&release.join("staging"), false);
+    let prepared = pack(
+        &release.join("staging"),
+        &release,
+        Checksum::Correct,
+        SAMPLE_TARGET,
+    );
+
+    let served = prepared.clone();
+    let fetch = move |url: &str, destination: &Path| -> Result<(), FetchError> {
+        let source = if url.ends_with(".sha256") {
+            sibling_checksum(&served)
+        } else {
+            served.clone()
+        };
+        std::fs::copy(source, destination)
+            .map(|_| ())
+            .map_err(|error| FetchError::Failed(error.to_string()))
+    };
+
+    let renderer =
+        acquire(&temp, None, Network::Allowed(&fetch)).expect("the release serves this target");
+    assert_eq!(renderer.source, RendererSource::Download);
+    assert_eq!(renderer.kind, RendererKind::Static);
+    let archive = renderer
+        .lib_dir
+        .join(renderer_static_file(SAMPLE_TARGET_OS));
+    assert_eq!(
+        std::fs::read(&archive).unwrap(),
+        ARCHIVE_BYTES,
+        "the archive was changed on its way in"
+    );
+
+    let again = acquire(&temp, None, Network::Forbidden).expect("now cached");
+    assert_eq!(again.source, RendererSource::Cache);
+    assert_eq!(again.kind, RendererKind::Static);
+    assert_eq!(again.lib_dir, renderer.lib_dir);
+}
+
+/// The variable takes the directory a static build wrote, which holds the archive with no
+/// `lib/` around it.
+#[test]
+fn nfr10_the_variable_accepts_the_directory_a_static_build_wrote() {
+    let temp = TempDir::new("static-env");
+    let built = static_tree(&temp.path().join("build/linux"), true);
+
+    let renderer = acquire(&temp, Some(&built), Network::Forbidden).expect("an archive is there");
+    assert_eq!(renderer.source, RendererSource::Environment);
+    assert_eq!(renderer.kind, RendererKind::Static);
+    assert_eq!(renderer.lib_dir, built);
+}
+
+/// A directory holding both is linked as the archive, because the archive is what makes
+/// the application one file.
+#[test]
+fn nfr11_the_static_archive_wins_where_a_distribution_holds_both() {
+    let temp = TempDir::new("static-and-shared");
+    let root = renderer_tree(&temp.path().join("both"));
+    static_tree(&root, false);
+
+    let renderer = acquire(&temp, Some(&root), Network::Forbidden).expect("both are there");
+    assert_eq!(renderer.kind, RendererKind::Static);
+    assert_eq!(renderer.lib_dir, root.join("lib"));
+}
+
+/// A checkout's static build comes before its native image, and the native image still
+/// answers when there is no static build.
+#[test]
+fn nfr11_a_workspace_static_build_comes_before_the_native_image() {
+    let temp = TempDir::new("workspace-order");
+    let static_dir = temp.path().join("build/linux");
+    let shared_root = renderer_tree(&temp.path().join("build/native-image/dist"));
+    let shared_dir = shared_root.join(renderer_lib_subdir(SAMPLE_TARGET_OS));
+    let request = |workspace: &[&Path]| {
+        acquire_renderer(&Request {
+            env_dir: None,
+            workspace_dirs: workspace,
+            cache_root: Some(&temp.path().join("cache")),
+            crate_version: SAMPLE_VERSION,
+            target: SAMPLE_TARGET,
+            target_os: SAMPLE_TARGET_OS,
+            fetch: None,
+        })
+    };
+
+    let shared =
+        request(&[static_dir.as_path(), shared_dir.as_path()]).expect("the native image is there");
+    assert_eq!(shared.source, RendererSource::Workspace);
+    assert_eq!(shared.kind, RendererKind::Shared);
+
+    static_tree(&static_dir, true);
+    let archive =
+        request(&[static_dir.as_path(), shared_dir.as_path()]).expect("the static build is there");
+    assert_eq!(archive.source, RendererSource::Workspace);
+    assert_eq!(archive.kind, RendererKind::Static);
+    assert_eq!(archive.lib_dir, static_dir);
+}
+
+// -------------------------------------------------------------------------------------
 // Refusals
 // -------------------------------------------------------------------------------------
 
@@ -591,7 +741,7 @@ fn nfr11_a_renderer_built_in_the_workspace_is_named_after_where_it_sits() {
 
     let renderer = acquire_renderer(&Request {
         env_dir: None,
-        workspace_lib_dir: &lib_dir,
+        workspace_dirs: &[lib_dir.as_path()],
         cache_root: Some(&temp.path().join("cache")),
         crate_version: SAMPLE_VERSION,
         target: "macos-aarch64",
@@ -620,7 +770,7 @@ fn nfr10_a_renderer_the_variable_points_at_is_named_after_where_it_sits() {
 
     let renderer = acquire_renderer(&Request {
         env_dir: Some(&root),
-        workspace_lib_dir: &temp.path().join("no-workspace/lib"),
+        workspace_dirs: &[temp.path().join("no-workspace/lib").as_path()],
         cache_root: Some(&temp.path().join("cache")),
         crate_version: SAMPLE_VERSION,
         target: "macos-aarch64",
@@ -681,7 +831,7 @@ fn nfr11_a_renderer_that_already_answers_to_its_location_is_left_alone() {
 
     let renderer = acquire_renderer(&Request {
         env_dir: None,
-        workspace_lib_dir: &lib_dir,
+        workspace_dirs: &[lib_dir.as_path()],
         cache_root: Some(&temp.path().join("cache")),
         crate_version: SAMPLE_VERSION,
         target: "macos-aarch64",
@@ -1010,7 +1160,7 @@ fn acquire_for(
     let no_workspace = temp.path().join("no-workspace/lib");
     acquire_renderer(&Request {
         env_dir,
-        workspace_lib_dir: &no_workspace,
+        workspace_dirs: &[no_workspace.as_path()],
         cache_root: Some(cache),
         crate_version: SAMPLE_VERSION,
         target,
@@ -2025,15 +2175,19 @@ fn fr23_a_brush_paint_survives_the_wire() {
 fn fr36_the_android_manifest_declares_the_notification_permission_once() {
     let manifest = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n    <application />\n</manifest>\n";
     let declared = renderer_dir::with_notification_permission(manifest).unwrap();
-    assert!(declared.contains(
-        "<uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\" />"
-    ));
+    assert!(
+        declared
+            .contains("<uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\" />")
+    );
     let manifest_at = declared.find("<manifest").unwrap();
     let permission_at = declared.find("<uses-permission").unwrap();
     let application_at = declared.find("<application").unwrap();
     assert!(manifest_at < permission_at && permission_at < application_at);
     assert_eq!(renderer_dir::with_notification_permission(&declared), None);
-    assert_eq!(renderer_dir::with_notification_permission("<application />"), None);
+    assert_eq!(
+        renderer_dir::with_notification_permission("<application />"),
+        None
+    );
 }
 
 /// The generated Activity installs the notification centre before it asks for the Host and
