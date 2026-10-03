@@ -2,13 +2,13 @@
 //! The wasm shims for the web boundary.
 //!
 //! The Renderer owns the one linear memory and this module imports it, so a batch is read
-//! where it was written. That leaves the addresses: every argument below is an address or a
-//! length in that shared memory, and both buffers a call names belong to this side, because
-//! the Renderer has no allocator that can hold memory from one frame to the next.
+//! where it was written. That leaves the addresses: every address below is in that shared
+//! memory, and both buffers a call names belong to this side, because the Renderer has no
+//! allocator that can hold memory from one frame to the next.
 //!
-//! Every argument is 32 bits wide. A 64 bit one would reach the forwarder as a `BigInt`,
-//! which is a heap allocation on the call that happens every frame, so a frame timestamp
-//! arrives as its two halves and is put back together here.
+//! The Renderer reaches these through the generated trampoline, whose table holds them, so
+//! every call arrives from wasm with no JavaScript in between. A value arrives as the wasm
+//! type it is: an address or a length as an `i32`, a frame timestamp as one `i64`.
 
 use crate::boundary::{
     MutationBatch, RendererApi, STATUS_OK, STATUS_PROTOCOL_ERROR, install_renderer_api,
@@ -134,16 +134,10 @@ pub extern "C" fn compose_rust_host_web_dispatch_event(
 
 /// `RenderFrame`, which calls `compose_rust_host_render_frame`.
 #[unsafe(no_mangle)]
-pub extern "C" fn compose_rust_host_web_render_frame(
-    frame_time_nanos_low: u32,
-    frame_time_nanos_high: u32,
-    out: u32,
-) -> i32 {
+pub extern "C" fn compose_rust_host_web_render_frame(frame_time_nanos: u64, out: u32) -> i32 {
     if !(lent(out)) {
         return STATUS_PROTOCOL_ERROR;
     }
-    let frame_time_nanos =
-        (u64::from(frame_time_nanos_high) << 32) | u64::from(frame_time_nanos_low);
     // SAFETY: every address above was checked to be inside this module's region,
     // which is where the only buffers the Renderer can name live.
     unsafe {
