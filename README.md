@@ -322,6 +322,13 @@ One line. `cargo build` works out which renderer this target needs, downloads th
 artifact for the crate's exact version, checks it against the published `.sha256`, unpacks it
 into a cache outside `target/`, and links it.
 
+On macOS (arm64) and Linux (x64 and arm64) that artifact is the renderer as a static archive,
+so what `cargo build` produces is **one executable**: the renderer, Compose, Skia and ICU are
+inside it, nothing sits beside it, and it loads nothing but the system's own libraries
+(frameworks and `/usr/lib` on macOS; libc, X11, GL, fontconfig and FreeType on Linux). Copy it
+anywhere and run it. Windows still downloads the GraalVM native image, a DLL with its
+companions beside it, until the Windows static renderer lands.
+
 ```toml
 [dependencies]
 compose-rust = "0.0.1"
@@ -335,7 +342,7 @@ Two variables exist for the cases that need them, and neither is part of install
 
 | Variable | Effect |
 |---|---|
-| `DIOXUS_COMPOSE_RENDERER_DIR` | Use the renderer in this directory. Checked first, and nothing is downloaded when it is set, so a renderer you built yourself, a vendored copy or an air-gapped build all work through it. |
+| `DIOXUS_COMPOSE_RENDERER_DIR` | Use the renderer in this directory: an unpacked artifact, or the directory a renderer build wrote. It may hold the static archive (`libdioxus_compose_renderer.a`) or a shared library, and whichever it holds is linked. Checked first, and nothing is downloaded when it is set, so a renderer you built yourself, a vendored copy or an air-gapped build all work through it. |
 | `DIOXUS_COMPOSE_CACHE_DIR` | Move the cache off `$HOME/.cache/dioxus-compose` (`%LOCALAPPDATA%\dioxus-compose` on Windows). |
 
 A build with no network says which two files to put where, and putting them there is all it takes.
@@ -419,19 +426,28 @@ self-bootstrapping wrapper that downloads the pinned toolchain on first use.
 
 ### 5. Build the renderer
 
-Produces one static library, with Compose, Skia and the interpreter inside it, in
-`dioxus-compose-renderer/build/macos/` (`PR-8`). Takes several minutes.
+Produces one static library, with Compose, Skia and the interpreter inside it (`PR-8`). Takes
+several minutes. This is the same archive the release ships.
 
 ```bash
 cd dioxus-compose-renderer
-./desktop/scripts/build-macos.sh --release
+./desktop/scripts/build-macos.sh --release                   # macOS: build/macos/
+./desktop/scripts/build-linux.sh --release                   # Linux x64: build/linux/
+./desktop/scripts/build-linux.sh --release --arch arm64      # Linux arm64, cross compiled on x64: build/linux-arm64/
 ```
 
 ```
 build/macos/
   libdioxus_compose_renderer.a       the renderer (Compose, Skia, the interpreter, our code)
   libdioxus_compose_renderer_api.h   the header Kotlin/Native generates for it
+  schema-hash.txt                    the schema it was generated from, checked by the Host's build
 ```
+
+`scripts/package-static-renderer.sh` turns that directory into the release artifact,
+`dioxus-compose-renderer-v<version>-<target>.tar.gz` and its `.sha256`, and
+`scripts/check-single-executable.sh` builds an application from such an artifact and proves it
+is one executable: it reads `otool -L` or `readelf -d`, then copies the executable alone into an
+empty directory and requires it to draw.
 
 <details>
 <summary><b>The GraalVM native image, and what lands in <code>dist/lib/</code></b></summary>
@@ -467,10 +483,13 @@ For an unattended run, set `DIOXUS_COMPOSE_AUTOEXIT_MS=6000` to make the window 
 cargo run -p compose-rust --example desktop_demo --features native-renderer
 ```
 
-In a checkout of this repository the build script prefers the renderer you just built, at
-`dioxus-compose-renderer/build/native-image/dist/lib`, over anything it could download. The full
-order is `DIOXUS_COMPOSE_RENDERER_DIR`, then that workspace build, then the cache, then the release
-for the crate's version (`NFR-10`).
+In a checkout of this repository the build script prefers the renderer you just built over
+anything it could download: the static archive in `dioxus-compose-renderer/build/macos` (or
+`build/linux`, `build/linux-arm64`) first, then a native image in
+`dioxus-compose-renderer/build/native-image/dist/lib`. The full order is
+`DIOXUS_COMPOSE_RENDERER_DIR`, then that workspace build, then the cache, then the release for the
+crate's version (`NFR-10`). `DXC_MACOS_NATIVE_LIB` and `DXC_LINUX_NATIVE_LIB` still name a static
+renderer directory directly, ahead of all of them.
 
 ### 8. The JVM dev shell
 
@@ -599,9 +618,12 @@ SPEC says so explicitly rather than leaving them silently untested.
 
 CI mirrors that split. [`ci.yml`](.github/workflows/ci.yml) runs the Rust gate on macOS and Linux for
 every push and pull request, while [`native-renderer.yml`](.github/workflows/native-renderer.yml)
-builds the native-image renderer and runs the C smoke test on pushes to `main`/`develop`, nightly,
-and on demand, that build needs a ~1 GB NIK download and tens of minutes, which is too slow to put
-in front of every push (`NFR-5`, `D7`).
+builds the shipped renderers on pushes to `main`, nightly, and on demand: the Kotlin/Native static
+archives for macOS and Linux (x64 and arm64), the Windows native image and the iOS XCFramework.
+Its `single-executable` job builds an application from each static archive exactly as the release
+carries it and checks that the result is one executable. Those builds compile Compose and the
+renderer ahead of time and take tens of minutes, which is too slow to put in front of every push
+(`NFR-5`, `D7`).
 
 ### Commits
 

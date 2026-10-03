@@ -81,6 +81,14 @@ compose-rust = "0.0.1"</code></pre>
     </p>
 
     <p>
+      On macOS (arm64) and Linux (x64 and arm64) the artifact is the renderer as a static archive,
+      so the program <code>cargo build</code> produces is <strong>one executable</strong>. The
+      renderer, Compose, Skia and ICU are inside it, nothing sits beside it, and it loads only the
+      system's own libraries. Copy it anywhere and it runs. Windows still downloads the GraalVM
+      native image, a DLL with its companions beside it, until its static renderer lands.
+    </p>
+
+    <p>
       Two variables exist for the cases that need them, and neither is part of installing.
       <code>DIOXUS_COMPOSE_RENDERER_DIR</code> points at a renderer you already have, and is
       checked before anything is downloaded, so a renderer you built yourself, a vendored copy or
@@ -184,21 +192,25 @@ compose-rust = "0.0.1"</code></pre>
 
     <h2 id="renderer">Build the renderer</h2>
     <p>
-      On macOS one script does the whole thing. It compiles the renderer as a Kotlin/Native static
-      library, with Compose, Skia and the interpreter inside it:
+      One script per platform does the whole thing. It compiles the renderer as a Kotlin/Native
+      static library, with Compose, Skia and the interpreter inside it. This is the same archive
+      the release ships:
     </p>
 
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
       <figcaption>shell</figcaption>
-<pre><code>./dioxus-compose-renderer/desktop/scripts/build-macos.sh --release</code></pre>
+<pre><code>./dioxus-compose-renderer/desktop/scripts/build-macos.sh --release               <span class="c"># build/macos/</span>
+./dioxus-compose-renderer/desktop/scripts/build-linux.sh --release               <span class="c"># build/linux/</span>
+./dioxus-compose-renderer/desktop/scripts/build-linux.sh --release --arch arm64  <span class="c"># build/linux-arm64/, cross compiled on x64</span></code></pre>
     </figure>
 
-    <p>The result is one archive and the header generated for it:</p>
+    <p>The result is one archive, the header generated for it, and the schema it came from:</p>
 
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
-      <figcaption>dioxus-compose-renderer/build/macos/&lt;target&gt;/</figcaption>
+      <figcaption>dioxus-compose-renderer/build/macos/</figcaption>
 <pre><code>libdioxus_compose_renderer.a       <span class="c"># the renderer: Compose, Skia, the interpreter, our code</span>
-libdioxus_compose_renderer_api.h   <span class="c"># the header Kotlin/Native generates for it</span></code></pre>
+libdioxus_compose_renderer_api.h   <span class="c"># the header Kotlin/Native generates for it</span>
+schema-hash.txt                    <span class="c"># checked by the Host's build against its own</span></code></pre>
     </figure>
 
     <p>
@@ -219,8 +231,12 @@ libdioxus_compose_renderer_api.h   <span class="c"># the header Kotlin/Native ge
 
     <p>
       In a checkout of this repository the Rust build prefers the renderer you just built over
-      anything it could download. The full order is <code>DIOXUS_COMPOSE_RENDERER_DIR</code>, then
-      this workspace build, then the cache, then the release for the crate's version (NFR-10).
+      anything it could download: the static archive first, then a native image in
+      <code>build/native-image/dist/lib</code>. The full order is
+      <code>DIOXUS_COMPOSE_RENDERER_DIR</code>, then this workspace build, then the cache, then the
+      release for the crate's version (NFR-10). <code>DXC_MACOS_NATIVE_LIB</code> and
+      <code>DXC_LINUX_NATIVE_LIB</code> still name a static renderer directory directly, ahead of
+      all of them.
     </p>
 
     <p>

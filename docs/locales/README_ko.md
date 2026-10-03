@@ -319,6 +319,12 @@ JavaFX 호스트가 쓰는 것과 같은 방식입니다. AWT가 자기 루프�
 정확히 맞는 릴리스 아티팩트를 내려받고, 게시된 `.sha256`으로 검증하고, `target/` 밖의
 캐시에 풀어서 링크합니다.
 
+macOS(arm64)와 Linux(x64, arm64)에서 그 아티팩트는 정적 아카이브로 된 렌더러이므로,
+`cargo build`가 내는 것은 **실행 파일 하나**입니다. 렌더러, Compose, Skia, ICU가 그 안에 있고,
+옆에 놓이는 것은 없으며, 불러오는 것은 시스템 자신의 라이브러리뿐입니다(macOS는 프레임워크와
+`/usr/lib`, Linux는 libc, X11, GL, fontconfig, FreeType). 어디로 복사해도 실행됩니다. Windows는
+정적 렌더러가 들어오기 전까지 GraalVM 네이티브 이미지, 즉 동반 파일을 옆에 둔 DLL을 내려받습니다.
+
 ```toml
 [dependencies]
 compose-rust = "0.0.1"
@@ -332,7 +338,7 @@ compose-rust = "0.0.1"
 
 | 변수 | 효과 |
 |---|---|
-| `DIOXUS_COMPOSE_RENDERER_DIR` | 이 디렉터리의 렌더러를 씁니다. 가장 먼저 확인하고, 설정돼 있으면 아무것도 내려받지 않습니다. 직접 빌드한 렌더러, 벤더링한 사본, 망 분리 빌드가 모두 이것 하나로 해결됩니다. |
+| `DIOXUS_COMPOSE_RENDERER_DIR` | 이 디렉터리의 렌더러를 씁니다. 풀어 둔 아티팩트나 렌더러 빌드가 쓴 디렉터리이고, 정적 아카이브(`libdioxus_compose_renderer.a`)든 공유 라이브러리든 들어 있는 쪽을 링크합니다. 가장 먼저 확인하고, 설정돼 있으면 아무것도 내려받지 않습니다. 직접 빌드한 렌더러, 벤더링한 사본, 망 분리 빌드가 모두 이것 하나로 해결됩니다. |
 | `DIOXUS_COMPOSE_CACHE_DIR` | 캐시를 `$HOME/.cache/dioxus-compose`(Windows는 `%LOCALAPPDATA%\dioxus-compose`)에서 옮깁니다. |
 
 네트워크가 없는 빌드는 어떤 파일 둘을 어디에 두면 되는지 말하고, 그 자리에 두면 그것으로
@@ -413,19 +419,28 @@ macOS에서는 Xcode 명령줄 도구(`xcode-select --install`)도 필요합니�
 
 ### 5. 렌더러 빌드
 
-`dioxus-compose-renderer/build/macos/`에 Compose와 Skia, 인터프리터가 들어 있는 정적 라이브러리
-하나를 만듭니다(`PR-8`). 몇 분 걸립니다.
+Compose와 Skia, 인터프리터가 들어 있는 정적 라이브러리 하나를 만듭니다(`PR-8`). 몇 분 걸립니다.
+릴리스가 내보내는 것과 같은 아카이브입니다.
 
 ```bash
 cd dioxus-compose-renderer
-./desktop/scripts/build-macos.sh --release
+./desktop/scripts/build-macos.sh --release                   # macOS: build/macos/
+./desktop/scripts/build-linux.sh --release                   # Linux x64: build/linux/
+./desktop/scripts/build-linux.sh --release --arch arm64      # Linux arm64, x64에서 교차 컴파일: build/linux-arm64/
 ```
 
 ```
 build/macos/
   libdioxus_compose_renderer.a       렌더러 (Compose, Skia, 인터프리터, 우리 코드)
   libdioxus_compose_renderer_api.h   Kotlin/Native가 생성한 헤더
+  schema-hash.txt                    렌더러가 나온 스키마. Host의 빌드가 비교합니다
 ```
+
+`scripts/package-static-renderer.sh`가 이 디렉터리를 릴리스 아티팩트
+`dioxus-compose-renderer-v<version>-<target>.tar.gz`와 `.sha256`으로 묶고,
+`scripts/check-single-executable.sh`가 그런 아티팩트로 애플리케이션을 빌드해 실행 파일
+하나임을 확인합니다. `otool -L`이나 `readelf -d`를 읽고, 실행 파일만 빈 디렉터리에 복사해
+그리는지 봅니다.
 
 <details>
 <summary><b>GraalVM 네이티브 이미지와 <code>dist/lib/</code>에 생기는 것</b></summary>
@@ -462,10 +477,12 @@ cd dioxus-compose-renderer
 cargo run -p compose-rust --example desktop_demo --features native-renderer
 ```
 
-이 저장소의 체크아웃에서는 빌드 스크립트가 방금 빌드한 워크스페이스의
-`dioxus-compose-renderer/build/native-image/dist/lib`를 내려받기보다 먼저 씁니다. 전체 순서는
-`DIOXUS_COMPOSE_RENDERER_DIR`, 워크스페이스 빌드 결과물, 캐시, 크레이트 버전의 릴리스
-순입니다(`NFR-10`).
+이 저장소의 체크아웃에서는 빌드 스크립트가 방금 빌드한 렌더러를 내려받기보다 먼저 씁니다.
+`dioxus-compose-renderer/build/macos`(또는 `build/linux`, `build/linux-arm64`)의 정적 아카이브가
+먼저이고, 그다음이 `dioxus-compose-renderer/build/native-image/dist/lib`의 네이티브
+이미지입니다. 전체 순서는 `DIOXUS_COMPOSE_RENDERER_DIR`, 워크스페이스 빌드 결과물, 캐시,
+크레이트 버전의 릴리스 순입니다(`NFR-10`). `DXC_MACOS_NATIVE_LIB`과 `DXC_LINUX_NATIVE_LIB`은
+여전히 정적 렌더러 디렉터리를 직접 가리키며, 그 모두보다 앞섭니다.
 
 ### 8. JVM 개발 셸
 
@@ -593,9 +610,12 @@ IME(`§6`)와 접근성(`§7`)은 **native-image 빌드**에서 사람이 직접
 
 CI도 같은 방식으로 나뉩니다. [`ci.yml`](../../.github/workflows/ci.yml)은 모든 푸시와 PR에서 Rust
 게이트를 macOS와 Linux에서 돌리고,
-[`native-renderer.yml`](../../.github/workflows/native-renderer.yml)은 `main`/`develop` 푸시와 매일
-밤, 그리고 수동 실행에서 native-image 렌더러를 빌드하고 C 스모크 테스트를 돌립니다. 이 빌드는 약
-1GB의 NIK 내려받기와 수십 분이 들어서 모든 푸시 앞에 두기에는 너무 느립니다(`NFR-5`, `D7`).
+[`native-renderer.yml`](../../.github/workflows/native-renderer.yml)은 `main` 푸시와 매일 밤, 그리고
+수동 실행에서 배포되는 렌더러를 빌드합니다. macOS와 Linux(x64, arm64)의 Kotlin/Native 정적
+아카이브, Windows 네이티브 이미지, iOS XCFramework입니다. 그 안의 `single-executable` 잡이 각 정적
+아카이브로 릴리스가 담는 모양 그대로 애플리케이션을 빌드해 실행 파일 하나인지 확인합니다. 이
+빌드들은 Compose와 렌더러를 미리 컴파일하느라 수십 분이 들어서 모든 푸시 앞에 두기에는 너무
+느립니다(`NFR-5`, `D7`).
 
 ### 커밋
 

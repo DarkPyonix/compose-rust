@@ -84,7 +84,7 @@
         </thead>
         <tbody>
           <tr><td>웹뷰 금지</td><td>WKWebView, WebView2, WebKitGTK를 쓰지 않습니다. Tauri와 wry도 마찬가지입니다.</td></tr>
-          <tr><td>JVM 동봉 금지</td><td>데스크톱은 GraalVM <code>native-image</code> 공유 라이브러리로 배포하고, iOS는 Kotlin/Native로 만들 계획입니다.</td></tr>
+          <tr><td>JVM 동봉 금지</td><td>macOS와 Linux는 렌더러를 Kotlin/Native 정적 아카이브로 배포해 실행 파일 하나에 링크합니다. Windows는 정적 렌더러가 들어오기 전까지 GraalVM <code>native-image</code> 공유 라이브러리이고, iOS는 Kotlin/Native 정적 아카이브입니다.</td></tr>
           <tr><td>수동 JNI·cinterop 금지</td><td>경계 심(shim)은 전부 Rust 스키마에서 생성합니다.</td></tr>
           <tr><td>UI 코드는 Rust에</td><td>Kotlin은 렌더러의 구현 세부일 뿐, 기능을 작성하는 자리가 아닙니다.</td></tr>
           <tr><td>Compose 수준의 텍스트·IME</td><td>Compose의 플랫폼 텍스트 입력을 우회하는 경로를 만들지 않습니다.</td></tr>
@@ -149,7 +149,7 @@
           <tr>
             <td>macOS 데스크톱 (arm64)</td>
             <td><span class="pill works">동작</span></td>
-            <td>Liberica NIK 25 Full로 <code>native-image --shared</code> 빌드한 렌더러를 Rust 바이너리가 링크합니다. 2026-09-21에 이 빌드에서 한글 IME 체크리스트와 VoiceOver를 사람이 확인했습니다.</td>
+            <td>Kotlin/Native 정적 아카이브로 빌드한 렌더러가 애플리케이션 안에 링크되고, 애플리케이션은 시스템 프레임워크만 불러오는 실행 파일 하나입니다. 한글 IME 체크리스트와 VoiceOver는 2026-09-21에 이전의 GraalVM native-image 빌드에서 사람이 확인했고, 이 빌드에서 다시 확인할 차례입니다.</td>
           </tr>
           <tr>
             <td>Windows 데스크톱 (x64)</td>

@@ -85,7 +85,7 @@
         </thead>
         <tbody>
           <tr><td>No webview</td><td>No WKWebView, WebView2 or WebKitGTK; no Tauri, no wry.</td></tr>
-          <tr><td>No bundled JVM</td><td>Desktop ships as a GraalVM <code>native-image</code> shared library; iOS as a Kotlin/Native static archive.</td></tr>
+          <tr><td>No bundled JVM</td><td>macOS and Linux ship the renderer as a Kotlin/Native static archive linked into one executable; Windows as a GraalVM <code>native-image</code> shared library until its static renderer lands; iOS as a Kotlin/Native static archive.</td></tr>
           <tr><td>No hand-written JNI or cinterop</td><td>Every boundary shim is generated from the Rust schema.</td></tr>
           <tr><td>UI code lives in Rust</td><td>Kotlin is an implementation detail of the renderer, not a place you write features.</td></tr>
           <tr><td>Compose-quality text and IME</td><td>No code path may bypass Compose's platform text input.</td></tr>
@@ -150,7 +150,7 @@
           <tr>
             <td>macOS desktop (arm64)</td>
             <td><span class="pill works">Works</span></td>
-            <td>Renderer built with GraalVM <code>native-image --shared</code> on Liberica NIK 25 Full; the Rust binary links it. The Korean IME checklist and VoiceOver were confirmed by hand on this build on 2026-09-21.</td>
+            <td>Renderer built with Kotlin/Native as a static archive and linked into the application, which is one executable needing only the system's frameworks. The Korean IME checklist and VoiceOver were confirmed by hand on 2026-09-21 on the earlier GraalVM native-image build, and are to be repeated on this one.</td>
           </tr>
           <tr>
             <td>Windows desktop (x64)</td>

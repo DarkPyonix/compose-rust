@@ -75,21 +75,23 @@
       and the directory to place them in.
     </p>
     <p>
-      Inside a checkout the build prefers the workspace copy at
-      <code>dioxus-compose-renderer/build/native-image/dist/lib</code> over anything downloadable,
-      and tells that library it lives there, so that anything linking it records the same path.
-      If that directory exists but is empty, the renderer has not been built.
+      Inside a checkout the build prefers a workspace build over anything downloadable: the
+      static archive in <code>dioxus-compose-renderer/build/macos</code> (or
+      <code>build/linux</code>, <code>build/linux-arm64</code>) first, then the native image in
+      <code>dioxus-compose-renderer/build/native-image/dist/lib</code>. The static archive is
+      linked into the executable, so there is nothing to find at startup. If the directory
+      exists but holds no archive, the renderer has not been built.
     </p>
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
       <figcaption>shell</figcaption>
-<pre><code>ls dioxus-compose-renderer/build/native-image/dist/lib
-<span class="c"># expect: libdioxus_compose_renderer.dylib, libskiko-macos-*.dylib,</span>
-<span class="c">#         libjawt.dylib, libawt_lwawt.dylib</span>
+<pre><code>ls dioxus-compose-renderer/build/macos
+<span class="c"># expect: libdioxus_compose_renderer.a, libdioxus_compose_renderer_api.h, schema-hash.txt</span>
 
-./dioxus-compose-renderer/desktop/scripts/build-native.sh</code></pre>
+./dioxus-compose-renderer/desktop/scripts/build-macos.sh --release</code></pre>
     </figure>
     <p>
-      Do not move the four files apart. The renderer finds itself with <code>dladdr</code> and
+      The native image is the one that is found at startup, by the path the build named it after.
+      Do not move its four files apart. The renderer finds itself with <code>dladdr</code> and
       derives <code>java.home</code>, <code>skiko.library.path</code> and
       <code>skiko.data.path</code> from that one directory. A library copied somewhere on its own
       will load and then fail to find Skia or AWT.
