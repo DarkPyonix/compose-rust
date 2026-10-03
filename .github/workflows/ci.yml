@@ -240,5 +240,26 @@ jobs:
       # artifact for its own version from the release. That is the point. If the
       # release for this version has no Linux renderer, a consumer on Linux cannot
       # build, and this job is where that is discovered.
+      #
+      # Except when that renderer was built from a different schema than this tree,
+      # which is true of every branch that changes the schema until the next release.
+      # The build script rightly refuses that pairing, and the job would then fail on
+      # every such branch for a reason no branch can fix, and say nothing about
+      # packaging. So on that refusal, and only on it, the verification is repeated
+      # against a stand-in renderer generated from this tree's schema: the packaged
+      # crate still builds with its build script and with no workspace, and links a
+      # renderer through DIOXUS_COMPOSE_RENDERER_DIR. Whether the download for a version
+      # works is checked where it can be true, by the release workflow's own
+      # `cargo publish`, after it has attached the renderer that release was built with.
       - name: cargo package
-        run: cargo package -p compose-rust
+        run: |
+          set -uo pipefail
+          mkdir -p target
+          cargo package -p compose-rust 2>&1 | tee target/package.log
+          status=${PIPESTATUS[0]}
+          [ "$status" -eq 0 ] && exit 0
+          grep -q "generated from a different schema" target/package.log || exit "$status"
+          echo "::notice::the published renderer is from a different schema than this tree; verifying against a stand-in"
+          set -e
+          ./scripts/stand-in-renderer.sh "$PWD/target/stand-in-renderer"
+          DIOXUS_COMPOSE_RENDERER_DIR="$PWD/target/stand-in-renderer" cargo package -p compose-rust
