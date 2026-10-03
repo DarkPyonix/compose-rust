@@ -136,6 +136,24 @@ else
     done
 fi
 
+# ---------------------------------------------------------------------------
+# The Host links what the script leaves, by the names the script gives it.
+# ---------------------------------------------------------------------------
+
+host_build="$repo_root/dioxus-compose/build.rs"
+grep -q 'DXC_WINDOWS_NATIVE_LIB' "$host_build" ||
+    fail "the Host's build script never reads DXC_WINDOWS_NATIVE_LIB, so nothing links the Windows renderer"
+grep -q 'static:+verbatim=libdioxus_compose_renderer.a' "$host_build" ||
+    fail "the Host does not link libdioxus_compose_renderer.a by its exact name; MSVC would look for a .lib"
+# Whole, or the ICU loader and the bridge's initialiser, which nothing calls by name, are
+# left out and the application dies in Skia's paragraph builder.
+grep -q 'static:+whole-archive,+verbatim=dxc-windows-native.lib' "$host_build" ||
+    fail "the Host does not link dxc-windows-native.lib whole"
+grep -q 'dxc-windows-native.lib' "$build_script" ||
+    fail "build-windows.sh does not write the dxc-windows-native.lib the Host links"
+grep -q 'crt-static' "$host_build" ||
+    fail "the Host does not insist on the static C runtime that Skia for Windows is built with"
+
 if (( red == 0 )); then
     echo "ok    the windows module is declared, shares the interpreter and asks for what is published"
 fi
