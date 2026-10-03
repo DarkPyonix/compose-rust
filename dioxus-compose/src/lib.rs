@@ -76,9 +76,14 @@ pub use window::{NodeSize, WindowSize, node_size, window_size};
 /// ```ignore
 /// compose_rust::ios_main!(launch);
 /// ```
+///
+/// The export exists only in a build for iOS. Anywhere else nothing calls it, and an
+/// unconditional export would collide with the same name in every other application
+/// linked into one binary, which is what a benchmark that drives several of them does.
 #[macro_export]
 macro_rules! ios_main {
     ($launch:path) => {
+        #[cfg(target_os = "ios")]
         #[unsafe(no_mangle)]
         pub extern "C" fn dioxus_compose_ios_main() -> i32 {
             $launch();

@@ -56,12 +56,17 @@ pub use host::web_start as __web_start;
 /// ```ignore
 /// dioxus_compose_adapter::android_main!(app);
 /// ```
+///
+/// The export exists only in a build for Android. Anywhere else nothing calls it, and an
+/// unconditional export would collide with the same name in every other application
+/// linked into one binary, which is what a benchmark that drives several of them does.
 #[macro_export]
 macro_rules! android_main {
     ($app:path) => {
         $crate::android_main!($crate::LaunchBuilder::new(), $app);
     };
     ($builder:expr, $app:path) => {
+        #[cfg(target_os = "android")]
         #[unsafe(no_mangle)]
         pub extern "C" fn dioxus_compose_android_main() {
             $builder.with_mode($crate::LoopMode::Platform).launch($app);
@@ -97,11 +102,13 @@ macro_rules! web_main {
         }
 
         /// Off the web there is no page to call this and no shared memory to report an
-        /// address in, but it stays defined so that a build for the machine you are
-        /// working on still compiles the component rather than leaving it unreferenced.
+        /// address in, but the builder and the component are still type checked, so a
+        /// build for the machine you are working on catches what a wasm build would. Not
+        /// exported: an export here would collide with the same name in every other
+        /// application linked into one binary.
         #[cfg(not(target_family = "wasm"))]
-        #[unsafe(no_mangle)]
-        pub extern "C" fn dioxus_compose_host_web_start() -> u32 {
+        #[allow(dead_code)]
+        fn __dioxus_compose_web_start_unused() -> u32 {
             let _: fn() -> $crate::Element = $app;
             let _ = $builder;
             0

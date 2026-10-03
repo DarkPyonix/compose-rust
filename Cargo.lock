@@ -235,6 +235,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
 
 [[package]]
+name = "dioxus-baseline"
+version = "0.0.0"
+dependencies = [
+ "dioxus-compose-adapter",
+ "sample-academic",
+ "sample-calculator",
+ "sample-chat",
+ "sample-minimal",
+ "sample-notepad",
+ "sample-podcast",
+ "sample-selfcare",
+ "sample-social",
+ "sample-statistics",
+ "sample-store",
+ "sample-todo",
+]
+
+[[package]]
 name = "dioxus-compose-adapter"
 version = "0.0.1"
 dependencies = [
