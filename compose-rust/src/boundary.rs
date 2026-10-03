@@ -1240,8 +1240,7 @@ mod tests {
     fn malformed_ffi_input_returns_protocol_error() {
         let mut output = MutationBatch::default();
         // SAFETY: The test passes a valid output pointer and intentionally null input.
-        let status =
-            unsafe { compose_rust_host_dispatch_event(std::ptr::null(), 4, &mut output) };
+        let status = unsafe { compose_rust_host_dispatch_event(std::ptr::null(), 4, &mut output) };
         assert_eq!(status, STATUS_PROTOCOL_ERROR);
     }
 
@@ -1355,11 +1354,7 @@ mod tests {
                 let mut output = MutationBatch::default();
                 // SAFETY: Both buffers are live test-owned storage for this call.
                 let status = unsafe {
-                    compose_rust_host_init(
-                        handshake.as_ptr(),
-                        handshake.len() as u32,
-                        &mut output,
-                    )
+                    compose_rust_host_init(handshake.as_ptr(), handshake.len() as u32, &mut output)
                 };
                 assert_eq!(status, STATUS_OK);
                 // SAFETY: A successful init returned a readable batch owned by the Host.

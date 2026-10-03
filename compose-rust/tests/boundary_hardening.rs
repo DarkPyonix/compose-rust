@@ -8,8 +8,7 @@
 use compose_rust::boundary::{
     MutationBatch, STATUS_ALREADY_INITIALIZED, STATUS_NOT_INITIALIZED, STATUS_OK, STATUS_PANIC,
     STATUS_PROTOCOL_ERROR, compose_rust_host_dispatch_event, compose_rust_host_init,
-    compose_rust_host_release_batch, compose_rust_host_render_frame,
-    compose_rust_host_shutdown,
+    compose_rust_host_release_batch, compose_rust_host_render_frame, compose_rust_host_shutdown,
 };
 use compose_rust::prelude::*;
 use compose_rust::protocol::{HostEvent, encode_event};
@@ -96,9 +95,8 @@ fn nfr7_init_with_a_null_out_pointer_returns_a_status() {
         .launch(app);
     let bytes = handshake();
     // SAFETY: A null `out` is the contract violation under test.
-    let status = unsafe {
-        compose_rust_host_init(bytes.as_ptr(), bytes.len() as u32, std::ptr::null_mut())
-    };
+    let status =
+        unsafe { compose_rust_host_init(bytes.as_ptr(), bytes.len() as u32, std::ptr::null_mut()) };
     assert_eq!(status, STATUS_PROTOCOL_ERROR);
     compose_rust_host_shutdown();
 }
@@ -340,11 +338,7 @@ fn nfr7_arbitrary_call_order_never_aborts() {
                     compose_rust_host_init(handshake.as_ptr(), handshake.len() as u32, &mut out);
                 }
                 1 => {
-                    compose_rust_host_dispatch_event(
-                        event.as_ptr(),
-                        event.len() as u32,
-                        &mut out,
-                    );
+                    compose_rust_host_dispatch_event(event.as_ptr(), event.len() as u32, &mut out);
                 }
                 2 => {
                     compose_rust_host_render_frame(u64::from(step), &mut out);

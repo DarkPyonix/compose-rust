@@ -97,8 +97,7 @@ fn start() -> (u32, u64) {
     let bytes = handshake();
     let mut first = MutationBatch::default();
     // SAFETY: The handshake buffer and `first` are live test-owned storage.
-    let status =
-        unsafe { compose_rust_host_init(bytes.as_ptr(), bytes.len() as u32, &mut first) };
+    let status = unsafe { compose_rust_host_init(bytes.as_ptr(), bytes.len() as u32, &mut first) };
     assert_eq!(status, STATUS_OK, "the handshake was refused");
     let found = field_and_handler(&first);
     // SAFETY: `first` is this test's own storage.
@@ -132,9 +131,8 @@ fn pr4_a_text_change_costs_two_boundary_calls() {
 
     // One. The diff is already here when it returns, and so is the handler's answer.
     // SAFETY: The event buffer and `batch` are live test-owned storage.
-    let status = unsafe {
-        compose_rust_host_dispatch_event(event.as_ptr(), event.len() as u32, &mut batch)
-    };
+    let status =
+        unsafe { compose_rust_host_dispatch_event(event.as_ptr(), event.len() as u32, &mut batch) };
     assert_eq!(status, STATUS_OK);
     assert!(
         batch.len > 0,
@@ -162,9 +160,8 @@ fn pr4_nothing_is_left_for_a_third_call() {
     let event = typed_event(field, handler, "already applied");
     let mut batch = MutationBatch::default();
     // SAFETY: The event buffer and `batch` are live test-owned storage.
-    let status = unsafe {
-        compose_rust_host_dispatch_event(event.as_ptr(), event.len() as u32, &mut batch)
-    };
+    let status =
+        unsafe { compose_rust_host_dispatch_event(event.as_ptr(), event.len() as u32, &mut batch) };
     assert_eq!(status, STATUS_OK);
     assert!(texts(&batch).contains(&"already applied".to_string()));
     // SAFETY: `batch` is this test's own storage.
