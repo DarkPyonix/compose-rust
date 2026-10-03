@@ -34,7 +34,7 @@ jobs:
   build:
     name: ${{ matrix.target }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 120
+    timeout-minutes: 300
     strategy:
       fail-fast: false
       matrix:
@@ -126,8 +126,18 @@ jobs:
             ~/Library/Caches/JetBrains/Kotlin
             ~/.cache/JetBrains/Kotlin
             ~/.m2/repository
+            !~/.m2/repository/org/thisisthepy
           key: kotlin-${{ matrix.target }}-${{ hashFiles('dioxus-compose-renderer/**/module.yaml') }}
           restore-keys: kotlin-${{ matrix.target }}-
+
+      - name: The fork's Compose for the renderer this job builds
+        # The renderer draws with it, under org.thisisthepy.compose, and no public repository
+        # has it yet. After the cache above, so that cache cannot overwrite it.
+        uses: ./.github/actions/compose-fork
+        with:
+          targets: jvm
+          gradle-heap: ${{ runner.os == 'macOS' && '5g' || '10g' }}
+          gradle-workers: ${{ runner.os == 'macOS' && '2' || '4' }}
 
       - name: Build the renderer
         # Linux gets its own step rather than a branch inside one. The Windows command is
@@ -295,7 +305,7 @@ jobs:
   ios:
     name: ios-simulator
     runs-on: macos-26
-    timeout-minutes: 120
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
         with:
@@ -312,8 +322,18 @@ jobs:
           path: |
             ~/Library/Caches/JetBrains/Kotlin
             ~/.m2/repository
+            !~/.m2/repository/org/thisisthepy
           key: kotlin-ios-${{ hashFiles('dioxus-compose-renderer/**/module.yaml') }}
           restore-keys: kotlin-ios-
+
+      - name: The fork's Compose for the renderer this job builds
+        # The renderer draws with it, under org.thisisthepy.compose, and no public repository
+        # has it yet. After the cache above, so that cache cannot overwrite it.
+        uses: ./.github/actions/compose-fork
+        with:
+          targets: iosSimulatorArm64
+          gradle-heap: 5g
+          gradle-workers: '2'
 
       - name: Build the renderer for the simulator
         run: ./dioxus-compose-renderer/desktop/scripts/build-ios.sh --target simulator
@@ -349,7 +369,7 @@ jobs:
   web:
     name: web
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
         with:
@@ -371,8 +391,18 @@ jobs:
           path: |
             ~/.cache/JetBrains/Kotlin
             ~/.m2/repository
+            !~/.m2/repository/org/thisisthepy
           key: kotlin-web-${{ hashFiles('dioxus-compose-renderer/**/module.yaml') }}
           restore-keys: kotlin-web-
+
+      - name: The fork's Compose for the renderer this job builds
+        # The renderer draws with it, under org.thisisthepy.compose, and no public repository
+        # has it yet. After the cache above, so that cache cannot overwrite it.
+        uses: ./.github/actions/compose-fork
+        with:
+          targets: wasmJs
+          gradle-heap: 11g
+          gradle-workers: '4'
 
       - name: Build a page for every sample
         run: ./scripts/build-sample-pages.sh pages

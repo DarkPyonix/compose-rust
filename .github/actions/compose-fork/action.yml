@@ -1,0 +1,59 @@
+# The fork's Compose, for the targets a job builds, in the local Maven repository.
+#
+# The renderer and the design systems draw with thisisthepy/compose-multiplatform-core-extended,
+# which publishes under its own coordinates (org.thisisthepy.compose.*) and is in no public
+# repository yet. dioxus-compose-renderer/scripts/build-compose.sh builds the pinned commit;
+# this runs it once per pin and target set and keeps the result in the cache, so a job pays for
+# Compose only when the pin or the script changed.
+#
+# Run it after any step that restores a cache holding ~/.m2/repository, so that what it puts
+# there is not overwritten by an older copy of the same version.
+name: The fork's Compose
+description: Builds or restores the fork's Compose for the given targets in ~/.m2/repository
+inputs:
+  targets:
+    description: build-compose.sh targets, separated by spaces (macosArm64 linuxX64 iosArm64 iosSimulatorArm64 wasmJs jvm android)
+    required: true
+  gradle-heap:
+    description: The Gradle daemon's heap for the Compose build; the fork asks for a workstation's
+    default: 5g
+  gradle-workers:
+    description: Gradle workers for the Compose build
+    default: '2'
+runs:
+  using: composite
+  steps:
+    - name: Restore the fork's Compose
+      id: restore
+      uses: actions/cache/restore@v4
+      with:
+        path: ~/.m2/repository/org/thisisthepy
+        key: compose-fork-${{ runner.os }}-${{ runner.arch }}-${{ inputs.targets }}-${{ hashFiles('dioxus-compose-renderer/scripts/build-compose.sh', 'dioxus-compose-renderer/scripts/compose-fork.changes') }}
+
+    - name: Build the fork's Compose
+      if: steps.restore.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        # The runner images carry a JDK 21; setup-java is not used, because it would replace
+        # JAVA_HOME and PATH for every later step, and several jobs build with a GraalVM there.
+        jdk="${JAVA_HOME_21_X64:-${JAVA_HOME_21_ARM64:-}}"
+        [[ -n "$jdk" ]] || { echo "this runner image has no JDK 21 (JAVA_HOME_21_X64 or _ARM64)" >&2; exit 1; }
+        # The user-level file overrides the checkout's gradle.properties, whose heap is sized
+        # for a workstation.
+        mkdir -p ~/.gradle
+        cat >> ~/.gradle/gradle.properties <<PROPERTIES
+        org.gradle.workers.max=${{ inputs.gradle-workers }}
+        org.gradle.jvmargs=-Xmx${{ inputs.gradle-heap }} -XX:MaxMetaspaceSize=2g -XX:+UseParallelGC -Dfile.encoding=UTF-8
+        kotlin.compiler.execution.strategy=in-process
+        PROPERTIES
+        args=()
+        for target in ${{ inputs.targets }}; do args+=(--target "$target"); done
+        JAVA_HOME="$jdk" ANDROIDX_JDK21="$jdk" ./dioxus-compose-renderer/scripts/build-compose.sh "${args[@]}"
+
+    - name: Keep the fork's Compose for the next run
+      if: steps.restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ~/.m2/repository/org/thisisthepy
+        key: ${{ steps.restore.outputs.cache-primary-key }}

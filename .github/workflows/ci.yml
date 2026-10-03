@@ -156,9 +156,19 @@ jobs:
             ~/.cache/JetBrains/Kotlin
             ~/.konan
             ~/.m2/repository
+            !~/.m2/repository/org/thisisthepy
           key: kotlin-${{ matrix.platform }}-${{ runner.os }}-${{ hashFiles('dioxus-compose-renderer/**/module.yaml', 'dioxus-compose-renderer/libs.versions.toml', 'dioxus-compose-renderer/kotlin', 'dioxus-design-systems/**/module.yaml') }}
           restore-keys: |
             kotlin-${{ matrix.platform }}-${{ runner.os }}-
+
+      - name: The fork's Compose for this platform
+        # Both projects draw with it, under org.thisisthepy.compose, and no public repository
+        # has it yet. After the cache above, so that cache cannot overwrite it.
+        uses: ./.github/actions/compose-fork
+        with:
+          targets: ${{ matrix.platform }}
+          gradle-heap: ${{ runner.os == 'Linux' && '11g' || '5g' }}
+          gradle-workers: ${{ runner.os == 'Linux' && '4' || '2' }}
 
       - name: Build the renderer
         working-directory: dioxus-compose-renderer

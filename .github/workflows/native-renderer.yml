@@ -94,7 +94,7 @@ jobs:
             exit 0
           fi
           if git diff --name-only HEAD^ HEAD |
-              grep -qE '^(dioxus-compose-renderer/|scripts/install-nik\.sh|\.github/workflows/native-renderer\.yml)'; then
+              grep -qE '^(dioxus-compose-renderer/|scripts/install-nik\.sh|\.github/workflows/native-renderer\.yml|\.github/actions/compose-fork/)'; then
             echo "the renderer changed"
             echo "renderer=true" >> "$GITHUB_OUTPUT"
           else
@@ -111,7 +111,7 @@ jobs:
     if: needs.changed.outputs.renderer == 'true'
     name: Windows x64 native-image build and smoke test
     runs-on: windows-2022
-    timeout-minutes: 90
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
 
@@ -135,6 +135,15 @@ jobs:
           distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
           native-image-job-reports: 'true'
+
+      - name: The fork's Compose for the renderer this job builds
+        # The renderer draws with it, under org.thisisthepy.compose, and no public repository
+        # has it yet. After the cache above, so that cache cannot overwrite it.
+        uses: ./.github/actions/compose-fork
+        with:
+          targets: jvm
+          gradle-heap: 10g
+          gradle-workers: '4'
 
       - name: Build the Windows renderer
         shell: powershell
@@ -203,7 +212,7 @@ jobs:
     # macos-latest is Apple silicon; the renderer's AWT workarounds are
     # arm64 macOS specific (INTENT D9-macOS).
     runs-on: macos-latest
-    timeout-minutes: 90
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
 
@@ -226,9 +235,19 @@ jobs:
           path: |
             ~/Library/Caches/JetBrains/Kotlin
             ~/.m2/repository
+            !~/.m2/repository/org/thisisthepy
           key: kotlin-${{ runner.os }}-${{ hashFiles('dioxus-compose-renderer/kotlin', 'dioxus-compose-renderer/libs.versions.toml', 'dioxus-compose-renderer/**/module.yaml') }}
           restore-keys: |
             kotlin-${{ runner.os }}-
+
+      - name: The fork's Compose for the renderer this job builds
+        # The renderer draws with it, under org.thisisthepy.compose, and no public repository
+        # has it yet. After the cache above, so that cache cannot overwrite it.
+        uses: ./.github/actions/compose-fork
+        with:
+          targets: jvm
+          gradle-heap: 5g
+          gradle-workers: '2'
 
       - name: Windows build contract
         # A static check of the Windows script, metadata and staging rules. It runs here
@@ -299,7 +318,7 @@ jobs:
     if: needs.changed.outputs.renderer == 'true'
     name: Linux x64 native-image build and headless smoke test
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
 
@@ -324,9 +343,19 @@ jobs:
           path: |
             ~/.cache/JetBrains/Kotlin
             ~/.m2/repository
+            !~/.m2/repository/org/thisisthepy
           key: kotlin-linux-${{ hashFiles('dioxus-compose-renderer/kotlin', 'dioxus-compose-renderer/libs.versions.toml', 'dioxus-compose-renderer/**/module.yaml') }}
           restore-keys: |
             kotlin-linux-
+
+      - name: The fork's Compose for the renderer this job builds
+        # The renderer draws with it, under org.thisisthepy.compose, and no public repository
+        # has it yet. After the cache above, so that cache cannot overwrite it.
+        uses: ./.github/actions/compose-fork
+        with:
+          targets: jvm
+          gradle-heap: 11g
+          gradle-workers: '4'
 
       - name: Run Linux script contract tests
         run: bash dioxus-compose-renderer/desktop/scripts/tests/linux-build.test.sh
@@ -386,7 +415,7 @@ jobs:
     if: needs.changed.outputs.renderer == 'true'
     name: Linux arm64 native-image build and headless smoke test
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 90
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
 
@@ -411,9 +440,19 @@ jobs:
           path: |
             ~/.cache/JetBrains/Kotlin
             ~/.m2/repository
+            !~/.m2/repository/org/thisisthepy
           key: kotlin-linux-${{ hashFiles('dioxus-compose-renderer/kotlin', 'dioxus-compose-renderer/libs.versions.toml', 'dioxus-compose-renderer/**/module.yaml') }}
           restore-keys: |
             kotlin-linux-
+
+      - name: The fork's Compose for the renderer this job builds
+        # The renderer draws with it, under org.thisisthepy.compose, and no public repository
+        # has it yet. After the cache above, so that cache cannot overwrite it.
+        uses: ./.github/actions/compose-fork
+        with:
+          targets: jvm
+          gradle-heap: 11g
+          gradle-workers: '4'
 
       - name: Build the Linux renderer under Xvfb
         run: xvfb-run -a ./dioxus-compose-renderer/desktop/scripts/build-native-linux.sh
@@ -628,7 +667,7 @@ jobs:
     # macos-15 image. Linking the smoke host there fails with an undefined symbol even
     # though both archives built cleanly.
     runs-on: macos-26
-    timeout-minutes: 60
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
 
@@ -639,9 +678,19 @@ jobs:
             ~/Library/Caches/JetBrains/Kotlin
             ~/.konan
             ~/.m2/repository
+            !~/.m2/repository/org/thisisthepy
           key: kotlin-ios-${{ hashFiles('dioxus-compose-renderer/kotlin', 'dioxus-compose-renderer/libs.versions.toml', 'dioxus-compose-renderer/**/module.yaml') }}
           restore-keys: |
             kotlin-ios-
+
+      - name: The fork's Compose for the renderer this job builds
+        # The renderer draws with it, under org.thisisthepy.compose, and no public repository
+        # has it yet. After the cache above, so that cache cannot overwrite it.
+        uses: ./.github/actions/compose-fork
+        with:
+          targets: iosSimulatorArm64 iosArm64
+          gradle-heap: 5g
+          gradle-workers: '2'
 
       - name: Protocol codec tests on Kotlin/Native (PR-4)
         working-directory: dioxus-compose-renderer
