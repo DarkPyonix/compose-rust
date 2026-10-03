@@ -429,7 +429,7 @@ skiko는 `mingwX64`를 발행하지 않고 Compose도 Windows용 Kotlin/Native �
 
 - 디자인 시스템은 `org.thisisthepy.compose.<시스템>` 패키지(`material3`, `cupertino`, `fluent`, `gnome`, `breeze`, `deepin`, `liquidglass`)이고, 공통 부분은 `org.thisisthepy.compose.designsystem`입니다. 모듈은 포크의 `extended/design-systems/<시스템>/` 아래에 둡니다.
 - 포크가 내는 라이브러리의 Maven 그룹은 `org.thisisthepy.compose.*`입니다. JetBrains가 라이브러리와 플러그인 모두 `org.jetbrains.compose`를 쓰는 것과 같은 방식입니다.
-- 앱으로 배포되는 것의 식별자는 `io.github.thisisthepy.<앱>`입니다. darkpyonix 제품(예: `dev.darkpyonix.Ember`)에 같은 규칙을 적용할지는 따로 정합니다.
+- 앱으로 배포되는 것의 식별자는 `io.github.thisisthepy.<앱>`입니다. darkpyonix는 `dev.darkpyonix` 하나만 씁니다(소유자 답변, 2026-10-03). darkpyonix는 Kotlin 라이브러리를 내지 않으므로, 라이브러리와 앱을 가르는 둘째 네임스페이스가 필요 없습니다. 예: `dev.darkpyonix.Ember`, `dev.darkpyonix.composerust.samples.<샘플>`.
 - `androidx.compose.*` 아래에 두지 않는 이유는 위의 둘째 선택지 설명 그대로입니다. upstream과 부딪히지 않고, 포크가 더한 것이 이름만으로 구별되며, 공개 API를 바꾸지 않는다는 원칙을 지킵니다.
 
 **디자인 시스템은 두 층으로 냅니다. 소유자의 결정입니다(2026-10-03).**

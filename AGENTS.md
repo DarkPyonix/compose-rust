@@ -75,6 +75,13 @@ under `docs/`.
    branches changes every file under that checkout, so a `git checkout` while an agent is
    working pulls the files out from under it. Work has been lost that way. Give a
    background agent its own worktree and leave that checkout alone until it finishes.
+8. **Work branches are named `feat/<topic>`.**
+9. **Merge with `gh pr merge --delete-branch`**, then remove the local branch and its
+   worktree.
+10. **Only `main`, `develop` and `release` stay on the remote.** A branch merged into
+    `develop` is deleted; its commits are in `develop`, so nothing is kept for it, no
+    `archive/` tag either. In the forks, `extended` and the upstream branch (`jb-main`) stay, and a branch merged
+    into `extended` is deleted the same way.
 
 ## Where files go
 
@@ -103,6 +110,32 @@ under `docs/`.
 This is written down because it happened. Probes and their builds went to `/tmp`, a Wine
 download went to `/tmp`, and worktrees went to `../agent-runs`, and the owner had agreed to
 none of it.
+
+## Repository root
+
+1. **Nothing new goes in the root without the owner's approval.** Not a folder, not a
+   file. Propose it first: what it is, why it is needed, and why no existing directory
+   can hold it. Then wait for the answer.
+2. The approved root entries are:
+   - folders: `.github/`, `bench/`, `compose-rust/`, `docs/`, `experiments/`,
+     `renderer/`, `samples/`, `scripts/`;
+   - files: `.gitignore`, `Cargo.toml`, `Cargo.lock`, `CHANGELOG.md`, `LICENSE`,
+     `README.md`, `AGENTS.md`, `CLAUDE.md`, `PROJECT.md`;
+   - temporary, each with the date it leaves:
+     - `adapters/`, to dioxus-compose, by 2026-10-05 (#37 step 4);
+     - `design-systems/`, to compose-multiplatform-core-extended, by 2026-10-15 (#39).
+     `bench/dioxus-baseline/` leaves with `adapters/`; `bench/` itself stays.
+
+   Ignored local directories (`.claude/`, `.scratch/`, `target/`, `build/`) are not part
+   of the tree and are covered by "Where files go" above.
+3. A crate, benchmark or tool that needs a home goes inside the folder it belongs to
+   (`compose-rust/macros/`, `bench/<name>/`, `renderer/desktop/<name>/`), not beside it.
+4. Scripts that only CI runs live in `.github/scripts/`. `scripts/tests/` is the one test
+   folder outside the crates.
+
+This is written down because it happened. One-off scripts, a stray build directory and
+a container definition each became a root folder, and the root stopped telling a reader
+what the project is made of.
 
 ## Background agents
 
