@@ -6,10 +6,12 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
@@ -24,8 +26,30 @@ import dev.darkpyonix.composerust.runtime.windowHeightClassOf
 import dev.darkpyonix.composerust.runtime.windowSizeClassOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.ClipOp
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
+import kotlin.math.ceil
+import kotlin.math.max
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import dev.darkpyonix.composerust.protocol.HostEvent
@@ -71,6 +95,9 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             glassLift(resolved, shape).glassSurface(resolved, shape)
         }
     }
+    // The corners an HTML box asked for, which its background, border, shadow and clip all
+    // follow. Null where the node named no corners of its own.
+    val corners = cornerEachShape()
     return fold(surface) { chain, value ->
         when (value) {
             is ProtocolModifier.Empty -> chain
@@ -115,6 +142,49 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             // Weight is parent data: it is applied by the Column or Row that owns this node,
             // not here. See `weightOf` and `Children` in RenderNode.kt.
             is ProtocolModifier.Weight -> chain
+
+            // The elements an HTML and CSS screen is drawn with. The Host's layout engine has
+            // already decided where every box goes and how big it is, so these place and
+            // size without negotiating, and the decoration follows CSS rather than the
+            // design system: a page's author chose these colours and radii.
+            //
+            // Absolute, not relative to the reading direction: the Host's coordinates are
+            // the screen's, and a right-to-left page has already been laid out as one.
+            is ProtocolModifier.Offset -> chain.absoluteOffset(value.x.dp, value.y.dp)
+            is ProtocolModifier.RequiredSize -> chain.requiredSize(value.width.dp, value.height.dp)
+            is ProtocolModifier.BorderEach -> {
+                val paints = listOf(value.topPaint, value.rightPaint, value.bottomPaint, value.leftPaint)
+                val brushes = paints.map { theme.brush(it) }
+                val missing = paints.indices.firstOrNull { brushes[it] == null }
+                if (missing != null) {
+                    chain.composed { reportUnknownBrush(nodeId, paints[missing], dispatcher) }
+                } else {
+                    chain.borderEach(value, brushes.map { it!! }, corners)
+                }
+            }
+
+            // Read by the background, the border, the shadow and the clip, through `corners`
+            // above. On its own it draws nothing and cuts nothing, as in CSS, where a radius
+            // with no overflow rule rounds the decoration and leaves the content alone.
+            is ProtocolModifier.CornerEach -> chain
+            is ProtocolModifier.Shadow -> theme.brush(value.paint)?.let { brush ->
+                chain.boxShadow(value, brush, corners)
+            } ?: chain.composed { reportUnknownBrush(nodeId, value.paint, dispatcher) }
+
+            // `overflow: hidden`: the rounded box where the node has corners, its rectangle
+            // where it has none.
+            is ProtocolModifier.Clip ->
+                if (value.enabled) chain.clip(corners ?: RectangleShape) else chain
+
+            // The node and everything in it are drawn into one layer first, and the layer is
+            // faded once. Fading each child separately would show where they overlap, which
+            // CSS `opacity` does not.
+            is ProtocolModifier.Alpha -> chain.graphicsLayer {
+                val opacity = value.value.coerceIn(0f, 1f)
+                alpha = opacity
+                compositingStrategy =
+                    if (opacity < 1f) CompositingStrategy.Offscreen else CompositingStrategy.Auto
+            }
         }
     }
 }
@@ -159,10 +229,258 @@ internal fun List<ProtocolModifier>.resolvedShape(theme: ResolvedTheme): Shape {
             )
 
             is ProtocolModifier.ShapeRole -> return theme.shape(value.role)
+
+            // Radii an HTML box named, cut as plain arcs the way CSS cuts them. Unlike a
+            // `Shape`, these are not the design system's to reinterpret: the page's author
+            // chose them, and the screen has to match what a browser draws.
+            is ProtocolModifier.CornerEach -> return value.toShape()
             else -> Unit
         }
     }
     return RectangleShape
+}
+
+/** The corners this node named for itself, or null. The last one in the list stands. */
+internal fun List<ProtocolModifier>.cornerEachShape(): CornerEachShape? =
+    (lastOrNull { it is ProtocolModifier.CornerEach } as ProtocolModifier.CornerEach?)?.toShape()
+
+private fun ProtocolModifier.CornerEach.toShape() =
+    CornerEachShape(topLeft, topRight, bottomRight, bottomLeft)
+
+/**
+ * A rectangle with its own radius at each corner, in dp, cut the way CSS cuts
+ * `border-radius`.
+ *
+ * Where two radii on one side add up to more than the side, CSS shrinks every radius by
+ * the same factor until they fit, so the shape keeps its proportions. Compose's own
+ * rounded shapes clamp each corner on its own, which draws a different curve, so this does
+ * the scaling itself.
+ */
+internal data class CornerEachShape(
+    val topLeft: Float,
+    val topRight: Float,
+    val bottomRight: Float,
+    val bottomLeft: Float,
+) : Shape {
+    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline =
+        Outline.Rounded(roundRect(size, density))
+
+    /** The outline at the origin, with the radii in pixels and scaled to fit. */
+    fun roundRect(size: Size, density: Density): RoundRect {
+        val px = with(density) { floatArrayOf(topLeft.dp.toPx(), topRight.dp.toPx(), bottomRight.dp.toPx(), bottomLeft.dp.toPx()) }
+        var scale = 1f
+        fun fit(side: Float, first: Float, second: Float) {
+            val sum = first + second
+            if (sum > 0f && side < sum * scale) scale = side / sum
+        }
+        fit(size.width, px[0], px[1])
+        fit(size.width, px[3], px[2])
+        fit(size.height, px[0], px[3])
+        fit(size.height, px[1], px[2])
+        return RoundRect(
+            left = 0f,
+            top = 0f,
+            right = size.width,
+            bottom = size.height,
+            topLeftCornerRadius = CornerRadius(max(0f, px[0] * scale)),
+            topRightCornerRadius = CornerRadius(max(0f, px[1] * scale)),
+            bottomRightCornerRadius = CornerRadius(max(0f, px[2] * scale)),
+            bottomLeftCornerRadius = CornerRadius(max(0f, px[3] * scale)),
+        )
+    }
+}
+
+/** The node's outline at the origin: its corners where it has them, its rectangle otherwise. */
+private fun boxOutline(size: Size, density: Density, corners: CornerEachShape?): RoundRect =
+    corners?.roundRect(size, density) ?: RoundRect(0f, 0f, size.width, size.height)
+
+/**
+ * A border with its own width and paint on each side, drawn the way CSS draws one.
+ *
+ * The border is the ring between the node's outline and the same outline brought in by each
+ * side's width, with every inner radius reduced by the widths next to it. Each side paints
+ * the part of the ring on its side of the two lines that run from the outer corners through
+ * the inner ones, which is where CSS puts the join between two sides of different colours.
+ *
+ * Drawn behind the content, over the background, as CSS draws it. Nothing about the layout
+ * changes: CSS's border box is the size the Host already sent.
+ */
+private fun Modifier.borderEach(
+    value: ProtocolModifier.BorderEach,
+    brushes: List<Brush>,
+    corners: CornerEachShape?,
+): Modifier = drawWithCache {
+    val width = size.width
+    val height = size.height
+    val top = value.top.dp.toPx().coerceAtLeast(0f)
+    val right = value.right.dp.toPx().coerceAtLeast(0f)
+    val bottom = value.bottom.dp.toPx().coerceAtLeast(0f)
+    val left = value.left.dp.toPx().coerceAtLeast(0f)
+    val outer = boxOutline(size, this, corners)
+    val inner = RoundRect(
+        left = left,
+        top = top,
+        right = max(left, width - right),
+        bottom = max(top, height - bottom),
+        topLeftCornerRadius = CornerRadius(
+            max(0f, outer.topLeftCornerRadius.x - left),
+            max(0f, outer.topLeftCornerRadius.y - top),
+        ),
+        topRightCornerRadius = CornerRadius(
+            max(0f, outer.topRightCornerRadius.x - right),
+            max(0f, outer.topRightCornerRadius.y - top),
+        ),
+        bottomRightCornerRadius = CornerRadius(
+            max(0f, outer.bottomRightCornerRadius.x - right),
+            max(0f, outer.bottomRightCornerRadius.y - bottom),
+        ),
+        bottomLeftCornerRadius = CornerRadius(
+            max(0f, outer.bottomLeftCornerRadius.x - left),
+            max(0f, outer.bottomLeftCornerRadius.y - bottom),
+        ),
+    )
+    val ring = Path.combine(
+        PathOperation.Difference,
+        Path().apply { addRoundRect(outer) },
+        Path().apply { addRoundRect(inner) },
+    )
+    val middleX = width / 2f
+    val middleY = height / 2f
+    // Each side's share of the ring: from its two outer corners along the joins towards the
+    // middle of the box. The joins run through the inner corners, so a thick side takes
+    // more of the corner than a thin one, as in a browser.
+    fun polygon(vararg points: Offset) = Path().apply {
+        moveTo(points[0].x, points[0].y)
+        for (index in 1 until points.size) lineTo(points[index].x, points[index].y)
+        close()
+    }
+    val regions = listOf(
+        if (top > 0f) polygon(
+            Offset(0f, 0f),
+            Offset(width, 0f),
+            Offset(width - right * middleY / top, middleY),
+            Offset(left * middleY / top, middleY),
+        ) else null,
+        if (right > 0f) polygon(
+            Offset(width, 0f),
+            Offset(width, height),
+            Offset(middleX, height - bottom * middleX / right),
+            Offset(middleX, top * middleX / right),
+        ) else null,
+        if (bottom > 0f) polygon(
+            Offset(width, height),
+            Offset(0f, height),
+            Offset(left * middleY / bottom, middleY),
+            Offset(width - right * middleY / bottom, middleY),
+        ) else null,
+        if (left > 0f) polygon(
+            Offset(0f, height),
+            Offset(0f, 0f),
+            Offset(middleX, top * middleX / left),
+            Offset(middleX, height - bottom * middleX / left),
+        ) else null,
+    )
+    onDrawBehind {
+        regions.forEachIndexed { index, region ->
+            if (region != null) {
+                clipPath(region) { drawPath(ring, brushes[index]) }
+            }
+        }
+    }
+}
+
+/**
+ * One CSS `box-shadow`: the node's outline, grown by the spread, moved by the offset and
+ * blurred, and drawn only outside the node.
+ *
+ * CSS cuts the shadow out from under the box it belongs to, so a translucent box does not
+ * show its own shadow through itself. That is why this is drawn here, behind the content
+ * with the box cut away, rather than by Compose's own shadow modifiers, which leave the
+ * shadow under the box.
+ *
+ * Later shadows draw over earlier ones, because a modifier list draws in its order. CSS
+ * draws the first shadow in its list on top, so a Host sends a CSS list last to first.
+ */
+private fun Modifier.boxShadow(
+    value: ProtocolModifier.Shadow,
+    brush: Brush,
+    corners: CornerEachShape?,
+): Modifier = drawWithCache {
+    val spread = value.spread.dp.toPx()
+    val blur = value.blur.dp.toPx().coerceAtLeast(0f)
+    val dx = value.x.dp.toPx()
+    val dy = value.y.dp.toPx()
+    val box = boxOutline(size, this, corners)
+    val boxPath = Path().apply { addRoundRect(box) }
+    val shadowWidth = size.width + 2f * spread
+    val shadowHeight = size.height + 2f * spread
+    if (shadowWidth <= 0f || shadowHeight <= 0f) {
+        return@drawWithCache onDrawBehind { }
+    }
+    // The spread grows each corner's radius with it, by the rule CSS gives so that a small
+    // radius does not jump to a large one when the spread is large.
+    fun grown(radius: CornerRadius) = CornerRadius(spreadRadius(radius.x, spread), spreadRadius(radius.y, spread))
+    val shape = RoundRect(
+        left = 0f,
+        top = 0f,
+        right = shadowWidth,
+        bottom = shadowHeight,
+        topLeftCornerRadius = grown(box.topLeftCornerRadius),
+        topRightCornerRadius = grown(box.topRightCornerRadius),
+        bottomRightCornerRadius = grown(box.bottomRightCornerRadius),
+        bottomLeftCornerRadius = grown(box.bottomLeftCornerRadius),
+    )
+    val shapePath = Path().apply { addRoundRect(shape) }
+    if (blur == 0f) {
+        return@drawWithCache onDrawBehind {
+            clipPath(boxPath, ClipOp.Difference) {
+                translate(dx - spread, dy - spread) { drawPath(shapePath, brush) }
+            }
+        }
+    }
+    // CSS's blur radius is twice the standard deviation of the Gaussian it blurs with. The
+    // shape is drawn into a layer with room for the blur around it, and the layer is
+    // blurred as a whole.
+    val sigma = blur / 2f
+    val margin = ceil(3f * sigma)
+    val layer = obtainGraphicsLayer()
+    layer.record(
+        this,
+        layoutDirection,
+        IntSize(ceil(shadowWidth + 2f * margin).toInt(), ceil(shadowHeight + 2f * margin).toInt()),
+    ) {
+        translate(margin, margin) { drawPath(shapePath, brush) }
+    }
+    layer.renderEffect = BlurEffect(composeBlurRadius(sigma), composeBlurRadius(sigma), TileMode.Decal)
+    onDrawBehind {
+        clipPath(boxPath, ClipOp.Difference) {
+            translate(dx - spread - margin, dy - spread - margin) { drawLayer(layer) }
+        }
+    }
+}
+
+/**
+ * The radius Compose's blur takes for a Gaussian of standard deviation [sigma].
+ *
+ * Compose turns a blur radius r into a deviation of 0.57735 r + 0.5, the conversion Skia
+ * and Android both use, so this is that conversion run backwards. Below half a pixel there
+ * is nothing to blur.
+ */
+private fun composeBlurRadius(sigma: Float): Float = max(0f, (sigma - 0.5f) / 0.57735f)
+
+/**
+ * A corner radius after a shadow's spread, as CSS Backgrounds 3 gives it: a radius of zero
+ * stays sharp, a negative spread shrinks the radius, and a positive spread grows it by less
+ * than the spread when the radius is smaller than the spread.
+ */
+private fun spreadRadius(radius: Float, spread: Float): Float = when {
+    radius <= 0f -> 0f
+    spread < 0f -> max(0f, radius + spread)
+    spread == 0f || radius >= spread -> radius + spread
+    else -> {
+        val ratio = radius / spread - 1f
+        radius + spread * (1f + ratio * ratio * ratio)
+    }
 }
 
 /** The weight this node asked its parent layout for, or null. */

@@ -208,9 +208,76 @@ class ProtocolVectorsTest {
                 ProtocolModifier.ShapeRole(ShapeRole.Large),
                 ProtocolModifier.Border(2f, Paint.Role(ColorRole.Outline)),
                 ProtocolModifier.Elevation(6f),
+                ProtocolModifier.Offset(12.5f, -4f),
+                ProtocolModifier.RequiredSize(320f, 180f),
+                ProtocolModifier.BorderEach(
+                    1f, 2f, 3f, 4f,
+                    Paint.Literal(0xFF112233.toInt()),
+                    Paint.Role(ColorRole.Outline),
+                    Paint.Literal(0x80445566.toInt()),
+                    Paint.Role(ColorRole.Primary),
+                ),
+                ProtocolModifier.CornerEach(4f, 8f, 12f, 16f),
+                ProtocolModifier.Shadow(0f, 2f, 6f, -1f, Paint.Literal(0x40000000)),
+                ProtocolModifier.Clip(true),
+                ProtocolModifier.Alpha(0.5f),
             ),
             modifiers,
         )
+    }
+
+    /**
+     * The HTML elements in the vector: the box that places its children where the Host put
+     * them, and its seven modifiers, two of which are longer than the 28 bytes every older
+     * modifier record has. Both decoders have to agree on the length each tag fixes.
+     */
+    @Test
+    fun fr42_the_html_element_records_in_the_vector_decode_to_the_same_values() {
+        val mutations = decodeVector("mutations.bin")
+        assertEquals(
+            Mutation.Create(8, WidgetKind.AbsoluteBox),
+            mutations.filterIsInstance<Mutation.Create>().single { it.nodeId == 8 },
+        )
+        val onBox = mutations.filterIsInstance<Mutation.SetModifier>().filter { it.nodeId == 8 }
+        assertEquals((0..6).toList(), onBox.map { it.index })
+
+        // The record lengths, read from the bytes rather than from the decoder: 28 for a
+        // value of two words, 36 for the shadow's three and 60 for the border's six.
+        val bytes = ByteBuffer.wrap(vectorFile("mutations.bin").readBytes()).order(ByteOrder.LITTLE_ENDIAN)
+        val recordsLength = bytes.getInt(4)
+        val lengths = mutableMapOf<Int, Int>()
+        var offset = 12
+        while (offset < recordsLength) {
+            val tag = bytes.getShort(offset).toInt()
+            val length = bytes.getShort(offset + 2).toInt()
+            if (tag == 3 && bytes.getInt(offset + 4) == 8) {
+                lengths[bytes.getShort(offset + 10).toInt()] = length
+            }
+            offset += length
+        }
+        assertEquals(
+            mapOf(19 to 28, 20 to 28, 21 to 60, 22 to 28, 23 to 36, 24 to 28, 25 to 28),
+            lengths,
+        )
+    }
+
+    /**
+     * A modifier record whose length is not the one its tag fixes is refused, whichever way
+     * it is wrong: a border cut down to 28 bytes, and a padding grown to 36.
+     */
+    @Test
+    fun fr42_a_modifier_record_of_the_wrong_length_is_a_protocol_error() {
+        for ((modifierTag, length) in listOf(21 to 28, 23 to 28, 1 to 36)) {
+            val batch = ByteBuffer.allocate(12 + length).order(ByteOrder.LITTLE_ENDIAN)
+            batch.putShort(0).putShort(12).putInt(12 + length).putInt(1)
+            batch.putShort(3).putShort(length.toShort()).putInt(1).putShort(0).putShort(modifierTag.toShort())
+            batch.position(0)
+            val failure = runCatching { Protocol.decode(batch) { } }.exceptionOrNull()
+            assertTrue(
+                failure is dev.darkpyonix.composerust.protocol.ProtocolException,
+                "a $length byte record for modifier $modifierTag decoded instead of being refused: $failure",
+            )
+        }
     }
 
     /** The theme record carries the palette behind it, and both sides read the same entries. */
