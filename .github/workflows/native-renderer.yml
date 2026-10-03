@@ -94,7 +94,7 @@ jobs:
             exit 0
           fi
           if git diff --name-only HEAD^ HEAD |
-              grep -qE '^(dioxus-compose-renderer/|scripts/install-nik\.sh|\.github/workflows/native-renderer\.yml)'; then
+              grep -qE '^(renderer/|scripts/install-nik\.sh|\.github/workflows/native-renderer\.yml)'; then
             echo "the renderer changed"
             echo "renderer=true" >> "$GITHUB_OUTPUT"
           else
@@ -138,13 +138,13 @@ jobs:
 
       - name: Build the Windows renderer
         shell: powershell
-        run: .\dioxus-compose-renderer\desktop\scripts\build-native-windows.ps1
+        run: .\renderer\desktop\scripts\build-native-windows.ps1
 
       - name: Non-interactive Windows smoke test
         # This proves startup, rendering long enough to open, clean close, and return 0.
         # It does not prove mouse input because a hosted runner cannot perform the required click.
         shell: powershell
-        run: .\dioxus-compose-renderer\desktop\scripts\smoke-test-windows.ps1
+        run: .\renderer\desktop\scripts\smoke-test-windows.ps1
 
       # A run artifact, which is a different thing from the release asset below: it belongs
       # to this run, lasts a fortnight, and is not published anywhere. The release asset
@@ -159,7 +159,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: renderer-windows-x64
-          path: dioxus-compose-renderer/build/native-image/dist
+          path: renderer/build/native-image/dist
           retention-days: 14
 
       - name: Package the distribution for a release
@@ -168,9 +168,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          name="dioxus-compose-renderer-${{ github.ref_name }}-windows-x64"
+          name="compose-rust-renderer-${{ github.ref_name }}-windows-x64"
           # dist/ holds the renderer, Skia and the AWT libraries, plus include/.
-          tar -czf "${name}.tar.gz" -C dioxus-compose-renderer/build/native-image/dist .
+          tar -czf "${name}.tar.gz" -C renderer/build/native-image/dist .
           if command -v shasum >/dev/null; then
             shasum -a 256 "${name}.tar.gz" > "${name}.tar.gz.sha256"
           else
@@ -192,8 +192,8 @@ jobs:
       - name: Upload the renderer
         uses: actions/upload-artifact@v4
         with:
-          name: dioxus-compose-renderer-windows-x64
-          path: dioxus-compose-renderer/build/native-image/dist/
+          name: compose-rust-renderer-windows-x64
+          path: renderer/build/native-image/dist/
           retention-days: 7
 
   build:
@@ -212,7 +212,7 @@ jobs:
         # the cache, which is exactly when a fresh download is wanted.
         uses: actions/cache@v4
         with:
-          path: ~/.cache/dioxus-compose/nik
+          path: ~/.cache/compose-rust/nik
           key: nik-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/install-nik.sh') }}
 
       - name: Install Liberica NIK 25 Full
@@ -226,7 +226,7 @@ jobs:
           path: |
             ~/Library/Caches/JetBrains/Kotlin
             ~/.m2/repository
-          key: kotlin-${{ runner.os }}-${{ hashFiles('dioxus-compose-renderer/kotlin', 'dioxus-compose-renderer/libs.versions.toml', 'dioxus-compose-renderer/**/module.yaml') }}
+          key: kotlin-${{ runner.os }}-${{ hashFiles('renderer/kotlin', 'renderer/libs.versions.toml', 'renderer/**/module.yaml') }}
           restore-keys: |
             kotlin-${{ runner.os }}-
 
@@ -234,27 +234,27 @@ jobs:
         # A static check of the Windows script, metadata and staging rules. It runs here
         # because it is pure text and JSON, and because the Windows job itself only reaches
         # its assertions after a ninety minute build.
-        run: bash dioxus-compose-renderer/desktop/scripts/windows-build-contract.test.sh
+        run: bash renderer/desktop/scripts/windows-build-contract.test.sh
 
       - name: Build the renderer shared library
         # Stages build/native-image/dist/lib with the renderer, Skia, and the
         # libjawt / libawt_lwawt shims described in SPEC PR-8.
-        run: ./dioxus-compose-renderer/desktop/scripts/build-native.sh
+        run: ./renderer/desktop/scripts/build-native.sh
 
       - name: Accessibility classes are linked in (SPEC NFR-8)
         # They are reached only by name from AppKit, so the link is free to drop them and
         # the only symptom is that turning VoiceOver on aborts the process.
-        run: ./dioxus-compose-renderer/desktop/scripts/tests/accessibility-link.test.sh
+        run: ./renderer/desktop/scripts/tests/accessibility-link.test.sh
 
       - name: Smoke test (SPEC PR-8 acceptance criterion)
         env:
           # The renderer honours this to close its window unattended; without
           # it the smoke test would wait for a human to close the window.
-          DIOXUS_COMPOSE_AUTOEXIT_MS: '5000'
-        run: ./dioxus-compose-renderer/desktop/scripts/smoke-test.sh
+          COMPOSE_RUST_AUTOEXIT_MS: '5000'
+        run: ./renderer/desktop/scripts/smoke-test.sh
 
       - name: Report the distribution size (NFR-3)
-        run: du -sh dioxus-compose-renderer/build/native-image/dist/lib
+        run: du -sh renderer/build/native-image/dist/lib
 
       - name: Package the distribution for a release
         id: package
@@ -262,9 +262,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          name="dioxus-compose-renderer-${{ github.ref_name }}-macos-aarch64"
+          name="compose-rust-renderer-${{ github.ref_name }}-macos-aarch64"
           # dist/ holds the renderer, Skia and the AWT libraries, plus include/.
-          tar -czf "${name}.tar.gz" -C dioxus-compose-renderer/build/native-image/dist .
+          tar -czf "${name}.tar.gz" -C renderer/build/native-image/dist .
           if command -v shasum >/dev/null; then
             shasum -a 256 "${name}.tar.gz" > "${name}.tar.gz.sha256"
           else
@@ -286,8 +286,8 @@ jobs:
       - name: Upload the renderer for inspection
         uses: actions/upload-artifact@v4
         with:
-          name: dioxus-compose-renderer-macos-arm64
-          path: dioxus-compose-renderer/build/native-image/dist/
+          name: compose-rust-renderer-macos-arm64
+          path: renderer/build/native-image/dist/
           retention-days: 7
 
   # Same reasoning as the Windows job: this is the only Linux verification the project
@@ -324,28 +324,28 @@ jobs:
           path: |
             ~/.cache/JetBrains/Kotlin
             ~/.m2/repository
-          key: kotlin-linux-${{ hashFiles('dioxus-compose-renderer/kotlin', 'dioxus-compose-renderer/libs.versions.toml', 'dioxus-compose-renderer/**/module.yaml') }}
+          key: kotlin-linux-${{ hashFiles('renderer/kotlin', 'renderer/libs.versions.toml', 'renderer/**/module.yaml') }}
           restore-keys: |
             kotlin-linux-
 
       - name: Run Linux script contract tests
-        run: bash dioxus-compose-renderer/desktop/scripts/tests/linux-build.test.sh
+        run: bash renderer/desktop/scripts/tests/linux-build.test.sh
 
       - name: Run the Linux metadata contract test
-        run: bash dioxus-compose-renderer/desktop/scripts/tests/linux-metadata.test.sh
+        run: bash renderer/desktop/scripts/tests/linux-metadata.test.sh
 
       - name: Build the Linux renderer under Xvfb
-        run: xvfb-run -a ./dioxus-compose-renderer/desktop/scripts/build-native-linux.sh
+        run: xvfb-run -a ./renderer/desktop/scripts/build-native-linux.sh
 
       - name: Inspect staged dynamic dependencies
         run: |
-          find dioxus-compose-renderer/build/native-image-linux/dist/lib -maxdepth 1 -type f -print | sort
-          ldd dioxus-compose-renderer/build/native-image-linux/dist/lib/*.so
+          find renderer/build/native-image-linux/dist/lib -maxdepth 1 -type f -print | sort
+          ldd renderer/build/native-image-linux/dist/lib/*.so
 
       - name: Headless startup smoke only
         env:
-          DIOXUS_COMPOSE_AUTOEXIT_MS: '5000'
-        run: xvfb-run -a ./dioxus-compose-renderer/desktop/scripts/smoke-test-linux.sh
+          COMPOSE_RUST_AUTOEXIT_MS: '5000'
+        run: xvfb-run -a ./renderer/desktop/scripts/smoke-test-linux.sh
 
       - name: Package the distribution for a release
         id: package
@@ -353,9 +353,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          name="dioxus-compose-renderer-${{ github.ref_name }}-linux-x64"
+          name="compose-rust-renderer-${{ github.ref_name }}-linux-x64"
           # dist/ holds the renderer, Skia and the AWT libraries, plus include/.
-          tar -czf "${name}.tar.gz" -C dioxus-compose-renderer/build/native-image-linux/dist .
+          tar -czf "${name}.tar.gz" -C renderer/build/native-image-linux/dist .
           if command -v shasum >/dev/null; then
             shasum -a 256 "${name}.tar.gz" > "${name}.tar.gz.sha256"
           else
@@ -377,8 +377,8 @@ jobs:
       - name: Upload the Linux renderer for inspection
         uses: actions/upload-artifact@v4
         with:
-          name: dioxus-compose-renderer-linux-x64
-          path: dioxus-compose-renderer/build/native-image-linux/dist/
+          name: compose-rust-renderer-linux-x64
+          path: renderer/build/native-image-linux/dist/
           retention-days: 7
 
   linux-arm64:
@@ -411,22 +411,22 @@ jobs:
           path: |
             ~/.cache/JetBrains/Kotlin
             ~/.m2/repository
-          key: kotlin-linux-${{ hashFiles('dioxus-compose-renderer/kotlin', 'dioxus-compose-renderer/libs.versions.toml', 'dioxus-compose-renderer/**/module.yaml') }}
+          key: kotlin-linux-${{ hashFiles('renderer/kotlin', 'renderer/libs.versions.toml', 'renderer/**/module.yaml') }}
           restore-keys: |
             kotlin-linux-
 
       - name: Build the Linux renderer under Xvfb
-        run: xvfb-run -a ./dioxus-compose-renderer/desktop/scripts/build-native-linux.sh
+        run: xvfb-run -a ./renderer/desktop/scripts/build-native-linux.sh
 
       - name: Inspect staged dynamic dependencies
         run: |
-          find dioxus-compose-renderer/build/native-image-linux/dist/lib -maxdepth 1 -type f -print | sort
-          ldd dioxus-compose-renderer/build/native-image-linux/dist/lib/*.so
+          find renderer/build/native-image-linux/dist/lib -maxdepth 1 -type f -print | sort
+          ldd renderer/build/native-image-linux/dist/lib/*.so
 
       - name: Headless startup smoke only
         env:
-          DIOXUS_COMPOSE_AUTOEXIT_MS: '5000'
-        run: xvfb-run -a ./dioxus-compose-renderer/desktop/scripts/smoke-test-linux.sh
+          COMPOSE_RUST_AUTOEXIT_MS: '5000'
+        run: xvfb-run -a ./renderer/desktop/scripts/smoke-test-linux.sh
 
       - name: Package the distribution for a release
         id: package
@@ -434,9 +434,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          name="dioxus-compose-renderer-${{ github.ref_name }}-linux-arm64"
+          name="compose-rust-renderer-${{ github.ref_name }}-linux-arm64"
           # dist/ holds the renderer, Skia and the AWT libraries, plus include/.
-          tar -czf "${name}.tar.gz" -C dioxus-compose-renderer/build/native-image-linux/dist .
+          tar -czf "${name}.tar.gz" -C renderer/build/native-image-linux/dist .
           if command -v shasum >/dev/null; then
             shasum -a 256 "${name}.tar.gz" > "${name}.tar.gz.sha256"
           else
@@ -458,8 +458,8 @@ jobs:
       - name: Upload the Linux renderer for inspection
         uses: actions/upload-artifact@v4
         with:
-          name: dioxus-compose-renderer-linux-arm64
-          path: dioxus-compose-renderer/build/native-image-linux/dist/
+          name: compose-rust-renderer-linux-arm64
+          path: renderer/build/native-image-linux/dist/
           retention-days: 7
 
   # The two Linux jobs above prove the renderer builds and that a C host linked with an
@@ -501,7 +501,7 @@ jobs:
       - name: Download the renderer this run built
         uses: actions/download-artifact@v4
         with:
-          name: dioxus-compose-renderer-linux-${{ matrix.arch }}
+          name: compose-rust-renderer-linux-${{ matrix.arch }}
           path: renderer-dist
 
       - name: Build, move, bundle and run an application under Xvfb
@@ -565,7 +565,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ~/.m2/repository
-          key: compose-linuxx64-${{ hashFiles('dioxus-compose-renderer/scripts/build-compose.sh', 'dioxus-compose-renderer/scripts/compose-fork.changes') }}
+          key: compose-linuxx64-${{ hashFiles('renderer/scripts/build-compose.sh', 'renderer/scripts/compose-fork.changes') }}
 
       - name: Cache the Kotlin toolchain
         uses: actions/cache@v4
@@ -573,13 +573,13 @@ jobs:
           path: |
             ~/.cache/JetBrains/Kotlin
             ~/.konan
-          key: kotlin-native-linux-${{ hashFiles('dioxus-compose-renderer/kotlin', 'dioxus-compose-renderer/libs.versions.toml', 'dioxus-compose-renderer/**/module.yaml') }}
+          key: kotlin-native-linux-${{ hashFiles('renderer/kotlin', 'renderer/libs.versions.toml', 'renderer/**/module.yaml') }}
           restore-keys: |
             kotlin-native-linux-
 
       - name: Build and publish the patched Compose for linuxX64
         if: steps.compose-cache.outputs.cache-hit != 'true'
-        run: ./dioxus-compose-renderer/scripts/build-compose.sh --target linuxX64
+        run: ./renderer/scripts/build-compose.sh --target linuxX64
 
       - name: Keep the patched Compose for the next run
         if: steps.compose-cache.outputs.cache-hit != 'true'
@@ -589,30 +589,30 @@ jobs:
           key: ${{ steps.compose-cache.outputs.cache-primary-key }}
 
       - name: Build the static renderer
-        run: ./dioxus-compose-renderer/desktop/scripts/build-linux.sh
+        run: ./renderer/desktop/scripts/build-linux.sh
 
       - name: Show what the renderer build left behind
         if: failure()
         run: |
-          ls dioxus-compose-renderer/build/tasks 2>/dev/null | grep -i linux || true
-          tail -n 80 dioxus-compose-renderer/build/linux-logs/*-build.log 2>/dev/null || true
+          ls renderer/build/tasks 2>/dev/null | grep -i linux || true
+          tail -n 80 renderer/build/linux-logs/*-build.log 2>/dev/null || true
 
       - name: Keep the renderer build's logs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: linux-static-renderer-logs
-          path: dioxus-compose-renderer/build/linux-logs/
+          path: renderer/build/linux-logs/
           retention-days: 7
 
       - name: Inspect the host exports library
         run: |
-          lib=dioxus-compose-renderer/build/linux/libdioxus_compose_host_exports.so
+          lib=renderer/build/linux/libcompose_rust_host_exports.so
           readelf -d "$lib"
           nm -D "$lib"
 
       - name: Build, move, bundle and run an application under Xvfb
-        run: xvfb-run -a -s '-screen 0 1280x1024x24' ./scripts/check-linux-consumer.sh dioxus-compose-renderer/build/linux "$RUNNER_TEMP/consumer-static"
+        run: xvfb-run -a -s '-screen 0 1280x1024x24' ./scripts/check-linux-consumer.sh renderer/build/linux "$RUNNER_TEMP/consumer-static"
 
   # iOS is Kotlin/Native, not native-image, so it shares nothing with the jobs above
   # except the interpreter source. It builds both slices (simulator and device) and
@@ -639,31 +639,31 @@ jobs:
             ~/Library/Caches/JetBrains/Kotlin
             ~/.konan
             ~/.m2/repository
-          key: kotlin-ios-${{ hashFiles('dioxus-compose-renderer/kotlin', 'dioxus-compose-renderer/libs.versions.toml', 'dioxus-compose-renderer/**/module.yaml') }}
+          key: kotlin-ios-${{ hashFiles('renderer/kotlin', 'renderer/libs.versions.toml', 'renderer/**/module.yaml') }}
           restore-keys: |
             kotlin-ios-
 
       - name: Protocol codec tests on Kotlin/Native (PR-4)
-        working-directory: dioxus-compose-renderer
+        working-directory: renderer
         run: ./kotlin test -m ios
 
       - name: Build the simulator archive
-        run: ./dioxus-compose-renderer/desktop/scripts/build-ios.sh
+        run: ./renderer/desktop/scripts/build-ios.sh
 
       - name: Build the device archive
         # Never run, only linked. It proves the arm64 device slice still compiles and
         # exports the PR-2 symbols; running it needs a signed app on real hardware.
-        run: ./dioxus-compose-renderer/desktop/scripts/build-ios.sh --target device
+        run: ./renderer/desktop/scripts/build-ios.sh --target device
 
       - name: Simulator smoke test (PR-2)
-        run: ./dioxus-compose-renderer/desktop/scripts/ios-smoke-test.sh --screenshot "${RUNNER_TEMP}/ios-smoke.png"
+        run: ./renderer/desktop/scripts/ios-smoke-test.sh --screenshot "${RUNNER_TEMP}/ios-smoke.png"
 
       - name: Simulator screenshot of the system's navigation chrome
         # The default smoke tree has no navigation, so the screenshot above shows none of
         # the chrome iOS 26 draws as Liquid Glass. This run declares two destinations,
         # which is what the renderer turns into a UITabBarController and a title bar.
         run: |
-          ./dioxus-compose-renderer/desktop/scripts/ios-smoke-test.sh \
+          ./renderer/desktop/scripts/ios-smoke-test.sh \
             --navigation --screenshot "${RUNNER_TEMP}/ios-navigation.png"
 
       - name: Package the iOS renderer as an XCFramework
@@ -674,17 +674,17 @@ jobs:
         id: package
         run: |
           set -euo pipefail
-          name="dioxus-compose-renderer-${GITHUB_REF_NAME}-ios"
-          build=dioxus-compose-renderer/build/ios
+          name="compose-rust-renderer-${GITHUB_REF_NAME}-ios"
+          build=renderer/build/ios
           for slice in device simulator; do
             mkdir -p "$build/$slice/include"
             cp "$build/$slice"/*.h "$build/$slice/include/"
           done
           rm -rf "$name.xcframework"
           xcodebuild -create-xcframework \
-            -library "$build/device/libdioxus_compose_renderer.a" \
+            -library "$build/device/libcompose_rust_renderer.a" \
             -headers "$build/device/include" \
-            -library "$build/simulator/libdioxus_compose_renderer.a" \
+            -library "$build/simulator/libcompose_rust_renderer.a" \
             -headers "$build/simulator/include" \
             -output "$name.xcframework"
           tar -czf "$name.tar.gz" "$name.xcframework"

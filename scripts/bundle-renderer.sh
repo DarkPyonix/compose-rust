@@ -26,7 +26,7 @@
 # fails looking for `Contents/lib/libjawt.dylib`. `Contents/Frameworks/lib` works.
 #
 # An application built against the Linux static renderer (DXC_LINUX_NATIVE_LIB) has the
-# renderer inside it and names one library instead: libdioxus_compose_host_exports.so, which
+# renderer inside it and names one library instead: libcompose_rust_host_exports.so, which
 # is what makes it export the Host's functions to the renderer. Copy that file to the same
 # place, and this rewrites it the same way.
 #
@@ -58,8 +58,8 @@ staged_dir="$(cd "$(dirname "$executable")" && pwd)"
 # the static renderer ships so that an application exports the Host's functions: built
 # against the static renderer, an application names that one and not the renderer.
 case "$(uname -s)" in
-    Darwin) library_names=(libdioxus_compose_renderer.dylib) ;;
-    Linux) library_names=(libdioxus_compose_renderer.so libdioxus_compose_host_exports.so) ;;
+    Darwin) library_names=(libcompose_rust_renderer.dylib) ;;
+    Linux) library_names=(libcompose_rust_renderer.so libcompose_rust_host_exports.so) ;;
     *)
         echo "nothing to do on $(uname -s): a DLL is found on the loader's search path,"
         echo "so the renderer's files beside the executable is the whole arrangement."

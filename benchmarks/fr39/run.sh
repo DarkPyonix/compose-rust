@@ -6,7 +6,7 @@
 #   benchmarks/fr39/run.sh [ITERATIONS] [WARMUP]
 #
 # Raw runs go to .scratch/fr39/<timestamp>/, inside this checkout. The comparison is
-# written into the fr39 entry of dioxus-compose/benches/baseline.json together with the
+# written into the fr39 entry of compose-rust/benches/baseline.json together with the
 # machine and the load average it was measured at. A load average above 1.0 is recorded
 # as it is; the verdict is only to be read from a run on an idle machine.
 #
@@ -62,4 +62,4 @@ fi
     --candidate "${candidate_runs[@]}" \
     --load-average "${loads[*]}" \
     --machine "$machine" \
-    --record "$repo_root/dioxus-compose/benches/baseline.json"
+    --record "$repo_root/compose-rust/benches/baseline.json"

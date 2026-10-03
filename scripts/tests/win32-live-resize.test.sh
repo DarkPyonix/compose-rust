@@ -19,8 +19,8 @@
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-header="$repo_root/dioxus-compose-renderer/desktop/c/win32_resize.h"
-source_file="$repo_root/dioxus-compose-renderer/desktop/c/win32_window.c"
+header="$repo_root/renderer/desktop/c/win32_resize.h"
+source_file="$repo_root/renderer/desktop/c/win32_window.c"
 red=0
 
 for file in "$header" "$source_file"; do
@@ -172,12 +172,12 @@ int main(void) {
 PROBE
 
 if [[ "$compiler" == "cl" ]]; then
-    ( cd "$work" && cl.exe /nologo "/I$repo_root/dioxus-compose-renderer/desktop/c" \
+    ( cd "$work" && cl.exe /nologo "/I$repo_root/renderer/desktop/c" \
         /Fe:resize.exe win32-live-resize.c >/dev/null ) \
         || { echo "fail: the resize arithmetic did not compile"; exit 1; }
     binary="$work/resize.exe"
 else
-    cc -I"$repo_root/dioxus-compose-renderer/desktop/c" -o "$work/resize" "$probe" \
+    cc -I"$repo_root/renderer/desktop/c" -o "$work/resize" "$probe" \
         || { echo "fail: the resize arithmetic did not compile"; exit 1; }
     binary="$work/resize"
 fi

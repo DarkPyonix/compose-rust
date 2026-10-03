@@ -8,4 +8,4 @@ publish.workspace = true
 [dependencies]
 fr39-candidate-driver = { path = "../driver" }
 fr39-scenarios = { path = "../../scenarios" }
-compose-rust = { path = "../../../../dioxus-compose", default-features = false, features = ["mock-renderer"] }
+compose-rust = { path = "../../../../compose-rust", default-features = false, features = ["mock-renderer"] }

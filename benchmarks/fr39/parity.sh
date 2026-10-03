@@ -6,7 +6,7 @@
 #   benchmarks/fr39/parity.sh
 #
 # This is the whole-sample half of the parity check. The fixtures in
-# dioxus-compose/tests/compose_parity.rs are the half that runs with cargo test.
+# compose-rust/tests/compose_parity.rs are the half that runs with cargo test.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

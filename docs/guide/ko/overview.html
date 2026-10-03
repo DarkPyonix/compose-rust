@@ -99,7 +99,7 @@
     </p>
 
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
-      <figcaption>dioxus-compose/examples/desktop_demo.rs</figcaption>
+      <figcaption>compose-rust/examples/desktop_demo.rs</figcaption>
 <pre><code><span class="k">use</span> compose_rust::prelude::*;
 
 <span class="k">fn</span> <span class="f">app</span>() -&gt; <span class="ty">Element</span> {
@@ -109,7 +109,7 @@
     <span class="f">rsx!</span> {
         <span class="ty">Column</span> {
             <span class="at">fill_max_width</span>: <span class="k">true</span>,
-            <span class="ty">Text</span> { <span class="at">text</span>: <span class="s">"dioxus-compose chat"</span> }
+            <span class="ty">Text</span> { <span class="at">text</span>: <span class="s">"compose-rust chat"</span> }
             <span class="k">for</span> message <span class="k">in</span> messages() {
                 <span class="ty">Text</span> { <span class="at">text</span>: message }
             }

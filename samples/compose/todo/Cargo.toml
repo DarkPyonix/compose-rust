@@ -16,7 +16,7 @@ crate-type = ["rlib", "cdylib", "staticlib"]
 bench = false
 
 [dependencies]
-compose-rust = { path = "../../../dioxus-compose" }
+compose-rust = { path = "../../../compose-rust" }
 
 [[bin]]
 name = "sample-todo-compose"
