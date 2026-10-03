@@ -155,9 +155,9 @@ Safari and 5 ns in V8.
     cd trampoline
     ./build-rust.sh                 # cargo test, then the two wasm32 variants into dist/
     ./build-kotlin.sh               # the Kotlin/Wasm module into dist/
-    python3 build-trampoline.py     # dist/trampoline.wasm
-    python3 run-bench.py safari --runs 7
-    python3 run-bench.py chrome --runs 7 --label chrome-headless-shell \
+    uv run build-trampoline.py     # dist/trampoline.wasm
+    uv run run-bench.py safari --runs 7
+    uv run run-bench.py chrome --runs 7 --label chrome-headless-shell \
         --chrome <path>/chrome-headless-shell-mac-arm64/chrome-headless-shell
 
 Chrome for Testing and its headless shell were downloaded into the repository's
