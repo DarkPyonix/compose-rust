@@ -23,7 +23,7 @@
 #
 # Compose publishes no Kotlin/Native target for this platform, so the modules it draws with
 # are built from source and published locally first. `scripts/build-compose.sh --target
-# linuxX64` does that, and this script says so rather than doing it, because it is a Gradle
+# linux` does that, for both architectures, because the module declares both, and this script says so rather than doing it, because it is a Gradle
 # build of someone else's repository and belongs in its own step.
 #
 # arm64 is cross compiled on an x86-64 machine: Kotlin/Native has no arm64 Linux host, and

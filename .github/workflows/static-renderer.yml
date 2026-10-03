@@ -13,7 +13,9 @@
 #                  arm64 X11, GL and font libraries from Ubuntu's arm64 ports archive.
 #
 # Compose is built first from the pinned fork, for the modules each platform needs that
-# JetBrains does not publish, and cached on exactly the inputs that decide it.
+# JetBrains does not publish, and cached on exactly the inputs that decide it. Linux builds
+# it for both architectures at once, because the renderer's Linux module declares both and
+# the toolchain resolves every platform a module declares, even when it builds one.
 #
 # The artifact is uploaded under the release asset's own name,
 # dioxus-compose-renderer-v<crate version>-<target>, holding the .tar.gz and its .sha256.
@@ -62,10 +64,10 @@ jobs:
               compose=macosArm64; script="build-macos.sh --release"; out=macos
               toolchain="$HOME/Library/Caches/JetBrains/Kotlin"; heap=5g; workers=2 ;;
             linux-x64)
-              compose=linuxX64; script="build-linux.sh --release"; out=linux
+              compose=linux; script="build-linux.sh --release"; out=linux
               toolchain="$HOME/.cache/JetBrains/Kotlin"; heap=11g; workers=4 ;;
             linux-arm64)
-              compose=linuxArm64; script="build-linux.sh --release --arch arm64"; out=linux-arm64
+              compose=linux; script="build-linux.sh --release --arch arm64"; out=linux-arm64
               toolchain="$HOME/.cache/JetBrains/Kotlin"; heap=11g; workers=4 ;;
             *)
               echo "no static renderer for '${{ inputs.target }}'" >&2
