@@ -239,6 +239,9 @@ impl Host {
         // icon by id, and both are built by the caller before the Host is made out of
         // them, so the ids travelled and the bytes they named had been thrown away.
         crate::asset::requeue_all();
+        // The theme a running application changes from, and nothing queued against the
+        // Host this one replaces.
+        crate::theme::install(theme);
         Self {
             app,
             theme,
@@ -481,6 +484,12 @@ impl Host {
     /// A message therefore arrives in the same call as the change it is about, which is
     /// what makes "deleted" and the row disappearing one frame rather than two.
     fn flush_messages(&mut self) {
+        // A theme the application changed during this call, one record for the whole
+        // tree. Kept as the Host's own as well, so a resync rebuilds with it.
+        if let Some(theme) = crate::theme::take_pending() {
+            self.theme = theme;
+            self.renderer.set_theme(theme);
+        }
         let renderer = &mut self.renderer;
         // Registrations first. Not because the Renderer needs them first, it applies the
         // whole batch before drawing any of it, but because a batch read by a person

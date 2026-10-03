@@ -33,6 +33,7 @@ pub mod protocol;
 pub mod renderer;
 pub mod schema;
 pub mod spans;
+pub mod theme;
 pub mod tokens;
 mod widgets;
 pub mod window;
@@ -61,6 +62,7 @@ pub use schema::{
     MotionRole, Paint, PropertyKind, SCHEMA_HASH, Selection, ShapeRole, SpaceRole, TextAlign,
     TextOverflow, Theme, TileMode, TypeRole, WidgetKind, WindowHeightClass, WindowSizeClass,
 };
+pub use theme::{ThemeHandle, use_theme};
 pub use widgets::{
     Badge, Button, Canvas, Card, Checkbox, Column, ComposeBox as Box, DatePicker, Dialog, Divider,
     Dropdown, FileDrop, FileDropTarget, Icon, Image, KeyEvent, LazyColumn, LazyGrid, LazyRow, Menu,
@@ -170,7 +172,7 @@ pub mod prelude {
         Spacer, SplitPane, Stop, Surface, Switch, Tabs, Text, TextAlign, TextField, TextOverflow,
         Theme, TileMode, TimePicker, Tooltip, TopAppBar, TypeRole, WindowHeightClass, WindowSize,
         WindowSizeClass, asset, brush, component, launch, rsx, show_message, use_design_system,
-        use_node_size, use_window_size,
+        use_node_size, use_theme, use_window_size,
     };
     // Under its own name, and the one thing in this list that could shadow something a
     // reader already has: an application that draws its own `Window` component would find
