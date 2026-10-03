@@ -104,6 +104,30 @@ This is written down because it happened. Probes and their builds went to `/tmp`
 download went to `/tmp`, and worktrees went to `../agent-runs`, and the owner had agreed to
 none of it.
 
+## Repository root
+
+1. **Nothing new goes in the root without the owner's approval.** Not a folder, not a
+   file. Propose it first: what it is, why it is needed, and why no existing directory
+   can hold it. Then wait for the answer.
+2. The approved root entries are:
+   - folders: `.github/`, `bench/`, `compose-rust/`, `docs/`, `experiments/`,
+     `renderer/`, `samples/`, `scripts/`;
+   - files: `.gitignore`, `Cargo.toml`, `Cargo.lock`, `CHANGELOG.md`, `LICENSE`,
+     `README.md`, `AGENTS.md`, `CLAUDE.md`, `PROJECT.md`;
+   - until they move out of this repository: `adapters/` (to dioxus-compose) and
+     `design-systems/` (to compose-multiplatform-core-extended).
+
+   Ignored local directories (`.claude/`, `.scratch/`, `target/`, `build/`) are not part
+   of the tree and are covered by "Where files go" above.
+3. A crate, benchmark or tool that needs a home goes inside the folder it belongs to
+   (`compose-rust/macros/`, `bench/<name>/`, `renderer/desktop/<name>/`), not beside it.
+4. Scripts that only CI runs live in `.github/scripts/`. `scripts/tests/` is the one test
+   folder outside the crates.
+
+This is written down because it happened. One-off scripts, a stray build directory and
+a container definition each became a root folder, and the root stopped telling a reader
+what the project is made of.
+
 ## Background agents
 
 These bind the agent and whoever dispatches it equally. Both have been broken by the
