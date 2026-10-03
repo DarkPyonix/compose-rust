@@ -9,13 +9,17 @@ use dioxus_compose_adapter::{
     AnimatedProperty, AnimationSpec, EventPayload, GraphicsLayer, Host, KeyframeValue,
     PropertyKind, WidgetKind, animate_float_as_state,
 };
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::cell::Cell;
 
-static RENDERS: AtomicUsize = AtomicUsize::new(0);
+thread_local! {
+    /// Per test thread: the tests in this file run in parallel, and a count shared between
+    /// them would see the other test's renders.
+    static RENDERS: Cell<usize> = const { Cell::new(0) };
+}
 
 fn fading() -> Element {
     let mut faded = use_signal(|| false);
-    RENDERS.fetch_add(1, Ordering::SeqCst);
+    RENDERS.with(|renders| renders.set(renders.get() + 1));
     rsx! {
         Column {
             Button { text: "fade", on_click: move |()| faded.toggle() }
@@ -132,14 +136,14 @@ fn fr41_compose_api_animation_does_not_recompose() {
     let first = owned(host.rebuild().unwrap());
     let button = node_of(&first, WidgetKind::Button);
     click(&mut host, button, click_handler(&first, button));
-    let renders = RENDERS.load(Ordering::SeqCst);
+    let renders = RENDERS.with(Cell::get);
     for frame in 1..=60_u64 {
         let batch = owned(host.render_frame(frame * 16_666_667).unwrap());
         assert!(batch.is_empty(), "frame {frame} carried {batch:?}");
     }
     assert_eq!(
         renders,
-        RENDERS.load(Ordering::SeqCst),
+        RENDERS.with(Cell::get),
         "the component was rendered again"
     );
 }
