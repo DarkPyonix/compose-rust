@@ -614,6 +614,15 @@ jobs:
       - name: Build, move, bundle and run an application under Xvfb
         run: xvfb-run -a -s '-screen 0 1280x1024x24' ./scripts/check-linux-consumer.sh dioxus-compose-renderer/build/linux "$RUNNER_TEMP/consumer-static"
 
+  # The Windows twin of linux-static: the Kotlin/Native renderer linked into one MSVC
+  # executable with the application, which then has to start from an empty directory with
+  # nothing but Windows beneath it. Its own workflow, because Compose for mingwX64 is built
+  # on Linux first and the two halves are two jobs; windows-static.yml says why.
+  windows-static:
+    needs: changed
+    if: needs.changed.outputs.renderer == 'true'
+    uses: ./.github/workflows/windows-static.yml
+
   # iOS is Kotlin/Native, not native-image, so it shares nothing with the jobs above
   # except the interpreter source. It builds both slices (simulator and device) and
   # runs the *desktop* C smoke host against the simulator archive, which is what makes

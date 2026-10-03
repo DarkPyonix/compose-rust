@@ -154,6 +154,16 @@ grep -q 'dxc-windows-native.lib' "$build_script" ||
 grep -q 'crt-static' "$host_build" ||
     fail "the Host does not insist on the static C runtime that Skia for Windows is built with"
 
+# The CI job is the only place this renderer runs on Windows, and a hosted runner has no
+# graphics card: the check has to ask for the software adapter, and the gate has to run it.
+consumer_check="$repo_root/scripts/check-windows-consumer.sh"
+grep -q 'DXC_D3D12_WARP' "$consumer_check" ||
+    fail "check-windows-consumer.sh does not ask for the software adapter, so on a runner the window never opens"
+grep -q 'dumpbin' "$consumer_check" ||
+    fail "check-windows-consumer.sh does not read which DLLs the executable needs"
+grep -q 'windows-static.yml' "$repo_root/.github/workflows/native-renderer.yml" ||
+    fail "the native renderer workflow does not run the Windows static renderer job"
+
 if (( red == 0 )); then
     echo "ok    the windows module is declared, shares the interpreter and asks for what is published"
 fi
