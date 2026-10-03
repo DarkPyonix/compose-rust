@@ -264,3 +264,39 @@ data class BadgeStyle(
         return if (count > ceiling) "$ceiling+" else count.toString()
     }
 }
+
+/** The grip a system draws across a split pane's divider, where it draws one. */
+@Immutable
+data class SplitHandleStyle(
+    val thickness: Dp,
+    val length: Dp,
+    val color: Color,
+    val shape: ShapeRole,
+)
+
+/**
+ * A side pane, a body, and the divider between them.
+ *
+ * The systems disagree about the divider (a hairline, a grip, or only a gap) and about a
+ * medium width: GNOME lays the sidebar over the content where the others keep two columns.
+ */
+@Immutable
+data class SplitPaneStyle(
+    val presentation: SplitPanePresentation,
+    val defaultWidth: Dp,
+    val minWidth: Dp,
+    val maxWidth: Dp,
+    /** The narrowest the body may be beside the side pane before the side pane goes over it. */
+    val bodyMinWidth: Dp,
+    /** How far past its minimum the side pane is dragged before it folds. */
+    val collapseDistance: Dp,
+    /** How far one arrow key moves the divider. */
+    val keyStep: Dp,
+    /** The visible line between the panes; zero for none. */
+    val lineWidth: Dp,
+    val lineColor: Color,
+    val handle: SplitHandleStyle?,
+    /** The strip that takes the drag, usually wider than what is drawn. */
+    val grabWidth: Dp,
+    val sideBackground: Color,
+)

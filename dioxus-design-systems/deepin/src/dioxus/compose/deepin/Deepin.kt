@@ -94,6 +94,29 @@ class DeepinDesignSystem private constructor(
         ColorRole.OnSecondaryContainer -> Color(0xFF79501E)
         ColorRole.TertiaryContainer -> Color(0xFFEBE6F8)
         ColorRole.OnTertiaryContainer -> Color(0xFF3D2D6B)
+        // Code colours: the same values the renderer's token table holds.
+        ColorRole.SyntaxKeyword -> Color(0xFF006BD5)
+        ColorRole.SyntaxString -> Color(0xFF7758D3)
+        ColorRole.SyntaxComment -> Color(0xFF5A5A5A)
+        ColorRole.SyntaxNumber -> Color(0xFF3D2D6B)
+        ColorRole.SyntaxConstant -> Color(0xFF3D2D6B)
+        ColorRole.SyntaxType -> Color(0xFF9B5E00)
+        ColorRole.SyntaxFunction -> Color(0xFF00407F)
+        ColorRole.SyntaxVariable -> Color(0xFF202020)
+        ColorRole.SyntaxProperty -> Color(0xFF79501E)
+        ColorRole.SyntaxOperator -> Color(0xFF5A5A5A)
+        ColorRole.SyntaxPunctuation -> Color(0xFF5A5A5A)
+        ColorRole.SyntaxTag -> Color(0xFF006BD5)
+        ColorRole.SyntaxAttribute -> Color(0xFF9B5E00)
+        ColorRole.SyntaxEscape -> Color(0xFFCD3416)
+        ColorRole.SyntaxMacro -> Color(0xFF9B5E00)
+        ColorRole.DiffAdded -> Color(0xFF007118)
+        ColorRole.DiffRemoved -> Color(0xFFBB2608)
+        ColorRole.DiffModified -> Color(0xFF7A5BD6)
+        ColorRole.DiffAddedContainer -> Color(0xFFD4E2D7)
+        ColorRole.DiffRemovedContainer -> Color(0xFFEBD9D5)
+        ColorRole.DiffAddedEmphasis -> Color(0xFFA9CBB0)
+        ColorRole.DiffRemovedEmphasis -> Color(0xFFE1B4AB)
     }
 
     private fun darkColor(role: ColorRole): Color = when (role) {
@@ -126,6 +149,29 @@ class DeepinDesignSystem private constructor(
         ColorRole.OnSecondaryContainer -> Color(0xFFFFDCB1)
         ColorRole.TertiaryContainer -> Color(0xFF343042)
         ColorRole.OnTertiaryContainer -> Color(0xFFCFC4F1)
+        // Code colours: the same values the renderer's token table holds.
+        ColorRole.SyntaxKeyword -> Color(0xFF3BA2FF)
+        ColorRole.SyntaxString -> Color(0xFF9F8AE3)
+        ColorRole.SyntaxComment -> Color(0xFFB4B4B4)
+        ColorRole.SyntaxNumber -> Color(0xFFCFC4F1)
+        ColorRole.SyntaxConstant -> Color(0xFFCFC4F1)
+        ColorRole.SyntaxType -> Color(0xFFFFB964)
+        ColorRole.SyntaxFunction -> Color(0xFF9DD0FF)
+        ColorRole.SyntaxVariable -> Color(0xFFF0F0F0)
+        ColorRole.SyntaxProperty -> Color(0xFFFFDCB1)
+        ColorRole.SyntaxOperator -> Color(0xFFB4B4B4)
+        ColorRole.SyntaxPunctuation -> Color(0xFFB4B4B4)
+        ColorRole.SyntaxTag -> Color(0xFF3BA2FF)
+        ColorRole.SyntaxAttribute -> Color(0xFFFFB964)
+        ColorRole.SyntaxEscape -> Color(0xFFFF8A73)
+        ColorRole.SyntaxMacro -> Color(0xFFFFB964)
+        ColorRole.DiffAdded -> Color(0xFF76C270)
+        ColorRole.DiffRemoved -> Color(0xFFFF9783)
+        ColorRole.DiffModified -> Color(0xFF9F8AE3)
+        ColorRole.DiffAddedContainer -> Color(0xFF394838)
+        ColorRole.DiffRemovedContainer -> Color(0xFF55403C)
+        ColorRole.DiffAddedEmphasis -> Color(0xFF486746)
+        ColorRole.DiffRemovedEmphasis -> Color(0xFF7F564E)
     }
 
     /**
@@ -323,6 +369,15 @@ class DeepinDesignSystem private constructor(
         releaseMillis = 200,
         easing = CubicBezierEasing(0.2f, 0.0f, 0.2f, 1.0f),
     )
+
+    /** DTK's splitter: a faint line and a grey sidebar sunk into the white window. */
+    override fun splitPane(width: dioxus.compose.WidthClass): dioxus.compose.SplitPaneStyle =
+        super.splitPane(width).copy(
+            defaultWidth = 240.dp,
+            minWidth = 180.dp,
+            keyStep = 10.dp,
+            sideBackground = color(ColorRole.SurfaceContainer),
+        )
 
     /** DTK's badge: a capsule over the corner, cut at 99, ringed in the page colour. */
     override fun badge(): BadgeStyle = BadgeStyle(

@@ -97,6 +97,29 @@ class GnomeDesignSystem private constructor(
         ColorRole.OnSecondaryContainer -> Color(0xFF45164F)
         ColorRole.TertiaryContainer -> Color(0xFFCFE9ED)
         ColorRole.OnTertiaryContainer -> Color(0xFF0A3D45)
+        // Code colours: the same values the renderer's token table holds.
+        ColorRole.SyntaxKeyword -> Color(0xFFBA4100)
+        ColorRole.SyntaxString -> Color(0xFF00784A)
+        ColorRole.SyntaxComment -> Color(0xFF6A6A6E)
+        ColorRole.SyntaxNumber -> Color(0xFF813D9C)
+        ColorRole.SyntaxConstant -> Color(0xFF813D9C)
+        ColorRole.SyntaxType -> Color(0xFF1A5FB4)
+        ColorRole.SyntaxFunction -> Color(0xFF0067CD)
+        ColorRole.SyntaxVariable -> Color(0xFF241F31)
+        ColorRole.SyntaxProperty -> Color(0xFF3D3846)
+        ColorRole.SyntaxOperator -> Color(0xFF3D3846)
+        ColorRole.SyntaxPunctuation -> Color(0xFF3D3846)
+        ColorRole.SyntaxTag -> Color(0xFF1A5FB4)
+        ColorRole.SyntaxAttribute -> Color(0xFF813D9C)
+        ColorRole.SyntaxEscape -> Color(0xFFC01C28)
+        ColorRole.SyntaxMacro -> Color(0xFF63452C)
+        ColorRole.DiffAdded -> Color(0xFF006D43)
+        ColorRole.DiffRemoved -> Color(0xFFB91524)
+        ColorRole.DiffModified -> Color(0xFF1C71D8)
+        ColorRole.DiffAddedContainer -> Color(0xFFCFDCD7)
+        ColorRole.DiffRemovedContainer -> Color(0xFFE5D1D3)
+        ColorRole.DiffAddedEmphasis -> Color(0xFFA5C5B9)
+        ColorRole.DiffRemovedEmphasis -> Color(0xFFDCABAF)
     }
 
     private fun darkColor(role: ColorRole): Color = when (role) {
@@ -130,6 +153,29 @@ class GnomeDesignSystem private constructor(
         ColorRole.OnSecondaryContainer -> Color(0xFFECD9F1)
         ColorRole.TertiaryContainer -> Color(0xFF134249)
         ColorRole.OnTertiaryContainer -> Color(0xFFCFE9ED)
+        // Code colours: the same values the renderer's token table holds.
+        ColorRole.SyntaxKeyword -> Color(0xFFFFA348)
+        ColorRole.SyntaxString -> Color(0xFF8FF0A4)
+        ColorRole.SyntaxComment -> Color(0xFF9A9996)
+        ColorRole.SyntaxNumber -> Color(0xFFDC8ADD)
+        ColorRole.SyntaxConstant -> Color(0xFFDC8ADD)
+        ColorRole.SyntaxType -> Color(0xFF99C1F1)
+        ColorRole.SyntaxFunction -> Color(0xFF62A0EA)
+        ColorRole.SyntaxVariable -> Color(0xFFDEDDDA)
+        ColorRole.SyntaxProperty -> Color(0xFFC0BFBC)
+        ColorRole.SyntaxOperator -> Color(0xFFC0BFBC)
+        ColorRole.SyntaxPunctuation -> Color(0xFFC0BFBC)
+        ColorRole.SyntaxTag -> Color(0xFF99C1F1)
+        ColorRole.SyntaxAttribute -> Color(0xFFDC8ADD)
+        ColorRole.SyntaxEscape -> Color(0xFFFD6656)
+        ColorRole.SyntaxMacro -> Color(0xFFCDAB8F)
+        ColorRole.DiffAdded -> Color(0xFF8FF0A4)
+        ColorRole.DiffRemoved -> Color(0xFFFFA295)
+        ColorRole.DiffModified -> Color(0xFF62A0EA)
+        ColorRole.DiffAddedContainer -> Color(0xFF435647)
+        ColorRole.DiffRemovedContainer -> Color(0xFF594744)
+        ColorRole.DiffAddedEmphasis -> Color(0xFF567D5E)
+        ColorRole.DiffRemovedEmphasis -> Color(0xFF835E58)
     }
 
     /**
@@ -318,6 +364,25 @@ class GnomeDesignSystem private constructor(
         releaseMillis = 200,
         easing = CubicBezierEasing(0.25f, 0.46f, 0.45f, 0.94f),
     )
+
+    /**
+     * `AdwOverlaySplitView`: two columns when there is room, and at a medium width the
+     * sidebar is laid over the content rather than squeezing it.
+     */
+    override fun splitPane(width: dioxus.compose.WidthClass): dioxus.compose.SplitPaneStyle =
+        super.splitPane(width).copy(
+            presentation = when (width) {
+                dioxus.compose.WidthClass.Compact -> dioxus.compose.SplitPanePresentation.Stacked
+                dioxus.compose.WidthClass.Medium -> dioxus.compose.SplitPanePresentation.Overlay
+                dioxus.compose.WidthClass.Expanded -> dioxus.compose.SplitPanePresentation.SideBySide
+            },
+            defaultWidth = 260.dp,
+            minWidth = 180.dp,
+            maxWidth = 360.dp,
+            keyStep = 6.dp,
+            grabWidth = 6.dp,
+            sideBackground = color(ColorRole.SurfaceContainer),
+        )
 
     /**
      * The count pill at the end of a libadwaita sidebar row: beside what it counts rather

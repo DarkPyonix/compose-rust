@@ -204,6 +204,31 @@ interface DesignSystem {
         ring = null,
         ringWidth = 0.dp,
     )
+
+    /**
+     * How a split pane is shown at a width, and what its divider looks like.
+     *
+     * The default stacks a compact place and puts the panes side by side otherwise, with a
+     * one dp line in the faint outline colour.
+     */
+    fun splitPane(width: WidthClass): SplitPaneStyle = SplitPaneStyle(
+        presentation = if (width == WidthClass.Compact) {
+            SplitPanePresentation.Stacked
+        } else {
+            SplitPanePresentation.SideBySide
+        },
+        defaultWidth = 280.dp,
+        minWidth = 200.dp,
+        maxWidth = 400.dp,
+        bodyMinWidth = 360.dp,
+        collapseDistance = 48.dp,
+        keyStep = 8.dp,
+        lineWidth = 1.dp,
+        lineColor = color(ColorRole.OutlineVariant),
+        handle = null,
+        grabWidth = 8.dp,
+        sideBackground = Color.Transparent,
+    )
 }
 
 /**

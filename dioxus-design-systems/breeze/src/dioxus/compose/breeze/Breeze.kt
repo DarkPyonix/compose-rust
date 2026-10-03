@@ -102,6 +102,29 @@ class BreezeDesignSystem private constructor(
         ColorRole.OnSecondaryContainer -> Color(0xFF083B31)
         ColorRole.TertiaryContainer -> Color(0xFFFAE0C4)
         ColorRole.OnTertiaryContainer -> Color(0xFF4A2C00)
+        // Code colours: the same values the renderer's token table holds.
+        ColorRole.SyntaxKeyword -> Color(0xFF1F1C1B)
+        ColorRole.SyntaxString -> Color(0xFFBF0303)
+        ColorRole.SyntaxComment -> Color(0xFF747473)
+        ColorRole.SyntaxNumber -> Color(0xFF966D00)
+        ColorRole.SyntaxConstant -> Color(0xFFAA5500)
+        ColorRole.SyntaxType -> Color(0xFF0057AE)
+        ColorRole.SyntaxFunction -> Color(0xFF644A9B)
+        ColorRole.SyntaxVariable -> Color(0xFF0057AE)
+        ColorRole.SyntaxProperty -> Color(0xFF0057AE)
+        ColorRole.SyntaxOperator -> Color(0xFFAF48B1)
+        ColorRole.SyntaxPunctuation -> Color(0xFF1F1C1B)
+        ColorRole.SyntaxTag -> Color(0xFF1F1C1B)
+        ColorRole.SyntaxAttribute -> Color(0xFF0057AE)
+        ColorRole.SyntaxEscape -> Color(0xFF007BAC)
+        ColorRole.SyntaxMacro -> Color(0xFF006E28)
+        ColorRole.DiffAdded -> Color(0xFF00783D)
+        ColorRole.DiffRemoved -> Color(0xFFBF2F41)
+        ColorRole.DiffModified -> Color(0xFFF67400)
+        ColorRole.DiffAddedContainer -> Color(0xFFDEECE5)
+        ColorRole.DiffRemovedContainer -> Color(0xFFF5E3E6)
+        ColorRole.DiffAddedEmphasis -> Color(0xFFB0D4C3)
+        ColorRole.DiffRemovedEmphasis -> Color(0xFFEABEC4)
     }
 
     private fun darkColor(role: ColorRole): Color = when (role) {
@@ -137,6 +160,29 @@ class BreezeDesignSystem private constructor(
         ColorRole.OnSecondaryContainer -> Color(0xFFCFE8E0)
         ColorRole.TertiaryContainer -> Color(0xFF4A3113)
         ColorRole.OnTertiaryContainer -> Color(0xFFF8DFC3)
+        // Code colours: the same values the renderer's token table holds.
+        ColorRole.SyntaxKeyword -> Color(0xFFCFCFC2)
+        ColorRole.SyntaxString -> Color(0xFFF44F4F)
+        ColorRole.SyntaxComment -> Color(0xFF848687)
+        ColorRole.SyntaxNumber -> Color(0xFFF67400)
+        ColorRole.SyntaxConstant -> Color(0xFF27AEAE)
+        ColorRole.SyntaxType -> Color(0xFF3B8DC7)
+        ColorRole.SyntaxFunction -> Color(0xFFB266D1)
+        ColorRole.SyntaxVariable -> Color(0xFF27AEAE)
+        ColorRole.SyntaxProperty -> Color(0xFF3B8DC7)
+        ColorRole.SyntaxOperator -> Color(0xFF519269)
+        ColorRole.SyntaxPunctuation -> Color(0xFFCFCFC2)
+        ColorRole.SyntaxTag -> Color(0xFFCFCFC2)
+        ColorRole.SyntaxAttribute -> Color(0xFF3B8DC7)
+        ColorRole.SyntaxEscape -> Color(0xFF3DAEE9)
+        ColorRole.SyntaxMacro -> Color(0xFF27AE60)
+        ColorRole.DiffAdded -> Color(0xFF33B667)
+        ColorRole.DiffRemoved -> Color(0xFFFF727A)
+        ColorRole.DiffModified -> Color(0xFFF67400)
+        ColorRole.DiffAddedContainer -> Color(0xFF203C2E)
+        ColorRole.DiffRemovedContainer -> Color(0xFF492F32)
+        ColorRole.DiffAddedEmphasis -> Color(0xFF255B3C)
+        ColorRole.DiffRemovedEmphasis -> Color(0xFF764044)
     }
 
     /**
@@ -323,6 +369,18 @@ class BreezeDesignSystem private constructor(
         releaseMillis = 80,
         easing = CubicBezierEasing(0.4f, 0.0f, 0.6f, 1.0f),
     )
+
+    /** `QSplitter` under Breeze: a line in the frame colour with a short grip across it. */
+    override fun splitPane(width: dioxus.compose.WidthClass): dioxus.compose.SplitPaneStyle =
+        super.splitPane(width).copy(
+            defaultWidth = 240.dp,
+            minWidth = 160.dp,
+            maxWidth = 480.dp,
+            lineColor = color(ColorRole.Outline),
+            handle = dioxus.compose.SplitHandleStyle(3.dp, 24.dp, color(ColorRole.OnSurfaceVariant), ShapeRole.ExtraSmall),
+            grabWidth = 6.dp,
+            sideBackground = color(ColorRole.Background),
+        )
 
     /**
      * Plasma's notification count: a small rounded rectangle over the corner, cut at 99,
