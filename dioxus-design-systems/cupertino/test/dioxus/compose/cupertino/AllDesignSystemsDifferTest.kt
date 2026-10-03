@@ -386,7 +386,7 @@ class LayeringIsVisibleTest {
     @Test
     fun fr15_2_11_a_large_count_is_not_drawn_the_same_way_by_every_system() {
         for (dark in listOf(false, true)) {
-            val answers = systems(dark).associate { system ->
+            val answers = systems(dark).map { it.second }.associate { system ->
                 val badge = system.badge()
                 system.id to (badge.label(120) to badge.placement)
             }
@@ -404,7 +404,7 @@ class LayeringIsVisibleTest {
     @Test
     fun fr15_2_11_every_system_draws_a_legible_badge() {
         for (dark in listOf(false, true)) {
-            for (system in systems(dark)) {
+            for ((_, system) in systems(dark)) {
                 val badge = system.badge()
                 assertEquals(system.color(ColorRole.Error), badge.container, "${system.id}")
                 assertNotEquals(badge.container, badge.content, "${system.id} hides its figure")
