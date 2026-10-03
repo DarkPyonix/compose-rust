@@ -30,6 +30,8 @@ import dioxus.compose.protocol.ColorRole
 import dioxus.compose.protocol.Modifier as ProtocolModifier
 import dioxus.compose.protocol.WindowSizeClass
 import dioxus.compose.ui.platform.LocalFrameRequests
+import dioxus.compose.ui.platform.serveFrameRequests
+import androidx.compose.ui.platform.LocalWindowInfo
 import dioxus.compose.protocol.HostEvent
 import dioxus.compose.protocol.Mutation
 import androidx.compose.runtime.SideEffect
@@ -90,6 +92,9 @@ class DioxusHost(private val connection: HostConnection) : EventDispatcher {
 
     fun start() {
         applyTransaction { apply -> connection.init(apply) }
+        // After the first batch, so the first thing the Host hears is a press that started
+        // the application, if one did, and then what the platform says about permission.
+        table.notifications.attach(this)
     }
 
     /** Dispatches synchronously and returns the Host's consumption result. */
@@ -119,10 +124,17 @@ class DioxusHost(private val connection: HostConnection) : EventDispatcher {
 
     /** Called once per frame after a Host worker asked for one. */
     fun renderFrame(frameTimeNanos: Long) {
+        // What the notification centre heard since the last frame goes first. A press or an
+        // answer from the platform asks for a frame for exactly this, because the frame is
+        // where the UI thread, and so the Host, can be reached from any other thread.
+        table.notifications.drain()
         applyTransaction { apply -> connection.renderFrame(frameTimeNanos, apply) }
     }
 
-    fun shutdown() = connection.shutdown()
+    fun shutdown() {
+        table.notifications.shutdown()
+        connection.shutdown()
+    }
 
     private fun applyTransaction(call: ((Mutation) -> Unit) -> Unit) {
         val protocolErrors = mutableListOf<TableError>()
@@ -242,13 +254,20 @@ fun DioxusContent(
 ) {
     val frames = LocalFrameRequests.current
     LaunchedEffect(host, frames) {
-        var applied = frames.counter.value
-        frames.counter.collect { requested ->
-            if (requested == applied) return@collect
-            applied = requested
-            withFrameNanos { frameTimeNanos -> host.renderFrame(frameTimeNanos) }
-        }
+        serveFrameRequests(
+            frames.counter,
+            awaitFrame = { onFrame -> withFrameNanos(onFrame) },
+            serve = host::renderFrame,
+        )
     }
+    // A notification centre answers on a thread of its own, and the way from any thread to
+    // this one is a frame request. The centre asks through the same source this loop serves.
+    SideEffect { host.table.notifications.wake = frames::request }
+    // Whether the window is the one in use decides whether a notification that asked to be
+    // shown only when it is not is shown at all, and coming back to the window is when a
+    // permission changed in the system's settings is looked for.
+    val windowFocused = LocalWindowInfo.current.isWindowFocused
+    SideEffect { host.table.notifications.windowFocusChanged(windowFocused) }
     // The theme is resolved once here, and every node reads it from the CompositionLocal. A `SetTheme` is therefore one record on the wire and one
     // invalidation in Compose, not a SetProp per node.
     val platform = remember { hostPlatformOverride ?: detectHostPlatform() }

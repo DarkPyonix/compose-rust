@@ -15,6 +15,15 @@ import dioxus.compose.runtime.HostConnection
  * Returns when the window closes.
  */
 internal fun runRenderer(connection: () -> HostConnection): Int {
+    // The notification daemon, over the session bus, before the Host starts: its first batch
+    // may already post one. A press on a notification's body raises the window, which does
+    // not exist yet, so it is found when the press arrives.
+    var opened: LinuxWindow? = null
+    Notifications.platform = DBusNotifications(
+        open = { PosixBusConnection.open() },
+        bringToFront = { opened?.raise() },
+        applicationName = PosixBusConnection.applicationName(),
+    )
     // Started before there is a window, because what the window should look like is in the first
     // batch and a window cannot be told afterwards: how big it is and what it is called are
     // settled when it is made. Started on this thread, which is the one every later call to it is
@@ -45,6 +54,10 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     //
     // No caption is passed. The window manager draws this platform's title bar itself, outside
     // the window, so there is no strip of our own for content to step clear of.
+    opened = window
+    // The bus is read on this thread every turn, because there is no other thread to read it
+    // on and nothing else would notice a press arriving while the window is idle.
+    window.onTurn = { host.table.notifications.pump() }
     window.setContent { DioxusContent(host) }
     try {
         window.run()

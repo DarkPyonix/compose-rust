@@ -30,6 +30,8 @@ import dioxus.compose.ui.platform.WebHostConnection
  */
 @OptIn(ExperimentalComposeUiApi::class)
 fun main() {
+    // Before the Host: its first batch may already post a notification.
+    dioxus.compose.ui.platform.Notifications.platform = dioxus.compose.ui.platform.WebNotifications()
     val connection: HostConnection = WebHostConnection.install() ?: m0DemoHost()
     ComposeViewport {
         DioxusContent(rememberDioxusHost(remember { connection }), Modifier.fillMaxSize())

@@ -1045,6 +1045,27 @@ pub const ANDROID_COMPOSE_DEPENDENCIES: [&str; 4] = [
 /// The Gradle plugin that compiles `@Composable`, which Kotlin 2.0 made compulsory.
 const COMPOSE_PLUGIN_ID: &str = "org.jetbrains.kotlin.plugin.compose";
 
+/// The application's manifest with the notification permission declared, or `None` when it
+/// already declares it or has no `<manifest>` element to put it in.
+///
+/// The declaration goes directly inside `<manifest>`, before anything else in it, which is
+/// where Android reads permissions from.
+pub fn with_notification_permission(manifest: &str) -> Option<String> {
+    const PERMISSION: &str = "android.permission.POST_NOTIFICATIONS";
+    if manifest.contains(PERMISSION) {
+        return None;
+    }
+    let open = manifest.find("<manifest")?;
+    let end = open + manifest[open..].find('>')? + 1;
+    let mut text = String::with_capacity(manifest.len() + 96);
+    text.push_str(&manifest[..end]);
+    text.push_str("\n    <uses-permission android:name=\"");
+    text.push_str(PERMISSION);
+    text.push_str("\" />");
+    text.push_str(&manifest[end..]);
+    Some(text)
+}
+
 /// Puts Compose into an application module's generated `build.gradle.kts`.
 ///
 /// The Dioxus CLI generates this file and offers `gradle_plugins` for adding to it, but

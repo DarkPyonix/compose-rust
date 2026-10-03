@@ -12,6 +12,9 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import dioxus.compose.protocol.HostEvent
 import dioxus.compose.protocol.MessageDuration
+import dioxus.compose.protocol.NotificationImportance
+import dioxus.compose.protocol.NotificationPermission
+import dioxus.compose.protocol.NotificationPresentation
 import dioxus.compose.protocol.Modifier as ProtocolModifier
 import dioxus.compose.protocol.Mutation
 import dioxus.compose.protocol.Paint
@@ -92,6 +95,10 @@ class ProtocolVectorsTest {
                 is Mutation.ReleaseAsset -> true
                 // A message names no node, so there is no node for it to have got wrong.
                 is Mutation.ShowMessage -> false
+                // Nor does a notification: it is outside the window altogether.
+                is Mutation.PostNotification -> false
+                is Mutation.WithdrawNotification -> false
+                is Mutation.RequestNotificationPermission -> false
             }
         }
         assertEquals(
@@ -120,6 +127,61 @@ class ProtocolVectorsTest {
             ),
             messages,
         )
+    }
+
+    /**
+     * The three notification records, decoded from the bytes the Host wrote: six string
+     * references and two enums, one string reference, and a header with nothing after it.
+     */
+    @Test
+    fun fr36_the_notification_records_in_the_vector_decode_to_the_same_values() {
+        val notifications = decodeVector("mutations.bin").filter {
+            it is Mutation.PostNotification ||
+                it is Mutation.WithdrawNotification ||
+                it is Mutation.RequestNotificationPermission
+        }
+        assertEquals(
+            listOf(
+                Mutation.PostNotification(
+                    key = "session/7",
+                    title = "세션이 끝났습니다",
+                    body = "테스트 214개 통과",
+                    channel = "세션",
+                    action1 = "열기",
+                    action2 = "",
+                    importance = NotificationImportance.Urgent,
+                    presentation = NotificationPresentation.WhenInactive,
+                ),
+                Mutation.WithdrawNotification("session/7"),
+                Mutation.RequestNotificationPermission,
+            ),
+            notifications,
+        )
+    }
+
+    /** The two notification events encode to the bytes the Host decodes. */
+    @Test
+    fun fr36_the_notification_events_encode_to_the_vector_bytes() {
+        val bytes = vectorFile("events.bin").readBytes()
+        val activated = ByteBuffer.allocate(64)
+        val length = Protocol.encodeEvent(
+            HostEvent.NotificationActivated(nodeId = 0, handlerId = 0, action = 1, key = "session/7"),
+            activated,
+        )
+        assertEquals(37, length)
+        assertEquals(bytes.copyOfRange(225, 262).toList(), activated.array().copyOf(length).toList())
+
+        val changed = ByteBuffer.allocate(32)
+        val changedLength = Protocol.encodeEvent(
+            HostEvent.NotificationPermissionChanged(
+                nodeId = 0,
+                handlerId = 0,
+                state = NotificationPermission.Denied,
+            ),
+            changed,
+        )
+        assertEquals(20, changedLength)
+        assertEquals(bytes.copyOfRange(262, 282).toList(), changed.array().copyOf(changedLength).toList())
     }
 
     @Test

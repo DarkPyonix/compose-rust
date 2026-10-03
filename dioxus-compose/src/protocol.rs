@@ -2,7 +2,8 @@
 
 use crate::schema::{
     AssetKind, ColorScheme, DesignSystem, Key, MaterialRole, MessageDuration, Modifier, MotionRole,
-    Paint, PropertyKind, Selection, ShapeRole, SpaceRole, TYPE_ROLE_COUNT, Theme, WidgetKind,
+    NotificationImportance, NotificationPermission, NotificationPresentation, Paint, PropertyKind,
+    Selection, ShapeRole, SpaceRole, TYPE_ROLE_COUNT, Theme, WidgetKind,
 };
 use core::fmt;
 
@@ -20,12 +21,19 @@ const TAG_REGISTER_ASSET: u16 = 10;
 const TAG_RELEASE_ASSET: u16 = 11;
 const TAG_SHOW_MESSAGE: u16 = 12;
 const TAG_SET_WINDOW: u16 = 13;
+const TAG_POST_NOTIFICATION: u16 = 14;
+const TAG_WITHDRAW_NOTIFICATION: u16 = 15;
+const TAG_REQUEST_NOTIFICATION_PERMISSION: u16 = 16;
+/// The last mutation tag this decoder knows. A known tag with the wrong length is a length
+/// error rather than an unknown tag.
+const TAG_LAST: u16 = TAG_REQUEST_NOTIFICATION_PERMISSION;
 const ENVELOPE_LEN: usize = 12;
 /// `SetTheme` after its header: four `u16` fields, one font slot per type role, and the
 /// palette's `(offset, len)` reference. 52 bytes, so the record is 56.
 pub const THEME_PAYLOAD_LEN: usize = 8 + 4 * TYPE_ROLE_COUNT + 8;
-/// The shortest mutation record on the wire (`Remove`: 4-byte header + `node_id`).
-const MIN_RECORD_LEN: usize = 8;
+/// The shortest mutation record on the wire (`RequestNotificationPermission`: the 4-byte
+/// header and nothing else).
+const MIN_RECORD_LEN: usize = 4;
 
 const VALUE_NONE: u16 = 0;
 const VALUE_STRING: u16 = 1;
@@ -120,6 +128,30 @@ pub enum Mutation<'a> {
         action: &'a str,
         duration: MessageDuration,
     },
+    /// Asks the platform to show one notification outside the window.
+    ///
+    /// Not a node, for the same reason a message is not: it outlives the component that
+    /// posted it, and when it goes away depends on what the user does in the notification
+    /// centre, which the Host never hears about. Posting again under the same `key`
+    /// replaces it. An empty `key` asks the Renderer to name it, and such a notification
+    /// can be neither replaced nor withdrawn. An empty action label means no button.
+    PostNotification {
+        key: &'a str,
+        title: &'a str,
+        body: &'a str,
+        channel: &'a str,
+        action_1: &'a str,
+        action_2: &'a str,
+        importance: NotificationImportance,
+        presentation: NotificationPresentation,
+    },
+    /// Takes back the notification posted under `key`, if it is still showing.
+    WithdrawNotification {
+        key: &'a str,
+    },
+    /// Asks the platform for permission to show notifications. It carries nothing: the
+    /// answer comes back as a permission event.
+    RequestNotificationPermission,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -135,6 +167,8 @@ pub enum ProtocolError {
     InvalidTheme(u16),
     InvalidAssetKind(u16),
     InvalidMessageDuration(u16),
+    /// A notification importance or presentation this decoder does not know.
+    InvalidNotification(u16),
     InvalidStringRange,
     InvalidUtf8,
     LengthOverflow,
@@ -164,6 +198,8 @@ const EVENT_LIFECYCLE_STOP: u16 = 20;
 const EVENT_DESIGN_SYSTEM_RESOLVED: u16 = 21;
 const EVENT_FILES_ENTERED: u16 = 22;
 const EVENT_FILES_DROPPED: u16 = 23;
+const EVENT_NOTIFICATION_ACTIVATED: u16 = 24;
+const EVENT_NOTIFICATION_PERMISSION_CHANGED: u16 = 25;
 
 const MODIFIER_SHIFT: u8 = 1 << 0;
 const MODIFIER_CTRL: u8 = 1 << 1;
@@ -244,10 +280,35 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
         EVENT_FILES_DROPPED if record_len == 24 => {
             crate::schema::EventPayload::FilesDropped(read_string(bytes, 16, record_len)?)
         }
+        EVENT_NOTIFICATION_ACTIVATED if record_len == 28 => {
+            let action = read_u32(bytes, 16)?;
+            // Zero is the body and one and two are the two buttons a notification can have.
+            // Anything else names a button that cannot exist.
+            if action > 2 {
+                return Err(ProtocolError::InvalidValueKind(
+                    action.min(u32::from(u16::MAX)) as u16,
+                ));
+            }
+            crate::schema::EventPayload::NotificationActivated {
+                action,
+                key: read_string(bytes, 20, record_len)?,
+            }
+        }
+        EVENT_NOTIFICATION_PERMISSION_CHANGED if record_len == 20 => {
+            let raw = read_u32(bytes, 16)?;
+            let state = u16::try_from(raw)
+                .ok()
+                .and_then(|tag| NotificationPermission::try_from(tag).ok())
+                .ok_or(ProtocolError::InvalidValueKind(
+                    raw.min(u32::from(u16::MAX)) as u16,
+                ))?;
+            crate::schema::EventPayload::NotificationPermissionChanged(state)
+        }
         EVENT_RESYNC if record_len == 16 => crate::schema::EventPayload::Resync,
         EVENT_LIFECYCLE_START if record_len == 16 => crate::schema::EventPayload::LifecycleStart,
         EVENT_LIFECYCLE_STOP if record_len == 16 => crate::schema::EventPayload::LifecycleStop,
-        EVENT_CLICK..=EVENT_RANGE_REQUESTED | EVENT_VALUE_CHANGED..=EVENT_LIFECYCLE_STOP => {
+        EVENT_CLICK..=EVENT_RANGE_REQUESTED
+        | EVENT_VALUE_CHANGED..=EVENT_NOTIFICATION_PERMISSION_CHANGED => {
             return Err(ProtocolError::InvalidRecordLength);
         }
         other => return Err(ProtocolError::InvalidTag(other)),
@@ -318,6 +379,14 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.extend_from_slice(&u32::from(u16::from(system)).to_le_bytes());
         return Ok(());
     }
+    if let crate::schema::EventPayload::NotificationPermissionChanged(state) = event.payload {
+        output.extend_from_slice(&EVENT_NOTIFICATION_PERMISSION_CHANGED.to_le_bytes());
+        output.extend_from_slice(&20_u16.to_le_bytes());
+        output.extend_from_slice(&event.node_id.to_le_bytes());
+        output.extend_from_slice(&event.handler_id.to_le_bytes());
+        output.extend_from_slice(&u32::from(u16::from(state)).to_le_bytes());
+        return Ok(());
+    }
     if let crate::schema::EventPayload::RangeRequested { start, count } = event.payload {
         output.extend_from_slice(&EVENT_RANGE_REQUESTED.to_le_bytes());
         output.extend_from_slice(&24_u16.to_le_bytes());
@@ -346,11 +415,16 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         crate::schema::EventPayload::ProtocolError { code, message } => {
             (EVENT_PROTOCOL_ERROR, 28, Some(*message), Some(*code))
         }
+        // The same shape as a protocol error: one word, then one string.
+        crate::schema::EventPayload::NotificationActivated { action, key } => {
+            (EVENT_NOTIFICATION_ACTIVATED, 28, Some(*key), Some(*action))
+        }
         crate::schema::EventPayload::KeyDown { .. }
         | crate::schema::EventPayload::RangeRequested { .. }
         | crate::schema::EventPayload::ValueChanged(_)
         | crate::schema::EventPayload::WindowSizeChanged { .. }
-        | crate::schema::EventPayload::DesignSystemResolved(_) => unreachable!(),
+        | crate::schema::EventPayload::DesignSystemResolved(_)
+        | crate::schema::EventPayload::NotificationPermissionChanged(_) => unreachable!(),
     };
     output.extend_from_slice(&tag.to_le_bytes());
     output.extend_from_slice(&record_len.to_le_bytes());
@@ -581,6 +655,33 @@ impl BatchEncoder {
                 self.put_string_ref(window.title)?;
                 self.put_u32(window.icon);
             }
+            Mutation::PostNotification {
+                key,
+                title,
+                body,
+                channel,
+                action_1,
+                action_2,
+                importance,
+                presentation,
+            } => {
+                self.begin_record(TAG_POST_NOTIFICATION, 52);
+                self.put_string_ref(key)?;
+                self.put_string_ref(title)?;
+                self.put_string_ref(body)?;
+                self.put_string_ref(channel)?;
+                self.put_string_ref(action_1)?;
+                self.put_string_ref(action_2)?;
+                self.put_u16(*importance as u16);
+                self.put_u16(*presentation as u16);
+            }
+            Mutation::WithdrawNotification { key } => {
+                self.begin_record(TAG_WITHDRAW_NOTIFICATION, 8);
+                self.put_string_ref(key)?;
+            }
+            Mutation::RequestNotificationPermission => {
+                self.begin_record(TAG_REQUEST_NOTIFICATION_PERMISSION, 0);
+            }
         }
         self.record_count = self
             .record_count
@@ -697,8 +798,8 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
         return Err(ProtocolError::InvalidEnvelope);
     }
     // `count` is attacker-controlled, so it only sizes the buffer up to what the
-    // record region could actually hold. The shortest mutation record is `Remove` at 8
-    // bytes, so that is the ceiling. Reserving `count` directly let a 12-byte message ask
+    // record region could actually hold. The shortest mutation record is a bare header at
+    // 4 bytes, so that is the ceiling. Reserving `count` directly let a 12-byte message ask
     // for a >100 GB allocation.
     let capacity = count.min((records_len - ENVELOPE_LEN) / MIN_RECORD_LEN);
     let mut output = Vec::with_capacity(capacity);
@@ -864,7 +965,29 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                         .map_err(|()| ProtocolError::InvalidMessageDuration(raw_duration))?,
                 }
             }
-            TAG_CREATE..=TAG_SHOW_MESSAGE => {
+            TAG_POST_NOTIFICATION if len == 56 => {
+                let raw_importance = read_u16(bytes, payload + 48)?;
+                let raw_presentation = read_u16(bytes, payload + 50)?;
+                Mutation::PostNotification {
+                    key: read_string(bytes, payload, records_len)?,
+                    title: read_string(bytes, payload + 8, records_len)?,
+                    body: read_string(bytes, payload + 16, records_len)?,
+                    channel: read_string(bytes, payload + 24, records_len)?,
+                    action_1: read_string(bytes, payload + 32, records_len)?,
+                    action_2: read_string(bytes, payload + 40, records_len)?,
+                    importance: NotificationImportance::try_from(raw_importance)
+                        .map_err(|()| ProtocolError::InvalidNotification(raw_importance))?,
+                    presentation: NotificationPresentation::try_from(raw_presentation)
+                        .map_err(|()| ProtocolError::InvalidNotification(raw_presentation))?,
+                }
+            }
+            TAG_WITHDRAW_NOTIFICATION if len == 12 => Mutation::WithdrawNotification {
+                key: read_string(bytes, payload, records_len)?,
+            },
+            TAG_REQUEST_NOTIFICATION_PERMISSION if len == 4 => {
+                Mutation::RequestNotificationPermission
+            }
+            TAG_CREATE..=TAG_LAST => {
                 return Err(ProtocolError::InvalidRecordLength);
             }
             other => return Err(ProtocolError::InvalidTag(other)),
@@ -1379,6 +1502,164 @@ mod tests {
         assert_eq!(
             WindowHeightClass::from_height_dp(900.0),
             WindowHeightClass::Expanded
+        );
+    }
+
+    fn post_notification() -> Mutation<'static> {
+        Mutation::PostNotification {
+            key: "session/7",
+            title: "세션이 끝났습니다",
+            body: "refactor-parser: 테스트 214개 통과",
+            channel: "세션",
+            action_1: "열기",
+            action_2: "",
+            importance: NotificationImportance::Urgent,
+            presentation: NotificationPresentation::WhenInactive,
+        }
+    }
+
+    /// The three notification commands keep the lengths the wire fixes for them: six string
+    /// references and two closed enums, one string reference, and a bare header.
+    #[test]
+    fn fr36_notification_commands_round_trip_at_their_fixed_lengths() {
+        let mutations = [
+            post_notification(),
+            Mutation::WithdrawNotification { key: "session/7" },
+            Mutation::RequestNotificationPermission,
+        ];
+        let mut lengths = Vec::new();
+        let mut encoder = BatchEncoder::default();
+        for mutation in &mutations {
+            encoder.encode(mutation).unwrap();
+        }
+        let bytes = encoder.finish().unwrap();
+        let mut position = ENVELOPE_LEN;
+        for _ in &mutations {
+            let length = read_u16(bytes, position + 2).unwrap();
+            lengths.push((read_u16(bytes, position).unwrap(), length));
+            position += usize::from(length);
+        }
+        assert_eq!(
+            lengths,
+            [
+                (TAG_POST_NOTIFICATION, 56),
+                (TAG_WITHDRAW_NOTIFICATION, 12),
+                (TAG_REQUEST_NOTIFICATION_PERMISSION, 4),
+            ]
+        );
+        assert_eq!(decode_batch(bytes).unwrap(), mutations);
+    }
+
+    /// An importance or a presentation this side does not know is an error, never a guess
+    /// and never a panic.
+    #[test]
+    fn fr36_unknown_importance_and_presentation_are_protocol_errors() {
+        for (offset, expected) in [(52, 9_u16), (54, 7_u16)] {
+            let mut encoder = BatchEncoder::default();
+            encoder.encode(&post_notification()).unwrap();
+            let mut bytes = encoder.finish().unwrap().to_vec();
+            bytes[ENVELOPE_LEN + offset..ENVELOPE_LEN + offset + 2]
+                .copy_from_slice(&expected.to_le_bytes());
+            assert_eq!(
+                decode_batch(&bytes),
+                Err(ProtocolError::InvalidNotification(expected))
+            );
+        }
+    }
+
+    /// A known notification tag at the wrong length is a length error, the same as any
+    /// other known record.
+    #[test]
+    fn fr36_a_notification_record_of_the_wrong_length_is_rejected() {
+        let mut bytes = vec![0, 0, 12, 0, 20, 0, 0, 0, 1, 0, 0, 0];
+        bytes.extend_from_slice(&TAG_REQUEST_NOTIFICATION_PERMISSION.to_le_bytes());
+        bytes.extend_from_slice(&8_u16.to_le_bytes());
+        bytes.extend_from_slice(&0_u32.to_le_bytes());
+        assert_eq!(
+            decode_batch(&bytes),
+            Err(ProtocolError::InvalidRecordLength)
+        );
+    }
+
+    /// The two notification events: a word and a string after the common head, and a word
+    /// on its own.
+    #[test]
+    fn fr36_notification_events_round_trip_fixed_layout() {
+        let activated = HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: crate::EventPayload::NotificationActivated {
+                action: 2,
+                key: "session/7",
+            },
+        };
+        let mut bytes = Vec::new();
+        encode_event(&activated, &mut bytes).unwrap();
+        assert_eq!(read_u16(&bytes, 0).unwrap(), EVENT_NOTIFICATION_ACTIVATED);
+        assert_eq!(read_u16(&bytes, 2).unwrap(), 28);
+        assert_eq!(bytes.len(), 28 + "session/7".len());
+        assert_eq!(decode_event(&bytes).unwrap(), activated);
+
+        for state in [
+            NotificationPermission::NotDetermined,
+            NotificationPermission::Granted,
+            NotificationPermission::Denied,
+            NotificationPermission::Unsupported,
+        ] {
+            let changed = HostEvent {
+                node_id: 0,
+                handler_id: 0,
+                payload: crate::EventPayload::NotificationPermissionChanged(state),
+            };
+            encode_event(&changed, &mut bytes).unwrap();
+            assert_eq!(bytes.len(), 20);
+            assert_eq!(decode_event(&bytes).unwrap(), changed);
+        }
+    }
+
+    /// A permission state outside the four is reported, not mapped onto one of them.
+    #[test]
+    fn fr36_unknown_permission_state_is_a_protocol_error() {
+        let mut bytes = Vec::new();
+        encode_event(
+            &HostEvent {
+                node_id: 0,
+                handler_id: 0,
+                payload: crate::EventPayload::NotificationPermissionChanged(
+                    NotificationPermission::Granted,
+                ),
+            },
+            &mut bytes,
+        )
+        .unwrap();
+        bytes[16..20].copy_from_slice(&5_u32.to_le_bytes());
+        assert_eq!(
+            decode_event(&bytes),
+            Err(ProtocolError::InvalidValueKind(5))
+        );
+    }
+
+    /// A notification has a body and at most two buttons, so an activation naming a third
+    /// is a malformed event.
+    #[test]
+    fn fr36_an_activation_naming_a_third_button_is_a_protocol_error() {
+        let mut bytes = Vec::new();
+        encode_event(
+            &HostEvent {
+                node_id: 0,
+                handler_id: 0,
+                payload: crate::EventPayload::NotificationActivated {
+                    action: 1,
+                    key: "k",
+                },
+            },
+            &mut bytes,
+        )
+        .unwrap();
+        bytes[16..20].copy_from_slice(&3_u32.to_le_bytes());
+        assert_eq!(
+            decode_event(&bytes),
+            Err(ProtocolError::InvalidValueKind(3))
         );
     }
 }
