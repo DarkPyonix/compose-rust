@@ -712,6 +712,59 @@ LaunchBuilder::new()
 - **팔레트를 디자인 시스템별로 줄 것인가.** 이 항목은 `adaptive`에서 한 팔레트가 어느 시스템에나 얹히게 했습니다. 브랜드가 "macOS에서는 유리 위에서 더 밝은 주황"처럼 시스템별 값을 원하면 `(design_system, role, scheme)` 항목이 필요합니다. 지금은 넣지 않았고, 요청한 앱의 브랜드 지침이 그것을 요구하는지 확인이 필요합니다.
 - **씨앗 색에서 팔레트 만들기.** Material 3는 색 하나에서 배색 전체를 만드는 알고리즘(dynamic color)이 있습니다. 다른 여섯 시스템에는 없으므로 이 항목은 값을 직접 주게 했습니다. Material 3 전용 편의 함수(`Palette::from_seed`)를 Host 쪽에 둘지는 정하지 않았습니다.
 
+#### 14.11 디자인 시스템 라이브러리의 두 층 (`Agreed`)
+
+INTENT D19의 2026-10-03 결정입니다. 디자인 시스템은 `compose-multiplatform-core-extended`에서 Compose 라이브러리로 나가고, 두 층으로 나뉩니다.
+
+> "컴포넌트 라이브러리로 하되" (2026-10-03)
+
+> "2층으로 가고, 개들은 adaptive 디자인 시스템 패키지 명을 쓰면 될거같네." (2026-10-03)
+
+##### 14.11.1 1층: 디자인 시스템마다 하나의 컴포넌트 라이브러리
+
+- 패키지는 `org.thisisthepy.compose.material3`, `org.thisisthepy.compose.cupertino`, `org.thisisthepy.compose.fluent`, `org.thisisthepy.compose.gnome`, `org.thisisthepy.compose.breeze`, `org.thisisthepy.compose.deepin`, `org.thisisthepy.compose.liquidglass` 일곱 개입니다.
+- **일곱 개 모두 material3의 모양을 가집니다.** `XxxTheme` 컴포저블(`CupertinoTheme`, `FluentTheme`, ...), `ColorScheme`, `Typography`, `Shapes`, 그리고 컴포넌트입니다. 공개 API의 이름, 매개변수, 기본값을 두는 방식은 `androidx.compose.material3`를 본뜹니다. 그 시스템에 대응물이 없는 material3 컴포넌트는 만들지 않아도 되지만, 있는 것은 material3와 같은 이름과 같은 모양의 시그니처를 씁니다.
+- **`org.thisisthepy.compose.material3`는 `androidx.compose.material3` 위의 어댑터입니다.** 컴포넌트를 다시 그리지 않고 위임합니다. 어댑터가 하는 일은 공통 계약(14.11.3)의 역할과 토큰을 material3의 `ColorScheme`, `Typography`, `Shapes`로 옮기는 것입니다.
+- 1층 라이브러리는 서로에게도, 2층에도 의존하지 않습니다. 의존하는 것은 공통 계약(14.11.3)과 Compose뿐입니다.
+
+##### 14.11.2 2층: `org.thisisthepy.compose.adaptive`
+
+- 디자인 시스템에 매이지 않는 중립 컴포넌트(`Button`, `TextField`, `DatePicker`, ...)를 둡니다. 각 컴포넌트는 **현재 테마의 1층 구현에 위임합니다.** 스스로 그리지 않습니다.
+- 진입점은 `MaterialTheme`의 관례를 따릅니다.
+
+```kotlin
+@Composable
+fun AdaptiveTheme(
+    designSystem: DesignSystem = DesignSystem.platformDefault(),
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    content: @Composable () -> Unit,
+)
+```
+
+- `designSystem`의 기본값은 실행 중인 플랫폼의 디자인 시스템입니다. 어느 플랫폼이 어느 시스템인지는 14.3의 adaptive 기본값과 같은 대응입니다.
+- **compose-rust의 렌더러는 기본으로 이 층을 씁니다.** 14.3의 `Theme::adaptive`는 `AdaptiveTheme`의 기본값으로, `Theme::unified(ds)`는 `designSystem = ds`로 내려갑니다. 렌더러가 1층을 직접 부르는 길을 따로 두지 않습니다.
+- 2층은 1층 일곱 개 전부와 공통 계약에 의존합니다.
+
+##### 14.11.3 공통 계약: `org.thisisthepy.compose.designsystem`
+
+- 역할 enum(`ColorRole`, `TypeRole`, `ShapeRole`, `SpaceRole`과 컴포넌트 변형), `DesignSystem` 인터페이스, 토큰을 둡니다. 두 층이 모두 이것에 의존합니다.
+- **adaptive에 합치지 않습니다.** adaptive는 1층 전부에 의존하고 1층은 adaptive에 의존하면 안 됩니다. 계약이 adaptive 안에 있으면 1층이 계약을 쓰려고 adaptive에 의존하게 되어 순환이 생깁니다. 별도 모듈로 두면 의존은 `designsystem ← 1층 ← adaptive` 한 방향입니다.
+
+##### 14.11.4 이름이 비슷한 다른 것
+
+JetBrains의 `androidx.compose.material3.adaptive`는 적응형 레이아웃(창 크기 클래스) 라이브러리이며 `org.thisisthepy.compose.adaptive`와 무관합니다. 네임스페이스가 달라 부딪히지 않습니다.
+
+##### 14.11.5 수용 기준
+
+1. **"adaptive 컴포넌트 × 일곱 디자인 시스템" 표에 빈 칸이 하나라도 있으면 실패하는 테스트가 있습니다.** adaptive의 모든 컴포넌트가 일곱 시스템 각각에서 1층 구현으로 해석되어야 합니다. 1층에 대응물이 없는 칸도 비워 두지 않고, 그 시스템의 컴포넌트로 채웁니다.
+2. **"material3 컴포넌트 목록 × 각 1층 라이브러리" 표를 진행 척도로 기록합니다.** 이 표는 통과와 실패를 가르지 않습니다. 1층 라이브러리 각각이 material3의 모양을 얼마나 덮었는지를 보여 주는 숫자이고, 바뀔 때마다 갱신합니다.
+3. 1층 일곱 모듈 어디에도 `org.thisisthepy.compose.adaptive`에 대한 의존이 없고, 1층 모듈 사이의 의존도 없습니다. 빌드 설정을 읽는 검사로 확인합니다.
+4. `AdaptiveTheme`을 인자 없이 부르면 실행 중인 플랫폼의 디자인 시스템이 선택되고, `darkTheme`의 기본값은 시스템의 명암을 따릅니다.
+5. `org.thisisthepy.compose.material3`의 컴포넌트가 `androidx.compose.material3`의 같은 컴포넌트로 그려집니다(어댑터이며 다시 그린 것이 아님).
+6. compose-rust 렌더러가 `Theme::adaptive`와 `Theme::unified`를 2층의 `AdaptiveTheme`으로 내립니다.
+
+**1.0.0의 범위**: 1번 표의 행은 compose-rust가 먼저 쓰는 컴포넌트(FR-15의 위젯 어휘)입니다. 그 행들이 일곱 칸 모두 채워진 것이 1.0.0이고, material3 목록의 나머지(2번 표)는 그 뒤에 채웁니다.
+
 ### FR-15 위젯 어휘 (`Agreed`)
 
 M0의 위젯 9개는 데모를 굴리는 데 필요했던 만큼이지 설계된 범위가 아니었습니다. 1.0의 목표 어휘를 여기에 고정합니다.
@@ -2234,7 +2287,18 @@ fn main() {
 5. **effect.** 적용 후 효과는 적용된 composition마다 한 번 실행되고, 키 있는 효과는 키가 바뀔 때 취소 후 다시 시작하며, composition을 떠난 스코프의 효과는 취소되고 정리 함수가 한 번 실행됩니다.
 6. **같은 와이어, 같은 렌더러.** 경계 진입점과 스키마 해시가 바뀌지 않고, 체크인된 프로토콜 벡터가 그대로 통과하며, 같은 렌더러 아티팩트가 compose-rust 애플리케이션과 dioxus-compose 애플리케이션을 모두 그립니다.
 7. **`rsx!`와 같은 표현력.** 오늘 `rsx!`로 말할 수 있는 것을 compose-rust API로 전부 말할 수 있습니다. FR-15의 위젯 전부와 그 속성, FR-10의 Modifier, FR-13의 프리미티브, 이벤트와 그 소비(FR-3, FR-12), 비제어 `TextField`와 `SetText`(FR-5), 윈도잉(FR-8), 스트리밍(FR-9), 디자인 시스템과 테마(FR-14), 에셋(FR-16), 커스텀 드로잉(FR-17), 창 설정(FR-19.3), 창 크기 클래스(FR-20), 탐색과 시트와 일시 메시지(FR-21), 워커 스레드의 갱신(PR-3)입니다. 저장소의 샘플을 compose-rust API로 옮긴 것과 지금의 `rsx!` 판이 같은 상호작용 뒤에 Renderer 쪽에서 같은 노드 트리를 만드는 것으로 확인합니다.
-8. **성능.** 같은 화면, 같은 상호작용, 같은 기계, 같은 실행에서 지금의 Dioxus 경로와 비교해 잽니다. Host 처리 시간(핸들러, recomposition, 배치 인코딩)의 p50과 p99가 바뀐 동적 슬롯 수 1, 5, 17, 33, 65, 129 각각에서 Dioxus 경로를 넘지 않습니다. §5.1의 절대 기준(일반 상호작용 0.5ms, 스트리밍 프레임 1ms, 경계 인코딩 할당 0회, 반복해도 늘지 않는 Host 할당)도 그대로 적용됩니다. 측정 환경과 수치는 §5.1의 측정이 있는 `dioxus-compose/benches/baseline.json`에 Dioxus 경로의 같은 날 수치와 나란히 기록합니다.
+8. **성능: Dioxus 경로보다 10배.** 소유자가 정한 목표이고, 측정이 숫자에 맞춰 바뀌지 않도록 아래 규칙을 함께 정합니다.
+
+   > "나는 성능 목표 10배로 잡으면 하는데 니가 말한 측정 조건을 사기치는 경우가 발생할 수 있다는 우려에 동의해. 니가 잘 지시해봐 그러면" (2026-10-03)
+
+   1. **시나리오는 구현 전에 고정합니다.** 벤치 시나리오를 구현보다 먼저 커밋하고, 그 뒤에 바꾸려면 소유자의 승인이 필요합니다. 두 묶음입니다. (a) 바뀐 동적 슬롯 수 1, 5, 17, 33, 65, 129의 스윕. (b) 샘플에 기록해 둔 실제 상호작용의 재생: 계산기 입력, todo 추가와 삭제, chat 스트리밍, 긴 목록의 스크롤과 윈도잉, 탭 전환. 벤치를 위해 만든 화면이나 한쪽에 유리하게 만든 화면은 넣지 않습니다.
+   2. **같은 결과일 때만 셉니다.** 측정을 실행할 때마다 두 경로가 Renderer 쪽에 같은 노드 트리를 만드는지 확인하고, 다르면 그 측정은 무효입니다. 내보낸 Mutation 수와 바이트 수를 함께 기록하며, compose-rust 경로가 Dioxus 경로보다 많으면 안 됩니다.
+   3. **일을 옮겨서 얻은 숫자는 세지 않습니다.** Host 시간(핸들러, recomposition, 배치 인코딩)과 함께 Renderer 적용 시간과 프레임 전체 시간을 잽니다. Host에서 줄어든 만큼 Renderer나 다른 스레드로 일이 넘어갔다면 그만큼 실패입니다. 워커 스레드, 지연 처리, 캐시 예열로 측정 구간 밖에 일을 빼는 것도 금지합니다.
+   4. **기준선을 건드리지 않습니다.** Dioxus 경로는 측정을 시작한 시점의 커밋으로 고정하고, 비교할 때마다 같은 날, 같은 기계, 같은 빌드 프로필(release, 같은 플래그)로 나란히 잽니다. 기준선 쪽 코드가 바뀌면 그 측정 묶음 전체를 다시 잽니다.
+   5. **벤치 전용 경로가 없습니다.** 측정은 공개 API로만 합니다. 런타임에 `cfg(bench)`, 벤치를 감지하는 분기, 측정 전용 플래그가 없어야 하고, 이것을 확인하는 검사가 CI에 있습니다.
+   6. **판정.** 목표는 (a)와 (b)의 모든 시나리오에 걸쳐 p50 배수의 기하평균 10배 이상, p99 배수의 기하평균 5배 이상입니다. 최소선으로, 어느 시나리오도 Dioxus 경로보다 느리면 안 됩니다. §5.1의 절대 기준(일반 상호작용 0.5ms, 스트리밍 프레임 1ms, 인코딩 할당 0회, 반복해도 늘지 않는 메모리)은 그대로입니다. 시나리오별 배수를 전부 표로 남기고, 평균만 보고하지 않습니다.
+   7. **실행 조건을 기록합니다.** 기계, 부하 평균, 반복 횟수, 워밍업 횟수, 시나리오마다 p50, p99, 최대값과 원시 데이터의 경로를 `benches/baseline.json`에 남깁니다. 부하 평균이 높을 때 잰 값은 그 사실과 함께 기록하고, 판정에는 한가한 기계에서 잰 값을 씁니다.
+   8. **결과는 그대로 보고합니다.** 10배에 못 미치면 실측 배수를 그대로 보고합니다. 목표를 맞추려고 시나리오, 지표, 판정 방법을 바꾸는 것은 금지입니다. 이 기준을 `Done`으로 표시하는 것은 측정한 쪽이 아니라, 다른 세션이 같은 벤치를 다시 돌려 같은 결과를 확인한 뒤입니다.
 
 ## 4. 경계 프로토콜
 
@@ -2806,7 +2870,12 @@ Cargo는 path 패키지의 유닛 해시에 패키지 경로를 넣지 않습니
 2. 실행 파일이 불러오는 라이브러리가 위 표의 시스템 라이브러리뿐입니다. macOS는 `otool -L`, Linux는 `DT_NEEDED`, Windows는 import 표를 검사하는 테스트로 확인합니다. 렌더러, Skia(`libskiko-*`, `skiko-windows-*.dll`), JVM, AWT 라이브러리 이름이 나오면 실패입니다.
 3. `icudtl.dat`이 실행 파일 옆에도 시스템 경로에도 없는 상태에서 한국어 단어 경계와 글자 그리기가 맞습니다.
 4. 실행 중 렌더러가 경로로 라이브러리를 찾는 일이 없습니다(`dlopen`, `LoadLibrary`, `System.load`로 우리 라이브러리를 여는 코드가 없음).
-5. 앱을 빌드하는 기계에 필요한 것은 Rust 툴체인과 그 플랫폼의 기본 링커뿐이고, 렌더러 아티팩트는 D10대로 빌드 스크립트가 받아 옵니다. 앱의 `Cargo.toml`에 compose-rust 한 줄 외에 빌드 설정(`.cargo/config.toml`, `RUSTFLAGS` 포함)을 요구하지 않습니다. INTENT D18이 적은 Windows의 정적 C 런타임 조건도 이 기준 아래에 있습니다.
+5. 앱을 빌드하는 기계에 필요한 것은 Rust 툴체인과 그 플랫폼의 기본 링커뿐이고, 렌더러 아티팩트는 D10대로 빌드 스크립트가 받아 옵니다. 앱의 `Cargo.toml`에 compose-rust 한 줄 외에 빌드 설정(`.cargo/config.toml`, `RUSTFLAGS` 포함)을 요구하지 않습니다. Windows의 C 런타임은 2026-10-03 소유자 결정("(b)안으로 가자")대로 크레이트의 빌드 스크립트가 정적 C 런타임을 링크하고 부딪히는 기본 라이브러리를 막아서 맞춥니다(INTENT D18).
+   - `.cargo/config.toml`도 `RUSTFLAGS`도 없는 새 앱이 windows-latest에서 빌드됩니다.
+   - 그 실행 파일의 `dumpbin /dependents` 결과에 Windows 시스템 DLL만 나오고 `vcruntime140.dll`, `msvcp140.dll`이 없습니다.
+   - 그 실행 파일이 빈 폴더에서 실행되어 창을 띄웁니다.
+   - 동적 C 런타임으로 미리 빌드된 C/C++ 라이브러리와 섞여 링커가 `RuntimeLibrary` 불일치(LNK2038)를 내면, 빌드 스크립트가 어느 라이브러리가 동적 런타임인지와 무엇을 하면 되는지를 짚는 메시지를 냅니다. 테스트로 확인합니다.
+   - 같은 샘플을 동적 런타임과 정적 런타임으로 각각 링크한 실행 파일 크기를 재서 여기에 적습니다(측정 전).
 6. FR-22.6의 번들(`.app`, `.dmg`, `.zip`, `.msix`, `.AppImage`)은 이 실행 파일 하나와 아이콘, 메타데이터만 담습니다.
 
 ## 6. IME 수용 체크리스트 (FR-5, M1)
