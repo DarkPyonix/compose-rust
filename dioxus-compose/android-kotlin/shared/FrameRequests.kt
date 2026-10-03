@@ -1,10 +1,13 @@
 package dioxus.compose.ui.platform
 
 import androidx.compose.runtime.staticCompositionLocalOf
+import kotlin.time.TimeMark
+import kotlin.time.TimeSource
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * A counter that Host worker threads bump to ask for a frame.
@@ -49,3 +52,61 @@ internal object FrameRequests {
  * otherwise keeps another's `withFrameNanos` running and its composition never goes idle.
  */
 internal val LocalFrameRequests = staticCompositionLocalOf { FrameRequests.global }
+
+/**
+ * How long a request waits for the frame clock before the clock is taken to be stopped.
+ *
+ * A window that is minimised, covered or in the background may stop being drawn, and its
+ * frame clock with it. A request a worker made then would wait for the next time the window
+ * is drawn, which is exactly when it is least needed: a notification that the session has
+ * finished matters while nobody is looking. A quarter of a second is long enough that a
+ * clock which is running always answers first, and short enough that what was asked for
+ * is out well inside a second.
+ */
+internal const val STOPPED_CLOCK_MILLIS = 250L
+
+/**
+ * Serves the Host's frame requests: inside the frame clock while it runs, and directly on
+ * this thread when it has stopped.
+ *
+ * However many requests arrive, each pass serves one call: the counter is read when the
+ * pass starts and anything that arrives during it is the next pass. [awaitFrame] is the
+ * frame clock (`withFrameNanos` in a composition), and [serve] runs on the thread this
+ * coroutine runs on, which is the thread the composition is applied on and so the Host's.
+ *
+ * Only how the call is scheduled changes when the clock has stopped. It is the same call,
+ * with the same coalescing, and its batch is applied on the same call stack. The time it is
+ * given continues the frame clock's own: the last frame's time plus what has passed since,
+ * so the Host never sees time go backwards when the clock starts again.
+ */
+internal suspend fun serveFrameRequests(
+    requests: StateFlow<Long>,
+    awaitFrame: suspend (onFrame: (Long) -> Unit) -> Unit,
+    serve: (Long) -> Unit,
+    stoppedAfterMillis: Long = STOPPED_CLOCK_MILLIS,
+) {
+    var applied = requests.value
+    var lastFrameNanos = 0L
+    var lastFrame: TimeMark = TimeSource.Monotonic.markNow()
+    requests.collect { requested ->
+        if (requested == applied) return@collect
+        applied = requested
+        var servedInFrame = false
+        withTimeoutOrNull(stoppedAfterMillis) {
+            awaitFrame { frameTimeNanos ->
+                servedInFrame = true
+                lastFrameNanos = frameTimeNanos
+                lastFrame = TimeSource.Monotonic.markNow()
+                serve(frameTimeNanos)
+            }
+        }
+        // The clock did not answer. The frame callback may have run in the instant the
+        // timeout fired, so it is asked rather than assumed, and the Host is called once.
+        if (!servedInFrame) {
+            val now = lastFrameNanos + lastFrame.elapsedNow().inWholeNanoseconds
+            lastFrameNanos = now
+            lastFrame = TimeSource.Monotonic.markNow()
+            serve(now)
+        }
+    }
+}

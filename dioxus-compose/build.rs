@@ -461,6 +461,38 @@ fn unpack_android_kotlin() {
     }
     write_android_activity(&destination, package);
     add_compose_to_gradle(&destination);
+    add_notification_permission(&destination);
+}
+
+/// Declares the notification permission in the application's generated manifest.
+///
+/// Android 13 and later show a notification only for an application that both declares
+/// `POST_NOTIFICATIONS` and was granted it at run time. The renderer asks at run time; the
+/// declaration has to be in the manifest, and the renderer travels as source with no
+/// manifest of its own to merge, so it goes into the application's. The manifest sits beside
+/// the Kotlin source root, `<module>/src/main/AndroidManifest.xml`.
+///
+/// A manifest that already declares it, or that is not where the CLI puts one, is left as
+/// it is.
+fn add_notification_permission(destination: &Path) {
+    let Some(main_dir) = destination.parent() else {
+        return;
+    };
+    let manifest_path = main_dir.join("AndroidManifest.xml");
+    println!("cargo:rerun-if-changed={}", manifest_path.display());
+    let Ok(manifest) = std::fs::read_to_string(&manifest_path) else {
+        return;
+    };
+    let Some(text) = renderer_dir::with_notification_permission(&manifest) else {
+        return;
+    };
+    if let Err(error) = std::fs::write(&manifest_path, text) {
+        panic!(
+            "\n\ndioxus-compose: could not declare the notification permission in {}: \
+             {error}\n\n",
+            manifest_path.display()
+        );
+    }
 }
 
 /// Puts Compose into the application module's generated build file.
@@ -567,16 +599,26 @@ fn write_android_activity(destination: &Path, package: Option<String>) {
 // The Host outlives the Activity, so a configuration change recomposes and nothing else.
 package {package}
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import dioxus.compose.runtime.DioxusContent
+import dioxus.compose.ui.platform.AndroidNotifications
 import dioxus.compose.ui.platform.DioxusRuntime
 import dioxus.compose.ui.platform.installSystemChrome
 
 class MainActivity : ComponentActivity() {{
+    // Registered before the Activity starts, which is the only time the platform allows.
+    // The prompt is shown when the application first posts or asks.
+    private val notificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) {{
+            AndroidNotifications.permissionAnswered()
+        }}
+
     override fun onCreate(savedInstanceState: Bundle?) {{
         // The window draws under the system's strips with nothing of the system's own
         // over them, and the renderer decides whether the clock and the gesture bar are
@@ -584,7 +626,14 @@ class MainActivity : ComponentActivity() {{
         installSystemChrome(this)
         super.onCreate(savedInstanceState)
         DioxusRuntime.load("{library}")
+        // Before the Host: a press on a notification that started this process is in the
+        // intent, and it is the Host's first event once the Host exists.
+        AndroidNotifications.install(this) {{
+            notificationPermission.launch("android.permission.POST_NOTIFICATIONS")
+        }}
+        AndroidNotifications.handle(intent)
         val host = DioxusRuntime.host()
+        DioxusRuntime.attached()
         val view = ComposeView(this)
         view.setContent {{
             // The whole window. Where the system bars are is the renderer's to decide:
@@ -604,6 +653,19 @@ class MainActivity : ComponentActivity() {{
     override fun onStop() {{
         DioxusRuntime.stop()
         super.onStop()
+    }}
+
+    // A press on a notification while this Activity is already running.
+    override fun onNewIntent(intent: Intent) {{
+        super.onNewIntent(intent)
+        AndroidNotifications.handle(intent)
+    }}
+
+    override fun onDestroy() {{
+        // The process may stay without an Activity, and a worker's notification still has
+        // to go out from it.
+        DioxusRuntime.detached()
+        super.onDestroy()
     }}
 }}
 "#

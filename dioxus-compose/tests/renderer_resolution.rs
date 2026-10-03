@@ -2060,3 +2060,35 @@ fn fr23_a_brush_paint_survives_the_wire() {
         assert_eq!(Paint::from_bits(paint.to_bits()), Some(paint));
     }
 }
+
+/// Android 13 shows a notification only for an application that declares the permission,
+/// and the renderer has no manifest of its own to merge, so the build declares it in the
+/// application's, once.
+#[test]
+fn fr36_the_android_manifest_declares_the_notification_permission_once() {
+    let manifest = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n    <application />\n</manifest>\n";
+    let declared = renderer_dir::with_notification_permission(manifest).unwrap();
+    assert!(declared.contains(
+        "<uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\" />"
+    ));
+    let manifest_at = declared.find("<manifest").unwrap();
+    let permission_at = declared.find("<uses-permission").unwrap();
+    let application_at = declared.find("<application").unwrap();
+    assert!(manifest_at < permission_at && permission_at < application_at);
+    assert_eq!(renderer_dir::with_notification_permission(&declared), None);
+    assert_eq!(renderer_dir::with_notification_permission("<application />"), None);
+}
+
+/// The generated Activity installs the notification centre before it asks for the Host and
+/// hands it every intent, which is how a press that started the process becomes the Host's
+/// first event.
+#[test]
+fn fr36_the_generated_activity_hands_notification_presses_to_the_renderer() {
+    let build = include_str!("../build.rs");
+    let install = build.find("AndroidNotifications.install(this)").unwrap();
+    let handle = build.find("AndroidNotifications.handle(intent)").unwrap();
+    let host = build.find("val host = DioxusRuntime.host()").unwrap();
+    assert!(install < handle && handle < host);
+    assert!(build.contains("override fun onNewIntent(intent: Intent)"));
+    assert!(build.contains("RequestPermission()"));
+}
