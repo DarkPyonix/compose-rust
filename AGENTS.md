@@ -75,6 +75,12 @@ under `docs/`.
    branches changes every file under that checkout, so a `git checkout` while an agent is
    working pulls the files out from under it. Work has been lost that way. Give a
    background agent its own worktree and leave that checkout alone until it finishes.
+8. **Work branches are named `feat/<topic>`.**
+9. **Merge with `gh pr merge --delete-branch`**, then remove the local branch and its
+   worktree.
+10. **Only `main`, `develop` and `release` stay on the remote.** A branch merged into
+    `develop` is deleted; its commits are in `develop`, so nothing is kept for it, no
+    `archive/` tag either. In the forks the same holds for branches merged into `extended`.
 
 ## Where files go
 
