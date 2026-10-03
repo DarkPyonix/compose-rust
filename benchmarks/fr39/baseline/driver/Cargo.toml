@@ -1,0 +1,13 @@
+[package]
+name = "fr39-baseline-driver"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# The Dioxus path as it stood when the measurement started. Pinned by commit rather than
+# by branch, so the baseline cannot move under the comparison: changing this commit, here
+# or in any of the sample packages beside this one, means measuring every scenario again.
+[dependencies]
+fr39-scenarios = { path = "../../scenarios" }
+compose-rust = { git = "https://github.com/DarkPyonix/compose-rust", rev = "ab73fb45b416d1a143b1593cd03aee8af186c12a", default-features = false, features = ["mock-renderer"] }

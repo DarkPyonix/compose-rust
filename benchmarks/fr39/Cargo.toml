@@ -1,0 +1,26 @@
+# The FR-39 performance comparison: the Dioxus path at a pinned commit against the slot
+# table path at HEAD, over scenarios fixed before the slot table path was written.
+#
+# A workspace of its own, outside the repository's, for two reasons. The baseline links a
+# second copy of compose-rust, fetched at a fixed commit, and that copy exports the same
+# boundary symbols as the one in this checkout: the two can only ever be linked into
+# separate binaries. And nothing here is part of what the project publishes.
+[workspace]
+members = [
+    "scenarios",
+    "baseline/driver",
+    "baseline/sweep",
+    "baseline/calculator",
+    "baseline/todo",
+    "baseline/chat",
+    "baseline/minimal",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[profile.release]
+debug = true
