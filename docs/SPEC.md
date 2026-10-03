@@ -1804,7 +1804,7 @@ E2를 기본 경로로 삼으면 KSP가 Rust 열거형, Dioxus element, 컴포�
 #### 23.2 폰트
 - `TypeRole`은 그대로입니다. 더하는 것은 애플리케이션이 자기 폰트를 **등록**하고, 역할이 그것으로 해석되게 하는 길입니다. 이름을 보내지 않으므로 존재 검증이 런타임으로 밀리지 않습니다.
 - 등록은 FR-16의 에셋이고, 종류가 하나 늘어납니다(`AssetKind::Font`).
-- 적용은 테마 단위입니다. `Theme`에 역할별 폰트 에셋 id를 선택적으로 실어 보냅니다. 노드마다 폰트를 지정하는 길은 내지 않습니다. 그것은 13.5가 막는 것과 같은 종류입니다.
+- 역할을 가진 텍스트의 글꼴은 테마 단위입니다. `Theme`에 역할별 폰트 에셋 id를 선택적으로 실어 보냅니다. 역할을 가진 텍스트에는 노드마다 폰트를 지정하는 길을 내지 않습니다. 그것은 13.5가 막는 것과 같은 종류입니다. **역할이 없는 텍스트(`TypeRole::None`, HTML 경로)는 예외로, 노드와 스팬마다 글꼴을 받습니다(FR-40, INTENT D20, 2026-10-03 소유자 결정).**
 - 수용 기준: 등록한 폰트로 `Display` 역할을 해석하게 한 애플리케이션의 제목이 그 폰트로 그려지고, 나머지 역할은 시스템 폰트로 남습니다. 없는 id는 `ProtocolError`이고 텍스트는 시스템 폰트로 그려집니다.
 
 #### 23.3 재질 (흐림)
@@ -2309,6 +2309,422 @@ fn main() {
    7. **실행 조건을 기록합니다.** 기계, 부하 평균, 반복 횟수, 워밍업 횟수, 시나리오마다 p50, p99, 최대값과 원시 데이터의 경로를 `benches/baseline.json`에 남깁니다. 부하 평균이 높을 때 잰 값은 그 사실과 함께 기록하고, 판정에는 한가한 기계에서 잰 값을 씁니다.
    8. **결과는 그대로 보고합니다.** 10배에 못 미치면 실측 배수를 그대로 보고합니다. 목표를 맞추려고 시나리오, 지표, 판정 방법을 바꾸는 것은 금지입니다. 이 기준을 `Done`으로 표시하는 것은 측정한 쪽이 아니라, 다른 세션이 같은 벤치를 다시 돌려 같은 결과를 확인한 뒤입니다.
 
+### FR-40 HTML 텍스트 속성 (`Agreed`)
+
+CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 데 필요한 속성입니다. 측정 호출(PR-2.1)의 값이 그려진 값과 같으려면, 그리기도 같은 칸을 같은 뜻으로 받아야 합니다. 노드 단위 글꼴은 역할이 없는 텍스트에만 엽니다(INTENT D20, 2026-10-03 소유자 결정).
+
+`Text`의 기본 모양과 FR-26 스팬 레코드에 다음을 더합니다. 측정 호출(PR-2.1)의 `MeasureText` 요청은 같은 칸을 같은 뜻으로 싣습니다. **측정과 그리기는 같은 해석 함수를 씁니다.**
+
+1. `TypeRole::None`(태그 0). 타입 스케일을 쓰지 않고, 크기, 굵기, 행간, 자간, 글꼴을 명시적 값에서만 가져옵니다. 명시적 값이 없는 칸은 Renderer의 기본값(14dp, 400, normal)입니다.
+2. `font: FontRef`. `TypeRole::None`일 때만 씁니다. 다음 셋 중 하나이고, 앞에서부터 처음 해석되는 것을 씁니다(CSS 글꼴 목록).
+   - `Asset(id)`: FR-16 에셋. FR-23.2의 `AssetKind::Font`를 그대로 씁니다. 앱이 바이트를 제공하고(`@font-face src`), 크레이트가 받아오지 않습니다.
+   - `System(name)`: 시스템 패밀리 이름. 이름 문자열은 레코드 뒤 페이로드에 놓입니다.
+   - `Generic(SystemUi | SansSerif | Serif | Monospace)`
+   - 목록은 최대 8개입니다. 아무것도 해석되지 않으면 `Generic(SansSerif)`입니다. 없는 에셋 id는 `ProtocolError`이고, 목록의 다음 것으로 넘어갑니다.
+3. `word_break: Normal | KeepAll | BreakAll`, `overflow_wrap: Normal | Anywhere | BreakWord`. CSS와 같은 뜻입니다.
+   - 한국어 `Normal`은 음절 사이에서 끊을 수 있고, `KeepAll`은 공백에서만 끊습니다.
+   - Compose의 기본 줄바꿈은 플랫폼마다 다르므로, Renderer가 이 값에 맞춰 줄바꿈 전략을 정합니다.
+4. `tab_size: u8`(기본 8). 탭은 다음 탭 위치까지 차지합니다. 비례 글꼴에서는 Host가 탭을 공백으로 펼칠 수 없습니다.
+5. `absolute_size: bool`. 참이면 시스템 글꼴 배율을 적용하지 않습니다(CSS px). 측정과 그리기에 똑같이 적용됩니다.
+6. 공백 규칙: Renderer는 받은 문자열의 공백을 자르거나 접지 않습니다. 접기는 Host의 일입니다.
+
+수용 기준:
+1. 같은 HTML 텍스트를 측정한 값과 그린 값이 비트 단위로 같습니다(PR-2.1 기준 1). 아래 각 경우를 모두 확인합니다.
+   - 글꼴 종류 셋(에셋, 시스템, 일반)
+   - 한국어 `Normal`과 `KeepAll`
+   - 탭이 든 `pre`
+   - `absolute_size`를 켠 텍스트와 끈 텍스트
+2. 등록한 아이콘 글꼴의 사설 영역 글리프가 그 글꼴로 그려지고 크기가 0이 아닙니다(codicon 한 글자).
+3. 시스템 글꼴 배율을 200%로 바꿨을 때, `absolute_size` 텍스트의 측정값과 그린 크기는 그대로이고, 역할을 가진 텍스트는 커집니다.
+4. 역할을 가진 텍스트에 `font`를 보내면 무시되고 테마 글꼴로 그려집니다. 역할 원칙이 HTML 경로 밖으로 새지 않는다는 확인입니다.
+5. 다섯 플랫폼과 Web에서 기준 1의 라틴 경우가 통과합니다.
+
+- HTML 화면의 접근성 배율(시스템 글꼴 배율을 `absolute_size` 텍스트에 어떻게 반영할지)은 아직 정하지 않았습니다. 검토 문서를 만들어 소유자가 정합니다. `absolute_size` 칸 자체는 어느 결정에서도 필요합니다.
+### FR-41 Transform과 렌더러가 재생하는 애니메이션 (`Agreed`)
+
+요청한 쪽: dioxus-compose FR-34.1(CSS transform 전부, M14 10-18)과 FR-34.2(CSS transition과 animation, 혼합안). 소유자 결정(2026-10-03): `opacity`, `color`, `background-color`, `transform`은 렌더러가 Compose 애니메이션으로 재생하고, 레이아웃 속성은 나중에(M15) Host가 매 프레임 시각을 넘겨 계산합니다. 이 초안은 그중 렌더러 쪽 둘을 compose-rust 스키마에 적습니다.
+
+전제: HTML/CSS 원소 초안(dioxus-compose `.scratch/spec-drafts/html-css-primitives.md`)의 `AbsoluteBox`(위젯 44)와 수정자 19~25(`Offset`, `RequiredSize`, `BorderEach`, `CornerEach`, `Shadow`, `Clip`, `Alpha`)가 먼저 들어간다고 봅니다. 
+
+소유자 결정(2026-10-03):
+- **2D 먼저, 3D는 다음 단계.** M14에서는 2D 아핀만 구현합니다. 3D는 FR-41.3에 다음 단계 항목으로 남깁니다. "지원하지 않음"이 아닙니다.
+- **앱 작성 API에도 엽니다.** 같은 레코드를 FR-39의 compose-rust API에서 쓸 수 있습니다(FR-41.4).
+- **이벤트 레코드의 프레임 시각은 검토 중입니다.** 결론이 나기 전까지 기본값은 "싣지 않음"이고, 이 항목은 `Ready` 이벤트와 Host의 추정으로 시작 시각을 압니다.
+
+### FR-41.1 `Transform` 수정자 (`Agreed`)
+
+노드와 그 안의 내용 전부를 2D 아핀 변환으로 그립니다. 레이아웃에는 영향을 주지 않고, 적중 판정은 변환된 모양을 따릅니다. CSS `transform`과 `transform-origin`의 계산된 값이 그대로 들어가는 자리입니다.
+
+#### 값
+
+- `Modifier::Transform { a, b, c, d, e, f, origin_x, origin_y }`, 모두 `f32`. 수정자 태그 26.
+- 행렬은 CSS `matrix(a, b, c, d, e, f)`와 같은 뜻입니다. 열 벡터 기준으로 `x' = a·x + c·y + e`, `y' = b·x + d·y + f`입니다. `a`~`d`는 단위가 없고, `e`, `f`는 dp입니다(CSS px와 같은 단위로, `Offset`과 같은 변환을 Host가 합니다).
+- **원점은 노드 크기에 대한 비율입니다.** `origin_x`, `origin_y`는 노드가 측정된 크기(CSS의 border box)에 대한 비율이고, `(0.5, 0.5)`가 가운데입니다. 고른 이유:
+  - Compose의 `TransformOrigin`이 비율이므로 렌더러가 변환 없이 씁니다.
+  - 노드의 크기가 렌더러에서 정해지는 경우(Host가 크기를 모르는 `weight`, `FillMaxWidth` 노드)에도 "가운데를 축으로 돈다"가 맞습니다. 크기가 바뀌어도 레코드를 다시 보낼 필요가 없습니다. CSS의 기본값(`50% 50%`)과 키워드 원점이 이 경우입니다.
+  - 길이로 쓴 원점(`transform-origin: 10px 20px`)은 Host가 원점을 행렬에 접어 넣고(`T(o)·M·T(-o)`) 원점을 `(0, 0)`으로 보냅니다. 이렇게 하면 크기가 0인 상자에서도 정확합니다. 비율로는 크기가 0인 상자의 길이 원점을 나타낼 수 없기 때문입니다.
+- 항등 변환은 `(1, 0, 0, 1, 0, 0)`이고 원점은 무엇이든 됩니다. 변환이 없는 노드는 이 수정자를 갖지 않는 것이 보통이지만, 애니메이션의 자리 표시(FR-41.2)로 항등 변환을 둘 수 있습니다.
+- `translate`는 이 수정자로 보냅니다. `Offset`에 더하지 않습니다. 레이아웃 자리와 변환을 섞으면 적중 판정, 원점, 렌더러 재생 애니메이션이 모두 틀어집니다. 지금 dioxus-compose-html이 이동을 상자 위치에 더하는 것은 이 수정자가 들어오면 바뀌어야 합니다.
+
+#### 와이어: 넓은 `SetModifier`
+
+- 지금 `SetModifier` 레코드는 28바이트이고 수정자 값 칸은 `(first: u64, second: u64)` 16바이트입니다(FR-13). 이 수정자는 `f32` 여덟 개, 32바이트라 들어가지 않습니다.
+- **수정자 태그가 레코드 길이를 정하게 합니다.** `SetModifier`의 길이는 `28 + 8k`이고, `k`는 수정자 태그마다 스키마에 고정됩니다. 지금 있는 수정자는 모두 `k = 0`이라 바이트가 하나도 바뀌지 않습니다. `Transform`은 `k = 2`, 44바이트입니다.
+
+```
+SetModifier, Transform (44바이트)
+offset  0  tag: u16 = 3          offset  2  len: u16 = 44
+offset  4  node_id: u32
+offset  8  index: u16            offset 10  modifier: u16 = 26
+offset 12  first:  (a: f32, b: f32)
+offset 20  second: (c: f32, d: f32)
+offset 28  third:  (e: f32, f: f32)
+offset 36  fourth: (origin_x: f32, origin_y: f32)
+```
+
+- 두 `f32`가 `u64` 하나에 들어가는 방식은 지금의 `pack_floats`와 같습니다(첫 값이 하위 32비트).
+- 태그가 요구하는 길이와 레코드의 `len`이 다르면 `ProtocolError`입니다(NFR-7).
+- 코드젠의 필드 슬롯(`FieldSlot`)에 `ThirdLow`, `ThirdHigh`, `FourthLow`, `FourthHigh`가 늘어납니다. Kotlin 디코더와 Rust 인코더는 지금처럼 생성됩니다(FR-7).
+- 버린 대안 둘:
+  - 두 수정자로 나누기(선형 부분 4개, 이동과 원점 4개). 둘 다 16바이트에 들어가지만, 회전과 이동이 함께 바뀌면 레코드가 둘 나가서 dioxus-compose FR-34.1 수용 기준 4("변환 값만 바뀐 갱신에서 변환 수정자 하나만")를 어깁니다.
+  - 값을 arena의 별도 영역에 두고 `(offset, len)`으로 가리키기(문자열과 같은 방식). 레코드 길이는 그대로지만, 고정 크기 값에 간접 참조와 범위 검사를 하나 더 붙일 이유가 없습니다.
+- 같은 문제가 HTML/CSS 원소 초안에도 있습니다. `Shadow`(23)는 `f32` 넷과 `Paint` 하나로 24바이트, `BorderEach`(21)는 두께 넷과 `Paint` 넷으로 48바이트라 16바이트 칸에 들어가지 않습니다. 같은 규칙(`k`가 각각 1, 4)을 거기에도 쓰자고 제안합니다.
+
+#### Compose 대응
+
+- **Compose의 안정 API에는 임의 행렬을 받는 레이어가 없습니다.** `graphicsLayer`가 받는 것은 이동, 확대, 회전(Z, X, Y), 원점이고, 기울이기(skew)는 없습니다. 그리기 단계의 `withTransform { transform(matrix) }`는 임의 행렬을 그릴 수 있지만 적중 판정과 자식의 좌표가 따라오지 않으므로 쓰지 않습니다.
+- **그래서 `graphicsLayer` 두 겹으로 나눕니다.** 2x2 선형 부분 `A`를 특이값 분해하면 `A = R(θ1)·S(σ1, σ2)·R(θ2)`입니다. 바깥 레이어는 `translationX = e`, `translationY = f`, `rotationZ = θ1`, `scaleX = σ1`, `scaleY = σ2`이고, 안쪽 레이어는 `rotationZ = θ2`입니다. 두 레이어 모두 `transformOrigin = TransformOrigin(origin_x, origin_y)`입니다. 두 레이어가 같은 크기의 같은 노드에 겹쳐 있으므로 합은 `T(e, f)·T(o)·A·T(-o)`이고, CSS의 `T(o)·M·T(-o)`와 같습니다.
+  - 행렬식이 음수(반사, `scaleX(-1)`)이면 `σ2`가 음수입니다.
+  - 기울이기가 없고 확대가 균일하면(`b = -c`, `a = d` 꼴) 한 겹으로 충분하고, 렌더러는 그때 한 겹만 씁니다. 결과는 같습니다.
+  - Compose 레이어의 연산 순서(확대, 회전, 원점, 이동)에 기대는 코드는 이 분해 하나뿐이고, 한 파일에 둡니다. 순서가 다르면 아래 수용 기준 3이 바로 깨집니다.
+- **행렬식이 0이면 그리지 않습니다.** CSS는 역행렬이 없는 변환을 받은 상자와 그 내용을 그리지 않습니다. 렌더러는 그 노드의 내용을 그리지 않고, 적중 판정에서도 빠집니다.
+- 값에 NaN이나 무한대가 있으면 `ProtocolError`입니다.
+- **레이아웃은 바뀌지 않습니다.** 측정, 배치, 형제의 자리, `ObserveSize`가 알리는 크기, `LazyColumn` 창 계산은 변환 전 상자 기준입니다. CSS와 같습니다.
+- **적중 판정은 Compose가 합니다.** Compose의 포인터 입력은 노드를 찾을 때 포인터 위치를 각 `graphicsLayer`의 역행렬로 옮긴 뒤 노드의 사각형 안인지 봅니다. 그래서 체인에서 `Transform` 뒤(안쪽)에 있는 `Clickable`과 포인터 수정자는 변환된 모양으로 판정됩니다. **`Transform`보다 앞(바깥)에 둔 `Clickable`은 변환 전 사각형으로 판정되므로** Host는 `Clickable`을 `Transform` 뒤에 둡니다.
+  - dioxus-compose가 클릭을 루트에서 받아 Host에서 blitz 좌표로 적중 판정하는 길을 쓴다면, 그 판정이 역행렬을 적용해야 합니다. 스키마가 약속하는 것은 Compose의 적중 판정입니다.
+- **렌더러만의 상태.** 이 수정자 자체는 Host가 보낸 값 하나이고 렌더러가 따로 들고 있는 상태는 없습니다. 분해 결과(θ1, σ1, σ2, θ2)는 레코드 값에서 유도한 캐시로, `remember`의 키가 레코드 값입니다. 값이 바뀌면 레이어 속성만 갱신되고, 그 노드와 자식은 다시 측정되지 않습니다.
+
+#### 다른 수정자와의 순서
+
+수정자 목록은 순서대로 Compose 체인이 됩니다(FR-10). 렌더러는 순서를 바꾸지 않습니다. CSS와 같은 결과를 내는 순서는 이렇고, Host가 이 순서로 보냅니다.
+
+```
+Offset, RequiredSize, Transform, Alpha, Shadow, Background, Border/BorderEach, Clip, Clickable, 그 밖의 것
+```
+
+- `Offset`, `RequiredSize`가 `Transform`보다 바깥입니다. 상자를 먼저 제자리에 놓고 그 상자의 좌표계에서 변환해야 원점이 상자 기준이 됩니다. 순서가 반대이면 원점이 이동 전 자리를 기준으로 잡힙니다.
+- `Transform`과 `Alpha`는 순서와 무관하게 같은 그림이 됩니다(불투명도와 기하 변환은 교환됩니다). 렌더러는 붙어 있는 둘을 레이어 하나로 합쳐도 되고, 합치지 않아도 됩니다. `Alpha`는 HTML 초안대로 묶음 전체에 한 번 적용됩니다(`graphicsLayer`의 오프스크린 합성).
+- `Clip`은 `Transform` 안쪽입니다. CSS의 `overflow: hidden`이 만드는 자르기 영역은 상자와 함께 돌아갑니다. 조상의 `Clip`은 조상의 좌표계에서 변환된 자식을 자릅니다. 둘 다 체인 순서가 그대로 만들어 줍니다.
+- `Shadow`와 `Background`, `Border`도 `Transform` 안쪽입니다. CSS에서 그림자와 테두리는 상자와 함께 변환됩니다. `graphicsLayer`는 기본으로 자르지 않으므로(`clip = false`) 상자 밖으로 번지는 그림자도 그대로 그려집니다.
+- 한 목록에 `Transform`이 둘 이상이면 바깥 것부터 차례로 곱해집니다. 오류는 아니지만 Host는 하나로 합쳐 보냅니다.
+- 쌓임 순서(`z-index`, 변환이 만드는 쌓임 맥락)는 HTML 초안대로 Host가 `AbsoluteBox`의 자식 순서로 풉니다. 이 수정자는 순서를 바꾸지 않습니다.
+
+수용 기준:
+1. `Transform` 수정자가 44바이트 `SetModifier`로 Rust와 Kotlin에서 같은 바이트로 인코딩되고 디코딩됩니다(체크인된 프로토콜 벡터). 기존 수정자 0~25의 벡터는 바이트 하나도 바뀌지 않습니다(fr41_transform_round_trips, fr41_existing_modifier_vectors_are_unchanged).
+2. 태그가 요구하는 길이와 다른 `SetModifier`, 값에 NaN이나 무한대가 든 `Transform`은 `ProtocolError` 이벤트가 되고 프로세스가 중단되지 않습니다.
+3. `rotate(15deg)`, `scale(1.5)`, `skewX(10deg)`, `scaleX(-1)`, 그리고 셋을 곱한 행렬 각각을 원점 `(0, 0)`과 `(0.5, 0.5)`로 단 100x40dp 상자에서, 네 꼭짓점의 `LayoutCoordinates.localToRoot` 결과가 행렬을 직접 적용한 값과 0.01dp 안에서 같습니다. 데스크톱 렌더러 테스트입니다.
+4. 변환된 노드의 측정 크기, 형제의 자리, `ObserveSize`가 알리는 크기가 변환이 없을 때와 같습니다.
+5. 100x40dp 상자를 가운데 기준으로 45도 돌리고 `Clickable`을 `Transform` 뒤에 둔 노드에서, 마우스로 원래 사각형의 꼭짓점 근처(로컬 `(3, 3)`)를 누르면 `Clicked`가 오지 않고, 가운데를 누르면 오며, 원래 사각형 밖이지만 돌아간 모양 안인 점을 누르면 옵니다.
+6. 돌아간 상자 안의 `Text`와 자식 상자가 함께 돌아가 그려집니다(스크린숏 테스트).
+7. `[Transform, Clip]`에서 자르기 영역이 함께 돌아가고, `[Transform, Alpha]`와 `[Alpha, Transform]`의 그림이 픽셀 단위로 같습니다.
+8. 행렬식이 0인 변환(`scale(0)`)을 받은 노드는 아무것도 그리지 않고, 그 자리를 눌러도 `Clicked`가 오지 않습니다.
+9. 변환 값만 바뀐 갱신은 그 노드의 `SetModifier` 하나만 싣고, 렌더러에서 그 노드와 자식이 다시 측정되지 않습니다(측정 횟수 계측).
+
+---
+
+### FR-41.2 렌더러가 재생하는 애니메이션 (`Agreed`)
+
+Host가 애니메이션 하나를 한 번 기술하면, 렌더러가 자기 프레임 클록으로 끝까지 재생합니다. 재생하는 동안 Host로 가는 호출은 없습니다(D5: 애니메이션 상태는 렌더러). 대상은 레이아웃에 영향이 없는 넷, `Alpha`, `Color`, `Background`, `Transform`입니다.
+
+#### FR-24와의 관계
+
+13.7과 FR-24는 "Host가 길이와 곡선을 보내면 디자인 시스템이 모션을 정한다는 원칙이 무너진다"는 이유로 애니메이션 스펙을 스키마에서 뺐고, 모션을 역할(`MotionRole`)로 말하게 했습니다. 이 항목은 그 원칙을 뒤집지 않습니다. 색에서 `Paint::Role`이 기본이고 `Paint::Literal`이 탈출구이듯, **모션에서도 역할이 기본이고 이 레코드는 탈출구입니다.** CSS로 쓴 화면은 길이와 곡선을 화면의 저자가 이미 정했고, 디자인 시스템이 그것을 바꾸면 Chromium과 같은 화면이라는 FR-34의 약속이 깨집니다. 같은 노드의 같은 속성에 이 레코드가 효력을 가진 동안에는 `Motion` 역할의 보간보다 이 레코드가 우선합니다.
+
+#### 수정자가 아니라 명령 레코드
+
+애니메이션은 수정자(태그 27)가 아니라 새 Mutation 두 개, `StartAnimation`(Mutation 태그 18)과 `ControlAnimation`(19)입니다. 이유:
+
+- **값이 아니라 사건입니다.** 수정자는 선언된 값이고 Host의 diff는 같은 값을 다시 보내지 않습니다. CSS에서는 같은 transition이 같은 값으로 다시 시작될 수 있습니다(올렸다 내렸다 다시 올린 hover). 값으로 두면 두 번째 시작이 diff에서 사라집니다. 명령은 보낸 만큼 시작합니다.
+- **열쇠가 자리 번호가 아닙니다.** 수정자는 목록의 자리(`index`)로 식별되므로, 앞에 수정자 하나가 끼면 뒤의 수정자가 다시 나갑니다. 애니메이션이 그것을 "새로 시작"으로 읽으면 진행이 처음으로 돌아갑니다. 명령의 열쇠는 `(node, property, slot)`이라 목록이 바뀌어도 그대로입니다.
+- **기준값과 애니메이션은 다른 것입니다.** CSS에서 애니메이션은 속성의 바탕값(underlying value)을 덮어쓰는 것이고, 끝나면(fill이 없으면) 바탕값이 다시 보입니다. 바탕값은 지금처럼 수정자와 속성이 들고, 애니메이션은 그 위에 얹힙니다. 둘을 같은 칸에 넣으면 이 구분을 잃습니다.
+- **길이가 가변입니다.** 키프레임 수와 변환 함수 수에 따라 레코드가 104바이트에서 수백 바이트입니다. 고정 칸인 수정자 값에 넣으면 FR-13의 값 모델이 무너집니다.
+- 대가: Mutation 태그 둘, 이벤트 태그 하나, 렌더러의 애니메이션 표 하나. 경계 진입점(PR-2)은 늘지 않습니다. 모두 지금 배치를 타고 같은 호출 안에서 적용됩니다(PR-1). 큐가 아닙니다.
+
+#### 대상과 바탕값
+
+| `property` | 값 | 바탕값을 들고 있는 자리 | 그리는 단계 |
+|---|---|---|---|
+| `Alpha = 1` | `f32` | 그 노드의 첫 `Alpha` 수정자(25) | `graphicsLayer { alpha }` |
+| `Color = 2` | `Paint` | 그 노드의 `color` 속성(`Text` 등 `color` 속성이 있는 위젯) | 그리기 단계에서 읽는 색(`BasicText`의 `ColorProducer`) |
+| `Background = 3` | `Paint` | 그 노드의 첫 `Background` 수정자(7) | `drawBehind`에서 읽는 색 |
+| `Transform = 4` | 변환 함수 목록 | 그 노드의 첫 `Transform` 수정자(26) | `graphicsLayer` 두 겹(FR-41.1) |
+
+- **애니메이션은 바탕값을 가진 자리에서 그려집니다.** 수정자는 순서가 뜻을 가지므로(FR-41.1의 순서), 애니메이션된 `Transform`이 체인의 어디에 끼는지가 정해져 있어야 합니다. 그래서 `Alpha`, `Background`, `Transform` 애니메이션은 같은 종류의 수정자가 이미 그 노드에 있어야 하고, 렌더러는 그 첫 수정자의 자리에서 값을 바꿔 그립니다. CSS에 바탕값이 없으면 Host가 항등값(`Alpha(1)`, 투명 `Background`, 항등 `Transform`)을 둡니다.
+  - 확인 시점은 배치 전체를 적용한 뒤입니다. 같은 배치 안에서 `StartAnimation`이 바탕 수정자보다 먼저 와도 됩니다.
+  - 배치를 다 적용한 뒤에도 그 자리가 없거나, `Color` 대상인데 그 위젯에 `color` 속성이 없으면 `ProtocolError`입니다.
+  - 나중의 `SetModifier`가 그 자리를 없애면(다른 종류로 바꾸거나 `Empty`로) 그 노드의 그 속성 애니메이션은 모두 조용히 취소됩니다. Host가 그렇게 보냈으므로 Host는 이미 압니다.
+- **값을 그리기 단계에서만 바꿉니다.** 렌더러는 매 프레임 상태 하나를 쓰고, 그 상태는 `graphicsLayer {}` 블록이나 그리기 람다 안에서만 읽힙니다. 그래서 재생 중에 그 노드는 다시 구성(recomposition)되지도, 다시 측정되지도 않습니다. `Color`도 글자를 다시 배치하지 않습니다.
+
+#### `StartAnimation` (Mutation 태그 18)
+
+```
+머리 52바이트
+offset  0  tag: u16 = 17            offset  2  len: u16
+offset  4  node_id: u32
+offset  8  animation_id: u32        Host가 붙이는 이름. 이벤트가 그대로 돌려줍니다
+offset 12  property: u8             Alpha=1, Color=2, Background=3, Transform=4
+offset 13  slot: u8                 같은 노드·속성 안의 우선순위. 클수록 위
+offset 14  direction: u8            Normal=1, Reverse=2, Alternate=3, AlternateReverse=4
+offset 15  fill: u8                 None=1, Forwards=2, Backwards=3, Both=4
+offset 16  play_state: u8           Running=1, Paused=2
+offset 17  interpolation: u8        색만: SrgbPremultiplied=1, Oklab=2. 그 밖은 0
+offset 18  keyframe_count: u16      2 이상
+offset 20  start_time_nanos: u64    렌더러 프레임 클록 기준. 0이면 "이 배치가 처음 그려지는 프레임"
+offset 28  delay_ms: f32            음수 허용(CSS와 같이 중간부터 시작)
+offset 32  duration_ms: f32         0 이상
+offset 36  iterations: f32          0 이상, +∞ 허용(infinite)
+offset 40  origin_x: f32            Transform만. 노드 크기에 대한 비율(FR-41.1과 같음). 그 밖은 0
+offset 44  origin_y: f32
+offset 48  events: u8               받고 싶은 이벤트의 비트(아래). 0이면 아무 이벤트도 오지 않습니다
+offset 49  reserved: u8 × 3
+뒤이어 키프레임 keyframe_count개
+```
+
+키프레임 하나:
+
+```
+offset  0  offset: f32              0..1, 앞 키프레임 이상. 첫 키프레임은 0, 마지막은 1
+offset  4  timing: u8               Linear=1, CubicBezier=2, Steps=3. 다음 키프레임까지의 구간에 씁니다
+offset  5  jump: u8                 Steps만: JumpStart=1, JumpEnd=2, JumpNone=3, JumpBoth=4
+offset  6  flags: u16               비트 0 FromPresented(첫 키프레임만, 아래)
+offset  8  p1..p4: f32 × 4          CubicBezier: x1, y1, x2, y2. Steps: p1에 단계 수 n(u32 그대로)
+offset 24  값                        property에 따라
+```
+
+| `property` | 키프레임의 값 | 키프레임 크기 |
+|---|---|---|
+| `Alpha` | `f32` | 28바이트 |
+| `Color`, `Background` | `Paint`(`u64`, 13.1과 같은 인코딩) | 32바이트 |
+| `Transform` | `count: u16`, `reserved: u16`, 변환 함수 `count`개(각 28바이트) | `28 + 28·count`바이트 |
+
+변환 함수 하나는 `kind: u32`와 `f32` 여섯 칸(28바이트)입니다. 쓰지 않는 칸은 0입니다.
+
+| `kind` | 함수 | 칸 |
+|---|---|---|
+| 1 | `Translate` | x, y (dp) |
+| 2 | `Rotate` | 각도(도). 360도로 접지 않습니다. 0에서 720까지는 두 바퀴입니다 |
+| 3 | `Scale` | sx, sy |
+| 4 | `Skew` | x축 각도, y축 각도(도) |
+| 5 | `Matrix` | a, b, c, d, e, f |
+
+- **변환은 행렬이 아니라 함수 목록으로 보냅니다.** 행렬로는 `rotate(0)`에서 `rotate(360deg)`로 가는 애니메이션을 나타낼 수 없습니다. 두 끝이 같은 행렬이기 때문입니다. `rotate(0) translateX(100px)`에서 `rotate(360deg) translateX(100px)`로 가는 공전도 행렬 보간과 다르게 움직입니다. CSS가 함수 단위로 보간하므로 같은 것을 보냅니다.
+- **목록 맞추기는 Host가 합니다.** 한 애니메이션의 모든 키프레임은 같은 길이, 같은 순서, 같은 종류의 함수 목록이어야 합니다. CSS의 규칙대로 짧은 쪽을 항등 함수로 채우거나, 종류가 맞지 않으면 키프레임마다 `Matrix` 하나로 접는 일은 Host(stylo)가 이미 하는 일이고, 렌더러는 그 결과를 받습니다. 모양이 다르면 `ProtocolError`입니다.
+- 렌더러의 보간은 같은 자리의 함수끼리 칸마다 선형입니다. `Matrix`끼리는 CSS Transforms 1의 2D 행렬 분해(이동, 확대, 각도, 나머지 행렬)로 분해해 보간하고 다시 합칩니다. 보간한 목록을 곱한 행렬이 FR-41.1의 두 겹 레이어로 그려지므로 적중 판정도 그 순간의 모양을 따릅니다.
+- 백분율 이동(`translateX(50%)`)은 Host가 계산된 상자 크기로 dp로 바꿔 보냅니다. 재생 중에 상자 크기가 바뀌면 Host가 같은 `animation_id`, 같은 `start_time_nanos`로 다시 보내 진행을 이어 갑니다.
+- 색 보간: `SrgbPremultiplied`는 CSS의 기존 색 문법(`rgb()`, `#hex`, 이름 색)이 쓰는 방식이고, `Oklab`은 CSS Color 4의 새 문법 기본값입니다. Compose의 `lerp(Color, Color)`는 Oklab이라 앞의 것에 그대로 쓸 수 없습니다. 보간 뒤 채널은 0..1로 자릅니다. `Paint::Role`은 매 프레임 그때의 테마로 풀어서 보간하므로, 재생 중에 테마가 바뀌면 다음 프레임부터 새 테마의 색을 향합니다.
+- `Alpha`는 보간 뒤 0..1로 자릅니다(베지어가 범위를 넘을 수 있습니다).
+- CSS `linear()` 시간 함수는 Host가 그 꺾임점마다 키프레임을 넣어 `Linear` 구간들로 바꿔 보냅니다. 함수 목록과 색과 `Alpha`에서는 결과가 같습니다. `Matrix`를 포함한 목록에서는 분해 보간이 구간마다 다시 시작되므로 아주 작게 다를 수 있고, 그 차이는 수용 기준 4의 허용치로 잽니다.
+
+**시간 모델.** Web Animations Level 1의 시간 모델을 그대로 따릅니다. 앞(before), 활성(active), 뒤(after) 단계, 활성 길이(`duration × iterations`, 0 × ∞ = 0), 반복 진행과 방향, `steps()`의 before flag까지 같습니다. 렌더러는 `(레코드, 시각) → 값`인 순수 함수 하나로 이것을 구현하고, Compose의 `AnimationSpec`(`tween`, `repeatable`)에 맡기지 않습니다. `repeatable`은 소수 반복 횟수(2.5회), fill 모드, 음수 지연, 점프 항을 나타낼 수 없기 때문입니다. 시계는 Compose의 프레임 클록(`withFrameNanos`)이고, 베지어는 Compose의 `CubicBezierEasing`을 씁니다. "Compose 애니메이션으로 재생"은 이 뜻입니다. 프레임 클록과 레이어 상태는 Compose의 것이고, CSS의 시간 규칙은 그 위의 함수 하나입니다.
+
+**열쇠와 겹침: `(node_id, property, slot)`.**
+- 같은 열쇠로 `StartAnimation`이 다시 오면 앞의 것을 버리고 새것으로 바꿉니다. 이벤트는 오지 않습니다. 바꾼 것은 Host이므로 `transitioncancel`은 Host가 스스로 냅니다.
+- `slot`은 한 속성에 여러 애니메이션이 동시에 걸리는 CSS의 경우를 위한 것입니다. 효력이 있는(활성이거나 fill로 값을 붙들고 있는) 것 중 `slot`이 가장 큰 것의 값이 보이고, 효력이 있는 것이 없으면 바탕값이 보입니다. CSS에서 animation이 transition을 덮고(transition은 slot 0, animation은 1부터), `animation-name` 목록의 뒤쪽이 앞쪽을 덮는 것(`animation-composition: replace`)이 이것으로 그대로 됩니다. Host가 끝나는 시점마다 다시 보낼 필요가 없습니다.
+- 열쇠를 노드와 속성 둘로만 두면 이 경우마다 Host가 끝 이벤트를 받아 다음 것을 다시 보내야 하고, 그 사이 한 프레임 동안 바탕값이 비칩니다. 그래서 1바이트를 더했습니다.
+
+**FromPresented.** 첫 키프레임의 `flags` 비트 0이 켜져 있으면 그 키프레임의 값은 무시하고, 새 애니메이션이 시작하는 프레임에 그 노드·속성에서 **보이고 있던 값**(다른 slot의 애니메이션 값이든 바탕값이든)을 씁니다. CSS transition이 진행 중에 목표가 바뀌면 지금 보이는 값에서 새 transition이 시작하는데, 지금 보이는 값을 아는 것은 렌더러뿐이기 때문입니다. 이것으로 되돌림에 튐이 없습니다.
+- CSS의 "되돌림 단축"(진행 중인 transition을 출발값으로 되돌릴 때 길이를 진행한 만큼 줄이는 규칙)은 Host가 길이를 줄여 보냅니다. Host는 자기가 보낸 레코드와 시작 시각(아래 `Ready` 이벤트, 또는 자기가 정한 시각)을 알고, 되돌리는 시각을 마지막 `render_frame`의 `frame_time_nanos`에서 자기 단조 시계로 경과한 만큼 더해 추정합니다. 추정 오차는 한 프레임 이하이고, 튐은 FromPresented가 막으므로 오차는 길이에만 나타납니다.
+
+**시작 시각.**
+- `start_time_nanos`는 렌더러 프레임 클록의 값입니다. `render_frame`의 `frame_time_nanos`와 같은 단조 시계입니다(PR-3 개정의 그 시계).
+- 0이면 렌더러가 이 배치를 처음 그리는 프레임의 시각으로 정합니다. CSS의 transition과 animation이 시작하는 방식(스타일이 바뀐 다음 프레임)과 같습니다. Host가 그 값을 알아야 하면 `Ready` 이벤트를 요청합니다.
+- 0이 아니면 그 시각에 시작한 것으로 보고 그만큼 진행된 자리부터 그립니다. 끝난 애니메이션을 다시 보내 이어 가거나(위의 백분율 이동), 여러 노드를 같은 박자로 맞출 때 씁니다.
+
+**재생 상태와 시각 정지.** CSS `animation-play-state: paused`로 처음부터 멈춘 애니메이션은 `play_state = Paused`로 보냅니다. 그 경우 지연 전(앞 단계)에서 멈춰 있습니다.
+
+#### `ControlAnimation` (Mutation 태그 19)
+
+```
+24바이트
+offset  0  tag: u16 = 18            offset  2  len: u16 = 24
+offset  4  node_id: u32
+offset  8  animation_id: u32
+offset 12  property: u8             offset 13  slot: u8
+offset 14  op: u8                   Pause=1, Resume=2, Cancel=3
+offset 15  reserved: u8
+offset 16  at_time_nanos: u64       0이면 이 배치가 처음 그려지는 프레임
+```
+
+- `Pause`는 그 시각의 진행에서 멈춥니다. `Resume`은 멈춘 만큼 시작 시각을 뒤로 밀고 이어 갑니다. Host는 같은 계산으로 보이는 값을 언제든 다시 셀 수 있습니다.
+- `Cancel`은 표에서 지웁니다. 바탕값(또는 다른 slot)이 다음 프레임부터 보입니다. 이벤트는 오지 않습니다.
+- 열쇠가 표에 없거나 `animation_id`가 지금 것과 다르면 아무 일도 하지 않습니다. fill 없이 이미 끝나 지워진 애니메이션을 Host가 뒤늦게 멈추거나 취소하는 것은 정상 경로라 오류가 아닙니다.
+- 노드가 `Remove`되면 그 노드의 애니메이션이 모두 지워지고 이벤트는 오지 않습니다. `Move`는 영향이 없습니다(열쇠가 노드 id입니다).
+
+#### 바탕값의 나중 `SetModifier`
+
+- 같은 속성의 바탕값을 바꾸는 `SetModifier`(또는 `Color`의 `SetProp`)는 **애니메이션을 취소하지 않습니다.** 바탕값만 바꿉니다. 애니메이션이 효력을 가진 동안 화면은 그대로이고, 효력이 끝나면(fill이 없어 끝나거나 취소되면) 새 바탕값이 보입니다. CSS의 cascade와 같습니다.
+- `fill: Forwards`나 `Both`로 끝 값을 붙들고 있는 애니메이션은 바탕값이 바뀌어도 계속 끝 값을 보입니다. CSS와 같고, 풀려면 Host가 `Cancel`합니다.
+- CSS transition의 보통 흐름은 이렇습니다. 속성이 바뀌면 Host는 새 바탕값의 `SetModifier`와 `StartAnimation`(첫 키프레임 FromPresented 또는 앞 값, 마지막 키프레임 새 값, fill 없음, slot 0)을 같은 배치에 보냅니다. 재생이 끝나면 애니메이션이 사라지고 같은 값인 바탕값이 이어서 보이므로 경계에서 튐이 없습니다.
+- `Transform`의 바탕 수정자가 애니메이션 도중 바뀌어도 애니메이션의 원점은 레코드의 원점입니다.
+
+#### Host가 보는 것: `AnimationEvent` (이벤트 태그 31)
+
+`events` 비트로 요청한 것만 옵니다. 0이면 재생이 끝날 때까지 Host로 가는 호출이 하나도 없습니다.
+
+| 비트 | 종류 | 언제 | CSS 이벤트 |
+|---|---|---|---|
+| 1 | `Ready = 1` | 시작 시각이 정해진 프레임(`start_time_nanos = 0`일 때) | (Host가 시각을 알기 위한 것) |
+| 2 | `Active = 2` | 앞 단계에서 활성 단계로 들어간 프레임(지연이 끝남. 음수 지연이면 첫 프레임) | `transitionstart`, `animationstart` |
+| 4 | `Iteration = 3` | 반복 번호가 바뀐 프레임. 한 프레임에 여러 번 넘어가도 한 번 | `animationiteration` |
+| 8 | `End = 4` | 활성 단계가 끝난 프레임 | `transitionend`, `animationend` |
+
+```
+40바이트
+offset  0  tag: u16 = 26            offset  2  len: u16 = 40
+offset  4  node_id: u32             offset  8  handler_id: u64 = 0
+offset 16  animation_id: u32
+offset 20  kind: u8                 offset 21  property: u8
+offset 22  slot: u8                 offset 23  reserved: u8
+offset 24  iteration: u32           그 시점의 반복 번호
+offset 28  elapsed_ms: f32          CSS 이벤트의 elapsedTime과 같은 값(지연 제외, 활성 시간 기준)
+offset 32  time_nanos: u64          그 사건이 일어난 프레임 시각(Ready면 정해진 시작 시각)
+```
+
+- 사건은 프레임마다 값을 계산한 뒤, 그리기 전에 `dispatch_event`로 하나씩 보냅니다(PR-1). 돌아온 배치는 같은 프레임 안에서 적용되므로, `animationend` 핸들러가 다음 애니메이션을 시작해도 한 프레임이 비지 않습니다.
+- `transitionrun`과 `transitioncancel`, `animationcancel`은 Host가 스스로 압니다(자기가 보내거나 지운 것). 그래서 렌더러에서 오지 않습니다.
+- 창이 멈춰 프레임 클록이 서 있다 돌아오면 첫 프레임에 그 사이의 사건이 합쳐서 옵니다(`Iteration` 한 번, `End` 한 번).
+
+#### 프레임과 비용
+
+- 렌더러는 표에 활성이거나 앞 단계인 애니메이션이 하나라도 있으면 프레임을 계속 요청하고, 모두 끝나거나 fill로 멈춘 값만 남으면 더 요청하지 않습니다. 멈춘 화면은 프레임을 만들지 않습니다.
+- 값은 그 순간 구성되어 있는 노드에만 씁니다. `LazyColumn` 창 밖으로 나간 노드의 애니메이션은 표에 남고, 다시 들어오면 그 시각의 값으로 나타납니다. 시간 기반이라 따로 맞출 것이 없습니다. 사건은 구성 여부와 무관하게 표에서 계산합니다.
+- 프레임당 렌더러 작업: 애니메이션마다 순수 함수 한 번과 상태 쓰기 하나, `Transform`이면 특이값 분해 한 번. 정상 상태에서 힙 할당은 없습니다(레코드는 받을 때 미리 할당한 구조에 복사합니다).
+- 프레임당 Host 작업: 0. 요청한 이벤트가 있을 때만 그 사건 수만큼 `dispatch_event`.
+- 렌더러가 들고 있는 메모리: 애니메이션 하나당 받은 레코드 크기 정도(대략 100~500바이트).
+
+#### 모션 감소: `ReducedMotionChanged` (이벤트 태그 32)
+
+dioxus-compose FR-34.2 수용 기준 5(`prefers-reduced-motion`)는 Host가 미디어 쿼리를 계산하므로, Host가 시스템 설정을 알아야 합니다. 지금 스키마에는 그 값이 Host로 가는 길이 없습니다(FR-24는 렌더러 안에서만 씁니다). 이것 없이는 그 기준을 지킬 수 없으므로 여기에 같이 넣습니다.
+
+- 이벤트 `ReducedMotionChanged`, `node_id = 0`, `handler_id = 0`, 페이로드 `state: u32`(`Off = 1`, `On = 2`, `Unknown = 3`), 20바이트. 모르는 값은 `ProtocolError`입니다.
+- `NotificationPermissionChanged`(FR-36)와 같은 규칙입니다. 렌더러가 시작 후 한 번, 그리고 값이 바뀔 때만 보냅니다. Host API는 `use_reduced_motion()`입니다.
+- 읽는 곳: macOS `NSWorkspace.accessibilityDisplayShouldReduceMotion`, iOS `UIAccessibility.isReduceMotionEnabled`, Windows `SPI_GETCLIENTAREAANIMATION`, GNOME `org.gnome.desktop.interface enable-animations`, KDE `AnimationDurationFactor`, Android `ANIMATOR_DURATION_SCALE`, Web `matchMedia('(prefers-reduced-motion: reduce)')`. FR-24가 이미 읽는 값이면 같은 값을 씁니다.
+- **렌더러는 `StartAnimation`에 모션 감소를 적용하지 않습니다.** 무엇을 줄일지는 CSS(Host)가 정합니다. FR-24의 `Motion` 역할은 지금처럼 렌더러가 `Instant`로 해석합니다.
+
+수용 기준:
+1. `StartAnimation`(네 속성 각각, `Transform`은 다섯 함수 종류 각각과 함수 셋짜리 목록), `ControlAnimation`, `AnimationEvent`, `ReducedMotionChanged`가 Rust와 Kotlin에서 같은 바이트로 인코딩되고 디코딩됩니다(체크인된 프로토콜 벡터, fr41_start_animation_round_trips 등).
+2. 다음은 모두 `ProtocolError` 이벤트가 되고 프로세스가 중단되지 않습니다: 모르는 열거값, 키프레임 2개 미만, 오프셋이 0에서 시작하지 않거나 1로 끝나지 않거나 줄어드는 것, 음수 길이, NaN 또는 음수 반복 횟수, 키프레임마다 다른 변환 함수 목록, `len`과 맞지 않는 키프레임 수, 배치를 다 적용한 뒤에도 바탕 수정자가 없는 대상, `color` 속성이 없는 위젯의 `Color`.
+3. 시간 모델 함수의 표 테스트: `linear`, `ease`(0.25, 0.1, 0.25, 1)의 0.5 지점, `steps(4)`의 네 점프 항 각각의 경계 값(before flag 포함), 반복 2.5회와 네 방향, 음수 지연, 네 fill 모드의 앞·뒤 단계 값, 무한 반복, 길이 0. 기대값은 Web Animations Level 1의 식으로 계산해 테스트에 적습니다.
+4. 렌더러 테스트(테스트 시계, `mainClock.autoAdvance = false`): 바탕 `Alpha(0.2)`에 0에서 1로 가는 1000ms `linear`, 지연 200ms, fill 없음을 걸면 100ms에 0.2, 700ms에 0.5, 1300ms에 0.2입니다. fill `Backwards`면 100ms에 0, `Forwards`면 1300ms에 1입니다. 같은 방식으로 `Background`(sRGB 사전곱 중간색), `Color`, `Transform`(`rotate(0)`에서 `rotate(720deg)`, 500ms에 360도가 아니라 정확히 한 바퀴 돈 모양이고, 250ms에 180도)를 확인합니다. 값은 노드의 그리기 결과와 `boundsInRoot`로 읽습니다. `Matrix` 보간과 `linear()` 분할은 꼭짓점 기준 0.01dp 안입니다.
+5. 1초짜리 `Alpha`와 `Transform` 애니메이션이 60프레임 도는 동안, 이벤트를 요청하지 않았으면 Host의 `render_frame`과 `dispatch_event`가 한 번도 불리지 않습니다. `Active`와 `End`를 요청했으면 정확히 두 번 불립니다(가짜 Host의 호출 횟수).
+6. 무한 반복 `Alternate` 애니메이션에서 `Iteration`이 반복 경계마다 한 번 오고, 프레임 하나가 여러 경계를 넘어도 한 번 옵니다. 반복 3회짜리는 `End`가 정확히 한 번 오고 `elapsed_ms`가 활성 길이와 같습니다. 요청하지 않은 종류는 오지 않습니다.
+7. 재생 중에 같은 속성의 바탕값 `SetModifier`가 와도 보이는 값이 바뀌지 않고, fill 없이 끝난 뒤에 새 바탕값이 보입니다. fill `Forwards`면 바탕값이 바뀌어도 끝 값이 남고, `Cancel` 뒤에 새 바탕값이 보입니다.
+8. 같은 열쇠로 FromPresented를 켠 `StartAnimation`을 재생 중간에 보내면, 새 애니메이션의 첫 프레임 값이 직전 프레임 값에서 한 프레임 분의 변화 이상 튀지 않습니다.
+9. slot 0의 transition과 slot 1의 animation이 겹치면 slot 1이 보이고, slot 1이 fill 없이 끝난 다음 프레임부터 slot 0이 보입니다.
+10. `Pause`한 애니메이션은 테스트 시계를 500ms 진행해도 값이 그대로이고, `Resume` 뒤에는 멈춘 시간만큼 늦게 끝납니다. `Remove`한 노드의 애니메이션은 표에서 사라지고 이벤트가 오지 않습니다. 없는 열쇠에 대한 `ControlAnimation`은 아무 일도 하지 않습니다.
+11. `Alpha`, `Background`, `Transform`, `Color` 애니메이션이 도는 동안 그 노드의 recomposition 횟수와 측정 횟수가 0입니다(계측 테스트).
+12. `Transform` 애니메이션이 도는 동안의 적중 판정이 그 프레임에 보이는 모양을 따릅니다(FR-41.1 수용 기준 5를 애니메이션 중간 시각에서 반복).
+13. **CSS transition 하나가 배치 하나입니다.** 속성 하나의 transition을 시작하는 갱신은 `StartAnimation` 하나가 든 배치 하나로 나가고, 재생이 끝날 때까지 그 애니메이션 때문에 나가는 배치는 0입니다. 프레임마다 내는 배치가 없습니다(가짜 Renderer가 받은 배치 수와 레코드 수로 확인).
+14. 재생 중에 테마의 명암을 바꾸면 `Paint::Role` 키프레임의 색이 다음 프레임부터 새 테마 값을 향합니다.
+15. 애니메이션 100개가 도는 정상 상태에서 렌더러의 프레임당 힙 할당이 0바이트입니다(`BoundaryCostTest`와 같은 방식으로 실측). 모두 끝난 뒤에는 프레임이 더 요청되지 않습니다.
+16. 노드 1000개가 동시에 `Transform` 애니메이션을 도는 화면의 프레임 시간이 NFR-9 예산 안이고, 수치를 이 항목에 기록합니다.
+17. `ReducedMotionChanged`가 시작 후 한 번 오고, 시스템 설정을 바꾸면 한 번 더 옵니다. 모션 감소가 켜져 있어도 `StartAnimation`은 레코드대로 재생되고, `Motion` 역할은 한 프레임 안에 끝납니다. 시스템 설정 변경은 데스크톱 세 플랫폼에서 수동으로 확인하고 그렇게 적습니다.
+
+---
+
+### FR-41.3 3D 변환 (`Draft`, 다음 단계)
+
+`rotateX`, `rotateY`, `perspective`, `matrix3d`처럼 2D 아핀 레코드로 나타낼 수 없는 변환입니다. 다음 단계에서 구현합니다. 지금 정해 둔 것은 다음과 같습니다.
+- 값은 4x4 행렬 수정자(64바이트, 넓은 `SetModifier` 규칙으로 `k = 6`)입니다.
+- `graphicsLayer`는 `rotationX`/`rotationY`와 `cameraDistance`까지 안정 API로 그립니다. 임의의 4x4 원근 행렬은 안정 API 밖이므로, 그 부분은 어댑터 한 파일에 가두고 버전을 고정합니다(NFR-6).
+- 수용 기준은 이 항목을 구현할 때 적습니다. 그전까지 Host는 3D 변환을 2D로 근사해 보내지 않습니다. dioxus-compose는 그 변환을 적용하지 않고 개발자 경고를 냅니다. 틀린 근사보다 경고가 낫기 때문입니다.
+
+### FR-41.4 compose-rust 작성 API (`Agreed`)
+
+FR-39의 compose-rust API가 같은 레코드를 씁니다. Compose의 이름을 따릅니다(PR-7).
+- `Modifier.graphics_layer { ... }`: 회전, 크기, 이동, 원점, 투명도를 받아 FR-41.1의 `Transform`과 `Alpha`로 내려갑니다.
+- `animate_float_as_state`, `animate_color_as_state`, `animate_offset_as_state` 같은 `animate_*_as_state`: 목표값이 바뀌면 `StartAnimation` 하나를 내고, 재생은 렌더러가 합니다. 반환값은 목표값입니다. 재생 중의 값은 Host가 보지 않습니다(D5).
+- 모션 역할(FR-24)이 기본이고, 길이와 곡선을 직접 주는 것은 탈출구라는 관계는 같습니다. `animate_*_as_state`는 길이와 곡선을 주지 않으면 `MotionRole::Standard`로 해석합니다.
+- 수용 기준:
+  1. compose-rust API로 쓴 `animate_float_as_state` 투명도 전환이, 같은 값을 직접 보낸 `StartAnimation`과 같은 레코드를 냅니다(fr41_compose_api_emits_the_same_records).
+  2. 재생하는 동안 Host의 recomposition이 0번입니다(fr41_compose_api_animation_does_not_recompose).
+
+#### 비용
+
+- **와이어.** 수정자 태그 하나(26)와 넓은 `SetModifier` 규칙(Transform 44바이트, 기존 수정자는 28바이트 그대로). Mutation 태그 둘(18, 19), 이벤트 태그 둘(31, 32). 스키마 해시가 바뀝니다. 경계 진입점(PR-2)은 늘지 않습니다.
+- **레코드 크기.** 2키프레임 기준으로 `Alpha` 108바이트, `Color`/`Background` 116바이트, 함수 하나짜리 `Transform` 164바이트(머리 52 + 키프레임 둘). 애니메이션이 시작할 때 한 번 나갑니다. 매 프레임 `SetModifier`를 보내는 길(가)이었다면 `Alpha` 하나에 60프레임 동안 28바이트 × 60 = 1680바이트(`Transform`이면 44바이트 × 60)와 Host 스타일 계산 60번이었습니다.
+- **코드젠.** 지금 코드젠은 고정 레이아웃 레코드만 생성합니다. 키프레임 배열과 그 안의 변환 함수 배열(반복 그룹)을 생성하는 일이 새로 생깁니다. 경계 코드는 손으로 쓰지 않는다는 제약 때문에 이 비용은 피할 수 없습니다. 넓은 수정자 슬롯도 코드젠에 들어갑니다.
+- **렌더러.** 두 겹 레이어 분해(한 파일), 애니메이션 표, Web Animations 시간 모델 함수, `steps()`, 색 공간 둘의 보간, 변환 함수 보간과 2D 행렬 분해, 이벤트 보내기, 모션 감소 설정 읽기(플랫폼 일곱). `Background`와 `Text` 색을 그리기 단계에서 읽도록 바꾸는 일.
+- **Host.** compose-rust 쪽은 레코드를 쓰는 함수(`start_animation`, `control_animation`)와 `use_reduced_motion()`뿐입니다. CSS를 레코드로 옮기는 일(목록 맞추기, 원점 접기, 되돌림 단축, `linear()` 분할)은 dioxus-compose의 몫입니다.
+- **디자인 시스템.** 늘지 않습니다.
+
+#### 열린 질문 (기술, 설계자들이 정합니다)
+
+1. **글 안의 스팬 색.** `<span>`의 `color` transition은 `Text` 안의 스팬(FR-26) 색이라 `(node, property, slot)`으로 가리킬 수 없습니다. 열쇠에 스팬 번호를 더하는 안(`Color` 대상만, 4바이트)이 있습니다. 블록 요소의 `color`는 Host가 자손 `Text` 노드마다 하나씩 보내면 되지만, 노드가 많으면 레코드가 그만큼 늡니다.
+2. **`animation-composition: add`/`accumulate`.** slot은 `replace`만 나타냅니다. 필요하면 머리의 예약 바이트에 합성 방식을 넣을 수 있습니다.
+3. **변환이 스크롤 영역에 주는 영향.** CSS는 변환된 상자의 경계를 스크롤 가능한 넘침 영역에 넣지만, Compose의 스크롤은 레이아웃 크기만 봅니다. Host(blitz)가 넘침 영역을 알므로 스크롤 내용의 크기를 그만큼 잡아 보내는 안이 있습니다. dioxus-compose 쪽 결정입니다.
+4. **터치 대상 확장.** Compose는 48dp보다 작은 노드의 터치 적중 영역을 넓힙니다(`minimumTouchTargetSize`). CSS에는 없는 동작이라 터치 입력에서는 Chromium과 판정이 다를 수 있습니다. 수용 기준 5는 마우스로 잽니다.
+5. **번호.** Mutation 18, 19, 이벤트 31, 32는 FR-38(CodeEditor)이 17과 26~30을 가져간 뒤의 다음 빈 번호입니다(2026-10-03 다시 매김). 수정자 26은 HTML/CSS 원소 초안의 19~25 다음 번호입니다. 다른 초안이 먼저 가져가면 설계자가 다시 매깁니다.
+
+### FR-42 HTML/CSS 화면을 그리는 원소 (`Agreed`)
+
+요청한 쪽: dioxus-compose FR-34(M12, 10-15). Host(`blitz-dom`)가 계산한 상자와 텍스트를 Compose로 그리려면, 계산된 결과를 그대로 놓을 수 있는 원소가 필요합니다. M10 측정(dioxus-compose PR #28)에서 상자 배치는 Chromium과 정확히 같았고 텍스트 폭은 허용치를 넘었습니다. 그래서 **상자는 Host가 계산한 자리에 놓고, 텍스트의 크기는 Compose가 잽니다**(PR-2.1). 소유자 승인 2026-10-03.
+
+번호: `AbsoluteBox` 위젯 44, 수정자 `Offset` 19, `RequiredSize` 20, `BorderEach` 21, `CornerEach` 22, `Shadow` 23, `Clip` 24, `Alpha` 25. CSS 변환은 FR-41이 다룹니다.
+
+#### 42.1 원칙: 새 위젯보다 새 수정자
+
+dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기존 원소로 표현할 수 있는 것은 새로 만들지 않는다"입니다. CSS 상자는 대부분 지금 있는 `Box`, `Text`, `Image`, `ScrollColumn`/`ScrollRow`에 수정자를 붙인 것입니다. 이 초안이 더하는 것은 수정자가 대부분이고, 위젯은 하나입니다.
+
+#### 42.2 새 위젯: `AbsoluteBox` (태그 44)
+
+- 자식들을 각자의 `Offset` 자리에 놓는 컨테이너입니다. Compose의 `Box`에 자식마다 `Modifier.offset`을 준 것과 같고, 자식끼리 서로의 자리에 영향을 주지 않습니다.
+- `blitz-dom`이 이미 모든 상자의 자리를 계산했으므로, Compose가 다시 배치 규칙을 적용하면 안 됩니다. `Column`/`Row`/`Box`는 각자의 배치 규칙이 있어서 이 용도에 맞지 않습니다.
+- 자식의 그리는 순서는 자식 순서입니다(뒤의 자식이 위). CSS의 `z-index`와 쌓임 맥락은 Host가 자식 순서로 풀어서 보냅니다.
+- 이름은 Compose에 같은 개념의 안정 API 이름이 없어서 개념 이름을 씁니다. 다른 이름(`Layout`, `Canvas`의 변형)은 이미 다른 뜻이 있습니다.
+
+#### 42.3 새 수정자
+
+| 수정자 | 값 | Compose 대응 | CSS |
+|---|---|---|---|
+| `Offset` | x, y (dp, 부모 기준) | `Modifier.offset` | 계산된 상자 위치 |
+| `RequiredSize` | w, h (dp) | `Modifier.requiredSize` | 계산된 상자 크기. 부모 제약을 무시합니다 |
+| `BorderEach` | 변마다 두께와 `Paint` | 테두리 네 개를 그리는 그리기 수정자 | `border-top` 등이 서로 다를 때 |
+| `CornerEach` | 모서리마다 반지름 (dp) | `RoundedCornerShape(a, b, c, d)` | `border-radius` 네 값 |
+| `Shadow` | x, y, blur, spread (dp), `Paint` | 그림자 그리기 수정자 | `box-shadow` 하나. 여럿이면 수정자를 여러 개 |
+| `Clip` | 켜짐/꺼짐 | `Modifier.clip(shape)` | `overflow: hidden`. 같은 노드에 `CornerEach`가 있으면 그 둥근 모양으로 자르고, 없으면 사각형으로 자릅니다. CSS도 `border-radius`가 있는 상자의 `overflow: hidden`은 둥근 모양으로 자릅니다 |
+| `Alpha` | 0..1 | `Modifier.alpha`(`graphicsLayer`) | `opacity`. 자식까지 한 묶음으로 합성한 뒤 한 번 적용합니다. 자식마다 따로 적용하지 않습니다. CSS `opacity`도 같은 방식입니다 |
+
+- 기존 `Border`, `Shape`, `Elevation`은 그대로 둡니다. 네 변이 같으면 Host가 기존 `Border`를 씁니다.
+- **와이어 길이.** `Shadow`(값 24바이트)와 `BorderEach`(48바이트)는 지금의 16바이트 수정자 칸에 들어가지 않습니다. FR-41.1이 정한 가변 길이 `SetModifier` 규칙(`28 + 8k`바이트, `k`는 수정자 태그마다 스키마에 고정)을 따라 `Shadow`는 `k = 1`, `BorderEach`는 `k = 4`입니다. 나머지 다섯은 `k = 0`이라 지금 레코드와 같습니다.
+- 색은 `Paint`입니다. CSS 색은 리터럴이므로 `Paint::Literal`이 쓰입니다. 테마 변수(`--vscode-*`)를 색 역할로 옮기는 것은 dioxus-compose의 변환기 몫이고, 옮길 수 있는 것만 `Paint::Role`이 됩니다.
+- `overflow: scroll`/`auto`는 새 수정자가 아니라 기존 `ScrollColumn`/`ScrollRow`(둘 다면 둘을 겹침)로 놓습니다. 스크롤 위치는 렌더러가 소유합니다(D5).
+- 이미지(`<img>`, `background-image`)는 기존 `Image`와 브러시 에셋(FR-23)입니다.
+
+#### 42.4 텍스트
+
+- 텍스트 조각은 기존 `Text`(FR-26 스팬 포함)이고, `Offset`과 너비를 받습니다. 줄바꿈과 글자 위치는 Compose가 정합니다.
+- 레이아웃 도중 텍스트 크기는 PR-2.1 측정 호출로 렌더러에 묻습니다(소유자 승인 2026-10-03). HTML 텍스트의 글자 모양 속성(글꼴 이름, `word-break`, `tab-size` 등)은 FR-40입니다. 그래서 측정과 그리기가 같은 글꼴 해석을 씁니다.
+
+#### 42.5 갱신 비용
+
+- 상자 하나의 배경색이 바뀌면 그 노드의 `Background` 수정자 한 건만 나갑니다(dioxus-compose FR-34 기준 4).
+- 창 크기가 바뀌어 많은 상자의 자리가 바뀌면, 바뀐 상자마다 `Offset`/`RequiredSize` 한 건씩입니다. 수천 개의 상자가 한 번에 움직이는 경우의 프레임 시간은 NFR-9 예산으로 측정해 기록합니다.
+
+#### 수용 기준
+
+1. `AbsoluteBox` 안의 자식이 `Offset` 자리에 정확히 놓이고(오차 0dp), 서로의 크기에 영향을 주지 않습니다.
+2. 새 수정자 일곱 가지가 각자 Compose 대응대로 그려지고, 데스크톱 렌더러에서 스크린숏 테스트로 확인됩니다.
+3. 네 변이 같은 테두리와 하나의 반지름은 기존 수정자로 나가고, 새 수정자는 값이 서로 다를 때만 나갑니다.
+4. 수정자 하나만 바뀐 갱신에서 그 노드의 그 수정자 말고는 아무것도 나가지 않습니다.
+5. 이 원소들로 dioxus-compose FR-34 수용 기준 1의 세 구역 중 상자(텍스트 제외)가 그 상자 허용치를 지킵니다.
+
+#### 비용
+
+위젯 태그 하나(44), 수정자 일곱. 렌더러의 그리기 코드(테두리 네 변, 그림자). 디자인 시스템 규칙은 늘지 않습니다. CSS가 모양을 정하므로 디자인 시스템이 개입하지 않는 것이 이 원소들의 성격입니다.
+
+열린 질문: `AbsoluteBox`라는 이름. 더 나은 개념 이름이 있으면 바꿉니다.
+
 ## 4. 경계 프로토콜
 
 ### PR-1 호출 모델: 동기·동일 스레드 직접 호출 (`Done`)
@@ -2320,6 +2736,7 @@ fn main() {
 - 사용자 입력이 들어오면 Renderer가 Host 핸들러를 직접 호출합니다. Host는 그 자리에서 핸들러를 실행하고 diff를 계산한 뒤, 결과 Mutation 배치와 반환값을 돌려줍니다.
 - 동기 반환값을 지원합니다. 예: `onKeyEvent`의 "처리됨" 여부. Enter는 제출, Shift+Enter는 줄바꿈으로 나누는 처리가 여기에 해당합니다. 표현 방식은 FR-12를 따릅니다.
 - 경계에 비동기 큐를 두지 않습니다. 스레드 간 통신은 PR-3의 wake 신호 하나뿐입니다.
+- 측정 호출(PR-2.1)은 Renderer가 Host를 부른 호출 안에서 Host가 Renderer를 다시 부르는 **같은 스레드의 재진입**입니다(2026-10-03 소유자 승인). 이 호출 때문에 큐나 스레드가 생기지 않습니다.
 - 수용 기준: 배치 버퍼가 큐가 아니라 한 호출의 인자입니다. 호출이 돌려준 배치는 그 호출 스택 안에서 소비되고, 다음 호출에는 남아 있지 않습니다(`pr4_the_batch_buffer_is_an_argument_and_not_a_queue`, `pr4_nothing_is_left_for_a_third_call`). **(통과)**
 - 수용 기준: 핸들러의 동기 반환값이 그 호출의 반환으로 돌아옵니다(`fr12_key_consumption_is_returned_and_does_not_leak`). **(통과)**
 - 수용 기준: Host의 초기화가 Renderer의 UI 스레드에서 돕니다(`pr3_init_runs_on_a_different_thread_than_launch`). **(통과)**
@@ -2347,6 +2764,9 @@ Host → Renderer (Kotlin이 export):
 ```c
 int32_t compose_rust_renderer_run(void);            // LoopMode::Renderer일 때만. 블로킹
 void    compose_rust_renderer_request_frame(void);  // 스레드 안전. 다음 프레임에 render_frame 예약
+// 측정: 요청 레코드 count개를 읽고 결과 레코드 count개를 채웁니다. UI 스레드에서만, 동기(PR-2.1)
+int32_t compose_rust_renderer_measure(const uint8_t* requests, uint32_t len,
+                                      uint32_t count, MeasureResult* results);
 ```
 
 - `LoopMode`
@@ -2370,6 +2790,101 @@ compose_rust_host_dispatch_event: click 1
 - 시뮬레이터에서 버튼을 탭하면 `dispatch_event`가 Rust 핸들러까지 도달합니다. `simctl`에 탭 명령이 없어 이 확인은 자동화되지 않습니다. `ios-smoke-test.sh --await-click`으로 사람이 실행합니다. CI는 이 플래그 없이 기동과 렌더링까지만 증명합니다.
 - iOS에는 isolate가 없어 `@CName`이 공개 심볼을 Kotlin 함수에 직접 붙입니다. isolate 심이 하던 나머지 역할은 Kotlin/Native 런타임과 `NSThread.isMainThread` 검사가 대신합니다.
 - Web은 검증되었습니다(PR-6의 검증 절). 같은 다섯 개 논리 연산이 브라우저에서도 그대로 서고, 초기 배치와 클릭 왕복이 공유 메모리 위에서 돕니다. **Android는 2026-09-22 API 36 에뮬레이터에서 확인했습니다.** 같은 다섯 연산이 생성된 JNI 심을 통해 서고, 화면이 그려지며, 워커의 프레임 요청이 경계를 넘어옵니다. 호출당 비용도 그 자리에서 쟀습니다(PR-5의 수용 기준 1).
+
+### PR-2.1 측정 호출 (`Agreed`)
+
+**무엇을 하나.** Host가 자기 레이아웃을 계산하는 도중에, 텍스트 한 덩이나 이미 보낸 위젯 하나가 주어진 제약 안에서 차지할 크기를 Renderer에게 묻습니다. Renderer는 **그릴 때와 같은 글꼴 해석, 같은 Density와 글꼴 배율, 같은 디자인 시스템 타입 스케일**로 재서 그 자리에서 돌려줍니다. 측정값과 그려진 크기가 같다는 것이 이 호출의 존재 이유입니다.
+
+**한 번에 여러 개.** 호출 하나가 요청 N개를 싣습니다. 레이아웃 한 번에 텍스트 잎이 수백 개 나오고(사이드바 하나에 약 200개), Taffy는 같은 잎에 min-content, max-content, 정해진 폭을 차례로 묻습니다. 잎마다 경계를 건너면 그 비용이 쌓입니다. Host는 레이아웃 한 번에 이 호출을 여러 번 불러도 됩니다.
+
+**요청 버퍼.** 배치 버퍼(PR-4)와 같은 형식입니다. 앞에 고정 길이 요청 레코드 `count`개가 있고, 그 뒤 페이로드 영역에 UTF-8 텍스트와 스팬 레코드가 놓입니다. 레코드는 페이로드를 `(offset, len)`으로 가리킵니다. serde 형식은 쓰지 않고, 레코드 레이아웃은 Rust 스키마에서 codegen이 만듭니다(FR-7).
+
+요청 레코드는 종류 태그로 시작합니다:
+
+- `MeasureText = 1`
+  - `text: (offset, len)`. UTF-8이고, 공백 접기와 `text-transform`은 Host가 이미 적용한 최종 문자열입니다.
+  - `spans: (offset, count)`. FR-26의 스팬 레코드를 그대로 씁니다. 크기에 영향을 주지 않는 칸(색, 링크 핸들러)은 무시합니다.
+  - 기본 글자 모양:
+    - `font: FontRef` (FR-40, `TypeRole::None`일 때만)
+    - `type_role: TypeRole`. 노드 단위 글꼴, `TypeRole::None`, 그리고 아래 HTML 텍스트 칸(`tab_size`, `word_break`, `overflow_wrap`, `absolute_size`)이 그리기에도 같은 뜻으로 서는 것은 FR-40의 요구사항입니다. 측정과 그리기는 그 칸들을 같은 해석 함수로 풉니다.
+    - `font_size: f32` (0이면 역할의 값)
+    - `font_weight: u16` (0이면 역할의 값)
+    - `italic: u8`
+    - `letter_spacing: f32` (NaN이면 역할의 값)
+    - `line_height: f32` (NaN이면 normal)
+    - `max_lines: u32` (0이면 제한 없음)
+    - `wrap: u8` (0은 줄을 바꾸지 않음. CSS `nowrap`, `pre`)
+    - `tab_size: u8` (CSS `tab-size`, 기본 8). 탭은 다음 탭 위치까지 차지합니다.
+    - `word_break: Normal | KeepAll | BreakAll`, `overflow_wrap: Normal | Anywhere | BreakWord`
+    - `absolute_size: u8`. 1이면 시스템 글꼴 배율을 적용하지 않습니다(CSS px). 측정과 그리기에 똑같이 적용됩니다.
+  - **Renderer는 받은 문자열의 공백을 자르거나 접지 않습니다.** 공백 접기(`normal`, `pre-line`)는 Host의 일입니다. `pre`는 그대로 보낸 문자열과 `wrap = 0`, `pre-wrap`은 그대로 보낸 문자열과 `wrap = 1`입니다.
+  - 제약 `constraint: MinContent = 1 | MaxContent = 2 | AtMost = 3`과 `width: f32`(`AtMost`일 때만 씀). 결과는 다음과 같습니다.
+    - `MinContent`: 가장 긴 끊을 수 없는 조각의 폭. Compose `ParagraphIntrinsics.minIntrinsicWidth`.
+    - `MaxContent`: 줄을 바꾸지 않은 폭. `maxIntrinsicWidth`.
+    - `AtMost(w)`: 폭 `w` 안에서 줄을 바꿨을 때의 크기.
+- `MeasureNode = 2`
+  - `node: NodeId`. Host가 이미 보냈고 Renderer가 이미 적용한 노드입니다.
+  - 제약 `min_width, max_width, min_height, max_height: f32`. 제한 없음은 `+inf`입니다.
+  - 그 노드의 하위 트리를 Compose 레이아웃이 주어진 제약에서 잴 때의 크기를 돌려줍니다.
+
+**결과 레코드** (`MeasureResult`, 32바이트):
+- `width, height: f32`
+- `first_baseline, last_baseline: f32`. 기준선이 없으면 NaN입니다.
+- `last_line_width: f32`. 마지막 줄의 폭으로, 그 뒤에 이어지는 인라인 내용을 놓는 데 씁니다. 노드면 NaN입니다.
+- `line_count: u32`. 노드면 0입니다.
+- `flags: u32`. 비트 0 `truncated`는 `max_lines` 때문에 글자가 잘렸다는 뜻입니다.
+- `status: u32`
+
+`status` 값:
+- `Ok = 0`
+- `UnknownNode = 1`: 아직 적용되지 않았거나 없는 노드
+- `Malformed = 2`: 레코드가 버퍼 밖을 가리킴
+
+단위는 레이아웃 속성과 같은 dp입니다.
+
+**반환값.** 0이면 성공입니다. 레코드 하나가 잘못된 것은 그 레코드의 `status`로 알리고 나머지는 잽니다. 버퍼 전체를 읽을 수 없으면 음수를 돌려줍니다. 이때 Host는 `ProtocolError`를 내고(NFR-7) 그 레이아웃을 크기 0으로 계속합니다. 프로세스는 멈추지 않습니다.
+
+**스레드와 재진입(PR-1, PR-3).**
+- UI 스레드에서만 부릅니다. 보통은 Renderer가 Host를 부른 호출(`render_frame`, `dispatch_event`, `init`) 안에서 Host가 다시 Renderer를 부르는 재진입이고, 같은 스레드, 같은 호출 스택입니다. 큐도 스레드 홉도 없습니다.
+- 다른 스레드에서 부르면 아무것도 재지 않고 음수를 돌려줍니다.
+- 텍스트 측정은 composition 밖에서 돕니다. 현재 `Density`, `FontFamily.Resolver`, 디자인 시스템 타입 스케일로 만든 `TextMeasurer`를 씁니다.
+- **같은 호출에서 아직 적용되지 않은 노드는 잴 수 없습니다.** 지금 계산 중인 배치는 Host가 돌려준 뒤에야 적용되기 때문입니다. 그런 노드는 `UnknownNode`가 됩니다. Host는 새로 만든 위젯을 한 프레임 동안 CSS 크기로 놓고 다음 프레임에 잴 수 있습니다.
+
+**캐시.** Host는 `(텍스트, 모양, 제약)`마다 한 프레임 동안 결과를 캐시합니다. Renderer도 캐시할 수 있지만, 결과가 캐시에 의존해서는 안 됩니다.
+
+**Rust 쪽 API.** 사용자 코드는 경계 함수를 직접 부르지 않습니다(PR-3). 어댑터와 compose-rust 런타임은 `compose_rust::measure`의 안전한 API로 부릅니다. 이 API는 Host의 프레임 작업 안에서만 측정기를 내주고, 그 밖에서는 `Err`를 돌려줍니다.
+
+**플랫폼.** desktop(K/N과 native-image), iOS, Android, Web 모두 같은 논리 연산입니다. 심은 codegen이 만듭니다.
+- Web(PR-6): 요청과 결과 버퍼가 공유 `WebAssembly.Memory` 안에 있고, Kotlin이 그 자리에서 읽고 씁니다.
+- Android: 생성된 JNI 심이 UI 스레드에 이미 붙어 있는 `JNIEnv`로 부르고, 버퍼는 direct `ByteBuffer`로 감쌉니다. 복사하지 않습니다.
+- 스키마 해시가 바뀝니다.
+
+**테스트용 Renderer.** stand-in renderer와 mock renderer도 이 함수를 갖습니다. 결정적인 가짜 메트릭(글자당 고정 폭)을 돌려주므로, Rust 테스트가 실제 렌더러 없이 돌 수 있습니다.
+
+### 수용 기준
+
+1. **측정값과 그려진 크기가 같습니다.** 같은 텍스트와 모양을 `AtMost(w)`로 잰 결과와, Renderer가 폭 `w`의 `Text` 노드로 그린 결과의 너비, 높이, 첫 기준선, 줄 수가 비트 단위로 같습니다. 대상은 다음 네 가지입니다.
+   - 라틴
+   - 한국어(단어 경계 줄바꿈)
+   - 이모지
+   - 스팬이 섞인 문단
+
+   마지막 줄 폭과 `truncated`도 같아야 합니다. 같은 기준을 FR-40의 칸에도 적용합니다. 한국어 `word_break`의 `Normal`과 `KeepAll`, 탭이 든 `pre` 문자열, `absolute_size` 문자열입니다.
+
+   (pr2_measured_text_matches_the_drawn_text, Kotlin 측 테스트)
+2. `MinContent`와 `MaxContent`가 Compose `ParagraphIntrinsics`의 `minIntrinsicWidth`, `maxIntrinsicWidth`와 같습니다(pr2_intrinsic_widths_match_compose).
+3. 이미 적용된 노드를 잰 크기가, 같은 제약에서 Compose 레이아웃이 그 노드에 준 크기와 같습니다. 대상은 `Button`, `TextField`, `Column` 안의 `Text` 둘입니다(pr2_measured_node_matches_its_layout).
+4. 아직 적용되지 않은 노드는 `UnknownNode`를 받고, 같은 호출의 나머지 요청은 정상으로 잽니다(pr2_unknown_node_is_reported_per_record).
+5. 재진입:
+   - `render_frame` 안에서 Host가 측정을 부르면 같은 스레드, 같은 호출 스택에서 답을 받습니다(pr1_measure_is_answered_inside_the_host_call).
+   - 다른 스레드에서 부르면 음수를 받고, 프로세스는 계속 돕니다(pr3_measure_off_the_ui_thread_is_refused).
+6. 잘못된 버퍼는 `ProtocolError`가 되고 프로세스를 멈추지 않습니다(nfr7_malformed_measure_buffer_is_a_protocol_error).
+7. 비용(NFR-9):
+   - 사이드바 하나 분량(텍스트 잎 200개, 잎마다 min, max, 정해진 폭 세 번, 캐시가 빈 상태)을 재는 벤치마크를 둡니다.
+   - 같은 600건을 Kotlin에서 `TextMeasurer`로 직접 잰 시간 대비, 경계를 건넌 측정의 추가 비용이 10% 이하입니다.
+   - 그 절대 시간을 플랫폼별로 기록합니다.
+   - (`benches/measure_sidebar`, 수치는 이 항목 아래에 기록)
+8. 다섯 플랫폼(macOS, Linux, Windows, iOS, Android)과 Web에서 기준 1의 라틴 경우가 통과합니다. CI 스모크로 확인합니다.
 
 ### PR-3 스레드 규칙 (`Done`)
 - VirtualDom, 사용자 컴포넌트, 모든 `compose_rust_host_*` 호출은 Renderer UI 스레드에서만 실행합니다. 그래서 락이 필요 없습니다.
@@ -2481,7 +2996,9 @@ compose_rust_host_dispatch_event: click 1
   - `scripts/tests/android-kotlin-travels.test.sh`가 담긴 사본이 렌더러와 같은지와 패키지 목록에 들어 있는지를 봅니다. 사본이 뒤처지면 애플리케이션이 Host보다 낡은 인터프리터를 컴파일하고 핸드셰이크가 거부합니다.
   - **`sample-v0.1.1`의 APK는 이 경로로 만든 것이 아닙니다.** 우리 Amper 모듈(`renderer/android`)에 샘플의 cdylib을 넣어 빌드한 것이고, 그것이 증명하는 것은 Android에서 렌더러와 Host가 동작한다는 것이지 사용자가 겪을 경로가 동작한다는 것은 아닙니다. 다음 샘플 릴리스의 APK는 dx로 만듭니다.
 
-### PR-6 Web 경계 (`Done`)
+### PR-6 Web 경계 (`Agreed`, 재측정 중)
+
+**상태를 `Done`에서 내립니다(2026-10-03).** 소유자 지시는 직결이었습니다: "Q7 JS 브릿지 갔다오는건 성능이 느려서 안된다. 직결하도록 해"(2026-09-19). 2026-09-20 실험에서 Wasm 테이블을 거치는 `call_indirect` 트램펄린이 Safari 기준 5.6ns(JS 경유 13.2ns)로 측정됐지만 커밋되지 않았습니다. 그 뒤 "직결은 불가능하다"는 결론이 승인 없이 이 항목과 INTENT에 들어갔습니다. 재측정(#54)으로 직결이 재현되면 이 항목과 INTENT D3/D8을 직결로 되돌리고, 아래의 JS 포워더 서술은 그때 고칩니다. 그때까지 이 항목은 `Done`이 아닙니다.
 Rust(wasm32)와 Kotlin/Wasm 모듈을 연결합니다. `LoopMode::Platform`입니다. 2026-09-20 실측으로 확정했습니다(`experiments/web-interop/`).
 
 - **메모리: Kotlin이 소유합니다.** Kotlin/Wasm 모듈은 항상 자기 메모리를 정의해 export하며, 외부 메모리를 import하는 경로가 없습니다. 따라서 Rust가 `--import-memory`로 그 메모리를 가져다 씁니다. PR-4의 arena는 양쪽이 제자리에서 읽습니다. 복사는 없습니다.

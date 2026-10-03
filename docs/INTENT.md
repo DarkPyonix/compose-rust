@@ -429,7 +429,7 @@ skiko는 `mingwX64`를 발행하지 않고 Compose도 Windows용 Kotlin/Native �
 
 - 디자인 시스템은 `org.thisisthepy.compose.<시스템>` 패키지(`material3`, `cupertino`, `fluent`, `gnome`, `breeze`, `deepin`, `liquidglass`)이고, 공통 부분은 `org.thisisthepy.compose.designsystem`입니다. 모듈은 포크의 `extended/design-systems/<시스템>/` 아래에 둡니다.
 - 포크가 내는 라이브러리의 Maven 그룹은 `org.thisisthepy.compose.*`입니다. JetBrains가 라이브러리와 플러그인 모두 `org.jetbrains.compose`를 쓰는 것과 같은 방식입니다.
-- 앱으로 배포되는 것의 식별자는 `io.github.thisisthepy.<앱>`입니다. darkpyonix 제품(예: `dev.darkpyonix.Ember`)에 같은 규칙을 적용할지는 따로 정합니다.
+- 앱으로 배포되는 것의 식별자는 `io.github.thisisthepy.<앱>`입니다. darkpyonix는 `dev.darkpyonix` 하나만 씁니다(소유자 답변, 2026-10-03). darkpyonix는 Kotlin 라이브러리를 내지 않으므로, 라이브러리와 앱을 가르는 둘째 네임스페이스가 필요 없습니다. 예: `dev.darkpyonix.Ember`, `dev.darkpyonix.composerust.samples.<샘플>`.
 - `androidx.compose.*` 아래에 두지 않는 이유는 위의 둘째 선택지 설명 그대로입니다. upstream과 부딪히지 않고, 포크가 더한 것이 이름만으로 구별되며, 공개 API를 바꾸지 않는다는 원칙을 지킵니다.
 
 **디자인 시스템은 두 층으로 냅니다. 소유자의 결정입니다(2026-10-03).**
@@ -478,6 +478,18 @@ JetBrains의 안내([ios-liquid-glass](https://kotlinlang.org/docs/multiplatform
 `apple.awt.brushMetalLook`, `apple.awt.draggableWindowBackground`, `apple.awt.documentModalSheet`, `apple.awt.fullscreenable`, `apple.awt.fullWindowContent`, `apple.awt.transparentTitleBar`, `apple.awt.windowTitleVisible`, `apple.awt.windowAccessibilityElement`.
 
 **vibrancy도 material도 이 목록에는 없습니다.** `NSVisualEffectView`나 `NSGlassEffectView`를 창에 붙이는 속성은 없으므로 Java 쪽에서 부를 방법이 없습니다. 그 뷰를 세우려면 네이티브 코드가 필요하고, 위 정정에 따라 그것은 금지된 것이 아니라 아직 하지 않은 것입니다. FR-29가 그 작업입니다.
+
+### D20. 역할 원칙은 위젯의 것이고, 역할이 없는 HTML 텍스트는 자기 글꼴을 가진다 (2026-10-03)
+
+위젯은 역할만 내보냅니다(SPEC FR-13, FR-14). 글꼴도 그래서 테마 단위였고, SPEC FR-23.2는 "노드마다 폰트를 지정하는 길은 내지 않는다"고 적었습니다. 디자인 시스템이 글자를 정한다는 약속이 거기서 나옵니다.
+
+HTML 경로는 그 약속 밖에 있습니다. CSS가 크기, 굵기, 글꼴을 모두 정하고, 글꼴 목록은 문서가 임의로 고릅니다. VS Code 작업대는 아이콘 글꼴(codicon)로 모든 접기 표시와 도구 모음 글리프를 그리고, 코드와 터미널은 이름 붙은 고정폭 글꼴 목록을, UI 글자는 `system-ui`를 씁니다. 이것을 역할 사다리에 넣을 수는 없습니다. 목록의 길이와 내용을 문서가 정하기 때문입니다.
+
+**소유자 결정(2026-10-03): 역할이 없는 텍스트에만 노드 단위 글꼴을 엽니다.** `TypeRole::None`인 텍스트는 노드와 스팬마다 글꼴 참조(등록한 글꼴 에셋, 시스템 패밀리 이름, 일반 패밀리)를 받습니다. 역할을 가진 텍스트는 지금처럼 테마가 글꼴을 정하고, 글꼴 참조를 보내도 무시합니다. 경계는 역할의 유무 하나이고, 그래서 네이티브 위젯 화면에서는 아무것도 바뀌지 않습니다.
+
+- 거절한 대안: 모든 글꼴을 테마의 역할로 등록하게 하는 것. CSS 글꼴 목록은 역할 사다리에 들어가지 않습니다.
+- 측정 호출(SPEC PR-2.1)과 그리기는 같은 글꼴 참조를 같은 방법으로 풉니다. 잰 크기와 그린 크기가 같아야 하기 때문입니다.
+- 요구사항과 수용 기준은 SPEC FR-40입니다. HTML 텍스트의 접근성 배율은 아직 정하지 않았습니다(검토 중).
 
 ## 4. 폐기한 대안
 
