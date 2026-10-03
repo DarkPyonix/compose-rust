@@ -324,7 +324,7 @@ into a cache outside `target/`, and links it.
 
 ```toml
 [dependencies]
-compose-rust = "0.0.0"
+compose-rust = "0.0.1"
 ```
 
 There is no environment variable to set, no artifact to fetch by hand and no script to run. The
@@ -401,15 +401,15 @@ AppKit headers used by `dioxus-compose-renderer/desktop/c/`.
 The renderer resolves Compose from your local Maven repository, not from what JetBrains published.
 Three things it needs are empty in the published build for this platform and cannot be filled from
 outside the module that holds them: the entries a text selection's menu offers, the keys that copy,
-and the Linux targets. The patches are in `dioxus-compose-renderer/patches/`, pinned to one Compose
-revision, and each one says what it is for.
+and the Linux targets. The changes are commits in a fork of Compose,
+[`thisisthepy/compose-multiplatform-core-extended`](https://github.com/thisisthepy/compose-multiplatform-core-extended),
+and the build script pins one commit of it.
 
 ```bash
 ./dioxus-compose-renderer/scripts/build-compose.sh
 ```
 
-It fetches the pinned revision, applies the patches, and publishes the modules the renderer asks
-for. Slow, and run once rather than once per build. Everything else still resolves from what
+It fetches the pinned commit and publishes the modules the renderer asks for. Slow, and run once rather than once per build. Everything else still resolves from what
 JetBrains published.
 
 ### 4. Kotlin
@@ -627,7 +627,7 @@ started, writing UI, lists and streaming, architecture and troubleshooting.
 | [PROJECT.md](PROJECT.md) | Scope, method, milestones M0–M8, open questions |
 | [docs/INTENT.md](docs/INTENT.md) | Motivation, non-negotiables, decisions D1–D10, rejected alternatives |
 | [docs/SPEC.md](docs/SPEC.md) | Functional and non-functional requirements, boundary protocol, acceptance criteria |
-| [CLAUDE.md](CLAUDE.md) | Working agreements for this repository |
+| [AGENTS.md](AGENTS.md) | Working agreements for this repository |
 
 The planning documents (`PROJECT.md`, `INTENT.md`, `SPEC.md`) are written in Korean. This README and
 the guide site are English, with Korean translations.

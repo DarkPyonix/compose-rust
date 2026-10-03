@@ -321,7 +321,7 @@ JavaFX 호스트가 쓰는 것과 같은 방식입니다. AWT가 자기 루프�
 
 ```toml
 [dependencies]
-compose-rust = "0.0.0"
+compose-rust = "0.0.1"
 ```
 
 설정할 환경 변수도, 손으로 내려받을 파일도, 실행할 스크립트도 없습니다. 캐시는 버전과
@@ -395,15 +395,15 @@ macOS에서는 Xcode 명령줄 도구(`xcode-select --install`)도 필요합니�
 
 렌더러는 JetBrains가 발행한 것이 아니라 로컬 Maven 저장소에서 Compose를 찾습니다. 필요한 세 가지가
 이 플랫폼용 공개 빌드에서는 비어 있고, 그것을 담고 있는 모듈 밖에서는 채울 수 없기 때문입니다.
-텍스트 선택 메뉴가 내주는 항목, 복사에 쓰이는 키, 그리고 Linux 타깃입니다. 패치는
-`dioxus-compose-renderer/patches/`에 있고, Compose 리비전 하나에 고정돼 있으며, 각각 무엇을 위한
-것인지 적혀 있습니다.
+텍스트 선택 메뉴가 내주는 항목, 복사에 쓰이는 키, 그리고 Linux 타깃입니다. 이 변경은 Compose의 포크
+[`thisisthepy/compose-multiplatform-core-extended`](https://github.com/thisisthepy/compose-multiplatform-core-extended)에
+커밋으로 들어 있고, 빌드 스크립트가 그 커밋 하나에 고정합니다.
 
 ```bash
 ./dioxus-compose-renderer/scripts/build-compose.sh
 ```
 
-고정된 리비전을 받아 패치를 얹고, 렌더러가 요구하는 모듈을 발행합니다. 오래 걸리지만 빌드마다 할
+고정된 커밋을 받아, 렌더러가 요구하는 모듈을 발행합니다. 오래 걸리지만 빌드마다 할
 일은 아니고 한 번이면 됩니다. 나머지는 여전히 JetBrains가 발행한 것에서 해결됩니다.
 
 ### 4. Kotlin
@@ -622,7 +622,7 @@ CI도 같은 방식으로 나뉩니다. [`ci.yml`](../../.github/workflows/ci.ym
 | [PROJECT.md](../../PROJECT.md) | 범위, 개발 방식, 마일스톤 M0~M8, 열린 질문 |
 | [docs/INTENT.md](../INTENT.md) | 동기, 협상 불가 조건, 결정 D1~D10, 폐기한 대안 |
 | [docs/SPEC.md](../SPEC.md) | 기능·비기능 요구사항, 경계 프로토콜, 수용 기준 |
-| [CLAUDE.md](../../CLAUDE.md) | 이 저장소에서 일하는 방식 |
+| [AGENTS.md](../../AGENTS.md) | 이 저장소에서 일하는 방식 |
 
 기획 문서(`PROJECT.md`, `INTENT.md`, `SPEC.md`)는 한국어로 씁니다. README와 가이드 사이트는
 영어가 기본이고 한국어 번역을 함께 둡니다.

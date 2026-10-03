@@ -80,18 +80,44 @@ mkdir -p "$OUT_DIR" "$LOG_DIR"
 # klibs the compiler resolved. Scraping the build's own log is how the desktop script gets
 # its classpath too (build-native.sh reads java.class.path from the JVM run): the linking
 # step must be handed exactly what the compile used, not a list maintained by hand.
+# The toolchain names a task after the platform with its first letter capitalised:
+# :linux:compileLinuxX64Debug, built into _linux_compileLinuxX64Debug. Spelling it as the
+# platform is written looked for a directory that is never made and reported a compile
+# that had succeeded as one that produced nothing.
+task_platform="${amper_platform^}"  # bash 4; set here, after the Linux check, as macOS ships bash 3
 build_log="$LOG_DIR/$amper_platform-build.log"
 echo "==> kotlin build -m linux -m staticlib-linux ($amper_platform)"
+# The task's output directory is found rather than spelled out. Its name follows the
+# toolchain's task name, whose capitalisation is the toolchain's to choose, and a name written
+# here that is wrong only in case still matches on the case-insensitive file system macOS uses
+# by default. The mistake then shows up on Linux alone, as a klib that is "not there" after a
+# compile that succeeded. Matching without regard to case finds it on both, and the error
+# below lists what is there when it does not.
+task_dir_name="_linux_compile${amper_platform}Debug"
+compile_task_dirs() {
+    [[ -d "$PROJECT_DIR/build/tasks" ]] || return 0
+    find "$PROJECT_DIR/build/tasks" -mindepth 1 -maxdepth 1 -type d -iname "$task_dir_name"
+}
+
 # The compile has to actually run: an up-to-date task logs no arguments, and its arguments
 # are where the resolved klib list comes from.
-rm -rf "$PROJECT_DIR/build/tasks/_linux_compile${amper_platform}Debug"
+while IFS= read -r stale; do rm -rf "$stale"; done < <(compile_task_dirs)
 (cd "$PROJECT_DIR" && "$KOTLIN_WRAPPER" --log-level=debug build -m linux -m staticlib-linux) >"$build_log" 2>&1 ||
     { cat "$build_log" >&2; die "the linux module did not compile" "Full log: $build_log"; }
 
-klib="$PROJECT_DIR/build/tasks/_linux_compile${amper_platform}Debug/linux.klib"
-[[ -f "$klib" ]] || die "the compiler produced no klib at $klib" \
-    "Expected the :linux:compile${amper_platform}Debug task to run." \
-    "Full log: $build_log"
+# Exactly one: none means the compile did not run, and two would mean the toolchain wrote
+# directories differing only in case, and picking one would be a guess.
+klibs="$(while IFS= read -r dir; do
+    if [[ -f "$dir/linux.klib" ]]; then echo "$dir/linux.klib"; fi
+done < <(compile_task_dirs))"
+klib_count="$(printf '%s' "$klibs" | grep -c . || true)"
+if [[ "$klib_count" -ne 1 ]]; then
+    die "expected one linux.klib in a build/tasks directory named $task_dir_name (any case), found $klib_count" \
+        "Found: ${klibs:-nothing}" \
+        "Directories under $PROJECT_DIR/build/tasks: $(ls "$PROJECT_DIR/build/tasks" 2>/dev/null | tr '\n' ' ')" \
+        "Full log: $build_log"
+fi
+klib="$klibs"
 
 # The compiler arguments are logged as one block per invocation, and the block names the
 # target it belongs to, so the right block is the one containing -target=<this target>. The
@@ -169,8 +195,40 @@ for symbol in dioxus_compose_renderer_run dioxus_compose_renderer_request_frame;
             "Check the @CName annotations in staticlib-linux/src/LinuxEntryPoints.kt."
 done
 
+# The library that makes an application export the Host's functions.
+#
+# The renderer looks them up with dlsym, so they have to be in the executable's dynamic
+# symbol table, and nothing the Host crate can pass to an application's link puts them
+# there except a shared library that needs them. desktop/c/linux_host_exports.c says why
+# it takes a library rather than a flag, and why it defines one byte.
+#
+# The bare SONAME is a placeholder: the Host's build script renames it to the absolute path
+# it finds the library at, as it does the desktop renderer, so an application records where
+# it is. scripts/bundle-renderer.sh sets it back when an application is packaged.
+exports_name="libdioxus_compose_host_exports.so"
+exports="$OUT_DIR/$exports_name"
+c_dir="$PROJECT_DIR/desktop/c"
+cc -shared -fPIC -O2 -o "$exports" -Wl,-soname,"$exports_name" \
+    "$c_dir/linux_host_references.c" "$c_dir/linux_host_exports.c"
+
+# Every Host function the renderer looks up has to be left undefined here, or an
+# application does not export it and the renderer fails to find it at startup. The
+# renderer names them as strings, so the list is read from linux_host_references.c, which
+# scripts/tests/linux-host-references.test.sh holds to the Host and the renderer.
+host_wanted="$(grep -oE '^ +dioxus_compose_host_[a-z_]+,' "$c_dir/linux_host_references.c" |
+    tr -d ' ,' | sort -u)"
+host_referenced="$(nm -D --undefined-only "$exports" |
+    grep -oE 'dioxus_compose_host_[a-z_]+' | sort -u)"
+[[ -n "$host_wanted" && "$host_wanted" == "$host_referenced" ]] || die \
+    "$exports_name leaves '$(echo $host_referenced)' undefined, not '$(echo $host_wanted)'" \
+    "An application exports exactly what this library needs, and the renderer looks up the rest in vain."
+nm -D --defined-only "$exports" | grep -q ' dioxus_compose_renderer_host_exports$' || die \
+    "$exports_name does not define dioxus_compose_renderer_host_exports" \
+    "The Host refers to it so the linker keeps the library; without it the library is dropped."
+
 echo
 echo "$archive"
+echo "$exports"
 ls -la "$OUT_DIR"
 echo
 echo "exported boundary symbols:"

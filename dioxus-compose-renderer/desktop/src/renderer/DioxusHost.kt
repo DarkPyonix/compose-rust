@@ -29,6 +29,8 @@ import androidx.compose.ui.graphics.Color
 import dioxus.compose.protocol.ColorRole
 import dioxus.compose.protocol.Modifier as ProtocolModifier
 import dioxus.compose.protocol.WindowSizeClass
+import dioxus.compose.ui.platform.FrameRequestSource
+import dioxus.compose.ui.platform.FrameRequests
 import dioxus.compose.ui.platform.LocalFrameRequests
 import dioxus.compose.ui.platform.serveFrameRequests
 import androidx.compose.ui.platform.LocalWindowInfo
@@ -90,7 +92,20 @@ class DioxusHost(private val connection: HostConnection) : EventDispatcher {
 
     val roots: List<Int> get() = table.roots
 
-    fun start() {
+    /**
+     * The frame source this Host was started against, and how many requests it had counted
+     * just before. The frame loop counts from here rather than from when it began listening.
+     */
+    internal var startedWith: FrameRequestSource? = null
+        private set
+    internal var requestsBeforeStart: Long = 0L
+        private set
+
+    fun start() = start(FrameRequests.global)
+
+    internal fun start(frames: FrameRequestSource) {
+        startedWith = frames
+        requestsBeforeStart = frames.counter.value
         applyTransaction { apply -> connection.init(apply) }
         // After the first batch, so the first thing the Host hears is a press that started
         // the application, if one did, and then what the platform says about permission.
@@ -254,10 +269,16 @@ fun DioxusContent(
 ) {
     val frames = LocalFrameRequests.current
     LaunchedEffect(host, frames) {
+        // Counted from the Host's start, not from the moment this loop began listening. The
+        // platform starts the Host before there is a window, and work the Host schedules in
+        // its first render (an effect, a task spawned at startup) asks for a frame right then.
+        // Counted from now, that request looked already served, and the work waited for some
+        // unrelated event to be drawn; in a window where none came, it waited for ever.
         serveFrameRequests(
             frames.counter,
             awaitFrame = { onFrame -> withFrameNanos(onFrame) },
             serve = host::renderFrame,
+            alreadyServed = if (host.startedWith === frames) host.requestsBeforeStart else frames.counter.value,
         )
     }
     // A notification centre answers on a thread of its own, and the way from any thread to

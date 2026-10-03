@@ -507,6 +507,113 @@ jobs:
       - name: Build, move, bundle and run an application under Xvfb
         run: xvfb-run -a ./scripts/check-linux-consumer.sh renderer-dist "$RUNNER_TEMP/consumer-app"
 
+  # The other Linux renderer: Kotlin/Native, linked into the application as a static
+  # archive, with no virtual machine in it. Nothing else builds it, so this job is the only
+  # evidence that it builds at all, and its real question is the same as the job above's:
+  # whether an application that only depends on the crate can use it. That renderer finds
+  # the Host's functions with dlsym, so the application has to export them, and the flag
+  # that used to do it never reached an application's link.
+  #
+  # x64 only, because that is the only target the static renderer is built for: Compose's
+  # own build refuses an arm64 Linux host before any of it compiles.
+  #
+  # Compose publishes no Kotlin/Native target for Linux, so the modules the renderer draws
+  # with are built from source first, at the revision and with the patches the repository
+  # pins. That is the long part, and it is cached on exactly those inputs.
+  linux-static:
+    needs: changed
+    if: needs.changed.outputs.renderer == 'true'
+    name: Linux x64 Kotlin/Native static renderer and an application that depends on the crate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    env:
+      # Mesa draws with the processor; a hosted runner has no card.
+      LIBGL_ALWAYS_SOFTWARE: '1'
+      GALLIUM_DRIVER: llvmpipe
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Make room for the Compose build
+        # Its checkout and Gradle outputs take several gigabytes. These are toolchains the
+        # job never uses; the Android SDK stays, because Compose's Gradle build reads it.
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Install a JDK 17 for the Compose build
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install the Rust toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      - name: Install X11, GL and font headers, patchelf and a virtual display
+        # The same groups tools/linux-box/Dockerfile installs for this renderer.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config unzip \
+            libx11-dev libxext-dev libxrandr-dev libgl1-mesa-dev libglu1-mesa-dev \
+            libfontconfig1-dev libfreetype-dev fonts-noto-cjk \
+            xvfb xauth libgl1-mesa-dri mesa-utils patchelf
+
+      - name: Restore the patched Compose for linuxX64
+        id: compose-cache
+        # Restored and saved as two steps, so a build that fails after Compose has been
+        # published still keeps it, and the next attempt does not spend an hour on it again.
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.m2/repository
+          key: compose-linuxx64-${{ hashFiles('dioxus-compose-renderer/scripts/build-compose.sh', 'dioxus-compose-renderer/scripts/compose-fork.changes') }}
+
+      - name: Cache the Kotlin toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/JetBrains/Kotlin
+            ~/.konan
+          key: kotlin-native-linux-${{ hashFiles('dioxus-compose-renderer/kotlin', 'dioxus-compose-renderer/libs.versions.toml', 'dioxus-compose-renderer/**/module.yaml') }}
+          restore-keys: |
+            kotlin-native-linux-
+
+      - name: Build and publish the patched Compose for linuxX64
+        if: steps.compose-cache.outputs.cache-hit != 'true'
+        run: ./dioxus-compose-renderer/scripts/build-compose.sh --target linuxX64
+
+      - name: Keep the patched Compose for the next run
+        if: steps.compose-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ steps.compose-cache.outputs.cache-primary-key }}
+
+      - name: Build the static renderer
+        run: ./dioxus-compose-renderer/desktop/scripts/build-linux.sh
+
+      - name: Show what the renderer build left behind
+        if: failure()
+        run: |
+          ls dioxus-compose-renderer/build/tasks 2>/dev/null | grep -i linux || true
+          tail -n 80 dioxus-compose-renderer/build/linux-logs/*-build.log 2>/dev/null || true
+
+      - name: Keep the renderer build's logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-static-renderer-logs
+          path: dioxus-compose-renderer/build/linux-logs/
+          retention-days: 7
+
+      - name: Inspect the host exports library
+        run: |
+          lib=dioxus-compose-renderer/build/linux/libdioxus_compose_host_exports.so
+          readelf -d "$lib"
+          nm -D "$lib"
+
+      - name: Build, move, bundle and run an application under Xvfb
+        run: xvfb-run -a -s '-screen 0 1280x1024x24' ./scripts/check-linux-consumer.sh dioxus-compose-renderer/build/linux "$RUNNER_TEMP/consumer-static"
+
   # iOS is Kotlin/Native, not native-image, so it shares nothing with the jobs above
   # except the interpreter source. It builds both slices (simulator and device) and
   # runs the *desktop* C smoke host against the simulator archive, which is what makes

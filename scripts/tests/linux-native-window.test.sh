@@ -29,7 +29,7 @@ frames_source="$renderer/desktop/src/WindowFrames.kt"
 model="$renderer/desktop/src/X11Window.kt"
 staticlib="$renderer/staticlib-linux/module.yaml"
 compose_script="$renderer/scripts/build-compose.sh"
-compose_patch="$renderer/patches/0001-linux-native-targets.patch"
+compose_changes="$renderer/scripts/compose-fork.changes"
 
 red=0
 
@@ -40,7 +40,7 @@ fail() {
 
 for file in "$project" "$module" "$window" "$surface" "$entry" "$definition" \
             "$sync_source" "$log_source" "$frames_source" "$model" "$staticlib" \
-            "$compose_script" "$compose_patch"; do
+            "$compose_script" "$compose_changes"; do
     [[ -f "$file" ]] || fail "missing $file"
 done
 (( red == 0 )) || exit 1
@@ -121,12 +121,12 @@ grep -Eq '^compilerOpts = .*-idirafter' "$definition" ||
 # ---------------------------------------------------------------------------
 #
 # Compose Multiplatform publishes `runtime` for linuxX64 and nothing else, so every module the
-# patch teaches the target has to be built and published here. One left off the list is not a
+# Compose fork teaches the target has to be built and published here. One left off the list is not a
 # failure of that script: it is an unresolvable dependency tens of minutes into the renderer's own
 # build, naming a coordinate nobody recognises.
 #
 # The exceptions are deliberate, and each is named so that a new one has to be argued for here.
-# The patch gives these the target so that the Compose build configures with it, but the
+# The fork gives these the target so that the Compose build configures with it, but the
 # renderer draws with runtime, ui, foundation and material3, and none of these is in that
 # closure. Several cannot be built for Linux at all: Material 2's navigation, the adaptive
 # family and the navigation suite each ask for a published artifact with no Linux variant.
@@ -156,9 +156,9 @@ while IFS= read -r gradle_path; do
     done
     [[ $skip -eq 1 ]] && continue
     grep -Fxq "$gradle_path" <<< "$linux_publications" ||
-        fail "the patch adds a linuxX64 target to $gradle_path and build-compose.sh does not publish it"
-done < <(grep -E '^\+\+\+ b/.*/build\.gradle$' "$compose_patch" |
-    sed -E 's#^\+\+\+ b/##; s#/build\.gradle$##; s#/#:#g' | sort -u)
+        fail "the Compose fork adds a linuxX64 target to $gradle_path and build-compose.sh does not publish it"
+done < <(grep -E '^[0-9a-f]{40} .*/build\.gradle$' "$compose_changes" |
+    sed -E 's#^[0-9a-f]{40} ##; s#/build\.gradle$##; s#/#:#g' | sort -u)
 
 # And the other way: an exception the build script does publish is not an exception, and
 # leaving it here would let it be dropped from the build without anything noticing.

@@ -27,7 +27,7 @@ target
 .claude/
 .agent-salvage/
 
-# Throwaway work, probes and downloads (CLAUDE.md, "Where files go")
+# Throwaway work, probes and downloads (AGENTS.md, "Where files go")
 .scratch/
 
 # Machine local cargo settings. Nothing in this repository writes this file any more:
@@ -48,5 +48,5 @@ dioxus-compose/tests/fixtures/consumer/Cargo.lock
 dioxus-compose-renderer/web/resources/dioxus_compose_host.wasm
 dioxus-compose-renderer/web/testResources/dioxus_compose_host.wasm
 
-# The upstream Compose checkout scripts/build-compose.sh patches and builds.
+# The Compose fork checkout scripts/build-compose.sh fetches and builds.
 compose-build/

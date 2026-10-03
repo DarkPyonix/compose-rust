@@ -34,6 +34,11 @@ for launcher in "${launchers[@]}"; do
     # The renderer build. Shared caches, tens of minutes, and it has run several at once.
     grep -q 'You do not build the renderer' "$launcher" ||
         note "$launcher does not forbid building the renderer"
+    # Cargo too. Several agents compiling Rust at once overloaded the machine.
+    grep -q 'You do not run cargo either' "$launcher" ||
+        note "$launcher does not forbid running cargo"
+    ! grep -q 'Cargo inside your own worktree' "$launcher" ||
+        note "$launcher still tells the run that cargo is allowed"
     for forbidden in 'kotlin build' 'kotlin test' 'native-image'; do
         grep -q "$forbidden" "$launcher" ||
             note "$launcher does not name '$forbidden' among what a run must not do"

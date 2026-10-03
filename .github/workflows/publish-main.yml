@@ -78,7 +78,7 @@ jobs:
             --title "Publish develop to main" \
             --body "Rebuilt from \`develop\` by \`scripts/publish-main.sh\`.
 
-          The internal planning documents (\`PROJECT.md\`, \`CLAUDE.md\`, \`docs/INTENT.md\`, \`docs/SPEC.md\`) are excluded; the source, \`README.md\` and \`docs/guide/\` are not.
+          The internal planning documents (\`PROJECT.md\`, \`AGENTS.md\`, \`CLAUDE.md\`, \`docs/INTENT.md\`, \`docs/SPEC.md\`) are excluded; the source, \`README.md\` and \`docs/guide/\` are not.
 
           Merging this leaves \`main\` with exactly the tree the script produced."
           status=$?
