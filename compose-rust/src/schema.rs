@@ -1773,8 +1773,8 @@ impl BoundaryParam {
 /// One logical boundary operation, stated without saying which side calls it.
 ///
 /// `symbol` is the Host's C export. Every platform binding, the GraalVM function
-/// declarations, the Android shims and the browser forwarders, is a rendering of this
-/// table, which is why none of them is written by hand.
+/// declarations, the Android shims and the browser's imports and trampoline, is a rendering
+/// of this table, which is why none of them is written by hand.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BoundaryOp {
     /// Direction-neutral name, in PascalCase.
@@ -1918,17 +1918,19 @@ pub const WEB_START_SYMBOL: &str = "compose_rust_host_web_start";
 /// because Rust is instantiated second and Kotlin's exports already exist by then.
 pub const WEB_RENDERER_IMPORT_MODULE: &str = "compose_rust_renderer";
 
-/// The global the generated forwarders read the Host's exports off.
+/// The global the loader publishes the trampoline's table under.
 ///
-/// A `@JsFun` body is inlined into the import object module Kotlin generates, so the only
-/// name it can reach the loader through is a property of the global object.
-pub const WEB_HOST_GLOBAL: &str = "__composeRustHost";
+/// The loader creates the table and the Renderer's generated `installHost` fills it with the
+/// Host's exports. That body is a `@JsFun`, inlined into the import object module Kotlin
+/// generates, so the only name it can reach the loader's table through is a property of the
+/// global object. Nothing reads it on a call: a call goes through the table from wasm.
+pub const WEB_TABLE_GLOBAL: &str = "__composeRustHostTable";
 
 /// The global the loader module publishes the compiled Host module under.
 ///
-/// Compiling is all the page does, and the reason the page has to do it at all is that
-/// compiling is asynchronous while the boundary is not: the fetch has to have finished
-/// before the Renderer's `main` runs. Everything after it, the memory, the imports and the
-/// entry point, is in the generated Kotlin, because only the Renderer's own module can name
-/// them.
+/// Besides the trampoline, compiling is all the page does, and the reason the page has to
+/// do it at all is that compiling is asynchronous while the boundary is not: the fetch has
+/// to have finished before the Renderer's `main` runs. Everything after it, the memory, the
+/// Host's imports, the entry point and filling the table, is in the generated Kotlin,
+/// because only the Renderer's own module can name them.
 pub const WEB_MODULE_GLOBAL: &str = "__composeRustHostModule";
