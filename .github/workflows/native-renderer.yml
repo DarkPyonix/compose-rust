@@ -281,6 +281,17 @@ jobs:
           path: artifact
           merge-multiple: true
 
+      - name: Take every ICU data file off the runner
+        # The executable has to find Korean words and line breaks with what is linked into
+        # it. A hosted runner ships browsers that carry icudtl.dat, so they are removed and
+        # the check below then confirms none is left.
+        shell: bash
+        run: |
+          set -uo pipefail
+          find /usr /opt /Library /Applications /home /Users -name 'icudtl.dat' 2>/dev/null |
+            while IFS= read -r file; do echo "removing $file"; sudo rm -f "$file"; done
+          true
+
       - name: Build it, check what it needs, and run it alone
         shell: bash
         run: |

@@ -447,7 +447,7 @@ build/macos/
 `compose-rust-renderer-v<version>-<target>.tar.gz` and its `.sha256`, and
 `.github/scripts/check-single-executable.sh` builds an application from such an artifact and proves it
 is one executable: it reads `otool -L` or `readelf -d`, then copies the executable alone into an
-empty directory and requires it to draw.
+empty directory and requires it to draw and, with no ICU data file on the machine, to lay Korean out correctly (every glyph found, words found whole, lines broken between words).
 
 <details>
 <summary><b>The GraalVM native image, and what lands in <code>dist/lib/</code></b></summary>

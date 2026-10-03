@@ -58,6 +58,10 @@ fn self_check() -> Element {
     rsx! {
         Column {
             Text { text: format!("self-check frame {current} of {FRAMES}") }
+            // Korean, so the frames the check waits for draw it too. Whether it is shaped and
+            // wrapped correctly is the renderer's to say when COMPOSE_RUST_TEXT_SELF_CHECK is
+            // set, and .github/scripts/check-single-executable.sh sets it.
+            Text { text: "안녕하세요 반갑습니다. 한국어 줄바꿈과 단어 경계를 확인합니다." }
         }
     }
 }

@@ -5,7 +5,8 @@
 # shaped exactly like the one the release publishes, and proves the result is one
 # executable: it needs nothing but the system's own libraries, it carries no renderer,
 # Skia or Java runtime beside it, and copied alone into an empty directory it opens its
-# window and draws.
+# window and draws. With no ICU data file on the machine, it also has to lay Korean out
+# correctly: every glyph found, words found whole, lines broken between words.
 #
 #   <renderer artifact>  compose-rust-renderer-v<version>-<target>.tar.gz, with its
 #                        .sha256 beside it. The version has to be this checkout's crate
@@ -88,11 +89,23 @@ mkdir -p "$scratch/cache/downloads" "$scratch/run"
 cp "$artifact" "$artifact.sha256" "$scratch/cache/downloads/"
 
 # Nothing may point the build anywhere else.
-unset COMPOSE_RUST_RENDERER_DIR DXC_MACOS_NATIVE_LIB DXC_LINUX_NATIVE_LIB
+unset COMPOSE_RUST_RENDERER_DIR DIOXUS_COMPOSE_RENDERER_DIR DXC_MACOS_NATIVE_LIB DXC_LINUX_NATIVE_LIB
 # The Kotlin/Native renderer cannot close its own window, so the self-check ends the
 # process once the frames are in.
 unset COMPOSE_RUST_AUTOEXIT_MS
 export COMPOSE_RUST_CACHE_DIR="$scratch/cache"
+# The renderer lays Korean out before it opens the window and says whether every glyph was
+# found, the word around a syllable was the whole word, and lines broke between words. It
+# runs with no ICU data file on the machine, which is checked below, so what it proves is
+# that the executable needs none.
+export COMPOSE_RUST_TEXT_SELF_CHECK=1
+
+# No ICU data file anywhere an application could be pointed at one. The executable must find
+# words and line breaks with what is linked into it. A runner that ships one (a browser
+# carries icudtl.dat) has to have it removed before this runs.
+icu_files="$(find /usr /opt /Library /Applications /home /Users -name 'icudtl.dat' 2>/dev/null || true)"
+[[ -z "$icu_files" ]] || fail "an ICU data file is on this machine, so the text check would not prove anything" \
+    $icu_files
 
 # What every system the application may name lives under. Anything else is a file that
 # would have to travel with it.
@@ -204,7 +217,13 @@ run_alone() {
     ls -la "$directory"
     [[ "$(ls -A "$directory")" == "consumer" ]] || fail "something other than the executable is in $directory"
     echo "== running it alone in $directory"
-    ( cd "$directory" && ./consumer --self-check ) || fail "the executable did not draw on its own (exit $?)"
+    local log="$scratch/run-$name.log" status=0
+    ( cd "$directory" && ./consumer --self-check ) > "$log" 2>&1 || status=$?
+    cat "$log"
+    grep -q "compose-rust text self-check: ok" "$log" ||
+        fail "the renderer did not lay Korean text out correctly with no ICU data file" \
+            "Its own report is above."
+    [[ "$status" -eq 0 ]] || fail "the executable did not draw on its own (exit $status)"
 }
 
 report() {

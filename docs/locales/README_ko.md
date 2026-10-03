@@ -440,7 +440,7 @@ build/macos/
 `compose-rust-renderer-v<version>-<target>.tar.gz`와 `.sha256`으로 묶고,
 `.github/scripts/check-single-executable.sh`가 그런 아티팩트로 애플리케이션을 빌드해 실행 파일
 하나임을 확인합니다. `otool -L`이나 `readelf -d`를 읽고, 실행 파일만 빈 디렉터리에 복사해
-그리는지 봅니다.
+그리는지, 그리고 기계에 ICU 데이터 파일이 하나도 없는 상태에서 한국어를 바르게 배치하는지(모든 글리프를 찾고, 단어를 통째로 찾고, 줄을 단어 사이에서 나누는지) 봅니다.
 
 <details>
 <summary><b>GraalVM 네이티브 이미지와 <code>dist/lib/</code>에 생기는 것</b></summary>
