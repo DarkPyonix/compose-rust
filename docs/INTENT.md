@@ -382,7 +382,9 @@ skiko는 `mingwX64`를 발행하지 않고 Compose도 Windows용 Kotlin/Native �
 - 실행 파일 안에 C++ 런타임이 둘 들어갑니다. 이름 규칙이 달라 부딪히지는 않지만 크기는 그만큼 늡니다.
 - MinGW 오브젝트를 고치는 빌드 단계가 하나 생깁니다. Kotlin/Native가 오브젝트를 만드는 방식을 바꾸면 이 단계도 다시 확인해야 합니다.
 - MinGW의 크래시 필터 대신 '처리 안 함'을 돌려주는 함수를 둡니다. Kotlin 스레드의 크래시는 MinGW식 신호 변환 대신 Windows 기본 처리로 갑니다.
-- Skia가 MSVC 정적 C 런타임으로 빌드되어 있으므로, 앱도 정적 C 런타임(`+crt-static`)으로 빌드해야 합니다. 빌드 스크립트가 그렇지 않은 앱에 무엇을 하라고 말합니다.
+- Skia가 MSVC 정적 C 런타임으로 빌드되어 있지만, 앱에 `+crt-static`을 요구하지 않습니다. **크레이트의 빌드 스크립트가 정적 C 런타임을 대신 링크하고, 부딪히는 기본 라이브러리는 막습니다**(`/NODEFAULTLIB`). compose-multiplatform-extended 플러그인이 Windows 단일 실행 파일에서 검증한 방식과 같습니다. 앱을 만드는 사람이 할 일은 `Cargo.toml` 한 줄뿐입니다(NFR-15 기준 5).
+
+  > "(b)안으로 가자" (2026-10-03, 소유자. 세 선택지 가운데 "크레이트의 build.rs가 정적 C 런타임을 링크하고 충돌을 막는다"를 고름)
 - Wine으로 확인한 것은 Windows에서 다시 확인해야 하고, 창, 입력기, 화면 낭독기는 Wine으로 확인할 수 없습니다.
 
 **폐기한 대안:**
@@ -429,6 +431,18 @@ skiko는 `mingwX64`를 발행하지 않고 Compose도 Windows용 Kotlin/Native �
 - 포크가 내는 라이브러리의 Maven 그룹은 `org.thisisthepy.compose.*`입니다. JetBrains가 라이브러리와 플러그인 모두 `org.jetbrains.compose`를 쓰는 것과 같은 방식입니다.
 - 앱으로 배포되는 것의 식별자는 `io.github.thisisthepy.<앱>`입니다. darkpyonix 제품(예: `dev.darkpyonix.Ember`)에 같은 규칙을 적용할지는 따로 정합니다.
 - `androidx.compose.*` 아래에 두지 않는 이유는 위의 둘째 선택지 설명 그대로입니다. upstream과 부딪히지 않고, 포크가 더한 것이 이름만으로 구별되며, 공개 API를 바꾸지 않는다는 원칙을 지킵니다.
+
+**디자인 시스템은 두 층으로 냅니다. 소유자의 결정입니다(2026-10-03).**
+
+> "컴포넌트 라이브러리로 하되" (2026-10-03)
+
+> "2층으로 가고, 개들은 adaptive 디자인 시스템 패키지 명을 쓰면 될거같네." (2026-10-03)
+
+- **1층은 디자인 시스템마다 하나씩인 컴포넌트 라이브러리입니다.** `org.thisisthepy.compose.{material3, cupertino, fluent, gnome, breeze, deepin, liquidglass}`이고, 일곱 개가 모두 material3와 같은 모양을 가집니다: `XxxTheme` 컴포저블, `ColorScheme`, `Typography`, `Shapes`, 그리고 컴포넌트. 공개 API는 `androidx.compose.material3`를 본뜹니다. Compose를 아는 사람이 `MaterialTheme` 자리에 `FluentTheme`을 쓰면 나머지가 같은 이름으로 따라오게 하려는 것입니다. `org.thisisthepy.compose.material3`는 새로 그리지 않고 `androidx.compose.material3` 위의 어댑터입니다. Material은 이미 있는 것을 다시 만들 이유가 없습니다.
+- **2층은 `org.thisisthepy.compose.adaptive`입니다.** 디자인 시스템에 매이지 않는 중립 컴포넌트(`Button`, `TextField`, `DatePicker`, ...)가 현재 테마의 1층 구현에 위임합니다. 진입점은 `MaterialTheme`의 관례를 따라 `AdaptiveTheme(designSystem: DesignSystem = DesignSystem.platformDefault(), darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit)`이고, 기본값은 실행 중인 플랫폼의 디자인 시스템입니다. **compose-rust의 렌더러는 기본으로 이 층을 씁니다.** FR-14.3의 `Theme::adaptive`가 Compose 쪽에서 갖는 모양이 이것입니다.
+- **공통 계약은 별도 모듈 `org.thisisthepy.compose.designsystem`에 남깁니다.** 역할 enum, `DesignSystem` 인터페이스, 토큰입니다. 두 층이 모두 이것에 의존합니다. adaptive에 합치지 않는 이유는 의존 방향입니다. adaptive는 1층 일곱 개 전부에 의존하고, 1층은 adaptive에 의존하면 안 됩니다. 계약이 adaptive 안에 있으면 1층이 계약을 쓰려고 adaptive에 의존하게 되어 순환이 생깁니다.
+- **이름이 비슷한 것 하나.** JetBrains의 `androidx.compose.material3.adaptive`는 적응형 레이아웃(창 크기 클래스)이고 `org.thisisthepy.compose.adaptive`와 무관합니다. 네임스페이스가 달라 부딪히지 않습니다.
+- 요구사항과 수용 기준은 SPEC FR-14.11입니다.
 
 ### D15. iOS의 Liquid Glass는 시스템에게 받아 온다. UIKit을 Kotlin이 직접 몬다
 
