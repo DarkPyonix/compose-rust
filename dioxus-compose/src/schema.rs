@@ -483,7 +483,53 @@ define_wire_enum!(COLOR_ROLE_SCHEMA, ColorRole {
     OnSecondaryContainer = 21,
     TertiaryContainer = 22,
     OnTertiaryContainer = 23,
+    // What a highlighter paints code with. A conversation shows code blocks and diffs, and
+    // with only literals to paint them the same grey comment would be stamped into seven
+    // systems and two schemes, which is how a light comment grey disappears on a dark page.
+    // So a token kind is a role like any other, and each system answers it from the code
+    // editor of its own platform.
+    //
+    // The split follows what tree-sitter's highlight names, VS Code's semantic token kinds
+    // and TextMate scopes all agree on. Each of those divides more finely, and the finer
+    // names fold into one of these (`keyword.return` is a keyword). A token that fits none
+    // is left in the body ink rather than given a colour of its own.
+    //
+    // The fifteen syntax inks hold the body-text bound on the code block's panel, comments
+    // included: a comment can be quieter in hue and lightness, but one nobody can read is
+    // a comment that is not there.
+    SyntaxKeyword = 24,
+    SyntaxString = 25,
+    SyntaxComment = 26,
+    SyntaxNumber = 27,
+    SyntaxConstant = 28,
+    SyntaxType = 29,
+    SyntaxFunction = 30,
+    SyntaxVariable = 31,
+    SyntaxProperty = 32,
+    SyntaxOperator = 33,
+    SyntaxPunctuation = 34,
+    SyntaxTag = 35,
+    SyntaxAttribute = 36,
+    SyntaxEscape = 37,
+    SyntaxMacro = 38,
+    // A diff. The ink marks an added or removed line and its text; the container is the
+    // whole line's background, drawn as the line node's own background; the emphasis is
+    // the background behind the words that actually changed, drawn by the span. Added and
+    // removed are never told apart by colour alone: the `+` and `-` at the head of a line
+    // stay, because the two backgrounds can look the same to a red-green colour blind
+    // reader.
+    DiffAdded = 39,
+    DiffRemoved = 40,
+    DiffModified = 41,
+    DiffAddedContainer = 42,
+    DiffRemovedContainer = 43,
+    DiffAddedEmphasis = 44,
+    DiffRemovedEmphasis = 45,
 });
+
+/// How many colour roles there are, which is how many rows every token table has and how
+/// many slots a palette carries per scheme.
+pub const COLOR_ROLE_COUNT: usize = 45;
 
 // The nine-rung type ladder every supported design system maps onto.
 define_wire_enum!(TYPE_ROLE_SCHEMA, TypeRole {

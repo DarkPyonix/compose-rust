@@ -13,6 +13,11 @@ mod boundary_jni;
 #[path = "boundary_wasm.gen.rs"]
 mod boundary_wasm;
 pub mod brush;
+/// The rule the code colours of the two systems without a code editor scheme are derived
+/// by. Only the tests run it: the values themselves are literals in the token tables.
+#[cfg(test)]
+mod code_colours;
+pub mod contrast;
 #[cfg(target_family = "wasm")]
 #[doc(hidden)]
 pub use boundary_wasm::web_start as __web_start;
@@ -21,6 +26,7 @@ pub mod codegen;
 pub mod design;
 pub mod drawing;
 mod extensions;
+pub mod highlight;
 pub mod message;
 pub mod protocol;
 pub mod renderer;

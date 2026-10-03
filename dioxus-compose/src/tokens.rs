@@ -10,7 +10,9 @@
 //! What the Renderer implementer still owns is the rules these values feed: how an
 //! elevation is drawn, how each `ButtonVariant` is styled, and motion.
 
-use crate::schema::{Color, ColorRole, ColorScheme, DesignSystem, ShapeRole, SpaceRole, TypeRole};
+use crate::schema::{
+    COLOR_ROLE_COUNT, Color, ColorRole, ColorScheme, DesignSystem, ShapeRole, SpaceRole, TypeRole,
+};
 
 /// One `ColorRole` slot in both schemes, in `ColorRole` tag order.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -58,7 +60,7 @@ pub struct DesignTokenTable {
     pub reference: &'static str,
     pub default_family: &'static str,
     pub monospace_family: &'static str,
-    pub colors: &'static [ColorToken; 23],
+    pub colors: &'static [ColorToken; COLOR_ROLE_COUNT],
     pub type_scale: &'static [TypeToken; 9],
     pub shapes: &'static [ShapeToken; 6],
     pub spaces: &'static [SpaceToken; 7],
@@ -165,6 +167,34 @@ const MATERIAL3: DesignTokenTable = DesignTokenTable {
         OnSecondaryContainer: 0x1d192b / 0xe8def8,
         TertiaryContainer: 0xffd8e4 / 0x633b48,
         OnTertiaryContainer: 0x31111d / 0xffd8e4,
+        // Code colours. Material 3 publishes no code editor scheme, so these are derived from
+        // the base roles above by the fixed rule in `code_colours.rs`: each syntax ink takes one
+        // base role, the removed ink is the error role, the added ink is the error role turned
+        // to a green hue at the same tone and chroma, and the line and word backgrounds are those
+        // inks laid over the panel. `fr13_1_3_derived_code_colours_follow_the_rule` recomputes
+        // every one of them, so a change to a base role has to be carried through here.
+        SyntaxKeyword: 0x6750a4 / 0xd0bcff,
+        SyntaxString: 0x7d5260 / 0xefb8c8,
+        SyntaxComment: 0x49454f / 0xcac4d0,
+        SyntaxNumber: 0x31111d / 0xffd8e4,
+        SyntaxConstant: 0x31111d / 0xffd8e4,
+        SyntaxType: 0x625b71 / 0xccc2dc,
+        SyntaxFunction: 0x21005d / 0xeaddff,
+        SyntaxVariable: 0x1d1b20 / 0xe6e0e9,
+        SyntaxProperty: 0x1d192b / 0xe8def8,
+        SyntaxOperator: 0x49454f / 0xcac4d0,
+        SyntaxPunctuation: 0x49454f / 0xcac4d0,
+        SyntaxTag: 0x6750a4 / 0xd0bcff,
+        SyntaxAttribute: 0x625b71 / 0xccc2dc,
+        SyntaxEscape: 0xb3261e / 0xf2b8b5,
+        SyntaxMacro: 0x625b71 / 0xccc2dc,
+        DiffAdded: 0x006d17 / 0xb2ceaa,
+        DiffRemoved: 0xb3261e / 0xf2b8b5,
+        DiffModified: 0x7d5260 / 0xefb8c8,
+        DiffAddedContainer: 0xd6dedc / 0x3e4240,
+        DiffRemovedContainer: 0xebd5dd / 0x4b3e43,
+        DiffAddedEmphasis: 0xaac7b4 / 0x5b655b,
+        DiffRemovedEmphasis: 0xe0b1b6 / 0x755c5f,
     },
     type_scale: type_scale! {
         Display: 57.0 / 400 / 64.0 / 0.0 / false,
@@ -242,6 +272,35 @@ const APPLE_HIG: DesignTokenTable = DesignTokenTable {
         OnSecondaryContainer: 0x2a1b70 / 0xdedcff,
         TertiaryContainer: 0xf3ddfb / 0x3f1a52,
         OnTertiaryContainer: 0x3d0b52 / 0xf1d9fa,
+        // Code colours, from Xcode's Default (Light) and Default (Dark). Xcode has no diff
+        // palette of its own, so the diff inks are the platform's accessible green and red and
+        // the line and word backgrounds are those inks laid over the panel. Where a value had to
+        // be moved in tone to keep 4.5:1 on this system's panel, the editor's own value is noted.
+        SyntaxKeyword: 0x9b2393 / 0xfc5fa3,
+        SyntaxString: 0xc41a16 / 0xfc6a5d,
+        // SyntaxComment is 0x5d6c79 / 0x6c7986 in the editor.
+        SyntaxComment: 0x5d6c79 / 0x798693,
+        SyntaxNumber: 0x1c00cf / 0xd0bf69,
+        SyntaxConstant: 0x6c36a9 / 0xa167e6,
+        SyntaxType: 0x3900a0 / 0xd0a8ff,
+        SyntaxFunction: 0x326d74 / 0x67b7a4,
+        SyntaxVariable: 0x000000 / 0xdfdfe0,
+        SyntaxProperty: 0x326d74 / 0x67b7a4,
+        SyntaxOperator: 0x000000 / 0xdfdfe0,
+        SyntaxPunctuation: 0x000000 / 0xdfdfe0,
+        SyntaxTag: 0x0b4f79 / 0x5dd8ff,
+        SyntaxAttribute: 0x815f03 / 0xbf8555,
+        SyntaxEscape: 0x1c00cf / 0xd0bf69,
+        SyntaxMacro: 0x643820 / 0xfd8f3f,
+        // DiffAdded is 0x248a3d / 0x30d158 in the editor.
+        DiffAdded: 0x087a2f / 0x30d158,
+        // DiffRemoved is 0xd70015 / 0xff6961 in the editor.
+        DiffRemoved: 0xce0014 / 0xff6e66,
+        DiffModified: 0x007aff / 0x0a84ff,
+        DiffAddedContainer: 0xe1efe6 / 0x20402a,
+        DiffRemovedContainer: 0xf9e0e3 / 0x492c2c,
+        DiffAddedEmphasis: 0xb5d7c1 / 0x246435,
+        DiffRemovedEmphasis: 0xf0b3b9 / 0x773d3b,
     },
     // The large title is bold. Both reference screens set it that way, "Contacts" over a
     // grouped list and "Cupertino" over a search field, and a large title at book weight
@@ -316,6 +375,34 @@ const FLUENT: DesignTokenTable = DesignTokenTable {
         OnSecondaryContainer: 0x0b3350 / 0xb4d6fa,
         TertiaryContainer: 0xe8dcf7 / 0x3b2159,
         OnTertiaryContainer: 0x341a5e / 0xe8dcf7,
+        // Code colours, from VS Code's Light+ and Dark+. The diff backgrounds are VS Code's own
+        // translucent line and word highlights resolved over this system's panel, the word one
+        // laid over the line one. Where a value had to be moved in tone to keep 4.5:1 on this
+        // system's panel, the editor's own value is noted.
+        SyntaxKeyword: 0x0000ff / 0x569cd6,
+        SyntaxString: 0xa31515 / 0xce9178,
+        // SyntaxComment is 0x008000 / 0x6a9955 in the editor.
+        SyntaxComment: 0x008000 / 0x6f9e5a,
+        SyntaxNumber: 0x098658 / 0xb5cea8,
+        SyntaxConstant: 0x0070c1 / 0x4fc1ff,
+        SyntaxType: 0x267f99 / 0x4ec9b0,
+        SyntaxFunction: 0x795e26 / 0xdcdcaa,
+        SyntaxVariable: 0x001080 / 0x9cdcfe,
+        SyntaxProperty: 0x001080 / 0x9cdcfe,
+        SyntaxOperator: 0x000000 / 0xd4d4d4,
+        SyntaxPunctuation: 0x000000 / 0xd4d4d4,
+        SyntaxTag: 0x800000 / 0x569cd6,
+        SyntaxAttribute: 0xe50000 / 0x9cdcfe,
+        SyntaxEscape: 0xee0000 / 0xd7ba7d,
+        SyntaxMacro: 0xaf00db / 0xc586c0,
+        // DiffAdded is 0x098658 / 0xb5cea8 in the editor.
+        DiffAdded: 0x007b50 / 0xb5cea8,
+        DiffRemoved: 0xa31515 / 0xce9178,
+        DiffModified: 0x0451a5 / 0x569cd6,
+        DiffAddedContainer: 0xebf1dd / 0x414733,
+        DiffRemovedContainer: 0xffcccc / 0x552222,
+        DiffAddedEmphasis: 0xd7e8b1 / 0x536232,
+        DiffRemovedEmphasis: 0xff9999 / 0x771b1b,
     },
     type_scale: type_scale! {
         Display: 40.0 / 600 / 52.0 / 0.0 / false,
@@ -398,6 +485,39 @@ const ADWAITA: DesignTokenTable = DesignTokenTable {
         OnSecondaryContainer: 0x45164f / 0xecd9f1,
         TertiaryContainer: 0xcfe9ed / 0x134249,
         OnTertiaryContainer: 0x0a3d45 / 0xcfe9ed,
+        // Code colours, from GtkSourceView's Adwaita and Adwaita-dark schemes in the GNOME
+        // palette. The line and word backgrounds are the diff inks laid over the panel. Where a
+        // value had to be moved in tone to keep 4.5:1 on this system's grey panel, the scheme's
+        // own value is noted.
+        // SyntaxKeyword is 0xc64600 / 0xffa348 in the editor.
+        SyntaxKeyword: 0xba4100 / 0xffa348,
+        // SyntaxString is 0x26a269 / 0x8ff0a4 in the editor.
+        SyntaxString: 0x00784a / 0x8ff0a4,
+        // SyntaxComment is 0x77767b / 0x9a9996 in the editor.
+        SyntaxComment: 0x6a6a6e / 0x9a9996,
+        SyntaxNumber: 0x813d9c / 0xdc8add,
+        SyntaxConstant: 0x813d9c / 0xdc8add,
+        SyntaxType: 0x1a5fb4 / 0x99c1f1,
+        // SyntaxFunction is 0x1c71d8 / 0x62a0ea in the editor.
+        SyntaxFunction: 0x0067cd / 0x62a0ea,
+        SyntaxVariable: 0x241f31 / 0xdeddda,
+        SyntaxProperty: 0x3d3846 / 0xc0bfbc,
+        SyntaxOperator: 0x3d3846 / 0xc0bfbc,
+        SyntaxPunctuation: 0x3d3846 / 0xc0bfbc,
+        SyntaxTag: 0x1a5fb4 / 0x99c1f1,
+        SyntaxAttribute: 0x813d9c / 0xdc8add,
+        // SyntaxEscape is 0xc01c28 / 0xf66151 in the editor.
+        SyntaxEscape: 0xc01c28 / 0xfd6656,
+        SyntaxMacro: 0x63452c / 0xcdab8f,
+        // DiffAdded is 0x26a269 / 0x8ff0a4 in the editor.
+        DiffAdded: 0x006d43 / 0x8ff0a4,
+        // DiffRemoved is 0xc01c28 / 0xf66151 in the editor.
+        DiffRemoved: 0xb91524 / 0xffa295,
+        DiffModified: 0x1c71d8 / 0x62a0ea,
+        DiffAddedContainer: 0xcfdcd7 / 0x435647,
+        DiffRemovedContainer: 0xe5d1d3 / 0x594744,
+        DiffAddedEmphasis: 0xa5c5b9 / 0x567d5e,
+        DiffRemovedEmphasis: 0xdcabaf / 0x835e58,
     },
     // libadwaita declares its title classes in points against an 11pt Cantarell body, and
     // they are heavy: the largest title is weight 800, not 700. Those point values are
@@ -488,6 +608,43 @@ const BREEZE: DesignTokenTable = DesignTokenTable {
         OnSecondaryContainer: 0x083b31 / 0xcfe8e0,
         TertiaryContainer: 0xfae0c4 / 0x4a3113,
         OnTertiaryContainer: 0x4a2c00 / 0xf8dfc3,
+        // Code colours, from KSyntaxHighlighting's Breeze Light and Breeze Dark. Keywords are
+        // the normal text colour there, set bold by the editor. The diff inks are Breeze's
+        // positive, negative and neutral, and the backgrounds are those inks laid over the
+        // panel. Where a value had to be moved in tone to keep 4.5:1, the scheme's own value is
+        // noted.
+        SyntaxKeyword: 0x1f1c1b / 0xcfcfc2,
+        SyntaxString: 0xbf0303 / 0xf44f4f,
+        // SyntaxComment is 0x898887 / 0x7a7c7d in the editor.
+        SyntaxComment: 0x747473 / 0x848687,
+        // SyntaxNumber is 0xb08000 / 0xf67400 in the editor.
+        SyntaxNumber: 0x966d00 / 0xf67400,
+        SyntaxConstant: 0xaa5500 / 0x27aeae,
+        // SyntaxType is 0x0057ae / 0x2980b9 in the editor.
+        SyntaxType: 0x0057ae / 0x3b8dc7,
+        // SyntaxFunction is 0x644a9b / 0x8e44ad in the editor.
+        SyntaxFunction: 0x644a9b / 0xb266d1,
+        SyntaxVariable: 0x0057ae / 0x27aeae,
+        // SyntaxProperty is 0x0057ae / 0x2980b9 in the editor.
+        SyntaxProperty: 0x0057ae / 0x3b8dc7,
+        // SyntaxOperator is 0xca60ca / 0x3f8058 in the editor.
+        SyntaxOperator: 0xaf48b1 / 0x519269,
+        SyntaxPunctuation: 0x1f1c1b / 0xcfcfc2,
+        SyntaxTag: 0x1f1c1b / 0xcfcfc2,
+        // SyntaxAttribute is 0x0057ae / 0x2980b9 in the editor.
+        SyntaxAttribute: 0x0057ae / 0x3b8dc7,
+        // SyntaxEscape is 0x3daee9 / 0x3daee9 in the editor.
+        SyntaxEscape: 0x007bac / 0x3daee9,
+        SyntaxMacro: 0x006e28 / 0x27ae60,
+        // DiffAdded is 0x27ae60 / 0x27ae60 in the editor.
+        DiffAdded: 0x00783d / 0x33b667,
+        // DiffRemoved is 0xda4453 / 0xda4453 in the editor.
+        DiffRemoved: 0xbf2f41 / 0xff727a,
+        DiffModified: 0xf67400 / 0xf67400,
+        DiffAddedContainer: 0xdeece5 / 0x203c2e,
+        DiffRemovedContainer: 0xf5e3e6 / 0x492f32,
+        DiffAddedEmphasis: 0xb0d4c3 / 0x255b3c,
+        DiffRemovedEmphasis: 0xeabec4 / 0x764044,
     },
     // Plasma sets its interface in Noto Sans at 10pt, a step smaller than Adwaita's 11pt
     // Cantarell, and its headings are semi bold rather than the near black weights
@@ -575,6 +732,32 @@ const DEEPIN: DesignTokenTable = DesignTokenTable {
         OnSecondaryContainer: 0x79501e / 0xffdcb1,
         TertiaryContainer: 0xebe6f8 / 0x343042,
         OnTertiaryContainer: 0x3d2d6b / 0xcfc4f1,
+        // Code colours. Deepin publishes no code editor scheme, so these are derived from the
+        // base roles above by the same rule Material 3's are. The brand blue, the amber and the
+        // error orange do not reach 4.5:1 on the grey panel as they are, so the rule moves them
+        // darker in tone, keeping their hue and chroma.
+        SyntaxKeyword: 0x006bd5 / 0x3ba2ff,
+        SyntaxString: 0x7758d3 / 0x9f8ae3,
+        SyntaxComment: 0x5a5a5a / 0xb4b4b4,
+        SyntaxNumber: 0x3d2d6b / 0xcfc4f1,
+        SyntaxConstant: 0x3d2d6b / 0xcfc4f1,
+        SyntaxType: 0x9b5e00 / 0xffb964,
+        SyntaxFunction: 0x00407f / 0x9dd0ff,
+        SyntaxVariable: 0x202020 / 0xf0f0f0,
+        SyntaxProperty: 0x79501e / 0xffdcb1,
+        SyntaxOperator: 0x5a5a5a / 0xb4b4b4,
+        SyntaxPunctuation: 0x5a5a5a / 0xb4b4b4,
+        SyntaxTag: 0x006bd5 / 0x3ba2ff,
+        SyntaxAttribute: 0x9b5e00 / 0xffb964,
+        SyntaxEscape: 0xcd3416 / 0xff8a73,
+        SyntaxMacro: 0x9b5e00 / 0xffb964,
+        DiffAdded: 0x007118 / 0x76c270,
+        DiffRemoved: 0xbb2608 / 0xff9783,
+        DiffModified: 0x7a5bd6 / 0x9f8ae3,
+        DiffAddedContainer: 0xd4e2d7 / 0x394838,
+        DiffRemovedContainer: 0xebd9d5 / 0x55403c,
+        DiffAddedEmphasis: 0xa9cbb0 / 0x486746,
+        DiffRemovedEmphasis: 0xe1b4ab / 0x7f564e,
     },
     // A middle weight ladder. The body sits between Breeze's 13 and Adwaita's 15, and the
     // headings are semi bold with loose line heights, which suits the rounded shapes and
@@ -668,6 +851,33 @@ const LIQUID_GLASS: DesignTokenTable = DesignTokenTable {
         OnSecondaryContainer: 0x2a1b70 / 0xdedcff,
         TertiaryContainer: 0xf3ddfb / 0x3f1a52,
         OnTertiaryContainer: 0x3d0b52 / 0xf1d9fa,
+        // Code colours, from Xcode as Cupertino's are. The panel is a step greyer here, so the
+        // diff inks are moved further in tone and the backgrounds resolve differently.
+        SyntaxKeyword: 0x9b2393 / 0xfc5fa3,
+        SyntaxString: 0xc41a16 / 0xfc6a5d,
+        // SyntaxComment is 0x5d6c79 / 0x6c7986 in the editor.
+        SyntaxComment: 0x5d6c79 / 0x798693,
+        SyntaxNumber: 0x1c00cf / 0xd0bf69,
+        SyntaxConstant: 0x6c36a9 / 0xa167e6,
+        SyntaxType: 0x3900a0 / 0xd0a8ff,
+        SyntaxFunction: 0x326d74 / 0x67b7a4,
+        SyntaxVariable: 0x000000 / 0xdfdfe0,
+        SyntaxProperty: 0x326d74 / 0x67b7a4,
+        SyntaxOperator: 0x000000 / 0xdfdfe0,
+        SyntaxPunctuation: 0x000000 / 0xdfdfe0,
+        SyntaxTag: 0x0b4f79 / 0x5dd8ff,
+        SyntaxAttribute: 0x815f03 / 0xbf8555,
+        SyntaxEscape: 0x1c00cf / 0xd0bf69,
+        SyntaxMacro: 0x643820 / 0xfd8f3f,
+        // DiffAdded is 0x248a3d / 0x30d158 in the editor.
+        DiffAdded: 0x00722a / 0x30d158,
+        // DiffRemoved is 0xd70015 / 0xff6961 in the editor.
+        DiffRemoved: 0xc40012 / 0xff6e66,
+        DiffModified: 0x007aff / 0x0a84ff,
+        DiffAddedContainer: 0xd5e3de / 0x20402a,
+        DiffRemovedContainer: 0xecd5dc / 0x492c2c,
+        DiffAddedEmphasis: 0xa9ccb9 / 0x246435,
+        DiffRemovedEmphasis: 0xe4a9b2 / 0x773d3b,
     },
     // Same sizes as the flat language, because Dynamic Type did not move, and heavier at
     // every rung that labels something. A label sitting on a translucent surface competes
@@ -991,6 +1201,131 @@ mod tests {
                     first.spaces, second.spaces,
                     "{:?} and {:?} have the same spacing ladder",
                     first.system, second.system
+                );
+            }
+        }
+    }
+
+    /// Code stays readable on the panel it is drawn on, in every system and both schemes.
+    ///
+    /// Every syntax ink, comments included, holds the body-text bound on `SurfaceContainer`,
+    /// which is what a code block is filled with. Each diff ink holds it on its own line
+    /// background, and so does the body ink, because an unchanged word on a changed line is
+    /// still body text. The word background has to be visible on the line background, or
+    /// the words that changed are not marked at all.
+    #[test]
+    fn fr13_1_3_code_colours_hold_their_contrast_in_every_system() {
+        use crate::contrast::{DIFF_ROLES, MIN_SEPARATION, SYNTAX_ROLES, apart};
+        for table in DESIGN_TOKENS {
+            for scheme in [ColorScheme::Light, ColorScheme::Dark] {
+                let panel = table.color(ColorRole::SurfaceContainer, scheme);
+                for role in SYNTAX_ROLES {
+                    let ratio = contrast(table.color(role, scheme), panel);
+                    assert!(
+                        ratio >= 4.5,
+                        "{:?} {scheme:?}: {role:?} on the code panel is {ratio:.2}:1",
+                        table.system
+                    );
+                }
+                for (ink, line, word) in DIFF_ROLES {
+                    let background = table.color(line, scheme);
+                    let ratio = contrast(table.color(ink, scheme), background);
+                    assert!(
+                        ratio >= 4.5,
+                        "{:?} {scheme:?}: {ink:?} on {line:?} is {ratio:.2}:1",
+                        table.system
+                    );
+                    let body = contrast(table.color(ColorRole::OnSurface, scheme), background);
+                    assert!(
+                        body >= 4.5,
+                        "{:?} {scheme:?}: body text on {line:?} is {body:.2}:1",
+                        table.system
+                    );
+                    let distance = apart(table.color(word, scheme), background);
+                    assert!(
+                        distance >= MIN_SEPARATION,
+                        "{:?} {scheme:?}: {word:?} is {distance} from {line:?}, so the changed \
+                         words are not marked",
+                        table.system
+                    );
+                }
+            }
+        }
+    }
+
+    /// The same code block does not come out in one keyword colour seven times.
+    #[test]
+    fn fr13_1_3_keyword_colour_differs_between_systems() {
+        for scheme in [ColorScheme::Light, ColorScheme::Dark] {
+            let keywords: std::collections::BTreeSet<u32> = DESIGN_TOKENS
+                .iter()
+                .map(|table| table.color(ColorRole::SyntaxKeyword, scheme).to_argb())
+                .collect();
+            assert!(
+                keywords.len() >= 2,
+                "every system paints keywords #{:08x} in {scheme:?}",
+                keywords.first().copied().unwrap_or_default()
+            );
+        }
+    }
+
+    /// The two systems without a code editor scheme hold exactly what the rule derives
+    /// from their own base roles.
+    ///
+    /// One unit of slack per channel, and only that. The derivation runs through powers,
+    /// cube roots and an arctangent, and a different maths library may round the last bit
+    /// of one of those the other way, which can move a channel that sits on a half by one.
+    /// Anything more than that is a value that no longer follows the rule.
+    #[test]
+    fn fr13_1_3_derived_code_colours_follow_the_rule() {
+        for system in [DesignSystem::Material3, DesignSystem::Deepin] {
+            let table = table(system);
+            for scheme in [ColorScheme::Light, ColorScheme::Dark] {
+                let derived = crate::code_colours::derive(table, scheme);
+                assert_eq!(derived.len(), 22);
+                for (role, expected) in derived {
+                    let shipped = table.color(role, scheme);
+                    let off = [16, 8, 0]
+                        .into_iter()
+                        .map(|shift| {
+                            ((shipped.to_argb() >> shift) & 0xff)
+                                .abs_diff((expected.to_argb() >> shift) & 0xff)
+                        })
+                        .max()
+                        .unwrap_or(0);
+                    assert!(
+                        off <= 1,
+                        "{system:?} {scheme:?}: {role:?} is #{:06x} in the table and the rule \
+                         gives #{:06x}",
+                        shipped.to_argb() & 0xff_ffff,
+                        expected.to_argb() & 0xff_ffff
+                    );
+                }
+            }
+        }
+    }
+
+    /// A syntax ink taken from a base role is that role's value where it already reads, so
+    /// a reader can see in the table which role each one came from.
+    #[test]
+    fn fr13_1_3_a_derived_syntax_ink_is_its_base_role_where_that_reads() {
+        for system in [DesignSystem::Material3, DesignSystem::Deepin] {
+            let table = table(system);
+            for scheme in [ColorScheme::Light, ColorScheme::Dark] {
+                let panel = table.color(ColorRole::SurfaceContainer, scheme);
+                for (role, from) in crate::code_colours::DERIVED_FROM {
+                    let base = table.color(from, scheme);
+                    if contrast(base, panel) >= 4.5 {
+                        assert_eq!(
+                            table.color(role, scheme),
+                            base,
+                            "{system:?} {scheme:?}: {role:?} should be {from:?}"
+                        );
+                    }
+                }
+                assert_eq!(
+                    table.color(ColorRole::DiffModified, scheme),
+                    table.color(ColorRole::Tertiary, scheme)
                 );
             }
         }
