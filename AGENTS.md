@@ -121,8 +121,10 @@ none of it.
      `renderer/`, `samples/`, `scripts/`;
    - files: `.gitignore`, `Cargo.toml`, `Cargo.lock`, `CHANGELOG.md`, `LICENSE`,
      `README.md`, `AGENTS.md`, `CLAUDE.md`, `PROJECT.md`;
-   - until they move out of this repository: `adapters/` (to dioxus-compose) and
-     `design-systems/` (to compose-multiplatform-core-extended).
+   - temporary, each with the date it leaves:
+     - `adapters/`, to dioxus-compose, by 2026-10-05 (#37 step 4);
+     - `design-systems/`, to compose-multiplatform-core-extended, by 2026-10-15 (#39).
+     `bench/dioxus-baseline/` leaves with `adapters/`; `bench/` itself stays.
 
    Ignored local directories (`.claude/`, `.scratch/`, `target/`, `build/`) are not part
    of the tree and are covered by "Where files go" above.
