@@ -1,0 +1,34 @@
+# Ember's store listing for Flathub, in the shape of a Dioxus.toml.
+#
+# Ember lives in DarkPyonix/darkpyonix-ember. Once that repository has its own Dioxus.toml,
+# pass that file with --dioxus-toml and this one with --overlay; until then this file is
+# both. What changes per release (the version, the archives and their digests, the
+# screenshot pinned to the release tag) is passed on the command line, as
+# tools/packager-linux/flathub/ember.sh does.
+#
+# The summary and description restate the repository's own one-line description. They
+# are the owner's to rewrite before the listing goes public.
+
+[application]
+name = "Ember"
+
+[bundle]
+identifier = "dev.darkpyonix.Ember"
+publisher = "DarkPyonix"
+short_description = "DarkPyonix Ember Console"
+long_description = """
+Ember is the DarkPyonix console, compatible with Visual Studio Code extensions and
+settings."""
+
+[linux]
+categories = ["Development"]
+keywords = ["console", "terminal", "editor"]
+
+[linux.store]
+exec = "ember"
+license = "MIT"
+homepage = "https://github.com/DarkPyonix/darkpyonix-ember"
+bugtracker = "https://github.com/DarkPyonix/darkpyonix-ember/issues"
+vcs_browser = "https://github.com/DarkPyonix/darkpyonix-ember"
+developer_id = "dev.darkpyonix"
+developer_name = "DarkPyonix"
