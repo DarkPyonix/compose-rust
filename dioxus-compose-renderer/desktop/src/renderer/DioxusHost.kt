@@ -125,6 +125,7 @@ class DioxusHost(private val connection: HostConnection) : EventDispatcher {
 
     private fun applyTransaction(call: ((Mutation) -> Unit) -> Unit) {
         val protocolErrors = mutableListOf<TableError>()
+        var editorEvents: List<HostEvent> = emptyList()
         Snapshot.withMutableSnapshot {
             try {
                 call { mutation -> table.apply(mutation) }
@@ -135,6 +136,7 @@ class DioxusHost(private val connection: HostConnection) : EventDispatcher {
                 protocolErrors += TableError(PROTOCOL_DECODE_ERROR, error.describe())
             }
             protocolErrors += table.drainErrors()
+            editorEvents = table.drainEvents()
         }
         // Reported after the transaction so the Host is never re-entered mid-batch.
         //
@@ -159,6 +161,10 @@ class DioxusHost(private val connection: HostConnection) : EventDispatcher {
                 onProtocolError(error)
             }
         }
+        // What a code editor did with an edit the batch asked of it: the change it made, or
+        // the refusal. After the batch for the same reason as the errors above, and each in
+        // its own call, because the Host answers each one with a batch of its own.
+        editorEvents.forEach { event -> dispatch(event) }
     }
 
     private companion object {

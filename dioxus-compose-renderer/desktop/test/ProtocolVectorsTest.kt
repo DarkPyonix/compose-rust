@@ -10,7 +10,15 @@ import java.nio.ByteOrder
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import dioxus.compose.protocol.CodeEditorRecords
+import dioxus.compose.protocol.DecorationKind
+import dioxus.compose.protocol.DecorationRecord
 import dioxus.compose.protocol.HostEvent
+import dioxus.compose.protocol.HoverPhase
+import dioxus.compose.protocol.PropertyKind
+import dioxus.compose.protocol.PropertyValue
+import dioxus.compose.protocol.Severity
+import dioxus.compose.protocol.SyntaxSpanRecord
 import dioxus.compose.protocol.MessageDuration
 import dioxus.compose.protocol.Modifier as ProtocolModifier
 import dioxus.compose.protocol.Mutation
@@ -87,6 +95,7 @@ class ProtocolVectorsTest {
                 is Mutation.ReleaseAsset -> true
                 // A message names no node, so there is no node for it to have got wrong.
                 is Mutation.ShowMessage -> false
+                is Mutation.EditCode -> mutation.nodeId !in created
             }
         }
         assertEquals(
@@ -144,6 +153,73 @@ class ProtocolVectorsTest {
             ),
             modifiers,
         )
+    }
+
+    /**
+     * The code editor in the vector: the edit record, and the decoration and colour run
+     * records inside its two blobs, read at the offsets the Rust schema gives them.
+     */
+    @Test
+    fun fr38_the_code_editor_records_in_the_vector_decode_to_the_same_values() {
+        val mutations = decodeVector("mutations.bin")
+        assertEquals(
+            listOf(Mutation.EditCode(6, 7, 0, 1, 8, 1, 8, "mut ")),
+            mutations.filterIsInstance<Mutation.EditCode>(),
+        )
+        val props = mutations.filterIsInstance<Mutation.SetProp>().filter { it.nodeId == 6 }
+        assertEquals(WidgetKind.CodeEditor, mutations.filterIsInstance<Mutation.Create>().single { it.nodeId == 6 }.widget)
+        val errors = mutableListOf<String>()
+        val decorations = CodeEditorRecords.decodeDecorations(
+            (props.single { it.property == PropertyKind.Decorations }.value as PropertyValue.Bytes).value,
+            errors::add,
+        )
+        assertEquals(
+            listOf(
+                DecorationRecord(0, DecorationKind.Underline, Severity.Warning, ColorRole.Error, 1, 8, 1, 9, 0L, ""),
+                DecorationRecord(0, DecorationKind.CodeLens, null, null, 0, 0, 0, 0, 41L, "Run"),
+                DecorationRecord(0, DecorationKind.HoverAnchor, null, null, 0, 3, 0, 7, 42L, ""),
+                DecorationRecord(0, DecorationKind.GhostText, null, null, 2, 1, 2, 1, 43L, " // end"),
+            ),
+            decorations,
+        )
+        val spans = CodeEditorRecords.decodeSyntaxSpans(
+            (props.single { it.property == PropertyKind.SyntaxSpans }.value as PropertyValue.Bytes).value,
+            errors::add,
+        )
+        assertEquals(
+            listOf(
+                SyntaxSpanRecord(0, 0, 0, 0, 2, Paint.Role(ColorRole.Primary)),
+                SyntaxSpanRecord(0, 1, 12, 1, 16, Paint.Role(ColorRole.Tertiary)),
+            ),
+            spans,
+        )
+        assertEquals(emptyList<String>(), errors)
+    }
+
+    /** The five code editor events encode here to the bytes the Rust Host decodes. */
+    @Test
+    fun fr38_the_code_editor_events_encode_to_the_vector_bytes() {
+        val bytes = vectorFile("events.bin").readBytes()
+        fun encoded(event: HostEvent): ByteArray {
+            val buffer = ByteBuffer.allocate(256).order(ByteOrder.LITTLE_ENDIAN)
+            val length = Protocol.encodeEvent(event, buffer)
+            return buffer.array().copyOf(length)
+        }
+        val expected = listOf(
+            225 to HostEvent.CodeChanged(12, 18L, 1, 1, 8, 1, 8, "mut "),
+            273 to HostEvent.CodeEditRejected(12, 19L, 7, 0, 2, 1, 8, 1, 9),
+            317 to HostEvent.CodeHovered(12, 20L, 42L, 0, 4, HoverPhase.Rest),
+            353 to HostEvent.CodeSaveRequested(12, 21L, 2),
+            377 to HostEvent.DecorationActivated(12, 22L, 41L),
+        )
+        for ((offset, event) in expected) {
+            val wire = encoded(event)
+            assertTrue(
+                wire.contentEquals(bytes.copyOfRange(offset, offset + wire.size)),
+                "$event at $offset",
+            )
+        }
+        assertEquals(401, bytes.size)
     }
 
     private fun decodeVector(name: String): List<Mutation> {
