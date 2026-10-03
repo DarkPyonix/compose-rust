@@ -29,6 +29,13 @@ name = "codegen"
 path = "src/bin/codegen.rs"
 bench = false
 
+# The browser's Host is a wasm module the page fetches, built by
+# renderer/web/scripts/build-host.sh. It has no `main`: the Renderer's module owns the
+# loop, and the page calls the entry point this example exports once both modules exist.
+[[example]]
+name = "web_host"
+crate-type = ["cdylib"]
+
 [features]
 # The renderer is what draws, so it is on by default. Adding this crate to a Cargo.toml is
 # meant to be the whole setup: the build script finds a renderer for the target or
@@ -43,8 +50,10 @@ mock-renderer = []
 native-renderer = []
 
 # Nothing from Dioxus, on purpose. This crate is the boundary, the protocol and the records,
-# and its own dependency graph has no Dioxus crate in it. The Dioxus authoring layer is
-# `dioxus-compose-adapter`, which depends on this crate and not the other way round. `scripts/tests/core-has-no-dioxus.test.sh` fails the build if that changes.
+# and its dependency graph has no Dioxus crate in it. The Dioxus authoring layer lives in
+# dioxus-compose (https://github.com/DarkPyonix/dioxus-compose), which depends on this
+# crate and not the other way round. `scripts/tests/core-has-no-dioxus.test.sh` fails the
+# build if that changes.
 [dependencies]
 
 # The Android shims are generated against jni-rs. Nothing here is linked into a desktop,

@@ -176,7 +176,8 @@
     <p>
       A layer that computes its own layout needs to know how big text will be before it places it.
       The measure call lets the Host ask the renderer, in the middle of its layout, how much room a
-      piece of text or an already-sent widget takes within given constraints.
+      piece of text or an already-sent widget takes within given constraints. It is tracked in
+      <a href="https://github.com/DarkPyonix/compose-rust/issues/106">#106</a>.
     </p>
     <figure class="codeblock">
       <figcaption>c: Host to Renderer, planned</figcaption>

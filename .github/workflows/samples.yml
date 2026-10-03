@@ -1,6 +1,11 @@
 # Sample apps -- builds every sample for every desktop platform when a `sample-v*` tag is
 # pushed, and attaches the binaries to a GitHub Release.
 #
+# Skipped while the samples are rewritten on the compose-rust API (#85). The twelve samples
+# under samples/ still name the Dioxus adapter, which moved to dioxus-compose, so they do
+# not build until the rewrite lands. The `status` job says so as a notice and every build
+# job is skipped, not failed. Resuming is setting `rewritten` to true once #85 closes.
+#
 # A sample that does not build on a platform is skipped and the release goes ahead with
 # the rest. Eleven samples across three platforms is thirty-three builds, and holding all
 # of them back because one of them broke on one platform helps nobody. A platform where
@@ -17,9 +22,6 @@
 name: Sample apps
 
 on:
-  push:
-    tags:
-      - 'sample-v*'
   workflow_dispatch:
     inputs:
       tag:
@@ -31,7 +33,21 @@ permissions:
   contents: read
 
 jobs:
+  status:
+    name: Samples are being rewritten on the compose-rust API (#85)
+    runs-on: ubuntu-latest
+    outputs:
+      rewritten: ${{ steps.state.outputs.rewritten }}
+    steps:
+      - id: state
+        name: Report the state
+        run: |
+          echo "rewritten=false" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Samples skipped::The samples are being rewritten on the compose-rust API (https://github.com/DarkPyonix/compose-rust/issues/85). Their builds are skipped until then."
+
   build:
+    needs: status
+    if: needs.status.outputs.rewritten == 'true'
     name: ${{ matrix.target }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
@@ -170,7 +186,7 @@ jobs:
               continue
             fi
             echo "== sample-$app"
-            if cargo build --release -p "sample-$app" --features dioxus-compose-adapter/native-renderer; then
+            if cargo build --release -p "sample-$app" --features compose-rust/native-renderer; then
               echo "$app" >> built.txt
             else
               echo "$app" >> skipped.txt
@@ -233,6 +249,8 @@ jobs:
 
 
   android:
+    needs: status
+    if: needs.status.outputs.rewritten == 'true'
     name: android
     runs-on: ubuntu-24.04
     timeout-minutes: 120
@@ -293,6 +311,8 @@ jobs:
           path: artifacts/
 
   ios:
+    needs: status
+    if: needs.status.outputs.rewritten == 'true'
     name: ios-simulator
     runs-on: macos-26
     timeout-minutes: 120
@@ -347,6 +367,8 @@ jobs:
           path: artifacts/
 
   web:
+    needs: status
+    if: needs.status.outputs.rewritten == 'true'
     name: web
     runs-on: ubuntu-24.04
     timeout-minutes: 120
