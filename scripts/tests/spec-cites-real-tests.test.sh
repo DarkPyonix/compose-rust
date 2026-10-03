@@ -16,13 +16,13 @@ cd "$repo_root"
 failures=0
 missing=()
 
-# Tests the SPEC names that moved to dioxus-compose with the Dioxus adapter. Each one
-# checks what the adapter's rsx! widgets write, so it went where those widgets went. They
-# are named here one by one, with the file they were in, rather than by skipping a
-# directory, so a test that is merely missing still fails. Where this checkout's history
-# has the commit the FR-39 baseline is pinned to (bench/fr39-baseline.env), each is also
-# checked to exist there. The SPEC criteria that cite them are still to be pointed at
-# dioxus-compose.
+# Tests the SPEC names that moved to dioxus-compose with the Dioxus adapter, where they
+# are in dioxus-compose/tests/. Each one checks what the adapter's rsx! widgets write, so
+# it went where those widgets went. They are named here one by one, with the file they
+# were in, rather than by skipping a directory, so a test that is merely missing still
+# fails. Where this checkout's history has 22822c130, the last commit that held the
+# adapter here, each is also checked to exist there. The SPEC criteria that cite them are
+# still to be pointed at dioxus-compose.
 moved_rev=22822c130a8211de7f65e0320db5e6a4db1a8bb1
 moved=(
     "fr13_button_label_colour_is_sent_as_a_role adapters/dioxus/tests/design_primitives.rs"

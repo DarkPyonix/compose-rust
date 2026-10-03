@@ -57,7 +57,16 @@ baseline="$checkout/$FR39_BASELINE_PATH"
     fail "the pinned commit has no baseline crate at $FR39_BASELINE_PATH" \
         "The pin and the path in $pin disagree."
 if [[ -n "${FR39_BASELINE_ADAPTER_PATH:-}" ]]; then
-    [[ -f "$checkout/$FR39_BASELINE_ADAPTER_PATH/Cargo.toml" ]] ||
+    adapter="$checkout/$FR39_BASELINE_ADAPTER_PATH/Cargo.toml"
+    [[ -f "$adapter" ]] ||
         fail "the pinned commit has no adapter at $FR39_BASELINE_ADAPTER_PATH"
+    # The compose-rust under the adapter is part of the baseline too. The pin says which
+    # one it is, and the adapter's manifest has to say the same.
+    if [[ -n "${FR39_BASELINE_COMPOSE_RUST_REV:-}" ]]; then
+        grep -q "compose-rust.*rev = \"$FR39_BASELINE_COMPOSE_RUST_REV\"" "$adapter" ||
+            fail "the adapter at the pinned commit does not depend on compose-rust $FR39_BASELINE_COMPOSE_RUST_REV" \
+                "What it names: $(grep -n 'compose-rust' "$adapter" | head -3)" \
+                "The pin and the commit disagree about the baseline. Update both together."
+    fi
 fi
 echo "$baseline"
