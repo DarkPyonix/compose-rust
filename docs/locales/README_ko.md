@@ -87,7 +87,7 @@ fn main() {
 | 🪟 Windows | 빌드되고 시작됨 | 지금은 GraalVM 네이티브 이미지이고, 렌더러가 바뀔 때마다 스모크 테스트를 합니다. Windows도 실행 파일 하나가 되도록 Kotlin/Native로 옮겨 가는 중입니다 |
 | 📱 iOS | 빌드되고 시작됨 | 같은 C 심볼을 내보내는 Kotlin/Native 정적 아카이브. XCFramework로 릴리스합니다 |
 | 🤖 Android | **처음부터 끝까지 동작** | Kotlin Activity가 프로세스와 루프를 갖고, Rust는 cdylib이며, 양쪽 JNI 심은 스키마에서 생성됩니다. 크레이트가 렌더러의 Kotlin 소스를 싣고 있고, 빌드 스크립트가 그것을 Gradle 프로젝트에 풀어 놓습니다 |
-| 🌐 Web (wasm) | **처음부터 끝까지 동작** | `WebAssembly.Memory` 하나를 Kotlin/Wasm 모듈이 갖고 Rust 모듈이 가져다 쓰므로, 배치는 쓰인 자리에서 읽힙니다. 두 모듈 사이의 호출에는 JavaScript가 없습니다. 렌더러에서 Host로 가는 호출은 생성된 작은 wasm 트램펄린(두 모듈이 모두 생긴 뒤 채우는 테이블을 거치는 `call_indirect`)을 거치며 Safari 26.5에서 4.35 ns, Chrome 154에서 7.11 ns로 측정되었습니다(JavaScript 포워더는 12.45 ns, 25.57 ns). Host에서 렌더러로는 wasm import를 렌더러의 export에 그대로 묶습니다. 생성된 경계를 트램펄린으로 옮기는 작업은 #54입니다 |
+| 🌐 Web (wasm) | **처음부터 끝까지 동작** | `WebAssembly.Memory` 하나를 Kotlin/Wasm 모듈이 갖고 Rust 모듈이 가져다 쓰므로, 배치는 쓰인 자리에서 읽힙니다. 두 모듈 사이의 호출에는 JavaScript가 없습니다. 렌더러에서 Host로 가는 호출은 생성된 작은 wasm 트램펄린(두 모듈이 모두 생긴 뒤 채우는 테이블을 거치는 `call_indirect`)을 거치며 Safari 26.5에서 4.35 ns, Chrome 154에서 7.11 ns로 측정되었습니다(JavaScript 포워더는 12.45 ns, 25.57 ns). Host에서 렌더러로는 wasm import를 렌더러의 export에 그대로 묶습니다 |
 
 ### 실제 무게
 

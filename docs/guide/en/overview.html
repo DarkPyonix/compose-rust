@@ -212,7 +212,7 @@
           <tr>
             <td>Web (wasm)</td>
             <td><span class="pill works">Works end to end</span></td>
-            <td>The Kotlin/Wasm module owns one <code>WebAssembly.Memory</code> and the Rust module imports it, so a batch is read where it was written. Calls between the two modules have no JavaScript on them: renderer to Host goes through a generated <code>call_indirect</code> trampoline, measured at 4.35&nbsp;ns in Safari 26.5 and 7.11&nbsp;ns in Chrome 154 against 12.45&nbsp;ns and 25.57&nbsp;ns for a JavaScript forwarder, and Host to renderer binds a wasm import straight to the renderer's export. Moving the generated boundary onto the trampoline is #54.</td>
+            <td>The Kotlin/Wasm module owns one <code>WebAssembly.Memory</code> and the Rust module imports it, so a batch is read where it was written. Calls between the two modules have no JavaScript on them: renderer to Host goes through a generated <code>call_indirect</code> trampoline, measured at 4.35&nbsp;ns in Safari 26.5 and 7.11&nbsp;ns in Chrome 154 against 12.45&nbsp;ns and 25.57&nbsp;ns for a JavaScript forwarder, and Host to renderer binds a wasm import straight to the renderer's export.</td>
           </tr>
         </tbody>
       </table>

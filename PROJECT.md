@@ -21,7 +21,7 @@ Rust(Dioxus)로 선언형 UI를 쓰고, AOT 컴파일된 Compose Multiplatform�
 - 데스크톱 native-image(`--shared`) 빌드 파이프라인과 iOS Kotlin/Native 빌드.
 - JVM 개발 셸: 개발 중 hot reload와 `@Preview`를 쓰기 위한 것입니다.
 - Android 타깃. Kotlin 호스트 + 생성된 JNI 심(SPEC PR-5).
-- Web(wasmJs) 타깃. JS 브리지 없이 wasm 모듈끼리 직결합니다(SPEC PR-6). 직결은 2026-10-03 재측정으로 확인했고(#54, PR #75), 생성된 경계를 트램펄린으로 바꾸는 작업은 #54 (d)입니다.
+- Web(wasmJs) 타깃. JS 브리지 없이 wasm 모듈끼리 직결합니다(SPEC PR-6). 직결은 2026-10-03 재측정으로 확인했습니다(#54, PR #75).
 
 **제외 (현재)**
 - Compose API 전체를 Rust로 미러링하는 것. 코어 스키마는 세 디자인 시스템 공통 축에 있는 위젯 29개로 한정하고(FR-15), 특정 시스템 고유 위젯은 FR-11 확장 패키지가 맡습니다.
