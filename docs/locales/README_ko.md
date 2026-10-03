@@ -404,7 +404,11 @@ macOS에서는 Xcode 명령줄 도구(`xcode-select --install`)도 필요합니�
 ```
 
 고정된 커밋을 받아, 렌더러가 요구하는 모듈을 발행합니다. 오래 걸리지만 빌드마다 할
-일은 아니고 한 번이면 됩니다. 나머지는 여전히 JetBrains가 발행한 것에서 해결됩니다.
+일은 아니고 한 번이면 됩니다. 포크는 자기 좌표(`org.thisisthepy.compose.*`,
+`<상류 버전>-ext.<N>`)로 발행하고 아직 공개 저장소에는 없으므로, Compose는 JetBrains가 발행한
+것에서 하나도 오지 않습니다. 빌드하는 타깃마다 이 스크립트를 돌려야 합니다. 예를 들어
+`--target macosArm64 --target jvm`이고, 타깃은 `macosArm64`, `linuxX64`, `iosArm64`,
+`iosSimulatorArm64`, `wasmJs`, `jvm`, `android`입니다.
 
 ### 4. Kotlin
 

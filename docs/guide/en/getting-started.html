@@ -139,8 +139,11 @@ compose-rust = "0.0.1"</code></pre>
     </figure>
 
     <p>
-      It fetches the pinned commit and publishes the modules the renderer asks for. This is slow and you run it once, not once per build. Everything else still
-      resolves from what JetBrains published.
+      It fetches the pinned commit and publishes the modules the renderer asks for. This is slow and you run it once, not once per build.
+      The fork publishes under its own coordinates, <code>org.thisisthepy.compose.*</code> at
+      <code>&lt;upstream version&gt;-ext.&lt;N&gt;</code>, and no public repository has them yet, so
+      nothing of Compose resolves from what JetBrains published: each target you build needs its
+      turn of the script, for example <code>--target macosArm64 --target jvm</code>.
     </p>
 
     <div class="warn">

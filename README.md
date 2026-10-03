@@ -409,8 +409,12 @@ and the build script pins one commit of it.
 ./dioxus-compose-renderer/scripts/build-compose.sh
 ```
 
-It fetches the pinned commit and publishes the modules the renderer asks for. Slow, and run once rather than once per build. Everything else still resolves from what
-JetBrains published.
+It fetches the pinned commit and publishes the modules the renderer asks for. Slow, and run once rather than once per build.
+The fork publishes under its own coordinates, `org.thisisthepy.compose.*` at `<upstream version>-ext.<N>`,
+and no public repository has them yet, so nothing of Compose resolves from what JetBrains published:
+every target you build needs its turn of the script, for example
+`--target macosArm64 --target jvm` (the targets are `macosArm64`, `linuxX64`, `iosArm64`,
+`iosSimulatorArm64`, `wasmJs`, `jvm` and `android`).
 
 ### 4. Kotlin
 

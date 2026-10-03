@@ -135,8 +135,9 @@ Compose를 소스에서 `linuxX64` 타깃을 켜고 빌드합니다. 분기를 �
 보낼 수 있는 모양입니다. 그 변경은
 Compose 포크 `thisisthepy/compose-multiplatform-core-extended`의 `extended` 브랜치에 커밋으로
 있고, 빌드와 발행은
-`scripts/build-compose.sh --target linuxX64`입니다. `runtime` 하나만 상류에서 오고
-나머지는 전부 여기서 발행되므로, macOS와 달리 발행할 모듈이 스무 개가 넘습니다.
+`scripts/build-compose.sh --target linuxX64`입니다. 포크는 자기 좌표
+(`org.thisisthepy.compose.*`, `<상류 버전>-ext.<N>`)로 발행하므로 상류에서 그대로 오는 모듈은
+없고, `runtime`까지 포함해 렌더러가 닿는 모듈이 전부 여기서 발행됩니다. 다른 타깃도 같습니다.
 
 모듈은 `linux/`입니다. macOS 모듈과 같은 모양입니다: 인터프리터와 생성된 프로토콜을
 `src/shared/`의 심볼릭 링크로 공유하고, 경계는 iOS의 것을 그대로 씁니다. 따로 쓴 것은
