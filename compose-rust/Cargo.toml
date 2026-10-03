@@ -9,16 +9,15 @@ license.workspace = true
 rust-version.workspace = true
 description = "Declarative UI in Rust, rendered by an AOT-compiled Compose Multiplatform engine."
 repository = "https://github.com/DarkPyonix/compose-rust"
-keywords = ["ui", "gui", "dioxus", "compose", "desktop"]
+keywords = ["ui", "gui", "compose", "declarative", "desktop"]
 categories = ["gui"]
 readme = "../README.md"
 
 [lib]
 name = "compose_rust"
 crate-type = ["rlib", "cdylib", "staticlib"]
-# The lib has no #[bench] items, but `cargo bench` would still run its default test
-# harness, which rejects Criterion's flags (--quick, --noplot). Benchmarks live in
-# benches/host.rs with harness = false.
+# The lib has no #[bench] items, but `cargo bench --workspace` would still run its default
+# test harness, which rejects Criterion's flags (--quick, --noplot).
 bench = false
 
 [[bin]]
@@ -39,37 +38,14 @@ default = ["native-renderer"]
 mock-renderer = []
 native-renderer = []
 
+# Nothing from Dioxus, on purpose. This crate is the boundary, the protocol and the records,
+# and its own dependency graph has no Dioxus crate in it. The Dioxus authoring layer is
+# `dioxus-compose-adapter`, which depends on this crate and not the other way round. `scripts/tests/core-has-no-dioxus.test.sh` fails the build if that changes.
 [dependencies]
 compose-rust-macros = { path = "../compose-rust-macros", version = "0.0.1" }
-dioxus-core.workspace = true
-dioxus-core-macro.workspace = true
-dioxus-hooks.workspace = true
-dioxus-signals.workspace = true
 
 # The Android shims are generated against jni-rs. Nothing here is linked into a desktop,
 # iOS or web build, and the alternative bindings generators were rejected for their
 # per-call cost.
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"
-
-# Criterion is not built for the browser. Its default features pull in rayon, which
-# refuses to compile for a wasm target, and building the Host as a wasm module compiles
-# dev-dependencies because an example is a dev target. The benchmarks only ever run on the
-# machine that records their numbers.
-[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
-criterion = "0.7"
-
-[[bench]]
-name = "host"
-harness = false
-
-[[example]]
-name = "desktop_demo"
-required-features = ["native-renderer"]
-
-# The browser's Host is a wasm module the page fetches. It has no `main` either: the
-# Renderer's module owns the loop, and `web_main!` registers this example's root component
-# from the entry point the page calls once both modules exist.
-[[example]]
-name = "web_demo"
-crate-type = ["cdylib"]

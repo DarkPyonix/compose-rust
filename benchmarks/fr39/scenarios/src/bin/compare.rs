@@ -168,7 +168,7 @@ fn main() {
         document["fr39"] = serde_json::json!({
             "machine": machine,
             "load_average": load_average,
-            "baseline_commit": "ab73fb45b416d1a143b1593cd03aee8af186c12a",
+            "baseline_commit": "b18bdfea6993566475cd53334fe20b2faf1ac107",
             "raw_runs": baseline_files.iter().chain(candidate_files.iter()).collect::<Vec<_>>(),
             "runs": runs,
             "comparisons": comparisons,

@@ -1,14 +1,16 @@
-//! The node table and the attribute translation that every authoring front end writes
-//! through.
+//! The slot table runtime's node table and the translation of a widget attribute into
+//! wire records.
 //!
-//! Two front ends produce the same wire records: the `rsx!` path, where `dioxus-core`
-//! compares templates and calls back with what changed, and the slot table runtime in
-//! [`crate::runtime`], which re-runs the groups that read a changed state and knows what it
-//! changed without comparing a tree. Both end here, so a widget attribute means exactly one
-//! thing on the wire whichever of them said it. That is what lets the Renderer stay
-//! unchanged, and it is why nothing in this file knows about either front end.
+//! The translation is the one the Dioxus adapter's renderer applies to an `rsx!`
+//! attribute: the same Modifier slots, the same owners of a shared slot, the same rule
+//! that a design property at its neutral value is not sent. A widget composed here and the
+//! same widget written in `rsx!` therefore send the same records, which the parity tests
+//! check by comparing the trees the two build. The node table is simpler than the
+//! adapter's, because a composition has no placeholders and no templates: every child is
+//! a node, placed after the one composed before it.
 
-use crate::protocol::{BatchEncoder, Mutation, PropertyValue, ProtocolError};
+use crate::protocol::{Mutation, PropertyValue, ProtocolError};
+use crate::runtime::Batch;
 use crate::schema::{PropertyKind, WidgetKind};
 use std::collections::HashMap;
 
@@ -46,46 +48,16 @@ pub enum AttrValue<'a> {
     Bool(bool),
     /// An opaque run of bytes: a drawing command list or a list of text runs.
     Bytes(&'a [u8]),
-    /// An event listener, carrying the handler id the front end allocated for it.
-    Listener(u64),
-    /// A value of a type no widget attribute accepts. It is never written.
-    Unsupported,
-}
-
-/// One position among a parent's children.
-///
-/// The Renderer counts only the nodes it drew, so the index an Insert carries is the
-/// number of drawn siblings that come first. A placeholder and a template's unfilled
-/// dynamic child are both positions nothing is drawn for, and keeping them here is what
-/// lets the content that arrives later take the position it was promised rather than the
-/// end of the list.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Slot {
-    /// A node the Renderer drew.
-    Node(u32),
-    /// A placeholder, named by the front end's own identity for it. Placeholders all carry
-    /// node id 0, so this is the only thing that tells two of them apart.
-    Hole(usize),
-    /// A template's dynamic child, from the moment the template is built until the
-    /// content of that child arrives.
-    Pending(u32),
 }
 
 /// The Host's half of the node table, and the batch the current call is writing.
 pub struct NodeWriter {
-    encoder: BatchEncoder,
+    /// The batch the records go into: the one the Host writes its own records into too.
+    batch: Batch,
     next_node_id: u32,
     next_handler_id: u64,
     /// Which parent each drawn node hangs under.
     parents: HashMap<u32, u32>,
-    /// Which parent each placeholder stands under, keyed by its own identity rather than
-    /// by a node id.
-    ///
-    /// Placeholders all share node id 0, so keying them by node id made every one of them
-    /// overwrite the last: a branch that filled in was then attached to whichever other
-    /// placeholder had been seen most recently, which put a subtree under a stranger and,
-    /// when that stranger was its own descendant, left the parent chain with no root.
-    placeholders: HashMap<usize, u32>,
     /// What stands under each parent, in order.
     ///
     /// An index is read off this list rather than remembered from the Insert that put a
@@ -93,9 +65,7 @@ pub struct NodeWriter {
     /// only right until the next removal: a menu whose entries came and went handed the
     /// next set of entries the position the old last entry had held, and they piled up
     /// past the end of the list instead of taking its place.
-    children: HashMap<u32, Vec<Slot>>,
-    /// The next marker to stand in a template's dynamic child.
-    next_marker: u32,
+    children: HashMap<u32, Vec<u32>>,
     /// Which design properties a node has actually been given, one bit per tag.
     optional_props: HashMap<u32, u64>,
     /// A border arrives as a width and a colour in separate attributes; this holds
@@ -114,7 +84,6 @@ pub struct NodeWriter {
     modifier_slots: HashMap<u32, [&'static str; MODIFIER_SLOTS]>,
     /// Which application token each observed node was given, for reading a report back.
     size_tokens: HashMap<u32, u32>,
-    error: Option<ProtocolError>,
 }
 
 impl Default for NodeWriter {
@@ -126,39 +95,24 @@ impl Default for NodeWriter {
 impl NodeWriter {
     pub fn new() -> Self {
         Self {
-            encoder: BatchEncoder::with_capacity(16 * 1024, 4 * 1024, 256),
+            batch: Batch::new(),
             next_node_id: 1,
             next_handler_id: 1,
             parents: HashMap::with_capacity(256),
-            placeholders: HashMap::with_capacity(16),
             children: HashMap::with_capacity(256),
-            next_marker: 1,
             optional_props: HashMap::with_capacity(64),
             pending_borders: HashMap::with_capacity(16),
             modifier_slots: HashMap::with_capacity(64),
             // Empty until a screen asks, which is the point: a tree that observes nothing
             // allocates nothing here.
             size_tokens: HashMap::new(),
-            error: None,
         }
     }
 
     /// The batch arena, so a runtime that reads Host memory through a mapped view can be
     /// handed one.
     pub fn arena(&self) -> (*const u8, usize) {
-        self.encoder.arena()
-    }
-
-    pub fn begin_frame(&mut self) {
-        self.encoder.clear();
-        self.error = None;
-    }
-
-    pub fn finish_frame(&mut self) -> Result<&[u8], ProtocolError> {
-        if let Some(error) = self.error.take() {
-            return Err(error);
-        }
-        self.encoder.finish()
+        self.batch.arena()
     }
 
     /// The application's name for an observed node, if that node is observed.
@@ -166,18 +120,17 @@ impl NodeWriter {
         self.size_tokens.get(&node_id).copied()
     }
 
-    /// Keeps the first error of the frame. It is reported when the batch is finished,
-    /// because neither front end has a fallible place to report it from mid-frame.
-    pub(crate) fn set_error(&mut self, error: ProtocolError) {
-        self.error = Some(error);
+    /// The batch, for a Host that writes its own records into it.
+    pub(crate) fn batch(&self) -> &Batch {
+        &self.batch
+    }
+
+    pub(crate) fn batch_mut(&mut self) -> &mut Batch {
+        &mut self.batch
     }
 
     pub(crate) fn write(&mut self, mutation: Mutation<'_>) {
-        if self.error.is_none() {
-            if let Err(error) = self.encoder.encode(&mutation) {
-                self.error = Some(error);
-            }
-        }
+        self.batch.write(mutation);
     }
 
     /// The next handler id. Ids are never reused, so an event that arrives for a handler
@@ -197,99 +150,6 @@ impl NodeWriter {
             widget,
         });
         id
-    }
-
-    /// The root theme record. Written once per rebuild, never per frame.
-    pub fn set_theme(&mut self, theme: crate::schema::Theme) {
-        self.write(Mutation::SetTheme(theme));
-    }
-
-    /// The root window record. Written once per rebuild, never per frame.
-    pub fn set_window(&mut self, window: crate::schema::Window) {
-        self.write(Mutation::SetWindow(window));
-    }
-
-    pub fn set_text_node(&mut self, node_id: u32, text: &str, selection: Option<crate::Selection>) {
-        self.write(Mutation::SetText {
-            node_id,
-            text,
-            selection,
-        });
-    }
-
-    /// A Text node's string, as a template's static text or a dynamic text node carries it.
-    pub(crate) fn set_text_property(&mut self, node_id: u32, text: &str) {
-        self.write(Mutation::SetProp {
-            node_id,
-            property: PropertyKind::Text,
-            value: PropertyValue::String(text),
-        });
-    }
-
-    /// Copies one asset into the batch. The bytes ride behind the records, and the
-    /// Renderer takes its own copy inside the call that carries them.
-    pub fn register_asset(&mut self, asset_id: u32, kind: crate::schema::AssetKind, bytes: &[u8]) {
-        self.write(Mutation::RegisterAsset {
-            asset_id,
-            kind,
-            bytes,
-        });
-    }
-
-    pub fn release_asset(&mut self, asset_id: u32) {
-        self.write(Mutation::ReleaseAsset { asset_id });
-    }
-
-    /// Writes one transient message into the batch.
-    ///
-    /// It names no node, because a message is not in the tree: it is a sentence with a
-    /// lifetime, and that lifetime belongs to the Renderer.
-    pub fn show_message(
-        &mut self,
-        handler_id: u64,
-        text: &str,
-        action: &str,
-        duration: crate::schema::MessageDuration,
-    ) {
-        self.write(Mutation::ShowMessage {
-            handler_id,
-            text,
-            action,
-            duration,
-        });
-    }
-
-    /// Writes one notification command into the batch.
-    ///
-    /// Like a message it names no node: what it asks for happens outside the window, and
-    /// the Renderer is the side that owns the platform it happens on.
-    pub(crate) fn notification(&mut self, command: &crate::notification::NotificationCommand) {
-        use crate::notification::NotificationCommand;
-        match command {
-            NotificationCommand::Post(notification) => {
-                self.write(Mutation::PostNotification {
-                    key: &notification.key,
-                    title: &notification.title,
-                    body: &notification.body,
-                    channel: &notification.channel,
-                    action_1: &notification.actions[0],
-                    action_2: &notification.actions[1],
-                    importance: notification.importance,
-                    presentation: notification.presentation,
-                });
-            }
-            NotificationCommand::Withdraw(key) => {
-                self.write(Mutation::WithdrawNotification { key });
-            }
-            NotificationCommand::RequestPermission => {
-                self.write(Mutation::RequestNotificationPermission);
-            }
-        }
-    }
-
-    /// Append the streamed tail to a Text node without resending its whole value.
-    pub fn append_text_node(&mut self, node_id: u32, text: &str) {
-        self.write(Mutation::AppendText { node_id, text });
     }
 
     /// Writes one widget attribute: a Modifier slot, a property, or nothing.
@@ -319,17 +179,6 @@ impl NodeWriter {
                 node_id,
                 property,
                 value: PropertyValue::Integer(handler_id as i64),
-            });
-        }
-    }
-
-    /// Takes a listener away: the property it was fired through is cleared.
-    pub(crate) fn clear_listener(&mut self, node_id: u32, name: &str) {
-        if let Some(property) = event_property(name) {
-            self.write(Mutation::SetProp {
-                node_id,
-                property,
-                value: PropertyValue::None,
             });
         }
     }
@@ -516,17 +365,8 @@ impl NodeWriter {
                 };
                 Some(Some((BORDER, Modifier::Border { width, paint })))
             }
-            "onclickable" => {
-                let AttrValue::Listener(handler_id) = value else {
-                    return Some(None);
-                };
-                Some(Some((
-                    CLICKABLE,
-                    Modifier::Clickable {
-                        handler_id: *handler_id,
-                    },
-                )))
-            }
+            // No composable writes a clickable modifier; a clickable widget is a Button.
+            "onclickable" => Some(None),
             _ => None,
         }
     }
@@ -567,7 +407,7 @@ impl NodeWriter {
         let Some(property) = property_kind(name) else {
             // Neither front end has a fallible place to report this from. Keep the
             // protocol error and surface it when the batch is finalized.
-            self.error = Some(ProtocolError::InvalidProperty(0));
+            self.batch.fail(ProtocolError::InvalidProperty(0));
             return;
         };
         let value = match value {
@@ -580,7 +420,6 @@ impl NodeWriter {
             // before calling here, so an unchanged list never reaches this point and costs
             // no record.
             AttrValue::Bytes(bytes) => PropertyValue::Bytes(bytes),
-            AttrValue::Listener(_) | AttrValue::Unsupported => return,
         };
         let neutral = matches!(
             value,
@@ -596,157 +435,34 @@ impl NodeWriter {
         });
     }
 
-    /// One past the last position under `parent`.
-    pub(crate) fn end_of(&self, parent: u32) -> usize {
-        self.children.get(&parent).map_or(0, Vec::len)
-    }
-
-    /// Stands a marker in a template's dynamic child until its content arrives, and says
-    /// which marker it was.
-    pub(crate) fn reserve_slot(&mut self, parent: u32) -> u32 {
-        let marker = self.next_marker;
-        self.next_marker = self.next_marker.checked_add(1).unwrap_or(1);
+    /// Where a drawn node stands under `parent`.
+    fn position_of(&self, parent: u32, node_id: u32) -> Option<usize> {
         self.children
-            .entry(parent)
-            .or_default()
-            .push(Slot::Pending(marker));
-        marker
-    }
-
-    /// Takes a template's marker out of `parent` and says where it stood.
-    pub(crate) fn take_pending(&mut self, parent: u32, marker: u32) -> Option<usize> {
-        let list = self.children.get_mut(&parent)?;
-        let position = list
-            .iter()
-            .position(|slot| *slot == Slot::Pending(marker))?;
-        list.remove(position);
-        Some(position)
-    }
-
-    /// Where the given slot stands: the parent it hangs under and its position in that
-    /// parent's list.
-    pub(crate) fn locate(&self, slot: Slot) -> Option<(u32, usize)> {
-        let parent = match slot {
-            Slot::Node(node_id) => *self.parents.get(&node_id)?,
-            Slot::Hole(element) => *self.placeholders.get(&element)?,
-            Slot::Pending(_) => return None,
-        };
-        let position = self
-            .children
             .get(&parent)?
             .iter()
-            .position(|standing| *standing == slot)?;
-        Some((parent, position))
-    }
-
-    /// How many drawn nodes stand before `position` under `parent`, which is the index
-    /// the Renderer understands.
-    fn drawn_before(&self, parent: u32, position: usize) -> u32 {
-        self.children.get(&parent).map_or(0, |list| {
-            list.iter()
-                .take(position)
-                .filter(|slot| matches!(slot, Slot::Node(_)))
-                .count() as u32
-        })
-    }
-
-    /// Takes the slot out of wherever it stands, and says where that was.
-    pub(crate) fn detach(&mut self, slot: Slot) -> Option<(u32, usize)> {
-        let (parent, position) = self.locate(slot)?;
-        if let Some(list) = self.children.get_mut(&parent) {
-            list.remove(position);
-        }
-        Some((parent, position))
-    }
-
-    /// Puts the slot under `parent` at `position`, and says which position it took.
-    fn attach(&mut self, parent: u32, slot: Slot, position: usize) -> usize {
-        let mut position = position;
-        if let Some((from, was_at)) = self.detach(slot) {
-            if from == parent && was_at < position {
-                position -= 1;
-            }
-        }
-        let list = self.children.entry(parent).or_default();
-        let position = position.min(list.len());
-        list.insert(position, slot);
-        match slot {
-            Slot::Node(node_id) => {
-                self.parents.insert(node_id, parent);
-            }
-            Slot::Hole(element) => {
-                self.placeholders.insert(element, parent);
-            }
-            Slot::Pending(_) => {}
-        }
-        position
+            .position(|child| *child == node_id)
     }
 
     /// Forgets a node and everything under it, as the Renderer does when it is removed.
     /// The caller has already taken the node out of its parent's list.
-    pub(crate) fn forget(&mut self, node_id: u32) {
+    fn forget(&mut self, node_id: u32) {
         self.parents.remove(&node_id);
-        for slot in self.children.remove(&node_id).unwrap_or_default() {
-            match slot {
-                Slot::Node(child) => self.forget(child),
-                Slot::Hole(element) => {
-                    self.placeholders.remove(&element);
-                }
-                Slot::Pending(_) => {}
-            }
+        for child in self.children.remove(&node_id).unwrap_or_default() {
+            self.forget(child);
         }
-    }
-
-    /// Forgets a placeholder, wherever it stood.
-    pub(crate) fn forget_hole(&mut self, element: usize) {
-        self.detach(Slot::Hole(element));
-        self.placeholders.remove(&element);
     }
 
     /// Takes a drawn node and everything under it out of the tree, and tells the Renderer.
     pub(crate) fn remove_node(&mut self, node_id: u32) {
-        self.detach(Slot::Node(node_id));
+        if let Some(parent) = self.parents.get(&node_id).copied() {
+            if let Some(position) = self.position_of(parent, node_id) {
+                if let Some(list) = self.children.get_mut(&parent) {
+                    list.remove(position);
+                }
+            }
+        }
         self.write(Mutation::Remove { node_id });
         self.forget(node_id);
-    }
-
-    /// Puts one entry under `parent` at `position` and tells the Renderer about it,
-    /// unless nothing is drawn for it. Says which position it took.
-    ///
-    /// `hole` names the placeholder when `node_id` is the placeholder id.
-    pub(crate) fn insert_node(
-        &mut self,
-        parent: u32,
-        node_id: u32,
-        position: usize,
-        hole: Option<usize>,
-    ) -> usize {
-        if node_id == PLACEHOLDER_NODE {
-            // Nothing is drawn for a placeholder, so nothing is sent. It still holds its
-            // position here, so the branch that fills it in takes that position rather
-            // than the end of the list.
-            let Some(element) = hole else {
-                return position;
-            };
-            return self.attach(parent, Slot::Hole(element), position);
-        }
-        let moving = self.parents.contains_key(&node_id);
-        let at = self.attach(parent, Slot::Node(node_id), position);
-        let index = self.drawn_before(parent, at);
-        self.write(if moving {
-            Mutation::Move {
-                parent_id: parent,
-                node_id,
-                index,
-            }
-        } else {
-            Mutation::Insert {
-                parent_id: parent,
-                node_id,
-                index,
-            }
-        });
-        at
     }
 
     /// Places a node immediately after `after` under `parent`, or first when `after` is
@@ -759,35 +475,53 @@ impl NodeWriter {
     /// the removal makes unnecessary. A node that stands before it has really moved, and
     /// gets one `Move`. A node that is not in the tree yet gets its `Insert`.
     pub(crate) fn place_after(&mut self, parent: u32, node_id: u32, after: Option<u32>) {
-        let target = match after {
-            Some(previous) => match self.position_of(parent, previous) {
-                Some(position) => position + 1,
-                None => 0,
-            },
+        let mut target = match after.and_then(|previous| self.position_of(parent, previous)) {
+            Some(position) => position + 1,
             None => 0,
         };
-        if self.parents.get(&node_id) == Some(&parent) {
+        let current = self.parents.get(&node_id).copied();
+        if current == Some(parent) {
             // The common case is a node standing exactly where it belongs, so look there
             // before scanning the whole list.
             let standing = self.children.get(&parent).and_then(|list| list.get(target));
-            if standing == Some(&Slot::Node(node_id)) {
+            if standing == Some(&node_id) {
                 return;
             }
             if let Some(position) = self.position_of(parent, node_id) {
                 if position >= target {
                     return;
                 }
+                // Taken out from before the target, so the target shifts down by one.
+                if let Some(list) = self.children.get_mut(&parent) {
+                    list.remove(position);
+                }
+                target -= 1;
+            }
+        } else if let Some(from) = current {
+            if let Some(position) = self.position_of(from, node_id) {
+                if let Some(list) = self.children.get_mut(&from) {
+                    list.remove(position);
+                }
             }
         }
-        self.insert_node(parent, node_id, target, None);
-    }
-
-    /// Where a drawn node stands under `parent`.
-    fn position_of(&self, parent: u32, node_id: u32) -> Option<usize> {
-        self.children
-            .get(&parent)?
-            .iter()
-            .position(|slot| *slot == Slot::Node(node_id))
+        let list = self.children.entry(parent).or_default();
+        let target = target.min(list.len());
+        list.insert(target, node_id);
+        self.parents.insert(node_id, parent);
+        let index = target as u32;
+        self.write(if current.is_some() {
+            Mutation::Move {
+                parent_id: parent,
+                node_id,
+                index,
+            }
+        } else {
+            Mutation::Insert {
+                parent_id: parent,
+                node_id,
+                index,
+            }
+        });
     }
 }
 

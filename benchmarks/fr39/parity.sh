@@ -17,14 +17,10 @@ mkdir -p "$out"
 cd "$bench"
 CARGO_BUILD_JOBS=2 cargo build --release --bins
 
-runs=()
-for app in sweep calculator todo chat minimal; do
-    for side in baseline candidate; do
-        bin="fr39-$side-$app"
-        (cd "$out" && "$bench/target/release/$bin" --iterations 1 --warmup 0 --out "$out/$bin.json")
-    done
+for side in baseline candidate; do
+    (cd "$out" && "$bench/target/release/fr39-$side" --iterations 1 --warmup 0 --out "$out/$side.json")
 done
 
 "$bench/target/release/compare" --trees-only \
-    --baseline "$out"/fr39-baseline-*.json \
-    --candidate "$out"/fr39-candidate-*.json
+    --baseline "$out/baseline.json" \
+    --candidate "$out/candidate.json"

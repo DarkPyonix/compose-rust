@@ -29,17 +29,24 @@
 mod lazy;
 mod widgets;
 
-pub use crate::boundary::{App, LaunchBuilder, application};
+pub use crate::boundary::LaunchBuilder;
 pub use crate::brush::{Brush, Stop, brush};
 pub use crate::drawing::{DrawCommand, DrawList, DrawListBuilder};
 pub use crate::message::{Message, show_message};
+pub use crate::runtime::{application, launch};
 pub use crate::schema::{
     Alignment, Arrangement, ButtonVariant, Color, ColorRole, ColorScheme, DesignSystem, IconRole,
     Key, MaterialRole, MessageDuration, MotionRole, Paint, ShapeRole, SpaceRole, TextAlign,
     TextOverflow, Theme, TypeRole, WindowHeightClass, WindowSizeClass,
 };
 pub use crate::spans::TextSpans;
-pub use crate::theme::{ThemeHandle, current_theme, use_theme as theme};
+pub use crate::theme::{ThemeHandle, current_theme};
+
+/// The application's theme, to read and to change while it runs. A change is one
+/// `SetTheme` record in the batch the call that made it produces.
+pub fn theme() -> ThemeHandle {
+    ThemeHandle::default()
+}
 pub use crate::window::{NodeSize, WindowSize};
 pub use crate::{FileDrop, KeyEvent, RangeRequest, asset};
 pub use lazy::{LazyColumn, LazyGrid, LazyList, LazyListScope, LazyRow};

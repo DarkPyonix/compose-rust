@@ -20,8 +20,7 @@ use std::fmt::Write as _;
 
 /// The Kotlin Toolchain compiles the module's `src` tree by convention and offers no way to
 /// add another source root, so generated Kotlin lives inside `src`.
-pub const GENERATED_RELATIVE_PATH: &str =
-    "../renderer/desktop/src/protocol/Protocol.gen.kt";
+pub const GENERATED_RELATIVE_PATH: &str = "../renderer/desktop/src/protocol/Protocol.gen.kt";
 /// The schema's hash, as a line of text beside the crate.
 ///
 /// The renderer carries the same number, compiled into it, and the two are compared when
@@ -2156,8 +2155,7 @@ fn lower_first(name: &str) -> String {
 /// Generated Rust, compiled into the cdylib only when the target is Android.
 pub const JNI_RUST_RELATIVE_PATH: &str = "src/boundary_jni.gen.rs";
 /// Generated Kotlin. The Kotlin Toolchain compiles the module's `src` tree by convention.
-pub const ANDROID_BRIDGE_RELATIVE_PATH: &str =
-    "../renderer/android/src/bridge/HostBridge.gen.kt";
+pub const ANDROID_BRIDGE_RELATIVE_PATH: &str = "../renderer/android/src/bridge/HostBridge.gen.kt";
 pub const ANDROID_FAST_NATIVE_RELATIVE_PATH: &str =
     "../renderer/android/src/bridge/FastNative.gen.kt";
 
@@ -2666,11 +2664,9 @@ fn screaming_snake_case(name: &str) -> String {
 /// Generated Rust, compiled into the cdylib only when the target is wasm.
 pub const WASM_RUST_RELATIVE_PATH: &str = "src/boundary_wasm.gen.rs";
 /// Generated Kotlin. The Kotlin Toolchain compiles the module's `src` tree by convention.
-pub const WEB_BRIDGE_RELATIVE_PATH: &str =
-    "../renderer/web/src/bridge/HostBridge.gen.kt";
+pub const WEB_BRIDGE_RELATIVE_PATH: &str = "../renderer/web/src/bridge/HostBridge.gen.kt";
 /// Generated JavaScript, in the module's resource tree, which is copied next to `web.mjs`.
-pub const WEB_LOADER_RELATIVE_PATH: &str =
-    "../renderer/web/resources/compose-rust-host.gen.mjs";
+pub const WEB_LOADER_RELATIVE_PATH: &str = "../renderer/web/resources/compose-rust-host.gen.mjs";
 
 const WEB_KOTLIN_PACKAGE: &str = "dev.darkpyonix.composerust.ui.platform";
 
@@ -3008,12 +3004,12 @@ pub fn generate_wasm_rust() -> String {
 //! arrives as its two halves and is put back together here.
 
 use crate::boundary::{
-    App, MutationBatch, RendererApi, STATUS_OK, STATUS_PROTOCOL_ERROR, install_renderer_api,
+    MutationBatch, RendererApi, STATUS_OK, STATUS_PROTOCOL_ERROR, install_renderer_api,
 };
 use crate::schema::{
     WEB_BATCH_BYTES, WEB_EVENT_BUFFER_BYTES, WEB_EVENT_BUFFER_OFFSET, WEB_RUST_REGION_BASE,
 };
-use crate::{LaunchBuilder, LoopMode};
+use crate::{LaunchBuilder, LoopMode, Runtime};
 use std::ffi::c_int;
 use std::mem::{offset_of, size_of};
 
@@ -3120,29 +3116,32 @@ fn lent(address: u32) -> bool {
         r#"/// Starts the Host and reports where the block it lends the Renderer sits.
 ///
 /// A page has no library loader, so this is where the work `JNI_OnLoad` does on Android
-/// goes: install the renderer API, then register the root component. Zero means the block
-/// is not somewhere the Renderer may read, and the Renderer makes no boundary call at all
-/// in that case.
+/// goes: install the renderer API, then register the application's runtime. Zero means the
+/// block is not somewhere the Renderer may read, and the Renderer makes no boundary call at
+/// all in that case.
 ///
-/// The application exports this as `{WEB_START_SYMBOL}` through
-/// `compose_rust::web_main!` or `compose_rust::web_application!`, and the export lives
-/// there rather than here because a wasm module cannot be linked with an undefined symbol
-/// the way an ELF shared library can: an import nobody satisfies stops the module from
-/// being instantiated, so this crate's own module must not name a function only an
-/// application can define.
+/// The application exports this as `{WEB_START_SYMBOL}` through its authoring layer's
+/// entry macro (`web_main!` in the Dioxus adapter), and the export lives there rather than
+/// here because a wasm module cannot be linked with an undefined symbol the way an ELF
+/// shared library can: an import nobody satisfies stops the module from being
+/// instantiated, so this crate's own module must not name a function only an application
+/// can define.
 ///
 /// The builder comes from the application rather than being made here, because
 /// everything an application settles before it launches, its theme above all, is settled
 /// on a builder. Making one here would mean a page ignored the theme its own desktop
 /// binary uses and drew the same screens in a different design system.
-pub fn web_start(builder: LaunchBuilder, app: App) -> u32 {{
+pub fn web_start(
+    builder: LaunchBuilder,
+    runtime: impl Fn() -> Box<dyn Runtime> + Send + Sync + 'static,
+) -> u32 {{
     let _ = install_renderer_api(RendererApi {{
         run: platform_run,
         request_frame,
     }});
     let status = builder
         .with_mode(LoopMode::Platform)
-        .try_launch_app(app);
+        .try_launch_runtime(runtime);
     if status != STATUS_OK {{
         return 0;
     }}

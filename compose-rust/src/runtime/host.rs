@@ -7,23 +7,19 @@
 //! `VirtualDom` builds the tree and the Host owns the theme, the window, assets, messages,
 //! notifications and the frame clock.
 //!
-//! [`ComposeHost`] is that rest, for a composable application: the Host the boundary
-//! calls. It reports the window, the design system and the notification permission
-//! through the same modules the Dioxus Host reports them through, and the Recomposer
-//! hears about them the way a Dioxus hook does, by subscribing.
+//! That rest is compose-rust's own [`Host`], which drives any [`Runtime`]; the Recomposer
+//! is one. The window, the design system and the notification permission reach the
+//! composition the way they reach a Dioxus hook, by subscribing to the modules the Host
+//! publishes them to. [`ComposeHost`] is the Host with a Recomposer in it.
 
 use super::Composition;
 use super::composer::{Composer, EventCallback, ROOT};
+use super::seam::{Batch, Runtime};
 use super::{drain_graveyard, effects, state, with_composer};
-use crate::boundary::{
-    EventDispatchGuard, HostCallGuard, PendingAppend, begin_render_frame, flush_messages,
-    flush_notifications, flush_pending_appends, queue_append, request_frame_from_worker,
-    set_lifecycle_running,
-};
-use crate::protocol::{HostEvent, ProtocolError, decode_event};
-use crate::schema::{AssetKind, EventPayload, IconRole, Theme};
-use crate::writer::NodeWriter;
-use crate::{KeyEvent, RangeRequest, Selection};
+use crate::boundary::{Host, request_frame_from_worker};
+use crate::protocol::{HostEvent, ProtocolError};
+use crate::schema::{EventPayload, Theme};
+use crate::{KeyEvent, RangeRequest};
 use std::any::Any;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -57,13 +53,13 @@ impl Recomposer {
         // per value is what lets a composable read one and be run again when it moves,
         // and the subscription is what moves it.
         let subscriptions: Vec<Box<dyn Any>> = vec![
-            Box::new(crate::window::WindowSizeSubscription::new(Arc::new(
-                move || window.set(crate::window::window_size()),
-            ))),
-            Box::new(crate::design::DesignSystemSubscription::new(Arc::new(
-                move || design.set(crate::design::design_system()),
-            ))),
-            Box::new(crate::notification::PermissionSubscription::new(Arc::new(
+            Box::new(crate::window::subscribe(Arc::new(move || {
+                window.set(crate::window::window_size())
+            }))),
+            Box::new(crate::design::subscribe(Arc::new(move || {
+                design.set(crate::design::design_system())
+            }))),
+            Box::new(crate::notification::subscribe_permission(Arc::new(
                 move || permission.set(crate::notification::notification_permission()),
             ))),
         ];
@@ -72,11 +68,6 @@ impl Recomposer {
             composition,
             _subscriptions: subscriptions,
         }
-    }
-
-    /// The node table and the batch the tree's records go into.
-    pub(crate) fn writer<R>(&self, f: impl FnOnce(&mut NodeWriter) -> R) -> R {
-        f(&mut self.composition.composer.borrow_mut().writer)
     }
 
     /// The batch arena.
@@ -196,248 +187,110 @@ impl Recomposer {
             request_frame_from_worker();
         }
     }
-
-    /// Closes the batch. The bytes live in the composition's arena until the next call
-    /// begins a batch, so they are handed out for as long as `self` is borrowed.
-    fn finish(&mut self) -> Result<&[u8], ProtocolError> {
-        let composer = self.composition.composer.as_ptr();
-        // SAFETY: no borrow of the RefCell is alive here, and the slice borrows `self`
-        // mutably, so nothing can reach the composer and clear the arena while it lives.
-        unsafe { (*composer).writer.finish_frame() }
-    }
 }
 
-/// The Host of a composable application.
+/// The Host of a composable application: compose-rust's [`Host`] driving a
+/// [`Recomposer`].
 ///
 /// The boundary builds one on the UI thread for an application launched with
-/// [`crate::launch`] or [`crate::application`]. Tests and benchmarks build one directly,
-/// which is why it is public.
-pub struct ComposeHost {
-    /// Kept so the composition can be built again from nothing when the Renderer asks for
-    /// a resync.
-    content: Rc<dyn Fn()>,
-    theme: Theme,
-    window: crate::schema::Window,
-    runtime: Recomposer,
-    pending_appends: Vec<PendingAppend>,
-}
+/// [`launch`]. Tests and benchmarks build one directly, which is why it is public; it
+/// derefs to the [`Host`], whose calls are the boundary's.
+pub struct ComposeHost(Host);
 
 impl ComposeHost {
     /// The Host for `content`, in the theme the application launched with.
     pub fn new(content: fn()) -> Self {
-        Self::with_theme(content, crate::boundary::launched_theme())
+        Self(Host::new(recomposer_for(content)))
     }
 
     /// The same, in the given theme.
     pub fn with_theme(content: fn(), theme: Theme) -> Self {
-        Self::from_content(Rc::new(content), theme)
+        Self(Host::with_theme(recomposer_for(content), theme))
     }
 
     /// A Host for a closure rather than a function, for tests that compose something
-    /// built at run time.
-    pub fn with_content(content: impl Fn() + 'static) -> Self {
-        Self::from_content(Rc::new(content), crate::boundary::launched_theme())
+    /// built at run time. The closure is shared with the factory a resync calls, so it
+    /// has to be `Send` and `Sync` like any other root.
+    pub fn with_content(content: impl Fn() + Send + Sync + 'static) -> Self {
+        let content = Arc::new(content);
+        Self(Host::new(move || {
+            let content = Arc::clone(&content);
+            Box::new(Recomposer::new(move || content())) as Box<dyn Runtime>
+        }))
+    }
+}
+
+impl std::ops::Deref for ComposeHost {
+    type Target = Host;
+
+    fn deref(&self) -> &Host {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for ComposeHost {
+    fn deref_mut(&mut self) -> &mut Host {
+        &mut self.0
+    }
+}
+
+/// The runtime factory for one composable root: what [`crate::LaunchBuilder::launch_runtime`]
+/// and the browser's start take.
+pub fn recomposer_for(content: fn()) -> impl Fn() -> Box<dyn Runtime> + Send + Sync + 'static {
+    move || Box::new(Recomposer::new(content)) as Box<dyn Runtime>
+}
+
+impl crate::LaunchBuilder {
+    /// Runs a composable as the application. Does not return while it is running, and
+    /// ends the process with a failing status if the renderer loop could not run at all.
+    ///
+    /// ```ignore
+    /// #[composable]
+    /// fn app() {
+    ///     Text("Hello");
+    /// }
+    ///
+    /// fn main() {
+    ///     compose_rust::LaunchBuilder::new().launch(app);
+    /// }
+    /// ```
+    pub fn launch(self, content: fn()) {
+        self.launch_runtime(recomposer_for(content));
     }
 
-    fn from_content(content: Rc<dyn Fn()>, theme: Theme) -> Self {
-        // The same resets the Dioxus Host makes, for the same reasons: a fresh Host has
-        // not been measured, queued messages belong to the Host it replaces, and the
-        // Renderer it is about to talk to has an empty asset cache.
-        crate::window::reset_window_size();
-        crate::message::reset_messages();
-        crate::asset::requeue_all();
-        crate::theme::install(theme);
-        let root = Rc::clone(&content);
-        Self {
-            content,
-            theme,
-            window: crate::boundary::launched_window(),
-            runtime: Recomposer::new(move || root()),
-            pending_appends: Vec::new(),
-        }
+    /// [`crate::LaunchBuilder::launch`] without the exit: the status the renderer loop
+    /// ended with.
+    pub fn try_launch(self, content: fn()) -> i32 {
+        self.try_launch_runtime(recomposer_for(content))
     }
 
-    /// The batch arena, reported to the Renderer on every boundary call.
-    pub fn arena(&self) -> (*const u8, usize) {
-        self.runtime.arena()
+    /// The same as `launch`, under Compose Desktop's name for it.
+    pub fn application(self, content: fn()) {
+        self.launch(content);
     }
+}
 
-    /// The first batch: the theme, the window, and the whole composition.
-    pub fn rebuild(&mut self) -> Result<&[u8], ProtocolError> {
-        let _call = HostCallGuard::enter();
-        let (theme, window) = (self.theme, self.window);
-        self.runtime.writer(|writer| {
-            writer.begin_frame();
-            // One record at the root, before any node exists, and beside it the window.
-            writer.set_theme(theme);
-            writer.set_window(window);
-        });
-        self.runtime.rebuild();
-        self.finish()
-    }
+/// Runs a composable as the application, with every launch choice left to its default.
+///
+/// ```ignore
+/// #[composable]
+/// fn counter() {
+///     let count = remember(|| mutable_state_of(0));
+///     let more = count.clone();
+///     Button(format!("{}", count.get())).on_click(move || more.update(|count| *count += 1));
+/// }
+///
+/// fn main() {
+///     compose_rust::launch(counter);
+/// }
+/// ```
+pub fn launch(content: fn()) {
+    crate::LaunchBuilder::new().launch(content);
+}
 
-    /// Answers with the whole tree, for a Renderer that no longer has a node table. The
-    /// composition is built again from nothing, so remembered state starts over.
-    pub fn resync(&mut self) -> Result<(&[u8], i64), ProtocolError> {
-        let content = Rc::clone(&self.content);
-        let theme = self.theme;
-        *self = Self::from_content(content, theme);
-        Ok((self.rebuild()?, 0))
-    }
-
-    pub fn dispatch_event(&mut self, bytes: &[u8]) -> Result<(&[u8], i64), ProtocolError> {
-        let event = decode_event(bytes)?;
-        self.dispatch(event)
-    }
-
-    /// Delivers one event: runs its handler, then the scopes it invalidated, and answers
-    /// with the batch and the handler's result.
-    pub fn dispatch(&mut self, event: HostEvent<'_>) -> Result<(&[u8], i64), ProtocolError> {
-        let _call = HostCallGuard::enter();
-        self.runtime.writer(NodeWriter::begin_frame);
-        let mut result = 0;
-        match event.payload {
-            EventPayload::Resync => return self.resync(),
-            EventPayload::LifecycleStart | EventPayload::LifecycleStop => {
-                set_lifecycle_running(matches!(event.payload, EventPayload::LifecycleStart));
-                // An empty batch: starting again is the Renderer's cue to draw, and it
-                // asks for that frame itself.
-                return Ok((self.finish()?, 0));
-            }
-            // These address the Host itself. Publishing wakes whatever subscribed, which
-            // here is the composition's state for that value.
-            EventPayload::DesignSystemResolved(system) => {
-                crate::design::publish(system);
-            }
-            EventPayload::NotificationPermissionChanged(permission) => {
-                if event.node_id != 0 || event.handler_id != 0 {
-                    return Err(ProtocolError::InvalidValueKind(0));
-                }
-                crate::notification::publish_permission(permission);
-            }
-            EventPayload::NotificationActivated { action, key } => {
-                if event.node_id != 0 || event.handler_id != 0 {
-                    return Err(ProtocolError::InvalidValueKind(0));
-                }
-                let _dispatch = EventDispatchGuard::enter();
-                let activation = crate::notification::NotificationActivation {
-                    key: key.to_owned(),
-                    action,
-                };
-                self.runtime.run_in_context(&mut || {
-                    crate::notification::activate(activation.clone());
-                });
-            }
-            EventPayload::WindowSizeChanged {
-                width_dp,
-                height_dp,
-                class,
-                height_class,
-            } => {
-                let size = crate::window::WindowSize::new(width_dp, height_dp, class, height_class);
-                if event.node_id == 0 {
-                    crate::window::publish(size);
-                } else if let Some(token) = self.runtime.size_token(event.node_id) {
-                    crate::window::publish_node(token, size);
-                }
-            }
-            EventPayload::ProtocolError { .. } => return Err(ProtocolError::InvalidValueKind(0)),
-            EventPayload::Clicked if crate::message::has_action(event.handler_id) => {
-                // The action on a transient message belongs to no node: the message is not
-                // in the tree.
-                if event.node_id != 0 {
-                    return Err(ProtocolError::InvalidValueKind(0));
-                }
-                if let Some(action) = crate::message::take_action(event.handler_id) {
-                    let _dispatch = EventDispatchGuard::enter();
-                    self.runtime.run_in_context(&mut || action.call());
-                }
-            }
-            _ => {
-                let _dispatch = EventDispatchGuard::enter();
-                result = self.runtime.handle_event(&event)?;
-            }
-        }
-        self.runtime.render(None);
-        Ok((self.finish()?, result))
-    }
-
-    /// Serves one frame: delivers the frame time to whatever waits for it, runs the
-    /// futures that woke, and recomposes what the states written since the last call
-    /// invalidated.
-    pub fn render_frame(&mut self, frame_time_nanos: u64) -> Result<&[u8], ProtocolError> {
-        let _call = HostCallGuard::enter();
-        self.runtime.writer(NodeWriter::begin_frame);
-        if !begin_render_frame() {
-            // Off screen: only queued notifications leave, and nothing is composed.
-            self.runtime.writer(flush_notifications);
-            return self.runtime.finish();
-        }
-        self.runtime.render(Some(frame_time_nanos));
-        let pending = &mut self.pending_appends;
-        self.runtime
-            .writer(|writer| flush_pending_appends(pending, writer));
-        self.finish()
-    }
-
-    /// Queues a streamed tail for the next frame, merged with whatever else arrives for
-    /// the same node before it.
-    pub fn append_text(&mut self, node_id: u32, tail: &str) {
-        queue_append(&mut self.pending_appends, node_id, tail);
-    }
-
-    /// Registers one asset and returns the batch that carries it.
-    pub fn register_asset(
-        &mut self,
-        asset_id: u32,
-        kind: AssetKind,
-        bytes: &[u8],
-    ) -> Result<&[u8], ProtocolError> {
-        self.runtime.writer(|writer| {
-            writer.begin_frame();
-            writer.register_asset(asset_id, kind, bytes);
-        });
-        self.runtime.finish()
-    }
-
-    /// Registers an icon by the meaning it carries.
-    pub fn register_icon(&mut self, asset_id: u32, role: IconRole) -> Result<&[u8], ProtocolError> {
-        self.register_asset(
-            asset_id,
-            AssetKind::VectorIcon,
-            &(role as u16).to_le_bytes(),
-        )
-    }
-
-    /// Drops the asset from the Renderer's cache.
-    pub fn release_asset(&mut self, asset_id: u32) -> Result<&[u8], ProtocolError> {
-        self.runtime.writer(|writer| {
-            writer.begin_frame();
-            writer.release_asset(asset_id);
-        });
-        self.runtime.finish()
-    }
-
-    /// Replaces an uncontrolled text field's contents from the Host's side.
-    pub fn set_text(
-        &mut self,
-        node_id: u32,
-        text: &str,
-        selection: Option<Selection>,
-    ) -> Result<&[u8], ProtocolError> {
-        self.runtime.writer(|writer| {
-            writer.begin_frame();
-            writer.set_text_node(node_id, text, selection);
-        });
-        self.runtime.finish()
-    }
-
-    /// Writes what the application said during this call and closes the batch.
-    fn finish(&mut self) -> Result<&[u8], ProtocolError> {
-        let theme = &mut self.theme;
-        self.runtime.writer(|writer| flush_messages(writer, theme));
-        self.runtime.finish()
-    }
+/// The same as [`launch`], under Compose Desktop's name for it.
+pub fn application(content: fn()) {
+    launch(content);
 }
 
 /// Calls a handler with an event's payload, converted to what the handler takes.
@@ -483,5 +336,41 @@ impl Composer {
     /// Drops any walk a panic left half done, so the next call starts from a clean stack.
     pub(crate) fn abandon_composition(&mut self) {
         self.clear_walk();
+    }
+}
+
+impl Runtime for Recomposer {
+    fn batch(&self) -> &Batch {
+        let composer = self.composition.composer.as_ptr();
+        // SAFETY: the composer is only borrowed inside this runtime's own calls, which take
+        // `&mut self`, so no borrow is alive while the Host holds this reference, and the
+        // reference borrows `self`, so no runtime call can start while it lives.
+        unsafe { (*composer).writer.batch() }
+    }
+
+    fn batch_mut(&mut self) -> &mut Batch {
+        let composer = self.composition.composer.as_ptr();
+        // SAFETY: as for `batch`, with `&mut self` making this the only reference.
+        unsafe { (*composer).writer.batch_mut() }
+    }
+
+    fn rebuild(&mut self) {
+        Recomposer::rebuild(self);
+    }
+
+    fn render(&mut self, frame_time_nanos: Option<u64>) {
+        Recomposer::render(self, frame_time_nanos);
+    }
+
+    fn handle_event(&mut self, event: &HostEvent<'_>) -> Result<i64, ProtocolError> {
+        Recomposer::handle_event(self, event)
+    }
+
+    fn size_token(&self, node_id: u32) -> Option<u32> {
+        Recomposer::size_token(self, node_id)
+    }
+
+    fn run_in_context(&mut self, action: &mut dyn FnMut()) {
+        Recomposer::run_in_context(self, action);
     }
 }

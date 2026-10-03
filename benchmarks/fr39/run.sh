@@ -6,7 +6,7 @@
 #   benchmarks/fr39/run.sh [ITERATIONS] [WARMUP]
 #
 # Raw runs go to .scratch/fr39/<timestamp>/, inside this checkout. The comparison is
-# written into the fr39 entry of compose-rust/benches/baseline.json together with the
+# written into the fr39 entry of adapters/dioxus/benches/baseline.json together with the
 # machine and the load average it was measured at. A load average above 1.0 is recorded
 # as it is; the verdict is only to be read from a run on an idle machine.
 #
@@ -25,9 +25,6 @@ mkdir -p "$out"
 cd "$bench"
 CARGO_BUILD_JOBS=2 cargo build --release --bins
 
-baseline_bins=(fr39-baseline-sweep fr39-baseline-calculator fr39-baseline-todo fr39-baseline-chat fr39-baseline-minimal)
-candidate_bins=(fr39-candidate-sweep fr39-candidate-calculator fr39-candidate-todo fr39-candidate-chat fr39-candidate-minimal)
-
 load_average() {
     if [[ -r /proc/loadavg ]]; then
         cut -d' ' -f1 /proc/loadavg
@@ -36,19 +33,25 @@ load_average() {
     fi
 }
 
+# One scenario at a time, the two paths back to back, so a change in the machine's load
+# during the run falls on both of them rather than on whichever went second.
+scenarios=(sweep_1 sweep_5 sweep_17 sweep_33 sweep_65 sweep_129 calculator_input
+    todo_add_delete chat_streaming long_list_scroll tab_switching)
 loads=()
 baseline_runs=()
 candidate_runs=()
-# The two paths alternate, application by application, so a change in the machine's load
-# during the run falls on both of them rather than on whichever went second.
-for index in "${!baseline_bins[@]}"; do
+for scenario in "${scenarios[@]}"; do
     for side in baseline candidate; do
-        if [[ "$side" == baseline ]]; then bin="${baseline_bins[$index]}"; else bin="${candidate_bins[$index]}"; fi
         loads+=("$(load_average)")
         # The working directory is the run's own folder, so whatever a sample reads from
         # the current directory starts empty.
-        (cd "$out" && "$bench/target/release/$bin" --iterations "$iterations" --warmup "$warmup" --out "$out/$bin.json")
-        if [[ "$side" == baseline ]]; then baseline_runs+=("$out/$bin.json"); else candidate_runs+=("$out/$bin.json"); fi
+        (cd "$out" && "$bench/target/release/fr39-$side" --scenario "$scenario" \
+            --iterations "$iterations" --warmup "$warmup" --out "$out/$side-$scenario.json")
+        if [[ "$side" == baseline ]]; then
+            baseline_runs+=("$out/$side-$scenario.json")
+        else
+            candidate_runs+=("$out/$side-$scenario.json")
+        fi
     done
 done
 
@@ -62,4 +65,4 @@ fi
     --candidate "${candidate_runs[@]}" \
     --load-average "${loads[*]}" \
     --machine "$machine" \
-    --record "$repo_root/compose-rust/benches/baseline.json"
+    --record "$repo_root/adapters/dioxus/benches/baseline.json"

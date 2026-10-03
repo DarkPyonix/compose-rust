@@ -39,7 +39,7 @@ fn reset() {
 }
 
 /// Builds a Host for `content` and applies its first batch.
-fn start(content: impl Fn() + 'static) -> (ComposeHost, Tree) {
+fn start(content: impl Fn() + Send + Sync + 'static) -> (ComposeHost, Tree) {
     let mut host = ComposeHost::with_content(content);
     let mut tree = Tree::default();
     tree.apply(host.rebuild().expect("the first batch encodes"));

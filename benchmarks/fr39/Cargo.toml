@@ -3,25 +3,12 @@
 # path was written.
 #
 # A workspace of its own, outside the repository's, for two reasons. The baseline links a
-# second copy of compose-rust, fetched at a fixed commit, and that copy exports the same
-# boundary symbols as the one in this checkout: the two can only ever be linked into
-# separate binaries. And nothing here is part of what the project publishes.
+# second copy of compose-rust, fetched at a fixed commit with the Dioxus adapter and the
+# rsx! screens, and that copy exports the same boundary symbols as the one in this
+# checkout: the two can only ever be linked into separate binaries. And nothing here is
+# part of what the project publishes.
 [workspace]
-members = [
-    "scenarios",
-    "baseline/driver",
-    "baseline/sweep",
-    "baseline/calculator",
-    "baseline/todo",
-    "baseline/chat",
-    "baseline/minimal",
-    "candidate/driver",
-    "candidate/sweep",
-    "candidate/calculator",
-    "candidate/todo",
-    "candidate/chat",
-    "candidate/minimal",
-]
+members = ["scenarios", "baseline", "candidate"]
 resolver = "2"
 
 [workspace.package]

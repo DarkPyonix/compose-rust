@@ -1,0 +1,17 @@
+[package]
+name = "fr39-baseline"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# The Dioxus side: bench/dioxus-baseline, the rsx! screens of the samples, taken whole at a
+# fixed commit together with the adapter they were written against. Pinning the crate
+# rather than only the adapter pins the screens as well, so neither half of the baseline
+# can move under the comparison. Changing this rev means measuring every scenario again.
+[dependencies]
+fr39-scenarios = { path = "../scenarios" }
+dioxus-baseline = { git = "https://github.com/DarkPyonix/compose-rust", rev = "b18bdfea6993566475cd53334fe20b2faf1ac107" }
+# The same adapter the baseline crate resolves at that rev, named here only to turn the
+# renderer download off: these runs drive the boundary with no window.
+dioxus-compose-adapter = { git = "https://github.com/DarkPyonix/compose-rust", rev = "b18bdfea6993566475cd53334fe20b2faf1ac107", default-features = false, features = ["mock-renderer"] }

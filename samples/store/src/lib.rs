@@ -17,8 +17,8 @@ mod palette;
 use catalogue::{
     BagLine, CATALOGUE, Category, FEATURED, Product, SIZES, price, stars, total, under,
 };
-use compose_rust::prelude::*;
-use compose_rust::{DrawList, DrawListBuilder};
+use dioxus_compose_adapter::prelude::*;
+use dioxus_compose_adapter::{DrawList, DrawListBuilder};
 
 /// How wide the page is once the window is wider than a phone. A phone design in a desktop
 /// window is still a phone design.
@@ -57,7 +57,7 @@ const CHIP_HEIGHT: f32 = 46.0;
 /// design system, so `Home` comes out as this system's house and the shop never says what
 /// a house looks like.
 mod icon {
-    use compose_rust::prelude::IconRole;
+    use dioxus_compose_adapter::prelude::IconRole;
 
     pub static HOME: [u8; 2] = (IconRole::Home as u16).to_le_bytes();
     pub static SEARCH: [u8; 2] = (IconRole::Search as u16).to_le_bytes();
@@ -113,7 +113,7 @@ impl Destination {
 /// design system drew.
 fn icon_button(picture: &'static [u8], tint: Paint, on_click: EventHandler<()>) -> Element {
     rsx! {
-        compose_rust::Box {
+        dioxus_compose_adapter::Box {
             width: ICON_TAP,
             height: ICON_TAP,
             alignment: Alignment::Center,
@@ -167,13 +167,13 @@ fn header(waiting: u32, on_go: EventHandler<Destination>) -> Element {
             }))}
             // The bag, with the mark that says something is in it. The mark is the one
             // red on this screen and it only appears when it means something.
-            compose_rust::Box {
+            dioxus_compose_adapter::Box {
                 alignment: Alignment::TopEnd,
                 {icon_button(&icon::BAG, palette::INK, EventHandler::new(move |()| {
                     on_go.call(Destination::Bag);
                 }))}
                 if waiting > 0 {
-                    compose_rust::Box {
+                    dioxus_compose_adapter::Box {
                         width: 10.0,
                         height: 10.0,
                         background: palette::ALERT,
@@ -193,7 +193,7 @@ fn header(waiting: u32, on_go: EventHandler<Destination>) -> Element {
 fn tile(product: &Product, height: f32, on_open: EventHandler<u32>) -> Element {
     let id = product.id;
     rsx! {
-        compose_rust::Box {
+        dioxus_compose_adapter::Box {
             fill_max_width: true,
             height,
             background: palette::TILE,
@@ -261,7 +261,7 @@ fn carousel(slide: Signal<usize>) -> Element {
     let mut slide = slide;
     let showing = slide() % FEATURED;
     rsx! {
-        compose_rust::Box {
+        dioxus_compose_adapter::Box {
             fill_max_width: true,
             height: CAROUSEL_HEIGHT,
             background: palette::TILE,
@@ -290,12 +290,12 @@ fn carousel(slide: Signal<usize>) -> Element {
             arrangement: Arrangement::Center,
             alignment: Alignment::Center,
             for position in 0..FEATURED {
-                compose_rust::Box {
+                dioxus_compose_adapter::Box {
                     key: "{position}",
                     width: DOT_SLOT,
                     height: DOT_HEIGHT,
                     alignment: Alignment::Center,
-                    compose_rust::Box {
+                    dioxus_compose_adapter::Box {
                         width: if position == showing { DOT_ACTIVE_WIDTH } else { DOT_WIDTH },
                         height: DOT_HEIGHT,
                         background: if position == showing { palette::DARK } else { palette::DOT },
@@ -353,7 +353,7 @@ fn catalogue_screen(
                 item: move |position: usize| {
                     let choice = Category::STRIP[position];
                     rsx! {
-                        compose_rust::Box {
+                        dioxus_compose_adapter::Box {
                             alignment: Alignment::Center,
                             // Every category is a label and one of them is the one you
                             // are looking at, which is what the reference draws: the
@@ -422,7 +422,7 @@ fn detail_screen(
             fill_max_height: true,
             background: palette::PAGE,
 
-            compose_rust::Box {
+            dioxus_compose_adapter::Box {
                 fill_max_width: true,
                 height: HERO_HEIGHT,
                 background: palette::TILE,
@@ -589,7 +589,7 @@ fn bag_screen(bag: Signal<Vec<BagLine>>) -> Element {
             space_role: SpaceRole::Md,
             Text { text: "Bag", type_role: TypeRole::Headline, color: palette::INK }
             if lines.is_empty() {
-                compose_rust::Box {
+                dioxus_compose_adapter::Box {
                     fill_max_width: true,
                     weight: 1.0,
                     alignment: Alignment::Center,
@@ -717,7 +717,7 @@ fn search_screen(on_open: EventHandler<u32>) -> Element {
                         fill_max_width: true,
                         space_role: SpaceRole::Sm,
                         alignment: Alignment::CenterStart,
-                        compose_rust::Box {
+                        dioxus_compose_adapter::Box {
                             width: 44.0,
                             height: 44.0,
                             background: palette::TILE,
@@ -826,7 +826,7 @@ fn bottom_bar(destination: Destination, on_go: EventHandler<Destination>) -> Ele
                         palette::INK
                     };
                     rsx! {
-                        compose_rust::Box { key: "{choice.label()}",
+                        dioxus_compose_adapter::Box { key: "{choice.label()}",
                             {icon_button(choice.icon(), tint, EventHandler::new(move |()| {
                                 on_go.call(choice);
                             }))}
@@ -900,7 +900,7 @@ pub fn app() -> Element {
         Scaffold {
             background: palette::PAGE,
             bottom_bar: rsx! {
-                compose_rust::Box {
+                dioxus_compose_adapter::Box {
                     fill_max_width: true,
                     alignment: Alignment::Center,
                     Column {
@@ -911,7 +911,7 @@ pub fn app() -> Element {
                 }
             },
 
-            compose_rust::Box {
+            dioxus_compose_adapter::Box {
                 weight: 1.0,
                 alignment: Alignment::TopCenter,
                 if scrolls {
@@ -990,14 +990,14 @@ pub fn launch() {
 /// The theme above all: a sample that names one and then reaches a platform through an
 /// entry point that makes its own builder is a sample that draws the same screens in a
 /// different design system depending on where it runs.
-fn launch_builder() -> compose_rust::LaunchBuilder {
+fn launch_builder() -> dioxus_compose_adapter::LaunchBuilder {
     // The name the window carries. A desktop lists windows by it, so a window that said
     // nothing was listed under whatever the renderer happened to be called, and every
     // sample here was listed under the toolkit's default name until this line existed.
-    compose_rust::LaunchBuilder::new()
-        .with_theme(compose_rust::demo_theme_for(THEME))
+    dioxus_compose_adapter::LaunchBuilder::new()
+        .with_theme(dioxus_compose_adapter::demo_theme_for(THEME))
         .with_window(
-            compose_rust::schema::Window::new()
+            dioxus_compose_adapter::schema::Window::new()
                 .with_title("Store")
                 // Without one the window wears the toolkit's picture, which on
                 // Windows is the Java coffee cup, wherever the system lists
@@ -1005,8 +1005,8 @@ fn launch_builder() -> compose_rust::LaunchBuilder {
                 // to them by id: a path would be a fact about the machine this
                 // was built on, and a name would ask the toolkit to find
                 // something it may not have.
-                .with_icon(compose_rust::asset::asset(
-                    compose_rust::schema::AssetKind::Png,
+                .with_icon(dioxus_compose_adapter::asset::asset(
+                    dioxus_compose_adapter::schema::AssetKind::Png,
                     include_bytes!("../assets/icon.png"),
                 )),
         )
@@ -1019,17 +1019,19 @@ fn launch_builder() -> compose_rust::LaunchBuilder {
 // Both are declared unconditionally. Each macro compiles into nothing that runs off its
 // own platform, and gating them here instead would mean a desktop build never checks that
 // this sample can still be built for the other two.
-compose_rust::android_main!({ launch_builder() }, app);
-compose_rust::web_main!({ launch_builder() }, app);
-compose_rust::ios_main!(launch);
+dioxus_compose_adapter::android_main!({ launch_builder() }, app);
+dioxus_compose_adapter::web_main!({ launch_builder() }, app);
+dioxus_compose_adapter::ios_main!(launch);
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use compose_rust::Host;
-    use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
-    use compose_rust::schema::{EventPayload, PropertyKind};
+    use dioxus_compose_adapter::Host;
+    use dioxus_compose_adapter::protocol::{
+        HostEvent, Mutation, PropertyValue, decode_batch, encode_event,
+    };
+    use dioxus_compose_adapter::schema::{EventPayload, PropertyKind};
 
     /// Named for what it defends: the reference is a light design, and a machine set
     /// the other way drew this sample dark with nothing to compare against.
@@ -1038,7 +1040,7 @@ mod tests {
         // Through the wire rather than off the constant: what settles the question is the
         // record the Renderer reads, and a scheme that never leaves the Host is a scheme
         // nobody is drawn in.
-        compose_rust::window::reset_window_size();
+        dioxus_compose_adapter::window::reset_window_size();
         let mut host = Host::with_theme(app, THEME);
         let batch = host.rebuild().expect("the first frame failed").to_vec();
         let first = decode_batch(&batch)
@@ -1065,7 +1067,7 @@ mod tests {
 
     impl Screen {
         fn new() -> Self {
-            compose_rust::window::reset_window_size();
+            dioxus_compose_adapter::window::reset_window_size();
             let mut host = Host::new(app);
             let first = host.rebuild().expect("the first frame failed").to_vec();
             let mut screen = Self {
@@ -1426,7 +1428,7 @@ mod tests {
             screen.latest_widths().contains(&DOT_ACTIVE_WIDTH),
             "turning the carousel left the wide dot where it was"
         );
-        compose_rust::window::reset_window_size();
+        dioxus_compose_adapter::window::reset_window_size();
     }
 
     /// Every destination has to encode, not just the one the shop opens on. A widget only
@@ -1450,7 +1452,7 @@ mod tests {
                 choice.label()
             );
         }
-        compose_rust::window::reset_window_size();
+        dioxus_compose_adapter::window::reset_window_size();
     }
 
     /// Opening a garment replaces the catalogue with its page, and going back brings the
@@ -1487,7 +1489,7 @@ mod tests {
                 .any(|text| text.starts_with("Let's find")),
             "going back did not bring the catalogue with it"
         );
-        compose_rust::window::reset_window_size();
+        dioxus_compose_adapter::window::reset_window_size();
     }
 
     /// Adding the same garment in the same size twice is one line that counts two, not two
@@ -1571,7 +1573,7 @@ mod tests {
     #[test]
     fn fr20_the_page_stops_widening_past_a_phone() {
         fn widths(width_dp: f32) -> Vec<f32> {
-            compose_rust::window::reset_window_size();
+            dioxus_compose_adapter::window::reset_window_size();
             let mut host = Host::new(app);
             host.rebuild().expect("the first frame failed");
             let mut bytes = Vec::new();
@@ -1601,7 +1603,7 @@ mod tests {
                     _ => None,
                 })
                 .collect();
-            compose_rust::window::reset_window_size();
+            dioxus_compose_adapter::window::reset_window_size();
             found
         }
 

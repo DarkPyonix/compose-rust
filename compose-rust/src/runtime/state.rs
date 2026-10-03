@@ -518,7 +518,7 @@ pub fn remember_node_size() -> crate::window::NodeSize {
         let token = crate::window::next_node_token();
         let state = mutable_state_of(crate::window::node_size(token));
         let follow = state.clone();
-        let subscription = crate::window::NodeSizeSubscription::new(
+        let subscription = crate::window::subscribe_node(
             token,
             std::sync::Arc::new(move || follow.set(crate::window::node_size(token))),
         );
@@ -531,8 +531,13 @@ pub fn remember_node_size() -> crate::window::NodeSize {
     })
     .flatten();
     match found {
-        Some((token, state)) => crate::window::node_size_of(token, state.get()),
-        None => crate::window::node_size_of(0, WindowSize::default()),
+        Some((token, state)) => {
+            // Read through the state, so this scope runs again when the class changes;
+            // the value itself is the module's.
+            let _ = state.get();
+            crate::window::NodeSize::of(token)
+        }
+        None => crate::window::NodeSize::of(0),
     }
 }
 
@@ -564,10 +569,9 @@ pub fn on_notification_activated(handler: impl FnMut(crate::NotificationActivati
             handler.take().expect("the handler is installed once"),
         ));
         let forward = Rc::clone(&shared);
-        let subscription =
-            crate::notification::subscribe_activations(Rc::new(RefCell::new(move |activation| {
-                (&mut *forward.borrow_mut())(activation)
-            })));
+        let subscription = crate::notification::on_activation(Rc::new(move |activation| {
+            (&mut *forward.borrow_mut())(activation)
+        }));
         composer.remember_new(ActivationSlot {
             handler: shared,
             _subscription: subscription,

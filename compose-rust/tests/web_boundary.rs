@@ -76,18 +76,14 @@ fn pr6_generated_web_bindings_match_the_boundary_schema() {
             op.name
         );
     }
-    // The work is generated; the export is in `web_main!`, because a wasm module cannot
-    // be linked with an undefined symbol the way an ELF shared library can, so this
-    // crate's own module must not name a function only an application can define.
+    // The work is generated; the export is in the authoring layer's `web_main!`, because a
+    // wasm module cannot be linked with an undefined symbol the way an ELF shared library
+    // can, so this crate's own module must not name a function only an application can
+    // define. What it takes is a runtime, so any authoring layer can start one with it.
     assert!(
-        rust.contains("pub fn web_start(builder: LaunchBuilder, app: App) -> u32 {"),
+        rust.contains("pub fn web_start(")
+            && rust.contains("runtime: impl Fn() -> Box<dyn Runtime> + Send + Sync + 'static,"),
         "the extra entry point a page needs in place of a library loader is missing"
-    );
-    assert!(
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs")).contains(&format!(
-            "pub extern \"C\" fn {WEB_START_SYMBOL}() -> u32 {{"
-        )),
-        "`web_main!` has to export it under the name the page calls"
     );
     assert!(
         kotlin.contains(&format!("host.{WEB_START_SYMBOL}()")),

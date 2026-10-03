@@ -40,6 +40,7 @@
 pub(crate) mod composer;
 pub(crate) mod effects;
 pub(crate) mod host;
+mod seam;
 pub(crate) mod state;
 
 pub use compose_rust_macros::composable;
@@ -47,7 +48,8 @@ pub use effects::{
     CoroutineScope, DisposableEffectResult, delay, disposable_effect, launched_effect, on_dispose,
     remember_coroutine_scope, side_effect, with_frame_nanos, with_worker,
 };
-pub use host::{ComposeHost, Recomposer};
+pub use host::{ComposeHost, Recomposer, application, launch, recomposer_for};
+pub use seam::{Batch, Runtime};
 pub use state::{
     DerivedState, MutableState, SnapshotMutationPolicy, State, current_design_system,
     current_notification_permission, current_window_size, derived_state_of, mutable_state_of,

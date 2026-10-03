@@ -17,11 +17,11 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
 
 sources=()
-for dir in compose-rust/src compose-rust-macros/src dioxus-compose/src; do
+for dir in compose-rust/src compose-rust-macros/src adapters/dioxus/src; do
     [[ -d "$dir" ]] && sources+=("$dir")
 done
 manifests=()
-for manifest in compose-rust/Cargo.toml compose-rust-macros/Cargo.toml dioxus-compose/Cargo.toml; do
+for manifest in compose-rust/Cargo.toml compose-rust-macros/Cargo.toml adapters/dioxus/Cargo.toml; do
     [[ -f "$manifest" ]] && manifests+=("$manifest")
 done
 
