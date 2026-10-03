@@ -23,7 +23,8 @@ fn counter() {
     let count = remember(|| mutable_state_of(0));
     Column().content(|| {
         Text(format!("{}", count.get()));
-        Button("+1").on_click(move || count.update(|count| *count += 1));
+        let more = count.clone();
+        Button("+1").on_click(move || more.update(|count| *count += 1));
     });
 }
 ```
