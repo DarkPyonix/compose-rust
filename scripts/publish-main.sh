@@ -9,7 +9,7 @@
 # INTENT.md and SPEC.md live -- exist only on develop.
 #
 # The default target is `release`, not `main`: `main` is protected and only
-# moves through a pull request, which .github/workflows/publish-main.yml opens
+# moves through a pull request, which .github/workflows/release-sync.yml opens
 # from `release`. Pass `--target main` to write it directly, which works only
 # where the protection does not apply.
 #
