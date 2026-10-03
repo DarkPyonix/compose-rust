@@ -811,6 +811,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "sample-chat-compose"
+version = "0.1.0"
+dependencies = [
+ "compose-rust",
+]
+
+[[package]]
 name = "sample-frames"
 version = "0.1.0"
 dependencies = [
@@ -824,6 +831,13 @@ dependencies = [
  "compose-rust",
  "dioxus-hooks",
  "sample-frames",
+]
+
+[[package]]
+name = "sample-minimal-compose"
+version = "0.1.0"
+dependencies = [
+ "compose-rust",
 ]
 
 [[package]]

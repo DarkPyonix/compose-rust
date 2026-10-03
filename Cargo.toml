@@ -6,6 +6,8 @@ members = [
     "samples/calculator",
     "samples/chat",
     "samples/compose/calculator",
+    "samples/compose/chat",
+    "samples/compose/minimal",
     "samples/compose/todo",
     "samples/frames",
     "samples/minimal",
