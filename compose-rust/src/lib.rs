@@ -37,6 +37,7 @@ pub mod schema;
 pub mod spans;
 pub mod theme;
 pub mod tokens;
+pub mod update;
 pub mod window;
 
 pub use asset::asset;
