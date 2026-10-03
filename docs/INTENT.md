@@ -421,12 +421,14 @@ skiko는 `mingwX64`를 발행하지 않고 Compose도 Windows용 Kotlin/Native �
 
 이 문단은 전에 "디자인 시스템 일곱 개와 Liquid Glass 재질이 어느 저장소로 갈지"를 정하지 않은 것으로 두고 있었습니다. 이제 정해졌습니다. `dioxus-design-systems/`와 렌더러 안의 복사본이 포크로 옮겨 가고, 그 뒤 이 저장소와 렌더러는 포크가 내놓는 것을 씁니다. Rust와 무관한 Compose 코드이고, 포크로 가면 pythonx-compose도 같은 것을 쓸 수 있습니다.
 
-**아직 정하지 않은 것: 패키지와 모듈의 자리.** 소유자가 논의를 요청했고 결정은 소유자의 것입니다. 선택지는 둘입니다.
+**패키지와 모듈의 자리: 정해졌습니다(2026-10-03).** 소유자가 네임스페이스를 라이브러리와 앱으로 나눴습니다.
 
-- 기존 `material3`와 같은 부모 패키지(`androidx.compose.*`) 아래에 둡니다. Compose의 이름 안에 들어가므로 쓰는 사람에게는 자연스럽지만, upstream이 언젠가 같은 이름을 쓰면 부딪히고, 포크의 변경은 공개 API를 바꾸지 않는다는 위의 원칙과도 긴장합니다. 포크가 upstream에 없는 공개 패키지를 `androidx` 이름으로 내는 것이기 때문입니다.
-- 새 부모 패키지를 만듭니다. 추천은 이쪽입니다: 예를 들어 `io.github.thisisthepy.compose.<시스템>` 패키지에, 모듈은 포크의 `extended/design-systems/` 아래에 둡니다. upstream과 부딪히지 않고, 포크가 더한 것이 이름만 보고도 구별되며, upstream을 따라 올릴 때 충돌할 자리가 없습니다.
+> "우리도 그러면 실제 앱으로 배포 나가는거에는 io.github.thisisthepy를, 라이브러리에는 org.thisisthepy를 써야겠구만. compose는 org.thisisthepy로 나가는거 허용할게" (2026-10-03)
 
-최종 패키지 이름과 모듈 위치는 소유자가 고른 뒤 여기에 적습니다. 그때까지 옮기는 작업은 이름에 기대지 않는 부분(값 표, 컴포넌트 규칙, 참조 대조 테스트)부터 합니다.
+- 디자인 시스템은 `org.thisisthepy.compose.<시스템>` 패키지(`material3`, `cupertino`, `fluent`, `gnome`, `breeze`, `deepin`, `liquidglass`)이고, 공통 부분은 `org.thisisthepy.compose.designsystem`입니다. 모듈은 포크의 `extended/design-systems/<시스템>/` 아래에 둡니다.
+- 포크가 내는 라이브러리의 Maven 그룹은 `org.thisisthepy.compose.*`입니다. JetBrains가 라이브러리와 플러그인 모두 `org.jetbrains.compose`를 쓰는 것과 같은 방식입니다.
+- 앱으로 배포되는 것의 식별자는 `io.github.thisisthepy.<앱>`입니다. darkpyonix 제품(예: `dev.darkpyonix.Ember`)에 같은 규칙을 적용할지는 따로 정합니다.
+- `androidx.compose.*` 아래에 두지 않는 이유는 위의 둘째 선택지 설명 그대로입니다. upstream과 부딪히지 않고, 포크가 더한 것이 이름만으로 구별되며, 공개 API를 바꾸지 않는다는 원칙을 지킵니다.
 
 ### D15. iOS의 Liquid Glass는 시스템에게 받아 온다. UIKit을 Kotlin이 직접 몬다
 
