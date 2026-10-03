@@ -2,6 +2,9 @@
 members = [
     "compose-rust",
 ]
+# The samples are being rewritten on the compose-rust authoring API (#85) and are kept out of
+# the workspace until then; they still name the Dioxus adapter, which moved to dioxus-compose.
+exclude = ["samples"]
 resolver = "2"
 
 [workspace.package]
