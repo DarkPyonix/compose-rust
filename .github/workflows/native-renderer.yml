@@ -103,7 +103,7 @@ jobs:
             exit 0
           fi
           if git diff --name-only HEAD^ HEAD |
-              grep -qE '^(dioxus-compose-renderer/|dioxus-compose/build(\.rs|/)|scripts/(install-nik|check-single-executable|package-static-renderer)\.sh|\.github/workflows/native-renderer\.yml)'; then
+              grep -qE '^(renderer/|compose-rust/build(\.rs|/)|scripts/(install-nik|check-single-executable|package-static-renderer)\.sh|\.github/workflows/native-renderer\.yml)'; then
             echo "the renderer changed"
             echo "renderer=true" >> "$GITHUB_OUTPUT"
           else
@@ -147,13 +147,13 @@ jobs:
 
       - name: Build the Windows renderer
         shell: powershell
-        run: .\dioxus-compose-renderer\desktop\scripts\build-native-windows.ps1
+        run: .\renderer\desktop\scripts\build-native-windows.ps1
 
       - name: Non-interactive Windows smoke test
         # This proves startup, rendering long enough to open, clean close, and return 0.
         # It does not prove mouse input because a hosted runner cannot perform the required click.
         shell: powershell
-        run: .\dioxus-compose-renderer\desktop\scripts\smoke-test-windows.ps1
+        run: .\renderer\desktop\scripts\smoke-test-windows.ps1
 
       # A run artifact, which is a different thing from the release asset below: it belongs
       # to this run, lasts a fortnight, and is not published anywhere. The release asset
@@ -168,7 +168,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: renderer-windows-x64
-          path: dioxus-compose-renderer/build/native-image/dist
+          path: renderer/build/native-image/dist
           retention-days: 14
 
       - name: Package the distribution for a release
@@ -177,9 +177,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          name="dioxus-compose-renderer-${{ github.ref_name }}-windows-x64"
+          name="compose-rust-renderer-${{ github.ref_name }}-windows-x64"
           # dist/ holds the renderer, Skia and the AWT libraries, plus include/.
-          tar -czf "${name}.tar.gz" -C dioxus-compose-renderer/build/native-image/dist .
+          tar -czf "${name}.tar.gz" -C renderer/build/native-image/dist .
           if command -v shasum >/dev/null; then
             shasum -a 256 "${name}.tar.gz" > "${name}.tar.gz.sha256"
           else
@@ -201,8 +201,8 @@ jobs:
       - name: Upload the renderer
         uses: actions/upload-artifact@v4
         with:
-          name: dioxus-compose-renderer-windows-x64
-          path: dioxus-compose-renderer/build/native-image/dist/
+          name: compose-rust-renderer-windows-x64
+          path: renderer/build/native-image/dist/
           retention-days: 7
 
   # The renderers macOS and Linux ship: Kotlin/Native as a static archive, built and packaged
@@ -277,7 +277,7 @@ jobs:
       - name: Download the renderer artifact
         uses: actions/download-artifact@v4
         with:
-          pattern: dioxus-compose-renderer-v*-${{ matrix.target }}
+          pattern: compose-rust-renderer-v*-${{ matrix.target }}
           path: artifact
           merge-multiple: true
 
@@ -319,31 +319,31 @@ jobs:
             ~/Library/Caches/JetBrains/Kotlin
             ~/.konan
             ~/.m2/repository
-          key: kotlin-ios-${{ hashFiles('dioxus-compose-renderer/kotlin', 'dioxus-compose-renderer/libs.versions.toml', 'dioxus-compose-renderer/**/module.yaml') }}
+          key: kotlin-ios-${{ hashFiles('renderer/kotlin', 'renderer/libs.versions.toml', 'renderer/**/module.yaml') }}
           restore-keys: |
             kotlin-ios-
 
       - name: Protocol codec tests on Kotlin/Native (PR-4)
-        working-directory: dioxus-compose-renderer
+        working-directory: renderer
         run: ./kotlin test -m ios
 
       - name: Build the simulator archive
-        run: ./dioxus-compose-renderer/desktop/scripts/build-ios.sh
+        run: ./renderer/desktop/scripts/build-ios.sh
 
       - name: Build the device archive
         # Never run, only linked. It proves the arm64 device slice still compiles and
         # exports the PR-2 symbols; running it needs a signed app on real hardware.
-        run: ./dioxus-compose-renderer/desktop/scripts/build-ios.sh --target device
+        run: ./renderer/desktop/scripts/build-ios.sh --target device
 
       - name: Simulator smoke test (PR-2)
-        run: ./dioxus-compose-renderer/desktop/scripts/ios-smoke-test.sh --screenshot "${RUNNER_TEMP}/ios-smoke.png"
+        run: ./renderer/desktop/scripts/ios-smoke-test.sh --screenshot "${RUNNER_TEMP}/ios-smoke.png"
 
       - name: Simulator screenshot of the system's navigation chrome
         # The default smoke tree has no navigation, so the screenshot above shows none of
         # the chrome iOS 26 draws as Liquid Glass. This run declares two destinations,
         # which is what the renderer turns into a UITabBarController and a title bar.
         run: |
-          ./dioxus-compose-renderer/desktop/scripts/ios-smoke-test.sh \
+          ./renderer/desktop/scripts/ios-smoke-test.sh \
             --navigation --screenshot "${RUNNER_TEMP}/ios-navigation.png"
 
       - name: Package the iOS renderer as an XCFramework
@@ -354,17 +354,17 @@ jobs:
         id: package
         run: |
           set -euo pipefail
-          name="dioxus-compose-renderer-${GITHUB_REF_NAME}-ios"
-          build=dioxus-compose-renderer/build/ios
+          name="compose-rust-renderer-${GITHUB_REF_NAME}-ios"
+          build=renderer/build/ios
           for slice in device simulator; do
             mkdir -p "$build/$slice/include"
             cp "$build/$slice"/*.h "$build/$slice/include/"
           done
           rm -rf "$name.xcframework"
           xcodebuild -create-xcframework \
-            -library "$build/device/libdioxus_compose_renderer.a" \
+            -library "$build/device/libcompose_rust_renderer.a" \
             -headers "$build/device/include" \
-            -library "$build/simulator/libdioxus_compose_renderer.a" \
+            -library "$build/simulator/libcompose_rust_renderer.a" \
             -headers "$build/simulator/include" \
             -output "$name.xcframework"
           tar -czf "$name.tar.gz" "$name.xcframework"
@@ -419,7 +419,7 @@ jobs:
         # per-run inspection uploads are not.
         uses: actions/download-artifact@v4
         with:
-          pattern: dioxus-compose-renderer-v*
+          pattern: compose-rust-renderer-v*
           path: artifacts
           merge-multiple: true
 

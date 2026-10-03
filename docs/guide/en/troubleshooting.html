@@ -64,9 +64,9 @@
     <h2 id="no-library">The linker cannot find the renderer</h2>
     <p>
       Symptoms: <code>cargo run</code> fails with
-      <code>library not found for -ldioxus_compose_renderer</code>, or the binary links but dies at
+      <code>library not found for -lcompose_rust_renderer</code>, or the binary links but dies at
       startup with a dynamic-loader error naming
-      <code>libdioxus_compose_renderer.dylib</code>.
+      <code>libcompose_rust_renderer.dylib</code>.
     </p>
     <p>
       Outside this repository the build downloads the renderer, so a failure here comes with a
@@ -76,18 +76,18 @@
     </p>
     <p>
       Inside a checkout the build prefers a workspace build over anything downloadable: the
-      static archive in <code>dioxus-compose-renderer/build/macos</code> (or
+      static archive in <code>renderer/build/macos</code> (or
       <code>build/linux</code>, <code>build/linux-arm64</code>) first, then the native image in
-      <code>dioxus-compose-renderer/build/native-image/dist/lib</code>. The static archive is
+      <code>renderer/build/native-image/dist/lib</code>. The static archive is
       linked into the executable, so there is nothing to find at startup. If the directory
       exists but holds no archive, the renderer has not been built.
     </p>
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
       <figcaption>shell</figcaption>
-<pre><code>ls dioxus-compose-renderer/build/macos
-<span class="c"># expect: libdioxus_compose_renderer.a, libdioxus_compose_renderer_api.h, schema-hash.txt</span>
+<pre><code>ls renderer/build/macos
+<span class="c"># expect: libcompose_rust_renderer.a, libcompose_rust_renderer_api.h, schema-hash.txt</span>
 
-./dioxus-compose-renderer/desktop/scripts/build-macos.sh --release</code></pre>
+./renderer/desktop/scripts/build-macos.sh --release</code></pre>
     </figure>
     <p>
       The native image is the one that is found at startup, by the path the build named it after.
@@ -110,7 +110,7 @@
     </p>
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
       <figcaption>shell</figcaption>
-<pre><code>./dioxus-compose-renderer/desktop/scripts/smoke-test.sh</code></pre>
+<pre><code>./renderer/desktop/scripts/smoke-test.sh</code></pre>
     </figure>
     <p>
       A window there and none from Rust points at the linking of your binary. No window there
@@ -144,7 +144,7 @@
 
     <h2 id="main-thread">The app starts and immediately returns, or hangs on exit</h2>
     <p>
-      <code>dioxus_compose_renderer_run</code> must be called on the process main thread. Called
+      <code>compose_rust_renderer_run</code> must be called on the process main thread. Called
       anywhere else on macOS it returns <code>RUN_NOT_MAIN_THREAD</code> (<code>-4</code>) without
       doing anything. Other negative codes from the same entry point are worth knowing:
     </p>

@@ -4,18 +4,18 @@
 # Packages a static renderer build as the release artifact the crate's build script
 # downloads:
 #
-#   <output>/dioxus-compose-renderer-v<version>-<target>.tar.gz
-#   <output>/dioxus-compose-renderer-v<version>-<target>.tar.gz.sha256
+#   <output>/compose-rust-renderer-v<version>-<target>.tar.gz
+#   <output>/compose-rust-renderer-v<version>-<target>.tar.gz.sha256
 #
 # and inside the tarball:
 #
-#   lib/libdioxus_compose_renderer.a        what an application links
-#   include/libdioxus_compose_renderer_api.h
+#   lib/libcompose_rust_renderer.a        what an application links
+#   include/libcompose_rust_renderer_api.h
 #   schema-hash.txt                         the schema the renderer was generated from
-#   dioxus-compose-renderer.version         the crate version it is for
+#   renderer.version         the crate version it is for
 #
 #   <renderer build directory>  what build-macos.sh or build-linux.sh wrote
-#                               (dioxus-compose-renderer/build/macos, build/linux, ...)
+#                               (renderer/build/macos, build/linux, ...)
 #   <target>                    macos-aarch64, linux-x64 or linux-arm64
 #   <version>                   the crate version, without a leading v
 #
@@ -46,15 +46,15 @@ case "$target" in
 esac
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+].*)?$ ]] || fail "'$3' is not a crate version"
 
-archive="$build_dir/libdioxus_compose_renderer.a"
-header="$build_dir/libdioxus_compose_renderer_api.h"
+archive="$build_dir/libcompose_rust_renderer.a"
+header="$build_dir/libcompose_rust_renderer_api.h"
 hash="$build_dir/schema-hash.txt"
 for file in "$archive" "$header" "$hash"; do
     [[ -f "$file" ]] || fail "no $(basename "$file") in $build_dir" \
-        "Build the renderer first: dioxus-compose-renderer/desktop/scripts/build-macos.sh or build-linux.sh."
+        "Build the renderer first: renderer/desktop/scripts/build-macos.sh or build-linux.sh."
 done
 
-name="dioxus-compose-renderer-v$version-$target"
+name="compose-rust-renderer-v$version-$target"
 mkdir -p "$out"
 out="$(cd "$out" && pwd)"
 staging="$out/$name.staging"
@@ -63,7 +63,7 @@ mkdir -p "$staging/lib" "$staging/include"
 cp "$archive" "$staging/lib/"
 cp "$header" "$staging/include/"
 cp "$hash" "$staging/schema-hash.txt"
-echo "$version" > "$staging/dioxus-compose-renderer.version"
+echo "$version" > "$staging/renderer.version"
 
 # COPYFILE_DISABLE keeps macOS tar from adding ._ resource fork entries to the archive.
 COPYFILE_DISABLE=1 tar -czf "$out/$name.tar.gz" -C "$staging" .

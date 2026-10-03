@@ -53,14 +53,14 @@ if (Test-Path $target) { Remove-Item -Recurse -Force $target }
 gh run download $Run -n renderer-windows-x64 -D $target
 
 $bin = Join-Path $target "bin"
-$library = Join-Path $bin "libdioxus_compose_renderer.dll"
+$library = Join-Path $bin "libcompose_rust_renderer.dll"
 if (-not (Test-Path $library)) {
     throw "no $library after downloading from run $Run. The artifact is named " +
         "renderer-windows-x64 and unpacks to bin\ and lib\; check that the run has one."
 }
 
 $hashFile = Join-Path $target "schema-hash.txt"
-$crateHash = Get-Content (Join-Path $repoRoot "dioxus-compose\schema-hash.txt") -ErrorAction SilentlyContinue
+$crateHash = Get-Content (Join-Path $repoRoot "compose-rust\schema-hash.txt") -ErrorAction SilentlyContinue
 if (Test-Path $hashFile) {
     $rendererHash = (Get-Content $hashFile).Trim()
     if ($crateHash -and $rendererHash -ne $crateHash.Trim()) {
@@ -84,7 +84,7 @@ Write-Host ""
 Write-Host "Now build against it. The variable has to be set before cargo runs, because the"
 Write-Host "renderer is linked in rather than found at startup:"
 Write-Host ""
-Write-Host "  `$env:DIOXUS_COMPOSE_RENDERER_DIR = '$bin'"
+Write-Host "  `$env:COMPOSE_RUST_RENDERER_DIR = '$bin'"
 Write-Host "  cargo clean -p compose-rust"
 Write-Host "  cargo build --release -p sample-minimal --features compose-rust/native-renderer"
 Write-Host "  .\target\release\sample-minimal.exe"

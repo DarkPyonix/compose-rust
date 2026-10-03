@@ -76,6 +76,15 @@ jobs:
           restore-keys: |
             cargo-${{ runner.os }}-
 
+      - name: Use a renderer generated from this tree's schema
+        # Every default build in the gate links a renderer, and the one a build finds here
+        # is the published release, which was generated from the schema of its version.
+        # On a branch that changed the schema the build script refuses it, rightly, and
+        # the gate would fail before clippy for a reason no branch can fix. On that
+        # refusal and only on it, this links a stand-in generated from this tree's schema.
+        # It cannot draw, and nothing in the gate asks it to.
+        run: ./scripts/stand-in-renderer.sh --if-refused target/stand-in-renderer >> "$GITHUB_ENV"
+
       - name: Run the quality gate
         # fmt, clippy -D warnings, tests, and the SPEC 5.1 budget benchmarks in
         # Criterion's quick mode. The budgets have ~37x headroom against the
@@ -156,28 +165,28 @@ jobs:
             ~/.cache/JetBrains/Kotlin
             ~/.konan
             ~/.m2/repository
-          key: kotlin-${{ matrix.platform }}-${{ runner.os }}-${{ hashFiles('dioxus-compose-renderer/**/module.yaml', 'dioxus-compose-renderer/libs.versions.toml', 'dioxus-compose-renderer/kotlin', 'dioxus-design-systems/**/module.yaml') }}
+          key: kotlin-${{ matrix.platform }}-${{ runner.os }}-${{ hashFiles('renderer/**/module.yaml', 'renderer/libs.versions.toml', 'renderer/kotlin', 'design-systems/**/module.yaml') }}
           restore-keys: |
             kotlin-${{ matrix.platform }}-${{ runner.os }}-
 
       - name: Build the renderer
-        working-directory: dioxus-compose-renderer
+        working-directory: renderer
         run: ./kotlin build -p ${{ matrix.platform }}
 
       - name: Test the renderer
         if: matrix.test
-        working-directory: dioxus-compose-renderer
+        working-directory: renderer
         run: ./kotlin test -p ${{ matrix.platform }}
 
       - name: Build the design systems
         # A separate Amper project, and deliberately so: it must never depend on the
         # renderer, which is what lets it be published on its own.
-        working-directory: dioxus-design-systems
+        working-directory: design-systems
         run: ./kotlin build -p ${{ matrix.platform }}
 
       - name: Test the design systems
         if: matrix.test
-        working-directory: dioxus-design-systems
+        working-directory: design-systems
         run: ./kotlin test -p ${{ matrix.platform }}
 
   shell:
@@ -215,12 +224,24 @@ jobs:
       - name: Run scripts/tests
         # scripts/publish-main.sh and scripts/install-nik.sh carry their own
         # tests; they run against throwaway temporary directories only.
+        #
+        # Every test runs whatever came before it. Stopping at the first red meant one
+        # failing test hid every test after it, and those went unrun without anyone
+        # being told. The step still fails, at the end, naming each test that did.
         run: |
-          set -euo pipefail
+          set -uo pipefail
+          failed=()
           for test in scripts/tests/*.test.sh; do
             echo "== $test"
-            bash "$test"
+            if ! bash "$test"; then
+              failed+=("$test")
+            fi
           done
+          if (( ${#failed[@]} > 0 )); then
+            echo "${#failed[@]} shell test(s) failed:"
+            printf '  %s\n' "${failed[@]}"
+            exit 1
+          fi
 
   packaging:
     name: crates.io packaging check
@@ -240,5 +261,19 @@ jobs:
       # artifact for its own version from the release. That is the point. If the
       # release for this version has no Linux renderer, a consumer on Linux cannot
       # build, and this job is where that is discovered.
+      #
+      # Except when that renderer was built from a different schema than this tree,
+      # which is true of every branch that changes the schema until the next release.
+      # The build script rightly refuses that pairing, and the job would then fail on
+      # every such branch for a reason no branch can fix, and say nothing about
+      # packaging. So on that refusal, and only on it, the verification links a stand-in
+      # renderer generated from this tree's schema instead: the packaged crate is still
+      # built by its own build script with no workspace, and links a renderer through
+      # COMPOSE_RUST_RENDERER_DIR. Whether the download for a version works is checked
+      # where it can be true, by the release workflow's own `cargo publish`, after it has
+      # attached the renderer that release was built from.
+      - name: Use a renderer generated from this tree's schema
+        run: ./scripts/stand-in-renderer.sh --if-refused target/stand-in-renderer >> "$GITHUB_ENV"
+
       - name: cargo package
         run: cargo package -p compose-rust

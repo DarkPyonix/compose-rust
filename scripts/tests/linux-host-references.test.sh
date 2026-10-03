@@ -2,10 +2,10 @@
 # The Linux renderer library an application links names every Host function the renderer
 # calls, so that the application exports them.
 #
-# The renderer image finds dioxus_compose_host_* in the executable by name. A Rust
+# The renderer image finds compose_rust_host_* in the executable by name. A Rust
 # executable exports nothing it was not asked to, and the Host crate has no way to ask on
 # an application's behalf: a build script's link arguments reach that package's own
-# binaries and stop. So the asking is done by libdioxus_compose_renderer.so, which every
+# binaries and stop. So the asking is done by libcompose_rust_renderer.so, which every
 # application links: it leaves those functions undefined, and a linker exports from an
 # executable whatever a shared library on its link line needs. A name missing from that
 # list is a function the application does not export, and the renderer dies calling it
@@ -19,10 +19,10 @@ set -uo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
 
-references=dioxus-compose-renderer/desktop/c/linux_host_references.c
-host=dioxus-compose/src/boundary.rs
-renderer=dioxus-compose-renderer/desktop/src
-build=dioxus-compose-renderer/desktop/scripts/build-native-linux.sh
+references=renderer/desktop/c/linux_host_references.c
+host=compose-rust/src/boundary.rs
+renderer=renderer/desktop/src
+build=renderer/desktop/scripts/build-native-linux.sh
 
 for file in "$references" "$host" "$build"; do
     [[ -f "$file" ]] || { echo "fail  $file is missing" >&2; exit 1; }
@@ -31,12 +31,12 @@ done
 # The table's entries: an indented name followed by a comma, which is how the
 # initializer is written. The extern declarations above it are not counted, so a name
 # declared and left out of the table is caught.
-referenced="$(grep -oE '^ +dioxus_compose_host_[a-z_]+,' "$references" |
+referenced="$(grep -oE '^ +compose_rust_host_[a-z_]+,' "$references" |
     tr -d ' ,' | sort -u)"
-declared="$(grep -oE '^extern void dioxus_compose_host_[a-z_]+\(' "$references" |
+declared="$(grep -oE '^extern void compose_rust_host_[a-z_]+\(' "$references" |
     sed 's/^extern void //; s/($//' | sort -u)"
-defined="$(grep -oE 'fn dioxus_compose_host_[a-z_]+' "$host" | sed 's/fn //' | sort -u)"
-called="$(grep -rhoE '@CFunction\("dioxus_compose_host_[a-z_]+"\)' "$renderer" |
+defined="$(grep -oE 'fn compose_rust_host_[a-z_]+' "$host" | sed 's/fn //' | sort -u)"
+called="$(grep -rhoE '@CFunction\("compose_rust_host_[a-z_]+"\)' "$renderer" |
     sed 's/@CFunction("//; s/")//' | sort -u)"
 
 failures=0
@@ -85,9 +85,9 @@ sed 's/[[:space:]]*#.*$//' "$build" |
 # no library travels beside the executable to make it export them. That definition has to
 # name the same set, and the library that used to carry the references must stay gone: an
 # application that names it is not one executable.
-static_def=dioxus-compose-renderer/linux/cinterop/host.def
+static_def=renderer/linux/cinterop/host.def
 if [[ -f "$static_def" ]]; then
-    static_referenced="$(grep -oE '^extern void dioxus_compose_host_[a-z_]+\(' "$static_def" |
+    static_referenced="$(grep -oE '^extern void compose_rust_host_[a-z_]+\(' "$static_def" |
         sed 's/^extern void //; s/($//' | sort -u)"
     compare "the static renderer refers to a different set than the Host defines" \
         "$static_referenced" "$defined" "$static_def" "the Host"
@@ -95,8 +95,8 @@ else
     echo "fail  $static_def is missing" >&2
     failures=$((failures + 1))
 fi
-if grep -q 'dioxus_compose_host_exports' dioxus-compose/build.rs dioxus-compose/src/boundary.rs; then
-    echo "fail  the Host still links libdioxus_compose_host_exports.so" >&2
+if grep -q 'compose_rust_host_exports' compose-rust/build.rs compose-rust/src/boundary.rs; then
+    echo "fail  the Host still links libcompose_rust_host_exports.so" >&2
     echo "      An application that needs a library beside it is not one executable." >&2
     failures=$((failures + 1))
 fi

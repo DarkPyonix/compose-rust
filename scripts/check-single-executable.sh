@@ -7,7 +7,7 @@
 # Skia or Java runtime beside it, and copied alone into an empty directory it opens its
 # window and draws.
 #
-#   <renderer artifact>  dioxus-compose-renderer-v<version>-<target>.tar.gz, with its
+#   <renderer artifact>  compose-rust-renderer-v<version>-<target>.tar.gz, with its
 #                        .sha256 beside it. The version has to be this checkout's crate
 #                        version, because that is the file the build script asks for.
 #   <scratch directory>  emptied first; it must be outside the checkout, so the only
@@ -30,7 +30,7 @@ if [[ $# -ne 2 ]]; then
 fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-fixture="$repo_root/dioxus-compose/tests/fixtures/consumer"
+fixture="$repo_root/compose-rust/tests/fixtures/consumer"
 
 fail() {
     echo "fail  $1" >&2
@@ -54,25 +54,25 @@ artifact="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 [[ -f "$artifact.sha256" ]] || fail "no checksum beside it at $artifact.sha256" \
     "The build script verifies every artifact before unpacking it, as it will for a consumer."
 
-crate_version="$(sed -n 's/^version = "\(.*\)"$/\1/p' "$repo_root/dioxus-compose/Cargo.toml" | head -1)"
+crate_version="$(sed -n 's/^version = "\(.*\)"$/\1/p' "$repo_root/compose-rust/Cargo.toml" | head -1)"
 case "$(basename "$artifact")" in
-    "dioxus-compose-renderer-v$crate_version-"*.tar.gz) ;;
+    "compose-rust-renderer-v$crate_version-"*.tar.gz) ;;
     *) fail "$(basename "$artifact") is not an artifact for compose-rust $crate_version" \
-        "The build script downloads dioxus-compose-renderer-v$crate_version-<target>.tar.gz." ;;
+        "The build script downloads compose-rust-renderer-v$crate_version-<target>.tar.gz." ;;
 esac
 
 # The archive, not a shared library: one executable is what this checks.
 # Listed into a variable first: grep -q stops reading early, and under pipefail the tar it
 # cut off would fail the check.
 contents="$(tar -tzf "$artifact")"
-grep -qE '^(\./)?lib/libdioxus_compose_renderer\.a$' <<< "$contents" ||
-    fail "$(basename "$artifact") does not carry lib/libdioxus_compose_renderer.a" \
+grep -qE '^(\./)?lib/libcompose_rust_renderer\.a$' <<< "$contents" ||
+    fail "$(basename "$artifact") does not carry lib/libcompose_rust_renderer.a" \
         "Only the static renderer makes an application one executable."
 
 # A workspace build in this checkout would be found before the cache, and then this would
 # test that instead of the artifact.
-for built in dioxus-compose-renderer/build/macos dioxus-compose-renderer/build/linux \
-             dioxus-compose-renderer/build/linux-arm64 dioxus-compose-renderer/build/native-image/dist/lib; do
+for built in renderer/build/macos renderer/build/linux \
+             renderer/build/linux-arm64 renderer/build/native-image/dist/lib; do
     [[ ! -e "$repo_root/$built" ]] || fail "$built exists in this checkout" \
         "The build script would link that instead of the artifact. Run this in a clean checkout."
 done
@@ -88,11 +88,11 @@ mkdir -p "$scratch/cache/downloads" "$scratch/run"
 cp "$artifact" "$artifact.sha256" "$scratch/cache/downloads/"
 
 # Nothing may point the build anywhere else.
-unset DIOXUS_COMPOSE_RENDERER_DIR DXC_MACOS_NATIVE_LIB DXC_LINUX_NATIVE_LIB
+unset COMPOSE_RUST_RENDERER_DIR DXC_MACOS_NATIVE_LIB DXC_LINUX_NATIVE_LIB
 # The Kotlin/Native renderer cannot close its own window, so the self-check ends the
 # process once the frames are in.
-unset DIOXUS_COMPOSE_AUTOEXIT_MS
-export DIOXUS_COMPOSE_CACHE_DIR="$scratch/cache"
+unset COMPOSE_RUST_AUTOEXIT_MS
+export COMPOSE_RUST_CACHE_DIR="$scratch/cache"
 
 # What every system the application may name lives under. Anything else is a file that
 # would have to travel with it.

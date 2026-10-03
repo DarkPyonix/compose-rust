@@ -32,7 +32,7 @@ fail() {
     for line in "$@"; do printf '        %s\n' "$line" >&2; done
 }
 
-published="$(grep -o 'PUBLISHED_TARGETS: &\[&str\] = &\[[^]]*\]' dioxus-compose/build/renderer_dir.rs |
+published="$(grep -o 'PUBLISHED_TARGETS: &\[&str\] = &\[[^]]*\]' compose-rust/build/renderer_dir.rs |
     grep -o '"[a-z0-9_-]*"' | tr -d '"' | sort)"
 # The build matrix's rows: a bare target name. The static renderer's matrix list and the
 # expression that passes a row on are not rows.
@@ -41,7 +41,7 @@ built="$(grep -E '^\s+target: [a-z0-9-]+$' .github/workflows/samples.yml |
 
 if [[ -z "$published" ]]; then
     fail "the published target list could not be read" \
-        "PUBLISHED_TARGETS in dioxus-compose/build/renderer_dir.rs no longer has the" \
+        "PUBLISHED_TARGETS in compose-rust/build/renderer_dir.rs no longer has the" \
         "shape this reads, so nothing was compared and this test passed on nothing."
 elif [[ -z "$built" ]]; then
     fail "the sample matrix could not be read" \

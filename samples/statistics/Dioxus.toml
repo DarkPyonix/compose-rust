@@ -9,7 +9,7 @@ name = "Statistics"
 asset_dir = "assets"
 
 [bundle]
-identifier = "dev.darkpyonix.dioxus.compose.samples.statistics"
+identifier = "dev.darkpyonix.composerust.samples.statistics"
 publisher = "DarkPyonix"
 short_description = "Charts drawn from the role vocabulary."
 long_description = "A dial, a week of costs and where the money went, all of it drawn with Canvas and painted with roles."

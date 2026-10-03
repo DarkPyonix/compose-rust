@@ -28,7 +28,7 @@ make_repo() {
     git -C "$dir" init -q -b develop
     git -C "$dir" config user.email test@example.invalid
     git -C "$dir" config user.name "Split Test"
-    mkdir -p "$dir/docs/guide" "$dir/dioxus-compose/src"
+    mkdir -p "$dir/docs/guide" "$dir/compose-rust/src"
     echo readme > "$dir/README.md"
     echo license > "$dir/LICENSE"
     echo project > "$dir/PROJECT.md"
@@ -36,7 +36,7 @@ make_repo() {
     echo intent > "$dir/docs/INTENT.md"
     echo spec > "$dir/docs/SPEC.md"
     echo guide > "$dir/docs/guide/index.md"
-    echo code > "$dir/dioxus-compose/src/lib.rs"
+    echo code > "$dir/compose-rust/src/lib.rs"
     git -C "$dir" add -A
     git -C "$dir" commit -q -m "Initial commit"
 }
@@ -76,7 +76,7 @@ out="$(cd "$repo" && "$split" --write --target main 2>&1)"
 check "--write succeeds" "$?" "0"
 main_files="$(files_on "$repo" main)"
 check "main keeps the public tree" "$main_files" "$(printf '%s\n' \
-    LICENSE README.md dioxus-compose/src/lib.rs docs/guide/index.md | sort)"
+    LICENSE README.md compose-rust/src/lib.rs docs/guide/index.md | sort)"
 check_absent "main drops PROJECT.md" "$main_files" "PROJECT.md"
 check_absent "main drops CLAUDE.md" "$main_files" "CLAUDE.md"
 check_absent "main drops docs/INTENT.md" "$main_files" "docs/INTENT.md"
@@ -100,7 +100,7 @@ check_contains "second run reports no work" "$out" "up to date"
 check "second run leaves main unmoved" "$(git -C "$repo" rev-parse main)" "$before"
 
 # --- re-runnable as develop advances ---------------------------------------
-echo more > "$repo/dioxus-compose/src/extra.rs"
+echo more > "$repo/compose-rust/src/extra.rs"
 echo "more spec" >> "$repo/docs/SPEC.md"
 git -C "$repo" add -A
 git -C "$repo" commit -q -m "Feat: More"
@@ -145,7 +145,7 @@ check "running while on main keeps main's checkout intact" \
 repo="$tmp/other-head"
 make_repo "$repo"
 git -C "$repo" checkout -q -b feature
-echo work > "$repo/dioxus-compose/src/feature.rs"
+echo work > "$repo/compose-rust/src/feature.rs"
 # The private files must differ between HEAD and --source too: that is what
 # makes git compare them and refuse.
 echo "edited on the feature branch" >> "$repo/PROJECT.md"
@@ -208,7 +208,7 @@ git -C "$clone" config user.name "Split Test"
 git -C "$clone" checkout -q develop
 check "the clone has no local release branch" \
     "$(git -C "$clone" rev-parse --verify -q release >/dev/null 2>&1; echo $?)" "1"
-echo "more" > "$clone/dioxus-compose/src/later.rs"
+echo "more" > "$clone/compose-rust/src/later.rs"
 git -C "$clone" add -A
 git -C "$clone" commit -q -m "Feat: More work"
 out="$(cd "$clone" && "$split" --write 2>&1)"

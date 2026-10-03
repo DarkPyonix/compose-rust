@@ -8,7 +8,7 @@
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-renderer_dir="$repo_root/dioxus-compose-renderer"
+renderer_dir="$repo_root/renderer"
 
 quiet=0
 case "${1:-}" in
@@ -100,7 +100,7 @@ esac
 # smoke-test.sh links against, so an installation that cannot produce one is worth a line.
 graalvm_home="${GRAALVM_HOME:-}"
 if [[ -z "$graalvm_home" && "$uname_s" == "Darwin" ]]; then
-    # Same discovery order as dioxus-compose-renderer/desktop/scripts/env.sh.
+    # Same discovery order as renderer/desktop/scripts/env.sh.
     for candidate in "$HOME"/Library/Java/JavaVirtualMachines/bellsoft-liberica-vm-full-openjdk25*/Contents/Home; do
         [[ -x "$candidate/bin/native-image" ]] && graalvm_home="$candidate"
     done

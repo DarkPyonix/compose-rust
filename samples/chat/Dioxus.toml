@@ -5,7 +5,7 @@
 # this repository, because the point of a sample is to be copied.
 #
 # What is specific to this project is the renderer: dx builds and bundles the application,
-# and the Compose renderer is linked in by dioxus-compose's build script. Nothing in this
+# and the Compose renderer is linked in by compose-rust's build script. Nothing in this
 # file selects a renderer.
 
 [application]
@@ -13,7 +13,7 @@ name = "Chat"
 asset_dir = "assets"
 
 [bundle]
-identifier = "dev.darkpyonix.dioxus.compose.samples.chat"
+identifier = "dev.darkpyonix.composerust.samples.chat"
 publisher = "DarkPyonix"
 short_description = "An LLM chat interface built with compose-rust."
 long_description = "Streaming text from a worker thread, multiline composer."

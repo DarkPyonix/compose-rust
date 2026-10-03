@@ -26,7 +26,7 @@
 # fails looking for `Contents/lib/libjawt.dylib`. `Contents/Frameworks/lib` works.
 #
 # This is only for a shared renderer: the Windows native image, or one that
-# DIOXUS_COMPOSE_RENDERER_DIR points at. The renderer the release ships for macOS and Linux
+# COMPOSE_RUST_RENDERER_DIR points at. The renderer the release ships for macOS and Linux
 # is a static archive, so an application built on it is one executable with the renderer,
 # Skia and ICU inside, and names nothing to bundle. Run on such an executable this says so
 # and changes nothing.
@@ -57,8 +57,8 @@ fail() {
 staged_dir="$(cd "$(dirname "$executable")" && pwd)"
 # What the executable may name by path: the shared renderer, when it was built on one.
 case "$(uname -s)" in
-    Darwin) library_names=(libdioxus_compose_renderer.dylib) ;;
-    Linux) library_names=(libdioxus_compose_renderer.so) ;;
+    Darwin) library_names=(libcompose_rust_renderer.dylib) ;;
+    Linux) library_names=(libcompose_rust_renderer.so) ;;
     *)
         echo "nothing to do on $(uname -s): a DLL is found on the loader's search path,"
         echo "so the renderer's files beside the executable is the whole arrangement."

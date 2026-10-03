@@ -146,7 +146,7 @@ Rust **Host**가 Kotlin **Renderer**보다 앞서 있습니다. 지금 마무리
 ## ✨ API 맛보기
 
 아래는 실제
-[`dioxus-compose/examples/desktop_demo.rs`](../../dioxus-compose/examples/desktop_demo.rs)를 길이만
+[`compose-rust/examples/desktop_demo.rs`](../../compose-rust/examples/desktop_demo.rs)를 길이만
 줄인 것입니다. 이 저장소에서 컴파일됩니다.
 
 ```rust
@@ -231,7 +231,7 @@ LaunchBuilder::new().with_theme(Theme::adaptive(DesignSystem::Material3)).launch
   적절하지 않기 때문입니다.
 
 > **상태: `Draft`, 설계뿐입니다.** ⚠️ 아직 코드는 하나도 없습니다. `Theme`, `DesignSystem`,
-> `ColorRole`, `TypeRole`, `ScrollColumn`은 지금 `dioxus-compose/src/`에도 Kotlin 렌더러에도
+> `ColorRole`, `TypeRole`, `ScrollColumn`은 지금 `compose-rust/src/`에도 Kotlin 렌더러에도
 > 없습니다. 현재 동작하는 것은 리터럴 부분집합, 즉 `Modifier::Background(u32 ARGB)`와
 > `Modifier::Padding(f32)` 같은 것들입니다. 위 코드는 **명세된 API의 예시(illustrative)**이며
 > 동작하는 API가 아닙니다.
@@ -293,7 +293,7 @@ AWT를 통째로 건너뛴다**는 점입니다([oracle/graal#13272](https://git
 링크합니다.
 
 그렇게 정적 링크된 macOS AWT는 런타임에 세 가지를 파일 경로로 찾습니다. 각각
-`dioxus-compose-renderer/desktop/c/`의 얇은 우회책으로 메웁니다.
+`renderer/desktop/c/`의 얇은 우회책으로 메웁니다.
 
 | 찾는 것 | 우회책 |
 |---|---|
@@ -338,8 +338,8 @@ compose-rust = "0.0.1"
 
 | 변수 | 효과 |
 |---|---|
-| `DIOXUS_COMPOSE_RENDERER_DIR` | 이 디렉터리의 렌더러를 씁니다. 풀어 둔 아티팩트나 렌더러 빌드가 쓴 디렉터리이고, 정적 아카이브(`libdioxus_compose_renderer.a`)든 공유 라이브러리든 들어 있는 쪽을 링크합니다. 가장 먼저 확인하고, 설정돼 있으면 아무것도 내려받지 않습니다. 직접 빌드한 렌더러, 벤더링한 사본, 망 분리 빌드가 모두 이것 하나로 해결됩니다. |
-| `DIOXUS_COMPOSE_CACHE_DIR` | 캐시를 `$HOME/.cache/dioxus-compose`(Windows는 `%LOCALAPPDATA%\dioxus-compose`)에서 옮깁니다. |
+| `COMPOSE_RUST_RENDERER_DIR` | 이 디렉터리의 렌더러를 씁니다. 풀어 둔 아티팩트나 렌더러 빌드가 쓴 디렉터리이고, 정적 아카이브(`libcompose_rust_renderer.a`)든 공유 라이브러리든 들어 있는 쪽을 링크합니다. 가장 먼저 확인하고, 설정돼 있으면 아무것도 내려받지 않습니다. 직접 빌드한 렌더러, 벤더링한 사본, 망 분리 빌드가 모두 이것 하나로 해결됩니다. |
+| `COMPOSE_RUST_CACHE_DIR` | 캐시를 `$HOME/.cache/compose-rust`(Windows는 `%LOCALAPPDATA%\compose-rust`)에서 옮깁니다. |
 
 네트워크가 없는 빌드는 어떤 파일 둘을 어디에 두면 되는지 말하고, 그 자리에 두면 그것으로
 끝입니다. `default-features = false`는 렌더러 없이 빌드합니다(헤드리스, 문서 빌드). 그렇게
@@ -383,7 +383,7 @@ brew install --cask liberica-nik-full
 ./scripts/install-nik.sh
 ```
 
-`dioxus-compose-renderer/desktop/scripts/env.sh`가 다음 순서로 찾습니다.
+`renderer/desktop/scripts/env.sh`가 다음 순서로 찾습니다.
 
 1. `$GRAALVM_HOME`(설정된 경우)
 2. `~/Library/Java/JavaVirtualMachines/bellsoft-liberica-vm-full-openjdk25*/Contents/Home` 중 최신
@@ -393,7 +393,7 @@ brew install --cask liberica-nik-full
 링크 실패가 아니라 시작 전에 잡아내기 위한 것입니다.
 
 macOS에서는 Xcode 명령줄 도구(`xcode-select --install`)도 필요합니다. `cc`, `ld`와
-`dioxus-compose-renderer/desktop/c/`가 쓰는 AppKit 헤더 때문입니다.
+`renderer/desktop/c/`가 쓰는 AppKit 헤더 때문입니다.
 
 **현재 스크립트가 지원하는 것은 macOS뿐입니다.** Linux와 Windows native-image 빌드는 아직입니다.
 
@@ -406,7 +406,7 @@ macOS에서는 Xcode 명령줄 도구(`xcode-select --install`)도 필요합니�
 커밋으로 들어 있고, 빌드 스크립트가 그 커밋 하나에 고정합니다.
 
 ```bash
-./dioxus-compose-renderer/scripts/build-compose.sh
+./renderer/scripts/build-compose.sh
 ```
 
 고정된 커밋을 받아, 렌더러가 요구하는 모듈을 발행합니다. 오래 걸리지만 빌드마다 할
@@ -414,7 +414,7 @@ macOS에서는 Xcode 명령줄 도구(`xcode-select --install`)도 필요합니�
 
 ### 4. Kotlin
 
-설치할 것이 없습니다. `dioxus-compose-renderer/kotlin`(Windows는 `kotlin.bat`)이 자체 부트스트랩
+설치할 것이 없습니다. `renderer/kotlin`(Windows는 `kotlin.bat`)이 자체 부트스트랩
 래퍼라, 처음 실행할 때 고정된 버전의 툴체인을 내려받습니다.
 
 ### 5. 렌더러 빌드
@@ -423,7 +423,7 @@ Compose와 Skia, 인터프리터가 들어 있는 정적 라이브러리 하나�
 릴리스가 내보내는 것과 같은 아카이브입니다.
 
 ```bash
-cd dioxus-compose-renderer
+cd renderer
 ./desktop/scripts/build-macos.sh --release                   # macOS: build/macos/
 ./desktop/scripts/build-linux.sh --release                   # Linux x64: build/linux/
 ./desktop/scripts/build-linux.sh --release --arch arm64      # Linux arm64, x64에서 교차 컴파일: build/linux-arm64/
@@ -431,13 +431,13 @@ cd dioxus-compose-renderer
 
 ```
 build/macos/
-  libdioxus_compose_renderer.a       렌더러 (Compose, Skia, 인터프리터, 우리 코드)
-  libdioxus_compose_renderer_api.h   Kotlin/Native가 생성한 헤더
+  libcompose_rust_renderer.a       렌더러 (Compose, Skia, 인터프리터, 우리 코드)
+  libcompose_rust_renderer_api.h   Kotlin/Native가 생성한 헤더
   schema-hash.txt                    렌더러가 나온 스키마. Host의 빌드가 비교합니다
 ```
 
 `scripts/package-static-renderer.sh`가 이 디렉터리를 릴리스 아티팩트
-`dioxus-compose-renderer-v<version>-<target>.tar.gz`와 `.sha256`으로 묶고,
+`compose-rust-renderer-v<version>-<target>.tar.gz`와 `.sha256`으로 묶고,
 `scripts/check-single-executable.sh`가 그런 아티팩트로 애플리케이션을 빌드해 실행 파일
 하나임을 확인합니다. `otool -L`이나 `readelf -d`를 읽고, 실행 파일만 빈 디렉터리에 복사해
 그리는지 봅니다.
@@ -452,7 +452,7 @@ build/macos/
 
 ```
 build/native-image/dist/lib/
-  libdioxus_compose_renderer.dylib   렌더러 (AWT, Skiko JNI, Compose, 우리 코드)
+  libcompose_rust_renderer.dylib   렌더러 (AWT, Skiko JNI, Compose, 우리 코드)
   libskiko-macos-<arch>.dylib        Skia. Skiko가 경로로 로드합니다
   libjawt.dylib                      JAWT_GetAWT를 렌더러로 넘기는 포워더
   libawt_lwawt.dylib                 libawt가 경로로 로드하는 자리 채움
@@ -461,15 +461,15 @@ build/native-image/dist/lib/
 
 ### 6. 스모크 테스트
 
-최소한의 C 호스트를 라이브러리에 링크해 `dioxus_compose_renderer_run`을 호출합니다. 창이 뜨고,
+최소한의 C 호스트를 라이브러리에 링크해 `compose_rust_renderer_run`을 호출합니다. 창이 뜨고,
 닫으면 0을 반환해야 합니다. `PR-8`의 수용 기준입니다.
 
 ```bash
-cd dioxus-compose-renderer
+cd renderer
 ./desktop/scripts/smoke-test.sh
 ```
 
-무인 실행이 필요하면 `DIOXUS_COMPOSE_AUTOEXIT_MS=6000`으로 창이 스스로 닫히게 할 수 있습니다.
+무인 실행이 필요하면 `COMPOSE_RUST_AUTOEXIT_MS=6000`으로 창이 스스로 닫히게 할 수 있습니다.
 
 ### 7. Rust 데모 실행
 
@@ -478,9 +478,9 @@ cargo run -p compose-rust --example desktop_demo --features native-renderer
 ```
 
 이 저장소의 체크아웃에서는 빌드 스크립트가 방금 빌드한 렌더러를 내려받기보다 먼저 씁니다.
-`dioxus-compose-renderer/build/macos`(또는 `build/linux`, `build/linux-arm64`)의 정적 아카이브가
-먼저이고, 그다음이 `dioxus-compose-renderer/build/native-image/dist/lib`의 네이티브
-이미지입니다. 전체 순서는 `DIOXUS_COMPOSE_RENDERER_DIR`, 워크스페이스 빌드 결과물, 캐시,
+`renderer/build/macos`(또는 `build/linux`, `build/linux-arm64`)의 정적 아카이브가
+먼저이고, 그다음이 `renderer/build/native-image/dist/lib`의 네이티브
+이미지입니다. 전체 순서는 `COMPOSE_RUST_RENDERER_DIR`, 워크스페이스 빌드 결과물, 캐시,
 크레이트 버전의 릴리스 순입니다(`NFR-10`). `DXC_MACOS_NATIVE_LIB`과 `DXC_LINUX_NATIVE_LIB`은
 여전히 정적 렌더러 디렉터리를 직접 가리키며, 그 모두보다 앞섭니다.
 
@@ -490,7 +490,7 @@ cargo run -p compose-rust --example desktop_demo --features native-renderer
 native-image 빌드가 필요 없습니다(`NFR-5`, `D7`).
 
 ```bash
-cd dioxus-compose-renderer
+cd renderer
 ./kotlin run -m desktop   # Compose 개발 셸
 ./kotlin run -m desktop    # 렌더러 모듈 자체를 JVM에서, 스크립트된 Host로 구동
 ```
@@ -520,7 +520,7 @@ cd dioxus-compose-renderer
 
 ### 실측, 2026-09-20
 
-[`dioxus-compose/benches/baseline.json`](../../dioxus-compose/benches/baseline.json)에 기록되어
+[`compose-rust/benches/baseline.json`](../../compose-rust/benches/baseline.json)에 기록되어
 있고, `scripts/check.sh` 안에서 `cargo bench`로 다시 돌립니다.
 
 > **측정 환경:** Mac mini (Macmini9,1) · Apple M1, 8코어(성능 4 + 효율 4) · 16GiB ·
@@ -547,7 +547,7 @@ cd dioxus-compose-renderer
 
 ```
 compose-rust/
-├─ dioxus-compose/                  # Rust: Host, Dioxus 렌더러 크레이트
+├─ compose-rust/                  # Rust: Host, Dioxus 렌더러 크레이트
 │  ├─ src/
 │  │  ├─ lib.rs                     #   공개 API, rsx! 엘리먼트, 이벤트 속성
 │  │  ├─ widgets.rs                 #   Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn
@@ -558,7 +558,7 @@ compose-rust/
 │  ├─ examples/desktop_demo.rs      #   실행 가능한 데모
 │  ├─ benches/baseline.json         #   기록된 성능 기준선
 │  └─ tests/vectors/                #   양쪽이 함께 검증하는 프로토콜 벡터
-├─ dioxus-compose-renderer/         # Kotlin: Renderer (Kotlin Toolchain / Amper)
+├─ renderer/         # Kotlin: Renderer (Kotlin Toolchain / Amper)
 │  ├─ native/                       #   인터프리터, C 심, native-image 빌드 스크립트
 │  ├─ desktop/                      #   JVM 개발 셸
 │  ├─ shared/                       #   공용 Compose 코드

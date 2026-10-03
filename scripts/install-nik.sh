@@ -50,7 +50,7 @@ esac
 archive="bellsoft-liberica-vm-full-openjdk${NIK_JDK_BUILD}-${NIK_VM_BUILD}-${os}-${arch}.tar.gz"
 url="https://github.com/bell-sw/LibericaNIK/releases/download/${NIK_VM_BUILD}-${NIK_JDK_BUILD}/${archive}"
 
-install_root="${NIK_INSTALL_DIR:-$HOME/.cache/dioxus-compose/nik}"
+install_root="${NIK_INSTALL_DIR:-$HOME/.cache/compose-rust/nik}"
 graalvm_home="$install_root/${NIK_VERSION}-${os}-${arch}"
 
 emit() {

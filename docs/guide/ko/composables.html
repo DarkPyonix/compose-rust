@@ -1028,7 +1028,7 @@
       <code>DrawListBuilder</code>에는 <code>line</code>, <code>rect</code>,
       <code>round_rect</code>, <code>circle</code>, <code>arc</code>,
       <code>polyline_ref</code>, <code>text_at</code>이 있습니다. 긴 목록을 쓰기 전에
-      <code>dioxus-compose/src/drawing.rs</code>에서 시그니처를 확인하세요. 인자는 위치로
+      <code>compose-rust/src/drawing.rs</code>에서 시그니처를 확인하세요. 인자는 위치로
       구분되고, 채움인지 선인지는 따로 둔 플래그나 다른 메서드가 아니라 끝에 오는 선 두께입니다.
     </p>
 
@@ -1125,7 +1125,7 @@
       <code>progress: f32</code> 프로퍼티 하나를 받고 다른 위젯처럼 prelude에서 나옵니다.
     </p>
     <p>
-      직접 만들려면 <code>dioxus-compose/src/extensions.rs</code>의 레지스트리를 고친 사본을
+      직접 만들려면 <code>compose-rust/src/extensions.rs</code>의 레지스트리를 고친 사본을
       두고, 위젯과 프로퍼티 태그를 덧붙이고, 짝이 되는 코틀린 렌더러에서 새 종류를 그려야
       합니다. 확장 위젯 태그는 100부터 시작하므로 나중에 추가되는 코어 위젯과 절대 부딪히지
       않습니다.

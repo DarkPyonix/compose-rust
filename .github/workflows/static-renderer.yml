@@ -18,7 +18,7 @@
 # the toolchain resolves every platform a module declares, even when it builds one.
 #
 # The artifact is uploaded under the release asset's own name,
-# dioxus-compose-renderer-v<crate version>-<target>, holding the .tar.gz and its .sha256.
+# compose-rust-renderer-v<crate version>-<target>, holding the .tar.gz and its .sha256.
 
 name: Static renderer
 
@@ -138,7 +138,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ~/.m2/repository
-          key: compose-${{ steps.target.outputs.compose_key }}-${{ hashFiles('dioxus-compose-renderer/scripts/build-compose.sh', 'dioxus-compose-renderer/scripts/compose-fork.changes') }}
+          key: compose-${{ steps.target.outputs.compose_key }}-${{ hashFiles('renderer/scripts/build-compose.sh', 'renderer/scripts/compose-fork.changes') }}
 
       - name: Cache the Kotlin toolchain
         uses: actions/cache@v4
@@ -146,7 +146,7 @@ jobs:
           path: |
             ${{ steps.target.outputs.toolchain }}
             ~/.konan
-          key: kotlin-native-${{ inputs.target }}-${{ hashFiles('dioxus-compose-renderer/kotlin', 'dioxus-compose-renderer/libs.versions.toml', 'dioxus-compose-renderer/**/module.yaml') }}
+          key: kotlin-native-${{ inputs.target }}-${{ hashFiles('renderer/kotlin', 'renderer/libs.versions.toml', 'renderer/**/module.yaml') }}
           restore-keys: |
             kotlin-native-${{ inputs.target }}-
 
@@ -165,7 +165,7 @@ jobs:
         if: steps.compose-cache.outputs.cache-hit != 'true'
         env:
           DXC_COMPOSE_BUILD: ${{ runner.temp }}/compose-build
-        run: ./dioxus-compose-renderer/scripts/build-compose.sh --target ${{ steps.target.outputs.compose }}
+        run: ./renderer/scripts/build-compose.sh --target ${{ steps.target.outputs.compose }}
 
       - name: Keep the patched Compose for the next run
         if: steps.compose-cache.outputs.cache-hit != 'true'
@@ -175,14 +175,14 @@ jobs:
           key: ${{ steps.compose-cache.outputs.cache-primary-key }}
 
       - name: Build the static renderer
-        run: ./dioxus-compose-renderer/desktop/scripts/${{ steps.target.outputs.script }}
+        run: ./renderer/desktop/scripts/${{ steps.target.outputs.script }}
 
       - name: Keep the renderer build's logs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.target }}-static-renderer-logs
-          path: dioxus-compose-renderer/build/${{ steps.target.outputs.out }}-logs/
+          path: renderer/build/${{ steps.target.outputs.out }}-logs/
           retention-days: 7
 
       - name: Package it the way the release carries it
@@ -190,11 +190,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="$(sed -n 's/^version = "\(.*\)"$/\1/p' dioxus-compose/Cargo.toml | head -1)"
-          dir="dioxus-compose-renderer/build/${{ steps.target.outputs.out }}"
+          version="$(sed -n 's/^version = "\(.*\)"$/\1/p' compose-rust/Cargo.toml | head -1)"
+          dir="renderer/build/${{ steps.target.outputs.out }}"
           ls -la "$dir"
           ./scripts/package-static-renderer.sh "$dir" "${{ inputs.target }}" "$version" "$RUNNER_TEMP/artifact"
-          echo "name=dioxus-compose-renderer-v$version-${{ inputs.target }}" >> "$GITHUB_OUTPUT"
+          echo "name=compose-rust-renderer-v$version-${{ inputs.target }}" >> "$GITHUB_OUTPUT"
 
       - name: Keep the artifact
         uses: actions/upload-artifact@v4

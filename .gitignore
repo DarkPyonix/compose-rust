@@ -40,13 +40,13 @@ target
 # compose-rust links and starts. Its lock file is the resolution of whatever the crate
 # needs at the time, and tracking it would mean a second lock file to update on every
 # dependency change, plus a dirty working tree every time the test runs.
-dioxus-compose/tests/fixtures/consumer/Cargo.lock
+compose-rust/tests/fixtures/consumer/Cargo.lock
 
 # The Host's wasm module, built next to the page by
-# dioxus-compose-renderer/web/scripts/build-host.sh. The loader beside it is generated and
+# renderer/web/scripts/build-host.sh. The loader beside it is generated and
 # checked in; the module it fetches is a build output.
-dioxus-compose-renderer/web/resources/dioxus_compose_host.wasm
-dioxus-compose-renderer/web/testResources/dioxus_compose_host.wasm
+renderer/web/resources/compose_rust_host.wasm
+renderer/web/testResources/compose_rust_host.wasm
 
 # The Compose fork checkout scripts/build-compose.sh fetches and builds.
 compose-build/

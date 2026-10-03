@@ -6,4 +6,4 @@ publish.workspace = true
 
 [dependencies]
 composable-macro = { path = "../macro" }
-compose-rust = { path = "../../../../dioxus-compose" }
+compose-rust = { path = "../../../../compose-rust" }
