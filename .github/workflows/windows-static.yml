@@ -194,8 +194,11 @@ jobs:
           ls ~/.m2/repository/org/jetbrains/compose/ui | head
           ls -la .scratch/skiko-build/out/windows-x64
 
-      - name: Cache the Kotlin toolchain
-        uses: actions/cache@v4
+      - name: Restore the Kotlin toolchain
+        id: toolchain-cache
+        # Restored and saved as two steps, so a run that fails after the toolchain is in place
+        # still keeps it for the next one.
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/AppData/Local/JetBrains/Kotlin
@@ -237,6 +240,15 @@ jobs:
       - name: Build the static renderer
         id: renderer
         run: ./renderer/desktop/scripts/build-windows.sh
+
+      - name: Keep the Kotlin toolchain for the next run
+        if: always() && steps.toolchain-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/AppData/Local/JetBrains/Kotlin
+            ~/.konan
+          key: ${{ steps.toolchain-cache.outputs.cache-primary-key }}
 
       - name: Show what the renderer build left behind
         if: failure()

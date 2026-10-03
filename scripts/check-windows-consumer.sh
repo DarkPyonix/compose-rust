@@ -163,6 +163,32 @@ echo "== 2. what it needs to start"
 only_windows "$binary"
 default_size="$(size_of "$binary")"
 
+# Where a run that should have drawn crashed instead: the same executable, from where it was
+# built so its symbols are beside it, under the console debugger Windows' SDK carries. Only
+# ever on the way to failing, to say where, so a failure reads as a place and not a number.
+explain_crash() {
+    local binary="$1"
+    shift
+    local cdb="/c/Program Files (x86)/Windows Kits/10/Debuggers/x64/cdb.exe"
+    [[ -f "$cdb" ]] || { echo "-- no cdb.exe to say where it crashed" >&2; return 0; }
+    echo "-- where it crashed (cdb):" >&2
+    ( cd "$(dirname "$binary")" &&
+        MSYS_NO_PATHCONV=1 timeout 300 "$cdb" -lines -G -c "sxe av;g;.lastevent;kn 60;q" \
+            "$(cygpath -w "$binary")" "$@" 2>&1 | tail -90 ) >&2 || true
+}
+
+run_alone() {
+    local directory="$1" binary="$2"
+    shift 2
+    local status=0
+    ( cd "$directory" && "./$(basename "$binary")" "$@" ) || status=$?
+    if [[ "$status" -ne 0 ]]; then
+        echo "-- $(basename "$binary") $* ended with status $status" >&2
+        explain_crash "$binary" "$@"
+        fail "$(basename "$binary") $* did not succeed from an empty directory (status $status)"
+    fi
+}
+
 echo "== 3. starting it from an empty directory"
 rm -rf "$scratch"
 mkdir -p "$scratch/alone"
@@ -172,7 +198,10 @@ ls -la "$scratch/alone"
 # frames are in.
 unset COMPOSE_RUST_AUTOEXIT_MS
 export DXC_D3D12_WARP="${DXC_D3D12_WARP:-1}"
-( cd "$scratch/alone" && ./consumer.exe --self-check )
+# Started first without the window, which is everything before main returns: the loader,
+# every static constructor of the renderer, Skia and the C++ runtimes. Then with it.
+run_alone "$scratch/alone" "$binary"
+run_alone "$scratch/alone" "$binary" --self-check
 
 echo "== 4. beside a C++ library built for the runtime DLL (/MD)"
 mixed_lib="$scratch/mixed-runtime-lib"
@@ -194,7 +223,7 @@ mixed_binary="$target/shared/debug/consumer-mixed-runtime.exe"
 only_windows "$mixed_binary"
 mkdir -p "$scratch/mixed"
 cp "$mixed_binary" "$scratch/mixed/"
-( cd "$scratch/mixed" && ./consumer-mixed-runtime.exe )
+run_alone "$scratch/mixed" "$mixed_binary"
 
 echo "== 5. the same application with the runtime from its DLLs, and with all of it static"
 DXC_WINDOWS_CRT=dynamic build "$fixture/Cargo.toml" shared
@@ -207,7 +236,7 @@ static_binary="$target/crt-static/debug/consumer.exe"
 only_windows "$static_binary"
 mkdir -p "$scratch/crt-static"
 cp "$static_binary" "$scratch/crt-static/consumer.exe"
-( cd "$scratch/crt-static" && ./consumer.exe --self-check )
+run_alone "$scratch/crt-static" "$static_binary" --self-check
 static_size="$(size_of "$static_binary")"
 
 echo

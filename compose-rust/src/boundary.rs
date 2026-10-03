@@ -1666,21 +1666,21 @@ static BOUNDARY_EXPORTS: BoundaryExports = BoundaryExports([
     compose_rust_host_shutdown as *const (),
 ]);
 
-/// The same five names, as a linker directive the object file carries.
-///
-/// The Renderer finds these with GetProcAddress against the running executable, which
-/// reads the PE export table, and an executable has no export table unless the link is
-/// told to make one. The build script asks for that with `/EXPORT:` arguments, and those
-/// reach the binaries of this package and no further: Cargo does not pass a dependency's
-/// link arguments on to whatever depends on it.
-///
-/// So every application built on this crate linked without an export table, the Renderer
-/// could not reach back into it, and the window came up empty. It looked like it worked
-/// because the only Windows binaries anyone had run were this package's own examples.
-///
-/// `.drectve` is how an object file carries linker arguments of its own. The MSVC linker
-/// reads that section out of every object it links, so the directive travels inside the
-/// rlib and applies wherever the rlib ends up.
+// The same five names, as a linker directive the object file carries.
+//
+// The Renderer finds these with GetProcAddress against the running executable, which
+// reads the PE export table, and an executable has no export table unless the link is
+// told to make one. The build script asks for that with `/EXPORT:` arguments, and those
+// reach the binaries of this package and no further: Cargo does not pass a dependency's
+// link arguments on to whatever depends on it.
+//
+// So every application built on this crate linked without an export table, the Renderer
+// could not reach back into it, and the window came up empty. It looked like it worked
+// because the only Windows binaries anyone had run were this package's own examples.
+//
+// `.drectve` is how an object file carries linker arguments of its own. The MSVC linker
+// reads that section out of every object it links, so the directive travels inside the
+// rlib and applies wherever the rlib ends up.
 #[cfg(all(target_os = "windows", target_env = "msvc"))]
 core::arch::global_asm!(
     // A section of directives and nothing else, in the COFF flags the MSVC linker reads
@@ -1699,15 +1699,15 @@ core::arch::global_asm!(
     ".text",
 );
 
-/// Which C runtime an application linking the Kotlin/Native Windows renderer gets, said
-/// where the linker reads it from every object: the build script cannot say it, for the
-/// same reason it cannot ask for the exports above.
-///
-/// Set by the build script when it links that renderer and the application asked for
-/// nothing (`build/windows_crt.rs` says why each of these is here). The Universal C Runtime
-/// stays the DLL that is part of Windows; vcruntime and the C++ standard library are linked
-/// in, so the executable needs no Visual C++ runtime DLL beside it. An application that asked
-/// for `+crt-static` links all of it statically and needs none of these.
+// Which C runtime an application linking the Kotlin/Native Windows renderer gets, said
+// where the linker reads it from every object: the build script cannot say it, for the
+// same reason it cannot ask for the exports above.
+//
+// Set by the build script when it links that renderer and the application asked for
+// nothing (`build/windows_crt.rs` says why each of these is here). The Universal C Runtime
+// stays the DLL that is part of Windows; vcruntime and the C++ standard library are linked
+// in, so the executable needs no Visual C++ runtime DLL beside it. An application that asked
+// for `+crt-static` links all of it statically and needs none of these.
 #[cfg(all(target_os = "windows", target_env = "msvc", windows_crt_linked_in))]
 core::arch::global_asm!(
     ".section .drectve,\"yni\"",

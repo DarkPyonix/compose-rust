@@ -76,11 +76,13 @@ printf '%s\n' -produce static -target mingw_x64 -opt-in kotlin.experimental.Expe
     "\"$(cygpath -m "$fixture/Exceptions.kt")\"" -o "\"$(cygpath -m "$work/probe")\"" > "$arguments"
 "$konanc" "@$(cygpath -m "$arguments")" >"$work/konanc.log" 2>&1 ||
     { cat "$work/konanc.log" >&2; fail "konanc did not build the probe"; }
-if [[ ! -f "$work/probe.a" ]]; then
+# Kotlin/Native names a MinGW static library the GNU way, with a lib prefix.
+if [[ ! -f "$work/libprobe.a" ]]; then
     cat "$work/konanc.log" >&2
     ls -la "$work" >&2
-    fail "konanc wrote no probe.a"
+    fail "konanc wrote no libprobe.a"
 fi
+mv "$work/libprobe.a" "$work/probe.a"
 cp "$work/probe.a" "$work/probe-unfixed.a"
 "$python" "$fixer" "$(cygpath -m "$work/probe.a")"
 
