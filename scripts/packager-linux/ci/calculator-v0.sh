@@ -2,7 +2,7 @@
 # Stages a calculator whose executable and renderer belong together, for the packaging
 # workflow to wrap and start. x86_64 only.
 #
-#     tools/packager-linux/ci/calculator-v0.sh <work dir>
+#     scripts/packager-linux/ci/calculator-v0.sh <work dir>
 #
 # leaves <work dir>/calculator/ (the executable, and the renderer in lib/ beside it) and
 # <work dir>/calculator-linux-x64.tar.gz (the same directory as a release archive).

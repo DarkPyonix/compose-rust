@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Generates the Flathub submission for Ember (dev.darkpyonix.Ember) from one of its releases.
 #
-#     tools/packager-linux/flathub/ember.sh --tag v1.0.0 --version 1.0.0 \
+#     scripts/packager-linux/flathub/ember.sh --tag v1.0.0 --version 1.0.0 \
 #         --screenshot docs/screenshot.png --out flathub-ember [--build repo] [--lint]
 #
 # writes into --out what the flathub/dev.darkpyonix.Ember repository holds: the manifest,
 # the desktop entry, the metainfo and the icons. Nothing is submitted; opening the
-# pull request is a separate, deliberate step (tools/packager-linux/FLATHUB.md).
+# pull request is a separate, deliberate step (scripts/packager-linux/FLATHUB.md).
 #
 # Options:
 #   --tag <tag>              the Ember release to package

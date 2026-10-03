@@ -4,7 +4,7 @@
 # pass that file with --dioxus-toml and this one with --overlay; until then this file is
 # both. What changes per release (the version, the archives and their digests, the
 # screenshot pinned to the release tag) is passed on the command line, as
-# tools/packager-linux/flathub/ember.sh does.
+# scripts/packager-linux/flathub/ember.sh does.
 #
 # The summary and description restate the repository's own one-line description. They
 # are the owner's to rewrite before the listing goes public.

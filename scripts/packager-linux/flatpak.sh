@@ -2,7 +2,7 @@
 # Writes a Flatpak manifest for an application and, optionally, builds, installs and lints
 # it the way Flathub does.
 #
-#     tools/packager-linux/flatpak.sh \
+#     scripts/packager-linux/flatpak.sh \
 #         --dioxus-toml samples/calculator/Dioxus.toml --overlay linux.toml \
 #         --prebuilt-url https://.../calculator-linux-x64.tar.gz --prebuilt-sha256 <hex> \
 #         --icon icon-256.png --version 1.2.3 --out flatpak/ --build repo/ --lint

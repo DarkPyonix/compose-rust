@@ -24,7 +24,7 @@ name: Linux packaging
 on:
   push:
     paths:
-      - tools/packager-linux/**
+      - scripts/packager-linux/**
       - compose-rust/src/update.rs
       - compose-rust/tests/appimage_update.rs
       - .github/workflows/packager-linux.yml
@@ -168,8 +168,8 @@ jobs:
           url=http://127.0.0.1:8080/latest/UpdateDemo-$ARCH.AppImage.zsync
           for v in 1.0.0 1.0.1 1.0.2; do
             key="$RELEASE_KEY"; [[ $v == 1.0.2 ]] && key="$IMPOSTOR_KEY"
-            tools/packager-linux/appimage.sh \
-              --dioxus-toml tools/packager-linux/demo/Dioxus.toml \
+            scripts/packager-linux/appimage.sh \
+              --dioxus-toml scripts/packager-linux/demo/Dioxus.toml \
               --payload "work/$v/update-demo" --version "$v" \
               --zsync-url "$url" --sign-key "$key" --out-dir "work/dist"
           done
@@ -292,11 +292,11 @@ jobs:
             echo "::notice title=No aarch64 calculator::no renderer was published for linux-arm64 at v0.0.0; the self-update steps above ran on aarch64"
             exit 0
           fi
-          tools/packager-linux/ci/calculator-v0.sh work
+          scripts/packager-linux/ci/calculator-v0.sh work
           # Unsigned: these are test builds, and the signing key is not created yet.
-          tools/packager-linux/appimage.sh \
+          scripts/packager-linux/appimage.sh \
             --dioxus-toml samples/calculator/Dioxus.toml \
-            --overlay tools/packager-linux/samples.toml \
+            --overlay scripts/packager-linux/samples.toml \
             --exec sample-calculator --icon samples/calculator/assets/icon.png \
             --icon samples/calculator/assets/icon-256.png \
             --payload work/calculator/calculator --version 0.0.0 \
@@ -360,8 +360,8 @@ jobs:
           git archive --format=tar.gz --prefix=compose-rust/ -o work/flatpak-src/source.tar.gz HEAD
           # flatpak talks to its system helper over the session bus, which a runner has
           # none of until one is started.
-          dbus-run-session -- tools/packager-linux/flatpak.sh \
-            --dioxus-toml tools/packager-linux/demo/Dioxus.toml --version 1.0.0 \
+          dbus-run-session -- scripts/packager-linux/flatpak.sh \
+            --dioxus-toml scripts/packager-linux/demo/Dioxus.toml --version 1.0.0 \
             --source-path source.tar.gz --cargo-lock Cargo.lock \
             --package packager-linux-demo --bin update-demo \
             --renderer-url "$RENDERER_URL" --renderer-sha256 "$RENDERER_SHA256" \
@@ -389,8 +389,8 @@ jobs:
           flatpak run "$id" --version | grep -qx "update-demo 1.0.0"
           # flatpak talks to its system helper over the session bus, which a runner has
           # none of until one is started.
-          dbus-run-session -- tools/packager-linux/flatpak.sh \
-            --dioxus-toml tools/packager-linux/demo/Dioxus.toml --version 1.0.1 \
+          dbus-run-session -- scripts/packager-linux/flatpak.sh \
+            --dioxus-toml scripts/packager-linux/demo/Dioxus.toml --version 1.0.1 \
             --source-path source.tar.gz --cargo-lock Cargo.lock \
             --package packager-linux-demo --bin update-demo \
             --renderer-url "$RENDERER_URL" --renderer-sha256 "$RENDERER_SHA256" \
@@ -405,14 +405,14 @@ jobs:
       - name: Package a calculator as a prebuilt archive and start it in the sandbox
         run: |
           set -euo pipefail
-          tools/packager-linux/ci/calculator-v0.sh work
+          scripts/packager-linux/ci/calculator-v0.sh work
           mkdir -p work/flatpak-calculator
           cp work/calculator-linux-x64.tar.gz work/flatpak-calculator/
           # flatpak talks to its system helper over the session bus, which a runner has
           # none of until one is started.
-          dbus-run-session -- tools/packager-linux/flatpak.sh \
+          dbus-run-session -- scripts/packager-linux/flatpak.sh \
             --dioxus-toml samples/calculator/Dioxus.toml \
-            --overlay tools/packager-linux/samples.toml \
+            --overlay scripts/packager-linux/samples.toml \
             --exec sample-calculator --icon samples/calculator/assets/icon.png \
             --icon samples/calculator/assets/icon-256.png --version 0.0.0 \
             --prebuilt-path calculator-linux-x64.tar.gz \
@@ -434,7 +434,7 @@ jobs:
         # release yet, so two inputs are stand-ins and the listing is not submitted:
         # the archives are the published calculator samples, and the screenshot is
         # Ember's large icon, both pinned. For a real release,
-        # tools/packager-linux/flathub/ember.sh takes the tag and fills in Ember's own
+        # scripts/packager-linux/flathub/ember.sh takes the tag and fills in Ember's own
         # archives, digests and the screenshot pinned to that tag.
         env:
           EMBER_COMMIT: faa430a4b75ec45928623130ea2f874b628a7224
@@ -444,8 +444,8 @@ jobs:
           mkdir -p work/ember-icons
           curl -fsSL -o work/ember-icons/128.png "$raw/src-tauri/icons/128x128.png"
           curl -fsSL -o work/ember-icons/256.png "$raw/src-tauri/icons/128x128@2x.png"
-          dbus-run-session -- tools/packager-linux/flatpak.sh \
-            --dioxus-toml tools/packager-linux/flathub/dev.darkpyonix.Ember.toml \
+          dbus-run-session -- scripts/packager-linux/flatpak.sh \
+            --dioxus-toml scripts/packager-linux/flathub/dev.darkpyonix.Ember.toml \
             --app-id dev.darkpyonix.Ember --version 0.0.0 \
             --icon work/ember-icons/128.png --icon work/ember-icons/256.png \
             --screenshot "$raw/src-tauri/icons/128x128@2x.png" --screenshot-caption "Ember" \

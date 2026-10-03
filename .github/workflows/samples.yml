@@ -1,7 +1,7 @@
 # Sample apps -- builds every sample for every desktop platform when a `sample-v*` tag is
 # pushed, and publishes the binaries as a release of DarkPyonix/compose-rust-samples, the
 # repository the samples' AppImages update from. Writing there needs the
-# SAMPLES_RELEASE_TOKEN secret (tools/packager-linux/README.md).
+# SAMPLES_RELEASE_TOKEN secret (scripts/packager-linux/README.md).
 #
 # A sample that does not build on a platform is skipped and the release goes ahead with
 # the rest. Eleven samples across three platforms is thirty-three builds, and holding all
@@ -37,7 +37,7 @@ jobs:
     # The release goes to DarkPyonix/compose-rust-samples, the repository the samples'
     # AppImages look in for their updates, and the token this workflow gets cannot write
     # anywhere but here. Checked first, so that a missing token stops the run in seconds
-    # rather than after two hours of builds. tools/packager-linux/README.md says how to
+    # rather than after two hours of builds. scripts/packager-linux/README.md says how to
     # create it.
     name: Release token
     runs-on: ubuntu-latest
@@ -49,11 +49,11 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "$GH_TOKEN" ]]; then
-            echo "::error title=SAMPLES_RELEASE_TOKEN is missing::Create a fine-grained personal access token with Contents: read and write on $SAMPLES_REPO only, and save it as the repository secret SAMPLES_RELEASE_TOKEN (tools/packager-linux/README.md)."
+            echo "::error title=SAMPLES_RELEASE_TOKEN is missing::Create a fine-grained personal access token with Contents: read and write on $SAMPLES_REPO only, and save it as the repository secret SAMPLES_RELEASE_TOKEN (scripts/packager-linux/README.md)."
             exit 1
           fi
           if ! gh api "repos/$SAMPLES_REPO" --jq .full_name; then
-            echo "::error title=SAMPLES_RELEASE_TOKEN cannot see $SAMPLES_REPO::The token exists but GitHub refused it for $SAMPLES_REPO. Give it access to that repository (tools/packager-linux/README.md)."
+            echo "::error title=SAMPLES_RELEASE_TOKEN cannot see $SAMPLES_REPO::The token exists but GitHub refused it for $SAMPLES_REPO. Give it access to that repository (scripts/packager-linux/README.md)."
             exit 1
           fi
 
@@ -296,9 +296,9 @@ jobs:
             # one the window wears; a sample that brings its own may have only the one.
             icons=(--icon "samples/$app/assets/icon.png")
             [[ -f "samples/$app/assets/icon-256.png" ]] && icons+=(--icon "samples/$app/assets/icon-256.png")
-            if ! tools/packager-linux/appimage.sh \
+            if ! scripts/packager-linux/appimage.sh \
                 --dioxus-toml "samples/$app/Dioxus.toml" \
-                --overlay tools/packager-linux/samples.toml \
+                --overlay scripts/packager-linux/samples.toml \
                 --exec "sample-$app" "${icons[@]}" \
                 --payload "staging/$app" --version "$version" \
                 --github DarkPyonix/compose-rust-samples "${sign[@]}" \
@@ -550,7 +550,7 @@ jobs:
           TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
-          [[ -n "$GH_TOKEN" ]] || { echo "::error::SAMPLES_RELEASE_TOKEN is missing (tools/packager-linux/README.md)"; exit 1; }
+          [[ -n "$GH_TOKEN" ]] || { echo "::error::SAMPLES_RELEASE_TOKEN is missing (scripts/packager-linux/README.md)"; exit 1; }
           # A release needs a commit to tag, and the repository starts empty.
           if ! gh api "repos/$SAMPLES_REPO/commits?per_page=1" >/dev/null 2>&1; then
             readme="$(printf '%s\n' \

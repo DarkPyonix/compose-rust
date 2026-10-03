@@ -2,7 +2,7 @@
 # Wraps a built application as an AppImage that updates itself, with the .zsync file to
 # publish beside it.
 #
-#     tools/packager-linux/appimage.sh \
+#     scripts/packager-linux/appimage.sh \
 #         --dioxus-toml samples/calculator/Dioxus.toml --overlay linux.toml \
 #         --payload staging/calculator --version 1.2.3 \
 #         --github darkpyonix/compose-rust --out-dir dist
