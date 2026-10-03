@@ -1,0 +1,12 @@
+# A standalone measurement, not part of the renderer's build. It compiles the editor's
+# own sources (linked from the renderer) so what is measured is what ships.
+product: jvm/app
+
+dependencies:
+  - $compose.desktop.currentOs
+  - org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.11.0
+
+settings:
+  compose: enabled
+  jvm:
+    mainClass: dioxus.compose.bench.FrameBenchKt

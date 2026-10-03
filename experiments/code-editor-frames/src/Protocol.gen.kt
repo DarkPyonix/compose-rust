@@ -1,0 +1,1 @@
+../../../dioxus-compose-renderer/desktop/src/protocol/Protocol.gen.kt
