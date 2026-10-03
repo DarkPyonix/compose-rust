@@ -105,6 +105,37 @@ grep -q 'getenv("DXC_D3D12_WARP")' "$window_c" ||
 grep -q 'EnumWarpAdapter' "$window_c" ||
     fail "win32_window.c reads DXC_D3D12_WARP and never takes the software adapter"
 
+# ---------------------------------------------------------------------------
+# Every C name the Kotlin calls is defined by a C file the build links.
+# ---------------------------------------------------------------------------
+
+# Called by symbol name, so nothing checks them until the MSVC link at the very end, and
+# there a missing one is an unresolved external naming a Kotlin mangling nobody wrote.
+build_script="$renderer/desktop/scripts/build-windows.sh"
+if [[ ! -f "$build_script" ]]; then
+    fail "missing $build_script"
+else
+    c_files=()
+    while IFS= read -r relative; do
+        c_files+=("$renderer/$relative")
+    done < <(grep -oE '^compile "\$(c_dir|PROJECT_DIR)/[^"]+\.c"' "$build_script" |
+        sed -E 's/^compile "\$c_dir\//desktop\/c\//; s/^compile "\$PROJECT_DIR\///; s/"$//')
+    if [[ "${#c_files[@]}" -eq 0 ]]; then
+        fail "build-windows.sh compiles no C file of ours"
+    fi
+    for file in "${c_files[@]}"; do
+        [[ -f "$file" ]] || fail "build-windows.sh compiles $file, which is not there"
+    done
+    called="$(grep -rhoE '@SymbolName\("[a-z0-9_]+"\)' "$renderer/windows/src" |
+        sed -E 's/@SymbolName\("(.*)"\)/\1/' | sort -u)"
+    [[ -n "$called" ]] || fail "the windows module calls nothing by symbol name; the window is reached that way"
+    for symbol in $called; do
+        defined="$(cat "${c_files[@]}" 2>/dev/null | grep -cE "^[a-zA-Z_][a-zA-Z0-9_ *]*[ *]$symbol\(" || true)"
+        [[ "$defined" -eq 1 ]] ||
+            fail "$symbol is called from windows/src and defined $defined times in what build-windows.sh compiles"
+    done
+fi
+
 if (( red == 0 )); then
     echo "ok    the windows module is declared, shares the interpreter and asks for what is published"
 fi

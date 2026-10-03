@@ -177,6 +177,10 @@ if [[ "$target" == mingwX64 ]]; then
         "The Windows pin has to be a commit of the fork that carries the skiko build."
     echo "==> building skiko for mingwX64 into $SKIKO_WORK"
     bash "$skiko_script" "$SKIKO_WORK"
+    # Skia's ICU loader with the data compiled in, which the Windows link needs so that no
+    # icudtl.dat has to sit beside the executable. Put with the rest of skiko's Windows half,
+    # where desktop/scripts/build-windows.sh compiles it against the icudtl.dat already there.
+    cp "$WORK/extended/skiko/embedded_icu.cpp" "$SKIKO_WORK/out/windows-x64/"
 fi
 
 echo "==> publishing ${#modules[@]} compose module(s) for $target as $PUBLISHED_AS"
