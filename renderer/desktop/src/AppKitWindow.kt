@@ -403,13 +403,12 @@ internal fun runAppKitSpike() {
     installApplicationMenu(asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust")
 
     try {
-        // A plain loop rather than a clock. Pacing is the frame clock's work and comes
-        // later; what this has to show is that what the window hears reaches the scene
-        // and changes what the next frame draws.
+        // A clock rather than a count of turns. What a frame is handed is the time it is
+        // drawn at, and every animation in the scene reads it: a count of turns ran them
+        // at whatever rate the loop happened to turn rather than at the rate time passed.
         var painted = false
-        var frame = 0
+        val clock = FrameClock()
         while (!isWindowClosed()) {
-            frame++
             // The window's own turn, before anything is read from it. This thread is the
             // one AppKit delivers on, so the events of this frame arrive here or not at
             // all. Waiting the frame's length rather than sleeping afterwards, because a
@@ -443,7 +442,7 @@ internal fun runAppKitSpike() {
             // left the input method unable to reach this process at all, which showed up
             // as every letter being committed on its own instead of composing.
             if (!painted || heard || scene.hasInvalidations()) {
-                drawFrame(window, context, scene, frame.toLong() * FRAME_NANOS, size)
+                drawFrame(window, context, scene, clock.frameTimeNanos(), size)
                 painted = true
                 drew = true
             }
@@ -569,4 +568,3 @@ internal fun SpikeContent() {
 internal val spikeDroppedFiles = androidx.compose.runtime.mutableStateOf("")
 
 private const val FRAME_SECONDS = 0.016
-private const val FRAME_NANOS = 16_000_000L

@@ -220,12 +220,22 @@ object Win32Frames {
     private var drawing = false
 
     /**
-     * What drawing a frame is, as the loop that owns the scene defines it.
+     * What drawing a frame is, as the loop that owns the scene defines it, given the time
+     * the frame is drawn at in nanoseconds.
      *
      * Null before a window has been opened and again once it has gone, and both of those
      * are messages arriving with nothing left to draw into rather than mistakes.
      */
-    var paint: (() -> Unit)? = null
+    var paint: ((Long) -> Unit)? = null
+
+    /**
+     * Where a frame's time comes from.
+     *
+     * Read here, at the one door every frame goes through, so that a frame drawn by the
+     * loop and one drawn from inside a drag of the window's edge are timed by the same
+     * clock. Replaceable so that a test can drive it.
+     */
+    var clock: FrameClock = FrameClock()
 
     /**
      * Draws one frame unless one is already being drawn.
@@ -239,7 +249,7 @@ object Win32Frames {
         }
         drawing = true
         try {
-            paint()
+            paint(clock.frameTimeNanos())
         } finally {
             drawing = false
         }
@@ -334,15 +344,15 @@ internal fun runWin32Window() {
 
     // What a frame is, wherever the ask comes from. The loop below is one caller and the
     // window's own resize handling is the other, and they draw the same frame.
-    var nanos = 0L
     var painted = false
     var drew = false
-    Win32Frames.paint = {
+    // Timed from when the window opened, by a clock rather than a count of frames.
+    Win32Frames.clock = FrameClock()
+    Win32Frames.paint = { nanos ->
         // The scene's own work first. A list that asked for rows on the last frame wants
         // them in hand before this one is measured, and during a drag of the window's
         // edge this is the only place that runs at all.
         work.runPending()
-        nanos += FRAME_NANOS
         val at = drawFrame(window, context, scene, nanos)
         if (at != null) {
             size = at
@@ -471,4 +481,3 @@ private fun drawFrame(
 }
 
 private const val FRAME_SECONDS = 0.016
-private const val FRAME_NANOS = 16_000_000L

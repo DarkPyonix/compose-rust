@@ -147,7 +147,7 @@ internal fun runX11Window() {
     // A clock rather than a count of turns, because a turn and a frame are no longer the
     // same thing: a resize draws its own, and a count only the loop advanced would hand
     // two frames in a row the same time and stop whatever is animating between them.
-    val opened = System.nanoTime()
+    val clock = FrameClock()
     var painted = false
     val frames = WindowFrames({ window.measure() }) { fitted, density ->
         // Told to the scene here, in the frame that is about to be drawn at that size,
@@ -158,7 +158,7 @@ internal fun runX11Window() {
             scene.size = fitted
         }
         size = fitted
-        if (drawFrame(window, context, scene, System.nanoTime() - opened, fitted)) {
+        if (drawFrame(window, context, scene, clock.frameTimeNanos(), fitted)) {
             painted = true
         }
     }
