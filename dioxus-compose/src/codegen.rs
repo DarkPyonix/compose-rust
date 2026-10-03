@@ -1398,6 +1398,46 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             property: PropertyKind::Commands,
             value: PropertyValue::Bytes(canvas_vector_bytes.as_bytes()),
         },
+        // A chosen chip and the screen's one action, so both sides agree on the two tags
+        // and on the properties each of them carries.
+        Mutation::Create {
+            node_id: 6,
+            widget: WidgetKind::Chip,
+        },
+        Mutation::SetProp {
+            node_id: 6,
+            property: PropertyKind::Text,
+            value: PropertyValue::String("필터"),
+        },
+        Mutation::SetProp {
+            node_id: 6,
+            property: PropertyKind::Checked,
+            value: PropertyValue::Bool(true),
+        },
+        Mutation::SetProp {
+            node_id: 6,
+            property: PropertyKind::OnClick,
+            value: PropertyValue::Integer(101),
+        },
+        Mutation::Create {
+            node_id: 7,
+            widget: WidgetKind::FloatingAction,
+        },
+        Mutation::SetProp {
+            node_id: 7,
+            property: PropertyKind::Text,
+            value: PropertyValue::String("New"),
+        },
+        Mutation::SetProp {
+            node_id: 7,
+            property: PropertyKind::Icon,
+            value: PropertyValue::Integer(crate::schema::IconRole::Add as i64),
+        },
+        Mutation::SetProp {
+            node_id: 7,
+            property: PropertyKind::OnClick,
+            value: PropertyValue::Integer(102),
+        },
         Mutation::RegisterAsset {
             asset_id: 5,
             kind: crate::schema::AssetKind::Png,
@@ -1503,8 +1543,8 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset and message",
-    "recordCount": 33,
-    "strings": ["안녕", "compose", " token", "삭제했습니다", "Undo"],
+    "recordCount": 41,
+    "strings": ["안녕", "compose", " token", "필터", "New", "삭제했습니다", "Undo"],
     "assets": [{{ "assetId": 5, "kind": "Png", "bytes": "89504e47" }}]
   }},
   "events": {{

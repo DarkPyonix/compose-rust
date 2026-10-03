@@ -311,6 +311,46 @@ pub fn ScrollColumn(
     }
 }
 
+/// The whole content with a horizontal scroll attached: a [`ScrollColumn`] on its side.
+/// Every child is materialised, so a long horizontal list belongs in a [`LazyRow`]. The
+/// scroll position is the Renderer's, so scrolling never reaches the Host.
+#[component]
+pub fn ScrollRow(
+    #[props(default)] weight: Option<f32>,
+    #[props(default)] width: Option<f32>,
+    #[props(default)] height: Option<f32>,
+    #[props(default)] padding: Option<f32>,
+    #[props(default)] padding_role: Option<SpaceRole>,
+    #[props(default)] background: Option<Paint>,
+    #[props(default)] shape_role: Option<ShapeRole>,
+    #[props(default)] corner_radius: Option<f32>,
+    #[props(default)] border_width: Option<f32>,
+    #[props(default)] border_color: Option<Paint>,
+    #[props(default)] elevation: Option<f32>,
+    #[props(default)] fill_max_width: bool,
+    #[props(default)] fill_max_height: bool,
+    children: Element,
+) -> Element {
+    rsx! {
+        scrollrow {
+            weight: opt_dp(weight),
+            width: opt_dp(width),
+            height: opt_dp(height),
+            padding: opt_dp(padding),
+            padding_role: opt_role(padding_role),
+            background: opt_paint(background),
+            shape_role: opt_role(shape_role),
+            corner_radius: opt_dp(corner_radius),
+            border_width: opt_dp(border_width),
+            border_color: opt_paint(border_color),
+            elevation: opt_dp(elevation),
+            fill_max_width,
+            fill_max_height,
+            {children}
+        }
+    }
+}
+
 /// `type_role` alone takes the design system's size, weight, line height and letter
 /// spacing. Each override replaces one axis and costs one `SetProp`, so changing the font
 /// size does not resend the rest of the text's styling.
@@ -2044,6 +2084,86 @@ pub fn FileDropTarget(
                 on_files_dropped.call(event.data().as_ref().clone());
             },
             {children}
+        }
+    }
+}
+
+/// A small token that is chosen or filters: a row of them narrows a list, or picks one
+/// option out of a few.
+///
+/// Whether it is chosen is the Host's. `selected` is what it draws, and the only thing that
+/// changes it is the Host's own `on_click` changing the value it passes in, so the chip on
+/// screen and the filter the Host is applying cannot disagree. A chip that is a filter
+/// toggles its own value; a chip that is one of a set clears its neighbours'. Which of the
+/// two it is is the Host's business, so the click carries nothing.
+///
+/// `selected` is the Compose name for that state. On the wire it is the same "is this on"
+/// boolean the toggles send.
+///
+/// What it looks like is the design system's: a Material filter chip with a tick, a
+/// rounded Apple filter pill, a Fluent tag button, a GNOME pill button, and the rest.
+#[component]
+pub fn Chip(
+    #[props(default)] weight: Option<f32>,
+    #[props(default)] width: Option<f32>,
+    #[props(default)] height: Option<f32>,
+    #[props(default)] padding: Option<f32>,
+    #[props(default)] padding_role: Option<SpaceRole>,
+    #[props(default)] fill_max_width: bool,
+    #[props(into)] text: String,
+    /// The meaning of a glyph before the label, never a picture.
+    #[props(default)]
+    icon: Option<IconRole>,
+    #[props(default)] selected: bool,
+    #[props(default = true)] enabled: bool,
+    #[props(default)] on_click: EventHandler<()>,
+) -> Element {
+    rsx! {
+        chip {
+            weight: opt_dp(weight),
+            width: opt_dp(width),
+            height: opt_dp(height),
+            padding: opt_dp(padding),
+            padding_role: opt_role(padding_role),
+            fill_max_width,
+            text,
+            icon: opt_role(icon),
+            checked: selected,
+            enabled,
+            onclick: move |_| on_click.call(()),
+        }
+    }
+}
+
+/// The one action a screen is about: compose, add, new.
+///
+/// It carries what the action means, what it is called and what happens when it is
+/// pressed, and nothing else. **Floating is one design system's answer, not the concept.**
+/// Material floats a disc over the bottom corner of the page; the Apple systems put a plus
+/// at the trailing end of the bar; Fluent sets an accent button at the head of the command
+/// bar. Which one this is, and where it goes, is decided where the design system is, so
+/// there is no modifier here that could place it and no property that could ask for a
+/// shape.
+///
+/// Put it in a [`Scaffold`]'s `floating_action` slot, or as a child of the [`Box`] that
+/// holds the page. Either way the frame it is in asks the design system where it goes.
+/// Anywhere else, inside a row of a bar for example, it stays where it was declared.
+///
+/// The label is always sent. A system that draws the glyph alone still names the action
+/// with it, so assistive technology never meets an unnamed control.
+///
+/// [`Box`]: crate::Box
+#[component]
+pub fn FloatingAction(
+    #[props(default)] icon: Option<IconRole>,
+    #[props(into)] text: String,
+    #[props(default)] on_click: EventHandler<()>,
+) -> Element {
+    rsx! {
+        floatingaction {
+            text,
+            icon: opt_role(icon),
+            onclick: move |_| on_click.call(()),
         }
     }
 }
