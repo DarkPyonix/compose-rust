@@ -28,6 +28,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -52,7 +56,6 @@ import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
-import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
@@ -120,6 +123,63 @@ var platformBackHandler: @Composable (enabled: Boolean, onBack: () -> Unit) -> U
  * one. Null leaves the pointer as it is.
  */
 var platformResizeCursor: PointerIcon? = null
+
+/**
+ * The window's collapsible split panes, so the platform's show and hide sidebar command
+ * reaches one of them wherever focus is.
+ *
+ * The command is a window command on every platform, like the menu item it belongs to, so
+ * it is heard at the root of the window rather than on the divider. A focused text field
+ * still sees the key first and may keep it.
+ *
+ * Which pane answers when there are several: the innermost one that holds focus, and when
+ * none holds focus, the outermost. The pane the reader is working in is the one they mean,
+ * and with nothing focused the outermost is the window's own sidebar rather than a split
+ * inside some pane of it.
+ */
+class SidebarShortcuts {
+    private class Entry(val nodeId: Int, val depth: Int, var toggle: () -> Unit, var focused: Boolean)
+
+    private val entries = mutableListOf<Entry>()
+
+    internal fun register(nodeId: Int, depth: Int, toggle: () -> Unit) {
+        entries.removeAll { it.nodeId == nodeId }
+        entries += Entry(nodeId, depth, toggle, focused = false)
+    }
+
+    internal fun update(nodeId: Int, toggle: () -> Unit) {
+        entries.firstOrNull { it.nodeId == nodeId }?.toggle = toggle
+    }
+
+    internal fun unregister(nodeId: Int) {
+        entries.removeAll { it.nodeId == nodeId }
+    }
+
+    internal fun focus(nodeId: Int, focused: Boolean) {
+        entries.firstOrNull { it.nodeId == nodeId }?.focused = focused
+    }
+
+    /** The node that would answer the command now, or null where no pane can. */
+    fun target(): Int? = pick()?.nodeId
+
+    private fun pick(): Entry? =
+        entries.filter { it.focused }.maxByOrNull { it.depth }
+            ?: entries.minByOrNull { it.depth }
+
+    /** Answers the platform's sidebar command, if [event] is it and a pane can take it. */
+    fun handle(event: KeyEvent, platform: HostPlatform): Boolean {
+        if (!isSidebarShortcut(event, platform)) return false
+        val entry = pick() ?: return false
+        entry.toggle()
+        return true
+    }
+}
+
+/** The window's registry. Null outside a window, where there is nothing to command. */
+val LocalSidebarShortcuts = staticCompositionLocalOf<SidebarShortcuts?> { null }
+
+/** How many split panes this one sits inside. */
+private val LocalSplitDepth = compositionLocalOf { 0 }
 
 /** How much of a narrow place a side pane laid over the body may take. */
 private const val OVERLAY_SHARE = 0.85f
@@ -216,11 +276,14 @@ internal fun HostSplitPane(
         movableContentOf { RenderNode(body, table, dispatcher, Modifier.fillMaxSize()) }
     }
     BoxWithConstraints(modifier) {
+        val depth = LocalSplitDepth.current
         // The split pane's own width, not the window's. A split pane in the body of a wide
         // window's navigation can be narrow, and two columns forced into it would be wrong.
         val available = if (constraints.hasBoundedWidth) maxWidth.value else Float.MAX_VALUE
         val style = theme.rules.splitPane(windowSizeClassOf(available), theme)
-        SplitPaneLayout(node, style, available, sideContent, bodyContent, dispatcher, theme)
+        CompositionLocalProvider(LocalSplitDepth provides depth + 1) {
+            SplitPaneLayout(node, style, available, sideContent, bodyContent, dispatcher, theme, depth)
+        }
     }
 }
 
@@ -257,6 +320,7 @@ private fun SplitPaneLayout(
     bodyContent: @Composable () -> Unit,
     dispatcher: EventDispatcher,
     theme: ResolvedTheme,
+    depth: Int,
 ) {
     val hostValue = node.number(PropertyKind.Value)
     val minWidth = node.number(PropertyKind.Min)?.takeIf { it > 0f } ?: style.minWidth.value
@@ -349,15 +413,19 @@ private fun SplitPaneLayout(
     }
 
     val name = node.text(PropertyKind.Text).ifEmpty { sidebarWord() }
-    val shortcut = Modifier.onPreviewKeyEvent { event ->
-        if (collapsible && isSidebarShortcut(event, theme.platform)) {
-            toggle()
-            report(if (state.collapsed) 0f else state.width)
-            true
-        } else {
-            false
-        }
+    // The platform's show and hide sidebar command, heard at the window's root wherever
+    // focus is. Only a pane that may fold registers.
+    val shortcuts = LocalSidebarShortcuts.current
+    val toggleAndReport = {
+        toggle()
+        report(if (state.collapsed) 0f else state.width)
     }
+    DisposableEffect(node.id, shortcuts, collapsible) {
+        if (collapsible) shortcuts?.register(node.id, depth, toggleAndReport)
+        onDispose { shortcuts?.unregister(node.id) }
+    }
+    SideEffect { shortcuts?.update(node.id, toggleAndReport) }
+    val shortcut = Modifier.onFocusChanged { shortcuts?.focus(node.id, it.hasFocus) }
 
     val divider: @Composable (Modifier) -> Unit = { placement ->
         SplitDivider(
@@ -491,7 +559,7 @@ private fun SplitPaneLayout(
             platformBackHandler(selected == 1, goBack)
             AnimatedContent(
                 targetState = selected == 1,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().then(shortcut),
                 transitionSpec = {
                     val forward = targetState
                     (

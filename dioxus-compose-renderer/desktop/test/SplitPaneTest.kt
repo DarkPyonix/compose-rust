@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import dioxus.compose.design.HostPlatform
 import dioxus.compose.design.SplitPanePresentation
 import dioxus.compose.design.resolveTheme
+import dioxus.compose.foundation.SidebarShortcuts
 import dioxus.compose.foundation.splitBackTestTag
 import dioxus.compose.foundation.splitBodyTestTag
 import dioxus.compose.foundation.splitDividerTestTag
@@ -70,6 +71,7 @@ private const val BODY = 4
 private const val SIDE_TEXT = 5
 private const val BODY_TEXT = 6
 private const val EXTRA = 7
+private const val OUTER = 20
 private const val ON_CHANGE = 70L
 private const val ON_DISMISS = 80L
 
@@ -360,18 +362,81 @@ class SplitPaneTest {
         assertTrue(connection.events.none { it is HostEvent.KeyDown }, "a divider key reached the Host")
     }
 
-    /** Control Command S puts a collapsible sidebar away on a Mac, and says so once. */
+    /**
+     * Control Command S puts a collapsible sidebar away on a Mac wherever focus is in the
+     * window, here on a button in the body, and says so once.
+     */
     @Test
-    fun fr15_2_12_the_platform_sidebar_shortcut_folds_it() = runDesktopComposeUiTest(1100, 600) {
+    fun fr15_2_12_the_platform_sidebar_shortcut_works_from_anywhere_in_the_window() = runDesktopComposeUiTest(1100, 600) {
         hostPlatformOverride = HostPlatform.MacOs
-        val connection = FakeHostConnection(splitTree(collapsible = true))
+        val button = 9
+        val connection = FakeHostConnection(
+            splitTree(collapsible = true) + listOf(
+                Mutation.Create(button, WidgetKind.Button),
+                Mutation.SetProp(button, PropertyKind.Text, PropertyValue.Text("Send")),
+                Mutation.SetProp(button, PropertyKind.OnClick, PropertyValue.Integer(1L)),
+                Mutation.Insert(BODY, button, 1),
+            ),
+        )
+        show(connection, 1100.dp)
+        onNodeWithTag(nodeTestTag(button)).requestFocus()
+        onNodeWithTag(nodeTestTag(button)).performKeyInput {
+            withKeyDown(Key.CtrlLeft) { withKeyDown(Key.MetaLeft) { pressKey(Key.S) } }
+        }
+        waitForIdle()
+        assertEquals(listOf(0.0), connection.widths())
+    }
+
+    /**
+     * With two collapsible split panes in one window, the command goes to the innermost one
+     * holding focus, and with none holding focus to the outermost.
+     */
+    @Test
+    fun fr15_2_12_the_sidebar_command_goes_to_the_focused_pane_or_else_the_outermost() {
+        val shortcuts = SidebarShortcuts()
+        shortcuts.register(OUTER, depth = 0) {}
+        shortcuts.register(SPLIT, depth = 1) {}
+        assertEquals(OUTER, shortcuts.target(), "with nothing focused the outermost answers")
+        shortcuts.focus(OUTER, true)
+        shortcuts.focus(SPLIT, true)
+        assertEquals(SPLIT, shortcuts.target(), "the innermost pane holding focus answers")
+        shortcuts.focus(SPLIT, false)
+        assertEquals(OUTER, shortcuts.target())
+        shortcuts.unregister(OUTER)
+        shortcuts.focus(SPLIT, false)
+        assertEquals(SPLIT, shortcuts.target())
+    }
+
+    /** The same rule in a window: focus in the inner pane folds the inner pane. */
+    @Test
+    fun fr15_2_12_nested_split_panes_fold_the_one_with_focus() = runDesktopComposeUiTest(1100, 600) {
+        hostPlatformOverride = HostPlatform.MacOs
+        val outerSide = 21
+        val records = splitTree(collapsible = true).toMutableList()
+        // The whole tree above becomes the body of an outer collapsible split pane.
+        records += listOf(
+            Mutation.Create(OUTER, WidgetKind.SplitPane),
+            Mutation.SetModifier(OUTER, 0, ProtocolModifier.FillMaxWidth),
+            Mutation.SetModifier(OUTER, 1, ProtocolModifier.FillMaxHeight),
+            Mutation.SetProp(OUTER, PropertyKind.Collapsible, PropertyValue.Bool(true)),
+            Mutation.SetProp(OUTER, PropertyKind.Value, PropertyValue.Float(200f)),
+            Mutation.SetProp(OUTER, PropertyKind.OnValueChange, PropertyValue.Integer(ON_CHANGE + 1)),
+            Mutation.Create(outerSide, WidgetKind.Column),
+            Mutation.Insert(OUTER, outerSide, 0),
+            Mutation.Insert(OUTER, ROOT, 1),
+        )
+        val connection = FakeHostConnection(records)
         show(connection, 1100.dp)
         onNodeWithTag(splitDividerTestTag(SPLIT)).requestFocus()
         onNodeWithTag(splitDividerTestTag(SPLIT)).performKeyInput {
             withKeyDown(Key.CtrlLeft) { withKeyDown(Key.MetaLeft) { pressKey(Key.S) } }
         }
         waitForIdle()
-        assertEquals(listOf(0.0), connection.widths())
+        assertEquals(listOf(0.0), connection.widths(), "the inner pane did not fold")
+        assertTrue(
+            connection.events.filterIsInstance<HostEvent.ValueChanged>().none { it.nodeId == OUTER },
+            "the outer pane folded instead",
+        )
     }
 
     /**
