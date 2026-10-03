@@ -795,6 +795,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "sample-calculator-compose"
+version = "0.1.0"
+dependencies = [
+ "compose-rust",
+]
+
+[[package]]
 name = "sample-chat"
 version = "0.1.0"
 dependencies = [
@@ -881,6 +888,13 @@ dependencies = [
  "compose-rust",
  "dioxus-hooks",
  "sample-frames",
+]
+
+[[package]]
+name = "sample-todo-compose"
+version = "0.1.0"
+dependencies = [
+ "compose-rust",
 ]
 
 [[package]]
