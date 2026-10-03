@@ -252,6 +252,9 @@ jobs:
           ls -la dioxus-compose-renderer/build/windows dioxus-compose-renderer/build/windows/*/
           du -sh dioxus-compose-renderer/build/windows
 
+      - name: Kotlin exceptions and startup in an MSVC executable, with and without the rewrite
+        run: ./scripts/check-windows-mingw-link.sh dioxus-compose-renderer/build/windows "$(cygpath -u "$RUNNER_TEMP")/mingw-link-probe"
+
       - name: Build, check, move and run an application
         run: ./scripts/check-windows-consumer.sh dioxus-compose-renderer/build/windows "$(cygpath -u "$RUNNER_TEMP")/consumer-windows"
 
