@@ -401,15 +401,15 @@ AppKit headers used by `dioxus-compose-renderer/desktop/c/`.
 The renderer resolves Compose from your local Maven repository, not from what JetBrains published.
 Three things it needs are empty in the published build for this platform and cannot be filled from
 outside the module that holds them: the entries a text selection's menu offers, the keys that copy,
-and the Linux targets. The patches are in `dioxus-compose-renderer/patches/`, pinned to one Compose
-revision, and each one says what it is for.
+and the Linux targets. The changes are commits in a fork of Compose,
+[`thisisthepy/compose-multiplatform-core-extended`](https://github.com/thisisthepy/compose-multiplatform-core-extended),
+and the build script pins one commit of it.
 
 ```bash
 ./dioxus-compose-renderer/scripts/build-compose.sh
 ```
 
-It fetches the pinned revision, applies the patches, and publishes the modules the renderer asks
-for. Slow, and run once rather than once per build. Everything else still resolves from what
+It fetches the pinned commit and publishes the modules the renderer asks for. Slow, and run once rather than once per build. Everything else still resolves from what
 JetBrains published.
 
 ### 4. Kotlin

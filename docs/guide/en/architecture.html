@@ -212,8 +212,8 @@
       Windows is not a choice. Compose publishes no UI layer for it as a native target, and it is
       blocked twice over: Kotlin's target there is MinGW and Skia's build is MSVC, so the two
       cannot be linked even if the artifacts existed. Linux publishes none either, but nothing
-      stands in the way of building them, so this project keeps a small set of patches against a
-      pinned Compose revision and builds the Linux targets from source.
+      stands in the way of building them, so this project builds the Linux targets from source,
+      from a fork of Compose that adds them, pinned to one commit.
     </p>
     <div class="note">
       <span class="label">The application does not know which</span>

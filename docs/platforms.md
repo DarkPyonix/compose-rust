@@ -119,7 +119,7 @@ Kotlin/Native로 갈 수 있는지는 상류가 그 타깃을 발행하느냐에
 **리눅스**는 `runtime`만 있습니다. 그것은 컴포지션 엔진이라 레이아웃도 그리기도 위젯도
 없습니다. 흥미로운 것은 skiko가 리눅스 네이티브를 발행한다는 점입니다: 기술적으로 막힌
 것이 아니라 Compose가 그 타깃을 빌드하지 않을 뿐입니다. 그래서 이 저장소가 빌드합니다
-(`patches/0001-linux-native-targets.patch`). 아래를 보십시오.
+(Compose 포크 `thisisthepy/compose-multiplatform-core-extended`). 아래를 보십시오.
 
 **윈도우**는 두 겹으로 막혀 있습니다. Kotlin/Native의 윈도우 타깃은 MinGW ABI이고 Skia와
 skiko의 윈도우 빌드는 MSVC입니다. C++ ABI가 달라 링크가 성립하지 않고, 애초에
@@ -132,8 +132,9 @@ skiko의 윈도우 빌드는 MSVC입니다. C++ ABI가 달라 링크가 성립�
 
 Compose를 소스에서 `linuxX64` 타깃을 켜고 빌드합니다. 분기를 유지하는 포크와는
 다릅니다: 타깃을 더하기만 하는 변경이라 상류와 충돌할 일이 거의 없고, 그대로 상류에
-보낼 수 있는 모양입니다. 그 변경이
-`dioxus-compose-renderer/patches/0001-linux-native-targets.patch`이고, 빌드와 발행은
+보낼 수 있는 모양입니다. 그 변경은
+Compose 포크 `thisisthepy/compose-multiplatform-core-extended`의 `extended` 브랜치에 커밋으로
+있고, 빌드와 발행은
 `scripts/build-compose.sh --target linuxX64`입니다. `runtime` 하나만 상류에서 오고
 나머지는 전부 여기서 발행되므로, macOS와 달리 발행할 모듈이 스무 개가 넘습니다.
 
