@@ -18,6 +18,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.ui.Alignment
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusTarget
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -368,6 +375,17 @@ fun DioxusContent(
     // wherever focus is. Heard on the way back up from the focused node, so a text field
     // that wants the key keeps it.
     val sidebarShortcuts = remember(host) { dioxus.compose.foundation.SidebarShortcuts() }
+    // A focus target at the root, so a window command such as the sidebar's is heard even
+    // when no control holds focus: Compose delivers keys only to something focused. It takes
+    // focus only while nothing inside does, when the window gains focus or focus is cleared,
+    // so it never takes it from a field. Once a control inside has focus it stops being
+    // focusable at all, which keeps it out of the Tab order, and it draws nothing.
+    val rootFocus = remember(host) { FocusRequester() }
+    var rootMayFocus by remember(host) { mutableStateOf(true) }
+    val windowFocused = LocalWindowInfo.current.isWindowFocused
+    LaunchedEffect(host, windowFocused, rootMayFocus) {
+        if (windowFocused && rootMayFocus) runCatching { rootFocus.requestFocus() }
+    }
     CompositionLocalProvider(
         dioxus.compose.foundation.LocalSidebarShortcuts provides sidebarShortcuts,
         LocalDesignTheme provides theme,
@@ -388,6 +406,16 @@ fun DioxusContent(
                 modifier
                     .then(measured)
                     .onKeyEvent { event -> sidebarShortcuts.handle(event, platform) }
+                    .focusRequester(rootFocus)
+                    .onFocusChanged { state ->
+                        // A control inside holds focus: step out of the way. Nothing holds
+                        // it any more: be ready to take it again.
+                        if (state.hasFocus && !state.isFocused) rootMayFocus = false
+                        if (!state.hasFocus) rootMayFocus = true
+                    }
+                    .focusProperties { canFocus = rootMayFocus }
+                    .focusTarget()
+                    .testTag(ROOT_FOCUS_TEST_TAG)
                     .background(host.table.windowFill(host.roots, theme)),
             ) {
                 Box(Modifier.padding(top = pageTop, bottom = pageBottom)) {
@@ -803,3 +831,6 @@ internal fun pageInsets(
     val bottom = if (navigationTakesTheBottom) 0.dp else bars.bottom
     return top to bottom
 }
+
+/** The root focus target that lets window commands be heard with nothing else focused. */
+const val ROOT_FOCUS_TEST_TAG: String = "dioxus-root-focus"
