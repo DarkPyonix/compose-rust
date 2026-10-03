@@ -238,10 +238,12 @@ if [[ "$host" != windows ]]; then
         -imsvc "$xwin/sdk/include/um" -imsvc "$xwin/sdk/include/shared"
         -imsvc "$xwin/sdk/include/winrt")
 fi
+# MSYS_NO_PATHCONV, because Git Bash otherwise takes every MSVC option for a path and hands
+# clang "/MT" as "C:/Program Files/Git/MT". Elsewhere it means nothing.
 compile() {
     local source="$1" object="$2"
     shift 2
-    "$clang" "${c_flags[@]}" "$@" "$(tool_path "$source")" "/Fo$(tool_path "$object")" ||
+    MSYS_NO_PATHCONV=1 "$clang" "${c_flags[@]}" "$@" "$(tool_path "$source")" "/Fo$(tool_path "$object")" ||
         die "$source did not compile in MSVC mode"
 }
 c_dir="$PROJECT_DIR/desktop/c"
