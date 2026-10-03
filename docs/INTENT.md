@@ -323,6 +323,57 @@ macOS 26과 iOS 26은 같은 재질을 쓰지만 같은 방식으로 쓰지 않�
 
 **2026-09-23의 "단일 exe는 비용이 너무 크니 번들을 먼저"는 제안이었고 결정이 아니었습니다.** 기록하지 않아서 결정처럼 굳었고, 그래서 이 항목이 뒤늦게 적힙니다.
 
+### D18. Windows 렌더러는 Kotlin/Native로 만들고, MinGW는 Kotlin 오브젝트 안에 가둔다
+
+**소유자의 결정입니다(2026-10-03). 실험이 아니라 정식 통합입니다.**
+
+> "작업 하시라고요" (2026-10-03)
+>
+> "옮겨. 단순 윈도우를 실험으로 보지 말고 정식 통합을 진행해야지" (2026-10-01)
+
+이 결정은 dioxus-compose의 `feat/windows-kotlin-native` 브랜치에서 처음 적혔고, 그 브랜치의 빌드와 링크가 근거입니다. compose-rust에 맞춰 옮겨 적습니다: 크레이트는 `compose-rust`(`dioxus-compose/` 디렉터리), 렌더러 모듈은 Linux의 `linux/`, `staticlib-linux/`와 같은 모양의 `dioxus-compose-renderer/windows/`와 `staticlib-windows/`, Compose와 skiko의 `mingwX64` 변경은 이 저장소의 패치가 아니라 `compose-multiplatform-core-extended`의 커밋입니다(D19).
+
+Windows 렌더러는 GraalVM native-image가 아니라 Kotlin/Native(`mingwX64`)로 컴파일하고, Rust 앱이 만드는 MSVC 실행 파일 하나에 정적으로 링크합니다. macOS, Linux와 같은 길입니다(D4).
+
+**MinGW를 어디에 가두는가.** 소유자는 MinGW를 좋아하지 않고, 앱을 빌드하는 사람에게 MinGW를 요구하지 않는 것이 이 결정의 조건입니다. 그런데 Kotlin/Native의 Windows 타깃은 MinGW뿐입니다. Rust의 기본 Windows 타깃과 Skia의 Windows 빌드는 MSVC이고, 두 C++ 방식은 한 파일에 섞이지 않습니다. 그래서 경계를 이렇게 긋습니다.
+
+- **MSVC**: Rust, Skia, skiko의 C++ 부분, C 런타임(정적, `/MT`). 앱을 빌드하는 사람이 보는 툴체인은 이것뿐입니다.
+- **MinGW**: Kotlin/Native가 만든 오브젝트(Compose, skiko의 Kotlin 부분, 렌더러)와, 그것이 원래 정적으로 끌고 오는 libstdc++, libgcc, winpthread. 렌더러 아티팩트를 만드는 빌드 안에만 있고, 아티팩트에서 나올 때는 MSVC 링커가 읽을 수 있게 고쳐진 오브젝트입니다.
+- **둘 사이**: C 함수 호출만. skiko가 원래 그렇게 생겼습니다.
+
+MinGW 오브젝트를 MSVC 링커에 그대로 주면 두 군데가 조용히 틀립니다. 그래서 빌드가 링크 전에 오브젝트를 고칩니다.
+
+1. **정적 생성자.** MinGW는 `.ctors`에 두고, MSVC 런타임은 `.CRT$XCU`만 실행합니다. 섹션 이름을 바꿉니다. 안 바꾸면 링크는 되는데 실행하면 멈춥니다.
+2. **예외 되감기 정보.** MinGW는 `.pdata$함수`를 독립 COMDAT으로 두고 이름으로 짝짓습니다. MSVC 링커는 이것을 버리고, Kotlin 예외가 함수 둘 이상을 지나면 되감기가 무한 루프에 빠집니다. COFF 규격의 '딸린 섹션'(associative)으로 표시를 바꿉니다.
+
+MinGW 보조 라이브러리(`libmingwex`)는 링크하지 않습니다. MSVC 정적 런타임과 함수가 중복 정의되기 때문입니다. 실제로 쓰는 함수(`__mingw_vsnprintf`, `sleep`, `gettimeofday`)와 스레드 시작 함수는 작은 C 파일이 MSVC 런타임으로 이어 줍니다. MinGW가 실행 파일에 남기는 것은 Kotlin 오브젝트와 그것이 끌고 온 C++ 런타임뿐이고, 사용자의 툴체인, 실행 파일 옆의 DLL, 앱의 Rust 타깃 어디에도 MinGW가 나오지 않습니다.
+
+**D17의 네 항목은 이 경로에서 이렇게 풀립니다.**
+
+1. 정적 라이브러리: Kotlin/Native가 `-produce static`을 냅니다.
+2. Skia를 안으로: Skia와 skiko C++를 우리가 링크합니다. 경로로 찾는 로더가 없습니다.
+3. AWT: 필요 없습니다(D4). 창은 렌더러가 직접 여는 Win32 창입니다.
+4. ICU 데이터: Skia가 부르는 `SkLoadICU`를 우리가 정의해서, 실행 파일 안에 넣은 데이터를 ICU에 넘깁니다.
+
+skiko는 `mingwX64`를 발행하지 않고 Compose도 Windows용 Kotlin/Native 타깃을 발행하지 않습니다. 둘 다 포크에서 `mingwX64` 타깃을 더해 빌드합니다(skiko 0.144.6, Compose는 Linux 타깃을 더한 것과 같은 방식). skiko의 C++ 부분은 Skia의 ABI에 맞아야 하므로 JetBrains가 미리 빌드한 Windows Skia에 대해 MSVC로 컴파일합니다.
+
+**근거 (2026-10-01, macOS의 Wine 11.0에서 확인):** 실행 파일 하나가 시스템 DLL 외에 아무것도 불러오지 않고, skiko API로 그림과 글자를 그려 픽셀이 맞고, 함수 셋을 지나는 Kotlin 예외 1000회가 정상이고, 잡히지 않은 예외는 Kotlin이 보고하고 종료하고, ICU 파일 없이 한국어 단어 경계가 맞습니다. 생성자와 되감기 정보를 고치지 않은 대조군은 각각 멈추고 무한 루프에 빠졌습니다. 그 뒤 minimal 샘플이 Windows 시스템 DLL만 불러오는 디버그 실행 파일 하나(58MB)로 링크되었고, Wine에서 창을 열어 샘플을 그렸습니다. **진짜 Windows에서는 아직 확인하지 않았습니다.**
+
+**치르는 값:**
+
+- 실행 파일 안에 C++ 런타임이 둘 들어갑니다. 이름 규칙이 달라 부딪히지는 않지만 크기는 그만큼 늡니다.
+- MinGW 오브젝트를 고치는 빌드 단계가 하나 생깁니다. Kotlin/Native가 오브젝트를 만드는 방식을 바꾸면 이 단계도 다시 확인해야 합니다.
+- MinGW의 크래시 필터 대신 '처리 안 함'을 돌려주는 함수를 둡니다. Kotlin 스레드의 크래시는 MinGW식 신호 변환 대신 Windows 기본 처리로 갑니다.
+- Skia가 MSVC 정적 C 런타임으로 빌드되어 있으므로, 앱도 정적 C 런타임(`+crt-static`)으로 빌드해야 합니다. 빌드 스크립트가 그렇지 않은 앱에 무엇을 하라고 말합니다.
+- Wine으로 확인한 것은 Windows에서 다시 확인해야 하고, 창, 입력기, 화면 낭독기는 Wine으로 확인할 수 없습니다.
+
+**폐기한 대안:**
+
+- Rust를 `windows-gnu`로: 앱을 빌드하는 사람이 전부 기본값이 아닌 타깃을 써야 해서 D10과 부딪히고, MinGW가 가둔 자리를 벗어나 사용자의 툴체인이 됩니다.
+- Skia를 MinGW로 빌드: Skia가 공식 지원하지 않습니다.
+- 렌더러를 DLL로 나누기: 파일이 3개가 되어 D17을 어깁니다.
+- GraalVM 유지: JVM이 남고(D4), JDK DLL 열두 개가 배포물에 따라붙습니다(D17).
+
 ### D19. Compose를 확장하는 일은 이 프로젝트 밖, Compose의 포크에서 한다
 
 이 저장소에는 성격이 다른 세 가지가 섞여 있었습니다. Compose 자체를 고치는 일(upstream 패치, GraalVM native-image에서 AWT를 걷어내는 경로, Kotlin/Native로 직접 만든 데스크톱 창), Rust에서 Compose를 쓰게 하는 일(위젯 스키마, 인터프리터, 경계), 그리고 Dioxus를 붙이는 일입니다. 첫째는 Rust와 무관하고, 같은 회사의 다른 프로젝트(Python에서 Compose를 쓰는 pythonx-compose)도 필요로 합니다. **2026-10-02에 셋으로 나눕니다.**

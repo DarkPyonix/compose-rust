@@ -2498,6 +2498,7 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 | NFR-10 | 렌더러 탐색 경로 | `DIOXUS_COMPOSE_RENDERER_DIR` → 워크스페이스 빌드 결과물 → 버전·타깃별 캐시 → 릴리스 다운로드 순서로 찾음. 규격과 수용 기준은 §5.3. **2026-09-21 충족** | Done |
 | NFR-11 | 배포 | 크레이트는 crates.io, 렌더러는 플랫폼별 체크섬 릴리스 아티팩트. 설치는 `Cargo.toml` 한 줄이 전부이고 빌드 스크립트가 아티팩트를 가져옵니다. 규격과 수용 기준은 §5.3 (INTENT D10). **2026-09-21 macOS에서 충족**, Windows와 Linux는 실행 확인 미완료 | Agreed |
 | NFR-12 | 워크트리 빌드 격리 | 워크트리마다 자기 `target/`에 빌드하고, 다른 워크트리의 빌드 디렉터리를 가리키는 설정이 없음. 한 트리에서 컴파일된 codegen 바이너리가 다른 트리에 쓸 수 없음. 규격과 수용 기준은 §5.4 (INTENT D16). **2026-09-22 충족** | Done |
+| NFR-13 | Windows 단일 실행 파일 | Windows 렌더러를 Kotlin/Native로 빌드해 앱 실행 파일 하나에 링크함. JVM이 없고, 앱을 빌드하는 사람에게 MinGW를 요구하지 않음. 규격과 수용 기준은 §5.6 (INTENT D18, 2026-10-03 소유자 결정) | Agreed |
 | NFR-14 | AWT 없는 데스크톱 렌더러가 기본 | 배포되는 데스크톱 렌더러가 AWT도 JVM도 쓰지 않음. macOS와 Linux는 Kotlin/Native 정적 라이브러리, Windows는 NFR-13. 앱이 아무것도 고르지 않아도 이 경로가 나옴. 규격과 수용 기준은 §5.5 (INTENT D4, 2026-10-03 소유자 결정) | Agreed |
 
 ### 5.1 프레임 예산 (NFR-9)
@@ -2746,6 +2747,23 @@ Cargo는 path 패키지의 유닛 해시에 패키지 경로를 넣지 않습니
 5. §6 IME 체크리스트 아홉 항목이 세 플랫폼의 이 빌드에서 통과합니다(사람이 확인). Compose의 플랫폼 텍스트 입력을 우회하는 경로가 코드에 없습니다.
 6. §7 접근성: 접근성 트리가 노출되고, macOS VoiceOver, Windows Narrator, Linux Orca(AT-SPI)가 Text와 Button 라벨을 읽습니다(사람이 확인).
 7. §5.1 프레임 예산과 NFR-3 무게 기준을 이 빌드에서 잽니다.
+
+### 5.6 Windows 단일 실행 파일 (NFR-13)
+
+**2026-10-03 소유자 결정(INTENT D18). 실험이 아니라 정식 통합입니다.** Windows 렌더러는 Kotlin/Native(`mingwX64`)로 빌드한 정적 라이브러리(`dioxus-compose-renderer/windows/`, `staticlib-windows/`)이고, Rust 앱의 MSVC 실행 파일에 링크됩니다. Skia와 skiko의 C++ 부분은 MSVC로 빌드해 같은 실행 파일에 들어갑니다. Compose와 skiko의 `mingwX64` 타깃은 Compose 포크의 커밋입니다(INTENT D19). 경계와 그 이유는 INTENT D18에 있습니다.
+
+**MinGW는 렌더러 아티팩트를 만드는 빌드 안에만 있습니다.** 앱을 빌드하는 사람의 툴체인은 Rust의 기본 Windows 타깃(`x86_64-pc-windows-msvc`)과 MSVC 링커이고, MinGW 툴체인, MinGW DLL, `windows-gnu` 타깃 어느 것도 요구하지 않습니다. 렌더러 아티팩트에 들어가는 MinGW 오브젝트는 MSVC 링커가 뜻을 바꾸지 않고 읽도록 고쳐진 것입니다(생성자 섹션, 되감기 정보).
+
+수용 기준:
+
+1. 샘플을 빌드한 결과물이 실행 파일 하나이고, 불러오는 DLL이 Windows 시스템 DLL뿐입니다. 빌드 산출물의 import 표를 검사하는 테스트로 확인합니다.
+2. `icudtl.dat` 없이 글자가 그려집니다.
+3. 함수 여러 개를 지나는 Kotlin 예외가 잡히고, 잡히지 않은 예외는 보고된 뒤 종료됩니다(테스트).
+4. MinGW 오브젝트를 고치는 단계를 빼면 2와 3이 실패하는 것을 대조 테스트가 확인합니다.
+5. 스모크 호스트가 창을 띄우고 0으로 끝납니다(Windows CI).
+6. §6 IME 체크리스트 핵심 5개를 통과합니다(Windows에서 손으로 확인).
+7. 접근성 트리가 노출됩니다(NFR-8과 같은 기준, Windows).
+8. 앱을 빌드하는 기계에 MinGW 툴체인이 없어도 `cargo build`가 성공하고, 앱의 Rust 타깃은 `x86_64-pc-windows-msvc`입니다.
 
 ## 6. IME 수용 체크리스트 (FR-5, M1)
 
