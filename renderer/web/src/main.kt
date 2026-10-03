@@ -7,6 +7,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.window.ComposeViewport
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.HostConnection
+import dev.darkpyonix.composerust.runtime.clampZoomLevel
 import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
 import dev.darkpyonix.composerust.tooling.m0DemoHost
 import dev.darkpyonix.composerust.ui.platform.WebHostConnection
@@ -43,10 +44,9 @@ fun main() {
 
 /** The application's zoom level in the page's local storage. */
 private object LocalStorageZoomLevel : dev.darkpyonix.composerust.runtime.ZoomLevelStore {
-    override fun load(): Int? = loadZoomLevel().takeIf { it != NO_LEVEL }
-        ?.let(dev.darkpyonix.composerust.runtime::clampZoomLevel)
+    override fun load(): Int? = loadZoomLevel().takeIf { it != NO_LEVEL }?.let { clampZoomLevel(it) }
 
-    override fun save(level: Int) = saveZoomLevel(dev.darkpyonix.composerust.runtime.clampZoomLevel(level))
+    override fun save(level: Int) = saveZoomLevel(clampZoomLevel(level))
 }
 
 /** What [loadZoomLevel] answers where nothing is saved, outside any level there can be. */
