@@ -521,12 +521,8 @@ compose_rust::ios_main!(launch);
 mod tests {
     use super::*;
     use compose_rust::Host;
-    use compose_rust::protocol::{
-        HostEvent, Mutation, PropertyValue, decode_batch, encode_event,
-    };
-    use compose_rust::schema::{
-        EventPayload, MessageDuration, PropertyKind, TypeRole, WidgetKind,
-    };
+    use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
+    use compose_rust::schema::{EventPayload, MessageDuration, PropertyKind, TypeRole, WidgetKind};
     use std::collections::HashMap;
 
     /// Whether a label belongs to the keypad rather than to the rest of the screen.

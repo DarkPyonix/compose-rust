@@ -11,8 +11,8 @@
 mod courses;
 mod palette;
 
-use courses::{Course, Shelf, course, on, sessions_label};
 use compose_rust::prelude::*;
+use courses::{Course, Shelf, course, on, sessions_label};
 
 /// A phone design in a desktop window is still a phone design.
 const PAGE_MEASURE: f32 = 420.0;
@@ -503,12 +503,10 @@ mod tests {
     /// glyph nobody types is not something to spell twice.
     const PLAY: &str = "\u{25b6}";
 
-    use courses::COURSES;
     use compose_rust::Host;
-    use compose_rust::protocol::{
-        HostEvent, Mutation, PropertyValue, decode_batch, encode_event,
-    };
+    use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
     use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind};
+    use courses::COURSES;
 
     /// Named for what it defends: the reference is a light design, and a machine set
     /// the other way drew this sample dark with nothing to compare against.

@@ -177,7 +177,7 @@ pub mod prelude {
         LazyRow, LinearProgressIndicator, LoopMode, MaterialRole, Menu, Message, MessageDuration,
         Modifier, MotionRole, Navigation, NavigationItem, Paint, Palette, ProgressIndicator, Props,
         RadioButton, RangeRequest, Row, Scaffold, ScrollColumn, ScrollRow, SelectionContainer,
-        Separator, ShapeRole, Sheet, Slider, Spacer, SpaceRole, SplitPane, Stop, Surface, Switch,
+        Separator, ShapeRole, Sheet, Slider, SpaceRole, Spacer, SplitPane, Stop, Surface, Switch,
         Tabs, Text, TextAlign, TextField, TextOverflow, Theme, TileMode, TimePicker, Tooltip,
         TopAppBar, TypeRole, WindowHeightClass, WindowSize, WindowSizeClass, asset, brush,
         component, launch, rsx, show_message, use_design_system, use_node_size, use_theme,
