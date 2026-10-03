@@ -9,16 +9,16 @@
 #
 #   1. build-compose.sh publishes the fork's modules to the local Maven repository, and that
 #      repository is copied aside as it stands;
-#   2. the renderer's platform module and its static library are built against it, the way
-#      desktop/scripts/build-linux.sh and build-macos.sh build them, and the static library is
-#      kept as an artifact;
-#   3. the old build is run again from scratch: the old build-compose.sh and the three patches,
+#   2. the old build is run again from scratch: the old build-compose.sh and the three patches,
 #      taken from the last develop commit that still had them, publish into an empty local
 #      repository, in the same work directory the fork build used, so that no absolute path
 #      differs between the two;
-#   4. the two repositories are compared file by file, and every archive entry by entry with
+#   3. the two repositories are compared file by file, and every archive entry by entry with
 #      zip timestamps left out (.github/scripts/compare-maven-repos.py). Any difference fails
-#      the job and is printed with its path.
+#      the job and is printed with its path, but only at the end, so the renderer still builds;
+#   4. the fork's publication is put back, and the renderer's platform module and its static
+#      library are built against it, the way desktop/scripts/build-linux.sh and build-macos.sh
+#      build them, and the static library is kept as an artifact.
 #
 # The Gradle build cache is turned off for both Compose builds. With it on, the second build
 # would take its outputs from the first whenever the inputs hash the same, and the comparison
@@ -181,21 +181,6 @@ jobs:
           du -sh "$FORK_REPO"
           df -h "$GITHUB_WORKSPACE"
 
-      - name: Build the renderer and its static library against it
-        run: ./dioxus-compose-renderer/desktop/scripts/${{ matrix.renderer_script }}
-
-      - name: Report the static library
-        run: |
-          ls -la dioxus-compose-renderer/build/${{ matrix.renderer_out }}
-          du -sh dioxus-compose-renderer/build/${{ matrix.renderer_out }}
-
-      - name: Keep the static library
-        uses: actions/upload-artifact@v4
-        with:
-          name: renderer-staticlib-${{ matrix.target }}
-          path: dioxus-compose-renderer/build/${{ matrix.renderer_out }}
-          retention-days: 14
-
       - name: Stage the old build script and its patches
         run: |
           set -euo pipefail
@@ -220,8 +205,12 @@ jobs:
           find "$LEGACY_REPO" -type f | wc -l
           du -sh "$LEGACY_REPO"
           rm -rf "$COMPOSE_WORK"
+          # The renderer is built against the fork's publication, so that is what goes back.
+          cp -a "$FORK_REPO" ~/.m2/repository
 
       - name: Compare the two published repositories
+        id: compare
+        continue-on-error: true
         run: |
           python3 .github/scripts/compare-maven-repos.py "$LEGACY_REPO" "$FORK_REPO" \
             --report "$RUNNER_TEMP/compose-equivalence-${{ matrix.target }}.txt"
@@ -234,3 +223,32 @@ jobs:
           path: ${{ runner.temp }}/compose-equivalence-${{ matrix.target }}.txt
           if-no-files-found: ignore
           retention-days: 14
+
+      - name: Build the renderer and its static library against it
+        run: ./dioxus-compose-renderer/desktop/scripts/${{ matrix.renderer_script }}
+
+      - name: List the renderer's task directories
+        # Temporary: shows what the toolchain names its task output directories on each
+        # platform.
+        if: always()
+        run: ls dioxus-compose-renderer/build/tasks || true
+
+      - name: Report the static library
+        run: |
+          ls -la dioxus-compose-renderer/build/${{ matrix.renderer_out }}
+          du -sh dioxus-compose-renderer/build/${{ matrix.renderer_out }}
+
+      - name: Keep the static library
+        uses: actions/upload-artifact@v4
+        with:
+          name: renderer-staticlib-${{ matrix.target }}
+          path: dioxus-compose-renderer/build/${{ matrix.renderer_out }}
+          retention-days: 14
+
+      - name: Fail if the two Compose builds differ
+        # The comparison runs before the renderer and does not stop it, so that one failing
+        # does not hide the other's result. This is where a difference fails the job.
+        if: always() && steps.compare.outcome == 'failure'
+        run: |
+          echo "the fork and the patched build published different contents; see the comparison step" >&2
+          exit 1
