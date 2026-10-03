@@ -154,6 +154,14 @@ check_libraries() {
         echo "      the executable still names a library of the renderer's" >&2
         failures=$((failures + 1))
     }
+    # And nothing of a Java runtime linked into it either: a native image carries one,
+    # and a statically linked JNI library announces itself with JNI_OnLoad_<name>.
+    local symbols
+    symbols="$(nm "$binary" 2>/dev/null || true)"
+    if grep -E ' _?JNI_OnLoad' <<< "$symbols"; then
+        echo "      the executable carries a JNI library, so a Java runtime is linked into it" >&2
+        failures=$((failures + 1))
+    fi
     [[ "$failures" -eq 0 ]] || fail "$(basename "$binary") needs $failures thing(s) that are not the system's"
 }
 

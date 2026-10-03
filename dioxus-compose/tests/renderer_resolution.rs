@@ -369,7 +369,7 @@ fn static_tree(root: &Path, flat: bool) -> PathBuf {
 /// Every target published as a static archive is a target the release publishes at all,
 /// so a static target cannot be one nothing can download.
 #[test]
-fn nfr11_the_static_targets_are_published_targets() {
+fn nfr14_the_static_targets_are_published_targets() {
     assert!(!STATIC_TARGETS.is_empty());
     for target in STATIC_TARGETS {
         assert!(
@@ -389,7 +389,7 @@ fn nfr11_the_static_targets_are_published_targets() {
 /// verified and unpacked the same way as a shared library, and then left exactly as it
 /// arrived: it has no name for an executable to record, because it ends up inside it.
 #[test]
-fn nfr11_a_static_archive_is_downloaded_unpacked_and_left_as_it_arrived() {
+fn nfr15_a_static_archive_is_downloaded_unpacked_and_left_as_it_arrived() {
     let temp = TempDir::new("static-download");
     let release = temp.path().join("release");
     static_tree(&release.join("staging"), false);
@@ -447,7 +447,7 @@ fn nfr10_the_variable_accepts_the_directory_a_static_build_wrote() {
 /// A directory holding both is linked as the archive, because the archive is what makes
 /// the application one file.
 #[test]
-fn nfr11_the_static_archive_wins_where_a_distribution_holds_both() {
+fn nfr15_the_static_archive_wins_where_a_distribution_holds_both() {
     let temp = TempDir::new("static-and-shared");
     let root = renderer_tree(&temp.path().join("both"));
     static_tree(&root, false);
@@ -460,7 +460,7 @@ fn nfr11_the_static_archive_wins_where_a_distribution_holds_both() {
 /// A checkout's static build comes before its native image, and the native image still
 /// answers when there is no static build.
 #[test]
-fn nfr11_a_workspace_static_build_comes_before_the_native_image() {
+fn nfr14_a_workspace_static_build_comes_before_the_native_image() {
     let temp = TempDir::new("workspace-order");
     let static_dir = temp.path().join("build/linux");
     let shared_root = renderer_tree(&temp.path().join("build/native-image/dist"));

@@ -13,7 +13,7 @@ import kotlin.test.assertNull
 class LinkedHostFunctionsTest {
 
     @Test
-    fun nfr11_without_a_host_linked_every_host_function_is_absent() {
+    fun nfr15_without_a_host_linked_every_host_function_is_absent() {
         for (name in listOf(
             "dioxus_compose_host_init",
             "dioxus_compose_host_dispatch_event",
@@ -26,7 +26,7 @@ class LinkedHostFunctionsTest {
     }
 
     @Test
-    fun nfr11_a_name_that_is_not_a_host_function_is_absent() {
+    fun nfr15_a_name_that_is_not_a_host_function_is_absent() {
         assertNull(linkedHostFunction("dioxus_compose_host_unknown"))
         assertNull(linkedHostFunction(""))
     }
