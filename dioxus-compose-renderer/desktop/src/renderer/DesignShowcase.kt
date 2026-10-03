@@ -340,7 +340,85 @@ fun designShowcaseRecords(theme: Theme): List<Mutation> {
     records += Mutation.SetProp(inside, PropertyKind.OnClick, PropertyValue.Integer(1L))
     records += Mutation.Insert(region, inside, 3)
 
+    // A code editor with each of its four decorations and a few colour runs. The runs use
+    // the base roles the code colours are derived from where a system has no code palette
+    // of its own: keywords in the primary, strings in the tertiary, comments in the quiet ink.
+    text(root, slot++, "code editor", TypeRole.Headline, ColorRole.OnSurfaceVariant)
+    val code = codeShowcase()
+    val editor = id()
+    records += Mutation.Create(editor, WidgetKind.CodeEditor)
+    records += Mutation.SetModifier(editor, 0, ProtocolModifier.FillMaxWidth)
+    records += Mutation.SetModifier(editor, 1, ProtocolModifier.Height(220f))
+    records += Mutation.SetProp(editor, PropertyKind.Text, PropertyValue.Text(code.text))
+    records += Mutation.SetProp(editor, PropertyKind.SyntaxSpans, PropertyValue.Bytes(code.spans))
+    records += Mutation.SetProp(editor, PropertyKind.Decorations, PropertyValue.Bytes(code.decorations))
+    records += Mutation.SetProp(editor, PropertyKind.OnValueChange, PropertyValue.Integer(1L))
+    records += Mutation.SetProp(editor, PropertyKind.OnDecorationClick, PropertyValue.Integer(1L))
+    records += Mutation.SetProp(editor, PropertyKind.OnHover, PropertyValue.Integer(1L))
+    records += Mutation.SetProp(editor, PropertyKind.OnSave, PropertyValue.Integer(1L))
+    records += Mutation.Insert(root, editor, slot++)
+
     return records
+}
+
+/** The showcase editor's document and its two lists, encoded the way the Host encodes them. */
+private class CodeShowcase(val text: String, val spans: ByteArray, val decorations: ByteArray)
+
+private fun codeShowcase(): CodeShowcase {
+    val lines = listOf(
+        "// One editor, every decoration.",
+        "fn greet(name: &str) -> String {",
+        "\tformat!(\"Hello, {name}\")",
+        "}",
+    )
+    val text = lines.joinToString("\n") + "\n"
+    fun runOf(line: Int, word: String): IntArray {
+        val start = lines[line].indexOf(word)
+        return intArrayOf(line, start, line, start + word.length)
+    }
+    val spans = listOf(
+        runOf(0, lines[0]) to ColorRole.OnSurfaceVariant,
+        runOf(1, "fn") to ColorRole.Primary,
+        runOf(1, "greet") to ColorRole.OnPrimaryContainer,
+        runOf(1, "&str") to ColorRole.Secondary,
+        runOf(1, "String") to ColorRole.Secondary,
+        runOf(2, "format!") to ColorRole.Secondary,
+        runOf(2, "\"Hello, {name}\"") to ColorRole.Tertiary,
+    )
+    val spanBytes = java.nio.ByteBuffer.allocate(spans.size * 28).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+    for ((range, role) in spans) {
+        spanBytes.putInt(0)
+        range.forEach(spanBytes::putInt)
+        spanBytes.putLong(roleBits(role))
+    }
+    // kind, severity, range, id, text
+    class Spec(val kind: Int, val severity: Int, val range: IntArray, val id: Long, val text: String)
+    val specs = listOf(
+        Spec(1, 2, runOf(2, "name}"), 0L, "").also { it.range[3] -= 1 },
+        Spec(2, 0, intArrayOf(1, 0, 1, 0), 1L, "Run"),
+        Spec(2, 0, intArrayOf(1, 0, 1, 0), 2L, "1 reference"),
+        Spec(3, 0, runOf(1, "greet"), 3L, ""),
+        Spec(4, 0, intArrayOf(3, 1, 3, 1), 4L, "\n\ngreet(\"world\");"),
+    )
+    val texts = specs.map { it.text.toByteArray(Charsets.UTF_8) }
+    val recordsLength = specs.size * 44
+    val decorationBytes = java.nio.ByteBuffer.allocate(recordsLength + texts.sumOf { it.size })
+        .order(java.nio.ByteOrder.LITTLE_ENDIAN)
+    var textOffset = recordsLength
+    specs.forEachIndexed { index, spec ->
+        decorationBytes.putInt(0)
+        decorationBytes.putShort(spec.kind.toShort())
+        decorationBytes.putShort(spec.severity.toShort())
+        decorationBytes.putShort(0)
+        decorationBytes.putShort(0)
+        spec.range.forEach(decorationBytes::putInt)
+        decorationBytes.putLong(spec.id)
+        decorationBytes.putInt(textOffset)
+        decorationBytes.putInt(texts[index].size)
+        textOffset += texts[index].size
+    }
+    texts.forEach(decorationBytes::put)
+    return CodeShowcase(text, spanBytes.array(), decorationBytes.array())
 }
 
 private fun roleBits(role: ColorRole): Long = (1L shl 32) or (role.ordinal + 1L)
