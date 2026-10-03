@@ -45,7 +45,7 @@ wrapper and `kotlin-renderer/module.yaml` is four lines.
 
 ```sh
 ./build.sh
-python3 harness/serve.py 8765
+uv run harness/serve.py 8765
 open -a Safari 'http://127.0.0.1:8765/?mode=direct'
 open -a Safari 'http://127.0.0.1:8765/?mode=shim'
 ```
