@@ -399,6 +399,34 @@ class AnimationPlaybackTest {
         assertTrue(!ending.animations.needsFrames(), "an ended animation asks for no more frames")
     }
 
+    /**
+     * A thousand nodes turning at once: the Renderer's work for one frame of them, measured
+     * and printed, and held well inside the 16.7 ms a 60 Hz frame has, so the drawing those
+     * values feed still has most of the frame.
+     */
+    @Test
+    fun fr41_a_thousand_transform_animations_fit_in_a_frame() {
+        for (id in 1..1000) {
+            table.apply(Mutation.Create(id, WidgetKind.Box))
+            table.apply(Mutation.SetModifier(id, 0, ProtocolModifier.Transform(1f, 0f, 0f, 1f, 0f, 0f, 0.5f, 0.5f)))
+            table.apply(
+                Mutation.StartAnimation(
+                    animation(AnimatedProperty.Transform, rotate(0f), rotate(360f), id = id, durationMs = 100_000f)
+                        .copy(nodeId = id),
+                ),
+            )
+        }
+        assertEquals(emptyList(), table.drainErrors())
+        var time = 0.0
+        repeat(100) { frame(time); time += 16.0 }
+        val started = System.nanoTime()
+        val frames = 200
+        repeat(frames) { frame(time); time += 16.0 }
+        val perFrameMs = (System.nanoTime() - started) / 1_000_000.0 / frames
+        println("a thousand transform animations: ${"%.3f".format(perFrameMs)} ms of Renderer work per frame")
+        assertTrue(perFrameMs < 8.0, "$perFrameMs ms per frame")
+    }
+
     private fun Color.toArgbInt(): Int =
         ((alpha * 255 + 0.5f).toInt() shl 24) or ((red * 255 + 0.5f).toInt() shl 16) or
             ((green * 255 + 0.5f).toInt() shl 8) or (blue * 255 + 0.5f).toInt()

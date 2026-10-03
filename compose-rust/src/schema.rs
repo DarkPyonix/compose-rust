@@ -1646,16 +1646,16 @@ impl TransformFunction {
 
 /// What one keyframe holds, which has to be what its animation's property takes.
 #[derive(Clone, Debug, PartialEq)]
-pub enum KeyframeValue<'a> {
+pub enum KeyframeValue {
     Alpha(f32),
     /// For `Color` and `Background`. A role is resolved against the theme every frame.
     Paint(Paint),
     /// A list of functions, the same kinds in the same order in every keyframe.
-    Transform(std::borrow::Cow<'a, [TransformFunction]>),
+    Transform(std::borrow::Cow<'static, [TransformFunction]>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct Keyframe<'a> {
+pub struct Keyframe {
     /// Where in an iteration this keyframe stands, from 0 to 1.
     pub offset: f32,
     /// How the segment from this keyframe to the next is timed.
@@ -1664,7 +1664,7 @@ pub struct Keyframe<'a> {
     /// `value`. Only the first keyframe may say so: it is how a CSS transition that
     /// changes course midway carries on from where it was without a jump.
     pub from_presented: bool,
-    pub value: KeyframeValue<'a>,
+    pub value: KeyframeValue,
 }
 
 /// Which moments of an animation are reported back as `AnimationEvent`s. None, the
@@ -1720,7 +1720,7 @@ pub struct Animation<'a> {
     pub origin_y: f32,
     pub events: AnimationEvents,
     /// At least two, the first at offset 0 and the last at 1.
-    pub keyframes: std::borrow::Cow<'a, [Keyframe<'a>]>,
+    pub keyframes: std::borrow::Cow<'a, [Keyframe]>,
 }
 
 const NO_FIELDS: &[FieldSchema] = &[];

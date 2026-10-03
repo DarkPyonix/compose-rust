@@ -1779,7 +1779,7 @@ fn vector_animation(
     animation_id: u32,
     property: AnimatedProperty,
     slot: u8,
-    values: [KeyframeValue<'static>; 2],
+    values: [KeyframeValue; 2],
 ) -> Animation<'static> {
     let colour = matches!(
         property,

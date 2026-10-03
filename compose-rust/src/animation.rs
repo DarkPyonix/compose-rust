@@ -282,7 +282,7 @@ pub fn transition(
     node_id: u32,
     animation_id: u32,
     property: AnimatedProperty,
-    to: crate::schema::KeyframeValue<'static>,
+    to: crate::schema::KeyframeValue,
     spec: AnimationSpec,
 ) -> Animation<'static> {
     use crate::schema::{

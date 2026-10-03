@@ -103,10 +103,7 @@ use compose_rust::{
 };
 use std::borrow::Cow;
 
-fn animation(
-    property: AnimatedProperty,
-    values: Vec<KeyframeValue<'static>>,
-) -> Animation<'static> {
+fn animation(property: AnimatedProperty, values: Vec<KeyframeValue>) -> Animation<'static> {
     let count = values.len();
     let colour = matches!(
         property,
@@ -163,7 +160,7 @@ fn animation(
     }
 }
 
-fn functions(list: &[TransformFunction]) -> KeyframeValue<'static> {
+fn functions(list: &[TransformFunction]) -> KeyframeValue {
     KeyframeValue::Transform(Cow::Owned(list.to_vec()))
 }
 
