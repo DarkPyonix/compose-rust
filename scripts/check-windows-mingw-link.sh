@@ -101,11 +101,10 @@ link_probe() {
             kernel32.lib user32.lib advapi32.lib shell32.lib ole32.lib bcrypt.lib ws2_32.lib \
             dbghelp.lib oldnames.lib legacy_stdio_definitions.lib \
             /link /NOLOGO /NODEFAULTLIB:vcruntime.lib libvcruntime.lib /INCLUDE:longjmp >"$work/$executable.link.log" 2>&1
-    ) || { cat "$work/$executable.link.log" >&2; fail "the MSVC link of $executable failed"; }
+    ) || { cat "$work/$executable.link.log" >&2; return 1; }
 }
-echo "== linking both with MSVC"
-link_probe probe.a probe.exe
-link_probe probe-unfixed.a probe-unfixed.exe
+echo "== rewritten, linked with MSVC"
+link_probe probe.a probe.exe || fail "the MSVC link of the rewritten probe failed"
 
 run() {
     local seconds="$1"
@@ -130,14 +129,22 @@ run 120 ./probe.exe uncaught || status=$?
 grep -q 'Uncaught Kotlin exception' "$work/run.log" ||
     fail "the process ended (exit $status) without Kotlin reporting the exception"
 
+# The control fails one of two ways, and either is the rewrite's absence showing: the MSVC
+# linker refuses the unwind data outright (LNK1143, a COMDAT with no symbol, which is what it
+# makes of unwind sections paired by name), or it links and the program hangs or crashes.
 echo "== as Kotlin/Native wrote it: the control"
-status=0
-run 60 ./probe-unfixed.exe catch || status=$?
-if [[ "$status" -eq 0 ]]; then
-    fail "the probe linked without the rewrite passed too" \
-        "Either the toolchain no longer writes .ctors and unpaired unwind data, and the rewrite" \
-        "can go, or this probe no longer reaches them, and it proves nothing."
+if ! link_probe probe-unfixed.a probe-unfixed.exe; then
+    grep -E 'LNK[0-9]+' "$work/probe-unfixed.exe.link.log" | head -3
+    echo "-- the MSVC linker refused it, as it should"
+else
+    status=0
+    run 60 ./probe-unfixed.exe catch || status=$?
+    if [[ "$status" -eq 0 ]]; then
+        fail "the probe linked without the rewrite passed too" \
+            "Either the toolchain no longer writes .ctors and unpaired unwind data, and the rewrite" \
+            "can go, or this probe no longer reaches them, and it proves nothing."
+    fi
+    echo "-- it failed, as it should (exit $status$([[ "$status" -eq 124 ]] && echo ", hung"))"
 fi
-echo "-- it failed, as it should (exit $status$([[ "$status" -eq 124 ]] && echo ", hung"))"
 
 echo "ok    Kotlin's startup runs and its exceptions unwind in an MSVC executable, and only with the rewrite"
