@@ -438,8 +438,8 @@ fn unpack(
     })
 }
 
-/// Teach the unpacked renderer where it lives, so that anything linking it records that
-/// location and can load it.
+/// Teach the renderer where it lives, so that anything linking it records that location
+/// and can load it.
 ///
 /// A library carries the name its dependents will look it up by. The macOS artifact
 /// carries `@rpath/libdioxus_compose_renderer.dylib`, and `@rpath` is resolved against the
@@ -448,6 +448,13 @@ fn unpack(
 /// final binary, but not its link arguments, and an rpath is a link argument. The
 /// application would link cleanly and then die on startup with the loader unable to find
 /// a library that is sitting right there on disk.
+///
+/// Linux has the same problem in a different shape. The ELF artifact carries no SONAME,
+/// and a library with none that the linker found through `-l` and a search directory is
+/// recorded by its bare file name, which the loader then searches for on a path the
+/// application does not have either. The SONAME is the ELF counterpart of the install
+/// name: whatever it says is what every dependent records. So on both platforms the
+/// library's own name is set to its absolute path.
 ///
 /// Pointing the name at the directory the library is in makes the lookup absolute, which
 /// is exactly as specific as it should be: this is where that library is going to stay,
@@ -465,7 +472,7 @@ pub fn name_after_its_location(
 ) -> Result<(), String> {
     match target_os {
         "macos" => set_install_name(library, name, crate_version, target),
-        "linux" => drop_soname(library, crate_version, target),
+        "linux" => set_soname(library, name, crate_version, target),
         // Windows resolves a DLL through the loader's search path, which no name inside
         // the file can affect. The build script says what to do about that instead.
         _ => Ok(()),
@@ -526,22 +533,27 @@ fn install_name(library: &Path) -> Option<String> {
     (!name.is_empty()).then(|| name.to_string())
 }
 
-/// The ELF side: no SONAME at all.
+/// The ELF side: `DT_SONAME`, which every linker copies into the `DT_NEEDED` entry of
+/// whatever links the library.
 ///
-/// A shared object with a SONAME is recorded by that bare name, and the loader then has
-/// to find it on a search path the application does not have. One with no SONAME is
-/// recorded by the path the linker opened it at, which is absolute here, so there is
-/// nothing left to search for. The renderer is built without one; an artifact that
-/// carries one anyway is fixed here rather than turned into a binary that links and
-/// cannot start.
-fn drop_soname(library: &Path, crate_version: &str, target: &str) -> Result<(), String> {
-    match elf::soname(library) {
-        Ok(None) => Ok(()),
-        Ok(Some(_)) => elf::remove_soname(library)
-            .map(|_| ())
-            .map_err(|detail| soname_message(library, &detail, crate_version, target)),
-        Err(detail) => Err(soname_message(library, &detail, crate_version, target)),
-    }
+/// Without one, GNU ld records a library it found by searching the `-L` directories under
+/// its bare file name, and the loader has to search for that. With one that is an absolute
+/// path, the dependent records that path and the loader opens it directly. Whether the
+/// artifact arrives with no SONAME, which is how the renderer is built, or with a bare one,
+/// the result is the same. A library that already answers to the right path is not written
+/// to, as on macOS.
+fn set_soname(library: &Path, name: &Path, crate_version: &str, target: &str) -> Result<(), String> {
+    let Some(text) = name.to_str() else {
+        return Err(soname_message(
+            name,
+            "the path is not UTF-8, and this build only writes UTF-8 names",
+            crate_version,
+            target,
+        ));
+    };
+    elf::set_soname(library, text)
+        .map(|_| ())
+        .map_err(|detail| soname_message(name, &detail, crate_version, target))
 }
 
 /// Check the version the artifact declares, if it declares one, name the library after
@@ -830,18 +842,22 @@ fn install_name_message(library: &Path, detail: &str, crate_version: &str, targe
 
 fn soname_message(library: &Path, detail: &str, crate_version: &str, target: &str) -> String {
     format!(
-        "dioxus-compose: could not read or clear the renderer's SONAME ({detail}).\n\
+        "dioxus-compose: could not set the renderer's SONAME ({detail}).\n\
+         \n\
+         The library has to be told that it lives at\n\
          \n\
          \x20   {library}\n\
          \n\
-         A shared object that records a SONAME is looked up by that bare name, and the\n\
-         application linking it has no search path to find it on, so it would link and then\n\
-         fail to start. One with no SONAME is recorded by its full path instead, which is\n\
-         what the renderer is built to be. Check the file with `readelf -d`; the renderer\n\
-         published for this crate version has no SONAME line.\n\
+         or anything linking it records its bare file name, `{file}`, and the loader cannot\n\
+         find that in an application that has no matching rpath. This build makes the change\n\
+         by editing the file, with no tool needed. `patchelf --set-soname` makes the same\n\
+         change and can make room where this could not. A renderer in a directory this build\n\
+         cannot write to has to carry that name already; copy it somewhere writable and\n\
+         point {RENDERER_DIR_ENV} at the copy.\n\
          \n\
          {build_it_yourself}",
         library = library.display(),
+        file = renderer_lib_file("linux"),
         build_it_yourself = build_it_yourself(crate_version, target),
     )
 }
