@@ -9,6 +9,10 @@
 //! candidate sent more records or bytes, is printed as invalid and fails the verdict.
 //! `--record` writes the table, the run conditions and the paths of the raw runs into the
 //! `fr39` entry of the given file, leaving the rest of it as it was.
+//!
+//! `--trees-only` checks that the two paths built the same trees and sent no more records,
+//! and ignores the timings: it is how the ported samples are checked against the `rsx!`
+//! ones after the same interactions, with one pass of each scenario.
 
 use fr39_scenarios::{Comparison, ScenarioRun, compare, quantile, verdict};
 use std::collections::BTreeMap;
@@ -20,7 +24,12 @@ fn main() {
     let mut load_average = String::from("not recorded");
     let mut machine = String::from("not recorded");
     let mut current = "";
+    let mut trees_only = false;
     for argument in std::env::args().skip(1) {
+        if argument == "--trees-only" {
+            trees_only = true;
+            continue;
+        }
         match argument.as_str() {
             "--baseline" | "--candidate" | "--record" | "--load-average" | "--machine" => {
                 current = match argument.as_str() {
@@ -115,6 +124,17 @@ fn main() {
                 format!("INVALID: {}", c.reason)
             },
         );
+    }
+    if trees_only {
+        let invalid: Vec<&Comparison> = comparisons.iter().filter(|c| !c.valid).collect();
+        for c in &invalid {
+            println!("{}: {}", c.name, c.reason);
+        }
+        if invalid.is_empty() {
+            println!("every scenario built the same trees on both paths");
+            return;
+        }
+        std::process::exit(1);
     }
     let (passed, g50, g99) = verdict(&comparisons);
     println!(

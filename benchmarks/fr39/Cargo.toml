@@ -15,6 +15,12 @@ members = [
     "baseline/todo",
     "baseline/chat",
     "baseline/minimal",
+    "candidate/driver",
+    "candidate/sweep",
+    "candidate/calculator",
+    "candidate/todo",
+    "candidate/chat",
+    "candidate/minimal",
 ]
 resolver = "2"
 
