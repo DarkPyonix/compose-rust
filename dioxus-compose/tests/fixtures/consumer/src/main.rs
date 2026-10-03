@@ -9,15 +9,19 @@
 //! `--self-check` opens the window as well and exits 0 only if the renderer drew. Starting
 //! is not enough to prove that: on Linux the renderer looks the Host's functions up in the
 //! executable only once it runs, so an application that started cleanly could still die
-//! with "undefined symbol" the moment the window came up. Set
-//! `DIOXUS_COMPOSE_AUTOEXIT_MS` so the window closes itself.
+//! with "undefined symbol" the moment the window came up. With `DIOXUS_COMPOSE_AUTOEXIT_MS`
+//! set the renderer closes its window and the check waits for that, so a clean shutdown is
+//! part of what passes. Without it, for a renderer that cannot close its own window (the
+//! Kotlin/Native one on Linux), the check ends the process itself once the frames are in.
 //!
 //! The call to `launch` stays in the binary because the branch is decided at run time.
 //! That is what makes the renderer a load-time dependency of this executable rather than
 //! a library the linker drops for being unused.
 
 use compose_rust::prelude::*;
+use std::ffi::c_int;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::{Duration, Instant};
 
 fn app() -> Element {
     rsx! {
@@ -58,8 +62,49 @@ fn self_check() -> Element {
     }
 }
 
+/// How long the check waits for the frames when it is the one ending the process.
+const SELF_CHECK_TIMEOUT: Duration = Duration::from_secs(120);
+
+unsafe extern "C" {
+    /// Ends the process without running exit handlers. The renderer's runtime is still
+    /// running on the main thread, and handlers that tear it down from this one could hang
+    /// rather than end anything.
+    fn _exit(status: c_int) -> !;
+}
+
+/// Ends the process once the renderer has driven `FRAMES` frames, or fails after a timeout.
+fn end_when_drawn() {
+    std::thread::spawn(|| {
+        let started = Instant::now();
+        loop {
+            let reached = STEP.load(Ordering::SeqCst);
+            let status = if reached >= FRAMES {
+                println!("self-check: the renderer drew {reached} frames");
+                0
+            } else if started.elapsed() > SELF_CHECK_TIMEOUT {
+                eprintln!(
+                    "self-check: the renderer drove {reached} of {FRAMES} frames in {}s. It \
+                     started and did not draw; its own output above says why.",
+                    SELF_CHECK_TIMEOUT.as_secs()
+                );
+                1
+            } else {
+                std::thread::sleep(Duration::from_millis(50));
+                continue;
+            };
+            let _ = std::io::Write::flush(&mut std::io::stdout());
+            let _ = std::io::Write::flush(&mut std::io::stderr());
+            // SAFETY: ends the process; nothing after it runs.
+            unsafe { _exit(status) }
+        }
+    });
+}
+
 fn main() {
     if std::env::args().any(|argument| argument == "--self-check") {
+        if std::env::var_os("DIOXUS_COMPOSE_AUTOEXIT_MS").is_none() {
+            end_when_drawn();
+        }
         let status = LaunchBuilder::new().try_launch(self_check);
         let reached = STEP.load(Ordering::SeqCst);
         if status != compose_rust::boundary::STATUS_OK {
