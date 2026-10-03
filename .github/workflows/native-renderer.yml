@@ -591,6 +591,20 @@ jobs:
       - name: Build the static renderer
         run: ./dioxus-compose-renderer/desktop/scripts/build-linux.sh
 
+      - name: Show what the renderer build left behind
+        if: failure()
+        run: |
+          ls dioxus-compose-renderer/build/tasks 2>/dev/null | grep -i linux || true
+          tail -n 80 dioxus-compose-renderer/build/linux-logs/*-build.log 2>/dev/null || true
+
+      - name: Keep the renderer build's logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-static-renderer-logs
+          path: dioxus-compose-renderer/build/linux-logs/
+          retention-days: 7
+
       - name: Inspect the host exports library
         run: |
           lib=dioxus-compose-renderer/build/linux/libdioxus_compose_host_exports.so
