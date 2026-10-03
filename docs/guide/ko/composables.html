@@ -76,7 +76,7 @@
 
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
       <figcaption>rust</figcaption>
-<pre><code><span class="k">use</span> dioxus_compose::prelude::*;</code></pre>
+<pre><code><span class="k">use</span> compose_rust::prelude::*;</code></pre>
     </figure>
 
     <p>
@@ -90,7 +90,7 @@
     </p>
 
     <div class="warn">
-      <span class="label"><code>Box</code>가 아니라 <code>dioxus_compose::Box</code>로 쓰세요</span>
+      <span class="label"><code>Box</code>가 아니라 <code>compose_rust::Box</code>로 쓰세요</span>
       <p>
         dioxus-core 0.7의 <code>rsx!</code> 확장은 내부적으로 수식되지 않은
         <code>Box&lt;T&gt;</code>를 참조합니다. Compose의 <code>Box</code>를 glob prelude로
@@ -104,7 +104,7 @@
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
       <figcaption>rust</figcaption>
 <pre><code><span class="f">rsx!</span> {
-    dioxus_compose::<span class="ty">Box</span> {
+    compose_rust::<span class="ty">Box</span> {
         <span class="at">fill_max_width</span>: <span class="k">true</span>,
         <span class="at">alignment</span>: <span class="ty">Alignment</span>::Center,
         <span class="ty">Text</span> { <span class="at">text</span>: <span class="s">"가운데"</span> }
@@ -360,7 +360,7 @@
     <p>
       겹쳐 놓는 컨테이너입니다. 자식이 서로 위에 쌓이고 <code>alignment</code>로 자리를
       잡습니다. 자기 것으로는 <code>alignment</code>와 자식만 받습니다.
-      <code>dioxus_compose::Box</code>로 쓰세요.
+      <code>compose_rust::Box</code>로 쓰세요.
     </p>
 
     <h3>ScrollColumn</h3>
@@ -381,6 +381,26 @@
         <span class="at">padding_role</span>: <span class="ty">SpaceRole</span>::Md,
         <span class="k">for</span> paragraph <span class="k">in</span> <span class="f">article</span>() {
             <span class="ty">Text</span> { <span class="at">key</span>: <span class="s">"{paragraph.id}"</span>, <span class="at">text</span>: paragraph.body }
+        }
+    }
+}</code></pre>
+    </figure>
+
+    <h3>ScrollRow</h3>
+    <p>
+      같은 컨테이너를 옆으로 눕힌 것으로, 내용 전체에 가로 스크롤을 붙입니다.
+      <code>ScrollColumn</code>처럼 Modifier와 자식만 받고, 스크롤 위치는 렌더러의 것입니다.
+      필터 한 줄이나 카드 몇 장처럼 양이 정해진 띠에 쓰시고, 긴 가로 목록이라면
+      <a href="#lists"><code>LazyRow</code></a>를 쓰세요.
+    </p>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>rust</figcaption>
+<pre><code><span class="f">rsx!</span> {
+    <span class="ty">ScrollRow</span> {
+        <span class="at">fill_max_width</span>: <span class="k">true</span>,
+        <span class="k">for</span> album <span class="k">in</span> <span class="f">recent_albums</span>() {
+            <span class="ty">Card</span> { <span class="at">key</span>: <span class="s">"{album.id}"</span>, <span class="at">width</span>: <span class="n">160.0</span>, <span class="ty">Text</span> { <span class="at">text</span>: album.title } }
         }
     }
 }</code></pre>
@@ -1089,7 +1109,7 @@
           <tr><td><code>Dropdown</code></td><td>팝업이 열렸는지</td><td><code>selected_index</code>만.</td></tr>
           <tr><td><code>Navigation</code>, <code>Tabs</code></td><td>어느 것에 표시가 붙었는지, 그 사이의 이동</td><td><code>selected_index</code>가 출발점. 탭은 그 자식의 <code>on_click</code>을 발생시킵니다.</td></tr>
           <tr><td><code>Slider</code></td><td>드래그가 지나가는 위치</td><td><code>value</code>가 출발점이자 바깥에서 옮기는 수단.</td></tr>
-          <tr><td><code>ScrollColumn</code>, <code>LazyColumn</code>, <code>LazyRow</code></td><td>스크롤 위치, 미리 읽는 버퍼</td><td><code>item_count</code>, <code>item</code>, <code>key_of</code>.</td></tr>
+          <tr><td><code>ScrollColumn</code>, <code>ScrollRow</code>, <code>LazyColumn</code>, <code>LazyRow</code></td><td>스크롤 위치, 미리 읽는 버퍼</td><td><code>item_count</code>, <code>item</code>, <code>key_of</code>.</td></tr>
           <tr><td><code>Checkbox</code>, <code>RadioButton</code>, <code>Switch</code></td><td>없습니다. 완전한 제어형입니다</td><td><code>checked</code>나 <code>selected</code>가 그려지는 그대로입니다.</td></tr>
           <tr><td><code>DatePicker</code>, <code>TimePicker</code></td><td>고르는 방식, 로케일, 시간대, 표시 형식</td><td><code>value</code>, <code>min</code>, <code>max</code>.</td></tr>
           <tr><td>모든 위젯</td><td>포커스, 호버, 눌림 피드백, 애니메이션 진행</td><td>없습니다.</td></tr>
@@ -1121,7 +1141,7 @@
 <footer class="site">
   <div class="inner">
     <span>dioxus-compose &middot; Apache License 2.0</span>
-    <span><a class="footer-repo" href="https://github.com/DarkPyonix/dioxus-compose">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/INTENT.md">INTENT.md</a></span>
+    <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/INTENT.md">INTENT.md</a></span>
     <span>이 가이드는 2026-09-22 기준 저장소 내용과 대조했습니다</span>
   </div>
 </footer>

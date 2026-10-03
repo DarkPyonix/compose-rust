@@ -1,7 +1,7 @@
 # dioxus-compose
 
-[![CI](https://github.com/DarkPyonix/dioxus-compose/actions/workflows/ci.yml/badge.svg)](https://github.com/DarkPyonix/dioxus-compose/actions/workflows/ci.yml)
-[![Native renderer](https://github.com/DarkPyonix/dioxus-compose/actions/workflows/native-renderer.yml/badge.svg)](https://github.com/DarkPyonix/dioxus-compose/actions/workflows/native-renderer.yml)
+[![CI](https://github.com/DarkPyonix/compose-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/DarkPyonix/compose-rust/actions/workflows/ci.yml)
+[![Native renderer](https://github.com/DarkPyonix/compose-rust/actions/workflows/native-renderer.yml/badge.svg)](https://github.com/DarkPyonix/compose-rust/actions/workflows/native-renderer.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust 1.85+](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org)
 
@@ -153,7 +153,7 @@ The snippet below is the real
 length. It compiles in this repository.
 
 ```rust
-use dioxus_compose::prelude::*;
+use compose_rust::prelude::*;
 
 fn app() -> Element {
     let mut messages = use_signal(Vec::<String>::new);
@@ -190,7 +190,7 @@ fn app() -> Element {
 }
 
 fn main() {
-    dioxus_compose::launch(app);
+    compose_rust::launch(app);
 }
 ```
 
@@ -203,7 +203,7 @@ Two details worth noticing:
   composition commits the composition; it does not submit. Getting this wrong is exactly how Korean
   input loses the syllable being typed.
 
-> ⚠️ `dioxus_compose::Box` has to be written qualified inside `rsx!`, `dioxus-core` 0.7's macro
+> ⚠️ `compose_rust::Box` has to be written qualified inside `rsx!`, `dioxus-core` 0.7's macro
 > expansion uses an unqualified `Box<T>`, which the prelude glob would shadow.
 
 ---
@@ -324,7 +324,7 @@ into a cache outside `target/`, and links it.
 
 ```toml
 [dependencies]
-dioxus-compose = "0.0.0"
+compose-rust = "0.0.0"
 ```
 
 There is no environment variable to set, no artifact to fetch by hand and no script to run. The
@@ -464,7 +464,7 @@ For an unattended run, set `DIOXUS_COMPOSE_AUTOEXIT_MS=6000` to make the window 
 ### 7. Run the Rust demo
 
 ```bash
-cargo run -p dioxus-compose --example desktop_demo --features native-renderer
+cargo run -p compose-rust --example desktop_demo --features native-renderer
 ```
 
 In a checkout of this repository the build script prefers the renderer you just built, at

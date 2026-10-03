@@ -6,9 +6,9 @@
 //! stands the window up, which is the whole reason this does not need an argument on a
 //! boundary function.
 
-use dioxus_compose::prelude::*;
-use dioxus_compose::protocol::{Mutation, decode_batch};
-use dioxus_compose::{Host, LaunchBuilder, LoopMode};
+use compose_rust::prelude::*;
+use compose_rust::protocol::{Mutation, decode_batch};
+use compose_rust::{Host, LaunchBuilder, LoopMode};
 
 fn app() -> Element {
     rsx! { Text { text: "a window" } }

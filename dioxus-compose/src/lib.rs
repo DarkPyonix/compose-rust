@@ -64,11 +64,12 @@ pub use schema::{
 };
 pub use theme::{ThemeHandle, use_theme};
 pub use widgets::{
-    Badge, Button, Canvas, Card, Checkbox, Column, ComposeBox as Box, DatePicker, Dialog, Divider,
-    Dropdown, FileDrop, FileDropTarget, Icon, Image, KeyEvent, LazyColumn, LazyGrid, LazyRow, Menu,
-    Navigation, NavigationItem, ProgressIndicator, RadioButton, RangeRequest, Row, Scaffold,
-    ScrollColumn, SelectionContainer, Separator, Sheet, Slider, Spacer, SplitPane, Surface, Switch,
-    Tabs, Text, TextField, TimePicker, Tooltip, TopAppBar,
+    Badge, Button, Canvas, Card, Checkbox, Chip, Column, ComposeBox as Box, DatePicker, Dialog,
+    Divider, Dropdown, FileDrop, FileDropTarget, FloatingAction, Icon, Image, KeyEvent, LazyColumn,
+    LazyGrid, LazyRow, Menu, Navigation, NavigationItem, ProgressIndicator, RadioButton,
+    RangeRequest, Row, Scaffold, ScrollColumn, ScrollRow, SelectionContainer, Separator, Sheet,
+    Slider, Spacer, SplitPane, Surface, Switch, Tabs, Text, TextField, TimePicker, Tooltip,
+    TopAppBar,
 };
 pub use window::{NodeSize, WindowSize, node_size, use_node_size, use_window_size, window_size};
 
@@ -79,7 +80,7 @@ pub use window::{NodeSize, WindowSize, node_size, use_node_size, use_window_size
 /// the symbol this macro defines.
 ///
 /// ```ignore
-/// dioxus_compose::android_main!(app);
+/// compose_rust::android_main!(app);
 /// ```
 #[macro_export]
 macro_rules! android_main {
@@ -103,7 +104,7 @@ macro_rules! android_main {
 /// under a name that C can call.
 ///
 /// ```ignore
-/// dioxus_compose::ios_main!(launch);
+/// compose_rust::ios_main!(launch);
 /// ```
 #[macro_export]
 macro_rules! ios_main {
@@ -129,7 +130,7 @@ macro_rules! ios_main {
 /// supplied, so the entry point is defined where the root component is.
 ///
 /// ```ignore
-/// dioxus_compose::web_main!(app);
+/// compose_rust::web_main!(app);
 /// ```
 #[macro_export]
 macro_rules! web_main {
@@ -160,19 +161,20 @@ pub mod prelude {
     pub use crate as dioxus_elements;
     // dioxus-core 0.7's rsx! expansion uses unqualified `Box<T>`.
     // Exporting the Compose `Box` through this glob prelude shadows it. Use
-    // `dioxus_compose::Box { ... }` in RSX until upstream qualifies std::boxed::Box.
+    // `compose_rust::Box { ... }` in RSX until upstream qualifies std::boxed::Box.
     pub use crate::{
         Alignment, Arrangement, AssetKind, Badge, Brush, Button, ButtonVariant, Canvas, Card,
-        Checkbox, Color, ColorRole, ColorScheme, Column, DatePicker, DesignSystem, Dialog, Divider,
-        DrawCommand, DrawList, Dropdown, Element, FileDrop, FileDropTarget, Icon, IconRole, Image,
-        Key, KeyEvent, LaunchBuilder, LazyColumn, LazyGrid, LazyRow, LinearProgressIndicator,
-        LoopMode, MaterialRole, Menu, Message, MessageDuration, Modifier, MotionRole, Navigation,
-        NavigationItem, Paint, Palette, ProgressIndicator, Props, RadioButton, RangeRequest, Row,
-        Scaffold, ScrollColumn, SelectionContainer, Separator, ShapeRole, Sheet, Slider, SpaceRole,
-        Spacer, SplitPane, Stop, Surface, Switch, Tabs, Text, TextAlign, TextField, TextOverflow,
-        Theme, TileMode, TimePicker, Tooltip, TopAppBar, TypeRole, WindowHeightClass, WindowSize,
-        WindowSizeClass, asset, brush, component, launch, rsx, show_message, use_design_system,
-        use_node_size, use_theme, use_window_size,
+        Checkbox, Chip, Color, ColorRole, ColorScheme, Column, DatePicker, DesignSystem, Dialog,
+        Divider, DrawCommand, DrawList, Dropdown, Element, FileDrop, FileDropTarget,
+        FloatingAction, Icon, IconRole, Image, Key, KeyEvent, LaunchBuilder, LazyColumn, LazyGrid,
+        LazyRow, LinearProgressIndicator, LoopMode, MaterialRole, Menu, Message, MessageDuration,
+        Modifier, MotionRole, Navigation, NavigationItem, Paint, Palette, ProgressIndicator, Props,
+        RadioButton, RangeRequest, Row, Scaffold, ScrollColumn, ScrollRow, SelectionContainer,
+        Separator, ShapeRole, Sheet, Slider, Spacer, SpaceRole, SplitPane, Stop, Surface, Switch,
+        Tabs, Text, TextAlign, TextField, TextOverflow, Theme, TileMode, TimePicker, Tooltip,
+        TopAppBar, TypeRole, WindowHeightClass, WindowSize, WindowSizeClass, asset, brush,
+        component, launch, rsx, show_message, use_design_system, use_node_size, use_theme,
+        use_window_size,
     };
     // Under its own name, and the one thing in this list that could shadow something a
     // reader already has: an application that draws its own `Window` component would find
@@ -383,6 +385,16 @@ pub mod elements {
         [item_count, columns, min_column_width]
     );
     element!(filedroptarget, "FileDropTarget", [alignment]);
+    // Whole content plus a horizontal scroll, the same contract as the vertical one: every
+    // child is sent and the position stays in the Renderer.
+    element!(scrollrow, "ScrollRow", []);
+    // Widget tags 38 and 39. A chip is a label, an optional icon and whether it is chosen,
+    // on the same boolean the toggles use: a chosen chip and a ticked box are one fact.
+    // The chosen state is the Host's, so the chip draws exactly what `checked` says.
+    element!(chip, "Chip", [text, icon, checked, enabled]);
+    // The one action a screen is about: what it means, what it is called, and a click.
+    // Nothing that could say where it goes, because that is the design system's answer.
+    element!(floatingaction, "FloatingAction", [text, icon]);
     // A count, a word, or with neither a dot. The colour is a role. Where it sits on its
     // child and how a large count is written are the design system's, so there is nothing
     // here that could ask for a corner or a ceiling.
@@ -417,6 +429,7 @@ pub mod elements {
             spacer {},
             lazycolumn {},
             scrollcolumn {},
+            scrollrow {},
             checkbox {},
             radiobutton {},
             switch {},
@@ -440,6 +453,8 @@ pub mod elements {
             navigation {},
             navigationitem {},
             sheet {},
+            chip {},
+            floatingaction {},
             badge {},
             selectioncontainer {},
             splitpane {},

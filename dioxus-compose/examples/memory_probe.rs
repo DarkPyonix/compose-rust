@@ -8,7 +8,7 @@
 //! `DXC_PROBE_WIDTH`, `DXC_PROBE_HEIGHT` and `DXC_PROBE_ROWS` say what to draw. No rows is
 //! an empty window.
 
-use dioxus_compose::prelude::*;
+use compose_rust::prelude::*;
 
 fn number(name: &str, fallback: u32) -> u32 {
     std::env::var(name)
@@ -73,12 +73,12 @@ fn app() -> Element {
 }
 
 fn main() {
-    let window = dioxus_compose::schema::Window::new().with_size(
+    let window = compose_rust::schema::Window::new().with_size(
         number("DXC_PROBE_WIDTH", 800) as u16,
         number("DXC_PROBE_HEIGHT", 600) as u16,
     );
-    dioxus_compose::LaunchBuilder::new()
-        .with_theme(dioxus_compose::demo_theme())
+    compose_rust::LaunchBuilder::new()
+        .with_theme(compose_rust::demo_theme())
         .with_window(window)
         .launch(app);
 }

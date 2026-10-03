@@ -2,10 +2,10 @@
 //! as the built-in widgets. An extension is a pair of source files, one Rust and one Kotlin,
 //! compiled into both sides; it is not a runtime plugin.
 
-use dioxus_compose::prelude::*;
-use dioxus_compose::protocol::{Mutation, PropertyValue, ProtocolError, decode_batch};
-use dioxus_compose::schema::{PROPERTY_SCHEMA, SCHEMA_HASH, WIDGET_SCHEMA};
-use dioxus_compose::{Host, PropertyKind, WidgetKind};
+use compose_rust::prelude::*;
+use compose_rust::protocol::{Mutation, PropertyValue, ProtocolError, decode_batch};
+use compose_rust::schema::{PROPERTY_SCHEMA, SCHEMA_HASH, WIDGET_SCHEMA};
+use compose_rust::{Host, PropertyKind, WidgetKind};
 
 fn progress_app() -> Element {
     rsx! { LinearProgressIndicator { progress: 0.625 } }

@@ -1,11 +1,11 @@
 //! The selection controls and the indicators: what they put on the wire, and what comes
 //! back when the user moves one.
 
-use dioxus_compose::prelude::*;
-use dioxus_compose::protocol::{
+use compose_rust::prelude::*;
+use compose_rust::protocol::{
     HostEvent, Mutation, PropertyValue, decode_batch, decode_event, encode_event,
 };
-use dioxus_compose::{EventPayload, Host, PropertyKind, WidgetKind};
+use compose_rust::{EventPayload, Host, PropertyKind, WidgetKind};
 use std::cell::RefCell;
 
 fn node_of(batch: &[u8], widget: WidgetKind) -> u32 {

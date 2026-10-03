@@ -8,7 +8,7 @@
 //! are the pastels it fills the panel with, and the page under them is black because the
 //! check-in is the screen this sample opens on.
 
-use dioxus_compose::prelude::Color;
+use compose_rust::prelude::Color;
 
 /// The page. Black, as the check-in and the worry picker both are.
 pub const PAGE: Color = Color::rgb(0x000000);

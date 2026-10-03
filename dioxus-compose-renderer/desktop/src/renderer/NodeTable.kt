@@ -413,6 +413,11 @@ class NodeTable {
                         // design systems centre it, and a bar whose children are an
                         // arbitrary tree gives no way to tell which of them to centre.
                         widget == WidgetKind.TopAppBar ||
+                        // A chip's label, and the name of the one action a screen is about,
+                        // which is its accessible name where the system draws the glyph
+                        // alone.
+                        widget == WidgetKind.Chip ||
+                        widget == WidgetKind.FloatingAction ||
                         // A badge's short word, shown where a count would be.
                         widget == WidgetKind.Badge ||
                         // A split pane's is its divider's name for a screen reader.
@@ -476,6 +481,7 @@ class NodeTable {
                     widget == WidgetKind.LazyColumn ||
                     widget == WidgetKind.LazyRow ||
                     widget == WidgetKind.ScrollColumn ||
+                    widget == WidgetKind.ScrollRow ||
                     widget == WidgetKind.FileDropTarget
 
                 PropertyKind.Variant -> widget == WidgetKind.Button
@@ -505,7 +511,10 @@ class NodeTable {
                 PropertyKind.Checked ->
                     widget == WidgetKind.Checkbox ||
                         widget == WidgetKind.RadioButton ||
-                        widget == WidgetKind.Switch
+                        widget == WidgetKind.Switch ||
+                        // A chosen chip is the same fact again. It is the Host's, so it
+                        // arrives here and is never set by the chip itself.
+                        widget == WidgetKind.Chip
 
                 PropertyKind.Steps -> widget == WidgetKind.Slider
 
@@ -540,7 +549,12 @@ class NodeTable {
                 // because every toolbar worth copying is a row of icon buttons and
                 // nothing else in the vocabulary can place one.
                 PropertyKind.Icon ->
-                    widget == WidgetKind.NavigationItem || widget == WidgetKind.Button
+                    widget == WidgetKind.NavigationItem ||
+                        widget == WidgetKind.Button ||
+                        // A glyph before a chip's label, and what the one action a screen
+                        // is about means.
+                        widget == WidgetKind.Chip ||
+                        widget == WidgetKind.FloatingAction
 
                 // Which part of a screen's frame a subtree fills. Only the wrapper a
                 // Scaffold puts around a slot carries it.

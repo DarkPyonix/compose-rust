@@ -500,6 +500,51 @@ internal object Material3Rules : ComponentRules {
     private const val STATE_LAYER_ALPHA = 0.12f
     private const val TONE_FULL_DP = 24f
     private const val MAX_TONE = 0.14f
+
+    /**
+     * A filter chip: a shallow rounded rectangle with an outline, which loses the line and
+     * takes the secondary container when chosen, and leads with a tick so the choice is not
+     * carried by colour alone.
+     */
+    override fun chip(theme: ResolvedTheme): ChipStyle = ChipStyle(
+        container = Color.Transparent,
+        selectedContainer = theme.color(ColorRole.SecondaryContainer),
+        content = theme.color(ColorRole.OnSurfaceVariant),
+        selectedContent = theme.color(ColorRole.OnSecondaryContainer),
+        borderWidth = 1.dp,
+        borderColor = theme.color(ColorRole.Outline),
+        selectedBorderColor = Color.Transparent,
+        shape = theme.shape(ShapeRole.Small),
+        height = 32.dp,
+        horizontalPadding = theme.space(SpaceRole.Md),
+        iconGap = 8.dp,
+        typeRole = TypeRole.Label,
+        leadingCheck = true,
+        pressedAlpha = 0.88f,
+        disabledAlpha = DISABLED_ALPHA,
+    )
+
+    /**
+     * The floating action button: a raised rounded square in the primary container, over
+     * the bottom trailing corner of the page at every width. Floating is Material's answer
+     * and it gives the same one on a desktop.
+     */
+    override fun floatingAction(sizeClass: WindowSizeClass, theme: ResolvedTheme): FloatingActionStyle =
+        FloatingActionStyle(
+            placement = FloatingActionPlacement.OverPageBottomEnd,
+            form = FloatingActionForm.Disc,
+            container = theme.color(ColorRole.PrimaryContainer),
+            content = theme.color(ColorRole.OnPrimaryContainer),
+            shape = theme.shape(ShapeRole.Large),
+            size = 56.dp,
+            horizontalPadding = theme.space(SpaceRole.Md),
+            elevation = 6.dp,
+            borderWidth = 0.dp,
+            borderColor = Color.Transparent,
+            typeRole = TypeRole.Label,
+            inset = theme.space(SpaceRole.Lg),
+            pressedAlpha = 0.9f,
+        )
 }
 
 /**
@@ -989,6 +1034,51 @@ internal object CupertinoRules : ComponentRules {
     private const val AMBIENT_ALPHA = 0.08f
     private const val SPOT_ALPHA = 0.12f
     private const val SPREAD = 2f
+
+    /**
+     * A filter pill: a capsule on the quiet system fill, which takes the accent when
+     * chosen. No line and no tick: the fill is the whole of the difference, and pressing
+     * dims it rather than rippling.
+     */
+    override fun chip(theme: ResolvedTheme): ChipStyle = ChipStyle(
+        container = theme.color(ColorRole.SurfaceVariant),
+        selectedContainer = theme.color(ColorRole.Primary),
+        content = theme.color(ColorRole.OnSurface),
+        selectedContent = theme.color(ColorRole.OnPrimary),
+        borderWidth = 0.dp,
+        borderColor = Color.Transparent,
+        selectedBorderColor = Color.Transparent,
+        shape = theme.shape(ShapeRole.Full),
+        height = 28.dp,
+        horizontalPadding = theme.space(SpaceRole.Sm) + 4.dp,
+        iconGap = 4.dp,
+        typeRole = TypeRole.Label,
+        leadingCheck = false,
+        pressedAlpha = 0.6f,
+        disabledAlpha = 0.4f,
+    )
+
+    /**
+     * A plus at the top right: the glyph alone in the accent, as a bar button is, with a
+     * full touch target and no container. Apple has no floating button, and nothing here
+     * floats.
+     */
+    override fun floatingAction(sizeClass: WindowSizeClass, theme: ResolvedTheme): FloatingActionStyle =
+        FloatingActionStyle(
+            placement = FloatingActionPlacement.BarEnd,
+            form = FloatingActionForm.Glyph,
+            container = Color.Transparent,
+            content = theme.color(ColorRole.Primary),
+            shape = theme.shape(ShapeRole.Full),
+            size = 44.dp,
+            horizontalPadding = theme.space(SpaceRole.Sm),
+            elevation = 0.dp,
+            borderWidth = 0.dp,
+            borderColor = Color.Transparent,
+            typeRole = TypeRole.Body,
+            inset = theme.space(SpaceRole.Sm),
+            pressedAlpha = 0.4f,
+        )
 }
 
 /**
@@ -1465,6 +1555,49 @@ internal object FluentRules : ComponentRules {
     private const val SCRIM_ALPHA = 0.3f
     private const val DISABLED_ALPHA = 0.38f
     private const val PRESS_SHADE = 0.12f
+
+    /**
+     * A tag button: a shallow 4dp corner with the control stroke, which fills with the
+     * accent when chosen, as a Fluent toggle button does when it is checked.
+     */
+    override fun chip(theme: ResolvedTheme): ChipStyle = ChipStyle(
+        container = theme.color(ColorRole.Surface),
+        selectedContainer = theme.color(ColorRole.Primary),
+        content = theme.color(ColorRole.OnSurface),
+        selectedContent = theme.color(ColorRole.OnPrimary),
+        borderWidth = 1.dp,
+        borderColor = theme.color(ColorRole.OutlineVariant),
+        selectedBorderColor = Color.Transparent,
+        shape = theme.shape(ShapeRole.Small),
+        height = 28.dp,
+        horizontalPadding = theme.space(SpaceRole.Sm) + 4.dp,
+        iconGap = 6.dp,
+        typeRole = TypeRole.Label,
+        leadingCheck = false,
+        pressedAlpha = 0.8f,
+        disabledAlpha = 0.36f,
+    )
+
+    /**
+     * The primary command: an accent button carrying the glyph and the label, at the head
+     * of the command bar. Fluent marks the one action with the accent, not with height.
+     */
+    override fun floatingAction(sizeClass: WindowSizeClass, theme: ResolvedTheme): FloatingActionStyle =
+        FloatingActionStyle(
+            placement = FloatingActionPlacement.BarStart,
+            form = FloatingActionForm.Labelled,
+            container = theme.color(ColorRole.Primary),
+            content = theme.color(ColorRole.OnPrimary),
+            shape = theme.shape(ShapeRole.Small),
+            size = 32.dp,
+            horizontalPadding = theme.space(SpaceRole.Md),
+            elevation = 0.dp,
+            borderWidth = 0.dp,
+            borderColor = Color.Transparent,
+            typeRole = TypeRole.Label,
+            inset = theme.space(SpaceRole.Sm),
+            pressedAlpha = 0.85f,
+        )
 }
 
 /**
@@ -1944,6 +2077,49 @@ internal object GnomeRules : ComponentRules {
     /** The overlay grey GTK lays over content, and the white it writes on it. */
     private val OVERLAY = Color(0xFF383838)
     private val ON_OVERLAY = Color(0xFFFFFFFF)
+
+    /**
+     * A pill button: Adwaita's capsule on the neutral button fill, taking the accent when
+     * toggled. No line, as no Adwaita button has one.
+     */
+    override fun chip(theme: ResolvedTheme): ChipStyle = ChipStyle(
+        container = theme.color(ColorRole.SurfaceVariant),
+        selectedContainer = theme.color(ColorRole.Primary),
+        content = theme.color(ColorRole.OnSurface),
+        selectedContent = theme.color(ColorRole.OnPrimary),
+        borderWidth = 0.dp,
+        borderColor = Color.Transparent,
+        selectedBorderColor = Color.Transparent,
+        shape = theme.shape(ShapeRole.Full),
+        height = 34.dp,
+        horizontalPadding = theme.space(SpaceRole.Md),
+        iconGap = 6.dp,
+        typeRole = TypeRole.Label,
+        leadingCheck = false,
+        pressedAlpha = 0.75f,
+        disabledAlpha = 0.5f,
+    )
+
+    /**
+     * The header bar's new button: the glyph alone on the neutral button fill, at the
+     * start of the header bar, where an Adwaita application puts the thing it makes.
+     */
+    override fun floatingAction(sizeClass: WindowSizeClass, theme: ResolvedTheme): FloatingActionStyle =
+        FloatingActionStyle(
+            placement = FloatingActionPlacement.BarStart,
+            form = FloatingActionForm.Glyph,
+            container = theme.color(ColorRole.SurfaceVariant),
+            content = theme.color(ColorRole.OnSurface),
+            shape = theme.shape(ShapeRole.Small),
+            size = 34.dp,
+            horizontalPadding = theme.space(SpaceRole.Sm),
+            elevation = 0.dp,
+            borderWidth = 0.dp,
+            borderColor = Color.Transparent,
+            typeRole = TypeRole.Label,
+            inset = theme.space(SpaceRole.Sm),
+            pressedAlpha = 0.7f,
+        )
 }
 
 /**
@@ -2406,6 +2582,71 @@ internal object BreezeRules : ComponentRules {
     private const val PRESS_SHADE = 0.1f
     private const val BORDER_SHADE = 0.22f
     private const val SHADOW_SCALE = 0.75f
+
+    /**
+     * A checkable button: Breeze's shallow corner and frame, which a checked one keeps and
+     * draws in the highlight colour over a light tint of it, rather than filling solid.
+     */
+    override fun chip(theme: ResolvedTheme): ChipStyle {
+        val highlight = theme.color(ColorRole.Primary)
+        return ChipStyle(
+            container = theme.color(ColorRole.Surface),
+            selectedContainer = highlight.copy(alpha = 0.2f),
+            content = theme.color(ColorRole.OnSurface),
+            selectedContent = theme.color(ColorRole.OnSurface),
+            borderWidth = 1.dp,
+            borderColor = theme.color(ColorRole.Outline),
+            selectedBorderColor = highlight,
+            shape = theme.shape(ShapeRole.Small),
+            height = 30.dp,
+            horizontalPadding = theme.space(SpaceRole.Sm) + 2.dp,
+            iconGap = 4.dp,
+            typeRole = TypeRole.Label,
+            leadingCheck = false,
+            pressedAlpha = 0.8f,
+            disabledAlpha = 0.5f,
+        )
+    }
+
+    /**
+     * Kirigami's main action. On a phone it floats as a round highlight button over the
+     * bottom of the page; on a desktop it is a tool button with its label beside the glyph
+     * at the end of the toolbar.
+     */
+    override fun floatingAction(sizeClass: WindowSizeClass, theme: ResolvedTheme): FloatingActionStyle =
+        if (sizeClass == WindowSizeClass.Compact) {
+            FloatingActionStyle(
+                placement = FloatingActionPlacement.OverPageBottomEnd,
+                form = FloatingActionForm.Disc,
+                container = theme.color(ColorRole.Primary),
+                content = theme.color(ColorRole.OnPrimary),
+                shape = theme.shape(ShapeRole.Full),
+                size = 48.dp,
+                horizontalPadding = theme.space(SpaceRole.Sm),
+                elevation = 4.dp,
+                borderWidth = 0.dp,
+                borderColor = Color.Transparent,
+                typeRole = TypeRole.Label,
+                inset = theme.space(SpaceRole.Lg),
+                pressedAlpha = 0.8f,
+            )
+        } else {
+            FloatingActionStyle(
+                placement = FloatingActionPlacement.BarEnd,
+                form = FloatingActionForm.Labelled,
+                container = Color.Transparent,
+                content = theme.color(ColorRole.OnSurface),
+                shape = theme.shape(ShapeRole.Small),
+                size = 32.dp,
+                horizontalPadding = theme.space(SpaceRole.Sm),
+                elevation = 0.dp,
+                borderWidth = 0.dp,
+                borderColor = Color.Transparent,
+                typeRole = TypeRole.Label,
+                inset = theme.space(SpaceRole.Sm),
+                pressedAlpha = 0.8f,
+            )
+        }
 }
 
 /**
@@ -2871,6 +3112,49 @@ internal object DeepinRules : ComponentRules {
     private const val LIFT_FULL_DP = 24f
     private const val MAX_LIFT = 0.08f
     private val LIFT_DARK = Color(0xFFFFFFFF)
+
+    /**
+     * A DTK toggle button: an 8dp corner on the soft control fill, taking the active colour
+     * when chosen. No frame.
+     */
+    override fun chip(theme: ResolvedTheme): ChipStyle = ChipStyle(
+        container = theme.color(ColorRole.SurfaceVariant),
+        selectedContainer = theme.color(ColorRole.Primary),
+        content = theme.color(ColorRole.OnSurface),
+        selectedContent = theme.color(ColorRole.OnPrimary),
+        borderWidth = 0.dp,
+        borderColor = Color.Transparent,
+        selectedBorderColor = Color.Transparent,
+        shape = theme.shape(ShapeRole.Medium),
+        height = 30.dp,
+        horizontalPadding = theme.space(SpaceRole.Md),
+        iconGap = 4.dp,
+        typeRole = TypeRole.Label,
+        leadingCheck = false,
+        pressedAlpha = 0.7f,
+        disabledAlpha = 0.4f,
+    )
+
+    /**
+     * The title bar's add button: a small round button in the active colour at the start
+     * of the title bar, which is where a DTK application keeps the thing it makes.
+     */
+    override fun floatingAction(sizeClass: WindowSizeClass, theme: ResolvedTheme): FloatingActionStyle =
+        FloatingActionStyle(
+            placement = FloatingActionPlacement.BarStart,
+            form = FloatingActionForm.Disc,
+            container = theme.color(ColorRole.Primary),
+            content = theme.color(ColorRole.OnPrimary),
+            shape = theme.shape(ShapeRole.Full),
+            size = 32.dp,
+            horizontalPadding = theme.space(SpaceRole.Sm),
+            elevation = 0.dp,
+            borderWidth = 0.dp,
+            borderColor = Color.Transparent,
+            typeRole = TypeRole.Label,
+            inset = theme.space(SpaceRole.Sm),
+            pressedAlpha = 0.7f,
+        )
 }
 
 /**
@@ -3820,6 +4104,49 @@ internal object LiquidGlassRules : ComponentRules {
     private const val AMBIENT_ALPHA = 0.08f
     private const val SPOT_ALPHA = 0.12f
     private const val SPREAD = 2f
+
+    /**
+     * A capsule with a hairline glass edge, which takes the accent when chosen, a little
+     * taller than the older Apple pill, as every control in this system is.
+     */
+    override fun chip(theme: ResolvedTheme): ChipStyle = ChipStyle(
+        container = theme.color(ColorRole.SurfaceContainer),
+        selectedContainer = theme.color(ColorRole.Primary),
+        content = theme.color(ColorRole.OnSurface),
+        selectedContent = theme.color(ColorRole.OnPrimary),
+        borderWidth = 1.dp,
+        borderColor = theme.color(ColorRole.OutlineVariant).copy(alpha = 0.5f),
+        selectedBorderColor = Color.Transparent,
+        shape = theme.shape(ShapeRole.Full),
+        height = 34.dp,
+        horizontalPadding = theme.space(SpaceRole.Md),
+        iconGap = 6.dp,
+        typeRole = TypeRole.Label,
+        leadingCheck = false,
+        pressedAlpha = 0.7f,
+        disabledAlpha = 0.4f,
+    )
+
+    /**
+     * The prominent bar action: a round button tinted with the accent at the trailing end
+     * of the bar, lifted a little off it. It is on the bar, not over the page.
+     */
+    override fun floatingAction(sizeClass: WindowSizeClass, theme: ResolvedTheme): FloatingActionStyle =
+        FloatingActionStyle(
+            placement = FloatingActionPlacement.BarEnd,
+            form = FloatingActionForm.Disc,
+            container = theme.color(ColorRole.Primary),
+            content = theme.color(ColorRole.OnPrimary),
+            shape = theme.shape(ShapeRole.Full),
+            size = 44.dp,
+            horizontalPadding = theme.space(SpaceRole.Sm),
+            elevation = 2.dp,
+            borderWidth = 0.dp,
+            borderColor = Color.Transparent,
+            typeRole = TypeRole.Label,
+            inset = theme.space(SpaceRole.Sm),
+            pressedAlpha = 0.7f,
+        )
 }
 
 /**

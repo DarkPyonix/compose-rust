@@ -536,30 +536,23 @@ static HRESULT STDMETHODCALLTYPE dxc_provider_get_property_value(
 ) {
     DxcProvider *provider = dxc_provider_from_simple(self);
     VariantInit(out);
-    switch (id) {
-    case UIA_ControlTypePropertyId:
+    // An if chain rather than a switch: the SDK declares the property ids as const
+    // variables in C, which a case label cannot name.
+    if (id == UIA_ControlTypePropertyId) {
         out->vt = VT_I4;
         out->lVal = dxc_uia_control_type(provider->snapshot.role);
-        return S_OK;
-    case UIA_NamePropertyId:
+    } else if (id == UIA_NamePropertyId) {
         out->vt = VT_BSTR;
         out->bstrVal = dxc_bstr_from_utf8(provider->snapshot.label);
-        return S_OK;
-    case UIA_IsControlElementPropertyId:
-    case UIA_IsContentElementPropertyId:
+    } else if (id == UIA_IsControlElementPropertyId || id == UIA_IsContentElementPropertyId) {
         out->vt = VT_BOOL;
         out->boolVal = VARIANT_TRUE;
-        return S_OK;
-    case UIA_IsKeyboardFocusablePropertyId:
+    } else if (id == UIA_IsKeyboardFocusablePropertyId) {
         out->vt = VT_BOOL;
         out->boolVal = VARIANT_FALSE;
-        return S_OK;
-    case UIA_ProviderDescriptionPropertyId:
+    } else if (id == UIA_ProviderDescriptionPropertyId) {
         out->vt = VT_BSTR;
         out->bstrVal = SysAllocString(L"dioxus-compose element");
-        return S_OK;
-    default:
-        break;
     }
     return S_OK;
 }
@@ -755,35 +748,26 @@ static HRESULT STDMETHODCALLTYPE dxc_root_get_property_value(
 ) {
     DxcRootProvider *root = dxc_root_from_simple(self);
     VariantInit(out);
-    switch (id) {
-    case UIA_ControlTypePropertyId:
+    // An if chain for the same reason as the element provider's.
+    if (id == UIA_ControlTypePropertyId) {
         out->vt = VT_I4;
         out->lVal = UIA_WindowControlTypeId;
-        return S_OK;
-    case UIA_NamePropertyId: {
+    } else if (id == UIA_NamePropertyId) {
         wchar_t title[256] = L"";
         if (root->window != NULL) {
             GetWindowTextW(root->window, title, (int)(sizeof title / sizeof *title));
         }
         out->vt = VT_BSTR;
         out->bstrVal = SysAllocString(title);
-        return S_OK;
-    }
-    case UIA_IsControlElementPropertyId:
-    case UIA_IsContentElementPropertyId:
+    } else if (id == UIA_IsControlElementPropertyId || id == UIA_IsContentElementPropertyId) {
         out->vt = VT_BOOL;
         out->boolVal = VARIANT_TRUE;
-        return S_OK;
-    case UIA_IsKeyboardFocusablePropertyId:
+    } else if (id == UIA_IsKeyboardFocusablePropertyId) {
         out->vt = VT_BOOL;
         out->boolVal = VARIANT_TRUE;
-        return S_OK;
-    case UIA_ProviderDescriptionPropertyId:
+    } else if (id == UIA_ProviderDescriptionPropertyId) {
         out->vt = VT_BSTR;
         out->bstrVal = SysAllocString(L"dioxus-compose root");
-        return S_OK;
-    default:
-        break;
     }
     return S_OK;
 }

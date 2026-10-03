@@ -69,8 +69,8 @@ pub struct EventSchema {
 /// Canonical schema text. Variant order is wire-significant and must only be appended to.
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "dioxus-compose/v1;",
-    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,Badge,SelectionContainer,SplitPane;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,count,collapsible;",
+    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible;",
     "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material;",
     "keys=Enter;",
     "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped;",
@@ -315,9 +315,19 @@ crate::extensions::define_widget_schema_with_extensions!(define_wire_enum; WIDGE
     // not one is never offered as a target, so the platform shows no drop cursor over it
     // and nothing is reported.
     FileDropTarget = 36,
-    // Tags 37, 38 and 39 are taken by the horizontal scroll container, the chip and the
-    // floating action, which land separately. A reservation is not a free tag.
-    //
+    // The whole content with a horizontal scroll, which is a ScrollColumn turned on its
+    // side. Every child is materialised and the scroll position is the Renderer's, so
+    // nothing about scrolling crosses the boundary; a long horizontal list is a LazyRow.
+    ScrollRow = 37,
+    // A small token that is chosen or filters. It carries its label and whether it is
+    // chosen, and the chosen state is the Host's: it changes only because the Host's own
+    // click handler changed it. The shape is the design system's.
+    Chip = 38,
+    // The one action a screen is about. It carries an icon, a label and a click. Where it
+    // goes and what it is drawn as is the design system's: a disc floating over the page
+    // is one system's answer, a plus at the trailing end of the bar is another's, and an
+    // accent button at the head of the command bar is a third.
+    FloatingAction = 39,
     // A small mark on something else that says how many, that there is something new, or
     // one short word. With one child it is attached to that child; with none it stands on
     // its own, at the end of a row. Where it sits on the child, its shape, and how a large

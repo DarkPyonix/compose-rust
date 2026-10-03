@@ -1,8 +1,8 @@
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
-use dioxus_compose::Host;
-use dioxus_compose::prelude::*;
-use dioxus_compose::protocol::{BatchEncoder, HostEvent, Mutation, PropertyValue, decode_batch};
-use dioxus_compose::schema::{EventPayload, PropertyKind, WidgetKind};
+use compose_rust::Host;
+use compose_rust::prelude::*;
+use compose_rust::protocol::{BatchEncoder, HostEvent, Mutation, PropertyValue, decode_batch};
+use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind};
 use std::time::Instant;
 
 const HOST_INTERACTION_BUDGET_NS: u128 = 500_000;

@@ -69,7 +69,7 @@
 
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
       <figcaption>rust</figcaption>
-<pre><code><span class="k">use</span> dioxus_compose::prelude::*;
+<pre><code><span class="k">use</span> compose_rust::prelude::*;
 
 <span class="k">fn</span> <span class="f">app</span>() -&gt; <span class="ty">Element</span> {
     <span class="k">let</span> <span class="k">mut</span> count = <span class="f">use_signal</span>(|| <span class="n">0</span>i32);
@@ -87,7 +87,7 @@
 }
 
 <span class="k">fn</span> <span class="f">main</span>() {
-    dioxus_compose::<span class="f">launch</span>(app);
+    compose_rust::<span class="f">launch</span>(app);
 }</code></pre>
     </figure>
 
@@ -128,7 +128,7 @@
       <table>
         <thead><tr><th scope="col">묶음</th><th scope="col">컴포저블</th></tr></thead>
         <tbody>
-          <tr><td>레이아웃</td><td><code>Column</code>, <code>Row</code>, <code>Box</code>, <code>ScrollColumn</code>, <code>Spacer</code>, <code>SplitPane</code></td></tr>
+          <tr><td>레이아웃</td><td><code>Column</code>, <code>Row</code>, <code>Box</code>, <code>ScrollColumn</code>, <code>ScrollRow</code>, <code>Spacer</code>, <code>SplitPane</code></td></tr>
           <tr><td>텍스트와 입력</td><td><code>Text</code>, <code>TextField</code>, <code>SelectionContainer</code></td></tr>
           <tr><td>컨트롤</td><td><code>Button</code>, <code>Checkbox</code>, <code>RadioButton</code>, <code>Switch</code>, <code>Slider</code>, <code>Dropdown</code>, <code>DatePicker</code>, <code>TimePicker</code>, <code>ProgressIndicator</code></td></tr>
           <tr><td>컨테이너</td><td><code>Card</code>, <code>Surface</code>, <code>TopAppBar</code>, <code>Divider</code>, <code>Separator</code>, <code>Tooltip</code>, <code>Badge</code></td></tr>
@@ -142,7 +142,7 @@
     </div>
 
     <div class="warn">
-      <span class="label"><code>Box</code>가 아니라 <code>dioxus_compose::Box</code></span>
+      <span class="label"><code>Box</code>가 아니라 <code>compose_rust::Box</code></span>
       <p>
         dioxus-core 0.7의 <code>rsx!</code> 전개 코드는 내부에서 한정 없는
         <code>Box&lt;T&gt;</code>를 씁니다. Compose의 <code>Box</code>를 glob prelude로 가져오면
@@ -154,7 +154,7 @@
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
       <figcaption>rust, dioxus-compose/tests/rsx_api.rs</figcaption>
 <pre><code><span class="f">rsx!</span> {
-    dioxus_compose::<span class="ty">Box</span> {
+    compose_rust::<span class="ty">Box</span> {
         <span class="at">fill_max_width</span>: <span class="k">true</span>,
         <span class="ty">Text</span> { <span class="at">text</span>: <span class="s">"qualified Box"</span> }
     }
@@ -335,7 +335,7 @@
 <footer class="site">
   <div class="inner">
     <span>dioxus-compose &middot; Apache License 2.0</span>
-    <span><a class="footer-repo" href="https://github.com/DarkPyonix/dioxus-compose">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/INTENT.md">INTENT.md</a></span>
+    <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/INTENT.md">INTENT.md</a></span>
     <span>이 가이드는 2026-09-22 기준 저장소 내용과 대조했습니다</span>
   </div>
 </footer>

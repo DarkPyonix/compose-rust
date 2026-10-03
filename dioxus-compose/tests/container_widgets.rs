@@ -1,9 +1,9 @@
 //! Widget tags 18 to 25: the containers, the overlays, the tab strip and the horizontal
 //! windowed list, each taken through the wire and back.
 
-use dioxus_compose::prelude::*;
-use dioxus_compose::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
-use dioxus_compose::{EventPayload, Host, PropertyKind, WidgetKind};
+use compose_rust::prelude::*;
+use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
+use compose_rust::{EventPayload, Host, PropertyKind, WidgetKind};
 use std::cell::RefCell;
 
 /// The decoded records of the first frame, with borrowed strings turned into owned ones so

@@ -77,7 +77,7 @@
 
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
       <figcaption>rust</figcaption>
-<pre><code><span class="k">use</span> dioxus_compose::prelude::*;</code></pre>
+<pre><code><span class="k">use</span> compose_rust::prelude::*;</code></pre>
     </figure>
 
     <p>
@@ -91,7 +91,7 @@
     </p>
 
     <div class="warn">
-      <span class="label">Write <code>dioxus_compose::Box</code>, not <code>Box</code></span>
+      <span class="label">Write <code>compose_rust::Box</code>, not <code>Box</code></span>
       <p>
         The <code>rsx!</code> expansion in dioxus-core 0.7 refers to an unqualified
         <code>Box&lt;T&gt;</code> internally. Exporting the Compose <code>Box</code> through the
@@ -105,7 +105,7 @@
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
       <figcaption>rust</figcaption>
 <pre><code><span class="f">rsx!</span> {
-    dioxus_compose::<span class="ty">Box</span> {
+    compose_rust::<span class="ty">Box</span> {
         <span class="at">fill_max_width</span>: <span class="k">true</span>,
         <span class="at">alignment</span>: <span class="ty">Alignment</span>::Center,
         <span class="ty">Text</span> { <span class="at">text</span>: <span class="s">"centred"</span> }
@@ -362,7 +362,7 @@
     <p>
       An overlay container: children are stacked on top of one another and placed by
       <code>alignment</code>. It takes <code>alignment</code> and its children, and nothing else of
-      its own. Write it as <code>dioxus_compose::Box</code>.
+      its own. Write it as <code>compose_rust::Box</code>.
     </p>
 
     <h3>ScrollColumn</h3>
@@ -384,6 +384,26 @@
         <span class="at">padding_role</span>: <span class="ty">SpaceRole</span>::Md,
         <span class="k">for</span> paragraph <span class="k">in</span> <span class="f">article</span>() {
             <span class="ty">Text</span> { <span class="at">key</span>: <span class="s">"{paragraph.id}"</span>, <span class="at">text</span>: paragraph.body }
+        }
+    }
+}</code></pre>
+    </figure>
+
+    <h3>ScrollRow</h3>
+    <p>
+      The same container on its side: the whole content with a horizontal scroll attached. Like
+      <code>ScrollColumn</code> it takes the modifiers and its children and nothing else, and its
+      scroll position belongs to the renderer. Use it for a bounded strip, a row of filters or a
+      handful of cards. For a long horizontal list, use <a href="#lists"><code>LazyRow</code></a>.
+    </p>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>rust</figcaption>
+<pre><code><span class="f">rsx!</span> {
+    <span class="ty">ScrollRow</span> {
+        <span class="at">fill_max_width</span>: <span class="k">true</span>,
+        <span class="k">for</span> album <span class="k">in</span> <span class="f">recent_albums</span>() {
+            <span class="ty">Card</span> { <span class="at">key</span>: <span class="s">"{album.id}"</span>, <span class="at">width</span>: <span class="n">160.0</span>, <span class="ty">Text</span> { <span class="at">text</span>: album.title } }
         }
     }
 }</code></pre>
@@ -1113,7 +1133,7 @@
           <tr><td><code>Dropdown</code></td><td>Whether the popup is open</td><td><code>selected_index</code> only.</td></tr>
           <tr><td><code>Navigation</code>, <code>Tabs</code></td><td>Which one is marked, and the move between them</td><td><code>selected_index</code> seeds it; a tap fires that child's <code>on_click</code>.</td></tr>
           <tr><td><code>Slider</code></td><td>The position a drag is passing through</td><td><code>value</code> seeds it and moves it from outside.</td></tr>
-          <tr><td><code>ScrollColumn</code>, <code>LazyColumn</code>, <code>LazyRow</code></td><td>Scroll position, and the read-ahead buffer</td><td><code>item_count</code>, <code>item</code>, <code>key_of</code>.</td></tr>
+          <tr><td><code>ScrollColumn</code>, <code>ScrollRow</code>, <code>LazyColumn</code>, <code>LazyRow</code></td><td>Scroll position, and the read-ahead buffer</td><td><code>item_count</code>, <code>item</code>, <code>key_of</code>.</td></tr>
           <tr><td><code>Checkbox</code>, <code>RadioButton</code>, <code>Switch</code></td><td>Nothing. These are fully controlled</td><td><code>checked</code> or <code>selected</code> is exactly what is drawn.</td></tr>
           <tr><td><code>DatePicker</code>, <code>TimePicker</code></td><td>The picking surface, the locale, the time zone, the format</td><td><code>value</code>, <code>min</code>, <code>max</code>.</td></tr>
           <tr><td>every widget</td><td>Focus, hover, press feedback, animation progress</td><td>Nothing.</td></tr>
@@ -1145,7 +1165,7 @@
 <footer class="site">
   <div class="inner">
     <span>dioxus-compose &middot; Apache License 2.0</span>
-    <span><a class="footer-repo" href="https://github.com/DarkPyonix/dioxus-compose">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/dioxus-compose/blob/develop/docs/INTENT.md">INTENT.md</a></span>
+    <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/INTENT.md">INTENT.md</a></span>
     <span>Guide last reviewed against the repository on 2026-09-22</span>
   </div>
 </footer>

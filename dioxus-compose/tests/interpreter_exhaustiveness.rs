@@ -12,7 +12,7 @@
 //! the variant names come from the generator and are looked for in the interpreter's
 //! source, so `cargo test` alone reports it.
 
-use dioxus_compose::codegen::generate_kotlin;
+use compose_rust::codegen::generate_kotlin;
 
 const RENDERER: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),

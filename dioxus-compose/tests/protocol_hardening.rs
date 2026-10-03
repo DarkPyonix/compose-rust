@@ -5,11 +5,11 @@
 //! The cases here were found by the libFuzzer targets in `fuzz/fuzz_targets/`; each one
 //! is kept as an ordinary regression test so CI defends it without running the fuzzer.
 
-use dioxus_compose::protocol::{
+use compose_rust::protocol::{
     BatchEncoder, HostEvent, Mutation, PropertyValue, ProtocolError, decode_batch, decode_event,
     encode_event,
 };
-use dioxus_compose::schema::{EventPayload, Modifier, PropertyKind, Selection, WidgetKind};
+use compose_rust::schema::{EventPayload, Modifier, PropertyKind, Selection, WidgetKind};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 

@@ -541,6 +541,71 @@ interface ComponentRules {
     )
 
     /**
+     * How a chip looks, chosen and not.
+     *
+     * The chip sends a label, perhaps a glyph, and whether it is chosen, and nothing else.
+     * The corner, the height, whether choosing it fills it or ticks it, and whether it has a
+     * line around it are all answered here, which is why one declaration comes out as a
+     * Material filter chip, an Apple filter pill and a Fluent tag button.
+     *
+     * The default is an outlined capsule that fills with the accent when chosen, made of
+     * this system's own tokens.
+     */
+    fun chip(theme: ResolvedTheme): ChipStyle = ChipStyle(
+        container = Color.Transparent,
+        selectedContainer = theme.color(ColorRole.Primary),
+        content = theme.color(ColorRole.OnSurface),
+        selectedContent = theme.color(ColorRole.OnPrimary),
+        borderWidth = 1.dp,
+        borderColor = theme.color(ColorRole.Outline),
+        selectedBorderColor = Color.Transparent,
+        shape = theme.shape(ShapeRole.Full),
+        height = 32.dp,
+        horizontalPadding = theme.space(SpaceRole.Md),
+        iconGap = theme.space(SpaceRole.Xs),
+        typeRole = TypeRole.Label,
+        leadingCheck = false,
+        pressedAlpha = 0.7f,
+        disabledAlpha = 0.38f,
+    )
+
+    /**
+     * How the one action a screen is about is drawn, and where the frame it is in puts it.
+     *
+     * **Floating is one system's answer, not the concept.** The Host sends an icon, a label
+     * and a click, so whether this is a disc over the corner of the page, a plus at the
+     * end of the bar or an accent button at the head of a command bar is decided here and
+     * nowhere else. The width is part of the question because a few systems answer it
+     * differently on a phone, where the thumb is at the bottom, and on a desktop, where the
+     * pointer is already at the top.
+     *
+     * The default floats a disc where the window is phone-shaped and sets a labelled button
+     * at the trailing end of the top elsewhere, in this system's own colours.
+     */
+    fun floatingAction(sizeClass: WindowSizeClass, theme: ResolvedTheme): FloatingActionStyle {
+        val floats = dioxus.compose.foundation.floatingActionFloats(sizeClass)
+        return FloatingActionStyle(
+            placement = if (floats) {
+                FloatingActionPlacement.OverPageBottomEnd
+            } else {
+                FloatingActionPlacement.BarEnd
+            },
+            form = if (floats) FloatingActionForm.Disc else FloatingActionForm.Labelled,
+            container = theme.color(ColorRole.Primary),
+            content = theme.color(ColorRole.OnPrimary),
+            shape = theme.shape(ShapeRole.Full),
+            size = if (floats) 56.dp else 36.dp,
+            horizontalPadding = theme.space(SpaceRole.Md),
+            elevation = if (floats) 6.dp else 0.dp,
+            borderWidth = 0.dp,
+            borderColor = Color.Transparent,
+            typeRole = TypeRole.Label,
+            inset = if (floats) theme.space(SpaceRole.Lg) else theme.space(SpaceRole.Sm),
+            pressedAlpha = 0.8f,
+        )
+    }
+
+    /**
      * How a badge is drawn: where it sits on what it is attached to, what shape it is, and
      * how a large count is written.
      *
@@ -1397,6 +1462,95 @@ data class ButtonStyle(
      * own palette, because it is that system's palette being faded.
      */
     val disabledAlpha: Float,
+)
+
+/**
+ * How a chip is drawn, chosen and not.
+ *
+ * Both states are fields of one style rather than two calls, so a chip that the Host has
+ * just chosen can move from one to the other without asking the rules again. The chip
+ * never decides which of the two it is in: that arrives from the Host.
+ */
+data class ChipStyle(
+    val container: Color,
+    val selectedContainer: Color,
+    val content: Color,
+    val selectedContent: Color,
+    val borderWidth: Dp,
+    val borderColor: Color,
+    /** The edge of a chosen chip. Transparent where choosing one drops the line. */
+    val selectedBorderColor: Color,
+    val shape: Shape,
+    val height: Dp,
+    val horizontalPadding: Dp,
+    /** The room between a glyph and the label. */
+    val iconGap: Dp,
+    val typeRole: TypeRole,
+    /**
+     * Whether a chosen chip leads with a tick.
+     *
+     * Material's filter chip does, which is how it tells a chosen chip from a merely
+     * tinted one without colour alone. The pills of the other systems say it with the fill.
+     */
+    val leadingCheck: Boolean,
+    /** How much of the chip is left while it is held down. */
+    val pressedAlpha: Float,
+    val disabledAlpha: Float,
+)
+
+/**
+ * Where the one action a screen is about is put.
+ *
+ * Read by whatever frame the action is in, never by the action itself: a Scaffold and the
+ * Box that holds a page both know where their corners and their bar are, and the action
+ * does not.
+ */
+enum class FloatingActionPlacement {
+    /** Over the page at its bottom trailing corner, taking none of it. Material's answer. */
+    OverPageBottomEnd,
+
+    /** At the trailing end of the top of the page, where a bar's actions are. Apple's plus. */
+    BarEnd,
+
+    /**
+     * At the leading end of the top of the page, where a command bar or a header bar
+     * starts. The Fluent primary command and the GNOME header button sit here.
+     */
+    BarStart,
+}
+
+/** What the action is drawn as. */
+enum class FloatingActionForm {
+    /** A raised disc, or a rounded square, holding the glyph alone. */
+    Disc,
+
+    /**
+     * The glyph alone, as a bar button is: on no container at all, or on the quiet fill
+     * the system gives a bar's buttons. Never raised.
+     */
+    Glyph,
+
+    /** A button carrying the glyph and the label side by side. */
+    Labelled,
+}
+
+/** How the one action a screen is about is drawn, and where its frame puts it. */
+data class FloatingActionStyle(
+    val placement: FloatingActionPlacement,
+    val form: FloatingActionForm,
+    val container: Color,
+    val content: Color,
+    val shape: Shape,
+    /** The height, and for a [FloatingActionForm.Disc] the width as well. */
+    val size: Dp,
+    val horizontalPadding: Dp,
+    val elevation: Dp,
+    val borderWidth: Dp,
+    val borderColor: Color,
+    val typeRole: TypeRole,
+    /** How far in from the edges of its frame the action is put. */
+    val inset: Dp,
+    val pressedAlpha: Float,
 )
 
 /**
