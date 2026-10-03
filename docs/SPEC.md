@@ -712,6 +712,59 @@ LaunchBuilder::new()
 - **팔레트를 디자인 시스템별로 줄 것인가.** 이 항목은 `adaptive`에서 한 팔레트가 어느 시스템에나 얹히게 했습니다. 브랜드가 "macOS에서는 유리 위에서 더 밝은 주황"처럼 시스템별 값을 원하면 `(design_system, role, scheme)` 항목이 필요합니다. 지금은 넣지 않았고, 요청한 앱의 브랜드 지침이 그것을 요구하는지 확인이 필요합니다.
 - **씨앗 색에서 팔레트 만들기.** Material 3는 색 하나에서 배색 전체를 만드는 알고리즘(dynamic color)이 있습니다. 다른 여섯 시스템에는 없으므로 이 항목은 값을 직접 주게 했습니다. Material 3 전용 편의 함수(`Palette::from_seed`)를 Host 쪽에 둘지는 정하지 않았습니다.
 
+#### 14.11 디자인 시스템 라이브러리의 두 층 (`Agreed`)
+
+INTENT D19의 2026-10-03 결정입니다. 디자인 시스템은 `compose-multiplatform-core-extended`에서 Compose 라이브러리로 나가고, 두 층으로 나뉩니다.
+
+> "컴포넌트 라이브러리로 하되" (2026-10-03)
+
+> "2층으로 가고, 개들은 adaptive 디자인 시스템 패키지 명을 쓰면 될거같네." (2026-10-03)
+
+##### 14.11.1 1층: 디자인 시스템마다 하나의 컴포넌트 라이브러리
+
+- 패키지는 `org.thisisthepy.compose.material3`, `org.thisisthepy.compose.cupertino`, `org.thisisthepy.compose.fluent`, `org.thisisthepy.compose.gnome`, `org.thisisthepy.compose.breeze`, `org.thisisthepy.compose.deepin`, `org.thisisthepy.compose.liquidglass` 일곱 개입니다.
+- **일곱 개 모두 material3의 모양을 가집니다.** `XxxTheme` 컴포저블(`CupertinoTheme`, `FluentTheme`, ...), `ColorScheme`, `Typography`, `Shapes`, 그리고 컴포넌트입니다. 공개 API의 이름, 매개변수, 기본값을 두는 방식은 `androidx.compose.material3`를 본뜹니다. 그 시스템에 대응물이 없는 material3 컴포넌트는 만들지 않아도 되지만, 있는 것은 material3와 같은 이름과 같은 모양의 시그니처를 씁니다.
+- **`org.thisisthepy.compose.material3`는 `androidx.compose.material3` 위의 어댑터입니다.** 컴포넌트를 다시 그리지 않고 위임합니다. 어댑터가 하는 일은 공통 계약(14.11.3)의 역할과 토큰을 material3의 `ColorScheme`, `Typography`, `Shapes`로 옮기는 것입니다.
+- 1층 라이브러리는 서로에게도, 2층에도 의존하지 않습니다. 의존하는 것은 공통 계약(14.11.3)과 Compose뿐입니다.
+
+##### 14.11.2 2층: `org.thisisthepy.compose.adaptive`
+
+- 디자인 시스템에 매이지 않는 중립 컴포넌트(`Button`, `TextField`, `DatePicker`, ...)를 둡니다. 각 컴포넌트는 **현재 테마의 1층 구현에 위임합니다.** 스스로 그리지 않습니다.
+- 진입점은 `MaterialTheme`의 관례를 따릅니다.
+
+```kotlin
+@Composable
+fun AdaptiveTheme(
+    designSystem: DesignSystem = DesignSystem.platformDefault(),
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    content: @Composable () -> Unit,
+)
+```
+
+- `designSystem`의 기본값은 실행 중인 플랫폼의 디자인 시스템입니다. 어느 플랫폼이 어느 시스템인지는 14.3의 adaptive 기본값과 같은 대응입니다.
+- **compose-rust의 렌더러는 기본으로 이 층을 씁니다.** 14.3의 `Theme::adaptive`는 `AdaptiveTheme`의 기본값으로, `Theme::unified(ds)`는 `designSystem = ds`로 내려갑니다. 렌더러가 1층을 직접 부르는 길을 따로 두지 않습니다.
+- 2층은 1층 일곱 개 전부와 공통 계약에 의존합니다.
+
+##### 14.11.3 공통 계약: `org.thisisthepy.compose.designsystem`
+
+- 역할 enum(`ColorRole`, `TypeRole`, `ShapeRole`, `SpaceRole`과 컴포넌트 변형), `DesignSystem` 인터페이스, 토큰을 둡니다. 두 층이 모두 이것에 의존합니다.
+- **adaptive에 합치지 않습니다.** adaptive는 1층 전부에 의존하고 1층은 adaptive에 의존하면 안 됩니다. 계약이 adaptive 안에 있으면 1층이 계약을 쓰려고 adaptive에 의존하게 되어 순환이 생깁니다. 별도 모듈로 두면 의존은 `designsystem ← 1층 ← adaptive` 한 방향입니다.
+
+##### 14.11.4 이름이 비슷한 다른 것
+
+JetBrains의 `androidx.compose.material3.adaptive`는 적응형 레이아웃(창 크기 클래스) 라이브러리이며 `org.thisisthepy.compose.adaptive`와 무관합니다. 네임스페이스가 달라 부딪히지 않습니다.
+
+##### 14.11.5 수용 기준
+
+1. **"adaptive 컴포넌트 × 일곱 디자인 시스템" 표에 빈 칸이 하나라도 있으면 실패하는 테스트가 있습니다.** adaptive의 모든 컴포넌트가 일곱 시스템 각각에서 1층 구현으로 해석되어야 합니다. 1층에 대응물이 없는 칸도 비워 두지 않고, 그 시스템의 컴포넌트로 채웁니다.
+2. **"material3 컴포넌트 목록 × 각 1층 라이브러리" 표를 진행 척도로 기록합니다.** 이 표는 통과와 실패를 가르지 않습니다. 1층 라이브러리 각각이 material3의 모양을 얼마나 덮었는지를 보여 주는 숫자이고, 바뀔 때마다 갱신합니다.
+3. 1층 일곱 모듈 어디에도 `org.thisisthepy.compose.adaptive`에 대한 의존이 없고, 1층 모듈 사이의 의존도 없습니다. 빌드 설정을 읽는 검사로 확인합니다.
+4. `AdaptiveTheme`을 인자 없이 부르면 실행 중인 플랫폼의 디자인 시스템이 선택되고, `darkTheme`의 기본값은 시스템의 명암을 따릅니다.
+5. `org.thisisthepy.compose.material3`의 컴포넌트가 `androidx.compose.material3`의 같은 컴포넌트로 그려집니다(어댑터이며 다시 그린 것이 아님).
+6. compose-rust 렌더러가 `Theme::adaptive`와 `Theme::unified`를 2층의 `AdaptiveTheme`으로 내립니다.
+
+**1.0.0의 범위**: 1번 표의 행은 compose-rust가 먼저 쓰는 컴포넌트(FR-15의 위젯 어휘)입니다. 그 행들이 일곱 칸 모두 채워진 것이 1.0.0이고, material3 목록의 나머지(2번 표)는 그 뒤에 채웁니다.
+
 ### FR-15 위젯 어휘 (`Agreed`)
 
 M0의 위젯 9개는 데모를 굴리는 데 필요했던 만큼이지 설계된 범위가 아니었습니다. 1.0의 목표 어휘를 여기에 고정합니다.
