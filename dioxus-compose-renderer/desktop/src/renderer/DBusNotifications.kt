@@ -270,8 +270,8 @@ class DBusNotifications(
 
     private companion object {
         const val ACTION_BODY = "default"
-        const val ACTION_1 = "dioxus-compose.action.1"
-        const val ACTION_2 = "dioxus-compose.action.2"
+        const val ACTION_1 = "compose-rust.action.1"
+        const val ACTION_2 = "compose-rust.action.2"
         const val CALL_TIMEOUT_MILLIS = 2_000
         const val RECEIVE_SLICE_MILLIS = 100
         val BUS = Destination("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus")

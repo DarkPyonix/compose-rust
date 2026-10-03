@@ -342,7 +342,7 @@ static void dxc_tag(const wchar_t *key, wchar_t *tag, size_t capacity) {
  * State. Touched only on the UI thread, except the event list above.
  * ------------------------------------------------------------------------------------ */
 
-static const wchar_t DXC_GROUP[] = L"dioxus-compose";
+static const wchar_t DXC_GROUP[] = L"compose-rust";
 
 static int dxc_started;
 static int32_t dxc_state = DXC_PERMISSION_UNSUPPORTED;

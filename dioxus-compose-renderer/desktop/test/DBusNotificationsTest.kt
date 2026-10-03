@@ -221,8 +221,8 @@ class DBusNotificationsTest {
         assertEquals(
             listOf(
                 "default", "",
-                "dioxus-compose.action.1", "Open",
-                "dioxus-compose.action.2", "Approve",
+                "compose-rust.action.1", "Open",
+                "compose-rust.action.2", "Approve",
             ),
             daemon.notified.single().actions,
         )
@@ -255,7 +255,7 @@ class DBusNotificationsTest {
         centre.post(notification("approval/3", action1 = "Approve"))
 
         daemon.press(1, "default")
-        daemon.press(2, "dioxus-compose.action.1")
+        daemon.press(2, "compose-rust.action.1")
         // Somebody else's notification: not ours to report.
         daemon.press(99, "default")
         centre.pump()

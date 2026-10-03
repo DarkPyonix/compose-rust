@@ -335,7 +335,7 @@ pub(crate) fn note_posted(posts: usize) {
 
 fn explain_unsupported() {
     if cfg!(debug_assertions) && !EXPLAINED.swap(true, Ordering::AcqRel) {
-        eprintln!("dioxus-compose: {}", unsupported_reason());
+        eprintln!("compose-rust: {}", unsupported_reason());
     }
 }
 

@@ -37,8 +37,8 @@ enum {
     DXC_PERMISSION_UNSUPPORTED = 4,
 };
 
-static NSString *const DxcAction1 = @"dioxus-compose.action.1";
-static NSString *const DxcAction2 = @"dioxus-compose.action.2";
+static NSString *const DxcAction1 = @"compose-rust.action.1";
+static NSString *const DxcAction2 = @"compose-rust.action.2";
 
 typedef struct dxc_notify_event {
     int32_t kind;

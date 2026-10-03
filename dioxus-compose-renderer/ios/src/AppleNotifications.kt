@@ -246,7 +246,7 @@ class AppleNotifications(
     }
 
     private companion object {
-        const val ACTION_1 = "dioxus-compose.action.1"
-        const val ACTION_2 = "dioxus-compose.action.2"
+        const val ACTION_1 = "compose-rust.action.1"
+        const val ACTION_2 = "compose-rust.action.2"
     }
 }

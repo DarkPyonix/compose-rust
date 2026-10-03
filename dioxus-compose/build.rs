@@ -493,7 +493,7 @@ fn add_notification_permission(destination: &Path) {
     };
     if let Err(error) = std::fs::write(&manifest_path, text) {
         panic!(
-            "\n\ndioxus-compose: could not declare the notification permission in {}: \
+            "\n\ncompose-rust: could not declare the notification permission in {}: \
              {error}\n\n",
             manifest_path.display()
         );
