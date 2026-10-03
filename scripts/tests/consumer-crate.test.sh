@@ -89,8 +89,23 @@ rpath_count() {
 }
 
 renderer="$(recorded_renderer)"
-[[ -n "$renderer" ]] || fail "the binary records no dependency on $(library_name)" \
-    "Without one the renderer is not linked in and nothing would draw."
+if [[ -z "$renderer" ]]; then
+    # No shared renderer named: on macOS and Linux the release ships the static archive, and
+    # then the renderer is inside the executable. That has to be really so, or nothing would
+    # draw: its entry point is defined in the binary itself.
+    symbols="$(nm "$binary" 2>/dev/null || true)"
+    grep -qE ' T _?dioxus_compose_renderer_run$' <<< "$symbols" ||
+        fail "the binary records no dependency on $(library_name) and has no renderer inside it" \
+            "Without one of the two nothing would draw."
+    count="$(rpath_count)"
+    [[ "$count" == "0" ]] || fail "the binary carries $count rpath entries" \
+        "It has the renderer inside it, so a search path can only point at something it does not need."
+    echo "== starting it"
+    "$binary" >/dev/null
+    echo "ok    a crate depending only on compose-rust builds, has the renderer inside it, and starts"
+    echo "      scripts/check-single-executable.sh checks such an executable runs alone"
+    exit 0
+fi
 
 [[ "$renderer" == /* ]] || fail "the binary looks for the renderer as '$renderer'" \
     "That is not an absolute path, so the loader has to search for it, and an application" \
