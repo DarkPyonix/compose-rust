@@ -287,10 +287,10 @@ jobs:
         # the check below then confirms none is left.
         shell: bash
         run: |
-          set -uo pipefail
-          find /usr /opt /Library /Applications /home /Users -name 'icudtl.dat' 2>/dev/null |
+          # find reports the directories it may not read and exits non-zero for them,
+          # which is not a failure to find anything; what is left is checked afterwards.
+          { find /usr /opt /Library /Applications /home /Users -name 'icudtl.dat' 2>/dev/null || true; } |
             while IFS= read -r file; do echo "removing $file"; sudo rm -f "$file"; done
-          true
 
       - name: Build it, check what it needs, and run it alone
         shell: bash
