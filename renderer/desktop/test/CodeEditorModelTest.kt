@@ -179,9 +179,11 @@ class CodeEditorModelTest {
     /** The line breaks a document was written with are the ones it is read back with. */
     @Test
     fun fr38_line_breaks_are_kept_as_written() {
+        // a, b, c, an empty line, d: "\r\n" is one break, a lone "\r" another, "\n" a third.
         val text = "a\r\nb\rc\n\r\nd"
         val document = CodeDocument(text)
-        assertEquals(6, document.lineCount)
+        assertEquals(5, document.lineCount)
+        assertEquals(listOf("\r\n", "\r", "\n", "\r\n", ""), (0 until 5).map(document::lineBreak))
         assertEquals(text, document.text())
         assertTrue(document.contentEquals(text))
         assertFalse(document.contentEquals("a\nb\rc\n\r\nd"))
