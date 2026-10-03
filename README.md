@@ -627,7 +627,7 @@ started, writing UI, lists and streaming, architecture and troubleshooting.
 | [PROJECT.md](PROJECT.md) | Scope, method, milestones M0–M8, open questions |
 | [docs/INTENT.md](docs/INTENT.md) | Motivation, non-negotiables, decisions D1–D10, rejected alternatives |
 | [docs/SPEC.md](docs/SPEC.md) | Functional and non-functional requirements, boundary protocol, acceptance criteria |
-| [CLAUDE.md](CLAUDE.md) | Working agreements for this repository |
+| [AGENTS.md](AGENTS.md) | Working agreements for this repository |
 
 The planning documents (`PROJECT.md`, `INTENT.md`, `SPEC.md`) are written in Korean. This README and
 the guide site are English, with Korean translations.
