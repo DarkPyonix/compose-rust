@@ -10,7 +10,7 @@
 //! They live here rather than beside the widgets that use them so that the hub has one
 //! place to change. A hex scattered through the tree is a hex somebody misses.
 
-use compose_rust::prelude::*;
+use dioxus_compose_adapter::prelude::*;
 
 /// The page, and what reads on the orange.
 pub const PAGE: Paint = Paint::Literal(Color::rgb(0xff_ffff));

@@ -14,14 +14,14 @@ mod charts;
 mod spending;
 
 use charts::Bar;
-use compose_rust::prelude::*;
+use dioxus_compose_adapter::prelude::*;
 use spending::{
     ALL_TIME_CENTS, MOBILE_SHARE, RETURNING_SHARE, SOURCES, TODAY, WEEK, YESTERDAY, cost, dearest,
     peak,
 };
 
 mod palette {
-    use compose_rust::prelude::Color;
+    use dioxus_compose_adapter::prelude::Color;
     pub const PAGE: Color = Color::rgb(0xF2F2F0);
     pub const CARD: Color = Color::rgb(0xFFFFFF);
     pub const INK: Color = Color::rgb(0x000000);
@@ -78,12 +78,12 @@ fn week_bars() -> Vec<Bar> {
 /// ladder's own metrics and the ellipsis behaviour that goes with a widget.
 fn dial_card() -> Element {
     rsx! {
-        compose_rust::Box {
+        dioxus_compose_adapter::Box {
             fill_max_width: true,
             shape_role: ShapeRole::Large,
             padding_role: SpaceRole::Lg,
             background: Paint::Literal(palette::CARD),
-            compose_rust::Box {
+            dioxus_compose_adapter::Box {
                 fill_max_width: true,
                 alignment: Alignment::Center,
                 Canvas {
@@ -154,7 +154,7 @@ fn sources_strip() -> Element {
             item: move |position: usize| {
                 let source = SOURCES[position];
                 rsx! {
-                    compose_rust::Box {
+                    dioxus_compose_adapter::Box {
                         width: SOURCE_TILE,
                         fill_max_height: true,
                         padding_role: SpaceRole::Xs,
@@ -165,7 +165,7 @@ fn sources_strip() -> Element {
                             shape_role: ShapeRole::Large,
                             padding_role: SpaceRole::Md,
                             space_role: SpaceRole::Xs,
-                            compose_rust::Box {
+                            dioxus_compose_adapter::Box {
                                 width: 32.0,
                                 height: 32.0,
                                 corner_radius: 16.0,
@@ -209,11 +209,11 @@ fn today_page() -> Element {
                 fill_max_width: true,
                 space_role: SpaceRole::Md,
                 alignment: Alignment::TopStart,
-                compose_rust::Box { weight: 2.0, {costs_panel(TypeRole::BodyStrong, PANEL_CHART)} }
+                dioxus_compose_adapter::Box { weight: 2.0, {costs_panel(TypeRole::BodyStrong, PANEL_CHART)} }
                 Column {
                     weight: 1.0,
                     space_role: SpaceRole::Sm,
-                    compose_rust::Box {
+                    dioxus_compose_adapter::Box {
                         fill_max_width: true,
                         shape_role: ShapeRole::Large,
                         padding_role: SpaceRole::Md,
@@ -223,7 +223,7 @@ fn today_page() -> Element {
                     Row {
                         fill_max_width: true,
                         space_role: SpaceRole::Sm,
-                        compose_rust::Box {
+                        dioxus_compose_adapter::Box {
                             weight: 1.0,
                             height: 64.0,
                             background: Paint::Literal(palette::POWDER),
@@ -363,7 +363,7 @@ pub fn app() -> Element {
                 }
             },
 
-                        compose_rust::Box {
+                        dioxus_compose_adapter::Box {
                 fill_max_width: true,
                 weight: 1.0,
                 alignment: Alignment::TopCenter,
@@ -412,14 +412,14 @@ pub fn launch() {
 /// The theme above all: a sample that names one and then reaches a platform through an
 /// entry point that makes its own builder is a sample that draws the same screens in a
 /// different design system depending on where it runs.
-fn launch_builder() -> compose_rust::LaunchBuilder {
+fn launch_builder() -> dioxus_compose_adapter::LaunchBuilder {
     // The name the window carries. A desktop lists windows by it, so a window that said
     // nothing was listed under whatever the renderer happened to be called, and every
     // sample here was listed under the toolkit's default name until this line existed.
-    compose_rust::LaunchBuilder::new()
-        .with_theme(compose_rust::demo_theme_for(THEME))
+    dioxus_compose_adapter::LaunchBuilder::new()
+        .with_theme(dioxus_compose_adapter::demo_theme_for(THEME))
         .with_window(
-            compose_rust::schema::Window::new()
+            dioxus_compose_adapter::schema::Window::new()
                 .with_title("Statistics")
                 // Without one the window wears the toolkit's picture, which on
                 // Windows is the Java coffee cup, wherever the system lists
@@ -427,8 +427,8 @@ fn launch_builder() -> compose_rust::LaunchBuilder {
                 // to them by id: a path would be a fact about the machine this
                 // was built on, and a name would ask the toolkit to find
                 // something it may not have.
-                .with_icon(compose_rust::asset::asset(
-                    compose_rust::schema::AssetKind::Png,
+                .with_icon(dioxus_compose_adapter::asset::asset(
+                    dioxus_compose_adapter::schema::AssetKind::Png,
                     include_bytes!("../assets/icon.png"),
                 )),
         )
@@ -441,17 +441,19 @@ fn launch_builder() -> compose_rust::LaunchBuilder {
 // Both are declared unconditionally. The macros are already written to compile into
 // nothing that runs off their own platform, and gating them here instead would mean a
 // desktop build never checks that this sample can be built for the other two.
-compose_rust::android_main!({ launch_builder() }, app);
-compose_rust::web_main!({ launch_builder() }, app);
-compose_rust::ios_main!(launch);
+dioxus_compose_adapter::android_main!({ launch_builder() }, app);
+dioxus_compose_adapter::web_main!({ launch_builder() }, app);
+dioxus_compose_adapter::ios_main!(launch);
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use compose_rust::Host;
-    use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
-    use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind};
+    use dioxus_compose_adapter::Host;
+    use dioxus_compose_adapter::protocol::{
+        HostEvent, Mutation, PropertyValue, decode_batch, encode_event,
+    };
+    use dioxus_compose_adapter::schema::{EventPayload, PropertyKind, WidgetKind};
 
     /// Named for what it defends: the reference is a light design, and a machine set
     /// the other way drew this sample dark with nothing to compare against.
@@ -460,7 +462,7 @@ mod tests {
         // Through the wire rather than off the constant: what settles the question is the
         // record the Renderer reads, and a scheme that never leaves the Host is a scheme
         // nobody is drawn in.
-        compose_rust::window::reset_window_size();
+        dioxus_compose_adapter::window::reset_window_size();
         let mut host = Host::with_theme(app, THEME);
         let batch = host.rebuild().expect("the first frame failed").to_vec();
         let first = decode_batch(&batch)
@@ -476,10 +478,10 @@ mod tests {
     }
 
     fn first_frame() -> Vec<u8> {
-        compose_rust::window::reset_window_size();
+        dioxus_compose_adapter::window::reset_window_size();
         let mut host = Host::new(app);
         let batch = host.rebuild().expect("the first frame failed").to_vec();
-        compose_rust::window::reset_window_size();
+        dioxus_compose_adapter::window::reset_window_size();
         batch
     }
 
@@ -506,7 +508,7 @@ mod tests {
     /// Both pages have to encode, not just the one the screen opens on.
     #[test]
     fn fr15_both_pages_encode() {
-        compose_rust::window::reset_window_size();
+        dioxus_compose_adapter::window::reset_window_size();
         let mut host = Host::new(app);
         let first = host.rebuild().expect("the first frame failed").to_vec();
 
@@ -545,7 +547,7 @@ mod tests {
         .expect("the click did not encode");
         host.dispatch_event(&bytes)
             .unwrap_or_else(|error| panic!("click failed: {error:?}"));
-        compose_rust::window::reset_window_size();
+        dioxus_compose_adapter::window::reset_window_size();
     }
 
     /// Both charts have to reach the Renderer as draw lists. A `Canvas` with no commands

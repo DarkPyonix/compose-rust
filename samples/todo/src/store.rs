@@ -5,7 +5,7 @@
 //! writes one file per burst. Loading happens once, in `main`, before the renderer loop
 //! starts, so there is no UI thread to block yet.
 
-use compose_rust::IconRole;
+use dioxus_compose_adapter::IconRole;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::sync::mpsc::{Sender, channel};

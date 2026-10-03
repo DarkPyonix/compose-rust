@@ -5,7 +5,7 @@
 //! and measuring `ColorRole::Background` across the seven design systems gives seven
 //! answers that all land within a few percent of white. There is no role for cream.
 
-use compose_rust::prelude::Color;
+use dioxus_compose_adapter::prelude::Color;
 
 /// The page. Cream, which is what the reference sets every light screen on.
 pub const PAGE: Color = Color::rgb(0xFDF3E7);
