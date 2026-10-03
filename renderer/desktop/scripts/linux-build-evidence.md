@@ -125,7 +125,7 @@ sudo apt-get install -y build-essential zlib1g-dev unzip pkg-config fontconfig \
 export GRAALVM_HOME=/absolute/path/to/graalvm-jdk-25
 cd /absolute/path/to/renderer
 xvfb-run -a ./desktop/scripts/build-native-linux.sh
-bash ./desktop/scripts/tests/linux-build.test.sh
+bash ../scripts/tests/renderer/linux-build.test.sh
 find build/native-image-linux/dist/lib -maxdepth 1 -type f -print | sort
 ldd build/native-image-linux/dist/lib/*.so
 readelf -d build/native-image-linux/dist/lib/libcompose_rust_renderer.so
