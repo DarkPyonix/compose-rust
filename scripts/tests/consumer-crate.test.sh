@@ -59,31 +59,26 @@ target="$repo_root/target/consumer-crate"
 export CARGO_TARGET_DIR="$target"
 
 echo "== building a crate that depends on compose-rust and nothing else"
-# The real renderer first, found the way a consumer's build finds it. That is the
-# published one for this version unless the environment or the workspace has another.
+# The real renderer, found the way a consumer's build finds it: the published one for this
+# version unless the environment or the workspace has another.
 #
-# It can be refused for a reason this test is not about. A published renderer was built
-# from the schema of its release, and the build script stops on one that does not match
-# the crate, which it should. Every change to the schema in this checkout makes that true
-# until the next release, so the test would fail on every branch in between for something
-# no branch can fix. What it checks is how the binary finds its renderer, and a library
-# with the renderer's name and this checkout's schema answers that just as well. So on
-# that one refusal, and only that one, the stand-in is linked instead and the test says
-# so. Every other failure is a failure.
-build_log="$target/build.log"
-mkdir -p "$target"
-if ! cargo build --manifest-path "$fixture/Cargo.toml" --quiet 2>"$build_log"; then
-    if ! grep -q "generated from a different schema" "$build_log"; then
-        cat "$build_log" >&2
-        fail "the crate did not build"
-    fi
-    echo "note  the renderer this build found was generated from a different schema than"
-    echo "      this checkout, so it links a stand-in with this checkout's schema instead."
-    echo "      Everything below holds for the stand-in exactly as for the real one."
-    "$repo_root/scripts/stand-in-renderer.sh" "$target/stand-in-renderer"
-    export DIOXUS_COMPOSE_RENDERER_DIR="$target/stand-in-renderer"
-    cargo build --manifest-path "$fixture/Cargo.toml" --quiet
+# A branch can have no published renderer that fits it, for reasons this test is not
+# about: the schema moved since the release, so the build script refuses the release's
+# renderer, or the version moved ahead of a release that does not exist yet. Either stays
+# true on every branch until the next release, and no branch can fix it. What this test
+# checks is how the binary finds its renderer, and a library with the renderer's name and
+# this checkout's schema answers that just as well. So in those two cases, and only those,
+# stand-in-renderer.sh builds one and the test links it and says so. Every other failure
+# to find a renderer is a failure.
+stand_in="$("$repo_root/scripts/stand-in-renderer.sh" --if-refused "$target/stand-in-renderer")" ||
+    fail "the crate did not build"
+if [[ -n "$stand_in" ]]; then
+    echo "note  no published renderer fits this checkout, so it links a stand-in with this"
+    echo "      checkout's schema instead. Everything below holds for the stand-in exactly as"
+    echo "      for the real one."
+    export "${stand_in?}"
 fi
+cargo build --manifest-path "$fixture/Cargo.toml" --quiet
 
 binary="$target/debug/consumer"
 [[ -x "$binary" ]] || fail "the build produced no $binary"

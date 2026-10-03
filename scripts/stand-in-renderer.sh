@@ -10,9 +10,10 @@
 # start and draw nothing. On a checkout whose schema has moved since the last release that
 # leaves nothing to link at all, because the only renderer to be had without tens of
 # minutes of native-image building is the published one, and it was built from the old
-# schema. A check about packaging or about how a binary finds its renderer then fails for
-# a reason that has nothing to do with what it checks, and keeps failing until the next
-# release.
+# schema. A version bump does the same from the other side: until that version is
+# released there is no published renderer for it at all. A check about packaging or about
+# how a binary finds its renderer then fails for a reason that has nothing to do with what
+# it checks, and keeps failing until the next release.
 #
 # This answers those checks with a library that is what they are about: a file of the
 # right name, in the layout a distribution has, that a binary links against and the
@@ -26,8 +27,8 @@
 #     <output>/schema-hash.txt
 #
 # With --if-refused it first asks the build script, the way any build of this crate
-# would, for the renderer it finds. Only if that renderer is refused for its schema is the
-# stand-in built, and then the one line `DIOXUS_COMPOSE_RENDERER_DIR=<output>` is written
+# would, for the renderer it finds. Only if that renderer is refused for its schema, or
+# the release has no renderer for this crate version at all, is the stand-in built, and then the one line `DIOXUS_COMPOSE_RENDERER_DIR=<output>` is written
 # to standard output, ready to append to $GITHUB_ENV. When the renderer is accepted
 # nothing is built and nothing is written there, so the real one stays in use. Any other
 # failure of that build is reported and fails this script. Everything else this script
@@ -61,15 +62,22 @@ if [[ $if_refused -eq 1 ]]; then
         echo "the renderer this build finds was generated from this checkout's schema" >&2
         exit 0
     fi
-    if ! grep -q "generated from a different schema" "$log"; then
+    # The two refusals that mean no published renderer fits this tree. The first is the
+    # schema check. The second is a release that answered, with no artifact for this
+    # version, which is what every version bump looks like until it is released. A network
+    # failure, a bad checksum or anything else is not one of them and still fails.
+    if grep -q "generated from a different schema" "$log"; then
+        reason="the renderer this build finds was generated from a different schema than this checkout"
+    elif grep -q "The server was reached and answered that there is no such file" "$log"; then
+        reason="no renderer is published for this crate version yet"
+    else
         cat "$log" >&2
         rm -f "$log"
-        echo "error: building compose-rust failed for a reason other than the renderer's schema" >&2
+        echo "error: building compose-rust failed for a reason other than having no published renderer that fits" >&2
         exit 1
     fi
     rm -f "$log"
-    echo "the renderer this build finds was generated from a different schema than this" >&2
-    echo "checkout, so a stand-in with this checkout's schema is built in its place" >&2
+    echo "$reason, so a stand-in with this checkout's schema is built in its place" >&2
 fi
 
 case "$(uname -s)" in
