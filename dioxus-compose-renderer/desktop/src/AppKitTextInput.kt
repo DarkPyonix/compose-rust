@@ -68,19 +68,26 @@ class NativePlatformContext(
      * looks like anyway.
      */
     override fun setPointerIcon(pointerIcon: PointerIcon) {
-        setPointerShape(
-            when (pointerIcon) {
-                PointerIcon.Hand -> PointerShape.HAND
-                PointerIcon.Text -> PointerShape.TEXT
-                PointerIcon.Crosshair -> PointerShape.CROSSHAIR
-                // The split pane's divider, which asks for the shape the platform uses for
-                // dragging something left or right.
-                dioxus.compose.foundation.platformResizeCursor -> PointerShape.RESIZE_LEFT_RIGHT
-                else -> PointerShape.ARROW
-            },
-        )
+        setPointerShape(pointerShapeOf(pointerIcon))
     }
 
     override suspend fun startInputMethod(request: PlatformTextInputMethodRequest): Nothing =
         textInput.run(request)
+}
+
+/**
+ * The shell's number for a pointer shape.
+ *
+ * One table for all three native shells, because the AppKit, Win32 and X11 windows all stand
+ * on [NativePlatformContext] and each maps the same numbers to its own cursors: the resize
+ * shape is `NSCursor.resizeLeftRight`, `IDC_SIZEWE` and `XC_sb_h_double_arrow`.
+ */
+internal fun pointerShapeOf(pointerIcon: PointerIcon): Int = when (pointerIcon) {
+    PointerIcon.Hand -> PointerShape.HAND
+    PointerIcon.Text -> PointerShape.TEXT
+    PointerIcon.Crosshair -> PointerShape.CROSSHAIR
+    // The split pane's divider, which asks for the shape the platform uses for dragging
+    // something left or right.
+    dioxus.compose.foundation.platformResizeCursor -> PointerShape.RESIZE_LEFT_RIGHT
+    else -> PointerShape.ARROW
 }
