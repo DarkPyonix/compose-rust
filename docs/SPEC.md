@@ -2325,7 +2325,7 @@ CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 
    - 한국어 `Normal`은 음절 사이에서 끊을 수 있고, `KeepAll`은 공백에서만 끊습니다.
    - Compose의 기본 줄바꿈은 플랫폼마다 다르므로, Renderer가 이 값에 맞춰 줄바꿈 전략을 정합니다.
 4. `tab_size: u8`(기본 8). 탭은 다음 탭 위치까지 차지합니다. 비례 글꼴에서는 Host가 탭을 공백으로 펼칠 수 없습니다.
-5. `absolute_size: bool`. 참이면 시스템 글꼴 배율을 적용하지 않습니다(CSS px). 측정과 그리기에 똑같이 적용됩니다.
+5. `absolute_size: bool`. 참이면 시스템 글꼴 배율을 적용하지 않습니다(CSS px). 측정과 그리기에 똑같이 적용됩니다. **구현은 `fontScale = 1`인 `Density`입니다.** 글자 크기를 글꼴 배율로 나누는 방식은 쓰지 않습니다. Android 14부터 글꼴 배율이 비선형이라 나눗셈으로 되돌릴 수 없기 때문입니다. HTML 텍스트의 접근성 배율은 FR-43의 확대 배율 `k`가 맡습니다.
 6. 공백 규칙: Renderer는 받은 문자열의 공백을 자르거나 접지 않습니다. 접기는 Host의 일입니다.
 
 수용 기준:
@@ -2730,6 +2730,29 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 
 열린 질문: `AbsoluteBox`라는 이름. 더 나은 개념 이름이 있으면 바꿉니다.
 
+### FR-43 확대 배율: OS 글자 크기와 앱 확대 (`Agreed`)
+
+소유자 결정(2026-10-03): "vscode 기준". VS Code의 `window.zoomLevel`처럼 화면 전체를 확대하고, 시작값은 OS 글자 크기입니다. 검토 문서(HTML 화면의 접근성 배율)의 (e)안입니다.
+
+- **배율.** `k = os × app`입니다.
+  - `os`는 OS의 글자 크기 배율입니다(Windows `UISettings.TextScaleFactor`, GNOME `text-scaling-factor`, KDE 글꼴 DPI, iOS Dynamic Type, Android `fontScale`. macOS는 공개 설정이 없어 1입니다).
+  - `app`은 앱 확대 수준 `level`에서 `1.2^level`입니다. VS Code와 같은 단계입니다. `level`은 정수이고 -8에서 8까지입니다.
+- **조절 경로.** Renderer가 키를 받습니다. macOS는 `⌘+`, `⌘-`, `⌘0`, Windows와 Linux는 `Ctrl++`, `Ctrl+-`, `Ctrl+0`입니다. 앱이 `on_key`에서 그 키를 소비하면(FR-12) 확대하지 않습니다. Host가 수준을 정하는 길도 있습니다. 창 노드의 `ZoomLevel` 속성(정수)이고, 메뉴의 "확대" 항목이 이것을 씁니다.
+- **저장.** 앱 확대 수준은 UI 로컬 상태라 Renderer가 저장합니다(D5). 앱 식별자마다 하나이고, 위치는 플랫폼의 설정 저장소입니다(macOS `NSUserDefaults`, Windows `%APPDATA%\<앱>\`, Linux `$XDG_CONFIG_HOME/<앱>/`, iOS와 Android는 앱의 기본 설정, Web은 `localStorage`). 다음 실행에서 그대로 시작합니다.
+- **적용.**
+  - HTML 영역(FR-42의 `AbsoluteBox` 하위 트리)은 `Density(density × k, fontScale = 1)` 안에서 그립니다. 영역의 `k`는 영역 뿌리 `AbsoluteBox`의 속성 `IslandZoom`(f32)으로 Host가 보냅니다. Host는 `ZoomChanged`로 받은 `k`를 그대로 쓰거나, 영역마다 다른 값을 줄 수 있습니다. `absolute_size` 텍스트는 이 `Density`로 재고 그립니다. Host는 CSS 뷰포트를 창 크기 ÷ `k`로 잡고 배치합니다. 포인터 좌표는 영역 기준 CSS px로 옵니다.
+  - 네이티브 위젯은 `Density(density × app, fontScale = os)`입니다. 같은 `k`에서 HTML 글자와 네이티브 글자의 크기가 같습니다.
+  - 측정 호출(PR-2.1)은 요청의 `zoom` 칸으로 같은 배율을 씁니다.
+- **Host에 알리기.** 이벤트 `ZoomChanged`(이벤트 태그 33)가 `k`, `os`, `level`을 싣고, 시작할 때 한 번, 그 뒤 값이 바뀔 때마다 옵니다. Host는 받으면 측정 캐시를 비우고 다시 배치합니다. 화면을 다른 모니터로 옮겨 `density`만 바뀌는 것은 `k`를 바꾸지 않으므로 이 이벤트가 오지 않습니다.
+
+수용 기준:
+1. OS 글자 크기를 바꾸면 재시작 없이 `ZoomChanged`가 한 번 오고, HTML 영역과 네이티브 위젯의 글자가 같은 비율로 커집니다(fr43_os_text_size_reaches_both_worlds).
+2. `⌘+`를 두 번 누르면 `level = 2`, `k = os × 1.44`가 되고, 다시 실행해도 `level = 2`로 시작합니다(fr43_app_zoom_steps_and_persists).
+3. 앱이 소비한 `⌘+`는 확대하지 않습니다(fr43_consumed_zoom_key_does_not_zoom).
+4. `k = 1.25, 1.5, 2`에서 측정 호출의 값과 그린 크기가 같습니다(fr43_measure_follows_zoom).
+5. `k`가 바뀌어도 `absolute_size` 텍스트의 `fontScale`은 1이고, 크기는 `k`로만 바뀝니다(fr43_absolute_size_ignores_font_scale).
+6. 다섯 플랫폼과 Web에서 기준 1과 2가 통과합니다. macOS는 기준 2만 해당합니다.
+
 ## 4. 경계 프로토콜
 
 ### PR-1 호출 모델: 동기·동일 스레드 직접 호출 (`Done`)
@@ -2822,6 +2845,7 @@ compose_rust_host_dispatch_event: click 1
     - `tab_size: u8` (CSS `tab-size`, 기본 8). 탭은 다음 탭 위치까지 차지합니다.
     - `word_break: Normal | KeepAll | BreakAll`, `overflow_wrap: Normal | Anywhere | BreakWord`
     - `absolute_size: u8`. 1이면 시스템 글꼴 배율을 적용하지 않습니다(CSS px). 측정과 그리기에 똑같이 적용됩니다.
+    - `zoom: f32`. 이 요청이 속한 HTML 영역의 확대 배율 `k`(FR-43). 0이면 1입니다. Renderer는 `Density(density × k, fontScale = 1)`로 잽니다. 배율을 Renderer의 상태로 두지 않고 요청마다 싣는 것은, Host 하나가 서로 다른 배율의 HTML 영역을 여럿 가질 수 있기 때문입니다.
   - **Renderer는 받은 문자열의 공백을 자르거나 접지 않습니다.** 공백 접기(`normal`, `pre-line`)는 Host의 일입니다. `pre`는 그대로 보낸 문자열과 `wrap = 0`, `pre-wrap`은 그대로 보낸 문자열과 `wrap = 1`입니다.
   - 제약 `constraint: MinContent = 1 | MaxContent = 2 | AtMost = 3`과 `width: f32`(`AtMost`일 때만 씀). 결과는 다음과 같습니다.
     - `MinContent`: 가장 긴 끊을 수 없는 조각의 폭. Compose `ParagraphIntrinsics.minIntrinsicWidth`.
@@ -2830,6 +2854,7 @@ compose_rust_host_dispatch_event: click 1
 - `MeasureNode = 2`
   - `node: NodeId`. Host가 이미 보냈고 Renderer가 이미 적용한 노드입니다.
   - 제약 `min_width, max_width, min_height, max_height: f32`. 제한 없음은 `+inf`입니다.
+  - `zoom: f32`. `MeasureText`와 같은 뜻입니다.
   - 그 노드의 하위 트리를 Compose 레이아웃이 주어진 제약에서 잴 때의 크기를 돌려줍니다.
 
 **결과 레코드** (`MeasureResult`, 32바이트):
