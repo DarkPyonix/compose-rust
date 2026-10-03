@@ -122,6 +122,16 @@ fn every_modifier() -> Vec<Modifier> {
         Modifier::Clip(true),
         Modifier::Clip(false),
         Modifier::Alpha(0.5),
+        Modifier::Transform {
+            a: 0.75,
+            b: 0.5,
+            c: -0.25,
+            d: 1.25,
+            e: 12.0,
+            f: -6.0,
+            origin_x: 0.5,
+            origin_y: 0.25,
+        },
     ]
 }
 

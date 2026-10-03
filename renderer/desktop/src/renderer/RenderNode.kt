@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.Measurable
@@ -86,6 +87,13 @@ import dev.darkpyonix.composerust.ui.weightOf
  */
 internal object RenderNodeObserver {
     var onCompose: ((Int) -> Unit)? = null
+
+    /**
+     * Counts measurements of a box that places its children where the Host put them, so a
+     * test can assert that redrawing a node, moving it through a layer or animating it does
+     * not measure it again. Set only by tests.
+     */
+    var onMeasure: ((Int) -> Unit)? = null
 }
 
 /** Test tag every interpreted node carries, so tests can address nodes by Host node id. */
@@ -305,7 +313,7 @@ fun RenderNode(
                 }
             },
             modifier = modifier,
-            measurePolicy = AbsoluteBoxMeasurePolicy,
+            measurePolicy = remember(nodeId) { AbsoluteBoxMeasurePolicy(nodeId) },
         )
     }
 }
@@ -322,11 +330,12 @@ fun RenderNode(
  * The box itself is as big as its largest child, within what its parent allows, the way a
  * `Box` is. An HTML screen gives every box a `RequiredSize`, so this is rarely what decides.
  */
-private object AbsoluteBoxMeasurePolicy : MeasurePolicy {
+private class AbsoluteBoxMeasurePolicy(private val nodeId: Int) : MeasurePolicy {
     override fun MeasureScope.measure(
         measurables: List<Measurable>,
         constraints: Constraints,
     ): MeasureResult {
+        RenderNodeObserver.onMeasure?.invoke(nodeId)
         val placeables = measurables.map { it.measure(Constraints()) }
         var width = constraints.minWidth
         var height = constraints.minHeight

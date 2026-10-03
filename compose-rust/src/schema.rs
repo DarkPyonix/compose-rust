@@ -17,6 +17,9 @@ pub enum FieldType {
     Role(&'static str),
     /// A word that is 0 or 1. Any other value is a protocol error, not a third state.
     Bool,
+    /// An `f32` that has to be a number. NaN or an infinity is a protocol error, for a
+    /// value that would otherwise turn a whole subtree into nothing on one side only.
+    FiniteFloat,
 }
 
 /// Which half of which `u64` word of a modifier's value a field occupies.
@@ -131,7 +134,7 @@ pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
     "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,AbsoluteBox;",
     "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible;",
-    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha;",
+    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform;",
     "keys=Enter;",
     "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged;",
     "windowsizeclasses=Compact,Medium,Expanded;",
@@ -192,6 +195,7 @@ const fn schema_hash() -> u64 {
                     FieldType::Paint => 4,
                     FieldType::Role(_) => 5,
                     FieldType::Bool => 6,
+                    FieldType::FiniteFloat => 7,
                 }],
             );
             if let FieldType::Role(role) = field.ty {
@@ -1363,6 +1367,26 @@ pub enum Modifier {
     /// The opacity of this node and everything in it, from 0 to 1, applied once to the
     /// whole group rather than to each child.
     Alpha(f32),
+    /// Draws this node and everything in it through a 2D affine matrix, the way CSS
+    /// `transform` does, without changing its layout. Pointer input follows the drawn
+    /// shape.
+    ///
+    /// The matrix means what CSS `matrix(a, b, c, d, e, f)` means: a point `(x, y)` goes to
+    /// `(a x + c y + e, b x + d y + f)`, with `e` and `f` in dp. The origin is a fraction of
+    /// the node's measured size, `(0.5, 0.5)` being its centre, so it stays right when the
+    /// size is decided on the Renderer's side. An origin given as a length is folded into
+    /// the matrix by the Host, which then sends `(0, 0)`. A matrix with no inverse draws
+    /// nothing and takes no input. No value may be NaN or infinite.
+    Transform {
+        a: f32,
+        b: f32,
+        c: f32,
+        d: f32,
+        e: f32,
+        f: f32,
+        origin_x: f32,
+        origin_y: f32,
+    },
 }
 
 impl Modifier {
@@ -1634,6 +1658,48 @@ const SHADOW_FIELDS: &[FieldSchema] = &[
         slot: FieldSlot::Third,
     },
 ];
+const TRANSFORM_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "a",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FirstLow,
+    },
+    FieldSchema {
+        name: "b",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FirstHigh,
+    },
+    FieldSchema {
+        name: "c",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::SecondLow,
+    },
+    FieldSchema {
+        name: "d",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::SecondHigh,
+    },
+    FieldSchema {
+        name: "e",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::ThirdLow,
+    },
+    FieldSchema {
+        name: "f",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::ThirdHigh,
+    },
+    FieldSchema {
+        name: "originX",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FourthLow,
+    },
+    FieldSchema {
+        name: "originY",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FourthHigh,
+    },
+];
 const ENABLED_FIELD: &[FieldSchema] = &[FieldSchema {
     name: "enabled",
     ty: FieldType::Bool,
@@ -1800,6 +1866,13 @@ pub const MODIFIER_SCHEMA: &[VariantSchema] = &[
         tag: 25,
         extra_words: 0,
         fields: VALUE_FLOAT_FIELD,
+    },
+    // Eight `f32` are four words: the linear part, the translation, and the origin.
+    VariantSchema {
+        name: "Transform",
+        tag: 26,
+        extra_words: 2,
+        fields: TRANSFORM_FIELDS,
     },
 ];
 

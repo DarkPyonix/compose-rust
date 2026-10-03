@@ -1140,6 +1140,26 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
         ),
         Modifier::Clip(enabled) => (24, two_words(u64::from(*enabled), 0)),
         Modifier::Alpha(value) => (25, two_words(float_word(*value), 0)),
+        Modifier::Transform {
+            a,
+            b,
+            c,
+            d,
+            e,
+            f,
+            origin_x,
+            origin_y,
+        } => (
+            26,
+            [
+                pack_floats(*a, *b),
+                pack_floats(*c, *d),
+                pack_floats(*e, *f),
+                pack_floats(*origin_x, *origin_y),
+                0,
+                0,
+            ],
+        ),
     }
 }
 
@@ -1231,6 +1251,35 @@ fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifi
             _ => Err(ProtocolError::InvalidModifier(24)),
         },
         25 => Ok(Modifier::Alpha(f32::from_bits(first as u32))),
+        26 => {
+            let values = [
+                unpack_low(first),
+                unpack_high(first),
+                unpack_low(second),
+                unpack_high(second),
+                unpack_low(third),
+                unpack_high(third),
+                unpack_low(fourth),
+                unpack_high(fourth),
+            ];
+            // A NaN or an infinity in a matrix makes everything under it undrawable, and
+            // the two sides would not even agree on how. Refused here, as the Renderer
+            // refuses it.
+            if values.iter().any(|value| !value.is_finite()) {
+                return Err(ProtocolError::InvalidModifier(26));
+            }
+            let [a, b, c, d, e, f, origin_x, origin_y] = values;
+            Ok(Modifier::Transform {
+                a,
+                b,
+                c,
+                d,
+                e,
+                f,
+                origin_x,
+                origin_y,
+            })
+        }
         other => Err(ProtocolError::InvalidModifier(other)),
     }
 }

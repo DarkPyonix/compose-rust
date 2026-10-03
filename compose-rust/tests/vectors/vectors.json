@@ -1,11 +1,11 @@
 {
   "format": "compose-rust protocol vectors v1",
-  "schemaHashUnsigned": "5732741981503512717",
+  "schemaHashUnsigned": "8371801098186312737",
   "byteOrder": "little-endian",
   "mutations": {
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property and the HTML and CSS drawing elements",
-    "recordCount": 55,
+    "recordCount": 56,
     "palette": [
       { "role": "Primary", "scheme": "Light", "argb": "ffe8590c" },
       { "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" },

@@ -1026,6 +1026,10 @@ object Protocol {
         else -> throw ProtocolException("invalid flag $word", offset)
     }
 
+    /** A value that has to be a number. NaN or an infinity is a record the sides disagree on. */
+    private fun finite(value: kotlin.Float, offset: Int): kotlin.Float =
+        if (value.isFinite()) value else throw ProtocolException("$value is not a finite number", offset)
+
     /**
      * How many eight byte words a modifier's value takes beyond the two every record has.
      * The tag fixes it, so a record of any other length is refused before it is read.
@@ -1780,6 +1784,22 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             index: 6,
             modifier: Modifier::Alpha(0.5),
         },
+        // A transform whose eight values are all different, so a value read from the
+        // wrong half of the wrong word cannot pass.
+        Mutation::SetModifier {
+            node_id: 8,
+            index: 7,
+            modifier: Modifier::Transform {
+                a: 0.75,
+                b: 0.5,
+                c: -0.25,
+                d: 1.25,
+                e: 12.0,
+                f: -6.0,
+                origin_x: 0.5,
+                origin_y: 0.25,
+            },
+        },
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {
@@ -1884,7 +1904,7 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property and the HTML and CSS drawing elements",
-    "recordCount": 55,
+    "recordCount": 56,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
@@ -1937,6 +1957,7 @@ fn kotlin_type(ty: FieldType) -> String {
         FieldType::Paint => "Paint".to_owned(),
         FieldType::Role(name) => format!("{KOTLIN_PACKAGE}.{name}"),
         FieldType::Bool => "Boolean".to_owned(),
+        FieldType::FiniteFloat => "kotlin.Float".to_owned(),
     }
 }
 
@@ -1967,6 +1988,7 @@ fn modifier_decode_expression(field: &FieldSchema) -> String {
         FieldType::Paint => format!("paint({word}, offset)"),
         FieldType::Role(name) => format!("{}({narrow}, offset)", lower_camel(name)),
         FieldType::Bool => format!("flag({word}, offset)"),
+        FieldType::FiniteFloat => format!("finite(kotlin.Float.fromBits({narrow}), offset)"),
     }
 }
 

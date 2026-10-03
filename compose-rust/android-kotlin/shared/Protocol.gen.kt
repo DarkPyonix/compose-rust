@@ -470,6 +470,7 @@ sealed interface Modifier {
     data class Shadow(val x: kotlin.Float, val y: kotlin.Float, val blur: kotlin.Float, val spread: kotlin.Float, val paint: Paint) : Modifier
     data class Clip(val enabled: Boolean) : Modifier
     data class Alpha(val value: kotlin.Float) : Modifier
+    data class Transform(val a: kotlin.Float, val b: kotlin.Float, val c: kotlin.Float, val d: kotlin.Float, val e: kotlin.Float, val f: kotlin.Float, val originX: kotlin.Float, val originY: kotlin.Float) : Modifier
 }
 
 sealed interface Mutation {
@@ -573,7 +574,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 5732741981503512717L
+    const val SCHEMA_HASH: Long = 8371801098186312737L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1478,6 +1479,10 @@ object Protocol {
         else -> throw ProtocolException("invalid flag $word", offset)
     }
 
+    /** A value that has to be a number. NaN or an infinity is a record the sides disagree on. */
+    private fun finite(value: kotlin.Float, offset: Int): kotlin.Float =
+        if (value.isFinite()) value else throw ProtocolException("$value is not a finite number", offset)
+
     /**
      * How many eight byte words a modifier's value takes beyond the two every record has.
      * The tag fixes it, so a record of any other length is refused before it is read.
@@ -1509,6 +1514,7 @@ object Protocol {
         23 -> 1
         24 -> 0
         25 -> 0
+        26 -> 2
         else -> throw ProtocolException("unknown modifier tag $tag", offset)
     }
 
@@ -1542,6 +1548,7 @@ object Protocol {
             23 -> Modifier.Shadow(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits((first ushr 32).toInt()), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()), paint(readU64(batch, base, available, at + 16), offset))
             24 -> Modifier.Clip(flag(first, offset))
             25 -> Modifier.Alpha(kotlin.Float.fromBits(first.toInt()))
+            26 -> Modifier.Transform(finite(kotlin.Float.fromBits(first.toInt()), offset), finite(kotlin.Float.fromBits((first ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(second.toInt()), offset), finite(kotlin.Float.fromBits((second ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(readU64(batch, base, available, at + 16).toInt()), offset), finite(kotlin.Float.fromBits((readU64(batch, base, available, at + 16) ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(readU64(batch, base, available, at + 24).toInt()), offset), finite(kotlin.Float.fromBits((readU64(batch, base, available, at + 24) ushr 32).toInt()), offset))
             else -> throw ProtocolException("unknown modifier tag $tag", offset)
         }
     }

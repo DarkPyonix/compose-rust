@@ -27,14 +27,16 @@ import dev.darkpyonix.composerust.runtime.windowSizeClassOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ClipOp
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.RectangleShape
@@ -42,7 +44,6 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.translate
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
@@ -175,18 +176,62 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             is ProtocolModifier.Clip ->
                 if (value.enabled) chain.clip(corners ?: RectangleShape) else chain
 
+            // CSS `transform`: drawn through layers, so the layout is untouched and a
+            // pointer is tested against the shape that is drawn.
+            is ProtocolModifier.Transform -> chain.affineTransform(
+                value.originX,
+                value.originY,
+                AffineParts.isOneLayer(value.a, value.b, value.c, value.d),
+            ) { matrix ->
+                matrix[0] = value.a
+                matrix[1] = value.b
+                matrix[2] = value.c
+                matrix[3] = value.d
+                matrix[4] = value.e
+                matrix[5] = value.f
+            }
+
             // The node and everything in it are drawn into one layer first, and the layer is
             // faded once. Fading each child separately would show where they overlap, which
             // CSS `opacity` does not.
-            is ProtocolModifier.Alpha -> chain.graphicsLayer {
-                val opacity = value.value.coerceIn(0f, 1f)
-                alpha = opacity
-                compositingStrategy =
-                    if (opacity < 1f) CompositingStrategy.Offscreen else CompositingStrategy.Auto
+            is ProtocolModifier.Alpha -> chain.groupAlpha { value.value }
+        }
+    }
+}
+
+/**
+ * Fades this node and everything drawn inside it as one group, the way CSS `opacity` does.
+ *
+ * The content is drawn into a layer of its own and the layer is drawn once at [alpha], so
+ * where two children overlap the overlap is no darker than either of them. The layer has
+ * no edge of its own: a child that overflows the node, or content a transform has turned
+ * past the node's rectangle, is faded rather than cut off. A Compose layer with an
+ * offscreen buffer would cut it at the node's bounds, which CSS never does.
+ *
+ * [alpha] is read while drawing, so a value that changes every frame only redraws.
+ */
+internal fun Modifier.groupAlpha(alpha: () -> Float): Modifier {
+    val paint = Paint()
+    return drawWithContent {
+        val opacity = alpha().coerceIn(0f, 1f)
+        when {
+            opacity >= 1f -> drawContent()
+            opacity <= 0f -> Unit
+            else -> {
+                paint.alpha = opacity
+                drawContext.canvas.saveLayer(UNBOUNDED_GROUP, paint)
+                drawContent()
+                drawContext.canvas.restore()
             }
         }
     }
 }
+
+/**
+ * A layer as large as anything a screen can draw. The layer that is allocated is only as
+ * large as what is visible, because drawing is limited to the clip before it starts.
+ */
+private val UNBOUNDED_GROUP = Rect(-1e7f, -1e7f, 1e7f, 1e7f)
 
 /**
  * Says that a paint named a brush that is not registered, and paints nothing.
