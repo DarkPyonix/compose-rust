@@ -1,0 +1,35 @@
+# The renderer for Android.
+#
+# The interpreter sources are the same files the desktop renderer builds: `src/shared/`
+# holds symlinks into `desktop/src/`, so there is one copy of the interpreter and one copy
+# of the generated protocol. Everything under `src/bridge/` is the Android half of the
+# boundary: the generated JNI declarations instead of the GraalVM ones, a connection that
+# reads the Host's arena through a direct byte buffer, and Android's own picture decoding.
+#
+# The module cannot depend on `desktop` instead, because that one is a `jvm/app`.
+#
+# A library, not an application. There is no Activity here and no manifest: an application
+# gets both from its own build, which generates the Activity into its own package with its
+# own library name. Holding one here as well is what made this repository ship sample APKs
+# by a route no user takes. What this module is for is the one thing it can still say,
+# which is that the Android half of the renderer compiles on the Android toolchain.
+product:
+  type: lib
+  platforms: [android]
+
+dependencies:
+  - $compose.runtime
+  - $compose.foundation
+  - $compose.material3
+  - $compose.ui
+  - $libs.androidx.activity.compose
+  - $compose.preview
+  - $compose.uiTooling
+
+settings:
+  compose: enabled
+  android:
+    namespace: dev.darkpyonix.composerust
+    # The oldest Android this renderer compiles for. An application's own build decides
+    # its minSdk; this is the floor the interpreter is written against.
+    minSdk: 26
