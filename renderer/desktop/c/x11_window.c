@@ -618,3 +618,186 @@ void dxc_native_set_accessibility(const struct dxc_element *elements, int32_t co
         fprintf(stderr, "\n");
     }
 }
+
+// The reader's text size, as the desktop publishes it to X clients.
+//
+// GNOME's settings daemon announces its text scaling factor over XSETTINGS, and KDE's font
+// settings write the font DPI into the root window's resource database. Both are window
+// properties, so both say when they change: this keeps an X connection of its own, listens
+// for those properties, and counts each change. The renderer asks for the count once a
+// frame and for the properties only when it has moved; what the bytes mean is read on the
+// Kotlin side, by the same code the Kotlin/Native window uses.
+//
+// A connection of its own rather than the window's, so that nothing here depends on which
+// window is open or on the order the window's own events are read in.
+static Display *dxc_settings_display;
+static int dxc_settings_tried;
+static Window dxc_settings_root;
+static Window dxc_settings_owner;
+static Atom dxc_settings_selection;
+static Atom dxc_settings_property;
+static Atom dxc_settings_manager;
+static int32_t dxc_settings_serial;
+
+// The settings manager is another process's window and can be destroyed between being
+// found and being asked. Xlib's own answer to a request about a window that has gone is to
+// end this process, so the requests made of it are made inside a handler that notes the
+// error instead. Synchronised on both sides, so the errors caught are this file's and only
+// for as long as it takes to make the requests.
+static int dxc_settings_failed;
+
+static int dxc_settings_note_error(Display *display, XErrorEvent *error) {
+    (void)display;
+    (void)error;
+    dxc_settings_failed = 1;
+    return 0;
+}
+
+static XErrorHandler dxc_settings_trap(void) {
+    XSync(dxc_settings_display, False);
+    dxc_settings_failed = 0;
+    return XSetErrorHandler(dxc_settings_note_error);
+}
+
+static void dxc_settings_untrap(XErrorHandler previous) {
+    XSync(dxc_settings_display, False);
+    XSetErrorHandler(previous);
+}
+
+// Who holds the settings selection now, watched so that a change of a setting and the
+// manager going away are both heard.
+static void dxc_watch_settings_owner(void) {
+    XErrorHandler previous = dxc_settings_trap();
+    dxc_settings_owner = XGetSelectionOwner(dxc_settings_display, dxc_settings_selection);
+    if (dxc_settings_owner != None) {
+        XSelectInput(dxc_settings_display, dxc_settings_owner,
+                     PropertyChangeMask | StructureNotifyMask);
+    }
+    dxc_settings_untrap(previous);
+    if (dxc_settings_failed) {
+        dxc_settings_owner = None;
+    }
+}
+
+static int dxc_settings_open(void) {
+    if (dxc_settings_display != NULL) {
+        return 1;
+    }
+    if (dxc_settings_tried) {
+        return 0;
+    }
+    dxc_settings_tried = 1;
+    dxc_settings_display = XOpenDisplay(NULL);
+    if (dxc_settings_display == NULL) {
+        return 0;
+    }
+    int screen = DefaultScreen(dxc_settings_display);
+    char name[32];
+    snprintf(name, sizeof name, "_XSETTINGS_S%d", screen);
+    dxc_settings_root = RootWindow(dxc_settings_display, screen);
+    dxc_settings_selection = XInternAtom(dxc_settings_display, name, False);
+    dxc_settings_property = XInternAtom(dxc_settings_display, "_XSETTINGS_SETTINGS", False);
+    dxc_settings_manager = XInternAtom(dxc_settings_display, "MANAGER", False);
+    // The resource database changes on the root window, and a new settings manager is
+    // announced there with a MANAGER message.
+    XSelectInput(dxc_settings_display, dxc_settings_root, PropertyChangeMask | StructureNotifyMask);
+    dxc_watch_settings_owner();
+    dxc_settings_serial = 1;
+    return 1;
+}
+
+/** A number that changes whenever the desktop's text settings may have. */
+int32_t dxc_native_text_settings_serial(void) {
+    if (!dxc_settings_open()) {
+        return 0;
+    }
+    while (XPending(dxc_settings_display) > 0) {
+        XEvent event;
+        XNextEvent(dxc_settings_display, &event);
+        switch (event.type) {
+        case PropertyNotify:
+            if ((event.xproperty.window == dxc_settings_root &&
+                 event.xproperty.atom == XA_RESOURCE_MANAGER) ||
+                (event.xproperty.window == dxc_settings_owner &&
+                 event.xproperty.atom == dxc_settings_property)) {
+                dxc_settings_serial++;
+            }
+            break;
+        case ClientMessage:
+            if (event.xclient.message_type == dxc_settings_manager &&
+                (Atom)event.xclient.data.l[1] == dxc_settings_selection) {
+                dxc_watch_settings_owner();
+                dxc_settings_serial++;
+            }
+            break;
+        case DestroyNotify:
+            if (event.xdestroywindow.window == dxc_settings_owner) {
+                dxc_watch_settings_owner();
+                dxc_settings_serial++;
+            }
+            break;
+        default:
+            break;
+        }
+    }
+    return dxc_settings_serial;
+}
+
+/**
+ * Copies one of the two properties into `out`, and answers its whole length.
+ *
+ * `which` is 0 for the XSETTINGS manager's settings and 1 for the root window's resource
+ * database. Minus one where it is not there. A length larger than `capacity` means only the
+ * first `capacity` bytes were copied and the caller should ask again with room for all.
+ */
+int32_t dxc_native_text_settings(int32_t which, char *out, int32_t capacity) {
+    if (!dxc_settings_open()) {
+        return -1;
+    }
+    Window window = which == 0 ? dxc_settings_owner : dxc_settings_root;
+    Atom property = which == 0 ? dxc_settings_property : XA_RESOURCE_MANAGER;
+    if (window == None) {
+        return -1;
+    }
+    Atom type = None;
+    int format = 0;
+    unsigned long count = 0;
+    unsigned long after = 0;
+    unsigned char *data = NULL;
+    XErrorHandler previous = dxc_settings_trap();
+    int status = XGetWindowProperty(dxc_settings_display, window, property, 0, 0x7fffffff / 4,
+                                    False, AnyPropertyType, &type, &format, &count, &after,
+                                    &data);
+    dxc_settings_untrap(previous);
+    if (status != Success || dxc_settings_failed || type == None || data == NULL ||
+        format != 8) {
+        if (data != NULL) {
+            XFree(data);
+        }
+        return -1;
+    }
+    int32_t length = count > 0x7fffffff ? 0x7fffffff : (int32_t)count;
+    if (out != NULL && capacity > 0) {
+        memcpy(out, data, (size_t)(length < capacity ? length : capacity));
+    }
+    XFree(data);
+    return length;
+}
+
+/** Windows' text size. Linux has its own settings, read above, so this is the default. */
+float dxc_native_text_scale(void) {
+    return 1.0f;
+}
+
+/**
+ * The zoom level in the user defaults, which this platform does not have. The renderer
+ * keeps it in a file in the application's configuration directory instead, from Kotlin.
+ */
+int32_t dxc_native_zoom_level_load(int32_t *out) {
+    (void)out;
+    return 0;
+}
+
+void dxc_native_zoom_level_store(int32_t level) {
+    (void)level;
+}

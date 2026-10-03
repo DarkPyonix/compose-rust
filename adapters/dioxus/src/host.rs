@@ -90,7 +90,8 @@ impl Runtime for DioxusRuntime {
             | EventPayload::LifecycleStart
             | EventPayload::LifecycleStop
             | EventPayload::NotificationActivated { .. }
-            | EventPayload::NotificationPermissionChanged(_) => {
+            | EventPayload::NotificationPermissionChanged(_)
+            | EventPayload::ZoomChanged { .. } => {
                 return Err(ProtocolError::InvalidValueKind(0));
             }
         };

@@ -304,6 +304,9 @@ impl Host {
         // the one replacing it, out of any context that made them make sense.
         //
         crate::message::reset_messages();
+        // The Renderer reports its zoom again at start, and a level the last Host asked for
+        // and never sent is that Host's business.
+        crate::zoom::reset_zoom();
         // The assets do not go with them. The Renderer this Host is about to talk to has
         // an empty cache, so every registration has to be made again, which is what this
         // does: the ids stay as they were and the bytes are queued for the first batch.
@@ -459,6 +462,22 @@ impl Host {
         self.empty_batch()
     }
 
+    /// Records how large the Renderer is drawing, and wakes the components that read it.
+    ///
+    /// The level the Renderer reports is also kept as the window's own, so a resync
+    /// rebuilds the window at the level the reader is looking at rather than at one the
+    /// application asked for before the reader changed it.
+    fn publish_zoom(&mut self, k: f32, os: f32, level: i32) -> Result<(&[u8], i64), ProtocolError> {
+        let level = i8::try_from(level).map_err(|_| ProtocolError::InvalidValueKind(0))?;
+        if self.window.zoom_level.is_some() {
+            self.window.zoom_level = Some(level);
+        }
+        if crate::zoom::publish(crate::zoom::Zoom { k, os, level }) {
+            return self.render_and_finish(0);
+        }
+        self.empty_batch()
+    }
+
     pub fn dispatch(&mut self, event: HostEvent<'_>) -> Result<(&[u8], i64), ProtocolError> {
         let _call = HostCallGuard::enter();
         // These address the Host itself: no node, no handler, and an answer before
@@ -481,6 +500,12 @@ impl Host {
                     return Err(ProtocolError::InvalidValueKind(0));
                 }
                 return self.publish_notification_permission(state);
+            }
+            EventPayload::ZoomChanged { k, os, level } => {
+                if event.node_id != 0 || event.handler_id != 0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                return self.publish_zoom(k, os, level);
             }
             _ => {}
         }
@@ -590,6 +615,12 @@ impl Host {
         if let Some(theme) = crate::theme::take_pending() {
             self.theme = theme;
             self.batch().set_theme(theme);
+        }
+        // A zoom level the application asked for, on the window record that carries it.
+        if let Some(level) = crate::zoom::take_pending_level() {
+            self.window.zoom_level = Some(level);
+            let window = self.window;
+            self.batch().set_window(window);
         }
         let batch = self.runtime.batch_mut();
         // Registrations first. Not because the Renderer needs them first, it applies the

@@ -67,11 +67,14 @@ data class WindowEvent(
  * platform's scene measures in, so nothing is converted here beyond naming which kind of
  * event it was.
  */
-internal fun ComposeScene.receive(event: WindowEvent, win32: Boolean = false) {
-    when (event.kind) {
-        // Built from parts rather than from a platform event. The toolkit's own key
-        // event is what the supported path converts, and there is none here to convert.
-        WindowEvent.KEY_DOWN, WindowEvent.KEY_UP -> sendKeyEvent(
+internal fun ComposeScene.receive(event: WindowEvent, win32: Boolean = false): Boolean {
+    // Built from parts rather than from a platform event. The toolkit's own key event is
+    // what the supported path converts, and there is none here to convert.
+    //
+    // The answer is whether something in the scene consumed the key, which is how a window
+    // knows a zoom shortcut was the application's to keep.
+    if (event.kind == WindowEvent.KEY_DOWN || event.kind == WindowEvent.KEY_UP) {
+        return sendKeyEvent(
             KeyEvent(
                 key = if (win32) win32ComposeKey(event.keyCode) else composeKey(event.keyCode),
                 type = if (event.kind == WindowEvent.KEY_DOWN) {
@@ -86,7 +89,8 @@ internal fun ComposeScene.receive(event: WindowEvent, win32: Boolean = false) {
                 isShiftPressed = event.modifiers and (if (win32) 1 else MODIFIER_SHIFT) != 0,
             ),
         )
-
+    }
+    when (event.kind) {
         WindowEvent.POINTER_MOVE -> sendPointerEvent(
             eventType = PointerEventType.Move,
             position = Offset(event.x, event.y),
@@ -115,6 +119,7 @@ internal fun ComposeScene.receive(event: WindowEvent, win32: Boolean = false) {
             scrollDelta = Offset(event.x, event.y),
         )
     }
+    return false
 }
 
 

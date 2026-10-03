@@ -839,3 +839,54 @@ void dxc_native_frame_end(void *queue_pointer) {
     }
     });
 }
+
+#pragma mark - The reader's text size
+
+// macOS has no text size an application can read: what Apple's own applications call
+// text size is a setting of each application, changed with Command and plus or minus.
+// The window answers those keys itself (`TextZoom.kt`), so the system's answer here is
+// always the default and nothing ever changes it.
+
+/** Windows' text size. This platform has none. */
+float dxc_native_text_scale(void) {
+    return 1.0f;
+}
+
+/** The desktop text settings Linux publishes. This platform has none, so nothing changes. */
+int32_t dxc_native_text_settings_serial(void) {
+    return 0;
+}
+
+/** Nothing to copy: there are no X properties here. */
+int32_t dxc_native_text_settings(int32_t which, char *out, int32_t capacity) {
+    (void)which;
+    (void)out;
+    (void)capacity;
+    return -1;
+}
+
+#pragma mark - The application's zoom level
+
+// Kept in the user defaults, which are one domain per application already: a bundled
+// application's own identifier, or the executable's name for one that is not bundled.
+static NSString *const dxc_zoom_level_key = @"ComposeRustZoomLevel";
+
+/** Writes the saved level into `out` and answers 1, or answers 0 where none was saved. */
+int32_t dxc_native_zoom_level_load(int32_t *out) {
+    @autoreleasepool {
+        id saved = [NSUserDefaults.standardUserDefaults objectForKey:dxc_zoom_level_key];
+        if (![saved isKindOfClass:NSNumber.class]) {
+            return 0;
+        }
+        if (out != NULL) {
+            *out = (int32_t)[(NSNumber *)saved intValue];
+        }
+        return 1;
+    }
+}
+
+void dxc_native_zoom_level_store(int32_t level) {
+    @autoreleasepool {
+        [NSUserDefaults.standardUserDefaults setInteger:level forKey:dxc_zoom_level_key];
+    }
+}

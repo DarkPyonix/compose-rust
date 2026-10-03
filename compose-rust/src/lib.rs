@@ -38,6 +38,7 @@ pub mod spans;
 pub mod theme;
 pub mod tokens;
 pub mod window;
+pub mod zoom;
 
 pub use asset::asset;
 pub use boundary::{
@@ -64,6 +65,7 @@ pub use schema::{
 };
 pub use theme::ThemeHandle;
 pub use window::{NodeSize, WindowSize, node_size, window_size};
+pub use zoom::{Zoom, ZoomHandle, zoom};
 
 /// Declares the entry point an iOS application starts at.
 ///

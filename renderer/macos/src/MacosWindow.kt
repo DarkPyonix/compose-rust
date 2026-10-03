@@ -21,8 +21,13 @@ import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.platform.WindowInfo
 import androidx.compose.ui.scene.CanvasLayersComposeScene
-import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.runtime.CompositionLocalProvider
+import dev.darkpyonix.composerust.runtime.LocalZoom
+import dev.darkpyonix.composerust.runtime.Zoom
+import dev.darkpyonix.composerust.runtime.ZoomLevelStore
+import dev.darkpyonix.composerust.runtime.clampZoomLevel
+import platform.Foundation.NSUserDefaults
 import kotlinx.cinterop.CValue
 import kotlinx.cinterop.useContents
 import platform.CoreGraphics.CGPoint
@@ -161,6 +166,15 @@ internal class MacosWindow(
     /** Where committed and composing text goes. */
     private val textInput = NativeTextInput()
 
+    /**
+     * The zoom the window is drawn at.
+     *
+     * macOS publishes no text size an application can read, so the system's share is one;
+     * the application's zoom level is stepped with Command and plus, minus or zero and kept
+     * in the user defaults, which are already one domain per application.
+     */
+    private val zoom = Zoom(store = UserDefaultsZoomLevel)
+
     /** Copy, paste and the rest, as the system's own menu draws them. */
     private val textToolbar = MacosTextToolbar { view }
 
@@ -218,6 +232,8 @@ internal class MacosWindow(
         val size = IntSize(widthInPixels, heightInPixels)
         measured = size
         scene.size = size
+        // A zoom level the keys or the application changed since the last frame.
+        if (zoom.refresh()) scene.density = zoom.density(window.backingScaleFactor.toFloat())
         scene.render(
             canvas.asComposeCanvas(),
             (NSProcessInfo.processInfo.systemUptime * 1_000_000_000.0).toLong(),
@@ -602,7 +618,10 @@ internal class MacosWindow(
             // Handed to the input context rather than interpreted. Interpreting also
             // turns keys into editing commands for a text system this window does not
             // have, and the keys have already gone to the scene, which has its own.
-            scene.sendKeyEvent(event.compose(KeyEventType.KeyDown))
+            val consumed = scene.sendKeyEvent(event.compose(KeyEventType.KeyDown))
+            // Command with plus, minus or zero, where the scene left the key alone. A zoom
+            // goes no further: the input method has no meaning for it.
+            if (zoomFor(event, consumed)) return
             inputContext?.handleEvent(event)
         }
 
@@ -649,8 +668,8 @@ internal class MacosWindow(
         // After the window is on screen, and in this order: the density is the screen's
         // and is not known until the window is on one, and a scene given content before
         // it has a size composes into nothing and draws a blank window.
-        scene.density = Density(window.backingScaleFactor.toFloat())
-        scene.setContent(content)
+        scene.density = zoom.density(window.backingScaleFactor.toFloat())
+        scene.setContent { CompositionLocalProvider(LocalZoom provides zoom, content) }
 
         // Said, rather than assumed. Compose composes for something that is alive, and a
         // scene nobody has resumed stays where it started, which is a window that opens
@@ -734,6 +753,22 @@ internal class MacosWindow(
         menu.addItem(item)
     }
 
+    /**
+     * Takes a zoom shortcut the scene has already been offered, and answers whether the key
+     * was taken as one. A zoom redraws the window, because nothing in the scene invalidated
+     * and all of it is about to be laid out again at another size.
+     */
+    private fun zoomFor(event: NSEvent, consumed: Boolean): Boolean {
+        val shortcut = macZoomShortcut(
+            character = event.charactersIgnoringModifiers?.firstOrNull()?.code ?: 0,
+            keyCode = event.keyCode.toInt(),
+            modifierFlags = event.modifierFlags.toLong(),
+        )
+        if (!zoom.takeShortcut(shortcut, consumed)) return false
+        view.needsDisplay = true
+        return true
+    }
+
     /** One key held with Command, built from parts the way a platform event is. */
     private fun command(key: Key, type: KeyEventType): KeyEvent = KeyEvent(
         key = key,
@@ -803,4 +838,22 @@ private val Int.readerRole: String
 private class MenuShortcut(private val run: () -> Unit) : platform.darwin.NSObject() {
     @kotlinx.cinterop.ObjCAction
     fun perform() = run()
+}
+
+/**
+ * Where this window keeps the application's zoom level: the user defaults, one domain per
+ * application already, a bundled application's identifier or the executable's name.
+ */
+private object UserDefaultsZoomLevel : ZoomLevelStore {
+    private const val KEY = "ComposeRustZoomLevel"
+
+    override fun load(): Int? {
+        val defaults = NSUserDefaults.standardUserDefaults
+        if (defaults.objectForKey(KEY) == null) return null
+        return clampZoomLevel(defaults.integerForKey(KEY).toInt())
+    }
+
+    override fun save(level: Int) {
+        NSUserDefaults.standardUserDefaults.setInteger(clampZoomLevel(level).toLong(), KEY)
+    }
 }

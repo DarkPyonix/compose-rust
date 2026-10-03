@@ -3,7 +3,10 @@
 
 package dev.darkpyonix.composerust.ui.platform
 
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.asComposeCanvas
+import dev.darkpyonix.composerust.runtime.LocalZoom
+import dev.darkpyonix.composerust.runtime.Zoom
 import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.scene.ComposeScene
 import org.graalvm.nativeimage.StackValue
@@ -134,22 +137,32 @@ internal fun runX11Window() {
     // queue, and the Host this renderer talks to is on this thread and invisible from
     // there.
     val work = FrameDispatcher()
+    // The zoom the window is drawn at. The reader's text size comes from what the desktop
+    // publishes to X clients (GNOME's text scaling factor, KDE's font DPI), asked again
+    // once a turn, which costs a look at a connection that has heard nothing until the
+    // desktop changes one of them. The application's zoom level is stepped with Control and
+    // plus, minus or zero and kept in the application's configuration directory.
+    val zoom = Zoom(x11TextScale(), fileZoomLevelStore(ConfigLayout.Linux))
     val scene = CanvasLayersComposeScene(
-        density = androidx.compose.ui.unit.Density(measured.scale),
+        density = zoom.density(measured.scale),
         size = size,
         coroutineContext = work,
         platformContext = NativePlatformContext({ size }, textInput, semantics),
     )
     // The application's own tree, drawn by the same interpreter the toolkit path uses.
     // Nothing in it knows which of the two it is running on, which is the point.
-    scene.setContent { dev.darkpyonix.composerust.runtime.ComposeRustContent(host) }
+    scene.setContent {
+        CompositionLocalProvider(LocalZoom provides zoom) {
+            dev.darkpyonix.composerust.runtime.ComposeRustContent(host)
+        }
+    }
 
     // A clock rather than a count of turns, because a turn and a frame are no longer the
     // same thing: a resize draws its own, and a count only the loop advanced would hand
     // two frames in a row the same time and stop whatever is animating between them.
-    val opened = System.nanoTime()
+    val clock = FrameClock()
     var painted = false
-    val frames = WindowFrames({ window.measure() }) { fitted, density ->
+    val frames = WindowFrames({ window.measure() }, zoom) { fitted, density ->
         // Told to the scene here, in the frame that is about to be drawn at that size,
         // because a drawable that fits and a scene that does not is a window drawing its
         // old size into a corner of its new one.
@@ -158,7 +171,7 @@ internal fun runX11Window() {
             scene.size = fitted
         }
         size = fitted
-        if (drawFrame(window, context, scene, System.nanoTime() - opened, fitted)) {
+        if (drawFrame(window, context, scene, clock.frameTimeNanos(), fitted)) {
             painted = true
         }
     }
@@ -185,13 +198,20 @@ internal fun runX11Window() {
                 if (report && event.kind != WindowEvent.POINTER_MOVE) {
                     System.err.println("compose-rust: window heard $event")
                 }
-                scene.receive(event)
+                val consumed = scene.receive(event)
+                // Control with plus, minus or zero, where the scene left the key alone.
+                if (event.kind == WindowEvent.KEY_DOWN) {
+                    zoom.takeShortcut(x11ZoomShortcut(event.codePoint, event.modifiers.toLong()), consumed)
+                }
                 heard = true
             }
+            // A text size the reader changed, or a zoom level. Nothing in the scene has
+            // invalidated, but all of it is about to be laid out again, so it is drawn.
+            val rescaled = zoom.refresh()
             // Only when there is something to draw. A window that is being resized has
             // already had its frame drawn by the resize, and a window where nothing is
             // happening should leave the screen alone.
-            if (!painted || heard || scene.hasInvalidations()) {
+            if (!painted || heard || rescaled || scene.hasInvalidations()) {
                 drew = frames.draw()
             }
             // Every frame, and after the drawing. After, because that is when what is in

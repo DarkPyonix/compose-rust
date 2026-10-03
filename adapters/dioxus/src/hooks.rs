@@ -165,3 +165,24 @@ pub fn use_notification_activated(handler: impl FnMut(NotificationActivation) + 
         )))
     });
 }
+
+/// How large the Renderer is drawing, and the way to change the application's zoom.
+///
+/// ```ignore
+/// let zoom = use_zoom();
+/// rsx! {
+///     Button { text: "Zoom In", on_click: move |_| zoom.zoom_in() }
+///     Text { text: format!("{:.0}%", zoom.get().k * 100.0) }
+/// }
+/// ```
+///
+/// The component is re-rendered when the Renderer reports a different zoom: the reader
+/// changed the system's text size, pressed Command or Control with plus, minus or zero, or
+/// the application set a level. Native widgets need none of this, since they are already
+/// drawn at the right size; it is for a screen that lays out text of its own.
+pub fn use_zoom() -> compose_rust::zoom::ZoomHandle {
+    dioxus_core::use_hook(|| {
+        Rc::new(compose_rust::zoom::subscribe(dioxus_core::schedule_update()))
+    });
+    compose_rust::zoom::ZoomHandle::default()
+}
