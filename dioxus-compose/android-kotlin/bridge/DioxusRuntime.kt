@@ -22,7 +22,7 @@ object DioxusRuntime {
      * The application's cdylib, once it has been named.
      *
      * It is the Rust side of the app: it links this crate, declares its root component
-     * through `dioxus_compose::android_main!`, and carries the generated JNI shims and
+     * through `compose_rust::android_main!`, and carries the generated JNI shims and
      * `JNI_OnLoad` with it. Its file name is the application's to choose, which is why it
      * is not a constant here: an application built by the Dioxus CLI gets one name, a
      * Gradle project put together by hand another.

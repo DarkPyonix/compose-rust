@@ -30,7 +30,7 @@ try {
   // falls back to its scripted development host, and this says why on the console rather
   // than leaving an empty screen to be puzzled over.
   console.info(
-    `dioxus-compose: no Host module beside this page (${HOST_WASM}: ${error}). ` +
+    `compose-rust: no Host module beside this page (${HOST_WASM}: ${error}). ` +
       'The renderer will draw its development host instead.',
   );
 }

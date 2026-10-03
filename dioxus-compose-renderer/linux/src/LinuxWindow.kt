@@ -210,7 +210,7 @@ internal class LinuxWindow private constructor(
         described = elements
         if (reportFrames) {
             System.err.println(
-                "dioxus-compose: the window holds ${described.size} things to say" +
+                "compose-rust: the window holds ${described.size} things to say" +
                     (described.firstOrNull()?.let { ", the first being \"${it.label}\"" } ?: ""),
             )
         }
@@ -370,7 +370,7 @@ internal class LinuxWindow private constructor(
                 log.drain(drained)
                 for (event in drained) {
                     if (reportInput && event.kind != WindowEvent.POINTER_MOVE) {
-                        System.err.println("dioxus-compose: window heard $event")
+                        System.err.println("compose-rust: window heard $event")
                     }
                     scene.receive(event)
                     textInput.receive(event)

@@ -697,19 +697,20 @@ fn nfr11_a_renderer_that_already_answers_to_its_location_is_left_alone() {
 }
 
 // -------------------------------------------------------------------------------------
-// The Linux half of the same rule: no SONAME
+// The Linux half of the same rule: a SONAME that is the library's absolute path
 // -------------------------------------------------------------------------------------
 
-/// A shared object that records a SONAME is looked up by that bare name, and the
-/// application that linked it has no search path to find it on. One with no SONAME is
-/// recorded by the full path the linker opened, which makes the lookup absolute in the
-/// same way an install name does on macOS. An artifact carrying one is corrected as it is
-/// acquired rather than left to fail at start up.
+/// The renderer is published with no SONAME, and GNU ld records a library with none that
+/// it found through `-l` by its bare file name. The loader then has to search for that on
+/// a path an application that merely depends on this crate does not have, which is how
+/// every Linux binary linking the renderer died with "cannot open shared object file".
+/// Every linker copies a SONAME into `DT_NEEDED` verbatim, so naming the library after its
+/// absolute path is what makes the dependents record that path.
 #[test]
-fn nfr11_a_linux_renderer_that_carries_a_soname_loses_it() {
+fn nfr11_a_linux_renderer_is_named_after_where_it_is_unpacked() {
     let temp = TempDir::new("soname");
     let staging = temp.path().join("staging");
-    renderer_tree_named(&staging, Some("libdioxus_compose_renderer.so"));
+    renderer_tree(&staging);
     let cache = temp.path().join("cache");
     pack(
         &staging,
@@ -722,9 +723,46 @@ fn nfr11_a_linux_renderer_that_carries_a_soname_loses_it() {
         .join(renderer_lib_subdir(SAMPLE_TARGET_OS))
         .join(renderer_lib_file(SAMPLE_TARGET_OS));
     assert_eq!(
-        elf::soname(&before).unwrap().as_deref(),
-        Some("libdioxus_compose_renderer.so"),
-        "the fixture was supposed to carry a SONAME"
+        elf::soname(&before).unwrap(),
+        None,
+        "the fixture was supposed to look like the published renderer, which has no SONAME"
+    );
+
+    let renderer = acquire_for(
+        SAMPLE_TARGET,
+        SAMPLE_TARGET_OS,
+        &temp,
+        None,
+        Network::Forbidden,
+        &cache,
+    )
+    .expect("the tarball is here");
+
+    // The name is where the library ended up, not the scratch directory it was unpacked
+    // into before being moved there.
+    let after = renderer.lib_dir.join(renderer_lib_file(SAMPLE_TARGET_OS));
+    assert!(after.is_absolute());
+    assert_eq!(
+        elf::soname(&after).unwrap().as_deref(),
+        Some(after.to_str().unwrap()),
+        "the unpacked library does not answer to its own path, so anything linking it would \
+         look for a bare file name on a search path it does not have"
+    );
+}
+
+/// An artifact that was linked with a bare SONAME is renamed the same way, rather than
+/// left to be recorded by that bare name.
+#[test]
+fn nfr11_a_linux_renderer_that_carries_a_bare_soname_is_renamed() {
+    let temp = TempDir::new("bare-soname");
+    let staging = temp.path().join("staging");
+    renderer_tree_named(&staging, Some("libdioxus_compose_renderer.so"));
+    let cache = temp.path().join("cache");
+    pack(
+        &staging,
+        &download_dir(&cache),
+        Checksum::Correct,
+        SAMPLE_TARGET,
     );
 
     let renderer = acquire_for(
@@ -739,58 +777,73 @@ fn nfr11_a_linux_renderer_that_carries_a_soname_loses_it() {
 
     let after = renderer.lib_dir.join(renderer_lib_file(SAMPLE_TARGET_OS));
     assert_eq!(
-        elf::soname(&after).unwrap(),
-        None,
-        "the unpacked library still records a SONAME, so anything linking it would look \
-         for a bare file name on a search path it does not have"
+        elf::soname(&after).unwrap().as_deref(),
+        Some(after.to_str().unwrap())
     );
 }
 
-/// Taking the entry out moves the ones after it up a slot and leaves everything else
-/// alone. The dynamic section is read back in full, because an edit that dropped a
-/// neighbour or broke the terminator would produce a library that still reports no SONAME
-/// and no longer loads.
+/// A renderer built in the workspace or pointed at by the variable is named the same way
+/// as one that was downloaded, so the route people use every day is the route consumers
+/// get.
 #[test]
-fn nfr11_removing_a_soname_keeps_every_other_dynamic_entry() {
-    let temp = TempDir::new("dynamic");
-    let library = temp.path().join("renderer.so");
-    std::fs::write(&library, elf_shared_object(Some("libsomething.so.1"))).unwrap();
+fn nfr10_a_linux_renderer_the_variable_points_at_is_named_after_where_it_sits() {
+    let temp = TempDir::new("env-soname");
+    let root = renderer_tree(&temp.path().join("vendored"));
 
-    let before = dynamic_entries(&library);
-    // The string table is left exactly as it was. Only the entry pointing into it goes,
-    // which is why this is a local edit and not a rewrite of the library.
-    let expected: Vec<(i64, u64)> = before
-        .iter()
-        .copied()
-        .filter(|(tag, _)| *tag != 14)
-        .collect();
-    assert_eq!(before.len(), expected.len() + 1, "the fixture had a SONAME");
+    let renderer = acquire(&temp, Some(&root), Network::Forbidden).expect("the variable is set");
+    assert_eq!(renderer.source, RendererSource::Environment);
 
-    assert!(elf::remove_soname(&library).unwrap());
+    let library = renderer.lib_dir.join(renderer_lib_file(SAMPLE_TARGET_OS));
     assert_eq!(
-        dynamic_entries(&library),
-        expected,
-        "removing the SONAME changed something other than the SONAME"
+        elf::soname(&library).unwrap().as_deref(),
+        Some(library.to_str().unwrap())
     );
-    assert_eq!(elf::soname(&library).unwrap(), None);
 }
 
-/// Nothing to remove is not a failure, and it is the case every build of a published
-/// renderer takes.
+/// A Linux renderer that already answers to its location is not written to. The read-only
+/// file is the assertion: a build that writes fails, and this one must not.
+#[cfg(unix)]
 #[test]
-fn nfr11_a_linux_renderer_without_a_soname_is_not_rewritten() {
-    let temp = TempDir::new("no-soname");
-    let library = temp.path().join("renderer.so");
-    let bytes = elf_shared_object(None);
-    std::fs::write(&library, &bytes).unwrap();
+fn nfr11_a_linux_renderer_that_already_answers_to_its_location_is_left_alone() {
+    let temp = TempDir::new("soname-already");
+    let root = renderer_tree(&temp.path().join("vendored"));
+    let library = root
+        .join(renderer_lib_subdir(SAMPLE_TARGET_OS))
+        .join(renderer_lib_file(SAMPLE_TARGET_OS));
+    assert!(elf::set_soname(&library, library.to_str().unwrap()).unwrap());
+    let named = std::fs::read(&library).unwrap();
+    read_only(&library);
 
-    assert_eq!(elf::soname(&library).unwrap(), None);
-    assert!(!elf::remove_soname(&library).unwrap());
-    assert_eq!(
-        std::fs::read(&library).unwrap(),
-        bytes,
-        "a library with no SONAME was written to anyway"
-    );
+    let renderer = acquire(&temp, Some(&root), Network::Forbidden);
+    let renderer = renderer.unwrap_or_else(|message| {
+        panic!("a renderer that is already named after itself was rewritten anyway:\n{message}")
+    });
+    assert_eq!(renderer.source, RendererSource::Environment);
+    assert_eq!(std::fs::read(&library).unwrap(), named);
+}
+
+/// A renderer that cannot be named fails the build with the message that says why and
+/// what to do, rather than producing binaries that link and cannot start.
+#[test]
+fn nfr11_a_linux_renderer_that_cannot_be_named_fails_the_build() {
+    let temp = TempDir::new("soname-no-slot");
+    let root = temp.path().join("vendored");
+    let lib_dir = root.join(renderer_lib_subdir(SAMPLE_TARGET_OS));
+    std::fs::create_dir_all(&lib_dir).unwrap();
+    std::fs::write(
+        lib_dir.join(renderer_lib_file(SAMPLE_TARGET_OS)),
+        elf::fixture::shared_object(elf::fixture::Shape {
+            spare_slots: 0,
+            ..elf::fixture::Shape::default()
+        }),
+    )
+    .unwrap();
+
+    let message = acquire(&temp, Some(&root), Network::Forbidden)
+        .expect_err("there is no slot for the SONAME");
+    assert!(message.contains("SONAME"), "{message}");
+    assert!(message.contains("spare slot"), "{message}");
+    assert!(message.contains(RENDERER_DIR_ENV), "{message}");
 }
 
 /// "There is no SONAME" and "this file was not read" have different answers, and a file
@@ -972,121 +1025,25 @@ fn acquire_for(
 /// An unpacked renderer: the directory layout the artifact has inside it.
 ///
 /// The library is a real ELF shared object rather than a few bytes of text, because
-/// acquiring a Linux renderer reads its dynamic section to make sure it carries no
-/// SONAME. A placeholder would exercise only the error path for a file that is not an ELF
-/// at all.
+/// acquiring a Linux renderer rewrites its dynamic section to name it after where it sits.
+/// A placeholder would exercise only the error path for a file that is not an ELF at all.
 fn renderer_tree(root: &Path) -> PathBuf {
     renderer_tree_named(root, None)
 }
 
-/// The same tree, with a SONAME baked into the library. An artifact built that way would
-/// leave every application that links it looking for a bare file name on a search path it
-/// does not have.
+/// The same tree, with a SONAME baked into the library.
 fn renderer_tree_named(root: &Path, soname: Option<&str>) -> PathBuf {
     let lib_dir = root.join(renderer_lib_subdir(SAMPLE_TARGET_OS));
     std::fs::create_dir_all(&lib_dir).unwrap();
     std::fs::write(
         lib_dir.join(renderer_lib_file(SAMPLE_TARGET_OS)),
-        elf_shared_object(soname),
+        elf::fixture::shared_object(elf::fixture::Shape {
+            soname,
+            ..elf::fixture::Shape::default()
+        }),
     )
     .unwrap();
     root.to_path_buf()
-}
-
-/// A 64-bit little-endian ELF shared object with nothing in it but the headers and a
-/// dynamic section, which is all anything here reads.
-///
-/// Written out by hand rather than compiled, because the tests have to produce a Linux
-/// library on whichever platform they are running on, and because a fixture whose dynamic
-/// section is laid out here is one whose every entry can be asserted on afterwards.
-///
-/// Virtual addresses are the file offsets, so the address in `DT_STRTAB` is where the
-/// string table really is.
-fn elf_shared_object(soname: Option<&str>) -> Vec<u8> {
-    const STRING_TABLE: u64 = 0x100;
-    const DYNAMIC: u64 = 0x200;
-    const PROGRAM_HEADERS: u64 = 64;
-
-    // A leading NUL, because index 0 of a string table is the empty string.
-    let mut strings = vec![0u8];
-    let mut entries: Vec<(i64, u64)> = Vec::new();
-    if let Some(soname) = soname {
-        let at = strings.len() as u64;
-        strings.extend_from_slice(soname.as_bytes());
-        strings.push(0);
-        entries.push((14, at));
-    }
-    // One entry on either side of the SONAME, so a removal that took a neighbour with it
-    // is visible. 1 is DT_NEEDED and 12 is DT_INIT.
-    let needed = strings.len() as u64;
-    strings.extend_from_slice(b"libc.so.6\0");
-    let mut dynamic = vec![(5i64, STRING_TABLE), (10, strings.len() as u64)];
-    dynamic.append(&mut entries);
-    dynamic.push((1, needed));
-    dynamic.push((12, 0x3000));
-    dynamic.push((0, 0));
-
-    let size = DYNAMIC + dynamic.len() as u64 * 16;
-    let mut file = vec![0u8; size as usize];
-
-    file[..4].copy_from_slice(&[0x7f, b'E', b'L', b'F']);
-    file[4] = 2; // 64-bit
-    file[5] = 1; // little-endian
-    file[6] = 1; // ELF version
-    file[16..18].copy_from_slice(&3u16.to_le_bytes()); // a shared object
-    file[18..20].copy_from_slice(&0x3eu16.to_le_bytes()); // x86-64
-    file[20..24].copy_from_slice(&1u32.to_le_bytes());
-    file[32..40].copy_from_slice(&PROGRAM_HEADERS.to_le_bytes());
-    file[52..54].copy_from_slice(&64u16.to_le_bytes()); // ELF header size
-    file[54..56].copy_from_slice(&56u16.to_le_bytes()); // program header size
-    file[56..58].copy_from_slice(&2u16.to_le_bytes()); // two of them
-
-    let mut segment = |index: u64, kind: u32, offset: u64, length: u64| {
-        let at = (PROGRAM_HEADERS + index * 56) as usize;
-        file[at..at + 4].copy_from_slice(&kind.to_le_bytes());
-        file[at + 4..at + 8].copy_from_slice(&4u32.to_le_bytes()); // readable
-        file[at + 8..at + 16].copy_from_slice(&offset.to_le_bytes());
-        file[at + 16..at + 24].copy_from_slice(&offset.to_le_bytes()); // address is offset
-        file[at + 24..at + 32].copy_from_slice(&offset.to_le_bytes());
-        file[at + 32..at + 40].copy_from_slice(&length.to_le_bytes());
-        file[at + 40..at + 48].copy_from_slice(&length.to_le_bytes());
-        file[at + 48..at + 56].copy_from_slice(&0x1000u64.to_le_bytes());
-    };
-    segment(0, 1, 0, size); // PT_LOAD over the whole file
-    segment(1, 2, DYNAMIC, size - DYNAMIC); // PT_DYNAMIC
-
-    let at = STRING_TABLE as usize;
-    file[at..at + strings.len()].copy_from_slice(&strings);
-    for (index, (tag, value)) in dynamic.iter().enumerate() {
-        let at = DYNAMIC as usize + index * 16;
-        file[at..at + 8].copy_from_slice(&tag.to_le_bytes());
-        file[at + 8..at + 16].copy_from_slice(&value.to_le_bytes());
-    }
-    file
-}
-
-/// Every `(tag, value)` in a shared object's dynamic section, up to its terminator.
-fn dynamic_entries(library: &Path) -> Vec<(i64, u64)> {
-    let bytes = std::fs::read(library).unwrap();
-    let at = u64::from_le_bytes(bytes[32..40].try_into().unwrap()) as usize;
-    let count = u16::from_le_bytes(bytes[56..58].try_into().unwrap()) as usize;
-    let dynamic = (0..count)
-        .map(|index| at + index * 56)
-        .find(|at| u32::from_le_bytes(bytes[*at..at + 4].try_into().unwrap()) == 2)
-        .expect("the fixture has a PT_DYNAMIC segment");
-    let offset = u64::from_le_bytes(bytes[dynamic + 8..dynamic + 16].try_into().unwrap()) as usize;
-    let length = u64::from_le_bytes(bytes[dynamic + 32..dynamic + 40].try_into().unwrap()) as usize;
-
-    let mut entries = Vec::new();
-    for at in (offset..offset + length).step_by(16) {
-        let tag = i64::from_le_bytes(bytes[at..at + 8].try_into().unwrap());
-        let value = u64::from_le_bytes(bytes[at + 8..at + 16].try_into().unwrap());
-        entries.push((tag, value));
-        if tag == 0 {
-            break;
-        }
-    }
-    entries
 }
 
 #[derive(Clone, Copy)]
@@ -1192,7 +1149,7 @@ fn install_name(library: &Path) -> String {
 
 /// Take the write bit off, so that a step which was supposed to do nothing fails loudly
 /// if it writes after all.
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 fn read_only(path: &Path) {
     use std::os::unix::fs::PermissionsExt;
     let mut permissions = std::fs::metadata(path).unwrap().permissions();

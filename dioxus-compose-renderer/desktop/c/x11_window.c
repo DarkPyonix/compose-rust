@@ -611,7 +611,7 @@ void dxc_native_set_accessibility(const struct dxc_element *elements, int32_t co
     }
     dxc_element_count = count;
     if (getenv("DXC_REPORT_FRAMES") != NULL) {
-        fprintf(stderr, "dioxus-compose: the window holds %d things to say", count);
+        fprintf(stderr, "compose-rust: the window holds %d things to say", count);
         if (count > 0) {
             fprintf(stderr, ", the first being \"%s\"", dxc_elements[0].label);
         }

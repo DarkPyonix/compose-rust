@@ -92,7 +92,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
         systemDark = false,
     ).let { it.rules.caption(it, asked?.titleBar ?: TitleBar.Normal) }
     val window = MacosWindow(
-        name = asked?.title?.takeIf { it.isNotEmpty() } ?: "dioxus-compose",
+        name = asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
         width = if (asked != null && asked.width > 0) asked.width else 520,
         height = if (asked != null && asked.height > 0) asked.height else 360,
         buttonInset = dressing.platformButtonInset,

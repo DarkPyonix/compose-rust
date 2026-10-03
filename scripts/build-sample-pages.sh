@@ -79,10 +79,10 @@ done
 {
     echo '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
     echo '<meta name="viewport" content="width=device-width, initial-scale=1">'
-    echo '<title>dioxus-compose samples</title>'
+    echo '<title>compose-rust samples</title>'
     echo '<style>body{font:16px/1.6 system-ui,sans-serif;margin:3rem auto;max-width:34rem;padding:0 1rem}'
     echo 'h1{font-size:1.5rem}li{margin:.4rem 0}</style></head><body>'
-    echo '<h1>dioxus-compose samples</h1>'
+    echo '<h1>compose-rust samples</h1>'
     echo '<p>The same Rust source these ship as desktop programs, drawn in a browser.</p><ul>'
     for sample in "${built[@]}"; do
         echo "<li><a href=\"$sample/\">$sample</a></li>"
