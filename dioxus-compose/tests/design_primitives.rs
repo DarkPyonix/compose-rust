@@ -231,3 +231,89 @@ fn fr13_scroll_column_is_its_own_widget() {
             ))
     );
 }
+
+fn scrolling_sideways() -> Element {
+    rsx! {
+        ScrollRow {
+            width: 120.0,
+            fill_max_height: true,
+            Text { text: "first" }
+            Text { text: "second" }
+            Text { text: "third" }
+        }
+    }
+}
+
+/// The horizontal non-lazy scroll container is appended after the drop target at tag 37,
+/// and the schema text that both sides hash says so in the same position.
+#[test]
+fn fr15_2_10_scroll_row_keeps_its_assigned_tag() {
+    assert_eq!(WidgetKind::ScrollRow as u16, 37);
+    assert_eq!(WidgetKind::try_from(37), Ok(WidgetKind::ScrollRow));
+    assert!(
+        compose_rust::schema::SCHEMA_DESCRIPTOR.contains(",FileDropTarget,ScrollRow"),
+        "ScrollRow has to follow FileDropTarget in the widget list, because the order of \
+         that list is the wire numbering"
+    );
+}
+
+/// A ScrollRow is a widget of its own that carries every child, and nothing about where it
+/// is scrolled to: the position is the Renderer's, as it is for a ScrollColumn, so the
+/// Host sends the container, its modifiers and its children and not one property more.
+#[test]
+fn fr15_2_10_scroll_row_carries_its_children_and_no_scroll_state() {
+    let mut host = Host::new(scrolling_sideways);
+    let batch = host.rebuild().unwrap().to_vec();
+    let mutations = decode_batch(&batch).unwrap();
+    let row = mutations
+        .iter()
+        .find_map(|mutation| match mutation {
+            Mutation::Create {
+                node_id,
+                widget: WidgetKind::ScrollRow,
+            } => Some(*node_id),
+            _ => None,
+        })
+        .expect("rsx ScrollRow becomes a ScrollRow on the wire");
+
+    let children = mutations
+        .iter()
+        .filter(|mutation| {
+            matches!(mutation, Mutation::Insert { parent_id, node_id, .. }
+                if *parent_id == row && *node_id != 0)
+        })
+        .count();
+    assert_eq!(children, 3, "every child is materialised, none is windowed");
+
+    let props: Vec<_> = mutations
+        .iter()
+        .filter_map(|mutation| match mutation {
+            Mutation::SetProp {
+                node_id, property, ..
+            } if *node_id == row => Some(*property),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        props.is_empty(),
+        "a ScrollRow sent {props:?}, and where it is scrolled to never crosses the boundary"
+    );
+
+    let modifiers: Vec<_> = mutations
+        .iter()
+        .filter_map(|mutation| match mutation {
+            Mutation::SetModifier {
+                node_id, modifier, ..
+            } if *node_id == row && !matches!(modifier, Modifier::Empty) => Some(modifier.clone()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        modifiers.contains(&Modifier::Width(120.0)),
+        "the width it was given bounds the viewport: {modifiers:?}"
+    );
+    assert!(
+        modifiers.contains(&Modifier::FillMaxHeight),
+        "the same modifiers a ScrollColumn takes: {modifiers:?}"
+    );
+}

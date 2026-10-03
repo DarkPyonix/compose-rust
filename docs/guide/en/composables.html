@@ -367,6 +367,26 @@
 }</code></pre>
     </figure>
 
+    <h3>ScrollRow</h3>
+    <p>
+      The same container on its side: the whole content with a horizontal scroll attached. Like
+      <code>ScrollColumn</code> it takes the modifiers and its children and nothing else, and its
+      scroll position belongs to the renderer. Use it for a bounded strip, a row of filters or a
+      handful of cards. For a long horizontal list, use <a href="#lists"><code>LazyRow</code></a>.
+    </p>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>rust</figcaption>
+<pre><code><span class="f">rsx!</span> {
+    <span class="ty">ScrollRow</span> {
+        <span class="at">fill_max_width</span>: <span class="k">true</span>,
+        <span class="k">for</span> album <span class="k">in</span> <span class="f">recent_albums</span>() {
+            <span class="ty">Card</span> { <span class="at">key</span>: <span class="s">"{album.id}"</span>, <span class="at">width</span>: <span class="n">160.0</span>, <span class="ty">Text</span> { <span class="at">text</span>: album.title } }
+        }
+    }
+}</code></pre>
+    </figure>
+
     <h3>Spacer</h3>
     <p>
       A gap. It carries no props of its own at all: its size comes from the modifier attributes
@@ -1055,7 +1075,7 @@
           <tr><td><code>Dropdown</code></td><td>Whether the popup is open</td><td><code>selected_index</code> only.</td></tr>
           <tr><td><code>Navigation</code>, <code>Tabs</code></td><td>Which one is marked, and the move between them</td><td><code>selected_index</code> seeds it; a tap fires that child's <code>on_click</code>.</td></tr>
           <tr><td><code>Slider</code></td><td>The position a drag is passing through</td><td><code>value</code> seeds it and moves it from outside.</td></tr>
-          <tr><td><code>ScrollColumn</code>, <code>LazyColumn</code>, <code>LazyRow</code></td><td>Scroll position, and the read-ahead buffer</td><td><code>item_count</code>, <code>item</code>, <code>key_of</code>.</td></tr>
+          <tr><td><code>ScrollColumn</code>, <code>ScrollRow</code>, <code>LazyColumn</code>, <code>LazyRow</code></td><td>Scroll position, and the read-ahead buffer</td><td><code>item_count</code>, <code>item</code>, <code>key_of</code>.</td></tr>
           <tr><td><code>Checkbox</code>, <code>RadioButton</code>, <code>Switch</code></td><td>Nothing. These are fully controlled</td><td><code>checked</code> or <code>selected</code> is exactly what is drawn.</td></tr>
           <tr><td><code>DatePicker</code>, <code>TimePicker</code></td><td>The picking surface, the locale, the time zone, the format</td><td><code>value</code>, <code>min</code>, <code>max</code>.</td></tr>
           <tr><td>every widget</td><td>Focus, hover, press feedback, animation progress</td><td>Nothing.</td></tr>
