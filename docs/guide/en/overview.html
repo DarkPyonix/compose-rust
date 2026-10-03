@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Overview · compose-rust guide</title>
-<meta name="description" content="compose-rust lets Rust code author declarative UI with Dioxus while an AOT-compiled Compose Multiplatform renderer draws it. No webview, no bundled JVM.">
+<meta name="description" content="compose-rust is a Compose-shaped Rust UI API drawn by an AOT-compiled Compose renderer, with no webview and no bundled JVM. What it is, what 0.0.1 contains, and what arrives with 1.0.0.">
 <link rel="alternate" hreflang="en" href="../en/overview.html">
 <link rel="alternate" hreflang="ko" href="../ko/overview.html">
 <link rel="alternate" hreflang="x-default" href="../en/overview.html">
@@ -33,7 +33,7 @@
         <li><a href="overview.html" aria-current="page">Overview</a></li>
         <li><a href="getting-started.html">Getting started</a></li>
         <li><a href="writing-ui.html">Writing UI</a></li>
-        <li><a href="composables.html">Composable reference</a></li>
+        <li><a href="composables.html">Widget reference</a></li>
         <li><a href="lists-and-streaming.html">Lists &amp; streaming</a></li>
         <li><a href="design-systems.html">Design systems</a></li>
         <li><a href="architecture.html">Architecture</a></li>
@@ -41,9 +41,9 @@
       </ul>
       <h2>Repository</h2>
       <ul>
-        <li><a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/INTENT.md">INTENT.md</a></li>
-        <li><a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/SPEC.md">SPEC.md</a></li>
-        <li><a href="https://github.com/DarkPyonix/compose-rust/blob/develop/PROJECT.md">PROJECT.md</a></li>
+        <li><a href="https://github.com/DarkPyonix/compose-rust">GitHub</a></li>
+        <li><a href="https://crates.io/crates/compose-rust">crates.io</a></li>
+        <li><a href="https://github.com/DarkPyonix/compose-rust/issues">Issues</a></li>
       </ul>
     </nav>
   </aside>
@@ -51,12 +51,11 @@
   <main id="main">
     <div class="hero">
       <p class="eyebrow">Native UI, written in Rust</p>
-      <h1>Author your UI with Dioxus. Let Compose draw it.</h1>
+      <h1>Compose-shaped UI in Rust, drawn by Compose.</h1>
       <p class="lede">
-        compose-rust is a GUI stack in which Rust code describes the interface with
-        <code>rsx!</code>, components and hooks, and an ahead-of-time compiled Compose
-        Multiplatform renderer paints it. No webview is embedded, and no JVM ships with
-        your application.
+        compose-rust gives Rust a Compose-shaped API: composable functions, <code>remember</code>
+        and recomposition. An ahead-of-time compiled Compose renderer draws what they describe. No
+        webview is embedded, and no JVM ships with your application.
       </p>
       <div class="cta">
         <a class="btn" href="getting-started.html">Get started</a>
@@ -64,18 +63,37 @@
       </div>
     </div>
 
-    <h2>Why it exists</h2>
+    <h2 id="what">What it is</h2>
+    <p>compose-rust is four things put together.</p>
+    <ul>
+      <li><strong>A Compose-shaped Rust API</strong> with a slot table and a recomposition
+        runtime. A composable is a function, and state lives in <code>remember</code>. When state
+        changes, only the scopes that read it run again. Nothing compares trees to find what
+        changed. <span class="pill planned">Planned</span> for 1.0.0.</li>
+      <li><strong>A narrow C ABI boundary and a schema.</strong> Rust defines the widgets,
+        properties and records once. The Kotlin types and the platform shims are generated from
+        that definition, never written by hand. <span class="pill works">Works</span></li>
+      <li><strong>An AOT-compiled Compose renderer.</strong> It is compiled ahead of time to native
+        code on every platform, to Kotlin/Wasm in the browser, and to an Android library on Android.
+        Compose's own text layout, widgets and platform IME do the drawing and the typing.
+        <span class="pill works">Works</span></li>
+      <li><strong>No webview, and no bundled JVM.</strong> On the desktop the goal is one
+        executable that links only the system's own libraries. 0.0.1 does not reach it yet; see
+        <a href="#platforms">Platforms</a>. <span class="pill partial">Partial</span></li>
+    </ul>
+
+    <h2 id="why">Why it exists</h2>
     <p>
-      This stack is aimed at applications that stay open all day, where weight is felt every
-      hour. Web-based shells are not light: a webview brings a browser engine with it, and a
-      bundled JRE adds 80 to 120&nbsp;MB even after <code>jlink</code>.
+      It is aimed at applications that stay open all day, where weight is felt every hour. A
+      webview brings a browser engine with it. A bundled Java runtime adds 80 to 120&nbsp;MB, even
+      after <code>jlink</code>.
     </p>
     <p>
-      The obvious answer, a pure-Rust UI framework, fails on the part that matters most for
-      anything text-driven: text itself. Korean, Japanese and Chinese input goes through the platform IME, and an
-      IME that is 90% right is an app you cannot use. Compose Multiplatform already has mature
-      text, IME and widget behaviour, so this project borrows exactly that and nothing else: Rust
-      keeps the application code, Compose becomes an interpreter for a UI tree that Rust sends it.
+      A pure-Rust UI toolkit fails where text-heavy applications need it most: text itself. Korean,
+      Japanese and Chinese input goes through the platform IME, and an IME that is 90% right makes
+      an application unusable. Compose Multiplatform already has mature text, IME and widget
+      behaviour. compose-rust borrows exactly that. Rust keeps the application code, and Compose
+      interprets the UI tree that Rust sends it.
     </p>
 
     <div class="tablewrap">
@@ -84,151 +102,170 @@
           <tr><th scope="col">Constraint</th><th scope="col">Consequence</th></tr>
         </thead>
         <tbody>
-          <tr><td>No webview</td><td>No WKWebView, WebView2 or WebKitGTK; no Tauri, no wry.</td></tr>
-          <tr><td>No bundled JVM</td><td>Desktop ships as a GraalVM <code>native-image</code> shared library; iOS as a Kotlin/Native static archive.</td></tr>
-          <tr><td>No hand-written JNI or cinterop</td><td>Every boundary shim is generated from the Rust schema.</td></tr>
-          <tr><td>UI code lives in Rust</td><td>Kotlin is an implementation detail of the renderer, not a place you write features.</td></tr>
-          <tr><td>Compose-quality text and IME</td><td>No code path may bypass Compose's platform text input.</td></tr>
+          <tr><td>No webview</td><td>No WKWebView, WebView2 or WebKitGTK, and no Tauri or wry.</td></tr>
+          <tr><td>No bundled JVM</td><td>The renderer is compiled ahead of time. A JVM appears only in the development shell for the renderer itself.</td></tr>
+          <tr><td>No hand-written JNI or cinterop</td><td>Every boundary shim is generated from the Rust schema, so the two sides cannot drift silently.</td></tr>
+          <tr><td>UI code lives in Rust</td><td>Kotlin is the renderer's implementation, not a place where you write features.</td></tr>
+          <tr><td>Compose-quality text and IME</td><td>No code path bypasses Compose's platform text input.</td></tr>
         </tbody>
       </table>
     </div>
 
-    <h2>What it looks like</h2>
+    <h2 id="status">Status</h2>
     <p>
-      This is the <code>desktop_demo</code> example from the repository, shortened. The widget
-      names are Compose's; the attributes are their <code>snake_case</code> Rust spellings.
+      <strong>0.0.x is the name reservation and renderer distribution stage.</strong> The API will
+      change. This is what the 0.0.1 crate contains today:
+    </p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">Part</th><th scope="col">Status</th><th scope="col">What it is</th></tr></thead>
+        <tbody>
+          <tr><td>The boundary</td><td><span class="pill works">Works</span></td><td>The <code>compose_rust_host_*</code> C functions the renderer calls, <code>Host</code>, <code>LaunchBuilder</code>, <code>launch_runtime</code>, and <code>request_frame_from_worker</code> for waking a frame from a worker thread.</td></tr>
+          <tr><td>The protocol</td><td><span class="pill works">Works</span></td><td>Fixed-layout mutation records, written into one batch buffer and read in place by the renderer. No serialisation format runs on the hot path.</td></tr>
+          <tr><td>The schema</td><td><span class="pill works">Works</span></td><td>Widgets, properties, modifiers, design roles, <code>Theme</code> and <code>DesignSystem</code>. A schema hash stops a Host and a renderer built from different schemas from running together. The <code>codegen</code> binary generates the Kotlin side from it.</td></tr>
+          <tr><td>The <code>Runtime</code> trait</td><td><span class="pill works">Works</span></td><td>The interface that whatever builds the tree implements, plus the types around it: assets, custom drawing, input events, notifications, messages, palettes and window size classes.</td></tr>
+          <tr><td>The renderer download</td><td><span class="pill works">Works</span></td><td>The build script fetches the prebuilt renderer for your target, checks it and links it. See <a href="getting-started.html">Getting started</a>.</td></tr>
+          <tr><td>The authoring API</td><td><span class="pill planned">Planned</span></td><td><code>#[composable]</code>, <code>remember</code>, the <code>Recomposer</code>, <code>launch</code> and the widget functions. They arrive with <strong>1.0.0 on 2026-10-20</strong>, tracked in <a href="https://github.com/DarkPyonix/compose-rust/issues/23">#23</a>.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      Until 1.0.0 the crate is a foundation for a layer that builds the tree. It is not yet
+      something you write screens with directly.
     </p>
 
+    <h2 id="shape">The planned shape</h2>
+    <div class="warn">
+      <span class="label">Planned, not yet in the crate</span>
+      <p>
+        The code below shows the intended shape of the authoring API. It does not compile against
+        0.0.x, and the names are not final.
+      </p>
+    </div>
+
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
-      <figcaption>compose-rust/examples/desktop_demo.rs</figcaption>
-<pre><code><span class="k">use</span> compose_rust::prelude::*;
-
-<span class="k">fn</span> <span class="f">app</span>() -&gt; <span class="ty">Element</span> {
-    <span class="k">let</span> <span class="k">mut</span> messages = <span class="f">use_signal</span>(<span class="ty">Vec</span>::&lt;<span class="ty">String</span>&gt;::new);
-    <span class="k">let</span> <span class="k">mut</span> draft = <span class="f">use_signal</span>(<span class="ty">String</span>::new);
-
-    <span class="f">rsx!</span> {
-        <span class="ty">Column</span> {
-            <span class="at">fill_max_width</span>: <span class="k">true</span>,
-            <span class="ty">Text</span> { <span class="at">text</span>: <span class="s">"compose-rust chat"</span> }
-            <span class="k">for</span> message <span class="k">in</span> messages() {
-                <span class="ty">Text</span> { <span class="at">text</span>: message }
-            }
-            <span class="ty">TextField</span> {
-                <span class="at">placeholder</span>: <span class="s">"Write a message"</span>,
-                <span class="at">multiline</span>: <span class="k">true</span>,
-                <span class="at">on_value_change</span>: <span class="k">move</span> |value| draft.<span class="f">set</span>(value),
-                <span class="at">on_key_down</span>: <span class="k">move</span> |event: <span class="ty">KeyEvent</span>| {
-                    <span class="k">if</span> event.<span class="f">key</span>() == <span class="ty">Key</span>::Enter &amp;&amp; !event.<span class="f">shift_key</span>() {
-                        <span class="c">// … push the draft into messages …</span>
-                        event.<span class="f">consume</span>();
-                    }
-                }
-            }
-        }
-    }
+      <figcaption>rust, planned shape (does not compile against 0.0.x)</figcaption>
+<pre><code><span class="at">#[composable]</span>
+<span class="k">fn</span> <span class="f">counter</span>() {
+    <span class="k">let</span> count = <span class="f">remember</span>(|| <span class="f">mutable_state_of</span>(<span class="n">0</span>));
+    <span class="f">Column</span>(<span class="ty">Modifier</span>::<span class="f">new</span>().<span class="f">fill_max_width</span>(), || {
+        <span class="f">Text</span>(<span class="f">format!</span>(<span class="s">"{}"</span>, count.<span class="f">get</span>()));
+        <span class="f">Button</span>(|| count.<span class="f">set</span>(count.<span class="f">get</span>() + <span class="n">1</span>), || <span class="f">Text</span>(<span class="s">"+1"</span>));
+    });
 }
 
 <span class="k">fn</span> <span class="f">main</span>() {
-    compose_rust::<span class="f">launch</span>(app);
+    compose_rust::<span class="f">launch</span>(counter);
 }</code></pre>
     </figure>
 
-    <h2>Status</h2>
     <p>
-      This is an honest table, not a roadmap dressed as a feature list. macOS desktop is the
-      platform that has been used by hand; the others are built and smoke-tested by CI, which
-      proves rather less. Everything marked <em>planned</em> is designed and not implemented.
+      Three things about it are settled. <code>#[composable]</code> inserts the groups, so you never
+      write groups or keys by hand, and they close correctly through branches, loops, early
+      <code>return</code>, <code>?</code> and unwinding. Names follow Compose. The widget vocabulary
+      is the one in the schema, so nothing is defined twice. <a href="writing-ui.html">Writing UI</a>
+      describes the rest of the planned API.
+    </p>
+
+    <div class="note">
+      <p><strong>Prefer Dioxus and <code>rsx!</code>?</strong> Use <a href="https://github.com/DarkPyonix/dioxus-compose">dioxus-compose</a>, which runs on top of compose-rust and supports both HTML/CSS <code>rsx!</code> and Compose-widget <code>rsx!</code>.</p>
+    </div>
+
+    <h2 id="platforms">Platforms</h2>
+    <p>
+      The table lists the renderer each platform gets in 0.0.1. "Works end to end" means the
+      platform has been used by hand. "Builds and starts" means CI builds it and a smoke test opens
+      and draws a window, which proves rather less.
     </p>
 
     <div class="tablewrap">
       <table>
         <thead>
-          <tr><th scope="col">Platform</th><th scope="col">Status</th><th scope="col">How it is meant to work</th></tr>
+          <tr><th scope="col">Platform</th><th scope="col">Status</th><th scope="col">Renderer in 0.0.1</th></tr>
         </thead>
         <tbody>
           <tr>
-            <td>macOS desktop (arm64)</td>
-            <td><span class="pill works">Works</span></td>
-            <td>Renderer built with GraalVM <code>native-image --shared</code> on Liberica NIK 25 Full; the Rust binary links it. The Korean IME checklist and VoiceOver were confirmed by hand on this build on 2026-09-21.</td>
+            <td>macOS (arm64)</td>
+            <td><span class="pill works">Works end to end</span></td>
+            <td>A GraalVM native-image library beside the application. The Kotlin/Native renderer linked into the executable (its own window, drawing through Metal) runs in CI and replaces it in a following release (<a href="https://github.com/DarkPyonix/compose-rust/issues/22">#22</a>). Basic Korean IME input works; the full IME checklist is not finished.</td>
           </tr>
           <tr>
-            <td>Windows desktop (x64)</td>
+            <td>Linux (x64, arm64)</td>
             <td><span class="pill partial">Builds and starts</span></td>
-            <td>Built with upstream GraalVM 25 and smoke-tested on every renderer change: the window opens, draws, closes cleanly and returns 0. A hosted runner cannot click, so pointer input is unproven there, and nobody has used it interactively.</td>
+            <td>A GraalVM native-image library. The Kotlin/Native renderer (its own X11 window, drawing through GLX) passes a headless startup test for both architectures in CI and replaces it in a following release.</td>
           </tr>
           <tr>
-            <td>Linux desktop (x64 and arm64)</td>
+            <td>Windows</td>
             <td><span class="pill partial">Builds and starts</span></td>
-            <td>Both architectures build under Xvfb in CI and pass a headless startup smoke test. That is all it proves: no Linux desktop session has drawn this renderer.</td>
+            <td>A GraalVM native image, smoke-tested on every renderer change. Moving to Kotlin/Native so that Windows is one executable too (<a href="https://github.com/DarkPyonix/compose-rust/issues/24">#24</a>).</td>
           </tr>
           <tr>
             <td>iOS</td>
             <td><span class="pill partial">Builds and starts</span></td>
-            <td>Kotlin/Native <code>-produce static</code> exporting the same C symbols. The protocol codec tests run on Kotlin/Native, the device and simulator archives build, and a simulator smoke test takes a screenshot. Released as an XCFramework.</td>
+            <td>A Kotlin/Native static archive exporting the same C symbols, released as an XCFramework.</td>
           </tr>
           <tr>
             <td>Android</td>
-            <td><span class="pill partial">Runs on an emulator</span></td>
-            <td>Kotlin owns the process and the loop; Rust is a cdylib reached through generated JNI shims. Verified on an API&nbsp;36 emulator: the screen draws, rotation and a dark mode change keep the same process rather than rebuilding the tree, and a killed process comes back. One boundary call measured 101&nbsp;ns there, or 4.5&nbsp;ns for the one call short enough to skip the thread state transition, against a frame that is called a handful of times rather than once per node.</td>
+            <td><span class="pill works">Works end to end</span></td>
+            <td>A Kotlin Activity owns the process and the loop, and Rust is a cdylib. The JNI shims on both sides are generated from the schema. The crate carries the renderer's Kotlin sources, and its build script stages them into the Gradle project.</td>
           </tr>
           <tr>
             <td>Web (wasm)</td>
-            <td><span class="pill partial">Draws in a browser</span></td>
-            <td>Kotlin owns the wasm linear memory and Rust imports it, so the batch arena is shared in place with no copying. Each boundary call goes through a generated JS forwarder, measured at about 12&nbsp;ns in Safari and not yet re-measured elsewhere.</td>
+            <td><span class="pill works">Works end to end</span></td>
+            <td>The Kotlin/Wasm module owns one <code>WebAssembly.Memory</code> and the Rust module imports it, so a batch is read where it was written. Calls from the renderer to the Host cross a generated JavaScript forwarder, measured at about 12&nbsp;ns.</td>
           </tr>
         </tbody>
       </table>
     </div>
 
-    <h3>Feature status</h3>
+    <h3 id="weight">What it weighs</h3>
+    <p>
+      These numbers are for the notepad sample, built for release and stripped, with the
+      Kotlin/Native renderer linked in. That is the path that becomes the default after 0.0.1, not
+      what 0.0.1 ships. The result is one executable, with no runtime beside it and no virtual
+      machine inside it.
+    </p>
     <div class="tablewrap">
       <table>
-        <thead>
-          <tr><th scope="col">Feature</th><th scope="col">Status</th><th scope="col">Notes</th></tr>
-        </thead>
+        <thead><tr><th scope="col">Platform</th><th scope="col">Executable</th><th scope="col">Physical footprint</th></tr></thead>
         <tbody>
-          <tr><td>The widget vocabulary</td><td><span class="pill works">Works</span></td><td>Thirty-three composables, with a renderer half for every one of them. The schema is closed: anything else has to be added to it first. See the <a href="composables.html">composable reference</a>.</td></tr>
-          <tr><td>Events and synchronous consumption</td><td><span class="pill works">Works</span></td><td><code>on_click</code>, <code>on_value_change</code>, <code>on_submit</code>, <code>on_focus_lost</code>, <code>on_key_down</code> with <code>event.consume()</code>, <code>on_change</code> and <code>on_dismiss</code>.</td></tr>
-          <tr><td>Uncontrolled <code>TextField</code></td><td><span class="pill works">Works</span></td><td>Edit and composition state live in the renderer.</td></tr>
-          <tr><td>Kotlin protocol codegen from the Rust schema</td><td><span class="pill works">Works</span></td><td>A stale Kotlin file fails the test suite.</td></tr>
-          <tr><td>Modifiers</td><td><span class="pill works">Works</span></td><td>Thirteen attributes on every widget: weight, fill, explicit size, padding in dp or by role, background, shape by role or radius, border and elevation. <code>Clickable</code> is on the wire but has no typed prop.</td></tr>
-          <tr><td>Design systems and theming</td><td><span class="pill works">Works</span></td><td>Seven design systems behind one role-based contract, chosen unified or following the host platform. See <a href="design-systems.html">Design systems</a>.</td></tr>
-          <tr><td><code>LazyColumn</code> and <code>LazyRow</code> windowing</td><td><span class="pill works">Works</span></td><td>The renderer asks for a range, the Host materialises exactly that range. See <a href="lists-and-streaming.html">Lists &amp; streaming</a>.</td></tr>
-          <tr><td>Navigation, sheets and transient messages</td><td><span class="pill works">Works</span></td><td>The renderer picks bar, rail or drawer from the width it measured, and the same for which edge a sheet enters from.</td></tr>
-          <tr><td>Window size classes</td><td><span class="pill works">Works</span></td><td><code>use_window_size()</code> reports compact, medium or expanded, and only wakes a component when the class changes.</td></tr>
-          <tr><td>Custom drawing</td><td><span class="pill works">Works</span></td><td><code>Canvas</code> takes a <code>DrawList</code> value. Two equal lists send nothing.</td></tr>
-          <tr><td><code>AppendText</code> streaming</td><td><span class="pill partial">No rsx! API</span></td><td>Coalesced per frame by the Host and applied by the renderer. There is no <code>rsx!</code>-level API: <code>Host::append_text</code> takes a protocol node id.</td></tr>
-          <tr><td>Third-party widget extension</td><td><span class="pill partial">Compile time only</span></td><td>An extension is a Rust and Kotlin source pair built into both sides, with <code>LinearProgressIndicator</code> as the worked example. A deployed renderer cannot load a new widget.</td></tr>
+          <tr><td>macOS (arm64)</td><td>28.76&nbsp;MB</td><td>35.1&nbsp;MB</td></tr>
+          <tr><td>Linux (x86-64)</td><td>37.93&nbsp;MB</td><td>not yet measured</td></tr>
+          <tr><td>Windows</td><td>not yet measured</td><td>not yet measured</td></tr>
         </tbody>
       </table>
     </div>
+    <p>
+      For scale, the same kind of application on macOS was four files and 93.1&nbsp;MB, with a
+      56&nbsp;MB footprint, while the renderer still carried a Java runtime. In the browser, the
+      renderer and Skia together are 6.95&nbsp;MB gzipped.
+    </p>
 
-    <h2>Where to go next</h2>
+    <h2 id="next">Where to go next</h2>
     <div class="cards">
       <a class="card" href="getting-started.html">
         <h3>Getting started</h3>
-        <p>Add one dependency, write a component, run it.</p>
+        <p>Add the crate, let the build fetch the renderer, and build this repository.</p>
       </a>
       <a class="card" href="writing-ui.html">
         <h3>Writing UI</h3>
-        <p>Event handlers, key consumption, and the uncontrolled text field.</p>
+        <p>The planned authoring API: composables, state, effects, events and animation.</p>
       </a>
       <a class="card" href="composables.html">
-        <h3>Composable reference</h3>
-        <p>Every composable, its props and defaults, the role vocabulary, and where each one keeps its state.</p>
+        <h3>Widget reference</h3>
+        <p>Every widget, modifier and role in the schema, and where each widget keeps its state.</p>
       </a>
       <a class="card" href="lists-and-streaming.html">
         <h3>Lists &amp; streaming</h3>
-        <p>Windowed lists and token streaming, and which side owns the scroll position.</p>
+        <p>Windowed lists, streamed text, and work on worker threads.</p>
       </a>
       <a class="card" href="design-systems.html">
         <h3>Design systems</h3>
-        <p>Seven design systems, the colour, type, shape and spacing roles, and the two theme modes.</p>
+        <p>Seven design systems behind one set of roles, unified or adaptive.</p>
       </a>
       <a class="card" href="architecture.html">
         <h3>Architecture</h3>
-        <p>The Host/Renderer split, the C ABI, the wire protocol and the frame model.</p>
+        <p>The boundary, the records, the measure call, zoom and the renderer per platform.</p>
       </a>
     </div>
 
@@ -241,8 +278,8 @@
 <footer class="site">
   <div class="inner">
     <span>compose-rust &middot; Apache License 2.0</span>
-    <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/INTENT.md">INTENT.md</a></span>
-    <span>Guide last reviewed against the repository on 2026-09-22</span>
+    <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://crates.io/crates/compose-rust">crates.io</a></span>
+    <span>Guide last reviewed against the repository on 2026-10-03</span>
   </div>
 </footer>
 
