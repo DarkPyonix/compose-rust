@@ -235,16 +235,17 @@ cd renderer && ./kotlin run -m desktop
 ```
 compose-rust/     the crate: boundary, protocol, schema, codegen, renderer download
 renderer/         the Kotlin renderer: interpreter, generated shims, one module per platform
-samples/          sample applications
-bench/            benchmarks and their recorded baselines
+samples/          sample applications: only a README until they return (#85)
+bench/            benchmarks and the pins of what they compare against
 docs/             the user guide (docs/guide) and translations (docs/locales)
 experiments/      measured experiments kept for their results
 scripts/          setup check, quality gate, release and publishing scripts, script tests
 .github/          CI workflows
 ```
 
-`adapters/` is leaving the repository: the authoring layer that lived in it moves to its own
-project. The design systems have moved to the Compose fork, under `extended/design-systems/` in
+The Dioxus adapter and its baseline moved to [dioxus-compose](https://github.com/DarkPyonix/dioxus-compose).
+The samples under `samples/` are being rewritten on the compose-rust authoring API (#85) and do
+not build until then. The design systems moved to the Compose fork, under `extended/design-systems/` in
 [thisisthepy/compose-multiplatform-core-extended](https://github.com/thisisthepy/compose-multiplatform-core-extended).
 
 ---

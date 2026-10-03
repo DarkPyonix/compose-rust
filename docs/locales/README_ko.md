@@ -222,16 +222,16 @@ cd renderer && ./kotlin run -m desktop
 ```
 compose-rust/     the crate: boundary, protocol, schema, codegen, renderer download
 renderer/         the Kotlin renderer: interpreter, generated shims, one module per platform
-samples/          sample applications
-bench/            benchmarks and their recorded baselines
+samples/          sample applications: only a README until they return (#85)
+bench/            benchmarks and the pins of what they compare against
 docs/             the user guide (docs/guide) and translations (docs/locales)
 experiments/      measured experiments kept for their results
 scripts/          setup check, quality gate, release and publishing scripts, script tests
 .github/          CI workflows
 ```
 
-`adapters/`는 이 저장소를 떠납니다. 그 안에 있던 작성 층은 별도 프로젝트로 옮겨 갑니다. 디자인 시스템은
-Compose 포크로 옮겨 갔으며,
+Dioxus 어댑터와 기준선은 [dioxus-compose](https://github.com/DarkPyonix/dioxus-compose)로 옮겨 갔습니다.
+`samples/` 아래 샘플은 compose-rust 작성 API로 다시 쓰는 중이며(#85), 그때까지는 빌드되지 않습니다. 디자인 시스템은 Compose 포크로 옮겨 갔으며,
 [thisisthepy/compose-multiplatform-core-extended](https://github.com/thisisthepy/compose-multiplatform-core-extended)의
 `extended/design-systems/` 아래에 있습니다.
 
