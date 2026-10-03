@@ -206,7 +206,7 @@ Not everything can be automated. IME behaviour (§6) and accessibility (§7) are
 Never introduce anything that violates these. If a task seems to require it, stop and ask.
 
 - **No webview**: no WKWebView, WebView2, or WebKitGTK; no Tauri or wry.
-- **No bundled JVM**: desktop ships as a GraalVM native-image shared library, iOS as Kotlin/Native. The JVM is allowed only for the development shell.
+- **No bundled JVM**: desktop ships as one executable per application with an AWT-free renderer linked in (Kotlin/Native on macOS, Linux and Windows; INTENT D4, NFR-14, NFR-15). GraalVM native-image remains only where a platform has no Kotlin/Native renderer yet. iOS ships as Kotlin/Native. The JVM is allowed only for the development shell.
 - **No hand-written JNI or cinterop glue**: all boundary shims are generated from the Rust schema (FR-7).
 - **Type safety on the Rust side**: schema types are defined in Rust as the single source; Kotlin types are generated.
 - **Compose-quality text and IME**: never add a code path that bypasses Compose's platform text input.
