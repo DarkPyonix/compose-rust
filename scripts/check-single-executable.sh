@@ -195,7 +195,8 @@ build() {
 }
 
 run_alone() {
-    local binary="$1" name="$2" directory="$scratch/run/$name"
+    local binary="$1" name="$2"
+    local directory="$scratch/run/$name"
     rm -rf "$directory"
     mkdir -p "$directory"
     cp "$binary" "$directory/consumer"
