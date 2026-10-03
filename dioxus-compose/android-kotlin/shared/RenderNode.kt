@@ -29,6 +29,7 @@ import dioxus.compose.protocol.Modifier as ProtocolModifier
 import dioxus.compose.design.ResolvedTheme
 import dioxus.compose.foundation.HostBadge
 import dioxus.compose.foundation.HostButton
+import dioxus.compose.foundation.HostCodeEditor
 import dioxus.compose.foundation.HostLazyGrid
 import dioxus.compose.foundation.HostRichText
 import dioxus.compose.foundation.HostScaffold
@@ -260,6 +261,11 @@ fun RenderNode(
         WidgetKind.SelectionContainer -> SelectableRegion(modifier) {
             Column { Children(node, table, dispatcher) }
         }
+
+        // The document is the editor's own: its text, caret, selection and history live in
+        // the node's model, and the Host hears each committed change. Drawn outside a
+        // selectable region around it, because selecting inside an editor is the editor's.
+        WidgetKind.CodeEditor -> Unselectable { HostCodeEditor(node, modifier, dispatcher, theme) }
     }
 }
 
