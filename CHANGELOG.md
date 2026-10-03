@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Elements for drawing an HTML and CSS screen
+
+A layout engine on the Host can now hand its result to the renderer as it is. `AbsoluteBox`
+places each child at its own `Offset` without laying anything out again, and six more
+modifiers carry what CSS decorates a box with: `RequiredSize`, a border with its own width
+and paint on each side (`BorderEach`), a radius for each corner (`CornerEach`), `box-shadow`
+(`Shadow`), `overflow: hidden` (`Clip`) and `opacity` (`Alpha`, applied once to the whole
+group). A `SetModifier` record is now as long as its modifier's tag says, so the border and
+the shadow carry their values whole; every modifier that existed before keeps its 28 bytes
+exactly.
+
 ### The renderer is built for the platform where Compose publishes one
 
 macOS no longer carries a Java runtime. Where Compose publishes a target of its own, the

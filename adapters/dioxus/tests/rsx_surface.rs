@@ -168,6 +168,20 @@ fn surface() -> Element {
                     Column {}
                     Column {}
                 }
+                AbsoluteBox {
+                    required_size: (320.0, 180.0),
+                    background: Paint::Role(ColorRole::Surface),
+                    border: ([1.0, 2.0, 1.0, 2.0], [OUTLINE; 4]),
+                    corners: [8.0, 0.0, 8.0, 0.0],
+                    shadow: (0.0, 2.0, 6.0, 0.0, OUTLINE),
+                    clip: true,
+                    alpha: 0.5,
+                    AbsoluteBox {
+                        offset: (12.0, 24.0),
+                        required_size: (100.0, 40.0),
+                        Text { text: "placed" }
+                    }
+                }
                 SelectionContainer {
                     Badge {
                         value: 3,
@@ -540,6 +554,7 @@ fn expectations() -> Vec<(WidgetKind, Vec<(PropertyKind, Expect)>)> {
             vec![(P::ItemCount, int(3)), (P::OnRangeRequested, Handler)],
         ),
         (W::ScrollColumn, vec![]),
+        (W::AbsoluteBox, vec![]),
         (W::ScrollRow, vec![]),
         (
             W::SplitPane,
