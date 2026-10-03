@@ -763,6 +763,15 @@ JetBrains의 `androidx.compose.material3.adaptive`는 적응형 레이아웃(창
 5. `org.thisisthepy.compose.material3`의 컴포넌트가 `androidx.compose.material3`의 같은 컴포넌트로 그려집니다(어댑터이며 다시 그린 것이 아님).
 6. compose-rust 렌더러가 `Theme::adaptive`와 `Theme::unified`를 2층의 `AdaptiveTheme`으로 내립니다.
 
+##### 14.11.6 플랫폼에 대응물이 없는 컴포넌트
+
+> 소유자 결정(2026-10-03, 질문에 대한 답 "둘 다"): 1층은 대응물이 없어도 그 시스템의 스타일로 만들되 비표준으로 표시하고, 2층은 그 플랫폼이 실제로 쓰는 대체 방식으로 그립니다.
+
+- **1층.** 플랫폼에 대응물이 없는 material3 컴포넌트도 그 디자인 시스템의 스타일로 만들어 둡니다(예: Cupertino 스타일 FAB, GNOME 스타일 Time Picker). 이런 컴포넌트는 KDoc에 "비표준"이라고 적고, 필요한 곳에는 opt-in 어노테이션(`@NonNativeComponent`)을 붙입니다. 대응표의 그 칸에는 대응물이 없다는 근거가 되는 플랫폼 가이드 링크를 함께 적습니다.
+- **2층(adaptive).** 기본값은 그 플랫폼이 쓰는 대체 방식으로 그리는 것입니다. 예를 들어 Cupertino에서 FAB는 내비게이션 바 오른쪽의 + 버튼으로 그립니다. 어떤 컴포넌트가 어떤 대체 방식으로 가는지를 대응표에 적습니다.
+- **대응표 테스트.** 1층 표는 모든 칸이 채워져야 하고, 비표준 표시가 붙은 칸을 따로 셉니다. 2층 표는 칸마다 플랫폼 대체 방식이 지정되어 있어야 하며, 지정되지 않은 칸이 있으면 실패합니다.
+- **비표준 목록.** 시스템마다 다른 후보는 FAB, Navigation Rail, Snackbar, Chip, Time Picker, Tooltip(iOS), Carousel입니다. 각 칸은 그 시스템의 공식 가이드(Apple Human Interface Guidelines, Fluent 2, GNOME HIG, KDE HIG, Deepin 디자인 문서)의 링크로 확인한 뒤 확정합니다.
+
 **1.0.0의 범위**: 1번 표의 행은 compose-rust가 먼저 쓰는 컴포넌트(FR-15의 위젯 어휘)입니다. 그 행들이 일곱 칸 모두 채워진 것이 1.0.0이고, material3 목록의 나머지(2번 표)는 그 뒤에 채웁니다.
 
 ### FR-15 위젯 어휘 (`Agreed`)
