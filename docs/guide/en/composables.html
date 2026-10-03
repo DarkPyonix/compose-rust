@@ -1047,7 +1047,7 @@
       <code>DrawListBuilder</code> has <code>line</code>, <code>rect</code>,
       <code>round_rect</code>, <code>circle</code>, <code>arc</code>, <code>polyline_ref</code> and
       <code>text_at</code>. Check the signatures in
-      <code>dioxus-compose/src/drawing.rs</code> before writing a long list: the arguments are
+      <code>compose-rust/src/drawing.rs</code> before writing a long list: the arguments are
       positional, and filled-versus-stroked is the trailing stroke width rather than a separate
       flag or a second method.
     </p>
@@ -1150,7 +1150,7 @@
     </p>
     <p>
       Adding your own means owning a patched copy of the registry in
-      <code>dioxus-compose/src/extensions.rs</code>, appending the widget and property tags, and
+      <code>compose-rust/src/extensions.rs</code>, appending the widget and property tags, and
       rendering the new kind in a paired Kotlin renderer. Extension widget tags start at 100 so
       they can never collide with a core widget added later.
     </p>

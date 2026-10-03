@@ -5,7 +5,7 @@
 # this repository, because the point of a sample is to be copied.
 #
 # What is specific to this project is the renderer: dx builds and bundles the application,
-# and the Compose renderer is linked in by dioxus-compose's build script. Nothing in this
+# and the Compose renderer is linked in by compose-rust's build script. Nothing in this
 # file selects a renderer.
 
 [application]
@@ -13,7 +13,7 @@ name = "Todo"
 asset_dir = "assets"
 
 [bundle]
-identifier = "dev.darkpyonix.dioxus.compose.samples.todo"
+identifier = "dev.darkpyonix.composerust.samples.todo"
 publisher = "DarkPyonix"
 short_description = "A task list built with compose-rust."
 long_description = "Stable keys, lazy list windowing, persistence."

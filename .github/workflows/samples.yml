@@ -41,16 +41,16 @@ jobs:
         include:
           - runner: macos-latest
             target: macos-aarch64
-            renderer: ./dioxus-compose-renderer/desktop/scripts/build-native.sh
-            dist: dioxus-compose-renderer/build/native-image/dist/lib
+            renderer: ./renderer/desktop/scripts/build-native.sh
+            dist: renderer/build/native-image/dist/lib
           - runner: ubuntu-24.04
             target: linux-x64
-            renderer: ./dioxus-compose-renderer/desktop/scripts/build-native-linux.sh
-            dist: dioxus-compose-renderer/build/native-image-linux/dist/lib
+            renderer: ./renderer/desktop/scripts/build-native-linux.sh
+            dist: renderer/build/native-image-linux/dist/lib
           - runner: ubuntu-24.04-arm
             target: linux-arm64
-            renderer: ./dioxus-compose-renderer/desktop/scripts/build-native-linux.sh
-            dist: dioxus-compose-renderer/build/native-image-linux/dist/lib
+            renderer: ./renderer/desktop/scripts/build-native-linux.sh
+            dist: renderer/build/native-image-linux/dist/lib
             # Community rather than the Oracle build: there is no free Oracle GraalVM for
             # Linux on arm64, which is the same reason the renderer's own workflow pins
             # this pair for this runner and no other.
@@ -58,12 +58,12 @@ jobs:
             java-version: '25.0.1'
           - runner: windows-2022
             target: windows-x64
-            renderer: powershell .\dioxus-compose-renderer\desktop\scripts\build-native-windows.ps1
+            renderer: powershell .\renderer\desktop\scripts\build-native-windows.ps1
             # `dist`, not `dist/lib`. Windows puts the DLL in `dist\bin` and the JDK's
             # font configuration in `dist\lib`, because AWT reads that from java.home and
             # the renderer sets java.home to `dist`. The search order looks in a given
             # directory and then in its `bin` and `lib`, so naming the parent finds both.
-            dist: dioxus-compose-renderer/build/native-image/dist
+            dist: renderer/build/native-image/dist
     steps:
       - uses: actions/checkout@v4
         with:
@@ -126,7 +126,7 @@ jobs:
             ~/Library/Caches/JetBrains/Kotlin
             ~/.cache/JetBrains/Kotlin
             ~/.m2/repository
-          key: kotlin-${{ matrix.target }}-${{ hashFiles('dioxus-compose-renderer/**/module.yaml') }}
+          key: kotlin-${{ matrix.target }}-${{ hashFiles('renderer/**/module.yaml') }}
           restore-keys: kotlin-${{ matrix.target }}-
 
       - name: Build the renderer
@@ -154,8 +154,8 @@ jobs:
         env:
           # Absolute. A build script runs with its crate directory as the working
           # directory, not the workspace root, so a relative path here points at
-          # dioxus-compose/dioxus-compose-renderer/... and finds nothing.
-          DIOXUS_COMPOSE_RENDERER_DIR: ${{ github.workspace }}/${{ matrix.dist }}
+          # compose-rust/renderer/... and finds nothing.
+          COMPOSE_RUST_RENDERER_DIR: ${{ github.workspace }}/${{ matrix.dist }}
         run: |
           set -uo pipefail
           : > built.txt
@@ -270,7 +270,7 @@ jobs:
             ~/.gradle/caches
             ~/.gradle/wrapper
             ~/.m2/repository
-          key: gradle-android-${{ hashFiles('dioxus-compose/android-kotlin/**') }}
+          key: gradle-android-${{ hashFiles('compose-rust/android-kotlin/**') }}
           restore-keys: gradle-android-
 
       - name: Install the Dioxus CLI
@@ -312,11 +312,11 @@ jobs:
           path: |
             ~/Library/Caches/JetBrains/Kotlin
             ~/.m2/repository
-          key: kotlin-ios-${{ hashFiles('dioxus-compose-renderer/**/module.yaml') }}
+          key: kotlin-ios-${{ hashFiles('renderer/**/module.yaml') }}
           restore-keys: kotlin-ios-
 
       - name: Build the renderer for the simulator
-        run: ./dioxus-compose-renderer/desktop/scripts/build-ios.sh --target simulator
+        run: ./renderer/desktop/scripts/build-ios.sh --target simulator
 
       - name: Wrap every sample in an application bundle
         # Simulator only. A bundle for a device has to be signed by a certificate Apple
@@ -330,9 +330,9 @@ jobs:
             sample="$(basename "$(dirname "$manifest")")"
             # An application rather than a library: every sample is a library now.
             [[ -f "samples/$sample/src/main.rs" ]] || continue
-            if ./dioxus-compose-renderer/desktop/scripts/build-sample-ios.sh "$sample" --release; then
+            if ./renderer/desktop/scripts/build-sample-ios.sh "$sample" --release; then
               tar -czf "artifacts/$sample-ios-simulator.tar.gz" \
-                -C dioxus-compose-renderer/build/ios/samples "sample-$sample.app"
+                -C renderer/build/ios/samples "sample-$sample.app"
               built=$((built + 1))
             else
               echo "::warning title=Sample skipped::$sample did not build for the iOS simulator"
@@ -371,7 +371,7 @@ jobs:
           path: |
             ~/.cache/JetBrains/Kotlin
             ~/.m2/repository
-          key: kotlin-web-${{ hashFiles('dioxus-compose-renderer/**/module.yaml') }}
+          key: kotlin-web-${{ hashFiles('renderer/**/module.yaml') }}
           restore-keys: kotlin-web-
 
       - name: Build a page for every sample

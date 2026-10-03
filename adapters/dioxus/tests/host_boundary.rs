@@ -7,8 +7,8 @@
 
 use dioxus_compose_adapter::Host;
 use dioxus_compose_adapter::boundary::{
-    MutationBatch, STATUS_OK, dioxus_compose_host_dispatch_event, dioxus_compose_host_init,
-    dioxus_compose_host_shutdown,
+    MutationBatch, STATUS_OK, compose_rust_host_dispatch_event, compose_rust_host_init,
+    compose_rust_host_shutdown,
 };
 use dioxus_compose_adapter::prelude::*;
 use dioxus_compose_adapter::protocol::{HostEvent, Mutation, PropertyValue, decode_batch};
@@ -165,7 +165,7 @@ fn fr12_key_consumption_is_returned_and_does_not_leak() {
     // SAFETY: All pointers refer to live test-owned buffers for the duration of each call.
     unsafe {
         assert_eq!(
-            dioxus_compose_host_init(handshake.as_ptr(), handshake.len() as u32, &mut output,),
+            compose_rust_host_init(handshake.as_ptr(), handshake.len() as u32, &mut output,),
             STATUS_OK
         );
     }
@@ -202,7 +202,7 @@ fn fr12_key_consumption_is_returned_and_does_not_leak() {
         // SAFETY: The encoded event and output storage remain live for the call.
         unsafe {
             assert_eq!(
-                dioxus_compose_host_dispatch_event(bytes.as_ptr(), bytes.len() as u32, output,),
+                compose_rust_host_dispatch_event(bytes.as_ptr(), bytes.len() as u32, output,),
                 STATUS_OK
             );
         }
@@ -216,11 +216,11 @@ fn fr12_key_consumption_is_returned_and_does_not_leak() {
     assert_eq!(output.result, 0);
     dispatch(handlers[0].0, handlers[0].1, false, &mut output);
     assert_ne!(output.result, 0);
-    dioxus_compose_host_shutdown();
+    compose_rust_host_shutdown();
 }
 
 /// `launch` runs on the Rust main thread, but the Renderer UI thread that calls
-/// `dioxus_compose_host_init` is a different thread (on macOS, AWT's event thread inside
+/// `compose_rust_host_init` is a different thread (on macOS, AWT's event thread inside
 /// the isolate). The app the application launched must be reachable from there.
 #[test]
 fn pr3_init_runs_on_a_different_thread_than_launch() {
@@ -236,11 +236,11 @@ fn pr3_init_runs_on_a_different_thread_than_launch() {
         let mut output = MutationBatch::default();
         // SAFETY: Both buffers are live test-owned storage for the duration of the call.
         let status = unsafe {
-            dioxus_compose_host_init(handshake.as_ptr(), handshake.len() as u32, &mut output)
+            compose_rust_host_init(handshake.as_ptr(), handshake.len() as u32, &mut output)
         };
         assert_eq!(status, STATUS_OK, "init must work off the launch thread");
         assert!(output.len > 0, "init returns the initial tree batch");
-        dioxus_compose_host_shutdown();
+        compose_rust_host_shutdown();
     })
     .join()
     .unwrap();
@@ -261,13 +261,13 @@ fn fr14_initial_batch_opens_with_the_launched_theme() {
             let mut output = MutationBatch::default();
             // SAFETY: Both buffers are live test-owned storage for this call.
             let status = unsafe {
-                dioxus_compose_host_init(handshake.as_ptr(), handshake.len() as u32, &mut output)
+                compose_rust_host_init(handshake.as_ptr(), handshake.len() as u32, &mut output)
             };
             assert_eq!(status, STATUS_OK);
             // SAFETY: A successful init returned a readable batch owned by the Host.
             let batch = unsafe { std::slice::from_raw_parts(output.ptr, output.len as usize) };
             let first = decode_batch(batch).unwrap().into_iter().next().unwrap();
-            dioxus_compose_host_shutdown();
+            compose_rust_host_shutdown();
             first
         })
         .join()

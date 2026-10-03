@@ -7,7 +7,7 @@ fn app() -> Element {
     rsx! {
         Column {
             fill_max_width: true,
-            Text { text: "dioxus-compose chat" }
+            Text { text: "compose-rust chat" }
             for message in messages() {
                 Text { text: message }
             }

@@ -335,7 +335,7 @@ fn fr15_2_10_a_floating_actions_click_reaches_the_host_once() {
 /// same two tags and the same properties the Host encodes.
 #[test]
 fn fr15_2_10_both_widgets_round_trip_through_the_checked_in_vector() {
-    let bytes = include_bytes!("../../../dioxus-compose/tests/vectors/mutations.bin");
+    let bytes = include_bytes!("../../../compose-rust/tests/vectors/mutations.bin");
     let decoded = records(bytes);
     let chips = created(&decoded, WidgetKind::Chip);
     let actions = created(&decoded, WidgetKind::FloatingAction);

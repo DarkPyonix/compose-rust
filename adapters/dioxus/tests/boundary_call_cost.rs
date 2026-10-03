@@ -11,8 +11,8 @@
 //! frame that had to be rendered before the change was visible would each show up here.
 
 use dioxus_compose_adapter::boundary::{
-    MutationBatch, STATUS_OK, dioxus_compose_host_dispatch_event, dioxus_compose_host_init,
-    dioxus_compose_host_release_batch, dioxus_compose_host_render_frame,
+    MutationBatch, STATUS_OK, compose_rust_host_dispatch_event, compose_rust_host_init,
+    compose_rust_host_release_batch, compose_rust_host_render_frame,
 };
 use dioxus_compose_adapter::prelude::*;
 use dioxus_compose_adapter::protocol::{
@@ -101,12 +101,11 @@ fn start() -> (u32, u64) {
     let bytes = handshake();
     let mut first = MutationBatch::default();
     // SAFETY: The handshake buffer and `first` are live test-owned storage.
-    let status =
-        unsafe { dioxus_compose_host_init(bytes.as_ptr(), bytes.len() as u32, &mut first) };
+    let status = unsafe { compose_rust_host_init(bytes.as_ptr(), bytes.len() as u32, &mut first) };
     assert_eq!(status, STATUS_OK, "the handshake was refused");
     let found = field_and_handler(&first);
     // SAFETY: `first` is this test's own storage.
-    unsafe { dioxus_compose_host_release_batch(&mut first) };
+    unsafe { compose_rust_host_release_batch(&mut first) };
     found
 }
 
@@ -136,9 +135,8 @@ fn pr4_a_text_change_costs_two_boundary_calls() {
 
     // One. The diff is already here when it returns, and so is the handler's answer.
     // SAFETY: The event buffer and `batch` are live test-owned storage.
-    let status = unsafe {
-        dioxus_compose_host_dispatch_event(event.as_ptr(), event.len() as u32, &mut batch)
-    };
+    let status =
+        unsafe { compose_rust_host_dispatch_event(event.as_ptr(), event.len() as u32, &mut batch) };
     assert_eq!(status, STATUS_OK);
     assert!(
         batch.len > 0,
@@ -156,7 +154,7 @@ fn pr4_a_text_change_costs_two_boundary_calls() {
 
     // Two. After this the arena is the next event's to write into.
     // SAFETY: `batch` is this test's own storage.
-    unsafe { dioxus_compose_host_release_batch(&mut batch) };
+    unsafe { compose_rust_host_release_batch(&mut batch) };
     assert!(batch.ptr.is_null(), "release left the batch readable");
 }
 
@@ -166,18 +164,17 @@ fn pr4_nothing_is_left_for_a_third_call() {
     let event = typed_event(field, handler, "already applied");
     let mut batch = MutationBatch::default();
     // SAFETY: The event buffer and `batch` are live test-owned storage.
-    let status = unsafe {
-        dioxus_compose_host_dispatch_event(event.as_ptr(), event.len() as u32, &mut batch)
-    };
+    let status =
+        unsafe { compose_rust_host_dispatch_event(event.as_ptr(), event.len() as u32, &mut batch) };
     assert_eq!(status, STATUS_OK);
     assert!(texts(&batch).contains(&"already applied".to_string()));
     // SAFETY: `batch` is this test's own storage.
-    unsafe { dioxus_compose_host_release_batch(&mut batch) };
+    unsafe { compose_rust_host_release_batch(&mut batch) };
 
     // A Renderer that had to render a frame to see the keystroke would find work here.
     let mut frame = MutationBatch::default();
     // SAFETY: `frame` is live test-owned storage.
-    let status = unsafe { dioxus_compose_host_render_frame(0, &mut frame) };
+    let status = unsafe { compose_rust_host_render_frame(0, &mut frame) };
     assert_eq!(status, STATUS_OK);
     let left_over = decode_batch(batch_bytes(&frame)).expect("the frame did not decode");
     assert!(
@@ -186,7 +183,7 @@ fn pr4_nothing_is_left_for_a_third_call() {
          finished when dispatch returned"
     );
     // SAFETY: `frame` is this test's own storage.
-    unsafe { dioxus_compose_host_release_batch(&mut frame) };
+    unsafe { compose_rust_host_release_batch(&mut frame) };
 }
 
 #[test]
@@ -198,13 +195,13 @@ fn pr4_the_batch_buffer_is_an_argument_and_not_a_queue() {
         let mut batch = MutationBatch::default();
         // SAFETY: The event buffer and `batch` are live test-owned storage.
         let status = unsafe {
-            dioxus_compose_host_dispatch_event(event.as_ptr(), event.len() as u32, &mut batch)
+            compose_rust_host_dispatch_event(event.as_ptr(), event.len() as u32, &mut batch)
         };
         assert_eq!(status, STATUS_OK);
         assert!(texts(&batch).contains(&text.to_string()));
         arenas.push(batch.ptr);
         // SAFETY: `batch` is this test's own storage.
-        unsafe { dioxus_compose_host_release_batch(&mut batch) };
+        unsafe { compose_rust_host_release_batch(&mut batch) };
     }
     // The second and third keystrokes were written where the first one was. A queue would
     // have handed out somewhere else to keep the earlier batches readable; this is one

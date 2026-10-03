@@ -479,7 +479,7 @@ pub fn launch() {
 fn launch_builder() -> dioxus_compose_adapter::LaunchBuilder {
     // The name the window carries. A desktop lists windows by it, so a window that said
     // nothing was listed under whatever the renderer happened to be called, and every
-    // sample here was listed as DioxusCompose until this line existed.
+    // sample here was listed under the toolkit's default name until this line existed.
     dioxus_compose_adapter::LaunchBuilder::new()
         .with_theme(dioxus_compose_adapter::demo_theme())
         .with_window(

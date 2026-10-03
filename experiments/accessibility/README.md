@@ -45,7 +45,7 @@ labelled `AXStaticText` and `AXButton` under it, not a bare window.
 
 JVM dev shell:
 
-    cd dioxus-compose-renderer
+    cd renderer
     ./kotlin run -m desktop &
     # find the app process, not the Compose Hot Reload dev tools process
     pgrep -fl jbrsdk
@@ -53,7 +53,7 @@ JVM dev shell:
 
 Native image:
 
-    cd dioxus-compose-renderer
+    cd renderer
     ./desktop/scripts/build-native.sh
     ./desktop/scripts/smoke-test.sh &
     swift ../experiments/accessibility/ax-dump.swift "$(pgrep -f smoke_host)"
@@ -117,7 +117,7 @@ because no symbol refers to them. `NSClassFromString` returns nil, `[nil alloc]`
 
 Only the few classes that some other Objective-C code happens to mention survived:
 
-    otool -oV build/native-image/dist/lib/libdioxus_compose_renderer.dylib \
+    otool -oV build/native-image/dist/lib/libcompose_rust_renderer.dylib \
       | awk '$1 == "name" && $NF ~ /Accessibility$/ { print $NF }' | sort -u
 
 Before the fix that printed 12 names, and `GroupAccessibility`, `ButtonAccessibility`,
@@ -140,7 +140,7 @@ that an inserted copy shadows the real one.
     clang -dynamiclib -framework Foundation -framework AppKit \
         -I"$GRAALVM_HOME/include" -I"$GRAALVM_HOME/include/darwin" \
         -o /tmp/ax-probe.dylib experiments/accessibility/ax-probe.m
-    cd dioxus-compose-renderer
+    cd renderer
     DYLD_INSERT_LIBRARIES=/tmp/ax-probe.dylib ./build/native-image/smoke_host
 
 Insert it into the host binary directly. Going through `smoke-test.sh` does not work:
@@ -230,7 +230,7 @@ left of NFR-8.
 Setup. Grant Accessibility permission to the terminal you will use, or the dump step
 fails with `-25211`. Build and start the app:
 
-    cd dioxus-compose-renderer
+    cd renderer
     ./desktop/scripts/build-native.sh
     ./desktop/scripts/smoke-test.sh
 

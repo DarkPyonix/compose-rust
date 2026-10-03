@@ -68,7 +68,7 @@ macro_rules! android_main {
     ($builder:expr, $app:path) => {
         #[cfg(target_os = "android")]
         #[unsafe(no_mangle)]
-        pub extern "C" fn dioxus_compose_android_main() {
+        pub extern "C" fn compose_rust_android_main() {
             $builder.with_mode($crate::LoopMode::Platform).launch($app);
         }
     };
@@ -82,7 +82,7 @@ macro_rules! android_main {
 ///
 /// The export is here rather than in this crate because a wasm module cannot be linked
 /// with an undefined symbol the way an ELF shared library can. Android's cdylib imports
-/// `dioxus_compose_android_main` from the application and the dynamic linker resolves it
+/// `compose_rust_android_main` from the application and the dynamic linker resolves it
 /// at load time; a browser refuses to instantiate a module whose imports are not all
 /// supplied, so the entry point is defined where the root component is.
 ///
@@ -97,7 +97,7 @@ macro_rules! web_main {
     ($builder:expr, $app:path) => {
         #[cfg(target_family = "wasm")]
         #[unsafe(no_mangle)]
-        pub extern "C" fn dioxus_compose_host_web_start() -> u32 {
+        pub extern "C" fn compose_rust_host_web_start() -> u32 {
             $crate::__web_start($builder, $app)
         }
 
@@ -108,7 +108,7 @@ macro_rules! web_main {
         /// application linked into one binary.
         #[cfg(not(target_family = "wasm"))]
         #[allow(dead_code)]
-        fn __dioxus_compose_web_start_unused() -> u32 {
+        fn __compose_rust_web_start_unused() -> u32 {
             let _: fn() -> $crate::Element = $app;
             let _ = $builder;
             0

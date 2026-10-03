@@ -234,7 +234,7 @@ The design is worked out in detail in `FR-13` and `FR-14` of [`docs/SPEC.md`](do
   platform is a bad default.
 
 > **Status: `Draft`, design only.** ⚠️ None of this exists in code yet. `Theme`, `DesignSystem`,
-> `ColorRole`, `TypeRole` and `ScrollColumn` appear nowhere in `dioxus-compose/src/` or in the Kotlin
+> `ColorRole`, `TypeRole` and `ScrollColumn` appear nowhere in `compose-rust/src/` or in the Kotlin
 > renderer today. What ships now is the literal subset: `Modifier::Background(u32 ARGB)`,
 > `Modifier::Padding(f32)` and friends. The snippet above is **illustrative of the specified API**,
 > not of a working one.
@@ -296,7 +296,7 @@ on Darwin** ([oracle/graal#13272](https://github.com/oracle/graal/issues/13272))
 static AWT archive and no way to link the renderer. Liberica NIK Full links AWT statically.
 
 Statically linked macOS AWT then looks for three things by file path at runtime, each met by a thin
-shim in `dioxus-compose-renderer/desktop/c/`:
+shim in `renderer/desktop/c/`:
 
 | Missing thing | Shim |
 |---|---|
@@ -335,8 +335,8 @@ Two variables exist for the cases that need them, and neither is part of install
 
 | Variable | Effect |
 |---|---|
-| `DIOXUS_COMPOSE_RENDERER_DIR` | Use the renderer in this directory. Checked first, and nothing is downloaded when it is set, so a renderer you built yourself, a vendored copy or an air-gapped build all work through it. |
-| `DIOXUS_COMPOSE_CACHE_DIR` | Move the cache off `$HOME/.cache/dioxus-compose` (`%LOCALAPPDATA%\dioxus-compose` on Windows). |
+| `COMPOSE_RUST_RENDERER_DIR` | Use the renderer in this directory. Checked first, and nothing is downloaded when it is set, so a renderer you built yourself, a vendored copy or an air-gapped build all work through it. |
+| `COMPOSE_RUST_CACHE_DIR` | Move the cache off `$HOME/.cache/compose-rust` (`%LOCALAPPDATA%\compose-rust` on Windows). |
 
 A build with no network says which two files to put where, and putting them there is all it takes.
 `default-features = false` builds with no renderer at all, for a headless or documentation build;
@@ -381,7 +381,7 @@ brew install --cask liberica-nik-full
 ./scripts/install-nik.sh
 ```
 
-`dioxus-compose-renderer/desktop/scripts/env.sh` discovers it in this order:
+`renderer/desktop/scripts/env.sh` discovers it in this order:
 
 1. `$GRAALVM_HOME`, if set
 2. the newest match of
@@ -392,7 +392,7 @@ without `lib/static/darwin-*/libawt_lwawt.a`. That catches plain GraalVM up fron
 a long build ends in a link failure.
 
 macOS also needs the Xcode command line tools (`xcode-select --install`) for `cc`, `ld` and the
-AppKit headers used by `dioxus-compose-renderer/desktop/c/`.
+AppKit headers used by `renderer/desktop/c/`.
 
 **The scripts support macOS only today.** Linux and Windows native-image builds are not scripted.
 
@@ -406,7 +406,7 @@ and the Linux targets. The changes are commits in a fork of Compose,
 and the build script pins one commit of it.
 
 ```bash
-./dioxus-compose-renderer/scripts/build-compose.sh
+./renderer/scripts/build-compose.sh
 ```
 
 It fetches the pinned commit and publishes the modules the renderer asks for. Slow, and run once rather than once per build. Everything else still resolves from what
@@ -414,23 +414,23 @@ JetBrains published.
 
 ### 4. Kotlin
 
-Nothing to install. `dioxus-compose-renderer/kotlin` (`kotlin.bat` on Windows) is a
+Nothing to install. `renderer/kotlin` (`kotlin.bat` on Windows) is a
 self-bootstrapping wrapper that downloads the pinned toolchain on first use.
 
 ### 5. Build the renderer
 
 Produces one static library, with Compose, Skia and the interpreter inside it, in
-`dioxus-compose-renderer/build/macos/` (`PR-8`). Takes several minutes.
+`renderer/build/macos/` (`PR-8`). Takes several minutes.
 
 ```bash
-cd dioxus-compose-renderer
+cd renderer
 ./desktop/scripts/build-macos.sh --release
 ```
 
 ```
 build/macos/
-  libdioxus_compose_renderer.a       the renderer (Compose, Skia, the interpreter, our code)
-  libdioxus_compose_renderer_api.h   the header Kotlin/Native generates for it
+  libcompose_rust_renderer.a       the renderer (Compose, Skia, the interpreter, our code)
+  libcompose_rust_renderer_api.h   the header Kotlin/Native generates for it
 ```
 
 <details>
@@ -442,7 +442,7 @@ directory rather than one file, because statically linked AWT resolves some thin
 
 ```
 build/native-image/dist/lib/
-  libdioxus_compose_renderer.dylib   the renderer (AWT, Skiko JNI, Compose, our code)
+  libcompose_rust_renderer.dylib   the renderer (AWT, Skiko JNI, Compose, our code)
   libskiko-macos-<arch>.dylib        Skia, loaded by Skiko by path
   libjawt.dylib                      forwards JAWT_GetAWT into the renderer
   libawt_lwawt.dylib                 placeholder that libawt loads by path
@@ -451,15 +451,15 @@ build/native-image/dist/lib/
 
 ### 6. Smoke-test it
 
-Links a minimal C host against the library and calls `dioxus_compose_renderer_run`. A window should
+Links a minimal C host against the library and calls `compose_rust_renderer_run`. A window should
 open, and closing it should return 0, the `PR-8` acceptance criterion.
 
 ```bash
-cd dioxus-compose-renderer
+cd renderer
 ./desktop/scripts/smoke-test.sh
 ```
 
-For an unattended run, set `DIOXUS_COMPOSE_AUTOEXIT_MS=6000` to make the window close itself.
+For an unattended run, set `COMPOSE_RUST_AUTOEXIT_MS=6000` to make the window close itself.
 
 ### 7. Run the Rust demo
 
@@ -468,8 +468,8 @@ cargo run -p dioxus-compose-adapter --example desktop_demo --features native-ren
 ```
 
 In a checkout of this repository the build script prefers the renderer you just built, at
-`dioxus-compose-renderer/build/native-image/dist/lib`, over anything it could download. The full
-order is `DIOXUS_COMPOSE_RENDERER_DIR`, then that workspace build, then the cache, then the release
+`renderer/build/native-image/dist/lib`, over anything it could download. The full
+order is `COMPOSE_RUST_RENDERER_DIR`, then that workspace build, then the cache, then the release
 for the crate's version (`NFR-10`).
 
 ### 8. The JVM dev shell
@@ -478,7 +478,7 @@ The fastest loop when you are working on the renderer itself: hot reload and `@P
 native-image build is needed (`NFR-5`, `D7`).
 
 ```bash
-cd dioxus-compose-renderer
+cd renderer
 ./kotlin run -m desktop   # the Compose development shell
 ./kotlin run -m desktop    # the renderer module itself on the JVM, driven by a scripted Host
 ```
@@ -535,7 +535,7 @@ still have to be measured on the native-image build.
 
 ```
 compose-rust/
-├─ dioxus-compose/                  # Rust: the Host (crate compose-rust), no Dioxus in it
+├─ compose-rust/                    # Rust: the Host (crate compose-rust), no Dioxus in it
 │  ├─ src/
 │  │  ├─ lib.rs                     #   public API
 │  │  ├─ runtime.rs                 #   Runtime: what builds the tree, seen from the boundary
@@ -552,7 +552,7 @@ compose-rust/
 │  ├─ examples/desktop_demo.rs      #   the runnable demo
 │  └─ benches/baseline.json         #   the recorded performance baseline
 ├─ bench/dioxus-baseline/           # the rsx! samples, gathered as the Dioxus baseline
-├─ dioxus-compose-renderer/         # Kotlin: the Renderer (Kotlin Toolchain / Amper)
+├─ renderer/                        # Kotlin: the Renderer (Kotlin Toolchain / Amper)
 │  ├─ native/                       #   the interpreter, C shims, native-image build scripts
 │  ├─ desktop/                      #   JVM development shell
 │  ├─ shared/                       #   shared Compose code

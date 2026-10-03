@@ -14,7 +14,9 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 
-pattern='SPEC|FR-[0-9]|NFR-[0-9]|PR-[0-9]|INTENT'
+# Whole words only. A name that merely contains the letters, such as the Windows Runtime's
+# IInspectable written as DXC_INSPECTABLE_SLOTS, cites nothing.
+pattern='\b(SPEC|INTENT)\b|\b(N?FR|PR)-[0-9]'
 
 # Paths where the documents are the subject rather than a citation. The publishing script
 # decides which files to strip and its test asserts on those names; one test reads the

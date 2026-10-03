@@ -474,11 +474,11 @@ fn fr36_the_boundary_entry_points_are_unchanged() {
     assert_eq!(
         names,
         [
-            "dioxus_compose_host_init",
-            "dioxus_compose_host_dispatch_event",
-            "dioxus_compose_host_render_frame",
-            "dioxus_compose_host_release_batch",
-            "dioxus_compose_host_shutdown",
+            "compose_rust_host_init",
+            "compose_rust_host_dispatch_event",
+            "compose_rust_host_render_frame",
+            "compose_rust_host_release_batch",
+            "compose_rust_host_shutdown",
         ]
     );
 }
@@ -490,7 +490,7 @@ fn fr36_notification_records_are_in_the_protocol_vectors() {
     let generated = generate_mutation_vector().unwrap();
     for bytes in [
         generated.as_slice(),
-        include_bytes!("../../../dioxus-compose/tests/vectors/mutations.bin").as_slice(),
+        include_bytes!("../../../compose-rust/tests/vectors/mutations.bin").as_slice(),
     ] {
         let mutations = decode_batch(bytes).unwrap();
         assert!(
@@ -513,7 +513,7 @@ fn fr36_notification_records_are_in_the_protocol_vectors() {
     let generated = generate_event_vector().unwrap();
     for bytes in [
         generated.as_slice(),
-        include_bytes!("../../../dioxus-compose/tests/vectors/events.bin").as_slice(),
+        include_bytes!("../../../compose-rust/tests/vectors/events.bin").as_slice(),
     ] {
         let mut kinds = Vec::new();
         let mut position = 0;

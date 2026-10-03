@@ -19,7 +19,7 @@ use std::collections::BTreeSet;
 const HOST: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"));
 const RENDERER: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../dioxus-compose-renderer/desktop/src/renderer/NodeTable.kt"
+    "/../../renderer/desktop/src/renderer/NodeTable.kt"
 ));
 
 /// The widget name and attribute list of every `element!` call.

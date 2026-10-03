@@ -10,8 +10,8 @@
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-source_file="$repo_root/dioxus-compose-renderer/desktop/c/appkit_window.m"
-kotlin_file="$repo_root/dioxus-compose-renderer/desktop/src/AppKitWindow.kt"
+source_file="$repo_root/renderer/desktop/c/appkit_window.m"
+kotlin_file="$repo_root/renderer/desktop/src/AppKitWindow.kt"
 red=0
 
 [[ -f "$source_file" ]] || { echo "missing $source_file"; exit 1; }

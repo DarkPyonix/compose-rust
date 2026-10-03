@@ -30,7 +30,7 @@ mock-renderer = ["compose-rust/mock-renderer"]
 native-renderer = ["compose-rust/native-renderer"]
 
 [dependencies]
-compose-rust = { path = "../../dioxus-compose", default-features = false }
+compose-rust = { path = "../../compose-rust", default-features = false }
 dioxus-core.workspace = true
 dioxus-core-macro.workspace = true
 dioxus-hooks.workspace = true

@@ -108,8 +108,20 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
             CARGO_HOME="${CARGO_HOME:-$real_home/.cargo}" \
             "$setup_check"
 
-    assert_run "setup_check_names_the_patched_compose_it_found" 0 "patched Compose:" \
-        "$setup_check"
+    # The found branch is built the same way, rather than read off whatever this machine has
+    # published: a CI runner has never run build-compose.sh, and a developer who has is
+    # testing their own ~/.m2, not the check. The version is read from where setup-check
+    # reads it, so moving the pin does not leave this looking for the old one.
+    patched_version="$(sed -n 's/^PUBLISHED_AS="\([^"]*\)"$/\1/p' \
+        "$repo_root/renderer/scripts/build-compose.sh")"
+    compose_home="$empty_home/compose-home"
+    patched_compose="$compose_home/.m2/repository/org/jetbrains/compose/ui/ui-macosarm64/$patched_version"
+    mkdir -p "$patched_compose"
+    assert_run "setup_check_names_the_patched_compose_it_found" 0 "patched Compose: $patched_compose" \
+        env -u GRAALVM_HOME HOME="$compose_home" \
+            RUSTUP_HOME="${RUSTUP_HOME:-$real_home/.rustup}" \
+            CARGO_HOME="${CARGO_HOME:-$real_home/.cargo}" \
+            "$setup_check"
 fi
 
 printf '\n%d test(s), %d failure(s)\n' "$tests_run" "$tests_failed"

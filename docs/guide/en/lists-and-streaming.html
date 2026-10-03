@@ -64,7 +64,7 @@
       <p>
         <code>LazyColumn</code> (FR-8) and <code>AppendText</code> (FR-9) are <code>Agreed</code>
         in the SPEC and implemented in the Host: both have passing acceptance tests in
-        <code>dioxus-compose/tests/</code>. The Compose interpreter is being finished in parallel;
+        <code>compose-rust/tests/</code>. The Compose interpreter is being finished in parallel;
         until it lands, see <a href="#renderer-gap">the renderer gap</a> below for what that means
         on screen.
       </p>
@@ -116,7 +116,7 @@
     </p>
 
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
-      <figcaption>rust, the component as defined in dioxus-compose/src/widgets.rs</figcaption>
+      <figcaption>rust, the component as defined in compose-rust/src/widgets.rs</figcaption>
 <pre><code><span class="f">rsx!</span> {
     <span class="ty">LazyColumn</span> {
         <span class="at">item_count</span>: messages.<span class="f">len</span>(),

@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "dioxus-compose",
+    "compose-rust",
     "adapters/dioxus",
     "bench/dioxus-baseline",
     "samples/academic",

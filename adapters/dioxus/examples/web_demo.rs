@@ -2,12 +2,12 @@
 //!
 //! The same Rust source as `desktop_demo`, with one difference: there is no `main`. The
 //! Renderer's module owns the loop, so the root component is registered from
-//! `dioxus_compose_host_web_start`, which the page calls once both wasm modules exist, and
+//! `compose_rust_host_web_start`, which the page calls once both wasm modules exist, and
 //! the generated shims carry every call after that.
 //!
 //! Built as a wasm module the page fetches:
 //! ```sh
-//! dioxus-compose-renderer/web/scripts/build-host.sh
+//! renderer/web/scripts/build-host.sh
 //! ```
 
 use dioxus_compose_adapter::prelude::*;
@@ -19,7 +19,7 @@ fn app() -> Element {
     rsx! {
         Column {
             fill_max_width: true,
-            Text { text: "dioxus-compose chat" }
+            Text { text: "compose-rust chat" }
             for message in messages() {
                 Text { text: message }
             }

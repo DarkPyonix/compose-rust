@@ -64,8 +64,8 @@
     <h2 id="no-library">링커가 렌더러를 찾지 못함</h2>
     <p>
       증상: <code>cargo run</code>이
-      <code>library not found for -ldioxus_compose_renderer</code>로 실패하거나, 링크는 됐는데
-      실행 직후 <code>libdioxus_compose_renderer.dylib</code>을 언급하는 동적 로더 오류로
+      <code>library not found for -lcompose_rust_renderer</code>로 실패하거나, 링크는 됐는데
+      실행 직후 <code>libcompose_rust_renderer.dylib</code>을 언급하는 동적 로더 오류로
       죽습니다.
     </p>
     <p>
@@ -76,17 +76,17 @@
     </p>
     <p>
       체크아웃 안에서는 빌드가 워크스페이스의
-      <code>dioxus-compose-renderer/build/native-image/dist/lib</code>를 내려받기보다 먼저 쓰고,
+      <code>renderer/build/native-image/dist/lib</code>를 내려받기보다 먼저 쓰고,
       그 라이브러리에게 자기가 거기 산다고 알려 줍니다. 그것을 링크하는 쪽은 같은 경로를 그대로
       기록합니다. 그 디렉터리가 있는데 비어 있다면 렌더러를 아직 빌드하지 않은 것입니다.
     </p>
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
       <figcaption>shell</figcaption>
-<pre><code>ls dioxus-compose-renderer/build/native-image/dist/lib
-<span class="c"># 기대: libdioxus_compose_renderer.dylib, libskiko-macos-*.dylib,</span>
+<pre><code>ls renderer/build/native-image/dist/lib
+<span class="c"># 기대: libcompose_rust_renderer.dylib, libskiko-macos-*.dylib,</span>
 <span class="c">#       libjawt.dylib, libawt_lwawt.dylib</span>
 
-./dioxus-compose-renderer/desktop/scripts/build-native.sh</code></pre>
+./renderer/desktop/scripts/build-native.sh</code></pre>
     </figure>
     <p>
       네 파일을 따로 떼어 옮기지 마세요. 렌더러는 <code>dladdr</code>로 자기 위치를 알아낸 다음
@@ -108,7 +108,7 @@
     </p>
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
       <figcaption>shell</figcaption>
-<pre><code>./dioxus-compose-renderer/desktop/scripts/smoke-test.sh</code></pre>
+<pre><code>./renderer/desktop/scripts/smoke-test.sh</code></pre>
     </figure>
     <p>
       여기서는 창이 뜨는데 Rust에서는 안 뜬다면 바이너리 링크 문제입니다. 여기서도 안 뜨면
@@ -142,7 +142,7 @@
 
     <h2 id="main-thread">시작하자마자 끝나거나, 끝나지 않음</h2>
     <p>
-      <code>dioxus_compose_renderer_run</code>은 프로세스 메인 스레드에서 불러야 합니다. macOS에서
+      <code>compose_rust_renderer_run</code>은 프로세스 메인 스레드에서 불러야 합니다. macOS에서
       다른 스레드에서 부르면 아무 일도 하지 않고 <code>RUN_NOT_MAIN_THREAD</code>(<code>-4</code>)를
       반환합니다. 같은 진입점의 다른 음수 코드도 알아 두면 좋습니다.
     </p>
