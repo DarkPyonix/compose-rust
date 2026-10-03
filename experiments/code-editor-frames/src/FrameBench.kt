@@ -65,7 +65,12 @@ fun main(args: Array<String>) {
     val runs = listOf("windowed", "whole", "drawn", "baseline").filter { named.isEmpty() || it in named }
     val document = sourceText(lines)
     val results = runs.map { name ->
-        val result = measure(name, document, lines, frames)
+        // A path that cannot open the document at all is a result too, and the most
+        // important one: the whole-document field has to lay its text out at the
+        // document's full height, which a layout constraint may not be able to hold.
+        val result = runCatching { measure(name, document, lines, frames) }.getOrElse { error ->
+            RunResult(name, -1.0, emptyMap(), 0, failure = "${error::class.simpleName}: ${error.message}")
+        }
         println(result.toJson())
         result
     }
@@ -170,9 +175,11 @@ private class RunResult(
     val openMillis: Double,
     val phases: Map<String, LongArray>,
     val changes: Int,
+    val failure: String? = null,
 ) {
     fun toJson(): String = buildString {
         append("{\"path\": \"$name\", \"openMillis\": ${"%.1f".format(openMillis)}, \"changesReported\": $changes")
+        if (failure != null) append(", \"failed\": \"${failure.replace("\"", "'")}\"")
         for ((phase, samples) in phases) {
             val sorted = samples.sorted()
             fun ms(nanos: Long) = "%.2f".format(nanos / 1_000_000.0)

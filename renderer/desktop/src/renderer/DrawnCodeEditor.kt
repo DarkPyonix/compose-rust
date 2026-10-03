@@ -7,7 +7,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.scrollable
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -115,6 +117,7 @@ private class DrawnState(
     var textLeft = 0f
     var coordinates: LayoutCoordinates? = null
     var rows: RowMap = RowMap.of(model)
+    var scroll: EditorScroll? = null
     private val views = HashMap<Int, LineView>()
     private var viewsRevision = -1
 
@@ -225,7 +228,7 @@ private class DrawnState(
     override fun caretRectInRoot(): Rect {
         val caret = model.selection.caret
         val x = textLeft + view(caret.line).caretX(caret.column)
-        val y = rows.textRow(caret.line) * rowPx.toFloat()
+        val y = rows.textRow(caret.line) * rowPx.toFloat() - (scroll?.offset ?: 0)
         val origin = coordinates?.localToRoot(Offset(x, y)) ?: Offset(x, y)
         return Rect(origin, Size(1f, rowPx.toFloat()))
     }
@@ -244,7 +247,7 @@ private class DrawnState(
     }
 
     fun positionAt(point: Offset): Pair<CodePosition, Boolean> {
-        val row = (point.y / rowPx).toInt().coerceAtLeast(0)
+        val row = ((point.y + (scroll?.offset ?: 0)) / rowPx).toInt().coerceAtLeast(0)
         val line = rows.lineAtRow(row).coerceIn(0, model.document.lineCount - 1)
         val onLens = rows.hasLens(line) && row == rows.rowTop(line)
         return CodePosition(line, view(line).column(point.x - textLeft)) to onLens
@@ -271,7 +274,8 @@ private fun DrawnSurface(
     val rowPx = remember(look.textStyle, density) { rowHeightPx(look.textStyle, density) }
     state.rowPx = rowPx
     state.style = look.textStyle
-    val vertical = rememberScrollState()
+    val vertical = remember { EditorScroll() }
+    state.scroll = vertical
     var viewportHeight by remember { mutableIntStateOf(0) }
     var focused by remember { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
@@ -282,6 +286,8 @@ private fun DrawnSurface(
     model.overlayRevision
     val rows = RowMap.of(model)
     state.rows = rows
+    val extent = rows.totalRows * rowPx - viewportHeight
+    SideEffect { vertical.max = extent }
     val digitWidth = remember(look.textStyle) { measurer.measure("0", look.textStyle).size.width }
     val gutterWidth = with(density) {
         rows.lineCount.toString().length * digitWidth + (look.gutterPadding * 2).toPx() + look.gutterDividerWidth.toPx()
@@ -300,9 +306,10 @@ private fun DrawnSurface(
     ) {
         Box(
             Modifier
-                .fillMaxWidth()
-                .verticalScroll(vertical)
-                .height(with(density) { (rows.totalRows * rowPx).toDp() })
+                // The viewport's size, never the document's: the lines on screen are drawn at
+                // their rows less the offset, and the extent is only a number.
+                .fillMaxSize()
+                .scrollable(vertical.scrollable, Orientation.Vertical)
                 .onGloballyPositioned { state.coordinates = it }
                 .drawnTextInput(state)
                 .focusRequester(focus)
@@ -335,7 +342,7 @@ private fun DrawnSurface(
                                     }
                                     change.consume()
                                 }
-                                PointerEventType.Move -> {
+                                PointerEventType.Move, PointerEventType.Enter -> {
                                     val (position, onLens) = state.positionAt(change.position)
                                     if (dragging && change.pressed) {
                                         model.selection = CodeSelection(model.selection.anchor, position)
@@ -354,7 +361,10 @@ private fun DrawnSurface(
                 .drawBehind {
                     state.moves
                     state.composing
-                    drawLines(state, rows, vertical.value, viewportHeight, gutterWidth, focused)
+                    val scroll = vertical.offset
+                    translate(top = -scroll.toFloat()) {
+                        drawLines(state, rows, scroll, viewportHeight, gutterWidth, focused)
+                    }
                 },
         )
     }

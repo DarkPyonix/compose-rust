@@ -10,7 +10,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.ScrollableState
+import androidx.compose.foundation.gestures.scrollable
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.input.InputTransformation
@@ -19,7 +22,6 @@ import androidx.compose.foundation.text.input.TextFieldBuffer
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.selection.LocalTextSelectionColors
 import androidx.compose.foundation.text.selection.TextSelectionColors
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -42,6 +44,8 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
@@ -618,6 +622,45 @@ internal fun Modifier.boundedHeight(fallback: Dp): Modifier = layout { measurabl
     layout(placeable.width, placeable.height) { placeable.place(0, 0) }
 }
 
+/**
+ * How far an editor is scrolled, in pixels, kept by the editor rather than by a scroll
+ * container.
+ *
+ * A scroll container measures its content at full height, and a hundred thousand lines at
+ * twenty pixels is two million pixels, which no layout constraint can hold. So nothing is
+ * ever measured at the document's height: the editor is the size of its viewport, the
+ * lines on screen are placed at their row minus this offset, and the extent is a number
+ * the offset is clamped to.
+ */
+internal class EditorScroll {
+    var offset by mutableIntStateOf(0)
+        private set
+
+    /** The furthest the view can scroll: the document's height less the viewport's. */
+    var max = 0
+        set(value) {
+            field = value.coerceAtLeast(0)
+            if (offset > field) offset = field
+        }
+
+    /** The part of a pixel a scroll gesture has moved and the offset has not yet taken. */
+    private var remainder = 0f
+
+    val scrollable: ScrollableState = ScrollableState { delta ->
+        val before = offset
+        val exact = before - delta + remainder
+        val next = exact.roundToInt().coerceIn(0, max)
+        remainder = if (next == exact.roundToInt()) exact - next else 0f
+        offset = next
+        (before - next).toFloat()
+    }
+
+    fun scrollTo(value: Int) {
+        remainder = 0f
+        offset = value.coerceIn(0, max)
+    }
+}
+
 /** The row height in whole pixels, so every row starts on a pixel and rows never drift. */
 internal fun rowHeightPx(style: TextStyle, density: Density): Int = with(density) {
     val lineHeight = if (style.lineHeight.isSp) style.lineHeight else (style.fontSize.value * 1.4f).sp
@@ -646,7 +689,7 @@ private fun FieldSurface(
     }
     val measurer = rememberTextMeasurer()
     val digitWidth = remember(style) { measurer.measure("0", style).size.width }
-    val vertical = rememberScrollState()
+    val vertical = remember { EditorScroll() }
     val horizontal = rememberScrollState()
     val window = remember(model, whole) { FieldWindow(model, whole) }
     val display = remember(window, look) { EditorDisplay(window, look) }
@@ -676,8 +719,8 @@ private fun FieldSurface(
         if (window.scrollToCaret == 0) return@LaunchedEffect
         val caretRow = RowMap.of(model).textRow(model.selection.caret.line)
         val top = caretRow * rowPx
-        if (top < vertical.value || top + rowPx > vertical.value + viewportHeight) {
-            vertical.scrollTo((top - viewportHeight / 2).coerceAtLeast(0))
+        if (top < vertical.offset || top + rowPx > vertical.offset + viewportHeight) {
+            vertical.scrollTo(top - viewportHeight / 2)
         }
     }
 
@@ -699,48 +742,57 @@ private fun FieldSurface(
                     viewportWidth = size.width
                 },
         ) {
-            Box(
+            // The extent the offset may run to. A number, never a measured height.
+            val extent = rows.totalRows * rowPx - viewportHeight
+            SideEffect { vertical.max = extent }
+            Row(
                 Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(vertical)
-                    .height(with(density) { (rows.totalRows * rowPx).toDp() })
+                    .fillMaxSize()
+                    .scrollable(vertical.scrollable, Orientation.Vertical)
                     .drawBehind {
-                        drawCurrentLine(window, rows, rowPx, look)
+                        translate(top = -vertical.offset.toFloat()) {
+                            drawCurrentLine(window, rows, rowPx, look)
+                        }
                     },
             ) {
-                Row(Modifier.fillMaxHeight()) {
-                    Box(
-                        Modifier
-                            .width(with(density) { gutterWidthPx.toDp() })
-                            .fillMaxHeight()
-                            .background(look.gutter)
-                            .drawBehind {
-                                drawGutter(
-                                    window,
-                                    rows,
-                                    rowPx,
-                                    vertical.value,
-                                    viewportHeight,
-                                    gutterWidthPx,
-                                    measurer,
-                                    style,
-                                    look,
-                                )
-                            },
-                    )
-                    Box(
-                        Modifier
-                            .fillMaxHeight()
-                            .horizontalScroll(horizontal),
-                    ) {
-                        val minWidth = with(density) {
-                            (viewportWidth - gutterWidthPx - textInsetPx).coerceAtLeast(0).toDp()
-                        }
+                Box(
+                    Modifier
+                        .width(with(density) { gutterWidthPx.toDp() })
+                        .fillMaxHeight()
+                        .background(look.gutter)
+                        .drawBehind {
+                            val scroll = vertical.offset
+                            translate(top = -scroll.toFloat()) {
+                                drawGutter(window, rows, rowPx, scroll, viewportHeight, gutterWidthPx, measurer, style, look)
+                            }
+                            val divider = look.gutterDividerWidth.toPx()
+                            if (divider > 0f && look.gutterDivider.alpha > 0f) {
+                                drawRect(look.gutterDivider, Offset(size.width - divider, 0f), Size(divider, size.height))
+                            }
+                        },
+                )
+                Box(
+                    Modifier
+                        .fillMaxHeight()
+                        .horizontalScroll(horizontal),
+                ) {
+                    val minWidthPx = (viewportWidth - gutterWidthPx - textInsetPx).coerceAtLeast(0)
+                    run {
                         BasicTextField(
                             state = window.state,
                             modifier = Modifier
-                                .offset { IntOffset(textInsetPx, rows.rowTop(window.start) * rowPx) }
-                                .widthIn(min = minWidth)
+                                // Measured at the window's own height, never the
+                                // document's, and placed at its rows less the offset. Only
+                                // the viewport's height is reported upwards.
+                                .layout { measurable, constraints ->
+                                    val placeable = measurable.measure(
+                                        Constraints(minWidth = minWidthPx, maxHeight = Constraints.Infinity),
+                                    )
+                                    val height = if (constraints.hasBoundedHeight) constraints.maxHeight else placeable.height
+                                    layout(placeable.width + textInsetPx, height) {
+                                        placeable.place(textInsetPx, rows.rowTop(window.start) * rowPx - vertical.offset)
+                                    }
+                                }
                                 .focusRequester(focus)
                                 .testTag(CODE_EDITOR_FIELD_TAG)
                                 .onPreviewKeyEvent { event ->
@@ -765,7 +817,9 @@ private fun FieldSurface(
                                                         window.presses += 1
                                                     }
                                                 }
-                                                PointerEventType.Move -> {
+                                                // A pointer arriving is as much a place to
+                                                // rest as one that moved.
+                                                PointerEventType.Move, PointerEventType.Enter -> {
                                                     val position = result?.let {
                                                         positionAt(window, it, change.position)
                                                     }
@@ -804,7 +858,7 @@ private fun FieldSurface(
 private fun Sync(
     window: FieldWindow,
     rows: RowMap,
-    vertical: ScrollState,
+    vertical: EditorScroll,
     viewportHeight: Int,
     rowPx: Int,
     callbacks: CodeEditorCallbacks,
@@ -816,7 +870,7 @@ private fun Sync(
     window.state.composition
     window.presses
     window.model.contentRevision
-    val scroll = vertical.value
+    val scroll = vertical.offset
     val firstVisible = rows.lineAtRow(scroll / rowPx)
     val lastVisible = rows.lineAtRow((scroll + max(viewportHeight, rowPx)) / rowPx)
     SideEffect {
@@ -1053,9 +1107,6 @@ private fun DrawScope.drawGutter(
         val measured = measurer.measure(label, style.copy(color = color))
         val x = width - divider - padding - measured.size.width
         drawText(measured, topLeft = Offset(x, rows.textRow(line) * rowPx.toFloat()))
-    }
-    if (divider > 0f && look.gutterDivider.alpha > 0f) {
-        drawRect(look.gutterDivider, Offset(width - divider, 0f), Size(divider, size.height))
     }
 }
 
