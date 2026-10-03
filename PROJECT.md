@@ -21,7 +21,7 @@ Rust(Dioxus)로 선언형 UI를 쓰고, AOT 컴파일된 Compose Multiplatform�
 - 데스크톱 native-image(`--shared`) 빌드 파이프라인과 iOS Kotlin/Native 빌드.
 - JVM 개발 셸: 개발 중 hot reload와 `@Preview`를 쓰기 위한 것입니다.
 - Android 타깃. Kotlin 호스트 + 생성된 JNI 심(SPEC PR-5).
-- Web(wasmJs) 타깃. JS 브리지 없이 wasm 모듈끼리 직결합니다(SPEC PR-6, 실현 가능성 검증 필요).
+- Web(wasmJs) 타깃. JS 브리지 없이 wasm 모듈끼리 직결합니다(SPEC PR-6). 직결은 2026-10-03 재측정으로 확인했습니다(#54, PR #75).
 
 **제외 (현재)**
 - Compose API 전체를 Rust로 미러링하는 것. 코어 스키마는 세 디자인 시스템 공통 축에 있는 위젯 29개로 한정하고(FR-15), 특정 시스템 고유 위젯은 FR-11 확장 패키지가 맡습니다.
@@ -58,7 +58,7 @@ SPEC과 코드가 어긋나면 SPEC이 기준입니다. SPEC이 틀렸다면 SPE
 | M4 | 긴 목록과 증분 텍스트 | LazyColumn 윈도잉, 멀티라인 입력, 스트리밍 텍스트 | FR-8, FR-9 |
 | M5 | iOS | 같은 C ABI를 Kotlin/Native `-produce static`으로 구현 | NFR-4 |
 | M6 | Android | SPEC PR-5 수용 기준 통과 | PR-5 |
-| M7 | Web | PR-6 구현 (메모리 공유 + 생성된 JS forwarder) | PR-6 |
+| M7 | Web | PR-6 구현 (메모리 공유 + JS 없는 직접 호출, Renderer에서 Host로는 생성된 wasm 트램펄린) | PR-6 |
 | M8 | 배포 | 렌더러 아티팩트 배포 파이프라인과 체크섬 검증 | NFR-11 |
 
 **M1이 프로젝트의 생사를 가릅니다.** 여기서 한글 조합이 정상이면 나머지는 분량 문제이고, 실패하면 INTENT를 다시 검토합니다.

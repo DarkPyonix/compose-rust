@@ -285,7 +285,7 @@ Never introduce anything that violates these. If a task seems to require it, sto
   - No extra frames of input latency.
   - Treat budget regressions as bugs.
 - **Crash isolation (NFR-7)**: protocol errors produce a `ProtocolError` event, never a process abort.
-- **Web (PR-6)**: Kotlin/Wasm owns the single `WebAssembly.Memory`; Rust imports it and both read the arena in place. Function calls cross a generated JS forwarder (about 12 ns) because a browser cannot give you both direct binding and a shared memory. Never add serialisation, a data copy, an async queue or a thread hop.
+- **Web (PR-6)**: Kotlin/Wasm owns the single `WebAssembly.Memory`; Rust imports it and both read the arena in place. Calls are direct wasm-to-wasm calls with no JavaScript on the path, in either direction (the owner's decision). Renderer to Host goes through a generated `call_indirect` trampoline module whose table the loader fills with the Host's exports once both modules exist (4.35 ns in Safari 26.5, 7.11 ns in Chrome 154); Host to Renderer binds a wasm import straight to a Kotlin export. Never put a JS forwarder, serialisation, a data copy, an async queue or a thread hop on a boundary call.
 
 ## Commits
 

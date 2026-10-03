@@ -210,7 +210,7 @@
           <tr>
             <td>Web (wasm)</td>
             <td><span class="pill works">처음부터 끝까지 동작</span></td>
-            <td><code>WebAssembly.Memory</code> 하나를 Kotlin/Wasm 모듈이 갖고 Rust 모듈이 가져다 쓰므로, 배치는 쓰인 자리에서 읽힙니다. 렌더러에서 Host로 가는 호출은 생성된 JavaScript 포워더를 거치며, 약 12&nbsp;ns로 측정했습니다.</td>
+            <td><code>WebAssembly.Memory</code> 하나를 Kotlin/Wasm 모듈이 갖고 Rust 모듈이 가져다 쓰므로, 배치는 쓰인 자리에서 읽힙니다. 두 모듈 사이의 호출에는 JavaScript가 없습니다. 렌더러에서 Host로는 생성된 <code>call_indirect</code> 트램펄린을 거치며 Safari 26.5에서 4.35&nbsp;ns, Chrome 154에서 7.11&nbsp;ns로 측정했고(JavaScript 포워더는 12.45&nbsp;ns, 25.57&nbsp;ns), Host에서 렌더러로는 wasm import를 렌더러의 export에 그대로 묶습니다.</td>
           </tr>
         </tbody>
       </table>

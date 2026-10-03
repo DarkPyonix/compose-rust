@@ -7,6 +7,7 @@
 package dev.darkpyonix.composerust.ui.platform
 
 import kotlin.wasm.WasmExport
+import kotlin.wasm.WasmImport
 
 // The web boundary.
 //
@@ -14,15 +15,17 @@ import kotlin.wasm.WasmExport
 // because a Kotlin/Wasm module cannot import one, and the Host's module is linked against
 // it, so a batch is read where the Host wrote it and no byte of it is copied.
 //
-// Every call below goes through a JavaScript arrow function of a fixed shape, measured at
-// about 12ns. It is there because the two halves of the wiring cannot both be had: a wasm
-// import bound straight to a wasm export costs 1.5ns but has to be supplied before the
-// Kotlin module is instantiated, and the memory it would need to share does not exist
-// until that instantiation. The forwarder passes its arguments on and does nothing else:
-// no encoding, no copy, no queue.
+// Every call below is a wasm import, and no call has JavaScript on it. Each one is bound to
+// a function of the generated trampoline module, which passes its arguments on with
+// `call_indirect` through a table whose slots hold the Host's exports. The table is what
+// lets this module be instantiated before the Host exists, which it has to be, because the
+// Host imports this module's memory. The loader creates the table and the trampoline before
+// this module is instantiated; `installHost` fills the slots once the Host is running.
+// A call is one wasm `call` and one `call_indirect`: no encoding, no copy, no queue.
 //
-// The other direction has no JavaScript on it. The page hands the Host's instantiation the
-// function object Kotlin exports below, and the engine binds that edge as a wasm call.
+// The other direction needs no trampoline. The Host is instantiated second, so the page
+// hands it the function object Kotlin exports below, and the engine binds that edge as a
+// wasm call.
 
 /**
  * The first address that belongs to the Host's module.
@@ -63,30 +66,30 @@ const val EVENT_BUFFER_OFFSET: Int = 16
 /** How much room there is to encode one event into. */
 const val EVENT_BUFFER_BYTES: Int = 4096
 
-/** `Init`, which calls `compose_rust_host_init`. */
-@JsFun("(handshake, handshakeLength, out) => globalThis.__composeRustHost.compose_rust_host_web_init(handshake, handshakeLength, out)")
+/** `Init`, which calls `compose_rust_host_init` through slot 0 of the trampoline. */
+@WasmImport("./compose-rust-host.gen.mjs", "compose_rust_host_web_init")
 external fun hostInit(handshake: Int, handshakeLength: Int, out: Int): Int
 
-/** `DispatchEvent`, which calls `compose_rust_host_dispatch_event`. */
-@JsFun("(event, eventLength, out) => globalThis.__composeRustHost.compose_rust_host_web_dispatch_event(event, eventLength, out)")
+/** `DispatchEvent`, which calls `compose_rust_host_dispatch_event` through slot 1 of the trampoline. */
+@WasmImport("./compose-rust-host.gen.mjs", "compose_rust_host_web_dispatch_event")
 external fun hostDispatchEvent(event: Int, eventLength: Int, out: Int): Int
 
-/** `RenderFrame`, which calls `compose_rust_host_render_frame`. */
-@JsFun("(frameTimeNanosLow, frameTimeNanosHigh, out) => globalThis.__composeRustHost.compose_rust_host_web_render_frame(frameTimeNanosLow, frameTimeNanosHigh, out)")
-external fun hostRenderFrame(frameTimeNanosLow: Int, frameTimeNanosHigh: Int, out: Int): Int
+/** `RenderFrame`, which calls `compose_rust_host_render_frame` through slot 2 of the trampoline. */
+@WasmImport("./compose-rust-host.gen.mjs", "compose_rust_host_web_render_frame")
+external fun hostRenderFrame(frameTimeNanos: Long, out: Int): Int
 
-/** `ReleaseBatch`, which calls `compose_rust_host_release_batch`. */
-@JsFun("(out) => globalThis.__composeRustHost.compose_rust_host_web_release_batch(out)")
+/** `ReleaseBatch`, which calls `compose_rust_host_release_batch` through slot 3 of the trampoline. */
+@WasmImport("./compose-rust-host.gen.mjs", "compose_rust_host_web_release_batch")
 external fun hostReleaseBatch(out: Int): Int
 
-/** `Shutdown`, which calls `compose_rust_host_shutdown`. */
-@JsFun("() => globalThis.__composeRustHost.compose_rust_host_web_shutdown()")
+/** `Shutdown`, which calls `compose_rust_host_shutdown` through slot 4 of the trampoline. */
+@WasmImport("./compose-rust-host.gen.mjs", "compose_rust_host_web_shutdown")
 external fun hostShutdown(): Int
 
 /**
- * Instantiates the Host on this module's memory and answers with the address of the block
- * it lends back: the record a call reports into, and the buffer an event is encoded in.
- * Zero means there is no Host on this page.
+ * Instantiates the Host on this module's memory, points the trampoline at it, and answers
+ * with the address of the block it lends back: the record a call reports into, and the
+ * buffer an event is encoded in. Zero means there is no Host on this page.
  *
  * Called once, from `main`. That is the first moment at which both halves exist: this
  * module's own instantiation created the memory the Host imports, and the page compiled the
@@ -96,6 +99,12 @@ external fun hostShutdown(): Int
     """() => {
   const compiled = globalThis.__composeRustHostModule;
   if (!compiled) return 0;
+  const table = globalThis.__composeRustHostTable;
+  if (!table) {
+    throw new Error('compose-rust: the trampoline table is missing. The loader module ' +
+      'creates it, and this module imports the loader, so a page without it was not ' +
+      'built from the generated files.');
+  }
   const memory = wasmExports.memory;
   const pages = memory.buffer.byteLength / 65536;
   // This module's memory starts at zero pages and the Host's import declares a minimum,
@@ -124,17 +133,22 @@ external fun hostShutdown(): Int
     __wbindgen_placeholder__: unbound('__wbindgen_placeholder__'),
     __wbindgen_externref_xform__: unbound('__wbindgen_externref_xform__'),
   }).exports;
-  globalThis.__composeRustHost = host;
   const block = host.compose_rust_host_web_start();
   if (block < 4194304) {
     // Either the Host could not start, or its data landed in the half of the memory this
     // module's allocator uses. The second draws a wrong screen instead of failing, so
-    // neither is allowed to become the first boundary call.
-    globalThis.__composeRustHost = undefined;
+    // neither is allowed to become the first boundary call: the table stays empty.
     throw new Error('compose-rust: the Host reported its boundary block at ' + block +
       ', which is not inside the region above 4194304 that it was linked into. ' +
       'Check that it was linked with --import-memory and --global-base.');
   }
+  // The trampoline's slots, in the order its functions call them. The exported function
+  // objects themselves, so a call through a slot is wasm to wasm.
+  table.set(0, host.compose_rust_host_web_init);
+  table.set(1, host.compose_rust_host_web_dispatch_event);
+  table.set(2, host.compose_rust_host_web_render_frame);
+  table.set(3, host.compose_rust_host_web_release_batch);
+  table.set(4, host.compose_rust_host_web_shutdown);
   return block;
 }""",
 )

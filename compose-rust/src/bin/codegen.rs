@@ -2,10 +2,11 @@ use compose_rust::codegen::{
     ANDROID_BRIDGE_RELATIVE_PATH, ANDROID_FAST_NATIVE_RELATIVE_PATH, EVENT_VECTOR_RELATIVE_PATH,
     GENERATED_RELATIVE_PATH, JNI_RUST_RELATIVE_PATH, MUTATION_VECTOR_RELATIVE_PATH,
     SCHEMA_HASH_RELATIVE_PATH, VECTOR_DESCRIPTION_RELATIVE_PATH, WASM_RUST_RELATIVE_PATH,
-    WEB_BRIDGE_RELATIVE_PATH, WEB_LOADER_RELATIVE_PATH, generate_android_bridge_kotlin,
-    generate_event_vector, generate_fast_native_kotlin, generate_jni_rust, generate_kotlin,
-    generate_mutation_vector, generate_schema_hash, generate_vector_description,
-    generate_wasm_rust, generate_web_bridge_kotlin, generate_web_loader_js,
+    WEB_BRIDGE_RELATIVE_PATH, WEB_LOADER_RELATIVE_PATH, WEB_TEST_LOADER_RELATIVE_PATH,
+    generate_android_bridge_kotlin, generate_event_vector, generate_fast_native_kotlin,
+    generate_jni_rust, generate_kotlin, generate_mutation_vector, generate_schema_hash,
+    generate_vector_description, generate_wasm_rust, generate_web_bridge_kotlin,
+    generate_web_loader_js,
 };
 use std::path::{Path, PathBuf};
 
@@ -54,8 +55,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         manifest_dir.join(ANDROID_FAST_NATIVE_RELATIVE_PATH),
         generate_fast_native_kotlin().as_bytes(),
     )?;
-    // All three of the web boundary's halves come from the same schema: the shims, the
-    // declarations that call them, and the page that wires the two modules together.
+    // Every part of the web boundary comes from the same schema: the shims, the imports
+    // that call them, and the loader that carries the trampoline between the two and wires
+    // the modules together.
     write(
         manifest_dir.join(WASM_RUST_RELATIVE_PATH),
         generate_wasm_rust().as_bytes(),
@@ -66,6 +68,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     write(
         manifest_dir.join(WEB_LOADER_RELATIVE_PATH),
+        generate_web_loader_js().as_bytes(),
+    )?;
+    // The same loader beside the test page, which the Renderer's module also imports.
+    write(
+        manifest_dir.join(WEB_TEST_LOADER_RELATIVE_PATH),
         generate_web_loader_js().as_bytes(),
     )?;
     Ok(())

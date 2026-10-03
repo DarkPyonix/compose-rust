@@ -3026,31 +3026,56 @@ compose_rust_host_dispatch_event: click 1
   - `scripts/tests/android-kotlin-travels.test.sh`가 담긴 사본이 렌더러와 같은지와 패키지 목록에 들어 있는지를 봅니다. 사본이 뒤처지면 애플리케이션이 Host보다 낡은 인터프리터를 컴파일하고 핸드셰이크가 거부합니다.
   - **`sample-v0.1.1`의 APK는 이 경로로 만든 것이 아닙니다.** 우리 Amper 모듈(`renderer/android`)에 샘플의 cdylib을 넣어 빌드한 것이고, 그것이 증명하는 것은 Android에서 렌더러와 Host가 동작한다는 것이지 사용자가 겪을 경로가 동작한다는 것은 아닙니다. 다음 샘플 릴리스의 APK는 dx로 만듭니다.
 
-### PR-6 Web 경계 (`Agreed`, 재측정 중)
+### PR-6 Web 경계 (`Done`)
 
-**상태를 `Done`에서 내립니다(2026-10-03).** 소유자 지시는 직결이었습니다: "Q7 JS 브릿지 갔다오는건 성능이 느려서 안된다. 직결하도록 해"(2026-09-19). 2026-09-20 실험에서 Wasm 테이블을 거치는 `call_indirect` 트램펄린이 Safari 기준 5.6ns(JS 경유 13.2ns)로 측정됐지만 커밋되지 않았습니다. 그 뒤 "직결은 불가능하다"는 결론이 승인 없이 이 항목과 INTENT에 들어갔습니다. 재측정(#54)으로 직결이 재현되면 이 항목과 INTENT D3/D8을 직결로 되돌리고, 아래의 JS 포워더 서술은 그때 고칩니다. 그때까지 이 항목은 `Done`이 아닙니다.
-Rust(wasm32)와 Kotlin/Wasm 모듈을 연결합니다. `LoopMode::Platform`입니다. 2026-09-20 실측으로 확정했습니다(`experiments/web-interop/`).
+Rust(wasm32)와 Kotlin/Wasm 모듈을 메모리 공유와 직접 호출로 연결합니다. `LoopMode::Platform`입니다.
+
+**소유자 결정(2026-09-19): "Q7 JS 브릿지 갔다오는건 성능이 느려서 안된다. 직결하도록 해".** 경계 호출은 어느 방향으로도 JS를 거치지 않습니다. 2026-09-20 실험이 Wasm 테이블을 거치는 `call_indirect` 트램펄린으로 이것이 가능함을 보였고, 2026-10-03 재측정(#54, PR #75, `experiments/web-interop/trampoline/`)이 같은 결과를 냈습니다. 이 항목과 INTENT가 한동안 "브라우저에서는 직접 바인딩과 메모리 공유를 함께 가질 수 없다"고 적고 있었던 것은 승인 없이 들어간 서술이었고, 사실도 아니었습니다.
 
 - **메모리: Kotlin이 소유합니다.** Kotlin/Wasm 모듈은 항상 자기 메모리를 정의해 export하며, 외부 메모리를 import하는 경로가 없습니다. 따라서 Rust가 `--import-memory`로 그 메모리를 가져다 씁니다. PR-4의 arena는 양쪽이 제자리에서 읽습니다. 복사는 없습니다.
-- **함수 호출: 경계 함수마다 고정된 형태의 JS forwarder를 코드젠으로 생성합니다.** 호출당 약 12ns입니다.
-- **두 가지를 동시에 가질 수 없습니다.** `WebAssembly.instantiate`는 import를 먼저 요구합니다. Kotlin은 Rust export 없이 인스턴스화할 수 없고, Rust는 Kotlin 메모리 없이 인스턴스화할 수 없으며, Kotlin 메모리는 인스턴스화 전에 존재하지 않습니다. wasm import를 wasm export에 직접 묶으면(1.45ns) 메모리를 공유할 수 없고, 메모리를 공유하면 한쪽 호출 경로에 JS forwarder가 들어옵니다. 단일 모듈 링크(WasmGC와 linear memory 혼합 불가), 제3의 메모리 소유 모듈, component model(브라우저 미지원) 모두 이 순환을 풀지 못합니다.
-- **메모리 공유를 택합니다.** 프레임 예산을 지배하는 것은 PR-4의 복사 회피이지 호출 오버헤드가 아닙니다. 프레임당 경계 호출 3회 기준 약 36ns이며, PR-5가 Android에서 이미 수용한 JNI 호출 비용(약 115ns)보다 한 자릿수 작습니다. D8이 거부한 React Native 브리지와는 성격이 다릅니다. 직렬화도, 비동기 큐도, 스레드 홉도, 데이터 복사도 없습니다.
-- 구현 시 주의: Kotlin 메모리는 0페이지로 시작하므로 Rust 인스턴스화 전에 JS가 `memory.grow()`를 해야 합니다. Rust의 데이터 세그먼트와 Kotlin `kotlin.wasm.unsafe` 할당자가 같은 주소 공간을 쓰므로 `--global-base`로 영역을 분리합니다.
-- 실측(Safari 26.5, Apple silicon): 같은 모듈 호출 0.30ns, wasm 직접 바인딩 1.45ns, JS forwarder 12.05ns, Kotlin에서 메모리 읽기 0.977ns/byte.
-- **방향에 따라 비용이 다릅니다.** forwarder를 거치는 것은 Renderer에서 Host로 가는 호출뿐입니다. 반대 방향, 곧 Host가 프레임을 요청하는 `request_frame`은 Rust의 wasm import를 Kotlin이 `@WasmExport`로 내놓은 함수에 직접 묶으므로 JS가 없습니다. Rust가 나중에 인스턴스화되고 그 시점에 Kotlin export는 이미 존재하기 때문입니다.
+- **함수 호출: Renderer에서 Host로 가는 호출은 wasm 트램펄린을 거쳐 직접 갑니다.** 코드젠이 경계 함수마다 `call_indirect` 함수 하나를 담은 작은 wasm 모듈(트램펄린)을 만듭니다. 트램펄린은 `WebAssembly.Table` 하나를 import하고, Kotlin은 경계 함수마다 `@WasmImport`로 트램펄린의 export에 묶입니다. 호출은 wasm `call` 하나와 `call_indirect` 하나이며, 그 사이에 JS 프레임은 없습니다.
+- **순환은 테이블이 풉니다.** Rust가 Kotlin의 메모리를 import하므로 Kotlin이 먼저 인스턴스화되어야 하고, 그 시점에 Rust export는 아직 없습니다. Kotlin/Wasm은 테이블을 import로 선언할 수 없지만 그럴 필요가 없습니다. 테이블을 import하는 것은 세 번째 모듈인 트램펄린이고, Kotlin은 그 모듈의 함수를 import할 뿐입니다. 순서는 테이블, 트램펄린, Kotlin(메모리가 생김), Rust(그 메모리를 import), 테이블 슬롯에 Rust export를 넣기입니다. JS는 이 배선에만 나오고 호출 경로에는 없습니다.
+- **반대 방향도 직접입니다.** Host가 프레임을 요청하는 `request_frame`은 Rust의 wasm import를 Kotlin이 `@WasmExport`로 내놓은 함수에 그대로 묶습니다. Rust가 나중에 인스턴스화되고 그 시점에 Kotlin export는 이미 있으므로 트램펄린도 필요 없습니다.
+- **실측(2026-10-03, M1 Mac mini, macOS 26.5.1, 페이지 로드 7회의 중앙값, 호출당 순수 ns):**
+
+  | 경로 | Safari 26.5 | Chrome 154 (headless shell) |
+  |---|---:|---:|
+  | Kotlin에서 Rust, 트램펄린 | 4.35 (4.30 .. 4.45) | 7.11 (6.97 .. 7.15) |
+  | Kotlin에서 JS를 거쳐 Rust | 12.45 (11.95 .. 12.60) | 25.57 (24.91 .. 25.73) |
+  | Rust에서 Kotlin, 직접 import | 1.55 | 2.36 |
+  | Rust에서 JS를 거쳐 Kotlin | 12.65 | 13.46 |
+
+  트램펄린은 JS를 거치는 경로보다 Safari에서 약 2.9배, Chrome에서 약 3.6배 빠릅니다. 공유 메모리 확인 네 가지(Rust가 쓴 것을 Kotlin이 읽음, 그 반대, JS가 같은 바이트를 봄, Kotlin 안에서의 왕복)는 두 브라우저의 모든 실행에서 통과했습니다. 2026-09-20의 Safari 측정(트램펄린 5.6ns, JS 경유 13.2ns)도 재현됩니다. 원자료는 `experiments/web-interop/trampoline/results/`에 있습니다.
+- **64비트 인자는 그대로 건넙니다.** 호출 경로에 JS가 없으므로 프레임 시각은 `i64` 하나로 넘어가고 `BigInt`가 생길 일이 없습니다.
+- 구현 시 주의: Kotlin 메모리는 0페이지로 시작하므로 Rust 인스턴스화 전에 `memory.grow()`를 해야 합니다. Rust의 데이터 세그먼트와 Kotlin `kotlin.wasm.unsafe` 할당자가 같은 주소 공간을 쓰므로 `--global-base`로 영역을 분리합니다.
 - **주소 영역을 상수로 못박습니다.** 0부터 `WEB_RUST_REGION_BASE`(4MiB) 미만은 Kotlin `kotlin.wasm.unsafe` 할당자의 것이고, 그 위는 Rust의 데이터와 스택과 힙입니다. Rust는 `--global-base`로 그 자리에 놓입니다. Renderer는 할당자가 준 주소가 경계 아래인지 시작할 때 확인하고, 아니면 경계 호출을 시작하지 않습니다. 두 할당자가 같은 주소를 쓰면 화면이 조용히 틀리는 것으로 끝나므로, 겹침은 자라기 전에 잡아야 합니다.
 - 경계 함수 목록은 PR-2 그대로입니다. 여기에 Rust wasm 모듈은 `compose_rust_host_web_start`를 하나 더 export합니다. 경계 연산이 아니라, 라이브러리 로더가 없는 환경에서 Android의 `JNI_OnLoad`가 하던 일(루트 컴포넌트 등록과 RendererApi 설치)을 놓을 자리입니다.
 - **`web_start`는 Host가 Renderer에게 빌려주는 블록의 주소를 돌려줍니다.** 앞 16바이트가 `MutationBatch` out 레코드이고, 그 뒤 4KiB가 이벤트 버퍼입니다. Host가 소유하는 이유는 Renderer가 붙잡아 둘 수 없기 때문입니다. `kotlin.wasm.unsafe`의 할당자는 `withScopedMemoryAllocator` 블록 안에서만 살아 있어서, 프레임을 넘겨 쓸 주소를 얻는 방법이 없습니다. 호출마다 스코프를 열면 정상 상태 할당 0회(NFR-9)를 잃습니다. 그래서 두 버퍼는 Rust 영역에 정적으로 놓이고, Renderer는 주소만 기억합니다. 0이 돌아오면 Host가 없는 것이고, Renderer는 경계 호출을 시작하지 않습니다.
-- **forwarder는 Kotlin `@JsFun` 선언입니다.** 경계 함수마다 하나씩, 인자를 그대로 넘기는 고정 형태의 JS 화살표 함수를 코드젠이 생성합니다(`(a, b, c) => host.symbol(a, b, c)`). 실측한 12.05ns가 바로 이 모양입니다. 별도의 `@WasmImport` 모듈을 두는 길은 같은 순환에 걸립니다. Kotlin의 import는 인스턴스화 시점에 채워져야 하는데 그때 Rust는 아직 없습니다.
-- **인스턴스화 순서**를 페이지가 정합니다. 코드젠이 만든 로더 모듈이 `web.mjs`보다 먼저 평가되어 Rust 모듈을 `compileStreaming`으로 컴파일해 둡니다. 그다음 Kotlin 모듈이 인스턴스화되면서 메모리가 생기고, Kotlin `main`이 로더를 한 번 불러 그 메모리 위에 Rust를 동기로 인스턴스화합니다(`new WebAssembly.Instance`). 이 시점에 Kotlin export가 이미 있으므로 `compose_rust_renderer_request_frame`은 wasm export 객체를 그대로 넘겨 직접 바인딩합니다. Renderer 쪽에 새 진입점은 없습니다.
+- **인스턴스화 순서.** 코드젠이 만든 로더 모듈(`compose-rust-host.gen.mjs`)이 테이블을 만들고, 트램펄린을 인스턴스화하고, Rust 모듈을 `compileStreaming`으로 컴파일해 둡니다. Kotlin의 `@WasmImport`가 이 로더를 모듈 이름으로 가리키므로, Kotlin 모듈은 로더가 평가된 뒤에야 인스턴스화됩니다. Kotlin 인스턴스화가 메모리를 만들고, Kotlin `main`이 그 메모리 위에 Rust를 동기로 인스턴스화하고(`new WebAssembly.Instance`), Rust가 자기 블록을 올바른 영역에 보고한 경우에만 Rust의 경계 export를 테이블 슬롯에 넣습니다. 슬롯이 비어 있는 동안 경계 호출은 JS 쪽 무엇에도 닿지 않고 trap합니다. Renderer 쪽에 새 진입점은 없습니다.
 - 수용 기준(M7):
   1. Kotlin이 정의해 export한 메모리 하나를 Rust가 import하고, 한쪽이 쓴 arena를 다른 쪽이 제자리에서 읽습니다. 복사한 바이트가 없습니다.
   2. 이벤트 하나가 경계 호출 2회로 끝납니다(PR-4와 같은 기준).
-  3. forwarder의 호출당 비용을 실측해 기록합니다.
+  3. 어느 방향의 경계 호출에도 JS 프레임이 없습니다. 생성된 Kotlin 경계 선언은 `@WasmImport`이고 `@JsFun`이 아니며, 호출당 비용을 브라우저에서 실측해 기록합니다.
   4. M0 화면이 데스크톱과 같은 Rust 소스로 브라우저에 뜨고, 클릭이 Rust에 도달하며, Rust의 상태 변경이 화면에 반영됩니다.
-  5. 생성된 Kotlin 선언, 생성된 forwarder, Rust의 wasm glue가 모두 같은 스키마에서 나옵니다. 손으로 쓴 glue는 없습니다(FR-7).
+  5. 생성된 Kotlin 선언, 생성된 트램펄린과 로더, Rust의 wasm glue가 모두 같은 스키마에서 나옵니다. 손으로 쓴 glue는 없습니다(FR-7).
 
-**검증 (2026-09-22, Chrome for Testing 149 / V8, Apple silicon)**
+**트램펄린 코드젠의 검증 (2026-10-04, M1 Mac mini(Macmini9,1), macOS 26.5.1, HeadlessChrome 149 / V8)**
+
+생성된 Kotlin 경계 선언은 모두 `@WasmImport("./compose-rust-host.gen.mjs", ...)`이고 `@JsFun`은 남아 있지 않습니다. 같은 로더가 `resources/`와 `testResources/`에 생성되므로 앱 페이지와 Kotlin/Wasm 테스트 페이지가 같은 생성물을 씁니다. `renderer/web/scripts/test-boundary.sh`가 `web_demo` Host를 빌드해 실제 브라우저에서 `WebBoundaryTest`를 돌렸고 네 테스트가 모두 통과했습니다(건너뜀 없음).
+
+```
+pr6 direct call cost: 4.19 ns/call across the boundary, 0.50 ns/call in this module, 2000000 calls, best of 7
+```
+
+- **수용 기준 1 충족.** 초기 배치가 트리를 만들고 오류 없이 디코드됩니다(`pr6_the_two_modules_share_one_memory_and_the_batch_is_read_in_place`).
+- **수용 기준 2 충족.** 텍스트 변경과 클릭이 Rust 핸들러에 도달하고 바뀐 상태가 배치로 돌아옵니다(`pr6_a_click_reaches_the_host_and_its_state_change_comes_back`).
+- **수용 기준 3 충족.** 경계 호출 **4.19 / 4.25 / 4.25 ns**(3회 실행, 각 200만 회 호출 7세트의 최선값), 같은 루프를 모듈 안에서 돌린 값 **0.44~0.50 ns**. 이전 JS forwarder 경로의 12.15 ns보다 약 2.9배 빠르고, 2026-10-03 실험의 트램펄린 수치와 같은 자리입니다.
+- **수용 기준 4 충족.** `web/scripts/screenshot.sh`로 앱 페이지(`resources/`의 로더)를 띄워 필드에 입력하고 `Send`를 누르면, Rust 핸들러가 넣은 문장이 필드 위에 새 `Text`로 그려집니다.
+- **수용 기준 5 충족.** `compose-rust/tests/web_boundary.rs` 14개 테스트가 체크인된 생성물이 오늘 생성되는 것과 같은지, 트램펄린이 슬롯마다 `call_indirect`만 하는지, 양쪽 인자 개수가 맞는지를 지킵니다.
+
+아래는 JS forwarder를 쓰던 이전 경로의 검증 기록입니다.
+
+**이전 경로의 검증 (2026-09-22, JS forwarder, Chrome for Testing 149 / V8, Apple silicon)**
 
 `renderer/web/test/WebBoundaryTest.kt`가 Kotlin/Wasm 테스트 러너가 이미 띄우는
 브라우저 안에서 경계를 직접 돕니다. 대상은 실물입니다. 생성된 forwarder, 생성된 wasm 심, 생성된
@@ -3068,12 +3093,12 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 - **수용 기준 2 충족.** PR-4의 기준은 Host 쪽 `boundary_call_cost.rs`가 지키고, 브라우저에서는
   텍스트 변경과 클릭이 Rust 핸들러에 도달해 바뀐 상태가 배치로 돌아오는 것을 확인했습니다
   (`pr6_a_click_reaches_the_host_and_its_state_change_comes_back`).
-- **수용 기준 3 충족.** 경계 호출 **12.15 / 12.29 / 12.75 ns**(3회 측정, 각 200만 회 호출 7세트의
+- **그때의 수용 기준 3(forwarder 비용 실측).** 경계 호출 **12.15 / 12.29 / 12.75 ns**(3회 측정, 각 200만 회 호출 7세트의
   최선값), 같은 루프를 모듈 안에서 돌린 값 **0.39~0.44 ns**. Safari 26.5의 12.05ns와 같은 자리이므로
   두 번째 엔진에서도 수치가 유지됩니다. 프레임당 경계 호출 3회는 약 37ns이고, 16.7ms 프레임에서
   0.0002%입니다.
 - **수용 기준 5 충족.** 생성된 Kotlin 선언, 생성된 forwarder와 인스턴스화, Rust의 wasm 심이 모두
-  `BOUNDARY_SCHEMA`와 그 옆의 메모리 상수에서 나옵니다. `dioxus-compose/tests/web_boundary.rs`가
+  `BOUNDARY_SCHEMA`와 그 옆의 메모리 상수에서 나옵니다. `compose-rust/tests/web_boundary.rs`가
   체크인된 세 파일이 오늘 생성되는 것과 같은지, forwarder가 인자를 넘기는 것 외에 아무것도 하지
   않는지, 양쪽 인자 개수가 맞는지를 지킵니다.
 - **수용 기준 4 충족.** `web/scripts/screenshot.sh`가 페이지를 띄워 사진을 찍습니다. 처음 뜬 화면에
@@ -3082,7 +3107,7 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
   나타납니다. 필드의 글자가 남는 것은 D5대로 `TextField`가 uncontrolled이기 때문이며 데스크톱과 같습니다.
   스크립트는 Kotlin 테스트 하네스가 이미 내려받은 Playwright와 브라우저, 툴체인이 들고 있는 Node를
   빌려 쓰므로 디스플레이도 네이티브 빌드도 필요하지 않습니다.
-- 남은 확인: SpiderMonkey에서 재측정. V8은 이 측정으로 닫혔습니다.
+- SpiderMonkey 측정은 아직 없습니다.
 - CI는 여전히 wasm 테스트를 돌리지 않습니다. 러너가 잘린 skiko 모듈을 받아 브라우저 하네스가 뜨지
   않기 때문이고, 경계 테스트 자체는 이제 의미가 있으므로 그 문제가 풀리면 바로 켤 수 있습니다.
 

@@ -4,7 +4,7 @@
 # One browser page per sample, plus an index that links them.
 #
 # A page is the renderer's wasm module, the sample's wasm module, and the generated
-# forwarder between them. The renderer half is the same bytes for every sample, so it is
+# loader that carries the trampoline between them. The renderer half is the same bytes for every sample, so it is
 # built once and copied; only the Host half is rebuilt per sample.
 #
 # A sample that does not build is skipped and named at the end.
