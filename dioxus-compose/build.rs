@@ -8,6 +8,10 @@ mod renderer_dir {
     include!("build/renderer_dir.rs");
 }
 
+mod windows_manifest {
+    include!("build/windows_manifest.rs");
+}
+
 use renderer_dir::{
     CACHE_DIR_ENV, FetchError, RENDERER_DIR_ENV, RendererLinkage, RendererSource, Request,
     acquire_renderer, artifact_target, default_cache_root, renderer_linkage,
@@ -48,6 +52,10 @@ fn main() {
     println!("cargo:rerun-if-changed=build/renderer_dir.rs");
     println!("cargo:rerun-if-changed=build/sha256.rs");
     println!("cargo:rerun-if-changed=build/elf.rs");
+    println!("cargo:rerun-if-changed=build/windows_manifest.rs");
+    println!("cargo:rerun-if-changed=build/application.manifest");
+
+    embed_application_manifest();
 
     if std::env::var_os("CARGO_FEATURE_NATIVE_RENDERER").is_none() {
         return;
@@ -314,6 +322,43 @@ fn main() {
         "-Wl,--export-dynamic"
     };
     println!("cargo:rustc-link-arg={export_dynamic}");
+}
+
+/// Gives every Windows executable that links this crate the application manifest in
+/// `build/application.manifest` (per-monitor v2 DPI awareness, `asInvoker`).
+///
+/// A build script's link arguments stop at its own package, which is why this is not a
+/// `/MANIFESTINPUT:` argument: it would reach this crate's examples and no application.
+/// A native library does travel, to the final link of everything that depends on the
+/// crate. So the manifest is written as a compiled resource file and named as one. The
+/// file is called `.lib` because that is the name the link line asks for, and the MSVC
+/// linker identifies its inputs by their contents, so it takes the file as the resource
+/// it is and always includes it, where an object inside a real library would be dropped
+/// for defining no symbol anyone asked for.
+///
+/// An application that embeds a manifest of its own (with `/MANIFEST:EMBED`, or a
+/// resource script through embed-resource or winres) would then have two, and the link
+/// fails with CVT1100, duplicate resource MANIFEST. It turns this off by leaving the
+/// `windows-manifest` feature out:
+/// `dioxus-compose = { version = "...", default-features = false, features = ["native-renderer"] }`.
+/// Its own manifest should then declare per-monitor v2 awareness itself.
+fn embed_application_manifest() {
+    if std::env::var_os("CARGO_FEATURE_WINDOWS_MANIFEST").is_none() {
+        return;
+    }
+    let windows = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows");
+    let msvc = std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
+    if !(windows && msvc) {
+        return;
+    }
+    let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").expect("Cargo sets OUT_DIR"));
+    let resource =
+        windows_manifest::manifest_resource(windows_manifest::APPLICATION_MANIFEST.as_bytes());
+    let path = out_dir.join("dioxus_compose_manifest.lib");
+    std::fs::write(&path, resource)
+        .unwrap_or_else(|e| panic!("dioxus-compose: cannot write {}: {e}", path.display()));
+    println!("cargo:rustc-link-search=native={}", out_dir.display());
+    println!("cargo:rustc-link-lib=dylib=dioxus_compose_manifest");
 }
 
 /// Where downloads are cached. This is a property of the machine running the build, not

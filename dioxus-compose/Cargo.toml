@@ -33,11 +33,18 @@ bench = false
 # `default-features = false` for a headless or documentation build, and know that the
 # resulting binary says so on standard error and exits non-zero rather than opening no
 # window and returning 0.
-default = ["native-renderer"]
+default = ["native-renderer", "windows-manifest"]
 # Drives the boundary with no renderer at all, for tests and for embedding the Host in
 # something that draws for itself. Suppresses the renderer download.
 mock-renderer = []
 native-renderer = []
+# Embeds an application manifest in every Windows executable built on this crate,
+# declaring per-monitor v2 DPI awareness (the awareness the renderer asks for at startup)
+# so that Windows, and the Store's certification checks, see it before any code runs. An
+# application that embeds a manifest of its own leaves this out, because two manifest
+# resources fail the link: `default-features = false, features = ["native-renderer"]`.
+# Does nothing on other platforms.
+windows-manifest = []
 
 [dependencies]
 dioxus-core.workspace = true
