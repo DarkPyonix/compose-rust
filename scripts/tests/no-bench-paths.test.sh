@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Fails if the code an application runs knows that it is being measured.
 #
-# The FR-39 comparison is only worth anything if both paths run, under the benchmark,
-# exactly the code they run for a user. A `cfg(bench)`, a feature that switches something
-# off, an environment variable the runtime reads to take a shorter route, or anything that
-# names the harness would let a number be bought without the work it stands for. The
+# The comparison between the two authoring paths is only worth anything if both of them
+# run, under the benchmark, exactly the code they run for a user. A `cfg(bench)`, a
+# feature that switches something off, an environment variable the runtime reads to take
+# a shorter route, or anything that names the harness would let a number be bought
+# without the work it stands for. The
 # harness lives in benchmarks/ and drives the public API; nothing it needs may reach back
 # into the libraries.
 #
@@ -49,7 +50,9 @@ for manifest in "${manifests[@]}"; do
     fi
 done
 check "the runtime reading a benchmark variable" 'env::var(_os)?\(\s*"[^"]*(BENCH|FR39|MEASURE)' "${sources[@]}"
-check "the runtime naming the harness" 'fr39|criterion|is_bench|benchmark_mode|BENCH_MODE' "${sources[@]}"
+# Test names keep their requirement ids (`fn fr39_...`), so the harness is named by its
+# crates and paths rather than by the id.
+check "the runtime naming the harness" 'fr39_scenarios|fr39-|benchmarks/fr39|criterion|is_bench|benchmark_mode|BENCH_MODE' "${sources[@]}"
 
 if [[ "$failed" -ne 0 ]]; then
     echo "The libraries must not know they are being measured; see the comment above."

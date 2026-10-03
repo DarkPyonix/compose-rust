@@ -1,5 +1,6 @@
-# The FR-39 performance comparison: the Dioxus path at a pinned commit against the slot
-# table path at HEAD, over scenarios fixed before the slot table path was written.
+# The performance comparison of the two authoring paths: the Dioxus path at a pinned
+# commit against the slot table path at HEAD, over scenarios fixed before the slot table
+# path was written.
 #
 # A workspace of its own, outside the repository's, for two reasons. The baseline links a
 # second copy of compose-rust, fetched at a fixed commit, and that copy exports the same

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Runs the FR-39 comparison: every scenario on the Dioxus path at the pinned commit and on
-# the slot table path at this checkout, the same day, the same machine, the same release
-# profile, one after the other, and then compares them.
+# Runs the performance comparison of the two authoring paths: every scenario on the Dioxus
+# path at the pinned commit and on the slot table path at this checkout, the same day, the
+# same machine, the same release profile, one after the other, and then compares them.
 #
 #   benchmarks/fr39/run.sh [ITERATIONS] [WARMUP]
 #

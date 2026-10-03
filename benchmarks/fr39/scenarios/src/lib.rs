@@ -1,5 +1,5 @@
-//! The FR-39 scenarios, fixed before the slot table path that is measured against them was
-//! written, and the harness both paths are driven through.
+//! The performance scenarios for the slot table runtime, fixed before the runtime they
+//! measure was written, and the harness both authoring paths are driven through.
 //!
 //! **Frozen.** The scenarios below were committed before the runtime they measure, and
 //! changing any of them (a step, a label, a size, the sweep widths, the order) needs the
