@@ -232,7 +232,16 @@ jobs:
             [[ -n "$app" ]] || continue
             stage="staging/$app"
             mkdir -p "$stage"
-            cp -R "${{ matrix.dist }}/." "$stage/"
+            if [[ "${{ runner.os }}" == "Linux" ]]; then
+              # Linux keeps the renderer in lib/ beside the executable. AWT looks for its
+              # companions in the parent of the renderer's directory plus lib, so a
+              # renderer flattened beside the executable stops at libjawt.so; the
+              # sample-v0.1.1 arm64 archive did exactly that.
+              mkdir -p "$stage/lib"
+              cp -R "${{ matrix.dist }}/." "$stage/lib/"
+            else
+              cp -R "${{ matrix.dist }}/." "$stage/"
+            fi
             if [[ "${{ runner.os }}" == "Windows" ]]; then
               # The executable goes in beside the DLL rather than above it. Windows
               # searches the directory the executable is in, and the renderer's DLL lives
@@ -245,7 +254,11 @@ jobs:
               # Everywhere else the library records the absolute path it was built at,
               # which means nothing on the machine this is unpacked on, so each executable
               # is pointed at the copy travelling with it.
-              ./scripts/bundle-renderer.sh "$stage/sample-$app" .
+              if [[ "${{ runner.os }}" == "Linux" ]]; then
+                ./scripts/bundle-renderer.sh "$stage/sample-$app" lib
+              else
+                ./scripts/bundle-renderer.sh "$stage/sample-$app" .
+              fi
             fi
             tar -czf "artifacts/$app-${{ matrix.target }}.tar.gz" -C staging "$app"
           done < built.txt
