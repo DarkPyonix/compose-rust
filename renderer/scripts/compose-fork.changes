@@ -1,9 +1,10 @@
-# Every path the fork changes in Compose's source, and the content it has there.
+# Every path the fork changes relative to Compose's source, and the content it has there.
 #
 # The fork is thisisthepy/compose-multiplatform-core-extended, and build-compose.sh pins
 # one commit of it. These lines are what that commit holds at each path it changed
 # relative to the upstream revision it starts from (JetBrains release/1.11, 73ac849):
-# the Linux targets, the native text context menu, and the version it publishes as.
+# the Linux targets, the native text context menu, the version it publishes as, and the
+# design systems under extended/design-systems with the workflow that builds them.
 # scripts/tests/compose-fork.test.sh reads the pinned commit's tree and checks every line,
 # so a pin that loses one of these changes fails there and not in a renderer build an
 # hour later.
@@ -14,6 +15,7 @@
 #
 #   git diff --raw --no-renames --no-abbrev <upstream base> <pinned commit> |
 #       awk '{ print ($5 == "D" ? "-" : $4), $6 }'
+307f09526b3cb32f26ed6bff00a23c326de9e16c .github/workflows/design-systems.yml
 6bb982279925914e99d5d18ad2803b2e2f726fc3 compose/animation/animation-core/build.gradle
 c6f9e44ee9f95de7dbfbb9aee1fb0931487b4b10 compose/animation/animation-core/src/linuxMain/kotlin/androidx/compose/animation/core/Expect.linux.kt
 a56047b67ebecfc52fb8cb19f39ca358aee71a3c compose/animation/animation-graphics/build.gradle
@@ -88,5 +90,53 @@ f3afc0c0a72dec78adf071a396391881594938d3 compose/ui/ui/src/linuxMain/kotlin/andr
 90836b3cb58d0690ee195ec62eaebf2f4562d3ab compose/ui/ui/src/linuxMain/kotlin/androidx/compose/ui/viewinterop/InteropView.linux.kt
 ba3c1e00f09aad1f8c4ff93e3a39f96f4bc2cb96 compose/ui/ui/src/nativeMain/kotlin/androidx/compose/ui/platform/GlobalSnapshotManager.native.kt
 bcf2202586cfd254460a0ea9f1a7e215bf0414fc compose/ui/ui/src/nonJvmMain/kotlin/androidx/compose/ui/Actuals.nonJvm.kt
+c6a8386c8163f2346f936fb07f115b908aec005d extended/design-systems/.gitignore
+635f7b0c36ceac3ff76a522d94c237ba044a357d extended/design-systems/README.md
+f32f3ec0f9fc6e01c90df8dec4a5d8e03d85ea97 extended/design-systems/breeze/module.yaml
+dc7fdcef10d5124b3b59f16972a77a0ed94d20ce extended/design-systems/breeze/src/org/thisisthepy/compose/breeze/Breeze.kt
+1d0fb38c19ebc73e2cef983f000278ea3f530815 extended/design-systems/breeze/test/org/thisisthepy/compose/breeze/BreezeDesignSystemTest.kt
+662fd2605879ad03dd4b2348f53eb8e8f9c886b5 extended/design-systems/core/module.yaml
+db91cc57c93436462bf3aeea1fd23c8aa16b12ef extended/design-systems/core/src/org/thisisthepy/compose/designsystem/DesignSystem.kt
+e11539613692dfa1f06e10e070522da1da2f6189 extended/design-systems/core/src/org/thisisthepy/compose/designsystem/Roles.kt
+1adadcc1fd5491eb94e227091b6f36976e755e13 extended/design-systems/core/src/org/thisisthepy/compose/designsystem/Styles.kt
+e30baa9f15f263cb503b9a6fcd216df9bfb9e4d0 extended/design-systems/cupertino/module.yaml
+1f17edf4299f27cf5ef0e84dbed3cc86f8be02b7 extended/design-systems/cupertino/src/org/thisisthepy/compose/cupertino/CupertinoDesignSystem.kt
+6d400443bd2169beb10047091d34ede281751e56 extended/design-systems/cupertino/src/org/thisisthepy/compose/cupertino/CupertinoPalette.kt
+44b7a9fc9e3468d45212a6599fa8fdfe4e8132c4 extended/design-systems/cupertino/src/org/thisisthepy/compose/cupertino/CupertinoSurface.kt
+3d503d4bdfff6179df51d6511bbf34402cb0b79c extended/design-systems/cupertino/src/org/thisisthepy/compose/cupertino/CupertinoTypography.kt
+908cc573753b5ebba6d59eb32fdbeb166e5c8c81 extended/design-systems/cupertino/test/org/thisisthepy/compose/cupertino/AllDesignSystemsDifferTest.kt
+8858a5e5d72a3dc90b199e7764e6e6f65fc22d97 extended/design-systems/cupertino/test/org/thisisthepy/compose/cupertino/CupertinoDesignSystemTest.kt
+2da78db53edbca982eb4952cf36aa81778880b81 extended/design-systems/deepin/module.yaml
+942736f34bbb7ac69e51f73347033a50bd0ef98a extended/design-systems/deepin/src/org/thisisthepy/compose/deepin/Deepin.kt
+ece547749be859386745d9e542b1c72fe7c00913 extended/design-systems/deepin/test/org/thisisthepy/compose/deepin/DeepinDesignSystemTest.kt
+7d99a16f63dce38c0078fdef58ef0c53647fd644 extended/design-systems/deepin/test/org/thisisthepy/compose/deepin/LinuxDesignSystemsDifferTest.kt
+621125b62df1878b8883aafceca0b1c908dfde29 extended/design-systems/fluent/module.yaml
+416f116dbd7fdd516e657b9c73e362175fe014b8 extended/design-systems/fluent/src/org/thisisthepy/compose/fluent/FluentDesignSystem.kt
+21dc49c59981371b742bad6532111982d3dacbf8 extended/design-systems/fluent/src/org/thisisthepy/compose/fluent/FluentPalette.kt
+71ca321e721e49ba312934cb81d714ef53d2a3ae extended/design-systems/fluent/src/org/thisisthepy/compose/fluent/FluentSurface.kt
+56555933bcd615111008024de8d1505c67397d57 extended/design-systems/fluent/test/org/thisisthepy/compose/fluent/FluentDesignSystemTest.kt
+6376f479190807eb4922958dae96de0ff5dca53f extended/design-systems/gnome/module.yaml
+4dd5d8192801dd4c7670c9d71358ce7d7e2c4f52 extended/design-systems/gnome/src/org/thisisthepy/compose/gnome/Adwaita.kt
+b78833ad3bf6c6494036a89cfbbc96fb7c635108 extended/design-systems/gnome/test/org/thisisthepy/compose/gnome/GnomeDesignSystemTest.kt
+85765b1d66a64926b7a6ec05ae41bb475511fa26 extended/design-systems/kotlin
+4a87ebfdef5130fddef4d23f36e76007f9278059 extended/design-systems/kotlin.bat
+c10dff1b641a59567ce316705530a27f187f96fb extended/design-systems/libs.versions.toml
+356c4bbfec070af5268b131c7407d40c81538d4d extended/design-systems/liquid-glass/module.yaml
+d5bf2e9f2dfe084096b1b05cb7b9683dcd7ece9c extended/design-systems/liquid-glass/src/org/thisisthepy/compose/liquidglass/ConcentricShape.kt
+13ce994d03388f50d32accbcccc0df913cfeb77f extended/design-systems/liquid-glass/src/org/thisisthepy/compose/liquidglass/Contrast.kt
+50446f26817fbb1a5fd7ae6de116a5d73c965539 extended/design-systems/liquid-glass/src/org/thisisthepy/compose/liquidglass/Glass.kt
+9682aa1f06d8551b961c03ba68b22e063da6c85a extended/design-systems/liquid-glass/src/org/thisisthepy/compose/liquidglass/GlassFill.kt
+779a9d1203b1b408003b0c2875783eca12848718 extended/design-systems/liquid-glass/src/org/thisisthepy/compose/liquidglass/GlassMaterial.kt
+34d651d5d16b1f39088c734c62393fdbf81ff9fd extended/design-systems/liquid-glass/test/org/thisisthepy/compose/liquidglass/ConcentricShapeTest.kt
+d39c7bef37455c1d93cce4a4bac72bc60e1feb74 extended/design-systems/liquid-glass/test/org/thisisthepy/compose/liquidglass/ContrastTest.kt
+a58f4ad30e49651719c9dd114e5eebacb73db2d3 extended/design-systems/liquid-glass/test/org/thisisthepy/compose/liquidglass/GlassMaterialTest.kt
+dae67fce931dea3db1a18352d7687e57169d916c extended/design-systems/liquid-glass/test/org/thisisthepy/compose/liquidglass/ReducedTransparencyTest.kt
+3f89b7f0dcce1dec6a1e324f73b47d7b55f96c73 extended/design-systems/liquid-glass/test@jvm/org/thisisthepy/compose/liquidglass/ConcentricOutlineTest.kt
+04f3d1208a5633ce044d2b78575edd284a76fe0d extended/design-systems/material3/module.yaml
+e155ef94b583f6acc8ef5c20fc636a65008ec626 extended/design-systems/material3/src/org/thisisthepy/compose/material3/Material3DesignSystem.kt
+defeb52c5649bec314035d3bc14c4fa06263fdc8 extended/design-systems/material3/src/org/thisisthepy/compose/material3/MaterialButton.kt
+2cd96e8c514a295e7802041b576e74e697a5de38 extended/design-systems/material3/test/org/thisisthepy/compose/material3/Material3DesignSystemTest.kt
+5a41e4d2631cf077c86a9be31fbc719a9855472b extended/design-systems/material3/test/org/thisisthepy/compose/material3/MaterialAndFluentDifferTest.kt
+e9a770828d8aadd6979c6be4fc5eeace35f04c9f extended/design-systems/project.yaml
 2751345e0f0e8cf4b03588e55101a6a3c8e90891 gradle.properties
 bf203c6d89ac8cdb3ba22a51596de53f5590d129 navigation/navigation-compose/build.gradle

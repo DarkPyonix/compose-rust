@@ -10,8 +10,11 @@ compose-rust lets Rust code author declarative UI with **Dioxus** (`dioxus-core`
 - `renderer/`: Kotlin side (Renderer). Amper project. The schema interpreter
   lives in `desktop/src/renderer/`; `ios/src/shared/` symlinks the same files so there is one
   copy. `shared/` is the JVM development shell only, not the renderer.
-- `design-systems/`: a separate Amper project holding the six design systems and the
-  Liquid Glass material. It must never depend on the renderer, so it can be published alone.
+- The design systems and the Liquid Glass material live in the Compose fork,
+  `thisisthepy/compose-multiplatform-core-extended`, under `extended/design-systems/`. They
+  must never depend on the renderer, so they can be published alone. The token test reads
+  them at the commit `renderer/scripts/build-compose.sh` pins, fetched into `.scratch/` by
+  `scripts/fetch-design-systems.sh`.
 - `docs/INTENT.md`: why the project exists, decisions (D1–D9), rejected alternatives.
 - `docs/SPEC.md`: requirements (`FR-*`, `NFR-*`, `PR-*`) with acceptance criteria.
 - `PROJECT.md`: scope, milestones (M0–M7), open questions.
@@ -117,19 +120,22 @@ none of it.
    file. Propose it first: what it is, why it is needed, and why no existing directory
    can hold it. Then wait for the answer.
 2. The approved root entries are:
-   - folders: `.github/`, `bench/`, `compose-rust/`, `docs/`, `experiments/`,
+   - folders: `.github/`, `compose-rust/`, `docs/`, `experiments/`,
      `renderer/`, `samples/`, `scripts/`;
    - files: `.gitignore`, `Cargo.toml`, `Cargo.lock`, `CHANGELOG.md`, `LICENSE`,
      `README.md`, `AGENTS.md`, `CLAUDE.md`, `PROJECT.md`;
    - temporary, each with the date it leaves:
-     - `adapters/`, to dioxus-compose, by 2026-10-05 (#37 step 4);
-     - `design-systems/`, to compose-multiplatform-core-extended, by 2026-10-15 (#39).
-     `bench/dioxus-baseline/` leaves with `adapters/`; `bench/` itself stays.
+   `adapters/` and `bench/dioxus-baseline/` moved to dioxus-compose on 2026-10-04 (#37
+   step 4); `design-systems/` moved to compose-multiplatform-core-extended (#39). The
+   twelve samples under `samples/` stay and are being rewritten on the compose-rust API
+   (#85); until then they are outside the workspace and their release builds are skipped.
+   `scripts/bench/` holds the pin of the Dioxus baseline FR-39 compares against
+   (`scripts/bench/fr39-baseline.env`).
 
    Ignored local directories (`.claude/`, `.scratch/`, `target/`, `build/`) are not part
    of the tree and are covered by "Where files go" above.
 3. A crate, benchmark or tool that needs a home goes inside the folder it belongs to
-   (`compose-rust/macros/`, `bench/<name>/`, `renderer/desktop/<name>/`), not beside it.
+   (`compose-rust/macros/`, `compose-rust/benches/<name>/`, `renderer/desktop/<name>/`), not beside it.
 4. Scripts that only CI runs live in `.github/scripts/`. `scripts/tests/` is the one test
    folder outside the crates.
 
