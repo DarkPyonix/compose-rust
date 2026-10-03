@@ -159,8 +159,7 @@ fn fr13_an_unset_attribute_does_not_clear_its_partner_in_the_same_slot() {
         .expect("the shape role never reached the wire");
     let last = slots
         .iter()
-        .filter(|(index, _)| *index == shape_slot)
-        .next_back()
+        .rfind(|(index, _)| *index == shape_slot)
         .expect("the slot has no writes");
     assert!(
         last.1.starts_with("ShapeRole"),
@@ -174,8 +173,7 @@ fn fr13_an_unset_attribute_does_not_clear_its_partner_in_the_same_slot() {
         .expect("the padding role never reached the wire");
     let last = slots
         .iter()
-        .filter(|(index, _)| *index == padding_slot)
-        .next_back()
+        .rfind(|(index, _)| *index == padding_slot)
         .expect("the slot has no writes");
     assert!(
         last.1.starts_with("PaddingRole"),
