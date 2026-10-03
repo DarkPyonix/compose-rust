@@ -1,6 +1,6 @@
 // Acquiring the Renderer distribution for the `native-renderer` feature.
 //
-// Adding `dioxus-compose` to Cargo.toml is meant to be the whole setup: no variable to
+// Adding `compose-rust` to Cargo.toml is meant to be the whole setup: no variable to
 // export, no file to download by hand, no script to run. `cargo build` gets the renderer.
 // This file holds every rule that goes into that and every message it can fail with.
 //
@@ -671,7 +671,7 @@ fn build_it_yourself(crate_version: &str, target: &str) -> String {
 
 fn missing_from_env_message(env_dir: &Path, looked_in: &Path, lib_file: &str) -> String {
     format!(
-        "dioxus-compose: {RENDERER_DIR_ENV} is set to {env_dir}, but no renderer is there.\n\
+        "compose-rust: {RENDERER_DIR_ENV} is set to {env_dir}, but no renderer is there.\n\
          \n\
          Looked for {lib_file} in {looked_in}, in {env_dir}/lib and in {env_dir}/bin. Point\n\
          the variable either at the directory an artifact was unpacked into or straight at\n\
@@ -686,7 +686,7 @@ fn missing_from_env_message(env_dir: &Path, looked_in: &Path, lib_file: &str) ->
 
 fn unpublished_target_message(crate_version: &str, target: &str) -> String {
     format!(
-        "dioxus-compose: no renderer is published for {target}.\n\
+        "compose-rust: no renderer is published for {target}.\n\
          \n\
          The release builds these targets: {published}. This build is for {target}, so\n\
          there is nothing to download, and a download would only have produced a 404 that\n\
@@ -706,7 +706,7 @@ fn offline_message(
 ) -> String {
     let artifact = artifact_file_name(crate_version, target);
     format!(
-        "dioxus-compose: could not download the renderer ({detail}).\n\
+        "compose-rust: could not download the renderer ({detail}).\n\
          \n\
          Put these two files in {downloads} and build again. Nothing else is needed, and\n\
          the next build will verify the checksum and unpack them without a network:\n\
@@ -726,7 +726,7 @@ fn offline_message(
 
 fn not_in_release_message(crate_version: &str, target: &str, file_name: &str) -> String {
     format!(
-        "dioxus-compose: the release for v{crate_version} does not carry {file_name}.\n\
+        "compose-rust: the release for v{crate_version} does not carry {file_name}.\n\
          \n\
          The server was reached and answered that there is no such file, so this is not a\n\
          network problem. Either that release was published without the {target} renderer,\n\
@@ -742,7 +742,7 @@ fn not_in_release_message(crate_version: &str, target: &str, file_name: &str) ->
 
 fn download_failed_message(url: &str, detail: &str) -> String {
     format!(
-        "dioxus-compose: downloading the renderer failed ({detail}).\n\
+        "compose-rust: downloading the renderer failed ({detail}).\n\
          \n\
          The address was {url}. Retrying the build retries the download; nothing partial\n\
          was kept."
@@ -757,7 +757,7 @@ fn checksum_mismatch_message(
     downloads: &Path,
 ) -> String {
     format!(
-        "dioxus-compose: the renderer artifact does not match its checksum, so it was not\n\
+        "compose-rust: the renderer artifact does not match its checksum, so it was not\n\
          unpacked.\n\
          \n\
          \x20   file     {tarball}\n\
@@ -777,7 +777,7 @@ fn checksum_mismatch_message(
 
 fn unreadable_checksum_message(checksum_path: &Path, detail: &str) -> String {
     format!(
-        "dioxus-compose: cannot read the renderer checksum at {checksum_path} ({detail}).\n\
+        "compose-rust: cannot read the renderer checksum at {checksum_path} ({detail}).\n\
          \n\
          The file holds one line: the SHA-256 digest, then the artifact name, exactly as\n\
          `shasum -a 256` writes it. Delete it and build again to download it afresh.",
@@ -787,7 +787,7 @@ fn unreadable_checksum_message(checksum_path: &Path, detail: &str) -> String {
 
 fn cannot_read_artifact_message(tarball: &Path, detail: &str) -> String {
     format!(
-        "dioxus-compose: cannot read the renderer artifact at {tarball} ({detail}).\n\
+        "compose-rust: cannot read the renderer artifact at {tarball} ({detail}).\n\
          \n\
          Delete it and build again to download it afresh.",
         tarball = tarball.display(),
@@ -796,7 +796,7 @@ fn cannot_read_artifact_message(tarball: &Path, detail: &str) -> String {
 
 fn cannot_write_message(path: &Path, detail: &str) -> String {
     format!(
-        "dioxus-compose: cannot write to {path} ({detail}).\n\
+        "compose-rust: cannot write to {path} ({detail}).\n\
          \n\
          That path is the renderer cache. Set {CACHE_DIR_ENV} to a directory this build can\n\
          write to, or set {RENDERER_DIR_ENV} to a renderer you already have, which skips\n\
@@ -807,7 +807,7 @@ fn cannot_write_message(path: &Path, detail: &str) -> String {
 
 fn no_cache_root_message(crate_version: &str, target: &str) -> String {
     format!(
-        "dioxus-compose: there is nowhere to cache the renderer.\n\
+        "compose-rust: there is nowhere to cache the renderer.\n\
          \n\
          The cache normally goes under $HOME/.cache on Unix and %LOCALAPPDATA% on Windows,\n\
          and neither is set for this build. Set {CACHE_DIR_ENV} to a directory to download\n\
@@ -820,7 +820,7 @@ fn no_cache_root_message(crate_version: &str, target: &str) -> String {
 
 fn install_name_message(library: &Path, detail: &str, crate_version: &str, target: &str) -> String {
     format!(
-        "dioxus-compose: could not set the renderer's install name ({detail}).\n\
+        "compose-rust: could not set the renderer's install name ({detail}).\n\
          \n\
          The library has to be told that it lives at\n\
          \n\
@@ -842,7 +842,7 @@ fn install_name_message(library: &Path, detail: &str, crate_version: &str, targe
 
 fn soname_message(library: &Path, detail: &str, crate_version: &str, target: &str) -> String {
     format!(
-        "dioxus-compose: could not set the renderer's SONAME ({detail}).\n\
+        "compose-rust: could not set the renderer's SONAME ({detail}).\n\
          \n\
          The library has to be told that it lives at\n\
          \n\
@@ -864,7 +864,7 @@ fn soname_message(library: &Path, detail: &str, crate_version: &str, target: &st
 
 fn unpack_failed_message(tarball: &Path, detail: &str) -> String {
     format!(
-        "dioxus-compose: could not unpack the renderer artifact ({detail}).\n\
+        "compose-rust: could not unpack the renderer artifact ({detail}).\n\
          \n\
          The file is {tarball} and its checksum matched, so it arrived intact. What failed\n\
          was extracting it, which needs `tar` on PATH. macOS and Linux always have it, and\n\
@@ -880,7 +880,7 @@ fn unexpected_layout_message(
     subdir: &str,
 ) -> String {
     format!(
-        "dioxus-compose: the renderer artifact unpacked, but does not contain a renderer.\n\
+        "compose-rust: the renderer artifact unpacked, but does not contain a renderer.\n\
          \n\
          Expected {subdir}/{lib_file} under {unpacked_into}, from {tarball}. An artifact\n\
          built for a different platform would look exactly like this. Delete that directory\n\
@@ -897,7 +897,7 @@ fn version_mismatch_message(
     target: &str,
 ) -> String {
     format!(
-        "dioxus-compose: renderer version mismatch.\n\
+        "compose-rust: renderer version mismatch.\n\
          \n\
          The renderer in {lib_dir} declares version {artifact_version} ({file}), but this\n\
          crate is version {crate_version}. Linking them would pair a Host against a Renderer\n\
@@ -905,7 +905,7 @@ fn version_mismatch_message(
          runtime instead of here.\n\
          \n\
          Use the artifact for this crate version, {artifact}, or depend on\n\
-         dioxus-compose {artifact_version} instead.",
+         compose-rust {artifact_version} instead.",
         lib_dir = lib_dir.display(),
         file = RENDERER_VERSION_FILE,
         artifact = artifact_file_name(crate_version, target),

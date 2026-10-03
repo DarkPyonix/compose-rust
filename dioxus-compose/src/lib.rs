@@ -182,7 +182,7 @@ pub mod prelude {
     // every `main`, and because `Chrome` beside it is meaningless on its own.
     pub use crate::schema::{Chrome, Window};
     // The crates `rsx!` expands into references to, under the names it expands into. A
-    // consumer who added only `dioxus-compose` does not have `dioxus_core` or
+    // consumer who added only `compose-rust` does not have `dioxus_core` or
     // `dioxus_signals` in their dependency graph by name, so without these the macro
     // fails to resolve them and the crate cannot be used at all with one dependency,
     // which is the whole promise.

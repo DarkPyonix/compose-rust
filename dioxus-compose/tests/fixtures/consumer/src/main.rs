@@ -22,7 +22,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 fn app() -> Element {
     rsx! {
         Column {
-            Text { text: "A consumer of dioxus-compose." }
+            Text { text: "A consumer of compose-rust." }
         }
     }
 }

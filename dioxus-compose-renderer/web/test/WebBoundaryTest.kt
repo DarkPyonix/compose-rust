@@ -251,7 +251,7 @@ private fun NodeTable.firstOfKind(kind: WidgetKind): Node? =
     globalThis.__dioxusComposeHostModule = new WebAssembly.Module(bytes);
     return 1;
   } catch (error) {
-    console.info('dioxus-compose: could not compile the Host for the test: ' + error);
+    console.info('compose-rust: could not compile the Host for the test: ' + error);
     return 0;
   }
 }""",

@@ -39,7 +39,7 @@
     "dioxus_unchanged_slot_for_reference": 381
   },
   "slot_table_with_real_widget_layer_ns": {
-    "note": "positional/runtime/src/widgets.rs: the same Text props, compared the same way, written through dioxus_compose's BatchEncoder. Still missing: signals, event dispatch, Move on reorder.",
+    "note": "positional/runtime/src/widgets.rs: the same Text props, compared the same way, written through compose_rust's BatchEncoder. Still missing: signals, event dispatch, Move on reorder.",
     "changed_slot": 276,
     "unchanged_slot": 345,
     "one_slot_frame_p50": 1292,

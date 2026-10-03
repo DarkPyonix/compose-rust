@@ -20,7 +20,7 @@ check_absent() {
     if [[ "$2" != *"$3"* ]]; then pass "$1"; else fail "$1: [$2] unexpectedly contains [$3]"; fi
 }
 
-# A repository shaped like dioxus-compose: public source and guide, private
+# A repository shaped like compose-rust: public source and guide, private
 # planning documents.
 make_repo() {
     local dir="$1"
