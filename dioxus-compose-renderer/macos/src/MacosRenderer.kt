@@ -12,6 +12,10 @@ import dioxus.compose.runtime.DioxusHost
 import dioxus.compose.runtime.HostConnection
 import platform.AppKit.NSApplication
 import platform.AppKit.NSApplicationActivationPolicy
+import platform.AppKit.NSApplicationWillTerminateNotification
+import platform.AppKit.NSWindow
+import platform.Foundation.NSNotificationCenter
+import platform.Foundation.NSOperationQueue
 import dioxus.compose.protocol.TitleBar
 import dioxus.compose.design.resolveTheme
 import dioxus.compose.design.HostPlatform
@@ -52,8 +56,26 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     ComposeFoundationFlags.isNewContextMenuEnabled = false
 
     declareWindowBackdrop()
+    // The notification centre, before the Host exists: the Host's first batch may already
+    // post one. A press on the body brings this application to the front and its window
+    // back from the Dock, which is what the platform does for an application it launches.
+    Notifications.platform = AppleNotifications(
+        withdrawAtExit = true,
+        bringToFront = {
+            application.activateIgnoringOtherApps(true)
+            application.windows.forEach { (it as? NSWindow)?.deminiaturize(null) }
+        },
+    )
     val host = DioxusHost(connection())
     host.start()
+    // Quitting ends the process from inside the run loop, so `run` below never returns to
+    // say so. What this application posted is taken back when the platform says it is
+    // about to go: a notification left behind would point at work no process knows about.
+    NSNotificationCenter.defaultCenter.addObserverForName(
+        name = NSApplicationWillTerminateNotification,
+        `object` = null,
+        queue = NSOperationQueue.mainQueue,
+    ) { _ -> host.table.notifications.shutdown() }
     // What the application asked for. A window that said nothing is listed under whatever
     // this renderer happens to be called, which is the library's name and not any
     // application's, and a measurement of zero means it did not ask.
@@ -70,7 +92,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
         systemDark = false,
     ).let { it.rules.caption(it, asked?.titleBar ?: TitleBar.Normal) }
     val window = MacosWindow(
-        name = asked?.title?.takeIf { it.isNotEmpty() } ?: "dioxus-compose",
+        name = asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
         width = if (asked != null && asked.width > 0) asked.width else 520,
         height = if (asked != null && asked.height > 0) asked.height else 360,
         buttonInset = dressing.platformButtonInset,

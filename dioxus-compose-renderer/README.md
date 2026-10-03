@@ -1,6 +1,6 @@
 # dioxus-compose-renderer
 
-The Kotlin half of dioxus-compose: the Compose Multiplatform renderer that interprets the
+The Kotlin half of compose-rust: the Compose Multiplatform renderer that interprets the
 protocol the Rust Host sends and draws it with real Compose widgets.
 
 Built with the [Kotlin Toolchain](https://kotlin-toolchain.org/dev/). The `kotlin` (macOS,
@@ -16,7 +16,7 @@ on first use, so nothing has to be installed separately.
 | `desktop` | JVM development shell for working on Compose code with hot reload and `@Preview`. |
 | `ios` | **The renderer for iOS.** The same interpreter sources (`ios/src/shared/` symlinks `desktop/src/`) compiled by Kotlin/Native, plus the iOS half of the boundary: `IosHostConnection`, the UIKit entry, and the `java.nio` shim the generated codec needs. |
 | `staticlib` | The two `@CName` functions that become the C symbols of the iOS static library. Separate so that `-produce static` generates a C header for them and not for the whole of Compose. |
-| `macos` | **The renderer for macOS without a virtual machine in it.** The same interpreter sources (`macos/src/shared/` symlinks `desktop/src/`) compiled by Kotlin/Native, plus `MacosWindow` and the Metal layer it draws into. Takes patched Compose from the local Maven repository; see `patches/`. |
+| `macos` | **The renderer for macOS without a virtual machine in it.** The same interpreter sources (`macos/src/shared/` symlinks `desktop/src/`) compiled by Kotlin/Native, plus `MacosWindow` and the Metal layer it draws into. Takes patched Compose from the local Maven repository; see `scripts/build-compose.sh`. |
 | `staticlib-macos` | The macOS twin of `staticlib`, sharing the same two entry points. |
 | `linux` | **The renderer for Linux without a virtual machine in it.** The same interpreter sources (`linux/src/shared/` symlinks `desktop/src/`), plus `LinuxWindow`: Xlib, GLX and the sync extension reached through `cinterop/x11.def`. Needs patched Compose for linuxX64 in the local Maven repository (`scripts/build-compose.sh --target linuxX64`) and the X11, Xext and GL development headers installed. |
 | `staticlib-linux` | The Linux twin of `staticlib`, sharing the same two entry points. |
@@ -76,7 +76,7 @@ halves of that boundary are generated from the Rust schema, so the symbol names 
 argument order cannot drift apart.
 
 This module is a library and has no application in it. An Android application is built by
-the Dioxus CLI, which generates the Gradle project; the `dioxus-compose` crate's build
+the Dioxus CLI, which generates the Gradle project; the `compose-rust` crate's build
 script unpacks this Kotlin into it and generates the Activity that hosts it, with that
 application's own package and library name.
 
@@ -92,4 +92,4 @@ Building an application any other way is how this repository once shipped sample
 route no user takes, so there is deliberately no second way to do it here.
 
 See the root [README](../README.md) for prerequisites and the
-[guide](http://darkpyonix.dev/dioxus-compose/) for everything else.
+[guide](http://darkpyonix.dev/compose-rust/) for everything else.

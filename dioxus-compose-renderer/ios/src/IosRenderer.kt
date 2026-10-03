@@ -26,7 +26,7 @@ import platform.UIKit.UIWindow
  * The desktop renderer opens a window and returns when the window closes. iOS has no such
  * moment: `UIApplicationMain` installs the run loop and never returns, and the system, not
  * the application, decides when the process ends. So on iOS `run` blocks for the lifetime of
- * the process. A Rust `main` that calls `dioxus_compose::launch(app)` gets the behaviour it
+ * the process. A Rust `main` that calls `compose_rust::launch(app)` gets the behaviour it
  * already expects on desktop, which is that nothing after the call runs while the UI is up.
  *
  * The screen is drawn entirely from the mutation batches the Host streams.
@@ -64,6 +64,13 @@ private class RendererAppDelegate : UIResponder, UIApplicationDelegateProtocol {
         application: UIApplication,
         didFinishLaunchingWithOptions: Map<Any?, *>?,
     ): Boolean {
+        // Before anything else, and before the Host: a notification pressed while the
+        // application was not running is delivered as soon as launching finishes, and the
+        // delegate that hears it has to be in place by then. It keeps the press until the
+        // Host exists to be told. A phone leaves notifications where they are when the
+        // process goes, because pressing one is how the application is started again, and
+        // bringing the application up is the system's own part of pressing one.
+        Notifications.platform = AppleNotifications(withdrawAtExit = false, bringToFront = {})
         val window = UIWindow(frame = UIScreen.mainScreen.bounds)
         val content = ComposeUIViewController {
             DioxusContent(

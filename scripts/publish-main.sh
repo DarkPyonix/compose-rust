@@ -5,7 +5,7 @@
 #
 # `develop` has everything. The public tree is the source code, the root
 # README.md, and docs/guide/ (the guide site). The internal planning documents
-# -- PROJECT.md, CLAUDE.md, and everything directly under docs/, which is where
+# -- PROJECT.md, AGENTS.md, CLAUDE.md, and everything directly under docs/, which is where
 # INTENT.md and SPEC.md live -- exist only on develop.
 #
 # The default target is `release`, not `main`: `main` is protected and only
@@ -106,7 +106,7 @@ fi
 # to docs/ is excluded without editing this script, while docs/guide/ and any
 # other subdirectory is published untouched.
 private_paths=()
-for path in PROJECT.md CLAUDE.md; do
+for path in PROJECT.md AGENTS.md CLAUDE.md; do
     git cat-file -e "$source_commit:$path" 2>/dev/null && private_paths+=("$path")
 done
 while IFS= read -r name; do

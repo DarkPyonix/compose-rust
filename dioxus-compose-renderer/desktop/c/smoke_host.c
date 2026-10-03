@@ -1,6 +1,6 @@
 /*
  * Stand-in for the Rust Host: links the renderer library and runs it, the way
- * `dioxus_compose::launch` does with LoopMode::Renderer.
+ * `compose_rust::launch` does with LoopMode::Renderer.
  *
  * It also implements the `dioxus_compose_host_*` half of the boundary, because the renderer
  * resolves those symbols from the executable it is loaded into and calls `host_init` as soon

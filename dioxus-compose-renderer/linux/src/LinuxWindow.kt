@@ -6,6 +6,9 @@
 package dioxus.compose.ui.platform
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.platform.PlatformContext
@@ -53,6 +56,15 @@ import x11.DestroyNotify
 import x11.Display
 import x11.Expose
 import x11.ExposureMask
+import x11.FocusChangeMask
+import x11.FocusIn
+import x11.FocusOut
+import x11.NotifyNormal
+import x11.NotifyWhileGrabbed
+import x11.SubstructureNotifyMask
+import x11.SubstructureRedirectMask
+import x11.XMapRaised
+import x11.XSendEvent
 import x11.GLXContext
 import x11.GLX_BLUE_SIZE
 import x11.GLX_DOUBLEBUFFER
@@ -151,6 +163,23 @@ internal class LinuxWindow private constructor(
 
     private var closed = false
 
+    /**
+     * Whether this window has the keyboard, as the server last said.
+     *
+     * Snapshot state, so that what reads it in composition is told when it changes: whether
+     * the window is the active one decides whether a notification that asked to be shown only
+     * when it is not is shown at all.
+     */
+    private var focused by mutableStateOf(true)
+
+    /**
+     * Runs once every turn of the loop, after the window has heard the server.
+     *
+     * For what reaches this process through a socket of its own rather than through the
+     * display server: the session bus is read here, on the one thread this renderer has.
+     */
+    var onTurn: () -> Unit = {}
+
     private val surface = GlSurface(display, window, context)
 
     private val log = WindowEventLog()
@@ -181,7 +210,7 @@ internal class LinuxWindow private constructor(
         described = elements
         if (reportFrames) {
             System.err.println(
-                "dioxus-compose: the window holds ${described.size} things to say" +
+                "compose-rust: the window holds ${described.size} things to say" +
                     (described.firstOrNull()?.let { ", the first being \"${it.label}\"" } ?: ""),
             )
         }
@@ -204,7 +233,7 @@ internal class LinuxWindow private constructor(
     private val work = FrameDispatcher()
 
     private val windowInfo = object : WindowInfo {
-        override val isWindowFocused: Boolean get() = true
+        override val isWindowFocused: Boolean get() = focused
         override val containerSize: IntSize get() = measured
     }
 
@@ -287,6 +316,35 @@ internal class LinuxWindow private constructor(
     }
 
     /**
+     * Brings the window up: back from being minimised, and in front of the others.
+     *
+     * Asked of the window manager rather than done, because stacking is the manager's. The
+     * request says it comes from a pager, which is the source a manager honours without its
+     * focus stealing prevention: the press on a notification that led here was the user's.
+     */
+    fun raise() {
+        if (closed) return
+        memScoped {
+            val event = alloc<XEvent>()
+            event.xclient.type = ClientMessage
+            event.xclient.window = window
+            event.xclient.message_type = XInternAtom(display, "_NET_ACTIVE_WINDOW", 0)
+            event.xclient.format = 32
+            event.xclient.data.l[0] = SOURCE_PAGER
+            event.xclient.data.l[1] = 0
+            XSendEvent(
+                display,
+                XRootWindow(display, XDefaultScreen(display)),
+                0,
+                SubstructureRedirectMask or SubstructureNotifyMask,
+                event.ptr,
+            )
+        }
+        XMapRaised(display, window)
+        XFlush(display)
+    }
+
+    /**
      * Runs the window until the reader closes it.
      *
      * The loop and the order of a turn are the other desktops', and each step in it is a defect
@@ -303,6 +361,7 @@ internal class LinuxWindow private constructor(
                 // window with nothing happening should rest rather than spin, and because a
                 // resize that arrives during the wait is drawn inside it.
                 pump(FRAME_MILLISECONDS)
+                onTurn()
                 // Before the events and before the drawing. What is waiting here is the scene's
                 // own work, and a list that asked for rows on the last frame wants them in hand
                 // before this one is measured.
@@ -311,7 +370,7 @@ internal class LinuxWindow private constructor(
                 log.drain(drained)
                 for (event in drained) {
                     if (reportInput && event.kind != WindowEvent.POINTER_MOVE) {
-                        System.err.println("dioxus-compose: window heard $event")
+                        System.err.println("compose-rust: window heard $event")
                     }
                     scene.receive(event)
                     textInput.receive(event)
@@ -499,6 +558,11 @@ internal class LinuxWindow private constructor(
             }
 
             DestroyNotify -> closed = true
+
+            // A grab or an ungrab moves focus too, and moves it back; only a real change of
+            // which window has the keyboard is taken as one.
+            FocusIn -> if (event.xfocus.mode == NotifyNormal || event.xfocus.mode == NotifyWhileGrabbed) focused = true
+            FocusOut -> if (event.xfocus.mode == NotifyNormal || event.xfocus.mode == NotifyWhileGrabbed) focused = false
         }
     }
 
@@ -582,6 +646,9 @@ internal class LinuxWindow private constructor(
     }
 
     companion object {
+        /** `_NET_ACTIVE_WINDOW`'s source indication for a pager, which the user drives. */
+        private const val SOURCE_PAGER = 2L
+
 
         /**
          * Opens a window, or answers null where this machine has no display server to open one on.
@@ -618,7 +685,8 @@ internal class LinuxWindow private constructor(
                 val settings = alloc<XSetWindowAttributes>()
                 settings.colormap = colormap
                 settings.event_mask = ExposureMask or StructureNotifyMask or PointerMotionMask or
-                    ButtonPressMask or ButtonReleaseMask or KeyPressMask or KeyReleaseMask
+                    ButtonPressMask or ButtonReleaseMask or KeyPressMask or KeyReleaseMask or
+                    FocusChangeMask
                 XCreateWindow(
                     display,
                     XRootWindow(display, screen),

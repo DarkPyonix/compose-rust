@@ -12,8 +12,8 @@ product:
 
 # Where the patched Compose comes from. The macOS context menu, the entries a selection
 # offers and the keys that copy are all empty in the published build for this platform,
-# and none of them can be answered from outside the module that holds them. `patches/`
-# says which and why; `scripts/build-compose.sh` builds them and publishes them under
+# and none of them can be answered from outside the module that holds them. They are
+# commits in a fork of Compose; `scripts/build-compose.sh` builds them and publishes them under
 # the version asked for below, and everything else still resolves from what JetBrains
 # published.
 repositories:

@@ -135,7 +135,7 @@ extern "C" fn native_request_frame() {}
 /// whatever the build it is running in was configured with.
 pub fn no_renderer_message() -> String {
     format!(
-        "dioxus-compose: this application was built without a renderer, so there is nothing\n\
+        "compose-rust: this application was built without a renderer, so there is nothing\n\
          to draw with and nothing to draw on. Exiting {EXIT_FAILURE} rather than looking like\n\
          a program that ran and finished.\n\
          \n\
@@ -177,6 +177,49 @@ pub fn request_frame_from_worker() {
             FRAME_REQUESTED.store(false, Ordering::Release);
         }
     }
+}
+
+thread_local! {
+    /// How deep this thread is inside a Host call. A notification posted from inside one is
+    /// written into the batch that call returns, so it needs no frame of its own.
+    static HOST_CALL_DEPTH: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// Whether this thread is inside `rebuild`, `dispatch` or `render_frame` right now.
+pub(crate) fn in_host_call() -> bool {
+    HOST_CALL_DEPTH.with(std::cell::Cell::get) > 0
+}
+
+/// Marks the span of one Host call on this thread.
+struct HostCallGuard;
+
+impl HostCallGuard {
+    fn enter() -> Self {
+        HOST_CALL_DEPTH.with(|depth| depth.set(depth.get() + 1));
+        Self
+    }
+}
+
+impl Drop for HostCallGuard {
+    fn drop(&mut self) {
+        HOST_CALL_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
+    }
+}
+
+/// Asks for the frame that carries a queued notification out.
+///
+/// The one request a stopped UI does not hold back. Holding requests while the platform
+/// has the UI off screen is right for timers and animations, which nobody is watching, and
+/// wrong for a notification, whose whole point is the moment nobody is watching. So while
+/// stopped this goes to the Renderer directly, and the Renderer serves it outside its
+/// stopped frame clock. Everything else stays held, and the frame it was waiting for is
+/// still delivered on start.
+pub(crate) fn request_frame_for_notifications() {
+    if LIFECYCLE_SUPPRESSED.load(Ordering::Acquire) {
+        (renderer_api().request_frame)();
+        return;
+    }
+    request_frame_from_worker();
 }
 
 struct EventDispatchGuard;
@@ -273,6 +316,7 @@ impl Host {
     }
 
     pub fn rebuild(&mut self) -> Result<&[u8], ProtocolError> {
+        let _call = HostCallGuard::enter();
         self.renderer.begin_frame();
         // One record at the root, before any node exists. The Renderer resolves roles to
         // values, so switching theme or colour scheme costs this one record rather than a
@@ -325,6 +369,48 @@ impl Host {
         Ok((self.renderer.finish_frame()?, 0))
     }
 
+    /// Hands a pressed notification to the components listening for one.
+    ///
+    /// No node and no handler: the notification is not in the tree, and the component that
+    /// posted it may be long gone. What it carries is the key, which the application reads.
+    fn notification_activated(
+        &mut self,
+        action: u32,
+        key: &str,
+    ) -> Result<(&[u8], i64), ProtocolError> {
+        let woke = {
+            let _dispatch_guard = EventDispatchGuard::enter();
+            crate::notification::activate(crate::notification::NotificationActivation {
+                key: key.to_owned(),
+                action,
+            })
+        };
+        self.renderer.begin_frame();
+        if woke {
+            self.dom.render_immediate(&mut self.renderer);
+        }
+        self.flush_messages();
+        self.arm_scheduler_wake();
+        Ok((self.renderer.finish_frame()?, 0))
+    }
+
+    /// Records whether notifications may be shown, and renders the components that asked.
+    ///
+    /// The same shape as the resolved design system: sent once after start and again only
+    /// when it changes, and a repeat wakes nobody.
+    fn publish_notification_permission(
+        &mut self,
+        state: crate::schema::NotificationPermission,
+    ) -> Result<(&[u8], i64), ProtocolError> {
+        self.renderer.begin_frame();
+        if crate::notification::publish_permission(state) {
+            self.dom.render_immediate(&mut self.renderer);
+        }
+        self.flush_messages();
+        self.arm_scheduler_wake();
+        Ok((self.renderer.finish_frame()?, 0))
+    }
+
     /// Records which design system the Renderer resolved the theme to.
     ///
     /// The same shape as a size class arriving: it belongs to no node and no handler, and
@@ -346,7 +432,8 @@ impl Host {
     }
 
     pub fn dispatch(&mut self, event: HostEvent<'_>) -> Result<(&[u8], i64), ProtocolError> {
-        // These three address the Host itself: no node, no handler, and an answer before
+        let _call = HostCallGuard::enter();
+        // These address the Host itself: no node, no handler, and an answer before
         // anything is looked up.
         match event.payload {
             EventPayload::Resync => return self.resync(),
@@ -355,6 +442,18 @@ impl Host {
             }
             EventPayload::LifecycleStart => return self.set_lifecycle_running(true),
             EventPayload::LifecycleStop => return self.set_lifecycle_running(false),
+            EventPayload::NotificationActivated { action, key } => {
+                if event.node_id != 0 || event.handler_id != 0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                return self.notification_activated(action, key);
+            }
+            EventPayload::NotificationPermissionChanged(state) => {
+                if event.node_id != 0 || event.handler_id != 0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                return self.publish_notification_permission(state);
+            }
             _ => {}
         }
         // The window's size belongs to no node and no handler: the Renderer measures the
@@ -452,7 +551,9 @@ impl Host {
             | EventPayload::DesignSystemResolved(_)
             | EventPayload::Resync
             | EventPayload::LifecycleStart
-            | EventPayload::LifecycleStop => unreachable!("handled above"),
+            | EventPayload::LifecycleStop
+            | EventPayload::NotificationActivated { .. }
+            | EventPayload::NotificationPermissionChanged(_) => unreachable!("handled above"),
         };
         let _dispatch_guard = EventDispatchGuard::enter();
         self.dom.runtime().handle_event(name, event_data, element);
@@ -465,6 +566,17 @@ impl Host {
     }
 
     pub fn render_frame(&mut self, _frame_time_nanos: u64) -> Result<&[u8], ProtocolError> {
+        let _call = HostCallGuard::enter();
+        if LIFECYCLE_SUPPRESSED.load(Ordering::Acquire) {
+            // The platform has the UI off screen and the Renderer called anyway, which it
+            // does for one reason: a notification was queued, and a notification is what
+            // has to get out while nobody is looking. Only that goes. The components are
+            // not rendered and the held frame request is left held, so timers and
+            // animations stay suppressed until start delivers it.
+            self.renderer.begin_frame();
+            self.flush_notifications();
+            return self.renderer.finish_frame();
+        }
         FRAME_REQUESTED.store(false, Ordering::Release);
         EVENT_DISPATCH_ACTIVE.store(false, Ordering::Release);
         DEFERRED_FRAME_REQUEST.store(false, Ordering::Release);
@@ -524,6 +636,17 @@ impl Host {
                 message.duration,
             );
         });
+        self.flush_notifications();
+    }
+
+    /// Writes the notification commands waiting in the Host into this batch.
+    ///
+    /// Workers queue them from their own threads; this is the one place they leave, on the
+    /// UI thread, inside a call. One atomic read when there are none.
+    fn flush_notifications(&mut self) {
+        let renderer = &mut self.renderer;
+        let posts = crate::notification::drain(|command| renderer.notification(command));
+        crate::notification::note_posted(posts);
     }
 
     fn flush_pending_appends(&mut self) {
@@ -785,7 +908,7 @@ pub fn palette_report(theme: &Theme) -> Vec<String> {
         .into_iter()
         .flat_map(|system| {
             palette.check(system).into_iter().map(move |violation| {
-                format!("dioxus-compose: palette under {system:?}: {violation}")
+                format!("compose-rust: palette under {system:?}: {violation}")
             })
         })
         .collect()
@@ -814,7 +937,7 @@ fn parse_handshake(bytes: &[u8]) -> Result<LoopMode, ProtocolError> {
         // page in the default theme: a symptom that looks like a blank application rather
         // than like a stale build, and one that cost a morning to read the first time.
         eprintln!(
-            "dioxus-compose: the renderer was built from a different schema than this              program. It sent hash {hash:#x} version {version}, and this build expects              hash {SCHEMA_HASH:#x} version {PROTOCOL_VERSION}. Rebuild the renderer after              running codegen; if it was already rebuilt, its build directory is holding a              cached copy of the generated protocol and has to be cleared."
+            "compose-rust: the renderer was built from a different schema than this              program. It sent hash {hash:#x} version {version}, and this build expects              hash {SCHEMA_HASH:#x} version {PROTOCOL_VERSION}. Rebuild the renderer after              running codegen; if it was already rebuilt, its build directory is holding a              cached copy of the generated protocol and has to be cleared."
         );
         return Err(ProtocolError::InvalidEnvelope);
     }
@@ -1075,7 +1198,10 @@ mod tests {
                     | Mutation::ReleaseAsset { .. }
                     | Mutation::ShowMessage { .. }
                     | Mutation::SetTheme(_)
-                    | Mutation::SetWindow(_) => {}
+                    | Mutation::SetWindow(_)
+                    | Mutation::PostNotification { .. }
+                    | Mutation::WithdrawNotification { .. }
+                    | Mutation::RequestNotificationPermission => {}
                 }
             }
         }

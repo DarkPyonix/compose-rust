@@ -360,6 +360,44 @@ void dxc_native_set_draw_callback(void *callback, void *isolate_thread) {
     (void)isolate_thread;
 }
 
+/*
+ * Notifications, answered here and doing nothing. On this desktop the renderer speaks to
+ * the notification daemon over D-Bus from Kotlin, so the C names the macOS and Windows
+ * builds use for their notification centres are never called. They are here because every
+ * desktop answers every name.
+ */
+int32_t dxc_notify_start(void) {
+    return 4; /* unsupported through this path */
+}
+
+void dxc_notify_request_permission(void) {}
+
+void dxc_notify_refresh_permission(void) {}
+
+void dxc_notify_post(const char *key, const char *title, const char *body, const char *channel,
+                     const char *action1, const char *action2, int32_t urgent) {
+    (void)key;
+    (void)title;
+    (void)body;
+    (void)channel;
+    (void)action1;
+    (void)action2;
+    (void)urgent;
+}
+
+void dxc_notify_withdraw(const char *key) {
+    (void)key;
+}
+
+void dxc_notify_withdraw_all(void) {}
+
+int32_t dxc_notify_next_event(char *key, int32_t capacity, int32_t *value) {
+    (void)key;
+    (void)capacity;
+    (void)value;
+    return 0;
+}
+
 int32_t dxc_native_poll_event(struct dxc_event *out) {
     if (dxc_event_count == 0) return 0;
     *out = dxc_events[dxc_event_head];
@@ -573,7 +611,7 @@ void dxc_native_set_accessibility(const struct dxc_element *elements, int32_t co
     }
     dxc_element_count = count;
     if (getenv("DXC_REPORT_FRAMES") != NULL) {
-        fprintf(stderr, "dioxus-compose: the window holds %d things to say", count);
+        fprintf(stderr, "compose-rust: the window holds %d things to say", count);
         if (count > 0) {
             fprintf(stderr, ", the first being \"%s\"", dxc_elements[0].label);
         }

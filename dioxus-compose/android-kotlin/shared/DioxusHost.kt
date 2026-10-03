@@ -18,13 +18,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.ui.Alignment
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.input.key.onKeyEvent
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusProperties
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.focusTarget
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -37,6 +30,8 @@ import dioxus.compose.protocol.ColorRole
 import dioxus.compose.protocol.Modifier as ProtocolModifier
 import dioxus.compose.protocol.WindowSizeClass
 import dioxus.compose.ui.platform.LocalFrameRequests
+import dioxus.compose.ui.platform.serveFrameRequests
+import androidx.compose.ui.platform.LocalWindowInfo
 import dioxus.compose.protocol.HostEvent
 import dioxus.compose.protocol.Mutation
 import androidx.compose.runtime.SideEffect
@@ -97,6 +92,9 @@ class DioxusHost(private val connection: HostConnection) : EventDispatcher {
 
     fun start() {
         applyTransaction { apply -> connection.init(apply) }
+        // After the first batch, so the first thing the Host hears is a press that started
+        // the application, if one did, and then what the platform says about permission.
+        table.notifications.attach(this)
     }
 
     /** Dispatches synchronously and returns the Host's consumption result. */
@@ -126,10 +124,17 @@ class DioxusHost(private val connection: HostConnection) : EventDispatcher {
 
     /** Called once per frame after a Host worker asked for one. */
     fun renderFrame(frameTimeNanos: Long) {
+        // What the notification centre heard since the last frame goes first. A press or an
+        // answer from the platform asks for a frame for exactly this, because the frame is
+        // where the UI thread, and so the Host, can be reached from any other thread.
+        table.notifications.drain()
         applyTransaction { apply -> connection.renderFrame(frameTimeNanos, apply) }
     }
 
-    fun shutdown() = connection.shutdown()
+    fun shutdown() {
+        table.notifications.shutdown()
+        connection.shutdown()
+    }
 
     private fun applyTransaction(call: ((Mutation) -> Unit) -> Unit) {
         val protocolErrors = mutableListOf<TableError>()
@@ -249,13 +254,20 @@ fun DioxusContent(
 ) {
     val frames = LocalFrameRequests.current
     LaunchedEffect(host, frames) {
-        var applied = frames.counter.value
-        frames.counter.collect { requested ->
-            if (requested == applied) return@collect
-            applied = requested
-            withFrameNanos { frameTimeNanos -> host.renderFrame(frameTimeNanos) }
-        }
+        serveFrameRequests(
+            frames.counter,
+            awaitFrame = { onFrame -> withFrameNanos(onFrame) },
+            serve = host::renderFrame,
+        )
     }
+    // A notification centre answers on a thread of its own, and the way from any thread to
+    // this one is a frame request. The centre asks through the same source this loop serves.
+    SideEffect { host.table.notifications.wake = frames::request }
+    // Whether the window is the one in use decides whether a notification that asked to be
+    // shown only when it is not is shown at all, and coming back to the window is when a
+    // permission changed in the system's settings is looked for.
+    val windowFocused = LocalWindowInfo.current.isWindowFocused
+    SideEffect { host.table.notifications.windowFocusChanged(windowFocused) }
     // The theme is resolved once here, and every node reads it from the CompositionLocal. A `SetTheme` is therefore one record on the wire and one
     // invalidation in Compose, not a SetProp per node.
     val platform = remember { hostPlatformOverride ?: detectHostPlatform() }
@@ -375,17 +387,6 @@ fun DioxusContent(
     // wherever focus is. Heard on the way back up from the focused node, so a text field
     // that wants the key keeps it.
     val sidebarShortcuts = remember(host) { dioxus.compose.foundation.SidebarShortcuts() }
-    // A focus target at the root, so a window command such as the sidebar's is heard even
-    // when no control holds focus: Compose delivers keys only to something focused. It takes
-    // focus only while nothing inside does, when the window gains focus or focus is cleared,
-    // so it never takes it from a field. Once a control inside has focus it stops being
-    // focusable at all, which keeps it out of the Tab order, and it draws nothing.
-    val rootFocus = remember(host) { FocusRequester() }
-    var rootMayFocus by remember(host) { mutableStateOf(true) }
-    val windowFocused = LocalWindowInfo.current.isWindowFocused
-    LaunchedEffect(host, windowFocused, rootMayFocus) {
-        if (windowFocused && rootMayFocus) runCatching { rootFocus.requestFocus() }
-    }
     CompositionLocalProvider(
         dioxus.compose.foundation.LocalSidebarShortcuts provides sidebarShortcuts,
         LocalDesignTheme provides theme,
@@ -406,16 +407,6 @@ fun DioxusContent(
                 modifier
                     .then(measured)
                     .onKeyEvent { event -> sidebarShortcuts.handle(event, platform) }
-                    .focusRequester(rootFocus)
-                    .onFocusChanged { state ->
-                        // A control inside holds focus: step out of the way. Nothing holds
-                        // it any more: be ready to take it again.
-                        if (state.hasFocus && !state.isFocused) rootMayFocus = false
-                        if (!state.hasFocus) rootMayFocus = true
-                    }
-                    .focusProperties { canFocus = rootMayFocus }
-                    .focusTarget()
-                    .testTag(ROOT_FOCUS_TEST_TAG)
                     .background(host.table.windowFill(host.roots, theme)),
             ) {
                 Box(Modifier.padding(top = pageTop, bottom = pageBottom)) {
@@ -831,6 +822,3 @@ internal fun pageInsets(
     val bottom = if (navigationTakesTheBottom) 0.dp else bars.bottom
     return top to bottom
 }
-
-/** The root focus target that lets window commands be heard with nothing else focused. */
-const val ROOT_FOCUS_TEST_TAG: String = "dioxus-root-focus"

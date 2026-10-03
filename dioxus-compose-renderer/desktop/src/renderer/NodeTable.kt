@@ -108,6 +108,18 @@ class NodeTable {
      */
     val insets: ChromeInsets = ChromeInsets()
 
+    /**
+     * The notifications the Host has asked to show, and the platform's answers on their way
+     * back.
+     *
+     * Not cleared with the tree. A resync throws the nodes away, but what is showing in the
+     * notification centre and what the Host has been told about permission are still true,
+     * and starting them over would tell the Host something it already knows or forget a
+     * press that has not been delivered yet.
+     */
+    val notifications: dioxus.compose.ui.platform.NotificationCenter =
+        dioxus.compose.ui.platform.NotificationCenter()
+
     private var revision = 0L
 
     /** Null until the Host sends its first `SetTheme` record. */
@@ -192,6 +204,13 @@ class NodeTable {
                 mutation.action,
                 mutation.duration,
             )
+
+            // Outside the window altogether. The centre decides what the window's own state
+            // says about it (whether it is active, whether permission has been asked) and
+            // the platform shows it.
+            is Mutation.PostNotification -> notifications.apply(mutation)
+            is Mutation.WithdrawNotification -> notifications.withdraw(mutation.key)
+            is Mutation.RequestNotificationPermission -> notifications.requestPermission()
         }
     }
 

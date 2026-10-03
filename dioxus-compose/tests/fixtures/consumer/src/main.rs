@@ -26,7 +26,7 @@ use std::time::{Duration, Instant};
 fn app() -> Element {
     rsx! {
         Column {
-            Text { text: "A consumer of dioxus-compose." }
+            Text { text: "A consumer of compose-rust." }
         }
     }
 }

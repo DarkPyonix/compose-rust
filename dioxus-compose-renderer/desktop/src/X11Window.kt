@@ -103,19 +103,19 @@ internal fun runX11Window() {
     host.start()
     val asked = host.table.window
     val window = openX11Window(
-        asked?.title?.takeIf { it.isNotEmpty() } ?: "dioxus-compose",
+        asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
         if (asked != null && asked.width > 0) asked.width else 520,
         if (asked != null && asked.height > 0) asked.height else 360,
     )
     if (window == null) {
-        System.err.println("dioxus-compose: X11 or a GLX visual is unavailable")
+        System.err.println("compose-rust: X11 or a GLX visual is unavailable")
         host.shutdown()
         return
     }
     val context = org.jetbrains.skia.DirectContext.makeGL()
     val measured = window.measure()
     System.err.println(
-        "dioxus-compose: a window of our own, ${measured.width}x${measured.height} " +
+        "compose-rust: a window of our own, ${measured.width}x${measured.height} " +
             "at ${measured.scale}x, with no toolkit in it",
     )
 
@@ -126,7 +126,7 @@ internal fun runX11Window() {
     val textInput = NativeTextInput()
     val semantics = NativeSemantics { elements ->
         if (report) {
-            System.err.println("dioxus-compose: the window has ${elements.size} things to say")
+            System.err.println("compose-rust: the window has ${elements.size} things to say")
         }
         window.describeTo(elements)
     }
@@ -183,7 +183,7 @@ internal fun runX11Window() {
             var drew = false
             for (event in drainWindowEvents()) {
                 if (report && event.kind != WindowEvent.POINTER_MOVE) {
-                    System.err.println("dioxus-compose: window heard $event")
+                    System.err.println("compose-rust: window heard $event")
                 }
                 scene.receive(event)
                 heard = true

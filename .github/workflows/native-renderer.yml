@@ -565,7 +565,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ~/.m2/repository
-          key: compose-linuxx64-${{ hashFiles('dioxus-compose-renderer/scripts/build-compose.sh', 'dioxus-compose-renderer/patches/**') }}
+          key: compose-linuxx64-${{ hashFiles('dioxus-compose-renderer/scripts/build-compose.sh', 'dioxus-compose-renderer/scripts/compose-fork.changes') }}
 
       - name: Cache the Kotlin toolchain
         uses: actions/cache@v4

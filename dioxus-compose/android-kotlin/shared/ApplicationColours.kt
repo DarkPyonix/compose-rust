@@ -39,15 +39,6 @@ internal fun wcagLuminance(color: Color): Double {
         0.0722 * channel(argb and 0xff)
 }
 
-/** The WCAG contrast ratio of two opaque colours, from 1 to 21. */
-internal fun contrastRatio(first: Color, second: Color): Double {
-    val a = wcagLuminance(first)
-    val b = wcagLuminance(second)
-    val high = maxOf(a, b)
-    val low = minOf(a, b)
-    return (high + 0.05) / (low + 0.05)
-}
-
 /**
  * The ink for a fill the application changed and whose ink it left alone.
  *
