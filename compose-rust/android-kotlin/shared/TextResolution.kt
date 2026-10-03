@@ -4,6 +4,7 @@ import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.MultiParagraph
 import androidx.compose.ui.text.MultiParagraphIntrinsics
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
@@ -16,10 +17,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign as ComposeTextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow as ComposeOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 import dev.darkpyonix.composerust.design.ResolvedTheme
+import kotlin.math.ceil
 import dev.darkpyonix.composerust.design.platformUiFamily
 import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.FontRef
@@ -402,8 +405,10 @@ private fun tabStops(
     fontFamilyResolver: FontFamily.Resolver,
 ): Pair<List<AnnotatedString.Range<Placeholder>>, Map<String, InlineTextContent>> {
     if (text.text.indexOf('\t') < 0) return emptyList<AnnotatedString.Range<Placeholder>>() to emptyMap()
-    val space = MultiParagraphIntrinsics(AnnotatedString(" "), style, emptyList(), density, fontFamilyResolver)
-        .maxIntrinsicWidth
+    // Positions inside a laid out line rather than intrinsic widths: an intrinsic width is
+    // rounded up to a whole pixel and leaves out trailing spaces, and either would move every
+    // stop after it.
+    val space = startOf(AnnotatedString("  "), 1, emptyList(), style, density, fontFamilyResolver)
     val stop = space * (if (tabSize > 0) tabSize else TextInput.DEFAULT_TAB_SIZE)
     val placeholders = mutableListOf<AnnotatedString.Range<Placeholder>>()
     val inline = mutableMapOf<String, InlineTextContent>()
@@ -414,13 +419,14 @@ private fun tabStops(
         val before = placeholders
             .filter { it.start >= lineStart }
             .map { AnnotatedString.Range(it.item, it.start - lineStart, it.end - lineStart) }
-        val prefix = MultiParagraphIntrinsics(
-            text.subSequence(lineStart, index),
-            style,
+        val prefix = startOf(
+            text.subSequence(lineStart, index + 1),
+            index - lineStart,
             before,
+            style,
             density,
             fontFamilyResolver,
-        ).maxIntrinsicWidth
+        )
         var advance = if (stop > 0f) stop - (prefix % stop) else space
         if (advance < space / 2f) advance += stop
         val placeholder = Placeholder(
@@ -432,6 +438,24 @@ private fun tabStops(
         inline[tabId(tab++)] = InlineTextContent(placeholder) {}
     }
     return placeholders to inline
+}
+
+/** Where character [offset] of [text] starts, laid out on one line. */
+private fun startOf(
+    text: AnnotatedString,
+    offset: Int,
+    placeholders: List<AnnotatedString.Range<Placeholder>>,
+    style: TextStyle,
+    density: Density,
+    fontFamilyResolver: FontFamily.Resolver,
+): Float {
+    if (offset <= 0) return 0f
+    val intrinsics = MultiParagraphIntrinsics(text, style, placeholders, density, fontFamilyResolver)
+    val paragraph = MultiParagraph(
+        intrinsics,
+        Constraints.fitPrioritizingWidth(0, ceil(intrinsics.maxIntrinsicWidth).toInt() + 1, 0, Constraints.Infinity),
+    )
+    return paragraph.getHorizontalPosition(offset, usePrimaryDirection = true)
 }
 
 /** What a `Text` node says about how it is set, read off its properties. */
