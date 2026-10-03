@@ -11,7 +11,6 @@ import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.ptr
 import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.set
-import kotlinx.cinterop.sizeOf
 import kotlinx.cinterop.toKString
 import kotlinx.cinterop.usePinned
 import platform.posix.AF_UNIX
@@ -22,10 +21,9 @@ import platform.posix.getenv
 import platform.posix.getuid
 import platform.posix.poll
 import platform.posix.pollfd
+import platform.posix.sockaddr
 import platform.posix.read
 import platform.posix.readlink
-import platform.posix.sa_family_tVar
-import platform.posix.sockaddr_un
 import platform.posix.socket
 import platform.posix.write
 
@@ -110,19 +108,21 @@ internal class PosixBusConnection private constructor(private val socket: Int) :
             val socket = socket(AF_UNIX, SOCK_STREAM, 0)
             if (socket < 0) return null
             val connected = memScoped {
-                val target = alloc<sockaddr_un>()
-                target.sun_family = AF_UNIX.convert()
+                // Kotlin/Native's Linux bindings have no sockaddr_un, so the address is laid
+                // out by hand: a two-byte family in host order, then up to 108 path bytes.
+                val target = allocArray<ByteVar>(FAMILY_BYTES + SUN_PATH_BYTES)
+                val family = AF_UNIX
+                target[0] = (family and 0xff).toByte()
+                target[1] = ((family shr 8) and 0xff).toByte()
                 val path = address.path.encodeToByteArray()
                 // An abstract name starts with a zero byte and is not terminated; a path is
                 // terminated and does not start with one.
                 val start = if (address.abstract) 1 else 0
                 if (start + path.size + 1 > SUN_PATH_BYTES) return@memScoped -1
-                if (address.abstract) target.sun_path[0] = 0
-                for (index in path.indices) target.sun_path[start + index] = path[index]
-                if (!address.abstract) target.sun_path[path.size] = 0
-                val length = sizeOf<sa_family_tVar>() + start + path.size +
-                    (if (address.abstract) 0 else 1)
-                connect(socket, target.ptr.reinterpret(), length.convert())
+                for (index in 0 until SUN_PATH_BYTES) target[FAMILY_BYTES + index] = 0
+                for (index in path.indices) target[FAMILY_BYTES + start + index] = path[index]
+                val length = FAMILY_BYTES + start + path.size + (if (address.abstract) 0 else 1)
+                connect(socket, target.reinterpret<sockaddr>(), length.convert())
             }
             if (connected != 0) {
                 platform.posix.close(socket)
@@ -162,6 +162,9 @@ internal class PosixBusConnection private constructor(private val socket: Int) :
             buffer[length.toInt()] = 0
             buffer.toKString().substringAfterLast('/')
         }
+
+        /** The size of `sun_family` in Linux's `sockaddr_un`. */
+        private const val FAMILY_BYTES = 2
 
         /** The size of `sun_path` in Linux's `sockaddr_un`. */
         private const val SUN_PATH_BYTES = 108
