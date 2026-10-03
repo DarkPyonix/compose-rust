@@ -18,8 +18,8 @@ product:
   platforms: [ linuxX64 ]
 
 # Where the patched Compose comes from. Compose Multiplatform publishes no Kotlin/Native
-# target for Linux at all, so every module below is built from source here: `patches/` says
-# what the target needs that upstream does not have, and `scripts/build-compose.sh --target
+# target for Linux at all, so every module below is built from source here: a fork of Compose
+# adds what the target needs that upstream does not have, and `scripts/build-compose.sh --target
 # linuxX64` builds and publishes them under the version asked for. skiko has a published
 # linuxX64 target and is resolved normally, as a dependency of Compose UI.
 repositories:

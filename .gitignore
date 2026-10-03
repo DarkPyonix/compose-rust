@@ -48,5 +48,5 @@ dioxus-compose/tests/fixtures/consumer/Cargo.lock
 dioxus-compose-renderer/web/resources/dioxus_compose_host.wasm
 dioxus-compose-renderer/web/testResources/dioxus_compose_host.wasm
 
-# The upstream Compose checkout scripts/build-compose.sh patches and builds.
+# The Compose fork checkout scripts/build-compose.sh fetches and builds.
 compose-build/
