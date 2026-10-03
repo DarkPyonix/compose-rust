@@ -1,5 +1,5 @@
-//! Which design system the Renderer resolved the theme to, and the hook components read
-//! it through.
+//! Which design system the Renderer resolved the theme to, and the registrations a
+//! runtime wakes its readers through.
 //!
 //! The theme names a system or asks for the platform's, and the answer is worked out in
 //! the Renderer where the platform is known. Most screens never need it: colour, shape,
@@ -10,12 +10,12 @@
 //! calculators and neither is a restyling of the other.
 //!
 //! So the Renderer reports its answer the way it reports a size class: once, and again
-//! only when the answer changes. This module is that value plus the components that asked
-//! to be told.
+//! only when the answer changes. This module is that value plus the readers that asked to
+//! be told. How a reader asks is the authoring layer's: the Dioxus adapter's
+//! `use_design_system` hook holds a [`DesignSystemSubscription`].
 
 use crate::schema::DesignSystem;
 use std::cell::{Cell, RefCell};
-use std::rc::Rc;
 use std::sync::Arc;
 
 struct Subscriber {
@@ -62,21 +62,23 @@ pub fn reset_design_system() {
     SUBSCRIBERS.with_borrow_mut(Vec::clear);
 }
 
-/// A component's registration, dropped with the hook state when the component unmounts.
-struct DesignSystemSubscription {
+/// A registration for changes to the resolved design system. Dropping it ends the
+/// registration, so a runtime keeps it for as long as the reader it wakes is alive: with a
+/// component's hook state, or a scope's remembered values.
+pub struct DesignSystemSubscription {
     id: u64,
 }
 
-impl DesignSystemSubscription {
-    fn new(notify: Arc<dyn Fn() + Send + Sync>) -> Self {
-        let id = NEXT_SUBSCRIBER_ID.with(|next| {
-            let id = next.get();
-            next.set(id + 1);
-            id
-        });
-        SUBSCRIBERS.with_borrow_mut(|subscribers| subscribers.push(Subscriber { id, notify }));
-        Self { id }
-    }
+/// Registers `notify` to be called each time the Renderer reports a different design
+/// system. What `notify` does is the runtime's business: mark a scope dirty, most often.
+pub fn subscribe(notify: Arc<dyn Fn() + Send + Sync>) -> DesignSystemSubscription {
+    let id = NEXT_SUBSCRIBER_ID.with(|next| {
+        let id = next.get();
+        next.set(id + 1);
+        id
+    });
+    SUBSCRIBERS.with_borrow_mut(|subscribers| subscribers.push(Subscriber { id, notify }));
+    DesignSystemSubscription { id }
 }
 
 impl Drop for DesignSystemSubscription {
@@ -85,30 +87,4 @@ impl Drop for DesignSystemSubscription {
             subscribers.retain(|subscriber| subscriber.id != self.id);
         });
     }
-}
-
-/// Reads the resolved design system inside a component, and re-renders it when the answer
-/// changes.
-///
-/// ```ignore
-/// let design = use_design_system();
-/// if design.is_apple() {
-///     // AC, and no memory row
-/// } else {
-///     // C, and a memory row
-/// }
-/// ```
-///
-/// **This is not how an application chooses a design system.** Choosing is
-/// `Theme::unified`; this reads an answer already given. And it is not a way to paint
-/// colours by hand: what a role resolves to is still the design system's, and reaching
-/// for a literal because this told you which system is running is the thing the role
-/// vocabulary exists to prevent.
-pub fn use_design_system() -> DesignSystem {
-    // Rc for the same reason the window size hook uses one: hook state has to be `Clone`,
-    // and the registration must be dropped exactly once, with the last handle.
-    dioxus_core::use_hook(|| {
-        Rc::new(DesignSystemSubscription::new(dioxus_core::schedule_update()))
-    });
-    design_system()
 }

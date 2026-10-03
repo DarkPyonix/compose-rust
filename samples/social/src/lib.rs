@@ -12,7 +12,7 @@ mod courses;
 mod palette;
 
 use courses::{Course, Shelf, course, on, sessions_label};
-use compose_rust::prelude::*;
+use dioxus_compose_adapter::prelude::*;
 
 /// A phone design in a desktop window is still a phone design.
 const PAGE_MEASURE: f32 = 420.0;
@@ -83,7 +83,7 @@ impl Destination {
 fn hero_card(found: &Course, size: (f32, f32), on_open: EventHandler<u32>) -> Element {
     let id = found.id;
     rsx! {
-        compose_rust::Box {
+        dioxus_compose_adapter::Box {
             fill_max_width: true,
             height: size.1,
             shape_role: ShapeRole::Large,
@@ -141,7 +141,7 @@ fn tile_card(found: &Course, on_open: EventHandler<u32>) -> Element {
             // The badge is how a card opens, and where the reference puts it: a round
             // play button standing on the illustration's lower left rather than a link
             // underneath in the design system's accent.
-            compose_rust::Box {
+            dioxus_compose_adapter::Box {
                 fill_max_width: true,
                 height: TILE.1,
                 shape_role: ShapeRole::Medium,
@@ -196,7 +196,7 @@ fn grid(items: &[&'static Course], on_open: EventHandler<u32>) -> Element {
                     space_role: SpaceRole::Md,
                     alignment: Alignment::TopStart,
                     for found in row.iter().copied() {
-                        compose_rust::Box { key: "{found.id}", weight: 1.0,
+                        dioxus_compose_adapter::Box { key: "{found.id}", weight: 1.0,
                             {tile_card(found, on_open)}
                         }
                     }
@@ -268,7 +268,7 @@ fn course_page(found: &Course, on_back: EventHandler<()>) -> Element {
             fill_max_height: true,
             background: Paint::Literal(quiet),
 
-            compose_rust::Box {
+            dioxus_compose_adapter::Box {
                 fill_max_width: true,
                 height: HERO.1,
                 alignment: Alignment::TopStart,
@@ -360,7 +360,7 @@ pub fn app() -> Element {
     // way out is its own back button should not also have three other ways out.
     if let Some(found) = opened().and_then(course) {
         return rsx! {
-            compose_rust::Box {
+            dioxus_compose_adapter::Box {
                 fill_max_width: true,
                 fill_max_height: true,
                 alignment: Alignment::TopCenter,
@@ -420,7 +420,7 @@ pub fn app() -> Element {
                 fill_max_width: true,
                 fill_max_height: true,
                 background: Paint::Literal(palette::PAGE),
-                compose_rust::Box {
+                dioxus_compose_adapter::Box {
                     fill_max_width: true,
                     fill_max_height: true,
                     alignment: Alignment::TopCenter,
@@ -462,14 +462,14 @@ pub fn launch() {
 /// The theme above all: a sample that names one and then reaches a platform through an
 /// entry point that makes its own builder is a sample that draws the same screens in a
 /// different design system depending on where it runs.
-fn launch_builder() -> compose_rust::LaunchBuilder {
+fn launch_builder() -> dioxus_compose_adapter::LaunchBuilder {
     // The name the window carries. A desktop lists windows by it, so a window that said
     // nothing was listed under whatever the renderer happened to be called, and every
     // sample here was listed as DioxusCompose until this line existed.
-    compose_rust::LaunchBuilder::new()
-        .with_theme(compose_rust::demo_theme_for(THEME))
+    dioxus_compose_adapter::LaunchBuilder::new()
+        .with_theme(dioxus_compose_adapter::demo_theme_for(THEME))
         .with_window(
-            compose_rust::schema::Window::new()
+            dioxus_compose_adapter::schema::Window::new()
                 .with_title("Social")
                 // Without one the window wears the toolkit's picture, which on
                 // Windows is the Java coffee cup, wherever the system lists
@@ -477,8 +477,8 @@ fn launch_builder() -> compose_rust::LaunchBuilder {
                 // to them by id: a path would be a fact about the machine this
                 // was built on, and a name would ask the toolkit to find
                 // something it may not have.
-                .with_icon(compose_rust::asset::asset(
-                    compose_rust::schema::AssetKind::Png,
+                .with_icon(dioxus_compose_adapter::asset::asset(
+                    dioxus_compose_adapter::schema::AssetKind::Png,
                     include_bytes!("../assets/icon.png"),
                 )),
         )
@@ -491,9 +491,9 @@ fn launch_builder() -> compose_rust::LaunchBuilder {
 // Both are declared unconditionally. Each macro compiles into nothing that runs off its
 // own platform, and gating them here instead would mean a desktop build never checks that
 // this sample can still be built for the other two.
-compose_rust::android_main!({ launch_builder() }, app);
-compose_rust::web_main!({ launch_builder() }, app);
-compose_rust::ios_main!(launch);
+dioxus_compose_adapter::android_main!({ launch_builder() }, app);
+dioxus_compose_adapter::web_main!({ launch_builder() }, app);
+dioxus_compose_adapter::ios_main!(launch);
 
 #[cfg(test)]
 mod tests {
@@ -504,11 +504,11 @@ mod tests {
     const PLAY: &str = "\u{25b6}";
 
     use courses::COURSES;
-    use compose_rust::Host;
-    use compose_rust::protocol::{
+    use dioxus_compose_adapter::Host;
+    use dioxus_compose_adapter::protocol::{
         HostEvent, Mutation, PropertyValue, decode_batch, encode_event,
     };
-    use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind};
+    use dioxus_compose_adapter::schema::{EventPayload, PropertyKind, WidgetKind};
 
     /// Named for what it defends: the reference is a light design, and a machine set
     /// the other way drew this sample dark with nothing to compare against.
@@ -517,7 +517,7 @@ mod tests {
         // Through the wire rather than off the constant: what settles the question is the
         // record the Renderer reads, and a scheme that never leaves the Host is a scheme
         // nobody is drawn in.
-        compose_rust::window::reset_window_size();
+        dioxus_compose_adapter::window::reset_window_size();
         let mut host = Host::with_theme(app, THEME);
         let batch = host.rebuild().expect("the first frame failed").to_vec();
         let first = decode_batch(&batch)
@@ -541,7 +541,7 @@ mod tests {
 
     impl Screen {
         fn new() -> Self {
-            compose_rust::window::reset_window_size();
+            dioxus_compose_adapter::window::reset_window_size();
             let mut host = Host::new(app);
             let first = host.rebuild().expect("the first frame failed").to_vec();
             Self {
@@ -634,7 +634,7 @@ mod tests {
                 choice.label()
             );
         }
-        compose_rust::window::reset_window_size();
+        dioxus_compose_adapter::window::reset_window_size();
     }
 
     /// Every card carries its picture, and each drawing crosses once.
@@ -644,7 +644,7 @@ mod tests {
     /// drawn from three illustrations is three registrations, not nine.
     #[test]
     fn fr16_every_card_carries_its_picture() {
-        compose_rust::window::reset_window_size();
+        dioxus_compose_adapter::window::reset_window_size();
         let batch = Host::new(app)
             .rebuild()
             .expect("the first frame failed")
@@ -692,7 +692,7 @@ mod tests {
                 "a card draws an id that was never registered"
             );
         }
-        compose_rust::window::reset_window_size();
+        dioxus_compose_adapter::window::reset_window_size();
     }
 
     /// Opening a course covers the whole screen and its back button returns.
@@ -719,7 +719,7 @@ mod tests {
                 .any(|text| text == "Good evening"),
             "closing the course did not bring the shelf back"
         );
-        compose_rust::window::reset_window_size();
+        dioxus_compose_adapter::window::reset_window_size();
     }
 
     /// A course lists as many sessions as it says it has. A count in a label and a list

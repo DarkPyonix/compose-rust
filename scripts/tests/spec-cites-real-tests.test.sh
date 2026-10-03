@@ -21,7 +21,7 @@ missing=()
 while read -r name; do
     if ! grep -rq "fn $name\b\|fun $name\b" \
         --include='*.rs' --include='*.kt' \
-        dioxus-compose dioxus-compose-renderer samples 2>/dev/null; then
+        dioxus-compose adapters bench dioxus-compose-renderer samples 2>/dev/null; then
         missing+=("$name")
     fi
 done < <(grep -oE '`(fr|nfr|pr)[0-9]+(_[0-9]+)*_[a-z0-9_]+`' docs/SPEC.md |

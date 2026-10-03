@@ -2,8 +2,8 @@
 # Builds the Rust Host as a wasm module and puts it where the page fetches it.
 # Usage: ./build-host.sh [--debug] [--sample <name>] [example]
 #
-# The default example is web_demo, the vertical slice. Any target that calls
-# `compose_rust::web_main!` works the same way, which is what --sample reaches: a
+# The default example is web_demo, the vertical slice, which is the Dioxus adapter's. Any
+# target that calls `dioxus_compose_adapter::web_main!` works the same way, which is what --sample reaches: a
 # sample is an rlib for its desktop binary and a cdylib here, because a page owns the
 # loop and there is no `main` of ours to run.
 #
@@ -74,7 +74,7 @@ initial_memory=$((memory_pages * 65536))
 if [[ -n "$sample" ]]; then
     selector=(--package "sample-$sample" --lib)
 else
-    selector=(--example "$example")
+    selector=(--package dioxus-compose-adapter --example "$example")
 fi
 
 RUSTFLAGS="-Clink-arg=--import-memory \

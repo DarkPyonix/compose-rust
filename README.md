@@ -149,11 +149,11 @@ composition holds up in a native-image build, the rest is volume of work.
 ## ✨ A taste of the API
 
 The snippet below is the real
-[`dioxus-compose/examples/desktop_demo.rs`](dioxus-compose/examples/desktop_demo.rs), trimmed for
+[`adapters/dioxus/examples/desktop_demo.rs`](adapters/dioxus/examples/desktop_demo.rs), trimmed for
 length. It compiles in this repository.
 
 ```rust
-use compose_rust::prelude::*;
+use dioxus_compose_adapter::prelude::*;
 
 fn app() -> Element {
     let mut messages = use_signal(Vec::<String>::new);
@@ -464,7 +464,7 @@ For an unattended run, set `DIOXUS_COMPOSE_AUTOEXIT_MS=6000` to make the window 
 ### 7. Run the Rust demo
 
 ```bash
-cargo run -p compose-rust --example desktop_demo --features native-renderer
+cargo run -p dioxus-compose-adapter --example desktop_demo --features native-renderer
 ```
 
 In a checkout of this repository the build script prefers the renderer you just built, at
@@ -508,7 +508,7 @@ Budget regressions are treated as bugs, and CI fails the build on them.
 
 ### Measured, 2026-09-20
 
-Recorded in [`dioxus-compose/benches/baseline.json`](dioxus-compose/benches/baseline.json) and
+Recorded in [`adapters/dioxus/benches/baseline.json`](adapters/dioxus/benches/baseline.json) and
 re-run by `cargo bench` inside `scripts/check.sh`.
 
 > **Machine:** Mac mini (Macmini9,1) · Apple M1, 8 cores (4 performance + 4 efficiency) · 16 GiB ·
@@ -535,17 +535,23 @@ still have to be measured on the native-image build.
 
 ```
 compose-rust/
-├─ dioxus-compose/                  # Rust: the Host, Dioxus renderer crate
+├─ dioxus-compose/                  # Rust: the Host (crate compose-rust), no Dioxus in it
 │  ├─ src/
-│  │  ├─ lib.rs                     #   public API, rsx! elements, event attributes
-│  │  ├─ widgets.rs                 #   Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn
+│  │  ├─ lib.rs                     #   public API
+│  │  ├─ runtime.rs                 #   Runtime: what builds the tree, seen from the boundary
 │  │  ├─ schema.rs                  #   the single source of truth for the wire schema
 │  │  ├─ protocol.rs                #   fixed-layout encoding (PR-4)
-│  │  ├─ boundary.rs                #   C ABI surface, launch / LaunchBuilder
+│  │  ├─ boundary.rs                #   C ABI surface, Host, LaunchBuilder
 │  │  └─ codegen.rs                 #   Rust schema → Kotlin types
-│  ├─ examples/desktop_demo.rs      #   the runnable demo
-│  ├─ benches/baseline.json         #   the recorded performance baseline
 │  └─ tests/vectors/                #   protocol vectors both sides assert against
+├─ adapters/dioxus/                 # Rust: the Dioxus adapter (rsx!, hooks, a VirtualDom runtime)
+│  ├─ src/
+│  │  ├─ lib.rs                     #   rsx! elements, event attributes, prelude
+│  │  ├─ widgets.rs                 #   Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn
+│  │  └─ renderer.rs                #   VirtualDom mutations → Compose records
+│  ├─ examples/desktop_demo.rs      #   the runnable demo
+│  └─ benches/baseline.json         #   the recorded performance baseline
+├─ bench/dioxus-baseline/           # the rsx! samples, gathered as the Dioxus baseline
 ├─ dioxus-compose-renderer/         # Kotlin: the Renderer (Kotlin Toolchain / Amper)
 │  ├─ native/                       #   the interpreter, C shims, native-image build scripts
 │  ├─ desktop/                      #   JVM development shell

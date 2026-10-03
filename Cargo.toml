@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "dioxus-compose",
+    "adapters/dioxus",
     "samples/academic",
     "samples/calculator",
     "samples/chat",
@@ -22,6 +23,8 @@ license = "Apache-2.0"
 rust-version = "1.85"
 
 [workspace.dependencies]
+# The Dioxus adapter, for everything in this workspace that is written with rsx!.
+dioxus-compose-adapter = { path = "adapters/dioxus" }
 dioxus-core = "0.7.10"
 dioxus-core-macro = "0.7.10"
 dioxus-hooks = "0.7"

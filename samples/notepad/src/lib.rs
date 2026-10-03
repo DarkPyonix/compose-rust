@@ -11,7 +11,7 @@
 
 use std::path::PathBuf;
 
-use compose_rust::prelude::*;
+use dioxus_compose_adapter::prelude::*;
 
 mod document;
 
@@ -91,7 +91,7 @@ fn document_bar(measure: Option<f32>, working: bool, children: Element) -> Eleme
             fill_max_width: true,
             TopAppBar {
                 fill_max_width: true,
-                compose_rust::Box {
+                dioxus_compose_adapter::Box {
                     weight: 1.0,
                     alignment: Alignment::Center,
                     Row {
@@ -356,7 +356,7 @@ pub fn app() -> Element {
                     // this is, which is the thing a title is for. Left in, the name was
                     // squeezed to one letter per line.
                     if crowded {
-                        compose_rust::Box { weight: 1.0 }
+                        dioxus_compose_adapter::Box { weight: 1.0 }
                     } else {
                         Text {
                             text: "Notepad",
@@ -587,7 +587,7 @@ pub fn app() -> Element {
             // is made of shared no edge at all. A page is a measure: the chrome that
             // belongs to the document sits on the same measure or the document is not a
             // page, it is a rectangle floating between two full width strips.
-            compose_rust::Box {
+            dioxus_compose_adapter::Box {
                 weight: DOCUMENT_SHARE,
                 fill_max_width: true,
                 fill_max_height: true,
@@ -623,7 +623,7 @@ pub fn app() -> Element {
                     // line tall at the top of a page-sized panel: a text editor you could
                     // not see your document in. The field scrolls itself once it is taller
                     // than the window, which is the behaviour the column was there for.
-                    compose_rust::Box {
+                    dioxus_compose_adapter::Box {
                         fill_max_width: true,
                         weight: 1.0,
                         {editor(
@@ -689,14 +689,14 @@ pub fn launch() {
 /// The theme above all: a sample that names one and then reaches a platform through an
 /// entry point that makes its own builder is a sample that draws the same screens in a
 /// different design system depending on where it runs.
-fn launch_builder() -> compose_rust::LaunchBuilder {
+fn launch_builder() -> dioxus_compose_adapter::LaunchBuilder {
     // The name the window carries. A desktop lists windows by it, so a window that said
     // nothing was listed under whatever the renderer happened to be called, and every
     // sample here was listed as DioxusCompose until this line existed.
-    compose_rust::LaunchBuilder::new()
-        .with_theme(compose_rust::demo_theme())
+    dioxus_compose_adapter::LaunchBuilder::new()
+        .with_theme(dioxus_compose_adapter::demo_theme())
         .with_window(
-            compose_rust::schema::Window::new()
+            dioxus_compose_adapter::schema::Window::new()
                 .with_title("Notepad")
                 // Without one the window wears the toolkit's picture, which on
                 // Windows is the Java coffee cup, wherever the system lists
@@ -704,8 +704,8 @@ fn launch_builder() -> compose_rust::LaunchBuilder {
                 // to them by id: a path would be a fact about the machine this
                 // was built on, and a name would ask the toolkit to find
                 // something it may not have.
-                .with_icon(compose_rust::asset::asset(
-                    compose_rust::schema::AssetKind::Png,
+                .with_icon(dioxus_compose_adapter::asset::asset(
+                    dioxus_compose_adapter::schema::AssetKind::Png,
                     include_bytes!("../assets/icon.png"),
                 )),
         )
@@ -718,18 +718,18 @@ fn launch_builder() -> compose_rust::LaunchBuilder {
 // Both are declared unconditionally. Each macro compiles into nothing that runs off its
 // own platform, and gating them here instead would mean a desktop build never checks that
 // this sample can still be built for the other two.
-compose_rust::android_main!({ launch_builder() }, app);
-compose_rust::web_main!({ launch_builder() }, app);
-compose_rust::ios_main!(launch);
+dioxus_compose_adapter::android_main!({ launch_builder() }, app);
+dioxus_compose_adapter::web_main!({ launch_builder() }, app);
+dioxus_compose_adapter::ios_main!(launch);
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use compose_rust::Host;
-    use compose_rust::protocol::{
+    use dioxus_compose_adapter::Host;
+    use dioxus_compose_adapter::protocol::{
         HostEvent, Mutation, PropertyValue, decode_batch, encode_event,
     };
-    use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind};
+    use dioxus_compose_adapter::schema::{EventPayload, PropertyKind, WidgetKind};
     use std::collections::HashMap;
 
     /// Hangul, a combining mark and an emoji: three ways a byte count and a character count
@@ -990,8 +990,8 @@ mod tests {
                 EventPayload::WindowSizeChanged {
                     width_dp,
                     height_dp: 900.0,
-                    class: compose_rust::WindowSizeClass::from_width_dp(width_dp),
-                    height_class: compose_rust::WindowHeightClass::from_height_dp(900.0),
+                    class: dioxus_compose_adapter::WindowSizeClass::from_width_dp(width_dp),
+                    height_class: dioxus_compose_adapter::WindowHeightClass::from_height_dp(900.0),
                 },
             );
         }
@@ -1170,7 +1170,7 @@ mod tests {
     /// The page widths and the strip's labels after the Renderer reports a window of the
     /// given width.
     fn page_at(width_dp: f32) -> (Vec<f32>, Vec<String>) {
-        compose_rust::window::reset_window_size();
+        dioxus_compose_adapter::window::reset_window_size();
         let mut host = Host::new(app);
         let first = host.rebuild().expect("the first frame failed to encode");
         let mut widths = widths_of(first);
@@ -1181,8 +1181,8 @@ mod tests {
             payload: EventPayload::WindowSizeChanged {
                 width_dp,
                 height_dp: 900.0,
-                class: compose_rust::WindowSizeClass::from_width_dp(width_dp),
-                height_class: compose_rust::WindowHeightClass::from_height_dp(900.0),
+                class: dioxus_compose_adapter::WindowSizeClass::from_width_dp(width_dp),
+                height_class: dioxus_compose_adapter::WindowHeightClass::from_height_dp(900.0),
             },
         };
         let mut bytes = Vec::new();
@@ -1194,7 +1194,7 @@ mod tests {
             widths = widths_of(batch);
             labels = texts_of(batch);
         }
-        compose_rust::window::reset_window_size();
+        dioxus_compose_adapter::window::reset_window_size();
         (widths, labels)
     }
 
@@ -1204,7 +1204,7 @@ mod tests {
             .iter()
             .filter_map(|mutation| match mutation {
                 Mutation::SetModifier {
-                    modifier: compose_rust::Modifier::Width(width),
+                    modifier: dioxus_compose_adapter::Modifier::Width(width),
                     ..
                 } => Some(*width),
                 _ => None,
@@ -1290,7 +1290,7 @@ mod tests {
     /// arrives from an edge instead.
     #[test]
     fn fr22_the_document_list_stands_beside_the_page_on_a_desktop_window() {
-        compose_rust::window::reset_window_size();
+        dioxus_compose_adapter::window::reset_window_size();
         let mut editor = Editor::new();
         let heading = "Documents";
         assert!(
@@ -1313,7 +1313,7 @@ mod tests {
                 .any(|node| !editor.in_a_sheet(*node)),
             "a desktop window should stand the list beside the document"
         );
-        compose_rust::window::reset_window_size();
+        dioxus_compose_adapter::window::reset_window_size();
     }
 
     /// Starting a document keeps the one that was on screen, which is what makes the list
@@ -1341,7 +1341,7 @@ mod tests {
 
         let (wide_widths, _) = page_at(1200.0);
         assert!(
-            wide_widths.contains(&compose_rust::WindowSizeClass::EXPANDED_MIN_WIDTH_DP),
+            wide_widths.contains(&dioxus_compose_adapter::WindowSizeClass::EXPANDED_MIN_WIDTH_DP),
             "the page did not take a measure: {wide_widths:?}"
         );
     }
@@ -1356,7 +1356,7 @@ mod tests {
     /// the page column.
     #[test]
     fn fr20_the_bar_holds_its_contents_to_the_same_measure_as_the_page() {
-        let measure = compose_rust::WindowSizeClass::EXPANDED_MIN_WIDTH_DP;
+        let measure = dioxus_compose_adapter::WindowSizeClass::EXPANDED_MIN_WIDTH_DP;
         let (wide_widths, _) = page_at(1200.0);
         assert_eq!(
             wide_widths

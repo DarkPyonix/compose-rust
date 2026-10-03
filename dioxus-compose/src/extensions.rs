@@ -4,9 +4,10 @@
 //! It is not a runtime plugin: a deployed Renderer has no way to load a new widget.
 //!
 //! An application that builds a paired Renderer owns a patched copy of this registry. To add a
-//! widget, update the descriptor, append its wire entries in both macros as needed, then declare
-//! its Dioxus element and typed component here. Codegen consumes the resulting closed schema and
-//! regenerates `Protocol.gen.kt`. The paired Kotlin source still has to render the new kind.
+//! widget, update the descriptor and append its wire entries in both macros as needed. Codegen
+//! consumes the resulting closed schema and regenerates `Protocol.gen.kt`. The paired Kotlin
+//! source still has to render the new kind, and each authoring layer declares how it is written:
+//! the Dioxus adapter's element and typed component live in its own `extensions.rs`.
 
 /// Hash input for extension property types, which the flat enum tables cannot express.
 /// Extension widget tags start at 100. Tags 1 to 29 belong to the core vocabulary, and an
@@ -38,27 +39,3 @@ macro_rules! define_property_schema_with_extensions {
 
 pub(crate) use define_property_schema_with_extensions;
 pub(crate) use define_widget_schema_with_extensions;
-
-use crate as dioxus_elements;
-use dioxus_core::Element;
-use dioxus_core_macro::{Props, component, rsx};
-
-pub mod elements {
-    #![allow(non_upper_case_globals)]
-
-    use crate::elements::AttributeDescription;
-
-    pub mod linearprogressindicator {
-        use super::AttributeDescription;
-
-        pub const TAG_NAME: &str = "LinearProgressIndicator";
-        pub const NAME_SPACE: Option<&str> = None;
-        pub const progress: AttributeDescription = ("progress", None, false);
-    }
-}
-
-/// Material 3's determinate linear progress indicator, as a worked extension example.
-#[component]
-pub fn LinearProgressIndicator(progress: f32) -> Element {
-    rsx! { linearprogressindicator { progress } }
-}

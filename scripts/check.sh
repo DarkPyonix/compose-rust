@@ -45,6 +45,8 @@ cargo test -p compose-rust --no-default-features
 # because adding it is a download and this gate is meant to run anywhere.
 if rustup target list --installed | grep -qx aarch64-linux-android; then
     cargo clippy -p compose-rust --target aarch64-linux-android -- -D warnings
+    # Every Android application is built on the Dioxus adapter, so it has to build there too.
+    cargo clippy -p dioxus-compose-adapter --target aarch64-linux-android -- -D warnings
 else
     echo "skipping the Android target (rustup target add aarch64-linux-android)"
 fi
@@ -53,6 +55,9 @@ fi
 # install the renderer API from the entry point the page calls.
 if rustup target list --installed | grep -qx wasm32-unknown-unknown; then
     cargo clippy -p compose-rust --no-default-features \
+        --target wasm32-unknown-unknown -- -D warnings
+    # The browser's start that takes a root component is the Dioxus adapter's.
+    cargo clippy -p dioxus-compose-adapter --no-default-features \
         --target wasm32-unknown-unknown -- -D warnings
 else
     echo "skipping the wasm target (rustup target add wasm32-unknown-unknown)"

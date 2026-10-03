@@ -17,7 +17,6 @@
 //! boundary: the boundary still only sees a batch handed over inside a call.
 
 use crate::schema::{NotificationImportance, NotificationPermission, NotificationPresentation};
-use dioxus_core::Callback;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -138,7 +137,8 @@ pub fn withdraw_notification(key: impl Into<String>) {
 ///
 /// For a settings screen with a switch that says "notify me when a session finishes":
 /// asking at the moment the user turns it on is asking when the user knows what for. The
-/// answer arrives through [`use_notification_permission`].
+/// answer arrives through [`notification_permission`] and the readers registered with
+/// [`subscribe_permission`].
 ///
 /// A browser only lets a page ask from inside something the user did. Called from the
 /// handler of that press, the request rides out in the batch the press produced and is
@@ -273,12 +273,16 @@ struct Subscriber {
     notify: Arc<dyn Fn() + Send + Sync>,
 }
 
+/// What an activation is handed to. Reference counted so the list can be copied out
+/// before any of them runs: a handler may add or remove one.
+type ActivationHandler = Rc<dyn Fn(NotificationActivation)>;
+
 thread_local! {
     /// Both sides start from here, so the Renderer only has to report a difference.
     static PERMISSION: Cell<NotificationPermission> =
         const { Cell::new(NotificationPermission::NotDetermined) };
     static PERMISSION_SUBSCRIBERS: RefCell<Vec<Subscriber>> = const { RefCell::new(Vec::new()) };
-    static ACTIVATION_HANDLERS: RefCell<Vec<(u64, Callback<NotificationActivation>)>> =
+    static ACTIVATION_HANDLERS: RefCell<Vec<(u64, ActivationHandler)>> =
         const { RefCell::new(Vec::new()) };
     static NEXT_ID: Cell<u64> = const { Cell::new(1) };
 }
@@ -372,10 +376,10 @@ pub fn unsupported_reason() -> &'static str {
 pub(crate) fn activate(activation: NotificationActivation) -> bool {
     // Copied out first. A handler may mount or unmount a component that listens, and that
     // edits the list being walked.
-    let handlers: Vec<Callback<NotificationActivation>> =
-        ACTIVATION_HANDLERS.with_borrow(|handlers| handlers.iter().map(|(_, h)| *h).collect());
+    let handlers: Vec<ActivationHandler> = ACTIVATION_HANDLERS
+        .with_borrow(|handlers| handlers.iter().map(|(_, h)| h.clone()).collect());
     for handler in &handlers {
-        handler.call(activation.clone());
+        handler(activation.clone());
     }
     !handlers.is_empty()
 }
@@ -392,18 +396,19 @@ pub fn reset_notifications() {
     EXPLAINED.store(false, Ordering::Release);
 }
 
-/// A component's registration for permission changes, dropped with its hook state.
-struct PermissionSubscription {
+/// A registration for changes of the notification permission. Dropping it ends the
+/// registration, so a runtime keeps it for as long as the reader it wakes is alive.
+pub struct PermissionSubscription {
     id: u64,
 }
 
-impl PermissionSubscription {
-    fn new(notify: Arc<dyn Fn() + Send + Sync>) -> Self {
-        let id = next_id();
-        PERMISSION_SUBSCRIBERS
-            .with_borrow_mut(|subscribers| subscribers.push(Subscriber { id, notify }));
-        Self { id }
-    }
+/// Registers `notify` to be called each time the Renderer reports a different permission.
+/// The Dioxus adapter's `use_notification_permission` hook holds one.
+pub fn subscribe_permission(notify: Arc<dyn Fn() + Send + Sync>) -> PermissionSubscription {
+    let id = next_id();
+    PERMISSION_SUBSCRIBERS
+        .with_borrow_mut(|subscribers| subscribers.push(Subscriber { id, notify }));
+    PermissionSubscription { id }
 }
 
 impl Drop for PermissionSubscription {
@@ -414,25 +419,8 @@ impl Drop for PermissionSubscription {
     }
 }
 
-/// Reads whether notifications may be shown, and re-renders when that changes.
-///
-/// ```ignore
-/// match use_notification_permission() {
-///     NotificationPermission::Denied => rsx! { Text { text: "Notifications are off in Settings" } },
-///     _ => rsx! { Switch { checked: wants, onchange: move |_| request_notification_permission() } },
-/// }
-/// ```
-///
-/// What to show instead of a notification nobody will see is the application's decision.
-/// The Renderer never swaps one for a message inside the window: the moment a notification
-/// is for is the moment nobody is looking at the window.
-pub fn use_notification_permission() -> NotificationPermission {
-    dioxus_core::use_hook(|| Rc::new(PermissionSubscription::new(dioxus_core::schedule_update())));
-    notification_permission()
-}
-
-/// A component's activation handler, dropped with its hook state.
-struct ActivationSubscription {
+/// An activation handler's registration. Dropping it removes the handler.
+pub struct ActivationSubscription {
     id: u64,
 }
 
@@ -442,29 +430,19 @@ impl Drop for ActivationSubscription {
     }
 }
 
-/// Runs `handler` when the user presses a notification this application posted.
+/// Runs `handler` when the user presses a notification this application posted, for as
+/// long as the returned registration is kept.
 ///
-/// One hook for the whole application rather than a callback per notification. A
-/// notification stays in the notification centre for hours, long after the component that
-/// posted it is gone, so what it carries back is the key it was posted under, which the
-/// application can read at any time:
+/// One registration for the whole application rather than a callback per notification. A
+/// notification stays in the notification centre for hours, long after whatever posted it
+/// is gone, so what it carries back is the key it was posted under. The Dioxus adapter's
+/// `use_notification_activated` hook holds one of these for a component.
 ///
-/// ```ignore
-/// use_notification_activated(move |activation| {
-///     if let Some(id) = activation.key.strip_prefix("session/") {
-///         open_session(id);
-///     }
-/// });
-/// ```
-///
-/// With no component holding this hook, an activation is dropped.
-pub fn use_notification_activated(handler: impl FnMut(NotificationActivation) + 'static) {
-    let callback = dioxus_hooks::use_callback(handler);
-    dioxus_core::use_hook(|| {
-        let id = next_id();
-        ACTIVATION_HANDLERS.with_borrow_mut(|handlers| handlers.push((id, callback)));
-        Rc::new(ActivationSubscription { id })
-    });
+/// With no handler registered, an activation is dropped.
+pub fn on_activation(handler: Rc<dyn Fn(NotificationActivation)>) -> ActivationSubscription {
+    let id = next_id();
+    ACTIVATION_HANDLERS.with_borrow_mut(|handlers| handlers.push((id, handler)));
+    ActivationSubscription { id }
 }
 
 #[cfg(test)]

@@ -1,4 +1,5 @@
-//! An application that depends on `compose-rust` and nothing else.
+//! An application that depends on the Dioxus adapter and nothing else, so compose-rust
+//! reaches it only as the adapter's dependency.
 //!
 //! Run with `--launch` to open the window. Without it the program returns as soon as it
 //! starts, which is what `scripts/tests/consumer-crate.test.sh` wants: by the time `main`
@@ -18,7 +19,7 @@
 //! That is what makes the renderer a load-time dependency of this executable rather than
 //! a library the linker drops for being unused.
 
-use compose_rust::prelude::*;
+use dioxus_compose_adapter::prelude::*;
 use std::ffi::c_int;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
@@ -107,7 +108,7 @@ fn main() {
         }
         let status = LaunchBuilder::new().try_launch(self_check);
         let reached = STEP.load(Ordering::SeqCst);
-        if status != compose_rust::boundary::STATUS_OK {
+        if status != dioxus_compose_adapter::boundary::STATUS_OK {
             eprintln!("self-check: the renderer loop ended with status {status}");
             std::process::exit(1);
         }
