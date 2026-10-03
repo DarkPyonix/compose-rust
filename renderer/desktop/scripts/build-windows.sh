@@ -204,10 +204,12 @@ gcc_lib="$(ls -d "$mingw"/lib/gcc/x86_64-w64-mingw32/*/ | sort -V | tail -1)"
 cp "$gcc_lib/libstdc++.a" "$gcc_lib/libgcc.a" "$gcc_lib/libgcc_eh.a" "$OUT_DIR/gcc/"
 cp "$mingw/x86_64-w64-mingw32/lib/libwinpthread.a" "$OUT_DIR/gcc/"
 
-# 4. The rewrite. libstdc++ has constructors of its own (its exception emergency pool among
-# them), so it is rewritten with the renderer.
+# 4. The rewrite. The GCC runtime is rewritten with the renderer: libstdc++ has constructors
+# of its own (its exception emergency pool among them), and winpthread TLS callbacks.
 "$PYTHON" "$PROJECT_DIR/scripts/fix-mingw-objects.py" "$(tool_path "$archive")"
-"$PYTHON" "$PROJECT_DIR/scripts/fix-mingw-objects.py" "$(tool_path "$OUT_DIR/gcc/libstdc++.a")"
+for runtime in libstdc++.a libgcc.a libgcc_eh.a libwinpthread.a; do
+    "$PYTHON" "$PROJECT_DIR/scripts/fix-mingw-objects.py" "$(tool_path "$OUT_DIR/gcc/$runtime")"
+done
 
 # 5. The MSVC objects of our own. clang in MSVC mode rather than cl.exe, because the ICU loader
 # compiles its data in with #embed and cl.exe has no #embed; the rest is compiled the same way

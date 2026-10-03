@@ -75,9 +75,13 @@ def patch(buf, base):
         at = table + i * 40
         if bytes(buf[at:at + 8]) == CTORS:
             buf[at:at + 8] = CRT
-            struct.pack_into("<I", buf, at + 36, CRT_CHARACTERISTICS)
             ctors += 1
         names.append(section_name(buf, at, strtab))
+        # Every .CRT section, not only the constructors: winpthread's TLS callbacks are in
+        # .CRT$XL*, writable as MinGW writes them, and kept apart from the runtime's own for
+        # the same reason.
+        if names[-1].startswith(".CRT$"):
+            struct.pack_into("<I", buf, at + 36, CRT_CHARACTERISTICS)
     text_index = {n[len(".text$"):]: i + 1 for i, n in enumerate(names) if n.startswith(".text$")}
     # Unwind data for the object's plain .text carries an empty suffix.
     if "" not in text_index and ".text" in names:
