@@ -169,8 +169,40 @@ for symbol in dioxus_compose_renderer_run dioxus_compose_renderer_request_frame;
             "Check the @CName annotations in staticlib-linux/src/LinuxEntryPoints.kt."
 done
 
+# The library that makes an application export the Host's functions.
+#
+# The renderer looks them up with dlsym, so they have to be in the executable's dynamic
+# symbol table, and nothing the Host crate can pass to an application's link puts them
+# there except a shared library that needs them. desktop/c/linux_host_exports.c says why
+# it takes a library rather than a flag, and why it defines one byte.
+#
+# The bare SONAME is a placeholder: the Host's build script renames it to the absolute path
+# it finds the library at, as it does the desktop renderer, so an application records where
+# it is. scripts/bundle-renderer.sh sets it back when an application is packaged.
+exports_name="libdioxus_compose_host_exports.so"
+exports="$OUT_DIR/$exports_name"
+c_dir="$PROJECT_DIR/desktop/c"
+cc -shared -fPIC -O2 -o "$exports" -Wl,-soname,"$exports_name" \
+    "$c_dir/linux_host_references.c" "$c_dir/linux_host_exports.c"
+
+# Every Host function the renderer looks up has to be left undefined here, or an
+# application does not export it and the renderer fails to find it at startup. The
+# renderer names them as strings, so the list is read from linux_host_references.c, which
+# scripts/tests/linux-host-references.test.sh holds to the Host and the renderer.
+host_wanted="$(grep -oE '^ +dioxus_compose_host_[a-z_]+,' "$c_dir/linux_host_references.c" |
+    tr -d ' ,' | sort -u)"
+host_referenced="$(nm -D --undefined-only "$exports" |
+    grep -oE 'dioxus_compose_host_[a-z_]+' | sort -u)"
+[[ -n "$host_wanted" && "$host_wanted" == "$host_referenced" ]] || die \
+    "$exports_name leaves '$(echo $host_referenced)' undefined, not '$(echo $host_wanted)'" \
+    "An application exports exactly what this library needs, and the renderer looks up the rest in vain."
+nm -D --defined-only "$exports" | grep -q ' dioxus_compose_renderer_host_exports$' || die \
+    "$exports_name does not define dioxus_compose_renderer_host_exports" \
+    "The Host refers to it so the linker keeps the library; without it the library is dropped."
+
 echo
 echo "$archive"
+echo "$exports"
 ls -la "$OUT_DIR"
 echo
 echo "exported boundary symbols:"

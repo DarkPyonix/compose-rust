@@ -76,8 +76,27 @@ unsafe extern "C" {
     fn dioxus_compose_renderer_request_frame();
 }
 
+// Defined by the small library the Linux static renderer ships beside its archive. The
+// renderer finds the Host's functions with dlsym, so the application has to export them,
+// and that library is what makes the linker do it: it needs them, and a linker exports
+// from an executable what a library it links needs. Rust links with --as-needed, which
+// drops a library nothing refers to, so this byte is the reference that keeps it.
+#[cfg(all(
+    renderer_host_exports,
+    renderer_linked,
+    not(any(test, feature = "mock-renderer"))
+))]
+unsafe extern "C" {
+    static dioxus_compose_renderer_host_exports: u8;
+}
+
 #[cfg(all(renderer_linked, not(any(test, feature = "mock-renderer"))))]
 extern "C" fn native_run() -> c_int {
+    // A volatile read so that the reference survives optimisation. The value means
+    // nothing; being linked is the point.
+    #[cfg(renderer_host_exports)]
+    // SAFETY: a byte the library defines as a constant.
+    let _ = unsafe { std::ptr::read_volatile(&raw const dioxus_compose_renderer_host_exports) };
     // SAFETY: The application links the Renderer implementation of this declared C ABI.
     unsafe { dioxus_compose_renderer_run() }
 }

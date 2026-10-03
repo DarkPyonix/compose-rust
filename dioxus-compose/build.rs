@@ -13,6 +13,11 @@ use renderer_dir::{
     acquire_renderer, artifact_target, default_cache_root, renderer_linkage,
 };
 
+/// What the Linux static renderer ships beside its archive so that an application exports
+/// the Host's functions. Linked through `-l`, so the `lib` prefix and suffix are dropped
+/// there.
+const HOST_EXPORTS_LIBRARY: &str = "libdioxus_compose_host_exports.so";
+
 /// docs.rs builds with the network switched off. Linking a renderer is not what building
 /// the documentation needs, so that build skips the whole thing and produces a library
 /// with no renderer in it, which is one of the cases the Host is loud about at run time.
@@ -42,6 +47,9 @@ fn main() {
     // Set when a renderer is actually linked into this build, which is not the same thing
     // as the feature being on: docs.rs turns the feature on and links nothing.
     println!("cargo:rustc-check-cfg=cfg(renderer_linked)");
+    // Set when the Linux static renderer is linked, which comes with a library the Host has
+    // to refer to so that the linker keeps it. See the DXC_LINUX_NATIVE_LIB branch below.
+    println!("cargo:rustc-check-cfg=cfg(renderer_host_exports)");
     println!("cargo:rerun-if-env-changed={RENDERER_DIR_ENV}");
     println!("cargo:rerun-if-env-changed={CACHE_DIR_ENV}");
     println!("cargo:rerun-if-env-changed={DOCS_RS_ENV}");
@@ -183,11 +191,50 @@ fn main() {
             // The Host's own five functions, put where the renderer can find them.
             //
             // It resolves them by name at startup with `dlsym`, which reads the dynamic
-            // symbol table, and an executable's table holds only what it was asked to
-            // export. Without this they are in the binary and not in that table, and the
-            // window opens, stays black and reports that
+            // symbol table, and an executable's table holds only what its link put there.
+            // Without them the window opens, stays black and reports that
             // `dioxus_compose_host_init is not in this image`.
-            println!("cargo:rustc-link-arg=-rdynamic");
+            //
+            // `-rdynamic` used to be emitted here, and it reached this package's own
+            // binaries and no application: Cargo does not pass a dependency's link
+            // arguments on. A library it names does reach every application, so the
+            // renderer build ships a small one that leaves the five undefined, and a
+            // linker exports from an executable what a library it links needs. The Host
+            // refers to one byte in it (see `native_run`) so that `--as-needed` keeps it.
+            // It is named after its absolute path, the way the desktop renderer is, so an
+            // application with no rpath can load it.
+            let exports = renderer_dir::absolute(&dir).join(HOST_EXPORTS_LIBRARY);
+            println!("cargo:rerun-if-changed={}", exports.display());
+            if !exports.is_file() {
+                panic!(
+                    "\n\ndioxus-compose: {} has the static renderer but not {HOST_EXPORTS_LIBRARY}.\n\n\
+                     The renderer finds the Host's functions in the application's dynamic \
+                     symbol table, and that library is what puts them there. Without it the \
+                     application would build, open a black window and report that \
+                     dioxus_compose_host_init is not in the image.\n\n\
+                     dioxus-compose-renderer/desktop/scripts/build-linux.sh writes both \
+                     files; build the renderer again, or point DXC_LINUX_NATIVE_LIB at the \
+                     directory it wrote them to.\n\n",
+                    dir.display()
+                );
+            }
+            let crate_version =
+                std::env::var("CARGO_PKG_VERSION").expect("Cargo sets CARGO_PKG_VERSION");
+            let target = artifact_target(
+                &target_os,
+                &std::env::var("CARGO_CFG_TARGET_ARCH").expect("Cargo sets CARGO_CFG_TARGET_ARCH"),
+            );
+            if let Err(message) = renderer_dir::name_after_its_location(
+                &exports,
+                &exports,
+                &target_os,
+                &crate_version,
+                &target,
+            ) {
+                panic!("\n\n{message}\n\n");
+            }
+            println!("cargo:rustc-link-lib=dylib=dioxus_compose_host_exports");
+            println!("cargo:rustc-cfg=renderer_host_exports");
             println!("cargo:rustc-cfg=renderer_linked");
             return;
         }
