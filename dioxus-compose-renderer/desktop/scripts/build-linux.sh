@@ -82,16 +82,37 @@ mkdir -p "$OUT_DIR" "$LOG_DIR"
 # step must be handed exactly what the compile used, not a list maintained by hand.
 build_log="$LOG_DIR/$amper_platform-build.log"
 echo "==> kotlin build -m linux -m staticlib-linux ($amper_platform)"
+# The task's output directory is found rather than spelled out. Its name follows the
+# toolchain's task name, whose capitalisation is the toolchain's to choose, and a name written
+# here that is wrong only in case still matches on the case-insensitive file system macOS uses
+# by default. The mistake then shows up on Linux alone, as a klib that is "not there" after a
+# compile that succeeded. Matching without regard to case finds it on both, and the error
+# below lists what is there when it does not.
+task_dir_name="_linux_compile${amper_platform}Debug"
+compile_task_dirs() {
+    [[ -d "$PROJECT_DIR/build/tasks" ]] || return 0
+    find "$PROJECT_DIR/build/tasks" -mindepth 1 -maxdepth 1 -type d -iname "$task_dir_name"
+}
+
 # The compile has to actually run: an up-to-date task logs no arguments, and its arguments
 # are where the resolved klib list comes from.
-rm -rf "$PROJECT_DIR/build/tasks/_linux_compile${amper_platform}Debug"
+while IFS= read -r stale; do rm -rf "$stale"; done < <(compile_task_dirs)
 (cd "$PROJECT_DIR" && "$KOTLIN_WRAPPER" --log-level=debug build -m linux -m staticlib-linux) >"$build_log" 2>&1 ||
     { cat "$build_log" >&2; die "the linux module did not compile" "Full log: $build_log"; }
 
-klib="$PROJECT_DIR/build/tasks/_linux_compile${amper_platform}Debug/linux.klib"
-[[ -f "$klib" ]] || die "the compiler produced no klib at $klib" \
-    "Expected the :linux:compile${amper_platform}Debug task to run." \
-    "Full log: $build_log"
+# Exactly one: none means the compile did not run, and two would mean the toolchain wrote
+# directories differing only in case, and picking one would be a guess.
+klibs="$(while IFS= read -r dir; do
+    if [[ -f "$dir/linux.klib" ]]; then echo "$dir/linux.klib"; fi
+done < <(compile_task_dirs))"
+klib_count="$(printf '%s' "$klibs" | grep -c . || true)"
+if [[ "$klib_count" -ne 1 ]]; then
+    die "expected one linux.klib in a build/tasks directory named $task_dir_name (any case), found $klib_count" \
+        "Found: ${klibs:-nothing}" \
+        "Directories under $PROJECT_DIR/build/tasks: $(ls "$PROJECT_DIR/build/tasks" 2>/dev/null | tr '\n' ' ')" \
+        "Full log: $build_log"
+fi
+klib="$klibs"
 
 # The compiler arguments are logged as one block per invocation, and the block names the
 # target it belongs to, so the right block is the one containing -target=<this target>. The
