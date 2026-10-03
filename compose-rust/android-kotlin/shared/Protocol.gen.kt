@@ -40,6 +40,8 @@ enum class Alignment { TopStart, TopCenter, TopEnd, CenterStart, Center, CenterE
 
 enum class ButtonVariant { Filled, Tonal, Outlined, Text, Operator }
 
+enum class ButtonKind { Standard, ActionKey }
+
 enum class DesignSystem { Material3, Cupertino, Fluent, Gnome, Breeze, Deepin, LiquidGlass }
 
 enum class ColorScheme { Light, Dark, FollowSystem }
@@ -1353,6 +1355,12 @@ object Protocol {
         4 -> ButtonVariant.Text
         5 -> ButtonVariant.Operator
         else -> throw ProtocolException("unknown ButtonVariant tag $tag", offset)
+    }
+
+    private fun buttonKind(tag: Int, offset: Int): ButtonKind = when (tag) {
+        1 -> ButtonKind.Standard
+        2 -> ButtonKind.ActionKey
+        else -> throw ProtocolException("unknown ButtonKind tag $tag", offset)
     }
 
     private fun designSystem(tag: Int, offset: Int): DesignSystem = when (tag) {
