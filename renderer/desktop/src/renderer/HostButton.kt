@@ -27,16 +27,20 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import dev.darkpyonix.composerust.protocol.ButtonKind
+import dev.darkpyonix.composerust.protocol.ButtonVariant
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.IconRole
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.SpaceRole
+import dev.darkpyonix.composerust.design.ButtonStyle
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.paintProp
 import dev.darkpyonix.composerust.ui.role
 import dev.darkpyonix.composerust.ui.textStyle
+import dev.darkpyonix.composerust.ui.buttonKind
 import dev.darkpyonix.composerust.ui.variant
 
 /**
@@ -54,7 +58,7 @@ internal fun HostButton(
 ) {
     val enabled = node.flag(PropertyKind.Enabled, default = true)
     val handlerId = node.handler(PropertyKind.OnClick)
-    val style = theme.rules.button(node.variant(), theme).let {
+    val style = buttonStyle(node.variant(), node.buttonKind(), theme).let {
         if (LocalInAMenu.current) theme.rules.menuEntry(it, theme) else it
     }
     val interactions = remember { MutableInteractionSource() }
@@ -165,6 +169,23 @@ internal fun HostButton(
                 if (text.isNotEmpty()) BasicText(text = text, style = label)
             }
         }
+    }
+}
+
+/**
+ * How a button of this variant and kind looks under this design system.
+ *
+ * The variant chooses the fill and the emphasis, whatever the kind. An action key, one key
+ * of a dense grid such as a calculator's pad, takes its silhouette from the system's own
+ * answer for that grid instead of from the variant: a circle on the Apple systems, a small
+ * radius on Windows 11, a rounder one on Deepin. A standard button is exactly what it was
+ * before kinds existed.
+ */
+internal fun buttonStyle(variant: ButtonVariant, kind: ButtonKind, theme: ResolvedTheme): ButtonStyle {
+    val base = theme.rules.button(variant, theme)
+    return when (kind) {
+        ButtonKind.Standard -> base
+        ButtonKind.ActionKey -> base.copy(shape = theme.rules.actionKeyShape(theme))
     }
 }
 

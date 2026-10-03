@@ -122,9 +122,9 @@ pub mod prelude {
     // Exporting the Compose `Box` through this glob prelude shadows it. Use
     // `dioxus_compose_adapter::Box { ... }` in RSX until upstream qualifies std::boxed::Box.
     pub use crate::{
-        Alignment, Arrangement, AssetKind, Badge, Brush, Button, ButtonVariant, Canvas, Card,
-        Checkbox, Chip, Color, ColorRole, ColorScheme, Column, DatePicker, DesignSystem, Dialog,
-        Divider, DrawCommand, DrawList, Dropdown, Element, FileDrop, FileDropTarget,
+        Alignment, Arrangement, AssetKind, Badge, Brush, Button, ButtonKind, ButtonVariant, Canvas,
+        Card, Checkbox, Chip, Color, ColorRole, ColorScheme, Column, DatePicker, DesignSystem,
+        Dialog, Divider, DrawCommand, DrawList, Dropdown, Element, FileDrop, FileDropTarget,
         FloatingAction, Icon, IconRole, Image, Key, KeyEvent, LaunchBuilder, LazyColumn, LazyGrid,
         LazyRow, LinearProgressIndicator, LoopMode, MaterialRole, Menu, Message, MessageDuration,
         Modifier, MotionRole, Navigation, NavigationItem, Paint, Palette, ProgressIndicator, Props,
@@ -268,7 +268,11 @@ pub mod elements {
     // `icon` is the meaning of the glyph on it and never a picture. A button is the
     // second place a role icon reaches the tree, because a toolbar is a row of icon
     // buttons and nothing else in the vocabulary can place one.
-    element!(button, "Button", [text, icon, enabled, variant, color]);
+    element!(
+        button,
+        "Button",
+        [text, icon, enabled, variant, button_kind, color]
+    );
     // Spacer has no attributes of its own: its size comes from the Modifier attributes
     // every widget carries, which is also how a Compose Spacer is sized.
     element!(spacer, "Spacer", []);

@@ -593,6 +593,11 @@ class NodeTable {
                 // Whether a split pane's side pane may be folded away.
                 PropertyKind.Collapsible -> widget == WidgetKind.SplitPane
 
+                // What a button is apart from its emphasis: a plain one, or a key of a
+                // dense grid. Only a button has a kind; a chip or a floating action is
+                // already its own component.
+                PropertyKind.ButtonKind -> widget == WidgetKind.Button
+
                 // Files over a node and files let go on it. Only the widget that exists
                 // to receive them, because a handler is attached whether or not a screen
                 // supplied one: on any container these would cost every container in the

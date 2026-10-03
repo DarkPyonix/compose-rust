@@ -110,6 +110,7 @@ fn keypad(apple: bool, press: EventHandler<&'static str>) -> Element {
                             weight: 1.0,
                             fill_max_height: true,
                             variant: variant_for(label),
+                            kind: ButtonKind::ActionKey,
                             color: color_for(label),
                             on_click: move |_| press.call(label),
                         }
@@ -718,6 +719,76 @@ mod tests {
         sample_frames::record("Calculator", app, |_| {});
     }
 
+    /// The pad is declared as a field of action keys and nothing else: no radius, no shape
+    /// role and no question about which design system is running decides what a key is.
+    /// That is what lets one declaration come out as Apple's circles, Windows' small
+    /// rectangles and Deepin's rounder ones.
+    ///
+    /// Checked under four systems, so both pads are covered, and the memory keys are
+    /// checked as well: they are labels lying above the pad rather than keys in it, and a
+    /// test that only looked for action keys would pass a screen that made everything one.
+    #[test]
+    fn fr30_every_key_of_the_pad_is_an_action_key_under_every_design_system() {
+        let action_key = i64::from(u16::from(ButtonKind::ActionKey));
+        for system in [
+            DesignSystem::Material3,
+            DesignSystem::Cupertino,
+            DesignSystem::Fluent,
+            DesignSystem::Deepin,
+        ] {
+            let screen = Screen::under(system);
+            let apple = matches!(system, DesignSystem::Cupertino | DesignSystem::LiquidGlass);
+            let pad = if apple { APPLE_ROWS } else { ROWS };
+            for label in pad.iter().flatten() {
+                let node = screen
+                    .button(label)
+                    .unwrap_or_else(|| panic!("{system:?} has no {label} key"));
+                assert_eq!(
+                    screen.kinds.get(&node),
+                    Some(&action_key),
+                    "the {label} key under {system:?} is not declared as an action key"
+                );
+            }
+            for label in engine::MEMORY_KEYS {
+                if let Some(node) = screen.button(label) {
+                    assert_eq!(
+                        screen.kinds.get(&node),
+                        None,
+                        "the {label} memory key under {system:?} is declared as a key of the pad"
+                    );
+                }
+            }
+        }
+    }
+
+    /// The keypad's declaration reads neither a design system nor a corner. A key's
+    /// silhouette is the design system's answer, so the source that declares the keys has
+    /// no business naming one.
+    #[test]
+    fn fr30_the_keypad_names_no_corner() {
+        let source = include_str!("lib.rs");
+        let start = source.find("fn keypad(").expect("the keypad is gone");
+        let end = start
+            + source[start..]
+                .find("\n}\n")
+                .expect("the keypad never ends");
+        let keypad = &source[start..end];
+        assert!(keypad.contains("kind: ButtonKind::ActionKey"));
+        for forbidden in [
+            "corner_radius",
+            "shape_role",
+            "ShapeRole",
+            "DesignSystem",
+            "use_design_system",
+        ] {
+            assert!(
+                !keypad.contains(forbidden),
+                "the keypad declaration mentions {forbidden}, so a key's shape is being \
+                 decided by the application rather than by the design system"
+            );
+        }
+    }
+
     #[test]
     fn display_is_formatted_not_raw() {
         assert_eq!(engine::format_number(1.0 / 3.0), "0.333333333333");
@@ -744,6 +815,8 @@ mod tests {
         icons: HashMap<u32, u8>,
         /// Node to the handler its `on_click` was given.
         clicks: HashMap<u32, u64>,
+        /// Node to the `ButtonKind` tag it was given, for the buttons that name one.
+        kinds: HashMap<u32, i64>,
         /// Node to the node it was inserted under, so a removal takes the subtree with it
         /// the way the Renderer's node table does. Without it a tape line that has been
         /// thrown away is still there as far as this harness can tell.
@@ -763,6 +836,7 @@ mod tests {
                 buttons: Vec::new(),
                 icons: HashMap::new(),
                 clicks: HashMap::new(),
+                kinds: HashMap::new(),
                 parents: HashMap::new(),
                 display: 0,
                 messages: Vec::new(),
@@ -817,6 +891,9 @@ mod tests {
                         (PropertyKind::OnClick, PropertyValue::Integer(id)) => {
                             self.clicks.insert(node_id, id as u64);
                         }
+                        (PropertyKind::ButtonKind, PropertyValue::Integer(kind)) => {
+                            self.kinds.insert(node_id, kind);
+                        }
                         // A button with no text is named by its icon, which is what the
                         // Renderer hands to a screen reader, so the tests look a button up
                         // the same way rather than by a glyph nobody types.
@@ -849,6 +926,7 @@ mod tests {
             }
             self.texts.remove(&node_id);
             self.clicks.remove(&node_id);
+            self.kinds.remove(&node_id);
             self.parents.remove(&node_id);
             self.widgets.remove(&node_id);
             self.buttons.retain(|found| *found != node_id);
@@ -874,6 +952,31 @@ mod tests {
             );
             dioxus_compose_adapter::window::reset_window_size();
             screen
+        }
+
+        /// The screen after the Renderer reports which design system it resolved to.
+        ///
+        /// The answer is applied as the diff it is, the same way a resize is, so the
+        /// buttons the new pad shares with the old one keep what they were already given.
+        fn under(system: DesignSystem) -> Self {
+            dioxus_compose_adapter::window::reset_window_size();
+            dioxus_compose_adapter::design::reset_design_system();
+            let mut screen = Self::new();
+            screen.dispatch(0, 0, EventPayload::DesignSystemResolved(system));
+            dioxus_compose_adapter::design::reset_design_system();
+            dioxus_compose_adapter::window::reset_window_size();
+            screen
+        }
+
+        /// The button carrying exactly this label, if the screen shows one.
+        ///
+        /// Buttons only. The display reads `0` when the screen opens, and a lookup by
+        /// text alone would find it before the key.
+        fn button(&self, label: &str) -> Option<u32> {
+            self.buttons
+                .iter()
+                .copied()
+                .find(|node| self.texts.get(node).is_some_and(|text| text == label))
         }
 
         /// Every button label on screen, in the order the screen declares them.

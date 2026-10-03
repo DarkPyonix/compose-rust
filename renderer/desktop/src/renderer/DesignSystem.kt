@@ -346,6 +346,21 @@ interface ComponentRules {
     ): ButtonStyle
 
     /**
+     * The silhouette of a key in a dense grid of them: a button whose kind is
+     * `ButtonKind.ActionKey`, a calculator's pad above all.
+     *
+     * A key is a different component from a button on a page, and the systems disagree
+     * about it in ways a shape role cannot say: Apple draws a circle, Windows 11 a
+     * rectangle at its small control corner, Deepin a rounder one. The Host sends neither a
+     * radius nor a role for it, so this is the only place the answer can come from.
+     *
+     * Deliberately without a default. A system that inherited someone else's key would draw
+     * another platform's calculator, so every system has to say what its own is. The
+     * variant still chooses the fill; only the outline is answered here.
+     */
+    fun actionKeyShape(theme: ResolvedTheme): Shape
+
+    /**
      * How a container or overlay looks. The widget says which kind of container it is and
      * nothing else: the background, the corner, the resting height, the scrim behind a
      * modal and the hairline under a bar are all decided here.

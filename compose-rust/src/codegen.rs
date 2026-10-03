@@ -20,8 +20,7 @@ use std::fmt::Write as _;
 
 /// The Kotlin Toolchain compiles the module's `src` tree by convention and offers no way to
 /// add another source root, so generated Kotlin lives inside `src`.
-pub const GENERATED_RELATIVE_PATH: &str =
-    "../renderer/desktop/src/protocol/Protocol.gen.kt";
+pub const GENERATED_RELATIVE_PATH: &str = "../renderer/desktop/src/protocol/Protocol.gen.kt";
 /// The schema's hash, as a line of text beside the crate.
 ///
 /// The renderer carries the same number, compiled into it, and the two are compared when
@@ -1691,6 +1690,13 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             property: PropertyKind::Collapsible,
             value: PropertyValue::Bool(true),
         },
+        // A button's kind: a role tag in the fixed record, like the variant, so both sides
+        // agree on the property tag and on the value it carries.
+        Mutation::SetProp {
+            node_id: 2,
+            property: PropertyKind::ButtonKind,
+            value: PropertyValue::Integer(crate::schema::ButtonKind::ActionKey as i64),
+        },
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {
@@ -2156,8 +2162,7 @@ fn lower_first(name: &str) -> String {
 /// Generated Rust, compiled into the cdylib only when the target is Android.
 pub const JNI_RUST_RELATIVE_PATH: &str = "src/boundary_jni.gen.rs";
 /// Generated Kotlin. The Kotlin Toolchain compiles the module's `src` tree by convention.
-pub const ANDROID_BRIDGE_RELATIVE_PATH: &str =
-    "../renderer/android/src/bridge/HostBridge.gen.kt";
+pub const ANDROID_BRIDGE_RELATIVE_PATH: &str = "../renderer/android/src/bridge/HostBridge.gen.kt";
 pub const ANDROID_FAST_NATIVE_RELATIVE_PATH: &str =
     "../renderer/android/src/bridge/FastNative.gen.kt";
 
@@ -2666,11 +2671,9 @@ fn screaming_snake_case(name: &str) -> String {
 /// Generated Rust, compiled into the cdylib only when the target is wasm.
 pub const WASM_RUST_RELATIVE_PATH: &str = "src/boundary_wasm.gen.rs";
 /// Generated Kotlin. The Kotlin Toolchain compiles the module's `src` tree by convention.
-pub const WEB_BRIDGE_RELATIVE_PATH: &str =
-    "../renderer/web/src/bridge/HostBridge.gen.kt";
+pub const WEB_BRIDGE_RELATIVE_PATH: &str = "../renderer/web/src/bridge/HostBridge.gen.kt";
 /// Generated JavaScript, in the module's resource tree, which is copied next to `web.mjs`.
-pub const WEB_LOADER_RELATIVE_PATH: &str =
-    "../renderer/web/resources/compose-rust-host.gen.mjs";
+pub const WEB_LOADER_RELATIVE_PATH: &str = "../renderer/web/resources/compose-rust-host.gen.mjs";
 
 const WEB_KOTLIN_PACKAGE: &str = "dev.darkpyonix.composerust.ui.platform";
 

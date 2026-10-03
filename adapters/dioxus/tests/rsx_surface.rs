@@ -91,6 +91,7 @@ fn surface() -> Element {
                     icon: IconRole::Send,
                     enabled: true,
                     variant: ButtonVariant::Tonal,
+                    kind: ButtonKind::ActionKey,
                     color: ERROR,
                     on_click: move |_| fired("Button.on_click"),
                 }
@@ -530,6 +531,7 @@ fn expectations() -> Vec<(WidgetKind, Vec<(PropertyKind, Expect)>)> {
                 (P::Icon, role(IconRole::Send)),
                 (P::Enabled, flag(true)),
                 (P::Variant, role(ButtonVariant::Tonal)),
+                (P::ButtonKind, role(ButtonKind::ActionKey)),
                 (P::Color, int(paint_bits(ERROR))),
                 (P::OnClick, Handler),
             ],

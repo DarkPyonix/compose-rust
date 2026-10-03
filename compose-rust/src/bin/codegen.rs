@@ -138,21 +138,15 @@ mod tests {
 
     #[test]
     fn fr7_writes_the_checkout_it_was_compiled_in() {
-        let tree = output_tree(
-            Path::new("/one/compose-rust"),
-            invoked("/one/compose-rust"),
-        )
-        .expect("the checkout that compiled it is the checkout it writes");
+        let tree = output_tree(Path::new("/one/compose-rust"), invoked("/one/compose-rust"))
+            .expect("the checkout that compiled it is the checkout it writes");
         assert_eq!(tree, PathBuf::from("/one/compose-rust"));
     }
 
     #[test]
     fn fr7_refuses_a_checkout_it_was_not_compiled_in() {
-        let message = output_tree(
-            Path::new("/one/compose-rust"),
-            invoked("/two/compose-rust"),
-        )
-        .expect_err("a binary compiled elsewhere must not write here");
+        let message = output_tree(Path::new("/one/compose-rust"), invoked("/two/compose-rust"))
+            .expect_err("a binary compiled elsewhere must not write here");
         assert!(
             message.contains("/one/compose-rust") && message.contains("/two/compose-rust"),
             "the message has to name both checkouts, got: {message}"

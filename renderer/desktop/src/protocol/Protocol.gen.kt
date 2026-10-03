@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets
 
 enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Progress }
 
 enum class Key { Enter }
 
@@ -39,6 +39,8 @@ enum class Arrangement { Start, Center, End, SpaceBetween, SpaceAround, SpaceEve
 enum class Alignment { TopStart, TopCenter, TopEnd, CenterStart, Center, CenterEnd, BottomStart, BottomCenter, BottomEnd }
 
 enum class ButtonVariant { Filled, Tonal, Outlined, Text, Operator }
+
+enum class ButtonKind { Standard, ActionKey }
 
 enum class DesignSystem { Material3, Cupertino, Fluent, Gnome, Breeze, Deepin, LiquidGlass }
 
@@ -566,7 +568,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -6082458096398358368L
+    const val SCHEMA_HASH: Long = 1689134934683033347L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1115,6 +1117,7 @@ object Protocol {
         76 -> PropertyKind.Section
         80 -> PropertyKind.Count
         90 -> PropertyKind.Collapsible
+        75 -> PropertyKind.ButtonKind
         27 -> PropertyKind.Progress
         else -> throw ProtocolException("unknown property tag $tag", offset)
     }
@@ -1353,6 +1356,12 @@ object Protocol {
         4 -> ButtonVariant.Text
         5 -> ButtonVariant.Operator
         else -> throw ProtocolException("unknown ButtonVariant tag $tag", offset)
+    }
+
+    private fun buttonKind(tag: Int, offset: Int): ButtonKind = when (tag) {
+        1 -> ButtonKind.Standard
+        2 -> ButtonKind.ActionKey
+        else -> throw ProtocolException("unknown ButtonKind tag $tag", offset)
     }
 
     private fun designSystem(tag: Int, offset: Int): DesignSystem = when (tag) {
