@@ -1,13 +1,13 @@
-//! The window's measured size, and the hook components read it through.
+//! The window's measured size, and the registrations a runtime wakes its readers through.
 //!
 //! The UI is authored here but measured by the Renderer, so the only way a Rust component
 //! can know how wide the window is, is for the Renderer to tell it. The Renderer sends one
 //! event when the size class changes and nothing in between, so this module is a single
-//! current value plus the list of components that asked to be told when it changes.
+//! current value plus the list of readers that asked to be told when it changes. The
+//! Dioxus adapter's `use_window_size` and `use_node_size` hooks are such readers.
 
 use crate::schema::{WindowHeightClass, WindowSizeClass};
 use std::cell::{Cell, RefCell};
-use std::rc::Rc;
 use std::sync::Arc;
 
 /// The window's size, as the Renderer last measured it.
@@ -15,7 +15,7 @@ use std::sync::Arc;
 /// `width_dp` and `height_dp` are density-independent pixels, the same unit gesture
 /// coordinates use. They are the measurements taken at the moment the class last changed,
 /// not a value that follows every pixel of a drag: a size that changed every layout pass
-/// would run the VirtualDom every layout pass.
+/// would run the runtime every layout pass.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WindowSize {
     pub width_dp: f32,
@@ -187,21 +187,26 @@ pub fn reset_window_size() {
     NODE_SUBSCRIBERS.with_borrow_mut(Vec::clear);
 }
 
-/// A component's registration, dropped with the hook state when the component unmounts.
-struct WindowSizeSubscription {
+/// A registration for changes of the window's size class. Dropping it ends the
+/// registration, so a runtime keeps it for as long as the reader it wakes is alive.
+pub struct WindowSizeSubscription {
     id: u64,
 }
 
-impl WindowSizeSubscription {
-    fn new(notify: Arc<dyn Fn() + Send + Sync>) -> Self {
-        let id = NEXT_SUBSCRIBER_ID.with(|next| {
-            let id = next.get();
-            next.set(id + 1);
-            id
-        });
-        SUBSCRIBERS.with_borrow_mut(|subscribers| subscribers.push(Subscriber { id, notify }));
-        Self { id }
-    }
+/// Registers `notify` to be called each time the window's measured size changes. What
+/// `notify` does is the runtime's business: mark a scope dirty, most often.
+pub fn subscribe(notify: Arc<dyn Fn() + Send + Sync>) -> WindowSizeSubscription {
+    let id = next_subscriber_id();
+    SUBSCRIBERS.with_borrow_mut(|subscribers| subscribers.push(Subscriber { id, notify }));
+    WindowSizeSubscription { id }
+}
+
+fn next_subscriber_id() -> u64 {
+    NEXT_SUBSCRIBER_ID.with(|next| {
+        let id = next.get();
+        next.set(id + 1);
+        id
+    })
 }
 
 impl Drop for WindowSizeSubscription {
@@ -212,27 +217,12 @@ impl Drop for WindowSizeSubscription {
     }
 }
 
-/// Reads the window's size class inside a component, and re-renders it when the class
-/// changes.
-///
-/// ```ignore
-/// let window = use_window_size();
-/// rsx! {
-///     if window.is_expanded() {
-///         Row { Sidebar {} Content {} }
-///     } else {
-///         Content {}
-///     }
-/// }
-/// ```
-///
-/// Only components that call this are woken, and only when the class actually changes.
-/// Resizing inside one class re-renders nothing.
-/// A node whose measured size this component follows.
+/// A node whose measured size a reader follows.
 ///
 /// The token is the name the screen gives the node, because a node id belongs to the
 /// Renderer and never crosses back as something the Host chose. Attach it with
-/// `observe_size` and read the size here.
+/// `observe_size` and read the size here. The Dioxus adapter hands one out from its
+/// `use_node_size` hook.
 ///
 /// ```ignore
 /// let panel = use_node_size();
@@ -253,6 +243,14 @@ pub struct NodeSize {
 }
 
 impl NodeSize {
+    /// The node `token` names, with whatever it last measured.
+    pub fn of(token: u32) -> Self {
+        Self {
+            token,
+            size: node_size(token),
+        }
+    }
+
     /// The value to hand to `observe_size`.
     pub const fn token(&self) -> i64 {
         self.token as i64
@@ -283,43 +281,39 @@ thread_local! {
     static NEXT_TOKEN: Cell<u32> = const { Cell::new(1) };
 }
 
-/// Follows one node's size, and re-renders this component when its class changes.
-pub fn use_node_size() -> NodeSize {
-    let token = dioxus_core::use_hook(|| {
-        let token = NEXT_TOKEN.with(|next| {
-            let token = next.get();
-            next.set(token + 1);
-            token
-        });
-        Rc::new(NodeSizeSubscription::new(
-            token,
-            dioxus_core::schedule_update(),
-        ))
-    });
-    NodeSize {
-        token: token.token,
-        size: node_size(token.token),
-    }
+/// A fresh name for a node a screen wants measured. Never zero, which is the window's.
+pub fn next_node_token() -> u32 {
+    NEXT_TOKEN.with(|next| {
+        let token = next.get();
+        next.set(token + 1);
+        token
+    })
 }
 
-/// A component's registration for one node, dropped with its hook state.
-struct NodeSizeSubscription {
+/// A registration for one node's measured size, made with [`subscribe_node`].
+///
+/// Dropping it ends the registration and forgets what that node measured: the node going
+/// out of the tree takes its measurement with it.
+pub struct NodeSizeSubscription {
     token: u32,
     id: u64,
 }
 
 impl NodeSizeSubscription {
-    fn new(token: u32, notify: Arc<dyn Fn() + Send + Sync>) -> Self {
-        let id = NEXT_SUBSCRIBER_ID.with(|next| {
-            let id = next.get();
-            next.set(id + 1);
-            id
-        });
-        NODE_SUBSCRIBERS.with_borrow_mut(|subscribers| {
-            subscribers.push((token, Subscriber { id, notify }));
-        });
-        Self { token, id }
+    /// The token this registration follows, the value `observe_size` takes.
+    pub fn token(&self) -> u32 {
+        self.token
     }
+}
+
+/// Registers `notify` to be called each time the node named `token` reports a size in a
+/// different class.
+pub fn subscribe_node(token: u32, notify: Arc<dyn Fn() + Send + Sync>) -> NodeSizeSubscription {
+    let id = next_subscriber_id();
+    NODE_SUBSCRIBERS.with_borrow_mut(|subscribers| {
+        subscribers.push((token, Subscriber { id, notify }));
+    });
+    NodeSizeSubscription { token, id }
 }
 
 impl Drop for NodeSizeSubscription {
@@ -333,148 +327,9 @@ impl Drop for NodeSizeSubscription {
     }
 }
 
-pub fn use_window_size() -> WindowSize {
-    // Rc, because hook state has to be `Clone` and the registration must not be
-    // duplicated: dropping the last handle with the component's hook state is what
-    // removes the subscription.
-    dioxus_core::use_hook(|| Rc::new(WindowSizeSubscription::new(dioxus_core::schedule_update())));
-    window_size()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::boundary::Host;
-    use crate::prelude::*;
-    use crate::protocol::{HostEvent, Mutation, PropertyValue, decode_batch};
-    use crate::schema::{EventPayload, PropertyKind};
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    static RESPONSIVE_RENDERS: AtomicUsize = AtomicUsize::new(0);
-    static SIBLING_RENDERS: AtomicUsize = AtomicUsize::new(0);
-
-    #[component]
-    fn Responsive() -> Element {
-        RESPONSIVE_RENDERS.fetch_add(1, Ordering::SeqCst);
-        let window = use_window_size();
-        let label = if window.is_expanded() {
-            "sidebar"
-        } else if window.is_medium() {
-            "two columns"
-        } else {
-            "one column"
-        };
-        rsx! { Text { text: label } }
-    }
-
-    #[component]
-    fn ShortOrTall() -> Element {
-        let window = use_window_size();
-        let label = if window.is_tall() {
-            "tall"
-        } else if window.is_medium_height() {
-            "ordinary"
-        } else {
-            "short"
-        };
-        rsx! { Text { text: label } }
-    }
-
-    fn height_app() -> Element {
-        rsx! { Column { ShortOrTall {} } }
-    }
-
-    #[component]
-    fn Sibling() -> Element {
-        SIBLING_RENDERS.fetch_add(1, Ordering::SeqCst);
-        rsx! { Text { text: "fixed" } }
-    }
-
-    fn responsive_app() -> Element {
-        rsx! {
-            Column {
-                Responsive {}
-                Sibling {}
-            }
-        }
-    }
-
-    fn resize(host: &mut Host, width_dp: f32) -> Vec<String> {
-        resize_to(host, width_dp, 800.0)
-    }
-
-    fn resize_to(host: &mut Host, width_dp: f32, height_dp: f32) -> Vec<String> {
-        let event = HostEvent {
-            node_id: 0,
-            handler_id: 0,
-            payload: EventPayload::WindowSizeChanged {
-                width_dp,
-                height_dp,
-                class: WindowSizeClass::from_width_dp(width_dp),
-                height_class: WindowHeightClass::from_height_dp(height_dp),
-            },
-        };
-        let (batch, _) = host.dispatch(event).unwrap();
-        decode_batch(batch)
-            .unwrap()
-            .iter()
-            .filter_map(|mutation| match mutation {
-                Mutation::SetProp {
-                    property: PropertyKind::Text,
-                    value: PropertyValue::String(value),
-                    ..
-                } => Some((*value).to_owned()),
-                _ => None,
-            })
-            .collect()
-    }
-
-    #[test]
-    fn fr20_crossing_a_boundary_rerenders_the_hook_and_resizing_within_a_class_does_not() {
-        reset_window_size();
-        RESPONSIVE_RENDERS.store(0, Ordering::SeqCst);
-        SIBLING_RENDERS.store(0, Ordering::SeqCst);
-        let mut host = Host::new(responsive_app);
-        host.rebuild().unwrap();
-        assert_eq!(RESPONSIVE_RENDERS.load(Ordering::SeqCst), 1);
-        assert_eq!(SIBLING_RENDERS.load(Ordering::SeqCst), 1);
-
-        // Crossing 600dp: the hook's component re-renders once, its sibling not at all.
-        assert_eq!(resize(&mut host, 700.0), vec!["two columns".to_owned()]);
-        assert_eq!(RESPONSIVE_RENDERS.load(Ordering::SeqCst), 2);
-        assert_eq!(SIBLING_RENDERS.load(Ordering::SeqCst), 1);
-
-        // A report that does not change the class changes nothing. The Renderer does not
-        // send one, and a Host that receives one anyway must not run the VirtualDom for it.
-        assert!(resize(&mut host, 700.0).is_empty());
-        assert_eq!(RESPONSIVE_RENDERS.load(Ordering::SeqCst), 2);
-
-        assert_eq!(resize(&mut host, 900.0), vec!["sidebar".to_owned()]);
-        assert_eq!(RESPONSIVE_RENDERS.load(Ordering::SeqCst), 3);
-        assert_eq!(SIBLING_RENDERS.load(Ordering::SeqCst), 1);
-        reset_window_size();
-    }
-
-    #[test]
-    fn fr20_crossing_a_height_boundary_rerenders_and_resizing_within_one_does_not() {
-        reset_window_size();
-        let mut host = Host::new(height_app);
-        host.rebuild().unwrap();
-
-        // 300dp tall is the class the Host already holds, so growing to 479dp inside it
-        // changes nothing.
-        assert!(resize_to(&mut host, 400.0, 479.0).is_empty());
-
-        // 480dp crosses into the ordinary height, and 900dp into the tall one. One
-        // mutation each, and nothing for the step in between.
-        assert_eq!(
-            resize_to(&mut host, 400.0, 480.0),
-            vec!["ordinary".to_owned()]
-        );
-        assert!(resize_to(&mut host, 400.0, 899.0).is_empty());
-        assert_eq!(resize_to(&mut host, 400.0, 900.0), vec!["tall".to_owned()]);
-        reset_window_size();
-    }
 
     #[test]
     fn fr20_window_size_starts_compact_before_the_renderer_measures_anything() {

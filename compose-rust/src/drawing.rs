@@ -430,7 +430,7 @@ impl DrawCommand {
 /// An encoded drawing command list, ready to go on the wire as one property value.
 ///
 /// Cloning shares the bytes, and equality compares them, so a frame that rebuilds the same
-/// list produces no `SetProp` at all: `dioxus-core` compares the attribute and skips it.
+/// list produces no `SetProp` at all: the runtime compares the attribute and skips it.
 #[derive(Clone, Default, Eq, PartialEq)]
 pub struct DrawList {
     bytes: Option<Rc<[u8]>>,
@@ -670,12 +670,6 @@ impl DrawListBuilder {
         }
         self.records.append(&mut self.text);
         DrawList::from_bytes(self.records)
-    }
-}
-
-impl dioxus_core::IntoAttributeValue for DrawList {
-    fn into_value(self) -> dioxus_core::AttributeValue {
-        dioxus_core::AttributeValue::any_value(self)
     }
 }
 

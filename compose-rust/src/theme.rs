@@ -5,9 +5,9 @@
 //! reader pick a design system, a scheme or a brand colour at run time needs to send a new
 //! `SetTheme`, and a palette built at run time has no `'static` home of its own.
 //!
-//! [`use_theme`] is that path. Setting a theme queues it and it rides out on the batch the
-//! current call produces, the way a message does: one record, applied by the Renderer to
-//! the whole tree. A palette handed over by value is owned here, so application code never
+//! [`ThemeHandle`] is that path, and the Dioxus adapter's `use_theme` hook hands one out.
+//! Setting a theme queues it and it rides out on the batch the current call produces, the
+//! way a message does: one record, applied by the Renderer to the whole tree. A palette handed over by value is owned here, so application code never
 //! leaks anything to satisfy the lifetime.
 
 use crate::palette::Palette;
@@ -82,7 +82,7 @@ pub(crate) fn take_pending() -> Option<Theme> {
     Some(theme)
 }
 
-/// The handle [`use_theme`] returns. `Copy`, so it can move into any number of handlers.
+/// A handle on the running theme. `Copy`, so it can move into any number of handlers.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ThemeHandle {
     _private: (),
@@ -117,25 +117,4 @@ impl ThemeHandle {
     pub fn set_color_scheme(&self, scheme: ColorScheme) {
         set_theme(current_theme().with_color_scheme(scheme));
     }
-}
-
-/// The application's theme, to read and to change while it runs.
-///
-/// ```ignore
-/// let theme = use_theme();
-/// rsx! {
-///     Button {
-///         text: "Ember",
-///         on_click: move |_| theme.set_palette(
-///             Palette::new().with(ColorRole::Primary, Color::rgb(0xE8590C), Color::rgb(0xFF8A4C)),
-///         ),
-///     }
-/// }
-/// ```
-///
-/// A change is one `SetTheme` record in the batch the handler produces. Turning dark
-/// because the platform did is not this: that is the Renderer's, and the Host never hears
-/// about it.
-pub fn use_theme() -> ThemeHandle {
-    ThemeHandle::default()
 }

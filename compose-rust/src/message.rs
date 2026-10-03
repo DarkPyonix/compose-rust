@@ -3,14 +3,13 @@
 //! A message is not part of the tree. It has a lifetime rather than a position, and that
 //! lifetime belongs to the Renderer: how long it stays, where it sits, what it does when a
 //! second one arrives while the first is still up. Modelling it as a node would mean the
-//! Host holding "showing until four seconds from now" and running the VirtualDom again to
+//! Host holding "showing until four seconds from now" and building the tree again to
 //! take it away, which is a render for an animation nobody asked Rust about.
 //!
 //! So a message is posted and forgotten. It rides out on the batch the current call
 //! produces, in the same way every other record does.
 
 use crate::schema::MessageDuration;
-use dioxus_core::Callback;
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 
@@ -38,9 +37,13 @@ const ACTION_HANDLER_BASE: u64 = 1 << 63;
 /// unreachable and its callback can be dropped.
 const LIVE_ACTIONS: usize = 16;
 
+/// What a message action runs. The Host runs it through the runtime, so it gets whatever
+/// context that runtime's state writes need.
+pub(crate) type Action = Box<dyn FnMut()>;
+
 thread_local! {
     static QUEUE: RefCell<Vec<PendingMessage>> = const { RefCell::new(Vec::new()) };
-    static ACTIONS: RefCell<VecDeque<(u64, Callback<()>)>> = const {
+    static ACTIONS: RefCell<VecDeque<(u64, Action)>> = const {
         RefCell::new(VecDeque::new())
     };
     static NEXT_ACTION_ID: Cell<u64> = const { Cell::new(ACTION_HANDLER_BASE) };
@@ -61,7 +64,7 @@ thread_local! {
 pub struct Message {
     text: String,
     action: String,
-    on_action: Option<Callback<()>>,
+    on_action: Option<Action>,
     duration: MessageDuration,
 }
 
@@ -77,15 +80,15 @@ impl Message {
 
     /// Adds the one thing the user can do about the message, such as undoing it.
     ///
-    /// Call this from a component or an event handler: the callback is owned by the scope
-    /// it is created in, which is what lets it touch that scope's signals when it runs.
+    /// The action runs on the UI thread, inside the runtime the application launched, so
+    /// it can change the same state an event handler can.
     pub fn with_action(
         mut self,
         label: impl Into<String>,
-        on_action: impl FnMut(()) + 'static,
+        mut on_action: impl FnMut(()) + 'static,
     ) -> Self {
         self.action = label.into();
-        self.on_action = Some(Callback::new(on_action));
+        self.on_action = Some(Box::new(move || on_action(())));
         self
     }
 
@@ -153,7 +156,7 @@ pub(crate) fn drain(mut emit: impl FnMut(&PendingMessage)) {
 ///
 /// Removed, because an action is a thing the user does once: the message goes away when it
 /// is pressed, so a second press would be a press on something that is no longer there.
-pub(crate) fn take_action(handler_id: u64) -> Option<Callback<()>> {
+pub(crate) fn take_action(handler_id: u64) -> Option<Action> {
     if handler_id < ACTION_HANDLER_BASE {
         return None;
     }

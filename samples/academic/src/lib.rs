@@ -17,7 +17,7 @@
 mod school;
 
 mod palette {
-    use compose_rust::prelude::Color;
+    use dioxus_compose_adapter::prelude::Color;
     pub const PAGE: Color = Color::rgb(0x000000);
     pub const TEXT: Color = Color::rgb(0xFFFFFF);
     pub const PURPLE: Color = Color::rgb(0x3B2C63);
@@ -26,7 +26,7 @@ mod palette {
     pub const AMBER: Color = Color::rgb(0xFBBF24);
 }
 
-use compose_rust::prelude::*;
+use dioxus_compose_adapter::prelude::*;
 use school::{LESSONS, Lesson, STAGES, SUBJECTS, Subject, ordinal, overall_progress, stage};
 
 /// A phone design in a desktop window is still a phone design.
@@ -93,7 +93,7 @@ fn subject_tile(subject: &Subject, on_open: EventHandler<&'static str>) -> Eleme
         _ => Paint::Literal(palette::AMBER),
     };
     rsx! {
-        compose_rust::Box {
+        dioxus_compose_adapter::Box {
             fill_max_width: true,
             height: TILE_HEIGHT,
             background: fill,
@@ -102,7 +102,7 @@ fn subject_tile(subject: &Subject, on_open: EventHandler<&'static str>) -> Eleme
             Column {
                 fill_max_width: true,
                 fill_max_height: true,
-                compose_rust::Box {
+                dioxus_compose_adapter::Box {
                     fill_max_width: true,
                     weight: 1.0,
                     alignment: Alignment::Center,
@@ -144,7 +144,7 @@ fn skills_page(on_open: EventHandler<&'static str>) -> Element {
                         space_role: SpaceRole::Md,
                         alignment: Alignment::TopStart,
                         for subject in row.iter().copied() {
-                            compose_rust::Box { key: "{subject.name}", weight: 1.0,
+                            dioxus_compose_adapter::Box { key: "{subject.name}", weight: 1.0,
                                 {subject_tile(subject, on_open)}
                             }
                         }
@@ -257,7 +257,7 @@ fn plan_page(chosen: Signal<u32>) -> Element {
                 item: move |position: usize| {
                     let number = STAGES[position];
                     rsx! {
-                        compose_rust::Box {
+                        dioxus_compose_adapter::Box {
                             padding_role: SpaceRole::Xs,
                             alignment: Alignment::Center,
                             Button {
@@ -278,7 +278,7 @@ fn plan_page(chosen: Signal<u32>) -> Element {
                 fill_max_width: true,
                 space_role: SpaceRole::Sm,
                 for lesson in lessons.iter().copied() {
-                    compose_rust::Box { key: "{lesson.number}", fill_max_width: true,
+                    dioxus_compose_adapter::Box { key: "{lesson.number}", fill_max_width: true,
                         {lesson_card(lesson)}
                     }
                 }
@@ -377,7 +377,7 @@ pub fn app() -> Element {
         Destination::Plan => plan_page(chosen_stage),
         Destination::Progress => progress_page(),
         Destination::Profile => rsx! {
-            compose_rust::Box {
+            dioxus_compose_adapter::Box {
                 fill_max_width: true,
                 fill_max_height: true,
                 alignment: Alignment::Center,
@@ -420,14 +420,14 @@ pub fn app() -> Element {
                     padding_role: SpaceRole::Md,
                     alignment: Alignment::CenterStart,
                     Text { text: "Skills\nTo Pump!", type_role: TypeRole::Display, weight: 1.0, color: Paint::Literal(palette::TEXT) }
-                    compose_rust::Box {
+                    dioxus_compose_adapter::Box {
                         width: 48.0,
                         height: 48.0,
                         corner_radius: 24.0,
                         background: Paint::Literal(palette::TEXT),
                     }
                 }
-                compose_rust::Box {
+                dioxus_compose_adapter::Box {
                     fill_max_width: true,
                     weight: 1.0,
                     alignment: Alignment::TopCenter,
@@ -468,14 +468,14 @@ pub fn launch() {
 /// The theme above all: a sample that names one and then reaches a platform through an
 /// entry point that makes its own builder is a sample that draws the same screens in a
 /// different design system depending on where it runs.
-fn launch_builder() -> compose_rust::LaunchBuilder {
+fn launch_builder() -> dioxus_compose_adapter::LaunchBuilder {
     // The name the window carries. A desktop lists windows by it, so a window that said
     // nothing was listed under whatever the renderer happened to be called, and every
     // sample here was listed under the toolkit's default name until this line existed.
-    compose_rust::LaunchBuilder::new()
-        .with_theme(compose_rust::demo_theme_for(THEME))
+    dioxus_compose_adapter::LaunchBuilder::new()
+        .with_theme(dioxus_compose_adapter::demo_theme_for(THEME))
         .with_window(
-            compose_rust::schema::Window::new()
+            dioxus_compose_adapter::schema::Window::new()
                 .with_title("Academic")
                 // Without one the window wears the toolkit's picture, which on
                 // Windows is the Java coffee cup, wherever the system lists
@@ -483,8 +483,8 @@ fn launch_builder() -> compose_rust::LaunchBuilder {
                 // to them by id: a path would be a fact about the machine this
                 // was built on, and a name would ask the toolkit to find
                 // something it may not have.
-                .with_icon(compose_rust::asset::asset(
-                    compose_rust::schema::AssetKind::Png,
+                .with_icon(dioxus_compose_adapter::asset::asset(
+                    dioxus_compose_adapter::schema::AssetKind::Png,
                     include_bytes!("../assets/icon.png"),
                 )),
         )
@@ -497,17 +497,19 @@ fn launch_builder() -> compose_rust::LaunchBuilder {
 // Both are declared unconditionally. Each macro compiles into nothing that runs off its
 // own platform, and gating them here instead would mean a desktop build never checks that
 // this sample can still be built for the other two.
-compose_rust::android_main!({ launch_builder() }, app);
-compose_rust::web_main!({ launch_builder() }, app);
-compose_rust::ios_main!(launch);
+dioxus_compose_adapter::android_main!({ launch_builder() }, app);
+dioxus_compose_adapter::web_main!({ launch_builder() }, app);
+dioxus_compose_adapter::ios_main!(launch);
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use compose_rust::Host;
-    use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
-    use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind};
+    use dioxus_compose_adapter::Host;
+    use dioxus_compose_adapter::protocol::{
+        HostEvent, Mutation, PropertyValue, decode_batch, encode_event,
+    };
+    use dioxus_compose_adapter::schema::{EventPayload, PropertyKind, WidgetKind};
 
     /// Named for what it defends: the reference is a dark design, and a machine set
     /// the other way drew this sample light with nothing to compare against.
@@ -516,7 +518,7 @@ mod tests {
         // Through the wire rather than off the constant: what settles the question is the
         // record the Renderer reads, and a scheme that never leaves the Host is a scheme
         // nobody is drawn in.
-        compose_rust::window::reset_window_size();
+        dioxus_compose_adapter::window::reset_window_size();
         let mut host = Host::with_theme(app, THEME);
         let batch = host.rebuild().expect("the first frame failed").to_vec();
         let first = decode_batch(&batch)
@@ -540,7 +542,7 @@ mod tests {
 
     impl Screen {
         fn new() -> Self {
-            compose_rust::window::reset_window_size();
+            dioxus_compose_adapter::window::reset_window_size();
             let mut host = Host::new(app);
             let first = host.rebuild().expect("the first frame failed").to_vec();
             Self {
@@ -735,14 +737,14 @@ mod tests {
                 choice.label()
             );
         }
-        compose_rust::window::reset_window_size();
+        dioxus_compose_adapter::window::reset_window_size();
     }
 
     /// The grid has four marks on it, one registration each, and a mark whose id names
     /// nothing is a blank square where a subject should be.
     #[test]
     fn fr16_every_subject_carries_a_mark() {
-        compose_rust::window::reset_window_size();
+        dioxus_compose_adapter::window::reset_window_size();
         let batch = Host::new(app)
             .rebuild()
             .expect("the first frame failed")
@@ -790,7 +792,7 @@ mod tests {
                 "a subject's mark reached the Renderer with no picture on it"
             );
         }
-        compose_rust::window::reset_window_size();
+        dioxus_compose_adapter::window::reset_window_size();
     }
 
     /// Opening a subject takes you to its lessons and the bar says which subject it is.
@@ -805,7 +807,7 @@ mod tests {
                 .any(|text| text == "Lesson plan" || text == "< LESSON PLAN"),
             "opening a subject did not reach the lessons"
         );
-        compose_rust::window::reset_window_size();
+        dioxus_compose_adapter::window::reset_window_size();
     }
 
     /// Every stage has to encode, not only the one the plan opens on. A locked lesson is
@@ -827,7 +829,7 @@ mod tests {
                 "the strip has no stage {number}"
             );
         }
-        compose_rust::window::reset_window_size();
+        dioxus_compose_adapter::window::reset_window_size();
     }
 
     /// The grid, in the design system it ships, in both schemes, at all three widths. The

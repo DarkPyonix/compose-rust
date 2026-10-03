@@ -960,13 +960,33 @@ fn nfr11_the_no_renderer_message_says_what_is_missing_and_how_builds_get_one() {
 #[test]
 fn nfr11_launching_without_a_renderer_does_not_return_success() {
     use compose_rust::boundary::{STATUS_NO_RENDERER, STATUS_OK};
-    use compose_rust::prelude::*;
+    use compose_rust::protocol::{HostEvent, ProtocolError};
+    use compose_rust::{Batch, LaunchBuilder, Runtime};
 
-    fn app() -> Element {
-        rsx! { Text { text: "nothing will draw this" } }
+    /// A runtime with nothing in it. The launch fails before any Host is made, so what
+    /// the runtime would have drawn never matters.
+    struct Nothing(Batch);
+
+    impl Runtime for Nothing {
+        fn batch(&self) -> &Batch {
+            &self.0
+        }
+
+        fn batch_mut(&mut self) -> &mut Batch {
+            &mut self.0
+        }
+
+        fn rebuild(&mut self) {}
+
+        fn render(&mut self) {}
+
+        fn handle_event(&mut self, _event: &HostEvent<'_>) -> Result<i64, ProtocolError> {
+            Err(ProtocolError::InvalidValueKind(0))
+        }
     }
 
-    let status = LaunchBuilder::new().try_launch(app);
+    let status = LaunchBuilder::new()
+        .try_launch_runtime(|| Box::new(Nothing(Batch::new())) as Box<dyn Runtime>);
     assert_ne!(
         status, STATUS_OK,
         "a binary with no renderer drew nothing, so it must not report success"
@@ -1498,147 +1518,6 @@ fn nfr10_a_renderer_from_another_schema_is_caught_at_build_time() {
     }
 }
 
-/// Nothing is measured unless a screen asked.
-///
-/// The first thing this requirement promises: a tree that observes nothing costs exactly
-/// what it cost before observing existed. The modifier is the only thing that makes the
-/// Renderer measure, so a batch that carries none of them is the proof.
-#[test]
-fn fr28_a_tree_that_observes_nothing_sends_no_observation() {
-    use compose_rust::prelude::*;
-    use compose_rust::protocol::{Mutation, decode_batch};
-    use compose_rust::schema::Modifier;
-
-    fn quiet() -> Element {
-        rsx! { Column { Text { text: "nothing is watching this" } } }
-    }
-
-    compose_rust::window::reset_window_size();
-    let mut host = compose_rust::Host::new(quiet);
-    let batch = host.rebuild().expect("the first frame failed to encode");
-    let mutations = decode_batch(batch).expect("decode");
-    assert!(
-        !mutations.iter().any(|mutation| matches!(
-            mutation,
-            Mutation::SetModifier {
-                modifier: Modifier::ObserveSize { .. },
-                ..
-            }
-        )),
-        "a tree nobody is observing asked the Renderer to measure something",
-    );
-}
-
-/// A node that asked carries the token its screen gave it.
-#[test]
-fn fr28_an_observed_node_carries_its_own_token() {
-    use compose_rust::prelude::*;
-    use compose_rust::protocol::{Mutation, decode_batch};
-    use compose_rust::schema::Modifier;
-
-    fn watched() -> Element {
-        let panel = use_node_size();
-        rsx! {
-            Column {
-                observe_size: panel.token(),
-                Text { text: "this one is watched" }
-            }
-        }
-    }
-
-    compose_rust::window::reset_window_size();
-    let mut host = compose_rust::Host::new(watched);
-    let batch = host.rebuild().expect("the first frame failed to encode");
-    let mutations = decode_batch(batch).expect("decode");
-    let observed: Vec<_> = mutations
-        .iter()
-        .filter_map(|mutation| match mutation {
-            Mutation::SetModifier {
-                modifier: Modifier::ObserveSize { token },
-                ..
-            } => Some(*token),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(observed.len(), 1, "one node asked, so one modifier travels");
-    assert_ne!(observed[0], 0, "a token of zero is the window, not a node");
-}
-
-/// A Text that says nothing about runs travels as it always did.
-///
-/// The requirement is explicit that the record and the path are unchanged where there
-/// are no runs, because a feature nobody used must not cost every string in every screen
-/// one record per node.
-#[test]
-fn fr26_a_text_without_runs_carries_no_run_record() {
-    use compose_rust::prelude::*;
-    use compose_rust::protocol::{Mutation, decode_batch};
-    use compose_rust::schema::PropertyKind;
-
-    fn plain() -> Element {
-        rsx! { Text { text: "nothing special about this" } }
-    }
-
-    compose_rust::window::reset_window_size();
-    let mut host = compose_rust::Host::new(plain);
-    let batch = host.rebuild().expect("the first frame failed to encode");
-    assert!(
-        !decode_batch(batch)
-            .expect("decode")
-            .iter()
-            .any(|mutation| matches!(
-                mutation,
-                Mutation::SetProp {
-                    property: PropertyKind::Spans,
-                    ..
-                }
-            )),
-        "a string with no runs paid a record for saying so",
-    );
-}
-
-/// Runs survive the wire exactly as they were written.
-#[test]
-fn fr26_runs_round_trip_through_the_boundary() {
-    use compose_rust::prelude::*;
-    use compose_rust::protocol::{Mutation, PropertyValue, decode_batch};
-    use compose_rust::schema::PropertyKind;
-    use compose_rust::spans::{TextSpan, TextSpans};
-
-    fn marked() -> Element {
-        let spans = TextSpans::new([
-            TextSpan::new(0, 5).bold(),
-            TextSpan::new(6, 4)
-                .underline()
-                .with_color(Paint::Role(ColorRole::Primary)),
-        ]);
-        rsx! { Text { text: "Plain link here", spans } }
-    }
-
-    compose_rust::window::reset_window_size();
-    let mut host = compose_rust::Host::new(marked);
-    let batch = host.rebuild().expect("the first frame failed to encode");
-    let bytes = decode_batch(batch)
-        .expect("decode")
-        .into_iter()
-        .find_map(|mutation| match mutation {
-            Mutation::SetProp {
-                property: PropertyKind::Spans,
-                value: PropertyValue::Bytes(bytes),
-                ..
-            } => Some(bytes.to_vec()),
-            _ => None,
-        })
-        .expect("the runs did not travel");
-
-    let decoded: Vec<_> = TextSpans::from_bytes(bytes).spans().collect();
-    assert_eq!(decoded.len(), 2);
-    assert_eq!((decoded[0].start, decoded[0].length), (0, 5));
-    assert!(decoded[0].bold && !decoded[0].underline);
-    assert!(decoded[1].underline && !decoded[1].bold);
-    assert_eq!(decoded[1].color, Some(Paint::Role(ColorRole::Primary)));
-}
-
 /// The markdown convenience is a Host convenience, and leaves what it does not know.
 #[test]
 fn fr26_markdown_becomes_runs_and_never_crosses_the_boundary() {
@@ -1686,312 +1565,11 @@ fn fr27_an_unreadable_path_is_dropped_and_the_rest_arrive() {
     assert_eq!(drop.paths(), ["/tmp/kept.txt", "/tmp/also-kept.txt"]);
 }
 
-/// A node that said nothing about files is not a place files may be dropped.
-///
-/// Said as "pays nothing" rather than "sends false", because a container that is silent
-/// about files is the common case: every Box, Column, Card and Surface in every screen.
-#[test]
-fn fr27_a_node_that_did_not_ask_is_not_a_drop_target() {
-    use compose_rust::prelude::*;
-    use compose_rust::protocol::{Mutation, decode_batch};
-    use compose_rust::schema::PropertyKind;
-
-    fn plain() -> Element {
-        rsx! { compose_rust::Box { Text { text: "not a target" } } }
-    }
-
-    compose_rust::window::reset_window_size();
-    let mut host = compose_rust::Host::new(plain);
-    let batch = host.rebuild().expect("the first frame failed to encode");
-    let said = decode_batch(batch)
-        .expect("decode")
-        .into_iter()
-        .filter(|mutation| {
-            matches!(
-                mutation,
-                Mutation::SetProp {
-                    property: PropertyKind::OnFilesEntered | PropertyKind::OnFilesDropped,
-                    ..
-                }
-            )
-        })
-        .count();
-    assert_eq!(
-        said, 0,
-        "a node that said nothing was offered as a drop target"
-    );
-}
-
-/// The widget that exists to receive files is the one that carries the handlers.
-#[test]
-fn fr27_a_drop_target_carries_both_handlers() {
-    use compose_rust::prelude::*;
-    use compose_rust::protocol::{Mutation, decode_batch};
-    use compose_rust::schema::{PropertyKind, WidgetKind};
-
-    fn target() -> Element {
-        rsx! {
-            FileDropTarget {
-                on_files_entered: move |_| {},
-                on_files_dropped: move |_| {},
-                Text { text: "drop files here" }
-            }
-        }
-    }
-
-    compose_rust::window::reset_window_size();
-    let mut host = compose_rust::Host::new(target);
-    let mutations = decode_batch(host.rebuild().expect("encode")).expect("decode");
-    assert!(mutations.iter().any(|mutation| matches!(
-        mutation,
-        Mutation::Create {
-            widget: WidgetKind::FileDropTarget,
-            ..
-        }
-    )));
-    for wanted in [PropertyKind::OnFilesEntered, PropertyKind::OnFilesDropped] {
-        assert!(
-            mutations.iter().any(|mutation| matches!(
-                mutation,
-                Mutation::SetProp { property, .. } if *property == wanted
-            )),
-            "{wanted:?} did not reach the Renderer",
-        );
-    }
-}
-
-/// A node says how important its changes are, and nothing about how long they take.
-#[test]
-fn fr24_a_motion_role_reaches_the_renderer_as_a_role() {
-    use compose_rust::prelude::*;
-    use compose_rust::protocol::{Mutation, decode_batch};
-
-    fn moving() -> Element {
-        rsx! {
-            Card { motion: MotionRole::Emphasized, Text { text: "opens" } }
-        }
-    }
-
-    compose_rust::window::reset_window_size();
-    let mut host = compose_rust::Host::new(moving);
-    let mutations = decode_batch(host.rebuild().expect("encode")).expect("decode");
-    assert!(
-        mutations.iter().any(|mutation| matches!(
-            mutation,
-            Mutation::SetModifier {
-                modifier: Modifier::Motion(MotionRole::Emphasized),
-                ..
-            }
-        )),
-        "the motion role did not reach the Renderer: {mutations:?}",
-    );
-}
-
-/// A node that said nothing about motion pays nothing.
-#[test]
-fn fr24_silence_about_motion_costs_no_record() {
-    use compose_rust::prelude::*;
-    use compose_rust::protocol::{Mutation, decode_batch};
-
-    fn still() -> Element {
-        rsx! { Card { Text { text: "still" } } }
-    }
-
-    compose_rust::window::reset_window_size();
-    let mut host = compose_rust::Host::new(still);
-    let mutations = decode_batch(host.rebuild().expect("encode")).expect("decode");
-    assert!(!mutations.iter().any(|mutation| matches!(
-        mutation,
-        Mutation::SetModifier {
-            modifier: Modifier::Motion(_),
-            ..
-        }
-    )));
-}
-
-/// The five roles survive the round trip in the order the wire fixes them in.
-#[test]
-fn fr24_every_motion_role_survives_the_wire() {
-    use compose_rust::prelude::*;
-    use compose_rust::protocol::{Mutation, decode_batch};
-
-    const ROLES: [MotionRole; 5] = [
-        MotionRole::Instant,
-        MotionRole::Quick,
-        MotionRole::Standard,
-        MotionRole::Slow,
-        MotionRole::Emphasized,
-    ];
-
-    fn all_five() -> Element {
-        rsx! {
-            Column {
-                for role in ROLES {
-                    Card { motion: role, Text { text: "{role:?}" } }
-                }
-            }
-        }
-    }
-
-    compose_rust::window::reset_window_size();
-    let mut host = compose_rust::Host::new(all_five);
-    let mutations = decode_batch(host.rebuild().expect("encode")).expect("decode");
-    let arrived: Vec<MotionRole> = mutations
-        .iter()
-        .filter_map(|mutation| match mutation {
-            Mutation::SetModifier {
-                modifier: Modifier::Motion(role),
-                ..
-            } => Some(*role),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(arrived, ROLES);
-}
-
-/// A surface says what it is made of, and nothing about blur.
-#[test]
-fn fr23_a_material_role_reaches_the_renderer_as_a_role() {
-    use compose_rust::prelude::*;
-    use compose_rust::protocol::{Mutation, decode_batch};
-
-    fn sheet() -> Element {
-        rsx! {
-            Surface { material: MaterialRole::Regular, Text { text: "over the page" } }
-        }
-    }
-
-    compose_rust::window::reset_window_size();
-    let mut host = compose_rust::Host::new(sheet);
-    let mutations = decode_batch(host.rebuild().expect("encode")).expect("decode");
-    assert!(
-        mutations.iter().any(|mutation| matches!(
-            mutation,
-            Mutation::SetModifier {
-                modifier: Modifier::Material(MaterialRole::Regular),
-                ..
-            }
-        )),
-        "the material role did not reach the Renderer: {mutations:?}",
-    );
-}
-
-/// The four roles survive the round trip in the order the wire fixes them in.
-#[test]
-fn fr23_every_material_role_survives_the_wire() {
-    use compose_rust::prelude::*;
-    use compose_rust::protocol::{Mutation, decode_batch};
-
-    const ROLES: [MaterialRole; 4] = [
-        MaterialRole::Thin,
-        MaterialRole::Regular,
-        MaterialRole::Thick,
-        MaterialRole::Chrome,
-    ];
-
-    fn all_four() -> Element {
-        rsx! {
-            Column {
-                for role in ROLES {
-                    Surface { material: role, Text { text: "{role:?}" } }
-                }
-            }
-        }
-    }
-
-    compose_rust::window::reset_window_size();
-    let mut host = compose_rust::Host::new(all_four);
-    let mutations = decode_batch(host.rebuild().expect("encode")).expect("decode");
-    let arrived: Vec<MaterialRole> = mutations
-        .iter()
-        .filter_map(|mutation| match mutation {
-            Mutation::SetModifier {
-                modifier: Modifier::Material(role),
-                ..
-            } => Some(*role),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(arrived, ROLES);
-}
-
-/// A node that said nothing about material pays nothing.
-#[test]
-fn fr23_silence_about_material_costs_no_record() {
-    use compose_rust::prelude::*;
-    use compose_rust::protocol::{Mutation, decode_batch};
-
-    fn plain() -> Element {
-        rsx! { Surface { Text { text: "flat" } } }
-    }
-
-    compose_rust::window::reset_window_size();
-    let mut host = compose_rust::Host::new(plain);
-    let mutations = decode_batch(host.rebuild().expect("encode")).expect("decode");
-    assert!(!mutations.iter().any(|mutation| matches!(
-        mutation,
-        Mutation::SetModifier {
-            modifier: Modifier::Material(_),
-            ..
-        }
-    )));
-}
-
-/// A gradient reaches the Renderer as a registration and an id, not as a list of stops.
-#[test]
-fn fr23_a_gradient_is_registered_once_and_named_by_id() {
-    use compose_rust::prelude::*;
-    use compose_rust::protocol::{Mutation, decode_batch};
-    use compose_rust::schema::{AssetKind, Color, Paint};
-
-    fn sky() -> Element {
-        let paint = brush(Brush::vertical(vec![
-            Stop::new(0.0, Color::rgb(0x4a90d9)),
-            Stop::new(0.5, Color::rgb(0x9ec9f0)),
-            Stop::new(1.0, Color::rgb(0xffffff)),
-        ]));
-        rsx! { Surface { background: paint, Text { text: "over a gradient" } } }
-    }
-
-    compose_rust::window::reset_window_size();
-    let mut host = compose_rust::Host::new(sky);
-    let mutations = decode_batch(host.rebuild().expect("encode")).expect("decode");
-
-    let registration = mutations
-        .iter()
-        .find_map(|mutation| match mutation {
-            Mutation::RegisterAsset {
-                asset_id,
-                kind: AssetKind::Brush,
-                bytes,
-            } => Some((*asset_id, *bytes)),
-            _ => None,
-        })
-        .expect("the brush was never registered");
-    // Header, then one record per stop.
-    assert_eq!(
-        registration.1.len(),
-        compose_rust::brush::HEADER_LEN + 3 * compose_rust::brush::STOP_LEN,
-    );
-
-    let named = mutations.iter().any(|mutation| {
-        matches!(
-            mutation,
-            Mutation::SetModifier { modifier: Modifier::Background(Paint::Asset(id)), .. }
-                if *id == registration.0
-        )
-    });
-    assert!(
-        named,
-        "the surface did not name the brush it registered: {mutations:?}"
-    );
-}
-
 /// The same gradient asked for twice is one registration.
 #[test]
 fn fr23_the_same_brush_is_registered_once() {
-    use compose_rust::prelude::*;
     use compose_rust::schema::Color;
+    use compose_rust::{Brush, Stop, brush};
 
     let first = brush(Brush::horizontal(vec![
         Stop::new(0.0, Color::rgb(0x101010)),
