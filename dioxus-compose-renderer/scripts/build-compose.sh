@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# Builds the Compose modules this renderer needs patched, and publishes them locally.
+# Builds the Compose modules this renderer needs changed, and publishes them locally.
 #
-# Three things the renderer draws with are not in the published build and cannot be
-# reached from outside the module that holds them. `patches/README.md` says which and
-# why. This takes the pinned upstream revision, applies those patches to a checkout
-# nobody edits by hand, and publishes the result under the version the renderer asks
-# for, so that the modules that are not patched keep resolving from JetBrains.
+# Three things the renderer draws with are not in the build JetBrains publishes and cannot
+# be reached from outside the module that holds them: the Kotlin/Native targets for Linux,
+# the native text context menu, and the keys that copy. They are `internal actual`
+# declarations, and an `expect` can only be answered inside its own module. The changes
+# live as commits in a fork of Compose, thisisthepy/compose-multiplatform-core-extended,
+# on its `extended` branch. This fetches one pinned commit of it into a checkout nobody
+# edits by hand and publishes the result under the version the renderer asks for, so that
+# the modules that are not changed keep resolving from JetBrains.
 #
 # Usage: build-compose.sh [--target macosArm64|linuxX64] [--clean]
 #
@@ -14,8 +17,15 @@
 # checkout of someone else's repository and a build of it costs several gigabytes.
 set -euo pipefail
 
-UPSTREAM="https://github.com/JetBrains/compose-multiplatform-core.git"
-REVISION="73ac84978a9e4ddca7e062dc0ee357ad875450fa"
+# The commit, not the branch. A branch that moves is a build that changes for a reason
+# nobody chose here. This one is JetBrains release/1.11 at 73ac849 with the Linux targets,
+# the native text context menu and the published version on top, and nothing else: the
+# commits after it on `extended` add a mingwX64 target to every module's build and read
+# skiko from the local Maven repository first, which a macOS or Linux build has no use
+# for. compose-fork.changes lists what this commit must hold at every path it changes,
+# and scripts/tests/compose-fork.test.sh checks it.
+FORK="https://github.com/thisisthepy/compose-multiplatform-core-extended.git"
+REVISION="c396dcff48c02b8a7c6707e273a7d34038ba5d7e"
 PUBLISHED_AS="1.11.1"
 # Material 3 is versioned on its own line and the renderer asks for it by that version, so
 # publishing it as the others would leave a coordinate nobody looks for.
@@ -23,7 +33,6 @@ MATERIAL3_PUBLISHED_AS="1.11.0-alpha07"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RENDERER_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-PATCH_DIR="$RENDERER_DIR/patches"
 WORK="${DXC_COMPOSE_BUILD:-$(dirname "$RENDERER_DIR")/compose-build}"
 
 die() {
@@ -39,7 +48,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --target) target="${2:-}"; shift 2 ;;
         --clean) clean=1; shift ;;
-        -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
         *) die "unknown argument '$1'" "usage: build-compose.sh [--target <target>] [--clean]" ;;
     esac
 done
@@ -92,33 +101,26 @@ esac
 [[ $clean -eq 1 ]] && rm -rf "$WORK"
 
 # Fetched at the revision alone rather than cloned whole: the history of this repository
-# is large and none of it is read here.
+# is large and none of it is read here. The remote is set every time because a work
+# directory made before the fork existed still points at JetBrains, which does not have
+# this commit.
 if [[ ! -d "$WORK/.git" ]]; then
     mkdir -p "$WORK"
     git -C "$WORK" init -q
-    git -C "$WORK" remote add origin "$UPSTREAM"
+    git -C "$WORK" remote add origin "$FORK"
 fi
+git -C "$WORK" remote set-url origin "$FORK"
 if ! git -C "$WORK" cat-file -e "$REVISION^{commit}" 2>/dev/null; then
     echo "==> fetching $REVISION"
     git -C "$WORK" fetch -q --depth 1 origin "$REVISION"
 fi
 
-# Reset rather than patched on top of whatever is there. A patch applied twice fails and
-# a patch applied to a tree somebody edited succeeds in a way nobody can reproduce.
+# Reset rather than built on top of whatever is there. A tree somebody edited builds
+# something nobody can reproduce, and a work directory from before the fork still holds
+# the patches that used to be applied here.
 echo "==> checking out $REVISION"
 git -C "$WORK" -c advice.detachedHead=false checkout -q --force "$REVISION"
 git -C "$WORK" clean -qfd -e build -e '.gradle' -e 'out'
-
-shopt -s nullglob
-patches=("$PATCH_DIR"/*.patch)
-[[ ${#patches[@]} -gt 0 ]] || die "no patches in $PATCH_DIR"
-for patch in "${patches[@]}"; do
-    echo "==> applying $(basename "$patch")"
-    git -C "$WORK" apply --whitespace=nowarn "$patch" ||
-        die "$(basename "$patch") does not apply to $REVISION" \
-            "Upstream may have filled the same gap, in which case the patch is to be deleted." \
-            "See $PATCH_DIR/README.md."
-done
 
 [[ -n "${JAVA_HOME:-}" ]] || die "JAVA_HOME is not set" \
     "The Compose build needs a JDK 17; the toolchain wrapper's does not apply here."

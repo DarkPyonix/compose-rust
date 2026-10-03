@@ -1,0 +1,246 @@
+# Compose from the fork: build it, build the renderer against it, and prove it is the old build.
+#
+# scripts/build-compose.sh used to take JetBrains' compose-multiplatform-core at 73ac849 and
+# apply the three patches under dioxus-compose-renderer/patches/. It now fetches one pinned
+# commit of thisisthepy/compose-multiplatform-core-extended that holds the same changes as
+# commits. The two source trees have the same git tree hash, and the patches are only to be
+# dropped once the fork is shown to produce the same build. This workflow is that showing, on
+# both platforms the Kotlin/Native renderer is built for:
+#
+#   1. build-compose.sh publishes the fork's modules to the local Maven repository, and that
+#      repository is copied aside as it stands;
+#   2. the old build is run again from scratch: the old build-compose.sh and the three patches,
+#      taken from the last develop commit that still had them, publish into an empty local
+#      repository, in the same work directory the fork build used, so that no absolute path
+#      differs between the two;
+#   3. the two repositories are compared file by file, and every archive entry by entry with
+#      zip timestamps left out (.github/scripts/compare-maven-repos.py). Any difference fails
+#      the job and is printed with its path, but only at the end, so the renderer still builds;
+#   4. the fork's publication is put back, and the renderer's platform module and its static
+#      library are built against it, the way desktop/scripts/build-linux.sh and build-macos.sh
+#      build them, and the static library is kept as an artifact.
+#
+# The Gradle build cache is turned off for both Compose builds. With it on, the second build
+# would take its outputs from the first whenever the inputs hash the same, and the comparison
+# would be comparing a build with itself.
+#
+# Nothing else in CI builds Compose: the renderer's Kotlin/Native modules are otherwise built
+# on a developer's machine. Building Compose twice per platform is slow, so this runs on
+# demand and when the pin or the build script changes, not on every push.
+
+name: Compose from fork
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - dioxus-compose-renderer/scripts/build-compose.sh
+      - dioxus-compose-renderer/scripts/compose-fork.changes
+      - .github/workflows/compose-from-fork.yml
+      - .github/scripts/compare-maven-repos.py
+
+concurrency:
+  group: compose-from-fork-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # The last develop commit that still held patches/ and the build-compose.sh that applied
+  # them. Pinned rather than read from develop, because develop stops having them once the
+  # fork replaces them, and the old build has to stay reproducible after that.
+  LEGACY_REF: ba5cf56c9aa488b7a9dc4b0e8c4af4f09cbe83ae
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x64
+            runner: ubuntu-latest
+            target: linuxX64
+            renderer_script: build-linux.sh
+            renderer_out: linux
+            toolchain_cache: ~/.cache/JetBrains/Kotlin
+            gradle_heap: 11g
+            gradle_workers: 4
+          - name: macOS arm64
+            runner: macos-latest
+            target: macosArm64
+            renderer_script: build-macos.sh
+            renderer_out: macos
+            toolchain_cache: ~/Library/Caches/JetBrains/Kotlin
+            gradle_heap: 5g
+            gradle_workers: 2
+    env:
+      COMPOSE_WORK: ${{ github.workspace }}/../compose-build
+      FORK_REPO: ${{ github.workspace }}/../repo-fork
+      LEGACY_REPO: ${{ github.workspace }}/../repo-patches
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        if: runner.os == 'Linux'
+        run: |
+          df -h /
+          # The Android SDK stays: the Compose build configures its Android targets even
+          # when it only publishes a native one.
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost \
+            /opt/hostedtoolcache/CodeQL /usr/share/swift /usr/local/share/powershell \
+            /usr/local/lib/node_modules /usr/local/julia* /opt/microsoft /opt/google
+          sudo docker image prune --all --force >/dev/null || true
+          df -h /
+
+      - name: Report the machine
+        run: |
+          uname -a
+          # Both runner images carry an Android SDK, which the Compose build configures its
+          # Android targets against even when it publishes a native one only.
+          echo "ANDROID_HOME=${ANDROID_HOME:?the runner image has no Android SDK}"
+          df -h "$GITHUB_WORKSPACE"
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            sysctl -n hw.memsize hw.ncpu
+            xcodebuild -version
+          else
+            free -h
+            nproc
+          fi
+
+      - name: Install JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'corretto'
+
+      - name: Point the Compose build at the JDK
+        # The Compose build turns toolchain auto-detection off and takes its JDK 21 from this
+        # variable, the way its own CI does.
+        run: echo "ANDROIDX_JDK21=$JAVA_HOME" >> "$GITHUB_ENV"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+          gradle-home-cache-excludes: |
+            caches/build-cache-1
+
+      - name: Cache Kotlin/Native for the Compose build
+        uses: actions/cache@v4
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('dioxus-compose-renderer/scripts/build-compose.sh') }}
+          restore-keys: |
+            konan-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Cache the Kotlin toolchain the renderer builds with
+        uses: actions/cache@v4
+        with:
+          path: ${{ matrix.toolchain_cache }}
+          key: kotlin-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('dioxus-compose-renderer/kotlin', 'dioxus-compose-renderer/libs.versions.toml', 'dioxus-compose-renderer/**/module.yaml') }}
+          restore-keys: |
+            kotlin-native-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Install the X11, Xext, GL, fontconfig and FreeType development libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          # The module's test executable links against skiko, which needs fontconfig and
+          # FreeType as well as the libraries the window itself uses.
+          sudo apt-get install -y pkg-config libx11-dev libxext-dev libgl1-mesa-dev \
+            libfontconfig1-dev libfreetype6-dev
+
+      - name: Configure Gradle for this runner
+        # The user-level file overrides the checkout's gradle.properties. The heap the Compose
+        # build asks for is sized for a workstation; the build cache is off so that the second
+        # Compose build cannot reuse the first one's outputs.
+        run: |
+          mkdir -p ~/.gradle
+          cat > ~/.gradle/gradle.properties <<EOF
+          org.gradle.caching=false
+          org.gradle.workers.max=${{ matrix.gradle_workers }}
+          org.gradle.jvmargs=-Xmx${{ matrix.gradle_heap }} -XX:MaxMetaspaceSize=2g -XX:+UseParallelGC -XX:+HeapDumpOnOutOfMemoryError -Dlint.nullness.ignore-deprecated=true -Dfile.encoding=UTF-8
+          kotlin.compiler.execution.strategy=in-process
+          EOF
+          cat ~/.gradle/gradle.properties
+
+      - name: Build Compose from the fork
+        run: |
+          rm -rf ~/.m2/repository
+          DXC_COMPOSE_BUILD="$COMPOSE_WORK" \
+            ./dioxus-compose-renderer/scripts/build-compose.sh --target ${{ matrix.target }} --clean
+          rm -rf "$FORK_REPO"
+          cp -a ~/.m2/repository "$FORK_REPO"
+          find "$FORK_REPO" -type f | wc -l
+          du -sh "$FORK_REPO"
+          df -h "$GITHUB_WORKSPACE"
+
+      - name: Stage the old build script and its patches
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth 1 origin "$LEGACY_REF"
+          legacy="$RUNNER_TEMP/legacy/dioxus-compose-renderer"
+          mkdir -p "$legacy/scripts" "$legacy/patches"
+          git show "$LEGACY_REF:dioxus-compose-renderer/scripts/build-compose.sh" > "$legacy/scripts/build-compose.sh"
+          chmod +x "$legacy/scripts/build-compose.sh"
+          git ls-tree --name-only "$LEGACY_REF" dioxus-compose-renderer/patches/ | grep '\.patch$' |
+            while read -r patch; do
+              git show "$LEGACY_REF:$patch" > "$legacy/patches/$(basename "$patch")"
+            done
+          ls -la "$legacy/patches"
+          [[ $(ls "$legacy/patches" | wc -l) -eq 3 ]] || { echo "expected three patches" >&2; exit 1; }
+
+      - name: Build Compose the old way
+        run: |
+          rm -rf ~/.m2/repository "$LEGACY_REPO"
+          DXC_COMPOSE_BUILD="$COMPOSE_WORK" \
+            "$RUNNER_TEMP/legacy/dioxus-compose-renderer/scripts/build-compose.sh" --target ${{ matrix.target }} --clean
+          mv ~/.m2/repository "$LEGACY_REPO"
+          find "$LEGACY_REPO" -type f | wc -l
+          du -sh "$LEGACY_REPO"
+          rm -rf "$COMPOSE_WORK"
+          # The renderer is built against the fork's publication, so that is what goes back.
+          cp -a "$FORK_REPO" ~/.m2/repository
+
+      - name: Compare the two published repositories
+        id: compare
+        continue-on-error: true
+        run: |
+          python3 .github/scripts/compare-maven-repos.py "$LEGACY_REPO" "$FORK_REPO" \
+            --report "$RUNNER_TEMP/compose-equivalence-${{ matrix.target }}.txt"
+
+      - name: Keep the comparison report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compose-equivalence-${{ matrix.target }}
+          path: ${{ runner.temp }}/compose-equivalence-${{ matrix.target }}.txt
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Build the renderer and its static library against it
+        run: ./dioxus-compose-renderer/desktop/scripts/${{ matrix.renderer_script }}
+
+      - name: Report the static library
+        run: |
+          ls -la dioxus-compose-renderer/build/${{ matrix.renderer_out }}
+          du -sh dioxus-compose-renderer/build/${{ matrix.renderer_out }}
+
+      - name: Keep the static library
+        uses: actions/upload-artifact@v4
+        with:
+          name: renderer-staticlib-${{ matrix.target }}
+          path: dioxus-compose-renderer/build/${{ matrix.renderer_out }}
+          retention-days: 14
+
+      - name: Fail if the two Compose builds differ
+        # The comparison runs before the renderer and does not stop it, so that one failing
+        # does not hide the other's result. This is where a difference fails the job.
+        if: always() && steps.compare.outcome == 'failure'
+        run: |
+          echo "the fork and the patched build published different contents; see the comparison step" >&2
+          exit 1

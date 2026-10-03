@@ -395,15 +395,15 @@ macOS에서는 Xcode 명령줄 도구(`xcode-select --install`)도 필요합니�
 
 렌더러는 JetBrains가 발행한 것이 아니라 로컬 Maven 저장소에서 Compose를 찾습니다. 필요한 세 가지가
 이 플랫폼용 공개 빌드에서는 비어 있고, 그것을 담고 있는 모듈 밖에서는 채울 수 없기 때문입니다.
-텍스트 선택 메뉴가 내주는 항목, 복사에 쓰이는 키, 그리고 Linux 타깃입니다. 패치는
-`dioxus-compose-renderer/patches/`에 있고, Compose 리비전 하나에 고정돼 있으며, 각각 무엇을 위한
-것인지 적혀 있습니다.
+텍스트 선택 메뉴가 내주는 항목, 복사에 쓰이는 키, 그리고 Linux 타깃입니다. 이 변경은 Compose의 포크
+[`thisisthepy/compose-multiplatform-core-extended`](https://github.com/thisisthepy/compose-multiplatform-core-extended)에
+커밋으로 들어 있고, 빌드 스크립트가 그 커밋 하나에 고정합니다.
 
 ```bash
 ./dioxus-compose-renderer/scripts/build-compose.sh
 ```
 
-고정된 리비전을 받아 패치를 얹고, 렌더러가 요구하는 모듈을 발행합니다. 오래 걸리지만 빌드마다 할
+고정된 커밋을 받아, 렌더러가 요구하는 모듈을 발행합니다. 오래 걸리지만 빌드마다 할
 일은 아니고 한 번이면 됩니다. 나머지는 여전히 JetBrains가 발행한 것에서 해결됩니다.
 
 ### 4. Kotlin
