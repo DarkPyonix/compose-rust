@@ -2389,7 +2389,7 @@ Offset, RequiredSize, Transform, Alpha, Shadow, Background, Border/BorderEach, C
 - 쌓임 순서(`z-index`, 변환이 만드는 쌓임 맥락)는 HTML 초안대로 Host가 `AbsoluteBox`의 자식 순서로 풉니다. 이 수정자는 순서를 바꾸지 않습니다.
 
 수용 기준:
-1. `Transform` 수정자가 44바이트 `SetModifier`로 Rust와 Kotlin에서 같은 바이트로 인코딩되고 디코딩됩니다(체크인된 프로토콜 벡터). 기존 수정자 0~25의 벡터는 바이트 하나도 바뀌지 않습니다(`fr41_transform_round_trips`, `fr41_existing_modifier_vectors_are_unchanged`).
+1. `Transform` 수정자가 44바이트 `SetModifier`로 Rust와 Kotlin에서 같은 바이트로 인코딩되고 디코딩됩니다(체크인된 프로토콜 벡터). 기존 수정자 0~25의 벡터는 바이트 하나도 바뀌지 않습니다(fr41_transform_round_trips, fr41_existing_modifier_vectors_are_unchanged).
 2. 태그가 요구하는 길이와 다른 `SetModifier`, 값에 NaN이나 무한대가 든 `Transform`은 `ProtocolError` 이벤트가 되고 프로세스가 중단되지 않습니다.
 3. `rotate(15deg)`, `scale(1.5)`, `skewX(10deg)`, `scaleX(-1)`, 그리고 셋을 곱한 행렬 각각을 원점 `(0, 0)`과 `(0.5, 0.5)`로 단 100x40dp 상자에서, 네 꼭짓점의 `LayoutCoordinates.localToRoot` 결과가 행렬을 직접 적용한 값과 0.01dp 안에서 같습니다. 데스크톱 렌더러 테스트입니다.
 4. 변환된 노드의 측정 크기, 형제의 자리, `ObserveSize`가 알리는 크기가 변환이 없을 때와 같습니다.
@@ -2581,7 +2581,7 @@ dioxus-compose FR-34.2 수용 기준 5(`prefers-reduced-motion`)는 Host가 미�
 - **렌더러는 `StartAnimation`에 모션 감소를 적용하지 않습니다.** 무엇을 줄일지는 CSS(Host)가 정합니다. FR-24의 `Motion` 역할은 지금처럼 렌더러가 `Instant`로 해석합니다.
 
 수용 기준:
-1. `StartAnimation`(네 속성 각각, `Transform`은 다섯 함수 종류 각각과 함수 셋짜리 목록), `ControlAnimation`, `AnimationEvent`, `ReducedMotionChanged`가 Rust와 Kotlin에서 같은 바이트로 인코딩되고 디코딩됩니다(체크인된 프로토콜 벡터, `fr41_start_animation_round_trips` 등).
+1. `StartAnimation`(네 속성 각각, `Transform`은 다섯 함수 종류 각각과 함수 셋짜리 목록), `ControlAnimation`, `AnimationEvent`, `ReducedMotionChanged`가 Rust와 Kotlin에서 같은 바이트로 인코딩되고 디코딩됩니다(체크인된 프로토콜 벡터, fr41_start_animation_round_trips 등).
 2. 다음은 모두 `ProtocolError` 이벤트가 되고 프로세스가 중단되지 않습니다: 모르는 열거값, 키프레임 2개 미만, 오프셋이 0에서 시작하지 않거나 1로 끝나지 않거나 줄어드는 것, 음수 길이, NaN 또는 음수 반복 횟수, 키프레임마다 다른 변환 함수 목록, `len`과 맞지 않는 키프레임 수, 배치를 다 적용한 뒤에도 바탕 수정자가 없는 대상, `color` 속성이 없는 위젯의 `Color`.
 3. 시간 모델 함수의 표 테스트: `linear`, `ease`(0.25, 0.1, 0.25, 1)의 0.5 지점, `steps(4)`의 네 점프 항 각각의 경계 값(before flag 포함), 반복 2.5회와 네 방향, 음수 지연, 네 fill 모드의 앞·뒤 단계 값, 무한 반복, 길이 0. 기대값은 Web Animations Level 1의 식으로 계산해 테스트에 적습니다.
 4. 렌더러 테스트(테스트 시계, `mainClock.autoAdvance = false`): 바탕 `Alpha(0.2)`에 0에서 1로 가는 1000ms `linear`, 지연 200ms, fill 없음을 걸면 100ms에 0.2, 700ms에 0.5, 1300ms에 0.2입니다. fill `Backwards`면 100ms에 0, `Forwards`면 1300ms에 1입니다. 같은 방식으로 `Background`(sRGB 사전곱 중간색), `Color`, `Transform`(`rotate(0)`에서 `rotate(720deg)`, 500ms에 360도가 아니라 정확히 한 바퀴 돈 모양이고, 250ms에 180도)를 확인합니다. 값은 노드의 그리기 결과와 `boundsInRoot`로 읽습니다. `Matrix` 보간과 `linear()` 분할은 꼭짓점 기준 0.01dp 안입니다.
@@ -2615,8 +2615,8 @@ FR-39의 compose-rust API가 같은 레코드를 씁니다. Compose의 이름을
 - `animate_float_as_state`, `animate_color_as_state`, `animate_offset_as_state` 같은 `animate_*_as_state`: 목표값이 바뀌면 `StartAnimation` 하나를 내고, 재생은 렌더러가 합니다. 반환값은 목표값입니다. 재생 중의 값은 Host가 보지 않습니다(D5).
 - 모션 역할(FR-24)이 기본이고, 길이와 곡선을 직접 주는 것은 탈출구라는 관계는 같습니다. `animate_*_as_state`는 길이와 곡선을 주지 않으면 `MotionRole::Standard`로 해석합니다.
 - 수용 기준:
-  1. compose-rust API로 쓴 `animate_float_as_state` 투명도 전환이, 같은 값을 직접 보낸 `StartAnimation`과 같은 레코드를 냅니다(`fr41_compose_api_emits_the_same_records`).
-  2. 재생하는 동안 Host의 recomposition이 0번입니다(`fr41_compose_api_animation_does_not_recompose`).
+  1. compose-rust API로 쓴 `animate_float_as_state` 투명도 전환이, 같은 값을 직접 보낸 `StartAnimation`과 같은 레코드를 냅니다(fr41_compose_api_emits_the_same_records).
+  2. 재생하는 동안 Host의 recomposition이 0번입니다(fr41_compose_api_animation_does_not_recompose).
 
 #### 비용
 
