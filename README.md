@@ -52,7 +52,7 @@ What the crate contains today:
   checks it and links it (see [Getting started](#-getting-started)).
 
 What it does **not** contain yet is its own authoring API. `#[composable]`, the `Recomposer`
-and `launch` are in progress, targeting **0.1.0 on 2026-10-10**. Until then the crate is a
+and `launch` are in progress, targeting **1.0.0 on 2026-10-20**. Until then the crate is a
 foundation for a layer that builds the tree, not something you write screens with directly.
 
 ### The planned shape
