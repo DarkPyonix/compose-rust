@@ -80,7 +80,8 @@ under `docs/`.
    worktree.
 10. **Only `main`, `develop` and `release` stay on the remote.** A branch merged into
     `develop` is deleted; its commits are in `develop`, so nothing is kept for it, no
-    `archive/` tag either. In the forks the same holds for branches merged into `extended`.
+    `archive/` tag either. In the forks, `extended` and the upstream branch (`jb-main`) stay, and a branch merged
+    into `extended` is deleted the same way.
 
 ## Where files go
 
