@@ -48,6 +48,11 @@ done
 
 konan_target="linux_x64"
 amper_platform="linuxX64"
+# The toolchain names a task after the platform with its first letter capitalised:
+# :linux:compileLinuxX64Debug, built into _linux_compileLinuxX64Debug. Spelling it as the
+# platform is written looked for a directory that is never made and reported a compile
+# that had succeeded as one that produced nothing.
+task_platform="${amper_platform^}"
 
 # Built where the libraries it links against are. Kotlin/Native can cross compile the code,
 # but the archive this produces is linked into an application by Cargo against the X11, Xext
@@ -84,13 +89,13 @@ build_log="$LOG_DIR/$amper_platform-build.log"
 echo "==> kotlin build -m linux -m staticlib-linux ($amper_platform)"
 # The compile has to actually run: an up-to-date task logs no arguments, and its arguments
 # are where the resolved klib list comes from.
-rm -rf "$PROJECT_DIR/build/tasks/_linux_compile${amper_platform}Debug"
+rm -rf "$PROJECT_DIR/build/tasks/_linux_compile${task_platform}Debug"
 (cd "$PROJECT_DIR" && "$KOTLIN_WRAPPER" --log-level=debug build -m linux -m staticlib-linux) >"$build_log" 2>&1 ||
     { cat "$build_log" >&2; die "the linux module did not compile" "Full log: $build_log"; }
 
-klib="$PROJECT_DIR/build/tasks/_linux_compile${amper_platform}Debug/linux.klib"
+klib="$PROJECT_DIR/build/tasks/_linux_compile${task_platform}Debug/linux.klib"
 [[ -f "$klib" ]] || die "the compiler produced no klib at $klib" \
-    "Expected the :linux:compile${amper_platform}Debug task to run." \
+    "Expected the :linux:compile${task_platform}Debug task to run." \
     "Full log: $build_log"
 
 # The compiler arguments are logged as one block per invocation, and the block names the
