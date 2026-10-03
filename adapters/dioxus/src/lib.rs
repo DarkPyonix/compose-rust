@@ -36,11 +36,11 @@ pub use hooks::{
 };
 pub use host::{DioxusRuntime, Host, LaunchBuilder, launch, runtime_for};
 pub use widgets::{
-    Badge, Button, Canvas, Card, Checkbox, Chip, Column, ComposeBox as Box, DatePicker, Dialog,
-    Divider, Dropdown, FileDropTarget, FloatingAction, Icon, Image, LazyColumn, LazyGrid, LazyRow,
-    Menu, Navigation, NavigationItem, ProgressIndicator, RadioButton, Row, Scaffold, ScrollColumn,
-    ScrollRow, SelectionContainer, Separator, Sheet, Slider, Spacer, SplitPane, Surface, Switch,
-    Tabs, Text, TextField, TimePicker, Tooltip, TopAppBar,
+    AbsoluteBox, Badge, Button, Canvas, Card, Checkbox, Chip, Column, ComposeBox as Box,
+    DatePicker, Dialog, Divider, Dropdown, FileDropTarget, FloatingAction, Icon, Image, LazyColumn,
+    LazyGrid, LazyRow, Menu, Navigation, NavigationItem, ProgressIndicator, RadioButton, Row,
+    Scaffold, ScrollColumn, ScrollRow, SelectionContainer, Separator, Sheet, Slider, Spacer,
+    SplitPane, Surface, Switch, Tabs, Text, TextField, TimePicker, Tooltip, TopAppBar,
 };
 
 #[cfg(target_family = "wasm")]
@@ -122,18 +122,18 @@ pub mod prelude {
     // Exporting the Compose `Box` through this glob prelude shadows it. Use
     // `dioxus_compose_adapter::Box { ... }` in RSX until upstream qualifies std::boxed::Box.
     pub use crate::{
-        Alignment, Arrangement, AssetKind, Badge, Brush, Button, ButtonVariant, Canvas, Card,
-        Checkbox, Chip, Color, ColorRole, ColorScheme, Column, DatePicker, DesignSystem, Dialog,
-        Divider, DrawCommand, DrawList, Dropdown, Element, FileDrop, FileDropTarget,
-        FloatingAction, Icon, IconRole, Image, Key, KeyEvent, LaunchBuilder, LazyColumn, LazyGrid,
-        LazyRow, LinearProgressIndicator, LoopMode, MaterialRole, Menu, Message, MessageDuration,
-        Modifier, MotionRole, Navigation, NavigationItem, Paint, Palette, ProgressIndicator, Props,
-        RadioButton, RangeRequest, Row, Scaffold, ScrollColumn, ScrollRow, SelectionContainer,
-        Separator, ShapeRole, Sheet, Slider, SpaceRole, Spacer, SplitPane, Stop, Surface, Switch,
-        Tabs, Text, TextAlign, TextField, TextOverflow, Theme, TileMode, TimePicker, Tooltip,
-        TopAppBar, TypeRole, WindowHeightClass, WindowSize, WindowSizeClass, asset, brush,
-        component, launch, rsx, show_message, use_design_system, use_node_size, use_theme,
-        use_window_size,
+        AbsoluteBox, Alignment, Arrangement, AssetKind, Badge, Brush, Button, ButtonVariant,
+        Canvas, Card, Checkbox, Chip, Color, ColorRole, ColorScheme, Column, DatePicker,
+        DesignSystem, Dialog, Divider, DrawCommand, DrawList, Dropdown, Element, FileDrop,
+        FileDropTarget, FloatingAction, Icon, IconRole, Image, Key, KeyEvent, LaunchBuilder,
+        LazyColumn, LazyGrid, LazyRow, LinearProgressIndicator, LoopMode, MaterialRole, Menu,
+        Message, MessageDuration, Modifier, MotionRole, Navigation, NavigationItem, Paint, Palette,
+        ProgressIndicator, Props, RadioButton, RangeRequest, Row, Scaffold, ScrollColumn,
+        ScrollRow, SelectionContainer, Separator, ShapeRole, Sheet, Slider, SpaceRole, Spacer,
+        SplitPane, Stop, Surface, Switch, Tabs, Text, TextAlign, TextField, TextOverflow, Theme,
+        TileMode, TimePicker, Tooltip, TopAppBar, TypeRole, WindowHeightClass, WindowSize,
+        WindowSizeClass, asset, brush, component, launch, rsx, show_message, use_design_system,
+        use_node_size, use_theme, use_window_size,
     };
     // Under its own name, and the one thing in this list that could shadow something a
     // reader already has: an application that draws its own `Window` component would find
@@ -206,6 +206,16 @@ pub mod elements {
             // keeps a screen from lighting up every container it has.
             pub const onfilesentered: AttributeDescription = ("onfilesentered", None, false);
             pub const onfilesdropped: AttributeDescription = ("onfilesdropped", None, false);
+            // The elements an HTML and CSS screen is drawn with. The ones with more than one
+            // number carry the whole `compose_rust::Modifier`, so the numbers of one box
+            // arrive together as one record.
+            pub const offset: AttributeDescription = ("offset", None, false);
+            pub const required_size: AttributeDescription = ("required_size", None, false);
+            pub const border_each: AttributeDescription = ("border_each", None, false);
+            pub const corner_each: AttributeDescription = ("corner_each", None, false);
+            pub const shadow: AttributeDescription = ("shadow", None, false);
+            pub const clip: AttributeDescription = ("clip", None, false);
+            pub const alpha: AttributeDescription = ("alpha", None, false);
         };
     }
 
@@ -378,6 +388,9 @@ pub mod elements {
         "SplitPane",
         [value, min, max, collapsible, selected_index, text]
     );
+    // Children laid where the Host put them, each at its own `offset`. Nothing of its own:
+    // where a child goes is the child's modifier, not the box's property.
+    element!(absolutebox, "AbsoluteBox", []);
 
     #[doc(hidden)]
     pub mod completions {
@@ -424,6 +437,7 @@ pub mod elements {
             badge {},
             selectioncontainer {},
             splitpane {},
+            absolutebox {},
         }
     }
 }

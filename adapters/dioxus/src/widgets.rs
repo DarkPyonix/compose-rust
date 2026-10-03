@@ -38,6 +38,52 @@ fn dp(value: Option<f32>) -> f64 {
     f64::from(value.unwrap_or(0.0))
 }
 
+/// A box that places each child where the Host already put it, for a screen whose layout
+/// was computed before it got here, such as an HTML page laid out by a CSS engine.
+///
+/// Every property is the box's own place and decoration, in CSS's terms: `offset` from the
+/// box it is in, `required_size` whatever that box allows, a border and a radius for each
+/// side and corner in CSS order (top, right, bottom, left and top left, top right, bottom
+/// right, bottom left), one `box-shadow`, `overflow: hidden` and `opacity`. A child is
+/// placed by giving it its own `offset`, which for anything but another `AbsoluteBox`
+/// means wrapping it in one. Equal sides and equal corners go out as the ordinary border
+/// and shape records.
+#[component]
+pub fn AbsoluteBox(
+    #[props(default)] offset: Option<(f32, f32)>,
+    #[props(default)] required_size: Option<(f32, f32)>,
+    #[props(default)] background: Option<Paint>,
+    #[props(default)] border: Option<([f32; 4], [Paint; 4])>,
+    #[props(default)] corners: Option<[f32; 4]>,
+    /// x and y offset, blur, spread and paint, as CSS `box-shadow` takes them.
+    #[props(default)]
+    shadow: Option<(f32, f32, f32, f32, Paint)>,
+    #[props(default)] clip: bool,
+    #[props(default)] alpha: Option<f32>,
+    children: Element,
+) -> Element {
+    use compose_rust::Modifier;
+    rsx! {
+        absolutebox {
+            offset: offset.map(|(x, y)| AttributeValue::any_value(Modifier::Offset { x, y })),
+            required_size: required_size.map(|(width, height)| {
+                AttributeValue::any_value(Modifier::RequiredSize { width, height })
+            }),
+            background: opt_paint(background),
+            border_each: border.map(|(widths, paints)| {
+                AttributeValue::any_value(Modifier::border_sides(widths, paints))
+            }),
+            corner_each: corners.map(|radii| AttributeValue::any_value(Modifier::corner_radii(radii))),
+            shadow: shadow.map(|(x, y, blur, spread, paint)| {
+                AttributeValue::any_value(Modifier::Shadow { x, y, blur, spread, paint })
+            }),
+            clip: clip.then_some(true),
+            alpha: opt_dp(alpha),
+            {children}
+        }
+    }
+}
+
 #[component]
 pub fn Column(
     /// Asks the Renderer to report this node's measured size, under the name a

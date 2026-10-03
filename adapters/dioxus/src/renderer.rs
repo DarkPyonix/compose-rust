@@ -71,7 +71,7 @@ struct StackNode {
 
 /// How many Modifier slots a node has. The slot numbers are assigned in `set_modifier`,
 /// and this is one past the last of them.
-const MODIFIER_SLOTS: usize = 14;
+const MODIFIER_SLOTS: usize = 22;
 
 /// Node id 0 is the "no node" sentinel: a Dioxus placeholder, which draws nothing and
 /// takes no slot in the Compose tree.
@@ -223,22 +223,35 @@ impl ComposeRenderer {
     ) -> Option<Option<(u16, compose_rust::Modifier)>> {
         use compose_rust::Modifier;
 
-        // Slot assignments. Append only: an existing slot never changes meaning, because a
-        // node keeps whatever a slot held until something overwrites it.
+        // Slot assignments, which are chain positions. Every write in one process uses
+        // this table, so a node never holds a value under a meaning it no longer has, but
+        // the relative order of the slots is the order the Renderer applies them in and
+        // has to stay what CSS and Compose both expect: where the box is and how big, then
+        // what it is drawn through, then what fills and outlines it, then what responds
+        // to a press, then how far its content sits inside.
         const WEIGHT: u16 = 0;
-        const FILL_MAX_WIDTH: u16 = 1;
-        const FILL_MAX_HEIGHT: u16 = 2;
-        const WIDTH: u16 = 3;
-        const HEIGHT: u16 = 4;
-        const SHAPE: u16 = 5;
-        const BACKGROUND: u16 = 6;
-        const BORDER: u16 = 7;
-        const ELEVATION: u16 = 8;
-        const CLICKABLE: u16 = 9;
-        const PADDING: u16 = 10;
-        const OBSERVE_SIZE: u16 = 11;
-        const MOTION: u16 = 12;
-        const MATERIAL: u16 = 13;
+        const OFFSET: u16 = 1;
+        const REQUIRED_SIZE: u16 = 2;
+        const FILL_MAX_WIDTH: u16 = 3;
+        const FILL_MAX_HEIGHT: u16 = 4;
+        const WIDTH: u16 = 5;
+        const HEIGHT: u16 = 6;
+        // Kept for the transform, which sits outside the opacity and the decoration.
+        const _TRANSFORM: u16 = 7;
+        const ALPHA: u16 = 8;
+        const SHADOW: u16 = 9;
+        const CORNER_EACH: u16 = 10;
+        const SHAPE: u16 = 11;
+        const BACKGROUND: u16 = 12;
+        const BORDER: u16 = 13;
+        const BORDER_EACH: u16 = 14;
+        const ELEVATION: u16 = 15;
+        const CLIP: u16 = 16;
+        const CLICKABLE: u16 = 17;
+        const PADDING: u16 = 18;
+        const OBSERVE_SIZE: u16 = 19;
+        const MOTION: u16 = 20;
+        const MATERIAL: u16 = 21;
 
         let float = |value: &AttributeValue| match value {
             AttributeValue::Float(number) => Some(*number as f32),
@@ -266,6 +279,13 @@ impl ComposeRenderer {
             "observe_size" => Some(OBSERVE_SIZE),
             "motion" => Some(MOTION),
             "material" => Some(MATERIAL),
+            "offset" => Some(OFFSET),
+            "required_size" => Some(REQUIRED_SIZE),
+            "alpha" => Some(ALPHA),
+            "shadow" => Some(SHADOW),
+            "corner_each" => Some(CORNER_EACH),
+            "border_each" => Some(BORDER_EACH),
+            "clip" => Some(CLIP),
             _ => None,
         };
         let slot = slot_of(name)?;
@@ -384,6 +404,34 @@ impl ComposeRenderer {
                 };
                 Some(Some((BORDER, Modifier::Border { width, paint })))
             }
+            // A whole modifier, carried as itself so its numbers arrive as one record. Only
+            // the kind the attribute names is accepted, so a value meant for one slot can
+            // never land in another.
+            "offset" | "required_size" | "corner_each" | "border_each" | "shadow" => {
+                let AttributeValue::Any(any) = value else {
+                    return None;
+                };
+                let modifier = any.as_any().downcast_ref::<Modifier>()?.clone();
+                let fits = match (&modifier, name) {
+                    (Modifier::Offset { .. }, "offset")
+                    | (Modifier::RequiredSize { .. }, "required_size")
+                    | (Modifier::Shadow { .. }, "shadow") => true,
+                    // One radius or one border for every side is the record an ordinary
+                    // node already sends, which is what `Modifier::corner_radii` and
+                    // `Modifier::border_sides` give for equal values.
+                    (Modifier::CornerEach { .. } | Modifier::Shape { .. }, "corner_each") => true,
+                    (Modifier::BorderEach { .. } | Modifier::Border { .. }, "border_each") => true,
+                    _ => false,
+                };
+                fits.then_some(Some((slot, modifier)))
+            }
+            "clip" => {
+                let AttributeValue::Bool(enabled) = value else {
+                    return None;
+                };
+                Some(Some((CLIP, Modifier::Clip(*enabled))))
+            }
+            "alpha" => Some(Some((ALPHA, Modifier::Alpha(float(value)?)))),
             "onclickable" => {
                 let AttributeValue::Listener(_) = value else {
                     return Some(None);
