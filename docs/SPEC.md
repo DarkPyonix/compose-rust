@@ -2320,6 +2320,7 @@ fn main() {
 - 사용자 입력이 들어오면 Renderer가 Host 핸들러를 직접 호출합니다. Host는 그 자리에서 핸들러를 실행하고 diff를 계산한 뒤, 결과 Mutation 배치와 반환값을 돌려줍니다.
 - 동기 반환값을 지원합니다. 예: `onKeyEvent`의 "처리됨" 여부. Enter는 제출, Shift+Enter는 줄바꿈으로 나누는 처리가 여기에 해당합니다. 표현 방식은 FR-12를 따릅니다.
 - 경계에 비동기 큐를 두지 않습니다. 스레드 간 통신은 PR-3의 wake 신호 하나뿐입니다.
+- 측정 호출(PR-2.1)은 Renderer가 Host를 부른 호출 안에서 Host가 Renderer를 다시 부르는 **같은 스레드의 재진입**입니다(2026-10-03 소유자 승인). 이 호출 때문에 큐나 스레드가 생기지 않습니다.
 - 수용 기준: 배치 버퍼가 큐가 아니라 한 호출의 인자입니다. 호출이 돌려준 배치는 그 호출 스택 안에서 소비되고, 다음 호출에는 남아 있지 않습니다(`pr4_the_batch_buffer_is_an_argument_and_not_a_queue`, `pr4_nothing_is_left_for_a_third_call`). **(통과)**
 - 수용 기준: 핸들러의 동기 반환값이 그 호출의 반환으로 돌아옵니다(`fr12_key_consumption_is_returned_and_does_not_leak`). **(통과)**
 - 수용 기준: Host의 초기화가 Renderer의 UI 스레드에서 돕니다(`pr3_init_runs_on_a_different_thread_than_launch`). **(통과)**
@@ -2347,6 +2348,9 @@ Host → Renderer (Kotlin이 export):
 ```c
 int32_t compose_rust_renderer_run(void);            // LoopMode::Renderer일 때만. 블로킹
 void    compose_rust_renderer_request_frame(void);  // 스레드 안전. 다음 프레임에 render_frame 예약
+// 측정: 요청 레코드 count개를 읽고 결과 레코드 count개를 채웁니다. UI 스레드에서만, 동기(PR-2.1)
+int32_t compose_rust_renderer_measure(const uint8_t* requests, uint32_t len,
+                                      uint32_t count, MeasureResult* results);
 ```
 
 - `LoopMode`
@@ -2370,6 +2374,100 @@ compose_rust_host_dispatch_event: click 1
 - 시뮬레이터에서 버튼을 탭하면 `dispatch_event`가 Rust 핸들러까지 도달합니다. `simctl`에 탭 명령이 없어 이 확인은 자동화되지 않습니다. `ios-smoke-test.sh --await-click`으로 사람이 실행합니다. CI는 이 플래그 없이 기동과 렌더링까지만 증명합니다.
 - iOS에는 isolate가 없어 `@CName`이 공개 심볼을 Kotlin 함수에 직접 붙입니다. isolate 심이 하던 나머지 역할은 Kotlin/Native 런타임과 `NSThread.isMainThread` 검사가 대신합니다.
 - Web은 검증되었습니다(PR-6의 검증 절). 같은 다섯 개 논리 연산이 브라우저에서도 그대로 서고, 초기 배치와 클릭 왕복이 공유 메모리 위에서 돕니다. **Android는 2026-09-22 API 36 에뮬레이터에서 확인했습니다.** 같은 다섯 연산이 생성된 JNI 심을 통해 서고, 화면이 그려지며, 워커의 프레임 요청이 경계를 넘어옵니다. 호출당 비용도 그 자리에서 쟀습니다(PR-5의 수용 기준 1).
+
+### PR-2.1 측정 호출 (`Agreed`)
+
+**무엇을 하나.** Host가 자기 레이아웃을 계산하는 도중에, 텍스트 한 덩이나 이미 보낸 위젯 하나가 주어진 제약 안에서 차지할 크기를 Renderer에게 묻습니다. Renderer는 **그릴 때와 같은 글꼴 해석, 같은 Density와 글꼴 배율, 같은 디자인 시스템 타입 스케일**로 재서 그 자리에서 돌려줍니다. 측정값과 그려진 크기가 같다는 것이 이 호출의 존재 이유입니다.
+
+**한 번에 여러 개.** 호출 하나가 요청 N개를 싣습니다. 레이아웃 한 번에 텍스트 잎이 수백 개 나오고(사이드바 하나에 약 200개), Taffy는 같은 잎에 min-content, max-content, 정해진 폭을 차례로 묻습니다. 잎마다 경계를 건너면 그 비용이 쌓입니다. Host는 레이아웃 한 번에 이 호출을 여러 번 불러도 됩니다.
+
+**요청 버퍼.** 배치 버퍼(PR-4)와 같은 형식입니다. 앞에 고정 길이 요청 레코드 `count`개가 있고, 그 뒤 페이로드 영역에 UTF-8 텍스트와 스팬 레코드가 놓입니다. 레코드는 페이로드를 `(offset, len)`으로 가리킵니다. serde 형식은 쓰지 않고, 레코드 레이아웃은 Rust 스키마에서 codegen이 만듭니다(FR-7).
+
+요청 레코드는 종류 태그로 시작합니다:
+
+- `MeasureText = 1`
+  - `text: (offset, len)`. UTF-8이고, 공백 접기와 `text-transform`은 Host가 이미 적용한 최종 문자열입니다.
+  - `spans: (offset, count)`. FR-26의 스팬 레코드를 그대로 씁니다. 크기에 영향을 주지 않는 칸(색, 링크 핸들러)은 무시합니다.
+  - 기본 글자 모양:
+    - `type_role: TypeRole`. 노드 단위 글꼴, `TypeRole::None`, 그리고 아래 HTML 텍스트 칸(`tab_size`, `word_break`, `overflow_wrap`, `absolute_size`)이 그리기에도 같은 뜻으로 서는 것은 별도 요구사항입니다(승인 대기). 그것이 들어오기 전까지 이 칸들은 레코드에 자리만 있고 기본값으로 해석됩니다.
+    - `font_size: f32` (0이면 역할의 값)
+    - `font_weight: u16` (0이면 역할의 값)
+    - `italic: u8`
+    - `letter_spacing: f32` (NaN이면 역할의 값)
+    - `line_height: f32` (NaN이면 normal)
+    - `max_lines: u32` (0이면 제한 없음)
+    - `wrap: u8` (0은 줄을 바꾸지 않음. CSS `nowrap`, `pre`)
+    - `tab_size: u8` (CSS `tab-size`, 기본 8). 탭은 다음 탭 위치까지 차지합니다.
+    - `word_break: Normal | KeepAll | BreakAll`, `overflow_wrap: Normal | Anywhere | BreakWord`
+    - `absolute_size: u8`. 1이면 시스템 글꼴 배율을 적용하지 않습니다(CSS px). 측정과 그리기에 똑같이 적용됩니다.
+  - **Renderer는 받은 문자열의 공백을 자르거나 접지 않습니다.** 공백 접기(`normal`, `pre-line`)는 Host의 일입니다. `pre`는 그대로 보낸 문자열과 `wrap = 0`, `pre-wrap`은 그대로 보낸 문자열과 `wrap = 1`입니다.
+  - 제약 `constraint: MinContent = 1 | MaxContent = 2 | AtMost = 3`과 `width: f32`(`AtMost`일 때만 씀). 결과는 다음과 같습니다.
+    - `MinContent`: 가장 긴 끊을 수 없는 조각의 폭. Compose `ParagraphIntrinsics.minIntrinsicWidth`.
+    - `MaxContent`: 줄을 바꾸지 않은 폭. `maxIntrinsicWidth`.
+    - `AtMost(w)`: 폭 `w` 안에서 줄을 바꿨을 때의 크기.
+- `MeasureNode = 2`
+  - `node: NodeId`. Host가 이미 보냈고 Renderer가 이미 적용한 노드입니다.
+  - 제약 `min_width, max_width, min_height, max_height: f32`. 제한 없음은 `+inf`입니다.
+  - 그 노드의 하위 트리를 Compose 레이아웃이 주어진 제약에서 잴 때의 크기를 돌려줍니다.
+
+**결과 레코드** (`MeasureResult`, 32바이트):
+- `width, height: f32`
+- `first_baseline, last_baseline: f32`. 기준선이 없으면 NaN입니다.
+- `last_line_width: f32`. 마지막 줄의 폭으로, 그 뒤에 이어지는 인라인 내용을 놓는 데 씁니다. 노드면 NaN입니다.
+- `line_count: u32`. 노드면 0입니다.
+- `flags: u32`. 비트 0 `truncated`는 `max_lines` 때문에 글자가 잘렸다는 뜻입니다.
+- `status: u32`
+
+`status` 값:
+- `Ok = 0`
+- `UnknownNode = 1`: 아직 적용되지 않았거나 없는 노드
+- `Malformed = 2`: 레코드가 버퍼 밖을 가리킴
+
+단위는 레이아웃 속성과 같은 dp입니다.
+
+**반환값.** 0이면 성공입니다. 레코드 하나가 잘못된 것은 그 레코드의 `status`로 알리고 나머지는 잽니다. 버퍼 전체를 읽을 수 없으면 음수를 돌려줍니다. 이때 Host는 `ProtocolError`를 내고(NFR-7) 그 레이아웃을 크기 0으로 계속합니다. 프로세스는 멈추지 않습니다.
+
+**스레드와 재진입(PR-1, PR-3).**
+- UI 스레드에서만 부릅니다. 보통은 Renderer가 Host를 부른 호출(`render_frame`, `dispatch_event`, `init`) 안에서 Host가 다시 Renderer를 부르는 재진입이고, 같은 스레드, 같은 호출 스택입니다. 큐도 스레드 홉도 없습니다.
+- 다른 스레드에서 부르면 아무것도 재지 않고 음수를 돌려줍니다.
+- 텍스트 측정은 composition 밖에서 돕니다. 현재 `Density`, `FontFamily.Resolver`, 디자인 시스템 타입 스케일로 만든 `TextMeasurer`를 씁니다.
+- **같은 호출에서 아직 적용되지 않은 노드는 잴 수 없습니다.** 지금 계산 중인 배치는 Host가 돌려준 뒤에야 적용되기 때문입니다. 그런 노드는 `UnknownNode`가 됩니다. Host는 새로 만든 위젯을 한 프레임 동안 CSS 크기로 놓고 다음 프레임에 잴 수 있습니다.
+
+**캐시.** Host는 `(텍스트, 모양, 제약)`마다 한 프레임 동안 결과를 캐시합니다. Renderer도 캐시할 수 있지만, 결과가 캐시에 의존해서는 안 됩니다.
+
+**Rust 쪽 API.** 사용자 코드는 경계 함수를 직접 부르지 않습니다(PR-3). 어댑터와 compose-rust 런타임은 `compose_rust::measure`의 안전한 API로 부릅니다. 이 API는 Host의 프레임 작업 안에서만 측정기를 내주고, 그 밖에서는 `Err`를 돌려줍니다.
+
+**플랫폼.** desktop(K/N과 native-image), iOS, Android, Web 모두 같은 논리 연산입니다. 심은 codegen이 만듭니다.
+- Web(PR-6): 요청과 결과 버퍼가 공유 `WebAssembly.Memory` 안에 있고, Kotlin이 그 자리에서 읽고 씁니다.
+- Android: 생성된 JNI 심이 UI 스레드에 이미 붙어 있는 `JNIEnv`로 부르고, 버퍼는 direct `ByteBuffer`로 감쌉니다. 복사하지 않습니다.
+- 스키마 해시가 바뀝니다.
+
+**테스트용 Renderer.** stand-in renderer와 mock renderer도 이 함수를 갖습니다. 결정적인 가짜 메트릭(글자당 고정 폭)을 돌려주므로, Rust 테스트가 실제 렌더러 없이 돌 수 있습니다.
+
+### 수용 기준
+
+1. **측정값과 그려진 크기가 같습니다.** 같은 텍스트와 모양을 `AtMost(w)`로 잰 결과와, Renderer가 폭 `w`의 `Text` 노드로 그린 결과의 너비, 높이, 첫 기준선, 줄 수가 비트 단위로 같습니다. 대상은 다음 네 가지입니다.
+   - 라틴
+   - 한국어(단어 경계 줄바꿈)
+   - 이모지
+   - 스팬이 섞인 문단
+
+   마지막 줄 폭과 `truncated`도 같아야 합니다. HTML 텍스트 칸이 승인되어 그리기에 들어오면, 같은 기준을 한국어 `word_break`의 `Normal`과 `KeepAll`, 탭이 든 `pre` 문자열, `absolute_size` 문자열에도 적용합니다.
+
+   (pr2_measured_text_matches_the_drawn_text, Kotlin 측 테스트)
+2. `MinContent`와 `MaxContent`가 Compose `ParagraphIntrinsics`의 `minIntrinsicWidth`, `maxIntrinsicWidth`와 같습니다(pr2_intrinsic_widths_match_compose).
+3. 이미 적용된 노드를 잰 크기가, 같은 제약에서 Compose 레이아웃이 그 노드에 준 크기와 같습니다. 대상은 `Button`, `TextField`, `Column` 안의 `Text` 둘입니다(pr2_measured_node_matches_its_layout).
+4. 아직 적용되지 않은 노드는 `UnknownNode`를 받고, 같은 호출의 나머지 요청은 정상으로 잽니다(pr2_unknown_node_is_reported_per_record).
+5. 재진입:
+   - `render_frame` 안에서 Host가 측정을 부르면 같은 스레드, 같은 호출 스택에서 답을 받습니다(pr1_measure_is_answered_inside_the_host_call).
+   - 다른 스레드에서 부르면 음수를 받고, 프로세스는 계속 돕니다(pr3_measure_off_the_ui_thread_is_refused).
+6. 잘못된 버퍼는 `ProtocolError`가 되고 프로세스를 멈추지 않습니다(nfr7_malformed_measure_buffer_is_a_protocol_error).
+7. 비용(NFR-9):
+   - 사이드바 하나 분량(텍스트 잎 200개, 잎마다 min, max, 정해진 폭 세 번, 캐시가 빈 상태)을 재는 벤치마크를 둡니다.
+   - 같은 600건을 Kotlin에서 `TextMeasurer`로 직접 잰 시간 대비, 경계를 건넌 측정의 추가 비용이 10% 이하입니다.
+   - 그 절대 시간을 플랫폼별로 기록합니다.
+   - (`benches/measure_sidebar`, 수치는 이 항목 아래에 기록)
+8. 다섯 플랫폼(macOS, Linux, Windows, iOS, Android)과 Web에서 기준 1의 라틴 경우가 통과합니다. CI 스모크로 확인합니다.
 
 ### PR-3 스레드 규칙 (`Done`)
 - VirtualDom, 사용자 컴포넌트, 모든 `compose_rust_host_*` 호출은 Renderer UI 스레드에서만 실행합니다. 그래서 락이 필요 없습니다.
