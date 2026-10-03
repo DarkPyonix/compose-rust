@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Usage: bench/fetch-dioxus-baseline.sh
 #
-# Fetches the FR-39 Dioxus baseline at the commit bench/fr39-baseline.env pins, into
-# .scratch/fr39-baseline/<rev>/, and prints the baseline crate's directory there.
+# Fetches the Dioxus baseline of the authoring-path comparison at the commit that
+# bench/fr39-baseline.env pins, into .scratch/fr39-baseline/<rev>/, and prints the
+# baseline crate's directory there.
 #
 # The Dioxus path is not in this repository. The comparison harness builds the baseline
 # from this checkout of it, so what is measured is the pinned source and nothing that has
