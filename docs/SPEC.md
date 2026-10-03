@@ -1311,6 +1311,26 @@ Window::new().with_title_bar(TitleBar::Normal)
 - 캡션 띠의 버튼 자리는 클라이언트 영역으로 남기고 나머지는 `HTCAPTION`을 돌려줍니다. 그래서 끌기, 두 번 눌러 최대화, 오른쪽 눌러 시스템 메뉴가 전부 시스템 것으로 돌아옵니다.
 - **Snap Layouts의 최대화 버튼 호버 플라이아웃은 아직 없습니다.** 그것은 `HTMAXBUTTON`을 최대화 버튼의 사각형에서만 돌려줘야 하는데, 그 사각형은 디자인 시스템이 정하고 Kotlin이 압니다. 네이티브가 그것을 알려면 Kotlin에서 네이티브로 값을 보내는 경로가 필요하고 지금은 없습니다. 끌어서 스냅하는 것과 키보드 스냅은 프레임이 그대로이므로 동작합니다.
 
+#### 19.8 데스크톱 창 코드는 Compose의 포크가 가집니다 (`Agreed`)
+
+INTENT D19가 Compose 자체를 고치는 일을 `thisisthepy/compose-multiplatform-core-extended`(브랜치 `extended`)로 옮겼고, 데스크톱 창은 그 일에 속합니다. Rust와 무관하고, Python에서 Compose를 쓰는 다른 프로젝트도 같은 창을 필요로 합니다. **아래 창 코드의 주인은 포크이고, 이 저장소에서 포크로 옮기는 중입니다.**
+
+- Windows 캡션 되찾기(19.1, 19.6)와 캡션의 색 (`renderer_entry.c`, `WindowChrome.kt`)
+- Windows DPI 인식 선언
+- 크기를 바꾸는 동안 그리기, 끄는 도중에도 내용이 창 크기를 따라 그려지는 것 (`WindowResize.kt`, `ResizeSync.kt`, `WindowFrames.kt`, `win32_resize.h`, NFR-9)
+- 창 아이콘(19.3, `WindowIcon.kt`)
+- 툴킷 없는 창: AWT 없이 렌더러가 여는 Win32, X11, AppKit 창(`win32_window.c`, `x11_window.c`, `appkit_window.m`, NFR-14)
+- Kotlin/Native 데스크톱 창: 렌더러의 `macos/`, `linux/` 모듈과 D18의 `windows/` 모듈의 창 부분
+- 이슈 #26이 함께 꼽는 것: GraalVM native-image에서 AWT를 걷어내는 경로, macOS 창 재질(FR-29)
+
+지금 이 코드는 `dioxus-compose-renderer/desktop/c/`와 렌더러의 Kotlin 소스, 플랫폼 모듈에 있습니다. 옮긴 뒤 이 저장소에는 포크가 내놓는 창을 쓰는 코드만 남고, 창에 관한 변경은 포크의 커밋으로 들어갑니다. 옮기는 동안 창이 빌드되지 않거나 나빠지는 기간이 생기면 안 되므로, 이 저장소의 사본은 포크가 아래 기준을 통과할 때까지 남깁니다.
+
+수용 기준 (이슈 #26):
+
+1. 지금 이 저장소가 창에 대해 돌리는 검사(19.4, 19.7의 수용 기준, 그리고 `scripts/tests/`의 창 검사: 캡션 기하, Win32와 X11 창 배치, 크기 조절 중 그리기)가 포크의 샘플(`compose-multiplatform-extended`의 hello 앱)에 대해 같은 결과로 통과합니다. 캡션의 색과 크기 조절 중 그리기가 그 샘플에 지금 없는 것이 이 이전이 끝나지 않았다는 표시입니다.
+2. 그 확인을 화면 배율 100%와 200%에서 각각 하고, 각 배율의 스크린숏을 기록합니다.
+3. 옮긴 뒤 compose-rust의 샘플이 포크의 창으로 같은 검사를 통과하고, 이 저장소의 창 사본이 지워집니다.
+
 ### FR-20 반응형 레이아웃 기반 (창 크기 클래스) (`Done`)
 
 UI는 Rust가 저작하지만 측정은 Kotlin이 합니다. 그래서 지금은 Host 컴포넌트가 "폰에서는 한 열, 태블릿에서는 두 열, 데스크톱에서는 사이드바"라고 말할 방법이 전혀 없습니다. 브레이크포인트도, 크기 클래스도, 폭을 알아낼 경로도 없습니다. 폰/태블릿/데스크톱 적응은 그 위에 얹는 것이고, 이 요구사항은 그 바닥을 만듭니다.
