@@ -155,11 +155,11 @@ fn expand(function: &mut ItemFn, options: &Options) -> syn::Result<()> {
         ReturnType::Default => true,
         ReturnType::Type(_, ty) => matches!(&**ty, Type::Tuple(tuple) if tuple.elems.is_empty()),
     };
-    let skippable = unit_return && params_ok;
-    let restartable = skippable
-        && options.restartable
-        && !has_generics
-        && params.iter().all(|param| param.storable);
+    // A parameter that cannot be kept cannot be compared next time, so a function with
+    // one runs whenever its caller does, as an unstable parameter makes a Compose function
+    // run.
+    let skippable = unit_return && params_ok && params.iter().all(|param| param.storable);
+    let restartable = skippable && options.restartable && !has_generics;
 
     let private = quote!(::compose_rust::runtime::__private);
     let key = key_expression(&path, u32::MAX);
@@ -168,13 +168,9 @@ fn expand(function: &mut ItemFn, options: &Options) -> syn::Result<()> {
     let skip = if skippable {
         let comparisons = params.iter().enumerate().map(|(index, param)| {
             let ident = &param.ident;
-            if param.storable {
-                quote! {
-                    __compose_changed |= (&#private::Param(&#ident))
-                        .__compose_changed(&__compose_scope, #index);
-                }
-            } else {
-                quote! { __compose_changed = true; }
+            quote! {
+                __compose_changed |= (&#private::Param(&#ident))
+                    .__compose_changed(&__compose_scope, #index);
             }
         });
         let restart = if restartable && params.is_empty() {
