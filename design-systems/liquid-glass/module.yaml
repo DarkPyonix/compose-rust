@@ -1,0 +1,43 @@
+# The Liquid Glass material.
+#
+# Its own module because it is a material, not a design system: Cupertino uses it, and it
+# is separable from the widget set.
+#
+# The platform limit is settled (SPEC FR-14, 14.1): Compose Multiplatform cannot render
+# real Liquid Glass. The system draws it through native SwiftUI TabView and
+# NavigationStack, so only a SwiftUI shell gets the genuine effect. What this module can
+# do is everything whose backdrop is content we drew ourselves: concentric radii, edge
+# highlights, layered depth and translucent surfaces over app content. That is real work,
+# not imitation, and it is most of what makes a screen look like iOS 26.
+#
+# These five source files exist a second time, under renderer, as
+# desktop/src/renderer/LiquidGlass*.kt. That project must not depend on this one, and this
+# one must not depend on it, so neither can import the other's copy. Copies run in one
+# direction: edit the file here, then bring the change across. The renderer's copies say
+# the same thing in their own headers.
+
+product:
+  type: kmp/lib
+  platforms: [ jvm, android, iosArm64, iosSimulatorArm64, wasmJs ]
+
+dependencies:
+  - //core
+  - $compose.runtime
+  - $compose.foundation
+  - $compose.ui
+
+test-dependencies:
+  - $kotlin.test
+
+# The corner geometry is checked by building the outline and measuring the path it
+# produces, which is the only way to tell a superellipse from a rounded rectangle without
+# looking at a screen. Building a Path on the JVM runs Skia, and the common Compose
+# artifacts carry its Kotlin classes without the native library, so the JVM test run needs
+# the host's skiko binary on its classpath. Test only, and only on the JVM: the other
+# targets link Skia into the binary themselves.
+test-dependencies@jvm:
+  - $compose.desktop.currentOs
+
+settings:
+  compose:
+    enabled: true

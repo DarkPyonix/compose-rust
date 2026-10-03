@@ -4,13 +4,13 @@ Guidance for working in this repository.
 
 ## Project
 
-dioxus-compose lets Rust code author declarative UI with **Dioxus** (`dioxus-core` VirtualDom, `rsx!`, hooks). An **AOT-compiled Compose Multiplatform** renderer draws the UI and handles text and IME.
+compose-rust lets Rust code author declarative UI with **Dioxus** (`dioxus-core` VirtualDom, `rsx!`, hooks). An **AOT-compiled Compose Multiplatform** renderer draws the UI and handles text and IME.
 
-- `dioxus-compose/`: Rust side (Host). Dioxus renderer crate, boundary shims, codegen.
-- `dioxus-compose-renderer/`: Kotlin side (Renderer). Amper project. The schema interpreter
+- `compose-rust/`: Rust side (Host). Dioxus renderer crate, boundary shims, codegen.
+- `renderer/`: Kotlin side (Renderer). Amper project. The schema interpreter
   lives in `desktop/src/renderer/`; `ios/src/shared/` symlinks the same files so there is one
   copy. `shared/` is the JVM development shell only, not the renderer.
-- `dioxus-design-systems/`: a separate Amper project holding the six design systems and the
+- `design-systems/`: a separate Amper project holding the six design systems and the
   Liquid Glass material. It must never depend on the renderer, so it can be published alone.
 - `docs/INTENT.md`: why the project exists, decisions (D1–D9), rejected alternatives.
 - `docs/SPEC.md`: requirements (`FR-*`, `NFR-*`, `PR-*`) with acceptance criteria.
@@ -90,8 +90,8 @@ under `docs/`.
    - build outputs: `target/` and `build/`, where the tools already put them.
 3. A change to Compose or skiko goes to `thisisthepy/compose-multiplatform-core-extended`
    (branch `extended`) as a commit. This repository uses a pinned commit of that fork
-   (`dioxus-compose-renderer/scripts/build-compose.sh`,
-   `dioxus-compose-renderer/scripts/compose-fork.changes`) and builds it inside `.scratch/`.
+   (`renderer/scripts/build-compose.sh`,
+   `renderer/scripts/compose-fork.changes`) and builds it inside `.scratch/`.
    No Compose or skiko change lives in this repository.
 4. Caches a toolchain keeps for itself (`~/.cargo`, `~/.rustup`, `~/.gradle`, `~/.m2`,
    `~/.konan`, cargo-xwin's cache) belong to the tool and stay where it puts them.
@@ -113,7 +113,7 @@ the launchers inject them ahead of whatever the prompt says.
 
 1. **A background agent never builds the renderer.** Not `./kotlin build`, not
    `./kotlin test`, not Amper, Gradle, dx or native-image, and nothing under
-   `dioxus-compose-renderer/*/scripts/`. Those builds reach outside the worktree into
+   `renderer/*/scripts/`. Those builds reach outside the worktree into
    caches every checkout on the machine shares (`~/.m2`, `~/.cache/JetBrains/Kotlin`,
    Gradle's), they cost tens of minutes each, and six agents were once told to run them
    and did, at the same time, which took the machine down.
@@ -218,7 +218,7 @@ Never introduce anything that violates these. If a task seems to require it, sto
   - Do not add async queues or ring buffers between Host and Renderer.
   - The batch buffer is a call argument, not a queue.
 - **Boundary surface (PR-2)**: only primitives, pointers, and lengths cross it.
-  - Keep it to the `dioxus_compose_host_*` / `dioxus_compose_renderer_*` functions.
+  - Keep it to the `compose_rust_host_*` / `compose_rust_renderer_*` functions.
   - Adding an entry point requires a SPEC change.
 - **Threads (PR-3)**: no domain work on the UI thread.
   - PTY, network, streaming, and I/O run on Host worker threads.
@@ -231,9 +231,9 @@ Never introduce anything that violates these. If a task seems to require it, sto
 - **Stable Compose API only (NFR-6)**: if an `@InternalComposeUiApi` or experimental API is unavoidable, isolate it in a single adapter file and pin the version.
 - **Naming (PR-7)**: follow each ecosystem's conventions.
   - Rust: Dioxus names (`launch`, `use_*`, `VirtualDom`).
-  - Kotlin: Compose names (`DioxusContent`, `rememberDioxusHost`, `requestFrame`).
+  - Kotlin: Compose names (`ComposeRustContent`, `rememberComposeRustHost`, `requestFrame`).
   - Widgets reuse Compose names (`Column`, `LazyColumn`).
-  - C symbols use the `dioxus_compose_` prefix.
+  - C symbols use the `compose_rust_` prefix.
 - **Frame budget (NFR-9, SPEC §5.1)**: performance must be indistinguishable from hand-written Compose.
   - Target: ≤ 10% frame-time overhead vs. a pure-Compose baseline.
   - Zero steady-state heap allocation in the Host.

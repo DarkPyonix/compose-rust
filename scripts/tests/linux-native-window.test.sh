@@ -16,7 +16,7 @@
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-renderer="$repo_root/dioxus-compose-renderer"
+renderer="$repo_root/renderer"
 project="$renderer/project.yaml"
 module="$renderer/linux/module.yaml"
 window="$renderer/linux/src/LinuxWindow.kt"

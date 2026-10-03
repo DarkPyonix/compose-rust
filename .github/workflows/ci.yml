@@ -165,28 +165,28 @@ jobs:
             ~/.cache/JetBrains/Kotlin
             ~/.konan
             ~/.m2/repository
-          key: kotlin-${{ matrix.platform }}-${{ runner.os }}-${{ hashFiles('dioxus-compose-renderer/**/module.yaml', 'dioxus-compose-renderer/libs.versions.toml', 'dioxus-compose-renderer/kotlin', 'dioxus-design-systems/**/module.yaml') }}
+          key: kotlin-${{ matrix.platform }}-${{ runner.os }}-${{ hashFiles('renderer/**/module.yaml', 'renderer/libs.versions.toml', 'renderer/kotlin', 'design-systems/**/module.yaml') }}
           restore-keys: |
             kotlin-${{ matrix.platform }}-${{ runner.os }}-
 
       - name: Build the renderer
-        working-directory: dioxus-compose-renderer
+        working-directory: renderer
         run: ./kotlin build -p ${{ matrix.platform }}
 
       - name: Test the renderer
         if: matrix.test
-        working-directory: dioxus-compose-renderer
+        working-directory: renderer
         run: ./kotlin test -p ${{ matrix.platform }}
 
       - name: Build the design systems
         # A separate Amper project, and deliberately so: it must never depend on the
         # renderer, which is what lets it be published on its own.
-        working-directory: dioxus-design-systems
+        working-directory: design-systems
         run: ./kotlin build -p ${{ matrix.platform }}
 
       - name: Test the design systems
         if: matrix.test
-        working-directory: dioxus-design-systems
+        working-directory: design-systems
         run: ./kotlin test -p ${{ matrix.platform }}
 
   shell:
@@ -269,7 +269,7 @@ jobs:
       # packaging. So on that refusal, and only on it, the verification links a stand-in
       # renderer generated from this tree's schema instead: the packaged crate is still
       # built by its own build script with no workspace, and links a renderer through
-      # DIOXUS_COMPOSE_RENDERER_DIR. Whether the download for a version works is checked
+      # COMPOSE_RUST_RENDERER_DIR. Whether the download for a version works is checked
       # where it can be true, by the release workflow's own `cargo publish`, after it has
       # attached the renderer that release was built from.
       - name: Use a renderer generated from this tree's schema

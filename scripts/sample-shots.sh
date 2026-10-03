@@ -34,7 +34,7 @@ rm -f "$directory"/*.bin "$directory"/*.png
 
 # Every recording test says so in its name, whichever requirement it is named after.
 DXC_FRAME_DIR="$directory" cargo test --workspace is_recorded --quiet
-cd "$repo_root/dioxus-compose-renderer"
+cd "$repo_root/renderer"
 DXC_FRAME_DIR="$directory" DXC_FRAME_FILTER="$filter" \
     ./kotlin test -p jvm --include-module desktop --include-classes '*SampleScreenshotTest'
 

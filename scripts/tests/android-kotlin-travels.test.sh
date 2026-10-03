@@ -18,8 +18,8 @@ set -uo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
 
-staged="dioxus-compose/android-kotlin"
-source_dir="dioxus-compose-renderer/android/src"
+staged="compose-rust/android-kotlin"
+source_dir="renderer/android/src"
 
 failures=0
 fail() {
@@ -58,7 +58,7 @@ fi
 
 # And the packaged crate has to contain it.
 if command -v cargo >/dev/null 2>&1; then
-    listing="$(cd dioxus-compose && cargo package --list --allow-dirty 2>/dev/null)"
+    listing="$(cd compose-rust && cargo package --list --allow-dirty 2>/dev/null)"
     if [[ -z "$listing" ]]; then
         fail "cargo package --list said nothing, so packaging was not checked"
     elif ! grep -q "^android-kotlin/" <<<"$listing"; then

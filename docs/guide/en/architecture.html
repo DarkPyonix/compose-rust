@@ -102,17 +102,17 @@
 
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
       <figcaption>c: Renderer → Host (exported by Rust)</figcaption>
-<pre><code><span class="ty">int32_t</span> <span class="f">dioxus_compose_host_init</span>(<span class="k">const</span> <span class="ty">uint8_t</span>* handshake, <span class="ty">uint32_t</span> len, <span class="ty">MutationBatch</span>* out);
-<span class="ty">int32_t</span> <span class="f">dioxus_compose_host_dispatch_event</span>(<span class="k">const</span> <span class="ty">uint8_t</span>* event, <span class="ty">uint32_t</span> len, <span class="ty">MutationBatch</span>* out);
-<span class="ty">int32_t</span> <span class="f">dioxus_compose_host_render_frame</span>(<span class="ty">uint64_t</span> frame_time_nanos, <span class="ty">MutationBatch</span>* out);
-<span class="ty">void</span>    <span class="f">dioxus_compose_host_release_batch</span>(<span class="ty">MutationBatch</span>* batch);
-<span class="ty">void</span>    <span class="f">dioxus_compose_host_shutdown</span>(<span class="ty">void</span>);</code></pre>
+<pre><code><span class="ty">int32_t</span> <span class="f">compose_rust_host_init</span>(<span class="k">const</span> <span class="ty">uint8_t</span>* handshake, <span class="ty">uint32_t</span> len, <span class="ty">MutationBatch</span>* out);
+<span class="ty">int32_t</span> <span class="f">compose_rust_host_dispatch_event</span>(<span class="k">const</span> <span class="ty">uint8_t</span>* event, <span class="ty">uint32_t</span> len, <span class="ty">MutationBatch</span>* out);
+<span class="ty">int32_t</span> <span class="f">compose_rust_host_render_frame</span>(<span class="ty">uint64_t</span> frame_time_nanos, <span class="ty">MutationBatch</span>* out);
+<span class="ty">void</span>    <span class="f">compose_rust_host_release_batch</span>(<span class="ty">MutationBatch</span>* batch);
+<span class="ty">void</span>    <span class="f">compose_rust_host_shutdown</span>(<span class="ty">void</span>);</code></pre>
     </figure>
 
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
       <figcaption>c: Host → Renderer (exported by Kotlin)</figcaption>
-<pre><code><span class="ty">int32_t</span> <span class="f">dioxus_compose_renderer_run</span>(<span class="ty">void</span>);            <span class="c">/* blocking; LoopMode::Renderer only */</span>
-<span class="ty">void</span>    <span class="f">dioxus_compose_renderer_request_frame</span>(<span class="ty">void</span>);  <span class="c">/* thread-safe */</span></code></pre>
+<pre><code><span class="ty">int32_t</span> <span class="f">compose_rust_renderer_run</span>(<span class="ty">void</span>);            <span class="c">/* blocking; LoopMode::Renderer only */</span>
+<span class="ty">void</span>    <span class="f">compose_rust_renderer_request_frame</span>(<span class="ty">void</span>);  <span class="c">/* thread-safe */</span></code></pre>
     </figure>
 
     <p>That is the entire surface. Two rules follow from it:</p>
@@ -252,7 +252,7 @@
     <p>
       One more macOS fact shapes the process: AppKit demands the main thread. The renderer creates
       and runs <code>NSApplication</code> on the thread it was called on, and that call returns
-      when the window closes. Accordingly <code>dioxus_compose_renderer_run</code> must be called
+      when the window closes. Accordingly <code>compose_rust_renderer_run</code> must be called
       on the process main thread; otherwise it returns <code>RUN_NOT_MAIN_THREAD</code>.
     </p>
 
