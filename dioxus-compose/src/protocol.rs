@@ -20,6 +20,8 @@ const TAG_REGISTER_ASSET: u16 = 10;
 const TAG_RELEASE_ASSET: u16 = 11;
 const TAG_SHOW_MESSAGE: u16 = 12;
 const TAG_SET_WINDOW: u16 = 13;
+// Tags 14 to 16 belong to work that lands separately. A reservation is not a free tag.
+const TAG_EDIT_CODE: u16 = 17;
 const ENVELOPE_LEN: usize = 12;
 /// The shortest mutation record on the wire (`Remove`: 4-byte header + `node_id`).
 const MIN_RECORD_LEN: usize = 8;
@@ -117,6 +119,24 @@ pub enum Mutation<'a> {
         action: &'a str,
         duration: MessageDuration,
     },
+    /// Replaces a range of a code editor's document, as it stood at `base_version`, with
+    /// `text`.
+    ///
+    /// The Renderer owns the document, so this is a request and not an assignment: where
+    /// the reader has typed since that version the range is moved along with what they
+    /// typed, and where they typed in the same place the edit is refused and
+    /// `CodeEditRejected` names `request_id`. An edit that is applied comes back as an
+    /// ordinary `CodeChanged`, so the version stays one sequence whoever made the edit.
+    EditCode {
+        node_id: u32,
+        request_id: u32,
+        base_version: u32,
+        start_line: u32,
+        start_column: u32,
+        end_line: u32,
+        end_column: u32,
+        text: &'a str,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -161,6 +181,12 @@ const EVENT_LIFECYCLE_STOP: u16 = 20;
 const EVENT_DESIGN_SYSTEM_RESOLVED: u16 = 21;
 const EVENT_FILES_ENTERED: u16 = 22;
 const EVENT_FILES_DROPPED: u16 = 23;
+// Tags 24 and 25 belong to work that lands separately.
+const EVENT_CODE_CHANGED: u16 = 26;
+const EVENT_CODE_EDIT_REJECTED: u16 = 27;
+const EVENT_CODE_HOVERED: u16 = 28;
+const EVENT_CODE_SAVE_REQUESTED: u16 = 29;
+const EVENT_DECORATION_ACTIVATED: u16 = 30;
 
 const MODIFIER_SHIFT: u8 = 1 << 0;
 const MODIFIER_CTRL: u8 = 1 << 1;
@@ -241,6 +267,51 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
         EVENT_FILES_DROPPED if record_len == 24 => {
             crate::schema::EventPayload::FilesDropped(read_string(bytes, 16, record_len)?)
         }
+        EVENT_CODE_CHANGED if record_len == 44 => crate::schema::EventPayload::CodeChanged {
+            version: read_u32(bytes, 16)?,
+            start_line: read_u32(bytes, 20)?,
+            start_column: read_u32(bytes, 24)?,
+            end_line: read_u32(bytes, 28)?,
+            end_column: read_u32(bytes, 32)?,
+            text: read_string(bytes, 36, record_len)?,
+        },
+        EVENT_CODE_EDIT_REJECTED if record_len == 44 => {
+            crate::schema::EventPayload::CodeEditRejected {
+                request_id: read_u32(bytes, 16)?,
+                base_version: read_u32(bytes, 20)?,
+                current_version: read_u32(bytes, 24)?,
+                start_line: read_u32(bytes, 28)?,
+                start_column: read_u32(bytes, 32)?,
+                end_line: read_u32(bytes, 36)?,
+                end_column: read_u32(bytes, 40)?,
+            }
+        }
+        EVENT_CODE_HOVERED if record_len == 36 => {
+            let raw_phase = read_u32(bytes, 32)?;
+            let phase = u16::try_from(raw_phase)
+                .ok()
+                .and_then(|tag| crate::schema::HoverPhase::try_from(tag).ok())
+                .ok_or(ProtocolError::InvalidValueKind(raw_phase as u16))?;
+            crate::schema::EventPayload::CodeHovered {
+                decoration: read_u64(bytes, 16)?,
+                line: read_u32(bytes, 24)?,
+                column: read_u32(bytes, 28)?,
+                phase,
+            }
+        }
+        EVENT_CODE_SAVE_REQUESTED if record_len == 24 => {
+            crate::schema::EventPayload::CodeSaveRequested {
+                version: read_u32(bytes, 16)?,
+            }
+        }
+        EVENT_DECORATION_ACTIVATED if record_len == 24 => {
+            crate::schema::EventPayload::DecorationActivated {
+                decoration: read_u64(bytes, 16)?,
+            }
+        }
+        EVENT_CODE_CHANGED..=EVENT_DECORATION_ACTIVATED => {
+            return Err(ProtocolError::InvalidRecordLength);
+        }
         EVENT_RESYNC if record_len == 16 => crate::schema::EventPayload::Resync,
         EVENT_LIFECYCLE_START if record_len == 16 => crate::schema::EventPayload::LifecycleStart,
         EVENT_LIFECYCLE_STOP if record_len == 16 => crate::schema::EventPayload::LifecycleStop,
@@ -315,6 +386,75 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.extend_from_slice(&u32::from(u16::from(system)).to_le_bytes());
         return Ok(());
     }
+    match event.payload {
+        crate::schema::EventPayload::CodeChanged {
+            version,
+            start_line,
+            start_column,
+            end_line,
+            end_column,
+            text,
+        } => {
+            put_event_header(output, EVENT_CODE_CHANGED, 44, event);
+            for value in [version, start_line, start_column, end_line, end_column] {
+                output.extend_from_slice(&value.to_le_bytes());
+            }
+            let len = u32::try_from(text.len()).map_err(|_| ProtocolError::LengthOverflow)?;
+            output.extend_from_slice(&44_u32.to_le_bytes());
+            output.extend_from_slice(&len.to_le_bytes());
+            output.extend_from_slice(text.as_bytes());
+            return Ok(());
+        }
+        crate::schema::EventPayload::CodeEditRejected {
+            request_id,
+            base_version,
+            current_version,
+            start_line,
+            start_column,
+            end_line,
+            end_column,
+        } => {
+            put_event_header(output, EVENT_CODE_EDIT_REJECTED, 44, event);
+            for value in [
+                request_id,
+                base_version,
+                current_version,
+                start_line,
+                start_column,
+                end_line,
+                end_column,
+            ] {
+                output.extend_from_slice(&value.to_le_bytes());
+            }
+            return Ok(());
+        }
+        crate::schema::EventPayload::CodeHovered {
+            decoration,
+            line,
+            column,
+            phase,
+        } => {
+            put_event_header(output, EVENT_CODE_HOVERED, 36, event);
+            output.extend_from_slice(&decoration.to_le_bytes());
+            output.extend_from_slice(&line.to_le_bytes());
+            output.extend_from_slice(&column.to_le_bytes());
+            output.extend_from_slice(&u32::from(u16::from(phase)).to_le_bytes());
+            return Ok(());
+        }
+        crate::schema::EventPayload::CodeSaveRequested { version } => {
+            put_event_header(output, EVENT_CODE_SAVE_REQUESTED, 24, event);
+            output.extend_from_slice(&version.to_le_bytes());
+            // The padding that keeps the record a multiple of four bytes.
+            output.extend_from_slice(&0_u32.to_le_bytes());
+            return Ok(());
+        }
+        crate::schema::EventPayload::DecorationActivated { decoration } => {
+            put_event_header(output, EVENT_DECORATION_ACTIVATED, 24, event);
+            output.extend_from_slice(&decoration.to_le_bytes());
+            return Ok(());
+        }
+        _ => {}
+    }
     if let crate::schema::EventPayload::RangeRequested { start, count } = event.payload {
         output.extend_from_slice(&EVENT_RANGE_REQUESTED.to_le_bytes());
         output.extend_from_slice(&24_u16.to_le_bytes());
@@ -347,7 +487,12 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::RangeRequested { .. }
         | crate::schema::EventPayload::ValueChanged(_)
         | crate::schema::EventPayload::WindowSizeChanged { .. }
-        | crate::schema::EventPayload::DesignSystemResolved(_) => unreachable!(),
+        | crate::schema::EventPayload::DesignSystemResolved(_)
+        | crate::schema::EventPayload::CodeChanged { .. }
+        | crate::schema::EventPayload::CodeEditRejected { .. }
+        | crate::schema::EventPayload::CodeHovered { .. }
+        | crate::schema::EventPayload::CodeSaveRequested { .. }
+        | crate::schema::EventPayload::DecorationActivated { .. } => unreachable!(),
     };
     output.extend_from_slice(&tag.to_le_bytes());
     output.extend_from_slice(&record_len.to_le_bytes());
@@ -364,6 +509,15 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.extend_from_slice(text.as_bytes());
     }
     Ok(())
+}
+
+/// The sixteen bytes every event starts with: the tag, the record's length, the node and
+/// the handler.
+fn put_event_header(output: &mut Vec<u8>, tag: u16, record_len: u16, event: &HostEvent<'_>) {
+    output.extend_from_slice(&tag.to_le_bytes());
+    output.extend_from_slice(&record_len.to_le_bytes());
+    output.extend_from_slice(&event.node_id.to_le_bytes());
+    output.extend_from_slice(&event.handler_id.to_le_bytes());
 }
 
 impl fmt::Display for ProtocolError {
@@ -544,6 +698,26 @@ impl BatchEncoder {
                 self.put_string_ref(action)?;
                 self.put_u16(*duration as u16);
                 self.put_u16(0);
+            }
+            Mutation::EditCode {
+                node_id,
+                request_id,
+                base_version,
+                start_line,
+                start_column,
+                end_line,
+                end_column,
+                text,
+            } => {
+                self.begin_record(TAG_EDIT_CODE, 36);
+                self.put_u32(*node_id);
+                self.put_u32(*request_id);
+                self.put_u32(*base_version);
+                self.put_u32(*start_line);
+                self.put_u32(*start_column);
+                self.put_u32(*end_line);
+                self.put_u32(*end_column);
+                self.put_string_ref(text)?;
             }
             Mutation::SetTheme(theme) => {
                 self.begin_record(TAG_SET_THEME, 8 + 4 * TYPE_ROLE_COUNT as u16);
@@ -824,7 +998,17 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                         .map_err(|()| ProtocolError::InvalidMessageDuration(raw_duration))?,
                 }
             }
-            TAG_CREATE..=TAG_SHOW_MESSAGE => {
+            TAG_EDIT_CODE if len == 40 => Mutation::EditCode {
+                node_id: read_u32(bytes, payload)?,
+                request_id: read_u32(bytes, payload + 4)?,
+                base_version: read_u32(bytes, payload + 8)?,
+                start_line: read_u32(bytes, payload + 12)?,
+                start_column: read_u32(bytes, payload + 16)?,
+                end_line: read_u32(bytes, payload + 20)?,
+                end_column: read_u32(bytes, payload + 24)?,
+                text: read_string(bytes, payload + 28, records_len)?,
+            },
+            TAG_CREATE..=TAG_SHOW_MESSAGE | TAG_EDIT_CODE => {
                 return Err(ProtocolError::InvalidRecordLength);
             }
             other => return Err(ProtocolError::InvalidTag(other)),

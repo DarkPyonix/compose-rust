@@ -230,6 +230,7 @@ impl Host {
         // the one replacing it, out of any context that made them make sense.
         //
         crate::message::reset_messages();
+        crate::code::reset_edits();
         // The assets do not go with them. The Renderer this Host is about to talk to has
         // an empty cache, so every registration has to be made again, which is what this
         // does: the ids stay as they were and the bytes are queued for the first batch.
@@ -426,6 +427,70 @@ impl Host {
                 Event::new(Rc::new(RangeRequest::new(start, count)), true).into_any()
             }
             EventPayload::ValueChanged(value) => Event::new(Rc::new(value), true).into_any(),
+            EventPayload::CodeChanged {
+                version,
+                start_line,
+                start_column,
+                end_line,
+                end_column,
+                text,
+            } => Event::new(
+                Rc::new(crate::code::CodeChange {
+                    version,
+                    range: crate::code::CodeRange::of(
+                        start_line,
+                        start_column,
+                        end_line,
+                        end_column,
+                    ),
+                    text: text.to_owned(),
+                }),
+                true,
+            )
+            .into_any(),
+            EventPayload::CodeEditRejected {
+                request_id,
+                base_version,
+                current_version,
+                start_line,
+                start_column,
+                end_line,
+                end_column,
+            } => Event::new(
+                Rc::new(crate::code::EditRejected {
+                    request_id,
+                    base_version,
+                    current_version,
+                    range: crate::code::CodeRange::of(
+                        start_line,
+                        start_column,
+                        end_line,
+                        end_column,
+                    ),
+                }),
+                true,
+            )
+            .into_any(),
+            EventPayload::CodeHovered {
+                decoration,
+                line,
+                column,
+                phase,
+            } => Event::new(
+                Rc::new(crate::code::CodeHover {
+                    decoration: (decoration != 0).then_some(decoration),
+                    position: crate::code::Position::new(line, column),
+                    phase,
+                }),
+                true,
+            )
+            .into_any(),
+            EventPayload::CodeSaveRequested { version } => {
+                Event::new(Rc::new(crate::code::SaveRequest { version }), true).into_any()
+            }
+            EventPayload::DecorationActivated { decoration } => {
+                Event::new(Rc::new(decoration), true).into_any()
+            }
             EventPayload::WindowSizeChanged { .. }
             | EventPayload::DesignSystemResolved(_)
             | EventPayload::Resync
@@ -495,6 +560,21 @@ impl Host {
                 &message.action,
                 message.duration,
             );
+        });
+        // Edits asked of a code editor's handle, after the tree, so an editor created in
+        // this same call already exists when its first edit arrives. A handle that is not
+        // attached to any editor names nothing, and its edit is dropped here rather than
+        // sent to a node the Renderer would have to report as unknown.
+        crate::code::drain_edits(|edit| {
+            if let Some(node_id) = renderer.editor_node(edit.token) {
+                renderer.edit_code(
+                    node_id,
+                    edit.request_id,
+                    edit.base_version,
+                    edit.range,
+                    &edit.text,
+                );
+            }
         });
     }
 
@@ -1011,6 +1091,7 @@ mod tests {
                     | Mutation::RegisterAsset { .. }
                     | Mutation::ReleaseAsset { .. }
                     | Mutation::ShowMessage { .. }
+                    | Mutation::EditCode { .. }
                     | Mutation::SetTheme(_)
                     | Mutation::SetWindow(_) => {}
                 }

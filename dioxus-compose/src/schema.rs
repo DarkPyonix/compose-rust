@@ -57,6 +57,19 @@ pub enum EventPayloadType {
     WindowSize,
     /// One `u16`: the tag of the design system the Renderer resolved the theme to.
     DesignSystem,
+    /// One committed edit to a code editor's document: the version it produced, the range
+    /// it replaced in the document as it stood before, and the text that replaced it.
+    CodeChange,
+    /// A Host edit the Renderer would not apply: the request it answers, the version it
+    /// was written against, the version the document had reached, and the range as sent.
+    CodeEditRejected,
+    /// A pointer resting on, or leaving, a place in a code editor: the decoration under it,
+    /// where it is, and which of the two it was.
+    CodeHover,
+    /// The save shortcut, with the version of the document it was pressed on.
+    CodeSave,
+    /// The id the application gave one decoration, which was pressed or accepted.
+    Decoration,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -69,14 +82,14 @@ pub struct EventSchema {
 /// Canonical schema text. Variant order is wire-significant and must only be appended to.
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "dioxus-compose/v1;",
-    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,Badge,SelectionContainer;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,count;",
+    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,Badge,SelectionContainer,CodeEditor;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,count,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click;",
     "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material;",
     "keys=Enter;",
-    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped;",
+    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated;",
     "windowsizeclasses=Compact,Medium,Expanded;",
     "windowheightclasses=Compact,Medium,Expanded;",
-    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage"
+    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,EditCode"
 );
 
 const fn hash_bytes(mut hash: u64, bytes: &[u8]) -> u64 {
@@ -191,10 +204,17 @@ const fn schema_hash() -> u64 {
                 EventPayloadType::Double => 5,
                 EventPayloadType::WindowSize => 6,
                 EventPayloadType::DesignSystem => 7,
+                EventPayloadType::CodeChange => 8,
+                EventPayloadType::CodeEditRejected => 9,
+                EventPayloadType::CodeHover => 10,
+                EventPayloadType::CodeSave => 11,
+                EventPayloadType::Decoration => 12,
             }],
         );
         index += 1;
     }
+    hash = crate::code::hash_record_schema(hash, crate::code::DECORATION_RECORD);
+    hash = crate::code::hash_record_schema(hash, crate::code::SYNTAX_SPAN_RECORD);
     hash
 }
 
@@ -328,6 +348,16 @@ crate::extensions::define_widget_schema_with_extensions!(define_wire_enum; WIDGE
     // Text inside it. Text outside one cannot be selected. The selection and the copy are
     // the Renderer's entirely, so nothing about either crosses the boundary.
     SelectionContainer = 41,
+    // Tag 42 is the split pane, which lands separately. A reservation is not a free tag.
+    //
+    // Several lines of code that the reader edits. The text, the caret, the selection,
+    // the scroll position and the undo history are the Renderer's, the way a text field's
+    // are, and the Host is told about each committed edit with the version it produced.
+    // What the Host adds on top is said as ranges: colour runs for the syntax, and
+    // decorations for diagnostics, lenses, hover anchors and inline suggestions. How any
+    // of it is drawn, from the gutter to the weight of an underline, is the design
+    // system's.
+    CodeEditor = 43,
 });
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -702,6 +732,35 @@ define_wire_enum!(SLOT_ROLE_SCHEMA, SlotRole {
     Content = 4,
 });
 
+// What a code editor decoration is. Four kinds and no more: a mark under a range, a line of
+// text above a line, a range that answers a resting pointer, and a suggestion shown in
+// place. Each is what a language server or an extension host already speaks in, so an
+// application can pass its answers through without inventing a fifth.
+define_wire_enum!(DECORATION_KIND_SCHEMA, DecorationKind {
+    Underline = 1,
+    CodeLens = 2,
+    HoverAnchor = 3,
+    GhostText = 4,
+});
+
+// How serious an underlined diagnostic is. The four a language server reports, in its
+// order. The colour each one gets is the design system's unless the application names a
+// role, and how the mark is drawn, a squiggle or a straight line, is always the system's.
+define_wire_enum!(SEVERITY_SCHEMA, Severity {
+    Error = 1,
+    Warning = 2,
+    Information = 3,
+    Hint = 4,
+});
+
+// Whether a pointer has come to rest over a place in a code editor or has left it. Two
+// values, because the Host is told once on arriving and once on leaving and never while
+// the pointer stays.
+define_wire_enum!(HOVER_PHASE_SCHEMA, HoverPhase {
+    Rest = 1,
+    Leave = 2,
+});
+
 /// Every role enum codegen mirrors, in wire order. Appending is the only allowed edit.
 pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
     RoleEnumSchema {
@@ -783,6 +842,18 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
     RoleEnumSchema {
         name: "SlotRole",
         variants: SLOT_ROLE_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "DecorationKind",
+        variants: DECORATION_KIND_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "Severity",
+        variants: SEVERITY_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "HoverPhase",
+        variants: HOVER_PHASE_SCHEMA,
     },
 ];
 
@@ -1437,6 +1508,24 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // 80 opens a fresh block of ten for widget tags 40 onwards, after the last tag in use
     // anywhere, so two pieces of work landing in either order cannot collide.
     Count = 80,
+    // A code editor's own block. 100 rather than 90, because 90 to 99 are the split
+    // pane's, which lands separately.
+    //
+    // The decorations over the document and the colour runs of its syntax, each a blob of
+    // fixed-length records sent whole. Every record carries the document version its
+    // range was written against, so a list computed while the reader kept typing still
+    // lands where it was meant to.
+    Decorations = 100,
+    SyntaxSpans = 101,
+    // How many columns a tab advances. Absent leaves it to the design system.
+    TabWidth = 102,
+    OnEditRejected = 103,
+    OnHover = 104,
+    OnSave = 105,
+    // One listener for every decoration that can be pressed or accepted. The ids inside
+    // the decoration blob are the application's own names for them, not handlers, so the
+    // event carries the id and the application tells them apart.
+    OnDecorationClick = 106,
 });
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1496,6 +1585,48 @@ pub enum EventPayload<'a> {
     /// The platform stopped the UI. Timers and animations are suppressed, so a process
     /// that is not on screen is not asked to draw.
     LifecycleStop,
+    /// One committed edit to a code editor's document.
+    ///
+    /// The range is in the document as it stood before the edit, and `version` is the
+    /// version the edit produced. Lines and columns count from zero and columns are UTF-16
+    /// code units, which is what a language server counts in, so the event can be handed
+    /// to one unchanged. Text still being composed by an input method never arrives here:
+    /// only what the reader committed does.
+    CodeChanged {
+        version: u32,
+        start_line: u32,
+        start_column: u32,
+        end_line: u32,
+        end_column: u32,
+        text: &'a str,
+    },
+    /// An edit the Host asked for and the Renderer did not apply, because the reader had
+    /// changed the same place since the version the edit was written against.
+    CodeEditRejected {
+        request_id: u32,
+        base_version: u32,
+        current_version: u32,
+        start_line: u32,
+        start_column: u32,
+        end_line: u32,
+        end_column: u32,
+    },
+    /// A pointer came to rest over a place in a code editor, or left it. `decoration` is
+    /// the id of the hover anchor under it, or zero where there is none.
+    CodeHovered {
+        decoration: u64,
+        line: u32,
+        column: u32,
+        phase: HoverPhase,
+    },
+    /// The reader pressed the platform's save shortcut on a code editor.
+    CodeSaveRequested {
+        version: u32,
+    },
+    /// A decoration was pressed or accepted, named by the id the application gave it.
+    DecorationActivated {
+        decoration: u64,
+    },
 }
 
 pub const EVENT_SCHEMA: &[EventSchema] = &[
@@ -1580,6 +1711,32 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
         name: "FilesDropped",
         tag: 23,
         payload: EventPayloadType::Text,
+    },
+    // Tags 24 and 25 belong to work that lands separately. A reservation is not a free tag.
+    EventSchema {
+        name: "CodeChanged",
+        tag: 26,
+        payload: EventPayloadType::CodeChange,
+    },
+    EventSchema {
+        name: "CodeEditRejected",
+        tag: 27,
+        payload: EventPayloadType::CodeEditRejected,
+    },
+    EventSchema {
+        name: "CodeHovered",
+        tag: 28,
+        payload: EventPayloadType::CodeHover,
+    },
+    EventSchema {
+        name: "CodeSaveRequested",
+        tag: 29,
+        payload: EventPayloadType::CodeSave,
+    },
+    EventSchema {
+        name: "DecorationActivated",
+        tag: 30,
+        payload: EventPayloadType::Decoration,
     },
 ];
 

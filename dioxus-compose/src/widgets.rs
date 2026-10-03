@@ -2163,3 +2163,119 @@ pub fn SelectionContainer(
         }
     }
 }
+
+/// Several lines of code that the reader edits.
+///
+/// The document belongs to the Renderer from the moment it opens. The caret, the selection,
+/// the scroll position, the undo history and anything an input method is still composing
+/// stay there, exactly as a text field's do, and `on_change` hears about every committed
+/// edit with the version of the document it produced. Give that to a language server as it
+/// is: the range is in the document as it stood before the edit and columns are UTF-16
+/// units, which is what a language server counts.
+///
+/// `text` is what the editor opens with, as version 0. Giving it text that differs from
+/// what the editor holds replaces the whole document and starts again from version 0,
+/// which is opening a file. Giving it the text it already holds does nothing, so an
+/// application that writes each change back into the signal it passes here keeps the
+/// reader's caret and undo history. To open the same text afresh, give the editor a new
+/// key: a new node is a new document.
+///
+/// `syntax_spans` colour the text and `decorations` draw over it. Each run and each
+/// decoration names the version its range was written against, and the editor moves it
+/// along with whatever the reader typed since, dropping it where its text was deleted. So a
+/// list computed while the reader kept typing still lands on the text it was about, and
+/// the application has nothing to do until it has a newer list.
+///
+/// `handle` addresses the editor for edits the application makes itself: formatting,
+/// accepting a completion, reloading a file. See [`crate::CodeEditorHandle`].
+///
+/// The gutter, the line numbers, the current line, the weight of an underline and how
+/// faint a suggestion is are the design system's, and the text is set in its monospace
+/// rung.
+#[component]
+pub fn CodeEditor(
+    #[props(default)] weight: Option<f32>,
+    #[props(default)] width: Option<f32>,
+    #[props(default)] height: Option<f32>,
+    #[props(default)] padding: Option<f32>,
+    #[props(default)] padding_role: Option<SpaceRole>,
+    #[props(default)] background: Option<Paint>,
+    #[props(default)] shape_role: Option<ShapeRole>,
+    #[props(default)] corner_radius: Option<f32>,
+    #[props(default)] border_width: Option<f32>,
+    #[props(default)] border_color: Option<Paint>,
+    #[props(default)] elevation: Option<f32>,
+    #[props(default)] fill_max_width: bool,
+    #[props(default)] fill_max_height: bool,
+    /// The document the editor opens with.
+    #[props(into, default)]
+    text: String,
+    /// Colour runs for the syntax, usually in the code colour roles.
+    #[props(default)]
+    syntax_spans: crate::code::SyntaxSpans,
+    /// Underlines, lenses, hover anchors and inline suggestions.
+    #[props(default)]
+    decorations: crate::code::Decorations,
+    /// How many columns a tab advances. Left to the design system where it is not given.
+    #[props(default)]
+    tab_width: Option<u32>,
+    /// What edits asked of the application's own handle are addressed to.
+    #[props(default)]
+    handle: Option<crate::code::CodeEditorHandle>,
+    /// Every committed edit, in order.
+    #[props(default)]
+    on_change: EventHandler<crate::code::CodeChange>,
+    /// An edit asked of the handle that the editor did not apply, because the reader had
+    /// changed the same place in the meantime.
+    #[props(default)]
+    on_edit_rejected: EventHandler<crate::code::EditRejected>,
+    /// A pointer came to rest over a place in the editor, or left it.
+    #[props(default)]
+    on_hover: EventHandler<crate::code::CodeHover>,
+    /// The reader pressed the platform's save shortcut.
+    #[props(default)]
+    on_save: EventHandler<crate::code::SaveRequest>,
+    /// A lens was pressed or a suggestion accepted, named by the id it was given.
+    #[props(default)]
+    on_decoration_click: EventHandler<u64>,
+) -> Element {
+    rsx! {
+        codeeditor {
+            weight: opt_dp(weight),
+            width: opt_dp(width),
+            height: opt_dp(height),
+            padding: opt_dp(padding),
+            padding_role: opt_role(padding_role),
+            background: opt_paint(background),
+            shape_role: opt_role(shape_role),
+            corner_radius: opt_dp(corner_radius),
+            border_width: opt_dp(border_width),
+            border_color: opt_paint(border_color),
+            elevation: opt_dp(elevation),
+            fill_max_width,
+            fill_max_height,
+            editor: handle.map(|handle| i64::from(handle.token())),
+            text,
+            // Left out entirely while there are none, so an editor without them sends
+            // nothing for them at all.
+            syntax_spans: (!syntax_spans.is_empty()).then_some(syntax_spans),
+            decorations: (!decorations.is_empty()).then_some(decorations),
+            tab_width: tab_width.map(i64::from),
+            oncodechange: move |event: dioxus_core::Event<crate::code::CodeChange>| {
+                on_change.call(event.data().as_ref().clone());
+            },
+            oneditrejected: move |event: dioxus_core::Event<crate::code::EditRejected>| {
+                on_edit_rejected.call(*event.data());
+            },
+            onhover: move |event: dioxus_core::Event<crate::code::CodeHover>| {
+                on_hover.call(*event.data());
+            },
+            onsave: move |event: dioxus_core::Event<crate::code::SaveRequest>| {
+                on_save.call(*event.data());
+            },
+            ondecorationclick: move |event: dioxus_core::Event<u64>| {
+                on_decoration_click.call(*event.data());
+            },
+        }
+    }
+}

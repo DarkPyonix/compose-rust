@@ -6,12 +6,12 @@ use crate::protocol::{
 use crate::schema::{
     ANDROID_BRIDGE_CLASS, BOUNDARY_SCHEMA, BoundaryOp, BoundaryParam, Color, ColorRole,
     ColorScheme, DESIGN_SYSTEM_SCHEMA, DesignSystem, EVENT_SCHEMA, EventPayloadType, FieldSchema,
-    FieldSlot, FieldType, KEY_SCHEMA, Key, MODIFIER_SCHEMA, PROPERTY_SCHEMA, PROTOCOL_VERSION,
-    Paint, PropertyKind, ROLE_ENUM_SCHEMA, SCHEMA_HASH, Selection, ShapeRole, SpaceRole, Theme,
-    WEB_BATCH_BYTES, WEB_BATCH_FIELDS, WEB_EVENT_BUFFER_BYTES, WEB_EVENT_BUFFER_OFFSET,
-    WEB_HOST_GLOBAL, WEB_MODULE_GLOBAL, WEB_RENDERER_IMPORT_MODULE, WEB_RUST_REGION_BASE,
-    WEB_START_SYMBOL, WIDGET_SCHEMA, WINDOW_HEIGHT_CLASS_SCHEMA, WINDOW_SIZE_CLASS_SCHEMA,
-    WidgetKind,
+    FieldSlot, FieldType, HOVER_PHASE_SCHEMA, KEY_SCHEMA, Key, MODIFIER_SCHEMA, PROPERTY_SCHEMA,
+    PROTOCOL_VERSION, Paint, PropertyKind, ROLE_ENUM_SCHEMA, SCHEMA_HASH, Selection, ShapeRole,
+    SpaceRole, Theme, WEB_BATCH_BYTES, WEB_BATCH_FIELDS, WEB_EVENT_BUFFER_BYTES,
+    WEB_EVENT_BUFFER_OFFSET, WEB_HOST_GLOBAL, WEB_MODULE_GLOBAL, WEB_RENDERER_IMPORT_MODULE,
+    WEB_RUST_REGION_BASE, WEB_START_SYMBOL, WIDGET_SCHEMA, WINDOW_HEIGHT_CLASS_SCHEMA,
+    WINDOW_SIZE_CLASS_SCHEMA, WidgetKind,
 };
 use crate::tokens::DESIGN_TOKENS;
 use crate::{EventPayload, Modifier};
@@ -168,6 +168,7 @@ data class Window(
     output.push_str("}\n\n");
 
     write_draw_commands(&mut output);
+    write_code_editor_records(&mut output);
 
     output.push_str("sealed interface Modifier {\n");
     for variant in MODIFIER_SCHEMA {
@@ -234,6 +235,26 @@ data class Window(
         val action: String,
         val duration: MessageDuration,
     ) : Mutation
+
+    /**
+     * An edit the application asks of a code editor: replace a range of the document as it
+     * stood at `baseVersion` with `text`.
+     *
+     * The document is this side's, so this is a request. Where the reader has typed since
+     * `baseVersion` the range is moved along with what they typed; where they typed in the
+     * same place the edit is refused and `CodeEditRejected` returns `requestId`. Lines and
+     * columns count from zero and columns are UTF-16 units.
+     */
+    data class EditCode(
+        val nodeId: Int,
+        val requestId: Int,
+        val baseVersion: Int,
+        val startLine: Int,
+        val startColumn: Int,
+        val endLine: Int,
+        val endColumn: Int,
+        val text: String,
+    ) : Mutation
 }
 
 "#,
@@ -266,6 +287,17 @@ data class Window(
                 );
             }
             EventPayloadType::DesignSystem => output.push_str(", val system: DesignSystem"),
+            EventPayloadType::CodeChange => output.push_str(
+                ", val version: Int, val startLine: Int, val startColumn: Int, val endLine: Int, val endColumn: Int, val text: String",
+            ),
+            EventPayloadType::CodeEditRejected => output.push_str(
+                ", val requestId: Int, val baseVersion: Int, val currentVersion: Int, val startLine: Int, val startColumn: Int, val endLine: Int, val endColumn: Int",
+            ),
+            EventPayloadType::CodeHover => output.push_str(
+                ", val decoration: Long, val line: Int, val column: Int, val phase: HoverPhase",
+            ),
+            EventPayloadType::CodeSave => output.push_str(", val version: Int"),
+            EventPayloadType::Decoration => output.push_str(", val decoration: Long"),
         }
         output.push_str(") : HostEvent\n");
     }
@@ -305,6 +337,7 @@ object Protocol {
     private const val TAG_RELEASE_ASSET = 11
     private const val TAG_SHOW_MESSAGE = 12
     private const val TAG_SET_WINDOW = 13
+    private const val TAG_EDIT_CODE = 17
     private const val ENVELOPE_LENGTH = 12
     /** Four role tags, then one font asset id per type role. */
     private val THEME_RECORD_LENGTH = 12 + 4 * TypeRole.entries.size
@@ -495,6 +528,19 @@ object Protocol {
                             messageDuration(readU16(batch, base, available, offset + 28), offset + 28),
                         )
                     }
+                    TAG_EDIT_CODE -> {
+                        requireRecordLength(length, 40, offset)
+                        Mutation.EditCode(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            readU32(batch, base, available, offset + 8).toInt(),
+                            readU32(batch, base, available, offset + 12).toInt(),
+                            readU32(batch, base, available, offset + 16).toInt(),
+                            readU32(batch, base, available, offset + 20).toInt(),
+                            readU32(batch, base, available, offset + 24).toInt(),
+                            readU32(batch, base, available, offset + 28).toInt(),
+                            readString(batch, base, available, offset + 32),
+                        )
+                    }
                     else -> throw ProtocolException("unknown mutation tag $tag", offset)
                 }
                 onMutation(mutation)
@@ -544,11 +590,23 @@ object Protocol {
                 )
                 .unwrap();
             }
+            EventPayloadType::CodeChange => {
+                writeln!(
+                    output,
+                    "                is HostEvent.{} -> event.text.toByteArray(StandardCharsets.UTF_8)",
+                    event.name
+                )
+                .unwrap();
+            }
             EventPayloadType::KeyDown
             | EventPayloadType::Range
             | EventPayloadType::Double
             | EventPayloadType::WindowSize
-            | EventPayloadType::DesignSystem => {
+            | EventPayloadType::DesignSystem
+            | EventPayloadType::CodeEditRejected
+            | EventPayloadType::CodeHover
+            | EventPayloadType::CodeSave
+            | EventPayloadType::Decoration => {
                 writeln!(
                     output,
                     "                is HostEvent.{} -> null",
@@ -574,6 +632,12 @@ object Protocol {
             EventPayloadType::WindowSize => 32,
             // A tag and the padding that keeps the record a multiple of four.
             EventPayloadType::DesignSystem => 20,
+            EventPayloadType::CodeChange => 44,
+            EventPayloadType::CodeEditRejected => 44,
+            EventPayloadType::CodeHover => 36,
+            // A version and the padding that keeps the record a multiple of four.
+            EventPayloadType::CodeSave => 24,
+            EventPayloadType::Decoration => 24,
         };
         writeln!(
             output,
@@ -669,6 +733,59 @@ object Protocol {
                 writeln!(
                     output,
                     "                is HostEvent.{} -> out.putDouble(event.value)",
+                    event.name
+                )
+                .unwrap();
+            }
+            EventPayloadType::CodeChange => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                for field in [
+                    "version",
+                    "startLine",
+                    "startColumn",
+                    "endLine",
+                    "endColumn",
+                ] {
+                    writeln!(output, "                    out.putInt(event.{field})").unwrap();
+                }
+                output.push_str(
+                    "                    writeStringReference(out, recordLength, text!!)\n",
+                );
+                output.push_str("                }\n");
+            }
+            EventPayloadType::CodeEditRejected => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                for field in [
+                    "requestId",
+                    "baseVersion",
+                    "currentVersion",
+                    "startLine",
+                    "startColumn",
+                    "endLine",
+                    "endColumn",
+                ] {
+                    writeln!(output, "                    out.putInt(event.{field})").unwrap();
+                }
+                output.push_str("                }\n");
+            }
+            EventPayloadType::CodeHover => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putLong(event.decoration)\n");
+                output.push_str("                    out.putInt(event.line)\n");
+                output.push_str("                    out.putInt(event.column)\n");
+                output.push_str("                    out.putInt(hoverPhaseTag(event.phase))\n");
+                output.push_str("                }\n");
+            }
+            EventPayloadType::CodeSave => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(event.version)\n");
+                output.push_str("                    out.putInt(0)\n");
+                output.push_str("                }\n");
+            }
+            EventPayloadType::Decoration => {
+                writeln!(
+                    output,
+                    "                is HostEvent.{} -> out.putLong(event.decoration)",
                     event.name
                 )
                 .unwrap();
@@ -795,6 +912,17 @@ object Protocol {
         writeln!(
             output,
             "        DesignSystem.{} -> {}",
+            variant.name, variant.tag
+        )
+        .unwrap();
+    }
+    output.push_str("    }\n\n");
+    // A code editor reports whether a pointer arrived or left, so this one travels out.
+    output.push_str("    private fun hoverPhaseTag(phase: HoverPhase): Int = when (phase) {\n");
+    for variant in HOVER_PHASE_SCHEMA {
+        writeln!(
+            output,
+            "        HoverPhase.{} -> {}",
             variant.name, variant.tag
         )
         .unwrap();
@@ -1231,8 +1359,37 @@ pub fn canvas_vector() -> crate::drawing::DrawList {
         .build()
 }
 
+/// The document the code editor in the mutation vector opens with. Its second line holds a
+/// Hangul syllable, one UTF-16 unit, and an emoji, two of them, so every column after it
+/// is one a byte count or a character count would get wrong.
+pub const CODE_VECTOR_TEXT: &str = "fn main() {\n    let 한 = \"😀\";\n}\n";
+
+/// One decoration of each kind, with a colour role on one of them and text on two.
+fn code_decoration_vector() -> crate::code::Decorations {
+    use crate::code::{CodeRange, Decoration, Position};
+    use crate::schema::Severity;
+    crate::code::Decorations::new([
+        Decoration::underline(0, CodeRange::of(1, 8, 1, 9), Severity::Warning)
+            .with_color(ColorRole::Error),
+        Decoration::code_lens(0, 0, "Run", 41),
+        Decoration::hover_anchor(0, CodeRange::of(0, 3, 0, 7), 42),
+        Decoration::ghost_text(0, Position::new(2, 1), " // end", 43),
+    ])
+}
+
+/// Two syntax colour runs, the second across the emoji.
+fn code_span_vector() -> crate::code::SyntaxSpans {
+    use crate::code::{CodeRange, SyntaxSpan};
+    crate::code::SyntaxSpans::new([
+        SyntaxSpan::role(0, CodeRange::of(0, 0, 0, 2), ColorRole::Primary),
+        SyntaxSpan::role(0, CodeRange::of(1, 12, 1, 16), ColorRole::Tertiary),
+    ])
+}
+
 pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
     let canvas_vector_bytes = canvas_vector();
+    let decorations = code_decoration_vector();
+    let syntax_spans = code_span_vector();
     let mutations = [
         Mutation::SetTheme(
             Theme::adaptive(DesignSystem::Cupertino).with_color_scheme(ColorScheme::Dark),
@@ -1412,6 +1569,38 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             action: "Undo",
             duration: crate::schema::MessageDuration::Long,
         },
+        // A code editor with both of its lists and one edit asked of it, so both sides
+        // read the decoration and colour run records, and the edit record, at the same
+        // offsets.
+        Mutation::Create {
+            node_id: 6,
+            widget: WidgetKind::CodeEditor,
+        },
+        Mutation::SetProp {
+            node_id: 6,
+            property: PropertyKind::Text,
+            value: PropertyValue::String(CODE_VECTOR_TEXT),
+        },
+        Mutation::SetProp {
+            node_id: 6,
+            property: PropertyKind::Decorations,
+            value: PropertyValue::Bytes(decorations.as_bytes()),
+        },
+        Mutation::SetProp {
+            node_id: 6,
+            property: PropertyKind::SyntaxSpans,
+            value: PropertyValue::Bytes(syntax_spans.as_bytes()),
+        },
+        Mutation::EditCode {
+            node_id: 6,
+            request_id: 7,
+            base_version: 0,
+            start_line: 1,
+            start_column: 8,
+            end_line: 1,
+            end_column: 8,
+            text: "mut ",
+        },
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {
@@ -1484,6 +1673,51 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
                 height_class: crate::schema::WindowHeightClass::Medium,
             },
         },
+        HostEvent {
+            node_id: 12,
+            handler_id: 18,
+            payload: EventPayload::CodeChanged {
+                version: 1,
+                start_line: 1,
+                start_column: 8,
+                end_line: 1,
+                end_column: 8,
+                text: "mut ",
+            },
+        },
+        HostEvent {
+            node_id: 12,
+            handler_id: 19,
+            payload: EventPayload::CodeEditRejected {
+                request_id: 7,
+                base_version: 0,
+                current_version: 2,
+                start_line: 1,
+                start_column: 8,
+                end_line: 1,
+                end_column: 9,
+            },
+        },
+        HostEvent {
+            node_id: 12,
+            handler_id: 20,
+            payload: EventPayload::CodeHovered {
+                decoration: 42,
+                line: 0,
+                column: 4,
+                phase: crate::schema::HoverPhase::Rest,
+            },
+        },
+        HostEvent {
+            node_id: 12,
+            handler_id: 21,
+            payload: EventPayload::CodeSaveRequested { version: 2 },
+        },
+        HostEvent {
+            node_id: 12,
+            handler_id: 22,
+            payload: EventPayload::DecorationActivated { decoration: 41 },
+        },
     ];
     let mut output = Vec::new();
     let mut encoded = Vec::new();
@@ -1502,14 +1736,14 @@ pub fn generate_vector_description() -> String {
   "byteOrder": "little-endian",
   "mutations": {{
     "file": "mutations.bin",
-    "description": "One batch covering every record, property value, modifier layout, drawing command, asset and message",
-    "recordCount": 33,
-    "strings": ["안녕", "compose", " token", "삭제했습니다", "Undo"],
+    "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message and code editor record",
+    "recordCount": 38,
+    "strings": ["안녕", "compose", " token", "삭제했습니다", "Undo", "fn main() {{\n    let 한 = \"😀\";\n}}\n", "mut "],
     "assets": [{{ "assetId": 5, "kind": "Png", "bytes": "89504e47" }}]
   }},
   "events": {{
     "file": "events.bin",
-    "description": "Nine independently decodable event records concatenated in schema order",
+    "description": "Fourteen independently decodable event records concatenated in schema order",
     "records": [
       {{ "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 }},
       {{ "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" }},
@@ -1519,7 +1753,12 @@ pub fn generate_vector_description() -> String {
       {{ "type": "KeyDown", "offset": 125, "length": 20, "nodeId": 9, "handlerId": 15, "key": "Enter", "shiftKey": true, "ctrlKey": true, "altKey": true, "metaKey": true }},
       {{ "type": "RangeRequested", "offset": 145, "length": 24, "nodeId": 10, "handlerId": 16, "start": 100, "count": 20 }},
       {{ "type": "ValueChanged", "offset": 169, "length": 24, "nodeId": 11, "handlerId": 17, "value": -19723.5 }},
-      {{ "type": "WindowSizeChanged", "offset": 193, "length": 32, "nodeId": 0, "handlerId": 0, "widthDp": 840.0, "heightDp": 600.0, "sizeClass": "Expanded", "heightClass": "Medium" }}
+      {{ "type": "WindowSizeChanged", "offset": 193, "length": 32, "nodeId": 0, "handlerId": 0, "widthDp": 840.0, "heightDp": 600.0, "sizeClass": "Expanded", "heightClass": "Medium" }},
+      {{ "type": "CodeChanged", "offset": 225, "length": 48, "nodeId": 12, "handlerId": 18, "version": 1, "startLine": 1, "startColumn": 8, "endLine": 1, "endColumn": 8, "text": "mut " }},
+      {{ "type": "CodeEditRejected", "offset": 273, "length": 44, "nodeId": 12, "handlerId": 19, "requestId": 7, "baseVersion": 0, "currentVersion": 2, "startLine": 1, "startColumn": 8, "endLine": 1, "endColumn": 9 }},
+      {{ "type": "CodeHovered", "offset": 317, "length": 36, "nodeId": 12, "handlerId": 20, "decoration": 42, "line": 0, "column": 4, "phase": "Rest" }},
+      {{ "type": "CodeSaveRequested", "offset": 353, "length": 24, "nodeId": 12, "handlerId": 21, "version": 2 }},
+      {{ "type": "DecorationActivated", "offset": 377, "length": 24, "nodeId": 12, "handlerId": 22, "decoration": 41 }}
     ]
   }}
 }}
@@ -1704,6 +1943,268 @@ object DrawCommands {
             .iter()
             .find(|entry| entry.name == role)
             .expect("a drawing command names a role the schema declares")
+            .variants;
+        writeln!(
+            output,
+            "    private fun {}OrNull(tag: Int): {role}? = when (tag) {{",
+            lower_first(role)
+        )
+        .unwrap();
+        for variant in variants {
+            writeln!(output, "        {} -> {role}.{}", variant.tag, variant.name).unwrap();
+        }
+        output.push_str("        else -> null\n    }\n\n");
+    }
+    output.push_str("}\n\n");
+}
+
+/// The records a code editor's decorations and syntax colour runs travel in, mirrored into
+/// Kotlin with a decoder for each blob.
+///
+/// A record that cannot be read is reported through `onError` and left out, and the rest of
+/// the list is still read: a list is data inside a property value, and one bad record is
+/// that record's problem rather than the batch's.
+fn write_code_editor_records(output: &mut String) {
+    use crate::code::{DECORATION_RECORD, RecordFieldType, RecordSchema, SYNTAX_SPAN_RECORD};
+
+    let records: [(RecordSchema, &str, &str); 2] = [
+        (
+            DECORATION_RECORD,
+            "decodeDecorations",
+            "One decoration over a code editor's document: an underline, a lens above a line, a \
+             hover anchor or an inline suggestion. The range is in the document at `version`; \
+             columns are UTF-16 units. `id` is the application's own name for it, zero where \
+             it cannot be pressed.",
+        ),
+        (
+            SYNTAX_SPAN_RECORD,
+            "decodeSyntaxSpans",
+            "One colour run of a code editor's syntax. The range is in the document at \
+             `version`; columns are UTF-16 units.",
+        ),
+    ];
+    let kotlin_field_type = |ty: RecordFieldType| -> String {
+        match ty {
+            RecordFieldType::U32 => "Int".to_owned(),
+            RecordFieldType::U64 => "Long".to_owned(),
+            RecordFieldType::Role { name, optional } => {
+                format!("{name}{}", if optional { "?" } else { "" })
+            }
+            RecordFieldType::Paint => "Paint".to_owned(),
+            RecordFieldType::Text => "String".to_owned(),
+        }
+    };
+    for (schema, _, doc) in records {
+        writeln!(output, "/** {doc} */").unwrap();
+        writeln!(output, "data class {}(", schema.name).unwrap();
+        for field in schema.fields {
+            writeln!(
+                output,
+                "    val {}: {},",
+                field.name,
+                kotlin_field_type(field.ty)
+            )
+            .unwrap();
+        }
+        output.push_str(")\n\n");
+    }
+
+    output.push_str(
+        r#"/**
+ * Reads the blobs a code editor carries.
+ *
+ * A record that cannot be read, a kind or a role this side does not know or a text that
+ * points outside the blob, is reported through `onError` and left out. The rest of the list
+ * is read regardless.
+ */
+object CodeEditorRecords {
+"#,
+    );
+    for (schema, function, _) in records {
+        let constant = match schema.name {
+            "DecorationRecord" => "DECORATION_LENGTH",
+            _ => "SYNTAX_SPAN_LENGTH",
+        };
+        writeln!(output, "    const val {constant} = {}\n", schema.length).unwrap();
+        let text_field = schema
+            .fields
+            .iter()
+            .find(|field| field.ty == RecordFieldType::Text);
+        writeln!(
+            output,
+            "    fun {function}(bytes: ByteArray, onError: (String) -> Unit): List<{}> {{",
+            schema.name
+        )
+        .unwrap();
+        output.push_str(
+            "        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)\n",
+        );
+        writeln!(
+            output,
+            "        val records = ArrayList<{}>(bytes.size / {constant})",
+            schema.name
+        )
+        .unwrap();
+        output.push_str("        var end = bytes.size\n");
+        output.push_str("        var offset = 0\n");
+        output.push_str("        var index = 0\n");
+        writeln!(output, "        while (offset + {constant} <= end) {{").unwrap();
+        if let Some(text) = text_field {
+            // The records end where the text region begins: the first offset any record
+            // names for its text.
+            writeln!(
+                output,
+                "            val textOffset = buffer.getInt(offset + {})",
+                text.offset
+            )
+            .unwrap();
+            writeln!(
+                output,
+                "            val textLength = buffer.getInt(offset + {})",
+                text.offset + 4
+            )
+            .unwrap();
+            output.push_str(
+                "            if (textLength != 0 && textOffset >= 0 && textOffset < end) end = textOffset\n",
+            );
+        }
+        writeln!(
+            output,
+            "            read{}(buffer, bytes, offset, index, onError)?.let(records::add)",
+            schema.name
+        )
+        .unwrap();
+        writeln!(output, "            offset += {constant}").unwrap();
+        output.push_str("            index += 1\n");
+        output.push_str("        }\n");
+        if text_field.is_none() {
+            output.push_str("        if (offset != bytes.size) {\n");
+            output.push_str(
+                "            onError(\"${bytes.size - offset} bytes after the last whole record\")\n",
+            );
+            output.push_str("        }\n");
+        }
+        output.push_str("        return records\n");
+        output.push_str("    }\n\n");
+
+        writeln!(
+            output,
+            "    private fun read{}(buffer: ByteBuffer, bytes: ByteArray, offset: Int, index: Int, onError: (String) -> Unit): {}? {{",
+            schema.name, schema.name
+        )
+        .unwrap();
+        for field in schema.fields {
+            let at = field.offset;
+            match field.ty {
+                RecordFieldType::U32 => {
+                    writeln!(
+                        output,
+                        "        val {} = buffer.getInt(offset + {at})",
+                        field.name
+                    )
+                    .unwrap();
+                }
+                RecordFieldType::U64 => {
+                    writeln!(
+                        output,
+                        "        val {} = buffer.getLong(offset + {at})",
+                        field.name
+                    )
+                    .unwrap();
+                }
+                RecordFieldType::Role { name, optional } => {
+                    writeln!(
+                        output,
+                        "        val {}Tag = buffer.getShort(offset + {at}).toInt() and 0xffff",
+                        field.name
+                    )
+                    .unwrap();
+                    let lookup = format!("{}OrNull({}Tag)", lower_first(name), field.name);
+                    let refuse = format!(
+                        "run {{ onError(\"record $index has an unknown {} ${{{}Tag}}\"); return null }}",
+                        field.name, field.name
+                    );
+                    if optional {
+                        writeln!(
+                            output,
+                            "        val {} = if ({}Tag == 0) null else {lookup} ?: {refuse}",
+                            field.name, field.name
+                        )
+                        .unwrap();
+                    } else {
+                        writeln!(output, "        val {} = {lookup} ?: {refuse}", field.name)
+                            .unwrap();
+                    }
+                }
+                RecordFieldType::Paint => {
+                    writeln!(
+                        output,
+                        "        val {} = paintOrNull(buffer.getLong(offset + {at})) ?: run {{ onError(\"record $index has an unreadable {}\"); return null }}",
+                        field.name, field.name
+                    )
+                    .unwrap();
+                }
+                RecordFieldType::Text => {
+                    writeln!(
+                        output,
+                        "        val {} = textOf(bytes, buffer.getInt(offset + {at}), buffer.getInt(offset + {})) ?: run {{ onError(\"record $index names text outside the list\"); return null }}",
+                        field.name,
+                        at + 4
+                    )
+                    .unwrap();
+                }
+            }
+        }
+        write!(output, "        return {}(", schema.name).unwrap();
+        for (index, field) in schema.fields.iter().enumerate() {
+            if index != 0 {
+                output.push_str(", ");
+            }
+            output.push_str(field.name);
+        }
+        output.push_str(")\n    }\n\n");
+    }
+    output.push_str(
+        r#"    /** UTF-8 text behind the records, or null where the range leaves the blob or is not text. */
+    private fun textOf(bytes: ByteArray, offset: Int, length: Int): String? {
+        if (length == 0) return ""
+        if (offset < 0 || length < 0 || offset.toLong() + length.toLong() > bytes.size.toLong()) return null
+        val decoder = StandardCharsets.UTF_8.newDecoder()
+        return try {
+            decoder.decode(ByteBuffer.wrap(bytes, offset, length)).toString()
+        } catch (error: java.nio.charset.CharacterCodingException) {
+            null
+        }
+    }
+
+    private fun paintOrNull(bits: Long): Paint? {
+        val value = bits.toInt()
+        return when ((bits ushr 32).toInt()) {
+            1 -> colorRoleOrNull(value)?.let { Paint.Role(it) }
+            2 -> Paint.Literal(value)
+            3 -> Paint.Asset(value)
+            else -> null
+        }
+    }
+
+"#,
+    );
+    let mut roles: Vec<&str> = [DECORATION_RECORD, SYNTAX_SPAN_RECORD]
+        .iter()
+        .flat_map(|schema| schema.fields.iter())
+        .filter_map(|field| match field.ty {
+            RecordFieldType::Role { name, .. } => Some(name),
+            _ => None,
+        })
+        .collect();
+    roles.push("ColorRole");
+    roles.sort_unstable();
+    roles.dedup();
+    for role in roles {
+        let variants = ROLE_ENUM_SCHEMA
+            .iter()
+            .find(|entry| entry.name == role)
+            .expect("a code editor record names a role the schema declares")
             .variants;
         writeln!(
             output,

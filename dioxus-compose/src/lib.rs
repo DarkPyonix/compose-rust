@@ -13,6 +13,7 @@ mod boundary_jni;
 #[path = "boundary_wasm.gen.rs"]
 mod boundary_wasm;
 pub mod brush;
+pub mod code;
 #[cfg(target_family = "wasm")]
 #[doc(hidden)]
 pub use boundary_wasm::web_start as __web_start;
@@ -41,6 +42,10 @@ pub use dioxus_core::{Element, VirtualDom};
 // to compile on a macro it never typed, and the fix is to add `dioxus-core-macro` as a
 // second dependency, which defeats the promise that one dependency is enough.
 pub use brush::{Brush, Stop, brush};
+pub use code::{
+    CodeChange, CodeEditorHandle, CodeHover, CodeRange, Decoration, Decorations, EditRejected,
+    Position, SaveRequest, SyntaxSpan, SyntaxSpans, use_code_editor,
+};
 pub use design::{design_system, use_design_system};
 pub use dioxus_core_macro::{Props, component, rsx};
 pub use drawing::{DrawCommand, DrawList, DrawListBuilder};
@@ -49,16 +54,17 @@ pub use extensions::LinearProgressIndicator;
 pub use message::{Message, show_message};
 pub use schema::{
     Alignment, Arrangement, AssetKind, ButtonVariant, Chrome, Color, ColorRole, ColorScheme,
-    DesignSystem, EventPayload, IconRole, Key, LoopMode, MaterialRole, MessageDuration, Modifier,
-    MotionRole, Paint, PropertyKind, SCHEMA_HASH, Selection, ShapeRole, SpaceRole, TextAlign,
-    TextOverflow, Theme, TileMode, TypeRole, WidgetKind, WindowHeightClass, WindowSizeClass,
+    DecorationKind, DesignSystem, EventPayload, HoverPhase, IconRole, Key, LoopMode, MaterialRole,
+    MessageDuration, Modifier, MotionRole, Paint, PropertyKind, SCHEMA_HASH, Selection, Severity,
+    ShapeRole, SpaceRole, TextAlign, TextOverflow, Theme, TileMode, TypeRole, WidgetKind,
+    WindowHeightClass, WindowSizeClass,
 };
 pub use widgets::{
-    Badge, Button, Canvas, Card, Checkbox, Column, ComposeBox as Box, DatePicker, Dialog, Divider,
-    Dropdown, FileDrop, FileDropTarget, Icon, Image, KeyEvent, LazyColumn, LazyGrid, LazyRow, Menu,
-    Navigation, NavigationItem, ProgressIndicator, RadioButton, RangeRequest, Row, Scaffold,
-    ScrollColumn, SelectionContainer, Separator, Sheet, Slider, Spacer, Surface, Switch, Tabs,
-    Text, TextField, TimePicker, Tooltip, TopAppBar,
+    Badge, Button, Canvas, Card, Checkbox, CodeEditor, Column, ComposeBox as Box, DatePicker,
+    Dialog, Divider, Dropdown, FileDrop, FileDropTarget, Icon, Image, KeyEvent, LazyColumn,
+    LazyGrid, LazyRow, Menu, Navigation, NavigationItem, ProgressIndicator, RadioButton,
+    RangeRequest, Row, Scaffold, ScrollColumn, SelectionContainer, Separator, Sheet, Slider,
+    Spacer, Surface, Switch, Tabs, Text, TextField, TimePicker, Tooltip, TopAppBar,
 };
 pub use window::{NodeSize, WindowSize, node_size, use_node_size, use_window_size, window_size};
 
@@ -153,16 +159,18 @@ pub mod prelude {
     // `dioxus_compose::Box { ... }` in RSX until upstream qualifies std::boxed::Box.
     pub use crate::{
         Alignment, Arrangement, AssetKind, Badge, Brush, Button, ButtonVariant, Canvas, Card,
-        Checkbox, Color, ColorRole, ColorScheme, Column, DatePicker, DesignSystem, Dialog, Divider,
-        DrawCommand, DrawList, Dropdown, Element, FileDrop, FileDropTarget, Icon, IconRole, Image,
-        Key, KeyEvent, LaunchBuilder, LazyColumn, LazyGrid, LazyRow, LinearProgressIndicator,
-        LoopMode, MaterialRole, Menu, Message, MessageDuration, Modifier, MotionRole, Navigation,
-        NavigationItem, Paint, ProgressIndicator, Props, RadioButton, RangeRequest, Row, Scaffold,
-        ScrollColumn, SelectionContainer, Separator, ShapeRole, Sheet, Slider, SpaceRole, Spacer,
-        Stop, Surface, Switch, Tabs, Text, TextAlign, TextField, TextOverflow, Theme, TileMode,
-        TimePicker, Tooltip, TopAppBar, TypeRole, WindowHeightClass, WindowSize, WindowSizeClass,
-        asset, brush, component, launch, rsx, show_message, use_design_system, use_node_size,
-        use_window_size,
+        Checkbox, CodeChange, CodeEditor, CodeEditorHandle, CodeHover, CodeRange, Color, ColorRole,
+        ColorScheme, Column, DatePicker, Decoration, Decorations, DesignSystem, Dialog, Divider,
+        DrawCommand, DrawList, Dropdown, EditRejected, Element, FileDrop, FileDropTarget,
+        HoverPhase, Icon, IconRole, Image, Key, KeyEvent, LaunchBuilder, LazyColumn, LazyGrid,
+        LazyRow, LinearProgressIndicator, LoopMode, MaterialRole, Menu, Message, MessageDuration,
+        Modifier, MotionRole, Navigation, NavigationItem, Paint, Position, ProgressIndicator,
+        Props, RadioButton, RangeRequest, Row, SaveRequest, Scaffold, ScrollColumn,
+        SelectionContainer, Separator, Severity, ShapeRole, Sheet, Slider, SpaceRole, Spacer, Stop,
+        Surface, Switch, SyntaxSpan, SyntaxSpans, Tabs, Text, TextAlign, TextField, TextOverflow,
+        Theme, TileMode, TimePicker, Tooltip, TopAppBar, TypeRole, WindowHeightClass, WindowSize,
+        WindowSizeClass, asset, brush, component, launch, rsx, show_message, use_code_editor,
+        use_design_system, use_node_size, use_window_size,
     };
     // Under its own name, and the one thing in this list that could shadow something a
     // reader already has: an application that draws its own `Window` component would find
@@ -380,6 +388,14 @@ pub mod elements {
     // Nothing of its own. Being this widget is the whole of what it says: the text inside
     // may be selected and copied, and the selection never crosses the boundary.
     element!(selectioncontainer, "SelectionContainer", []);
+    // The document the editor opens with, the two lists of ranges the Host draws over it,
+    // and how far a tab advances. `editor` is the Host's own name for the node, which edits
+    // asked of a handle are addressed by; it never crosses the boundary.
+    element!(
+        codeeditor,
+        "CodeEditor",
+        [text, decorations, syntax_spans, tab_width, editor]
+    );
 
     #[doc(hidden)]
     pub mod completions {
@@ -422,6 +438,7 @@ pub mod elements {
             sheet {},
             badge {},
             selectioncontainer {},
+            codeeditor {},
         }
     }
 }
@@ -475,4 +492,13 @@ pub mod events {
     // the wire property with the text field's value change, because both are "this
     // control's value is now this".
     event!(onchange, f64);
+    // A code editor's committed edits. They travel under the same property a text field's
+    // value change does, because both are "what this control holds is now different", and
+    // under their own name here because what they carry is an edit and not a value.
+    event!(oncodechange, crate::code::CodeChange);
+    event!(oneditrejected, crate::code::EditRejected);
+    event!(onhover, crate::code::CodeHover);
+    event!(onsave, crate::code::SaveRequest);
+    // The id the application gave the decoration that was pressed or accepted.
+    event!(ondecorationclick, u64);
 }
