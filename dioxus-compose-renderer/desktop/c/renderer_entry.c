@@ -54,11 +54,21 @@ int32_t dioxus_compose_renderer_run(void);
  * Exported on every desktop so the renderer has one symbol to call. Only macOS has
  * anything to do with the answer today; Windows and Linux record it and draw as before.
  */
+#ifdef _WIN32
+// MSVC's C compiler has no <stdatomic.h> without an experimental switch, so Windows keeps
+// the flag with the Interlocked functions, which are full barriers like atomic_store.
+static volatile LONG dxc_window_material_asked;
+
+void dxc_set_window_material(int32_t asked) {
+    InterlockedExchange(&dxc_window_material_asked, asked != 0);
+}
+#else
 static atomic_int dxc_window_material_asked;
 
 void dxc_set_window_material(int32_t asked) {
     atomic_store(&dxc_window_material_asked, asked != 0);
 }
+#endif
 
 #ifdef __APPLE__
 #include <dispatch/dispatch.h>
