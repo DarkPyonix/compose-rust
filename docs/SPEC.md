@@ -2469,7 +2469,7 @@ Host가 애니메이션 하나를 한 번 기술하면, 렌더러가 자기 프�
 
 ```
 머리 52바이트
-offset  0  tag: u16 = 17            offset  2  len: u16
+offset  0  tag: u16 = 18            offset  2  len: u16
 offset  4  node_id: u32
 offset  8  animation_id: u32        Host가 붙이는 이름. 이벤트가 그대로 돌려줍니다
 offset 12  property: u8             Alpha=1, Color=2, Background=3, Transform=4
@@ -2546,7 +2546,7 @@ offset 24  값                        property에 따라
 
 ```
 24바이트
-offset  0  tag: u16 = 18            offset  2  len: u16 = 24
+offset  0  tag: u16 = 19            offset  2  len: u16 = 24
 offset  4  node_id: u32
 offset  8  animation_id: u32
 offset 12  property: u8             offset 13  slot: u8
@@ -2580,7 +2580,7 @@ offset 16  at_time_nanos: u64       0이면 이 배치가 처음 그려지는 �
 
 ```
 40바이트
-offset  0  tag: u16 = 26            offset  2  len: u16 = 40
+offset  0  tag: u16 = 31            offset  2  len: u16 = 40
 offset  4  node_id: u32             offset  8  handler_id: u64 = 0
 offset 16  animation_id: u32
 offset 20  kind: u8                 offset 21  property: u8
