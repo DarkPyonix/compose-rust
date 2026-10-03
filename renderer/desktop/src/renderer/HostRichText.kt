@@ -125,16 +125,17 @@ internal fun HostRichText(
         assets,
         density,
         LocalFontFamilyResolver.current,
-    ) { run ->
-        // A link is a press on a range, and a press is the event the boundary already
-        // has. No new event tag for a thing that is already a click.
-        LinkAnnotation.Clickable(
-            tag = "compose-link-${run.start}",
-            linkInteractionListener = {
-                dispatcher.dispatch(HostEvent.Clicked(node.id, run.handlerId))
-            },
-        )
-    }
+        link = { run ->
+            // A link is a press on a range, and a press is the event the boundary already
+            // has. No new event tag for a thing that is already a click.
+            LinkAnnotation.Clickable(
+                tag = "compose-link-${run.start}",
+                linkInteractionListener = {
+                    dispatcher.dispatch(HostEvent.Clicked(node.id, run.handlerId))
+                },
+            )
+        },
+    )
     val runs = node.runsDecodeProblem() ?: resolved.runsProblem
     val fonts = node.fontListProblem() ?: resolved.problems.firstOrNull()
     val problem = when {
