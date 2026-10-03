@@ -2666,6 +2666,65 @@ FR-39의 compose-rust API가 같은 레코드를 씁니다. Compose의 이름을
 4. **터치 대상 확장.** Compose는 48dp보다 작은 노드의 터치 적중 영역을 넓힙니다(`minimumTouchTargetSize`). CSS에는 없는 동작이라 터치 입력에서는 Chromium과 판정이 다를 수 있습니다. 수용 기준 5는 마우스로 잽니다.
 5. **번호.** Mutation 18, 19, 이벤트 31, 32는 FR-38(CodeEditor)이 17과 26~30을 가져간 뒤의 다음 빈 번호입니다(2026-10-03 다시 매김). 수정자 26은 HTML/CSS 원소 초안의 19~25 다음 번호입니다. 다른 초안이 먼저 가져가면 설계자가 다시 매깁니다.
 
+### FR-42 HTML/CSS 화면을 그리는 원소 (`Agreed`)
+
+요청한 쪽: dioxus-compose FR-34(M12, 10-15). Host(`blitz-dom`)가 계산한 상자와 텍스트를 Compose로 그리려면, 계산된 결과를 그대로 놓을 수 있는 원소가 필요합니다. M10 측정(dioxus-compose PR #28)에서 상자 배치는 Chromium과 정확히 같았고 텍스트 폭은 허용치를 넘었습니다. 그래서 **상자는 Host가 계산한 자리에 놓고, 텍스트의 크기는 Compose가 잽니다**(PR-2.1). 소유자 승인 2026-10-03.
+
+번호: `AbsoluteBox` 위젯 44, 수정자 `Offset` 19, `RequiredSize` 20, `BorderEach` 21, `CornerEach` 22, `Shadow` 23, `Clip` 24, `Alpha` 25. CSS 변환은 FR-41이 다룹니다.
+
+#### 42.1 원칙: 새 위젯보다 새 수정자
+
+dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기존 원소로 표현할 수 있는 것은 새로 만들지 않는다"입니다. CSS 상자는 대부분 지금 있는 `Box`, `Text`, `Image`, `ScrollColumn`/`ScrollRow`에 수정자를 붙인 것입니다. 이 초안이 더하는 것은 수정자가 대부분이고, 위젯은 하나입니다.
+
+#### 42.2 새 위젯: `AbsoluteBox` (태그 44)
+
+- 자식들을 각자의 `Offset` 자리에 놓는 컨테이너입니다. Compose의 `Box`에 자식마다 `Modifier.offset`을 준 것과 같고, 자식끼리 서로의 자리에 영향을 주지 않습니다.
+- `blitz-dom`이 이미 모든 상자의 자리를 계산했으므로, Compose가 다시 배치 규칙을 적용하면 안 됩니다. `Column`/`Row`/`Box`는 각자의 배치 규칙이 있어서 이 용도에 맞지 않습니다.
+- 자식의 그리는 순서는 자식 순서입니다(뒤의 자식이 위). CSS의 `z-index`와 쌓임 맥락은 Host가 자식 순서로 풀어서 보냅니다.
+- 이름은 Compose에 같은 개념의 안정 API 이름이 없어서 개념 이름을 씁니다. 다른 이름(`Layout`, `Canvas`의 변형)은 이미 다른 뜻이 있습니다.
+
+#### 42.3 새 수정자
+
+| 수정자 | 값 | Compose 대응 | CSS |
+|---|---|---|---|
+| `Offset` | x, y (dp, 부모 기준) | `Modifier.offset` | 계산된 상자 위치 |
+| `RequiredSize` | w, h (dp) | `Modifier.requiredSize` | 계산된 상자 크기. 부모 제약을 무시합니다 |
+| `BorderEach` | 변마다 두께와 `Paint` | 테두리 네 개를 그리는 그리기 수정자 | `border-top` 등이 서로 다를 때 |
+| `CornerEach` | 모서리마다 반지름 (dp) | `RoundedCornerShape(a, b, c, d)` | `border-radius` 네 값 |
+| `Shadow` | x, y, blur, spread (dp), `Paint` | 그림자 그리기 수정자 | `box-shadow` 하나. 여럿이면 수정자를 여러 개 |
+| `Clip` | 켜짐/꺼짐 | `Modifier.clip(shape)` | `overflow: hidden`. 같은 노드에 `CornerEach`가 있으면 그 둥근 모양으로 자르고, 없으면 사각형으로 자릅니다. CSS도 `border-radius`가 있는 상자의 `overflow: hidden`은 둥근 모양으로 자릅니다 |
+| `Alpha` | 0..1 | `Modifier.alpha`(`graphicsLayer`) | `opacity`. 자식까지 한 묶음으로 합성한 뒤 한 번 적용합니다. 자식마다 따로 적용하지 않습니다. CSS `opacity`도 같은 방식입니다 |
+
+- 기존 `Border`, `Shape`, `Elevation`은 그대로 둡니다. 네 변이 같으면 Host가 기존 `Border`를 씁니다.
+- **와이어 길이.** `Shadow`(값 24바이트)와 `BorderEach`(48바이트)는 지금의 16바이트 수정자 칸에 들어가지 않습니다. FR-41.1이 정한 가변 길이 `SetModifier` 규칙(`28 + 8k`바이트, `k`는 수정자 태그마다 스키마에 고정)을 따라 `Shadow`는 `k = 1`, `BorderEach`는 `k = 4`입니다. 나머지 다섯은 `k = 0`이라 지금 레코드와 같습니다.
+- 색은 `Paint`입니다. CSS 색은 리터럴이므로 `Paint::Literal`이 쓰입니다. 테마 변수(`--vscode-*`)를 색 역할로 옮기는 것은 dioxus-compose의 변환기 몫이고, 옮길 수 있는 것만 `Paint::Role`이 됩니다.
+- `overflow: scroll`/`auto`는 새 수정자가 아니라 기존 `ScrollColumn`/`ScrollRow`(둘 다면 둘을 겹침)로 놓습니다. 스크롤 위치는 렌더러가 소유합니다(D5).
+- 이미지(`<img>`, `background-image`)는 기존 `Image`와 브러시 에셋(FR-23)입니다.
+
+#### 42.4 텍스트
+
+- 텍스트 조각은 기존 `Text`(FR-26 스팬 포함)이고, `Offset`과 너비를 받습니다. 줄바꿈과 글자 위치는 Compose가 정합니다.
+- 레이아웃 도중 텍스트 크기는 PR-2.1 측정 호출로 렌더러에 묻습니다(소유자 승인 2026-10-03). HTML 텍스트의 글자 모양 속성(글꼴 이름, `word-break`, `tab-size` 등)은 FR-40입니다. 그래서 측정과 그리기가 같은 글꼴 해석을 씁니다.
+
+#### 42.5 갱신 비용
+
+- 상자 하나의 배경색이 바뀌면 그 노드의 `Background` 수정자 한 건만 나갑니다(dioxus-compose FR-34 기준 4).
+- 창 크기가 바뀌어 많은 상자의 자리가 바뀌면, 바뀐 상자마다 `Offset`/`RequiredSize` 한 건씩입니다. 수천 개의 상자가 한 번에 움직이는 경우의 프레임 시간은 NFR-9 예산으로 측정해 기록합니다.
+
+#### 수용 기준
+
+1. `AbsoluteBox` 안의 자식이 `Offset` 자리에 정확히 놓이고(오차 0dp), 서로의 크기에 영향을 주지 않습니다.
+2. 새 수정자 일곱 가지가 각자 Compose 대응대로 그려지고, 데스크톱 렌더러에서 스크린숏 테스트로 확인됩니다.
+3. 네 변이 같은 테두리와 하나의 반지름은 기존 수정자로 나가고, 새 수정자는 값이 서로 다를 때만 나갑니다.
+4. 수정자 하나만 바뀐 갱신에서 그 노드의 그 수정자 말고는 아무것도 나가지 않습니다.
+5. 이 원소들로 dioxus-compose FR-34 수용 기준 1의 세 구역 중 상자(텍스트 제외)가 그 상자 허용치를 지킵니다.
+
+#### 비용
+
+위젯 태그 하나(44), 수정자 일곱. 렌더러의 그리기 코드(테두리 네 변, 그림자). 디자인 시스템 규칙은 늘지 않습니다. CSS가 모양을 정하므로 디자인 시스템이 개입하지 않는 것이 이 원소들의 성격입니다.
+
+열린 질문: `AbsoluteBox`라는 이름. 더 나은 개념 이름이 있으면 바꿉니다.
+
 ## 4. 경계 프로토콜
 
 ### PR-1 호출 모델: 동기·동일 스레드 직접 호출 (`Done`)
