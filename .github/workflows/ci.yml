@@ -224,12 +224,24 @@ jobs:
       - name: Run scripts/tests
         # scripts/publish-main.sh and scripts/install-nik.sh carry their own
         # tests; they run against throwaway temporary directories only.
+        #
+        # Every test runs whatever came before it. Stopping at the first red meant one
+        # failing test hid every test after it, and those went unrun without anyone
+        # being told. The step still fails, at the end, naming each test that did.
         run: |
-          set -euo pipefail
+          set -uo pipefail
+          failed=()
           for test in scripts/tests/*.test.sh; do
             echo "== $test"
-            bash "$test"
+            if ! bash "$test"; then
+              failed+=("$test")
+            fi
           done
+          if (( ${#failed[@]} > 0 )); then
+            echo "${#failed[@]} shell test(s) failed:"
+            printf '  %s\n' "${failed[@]}"
+            exit 1
+          fi
 
   packaging:
     name: crates.io packaging check

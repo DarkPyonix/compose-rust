@@ -108,14 +108,17 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
             CARGO_HOME="${CARGO_HOME:-$real_home/.cargo}" \
             "$setup_check"
 
-    # The found branch, in a HOME that holds the published directory and nothing else.
-    # The real HOME is not asked: whether this machine has published Compose says nothing
-    # about whether the check recognises it, and a CI runner never has.
+    # The found branch is built the same way, rather than read off whatever this machine has
+    # published: a CI runner has never run build-compose.sh, and a developer who has is
+    # testing their own ~/.m2, not the check. The version is read from where setup-check
+    # reads it, so moving the pin does not leave this looking for the old one.
     patched_version="$(sed -n 's/^PUBLISHED_AS="\([^"]*\)"$/\1/p' \
         "$repo_root/renderer/scripts/build-compose.sh")"
-    mkdir -p "$empty_home/with-compose/.m2/repository/org/jetbrains/compose/ui/ui-macosarm64/$patched_version"
-    assert_run "setup_check_names_the_patched_compose_it_found" 0 "patched Compose:" \
-        env -u GRAALVM_HOME HOME="$empty_home/with-compose" \
+    compose_home="$empty_home/compose-home"
+    patched_compose="$compose_home/.m2/repository/org/jetbrains/compose/ui/ui-macosarm64/$patched_version"
+    mkdir -p "$patched_compose"
+    assert_run "setup_check_names_the_patched_compose_it_found" 0 "patched Compose: $patched_compose" \
+        env -u GRAALVM_HOME HOME="$compose_home" \
             RUSTUP_HOME="${RUSTUP_HOME:-$real_home/.rustup}" \
             CARGO_HOME="${CARGO_HOME:-$real_home/.cargo}" \
             "$setup_check"
