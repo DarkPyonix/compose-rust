@@ -117,7 +117,7 @@ pub fn manifest(meta: &AppMetadata, options: &FlatpakOptions) -> String {
             // A release archive whose executable was built without an rpath only finds the
             // renderer beside it when told to look there.
             commands.push(format!(
-                "readelf -d {lib}/{exec} | grep -qE '\\((RPATH|RUNPATH)\\)' || patchelf --set-rpath '$ORIGIN' {lib}/{exec}",
+                "readelf -d {lib}/{exec} | grep -qE '\\((RPATH|RUNPATH)\\)' || patchelf --set-rpath '$ORIGIN:$ORIGIN/lib' {lib}/{exec}",
                 exec = meta.exec
             ));
         }
@@ -171,10 +171,11 @@ pub fn manifest(meta: &AppMetadata, options: &FlatpakOptions) -> String {
             commands.push(build);
             commands.push(format!("mkdir -p {lib} /app/bin"));
             if !renderer.is_empty() {
-                // The renderer's files go beside the executable, the layout it finds its
-                // companions from. A release archive keeps them in `lib/`.
+                // The renderer keeps its own `lib` directory beside the executable. AWT
+                // looks for its companions in the parent of the renderer's directory plus
+                // `lib`, so the files flattened beside the executable are not found.
                 commands.push(format!(
-                    "if [ -d renderer/lib ]; then cp -a renderer/lib/. {lib}/; else cp -a renderer/. {lib}/; fi"
+                    "mkdir -p {lib}/lib && if [ -d renderer/lib ]; then cp -a renderer/lib/. {lib}/lib/; else cp -a renderer/. {lib}/lib/; fi"
                 ));
             }
             commands.push(format!(
@@ -188,7 +189,7 @@ pub fn manifest(meta: &AppMetadata, options: &FlatpakOptions) -> String {
                     "recorded=\"$(readelf -d {lib}/{exec} | sed -n 's/.*(NEEDED).*\\[\\(.*libdioxus_compose_renderer.so\\)\\]/\\1/p')\"; \
                      if [ -n \"$recorded\" ] && [ \"$recorded\" != libdioxus_compose_renderer.so ]; then \
                      patchelf --replace-needed \"$recorded\" libdioxus_compose_renderer.so {lib}/{exec}; fi; \
-                     patchelf --set-rpath '$ORIGIN' {lib}/{exec}",
+                     patchelf --set-rpath '$ORIGIN/lib' {lib}/{exec}",
                     exec = meta.exec
                 ));
             }

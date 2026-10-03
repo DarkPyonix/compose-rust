@@ -132,9 +132,9 @@ pub fn apprun(meta: &AppMetadata) -> String {
          # file's directory lets the unpacked AppDir run too.\n\
          APPDIR=\"${{APPDIR:-$(dirname \"$(readlink -f \"$0\")\")}}\"\n\
          export APPDIR\n\
-         # The renderer sits beside the executable. An executable built with an rpath of\n\
-         # $ORIGIN finds it on its own; this also covers one built without.\n\
-         LD_LIBRARY_PATH=\"$APPDIR/usr/lib/{exec}${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}\"\n\
+         # The renderer sits in lib/ beside the executable (or, in older packages, beside\n\
+         # it). An executable with an rpath finds it on its own; this covers one without.\n\
+         LD_LIBRARY_PATH=\"$APPDIR/usr/lib/{exec}/lib:$APPDIR/usr/lib/{exec}${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}\"\n\
          export LD_LIBRARY_PATH\n\
          exec \"$APPDIR/usr/lib/{exec}/{exec}\" \"$@\"\n",
         name = meta.name.replace('\n', " "),

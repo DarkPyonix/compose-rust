@@ -19,7 +19,7 @@ use packager_linux::flatpak::{
     shell_quote,
 };
 use packager_linux::icons::{Icon, IconKind, best, check_for_flathub, png_size};
-use packager_linux::metadata::{check_app_id, paragraphs, release_date};
+use packager_linux::metadata::{check_app_id, check_screenshot_url, paragraphs, release_date};
 use packager_linux::{AppMetadata, BuildFacts};
 
 const DIOXUS_TOML: &str = r##"
@@ -436,7 +436,7 @@ fn fr35_apprun_starts_the_payload_from_the_mount_point() {
     assert!(script.starts_with("#!/bin/sh\n"));
     assert!(script.contains("APPDIR=\"${APPDIR:-$(dirname \"$(readlink -f \"$0\")\")}\"\n"));
     assert!(script.contains(
-        "LD_LIBRARY_PATH=\"$APPDIR/usr/lib/sample-calculator${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}\"\nexport LD_LIBRARY_PATH\n"
+        "LD_LIBRARY_PATH=\"$APPDIR/usr/lib/sample-calculator/lib:$APPDIR/usr/lib/sample-calculator${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}\"\nexport LD_LIBRARY_PATH\n"
     ));
     assert!(
         script.ends_with("exec \"$APPDIR/usr/lib/sample-calculator/sample-calculator\" \"$@\"\n")
@@ -459,7 +459,12 @@ fn fr35_appdir_holds_entry_icon_metainfo_payload_and_updater() {
     let payload = dir.join("payload");
     std::fs::create_dir_all(&payload).unwrap();
     std::fs::write(payload.join("sample-calculator"), b"#!/bin/sh\necho hi\n").unwrap();
-    std::fs::write(payload.join("libdioxus_compose_renderer.so"), b"\x7fELF").unwrap();
+    std::fs::create_dir_all(payload.join("lib")).unwrap();
+    std::fs::write(
+        payload.join("lib/libdioxus_compose_renderer.so"),
+        b"\x7fELF",
+    )
+    .unwrap();
     let updater = dir.join("squashfs-root");
     std::fs::create_dir_all(updater.join("usr/bin")).unwrap();
     std::fs::write(updater.join("usr/bin/appimageupdatetool"), b"tool").unwrap();
@@ -490,7 +495,7 @@ fn fr35_appdir_holds_entry_icon_metainfo_payload_and_updater() {
         "usr/share/metainfo/dev.example.Calculator.appdata.xml",
         "usr/share/icons/hicolor/256x256/apps/dev.example.Calculator.png",
         "usr/lib/sample-calculator/sample-calculator",
-        "usr/lib/sample-calculator/libdioxus_compose_renderer.so",
+        "usr/lib/sample-calculator/lib/libdioxus_compose_renderer.so",
     ] {
         assert!(out.join(path).is_file(), "missing {path}");
     }
@@ -634,7 +639,7 @@ fn fr35_flatpak_manifest_for_a_prebuilt_archive() {
     // An executable without an rpath is pointed at the renderer beside it.
     assert!(text.contains("\"name\": \"patchelf\""), "{text}");
     assert!(
-        text.contains("readelf -d /app/lib/sample-calculator/sample-calculator | grep -qE '\\\\((RPATH|RUNPATH)\\\\)' || patchelf --set-rpath '$ORIGIN' /app/lib/sample-calculator/sample-calculator"),
+        text.contains("readelf -d /app/lib/sample-calculator/sample-calculator | grep -qE '\\\\((RPATH|RUNPATH)\\\\)' || patchelf --set-rpath '$ORIGIN:$ORIGIN/lib' /app/lib/sample-calculator/sample-calculator"),
         "{text}"
     );
     assert!(!text.contains("cargo"), "{text}");
@@ -678,10 +683,10 @@ fn fr35_flatpak_manifest_builds_from_source_offline() {
         "\"cargo --offline fetch --manifest-path Cargo.toml --verbose\"",
         "\"cargo --offline build --release --locked -p sample-calculator --bin sample-calculator --no-default-features 'it'\\\\''s'\"",
         "\"install -m755 target/release/sample-calculator /app/lib/sample-calculator/sample-calculator\"",
-        "\"if [ -d renderer/lib ]; then cp -a renderer/lib/. /app/lib/sample-calculator/; else cp -a renderer/. /app/lib/sample-calculator/; fi\"",
+        "\"mkdir -p /app/lib/sample-calculator/lib && if [ -d renderer/lib ]; then cp -a renderer/lib/. /app/lib/sample-calculator/lib/; else cp -a renderer/. /app/lib/sample-calculator/lib/; fi\"",
         "\"name\": \"patchelf\"",
         "\"buildsystem\": \"autotools\"",
-        "patchelf --set-rpath '$ORIGIN' /app/lib/sample-calculator/sample-calculator",
+        "patchelf --set-rpath '$ORIGIN/lib' /app/lib/sample-calculator/sample-calculator",
         "\"--socket=wayland\"",
         "\"--socket=fallback-x11\"",
     ] {
@@ -720,4 +725,26 @@ fn fr35_release_dates_are_reproducible() {
     assert_eq!(release_date(Some("951782400"), 1_790_985_600), "2000-02-29");
     assert_eq!(release_date(Some("not a number"), 86_400), "1970-01-02");
     assert_eq!(paragraphs("a\nb\n\n\n c "), ["a b", "c"]);
+}
+
+#[test]
+fn fr35_screenshots_are_pinned_to_a_tag_or_commit() {
+    for good in [
+        "https://raw.githubusercontent.com/DarkPyonix/darkpyonix-ember/v1.0.0/docs/shot.png",
+        "https://raw.githubusercontent.com/DarkPyonix/darkpyonix-ember/refs/tags/v1.0.0/shot.png",
+        "https://raw.githubusercontent.com/DarkPyonix/darkpyonix-ember/0123456789abcdef0123456789abcdef01234567/shot.png",
+        "https://example.dev/shot.png",
+    ] {
+        check_screenshot_url(good).unwrap_or_else(|e| panic!("{good}: {e}"));
+    }
+    for bad in [
+        "https://raw.githubusercontent.com/DarkPyonix/darkpyonix-ember/main/shot.png",
+        "https://raw.githubusercontent.com/DarkPyonix/darkpyonix-ember/refs/heads/v1/shot.png",
+        "https://raw.githubusercontent.com/DarkPyonix/darkpyonix-ember/shot.png",
+        "ftp://example.dev/shot.png",
+    ] {
+        assert!(check_screenshot_url(bad).is_err(), "{bad}");
+    }
+    let overlay = "[linux.store]\nscreenshots = [{ url = \"https://raw.githubusercontent.com/a/b/develop/s.png\" }]";
+    assert!(resolve_error(DIOXUS_TOML, &[overlay]).contains("pin it to a tag"));
 }
