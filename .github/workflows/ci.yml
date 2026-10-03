@@ -101,6 +101,58 @@ jobs:
           DXC_SKIP_KOTLIN: '1'
         run: ./scripts/check.sh
 
+  generated:
+    # The generated files, regenerated from this tree's schema and compared with what is
+    # checked in. The Rust gate's staleness tests say that a file is stale; this says what
+    # it should be, and keeps the regenerated copies as an artifact, so a change can be
+    # brought up to date from a machine that cannot run the generator.
+    #
+    # Without the renderer feature: the generator draws nothing, and a build that links a
+    # renderer would refuse or accept one for reasons that have nothing to do with what it
+    # generates.
+    name: Generated files are current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the pinned Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt
+          rustup default stable
+
+      - name: Regenerate from the schema
+        run: |
+          cargo run -p compose-rust --no-default-features --bin codegen
+          ./scripts/stage-android-kotlin.sh
+
+      - name: Keep what changed
+        id: changed
+        run: |
+          changed="$(git status --porcelain --untracked-files=all | sed 's/^...//')"
+          if [[ -z "$changed" ]]; then
+            echo "every generated file is current"
+            exit 0
+          fi
+          echo "$changed"
+          mkdir -p target/generated
+          printf '%s\n' "$changed" > target/generated/changed.txt
+          tar -czf target/generated/generated.tar.gz -T target/generated/changed.txt
+          echo "stale=true" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the regenerated files
+        if: steps.changed.outputs.stale == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-files
+          path: target/generated
+
+      - name: Fail on stale files
+        if: steps.changed.outputs.stale == 'true'
+        run: |
+          git diff --stat
+          echo "::error::generated files are stale; the regenerated copies are in the generated-files artifact"
+          exit 1
+
   kotlin:
     # One job per platform, not one job for all of them.
     #
