@@ -8,15 +8,20 @@ product:
   type: kmp/lib
   platforms: [ jvm, android, iosArm64, iosSimulatorArm64, wasmJs ]
 
+# Compose's compiler plugin; the template says why it is not `compose: enabled`.
+apply:
+  - ../compose.module-template.yaml
+
+# Compose is thisisthepy/compose-multiplatform-core-extended's, which nothing public has yet:
+# dioxus-compose-renderer/scripts/build-compose.sh publishes it into the local repository.
+repositories:
+  - mavenLocal
+
 dependencies:
   - //core: exported
-  - $compose.runtime
-  - $compose.foundation
-  - $compose.ui
+  - $libs.compose.runtime
+  - $libs.compose.foundation
+  - $libs.compose.ui
 
 test-dependencies:
   - $kotlin.test
-
-settings:
-  compose:
-    enabled: true

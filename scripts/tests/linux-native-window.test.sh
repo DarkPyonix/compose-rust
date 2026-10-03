@@ -120,15 +120,37 @@ grep -Eq '^compilerOpts = .*-idirafter' "$definition" ||
 # Every Compose module this target has to be given is one the build script publishes.
 # ---------------------------------------------------------------------------
 #
-# Compose Multiplatform publishes `runtime` for linuxX64 and nothing else, so every module the
-# Compose fork teaches the target has to be built and published here. One left off the list is not a
-# failure of that script: it is an unresolvable dependency tens of minutes into the renderer's own
-# build, naming a coordinate nobody recognises. `ui-test` is the one exception and is deliberate,
-# because nothing the renderer links reaches it.
-linux_publications="$(sed -n '/linuxX64)/,/;;/p' "$compose_script")"
+# The fork publishes under its own coordinates, so nothing for this target resolves from what
+# JetBrains published: every module the Compose fork teaches the target, and that the renderer
+# reaches, has to be built and published here. One left off the list is not a failure of that
+# script: it is an unresolvable dependency tens of minutes into the renderer's own build, naming
+# a coordinate nobody recognises.
+#
+# The exceptions are the modules the renderer never reaches. build-compose.sh says why most of
+# them are left off: each asks for a published artifact with no Linux variant at all, so building
+# them is not slow but impossible. The rest (Material 2, animation-graphics, ui-test) are simply
+# outside what the renderer links. A fork build.gradle that changes for another reason (the
+# fork's own coordinates) also lands on this list, which is fine: such a module is either in the
+# closure already or listed here.
+not_reached=(
+    compose:animation:animation-graphics
+    compose:material:material
+    compose:material:material-navigation
+    compose:material3:adaptive:adaptive
+    compose:material3:adaptive:adaptive-layout
+    compose:material3:adaptive:adaptive-navigation
+    compose:material3:adaptive:adaptive-navigation3
+    compose:material3:material3-adaptive-navigation-suite
+    compose:material3:material3-window-size-class
+    compose:ui:ui-test
+    navigation:navigation-compose
+    navigation3:navigation3-ui
+)
+linux_publications="$(sed -n '/^        linuxX64)/,/;;/p' "$compose_script")"
 while IFS= read -r gradle_path; do
-    [[ "$gradle_path" == "compose:ui:ui-test" ]] && continue
-    grep -Fq "$gradle_path" <<< "$linux_publications" ||
+    printf '%s\n' "${not_reached[@]}" | grep -Fxq "$gradle_path" && continue
+    # The whole entry, not a prefix of one: compose:material:material is not material-ripple.
+    grep -Eq "^[[:space:]]*${gradle_path}[[:space:]]*\$" <<< "$linux_publications" ||
         fail "the Compose fork adds a linuxX64 target to $gradle_path and build-compose.sh does not publish it"
 done < <(grep -E '^[0-9a-f]{40} .*/build\.gradle$' "$compose_changes" |
     sed -E 's#^[0-9a-f]{40} ##; s#/build\.gradle$##; s#/#:#g' | sort -u)

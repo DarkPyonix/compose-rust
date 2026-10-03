@@ -17,17 +17,25 @@ product:
   type: lib
   platforms: [android]
 
+# Compose's compiler plugin; the template says why it is not `compose: enabled`.
+apply:
+  - ../compose.module-template.yaml
+
+# Compose is thisisthepy/compose-multiplatform-core-extended's, which nothing public has yet:
+# scripts/build-compose.sh publishes it into the local repository.
+repositories:
+  - mavenLocal
+
 dependencies:
-  - $compose.runtime
-  - $compose.foundation
-  - $compose.material3
-  - $compose.ui
+  - $libs.compose.runtime
+  - $libs.compose.foundation
+  - $libs.compose.material3
+  - $libs.compose.ui
   - $libs.androidx.activity.compose
-  - $compose.preview
-  - $compose.uiTooling
+  - $libs.compose.ui.tooling.preview
+  - $libs.compose.ui.tooling
 
 settings:
-  compose: enabled
   android:
     namespace: dioxus.compose
     # The oldest Android this renderer compiles for. An application's own build decides

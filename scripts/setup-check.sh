@@ -164,17 +164,19 @@ fi
 # What the macOS renderer cannot be built without. It resolves Compose from the local
 # Maven repository, because the entries a text selection offers and the keys that copy are
 # empty in the build JetBrains publishes for this platform and cannot be filled from
-# outside the module that holds them. The version is read from the script that publishes
-# it so that there is one place to change it.
+# outside the module that holds them, and because the fork that fills them publishes under
+# its own group, which nothing public has yet. The group and version are read from the
+# script that publishes them so that there is one place to change them.
 if [[ "$uname_s" == "Darwin" ]]; then
     compose_build_script="$renderer_dir/scripts/build-compose.sh"
     patched_version="$(sed -n 's/^PUBLISHED_AS="\([^"]*\)"$/\1/p' "$compose_build_script" 2>/dev/null)"
-    if [[ -z "$patched_version" ]]; then
-        fail "cannot tell which Compose version $compose_build_script publishes" \
-             "It is read from the PUBLISHED_AS assignment there. Either the script is" \
-             "missing or that line was renamed, and this check has nothing to look for."
+    patched_group="$(sed -n 's/^GROUP="\([^"]*\)"$/\1/p' "$compose_build_script" 2>/dev/null)"
+    if [[ -z "$patched_version" || -z "$patched_group" ]]; then
+        fail "cannot tell which Compose $compose_build_script publishes" \
+             "It is read from the GROUP and PUBLISHED_AS assignments there. Either the script" \
+             "is missing or one of those lines was renamed, and this check has nothing to look for."
     else
-        patched_compose="$HOME/.m2/repository/org/jetbrains/compose/ui/ui-macosarm64/$patched_version"
+        patched_compose="$HOME/.m2/repository/${patched_group//.//}/ui/ui-macosarm64/$patched_version"
         if [[ -d "$patched_compose" ]]; then
             ok "patched Compose: $patched_compose"
         else

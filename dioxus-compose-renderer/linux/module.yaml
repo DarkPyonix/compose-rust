@@ -17,46 +17,49 @@ product:
   type: lib
   platforms: [ linuxX64 ]
 
-# Where the patched Compose comes from. Compose Multiplatform publishes no Kotlin/Native
-# target for Linux at all, so every module below is built from source here: a fork of Compose
-# adds what the target needs that upstream does not have, and `scripts/build-compose.sh --target
-# linuxX64` builds and publishes them under the version asked for. skiko has a published
-# linuxX64 target and is resolved normally, as a dependency of Compose UI.
+# Where Compose comes from. Compose Multiplatform publishes no Kotlin/Native target for
+# Linux at all, so every module below is built from source here: a fork of Compose adds what
+# the target needs that upstream does not have, publishes it under its own coordinates,
+# org.thisisthepy.compose.*, and `scripts/build-compose.sh --target linuxX64` builds and
+# publishes it into the local repository. skiko has a published linuxX64 target and is
+# resolved normally, as a dependency of Compose UI.
 repositories:
   - mavenLocal
 
-# Named by the coordinate of the target rather than by the shorthand. The shorthand asks
-# for a module's root, whose metadata lists which targets it has, and the root is published
-# by a task the toolchain skips on a machine that is not building every target at once. The
-# target's own coordinate carries the klib and says what it is, which is the whole of what
-# is needed here. Runtime keeps the shorthand: upstream publishes that one for this target.
+# Compose's compiler plugin; the template says why it is not `compose: enabled`.
+apply:
+  - ../compose.module-template.yaml
+
+# Named by the coordinate of the target rather than by the module's root, so that what is
+# linked is exactly the klib built for this target. The list is what `scripts/build-compose.sh`
+# publishes; the two have to agree and `linux-native-window.test.sh` says so when they stop
+# agreeing.
 #
-# Every module is named, not only the four the renderer draws with, because a coordinate
-# that points at one target carries no list of what it needs and nothing is brought in
-# behind it. The list is what `scripts/build-compose.sh` publishes; the two have to agree
-# and `linux-native-window.test.sh` says so when they stop agreeing.
+# The runtime and runtime-saveable are named by their root. The fork's are empty klibs that
+# point at androidx.compose.runtime, which androidx publishes for linuxX64 itself, and it is the
+# root's metadata that brings that in.
 dependencies:
-  - $compose.runtime
-  - org.jetbrains.compose.animation:animation-linuxx64:1.11.1
-  - org.jetbrains.compose.animation:animation-core-linuxx64:1.11.1
-  - org.jetbrains.compose.foundation:foundation-linuxx64:1.11.1
-  - org.jetbrains.compose.foundation:foundation-layout-linuxx64:1.11.1
-  - org.jetbrains.compose.material:material-ripple-linuxx64:1.11.1
-  - org.jetbrains.compose.material3:material3-linuxx64:1.11.0-alpha07
-  - org.jetbrains.compose.ui:ui-linuxx64:1.11.1
-  - org.jetbrains.compose.ui:ui-backhandler-linuxx64:1.11.1
-  - org.jetbrains.compose.ui:ui-geometry-linuxx64:1.11.1
-  - org.jetbrains.compose.ui:ui-graphics-linuxx64:1.11.1
-  - org.jetbrains.compose.ui:ui-text-linuxx64:1.11.1
-  - org.jetbrains.compose.ui:ui-tooling-preview-linuxx64:1.11.1
-  - org.jetbrains.compose.ui:ui-unit-linuxx64:1.11.1
-  - org.jetbrains.compose.ui:ui-util-linuxx64:1.11.1
+  - org.thisisthepy.compose.runtime:runtime:1.11.1-ext.1
+  - org.thisisthepy.compose.runtime:runtime-saveable:1.11.1-ext.1
+  - org.thisisthepy.compose.animation:animation-linuxx64:1.11.1-ext.1
+  - org.thisisthepy.compose.animation:animation-core-linuxx64:1.11.1-ext.1
+  - org.thisisthepy.compose.foundation:foundation-linuxx64:1.11.1-ext.1
+  - org.thisisthepy.compose.foundation:foundation-layout-linuxx64:1.11.1-ext.1
+  - org.thisisthepy.compose.material:material-ripple-linuxx64:1.11.1-ext.1
+  - org.thisisthepy.compose.material3:material3-linuxx64:1.11.0-alpha07-ext.1
+  - org.thisisthepy.compose.ui:ui-linuxx64:1.11.1-ext.1
+  - org.thisisthepy.compose.ui:ui-backhandler-linuxx64:1.11.1-ext.1
+  - org.thisisthepy.compose.ui:ui-geometry-linuxx64:1.11.1-ext.1
+  - org.thisisthepy.compose.ui:ui-graphics-linuxx64:1.11.1-ext.1
+  - org.thisisthepy.compose.ui:ui-text-linuxx64:1.11.1-ext.1
+  - org.thisisthepy.compose.ui:ui-tooling-preview-linuxx64:1.11.1-ext.1
+  - org.thisisthepy.compose.ui:ui-unit-linuxx64:1.11.1-ext.1
+  - org.thisisthepy.compose.ui:ui-util-linuxx64:1.11.1-ext.1
 
 test-dependencies:
   - $kotlin.test
 
 settings:
-  compose: enabled
   kotlin:
     optIns:
       - kotlinx.cinterop.ExperimentalForeignApi

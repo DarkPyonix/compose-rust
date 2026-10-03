@@ -9,14 +9,20 @@
 # The module cannot depend on `desktop` instead, because that one is a `jvm/app`.
 product: wasm-js/app
 
+# Compose's compiler plugin; the template says why it is not `compose: enabled`.
+apply:
+  - ../compose.module-template.yaml
+
+# Compose is thisisthepy/compose-multiplatform-core-extended's, which nothing public has yet:
+# scripts/build-compose.sh publishes it into the local repository.
+repositories:
+  - mavenLocal
+
 dependencies:
-  - $compose.runtime
-  - $compose.foundation
-  - $compose.material3
-  - $compose.ui
+  - $libs.compose.runtime
+  - $libs.compose.foundation
+  - $libs.compose.material3
+  - $libs.compose.ui
 
 test-dependencies:
   - $kotlin.test
-
-settings:
-  compose: enabled

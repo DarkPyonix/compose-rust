@@ -1,0 +1,17 @@
+# Compose's compiler plugin, for every module here that has a @Composable in it.
+#
+# Exactly what `settings: compose: enabled` applies (the same plugin, ID and options), without
+# the rest of what that setting does: it also adds JetBrains' org.jetbrains.compose.runtime to
+# the module and offers the `$compose.*` catalog, and both name JetBrains' Compose. This
+# repository draws with thisisthepy/compose-multiplatform-core-extended's, under
+# org.thisisthepy.compose, and the two side by side are the same classes twice.
+#
+# Applied with `apply: [ ../compose.module-template.yaml ]`.
+settings:
+  kotlin:
+    compilerPlugins:
+      - id: androidx.compose.compiler.plugins.kotlin
+        dependency: $libs.compose.compiler.plugin
+        options:
+          generateFunctionKeyMetaAnnotations: "true"
+          sourceInformation: "true"

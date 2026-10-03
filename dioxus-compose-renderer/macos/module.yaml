@@ -15,26 +15,29 @@ product:
   type: lib
   platforms: [ macosArm64 ]
 
-# Where the patched Compose comes from. The macOS context menu, the entries a selection
-# offers and the keys that copy are all empty in the published build for this platform,
-# and none of them can be answered from outside the module that holds them. They are
-# commits in a fork of Compose; `scripts/build-compose.sh` builds them and publishes them under
-# the version asked for below, and everything else still resolves from what JetBrains
-# published.
+# Where Compose comes from. The macOS context menu, the entries a selection offers and the
+# keys that copy are all empty in the published build for this platform, and none of them can
+# be answered from outside the module that holds them. They are commits in a fork of Compose,
+# which publishes under its own coordinates, org.thisisthepy.compose.*;
+# `scripts/build-compose.sh` builds the whole of what this module reaches and publishes it
+# into the local repository.
 repositories:
   - mavenLocal
 
+# Compose's compiler plugin; the template says why it is not `compose: enabled`.
+apply:
+  - ../compose.module-template.yaml
+
 dependencies:
-  - $compose.runtime
-  - $compose.foundation
-  - $compose.material3
-  - $compose.ui
+  - $libs.compose.runtime
+  - $libs.compose.foundation
+  - $libs.compose.material3
+  - $libs.compose.ui
 
 test-dependencies:
   - $kotlin.test
 
 settings:
-  compose: enabled
   kotlin:
     optIns:
       - kotlinx.cinterop.ExperimentalForeignApi

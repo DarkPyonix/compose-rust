@@ -11,9 +11,10 @@ product:
   type: lib
   platforms: [ linuxX64 ]
 
-# Where the patched Compose comes from. Compose Multiplatform publishes no Kotlin/Native target
-# for Linux at all; a fork of Compose adds what the target needs and `scripts/build-compose.sh --target
-# linuxX64` builds and publishes it.
+# Where Compose comes from. Compose Multiplatform publishes no Kotlin/Native target for Linux
+# at all; a fork of Compose adds what the target needs, publishes it under its own coordinates,
+# org.thisisthepy.compose.*, and `scripts/build-compose.sh --target linuxX64` builds it into the
+# local repository.
 repositories:
   - mavenLocal
 
