@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Usage: bench/fetch-dioxus-baseline.sh
+# Usage: scripts/bench/fetch-dioxus-baseline.sh
 #
 # Fetches the Dioxus baseline of the authoring-path comparison at the commit that
-# bench/fr39-baseline.env pins, into .scratch/fr39-baseline/<rev>/, and prints the
+# scripts/bench/fr39-baseline.env pins, into .scratch/fr39-baseline/<rev>/, and prints the
 # baseline crate's directory there.
 #
 # The Dioxus path is not in this repository. The comparison harness builds the baseline
@@ -14,7 +14,7 @@
 # baseline when it measures.
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 pin="$repo_root/bench/fr39-baseline.env"
 
 fail() {
