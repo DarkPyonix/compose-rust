@@ -219,9 +219,15 @@ jobs:
               "$($matches[1])=$($matches[2])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
             }
           }
-          $dumpbin = & $vswhere -latest -products * -find "VC\Tools\MSVC\**\bin\Hostx64\x64\dumpbin.exe" | Select-Object -First 1
-          Split-Path $dumpbin | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
-          Write-Output "dumpbin: $dumpbin"
+          # The tools of the same toolset the headers above belong to: a cl.exe from an older
+          # toolset refuses this one's C++ library (STL1001).
+          $tools = $null
+          cmd /c "`"$vcvars`" >nul && set" | ForEach-Object {
+            if ($_ -match '^VCToolsInstallDir=(.*)$') { $tools = $matches[1] }
+          }
+          $bin = Join-Path $tools "bin\Hostx64\x64"
+          $bin | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          Write-Output "MSVC tools: $bin"
 
       - name: Report the machine
         run: |

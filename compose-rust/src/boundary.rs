@@ -1716,6 +1716,7 @@ core::arch::global_asm!(
     ".ascii \" /NODEFAULTLIB:msvcprt.lib\"",
     ".ascii \" /NODEFAULTLIB:libcpmt.lib\"",
     ".ascii \" /NODEFAULTLIB:libcmt.lib\"",
+    ".ascii \" /INCLUDE:longjmp\"",
     ".text",
 );
 

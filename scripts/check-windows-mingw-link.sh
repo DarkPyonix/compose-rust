@@ -100,7 +100,7 @@ link_probe() {
             "$(cygpath -w "$renderer/native/mingw_bridge.obj")" \
             kernel32.lib user32.lib advapi32.lib shell32.lib ole32.lib bcrypt.lib ws2_32.lib \
             dbghelp.lib oldnames.lib legacy_stdio_definitions.lib \
-            /link /NOLOGO /NODEFAULTLIB:vcruntime.lib libvcruntime.lib >"$work/$executable.link.log" 2>&1
+            /link /NOLOGO /NODEFAULTLIB:vcruntime.lib libvcruntime.lib /INCLUDE:longjmp >"$work/$executable.link.log" 2>&1
     ) || { cat "$work/$executable.link.log" >&2; fail "the MSVC link of $executable failed"; }
 }
 echo "== linking both with MSVC"

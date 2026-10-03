@@ -67,17 +67,22 @@ pub fn windows_crt(target_features: &str, requested: Option<&str>) -> Result<Win
 /// src/boundary.rs: a build script's link arguments stop at this package, and a directive in
 /// an object reaches every application that links the object. Kept here so the test can hold
 /// boundary.rs to the same list.
-pub const LINKED_IN_DIRECTIVES: [&str; 5] = [
+pub const LINKED_IN_DIRECTIVES: [&str; 6] = [
     // vcruntime from the static library rather than the import library msvcrt.lib names.
     "/NODEFAULTLIB:vcruntime.lib",
     "/DEFAULTLIB:libvcruntime.lib",
     // The C++ standard library: neither the import library nor the stock static one. The
-    // build links its own copy with the guard blanked (see `prepare_libcpmt`).
+    // build script links its own copy with the guard blanked.
     "/NODEFAULTLIB:msvcprt.lib",
     "/NODEFAULTLIB:libcpmt.lib",
     // The static C runtime, which the UCRT DLL replaces. A default library some prebuilt
     // object still names would otherwise define the C library a second time.
     "/NODEFAULTLIB:libcmt.lib",
+    // winpthread, in the renderer's GCC runtime, calls longjmp through an import pointer.
+    // With vcruntime linked in there is no import library to define one; the linker makes
+    // it from the static definition, but only once something has brought that definition
+    // in. Skia's libpng happens to, which is not a thing to rest on.
+    "/INCLUDE:longjmp",
 ];
 
 /// What blanking found in one library.
