@@ -80,7 +80,7 @@ fn pr6_generated_web_bindings_match_the_boundary_schema() {
     // be linked with an undefined symbol the way an ELF shared library can, so this
     // crate's own module must not name a function only an application can define.
     assert!(
-        rust.contains("pub fn web_start(builder: LaunchBuilder, app: fn() -> Element) -> u32 {"),
+        rust.contains("pub fn web_start(builder: LaunchBuilder, app: App) -> u32 {"),
         "the extra entry point a page needs in place of a library loader is missing"
     );
     assert!(

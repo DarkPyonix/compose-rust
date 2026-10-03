@@ -157,7 +157,7 @@ macro_rules! web_main {
         #[cfg(target_family = "wasm")]
         #[unsafe(no_mangle)]
         pub extern "C" fn dioxus_compose_host_web_start() -> u32 {
-            $crate::__web_start($builder, $app)
+            $crate::__web_start($builder, $crate::App::Dioxus($app))
         }
 
         /// Off the web there is no page to call this and no shared memory to report an
@@ -167,6 +167,61 @@ macro_rules! web_main {
         #[unsafe(no_mangle)]
         pub extern "C" fn dioxus_compose_host_web_start() -> u32 {
             let _: fn() -> $crate::Element = $app;
+            let _ = $builder;
+            0
+        }
+    };
+}
+
+/// Declares the Android entry point for an application whose root is a composable.
+///
+/// The same as [`android_main!`] for an `rsx!` application: Android has no `main`, so the
+/// root is registered from `JNI_OnLoad` through the symbol this defines.
+///
+/// ```ignore
+/// compose_rust::android_application!(App);
+/// ```
+#[macro_export]
+macro_rules! android_application {
+    ($content:path) => {
+        $crate::android_application!($crate::LaunchBuilder::new(), $content);
+    };
+    ($builder:expr, $content:path) => {
+        #[unsafe(no_mangle)]
+        pub extern "C" fn dioxus_compose_android_main() {
+            let _ = $builder
+                .with_mode($crate::LoopMode::Platform)
+                .try_application($content);
+        }
+    };
+}
+
+/// Declares the browser entry point for an application whose root is a composable.
+///
+/// The same as [`web_main!`] for an `rsx!` application, for the same reason it lives in
+/// the application rather than in this crate.
+///
+/// ```ignore
+/// compose_rust::web_application!(App);
+/// ```
+#[macro_export]
+macro_rules! web_application {
+    ($content:path) => {
+        $crate::web_application!($crate::LaunchBuilder::new(), $content);
+    };
+    ($builder:expr, $content:path) => {
+        #[cfg(target_family = "wasm")]
+        #[unsafe(no_mangle)]
+        pub extern "C" fn dioxus_compose_host_web_start() -> u32 {
+            $crate::__web_start($builder, $crate::App::Compose($content))
+        }
+
+        /// Off the web there is nothing to call this, but it stays defined so a build
+        /// for the machine you are working on still checks the entry point compiles.
+        #[cfg(not(target_family = "wasm"))]
+        #[unsafe(no_mangle)]
+        pub extern "C" fn dioxus_compose_host_web_start() -> u32 {
+            let _: fn() = $content;
             let _ = $builder;
             0
         }

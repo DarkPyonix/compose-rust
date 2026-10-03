@@ -525,13 +525,13 @@ impl Drop for NoteOnDrop {
 
 #[composable]
 fn Effects(id: u32) {
-    SideEffect(|| note("side"));
-    LaunchedEffect(id, move || async move {
+    side_effect(|| note("side"));
+    launched_effect(id, move || async move {
         note(format!("launched {id}"));
         let _cancelled = NoteOnDrop(format!("cancelled {id}"));
         std::future::pending::<()>().await;
     });
-    DisposableEffect(id, move || {
+    disposable_effect(id, move || {
         note(format!("setup {id}"));
         on_dispose(move || note(format!("cleanup {id}")))
     });
@@ -574,7 +574,7 @@ fn fr39_effects_run_after_composition_restart_on_a_new_key_and_clean_up_when_the
 fn FrameClock() {
     let time = remember(|| mutable_state_of(0_u64));
     let writer = time.clone();
-    LaunchedEffect((), move || async move {
+    launched_effect((), move || async move {
         loop {
             let now = with_frame_nanos(|now| now).await;
             writer.set(now);
@@ -598,7 +598,7 @@ fn fr39_a_future_waiting_for_a_frame_gets_that_frames_time() {
 fn Worked() {
     let answer = remember(|| mutable_state_of(0_u32));
     let writer = answer.clone();
-    LaunchedEffect((), move || async move {
+    launched_effect((), move || async move {
         delay(std::time::Duration::from_millis(5)).await;
         let value = with_worker(|| 21 * 2).await;
         writer.set(value);

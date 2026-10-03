@@ -43,8 +43,8 @@ pub(crate) mod state;
 
 pub use compose_rust_macros::composable;
 pub use effects::{
-    CoroutineScope, DisposableEffect, DisposableEffectResult, LaunchedEffect, SideEffect, delay,
-    on_dispose, remember_coroutine_scope, with_frame_nanos, with_worker,
+    CoroutineScope, DisposableEffectResult, delay, disposable_effect, launched_effect, on_dispose,
+    remember_coroutine_scope, side_effect, with_frame_nanos, with_worker,
 };
 pub use host::ComposeHost;
 pub use state::{

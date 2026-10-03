@@ -4,8 +4,8 @@
 //! Composing describes the screen and has no business doing anything else, because a
 //! scope can be run, skipped or run again at the runtime's discretion. What a composable
 //! wants done is queued while it composes and run after the composition is applied, on
-//! the UI thread, inside the same Host call: [`SideEffect`] every time, [`LaunchedEffect`]
-//! when its key changes, [`DisposableEffect`] with a cleanup for when it leaves.
+//! the UI thread, inside the same Host call: [`side_effect`] every time, [`launched_effect`]
+//! when its key changes, [`disposable_effect`] with a cleanup for when it leaves.
 //!
 //! Asynchronous work is a future polled on the UI thread by a small executor the runtime
 //! owns. A future that waits is woken from wherever its waker is called, a worker thread
@@ -307,15 +307,14 @@ fn same_key<K: PartialEq + 'static>(composer: &mut Composer, launched: bool, key
 ///
 /// ```ignore
 /// let seconds = remember(|| mutable_state_of(0));
-/// LaunchedEffect((), move || async move {
+/// launched_effect((), move || async move {
 ///     loop {
 ///         delay(Duration::from_secs(1)).await;
 ///         seconds.update(|seconds| *seconds += 1);
 ///     }
 /// });
 /// ```
-#[allow(non_snake_case)]
-pub fn LaunchedEffect<K, F, Fut>(key: K, block: F)
+pub fn launched_effect<K, F, Fut>(key: K, block: F)
 where
     K: PartialEq + 'static,
     F: FnOnce() -> Fut + 'static,
@@ -338,12 +337,12 @@ where
     });
 }
 
-/// What a [`DisposableEffect`] leaves behind: the cleanup to run when it leaves.
+/// What a [`disposable_effect`] leaves behind: the cleanup to run when it leaves.
 pub struct DisposableEffectResult {
     cleanup: Box<dyn FnOnce()>,
 }
 
-/// The cleanup a [`DisposableEffect`] returns. Compose's `onDispose`.
+/// The cleanup a [`disposable_effect`] returns. Compose's `onDispose`.
 pub fn on_dispose(cleanup: impl FnOnce() + 'static) -> DisposableEffectResult {
     DisposableEffectResult {
         cleanup: Box::new(cleanup),
@@ -355,13 +354,12 @@ pub fn on_dispose(cleanup: impl FnOnce() + 'static) -> DisposableEffectResult {
 /// leaves. Compose's `DisposableEffect`.
 ///
 /// ```ignore
-/// DisposableEffect(channel.clone(), move || {
+/// disposable_effect(channel.clone(), move || {
 ///     let subscription = subscribe(&channel);
 ///     on_dispose(move || drop(subscription))
 /// });
 /// ```
-#[allow(non_snake_case)]
-pub fn DisposableEffect<K, F>(key: K, effect: F)
+pub fn disposable_effect<K, F>(key: K, effect: F)
 where
     K: PartialEq + 'static,
     F: FnOnce() -> DisposableEffectResult + 'static,
@@ -393,8 +391,7 @@ where
 /// Runs `effect` after every composition of the scope it is in that is applied. Compose's
 /// `SideEffect`: how a composable publishes something to an object the composition does
 /// not manage.
-#[allow(non_snake_case)]
-pub fn SideEffect(effect: impl FnOnce() + 'static) {
+pub fn side_effect(effect: impl FnOnce() + 'static) {
     with_composer_if_idle(|composer| {
         if composer.composing() {
             composer.push_effect(Effect::Run(Box::new(effect)));
