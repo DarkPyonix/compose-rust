@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fails if an em dash appears anywhere a human will read it.
 #
-# CLAUDE.md forbids em dashes in docs, code comments, commit messages and UI copy.
+# AGENTS.md forbids em dashes in docs, code comments, commit messages and UI copy.
 # They kept coming back through merges from branches written before the rule, so the
 # rule is checked rather than remembered.
 set -euo pipefail

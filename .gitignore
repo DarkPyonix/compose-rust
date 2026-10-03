@@ -27,7 +27,7 @@ target
 .claude/
 .agent-salvage/
 
-# Throwaway work, probes and downloads (CLAUDE.md, "Where files go")
+# Throwaway work, probes and downloads (AGENTS.md, "Where files go")
 .scratch/
 
 # Machine local cargo settings. Nothing in this repository writes this file any more:

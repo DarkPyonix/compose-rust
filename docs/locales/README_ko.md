@@ -622,7 +622,7 @@ CI도 같은 방식으로 나뉩니다. [`ci.yml`](../../.github/workflows/ci.ym
 | [PROJECT.md](../../PROJECT.md) | 범위, 개발 방식, 마일스톤 M0~M8, 열린 질문 |
 | [docs/INTENT.md](../INTENT.md) | 동기, 협상 불가 조건, 결정 D1~D10, 폐기한 대안 |
 | [docs/SPEC.md](../SPEC.md) | 기능·비기능 요구사항, 경계 프로토콜, 수용 기준 |
-| [CLAUDE.md](../../CLAUDE.md) | 이 저장소에서 일하는 방식 |
+| [AGENTS.md](../../AGENTS.md) | 이 저장소에서 일하는 방식 |
 
 기획 문서(`PROJECT.md`, `INTENT.md`, `SPEC.md`)는 한국어로 씁니다. README와 가이드 사이트는
 영어가 기본이고 한국어 번역을 함께 둡니다.
