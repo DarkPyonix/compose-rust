@@ -321,7 +321,7 @@ JavaFX 호스트가 쓰는 것과 같은 방식입니다. AWT가 자기 루프�
 
 ```toml
 [dependencies]
-compose-rust = "0.0.0"
+compose-rust = "0.0.1"
 ```
 
 설정할 환경 변수도, 손으로 내려받을 파일도, 실행할 스크립트도 없습니다. 캐시는 버전과
