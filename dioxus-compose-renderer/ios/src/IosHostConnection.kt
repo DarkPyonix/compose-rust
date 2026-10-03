@@ -37,6 +37,9 @@ import dioxus.compose.runtime.HostConnection
  *   Host executable that does not exist yet when this compiles. `dlsym(RTLD_NOW image, name)`
  *   resolves against whatever finally links it, which is the same late binding the macOS
  *   build gets from `-undefined dynamic_lookup`. The lookup happens once, not per call.
+ *   Linux is the exception: an ELF executable exports nothing it was not asked to, so the
+ *   static archive there refers to the Host's functions at link time instead, through a
+ *   cinterop definition generated from the boundary schema.
  * - Foreign memory is read through `CPointer`, not `Pointer`.
  */
 class IosHostConnection : HostConnection {
@@ -162,14 +165,19 @@ private object HostSymbols {
 
     fun shutdown() = shutdownFn()
 
+    // The link's answer first, where there is one: on Linux the Host is in the same
+    // executable and the static archive refers to it by name (see LinkedHostFunctions.kt).
+    // The lookup is the answer everywhere else, and the fallback where no Host was linked.
     private fun <T : CFunction<*>> lookup(name: String): CPointer<T> =
-        dlsym(image, name)?.reinterpret()
+        (linkedHostFunction(name) ?: dlsym(image, name))?.reinterpret()
             ?: throw HostCallException(
-                "$name is not in this image. The renderer resolves the Host's functions by " +
-                    "name at startup, so the Host executable has to export all five of " +
+                "$name is not in this image. The renderer reaches the Host's functions " +
+                    "by name, so the Host executable has to define all five of " +
                     "dioxus_compose_host_init, _dispatch_event, _render_frame, " +
-                    "_release_batch and _shutdown. If they are present but not found, they " +
-                    "are probably missing from the dynamic symbol table: build the Host " +
-                    "with -Wl,-export_dynamic.",
+                    "_release_batch and _shutdown. On Linux the link resolves them, so a " +
+                    "missing one means the Host was not linked into this executable. On " +
+                    "Apple platforms they are looked up at startup, and if they are present " +
+                    "but not found they are missing from the exported symbols: build the " +
+                    "Host with -Wl,-export_dynamic.",
             )
 }

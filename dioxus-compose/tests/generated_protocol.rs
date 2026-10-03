@@ -1,10 +1,11 @@
 use compose_rust::codegen::{
-    generate_event_vector, generate_kotlin, generate_mutation_vector, generate_vector_description,
+    LINKED_HOST_FUNCTION, generate_event_vector, generate_kotlin, generate_linux_host_def,
+    generate_mutation_vector, generate_vector_description,
 };
 use compose_rust::protocol::{
     BatchEncoder, HostEvent, Mutation, PropertyValue, decode_batch, decode_event, encode_event,
 };
-use compose_rust::schema::{PROPERTY_SCHEMA, SCHEMA_DESCRIPTOR, WIDGET_SCHEMA};
+use compose_rust::schema::{BOUNDARY_SCHEMA, PROPERTY_SCHEMA, SCHEMA_DESCRIPTOR, WIDGET_SCHEMA};
 use compose_rust::tokens::DESIGN_TOKENS;
 use compose_rust::{EventPayload, Key, PropertyKind, WidgetKind};
 
@@ -410,5 +411,51 @@ fn fr7_the_schema_descriptor_names_every_widget_and_property_in_order() {
         in_order,
         "the schema descriptor lists the properties as {properties:?}, but the property \
          table, in tag order, is {core_properties:?}"
+    );
+}
+
+/// The Linux static renderer reaches every Host function through the generated cinterop
+/// definition, and what is checked in is what the generator writes today.
+///
+/// A function missing from it is one the renderer cannot find in an application that is a
+/// single executable: the dynamic symbol table it would fall back to is empty there.
+#[test]
+fn fr7_generated_linux_host_references_match_the_boundary_schema() {
+    let generated = generate_linux_host_def();
+    for op in BOUNDARY_SCHEMA {
+        assert!(
+            generated.contains(&format!(
+                "extern void {}(void) __attribute__((weak));",
+                op.symbol
+            )),
+            "{} is not referred to weakly",
+            op.symbol
+        );
+        assert!(
+            generated.contains(&format!(
+                "if (__builtin_strcmp(name, \"{0}\") == 0) return (void*)&{0};",
+                op.symbol
+            )),
+            "{} cannot be found by name",
+            op.symbol
+        );
+    }
+    assert!(generated.contains(&format!("static inline void* {LINKED_HOST_FUNCTION}(")));
+    assert_eq!(
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../dioxus-compose-renderer/linux/cinterop/host.def"
+        )),
+        generated,
+        "the Linux host references are stale; run `cargo run -p compose-rust --bin codegen`",
+    );
+    // The Kotlin side calls the generated function by this name.
+    let kotlin = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../dioxus-compose-renderer/linux/src/LinkedHostFunctions.kt"
+    ));
+    assert!(
+        kotlin.contains(LINKED_HOST_FUNCTION),
+        "the Linux renderer does not call {LINKED_HOST_FUNCTION}"
     );
 }
