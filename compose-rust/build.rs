@@ -66,6 +66,7 @@ fn main() {
     // Set when the Windows static renderer is linked and the application asked for no C
     // runtime of its own. See the DXC_WINDOWS_NATIVE_LIB branch below.
     println!("cargo:rustc-check-cfg=cfg(windows_crt_linked_in)");
+    println!("cargo:rustc-check-cfg=cfg(windows_crt_dynamic)");
     println!("cargo:rerun-if-env-changed={RENDERER_DIR_ENV}");
     println!("cargo:rerun-if-env-changed={CACHE_DIR_ENV}");
     println!("cargo:rerun-if-env-changed=DIOXUS_COMPOSE_RENDERER_DIR");
@@ -539,6 +540,8 @@ fn link_windows_native(dir: &Path) {
         WindowsCrt::Dynamic => {
             // The C++ standard library from MSVCP140.dll, which Skia's copies no longer name.
             println!("cargo:rustc-link-lib=dylib=msvcprt");
+            // And nothing static beside it: see the directives in src/boundary.rs.
+            println!("cargo:rustc-cfg=windows_crt_dynamic");
         }
     }
 

@@ -1720,7 +1720,19 @@ core::arch::global_asm!(
     ".text",
 );
 
-/// Never read. Being referenced is the entire contract.
+/// The same for an application that asked for vcruntime and the C++ library from their DLLs
+// (`DXC_WINDOWS_CRT=dynamic`): the static C++ library and C runtime that a prebuilt object
+// may still name as defaults would define, a second time, what the DLLs' import libraries
+// already do.
+#[cfg(all(target_os = "windows", target_env = "msvc", windows_crt_dynamic))]
+core::arch::global_asm!(
+    ".section .drectve,\"yni\"",
+    ".ascii \" /NODEFAULTLIB:libcpmt.lib\"",
+    ".ascii \" /NODEFAULTLIB:libcmt.lib\"",
+    ".text",
+);
+
+// Never read. Being referenced is the entire contract.
 struct BoundaryExports(#[allow(dead_code)] [*const (); 5]);
 
 // SAFETY: The addresses are written once, at compile time, and never read. A static has
