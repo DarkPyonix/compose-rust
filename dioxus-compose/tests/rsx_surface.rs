@@ -156,6 +156,18 @@ fn surface() -> Element {
                     Image { asset_id: 7, width: 64.0, height: 64.0 }
                     Icon { asset_id: 8, color: TERTIARY }
                 }
+                SplitPane {
+                    value: 320.0,
+                    min: 200.0,
+                    max: 400.0,
+                    collapsible: true,
+                    selected_index: 1,
+                    label: "Sessions",
+                    on_change: move |value: f32| fired(format!("SplitPane.on_change({value})")),
+                    on_dismiss: move |_| fired("SplitPane.on_dismiss"),
+                    Column {}
+                    Column {}
+                }
                 SelectionContainer {
                     Badge {
                         value: 3,
@@ -529,6 +541,19 @@ fn expectations() -> Vec<(WidgetKind, Vec<(PropertyKind, Expect)>)> {
         ),
         (W::ScrollColumn, vec![]),
         (W::ScrollRow, vec![]),
+        (
+            W::SplitPane,
+            vec![
+                (P::Value, float(320.0)),
+                (P::Min, float(200.0)),
+                (P::Max, float(400.0)),
+                (P::Collapsible, flag(true)),
+                (P::SelectedIndex, int(1)),
+                (P::Text, text("Sessions")),
+                (P::OnValueChange, Handler),
+                (P::OnDismiss, Handler),
+            ],
+        ),
         (W::SelectionContainer, vec![]),
         (
             W::Badge,
@@ -926,6 +951,18 @@ fn fr15_every_event_handler_written_in_rsx_is_called() {
             P::OnValueChange,
             EventPayload::ValueChanged(2.0),
             "Dropdown.on_change(2)",
+        ),
+        (
+            W::SplitPane,
+            P::OnValueChange,
+            EventPayload::ValueChanged(280.0),
+            "SplitPane.on_change(280)",
+        ),
+        (
+            W::SplitPane,
+            P::OnDismiss,
+            EventPayload::Clicked,
+            "SplitPane.on_dismiss",
         ),
         (
             W::Dialog,

@@ -1,15 +1,15 @@
 //! Code colour roles: a highlighted piece of code travels as roles, never as literals, and
 //! adding the roles moved nothing else in the schema.
 
-use dioxus_compose::highlight::highlight_span;
-use dioxus_compose::prelude::*;
-use dioxus_compose::protocol::{BatchEncoder, Mutation, PropertyValue, decode_batch};
-use dioxus_compose::schema::{
+use compose_rust::highlight::highlight_span;
+use compose_rust::prelude::*;
+use compose_rust::protocol::{BatchEncoder, Mutation, PropertyValue, decode_batch};
+use compose_rust::schema::{
     COLOR_ROLE_COUNT, COLOR_ROLE_SCHEMA, MODIFIER_SCHEMA, PROPERTY_SCHEMA, WIDGET_SCHEMA,
 };
-use dioxus_compose::spans::{TextSpan, TextSpans};
-use dioxus_compose::tokens::DESIGN_TOKENS;
-use dioxus_compose::{Host, PropertyKind};
+use compose_rust::spans::{TextSpan, TextSpans};
+use compose_rust::tokens::DESIGN_TOKENS;
+use compose_rust::{Host, PropertyKind};
 
 const SNIPPET: &str = "// Adds one.\nfn next(count: u32) -> u32 {\n    let label = \"next\\n\";\n    println!(\"{label}\");\n    Some(count).unwrap_or(0) + 1\n}\n";
 
@@ -97,7 +97,7 @@ fn highlighted() -> Element {
 /// is a different colour in light and in dark, in every system.
 #[test]
 fn fr13_1_3_highlighted_code_travels_as_roles_and_differs_between_schemes() {
-    dioxus_compose::window::reset_window_size();
+    compose_rust::window::reset_window_size();
     let mut host = Host::new(highlighted);
     let batch = host.rebuild().expect("the first frame failed to encode");
     let bytes = decode_batch(batch)

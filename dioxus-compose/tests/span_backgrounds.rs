@@ -1,9 +1,9 @@
 //! A background behind one run of a `Text`: what the record carries and how it travels.
 
-use dioxus_compose::prelude::*;
-use dioxus_compose::protocol::{Mutation, PropertyValue, decode_batch};
-use dioxus_compose::spans::{SPAN_BACKGROUND_AT, SPAN_COLOR_AT, SPAN_LEN, TextSpan, TextSpans};
-use dioxus_compose::{Host, PropertyKind};
+use compose_rust::prelude::*;
+use compose_rust::protocol::{Mutation, PropertyValue, decode_batch};
+use compose_rust::spans::{SPAN_BACKGROUND_AT, SPAN_COLOR_AT, SPAN_LEN, TextSpan, TextSpans};
+use compose_rust::{Host, PropertyKind};
 
 /// A span record is 36 bytes, and the background is its own word after the text's paint,
 /// so one run can carry both.
@@ -59,7 +59,7 @@ fn changed_word() -> Element {
 /// `Spans` property every run already uses.
 #[test]
 fn fr26_a_background_travels_on_its_own_run_only() {
-    dioxus_compose::window::reset_window_size();
+    compose_rust::window::reset_window_size();
     let mut host = Host::new(changed_word);
     let batch = host.rebuild().expect("the first frame failed to encode");
     let bytes = decode_batch(batch)
@@ -87,7 +87,7 @@ fn fr26_a_background_travels_on_its_own_run_only() {
 /// The runs in the protocol vector are the 36 byte records both sides read.
 #[test]
 fn fr26_the_vector_carries_36_byte_runs() {
-    use dioxus_compose::codegen::{generate_mutation_vector, spans_vector};
+    use compose_rust::codegen::{generate_mutation_vector, spans_vector};
     let bytes = generate_mutation_vector().unwrap();
     let carried = decode_batch(&bytes)
         .unwrap()

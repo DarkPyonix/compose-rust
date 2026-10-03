@@ -30,7 +30,7 @@ pub const PALETTE_ENTRY_LEN: usize = 8;
 /// Built in a `const`, so a theme that carries it stays `Copy` and can be a `const` too:
 ///
 /// ```
-/// use dioxus_compose::{Color, ColorRole, DesignSystem, Palette, Theme};
+/// use compose_rust::{Color, ColorRole, DesignSystem, Palette, Theme};
 ///
 /// const EMBER: Palette = Palette::new()
 ///     .with(ColorRole::Primary, Color::rgb(0xE8590C), Color::rgb(0xFF8A4C))

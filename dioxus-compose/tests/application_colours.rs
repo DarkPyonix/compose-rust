@@ -1,14 +1,14 @@
 //! An application's own colours: what a palette changes, what it leaves to the design
 //! system, how it travels, and what is said about one that cannot be read.
 
-use dioxus_compose::boundary::palette_report;
-use dioxus_compose::palette::{
+use compose_rust::boundary::palette_report;
+use compose_rust::palette::{
     PALETTE_ENTRY_LEN, PaletteProblem, PaletteViolation, decode_palette, ink_for,
 };
-use dioxus_compose::protocol::{BatchEncoder, Mutation, decode_batch};
-use dioxus_compose::schema::DESIGN_SYSTEM_SCHEMA;
-use dioxus_compose::tokens::table;
-use dioxus_compose::{Color, ColorRole, ColorScheme, DesignSystem, Palette, Theme};
+use compose_rust::protocol::{BatchEncoder, Mutation, decode_batch};
+use compose_rust::schema::DESIGN_SYSTEM_SCHEMA;
+use compose_rust::tokens::table;
+use compose_rust::{Color, ColorRole, ColorScheme, DesignSystem, Palette, Theme};
 
 const EMBER: Palette = Palette::new()
     .with(
@@ -99,8 +99,8 @@ fn fr14_10_an_ink_left_unsaid_is_chosen_to_read_on_the_new_fill() {
         for scheme in [ColorScheme::Light, ColorScheme::Dark] {
             let on_yellow = yellow.resolve(system, scheme)[ColorRole::OnPrimary as usize - 1];
             let on_navy = navy.resolve(system, scheme)[ColorRole::OnPrimary as usize - 1];
-            assert!(dioxus_compose::contrast::contrast(on_yellow, Color::rgb(0xFFE14D)) >= 3.0);
-            assert!(dioxus_compose::contrast::contrast(on_navy, Color::rgb(0x0B1F4B)) >= 3.0);
+            assert!(compose_rust::contrast::contrast(on_yellow, Color::rgb(0xFFE14D)) >= 3.0);
+            assert!(compose_rust::contrast::contrast(on_navy, Color::rgb(0x0B1F4B)) >= 3.0);
             assert_ne!(
                 on_yellow, on_navy,
                 "{system:?} {scheme:?} put the same ink on yellow and on navy"
@@ -323,7 +323,7 @@ fn fr14_10_a_bad_entry_is_reported_and_the_rest_still_apply() {
 /// The palette in the protocol vectors decodes to what was written.
 #[test]
 fn fr14_10_the_vector_palette_round_trips() {
-    use dioxus_compose::codegen::{VECTOR_PALETTE, generate_mutation_vector};
+    use compose_rust::codegen::{VECTOR_PALETTE, generate_mutation_vector};
     let bytes = generate_mutation_vector().unwrap();
     let theme = decode_batch(&bytes)
         .unwrap()

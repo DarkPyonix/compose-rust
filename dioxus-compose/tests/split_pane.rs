@@ -1,11 +1,11 @@
 //! Widget tag 42: a side pane and a body with a divider between them. What the Host puts on
 //! the wire, what comes back, and what does not cross at all.
 
-use dioxus_compose::prelude::*;
-use dioxus_compose::protocol::{
+use compose_rust::prelude::*;
+use compose_rust::protocol::{
     BatchEncoder, HostEvent, Mutation, PropertyValue, decode_batch, encode_event,
 };
-use dioxus_compose::{EventPayload, Host, PropertyKind, WidgetKind};
+use compose_rust::{EventPayload, Host, PropertyKind, WidgetKind};
 use std::cell::RefCell;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -200,7 +200,7 @@ fn sessions_app() -> Element {
 /// shows when one fits, the divider's name, the two handlers, and two children in order.
 #[test]
 fn fr15_2_12_a_split_pane_sends_its_width_range_and_two_children() {
-    dioxus_compose::window::reset_window_size();
+    compose_rust::window::reset_window_size();
     let mut host = Host::new(sessions_app);
     let first = records(host.rebuild().unwrap());
     let pane = node_of(&first, WidgetKind::SplitPane);
@@ -249,7 +249,7 @@ fn fr15_2_12_no_width_means_the_design_systems_width() {
             }
         }
     }
-    dioxus_compose::window::reset_window_size();
+    compose_rust::window::reset_window_size();
     let mut host = Host::new(plain);
     let first = records(host.rebuild().unwrap());
     let pane = node_of(&first, WidgetKind::SplitPane);
@@ -268,7 +268,7 @@ fn fr15_2_12_no_width_means_the_design_systems_width() {
 #[test]
 fn fr15_2_12_a_finished_drag_and_a_fold_each_report_once() {
     REPORTED.with(|reported| reported.borrow_mut().clear());
-    dioxus_compose::window::reset_window_size();
+    compose_rust::window::reset_window_size();
     let mut host = Host::new(sessions_app);
     let first = records(host.rebuild().unwrap());
     let pane = node_of(&first, WidgetKind::SplitPane);
@@ -307,7 +307,7 @@ fn fr15_2_12_a_finished_drag_and_a_fold_each_report_once() {
 #[test]
 fn fr15_2_12_going_back_dismisses_once_and_the_side_pane_is_selected() {
     DISMISSED.with(|dismissed| *dismissed.borrow_mut() = 0);
-    dioxus_compose::window::reset_window_size();
+    compose_rust::window::reset_window_size();
     let mut host = Host::new(sessions_app);
     let first = records(host.rebuild().unwrap());
     let pane = node_of(&first, WidgetKind::SplitPane);
@@ -341,7 +341,7 @@ fn fr15_2_12_going_back_dismisses_once_and_the_side_pane_is_selected() {
 #[test]
 fn fr15_2_12_resizing_the_window_creates_nothing_and_reports_nothing() {
     REPORTED.with(|reported| reported.borrow_mut().clear());
-    dioxus_compose::window::reset_window_size();
+    compose_rust::window::reset_window_size();
     let mut host = Host::new(sessions_app);
     let first = records(host.rebuild().unwrap());
     let pane = node_of(&first, WidgetKind::SplitPane);
@@ -377,7 +377,7 @@ fn fr15_2_12_collapsible_round_trips_as_a_bool() {
     assert_eq!(u16::from_le_bytes([bytes[20], bytes[21]]), 90);
     assert_eq!(decode_batch(bytes).unwrap(), records);
 
-    let vector = dioxus_compose::codegen::generate_mutation_vector().unwrap();
+    let vector = compose_rust::codegen::generate_mutation_vector().unwrap();
     assert!(
         decode_batch(&vector)
             .unwrap()

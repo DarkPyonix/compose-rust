@@ -1,10 +1,10 @@
 //! Changing the theme while the application runs: one record, and a palette made at run
 //! time owned by the crate rather than leaked by the application.
 
-use dioxus_compose::prelude::*;
-use dioxus_compose::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
-use dioxus_compose::theme::{current_theme, owned_palette_count};
-use dioxus_compose::{EventPayload, Host, PropertyKind, WidgetKind};
+use compose_rust::prelude::*;
+use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
+use compose_rust::theme::{current_theme, owned_palette_count};
+use compose_rust::{EventPayload, Host, PropertyKind, WidgetKind};
 
 fn brand(argb: u32) -> Palette {
     Palette::new().with(ColorRole::Primary, Color::rgb(argb), Color::rgb(argb))
@@ -83,7 +83,7 @@ fn click(host: &mut Host, (node, handler): (u32, u64)) -> Vec<Mutation<'static>>
 /// produced, and nothing else.
 #[test]
 fn fr14_10_a_palette_set_at_run_time_is_one_theme_record() {
-    dioxus_compose::window::reset_window_size();
+    compose_rust::window::reset_window_size();
     let mut host = Host::with_theme(app, Theme::unified(DesignSystem::Fluent));
     let first = host.rebuild().unwrap().to_vec();
     let [brand_button, plain_button, dark_button] = buttons(&first)[..] else {
@@ -116,7 +116,7 @@ fn fr14_10_a_palette_set_at_run_time_is_one_theme_record() {
 /// Setting the same palette again does not hold another copy of it.
 #[test]
 fn fr14_10_a_run_time_palette_is_owned_once() {
-    dioxus_compose::window::reset_window_size();
+    compose_rust::window::reset_window_size();
     let mut host = Host::with_theme(app, Theme::unified(DesignSystem::Gnome));
     let first = host.rebuild().unwrap().to_vec();
     let brand_button = buttons(&first)[0];
@@ -132,7 +132,7 @@ fn fr14_10_a_run_time_palette_is_owned_once() {
 /// one the application launched with.
 #[test]
 fn fr14_10_a_run_time_theme_survives_a_resync() {
-    dioxus_compose::window::reset_window_size();
+    compose_rust::window::reset_window_size();
     let mut host = Host::with_theme(app, Theme::unified(DesignSystem::Breeze));
     let first = host.rebuild().unwrap().to_vec();
     click(&mut host, buttons(&first)[0]);
