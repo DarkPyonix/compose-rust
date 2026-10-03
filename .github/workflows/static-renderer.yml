@@ -193,7 +193,7 @@ jobs:
           version="$(sed -n 's/^version = "\(.*\)"$/\1/p' compose-rust/Cargo.toml | head -1)"
           dir="renderer/build/${{ steps.target.outputs.out }}"
           ls -la "$dir"
-          ./scripts/package-static-renderer.sh "$dir" "${{ inputs.target }}" "$version" "$RUNNER_TEMP/artifact"
+          ./.github/scripts/package-static-renderer.sh "$dir" "${{ inputs.target }}" "$version" "$RUNNER_TEMP/artifact"
           echo "name=compose-rust-renderer-v$version-${{ inputs.target }}" >> "$GITHUB_OUTPUT"
 
       - name: Keep the artifact

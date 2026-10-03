@@ -103,7 +103,7 @@ jobs:
             exit 0
           fi
           if git diff --name-only HEAD^ HEAD |
-              grep -qE '^(renderer/|compose-rust/build(\.rs|/)|scripts/(install-nik|check-single-executable|package-static-renderer)\.sh|\.github/workflows/native-renderer\.yml)'; then
+              grep -qE '^(renderer/|compose-rust/build(\.rs|/)|scripts/install-nik\.sh|\.github/scripts/(check-single-executable|package-static-renderer)\.sh|\.github/workflows/(native|static)-renderer\.yml)'; then
             echo "the renderer changed"
             echo "renderer=true" >> "$GITHUB_OUTPUT"
           else
@@ -289,9 +289,9 @@ jobs:
           tarball="$(ls artifact/*.tar.gz)"
           if [[ "$RUNNER_OS" == Linux ]]; then
             xvfb-run -a -s '-screen 0 1280x1024x24' \
-              ./scripts/check-single-executable.sh "$tarball" "$RUNNER_TEMP/single-executable"
+              ./.github/scripts/check-single-executable.sh "$tarball" "$RUNNER_TEMP/single-executable"
           else
-            ./scripts/check-single-executable.sh "$tarball" "$RUNNER_TEMP/single-executable"
+            ./.github/scripts/check-single-executable.sh "$tarball" "$RUNNER_TEMP/single-executable"
           fi
 
   # iOS is Kotlin/Native, not native-image, so it shares nothing with the jobs above

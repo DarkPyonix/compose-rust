@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: scripts/package-static-renderer.sh <renderer build directory> <target> <version> <output directory>
+# Usage: .github/scripts/package-static-renderer.sh <renderer build directory> <target> <version> <output directory>
 #
 # Packages a static renderer build as the release artifact the crate's build script
 # downloads:

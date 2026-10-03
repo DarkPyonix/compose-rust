@@ -436,9 +436,9 @@ build/macos/
   schema-hash.txt                    렌더러가 나온 스키마. Host의 빌드가 비교합니다
 ```
 
-`scripts/package-static-renderer.sh`가 이 디렉터리를 릴리스 아티팩트
+`.github/scripts/package-static-renderer.sh`가 이 디렉터리를 릴리스 아티팩트
 `compose-rust-renderer-v<version>-<target>.tar.gz`와 `.sha256`으로 묶고,
-`scripts/check-single-executable.sh`가 그런 아티팩트로 애플리케이션을 빌드해 실행 파일
+`.github/scripts/check-single-executable.sh`가 그런 아티팩트로 애플리케이션을 빌드해 실행 파일
 하나임을 확인합니다. `otool -L`이나 `readelf -d`를 읽고, 실행 파일만 빈 디렉터리에 복사해
 그리는지 봅니다.
 

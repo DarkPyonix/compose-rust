@@ -7,7 +7,7 @@ import kotlin.test.assertNull
  * The renderer's own test executable links with no Host in it, which is exactly the case
  * the weak references exist for: it has to link at all, and every Host function has to come
  * back as "not linked" rather than as an address that is not one. In an application the
- * same five names resolve to the Host, which `scripts/check-single-executable.sh` proves by
+ * same five names resolve to the Host, which `.github/scripts/check-single-executable.sh` proves by
  * running one.
  */
 class LinkedHostFunctionsTest {

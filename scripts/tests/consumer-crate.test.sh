@@ -122,7 +122,7 @@ if [[ -z "$renderer" ]]; then
     echo "== starting it"
     "$binary" >/dev/null
     echo "ok    a crate depending only on compose-rust builds, has the renderer inside it, and starts"
-    echo "      scripts/check-single-executable.sh checks such an executable runs alone"
+    echo "      .github/scripts/check-single-executable.sh checks such an executable runs alone"
     exit 0
 fi
 

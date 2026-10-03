@@ -443,9 +443,9 @@ build/macos/
   schema-hash.txt                    the schema it was generated from, checked by the Host's build
 ```
 
-`scripts/package-static-renderer.sh` turns that directory into the release artifact,
+`.github/scripts/package-static-renderer.sh` turns that directory into the release artifact,
 `compose-rust-renderer-v<version>-<target>.tar.gz` and its `.sha256`, and
-`scripts/check-single-executable.sh` builds an application from such an artifact and proves it
+`.github/scripts/check-single-executable.sh` builds an application from such an artifact and proves it
 is one executable: it reads `otool -L` or `readelf -d`, then copies the executable alone into an
 empty directory and requires it to draw.
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: scripts/check-single-executable.sh <renderer artifact .tar.gz> <scratch directory>
+# Usage: .github/scripts/check-single-executable.sh <renderer artifact .tar.gz> <scratch directory>
 #
 # Builds an application the way someone using this crate would, from a renderer artifact
 # shaped exactly like the one the release publishes, and proves the result is one
@@ -29,7 +29,7 @@ if [[ $# -ne 2 ]]; then
     exit 2
 fi
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 fixture="$repo_root/compose-rust/tests/fixtures/consumer"
 
 fail() {
