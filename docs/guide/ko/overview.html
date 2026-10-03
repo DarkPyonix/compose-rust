@@ -124,7 +124,7 @@
           <tr><td>스키마</td><td><span class="pill works">구현</span></td><td>위젯, 속성, Modifier, 디자인 역할, <code>Theme</code>, <code>DesignSystem</code> 입니다. 서로 다른 스키마로 빌드된 Host와 렌더러는 스키마 해시 때문에 함께 돌지 못합니다. <code>codegen</code> 바이너리가 여기서 Kotlin 쪽을 생성합니다.</td></tr>
           <tr><td><code>Runtime</code> 트레이트</td><td><span class="pill works">구현</span></td><td>트리를 만드는 쪽이 구현하는 인터페이스와 그 주변 타입입니다. 에셋, 커스텀 드로잉, 입력 이벤트, 알림, 메시지, 팔레트, 창 크기 클래스가 있습니다.</td></tr>
           <tr><td>렌더러 다운로드</td><td><span class="pill works">구현</span></td><td>빌드 스크립트가 대상에 맞는 미리 빌드된 렌더러를 받아 검증하고 링크합니다. <a href="getting-started.html">시작하기</a>를 보십시오.</td></tr>
-          <tr><td>작성 API</td><td><span class="pill planned">계획</span></td><td><code>#[composable]</code>, <code>remember</code>, <code>Recomposer</code>, <code>launch</code>, 위젯 함수입니다. <strong>2026-10-20의 1.0.0</strong>에 들어오며, <a href="https://github.com/DarkPyonix/compose-rust/issues/23">#23</a> 이 추적합니다.</td></tr>
+          <tr><td>작성 API</td><td><span class="pill planned">계획</span></td><td><code>#[composable]</code>, <code>remember</code>, <code>Recomposer</code>, <code>launch</code>, 위젯 함수입니다. <strong>2026-10-20의 1.0.0</strong>에 들어오며, <a href="https://github.com/DarkPyonix/compose-rust/issues/23">#23</a> 과 <a href="https://github.com/DarkPyonix/compose-rust/issues/64">#64</a> 가 추적합니다.</td></tr>
         </tbody>
       </table>
     </div>
@@ -210,7 +210,7 @@
           <tr>
             <td>Web (wasm)</td>
             <td><span class="pill works">처음부터 끝까지 동작</span></td>
-            <td><code>WebAssembly.Memory</code> 하나를 Kotlin/Wasm 모듈이 갖고 Rust 모듈이 가져다 쓰므로, 배치는 쓰인 자리에서 읽힙니다. 렌더러에서 Host로 가는 호출은 생성된 JavaScript 포워더를 거치며, 약 12&nbsp;ns로 측정했습니다.</td>
+            <td><code>WebAssembly.Memory</code> 하나를 Kotlin/Wasm 모듈이 갖고 Rust 모듈이 가져다 쓰므로, 배치는 쓰인 자리에서 읽힙니다. 렌더러에서 Host로 가는 호출은 생성된 JavaScript 포워더를 거치며, 약 12&nbsp;ns로 측정했습니다. 포워더 없는 직결 호출은 계획입니다(<a href="https://github.com/DarkPyonix/compose-rust/issues/54">#54</a>).</td>
           </tr>
         </tbody>
       </table>

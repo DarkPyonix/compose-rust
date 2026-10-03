@@ -90,7 +90,7 @@ Host 상태가 변경되면 변경분만 전송하고, Renderer는 해당 노드
 - `interpreter_exhaustiveness.rs`가 두 번째 고리를 봅니다. 생성기가 내놓는 `WidgetKind`, `PropertyKind`, `Modifier`, `Mutation`의 모든 변형이 인터프리터의 해당 `when`에 이름으로 나와 있어야 합니다. Kotlin의 exhaustive `when`이 원래 하던 일이지만 `else` 한 줄이면 사라지므로, `else`로 바꿔도 빨개지도록 Rust 테스트가 대신 확인합니다. iOS가 같은 파일을 심링크로 쓰는지도 같은 파일이 봅니다.
 - 실제로 확인했습니다: `PropertyKind`에 변형을 하나 더하고 인터프리터를 그대로 두면 `fr7_every_property_in_the_schema_has_an_arm_in_the_interpreter`가 실패하고, `PropertyKind.Progress` 팔을 `else -> false`로 바꿔도 같은 테스트가 실패합니다.
 - 체크아웃 경계: `codegen_tree.rs`가 codegen 바이너리를 다른 `CARGO_MANIFEST_DIR`로 실행해서 그 디렉터리가 비어 있는 채로 남는지, 종료 코드와 메시지가 두 경로를 말하는지 확인합니다.
-- 스키마 해시: `boundary_hardening.rs`의 `nfr7_init_with_a_wrong_schema_hash_returns_a_status`가 불일치 핸드셰이크에서 `init`이 실패 상태를 돌려주는지 보고, iOS 쪽은 `ProtocolBufferTest.pr4_handshake_carries_the_schema_hash_the_host_checks`가 Host가 검사하는 그 해시를 핸드셰이크에 싣는지 봅니다.
+- 스키마 해시: `boundary_hardening.rs`(지금 dioxus-compose에 있음)의 `nfr7_init_with_a_wrong_schema_hash_returns_a_status`가 불일치 핸드셰이크에서 `init`이 실패 상태를 돌려주는지 보고, iOS 쪽은 `ProtocolBufferTest.pr4_handshake_carries_the_schema_hash_the_host_checks`가 Host가 검사하는 그 해시를 핸드셰이크에 싣는지 봅니다.
 
 ### FR-8 LazyColumn 윈도잉 (`Done`)
 - Host는 아이템 총 개수와 안정적인 key를 알립니다.
@@ -320,13 +320,13 @@ Property 태그(기존 `OnRangeRequested=12` 뒤에 덧붙입니다): `TypeRole=
 목록과 폼을 실제로 그려 보면 13.1~13.8 어휘로는 두 가지를 말할 수 없습니다. 둘 다 새 위젯이나 새 태그 없이 해결합니다.
 
 - **파괴적 동작**: 삭제 버튼은 세 시스템 모두에서 "평범한 버튼인데 라벨만 경고색"입니다. `ButtonVariant`를 하나 더 늘리는 대신, `Button`이 이미 있는 `Color`(태그 18) 속성을 받습니다. 노드가 색을 지정하면 그 값이 variant가 정한 라벨 색을 덮고, 지정하지 않으면 지금까지와 같습니다. 보내는 것은 여전히 `Paint::Role(ColorRole::Error)`이므로 실제 색조는 디자인 시스템이 정합니다.
-  - 수용 기준: `fr13_button_label_colour_is_sent_as_a_role`.
+  - 수용 기준: `fr13_button_label_colour_is_sent_as_a_role` (이 테스트는 지금 dioxus-compose의 `tests/design_primitives.rs`에 있습니다).
 - **구분선**: 묶인 목록은 행과 행 사이를 하이라인으로 나눕니다(HIG의 그룹 목록, Material의 Divider, Fluent의 층 스트로크). 애플리케이션 코드가 두께와 색을 들지 않는다는 것이 이 항목의 요점이고, 그 부분은 그대로입니다. 이름도 `Separator` 그대로입니다.
 
   **2026-09-21 정정**: 이 항목은 원래 "두께는 역할로 표현할 수 없는 상수이므로 라이브러리가 1dp를 들고, `Box` 하나로 그려서 위젯 태그를 늘리지 않는다"고 적혀 있었습니다. 15.2.4가 `Divider`를 태그 17로 넣으면서 그 근거가 둘 다 없어졌습니다. 태그는 이미 늘었고, 두께가 상수라는 전제도 틀렸습니다. Material의 divider와 Fluent의 층 스트로크와 HIG의 그룹 구분선은 두께도 색도 들여쓰기도 서로 다르며, 그것을 정하는 것이 디자인 시스템이 하는 일입니다(FR-14.1). 1dp를 라이브러리에 박아 두면 세 시스템 중 둘이 틀린 굵기로 그려집니다.
 
   따라서 `Separator`는 `Divider` 하나를 렌더링합니다. 같은 개념에 이름이 둘 있는 상태를 남기지 않되, 애플리케이션 코드가 이미 쓰고 있는 이름은 유지합니다.
-  - 수용 기준: `fr13_separator_is_one_divider_so_the_design_system_sets_its_weight`.
+  - 수용 기준: `fr13_separator_is_one_divider_so_the_design_system_sets_its_weight` (이 테스트는 지금 dioxus-compose의 `tests/design_primitives.rs`에 있습니다).
 
 #### 13.10 비활성 상태는 보여야 합니다
 
@@ -712,7 +712,9 @@ LaunchBuilder::new()
 - **팔레트를 디자인 시스템별로 줄 것인가.** 이 항목은 `adaptive`에서 한 팔레트가 어느 시스템에나 얹히게 했습니다. 브랜드가 "macOS에서는 유리 위에서 더 밝은 주황"처럼 시스템별 값을 원하면 `(design_system, role, scheme)` 항목이 필요합니다. 지금은 넣지 않았고, 요청한 앱의 브랜드 지침이 그것을 요구하는지 확인이 필요합니다.
 - **씨앗 색에서 팔레트 만들기.** Material 3는 색 하나에서 배색 전체를 만드는 알고리즘(dynamic color)이 있습니다. 다른 여섯 시스템에는 없으므로 이 항목은 값을 직접 주게 했습니다. Material 3 전용 편의 함수(`Palette::from_seed`)를 Host 쪽에 둘지는 정하지 않았습니다.
 
-#### 14.11 디자인 시스템 라이브러리의 두 층 (`Agreed`)
+#### 14.11 디자인 시스템 라이브러리의 두 층 (`Agreed`, 진행 중, 이슈 #39)
+
+> **현황(2026-10-04).** 디자인 시스템 소스는 포크(`compose-multiplatform-core-extended`의 `extended/design-systems/`)로 옮겨졌습니다(PR #86). 1층 라이브러리 일곱 개와 2층 `org.thisisthepy.compose.adaptive`로 나누는 일, 그리고 남은 좌표 이동은 두 포크의 `chore/thisisthepy-coordinates` 브랜치에 있고 병합되지 않았습니다(#39).
 
 INTENT D19의 2026-10-03 결정입니다. 디자인 시스템은 `compose-multiplatform-core-extended`에서 Compose 라이브러리로 나가고, 두 층으로 나뉩니다.
 
@@ -1635,7 +1637,7 @@ tag 12, 32바이트: handler_id: u64, text: (offset, len), action: (offset, len)
 
 #### 21.8 지금까지 확인된 것
 
-1번부터 7번까지 통과했습니다. 1번은 `fr21_one_declaration_is_a_bar_a_rail_and_a_drawer`가 500dp/700dp/1100dp에서 막대/레일/서랍의 치수를 재고, 같은 폭에서 찍은 스크린샷 아홉 장(디자인 시스템 3 × 폭 3)을 눈으로 확인했습니다. 2번은 `fr21_navigation_is_one_declaration_and_a_resize_creates_nothing`, 3번은 Host와 Renderer 양쪽, 4번은 `fr21_dragging_a_sheet_shut_reports_one_dismissal_and_nothing_during_the_drag`, 5번은 `fr21_two_messages_in_one_batch_are_shown_one_at_a_time_in_order`, 6번은 양쪽, 7번은 갱신된 `mutations.bin` 벡터와 `fr21_the_message_record_in_the_vector_decodes_to_the_same_values`입니다.
+1번부터 7번까지 통과했습니다. 1번은 `fr21_one_declaration_is_a_bar_a_rail_and_a_drawer`가 500dp/700dp/1100dp에서 막대/레일/서랍의 치수를 재고, 같은 폭에서 찍은 스크린샷 아홉 장(디자인 시스템 3 × 폭 3)을 눈으로 확인했습니다. 2번은 `fr21_navigation_is_one_declaration_and_a_resize_creates_nothing`(지금 dioxus-compose의 `tests/navigation_sheets_messages.rs`에 있음), 3번은 Host와 Renderer 양쪽, 4번은 `fr21_dragging_a_sheet_shut_reports_one_dismissal_and_nothing_during_the_drag`, 5번은 `fr21_two_messages_in_one_batch_are_shown_one_at_a_time_in_order`, 6번은 양쪽, 7번은 갱신된 `mutations.bin` 벡터와 `fr21_the_message_record_in_the_vector_decodes_to_the_same_values`입니다.
 
 **8번은 아직입니다.** Renderer의 `ComponentRules` 구현은 현재 셋(Material 3, Cupertino, Fluent)이고, GNOME/Breeze/Deepin은 다른 작업에서 들어오는 중입니다. 세 멤버 전부 토큰 표에서 유도한 기본 구현을 가지므로 그 셋이 합류할 때 컴파일이 깨지지 않고 각자의 색으로 나오지만, "여섯 시스템 전부"는 그 작업이 합쳐진 뒤에 확인해야 합니다. 그때까지 이 요구사항은 `Done`이 아닙니다.
 
@@ -1876,7 +1878,9 @@ FR-20은 창의 크기를 답합니다. 이것은 특정 노드의 크기를 답
 - 14.1의 규칙은 그대로입니다. 이것이 켜졌을 때에만 "창 뒤를 비춘다"고 말할 수 있고, 켜지지 않은 환경에서 그렇게 주장하지 않습니다.
 - 수용 기준: macOS에서 이 재질을 쓴 창이 뒤에 있는 창을 실제로 비춥니다(스크린샷을 데스크톱 배경만 바꿔 두 번 찍어 픽셀이 달라지는 것으로 확인합니다). 재질을 쓰지 않은 창은 지금과 같은 경로로 뜨고 `NSVisualEffectView`가 만들어지지 않습니다. 이 기능이 없는 플랫폼에서 같은 선언이 흐림으로 그려집니다.
 
-### FR-30 플랫폼 고유 동작 표면과 제목 배치 (`Agreed`)
+### FR-30 플랫폼 고유 동작 표면과 제목 배치 (`Agreed`, 진행 중, 이슈 #57, #79)
+
+> **현황(2026-10-04).** develop에는 30.1과 30.2 모두 없습니다. 30.1 동작 키(속성 태그 75)는 PR #76(`feat/fr30-action-keys`, #57)에 있습니다. 30.2 제목을 플랫폼 캡션에 맡기는 일은 #79가 추적하며 작업 브랜치가 없습니다.
 
 적응형 애플리케이션은 디자인 시스템의 이름을 묻지 않고 자기가 놓는 것이 무엇인지 말합니다.
 렌더러의 `ComponentRules`가 그 뜻을 현재 디자인 시스템의 모양과 배치로 바꿉니다.
@@ -2248,7 +2252,9 @@ Notification::new("세션이 끝났습니다")
 
 비용: 위젯 태그 하나(43), 속성 일곱(100-106), 명령 하나(17), 이벤트 다섯(26-30), `EventPayloadType` 다섯. 디자인 시스템 규칙 일곱 벌에 편집기 모양(줄 번호 영역, 현재 줄, 밑줄 굵기). 측정 결과가 (나)이면 Renderer 쪽 텍스트 그리기 코드가 새로 생깁니다.
 
-### FR-39 compose-rust 작성 API와 recomposition 런타임 (`Agreed`, 1.0.0 범위)
+### FR-39 compose-rust 작성 API와 recomposition 런타임 (`Agreed`, 진행 중, 이슈 #23, #64)
+
+> **현황(2026-10-04).** develop에는 이 API가 없습니다. 런타임과 Host 배선은 `feature/compose-api` 브랜치(develop보다 18커밋 앞)에 있고 PR은 아직 열리지 않았습니다(#64). 소유자 결정의 기록은 #23, 이름 조회와 재전송 비용은 #65가 추적합니다.
 
 **2026-10-03 소유자 결정(INTENT D2).** compose-rust는 Dioxus 없이 쓸 수 있는 자기 작성 API를 가집니다. 모양은 Compose이고, 그 아래는 슬롯 테이블 위의 recomposition 런타임입니다. dioxus-compose는 이 위에 얹힙니다. compose-rust 1.0.0(2026-10-20)의 범위입니다.
 
@@ -2309,7 +2315,9 @@ fn main() {
    7. **실행 조건을 기록합니다.** 기계, 부하 평균, 반복 횟수, 워밍업 횟수, 시나리오마다 p50, p99, 최대값과 원시 데이터의 경로를 `benches/baseline.json`에 남깁니다. 부하 평균이 높을 때 잰 값은 그 사실과 함께 기록하고, 판정에는 한가한 기계에서 잰 값을 씁니다.
    8. **결과는 그대로 보고합니다.** 10배에 못 미치면 실측 배수를 그대로 보고합니다. 목표를 맞추려고 시나리오, 지표, 판정 방법을 바꾸는 것은 금지입니다. 이 기준을 `Done`으로 표시하는 것은 측정한 쪽이 아니라, 다른 세션이 같은 벤치를 다시 돌려 같은 결과를 확인한 뒤입니다.
 
-### FR-40 HTML 텍스트 속성 (`Agreed`)
+### FR-40 HTML 텍스트 속성 (`Agreed`, 진행 중, 이슈 #106)
+
+> **현황(2026-10-04).** develop에는 없습니다. 구현은 `feat/measure-call` 브랜치(develop보다 14커밋 앞, PR 없음)에 PR-2.1과 함께 있습니다. 그 경로에서 나온 후속 문제는 #90, #91입니다.
 
 CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 데 필요한 속성입니다. 측정 호출(PR-2.1)의 값이 그려진 값과 같으려면, 그리기도 같은 칸을 같은 뜻으로 받아야 합니다. 노드 단위 글꼴은 역할이 없는 텍스트에만 엽니다(INTENT D20, 2026-10-03 소유자 결정).
 
@@ -2340,7 +2348,9 @@ CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 
 5. 다섯 플랫폼과 Web에서 기준 1의 라틴 경우가 통과합니다.
 
 - HTML 화면의 접근성 배율(시스템 글꼴 배율을 `absolute_size` 텍스트에 어떻게 반영할지)은 아직 정하지 않았습니다. 검토 문서를 만들어 소유자가 정합니다. `absolute_size` 칸 자체는 어느 결정에서도 필요합니다.
-### FR-41 Transform과 렌더러가 재생하는 애니메이션 (`Agreed`)
+### FR-41 Transform과 렌더러가 재생하는 애니메이션 (`Agreed`, 진행 중, 이슈 #105, PR #83)
+
+> **현황(2026-10-04).** develop에는 없습니다. FR-41.1, 41.2, 41.4는 PR #83(`feat/html-primitives`)에 있고, 그 PR은 PR #74(FR-42)를 포함합니다. 41.4는 FR-39 런타임이 develop에 없어 Dioxus 어댑터에 대고 구현되어 있습니다. 41.3은 `Draft`입니다.
 
 요청한 쪽: dioxus-compose FR-34.1(CSS transform 전부, M14 10-18)과 FR-34.2(CSS transition과 animation, 혼합안). 소유자 결정(2026-10-03): `opacity`, `color`, `background-color`, `transform`은 렌더러가 Compose 애니메이션으로 재생하고, 레이아웃 속성은 나중에(M15) Host가 매 프레임 시각을 넘겨 계산합니다. 이 초안은 그중 렌더러 쪽 둘을 compose-rust 스키마에 적습니다.
 
@@ -2671,7 +2681,9 @@ FR-39의 compose-rust API가 같은 레코드를 씁니다. Compose의 이름을
 4. **터치 대상 확장.** Compose는 48dp보다 작은 노드의 터치 적중 영역을 넓힙니다(`minimumTouchTargetSize`). CSS에는 없는 동작이라 터치 입력에서는 Chromium과 판정이 다를 수 있습니다. 수용 기준 5는 마우스로 잽니다.
 5. **번호.** Mutation 18, 19, 이벤트 31, 32는 FR-38(CodeEditor)이 17과 26~30을 가져간 뒤의 다음 빈 번호입니다(2026-10-03 다시 매김). 수정자 26은 HTML/CSS 원소 초안의 19~25 다음 번호입니다. 다른 초안이 먼저 가져가면 설계자가 다시 매깁니다.
 
-### FR-42 HTML/CSS 화면을 그리는 원소 (`Agreed`)
+### FR-42 HTML/CSS 화면을 그리는 원소 (`Agreed`, 진행 중, 이슈 #104, PR #74)
+
+> **현황(2026-10-04).** develop에는 없습니다. 스키마, 코덱, 프로토콜 벡터, 인터프리터 분기는 PR #74(`feat/html-primitives-schema`)에 있고, 그리기 테스트는 후속 PR로 남아 있습니다.
 
 요청한 쪽: dioxus-compose FR-34(M12, 10-15). Host(`blitz-dom`)가 계산한 상자와 텍스트를 Compose로 그리려면, 계산된 결과를 그대로 놓을 수 있는 원소가 필요합니다. M10 측정(dioxus-compose PR #28)에서 상자 배치는 Chromium과 정확히 같았고 텍스트 폭은 허용치를 넘었습니다. 그래서 **상자는 Host가 계산한 자리에 놓고, 텍스트의 크기는 Compose가 잽니다**(PR-2.1). 소유자 승인 2026-10-03.
 
@@ -2730,7 +2742,9 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 
 열린 질문: `AbsoluteBox`라는 이름. 더 나은 개념 이름이 있으면 바꿉니다.
 
-### FR-43 확대 배율: OS 글자 크기와 앱 확대 (`Agreed`)
+### FR-43 확대 배율: OS 글자 크기와 앱 확대 (`Agreed`, 진행 중, 이슈 #68, PR #77)
+
+> **현황(2026-10-04).** develop의 데스크톱 렌더러는 `fontScale`을 1로 고정하고 OS 글자 크기를 읽지 않습니다(#68). PR #77(`feat/desktop-text-scale`)이 데스크톱의 OS 글자 크기를 읽습니다. 앱 확대 수준, `ZoomChanged`, `IslandZoom`은 어느 브랜치에도 없습니다.
 
 소유자 결정(2026-10-03): "vscode 기준". VS Code의 `window.zoomLevel`처럼 화면 전체를 확대하고, 시작값은 OS 글자 크기입니다. 검토 문서(HTML 화면의 접근성 배율)의 (e)안입니다.
 
@@ -2752,6 +2766,36 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 4. `k = 1.25, 1.5, 2`에서 측정 호출의 값과 그린 크기가 같습니다(fr43_measure_follows_zoom).
 5. `k`가 바뀌어도 `absolute_size` 텍스트의 `fontScale`은 1이고, 크기는 `k`로만 바뀝니다(fr43_absolute_size_ignores_font_scale).
 6. 다섯 플랫폼과 Web에서 기준 1과 2가 통과합니다. macOS는 기준 2만 해당합니다.
+
+### FR-44 시스템 색 구성표가 바뀌었다는 이벤트 (`Draft`, 제안, 소유자 승인 대기, 이슈 #97)
+
+> **제안입니다.** 소유자가 승인하기 전까지 구현하지 않습니다. 이벤트 태그 번호는 승인할 때 정합니다.
+
+`Theme`의 `color_scheme`이 `FollowSystem`이어도 Host는 시스템의 밝음과 어두움이 바뀐 것을 알 수 없습니다. HTML 경로는 `prefers-color-scheme` 미디어 쿼리를 다시 풀고 다시 배치해야 하므로 이 사실이 필요합니다. dioxus-compose의 HTML 다리(`feat/html-compose-bridge`)를 쓰다가 드러났습니다.
+
+제안하는 모양:
+- 새 이벤트 `ColorSchemeChanged`. `ReducedMotionChanged`(FR-41.2)와 `DesignSystemResolved`(FR-32)처럼 노드가 아니라 Host에게 오며, `node_id = 0`, `handler_id = 0`입니다.
+- 페이로드는 `scheme: u32`(0 밝음, 1 어두움)입니다.
+- 시작할 때 한 번, 그 뒤 시스템 값이 바뀔 때마다 옵니다. 같은 값이 연달아 오지 않습니다.
+
+제안하는 수용 기준:
+1. OS의 밝음/어두움을 바꾸면 재시작 없이 `ColorSchemeChanged`가 한 번 옵니다(fr44_system_scheme_change_reaches_the_host).
+2. 다섯 플랫폼과 Web에서 기준 1이 통과합니다.
+
+### FR-45 노드마다 포커스를 얻은 사건과 키를 뗀 사건 (`Draft`, 제안, 소유자 승인 대기, 이슈 #98)
+
+> **제안입니다.** 소유자가 승인하기 전까지 구현하지 않습니다. 이벤트 태그 번호는 승인할 때 정합니다.
+
+지금 노드 이벤트에는 `OnFocusLost`(8)와 `OnKeyDown`(9)만 있습니다. DOM의 `onfocus`, `onfocusin`, `onkeyup`은 대응하는 원천 사건이 없어 HTML 경로에서 결코 일어나지 않습니다. dioxus-compose의 HTML 다리를 쓰다가 드러났습니다.
+
+제안하는 모양:
+- 새 노드 이벤트 `OnFocusGained`. 그 노드나 그 하위가 포커스를 얻을 때 옵니다. 페이로드는 없습니다.
+- 새 노드 이벤트 `OnKeyUp`. `OnKeyDown`과 같은 페이로드(키, 수정자)를 싣고, 키를 뗄 때 옵니다.
+- 둘 다 핸들러가 등록된 노드에만 보냅니다. 등록이 없으면 경계를 건너지 않습니다.
+
+제안하는 수용 기준:
+1. 포커스를 받은 `TextField`가 `OnFocusGained`를 한 번 보내고, 포커스를 잃으면 `OnFocusLost`를 보냅니다(fr45_focus_gained_and_lost_pair).
+2. 키 하나를 눌렀다 떼면 `OnKeyDown` 다음에 같은 키의 `OnKeyUp`이 옵니다(fr45_key_up_follows_key_down).
 
 ## 4. 경계 프로토콜
 
@@ -2819,7 +2863,9 @@ compose_rust_host_dispatch_event: click 1
 - iOS에는 isolate가 없어 `@CName`이 공개 심볼을 Kotlin 함수에 직접 붙입니다. isolate 심이 하던 나머지 역할은 Kotlin/Native 런타임과 `NSThread.isMainThread` 검사가 대신합니다.
 - Web은 검증되었습니다(PR-6의 검증 절). 같은 다섯 개 논리 연산이 브라우저에서도 그대로 서고, 초기 배치와 클릭 왕복이 공유 메모리 위에서 돕니다. **Android는 2026-09-22 API 36 에뮬레이터에서 확인했습니다.** 같은 다섯 연산이 생성된 JNI 심을 통해 서고, 화면이 그려지며, 워커의 프레임 요청이 경계를 넘어옵니다. 호출당 비용도 그 자리에서 쟀습니다(PR-5의 수용 기준 1).
 
-### PR-2.1 측정 호출 (`Agreed`)
+### PR-2.1 측정 호출 (`Agreed`, 진행 중, 이슈 #106)
+
+> **현황(2026-10-04).** develop에는 측정 진입점이 없습니다. 구현은 `feat/measure-call` 브랜치(PR 없음)에 FR-40과 함께 있습니다.
 
 **무엇을 하나.** Host가 자기 레이아웃을 계산하는 도중에, 텍스트 한 덩이나 이미 보낸 위젯 하나가 주어진 제약 안에서 차지할 크기를 Renderer에게 묻습니다. Renderer는 **그릴 때와 같은 글꼴 해석, 같은 Density와 글꼴 배율, 같은 디자인 시스템 타입 스케일**로 재서 그 자리에서 돌려줍니다. 측정값과 그려진 크기가 같다는 것이 이 호출의 존재 이유입니다.
 
@@ -3026,7 +3072,9 @@ compose_rust_host_dispatch_event: click 1
   - `scripts/tests/android-kotlin-travels.test.sh`가 담긴 사본이 렌더러와 같은지와 패키지 목록에 들어 있는지를 봅니다. 사본이 뒤처지면 애플리케이션이 Host보다 낡은 인터프리터를 컴파일하고 핸드셰이크가 거부합니다.
   - **`sample-v0.1.1`의 APK는 이 경로로 만든 것이 아닙니다.** 우리 Amper 모듈(`renderer/android`)에 샘플의 cdylib을 넣어 빌드한 것이고, 그것이 증명하는 것은 Android에서 렌더러와 Host가 동작한다는 것이지 사용자가 겪을 경로가 동작한다는 것은 아닙니다. 다음 샘플 릴리스의 APK는 dx로 만듭니다.
 
-### PR-6 Web 경계 (`Agreed`, 재측정 중)
+### PR-6 Web 경계 (`Agreed`, 재측정 중, 이슈 #54, PR #84)
+
+> **현황(2026-10-04).** develop의 Web 경계는 아래 JS 포워더입니다. 생성된 트램펄린으로 직결하는 구현과 재측정은 PR #84(`feat/web-direct-call`)에 있고 아직 병합되지 않았습니다.
 
 **상태를 `Done`에서 내립니다(2026-10-03).** 소유자 지시는 직결이었습니다: "Q7 JS 브릿지 갔다오는건 성능이 느려서 안된다. 직결하도록 해"(2026-09-19). 2026-09-20 실험에서 Wasm 테이블을 거치는 `call_indirect` 트램펄린이 Safari 기준 5.6ns(JS 경유 13.2ns)로 측정됐지만 커밋되지 않았습니다. 그 뒤 "직결은 불가능하다"는 결론이 승인 없이 이 항목과 INTENT에 들어갔습니다. 재측정(#54)으로 직결이 재현되면 이 항목과 INTENT D3/D8을 직결로 되돌리고, 아래의 JS 포워더 서술은 그때 고칩니다. 그때까지 이 항목은 `Done`이 아닙니다.
 Rust(wasm32)와 Kotlin/Wasm 모듈을 연결합니다. `LoopMode::Platform`입니다. 2026-09-20 실측으로 확정했습니다(`experiments/web-interop/`).
@@ -3140,8 +3188,8 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 | NFR-10 | 렌더러 탐색 경로 | `COMPOSE_RUST_RENDERER_DIR` → 워크스페이스 빌드 결과물 → 버전·타깃별 캐시 → 릴리스 다운로드 순서로 찾음. 규격과 수용 기준은 §5.3. **2026-09-21 충족** | Done |
 | NFR-11 | 배포 | 크레이트는 crates.io, 렌더러는 플랫폼별 체크섬 릴리스 아티팩트. 설치는 `Cargo.toml` 한 줄이 전부이고 빌드 스크립트가 아티팩트를 가져옵니다. 규격과 수용 기준은 §5.3 (INTENT D10). **2026-09-21 macOS에서 충족**, Windows와 Linux는 실행 확인 미완료 | Agreed |
 | NFR-12 | 워크트리 빌드 격리 | 워크트리마다 자기 `target/`에 빌드하고, 다른 워크트리의 빌드 디렉터리를 가리키는 설정이 없음. 한 트리에서 컴파일된 codegen 바이너리가 다른 트리에 쓸 수 없음. 규격과 수용 기준은 §5.4 (INTENT D16). **2026-09-22 충족** | Done |
-| NFR-13 | Windows 단일 실행 파일 | Windows 렌더러를 Kotlin/Native로 빌드해 앱 실행 파일 하나에 링크함. JVM이 없고, 앱을 빌드하는 사람에게 MinGW를 요구하지 않음. 규격과 수용 기준은 §5.6 (INTENT D18, 2026-10-03 소유자 결정) | Agreed |
-| NFR-14 | AWT 없는 데스크톱 렌더러가 기본 | 배포되는 데스크톱 렌더러가 AWT도 JVM도 쓰지 않음. macOS와 Linux는 Kotlin/Native 정적 라이브러리, Windows는 NFR-13. 앱이 아무것도 고르지 않아도 이 경로가 나옴. 규격과 수용 기준은 §5.5 (INTENT D4, 2026-10-03 소유자 결정) | Agreed |
+| NFR-13 | Windows 단일 실행 파일 | Windows 렌더러를 Kotlin/Native로 빌드해 앱 실행 파일 하나에 링크함. JVM이 없고, 앱을 빌드하는 사람에게 MinGW를 요구하지 않음. 규격과 수용 기준은 §5.6 (INTENT D18, 2026-10-03 소유자 결정) | Agreed, 진행 중: `feature/windows-kotlin-native` 브랜치(PR 없음), 이슈 #24 |
+| NFR-14 | AWT 없는 데스크톱 렌더러가 기본 | 배포되는 데스크톱 렌더러가 AWT도 JVM도 쓰지 않음. macOS와 Linux는 Kotlin/Native 정적 라이브러리, Windows는 NFR-13. 앱이 아무것도 고르지 않아도 이 경로가 나옴. 규격과 수용 기준은 §5.5 (INTENT D4, 2026-10-03 소유자 결정) | Agreed, 진행 중: develop의 기본값은 아직 native-image AWT 경로, 전환은 `feature/native-default-renderer` 브랜치(PR 없음), 이슈 #22 |
 | NFR-15 | 데스크톱 애플리케이션은 실행 파일 하나 | compose-rust 애플리케이션이 macOS, Windows, Linux에서 실행 파일 하나이고, 시스템 라이브러리 외에 아무것도 불러오지 않음. 렌더러, Skia, ICU 데이터가 안에 있음. 1.0.0 요구사항. 규격과 수용 기준은 §5.7 (INTENT D17, 2026-10-03 소유자 결정) | Agreed |
 
 ### 5.1 프레임 예산 (NFR-9)
@@ -3371,6 +3419,8 @@ Cargo는 path 패키지의 유닛 해시에 패키지 경로를 넣지 않습니
 
 ### 5.5 AWT 없는 데스크톱 렌더러 (NFR-14)
 
+> **현황(2026-10-04).** develop에서 배포되는 데스크톱 렌더러는 아직 GraalVM native-image AWT 경로이고, Kotlin/Native 렌더러는 `DXC_MACOS_NATIVE_LIB`로 고르는 선택지입니다. 기본값 전환은 `feature/native-default-renderer` 브랜치(develop보다 24커밋 앞, PR 없음)에 있습니다(#22).
+
 **2026-10-03 소유자 결정(INTENT D4).** 배포되는 데스크톱 렌더러는 AWT를 쓰지 않습니다. 렌더러가 자기 창을 직접 열고 Compose 장면을 그 창에 붙여 그립니다. macOS와 Linux는 Kotlin/Native 정적 라이브러리이고, Windows는 Kotlin/Native `mingwX64`로 같은 길을 갑니다(§5.6, NFR-13). GraalVM native-image 위의 AWT 경로는 Windows 렌더러가 NFR-13을 통과할 때까지 Windows가 지금 내는 것으로만 남습니다.
 
 | 플랫폼 | 창 | 렌더러 | 입력기 경로 |
@@ -3392,6 +3442,8 @@ Cargo는 path 패키지의 유닛 해시에 패키지 경로를 넣지 않습니
 7. §5.1 프레임 예산과 NFR-3 무게 기준을 이 빌드에서 잽니다.
 
 ### 5.6 Windows 단일 실행 파일 (NFR-13)
+
+> **현황(2026-10-04).** develop의 Windows 렌더러는 GraalVM native-image입니다. Kotlin/Native `mingwX64` 렌더러는 `feature/windows-kotlin-native` 브랜치(develop보다 23커밋 앞, PR 없음)에 있습니다(#24).
 
 **2026-10-03 소유자 결정(INTENT D18). 실험이 아니라 정식 통합입니다.** Windows 렌더러는 Kotlin/Native(`mingwX64`)로 빌드한 정적 라이브러리(`renderer/windows/`, `staticlib-windows/`)이고, Rust 앱의 MSVC 실행 파일에 링크됩니다. Skia와 skiko의 C++ 부분은 MSVC로 빌드해 같은 실행 파일에 들어갑니다. Compose와 skiko의 `mingwX64` 타깃은 Compose 포크의 커밋입니다(INTENT D19). 경계와 그 이유는 INTENT D18에 있습니다.
 
