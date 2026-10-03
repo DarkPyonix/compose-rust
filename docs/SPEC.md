@@ -2420,7 +2420,7 @@ Offset, RequiredSize, Transform, Alpha, Shadow, Background, Border/BorderEach, C
 - 쌓임 순서(`z-index`, 변환이 만드는 쌓임 맥락)는 HTML 초안대로 Host가 `AbsoluteBox`의 자식 순서로 풉니다. 이 수정자는 순서를 바꾸지 않습니다.
 
 수용 기준:
-1. `Transform` 수정자가 44바이트 `SetModifier`로 Rust와 Kotlin에서 같은 바이트로 인코딩되고 디코딩됩니다(체크인된 프로토콜 벡터). 기존 수정자 0~25의 벡터는 바이트 하나도 바뀌지 않습니다(fr41_transform_round_trips, fr41_existing_modifier_vectors_are_unchanged).
+1. `Transform` 수정자가 44바이트 `SetModifier`로 Rust와 Kotlin에서 같은 바이트로 인코딩되고 디코딩됩니다(체크인된 프로토콜 벡터). 기존 수정자 0~25의 벡터는 바이트 하나도 바뀌지 않습니다(`fr41_transform_round_trips`, `fr41_existing_modifier_vectors_are_unchanged`).
 2. 태그가 요구하는 길이와 다른 `SetModifier`, 값에 NaN이나 무한대가 든 `Transform`은 `ProtocolError` 이벤트가 되고 프로세스가 중단되지 않습니다.
 3. `rotate(15deg)`, `scale(1.5)`, `skewX(10deg)`, `scaleX(-1)`, 그리고 셋을 곱한 행렬 각각을 원점 `(0, 0)`과 `(0.5, 0.5)`로 단 100x40dp 상자에서, 네 꼭짓점의 `LayoutCoordinates.localToRoot` 결과가 행렬을 직접 적용한 값과 0.01dp 안에서 같습니다. 데스크톱 렌더러 테스트입니다.
 4. 변환된 노드의 측정 크기, 형제의 자리, `ObserveSize`가 알리는 크기가 변환이 없을 때와 같습니다.
