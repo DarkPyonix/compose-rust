@@ -216,6 +216,7 @@ pub mod elements {
             pub const shadow: AttributeDescription = ("shadow", None, false);
             pub const clip: AttributeDescription = ("clip", None, false);
             pub const alpha: AttributeDescription = ("alpha", None, false);
+            pub const transform: AttributeDescription = ("transform", None, false);
         };
     }
 

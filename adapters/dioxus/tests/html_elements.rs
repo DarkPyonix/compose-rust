@@ -19,6 +19,7 @@ fn mixed() -> Element {
             shadow: (0.0, 2.0, 6.0, -1.0, OUTLINE),
             clip: true,
             alpha: 0.5,
+            transform: (0.0, 1.0, -1.0, 0.0, 4.0, 0.0),
         }
     }
 }
@@ -83,6 +84,7 @@ fn fr42_an_absolute_box_sends_its_modifiers_in_drawing_order() {
         [
             "Offset",
             "RequiredSize",
+            "Transform",
             "Alpha",
             "Shadow",
             "CornerEach",

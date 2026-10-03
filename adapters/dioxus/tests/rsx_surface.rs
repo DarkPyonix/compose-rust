@@ -176,6 +176,7 @@ fn surface() -> Element {
                     shadow: (0.0, 2.0, 6.0, 0.0, OUTLINE),
                     clip: true,
                     alpha: 0.5,
+                    transform: (0.0, 1.0, -1.0, 0.0, 4.0, 0.0),
                     AbsoluteBox {
                         offset: (12.0, 24.0),
                         required_size: (100.0, 40.0),

@@ -60,9 +60,18 @@ pub fn AbsoluteBox(
     shadow: Option<(f32, f32, f32, f32, Paint)>,
     #[props(default)] clip: bool,
     #[props(default)] alpha: Option<f32>,
+    /// CSS `matrix(a, b, c, d, e, f)`, with `e` and `f` in dp. Drawn without moving the
+    /// layout, and a pointer is tested against the shape that is drawn.
+    #[props(default)]
+    transform: Option<(f32, f32, f32, f32, f32, f32)>,
+    /// The point the transform turns about, as a fraction of the box's size. The middle,
+    /// as in CSS, when it is not given.
+    #[props(default)]
+    transform_origin: Option<(f32, f32)>,
     children: Element,
 ) -> Element {
     use compose_rust::Modifier;
+    let (origin_x, origin_y) = transform_origin.unwrap_or((0.5, 0.5));
     rsx! {
         absolutebox {
             offset: offset.map(|(x, y)| AttributeValue::any_value(Modifier::Offset { x, y })),
@@ -79,6 +88,9 @@ pub fn AbsoluteBox(
             }),
             clip: clip.then_some(true),
             alpha: opt_dp(alpha),
+            transform: transform.map(|(a, b, c, d, e, f)| {
+                AttributeValue::any_value(Modifier::Transform { a, b, c, d, e, f, origin_x, origin_y })
+            }),
             {children}
         }
     }
