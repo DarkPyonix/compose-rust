@@ -159,8 +159,8 @@ application. Widgets emit roles (colour, type, shape, space), and the renderer r
 tokens, so switching to dark mode is one theme change rather than a property update on every
 node.
 
-The design systems are moving out of this repository into the thisisthepy Compose fork, as
-ordinary Compose libraries under `org.thisisthepy.compose.*`: one component library per system
+The design systems have moved out of this repository into the thisisthepy Compose fork, where
+they are becoming ordinary Compose libraries under `org.thisisthepy.compose.*`: one component library per system
 (`org.thisisthepy.compose.material3`, `.cupertino`, `.fluent`, `.liquidglass` and the others),
 `org.thisisthepy.compose.adaptive` on top of them, which follows the platform's own system by
 default, and `org.thisisthepy.compose.designsystem` for the contract both layers share.
@@ -243,10 +243,10 @@ scripts/          setup check, quality gate, release and publishing scripts, scr
 .github/          CI workflows
 ```
 
-The adapter, baseline and twelve `rsx!` samples of dioxus-compose live in [dioxus-compose](https://github.com/DarkPyonix/dioxus-compose).
-compose-rust's own samples return when they are rewritten on its authoring API (#64),
-expected 2026-10-05 to 2026-10-06, and sample releases are paused until then (#85). `design-systems/` is leaving
-too: the design systems move to the Compose fork (#39).
+The Dioxus adapter and its baseline moved to [dioxus-compose](https://github.com/DarkPyonix/dioxus-compose).
+The samples under `samples/` are being rewritten on the compose-rust authoring API (#85) and do
+not build until then. The design systems moved to the Compose fork, under `extended/design-systems/` in
+[thisisthepy/compose-multiplatform-core-extended](https://github.com/thisisthepy/compose-multiplatform-core-extended).
 
 ---
 

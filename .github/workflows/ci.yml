@@ -104,10 +104,9 @@ jobs:
     # One job per platform, not one job for all of them.
     #
     # `./kotlin build` with no argument compiles every module for every platform it
-    # declares, and the design systems declare five each. That put the Kotlin/Native
-    # compiler, its platform libraries and the wasm toolchain on the critical path of a
-    # gate whose JVM half finishes in seconds, and it serialised work that has no reason
-    # to be serial: measured warm here, jvm 4s, android 4s, wasmJs 11s, iosSimulatorArm64
+    # declares. That put the Kotlin/Native compiler, its platform libraries and the wasm
+    # toolchain on the critical path of a gate whose JVM half finishes in seconds, and it
+    # serialised work that has no reason to be serial: measured warm here, jvm 4s, android 4s, wasmJs 11s, iosSimulatorArm64
     # 21s. Sequentially that is the sum; split, it is the slowest one.
     #
     # The split also keeps each cache honest. The jvm and android jobs never download
@@ -164,7 +163,7 @@ jobs:
             ~/.cache/JetBrains/Kotlin
             ~/.konan
             ~/.m2/repository
-          key: kotlin-${{ matrix.platform }}-${{ runner.os }}-${{ hashFiles('renderer/**/module.yaml', 'renderer/libs.versions.toml', 'renderer/kotlin', 'design-systems/**/module.yaml') }}
+          key: kotlin-${{ matrix.platform }}-${{ runner.os }}-${{ hashFiles('renderer/**/module.yaml', 'renderer/libs.versions.toml', 'renderer/kotlin') }}
           restore-keys: |
             kotlin-${{ matrix.platform }}-${{ runner.os }}-
 
@@ -175,17 +174,6 @@ jobs:
       - name: Test the renderer
         if: matrix.test
         working-directory: renderer
-        run: ./kotlin test -p ${{ matrix.platform }}
-
-      - name: Build the design systems
-        # A separate Amper project, and deliberately so: it must never depend on the
-        # renderer, which is what lets it be published on its own.
-        working-directory: design-systems
-        run: ./kotlin build -p ${{ matrix.platform }}
-
-      - name: Test the design systems
-        if: matrix.test
-        working-directory: design-systems
         run: ./kotlin test -p ${{ matrix.platform }}
 
   shell:

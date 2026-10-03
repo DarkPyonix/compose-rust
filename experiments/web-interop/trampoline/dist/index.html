@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Web interop trampoline experiment</title>
+<script type="importmap">
+{ "imports": { "rust": "./rust-imports.mjs" } }
+</script>
+<style>
+  body { font: 13px/1.5 ui-monospace, monospace; padding: 16px; }
+  pre { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>Rust wasm &lt;-&gt; Kotlin/Wasm direct linking</h1>
+<pre id="out">running...</pre>
+<script type="module">
+  import "./harness.mjs";
+  window.onerror = (e) => { document.getElementById("out").textContent += "\nERROR " + e; };
+</script>
+</body>
+</html>

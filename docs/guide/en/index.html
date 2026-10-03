@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>compose-rust: declarative UI in Rust, rendered by Compose Multiplatform</title>
-<meta name="description" content="compose-rust lets you write declarative UI in Rust with Dioxus and have an AOT-compiled Compose Multiplatform renderer draw it. Native desktop UI with no webview and no bundled JVM.">
+<title>compose-rust: Compose-shaped UI in Rust, drawn by Compose</title>
+<meta name="description" content="compose-rust is a Compose-shaped UI API for Rust, drawn by an AOT-compiled Compose renderer. Native UI with no webview and no bundled JVM.">
 <link rel="canonical" href="http://darkpyonix.dev/compose-rust/en/">
 <link rel="alternate" hreflang="en" href="http://darkpyonix.dev/compose-rust/en/">
 <link rel="alternate" hreflang="ko" href="http://darkpyonix.dev/compose-rust/ko/">
@@ -13,13 +13,13 @@
 <meta property="og:site_name" content="compose-rust">
 <meta property="og:locale" content="en_US">
 <meta property="og:locale:alternate" content="ko_KR">
-<meta property="og:title" content="compose-rust: declarative UI in Rust, rendered by Compose">
-<meta property="og:description" content="Write declarative UI in Rust with Dioxus. An AOT-compiled Compose Multiplatform renderer draws it. No webview, no bundled JVM.">
+<meta property="og:title" content="compose-rust: Compose-shaped UI in Rust, drawn by Compose">
+<meta property="og:description" content="A Compose-shaped UI API for Rust, drawn by an AOT-compiled Compose renderer. No webview, no bundled JVM.">
 <meta property="og:url" content="http://darkpyonix.dev/compose-rust/en/">
 <meta property="og:image" content="http://darkpyonix.dev/compose-rust/assets/og.png">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="compose-rust: declarative UI in Rust, rendered by Compose">
-<meta name="twitter:description" content="Write declarative UI in Rust with Dioxus. An AOT-compiled Compose Multiplatform renderer draws it. No webview, no bundled JVM.">
+<meta name="twitter:title" content="compose-rust: Compose-shaped UI in Rust, drawn by Compose">
+<meta name="twitter:description" content="A Compose-shaped UI API for Rust, drawn by an AOT-compiled Compose renderer. No webview, no bundled JVM.">
 <meta name="twitter:image" content="http://darkpyonix.dev/compose-rust/assets/og.png">
 <link rel="stylesheet" href="../assets/style.css?v=20">
 <script type="application/ld+json">
@@ -27,12 +27,12 @@
   "@context": "https://schema.org",
   "@type": "SoftwareSourceCode",
   "name": "compose-rust",
-  "description": "Declarative UI in Rust, rendered by an AOT-compiled Compose Multiplatform engine.",
+  "description": "A Compose-shaped UI API for Rust, drawn by an AOT-compiled Compose Multiplatform renderer.",
   "codeRepository": "https://github.com/DarkPyonix/compose-rust",
   "url": "http://darkpyonix.dev/compose-rust/",
   "programmingLanguage": ["Rust", "Kotlin"],
   "license": "https://www.apache.org/licenses/LICENSE-2.0",
-  "runtimePlatform": "macOS"
+  "runtimePlatform": ["macOS", "Linux", "Windows", "iOS", "Android", "Web"]
 }
 </script>
 <script>(function(){try{var t=localStorage.getItem("dxc-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
@@ -75,11 +75,11 @@
     </div>
     <span class="edge" aria-hidden="true"></span>
   <section class="hero">
-    <h1>Declarative UI in Rust,<span class="said">rendered by Compose.</span></h1>
-    <p class="lede">You write components with <code>rsx!</code>, hooks and signals. An AOT-compiled
-      Compose Multiplatform renderer draws them, with Compose's text layout, its widgets and the
+    <h1>Compose-shaped UI in Rust,<span class="said">drawn by Compose.</span></h1>
+    <p class="lede">A Rust API in the shape of Compose, a narrow C ABI with a generated schema, and an
+      ahead-of-time compiled Compose renderer that draws with Compose's own text layout, widgets and
       platform IME.</p>
-    <p class="sub">Native desktop UI in Rust with no webview and no bundled JVM.</p>
+    <p class="sub">Native UI with no webview and no bundled JVM, aiming at one executable per desktop app.</p>
     <div class="cta">
       <a class="btn" href="getting-started.html">Get started</a>
       <a class="btn secondary" href="overview.html">Read the guide</a>
@@ -87,74 +87,67 @@
     </div>
       <ul class="claims">
         <li>No webview</li>
-        <li>No JVM in the shipped binary</li>
+        <li>No bundled JVM</li>
         <li>Platform IME, including Korean</li>
-        <li>Zero-copy boundary</li>
+        <li>Records read in place</li>
       </ul>
   </section>
   </div>
 
   <div class="showcase" id="how">
-<pre><code><span class="k">rsx!</span> {
-    <span class="t">Column</span> {
-        <span class="a">fill_max_width</span>: <span class="k">true</span>,
-        <span class="t">Text</span> { <span class="a">text</span>: <span class="s">"Messages"</span> }
-        <span class="t">TextField</span> {
-            <span class="a">placeholder</span>: <span class="s">"Say something"</span>,
-            <span class="c">// Enter submits, Shift+Enter breaks the line</span>
-            <span class="a">on_key_down</span>: <span class="k">move</span> |e| {
-                <span class="k">if</span> e.key() == <span class="t">Key</span>::Enter &amp;&amp; !e.shift_key() {
-                    submit();
-                    e.consume();
-                }
-            },
-        }
-    }
+<pre><code><span class="c">// Planned shape for 1.0.0. Does not compile against 0.0.x.</span>
+<span class="at">#[composable]</span>
+<span class="k">fn</span> <span class="f">counter</span>() {
+    <span class="k">let</span> count = <span class="f">remember</span>(|| <span class="f">mutable_state_of</span>(<span class="n">0</span>));
+    <span class="f">Column</span>(<span class="ty">Modifier</span>::<span class="f">new</span>().<span class="f">fill_max_width</span>(), || {
+        <span class="f">Text</span>(<span class="f">format!</span>(<span class="s">"{}"</span>, count.<span class="f">get</span>()));
+        <span class="f">Button</span>(|| count.<span class="f">set</span>(count.<span class="f">get</span>() + <span class="n">1</span>), || <span class="f">Text</span>(<span class="s">"+1"</span>));
+    });
 }</code></pre>
     <div class="note">
       <h2>One language for the UI, one engine for the pixels</h2>
-      <p>The Rust side owns your components and your state. The Kotlin side owns the pixels,
-        the text stack and the input method. Between them sits a narrow C ABI: synchronous,
-        same-thread, and zero-copy, so a keystroke gets its answer inside the same frame.</p>
-      <p>Nothing is serialised. There is no async bridge, no webview, and no JVM in the
-        shipped binary.</p>
+      <p>Rust owns your code and your state. Kotlin owns the pixels, the text stack and the input
+        method. Between them sits a narrow C ABI: synchronous, on one thread, with records read
+        where they were written, so a keystroke gets its answer inside the same call.</p>
+      <p>The authoring API shown here arrives with 1.0.0 on 2026-10-20. The boundary, the schema and
+        the renderers under it ship today in 0.0.1.</p>
     </div>
   </div>
 
   <div class="metrics">
-    <div class="metric"><b>35.1 MB</b><span>Physical footprint of an open window, measured on an M1</span></div>
-    <div class="metric"><b>12.5 &micro;s</b><span>Click to diff to encoded batch, p99</span></div>
-    <div class="metric"><b>0</b><span>Allocations per frame at the boundary</span></div>
-    <div class="metric"><b>No JVM</b><span>The desktop build runs on a machine without Java</span></div>
+    <div class="metric"><b>28.76 MB</b><span>One executable, notepad sample, macOS arm64</span></div>
+    <div class="metric"><b>35.1 MB</b><span>Physical footprint of that executable with its window open</span></div>
+    <div class="metric"><b>~12 ns</b><span>One call from renderer to Host in the browser</span></div>
+    <div class="metric"><b>6.95 MB</b><span>Renderer and Skia in the browser, gzipped</span></div>
   </div>
-  <p class="fineprint">Measured on a Mac mini (M1, 16 GiB, macOS 26.5.1), release build. See
-    <a href="architecture.html">Architecture</a> for how these are obtained.</p>
+  <p class="fineprint">The first two numbers are for the Kotlin/Native renderer linked into the
+    executable, which becomes the default after 0.0.1. 0.0.1 ships a GraalVM native image on the
+    desktop. See <a href="architecture.html#runtimes">What runs where</a>.</p>
 
   <section>
     <h2>Where it stands today</h2>
     <table>
-      <thead><tr><th>Platform</th><th>State</th></tr></thead>
+      <thead><tr><th>Part</th><th>State</th></tr></thead>
       <tbody>
-        <tr><td>macOS desktop</td><td>Works end to end, including Korean IME input</td></tr>
-        <tr><td>Windows, Linux desktop</td><td>Builds and starts</td></tr>
-        <tr><td>iOS</td><td>Builds and starts (XCFramework)</td></tr>
-        <tr><td>Android</td><td>Designed, not implemented</td></tr>
-        <tr><td>Web</td><td>Boundary settled by measurement; not implemented</td></tr>
+        <tr><td>Boundary, protocol, schema, renderer download</td><td><span class="pill works">Works</span> in 0.0.1</td></tr>
+        <tr><td>Authoring API: <code>#[composable]</code>, <code>remember</code>, <code>launch</code></td><td><span class="pill planned">Planned</span> for 1.0.0 on 2026-10-20</td></tr>
+        <tr><td>macOS, Android, Web</td><td><span class="pill works">Works end to end</span></td></tr>
+        <tr><td>Linux, Windows, iOS</td><td><span class="pill partial">Builds and starts</span></td></tr>
       </tbody>
     </table>
     <p class="fineprint">This is an early project and it says so plainly. The
-      <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/SPEC.md">specification</a>
-      records what is agreed, what is drafted and what is still unproven.</p>
+      <a href="overview.html#status">status</a> and <a href="overview.html#platforms">platforms</a>
+      sections say what each line means.</p>
   </section>
 
   <section>
     <h2>Start here</h2>
     <div class="cards">
-      <a class="card" href="getting-started.html"><h3>Getting started</h3><p>Install the toolchain, build the renderer, run the demo.</p></a>
-      <a class="card" href="writing-ui.html"><h3>Writing UI</h3><p>Widgets, modifiers, events, and the text field rules that keep IME composition intact.</p></a>
-      <a class="card" href="composables.html"><h3>Composable reference</h3><p>Every composable, its props and defaults, the role vocabulary, and where each one keeps its state.</p></a>
-      <a class="card" href="design-systems.html"><h3>Design systems</h3><p>Material 3, Cupertino and Fluent, unified or following the host platform.</p></a>
-      <a class="card" href="architecture.html"><h3>Architecture</h3><p>The Host and Renderer split, the protocol, and the frame model.</p></a>
+      <a class="card" href="getting-started.html"><h3>Getting started</h3><p>Add the crate, let the build fetch the renderer, and build this repository.</p></a>
+      <a class="card" href="writing-ui.html"><h3>Writing UI</h3><p>The planned authoring API: composables, state, effects, events and animation.</p></a>
+      <a class="card" href="composables.html"><h3>Widget reference</h3><p>Every widget, modifier and role in the schema, and where each widget keeps its state.</p></a>
+      <a class="card" href="design-systems.html"><h3>Design systems</h3><p>Seven design systems behind one set of roles, unified or adaptive.</p></a>
+      <a class="card" href="architecture.html"><h3>Architecture</h3><p>The boundary, the records, the measure call, zoom and the renderer per platform.</p></a>
     </div>
   </section>
 </main>
@@ -162,7 +155,7 @@
 <footer class="site">
   <div class="inner">
     <span>compose-rust &middot; Apache License 2.0</span>
-    <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/INTENT.md">INTENT.md</a></span>
+    <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://crates.io/crates/compose-rust">crates.io</a></span>
   </div>
 </footer>
 <script src="../assets/guide.js" defer></script>

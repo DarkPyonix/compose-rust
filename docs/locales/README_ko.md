@@ -148,8 +148,8 @@ Material 3, Apple HIG, Fluent, Liquid Glass를 비롯한 디자인 시스템 일
 고릅니다. 위젯은 역할(색, 글꼴, 모양, 간격)을 내보내고 렌더러가 그것을 토큰으로 풀기 때문에,
 다크 모드 전환은 노드마다 속성을 고치는 일이 아니라 테마 변경 한 번입니다.
 
-디자인 시스템은 이 저장소를 떠나 thisisthepy의 Compose 포크로 옮겨 가며, `org.thisisthepy.compose.*`
-아래의 평범한 Compose 라이브러리가 됩니다. 시스템마다 컴포넌트 라이브러리 하나
+디자인 시스템은 이 저장소를 떠나 thisisthepy의 Compose 포크로 옮겨 갔고, 그곳에서 `org.thisisthepy.compose.*`
+아래의 평범한 Compose 라이브러리가 되어 갑니다. 시스템마다 컴포넌트 라이브러리 하나
 (`org.thisisthepy.compose.material3`, `.cupertino`, `.fluent`, `.liquidglass` 등), 그 위에서 기본으로
 플랫폼 자신의 시스템을 따르는 `org.thisisthepy.compose.adaptive`, 그리고 두 층이 함께 쓰는 계약인
 `org.thisisthepy.compose.designsystem`입니다.
@@ -230,9 +230,10 @@ scripts/          setup check, quality gate, release and publishing scripts, scr
 .github/          CI workflows
 ```
 
-dioxus-compose의 어댑터, 기준선, `rsx!` 샘플 열두 개는 [dioxus-compose](https://github.com/DarkPyonix/dioxus-compose)에 있습니다.
-compose-rust 자체 샘플은 작성 API(#64) 위에 다시 쓰이면 돌아오며 2026-10-05에서 2026-10-06 사이로 예상하고, 그때까지 샘플
-릴리스는 멈춰 있습니다(#85). `design-systems/`도 떠납니다. 디자인 시스템은 Compose 포크로 옮겨 갑니다(#39).
+Dioxus 어댑터와 기준선은 [dioxus-compose](https://github.com/DarkPyonix/dioxus-compose)로 옮겨 갔습니다.
+`samples/` 아래 샘플은 compose-rust 작성 API로 다시 쓰는 중이며(#85), 그때까지는 빌드되지 않습니다. 디자인 시스템은 Compose 포크로 옮겨 갔으며,
+[thisisthepy/compose-multiplatform-core-extended](https://github.com/thisisthepy/compose-multiplatform-core-extended)의
+`extended/design-systems/` 아래에 있습니다.
 
 ---
 

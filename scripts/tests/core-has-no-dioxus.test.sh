@@ -89,7 +89,8 @@ fi
 # behind in it, and the manifests, because a crate that is not a member (the consumer
 # fixture is a workspace of its own) is not in the tree above at all. Comments may say
 # Dioxus; a line that declares something may name dioxus-compose, to point at where the
-# Dioxus path is, and nothing else. experiments/ is left out: each experiment there is a
+# Dioxus path is, and nothing else. samples/ is left out while it is rewritten on the
+# compose-rust API (#85); experiments/ is left out: each experiment there is a
 # committed record of a measurement, built on its own, and some of them measured Dioxus.
 locked="$(grep -E '^name = "dioxus' "$repo_root/Cargo.lock" || true)"
 if [[ -n "$locked" ]]; then
@@ -97,7 +98,7 @@ if [[ -n "$locked" ]]; then
         "$locked" \
         "Remove them with the member that needed them."
 fi
-manifests="$(cd "$repo_root" && git ls-files -- '*Cargo.toml' ':!experiments/' |
+manifests="$(cd "$repo_root" && git ls-files -- '*Cargo.toml' ':!experiments/' ':!samples/' |
     xargs grep -n -i 'dioxus' 2>/dev/null | grep -v -E '^[^:]+:[0-9]+:[[:space:]]*#' |
     grep -v -i 'dioxus-compose' || true)"
 if [[ -n "$manifests" ]]; then
