@@ -1,8 +1,8 @@
-use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use compose_rust::Host;
 use compose_rust::prelude::*;
 use compose_rust::protocol::{BatchEncoder, HostEvent, Mutation, PropertyValue, decode_batch};
 use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind};
+use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use std::time::Instant;
 
 const HOST_INTERACTION_BUDGET_NS: u128 = 500_000;
