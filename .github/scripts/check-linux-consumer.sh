@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: scripts/check-linux-consumer.sh <renderer> <scratch directory>
+# Usage: .github/scripts/check-linux-consumer.sh <renderer> <scratch directory>
 #
 # Builds an application the way someone using this crate would, moves it away from the
 # build, and starts it on Linux until the renderer has drawn. Needs a display: run it under
@@ -41,7 +41,7 @@ if [[ $# -ne 2 ]]; then
     exit 2
 fi
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 fixture="$repo_root/compose-rust/tests/fixtures/consumer"
 
 fail() {
