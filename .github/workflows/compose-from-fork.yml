@@ -147,11 +147,14 @@ jobs:
           restore-keys: |
             kotlin-native-${{ runner.os }}-${{ runner.arch }}-
 
-      - name: Install the X11, Xext and GL development headers
+      - name: Install the X11, Xext, GL, fontconfig and FreeType development libraries
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libx11-dev libxext-dev libgl1-mesa-dev
+          # The module's test executable links against skiko, which needs fontconfig and
+          # FreeType as well as the libraries the window itself uses.
+          sudo apt-get install -y pkg-config libx11-dev libxext-dev libgl1-mesa-dev \
+            libfontconfig1-dev libfreetype6-dev
 
       - name: Configure Gradle for this runner
         # The user-level file overrides the checkout's gradle.properties. The heap the Compose
