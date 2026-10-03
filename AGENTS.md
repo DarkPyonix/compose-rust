@@ -212,6 +212,25 @@ the launchers inject them ahead of whatever the prompt says.
 
 ## Writing
 
+The house style is `docs/style/writing.md` in `thisisthepy/pythonx-compose`, on its
+`develop` branch
+([source](https://github.com/thisisthepy/pythonx-compose/blob/develop/docs/style/writing.md)).
+It is the standard for every document here, and it applies whenever a doc is edited:
+README files, the guide, the planning documents, doc comments. The owner set one style for
+the thisisthepy and darkpyonix projects, so a reader moving between them meets the same
+voice. In short:
+
+- Present tense for what is true now. What is not done carries its status and the issue
+  that tracks it, so a plan never reads as shipped.
+- Short, plain sentences, one idea each. A rule or a limitation comes with its reason.
+- English and Korean say the same things in the same order, written naturally in each
+  language rather than translated word for word.
+- Korean user docs (README, the guide) use 합니다체; internal docs use 한다체.
+- Code, commands, file names and identifiers keep their original spelling, in code format.
+
+Apply it to the lines you write or change. A whole-document rewrite is its own task, not a
+side effect of an unrelated edit. The rules below come on top of it.
+
 1. **Never use em dashes.** Not in docs, code comments, commit messages, pull request text or UI copy. Use a comma, a colon, parentheses, or start a new sentence. Hyphens in compound words and en dashes in numeric ranges are fine.
 2. Language: `README.md` and the guide site (`docs/guide/`) are English, with translations under `docs/locales/` and `docs/guide/ko/`. The internal planning documents (`PROJECT.md`, `docs/INTENT.md`, `docs/SPEC.md`) are Korean. Code, code comments, scripts and this file are English.
 3. **Never cite SPEC or INTENT from code.** No `(SPEC PR-4)`, no `NFR-8 needs this`, no
@@ -231,6 +250,12 @@ the launchers inject them ahead of whatever the prompt says.
    **test names** (`fr4_set_prop_does_not_recompose_siblings`) keep theirs, because the
    traceability from a failing test to its requirement is the point of the TDD rules below.
    Anything a test *prints* follows the rule above.
+4. **Python-side tooling in examples is uv, ppp (pypackpack) and tcl (toolchain-lite) only.**
+   Never `pip install`, `python -m pip` or a bare `python3 script.py`: run a script with
+   `uv run`, add a package with `uv add`, `ppp` or `tcl`. Rust examples stay `cargo`. The
+   reason is one toolchain story across the thisisthepy and darkpyonix projects: a reader
+   who set up uv for one of them can run every example in all of them, and a single pip
+   line sends them down a second setup. `scripts/tests/no-pip-examples.test.sh` checks it.
 
 ## Test Driven Development
 
