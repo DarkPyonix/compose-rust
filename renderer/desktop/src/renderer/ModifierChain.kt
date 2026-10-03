@@ -28,7 +28,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlurEffect
@@ -349,35 +348,35 @@ private fun Modifier.borderEach(
     // Each side's share of the ring: from its two outer corners along the joins towards the
     // middle of the box. The joins run through the inner corners, so a thick side takes
     // more of the corner than a thin one, as in a browser.
-    fun polygon(vararg points: Offset) = Path().apply {
-        moveTo(points[0].x, points[0].y)
-        for (index in 1 until points.size) lineTo(points[index].x, points[index].y)
+    fun polygon(vararg xy: Float) = Path().apply {
+        moveTo(xy[0], xy[1])
+        for (index in 2 until xy.size step 2) lineTo(xy[index], xy[index + 1])
         close()
     }
     val regions = listOf(
         if (top > 0f) polygon(
-            Offset(0f, 0f),
-            Offset(width, 0f),
-            Offset(width - right * middleY / top, middleY),
-            Offset(left * middleY / top, middleY),
+            0f, 0f,
+            width, 0f,
+            width - right * middleY / top, middleY,
+            left * middleY / top, middleY,
         ) else null,
         if (right > 0f) polygon(
-            Offset(width, 0f),
-            Offset(width, height),
-            Offset(middleX, height - bottom * middleX / right),
-            Offset(middleX, top * middleX / right),
+            width, 0f,
+            width, height,
+            middleX, height - bottom * middleX / right,
+            middleX, top * middleX / right,
         ) else null,
         if (bottom > 0f) polygon(
-            Offset(width, height),
-            Offset(0f, height),
-            Offset(left * middleY / bottom, middleY),
-            Offset(width - right * middleY / bottom, middleY),
+            width, height,
+            0f, height,
+            left * middleY / bottom, middleY,
+            width - right * middleY / bottom, middleY,
         ) else null,
         if (left > 0f) polygon(
-            Offset(0f, height),
-            Offset(0f, 0f),
-            Offset(middleX, top * middleX / left),
-            Offset(middleX, height - bottom * middleX / left),
+            0f, height,
+            0f, 0f,
+            middleX, top * middleX / left,
+            middleX, height - bottom * middleX / left,
         ) else null,
     )
     onDrawBehind {
