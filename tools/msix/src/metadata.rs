@@ -384,7 +384,7 @@ path = "src/main.rs"
 "#;
 
     #[test]
-    fn fr34_metadata_comes_from_dioxus_toml_and_cargo_toml() {
+    fn fr35_metadata_comes_from_dioxus_toml_and_cargo_toml() {
         let (d, c) = tables(NOTEPAD, CARGO);
         let m = AppMetadata::from_tables(Path::new("/nowhere"), &d, &c, "0.1.0".into()).unwrap();
         assert_eq!(m.display_name, "Notepad");
@@ -405,7 +405,7 @@ path = "src/main.rs"
     }
 
     #[test]
-    fn fr34_store_identity_overrides_the_derived_one() {
+    fn fr35_store_identity_overrides_the_derived_one() {
         let dioxus = format!(
             "{NOTEPAD}\n[windows.msix]\nidentity_name = \"DarkPyonix.Ember\"\npublisher = \"CN=1F2E3D4C-0000-1111-2222-333344445555\"\ndisplay_name = \"Ember\"\nlanguages = [\"en-us\", \"ko-kr\"]\n"
         );
@@ -419,7 +419,7 @@ path = "src/main.rs"
     }
 
     #[test]
-    fn fr34_windows_section_overrides_bundle() {
+    fn fr35_windows_section_overrides_bundle() {
         let dioxus = format!(
             "{NOTEPAD}\n[windows]\npublisher = \"Dark Pyonix, Inc.\"\nshort_description = \"Windows text\"\ncapabilities = [\"internetClient\"]\n"
         );
@@ -432,7 +432,7 @@ path = "src/main.rs"
     }
 
     #[test]
-    fn fr34_missing_publisher_is_an_error() {
+    fn fr35_missing_publisher_is_an_error() {
         let (d, c) = tables(
             "[application]\nname = \"X\"\n[bundle]\nidentifier = \"a.b.c\"\n",
             CARGO,
@@ -443,7 +443,7 @@ path = "src/main.rs"
     }
 
     #[test]
-    fn fr34_identity_names_are_made_valid() {
+    fn fr35_identity_names_are_made_valid() {
         assert_eq!(
             identity_from_identifier("com.example.my_app").unwrap(),
             "com.example.my-app"
@@ -460,14 +460,14 @@ path = "src/main.rs"
     }
 
     #[test]
-    fn fr34_publisher_must_be_a_distinguished_name() {
+    fn fr35_publisher_must_be_a_distinguished_name() {
         assert!(validate_publisher("CN=DarkPyonix").is_ok());
         assert!(validate_publisher("O=Org, CN=Name").is_ok());
         assert!(validate_publisher("DarkPyonix").is_err());
     }
 
     #[test]
-    fn fr34_executable_follows_the_explicit_override() {
+    fn fr35_executable_follows_the_explicit_override() {
         let dioxus = format!("{NOTEPAD}\n[windows.msix]\nexecutable = \"ember\"\n");
         let (d, c) = tables(&dioxus, CARGO);
         let m = AppMetadata::from_tables(Path::new("/nowhere"), &d, &c, "1.0.0".into()).unwrap();
@@ -475,7 +475,7 @@ path = "src/main.rs"
     }
 
     #[test]
-    fn fr34_the_real_samples_produce_valid_metadata() {
+    fn fr35_the_real_samples_produce_valid_metadata() {
         let samples = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples");
         let mut seen = 0;
         for entry in std::fs::read_dir(&samples).unwrap() {

@@ -137,44 +137,44 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fr34_store_version_is_the_crate_version_with_revision_zero() {
+    fn fr35_store_version_is_the_crate_version_with_revision_zero() {
         let v = PackageVersion::from_semver("1.4.2", Channel::Store, None).unwrap();
         assert_eq!(v.to_string(), "1.4.2.0");
     }
 
     #[test]
-    fn fr34_store_refuses_a_nonzero_revision() {
+    fn fr35_store_refuses_a_nonzero_revision() {
         assert!(PackageVersion::from_semver("1.4.2", Channel::Store, Some(7)).is_err());
         assert!(PackageVersion::from_semver("1.4.2", Channel::Store, Some(0)).is_ok());
     }
 
     #[test]
-    fn fr34_store_refuses_a_prerelease() {
+    fn fr35_store_refuses_a_prerelease() {
         let err = PackageVersion::from_semver("1.4.2-beta.1", Channel::Store, None).unwrap_err();
         assert!(err.to_string().contains("pre-release"), "{err}");
     }
 
     #[test]
-    fn fr34_sideload_revision_is_the_build_number() {
+    fn fr35_sideload_revision_is_the_build_number() {
         let v =
             PackageVersion::from_semver("1.4.2-beta.1+abc", Channel::Sideload, Some(31)).unwrap();
         assert_eq!(v.to_string(), "1.4.2.31");
     }
 
     #[test]
-    fn fr34_build_metadata_is_ignored() {
+    fn fr35_build_metadata_is_ignored() {
         let v = PackageVersion::from_semver("2.0.1+git.abc", Channel::Store, None).unwrap();
         assert_eq!(v.to_string(), "2.0.1.0");
     }
 
     #[test]
-    fn fr34_parts_above_sixteen_bits_are_refused() {
+    fn fr35_parts_above_sixteen_bits_are_refused() {
         assert!(PackageVersion::from_semver("1.70000.0", Channel::Store, None).is_err());
         assert!(PackageVersion::from_semver("1.0.0", Channel::Sideload, Some(70_000)).is_err());
     }
 
     #[test]
-    fn fr34_malformed_versions_are_refused() {
+    fn fr35_malformed_versions_are_refused() {
         for bad in ["1.0", "1.0.0.0", "a.b.c", "", "1..0"] {
             assert!(
                 PackageVersion::from_semver(bad, Channel::Store, None).is_err(),
@@ -184,7 +184,7 @@ mod tests {
     }
 
     #[test]
-    fn fr34_later_releases_map_to_greater_versions() {
+    fn fr35_later_releases_map_to_greater_versions() {
         let order = ["0.9.9", "1.0.0", "1.0.1", "1.1.0", "2.0.0"];
         let mapped: Vec<_> = order
             .iter()
@@ -198,7 +198,7 @@ mod tests {
     }
 
     #[test]
-    fn fr34_channel_names_parse() {
+    fn fr35_channel_names_parse() {
         assert_eq!(Channel::parse("store").unwrap(), Channel::Store);
         assert_eq!(Channel::parse("sideload").unwrap(), Channel::Sideload);
         assert!(Channel::parse("beta").is_err());

@@ -295,7 +295,7 @@ mod tests {
     }
 
     #[test]
-    fn fr34_every_asset_has_its_exact_size() {
+    fn fr35_every_asset_has_its_exact_size() {
         let icon = solid(64, 64, [200, 80, 40, 255]);
         for spec in ALL {
             let img = render(&icon, spec);
@@ -311,7 +311,7 @@ mod tests {
     }
 
     #[test]
-    fn fr34_resizing_keeps_a_solid_colour_solid() {
+    fn fr35_resizing_keeps_a_solid_colour_solid() {
         let icon = solid(64, 64, [10, 120, 230, 255]);
         for (w, h) in [(44, 44), (150, 150), (50, 50), (3, 3), (256, 256)] {
             let r = icon.resize(w, h);
@@ -324,7 +324,7 @@ mod tests {
     }
 
     #[test]
-    fn fr34_transparent_surround_does_not_darken_the_edge() {
+    fn fr35_transparent_surround_does_not_darken_the_edge() {
         // Left half opaque red, right half fully transparent black.
         let mut icon = solid(8, 8, [0, 0, 0, 0]);
         for y in 0..8 {
@@ -340,7 +340,7 @@ mod tests {
     }
 
     #[test]
-    fn fr34_wide_tile_centres_the_icon() {
+    fn fr35_wide_tile_centres_the_icon() {
         let icon = solid(16, 16, [0, 255, 0, 255]);
         let wide = render(&icon, WIDE_310);
         assert_eq!(wide.pixel(0, 75)[3], 0);
@@ -349,7 +349,7 @@ mod tests {
     }
 
     #[test]
-    fn fr34_small_icons_are_reported() {
+    fn fr35_small_icons_are_reported() {
         let dir =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples/notepad/assets/icon.png");
         let bytes = std::fs::read(dir).unwrap();
@@ -359,7 +359,7 @@ mod tests {
     }
 
     #[test]
-    fn fr34_gray_and_rgb_pngs_decode() {
+    fn fr35_gray_and_rgb_pngs_decode() {
         for (color, channels) in [
             (png::ColorType::Rgb, 3usize),
             (png::ColorType::Grayscale, 1),

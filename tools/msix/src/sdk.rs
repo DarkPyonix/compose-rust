@@ -91,7 +91,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fr34_sdk_versions_order_numerically() {
+    fn fr35_sdk_versions_order_numerically() {
         let mut v = [
             sdk_version("10.0.9999.0").unwrap(),
             sdk_version("10.0.22621.0").unwrap(),

@@ -304,7 +304,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fr34_executable_paths_use_backslashes() {
+    fn fr35_executable_paths_use_backslashes() {
         let p = Payload::Directory {
             root: "/x".into(),
             executable: Path::new("bin").join("app.exe"),
@@ -315,7 +315,7 @@ mod tests {
     }
 
     #[test]
-    fn fr34_executable_must_stay_inside_the_payload() {
+    fn fr35_executable_must_stay_inside_the_payload() {
         let p = Payload::Directory {
             root: "/x".into(),
             executable: Path::new("..").join("app.exe"),

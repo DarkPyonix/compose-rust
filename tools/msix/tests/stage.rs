@@ -34,7 +34,7 @@ fn plan(meta: AppMetadata, payload: Payload) -> Plan {
 }
 
 #[test]
-fn fr34_a_single_executable_is_staged_with_manifest_and_images() {
+fn fr35_a_single_executable_is_staged_with_manifest_and_images() {
     let dir = scratch("single");
     let exe = dir.join("sample-notepad.exe");
     std::fs::write(&exe, b"MZ not really").unwrap();
@@ -75,7 +75,7 @@ fn fr34_a_single_executable_is_staged_with_manifest_and_images() {
 }
 
 #[test]
-fn fr34_a_payload_directory_is_copied_whole() {
+fn fr35_a_payload_directory_is_copied_whole() {
     let dir = scratch("directory");
     let payload = dir.join("payload");
     std::fs::create_dir_all(payload.join("bin")).unwrap();
@@ -117,7 +117,7 @@ fn fr34_a_payload_directory_is_copied_whole() {
 }
 
 #[test]
-fn fr34_a_payload_that_already_has_a_manifest_is_refused() {
+fn fr35_a_payload_that_already_has_a_manifest_is_refused() {
     let dir = scratch("reserved");
     let payload = dir.join("payload");
     std::fs::create_dir_all(&payload).unwrap();
@@ -136,7 +136,7 @@ fn fr34_a_payload_that_already_has_a_manifest_is_refused() {
 }
 
 #[test]
-fn fr34_a_missing_executable_is_refused() {
+fn fr35_a_missing_executable_is_refused() {
     let dir = scratch("missing");
     let meta = AppMetadata::load(&notepad()).unwrap();
     let p = plan(meta, Payload::Executable(dir.join("nothing.exe")));
@@ -144,7 +144,7 @@ fn fr34_a_missing_executable_is_refused() {
 }
 
 #[test]
-fn fr34_workspace_version_is_followed() {
+fn fr35_workspace_version_is_followed() {
     let root = scratch("workspace");
     let project = root.join("app");
     std::fs::create_dir_all(&project).unwrap();
@@ -170,7 +170,7 @@ fn fr34_workspace_version_is_followed() {
 }
 
 #[test]
-fn fr34_every_sample_stages() {
+fn fr35_every_sample_stages() {
     let samples = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples");
     let dir = scratch("every");
     let mut staged = 0;

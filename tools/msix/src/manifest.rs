@@ -217,7 +217,7 @@ mod tests {
     }
 
     #[test]
-    fn fr34_manifest_carries_identity_and_version() {
+    fn fr35_manifest_carries_identity_and_version() {
         let xml = render(&meta(), version(), Arch::X64, "ember.exe");
         assert!(xml.contains(
             "<Identity Name=\"DarkPyonix.Ember\" Publisher=\"CN=&quot;Dark, Pyonix&quot;\" Version=\"1.2.3.0\" ProcessorArchitecture=\"x64\" />"
@@ -227,7 +227,7 @@ mod tests {
     }
 
     #[test]
-    fn fr34_manifest_declares_a_full_trust_desktop_application() {
+    fn fr35_manifest_declares_a_full_trust_desktop_application() {
         let xml = render(&meta(), version(), Arch::Arm64, "bin\\ember.exe");
         assert!(xml.contains("EntryPoint=\"Windows.FullTrustApplication\""));
         assert!(xml.contains("Executable=\"bin\\ember.exe\""));
@@ -238,14 +238,14 @@ mod tests {
     }
 
     #[test]
-    fn fr34_manifest_escapes_text() {
+    fn fr35_manifest_escapes_text() {
         let xml = render(&meta(), version(), Arch::X64, "ember.exe");
         assert!(xml.contains("Description=\"Notes &amp; &lt;things&gt;\""));
         assert!(!xml.contains("Notes & <"));
     }
 
     #[test]
-    fn fr34_manifest_names_every_asset_it_ships() {
+    fn fr35_manifest_names_every_asset_it_ships() {
         let xml = render(&meta(), version(), Arch::X64, "ember.exe");
         for spec in assets::ALL {
             assert!(
@@ -257,7 +257,7 @@ mod tests {
     }
 
     #[test]
-    fn fr34_capabilities_are_ordered_and_namespaced() {
+    fn fr35_capabilities_are_ordered_and_namespaced() {
         let xml = render(&meta(), version(), Arch::X64, "ember.exe");
         let foundation = xml.find("<Capability Name=\"internetClient\"").unwrap();
         let uap = xml
@@ -271,14 +271,14 @@ mod tests {
     }
 
     #[test]
-    fn fr34_every_language_is_a_resource() {
+    fn fr35_every_language_is_a_resource() {
         let xml = render(&meta(), version(), Arch::X64, "ember.exe");
         assert!(xml.contains("<Resource Language=\"en-us\" />"));
         assert!(xml.contains("<Resource Language=\"ko-kr\" />"));
     }
 
     #[test]
-    fn fr34_application_id_is_alphanumeric() {
+    fn fr35_application_id_is_alphanumeric() {
         assert_eq!(application_id("Ember"), "Ember");
         assert_eq!(application_id("My App 2"), "MyApp2");
         assert_eq!(application_id("2048"), "App");

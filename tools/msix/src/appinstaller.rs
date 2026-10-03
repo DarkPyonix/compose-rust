@@ -93,7 +93,7 @@ mod tests {
     }
 
     #[test]
-    fn fr34_feed_points_at_the_bundle_and_at_itself() {
+    fn fr35_feed_points_at_the_bundle_and_at_itself() {
         let v = PackageVersion::from_semver("1.0.0", Channel::Sideload, Some(12)).unwrap();
         let feed = Feed::beside(
             "https://example.com/ember/",
@@ -114,14 +114,14 @@ mod tests {
     }
 
     #[test]
-    fn fr34_feed_on_a_file_share_uses_backslashes() {
+    fn fr35_feed_on_a_file_share_uses_backslashes() {
         let feed = Feed::beside("\\\\host\\share\\", "a.appinstaller", "b.msixbundle").unwrap();
         assert_eq!(feed.feed_uri, "\\\\host\\share\\a.appinstaller");
         assert_eq!(feed.bundle_uri, "\\\\host\\share\\b.msixbundle");
     }
 
     #[test]
-    fn fr34_feed_refuses_a_relative_address() {
+    fn fr35_feed_refuses_a_relative_address() {
         assert!(Feed::beside("ember", "a.appinstaller", "b.msixbundle").is_err());
     }
 }
