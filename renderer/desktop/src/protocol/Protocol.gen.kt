@@ -635,11 +635,13 @@ object MeasureRecords {
     const val TEXT_ABSOLUTE_SIZE_AT = 59
     const val TEXT_CONSTRAINT_AT = 60
     const val TEXT_WIDTH_AT = 64
+    const val TEXT_ZOOM_AT = 68
     const val NODE_ID_AT = 4
     const val NODE_MIN_WIDTH_AT = 8
     const val NODE_MAX_WIDTH_AT = 12
     const val NODE_MIN_HEIGHT_AT = 16
     const val NODE_MAX_HEIGHT_AT = 20
+    const val NODE_ZOOM_AT = 24
     const val CONSTRAINT_MIN_CONTENT = 1
     const val CONSTRAINT_MAX_CONTENT = 2
     const val CONSTRAINT_AT_MOST = 3
@@ -784,7 +786,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -794855757488596421L
+    const val SCHEMA_HASH: Long = -981379224750472521L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
