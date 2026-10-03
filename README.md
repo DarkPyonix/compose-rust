@@ -324,7 +324,7 @@ into a cache outside `target/`, and links it.
 
 ```toml
 [dependencies]
-compose-rust = "0.0.0"
+compose-rust = "0.0.1"
 ```
 
 There is no environment variable to set, no artifact to fetch by hand and no script to run. The

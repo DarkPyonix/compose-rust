@@ -1,9 +1,9 @@
 [package]
 name = "compose-rust"
-# 0.0.0 on purpose: the boundary works and so do the desktop and iOS renderers, but the
+# 0.0.x on purpose: the boundary works and so do the desktop and iOS renderers, but the
 # widget vocabulary is still being filled in and nothing here is stable yet. A number that
 # says so is more honest than one that implies a first usable release.
-version = "0.0.0"
+version = "0.0.1"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
