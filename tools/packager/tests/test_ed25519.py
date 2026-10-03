@@ -30,7 +30,7 @@ VECTORS = [
 
 
 class Rfc8032(unittest.TestCase):
-    def test_fr34_9_public_key_and_signature_match_the_rfc_vectors(self):
+    def test_fr35_5_public_key_and_signature_match_the_rfc_vectors(self):
         for secret, public, message, signature in VECTORS:
             secret = bytes.fromhex(secret)
             message = bytes.fromhex(message)
@@ -40,28 +40,28 @@ class Rfc8032(unittest.TestCase):
                 ed25519.verify(bytes.fromhex(public), message, bytes.fromhex(signature))
             )
 
-    def test_fr34_9_a_changed_byte_does_not_verify(self):
+    def test_fr35_5_a_changed_byte_does_not_verify(self):
         secret, public, _, _ = VECTORS[1]
         signature = ed25519.sign(bytes.fromhex(secret), b"archive")
         self.assertFalse(ed25519.verify(bytes.fromhex(public), b"archivf", signature))
         tampered = bytes([signature[0] ^ 1]) + signature[1:]
         self.assertFalse(ed25519.verify(bytes.fromhex(public), b"archive", tampered))
 
-    def test_fr34_9_a_key_that_is_not_a_seed_is_refused_with_the_way_out(self):
+    def test_fr35_5_a_key_that_is_not_a_seed_is_refused_with_the_way_out(self):
         with tempfile.TemporaryDirectory() as scratch:
             path = Path(scratch) / "key"
             path.write_text(base64.b64encode(bytes(64)).decode())
             with self.assertRaisesRegex(ed25519.InvalidKey, "generate_keys -x"):
                 ed25519.read_private_key_file(path)
 
-    def test_fr34_9_public_key_must_be_32_bytes(self):
+    def test_fr35_5_public_key_must_be_32_bytes(self):
         with self.assertRaisesRegex(ValueError, "32"):
             ed25519.decode_public_key(base64.b64encode(bytes(31)).decode())
 
 
 @unittest.skipUnless(SPARKLE_DIR, "SPARKLE_DIR names no unpacked Sparkle release")
 class AgreesWithSparkle(unittest.TestCase):
-    def test_fr34_9_signature_is_the_one_sign_update_makes(self):
+    def test_fr35_5_signature_is_the_one_sign_update_makes(self):
         with tempfile.TemporaryDirectory() as scratch:
             key = Path(scratch) / "sparkle.key"
             signing.keygen(key)

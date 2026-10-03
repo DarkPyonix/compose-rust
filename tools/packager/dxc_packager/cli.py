@@ -1,27 +1,22 @@
 """package-macos: bundle, sign and publish a dioxus-compose application for macOS.
 
-The two channels, end to end:
+Every bundle is signed ad hoc, which needs no Apple developer account: Apple silicon runs
+it, Gatekeeper asks the person once before the first launch of a downloaded copy (the
+disk image carries the notes that say how), and Sparkle verifies updates by their EdDSA
+signature.
 
-  Sparkle (Developer ID, updates itself):
+A bundle that updates itself:
     package-macos keygen --out keys/sparkle.key            # once, ever; keep the key
-    package-macos app --channel sparkle --manifest-dir . --executable target/release/app \\
+    package-macos app --updater sparkle --manifest-dir . --executable target/release/app \\
         --feed-url https://example.com/appcast.xml --ed-key-file keys/sparkle.key \\
-        --sparkle-framework Sparkle.framework --sign "Developer ID Application: ..." \\
-        --out dist
-    package-macos archive --app dist/App.app --out dist/App-1.2.0.zip
-    package-macos notarize --path dist/App-1.2.0.zip --keychain-profile notary --staple dist/App.app
-    package-macos archive --app dist/App.app --out dist/App-1.2.0.zip   # again, stapled
+        --sparkle-framework Sparkle.framework --out dist
+    package-macos dmg --app dist/App.app --out dist/App-1.2.0.dmg      # first install
+    package-macos archive --app dist/App.app --out site/App-1.2.0.zip  # what Sparkle fetches
     package-macos appcast --appcast site/appcast.xml --app dist/App.app \\
-        --archive dist/App-1.2.0.zip --url https://example.com/App-1.2.0.zip \\
+        --archive site/App-1.2.0.zip --url https://example.com/App-1.2.0.zip \\
         --ed-key-file keys/sparkle.key --sign-update Sparkle/bin/sign_update
 
-  Mac App Store (sandboxed, updated by the store):
-    package-macos app --channel app-store --manifest-dir . --executable target/release/app \\
-        --uses-non-exempt-encryption no --network-client --user-selected-files read-write \\
-        --provisioning-profile App.provisionprofile --team-id ABCDE12345 \\
-        --sign "3rd Party Mac Developer Application: ..." --out dist-store
-    package-macos pkg --app dist-store/App.app --out dist-store/App.pkg \\
-        --sign "3rd Party Mac Developer Installer: ..."
+A plain application (no updates): --updater none, and no Sparkle options.
 """
 
 import argparse
@@ -49,7 +44,8 @@ def _add_app_arguments(parser):
     parser.add_argument("--renderer-dir", type=Path,
                         help="the renderer's lib directory, when the executable names it "
                              "through @rpath rather than by its path")
-    parser.add_argument("--channel", required=True, choices=plist.CHANNELS)
+    parser.add_argument("--updater", required=True, choices=plist.UPDATERS,
+                        help="sparkle: the app updates itself from an appcast; none: it does not")
     parser.add_argument("--out", required=True, type=Path, help="directory to put Name.app in")
     parser.add_argument("--version", help="CFBundleShortVersionString; default from Cargo.toml")
     parser.add_argument("--build", help="CFBundleVersion; default the version")
@@ -59,11 +55,8 @@ def _add_app_arguments(parser):
                         help="an extra Info.plist entry; repeatable")
     parser.add_argument("--plist-file", type=Path,
                         help="a plist whose entries are added to Info.plist")
-    parser.add_argument("--sign", default="-",
-                        help='codesign identity; "-" (the default) signs ad hoc')
-    parser.add_argument("--keychain", type=Path, help="keychain holding the identity")
 
-    sparkle = parser.add_argument_group("sparkle channel")
+    sparkle = parser.add_argument_group("--updater sparkle")
     sparkle.add_argument("--feed-url")
     key = sparkle.add_mutually_exclusive_group()
     key.add_argument("--public-ed-key", help="SUPublicEDKey, base64")
@@ -74,15 +67,6 @@ def _add_app_arguments(parser):
     sparkle.add_argument("--no-automatic-checks", action="store_true")
     sparkle.add_argument("--automatically-update", action="store_true",
                          help="download and install without asking (SUAutomaticallyUpdate)")
-
-    store = parser.add_argument_group("app-store channel")
-    store.add_argument("--uses-non-exempt-encryption", type=_yes_no)
-    store.add_argument("--provisioning-profile", type=Path)
-    store.add_argument("--team-id")
-    store.add_argument("--network-client", action="store_true")
-    store.add_argument("--network-server", action="store_true")
-    store.add_argument("--user-selected-files", choices=("read-only", "read-write"))
-    store.add_argument("--downloads-folder", choices=("read-only", "read-write"))
 
 
 def command_app(args):
@@ -95,12 +79,16 @@ def command_app(args):
         extra.update(plistlib.loads(args.plist_file.read_bytes()))
 
     sparkle = None
-    if args.channel == plist.SPARKLE:
+    if args.updater == plist.SPARKLE:
         public_key = args.public_ed_key
         if args.ed_key_file:
             public_key = signing.public_key_of(args.ed_key_file)
         if not args.feed_url or not public_key:
-            raise PackagingError("the sparkle channel needs --feed-url and a key")
+            raise PackagingError(
+                "--updater sparkle needs --feed-url and a key (--ed-key-file or "
+                "--public-ed-key): without them the application has nowhere to look for "
+                "updates and nothing to check them against"
+            )
         sparkle = plist.SparkleSettings(
             feed_url=args.feed_url,
             public_ed_key=public_key,
@@ -108,73 +96,43 @@ def command_app(args):
             check_interval=args.check_interval,
             automatically_update=args.automatically_update,
         )
+    elif args.feed_url or args.public_ed_key or args.ed_key_file or args.sparkle_framework:
+        raise PackagingError("Sparkle options were given with --updater none")
 
     args.out.mkdir(parents=True, exist_ok=True)
     app = bundle.assemble(
         meta,
         args.executable,
         args.out,
-        args.channel,
         sparkle=sparkle,
         sparkle_framework=args.sparkle_framework,
-        uses_non_exempt_encryption=args.uses_non_exempt_encryption,
         extra_plist=extra,
-        provisioning_profile=args.provisioning_profile,
         renderer_dir=args.renderer_dir,
     )
-    capabilities = plist.Capabilities(
-        network_client=args.network_client,
-        network_server=args.network_server,
-        user_selected_files=args.user_selected_files,
-        downloads_folder=args.downloads_folder,
-    )
-    entitlements = plist.entitlements(
-        args.channel, capabilities=capabilities, team_id=args.team_id, identifier=meta.identifier
-    )
-    if args.sign == "-":
-        print("note: signing ad hoc. This bundle runs here and cannot be distributed.")
-    bundle.sign(app, args.sign, args.channel, entitlements, keychain=args.keychain)
-    problems = _verify(app, args.channel)
+    bundle.sign(app)
+    problems = _verify(app, args.updater)
     if problems:
         raise PackagingError("the bundle is not shippable:\n  " + "\n  ".join(problems))
     print(app)
 
 
-def _verify(app, channel):
-    problems = bundle.absolute_references(app)
-    granted = bundle.entitlements_of(app)
-    if channel == plist.APP_STORE:
-        problems += bundle.sparkle_residue(app)
-        if not granted.get("com.apple.security.app-sandbox"):
-            problems.append("the app-store build is not sandboxed")
-    else:
-        if not (app / "Contents" / "Frameworks" / "Sparkle.framework").exists():
-            problems.append("the sparkle build has no Sparkle.framework")
-        if granted.get("com.apple.security.app-sandbox"):
-            problems.append("the sparkle build is sandboxed, and Sparkle cannot replace it")
+def _verify(app, updater):
+    problems = bundle.unsigned_code(app) + bundle.absolute_references(app)
+    if updater == plist.SPARKLE and not bundle.sparkle_in(app):
+        problems.append("the bundle updates itself but has no Sparkle.framework")
+    if updater == plist.NONE and bundle.sparkle_in(app):
+        problems.append("the bundle does not update itself but carries Sparkle.framework")
     return problems
 
 
 def command_verify(args):
-    problems = _verify(args.app, args.channel)
+    problems = _verify(args.app, args.updater)
     for problem in problems:
         print(f"error: {problem}", file=sys.stderr)
     if problems:
         return 1
-    print(f"ok    {args.app} is a {args.channel} bundle")
+    print(f"ok    {args.app}: every piece of code is signed and loads nothing from outside")
     return 0
-
-
-def command_pkg(args):
-    problems = _verify(args.app, plist.APP_STORE)
-    if problems:
-        raise PackagingError(
-            "only an app-store bundle goes into the store package:\n  " + "\n  ".join(problems)
-        )
-    if not args.sign:
-        print("note: the package is unsigned. App Store Connect needs it signed with a "
-              "3rd Party Mac Developer Installer (or Mac Installer Distribution) identity.")
-    print(bundle.pkg(args.app, args.out, args.sign))
 
 
 def command_archive(args):
@@ -183,12 +141,6 @@ def command_archive(args):
 
 def command_dmg(args):
     print(bundle.dmg(args.app, args.out, args.volume_name or args.app.stem))
-
-
-def command_notarize(args):
-    bundle.notarize(args.path, args.keychain_profile)
-    if args.staple:
-        bundle.staple(args.staple)
 
 
 def command_keygen(args):
@@ -238,37 +190,25 @@ def parser():
     )
     commands = root.add_subparsers(dest="command", required=True)
 
-    app = commands.add_parser("app", help="make and sign Name.app for one channel")
+    app = commands.add_parser("app", help="make Name.app and sign it ad hoc")
     _add_app_arguments(app)
     app.set_defaults(run=command_app)
 
-    verify = commands.add_parser("verify", help="check a bundle is what its channel needs")
+    verify = commands.add_parser("verify", help="check a bundle is signed and self-contained")
     verify.add_argument("--app", required=True, type=Path)
-    verify.add_argument("--channel", required=True, choices=plist.CHANNELS)
+    verify.add_argument("--updater", required=True, choices=plist.UPDATERS)
     verify.set_defaults(run=command_verify)
-
-    pkg = commands.add_parser("pkg", help="the installer package for App Store Connect")
-    pkg.add_argument("--app", required=True, type=Path)
-    pkg.add_argument("--out", required=True, type=Path)
-    pkg.add_argument("--sign", help="installer identity")
-    pkg.set_defaults(run=command_pkg)
 
     archive = commands.add_parser("archive", help="the zip Sparkle downloads")
     archive.add_argument("--app", required=True, type=Path)
     archive.add_argument("--out", required=True, type=Path)
     archive.set_defaults(run=command_archive)
 
-    dmg = commands.add_parser("dmg", help="a disk image for handing the app out directly")
+    dmg = commands.add_parser("dmg", help="a disk image for the first install, with install notes")
     dmg.add_argument("--app", required=True, type=Path)
     dmg.add_argument("--out", required=True, type=Path)
     dmg.add_argument("--volume-name")
     dmg.set_defaults(run=command_dmg)
-
-    notarize = commands.add_parser("notarize", help="notarize a zip, dmg or pkg and staple")
-    notarize.add_argument("--path", required=True, type=Path)
-    notarize.add_argument("--keychain-profile", required=True)
-    notarize.add_argument("--staple", type=Path, help="app or dmg to staple the ticket to")
-    notarize.set_defaults(run=command_notarize)
 
     keygen = commands.add_parser("keygen", help="a new EdDSA key pair for Sparkle")
     keygen.add_argument("--out", required=True, type=Path)

@@ -34,7 +34,7 @@ def feed_with(*items):
 
 
 class Appcast(unittest.TestCase):
-    def test_fr34_9_item_carries_what_sparkle_2_reads(self):
+    def test_fr35_5_item_carries_what_sparkle_2_reads(self):
         rss = feed_with(item("2", release_notes_url="https://example.com/2.html"))
         element = rss.find("channel/item")
         self.assertEqual(element.findtext(f"{S}version"), "2")
@@ -48,22 +48,22 @@ class Appcast(unittest.TestCase):
         self.assertEqual(enclosure.get(f"{S}edSignature"), "c2lnbmF0dXJl")
         self.assertIsNone(element.find(f"{S}criticalUpdate"))
 
-    def test_fr34_9_output_is_a_feed_declaring_the_sparkle_namespace(self):
+    def test_fr35_5_output_is_a_feed_declaring_the_sparkle_namespace(self):
         text = appcast.dumps(appcast.add(appcast.new_feed("Demo"), item("1")))
         self.assertTrue(text.startswith('<?xml version="1.0" encoding="utf-8"?>'))
         self.assertIn('xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"', text)
         self.assertEqual(ET.fromstring(text).get("version"), "2.0")
 
-    def test_fr34_9_newest_first_comparing_numbers_not_text(self):
+    def test_fr35_5_newest_first_comparing_numbers_not_text(self):
         rss = feed_with(item("9"), item("10"), item("1.2"))
         self.assertEqual(appcast.versions(rss), ["10", "9", "1.2"])
 
-    def test_fr34_9_publishing_a_version_again_replaces_it(self):
+    def test_fr35_5_publishing_a_version_again_replaces_it(self):
         rss = feed_with(item("1"), item("2"), item("2", length=99))
         self.assertEqual(appcast.versions(rss), ["2", "1"])
         self.assertEqual(rss.find("channel/item/enclosure").get("length"), "99")
 
-    def test_fr34_9_existing_items_and_their_unknown_elements_survive(self):
+    def test_fr35_5_existing_items_and_their_unknown_elements_survive(self):
         existing = """<?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
   <channel>
@@ -90,16 +90,16 @@ class Appcast(unittest.TestCase):
         self.assertEqual(old.findtext(f"{S}channel"), "beta")
         self.assertEqual(rss.findtext("channel/title"), "Demo")
 
-    def test_fr34_9_an_apple_silicon_only_update_says_so(self):
+    def test_fr35_5_an_apple_silicon_only_update_says_so(self):
         rss = feed_with(item("4", hardware_requirements="arm64"))
         self.assertEqual(rss.findtext(f"channel/item/{S}hardwareRequirements"), "arm64")
         self.assertIsNone(feed_with(item("4")).find(f"channel/item/{S}hardwareRequirements"))
 
-    def test_fr34_9_critical_updates_are_marked(self):
+    def test_fr35_5_critical_updates_are_marked(self):
         rss = feed_with(item("3", critical=True))
         self.assertIsNotNone(rss.find(f"channel/item/{S}criticalUpdate"))
 
-    def test_fr34_9_something_that_is_not_a_feed_is_refused(self):
+    def test_fr35_5_something_that_is_not_a_feed_is_refused(self):
         with self.assertRaisesRegex(PackagingError, "not XML"):
             appcast.parse("<rss>")
         with self.assertRaisesRegex(PackagingError, "RSS"):

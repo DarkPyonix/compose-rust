@@ -7,15 +7,21 @@ Layout of what this makes:
         MacOS/<executable>
         Frameworks/lib/        the renderer's own lib directory, whole, when the
                                executable loads the renderer as a library
-        Frameworks/Sparkle.framework     sparkle channel only
+        Frameworks/Sparkle.framework     when the bundle updates itself
         Resources/AppIcon.icns
-        embedded.provisionprofile        app-store channel, when given
 
 The renderer directory goes to Frameworks/lib and not straight into Frameworks because AWT
 reads its companions from the parent of the renderer's directory plus "lib"; that is
 scripts/bundle-renderer.sh's finding, and that script is what points the executable at the
 copy. An executable that is the whole application (one native image with the renderer
 linked in) has no renderer library, and then there is nothing to copy.
+
+Every bundle is signed ad hoc (`codesign --sign -`). That is not optional: Apple silicon
+runs no arm64 code without a signature, and copying a library or rewriting its load
+commands invalidates the one the linker left. An ad hoc signature names no developer, so
+Gatekeeper does not let a downloaded copy open without the person's say-so (see
+install-notes.txt), but once it is open nothing else differs, and Sparkle's updates are
+verified by their EdDSA signature rather than by who signed the code.
 """
 
 import os
@@ -31,22 +37,18 @@ from .metadata import PackagingError
 RENDERER_LIBRARY = "libdioxus_compose_renderer.dylib"
 REPOSITORY = Path(__file__).resolve().parents[3]
 BUNDLE_RENDERER = REPOSITORY / "scripts" / "bundle-renderer.sh"
+INSTALL_NOTES = Path(__file__).resolve().parent / "install-notes.txt"
 
-# What the Sparkle framework contains that is code, innermost first. Signing has to go
-# from the inside out, each piece before whatever contains it, and `codesign --deep` is
-# not a substitute: it signs everything with the outer entitlements, which gives Sparkle's
-# Downloader service the wrong ones.
+# What the Sparkle framework contains that is code, innermost first. Signing goes from the
+# inside out, each piece before whatever contains it, so that every seal covers signatures
+# that are already final. `codesign --deep` would reach the same pieces but in an order
+# it chooses and without keeping the Downloader service's own entitlements.
 SPARKLE_NESTED = (
     ("Versions/B/XPCServices/Installer.xpc", False),
     ("Versions/B/XPCServices/Downloader.xpc", True),
     ("Versions/B/Autoupdate", False),
     ("Versions/B/Updater.app", False),
 )
-
-# Strings that are in any binary which can drive Sparkle. The store build is checked for
-# them as well as for the framework, because a host compiled with the updater still names
-# them even when the framework was left out, and App Review reads binaries.
-SPARKLE_MARKERS = (b"SPUStandardUpdaterController", b"Sparkle.framework")
 
 
 def run(command, **kwargs):
@@ -155,8 +157,8 @@ def make_icns(source, destination):
     width = int(run(["sips", "-g", "pixelWidth", str(source)]).stdout.split()[-1])
     if width < 1024:
         print(
-            f"warning: {source} is {width} pixels wide. The Mac App Store asks for a 1024 "
-            f"pixel icon (512 points at 2x), so this one is scaled up."
+            f"warning: {source} is {width} pixels wide and is scaled up to the 1024 pixels "
+            f"a Retina Dock and Finder draw it at; give a 1024 pixel icon to keep it sharp."
         )
     with tempfile.TemporaryDirectory() as scratch:
         iconset = Path(scratch) / "AppIcon.iconset"
@@ -178,41 +180,34 @@ def assemble(
     metadata,
     executable,
     out_dir,
-    channel,
     *,
     sparkle=None,
     sparkle_framework=None,
-    uses_non_exempt_encryption=None,
     extra_plist=None,
-    provisioning_profile=None,
     renderer_dir=None,
 ):
-    """Build Name.app in `out_dir` and return its path. Replaces one already there."""
+    """Build Name.app in `out_dir` and return its path. Replaces one already there.
+
+    With `sparkle` settings the bundle updates itself, and `sparkle_framework` (from a
+    Sparkle 2 release archive) goes inside it. Without them it is a plain application.
+    """
     executable = Path(executable)
     if not executable.is_file():
         raise PackagingError(f"no executable at {executable}")
-    info = plists.info_plist(
-        metadata,
-        channel,
-        sparkle=sparkle,
-        uses_non_exempt_encryption=uses_non_exempt_encryption,
-        extra=extra_plist,
-    )
-    if channel == plists.SPARKLE:
+    info = plists.info_plist(metadata, sparkle=sparkle, extra=extra_plist)
+    if sparkle is not None:
         if sparkle_framework is None:
             raise PackagingError(
-                "the sparkle channel needs --sparkle-framework, the Sparkle.framework "
-                "from a Sparkle 2 release archive"
+                "a bundle that updates itself needs --sparkle-framework, the "
+                "Sparkle.framework from a Sparkle 2 release archive"
             )
         sparkle_framework = Path(sparkle_framework)
         if not (sparkle_framework / "Versions" / "B" / "Sparkle").exists():
             raise PackagingError(f"{sparkle_framework} is not a Sparkle 2 framework")
     elif sparkle_framework is not None:
-        raise PackagingError("the app-store build must not contain Sparkle.framework")
-    if channel == plists.APP_STORE and provisioning_profile is None:
-        print(
-            "warning: no provisioning profile. The bundle runs and can be checked, but App "
-            "Store Connect refuses an upload without the profile for this identifier."
+        raise PackagingError(
+            "Sparkle.framework was given for a bundle with no feed to update from; pass "
+            "--updater sparkle with its settings, or leave the framework out"
         )
 
     app = Path(out_dir) / f"{metadata.name}.app"
@@ -261,80 +256,40 @@ def assemble(
 
     if metadata.icon is not None:
         make_icns(metadata.icon, contents / "Resources" / "AppIcon.icns")
-    if provisioning_profile is not None:
-        shutil.copyfile(provisioning_profile, contents / "embedded.provisionprofile")
 
     (contents / "Info.plist").write_bytes(plists.dumps(info))
     (contents / "PkgInfo").write_text("APPL????")
     return app
 
 
-def _codesign(
-    path, identity, *, entitlements=None, runtime=True, preserve_entitlements=False, keychain=None
-):
-    command = ["codesign", "--force", "--sign", identity]
-    if keychain is not None:
-        command += ["--keychain", str(keychain)]
-    if identity != "-":
-        # A secure timestamp is required for notarization. Ad-hoc signatures have no
-        # certificate to timestamp.
-        command.append("--timestamp")
-    if runtime:
-        command += ["--options", "runtime"]
-    if entitlements is not None:
-        command += ["--entitlements", str(entitlements)]
-    elif preserve_entitlements:
+def _codesign(path, *, preserve_entitlements=False):
+    command = ["codesign", "--force", "--sign", "-"]
+    if preserve_entitlements:
         command.append("--preserve-metadata=entitlements")
     command.append(str(path))
     run(command)
 
 
-def sign(app, identity, channel, entitlements, *, keychain=None):
-    """Sign every piece of code in `app`, innermost first, then the app itself.
-
-    `identity` is "-" for an ad-hoc signature, otherwise the name or hash of a certificate:
-    "Developer ID Application: ..." for the sparkle channel, "3rd Party Mac Developer
-    Application: ..." or "Apple Distribution: ..." for the app-store channel.
-    """
+def sign(app):
+    """Sign every piece of code in `app` ad hoc, innermost first, then the app itself."""
     app = Path(app)
     contents = app / "Contents"
-    # The store build runs sandboxed and the store re-checks it; the hardened runtime is
-    # what notarization requires of the other one. Both get it: the sandboxed build loses
-    # nothing by it and one signing path is one fewer thing to get wrong.
-    runtime = True
 
     libraries = contents / "Frameworks" / "lib"
     if libraries.is_dir():
         for path in sorted(libraries.rglob("*")):
             if path.is_file() and not path.is_symlink() and is_mach_o(path):
-                _codesign(path, identity, runtime=runtime, keychain=keychain)
+                _codesign(path)
 
     framework = contents / "Frameworks" / "Sparkle.framework"
     if framework.exists():
-        if channel == plists.APP_STORE:
-            raise PackagingError(f"{framework} is in an app-store build")
         for relative, keep_entitlements in SPARKLE_NESTED:
             nested = framework / relative
             if nested.exists():
-                _codesign(
-                    nested,
-                    identity,
-                    runtime=runtime,
-                    preserve_entitlements=keep_entitlements,
-                    keychain=keychain,
-                )
-        _codesign(framework, identity, runtime=runtime, keychain=keychain)
+                _codesign(nested, preserve_entitlements=keep_entitlements)
+        _codesign(framework)
 
-    handle, name = tempfile.mkstemp(suffix=".entitlements")
-    os.close(handle)
-    entitlements_file = Path(name)
-    try:
-        entitlements_file.write_bytes(plists.dumps(entitlements))
-        _codesign(
-            app, identity, entitlements=entitlements_file, runtime=runtime, keychain=keychain
-        )
-    finally:
-        entitlements_file.unlink()
+    _codesign(app)
     run(["codesign", "--verify", "--strict", "--deep", "--verbose=2", str(app)])
     return app
 
@@ -349,7 +304,8 @@ def zip_for_sparkle(app, out):
 
 
 def dmg(app, out, volume_name):
-    """A disk image holding the app and a link to /Applications, for handing out directly."""
+    """A disk image for the first install: the app, a link to /Applications, and the notes
+    that say how to open an application macOS cannot attribute to a developer."""
     out = Path(out)
     if out.exists():
         out.unlink()
@@ -358,6 +314,7 @@ def dmg(app, out, volume_name):
         staging.mkdir()
         run(["ditto", str(app), str(staging / Path(app).name)])
         (staging / "Applications").symlink_to("/Applications")
+        shutil.copyfile(INSTALL_NOTES, staging / "If macOS will not open the app.txt")
         run(
             [
                 "hdiutil", "create", "-volname", volume_name, "-srcfolder", str(staging),
@@ -367,57 +324,8 @@ def dmg(app, out, volume_name):
     return out
 
 
-def pkg(app, out, installer_identity=None):
-    """The installer package App Store Connect takes, installing the app into /Applications."""
-    out = Path(out)
-    if out.exists():
-        out.unlink()
-    command = ["productbuild", "--component", str(app), "/Applications"]
-    if installer_identity:
-        command += ["--sign", installer_identity]
-    command.append(str(out))
-    run(command)
-    return out
-
-
-def notarize(path, keychain_profile):
-    """Submit to Apple's notary service, wait, and staple the ticket to the app or disk image.
-
-    `keychain_profile` is the name given to `xcrun notarytool store-credentials`, which
-    keeps the Apple ID app password or App Store Connect API key out of command lines.
-    """
-    run(
-        [
-            "xcrun", "notarytool", "submit", str(path),
-            "--keychain-profile", keychain_profile, "--wait",
-        ]
-    )
-
-
-def staple(path):
-    run(["xcrun", "stapler", "staple", str(path)])
-
-
-def sparkle_residue(app):
-    """Everything in `app` that would make it an application that updates itself."""
-    app = Path(app)
-    problems = []
-    info_path = app / "Contents" / "Info.plist"
-    if info_path.exists():
-        info = plistlib.loads(info_path.read_bytes())
-        problems += [f"Info.plist sets {key}" for key in sorted(info) if key.startswith("SU")]
-    for path in sorted(app.rglob("*")):
-        if path.name == "Sparkle.framework":
-            problems.append(f"{path.relative_to(app)} is in the bundle")
-        if path.is_file() and not path.is_symlink() and is_mach_o(path):
-            data = path.read_bytes()
-            for marker in SPARKLE_MARKERS:
-                if marker in data:
-                    problems.append(
-                        f"{path.relative_to(app)} contains {marker.decode()}; build the "
-                        f"store executable without the updater"
-                    )
-    return problems
+def sparkle_in(app):
+    return (Path(app) / "Contents" / "Frameworks" / "Sparkle.framework").exists()
 
 
 def absolute_references(app):
@@ -433,9 +341,15 @@ def absolute_references(app):
     return problems
 
 
-def entitlements_of(app):
-    output = run(["codesign", "-d", "--entitlements", "-", "--xml", str(app)]).stdout
-    if not output.strip():
-        return {}
-    start = output.find("<?xml")
-    return plistlib.loads(output[start:].encode()) if start >= 0 else {}
+def unsigned_code(app):
+    """Code in the bundle that has no valid signature, which Apple silicon will not run."""
+    app = Path(app)
+    problems = []
+    for path in sorted(app.rglob("*")):
+        if path.is_file() and not path.is_symlink() and is_mach_o(path):
+            result = subprocess.run(
+                ["codesign", "--verify", "--strict", str(path)], capture_output=True, text=True
+            )
+            if result.returncode != 0:
+                problems.append(f"{path.relative_to(app)}: {result.stderr.strip()}")
+    return problems
