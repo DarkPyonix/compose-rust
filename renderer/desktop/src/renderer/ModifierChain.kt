@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.RectangleShape
@@ -73,6 +74,7 @@ internal fun List<ProtocolModifier>.toComposeModifier(
     nodeId: Int,
     dispatcher: EventDispatcher,
     theme: ResolvedTheme,
+    animated: (() -> dev.darkpyonix.composerust.ui.node.AnimatedNode)? = null,
 ): Modifier {
     // The last Shape or ShapeRole in the list is what clips, what the border
     // follows and what the background fills, whatever their order in the chain.
@@ -98,6 +100,12 @@ internal fun List<ProtocolModifier>.toComposeModifier(
     // The corners an HTML box asked for, which its background, border, shadow and clip all
     // follow. Null where the node named no corners of its own.
     val corners = cornerEachShape()
+    // The first opacity, background and transform of a node are where an animation the
+    // Renderer plays on it is drawn. They read the animated value in the draw phase, so
+    // the animation never recomposes or remeasures the node.
+    var alphaSeen = false
+    var backgroundSeen = false
+    var transformSeen = false
     return fold(surface) { chain, value ->
         when (value) {
             is ProtocolModifier.Empty -> chain
@@ -111,7 +119,9 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             // that names a brush nobody registered is reported and left unpainted: a
             // guess would leave a screen subtly wrong with nothing to read about why.
             is ProtocolModifier.Background -> theme.brush(value.paint)?.let { brush ->
-                chain.background(brush, shape)
+                val holder = if (!backgroundSeen) animated?.invoke() else null
+                backgroundSeen = true
+                if (holder == null) chain.background(brush, shape) else chain.animatedBackground(brush, shape, holder)
             } ?: chain.composed { reportUnknownBrush(nodeId, value.paint, dispatcher) }
             is ProtocolModifier.Clickable -> chain.hostClickable(nodeId, value.handlerId, dispatcher)
 
@@ -178,23 +188,67 @@ internal fun List<ProtocolModifier>.toComposeModifier(
 
             // CSS `transform`: drawn through layers, so the layout is untouched and a
             // pointer is tested against the shape that is drawn.
-            is ProtocolModifier.Transform -> chain.affineTransform(
-                value.originX,
-                value.originY,
-                AffineParts.isOneLayer(value.a, value.b, value.c, value.d),
-            ) { matrix ->
-                matrix[0] = value.a
-                matrix[1] = value.b
-                matrix[2] = value.c
-                matrix[3] = value.d
-                matrix[4] = value.e
-                matrix[5] = value.f
+            is ProtocolModifier.Transform -> {
+                val holder = if (!transformSeen) animated?.invoke() else null
+                transformSeen = true
+                chain.affineTransform(
+                    value.originX,
+                    value.originY,
+                    AffineParts.isOneLayer(value.a, value.b, value.c, value.d) &&
+                        holder?.twoLayers?.value != true,
+                ) { matrix ->
+                    // Read so a layer redraws when an animation writes a new matrix.
+                    val shown = holder != null && holder.transformVersion.intValue >= 0 && holder.transformShown
+                    if (shown) {
+                        holder!!.matrix.copyInto(matrix)
+                    } else {
+                        matrix[0] = value.a
+                        matrix[1] = value.b
+                        matrix[2] = value.c
+                        matrix[3] = value.d
+                        matrix[4] = value.e
+                        matrix[5] = value.f
+                    }
+                }
             }
 
             // The node and everything in it are drawn into one layer first, and the layer is
             // faded once. Fading each child separately would show where they overlap, which
             // CSS `opacity` does not.
-            is ProtocolModifier.Alpha -> chain.groupAlpha { value.value }
+            is ProtocolModifier.Alpha -> {
+                val holder = if (!alphaSeen) animated?.invoke() else null
+                alphaSeen = true
+                if (holder == null) {
+                    chain.groupAlpha { value.value }
+                } else {
+                    chain.groupAlpha {
+                        val shown = holder.alpha.floatValue
+                        if (shown.isNaN()) value.value else shown
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * A background that an animation can repaint without recomposing the node: the same fill
+ * `Modifier.background` draws, with the animated colour read in the draw phase in its
+ * place while one plays.
+ */
+private fun Modifier.animatedBackground(
+    brush: Brush,
+    shape: Shape,
+    holder: dev.darkpyonix.composerust.ui.node.AnimatedNode,
+): Modifier = drawWithCache {
+    val outline = if (shape === RectangleShape) null else shape.createOutline(size, layoutDirection, this)
+    onDrawBehind {
+        val shown = holder.backgroundOverride()
+        when {
+            shown != null && outline == null -> drawRect(color = shown)
+            shown != null -> drawOutline(outline!!, color = shown)
+            outline == null -> drawRect(brush)
+            else -> drawOutline(outline, brush)
         }
     }
 }

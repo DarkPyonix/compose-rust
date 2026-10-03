@@ -120,6 +120,11 @@ pub enum EventPayloadType {
     NotificationActivation,
     /// One `u32`: the notification permission the Renderer last saw.
     NotificationPermission,
+    /// One moment in a renderer-played animation: its id, what happened, the property and
+    /// slot it plays on, the iteration, the elapsed time and the frame time.
+    Animation,
+    /// One `u32`: whether the platform asks for reduced motion.
+    ReducedMotion,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -136,10 +141,10 @@ pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible;",
     "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform;",
     "keys=Enter;",
-    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged;",
+    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,AnimationEvent,ReducedMotionChanged;",
     "windowsizeclasses=Compact,Medium,Expanded;",
     "windowheightclasses=Compact,Medium,Expanded;",
-    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission"
+    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,StartAnimation,ControlAnimation"
 );
 
 const fn hash_bytes(mut hash: u64, bytes: &[u8]) -> u64 {
@@ -271,6 +276,8 @@ const fn schema_hash() -> u64 {
                 EventPayloadType::DesignSystem => 7,
                 EventPayloadType::NotificationActivation => 8,
                 EventPayloadType::NotificationPermission => 9,
+                EventPayloadType::Animation => 10,
+                EventPayloadType::ReducedMotion => 11,
             }],
         );
         index += 1;
@@ -885,6 +892,85 @@ define_wire_enum!(SLOT_ROLE_SCHEMA, SlotRole {
     Content = 4,
 });
 
+// The vocabulary of animations the Renderer plays on its own frame clock. Every one is a
+// byte on the wire and every one starts at 1, so a zero is always a record the two sides
+// disagree about.
+
+// What an animation changes. Each has a place it is drawn from: the node's first `Alpha`,
+// its `color` property, its first `Background` and its first `Transform`.
+define_wire_enum!(ANIMATED_PROPERTY_SCHEMA, AnimatedProperty {
+    Alpha = 1,
+    Color = 2,
+    Background = 3,
+    Transform = 4,
+});
+
+define_wire_enum!(PLAYBACK_DIRECTION_SCHEMA, PlaybackDirection {
+    Normal = 1,
+    Reverse = 2,
+    Alternate = 3,
+    AlternateReverse = 4,
+});
+
+define_wire_enum!(FILL_MODE_SCHEMA, FillMode {
+    None = 1,
+    Forwards = 2,
+    Backwards = 3,
+    Both = 4,
+});
+
+define_wire_enum!(PLAY_STATE_SCHEMA, PlayState {
+    Running = 1,
+    Paused = 2,
+});
+
+// How two colours are mixed: the way CSS's older colour syntax does, or in Oklab, the
+// default of CSS Color 4's newer syntax.
+define_wire_enum!(COLOR_INTERPOLATION_SCHEMA, ColorInterpolation {
+    SrgbPremultiplied = 1,
+    Oklab = 2,
+});
+
+define_wire_enum!(TIMING_KIND_SCHEMA, TimingKind {
+    Linear = 1,
+    CubicBezier = 2,
+    Steps = 3,
+});
+
+define_wire_enum!(STEP_POSITION_SCHEMA, StepPosition {
+    JumpStart = 1,
+    JumpEnd = 2,
+    JumpNone = 3,
+    JumpBoth = 4,
+});
+
+define_wire_enum!(TRANSFORM_FUNCTION_KIND_SCHEMA, TransformFunctionKind {
+    Translate = 1,
+    Rotate = 2,
+    Scale = 3,
+    Skew = 4,
+    Matrix = 5,
+});
+
+define_wire_enum!(ANIMATION_CONTROL_SCHEMA, AnimationControl {
+    Pause = 1,
+    Resume = 2,
+    Cancel = 3,
+});
+
+define_wire_enum!(ANIMATION_EVENT_KIND_SCHEMA, AnimationEventKind {
+    Ready = 1,
+    Active = 2,
+    Iteration = 3,
+    End = 4,
+});
+
+define_wire_enum!(REDUCED_MOTION_SCHEMA, ReducedMotion {
+    Off = 1,
+    On = 2,
+    Unknown = 3,
+});
+
 /// Every role enum codegen mirrors, in wire order. Appending is the only allowed edit.
 pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
     RoleEnumSchema {
@@ -978,6 +1064,50 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
     RoleEnumSchema {
         name: "NotificationPermission",
         variants: NOTIFICATION_PERMISSION_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "AnimatedProperty",
+        variants: ANIMATED_PROPERTY_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "PlaybackDirection",
+        variants: PLAYBACK_DIRECTION_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "FillMode",
+        variants: FILL_MODE_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "PlayState",
+        variants: PLAY_STATE_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "ColorInterpolation",
+        variants: COLOR_INTERPOLATION_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "TimingKind",
+        variants: TIMING_KIND_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "StepPosition",
+        variants: STEP_POSITION_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "TransformFunctionKind",
+        variants: TRANSFORM_FUNCTION_KIND_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "AnimationControl",
+        variants: ANIMATION_CONTROL_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "AnimationEventKind",
+        variants: ANIMATION_EVENT_KIND_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "ReducedMotion",
+        variants: REDUCED_MOTION_SCHEMA,
     },
 ];
 
@@ -1446,6 +1576,151 @@ impl Modifier {
             bottom_left,
         }
     }
+}
+
+/// The timing function of one keyframe, which shapes the segment to the next one.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Timing {
+    Linear,
+    /// CSS `cubic-bezier(x1, y1, x2, y2)`. Both `x` values are between 0 and 1.
+    CubicBezier {
+        x1: f32,
+        y1: f32,
+        x2: f32,
+        y2: f32,
+    },
+    /// CSS `steps(count, position)`. `count` is at least 1, and at least 2 for `JumpNone`.
+    Steps {
+        count: u32,
+        position: StepPosition,
+    },
+}
+
+/// One CSS transform function: its kind and up to six values, the unused ones zero.
+///
+/// `Translate` is x and y in dp, `Rotate` degrees (not folded into one turn, so 0 to 720
+/// is two turns), `Scale` x and y, `Skew` the x and y angles in degrees, and `Matrix` the
+/// six values of CSS `matrix()`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TransformFunction {
+    pub kind: TransformFunctionKind,
+    pub values: [f32; 6],
+}
+
+impl TransformFunction {
+    pub const fn translate(x: f32, y: f32) -> Self {
+        Self {
+            kind: TransformFunctionKind::Translate,
+            values: [x, y, 0.0, 0.0, 0.0, 0.0],
+        }
+    }
+
+    pub const fn rotate(degrees: f32) -> Self {
+        Self {
+            kind: TransformFunctionKind::Rotate,
+            values: [degrees, 0.0, 0.0, 0.0, 0.0, 0.0],
+        }
+    }
+
+    pub const fn scale(x: f32, y: f32) -> Self {
+        Self {
+            kind: TransformFunctionKind::Scale,
+            values: [x, y, 0.0, 0.0, 0.0, 0.0],
+        }
+    }
+
+    pub const fn skew(x_degrees: f32, y_degrees: f32) -> Self {
+        Self {
+            kind: TransformFunctionKind::Skew,
+            values: [x_degrees, y_degrees, 0.0, 0.0, 0.0, 0.0],
+        }
+    }
+
+    pub const fn matrix(a: f32, b: f32, c: f32, d: f32, e: f32, f: f32) -> Self {
+        Self {
+            kind: TransformFunctionKind::Matrix,
+            values: [a, b, c, d, e, f],
+        }
+    }
+}
+
+/// What one keyframe holds, which has to be what its animation's property takes.
+#[derive(Clone, Debug, PartialEq)]
+pub enum KeyframeValue<'a> {
+    Alpha(f32),
+    /// For `Color` and `Background`. A role is resolved against the theme every frame.
+    Paint(Paint),
+    /// A list of functions, the same kinds in the same order in every keyframe.
+    Transform(std::borrow::Cow<'a, [TransformFunction]>),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Keyframe<'a> {
+    /// Where in an iteration this keyframe stands, from 0 to 1.
+    pub offset: f32,
+    /// How the segment from this keyframe to the next is timed.
+    pub timing: Timing,
+    /// Starts from whatever the node shows the frame this animation begins, instead of
+    /// `value`. Only the first keyframe may say so: it is how a CSS transition that
+    /// changes course midway carries on from where it was without a jump.
+    pub from_presented: bool,
+    pub value: KeyframeValue<'a>,
+}
+
+/// Which moments of an animation are reported back as `AnimationEvent`s. None, the
+/// default, means the animation plays to its end without a single call to the Host.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct AnimationEvents(pub u8);
+
+impl AnimationEvents {
+    pub const NONE: Self = Self(0);
+    pub const READY: Self = Self(1);
+    pub const ACTIVE: Self = Self(2);
+    pub const ITERATION: Self = Self(4);
+    pub const END: Self = Self(8);
+    /// Every kind there is. A bit outside these is a record the sides disagree about.
+    pub const ALL: Self = Self(1 | 2 | 4 | 8);
+
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    pub const fn contains(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+}
+
+/// One animation the Renderer plays to its end on its own frame clock, described once.
+///
+/// The key is `(node_id, property, slot)`: a second animation with the same key replaces
+/// the first, and of the ones in effect on one property the highest slot is what shows.
+/// Timing follows Web Animations Level 1, which is what CSS transitions and animations
+/// are defined by.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Animation<'a> {
+    pub node_id: u32,
+    /// The Host's own name for the animation, returned in every event about it.
+    pub animation_id: u32,
+    pub property: AnimatedProperty,
+    pub slot: u8,
+    pub direction: PlaybackDirection,
+    pub fill: FillMode,
+    pub play_state: PlayState,
+    /// For `Color` and `Background` only, and required there.
+    pub interpolation: Option<ColorInterpolation>,
+    /// On the Renderer's frame clock. Zero starts it on the first frame that draws it.
+    pub start_time_nanos: u64,
+    /// May be negative, which starts it partway through.
+    pub delay_ms: f32,
+    pub duration_ms: f32,
+    /// Infinite for `infinite`.
+    pub iterations: f32,
+    /// For `Transform` only: the origin, as a fraction of the node's size.
+    pub origin_x: f32,
+    pub origin_y: f32,
+    pub events: AnimationEvents,
+    /// At least two, the first at offset 0 and the last at 1.
+    pub keyframes: std::borrow::Cow<'a, [Keyframe<'a>]>,
 }
 
 const NO_FIELDS: &[FieldSchema] = &[];
@@ -2084,6 +2359,23 @@ pub enum EventPayload<'a> {
     /// Whether notifications may be shown, sent once after start and then only when the
     /// answer changes.
     NotificationPermissionChanged(NotificationPermission),
+    /// Something happened to an animation the Renderer is playing, sent only for the kinds
+    /// the animation asked for. It names the node the animation plays on and no handler.
+    AnimationEvent {
+        animation_id: u32,
+        kind: AnimationEventKind,
+        property: AnimatedProperty,
+        slot: u8,
+        /// The iteration the animation was in at that moment.
+        iteration: u32,
+        /// What CSS reports as `elapsedTime`: active time, without the delay, in ms.
+        elapsed_ms: f32,
+        /// The frame the moment happened in; for `Ready`, the start time it was given.
+        time_nanos: u64,
+    },
+    /// Whether the platform asks for reduced motion, sent once after start and then only
+    /// when the answer changes.
+    ReducedMotionChanged(ReducedMotion),
 }
 
 pub const EVENT_SCHEMA: &[EventSchema] = &[
@@ -2180,6 +2472,18 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
         name: "NotificationPermissionChanged",
         tag: 25,
         payload: EventPayloadType::NotificationPermission,
+    },
+    // Tags 26 to 30 are reserved for the code editor's events.
+    EventSchema {
+        name: "AnimationEvent",
+        tag: 31,
+        payload: EventPayloadType::Animation,
+    },
+    // About the platform rather than a node, like the notification permission.
+    EventSchema {
+        name: "ReducedMotionChanged",
+        tag: 32,
+        payload: EventPayloadType::ReducedMotion,
     },
 ];
 

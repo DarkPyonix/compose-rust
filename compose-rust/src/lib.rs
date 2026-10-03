@@ -1,5 +1,6 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
+pub mod animation;
 pub mod asset;
 pub mod boundary;
 /// Generated JNI shims. Compiled only for Android, where the Host is a cdylib that the
@@ -39,6 +40,7 @@ pub mod theme;
 pub mod tokens;
 pub mod window;
 
+pub use animation::{AnimationMoment, control_animation, reduced_motion, start_animation};
 pub use asset::asset;
 pub use boundary::{
     Host, LaunchBuilder, MutationBatch, RendererApi, RuntimeFactory, demo_theme, demo_theme_for,
@@ -61,6 +63,11 @@ pub use schema::{
     MotionRole, NotificationImportance, NotificationPermission, NotificationPresentation, Paint,
     PropertyKind, SCHEMA_HASH, Selection, ShapeRole, SpaceRole, TextAlign, TextOverflow, Theme,
     TileMode, TypeRole, WidgetKind, WindowHeightClass, WindowSizeClass,
+};
+pub use schema::{
+    AnimatedProperty, Animation, AnimationControl, AnimationEventKind, AnimationEvents,
+    ColorInterpolation, FillMode, Keyframe, KeyframeValue, PlayState, PlaybackDirection,
+    ReducedMotion, StepPosition, Timing, TransformFunction, TransformFunctionKind,
 };
 pub use theme::ThemeHandle;
 pub use window::{NodeSize, WindowSize, node_size, window_size};

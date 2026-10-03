@@ -482,6 +482,55 @@ impl Host {
                 }
                 return self.publish_notification_permission(state);
             }
+            // About the platform, like the permission above: no node and no handler, and
+            // a repeat of the same answer wakes nobody.
+            EventPayload::ReducedMotionChanged(state) => {
+                if event.node_id != 0 || event.handler_id != 0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                self.batch().begin();
+                if crate::animation::publish_reduced_motion(state) {
+                    self.runtime.render();
+                }
+                self.flush_messages();
+                self.arm_scheduler_wake();
+                return Ok((self.runtime.batch_mut().finish()?, 0));
+            }
+            // A moment in an animation the Renderer is playing. It names the node the
+            // animation plays on but no handler: whoever registered for animation events
+            // hears about it, and what they change is rendered in the same call, so a
+            // handler that starts the next animation does not leave a frame between them.
+            EventPayload::AnimationEvent {
+                animation_id,
+                kind,
+                property,
+                slot,
+                iteration,
+                elapsed_ms,
+                time_nanos,
+            } => {
+                if event.handler_id != 0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                let moment = crate::animation::AnimationMoment {
+                    node_id: event.node_id,
+                    animation_id,
+                    kind,
+                    property,
+                    slot,
+                    iteration,
+                    elapsed_ms,
+                    time_nanos,
+                };
+                let _dispatch_guard = EventDispatchGuard::enter();
+                let mut delivered = false;
+                self.runtime
+                    .run_in_context(&mut || delivered = crate::animation::deliver(moment));
+                if !delivered {
+                    return self.empty_batch();
+                }
+                return self.render_and_finish(0);
+            }
             _ => {}
         }
         // The window's size belongs to no node and no handler: the Renderer measures the
@@ -607,6 +656,9 @@ impl Host {
             );
         });
         self.flush_notifications();
+        // Animations an application started from a handler, a component or a worker.
+        let batch = self.runtime.batch_mut();
+        crate::animation::drain(|mutation| batch.write(mutation));
     }
 
     /// Writes the notification commands waiting in the Host into this batch.

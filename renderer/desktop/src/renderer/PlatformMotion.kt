@@ -1,7 +1,9 @@
 package dev.darkpyonix.composerust.ui
 
 import dev.darkpyonix.composerust.ui.node.platformHighContrast
+import dev.darkpyonix.composerust.protocol.ReducedMotion
 import dev.darkpyonix.composerust.ui.node.platformReducedMotion
+import dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting
 import java.util.concurrent.TimeUnit
 
 // Desktop only, and each desktop keeps the setting somewhere else. None of the three can
@@ -18,8 +20,22 @@ private const val QUERY_TIMEOUT_SECONDS = 2L
  * asked for anything, and holding every animation still on that guess would be the larger
  * mistake.
  */
-private fun askThePlatform(): Boolean {
+private fun askThePlatform(): Boolean = askForMotion() == ReducedMotion.On
+
+/**
+ * What the running desktop says about reducing motion, with unknown kept apart from no.
+ *
+ * KDE keeps it as a speed factor for every animation, where zero is none at all; it is
+ * asked when the session says it is KDE, and GNOME's setting otherwise.
+ */
+private fun askForMotion(): ReducedMotion {
     val name = System.getProperty("os.name").orEmpty().lowercase()
+    val kde = System.getenv("XDG_CURRENT_DESKTOP").orEmpty().contains("KDE", ignoreCase = true)
+    if (kde && !name.contains("mac") && !name.contains("win")) {
+        val factor = ask(listOf("kreadconfig5", "--group", "KDE", "--key", "AnimationDurationFactor"))
+            ?.trim()?.toDoubleOrNull()
+        if (factor != null) return if (factor == 0.0) ReducedMotion.On else ReducedMotion.Off
+    }
     val query = when {
         name.contains("mac") ->
             listOf("defaults", "read", "com.apple.Accessibility", "ReduceMotionEnabled")
@@ -35,13 +51,29 @@ private fun askThePlatform(): Boolean {
         // GNOME keeps it as animations being on, which is the same question inverted.
         else -> listOf("gsettings", "get", "org.gnome.desktop.interface", "enable-animations")
     }
-    val answer = runCatching {
-        val process = ProcessBuilder(query).redirectErrorStream(true).start()
-        val text = process.inputStream.bufferedReader().readText().trim()
-        process.waitFor(QUERY_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        text
-    }.getOrNull() ?: return false
-    return readAnswer(answer, inverted = !name.contains("mac") && !name.contains("win"))
+    val answer = ask(query) ?: return ReducedMotion.Unknown
+    return readMotionAnswer(answer, inverted = !name.contains("mac") && !name.contains("win"))
+}
+
+private fun ask(query: List<String>): String? = runCatching {
+    val process = ProcessBuilder(query).redirectErrorStream(true).start()
+    val text = process.inputStream.bufferedReader().readText().trim()
+    process.waitFor(QUERY_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+    text
+}.getOrNull()
+
+/**
+ * The same reading as [readAnswer], keeping an answer that says neither yes nor no as
+ * unknown rather than as no: the Host is told what is known, and guesses for itself.
+ */
+internal fun readMotionAnswer(answer: String, inverted: Boolean): ReducedMotion {
+    val text = answer.trim().substringAfterLast(' ').lowercase()
+    val on = when (text) {
+        "1", "true", "0x1", "yes" -> true
+        "0", "false", "0x0", "no" -> false
+        else -> return ReducedMotion.Unknown
+    }
+    return if (on != inverted) ReducedMotion.On else ReducedMotion.Off
 }
 
 /**
@@ -69,6 +101,9 @@ internal fun readAnswer(answer: String, inverted: Boolean): Boolean {
 internal fun installReducedMotion() {
     val answer = lazy { askThePlatform() }
     platformReducedMotion = { answer.value }
+    // Asked afresh each time, because it is asked only at start and when the window comes
+    // back into use, which is when the setting may have been changed.
+    platformReducedMotionSetting = { askForMotion() }
 }
 
 /**

@@ -102,7 +102,9 @@ impl MockRenderer {
                 | Mutation::SetWindow(_)
                 | Mutation::PostNotification { .. }
                 | Mutation::WithdrawNotification { .. }
-                | Mutation::RequestNotificationPermission => {}
+                | Mutation::RequestNotificationPermission
+                | Mutation::StartAnimation(_)
+                | Mutation::ControlAnimation { .. } => {}
             }
         }
     }

@@ -56,6 +56,15 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     ComposeFoundationFlags.isNewContextMenuEnabled = false
 
     declareWindowBackdrop()
+    // The accessibility setting a page's `prefers-reduced-motion` answers to, asked at start
+    // and whenever the window comes back into use.
+    dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting = {
+        if (platform.AppKit.NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) {
+            dev.darkpyonix.composerust.protocol.ReducedMotion.On
+        } else {
+            dev.darkpyonix.composerust.protocol.ReducedMotion.Off
+        }
+    }
     // The notification centre, before the Host exists: the Host's first batch may already
     // post one. A press on the body brings this application to the front and its window
     // back from the Dock, which is what the platform does for an application it launches.

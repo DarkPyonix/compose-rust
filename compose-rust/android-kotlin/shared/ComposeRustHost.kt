@@ -7,6 +7,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.rememberUpdatedState
+import dev.darkpyonix.composerust.protocol.ReducedMotion
+import dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
@@ -144,6 +148,14 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
         // where the UI thread, and so the Host, can be reached from any other thread.
         table.notifications.drain()
         applyTransaction { apply -> connection.renderFrame(frameTimeNanos, apply) }
+    }
+
+    /**
+     * Plays one frame of the animations the Host handed over, and hands the Host the events
+     * they asked for. Called inside a frame, on the thread the Host was started on.
+     */
+    internal fun tickAnimations(frameTimeNanos: Long, theme: dev.darkpyonix.composerust.design.ResolvedTheme) {
+        table.animations.tick(frameTimeNanos, theme) { event -> dispatch(event) }
     }
 
     fun shutdown() {
@@ -333,6 +345,30 @@ fun ComposeRustContent(
         brushOf = { asset -> (host.table.assets.asset(asset) as? Asset.Brush)?.brush },
         windowBackdrop = asked && platformBacksWindowWithMaterial(),
     )
+    // The animations the Host handed over are played here, on this side's frame clock, and
+    // the Host is not called while they play unless one asked for events. The loop waits
+    // for frames only while something is waiting to start or still running, so a screen
+    // that has stopped moving asks for no frames at all.
+    val currentTheme by rememberUpdatedState(theme)
+    LaunchedEffect(host) {
+        snapshotFlow { host.table.animations.generation.intValue }.collect {
+            while (host.table.animations.needsFrames()) {
+                withFrameNanos { frame -> host.tickAnimations(frame, currentTheme) }
+            }
+        }
+    }
+    // Whether the platform asks for reduced motion, told to the Host once and again when it
+    // changes. Asked again when the window comes back into use, which is when a setting
+    // changed in the system's preferences can have changed. The Host decides what to do
+    // with it, as a page does with a media query; nothing here holds an animation still.
+    val reducedMotion = remember(windowFocused) { platformReducedMotionSetting() }
+    val reportedMotion = remember(host) { arrayOfNulls<ReducedMotion>(1) }
+    SideEffect {
+        if (reportedMotion[0] != reducedMotion) {
+            reportedMotion[0] = reducedMotion
+            host.dispatch(HostEvent.ReducedMotionChanged(nodeId = 0, handlerId = 0, state = reducedMotion))
+        }
+    }
     // The answer goes back to the Host, which asked a question it cannot answer itself:
     // an adaptive theme names no system, and the one that ends up running is worked out
     // here where the platform is. Only when it changes, the way a size class is reported.

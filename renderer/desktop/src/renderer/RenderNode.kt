@@ -121,7 +121,7 @@ fun RenderNode(
     RenderNodeObserver.onCompose?.let { observer -> SideEffect { observer(nodeId) } }
     val theme = LocalDesignTheme.current
     val chain = parentModifier
-        .then(node.modifiers.toComposeModifier(nodeId, dispatcher, theme))
+        .then(node.modifiers.toComposeModifier(nodeId, dispatcher, theme) { table.animations.animated(nodeId) })
         .testTag(nodeTestTag(nodeId))
     // The TextField wires its own key handling, because it has an editor to intercept and a
     // composition to protect; everything else routes keys here.
@@ -161,7 +161,13 @@ fun RenderNode(
 
         // One widget whether or not it carries runs. A paragraph with a bold phrase in
         // it is one piece of text, and three widgets would wrap at the seams.
-        WidgetKind.Text -> HostRichText(node, modifier, dispatcher, theme)
+        WidgetKind.Text -> HostRichText(
+            node,
+            modifier,
+            dispatcher,
+            theme,
+            table.animations.animated(nodeId).textColorProducer,
+        )
 
         WidgetKind.Spacer -> Spacer(modifier)
         // The controls are drawn through `Unselectable`, which leaves them out of a
@@ -378,6 +384,16 @@ var platformFileDrop: @Composable (Modifier, Node, EventDispatcher) -> Modifier 
  * asks the question.
  */
 var platformReducedMotion: () -> Boolean = { false }
+
+/**
+ * What the platform says about reducing motion, including that it cannot say.
+ *
+ * The answer the Host is told, so a screen written with CSS can answer
+ * `prefers-reduced-motion` the way a browser would. Asked when the Renderer starts and again
+ * when its window comes back into use. A platform that installs nothing answers unknown.
+ */
+var platformReducedMotionSetting: () -> dev.darkpyonix.composerust.protocol.ReducedMotion =
+    { dev.darkpyonix.composerust.protocol.ReducedMotion.Unknown }
 
 /**
  * Whether the person at this machine has asked the platform for high contrast colours:

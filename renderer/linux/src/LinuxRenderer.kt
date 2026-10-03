@@ -1,6 +1,11 @@
 package dev.darkpyonix.composerust.ui.platform
 
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
+import kotlinx.cinterop.ByteVar
+import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.allocArray
+import kotlinx.cinterop.memScoped
+import kotlinx.cinterop.toKString
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
 import dev.darkpyonix.composerust.runtime.HostConnection
 
@@ -19,6 +24,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // may already post one. A press on a notification's body raises the window, which does
     // not exist yet, so it is found when the press arrives.
     var opened: LinuxWindow? = null
+    dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting = ::askLinuxForMotion
     Notifications.platform = DBusNotifications(
         open = { PosixBusConnection.open() },
         bringToFront = { opened?.raise() },
@@ -70,3 +76,42 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
 /** What a window that did not say is opened at, in the units the scene measures in. */
 private const val DEFAULT_WIDTH = 520
 private const val DEFAULT_HEIGHT = 360
+
+/**
+ * What the desktop says about reducing motion: KDE's animation speed factor, where zero is
+ * no animation, in a KDE session, and GNOME's `enable-animations` otherwise, which is the
+ * same question the other way round. Unknown where neither can be asked.
+ */
+@OptIn(ExperimentalForeignApi::class)
+internal fun askLinuxForMotion(): dev.darkpyonix.composerust.protocol.ReducedMotion {
+    val kde = platform.posix.getenv("XDG_CURRENT_DESKTOP")?.toKString()
+        .orEmpty().contains("KDE", ignoreCase = true)
+    if (kde) {
+        val factor = runQuery("kreadconfig5 --group KDE --key AnimationDurationFactor 2>/dev/null")
+            ?.trim()?.toDoubleOrNull()
+        if (factor != null) {
+            return if (factor == 0.0) dev.darkpyonix.composerust.protocol.ReducedMotion.On
+            else dev.darkpyonix.composerust.protocol.ReducedMotion.Off
+        }
+    }
+    return when (runQuery("gsettings get org.gnome.desktop.interface enable-animations 2>/dev/null")?.trim()) {
+        "false" -> dev.darkpyonix.composerust.protocol.ReducedMotion.On
+        "true" -> dev.darkpyonix.composerust.protocol.ReducedMotion.Off
+        else -> dev.darkpyonix.composerust.protocol.ReducedMotion.Unknown
+    }
+}
+
+/** The first line a shell command prints, or null where it could not be run. */
+@OptIn(ExperimentalForeignApi::class)
+private fun runQuery(command: String): String? {
+    val pipe = platform.posix.popen(command, "r") ?: return null
+    try {
+        memScoped {
+            val buffer = allocArray<ByteVar>(256)
+            val line = platform.posix.fgets(buffer, 256, pipe) ?: return null
+            return line.toKString()
+        }
+    } finally {
+        platform.posix.pclose(pipe)
+    }
+}

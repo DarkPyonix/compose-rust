@@ -121,6 +121,8 @@ internal fun HostRichText(
     modifier: Modifier,
     dispatcher: EventDispatcher,
     theme: ResolvedTheme,
+    /** The colour an animation shows in the draw phase, or the style's own where none does. */
+    color: androidx.compose.ui.graphics.ColorProducer? = null,
 ) {
     val raw = node.text(PropertyKind.Text)
     val blob = (node.property(PropertyKind.Spans) as? PropertyValue.Bytes)?.value
@@ -136,6 +138,7 @@ internal fun HostRichText(
             style = node.textStyle(theme),
             maxLines = node.maxLines(),
             overflow = node.overflow(),
+            color = color,
         )
         return
     }
@@ -150,6 +153,7 @@ internal fun HostRichText(
             style = node.textStyle(theme),
             maxLines = node.maxLines(),
             overflow = node.overflow(),
+            color = color,
         )
         return
     }
@@ -202,6 +206,7 @@ internal fun HostRichText(
         style = node.textStyle(theme),
         maxLines = node.maxLines(),
         overflow = node.overflow(),
+        color = color,
     )
 }
 

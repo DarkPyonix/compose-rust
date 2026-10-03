@@ -71,6 +71,15 @@ private class RendererAppDelegate : UIResponder, UIApplicationDelegateProtocol {
         // process goes, because pressing one is how the application is started again, and
         // bringing the application up is the system's own part of pressing one.
         Notifications.platform = AppleNotifications(withdrawAtExit = false, bringToFront = {})
+        // The accessibility setting a page's `prefers-reduced-motion` answers to, asked at
+        // start and whenever the application comes back into use.
+        dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting = {
+            if (platform.UIKit.UIAccessibilityIsReduceMotionEnabled()) {
+                dev.darkpyonix.composerust.protocol.ReducedMotion.On
+            } else {
+                dev.darkpyonix.composerust.protocol.ReducedMotion.Off
+            }
+        }
         val window = UIWindow(frame = UIScreen.mainScreen.bounds)
         val content = ComposeUIViewController {
             ComposeRustContent(

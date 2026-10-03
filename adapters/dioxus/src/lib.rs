@@ -31,8 +31,8 @@ pub use dioxus_core_macro::{Props, component, rsx};
 pub use elements::*;
 pub use extensions::LinearProgressIndicator;
 pub use hooks::{
-    use_design_system, use_node_size, use_notification_activated, use_notification_permission,
-    use_theme, use_window_size,
+    use_animation_event, use_design_system, use_node_size, use_notification_activated,
+    use_notification_permission, use_reduced_motion, use_theme, use_window_size,
 };
 pub use host::{DioxusRuntime, Host, LaunchBuilder, launch, runtime_for};
 pub use widgets::{

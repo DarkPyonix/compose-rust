@@ -99,6 +99,11 @@ class ProtocolVectorsTest {
                 is Mutation.PostNotification -> false
                 is Mutation.WithdrawNotification -> false
                 is Mutation.RequestNotificationPermission -> false
+                // An animation is played on a node, so one that names a node the vector
+                // never created is reported once the batch is in.
+                is Mutation.StartAnimation -> mutation.animation.nodeId !in created
+                // A control for a key nothing plays under is left alone, not reported.
+                is Mutation.ControlAnimation -> false
             }
         }
         assertEquals(

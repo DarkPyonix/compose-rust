@@ -25,9 +25,16 @@ const TAG_SET_WINDOW: u16 = 13;
 const TAG_POST_NOTIFICATION: u16 = 14;
 const TAG_WITHDRAW_NOTIFICATION: u16 = 15;
 const TAG_REQUEST_NOTIFICATION_PERMISSION: u16 = 16;
-/// The last mutation tag this decoder knows. A known tag with the wrong length is a length
-/// error rather than an unknown tag.
-const TAG_LAST: u16 = TAG_REQUEST_NOTIFICATION_PERMISSION;
+// Tag 17 is reserved for the code editor.
+const TAG_START_ANIMATION: u16 = 18;
+const TAG_CONTROL_ANIMATION: u16 = 19;
+/// The head of a `StartAnimation` record, before its keyframes.
+const ANIMATION_HEADER_LEN: usize = 52;
+/// A keyframe before its value: offset, timing, step position, flags and four numbers.
+const KEYFRAME_HEAD_LEN: usize = 24;
+/// One transform function: its kind and six numbers.
+const TRANSFORM_FUNCTION_LEN: usize = 28;
+const KEYFRAME_FROM_PRESENTED: u16 = 1;
 const ENVELOPE_LEN: usize = 12;
 /// `SetTheme` after its header: four `u16` fields, one font slot per type role, and the
 /// palette's `(offset, len)` reference. 52 bytes, so the record is 56.
@@ -153,6 +160,21 @@ pub enum Mutation<'a> {
     /// Asks the platform for permission to show notifications. It carries nothing: the
     /// answer comes back as a permission event.
     RequestNotificationPermission,
+    /// Hands the Renderer one animation to play on its own frame clock until it ends.
+    /// Nothing crosses the boundary while it plays unless it asked for events.
+    StartAnimation(crate::schema::Animation<'a>),
+    /// Pauses, resumes or cancels one animation the Renderer is playing. A key the Renderer
+    /// does not hold, or an id that is not the one it holds, is left alone: an animation
+    /// that ended on its own is not an error to stop.
+    ControlAnimation {
+        node_id: u32,
+        animation_id: u32,
+        property: crate::schema::AnimatedProperty,
+        slot: u8,
+        op: crate::schema::AnimationControl,
+        /// On the Renderer's frame clock. Zero means the first frame that draws it.
+        at_time_nanos: u64,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -173,6 +195,11 @@ pub enum ProtocolError {
     InvalidStringRange,
     InvalidUtf8,
     LengthOverflow,
+    /// An animation record that is well formed bytes but not an animation: an unknown
+    /// value, fewer than two keyframes, offsets that do not run from 0 to 1, a negative or
+    /// non-numeric duration or iteration count, keyframes whose values or transform lists
+    /// do not match, or a length that does not hold its keyframes.
+    InvalidAnimation,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -201,6 +228,9 @@ const EVENT_FILES_ENTERED: u16 = 22;
 const EVENT_FILES_DROPPED: u16 = 23;
 const EVENT_NOTIFICATION_ACTIVATED: u16 = 24;
 const EVENT_NOTIFICATION_PERMISSION_CHANGED: u16 = 25;
+// Tags 26 to 30 are reserved for the code editor.
+const EVENT_ANIMATION: u16 = 31;
+const EVENT_REDUCED_MOTION_CHANGED: u16 = 32;
 
 const MODIFIER_SHIFT: u8 = 1 << 0;
 const MODIFIER_CTRL: u8 = 1 << 1;
@@ -305,11 +335,38 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
                 ))?;
             crate::schema::EventPayload::NotificationPermissionChanged(state)
         }
+        EVENT_ANIMATION if record_len == 40 => {
+            let raw_kind = u16::from(read_u8(bytes, 20)?);
+            let raw_property = u16::from(read_u8(bytes, 21)?);
+            crate::schema::EventPayload::AnimationEvent {
+                animation_id: read_u32(bytes, 16)?,
+                kind: crate::schema::AnimationEventKind::try_from(raw_kind)
+                    .map_err(|()| ProtocolError::InvalidValueKind(raw_kind))?,
+                property: crate::schema::AnimatedProperty::try_from(raw_property)
+                    .map_err(|()| ProtocolError::InvalidValueKind(raw_property))?,
+                slot: read_u8(bytes, 22)?,
+                iteration: read_u32(bytes, 24)?,
+                elapsed_ms: f32::from_bits(read_u32(bytes, 28)?),
+                time_nanos: read_u64(bytes, 32)?,
+            }
+        }
+        EVENT_REDUCED_MOTION_CHANGED if record_len == 20 => {
+            let raw = read_u32(bytes, 16)?;
+            let state = u16::try_from(raw)
+                .ok()
+                .and_then(|tag| crate::schema::ReducedMotion::try_from(tag).ok())
+                .ok_or(ProtocolError::InvalidValueKind(
+                    raw.min(u32::from(u16::MAX)) as u16,
+                ))?;
+            crate::schema::EventPayload::ReducedMotionChanged(state)
+        }
         EVENT_RESYNC if record_len == 16 => crate::schema::EventPayload::Resync,
         EVENT_LIFECYCLE_START if record_len == 16 => crate::schema::EventPayload::LifecycleStart,
         EVENT_LIFECYCLE_STOP if record_len == 16 => crate::schema::EventPayload::LifecycleStop,
         EVENT_CLICK..=EVENT_RANGE_REQUESTED
-        | EVENT_VALUE_CHANGED..=EVENT_NOTIFICATION_PERMISSION_CHANGED => {
+        | EVENT_VALUE_CHANGED..=EVENT_NOTIFICATION_PERMISSION_CHANGED
+        | EVENT_ANIMATION
+        | EVENT_REDUCED_MOTION_CHANGED => {
             return Err(ProtocolError::InvalidRecordLength);
         }
         other => return Err(ProtocolError::InvalidTag(other)),
@@ -388,6 +445,38 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.extend_from_slice(&u32::from(u16::from(state)).to_le_bytes());
         return Ok(());
     }
+    if let crate::schema::EventPayload::AnimationEvent {
+        animation_id,
+        kind,
+        property,
+        slot,
+        iteration,
+        elapsed_ms,
+        time_nanos,
+    } = event.payload
+    {
+        output.extend_from_slice(&EVENT_ANIMATION.to_le_bytes());
+        output.extend_from_slice(&40_u16.to_le_bytes());
+        output.extend_from_slice(&event.node_id.to_le_bytes());
+        output.extend_from_slice(&event.handler_id.to_le_bytes());
+        output.extend_from_slice(&animation_id.to_le_bytes());
+        output.push(kind as u8);
+        output.push(property as u8);
+        output.push(slot);
+        output.push(0);
+        output.extend_from_slice(&iteration.to_le_bytes());
+        output.extend_from_slice(&elapsed_ms.to_bits().to_le_bytes());
+        output.extend_from_slice(&time_nanos.to_le_bytes());
+        return Ok(());
+    }
+    if let crate::schema::EventPayload::ReducedMotionChanged(state) = event.payload {
+        output.extend_from_slice(&EVENT_REDUCED_MOTION_CHANGED.to_le_bytes());
+        output.extend_from_slice(&20_u16.to_le_bytes());
+        output.extend_from_slice(&event.node_id.to_le_bytes());
+        output.extend_from_slice(&event.handler_id.to_le_bytes());
+        output.extend_from_slice(&u32::from(u16::from(state)).to_le_bytes());
+        return Ok(());
+    }
     if let crate::schema::EventPayload::RangeRequested { start, count } = event.payload {
         output.extend_from_slice(&EVENT_RANGE_REQUESTED.to_le_bytes());
         output.extend_from_slice(&24_u16.to_le_bytes());
@@ -425,7 +514,9 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::ValueChanged(_)
         | crate::schema::EventPayload::WindowSizeChanged { .. }
         | crate::schema::EventPayload::DesignSystemResolved(_)
-        | crate::schema::EventPayload::NotificationPermissionChanged(_) => unreachable!(),
+        | crate::schema::EventPayload::NotificationPermissionChanged(_)
+        | crate::schema::EventPayload::AnimationEvent { .. }
+        | crate::schema::EventPayload::ReducedMotionChanged(_) => unreachable!(),
     };
     output.extend_from_slice(&tag.to_le_bytes());
     output.extend_from_slice(&record_len.to_le_bytes());
@@ -688,6 +779,24 @@ impl BatchEncoder {
             Mutation::RequestNotificationPermission => {
                 self.begin_record(TAG_REQUEST_NOTIFICATION_PERMISSION, 0);
             }
+            Mutation::StartAnimation(animation) => self.put_animation(animation)?,
+            Mutation::ControlAnimation {
+                node_id,
+                animation_id,
+                property,
+                slot,
+                op,
+                at_time_nanos,
+            } => {
+                self.begin_record(TAG_CONTROL_ANIMATION, 20);
+                self.put_u32(*node_id);
+                self.put_u32(*animation_id);
+                self.records.push(*property as u8);
+                self.records.push(*slot);
+                self.records.push(*op as u8);
+                self.records.push(0);
+                self.put_u64(*at_time_nanos);
+            }
         }
         self.record_count = self
             .record_count
@@ -734,6 +843,96 @@ impl BatchEncoder {
 
     pub fn capacity(&self) -> usize {
         self.records.capacity() + self.strings.capacity() + self.arena.capacity()
+    }
+
+    /// Writes a `StartAnimation`: the 52 byte head, then each keyframe with its value.
+    ///
+    /// The bytes are written as they are given; whether they make an animation is the
+    /// decoder's question, asked on both sides, so a Host that sends a bad one hears about
+    /// it as a protocol error rather than not at all.
+    fn put_animation(
+        &mut self,
+        animation: &crate::schema::Animation<'_>,
+    ) -> Result<(), ProtocolError> {
+        use crate::schema::{KeyframeValue, Timing};
+        let keyframes_len: usize = animation
+            .keyframes
+            .iter()
+            .map(|keyframe| {
+                KEYFRAME_HEAD_LEN
+                    + match &keyframe.value {
+                        KeyframeValue::Alpha(_) => 4,
+                        KeyframeValue::Paint(_) => 8,
+                        KeyframeValue::Transform(functions) => {
+                            4 + TRANSFORM_FUNCTION_LEN * functions.len()
+                        }
+                    }
+            })
+            .sum();
+        let payload = u16::try_from(ANIMATION_HEADER_LEN - 4 + keyframes_len)
+            .ok()
+            .filter(|payload| *payload <= u16::MAX - 4)
+            .ok_or(ProtocolError::LengthOverflow)?;
+        let keyframe_count =
+            u16::try_from(animation.keyframes.len()).map_err(|_| ProtocolError::LengthOverflow)?;
+        self.begin_record(TAG_START_ANIMATION, payload);
+        self.put_u32(animation.node_id);
+        self.put_u32(animation.animation_id);
+        self.records.push(animation.property as u8);
+        self.records.push(animation.slot);
+        self.records.push(animation.direction as u8);
+        self.records.push(animation.fill as u8);
+        self.records.push(animation.play_state as u8);
+        self.records
+            .push(animation.interpolation.map_or(0, |value| value as u8));
+        self.put_u16(keyframe_count);
+        self.put_u64(animation.start_time_nanos);
+        self.put_u32(animation.delay_ms.to_bits());
+        self.put_u32(animation.duration_ms.to_bits());
+        self.put_u32(animation.iterations.to_bits());
+        self.put_u32(animation.origin_x.to_bits());
+        self.put_u32(animation.origin_y.to_bits());
+        self.records.push(animation.events.0);
+        self.records.extend_from_slice(&[0, 0, 0]);
+        for keyframe in animation.keyframes.iter() {
+            self.put_u32(keyframe.offset.to_bits());
+            let (kind, position, numbers) = match keyframe.timing {
+                Timing::Linear => (1_u8, 0_u8, [0_u32; 4]),
+                Timing::CubicBezier { x1, y1, x2, y2 } => (
+                    2,
+                    0,
+                    [x1.to_bits(), y1.to_bits(), x2.to_bits(), y2.to_bits()],
+                ),
+                Timing::Steps { count, position } => (3, position as u8, [count, 0, 0, 0]),
+            };
+            self.records.push(kind);
+            self.records.push(position);
+            self.put_u16(if keyframe.from_presented {
+                KEYFRAME_FROM_PRESENTED
+            } else {
+                0
+            });
+            for number in numbers {
+                self.put_u32(number);
+            }
+            match &keyframe.value {
+                KeyframeValue::Alpha(value) => self.put_u32(value.to_bits()),
+                KeyframeValue::Paint(paint) => self.put_u64(paint.to_bits()),
+                KeyframeValue::Transform(functions) => {
+                    let count = u16::try_from(functions.len())
+                        .map_err(|_| ProtocolError::LengthOverflow)?;
+                    self.put_u16(count);
+                    self.put_u16(0);
+                    for function in functions.iter() {
+                        self.put_u32(u32::from(u16::from(function.kind)));
+                        for value in function.values {
+                            self.put_u32(value.to_bits());
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     fn begin_record(&mut self, tag: u16, payload_len: u16) {
@@ -1006,7 +1205,36 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
             TAG_REQUEST_NOTIFICATION_PERMISSION if len == 4 => {
                 Mutation::RequestNotificationPermission
             }
-            TAG_CREATE..=TAG_LAST => {
+            TAG_START_ANIMATION if len >= ANIMATION_HEADER_LEN => {
+                // A keyframe that runs past the end of its record is a count that does not
+                // match the length, which is the record being wrong rather than the batch.
+                Mutation::StartAnimation(
+                    decode_animation(&bytes[position..position + len]).map_err(|error| {
+                        if error == ProtocolError::Truncated {
+                            ProtocolError::InvalidAnimation
+                        } else {
+                            error
+                        }
+                    })?,
+                )
+            }
+            TAG_CONTROL_ANIMATION if len == 24 => {
+                let raw_property = u16::from(read_u8(bytes, payload + 8)?);
+                let raw_op = u16::from(read_u8(bytes, payload + 10)?);
+                Mutation::ControlAnimation {
+                    node_id: read_u32(bytes, payload)?,
+                    animation_id: read_u32(bytes, payload + 4)?,
+                    property: crate::schema::AnimatedProperty::try_from(raw_property)
+                        .map_err(|()| ProtocolError::InvalidAnimation)?,
+                    slot: read_u8(bytes, payload + 9)?,
+                    op: crate::schema::AnimationControl::try_from(raw_op)
+                        .map_err(|()| ProtocolError::InvalidAnimation)?,
+                    at_time_nanos: read_u64(bytes, payload + 12)?,
+                }
+            }
+            TAG_CREATE..=TAG_REQUEST_NOTIFICATION_PERMISSION
+            | TAG_START_ANIMATION
+            | TAG_CONTROL_ANIMATION => {
                 return Err(ProtocolError::InvalidRecordLength);
             }
             other => return Err(ProtocolError::InvalidTag(other)),
@@ -1018,6 +1246,201 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
         return Err(ProtocolError::InvalidEnvelope);
     }
     Ok(output)
+}
+
+/// Reads one `StartAnimation` record, given whole, and refuses anything that is not an
+/// animation the Renderer could play. The Renderer asks the same questions of the same
+/// bytes, so a record one side refuses is refused on the other as well.
+fn decode_animation(record: &[u8]) -> Result<crate::schema::Animation<'static>, ProtocolError> {
+    use crate::schema::{
+        AnimatedProperty, Animation, AnimationEvents, ColorInterpolation, FillMode, Keyframe,
+        KeyframeValue, PlayState, PlaybackDirection, StepPosition, Timing, TransformFunction,
+        TransformFunctionKind,
+    };
+    let bad = ProtocolError::InvalidAnimation;
+    fn byte_enum<T: TryFrom<u16, Error = ()>>(
+        record: &[u8],
+        at: usize,
+    ) -> Result<T, ProtocolError> {
+        T::try_from(u16::from(read_u8(record, at)?)).map_err(|()| ProtocolError::InvalidAnimation)
+    }
+    let float = |at: usize| read_u32(record, at).map(f32::from_bits);
+    let property: AnimatedProperty = byte_enum(record, 12)?;
+    let direction: PlaybackDirection = byte_enum(record, 14)?;
+    let fill: FillMode = byte_enum(record, 15)?;
+    let play_state: PlayState = byte_enum(record, 16)?;
+    let colour = matches!(
+        property,
+        AnimatedProperty::Color | AnimatedProperty::Background
+    );
+    let interpolation = match (colour, read_u8(record, 17)?) {
+        (false, 0) => None,
+        (true, raw) => Some(
+            ColorInterpolation::try_from(u16::from(raw))
+                .map_err(|()| ProtocolError::InvalidAnimation)?,
+        ),
+        (false, _) => return Err(bad),
+    };
+    let keyframe_count = usize::from(read_u16(record, 18)?);
+    let delay_ms = float(28)?;
+    let duration_ms = float(32)?;
+    let iterations = float(36)?;
+    let origin_x = float(40)?;
+    let origin_y = float(44)?;
+    let events = read_u8(record, 48)?;
+    if keyframe_count < 2
+        || !delay_ms.is_finite()
+        || !(duration_ms.is_finite() && duration_ms >= 0.0)
+        || iterations.is_nan()
+        || iterations < 0.0
+        || !(origin_x.is_finite() && origin_y.is_finite())
+        || events & !AnimationEvents::ALL.0 != 0
+    {
+        return Err(bad);
+    }
+    let mut keyframes = Vec::with_capacity(keyframe_count);
+    let mut at = ANIMATION_HEADER_LEN;
+    for index in 0..keyframe_count {
+        let offset = float(at)?;
+        let raw_timing = read_u8(record, at + 4)?;
+        let raw_position = read_u8(record, at + 5)?;
+        let flags = read_u16(record, at + 6)?;
+        let timing = match raw_timing {
+            1 => Timing::Linear,
+            2 => {
+                let (x1, y1, x2, y2) = (
+                    float(at + 8)?,
+                    float(at + 12)?,
+                    float(at + 16)?,
+                    float(at + 20)?,
+                );
+                if ![x1, y1, x2, y2].iter().all(|value| value.is_finite())
+                    || !(0.0..=1.0).contains(&x1)
+                    || !(0.0..=1.0).contains(&x2)
+                {
+                    return Err(bad);
+                }
+                Timing::CubicBezier { x1, y1, x2, y2 }
+            }
+            3 => {
+                let count = read_u32(record, at + 8)?;
+                let position =
+                    StepPosition::try_from(u16::from(raw_position)).map_err(|()| bad.clone())?;
+                let least = if position == StepPosition::JumpNone {
+                    2
+                } else {
+                    1
+                };
+                if count < least {
+                    return Err(bad);
+                }
+                Timing::Steps { count, position }
+            }
+            _ => return Err(bad),
+        };
+        if flags & !KEYFRAME_FROM_PRESENTED != 0
+            || (index > 0 && flags & KEYFRAME_FROM_PRESENTED != 0)
+            || !(0.0..=1.0).contains(&offset)
+        {
+            return Err(bad);
+        }
+        let value_at = at + KEYFRAME_HEAD_LEN;
+        let (value, value_len) = match property {
+            AnimatedProperty::Alpha => {
+                let value = float(value_at)?;
+                if !value.is_finite() {
+                    return Err(bad);
+                }
+                (KeyframeValue::Alpha(value), 4)
+            }
+            AnimatedProperty::Color | AnimatedProperty::Background => {
+                // A colour can be mixed with another colour; a brush cannot.
+                let paint = Paint::from_bits(read_u64(record, value_at)?)
+                    .filter(|paint| !matches!(paint, Paint::Asset(_)))
+                    .ok_or(bad.clone())?;
+                (KeyframeValue::Paint(paint), 8)
+            }
+            AnimatedProperty::Transform => {
+                let count = usize::from(read_u16(record, value_at)?);
+                let mut functions = Vec::with_capacity(count);
+                for function in 0..count {
+                    let function_at = value_at + 4 + TRANSFORM_FUNCTION_LEN * function;
+                    let raw_kind = read_u32(record, function_at)?;
+                    let kind = u16::try_from(raw_kind)
+                        .ok()
+                        .and_then(|kind| TransformFunctionKind::try_from(kind).ok())
+                        .ok_or(bad.clone())?;
+                    let mut values = [0.0_f32; 6];
+                    for (slot, value) in values.iter_mut().enumerate() {
+                        *value = float(function_at + 4 + 4 * slot)?;
+                    }
+                    if !values.iter().all(|value| value.is_finite()) {
+                        return Err(bad);
+                    }
+                    functions.push(TransformFunction { kind, values });
+                }
+                (
+                    KeyframeValue::Transform(std::borrow::Cow::Owned(functions)),
+                    4 + TRANSFORM_FUNCTION_LEN * count,
+                )
+            }
+        };
+        keyframes.push(Keyframe {
+            offset,
+            timing,
+            from_presented: flags & KEYFRAME_FROM_PRESENTED != 0,
+            value,
+        });
+        at = value_at + value_len;
+    }
+    if at != record.len() {
+        return Err(bad);
+    }
+    // Offsets start at 0, end at 1 and never go back, and every transform list has the
+    // same kinds in the same order. A list the Host did not line up cannot be interpolated
+    // one function to the next, which is the only way the Renderer interpolates them.
+    let first = keyframes.first().map(|keyframe| keyframe.offset);
+    let last = keyframes.last().map(|keyframe| keyframe.offset);
+    if first != Some(0.0)
+        || last != Some(1.0)
+        || keyframes
+            .windows(2)
+            .any(|pair| pair[1].offset < pair[0].offset)
+    {
+        return Err(bad);
+    }
+    if let Some(KeyframeValue::Transform(shape)) = keyframes.first().map(|keyframe| &keyframe.value)
+    {
+        let kinds: Vec<_> = shape.iter().map(|function| function.kind).collect();
+        let lined_up = keyframes.iter().all(|keyframe| match &keyframe.value {
+            KeyframeValue::Transform(functions) => functions
+                .iter()
+                .map(|function| function.kind)
+                .eq(kinds.iter().copied()),
+            _ => false,
+        });
+        if !lined_up {
+            return Err(bad);
+        }
+    }
+    Ok(Animation {
+        node_id: read_u32(record, 4)?,
+        animation_id: read_u32(record, 8)?,
+        property,
+        slot: read_u8(record, 13)?,
+        direction,
+        fill,
+        play_state,
+        interpolation,
+        start_time_nanos: read_u64(record, 20)?,
+        delay_ms,
+        duration_ms,
+        iterations,
+        origin_x,
+        origin_y,
+        events: AnimationEvents(events),
+        keyframes: std::borrow::Cow::Owned(keyframes),
+    })
 }
 
 /// Two `f32` share one `u64`, with the first value in the low 32 bits.
@@ -1310,6 +1733,10 @@ fn read_bytes(bytes: &[u8], position: usize, arena_start: usize) -> Result<&[u8]
     bytes
         .get(offset..end)
         .ok_or(ProtocolError::InvalidStringRange)
+}
+
+fn read_u8(bytes: &[u8], position: usize) -> Result<u8, ProtocolError> {
+    bytes.get(position).copied().ok_or(ProtocolError::Truncated)
 }
 
 fn read_u16(bytes: &[u8], position: usize) -> Result<u16, ProtocolError> {
