@@ -1804,7 +1804,7 @@ E2를 기본 경로로 삼으면 KSP가 Rust 열거형, Dioxus element, 컴포�
 #### 23.2 폰트
 - `TypeRole`은 그대로입니다. 더하는 것은 애플리케이션이 자기 폰트를 **등록**하고, 역할이 그것으로 해석되게 하는 길입니다. 이름을 보내지 않으므로 존재 검증이 런타임으로 밀리지 않습니다.
 - 등록은 FR-16의 에셋이고, 종류가 하나 늘어납니다(`AssetKind::Font`).
-- 적용은 테마 단위입니다. `Theme`에 역할별 폰트 에셋 id를 선택적으로 실어 보냅니다. 노드마다 폰트를 지정하는 길은 내지 않습니다. 그것은 13.5가 막는 것과 같은 종류입니다.
+- 역할을 가진 텍스트의 글꼴은 테마 단위입니다. `Theme`에 역할별 폰트 에셋 id를 선택적으로 실어 보냅니다. 역할을 가진 텍스트에는 노드마다 폰트를 지정하는 길을 내지 않습니다. 그것은 13.5가 막는 것과 같은 종류입니다. **역할이 없는 텍스트(`TypeRole::None`, HTML 경로)는 예외로, 노드와 스팬마다 글꼴을 받습니다(FR-40, INTENT D20, 2026-10-03 소유자 결정).**
 - 수용 기준: 등록한 폰트로 `Display` 역할을 해석하게 한 애플리케이션의 제목이 그 폰트로 그려지고, 나머지 역할은 시스템 폰트로 남습니다. 없는 id는 `ProtocolError`이고 텍스트는 시스템 폰트로 그려집니다.
 
 #### 23.3 재질 (흐림)
@@ -2309,6 +2309,38 @@ fn main() {
    7. **실행 조건을 기록합니다.** 기계, 부하 평균, 반복 횟수, 워밍업 횟수, 시나리오마다 p50, p99, 최대값과 원시 데이터의 경로를 `benches/baseline.json`에 남깁니다. 부하 평균이 높을 때 잰 값은 그 사실과 함께 기록하고, 판정에는 한가한 기계에서 잰 값을 씁니다.
    8. **결과는 그대로 보고합니다.** 10배에 못 미치면 실측 배수를 그대로 보고합니다. 목표를 맞추려고 시나리오, 지표, 판정 방법을 바꾸는 것은 금지입니다. 이 기준을 `Done`으로 표시하는 것은 측정한 쪽이 아니라, 다른 세션이 같은 벤치를 다시 돌려 같은 결과를 확인한 뒤입니다.
 
+### FR-40 HTML 텍스트 속성 (`Agreed`)
+
+CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 데 필요한 속성입니다. 측정 호출(PR-2.1)의 값이 그려진 값과 같으려면, 그리기도 같은 칸을 같은 뜻으로 받아야 합니다. 노드 단위 글꼴은 역할이 없는 텍스트에만 엽니다(INTENT D20, 2026-10-03 소유자 결정).
+
+`Text`의 기본 모양과 FR-26 스팬 레코드에 다음을 더합니다. 측정 호출(PR-2.1)의 `MeasureText` 요청은 같은 칸을 같은 뜻으로 싣습니다. **측정과 그리기는 같은 해석 함수를 씁니다.**
+
+1. `TypeRole::None`(태그 0). 타입 스케일을 쓰지 않고, 크기, 굵기, 행간, 자간, 글꼴을 명시적 값에서만 가져옵니다. 명시적 값이 없는 칸은 Renderer의 기본값(14dp, 400, normal)입니다.
+2. `font: FontRef`. `TypeRole::None`일 때만 씁니다. 다음 셋 중 하나이고, 앞에서부터 처음 해석되는 것을 씁니다(CSS 글꼴 목록).
+   - `Asset(id)`: FR-16 에셋. FR-23.2의 `AssetKind::Font`를 그대로 씁니다. 앱이 바이트를 제공하고(`@font-face src`), 크레이트가 받아오지 않습니다.
+   - `System(name)`: 시스템 패밀리 이름. 이름 문자열은 레코드 뒤 페이로드에 놓입니다.
+   - `Generic(SystemUi | SansSerif | Serif | Monospace)`
+   - 목록은 최대 8개입니다. 아무것도 해석되지 않으면 `Generic(SansSerif)`입니다. 없는 에셋 id는 `ProtocolError`이고, 목록의 다음 것으로 넘어갑니다.
+3. `word_break: Normal | KeepAll | BreakAll`, `overflow_wrap: Normal | Anywhere | BreakWord`. CSS와 같은 뜻입니다.
+   - 한국어 `Normal`은 음절 사이에서 끊을 수 있고, `KeepAll`은 공백에서만 끊습니다.
+   - Compose의 기본 줄바꿈은 플랫폼마다 다르므로, Renderer가 이 값에 맞춰 줄바꿈 전략을 정합니다.
+4. `tab_size: u8`(기본 8). 탭은 다음 탭 위치까지 차지합니다. 비례 글꼴에서는 Host가 탭을 공백으로 펼칠 수 없습니다.
+5. `absolute_size: bool`. 참이면 시스템 글꼴 배율을 적용하지 않습니다(CSS px). 측정과 그리기에 똑같이 적용됩니다.
+6. 공백 규칙: Renderer는 받은 문자열의 공백을 자르거나 접지 않습니다. 접기는 Host의 일입니다.
+
+수용 기준:
+1. 같은 HTML 텍스트를 측정한 값과 그린 값이 비트 단위로 같습니다(PR-2.1 기준 1). 아래 각 경우를 모두 확인합니다.
+   - 글꼴 종류 셋(에셋, 시스템, 일반)
+   - 한국어 `Normal`과 `KeepAll`
+   - 탭이 든 `pre`
+   - `absolute_size`를 켠 텍스트와 끈 텍스트
+2. 등록한 아이콘 글꼴의 사설 영역 글리프가 그 글꼴로 그려지고 크기가 0이 아닙니다(codicon 한 글자).
+3. 시스템 글꼴 배율을 200%로 바꿨을 때, `absolute_size` 텍스트의 측정값과 그린 크기는 그대로이고, 역할을 가진 텍스트는 커집니다.
+4. 역할을 가진 텍스트에 `font`를 보내면 무시되고 테마 글꼴로 그려집니다. 역할 원칙이 HTML 경로 밖으로 새지 않는다는 확인입니다.
+5. 다섯 플랫폼과 Web에서 기준 1의 라틴 경우가 통과합니다.
+
+- HTML 화면의 접근성 배율(시스템 글꼴 배율을 `absolute_size` 텍스트에 어떻게 반영할지)은 아직 정하지 않았습니다. 검토 문서를 만들어 소유자가 정합니다. `absolute_size` 칸 자체는 어느 결정에서도 필요합니다.
+
 ## 4. 경계 프로토콜
 
 ### PR-1 호출 모델: 동기·동일 스레드 직접 호출 (`Done`)
@@ -2389,7 +2421,8 @@ compose_rust_host_dispatch_event: click 1
   - `text: (offset, len)`. UTF-8이고, 공백 접기와 `text-transform`은 Host가 이미 적용한 최종 문자열입니다.
   - `spans: (offset, count)`. FR-26의 스팬 레코드를 그대로 씁니다. 크기에 영향을 주지 않는 칸(색, 링크 핸들러)은 무시합니다.
   - 기본 글자 모양:
-    - `type_role: TypeRole`. 노드 단위 글꼴, `TypeRole::None`, 그리고 아래 HTML 텍스트 칸(`tab_size`, `word_break`, `overflow_wrap`, `absolute_size`)이 그리기에도 같은 뜻으로 서는 것은 별도 요구사항입니다(승인 대기). 그것이 들어오기 전까지 이 칸들은 레코드에 자리만 있고 기본값으로 해석됩니다.
+    - `font: FontRef` (FR-40, `TypeRole::None`일 때만)
+    - `type_role: TypeRole`. 노드 단위 글꼴, `TypeRole::None`, 그리고 아래 HTML 텍스트 칸(`tab_size`, `word_break`, `overflow_wrap`, `absolute_size`)이 그리기에도 같은 뜻으로 서는 것은 FR-40의 요구사항입니다. 측정과 그리기는 그 칸들을 같은 해석 함수로 풉니다.
     - `font_size: f32` (0이면 역할의 값)
     - `font_weight: u16` (0이면 역할의 값)
     - `italic: u8`
@@ -2452,7 +2485,7 @@ compose_rust_host_dispatch_event: click 1
    - 이모지
    - 스팬이 섞인 문단
 
-   마지막 줄 폭과 `truncated`도 같아야 합니다. HTML 텍스트 칸이 승인되어 그리기에 들어오면, 같은 기준을 한국어 `word_break`의 `Normal`과 `KeepAll`, 탭이 든 `pre` 문자열, `absolute_size` 문자열에도 적용합니다.
+   마지막 줄 폭과 `truncated`도 같아야 합니다. 같은 기준을 FR-40의 칸에도 적용합니다. 한국어 `word_break`의 `Normal`과 `KeepAll`, 탭이 든 `pre` 문자열, `absolute_size` 문자열입니다.
 
    (pr2_measured_text_matches_the_drawn_text, Kotlin 측 테스트)
 2. `MinContent`와 `MaxContent`가 Compose `ParagraphIntrinsics`의 `minIntrinsicWidth`, `maxIntrinsicWidth`와 같습니다(pr2_intrinsic_widths_match_compose).
