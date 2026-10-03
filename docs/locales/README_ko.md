@@ -340,6 +340,47 @@ dioxus-compose = "0.0.0"
 만든 바이너리를 실행하면 무엇이 없는지 말하고 0이 아닌 상태로 끝납니다. 창을 열지 않은 채
 0을 반환하지 않습니다.
 
+### macOS 애플리케이션 배포하기
+
+`tools/packager/package-macos`는 `cargo build --release`가 만든 실행 파일을 애플리케이션
+번들로 만듭니다. 이름, 식별자, 버전은 `Dioxus.toml`과 `Cargo.toml`에 이미 적힌 것을 씁니다.
+Python 3.11과 Xcode 명령줄 도구가 필요하고, Apple 개발자 계정은 필요하지 않습니다.
+
+```sh
+tools/packager/package-macos keygen --out ~/keys/sparkle.key          # 한 번만, 잘 보관
+tools/packager/package-macos app --updater sparkle --manifest-dir . \
+    --executable target/release/my-app --out dist \
+    --feed-url https://example.com/appcast.xml --ed-key-file ~/keys/sparkle.key \
+    --sparkle-framework Sparkle.framework
+tools/packager/package-macos dmg --app "dist/My App.app" --out dist/MyApp-1.0.0.dmg
+tools/packager/package-macos archive --app "dist/My App.app" --out site/MyApp-1.0.0.zip
+tools/packager/package-macos appcast --appcast site/appcast.xml --app "dist/My App.app" \
+    --archive site/MyApp-1.0.0.zip --url https://example.com/MyApp-1.0.0.zip \
+    --ed-key-file ~/keys/sparkle.key
+```
+
+이렇게 만든 애플리케이션은 [Sparkle 2](https://sparkle-project.org)로 스스로 갱신합니다.
+`dioxus-compose-update` 크레이트를 추가하고, `launch` 전에
+`dioxus_compose_update::start(Default::default())`를, 메뉴 항목에서 `check_for_updates()`를
+부르면 됩니다. 모든 갱신은 번들이 가진 EdDSA 키로 검증됩니다. `--updater none`은 갱신하지
+않는 번들을 만듭니다.
+
+모든 번들은 임시(ad hoc) 서명됩니다. Apple 실리콘은 서명 없는 코드를 실행하지 않고, 임시
+서명에는 계정이 필요 없습니다. 다만 Apple이 확인한 개발자를 가리키지 않으므로, **내려받은
+사본을 처음 열 때 macOS가 확인을 요구합니다**.
+
+- **macOS 15(Sequoia) 이상:** 앱을 열고, macOS가 확인할 수 없다고 하면 완료를 누릅니다.
+  그다음 시스템 설정 > 개인정보 보호 및 보안에서 보안 항목까지 내려가 앱 옆의
+  **그래도 열기**를 누르고(버튼은 약 한 시간 동안 남습니다), 다시 확인한 뒤 암호를 입력합니다.
+- **macOS 14 이하:** 앱을 Control-클릭하고 **열기**를 고른 뒤 다시 **열기**를 누릅니다.
+- **모든 버전:** `xattr -dr com.apple.quarantine "/Applications/My App.app"`은 다운로드
+  표시를 지우고, 그러면 macOS가 묻지 않고 엽니다.
+
+처음 실행하기 전에 앱을 응용 프로그램 폴더로 옮기십시오. 디스크 이미지나 다운로드 폴더에서
+실행하면 macOS가 숨겨진 임시 사본을 실행하고, 그 사본은 스스로 갱신할 수 없습니다. Sparkle이
+설치한 갱신은 다시 묻지 않고 열립니다. 디스크 이미지에는 이 절차가
+`If macOS will not open the app.txt`로 들어 있습니다.
+
 아래는 전부 **이 저장소에서 작업할 때** 필요한 내용이며, 렌더러 툴체인까지 갖춰야 합니다.
 
 ### 0. 개발 환경 점검

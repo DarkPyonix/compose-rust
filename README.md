@@ -343,6 +343,48 @@ A build with no network says which two files to put where, and putting them ther
 running a binary built that way prints what is missing and exits non-zero rather than opening no
 window and returning 0.
 
+### Shipping a macOS application
+
+`tools/packager/package-macos` turns the executable `cargo build --release` made into an
+application bundle, using the name, identifier and version your `Dioxus.toml` and
+`Cargo.toml` already state. It needs Python 3.11 and Xcode's command line tools, and no Apple
+developer account.
+
+```sh
+tools/packager/package-macos keygen --out ~/keys/sparkle.key          # once; keep it safe
+tools/packager/package-macos app --updater sparkle --manifest-dir . \
+    --executable target/release/my-app --out dist \
+    --feed-url https://example.com/appcast.xml --ed-key-file ~/keys/sparkle.key \
+    --sparkle-framework Sparkle.framework
+tools/packager/package-macos dmg --app "dist/My App.app" --out dist/MyApp-1.0.0.dmg
+tools/packager/package-macos archive --app "dist/My App.app" --out site/MyApp-1.0.0.zip
+tools/packager/package-macos appcast --appcast site/appcast.xml --app "dist/My App.app" \
+    --archive site/MyApp-1.0.0.zip --url https://example.com/MyApp-1.0.0.zip \
+    --ed-key-file ~/keys/sparkle.key
+```
+
+The application then updates itself with [Sparkle 2](https://sparkle-project.org): add the
+`dioxus-compose-update` crate, call `dioxus_compose_update::start(Default::default())` before
+`launch`, and `check_for_updates()` from a menu item. Every update is checked against the
+EdDSA key the bundle carries; `--updater none` makes a bundle that does not update.
+
+Every bundle is signed ad hoc. Apple silicon needs a signature to run anything, and an ad hoc
+one needs no account, but it does not name a developer Apple has verified, so **macOS asks
+before it opens a downloaded copy for the first time**:
+
+- **macOS 15 (Sequoia) and newer:** open the app and click Done when macOS says it could not
+  verify it. Then in System Settings, Privacy & Security, scroll to Security and click
+  **Open Anyway** next to the app (the button stays for about an hour), confirm, and enter
+  your password.
+- **macOS 14 and older:** Control-click the app, choose **Open**, then **Open** again.
+- **Any version:** `xattr -dr com.apple.quarantine "/Applications/My App.app"` removes the
+  download mark, and macOS opens it without asking.
+
+Move the app into Applications before the first launch: run from the disk image or Downloads,
+macOS starts a hidden temporary copy that cannot update itself. Updates Sparkle installs open
+without asking again. The disk image carries these steps as `If macOS will not open the
+app.txt`.
+
 Everything below this point is about working on **this repository**, which needs the renderer
 toolchain as well.
 
