@@ -5,7 +5,7 @@
 //! an appcast, shows Sparkle's own update window (or installs silently when the person
 //! allowed that), verifies the archive's EdDSA signature against the key in its
 //! Info.plist, and replaces itself. Everything about where to look and which key to trust
-//! is in the bundle, written by `tools/packager/package-macos app --channel sparkle`;
+//! is in the bundle, written by `tools/packager/package-macos app --updater sparkle`;
 //! this crate only starts Sparkle and passes on the person's requests.
 //!
 //! ```no_run
@@ -20,10 +20,11 @@
 //! // on_click: move |_| dioxus_compose_update::check_for_updates(),
 //! ```
 //!
-//! A build for the Mac App Store must not contain this crate: the store updates the
-//! application, App Review rejects one that updates itself, and the packager refuses a
-//! store bundle whose executable names Sparkle. Put the dependency behind a Cargo feature
-//! that the store build leaves off.
+//! Sparkle checks every update against the EdDSA key in the bundle's Info.plist, not
+//! against who signed the code, so this works for an application signed ad hoc with no
+//! Apple developer account behind it. An application that does not update itself (one a
+//! store or package manager updates) leaves this crate out, and is packaged with
+//! `--updater none`.
 //!
 //! Elsewhere (Windows, Linux, iOS, Android, the browser) [`start`] answers
 //! [`UpdaterError::Unsupported`] and the other functions do nothing, so calling code
@@ -84,7 +85,7 @@ impl fmt::Display for UpdaterError {
             Self::FrameworkMissing(path) => write!(
                 f,
                 "there is no Sparkle framework at {}; package the application with \
-                 `package-macos app --channel sparkle --sparkle-framework ...`",
+                 `package-macos app --updater sparkle --sparkle-framework ...`",
                 path.display()
             ),
             Self::AlreadyStarted => write!(f, "the updater was already started"),
@@ -166,7 +167,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fr34_10_framework_is_found_beside_the_executable_in_its_bundle() {
+    fn fr35_6_framework_is_found_beside_the_executable_in_its_bundle() {
         assert_eq!(
             framework_path(Path::new("/Applications/Demo.app/Contents/MacOS/demo")),
             Ok(PathBuf::from(
@@ -176,7 +177,7 @@ mod tests {
     }
 
     #[test]
-    fn fr34_10_an_executable_outside_a_bundle_is_named_in_the_error() {
+    fn fr35_6_an_executable_outside_a_bundle_is_named_in_the_error() {
         for path in [
             "/usr/local/bin/demo",
             "/Applications/Demo.app/Contents/demo",
@@ -190,7 +191,7 @@ mod tests {
     }
 
     #[test]
-    fn fr34_10_a_directory_without_the_binary_is_not_a_framework() {
+    fn fr35_6_a_directory_without_the_binary_is_not_a_framework() {
         let scratch = std::env::temp_dir().join(format!(
             "dioxus-compose-update-test-{}",
             std::process::id()
@@ -204,7 +205,7 @@ mod tests {
     }
 
     #[test]
-    fn fr34_10_an_executable_outside_a_bundle_cannot_start_the_updater() {
+    fn fr35_6_an_executable_outside_a_bundle_cannot_start_the_updater() {
         // The test binary lives in target/, not in a bundle, which is exactly the case of
         // running an application with `cargo run`. That must be an error the caller can
         // print, not a crash and not a silent success.
@@ -217,7 +218,7 @@ mod tests {
     }
 
     #[test]
-    fn fr34_10_checks_before_start_do_nothing() {
+    fn fr35_6_checks_before_start_do_nothing() {
         // Neither may panic or block: on macOS they queue work for the main thread, which
         // in a test binary never runs, and the queued work finds no controller.
         check_for_updates();
