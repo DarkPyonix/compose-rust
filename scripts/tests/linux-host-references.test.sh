@@ -80,6 +80,38 @@ sed 's/[[:space:]]*#.*$//' "$build" |
         failures=$((failures + 1))
     }
 
+# The Kotlin/Native renderer is a static archive, so the references travel in a library of
+# their own, libdioxus_compose_host_exports.so, which the Host keeps linked by referring to
+# one byte in it. Both files have to go into it, and the byte has to be the one the Host
+# names, or GNU ld drops the library and the application exports nothing.
+static_build=dioxus-compose-renderer/desktop/scripts/build-linux.sh
+anchor_source=dioxus-compose-renderer/desktop/c/linux_host_exports.c
+for file in "$static_build" "$anchor_source"; do
+    [[ -f "$file" ]] || { echo "fail  $file is missing" >&2; failures=$((failures + 1)); }
+done
+if [[ -f "$static_build" ]]; then
+    exports_link="$(sed 's/[[:space:]]*#.*$//' "$static_build" |
+        awk '/cc -shared/ { inside = 1 } inside { print } inside && !/\\$/ { inside = 0 }')"
+    for source in linux_host_references.c linux_host_exports.c; do
+        grep -q "$source" <<< "$exports_link" || {
+            echo "fail  $static_build does not link $source into the host exports library" >&2
+            failures=$((failures + 1))
+        }
+    done
+fi
+anchor_defined="$(grep -oE 'dioxus_compose_renderer_host_exports = ' "$anchor_source" 2>/dev/null |
+    sed 's/ = //')"
+anchor_used="$(grep -oE 'static dioxus_compose_renderer_host_exports:' "$host" | sed 's/static //; s/://')"
+[[ -n "$anchor_defined" && "$anchor_defined" == "$anchor_used" ]] || {
+    echo "fail  the Host refers to '${anchor_used:-nothing}' and the library defines '${anchor_defined:-nothing}'" >&2
+    echo "      Without a reference GNU ld drops the library, and the application exports nothing." >&2
+    failures=$((failures + 1))
+}
+grep -q 'rustc-link-lib=dylib=dioxus_compose_host_exports' dioxus-compose/build.rs || {
+    echo "fail  the Host's build script does not link libdioxus_compose_host_exports.so" >&2
+    failures=$((failures + 1))
+}
+
 if [[ "$failures" -gt 0 ]]; then
     echo "a Host function missing here is one an application does not export on Linux" >&2
     exit 1
