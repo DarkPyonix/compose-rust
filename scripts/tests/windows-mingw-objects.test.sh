@@ -5,7 +5,7 @@
 # globals and the first call hangs; and every function's unwind data is dropped, so a Kotlin
 # exception that crosses two functions sends the unwinder into a loop. Both were seen.
 #
-# `dioxus-compose-renderer/scripts/fix-mingw-objects.py` rewrites the objects before the
+# `renderer/scripts/fix-mingw-objects.py` rewrites the objects before the
 # link. This runs it on small MinGW objects built the way Kotlin/Native builds its own
 # (`fixtures/mingw-object.cpp` says how), in both COFF layouts: the ordinary one, and the
 # "big object" one Kotlin/Native writes once an object has more sections than 16 bits can
@@ -21,7 +21,7 @@
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-fixer="$repo_root/dioxus-compose-renderer/scripts/fix-mingw-objects.py"
+fixer="$repo_root/renderer/scripts/fix-mingw-objects.py"
 fixture="$repo_root/scripts/tests/fixtures/mingw-object.a"
 to_bigobj="$repo_root/scripts/tests/fixtures/to-bigobj.py"
 

@@ -1,6 +1,6 @@
 #include <assert.h>
 #include <string.h>
-#include "../../dioxus-compose-renderer/desktop/c/win32_ime_text.h"
+#include "../../renderer/desktop/c/win32_ime_text.h"
 
 static void expect(const uint16_t *source, size_t units, size_t capacity,
                    const char *expected) {

@@ -32,7 +32,7 @@ fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fixture="$repo_root/scripts/tests/fixtures/windows-exceptions"
-fixer="$repo_root/dioxus-compose-renderer/scripts/fix-mingw-objects.py"
+fixer="$repo_root/renderer/scripts/fix-mingw-objects.py"
 
 fail() {
     echo "fail  $1" >&2

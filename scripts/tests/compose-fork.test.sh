@@ -14,7 +14,7 @@
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-script="$repo/dioxus-compose-renderer/scripts/build-compose.sh"
+script="$repo/renderer/scripts/build-compose.sh"
 failures=0
 
 fail() { echo "  FAIL: $1" >&2; failures=$((failures + 1)); }
@@ -29,8 +29,8 @@ fork="$(sed -n 's/^FORK="\(.*\)"$/\1/p' "$script")"
 
 # The patches this replaced are gone, and nothing is to bring them back beside the fork: two
 # sources for the same change are two answers to which one was built.
-[ ! -e "$repo/dioxus-compose-renderer/patches" ] ||
-    fail "dioxus-compose-renderer/patches exists again; the changes belong in the fork"
+[ ! -e "$repo/renderer/patches" ] ||
+    fail "renderer/patches exists again; the changes belong in the fork"
 if grep -q 'git[^|]* apply' "$script"; then
     fail "build-compose.sh applies a patch on top of the fork"
 fi
@@ -108,8 +108,8 @@ check_pin() {
     fi
 }
 
-check_pin REVISION "$repo/dioxus-compose-renderer/scripts/compose-fork.changes"
-check_pin MINGW_REVISION "$repo/dioxus-compose-renderer/scripts/compose-fork-mingw.changes"
+check_pin REVISION "$repo/renderer/scripts/compose-fork.changes"
+check_pin MINGW_REVISION "$repo/renderer/scripts/compose-fork-mingw.changes"
 
 if [ "$failures" -ne 0 ]; then
     echo "  $failures failed" >&2

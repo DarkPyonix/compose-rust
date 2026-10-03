@@ -11,7 +11,7 @@
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-renderer="$repo_root/dioxus-compose-renderer"
+renderer="$repo_root/renderer"
 project="$renderer/project.yaml"
 module="$renderer/windows/module.yaml"
 staticlib="$renderer/staticlib-windows/module.yaml"
@@ -140,11 +140,11 @@ fi
 # The Host links what the script leaves, by the names the script gives it.
 # ---------------------------------------------------------------------------
 
-host_build="$repo_root/dioxus-compose/build.rs"
+host_build="$repo_root/compose-rust/build.rs"
 grep -q 'DXC_WINDOWS_NATIVE_LIB' "$host_build" ||
     fail "the Host's build script never reads DXC_WINDOWS_NATIVE_LIB, so nothing links the Windows renderer"
-grep -q 'static:+verbatim=libdioxus_compose_renderer.a' "$host_build" ||
-    fail "the Host does not link libdioxus_compose_renderer.a by its exact name; MSVC would look for a .lib"
+grep -q 'static:+verbatim=libcompose_rust_renderer.a' "$host_build" ||
+    fail "the Host does not link libcompose_rust_renderer.a by its exact name; MSVC would look for a .lib"
 # Whole, or the ICU loader and the bridge's initialiser, which nothing calls by name, are
 # left out and the application dies in Skia's paragraph builder.
 grep -q 'static:+whole-archive,+verbatim=dxc-windows-native.lib' "$host_build" ||
@@ -156,7 +156,7 @@ grep -q 'dxc-windows-native.lib' "$build_script" ||
 # +crt-static itself still links (with the bridge's import pointers).
 grep -q 'include!("build/windows_crt.rs")' "$host_build" ||
     fail "the Host's build script does not decide the Windows C runtime"
-grep -q 'windows_crt_linked_in' "$repo_root/dioxus-compose/src/boundary.rs" ||
+grep -q 'windows_crt_linked_in' "$repo_root/compose-rust/src/boundary.rs" ||
     fail "the Host's object carries no C runtime directives, so an application would have to set them"
 grep -q 'dxc-windows-static-ucrt.lib' "$build_script" ||
     fail "build-windows.sh does not write the bridge a statically linked UCRT needs"

@@ -104,7 +104,7 @@ renderer you have just built instead, name it. The path must be absolute: a buil
 with the package directory as its working directory, not the workspace root.
 
 ```
-DIOXUS_COMPOSE_RENDERER_DIR=$PWD/dioxus-compose-renderer/build/native-image/dist/lib \
+COMPOSE_RUST_RENDERER_DIR=$PWD/renderer/build/native-image/dist/lib \
   cargo run -p sample-calculator
 ```
 
@@ -119,7 +119,7 @@ library.
 ```
 ./scripts/build-sample-apks.sh                  # an APK per sample
 ./scripts/build-sample-pages.sh                 # a browser page per sample, plus an index
-./dioxus-compose-renderer/desktop/scripts/build-sample-ios.sh calculator
+./renderer/desktop/scripts/build-sample-ios.sh calculator
 ```
 
 Everything a sample settles before it launches is in one `launch_builder()` that all

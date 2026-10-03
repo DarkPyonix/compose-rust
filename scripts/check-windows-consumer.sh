@@ -16,7 +16,7 @@
 #
 # 1. The application is built with nothing but its Cargo.toml line: no .cargo/config.toml and
 #    no RUSTFLAGS. In particular nobody asks it for +crt-static, although Skia is built for the
-#    static C runtime; the crate decides the runtime (dioxus-compose/build/windows_crt.rs).
+#    static C runtime; the crate decides the runtime (compose-rust/build/windows_crt.rs).
 # 2. The renderer is linked into the executable, so the executable is the whole application.
 #    dumpbin says which DLLs the loader will look for, and every one has to be part of
 #    Windows: no Java runtime, no VCRUNTIME140.dll or MSVCP140.dll, no MinGW DLL, no renderer
@@ -40,8 +40,8 @@ if [[ $# -ne 2 ]]; then
 fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-fixture="$repo_root/dioxus-compose/tests/fixtures/consumer"
-mixed_fixture="$repo_root/dioxus-compose/tests/fixtures/consumer-mixed-runtime"
+fixture="$repo_root/compose-rust/tests/fixtures/consumer"
+mixed_fixture="$repo_root/compose-rust/tests/fixtures/consumer-mixed-runtime"
 
 fail() {
     echo "fail  $1" >&2
@@ -57,8 +57,8 @@ esac
 command -v cargo >/dev/null || fail "cargo is not on PATH"
 
 renderer="$(cd "$1" && pwd)"
-[[ -f "$renderer/libdioxus_compose_renderer.a" ]] ||
-    fail "no libdioxus_compose_renderer.a in $renderer" "Run dioxus-compose-renderer/desktop/scripts/build-windows.sh first."
+[[ -f "$renderer/libcompose_rust_renderer.a" ]] ||
+    fail "no libcompose_rust_renderer.a in $renderer" "Run renderer/desktop/scripts/build-windows.sh first."
 
 mkdir -p "$2"
 scratch="$(cd "$2" && pwd)"
@@ -89,7 +89,7 @@ lib_tool="$(vs_tool lib.exe)"
 # and every one above it, so there must be none on the way up from where it is run, and none
 # of the variables that carry flags.
 unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS CARGO_BUILD_RUSTFLAGS
-unset CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS DIOXUS_COMPOSE_RENDERER_DIR DXC_WINDOWS_CRT
+unset CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS COMPOSE_RUST_RENDERER_DIR DXC_WINDOWS_CRT
 directory="$repo_root"
 while :; do
     for config in "$directory/.cargo/config.toml" "$directory/.cargo/config"; do
@@ -134,11 +134,11 @@ only_windows() {
         case "$lower" in
             vcruntime*|msvcp*|concrt*)
                 fail "$(basename "$binary") needs $dll, the Visual C++ runtime" \
-                    "vcruntime and the C++ library are to be linked in; see dioxus-compose/build/windows_crt.rs." ;;
+                    "vcruntime and the C++ library are to be linked in; see compose-rust/build/windows_crt.rs." ;;
             libgcc*|libstdc++*|libwinpthread*|*mingw*)
                 fail "$(basename "$binary") needs $dll, part of MinGW" \
                     "MinGW is to stay inside the renderer's object; its runtime is linked in statically." ;;
-            libdioxus_compose_renderer*|*jvm*|*java*|awt*|skiko*|icu*)
+            libcompose_rust_renderer*|*jvm*|*java*|awt*|skiko*|icu*)
                 fail "$(basename "$binary") needs $dll, which is not part of Windows" \
                     "The renderer is meant to be inside the executable." ;;
             # API sets, which the loader resolves to Windows' own DLLs. The UCRT's among them
@@ -170,7 +170,7 @@ cp "$binary" "$scratch/alone/consumer.exe"
 ls -la "$scratch/alone"
 # The renderer cannot close its own window here, so the self-check ends the process once the
 # frames are in.
-unset DIOXUS_COMPOSE_AUTOEXIT_MS
+unset COMPOSE_RUST_AUTOEXIT_MS
 export DXC_D3D12_WARP="${DXC_D3D12_WARP:-1}"
 ( cd "$scratch/alone" && ./consumer.exe --self-check )
 

@@ -8,8 +8,8 @@
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-lister="$repo_root/dioxus-compose-renderer/scripts/gate-platforms.sh"
-renderer_dir="$repo_root/dioxus-compose-renderer"
+lister="$repo_root/renderer/scripts/gate-platforms.sh"
+renderer_dir="$repo_root/renderer"
 
 failures=0
 fail() { echo "  FAIL: $1" >&2; failures=$((failures + 1)); }
@@ -101,14 +101,14 @@ grep -q 'renderer_gate" test' "$repo_root/scripts/check.sh" ||
 
 # The design systems are their own project and their tests were going unrun. The gate has
 # to reach both, and it has to ask the same question of each.
-grep -q 'dioxus-design-systems' "$repo_root/scripts/check.sh" ||
+grep -q 'design-systems' "$repo_root/scripts/check.sh" ||
     fail "scripts/check.sh does not run the design systems project"
 [[ "$(grep -c 'kotlin test' "$repo_root/scripts/check.sh")" -ge 2 ]] ||
     fail "scripts/check.sh runs only one project's tests"
 
 # And the lister has to answer for a project other than its own, or the line above is
 # asking the wrong project's question.
-design="$("$lister" test "$repo_root/dioxus-design-systems" 2>/dev/null | sort)"
+design="$("$lister" test "$repo_root/design-systems" 2>/dev/null | sort)"
 [[ -n "$design" ]] || fail "the lister answers nothing for the design systems project"
 echo "$design" | grep -qx macosArm64 &&
     fail "the design systems project has no macOS target and the lister named one"

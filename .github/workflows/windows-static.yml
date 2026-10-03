@@ -54,7 +54,7 @@ jobs:
             .scratch/skiko-build/out/windows-x64/skiko-bridges.lib
             .scratch/skiko-build/out/windows-x64/skia
             .scratch/skiko-build/out/windows-x64/embedded_icu.cpp
-          key: compose-mingwx64-${{ hashFiles('dioxus-compose-renderer/scripts/build-compose.sh', 'dioxus-compose-renderer/scripts/compose-fork-mingw.changes') }}
+          key: compose-mingwx64-${{ hashFiles('renderer/scripts/build-compose.sh', 'renderer/scripts/compose-fork-mingw.changes') }}
 
       - name: Make room for the Compose build
         if: steps.kit-cache.outputs.cache-hit != 'true'
@@ -102,7 +102,7 @@ jobs:
 
       - name: Build skiko and Compose for mingwX64 from the fork
         if: steps.kit-cache.outputs.cache-hit != 'true'
-        run: ./dioxus-compose-renderer/scripts/build-compose.sh --target mingwX64
+        run: ./renderer/scripts/build-compose.sh --target mingwX64
 
       - name: Keep them for the next run
         if: steps.kit-cache.outputs.cache-hit != 'true'
@@ -159,7 +159,7 @@ jobs:
       - name: Confirm the links are links
         run: |
           set -euo pipefail
-          link=dioxus-compose-renderer/windows/src/shared/HostButton.kt
+          link=renderer/windows/src/shared/HostButton.kt
           head -3 "$link"
           grep -q '^package ' "$link" || { echo "$link was checked out as a file holding its target" >&2; exit 1; }
 
@@ -200,7 +200,7 @@ jobs:
           path: |
             ~/AppData/Local/JetBrains/Kotlin
             ~/.konan
-          key: kotlin-native-windows-${{ hashFiles('dioxus-compose-renderer/kotlin', 'dioxus-compose-renderer/libs.versions.toml', 'dioxus-compose-renderer/**/module.yaml') }}
+          key: kotlin-native-windows-${{ hashFiles('renderer/kotlin', 'renderer/libs.versions.toml', 'renderer/**/module.yaml') }}
           restore-keys: |
             kotlin-native-windows-
 
@@ -235,33 +235,33 @@ jobs:
         run: cargo test -p compose-rust --no-default-features --test windows_crt
 
       - name: Build the static renderer
-        run: ./dioxus-compose-renderer/desktop/scripts/build-windows.sh
+        run: ./renderer/desktop/scripts/build-windows.sh
 
       - name: Show what the renderer build left behind
         if: failure()
         run: |
-          ls dioxus-compose-renderer/build/tasks 2>/dev/null | grep -i windows || true
-          tail -n 120 dioxus-compose-renderer/build/windows-logs/*-build.log 2>/dev/null || true
-          tail -n 120 dioxus-compose-renderer/build/windows-logs/*-link.log 2>/dev/null || true
+          ls renderer/build/tasks 2>/dev/null | grep -i windows || true
+          tail -n 120 renderer/build/windows-logs/*-build.log 2>/dev/null || true
+          tail -n 120 renderer/build/windows-logs/*-link.log 2>/dev/null || true
 
       - name: Keep the renderer build's logs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: windows-static-renderer-logs
-          path: dioxus-compose-renderer/build/windows-logs/
+          path: renderer/build/windows-logs/
           retention-days: 7
 
       - name: Report the renderer kit
         run: |
-          ls -la dioxus-compose-renderer/build/windows dioxus-compose-renderer/build/windows/*/
-          du -sh dioxus-compose-renderer/build/windows
+          ls -la renderer/build/windows renderer/build/windows/*/
+          du -sh renderer/build/windows
 
       - name: Kotlin exceptions and startup in an MSVC executable, with and without the rewrite
-        run: ./scripts/check-windows-mingw-link.sh dioxus-compose-renderer/build/windows "$(cygpath -u "$RUNNER_TEMP")/mingw-link-probe"
+        run: ./scripts/check-windows-mingw-link.sh renderer/build/windows "$(cygpath -u "$RUNNER_TEMP")/mingw-link-probe"
 
       - name: Build, check, move and run an application
-        run: ./scripts/check-windows-consumer.sh dioxus-compose-renderer/build/windows "$(cygpath -u "$RUNNER_TEMP")/consumer-windows"
+        run: ./scripts/check-windows-consumer.sh renderer/build/windows "$(cygpath -u "$RUNNER_TEMP")/consumer-windows"
 
       - name: Keep the application
         if: always()
