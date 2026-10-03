@@ -21,6 +21,8 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFontFamilyResolver
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import dev.darkpyonix.composerust.foundation.HostMessages
@@ -304,6 +306,12 @@ fun ComposeRustContent(
     // not change the class, so a drag across one class costs no boundary calls.
     val reporter = remember(host) { WindowSizeReporter() }
     val density = LocalDensity.current
+    val fontFamilyResolver = LocalFontFamilyResolver.current
+    val layoutDirection = LocalLayoutDirection.current
+    // Where a node the Host already sent is measured when it asks. It composes nothing
+    // until it is asked, and what it composes is never placed.
+    val station = remember(host) { MeasuringStation { nodeId -> MeasuredNode(nodeId, host.table) } }
+    DisposableEffect(host) { onDispose { RendererMeasure.uninstall(host.table) } }
     // The same measurement answers three questions. The Host is told when the class
     // changes so a component can choose what to put on the screen; the widgets that
     // change shape with the window read it from the CompositionLocal, because they are
@@ -342,6 +350,14 @@ fun ComposeRustContent(
     // composition is applied on. A coroutine effect runs on the toolkit's event thread
     // instead, where the Host has no state at all: the call came back refused, with the
     // status that means it was made in the wrong place.
+    // What a measure call is answered with: this composition's density, fonts and design
+    // system, made again whenever any of them changes. Installed here, on the thread the
+    // composition runs on, which is the thread the Host calls back in on.
+    SideEffect {
+        RendererMeasure.install(
+            MeasureContext(host.table, theme, density, layoutDirection, fontFamilyResolver, station),
+        )
+    }
     val reported = remember { arrayOfNulls<DesignSystem>(1) }
     SideEffect {
         if (reported[0] != theme.system) {
@@ -431,6 +447,9 @@ fun ComposeRustContent(
                     .background(host.table.windowFill(host.roots, theme)),
             ) {
                 Box(Modifier.padding(top = pageTop, bottom = pageBottom)) {
+                    // Beside the roots, under the same locals, so a node measured here is
+                    // measured as the page lays it out. It takes no room.
+                    MeasuringStationLayout(station)
                     host.roots.forEach { rootId ->
                         androidx.compose.runtime.key(rootId) {
                             RenderNode(rootId, host.table, host)

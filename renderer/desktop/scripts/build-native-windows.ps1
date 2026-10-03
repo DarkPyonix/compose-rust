@@ -330,7 +330,8 @@ $NativeImageArgs = @(
     "-H:NativeLinkerOption=ole32.lib",
     "-H:NativeLinkerOption=shell32.lib",
     "-H:NativeLinkerOption=/EXPORT:compose_rust_renderer_run",
-    "-H:NativeLinkerOption=/EXPORT:compose_rust_renderer_request_frame"
+    "-H:NativeLinkerOption=/EXPORT:compose_rust_renderer_request_frame",
+    "-H:NativeLinkerOption=/EXPORT:compose_rust_renderer_measure"
 )
 # Through an argument file, not the command line. The runtime classpath alone is tens of
 # kilobytes of Maven cache paths and Windows caps a command line at 32767 characters, so

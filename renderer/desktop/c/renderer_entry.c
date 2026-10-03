@@ -41,6 +41,10 @@ graal_isolatethread_t *graal_get_current_thread(graal_isolate_t *isolate);
 
 int32_t compose_rust_renderer_run_impl(graal_isolatethread_t *thread, const char *library_dir);
 void compose_rust_renderer_request_frame_impl(graal_isolatethread_t *thread);
+int32_t compose_rust_renderer_measure_impl(
+    graal_isolatethread_t *thread, const uint8_t *requests, uint32_t length, uint32_t count,
+    void *results
+);
 int32_t compose_rust_renderer_run(void);
 
 /**
@@ -984,4 +988,39 @@ void compose_rust_renderer_request_frame(void) {
         return;
     }
     compose_rust_renderer_request_frame_impl(thread);
+}
+
+/* What a measure call answers when it measured nothing. The Host's numbers. */
+#define MEASURE_UNREADABLE (-1)
+#define MEASURE_OFF_UI_THREAD (-4)
+#define MEASURE_UNAVAILABLE (-5)
+
+/*
+ * Measures for the Host, which calls in from inside a call the renderer made into it, on
+ * the renderer's UI thread. That thread is attached to the isolate, so a thread the isolate
+ * has never seen is refused here without attaching it: attaching would only hide the
+ * mistake, and the Kotlin side checks the thread it is given against the composition's in
+ * any case.
+ */
+int32_t compose_rust_renderer_measure(
+    const uint8_t *requests, uint32_t length, uint32_t count, void *results
+) {
+#ifdef _WIN32
+    graal_isolate_t *isolate = InterlockedCompareExchangePointer(
+        (PVOID volatile *)&renderer_isolate, NULL, NULL
+    );
+#else
+    graal_isolate_t *isolate = atomic_load(&renderer_isolate);
+#endif
+    if (isolate == NULL) {
+        return MEASURE_UNAVAILABLE;
+    }
+    graal_isolatethread_t *thread = graal_get_current_thread(isolate);
+    if (thread == NULL) {
+        return MEASURE_OFF_UI_THREAD;
+    }
+    if (requests == NULL || results == NULL) {
+        return MEASURE_UNREADABLE;
+    }
+    return compose_rust_renderer_measure_impl(thread, requests, length, count, results);
 }

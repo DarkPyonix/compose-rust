@@ -5,28 +5,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.text.LinkAnnotation
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontStyle
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.unit.sp
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.Paint
-import dev.darkpyonix.composerust.protocol.PropertyKind
-import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.protocol.SpanRecords
 import dev.darkpyonix.composerust.protocol.TypeRole
 import dev.darkpyonix.composerust.runtime.EventDispatcher
+import dev.darkpyonix.composerust.ui.node.AssetCache
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.TableError
-import dev.darkpyonix.composerust.ui.maxLines
-import dev.darkpyonix.composerust.ui.overflow
-import dev.darkpyonix.composerust.ui.textStyle
 
 /**
  * One run of different treatment inside a string.
@@ -114,6 +104,9 @@ internal fun runsProblem(runs: List<TextRun>, byteLength: Int): String? {
  * One widget rather than three, because a paragraph with a bold phrase in it is one piece
  * of text: split into pieces it would wrap at the seams, and the phrase would never share
  * a line with the words around it.
+ *
+ * How it is set is decided by [resolveText], the same function a measure request is
+ * answered with, so the size the Host was told is the size that is drawn.
  */
 @Composable
 internal fun HostRichText(
@@ -121,87 +114,34 @@ internal fun HostRichText(
     modifier: Modifier,
     dispatcher: EventDispatcher,
     theme: ResolvedTheme,
+    assets: AssetCache,
 ) {
-    val raw = node.text(PropertyKind.Text)
-    val blob = (node.property(PropertyKind.Spans) as? PropertyValue.Bytes)?.value
-    val runs = blob?.let(::decodeRuns)
-
-    if (blob == null || runs == null || runs.isEmpty()) {
-        if (blob != null && runs == null) {
-            ReportRuns(node.id, "the run list is not a whole number of records", dispatcher)
-        }
-        BasicText(
-            text = raw,
-            modifier = modifier,
-            style = node.textStyle(theme),
-            maxLines = node.maxLines(),
-            overflow = node.overflow(),
+    val resolved = resolveText(
+        node.textInput(),
+        theme,
+        assets,
+        LocalDensity.current,
+        LocalFontFamilyResolver.current,
+    ) { run ->
+        // A link is a press on a range, and a press is the event the boundary already
+        // has. No new event tag for a thing that is already a click.
+        LinkAnnotation.Clickable(
+            tag = "compose-link-${run.start}",
+            linkInteractionListener = {
+                dispatcher.dispatch(HostEvent.Clicked(node.id, run.handlerId))
+            },
         )
-        return
     }
-
-    val utf8 = raw.encodeToByteArray()
-    val problem = runsProblem(runs, utf8.size)
-    if (problem != null) {
-        ReportRuns(node.id, problem, dispatcher)
-        BasicText(
-            text = raw,
-            modifier = modifier,
-            style = node.textStyle(theme),
-            maxLines = node.maxLines(),
-            overflow = node.overflow(),
-        )
-        return
-    }
-
-    val annotated = buildAnnotatedString {
-        append(raw)
-        for (run in runs) {
-            val from = utf8.decodeToString(0, run.start).length
-            val to = utf8.decodeToString(0, run.start + run.length).length
-            val style = SpanStyle(
-                color = run.color?.let(theme::color) ?: androidx.compose.ui.graphics.Color.Unspecified,
-                // Behind this run's letters only, line by line where it wraps. The line's
-                // own background is the node's, and this is the part of it that changed.
-                background = runBackground(run, theme),
-                fontWeight = if (run.bold) FontWeight.Bold else null,
-                fontStyle = if (run.italic) FontStyle.Italic else null,
-                fontSize = run.role?.let { theme.type(it).size.sp }
-                    ?: androidx.compose.ui.unit.TextUnit.Unspecified,
-                textDecoration = when {
-                    run.underline && run.strikethrough ->
-                        TextDecoration.combine(
-                            listOf(TextDecoration.Underline, TextDecoration.LineThrough),
-                        )
-                    run.underline -> TextDecoration.Underline
-                    run.strikethrough -> TextDecoration.LineThrough
-                    else -> null
-                },
-            )
-            addStyle(style, from, to)
-            if (run.handlerId != 0L) {
-                // A link is a press on a range, and a press is the event the boundary
-                // already has. No new event tag for a thing that is already a click.
-                addLink(
-                    LinkAnnotation.Clickable(
-                        tag = "compose-link-${run.start}",
-                        linkInteractionListener = {
-                            dispatcher.dispatch(HostEvent.Clicked(node.id, run.handlerId))
-                        },
-                    ),
-                    from,
-                    to,
-                )
-            }
-        }
-    }
-
+    val problem = node.textInputProblem() ?: resolved.problems.firstOrNull()
+    if (problem != null) ReportRuns(node.id, problem, dispatcher)
     BasicText(
-        text = annotated,
+        text = resolved.text,
         modifier = modifier,
-        style = node.textStyle(theme),
-        maxLines = node.maxLines(),
-        overflow = node.overflow(),
+        style = resolved.style,
+        overflow = resolved.overflow,
+        softWrap = resolved.softWrap,
+        maxLines = resolved.maxLines,
+        inlineContent = resolved.inlineContent,
     )
 }
 
@@ -224,7 +164,7 @@ private fun ReportRuns(nodeId: Int, problem: String, dispatcher: EventDispatcher
                 nodeId = nodeId,
                 handlerId = 0,
                 code = TableError.UNSUPPORTED_PROPERTY,
-                message = "text runs on node $nodeId: $problem; the string is drawn without them",
+                message = "text on node $nodeId: $problem",
             ),
         )
     }

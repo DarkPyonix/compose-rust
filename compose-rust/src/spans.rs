@@ -11,6 +11,7 @@
 //! Markdown is a convenience on this side. [`TextSpans::from_markdown`] turns a small,
 //! closed subset into spans, and the Renderer never hears the word.
 
+use crate::fonts::{FONT_REF_LEN, FontRefs};
 use crate::schema::{Paint, TypeRole};
 use std::rc::Rc;
 
@@ -28,6 +29,16 @@ pub const SPAN_FLAGS_AT: usize = 10;
 pub const SPAN_COLOR_AT: usize = 12;
 pub const SPAN_BACKGROUND_AT: usize = 20;
 pub const SPAN_HANDLER_AT: usize = 28;
+
+/// Bytes of one entry in a span font table: which run, then where its font list starts
+/// and how many candidates it holds.
+///
+/// The table is a blob of its own, beside the runs rather than inside their records, so a
+/// run record is the same 36 bytes whether or not anything names a font.
+pub const SPAN_FONT_ENTRY_LEN: usize = 12;
+pub const SPAN_FONT_SPAN_AT: usize = 0;
+pub const SPAN_FONT_OFFSET_AT: usize = 4;
+pub const SPAN_FONT_COUNT_AT: usize = 8;
 
 pub const FLAG_BOLD: u16 = 1;
 pub const FLAG_ITALIC: u16 = 2;
@@ -161,6 +172,8 @@ type Marked = (&'static [u8], fn(u32, u32) -> TextSpan);
 #[derive(Clone, Default, PartialEq)]
 pub struct TextSpans {
     bytes: Option<Rc<[u8]>>,
+    /// The font table for runs that name one, which only text with no role reads.
+    fonts: Option<Rc<[u8]>>,
 }
 
 impl std::fmt::Debug for TextSpans {
@@ -168,6 +181,7 @@ impl std::fmt::Debug for TextSpans {
         formatter
             .debug_struct("TextSpans")
             .field("spans", &(self.as_bytes().len() / SPAN_LEN))
+            .field("fonts", &self.font_entry_count())
             .finish()
     }
 }
@@ -181,20 +195,84 @@ impl TextSpans {
         Self::from_bytes(bytes)
     }
 
+    /// Runs, each with the fonts it is set in where the text has no role.
+    ///
+    /// An empty list leaves that run in the text's own font. A run of text that has a
+    /// role is always in the theme's font, whatever it names here.
+    pub fn new_with_fonts(spans: impl IntoIterator<Item = (TextSpan, FontRefs)>) -> Self {
+        let mut bytes = Vec::new();
+        let mut named: Vec<(u32, FontRefs)> = Vec::new();
+        for (index, (span, fonts)) in spans.into_iter().enumerate() {
+            span.write_into(&mut bytes);
+            if !fonts.is_empty() {
+                named.push((index as u32, fonts));
+            }
+        }
+        let mut spans = Self::from_bytes(bytes);
+        spans.fonts = encode_font_table(&named);
+        spans
+    }
+
     /// Adopts an already encoded list, which is what the protocol vectors carry.
     pub fn from_bytes(bytes: impl Into<Rc<[u8]>>) -> Self {
         let bytes = bytes.into();
         Self {
             bytes: (!bytes.is_empty()).then_some(bytes),
+            fonts: None,
         }
+    }
+
+    /// The same runs with an already encoded font table beside them.
+    pub fn with_font_table(mut self, table: impl Into<Rc<[u8]>>) -> Self {
+        let table = table.into();
+        self.fonts = (!table.is_empty()).then_some(table);
+        self
     }
 
     pub fn as_bytes(&self) -> &[u8] {
         self.bytes.as_deref().unwrap_or(&[])
     }
 
+    /// The `SpanFonts` blob: a count, then one entry per run that names fonts, then the
+    /// font lists themselves. Every offset in it counts from the start of the blob.
+    pub fn font_table(&self) -> &[u8] {
+        self.fonts.as_deref().unwrap_or(&[])
+    }
+
     pub fn is_empty(&self) -> bool {
         self.bytes.is_none()
+    }
+
+    /// How many runs name fonts.
+    pub fn font_entry_count(&self) -> usize {
+        let table = self.font_table();
+        if table.len() < 4 {
+            return 0;
+        }
+        u32::from_le_bytes([table[0], table[1], table[2], table[3]]) as usize
+    }
+
+    /// The fonts each run that names any is set in, by the run's index.
+    pub fn span_fonts(&self) -> Vec<(u32, Vec<crate::fonts::FontRef>)> {
+        let table = self.font_table();
+        let word = |at: usize| -> Option<u32> {
+            let slice = table.get(at..at + 4)?;
+            Some(u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]))
+        };
+        (0..self.font_entry_count())
+            .filter_map(|entry| {
+                let at = 4 + entry * SPAN_FONT_ENTRY_LEN;
+                let span = word(at + SPAN_FONT_SPAN_AT)?;
+                let offset = word(at + SPAN_FONT_OFFSET_AT)? as usize;
+                let count = word(at + SPAN_FONT_COUNT_AT)? as usize;
+                let refs = (0..count)
+                    .filter_map(|index| {
+                        crate::fonts::decode_record(table, offset + index * FONT_REF_LEN)
+                    })
+                    .collect();
+                Some((span, refs))
+            })
+            .collect()
     }
 
     /// The runs this list holds, decoded again.
@@ -266,6 +344,31 @@ impl TextSpans {
         }
         (text, Self::new(spans))
     }
+}
+
+/// Lays out a span font table: the count, one entry per run, and after them each run's
+/// font records, each followed by the names its records point at.
+fn encode_font_table(named: &[(u32, FontRefs)]) -> Option<Rc<[u8]>> {
+    if named.is_empty() {
+        return None;
+    }
+    let mut entries = Vec::with_capacity(named.len() * SPAN_FONT_ENTRY_LEN);
+    let mut lists: Vec<u8> = Vec::new();
+    let lists_at = 4 + named.len() * SPAN_FONT_ENTRY_LEN;
+    for (span, fonts) in named {
+        let offset = (lists_at + lists.len()) as u32;
+        let count = fonts.len() as u32;
+        entries.extend_from_slice(&span.to_le_bytes());
+        entries.extend_from_slice(&offset.to_le_bytes());
+        entries.extend_from_slice(&count.to_le_bytes());
+        let names_at = offset + count * FONT_REF_LEN as u32;
+        fonts.write_relocated(&mut lists, names_at);
+    }
+    let mut table = Vec::with_capacity(lists_at + lists.len());
+    table.extend_from_slice(&(named.len() as u32).to_le_bytes());
+    table.extend_from_slice(&entries);
+    table.extend_from_slice(&lists);
+    Some(table.into())
 }
 
 fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {

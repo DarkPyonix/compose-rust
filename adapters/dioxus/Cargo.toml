@@ -47,6 +47,10 @@ criterion = "0.7"
 name = "host"
 harness = false
 
+[[bench]]
+name = "measure_sidebar"
+harness = false
+
 [[example]]
 name = "desktop_demo"
 required-features = ["native-renderer"]

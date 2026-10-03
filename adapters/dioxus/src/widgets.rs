@@ -8,8 +8,9 @@ use dioxus_signals::WritableExt as _;
 use crate as dioxus_elements;
 use compose_rust::drawing::DrawList;
 use compose_rust::schema::{
-    Alignment, Arrangement, ButtonVariant, ColorRole, IconRole, MaterialRole, MotionRole, Paint,
-    ShapeRole, SlotRole, SpaceRole, TextAlign, TextOverflow, TypeRole,
+    Alignment, Arrangement, ButtonVariant, ColorRole, IconRole, MaterialRole, MotionRole,
+    OverflowWrap, Paint, ShapeRole, SlotRole, SpaceRole, TextAlign, TextOverflow, TypeRole,
+    WordBreak,
 };
 use compose_rust::{FileDrop, KeyEvent, RangeRequest};
 
@@ -323,7 +324,32 @@ pub fn Text(
     #[props(default)] text_align: Option<TextAlign>,
     #[props(default)] max_lines: Option<u32>,
     #[props(default)] overflow: Option<TextOverflow>,
+    /// The fonts to try, in order, for text whose `type_role` is `TypeRole::None`. Text
+    /// with a role is set in the theme's font whatever this says.
+    #[props(default)]
+    font: crate::fonts::FontRefs,
+    /// Where a line may break: CSS `word-break`.
+    #[props(default)]
+    word_break: Option<WordBreak>,
+    /// Whether a word too long for its line may be broken inside: CSS `overflow-wrap`.
+    #[props(default)]
+    overflow_wrap: Option<OverflowWrap>,
+    /// How many spaces apart the tab stops are. Left out, eight.
+    #[props(default)]
+    tab_size: Option<u8>,
+    /// The sizes are CSS pixels, which the system's font scale does not enlarge.
+    #[props(default)]
+    absolute_size: bool,
+    /// Whether lines wrap at the width they are given. `false` is CSS `nowrap` and `pre`.
+    #[props(default = true)]
+    soft_wrap: bool,
 ) -> Element {
+    // Worked out before the element, because the run list travels twice: its records as
+    // `spans` and its font table as `span_fonts`, and only one of them can take it.
+    let span_fonts = (spans.font_entry_count() > 0)
+        .then(|| AttributeValue::any_value(crate::renderer::SpanFontTable(spans.clone())));
+    let spans = (!spans.is_empty()).then(|| AttributeValue::any_value(spans));
+    let font = (!font.is_empty()).then(|| AttributeValue::any_value(font));
     rsx! {
         text {
             weight: opt_dp(weight),
@@ -341,9 +367,20 @@ pub fn Text(
             fill_max_height,
             // Left out entirely when there are none, so a Text that says nothing about
             // runs travels exactly as it did before runs existed.
-            spans: (!spans.is_empty()).then(|| AttributeValue::any_value(spans)),
+            // The fonts runs name for themselves travel beside the runs, and only where a
+            // run names one.
+            span_fonts,
+            spans,
             text,
-            type_role: role(type_role),
+            // Sent only when there is one, and as its tag when there is: `TypeRole::None`
+            // is tag 0 and has to arrive as a value, because absent is the default rung.
+            type_role: type_role.map(|role| i64::from(u16::from(role))),
+            font,
+            word_break: role(word_break),
+            overflow_wrap: role(overflow_wrap),
+            tab_size: i64::from(tab_size.unwrap_or(0)),
+            absolute_size: i64::from(absolute_size),
+            soft_wrap: (!soft_wrap).then_some(false),
             font_size: dp(font_size),
             font_weight: i64::from(font_weight.unwrap_or(0)),
             line_height: dp(line_height),
@@ -401,7 +438,7 @@ pub fn TextField(
             placeholder,
             enabled,
             multiline,
-            type_role: role(type_role),
+            type_role: type_role.map(|role| i64::from(u16::from(role))),
             onvaluechange: move |event| on_value_change.call((*event.data()).clone()),
             onsubmit: move |event| on_submit.call((*event.data()).clone()),
             onfocuslost: move |_| on_focus_lost.call(()),

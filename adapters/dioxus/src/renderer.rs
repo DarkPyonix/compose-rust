@@ -19,6 +19,24 @@ const LAST_OPTIONAL_PROPERTY: u16 = PropertyKind::Variant as u16;
 /// absent are the same state, so the first empty one is worth no record.
 const SPANS_BIT: u32 = 63;
 
+/// The bits for the properties text laid out by CSS carries, in the same order as their
+/// tags. Kept apart for the same reason as the runs: their tags are far past the range
+/// above, and none of them has a zero that means anything but "not sent".
+const TEXT_LAYOUT_BITS: [(PropertyKind, u32); 7] = [
+    (PropertyKind::Font, 56),
+    (PropertyKind::WordBreak, 57),
+    (PropertyKind::OverflowWrap, 58),
+    (PropertyKind::TabSize, 59),
+    (PropertyKind::AbsoluteSize, 60),
+    (PropertyKind::SoftWrap, 61),
+    (PropertyKind::SpanFonts, 62),
+];
+
+/// The font table of a `Text`'s runs, as an attribute of its own. The same runs travel as
+/// `spans` and their fonts as this, so a run record keeps its own layout.
+#[derive(Clone, PartialEq)]
+pub struct SpanFontTable(pub compose_rust::spans::TextSpans);
+
 #[derive(Clone, Copy, Debug)]
 struct Handler {
     id: u64,
@@ -506,6 +524,8 @@ impl ComposeRenderer {
             u32::from(tag - FIRST_OPTIONAL_PROPERTY)
         } else if property == PropertyKind::Spans {
             SPANS_BIT
+        } else if let Some((_, bit)) = TEXT_LAYOUT_BITS.iter().find(|(kind, _)| *kind == property) {
+            *bit
         } else {
             return true;
         };
@@ -547,16 +567,21 @@ impl ComposeRenderer {
                     // same reason: a list that has not changed compares equal before it
                     // reaches here and costs no record at all.
                     PropertyValue::Bytes(spans.as_bytes())
+                } else if let Some(table) = any.downcast_ref::<SpanFontTable>() {
+                    PropertyValue::Bytes(table.0.font_table())
+                } else if let Some(fonts) = any.downcast_ref::<compose_rust::fonts::FontRefs>() {
+                    PropertyValue::Bytes(fonts.as_bytes())
                 } else {
                     return;
                 }
             }
             AttributeValue::Listener(_) => return,
         };
-        let neutral = matches!(
-            value,
-            PropertyValue::None | PropertyValue::Integer(0) | PropertyValue::Float(0.0)
-        );
+        // A type role of zero is `TypeRole::None`, which is a value: text with no rung of
+        // the ladder. A Text with no role at all sends nothing, and one whose role was
+        // taken away sends `None`, which is what drops it on the other side.
+        let neutral = matches!(value, PropertyValue::None | PropertyValue::Float(0.0))
+            || (matches!(value, PropertyValue::Integer(0)) && property != PropertyKind::TypeRole);
         if !self.should_write_optional_property(node_id, property, neutral) {
             return;
         }

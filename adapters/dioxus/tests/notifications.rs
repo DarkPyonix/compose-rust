@@ -42,6 +42,7 @@ fn state() -> MutexGuard<'static, ()> {
     let _ = install_renderer_api(RendererApi {
         run: never_run,
         request_frame: count_request,
+        measure: dioxus_compose_adapter::measure::fake_measure,
     });
     reset_notifications();
     FRAME_REQUESTS.store(0, Ordering::Release);

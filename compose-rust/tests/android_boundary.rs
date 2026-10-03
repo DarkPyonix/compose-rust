@@ -35,6 +35,7 @@ fn frame_state() -> MutexGuard<'static, ()> {
     let _ = install_renderer_api(RendererApi {
         run: never_run,
         request_frame: count_request,
+        measure: compose_rust::measure::fake_measure,
     });
     FRAME_REQUESTS.store(0, Ordering::Release);
     guard

@@ -102,6 +102,13 @@ fn property_of(attribute: &str) -> Option<&'static str> {
         "value" => "Value",
         "min" => "Min",
         "max" => "Max",
+        "font" => "Font",
+        "span_fonts" => "SpanFonts",
+        "word_break" => "WordBreak",
+        "overflow_wrap" => "OverflowWrap",
+        "tab_size" => "TabSize",
+        "absolute_size" => "AbsoluteSize",
+        "soft_wrap" => "SoftWrap",
         // Everything else is either a Modifier rather than a property, or a property this
         // comparison has not been taught. Returning None skips it rather than failing,
         // because a Modifier is not subject to the rule being checked here.

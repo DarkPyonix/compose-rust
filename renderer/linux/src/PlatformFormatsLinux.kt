@@ -83,3 +83,11 @@ private fun uses24HourClock(timeFormat: String): Boolean = when {
         timeFormat.contains("%r") || timeFormat.contains("%p") -> false
     else -> PlatformFormats.Fallback.uses24HourClock
 }
+
+/**
+ * Which thread this is, as something that compares equal only to itself on the same thread.
+ *
+ * A measure call is only answered on the thread the composition runs on, and a POSIX
+ * thread id is that identity for as long as the thread lives.
+ */
+internal fun currentThreadToken(): Any = platform.posix.pthread_self()

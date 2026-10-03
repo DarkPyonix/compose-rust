@@ -172,6 +172,9 @@ pub enum ProtocolError {
     InvalidStringRange,
     InvalidUtf8,
     LengthOverflow,
+    /// The Renderer refused a whole measure call with this status: its buffer could not be
+    /// read, it came from the wrong thread, or there was nothing to measure with yet.
+    MeasureRefused(i32),
 }
 
 #[derive(Clone, Debug, PartialEq)]

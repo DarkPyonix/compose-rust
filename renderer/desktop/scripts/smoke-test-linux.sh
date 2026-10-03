@@ -20,5 +20,10 @@ esac
 
 host="$BUILD_DIR/smoke_host"
 cc -O2 -Wl,--export-dynamic -o "$host" "$NATIVE_DIR/c/smoke_host.c" \
-    -L"$lib" -lcompose_rust_renderer -Wl,-rpath,"$lib"
-"$host"
+    -L"$lib" -lcompose_rust_renderer -Wl,-rpath,"$lib" -lm
+log="$BUILD_DIR/smoke_host.log"
+"$host" | tee "$log"
+# The host measures its own label twice from inside a frame, once as text and once as the
+# node the renderer drew, and the two answers have to be the same numbers.
+grep -q "compose_rust_renderer_measure: agree" "$log" || die \
+    "the measure round trip did not agree, or never ran; see $log"

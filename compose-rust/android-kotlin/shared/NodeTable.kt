@@ -402,6 +402,13 @@ class NodeTable {
         errors += TableError(code, message)
     }
 
+    /**
+     * Records a protocol error found outside the batch itself, such as a measure request
+     * naming a font that was never registered. It is reported with the batch's own errors,
+     * after the call it was found in has returned, so the Host is never re-entered.
+     */
+    internal fun report(code: Int, message: String) = fail(code, message)
+
     companion object {
         /** Node id 0 is the Host's "no node" sentinel, so it names the virtual root. */
         const val ROOT_ID: Int = 0
@@ -586,6 +593,19 @@ class NodeTable {
 
                 // Runs of different treatment inside one string.
                 PropertyKind.Spans -> widget == WidgetKind.Text
+
+                // What text laid out by CSS needs: its own fonts, where its lines may
+                // break, its tab stops, sizes the system's font scale leaves alone, and
+                // whether it wraps at all. Only a Text: a control's label is set by the
+                // design system.
+                PropertyKind.Font,
+                PropertyKind.SpanFonts,
+                PropertyKind.WordBreak,
+                PropertyKind.OverflowWrap,
+                PropertyKind.TabSize,
+                PropertyKind.AbsoluteSize,
+                PropertyKind.SoftWrap,
+                -> widget == WidgetKind.Text
 
                 // How many a badge counts. Nothing else counts anything.
                 PropertyKind.Count -> widget == WidgetKind.Badge

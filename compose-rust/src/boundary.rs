@@ -1,4 +1,5 @@
 use crate::Selection;
+use crate::measure::MeasureResult;
 use crate::protocol::{HostEvent, ProtocolError, decode_event};
 use crate::runtime::Runtime;
 use crate::schema::{
@@ -44,10 +45,14 @@ impl Default for MutationBatch {
     }
 }
 
+/// The Renderer's half of the boundary, as the Host calls it.
 #[derive(Clone, Copy)]
 pub struct RendererApi {
     pub run: extern "C" fn() -> c_int,
     pub request_frame: extern "C" fn(),
+    /// Reads `count` request records from the buffer and writes `count` results. Only on
+    /// the UI thread, and normally from inside a Host call the Renderer made.
+    pub measure: unsafe extern "C" fn(*const u8, u32, u32, *mut MeasureResult) -> i32,
 }
 
 static RENDERER_API: OnceLock<RendererApi> = OnceLock::new();
@@ -70,6 +75,12 @@ pub fn install_renderer_api(api: RendererApi) -> Result<(), RendererApi> {
 unsafe extern "C" {
     fn compose_rust_renderer_run() -> c_int;
     fn compose_rust_renderer_request_frame();
+    fn compose_rust_renderer_measure(
+        requests: *const u8,
+        length: u32,
+        count: u32,
+        results: *mut MeasureResult,
+    ) -> i32;
 }
 
 // Defined by the small library the Linux static renderer ships beside its archive. The
@@ -103,6 +114,20 @@ extern "C" fn native_request_frame() {
     unsafe { compose_rust_renderer_request_frame() }
 }
 
+/// # Safety
+/// As `compose_rust_renderer_measure`: readable requests, writable results.
+#[cfg(all(renderer_linked, not(any(test, feature = "mock-renderer"))))]
+unsafe extern "C" fn native_measure(
+    requests: *const u8,
+    length: u32,
+    count: u32,
+    results: *mut MeasureResult,
+) -> i32 {
+    // SAFETY: The caller's promise is passed on unchanged, and the Renderer refuses a call
+    // from the wrong thread rather than measuring on it.
+    unsafe { compose_rust_renderer_measure(requests, length, count, results) }
+}
+
 // The mock renderer and the crate's own tests drive the boundary directly and never want
 // a window, so doing nothing is the correct answer for them and always has been.
 #[cfg(any(test, feature = "mock-renderer"))]
@@ -112,6 +137,10 @@ extern "C" fn native_run() -> c_int {
 
 #[cfg(any(test, feature = "mock-renderer"))]
 extern "C" fn native_request_frame() {}
+
+// The mock renderer answers by fixed rules, so a test of the Host can predict every size.
+#[cfg(any(test, feature = "mock-renderer"))]
+use crate::measure::fake_measure as native_measure;
 
 // A real build with no renderer. This used to return success, so an application built
 // this way opened no window, drew nothing, printed nothing and exited 0, and there was
@@ -124,6 +153,18 @@ extern "C" fn native_run() -> c_int {
 
 #[cfg(all(not(renderer_linked), not(any(test, feature = "mock-renderer"))))]
 extern "C" fn native_request_frame() {}
+
+/// There is nothing to measure with, which the caller hears as a refusal and carries on
+/// past with every size at zero.
+#[cfg(all(not(renderer_linked), not(any(test, feature = "mock-renderer"))))]
+unsafe extern "C" fn native_measure(
+    _requests: *const u8,
+    _length: u32,
+    _count: u32,
+    _results: *mut MeasureResult,
+) -> i32 {
+    crate::measure::MEASURE_UNAVAILABLE
+}
 
 /// What a build with no renderer says on its way out.
 ///
@@ -151,7 +192,23 @@ fn renderer_api() -> RendererApi {
     RENDERER_API.get().copied().unwrap_or(RendererApi {
         run: native_run,
         request_frame: native_request_frame,
+        measure: native_measure,
     })
+}
+
+/// Asks the Renderer to measure, through whichever Renderer is installed.
+///
+/// Crate-internal: the safe way in is `measure::measurer`, which only hands out the right
+/// to call this inside a Host call. The pointers come from slices that outlive the call.
+pub(crate) fn renderer_measure(
+    requests: *const u8,
+    length: u32,
+    count: u32,
+    results: *mut MeasureResult,
+) -> i32 {
+    // SAFETY: the caller passes a readable buffer of `length` bytes and room for `count`
+    // results, both borrowed for the length of this call.
+    unsafe { (renderer_api().measure)(requests, length, count, results) }
 }
 
 /// Coalesced wake used internally by the runtime's scheduler waker.

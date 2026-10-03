@@ -20,8 +20,7 @@ use std::fmt::Write as _;
 
 /// The Kotlin Toolchain compiles the module's `src` tree by convention and offers no way to
 /// add another source root, so generated Kotlin lives inside `src`.
-pub const GENERATED_RELATIVE_PATH: &str =
-    "../renderer/desktop/src/protocol/Protocol.gen.kt";
+pub const GENERATED_RELATIVE_PATH: &str = "../renderer/desktop/src/protocol/Protocol.gen.kt";
 /// The schema's hash, as a line of text beside the crate.
 ///
 /// The renderer carries the same number, compiled into it, and the two are compared when
@@ -57,6 +56,17 @@ pub fn generate_kotlin() -> String {
     for role in ROLE_ENUM_SCHEMA {
         write_enum(&mut output, role.name, role.variants);
     }
+    writeln!(
+        output,
+        "/**\n \
+         * The `TypeRole` property of text with no rung of the ladder at all: CSS text, whose\n \
+         * size, weight and font are its own. Present and zero; an absent property is the\n \
+         * widget's default rung.\n \
+         */\n\
+         const val TYPE_ROLE_NONE: Int = {}\n",
+        crate::schema::TypeRole::None as u16
+    )
+    .unwrap();
 
     // Who owns the frame loop. The value is one byte of the handshake, so the two sides
     // have to agree on it before anything else is said.
@@ -192,6 +202,8 @@ data class Window(
 
     write_draw_commands(&mut output);
     write_text_spans(&mut output);
+    write_font_refs(&mut output);
+    write_measure_records(&mut output);
 
     output.push_str("sealed interface Modifier {\n");
     for variant in MODIFIER_SCHEMA {
@@ -2084,21 +2096,38 @@ object SpanRecords {
     fun decode(bytes: ByteArray): List<TextSpanRecord>? {
         if (bytes.size % SPAN_LENGTH != 0) return null
         val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
-        return List(bytes.size / SPAN_LENGTH) { index ->
-            val at = index * SPAN_LENGTH
-            val flags = buffer.getShort(at + FLAGS_AT).toInt() and 0xffff
-            TextSpanRecord(
-                start = buffer.getInt(at + START_AT),
-                length = buffer.getInt(at + LENGTH_AT),
-                typeRole = typeRoleOrNull(buffer.getShort(at + ROLE_AT).toInt() and 0xffff),
-                color = paintOrNull(buffer.getLong(at + COLOR_AT)),
-                background = paintOrNull(buffer.getLong(at + BACKGROUND_AT)),
-                bold = flags and FLAG_BOLD != 0,
-                italic = flags and FLAG_ITALIC != 0,
-                underline = flags and FLAG_UNDERLINE != 0,
-                strikethrough = flags and FLAG_STRIKETHROUGH != 0,
-                handlerId = buffer.getLong(at + HANDLER_AT),
-            )
+        return decodeAt(buffer, bytes.size, 0, bytes.size / SPAN_LENGTH)
+    }
+
+    /**
+     * The [count] runs whose records start at [at] in [buffer], or null where they reach
+     * past [limit]. What a measure request carries, in place.
+     */
+    fun decodeAt(buffer: ByteBuffer, limit: Int, at: Int, count: Int): List<TextSpanRecord>? {
+        if (count < 0 || at < 0 || at.toLong() + count.toLong() * SPAN_LENGTH > limit.toLong()) {
+            return null
+        }
+        val previous = buffer.order()
+        buffer.order(ByteOrder.LITTLE_ENDIAN)
+        try {
+            return List(count) { index ->
+                val record = at + index * SPAN_LENGTH
+                val flags = buffer.getShort(record + FLAGS_AT).toInt() and 0xffff
+                TextSpanRecord(
+                    start = buffer.getInt(record + START_AT),
+                    length = buffer.getInt(record + LENGTH_AT),
+                    typeRole = typeRoleOrNull(buffer.getShort(record + ROLE_AT).toInt() and 0xffff),
+                    color = paintOrNull(buffer.getLong(record + COLOR_AT)),
+                    background = paintOrNull(buffer.getLong(record + BACKGROUND_AT)),
+                    bold = flags and FLAG_BOLD != 0,
+                    italic = flags and FLAG_ITALIC != 0,
+                    underline = flags and FLAG_UNDERLINE != 0,
+                    strikethrough = flags and FLAG_STRIKETHROUGH != 0,
+                    handlerId = buffer.getLong(record + HANDLER_AT),
+                )
+            }
+        } finally {
+            buffer.order(previous)
         }
     }
 
@@ -2136,6 +2165,279 @@ object SpanRecords {
     output.push_str("}\n\n");
 }
 
+/// The font candidates of text with no role, and the table that gives a run its own.
+fn write_font_refs(output: &mut String) {
+    use crate::fonts::{
+        FONT_REF_ASSET, FONT_REF_GENERIC, FONT_REF_KIND_AT, FONT_REF_LEN, FONT_REF_LENGTH_AT,
+        FONT_REF_SYSTEM, FONT_REF_VALUE_AT, MAX_FONT_REFS,
+    };
+    use crate::spans::{
+        SPAN_FONT_COUNT_AT, SPAN_FONT_ENTRY_LEN, SPAN_FONT_OFFSET_AT, SPAN_FONT_SPAN_AT,
+    };
+    output.push_str(
+        r#"/**
+ * One font to try for text with no role, in the order a CSS font list gives them. The first
+ * one the Renderer can resolve is the one the text is set in.
+ */
+sealed interface FontRef {
+    /** A font the application registered as an asset. */
+    data class Asset(val assetId: Int) : FontRef
+
+    /** A family installed on the machine, by name. */
+    data class System(val name: String) : FontRef
+
+    /** A family CSS names without naming a font. */
+    data class Generic(val family: GenericFamily) : FontRef
+}
+
+/** Decodes font candidate lists, wherever they sit: a property, a run or a measure request. */
+object FontRefRecords {
+"#,
+    );
+    writeln!(output, "    const val RECORD_LENGTH = {FONT_REF_LEN}").unwrap();
+    writeln!(output, "    const val MAX_REFS = {MAX_FONT_REFS}").unwrap();
+    for (name, value) in [
+        ("KIND_AT", FONT_REF_KIND_AT),
+        ("VALUE_AT", FONT_REF_VALUE_AT),
+        ("LENGTH_AT", FONT_REF_LENGTH_AT),
+    ] {
+        writeln!(output, "    private const val {name} = {value}").unwrap();
+    }
+    for (name, value) in [
+        ("ASSET", FONT_REF_ASSET),
+        ("SYSTEM", FONT_REF_SYSTEM),
+        ("GENERIC", FONT_REF_GENERIC),
+    ] {
+        writeln!(output, "    private const val {name} = {value}").unwrap();
+    }
+    output.push_str(
+        r#"
+    /**
+     * The [count] candidates whose records start at [at] in [buffer], each name read from
+     * the same buffer, or null where anything reaches past [limit] or names a kind this
+     * decoder does not know.
+     */
+    fun decode(buffer: ByteBuffer, limit: Int, at: Int, count: Int): List<FontRef>? {
+        if (count < 0 || count > MAX_REFS) return null
+        if (at < 0 || at.toLong() + count.toLong() * RECORD_LENGTH > limit.toLong()) return null
+        val previous = buffer.order()
+        buffer.order(ByteOrder.LITTLE_ENDIAN)
+        try {
+            val refs = ArrayList<FontRef>(count)
+            for (index in 0 until count) {
+                val record = at + index * RECORD_LENGTH
+                val value = buffer.getInt(record + VALUE_AT)
+                refs += when (buffer.getInt(record + KIND_AT)) {
+                    ASSET -> FontRef.Asset(value)
+                    SYSTEM -> {
+                        val length = buffer.getInt(record + LENGTH_AT)
+                        if (value < 0 || length < 0 || value.toLong() + length > limit.toLong()) {
+                            return null
+                        }
+                        // Relative rather than absolute: the absolute bulk read is not on
+                        // every Android runtime this has to compile against.
+                        val name = ByteArray(length)
+                        val mark = buffer.position()
+                        buffer.position(value)
+                        buffer.get(name, 0, length)
+                        buffer.position(mark)
+                        FontRef.System(name.decodeToString())
+                    }
+                    GENERIC -> FontRef.Generic(genericFamilyOrNull(value) ?: return null)
+                    else -> return null
+                }
+            }
+            return refs
+        } finally {
+            buffer.order(previous)
+        }
+    }
+
+    /** The list a `Font` property carries: a count, then the records and their names. */
+    fun decodeBlob(bytes: ByteArray): List<FontRef>? {
+        if (bytes.isEmpty()) return emptyList()
+        if (bytes.size < 4) return null
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        return decode(buffer, bytes.size, 4, buffer.getInt(0))
+    }
+
+"#,
+    );
+    let generic = ROLE_ENUM_SCHEMA
+        .iter()
+        .find(|entry| entry.name == "GenericFamily")
+        .expect("the font records name a generic family the schema declares")
+        .variants;
+    output.push_str(
+        "    private fun genericFamilyOrNull(tag: Int): GenericFamily? = when (tag) {
+",
+    );
+    for variant in generic {
+        writeln!(
+            output,
+            "        {} -> GenericFamily.{}",
+            variant.tag, variant.name
+        )
+        .unwrap();
+    }
+    output.push_str(
+        "        else -> null
+    }
+}
+
+",
+    );
+
+    output.push_str(
+        r#"/**
+ * Which runs of a Text name fonts of their own, and which: the `SpanFonts` property, or
+ * the same table inside a measure request. Keyed by the run's index in its run list.
+ */
+object SpanFontRecords {
+"#,
+    );
+    writeln!(output, "    const val ENTRY_LENGTH = {SPAN_FONT_ENTRY_LEN}").unwrap();
+    for (name, value) in [
+        ("SPAN_AT", SPAN_FONT_SPAN_AT),
+        ("OFFSET_AT", SPAN_FONT_OFFSET_AT),
+        ("COUNT_AT", SPAN_FONT_COUNT_AT),
+    ] {
+        writeln!(output, "    private const val {name} = {value}").unwrap();
+    }
+    output.push_str(
+        r#"
+    /** The [count] entries starting at [at] in [buffer], or null where any is malformed. */
+    fun decode(buffer: ByteBuffer, limit: Int, at: Int, count: Int): Map<Int, List<FontRef>>? {
+        if (count < 0 || at < 0 || at.toLong() + count.toLong() * ENTRY_LENGTH > limit.toLong()) {
+            return null
+        }
+        val previous = buffer.order()
+        buffer.order(ByteOrder.LITTLE_ENDIAN)
+        val entries = try {
+            List(count) { index ->
+                val entry = at + index * ENTRY_LENGTH
+                Triple(
+                    buffer.getInt(entry + SPAN_AT),
+                    buffer.getInt(entry + OFFSET_AT),
+                    buffer.getInt(entry + COUNT_AT),
+                )
+            }
+        } finally {
+            buffer.order(previous)
+        }
+        val fonts = HashMap<Int, List<FontRef>>(count)
+        for ((span, offset, refs) in entries) {
+            fonts[span] = FontRefRecords.decode(buffer, limit, offset, refs) ?: return null
+        }
+        return fonts
+    }
+
+    /** The table a `SpanFonts` property carries: a count, then the entries and their lists. */
+    fun decodeBlob(bytes: ByteArray): Map<Int, List<FontRef>>? {
+        if (bytes.isEmpty()) return emptyMap()
+        if (bytes.size < 4) return null
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        return decode(buffer, bytes.size, 4, buffer.getInt(0))
+    }
+}
+
+"#,
+    );
+}
+
+/// The record layout of a measure call, as constants both sides read the same bytes by.
+fn write_measure_records(output: &mut String) {
+    use crate::measure as m;
+    output.push_str(
+        r#"/**
+ * The layout of a measure call: the request records the Host writes, the result records
+ * the Renderer writes back, and what each status means. The records and their offsets are
+ * the Host's, generated from its schema, so nobody counts bytes by hand on this side.
+ */
+object MeasureRecords {
+"#,
+    );
+    let ints: &[(&str, i64)] = &[
+        ("RECORD_LENGTH", m::MEASURE_RECORD_LEN as i64),
+        ("RESULT_LENGTH", m::MEASURE_RESULT_LEN as i64),
+        ("KIND_TEXT", i64::from(m::MEASURE_TEXT)),
+        ("KIND_NODE", i64::from(m::MEASURE_NODE)),
+        ("KIND_AT", m::MEASURE_KIND_AT as i64),
+        ("TEXT_TYPE_ROLE_AT", m::TEXT_TYPE_ROLE_AT as i64),
+        ("TEXT_TEXT_OFFSET_AT", m::TEXT_TEXT_OFFSET_AT as i64),
+        ("TEXT_TEXT_LENGTH_AT", m::TEXT_TEXT_LENGTH_AT as i64),
+        ("TEXT_SPANS_OFFSET_AT", m::TEXT_SPANS_OFFSET_AT as i64),
+        ("TEXT_SPANS_COUNT_AT", m::TEXT_SPANS_COUNT_AT as i64),
+        (
+            "TEXT_SPAN_FONTS_OFFSET_AT",
+            m::TEXT_SPAN_FONTS_OFFSET_AT as i64,
+        ),
+        (
+            "TEXT_SPAN_FONTS_COUNT_AT",
+            m::TEXT_SPAN_FONTS_COUNT_AT as i64,
+        ),
+        ("TEXT_FONT_OFFSET_AT", m::TEXT_FONT_OFFSET_AT as i64),
+        ("TEXT_FONT_COUNT_AT", m::TEXT_FONT_COUNT_AT as i64),
+        ("TEXT_FONT_SIZE_AT", m::TEXT_FONT_SIZE_AT as i64),
+        ("TEXT_FONT_WEIGHT_AT", m::TEXT_FONT_WEIGHT_AT as i64),
+        ("TEXT_ITALIC_AT", m::TEXT_ITALIC_AT as i64),
+        ("TEXT_WRAP_AT", m::TEXT_WRAP_AT as i64),
+        ("TEXT_LETTER_SPACING_AT", m::TEXT_LETTER_SPACING_AT as i64),
+        ("TEXT_LINE_HEIGHT_AT", m::TEXT_LINE_HEIGHT_AT as i64),
+        ("TEXT_MAX_LINES_AT", m::TEXT_MAX_LINES_AT as i64),
+        ("TEXT_TAB_SIZE_AT", m::TEXT_TAB_SIZE_AT as i64),
+        ("TEXT_WORD_BREAK_AT", m::TEXT_WORD_BREAK_AT as i64),
+        ("TEXT_OVERFLOW_WRAP_AT", m::TEXT_OVERFLOW_WRAP_AT as i64),
+        ("TEXT_ABSOLUTE_SIZE_AT", m::TEXT_ABSOLUTE_SIZE_AT as i64),
+        ("TEXT_CONSTRAINT_AT", m::TEXT_CONSTRAINT_AT as i64),
+        ("TEXT_WIDTH_AT", m::TEXT_WIDTH_AT as i64),
+        ("NODE_ID_AT", m::NODE_ID_AT as i64),
+        ("NODE_MIN_WIDTH_AT", m::NODE_MIN_WIDTH_AT as i64),
+        ("NODE_MAX_WIDTH_AT", m::NODE_MAX_WIDTH_AT as i64),
+        ("NODE_MIN_HEIGHT_AT", m::NODE_MIN_HEIGHT_AT as i64),
+        ("NODE_MAX_HEIGHT_AT", m::NODE_MAX_HEIGHT_AT as i64),
+        (
+            "CONSTRAINT_MIN_CONTENT",
+            i64::from(m::CONSTRAINT_MIN_CONTENT),
+        ),
+        (
+            "CONSTRAINT_MAX_CONTENT",
+            i64::from(m::CONSTRAINT_MAX_CONTENT),
+        ),
+        ("CONSTRAINT_AT_MOST", i64::from(m::CONSTRAINT_AT_MOST)),
+        ("RESULT_WIDTH_AT", m::RESULT_WIDTH_AT as i64),
+        ("RESULT_HEIGHT_AT", m::RESULT_HEIGHT_AT as i64),
+        (
+            "RESULT_FIRST_BASELINE_AT",
+            m::RESULT_FIRST_BASELINE_AT as i64,
+        ),
+        ("RESULT_LAST_BASELINE_AT", m::RESULT_LAST_BASELINE_AT as i64),
+        (
+            "RESULT_LAST_LINE_WIDTH_AT",
+            m::RESULT_LAST_LINE_WIDTH_AT as i64,
+        ),
+        ("RESULT_LINE_COUNT_AT", m::RESULT_LINE_COUNT_AT as i64),
+        ("RESULT_FLAGS_AT", m::RESULT_FLAGS_AT as i64),
+        ("RESULT_STATUS_AT", m::RESULT_STATUS_AT as i64),
+        ("FLAG_TRUNCATED", i64::from(m::FLAG_TRUNCATED)),
+        ("STATUS_OK", i64::from(m::RESULT_OK)),
+        ("STATUS_UNKNOWN_NODE", i64::from(m::RESULT_UNKNOWN_NODE)),
+        ("STATUS_MALFORMED", i64::from(m::RESULT_MALFORMED)),
+        ("CALL_OK", 0),
+        ("CALL_UNREADABLE", i64::from(m::MEASURE_UNREADABLE)),
+        ("CALL_OFF_UI_THREAD", i64::from(m::MEASURE_OFF_UI_THREAD)),
+        ("CALL_UNAVAILABLE", i64::from(m::MEASURE_UNAVAILABLE)),
+    ];
+    for (name, value) in ints {
+        writeln!(output, "    const val {name} = {value}").unwrap();
+    }
+    output.push_str(
+        "}
+
+",
+    );
+}
+
 fn lower_first(name: &str) -> String {
     let mut characters = name.chars();
     match characters.next() {
@@ -2156,8 +2458,7 @@ fn lower_first(name: &str) -> String {
 /// Generated Rust, compiled into the cdylib only when the target is Android.
 pub const JNI_RUST_RELATIVE_PATH: &str = "src/boundary_jni.gen.rs";
 /// Generated Kotlin. The Kotlin Toolchain compiles the module's `src` tree by convention.
-pub const ANDROID_BRIDGE_RELATIVE_PATH: &str =
-    "../renderer/android/src/bridge/HostBridge.gen.kt";
+pub const ANDROID_BRIDGE_RELATIVE_PATH: &str = "../renderer/android/src/bridge/HostBridge.gen.kt";
 pub const ANDROID_FAST_NATIVE_RELATIVE_PATH: &str =
     "../renderer/android/src/bridge/FastNative.gen.kt";
 
@@ -2208,12 +2509,16 @@ use crate::boundary::{
     MutationBatch, RendererApi, STATUS_OK, STATUS_PROTOCOL_ERROR, current_arena,
     install_renderer_api,
 };
+use crate::measure::{
+    MEASURE_OFF_UI_THREAD, MEASURE_RESULT_LEN, MEASURE_UNAVAILABLE, MEASURE_UNREADABLE,
+    MeasureResult,
+};
 use jni::JNIEnv;
 use jni::JavaVM;
-use jni::objects::{GlobalRef, JByteBuffer, JClass, JLongArray, JStaticMethodID};
+use jni::objects::{GlobalRef, JByteBuffer, JClass, JLongArray, JStaticMethodID, JValue};
 use jni::signature::{Primitive, ReturnType};
 use jni::sys::jobject;
-use jni::sys::{JNI_ERR, JNI_VERSION_1_6, jint, jlong};
+use jni::sys::{JNI_ERR, JNI_VERSION_1_6, jint, jlong, jvalue};
 use std::ffi::c_int;
 use std::os::raw::c_void;
 use std::sync::OnceLock;
@@ -2243,6 +2548,8 @@ unsafe extern "C" {
         r#"struct FrameRequestUpcall {
     class: GlobalRef,
     method: JStaticMethodID,
+    /// `onMeasure`, on the same class.
+    measure: JStaticMethodID,
 }
 
 static VM: OnceLock<JavaVM> = OnceLock::new();
@@ -2280,6 +2587,70 @@ extern "C" fn request_frame() {
         // exception leaves the VM usable.
         let _ = env.exception_clear();
     }
+}
+
+/// Called by the Host, inside a call the Renderer made, to measure.
+///
+/// The thread is the UI thread the call came in on, which the VM already knows, so its
+/// environment is taken rather than attached: a thread the VM does not know cannot be the
+/// UI thread, and attaching it would only hide that. Both buffers are wrapped where they
+/// lie, for this call only, and nothing is copied either way.
+unsafe extern "C" fn measure(
+    requests: *const u8,
+    length: u32,
+    count: u32,
+    results: *mut MeasureResult,
+) -> i32 {
+    let (Some(vm), Some(upcall)) = (VM.get(), UPCALL.get()) else {
+        return MEASURE_UNAVAILABLE;
+    };
+    let Ok(mut env) = vm.get_env() else {
+        return MEASURE_OFF_UI_THREAD;
+    };
+    if requests.is_null() || results.is_null() {
+        return MEASURE_UNREADABLE;
+    }
+    let Some(result_bytes) = (count as usize).checked_mul(MEASURE_RESULT_LEN) else {
+        return MEASURE_UNREADABLE;
+    };
+    // SAFETY: the Host lends `length` bytes of requests and room for `count` results for
+    // the length of this call, and the views made here do not outlive it.
+    let Ok(request_view) =
+        (unsafe { env.new_direct_byte_buffer(requests.cast_mut(), length as usize) })
+    else {
+        return MEASURE_UNREADABLE;
+    };
+    // SAFETY: as above.
+    let Ok(result_view) = (unsafe { env.new_direct_byte_buffer(results.cast(), result_bytes) })
+    else {
+        return MEASURE_UNREADABLE;
+    };
+    let class = <&JClass>::from(upcall.class.as_obj());
+    let arguments = [
+        JValue::Object(&request_view).as_jni(),
+        jvalue { i: count as jint },
+        JValue::Object(&result_view).as_jni(),
+    ];
+    // SAFETY: the method id was resolved on this class for the signature
+    // `(Ljava/nio/ByteBuffer;ILjava/nio/ByteBuffer;)I`, and the arguments match it.
+    let answer = unsafe {
+        env.call_static_method_unchecked(
+            class,
+            upcall.measure,
+            ReturnType::Primitive(Primitive::Int),
+            &arguments,
+        )
+    };
+    let status = match answer.and_then(|value| value.i()) {
+        Ok(status) => status,
+        Err(_) => {
+            let _ = env.exception_clear();
+            MEASURE_UNAVAILABLE
+        }
+    };
+    let _ = env.delete_local_ref(request_view);
+    let _ = env.delete_local_ref(result_view);
+    status
 }
 
 /// Resolves a direct byte buffer to the address the Host may read `length` bytes from.
@@ -2363,17 +2734,26 @@ pub unsafe extern "system" fn JNI_OnLoad(vm: *mut jni::sys::JavaVM, _reserved: *
     let Ok(method) = env.get_static_method_id(&class, "onFrameRequested", "()V") else {
         return JNI_ERR;
     };
+    let Ok(measure_method) = env.get_static_method_id(
+        &class,
+        "onMeasure",
+        "(Ljava/nio/ByteBuffer;ILjava/nio/ByteBuffer;)I",
+    ) else {
+        return JNI_ERR;
+    };
     let Ok(global) = env.new_global_ref(&class) else {
         return JNI_ERR;
     };
     let _ = UPCALL.set(FrameRequestUpcall {
         class: global,
         method,
+        measure: measure_method,
     });
     let _ = VM.set(vm);
     let _ = install_renderer_api(RendererApi {
         run: platform_run,
         request_frame,
+        measure,
     });
     // SAFETY: the application's cdylib defines this symbol.
     unsafe { compose_rust_android_main() };
@@ -2611,6 +2991,16 @@ fun onFrameRequested() {
     FrameRequests.request()
 }
 
+/**
+ * Called by the Host through JNI to measure, on the UI thread and inside a call this side
+ * made.
+ *
+ * Both buffers are views of the Host's own memory, made for this call and dropped after
+ * it: the requests it wrote and the room for the results it reads back. Nothing is copied.
+ */
+fun onMeasure(requests: ByteBuffer, count: Int, results: ByteBuffer): Int =
+    dev.darkpyonix.composerust.runtime.RendererMeasure.measure(requests, count, results)
+
 private const val FRAME_TAG = "dxc-frame"
 "#,
     );
@@ -2666,11 +3056,9 @@ fn screaming_snake_case(name: &str) -> String {
 /// Generated Rust, compiled into the cdylib only when the target is wasm.
 pub const WASM_RUST_RELATIVE_PATH: &str = "src/boundary_wasm.gen.rs";
 /// Generated Kotlin. The Kotlin Toolchain compiles the module's `src` tree by convention.
-pub const WEB_BRIDGE_RELATIVE_PATH: &str =
-    "../renderer/web/src/bridge/HostBridge.gen.kt";
+pub const WEB_BRIDGE_RELATIVE_PATH: &str = "../renderer/web/src/bridge/HostBridge.gen.kt";
 /// Generated JavaScript, in the module's resource tree, which is copied next to `web.mjs`.
-pub const WEB_LOADER_RELATIVE_PATH: &str =
-    "../renderer/web/resources/compose-rust-host.gen.mjs";
+pub const WEB_LOADER_RELATIVE_PATH: &str = "../renderer/web/resources/compose-rust-host.gen.mjs";
 
 const WEB_KOTLIN_PACKAGE: &str = "dev.darkpyonix.composerust.ui.platform";
 
@@ -2777,6 +3165,8 @@ const INSTALL_HOST_KOTLIN: &str = r##"/**
       // engine builds no JavaScript frame for the call.
       compose_rust_renderer_request_frame:
         wasmExports.compose_rust_renderer_request_frame,
+      compose_rust_renderer_measure:
+        wasmExports.compose_rust_renderer_measure,
     },
     __wbindgen_placeholder__: unbound('__wbindgen_placeholder__'),
     __wbindgen_externref_xform__: unbound('__wbindgen_externref_xform__'),
@@ -2935,7 +3325,16 @@ pub fn generate_web_bridge_kotlin() -> String {
          @WasmExport(\"compose_rust_renderer_request_frame\")\n\
          fun onFrameRequested() {{\n    \
          FrameRequests.request()\n\
-         }}"
+         }}\n\n\
+         /**\n \
+         * Called by the Host to measure, inside a call this side made. A browser tab is one\n \
+         * thread, so this is always the thread that answers. Both addresses are in the Host's\n \
+         * region of the shared memory, and the requests and results are read and written\n \
+         * where they lie.\n \
+         */\n\
+         @WasmExport(\"compose_rust_renderer_measure\")\n\
+         fun onMeasure(requests: Int, length: Int, count: Int, results: Int): Int =\n    \
+         measureInSharedMemory(requests, length, count, results)"
     )
     .unwrap();
     output
@@ -3010,6 +3409,7 @@ pub fn generate_wasm_rust() -> String {
 use crate::boundary::{
     MutationBatch, RendererApi, STATUS_OK, STATUS_PROTOCOL_ERROR, install_renderer_api,
 };
+use crate::measure::MeasureResult;
 use crate::schema::{
     WEB_BATCH_BYTES, WEB_EVENT_BUFFER_BYTES, WEB_EVENT_BUFFER_OFFSET, WEB_RUST_REGION_BASE,
 };
@@ -3030,6 +3430,16 @@ use std::mem::{offset_of, size_of};
     /// hands the exported function object straight to this module's instantiation, which it
     /// can because this module is instantiated second.
     fn compose_rust_renderer_request_frame();
+
+    /// Bound the same way, to the Renderer's measure export. The two buffers are addresses
+    /// in the shared memory, in this module's region, and the Renderer reads and writes
+    /// them where they lie.
+    fn compose_rust_renderer_measure(
+        requests: *const u8,
+        length: u32,
+        count: u32,
+        results: *mut MeasureResult,
+    ) -> i32;
 }
 
 /// The record layout the generated Kotlin reads a reply out of.
@@ -3099,6 +3509,19 @@ extern "C" fn request_frame() {
     unsafe { compose_rust_renderer_request_frame() };
 }
 
+/// # Safety
+/// `requests` must address `length` readable bytes and `results` room for `count` results.
+unsafe extern "C" fn measure(
+    requests: *const u8,
+    length: u32,
+    count: u32,
+    results: *mut MeasureResult,
+) -> i32 {
+    // SAFETY: supplied by the page from the Renderer's exports, like the frame request,
+    // and the caller's promise about the buffers is passed on unchanged.
+    unsafe { compose_rust_renderer_measure(requests, length, count, results) }
+}
+
 /// Whether an address the Renderer passed is one this side lent it.
 ///
 /// Every buffer a call names is in this module's region. An address below the region is
@@ -3142,6 +3565,7 @@ pub fn web_start(
     let _ = install_renderer_api(RendererApi {{
         run: platform_run,
         request_frame,
+        measure,
     }});
     let status = builder
         .with_mode(LoopMode::Platform)

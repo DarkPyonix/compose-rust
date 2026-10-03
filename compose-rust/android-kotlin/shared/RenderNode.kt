@@ -147,7 +147,7 @@ fun RenderNode(
 
         // One widget whether or not it carries runs. A paragraph with a bold phrase in
         // it is one piece of text, and three widgets would wrap at the seams.
-        WidgetKind.Text -> HostRichText(node, modifier, dispatcher, theme)
+        WidgetKind.Text -> HostRichText(node, modifier, dispatcher, theme, table.assets)
 
         WidgetKind.Spacer -> Spacer(modifier)
         // The controls are drawn through `Unselectable`, which leaves them out of a

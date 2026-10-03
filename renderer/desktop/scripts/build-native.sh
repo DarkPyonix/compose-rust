@@ -36,7 +36,7 @@ cc -c -O2 -fobjc-arc -arch "$arch" -o "$obj/appkit_window.o" "$NATIVE_DIR/c/appk
 # Notifications through UNUserNotificationCenter. With ARC for the same reason as the window.
 cc -c -O2 -fobjc-arc -arch "$arch" -o "$obj/macos_notifications.o" "$NATIVE_DIR/c/macos_notifications.m"
 
-exported=(compose_rust_renderer_run compose_rust_renderer_request_frame
+exported=(compose_rust_renderer_run compose_rust_renderer_request_frame compose_rust_renderer_measure
           compose_rust_jawt_get_awt JNI_OnLoad_osxui)
 # The renderer calls the Host's compose_rust_host_* functions, which live in the Rust
 # executable that loads this library. They are resolved at load time, so the link must

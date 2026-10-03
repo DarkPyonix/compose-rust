@@ -45,6 +45,24 @@ internal fun decodeFontAsset(bytes: ByteArray): FontFamily? {
     }
 }
 
+/**
+ * The installed family called [name], or null where this device has none by that name.
+ *
+ * Android answers an unknown family with its default face rather than with nothing, so a
+ * name that comes back as the default, and is not a name for the default, is taken to be
+ * missing and the font list moves on to its next candidate.
+ */
+internal fun systemFontFamily(name: String): FontFamily? {
+    val typeface = android.graphics.Typeface.create(name, android.graphics.Typeface.NORMAL)
+        ?: return null
+    val isDefault = typeface == android.graphics.Typeface.DEFAULT ||
+        typeface == android.graphics.Typeface.SANS_SERIF
+    val namesDefault = name.equals("sans-serif", ignoreCase = true) ||
+        name.equals("default", ignoreCase = true)
+    if (isDefault && !namesDefault) return null
+    return FontFamily(typeface)
+}
+
 internal fun DrawScope.drawVectorDocument(document: VectorDocument) {
     // Unreachable: nothing produces a VectorDocument on this platform.
 }

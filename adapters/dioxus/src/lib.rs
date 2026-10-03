@@ -257,7 +257,14 @@ pub mod elements {
             color,
             text_align,
             max_lines,
-            overflow
+            overflow,
+            font,
+            span_fonts,
+            word_break,
+            overflow_wrap,
+            tab_size,
+            absolute_size,
+            soft_wrap
         ]
     );
     element!(
