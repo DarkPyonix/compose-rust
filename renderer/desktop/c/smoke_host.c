@@ -260,7 +260,9 @@ static void build_label_update(const char *label) {
 #define MEASURE_WIDTH 1000.0f
 #define HTML_NODE 6
 #define HTML_TEXT "Measured as CSS text"
-static const char measured_label[] = "smoke host: 0 clicks";
+/* The label as it stands now: every event the host hears changes it, and the renderer
+   reports a few of its own at start, so it is not the string the tree began with. */
+static char measured_label[64] = "smoke host: 0 clicks";
 static int frames_served;
 
 /* A font list blob: one candidate, the generic sans serif. */
@@ -468,6 +470,7 @@ HOST_EXPORT int32_t compose_rust_host_dispatch_event(
     clicks += 1;
     snprintf(label, sizeof label, "smoke host: %d clicks", clicks);
     build_label_update(label);
+    snprintf(measured_label, sizeof measured_label, "%s", label);
     printf("compose_rust_host_dispatch_event: click %d\n", clicks);
     out->ptr = batch_bytes;
     out->len = batch_length;
