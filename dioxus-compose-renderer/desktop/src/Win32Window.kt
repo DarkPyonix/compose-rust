@@ -288,7 +288,10 @@ internal fun runWin32Window() {
         if (asked != null && asked.height > 0) asked.height else 360,
     )
     if (window == null) {
-        System.err.println("compose-rust: this machine has no Direct3D 12 adapter")
+        System.err.println(
+            "compose-rust: this machine has no Direct3D 12 adapter. Where there is no graphics " +
+                "card at all, set DXC_D3D12_WARP=1 to draw with the software one.",
+        )
         host.shutdown()
         return
     }

@@ -92,6 +92,19 @@ grep -Eq '^MINGW_REVISION="[0-9a-f]{40}"$' "$compose_script" ||
 grep -q 'extended/skiko/build-skiko-mingw.sh' "$compose_script" ||
     fail "build-compose.sh does not build skiko for mingwX64 before Compose"
 
+# ---------------------------------------------------------------------------
+# A machine with no graphics card draws only when asked to.
+# ---------------------------------------------------------------------------
+
+# A hosted runner has no card, only Windows' software adapter, which the window skips so a
+# machine with nothing to draw with is not hidden behind a slow window. The CI job asks for
+# it by name; without the opt-in the job could not show the renderer drawing at all.
+window_c="$renderer/desktop/c/win32_window.c"
+grep -q 'getenv("DXC_D3D12_WARP")' "$window_c" ||
+    fail "win32_window.c has no way to be asked for the software adapter"
+grep -q 'EnumWarpAdapter' "$window_c" ||
+    fail "win32_window.c reads DXC_D3D12_WARP and never takes the software adapter"
+
 if (( red == 0 )); then
     echo "ok    the windows module is declared, shares the interpreter and asks for what is published"
 fi
