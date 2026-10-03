@@ -567,7 +567,97 @@ interface ComponentRules {
         ring = Color.Transparent,
         gap = theme.space(SpaceRole.Sm),
     )
+
+    /**
+     * How a split pane is shown at a size class, and what its divider looks like.
+     *
+     * The size class is the split pane's own width, not the window's, because a split pane
+     * can sit in a narrow place inside a wide window. The default stacks when compact and
+     * puts the panes side by side otherwise; the split pane itself lays the side pane over
+     * the body instead when the side pane's minimum and the body's minimum do not both fit.
+     * A system that answers differently overrides this, and no widget code changes.
+     */
+    fun splitPane(sizeClass: WindowSizeClass, theme: ResolvedTheme): SplitPaneStyle = SplitPaneStyle(
+        presentation = when (sizeClass) {
+            WindowSizeClass.Compact -> SplitPanePresentation.Stacked
+            WindowSizeClass.Medium -> SplitPanePresentation.SideBySide
+            WindowSizeClass.Expanded -> SplitPanePresentation.SideBySide
+        },
+        defaultWidth = 280.dp,
+        minWidth = 200.dp,
+        maxWidth = 400.dp,
+        bodyMinWidth = 360.dp,
+        collapseDistance = 48.dp,
+        keyStep = 8.dp,
+        lineWidth = 1.dp,
+        lineColor = theme.color(ColorRole.OutlineVariant),
+        handle = null,
+        grabWidth = 8.dp,
+        resizeCursor = true,
+        sideBackground = Color.Transparent,
+        scrim = Color.Black.copy(alpha = 0.32f),
+        backButton = true,
+        edgeSwipeBack = false,
+        focusRing = theme.color(ColorRole.Primary),
+    )
 }
+
+/**
+ * How a split pane shows its two panes in the room it was measured to have.
+ *
+ * `SideBySide` is two columns with a divider between them. `Overlay` gives the body the
+ * whole width and lays the side pane over it from the leading edge. `Stacked` shows one
+ * pane at a time, and the Host's `SelectedIndex` says which.
+ */
+enum class SplitPanePresentation { SideBySide, Overlay, Stacked }
+
+/** The grip a system draws on a split pane's divider, where it draws one. */
+data class SplitHandle(
+    /** Across the divider. */
+    val thickness: Dp,
+    /** Along the divider. */
+    val length: Dp,
+    val color: Color,
+    val shape: Shape,
+)
+
+/** Everything a split pane needs from the design system, answered in one call. */
+data class SplitPaneStyle(
+    val presentation: SplitPanePresentation,
+    /** The side pane's width where the Host did not say one. */
+    val defaultWidth: Dp,
+    /** The narrowest and widest the side pane may be dragged where the Host did not say. */
+    val minWidth: Dp,
+    val maxWidth: Dp,
+    /**
+     * The narrowest the body may become beside the side pane. Below it, two columns are
+     * not an answer in any system, and the side pane is laid over the body instead.
+     */
+    val bodyMinWidth: Dp,
+    /** How far past its minimum the side pane has to be dragged before it folds. */
+    val collapseDistance: Dp,
+    /** How far one arrow key moves the divider. */
+    val keyStep: Dp,
+    /** The visible line between the panes. Zero for none. */
+    val lineWidth: Dp,
+    val lineColor: Color,
+    /** A grip on the divider, or null where the line alone is the divider. */
+    val handle: SplitHandle?,
+    /** How wide the strip that takes a drag is. Usually wider than what is drawn. */
+    val grabWidth: Dp,
+    /** Whether the pointer shows the left and right resize shape over the divider. */
+    val resizeCursor: Boolean,
+    /** What the side pane is filled with. Transparent leaves it the page. */
+    val sideBackground: Color,
+    /** What is laid over the body behind a side pane drawn over it. */
+    val scrim: Color,
+    /** Whether the body shown on its own carries a back button this system draws. */
+    val backButton: Boolean,
+    /** Whether a swipe in from the leading edge of the body goes back. */
+    val edgeSwipeBack: Boolean,
+    /** The ring around the divider when the keyboard has it. */
+    val focusRing: Color,
+)
 
 /**
  * Where a badge goes relative to the thing it is attached to.

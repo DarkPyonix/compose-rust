@@ -73,6 +73,9 @@ class NativePlatformContext(
                 PointerIcon.Hand -> PointerShape.HAND
                 PointerIcon.Text -> PointerShape.TEXT
                 PointerIcon.Crosshair -> PointerShape.CROSSHAIR
+                // The split pane's divider, which asks for the shape the platform uses for
+                // dragging something left or right.
+                dioxus.compose.foundation.platformResizeCursor -> PointerShape.RESIZE_LEFT_RIGHT
                 else -> PointerShape.ARROW
             },
         )

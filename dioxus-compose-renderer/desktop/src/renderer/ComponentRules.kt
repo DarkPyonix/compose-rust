@@ -477,6 +477,31 @@ internal object Material3Rules : ComponentRules {
         gap = theme.space(SpaceRole.Sm),
     )
 
+    /**
+     * The list-detail scaffold's panes. Material draws no line between them: the two panes
+     * are separate tonal surfaces, and the divider is the pill drag handle
+     * (`PaneExpansionDragHandle`) that sits in the gap. The list pane opens at 360, Material's
+     * list width, and a key press moves it two steps of the eight dp grid at once.
+     */
+    override fun splitPane(sizeClass: WindowSizeClass, theme: ResolvedTheme): SplitPaneStyle =
+        super.splitPane(sizeClass, theme).copy(
+            defaultWidth = 360.dp,
+            minWidth = 240.dp,
+            maxWidth = 412.dp,
+            collapseDistance = 64.dp,
+            keyStep = 16.dp,
+            lineWidth = 0.dp,
+            lineColor = Color.Transparent,
+            handle = SplitHandle(
+                thickness = 4.dp,
+                length = 48.dp,
+                color = theme.color(ColorRole.Outline),
+                shape = theme.shape(ShapeRole.Full),
+            ),
+            grabWidth = 24.dp,
+            sideBackground = theme.color(ColorRole.SurfaceContainer),
+        )
+
     override fun message(theme: ResolvedTheme): MessageStyle = MessageStyle(
         container = theme.color(ColorRole.OnSurface),
         content = theme.color(ColorRole.Surface),
@@ -966,6 +991,26 @@ internal object CupertinoRules : ComponentRules {
         gap = theme.space(SpaceRole.Sm),
     )
 
+    /**
+     * `NSSplitView` and the iPad split view controller: a hairline in the separator colour,
+     * a grip a few points wide either side of it, and a sidebar that folds when dragged well
+     * past its minimum. On a phone the body comes in over the list and a swipe in from the
+     * leading edge goes back.
+     */
+    override fun splitPane(sizeClass: WindowSizeClass, theme: ResolvedTheme): SplitPaneStyle =
+        super.splitPane(sizeClass, theme).copy(
+            defaultWidth = 260.dp,
+            minWidth = 180.dp,
+            maxWidth = 400.dp,
+            collapseDistance = 60.dp,
+            keyStep = 10.dp,
+            lineWidth = 1.dp,
+            lineColor = theme.color(ColorRole.Outline),
+            grabWidth = 9.dp,
+            sideBackground = theme.color(ColorRole.Background),
+            edgeSwipeBack = true,
+        )
+
     override fun message(theme: ResolvedTheme): MessageStyle = MessageStyle(
         container = theme.color(ColorRole.SurfaceContainer),
         content = theme.color(ColorRole.OnSurface),
@@ -1408,6 +1453,19 @@ internal object FluentRules : ComponentRules {
         ring = Color.Transparent,
         gap = theme.space(SpaceRole.Sm),
     )
+
+    /**
+     * WinUI's `SplitView` pane, which opens at 320: a one pixel stroke in the divider colour
+     * and an eight pixel strip to take it by.
+     */
+    override fun splitPane(sizeClass: WindowSizeClass, theme: ResolvedTheme): SplitPaneStyle =
+        super.splitPane(sizeClass, theme).copy(
+            defaultWidth = 320.dp,
+            minWidth = 200.dp,
+            maxWidth = 480.dp,
+            lineColor = theme.color(ColorRole.OutlineVariant),
+            sideBackground = theme.color(ColorRole.Background),
+        )
 
     override fun message(theme: ResolvedTheme): MessageStyle = MessageStyle(
         container = theme.color(ColorRole.SurfaceContainer),
@@ -1871,6 +1929,28 @@ internal object GnomeRules : ComponentRules {
         ring = Color.Transparent,
         gap = theme.space(SpaceRole.Sm),
     )
+
+    /**
+     * `AdwOverlaySplitView`: the sidebar sits beside the content when there is room, and in
+     * a medium window it is laid over the content instead of squeezing it, which is the
+     * libadwaita breakpoint answer. A one pixel border separates the sidebar's grey from
+     * the view.
+     */
+    override fun splitPane(sizeClass: WindowSizeClass, theme: ResolvedTheme): SplitPaneStyle =
+        super.splitPane(sizeClass, theme).copy(
+            presentation = when (sizeClass) {
+                WindowSizeClass.Compact -> SplitPanePresentation.Stacked
+                WindowSizeClass.Medium -> SplitPanePresentation.Overlay
+                WindowSizeClass.Expanded -> SplitPanePresentation.SideBySide
+            },
+            defaultWidth = 260.dp,
+            minWidth = 180.dp,
+            maxWidth = 360.dp,
+            keyStep = 6.dp,
+            lineColor = theme.color(ColorRole.OutlineVariant),
+            grabWidth = 6.dp,
+            sideBackground = theme.color(ColorRole.SurfaceContainer),
+        )
 
     override fun message(theme: ResolvedTheme): MessageStyle = MessageStyle(
         container = OVERLAY,
@@ -2352,6 +2432,26 @@ internal object BreezeRules : ComponentRules {
         gap = theme.space(SpaceRole.Sm),
     )
 
+    /**
+     * `QSplitter` under Breeze: a line in the frame colour with a short grip of dots across
+     * its middle, which is the one splitter of the seven that shows where to take it.
+     */
+    override fun splitPane(sizeClass: WindowSizeClass, theme: ResolvedTheme): SplitPaneStyle =
+        super.splitPane(sizeClass, theme).copy(
+            defaultWidth = 240.dp,
+            minWidth = 160.dp,
+            maxWidth = 480.dp,
+            lineColor = theme.color(ColorRole.Outline),
+            handle = SplitHandle(
+                thickness = 3.dp,
+                length = 24.dp,
+                color = theme.color(ColorRole.OnSurfaceVariant),
+                shape = theme.shape(ShapeRole.ExtraSmall),
+            ),
+            grabWidth = 6.dp,
+            sideBackground = theme.color(ColorRole.Background),
+        )
+
     override fun message(theme: ResolvedTheme): MessageStyle = MessageStyle(
         container = theme.color(ColorRole.SurfaceContainer),
         content = theme.color(ColorRole.OnSurface),
@@ -2812,6 +2912,17 @@ internal object DeepinRules : ComponentRules {
         ring = theme.color(ColorRole.Surface),
         gap = theme.space(SpaceRole.Sm),
     )
+
+    /** DTK's splitter: a faint line and a soft grey sidebar sunk into the white window. */
+    override fun splitPane(sizeClass: WindowSizeClass, theme: ResolvedTheme): SplitPaneStyle =
+        super.splitPane(sizeClass, theme).copy(
+            defaultWidth = 240.dp,
+            minWidth = 180.dp,
+            maxWidth = 400.dp,
+            keyStep = 10.dp,
+            lineColor = theme.color(ColorRole.OutlineVariant),
+            sideBackground = theme.color(ColorRole.SurfaceContainer),
+        )
 
     override fun message(theme: ResolvedTheme): MessageStyle = MessageStyle(
         container = theme.color(ColorRole.SurfaceContainer),
@@ -3609,6 +3720,24 @@ internal object LiquidGlassRules : ComponentRules {
         ring = theme.color(ColorRole.Background),
         gap = theme.space(SpaceRole.Sm),
     )
+
+    /**
+     * The sidebar of macOS 26 and iPadOS 26 floats as its own glass panel, so there is no
+     * line between it and the content: the gap is the divider, and a strip of it takes the
+     * drag. A swipe in from the leading edge goes back when one pane shows at a time.
+     */
+    override fun splitPane(sizeClass: WindowSizeClass, theme: ResolvedTheme): SplitPaneStyle =
+        super.splitPane(sizeClass, theme).copy(
+            defaultWidth = 260.dp,
+            minWidth = 180.dp,
+            maxWidth = 400.dp,
+            collapseDistance = 60.dp,
+            keyStep = 10.dp,
+            lineWidth = 0.dp,
+            lineColor = Color.Transparent,
+            grabWidth = 12.dp,
+            edgeSwipeBack = true,
+        )
 
     override fun message(theme: ResolvedTheme): MessageStyle = MessageStyle(
         container = theme.color(ColorRole.SurfaceContainer),

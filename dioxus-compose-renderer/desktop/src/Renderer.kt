@@ -66,6 +66,7 @@ internal fun runRenderer(
     dioxus.compose.ui.installFileDrop()
     dioxus.compose.ui.installReducedMotion()
     dioxus.compose.ui.installHighContrast()
+    dioxus.compose.ui.installResizeCursor()
     val host = DioxusHost(connection())
     // Started on the thread the window will be driven from, which is not the thread this
     // function was called on.

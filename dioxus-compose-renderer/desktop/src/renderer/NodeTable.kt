@@ -71,6 +71,7 @@ data class TableError(val code: Int, val message: String) {
         const val UNREADABLE_ASSET = 7
         const val CYCLIC_INSERT = 8
         const val INVALID_PALETTE = 9
+        const val INVALID_CHILDREN = 10
     }
 }
 
@@ -413,7 +414,9 @@ class NodeTable {
                         // arbitrary tree gives no way to tell which of them to centre.
                         widget == WidgetKind.TopAppBar ||
                         // A badge's short word, shown where a count would be.
-                        widget == WidgetKind.Badge
+                        widget == WidgetKind.Badge ||
+                        // A split pane's is its divider's name for a screen reader.
+                        widget == WidgetKind.SplitPane
 
                 // Note: SpacerProps has width and height in the Rust schema, but there are
                 // no matching PropertyKind variants, so a Spacer can only be sized with
@@ -491,6 +494,9 @@ class NodeTable {
                 -> widget == WidgetKind.DatePicker ||
                     widget == WidgetKind.TimePicker ||
                     widget == WidgetKind.Slider ||
+                    // A split pane's side pane width in dp, and the range it may be dragged
+                    // over.
+                    widget == WidgetKind.SplitPane ||
                     // An indicator's value is how far along it is, and it has no range.
                     (property == PropertyKind.Value && widget == WidgetKind.ProgressIndicator)
 
@@ -522,7 +528,9 @@ class NodeTable {
                         widget == WidgetKind.Dropdown ||
                         // Which destination of a set is the current one, counted over the
                         // destinations rather than over all the children.
-                        widget == WidgetKind.Navigation
+                        widget == WidgetKind.Navigation ||
+                        // Which pane shows when a split pane shows one at a time.
+                        widget == WidgetKind.SplitPane
                 // Drawing commands belong to the Canvas alone: no other widget draws
                 // anything the Host described command by command.
                 PropertyKind.Commands -> widget == WidgetKind.Canvas
@@ -548,6 +556,9 @@ class NodeTable {
 
                 // How many a badge counts. Nothing else counts anything.
                 PropertyKind.Count -> widget == WidgetKind.Badge
+
+                // Whether a split pane's side pane may be folded away.
+                PropertyKind.Collapsible -> widget == WidgetKind.SplitPane
 
                 // Files over a node and files let go on it. Only the widget that exists
                 // to receive them, because a handler is attached whether or not a screen

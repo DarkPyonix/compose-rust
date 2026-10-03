@@ -37,6 +37,7 @@ import dioxus.compose.foundation.HostDialog
 import dioxus.compose.foundation.HostDivider
 import dioxus.compose.foundation.HostProgressIndicator
 import dioxus.compose.foundation.HostSlider
+import dioxus.compose.foundation.HostSplitPane
 import dioxus.compose.foundation.HostToggle
 import dioxus.compose.foundation.HostCanvas
 import dioxus.compose.foundation.HostDatePicker
@@ -260,6 +261,11 @@ fun RenderNode(
         WidgetKind.SelectionContainer -> SelectableRegion(modifier) {
             Column { Children(node, table, dispatcher) }
         }
+
+        // A side pane and a body. Whether they are side by side, laid over one another or
+        // shown one at a time is the design system's answer for the split pane's own width,
+        // and the drag on the divider never leaves this side until it is let go.
+        WidgetKind.SplitPane -> HostSplitPane(node, modifier, table, dispatcher, theme)
     }
 }
 
