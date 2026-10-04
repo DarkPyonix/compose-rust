@@ -10,7 +10,7 @@ AppKit window handles text input and accessibility itself. The divider's resize 
 icon of our own on macOS. Windows and Linux still open the toolkit's window by default, so
 their sources and the shared reachability metadata stay as they are until those windows
 become the default (#134 for Windows, #160 for Linux).
-=======
+
 ### Linux opens its own window by default
 
 On the GraalVM native-image path Linux now opens the X11 window the renderer makes itself,
@@ -24,7 +24,6 @@ shift with Delete. A paste of any size arrives as one edit. Windows still opens 
 toolkit's window. Not done on Linux: AT-SPI accessibility, which is being built for the
 Kotlin/Native window; IME candidate windows and the feel of a live resize still need a
 person on a real desktop.
->>>>>>> origin/develop
 
 ### The native-image renderer opens its own window on macOS
 
