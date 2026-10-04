@@ -1,0 +1,61 @@
+# The renderer for Windows, without a virtual machine in it.
+#
+# The same renderer the desktop native image builds, compiled for the platform directly:
+# `src/shared/` holds symlinks into `desktop/src/`, so there is one copy of the interpreter
+# and one copy of the generated protocol. The boundary is the iOS one, which is Kotlin
+# native and names no platform, so it is shared rather than written again; the one line of
+# it that differs here, finding the Host's functions, is `src/HostSymbolLookup.kt`.
+#
+# Kotlin/Native's only Windows target is MinGW, and the application is an MSVC executable.
+# This module compiles to a MinGW object; `desktop/scripts/build-windows.sh` rewrites two of
+# MinGW's conventions so an MSVC link keeps their meaning, and the Host links it beside Skia
+# and skiko's C++ half, which are MSVC. Nothing crosses between the two halves but C calls,
+# and nothing of MinGW is left outside the renderer's own object: no MinGW DLL, no MinGW
+# startup code, and an MSVC linker doing the link.
+#
+# The window is `desktop/c/win32_window.c`, the one the native image opens: Win32, a
+# Direct3D 12 swapchain, IMM32 composition and UI Automation. `src/Win32Window.kt` calls it
+# by symbol name, which is how the native image calls it too. The toasts are
+# `desktop/c/win32_notifications.c`, reached the same way.
+product:
+  type: lib
+  platforms: [ mingwX64 ]
+
+# Where Compose and skiko come from. Neither publishes a Kotlin/Native target for Windows:
+# `scripts/build-compose.sh --target mingwX64` builds skiko and then the Compose modules from
+# the fork, and publishes both to the local repository under the versions asked for below.
+repositories:
+  - mavenLocal
+
+# Named by the coordinate of the target, for the reason the Linux module gives: the
+# shorthand asks for a module's root, and what is needed is the target's own klib. Every
+# module is named because a coordinate that points at one target brings nothing in behind
+# it. The list is what `scripts/build-compose.sh --target mingwX64` publishes, and
+# `scripts/tests/windows-kotlin-native.test.sh` says so when the two stop agreeing.
+dependencies:
+  - $compose.runtime
+  - org.jetbrains.compose.animation:animation-mingwx64:1.11.1
+  - org.jetbrains.compose.animation:animation-core-mingwx64:1.11.1
+  - org.jetbrains.compose.foundation:foundation-mingwx64:1.11.1
+  - org.jetbrains.compose.foundation:foundation-layout-mingwx64:1.11.1
+  - org.jetbrains.compose.material:material-ripple-mingwx64:1.11.1
+  - org.jetbrains.compose.material3:material3-mingwx64:1.11.0-alpha07
+  - org.jetbrains.compose.ui:ui-mingwx64:1.11.1
+  - org.jetbrains.compose.ui:ui-backhandler-mingwx64:1.11.1
+  - org.jetbrains.compose.ui:ui-geometry-mingwx64:1.11.1
+  - org.jetbrains.compose.ui:ui-graphics-mingwx64:1.11.1
+  - org.jetbrains.compose.ui:ui-text-mingwx64:1.11.1
+  - org.jetbrains.compose.ui:ui-tooling-preview-mingwx64:1.11.1
+  - org.jetbrains.compose.ui:ui-unit-mingwx64:1.11.1
+  - org.jetbrains.compose.ui:ui-util-mingwx64:1.11.1
+
+test-dependencies:
+  - $kotlin.test
+
+settings:
+  compose: enabled
+  kotlin:
+    optIns:
+      - kotlinx.cinterop.ExperimentalForeignApi
+      - kotlinx.cinterop.BetaInteropApi
+      - kotlin.native.SymbolNameIsInternal

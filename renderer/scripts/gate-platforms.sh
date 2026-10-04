@@ -13,6 +13,11 @@
 #   linuxX64   the window reaches Xlib, the sync extension and GLX through cinterop, and
 #              cinterop compiles against the real headers rather than a copy of them. One
 #              package manager line on Linux; XQuartz on macOS, which is a download.
+#   mingwX64   Compose and skiko publish no Kotlin/Native target for Windows, so both are
+#              built from the fork and published to the local Maven repository first
+#              (scripts/build-compose.sh --target mingwX64, an hour and the MSVC headers).
+#              Without that publication there is nothing for the module to compile against.
+#              Its tests are compiled for Windows and run only there.
 #   android    the tests are instrumented, so they need a device or an emulator. Building
 #              needs neither, so it is only left out of the test run.
 #   iosArm64   a device target has no test task at all, and naming one that has none is an
@@ -57,6 +62,19 @@ has_x11() {
     [[ -e /usr/include/X11/Xlib.h || -e /opt/X11/include/X11/Xlib.h ]]
 }
 
+# The Windows Compose this module compiles against, as build-compose.sh publishes it. One
+# module stands for the fourteen: they are published together or not at all.
+has_mingw_compose() {
+    [[ -d "$HOME/.m2/repository/org/jetbrains/compose/ui/ui-mingwx64" ]]
+}
+
+is_windows() {
+    case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 has_ios_simulator() {
     command -v xcrun >/dev/null 2>&1 || return 1
     # Available rather than booted: the test runner starts one, but it cannot install one.
@@ -74,6 +92,10 @@ has_android_device() {
 all_platforms | while read -r platform; do
     case "$platform" in
         linuxX64) has_x11 || continue ;;
+        mingwX64)
+            has_mingw_compose || continue
+            [[ "$phase" == "build" ]] || is_windows || continue
+            ;;
         android) [[ "$phase" == "build" ]] || has_android_device || continue ;;
         iosArm64) [[ "$phase" == "build" ]] || continue ;;
         iosSimulatorArm64) [[ "$phase" == "build" ]] || has_ios_simulator || continue ;;

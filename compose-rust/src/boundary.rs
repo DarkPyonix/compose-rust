@@ -1340,45 +1340,73 @@ static BOUNDARY_EXPORTS: BoundaryExports = BoundaryExports([
     compose_rust_host_shutdown as *const (),
 ]);
 
-/// The same five names, as a linker directive the object file carries.
-///
-/// The Renderer finds these with GetProcAddress against the running executable, which
-/// reads the PE export table, and an executable has no export table unless the link is
-/// told to make one. The build script asks for that with `/EXPORT:` arguments, and those
-/// reach the binaries of this package and no further: Cargo does not pass a dependency's
-/// link arguments on to whatever depends on it.
-///
-/// So every application built on this crate linked without an export table, the Renderer
-/// could not reach back into it, and the window came up empty. It looked like it worked
-/// because the only Windows binaries anyone had run were this package's own examples.
-///
-/// `.drectve` is how an object file carries linker arguments of its own. The MSVC linker
-/// reads that section out of every object it links, so the directive travels inside the
-/// rlib and applies wherever the rlib ends up.
+// The same five names, as a linker directive the object file carries.
+//
+// The Renderer finds these with GetProcAddress against the running executable, which
+// reads the PE export table, and an executable has no export table unless the link is
+// told to make one. The build script asks for that with `/EXPORT:` arguments, and those
+// reach the binaries of this package and no further: Cargo does not pass a dependency's
+// link arguments on to whatever depends on it.
+//
+// So every application built on this crate linked without an export table, the Renderer
+// could not reach back into it, and the window came up empty. It looked like it worked
+// because the only Windows binaries anyone had run were this package's own examples.
+//
+// `.drectve` is how an object file carries linker arguments of its own. The MSVC linker
+// reads that section out of every object it links, so the directive travels inside the
+// rlib and applies wherever the rlib ends up.
 #[cfg(all(target_os = "windows", target_env = "msvc"))]
-const EXPORT_DIRECTIVES: &str = concat!(
-    " /EXPORT:compose_rust_host_init",
-    " /EXPORT:compose_rust_host_dispatch_event",
-    " /EXPORT:compose_rust_host_render_frame",
-    " /EXPORT:compose_rust_host_release_batch",
-    " /EXPORT:compose_rust_host_shutdown",
+core::arch::global_asm!(
+    // A section of directives and nothing else, in the COFF flags the MSVC linker reads
+    // them from: information only ("i") and dropped from the image ("n").
+    //
+    // Assembled rather than written as a `static` placed in the section. A static is a
+    // symbol, and a crate's own DLL asks for every symbol it keeps by name; the LLVM linker
+    // takes the section's bytes as directives, keeps no symbol for them, and the DLL then
+    // fails to link on a symbol nobody can define.
+    ".section .drectve,\"yni\"",
+    ".ascii \" /EXPORT:compose_rust_host_init\"",
+    ".ascii \" /EXPORT:compose_rust_host_dispatch_event\"",
+    ".ascii \" /EXPORT:compose_rust_host_render_frame\"",
+    ".ascii \" /EXPORT:compose_rust_host_release_batch\"",
+    ".ascii \" /EXPORT:compose_rust_host_shutdown\"",
+    ".text",
 );
 
-#[cfg(all(target_os = "windows", target_env = "msvc"))]
-#[used]
-#[unsafe(link_section = ".drectve")]
-static EXPORT_DIRECTIVE_BYTES: [u8; EXPORT_DIRECTIVES.len()] = {
-    let source = EXPORT_DIRECTIVES.as_bytes();
-    let mut bytes = [0u8; EXPORT_DIRECTIVES.len()];
-    let mut index = 0;
-    while index < source.len() {
-        bytes[index] = source[index];
-        index += 1;
-    }
-    bytes
-};
+// Which C runtime an application linking the Kotlin/Native Windows renderer gets, said
+// where the linker reads it from every object: the build script cannot say it, for the
+// same reason it cannot ask for the exports above.
+//
+// Set by the build script when it links that renderer and the application asked for
+// nothing (`build/windows_crt.rs` says why each of these is here). The Universal C Runtime
+// stays the DLL that is part of Windows; vcruntime and the C++ standard library are linked
+// in, so the executable needs no Visual C++ runtime DLL beside it. An application that asked
+// for `+crt-static` links all of it statically and needs none of these.
+#[cfg(all(target_os = "windows", target_env = "msvc", windows_crt_linked_in))]
+core::arch::global_asm!(
+    ".section .drectve,\"yni\"",
+    ".ascii \" /NODEFAULTLIB:vcruntime.lib\"",
+    ".ascii \" /DEFAULTLIB:libvcruntime.lib\"",
+    ".ascii \" /NODEFAULTLIB:msvcprt.lib\"",
+    ".ascii \" /NODEFAULTLIB:libcpmt.lib\"",
+    ".ascii \" /NODEFAULTLIB:libcmt.lib\"",
+    ".ascii \" /INCLUDE:longjmp\"",
+    ".text",
+);
 
-/// Never read. Being referenced is the entire contract.
+// The same for an application that asked for vcruntime from its DLL
+// (`DXC_WINDOWS_CRT=dynamic`): the stock static C++ library and C runtime that a prebuilt
+// object may still name as defaults would define, a second time, what the build script's
+// blanked copy and the DLLs' import libraries already do.
+#[cfg(all(target_os = "windows", target_env = "msvc", windows_crt_dynamic))]
+core::arch::global_asm!(
+    ".section .drectve,\"yni\"",
+    ".ascii \" /NODEFAULTLIB:libcpmt.lib\"",
+    ".ascii \" /NODEFAULTLIB:libcmt.lib\"",
+    ".text",
+);
+
+// Never read. Being referenced is the entire contract.
 struct BoundaryExports(#[allow(dead_code)] [*const (); 5]);
 
 // SAFETY: The addresses are written once, at compile time, and never read. A static has

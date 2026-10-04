@@ -1664,6 +1664,22 @@ int32_t dxc_native_window_open(
         IDXGIAdapter1_Release(adapter);
         adapter = NULL;
     }
+    // Unless whoever started this asked for the software one by name. A machine with no
+    // graphics card at all, a virtual machine or a CI runner, has nothing else, and there
+    // drawing slowly is the point: it is how a window that draws is told from one that does
+    // not where nobody is watching. Asked for, never fallen back to, for the reason above.
+    if (device == NULL) {
+        const char *warp = getenv("DXC_D3D12_WARP");
+        IDXGIAdapter *software = NULL;
+        if (warp != NULL && warp[0] != '\0' &&
+            SUCCEEDED(IDXGIFactory4_EnumWarpAdapter(factory, &IID_IDXGIAdapter1, (void **)&software))) {
+            adapter = (IDXGIAdapter1 *)software;
+            if (FAILED(D3D12CreateDevice((IUnknown *)adapter, D3D_FEATURE_LEVEL_11_0,
+                                         &IID_ID3D12Device, (void **)&device))) {
+                device = NULL;
+            }
+        }
+    }
     if (device == NULL) {
         if (adapter != NULL) IDXGIAdapter1_Release(adapter);
         IDXGIFactory4_Release(factory);

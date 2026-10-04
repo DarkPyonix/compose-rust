@@ -8,6 +8,19 @@ mod renderer_dir {
     include!("build/renderer_dir.rs");
 }
 
+// Which C runtime a Windows application links with the Kotlin/Native renderer, and the
+// rewriting of prebuilt libraries that lets the build choose it. Kept apart, like the
+// resolution rules, so tests/windows_crt.rs can exercise it.
+#[allow(dead_code)]
+mod windows_crt {
+    include!("build/windows_crt.rs");
+}
+
+use windows_crt::{
+    WINDOWS_CRT_ENV, WindowsCrt, blank_runtime_directives, find_msvc_library,
+    unreconcilable_message, windows_crt,
+};
+
 use renderer_dir::{
     CACHE_DIR_ENV, FetchError, RENDERER_DIR_ENV, RendererLinkage, RendererSource, Request,
     acquire_renderer, artifact_target, default_cache_root, renderer_linkage,
@@ -50,6 +63,10 @@ fn main() {
     // Set when the Linux static renderer is linked, which comes with a library the Host has
     // to refer to so that the linker keeps it. See the DXC_LINUX_NATIVE_LIB branch below.
     println!("cargo:rustc-check-cfg=cfg(renderer_host_exports)");
+    // Set when the Windows static renderer is linked and the application asked for no C
+    // runtime of its own. See the DXC_WINDOWS_NATIVE_LIB branch below.
+    println!("cargo:rustc-check-cfg=cfg(windows_crt_linked_in)");
+    println!("cargo:rustc-check-cfg=cfg(windows_crt_dynamic)");
     println!("cargo:rerun-if-env-changed={RENDERER_DIR_ENV}");
     println!("cargo:rerun-if-env-changed={CACHE_DIR_ENV}");
     println!("cargo:rerun-if-env-changed=DIOXUS_COMPOSE_RENDERER_DIR");
@@ -58,6 +75,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build/renderer_dir.rs");
     println!("cargo:rerun-if-changed=build/sha256.rs");
     println!("cargo:rerun-if-changed=build/elf.rs");
+    println!("cargo:rerun-if-changed=build/windows_crt.rs");
 
     if std::env::var_os("CARGO_FEATURE_NATIVE_RENDERER").is_none() {
         return;
@@ -242,6 +260,17 @@ fn main() {
         }
     }
 
+    // The same thing on Windows, from `build-windows.sh`: no virtual machine, and one
+    // executable. The renderer object is MinGW, because that is Kotlin/Native's only Windows
+    // target; everything else is MSVC, and the two halves meet in C calls only. What the
+    // script leaves in the directory is the whole kit an MSVC link needs.
+    if target_os == "windows" {
+        if let Some(dir) = std::env::var_os("DXC_WINDOWS_NATIVE_LIB") {
+            link_windows_native(&PathBuf::from(dir));
+            return;
+        }
+    }
+
     let manifest_dir = PathBuf::from(
         std::env::var_os("CARGO_MANIFEST_DIR").expect("Cargo sets CARGO_MANIFEST_DIR"),
     );
@@ -307,7 +336,7 @@ fn main() {
         // run were this package's own examples.
         //
         // The directive travels inside the rlib now, in the `.drectve` section that the
-        // MSVC linker reads out of every object it links. See `EXPORT_DIRECTIVES` in
+        // MSVC linker reads out of every object it links. See the `global_asm!` block in
         // src/boundary.rs.
         // The subsystem is not set here, and the reason is the same one the export
         // directive ran into: a build script's link arguments reach this package's own
@@ -367,6 +396,292 @@ fn main() {
         "-Wl,--export-dynamic"
     };
     println!("cargo:rustc-link-arg={export_dynamic}");
+}
+
+/// Links the Windows renderer that Kotlin/Native built, and everything beside it.
+///
+/// Every library here is named with `rustc-link-lib` and none with a link argument, because
+/// a library a build script names travels in the rlib to every application built on this
+/// crate, and a link argument stops at this package's own targets.
+///
+/// The Host's functions need nothing here. The renderer finds them with GetProcAddress on
+/// the executable, which reads its export table, and the `.drectve` directives in
+/// src/boundary.rs put them there in every application's link.
+fn link_windows_native(dir: &Path) {
+    println!("cargo:rerun-if-env-changed=DXC_WINDOWS_NATIVE_LIB");
+    println!("cargo:rerun-if-env-changed={WINDOWS_CRT_ENV}");
+    println!("cargo:rerun-if-env-changed=LIB");
+    // The archive itself, not only the variable naming it: a rebuilt renderer that Cargo was
+    // not told about is yesterday's renderer, linked in no time at all.
+    println!(
+        "cargo:rerun-if-changed={}",
+        dir.join("libcompose_rust_renderer.a").display()
+    );
+    for (piece, what) in [
+        ("libcompose_rust_renderer.a", "the renderer"),
+        (
+            "native/dxc-windows-native.lib",
+            "the window and the MSVC bridge",
+        ),
+        (
+            "native/dxc-windows-static-ucrt.lib",
+            "the bridge for a statically linked UCRT",
+        ),
+        ("gcc/libstdc++.a", "the GCC runtime the renderer carries"),
+        ("skiko/skiko-bridges.lib", "skiko's C++ half"),
+        ("skiko/skia.lib", "Skia"),
+    ] {
+        if !dir.join(piece).is_file() {
+            panic!(
+                "\n\ncompose-rust: DXC_WINDOWS_NATIVE_LIB is {}, which has no {piece} ({what}).\n\n\
+                 renderer/desktop/scripts/build-windows.sh writes the whole \
+                 directory; build the renderer again, or point DXC_WINDOWS_NATIVE_LIB at the \
+                 directory it wrote.\n\n",
+                dir.display()
+            );
+        }
+    }
+
+    // Which C runtime. Nothing the application has to say: it gets the one that needs no
+    // DLL beside the executable, and build/windows_crt.rs says how that is put together.
+    let features = std::env::var("CARGO_CFG_TARGET_FEATURE").unwrap_or_default();
+    let requested = std::env::var(WINDOWS_CRT_ENV).ok();
+    let crt = match windows_crt(&features, requested.as_deref()) {
+        Ok(crt) => crt,
+        Err(message) => panic!("\n\ncompose-rust: {message}\n\n"),
+    };
+    let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").expect("Cargo sets OUT_DIR"));
+    let rewritten = out_dir.join("windows-crt");
+    if let Err(error) = std::fs::create_dir_all(&rewritten) {
+        panic!(
+            "\n\ncompose-rust: could not make {}: {error}\n\n",
+            rewritten.display()
+        );
+    }
+
+    for sub in ["", "gcc", "native"] {
+        println!("cargo:rustc-link-search=native={}", dir.join(sub).display());
+    }
+    // Skia and skiko's C++ half come from the copies made below, so the kit's own directory
+    // is not searched: two libraries of one name would leave the choice to the linker.
+    println!("cargo:rustc-link-search=native={}", rewritten.display());
+
+    // The renderer, MinGW, rewritten by the build so an MSVC link keeps its constructors and
+    // its unwind data. Named exactly, because MSVC would look for `.lib`.
+    println!("cargo:rustc-link-lib=static:+verbatim=libcompose_rust_renderer.a");
+    // The Win32 window, its toasts, the bridge to MSVC's runtime and the embedded ICU loader,
+    // linked whole: nothing calls the ICU loader or the initialiser the bridge registers by
+    // name, and a member nothing calls is one the linker leaves out.
+    println!("cargo:rustc-link-lib=static:+whole-archive,+verbatim=dxc-windows-native.lib");
+    // The GCC runtime the renderer object carries, as Kotlin/Native links it into a MinGW
+    // executable of its own: statically.
+    for library in ["libstdc++.a", "libgcc.a", "libgcc_eh.a", "libwinpthread.a"] {
+        println!("cargo:rustc-link-lib=static:+verbatim={library}");
+    }
+    // skiko's C++ half and Skia, MSVC, from copies whose runtime directives are blanked so
+    // that this build and not the order the linker reads them in decides the C runtime.
+    // Every library the Skia distribution carries is named, because which of them a given
+    // application reaches is the linker's business.
+    for library in [
+        "skiko-bridges",
+        "skresources",
+        "skparagraph",
+        "skia",
+        "icu",
+        "jsonreader",
+        "skottie",
+        "svg",
+        "sksg",
+        "skshaper",
+        "skunicode_core",
+        "skunicode_icu",
+        "harfbuzz",
+        "skcms",
+        "libpng",
+        "zlib",
+        "libjpeg",
+        "libwebp",
+        "libwebp_sse41",
+        "wuffs",
+        "expat",
+        "d3d12allocator",
+        "spirv_cross",
+        "bentleyottmann",
+    ] {
+        let file = format!("{library}.lib");
+        let source = dir.join("skiko").join(&file);
+        rewrite_runtime_directives(&source, &rewritten.join(&file));
+        println!("cargo:rustc-link-lib=static={library}");
+    }
+
+    // The C++ standard library, linked in from this machine's own MSVC installation, with its
+    // guard blanked like Skia's. Skia names it as a default library, which the copies above no
+    // longer do, so it is named here. Every runtime choice links it, the dynamic one included:
+    // Skia is built for the static runtime, so its objects name the library's data (the
+    // locale ids, std::_Raise_handler) the way static code does, and msvcprt.lib, the import
+    // library for MSVCP140.dll, defines those only under the __imp_ spelling a DLL caller uses
+    // (LNK2001, 160 times, for a link that named msvcprt.lib instead).
+    let source = msvc_library("libcpmt.lib");
+    println!("cargo:rerun-if-changed={}", source.display());
+    rewrite_runtime_directives(&source, &rewritten.join("dxc-libcpmt.lib"));
+    println!("cargo:rustc-link-lib=static:+verbatim=dxc-libcpmt.lib");
+    match crt {
+        WindowsCrt::LinkedIn | WindowsCrt::FullyStatic => {
+            if crt == WindowsCrt::LinkedIn {
+                // The rest is said by the directives in src/boundary.rs: vcruntime from its
+                // static library, and none of the default libraries that would bring a second
+                // copy of anything.
+                println!("cargo:rustc-cfg=windows_crt_linked_in");
+            } else {
+                // winpthread, in the renderer's GCC runtime, starts its threads through the
+                // UCRT's import pointers, which a statically linked UCRT does not have.
+                println!(
+                    "cargo:rustc-link-lib=static:+whole-archive,+verbatim=dxc-windows-static-ucrt.lib"
+                );
+            }
+        }
+        WindowsCrt::Dynamic => {
+            // vcruntime from VCRUNTIME140.dll, and no stock static runtime beside it: see the
+            // directives in src/boundary.rs.
+            println!("cargo:rustc-cfg=windows_crt_dynamic");
+        }
+    }
+
+    // What Skia, the window, the toasts and the Kotlin runtime call into. All of them are
+    // part of Windows; nothing here is a DLL an application would have to carry.
+    for library in [
+        "user32",
+        "gdi32",
+        "ole32",
+        "oleaut32",
+        "imm32",
+        "uiautomationcore",
+        "d3d12",
+        "dxgi",
+        "d3dcompiler",
+        "dxguid",
+        "dwrite",
+        "usp10",
+        "fontsub",
+        "windowscodecs",
+        "opengl32",
+        "advapi32",
+        "shell32",
+        "bcrypt",
+        "runtimeobject",
+    ] {
+        println!("cargo:rustc-link-lib=dylib={library}");
+    }
+    // The MSVC runtime's spellings of what MinGW code asks for: POSIX names such as `write`,
+    // and the printf family, which the UCRT defines only inline in its headers.
+    println!("cargo:rustc-link-lib=oldnames");
+    println!("cargo:rustc-link-lib=legacy_stdio_definitions");
+    println!("cargo:rustc-cfg=renderer_linked");
+}
+
+/// Copies a prebuilt MSVC library with its runtime directives blanked
+/// (`build/windows_crt.rs`), or stops the build naming it when it was built against a
+/// runtime that cannot share an executable with the others.
+fn rewrite_runtime_directives(source: &Path, destination: &Path) {
+    let mut bytes = match std::fs::read(source) {
+        Ok(bytes) => bytes,
+        Err(error) => panic!(
+            "\n\ncompose-rust: could not read {}: {error}\n\n\
+             renderer/desktop/scripts/build-windows.sh writes every library the \
+             Windows renderer links; build the renderer again.\n\n",
+            source.display()
+        ),
+    };
+    let found = blank_runtime_directives(&mut bytes);
+    if !found.unreconcilable.is_empty() {
+        panic!(
+            "\n\n{}\n\n",
+            unreconcilable_message(source, &found.unreconcilable)
+        );
+    }
+    if let Err(error) = std::fs::write(destination, &bytes) {
+        panic!(
+            "\n\ncompose-rust: could not write {}: {error}\n\n",
+            destination.display()
+        );
+    }
+}
+
+/// A library from the MSVC installation the application is being built with.
+fn msvc_library(name: &str) -> PathBuf {
+    let mut tools = Vec::new();
+    if let Some(dir) = std::env::var_os("VCToolsInstallDir") {
+        tools.push(PathBuf::from(dir));
+    }
+    tools.extend(visual_studio_tools());
+    let mut xwin = Vec::new();
+    if let Some(dir) = std::env::var_os("XWIN_DIR") {
+        xwin.push(PathBuf::from(dir));
+    }
+    if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
+        let home = PathBuf::from(home);
+        xwin.push(home.join(".cache/cargo-xwin/xwin"));
+        xwin.push(home.join("Library/Caches/cargo-xwin/xwin"));
+    }
+    let lib = std::env::var("LIB").ok();
+    find_msvc_library(name, lib.as_deref(), &tools, &xwin).unwrap_or_else(|| {
+        panic!(
+            "\n\ncompose-rust: could not find {name}, the MSVC library the Windows renderer \
+             links the C++ standard library from.\n\n\
+             It is part of Visual Studio's C++ build tools (\"Desktop development with C++\"), \
+             which linking any Rust program for Windows already needs. It was looked for on \
+             LIB, under VCToolsInstallDir, in the newest Visual Studio vswhere reports, and \
+             where cargo-xwin keeps the MSVC libraries.\n\n"
+        )
+    })
+}
+
+/// The MSVC tool directory of the newest Visual Studio with the C++ tools, as vswhere finds
+/// it. Empty where there is no vswhere, which is every machine but a Windows one.
+fn visual_studio_tools() -> Vec<PathBuf> {
+    let vswhere = PathBuf::from(
+        std::env::var_os("ProgramFiles(x86)").unwrap_or_else(|| "C:\\Program Files (x86)".into()),
+    )
+    .join("Microsoft Visual Studio")
+    .join("Installer")
+    .join("vswhere.exe");
+    if !vswhere.is_file() {
+        return Vec::new();
+    }
+    let Ok(output) = Command::new(&vswhere)
+        .args([
+            "-latest",
+            "-products",
+            "*",
+            "-requires",
+            "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+            "-property",
+            "installationPath",
+        ])
+        .output()
+    else {
+        return Vec::new();
+    };
+    let installation = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if installation.is_empty() {
+        return Vec::new();
+    }
+    let installation = PathBuf::from(installation);
+    let version_file = installation
+        .join("VC")
+        .join("Auxiliary")
+        .join("Build")
+        .join("Microsoft.VCToolsVersion.default.txt");
+    match std::fs::read_to_string(version_file) {
+        Ok(version) => vec![
+            installation
+                .join("VC")
+                .join("Tools")
+                .join("MSVC")
+                .join(version.trim()),
+        ],
+        Err(_) => Vec::new(),
+    }
 }
 
 /// A variable under its current name, or under the name it had before the project was
