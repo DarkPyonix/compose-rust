@@ -12,7 +12,7 @@ set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 script="$repo/renderer/scripts/build-compose.sh"
 fork="$(sed -n 's/^FORK="\(.*\)"$/\1/p' "$script")"
-revision="$(sed -n 's/^REVISION="\([0-9a-f]\{40\}\)"$/\1/p' "$script")"
+revision="$(sed -n 's/^WINDOW_REVISION="\([0-9a-f]\{40\}\)"$/\1/p' "$script")"
 if [[ -z "$fork" || -z "$revision" ]]; then
     echo "error: $script names no FORK or no 40 character REVISION to fetch" >&2
     exit 1
