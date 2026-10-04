@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+<<<<<<< HEAD
 ### The macOS renderer no longer links the Java toolkit's window code
 
 The macOS native image does not force-load the toolkit's `libawt_lwawt` archive, its

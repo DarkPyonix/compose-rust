@@ -219,6 +219,12 @@ void dxc_native_set_accessibility(const struct dxc_element *elements, int32_t co
     });
 }
 
+/** No paste waits on this desktop: a paste is read through the clipboard call. Present because the shared Kotlin names it. */
+int32_t dxc_native_take_paste(char *out, int32_t capacity) {
+    (void)out; (void)capacity;
+    return 0;
+}
+
 /**
  * What is on the clipboard, copied into [out], and its length.
  *
@@ -439,6 +445,10 @@ static NSString *dxc_marked_text;
  * and to the one holding focus, and a plain NSView answers none of them; everything here
  * turns one into a record and puts it on the queue above.
  */
+// Where the caret is in the scene, in pixels from the top left, for the candidate window.
+static float dxc_ime_spot_x;
+static float dxc_ime_spot_y;
+
 // The paths of the files last dragged over the window, NUL separated.
 static NSString *dxc_dropped_paths;
 
@@ -709,7 +719,10 @@ void dxc_native_set_cursor(int32_t shape) {
 // boundary; until it is asked for, the top left of the view keeps the list on screen and
 // near enough to read, which is better than the bottom of the display.
 - (NSRect)firstRectForCharacterRange:(NSRange)range actualRange:(NSRangePointer)actualRange {
-    NSRect local = NSMakeRect(0, 0, 1, 20);
+    // Where the caret is, so the input method's candidate window opens beside what is
+    // being typed. The renderer reports it in the scene's pixels.
+    CGFloat scale = self.window.backingScaleFactor > 0 ? self.window.backingScaleFactor : 1;
+    NSRect local = NSMakeRect(dxc_ime_spot_x / scale, dxc_ime_spot_y / scale, 1, 20);
     NSRect windowRect = [self convertRect:local toView:nil];
     return [self.window convertRectToScreen:windowRect];
 }
@@ -1196,4 +1209,30 @@ void dxc_native_debug_key(void *window_pointer, int32_t key_code, const char *ch
         }
     }
     });
+}
+
+/** What a button of the application's own caption asks: 0 minimises, 1 zooms, 2 closes. */
+void dxc_native_window_action(int32_t action) {
+    dxc_on_main(^{
+    @autoreleasepool {
+        NSWindow *window = NSApp.mainWindow ?: NSApp.windows.firstObject;
+        switch (action) {
+            case 0: [window miniaturize:nil]; break;
+            case 1: [window zoom:nil]; break;
+            case 2: [window performClose:nil]; break;
+            default: break;
+        }
+    }
+    });
+}
+
+/** The system moves and sizes this window itself, so nothing is asked of it. */
+void dxc_native_window_begin_drag(int32_t edge) {
+    (void)edge;
+}
+
+/** Says where the caret is, in pixels from the window's top left. */
+void dxc_native_set_ime_spot(float x, float y) {
+    dxc_ime_spot_x = x;
+    dxc_ime_spot_y = y;
 }

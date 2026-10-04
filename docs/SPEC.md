@@ -2061,6 +2061,25 @@ if design.is_apple() {
 5. 선택 영역 안의 버튼은 눌리고, 선택에 들어가지 않습니다.
 6. 데스크톱 셋에서 단축키와 우클릭 메뉴 양쪽으로 복사됩니다. 모바일의 길게 누르기는 수동 확인입니다(§6과 같은 방식으로 기록).
 
+#### 33.1 우클릭 메뉴: 기본은 OS 메뉴, 앱이 덮어쓰면 그것 하나
+
+> [user] 2026-10-05 결정(리더 전달): 기본값은 OS 네이티브 메뉴이고, 앱이 표준 확장점으로 덮어쓰면 네이티브 메뉴 없이 그것만 보여 줍니다.
+
+- **기본값은 그 OS의 메뉴입니다.** macOS는 `NSMenu`, Windows와 Linux는 각 OS의 메뉴입니다. OS 메뉴를 쓰면 macOS의 서비스와 찾아보기 같은 시스템 항목과 그 플랫폼의 모양이 그대로 따라옵니다.
+- **새 API를 만들지 않습니다.** Compose의 표준 확장점인 `LocalContextMenuRepresentation`과 `LocalTextContextMenu`의 기본값을 OS 메뉴 구현으로 바꿔 제공합니다.
+- **앱이 덮어쓰면 그것 하나만 뜹니다.** 앱이 `CompositionLocalProvider`로 `ContextMenuRepresentation`이나 `TextContextMenu`를 직접 정하면(자체 디자인의 메뉴), OS 메뉴는 띄우지 않고 앱이 정한 것만 보여 줍니다.
+- **메뉴는 어느 경우에도 하나입니다.** OS 메뉴와 Compose 메뉴가 함께 뜨는 일은 없습니다.
+- **항목은 두 방식에 똑같이 들어갑니다.** `ContextMenuDataProvider`로 더한 항목과 텍스트의 잘라내기, 복사, 붙여넣기, 전체 선택이 OS 메뉴와 Compose 메뉴에 같은 순서와 같은 사용 가능 상태로 들어갑니다.
+- 이 구현은 포크(`compose-multiplatform-core-extended`)의 창 공통 로직에 두고, GraalVM 경로와 Kotlin/Native 경로가 같은 결과를 내는지 일치 시험으로 확인합니다.
+
+수용 기준:
+1. 기본 상태에서 입력란과 `SelectionContainer` 안의 글자를 우클릭하면 OS 메뉴 하나가 뜹니다. macOS는 화면 캡처로 `NSMenu`임을 확인합니다.
+2. 앱이 `LocalContextMenuRepresentation`이나 `LocalTextContextMenu`를 덮어쓴 샘플에서는 앱이 정한 메뉴 하나만 뜨고 OS 메뉴는 뜨지 않습니다. 화면 캡처로 확인합니다.
+3. 두 경우 모두 우클릭 한 번에 메뉴 요청이 정확히 하나입니다. 메뉴 요청 수를 세는 시험으로 확인합니다.
+4. `ContextMenuDataProvider` 항목과 텍스트 항목(잘라내기, 복사, 붙여넣기, 전체 선택)이 두 방식에서 같은 순서와 같은 사용 가능 상태입니다. 항목 목록을 비교하는 시험으로 확인합니다.
+5. 같은 장면에서 GraalVM 경로와 Kotlin/Native 경로가 같은 항목과 같은 메뉴 종류를 냅니다(일치 시험).
+6. 실제 OS 메뉴의 모양과 시스템 항목(서비스, 찾아보기)은 기기에서 손으로 확인합니다.
+
 ### FR-36 OS 알림 (`Draft`)
 
 창 밖에서 사용자를 부르는 것입니다. 요청한 앱(Ember)에서는 "세션이 끝났습니다"와 "승인을 기다리고 있습니다" 둘이고, 둘 다 사용자가 다른 창에 가 있을 때 의미가 있습니다. 그 플랫폼의 알림으로 나와야 합니다. macOS 알림 센터(`UNUserNotificationCenter`), Windows 토스트(앱 알림), Linux 데스크톱 알림(`org.freedesktop.Notifications`), iOS(`UNUserNotificationCenter`), Android(`NotificationManager`), 그리고 브라우저(Web Notifications API)입니다.
