@@ -176,7 +176,7 @@ internal class XimContext private constructor(
     fun close() {
         XDestroyIC(context)
         XCloseIM(method)
-        for (callback in callbacks) nativeHeap.free(callback)
+        for (callback in callbacks) nativeHeap.free(callback.rawValue)
         state.dispose()
     }
 
@@ -268,7 +268,7 @@ internal class XimContext private constructor(
             }
             if (context == null) {
                 XCloseIM(method)
-                for (callback in callbacks) nativeHeap.free(callback)
+                for (callback in callbacks) nativeHeap.free(callback.rawValue)
                 state.dispose()
                 return null
             }
