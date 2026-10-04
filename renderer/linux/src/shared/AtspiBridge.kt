@@ -1,0 +1,1 @@
+../../../desktop/src/renderer/AtspiBridge.kt

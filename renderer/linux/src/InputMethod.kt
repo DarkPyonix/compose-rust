@@ -221,30 +221,3 @@ internal fun isUtf8Locale(name: String?): Boolean {
 
 private const val FIRST_PRINTABLE = 32
 private const val DELETE_CHARACTER = 0x7F
-
-internal fun StringBuilder.appendPoint(point: Int) {
-    if (point < 0x10000) {
-        append(point.toChar())
-    } else {
-        val offset = point - 0x10000
-        append((0xD800 + (offset shr 10)).toChar())
-        append((0xDC00 + (offset and 0x3FF)).toChar())
-    }
-}
-
-/** The code points of a string, with a pair of surrogates read as the one character it is. */
-internal fun codePointsOf(text: String): List<Int> {
-    val points = ArrayList<Int>(text.length)
-    var index = 0
-    while (index < text.length) {
-        val unit = text[index]
-        if (unit.isHighSurrogate() && index + 1 < text.length && text[index + 1].isLowSurrogate()) {
-            points += 0x10000 + ((unit.code - 0xD800) shl 10) + (text[index + 1].code - 0xDC00)
-            index += 2
-        } else {
-            points += unit.code
-            index += 1
-        }
-    }
-    return points
-}
