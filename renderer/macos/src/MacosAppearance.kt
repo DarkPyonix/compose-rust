@@ -2,16 +2,25 @@
 
 package dev.darkpyonix.composerust.ui.platform
 
-import platform.AppKit.NSApplication
+import platform.AppKit.NSAppearance
 import platform.AppKit.NSAppearanceNameAqua
 import platform.AppKit.NSAppearanceNameDarkAqua
-import platform.Foundation.NSKeyValueObservingOptionNew
-import platform.Foundation.addObserver
-import platform.darwin.NSObject
+import platform.AppKit.NSApplication
+import platform.Foundation.NSDistributedNotificationCenter
+import platform.Foundation.NSOperationQueue
+import platform.darwin.DISPATCH_TIME_NOW
+import platform.darwin.NSEC_PER_MSEC
+import platform.darwin.dispatch_after
+import platform.darwin.dispatch_get_main_queue
+import platform.darwin.dispatch_time
+
+// The operating system calls only. What a change means, and what is done about it, is
+// decided by SystemDarkMonitor in WindowParity.kt.
 
 /** The application's effective appearance, read now. */
 internal fun systemIsDark(): Boolean {
-    val appearance = NSApplication.sharedApplication().effectiveAppearance
+    val appearance = NSApplication.sharedApplication().valueForKey("effectiveAppearance") as? NSAppearance
+        ?: return false
     val best = appearance.bestMatchFromAppearancesWithNames(
         listOf(NSAppearanceNameAqua, NSAppearanceNameDarkAqua),
     ) as? String
@@ -19,31 +28,25 @@ internal fun systemIsDark(): Boolean {
 }
 
 /**
- * Watches `effectiveAppearance` of the application with key-value observing, which is the
- * one signal that fires for the switch in System Settings, the automatic day and night
- * change, and an appearance the application was given.
+ * Calls [onChange] when the system's light or dark setting changes.
+ *
+ * Listens for the system-wide interface theme notification, which is sent for the switch
+ * in System Settings and for the automatic day and night change. It can arrive before the
+ * application's own appearance has caught up, so [onChange] is called again shortly after;
+ * the monitor ignores a repeat that changes nothing.
  */
 internal fun observeSystemAppearance(onChange: () -> Unit) {
-    val observer = AppearanceObserver(onChange)
-    NSApplication.sharedApplication().addObserver(
-        observer,
-        forKeyPath = "effectiveAppearance",
-        options = NSKeyValueObservingOptionNew,
-        context = null,
-    )
-    // Held for the life of the process: the application does not retain its observers.
-    retainedObservers += observer
-}
-
-private val retainedObservers = mutableListOf<AppearanceObserver>()
-
-private class AppearanceObserver(private val onChange: () -> Unit) : NSObject() {
-    override fun observeValueForKeyPath(
-        keyPath: String?,
-        ofObject: Any?,
-        change: Map<Any?, *>?,
-        context: kotlinx.cinterop.COpaquePointer?,
-    ) {
-        if (keyPath == "effectiveAppearance") onChange()
+    NSDistributedNotificationCenter.defaultCenter.addObserverForName(
+        name = "AppleInterfaceThemeChangedNotification",
+        `object` = null,
+        queue = NSOperationQueue.mainQueue,
+    ) { _ ->
+        onChange()
+        for (delayMillis in listOf(150L, 750L)) {
+            dispatch_after(
+                dispatch_time(DISPATCH_TIME_NOW, delayMillis * NSEC_PER_MSEC.toLong()),
+                dispatch_get_main_queue(),
+            ) { onChange() }
+        }
     }
 }
