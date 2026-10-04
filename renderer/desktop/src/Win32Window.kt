@@ -556,6 +556,9 @@ private fun drawFrame(
         return null
     }
     val surfaced = System.nanoTime()
+    // Diagnostic only: a vivid fill under the scene, so a capture can tell a frame whose
+    // content was late (this colour shows) from one never presented (black shows).
+    if (RESIZE_DIAG) surface.canvas.clear(RESIZE_DIAG_COLOR)
     scene.render(surface.canvas.asComposeCanvas(), nanos)
     val rendered = System.nanoTime()
     // Submitted, not only recorded. Skia's Direct3D backend keeps the frame in a command
@@ -583,5 +586,10 @@ private fun drawFrame(
 private const val NANOS_PER_MILLI = 1_000_000L
 
 private val REPORT_LATENCY = System.getenv("DXC_REPORT_LATENCY") != null
+
+// Off unless DXC_RESIZE_DIAG=1. Cyan: unlike the magenta wallpaper and the black of an
+// unpainted window, and unlike any app background.
+private val RESIZE_DIAG = System.getenv("DXC_RESIZE_DIAG") == "1"
+private const val RESIZE_DIAG_COLOR = 0xFF00FFFF.toInt()
 private const val FRAME_SECONDS = 0.016
 private const val FRAME_NANOS = 16_000_000L
