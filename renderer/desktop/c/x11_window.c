@@ -355,6 +355,59 @@ void dxc_native_install_menu(const char *application_name) {
     (void)application_name;
 }
 
+/*
+ * Measuring aids of the AppKit window, named because the Kotlin that drives every desktop
+ * names them and answered here by doing nothing: a drag cannot be scripted from inside
+ * this window, and nothing asks for it to be.
+ */
+void dxc_native_debug_resize(void *window_pointer, void *view_pointer, int32_t from_width,
+                             int32_t from_height, int32_t to_width, int32_t to_height,
+                             int32_t steps, int32_t pause_micros) {
+    (void)window_pointer; (void)view_pointer; (void)from_width; (void)from_height;
+    (void)to_width; (void)to_height; (void)steps; (void)pause_micros;
+}
+
+void dxc_native_debug_key(void *window_pointer, int32_t key_code, const char *characters) {
+    (void)window_pointer; (void)key_code; (void)characters;
+}
+
+/*
+ * Asked for by name by the window code every desktop shares, and answered here by saying
+ * nothing: this window takes its options another way, has no strip of the system's to
+ * measure, and reads no list of dropped paths from the platform.
+ */
+void dxc_native_window_configure(
+    int32_t resizable,
+    int32_t min_width,
+    int32_t min_height,
+    int32_t system_chrome,
+    int32_t backdrop
+) {
+    (void)resizable;
+    (void)min_width;
+    (void)min_height;
+    (void)system_chrome;
+    (void)backdrop;
+}
+
+void dxc_native_window_caption(void *view_pointer, float *height, float *buttons_width) {
+    (void)view_pointer;
+    *height = 0;
+    *buttons_width = 0;
+}
+
+void dxc_native_set_icon(const uint8_t *rgba, int32_t width, int32_t height) {
+    (void)rgba;
+    (void)width;
+    (void)height;
+}
+
+int32_t dxc_native_dropped_paths(char *out, int32_t capacity) {
+    (void)out;
+    (void)capacity;
+    return 0;
+}
+
 void dxc_native_set_draw_callback(void *callback, void *isolate_thread) {
     (void)callback;
     (void)isolate_thread;
