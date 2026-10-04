@@ -551,8 +551,10 @@ private fun drawFrame(
         org.jetbrains.skia.SurfaceProps(org.jetbrains.skia.PixelGeometry.RGB_H),
     )
     if (surface == null) {
+        // Not ended: ending transitions the texture from render target to present, and
+        // Skia never put it in render target, so that barrier would be invalid.
+        System.err.println("compose-rust: resize-mode: skipped frame ${fitted.width}x${fitted.height} because Skia made no surface")
         target.close()
-        window.endFrame()
         return null
     }
     val surfaced = System.nanoTime()
