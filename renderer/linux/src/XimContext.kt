@@ -353,7 +353,9 @@ internal class XimContext private constructor(
                     length = draw.chg_length,
                     text = draw.text?.pointed?.let { text ->
                         if (text.encoding_is_wchar != 0) {
-                            wideString(text.string.wide_char, text.length.toInt())
+                            // wchar_t is a signed 32-bit int on x86-64 Linux and unsigned on arm64, so
+                            // cinterop types it differently per target; both are 32-bit code points.
+                            wideString(text.string.wide_char?.reinterpret<IntVar>(), text.length.toInt())
                         } else {
                             text.string.multi_byte?.toKString() ?: ""
                         }
