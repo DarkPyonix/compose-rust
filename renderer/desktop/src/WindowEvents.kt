@@ -54,6 +54,13 @@ data class WindowEvent(
         const val FILES_ENTERED = 10
         const val FILES_DROPPED = 11
         const val FILES_EXITED = 12
+
+        // An input method's preedit callbacks as the X11 window heard them: a composition began,
+        // a run of characters was replaced (first in `keyCode`, how many in `codePoint`, the caret
+        // in `x`, the new characters in `text`), and the composition ended.
+        const val PREEDIT_START = 13
+        const val PREEDIT_DRAW = 14
+        const val PREEDIT_DONE = 15
     }
 }
 

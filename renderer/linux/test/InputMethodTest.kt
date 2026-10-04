@@ -148,7 +148,7 @@ class InputMethodTest {
     /** What a person typing in English gets: the same key event it always was. */
     @Test
     fun fr5_a_plain_ascii_key_keeps_carrying_its_character() {
-        val events = keyEventsFor(true, 0u, XK_a.toULong(), "a")
+        val events = keyEventsFor(true, 0, XK_a.toLong(), "a")
         assertEquals(1, events.size)
         assertEquals(WindowEvent.KEY_DOWN, events[0].kind)
         assertEquals('a'.code, events[0].codePoint)
@@ -158,13 +158,13 @@ class InputMethodTest {
     /** A committed word has no key behind it, so it is text and only text. */
     @Test
     fun fr5_a_commit_the_input_method_forwards_is_text_without_a_key() {
-        val events = keyEventsFor(true, 0u, 0UL, "한글")
+        val events = keyEventsFor(true, 0, 0L, "한글")
         assertEquals(listOf(commitKind to "한글"), events.summary())
     }
 
     @Test
     fun fr5_a_key_with_a_non_ascii_character_is_committed_and_also_a_key() {
-        val events = keyEventsFor(true, 0u, XK_a.toULong(), "é")
+        val events = keyEventsFor(true, 0, XK_a.toLong(), "é")
         assertEquals(WindowEvent.KEY_DOWN, events[0].kind)
         assertEquals(0, events[0].codePoint, "the character is text, not part of the key")
         assertEquals(commitKind to "é", events[1].kind to events[1].text)
@@ -172,25 +172,25 @@ class InputMethodTest {
 
     @Test
     fun fr5_a_control_character_is_a_key_and_never_text() {
-        val enter = keyEventsFor(true, 0u, XK_Return.toULong(), "\r")
+        val enter = keyEventsFor(true, 0, XK_Return.toLong(), "\r")
         assertEquals(1, enter.size)
         assertEquals(0, enter[0].codePoint)
-        val backspace = keyEventsFor(true, 0u, XK_BackSpace.toULong(), "\u0008")
+        val backspace = keyEventsFor(true, 0, XK_BackSpace.toLong(), "\u0008")
         assertEquals(1, backspace.size)
         assertEquals(0, backspace[0].codePoint)
-        val delete = keyEventsFor(true, 0u, 0UL, "\u007F")
+        val delete = keyEventsFor(true, 0, 0L, "\u007F")
         assertTrue(delete.none { it.kind == commitKind })
     }
 
     @Test
     fun fr5_a_shortcut_never_commits_text() {
-        val events = keyEventsFor(true, ControlMask.toUInt(), XK_a.toULong(), "é")
+        val events = keyEventsFor(true, ControlMask, XK_a.toLong(), "é")
         assertEquals(listOf(WindowEvent.KEY_DOWN), events.map { it.kind })
     }
 
     @Test
     fun fr5_a_release_is_a_release_and_carries_no_text() {
-        val events = keyEventsFor(false, ShiftMask.toUInt(), XK_a.toULong(), "A")
+        val events = keyEventsFor(false, ShiftMask, XK_a.toLong(), "A")
         assertEquals(listOf(WindowEvent.KEY_UP), events.map { it.kind })
         assertEquals("", events[0].text)
     }

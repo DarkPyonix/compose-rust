@@ -113,6 +113,7 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
         systemChrome = options.systemChrome,
         backdrop = false,
     )
+    val x11Events = X11Events(::resetInputMethod)
     val window = openX11Window(options.title, options.width, options.height)
     if (window == null) {
         System.err.println("compose-rust: X11 or a GLX visual is unavailable")
@@ -214,7 +215,7 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
             work.runPending()
             var heard = false
             var drew = false
-            for (event in drainWindowEvents().map { it.fromX11() }) {
+            for (event in drainWindowEvents().flatMap { x11Events.heard(it) }) {
                 if (report && event.kind != WindowEvent.POINTER_MOVE) {
                     System.err.println("compose-rust: window heard $event")
                 }

@@ -668,7 +668,7 @@ internal class LinuxWindow private constructor(
         val press = event.type == KeyPress
         val keysym = XLookupKeysym(event.xkey.ptr, 0)
         val typed = if (!press) "" else xim?.lookup(event) ?: latinText(event)
-        return keyEventsFor(press, event.xkey.state, keysym, typed)
+        return keyEventsFor(press, event.xkey.state.toInt(), keysym.toLong(), typed)
     }
 
     /** What the key types without an input method: Latin-1, as `XLookupString` answers. */

@@ -39,16 +39,48 @@ internal fun x11KeyNumber(keysym: Long): Int {
 }
 
 /**
- * A record from the X11 window, with the keysym and state word it carries turned into the
- * shared numbering. Every other record passes through unchanged, apart from its modifiers.
+ * What the X11 window's records become for the scene.
+ *
+ * The window records what the server and the input method said as it was said: a key as a
+ * keysym, a state word and the text it typed, and the preedit callbacks as they came. The two
+ * windows on X11 then turn that into events with the same code, `keyEventsFor` and [ImeSession],
+ * so the key and the composition mean the same on the native image and on Kotlin/Native.
+ *
+ * [resetInput] ends the input method's composition and answers what it kept. It is asked when
+ * a button goes down while something is being composed, because a click ends the composition
+ * and keeps what was typed, which is what the other desktops' input methods do.
  */
-internal fun WindowEvent.fromX11(): WindowEvent {
-    val numbered = if (kind == WindowEvent.KEY_DOWN || kind == WindowEvent.KEY_UP) {
-        x11KeyNumber(keyCode.toLong() and 0xFFFFFFFFL)
-    } else {
-        keyCode
+internal class X11Events(private val resetInput: () -> String) {
+    private val pending = ArrayList<WindowEvent>()
+    private val ime = ImeSession { pending += it }
+
+    fun heard(raw: WindowEvent): List<WindowEvent> {
+        pending.clear()
+        when (raw.kind) {
+            WindowEvent.KEY_DOWN, WindowEvent.KEY_UP -> pending += keyEventsFor(
+                press = raw.kind == WindowEvent.KEY_DOWN,
+                state = raw.modifiers,
+                keysym = raw.keyCode.toLong() and 0xFFFFFFFFL,
+                text = raw.text,
+            )
+            WindowEvent.PREEDIT_START -> ime.preeditStart()
+            WindowEvent.PREEDIT_DRAW -> ime.preeditDraw(
+                first = raw.keyCode,
+                length = raw.codePoint,
+                text = raw.text,
+                caret = raw.x.toInt(),
+            )
+            WindowEvent.PREEDIT_DONE -> ime.preeditDone()
+            else -> {
+                if (raw.kind == WindowEvent.POINTER_DOWN && ime.composing) {
+                    val kept = resetInput()
+                    if (kept.isNotEmpty()) ime.commit(kept) else ime.preeditDone()
+                }
+                pending += raw.copy(modifiers = x11Modifiers(raw.modifiers))
+            }
+        }
+        return ArrayList(pending)
     }
-    return copy(keyCode = numbered, modifiers = x11Modifiers(modifiers))
 }
 
 /**

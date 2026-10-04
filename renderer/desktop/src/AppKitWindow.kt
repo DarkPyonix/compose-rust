@@ -140,6 +140,9 @@ private external fun droppedPaths(out: Pointer?, capacity: Int): Int
 @CFunction("dxc_native_set_ime_spot")
 private external fun setImeSpot(x: Float, y: Float)
 
+@CFunction("dxc_native_ime_reset")
+private external fun resetInputContext(out: Pointer?, capacity: Int): Int
+
 @CFunction("dxc_native_window_action")
 private external fun windowAction(action: Int)
 
@@ -445,6 +448,23 @@ fun installApplicationMenu(name: String) {
         holder.close()
     }
 }
+
+/**
+ * Ends what the input method is composing and answers the text it kept, or empty where it kept
+ * none. Only the X11 window has a composition of its own to end.
+ */
+internal fun resetInputMethod(): String {
+    val buffer = StackValue.get<Pointer>(RESET_BYTES)
+    val length = resetInputContext(buffer, RESET_BYTES)
+    if (length <= 0) return ""
+    val bytes = ByteArray(length)
+    for (index in 0 until length) {
+        bytes[index] = buffer.readByte(index)
+    }
+    return String(bytes, Charsets.UTF_8)
+}
+
+private const val RESET_BYTES = 256
 
 /** What is on the clipboard, or empty where it holds something that is not text. */
 fun readClipboard(): String {

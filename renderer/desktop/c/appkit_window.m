@@ -1230,3 +1230,12 @@ void dxc_native_set_ime_spot(float x, float y) {
     dxc_ime_spot_x = x;
     dxc_ime_spot_y = y;
 }
+
+/**
+ * Ends what the input method is composing and answers what it kept. Nothing here to end: this
+ * desktop's input method hands over whole strings and holds no composition of its own.
+ */
+int32_t dxc_native_ime_reset(char *out, int32_t capacity) {
+    (void)out; (void)capacity;
+    return 0;
+}
