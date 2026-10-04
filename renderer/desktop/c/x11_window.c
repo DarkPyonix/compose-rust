@@ -158,6 +158,8 @@ static Atom dxc_a_xdnd_aware, dxc_a_xdnd_enter, dxc_a_xdnd_position, dxc_a_xdnd_
 static char *dxc_clip_text;
 static size_t dxc_clip_length;
 static int dxc_owns_clipboard;
+static int dxc_owns_primary;
+#define DXC_PASTE_BYTES 65536
 
 // Set from any thread to ask the window to come forward; acted on in the next turn, which
 // is on the thread Xlib is used from.
@@ -454,15 +456,18 @@ static unsigned char *dxc_read_property(Window window, Atom property, unsigned l
     return data;
 }
 
-/** The clipboard's text as UTF-8 copied into [out], and its length; zero where none. */
-int32_t dxc_native_clipboard_read(char *out, int32_t capacity) {
+/**
+ * The text of [selection] as UTF-8 copied into [out], and its length; zero where none.
+ * [owned] says this window holds the selection, in which case its own copy answers.
+ */
+static int32_t dxc_read_selection(Atom selection, int owned, char *out, int32_t capacity) {
     if (dxc_display == NULL) return 0;
-    if (dxc_owns_clipboard && dxc_clip_text != NULL) {
+    if (owned && dxc_clip_text != NULL) {
         if ((int32_t)dxc_clip_length > capacity) return 0;
         memcpy(out, dxc_clip_text, dxc_clip_length);
         return (int32_t)dxc_clip_length;
     }
-    XConvertSelection(dxc_display, dxc_a_clipboard, dxc_a_utf8, dxc_a_property, dxc_window,
+    XConvertSelection(dxc_display, selection, dxc_a_utf8, dxc_a_property, dxc_window,
                       CurrentTime);
     XFlush(dxc_display);
     // The owner answers with an event, which this waits for without reading the others:
@@ -493,6 +498,11 @@ int32_t dxc_native_clipboard_read(char *out, int32_t capacity) {
     return 0;
 }
 
+/** The clipboard's text as UTF-8 copied into [out], and its length; zero where none. */
+int32_t dxc_native_clipboard_read(char *out, int32_t capacity) {
+    return dxc_read_selection(dxc_a_clipboard, dxc_owns_clipboard, out, capacity);
+}
+
 /** Puts [text] on the clipboard and the primary selection, and answers for them. */
 void dxc_native_clipboard_write(const char *text) {
     if (dxc_display == NULL || text == NULL) return;
@@ -504,6 +514,7 @@ void dxc_native_clipboard_write(const char *text) {
     XSetSelectionOwner(dxc_display, dxc_a_clipboard, dxc_window, CurrentTime);
     XSetSelectionOwner(dxc_display, dxc_a_primary, dxc_window, CurrentTime);
     dxc_owns_clipboard = 1;
+    dxc_owns_primary = 1;
     XFlush(dxc_display);
 }
 
@@ -860,6 +871,17 @@ static void dxc_pump_events(void) {
                     int32_t bit = button == 1 ? 1 : button == 3 ? 2 : button == 2 ? 4 : 0;
                     if (event.type == ButtonPress) record.buttons |= bit;
                     else record.buttons &= ~bit;
+                    if (event.type == ButtonPress && button == 2) {
+                        // The middle button pastes the primary selection, the way every X
+                        // program does: what was last selected, with no copy asked for.
+                        record.modifiers = dxc_modifiers(event.xbutton.state);
+                        dxc_push_event(record);
+                        static char pasted[DXC_PASTE_BYTES];
+                        int32_t length = dxc_read_selection(dxc_a_primary, dxc_owns_primary,
+                                                            pasted, DXC_PASTE_BYTES);
+                        if (length > 0) dxc_push_text(DXC_EVENT_TEXT_COMMIT, pasted, (size_t)length);
+                        continue;
+                    }
                 }
                 record.modifiers = dxc_modifiers(event.xbutton.state);
                 break;
@@ -884,6 +906,16 @@ static void dxc_pump_events(void) {
                         memcpy(bytes, converted, (size_t)length);
                         count = length;
                     }
+                }
+                if (symbol == XK_Insert && (event.xkey.state & (ShiftMask | ControlMask)) == ShiftMask) {
+                    // Shift and Insert paste the clipboard on every X desktop. The shared key
+                    // reader has no Insert key, so the paste is made here, as typed text.
+                    if (event.type == KeyPress) {
+                        static char pasted[DXC_PASTE_BYTES];
+                        int32_t length = dxc_native_clipboard_read(pasted, DXC_PASTE_BYTES);
+                        if (length > 0) dxc_push_text(DXC_EVENT_TEXT_COMMIT, pasted, (size_t)length);
+                    }
+                    continue;
                 }
                 record.kind = event.type == KeyPress ? DXC_EVENT_KEY_DOWN : DXC_EVENT_KEY_UP;
                 record.key_code = dxc_key_code(symbol);
@@ -913,7 +945,8 @@ static void dxc_pump_events(void) {
                 dxc_answer_selection_request(&event.xselectionrequest);
                 continue;
             case SelectionClear:
-                dxc_owns_clipboard = 0;
+                if (event.xselectionclear.selection == dxc_a_clipboard) dxc_owns_clipboard = 0;
+                if (event.xselectionclear.selection == dxc_a_primary) dxc_owns_primary = 0;
                 continue;
             case SelectionNotify:
                 if (event.xselection.selection == dxc_a_xdnd_selection) {

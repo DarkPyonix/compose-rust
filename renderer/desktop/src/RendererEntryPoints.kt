@@ -5,7 +5,6 @@ package dev.darkpyonix.composerust.ui.platform
 import org.graalvm.nativeimage.IsolateThread
 import org.graalvm.nativeimage.c.function.CEntryPoint
 import org.graalvm.nativeimage.c.type.CCharPointer
-import org.graalvm.nativeimage.c.function.CFunction
 import org.graalvm.nativeimage.c.type.CTypeConversion
 import dev.darkpyonix.composerust.ui.platform.NativeHostConnection
 import dev.darkpyonix.composerust.ui.platform.bringNativeWindowToFront
@@ -27,13 +26,6 @@ import dev.darkpyonix.composerust.ui.platform.runX11Window
 // `checkNotNullParameter` call for every non-null reference parameter, and that call would
 // pass the word value as an Object.
 
-// Implemented in the C shim this library is entered through, which is the only code that
-// can put a layer behind the window: the window belongs to it. Declared here rather than
-// beside the renderer so that a development run on a JVM, which has no shim and no such
-// window, never loads a GraalVM type.
-@CFunction("dxc_set_window_material")
-private external fun setWindowMaterial(asked: Int)
-
 @CEntryPoint(name = "compose_rust_renderer_run_impl")
 fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
     try {
@@ -44,10 +36,6 @@ fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
         // same symbols, so the one compiled into an image is the one that can be reached:
         // which platform this is decides, and nothing is read from the environment.
         val platform = System.getProperty("os.name", "")
-        // Linux still opens the toolkit's window unless asked for the X11 one: that window
-        // is finished but its typing, clipboard and input method have not been checked on a
-        // real desktop, so it is not the default yet.
-        val linuxOwnWindow = platform.startsWith("Linux") && System.getenv("DXC_X11_WINDOW") != null
         val autoExitMillis =
             (System.getenv("COMPOSE_RUST_AUTOEXIT_MS") ?: System.getenv("DIOXUS_COMPOSE_AUTOEXIT_MS"))
                 ?.toLongOrNull()
@@ -61,18 +49,16 @@ fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
                 NativeDesktopNotifications()
             platform.startsWith("Linux") -> DBusNotifications(
                 open = { JvmBusConnection.open(wake = FrameRequests::request) },
-                bringToFront = if (linuxOwnWindow) ::bringNativeWindowToFront else ::bringAwtWindowToFront,
+                bringToFront = ::bringNativeWindowToFront,
                 applicationName = JvmBusConnection.applicationName(),
             )
             else -> UnsupportedNotifications
         }
-        // A window of our own means there is no display for the toolkit to open. Saying so up
-        // front keeps it from being woken: on macOS it would ask the main thread to run the
-        // application, and this thread is the one drawing the frames, so that request would
-        // be delivered on the first frame and never come back.
-        if (!platform.startsWith("Linux") || linuxOwnWindow) {
-            System.setProperty("java.awt.headless", "true")
-        }
+        // Every desktop opens a window of its own, so there is no display for the toolkit to
+        // open. Saying so up front keeps it from being woken: on macOS it would ask the main
+        // thread to run the application, and this thread is the one drawing the frames, so
+        // that request would be delivered on the first frame and never come back.
+        System.setProperty("java.awt.headless", "true")
         when {
             platform.startsWith("Mac") -> {
                 runAppKitWindow(autoExitMillis)
@@ -82,20 +68,13 @@ fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
                 runWin32Window(autoExitMillis)
                 return@rendererRun 0
             }
-            linuxOwnWindow -> {
+            platform.startsWith("Linux") -> {
                 runX11Window(autoExitMillis)
                 return@rendererRun 0
             }
         }
-        dev.darkpyonix.composerust.ui.node.platformWindowMaterial = { asked ->
-            setWindowMaterial(if (asked) 1 else 0)
-        }
-        dev.darkpyonix.composerust.runtime.platformBacksWindowWithMaterial = { false }
-        // The toolkit's window, which Linux still opens by default.
-        runRenderer(autoExitMillis) {
-            NativeHostConnection()
-        }
-        0
+        System.err.println("compose-rust: there is no window for the platform \"$platform\"")
+        1
     } catch (t: Throwable) {
         // Nothing may unwind across the C boundary: a Kotlin exception crossing into C is
         // undefined behaviour, and a protocol error must never abort the process. Report it
@@ -108,22 +87,4 @@ fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
 fun rendererRequestFrame(thread: IsolateThread?) {
     dev.darkpyonix.composerust.ui.platform.LatencyTrace.mark("request_frame")
     FrameRequests.request()
-}
-
-/**
- * Brings the application's window up for a press on a notification's body: back from
- * being minimised, and in front of the others.
- *
- * On the toolkit's thread, because that is the only thread a toolkit window may be touched
- * from, and a press is reported from wherever the bus was read.
- */
-private fun bringAwtWindowToFront() {
-    java.awt.EventQueue.invokeLater {
-        val window = java.awt.Window.getWindows().firstOrNull { it.isVisible } ?: return@invokeLater
-        if (window is java.awt.Frame) {
-            window.extendedState = window.extendedState and java.awt.Frame.ICONIFIED.inv()
-        }
-        window.toFront()
-        window.requestFocus()
-    }
 }

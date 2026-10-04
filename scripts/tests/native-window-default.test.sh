@@ -17,17 +17,11 @@ fail() { echo "FAIL: $1"; status=1; }
 
 [[ -f "$kotlin" && -f "$entry" ]] || { echo "FAIL: the entry points are missing"; exit 1; }
 
-# Linux is the exception while its window waits for a check on a real desktop: it opens the
-# toolkit's unless DXC_X11_WINDOW asks, and that one variable is read in RendererEntryPoints.kt
-# alone. The flip removes this allowance.
-if grep -rnE "DXC_(APPKIT|WIN32)_WINDOW|DXC_X11_WINDOW" "$repo_root/renderer" --include='*.kt' --include='*.c' --include='*.m' --include='*.sh' --include='*.ps1' | grep -v 'RendererEntryPoints.kt\|Win32Window.kt\|X11Window.kt' | grep -q .; then
-    fail "something besides the entry point reads a DXC_*_WINDOW variable"
-fi
-if grep -rnE "DXC_(APPKIT|WIN32)_WINDOW" "$repo_root/renderer" --include='*.kt' --include='*.c' --include='*.m' --include='*.sh' --include='*.ps1' >/dev/null; then
+if grep -rnE "DXC_(APPKIT|WIN32|X11)_WINDOW" "$repo_root/renderer" --include='*.kt' --include='*.c' --include='*.m' --include='*.sh' --include='*.ps1' >/dev/null; then
     fail "something still reads a DXC_*_WINDOW variable, so the window depends on the environment"
 fi
 
-for pair in 'Mac:runAppKitWindow' 'Windows:runWin32Window'; do
+for pair in 'Mac:runAppKitWindow' 'Windows:runWin32Window' 'Linux:runX11Window'; do
     platform="${pair%%:*}"
     function="${pair##*:}"
     if ! grep -Eq "platform\.startsWith\(\"$platform\"\) -> \{" "$kotlin" || ! grep -q "$function(" "$kotlin"; then
@@ -36,13 +30,14 @@ for pair in 'Mac:runAppKitWindow' 'Windows:runWin32Window'; do
 done
 
 # From the choice of window to the end of it there must be no environment read.
-choice="$(grep -v 'linuxOwnWindow = ' "$kotlin" | awk '/when \{/ && !seen && /./ {on=0} /System.setProperty\("java.awt.headless"/{on=1} on{print} /^    \} catch/{exit}')"
+choice="$(awk '/when \{/ && !seen && /./ {on=0} /System.setProperty\("java.awt.headless"/{on=1} on{print} /^    \} catch/{exit}' "$kotlin")"
 if grep -q 'getenv' <<< "$choice"; then
     fail "the choice of window reads the environment"
 fi
 
-if ! grep -q 'linuxOwnWindow ->' "$kotlin" || ! grep -q 'runX11Window(' "$kotlin"; then
-    fail "RendererEntryPoints.kt no longer reaches the X11 window"
+# The toolkit's window is not an option on any desktop any more.
+if grep -qE 'runRenderer\(' "$kotlin"; then
+    fail "RendererEntryPoints.kt still falls back to the toolkit's window"
 fi
 
 if grep -q 'compose_rust_park_main_thread\|dxc_unify_titlebars\|DXC_APPKIT\|dxc_reclaim_caption\|SunAwtFrame' "$entry"; then
