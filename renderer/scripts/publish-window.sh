@@ -39,8 +39,14 @@ cp "$window/project.yaml" "$window/project.yaml.all"
 trap 'mv "$window/project.yaml.all" "$window/project.yaml"' EXIT
 
 cd "$window"
+# Kotlin/Native has no compiler for an arm64 Linux host, so only the JVM artifacts can be built
+# there, and those are all the GraalVM image needs.
+platform_args=()
+if [[ "$(uname -s)" == "Linux" && "$(uname -m)" != "x86_64" ]]; then
+    platform_args=(-p jvm)
+fi
 case "$(uname -s)" in
-    MINGW*|MSYS*|CYGWIN*) cmd //c kotlin.bat publish mavenLocal ;;
-    *) ./kotlin publish mavenLocal ;;
+    MINGW*|MSYS*|CYGWIN*) cmd //c kotlin.bat publish mavenLocal ${platform_args[@]+"${platform_args[@]}"} ;;
+    *) ./kotlin publish mavenLocal ${platform_args[@]+"${platform_args[@]}"} ;;
 esac
 echo "published the window modules from $fork_dir"
