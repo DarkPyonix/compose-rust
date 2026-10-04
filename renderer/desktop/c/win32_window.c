@@ -1412,8 +1412,14 @@ static int dxc_scaled(HWND window, int dip) {
 }
 
 /** How far a maximised window hangs off every edge of its monitor. */
-static int dxc_maximised_overhang(void) {
-    return GetSystemMetrics(SM_CYSIZEFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
+static int dxc_maximised_overhang(HWND window) {
+    // At the window's own DPI: GetSystemMetrics answers for the primary monitor's, which
+    // is wrong on a monitor of another scale.
+    UINT dpi = GetDpiForWindow(window);
+    if (dpi == 0) {
+        dpi = USER_DEFAULT_SCREEN_DPI;
+    }
+    return GetSystemMetricsForDpi(SM_CYSIZEFRAME, dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
 }
 
 static LRESULT dxc_caption_hit_test(HWND window, LPARAM lparam) {
@@ -1430,7 +1436,7 @@ static LRESULT dxc_caption_hit_test(HWND window, LPARAM lparam) {
     }
     // The top resize band was in the non-client area this window gave up, so nothing else
     // will answer for it. A window that cannot be resized has no such band.
-    int band = dxc_maximised_overhang();
+    int band = dxc_maximised_overhang(window);
     if (dxc_options.resizable && !IsZoomed(window) && point.y < frame.top + band) {
         return HTTOP;
     }
@@ -1544,7 +1550,7 @@ static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM
         NCCALCSIZE_PARAMS *params = (NCCALCSIZE_PARAMS *)lparam;
         LONG requested_top = params->rgrc[0].top;
         DefWindowProcW(window, message, wparam, lparam);
-        params->rgrc[0].top = IsZoomed(window) ? requested_top + dxc_maximised_overhang()
+        params->rgrc[0].top = IsZoomed(window) ? requested_top + dxc_maximised_overhang(window)
                                                : requested_top;
         return 0;
     }
