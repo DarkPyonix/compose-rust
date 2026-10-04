@@ -70,9 +70,6 @@ jobs:
       - name: Build the renderer shared library
         run: ./renderer/desktop/scripts/build-native.sh
 
-      - name: Accessibility classes are linked in
-        run: ./scripts/tests/renderer/accessibility-link.test.sh
-
       - name: Smoke test
         env:
           COMPOSE_RUST_AUTOEXIT_MS: '5000'

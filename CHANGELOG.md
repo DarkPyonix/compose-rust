@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### The macOS renderer no longer links the Java toolkit's window code
+
+The macOS native image does not force-load the toolkit's `libawt_lwawt` archive, its
+accessibility class roots, or the input method and accessibility reachability features: the
+AppKit window handles text input and accessibility itself. The divider's resize pointer is an
+icon of our own on macOS. Windows and Linux still open the toolkit's window by default, so
+their sources and the shared reachability metadata stay as they are until those windows
+become the default (#134 for Windows, #160 for Linux).
+
 ### The native-image renderer opens its own window on macOS
 
 On the GraalVM native-image path, macOS now opens the AppKit window the renderer makes
