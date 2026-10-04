@@ -54,6 +54,9 @@ data class WindowEvent(
         const val FILES_ENTERED = 10
         const val FILES_DROPPED = 11
         const val FILES_EXITED = 12
+
+        /** A context menu item was chosen; [keyCode] carries which, as a [TextCommand] id. */
+        const val MENU_COMMAND = 13
     }
 }
 
@@ -87,6 +90,9 @@ internal fun ComposeScene.receive(event: WindowEvent, win32: Boolean = false) {
                 isShiftPressed = event.modifiers and (if (win32) 1 else MODIFIER_SHIFT) != 0,
             ),
         )
+
+        WindowEvent.MENU_COMMAND -> TextCommand.fromId(event.keyCode)
+            ?.perform(commandKey = !win32) { sendKeyEvent(it) }
 
         WindowEvent.POINTER_MOVE -> sendPointerEvent(
             eventType = PointerEventType.Move,

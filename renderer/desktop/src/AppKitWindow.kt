@@ -119,6 +119,9 @@ private external fun clipboardWrite(text: CCharPointer?)
 @CFunction("dxc_native_install_menu")
 private external fun installMenu(name: CCharPointer?)
 
+@CFunction("dxc_native_set_text_menu")
+private external fun setTextMenu(spec: CCharPointer?)
+
 @CFunction("dxc_native_window_configure")
 private external fun configureWindow(
     resizable: Int,
@@ -394,6 +397,21 @@ fun installApplicationMenu(name: String) {
     }
 }
 
+/**
+ * Tells the window what its text context menu holds.
+ *
+ * Described here and drawn there, so the list, the labels and the order are the ones the
+ * Kotlin/Native macOS window shows too. Chosen items come back as menu command events.
+ */
+fun installTextMenu() {
+    val holder = CTypeConversion.toCString(textMenuSpec(textContextMenu(clipboardHasText = true)))
+    try {
+        setTextMenu(holder.get())
+    } finally {
+        holder.close()
+    }
+}
+
 /** What is on the clipboard, or empty where it holds something that is not text. */
 fun readClipboard(): String {
     val buffer = StackValue.get<Pointer>(CLIPBOARD_BYTES)
@@ -584,6 +602,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
         }
     }
     installApplicationMenu(asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust")
+    installTextMenu()
 
     val started = System.nanoTime()
     var iconId = 0
