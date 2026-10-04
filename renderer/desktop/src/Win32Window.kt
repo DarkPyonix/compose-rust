@@ -391,7 +391,9 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
     var nanos = 0L
     var painted = false
     var drew = false
+    val experiment = GcExperiment.fromEnvironment()
     Win32Frames.paint = {
+        experiment?.frameBegin()
         // The scene's own work first. A list that asked for rows on the last frame wants
         // them in hand before this one is measured, and during a drag of the window's
         // edge this is the only place that runs at all.
@@ -407,6 +409,7 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
             LatencyTrace.mark("draw end ${at.width}x${at.height}")
         }
         LatencyTrace.frameDrawn(System.nanoTime() - begun)
+        experiment?.frameEnd(size.width, size.height)
     }
     registerFrameCallback()
     val started = System.nanoTime()
@@ -470,6 +473,9 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
                     (size.width / scale).toInt() to (size.height / scale).toInt(),
                     360 to 420, 60, 8_000,
                 )
+            }
+            if (experiment != null && experiment.due(System.nanoTime())) {
+                experiment.run { from, to, steps -> window.scriptedResize(from, to, steps, 0) }
             }
             synthetic?.keysDue(System.nanoTime())?.let { (code, character) ->
                 LatencyTrace.mark("synthetic key '$character' posted")
