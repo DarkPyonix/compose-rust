@@ -255,17 +255,20 @@ jobs:
           du -sh renderer/build/windows
 
       - name: Build hand-check against the renderer
+        # A debug build, as check-windows-consumer.sh makes: the release link of the
+        # Kotlin/Native object fails with LNK1223 (invalid .pdata contributions), which is
+        # the renderer object's problem and not this measurement's.
         run: |
           set -euo pipefail
           export DXC_WINDOWS_NATIVE_LIB="$(cygpath -w "$PWD/renderer/build/windows")"
-          cargo build --release --manifest-path compose-rust/tests/fixtures/hand-check/Cargo.toml
+          cargo build --manifest-path compose-rust/tests/fixtures/hand-check/Cargo.toml
 
       - name: Package hand-check for a check by hand
         run: |
           set -euo pipefail
           package="$(cygpath -u "$RUNNER_TEMP")/hand-check-windows"
           mkdir -p "$package"
-          cp compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe "$package/"
+          cp compose-rust/tests/fixtures/hand-check/target/debug/hand-check.exe "$package/"
           cat > "$package/README.txt" <<'TEXT'
           hand-check, Kotlin/Native renderer, resize frames on the CPU (commit ${{ github.sha }})
 
@@ -299,7 +302,7 @@ jobs:
           DXC_PIXEL_COMPARE: '1'
         run: |
           ./.github/scripts/resize-metrics-run.sh \
-            compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe \
+            compose-rust/tests/fixtures/hand-check/target/debug/hand-check.exe \
             "$(cygpath -u "$RUNNER_TEMP")/resize-metrics" windows-kn
           cat "$(cygpath -u "$RUNNER_TEMP")/resize-metrics/windows-kn.md" >> "$GITHUB_STEP_SUMMARY"
 
@@ -358,12 +361,12 @@ jobs:
         run: |
           set -euo pipefail
           export DXC_MACOS_NATIVE_LIB="$PWD/renderer/build/macos"
-          cargo build --release --manifest-path compose-rust/tests/fixtures/hand-check/Cargo.toml
+          cargo build --manifest-path compose-rust/tests/fixtures/hand-check/Cargo.toml
 
       - name: Scripted resize, measured
         run: |
           ./.github/scripts/resize-metrics-run.sh \
-            compose-rust/tests/fixtures/hand-check/target/release/hand-check \
+            compose-rust/tests/fixtures/hand-check/target/debug/hand-check \
             "$RUNNER_TEMP/resize-metrics" macos-kn
           cat "$RUNNER_TEMP/resize-metrics/macos-kn.md" >> "$GITHUB_STEP_SUMMARY"
 
