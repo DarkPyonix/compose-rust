@@ -18,17 +18,20 @@
 set -euo pipefail
 
 # The commit, not the branch. A branch that moves is a build that changes for a reason
-# nobody chose here. This one is the `extended` branch of the fork, which is JetBrains
-# release/1.11 at 73ac849 with the Linux targets, the native text context menu and the
-# published version on top, then the design systems under extended/design-systems, the mingwX64
-# target of every module (which a macOS or Linux build has no use for and does not build), the
-# AWT-free clipboard, and the window modules under extended/window. Those are what the renderer
-# depends on besides Compose: publish-window.sh builds them from this same commit and
-# scripts/fetch-fork-window.sh gives the build the C of the GraalVM windows.
+# nobody chose here. This one is JetBrains release/1.11 at 73ac849 with the Linux targets,
+# the native text context menu and the published version on top (c396dcf), then the design
+# systems under extended/design-systems, which this build does not read and
+# scripts/fetch-design-systems.sh does. Nothing else: the commits after it on `extended` add a
+# mingwX64 target to every module's build, and a Compose build for macOS or Linux then fails
+# resolving skiko for mingwX64, which only the fork's own Windows build publishes.
 # compose-fork.changes lists what this commit must hold at every path it changes, and
 # scripts/tests/compose-fork.test.sh checks it.
 FORK="https://github.com/thisisthepy/compose-multiplatform-core-extended.git"
-REVISION="bcf6a47b783982131e47d770fbbe7d68505d4139"
+REVISION="02ff96c42a412d8eded411d48c56da131f570af6"
+# The window modules and skiko's static build are newer than that and are not Compose sources:
+# the renderer builds them from this commit (scripts/fetch-fork-window.sh and fetch-fork-skiko.sh)
+# into artifacts of its own, so they move without moving the Compose build above.
+WINDOW_REVISION="bcf6a47b783982131e47d770fbbe7d68505d4139"
 PUBLISHED_AS="1.11.1"
 # Material 3 is versioned on its own line and the renderer asks for it by that version, so
 # publishing it as the others would leave a coordinate nobody looks for.
