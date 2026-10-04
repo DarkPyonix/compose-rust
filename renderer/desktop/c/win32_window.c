@@ -164,8 +164,16 @@ static int32_t dxc_presented_height;
 // DXC_REPORT_LATENCY: each resize step prints how long the refit, the draw, the present
 // and the DwmFlush took together.
 static int dxc_report_latency;
-// The longest a resize step may hold WM_SIZE before DwmFlush is skipped.
+// A resize step that takes longer than this is logged. It is not cut short: returning
+// before the frame is presented and flushed lets DWM show the resized redirection surface,
+// which is black, so a slow step is slow rather than wrong.
 #define DXC_RESIZE_STEP_CAP_MS 100.0
+// Where the time of the step in flight went, in ms, for DXC_REPORT_LATENCY.
+static double dxc_step_gpu_idle_ms;
+static double dxc_step_refit_ms;
+static double dxc_step_draw_ms;
+static double dxc_step_present_ms;
+static LARGE_INTEGER dxc_step_mark;
 
 // A frame, asked for by the window rather than by the loop that usually draws them.
 //
@@ -1390,14 +1398,12 @@ static void dxc_draw_resize(int32_t width, int32_t height) {
     dxc_resize_target_width = width;
     dxc_resize_target_height = height;
     dxc_resizing = 1;
+    dxc_step_gpu_idle_ms = dxc_step_refit_ms = dxc_step_draw_ms = dxc_step_present_ms = 0.0;
     dxc_draw_one_frame();
     dxc_resizing = 0;
     int presented = dxc_presented_width == width && dxc_presented_height == height;
     double drawn_ms = dxc_elapsed_ms(started);
-    int flushed = 0;
-    if (presented && drawn_ms < DXC_RESIZE_STEP_CAP_MS) {
-        flushed = dxc_dwm_flush();
-    }
+    int flushed = presented ? dxc_dwm_flush() : 0;
     double total_ms = dxc_elapsed_ms(started);
     if (total_ms >= DXC_RESIZE_STEP_CAP_MS) {
         fprintf(stderr, "compose-rust: resize step %dx%d hit the %.0f ms cap (%.2f ms)\n",
@@ -1405,9 +1411,11 @@ static void dxc_draw_resize(int32_t width, int32_t height) {
     }
     if (dxc_report_latency) {
         fprintf(stderr,
-                "compose-rust: resize step %dx%d %s, %s, took %.2f ms (refit, draw, present, DwmFlush)\n",
+                "compose-rust: resize step %dx%d %s, %s, took %.2f ms: gpu idle %.2f, refit %.2f, "
+                "draw %.2f, present %.2f, DwmFlush %.2f\n",
                 (int)width, (int)height, presented ? "presented" : "not presented",
-                flushed ? "flushed" : "not flushed", total_ms);
+                flushed ? "flushed" : "not flushed", total_ms, dxc_step_gpu_idle_ms,
+                dxc_step_refit_ms, dxc_step_draw_ms, dxc_step_present_ms, total_ms - drawn_ms);
     }
 }
 
@@ -2494,7 +2502,10 @@ int32_t dxc_native_frame_begin(void *swapchain_pointer, void **texture_out) {
         //
         // Nothing may still be reading the buffers when they are let go, and a swapchain
         // refuses to be refitted while anything holds one.
+        LARGE_INTEGER refit_started;
+        QueryPerformanceCounter(&refit_started);
         dxc_wait_for_gpu();
+        dxc_step_gpu_idle_ms = dxc_elapsed_ms(refit_started);
         dxc_release_buffers();
         HRESULT resized = IDXGISwapChain3_ResizeBuffers(
             swapchain, DXC_BUFFER_COUNT, (UINT)wanted_width, (UINT)wanted_height,
@@ -2511,6 +2522,7 @@ int32_t dxc_native_frame_begin(void *swapchain_pointer, void **texture_out) {
             return 2;
         }
         dxc_resize_fitted(&dxc_sizing, wanted_width, wanted_height);
+        dxc_step_refit_ms = dxc_elapsed_ms(refit_started) - dxc_step_gpu_idle_ms;
     }
 
     dxc_frame_index = IDXGISwapChain3_GetCurrentBackBufferIndex(swapchain);
@@ -2518,6 +2530,9 @@ int32_t dxc_native_frame_begin(void *swapchain_pointer, void **texture_out) {
         return 3;
     }
     *texture_out = (void *)dxc_buffers[dxc_frame_index];
+    // From here until dxc_native_frame_end is the renderer's: the Skia surface, the
+    // scene's layout and drawing, and its submit.
+    QueryPerformanceCounter(&dxc_step_mark);
     return 0;
 }
 
@@ -2533,6 +2548,9 @@ void dxc_native_frame_end(void *queue_pointer) {
     // barrier says it is coming from. The Kotlin side declares the buffer to Skia as
     // being ready to present, which is what it is put back to here, so the two
     // descriptions stay true of the same buffer frame after frame.
+    dxc_step_draw_ms = dxc_elapsed_ms(dxc_step_mark);
+    LARGE_INTEGER present_started;
+    QueryPerformanceCounter(&present_started);
     ID3D12CommandAllocator_Reset(dxc_allocator);
     ID3D12GraphicsCommandList_Reset(dxc_commands, dxc_allocator, NULL);
     D3D12_RESOURCE_BARRIER barrier;
@@ -2570,7 +2588,7 @@ void dxc_native_frame_end(void *queue_pointer) {
 
     // The next frame will paint into a buffer this one may still be reading from, and a
     // swapchain two buffers deep comes back around immediately.
-    dxc_wait_for_gpu();
+    dxc_wait_for_gpu();    dxc_step_present_ms = dxc_elapsed_ms(present_started);
 }
 
 /** Says where the caret is, in pixels from the window's top left. */

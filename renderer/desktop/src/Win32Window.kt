@@ -518,6 +518,7 @@ private fun drawFrame(
 ): IntSize? {
     val resource = window.beginFrame()
     if (resource == 0L) return null
+    val began = System.nanoTime()
     // After the buffer and not before it, because that is where a swapchain waiting to be
     // refitted is refitted, and what is measured here is the buffer that came back.
     val measured = window.measure()
@@ -554,7 +555,9 @@ private fun drawFrame(
         window.endFrame()
         return null
     }
+    val surfaced = System.nanoTime()
     scene.render(surface.canvas.asComposeCanvas(), nanos)
+    val rendered = System.nanoTime()
     // Submitted, not only recorded. Skia's Direct3D backend keeps the frame in a command
     // list of its own, and a buffer presented before that list runs is a buffer with
     // nothing in it: on macOS the same mistake made the window come up black with the
@@ -562,6 +565,15 @@ private fun drawFrame(
     surface.flushAndSubmit(true)
     surface.close()
     target.close()
+    if (REPORT_LATENCY) {
+        val submitted = System.nanoTime()
+        System.err.println(
+            "compose-rust: frame ${fitted.width}x${fitted.height} drawn: surface " +
+                "%.2f ms, layout and draw %.2f ms, flush and GPU %.2f ms".format(
+                    (surfaced - began) / 1e6, (rendered - surfaced) / 1e6, (submitted - rendered) / 1e6,
+                ),
+        )
+    }
     // Waits for the screen, so there is no sleep after this: presenting with an interval
     // of one is what paces a frame that was drawn.
     window.endFrame()
@@ -569,5 +581,7 @@ private fun drawFrame(
 }
 
 private const val NANOS_PER_MILLI = 1_000_000L
+
+private val REPORT_LATENCY = System.getenv("DXC_REPORT_LATENCY") != null
 private const val FRAME_SECONDS = 0.016
 private const val FRAME_NANOS = 16_000_000L
