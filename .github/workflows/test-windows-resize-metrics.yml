@@ -260,14 +260,54 @@ jobs:
           export DXC_WINDOWS_NATIVE_LIB="$(cygpath -w "$PWD/renderer/build/windows")"
           cargo build --release --manifest-path compose-rust/tests/fixtures/hand-check/Cargo.toml
 
+      - name: Package hand-check for a check by hand
+        run: |
+          set -euo pipefail
+          package="$(cygpath -u "$RUNNER_TEMP")/hand-check-windows"
+          mkdir -p "$package"
+          cp compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe "$package/"
+          cat > "$package/README.txt" <<'TEXT'
+          hand-check, Kotlin/Native renderer, resize frames on the CPU (commit ${{ github.sha }})
+
+          Run from PowerShell in this folder, keeping the log:
+
+              $env:DXC_REPORT_LATENCY = "1"
+              .\hand-check.exe 2>&1 | Tee-Object hand-check.log
+
+          Then check by eye, at 100% and at 200% display scale:
+            1. Drag the right edge out and back in, slowly and fast.
+            2. Drag the bottom-right corner diagonally out and back in.
+            3. Maximise, restore, and snap to half the screen (Win+Left).
+            4. Move the window to the other monitor, back again, then repeat 1 to 3.
+          A pass is no black, no transparent area and no stretched picture at any edge, in
+          any frame. Send hand-check.log with the verdict. To compare with GPU-only resize
+          frames, run again with $env:DXC_RASTER_RESIZE = "0".
+          TEXT
+          sed -i 's/^          //' "$package/README.txt"
+
+      - name: Keep the package
+        id: package
+        uses: actions/upload-artifact@v4
+        with:
+          name: hand-check-windows-kn
+          path: ${{ runner.temp }}/hand-check-windows/
+          retention-days: 30
+
       - name: Scripted resize, measured
         env:
           DXC_D3D12_WARP: '1'
+          DXC_PIXEL_COMPARE: '1'
         run: |
           ./.github/scripts/resize-metrics-run.sh \
             compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe \
             "$(cygpath -u "$RUNNER_TEMP")/resize-metrics" windows-kn
           cat "$(cygpath -u "$RUNNER_TEMP")/resize-metrics/windows-kn.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: CPU and GPU frames must match
+        run: |
+          log="$(cygpath -u "$RUNNER_TEMP")/resize-metrics/windows-kn.log"
+          grep "pixel-compare" "$log" || { echo "no pixel comparison ran" >&2; exit 1; }
+          ! grep -q "pixel-compare verdict FAIL" "$log"
 
       - name: Keep the logs
         if: always()

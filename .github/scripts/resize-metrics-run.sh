@@ -27,7 +27,15 @@ summary="$out/$label.md"
     echo "### $label"
     echo
     echo '```'
-    grep -E "metrics (phase|memory)|swapchain|isolate options|resize priority" "$log" || echo "(no phase lines: see $label.log)"
+    grep -E "metrics (phase|memory)|swapchain|isolate options|resize priority|pixel-compare|resize frames|raster bitmap" "$log" || echo "(no phase lines: see $label.log)"
+    echo '```'
+    echo
+    echo "GPU/CPU switches: $(grep -c 'resize-mode: frames ' "$log")"
+    echo
+    echo '```'
+    grep 'resize-mode: frames ' "$log" | head -6
+    echo '...'
+    grep 'resize-mode: frames ' "$log" | tail -4
     echo '```'
     echo
     echo "| frames in drag | median ms | p95 ms | max ms | frames > 16.7 ms | GCs in drag | GC pause ms in drag |"
