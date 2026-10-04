@@ -188,6 +188,23 @@ static void dxc_mode(const char *what, const char *from, const char *to, const c
     fprintf(stderr, "compose-rust: resize-mode: %s %s -> %s because %s\n", what, from, to, reason);
 }
 
+// Load resilience, compared with DXC_RESIZE_PRIORITY: unset, the documented-safe ones are
+// on (UI thread above normal during a drag, a high priority command queue); "0" turns
+// everything off; "1" also raises the GPU thread priority of the Direct3D 11 device,
+// which the docs warn can slow rendering if misused, so it is never on by default.
+static int dxc_priority_level = -1;
+
+static int dxc_priority(void) {
+    if (dxc_priority_level < 0) {
+        const char *asked = getenv("DXC_RESIZE_PRIORITY");
+        dxc_priority_level = asked == NULL ? 1 : (asked[0] == '0' ? 0 : (asked[0] == '1' ? 2 : 1));
+    }
+    return dxc_priority_level;
+}
+
+// The UI thread's priority before a drag raised it.
+static int dxc_thread_priority_before = THREAD_PRIORITY_ERROR_RETURN;
+
 // The last WM_SIZE kind, for logging maximise, minimise and restore.
 static WPARAM dxc_last_size_kind = SIZE_RESTORED;
 
@@ -1566,12 +1583,22 @@ static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM
         // loop does not return until the reader lets go.
         dxc_resize_begin_drag(&dxc_sizing);
         dxc_mode("size-move", "off", "on", "WM_ENTERSIZEMOVE");
+        // Each step of the drag has to be drawn and presented before DWM shows the new
+        // size, so the thread doing it should not lose the CPU to background load.
+        if (dxc_priority() >= 1) {
+            dxc_thread_priority_before = GetThreadPriority(GetCurrentThread());
+            SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+        }
         return 0;
     case WM_EXITSIZEMOVE:
         // Let go. The frame loop has its turns back, so a size arriving after this is
         // written down and taken by the next frame.
         dxc_resize_end_drag(&dxc_sizing);
         dxc_mode("size-move", "on", "off", "WM_EXITSIZEMOVE");
+        if (dxc_thread_priority_before != THREAD_PRIORITY_ERROR_RETURN) {
+            SetThreadPriority(GetCurrentThread(), dxc_thread_priority_before);
+            dxc_thread_priority_before = THREAD_PRIORITY_ERROR_RETURN;
+        }
         return 0;
     case WM_IME_STARTCOMPOSITION:
         dxc_ime_composing = 1;
@@ -2463,9 +2490,18 @@ int32_t dxc_native_window_open(
     memset(&queue_description, 0, sizeof queue_description);
     queue_description.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
     queue_description.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+    // High, not global realtime: only realtime needs privileges.
+    queue_description.Priority = dxc_priority() >= 1 ? D3D12_COMMAND_QUEUE_PRIORITY_HIGH
+                                                     : D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
     ID3D12CommandQueue *queue = NULL;
-    if (FAILED(ID3D12Device_CreateCommandQueue(device, &queue_description,
-                                               &IID_ID3D12CommandQueue, (void **)&queue))) {
+    HRESULT queued = ID3D12Device_CreateCommandQueue(device, &queue_description,
+                                                     &IID_ID3D12CommandQueue, (void **)&queue);
+    if (FAILED(queued) && queue_description.Priority != D3D12_COMMAND_QUEUE_PRIORITY_NORMAL) {
+        queue_description.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
+        queued = ID3D12Device_CreateCommandQueue(device, &queue_description,
+                                                 &IID_ID3D12CommandQueue, (void **)&queue);
+    }
+    if (FAILED(queued)) {
         ID3D12Device_Release(device);
         IDXGIAdapter1_Release(adapter);
         IDXGIFactory4_Release(factory);
@@ -2527,6 +2563,21 @@ int32_t dxc_native_window_open(
         return 7;
     }
     dxc_swapchain_flags = 0;
+    int gpu_priority_set = 0;
+    if (dxc_priority() >= 2) {
+        IDXGIDevice *dxgi_device = NULL;
+        if (SUCCEEDED(ID3D11Device_QueryInterface(d3d11, &IID_IDXGIDevice, (void **)&dxgi_device))) {
+            gpu_priority_set = SUCCEEDED(IDXGIDevice_SetGPUThreadPriority(dxgi_device, 5));
+            IDXGIDevice_Release(dxgi_device);
+        }
+    }
+    fprintf(stderr,
+            "compose-rust: resize priority: drag thread above normal %s, command queue %s, "
+            "GPU thread priority %s, nothing deferred (accessibility and IME updates already run "
+            "outside the resize step)\n",
+            dxc_priority() >= 1 ? "on" : "off",
+            queue_description.Priority == D3D12_COMMAND_QUEUE_PRIORITY_HIGH ? "high" : "normal",
+            gpu_priority_set ? "+5" : (dxc_priority() >= 2 ? "refused" : "off"));
     fprintf(stderr, "compose-rust: swapchain for the window, copy model (sequential), 1 buffer, STRETCH, %ux%u\n",
             pixel_width, pixel_height);
     // DXGI answers alt-enter by putting the window into its own idea of full screen,
