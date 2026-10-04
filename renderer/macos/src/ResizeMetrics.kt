@@ -78,11 +78,18 @@ internal object ResizeMetrics {
         lastEpoch = info.epoch
         collections += fresh
         // A collection stops the world once to mark and may stop it again to finish.
-        val second = info.secondPauseEndTimeNs?.let { end -> info.secondPauseStartTimeNs?.let { end - it } } ?: 0L
-        val pause = info.firstPauseEndTimeNs - info.firstPauseStartTimeNs + second
+        // Read through nullable locals so this holds whichever of them the runtime leaves unset.
+        val firstStart: Long? = info.firstPauseStartTimeNs
+        val firstEnd: Long? = info.firstPauseEndTimeNs
+        val secondStart: Long? = info.secondPauseStartTimeNs
+        val secondEnd: Long? = info.secondPauseEndTimeNs
+        val pause = span(firstStart, firstEnd) + span(secondStart, secondEnd)
         pauseNanos += pause
         return pause
     }
+
+    private fun span(start: Long?, end: Long?): Long =
+        if (start != null && end != null && end > start) end - start else 0L
 
     private var sink: Any? = null
 
