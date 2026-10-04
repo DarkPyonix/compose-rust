@@ -85,12 +85,12 @@ class NativeContextMenuTest {
 
         assertEquals(1, nativeRequests.size, "one right click, one menu")
         val labels = nativeRequests.single().map { it.label }
-        for (expected in listOf("Cut", "Copy", "Paste", "Select All")) {
+        for (expected in listOf("Cut", "Copy", "Paste", "Select all")) {
             assertTrue(expected in labels, "the menu offers $expected: $labels")
         }
         assertEquals(
-            listOf("Cut", "Copy", "Paste", "Select All"),
-            labels.filter { it in setOf("Cut", "Copy", "Paste", "Select All") },
+            listOf("Cut", "Copy", "Paste", "Select all"),
+            labels.filter { it in setOf("Cut", "Copy", "Paste", "Select all") },
             "in the order every other menu on the platform has them",
         )
     }
