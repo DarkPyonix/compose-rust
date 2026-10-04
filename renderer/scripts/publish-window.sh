@@ -39,14 +39,14 @@ cp "$window/project.yaml" "$window/project.yaml.all"
 trap 'mv "$window/project.yaml.all" "$window/project.yaml"' EXIT
 
 cd "$window"
-# Kotlin/Native has no compiler for an arm64 Linux host, so only the JVM artifacts can be built
-# there, and those are all the GraalVM image needs.
-platform_args=()
+# Kotlin/Native has no compiler for an arm64 Linux host, and the Kotlin toolchain has no way to
+# publish only some targets of a module, so there the common module is published for the JVM
+# alone. That is all the GraalVM image needs, and the fetched checkout is this script's own.
 if [[ "$(uname -s)" == "Linux" && "$(uname -m)" != "x86_64" ]]; then
-    platform_args=(-p jvm)
+    sed -i 's/^  platforms: \[.*\]$/  platforms: [ jvm ]/' "$window/common/module.yaml"
 fi
 case "$(uname -s)" in
-    MINGW*|MSYS*|CYGWIN*) cmd //c kotlin.bat publish mavenLocal ${platform_args[@]+"${platform_args[@]}"} ;;
-    *) ./kotlin publish mavenLocal ${platform_args[@]+"${platform_args[@]}"} ;;
+    MINGW*|MSYS*|CYGWIN*) cmd //c kotlin.bat publish mavenLocal ;;
+    *) ./kotlin publish mavenLocal ;;
 esac
 echo "published the window modules from $fork_dir"
