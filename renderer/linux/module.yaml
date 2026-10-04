@@ -9,13 +9,16 @@
 # distribution of it weighs is that runtime rather than anything drawn. It also carries AWT
 # and its X11 toolkit, which is a second window system underneath the one the renderer opens.
 #
+# arm64 is the same module for the other architecture. Kotlin/Native has no arm64 Linux
+# host, so it is cross compiled on x86-64, and the coordinates differ only in their suffix.
+#
 # The window is `src/LinuxWindow.kt`: Xlib, GLX and the sync extension reached through
 # `cinterop/x11.def`. Windows has no Kotlin/Native Compose target and keeps the native image
 # path, which is why `desktop/c/x11_window.c` is still there: Windows links it for the names
 # it answers, and it is the window the native image opens.
 product:
   type: lib
-  platforms: [ linuxX64 ]
+  platforms: [ linuxX64, linuxArm64 ]
 
 # Where the patched Compose comes from. Compose Multiplatform publishes no Kotlin/Native
 # target for Linux at all, so every module below is built from source here: a fork of Compose
@@ -37,6 +40,8 @@ repositories:
 # and `linux-native-window.test.sh` says so when they stop agreeing.
 dependencies:
   - $compose.runtime
+
+dependencies@linuxX64:
   - org.jetbrains.compose.animation:animation-linuxx64:1.11.1
   - org.jetbrains.compose.animation:animation-core-linuxx64:1.11.1
   - org.jetbrains.compose.foundation:foundation-linuxx64:1.11.1
@@ -51,6 +56,22 @@ dependencies:
   - org.jetbrains.compose.ui:ui-tooling-preview-linuxx64:1.11.1
   - org.jetbrains.compose.ui:ui-unit-linuxx64:1.11.1
   - org.jetbrains.compose.ui:ui-util-linuxx64:1.11.1
+
+dependencies@linuxArm64:
+  - org.jetbrains.compose.animation:animation-linuxarm64:1.11.1
+  - org.jetbrains.compose.animation:animation-core-linuxarm64:1.11.1
+  - org.jetbrains.compose.foundation:foundation-linuxarm64:1.11.1
+  - org.jetbrains.compose.foundation:foundation-layout-linuxarm64:1.11.1
+  - org.jetbrains.compose.material:material-ripple-linuxarm64:1.11.1
+  - org.jetbrains.compose.material3:material3-linuxarm64:1.11.0-alpha07
+  - org.jetbrains.compose.ui:ui-linuxarm64:1.11.1
+  - org.jetbrains.compose.ui:ui-backhandler-linuxarm64:1.11.1
+  - org.jetbrains.compose.ui:ui-geometry-linuxarm64:1.11.1
+  - org.jetbrains.compose.ui:ui-graphics-linuxarm64:1.11.1
+  - org.jetbrains.compose.ui:ui-text-linuxarm64:1.11.1
+  - org.jetbrains.compose.ui:ui-tooling-preview-linuxarm64:1.11.1
+  - org.jetbrains.compose.ui:ui-unit-linuxarm64:1.11.1
+  - org.jetbrains.compose.ui:ui-util-linuxarm64:1.11.1
 
 test-dependencies:
   - $kotlin.test

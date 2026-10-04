@@ -1,0 +1,10 @@
+# Connecting to a Unix domain socket, which is how the renderer reaches the session bus to
+# post a notification on Linux.
+#
+# Kotlin/Native's posix platform library for Linux does not declare `struct sockaddr_un`,
+# so the address is built in C through the system's own header. Reached through
+# `include/dxc_unix_socket.h` rather than by naming `sys/un.h`, for the reason
+# langinfo.def gives.
+package = unixsocket
+
+headers = dxc_unix_socket.h
