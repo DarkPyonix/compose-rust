@@ -51,6 +51,7 @@
 #include <d3d11on12.h>
 #include <ole2.h>
 #include <shellapi.h>
+#include <psapi.h>
 #include <uiautomation.h>
 #include <uiautomationcoreapi.h>
 #include <oleauto.h>
@@ -204,6 +205,48 @@ static int dxc_priority(void) {
 
 // The UI thread's priority before a drag raised it.
 static int dxc_thread_priority_before = THREAD_PRIORITY_ERROR_RETURN;
+
+// The draw texture's size, defined with the texture further down.
+static int32_t dxc_texture_width;
+static int32_t dxc_texture_height;
+
+// The adapter the device was made on, kept for asking it how much video memory is in use.
+static IDXGIAdapter1 *dxc_adapter;
+
+/** Megabytes of video memory this process uses in a segment group, or -1 where it cannot say. */
+static double dxc_video_mb(DXGI_MEMORY_SEGMENT_GROUP group) {
+    IDXGIAdapter3 *adapter3 = NULL;
+    double answer = -1.0;
+    if (dxc_adapter != NULL &&
+        SUCCEEDED(IDXGIAdapter1_QueryInterface(dxc_adapter, &IID_IDXGIAdapter3, (void **)&adapter3))) {
+        DXGI_QUERY_VIDEO_MEMORY_INFO info;
+        if (SUCCEEDED(IDXGIAdapter3_QueryVideoMemoryInfo(adapter3, 0, group, &info))) {
+            answer = (double)info.CurrentUsage / (1024.0 * 1024.0);
+        }
+        IDXGIAdapter3_Release(adapter3);
+    }
+    return answer;
+}
+
+/**
+ * One line of what this process holds, for measuring: working set and private bytes, and
+ * the video memory it uses on and off the adapter.
+ */
+void dxc_native_report_metrics(const char *label) {
+    PROCESS_MEMORY_COUNTERS_EX counters;
+    memset(&counters, 0, sizeof counters);
+    counters.cb = sizeof counters;
+    K32GetProcessMemoryInfo(GetCurrentProcess(), (PROCESS_MEMORY_COUNTERS *)&counters, sizeof counters);
+    fprintf(stderr,
+            "compose-rust: metrics memory %s working_set_mb=%.1f private_mb=%.1f "
+            "video_local_mb=%.1f video_nonlocal_mb=%.1f draw_texture=%dx%d\n",
+            label == NULL ? "" : label,
+            (double)counters.WorkingSetSize / (1024.0 * 1024.0),
+            (double)counters.PrivateUsage / (1024.0 * 1024.0),
+            dxc_video_mb(DXGI_MEMORY_SEGMENT_GROUP_LOCAL),
+            dxc_video_mb(DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL),
+            (int)dxc_texture_width, (int)dxc_texture_height);
+}
 
 // The adapter the Direct3D 12 device was made on, and the monitor the window was last on.
 static LUID dxc_device_luid;
@@ -2556,6 +2599,26 @@ int32_t dxc_native_window_open(
         IDXGIAdapter1_Release(adapter);
         adapter = NULL;
     }
+    // Unless whoever started this asked for the software one by name. A machine with no
+    // graphics card at all, a virtual machine or a CI runner, has nothing else, and there
+    // drawing slowly is the point: it is how a window that draws is told from one that does
+    // not where nobody is watching. Asked for, never fallen back to, for the reason above.
+    if (device == NULL) {
+        const char *warp = getenv("DXC_D3D12_WARP");
+        IDXGIAdapter *software = NULL;
+        if (warp != NULL && warp[0] != '\0' &&
+            SUCCEEDED(IDXGIFactory4_EnumWarpAdapter(factory, &IID_IDXGIAdapter1, (void **)&software))) {
+            adapter = (IDXGIAdapter1 *)software;
+            DXGI_ADAPTER_DESC1 warp_description;
+            if (SUCCEEDED(IDXGIAdapter1_GetDesc1(adapter, &warp_description))) {
+                dxc_device_luid = warp_description.AdapterLuid;
+            }
+            if (FAILED(D3D12CreateDevice((IUnknown *)adapter, D3D_FEATURE_LEVEL_11_0,
+                                         &IID_ID3D12Device, (void **)&device))) {
+                device = NULL;
+            }
+        }
+    }
     if (device == NULL) {
         if (adapter != NULL) IDXGIAdapter1_Release(adapter);
         IDXGIFactory4_Release(factory);
@@ -2715,6 +2778,7 @@ int32_t dxc_native_window_open(
     out->device = (void *)device;
     out->queue = (void *)queue;
     out->adapter = (void *)adapter;
+    dxc_adapter = adapter;
     out->swapchain = (void *)swapchain;
     return 0;
 }
