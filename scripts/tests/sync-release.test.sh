@@ -28,7 +28,7 @@ make_repo() {
     git -C "$dir" init -q -b develop
     git -C "$dir" config user.email test@example.invalid
     git -C "$dir" config user.name "Split Test"
-    mkdir -p "$dir/docs/guide" "$dir/compose-rust/src"
+    mkdir -p "$dir/docs/guide" "$dir/compose-rust/src" "$dir/experiments/probe/src"
     echo readme > "$dir/README.md"
     echo license > "$dir/LICENSE"
     echo project > "$dir/PROJECT.md"
@@ -37,6 +37,8 @@ make_repo() {
     echo spec > "$dir/docs/SPEC.md"
     echo guide > "$dir/docs/guide/index.md"
     echo code > "$dir/compose-rust/src/lib.rs"
+    echo probe > "$dir/experiments/probe/README.md"
+    echo probe > "$dir/experiments/probe/src/main.rs"
     git -C "$dir" add -A
     git -C "$dir" commit -q -m "Initial commit"
 }
@@ -65,6 +67,7 @@ check "dry run succeeds" "$?" "0"
 check_contains "dry run names itself" "$out" "dry run"
 check_contains "dry run lists PROJECT.md" "$out" "PROJECT.md"
 check_contains "dry run lists docs/SPEC.md" "$out" "docs/SPEC.md"
+check_contains "dry run lists experiments/" "$out" "experiments"
 check_absent "dry run keeps README.md off the removal list" "$out" "- README.md"
 check "dry run does not create main" \
     "$(git -C "$repo" rev-parse --verify -q main >/dev/null 2>&1; echo $?)" "1"
@@ -81,6 +84,7 @@ check_absent "main drops PROJECT.md" "$main_files" "PROJECT.md"
 check_absent "main drops CLAUDE.md" "$main_files" "CLAUDE.md"
 check_absent "main drops docs/INTENT.md" "$main_files" "docs/INTENT.md"
 check_absent "main drops docs/SPEC.md" "$main_files" "docs/SPEC.md"
+check_absent "main drops experiments/" "$main_files" "experiments/"
 
 # --- the working tree of the current branch is never touched ---------------
 check "develop's working tree still has PROJECT.md" "$(cat "$repo/PROJECT.md")" "project"
@@ -187,6 +191,7 @@ check "--write with no arguments leaves main alone" \
     "$(git -C "$repo" rev-parse --verify -q main >/dev/null 2>&1; echo $?)" "1"
 release_files="$(files_on "$repo" release)"
 check_absent "release drops PROJECT.md" "$release_files" "PROJECT.md"
+check_absent "release drops experiments/" "$release_files" "experiments/"
 check_contains "release keeps docs/guide/" "$release_files" "docs/guide/index.md"
 
 # --- continues from origin/<target> when there is no local branch -----------
