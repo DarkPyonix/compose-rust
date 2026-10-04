@@ -211,7 +211,7 @@ jobs:
         run: |
           sudo apt-get install -y xclip
           xvfb-run -a -s '-screen 0 1280x1024x24' ./scripts/parity/linux.sh native "$RUNNER_TEMP/parity" -- \
-            "$PWD/target/linux-input-check/debug/consumer" --input-check
+            "$PWD/target/linux-input-check/debug/consumer" --parity
 
       - name: Keep the parity run's logs
         if: always() && inputs.target == 'linux-x64'

@@ -18,54 +18,16 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalClipboardManager
-import dev.darkpyonix.composerust.protocol.Chrome
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
 import dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver
 import dev.darkpyonix.composerust.runtime.LocalWindowActions
 import dev.darkpyonix.composerust.runtime.WindowActions
 import dev.darkpyonix.composerust.runtime.WindowCaption
-import dev.darkpyonix.composerust.runtime.asksForWindowMaterial
 
 // What every window of our own has in common, so that each platform's file is only what is
 // different about its window: the things the application asked of it, the hooks that make
 // the tree behave as it does on a desktop, and the content that goes inside.
-
-/** What the application asked of its window in its first batch. */
-internal data class NativeWindowOptions(
-    val title: String,
-    val width: Int,
-    val height: Int,
-    val resizable: Boolean,
-    val minWidth: Int,
-    val minHeight: Int,
-    val systemChrome: Boolean,
-    val backdrop: Boolean,
-)
-
-/**
- * Reads the window's options from the Host's first batch.
- *
- * [backdropSupported] says whether this platform's window can show what is behind it,
- * because asking for a material the window cannot draw would leave a design drawing for a
- * desktop that never shows through.
- */
-internal fun nativeWindowOptions(host: ComposeRustHost, backdropSupported: Boolean): NativeWindowOptions {
-    val asked = host.table.window
-    return NativeWindowOptions(
-        title = asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
-        width = if (asked != null && asked.width > 0) asked.width else DEFAULT_WIDTH,
-        height = if (asked != null && asked.height > 0) asked.height else DEFAULT_HEIGHT,
-        resizable = asked?.resizable ?: true,
-        minWidth = asked?.minWidth?.takeIf { it > 0 } ?: 0,
-        minHeight = asked?.minHeight?.takeIf { it > 0 } ?: 0,
-        systemChrome = asked?.chrome == Chrome.System,
-        backdrop = backdropSupported && host.table.asksForWindowMaterial(host.roots),
-    )
-}
-
-private const val DEFAULT_WIDTH = 520
-private const val DEFAULT_HEIGHT = 360
 
 /**
  * Installs what the tree reads from the platform, before the Host starts: its first batch

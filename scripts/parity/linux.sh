@@ -28,7 +28,7 @@
 #   shortcut_ctrl_<k>      key and modifiers the scene was handed for ctrl+a, c, v, x, z
 #   clipboard              ctrl+a then ctrl+c in the field, read back from the display server
 #   system_theme           what the window thinks the desktop's theme is
-#   min_size               the minimum size the window told the window manager
+#   min_size               the minimum size the window told the window manager (the application asks for 300 by 260)
 #   icon                   whether the window set _NET_WM_ICON
 #
 # A row that fails is printed as FAIL and the script still exits 0, so the table is complete.
@@ -83,7 +83,12 @@ if [[ -z "$window" ]]; then
 else
     # Window manager hints, read from the server. Same probe whichever path made the window.
     min_hint="$(xprop -id "$window" WM_NORMAL_HINTS 2>/dev/null | grep -i 'minimum size' | sed 's/^[^:]*: *//' || true)"
-    row min_size "${min_hint:-none}"
+    # The application asks for 300 by 260 (`consumer --parity`), so that is what the manager is told.
+    if [[ "$min_hint" == *"300 by 260"* ]]; then
+        row min_size "ok 300 by 260"
+    else
+        row min_size "FAIL expected 300 by 260, the manager was told '${min_hint:-nothing}'"
+    fi
     if xprop -id "$window" _NET_WM_ICON 2>/dev/null | grep -q 'CARDINAL'; then
         row icon present
     else

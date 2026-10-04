@@ -66,7 +66,11 @@ import x11.NotifyNormal
 import x11.NotifyWhileGrabbed
 import x11.SubstructureNotifyMask
 import x11.SubstructureRedirectMask
+import x11.PMaxSize
+import x11.PMinSize
+import x11.XAllocSizeHints
 import x11.XMapRaised
+import x11.XSetWMNormalHints
 import resize.dxc_resize_present
 import resize.dxc_resize_reset
 import resize.dxc_resize_step
@@ -875,7 +879,14 @@ internal class LinuxWindow private constructor(
          * double buffered visual, has nothing to say beyond that, and a Kotlin exception must not
          * be allowed to reach the C entry point that called in.
          */
-        fun open(title: String, width: Int, height: Int): LinuxWindow? {
+        fun open(
+            title: String,
+            width: Int,
+            height: Int,
+            minWidth: Int = 0,
+            minHeight: Int = 0,
+            resizable: Boolean = true,
+        ): LinuxWindow? {
             val display = XOpenDisplay(null) ?: return null
             val screen = XDefaultScreen(display)
             // Terminated by zero, which is what X's `None` is and what a binding cannot carry
@@ -945,6 +956,27 @@ internal class LinuxWindow private constructor(
                 XSetWMProtocols(display, window, protocols, count)
             }
             XStoreName(display, window, title)
+            // What sizes the window may take, told to the manager before the window is mapped
+            // because that is when it reads them. The rule is the native image window's.
+            sizeHintsFor(minWidth, minHeight, resizable, width, height, DENSITY)?.let { hints ->
+                val raw = XAllocSizeHints()
+                if (raw != null) {
+                    var flags = 0L
+                    hints.min?.let { (smallestWidth, smallestHeight) ->
+                        flags = flags or PMinSize.toLong()
+                        raw.pointed.min_width = smallestWidth
+                        raw.pointed.min_height = smallestHeight
+                    }
+                    hints.max?.let { (largestWidth, largestHeight) ->
+                        flags = flags or PMaxSize.toLong()
+                        raw.pointed.max_width = largestWidth
+                        raw.pointed.max_height = largestHeight
+                    }
+                    raw.pointed.flags = flags
+                    XSetWMNormalHints(display, window, raw)
+                    XFree(raw)
+                }
+            }
             XMapWindow(display, window)
             XFlush(display)
 

@@ -153,7 +153,7 @@ jobs:
             cargo build --manifest-path compose-rust/tests/fixtures/consumer/Cargo.toml
           LD_LIBRARY_PATH="$dist" xvfb-run -a -s '-screen 0 1280x1024x24' \
             ./scripts/parity/linux.sh graalvm "$RUNNER_TEMP/parity" -- \
-            "$PWD/target/parity/debug/consumer" --input-check
+            "$PWD/target/parity/debug/consumer" --parity
 
       - name: Keep the parity run's logs
         if: always()
