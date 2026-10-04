@@ -8,6 +8,7 @@ import platform.AppKit.NSAppearanceNameDarkAqua
 import platform.AppKit.NSApplication
 import platform.Foundation.NSDistributedNotificationCenter
 import platform.Foundation.NSOperationQueue
+import platform.Foundation.valueForKey
 import platform.darwin.DISPATCH_TIME_NOW
 import platform.darwin.NSEC_PER_MSEC
 import platform.darwin.dispatch_after
