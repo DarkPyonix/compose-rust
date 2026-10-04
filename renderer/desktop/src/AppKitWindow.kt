@@ -74,19 +74,6 @@ internal fun NativeWindow.captionStrip(): dev.darkpyonix.composerust.runtime.Win
     )
 }
 
-/** The pixels [setApplicationIcon] takes, from a picture Compose holds. */
-internal fun iconPixels(picture: androidx.compose.ui.graphics.ImageBitmap): Triple<ByteArray, Int, Int>? {
-    val bitmap = picture.asSkiaBitmap()
-    val info = org.jetbrains.skia.ImageInfo(
-        bitmap.width,
-        bitmap.height,
-        org.jetbrains.skia.ColorType.RGBA_8888,
-        org.jetbrains.skia.ColorAlphaType.PREMUL,
-    )
-    val pixels = bitmap.readPixels(info, info.minRowBytes) ?: return null
-    return Triple(pixels, bitmap.width, bitmap.height)
-}
-
 /**
  * Draws the application into a window of our own, and holds it there until it is closed.
  *
@@ -100,17 +87,9 @@ internal fun iconPixels(picture: androidx.compose.ui.graphics.ImageBitmap): Trip
  * watches.
  */
 internal fun runAppKitWindow(autoExitMillis: Long? = null) {
-    // Before the first frame, because every piece of text drawn after this reads them.
-    dev.darkpyonix.composerust.design.installPlatformUiFamily()
-    dev.darkpyonix.composerust.ui.installReducedMotion()
-    dev.darkpyonix.composerust.ui.installHighContrast()
-    dev.darkpyonix.composerust.ui.node.platformFileDrop = { modifier, node, dispatcher ->
-        modifier.nativeFileDrop(node, dispatcher)
-    }
     // The window is a real one with the desktop behind it, so a design that draws glass
-    // can let that show through. Set before the Host starts: its first batch may already
-    // ask.
-    dev.darkpyonix.composerust.runtime.platformBacksWindowWithMaterial = { true }
+    // can let that show through.
+    installNativeWindowHooks(backdropSupported = true)
     // The Host is started before there is a window, because what the window should look
     // like is in its first batch and a window cannot be told afterwards. Started on this
     // thread, which is the one every later call to it is made from: the boundary is a
@@ -118,19 +97,16 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
     val host = dev.darkpyonix.composerust.runtime.ComposeRustHost(NativeHostConnection())
     host.start()
     val asked = host.table.window
-    val backdrop = host.table.asksForWindowMaterial(host.roots)
+    val options = nativeWindowOptions(host, backdropSupported = true)
+    val backdrop = options.backdrop
     configureNativeWindow(
-        resizable = asked?.resizable ?: true,
-        minWidth = asked?.minWidth?.takeIf { it > 0 } ?: 0,
-        minHeight = asked?.minHeight?.takeIf { it > 0 } ?: 0,
-        systemChrome = asked?.chrome == dev.darkpyonix.composerust.protocol.Chrome.System,
+        resizable = options.resizable,
+        minWidth = options.minWidth,
+        minHeight = options.minHeight,
+        systemChrome = options.systemChrome,
         backdrop = backdrop,
     )
-    val window = openNativeWindow(
-        asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
-        if (asked != null && asked.width > 0) asked.width else 520,
-        if (asked != null && asked.height > 0) asked.height else 360,
-    )
+    val window = openNativeWindow(options.title, options.width, options.height)
     if (window == null) {
         System.err.println("compose-rust: this machine has no Metal device")
         return
@@ -173,25 +149,10 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
     )
     // The application's own tree, drawn by the same interpreter every window uses.
     // Nothing in it knows which window it is in, which is the point.
-    val clipboard = WindowClipboard()
-    @Suppress("DEPRECATION")
-    val clipboardManager = WindowClipboardManager()
     scene.setContent {
-        androidx.compose.runtime.CompositionLocalProvider(
-            dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver provides {
-                rememberSystemDark().value
-            },
-            androidx.compose.ui.platform.LocalClipboard provides clipboard,
-            androidx.compose.ui.platform.LocalClipboardManager provides clipboardManager,
-        ) {
-            dev.darkpyonix.composerust.runtime.ComposeRustContent(
-                host,
-                Modifier.fillMaxSize(),
-                caption = caption.value,
-            )
-        }
+        NativeWindowContent(host, caption.value, actions = null)
     }
-    installApplicationMenu(asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust")
+    installApplicationMenu(options.title)
 
     val started = System.nanoTime()
     var iconId = 0
@@ -306,6 +267,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
             // a window that has gone still is exactly where that would be forgotten.
             // Costs a comparison when nothing has changed, which is almost always.
             semantics.pushIfChanged(afterDrawing = drew)
+            reportCaret(textInput)
         }
         LatencyTrace.summary()
     } finally {

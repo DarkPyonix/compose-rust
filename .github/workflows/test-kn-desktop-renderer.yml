@@ -1,0 +1,147 @@
+# Kotlin/Native desktop renderers, built and tested on every pull request that touches them.
+#
+# test-native-renderer.yml builds and packages these renderers only on main, nightly and on
+# tags, and test.yml runs on pull requests to main only. A pull request to develop therefore
+# compiled the macOS and Linux renderers nowhere, and a content offset and click bug in
+# renderer/macos reached develop that way. This workflow closes that gap with the module's
+# own tests, which is the part of static-renderer.yml a pull request needs.
+#
+#   macos  `./kotlin test -m macos` on macos-latest.
+#   linux  `./kotlin test -m linux` on ubuntu under a virtual display.
+#
+# `test` compiles the module and links its test executable first, so it is also the build.
+# There is no Windows Kotlin/Native renderer on develop yet; its job is added with it.
+#
+# Compose comes from the same cache static-renderer.yml fills, with the same key, so a pull
+# request normally restores it. On a miss it is built once and saved under that key, for
+# this workflow and for static-renderer.yml alike.
+
+name: Kotlin/Native desktop renderer test
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - renderer/macos/**
+      - renderer/linux/**
+      - renderer/desktop/src/**
+      - renderer/desktop/module.yaml
+      - renderer/desktop/scripts/**
+      - renderer/ios/src/shared/**
+      - renderer/scripts/**
+      - renderer/kotlin
+      - renderer/kotlin.bat
+      - renderer/libs.versions.toml
+      - renderer/project.yaml
+      - .github/workflows/test-kn-desktop-renderer.yml
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test the ${{ matrix.module }} renderer
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - module: macos
+            runner: macos-latest
+            compose: macosArm64
+            compose_key: macosarm64
+            toolchain: ~/Library/Caches/JetBrains/Kotlin
+            heap: 5g
+            workers: 2
+          - module: linux
+            runner: ubuntu-24.04
+            compose: linux
+            compose_key: linux
+            toolchain: ~/.cache/JetBrains/Kotlin
+            heap: 11g
+            workers: 4
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Make room for the Compose build
+        if: runner.os == 'Linux'
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Install JDK 21 for the Compose build
+        uses: actions/setup-java@v4
+        with:
+          distribution: corretto
+          java-version: '21'
+
+      - name: Point the Compose build at the JDK
+        run: echo "ANDROIDX_JDK21=$JAVA_HOME" >> "$GITHUB_ENV"
+
+      - name: Install the X11, GL and font headers, and a virtual display
+        if: matrix.module == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config unzip xvfb xauth \
+            libx11-dev libxext-dev libxrandr-dev libgl1-mesa-dev libglu1-mesa-dev \
+            libfontconfig1-dev libfreetype-dev
+
+      - name: Restore the patched Compose
+        id: compose-cache
+        # The same key static-renderer.yml uses: compose-<target in lower case>-<hash of the
+        # build script and the pinned changes>.
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.m2/repository
+          key: compose-${{ matrix.compose_key }}-${{ hashFiles('renderer/scripts/build-compose.sh', 'renderer/scripts/compose-fork.changes') }}
+
+      - name: Cache the Kotlin toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ matrix.toolchain }}
+            ~/.konan
+          key: kotlin-native-${{ matrix.module == 'macos' && 'macos-aarch64' || 'linux-x64' }}-${{ hashFiles('renderer/kotlin', 'renderer/libs.versions.toml', 'renderer/**/module.yaml') }}
+          restore-keys: |
+            kotlin-native-${{ matrix.module == 'macos' && 'macos-aarch64' || 'linux-x64' }}-
+
+      - name: Configure Gradle for this runner
+        if: steps.compose-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.gradle
+          cat > ~/.gradle/gradle.properties <<EOF
+          org.gradle.workers.max=${{ matrix.workers }}
+          org.gradle.jvmargs=-Xmx${{ matrix.heap }} -XX:MaxMetaspaceSize=2g -XX:+UseParallelGC -Dfile.encoding=UTF-8
+          kotlin.compiler.execution.strategy=in-process
+          EOF
+
+      - name: Build and publish the patched Compose
+        if: steps.compose-cache.outputs.cache-hit != 'true'
+        env:
+          DXC_COMPOSE_BUILD: ${{ runner.temp }}/compose-build
+        run: ./renderer/scripts/build-compose.sh --target ${{ matrix.compose }}
+
+      - name: Keep the patched Compose for the next run
+        if: steps.compose-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ steps.compose-cache.outputs.cache-primary-key }}
+
+      - name: Publish the fork's window modules
+        run: ./renderer/scripts/publish-window.sh
+
+      - name: Build and test the macOS renderer
+        if: matrix.module == 'macos'
+        working-directory: renderer
+        run: ./kotlin test -m macos
+
+      - name: Build and test the Linux renderer
+        if: matrix.module == 'linux'
+        working-directory: renderer
+        run: xvfb-run -a -s '-screen 0 1280x1024x24' ./kotlin test -m linux
