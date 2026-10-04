@@ -158,6 +158,8 @@ static ID3D12GraphicsCommandList *dxc_commands;
 static ID3D12Fence *dxc_fence;
 static HANDLE dxc_fence_signalled;
 static UINT64 dxc_fence_value;
+// The fence value signalled after the barrier list last executed.
+static UINT64 dxc_last_list_mark;
 static UINT dxc_frame_index;
 // The size the window has been given and the size it is drawn at, which are the same
 // except while a resize is being taken. A swapchain cannot be refitted while the buffer
@@ -2140,7 +2142,14 @@ static void dxc_wait_for_gpu(void) {
     }
 }
 
-static void dxc_release_buffers(void) {
+// The texture Skia draws into is kept across resizes and only grows: a new committed
+// resource and a new Direct3D 11 wrapper on every drag step are work the step pays for
+// before anything is presented. Skia is told the drawn size, and only that top-left
+// region is copied into the swapchain.
+static int32_t dxc_texture_width;
+static int32_t dxc_texture_height;
+
+static void dxc_release_texture(void) {
     if (dxc_wrapped != NULL) {
         ID3D11Resource_Release(dxc_wrapped);
         dxc_wrapped = NULL;
@@ -2151,6 +2160,12 @@ static void dxc_release_buffers(void) {
             dxc_buffers[index] = NULL;
         }
     }
+    dxc_texture_width = 0;
+    dxc_texture_height = 0;
+}
+
+/** Lets go of everything holding the swapchain's buffer, so it can be refitted. */
+static void dxc_release_buffers(void) {
     // Direct3D 11 defers destruction until its context is flushed, and the swapchain
     // will not resize while anything of the old size is still alive.
     if (dxc_d3d11_context != NULL) {
@@ -2159,8 +2174,29 @@ static void dxc_release_buffers(void) {
     }
 }
 
-/** Makes the texture Skia draws into, width x height, and wraps it for Direct3D 11. */
+/**
+ * Makes sure the texture Skia draws into holds width x height, wrapped for Direct3D 11.
+ * Grows it only when it is too small, and then to at least the monitor the window is on,
+ * rounded up to 256, so a drag grows it once at most.
+ */
 static int32_t dxc_acquire_buffers(int32_t width, int32_t height) {
+    if (dxc_buffers[0] != NULL && dxc_wrapped != NULL && width <= dxc_texture_width &&
+        height <= dxc_texture_height) {
+        return 0;
+    }
+    dxc_release_texture();
+    MONITORINFO monitor;
+    memset(&monitor, 0, sizeof monitor);
+    monitor.cbSize = sizeof monitor;
+    if (dxc_window != NULL &&
+        GetMonitorInfoW(MonitorFromWindow(dxc_window, MONITOR_DEFAULTTONEAREST), &monitor)) {
+        int32_t monitor_width = (int32_t)(monitor.rcMonitor.right - monitor.rcMonitor.left);
+        int32_t monitor_height = (int32_t)(monitor.rcMonitor.bottom - monitor.rcMonitor.top);
+        if (monitor_width > width) width = monitor_width;
+        if (monitor_height > height) height = monitor_height;
+    }
+    width = (width + 255) / 256 * 256;
+    height = (height + 255) / 256 * 256;
     D3D12_HEAP_PROPERTIES heap;
     memset(&heap, 0, sizeof heap);
     heap.Type = D3D12_HEAP_TYPE_DEFAULT;
@@ -2190,9 +2226,11 @@ static int32_t dxc_acquire_buffers(int32_t width, int32_t height) {
             dxc_on12, (IUnknown *)dxc_buffers[0], &flags, D3D12_RESOURCE_STATE_PRESENT,
             D3D12_RESOURCE_STATE_PRESENT, &IID_ID3D11Resource, (void **)&dxc_wrapped))) {
         dxc_wrapped = NULL;
-        dxc_release_buffers();
+        dxc_release_texture();
         return 1;
     }
+    dxc_texture_width = width;
+    dxc_texture_height = height;
     return 0;
 }
 
@@ -2203,6 +2241,7 @@ static int32_t dxc_acquire_buffers(int32_t width, int32_t height) {
  * that a later frame finds no window rather than a window missing a piece of itself.
  */
 static void dxc_abandon_window(IDXGIAdapter1 *adapter) {
+    dxc_release_texture();
     dxc_release_buffers();
     if (dxc_commands != NULL) { ID3D12GraphicsCommandList_Release(dxc_commands); dxc_commands = NULL; }
     if (dxc_allocator != NULL) { ID3D12CommandAllocator_Release(dxc_allocator); dxc_allocator = NULL; }
@@ -2608,6 +2647,13 @@ void dxc_native_frame_end(void *queue_pointer) {
     dxc_step_draw_ms = dxc_elapsed_ms(dxc_step_mark);
     LARGE_INTEGER present_started;
     QueryPerformanceCounter(&present_started);
+    // The allocator may be reset only once the list recorded from it last frame has run.
+    // Usually it has (Skia's submit waited for work queued after it); this waits only
+    // when it has not.
+    if (dxc_last_list_mark != 0 && ID3D12Fence_GetCompletedValue(dxc_fence) < dxc_last_list_mark &&
+        SUCCEEDED(ID3D12Fence_SetEventOnCompletion(dxc_fence, dxc_last_list_mark, dxc_fence_signalled))) {
+        WaitForSingleObject(dxc_fence_signalled, INFINITE);
+    }
     ID3D12CommandAllocator_Reset(dxc_allocator);
     ID3D12GraphicsCommandList_Reset(dxc_commands, dxc_allocator, NULL);
     D3D12_RESOURCE_BARRIER barrier;
@@ -2623,6 +2669,9 @@ void dxc_native_frame_end(void *queue_pointer) {
     ID3D12CommandList *lists[1];
     lists[0] = (ID3D12CommandList *)(void *)dxc_commands;
     ID3D12CommandQueue_ExecuteCommandLists(queue, 1, lists);
+    if (SUCCEEDED(ID3D12CommandQueue_Signal(queue, dxc_fence, dxc_fence_value + 1))) {
+        dxc_last_list_mark = ++dxc_fence_value;
+    }
 
     // A resize frame presents only at exactly the size WM_SIZE recorded, and only once
     // for that size: a frame of any other size would be shown cut or padded against the
@@ -2645,7 +2694,9 @@ void dxc_native_frame_end(void *queue_pointer) {
         return;
     }
     ID3D11On12Device_AcquireWrappedResources(dxc_on12, &dxc_wrapped, 1);
-    ID3D11DeviceContext_CopyResource(dxc_d3d11_context, back, dxc_wrapped);
+    D3D11_BOX drawn = {0, 0, 0, (UINT)dxc_sizing.fitted_width, (UINT)dxc_sizing.fitted_height, 1};
+    ID3D11DeviceContext_CopySubresourceRegion(dxc_d3d11_context, back, 0, 0, 0, 0,
+                                              dxc_wrapped, 0, &drawn);
     ID3D11On12Device_ReleaseWrappedResources(dxc_on12, &dxc_wrapped, 1);
     ID3D11DeviceContext_Flush(dxc_d3d11_context);
     ID3D11Resource_Release(back);
@@ -2658,8 +2709,10 @@ void dxc_native_frame_end(void *queue_pointer) {
     dxc_presented_width = dxc_sizing.fitted_width;
     dxc_presented_height = dxc_sizing.fitted_height;
 
-    // The next frame paints into the same texture the copy reads from.
-    dxc_wait_for_gpu();
+    // No wait for the GPU here. The next frame's Skia work and the copy are on the same
+    // queue, which runs them in order, and Skia's submit waits for its own work, which
+    // follows this frame's barrier list, before the allocator is reset again. A refit
+    // still waits, in dxc_native_frame_begin, before letting go of anything.
     dxc_step_present_ms = dxc_elapsed_ms(present_started) - dxc_step_copy_ms;
 }
 
