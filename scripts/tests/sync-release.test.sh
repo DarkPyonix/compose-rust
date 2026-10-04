@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/publish-main.sh.
+# Tests for .github/scripts/release/sync-release.sh.
 #
 # Every case runs against a throwaway repository built in a temporary
 # directory -- never against this repository, and never against any remote.
@@ -7,7 +7,7 @@
 set -uo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-split="$script_dir/../publish-main.sh"
+split="$script_dir/../../.github/scripts/release/sync-release.sh"
 
 failures=0
 pass() { echo "ok   - $1"; }
@@ -28,7 +28,7 @@ make_repo() {
     git -C "$dir" init -q -b develop
     git -C "$dir" config user.email test@example.invalid
     git -C "$dir" config user.name "Split Test"
-    mkdir -p "$dir/docs/guide" "$dir/compose-rust/src"
+    mkdir -p "$dir/docs/guide" "$dir/compose-rust/src" "$dir/experiments/probe/src"
     echo readme > "$dir/README.md"
     echo license > "$dir/LICENSE"
     echo project > "$dir/PROJECT.md"
@@ -37,6 +37,8 @@ make_repo() {
     echo spec > "$dir/docs/SPEC.md"
     echo guide > "$dir/docs/guide/index.md"
     echo code > "$dir/compose-rust/src/lib.rs"
+    echo probe > "$dir/experiments/probe/README.md"
+    echo probe > "$dir/experiments/probe/src/main.rs"
     git -C "$dir" add -A
     git -C "$dir" commit -q -m "Initial commit"
 }
@@ -46,7 +48,7 @@ files_on() { git -C "$1" ls-tree -r --name-only "$2" | sort; }
 # --- refuses to run with uncommitted changes -------------------------------
 # Inside this repository's ignored .scratch/, like everything else the project makes.
 mkdir -p "$script_dir/../../.scratch"
-tmp="$(mktemp -d "$script_dir/../../.scratch/publish-main-test.XXXXXX")"
+tmp="$(mktemp -d "$script_dir/../../.scratch/sync-release-test.XXXXXX")"
 repo="$tmp/dirty"
 make_repo "$repo"
 echo "scratch" >> "$repo/README.md"
@@ -65,6 +67,7 @@ check "dry run succeeds" "$?" "0"
 check_contains "dry run names itself" "$out" "dry run"
 check_contains "dry run lists PROJECT.md" "$out" "PROJECT.md"
 check_contains "dry run lists docs/SPEC.md" "$out" "docs/SPEC.md"
+check_contains "dry run lists experiments/" "$out" "experiments"
 check_absent "dry run keeps README.md off the removal list" "$out" "- README.md"
 check "dry run does not create main" \
     "$(git -C "$repo" rev-parse --verify -q main >/dev/null 2>&1; echo $?)" "1"
@@ -81,6 +84,7 @@ check_absent "main drops PROJECT.md" "$main_files" "PROJECT.md"
 check_absent "main drops CLAUDE.md" "$main_files" "CLAUDE.md"
 check_absent "main drops docs/INTENT.md" "$main_files" "docs/INTENT.md"
 check_absent "main drops docs/SPEC.md" "$main_files" "docs/SPEC.md"
+check_absent "main drops experiments/" "$main_files" "experiments/"
 
 # --- the working tree of the current branch is never touched ---------------
 check "develop's working tree still has PROJECT.md" "$(cat "$repo/PROJECT.md")" "project"
@@ -187,6 +191,7 @@ check "--write with no arguments leaves main alone" \
     "$(git -C "$repo" rev-parse --verify -q main >/dev/null 2>&1; echo $?)" "1"
 release_files="$(files_on "$repo" release)"
 check_absent "release drops PROJECT.md" "$release_files" "PROJECT.md"
+check_absent "release drops experiments/" "$release_files" "experiments/"
 check_contains "release keeps docs/guide/" "$release_files" "docs/guide/index.md"
 
 # --- continues from origin/<target> when there is no local branch -----------
@@ -218,10 +223,45 @@ check "the new commit descends from what was published" \
     "$(git -C "$clone" merge-base --is-ancestor "$published" release; echo $?)" "0"
 check_contains "the clone carries the new source across" "$(files_on "$clone" release)" "later.rs"
 
+# --- main's own commits are absorbed, so release -> main never conflicts ---
+#
+# main moves only through pull requests from release, and each merge adds a commit release
+# does not have. The next release must contain those commits, or the next pull request
+# conflicts and only a force push could fix it.
+repo="$tmp/absorb-main"
+make_repo "$repo"
+(cd "$repo" && "$split" --write >/dev/null 2>&1)
+git -C "$repo" branch main release
+git -C "$repo" checkout -q main
+echo "merged" > "$repo/MERGED.md"
+git -C "$repo" add -A
+git -C "$repo" commit -q -m "Merge pull request from release"
+main_tip="$(git -C "$repo" rev-parse main)"
+git -C "$repo" checkout -q develop
+echo "next" > "$repo/compose-rust/src/next.rs"
+git -C "$repo" add -A
+git -C "$repo" commit -q -m "Feat: Next"
+out="$(cd "$repo" && "$split" --write 2>&1)"
+check "absorbs main (exit)" "$?" "0"
+check "main is an ancestor of the new release" \
+    "$(git -C "$repo" merge-base --is-ancestor "$main_tip" release; echo $?)" "0"
+check_absent "release keeps develop's tree, not main's extra file" "$(files_on "$repo" release)" "MERGED.md"
+check_contains "release carries develop's new file" "$(files_on "$repo" release)" "next.rs"
+check_contains "says it absorbed main" "$out" "absorbed main"
+# A release whose tree is current but which lacks main's commits is not up to date.
+git -C "$repo" checkout -q main
+echo "again" > "$repo/MERGED.md"
+git -C "$repo" commit -q -am "Merge pull request again"
+main_tip="$(git -C "$repo" rev-parse main)"
+git -C "$repo" checkout -q develop
+(cd "$repo" && "$split" --write >/dev/null 2>&1)
+check "absorbs main even when the tree is already current" \
+    "$(git -C "$repo" merge-base --is-ancestor "$main_tip" release; echo $?)" "0"
+
 rm -rf "$tmp"
 
 if (( failures )); then
     echo "$failures test(s) failed" >&2
     exit 1
 fi
-echo "all publish-main.sh tests passed"
+echo "all sync-release.sh tests passed"

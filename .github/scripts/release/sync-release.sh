@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# Usage: ./scripts/publish-main.sh [--write] [--source BRANCH] [--target BRANCH]
+# Usage: ./.github/scripts/release/sync-release.sh [--write] [--source BRANCH] [--target BRANCH]
 #
 # Produces or updates the public branch from `develop`.
 #
 # `develop` has everything. The public tree is the source code, the root
 # README.md, and docs/guide/ (the guide site). The internal planning documents
 # -- PROJECT.md, AGENTS.md, CLAUDE.md, and everything directly under docs/, which is where
-# INTENT.md and SPEC.md live -- exist only on develop.
+# INTENT.md and SPEC.md live -- and the experiments/ folder (measured probes kept for their
+# results) exist only on develop.
 #
 # The default target is `release`, not `main`: `main` is protected and only
 # moves through a pull request, which .github/workflows/release-sync.yml opens
@@ -35,8 +36,20 @@
 #   2. drop the private paths from that temporary index with
 #      `git rm --cached`, which by construction only edits the index;
 #   3. `git write-tree` to turn it into a real tree object;
-#   4. `git commit-tree` that tree with two parents -- the previous `main`
-#      first, `develop` second -- and move refs/heads/main to the result.
+#   4. `git commit-tree` that tree with the previous target first, `main` next
+#      when the target's history lacks it (see below), and `develop` last, then
+#      move refs/heads/<target> to the result.
+#
+# ## The extra parent: main
+#
+# main takes each release pull request as a merge or squash commit that release
+# does not contain, so without more work release and main diverge and the next
+# release -> main pull request conflicts. When main (refs/heads/main, else
+# refs/remotes/origin/main) is not already an ancestor of the new commit, it is
+# added as an extra parent, as `git merge -s ours main` would record it: main's
+# history is kept, its tree is not used, and release keeps develop's filtered
+# tree. A release whose tree is current but which lacks main is not "up to
+# date"; it still gets a new commit. In CI, fetch-depth: 0 provides origin/main.
 #
 # That makes the guarantees easy to state:
 #
@@ -99,14 +112,33 @@ if git rev-parse --verify -q "refs/heads/$target_branch" >/dev/null; then
     target_commit="$(git rev-parse "refs/heads/$target_branch")"
 fi
 
+# main moves only through pull requests from the target, and every merge adds a commit the
+# target does not have. Unless the next target commit has main as an ancestor, the next pull
+# request conflicts, and the only way out would be a force push. So when main is not already
+# in the target's history it becomes one more parent, the way `git merge -s ours main` would
+# record it: its history is kept and its tree is not used.
+main_commit=""
+if [[ "$target_branch" != "main" ]]; then
+    for ref in refs/heads/main refs/remotes/origin/main; do
+        if git rev-parse --verify -q "$ref" >/dev/null; then
+            main_commit="$(git rev-parse "$ref")"
+            break
+        fi
+    done
+    if [[ -n "$main_commit" && -n "$target_commit" ]] \
+        && git merge-base --is-ancestor "$main_commit" "$target_commit"; then
+        main_commit=""
+    fi
+fi
+
 # --- work out what to remove ------------------------------------------------
 #
 # Named documents, plus every file *directly* under docs/. The depth rule is
 # what keeps this correct as develop advances: a new planning document added
 # to docs/ is excluded without editing this script, while docs/guide/ and any
-# other subdirectory is published untouched.
+# other subdirectory is published untouched. experiments/ goes whole, as a directory.
 private_paths=()
-for path in PROJECT.md AGENTS.md CLAUDE.md; do
+for path in PROJECT.md AGENTS.md CLAUDE.md experiments; do
     git cat-file -e "$source_commit:$path" 2>/dev/null && private_paths+=("$path")
 done
 while IFS= read -r name; do
@@ -135,7 +167,7 @@ filtered_tree="$(
         # protect unsaved work. Here HEAD is whatever branch happens to be
         # checked out, which has nothing to do with the temporary index being
         # filtered, and there is no file on disk to lose.
-        git rm --cached --force --quiet --ignore-unmatch -- "${private_paths[@]}"
+        git rm -r --cached --force --quiet --ignore-unmatch -- "${private_paths[@]}"
     fi
     git write-tree
 )"
@@ -151,7 +183,12 @@ for path in "${private_paths[@]}"; do
     echo "  - $path"
 done
 
-if [[ -n "$target_commit" && "$(git rev-parse "$target_commit^{tree}")" == "$filtered_tree" ]]; then
+if [[ -n "$main_commit" ]]; then
+    echo "main ($(git rev-parse --short "$main_commit")) is not in $target_branch yet; it will be absorbed."
+fi
+
+if [[ -z "$main_commit" && -n "$target_commit" \
+    && "$(git rev-parse "$target_commit^{tree}")" == "$filtered_tree" ]]; then
     echo "$target_branch is already up to date with $source_branch; nothing to do."
     exit 0
 fi
@@ -166,19 +203,20 @@ fi
 # --- commit and move the ref ------------------------------------------------
 #
 # Parent order matters: the previous target first, so it keeps a linear
-# first-parent history, and develop second, so it records exactly which
-# develop commit it was published from.
+# first-parent history; main next, when it has commits the target lacks; and
+# develop last, so it records exactly which develop commit it was published from.
 parents=()
 [[ -n "$target_commit" ]] && parents+=(-p "$target_commit")
+[[ -n "$main_commit" ]] && parents+=(-p "$main_commit")
 parents+=(-p "$source_commit")
 
 short_source="$(git rev-parse --short "$source_commit")"
 excluded_list="$(printf '  %s\n' "${private_paths[@]}")"
 message="Publish: $source_branch $short_source to $target_branch"
 message+=$'\n\n'
-message+="Generated by scripts/publish-main.sh. The internal planning documents"
+message+="Generated by .github/scripts/release/sync-release.sh. The internal planning documents"
 message+=$'\n'
-message+="listed below are kept on $source_branch only:"
+message+="and experiments/ listed below are kept on $source_branch only:"
 message+=$'\n'
 message+="$excluded_list"
 
@@ -193,6 +231,7 @@ fi
 
 echo
 echo "Updated $target_branch -> $(git rev-parse --short "$new_commit")"
+[[ -n "$main_commit" ]] && echo "It absorbed main $(git rev-parse --short "$main_commit"), so $target_branch -> main merges without conflict."
 echo "No working tree or checkout was modified."
 echo
 echo "This script does not push. To publish it, run:"

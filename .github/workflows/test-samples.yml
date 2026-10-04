@@ -1,4 +1,4 @@
-# Sample apps -- builds every sample for every desktop platform when a `sample-v*` tag is
+# Samples test -- builds every sample for every desktop platform when a `sample-v*` tag is
 # pushed, and attaches the binaries to a GitHub Release.
 #
 # Skipped while the samples are rewritten on the compose-rust API (#85). The twelve samples
@@ -19,7 +19,7 @@
 # Each sample links the renderer for its platform, so the binary is self contained apart
 # from the renderer library shipped beside it.
 
-name: Sample apps
+name: Samples test
 
 on:
   workflow_dispatch:
@@ -34,7 +34,7 @@ permissions:
 
 jobs:
   status:
-    name: Samples are being rewritten on the compose-rust API (#85)
+    name: Report that the samples are skipped
     runs-on: ubuntu-latest
     outputs:
       rewritten: ${{ steps.state.outputs.rewritten }}
@@ -48,7 +48,7 @@ jobs:
   build:
     needs: status
     if: needs.status.outputs.rewritten == 'true'
-    name: ${{ matrix.target }}
+    name: Build the sample (${{ matrix.target }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     strategy:
@@ -251,7 +251,7 @@ jobs:
   android:
     needs: status
     if: needs.status.outputs.rewritten == 'true'
-    name: android
+    name: Build the sample (Android)
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -313,7 +313,7 @@ jobs:
   ios:
     needs: status
     if: needs.status.outputs.rewritten == 'true'
-    name: ios-simulator
+    name: Build the sample (iOS, simulator)
     runs-on: macos-26
     timeout-minutes: 120
     steps:
@@ -369,7 +369,7 @@ jobs:
   web:
     needs: status
     if: needs.status.outputs.rewritten == 'true'
-    name: web
+    name: Build the sample (web)
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -412,7 +412,7 @@ jobs:
           path: artifacts/
 
   release:
-    name: Attach the samples to the release
+    name: Attach the samples to the GitHub release
     needs: [build, android, ios, web]
     runs-on: ubuntu-latest
     permissions:
