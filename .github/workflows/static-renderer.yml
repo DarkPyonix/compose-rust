@@ -205,6 +205,7 @@ jobs:
 
       - name: Parity checklist and measurements, Kotlin/Native path
         if: inputs.target == 'linux-x64'
+        timeout-minutes: 12
         # The same checklist and the same measurements test-graalvm-renderer.yml runs on the
         # GraalVM path, with the same application (the consumer fixture the step above
         # built). The table is in the job summary; a row that fails is a warning, not a stop.

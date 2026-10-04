@@ -142,6 +142,7 @@ jobs:
         run: xvfb-run -a ./renderer/desktop/scripts/smoke-test-linux.sh
 
       - name: Parity checklist and measurements, GraalVM path
+        timeout-minutes: 15
         # The same checklist and the same measurements static-renderer.yml runs on the
         # Kotlin/Native path, with the same application: the consumer fixture, linked to the
         # renderer this job just built. The table is in the job summary; a row that fails is

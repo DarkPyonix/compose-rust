@@ -56,6 +56,10 @@ for tool in xdotool xprop xclip; do
     command -v "$tool" >/dev/null || { echo "fail  $tool is not on PATH" >&2; exit 1; }
 done
 
+# Everything that talks to the display server is bounded: a selection owner that never answers
+# would otherwise hold the whole job.
+bounded() { timeout 8 "$@"; }
+
 row() { printf '%s\t%s\n' "$1" "$2" >> "$table"; }
 
 # Letters to type, and when to do what, in seconds from the window opening.
@@ -73,7 +77,7 @@ trap 'kill "$app" 2>/dev/null || true' EXIT
 
 window=""
 for _ in $(seq 1 120); do
-    window="$(xdotool search --onlyvisible --name 'compose-rust' 2>/dev/null | head -1 || true)"
+    window="$(bounded xdotool search --onlyvisible --name 'compose-rust' 2>/dev/null | head -1 || true)"
     [[ -n "$window" ]] && break
     kill -0 "$app" 2>/dev/null || break
     sleep 0.5
@@ -84,14 +88,14 @@ if [[ -z "$window" ]]; then
     tail -n 40 "$err" >&2
 else
     # Window manager hints, read from the server. Same probe whichever path made the window.
-    min_hint="$(xprop -id "$window" WM_NORMAL_HINTS 2>/dev/null | grep -i 'minimum size' | sed 's/^[^:]*: *//' || true)"
+    min_hint="$(bounded xprop -id "$window" WM_NORMAL_HINTS 2>/dev/null | grep -i 'minimum size' | sed 's/^[^:]*: *//' || true)"
     # The application asks for 300 by 260 (`consumer --parity`), so that is what the manager is told.
     if [[ "$min_hint" == *"300 by 260"* ]]; then
         row min_size "ok 300 by 260"
     else
         row min_size "FAIL expected 300 by 260, the manager was told '${min_hint:-nothing}'"
     fi
-    if xprop -id "$window" _NET_WM_ICON 2>/dev/null | grep -q 'CARDINAL'; then
+    if bounded xprop -id "$window" _NET_WM_ICON 2>/dev/null | grep -q 'CARDINAL'; then
         row icon present
     else
         row icon absent
@@ -105,12 +109,12 @@ else
         sleep 0.25
     done
     sleep 1
-    xdotool windowfocus "$window" 2>/dev/null || true
+    bounded xdotool windowfocus "$window" 2>/dev/null || true
     for key in a c v x z; do
-        xdotool key --delay 150 "ctrl+$key"
+        bounded xdotool key --delay 150 "ctrl+$key"
         sleep 0.4
     done
-    clip="$(xclip -selection clipboard -o 2>/dev/null || true)"
+    clip="$(bounded xclip -selection clipboard -o 2>/dev/null || true)"
     if [[ "$clip" == "abcde" ]]; then
         row clipboard ok
     else
@@ -118,6 +122,15 @@ else
     fi
 fi
 
+# The run closes itself (DXC_SYNTH has `exit`). Given a minute and a half to do it.
+for _ in $(seq 1 180); do
+    kill -0 "$app" 2>/dev/null || break
+    sleep 0.5
+done
+if kill -0 "$app" 2>/dev/null; then
+    row exit "FAIL the application did not close itself"
+    kill "$app" 2>/dev/null || true
+fi
 wait "$app" 2>/dev/null
 trap - EXIT
 
