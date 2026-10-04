@@ -47,7 +47,6 @@
 #include <imm.h>
 #include <d3d12.h>
 #include <dxgi1_4.h>
-#include <dcomp.h>
 #include <ole2.h>
 #include <shellapi.h>
 #include <uiautomation.h>
@@ -62,6 +61,7 @@
 
 #include "win32_resize.h"
 #include "win32_ime_text.h"
+#include "win32_dcomp.h"
 
 // What happened in the window, waiting to be read.
 //
@@ -131,14 +131,11 @@ static HWND dxc_window;
 static IDXGISwapChain3 *dxc_swapchain;
 // The window is shown through DirectComposition when it can be: the swapchain is a
 // composition swapchain, held by a visual that a target puts on the window. Nothing is
-// then left for DWM to fill with black while a resize is waiting to be presented. All
-// three are NULL on the fallback, where the swapchain is attached to the window directly.
-//
-// The interfaces are used through their vtables because the C macros for them are not
-// part of every SDK, and the three IIDs are written out below for the same reason.
-static IDCompositionDevice *dxc_dcomp_device;
-static IDCompositionTarget *dxc_dcomp_target;
-static IDCompositionVisual *dxc_dcomp_visual;
+// then left for DWM to fill with black while a resize is waiting to be presented. False
+// on the fallback, where the swapchain is attached to the window directly. The device,
+// target and visual themselves live in win32_dcomp.cpp; this file only asks whether one
+// is active, which win32_dcomp.h answers through dxc_dcomp_active without naming a DComp
+// type here.
 // What the swapchain was made with, and what every later refit has to say again: a refit
 // that names other flags is refused.
 static UINT dxc_swapchain_flags;
@@ -1334,73 +1331,6 @@ static LRESULT dxc_caption_hit_test(HWND window, LPARAM lparam) {
 // to reclaim its caption. That one goes looking for a window of AWT's class and will
 // not find this one, so the two never meet; the names are kept distinct anyway,
 // because a reader who found both would have every reason to think they were.
-// IDCompositionDevice, IDCompositionTarget and IDCompositionVisual, as the SDK declares
-// them. Written out because the C headers do not define the IIDs for every toolchain.
-static const IID DXC_IID_DCOMP_DEVICE =
-    {0xC37EA93A, 0xE7AA, 0x450D, {0xB1, 0x6F, 0x97, 0x46, 0xCB, 0x04, 0x07, 0xF3}};
-
-typedef HRESULT (WINAPI *dxc_dcomp_create_fn)(IUnknown *dxgi_device, REFIID id, void **out);
-
-/**
- * Lets go of the composition objects, the target first so that it stops owning the window.
- * Safe to call with nothing made.
- */
-static void dxc_release_composition(void) {
-    if (dxc_dcomp_visual != NULL) {
-        dxc_dcomp_visual->lpVtbl->Release(dxc_dcomp_visual);
-        dxc_dcomp_visual = NULL;
-    }
-    if (dxc_dcomp_target != NULL) {
-        dxc_dcomp_target->lpVtbl->Release(dxc_dcomp_target);
-        dxc_dcomp_target = NULL;
-    }
-    if (dxc_dcomp_device != NULL) {
-        dxc_dcomp_device->lpVtbl->Release(dxc_dcomp_device);
-        dxc_dcomp_device = NULL;
-    }
-}
-
-/**
- * Makes the composition device. Called before the window exists, because whether it can
- * be made decides the window's extended style: a window with no redirection surface and
- * no composition to stand in for it is a window that shows black.
- *
- * `dcomp.dll` is loaded by name so that a machine without it opens the fallback window
- * instead of failing to start, and so the link line does not change.
- */
-static IDCompositionDevice *dxc_make_composition_device(void) {
-    HMODULE module = LoadLibraryW(L"dcomp.dll");
-    if (module == NULL) {
-        return NULL;
-    }
-    dxc_dcomp_create_fn create =
-        (dxc_dcomp_create_fn)(void *)GetProcAddress(module, "DCompositionCreateDevice");
-    IDCompositionDevice *device = NULL;
-    if (create == NULL || FAILED(create(NULL, &DXC_IID_DCOMP_DEVICE, (void **)&device))) {
-        return NULL;
-    }
-    return device;
-}
-
-/**
- * Puts the swapchain on the window through the composition device. Non-zero on any
- * failure, with nothing left half made; the caller then has no visual and falls back.
- */
-static int32_t dxc_attach_composition(HWND window, IUnknown *swapchain) {
-    IDCompositionDevice *device = dxc_dcomp_device;
-    if (device == NULL) {
-        return 1;
-    }
-    if (FAILED(device->lpVtbl->CreateTargetForHwnd(device, window, TRUE, &dxc_dcomp_target)) ||
-        FAILED(device->lpVtbl->CreateVisual(device, &dxc_dcomp_visual)) ||
-        FAILED(dxc_dcomp_visual->lpVtbl->SetContent(dxc_dcomp_visual, swapchain)) ||
-        FAILED(dxc_dcomp_target->lpVtbl->SetRoot(dxc_dcomp_target, dxc_dcomp_visual)) ||
-        FAILED(device->lpVtbl->Commit(device))) {
-        dxc_release_composition();
-        return 2;
-    }
-    return 0;
-}
 
 static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
     switch (message) {
@@ -1567,7 +1497,7 @@ static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM
             // With a visual the frame is drawn, presented and committed before this
             // message returns, whether or not a drag is on, so that a size is never
             // on screen as an area nothing has painted.
-            if (dxc_dcomp_visual != NULL) {
+            if (dxc_dcomp_active()) {
                 dxc_draw_one_frame();
                 return 0;
             }
@@ -1597,7 +1527,7 @@ static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM
         dxc_a11y_count = 0;
         dxc_a11y_dirty = 0;
         dxc_a11y_update_posted = 0;
-        dxc_release_composition();
+        dxc_dcomp_release();
         dxc_window = NULL;
         dxc_window_gone = 1;
         PostQuitMessage(0);
@@ -2080,7 +2010,7 @@ static void dxc_abandon_window(IDXGIAdapter1 *adapter) {
     if (dxc_allocator != NULL) { ID3D12CommandAllocator_Release(dxc_allocator); dxc_allocator = NULL; }
     if (dxc_fence != NULL) { ID3D12Fence_Release(dxc_fence); dxc_fence = NULL; }
     if (dxc_fence_signalled != NULL) { CloseHandle(dxc_fence_signalled); dxc_fence_signalled = NULL; }
-    dxc_release_composition();
+    dxc_dcomp_release();
     dxc_latency_wait = NULL;
     if (dxc_swapchain != NULL) { IDXGISwapChain3_Release(dxc_swapchain); dxc_swapchain = NULL; }
     if (dxc_queue != NULL) { ID3D12CommandQueue_Release(dxc_queue); dxc_queue = NULL; }
@@ -2155,7 +2085,7 @@ int32_t dxc_native_window_open(
     }
 
     // Before the window, because the extended style below depends on it.
-    dxc_dcomp_device = dxc_make_composition_device();
+    int32_t dcomp_device_made = dxc_dcomp_make_device();
     HWND window = CreateWindowExW(
         // Without this, Windows keeps a GDI redirection surface behind the window for
         // DWM to composite from, separate from the swapchain. A live resize grows that
@@ -2163,14 +2093,14 @@ int32_t dxc_native_window_open(
         // ours to fill: it comes up black, however fast WM_SIZE redraws the swapchain
         // underneath it. This style tells DWM there is no redirection surface, so what
         // is on screen is this window's swapchain and nothing else.
-        dxc_dcomp_device != NULL ? WS_EX_NOREDIRECTIONBITMAP : 0,
+        dcomp_device_made ? WS_EX_NOREDIRECTIONBITMAP : 0,
         DXC_WINDOW_CLASS,
         wide_title,
         dxc_window_style(),
         CW_USEDEFAULT, CW_USEDEFAULT, width, height,
         NULL, NULL, GetModuleHandleW(NULL), NULL);
     if (window == NULL) {
-        dxc_release_composition();
+        dxc_dcomp_release();
         return 2;
     }
 
@@ -2271,7 +2201,7 @@ int32_t dxc_native_window_open(
     swapchain_description.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
     IDXGISwapChain1 *first = NULL;
     HRESULT made = E_FAIL;
-    if (dxc_dcomp_device != NULL) {
+    if (dcomp_device_made) {
         // A composition swapchain cannot be DXGI_SCALING_NONE; creating one with it
         // fails. STRETCH does not stretch here: the visual shows the buffer at its own
         // size, and every resize is presented before its message returns, so a buffer of
@@ -2280,7 +2210,7 @@ int32_t dxc_native_window_open(
         swapchain_description.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
         made = IDXGIFactory4_CreateSwapChainForComposition(
             factory, (IUnknown *)queue, &swapchain_description, NULL, &first);
-        if (SUCCEEDED(made) && dxc_attach_composition(window, (IUnknown *)first) != 0) {
+        if (SUCCEEDED(made) && dxc_dcomp_attach(window, (IUnknown *)first) != 0) {
             IDXGISwapChain1_Release(first);
             first = NULL;
             made = E_FAIL;
@@ -2289,7 +2219,7 @@ int32_t dxc_native_window_open(
             // Fall back to the window's own swapchain. The window was made without a
             // redirection surface for composition's sake, and without composition that
             // is the black this exists to avoid, so the style is taken off again.
-            dxc_release_composition();
+            dxc_dcomp_release();
             SetWindowLongPtrW(window, GWL_EXSTYLE,
                               GetWindowLongPtrW(window, GWL_EXSTYLE) & ~(LONG_PTR)WS_EX_NOREDIRECTIONBITMAP);
             SetWindowPos(window, NULL, 0, 0, 0, 0,
@@ -2307,7 +2237,7 @@ int32_t dxc_native_window_open(
             factory, (IUnknown *)queue, window, &swapchain_description, NULL, NULL, &first);
     }
     if (FAILED(made)) {
-        dxc_release_composition();
+        dxc_dcomp_release();
         ID3D12CommandQueue_Release(queue);
         ID3D12Device_Release(device);
         IDXGIAdapter1_Release(adapter);
@@ -2334,7 +2264,7 @@ int32_t dxc_native_window_open(
         dxc_latency_wait = IDXGISwapChain3_GetFrameLatencyWaitableObject(swapchain);
     }
     if (FAILED(upgraded)) {
-        dxc_release_composition();
+        dxc_dcomp_release();
         ID3D12CommandQueue_Release(queue);
         ID3D12Device_Release(device);
         IDXGIAdapter1_Release(adapter);
@@ -2511,8 +2441,7 @@ void dxc_native_frame_end(void *queue_pointer) {
     // The present is not on the window until the visual's changes are committed, and a
     // present without a commit after it leaves the previous buffer showing. The two
     // always go together.
-    if (dxc_dcomp_device != NULL && !dxc_commit_failed &&
-        FAILED(dxc_dcomp_device->lpVtbl->Commit(dxc_dcomp_device))) {
+    if (dxc_dcomp_active() && !dxc_commit_failed && dxc_dcomp_commit() != 0) {
         dxc_commit_failed = 1;
         fprintf(stderr, "compose-rust: DirectComposition commit failed, frames may not reach the window\n");
     }
