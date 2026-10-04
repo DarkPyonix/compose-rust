@@ -2346,3 +2346,14 @@ void dxc_native_set_ime_spot(float x, float y) {
         dxc_position_ime(dxc_window);
     }
 }
+
+/** Where the window's top left corner is on the screen. Only the X11 window is asked. */
+void dxc_native_window_origin(int32_t *x, int32_t *y) {
+    *x = 0;
+    *y = 0;
+}
+
+/** Whether the window has the keyboard. */
+int32_t dxc_native_window_focused(void) {
+    return dxc_window != NULL && GetForegroundWindow() == dxc_window ? 1 : 0;
+}

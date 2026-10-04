@@ -119,6 +119,12 @@ private external fun droppedPaths(out: Pointer?, capacity: Int): Int
 @CFunction("dxc_native_set_ime_spot")
 private external fun setImeSpot(x: Float, y: Float)
 
+@CFunction("dxc_native_window_origin")
+private external fun windowOrigin(x: CIntPointer?, y: CIntPointer?)
+
+@CFunction("dxc_native_window_focused")
+private external fun windowFocused(): Int
+
 @CFunction("dxc_native_window_action")
 private external fun windowAction(action: Int)
 
@@ -303,6 +309,17 @@ internal fun reportCaret(textInput: NativeTextInput) {
 }
 
 private var lastCaret: androidx.compose.ui.geometry.Offset? = null
+
+/** Where the window's top left corner is on the screen, in pixels. */
+internal fun nativeWindowOrigin(): Pair<Int, Int> {
+    val x = StackValue.get<CIntPointer>(4)
+    val y = StackValue.get<CIntPointer>(4)
+    windowOrigin(x, y)
+    return x.read() to y.read()
+}
+
+/** Whether the window has the keyboard. */
+internal fun nativeWindowFocused(): Boolean = windowFocused() != 0
 
 /** Brings the window forward. Safe from any thread: it is a request the window acts on in its next turn. */
 internal fun bringNativeWindowToFront() = windowAction(3)

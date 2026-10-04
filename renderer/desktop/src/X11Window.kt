@@ -137,6 +137,34 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
         }
         window.describeTo(elements)
     }
+    // The scene reports its semantics to one place, and a screen reader on this desktop is
+    // answered from a tree of its own, so both hear every change.
+    val atspiSource = AtspiSemanticsSource()
+    val listeners = object : androidx.compose.ui.platform.PlatformContext.SemanticsOwnerListener {
+        override fun onSemanticsOwnerAppended(semanticsOwner: androidx.compose.ui.semantics.SemanticsOwner) {
+            semantics.onSemanticsOwnerAppended(semanticsOwner)
+            atspiSource.onSemanticsOwnerAppended(semanticsOwner)
+        }
+
+        override fun onSemanticsOwnerRemoved(semanticsOwner: androidx.compose.ui.semantics.SemanticsOwner) {
+            semantics.onSemanticsOwnerRemoved(semanticsOwner)
+            atspiSource.onSemanticsOwnerRemoved(semanticsOwner)
+        }
+
+        override fun onSemanticsChange(semanticsOwner: androidx.compose.ui.semantics.SemanticsOwner) {
+            semantics.onSemanticsChange(semanticsOwner)
+            atspiSource.onSemanticsChange(semanticsOwner)
+        }
+
+        override fun onLayoutChange(
+            semanticsOwner: androidx.compose.ui.semantics.SemanticsOwner,
+            semanticsNodeId: Int,
+        ) {
+            semantics.onLayoutChange(semanticsOwner, semanticsNodeId)
+            atspiSource.onLayoutChange(semanticsOwner, semanticsNodeId)
+        }
+    }
+    val accessibility = joinAccessibilityBus(atspiSource, report)
     // Kept rather than left to the scene. What a scene picks for itself is the toolkit's
     // queue, and the Host this renderer talks to is on this thread and invisible from
     // there.
@@ -145,7 +173,7 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
         density = androidx.compose.ui.unit.Density(measured.scale),
         size = size,
         coroutineContext = work,
-        platformContext = NativePlatformContext({ size }, textInput, semantics),
+        platformContext = NativePlatformContext({ size }, textInput, listeners),
     )
     // The application's own tree, drawn by the same interpreter the toolkit path uses.
     // Nothing in it knows which of the two it is running on, which is the point.
@@ -241,12 +269,19 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
             // tree that changed on the last one is a tree nobody has been told about, and
             // a window that has gone still is exactly where that would be forgotten.
             semantics.pushIfChanged(afterDrawing = drew)
+            accessibility?.let { bridge ->
+                // After the drawing, because what is read is where everything was placed.
+                atspiSource.capture(options.title)?.let { bridge.update(it) }
+                bridge.windowActive(nativeWindowFocused())
+                bridge.pump()
+            }
             reportCaret(textInput)
         }
     } finally {
         // Before the scene closes. A resize arriving between the two would otherwise ask a
         // scene that has gone to draw into a context that has gone with it.
         clearX11FramePainter()
+        accessibility?.close()
         scene.close()
         context.close()
         host.shutdown()
@@ -304,3 +339,34 @@ private const val FRAME_SECONDS = 0.016
 
 /** The caption strip a window with no frame of the system's draws for itself. */
 internal val linuxCaptionHeight = 32.dp
+
+/**
+ * Joins the accessibility bus, so that a screen reader can read this window.
+ *
+ * Null where there is none: a machine with no accessibility bus has no reader to serve, and
+ * the window carries on. `NO_AT_BRIDGE=1` turns it off, as it does for every toolkit.
+ */
+private fun joinAccessibilityBus(source: AtspiSemanticsSource, report: Boolean): AtspiBridge? {
+    if (System.getenv("NO_AT_BRIDGE") == "1") return null
+    val user = JvmBusConnection.userId() ?: return null
+    val actions = object : AtspiActions {
+        override fun click(id: Int) = source.click(id)
+        override fun focus(id: Int) = source.focus(id)
+        override fun windowOrigin(): Pair<Int, Int> = nativeWindowOrigin()
+    }
+    val bridge = AtspiBridge(
+        // The loop turns every frame and reads the bus then, so nothing is woken.
+        openSession = { JvmBusConnection.open(wake = {}) },
+        openAccessibility = { address -> JvmBusConnection.open(address, wake = {}) },
+        userId = user,
+        applicationName = JvmBusConnection.applicationName(),
+        actions = actions,
+    )
+    return if (bridge.start()) {
+        if (report) System.err.println("compose-rust: joined the accessibility bus as ${bridge.busName}")
+        bridge
+    } else {
+        if (report) System.err.println("compose-rust: no accessibility bus to join")
+        null
+    }
+}

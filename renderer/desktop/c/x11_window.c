@@ -163,6 +163,9 @@ static int dxc_owns_clipboard;
 // is on the thread Xlib is used from.
 static volatile int dxc_raise_requested;
 
+// Whether the window has the keyboard, as the focus events last said.
+static int dxc_focused;
+
 // The input method and the context made from it, and the text being composed in it.
 static XIM dxc_im;
 static XIC dxc_ic;
@@ -887,9 +890,11 @@ static void dxc_pump_events(void) {
                 break;
             }
             case FocusIn:
+                dxc_focused = 1;
                 if (dxc_ic != NULL) XSetICFocus(dxc_ic);
                 continue;
             case FocusOut:
+                dxc_focused = 0;
                 if (dxc_ic != NULL) XUnsetICFocus(dxc_ic);
                 continue;
             case SelectionRequest:
@@ -1370,4 +1375,23 @@ void dxc_native_set_accessibility(const struct dxc_element *elements, int32_t co
         }
         fprintf(stderr, "\n");
     }
+}
+
+/** Where the window's top left corner is on the screen. */
+void dxc_native_window_origin(int32_t *x, int32_t *y) {
+    *x = 0;
+    *y = 0;
+    if (dxc_display == NULL || dxc_window == None) return;
+    int root_x = 0, root_y = 0;
+    Window child;
+    if (XTranslateCoordinates(dxc_display, dxc_window, DefaultRootWindow(dxc_display), 0, 0,
+                              &root_x, &root_y, &child)) {
+        *x = root_x;
+        *y = root_y;
+    }
+}
+
+/** Whether the window has the keyboard. */
+int32_t dxc_native_window_focused(void) {
+    return dxc_focused;
 }

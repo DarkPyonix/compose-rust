@@ -1079,3 +1079,14 @@ void dxc_native_set_ime_spot(float x, float y) {
     dxc_ime_spot_x = x;
     dxc_ime_spot_y = y;
 }
+
+/** Where the window's top left corner is on the screen. Only the X11 window is asked. */
+void dxc_native_window_origin(int32_t *x, int32_t *y) {
+    *x = 0;
+    *y = 0;
+}
+
+/** Whether the window has the keyboard. */
+int32_t dxc_native_window_focused(void) {
+    return NSApp.keyWindow != nil ? 1 : 0;
+}

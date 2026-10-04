@@ -14,7 +14,7 @@ dropped on a drop target. Linux draws its own caption and edges and hands the mo
 resize to the window manager, has the CLIPBOARD and PRIMARY selections, text input with
 composition through XIM, drag and drop of files, the application's icon, and the display
 scale. The caret position is sent to the input method so candidate windows open beside it.
-Not done on Linux: AT-SPI accessibility, which is being built for the Kotlin/Native window.
+The X11 window publishes its tree on the AT-SPI accessibility bus for Orca, through protocol code shared with the Kotlin/Native Linux window.
 
 ### The native-image renderer opens its own window on macOS
 

@@ -91,6 +91,12 @@ internal class JvmBusConnection private constructor(
             val user = userId() ?: return null
             val address = BusAddress.parse(System.getenv("DBUS_SESSION_BUS_ADDRESS"), user)
                 ?: return null
+            return open(address, wake)
+        }
+
+        /** Connects to the bus at [address], which is how the accessibility bus is reached. */
+        fun open(address: BusAddress, wake: () -> Unit): JvmBusConnection? {
+            val user = userId() ?: return null
             // The Java socket API has no way to name an abstract socket. Every current
             // desktop session publishes a path, so this costs the rare older one only.
             if (address.abstract) return null
@@ -131,7 +137,7 @@ internal class JvmBusConnection private constructor(
         }
 
         /** This process's user id, from the kernel's own description of it. */
-        private fun userId(): Long? = try {
+        fun userId(): Long? = try {
             Files.readAllLines(Path.of("/proc/self/status"))
                 .firstOrNull { it.startsWith("Uid:") }
                 ?.split(Regex("\\s+"))
