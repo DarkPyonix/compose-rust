@@ -16,7 +16,6 @@ import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.platform.DefaultArchitectureComponentsOwner
 import androidx.compose.ui.platform.PlatformContext
 import androidx.compose.ui.platform.PlatformTextInputMethodRequest
-import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.platform.WindowInfo
@@ -44,7 +43,6 @@ import platform.QuartzCore.CALayerDelegateProtocol
 import platform.AppKit.NSColor
 import platform.AppKit.NSCursor
 import platform.AppKit.NSMenu
-import platform.AppKit.NSMenuItem
 import platform.AppKit.NSViewHeightSizable
 import platform.AppKit.NSViewWidthSizable
 import platform.AppKit.NSVisualEffectBlendingMode
@@ -58,10 +56,7 @@ import platform.AppKit.NSDraggingDestinationProtocol
 import platform.AppKit.NSDraggingInfoProtocol
 import platform.AppKit.NSFilenamesPboardType
 import platform.AppKit.NSEvent
-import platform.AppKit.NSEventModifierFlagCommand
 import platform.AppKit.NSEventModifierFlagControl
-import platform.AppKit.NSEventModifierFlagOption
-import platform.AppKit.NSEventModifierFlagShift
 import platform.AppKit.NSTrackingActiveAlways
 import platform.AppKit.NSTrackingActiveInKeyWindow
 import platform.AppKit.NSTrackingAssumeInside
@@ -75,6 +70,7 @@ import platform.Foundation.NSMakeRange
 import platform.Foundation.NSNotFound
 import platform.Foundation.NSRange
 import platform.Foundation.NSRangePointer
+import platform.Foundation.NSStringFromSelector
 import platform.Foundation.string
 import kotlinx.cinterop.CPointed
 import kotlinx.cinterop.CPointer
@@ -416,7 +412,13 @@ internal class MacosWindow(
 
         override fun insertText(string: Any, replacementRange: CValue<NSRange>) {
             marked = ""
-            textInput.commit(string.asText())
+            // An input method can hand over a Control letter's own character, U+0001 for
+            // Control A, as text. It is never meant as text and a field draws it as a box,
+            // so it is taken out here, as the native image's window takes it out.
+            val text = string.asText()
+            val inserted = insertableText(text)
+            KeyLog.insertText(text, inserted)
+            if (inserted.isNotEmpty()) textInput.commit(inserted)
         }
 
         override fun setMarkedText(
@@ -470,9 +472,22 @@ internal class MacosWindow(
             NSNotFound.toULong()
 
         override fun doCommandBySelector(selector: CPointer<out CPointed>?) {
-            // Movement and deletion are Compose's, and it has already seen the key event that
-            // produced this. Doing it again here would do it twice.
+            // A command that came from the key being handled is Compose's already: the
+            // scene was given the key, and Compose's macOS mapping gives Control A the
+            // meaning `moveToBeginningOfLine:` has. Doing it again here would do it twice.
+            // One that came from anywhere else is turned into the key that means it.
+            val name = NSStringFromSelector(selector)
+            if (inKeyDown) {
+                KeyLog.line("doCommandBySelector $name during-key=1")
+                return
+            }
+            val keys = editingKeyEvents(name)
+            KeyLog.command(name, keys != null)
+            keys?.forEach { scene.sendKeyEvent(it) }
         }
+
+        // Whether a key is being handed to the input context right now.
+        private var inKeyDown = false
 
         // An input method hands back either a string or an attributed one, and only the
         // characters are wanted either way.
@@ -569,19 +584,28 @@ internal class MacosWindow(
             // move and the input method would otherwise go on building a syllable at a
             // place the reader has left, which shows up as the letters coming apart.
             if (hasMarkedText()) inputContext?.discardMarkedText()
-            send(event, PointerEventType.Press, PointerButton.Primary)
+            // Control held with the primary button is a right click on this platform.
+            secondaryHeld = event.modifierFlags and NSEventModifierFlagControl != 0uL
+            send(
+                event,
+                PointerEventType.Press,
+                if (secondaryHeld) PointerButton.Secondary else PointerButton.Primary,
+            )
         }
 
-        override fun mouseUp(event: NSEvent) =
-            send(event, PointerEventType.Release, PointerButton.Primary)
+        override fun mouseUp(event: NSEvent) {
+            val button = if (secondaryHeld) PointerButton.Secondary else PointerButton.Primary
+            secondaryHeld = false
+            send(event, PointerEventType.Release, button)
+        }
 
+        private var secondaryHeld = false
+
+        // To the scene only. The menu is Compose's to ask for, through the text context
+        // menu provider, and the system draws it; a menu put up here as well was the
+        // second of the two that came up together.
         override fun rightMouseDown(event: NSEvent) {
             send(event, PointerEventType.Press, PointerButton.Secondary)
-            // Put up ourselves rather than left to the view's own handling. What asks a
-            // view for its menu is the default `rightMouseDown`, and this one is
-            // overridden to reach the scene: with no call back to it, the menu was built
-            // and never asked for.
-            NSMenu.popUpContextMenu(editingMenu(), withEvent = event, forView = this)
         }
 
         override fun rightMouseUp(event: NSEvent) =
@@ -593,13 +617,10 @@ internal class MacosWindow(
 
         override fun scrollWheel(event: NSEvent) = send(event, PointerEventType.Scroll)
 
-        // And the same menu wherever else AppKit asks for one, which is Control held with
-        // the pointer and whatever a trackpad is set to.
-        //
-        // Compose draws one of its own on some platforms and not on this one: with the
-        // path that would turned on, the menu came up at the window's top left corner
-        // instead of under the pointer and every item in it was dead.
-        override fun menuForEvent(event: NSEvent): NSMenu? = editingMenu()
+        // None from the view. AppKit asks for one on a right click and on Control held with
+        // the pointer, and the menu is Compose's to ask for: answering here as well put a
+        // second menu up beside the one Compose asked for.
+        override fun menuForEvent(event: NSEvent): NSMenu? = null
 
         override fun keyDown(event: NSEvent) {
             // Both, and in this order. The scene reads the key as a key: arrows, Enter,
@@ -610,12 +631,43 @@ internal class MacosWindow(
             // Handed to the input context rather than interpreted. Interpreting also
             // turns keys into editing commands for a text system this window does not
             // have, and the keys have already gone to the scene, which has its own.
-            scene.sendKeyEvent(event.compose(KeyEventType.KeyDown))
-            inputContext?.handleEvent(event)
+            //
+            // Not the input context when Command is held: a Command key is a shortcut and
+            // types nothing, and an input method shown one can commit what it was
+            // composing or answer with the bare letter.
+            KeyLog.platform(event.keyCode.toInt(), event.modifierFlags.toLong(), event.characters, down = true)
+            val key = event.compose(KeyEventType.KeyDown)
+            KeyLog.compose(key, scene.sendKeyEvent(key))
+            if (!reachesInputMethod(event.modifierFlags.toLong())) return
+            inKeyDown = true
+            try {
+                inputContext?.handleEvent(event)
+            } finally {
+                inKeyDown = false
+            }
         }
 
         override fun keyUp(event: NSEvent) {
-            if (!scene.sendKeyEvent(event.compose(KeyEventType.KeyUp))) super.keyUp(event)
+            KeyLog.platform(event.keyCode.toInt(), event.modifierFlags.toLong(), event.characters, down = false)
+            val key = event.compose(KeyEventType.KeyUp)
+            val consumed = scene.sendKeyEvent(key)
+            KeyLog.compose(key, consumed)
+            if (!consumed) super.keyUp(event)
+        }
+
+        // The editing shortcuts, claimed before anything that holds key equivalents sees
+        // them, as the native image's view claims them from its Edit menu. Every other
+        // Command key is left alone.
+        override fun performKeyEquivalent(event: NSEvent): Boolean {
+            if (window?.firstResponder != this) return super.performKeyEquivalent(event)
+            if (!isEditingShortcut(event.keyCode.toInt(), event.modifierFlags.toLong())) {
+                return super.performKeyEquivalent(event)
+            }
+            keyDown(event)
+            // AppKit sends no key up for a key held with Command, so it is written here.
+            val up = event.compose(KeyEventType.KeyUp)
+            KeyLog.compose(up, scene.sendKeyEvent(up))
+            return true
         }
     }
 
@@ -702,49 +754,6 @@ internal class MacosWindow(
         view.setAccessibilityChildren(built)
     }
 
-    /**
-     * Cut, copy, paste and select all, as a menu of the system's own.
-     *
-     * Each item presses the shortcut it is named after rather than calling into the editor,
-     * because the editor is Compose's and the keys are the way in that this window already
-     * has. Nothing here decides whether an item applies: the field the keys reach ignores a
-     * copy with nothing selected, which is the same answer as a greyed out item and is one
-     * fewer thing to keep in step with what is on screen.
-     */
-    private fun editingMenu(): NSMenu {
-        val menu = NSMenu()
-        shortcut(menu, "Cut", Key.X)
-        shortcut(menu, "Copy", Key.C)
-        shortcut(menu, "Paste", Key.V)
-        menu.addItem(NSMenuItem.separatorItem())
-        shortcut(menu, "Select All", Key.A)
-        return menu
-    }
-
-    private fun shortcut(menu: NSMenu, title: String, key: Key) {
-        val item = NSMenuItem()
-        item.setTitle(title)
-        item.setTarget(
-            MenuShortcut {
-                scene.sendKeyEvent(command(key, KeyEventType.KeyDown))
-                scene.sendKeyEvent(command(key, KeyEventType.KeyUp))
-            },
-        )
-        item.setAction(platform.darwin.sel_registerName("perform"))
-        menu.addItem(item)
-    }
-
-    /** One key held with Command, built from parts the way a platform event is. */
-    private fun command(key: Key, type: KeyEventType): KeyEvent = KeyEvent(
-        key = key,
-        type = type,
-        codePoint = 0,
-        isAltPressed = false,
-        isCtrlPressed = false,
-        isMetaPressed = true,
-        isShiftPressed = false,
-    )
-
     private fun send(event: NSEvent, kind: PointerEventType, button: PointerButton? = null) {
         scene.sendPointerEvent(
             eventType = kind,
@@ -761,22 +770,13 @@ internal class MacosWindow(
     // Built from parts rather than converted: what converts a platform key event is
     // internal to Compose, and the parts are the same ones the native image path builds
     // from because it has no platform event to convert either.
+    //
+    // The code point is nothing, deliberately. This platform reads a key as typed text when
+    // it carries a printable character, and the input method is already putting that text
+    // in through `insertText`: sending it here as well types every letter twice and pushes
+    // a syllable along as it is being built.
     private fun NSEvent.compose(type: KeyEventType): KeyEvent =
-        KeyEvent(
-            key = composeKey(keyCode.toInt()),
-            type = type,
-            // Nothing, deliberately. This platform reads a key as typed text when it
-            // carries a printable character, and the input method is already putting
-            // that text in through `insertText`: sending it here as well types every
-            // letter twice and pushes a syllable along as it is being built. What the
-            // scene is for here is the keys that are not text, and those carry no
-            // printable character anyway.
-            codePoint = 0,
-            isAltPressed = modifierFlags and NSEventModifierFlagOption != 0uL,
-            isCtrlPressed = modifierFlags and NSEventModifierFlagControl != 0uL,
-            isMetaPressed = modifierFlags and NSEventModifierFlagCommand != 0uL,
-            isShiftPressed = modifierFlags and NSEventModifierFlagShift != 0uL,
-        )
+        macKeyEvent(keyCode.toInt(), modifierFlags.toLong(), type, codePoint = 0)
 }
 
 /** What a reader calls the kind of control this is. */

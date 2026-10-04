@@ -123,6 +123,9 @@ private external fun clipboardWrite(text: CCharPointer?)
 @CFunction("dxc_native_install_menu")
 private external fun installMenu(name: CCharPointer?)
 
+@CFunction("dxc_native_context_menu")
+private external fun nativeContextMenu(view: Pointer?, items: CCharPointer?): Int
+
 @CFunction("dxc_native_window_configure")
 private external fun configureWindow(
     resizable: Int,
@@ -442,6 +445,19 @@ fun pumpWindowEvents(seconds: Double) = pumpEvents(seconds)
 fun isWindowClosed(): Boolean = windowClosed() != 0
 
 /**
+ * Puts up a menu the system draws, at the pointer, and answers with the index of the
+ * entry chosen or -1 when it was dismissed. Returns when the menu closes.
+ */
+fun NativeWindow.showContextMenu(entries: List<NativeMenuEntry>): Int {
+    val holder = CTypeConversion.toCString(packMenu(entries))
+    try {
+        return nativeContextMenu(WordFactory.pointer(view), holder.get())
+    } finally {
+        holder.close()
+    }
+}
+
+/**
  * Gives the application the menu bar every application on this platform has.
  *
  * Without one, the shortcuts a reader expects do nothing: command-Q does not quit and
@@ -638,7 +654,21 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
     // The application's own tree, drawn by the same interpreter every window uses.
     // Nothing in it knows which window it is in, which is the point.
     scene.setContent {
-        NativeWindowContent(host, caption.value, actions = null)
+        // The right-click menu is the system's. Given as the default, so a part of the
+        // tree that provides its own replaces it rather than showing a second one.
+        // `DXC_MENU_OVERRIDE=drawn` stands in for an application that draws its own menu:
+        // it provides Compose's drawn representation instead, as an application would, so
+        // the one menu that comes up is that one. For checking that an override wins.
+        val menu = if (System.getenv("DXC_MENU_OVERRIDE") == "drawn") {
+            androidx.compose.foundation.LightDefaultContextMenuRepresentation
+        } else {
+            NativeContextMenuRepresentation { entries -> window.showContextMenu(entries) }
+        }
+        androidx.compose.runtime.CompositionLocalProvider(
+            androidx.compose.foundation.LocalContextMenuRepresentation provides menu,
+        ) {
+            NativeWindowContent(host, caption.value, actions = null)
+        }
     }
     installApplicationMenu(options.title)
 
@@ -677,7 +707,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
         val events = drainWindowEvents()
         for (event in synthetic?.due(System.nanoTime(), size) ?: emptyList()) {
             scene.receive(event)
-            textInput.receive(event)
+            textInput.receive(event, macos = true)
             LatencyTrace.mark("synthetic ${event.kind} sent")
         }
         for (event in events) {
@@ -701,7 +731,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
                 LatencyTrace.mark("window heard ${event.kind}")
             }
             scene.receive(event)
-            textInput.receive(event)
+            textInput.receive(event, macos = true)
             heard = true
         }
         // Only when there is something to draw. Every frame reaches the window by asking
