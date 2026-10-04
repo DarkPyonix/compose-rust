@@ -159,7 +159,7 @@ if "%this_script%"=="%wrapper_candidate%" (
 )
 
 if exist "%wrapper_candidate%" (
-    @rem Found a wrapper — check that a project context exists alongside it
+    @rem Found a wrapper: check that a project context exists alongside it
     if exist "%project_dir%\project.yaml" (
         set wrapper_script=%wrapper_candidate%
         exit /b 0

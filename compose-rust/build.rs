@@ -277,8 +277,7 @@ fn main() {
     // Only present in a checkout of this repository, and only once its renderer has been
     // built. A consumer of the published crate has neither, which is why everything below
     // it exists.
-    let workspace_lib_dir =
-        manifest_dir.join("../renderer/build/native-image/dist/lib");
+    let workspace_lib_dir = manifest_dir.join("../renderer/build/native-image/dist/lib");
     let crate_version = std::env::var("CARGO_PKG_VERSION").expect("Cargo sets CARGO_PKG_VERSION");
     let target = artifact_target(
         &target_os,

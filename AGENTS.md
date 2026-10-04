@@ -10,8 +10,11 @@ compose-rust lets Rust code author declarative UI with **Dioxus** (`dioxus-core`
 - `renderer/`: Kotlin side (Renderer). Amper project. The schema interpreter
   lives in `desktop/src/renderer/`; `ios/src/shared/` symlinks the same files so there is one
   copy. `shared/` is the JVM development shell only, not the renderer.
-- `design-systems/`: a separate Amper project holding the six design systems and the
-  Liquid Glass material. It must never depend on the renderer, so it can be published alone.
+- The design systems and the Liquid Glass material live in the Compose fork,
+  `thisisthepy/compose-multiplatform-core-extended`, under `extended/design-systems/`. They
+  must never depend on the renderer, so they can be published alone. The token test reads
+  them at the commit `renderer/scripts/build-compose.sh` pins, fetched into `.scratch/` by
+  `scripts/fetch-design-systems.sh`.
 - `docs/INTENT.md`: why the project exists, decisions (D1–D9), rejected alternatives.
 - `docs/SPEC.md`: requirements (`FR-*`, `NFR-*`, `PR-*`) with acceptance criteria.
 - `PROJECT.md`: scope, milestones (M0–M7), open questions.
@@ -43,7 +46,7 @@ compose-rust lets Rust code author declarative UI with **Dioxus** (`dioxus-core`
 ## Branches
 
 `develop` is where work happens. `release` and `main` are produced from it by
-`scripts/publish-main.sh`, which strips `PROJECT.md`, `AGENTS.md`, `CLAUDE.md` and everything directly
+`.github/scripts/release/sync-release.sh`, which strips `PROJECT.md`, `AGENTS.md`, `CLAUDE.md` and everything directly
 under `docs/`.
 
 1. **Publishing is one way: develop to release to main.** Never merge `release` or `main`
@@ -75,6 +78,25 @@ under `docs/`.
    branches changes every file under that checkout, so a `git checkout` while an agent is
    working pulls the files out from under it. Work has been lost that way. Give a
    background agent its own worktree and leave that checkout alone until it finishes.
+8. **Work branches are named `feat/<topic>`.**
+9. **Merge with `gh pr merge --delete-branch`**, then remove the local branch and its
+   worktree.
+10. **Only `main`, `develop` and `release` stay on the remote.** A branch merged into
+    `develop` is deleted; its commits are in `develop`, so nothing is kept for it, no
+    `archive/` tag either. In the forks, `extended` and the upstream branch (`jb-main`) stay, and a branch merged
+    into `extended` is deleted the same way.
+
+## CI naming
+
+Workflow files and names, in `.github/workflows/`:
+
+- `test.yml`, "Test": the basic checks.
+- `release-sync.yml`, "Release sync": develop to main sync; its script is `.github/scripts/release/sync-release.sh`.
+- `publish-crates.yml`, "Publish to crates.io": the tag release, started by `workflow_run` once the renderer workflow has succeeded.
+- `pages.yml`, "Pages": docs.
+- `test-<target>.yml`, "<Target> test": a special check for one target.
+
+Job names are English sentence case and say briefly what the job does. Matrix jobs read "<what> (<os>, <version>)". The same role keeps the same name across repos.
 
 ## Where files go
 
@@ -104,6 +126,35 @@ This is written down because it happened. Probes and their builds went to `/tmp`
 download went to `/tmp`, and worktrees went to `../agent-runs`, and the owner had agreed to
 none of it.
 
+## Repository root
+
+1. **Nothing new goes in the root without the owner's approval.** Not a folder, not a
+   file. Propose it first: what it is, why it is needed, and why no existing directory
+   can hold it. Then wait for the answer.
+2. The approved root entries are:
+   - folders: `.github/`, `compose-rust/`, `docs/`, `experiments/`,
+     `renderer/`, `samples/`, `scripts/`;
+   - files: `.gitignore`, `Cargo.toml`, `Cargo.lock`, `CHANGELOG.md`, `LICENSE`,
+     `README.md`, `AGENTS.md`, `CLAUDE.md`, `PROJECT.md`;
+   - temporary, each with the date it leaves:
+   `adapters/` and `bench/dioxus-baseline/` moved to dioxus-compose on 2026-10-04 (#37
+   step 4); `design-systems/` moved to compose-multiplatform-core-extended (#39). The
+   twelve samples under `samples/` stay and are being rewritten on the compose-rust API
+   (#85); until then they are outside the workspace and their release builds are skipped.
+   `scripts/bench/` holds the pin of the Dioxus baseline FR-39 compares against
+   (`scripts/bench/fr39-baseline.env`).
+
+   Ignored local directories (`.claude/`, `.scratch/`, `target/`, `build/`) are not part
+   of the tree and are covered by "Where files go" above.
+3. A crate, benchmark or tool that needs a home goes inside the folder it belongs to
+   (`compose-rust/macros/`, `compose-rust/benches/<name>/`, `renderer/desktop/<name>/`), not beside it.
+4. Scripts that only CI runs live in `.github/scripts/`. `scripts/tests/` is the one test
+   folder outside the crates.
+
+This is written down because it happened. One-off scripts, a stray build directory and
+a container definition each became a root folder, and the root stopped telling a reader
+what the project is made of.
+
 ## Background agents
 
 These bind the agent and whoever dispatches it equally. Both have been broken by the
@@ -127,8 +178,20 @@ the launchers inject them ahead of whatever the prompt says.
    real cost and it is the deal: the Kotlin side is verified at the merge, not in the
    worktree. **Cargo is a build too: an agent runs no `cargo build`, `test`, `check`,
    `clippy` or `run`.** Rust builds alone have overloaded this machine (load 120 to 160)
-   with several agents compiling at once. The session that merges the branch builds, one
-   build at a time with `CARGO_BUILD_JOBS=2`, or pushes and lets CI build.
+   with several agents compiling at once. The owner's words: "서브 에이전트 알바들한테는
+   러스트 빌드 시키지 마라고. 규정에도 추가시켜".
+
+   **The one exception is a single temporary builder sub-agent, and the session does not
+   build either.** The owner, 2026-10-03: "빌드 작업 니가 직접 하지 말고 서브 에이전트 하나
+   임시로 만들어서 개한테 시켜야지", "니가 작업 붙잡고 있으면 다른 일들도 진행이 안되잖아".
+   A session that holds a build holds up every other piece of work it is running, so it
+   does not run builds or tests itself. It starts one builder for them with `--builder`
+   (or `DXC_AGENT_BUILDER=1`) on any of the three launchers, and only one at a time. The
+   builder builds and tests one command at a time with `CARGO_BUILD_JOBS=2`, in its own
+   worktree and its own `target/`, never with a shared `CARGO_TARGET_DIR`, and edits no
+   code beyond the minimal fixes a build needs, which it reports with the commands it ran
+   and their output. Coding, research and documentation agents still build nothing. When
+   no builder is needed, push and let CI build.
 
 2. **A background agent never decides that part of its task is out of scope.** If the
    task says implement it, it gets implemented. No narrowing, no deferring, no "future
@@ -167,6 +230,25 @@ the launchers inject them ahead of whatever the prompt says.
 
 ## Writing
 
+The house style is `docs/style/writing.md` in `thisisthepy/pythonx-compose`, on its
+`develop` branch
+([source](https://github.com/thisisthepy/pythonx-compose/blob/develop/docs/style/writing.md)).
+It is the standard for every document here, and it applies whenever a doc is edited:
+README files, the guide, the planning documents, doc comments. The owner set one style for
+the thisisthepy and darkpyonix projects, so a reader moving between them meets the same
+voice. In short:
+
+- Present tense for what is true now. What is not done carries its status and the issue
+  that tracks it, so a plan never reads as shipped.
+- Short, plain sentences, one idea each. A rule or a limitation comes with its reason.
+- English and Korean say the same things in the same order, written naturally in each
+  language rather than translated word for word.
+- Korean user docs (README, the guide) use 합니다체; internal docs use 한다체.
+- Code, commands, file names and identifiers keep their original spelling, in code format.
+
+Apply it to the lines you write or change. A whole-document rewrite is its own task, not a
+side effect of an unrelated edit. The rules below come on top of it.
+
 1. **Never use em dashes.** Not in docs, code comments, commit messages, pull request text or UI copy. Use a comma, a colon, parentheses, or start a new sentence. Hyphens in compound words and en dashes in numeric ranges are fine.
 2. Language: `README.md` and the guide site (`docs/guide/`) are English, with translations under `docs/locales/` and `docs/guide/ko/`. The internal planning documents (`PROJECT.md`, `docs/INTENT.md`, `docs/SPEC.md`) are Korean. Code, code comments, scripts and this file are English.
 3. **Never cite SPEC or INTENT from code.** No `(SPEC PR-4)`, no `NFR-8 needs this`, no
@@ -186,6 +268,12 @@ the launchers inject them ahead of whatever the prompt says.
    **test names** (`fr4_set_prop_does_not_recompose_siblings`) keep theirs, because the
    traceability from a failing test to its requirement is the point of the TDD rules below.
    Anything a test *prints* follows the rule above.
+4. **Python-side tooling in examples is uv, ppp (pypackpack) and tcl (toolchain-lite) only.**
+   Never `pip install`, `python -m pip` or a bare `python3 script.py`: run a script with
+   `uv run`, add a package with `uv add`, `ppp` or `tcl`. Rust examples stay `cargo`. The
+   reason is one toolchain story across the thisisthepy and darkpyonix projects: a reader
+   who set up uv for one of them can run every example in all of them, and a single pip
+   line sends them down a second setup. `scripts/tests/no-pip-examples.test.sh` checks it.
 
 ## Test Driven Development
 

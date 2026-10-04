@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# A crate whose Cargo.toml says only "compose-rust" builds, links, and starts.
+# A crate whose Cargo.toml names only compose-rust builds, links, and starts, with
+# compose-rust's build script finding the renderer for it.
 #
 # This is the case the rest of the test suite could not reach. Every sample in this
 # repository used to carry a build script that repeated the library's rpath, so the

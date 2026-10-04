@@ -28,6 +28,8 @@ Rust에서 Compose API를 직접 호출하지 않습니다. GraalVM `@CEntryPoin
 
 ### D2. Rust 측 작성 모델은 compose-rust 자신의 Compose 모양 API이고, Dioxus는 그 위에 얹힌다
 
+> **현황(2026-10-04).** 결정은 기록되었고 구현은 develop에 없습니다. 런타임은 `feature/compose-api` 브랜치에 있고 PR은 아직 열리지 않았습니다(이슈 #23, #64, SPEC FR-39).
+
 **소유자의 결정입니다(2026-10-03).** 2026-09-28부터 같은 말로 여러 번 주어졌고, 이 문서에 적히지 않은 채 다시 질문으로 돌아갔습니다.
 
 > "이미 결정했는데 왜 대체 안하는거야? 왜 다시 물어보는거야?" (2026-10-03)
@@ -82,6 +84,8 @@ Rust에서 Compose API를 직접 호출하지 않습니다. GraalVM `@CEntryPoin
 | Web | 대상 플랫폼. Compose wasmJs + Dioxus wasm. 브라우저에서 실행하는 것이라 앱이 웹뷰를 내장하는 것과는 다르고 C1에 해당하지 않습니다. 메모리는 공유하고 호출만 생성된 JS forwarder를 거칩니다(SPEC PR-6) |
 
 ### D4. 데스크톱 렌더러는 AWT 없이 만들고, 그것을 기본으로 배포한다
+
+> **현황(2026-10-04).** develop에서 배포되는 데스크톱 렌더러는 아직 GraalVM native-image AWT 경로입니다. 기본값 전환은 `feature/native-default-renderer` 브랜치에 있고 PR은 없습니다(이슈 #22, SPEC NFR-14).
 
 **소유자의 결정입니다(2026-10-03).**
 
@@ -343,6 +347,8 @@ macOS 26과 iOS 26은 같은 재질을 쓰지만 같은 방식으로 쓰지 않�
 
 ### D18. Windows 렌더러는 Kotlin/Native로 만들고, MinGW는 Kotlin 오브젝트 안에 가둔다
 
+> **현황(2026-10-04).** develop의 Windows 렌더러는 GraalVM native-image입니다. Kotlin/Native 렌더러는 `feature/windows-kotlin-native` 브랜치에 있고 PR은 없습니다(이슈 #24, SPEC NFR-13).
+
 **소유자의 결정입니다(2026-10-03). 실험이 아니라 정식 통합입니다.**
 
 > "작업 하시라고요" (2026-10-03)
@@ -396,6 +402,8 @@ skiko는 `mingwX64`를 발행하지 않고 Compose도 Windows용 Kotlin/Native �
 
 ### D19. Compose를 확장하는 일은 이 프로젝트 밖, Compose의 포크에서 한다
 
+> **현황(2026-10-04).** 디자인 시스템 소스는 포크로 옮겨졌습니다(PR #86). 두 층으로 나누는 일과 남은 좌표 이동은 두 포크의 `chore/thisisthepy-coordinates` 브랜치에 있고 병합되지 않았습니다(이슈 #39). 창 코드의 이동은 이슈 #26이 추적합니다.
+
 이 저장소에는 성격이 다른 세 가지가 섞여 있었습니다. Compose 자체를 고치는 일(upstream 패치, GraalVM native-image에서 AWT를 걷어내는 경로, Kotlin/Native로 직접 만든 데스크톱 창), Rust에서 Compose를 쓰게 하는 일(위젯 스키마, 인터프리터, 경계), 그리고 Dioxus를 붙이는 일입니다. 첫째는 Rust와 무관하고, 같은 회사의 다른 프로젝트(Python에서 Compose를 쓰는 pythonx-compose)도 필요로 합니다. **2026-10-02에 셋으로 나눕니다.**
 
 | 저장소 | 맡는 것 |
@@ -429,7 +437,7 @@ skiko는 `mingwX64`를 발행하지 않고 Compose도 Windows용 Kotlin/Native �
 
 - 디자인 시스템은 `org.thisisthepy.compose.<시스템>` 패키지(`material3`, `cupertino`, `fluent`, `gnome`, `breeze`, `deepin`, `liquidglass`)이고, 공통 부분은 `org.thisisthepy.compose.designsystem`입니다. 모듈은 포크의 `extended/design-systems/<시스템>/` 아래에 둡니다.
 - 포크가 내는 라이브러리의 Maven 그룹은 `org.thisisthepy.compose.*`입니다. JetBrains가 라이브러리와 플러그인 모두 `org.jetbrains.compose`를 쓰는 것과 같은 방식입니다.
-- 앱으로 배포되는 것의 식별자는 `io.github.thisisthepy.<앱>`입니다. darkpyonix 제품(예: `dev.darkpyonix.Ember`)에 같은 규칙을 적용할지는 따로 정합니다.
+- 앱으로 배포되는 것의 식별자는 `io.github.thisisthepy.<앱>`입니다. darkpyonix는 `dev.darkpyonix` 하나만 씁니다(소유자 답변, 2026-10-03). darkpyonix는 Kotlin 라이브러리를 내지 않으므로, 라이브러리와 앱을 가르는 둘째 네임스페이스가 필요 없습니다. 예: `dev.darkpyonix.Ember`, `dev.darkpyonix.composerust.samples.<샘플>`.
 - `androidx.compose.*` 아래에 두지 않는 이유는 위의 둘째 선택지 설명 그대로입니다. upstream과 부딪히지 않고, 포크가 더한 것이 이름만으로 구별되며, 공개 API를 바꾸지 않는다는 원칙을 지킵니다.
 
 **디자인 시스템은 두 층으로 냅니다. 소유자의 결정입니다(2026-10-03).**
@@ -478,6 +486,18 @@ JetBrains의 안내([ios-liquid-glass](https://kotlinlang.org/docs/multiplatform
 `apple.awt.brushMetalLook`, `apple.awt.draggableWindowBackground`, `apple.awt.documentModalSheet`, `apple.awt.fullscreenable`, `apple.awt.fullWindowContent`, `apple.awt.transparentTitleBar`, `apple.awt.windowTitleVisible`, `apple.awt.windowAccessibilityElement`.
 
 **vibrancy도 material도 이 목록에는 없습니다.** `NSVisualEffectView`나 `NSGlassEffectView`를 창에 붙이는 속성은 없으므로 Java 쪽에서 부를 방법이 없습니다. 그 뷰를 세우려면 네이티브 코드가 필요하고, 위 정정에 따라 그것은 금지된 것이 아니라 아직 하지 않은 것입니다. FR-29가 그 작업입니다.
+
+### D20. 역할 원칙은 위젯의 것이고, 역할이 없는 HTML 텍스트는 자기 글꼴을 가진다 (2026-10-03)
+
+위젯은 역할만 내보냅니다(SPEC FR-13, FR-14). 글꼴도 그래서 테마 단위였고, SPEC FR-23.2는 "노드마다 폰트를 지정하는 길은 내지 않는다"고 적었습니다. 디자인 시스템이 글자를 정한다는 약속이 거기서 나옵니다.
+
+HTML 경로는 그 약속 밖에 있습니다. CSS가 크기, 굵기, 글꼴을 모두 정하고, 글꼴 목록은 문서가 임의로 고릅니다. VS Code 작업대는 아이콘 글꼴(codicon)로 모든 접기 표시와 도구 모음 글리프를 그리고, 코드와 터미널은 이름 붙은 고정폭 글꼴 목록을, UI 글자는 `system-ui`를 씁니다. 이것을 역할 사다리에 넣을 수는 없습니다. 목록의 길이와 내용을 문서가 정하기 때문입니다.
+
+**소유자 결정(2026-10-03): 역할이 없는 텍스트에만 노드 단위 글꼴을 엽니다.** `TypeRole::None`인 텍스트는 노드와 스팬마다 글꼴 참조(등록한 글꼴 에셋, 시스템 패밀리 이름, 일반 패밀리)를 받습니다. 역할을 가진 텍스트는 지금처럼 테마가 글꼴을 정하고, 글꼴 참조를 보내도 무시합니다. 경계는 역할의 유무 하나이고, 그래서 네이티브 위젯 화면에서는 아무것도 바뀌지 않습니다.
+
+- 거절한 대안: 모든 글꼴을 테마의 역할로 등록하게 하는 것. CSS 글꼴 목록은 역할 사다리에 들어가지 않습니다.
+- 측정 호출(SPEC PR-2.1)과 그리기는 같은 글꼴 참조를 같은 방법으로 풉니다. 잰 크기와 그린 크기가 같아야 하기 때문입니다.
+- 요구사항과 수용 기준은 SPEC FR-40입니다. HTML 텍스트의 접근성 배율은 아직 정하지 않았습니다(검토 중).
 
 ## 4. 폐기한 대안
 

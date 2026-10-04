@@ -1,28 +1,13 @@
 [workspace]
 members = [
     "compose-rust",
-    "samples/academic",
-    "samples/calculator",
-    "samples/chat",
-    "samples/frames",
-    "samples/minimal",
-    "samples/notepad",
-    "samples/podcast",
-    "samples/selfcare",
-    "samples/social",
-    "samples/statistics",
-    "samples/store",
-    "samples/todo",
 ]
+# The samples are being rewritten on the compose-rust authoring API (#85) and are kept out of
+# the workspace until then; they still name the Dioxus adapter, which moved to dioxus-compose.
+exclude = ["samples"]
 resolver = "2"
 
 [workspace.package]
 edition = "2024"
 license = "Apache-2.0"
 rust-version = "1.85"
-
-[workspace.dependencies]
-dioxus-core = "0.7.10"
-dioxus-core-macro = "0.7.10"
-dioxus-hooks = "0.7"
-dioxus-signals = "0.7"

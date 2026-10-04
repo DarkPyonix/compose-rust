@@ -36,9 +36,9 @@ case "${1:-}" in
     *) echo "usage: $0 <build|test>" >&2; exit 2 ;;
 esac
 
-# Which project to read. The renderer by default, and the design systems project when it
-# is named, because both are Amper projects gated the same way and the reasons to leave a
-# platform out are the machine's rather than either project's.
+# Which project to read. The renderer by default, or another Amper project when one is
+# named, because the reasons to leave a platform out are the machine's rather than any
+# project's.
 project_dir="${2:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 [[ -d "$project_dir" ]] || { echo "no such project directory: $project_dir" >&2; exit 2; }
 cd "$project_dir"

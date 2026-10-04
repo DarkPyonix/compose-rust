@@ -55,6 +55,40 @@ for launcher in "${launchers[@]}"; do
     [ "${stray:-0}" -eq 0 ] ||
         note "$launcher quotes something inside the prompt, which ends the string early"
 
+    # Building. The rule is chosen before the prompt is assembled: an ordinary run is told
+    # it builds nothing, and a run started with --builder is told it is the one temporary
+    # builder. The owner's rule of 2026-10-03 is that the session does not hold builds
+    # itself; it hands them to one builder sub-agent. These run the launcher's own lines,
+    # so a quotation mark that breaks the string fails here rather than at launch.
+    grep -qF -e '"${1:-}" = "--builder"' "$launcher" ||
+        note "$launcher has no --builder flag"
+    grep -q 'DXC_AGENT_BUILDER' "$launcher" ||
+        note "$launcher cannot start a builder through DXC_AGENT_BUILDER"
+    awk '/^prompt="Your working directory/ , /^\$prompt"$/' "$launcher" | grep -qx '\$build_rule' ||
+        note "$launcher does not put the build rule into the prompt"
+    rule_block=$(awk '/^build_rule="/ , /^fi$/' "$launcher")
+    for line in $(printf '%s\n' "$rule_block" | grep -n 'build_rule="' | cut -d: -f1); do
+        body=$(printf '%s\n' "$rule_block" | sed -n "${line}p" | sed 's/^ *build_rule="//; s/"$//')
+        [ "$(printf '%s' "$body" | tr -cd '"' | wc -c | tr -d ' ')" -eq 0 ] ||
+            note "$launcher quotes something inside a build rule, which ends the string early"
+        ! printf '%s' "$body" | grep -q '[^\\]`' ||
+            note "$launcher has an unescaped backtick in a build rule, which the shell runs"
+    done
+    normal=$(builder='' bash -c "$rule_block"$'\n''printf %s "$build_rule"' 2>&1)
+    built=$(builder=1 bash -c "$rule_block"$'\n''printf %s "$build_rule"' 2>&1)
+    for phrase in 'You do not build the renderer' 'You do not run cargo either' 'no cargo build, test, check, clippy or run'; do
+        printf '%s' "$normal" | grep -q "$phrase" ||
+            note "$launcher in normal mode no longer says '$phrase'"
+    done
+    ! printf '%s' "$normal" | grep -q 'You are the single temporary builder' ||
+        note "$launcher tells an ordinary run that it is the builder"
+    for phrase in 'You are the single temporary builder' 'one command at a time' 'CARGO_BUILD_JOBS=2' 'own target/' 'Never set or share CARGO_TARGET_DIR' 'minimal fixes'; do
+        printf '%s' "$built" | grep -q "$phrase" ||
+            note "$launcher in builder mode does not say '$phrase'"
+    done
+    ! printf '%s' "$built" | grep -q 'You do not run cargo either' ||
+        note "$launcher tells the builder it may not build"
+
     # Scope. A run that quietly delivers less than it was asked for, and says nothing,
     # costs more than one that argues: the gap is found later by someone who assumed it
     # was there.
@@ -86,4 +120,4 @@ if [[ "$failures" -gt 0 ]]; then
     echo "$failures problem(s) in the agent launchers" >&2
     exit 1
 fi
-echo "ok: all ${#launchers[@]} launchers state the working directory, the build ban, the scope rule and what it does not let a run do, and the planning documents"
+echo "ok: all ${#launchers[@]} launchers state the working directory, the build ban, the builder mode, the scope rule and what it does not let a run do, and the planning documents"

@@ -1,0 +1,266 @@
+# CI -- the fast quality gate. Runs on every pull request and every push.
+#
+# This workflow is deliberately Rust-only. `scripts/check.sh` (fmt, clippy,
+# tests, --quick benchmarks) finishes in minutes, so it can gate every PR.
+# The GraalVM native-image build of the renderer is *not* here: it needs a
+# ~1GB Liberica NIK download and tens of minutes of native-image compilation
+# (INTENT D9-macOS), which is too slow to put in front of every push. That
+# build lives in test-native-renderer.yml, on a schedule and on pushes to main.
+#
+# INTENT D7 is the reason this split is legitimate: the development path (JVM
+# / Rust) and the distribution path (native-image) are separate by design, and
+# SPEC NFR-5 states the native-image build is not part of the development loop.
+#
+# macOS is the primary platform (SPEC PR-8), but the Host crate itself is
+# portable, so Linux is in the matrix too: it costs nothing extra in wall time
+# and it catches accidental macOS-only assumptions in the Rust code early.
+
+name: Test
+
+on:
+  # Only what is about to become public, or what already is. Work lands on develop many
+  # times an hour and running the matrix on each push is noise rather than signal. Every
+  # release reaches main as a pull request, so the gate still runs before anything is
+  # published, which is the moment that matters.
+  # The pull request only. `release` reaches `main` through a pull request that a human
+  # merges, so that run is the gate, and it finishes before main moves. Running again on
+  # the push afterwards tested the identical tree and doubled every number on the actions
+  # page for nothing.
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  # One in-flight run per branch or PR; superseded runs are cancelled.
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Keep the cache small and the link step quick; CI never needs a debugger.
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+
+jobs:
+  rust:
+    name: Check Rust formatting, lints and tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # macos-latest is Apple silicon, which is the platform SPEC PR-8
+        # describes and the one the benchmark baseline was measured on.
+        os: [macos-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the pinned Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy
+          rustup default stable
+          rustc --version
+          cargo --version
+
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
+      - name: Use a renderer generated from this tree's schema
+        # Every default build in the gate links a renderer, and the one a build finds here
+        # is the published release, which was generated from the schema of its version.
+        # On a branch that changed the schema the build script refuses it, rightly, and
+        # the gate would fail before clippy for a reason no branch can fix. On that
+        # refusal and only on it, this links a stand-in generated from this tree's schema.
+        # It cannot draw, and nothing in the gate asks it to.
+        run: ./scripts/stand-in-renderer.sh --if-refused target/stand-in-renderer >> "$GITHUB_ENV"
+
+      - name: Run the quality gate
+        # fmt, clippy -D warnings, tests, and the workspace's budget benchmarks in
+        # Criterion's quick mode. There are none at the moment: the Host budget
+        # benchmarks drove the Dioxus adapter and moved to dioxus-compose with it,
+        # and compose-rust's own arrive with its authoring API (#64).
+        #
+        # Without the Kotlin half. check.sh runs it by default, which is right on a
+        # developer's machine and wrong here: this job is named for Rust, has no Kotlin
+        # caches, and so spent most of ten minutes downloading the Kotlin/Native compiler
+        # and the wasm toolchain before doing eight seconds of work. The kotlin job below
+        # runs it once, with the caches that make it cheap.
+        env:
+          DXC_SKIP_KOTLIN: '1'
+        run: ./scripts/check.sh
+
+  kotlin:
+    # One job per platform, not one job for all of them.
+    #
+    # `./kotlin build` with no argument compiles every module for every platform it
+    # declares. That put the Kotlin/Native compiler, its platform libraries and the wasm
+    # toolchain on the critical path of a gate whose JVM half finishes in seconds, and it
+    # serialised work that has no reason to be serial: measured warm here, jvm 4s, android 4s, wasmJs 11s, iosSimulatorArm64
+    # 21s. Sequentially that is the sum; split, it is the slowest one.
+    #
+    # The split also keeps each cache honest. The jvm and android jobs never download
+    # konan at all, and a Kotlin/Native toolchain change no longer invalidates the cache
+    # of the job that finishes first.
+    name: Build and test the renderer (${{ matrix.platform }})
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The renderer's desktop module and every UI test live here. macOS because it is
+          # the primary platform and the one the Compose desktop tests are written against.
+          - platform: jvm
+            runs-on: macos-latest
+            test: true
+          # Kotlin/Native. Compiles the iOS renderer, which shares its interpreter sources
+          # with the desktop one through symlinks, and runs the protocol codec tests on it.
+          - platform: iosSimulatorArm64
+            runs-on: macos-latest
+            test: true
+          # The device slice is linked, never run: running it needs a signed app on real
+          # hardware. Building it is what proves the arm64 slice still compiles.
+          - platform: iosArm64
+            runs-on: macos-latest
+            test: false
+          # Compiled, not run, and now for one reason rather than two. A browser test
+          # loads skiko's wasm module, and on this runner it arrives truncated, which
+          # aborts before any test starts (`section (code 10, "Code") extends past end of
+          # the module`). It does not reproduce locally, where the same command passes, so
+          # this is the toolchain or the runner rather than the code under test.
+          #
+          # What is now lost by not running them is real. `web/test/WebBoundaryTest.kt`
+          # drives the boundary against a Host built from the same Rust source the desktop
+          # renderer runs, and measures what a call costs. Turning it on takes two things:
+          # the truncated skiko fixed, and `web/scripts/build-host.sh` run first, because
+          # without the Host beside the page those tests report what is missing and pass.
+          - platform: wasmJs
+            runs-on: ubuntu-latest
+            test: false
+          - platform: android
+            runs-on: ubuntu-latest
+            test: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache the Kotlin toolchain, konan and Maven dependencies
+        # Keyed on the platform as well as the inputs, so each job carries only what it
+        # actually downloads instead of every job restoring every toolchain.
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/JetBrains/Kotlin
+            ~/.cache/JetBrains/Kotlin
+            ~/.konan
+            ~/.m2/repository
+          key: kotlin-${{ matrix.platform }}-${{ runner.os }}-${{ hashFiles('renderer/**/module.yaml', 'renderer/libs.versions.toml', 'renderer/kotlin') }}
+          restore-keys: |
+            kotlin-${{ matrix.platform }}-${{ runner.os }}-
+
+      - name: Build the renderer
+        working-directory: renderer
+        run: ./kotlin build -p ${{ matrix.platform }}
+
+      - name: Test the renderer
+        if: matrix.test
+        working-directory: renderer
+        run: ./kotlin test -p ${{ matrix.platform }}
+
+  shell:
+    name: Run the shell script tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Both, because some of these scripts are platform specific and skip elsewhere.
+        # install-nik.sh only means anything on macOS, so running the suite on Linux alone
+        # would silently cover none of it.
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the pinned Rust toolchain
+        # consumer-crate.test.sh builds a crate that depends on compose-rust, to check
+        # that an application with no build script of its own links, loads the renderer
+        # and starts.
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      - name: Install the wasm target
+        # web-host-imports.test.sh builds the Host as a wasm module and compares what it
+        # imports against what the page supplies. Without the target it skips, and a
+        # dependency that added an import would reach a browser before anyone noticed.
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Install patchelf
+        # The same test bundles that application the way one that ships would, which means
+        # rewriting the executable's DT_NEEDED entry. Without patchelf it says so and skips
+        # that half rather than passing quietly.
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y patchelf
+
+      - name: Run scripts/tests
+        # the release sync script and scripts/install-nik.sh carry their own
+        # tests; they run against throwaway temporary directories only.
+        #
+        # Every test runs whatever came before it. Stopping at the first red meant one
+        # failing test hid every test after it, and those went unrun without anyone
+        # being told. The step still fails, at the end, naming each test that did.
+        run: |
+          set -uo pipefail
+          failed=()
+          for test in scripts/tests/*.test.sh; do
+            echo "== $test"
+            if ! bash "$test"; then
+              failed+=("$test")
+            fi
+          done
+          if (( ${#failed[@]} > 0 )); then
+            echo "${#failed[@]} shell test(s) failed:"
+            printf '  %s\n' "${failed[@]}"
+            exit 1
+          fi
+
+  packaging:
+    name: Check the crates.io package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      # Guards the distribution plan: the Host crate must stay publishable as a
+      # plain crate while the ~85MB renderer ships as a release artifact.
+      #
+      # The verification build inside `cargo package` uses default features, which
+      # now include the renderer, so this also exercises the path a consumer takes:
+      # the packaged crate has no workspace to fall back on and has to fetch the
+      # artifact for its own version from the release. That is the point. If the
+      # release for this version has no Linux renderer, a consumer on Linux cannot
+      # build, and this job is where that is discovered.
+      #
+      # Except when that renderer was built from a different schema than this tree,
+      # which is true of every branch that changes the schema until the next release.
+      # The build script rightly refuses that pairing, and the job would then fail on
+      # every such branch for a reason no branch can fix, and say nothing about
+      # packaging. So on that refusal, and only on it, the verification links a stand-in
+      # renderer generated from this tree's schema instead: the packaged crate is still
+      # built by its own build script with no workspace, and links a renderer through
+      # COMPOSE_RUST_RENDERER_DIR. Whether the download for a version works is checked
+      # where it can be true, by the release workflow's own `cargo publish`, after it has
+      # attached the renderer that release was built from.
+      - name: Use a renderer generated from this tree's schema
+        run: ./scripts/stand-in-renderer.sh --if-refused target/stand-in-renderer >> "$GITHUB_ENV"
+
+      - name: cargo package
+        run: cargo package -p compose-rust

@@ -250,7 +250,9 @@ macro_rules! define_wire_enum {
 
         impl $name {
             #[allow(dead_code)]
-            pub(crate) fn from_name(value: &str) -> Result<Self, ()> {
+            #[doc(hidden)]
+            #[allow(clippy::result_unit_err)]
+            pub fn from_name(value: &str) -> Result<Self, ()> {
                 $(if wire_name_eq(value, stringify!($variant)) {
                     return Ok(Self::$variant);
                 })+

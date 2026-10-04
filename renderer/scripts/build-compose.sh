@@ -27,13 +27,16 @@ set -euo pipefail
 
 # The commit, not the branch. A branch that moves is a build that changes for a reason
 # nobody chose here. This one is JetBrains release/1.11 at 73ac849 with the Linux targets,
-# the native text context menu and the published version on top, and nothing else: the
-# commits after it on `extended` add a mingwX64 target to every module's build and read
-# skiko from the local Maven repository first, which a macOS or Linux build has no use
-# for. compose-fork.changes lists what this commit must hold at every path it changes,
-# and scripts/tests/compose-fork.test.sh checks it.
+# the native text context menu and the published version on top (c396dcf), then the
+# design systems under extended/design-systems, which this build does not read and
+# scripts/fetch-design-systems.sh does. Nothing else: the commits after c396dcf on
+# `extended` add a mingwX64 target to every module's build and read skiko from the local
+# Maven repository first, which a macOS or Linux build has no use for, so the design
+# systems were added on top of c396dcf and merged into `extended` from there.
+# compose-fork.changes lists what this commit must hold at every path it changes, and
+# scripts/tests/compose-fork.test.sh checks it.
 FORK="https://github.com/thisisthepy/compose-multiplatform-core-extended.git"
-REVISION="c396dcff48c02b8a7c6707e273a7d34038ba5d7e"
+REVISION="02ff96c42a412d8eded411d48c56da131f570af6"
 # The commit the Windows build takes, which is a later one on purpose. Windows needs the
 # commits the one above leaves out: 296beb3 adds mingwX64 to every Compose UI module and
 # reads skiko from the local Maven repository first, and f17cb30 adds the skiko build for

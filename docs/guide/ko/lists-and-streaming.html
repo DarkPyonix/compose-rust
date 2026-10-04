@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>목록과 스트리밍 · compose-rust 가이드</title>
-<meta name="description" content="LazyColumn 윈도잉과 AppendText 스트리밍의 설계, 현재 상태, 그리고 지금 만들 수 있는 것.">
+<meta name="description" content="compose-rust의 윈도잉 목록, 스트리밍 텍스트, 워커 스레드, 그리고 이것들이 지키는 프레임 예산입니다.">
 <link rel="alternate" hreflang="en" href="../en/lists-and-streaming.html">
-<link rel="alternate" hreflang="ko" href="lists-and-streaming.html">
+<link rel="alternate" hreflang="ko" href="../ko/lists-and-streaming.html">
 <link rel="alternate" hreflang="x-default" href="../en/lists-and-streaming.html">
 <link rel="stylesheet" href="../assets/style.css?v=20">
 <script>(function(){try{var t=localStorage.getItem("dxc-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
@@ -33,19 +33,17 @@
         <li><a href="overview.html">개요</a></li>
         <li><a href="getting-started.html">시작하기</a></li>
         <li><a href="writing-ui.html">UI 작성하기</a></li>
-        <li><a href="composables.html">컴포저블 레퍼런스</a></li>
+        <li><a href="composables.html">위젯 레퍼런스</a></li>
         <li><a href="lists-and-streaming.html" aria-current="page">목록과 스트리밍</a></li>
         <li><a href="design-systems.html">디자인 시스템</a></li>
         <li><a href="architecture.html">아키텍처</a></li>
         <li><a href="troubleshooting.html">문제 해결</a></li>
       </ul>
-      <h2>이 페이지</h2>
+      <h2>저장소</h2>
       <ul>
-        <li><a href="#today">평범한 목록</a></li>
-        <li><a href="#windowing">LazyColumn 윈도잉</a></li>
-        <li><a href="#streaming">스트리밍 텍스트</a></li>
-        <li><a href="#workers">워커에서 스트리밍하기</a></li>
-        <li><a href="#budget">프레임 예산</a></li>
+        <li><a href="https://github.com/DarkPyonix/compose-rust">GitHub</a></li>
+        <li><a href="https://crates.io/crates/compose-rust">crates.io</a></li>
+        <li><a href="https://github.com/DarkPyonix/compose-rust/issues">이슈</a></li>
       </ul>
     </nav>
   </aside>
@@ -54,198 +52,128 @@
     <p class="eyebrow">목록과 스트리밍</p>
     <h1>긴 목록과 스트리밍 텍스트</h1>
     <p class="lede">
-      채팅 클라이언트는 아주 긴 목록에 토큰 단위로 도착하는 텍스트를 더한 것입니다. 두 기능 모두
-      이제 Rust 쪽에 구현이 있고 테스트도 붙어 있습니다. 다만 Compose 인터프리터가 따라오기
-      전까지는 절반만 완성된 상태입니다. 이 페이지는 그 절반이 정확히 어디까지인지 적습니다.
+      채팅 클라이언트는 아주 긴 목록에, 토큰 하나씩 도착하는 텍스트를 더한 것입니다. compose-rust에는
+      각각을 위한 레코드가 있습니다. 렌더러가 이끄는 윈도잉 목록, 그리고 새로 온 뒷부분만 싣는
+      덧붙이기입니다. 둘 다 지금 경계에서 동작합니다. 이것을 쓰는 작성 API는 1.0.0에 들어옵니다.
     </p>
 
-    <div class="note">
-      <span class="label">현재 위치</span>
-      <p>
-        <code>LazyColumn</code>(FR-8)과 <code>AppendText</code>(FR-9)는 SPEC에서
-        <code>Agreed</code>이고 Host 쪽 구현이 끝났습니다. 둘 다 <code>compose-rust/tests/</code>에
-        통과하는 수용 테스트가 있습니다. Compose 인터프리터는 지금 병행해서 작업 중이고, 그전까지
-        화면에서 어떻게 보이는지는 아래 <a href="#renderer-gap">Renderer 쪽 공백</a>을 보세요.
-      </p>
-    </div>
-
-    <h2 id="today">평범한 목록</h2>
+    <h2 id="windowing">윈도잉 목록 <span class="pill works">구현</span></h2>
     <p>
-      데이터를 <code>for</code>로 돌리는 <code>Column</code>은 올바르게 동작하고, 화면 하나에
-      스크롤백을 조금 더한 수백 줄 규모에는 충분합니다. 다만 가상화는 하지 않습니다. 아이템 하나가
-      양쪽 모두에서 실제 노드 하나가 됩니다.
-    </p>
-
-    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
-      <figcaption>rust, 데스크톱 데모가 쓰는 패턴</figcaption>
-<pre><code><span class="f">rsx!</span> {
-    <span class="ty">Column</span> {
-        <span class="at">fill_max_width</span>: <span class="k">true</span>,
-        <span class="k">for</span> message <span class="k">in</span> messages() {
-            <span class="ty">Text</span> { <span class="at">text</span>: message }
-        }
-    }
-}</code></pre>
-    </figure>
-
-    <p>
-      메시지 하나를 고치면 <code>SetProp</code> 한 건만 나가고 형제 노드는 recomposition되지
-      않습니다. 바람이 아니라 테스트로 지키는 요구사항입니다(FR-4). 그러니 이 패턴의 비용은 갱신
-      경로가 아니라 노드 개수입니다.
-    </p>
-
-    <h2 id="windowing">LazyColumn 윈도잉 <span class="pill partial">Host 쪽 완료</span></h2>
-    <p>
-      평범한 트리 diff로는 가상 목록을 가상으로 유지할 수 없습니다. Renderer가 아이템의 존재를
-      알려면 Host가 만들지도 않은 아이템을 설명해야 하기 때문입니다. 그래서 lazy 목록에서는 흐름을
-      뒤집습니다.
+      가상화된 목록은 트리 전체로 기술할 수 없습니다. 렌더러가 항목이 있다는 것을 알게 하려면, Host가
+      만들지도 않은 항목까지 기술해야 하기 때문입니다. 그래서 lazy 목록에서는 흐름이 뒤집힙니다.
     </p>
     <ol>
-      <li>Host가 전체 아이템 개수와 아이템마다의 안정적인 key를 알립니다.</li>
-      <li>Renderer가 보이는 범위를 정해 <code>RangeRequested</code> 이벤트로 요청합니다(이벤트 태그 7, 24바이트).</li>
-      <li>Host는 그 범위에 양옆 버퍼를 더한 만큼만 서브트리를 만들고, 나머지는 만들지 않습니다.</li>
+      <li>Host가 전체 항목 수와 항목마다 안정된 키를 알립니다.</li>
+      <li>렌더러가 보이는 범위를 정하고, 범위 요청 이벤트로 그 범위를 요청합니다.</li>
+      <li>Host는 그 범위와 양쪽의 버퍼만큼만 하위 트리를 만들고, 그 밖은 만들지 않습니다.</li>
     </ol>
     <p>
-      아이템마다 <code>item_key</code> 문자열을 실은 <code>Box</code> 노드로 감싸고, Renderer는 그
-      값을 Compose <code>LazyColumn</code>의 key로 씁니다. 스크롤 위치와 아이템 식별은 Renderer가,
-      데이터는 Host가 갖습니다. 이미 본 아이템으로 다시 스크롤하면 같은 서브트리가 다시
-      만들어집니다.
+      항목마다 키가 실리고, 렌더러는 그것을 Compose <code>LazyColumn</code> 의 항목 키로 넘깁니다.
+      스크롤 위치와 항목의 정체성은 렌더러에, 데이터는 Host에 남습니다. 항목 10,000개에서 보이는 줄
+      20개와 버퍼 4를 요청하면 Host는 28개를 만듭니다. 비용은 목록이 아니라 창을 따릅니다. 테스트가
+      정확히 이것을 확인합니다.
+    </p>
+    <p>
+      <code>LazyColumn</code>, <code>LazyRow</code>, <code>LazyGrid</code> 가 이 약속을 함께
+      따릅니다. 0.0.1에서는 <code>Runtime</code> 이 요청을 <code>RangeRequest</code> 로 받아 레코드로
+      답합니다. 작성 API도 같은 레코드를 쓰므로, 그것으로 쓴 lazy 목록도 같은 방식으로 윈도잉됩니다
+      <span class="pill planned">계획</span>.
+    </p>
+
+    <h2 id="plain">평범한 열</h2>
+    <p>
+      항목마다 자식 하나를 둔 <code>ScrollColumn</code> 은 맞는 방법이고, 화면에 들어가는 몇백 줄과
+      약간의 이전 기록에는 충분합니다. 다만 윈도잉하지 않으므로 항목마다 양쪽에 실제 노드가
+      생깁니다. 항목 하나를 바꾸면 그 항목의 변화만 나가므로, 이 방식의 비용은 갱신 경로가 아니라
+      노드 수입니다.
+    </p>
+
+    <h2 id="streaming">스트리밍 텍스트 <span class="pill works">구현</span></h2>
+    <p>
+      LLM 응답은 토큰 단위로 도착합니다. 토큰마다 <code>Text</code> 의 내용 전체를 바꾸면 매번
+      메시지 전체를 다시 보냅니다. 메시지는 길어지므로 전체 비용은 제곱으로 늘어납니다. compose-rust는
+      대신 새 뒷부분만 싣는 <code>AppendText</code> 레코드를 보냅니다.
+    </p>
+    <p>
+      Host가 합칩니다. 두 프레임 사이에 도착한 토큰은 노드마다 <code>AppendText</code> 하나로
+      합쳐져 다음 프레임에 나갑니다. 토큰 하나가 배치 하나를 차지하는 일은 없고, 버퍼를 재사용하므로
+      꾸준한 스트리밍은 할당하지 않습니다. Host에서 잰 값으로, 36&nbsp;KB 메시지에서도 토큰당 배치는
+      64바이트 아래이고 스트리밍 프레임의 p99는 125&nbsp;ns입니다.
     </p>
 
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
-      <figcaption>rust, compose-rust/src/widgets.rs의 컴포넌트 정의 그대로</figcaption>
-<pre><code><span class="f">rsx!</span> {
-    <span class="ty">LazyColumn</span> {
-        <span class="at">item_count</span>: messages.<span class="f">len</span>(),
-        <span class="at">buffer</span>: <span class="n">4</span>,                                     <span class="c">// 양옆으로 더 만들 개수. 기본 4</span>
-        <span class="at">key_of</span>: <span class="k">move</span> |index| messages()[index].id.<span class="f">clone</span>(),  <span class="c">// 선택. 없으면 인덱스</span>
-        <span class="at">item</span>: <span class="k">move</span> |index| <span class="f">rsx!</span> {
-            <span class="ty">Text</span> { <span class="at">text</span>: messages()[index].body.<span class="f">clone</span>() }
-        },
-    }
-}</code></pre>
-    </figure>
-
-    <p>
-      <code>item</code>과 <code>key_of</code>는 <code>Callback</code>이라 클로저를 그대로 넘기면
-      됩니다. <code>item_count</code>는 <code>usize</code>이고 와이어에는 <code>i64</code>로
-      실립니다. 필수 속성은 <code>item_count</code>와 <code>item</code> 둘뿐입니다.
-    </p>
-    <p>
-      수용 기준은 구체적이고, 통과합니다. 아이템 1만 개짜리 목록에서 가시 20개와 버퍼 4를
-      요청하면 Host가 만드는 아이템은 28개입니다. 목록 길이가 아니라 창 크기에 비례합니다. 테스트
-      이름은 <code>fr8_node_count_is_proportional_to_the_window</code>입니다.
-    </p>
-
-    <div class="warn" id="renderer-gap">
-      <span class="label">Renderer 쪽 공백</span>
-      <p>
-        Kotlin 인터프리터는 지금 <code>LazyColumn</code> 노드를 Compose <code>Column</code>으로
-        그리고 <code>RangeRequested</code>를 한 번도 보내지 않습니다. 프로토콜과 속성, 이벤트
-        디코더는 이미 다 있고, 없는 것은 그것들을 굴릴 Compose <code>LazyColumn</code>입니다.
-        그때까지 <code>LazyColumn</code>은 처음 만든 창을 그린 채로 머뭅니다. 지금부터 이 컴포넌트에
-        맞춰 코드를 써 두는 것은 괜찮지만, 아이템 1만 개짜리 화면을 이 위에 얹어 배포하지는 마세요.
-      </p>
-    </div>
-
-    <h2 id="streaming">스트리밍 텍스트 <span class="pill partial">Host 쪽 완료</span></h2>
-    <p>
-      LLM 응답은 토큰 단위로 도착합니다. 토큰마다 <code>text</code> 속성을 통째로 바꾸면 매번 메시지
-      전체를 다시 보내게 되고, 메시지는 계속 길어지므로 비용이 제곱으로 늡니다. 그래서
-      <code>Text</code> 노드에 늘어난 꼬리만 싣는 <code>AppendText</code> 명령을
-      둡니다(Mutation 태그 8, 16바이트).
-    </p>
-    <p>
-      모으는 일은 Host가 합니다. 프레임 사이에 도착한 토큰들은 노드별로 <code>AppendText</code> 한
-      건으로 합쳐지고, <code>render_frame</code>에서 flush됩니다. 토큰 하나가 배치 하나를 잡아먹지
-      않고, 누적 버퍼를 재사용하므로 정상 상태 스트리밍에서 할당이 늘지 않습니다.
-    </p>
-
-    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
-      <figcaption>rust, 현재 존재하는 스트리밍 API의 전부</figcaption>
-<pre><code><span class="c">// 다음 프레임에 보낼 꼬리를 쌓아 둡니다. 반복 호출은 노드별 한 건과</span>
-<span class="c">// 프레임 요청 한 번으로 합쳐집니다.</span>
+      <figcaption>rust, 0.0.1의 경계 API</figcaption>
+<pre><code><span class="c">// Queues a tail for the next frame. Repeated calls coalesce into one record</span>
+<span class="c">// per node and into a single frame request.</span>
 host.<span class="f">append_text</span>(node_id, <span class="s">" token"</span>);</code></pre>
     </figure>
 
-    <div class="note">
-      <span class="label">컴포넌트 수준 스트리밍 API는 아직 없습니다</span>
-      <p>
-        <code>append_text</code>는 프로토콜의 <code>node_id</code>를 받는데, 컴포넌트 코드에는 그
-        값을 얻을 마땅한 방법이 없습니다. 테스트와 임베더가 쓰는 경계 수준 기능이지 컴포넌트
-        안에서 부를 것이 아닙니다. <code>rsx!</code> 수준의 수단이 생기기 전까지는 시그널에 쓰고
-        diff가 <code>SetProp</code>을 보내게 하세요. 짧은 답변에는 문제없고, 긴 답변에서는 제곱으로
-        비쌉니다.
-      </p>
-    </div>
-
     <p>
-      Host 쪽 실측치입니다. 36&nbsp;KB 텍스트에서도 토큰당 배치가 64바이트 미만이고, 스트리밍
-      프레임 p99는 125&nbsp;ns입니다. 초당 100회 추가 중에도 스크롤과 입력이 끊기지 않는다는 전체
-      수용 기준은 끝에서 끝까지의 이야기라 Renderer를 기다려야 합니다.
+      <code>Host::append_text</code> 는 프로토콜 노드 id를 받습니다. 애플리케이션 코드가 아니라
+      트리를 만드는 층을 위한 것입니다. <code>Runtime</code> 은 <code>Batch::append_text_node</code>
+      로 같은 레코드를 씁니다. 작성 API는 노드 id 없이 스트리밍을 쓰게 할 것입니다
+      <span class="pill planned">계획</span>.
     </p>
 
-    <h2 id="workers">워커 스레드에서 스트리밍하기</h2>
+    <h2 id="workers">워커 스레드의 일</h2>
     <p>
-      이 부분은 가정이 아니고, 앞의 두 기능보다 중요합니다. 도메인 작업은 UI 스레드에서 돌면 안
-      됩니다. 그 스레드는 여러분의 컴포넌트와 경계 전체가 함께 쓰는 스레드입니다. PTY 읽기, HTTP,
-      LLM 스트리밍, 파일 I/O는 Host 워커 스레드의 몫입니다.
+      도메인 작업은 UI 스레드에서 돌면 안 됩니다. 그 스레드가 UI 코드와 경계 전체도 돌리기
+      때문입니다. PTY 읽기, HTTP, LLM 스트리밍, 파일 I/O는 Host 워커 스레드의 몫입니다.
     </p>
     <p>
-      UI 입장에서 워커가 할 일은 시그널에 쓰는 것뿐입니다. Renderer를 깨우는 일은 내부에서
-      처리합니다. Host가 대신 프레임을 요청하고, 요청이 여러 번 겹쳐도 Compose 프레임 클록 안에서
-      <code>render_frame</code> 한 번으로 합쳐집니다. 사용자 코드가 경계 함수를 부르는 일은 없고,
-      양쪽 사이에 채워질 큐도 없습니다.
+      UI의 관점에서 워커가 할 일은 상태를 바꾸는 것뿐입니다. 렌더러를 깨우는 것은 내부의 일입니다.
+      <code>request_frame_from_worker</code> 는 어느 스레드에서든 프레임을 요청하고, 여러 요청은
+      Compose 프레임 시계 위의 프레임 하나로 합쳐집니다. 작성 API에서는 워커가 UI 스레드와 같은 상태
+      객체에 쓰고, 프레임은 Host가 대신 요청합니다. 애플리케이션 코드는 경계 함수를 부르지 않으며, 두
+      쪽 사이에 차오를 큐도 없습니다.
     </p>
 
     <div class="note">
-      <span class="label">기억해 둘 결과 하나</span>
+      <span class="label">핸들러 안에서 요청한 프레임</span>
       <p>
-        핸들러는 Renderer가 Host를 부른 호출 안에서 실행됩니다. 그래서 핸들러 안에서 요청한
-        프레임은 그 호출이 끝날 때까지 미뤄집니다. 핸들러에서 Renderer로 재진입하는 것은
-        금지입니다. 상태만 바꾸고 프레임에 맡기세요.
+        핸들러는 렌더러가 Host를 부른 호출 안에서 돕니다. 거기서 요청한 프레임은 그 호출이 돌아갈
+        때까지 미뤄지므로, 디스패치 도중에 렌더러에 다시 들어가는 일이 없습니다. 상태를 바꾸고
+        프레임이 오게 두십시오.
       </p>
     </div>
 
     <h2 id="budget">프레임 예산</h2>
     <p>
-      성능 목표는 숫자 하나가 아니라 비교입니다. 같은 화면을 Kotlin과 Compose로 직접 쓴 것이
-      기준선이고, 이 스택은 그보다 프레임 시간을 10%까지만 더 써도 됩니다. 기준은 120&nbsp;Hz
-      디스플레이, 프레임당 8.33&nbsp;ms입니다. 코드 작성 방식에 영향을 주는 항목 몇 가지입니다.
+      목표는 따로 떨어진 숫자가 아니라 비교입니다. 같은 화면을 Kotlin과 Compose로 직접 쓴 것이
+      기준이고, compose-rust는 그보다 프레임 시간을 최대 10%까지만 더 쓸 수 있습니다. 120&nbsp;Hz
+      화면의 8.33&nbsp;ms 예산에 대해서입니다.
     </p>
 
     <div class="tablewrap">
       <table>
-        <thead><tr><th scope="col">항목</th><th scope="col">기준 (p99, 릴리스)</th></tr></thead>
+        <thead><tr><th scope="col">항목</th><th scope="col">예산(p99, 릴리스)</th></tr></thead>
         <tbody>
-          <tr><td>Host 처리: 핸들러 + diff + 배치 인코딩</td><td>일반 상호작용 ≤ 0.5&nbsp;ms, 스트리밍 프레임 ≤ 1&nbsp;ms</td></tr>
-          <tr><td>경계 호출 1회</td><td>데스크톱·iOS ≤ 100&nbsp;ns, Android ≤ 200&nbsp;ns</td></tr>
-          <tr><td>Renderer의 배치 적용</td><td>Mutation 100건당 ≤ 0.3&nbsp;ms</td></tr>
-          <tr><td>입력에서 화면까지</td><td>기준선과 같은 프레임 수. 추가 지연 0프레임</td></tr>
-          <tr><td>프레임 드랍</td><td>초당 100토큰 스트리밍 + 1만 건 대화 스크롤 중 0</td></tr>
+          <tr><td>Host 작업: 핸들러, 갱신, 배치 인코딩</td><td>일반 상호작용 0.5&nbsp;ms 이하, 스트리밍 프레임 1&nbsp;ms 이하</td></tr>
+          <tr><td>경계 호출 한 번</td><td>데스크톱과 iOS 100&nbsp;ns 이하, Android 200&nbsp;ns 이하</td></tr>
+          <tr><td>렌더러의 배치 적용</td><td>레코드 100개당 0.3&nbsp;ms 이하</td></tr>
+          <tr><td>입력에서 화면까지</td><td>기준과 같은 프레임 수: 지연 프레임이 더 없음</td></tr>
+          <tr><td>떨어진 프레임</td><td>초당 토큰 100개를 스트리밍하며 메시지 10,000개 대화를 스크롤해도 없음</td></tr>
         </tbody>
       </table>
     </div>
 
     <p>
-      할당은 절대 수치가 아니라 추세로 봅니다. Dioxus는 diff와 이벤트 처리 과정에서 내부적으로
-      할당하고(2026-09-20 측정: 클릭당 99회), Rust에는 GC가 없어서 이 할당이 멈춤으로 이어지지
-      않습니다. 중요한 것은 같은 상호작용을 반복했을 때 횟수가 늘지 않는 것입니다. 늘어난다면
-      누수이거나 캐시가 동작하지 않는 것이고, 버그로 보고 조사합니다.
+      배치 인코딩은 힙에 아무것도 할당하지 않습니다. 메모리는 추세로 잽니다. 같은 상호작용을
+      되풀이해도 늘면 안 되고, 늘면 누수나 동작을 멈춘 캐시로 보고 조사합니다.
     </p>
 
     <nav class="pagenav" aria-label="페이지 이동">
-      <a class="prev" href="composables.html"><span>이전</span>&larr; 컴포저블 레퍼런스</a>
+      <a class="prev" href="composables.html"><span>이전</span>&larr; 위젯 레퍼런스</a>
       <a class="next" href="design-systems.html"><span>다음</span>디자인 시스템 &rarr;</a>
     </nav>
-</main>
+  </main>
 </div>
 
 <footer class="site">
   <div class="inner">
     <span>compose-rust &middot; Apache License 2.0</span>
-    <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/INTENT.md">INTENT.md</a></span>
-    <span>이 가이드는 2026-09-20 기준 저장소 내용과 대조했습니다</span>
+    <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://crates.io/crates/compose-rust">crates.io</a></span>
+    <span>이 가이드는 2026-10-03 기준 저장소 내용과 대조했습니다</span>
   </div>
 </footer>
 

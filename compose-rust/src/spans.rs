@@ -273,9 +273,3 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
         .windows(needle.len())
         .position(|window| window == needle)
 }
-
-impl dioxus_core::IntoAttributeValue for TextSpans {
-    fn into_value(self) -> dioxus_core::AttributeValue {
-        dioxus_core::AttributeValue::any_value(self)
-    }
-}
