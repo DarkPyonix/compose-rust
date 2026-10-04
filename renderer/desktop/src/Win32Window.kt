@@ -59,6 +59,21 @@ private external fun beginFrame(swapchain: Pointer?, resourceOut: Pointer?): Int
 @CFunction("dxc_native_frame_end")
 private external fun endFrame(queue: Pointer?)
 
+@CFunction("dxc_native_debug_resize")
+private external fun debugResize(
+    window: Pointer?,
+    view: Pointer?,
+    fromWidth: Int,
+    fromHeight: Int,
+    toWidth: Int,
+    toHeight: Int,
+    steps: Int,
+    pauseMicros: Int,
+)
+
+@CFunction("dxc_native_debug_key")
+private external fun debugKey(window: Pointer?, keyCode: Int, characters: CCharPointer?)
+
 @CFunction("dxc_native_set_draw_callback")
 private external fun setDrawCallback(callback: CFunctionPointer?, isolateThread: IsolateThread?)
 
@@ -109,6 +124,24 @@ class Win32NativeWindow internal constructor(
 
     /** Puts the painted frame on the screen. */
     fun endFrame() = endFrame(WordFactory.pointer(queue))
+
+    /** Posts a key press for [character] to the window. See `DXC_SYNTH`. */
+    internal fun postKey(keyCode: Int, character: String) {
+        val holder = CTypeConversion.toCString(character)
+        try {
+            debugKey(WordFactory.pointer(window), keyCode, holder.get())
+        } finally {
+            holder.close()
+        }
+    }
+
+    /** Takes the window through the sizes a drag would, for measuring. See `DXC_SYNTH`. */
+    internal fun scriptedResize(from: Pair<Int, Int>, to: Pair<Int, Int>, steps: Int, pauseMicros: Int) {
+        debugResize(
+            WordFactory.pointer(window), WordFactory.pointer(0L),
+            from.first, from.second, to.first, to.second, steps, pauseMicros,
+        )
+    }
 
 }
 
@@ -429,11 +462,19 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
                 textInput.receive(event)
                 heard = true
             }
-            // DXC_SYNTH's resize and keys modes post through dxc_native_debug_resize and
-            // dxc_native_debug_key, which this platform answers and does nothing: a real
-            // drag or key press on Windows goes through SendInput, which nothing here
-            // drives yet. Only the type and click modes, sent as WindowEvent through
-            // synthetic.due above, work on this platform today.
+            // DXC_SYNTH's resize and keys modes, through the window's own messages. The
+            // resize returns once every step has been drawn, from inside those messages.
+            if (synthetic != null && synthetic.resizeDue(System.nanoTime())) {
+                val scale = window.measure().scale
+                window.scriptedResize(
+                    (size.width / scale).toInt() to (size.height / scale).toInt(),
+                    360 to 420, 60, 8_000,
+                )
+            }
+            synthetic?.keysDue(System.nanoTime())?.let { (code, character) ->
+                LatencyTrace.mark("synthetic key '$character' posted")
+                window.postKey(code, character)
+            }
             // Only when there is something to draw. A window that is being looked at
             // rather than used should cost a comparison a frame.
             if (!painted || heard || scene.hasInvalidations()) {

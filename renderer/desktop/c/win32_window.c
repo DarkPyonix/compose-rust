@@ -2038,20 +2038,82 @@ static void dxc_accept_files(HWND window) {
     RegisterDragDrop(window, &dxc_drop_target);
 }
 
-/*
- * Measuring aids of the AppKit window, named because the Kotlin that drives every desktop
- * names them and answered here by doing nothing: a drag cannot be scripted from inside
- * this window, and nothing asks for it to be.
+/**
+ * Takes the window through the sizes a drag would, for measuring. Used only when asked
+ * for, by DXC_SYNTH.
+ *
+ * Sizes are client sizes in points, as on macOS. Each step is a SetWindowPos with the top
+ * left held, between the two messages that bracket a real drag, so the frame for each
+ * step comes through WM_NCCALCSIZE and WM_SIZE exactly as a dragged edge's does. Runs on
+ * the window's own thread and returns when the last step has been taken.
  */
 void dxc_native_debug_resize(void *window_pointer, void *view_pointer, int32_t from_width,
                              int32_t from_height, int32_t to_width, int32_t to_height,
                              int32_t steps, int32_t pause_micros) {
-    (void)window_pointer; (void)view_pointer; (void)from_width; (void)from_height;
-    (void)to_width; (void)to_height; (void)steps; (void)pause_micros;
+    (void)view_pointer;
+    HWND window = (HWND)window_pointer;
+    if (window == NULL || steps <= 0) {
+        return;
+    }
+    UINT dpi = GetDpiForWindow(window);
+    if (dpi == 0) {
+        dpi = USER_DEFAULT_SCREEN_DPI;
+    }
+    SendMessageW(window, WM_ENTERSIZEMOVE, 0, 0);
+    for (int32_t step = 1; step <= steps; step++) {
+        double t = (double)step / steps;
+        int points_width = (int)(from_width + (to_width - from_width) * t + 0.5);
+        int points_height = (int)(from_height + (to_height - from_height) * t + 0.5);
+        RECT outer;
+        outer.left = 0;
+        outer.top = 0;
+        outer.right = MulDiv(points_width, (int)dpi, USER_DEFAULT_SCREEN_DPI);
+        outer.bottom = MulDiv(points_height, (int)dpi, USER_DEFAULT_SCREEN_DPI);
+        AdjustWindowRectExForDpi(&outer, dxc_window_style(), FALSE, 0, dpi);
+        // Without the system caption the client area starts at the top of the window,
+        // as where the window was first sized.
+        int outer_height = dxc_options.system_chrome ? outer.bottom - outer.top : outer.bottom;
+        SetWindowPos(window, NULL, 0, 0, outer.right - outer.left, outer_height,
+                     SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+        if (pause_micros > 0) {
+            Sleep((DWORD)((pause_micros + 999) / 1000));
+        }
+    }
+    SendMessageW(window, WM_EXITSIZEMOVE, 0, 0);
 }
 
+/**
+ * Posts a key press, the characters it types and its release to the window's own queue,
+ * for measuring. Used only when asked for, by DXC_SYNTH.
+ *
+ * The key code the caller passes is macOS's, which means nothing here; the virtual key
+ * is looked up from the first character instead. The characters go as WM_CHAR, one per
+ * UTF-16 unit, which is what TranslateMessage would have posted for a real press.
+ */
 void dxc_native_debug_key(void *window_pointer, int32_t key_code, const char *characters) {
-    (void)window_pointer; (void)key_code; (void)characters;
+    (void)key_code;
+    HWND window = (HWND)window_pointer;
+    if (window == NULL || characters == NULL) {
+        return;
+    }
+    WCHAR text[16];
+    int units = MultiByteToWideChar(CP_UTF8, 0, characters, -1, text,
+                                    (int)(sizeof text / sizeof *text));
+    if (units <= 1) {
+        return;
+    }
+    units--;
+    SHORT scanned = VkKeyScanW(text[0]);
+    UINT key = scanned == -1 ? 0 : (UINT)(scanned & 0xff);
+    if (key != 0) {
+        PostMessageW(window, WM_KEYDOWN, key, 1);
+    }
+    for (int index = 0; index < units; index++) {
+        PostMessageW(window, WM_CHAR, text[index], 1);
+    }
+    if (key != 0) {
+        PostMessageW(window, WM_KEYUP, key, (LPARAM)0xC0000001);
+    }
 }
 
 /*
