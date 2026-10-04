@@ -58,7 +58,15 @@ enum {
     DXC_EVENT_FILES_DROPPED = 11,
     // The files left without being let go.
     DXC_EVENT_FILES_EXITED = 12,
+    // An editing action named by its AppKit selector, `selectAll:` or `copy:`, with the
+    // selector's name in the text. Which Compose key it becomes is decided on the other
+    // side, in the same table the Kotlin/Native window uses.
+    DXC_EVENT_EDIT_COMMAND = 13,
 };
+
+// Set in `buttons` on a press or release of the secondary button. The buttons held down
+// cannot say which one was let go.
+#define DXC_SECONDARY_BUTTON (1 << 16)
 
 // Room for what an input method is composing, which is a syllable or a word and never a
 // document. Text longer than this arrives as several commits, which reads the same in a
@@ -293,6 +301,10 @@ void dxc_native_install_menu(const char *application_name) {
             NSMenuItem *editItem = [[NSMenuItem alloc] init];
             NSMenu *editMenu = [[NSMenu alloc] initWithTitle:@"Edit"];
             [editMenu addItemWithTitle:@"Undo" action:@selector(undo:) keyEquivalent:@"z"];
+            NSMenuItem *redo = [editMenu addItemWithTitle:@"Redo"
+                                                   action:@selector(redo:)
+                                            keyEquivalent:@"z"];
+            redo.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagShift;
             [editMenu addItem:NSMenuItem.separatorItem];
             [editMenu addItemWithTitle:@"Cut" action:@selector(cut:) keyEquivalent:@"x"];
             [editMenu addItemWithTitle:@"Copy" action:@selector(copy:) keyEquivalent:@"c"];
@@ -432,6 +444,62 @@ int32_t dxc_native_poll_event(struct dxc_event *out) {
 // answer existed, with every consonant and vowel standing separately.
 static NSString *dxc_marked_text;
 
+// Whether a key is being handed to the input context right now. An editing command that
+// arrives while it is came from that key, which the scene has already been given as a
+// key; one that arrives at any other time came from somewhere else and is passed on.
+static BOOL dxc_in_key_down;
+
+// `DXC_KEY_LOG=1`: a line for each key AppKit delivered, each text an input method
+// committed and each command it asked for, beside the lines the Kotlin side writes for
+// what Compose was given.
+static BOOL dxc_key_log(void) {
+    static int cached = -1;
+    if (cached < 0) {
+        const char *value = getenv("DXC_KEY_LOG");
+        cached = (value != NULL && strcmp(value, "1") == 0) ? 1 : 0;
+    }
+    return cached == 1;
+}
+
+static NSString *dxc_visible(NSString *text) {
+    if (text == nil) return @"null";
+    NSMutableString *out = [NSMutableString stringWithString:@"\""];
+    for (NSUInteger i = 0; i < text.length; i++) {
+        unichar c = [text characterAtIndex:i];
+        if (c < 0x20 || c == 0x7F) [out appendFormat:@"\\u%04x", c];
+        else [out appendFormat:@"%C", c];
+    }
+    [out appendString:@"\""];
+    return out;
+}
+
+static void dxc_log_key(NSEvent *event, const char *what) {
+    if (!dxc_key_log()) return;
+    NSEventModifierFlags flags = event.modifierFlags;
+    fprintf(stderr,
+            "compose-rust key: nsevent %s keyCode=0x%x modifiers=%s%s%s%s characters=%s "
+            "ignoringModifiers=%s\n",
+            what, (unsigned)event.keyCode,
+            (flags & NSEventModifierFlagCommand) ? "command+" : "",
+            (flags & NSEventModifierFlagControl) ? "control+" : "",
+            (flags & NSEventModifierFlagOption) ? "option+" : "",
+            (flags & NSEventModifierFlagShift) ? "shift+" : "",
+            dxc_visible(event.characters).UTF8String,
+            dxc_visible(event.charactersIgnoringModifiers).UTF8String);
+}
+
+// Command with A, C, V, X or Z, Shift allowed for redo. Mirrors `isEditingShortcut` in
+// MacKeys.kt, which the Kotlin/Native window calls and which the tests hold to this list.
+static BOOL dxc_is_editing_shortcut(NSEvent *event) {
+    NSEventModifierFlags flags = event.modifierFlags;
+    if (!(flags & NSEventModifierFlagCommand)) return NO;
+    if (flags & (NSEventModifierFlagControl | NSEventModifierFlagOption)) return NO;
+    switch (event.keyCode) {
+        case 0x00: case 0x08: case 0x09: case 0x07: case 0x06: return YES;
+        default: return NO;
+    }
+}
+
 /**
  * The view the window is filled with.
  *
@@ -517,6 +585,20 @@ void dxc_native_set_cursor(int32_t shape) {
     record.x = (float)(where.x * scale);
     record.y = (float)(where.y * scale);
     record.buttons = (int32_t)NSEvent.pressedMouseButtons;
+    // Control held with the primary button is a right click on this platform, and a
+    // trackpad set to click with two fingers sends the right button itself. The release
+    // is marked the same as its press, whatever is held by then.
+    static BOOL secondary_held;
+    if (event.type == NSEventTypeRightMouseDown ||
+        (event.type == NSEventTypeLeftMouseDown &&
+         (event.modifierFlags & NSEventModifierFlagControl))) {
+        secondary_held = YES;
+        record.buttons |= DXC_SECONDARY_BUTTON;
+    } else if (secondary_held &&
+               (event.type == NSEventTypeRightMouseUp || event.type == NSEventTypeLeftMouseUp)) {
+        secondary_held = NO;
+        record.buttons |= DXC_SECONDARY_BUTTON;
+    }
     record.modifiers = (int32_t)event.modifierFlags;
     if (kind == DXC_EVENT_SCROLL) {
         // The wheel's travel rides in the same two fields the pointer uses, because a
@@ -540,18 +622,60 @@ void dxc_native_set_cursor(int32_t shape) {
 - (void)rightMouseUp:(NSEvent *)event { [self dxcSend:DXC_EVENT_POINTER_UP event:event]; }
 - (void)scrollWheel:(NSEvent *)event { [self dxcSend:DXC_EVENT_SCROLL event:event]; }
 // Both, and in this order. The key itself is what arrows, Enter and backspace are read
-// as, and `interpretKeyEvents:` is what turns the rest into text: it hands the event to
-// the input context, which answers with `insertText:` for a letter and with
-// `setMarkedText:` while a syllable is still being built. A path that only queued the key
-// would type English and lose every language that composes.
+// as, and the input context is what turns the rest into text: it answers with
+// `insertText:` for a letter and with `setMarkedText:` while a syllable is still being
+// built. A path that only queued the key would type English and lose every language that
+// composes.
+//
+// Not the input context when Command is held. A Command key is a shortcut and types
+// nothing, and an input method shown one can commit what it was composing or answer with
+// the bare letter. The same rule as `reachesInputMethod` in MacKeys.kt.
 - (void)keyDown:(NSEvent *)event {
+    dxc_log_key(event, "down");
     [self dxcSend:DXC_EVENT_KEY_DOWN event:event];
-    // Handed to the input context rather than interpreted. Interpreting also turns keys
-    // into editing commands for a text system this window does not have, and the keys
-    // have already gone to the scene, which has its own.
+    if (event.modifierFlags & NSEventModifierFlagCommand) return;
+    dxc_in_key_down = YES;
     [self.inputContext handleEvent:event];
+    dxc_in_key_down = NO;
 }
-- (void)keyUp:(NSEvent *)event { [self dxcSend:DXC_EVENT_KEY_UP event:event]; }
+
+// The editing shortcuts, claimed before the menu bar sees them. AppKit offers a Command
+// key to the menu bar first, the Edit menu holds the same keys, and its item sent
+// `selectAll:` looking for a responder rather than letting the key arrive as a key: that
+// is how Command A did nothing. The key goes to the scene, whose own mapping knows what
+// it means. Every other Command key, Quit and Hide among them, is left to the menu.
+- (BOOL)performKeyEquivalent:(NSEvent *)event {
+    if (event.type == NSEventTypeKeyDown && self.window.firstResponder == self &&
+        dxc_is_editing_shortcut(event)) {
+        [self keyDown:event];
+        // AppKit sends no key up for a key that was held with Command, so it is written
+        // here, where the press was, rather than left out for the scene to wait on.
+        dxc_log_key(event, "up (synthesised)");
+        [self dxcSend:DXC_EVENT_KEY_UP event:event];
+        return YES;
+    }
+    return [super performKeyEquivalent:event];
+}
+
+- (void)dxcEditCommand:(SEL)selector {
+    NSString *name = NSStringFromSelector(selector);
+    if (dxc_key_log()) {
+        fprintf(stderr, "compose-rust key: edit command %s\n", name.UTF8String);
+    }
+    [self dxcSendText:DXC_EVENT_EDIT_COMMAND string:name];
+}
+
+// The Edit menu's items and the context menu's, by the selectors AppKit sends them as.
+- (void)selectAll:(id)sender { [self dxcEditCommand:_cmd]; }
+- (void)copy:(id)sender { [self dxcEditCommand:_cmd]; }
+- (void)cut:(id)sender { [self dxcEditCommand:_cmd]; }
+- (void)paste:(id)sender { [self dxcEditCommand:_cmd]; }
+- (void)undo:(id)sender { [self dxcEditCommand:_cmd]; }
+- (void)redo:(id)sender { [self dxcEditCommand:_cmd]; }
+- (void)keyUp:(NSEvent *)event {
+    dxc_log_key(event, "up");
+    [self dxcSend:DXC_EVENT_KEY_UP event:event];
+}
 
 #pragma mark - Files dragged onto the window
 
@@ -662,6 +786,11 @@ void dxc_native_set_cursor(int32_t shape) {
     NSString *text = [string isKindOfClass:NSAttributedString.class] ?
         ((NSAttributedString *)string).string : (NSString *)string;
     dxc_marked_text = nil;
+    if (dxc_key_log()) {
+        fprintf(stderr, "compose-rust key: insertText %s\n", dxc_visible(text).UTF8String);
+    }
+    // Control characters are taken out on the other side, by `insertableText`, which the
+    // Kotlin/Native window calls too.
     [self dxcSendText:DXC_EVENT_TEXT_COMMIT string:text];
 }
 
@@ -714,10 +843,19 @@ void dxc_native_set_cursor(int32_t shape) {
     return [self.window convertRectToScreen:windowRect];
 }
 
-// Keys that mean an action rather than a letter. They were queued as keys already and the
-// field reads them there, so nothing more is done with them here. Answering at all is
-// what stops AppKit from sounding the alert for every arrow key.
-- (void)doCommandBySelector:(SEL)selector { }
+// Keys that mean an action rather than a letter. One that came from the key being handled
+// was queued as a key already and the field reads it there, through Compose's own macOS
+// mapping, which gives Control A the meaning `moveToBeginningOfLine:` has; doing it again
+// here would do it twice. A command from anywhere else is passed on, by name. Answering at
+// all is what stops AppKit from sounding the alert for every arrow key.
+- (void)doCommandBySelector:(SEL)selector {
+    if (dxc_key_log()) {
+        fprintf(stderr, "compose-rust key: doCommandBySelector %s during-key=%d\n",
+                NSStringFromSelector(selector).UTF8String, dxc_in_key_down ? 1 : 0);
+    }
+    if (dxc_in_key_down) return;
+    [self dxcSendText:DXC_EVENT_EDIT_COMMAND string:NSStringFromSelector(selector)];
+}
 
 // Without a tracking area the view hears a moving pointer only while a button is held,
 // and hover is half of what a desktop control does.
@@ -1196,4 +1334,56 @@ void dxc_native_debug_key(void *window_pointer, int32_t key_code, const char *ch
         }
     }
     });
+}
+
+// The entry the reader chose from the context menu, or -1 where the menu was dismissed.
+static int32_t dxc_menu_chosen = -1;
+
+@interface DxcMenuTarget : NSObject
+- (void)chosen:(NSMenuItem *)item;
+@end
+
+@implementation DxcMenuTarget
+- (void)chosen:(NSMenuItem *)item { dxc_menu_chosen = (int32_t)item.tag; }
+@end
+
+/**
+ * Shows a context menu at the pointer and answers with the index of the entry chosen, or
+ * -1. The call returns when the menu closes.
+ *
+ * [items] is one line per entry, fields separated by a tab: the index, enabled (0 or 1)
+ * and the label. Written by `packMenu` in NativeContextMenu.kt.
+ */
+int32_t dxc_native_context_menu(void *view_pointer, const char *items) {
+    NSView *view = (__bridge NSView *)view_pointer;
+    NSString *packed = [NSString stringWithUTF8String:items];
+    dxc_on_main(^{
+        static DxcMenuTarget *target;
+        if (target == nil) target = [[DxcMenuTarget alloc] init];
+        dxc_menu_chosen = -1;
+        NSMenu *menu = [[NSMenu alloc] initWithTitle:@""];
+        // Compose says which items can be chosen. Left to AppKit, every item would be
+        // checked against a responder chain that has never heard of them.
+        menu.autoenablesItems = NO;
+        for (NSString *line in [packed componentsSeparatedByString:@"\n"]) {
+            NSArray<NSString *> *fields = [line componentsSeparatedByString:@"\t"];
+            if (fields.count < 3) continue;
+            NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:fields[2]
+                                                          action:@selector(chosen:)
+                                                   keyEquivalent:@""];
+            item.target = target;
+            item.tag = fields[0].intValue;
+            item.enabled = fields[1].intValue != 0;
+            [menu addItem:item];
+        }
+        if (dxc_key_log()) {
+            fprintf(stderr, "compose-rust key: menu NSMenu with %ld items\n",
+                    (long)menu.numberOfItems);
+        }
+        NSPoint screen = NSEvent.mouseLocation;
+        NSPoint inWindow = [view.window convertPointFromScreen:screen];
+        NSPoint local = [view convertPoint:inWindow fromView:nil];
+        [menu popUpMenuPositioningItem:nil atLocation:local inView:view];
+    });
+    return dxc_menu_chosen;
 }

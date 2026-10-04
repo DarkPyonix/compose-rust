@@ -1425,6 +1425,17 @@ void dxc_native_install_menu(const char *application_name) {
 }
 
 /*
+ * The macOS window's context menu, which this window does not put up: the native image
+ * links one body of Kotlin for every desktop, so the symbol it names has to exist here.
+ * Answers that nothing was chosen.
+ */
+int32_t dxc_native_context_menu(void *view, const char *items) {
+    (void)view;
+    (void)items;
+    return -1;
+}
+
+/*
  * Measuring aids of the AppKit window, named because the Kotlin that drives every desktop
  * names them and answered here by doing nothing: a drag cannot be scripted from inside
  * this window, and nothing asks for it to be.
