@@ -115,9 +115,16 @@ internal fun HostTextField(node: Node, modifier: Modifier, dispatcher: EventDisp
                     if (text == lastSent || sending?.isActive == true) return@collect
                     sending = launch {
                         do {
-                            withFrameNanos { }
-                            lastSent = latest
-                            dispatcher.dispatch(HostEvent.TextChanged(nodeId, changeHandler, lastSent))
+                            // Sent from inside the frame callback, not after it. Resuming
+                            // from withFrameNanos goes back through the scene's dispatcher,
+                            // which on the desktop windows runs what is waiting at the start
+                            // of the next frame, so the send and the recomposition that
+                            // follows it each cost a frame. In the callback the Host's batch
+                            // is applied before this frame is composed and drawn.
+                            withFrameNanos {
+                                lastSent = latest
+                                dispatcher.dispatch(HostEvent.TextChanged(nodeId, changeHandler, lastSent))
+                            }
                         } while (latest != lastSent)
                     }
                 }
