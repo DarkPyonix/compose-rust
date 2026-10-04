@@ -285,7 +285,6 @@ $NativeImageArgs = @(
     "-cp", $Classpath,
     "-o", $LibraryName,
     "--no-fallback",
-    "--features=dev.darkpyonix.composerust.ui.platform.ImeReachabilityFeature",
     # The address the window calls to have a frame drawn while its edge is being dragged.
     # It is an entry point of this image taken as a C function pointer, and that address is
     # written in while the image is built: the object holding it has to be in the image for

@@ -25,25 +25,6 @@ import java.io.File
 // against; if the accessor changes, this file is the one to fix and nothing else is.
 
 /**
- * The byte the paths are separated by on the wire.
- *
- * NUL, because it is the one byte no path on any of the three desktops may contain. A
- * newline would have been easier to read and wrong: a file called "notes\nfor tuesday" is
- * legal on two of them, and splitting on newlines would turn one file into two.
- */
-private const val PATH_SEPARATOR = '\u0000'
-
-/**
- * Joins dropped paths for the wire, dropping any the platform cannot give as text.
- *
- * A path that is not valid UTF-8 is thrown away and the rest are delivered, which the
- * requirement asks for by name: one unreadable file must not lose the other nine, and it
- * must not end the process either.
- */
-internal fun joinPaths(paths: List<String>): String =
-    paths.filter { it.isNotEmpty() }.joinToString(PATH_SEPARATOR.toString())
-
-/**
  * Makes this node a place files may be dropped, where it said it is one.
  *
  * Willingness is the widget rather than a property or the presence of a handler, because

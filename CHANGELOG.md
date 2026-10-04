@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### The shipped renderer names no Java toolkit window
+
+The toolkit's window, caption, icon, resize edges and file drop are development shell code
+now, under `renderer/desktop/src/devshell`, and the shipped sources import nothing from
+java.awt or javax.swing except Compose's own clipboard entry type. The input method and
+accessibility reachability features, the force-loaded toolkit archive on macOS and the
+toolkit's look and feel metadata are gone. A test fails when the shipped sources or the
+reachability metadata name a toolkit type that is not on a short list of what Compose forces
+(`renderer/desktop/awt-forced.txt`, tracked in the fork). Linux still opens the toolkit's window by
+default until the X11 window is checked on a real desktop, so on Linux the dev shell code is
+still reached; the flip removes that last path.
+
+### Windows opens its own window, and Linux's is finished but not the default
+
+The Win32 window is now the default on the native-image path, with no environment
+variable. The X11 window is finished the same way but Linux keeps the toolkit's window
+until typing, copy and paste and Korean input have been checked on a real desktop; set
+`DXC_X11_WINDOW` to try it. Windows keeps its frame and takes the caption strip into the content as before
+(the logic moved from the shim into the window's own procedure), and now honours the
+application's minimum size, resizable choice and icon, has a clipboard, and takes files
+dropped on a drop target. Linux draws its own caption and edges and hands the move and the
+resize to the window manager, has the CLIPBOARD and PRIMARY selections, text input with
+composition through XIM, drag and drop of files, the application's icon, and the display
+scale. The caret position is sent to the input method so candidate windows open beside it.
+The X11 window publishes its tree on the AT-SPI accessibility bus for Orca, through protocol code shared with the Kotlin/Native Linux window.
+
 ### The native-image renderer opens its own window on macOS
 
 On the GraalVM native-image path, macOS now opens the AppKit window the renderer makes

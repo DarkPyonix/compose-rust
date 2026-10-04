@@ -22,8 +22,8 @@ window="$src/LinuxWindow.kt"
 xim="$src/XimContext.kt"
 ime="$src/InputMethod.kt"
 entry="$src/LinuxRenderer.kt"
-bridge="$src/AtspiBridge.kt"
-server="$src/AtspiServer.kt"
+bridge="$src/shared/AtspiBridge.kt"
+server="$src/shared/AtspiServer.kt"
 # The Linux static renderer is built, and checked, in the reusable workflow the native
 # renderer workflow calls for linux-x64.
 workflow="$repo_root/.github/workflows/static-renderer.yml"
@@ -34,8 +34,8 @@ fail() {
     red=1
 }
 
-for file in "$window" "$xim" "$ime" "$entry" "$bridge" "$server" "$src/AtspiSemantics.kt" \
-            "$src/AtspiModel.kt" "$src/AtspiWire.kt" \
+for file in "$window" "$xim" "$ime" "$entry" "$bridge" "$server" "$src/shared/AtspiSemantics.kt" \
+            "$src/shared/AtspiModel.kt" "$src/shared/AtspiWire.kt" \
             "$repo_root/renderer/linux/test/InputMethodTest.kt" \
             "$repo_root/renderer/linux/test/AtspiTest.kt"; do
     [[ -f "$file" ]] || fail "missing $file"

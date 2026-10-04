@@ -1227,17 +1227,6 @@
       "serializable": true
     },
     {
-      "type": "javax.swing.plaf.basic.BasicPanelUI",
-      "methods": [
-        {
-          "name": "createUI",
-          "parameterTypes": [
-            "javax.swing.JComponent"
-          ]
-        }
-      ]
-    },
-    {
       "type": "kotlin.Metadata"
     },
     {

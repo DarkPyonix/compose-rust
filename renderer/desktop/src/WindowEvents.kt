@@ -120,6 +120,44 @@ internal fun ComposeScene.receive(event: WindowEvent, win32: Boolean = false) {
 
 
 internal fun win32ComposeKey(virtualKey: Int): Key = when (virtualKey) {
+    // The letters and digits, which are their own numbers in a virtual key. Without them
+    // control with C, V, X or Z reaches Compose as a key it does not know.
+    0x41 -> Key.A
+    0x42 -> Key.B
+    0x43 -> Key.C
+    0x44 -> Key.D
+    0x45 -> Key.E
+    0x46 -> Key.F
+    0x47 -> Key.G
+    0x48 -> Key.H
+    0x49 -> Key.I
+    0x4A -> Key.J
+    0x4B -> Key.K
+    0x4C -> Key.L
+    0x4D -> Key.M
+    0x4E -> Key.N
+    0x4F -> Key.O
+    0x50 -> Key.P
+    0x51 -> Key.Q
+    0x52 -> Key.R
+    0x53 -> Key.S
+    0x54 -> Key.T
+    0x55 -> Key.U
+    0x56 -> Key.V
+    0x57 -> Key.W
+    0x58 -> Key.X
+    0x59 -> Key.Y
+    0x5A -> Key.Z
+    0x30 -> Key.Zero
+    0x31 -> Key.One
+    0x32 -> Key.Two
+    0x33 -> Key.Three
+    0x34 -> Key.Four
+    0x35 -> Key.Five
+    0x36 -> Key.Six
+    0x37 -> Key.Seven
+    0x38 -> Key.Eight
+    0x39 -> Key.Nine
     0x0D -> Key.Enter
     0x09 -> Key.Tab
     0x20 -> Key.Spacebar
