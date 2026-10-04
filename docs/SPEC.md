@@ -1651,21 +1651,26 @@ tag 12, 32바이트: handler_id: u64, text: (offset, len), action: (offset, len)
 
 **2026-10-05: 배포 형식은 Compose 플러그인의 형식 표와 같습니다.** compose-rust는 별도 표를 두지 않고 Compose 플러그인과 같은 표를 따릅니다. 형식의 템플릿과 메타데이터는 core-extended의 `extended/packaging/`에서 가져오며 커밋으로 고정합니다. 이 절의 수용 기준이 판단의 기준입니다.
 
-| OS | 앱 | 패키지 | 스토어 패키지 |
-|---|---|---|---|
-| macOS | `.app` | `.dmg` | `.pkg` |
-| Linux | `.AppImage` | `.deb`, `.rpm` | Flatpak |
-| Windows | `.exe` | 설치 `.exe` (Velopack) | `.msix` |
+**2026-10-05: 앱 밖에서 하는 직접 배포는 세 OS 모두 Velopack으로 패키징하고 갱신합니다.** `vpk`는 CI 러너에만 설치합니다. 스토어 패키지와 배포판 패키지는 Velopack 밖에서 따로 만듭니다.
 
-- Windows 설치 `.exe`는 NSIS나 WiX가 아니라 Velopack으로 만들고, Windows의 델타 업데이트도 Velopack의 것을 씁니다.
-- `.msi`는 결정 중입니다. 제공하겠다는 약속도, 제공하지 않겠다는 약속도 아직 하지 않습니다.
-- macOS와 Linux의 업데이트 채널(Sparkle, zsync)은 지금은 그대로이며 결정 중입니다.
+| OS | 앱 | 직접 배포 패키지 (Velopack) | 따로 만드는 패키지 |
+|---|---|---|---|
+| macOS | `.app` | `.dmg` (vpk의 portable `.zip` 안의 `.app`으로 만듦) | 스토어 `.pkg` |
+| Linux | `.AppImage` (vpk의 자체 갱신 AppImage) | 같음 | `.deb`, `.rpm`, Flatpak |
+| Windows | `.exe` | `Setup.exe`, `.msi` (`vpk pack --msi`) | 스토어 `.msix` |
+
+- Windows: 설치 `.exe`는 vpk의 `Setup.exe`입니다. NSIS나 WiX를 직접 다루지 않습니다. `.msi`는 `vpk pack --msi`로 만들며(Velopack이 자체 WiX 포크를 묶어 둡니다) 더 이상 결정 중이 아닙니다. 설치 위치는 `PerUser`가 기본이고 `PerMachine`은 선택입니다. 갱신은 두 설치 방식 모두 `Update.exe`가 맡습니다. `.msix`는 스토어용으로 따로 만듭니다.
+- macOS: Velopack은 `.dmg`를 만들지 않으므로, 우리의 dmg 단계가 vpk의 portable `.zip` 안의 `.app`으로 `.dmg`를 만듭니다. Sparkle은 쓰지 않고, Velopack이 `.app`을 갱신합니다. Mac App Store용 `.pkg`는 따로 만듭니다(vpk의 `.pkg`는 일반 설치 프로그램입니다).
+- Linux: `.AppImage`는 vpk의 자체 갱신 AppImage이며 zsync는 쓰지 않습니다. `.deb`, `.rpm`, Flatpak은 따로 만듭니다.
 - Mac App Store용 `.pkg`는 2026-10-03에 범위 밖으로 두었으나(이슈 #4) 이제 범위 안입니다.
+- **범위 밖: 앱 안의 업데이트 SDK나 래퍼.** 앱 개발자는 Velopack SDK를 직접 씁니다. 우리가 만드는 것은 패키지와 갱신 피드(nupkg 전체와 델타, `releases.{channel}.json`)입니다.
 - 기존 규칙은 그대로입니다. 번들은 실행 파일 하나와 아이콘, 메타데이터만 담고, 체크섬을 기록하며, MSIX는 서명하지 않은 채 설치 안내와 함께 냅니다.
 
 > 윈도우는 Velopack으로 하자. NSIS랑 wix는 너무 별로야.
 >
 > 업스트림이 지원하는게 저렇게 다양하면 업스트림쪽에서 확장하는게 맞긴 하지. Mac: 앱은 .app 패키지는 .dmg 스토어 패키지는 .pkg / 리눅스: 앱 .appimage 패키지는 .deb/.rpm 스토어 패키지는 .flatpack / 윈도우: 앱 .exe 패키지는 .msi/.exe(설치) 스토어 패키지는 .msix
+>
+> 업데이트 sdk 때문에 그런거면 그건 우리가 커버쳐줄 부분은 아닌거같아.
 >
 > (소유자, 2026-10-05)
 
@@ -1679,13 +1684,14 @@ tag 12, 32바이트: handler_id: u64, text: (offset, len), action: (offset, len)
 2. 각 번들의 실행 파일은 빌드 머신의 렌더러 절대 경로를 참조하지 않으며, 번들 안에 렌더러와 동반 파일이 있습니다.
 3. 번들의 이름, 식별자, 설명은 샘플 설정과 일치하고 아이콘이 포함됩니다.
 4. MSIX는 서명되지 않은 패키지로 생성됩니다. 설치에는 개발자 모드 또는 신뢰된 인증서로 다시 서명하는 절차가 필요함을 릴리스에 알립니다. 실제 설치 확인은 Windows 환경에서 수동으로 합니다.
-5. 위 표의 형식마다 아티팩트를 만들고 체크섬을 기록합니다. 형식이 `.dmg`, `.pkg`, `.deb`, `.rpm`, 설치 `.exe`, Flatpak 중 무엇이든 번들은 실행 파일 하나와 아이콘, 메타데이터만 담습니다. CI가 아티팩트의 존재와 내용물 목록, 체크섬 기록을 검사합니다.
+5. 위 표의 형식마다 아티팩트를 만들고 체크섬을 기록합니다. 형식이 `.dmg`, `.pkg`, `.deb`, `.rpm`, `Setup.exe`, `.msi`, Flatpak 중 무엇이든 번들은 실행 파일 하나와 아이콘, 메타데이터만 담습니다. CI가 아티팩트의 존재와 내용물 목록, 체크섬 기록을 검사합니다.
 6. `.deb`와 `.rpm`은 각각 `dpkg-deb --info`와 `rpm -qp --info`로 이름, 버전, 설명이 샘플 설정과 일치하는지 CI에서 확인합니다. 실제 설치와 실행은 해당 배포판에서 수동으로 확인합니다.
-7. Windows 설치 `.exe`는 Velopack으로 만들고, 이전 버전에서 새 버전으로 가는 델타 패키지를 함께 만듭니다. 패키지의 존재와 메타데이터는 CI에서 확인하고, 설치된 빌드가 델타로 갱신되어 다시 뜨는 것은 Windows 환경에서 수동으로 확인합니다.
+7. 세 OS의 직접 배포 패키지는 Velopack으로 만들고, 이전 버전에서 새 버전으로 가는 델타 패키지와 갱신 피드(nupkg 전체와 델타, `releases.{channel}.json`)를 함께 만듭니다. 패키지와 피드의 존재와 메타데이터는 CI에서 확인하고, 설치된 빌드가 델타로 갱신되어 다시 뜨는 것은 각 OS 환경에서 수동으로 확인합니다. Windows `.msi`는 `PerUser` 기본과 `PerMachine` 선택 설치가 각각 되는지도 Windows에서 수동으로 확인합니다. Linux `.AppImage`에는 zsync 갱신 정보가 없습니다.
 8. macOS `.pkg`는 Mac App Store 제출 형식으로 만들며, 구조와 메타데이터는 `pkgutil --check-signature`와 `pkgutil --payload-files`로 CI에서 확인합니다. 스토어 제출과 승인은 Apple 계정이 있는 환경에서 수동으로만 확인할 수 있습니다.
 9. Flatpak은 Flathub용 매니페스트로 만들고 `flatpak-builder`로 빌드되는 것을 CI에서 확인합니다. 설치와 실행은 수동으로 확인합니다.
-10. `.msi`는 결정 전이므로 수용 기준이 없습니다. 결정이 나면 이 목록에 항목으로 더합니다.
+10. `.msi`는 `vpk pack --msi`로 만들며, 5번과 7번의 검사 대상입니다.
 11. 템플릿과 메타데이터가 core-extended의 `extended/packaging/`에서 오고 그 커밋이 고정되어 있음을 CI가 확인합니다.
+12. **실험 중:** ad-hoc 서명한 `.app`을 `.dmg`에서 설치한 Apple Silicon 기기가 Velopack 갱신을 받고, 갱신 뒤에도 실행됩니다(quarantine 속성 포함). Velopack 문서는 서명과 공증이 없는 macOS 앱은 실행되지 않는다고 하므로 확인이 필요하며, 프로브를 돌리는 중입니다. 결과가 나오기 전에는 이 항목을 통과로 보지 않습니다.
 
 **2026-09-22: 샘플이 일곱 플랫폼 전부에서 돕니다.** 데스크톱 넷(macOS arm64, Linux x64, Linux arm64, Windows x64)과 Android, iOS 시뮬레이터, 브라우저입니다. statistics 샘플을 iOS 시뮬레이터와 Android 에뮬레이터와 Chromium에서 각각 띄워 같은 세이지와 주황과 파우더 블루가 나오는 것을 확인했습니다. 통합 샘플이 플랫폼과 무관하게 같은 디자인을 그린다는 것이 이것으로 처음 실증됐습니다.
 
