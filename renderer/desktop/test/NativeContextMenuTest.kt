@@ -1,5 +1,6 @@
 @file:OptIn(
     androidx.compose.foundation.ExperimentalFoundationApi::class,
+    androidx.compose.ui.ExperimentalComposeUiApi::class,
     androidx.compose.ui.InternalComposeUiApi::class,
     androidx.compose.ui.test.ExperimentalTestApi::class,
 )
@@ -25,7 +26,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerButton
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.test.onNodeWithTag
@@ -38,6 +41,7 @@ import dev.darkpyonix.composerust.ui.platform.NativeContextMenuRepresentation
 import dev.darkpyonix.composerust.ui.platform.NativeMenuEntry
 import dev.darkpyonix.composerust.ui.platform.WindowEvent
 import dev.darkpyonix.composerust.ui.platform.receive
+import org.jetbrains.skia.Surface
 import kotlinx.coroutines.Dispatchers
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -202,7 +206,8 @@ class NativeContextMenuTest {
                     },
                 )
             }
-            scene.render(null, 0L)
+            val surface = Surface.makeRasterN32Premul(100, 100)
+            scene.render(surface.canvas.asComposeCanvas(), 0L)
             scene.receive(event(WindowEvent.POINTER_DOWN, 2 or WindowEvent.SECONDARY_BUTTON))
             scene.receive(event(WindowEvent.POINTER_UP, WindowEvent.SECONDARY_BUTTON))
             scene.receive(event(WindowEvent.POINTER_DOWN, 1))
