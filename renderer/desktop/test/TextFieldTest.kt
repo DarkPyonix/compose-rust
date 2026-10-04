@@ -116,6 +116,24 @@ class TextFieldTest {
     }
 
     @Test
+    fun fr5_the_text_changed_for_an_edit_is_dispatched_in_the_frame_that_saw_it() = runComposeUiTest {
+        val connection = FakeHostConnection(field())
+        setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+        mainClock.autoAdvance = false
+
+        onNodeWithTag(nodeTestTag(FIELD)).performTextInput("h")
+        mainClock.advanceTimeByFrame()
+
+        // One frame, not the one after it: the send is made inside the frame callback, so
+        // the Host's reply is applied before the next frame is composed.
+        assertEquals(
+            listOf("h"),
+            connection.events.filterIsInstance<HostEvent.TextChanged>().map { it.text },
+            "events were ${connection.events}",
+        )
+    }
+
+    @Test
     fun fr5_edits_within_one_frame_are_one_event_with_the_latest_text() = runComposeUiTest {
         val connection = FakeHostConnection(field())
         setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
