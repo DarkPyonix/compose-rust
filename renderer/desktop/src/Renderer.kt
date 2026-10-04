@@ -88,6 +88,7 @@ internal fun runRenderer(
         // would already have refused that, so this is the ordinary modern case.
         else -> WindowChrome.Modern
     }
+    applyForkWindowChromeProperties(chrome)
     runRendererWithHost(host, asked, chrome, autoExitMillis)
 }
 
