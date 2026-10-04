@@ -33,6 +33,9 @@ import org.jetbrains.skia.Canvas
 import androidx.compose.ui.input.pointer.PointerIcon
 import platform.AppKit.NSBackingStoreBuffered
 import platform.AppKit.NSWindowCloseButton
+import platform.Foundation.NSOperationQueue
+import platform.Foundation.NSNotificationCenter
+import platform.AppKit.NSMenuDidEndTrackingNotification
 import dev.darkpyonix.composerust.protocol.TitleBar
 import dev.darkpyonix.composerust.protocol.Chrome
 import platform.AppKit.NSWindowTitleVisible
@@ -518,31 +521,30 @@ internal class MacosWindow(
             // place the reader has left, which shows up as the letters coming apart.
             if (hasMarkedText()) inputContext?.discardMarkedText()
             // Control held with the primary button is a right click on this platform.
-            secondaryHeld = event.modifierFlags and NSEventModifierFlagControl != 0uL
+            val control = event.modifierFlags and NSEventModifierFlagControl != 0uL
             send(
                 event,
                 PointerEventType.Press,
-                if (secondaryHeld) PointerButton.Secondary else PointerButton.Primary,
+                if (control) PointerButton.Secondary else PointerButton.Primary,
+                systemButton = HeldButtons.PRIMARY,
             )
         }
 
-        override fun mouseUp(event: NSEvent) {
-            val button = if (secondaryHeld) PointerButton.Secondary else PointerButton.Primary
-            secondaryHeld = false
-            send(event, PointerEventType.Release, button)
-        }
-
-        private var secondaryHeld = false
+        override fun mouseUp(event: NSEvent) =
+            send(event, PointerEventType.Release, systemButton = HeldButtons.PRIMARY)
 
         // To the scene only. The menu is Compose's to ask for, through the text context
         // menu provider, and the system draws it; a menu put up here as well was the
         // second of the two that came up together.
-        override fun rightMouseDown(event: NSEvent) {
-            send(event, PointerEventType.Press, PointerButton.Secondary)
-        }
+        override fun rightMouseDown(event: NSEvent) = send(
+            event,
+            PointerEventType.Press,
+            PointerButton.Secondary,
+            systemButton = HeldButtons.SECONDARY,
+        )
 
         override fun rightMouseUp(event: NSEvent) =
-            send(event, PointerEventType.Release, PointerButton.Secondary)
+            send(event, PointerEventType.Release, systemButton = HeldButtons.SECONDARY)
 
         override fun mouseMoved(event: NSEvent) = send(event, PointerEventType.Move)
 
@@ -639,6 +641,14 @@ internal class MacosWindow(
         // After the window is on screen, and in this order: the density is the screen's
         // and is not known until the window is on one, and a scene given content before
         // it has a size composes into nothing and draws a blank window.
+        // A menu the system showed has closed, and its loop took the release of the button
+        // that closed it. The scene is told now rather than on the next event, so the next
+        // click is a click and not a second button pressed on a held one.
+        NSNotificationCenter.defaultCenter.addObserverForName(
+            name = NSMenuDidEndTrackingNotification,
+            `object` = null,
+            queue = NSOperationQueue.mainQueue,
+        ) { _ -> releaseStale(pointerNow()) }
         scene.density = Density(window.backingScaleFactor.toFloat())
         scene.setContent(content)
 
@@ -686,14 +696,68 @@ internal class MacosWindow(
         view.setAccessibilityChildren(built)
     }
 
-    private fun send(event: NSEvent, kind: PointerEventType, button: PointerButton? = null) {
+    /** What the scene has been told is held, checked against the system before each event. */
+    private val held = HeldButtons<PointerButton>()
+
+    /**
+     * Sends [kind] to the scene, after a release for any button the scene still believes is
+     * down that the system says is not.
+     *
+     * [systemButton] is the system's number for the button a press or a release is about.
+     * A release is sent as the button the press was sent as, which for a click with Control
+     * held is the secondary one.
+     */
+    private fun send(
+        event: NSEvent,
+        kind: PointerEventType,
+        button: PointerButton? = null,
+        systemButton: Int? = null,
+    ) {
+        val position = event.offsetInView
+        var sentAs = button
+        if (kind == PointerEventType.Release && systemButton != null) {
+            sentAs = held.released(systemButton) ?: button
+            // A release the scene was never told the press of, or already had released:
+            // the menu's loop took the press, or the release was already made up below.
+            if (sentAs == null) {
+                releaseStale(position)
+                return
+            }
+        }
+        releaseStale(position)
+        if (kind == PointerEventType.Press && systemButton != null && sentAs != null) {
+            held.pressed(systemButton, sentAs)
+        }
         scene.sendPointerEvent(
             eventType = kind,
-            position = event.offsetInView,
+            position = position,
             scrollDelta = Offset(event.deltaX.toFloat(), event.deltaY.toFloat()),
             nativeEvent = event,
-            button = button,
+            button = sentAs,
         )
+    }
+
+    /**
+     * Tells the scene that every button it believes is down and the system says is up has
+     * come up, at [position].
+     *
+     * A menu the system shows takes the release of the button that closed it, so without
+     * this the scene goes on believing a button is held and no later click completes.
+     */
+    private fun releaseStale(position: Offset) {
+        for (button in held.stale(NSEvent.pressedMouseButtons.toLong())) {
+            scene.sendPointerEvent(
+                eventType = PointerEventType.Release,
+                position = position,
+                button = button,
+            )
+        }
+    }
+
+    /** Where the pointer is now, in the scene's pixels, for an event that has no event. */
+    private fun pointerNow(): Offset {
+        val inWindow = window.convertPointFromScreen(NSEvent.mouseLocation)
+        return scenePoint(view, inWindow, window.backingScaleFactor)
     }
 
     private val NSEvent.offsetInView: Offset
