@@ -1,6 +1,7 @@
 package dev.darkpyonix.composerust.ui.platform
 
 import androidx.compose.ui.unit.IntSize
+import java.lang.System
 
 /**
  * Input and resizing made up from inside the window, for measuring without a hand.

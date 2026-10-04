@@ -66,6 +66,7 @@ import x11.NotifyWhileGrabbed
 import x11.SubstructureNotifyMask
 import x11.SubstructureRedirectMask
 import x11.XMapRaised
+import x11.XResizeWindow
 import x11.XSendEvent
 import x11.GLXContext
 import x11.GLX_BLUE_SIZE
@@ -207,8 +208,12 @@ internal class LinuxWindow private constructor(
      */
     private var described: List<AccessibleElement> = emptyList()
 
+    /** Input and resizing made up from inside the window, for the parity check. Unset, nothing runs. */
+    private val synthetic = System.getenv("DXC_SYNTH")?.let { SyntheticInput(it) }
+
     private val semantics = NativeSemantics { elements ->
         described = elements
+        synthetic?.noteElements(elements)
         if (reportFrames) {
             System.err.println(
                 "compose-rust: the window holds ${described.size} things to say" +
@@ -363,11 +368,13 @@ internal class LinuxWindow private constructor(
             scene.size = size
         }
         val nanos = monotonicNanos() - openedAt
+        val begun = System.nanoTime()
         val drew = surface.draw(size.width, size.height) { canvas ->
             scene.render(canvas.asComposeCanvas(), nanos)
         }
         if (drew) {
             painted = true
+            LatencyTrace.frameDrawn(System.nanoTime() - begun)
             // The drawing goes to the server and then the manager is told, in that order. This
             // is the whole of what keeps a dragged edge attached to what is inside it.
             sync.frameDrawn()
@@ -439,6 +446,11 @@ internal class LinuxWindow private constructor(
                 work.runPending()
                 drained.clear()
                 log.drain(drained)
+                synthetic?.due(System.nanoTime(), measured)?.forEach { event ->
+                    if (event.kind == WindowEvent.TEXT_COMMIT) LatencyTrace.inputSent()
+                    drained.add(event)
+                }
+                if (synthetic != null && synthetic.resizeDue(System.nanoTime())) scriptedResize()
                 for (event in drained) {
                     if (reportInput && event.kind != WindowEvent.POINTER_MOVE) {
                         System.err.println("compose-rust: window heard $event")
@@ -468,8 +480,29 @@ internal class LinuxWindow private constructor(
                 updateInputMethod()
             }
         } finally {
+            LatencyTrace.summary()
             close()
         }
+    }
+
+    /**
+     * Takes the window through the sizes a drag would, for measuring: from the size it has to
+     * 360 by 420 in sixty steps, each asked of the server and its events read before the next,
+     * so that the frame that belongs to a size is drawn inside the handling of it, as it is
+     * for a hand on an edge.
+     */
+    private fun scriptedResize() {
+        LatencyTrace.phase = "resize"
+        val from = measured
+        for (step in 1..SYNTHETIC_RESIZE_STEPS) {
+            val t = step.toDouble() / SYNTHETIC_RESIZE_STEPS
+            val width = (from.width + (SYNTHETIC_RESIZE_WIDTH - from.width) * t).toInt().coerceAtLeast(1)
+            val height = (from.height + (SYNTHETIC_RESIZE_HEIGHT - from.height) * t).toInt().coerceAtLeast(1)
+            XResizeWindow(display, window, width.toUInt(), height.toUInt())
+            XFlush(display)
+            pump(SYNTHETIC_RESIZE_PAUSE_MILLISECONDS)
+        }
+        LatencyTrace.phase = "idle"
     }
 
     /**
@@ -971,6 +1004,10 @@ internal class LinuxWindow private constructor(
         private const val DENSITY = 1.0f
 
         private const val NANOS_PER_SECOND = 1_000_000_000L
+        private const val SYNTHETIC_RESIZE_STEPS = 60
+        private const val SYNTHETIC_RESIZE_WIDTH = 360
+        private const val SYNTHETIC_RESIZE_HEIGHT = 420
+        private const val SYNTHETIC_RESIZE_PAUSE_MILLISECONDS = 8
 
         /**
          * A mask for the low 32 bits: the manager splits the counter value across two words.

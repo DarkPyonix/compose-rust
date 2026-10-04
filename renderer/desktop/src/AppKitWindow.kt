@@ -665,6 +665,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
         var heard = false
         val events = drainWindowEvents()
         for (event in synthetic?.due(System.nanoTime(), size) ?: emptyList()) {
+            if (event.kind == WindowEvent.TEXT_COMMIT) LatencyTrace.inputSent()
             scene.receive(event)
             textInput.receive(event)
             LatencyTrace.mark("synthetic ${event.kind} sent")
@@ -730,8 +731,10 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
             pumpWindowEvents(FRAME_SECONDS)
             LatencyTrace.mark("loop turn $frame")
             if (synthetic != null && synthetic.resizeDue(System.nanoTime())) {
+                LatencyTrace.phase = "resize"
                 window.scriptedResize(size.width / measured.scale.toInt() to size.height / measured.scale.toInt(),
                     360 to 420, 60, 8_000)
+                LatencyTrace.phase = "idle"
             }
             synthetic?.keysDue(System.nanoTime())?.let { (code, character) ->
                 LatencyTrace.mark("synthetic key '$character' posted")

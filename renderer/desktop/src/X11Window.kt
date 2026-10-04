@@ -30,6 +30,12 @@ private external fun beginFrame(window: Pointer?): Int
 @CFunction("dxc_native_frame_end")
 private external fun endFrame(display: Pointer?)
 
+@CFunction("dxc_native_debug_resize")
+private external fun debugResize(
+    window: Pointer?, view: Pointer?, fromWidth: Int, fromHeight: Int, toWidth: Int,
+    toHeight: Int, steps: Int, pauseMicros: Int,
+)
+
 class X11NativeWindow internal constructor(
     val window: Long,
     val view: Long,
@@ -47,6 +53,14 @@ class X11NativeWindow internal constructor(
 
     fun beginFrame(): Boolean = beginFrame(WordFactory.pointer(window)) == 0
     fun endFrame() = endFrame(WordFactory.pointer(queue))
+
+    /** Takes the window through the sizes a drag would, for measuring. See `DXC_SYNTH`. */
+    internal fun scriptedResize(from: Pair<Int, Int>, to: Pair<Int, Int>, steps: Int, pauseMicros: Int) {
+        debugResize(
+            WordFactory.pointer(window), WordFactory.pointer(view),
+            from.first, from.second, to.first, to.second, steps, pauseMicros,
+        )
+    }
 }
 
 /**
@@ -132,10 +146,13 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
     // the render target, and what the scene is told about the window it is in.
     var size = androidx.compose.ui.unit.IntSize(measured.width, measured.height)
     val textInput = NativeTextInput()
+    // Input and resizing made up from inside the window, for the parity check. Unset, nothing runs.
+    val synthetic = System.getenv("DXC_SYNTH")?.let { SyntheticInput(it) }
     val semantics = NativeSemantics { elements ->
         if (report) {
             System.err.println("compose-rust: the window has ${elements.size} things to say")
         }
+        synthetic?.noteElements(elements)
         window.describeTo(elements)
     }
     // Kept rather than left to the scene. What a scene picks for itself is the toolkit's
@@ -186,8 +203,10 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
             scene.size = fitted
         }
         size = fitted
+        val begun = System.nanoTime()
         if (drawFrame(window, context, scene, System.nanoTime() - opened, fitted)) {
             painted = true
+            LatencyTrace.frameDrawn(System.nanoTime() - begun)
         }
     }
     try {
@@ -215,6 +234,17 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
             work.runPending()
             var heard = false
             var drew = false
+            for (event in synthetic?.due(System.nanoTime(), size) ?: emptyList()) {
+                if (event.kind == WindowEvent.TEXT_COMMIT) LatencyTrace.inputSent()
+                scene.receive(event)
+                textInput.receive(event)
+                heard = true
+            }
+            if (synthetic != null && synthetic.resizeDue(System.nanoTime())) {
+                LatencyTrace.phase = "resize"
+                window.scriptedResize(size.width to size.height, 360 to 420, 60, 8_000)
+                LatencyTrace.phase = "idle"
+            }
             for (event in drainWindowEvents().flatMap { x11Events.heard(it) }) {
                 if (report && event.kind != WindowEvent.POINTER_MOVE) {
                     System.err.println("compose-rust: window heard $event")
@@ -248,6 +278,7 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
         // Before the scene closes. A resize arriving between the two would otherwise ask a
         // scene that has gone to draw into a context that has gone with it.
         clearX11FramePainter()
+        LatencyTrace.summary()
         scene.close()
         context.close()
         host.shutdown()
