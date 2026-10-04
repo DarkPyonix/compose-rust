@@ -2377,6 +2377,149 @@ static void dxc_accept_files(HWND window) {
     RegisterDragDrop(window, &dxc_drop_target);
 }
 
+/*
+ * What is on the screen during a scripted resize, for DXC_CAPTURE_CHECK=1.
+ *
+ * After each step, once DWM has composed, the window's client area is copied from the
+ * screen (the composed desktop, not the window's own surfaces) and compared with the frame
+ * this window drew for that step at that size. A step fails when more than 2% of its pixels
+ * differ by more than 24 levels: black, a fill, an old frame or a stretched one all do. When
+ * the step was drawn on the GPU there is no CPU copy to compare with, and the step is judged
+ * by black pixels alone. The strip of the window above the client area, the caption, is
+ * counted for black as well.
+ */
+static int dxc_capture_steps;
+static int dxc_capture_failures;
+
+static int dxc_capture(int x, int y, int width, int height, uint32_t **pixels, HBITMAP *bitmap, HDC *dc) {
+    if (width <= 0 || height <= 0) return 0;
+    HDC screen = GetDC(NULL);
+    *dc = CreateCompatibleDC(screen);
+    BITMAPINFO info;
+    memset(&info, 0, sizeof info);
+    info.bmiHeader.biSize = sizeof info.bmiHeader;
+    info.bmiHeader.biWidth = width;
+    info.bmiHeader.biHeight = -height;
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+    void *bits = NULL;
+    *bitmap = CreateDIBSection(*dc, &info, DIB_RGB_COLORS, &bits, NULL, 0);
+    if (*bitmap == NULL || bits == NULL) {
+        DeleteDC(*dc);
+        ReleaseDC(NULL, screen);
+        return 0;
+    }
+    SelectObject(*dc, *bitmap);
+    BitBlt(*dc, 0, 0, width, height, screen, x, y, SRCCOPY | CAPTUREBLT);
+    GdiFlush();
+    ReleaseDC(NULL, screen);
+    *pixels = (uint32_t *)bits;
+    return 1;
+}
+
+static int dxc_is_black(uint32_t pixel) {
+    return (pixel & 0xFF) < 8 && ((pixel >> 8) & 0xFF) < 8 && ((pixel >> 16) & 0xFF) < 8;
+}
+
+static void dxc_capture_step(HWND window) {
+    dxc_dwm_flush();
+    RECT client;
+    GetClientRect(window, &client);
+    POINT origin = {0, 0};
+    ClientToScreen(window, &origin);
+    int width = client.right - client.left;
+    int height = client.bottom - client.top;
+    uint32_t *pixels = NULL;
+    HBITMAP bitmap = NULL;
+    HDC dc = NULL;
+    if (!dxc_capture(origin.x, origin.y, width, height, &pixels, &bitmap, &dc)) return;
+    int expected = dxc_dib_bits != NULL && dxc_raster_width == width && dxc_raster_height == height;
+    long black = 0;
+    long differing = 0;
+    long total = (long)width * height;
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            uint32_t seen = pixels[(size_t)y * width + x];
+            if (dxc_is_black(seen)) black++;
+            if (expected) {
+                uint32_t drawn = ((uint32_t *)dxc_dib_bits)[(size_t)y * dxc_dib_width + x];
+                for (int shift = 0; shift < 24; shift += 8) {
+                    int a = (int)((seen >> shift) & 0xFF);
+                    int b = (int)((drawn >> shift) & 0xFF);
+                    if (a - b > 24 || b - a > 24) { differing++; break; }
+                }
+            }
+        }
+    }
+    DeleteObject(bitmap);
+    DeleteDC(dc);
+    // The caption: the part of the window above the client area.
+    RECT outer;
+    GetWindowRect(window, &outer);
+    long caption_black = 0;
+    long caption_total = 0;
+    int caption_height = origin.y - outer.top;
+    if (caption_height > 0 &&
+        dxc_capture(outer.left, outer.top, outer.right - outer.left, caption_height, &pixels, &bitmap, &dc)) {
+        caption_total = (long)(outer.right - outer.left) * caption_height;
+        for (long index = 0; index < caption_total; index++) {
+            if (dxc_is_black(pixels[index])) caption_black++;
+        }
+        DeleteObject(bitmap);
+        DeleteDC(dc);
+    }
+    int failed = expected ? differing * 50 > total : black * 20 > total;
+    dxc_capture_steps++;
+    if (failed) dxc_capture_failures++;
+    fprintf(stderr,
+            "compose-rust: capture step %dx%d %s black=%ld/%ld differing=%ld caption_black=%ld/%ld %s\n",
+            width, height, expected ? "vs-cpu-frame" : "black-only", black, total, differing,
+            caption_black, caption_total, failed ? "FAIL" : "ok");
+}
+
+/**
+ * Hit-tests the window where a reader would press, for DXC_HITTEST_CHECK=1, and prints
+ * what Windows answers against what a window with this caption should answer.
+ */
+void dxc_native_debug_hit_test(void *window_pointer) {
+    HWND window = window_pointer != NULL ? (HWND)window_pointer : dxc_window;
+    if (window == NULL) return;
+    RECT outer;
+    GetWindowRect(window, &outer);
+    POINT origin = {0, 0};
+    ClientToScreen(window, &origin);
+    RECT client;
+    GetClientRect(window, &client);
+    UINT dpi = GetDpiForWindow(window);
+    int caption_middle = dxc_options.system_chrome
+        ? outer.top + (origin.y - outer.top) / 2 + GetSystemMetricsForDpi(SM_CYSIZEFRAME, dpi) / 2
+        : outer.top + dxc_scaled(window, DXC_CAPTION_HEIGHT_DIP) / 2;
+    int button = dxc_scaled(window, DXC_CAPTION_BUTTON_WIDTH_DIP);
+    struct { const char *where; int x; int y; LRESULT expected; } points[] = {
+        {"caption", (outer.left + outer.right) / 2, caption_middle, HTCAPTION},
+        {"close", outer.right - button / 2 - 8, caption_middle, dxc_options.system_chrome ? HTCLOSE : HTCLIENT},
+        {"maximise", outer.right - button * 3 / 2 - 8, caption_middle, dxc_options.system_chrome ? HTMAXBUTTON : HTCLIENT},
+        {"minimise", outer.right - button * 5 / 2 - 8, caption_middle, dxc_options.system_chrome ? HTMINBUTTON : HTCLIENT},
+        {"client", origin.x + client.right / 2, origin.y + client.bottom / 2, HTCLIENT},
+        {"left edge", outer.left + 2, (outer.top + outer.bottom) / 2, HTLEFT},
+        {"right edge", outer.right - 3, (outer.top + outer.bottom) / 2, HTRIGHT},
+        {"bottom edge", (outer.left + outer.right) / 2, outer.bottom - 3, HTBOTTOM},
+        {"bottom-right", outer.right - 3, outer.bottom - 3, HTBOTTOMRIGHT},
+        {"top edge", (outer.left + outer.right) / 2, outer.top + 2, HTTOP},
+    };
+    int failures = 0;
+    for (size_t index = 0; index < sizeof points / sizeof *points; index++) {
+        LRESULT got = SendMessageW(window, WM_NCHITTEST, 0, MAKELPARAM(points[index].x, points[index].y));
+        int ok = got == points[index].expected;
+        if (!ok) failures++;
+        fprintf(stderr, "compose-rust: hit-test %s at %d,%d got %ld expected %ld %s\n", points[index].where,
+                points[index].x, points[index].y, (long)got, (long)points[index].expected, ok ? "ok" : "FAIL");
+    }
+    fprintf(stderr, "compose-rust: hit-test verdict %s (%s caption)\n", failures == 0 ? "PASS" : "FAIL",
+            dxc_options.system_chrome ? "system" : "custom");
+}
+
 /**
  * Takes the window through the sizes a drag would, for measuring. Used only when asked
  * for, by DXC_SYNTH.
@@ -2414,11 +2557,18 @@ void dxc_native_debug_resize(void *window_pointer, void *view_pointer, int32_t f
         int outer_height = dxc_options.system_chrome ? outer.bottom - outer.top : outer.bottom;
         SetWindowPos(window, NULL, 0, 0, outer.right - outer.left, outer_height,
                      SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+        if (getenv("DXC_CAPTURE_CHECK") != NULL) {
+            dxc_capture_step(window);
+        }
         if (pause_micros > 0) {
             Sleep((DWORD)((pause_micros + 999) / 1000));
         }
     }
     SendMessageW(window, WM_EXITSIZEMOVE, 0, 0);
+    if (getenv("DXC_CAPTURE_CHECK") != NULL) {
+        fprintf(stderr, "compose-rust: capture-check verdict %s (%d of %d steps failed)\n",
+                dxc_capture_failures == 0 ? "PASS" : "FAIL", dxc_capture_failures, dxc_capture_steps);
+    }
 }
 
 /**

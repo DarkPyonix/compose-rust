@@ -120,6 +120,9 @@ private external fun rasterBegin(
 @SymbolName("dxc_native_raster_end")
 private external fun rasterEnd()
 
+@SymbolName("dxc_native_debug_hit_test")
+private external fun debugHitTest(window: COpaquePointer?)
+
 @SymbolName("dxc_native_report_metrics")
 private external fun reportMetrics(label: CPointer<ByteVar>?)
 
@@ -218,6 +221,7 @@ internal class Win32Window private constructor(
         // waited for the screen inside Present, and waiting again would halve the rate of
         // anything that animates.
         var busy = true
+        if (System.getenv("DXC_HITTEST_CHECK") == "1") debugHitTest(window)
         while (windowClosed() == 0) {
             drew = false
             // The window's own turn, before anything is read from it. This thread is the one

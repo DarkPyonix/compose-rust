@@ -328,15 +328,40 @@ jobs:
           path: ${{ runner.temp }}/hand-check-windows/
           retention-days: 30
 
+      - name: The executable is the Kotlin/Native renderer
+        run: |
+          exe=compose-rust/tests/fixtures/hand-check/target/debug/hand-check.exe
+          ls -la "$exe"
+          echo "graal_create_isolate occurrences: $(grep -a -c graal_create_isolate "$exe" || true)"
+          echo "Kotlin/Native runtime strings (kotlin.native): $(grep -a -c 'kotlin.native' "$exe" || true)"
+          echo "DLLs it loads:"; dumpbin -nologo -dependents "$(cygpath -w "$exe")" | grep -i "\.dll" || true
+
       - name: Scripted resize, measured
         env:
           DXC_D3D12_WARP: '1'
           DXC_PIXEL_COMPARE: '1'
+          DXC_CAPTURE_CHECK: '1'
+          DXC_HITTEST_CHECK: '1'
         run: |
+          out="$(cygpath -u "$RUNNER_TEMP")/resize-metrics"
           ./.github/scripts/resize-metrics-run.sh \
-            compose-rust/tests/fixtures/hand-check/target/debug/hand-check.exe \
-            "$(cygpath -u "$RUNNER_TEMP")/resize-metrics" windows-kn
-          cat "$(cygpath -u "$RUNNER_TEMP")/resize-metrics/windows-kn.md" >> "$GITHUB_STEP_SUMMARY"
+            compose-rust/tests/fixtures/hand-check/target/debug/hand-check.exe "$out" windows-kn
+          cat "$out/windows-kn.md" >> "$GITHUB_STEP_SUMMARY"
+          # The same drag with resize frames on the GPU, for comparison.
+          DXC_RASTER_RESIZE=0 ./.github/scripts/resize-metrics-run.sh \
+            compose-rust/tests/fixtures/hand-check/target/debug/hand-check.exe "$out" windows-kn-gpu
+          for label in windows-kn windows-kn-gpu; do
+            echo "### $label: on-screen capture and hit tests" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            grep -E "capture step|capture-check|hit-test" "$out/$label.log" >> "$GITHUB_STEP_SUMMARY" || true
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - name: What is on screen during a resize must be the frame drawn for it
+        run: |
+          log="$(cygpath -u "$RUNNER_TEMP")/resize-metrics/windows-kn.log"
+          grep -E "capture-check verdict|hit-test verdict" "$log" || { echo "the checks did not run" >&2; exit 1; }
+          ! grep -qE "capture-check verdict FAIL|hit-test verdict FAIL" "$log"
 
       - name: CPU and GPU frames must match
         run: |
