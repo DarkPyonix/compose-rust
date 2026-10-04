@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Linux opens its own window by default
+
+On the GraalVM native-image path Linux now opens the X11 window the renderer makes itself,
+with no environment variable and no toolkit between the scene and the screen. It draws its
+own caption and edges and hands the move and the resize to the window manager, has the
+CLIPBOARD and PRIMARY selections (the middle button pastes PRIMARY), text input with
+composition through XIM, drag and drop of files, the application's icon and the display
+scale, and sends the caret position to the input method. Shortcuts reach Compose as the
+keys they are: control with C, V, X, Z and A, shift with Insert, control with Insert and
+shift with Delete. A paste of any size arrives as one edit. Windows still opens the
+toolkit's window. Not done on Linux: AT-SPI accessibility, which is being built for the
+Kotlin/Native window; IME candidate windows and the feel of a live resize still need a
+person on a real desktop.
+
 ### The native-image renderer opens its own window on macOS
 
 On the GraalVM native-image path, macOS now opens the AppKit window the renderer makes
