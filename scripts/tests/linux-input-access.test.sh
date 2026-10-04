@@ -24,7 +24,9 @@ ime="$src/InputMethod.kt"
 entry="$src/LinuxRenderer.kt"
 bridge="$src/AtspiBridge.kt"
 server="$src/AtspiServer.kt"
-workflow="$repo_root/.github/workflows/test-native-renderer.yml"
+# The Linux static renderer is built, and checked, in the reusable workflow the native
+# renderer workflow calls for linux-x64.
+workflow="$repo_root/.github/workflows/static-renderer.yml"
 
 red=0
 fail() {
@@ -99,7 +101,7 @@ has 'NO_AT_BRIDGE' "$window" "the standard switch for turning the bridge off is 
 absent 'java\.|JNI|org\.graalvm' "$bridge" "Kotlin/Native has no JVM"
 
 # ---- the check that runs a real registry and input method -----------------------------------
-has 'check-linux-input-access\.sh' "$workflow" "the headless check is not run by the native renderer workflow"
+has 'check-linux-input-access\.sh' "$workflow" "the headless check is not run where the Linux static renderer is built"
 [[ -x "$repo_root/.github/scripts/check-linux-input-access.sh" ]] ||
     fail "the headless check is missing or not executable"
 
