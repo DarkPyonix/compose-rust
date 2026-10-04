@@ -11,7 +11,22 @@ import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
 import dev.darkpyonix.composerust.runtime.HostConnection
 import dev.darkpyonix.composerust.runtime.WindowCaption
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalClipboardManager
+import dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver
+import dev.darkpyonix.composerust.ui.node.Asset
+import kotlinx.coroutines.delay
+import org.thisisthepy.compose.window.DockIcon
+import org.thisisthepy.compose.window.SystemDarkMonitor
+import org.thisisthepy.compose.window.contentMinimum
+import org.thisisthepy.compose.window.macos.MacosClipboard
+import org.thisisthepy.compose.window.macos.MacosClipboardManager
 import org.thisisthepy.compose.window.macos.MacosWindow
+import org.thisisthepy.compose.window.macos.observeSystemAppearance
+import org.thisisthepy.compose.window.macos.systemIsDark
 import platform.AppKit.NSApplication
 import platform.AppKit.NSApplicationActivationPolicy
 import platform.AppKit.NSApplicationWillTerminateNotification
@@ -91,29 +106,64 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     //
     // The theme is resolved for this platform at the narrowest class: neither answer
     // depends on how wide the window is, and the window does not exist yet to be measured.
+    // Whether the system is dark, now and as it changes. Held here so the first answer is the
+    // real one and the window is not drawn light and corrected a moment later.
+    var requestFrame: () -> Unit = {}
+    val dark = mutableStateOf(systemIsDark())
+    val appearance = SystemDarkMonitor(
+        read = ::systemIsDark,
+        requestFrame = { requestFrame() },
+        onChange = { dark.value = it },
+    )
+    observeSystemAppearance(appearance::refresh)
     val dressing = resolveTheme(
         theme = host.table.theme,
         platform = HostPlatform.MacOs,
-        systemDark = false,
+        systemDark = dark.value,
     ).let { it.rules.caption(it, asked?.titleBar ?: TitleBar.Normal) }
+    val clipboard = MacosClipboard()
+    @Suppress("DEPRECATION")
+    val clipboardManager = MacosClipboardManager()
     val window = MacosWindow(
         name = asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
         width = if (asked != null && asked.width > 0) asked.width else 520,
         height = if (asked != null && asked.height > 0) asked.height else 360,
         buttonInset = dressing.platformButtonInset,
         cornerRadius = dressing.windowCornerRadius,
+        minimumSize = contentMinimum(asked?.minWidth ?: 0, asked?.minHeight ?: 0),
+        clipboardHasText = { clipboard.hasText() },
     )
+    requestFrame = window::requestFrame
+    val dockIcon = DockIcon(
+        lookup = { id -> (host.table.assets.asset(id) as? Asset.Raster)?.bitmap },
+        apply = { picture -> picture.toNSImage()?.let { application.applicationIconImage = it } },
+    )
+    val iconAsset = asked?.icon ?: 0
+    @Suppress("DEPRECATION")
     window.setContent {
-        val strip = window.caption.value
-        ComposeRustContent(
-            host,
-            caption = WindowCaption(
-                height = strip.height,
-                buttonsWidth = strip.buttonsWidth,
-                buttonsAtStart = strip.buttonsAtStart,
-                insetTop = strip.insetTop,
-            ),
-        )
+        CompositionLocalProvider(
+            LocalSystemDarkObserver provides { dark.value },
+            LocalClipboard provides clipboard,
+            LocalClipboardManager provides clipboardManager,
+        ) {
+            // The asset arrives a little after the first batch names it, so it is looked for
+            // until it is there.
+            if (iconAsset != 0) {
+                LaunchedEffect(Unit) {
+                    while (!dockIcon.tryApply(iconAsset)) delay(100)
+                }
+            }
+            val strip = window.caption.value
+            ComposeRustContent(
+                host,
+                caption = WindowCaption(
+                    height = strip.height,
+                    buttonsWidth = strip.buttonsWidth,
+                    buttonsAtStart = strip.buttonsAtStart,
+                    insetTop = strip.insetTop,
+                ),
+            )
+        }
     }
 
     application.activateIgnoringOtherApps(true)

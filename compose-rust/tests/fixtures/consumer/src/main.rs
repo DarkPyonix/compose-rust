@@ -24,13 +24,16 @@
 //! each press of the button. That is the only way the check can tell that an event arrived
 //! all the way at the Host.
 //!
+//! `--parity` is that window with a title and a smallest size of its own, for
+//! `scripts/parity/linux.sh`, which reads both back from the display server.
+//!
 //! The call to launch stays in the binary because the branch is decided at run time.
 //! That is what makes the renderer a load-time dependency of this executable rather than
 //! a library the linker drops for being unused.
 
 use compose_rust::boundary::STATUS_OK;
 use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, ProtocolError};
-use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind};
+use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind, Window};
 use compose_rust::{Batch, LaunchBuilder, Runtime};
 use std::ffi::c_int;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -151,6 +154,10 @@ impl Runtime for Screen {
     }
 }
 
+/// The smallest size `--parity` asks the window to allow, which the parity check reads back.
+const PARITY_MIN_WIDTH: u16 = 300;
+const PARITY_MIN_HEIGHT: u16 = 260;
+
 const FORM: u32 = 10;
 const FIELD: u32 = 11;
 const SAVE: u32 = 12;
@@ -160,12 +167,23 @@ const ON_CLICK: u64 = 2;
 /// A column holding a text field and a button, and nothing else.
 struct Form {
     batch: Batch,
+    /// Asks for a window of its own: a title and a smallest size, which the parity check reads
+    /// back from the display server on every path.
+    parity: bool,
 }
 
 impl Form {
     fn new() -> Self {
         Self {
             batch: Batch::new(),
+            parity: false,
+        }
+    }
+
+    fn for_parity() -> Self {
+        Self {
+            batch: Batch::new(),
+            parity: true,
         }
     }
 
@@ -196,6 +214,14 @@ impl Runtime for Form {
     }
 
     fn rebuild(&mut self) {
+        if self.parity {
+            self.batch.write(Mutation::SetWindow(Window {
+                title: "compose-rust parity",
+                min_width: PARITY_MIN_WIDTH,
+                min_height: PARITY_MIN_HEIGHT,
+                ..Window::new()
+            }));
+        }
         for (node_id, widget) in [
             (FORM, WidgetKind::Column),
             (FIELD, WidgetKind::TextField),
@@ -299,6 +325,10 @@ fn main() {
     }
     if std::env::args().any(|argument| argument == "--input-check") {
         LaunchBuilder::new().launch_runtime(|| Box::new(Form::new()) as Box<dyn Runtime>);
+        return;
+    }
+    if std::env::args().any(|argument| argument == "--parity") {
+        LaunchBuilder::new().launch_runtime(|| Box::new(Form::for_parity()) as Box<dyn Runtime>);
         return;
     }
     if std::env::args().any(|argument| argument == "--launch") {

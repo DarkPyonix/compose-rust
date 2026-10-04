@@ -10,6 +10,10 @@ import androidx.compose.ui.platform.asAwtTransferable
 import androidx.compose.ui.text.AnnotatedString
 import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.StringSelection
+import org.thisisthepy.compose.window.TextPasteboard
+import org.thisisthepy.compose.window.copyText
+import org.thisisthepy.compose.window.hasText
+import org.thisisthepy.compose.window.pasteText
 import org.thisisthepy.compose.window.graalvm.macos.readClipboard
 import org.thisisthepy.compose.window.graalvm.macos.writeClipboard
 
@@ -23,16 +27,21 @@ import org.thisisthepy.compose.window.graalvm.macos.writeClipboard
 // The entry Compose passes around is a toolkit data object on desktop. Only its text is
 // read and written here, which is all a text field asks for.
 
-/** The text on the clipboard, or null where there is none. */
-private fun clipboardText(): String? = readClipboard().takeIf { it.isNotEmpty() }
+/** The window's own pasteboard, reached through the two calls every window of ours shares. */
+private object WindowPasteboard : TextPasteboard {
+    override fun read(): String? = readClipboard()
+    override fun write(text: String) = writeClipboard(text)
+}
+
+private fun clipboardText(): String? = WindowPasteboard.pasteText()
 
 @Suppress("DEPRECATION")
 internal class WindowClipboardManager : ClipboardManager {
     override fun getText(): AnnotatedString? = clipboardText()?.let(::AnnotatedString)
 
-    override fun setText(annotatedString: AnnotatedString) = writeClipboard(annotatedString.text)
+    override fun setText(annotatedString: AnnotatedString) = WindowPasteboard.copyText(annotatedString.text)
 
-    override fun hasText(): Boolean = clipboardText() != null
+    override fun hasText(): Boolean = WindowPasteboard.hasText()
 }
 
 internal class WindowClipboard : Clipboard {
@@ -43,7 +52,7 @@ internal class WindowClipboard : Clipboard {
         val text = clipEntry?.asAwtTransferable?.let {
             runCatching { it.getTransferData(DataFlavor.stringFlavor) as? String }.getOrNull()
         }
-        writeClipboard(text.orEmpty())
+        WindowPasteboard.copyText(text)
     }
 
     override val nativeClipboard: NativeClipboard get() = this
