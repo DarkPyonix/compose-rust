@@ -52,7 +52,7 @@ class ContentOffsetTest {
         // Made the way the window used to make it, from the window's frame, to show that
         // what it ends up as does not depend on where it started.
         val backdrop = NSView(window.frame)
-        val view = SceneView(window.frame)
+        val view = FlippedView(window.frame)
         installContent(window, backdrop, view)
 
         val content = backdrop.bounds.useContents { listOf(origin.x, origin.y, size.width, size.height) }
@@ -69,7 +69,7 @@ class ContentOffsetTest {
     fun nfr14_a_click_at_the_centre_of_a_label_lands_on_the_label() {
         val window = window()
         val backdrop = NSView(contentBounds(480, 640))
-        val view = SceneView(contentBounds(480, 640))
+        val view = FlippedView(contentBounds(480, 640))
         installContent(window, backdrop, view)
 
         // A heading the scene draws at the top of the window, in pixels: 48 points tall,
@@ -105,4 +105,9 @@ class ContentOffsetTest {
                 "control drawn there cannot be pressed",
         )
     }
+}
+
+/** Flipped like the window's scene view, which is an anonymous subclass and cannot be made here. */
+private class FlippedView(frame: kotlinx.cinterop.CValue<platform.CoreGraphics.CGRect>) : NSView(frame) {
+    override fun isFlipped() = true
 }

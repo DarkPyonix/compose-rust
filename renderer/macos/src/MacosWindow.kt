@@ -389,7 +389,7 @@ internal class MacosWindow(
         it.autoresizingMask = NSViewWidthSizable or NSViewHeightSizable
     }
 
-    private val view: NSView = object : SceneView(contentBounds(width, height)), CALayerDelegateProtocol, NSTextInputClientProtocol,
+    private val view: NSView = object : NSView(contentBounds(width, height)), CALayerDelegateProtocol, NSTextInputClientProtocol,
         NSDraggingDestinationProtocol {
         private var tracking: NSTrackingArea? = null
 
@@ -484,6 +484,11 @@ internal class MacosWindow(
         // The view's own layer is the one that is drawn into, rather than a layer of
         // skiko's put on top. That is what lets a frame be drawn inside the view's display
         // and committed with whatever else the layer tree is committing.
+        // Counting down from the top left as the scene does, the way the native image's
+        // view does: the drawing, the pointer and what a reader is told then share one
+        // origin, and nothing subtracts from a height that can be the wrong height.
+        override fun isFlipped() = true
+
         override fun makeBackingLayer(): CALayer = metal.layer
 
         override fun wantsUpdateLayer() = true
@@ -791,18 +796,6 @@ private class MenuShortcut(private val run: () -> Unit) : platform.darwin.NSObje
     fun perform() = run()
 }
 
-/**
- * The view the scene is drawn into, counting down from its top left as the scene does.
- *
- * Flipped for the same reason the native image's view is: the drawing, the pointer and
- * what a reader is told then share one origin, and nothing has to subtract from a height
- * that can be the wrong height. Subtracting from this view's height is what put the
- * pointer and the drawing out of step when the view did not sit at its parent's origin.
- */
-internal open class SceneView(frame: CValue<CGRect>) : NSView(frame) {
-    override fun isFlipped() = true
-}
-
 /** A rectangle the size of the window's content, at the origin of its parent. */
 internal fun contentBounds(width: Int, height: Int): CValue<CGRect> =
     NSMakeRect(0.0, 0.0, width.toDouble(), height.toDouble())
@@ -827,7 +820,7 @@ internal fun installContent(window: NSWindow, backdrop: NSView, view: NSView) {
  * Where a point in the window's coordinates falls in the scene, in pixels.
  *
  * Converted by AppKit from the window to [view], which accounts for wherever the view sits
- * and for its being flipped, then scaled to the screen's density: the layer draws at that
+ * and for its being flipped (the scene view is), then scaled to the screen's density: the layer draws at that
  * density and the scene is told that size, so its coordinates are pixels.
  */
 internal fun scenePoint(view: NSView, locationInWindow: CValue<CGPoint>, scale: Double): Offset =
