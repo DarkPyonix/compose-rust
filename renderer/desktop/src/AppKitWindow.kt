@@ -116,6 +116,15 @@ private external fun setIcon(rgba: CCharPointer?, width: Int, height: Int)
 @CFunction("dxc_native_dropped_paths")
 private external fun droppedPaths(out: Pointer?, capacity: Int): Int
 
+@CFunction("dxc_native_set_ime_spot")
+private external fun setImeSpot(x: Float, y: Float)
+
+@CFunction("dxc_native_window_action")
+private external fun windowAction(action: Int)
+
+@CFunction("dxc_native_window_begin_drag")
+private external fun beginWindowDrag(edge: Int)
+
 @CFunction("dxc_native_window_closed")
 private external fun windowClosed(): Int
 
@@ -285,6 +294,33 @@ internal fun NativeWindow.measureCaption(): dev.darkpyonix.composerust.runtime.W
     )
 }
 
+/** Tells the window where the caret is, so the input method's candidates open beside it. */
+internal fun reportCaret(textInput: NativeTextInput) {
+    val spot = textInput.caretSpot() ?: return
+    if (spot == lastCaret) return
+    lastCaret = spot
+    setImeSpot(spot.x, spot.y)
+}
+
+private var lastCaret: androidx.compose.ui.geometry.Offset? = null
+
+/** Brings the window forward. Safe from any thread: it is a request the window acts on in its next turn. */
+internal fun bringNativeWindowToFront() = windowAction(3)
+
+/** What a button of the application's own caption does to the window. */
+internal fun nativeWindowActions() = dev.darkpyonix.composerust.runtime.WindowActions(
+    minimise = { windowAction(0) },
+    maximise = { windowAction(1) },
+    close = { windowAction(2) },
+)
+
+/**
+ * Hands the move or the resize of an undecorated window to the window manager, which does
+ * it better than a drag measured here could: 0 moves, and 1 to 8 pull the edge or corner
+ * [WindowEdge] names.
+ */
+internal fun beginNativeWindowDrag(edge: Int) = beginWindowDrag(edge)
+
 /** The paths of the files last dragged over the window, one string, NUL between them. */
 internal fun readDroppedPaths(): String {
     val buffer = StackValue.get<Pointer>(DROPPED_PATHS_BYTES)
@@ -312,6 +348,22 @@ internal fun setApplicationIcon(rgba: ByteArray, width: Int, height: Int) {
     } finally {
         holder.close()
     }
+}
+
+/**
+ * Puts the picture the application named on the window, once the asset has arrived.
+ *
+ * Asked each frame until it is there, because the id is known from the first batch and the
+ * bitmap a little later. Answers true once it has been put on, so the caller can stop.
+ */
+internal fun applyNamedIcon(host: dev.darkpyonix.composerust.runtime.ComposeRustHost, id: Int): Boolean {
+    if (id == 0) return true
+    val raster = host.table.assets.asset(id) as? dev.darkpyonix.composerust.ui.node.Asset.Raster
+        ?: return false
+    iconPixels(raster.bitmap)?.let { (pixels, width, height) ->
+        setApplicationIcon(pixels, width, height)
+    }
+    return true
 }
 
 /** The pixels [setApplicationIcon] takes, from a picture Compose holds. */
@@ -453,17 +505,9 @@ private const val WINDOW_STRUCT_BYTES = 40
  * watches.
  */
 internal fun runAppKitWindow(autoExitMillis: Long? = null) {
-    // Before the first frame, because every piece of text drawn after this reads them.
-    dev.darkpyonix.composerust.design.installPlatformUiFamily()
-    dev.darkpyonix.composerust.ui.installReducedMotion()
-    dev.darkpyonix.composerust.ui.installHighContrast()
-    dev.darkpyonix.composerust.ui.node.platformFileDrop = { modifier, node, dispatcher ->
-        modifier.nativeFileDrop(node, dispatcher)
-    }
     // The window is a real one with the desktop behind it, so a design that draws glass
-    // can let that show through. Set before the Host starts: its first batch may already
-    // ask.
-    dev.darkpyonix.composerust.runtime.platformBacksWindowWithMaterial = { true }
+    // can let that show through.
+    installNativeWindowHooks(backdropSupported = true)
     // The Host is started before there is a window, because what the window should look
     // like is in its first batch and a window cannot be told afterwards. Started on this
     // thread, which is the one every later call to it is made from: the boundary is a
@@ -471,19 +515,16 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
     val host = dev.darkpyonix.composerust.runtime.ComposeRustHost(NativeHostConnection())
     host.start()
     val asked = host.table.window
-    val backdrop = host.table.asksForWindowMaterial(host.roots)
+    val options = nativeWindowOptions(host, backdropSupported = true)
+    val backdrop = options.backdrop
     configureNativeWindow(
-        resizable = asked?.resizable ?: true,
-        minWidth = asked?.minWidth?.takeIf { it > 0 } ?: 0,
-        minHeight = asked?.minHeight?.takeIf { it > 0 } ?: 0,
-        systemChrome = asked?.chrome == dev.darkpyonix.composerust.protocol.Chrome.System,
+        resizable = options.resizable,
+        minWidth = options.minWidth,
+        minHeight = options.minHeight,
+        systemChrome = options.systemChrome,
         backdrop = backdrop,
     )
-    val window = openNativeWindow(
-        asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
-        if (asked != null && asked.width > 0) asked.width else 520,
-        if (asked != null && asked.height > 0) asked.height else 360,
-    )
+    val window = openNativeWindow(options.title, options.width, options.height)
     if (window == null) {
         System.err.println("compose-rust: this machine has no Metal device")
         return
@@ -524,28 +565,13 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
     )
     // The application's own tree, drawn by the same interpreter every window uses.
     // Nothing in it knows which window it is in, which is the point.
-    val clipboard = WindowClipboard()
-    @Suppress("DEPRECATION")
-    val clipboardManager = WindowClipboardManager()
     scene.setContent {
-        androidx.compose.runtime.CompositionLocalProvider(
-            dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver provides {
-                rememberSystemDark().value
-            },
-            androidx.compose.ui.platform.LocalClipboard provides clipboard,
-            androidx.compose.ui.platform.LocalClipboardManager provides clipboardManager,
-        ) {
-            dev.darkpyonix.composerust.runtime.ComposeRustContent(
-                host,
-                Modifier.fillMaxSize(),
-                caption = caption.value,
-            )
-        }
+        NativeWindowContent(host, caption.value, actions = null)
     }
-    installApplicationMenu(asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust")
+    installApplicationMenu(options.title)
 
     val started = System.nanoTime()
-    var iconId = 0
+    var iconSettled = false
     try {
         // A plain loop rather than a clock. Pacing is the frame clock's work and comes
         // later; what this has to show is that what the window hears reaches the scene
@@ -571,16 +597,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
             // The application's picture, once the asset it named has arrived. The id is
             // known from the first batch and the bitmap a little later, so this asks each
             // frame until it is there and then stops.
-            if (iconId == 0 && asked != null && asked.icon != 0) {
-                val raster = host.table.assets.asset(asked.icon)
-                    as? dev.darkpyonix.composerust.ui.node.Asset.Raster
-                if (raster != null) {
-                    iconId = asked.icon
-                    iconPixels(raster.bitmap)?.let { (pixels, width, height) ->
-                        setApplicationIcon(pixels, width, height)
-                    }
-                }
-            }
+            if (!iconSettled) iconSettled = applyNamedIcon(host, asked?.icon ?: 0)
             var heard = false
             var drew = false
             for (event in drainWindowEvents()) {
@@ -620,6 +637,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
             // a window that has gone still is exactly where that would be forgotten.
             // Costs a comparison when nothing has changed, which is almost always.
             semantics.pushIfChanged(afterDrawing = drew)
+            reportCaret(textInput)
         }
     } finally {
         scene.close()
