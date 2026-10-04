@@ -17,13 +17,20 @@
 //! part of what passes. Without it, for a renderer that cannot close its own window (the
 //! Kotlin/Native one on Linux), the check ends the process itself once the frames are in.
 //!
+//! `--input-check` opens a window with a text field and a button, for a person typing Korean
+//! into it and for `.github/scripts/check-linux-input-access.sh`, which drives it with a real
+//! input method and a real accessibility registry. It stays open until it is killed and says
+//! on standard output what its handlers heard: the field's text each time it changes, and
+//! each press of the button. That is the only way the check can tell that an event arrived
+//! all the way at the Host.
+//!
 //! The call to launch stays in the binary because the branch is decided at run time.
 //! That is what makes the renderer a load-time dependency of this executable rather than
 //! a library the linker drops for being unused.
 
 use compose_rust::boundary::STATUS_OK;
 use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, ProtocolError};
-use compose_rust::schema::{PropertyKind, WidgetKind};
+use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind};
 use compose_rust::{Batch, LaunchBuilder, Runtime};
 use std::ffi::c_int;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -144,6 +151,92 @@ impl Runtime for Screen {
     }
 }
 
+const FORM: u32 = 10;
+const FIELD: u32 = 11;
+const SAVE: u32 = 12;
+const ON_VALUE_CHANGE: u64 = 1;
+const ON_CLICK: u64 = 2;
+
+/// A column holding a text field and a button, and nothing else.
+struct Form {
+    batch: Batch,
+}
+
+impl Form {
+    fn new() -> Self {
+        Self {
+            batch: Batch::new(),
+        }
+    }
+
+    fn text(&mut self, node_id: u32, property: PropertyKind, value: &str) {
+        self.batch.write(Mutation::SetProp {
+            node_id,
+            property,
+            value: PropertyValue::String(value),
+        });
+    }
+
+    fn handler(&mut self, node_id: u32, property: PropertyKind, handler_id: u64) {
+        self.batch.write(Mutation::SetProp {
+            node_id,
+            property,
+            value: PropertyValue::Integer(handler_id as i64),
+        });
+    }
+}
+
+impl Runtime for Form {
+    fn batch(&self) -> &Batch {
+        &self.batch
+    }
+
+    fn batch_mut(&mut self) -> &mut Batch {
+        &mut self.batch
+    }
+
+    fn rebuild(&mut self) {
+        for (node_id, widget) in [
+            (FORM, WidgetKind::Column),
+            (FIELD, WidgetKind::TextField),
+            (SAVE, WidgetKind::Button),
+        ] {
+            self.batch.write(Mutation::Create { node_id, widget });
+        }
+        self.text(FIELD, PropertyKind::Placeholder, "Name");
+        self.handler(FIELD, PropertyKind::OnValueChange, ON_VALUE_CHANGE);
+        self.text(SAVE, PropertyKind::Text, "Save");
+        self.handler(SAVE, PropertyKind::OnClick, ON_CLICK);
+        for (index, node_id) in [FIELD, SAVE].into_iter().enumerate() {
+            self.batch.write(Mutation::Insert {
+                parent_id: FORM,
+                node_id,
+                index: index as u32,
+            });
+        }
+    }
+
+    fn render(&mut self) {}
+
+    fn handle_event(&mut self, event: &HostEvent<'_>) -> Result<i64, ProtocolError> {
+        match (event.node_id, event.handler_id, &event.payload) {
+            (FIELD, ON_VALUE_CHANGE, EventPayload::TextChanged(value)) => {
+                println!("input-check: field = {value}");
+                Ok(0)
+            }
+            (SAVE, ON_CLICK, EventPayload::Clicked) => {
+                println!("input-check: clicked");
+                Ok(0)
+            }
+            _ => Err(ProtocolError::InvalidValueKind(0)),
+        }
+    }
+
+    fn poll_work(&mut self, _context: &mut Context<'_>) -> Poll<()> {
+        Poll::Pending
+    }
+}
+
 /// How long the check waits for the frames when it is the one ending the process.
 const SELF_CHECK_TIMEOUT: Duration = Duration::from_secs(120);
 
@@ -202,6 +295,10 @@ fn main() {
             std::process::exit(1);
         }
         println!("self-check: the renderer drew {reached} frames");
+        return;
+    }
+    if std::env::args().any(|argument| argument == "--input-check") {
+        LaunchBuilder::new().launch_runtime(|| Box::new(Form::new()) as Box<dyn Runtime>);
         return;
     }
     if std::env::args().any(|argument| argument == "--launch") {

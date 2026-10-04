@@ -58,6 +58,9 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // No caption is passed. The window manager draws this platform's title bar itself, outside
     // the window, so there is no strip of our own for content to step clear of.
     opened = window
+    // Joined before the loop starts: a screen reader that is already running reads the window
+    // from its first frame. Nothing happens where there is no accessibility bus.
+    window.startAccessibility(PosixBusConnection.applicationName())
     // The bus is read on this thread every turn, because there is no other thread to read it
     // on and nothing else would notice a press arriving while the window is idle.
     window.onTurn = { host.table.notifications.pump() }

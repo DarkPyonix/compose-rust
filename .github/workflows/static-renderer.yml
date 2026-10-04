@@ -177,6 +177,42 @@ jobs:
       - name: Build the static renderer
         run: ./renderer/desktop/scripts/${{ steps.target.outputs.script }}
 
+      - name: Install the Rust toolchain for the input check's application
+        if: inputs.target == 'linux-x64'
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      - name: Test the Linux renderer
+        if: inputs.target == 'linux-x64'
+        # The unit tests of the window's input method and accessibility handling, and the
+        # window test that opens a real window on the virtual display. They run against the
+        # Compose published into the local repository above, so this is the first place they
+        # can run at all.
+        working-directory: renderer
+        run: xvfb-run -a -s '-screen 0 1280x1024x24' ./kotlin test -m linux
+
+      - name: Install an input method, an accessibility registry and input tools
+        if: inputs.target == 'linux-x64'
+        run: |
+          sudo apt-get install -y xvfb xauth ibus ibus-hangul at-spi2-core python3-gi gir1.2-atspi-2.0 \
+            xdotool dbus-x11 libglib2.0-bin x11-utils
+
+      - name: Type Korean and read the window, through a real input method and registry
+        if: inputs.target == 'linux-x64'
+        # ibus with its XIM server and the hangul engine, and the at-spi2 registry, on a
+        # session bus of their own. The application is the consumer fixture with a text
+        # field and a button. See the script for what this proves and what it cannot.
+        run: xvfb-run -a -s '-screen 0 1280x1024x24' ./.github/scripts/check-linux-input-access.sh renderer/build/linux "$RUNNER_TEMP/input-access"
+
+      - name: Keep the input and accessibility check's logs
+        if: inputs.target == 'linux-x64'
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-input-access-logs
+          path: ${{ runner.temp }}/input-access/input-check/
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Keep the renderer build's logs
         if: failure()
         uses: actions/upload-artifact@v4
