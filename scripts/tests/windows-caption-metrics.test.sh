@@ -15,7 +15,7 @@ set -uo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
 
-entry="renderer/desktop/c/renderer_entry.c"
+entry="renderer/desktop/c/win32_window.c"
 chrome="renderer/desktop/src/WindowChrome.kt"
 rules="renderer/desktop/src/renderer/ComponentRules.kt"
 status=0

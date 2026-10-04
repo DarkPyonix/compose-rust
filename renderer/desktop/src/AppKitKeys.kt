@@ -51,6 +51,17 @@ internal fun composeKey(platformKey: Int): Key = when (platformKey) {
     0x28 -> Key.K
     0x2D -> Key.N
     0x2E -> Key.M
+    // The digits, for the same reason: a shortcut may be a number.
+    0x12 -> Key.One
+    0x13 -> Key.Two
+    0x14 -> Key.Three
+    0x15 -> Key.Four
+    0x17 -> Key.Five
+    0x16 -> Key.Six
+    0x1A -> Key.Seven
+    0x1C -> Key.Eight
+    0x19 -> Key.Nine
+    0x1D -> Key.Zero
     0x24 -> Key.Enter
     0x30 -> Key.Tab
     0x31 -> Key.Spacebar

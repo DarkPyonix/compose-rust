@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Windows opens its own window, and Linux's is finished but not the default
+
+The Win32 window is now the default on the native-image path, with no environment
+variable. The X11 window is finished the same way but Linux keeps the toolkit's window
+until typing, copy and paste and Korean input have been checked on a real desktop; set
+`DXC_X11_WINDOW` to try it. Windows keeps its frame and takes the caption strip into the content as before
+(the logic moved from the shim into the window's own procedure), and now honours the
+application's minimum size, resizable choice and icon, has a clipboard, and takes files
+dropped on a drop target. Linux draws its own caption and edges and hands the move and the
+resize to the window manager, has the CLIPBOARD and PRIMARY selections, text input with
+composition through XIM, drag and drop of files, the application's icon, and the display
+scale. The caret position is sent to the input method so candidate windows open beside it.
+Not done on Linux: AT-SPI accessibility, which is being built for the Kotlin/Native window.
+
 ### The native-image renderer opens its own window on macOS
 
 On the GraalVM native-image path, macOS now opens the AppKit window the renderer makes
