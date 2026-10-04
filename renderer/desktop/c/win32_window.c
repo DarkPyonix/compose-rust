@@ -2052,7 +2052,13 @@ int32_t dxc_native_window_open(
     }
 
     HWND window = CreateWindowExW(
-        0,
+        // Without this, Windows keeps a GDI redirection surface behind the window for
+        // DWM to composite from, separate from the swapchain. A live resize grows that
+        // surface before this window procedure hears about it, and the growth is not
+        // ours to fill: it comes up black, however fast WM_SIZE redraws the swapchain
+        // underneath it. This style tells DWM there is no redirection surface, so what
+        // is on screen is this window's swapchain and nothing else.
+        WS_EX_NOREDIRECTIONBITMAP,
         DXC_WINDOW_CLASS,
         wide_title,
         dxc_window_style(),
