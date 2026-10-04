@@ -81,6 +81,10 @@ fi
 
 renderer_gate="$repo_root/renderer/scripts/gate-platforms.sh"
 
+# The renderer depends on the Compose fork's window modules as Maven artifacts. Published first,
+# from the commit renderer/scripts/build-compose.sh pins.
+"$repo_root/renderer/scripts/publish-window.sh"
+
 cd "$repo_root/renderer"
 # Which platforms this machine can build, and which it can run tests for. Named rather than
 # left to the default, because three of them need something the machine may not have: the
