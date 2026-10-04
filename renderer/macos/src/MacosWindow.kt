@@ -385,8 +385,12 @@ internal class MacosWindow(
         it.autoresizingMask = NSViewWidthSizable or NSViewHeightSizable
     }
 
-    private val view: NSView = object : SceneView(contentBounds(width, height)), CALayerDelegateProtocol, NSTextInputClientProtocol,
+    private val view: NSView = object : NSView(contentBounds(width, height)), CALayerDelegateProtocol, NSTextInputClientProtocol,
         NSDraggingDestinationProtocol {
+        // Flipped like SceneView. Kotlin/Native cannot subclass a Kotlin subclass of an
+        // Objective-C class, so this view extends NSView directly instead of SceneView.
+        override fun isFlipped() = true
+
         private var tracking: NSTrackingArea? = null
 
         // Files let go over the window. Compose's own drag and drop is declared and never
@@ -793,7 +797,7 @@ private val Int.readerRole: String
  * that can be the wrong height. Subtracting from this view's height is what put the
  * pointer and the drawing out of step when the view did not sit at its parent's origin.
  */
-internal open class SceneView(frame: CValue<CGRect>) : NSView(frame) {
+internal class SceneView(frame: CValue<CGRect>) : NSView(frame) {
     override fun isFlipped() = true
 }
 
