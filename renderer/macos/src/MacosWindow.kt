@@ -387,10 +387,6 @@ internal class MacosWindow(
 
     private val view: NSView = object : NSView(contentBounds(width, height)), CALayerDelegateProtocol, NSTextInputClientProtocol,
         NSDraggingDestinationProtocol {
-        // Flipped like SceneView. Kotlin/Native cannot subclass a Kotlin subclass of an
-        // Objective-C class, so this view extends NSView directly instead of SceneView.
-        override fun isFlipped() = true
-
         private var tracking: NSTrackingArea? = null
 
         // Files let go over the window. Compose's own drag and drop is declared and never
@@ -503,6 +499,11 @@ internal class MacosWindow(
         // The view's own layer is the one that is drawn into, rather than a layer of
         // skiko's put on top. That is what lets a frame be drawn inside the view's display
         // and committed with whatever else the layer tree is committing.
+        // Counting down from the top left as the scene does, the way the native image's
+        // view does: the drawing, the pointer and what a reader is told then share one
+        // origin, and nothing subtracts from a height that can be the wrong height.
+        override fun isFlipped() = true
+
         override fun makeBackingLayer(): CALayer = metal.layer
 
         override fun wantsUpdateLayer() = true
@@ -789,16 +790,10 @@ private val Int.readerRole: String
         else -> NSAccessibilityGroupRole
     } ?: NSAccessibilityGroupRole ?: "AXGroup"
 
-/**
- * The view the scene is drawn into, counting down from its top left as the scene does.
- *
- * Flipped for the same reason the native image's view is: the drawing, the pointer and
- * what a reader is told then share one origin, and nothing has to subtract from a height
- * that can be the wrong height. Subtracting from this view's height is what put the
- * pointer and the drawing out of step when the view did not sit at its parent's origin.
- */
-internal class SceneView(frame: CValue<CGRect>) : NSView(frame) {
-    override fun isFlipped() = true
+/** Holds the closure a menu item runs, because a menu item calls a selector on a target. */
+private class MenuShortcut(private val run: () -> Unit) : platform.darwin.NSObject() {
+    @kotlinx.cinterop.ObjCAction
+    fun perform() = run()
 }
 
 /** A rectangle the size of the window's content, at the origin of its parent. */
@@ -825,7 +820,7 @@ internal fun installContent(window: NSWindow, backdrop: NSView, view: NSView) {
  * Where a point in the window's coordinates falls in the scene, in pixels.
  *
  * Converted by AppKit from the window to [view], which accounts for wherever the view sits
- * and for its being flipped, then scaled to the screen's density: the layer draws at that
+ * and for its being flipped (the scene view is), then scaled to the screen's density: the layer draws at that
  * density and the scene is told that size, so its coordinates are pixels.
  */
 internal fun scenePoint(view: NSView, locationInWindow: CValue<CGPoint>, scale: Double): Offset =
