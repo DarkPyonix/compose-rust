@@ -374,7 +374,10 @@ internal class MacosWindow(
     // be the content view and moved the buttons back from its own resize; once it became a
     // view inside this one, nothing moved them back and the ordinary mode's inset was gone
     // from the moment the window first came up.
-    private val backdrop = object : NSVisualEffectView(window.frame) {
+    // Made at the content's size, at the origin. The window's frame is a rectangle on the
+    // screen, and a view built from it carries the window's screen position as its own
+    // offset inside its parent.
+    private val backdrop = object : NSVisualEffectView(contentBounds(width, height)) {
         override fun setFrameSize(newSize: CValue<CGSize>) {
             super.setFrameSize(newSize)
             measureCaption()
@@ -386,7 +389,7 @@ internal class MacosWindow(
         it.autoresizingMask = NSViewWidthSizable or NSViewHeightSizable
     }
 
-    private val view: NSView = object : NSView(window.frame), CALayerDelegateProtocol, NSTextInputClientProtocol,
+    private val view: NSView = object : NSView(contentBounds(width, height)), CALayerDelegateProtocol, NSTextInputClientProtocol,
         NSDraggingDestinationProtocol {
         private var tracking: NSTrackingArea? = null
 
@@ -481,6 +484,11 @@ internal class MacosWindow(
         // The view's own layer is the one that is drawn into, rather than a layer of
         // skiko's put on top. That is what lets a frame be drawn inside the view's display
         // and committed with whatever else the layer tree is committing.
+        // Counting down from the top left as the scene does, the way the native image's
+        // view does: the drawing, the pointer and what a reader is told then share one
+        // origin, and nothing subtracts from a height that can be the wrong height.
+        override fun isFlipped() = true
+
         override fun makeBackingLayer(): CALayer = metal.layer
 
         override fun wantsUpdateLayer() = true
@@ -504,7 +512,7 @@ internal class MacosWindow(
 
         override fun updateLayer() {
             val scale = window?.backingScaleFactor ?: 1.0
-            frame.useContents { metal.resize(size.width, size.height, scale) }
+            bounds.useContents { metal.resize(size.width, size.height, scale) }
             metal.draw(::paintFrame)
         }
 
@@ -621,9 +629,7 @@ internal class MacosWindow(
         // The material is the content view and the application draws inside it. The window
         // itself stops being opaque and stops painting a colour, because either one is a
         // sheet of paint laid over the thing this was all for.
-        window.contentView = backdrop
-        backdrop.addSubview(view)
-        view.autoresizingMask = NSViewWidthSizable or NSViewHeightSizable
+        installContent(window, backdrop, view)
         window.opaque = false
         window.backgroundColor = NSColor.clearColor
 
@@ -685,17 +691,11 @@ internal class MacosWindow(
                 width = element.width.toDouble() / scale,
                 height = element.height.toDouble() / scale,
             )
-            val flipped = view.frame.useContents {
-                CGRectMake(
-                    x = inView.useContents { origin.x },
-                    y = size.height - inView.useContents { origin.y + size.height },
-                    width = inView.useContents { size.width },
-                    height = inView.useContents { size.height },
-                )
-            }
+            // The view counts down from its top left like the scene does, so the rectangle
+            // is already in its coordinates and only the conversion to the screen remains.
             (made as NSAccessibilityElement).setAccessibilityFrame(
-                view.window?.convertRectToScreen(view.convertRect(flipped, toView = null))
-                    ?: flipped,
+                view.window?.convertRectToScreen(view.convertRect(inView, toView = null))
+                    ?: inView,
             )
             made
         }
@@ -755,17 +755,8 @@ internal class MacosWindow(
         )
     }
 
-    // The window's coordinates count up from the bottom and the scene's count down from
-    // the top, so one is the other subtracted from the height. In pixels on both sides:
-    // the layer is asked to draw at the screen's density and the scene is told that size,
-    // so nothing here divides by it.
     private val NSEvent.offsetInView: Offset
-        get() {
-            val where = locationInWindow.useContents { Offset(x.toFloat(), y.toFloat()) }
-            val height = view.frame.useContents { size.height.toFloat() }
-            val scale = view.window?.backingScaleFactor?.toFloat() ?: 1f
-            return Offset(where.x * scale, (height - where.y) * scale)
-        }
+        get() = scenePoint(view, locationInWindow, view.window?.backingScaleFactor ?: 1.0)
 
     // Built from parts rather than converted: what converts a platform key event is
     // internal to Compose, and the parts are the same ones the native image path builds
@@ -804,3 +795,35 @@ private class MenuShortcut(private val run: () -> Unit) : platform.darwin.NSObje
     @kotlinx.cinterop.ObjCAction
     fun perform() = run()
 }
+
+/** A rectangle the size of the window's content, at the origin of its parent. */
+internal fun contentBounds(width: Int, height: Int): CValue<CGRect> =
+    NSMakeRect(0.0, 0.0, width.toDouble(), height.toDouble())
+
+/**
+ * Makes [backdrop] the window's content view and puts [view] over the whole of it.
+ *
+ * The view takes the backdrop's bounds rather than any size worked out beforehand: the
+ * backdrop is sized by the window when it becomes the content view, and the view has to
+ * cover exactly that, from its top left corner, or the drawing is shifted off the window
+ * and the pointer lands somewhere other than where things are drawn. The native image
+ * path gets the same thing by making its view the content view itself.
+ */
+internal fun installContent(window: NSWindow, backdrop: NSView, view: NSView) {
+    window.contentView = backdrop
+    view.setFrame(backdrop.bounds)
+    view.autoresizingMask = NSViewWidthSizable or NSViewHeightSizable
+    backdrop.addSubview(view)
+}
+
+/**
+ * Where a point in the window's coordinates falls in the scene, in pixels.
+ *
+ * Converted by AppKit from the window to [view], which accounts for wherever the view sits
+ * and for its being flipped (the scene view is), then scaled to the screen's density: the layer draws at that
+ * density and the scene is told that size, so its coordinates are pixels.
+ */
+internal fun scenePoint(view: NSView, locationInWindow: CValue<CGPoint>, scale: Double): Offset =
+    view.convertPoint(locationInWindow, fromView = null).useContents {
+        Offset((x * scale).toFloat(), (y * scale).toFloat())
+    }
