@@ -948,6 +948,12 @@ static void dxc_pump_events(void) {
                 record.kind = event.type == KeyPress ? DXC_EVENT_KEY_DOWN : DXC_EVENT_KEY_UP;
                 record.key_code = dxc_key_code(symbol);
                 record.modifiers = dxc_modifiers(event.xkey.state);
+                if (symbol == XK_Delete && (event.xkey.state & (ShiftMask | ControlMask | Mod1Mask | Mod4Mask)) == ShiftMask) {
+                    // Shift and Delete cut on every X desktop. Compose has no such shortcut,
+                    // so the key arrives as the one it has: control and X.
+                    record.key_code = 0x07;
+                    record.modifiers = dxc_modifiers(ControlMask);
+                }
                 if (count == 1 && (unsigned char)bytes[0] >= 32 && (unsigned char)bytes[0] < 127) {
                     record.code_point = (unsigned char)bytes[0];
                 }
