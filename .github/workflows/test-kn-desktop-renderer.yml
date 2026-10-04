@@ -54,12 +54,14 @@ jobs:
           - module: macos
             runner: macos-latest
             compose: macosArm64
+            compose_key: macosarm64
             toolchain: ~/Library/Caches/JetBrains/Kotlin
             heap: 5g
             workers: 2
           - module: linux
             runner: ubuntu-24.04
             compose: linux
+            compose_key: linux
             toolchain: ~/.cache/JetBrains/Kotlin
             heap: 11g
             workers: 4
@@ -96,7 +98,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ~/.m2/repository
-          key: compose-${{ lower(matrix.compose) }}-${{ hashFiles('renderer/scripts/build-compose.sh', 'renderer/scripts/compose-fork.changes') }}
+          key: compose-${{ matrix.compose_key }}-${{ hashFiles('renderer/scripts/build-compose.sh', 'renderer/scripts/compose-fork.changes') }}
 
       - name: Cache the Kotlin toolchain
         uses: actions/cache@v4
