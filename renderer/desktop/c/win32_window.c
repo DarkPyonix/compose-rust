@@ -47,10 +47,13 @@
 #include <imm.h>
 #include <d3d12.h>
 #include <dxgi1_4.h>
+#include <ole2.h>
+#include <shellapi.h>
 #include <uiautomation.h>
 #include <uiautomationcoreapi.h>
 #include <oleauto.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdlib.h>
@@ -58,6 +61,7 @@
 
 #include "win32_resize.h"
 #include "win32_ime_text.h"
+#include "win32_dcomp.h"
 
 // What happened in the window, waiting to be read.
 //
@@ -75,6 +79,10 @@ enum {
     DXC_EVENT_KEY_UP = 6,
     DXC_EVENT_TEXT_COMMIT = 7,
     DXC_EVENT_TEXT_COMPOSE = 8,
+    // Files over the window, let go on it, and gone from it without being let go.
+    DXC_EVENT_FILES_ENTERED = 10,
+    DXC_EVENT_FILES_DROPPED = 11,
+    DXC_EVENT_FILES_EXITED = 12,
 };
 
 // Room for what an input method is composing, which is a syllable or a word and never a
@@ -121,6 +129,24 @@ static int dxc_event_count;
 
 static HWND dxc_window;
 static IDXGISwapChain3 *dxc_swapchain;
+// The window is shown through DirectComposition when it can be: the swapchain is a
+// composition swapchain, held by a visual that a target puts on the window. Nothing is
+// then left for DWM to fill with black while a resize is waiting to be presented. False
+// on the fallback, where the swapchain is attached to the window directly. The device,
+// target and visual themselves live in win32_dcomp.cpp; this file only asks whether one
+// is active, which win32_dcomp.h answers through dxc_dcomp_active without naming a DComp
+// type here.
+// What the swapchain was made with, and what every later refit has to say again: a refit
+// that names other flags is refused.
+static UINT dxc_swapchain_flags;
+// Signalled when the swapchain will take another frame without queueing it. NULL where
+// the swapchain was made without the latency flag.
+static HANDLE dxc_latency_wait;
+// Set once a commit has failed, so the failure is said once and not once a frame.
+static int dxc_commit_failed;
+// A frame is being drawn on this call stack. A resize message that arrives while it is
+// draws nothing: the frame in flight already reads the size that message wrote down.
+static int dxc_drawing;
 static ID3D12Device *dxc_device;
 static ID3D12CommandQueue *dxc_queue;
 static ID3D12Resource *dxc_buffers[DXC_BUFFER_COUNT];
@@ -175,8 +201,10 @@ void dxc_native_set_draw_callback(dxc_draw_frame_fn callback, void *isolate_thre
  * a window receives while it is still being built.
  */
 static void dxc_draw_one_frame(void) {
-    if (dxc_draw_frame != NULL) {
+    if (dxc_draw_frame != NULL && !dxc_drawing) {
+        dxc_drawing = 1;
         dxc_draw_frame(dxc_draw_thread);
+        dxc_drawing = 0;
     }
 }
 
@@ -1160,6 +1188,10 @@ static void dxc_read_ime_text(HIMC context, DWORD part, int32_t kind) {
     free(wide);
 }
 
+// Where the caret is in the client area, in pixels, as the renderer last said.
+static LONG dxc_ime_spot_x;
+static LONG dxc_ime_spot_y;
+
 static void dxc_position_ime(HWND window) {
     HIMC context = ImmGetContext(window);
     if (context == NULL) return;
@@ -1168,18 +1200,174 @@ static void dxc_position_ime(HWND window) {
     position.dwStyle = CFS_POINT;
     // The caret position has not crossed from Compose yet. Keep the IME window at the
     // client area's top left, as the macOS text client does for the same reason.
-    position.ptCurrentPos.x = 0;
-    position.ptCurrentPos.y = 0;
+    position.ptCurrentPos.x = dxc_ime_spot_x;
+    position.ptCurrentPos.y = dxc_ime_spot_y;
     ImmSetCompositionWindow(context, &position);
+    CANDIDATEFORM candidate;
+    memset(&candidate, 0, sizeof candidate);
+    candidate.dwStyle = CFS_CANDIDATEPOS;
+    candidate.ptCurrentPos.x = dxc_ime_spot_x;
+    candidate.ptCurrentPos.y = dxc_ime_spot_y + 20;
+    ImmSetCandidateWindow(context, &candidate);
     ImmReleaseContext(window, context);
+}
+
+// What the application asked of its window, held until the window is made.
+static struct {
+    int32_t resizable;
+    int32_t min_width;
+    int32_t min_height;
+    int32_t system_chrome;
+    int32_t backdrop;
+} dxc_options = {1, 0, 0, 0, 0};
+
+/**
+ * Says how the next window should be made. Called once, before it is opened.
+ *
+ * `system_chrome` keeps the system's caption. Without it the caption strip becomes part of
+ * the client area and the renderer draws the title and the three buttons in it. `backdrop`
+ * means nothing here: this window has no material to put behind the page.
+ */
+void dxc_native_window_configure(
+    int32_t resizable,
+    int32_t min_width,
+    int32_t min_height,
+    int32_t system_chrome,
+    int32_t backdrop
+) {
+    dxc_options.resizable = resizable;
+    dxc_options.min_width = min_width;
+    dxc_options.min_height = min_height;
+    dxc_options.system_chrome = system_chrome;
+    dxc_options.backdrop = backdrop;
+}
+
+/** The window style the options come to. */
+static DWORD dxc_window_style(void) {
+    DWORD style = WS_OVERLAPPEDWINDOW;
+    if (!dxc_options.resizable) {
+        style &= ~(DWORD)(WS_THICKFRAME | WS_MAXIMIZEBOX);
+    }
+    return style;
+}
+
+/*
+ * Taking the caption strip into the client area while the frame stays whole.
+ *
+ * The obvious way to draw your own title bar is an undecorated window, and on Windows
+ * that is the wrong trade. The frame is not only the bar: it is the drop shadow, the
+ * resize border, Snap Layouts and the animation when the window is restored. None of
+ * those can be drawn from inside the window.
+ *
+ * What VS Code and Windows Terminal do instead is keep every one of those and take only
+ * the caption. A window reports its client area in WM_NCCALCSIZE. Letting the default
+ * handler compute the frame and then putting the top edge back where it started leaves
+ * the sides and the bottom as the system's while the strip the caption occupied becomes
+ * ours to draw in. The styles are untouched, so the shadow, the border and Snap are
+ * untouched with them.
+ *
+ * Two details are not optional. A maximised window is deliberately laid out larger than
+ * the monitor by the border thickness, so the same edges fall off screen; restoring the
+ * top edge unchanged there puts the caption off screen too, and it has to be inset. And
+ * the top resize band lived in the non-client area that no longer exists, so the hit test
+ * has to answer for it or the window becomes the one window on the desktop that cannot be
+ * resized from the top.
+ *
+ * The geometry below is duplicated in Kotlin, which draws into the same strip.
+ * scripts/tests/windows-caption-metrics.test.sh fails if the two stop agreeing.
+ */
+
+// Windows 11 caption metrics, in device independent pixels.
+#define DXC_CAPTION_HEIGHT_DIP 32
+#define DXC_CAPTION_BUTTON_WIDTH_DIP 46
+#define DXC_CAPTION_BUTTON_COUNT 3
+
+static int dxc_scaled(HWND window, int dip) {
+    UINT dpi = GetDpiForWindow(window);
+    if (dpi == 0) {
+        dpi = USER_DEFAULT_SCREEN_DPI;
+    }
+    return (int)MulDiv(dip, (int)dpi, USER_DEFAULT_SCREEN_DPI);
+}
+
+/** How far a maximised window hangs off every edge of its monitor. */
+static int dxc_maximised_overhang(void) {
+    return GetSystemMetrics(SM_CYSIZEFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
+}
+
+static LRESULT dxc_caption_hit_test(HWND window, LPARAM lparam) {
+    LRESULT where = DefWindowProcW(window, WM_NCHITTEST, 0, lparam);
+    // Everywhere the frame still answers for keeps its answer: the sides, the bottom and
+    // all four corners are still the system's.
+    if (where != HTCLIENT) {
+        return where;
+    }
+    POINT point = {GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+    RECT frame;
+    if (!GetWindowRect(window, &frame)) {
+        return where;
+    }
+    // The top resize band was in the non-client area this window gave up, so nothing else
+    // will answer for it. A window that cannot be resized has no such band.
+    int band = dxc_maximised_overhang();
+    if (dxc_options.resizable && !IsZoomed(window) && point.y < frame.top + band) {
+        return HTTOP;
+    }
+    if (point.y >= frame.top + dxc_scaled(window, DXC_CAPTION_HEIGHT_DIP)) {
+        return HTCLIENT;
+    }
+    // The buttons are drawn by Kotlin and have to receive ordinary mouse input, so the
+    // strip they occupy stays client area. Everything else in the caption drags the
+    // window, which also brings back double click to maximise and the system menu on
+    // right click.
+    int buttons = dxc_scaled(window, DXC_CAPTION_BUTTON_WIDTH_DIP * DXC_CAPTION_BUTTON_COUNT);
+    if (point.x >= frame.right - buttons) {
+        return HTCLIENT;
+    }
+    return HTCAPTION;
 }
 
 // Named apart from the one in `renderer_entry.c`, which subclasses the toolkit's frame
 // to reclaim its caption. That one goes looking for a window of AWT's class and will
 // not find this one, so the two never meet; the names are kept distinct anyway,
 // because a reader who found both would have every reason to think they were.
+
 static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
     switch (message) {
+    case WM_NCCALCSIZE: {
+        if (dxc_options.system_chrome || wparam != TRUE) {
+            break;
+        }
+        NCCALCSIZE_PARAMS *params = (NCCALCSIZE_PARAMS *)lparam;
+        LONG requested_top = params->rgrc[0].top;
+        DefWindowProcW(window, message, wparam, lparam);
+        params->rgrc[0].top = IsZoomed(window) ? requested_top + dxc_maximised_overhang()
+                                               : requested_top;
+        return 0;
+    }
+    case WM_NCHITTEST:
+        if (dxc_options.system_chrome) {
+            break;
+        }
+        return dxc_caption_hit_test(window, lparam);
+    case WM_GETMINMAXINFO:
+        if (dxc_options.min_width > 0 || dxc_options.min_height > 0) {
+            UINT dpi = GetDpiForWindow(window);
+            if (dpi == 0) {
+                dpi = USER_DEFAULT_SCREEN_DPI;
+            }
+            RECT wanted = {0, 0, MulDiv(dxc_options.min_width, (int)dpi, USER_DEFAULT_SCREEN_DPI),
+                           MulDiv(dxc_options.min_height, (int)dpi, USER_DEFAULT_SCREEN_DPI)};
+            AdjustWindowRectExForDpi(&wanted, dxc_window_style(), FALSE, 0, dpi);
+            MINMAXINFO *info = (MINMAXINFO *)lparam;
+            info->ptMinTrackSize.x = wanted.right - wanted.left;
+            // The caption strip is client area here, so the top of the frame is not
+            // outside the content.
+            info->ptMinTrackSize.y = dxc_options.system_chrome ? wanted.bottom - wanted.top
+                                                               : wanted.bottom;
+            return 0;
+        }
+        break;
     case WM_MOUSEMOVE:
         // No tracking area. Windows delivers a move whenever the pointer is over the
         // client area, so hover, which is half of what a desktop control does, arrives
@@ -1306,6 +1494,13 @@ static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM
         // swapchain cannot have a zero dimension.
         if (dxc_swapchain != NULL && wparam != SIZE_MINIMIZED) {
             dxc_resize_note(&dxc_sizing, (int32_t)LOWORD(lparam), (int32_t)HIWORD(lparam));
+            // With a visual the frame is drawn, presented and committed before this
+            // message returns, whether or not a drag is on, so that a size is never
+            // on screen as an area nothing has painted.
+            if (dxc_dcomp_active()) {
+                dxc_draw_one_frame();
+                return 0;
+            }
             // Inside a drag the note is not enough. Nothing is going to come back and
             // read it: the frame loop is stopped several frames back inside the press
             // that began the drag, and what the screen shows meanwhile is the last frame
@@ -1332,6 +1527,7 @@ static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM
         dxc_a11y_count = 0;
         dxc_a11y_dirty = 0;
         dxc_a11y_update_posted = 0;
+        dxc_dcomp_release();
         dxc_window = NULL;
         dxc_window_gone = 1;
         PostQuitMessage(0);
@@ -1424,6 +1620,295 @@ void dxc_native_install_menu(const char *application_name) {
     (void)application_name;
 }
 
+
+/** The caption strip is fixed on this platform and Kotlin knows its height, so nothing is measured. */
+void dxc_native_window_caption(void *view_pointer, float *height, float *buttons_width) {
+    (void)view_pointer;
+    *height = 0;
+    *buttons_width = 0;
+}
+
+/**
+ * Does with the window what a button of the application's own caption asks: 0 minimises,
+ * 1 maximises or restores, 2 closes.
+ */
+void dxc_native_window_action(int32_t action) {
+    if (dxc_window == NULL) {
+        return;
+    }
+    switch (action) {
+    case 0:
+        ShowWindow(dxc_window, SW_MINIMIZE);
+        break;
+    case 1:
+        ShowWindow(dxc_window, IsZoomed(dxc_window) ? SW_RESTORE : SW_MAXIMIZE);
+        break;
+    case 2:
+        PostMessageW(dxc_window, WM_CLOSE, 0, 0);
+        break;
+    default:
+        break;
+    }
+}
+
+/** The system moves the window itself where the caption is the system's, so nothing here. */
+void dxc_native_window_begin_drag(int32_t edge) {
+    (void)edge;
+}
+
+/**
+ * Gives the window the picture it named, from its pixels: eight bits each of red, green,
+ * blue and alpha, with the colour already multiplied by the alpha, row after row.
+ */
+void dxc_native_set_icon(const uint8_t *rgba, int32_t width, int32_t height) {
+    if (dxc_window == NULL || rgba == NULL || width <= 0 || height <= 0) {
+        return;
+    }
+    BITMAPV5HEADER header;
+    memset(&header, 0, sizeof header);
+    header.bV5Size = sizeof header;
+    header.bV5Width = width;
+    // Negative: the rows are top first.
+    header.bV5Height = -height;
+    header.bV5Planes = 1;
+    header.bV5BitCount = 32;
+    header.bV5Compression = BI_BITFIELDS;
+    header.bV5RedMask = 0x00FF0000;
+    header.bV5GreenMask = 0x0000FF00;
+    header.bV5BlueMask = 0x000000FF;
+    header.bV5AlphaMask = 0xFF000000;
+    void *bits = NULL;
+    HDC screen = GetDC(NULL);
+    HBITMAP color = CreateDIBSection(screen, (BITMAPINFO *)&header, DIB_RGB_COLORS, &bits, NULL, 0);
+    ReleaseDC(NULL, screen);
+    if (color == NULL || bits == NULL) {
+        if (color != NULL) DeleteObject(color);
+        return;
+    }
+    uint8_t *out = (uint8_t *)bits;
+    for (int64_t index = 0; index < (int64_t)width * height; index++) {
+        uint8_t r = rgba[index * 4 + 0];
+        uint8_t g = rgba[index * 4 + 1];
+        uint8_t b = rgba[index * 4 + 2];
+        uint8_t a = rgba[index * 4 + 3];
+        // An icon's alpha is straight, so the colour is divided back out.
+        if (a != 0 && a != 255) {
+            r = (uint8_t)((r * 255 + a / 2) / a);
+            g = (uint8_t)((g * 255 + a / 2) / a);
+            b = (uint8_t)((b * 255 + a / 2) / a);
+        }
+        out[index * 4 + 0] = b;
+        out[index * 4 + 1] = g;
+        out[index * 4 + 2] = r;
+        out[index * 4 + 3] = a;
+    }
+    HBITMAP mask = CreateBitmap(width, height, 1, 1, NULL);
+    ICONINFO info;
+    memset(&info, 0, sizeof info);
+    info.fIcon = TRUE;
+    info.hbmMask = mask;
+    info.hbmColor = color;
+    HICON icon = CreateIconIndirect(&info);
+    DeleteObject(color);
+    DeleteObject(mask);
+    if (icon != NULL) {
+        SendMessageW(dxc_window, WM_SETICON, ICON_BIG, (LPARAM)icon);
+        SendMessageW(dxc_window, WM_SETICON, ICON_SMALL, (LPARAM)icon);
+    }
+}
+
+/** What is on the clipboard as text, copied into [out] as UTF-8, and its length. */
+int32_t dxc_native_clipboard_read(char *out, int32_t capacity) {
+    if (!OpenClipboard(dxc_window)) {
+        return 0;
+    }
+    int32_t length = 0;
+    HANDLE data = GetClipboardData(CF_UNICODETEXT);
+    if (data != NULL) {
+        const wchar_t *wide = (const wchar_t *)GlobalLock(data);
+        if (wide != NULL) {
+            int written = WideCharToMultiByte(CP_UTF8, 0, wide, -1, out, capacity, NULL, NULL);
+            // The count includes the terminator, and is zero where the text did not fit.
+            if (written > 0) {
+                length = written - 1;
+            }
+            GlobalUnlock(data);
+        }
+    }
+    CloseClipboard();
+    return length;
+}
+
+/** Replaces the clipboard's contents with [text], which is UTF-8. */
+void dxc_native_clipboard_write(const char *text) {
+    int units = MultiByteToWideChar(CP_UTF8, 0, text, -1, NULL, 0);
+    if (units <= 0 || !OpenClipboard(dxc_window)) {
+        return;
+    }
+    HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, (SIZE_T)units * sizeof(wchar_t));
+    if (memory != NULL) {
+        wchar_t *wide = (wchar_t *)GlobalLock(memory);
+        if (wide != NULL) {
+            MultiByteToWideChar(CP_UTF8, 0, text, -1, wide, units);
+            GlobalUnlock(memory);
+            EmptyClipboard();
+            // The clipboard owns the memory from here on.
+            if (SetClipboardData(CF_UNICODETEXT, memory) == NULL) {
+                GlobalFree(memory);
+            }
+        } else {
+            GlobalFree(memory);
+        }
+    }
+    CloseClipboard();
+}
+
+/*
+ * Files dragged over the window, through OLE, which is what says where they are and when
+ * they leave. WM_DROPFILES says only that they were dropped.
+ */
+#define DXC_DROPPED_BYTES (64 * 1024)
+static char dxc_dropped_paths[DXC_DROPPED_BYTES];
+static int32_t dxc_dropped_length;
+static int dxc_drag_has_files;
+
+/** The paths of the files last dragged over the window, NUL between them, and the length. */
+int32_t dxc_native_dropped_paths(char *out, int32_t capacity) {
+    if (dxc_dropped_length <= 0 || dxc_dropped_length > capacity) {
+        return 0;
+    }
+    memcpy(out, dxc_dropped_paths, (size_t)dxc_dropped_length);
+    return dxc_dropped_length;
+}
+
+static FORMATETC dxc_hdrop_format(void) {
+    FORMATETC format;
+    format.cfFormat = CF_HDROP;
+    format.ptd = NULL;
+    format.dwAspect = DVASPECT_CONTENT;
+    format.lindex = -1;
+    format.tymed = TYMED_HGLOBAL;
+    return format;
+}
+
+static void dxc_read_dragged_files(IDataObject *data) {
+    dxc_dropped_length = 0;
+    FORMATETC format = dxc_hdrop_format();
+    STGMEDIUM medium;
+    if (FAILED(IDataObject_GetData(data, &format, &medium))) {
+        return;
+    }
+    HDROP drop = (HDROP)medium.hGlobal;
+    UINT count = DragQueryFileW(drop, 0xFFFFFFFFu, NULL, 0);
+    int32_t used = 0;
+    for (UINT index = 0; index < count; index++) {
+        wchar_t wide[MAX_PATH * 4];
+        UINT units = DragQueryFileW(drop, index, wide, (UINT)(sizeof wide / sizeof *wide));
+        if (units == 0) continue;
+        int bytes = WideCharToMultiByte(CP_UTF8, 0, wide, (int)units, NULL, 0, NULL, NULL);
+        // Room for the separator as well, and a path that does not fit is left out rather
+        // than cut in half.
+        if (bytes <= 0 || used + bytes + 1 > DXC_DROPPED_BYTES) continue;
+        if (used > 0) dxc_dropped_paths[used++] = '\0';
+        WideCharToMultiByte(CP_UTF8, 0, wide, (int)units, dxc_dropped_paths + used, bytes, NULL, NULL);
+        used += bytes;
+    }
+    dxc_dropped_length = used;
+    ReleaseStgMedium(&medium);
+}
+
+static void dxc_push_drag(int32_t kind, POINTL where) {
+    POINT point = {where.x, where.y};
+    if (dxc_window != NULL) {
+        ScreenToClient(dxc_window, &point);
+    }
+    struct dxc_event record;
+    memset(&record, 0, sizeof record);
+    record.kind = kind;
+    record.x = (float)point.x;
+    record.y = (float)point.y;
+    dxc_push_event(record);
+}
+
+static HRESULT STDMETHODCALLTYPE dxc_drop_query(IDropTarget *self, REFIID id, void **out) {
+    if (IsEqualIID(id, &IID_IUnknown) || IsEqualIID(id, &IID_IDropTarget)) {
+        *out = self;
+        return S_OK;
+    }
+    *out = NULL;
+    return E_NOINTERFACE;
+}
+static ULONG STDMETHODCALLTYPE dxc_drop_add_ref(IDropTarget *self) { (void)self; return 1; }
+static ULONG STDMETHODCALLTYPE dxc_drop_release(IDropTarget *self) { (void)self; return 1; }
+
+static HRESULT STDMETHODCALLTYPE dxc_drop_enter(
+    IDropTarget *self, IDataObject *data, DWORD keys, POINTL where, DWORD *effect) {
+    (void)self;
+    (void)keys;
+    FORMATETC format = dxc_hdrop_format();
+    dxc_drag_has_files = SUCCEEDED(IDataObject_QueryGetData(data, &format));
+    if (!dxc_drag_has_files) {
+        *effect = DROPEFFECT_NONE;
+        return S_OK;
+    }
+    dxc_read_dragged_files(data);
+    dxc_push_drag(DXC_EVENT_FILES_ENTERED, where);
+    *effect = DROPEFFECT_COPY;
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE dxc_drop_over(
+    IDropTarget *self, DWORD keys, POINTL where, DWORD *effect) {
+    (void)self;
+    (void)keys;
+    if (!dxc_drag_has_files) {
+        *effect = DROPEFFECT_NONE;
+        return S_OK;
+    }
+    dxc_push_drag(DXC_EVENT_FILES_ENTERED, where);
+    *effect = DROPEFFECT_COPY;
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE dxc_drop_leave(IDropTarget *self) {
+    (void)self;
+    if (dxc_drag_has_files) {
+        struct dxc_event record;
+        memset(&record, 0, sizeof record);
+        record.kind = DXC_EVENT_FILES_EXITED;
+        dxc_push_event(record);
+    }
+    dxc_drag_has_files = 0;
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE dxc_drop_drop(
+    IDropTarget *self, IDataObject *data, DWORD keys, POINTL where, DWORD *effect) {
+    (void)self;
+    (void)keys;
+    if (!dxc_drag_has_files) {
+        *effect = DROPEFFECT_NONE;
+        return S_OK;
+    }
+    dxc_read_dragged_files(data);
+    dxc_push_drag(DXC_EVENT_FILES_DROPPED, where);
+    dxc_drag_has_files = 0;
+    *effect = DROPEFFECT_COPY;
+    return S_OK;
+}
+
+static IDropTargetVtbl dxc_drop_vtable = {
+    dxc_drop_query, dxc_drop_add_ref, dxc_drop_release,
+    dxc_drop_enter, dxc_drop_over, dxc_drop_leave, dxc_drop_drop,
+};
+static IDropTarget dxc_drop_target = {&dxc_drop_vtable};
+
+/** Lets the window be dropped on. Drag and drop is OLE's, which needs a single threaded apartment. */
+static void dxc_accept_files(HWND window) {
+    OleInitialize(NULL);
+    RegisterDragDrop(window, &dxc_drop_target);
+}
+
 /*
  * Measuring aids of the AppKit window, named because the Kotlin that drives every desktop
  * names them and answered here by doing nothing: a drag cannot be scripted from inside
@@ -1449,53 +1934,6 @@ void dxc_native_debug_key(void *window_pointer, int32_t key_code, const char *ch
  * ones that do not, which is a defect that travels to whoever builds for the strictest
  * platform. It travelled three times before this was written down.
  */
-int32_t dxc_native_clipboard_read(char *out, int32_t capacity) {
-    (void)out;
-    (void)capacity;
-    return 0;
-}
-
-void dxc_native_clipboard_write(const char *text) {
-    (void)text;
-}
-
-/*
- * Asked for by name by the window code every desktop shares, and answered here by saying
- * nothing: this window takes its options another way, has no strip of the system's to
- * measure, and reads no list of dropped paths from the platform.
- */
-void dxc_native_window_configure(
-    int32_t resizable,
-    int32_t min_width,
-    int32_t min_height,
-    int32_t system_chrome,
-    int32_t backdrop
-) {
-    (void)resizable;
-    (void)min_width;
-    (void)min_height;
-    (void)system_chrome;
-    (void)backdrop;
-}
-
-void dxc_native_window_caption(void *view_pointer, float *height, float *buttons_width) {
-    (void)view_pointer;
-    *height = 0;
-    *buttons_width = 0;
-}
-
-void dxc_native_set_icon(const uint8_t *rgba, int32_t width, int32_t height) {
-    (void)rgba;
-    (void)width;
-    (void)height;
-}
-
-int32_t dxc_native_dropped_paths(char *out, int32_t capacity) {
-    (void)out;
-    (void)capacity;
-    return 0;
-}
-
 void dxc_native_set_frame_callback(void *callback, void *isolate_thread) {
     (void)callback;
     (void)isolate_thread;
@@ -1572,6 +2010,8 @@ static void dxc_abandon_window(IDXGIAdapter1 *adapter) {
     if (dxc_allocator != NULL) { ID3D12CommandAllocator_Release(dxc_allocator); dxc_allocator = NULL; }
     if (dxc_fence != NULL) { ID3D12Fence_Release(dxc_fence); dxc_fence = NULL; }
     if (dxc_fence_signalled != NULL) { CloseHandle(dxc_fence_signalled); dxc_fence_signalled = NULL; }
+    dxc_dcomp_release();
+    dxc_latency_wait = NULL;
     if (dxc_swapchain != NULL) { IDXGISwapChain3_Release(dxc_swapchain); dxc_swapchain = NULL; }
     if (dxc_queue != NULL) { ID3D12CommandQueue_Release(dxc_queue); dxc_queue = NULL; }
     if (dxc_device != NULL) { ID3D12Device_Release(dxc_device); dxc_device = NULL; }
@@ -1644,14 +2084,23 @@ int32_t dxc_native_window_open(
         wide_title[0] = L'\0';
     }
 
+    // Before the window, because the extended style below depends on it.
+    int32_t dcomp_device_made = dxc_dcomp_make_device();
     HWND window = CreateWindowExW(
-        0,
+        // Without this, Windows keeps a GDI redirection surface behind the window for
+        // DWM to composite from, separate from the swapchain. A live resize grows that
+        // surface before this window procedure hears about it, and the growth is not
+        // ours to fill: it comes up black, however fast WM_SIZE redraws the swapchain
+        // underneath it. This style tells DWM there is no redirection surface, so what
+        // is on screen is this window's swapchain and nothing else.
+        dcomp_device_made ? WS_EX_NOREDIRECTIONBITMAP : 0,
         DXC_WINDOW_CLASS,
         wide_title,
-        WS_OVERLAPPEDWINDOW,
+        dxc_window_style(),
         CW_USEDEFAULT, CW_USEDEFAULT, width, height,
         NULL, NULL, GetModuleHandleW(NULL), NULL);
     if (window == NULL) {
+        dxc_dcomp_release();
         return 2;
     }
 
@@ -1667,9 +2116,11 @@ int32_t dxc_native_window_open(
     wanted.top = 0;
     wanted.right = MulDiv(width, (int)dpi, USER_DEFAULT_SCREEN_DPI);
     wanted.bottom = MulDiv(height, (int)dpi, USER_DEFAULT_SCREEN_DPI);
-    AdjustWindowRectExForDpi(&wanted, WS_OVERLAPPEDWINDOW, FALSE, 0, dpi);
+    AdjustWindowRectExForDpi(&wanted, dxc_window_style(), FALSE, 0, dpi);
     int outer_width = wanted.right - wanted.left;
-    int outer_height = wanted.bottom - wanted.top;
+    // Without the system caption the content starts at the top of the window, so the
+    // frame above it is not part of the outside.
+    int outer_height = dxc_options.system_chrome ? wanted.bottom - wanted.top : wanted.bottom;
     // Centred on the part of the screen a window is meant to sit in. Where that cannot be
     // asked for, the window keeps the place Windows chose for it rather than being moved
     // to a corner that was never a position.
@@ -1682,7 +2133,7 @@ int32_t dxc_native_window_open(
         top = work.top + ((work.bottom - work.top) - outer_height) / 2;
         placement = SWP_NOZORDER;
     }
-    SetWindowPos(window, NULL, left, top, outer_width, outer_height, placement);
+    SetWindowPos(window, NULL, left, top, outer_width, outer_height, placement | SWP_FRAMECHANGED);
 
     RECT client;
     GetClientRect(window, &client);
@@ -1749,9 +2200,44 @@ int32_t dxc_native_window_open(
     swapchain_description.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     swapchain_description.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
     IDXGISwapChain1 *first = NULL;
-    HRESULT made = IDXGIFactory4_CreateSwapChainForHwnd(
-        factory, (IUnknown *)queue, window, &swapchain_description, NULL, NULL, &first);
+    HRESULT made = E_FAIL;
+    if (dcomp_device_made) {
+        // A composition swapchain cannot be DXGI_SCALING_NONE; creating one with it
+        // fails. STRETCH does not stretch here: the visual shows the buffer at its own
+        // size, and every resize is presented before its message returns, so a buffer of
+        // another size than the window is never on screen.
+        swapchain_description.Scaling = DXGI_SCALING_STRETCH;
+        swapchain_description.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
+        made = IDXGIFactory4_CreateSwapChainForComposition(
+            factory, (IUnknown *)queue, &swapchain_description, NULL, &first);
+        if (SUCCEEDED(made) && dxc_dcomp_attach(window, (IUnknown *)first) != 0) {
+            IDXGISwapChain1_Release(first);
+            first = NULL;
+            made = E_FAIL;
+        }
+        if (FAILED(made)) {
+            // Fall back to the window's own swapchain. The window was made without a
+            // redirection surface for composition's sake, and without composition that
+            // is the black this exists to avoid, so the style is taken off again.
+            dxc_dcomp_release();
+            SetWindowLongPtrW(window, GWL_EXSTYLE,
+                              GetWindowLongPtrW(window, GWL_EXSTYLE) & ~(LONG_PTR)WS_EX_NOREDIRECTIONBITMAP);
+            SetWindowPos(window, NULL, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+            fprintf(stderr, "compose-rust: DirectComposition is not available, presenting to the window directly\n");
+        }
+    }
+    if (first == NULL) {
+        // Left at its zero value this is DXGI_SCALING_STRETCH, which fills the client
+        // area from whatever the back buffer holds, so a frame skipped by
+        // dxc_native_frame_begin would show the previous buffer stretched.
+        swapchain_description.Scaling = DXGI_SCALING_NONE;
+        swapchain_description.Flags = 0;
+        made = IDXGIFactory4_CreateSwapChainForHwnd(
+            factory, (IUnknown *)queue, window, &swapchain_description, NULL, NULL, &first);
+    }
     if (FAILED(made)) {
+        dxc_dcomp_release();
         ID3D12CommandQueue_Release(queue);
         ID3D12Device_Release(device);
         IDXGIAdapter1_Release(adapter);
@@ -1759,6 +2245,7 @@ int32_t dxc_native_window_open(
         DestroyWindow(window);
         return 7;
     }
+    dxc_swapchain_flags = swapchain_description.Flags;
     // DXGI answers alt-enter by putting the window into its own idea of full screen,
     // which is a mode nothing here knows how to draw in.
     IDXGIFactory4_MakeWindowAssociation(factory, window, DXGI_MWA_NO_ALT_ENTER);
@@ -1770,7 +2257,14 @@ int32_t dxc_native_window_open(
     HRESULT upgraded = IDXGISwapChain1_QueryInterface(first, &IID_IDXGISwapChain3,
                                                       (void **)&swapchain);
     IDXGISwapChain1_Release(first);
+    if (SUCCEEDED(upgraded) && dxc_swapchain_flags != 0) {
+        // One frame of latency: the waitable below is signalled when the next present
+        // will not queue behind one already waiting.
+        IDXGISwapChain3_SetMaximumFrameLatency(swapchain, 1);
+        dxc_latency_wait = IDXGISwapChain3_GetFrameLatencyWaitableObject(swapchain);
+    }
     if (FAILED(upgraded)) {
+        dxc_dcomp_release();
         ID3D12CommandQueue_Release(queue);
         ID3D12Device_Release(device);
         IDXGIAdapter1_Release(adapter);
@@ -1815,6 +2309,7 @@ int32_t dxc_native_window_open(
         return 11;
     }
 
+    dxc_accept_files(window);
     ShowWindow(window, SW_SHOW);
     SetForegroundWindow(window);
     SetFocus(window);
@@ -1875,6 +2370,11 @@ int32_t dxc_native_frame_begin(void *swapchain_pointer, void **texture_out) {
     // at. Showing the window reports a size as well, and it is the size the swapchain was
     // just made, so the common case costs a comparison rather than a round of releasing
     // and taking back every buffer.
+    // One frame of latency. Inside a drag the wait is none at all: a frame skipped there
+    // is the black this exists to avoid, so it is drawn whether or not the screen is ready.
+    if (dxc_latency_wait != NULL) {
+        WaitForSingleObjectEx(dxc_latency_wait, dxc_sizing.dragging ? 0 : 100, FALSE);
+    }
     int32_t wanted_width = 0;
     int32_t wanted_height = 0;
     if (dxc_resize_take(&dxc_sizing, &wanted_width, &wanted_height)) {
@@ -1884,7 +2384,7 @@ int32_t dxc_native_frame_begin(void *swapchain_pointer, void **texture_out) {
         dxc_release_buffers();
         HRESULT resized = IDXGISwapChain3_ResizeBuffers(
             swapchain, DXC_BUFFER_COUNT, (UINT)wanted_width, (UINT)wanted_height,
-            DXC_SWAPCHAIN_FORMAT, 0);
+            DXC_SWAPCHAIN_FORMAT, dxc_swapchain_flags);
         // A refusal leaves the swapchain the size it was, so the old buffers are taken
         // back and the window carries on drawing at the size it had. Losing this frame
         // is a stretched image for a moment; not taking them back is a window that
@@ -1938,8 +2438,24 @@ void dxc_native_frame_end(void *queue_pointer) {
     // One, so the frame waits for the screen. A window that presents without waiting
     // spends a machine to draw frames nobody sees.
     IDXGISwapChain3_Present(dxc_swapchain, 1, 0);
+    // The present is not on the window until the visual's changes are committed, and a
+    // present without a commit after it leaves the previous buffer showing. The two
+    // always go together.
+    if (dxc_dcomp_active() && !dxc_commit_failed && dxc_dcomp_commit() != 0) {
+        dxc_commit_failed = 1;
+        fprintf(stderr, "compose-rust: DirectComposition commit failed, frames may not reach the window\n");
+    }
 
     // The next frame will paint into a buffer this one may still be reading from, and a
     // swapchain two buffers deep comes back around immediately.
     dxc_wait_for_gpu();
+}
+
+/** Says where the caret is, in pixels from the window's top left. */
+void dxc_native_set_ime_spot(float x, float y) {
+    dxc_ime_spot_x = (LONG)x;
+    dxc_ime_spot_y = (LONG)y;
+    if (dxc_window != NULL && dxc_ime_composing) {
+        dxc_position_ime(dxc_window);
+    }
 }

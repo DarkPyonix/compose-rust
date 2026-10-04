@@ -272,9 +272,11 @@ private fun forgetFrameCallback() = setDrawCallback(
  * composed, painted by Skia into a swapchain buffer Direct3D gave us, reaching the screen
  * with no toolkit anywhere between.
  *
- * Reached by setting `DXC_WIN32_WINDOW`, so the ordinary path is untouched.
+ * [autoExitMillis] closes the window by itself after that long, for runs nobody watches.
  */
-internal fun runWin32Window() {
+internal fun runWin32Window(autoExitMillis: Long? = null) {
+    // The window shows nothing behind itself, so a design is told it has no material.
+    installNativeWindowHooks(backdropSupported = false)
     // The Host is started before there is a window, because what the window should look
     // like is in its first batch and a window cannot be told afterwards. Started on this
     // thread, which is the one every later call to it is made from: the boundary is a
@@ -282,11 +284,15 @@ internal fun runWin32Window() {
     val host = dev.darkpyonix.composerust.runtime.ComposeRustHost(NativeHostConnection())
     host.start()
     val asked = host.table.window
-    val window = openWin32Window(
-        asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
-        if (asked != null && asked.width > 0) asked.width else 520,
-        if (asked != null && asked.height > 0) asked.height else 360,
+    val options = nativeWindowOptions(host, backdropSupported = false)
+    configureNativeWindow(
+        resizable = options.resizable,
+        minWidth = options.minWidth,
+        minHeight = options.minHeight,
+        systemChrome = options.systemChrome,
+        backdrop = false,
     )
+    val window = openWin32Window(options.title, options.width, options.height)
     if (window == null) {
         System.err.println("compose-rust: this machine has no Direct3D 12 adapter")
         host.shutdown()
@@ -308,6 +314,7 @@ internal fun runWin32Window() {
     // about the window it sits in is read from here.
     var size = IntSize(measured.width, measured.height)
     val textInput = NativeTextInput()
+    val synthetic = System.getenv("DXC_SYNTH")?.let { SyntheticInput(it) }
     // What the window would tell a reader who cannot see it, read after each frame that
     // painted and handed on when it has changed. Where it goes is UI Automation, which
     // the window answers for rather than this file.
@@ -315,6 +322,7 @@ internal fun runWin32Window() {
         if (report) {
             System.err.println("compose-rust: the window has ${elements.size} things to say")
         }
+        synthetic?.noteElements(elements)
         window.describeTo(elements)
     }
     // Kept rather than left to the scene. What a scene picks for itself is the toolkit's
@@ -330,7 +338,20 @@ internal fun runWin32Window() {
     )
     // The application's own tree, drawn by the same interpreter the toolkit path uses.
     // Nothing in it knows which of the two it is running on, which is the point.
-    scene.setContent { dev.darkpyonix.composerust.runtime.ComposeRustContent(host) }
+    // The strip the system's caption occupied, which the window gave up to the content. The
+    // buttons in it are the application's own, so they are the window's to operate.
+    val caption = if (options.systemChrome) {
+        dev.darkpyonix.composerust.runtime.WindowCaption.None
+    } else {
+        dev.darkpyonix.composerust.runtime.WindowCaption(height = windowsCaptionHeight)
+    }
+    scene.setContent {
+        NativeWindowContent(
+            host,
+            caption,
+            actions = if (options.systemChrome) null else nativeWindowActions(),
+        )
+    }
 
     // What a frame is, wherever the ask comes from. The loop below is one caller and the
     // window's own resize handling is the other, and they draw the same frame.
@@ -343,14 +364,20 @@ internal fun runWin32Window() {
         // edge this is the only place that runs at all.
         work.runPending()
         nanos += FRAME_NANOS
+        val begun = System.nanoTime()
+        LatencyTrace.mark("draw begin (invalidated=${scene.hasInvalidations()})")
         val at = drawFrame(window, context, scene, nanos)
         if (at != null) {
             size = at
             painted = true
             drew = true
+            LatencyTrace.mark("draw end ${at.width}x${at.height}")
         }
+        LatencyTrace.frameDrawn(System.nanoTime() - begun)
     }
     registerFrameCallback()
+    val started = System.nanoTime()
+    var iconSettled = false
 
     try {
         // Rests only when the last turn found nothing to do. A frame that drew has
@@ -358,6 +385,12 @@ internal fun runWin32Window() {
         // that would halve the rate of anything that animates.
         var busy = true
         while (!isWindowClosed()) {
+            if (autoExitMillis != null &&
+                (System.nanoTime() - started) / NANOS_PER_MILLI >= autoExitMillis
+            ) {
+                break
+            }
+            if (!iconSettled) iconSettled = applyNamedIcon(host, asked?.icon ?: 0)
             // Cleared before the window is given its turn rather than after. A drag of an
             // edge draws its frames from inside that turn, and a turn that forgot them
             // would be a window that said nothing about itself for the length of a drag,
@@ -367,18 +400,40 @@ internal fun runWin32Window() {
             // one Windows delivers to, so the messages of this frame arrive here or not
             // at all.
             pumpWindowEvents(if (busy) 0.0 else FRAME_SECONDS)
+            LatencyTrace.mark("loop turn")
             work.runPending()
             var heard = false
+            for (event in synthetic?.due(System.nanoTime(), size) ?: emptyList()) {
+                scene.receive(event, win32 = true)
+                textInput.receive(event)
+                LatencyTrace.mark("synthetic ${event.kind} sent")
+            }
             for (event in drainWindowEvents()) {
                 if (report && event.kind != WindowEvent.POINTER_MOVE) {
                     System.err.println("compose-rust: window heard $event")
                 }
                 // Told which desktop it is, because the key numbers differ: the shared
                 // table is macOS's, and without this Home arrives as Enter.
+                if (event.kind == WindowEvent.FILES_ENTERED ||
+                    event.kind == WindowEvent.FILES_DROPPED ||
+                    event.kind == WindowEvent.FILES_EXITED
+                ) {
+                    routeFileDrop(event.kind, androidx.compose.ui.geometry.Offset(event.x, event.y)) {
+                        readDroppedPaths()
+                    }
+                }
+                if (LatencyTrace.enabled && event.kind != WindowEvent.POINTER_MOVE) {
+                    LatencyTrace.mark("window heard ${event.kind}")
+                }
                 scene.receive(event, win32 = true)
                 textInput.receive(event)
                 heard = true
             }
+            // DXC_SYNTH's resize and keys modes post through dxc_native_debug_resize and
+            // dxc_native_debug_key, which this platform answers and does nothing: a real
+            // drag or key press on Windows goes through SendInput, which nothing here
+            // drives yet. Only the type and click modes, sent as WindowEvent through
+            // synthetic.due above, work on this platform today.
             // Only when there is something to draw. A window that is being looked at
             // rather than used should cost a comparison a frame.
             if (!painted || heard || scene.hasInvalidations()) {
@@ -389,8 +444,10 @@ internal fun runWin32Window() {
             // tree that changed on the last one is a tree nobody has been told about, and
             // a window that has gone still is exactly where that would be forgotten.
             semantics.pushIfChanged(afterDrawing = drew)
+            reportCaret(textInput)
             busy = heard || drew
         }
+        LatencyTrace.summary()
     } finally {
         // In this order. A message dispatched after the scene has closed would otherwise
         // be a frame drawn into it.
@@ -470,5 +527,6 @@ private fun drawFrame(
     return fitted
 }
 
+private const val NANOS_PER_MILLI = 1_000_000L
 private const val FRAME_SECONDS = 0.016
 private const val FRAME_NANOS = 16_000_000L
