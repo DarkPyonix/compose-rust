@@ -1468,9 +1468,10 @@ void dxc_native_window_caption(void *view_pointer, float *height, float *buttons
     *buttons_width = 0;
 }
 
-void dxc_native_set_icon(const uint8_t *bytes, int32_t length) {
-    (void)bytes;
-    (void)length;
+void dxc_native_set_icon(const uint8_t *rgba, int32_t width, int32_t height) {
+    (void)rgba;
+    (void)width;
+    (void)height;
 }
 
 int32_t dxc_native_dropped_paths(char *out, int32_t capacity) {

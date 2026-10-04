@@ -111,7 +111,7 @@ private external fun configureWindow(
 private external fun windowCaption(view: Pointer?, height: CFloatPointer?, buttonsWidth: CFloatPointer?)
 
 @CFunction("dxc_native_set_icon")
-private external fun setIcon(bytes: CCharPointer?, length: Int)
+private external fun setIcon(rgba: CCharPointer?, width: Int, height: Int)
 
 @CFunction("dxc_native_dropped_paths")
 private external fun droppedPaths(out: Pointer?, capacity: Int): Int
@@ -299,14 +299,32 @@ internal fun readDroppedPaths(): String {
 
 private const val DROPPED_PATHS_BYTES = 64 * 1024
 
-/** Puts [png] on the application, which is what the Dock and the switcher show. */
-internal fun setApplicationIcon(png: ByteArray) {
-    val holder = CTypeConversion.toCBytes(png)
+/**
+ * Puts a picture on the application, which is what the Dock and the switcher show.
+ *
+ * [rgba] is eight bits each of red, green, blue and alpha, the colour already multiplied by
+ * the alpha, row after row with no padding.
+ */
+internal fun setApplicationIcon(rgba: ByteArray, width: Int, height: Int) {
+    val holder = CTypeConversion.toCBytes(rgba)
     try {
-        setIcon(holder.get(), png.size)
+        setIcon(holder.get(), width, height)
     } finally {
         holder.close()
     }
+}
+
+/** The pixels [setApplicationIcon] takes, from a picture Compose holds. */
+internal fun iconPixels(picture: androidx.compose.ui.graphics.ImageBitmap): Triple<ByteArray, Int, Int>? {
+    val bitmap = picture.asSkiaBitmap()
+    val info = org.jetbrains.skia.ImageInfo(
+        bitmap.width,
+        bitmap.height,
+        org.jetbrains.skia.ColorType.RGBA_8888,
+        org.jetbrains.skia.ColorAlphaType.PREMUL,
+    )
+    val pixels = bitmap.readPixels(info, info.minRowBytes) ?: return null
+    return Triple(pixels, bitmap.width, bitmap.height)
 }
 
 
@@ -506,11 +524,16 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
     )
     // The application's own tree, drawn by the same interpreter every window uses.
     // Nothing in it knows which window it is in, which is the point.
+    val clipboard = WindowClipboard()
+    @Suppress("DEPRECATION")
+    val clipboardManager = WindowClipboardManager()
     scene.setContent {
         androidx.compose.runtime.CompositionLocalProvider(
             dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver provides {
                 rememberSystemDark().value
             },
+            androidx.compose.ui.platform.LocalClipboard provides clipboard,
+            androidx.compose.ui.platform.LocalClipboardManager provides clipboardManager,
         ) {
             dev.darkpyonix.composerust.runtime.ComposeRustContent(
                 host,
@@ -553,10 +576,9 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
                     as? dev.darkpyonix.composerust.ui.node.Asset.Raster
                 if (raster != null) {
                     iconId = asked.icon
-                    org.jetbrains.skia.Image.makeFromBitmap(raster.bitmap.asSkiaBitmap())
-                        .encodeToData(org.jetbrains.skia.EncodedImageFormat.PNG)
-                        ?.bytes
-                        ?.let(::setApplicationIcon)
+                    iconPixels(raster.bitmap)?.let { (pixels, width, height) ->
+                        setApplicationIcon(pixels, width, height)
+                    }
                 }
             }
             var heard = false

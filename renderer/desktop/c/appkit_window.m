@@ -952,15 +952,36 @@ int32_t dxc_native_dropped_paths(char *out, int32_t capacity) {
     return (int32_t)bytes;
 }
 
-/** Gives the application the picture it named, from the bytes of an encoded image. */
-void dxc_native_set_icon(const uint8_t *bytes, int32_t length) {
-    NSData *data = [NSData dataWithBytes:bytes length:(NSUInteger)length];
+/**
+ * Gives the application the picture it named, from its pixels: eight bits each of red,
+ * green, blue and alpha, with the colour already multiplied by the alpha, row after row
+ * with no padding.
+ */
+void dxc_native_set_icon(const uint8_t *rgba, int32_t width, int32_t height) {
+    if (rgba == NULL || width <= 0 || height <= 0) {
+        return;
+    }
+    NSData *data = [NSData dataWithBytes:rgba length:(NSUInteger)width * (NSUInteger)height * 4];
     dxc_on_main(^{
     @autoreleasepool {
-        NSImage *image = [[NSImage alloc] initWithData:data];
-        if (image != nil) {
-            NSApp.applicationIconImage = image;
+        NSBitmapImageRep *representation = [[NSBitmapImageRep alloc]
+            initWithBitmapDataPlanes:NULL
+                          pixelsWide:width
+                          pixelsHigh:height
+                       bitsPerSample:8
+                     samplesPerPixel:4
+                            hasAlpha:YES
+                            isPlanar:NO
+                      colorSpaceName:NSDeviceRGBColorSpace
+                         bytesPerRow:(NSInteger)width * 4
+                        bitsPerPixel:32];
+        if (representation == nil) {
+            return;
         }
+        memcpy(representation.bitmapData, data.bytes, data.length);
+        NSImage *image = [[NSImage alloc] initWithSize:NSMakeSize(width, height)];
+        [image addRepresentation:representation];
+        NSApp.applicationIconImage = image;
     }
     });
 }
