@@ -71,9 +71,9 @@ All four shared-memory checks pass in every run.
 
     ./build-rust.sh                 # cargo test, then the two wasm32 variants into dist/
     ./build-kotlin.sh               # the Kotlin/Wasm module into dist/
-    python3 build-trampoline.py     # dist/trampoline.wasm
-    python3 run-bench.py safari --runs 7
-    python3 run-bench.py chrome --runs 7 --chrome <chrome or chrome-headless-shell binary>
+    uv run build-trampoline.py     # dist/trampoline.wasm
+    uv run run-bench.py safari --runs 7
+    uv run run-bench.py chrome --runs 7 --chrome <chrome or chrome-headless-shell binary>
 
 `run-bench.py --n` sets the calls per sample (default 20,000,000) and `--reps`
 the samples per edge (default 9).
