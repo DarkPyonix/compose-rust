@@ -514,15 +514,19 @@ fn link_windows_native(dir: &Path) {
         println!("cargo:rustc-link-lib=static={library}");
     }
 
+    // The C++ standard library, linked in from this machine's own MSVC installation, with its
+    // guard blanked like Skia's. Skia names it as a default library, which the copies above no
+    // longer do, so it is named here. Every runtime choice links it, the dynamic one included:
+    // Skia is built for the static runtime, so its objects name the library's data (the
+    // locale ids, std::_Raise_handler) the way static code does, and msvcprt.lib, the import
+    // library for MSVCP140.dll, defines those only under the __imp_ spelling a DLL caller uses
+    // (LNK2001, 160 times, for a link that named msvcprt.lib instead).
+    let source = msvc_library("libcpmt.lib");
+    println!("cargo:rerun-if-changed={}", source.display());
+    rewrite_runtime_directives(&source, &rewritten.join("dxc-libcpmt.lib"));
+    println!("cargo:rustc-link-lib=static:+verbatim=dxc-libcpmt.lib");
     match crt {
         WindowsCrt::LinkedIn | WindowsCrt::FullyStatic => {
-            // The C++ standard library, linked in from this machine's own MSVC installation,
-            // with its guard blanked like Skia's. Skia names it as a default library, which the
-            // copies above no longer do, so it is named here.
-            let source = msvc_library("libcpmt.lib");
-            println!("cargo:rerun-if-changed={}", source.display());
-            rewrite_runtime_directives(&source, &rewritten.join("dxc-libcpmt.lib"));
-            println!("cargo:rustc-link-lib=static:+verbatim=dxc-libcpmt.lib");
             if crt == WindowsCrt::LinkedIn {
                 // The rest is said by the directives in src/boundary.rs: vcruntime from its
                 // static library, and none of the default libraries that would bring a second
@@ -537,9 +541,8 @@ fn link_windows_native(dir: &Path) {
             }
         }
         WindowsCrt::Dynamic => {
-            // The C++ standard library from MSVCP140.dll, which Skia's copies no longer name.
-            println!("cargo:rustc-link-lib=dylib=msvcprt");
-            // And nothing static beside it: see the directives in src/boundary.rs.
+            // vcruntime from VCRUNTIME140.dll, and no stock static runtime beside it: see the
+            // directives in src/boundary.rs.
             println!("cargo:rustc-cfg=windows_crt_dynamic");
         }
     }

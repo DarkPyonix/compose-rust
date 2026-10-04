@@ -1394,10 +1394,10 @@ core::arch::global_asm!(
     ".text",
 );
 
-/// The same for an application that asked for vcruntime and the C++ library from their DLLs
-// (`DXC_WINDOWS_CRT=dynamic`): the static C++ library and C runtime that a prebuilt object
-// may still name as defaults would define, a second time, what the DLLs' import libraries
-// already do.
+// The same for an application that asked for vcruntime from its DLL
+// (`DXC_WINDOWS_CRT=dynamic`): the stock static C++ library and C runtime that a prebuilt
+// object may still name as defaults would define, a second time, what the build script's
+// blanked copy and the DLLs' import libraries already do.
 #[cfg(all(target_os = "windows", target_env = "msvc", windows_crt_dynamic))]
 core::arch::global_asm!(
     ".section .drectve,\"yni\"",

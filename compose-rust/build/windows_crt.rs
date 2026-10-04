@@ -33,9 +33,11 @@ pub enum WindowsCrt {
     /// An application that asked for `+crt-static` for reasons of its own: all of it linked
     /// in, the UCRT too.
     FullyStatic,
-    /// vcruntime and the C++ standard library from their DLLs, which the application then has
-    /// to ship or have installed. Not a default and not recommended; it is here so the size it
-    /// saves can be measured against what it costs (`DXC_WINDOWS_CRT=dynamic`).
+    /// vcruntime from its DLL, which the application then has to ship or have installed. The
+    /// C++ standard library stays linked in: Skia's objects are built for the static runtime
+    /// and name its data symbols that way, which MSVCP140.dll's import library does not
+    /// define. Not a default and not recommended; it is here so the size it saves can be
+    /// measured against what it costs (`DXC_WINDOWS_CRT=dynamic`).
     Dynamic,
 }
 
@@ -55,7 +57,7 @@ pub fn windows_crt(target_features: &str, requested: Option<&str>) -> Result<Win
         Some("dynamic") => Ok(WindowsCrt::Dynamic),
         Some(other) => Err(format!(
             "{WINDOWS_CRT_ENV} is '{other}'. It takes 'static' (the default: vcruntime and the C++ \
-             library linked into the executable) or 'dynamic' (both from their DLLs, which the \
+             library linked into the executable) or 'dynamic' (vcruntime from its DLL, which the \
              application then has to ship)."
         )),
     }

@@ -26,7 +26,7 @@
 # 4. An application that also links a C++ library built for the runtime DLL (/MD), which is
 #    what the `cc` crate builds by default, still links (the MSVC linker would otherwise stop
 #    on LNK2038, a RuntimeLibrary mismatch), still needs only Windows, and runs.
-# 5. The same application linked with vcruntime and the C++ library from their DLLs
+# 5. The same application linked with vcruntime from its DLL
 #    (DXC_WINDOWS_CRT=dynamic) and with everything static (+crt-static), measured beside the
 #    default, so what each costs is a number and not a guess.
 #
@@ -244,7 +244,7 @@ static_size="$(size_of "$static_binary")"
 echo
 echo "consumer.exe, debug build, by C runtime:"
 echo "  vcruntime and C++ library linked in, UCRT from Windows (the default): $default_size bytes ($(megabytes "$default_size"))"
-echo "  vcruntime and C++ library from their DLLs (DXC_WINDOWS_CRT=dynamic):  $dynamic_size bytes ($(megabytes "$dynamic_size"))"
+echo "  vcruntime from its DLL (DXC_WINDOWS_CRT=dynamic):                     $dynamic_size bytes ($(megabytes "$dynamic_size"))"
 echo "  everything static, UCRT too (+crt-static):                           $static_size bytes ($(megabytes "$static_size"))"
 if [[ "${#failed[@]}" -ne 0 ]]; then
     fail "these did not succeed from an empty directory: ${failed[*]}" \
