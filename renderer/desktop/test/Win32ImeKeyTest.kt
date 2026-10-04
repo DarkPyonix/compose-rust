@@ -14,6 +14,8 @@ class Win32ImeKeyTest {
         assertEquals(Key.DirectionLeft, win32ComposeKey(0x25))
         assertEquals(Key.DirectionRight, win32ComposeKey(0x27))
         assertEquals(Key.Delete, win32ComposeKey(0x2E))
-        assertEquals(Key.Unknown, win32ComposeKey(0x41))
+        // The letters are their own virtual keys, so control with C reaches Compose as C.
+        assertEquals(Key.A, win32ComposeKey(0x41))
+        assertEquals(Key.Unknown, win32ComposeKey(0x07))
     }
 }

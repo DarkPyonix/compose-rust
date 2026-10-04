@@ -139,84 +139,6 @@
       "type": "androidx.compose.ui.scene.skia.WindowSkiaLayerComponent$hierarchyRoot$1"
     },
     {
-      "type": "com.apple.eawt._AppEventHandler",
-      "jniAccessible": true,
-      "methods": [
-        {
-          "name": "handleNativeNotification",
-          "parameterTypes": [
-            "int"
-          ]
-        }
-      ]
-    },
-    {
-      "type": "com.apple.eawt._AppMenuBarHandler",
-      "jniAccessible": true,
-      "methods": [
-        {
-          "name": "initMenuStates",
-          "parameterTypes": [
-            "boolean",
-            "boolean",
-            "boolean",
-            "boolean"
-          ]
-        }
-      ]
-    },
-    {
-      "type": "com.apple.laf.AquaKeyBindings",
-      "methods": [
-        {
-          "name": "<init>",
-          "parameterTypes": []
-        }
-      ]
-    },
-    {
-      "type": "com.apple.laf.AquaLookAndFeel",
-      "methods": [
-        {
-          "name": "<init>",
-          "parameterTypes": []
-        }
-      ]
-    },
-    {
-      "type": "com.apple.laf.AquaPanelUI",
-      "methods": [
-        {
-          "name": "<init>",
-          "parameterTypes": []
-        },
-        {
-          "name": "createUI",
-          "parameterTypes": [
-            "javax.swing.JComponent"
-          ]
-        }
-      ]
-    },
-    {
-      "type": "com.apple.laf.AquaRootPaneUI",
-      "methods": [
-        {
-          "name": "<init>",
-          "parameterTypes": []
-        },
-        {
-          "name": "createUI",
-          "parameterTypes": [
-            "javax.swing.JComponent"
-          ]
-        }
-      ]
-    },
-    {
-      "type": "com.apple.laf.resources.aqua"
-    },
-    {
       "type": "com.sun.swing.internal.plaf.basic.resources.basic"
     },
     {
@@ -291,9 +213,6 @@
           ]
         }
       ]
-    },
-    {
-      "type": "java.awt.SequencedEvent"
     },
     {
       "type": "java.awt.SystemColor",
@@ -1583,20 +1502,6 @@
       ]
     },
     {
-      "type": "sun.awt.AWTAutoShutdown",
-      "jniAccessible": true,
-      "methods": [
-        {
-          "name": "notifyToolkitThreadBusy",
-          "parameterTypes": []
-        },
-        {
-          "name": "notifyToolkitThreadFree",
-          "parameterTypes": []
-        }
-      ]
-    },
-    {
       "type": "sun.awt.SunHints",
       "jniAccessible": true,
       "fields": [
@@ -2102,43 +2007,6 @@
       ]
     },
     {
-      "type": "sun.java2d.metal.MTLLayer",
-      "jniAccessible": true,
-      "methods": [
-        {
-          "name": "drawInMTLContext",
-          "parameterTypes": []
-        }
-      ]
-    },
-    {
-      "type": "sun.java2d.metal.MTLSurfaceData",
-      "jniAccessible": true,
-      "fields": [
-        {
-          "name": "nativeHeight"
-        },
-        {
-          "name": "nativeWidth"
-        }
-      ],
-      "methods": [
-        {
-          "name": "dispose",
-          "parameterTypes": [
-            "long",
-            "sun.java2d.metal.MTLGraphicsConfig"
-          ]
-        }
-      ]
-    },
-    {
-      "type": "sun.java2d.metal.MTLSurfaceData$MTLLayerSurfaceData"
-    },
-    {
-      "type": "sun.java2d.metal.MTLSurfaceData$MTLOffScreenSurfaceData"
-    },
-    {
       "type": "sun.java2d.pipe.Region",
       "jniAccessible": true,
       "fields": [
@@ -2178,60 +2046,6 @@
       ]
     },
     {
-      "type": "sun.lwawt.LWComponentPeer",
-      "jniAccessible": true,
-      "fields": [
-        {
-          "name": "platformComponent"
-        }
-      ]
-    },
-    {
-      "type": "sun.lwawt.macosx.CPlatformComponent",
-      "jniAccessible": true,
-      "methods": [
-        {
-          "name": "getPointer",
-          "parameterTypes": []
-        }
-      ]
-    },
-    {
-      "type": "sun.lwawt.macosx.CPlatformWindow",
-      "jniAccessible": true,
-      "methods": [
-        {
-          "name": "deliverMoveResizeEvent",
-          "parameterTypes": [
-            "int",
-            "int",
-            "int",
-            "int",
-            "boolean"
-          ]
-        },
-        {
-          "name": "deliverWindowFocusEvent",
-          "parameterTypes": [
-            "boolean",
-            "sun.lwawt.macosx.CPlatformWindow"
-          ]
-        },
-        {
-          "name": "isBlocked",
-          "parameterTypes": []
-        },
-        {
-          "name": "isVisible",
-          "parameterTypes": []
-        },
-        {
-          "name": "windowDidBecomeMain",
-          "parameterTypes": []
-        }
-      ]
-    },
-    {
       "type": "sun.lwawt.macosx.LWCToolkit",
       "jniAccessible": true,
       "methods": [
@@ -2243,9 +2057,6 @@
     }
   ],
   "resources": [
-    {
-      "glob": "META-INF/services/java.awt.im.spi.InputMethodDescriptor"
-    },
     {
       "glob": "META-INF/services/kotlinx.coroutines.internal.MainDispatcherFactory"
     },
@@ -2277,16 +2088,13 @@
       "glob": "sun/awt/resources/awtosx_ko_KR.properties"
     },
     {
-      "bundle": "com.apple.laf.resources.aqua"
-    },
-    {
       "bundle": "com.sun.swing.internal.plaf.basic.resources.basic"
     },
     {
       "bundle": "sun.awt.resources.awt"
     },
     {
-      "bundle": "sun.awt.resources.awtosx"
+      "glob": "META-INF/services/java.awt.im.spi.InputMethodDescriptor"
     }
   ]
 }

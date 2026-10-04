@@ -15,8 +15,8 @@ set -uo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
 
-entry="renderer/desktop/c/renderer_entry.c"
-chrome="renderer/desktop/src/WindowChrome.kt"
+entry="renderer/desktop/c/win32_window.c"
+chrome="renderer/desktop/src/WindowMetrics.kt"
 rules="renderer/desktop/src/renderer/ComponentRules.kt"
 status=0
 
@@ -37,7 +37,7 @@ kt_height="$(grep -oE 'internal val windowsCaptionHeight = [0-9]+\.dp' "$chrome"
 [ -n "$c_height" ] || fail "the native side no longer defines a caption height"
 [ -n "$c_button" ] || fail "the native side no longer reserves a button width"
 [ -n "$c_count" ] || fail "the native side no longer says how many buttons it reserves for"
-[ -n "$kt_height" ] || fail "WindowChrome.kt no longer states the Windows caption height"
+[ -n "$kt_height" ] || fail "WindowMetrics.kt no longer states the Windows caption height"
 
 if [ -n "$c_height" ] && [ -n "$kt_height" ] && [ "$c_height" != "$kt_height" ]; then
   fail "the caption strip is ${kt_height}dp in Kotlin and ${c_height}dip in C.
