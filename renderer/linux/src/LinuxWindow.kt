@@ -32,6 +32,7 @@ import kotlinx.cinterop.cValuesOf
 import kotlinx.cinterop.convert
 import kotlinx.cinterop.get
 import kotlinx.cinterop.memScoped
+import kotlinx.cinterop.nativeHeap
 import kotlinx.cinterop.pointed
 import kotlinx.cinterop.ptr
 import kotlinx.cinterop.reinterpret
@@ -66,6 +67,11 @@ import x11.NotifyWhileGrabbed
 import x11.SubstructureNotifyMask
 import x11.SubstructureRedirectMask
 import x11.XMapRaised
+import resize.dxc_resize_present
+import resize.dxc_resize_reset
+import resize.dxc_resize_step
+import resize.dxc_resize_stats
+import resize.dxc_resize_stretched
 import x11.XResizeWindow
 import x11.XSendEvent
 import x11.GLXContext
@@ -207,6 +213,13 @@ internal class LinuxWindow private constructor(
      * reader is answered from is [atspiSource], which keeps the tree rather than a list.
      */
     private var described: List<AccessibleElement> = emptyList()
+
+    /**
+     * What a resize cost and what it showed, counted by the header the native image windows
+     * count with, so a drag is counted the same way on every path. Reported at the end of the
+     * run when `DXC_REPORT_RESIZE` is set.
+     */
+    private val resizeStats = nativeHeap.alloc<dxc_resize_stats>().also { dxc_resize_reset(it.ptr) }
 
     /** Input and resizing made up from inside the window, for the parity check. Unset, nothing runs. */
     private val synthetic = System.getenv("DXC_SYNTH")?.let { SyntheticInput(it) }
@@ -374,6 +387,7 @@ internal class LinuxWindow private constructor(
         }
         if (drew) {
             painted = true
+            dxc_resize_present(resizeStats.ptr, size.width, size.height)
             LatencyTrace.frameDrawn(System.nanoTime() - begun)
             // The drawing goes to the server and then the manager is told, in that order. This
             // is the whole of what keeps a dragged edge attached to what is inside it.
@@ -486,6 +500,12 @@ internal class LinuxWindow private constructor(
             }
         } finally {
             LatencyTrace.summary()
+            if (System.getenv("DXC_REPORT_RESIZE") != null) {
+                System.err.println(
+                    "dxc resize: steps=${resizeStats.steps} presented=${resizeStats.presented} " +
+                        "stale=${resizeStats.stale} stretched=${dxc_resize_stretched(resizeStats.ptr)}",
+                )
+            }
             close()
         }
     }
@@ -498,6 +518,7 @@ internal class LinuxWindow private constructor(
      */
     private fun scriptedResize() {
         LatencyTrace.phase = "resize"
+        dxc_resize_reset(resizeStats.ptr)
         val from = measured
         for (step in 1..SYNTHETIC_RESIZE_STEPS) {
             val t = step.toDouble() / SYNTHETIC_RESIZE_STEPS
@@ -640,6 +661,7 @@ internal class LinuxWindow private constructor(
                     return
                 }
                 measured = IntSize(width, height)
+                dxc_resize_step(resizeStats.ptr, width, height)
                 // Drawn here, inside the handling of the size change, rather than written down
                 // for the next turn of the loop. See this class's own documentation: the strip
                 // of unpainted window a later frame leaves is as wide as the speed of the hand.

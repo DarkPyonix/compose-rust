@@ -13,7 +13,7 @@ bash -n "$script" || fail "the parity script does not parse"
 
 # Every row the header promises is written by the script.
 for name in input_latency_avg_ms frame_resize_avg_ms frame_resize_worst_ms frame_idle_avg_ms \
-            clipboard system_theme min_size icon shortcut_ctrl_; do
+            clipboard system_theme min_size icon shortcut_ctrl_ resize_steps resize_stretched; do
     grep -q "$name" "$script" || fail "the parity script no longer mentions $name"
 done
 
@@ -21,6 +21,12 @@ done
 grep -q 'parity frame_\${name}_avg_ms' "$trace" || fail "LatencyTrace does not print the per-phase frame time"
 grep -q 'parity input_latency_avg_ms' "$trace" || fail "LatencyTrace does not print the input latency"
 grep -q 'parity system_theme' "$trace" || fail "LatencyTrace does not print the system theme"
+
+# The resize accounting is the one header, counted by the same calls on both paths.
+grep -q 'dxc_resize_step(' "$repo_root/renderer/desktop/c/x11_window.c" || fail "x11_window.c does not count resize steps"
+grep -q 'dxc_resize_step(' "$repo_root/renderer/linux/src/LinuxWindow.kt" || fail "the Kotlin/Native window does not count resize steps"
+[[ "$(readlink "$repo_root/renderer/linux/cinterop/include/appkit_resize.h")" == "../../../desktop/c/appkit_resize.h" ]] \
+    || fail "the Kotlin/Native window reads a copy of the resize header rather than the one"
 
 # Both windows that run it feed the same trace.
 for window in renderer/desktop/src/X11Window.kt renderer/linux/src/LinuxWindow.kt; do

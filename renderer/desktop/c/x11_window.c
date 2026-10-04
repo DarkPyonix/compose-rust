@@ -9,6 +9,7 @@
 #include <X11/extensions/sync.h>
 #include <GL/gl.h>
 #include <GL/glx.h>
+#include "appkit_resize.h"
 #include <locale.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -170,6 +171,17 @@ static int dxc_owns_clipboard;
 static volatile int dxc_raise_requested;
 
 // The input method and the context made from it.
+// What a resize cost and what it showed, counted by the header the AppKit window and the
+// Kotlin/Native windows count with, and reported at exit when asked for with
+// DXC_REPORT_RESIZE. A stretched step is a size the window took that was left without a frame.
+static struct dxc_resize_stats dxc_resize_stats;
+
+static void dxc_resize_report(void) {
+    fprintf(stderr, "dxc resize: steps=%lld presented=%lld stale=%lld stretched=%lld\n",
+            (long long)dxc_resize_stats.steps, (long long)dxc_resize_stats.presented,
+            (long long)dxc_resize_stats.stale, (long long)dxc_resize_stretched(&dxc_resize_stats));
+}
+
 static XIM dxc_im;
 static XIC dxc_ic;
 #define DXC_PREEDIT_CAPACITY 256
@@ -881,6 +893,7 @@ static void dxc_pump_events(void) {
                 }
                 dxc_width = event.xconfigure.width;
                 dxc_height = event.xconfigure.height;
+                dxc_resize_step(&dxc_resize_stats, dxc_width, dxc_height);
                 // The frame is drawn here, inside the handling of the size change, rather
                 // than written down for the next turn of the loop.
                 //
@@ -1106,6 +1119,7 @@ int32_t dxc_native_window_open(const char *title, int32_t width, int32_t height,
         dxc_display = NULL;
         return 3;
     }
+    if (getenv("DXC_REPORT_RESIZE") != NULL) atexit(dxc_resize_report);
     dxc_delete_window = XInternAtom(dxc_display, "WM_DELETE_WINDOW", False);
     dxc_protocols = XInternAtom(dxc_display, "WM_PROTOCOLS", False);
     dxc_sync_request = XInternAtom(dxc_display, "_NET_WM_SYNC_REQUEST", False);
@@ -1242,6 +1256,7 @@ void dxc_native_frame_end(void *display_pointer) {
         return;
     }
     glXSwapBuffers(dxc_display, dxc_window);
+    dxc_resize_present(&dxc_resize_stats, dxc_width, dxc_height);
     // After the swap, because what the manager is waiting to hear is that the drawing for
     // the size it gave us has been handed over. Until it hears that, it holds the frame it
     // was about to show, so the edge it moved and what is inside it appear together.
@@ -1293,6 +1308,7 @@ void dxc_native_debug_resize(void *window_pointer, void *view_pointer, int32_t f
                              int32_t steps, int32_t pause_micros) {
     (void)window_pointer; (void)view_pointer;
     if (dxc_display == NULL || steps <= 0) return;
+    dxc_resize_reset(&dxc_resize_stats);
     for (int32_t step = 1; step <= steps; step++) {
         double t = (double)step / steps;
         int32_t width = from_width + (int32_t)((to_width - from_width) * t);

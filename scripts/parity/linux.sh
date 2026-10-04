@@ -21,6 +21,10 @@
 #   frame_resize_avg_ms    what a frame cost while the window was being resized
 #   frame_resize_worst_ms  the slowest of those
 #   frame_idle_avg_ms      what a frame cost otherwise
+#   resize_steps           sizes the window took during the scripted drag
+#   resize_presented       frames handed to the screen while it ran
+#   resize_stale           presented frames at a size other than the window's
+#   resize_stretched       sizes that were left without a frame of their own
 #   shortcut_ctrl_<k>      key and modifiers the scene was handed for ctrl+a, c, v, x, z
 #   clipboard              ctrl+a then ctrl+c in the field, read back from the display server
 #   system_theme           what the window thinks the desktop's theme is
@@ -58,6 +62,7 @@ export DXC_SYNTH_RESIZE_AT="${DXC_SYNTH_RESIZE_AT:-16}"
 export DXC_SYNTH_EXIT_AT="${DXC_SYNTH_EXIT_AT:-20}"
 export DXC_REPORT_LATENCY=1
 export DXC_REPORT_INPUT=1
+export DXC_REPORT_RESIZE=1
 export GTK_THEME="${GTK_THEME:-Adwaita:dark}"
 
 "$@" >"$log" 2>"$err" &
@@ -131,6 +136,12 @@ row input_latency_avg_ms "${latency:-FAIL not reported}"
 row frame_resize_avg_ms "${resize:-FAIL not reported}"
 row frame_resize_worst_ms "$(field frame_resize_avg_ms worst_ms)"
 row frame_idle_avg_ms "${idle:-FAIL not reported}"
+resize_line="$(grep -E '^dxc resize: ' "$err" | tail -1)"
+resize_field() { echo "$resize_line" | sed -nE "s/.*$1=([0-9]+).*/\1/p"; }
+row resize_steps "$(resize_field steps || true)"
+row resize_presented "$(resize_field presented || true)"
+row resize_stale "$(resize_field stale || true)"
+row resize_stretched "$(resize_field stretched || true)"
 row system_theme "$(sed -nE 's/.*parity system_theme ([a-z]+).*/\1/p' "$err" | tail -1)"
 
 echo "== parity: $label"
