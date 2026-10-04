@@ -24,7 +24,6 @@ import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
 import dev.darkpyonix.composerust.tooling.FakeHostConnection
 import dev.darkpyonix.composerust.tooling.HostResponse
 import dev.darkpyonix.composerust.ui.node.nodeTestTag
-import dev.darkpyonix.composerust.foundation.TEXT_CHANGED_DEBOUNCE_MILLIS
 
 private const val FIELD = 1
 private const val CHANGE_HANDLER = 21L
@@ -94,13 +93,81 @@ class TextFieldTest {
 
         onNodeWithTag(nodeTestTag(FIELD)).performTextInput("hi")
         waitForIdle()
-        // The debounce window has to elapse before the Host hears about the edit.
-        mainClock.advanceTimeBy(TEXT_CHANGED_DEBOUNCE_MILLIS * 2)
         waitForIdle()
 
         onNodeWithTag(nodeTestTag(FIELD)).assertTextEquals("hi")
         val changes = connection.events.filterIsInstance<HostEvent.TextChanged>()
         assertEquals("hi", changes.lastOrNull()?.text, "events were ${connection.events}")
+    }
+
+    @Test
+    fun fr5_an_edit_reaches_the_host_on_the_next_frame() = runComposeUiTest {
+        val connection = FakeHostConnection(field())
+        setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+        mainClock.autoAdvance = false
+
+        onNodeWithTag(nodeTestTag(FIELD)).performTextInput("h")
+        mainClock.advanceTimeByFrame()
+        mainClock.advanceTimeByFrame()
+
+        // One frame or two, with no timer in between.
+        val changes = connection.events.filterIsInstance<HostEvent.TextChanged>()
+        assertEquals(listOf("h"), changes.map { it.text }, "events were ${connection.events}")
+    }
+
+    @Test
+    fun fr5_the_text_changed_for_an_edit_is_dispatched_in_the_frame_that_saw_it() = runComposeUiTest {
+        val connection = FakeHostConnection(field())
+        setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+        mainClock.autoAdvance = false
+
+        onNodeWithTag(nodeTestTag(FIELD)).performTextInput("h")
+        mainClock.advanceTimeByFrame()
+
+        // One frame, not the one after it: the send is made inside the frame callback, so
+        // the Host's reply is applied before the next frame is composed.
+        assertEquals(
+            listOf("h"),
+            connection.events.filterIsInstance<HostEvent.TextChanged>().map { it.text },
+            "events were ${connection.events}",
+        )
+    }
+
+    @Test
+    fun fr5_edits_within_one_frame_are_one_event_with_the_latest_text() = runComposeUiTest {
+        val connection = FakeHostConnection(field())
+        setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+        mainClock.autoAdvance = false
+
+        onNodeWithTag(nodeTestTag(FIELD)).performTextInput("a")
+        onNodeWithTag(nodeTestTag(FIELD)).performTextInput("b")
+        onNodeWithTag(nodeTestTag(FIELD)).performTextInput("c")
+        mainClock.advanceTimeByFrame()
+        mainClock.advanceTimeByFrame()
+        assertEquals(
+            listOf("abc"),
+            connection.events.filterIsInstance<HostEvent.TextChanged>().map { it.text },
+            "events were ${connection.events}",
+        )
+    }
+
+    @Test
+    fun fr5_an_edit_after_the_last_send_is_sent_too() = runComposeUiTest {
+        val connection = FakeHostConnection(field())
+        setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+        mainClock.autoAdvance = false
+
+        onNodeWithTag(nodeTestTag(FIELD)).performTextInput("a")
+        mainClock.advanceTimeByFrame()
+        mainClock.advanceTimeByFrame()
+        onNodeWithTag(nodeTestTag(FIELD)).performTextInput("b")
+        mainClock.advanceTimeByFrame()
+        mainClock.advanceTimeByFrame()
+        assertEquals(
+            listOf("a", "ab"),
+            connection.events.filterIsInstance<HostEvent.TextChanged>().map { it.text },
+            "events were ${connection.events}",
+        )
     }
 
     @Test

@@ -7,7 +7,7 @@ import org.graalvm.nativeimage.c.function.CEntryPoint
 import org.graalvm.nativeimage.c.type.CCharPointer
 import org.graalvm.nativeimage.c.type.CTypeConversion
 import dev.darkpyonix.composerust.ui.platform.NativeHostConnection
-import dev.darkpyonix.composerust.ui.platform.runAppKitSpike
+import dev.darkpyonix.composerust.ui.platform.runAppKitWindow
 import dev.darkpyonix.composerust.ui.platform.runWin32Window
 import dev.darkpyonix.composerust.ui.platform.runX11Window
 import org.graalvm.nativeimage.c.function.CFunction
@@ -37,16 +37,15 @@ private external fun setWindowMaterial(asked: Int)
 fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
     try {
         configureRuntimeLayout(CTypeConversion.toJavaString(libraryDir))
-        // The window of our own, while it is being built. Off unless asked for: every
-        // sample and every test still rides the toolkit's path until this one can carry
-        // them.
-        //
-        // One per platform, and each asked for by name. The C files behind them answer
-        // for the same symbols, so the one compiled into an image is the one any of them
-        // would reach: asking for the Windows window on a Mac would open an AppKit window
-        // and read its view as a Direct3D device. Which platform this is decides, rather
-        // than which variable was set.
+        // Which window this platform opens. macOS opens one of its own, made from AppKit
+        // and Metal with no toolkit between; the other platforms still open the
+        // toolkit's. The C files behind each answer for the same symbols, so the one
+        // compiled into an image is the one that can be reached: which platform this is
+        // decides, and nothing is read from the environment.
         val platform = System.getProperty("os.name", "")
+        val autoExitMillis =
+            (System.getenv("COMPOSE_RUST_AUTOEXIT_MS") ?: System.getenv("DIOXUS_COMPOSE_AUTOEXIT_MS"))
+                ?.toLongOrNull()
         // The notification centre, before the Host starts: its first batch may already post
         // one. macOS and Windows reach theirs through the C this image was linked with;
         // Linux speaks to the notification daemon over the session bus. A development run on
@@ -62,14 +61,14 @@ fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
             )
             else -> UnsupportedNotifications
         }
-        if (System.getenv("DXC_APPKIT_WINDOW") != null && platform.startsWith("Mac")) {
+        if (platform.startsWith("Mac")) {
             // Before anything else on this path. The toolkit, if it is ever woken, asks
             // the main thread to run the application, and this thread is the one drawing
             // the frames: that request is delivered on the first frame and never comes
             // back. Saying up front that there is no display to open keeps the toolkit
             // from asking, and nothing on this path wants one.
             System.setProperty("java.awt.headless", "true")
-            runAppKitSpike()
+            runAppKitWindow(autoExitMillis)
             return@rendererRun 0
         }
         if (System.getenv("DXC_WIN32_WINDOW") != null && platform.startsWith("Windows")) {
@@ -83,14 +82,13 @@ fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
         dev.darkpyonix.composerust.ui.node.platformWindowMaterial = { asked ->
             setWindowMaterial(if (asked) 1 else 0)
         }
-        // And the other half of that: whether asking actually put anything there. This
-        // build's C entry does, on macOS, which is what the line above calls. The
-        // Kotlin/Native renderer opens its own window and has no effect view to put under
-        // it, so it leaves the default alone and its design system draws for an opaque
-        // window rather than for a desktop that never shows through.
-        dev.darkpyonix.composerust.runtime.platformBacksWindowWithMaterial = { platform.startsWith("Mac") }
+        // Whether asking for a material actually put anything behind the window. The
+        // toolkit's window cannot, on any platform that still opens one, so its design
+        // system draws for an opaque window rather than for a desktop that never shows
+        // through.
+        dev.darkpyonix.composerust.runtime.platformBacksWindowWithMaterial = { false }
         // Lets automated smoke tests close the window; unset in normal use.
-        runRenderer((System.getenv("COMPOSE_RUST_AUTOEXIT_MS") ?: System.getenv("DIOXUS_COMPOSE_AUTOEXIT_MS"))?.toLongOrNull()) {
+        runRenderer(autoExitMillis) {
             NativeHostConnection()
         }
         0
@@ -104,6 +102,7 @@ fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
 
 @CEntryPoint(name = "compose_rust_renderer_request_frame_impl")
 fun rendererRequestFrame(thread: IsolateThread?) {
+    dev.darkpyonix.composerust.ui.platform.LatencyTrace.mark("request_frame")
     FrameRequests.request()
 }
 
