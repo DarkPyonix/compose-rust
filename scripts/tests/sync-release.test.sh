@@ -223,6 +223,41 @@ check "the new commit descends from what was published" \
     "$(git -C "$clone" merge-base --is-ancestor "$published" release; echo $?)" "0"
 check_contains "the clone carries the new source across" "$(files_on "$clone" release)" "later.rs"
 
+# --- main's own commits are absorbed, so release -> main never conflicts ---
+#
+# main moves only through pull requests from release, and each merge adds a commit release
+# does not have. The next release must contain those commits, or the next pull request
+# conflicts and only a force push could fix it.
+repo="$tmp/absorb-main"
+make_repo "$repo"
+(cd "$repo" && "$split" --write >/dev/null 2>&1)
+git -C "$repo" branch main release
+git -C "$repo" checkout -q main
+echo "merged" > "$repo/MERGED.md"
+git -C "$repo" add -A
+git -C "$repo" commit -q -m "Merge pull request from release"
+main_tip="$(git -C "$repo" rev-parse main)"
+git -C "$repo" checkout -q develop
+echo "next" > "$repo/compose-rust/src/next.rs"
+git -C "$repo" add -A
+git -C "$repo" commit -q -m "Feat: Next"
+out="$(cd "$repo" && "$split" --write 2>&1)"
+check "absorbs main (exit)" "$?" "0"
+check "main is an ancestor of the new release" \
+    "$(git -C "$repo" merge-base --is-ancestor "$main_tip" release; echo $?)" "0"
+check_absent "release keeps develop's tree, not main's extra file" "$(files_on "$repo" release)" "MERGED.md"
+check_contains "release carries develop's new file" "$(files_on "$repo" release)" "next.rs"
+check_contains "says it absorbed main" "$out" "absorbed main"
+# A release whose tree is current but which lacks main's commits is not up to date.
+git -C "$repo" checkout -q main
+echo "again" > "$repo/MERGED.md"
+git -C "$repo" commit -q -am "Merge pull request again"
+main_tip="$(git -C "$repo" rev-parse main)"
+git -C "$repo" checkout -q develop
+(cd "$repo" && "$split" --write >/dev/null 2>&1)
+check "absorbs main even when the tree is already current" \
+    "$(git -C "$repo" merge-base --is-ancestor "$main_tip" release; echo $?)" "0"
+
 rm -rf "$tmp"
 
 if (( failures )); then
