@@ -1548,6 +1548,150 @@ static double dxc_elapsed_ms(LARGE_INTEGER since) {
  * queue faster than DWM shows them and an older size can be on screen with a newer
  * rectangle.
  */
+/*
+ * Resize frames on the CPU.
+ *
+ * While the window is changing size its frames are drawn by Skia's raster backend into a
+ * DIB section and copied into the window with BitBlt before WM_SIZE returns, the way a
+ * GDI application paints. The copy lands in the window's redirection surface on this call
+ * stack, so when DWM composes the new size the new picture is already in it; nothing waits
+ * on a GPU queue or a present. Once the size stops changing the GPU path takes over again,
+ * and its first frame refits the swapchain to the size the window has by then.
+ *
+ * Opt in from the renderer (dxc_native_set_raster_resize), because the renderer has to
+ * draw the frame into the pixels this hands it rather than into the swapchain.
+ */
+static int dxc_raster_enabled;
+static int dxc_cpu_mode;
+static HDC dxc_dib_dc;
+static HBITMAP dxc_dib;
+static HGDIOBJ dxc_dib_previous;
+static void *dxc_dib_bits;
+static int32_t dxc_dib_width;
+static int32_t dxc_dib_height;
+static int32_t dxc_raster_width;
+static int32_t dxc_raster_height;
+static int dxc_gpu_return_posted;
+static int32_t dxc_mode_switches;
+#define DXC_WM_GPU_RETURN (WM_APP + 2)
+
+void dxc_native_set_raster_resize(int32_t enabled) {
+    dxc_raster_enabled = enabled != 0;
+    fprintf(stderr, "compose-rust: resize-mode: resize frames %s\n",
+            dxc_raster_enabled ? "on the CPU (Skia raster, GDI blit)" : "on the GPU");
+}
+
+/** 1 while resize frames are drawn on the CPU, so the renderer asks for raster pixels. */
+int32_t dxc_native_frame_mode(void) {
+    return dxc_cpu_mode ? 1 : 0;
+}
+
+static void dxc_switch_frames(int cpu, int32_t width, int32_t height, const char *reason) {
+    if (dxc_cpu_mode == cpu) {
+        return;
+    }
+    dxc_cpu_mode = cpu;
+    dxc_mode_switches++;
+    fprintf(stderr, "compose-rust: resize-mode: frames %s -> %s at %dx%d because %s (switch %d)\n",
+            cpu ? "gpu" : "cpu", cpu ? "cpu" : "gpu", (int)width, (int)height, reason,
+            (int)dxc_mode_switches);
+}
+
+/**
+ * Makes sure the DIB holds width x height. Made once at the size of the monitor the
+ * window is on and reused; it grows only for a window larger than that monitor.
+ */
+static int dxc_ensure_dib(int32_t width, int32_t height) {
+    if (dxc_dib != NULL && width <= dxc_dib_width && height <= dxc_dib_height) {
+        return 1;
+    }
+    int32_t dib_width = width;
+    int32_t dib_height = height;
+    MONITORINFO monitor;
+    memset(&monitor, 0, sizeof monitor);
+    monitor.cbSize = sizeof monitor;
+    if (dxc_window != NULL &&
+        GetMonitorInfoW(MonitorFromWindow(dxc_window, MONITOR_DEFAULTTONEAREST), &monitor)) {
+        int32_t monitor_width = (int32_t)(monitor.rcMonitor.right - monitor.rcMonitor.left);
+        int32_t monitor_height = (int32_t)(monitor.rcMonitor.bottom - monitor.rcMonitor.top);
+        if (monitor_width > dib_width) dib_width = monitor_width;
+        if (monitor_height > dib_height) dib_height = monitor_height;
+    }
+    if (dxc_dib_dc == NULL) {
+        dxc_dib_dc = CreateCompatibleDC(NULL);
+        if (dxc_dib_dc == NULL) {
+            return 0;
+        }
+    }
+    if (dxc_dib != NULL) {
+        SelectObject(dxc_dib_dc, dxc_dib_previous);
+        DeleteObject(dxc_dib);
+        dxc_dib = NULL;
+        dxc_dib_bits = NULL;
+    }
+    BITMAPINFO info;
+    memset(&info, 0, sizeof info);
+    info.bmiHeader.biSize = sizeof info.bmiHeader;
+    info.bmiHeader.biWidth = dib_width;
+    // Negative: top-down rows, the order Skia writes them in.
+    info.bmiHeader.biHeight = -dib_height;
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+    dxc_dib = CreateDIBSection(dxc_dib_dc, &info, DIB_RGB_COLORS, &dxc_dib_bits, NULL, 0);
+    if (dxc_dib == NULL || dxc_dib_bits == NULL) {
+        dxc_dib = NULL;
+        return 0;
+    }
+    dxc_dib_previous = SelectObject(dxc_dib_dc, dxc_dib);
+    dxc_dib_width = dib_width;
+    dxc_dib_height = dib_height;
+    fprintf(stderr, "compose-rust: resize-mode: raster bitmap -> %dx%d because a frame needed room\n",
+            (int)dib_width, (int)dib_height);
+    return 1;
+}
+
+/**
+ * The pixels the CPU frame draws into: the top left width x height of the DIB, 32-bit
+ * BGRA, top-down, row_bytes apart. Zero on success.
+ */
+int32_t dxc_native_raster_begin(void **pixels, int32_t *row_bytes, int32_t *width, int32_t *height) {
+    int32_t w = dxc_resize_target_width > 0 ? dxc_resize_target_width : dxc_sizing.fitted_width;
+    int32_t h = dxc_resize_target_height > 0 ? dxc_resize_target_height : dxc_sizing.fitted_height;
+    if (w <= 0 || h <= 0 || !dxc_ensure_dib(w, h)) {
+        return 1;
+    }
+    GdiFlush();
+    *pixels = dxc_dib_bits;
+    *row_bytes = dxc_dib_width * 4;
+    *width = w;
+    *height = h;
+    dxc_raster_width = w;
+    dxc_raster_height = h;
+    QueryPerformanceCounter(&dxc_step_mark);
+    return 0;
+}
+
+/** Copies the CPU frame into the window, 1:1, before the message that asked for it returns. */
+void dxc_native_raster_end(void) {
+    if (dxc_window == NULL || dxc_dib_dc == NULL) {
+        return;
+    }
+    dxc_step_draw_ms = dxc_elapsed_ms(dxc_step_mark);
+    LARGE_INTEGER copy_started;
+    QueryPerformanceCounter(&copy_started);
+    HDC window_dc = GetDC(dxc_window);
+    if (window_dc != NULL) {
+        BitBlt(window_dc, 0, 0, dxc_raster_width, dxc_raster_height, dxc_dib_dc, 0, 0, SRCCOPY);
+        GdiFlush();
+        ReleaseDC(dxc_window, window_dc);
+    }
+    ValidateRect(dxc_window, NULL);
+    dxc_step_copy_ms = dxc_elapsed_ms(copy_started);
+    dxc_presented_width = dxc_raster_width;
+    dxc_presented_height = dxc_raster_height;
+}
+
 static void dxc_draw_resize(int32_t width, int32_t height) {
     if (width == dxc_presented_width && height == dxc_presented_height) {
         return;
@@ -1560,11 +1704,19 @@ static void dxc_draw_resize(int32_t width, int32_t height) {
         fprintf(stderr, "compose-rust: resize-mode: skipped present %dx%d because a frame was already being drawn\n",
                 (int)width, (int)height);
     }
+    if (dxc_raster_enabled && dxc_draw_frame != NULL && !dxc_drawing) {
+        dxc_switch_frames(1, width, height, dxc_sizing.dragging ? "the edge is being dragged" : "the size changed");
+    }
     dxc_resizing = 1;
     dxc_step_gpu_idle_ms = dxc_step_refit_ms = dxc_step_draw_ms = dxc_step_present_ms = 0.0;
     dxc_step_copy_ms = 0.0;
     dxc_draw_one_frame();
     dxc_resizing = 0;
+    // Outside a drag the size has stopped changing once this message is done; the GPU
+    // takes over on the next turn of the message loop.
+    if (dxc_cpu_mode && !dxc_sizing.dragging && !dxc_gpu_return_posted && dxc_window != NULL) {
+        dxc_gpu_return_posted = PostMessageW(dxc_window, DXC_WM_GPU_RETURN, 0, 0) != 0;
+    }
     int presented = dxc_presented_width == width && dxc_presented_height == height;
     double drawn_ms = dxc_elapsed_ms(started);
     int flushed = presented ? dxc_dwm_flush() : 0;
@@ -1690,6 +1842,13 @@ static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM
         // written down and taken by the next frame.
         dxc_resize_end_drag(&dxc_sizing);
         dxc_mode("size-move", "on", "off", "WM_EXITSIZEMOVE");
+        if (dxc_cpu_mode) {
+            RECT client;
+            GetClientRect(window, &client);
+            dxc_switch_frames(0, client.right - client.left, client.bottom - client.top,
+                              "the drag ended");
+            dxc_draw_one_frame();
+        }
         if (dxc_thread_priority_before != THREAD_PRIORITY_ERROR_RETURN) {
             SetThreadPriority(GetCurrentThread(), dxc_thread_priority_before);
             dxc_thread_priority_before = THREAD_PRIORITY_ERROR_RETURN;
@@ -1830,6 +1989,16 @@ static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM
         dxc_window = NULL;
         dxc_window_gone = 1;
         PostQuitMessage(0);
+        return 0;
+    case DXC_WM_GPU_RETURN:
+        dxc_gpu_return_posted = 0;
+        if (dxc_cpu_mode && !dxc_sizing.dragging) {
+            RECT client;
+            GetClientRect(window, &client);
+            dxc_switch_frames(0, client.right - client.left, client.bottom - client.top,
+                              "the size stopped changing");
+            dxc_draw_one_frame();
+        }
         return 0;
     case DXC_WM_ACCESSIBILITY_UPDATE:
         dxc_a11y_update_posted = 0;
