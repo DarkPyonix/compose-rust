@@ -24,6 +24,7 @@ host="$repo_root/renderer/build/native-image/smoke_host"
 ax_dump="$repo_root/experiments/accessibility/ax-dump.swift"
 
 [[ "$(uname -s)" == "Darwin" ]] || { echo "skip: macOS only"; exit 0; }
+[[ -f "$ax_dump" ]] || { echo "skip: $ax_dump is on develop only, not on main"; exit 0; }
 [[ -x "$host" ]] || { echo "error: $host not built; run build-native.sh first" >&2; exit 1; }
 
 log="$(mktemp)"

@@ -265,7 +265,6 @@ compose-rust/     the crate: boundary, protocol, schema, codegen, renderer downl
 renderer/         the Kotlin renderer: interpreter, generated shims, one module per platform
 samples/          12 sample applications, being rewritten; they do not build until then (#85)
 docs/             the user guide (docs/guide) and translations (docs/locales)
-experiments/      measured experiments kept for their results
 scripts/          setup check, quality gate, release and publishing scripts, script tests
 .github/          CI workflows
 ```
