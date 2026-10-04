@@ -13,6 +13,13 @@ import dev.darkpyonix.composerust.runtime.HostConnection
 import platform.AppKit.NSApplication
 import platform.AppKit.NSApplicationActivationPolicy
 import platform.AppKit.NSApplicationWillTerminateNotification
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalClipboardManager
+import dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver
+import dev.darkpyonix.composerust.ui.node.Asset
+import kotlinx.coroutines.delay
 import platform.AppKit.NSWindow
 import platform.Foundation.NSNotificationCenter
 import platform.Foundation.NSOperationQueue
@@ -89,19 +96,51 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     //
     // The theme is resolved for this platform at the narrowest class: neither answer
     // depends on how wide the window is, and the window does not exist yet to be measured.
+    // Whether the system is dark, now and as it changes. Held here so the first answer is
+    // the real one and the window is not drawn light and corrected a moment later.
+    var requestFrame: () -> Unit = {}
+    val appearance = SystemDarkMonitor(read = ::systemIsDark, requestFrame = { requestFrame() })
+    observeSystemAppearance(appearance::refresh)
     val dressing = resolveTheme(
         theme = host.table.theme,
         platform = HostPlatform.MacOs,
-        systemDark = false,
+        systemDark = appearance.dark.value,
     ).let { it.rules.caption(it, asked?.titleBar ?: TitleBar.Normal) }
+    val clipboard = MacosClipboard()
+    @Suppress("DEPRECATION")
+    val clipboardManager = MacosClipboardManager()
     val window = MacosWindow(
         name = asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
         width = if (asked != null && asked.width > 0) asked.width else 520,
         height = if (asked != null && asked.height > 0) asked.height else 360,
         buttonInset = dressing.platformButtonInset,
         cornerRadius = dressing.windowCornerRadius,
+        minimumSize = contentMinimum(asked?.minWidth ?: 0, asked?.minHeight ?: 0),
+        clipboardHasText = { clipboard.hasText() },
     )
-    window.setContent { ComposeRustContent(host, caption = window.caption.value) }
+    requestFrame = window::requestFrame
+    val dockIcon = DockIcon(
+        lookup = { id -> (host.table.assets.asset(id) as? Asset.Raster)?.bitmap },
+        apply = { picture -> picture.toNSImage()?.let { application.applicationIconImage = it } },
+    )
+    val iconAsset = asked?.icon ?: 0
+    @Suppress("DEPRECATION")
+    window.setContent {
+        CompositionLocalProvider(
+            LocalSystemDarkObserver provides { appearance.dark.value },
+            LocalClipboard provides clipboard,
+            LocalClipboardManager provides clipboardManager,
+        ) {
+            // The asset arrives a little after the first batch names it, so it is looked
+            // for until it is there.
+            if (iconAsset != 0) {
+                LaunchedEffect(Unit) {
+                    while (!dockIcon.tryApply(iconAsset)) delay(100)
+                }
+            }
+            ComposeRustContent(host, caption = window.caption.value)
+        }
+    }
 
     application.activateIgnoringOtherApps(true)
     application.run()

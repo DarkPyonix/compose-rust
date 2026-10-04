@@ -39,4 +39,9 @@ internal fun rememberSystemDark(): State<Boolean> {
     return state
 }
 
-private const val POLL_INTERVAL_MILLIS = 1_000L
+/** The system's setting, read now. */
+internal fun systemIsDarkNow(): Boolean = currentSystemTheme == SystemTheme.DARK
+
+internal const val SYSTEM_DARK_POLL_MILLIS = 1_000L
+
+private const val POLL_INTERVAL_MILLIS = SYSTEM_DARK_POLL_MILLIS

@@ -1424,6 +1424,11 @@ void dxc_native_install_menu(const char *application_name) {
     (void)application_name;
 }
 
+/* The text context menu of this window is not drawn natively yet; the call is accepted. */
+void dxc_native_set_text_menu(const char *spec) {
+    (void)spec;
+}
+
 /*
  * Measuring aids of the AppKit window, named because the Kotlin that drives every desktop
  * names them and answered here by doing nothing: a drag cannot be scripted from inside

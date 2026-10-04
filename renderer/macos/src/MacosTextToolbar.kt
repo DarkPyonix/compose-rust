@@ -20,7 +20,8 @@ import platform.CoreGraphics.CGPointMake
  *
  * Which items appear is Compose's decision and is made afresh each time, because what a
  * selection can do changes: there is nothing to copy without a selection, and nothing to
- * paste without a clipboard.
+ * paste while the pasteboard holds no text, which Compose reads from the clipboard the
+ * window provides.
  */
 internal class MacosTextToolbar(private val view: () -> NSView) : TextToolbar {
 
@@ -38,12 +39,12 @@ internal class MacosTextToolbar(private val view: () -> NSView) : TextToolbar {
     ) {
         val menu = NSMenu()
         // In the order every other application on this platform puts them.
-        add(menu, "Cut", onCutRequested)
-        add(menu, "Copy", onCopyRequested)
-        add(menu, "Paste", onPasteRequested)
+        add(menu, TextCommand.Cut.title, onCutRequested)
+        add(menu, TextCommand.Copy.title, onCopyRequested)
+        add(menu, TextCommand.Paste.title, onPasteRequested)
         if (onSelectAllRequested != null) {
             menu.addItem(NSMenuItem.separatorItem())
-            add(menu, "Select All", onSelectAllRequested)
+            add(menu, TextCommand.SelectAll.title, onSelectAllRequested)
         }
         if (menu.numberOfItems.toInt() == 0) return
 

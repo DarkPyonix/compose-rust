@@ -58,6 +58,9 @@ enum {
     DXC_EVENT_FILES_DROPPED = 11,
     // The files left without being let go.
     DXC_EVENT_FILES_EXITED = 12,
+    // An item of the text context menu was chosen. The key_code field says which, as the
+    // number the menu was described with.
+    DXC_EVENT_MENU_COMMAND = 13,
 };
 
 // Room for what an input method is composing, which is a syllable or a word and never a
@@ -442,6 +445,41 @@ static NSString *dxc_marked_text;
 // The paths of the files last dragged over the window, NUL separated.
 static NSString *dxc_dropped_paths;
 
+// The text context menu, described by the Kotlin side so that both macOS windows draw the
+// same one from the same list: one line per row, a tab between the command number and its
+// title, and a single dash for the line between groups.
+static NSString *dxc_text_menu_spec = nil;
+#define DXC_PASTE_COMMAND 3
+
+void dxc_native_set_text_menu(const char *spec) {
+    dxc_text_menu_spec = spec == NULL ? nil : [NSString stringWithUTF8String:spec];
+}
+
+static NSMenu *dxc_text_menu(id target) {
+    if (dxc_text_menu_spec == nil) {
+        return nil;
+    }
+    NSMenu *menu = [[NSMenu alloc] init];
+    menu.autoenablesItems = YES;
+    for (NSString *line in [dxc_text_menu_spec componentsSeparatedByString:@"\n"]) {
+        if ([line isEqualToString:@"-"]) {
+            [menu addItem:NSMenuItem.separatorItem];
+            continue;
+        }
+        NSArray<NSString *> *parts = [line componentsSeparatedByString:@"\t"];
+        if (parts.count != 2) {
+            continue;
+        }
+        NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:parts[1]
+                                                      action:@selector(dxcMenuCommand:)
+                                               keyEquivalent:@""];
+        item.tag = parts[0].integerValue;
+        item.target = target;
+        [menu addItem:item];
+    }
+    return menu;
+}
+
 @interface DxcView : NSView <NSTextInputClient>
 @end
 
@@ -536,8 +574,39 @@ void dxc_native_set_cursor(int32_t shape) {
 - (void)mouseDragged:(NSEvent *)event { [self dxcSend:DXC_EVENT_POINTER_MOVE event:event]; }
 - (void)mouseDown:(NSEvent *)event { [self dxcSend:DXC_EVENT_POINTER_DOWN event:event]; }
 - (void)mouseUp:(NSEvent *)event { [self dxcSend:DXC_EVENT_POINTER_UP event:event]; }
-- (void)rightMouseDown:(NSEvent *)event { [self dxcSend:DXC_EVENT_POINTER_DOWN event:event]; }
-- (void)rightMouseUp:(NSEvent *)event { [self dxcSend:DXC_EVENT_POINTER_UP event:event]; }
+// The press goes to the scene first, so the field under the pointer takes focus and a
+// word under it can be selected the way a click would, and then the menu comes up under the
+// pointer. The menu's tracking swallows the release, so it is sent once the menu has gone,
+// or the scene would go on believing a button is held down.
+- (void)rightMouseDown:(NSEvent *)event {
+    [self dxcSend:DXC_EVENT_POINTER_DOWN event:event];
+    NSMenu *menu = dxc_text_menu(self);
+    if (menu != nil) {
+        [NSMenu popUpContextMenu:menu withEvent:event forView:self];
+    }
+    [self dxcSend:DXC_EVENT_POINTER_UP event:event];
+}
+- (void)rightMouseUp:(NSEvent *)event { }
+
+// An item of the text menu. Nothing is done here beyond saying which: the key presses it
+// stands for are made on the Kotlin side, so an input method's composition is untouched
+// and the field that has focus receives them as it would from the keyboard.
+- (void)dxcMenuCommand:(NSMenuItem *)item {
+    struct dxc_event record;
+    memset(&record, 0, sizeof record);
+    record.kind = DXC_EVENT_MENU_COMMAND;
+    record.key_code = (int32_t)item.tag;
+    dxc_push_event(record);
+}
+
+// Paste is greyed out while the clipboard holds no text. Everything else stays available:
+// whether there is a selection to cut or copy is the field's to know.
+- (BOOL)validateMenuItem:(NSMenuItem *)item {
+    if (item.action == @selector(dxcMenuCommand:) && item.tag == DXC_PASTE_COMMAND) {
+        return [NSPasteboard.generalPasteboard stringForType:NSPasteboardTypeString] != nil;
+    }
+    return YES;
+}
 - (void)scrollWheel:(NSEvent *)event { [self dxcSend:DXC_EVENT_SCROLL event:event]; }
 // Both, and in this order. The key itself is what arrows, Enter and backspace are read
 // as, and `interpretKeyEvents:` is what turns the rest into text: it hands the event to

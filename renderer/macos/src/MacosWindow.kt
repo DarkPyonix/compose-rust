@@ -95,6 +95,7 @@ import platform.AppKit.NSAccessibilityStaticTextRole
 import platform.AppKit.NSAccessibilityTextFieldRole
 import platform.CoreGraphics.CGRectMake
 import platform.Foundation.NSMakeRect
+import platform.Foundation.NSMakeSize
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import platform.CoreGraphics.CGPointMake
@@ -123,6 +124,10 @@ internal class MacosWindow(
     private val buttonInset: Dp = 0.dp,
     /** How round the window is. Zero leaves the system's own. */
     private val cornerRadius: Dp = 0.dp,
+    /** The smallest content area the window may be resized to, or null for none. */
+    private val minimumSize: Pair<Double, Double>? = null,
+    /** Whether Paste is worth offering right now. Asked each time the menu is shown. */
+    private val clipboardHasText: () -> Boolean = { true },
 ) {
     private var measured = IntSize(width, height)
     private val components = DefaultArchitectureComponentsOwner()
@@ -226,6 +231,11 @@ internal class MacosWindow(
         // and can say where it is. Asked before, every control answers with an empty
         // rectangle and a reader finds the screen stacked in one corner.
         if (readerIsListening) semantics.pushIfChanged(afterDrawing = true)
+    }
+
+    /** Asks for a frame, which is drawn where AppKit next draws the view. */
+    fun requestFrame() {
+        view.needsDisplay = true
     }
 
     /** Whether anything has ever asked this window what is in it. */
@@ -574,10 +584,12 @@ internal class MacosWindow(
             // overridden to reach the scene: with no call back to it, the menu was built
             // and never asked for.
             NSMenu.popUpContextMenu(editingMenu(), withEvent = event, forView = this)
+            // The menu's tracking swallows the release, so it is sent here: without it the
+            // scene goes on believing the button is held.
+            send(event, PointerEventType.Release, PointerButton.Secondary)
         }
 
-        override fun rightMouseUp(event: NSEvent) =
-            send(event, PointerEventType.Release, PointerButton.Secondary)
+        override fun rightMouseUp(event: NSEvent) = Unit
 
         override fun mouseMoved(event: NSEvent) = send(event, PointerEventType.Move)
 
@@ -632,6 +644,9 @@ internal class MacosWindow(
         view.wantsLayer = true
         view.layerContentsRedrawPolicy = NSViewLayerContentsRedrawDuringViewResize
 
+        minimumSize?.let { (minWidth, minHeight) ->
+            window.contentMinSize = NSMakeSize(minWidth, minHeight)
+        }
         window.center()
         window.makeKeyAndOrderFront(null)
         window.makeFirstResponder(view)
@@ -705,45 +720,35 @@ internal class MacosWindow(
     /**
      * Cut, copy, paste and select all, as a menu of the system's own.
      *
-     * Each item presses the shortcut it is named after rather than calling into the editor,
-     * because the editor is Compose's and the keys are the way in that this window already
-     * has. Nothing here decides whether an item applies: the field the keys reach ignores a
-     * copy with nothing selected, which is the same answer as a greyed out item and is one
-     * fewer thing to keep in step with what is on screen.
+     * Built from the same list the GraalVM window draws, so the rows, labels and order are
+     * the same on both. Each item presses the shortcut it is named after rather than
+     * calling into the editor, because the editor is Compose's and the keys are the way in
+     * that this window already has; nothing moves text itself, so an input method's
+     * composition is left as it was.
      */
     private fun editingMenu(): NSMenu {
         val menu = NSMenu()
-        shortcut(menu, "Cut", Key.X)
-        shortcut(menu, "Copy", Key.C)
-        shortcut(menu, "Paste", Key.V)
-        menu.addItem(NSMenuItem.separatorItem())
-        shortcut(menu, "Select All", Key.A)
+        // Enabled is decided by the list, not by AppKit asking the target.
+        menu.autoenablesItems = false
+        for (entry in textContextMenu(clipboardHasText())) {
+            val command = entry.command
+            if (command == null) {
+                menu.addItem(NSMenuItem.separatorItem())
+                continue
+            }
+            val item = NSMenuItem()
+            item.setTitle(command.title)
+            item.setEnabled(entry.enabled)
+            item.setTarget(
+                MenuShortcut {
+                    command.perform { scene.sendKeyEvent(it) }
+                },
+            )
+            item.setAction(platform.darwin.sel_registerName("perform"))
+            menu.addItem(item)
+        }
         return menu
     }
-
-    private fun shortcut(menu: NSMenu, title: String, key: Key) {
-        val item = NSMenuItem()
-        item.setTitle(title)
-        item.setTarget(
-            MenuShortcut {
-                scene.sendKeyEvent(command(key, KeyEventType.KeyDown))
-                scene.sendKeyEvent(command(key, KeyEventType.KeyUp))
-            },
-        )
-        item.setAction(platform.darwin.sel_registerName("perform"))
-        menu.addItem(item)
-    }
-
-    /** One key held with Command, built from parts the way a platform event is. */
-    private fun command(key: Key, type: KeyEventType): KeyEvent = KeyEvent(
-        key = key,
-        type = type,
-        codePoint = 0,
-        isAltPressed = false,
-        isCtrlPressed = false,
-        isMetaPressed = true,
-        isShiftPressed = false,
-    )
 
     private fun send(event: NSEvent, kind: PointerEventType, button: PointerButton? = null) {
         scene.sendPointerEvent(
