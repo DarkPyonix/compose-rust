@@ -19,6 +19,9 @@ on:
       - 'renderer/kotlin'
       - 'renderer/**/module.yaml'
       - 'scripts/install-nik.sh'
+      - 'scripts/fetch-fork-window.sh'
+      - 'renderer/scripts/publish-window.sh'
+      - 'renderer/scripts/build-compose.sh'
       - 'scripts/tests/renderer/**'
       - '.github/workflows/test-graalvm-renderer.yml'
   push:
@@ -29,6 +32,9 @@ on:
       - 'renderer/kotlin'
       - 'renderer/**/module.yaml'
       - 'scripts/install-nik.sh'
+      - 'scripts/fetch-fork-window.sh'
+      - 'renderer/scripts/publish-window.sh'
+      - 'renderer/scripts/build-compose.sh'
       - 'scripts/tests/renderer/**'
       - '.github/workflows/test-graalvm-renderer.yml'
   workflow_dispatch:
@@ -69,6 +75,9 @@ jobs:
 
       - name: Build the renderer shared library
         run: ./renderer/desktop/scripts/build-native.sh
+
+      - name: The fork's window modules name no AWT
+        run: ./scripts/tests/renderer/window-modules-no-awt.test.sh
 
       - name: Accessibility classes are linked in
         run: ./scripts/tests/renderer/accessibility-link.test.sh
@@ -128,6 +137,9 @@ jobs:
 
       - name: Build the Linux renderer under Xvfb
         run: xvfb-run -a ./renderer/desktop/scripts/build-native-linux.sh
+
+      - name: The fork's window modules name no AWT
+        run: ./scripts/tests/renderer/window-modules-no-awt.test.sh
 
       - name: Inspect staged dynamic dependencies
         run: |

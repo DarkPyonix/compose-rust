@@ -10,6 +10,7 @@ import androidx.compose.ui.input.pointer.PointerButton
 import androidx.compose.ui.input.pointer.PointerButtons
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.scene.ComposeScene
+import org.thisisthepy.compose.window.WindowEvent
 
 // What a window of our own heard, and how it reaches a scene.
 //
@@ -18,43 +19,10 @@ import androidx.compose.ui.scene.ComposeScene
 // something Compose understands is written once, here, so a window on a platform nobody
 // working on it can run behaves the same way as the one that was tested.
 //
-// Apart from the windows themselves because those name a platform in every line, and this
-// names none: no AppKit, no Win32, no Xlib, and nothing of GraalVM either, which is what
-// lets the Kotlin/Native windows compile it through a symlink.
-
-/**
- * What happened in the window, as the window recorded it.
- *
- * Plain numbers rather than a platform event. What Compose is given is built from these
- * fields, so nothing of AppKit, Win32 or Xlib reaches the scene and a window on any of
- * the three fills in the same record without the scene noticing which one it was.
- */
-data class WindowEvent(
-    val kind: Int,
-    val x: Float,
-    val y: Float,
-    val buttons: Int,
-    val modifiers: Int,
-    val keyCode: Int,
-    val codePoint: Int,
-    /** What an input method produced, and empty for everything that is not text. */
-    val text: String,
-) {
-
-    companion object {
-        const val POINTER_MOVE = 1
-        const val POINTER_DOWN = 2
-        const val POINTER_UP = 3
-        const val SCROLL = 4
-        const val KEY_DOWN = 5
-        const val KEY_UP = 6
-        const val TEXT_COMMIT = 7
-        const val TEXT_COMPOSE = 8
-        const val RESIZE = 9
-        const val FILES_ENTERED = 10
-        const val FILES_DROPPED = 11
-    }
-}
+// The event record itself is the window module's `WindowEvent`. This file is apart from
+// the windows because those name a platform in every line and this names none: no AppKit,
+// no Win32, no Xlib and nothing of GraalVM, which is what lets the Kotlin/Native windows
+// compile it through a symlink.
 
 /**
  * Hands one thing the window heard to the scene.

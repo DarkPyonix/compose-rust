@@ -45,6 +45,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# The window is the Compose fork's native/macos module, published beside the patched Compose
+# from the commit build-compose.sh pins.
+"$PROJECT_DIR/scripts/publish-window.sh"
+
 konan_target="macos_arm64"
 amper_platform="macosArm64"
 sdk="macosx"

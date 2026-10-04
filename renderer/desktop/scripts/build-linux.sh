@@ -84,6 +84,10 @@ KOTLIN_WRAPPER="$PROJECT_DIR/kotlin"
     "It is the self-bootstrapping Kotlin Toolchain wrapper; no separate install is needed." \
     "fix: chmod +x $KOTLIN_WRAPPER"
 
+# The window is the Compose fork's native/linux module, published beside the patched Compose
+# from the commit build-compose.sh pins.
+"$PROJECT_DIR/scripts/publish-window.sh"
+
 if [[ "$(uname -m)" != "x86_64" ]]; then
     die "Kotlin/Native builds Linux targets on an x86-64 machine only (this is $(uname -m))" \
         "Build on x86-64 with --arch arm64 for an arm64 archive."

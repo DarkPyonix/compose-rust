@@ -3,12 +3,6 @@
 
 package dev.darkpyonix.composerust.ui.platform
 
-import org.graalvm.nativeimage.StackValue
-import org.graalvm.nativeimage.c.function.CFunction
-import org.graalvm.nativeimage.c.type.CCharPointer
-import org.graalvm.nativeimage.c.type.CIntPointer
-import org.graalvm.nativeimage.c.type.CFloatPointer
-import org.graalvm.nativeimage.c.type.CTypeConversion
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
@@ -35,310 +29,28 @@ import androidx.compose.ui.scene.ComposeScene
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import org.graalvm.word.Pointer
-import org.graalvm.word.WordFactory
+import org.thisisthepy.compose.window.WindowEvent
+import org.thisisthepy.compose.window.graalvm.macos.NativeWindow
+import org.thisisthepy.compose.window.graalvm.macos.describeTo
+import org.thisisthepy.compose.window.graalvm.macos.drainWindowEvents
+import org.thisisthepy.compose.window.graalvm.macos.installApplicationMenu
+import org.thisisthepy.compose.window.graalvm.macos.isWindowClosed
+import org.thisisthepy.compose.window.graalvm.macos.openNativeWindow
+import org.thisisthepy.compose.window.graalvm.macos.pumpWindowEvents
+import org.thisisthepy.compose.window.graalvm.macos.setPointerShape
+import org.thisisthepy.compose.window.graalvm.macos.AccessibleElement as AppKitElement
 
 // A window that is ours, drawn into with Skia and with no toolkit in between.
 //
-// Beside `NativeHostConnection` rather than among the renderer's own files, and for the
-// same reason: this is the only other place that names GraalVM types, so a development
-// run on a JVM never loads them.
-//
-// The C side is `c/appkit_window.m`. It owns the window, the view, the layer, the Metal
-// device and the queue, and answers with the pointers. Nothing there draws.
+// The window itself, its C side and the calls that reach it are the Compose fork's
+// `extended/window/graalvm/graalvm-macos` module. What is here is the Compose half: the
+// scene the window is drawn from, the events it hears handed to that scene, and the loop.
 //
 // The scene this drives is Compose's own, reached through an interface the library marks
 // as being for its own modules. There is no other way in: the supported entry builds a
-// toolkit window, and a toolkit window is the thing being removed. Kept to this one file
-// and pinned to the version in the module file, which is what the rule about unstable
-// APIs asks for. A Compose upgrade changes this file or it changes nothing.
-
-@CFunction("dxc_native_window_open")
-private external fun openWindow(
-    title: CCharPointer?,
-    width: Int,
-    height: Int,
-    out: Pointer?,
-): Int
-
-@CFunction("dxc_native_window_size")
-private external fun windowSize(
-    view: Pointer?,
-    width: CIntPointer?,
-    height: CIntPointer?,
-    scale: CFloatPointer?,
-)
-
-@CFunction("dxc_native_frame_begin")
-private external fun beginFrame(layer: Pointer?, textureOut: Pointer?): Int
-
-@CFunction("dxc_native_frame_end")
-private external fun endFrame(queue: Pointer?)
-
-@CFunction("dxc_native_poll_event")
-private external fun pollEvent(out: Pointer?): Int
-
-@CFunction("dxc_native_set_accessibility")
-private external fun setAccessibility(elements: Pointer?, count: Int, view: Pointer?)
-
-@CFunction("dxc_native_set_cursor")
-private external fun setCursorShape(shape: Int)
-
-@CFunction("dxc_native_pump")
-private external fun pumpEvents(seconds: Double)
-
-@CFunction("dxc_native_clipboard_read")
-private external fun clipboardRead(out: Pointer?, capacity: Int): Int
-
-@CFunction("dxc_native_clipboard_write")
-private external fun clipboardWrite(text: CCharPointer?)
-
-@CFunction("dxc_native_install_menu")
-private external fun installMenu(name: CCharPointer?)
-
-@CFunction("dxc_native_window_closed")
-private external fun windowClosed(): Int
-
-/**
- * The four pointers a window is, once AppKit has made one.
- *
- * Words rather than objects, because that is what crosses: native-image accepts a word
- * value in straight-line code inside one method and nowhere else, so each is read out
- * once, here, and carried as a plain `Long` after that.
- */
-class NativeWindow internal constructor(
-    val window: Long,
-    val view: Long,
-    val device: Long,
-    val queue: Long,
-    val layer: Long,
-) {
-
-    // A word value is made where it is used and nowhere else. Native-image accepts one
-    // in straight-line code inside a single method, so a helper that returned one, or a
-    // variable that held one across a call, is rejected: `WordFactory.pointer` is
-    // written out at each call rather than wrapped.
-
-    /** The size of the drawable in pixels, and how many of them go to a point. */
-    fun measure(): WindowMeasurement {
-        val width = StackValue.get<CIntPointer>(4)
-        val height = StackValue.get<CIntPointer>(4)
-        val scale = StackValue.get<CFloatPointer>(4)
-        windowSize(WordFactory.pointer(layer), width, height, scale)
-        return WindowMeasurement(width.read(), height.read(), scale.read())
-    }
-
-    /**
-     * The texture this frame paints into, or zero where the system had none to give.
-     *
-     * Zero is not a failure. It means frames are being produced faster than the screen
-     * takes them, and the answer to that is to skip one rather than to wait.
-     */
-    fun beginFrame(): Long {
-        val texture = StackValue.get<Pointer>(8)
-        if (beginFrame(WordFactory.pointer(layer), texture) != 0) return 0
-        return texture.readWord<Pointer>(0).rawValue()
-    }
-
-    /** Puts the painted frame on the screen. */
-    fun endFrame() = endFrame(WordFactory.pointer(queue))
-
-}
-
-/**
- * Takes everything the window has heard since the last frame.
- *
- * Drained rather than delivered. AppKit answers on its own thread and the Host keeps its
- * state on the one that draws, so an event that arrived as a call would arrive on the
- * wrong thread; the shell writes them down and this reads them where they can be used.
- */
-fun drainWindowEvents(): List<WindowEvent> {
-    val record = StackValue.get<Pointer>(EVENT_STRUCT_BYTES)
-    val events = ArrayList<WindowEvent>()
-    // Everything about the record is read here. A word value may not leave the method it
-    // was made in, so the text is copied out byte by byte rather than by handing the
-    // pointer to something that knows how to read a string.
-    val bytes = ByteArray(TEXT_BYTES)
-    while (pollEvent(record) != 0) {
-        var length = 0
-        while (length < TEXT_BYTES) {
-            val byte = record.readByte(TEXT_OFFSET + length)
-            if (byte == ZERO) break
-            bytes[length] = byte
-            length++
-        }
-        events.add(
-            WindowEvent(
-                kind = record.readInt(0),
-                x = record.readFloat(4),
-                y = record.readFloat(8),
-                buttons = record.readInt(12),
-                modifiers = record.readInt(16),
-                keyCode = record.readInt(20),
-                codePoint = record.readInt(24),
-                text = if (length == 0) "" else String(bytes, 0, length, Charsets.UTF_8),
-            ),
-        )
-    }
-    return events
-}
-
-/**
- * Hands the platform what the window would tell a reader who cannot see it.
- *
- * Written into stack storage and copied on the other side. The elements are few, they
- * change when the screen changes rather than when a frame is drawn, and the alternative
- * is the platform asking across threads at a moment nobody chose.
- */
-fun NativeWindow.describeTo(elements: List<AccessibleElement>) = describeWindow(view, elements)
-
-/**
- * Writes the records and hands them to whichever window asked.
- *
- * Apart from the extension above because the windows the other desktops open are not this
- * class, and what a tree looks like on the way across does not differ between them: one
- * layout, written once, so a field that moves cannot move in one place only.
- */
-internal fun describeWindow(view: Long, elements: List<AccessibleElement>) {
-    val capped = if (elements.size > MAX_ELEMENTS) elements.take(MAX_ELEMENTS) else elements
-    val records = StackValue.get<Pointer>(MAX_ELEMENTS * ELEMENT_BYTES)
-    for ((index, element) in capped.withIndex()) {
-        val at = index * ELEMENT_BYTES
-        records.writeInt(at, element.role)
-        records.writeFloat(at + 4, element.x)
-        records.writeFloat(at + 8, element.y)
-        records.writeFloat(at + 12, element.width)
-        records.writeFloat(at + 16, element.height)
-        val bytes = element.label.toByteArray(Charsets.UTF_8)
-        var length = 0
-        while (length < bytes.size && length < TEXT_BYTES - 1) {
-            records.writeByte(at + ELEMENT_LABEL_OFFSET + length, bytes[length])
-            length++
-        }
-        records.writeByte(at + ELEMENT_LABEL_OFFSET + length, ZERO)
-    }
-    setAccessibility(records, capped.size, WordFactory.pointer(view))
-}
-
-/**
- * Sets the shape of the pointer over the window.
- *
- * The scene decides: a control that is a link asks for a hand, a field asks for a bar.
- * Which platform cursor that is belongs to the shell, so what crosses is a number.
- */
-fun setPointerShape(shape: Int) = setCursorShape(shape)
-
-/**
- * Lets the window answer for itself for a moment.
- *
- * Called once a frame. The thread that draws is the thread the platform delivers on, so a
- * loop that never gave it a turn would be a window that heard nothing.
- */
-fun pumpWindowEvents(seconds: Double) = pumpEvents(seconds)
-
-/** True once the reader has closed the window. */
-fun isWindowClosed(): Boolean = windowClosed() != 0
-
-/**
- * Gives the application the menu bar every application on this platform has.
- *
- * Without one, the shortcuts a reader expects do nothing: command-Q does not quit and
- * command-C does not copy. The items are the system's own actions and are sent to
- * whatever holds focus, so no window is asked to implement them.
- */
-fun installApplicationMenu(name: String) {
-    val holder = CTypeConversion.toCString(name)
-    try {
-        installMenu(holder.get())
-    } finally {
-        holder.close()
-    }
-}
-
-/** What is on the clipboard, or empty where it holds something that is not text. */
-fun readClipboard(): String {
-    val buffer = StackValue.get<Pointer>(CLIPBOARD_BYTES)
-    val length = clipboardRead(buffer, CLIPBOARD_BYTES)
-    if (length <= 0) return ""
-    val bytes = ByteArray(length)
-    for (index in 0 until length) {
-        bytes[index] = buffer.readByte(index)
-    }
-    return String(bytes, Charsets.UTF_8)
-}
-
-/** Puts text on the clipboard, replacing what was there. */
-fun writeClipboard(text: String) {
-    val holder = CTypeConversion.toCString(text)
-    try {
-        clipboardWrite(holder.get())
-    } finally {
-        holder.close()
-    }
-}
-
-/**
- * How much of the clipboard a paste may carry.
- *
- * A paragraph rather than a book. What crosses is stack storage, and a field that is
- * handed a novel has a different problem from the one this is solving.
- */
-private const val CLIPBOARD_BYTES = 64 * 1024
-
-/** What a pointer can look like, in the small set both sides agree on. */
-object PointerShape {
-    const val ARROW = 0
-    const val HAND = 1
-    const val TEXT = 2
-    const val CROSSHAIR = 3
-    const val RESIZE_LEFT_RIGHT = 4
-    const val RESIZE_UP_DOWN = 5
-}
-
-/**
- * How many things a screen may say it has.
- *
- * Enough for a screen and not for a document. A list of ten thousand rows is windowed
- * before it reaches the scene, so what is here is what is on screen.
- */
-private const val MAX_ELEMENTS = 256
-private const val ELEMENT_LABEL_OFFSET = 20
-private const val ELEMENT_BYTES = 116
-
-private const val ZERO: Byte = 0
-private const val TEXT_OFFSET = 28
-private const val TEXT_BYTES = 96
-private const val EVENT_STRUCT_BYTES = 124
-
-/**
- * Opens a window, or null where this machine has no Metal device.
- *
- * Null rather than an exception: a machine without Metal is not a mistake in this code,
- * and the caller has an older path it can take instead.
- */
-fun openNativeWindow(title: String, width: Int, height: Int): NativeWindow? {
-    val holder = CTypeConversion.toCString(title)
-    try {
-        // Four pointers, in the order the C struct declares them.
-        val out = StackValue.get<Pointer>(WINDOW_STRUCT_BYTES)
-        val status = openWindow(holder.get(), width, height, out)
-        if (status == 1 || status == 2) {
-            return null
-        }
-        check(status == 0) { "AppKit could not register the process for mouse input ($status)" }
-        return NativeWindow(
-            window = out.readWord<Pointer>(0).rawValue(),
-            view = out.readWord<Pointer>(8).rawValue(),
-            device = out.readWord<Pointer>(16).rawValue(),
-            queue = out.readWord<Pointer>(24).rawValue(),
-            layer = out.readWord<Pointer>(32).rawValue(),
-        )
-    } finally {
-        holder.close()
-    }
-}
-
-private const val WINDOW_STRUCT_BYTES = 40
+// toolkit window, and a toolkit window is the thing being removed. Kept to the window
+// files and pinned to the version in the module file, which is what the rule about
+// unstable APIs asks for. A Compose upgrade changes these files or it changes nothing.
 
 /**
  * Draws a Compose scene into a window of our own, and holds it there.
@@ -384,7 +96,7 @@ internal fun runAppKitSpike() {
         if (report) {
             System.err.println("compose-rust: the window has ${elements.size} things to say")
         }
-        window.describeTo(elements)
+        window.describeTo(elements.map { AppKitElement(it.role, it.x, it.y, it.width, it.height, it.label) })
     }
     // Kept rather than left to the scene. What a scene picks for itself is the toolkit's
     // queue, and the Host this renderer talks to is on this thread and invisible from
@@ -395,7 +107,7 @@ internal fun runAppKitSpike() {
         density = androidx.compose.ui.unit.Density(measured.scale),
         size = size,
         coroutineContext = work,
-        platformContext = NativePlatformContext({ size }, textInput, semantics),
+        platformContext = NativePlatformContext({ size }, textInput, semantics, ::setPointerShape),
     )
     // The application's own tree, drawn by the same interpreter the toolkit path uses.
     // Nothing in it knows which of the two it is running on, which is the point.
