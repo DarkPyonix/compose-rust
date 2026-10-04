@@ -1652,13 +1652,16 @@ static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM
         }
         return 0;
     case WM_PAINT: {
-        // Validated so the window stops asking. A frame is drawn only when no resize is
-        // in flight: during one, WM_SIZE draws, and a second frame here would present the
+        // Validated so the window stops asking. Outside a drag the frame is drawn again:
+        // the window's redirection surface can lose what was presented into it (restored
+        // from minimised, uncovered, a display change), and the frame loop draws only
+        // when the scene changed, so without this the window would stay black until it
+        // did. During a drag WM_SIZE draws, and a second frame here would present the
         // same size twice.
         PAINTSTRUCT paint;
         BeginPaint(window, &paint);
         EndPaint(window, &paint);
-        if (!dxc_resizing && dxc_resize_draw_here(&dxc_sizing)) {
+        if (!dxc_resizing && !dxc_sizing.dragging) {
             dxc_draw_one_frame();
         }
         return 0;
