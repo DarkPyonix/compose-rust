@@ -42,6 +42,14 @@ int dxc_dcomp_set_clip(float width, float height);
 /** Commits whatever is pending on the visual. Zero on success. */
 int dxc_dcomp_commit(void);
 
+/**
+ * Blocks until the last commit has been processed and the compositor has composed a
+ * frame after it, so what was presented and committed is on screen when this returns.
+ * Waits on the compositor clock where the system has one (Windows 11) and on DwmFlush
+ * where it does not.
+ */
+void dxc_dcomp_wait_for_compositor(void);
+
 /** Lets go of the device, the target and the visual, in the order that matters. */
 void dxc_dcomp_release(void);
 

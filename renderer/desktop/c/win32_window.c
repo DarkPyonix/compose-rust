@@ -181,6 +181,30 @@ static int32_t dxc_shown_height;
 // are refitted to every size, as they were before, because a buffer larger than the
 // window with nothing saying how much of it to show would be shown whole.
 static int dxc_source_size_works = 1;
+// The size last presented and committed, so the WM_SIZE that follows a size already
+// drawn from WM_NCCALCSIZE draws nothing a second time.
+static int32_t dxc_presented_width;
+static int32_t dxc_presented_height;
+// Set while a frame is drawn from WM_NCCALCSIZE: it presents without waiting for a
+// vertical blank and then waits for the compositor instead.
+static int dxc_presenting_ahead;
+// The client size WM_NCCALCSIZE is about to give the window. Until it returns,
+// GetClientRect still answers the old one, so anything that asks for the client size
+// asks dxc_client_rect, which answers this while it is set.
+static int32_t dxc_pending_client_width;
+static int32_t dxc_pending_client_height;
+
+/** The client rectangle, or the one the window is about to have while it is being sized. */
+static BOOL dxc_client_rect(HWND window, RECT *out) {
+    if (dxc_pending_client_width > 0 && dxc_pending_client_height > 0) {
+        out->left = 0;
+        out->top = 0;
+        out->right = dxc_pending_client_width;
+        out->bottom = dxc_pending_client_height;
+        return TRUE;
+    }
+    return GetClientRect(window, out);
+}
 
 // A frame, asked for by the window rather than by the loop that usually draws them.
 //
@@ -891,7 +915,7 @@ static HRESULT STDMETHODCALLTYPE dxc_root_frag_get_bounding_rect(
     DxcRootProvider *root = dxc_root_from_fragment(self);
     if (root->window != NULL) {
         RECT rc;
-        GetClientRect(root->window, &rc);
+        dxc_client_rect(root->window, &rc);
         POINT pt = {0, 0};
         ClientToScreen(root->window, &pt);
         out->left = (double)pt.x;
@@ -1351,6 +1375,29 @@ static LRESULT dxc_caption_hit_test(HWND window, LPARAM lparam) {
 // because a reader who found both would have every reason to think they were.
 
 /**
+ * Draws, presents and commits a frame at a client size the window does not have yet, and
+ * waits until the compositor has shown it. Only through a visual: without one the window
+ * shows its own swapchain and nothing here would order it against the rectangle.
+ */
+static void dxc_present_ahead(int32_t width, int32_t height) {
+    if (dxc_swapchain == NULL || !dxc_dcomp_active() || dxc_draw_frame == NULL ||
+        dxc_drawing || width <= 0 || height <= 0) {
+        return;
+    }
+    if (width == dxc_presented_width && height == dxc_presented_height) {
+        return;
+    }
+    dxc_pending_client_width = width;
+    dxc_pending_client_height = height;
+    dxc_resize_note(&dxc_sizing, width, height);
+    dxc_presenting_ahead = 1;
+    dxc_draw_one_frame();
+    dxc_presenting_ahead = 0;
+    dxc_pending_client_width = 0;
+    dxc_pending_client_height = 0;
+}
+
+/**
  * Writes down how large the buffers grow for a drag: the work area of the monitor the
  * window is on, in pixels, rounded up to 64. The next frame grows them, once.
  */
@@ -1373,15 +1420,28 @@ static void dxc_size_buffers_for_drag(HWND window) {
 static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
     switch (message) {
     case WM_NCCALCSIZE: {
-        if (dxc_options.system_chrome || wparam != TRUE) {
+        if (wparam != TRUE) {
             break;
         }
         NCCALCSIZE_PARAMS *params = (NCCALCSIZE_PARAMS *)lparam;
         LONG requested_top = params->rgrc[0].top;
-        DefWindowProcW(window, message, wparam, lparam);
-        params->rgrc[0].top = IsZoomed(window) ? requested_top + dxc_maximised_overhang()
-                                               : requested_top;
-        return 0;
+        LRESULT answer = DefWindowProcW(window, message, wparam, lparam);
+        if (!dxc_options.system_chrome) {
+            params->rgrc[0].top = IsZoomed(window) ? requested_top + dxc_maximised_overhang()
+                                                   : requested_top;
+            answer = 0;
+        }
+        // rgrc[0] is now the client rectangle the window is about to have. This is the
+        // last message before the new window rectangle reaches the compositor, and by
+        // WM_SIZE it already has: a frame drawn there is drawn after the compositor has
+        // shown the new rectangle with the old frame in it, which, with no redirection
+        // surface behind the visual, is a gap the desktop shows through. Drawn here,
+        // presented, committed and waited for, the frame is on screen first.
+        if (!IsIconic(window)) {
+            dxc_present_ahead(params->rgrc[0].right - params->rgrc[0].left,
+                              params->rgrc[0].bottom - params->rgrc[0].top);
+        }
+        return answer;
     }
     case WM_NCHITTEST:
         if (dxc_options.system_chrome) {
@@ -1546,6 +1606,12 @@ static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM
             // message returns, whether or not a drag is on, so that a size is never
             // on screen as an area nothing has painted.
             if (dxc_dcomp_active()) {
+                // Already on screen when WM_NCCALCSIZE drew it; a second present of the
+                // same size is a wasted frame that can land out of order.
+                if ((int32_t)LOWORD(lparam) == dxc_presented_width &&
+                    (int32_t)HIWORD(lparam) == dxc_presented_height) {
+                    return 0;
+                }
                 dxc_draw_one_frame();
                 return 0;
             }
@@ -2405,7 +2471,7 @@ void dxc_native_window_size(void *window_pointer, int32_t *width, int32_t *heigh
         return;
     }
     RECT client;
-    if (GetClientRect(window, &client)) {
+    if (dxc_client_rect(window, &client)) {
         *width = (int32_t)(client.right - client.left);
         *height = (int32_t)(client.bottom - client.top);
     }
@@ -2431,7 +2497,8 @@ int32_t dxc_native_frame_begin(void *swapchain_pointer, void **texture_out) {
     // One frame of latency. Inside a drag the wait is none at all: a frame skipped there
     // is the black this exists to avoid, so it is drawn whether or not the screen is ready.
     if (dxc_latency_wait != NULL) {
-        WaitForSingleObjectEx(dxc_latency_wait, dxc_sizing.dragging ? 0 : 100, FALSE);
+        WaitForSingleObjectEx(dxc_latency_wait,
+                              dxc_sizing.dragging || dxc_presenting_ahead ? 0 : 100, FALSE);
     }
     int32_t wanted_width = dxc_sizing.fitted_width;
     int32_t wanted_height = dxc_sizing.fitted_height;
@@ -2537,13 +2604,23 @@ void dxc_native_frame_end(void *queue_pointer) {
     if (dxc_dcomp_active()) {
         dxc_dcomp_set_clip((float)dxc_shown_width, (float)dxc_shown_height);
     }
-    IDXGISwapChain3_Present(dxc_swapchain, 1, 0);
+    // From WM_NCCALCSIZE the interval is zero: the compositor wait below paces the
+    // frame, and a vertical blank waited for first would be one more frame between the
+    // present and the rectangle changing.
+    IDXGISwapChain3_Present(dxc_swapchain, dxc_presenting_ahead ? 0 : 1, 0);
     // The present is not on the window until the visual's changes are committed, and a
     // present without a commit after it leaves the previous buffer showing. The two
     // always go together.
     if (dxc_dcomp_active() && !dxc_commit_failed && dxc_dcomp_commit() != 0) {
         dxc_commit_failed = 1;
         fprintf(stderr, "compose-rust: DirectComposition commit failed, frames may not reach the window\n");
+    }
+    if (dxc_dcomp_active()) {
+        dxc_presented_width = dxc_shown_width;
+        dxc_presented_height = dxc_shown_height;
+        if (dxc_presenting_ahead) {
+            dxc_dcomp_wait_for_compositor();
+        }
     }
 
     // The next frame will paint into a buffer this one may still be reading from, and a

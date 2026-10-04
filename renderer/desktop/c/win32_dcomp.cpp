@@ -68,6 +68,52 @@ int dxc_dcomp_commit(void) {
     return SUCCEEDED(g_device->Commit()) ? 0 : 1;
 }
 
+namespace {
+
+typedef DWORD(WINAPI *wait_for_clock_fn)(UINT, const HANDLE *, DWORD);
+typedef HRESULT(WINAPI *dwm_flush_fn)(void);
+
+// Looked up at run time: the compositor clock is absent on Windows 10, and linking it
+// would keep the renderer from loading there. DwmFlush is looked up the same way so the
+// build links nothing new.
+wait_for_clock_fn g_wait_for_clock;
+dwm_flush_fn g_dwm_flush;
+bool g_looked_up;
+
+void look_up_waits() {
+    if (g_looked_up) {
+        return;
+    }
+    g_looked_up = true;
+    HMODULE dcomp = GetModuleHandleW(L"dcomp.dll");
+    if (dcomp != nullptr) {
+        g_wait_for_clock = reinterpret_cast<wait_for_clock_fn>(
+            reinterpret_cast<void *>(GetProcAddress(dcomp, "DCompositionWaitForCompositorClock")));
+    }
+    HMODULE dwm = LoadLibraryW(L"dwmapi.dll");
+    if (dwm != nullptr) {
+        g_dwm_flush = reinterpret_cast<dwm_flush_fn>(
+            reinterpret_cast<void *>(GetProcAddress(dwm, "DwmFlush")));
+    }
+}
+
+}  // namespace
+
+void dxc_dcomp_wait_for_compositor(void) {
+    if (g_device == nullptr) {
+        return;
+    }
+    g_device->WaitForCommitCompletion();
+    look_up_waits();
+    if (g_wait_for_clock != nullptr) {
+        // A frame at 60 Hz and a little over, so a stalled compositor cannot hold the
+        // window's message loop for longer than that.
+        g_wait_for_clock(0, nullptr, 17);
+    } else if (g_dwm_flush != nullptr) {
+        g_dwm_flush();
+    }
+}
+
 void dxc_dcomp_release(void) {
     if (g_visual != nullptr) {
         g_visual->Release();
