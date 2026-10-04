@@ -2157,6 +2157,12 @@ int32_t dxc_native_window_open(
     swapchain_description.SampleDesc.Count = 1;
     swapchain_description.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     swapchain_description.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
+    // Left at its zero value this is DXGI_SCALING_STRETCH, which fills the client area
+    // from whatever the back buffer holds. A frame drawn at the size just given always
+    // matches, so this never shows on an ordinary resize, but a frame skipped by
+    // dxc_native_frame_begin (a refit refused, or the swapchain not yet made) would be
+    // the previous buffer stretched to the new area instead of left at its own size.
+    swapchain_description.Scaling = DXGI_SCALING_NONE;
     IDXGISwapChain1 *first = NULL;
     HRESULT made = IDXGIFactory4_CreateSwapChainForHwnd(
         factory, (IUnknown *)queue, window, &swapchain_description, NULL, NULL, &first);
