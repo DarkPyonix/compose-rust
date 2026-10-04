@@ -1,0 +1,336 @@
+# Resize metrics -- the Kotlin/Native renderers, Windows and macOS, measured the same way:
+# the hand-check application with DXC_METRICS=1, which reports memory and the collector,
+# dirties the heap and then takes the window through 100 scripted sizes, printing every
+# frame's time and the collections among them. Builds as windows-static.yml does. Run by
+# hand, once per question; the Compose builds behind it are long.
+
+name: Resize metrics
+
+on:
+  workflow_dispatch:
+  # A new workflow cannot be dispatched until it is on the default branch, so it also runs
+  # on the pull request that changes it.
+  pull_request:
+    paths:
+      - ".github/workflows/test-windows-resize-metrics.yml"
+      - ".github/scripts/resize-metrics-run.sh"
+
+permissions:
+  contents: read
+
+jobs:
+  compose:
+    name: Compose and skiko for mingwX64 (built on Linux)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore Compose and skiko for mingwX64
+        id: kit-cache
+        # Restored and saved as two steps, so a run that fails after they are built still
+        # keeps them, and the next attempt does not spend an hour on them again.
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.m2/repository
+            .scratch/skiko-build/out/windows-x64/skiko-bridges.lib
+            .scratch/skiko-build/out/windows-x64/skia
+            .scratch/skiko-build/out/windows-x64/embedded_icu.cpp
+          key: compose-mingwx64-${{ hashFiles('renderer/scripts/build-compose.sh', 'renderer/scripts/compose-fork-mingw.changes') }}
+
+      - name: Make room for the Compose build
+        if: steps.kit-cache.outputs.cache-hit != 'true'
+        # The Android SDK stays, because Compose's Gradle build reads it.
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Install a JDK 17 for the Compose and skiko builds
+        if: steps.kit-cache.outputs.cache-hit != 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Lay out the MSVC runtime and Windows SDK headers
+        if: steps.kit-cache.outputs.cache-hit != 'true'
+        # skiko's C++ half has to match Skia's ABI, which is MSVC's, so it is compiled with
+        # clang in MSVC mode against these. xwin is what cargo-xwin uses to fetch them, and
+        # the layout it writes is the one the skiko build looks for.
+        run: |
+          set -euo pipefail
+          version=0.10.0
+          curl -fsSL "https://github.com/Jake-Shadle/xwin/releases/download/$version/xwin-$version-x86_64-unknown-linux-musl.tar.gz" |
+            tar -xz -C "$RUNNER_TEMP"
+          "$RUNNER_TEMP/xwin-$version-x86_64-unknown-linux-musl/xwin" --accept-license \
+            splat --output "$HOME/.cache/cargo-xwin/xwin"
+          ls "$HOME/.cache/cargo-xwin/xwin" "$HOME/.cache/cargo-xwin/xwin/sdk/include"
+
+      - name: Fetch Kotlin/Native's LLVM and MinGW toolchain
+        if: steps.kit-cache.outputs.cache-hit != 'true'
+        # The skiko build compiles its C++ half with Kotlin/Native's clang and looks for it
+        # before anything else runs, and Kotlin/Native downloads it only when it first links
+        # something. Linking one empty program for mingwX64 is that first time.
+        run: |
+          set -euo pipefail
+          version=2.2.20
+          curl -fsSL "https://github.com/JetBrains/kotlin/releases/download/v$version/kotlin-native-prebuilt-linux-x86_64-$version.tar.gz" |
+            tar -xz -C "$RUNNER_TEMP"
+          echo 'fun main() {}' > "$RUNNER_TEMP/empty.kt"
+          "$RUNNER_TEMP/kotlin-native-prebuilt-linux-x86_64-$version/bin/konanc" \
+            -target mingw_x64 "$RUNNER_TEMP/empty.kt" -o "$RUNNER_TEMP/empty"
+          ls ~/.konan/dependencies
+          ls ~/.konan/dependencies/llvm-*-essentials*/bin | head -50
+
+      - name: Build skiko and Compose for mingwX64 from the fork
+        if: steps.kit-cache.outputs.cache-hit != 'true'
+        run: ./renderer/scripts/build-compose.sh --target mingwX64
+
+      - name: Keep them for the next run
+        if: steps.kit-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.m2/repository
+            .scratch/skiko-build/out/windows-x64/skiko-bridges.lib
+            .scratch/skiko-build/out/windows-x64/skia
+            .scratch/skiko-build/out/windows-x64/embedded_icu.cpp
+          key: ${{ steps.kit-cache.outputs.cache-primary-key }}
+
+      - name: Report what was published
+        run: |
+          find ~/.m2/repository -name '*mingwx64*' -maxdepth 5 | sort
+          ls -la .scratch/skiko-build/out/windows-x64 .scratch/skiko-build/out/windows-x64/skia
+          du -sh ~/.m2/repository .scratch/skiko-build/out/windows-x64
+
+      - name: Hand them to the Windows job
+        uses: actions/upload-artifact@v4
+        with:
+          name: compose-mingwx64
+          # The local Maven repository holds only what these builds published: Gradle keeps
+          # what it downloads in its own cache, not here. Both directories are hidden ones,
+          # which the upload leaves out unless told.
+          include-hidden-files: true
+          path: |
+            ~/.m2/repository
+            .scratch/skiko-build/out/windows-x64/skiko-bridges.lib
+            .scratch/skiko-build/out/windows-x64/skia
+            .scratch/skiko-build/out/windows-x64/embedded_icu.cpp
+          if-no-files-found: error
+          retention-days: 3
+
+  windows:
+    name: Kotlin/Native renderer, hand-check under a scripted resize (Windows, x64)
+    needs: compose
+    runs-on: windows-latest
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check symbolic links out as links
+        # The renderer module reaches the shared interpreter through symlinks, and Git for
+        # Windows checks them out as small text files unless told otherwise. The runner is an
+        # administrator, which is what creating one needs.
+        run: |
+          git config --global core.symlinks true
+          git config --global core.longpaths true
+
+      - uses: actions/checkout@v4
+
+      - name: Confirm the links are links
+        run: |
+          set -euo pipefail
+          link=renderer/windows/src/shared/HostButton.kt
+          head -3 "$link"
+          grep -q '^package ' "$link" || { echo "$link was checked out as a file holding its target" >&2; exit 1; }
+
+      - name: Install a JDK 17 for the Kotlin/Native compiler
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install the Rust toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      - name: Receive Compose and skiko for mingwX64
+        uses: actions/download-artifact@v4
+        with:
+          name: compose-mingwx64
+          path: ${{ runner.temp }}/compose-mingwx64
+
+      - name: Put them where the builds look
+        run: |
+          set -euo pipefail
+          kit="$(cygpath -u "$RUNNER_TEMP")/compose-mingwx64"
+          find "$kit" -maxdepth 3 | head -20
+          # The artifact keeps the paths below the common root of what was uploaded.
+          m2="$(find "$kit" -type d -path '*/.m2/repository' | head -1)"
+          skiko="$(find "$kit" -type d -path '*/out/windows-x64' | head -1)"
+          [[ -n "$m2" && -n "$skiko" ]] || { echo "the artifact holds no Maven repository or skiko output" >&2; exit 1; }
+          mkdir -p ~/.m2 .scratch/skiko-build/out
+          rm -rf ~/.m2/repository .scratch/skiko-build/out/windows-x64
+          mv "$m2" ~/.m2/repository
+          mv "$skiko" .scratch/skiko-build/out/windows-x64
+          ls ~/.m2/repository/org/jetbrains/compose/ui | head
+          ls -la .scratch/skiko-build/out/windows-x64
+
+      - name: Restore the Kotlin toolchain
+        id: toolchain-cache
+        # Restored and saved as two steps, so a run that fails after the toolchain is in place
+        # still keeps it for the next one.
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/AppData/Local/JetBrains/Kotlin
+            ~/.konan
+          key: kotlin-native-windows-${{ hashFiles('renderer/kotlin', 'renderer/libs.versions.toml', 'renderer/**/module.yaml') }}
+          restore-keys: |
+            kotlin-native-windows-
+
+      - name: Enter the Visual Studio developer environment
+        # The headers clang compiles our C against, and dumpbin.
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $vcvars = Join-Path $vs "VC\Auxiliary\Build\vcvars64.bat"
+          cmd /c "`"$vcvars`" >nul && set" | ForEach-Object {
+            if ($_ -match '^(INCLUDE|LIB|LIBPATH|VCToolsInstallDir|WindowsSdkDir|WindowsSDKVersion)=(.*)$') {
+              "$($matches[1])=$($matches[2])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            }
+          }
+          # The tools of the same toolset the headers above belong to: a cl.exe from an older
+          # toolset refuses this one's C++ library (STL1001).
+          $tools = $null
+          cmd /c "`"$vcvars`" >nul && set" | ForEach-Object {
+            if ($_ -match '^VCToolsInstallDir=(.*)$') { $tools = $matches[1] }
+          }
+          $bin = Join-Path $tools "bin\Hostx64\x64"
+          $bin | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          Write-Output "MSVC tools: $bin"
+
+      - name: Report the machine
+        run: |
+          uname -a
+          java -version 2>&1
+          rustc -vV
+          python --version || true
+          command -v clang && clang --version || true
+          df -h . || true
+
+      - name: Build the static renderer
+        id: renderer
+        run: ./renderer/desktop/scripts/build-windows.sh
+
+      - name: Keep the Kotlin toolchain for the next run
+        if: always() && steps.toolchain-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/AppData/Local/JetBrains/Kotlin
+            ~/.konan
+          key: ${{ steps.toolchain-cache.outputs.cache-primary-key }}
+
+      - name: Show what the renderer build left behind
+        if: failure()
+        run: |
+          ls renderer/build/tasks 2>/dev/null | grep -i windows || true
+          tail -n 120 renderer/build/windows-logs/*-build.log 2>/dev/null || true
+          tail -n 120 renderer/build/windows-logs/*-link.log 2>/dev/null || true
+
+      - name: Keep the renderer build's logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-static-renderer-logs
+          path: renderer/build/windows-logs/
+          retention-days: 7
+
+      - name: Report the renderer kit
+        run: |
+          ls -la renderer/build/windows renderer/build/windows/*/
+          du -sh renderer/build/windows
+
+      - name: Build hand-check against the renderer
+        run: |
+          set -euo pipefail
+          export DXC_WINDOWS_NATIVE_LIB="$(cygpath -w "$PWD/renderer/build/windows")"
+          cargo build --release --manifest-path compose-rust/tests/fixtures/hand-check/Cargo.toml
+
+      - name: Scripted resize, measured
+        env:
+          DXC_D3D12_WARP: '1'
+        run: |
+          ./.github/scripts/resize-metrics-run.sh \
+            compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe \
+            "$(cygpath -u "$RUNNER_TEMP")/resize-metrics" windows-kn
+          cat "$(cygpath -u "$RUNNER_TEMP")/resize-metrics/windows-kn.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resize-metrics-windows-kn
+          path: ${{ runner.temp }}/resize-metrics/
+          retention-days: 14
+
+  macos:
+    name: Kotlin/Native renderer, hand-check under a scripted resize (macOS, arm64)
+    runs-on: macos-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore Compose for macosArm64
+        id: kit-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.m2/repository
+          key: compose-macosarm64-${{ hashFiles('renderer/scripts/build-compose.sh', 'renderer/scripts/compose-fork.changes') }}
+
+      - name: Install a JDK 17 for the Compose build
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Build Compose for macosArm64 from the fork
+        if: steps.kit-cache.outputs.cache-hit != 'true'
+        run: ./renderer/scripts/build-compose.sh --target macosArm64
+
+      - name: Keep it for the next run
+        if: steps.kit-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ steps.kit-cache.outputs.cache-primary-key }}
+
+      - name: Install the Rust toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      - name: Build the static renderer
+        run: ./renderer/desktop/scripts/build-macos.sh
+
+      - name: Build hand-check against the renderer
+        run: |
+          set -euo pipefail
+          export DXC_MACOS_NATIVE_LIB="$PWD/renderer/build/macos"
+          cargo build --release --manifest-path compose-rust/tests/fixtures/hand-check/Cargo.toml
+
+      - name: Scripted resize, measured
+        run: |
+          ./.github/scripts/resize-metrics-run.sh \
+            compose-rust/tests/fixtures/hand-check/target/release/hand-check \
+            "$RUNNER_TEMP/resize-metrics" macos-kn
+          cat "$RUNNER_TEMP/resize-metrics/macos-kn.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resize-metrics-macos-kn
+          path: ${{ runner.temp }}/resize-metrics/
+          retention-days: 14

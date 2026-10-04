@@ -85,6 +85,24 @@ private external fun pump(seconds: Double)
 @SymbolName("dxc_native_window_closed")
 private external fun windowClosed(): Int
 
+@SymbolName("dxc_native_window_configure")
+private external fun configureWindow(resizable: Int, minWidth: Int, minHeight: Int, systemChrome: Int, backdrop: Int)
+
+@SymbolName("dxc_native_debug_resize")
+private external fun debugResize(
+    window: COpaquePointer?,
+    view: COpaquePointer?,
+    fromWidth: Int,
+    fromHeight: Int,
+    toWidth: Int,
+    toHeight: Int,
+    steps: Int,
+    pauseMicros: Int,
+)
+
+@SymbolName("dxc_native_report_metrics")
+private external fun reportMetrics(label: CPointer<ByteVar>?)
+
 /**
  * A window of this renderer's own on Windows, drawn into with Skia through Direct3D 12 and with
  * no toolkit in between.
@@ -182,6 +200,20 @@ internal class Win32Window private constructor(
             // Windows delivers to, so the messages of this frame arrive here or not at all.
             pump(if (busy) 0.0 else FRAME_SECONDS)
             work.runPending()
+            if (ResizeMetrics.due()) {
+                ResizeMetrics.run(
+                    phase = { name ->
+                        System.err.println(
+                            "compose-rust: metrics phase $name ${ResizeMetrics.summary()} " +
+                                "skia_cache_limit_mb=${context.resourceCacheLimit / 1048576}",
+                        )
+                        memScoped { reportMetrics(name.cstr.ptr) }
+                    },
+                    resize = { from, to, steps ->
+                        debugResize(window, null, from.first, from.second, to.first, to.second, steps, 0)
+                    },
+                )
+            }
             var heard = false
             for (event in drainEvents()) {
                 if (reportInput && event.kind != WindowEvent.POINTER_MOVE) {
@@ -218,7 +250,10 @@ internal class Win32Window private constructor(
             // place that runs at all.
             work.runPending()
             nanos += FRAME_NANOS
-            if (drawFrame()) {
+            ResizeMetrics.frameBegin()
+            val drawn = drawFrame()
+            ResizeMetrics.frameEnd(size.width, size.height)
+            if (drawn) {
                 painted = true
                 drew = true
             }
@@ -270,8 +305,9 @@ internal class Win32Window private constructor(
             SurfaceProps(PixelGeometry.RGB_H),
         )
         if (surface == null) {
+            // Not ended: ending moves the texture from render target to present, and Skia
+            // never put it in render target, so that barrier would be invalid.
             target.close()
-            endFrame(queue)
             return false
         }
         scene.render(surface.canvas.asComposeCanvas(), nanos)
@@ -315,6 +351,8 @@ internal class Win32Window private constructor(
         fun open(title: String, width: Int, height: Int): Win32Window? {
             val pointers = nativeHeap.allocArray<COpaquePointerVar>(WINDOW_POINTERS)
             try {
+                // The system's caption: this renderer draws no title bar of its own.
+                configureWindow(1, 0, 0, 1, 0)
                 val opened = memScoped { openWindow(title.cstr.ptr, width, height, pointers) }
                 if (opened != 0) return null
                 // Five pointers, in the order the C struct declares them.
