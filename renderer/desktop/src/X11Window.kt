@@ -216,6 +216,7 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
         // nothing of a scene that has closed.
         setX11FramePainter { frames.draw() }
         while (!isWindowClosed()) {
+            if (synthetic != null && synthetic.exitDue(System.nanoTime())) break
             if (autoExitMillis != null &&
                 (System.nanoTime() - started) / NANOS_PER_MILLI >= autoExitMillis
             ) {
@@ -236,6 +237,7 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
             var drew = false
             for (event in synthetic?.due(System.nanoTime(), size) ?: emptyList()) {
                 if (event.kind == WindowEvent.TEXT_COMMIT) LatencyTrace.inputSent()
+                LatencyTrace.mark("synthetic ${event.kind} sent")
                 scene.receive(event)
                 textInput.receive(event)
                 heard = true

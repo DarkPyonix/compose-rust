@@ -203,6 +203,25 @@ jobs:
         # field and a button. See the script for what this proves and what it cannot.
         run: xvfb-run -a -s '-screen 0 1280x1024x24' ./.github/scripts/check-linux-input-access.sh renderer/build/linux "$RUNNER_TEMP/input-access"
 
+      - name: Parity checklist and measurements, Kotlin/Native path
+        if: inputs.target == 'linux-x64'
+        # The same checklist and the same measurements test-graalvm-renderer.yml runs on the
+        # GraalVM path, with the same application (the consumer fixture the step above
+        # built). The table is in the job summary; a row that fails is a warning, not a stop.
+        run: |
+          sudo apt-get install -y xclip
+          xvfb-run -a -s '-screen 0 1280x1024x24' ./scripts/parity/linux.sh native "$RUNNER_TEMP/parity" -- \
+            "$PWD/target/linux-input-check/debug/consumer" --input-check
+
+      - name: Keep the parity run's logs
+        if: always() && inputs.target == 'linux-x64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: parity-native-linux
+          path: ${{ runner.temp }}/parity/
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Keep the input and accessibility check's logs
         if: always() && inputs.target == 'linux-x64'
         uses: actions/upload-artifact@v4

@@ -2,6 +2,7 @@ package dev.darkpyonix.composerust.ui.platform
 
 import java.lang.System
 import kotlin.math.roundToLong
+import org.jetbrains.skiko.currentSystemTheme
 
 /**
  * Timestamps along the path from a key press to the pixels, on request, and the numbers the
@@ -68,6 +69,7 @@ internal object LatencyTrace {
     /** The lines at the end of a run: what each frame cost, per phase, and what an input cost. */
     fun summary() {
         if (!enabled) return
+        System.err.println("compose-rust: parity system_theme ${currentSystemTheme.name.lowercase()}")
         var frames = 0
         var total = 0L
         var worst = 0L

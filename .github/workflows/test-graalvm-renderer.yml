@@ -20,6 +20,7 @@ on:
       - 'renderer/**/module.yaml'
       - 'scripts/install-nik.sh'
       - 'scripts/tests/renderer/**'
+      - 'scripts/parity/**'
       - '.github/workflows/test-graalvm-renderer.yml'
   push:
     branches: [develop]
@@ -30,6 +31,7 @@ on:
       - 'renderer/**/module.yaml'
       - 'scripts/install-nik.sh'
       - 'scripts/tests/renderer/**'
+      - 'scripts/parity/**'
       - '.github/workflows/test-graalvm-renderer.yml'
   workflow_dispatch:
 
@@ -138,6 +140,29 @@ jobs:
         env:
           COMPOSE_RUST_AUTOEXIT_MS: '5000'
         run: xvfb-run -a ./renderer/desktop/scripts/smoke-test-linux.sh
+
+      - name: Parity checklist and measurements, GraalVM path
+        # The same checklist and the same measurements static-renderer.yml runs on the
+        # Kotlin/Native path, with the same application: the consumer fixture, linked to the
+        # renderer this job just built. The table is in the job summary; a row that fails is
+        # a warning, not a stop.
+        run: |
+          sudo apt-get install -y xdotool xclip x11-utils
+          dist="$PWD/renderer/build/native-image-linux/dist/lib"
+          COMPOSE_RUST_RENDERER_DIR="$dist" CARGO_TARGET_DIR="$PWD/target/parity" \
+            cargo build --manifest-path compose-rust/tests/fixtures/consumer/Cargo.toml
+          LD_LIBRARY_PATH="$dist" xvfb-run -a -s '-screen 0 1280x1024x24' \
+            ./scripts/parity/linux.sh graalvm "$RUNNER_TEMP/parity" -- \
+            "$PWD/target/parity/debug/consumer" --input-check
+
+      - name: Keep the parity run's logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: parity-graalvm-linux-x64
+          path: ${{ runner.temp }}/parity/
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Upload the Linux renderer for inspection
         uses: actions/upload-artifact@v4

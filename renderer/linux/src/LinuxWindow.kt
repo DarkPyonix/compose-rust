@@ -448,9 +448,14 @@ internal class LinuxWindow private constructor(
                 log.drain(drained)
                 synthetic?.due(System.nanoTime(), measured)?.forEach { event ->
                     if (event.kind == WindowEvent.TEXT_COMMIT) LatencyTrace.inputSent()
+                    LatencyTrace.mark("synthetic ${event.kind} sent")
                     drained.add(event)
                 }
                 if (synthetic != null && synthetic.resizeDue(System.nanoTime())) scriptedResize()
+                if (synthetic != null && synthetic.exitDue(System.nanoTime())) {
+                    closed = true
+                    continue
+                }
                 for (event in drained) {
                     if (reportInput && event.kind != WindowEvent.POINTER_MOVE) {
                         System.err.println("compose-rust: window heard $event")
