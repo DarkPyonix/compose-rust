@@ -75,8 +75,6 @@ image_name="${LIBRARY_NAME}_image"
     -Os \
     -H:+UnlockExperimentalVMOptions \
     -H:ReportAnalysisForbiddenType=java.awt.Toolkit \
-    -H:ReportAnalysisForbiddenType=java.awt.Color \
-    -H:ReportAnalysisForbiddenType=java.awt.geom.AffineTransform \
     "-H:NativeLinkerOption=$obj/x11_window.o" \
     '-H:NativeLinkerOption=-lX11' \
     '-H:NativeLinkerOption=-lGL' \
