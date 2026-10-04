@@ -205,6 +205,52 @@ static int dxc_priority(void) {
 // The UI thread's priority before a drag raised it.
 static int dxc_thread_priority_before = THREAD_PRIORITY_ERROR_RETURN;
 
+// The adapter the Direct3D 12 device was made on, and the monitor the window was last on.
+static LUID dxc_device_luid;
+static HMONITOR dxc_last_monitor;
+
+/**
+ * Logs the window's monitor, its DPI, the adapter driving that monitor and the adapter
+ * the device draws with. When the two adapters differ, every present crosses adapters
+ * before DWM can compose it.
+ */
+static void dxc_log_monitor(HWND window, const char *reason) {
+    HMONITOR monitor = MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST);
+    dxc_last_monitor = monitor;
+    LUID output_luid = {0, 0};
+    int found = 0;
+    IDXGIFactory1 *factory = NULL;
+    if (SUCCEEDED(CreateDXGIFactory1(&IID_IDXGIFactory1, (void **)&factory))) {
+        IDXGIAdapter1 *adapter = NULL;
+        for (UINT a = 0; !found && IDXGIFactory1_EnumAdapters1(factory, a, &adapter) != DXGI_ERROR_NOT_FOUND; a++) {
+            IDXGIOutput *output = NULL;
+            for (UINT o = 0; !found && IDXGIAdapter1_EnumOutputs(adapter, o, &output) != DXGI_ERROR_NOT_FOUND; o++) {
+                DXGI_OUTPUT_DESC described;
+                if (SUCCEEDED(IDXGIOutput_GetDesc(output, &described)) && described.Monitor == monitor) {
+                    DXGI_ADAPTER_DESC1 adapter_described;
+                    if (SUCCEEDED(IDXGIAdapter1_GetDesc1(adapter, &adapter_described))) {
+                        output_luid = adapter_described.AdapterLuid;
+                        found = 1;
+                    }
+                }
+                IDXGIOutput_Release(output);
+            }
+            IDXGIAdapter1_Release(adapter);
+        }
+        IDXGIFactory1_Release(factory);
+    }
+    int same = found && output_luid.LowPart == dxc_device_luid.LowPart &&
+               output_luid.HighPart == dxc_device_luid.HighPart;
+    fprintf(stderr,
+            "compose-rust: resize-mode: monitor %p dpi %u, monitor adapter %08lx:%08lx, "
+            "device adapter %08lx:%08lx (%s) because %s\n",
+            (void *)monitor, (unsigned)GetDpiForWindow(window),
+            (unsigned long)output_luid.HighPart, (unsigned long)output_luid.LowPart,
+            (unsigned long)dxc_device_luid.HighPart, (unsigned long)dxc_device_luid.LowPart,
+            !found ? "monitor adapter not found" : (same ? "same adapter" : "DIFFERENT adapter"),
+            reason);
+}
+
 // The last WM_SIZE kind, for logging maximise, minimise and restore.
 static WPARAM dxc_last_size_kind = SIZE_RESTORED;
 
@@ -1659,6 +1705,20 @@ static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM
     case WM_DPICHANGED:
         fprintf(stderr, "compose-rust: resize-mode: dpi -> %u because WM_DPICHANGED\n",
                 (unsigned)HIWORD(wparam));
+        if (dxc_swapchain != NULL) {
+            dxc_log_monitor(window, "WM_DPICHANGED");
+        }
+        break;
+    case WM_DISPLAYCHANGE:
+        if (dxc_swapchain != NULL) {
+            dxc_log_monitor(window, "WM_DISPLAYCHANGE");
+        }
+        break;
+    case WM_MOVE:
+        if (dxc_swapchain != NULL &&
+            MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST) != dxc_last_monitor) {
+            dxc_log_monitor(window, "the window moved to another monitor");
+        }
         break;
     case WM_SIZE:
         if (wparam != dxc_last_size_kind &&
@@ -2474,6 +2534,7 @@ int32_t dxc_native_window_open(
             (description.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) == 0 &&
             SUCCEEDED(D3D12CreateDevice((IUnknown *)adapter, D3D_FEATURE_LEVEL_11_0,
                                         &IID_ID3D12Device, (void **)&device))) {
+            dxc_device_luid = description.AdapterLuid;
             break;
         }
         IDXGIAdapter1_Release(adapter);
@@ -2597,6 +2658,7 @@ int32_t dxc_native_window_open(
     // recognised as the size the swapchain already is.
     dxc_resize_fitted(&dxc_sizing, (int32_t)pixel_width, (int32_t)pixel_height);
     dxc_report_latency = getenv("DXC_REPORT_LATENCY") != NULL;
+    dxc_log_monitor(window, "the window opened");
     dxc_presented_width = (int32_t)pixel_width;
     dxc_presented_height = (int32_t)pixel_height;
 
