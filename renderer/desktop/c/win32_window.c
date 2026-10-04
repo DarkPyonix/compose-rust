@@ -1422,15 +1422,32 @@ static void dxc_draw_resize(int32_t width, int32_t height) {
 static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
     switch (message) {
     case WM_NCCALCSIZE: {
-        if (dxc_options.system_chrome || wparam != TRUE) {
+        if (wparam != TRUE) {
             break;
         }
         NCCALCSIZE_PARAMS *params = (NCCALCSIZE_PARAMS *)lparam;
         LONG requested_top = params->rgrc[0].top;
-        DefWindowProcW(window, message, wparam, lparam);
-        params->rgrc[0].top = IsZoomed(window) ? requested_top + dxc_maximised_overhang()
-                                               : requested_top;
-        return 0;
+        LRESULT answer = DefWindowProcW(window, message, wparam, lparam);
+        if (!dxc_options.system_chrome) {
+            params->rgrc[0].top = IsZoomed(window) ? requested_top + dxc_maximised_overhang()
+                                                   : requested_top;
+            answer = 0;
+        }
+        // Growing, the frame for the new size is presented here, before the window and
+        // its redirection surface grow. By WM_SIZE they already have, and DWM can compose
+        // the new area, cleared to black, before a present made there lands. With
+        // DXGI_SCALING_NONE a buffer larger than the old client area is shown unscaled at
+        // its top left and cut by the window, so presenting early shows nothing wrong.
+        // Shrinking needs none of this: the old buffer is cut by the smaller window until
+        // WM_SIZE presents the new size.
+        int32_t width = params->rgrc[0].right - params->rgrc[0].left;
+        int32_t height = params->rgrc[0].bottom - params->rgrc[0].top;
+        if (dxc_swapchain != NULL && !IsIconic(window) && width > 0 && height > 0 &&
+            (width > dxc_presented_width || height > dxc_presented_height)) {
+            dxc_resize_note(&dxc_sizing, width, height);
+            dxc_draw_resize(width, height);
+        }
+        return answer;
     }
     case WM_NCHITTEST:
         if (dxc_options.system_chrome) {
