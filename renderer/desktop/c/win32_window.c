@@ -179,6 +179,37 @@ static int32_t dxc_presented_height;
 // DXC_REPORT_LATENCY: each resize step prints how long the refit, the draw, the present
 // and the DwmFlush took together.
 static int dxc_report_latency;
+/**
+ * One line on stderr for every change of a state that decides how resize frames are
+ * produced. On by default: these happen a handful of times a session, and they are what
+ * tells a capture that went wrong apart from one that did not.
+ */
+static void dxc_mode(const char *what, const char *from, const char *to, const char *reason) {
+    fprintf(stderr, "compose-rust: resize-mode: %s %s -> %s because %s\n", what, from, to, reason);
+}
+
+// The last WM_SIZE kind, for logging maximise, minimise and restore.
+static WPARAM dxc_last_size_kind = SIZE_RESTORED;
+
+static const char *dxc_size_kind_name(WPARAM kind) {
+    switch (kind) {
+    case SIZE_MAXIMIZED: return "maximised";
+    case SIZE_MINIMIZED: return "minimised";
+    case SIZE_RESTORED: return "restored";
+    default: return "other";
+    }
+}
+
+/** Logs a failed DXGI call, with the device removed reason when that is what it was. */
+static void dxc_log_dxgi_failure(const char *call, HRESULT result) {
+    fprintf(stderr, "compose-rust: resize-mode: %s failed with 0x%08lx\n", call, (unsigned long)result);
+    if ((result == DXGI_ERROR_DEVICE_REMOVED || result == DXGI_ERROR_DEVICE_RESET) &&
+        dxc_device != NULL) {
+        fprintf(stderr, "compose-rust: resize-mode: device ok -> removed because 0x%08lx\n",
+                (unsigned long)ID3D12Device_GetDeviceRemovedReason(dxc_device));
+    }
+}
+
 // A resize step that takes longer than this is logged. It is not cut short: returning
 // before the frame is presented and flushed lets DWM show the resized redirection surface,
 // which is black, so a slow step is slow rather than wrong.
@@ -1413,6 +1444,10 @@ static void dxc_draw_resize(int32_t width, int32_t height) {
     QueryPerformanceCounter(&started);
     dxc_resize_target_width = width;
     dxc_resize_target_height = height;
+    if (dxc_drawing) {
+        fprintf(stderr, "compose-rust: resize-mode: skipped present %dx%d because a frame was already being drawn\n",
+                (int)width, (int)height);
+    }
     dxc_resizing = 1;
     dxc_step_gpu_idle_ms = dxc_step_refit_ms = dxc_step_draw_ms = dxc_step_present_ms = 0.0;
     dxc_step_copy_ms = 0.0;
@@ -1530,11 +1565,13 @@ static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM
         // inside `DefWindowProc` rather than from the renderer's frame loop, and that
         // loop does not return until the reader lets go.
         dxc_resize_begin_drag(&dxc_sizing);
+        dxc_mode("size-move", "off", "on", "WM_ENTERSIZEMOVE");
         return 0;
     case WM_EXITSIZEMOVE:
         // Let go. The frame loop has its turns back, so a size arriving after this is
         // written down and taken by the next frame.
         dxc_resize_end_drag(&dxc_sizing);
+        dxc_mode("size-move", "on", "off", "WM_EXITSIZEMOVE");
         return 0;
     case WM_IME_STARTCOMPOSITION:
         dxc_ime_composing = 1;
@@ -1592,7 +1629,17 @@ static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM
         }
         return 0;
     }
+    case WM_DPICHANGED:
+        fprintf(stderr, "compose-rust: resize-mode: dpi -> %u because WM_DPICHANGED\n",
+                (unsigned)HIWORD(wparam));
+        break;
     case WM_SIZE:
+        if (wparam != dxc_last_size_kind &&
+            (wparam == SIZE_MAXIMIZED || wparam == SIZE_MINIMIZED || wparam == SIZE_RESTORED)) {
+            dxc_mode("window", dxc_size_kind_name(dxc_last_size_kind), dxc_size_kind_name(wparam),
+                     "WM_SIZE");
+            dxc_last_size_kind = wparam;
+        }
         // Written down, then drawn: the frame refits the swapchain where it begins, never
         // while a buffer is being drawn into. Nothing to do while minimised: the client
         // area is empty and a swapchain cannot have a zero dimension.
@@ -2231,6 +2278,8 @@ static int32_t dxc_acquire_buffers(int32_t width, int32_t height) {
     }
     dxc_texture_width = width;
     dxc_texture_height = height;
+    fprintf(stderr, "compose-rust: resize-mode: draw texture -> %dx%d because a frame needed more room\n",
+            (int)width, (int)height);
     return 0;
 }
 
@@ -2475,7 +2524,8 @@ int32_t dxc_native_window_open(
         return 7;
     }
     dxc_swapchain_flags = 0;
-    fprintf(stderr, "compose-rust: swapchain for the window, copy model (sequential), 1 buffer, STRETCH\n");
+    fprintf(stderr, "compose-rust: swapchain for the window, copy model (sequential), 1 buffer, STRETCH, %ux%u\n",
+            pixel_width, pixel_height);
     // DXGI answers alt-enter by putting the window into its own idea of full screen,
     // which is a mode nothing here knows how to draw in.
     IDXGIFactory4_MakeWindowAssociation(factory, window, DXGI_MWA_NO_ALT_ENTER);
@@ -2611,10 +2661,13 @@ int32_t dxc_native_frame_begin(void *swapchain_pointer, void **texture_out) {
         // is a stretched image for a moment; not taking them back is a window that
         // stays black from here on.
         if (FAILED(resized)) {
+            dxc_log_dxgi_failure("ResizeBuffers", resized);
             dxc_acquire_buffers(dxc_sizing.fitted_width, dxc_sizing.fitted_height);
             return 2;
         }
         if (dxc_acquire_buffers(wanted_width, wanted_height) != 0) {
+            fprintf(stderr, "compose-rust: resize-mode: skipped frame %dx%d because the draw texture could not be made\n",
+                    (int)wanted_width, (int)wanted_height);
             return 2;
         }
         dxc_resize_fitted(&dxc_sizing, wanted_width, wanted_height);
@@ -2623,6 +2676,7 @@ int32_t dxc_native_frame_begin(void *swapchain_pointer, void **texture_out) {
 
     dxc_frame_index = 0;
     if (dxc_buffers[dxc_frame_index] == NULL || dxc_wrapped == NULL) {
+        fprintf(stderr, "compose-rust: resize-mode: skipped frame because there is no draw texture\n");
         return 3;
     }
     *texture_out = (void *)dxc_buffers[dxc_frame_index];
@@ -2681,6 +2735,13 @@ void dxc_native_frame_end(void *queue_pointer) {
          dxc_sizing.fitted_height != dxc_resize_target_height ||
          (dxc_presented_width == dxc_resize_target_width &&
           dxc_presented_height == dxc_resize_target_height))) {
+        fprintf(stderr, "compose-rust: resize-mode: skipped present %dx%d because %s (target %dx%d)\n",
+                (int)dxc_sizing.fitted_width, (int)dxc_sizing.fitted_height,
+                (dxc_sizing.fitted_width != dxc_resize_target_width ||
+                 dxc_sizing.fitted_height != dxc_resize_target_height)
+                    ? "the frame was drawn at another size"
+                    : "that size was already presented",
+                (int)dxc_resize_target_width, (int)dxc_resize_target_height);
         dxc_wait_for_gpu();
         return;
     }
@@ -2689,7 +2750,9 @@ void dxc_native_frame_end(void *queue_pointer) {
     LARGE_INTEGER copy_started;
     QueryPerformanceCounter(&copy_started);
     ID3D11Resource *back = NULL;
-    if (FAILED(IDXGISwapChain1_GetBuffer(dxc_swapchain, 0, &IID_ID3D11Resource, (void **)&back))) {
+    HRESULT got = IDXGISwapChain1_GetBuffer(dxc_swapchain, 0, &IID_ID3D11Resource, (void **)&back);
+    if (FAILED(got)) {
+        dxc_log_dxgi_failure("GetBuffer", got);
         dxc_wait_for_gpu();
         return;
     }
@@ -2705,7 +2768,10 @@ void dxc_native_frame_end(void *queue_pointer) {
     // presents without waiting spends a machine to draw frames nobody sees. Zero inside
     // one, where the DwmFlush that follows paces it instead and a vertical blank waited
     // for first would hold the drag for one more frame.
-    IDXGISwapChain1_Present(dxc_swapchain, dxc_resizing ? 0 : 1, 0);
+    HRESULT shown = IDXGISwapChain1_Present(dxc_swapchain, dxc_resizing ? 0 : 1, 0);
+    if (FAILED(shown)) {
+        dxc_log_dxgi_failure("Present", shown);
+    }
     dxc_presented_width = dxc_sizing.fitted_width;
     dxc_presented_height = dxc_sizing.fitted_height;
 
