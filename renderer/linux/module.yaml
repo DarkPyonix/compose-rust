@@ -44,9 +44,9 @@ dependencies:
   # The window and what every window decides the same way. Published by
   # scripts/publish-window.sh from the pinned fork commit, next to the patched Compose.
   - org.thisisthepy.compose.window:common:0.1.0
-  - org.thisisthepy.compose.window:native-linux:0.1.0
 
 dependencies@linuxX64:
+  - org.thisisthepy.compose.window:native-linux-linuxx64:0.1.0
   - org.jetbrains.compose.animation:animation-linuxx64:1.11.1
   - org.jetbrains.compose.animation:animation-core-linuxx64:1.11.1
   - org.jetbrains.compose.foundation:foundation-linuxx64:1.11.1
@@ -63,6 +63,7 @@ dependencies@linuxX64:
   - org.jetbrains.compose.ui:ui-util-linuxx64:1.11.1
 
 dependencies@linuxArm64:
+  - org.thisisthepy.compose.window:native-linux-linuxarm64:0.1.0
   - org.jetbrains.compose.animation:animation-linuxarm64:1.11.1
   - org.jetbrains.compose.animation:animation-core-linuxarm64:1.11.1
   - org.jetbrains.compose.foundation:foundation-linuxarm64:1.11.1
