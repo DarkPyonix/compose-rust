@@ -17,7 +17,8 @@ classpath="$(cat "$CLASSPATH_FILE")"
 obj="$BUILD_DIR/obj"
 # PROBE
 for jar in $(tr ':' ' ' <<< "$classpath"); do
-    [[ -f "$jar" ]] && unzip -l "$jar" 2>/dev/null | grep 'META-INF/native-image' | sed "s|^|PROBE $(basename "$jar"): |"
+    [[ -f "$jar" ]] || continue
+    unzip -l "$jar" 2>/dev/null | grep 'META-INF/native-image' | sed "s|^|PROBE $(basename "$jar"): |" || true
 done
 lib="$DIST_DIR/lib"
 rm -rf "$DIST_DIR" "$obj"
