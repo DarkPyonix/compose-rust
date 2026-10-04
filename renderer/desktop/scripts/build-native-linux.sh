@@ -80,6 +80,7 @@ image_name="${LIBRARY_NAME}_image"
     -cp "$classpath" \
     -o "$image_name" \
     --no-fallback \
+    --features=dev.darkpyonix.composerust.ui.platform.ImeReachabilityFeature \
     -Djava.awt.headless=false \
     -H:IncludeLocales=en,ko \
     -Os \

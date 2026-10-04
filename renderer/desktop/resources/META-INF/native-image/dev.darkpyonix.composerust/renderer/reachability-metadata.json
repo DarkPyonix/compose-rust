@@ -2092,6 +2092,9 @@
     },
     {
       "bundle": "sun.awt.resources.awt"
+    },
+    {
+      "glob": "META-INF/services/java.awt.im.spi.InputMethodDescriptor"
     }
   ]
 }
