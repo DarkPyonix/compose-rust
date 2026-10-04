@@ -54,13 +54,14 @@ data class WindowEvent(
         const val FILES_ENTERED = 10
         const val FILES_DROPPED = 11
         const val FILES_EXITED = 12
+        const val TEXT_PASTE = 13
 
         /**
          * An editing action AppKit named by its selector, `selectAll:` or `copy:`, with the
          * selector in [text]. The Edit menu sends these, and so does a key binding the
          * scene has not already been shown as a key.
          */
-        const val EDIT_COMMAND = 13
+        const val EDIT_COMMAND = 14
 
         /**
          * Set in [buttons] on a press or release of the secondary button. The pressed

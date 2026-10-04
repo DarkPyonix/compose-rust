@@ -1411,6 +1411,28 @@ int32_t dxc_native_window_closed(void) {
     return dxc_window_gone ? 1 : 0;
 }
 
+/*
+ * Calls the shared Kotlin names for the other desktops' windows, answered here by doing
+ * nothing: this window keeps its own frame, takes its caption from the system and reads a
+ * paste through the clipboard call, so none of these has anything to carry out.
+ */
+int32_t dxc_native_take_paste(char *out, int32_t capacity) {
+    (void)out; (void)capacity;
+    return 0;
+}
+
+void dxc_native_window_action(int32_t action) {
+    (void)action;
+}
+
+void dxc_native_window_begin_drag(int32_t edge) {
+    (void)edge;
+}
+
+void dxc_native_set_ime_spot(float x, float y) {
+    (void)x; (void)y;
+}
+
 /**
  * The menu bar this platform does not have.
  *

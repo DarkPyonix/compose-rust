@@ -61,7 +61,7 @@ enum {
     // An editing action named by its AppKit selector, `selectAll:` or `copy:`, with the
     // selector's name in the text. Which Compose key it becomes is decided on the other
     // side, in the same table the Kotlin/Native window uses.
-    DXC_EVENT_EDIT_COMMAND = 13,
+    DXC_EVENT_EDIT_COMMAND = 14,
 };
 
 // Set in `buttons` on a press or release of the secondary button. The buttons held down
@@ -225,6 +225,12 @@ void dxc_native_set_accessibility(const struct dxc_element *elements, int32_t co
         dxc_accessibility_children = built;
         free(copy);
     });
+}
+
+/** No paste waits on this desktop: a paste is read through the clipboard call. Present because the shared Kotlin names it. */
+int32_t dxc_native_take_paste(char *out, int32_t capacity) {
+    (void)out; (void)capacity;
+    return 0;
 }
 
 /**
@@ -507,6 +513,10 @@ static BOOL dxc_is_editing_shortcut(NSEvent *event) {
  * and to the one holding focus, and a plain NSView answers none of them; everything here
  * turns one into a record and puts it on the queue above.
  */
+// Where the caret is in the scene, in pixels from the top left, for the candidate window.
+static float dxc_ime_spot_x;
+static float dxc_ime_spot_y;
+
 // The paths of the files last dragged over the window, NUL separated.
 static NSString *dxc_dropped_paths;
 
@@ -838,7 +848,10 @@ void dxc_native_set_cursor(int32_t shape) {
 // boundary; until it is asked for, the top left of the view keeps the list on screen and
 // near enough to read, which is better than the bottom of the display.
 - (NSRect)firstRectForCharacterRange:(NSRange)range actualRange:(NSRangePointer)actualRange {
-    NSRect local = NSMakeRect(0, 0, 1, 20);
+    // Where the caret is, so the input method's candidate window opens beside what is
+    // being typed. The renderer reports it in the scene's pixels.
+    CGFloat scale = self.window.backingScaleFactor > 0 ? self.window.backingScaleFactor : 1;
+    NSRect local = NSMakeRect(dxc_ime_spot_x / scale, dxc_ime_spot_y / scale, 1, 20);
     NSRect windowRect = [self convertRect:local toView:nil];
     return [self.window convertRectToScreen:windowRect];
 }
@@ -1336,6 +1349,7 @@ void dxc_native_debug_key(void *window_pointer, int32_t key_code, const char *ch
     });
 }
 
+<<<<<<< HEAD
 // The entry the reader chose from the context menu, or -1 where the menu was dismissed.
 static int32_t dxc_menu_chosen = -1;
 
@@ -1386,4 +1400,30 @@ int32_t dxc_native_context_menu(void *view_pointer, const char *items) {
         [menu popUpMenuPositioningItem:nil atLocation:local inView:view];
     });
     return dxc_menu_chosen;
+=======
+/** What a button of the application's own caption asks: 0 minimises, 1 zooms, 2 closes. */
+void dxc_native_window_action(int32_t action) {
+    dxc_on_main(^{
+    @autoreleasepool {
+        NSWindow *window = NSApp.mainWindow ?: NSApp.windows.firstObject;
+        switch (action) {
+            case 0: [window miniaturize:nil]; break;
+            case 1: [window zoom:nil]; break;
+            case 2: [window performClose:nil]; break;
+            default: break;
+        }
+    }
+    });
+}
+
+/** The system moves and sizes this window itself, so nothing is asked of it. */
+void dxc_native_window_begin_drag(int32_t edge) {
+    (void)edge;
+}
+
+/** Says where the caret is, in pixels from the window's top left. */
+void dxc_native_set_ime_spot(float x, float y) {
+    dxc_ime_spot_x = x;
+    dxc_ime_spot_y = y;
+>>>>>>> origin/develop
 }
