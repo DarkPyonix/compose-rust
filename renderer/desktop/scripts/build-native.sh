@@ -41,17 +41,7 @@ exported=(compose_rust_renderer_run compose_rust_renderer_request_frame
 # The renderer calls the Host's compose_rust_host_* functions, which live in the Rust
 # executable that loads this library. They are resolved at load time, so the link must
 # tolerate them being undefined here.
-# The IME entry points (Java_sun_lwawt_macosx_CInputMethod_*) live in objects of the AWT
-# toolkit archive that nothing else references, so the linker drops them and the image
-# aborts the first time an input method touches a text field. Forcing the whole archive in
-# also brings the accessibility entry points (Java_sun_lwawt_macosx_CAccessib*) and the
-# Objective-C side that AppKit drives, without which the native build publishes an empty
-# accessibility tree and aborts when one is queried.
-awt_archive="$GRAALVM_HOME/lib/static/darwin-$([[ "$arch" == "arm64" ]] && echo aarch64 || echo amd64)/libawt_lwawt.a"
-[[ -f "$awt_archive" ]] || { echo "error: missing $awt_archive" >&2; exit 1; }
-
 linker_args=("-H:NativeLinkerOption=-Wl,-undefined,dynamic_lookup"
-             "-H:NativeLinkerOption=-Wl,-force_load,$awt_archive"
              "-H:NativeLinkerOption=$obj/renderer_entry.o" "-H:NativeLinkerOption=$obj/macos_awt_compat.o"
              "-H:NativeLinkerOption=$obj/macos_main_thread.o"
              "-H:NativeLinkerOption=$obj/appkit_window.o"
@@ -69,28 +59,6 @@ linker_args=("-H:NativeLinkerOption=-Wl,-undefined,dynamic_lookup"
 for symbol in "${exported[@]}"; do
     linker_args+=("-H:NativeLinkerOption=-Wl,-exported_symbol,_$symbol")
 done
-
-# Forcing the archive in is not enough for the accessibility classes.
-# AppKit never names them: the Objective-C side maps a Java role to a class name and looks the
-# class up with NSClassFromString, so nothing in the image refers to GroupAccessibility,
-# ButtonAccessibility or the rest by symbol, and the link drops them as dead code. The lookup
-# then returns nil, allocating from a nil class gives a nil child, and AppKit aborts the
-# process with "object cannot be nil" the moment anything reads the window's children.
-#
-# Listing the classes by hand would rot, so the list is read back out of the archive that
-# defines them and every one is made a root of the link. They are small, and keeping them is
-# the whole of the accessibility tree below the window.
-a11y_classes=()
-while IFS= read -r class_symbol; do
-    a11y_classes+=("-H:NativeLinkerOption=-Wl,-u,$class_symbol")
-done < <(nm -g "$awt_archive" 2>/dev/null |
-    awk '$2 == "S" && $3 ~ /^_OBJC_CLASS_\$_[A-Za-z]+Accessibility$/ { print $3 }' | sort -u)
-[[ ${#a11y_classes[@]} -gt 0 ]] || die \
-    "no Objective-C accessibility classes found in $awt_archive" \
-    "AppKit looks these classes up by name at runtime, so nothing references them by symbol" \
-    "and the linker is free to drop them. When it does, the build and the window are fine" \
-    "and the process aborts the moment an assistive technology attaches."
-linker_args+=("${a11y_classes[@]}")
 
 # Heap and GC settings, in service of the desktop memory target (an empty window under
 # 56MB of physical footprint). `-R:` options are baked in as the image's runtime defaults. Measure with desktop/scripts/measure-memory.sh.
@@ -197,8 +165,6 @@ fi
     -cp "$classpath" \
     -o "$LIBRARY_NAME" \
     --no-fallback \
-    --features=dev.darkpyonix.composerust.ui.platform.ImeReachabilityFeature \
-    --features=dev.darkpyonix.composerust.ui.platform.AccessibilityReachabilityFeature \
     -Djava.awt.headless=false \
     -H:IncludeLocales=en,ko \
     -Os \

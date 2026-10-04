@@ -241,11 +241,6 @@ jobs:
         # libjawt / libawt_lwawt shims described in SPEC PR-8.
         run: ./renderer/desktop/scripts/build-native.sh
 
-      - name: Accessibility classes are linked in (SPEC NFR-8)
-        # They are reached only by name from AppKit, so the link is free to drop them and
-        # the only symptom is that turning VoiceOver on aborts the process.
-        run: ./scripts/tests/renderer/accessibility-link.test.sh
-
       - name: Smoke test (SPEC PR-8 acceptance criterion)
         env:
           # The renderer honours this to close its window unattended; without

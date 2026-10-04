@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### The shipped renderer names no Java toolkit window
+
+The toolkit's window, caption, icon, resize edges and file drop are development shell code
+now, under `renderer/desktop/src/devshell`, and the shipped sources import nothing from
+java.awt or javax.swing except Compose's own clipboard entry type. The input method and
+accessibility reachability features, the force-loaded toolkit archive on macOS and the
+toolkit's look and feel metadata are gone. A test fails when the shipped sources or the
+reachability metadata name a toolkit type that is not on a short list of what Compose forces
+(`renderer/desktop/awt-forced.txt`, tracked in the fork).
+
 ### Windows and Linux open their own window too
 
 The Win32 and X11 windows are now the default on the native-image path, with no environment
