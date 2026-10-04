@@ -20,6 +20,8 @@ on:
       - 'renderer/**/module.yaml'
       - 'scripts/install-nik.sh'
       - 'scripts/fetch-fork-window.sh'
+      - 'scripts/fetch-fork-skiko.sh'
+      - 'experiments/static-library/**'
       - 'renderer/scripts/publish-window.sh'
       - 'renderer/scripts/build-compose.sh'
       - 'scripts/tests/renderer/**'
@@ -33,6 +35,8 @@ on:
       - 'renderer/**/module.yaml'
       - 'scripts/install-nik.sh'
       - 'scripts/fetch-fork-window.sh'
+      - 'scripts/fetch-fork-skiko.sh'
+      - 'experiments/static-library/**'
       - 'renderer/scripts/publish-window.sh'
       - 'renderer/scripts/build-compose.sh'
       - 'scripts/tests/renderer/**'
@@ -73,14 +77,24 @@ jobs:
           restore-keys: |
             kotlin-${{ runner.os }}-
 
+      - name: Install JDK 21 for skiko's Gradle build
+        uses: actions/setup-java@v4
+        with:
+          distribution: corretto
+          java-version: '21'
+
+      - name: Remember where that JDK is
+        run: echo "DXC_SKIKO_JAVA_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
+
       - name: Build the renderer shared library
+        # With the fork's skiko built without JAWT and linked in, so the image carries no AWT.
         run: ./renderer/desktop/scripts/build-native.sh
 
       - name: The fork's window modules name no AWT
         run: ./scripts/tests/renderer/window-modules-no-awt.test.sh
 
-      - name: Accessibility classes are linked in
-        run: ./scripts/tests/renderer/accessibility-link.test.sh
+      - name: The linked image carries no AWT
+        run: ./scripts/tests/renderer/image-has-no-awt.test.sh
 
       - name: Smoke test
         env:
