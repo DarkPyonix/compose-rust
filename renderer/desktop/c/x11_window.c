@@ -31,6 +31,7 @@ enum {
     DXC_EVENT_FILES_ENTERED = 10,
     DXC_EVENT_FILES_DROPPED = 11,
     DXC_EVENT_FILES_EXITED = 12,
+    DXC_EVENT_TEXT_PASTE = 13,
 };
 
 #define DXC_TEXT_BYTES 96
@@ -501,42 +502,43 @@ static int32_t dxc_read_selection(Atom selection, int owned, char *out, int32_t 
 }
 
 /*
- * Text waiting to be delivered as commit events. A paste can be far longer than one event
- * holds, so it is kept whole here and handed out a piece at a time as the renderer asks for
- * events, each piece cut at a character boundary. Nothing is dropped and the event queue,
- * which is small, never has to hold more than one piece of it.
+ * A paste waiting to be taken. A paste can be far longer than one event holds, so the text
+ * stays here whole and the event only says it is waiting; the renderer takes all of it in
+ * one call and commits it as one edit.
  */
 static char *dxc_pending_text;
-static size_t dxc_pending_length, dxc_pending_at;
+static size_t dxc_pending_length;
 
-/* Reads [selection] and queues all of it to be typed into the focused field. */
+/* Reads [selection] and announces all of it as one waiting paste. */
 static void dxc_paste_selection(Atom selection, int owned) {
     free(dxc_pending_text);
     dxc_pending_text = NULL;
-    dxc_pending_length = dxc_pending_at = 0;
+    dxc_pending_length = 0;
     char *buffer = (char *)malloc(DXC_PASTE_BYTES);
     if (buffer == NULL) return;
     int32_t length = dxc_read_selection(selection, owned, buffer, DXC_PASTE_BYTES);
     if (length <= 0) { free(buffer); return; }
     dxc_pending_text = buffer;
     dxc_pending_length = (size_t)length;
+    struct dxc_event record;
+    memset(&record, 0, sizeof record);
+    record.kind = DXC_EVENT_TEXT_PASTE;
+    dxc_push_event(record);
 }
 
-/* Moves the next piece of a waiting paste into the event queue. */
-static void dxc_feed_pending(void) {
-    if (dxc_pending_text == NULL) return;
-    size_t left = dxc_pending_length - dxc_pending_at;
-    size_t take = left < DXC_TEXT_BYTES - 1 ? left : DXC_TEXT_BYTES - 1;
-    while (take > 0 && take < left &&
-           ((unsigned char)dxc_pending_text[dxc_pending_at + take] & 0xC0) == 0x80) {
-        take--;
-    }
-    dxc_push_text(DXC_EVENT_TEXT_COMMIT, dxc_pending_text + dxc_pending_at, take);
-    dxc_pending_at += take;
-    if (take == 0 || dxc_pending_at >= dxc_pending_length) {
-        free(dxc_pending_text);
-        dxc_pending_text = NULL;
-    }
+/**
+ * Hands over the waiting paste as UTF-8 and forgets it; the length, or zero where nothing
+ * waits. Where [capacity] is too small the paste stays and the answer is its length negated.
+ */
+int32_t dxc_native_take_paste(char *out, int32_t capacity) {
+    if (dxc_pending_text == NULL) return 0;
+    if ((int32_t)dxc_pending_length > capacity) return -(int32_t)dxc_pending_length;
+    memcpy(out, dxc_pending_text, dxc_pending_length);
+    int32_t length = (int32_t)dxc_pending_length;
+    free(dxc_pending_text);
+    dxc_pending_text = NULL;
+    dxc_pending_length = 0;
+    return length;
 }
 
 /** The clipboard's text as UTF-8 copied into [out], and its length; zero where none. */
@@ -1185,7 +1187,6 @@ int32_t dxc_notify_next_event(char *key, int32_t capacity, int32_t *value) {
 }
 
 int32_t dxc_native_poll_event(struct dxc_event *out) {
-    if (dxc_event_count == 0) dxc_feed_pending();
     if (dxc_event_count == 0) return 0;
     *out = dxc_events[dxc_event_head];
     dxc_event_head = (dxc_event_head + 1) % DXC_EVENT_CAPACITY;

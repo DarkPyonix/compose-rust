@@ -81,6 +81,9 @@ private external fun beginFrame(layer: Pointer?, textureOut: Pointer?): Int
 @CFunction("dxc_native_frame_end")
 private external fun endFrame(queue: Pointer?)
 
+@CFunction("dxc_native_take_paste")
+private external fun takePaste(out: Pointer?, capacity: Int): Int
+
 @CFunction("dxc_native_poll_event")
 private external fun pollEvent(out: Pointer?): Int
 
@@ -235,6 +238,13 @@ fun drainWindowEvents(): List<WindowEvent> {
             if (byte == ZERO) break
             bytes[length] = byte
             length++
+        }
+        if (record.readInt(0) == WindowEvent.TEXT_PASTE) {
+            val pasted = readPaste()
+            if (pasted.isNotEmpty()) {
+                events.add(WindowEvent(WindowEvent.TEXT_COMMIT, 0f, 0f, 0, 0, 0, 0, pasted))
+            }
+            continue
         }
         events.add(
             WindowEvent(
@@ -452,6 +462,22 @@ fun readClipboard(): String {
     val buffer = UnmanagedMemory.malloc<Pointer>(CLIPBOARD_BYTES)
     try {
         val length = clipboardRead(buffer, CLIPBOARD_BYTES)
+        if (length <= 0) return ""
+        val bytes = ByteArray(length)
+        for (index in 0 until length) {
+            bytes[index] = buffer.readByte(index)
+        }
+        return String(bytes, Charsets.UTF_8)
+    } finally {
+        UnmanagedMemory.free(buffer)
+    }
+}
+
+/** The text of a paste the window is holding, whole, and empty where there is none. */
+private fun readPaste(): String {
+    val buffer = UnmanagedMemory.malloc<Pointer>(CLIPBOARD_BYTES)
+    try {
+        val length = takePaste(buffer, CLIPBOARD_BYTES)
         if (length <= 0) return ""
         val bytes = ByteArray(length)
         for (index in 0 until length) {

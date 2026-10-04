@@ -1717,6 +1717,12 @@ void dxc_native_set_icon(const uint8_t *rgba, int32_t width, int32_t height) {
     }
 }
 
+/** No paste waits on this desktop: a paste is read through the clipboard call. Present because the shared Kotlin names it. */
+int32_t dxc_native_take_paste(char *out, int32_t capacity) {
+    (void)out; (void)capacity;
+    return 0;
+}
+
 /** What is on the clipboard as text, copied into [out] as UTF-8, and its length. */
 int32_t dxc_native_clipboard_read(char *out, int32_t capacity) {
     if (!OpenClipboard(dxc_window)) {

@@ -219,6 +219,12 @@ void dxc_native_set_accessibility(const struct dxc_element *elements, int32_t co
     });
 }
 
+/** No paste waits on this desktop: a paste is read through the clipboard call. Present because the shared Kotlin names it. */
+int32_t dxc_native_take_paste(char *out, int32_t capacity) {
+    (void)out; (void)capacity;
+    return 0;
+}
+
 /**
  * What is on the clipboard, copied into [out], and its length.
  *
