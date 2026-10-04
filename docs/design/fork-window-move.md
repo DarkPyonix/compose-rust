@@ -12,16 +12,16 @@ extended/window/
   native/                  Kotlin/Native 경로의 OS 층 (Kotlin cinterop, 손으로 쓴 C 없음)
     macos/                 AppKit + Metal 표면 (renderer/macos/src의 MacosWindow.kt, MetalSurface.kt)
     linux/                 X11 + GL/Vulkan 표면, XIM (renderer/linux/src)
-    windows/               (사용자 결정 대기, 아래 참고) Win32 + Direct3D/ANGLE 표면 (Win32Window.kt, #119). C 구현을 유지하면 이 디렉터리는 생기지 않습니다
+  windows-shared/          Windows의 공유 C 층: win32_window.c + Kotlin 래퍼. GraalVM과 K/N이 함께 링크함 (소유자 결정 2026-10-04)
   graalvm/                 GraalVM native-image 경로의 OS 층
     macos/                 appkit_window.m + Kotlin 래퍼(@CFunction 선언, 이벤트 당기기)
-    windows/               win32_window.c + Kotlin 래퍼. C 구현을 유지하면 K/N 경로도 이 C 파일을 링크하므로 두 경로의 공유 층이 됩니다
     linux/                 x11_window.c + Kotlin 래퍼
   parity/                  두 경로에 같은 점검표와 측정을 돌리는 시험
 ```
 
 - **`common/`**: 창의 상태 기계와 정책을 한곳에 둡니다. 최소 크기, 이벤트 정규화(키, 포인터, 휠), 프레임 요청 합치기, IME 조합 상태, 다크 모드와 DPI 변화, 클립보드 텍스트, 컨텍스트 메뉴 항목, 접근성 트리 캐시. 플랫폼 타입을 모릅니다. 두 경로가 이 모듈 하나를 컴파일해 씁니다(`expect`/`actual` 또는 작은 인터페이스 `WindowPlatform`). 렌더러의 `renderer/desktop/src/renderer/`와 같은 방식으로 한 벌의 소스를 두 빌드가 공유합니다.
-- **Windows 예외 (사용자 결정 대기, 2026-10-04).** #119의 Windows K/N 렌더러는 `win32_window.c`를 GraalVM 경로와 같이 링크하므로, 지금 Windows의 창은 C 구현 하나입니다. 두 변형을 결정이 날 때까지 함께 적습니다. 변형 1(리더 권고): C 구현 하나를 유지합니다. `native/windows/`는 만들지 않고, `win32_window.c`는 `graalvm/windows/`에 두되 K/N도 링크합니다. 변형 2: macOS처럼 K/N이 자기 Kotlin 창(`native/windows/`)을 가집니다. 두 경로가 구현을 따로 가지므로 일치 테스트가 Windows에도 필요합니다.
+- **Windows 예외 (소유자 결정, 2026-10-04: "C 한 벌 유지").** #119의 Windows K/N 렌더러는 `win32_window.c`를 GraalVM 경로와 같이 링크하므로 Windows의 창은 C 구현 하나입니다. `native/windows/`는 만들지 않습니다. 두 경로가 함께 쓰는 층이라 `graalvm/windows/`가 아니라 `windows-shared/`라는 이름을 씁니다(GraalVM 전용으로 읽히지 않게). 일치 테스트는 구현이 하나라 Windows에는 따로 필요하지 않습니다.
+- **폐기한 대안: K/N이 자기 Kotlin 창(`native/windows/`)을 갖는 것.** 이유는 둘입니다. 첫째, Kotlin/Native의 Windows 대상은 MinGW이고 애플리케이션은 MSVC 실행 파일이라 창 코드까지 MinGW 객체로 넘기면 링크 위험이 커집니다. 둘째, 구현이 둘이 되면 Windows에도 일치 테스트와 그 유지 부담이 생깁니다.
 - **`native/<os>/`**: `common`의 `WindowPlatform`을 구현하는 얇은 OS 층입니다. 창 만들기, 이벤트 펌프, 표면, 입력기 연결만 하고 정책은 `common`에 맡깁니다.
 - **`graalvm/<os>/`**: 같은 `WindowPlatform`을 구현하되, 아래는 C/Obj-C 파일이고 위는 Kotlin 래퍼(`@CFunction`, 생성된 upcall 표)입니다. 그리기 콜백이 upcall이어야 하는 곳(Win32 `WM_SIZE`, X11 `dxc_request_frame`)은 E0(upcall 비용 측정)의 결과로 정합니다. 2026-10-04 측정에서 upcall은 약 9 ns, 핸드셰이크는 2.75 us였습니다.
 - **`parity/`**: 같은 점검표(최소 크기, 라이브 리사이즈 프레임 수, 다크 모드, 클립보드, IME 조합, 접근성 질의)와 측정(이벤트 지연, 프레임 시간, RSS)을 두 경로에 돌립니다. CI에서 도는 것은 창을 띄울 수 있는 러너에서만 돌고, 나머지는 사람 확인 목록으로 남깁니다(IME, VoiceOver, 리사이즈 감).
@@ -41,8 +41,8 @@ extended/window/
 |---|---|---|---|
 | 0. 합의 | 2026-10-05 ~ 10-08 | 이 계획과 D21 리뷰. 포크 이슈와 브랜치 생성 | PR 승인 |
 | 1. 공통 모듈 | 2026-10-09 ~ 10-13 | `extended/window/common/`: `WindowPlatform`, 상태 기계, 정책, 이벤트 정규화. 셋 모두가 의존하므로 먼저. 이 기간에 E0도 끝냄 | 단위 시험 녹색, `WindowPlatform`이 GraalVM의 당기기와 큐를 담을 자리를 가짐 |
-| 2. K/N OS 층 셋(병렬) | 2026-10-14 ~ 10-24 | `native/macos`(#146의 빠진 것 포함), `native/linux`(X11, XIM), `native/windows`(Win32Window.kt, 변형 2일 때만. 변형 1이면 macOS와 Linux 둘) | 각 점검표 통과, 실기기 확인 |
-| 3. GraalVM 층 셋 | 2026-10-25 ~ 10-31 | `graalvm/macos`, `graalvm/windows`(변형 1이면 K/N도 링크하는 공유 C 층), `graalvm/linux`를 `WindowPlatform` 뒤로 옮김. 그리기 콜백은 E0 결과로 정함 | `parity/`가 두 경로에서 같은 결과, upcall은 생성된 표를 통하고 런타임 리플렉션 없음 |
+| 2. K/N OS 층 셋(병렬) | 2026-10-14 ~ 10-24 | `native/macos`(#146의 빠진 것 포함), `native/linux`(X11, XIM), macOS와 Linux 둘(Windows는 `native/windows`가 없음) | 각 점검표 통과, 실기기 확인 |
+| 3. GraalVM 층 셋 | 2026-10-25 ~ 10-31 | `graalvm/macos`, `windows-shared`(K/N도 링크하는 공유 C 층), `graalvm/linux`를 `WindowPlatform` 뒤로 옮김. 그리기 콜백은 E0 결과로 정함 | `parity/`가 두 경로에서 같은 결과, upcall은 생성된 표를 통하고 런타임 리플렉션 없음 |
 | 4. 정리 | 2026-11-01 이후 | 이 저장소의 복사본과 `patches/`의 창 관련 부분 제거, D19 현황 갱신 | 렌더러 빌드 녹색 |
 
 `parity/`는 단계 2에서 점검표 항목이 생길 때마다 함께 자라고, 단계 3에서 두 경로가 모두 있을 때 완성됩니다.
