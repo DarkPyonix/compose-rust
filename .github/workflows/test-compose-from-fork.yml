@@ -28,7 +28,7 @@
 # on a developer's machine. Building Compose twice per platform is slow, so this runs on
 # demand and when the pin or the build script changes, not on every push.
 
-name: Compose from fork
+name: Compose from fork test
 
 on:
   workflow_dispatch:
@@ -36,11 +36,11 @@ on:
     paths:
       - renderer/scripts/build-compose.sh
       - renderer/scripts/compose-fork.changes
-      - .github/workflows/compose-from-fork.yml
+      - .github/workflows/test-compose-from-fork.yml
       - .github/scripts/compare-maven-repos.py
 
 concurrency:
-  group: compose-from-fork-${{ github.ref }}
+  group: test-compose-from-fork-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -54,14 +54,14 @@ env:
 
 jobs:
   build:
-    name: ${{ matrix.name }}
+    name: Build Compose from the fork (${{ matrix.name }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: Linux x64
+          - name: Linux, x64
             runner: ubuntu-latest
             target: linuxX64
             renderer_script: build-linux.sh
@@ -69,7 +69,7 @@ jobs:
             toolchain_cache: ~/.cache/JetBrains/Kotlin
             gradle_heap: 11g
             gradle_workers: 4
-          - name: macOS arm64
+          - name: macOS, arm64
             runner: macos-latest
             target: macosArm64
             renderer_script: build-macos.sh
