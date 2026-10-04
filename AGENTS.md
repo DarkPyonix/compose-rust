@@ -46,7 +46,7 @@ compose-rust lets Rust code author declarative UI with **Dioxus** (`dioxus-core`
 ## Branches
 
 `develop` is where work happens. `release` and `main` are produced from it by
-`scripts/publish-main.sh`, which strips `PROJECT.md`, `AGENTS.md`, `CLAUDE.md` and everything directly
+`.github/scripts/release/sync-release.sh`, which strips `PROJECT.md`, `AGENTS.md`, `CLAUDE.md` and everything directly
 under `docs/`.
 
 1. **Publishing is one way: develop to release to main.** Never merge `release` or `main`
@@ -85,6 +85,18 @@ under `docs/`.
     `develop` is deleted; its commits are in `develop`, so nothing is kept for it, no
     `archive/` tag either. In the forks, `extended` and the upstream branch (`jb-main`) stay, and a branch merged
     into `extended` is deleted the same way.
+
+## CI naming
+
+Workflow files and names, in `.github/workflows/`:
+
+- `test.yml`, "Test": the basic checks.
+- `release-sync.yml`, "Release sync": develop to main sync; its script is `.github/scripts/release/sync-release.sh`.
+- `publish-crates.yml`, "Publish to crates.io": the tag release, started by `workflow_run` once the renderer workflow has succeeded.
+- `pages.yml`, "Pages": docs.
+- `test-<target>.yml`, "<Target> test": a special check for one target.
+
+Job names are English sentence case and say briefly what the job does. Matrix jobs read "<what> (<os>, <version>)". The same role keeps the same name across repos.
 
 ## Where files go
 

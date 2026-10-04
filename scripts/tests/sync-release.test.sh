@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for scripts/publish-main.sh.
+# Tests for .github/scripts/release/sync-release.sh.
 #
 # Every case runs against a throwaway repository built in a temporary
 # directory -- never against this repository, and never against any remote.
@@ -7,7 +7,7 @@
 set -uo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-split="$script_dir/../publish-main.sh"
+split="$script_dir/../../.github/scripts/release/sync-release.sh"
 
 failures=0
 pass() { echo "ok   - $1"; }
@@ -46,7 +46,7 @@ files_on() { git -C "$1" ls-tree -r --name-only "$2" | sort; }
 # --- refuses to run with uncommitted changes -------------------------------
 # Inside this repository's ignored .scratch/, like everything else the project makes.
 mkdir -p "$script_dir/../../.scratch"
-tmp="$(mktemp -d "$script_dir/../../.scratch/publish-main-test.XXXXXX")"
+tmp="$(mktemp -d "$script_dir/../../.scratch/sync-release-test.XXXXXX")"
 repo="$tmp/dirty"
 make_repo "$repo"
 echo "scratch" >> "$repo/README.md"
@@ -224,4 +224,4 @@ if (( failures )); then
     echo "$failures test(s) failed" >&2
     exit 1
 fi
-echo "all publish-main.sh tests passed"
+echo "all sync-release.sh tests passed"

@@ -1,7 +1,7 @@
 # Keeps the public branch in step with develop, through a pull request.
 #
 # `main` is protected, so nothing pushes to it directly. This workflow rebuilds the
-# `release` branch from develop with scripts/publish-main.sh (which drops the internal
+# `release` branch from develop with .github/scripts/release/sync-release.sh (which drops the internal
 # planning documents) and opens a pull request from release into main. A human merges it.
 #
 # `main` is always an ancestor of `release`, so merging that pull request leaves main with
@@ -24,7 +24,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish:
+  sync:
+    name: Rebuild the release branch and open the pull request
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -39,7 +40,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          ./scripts/publish-main.sh --write
+          ./.github/scripts/release/sync-release.sh --write
 
       - name: Push the release branch
         id: push
@@ -76,7 +77,7 @@ jobs:
             --base main \
             --head release \
             --title "Publish develop to main" \
-            --body "Rebuilt from \`develop\` by \`scripts/publish-main.sh\`.
+            --body "Rebuilt from \`develop\` by \`.github/scripts/release/sync-release.sh\`.
 
           The internal planning documents (\`PROJECT.md\`, \`AGENTS.md\`, \`CLAUDE.md\`, \`docs/INTENT.md\`, \`docs/SPEC.md\`) are excluded; the source, \`README.md\` and \`docs/guide/\` are not.
 
