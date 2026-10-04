@@ -212,7 +212,7 @@ class NativeContextMenuTest {
             scene.receive(event(WindowEvent.POINTER_UP, WindowEvent.SECONDARY_BUTTON))
             scene.receive(event(WindowEvent.POINTER_DOWN, 1))
             scene.receive(event(WindowEvent.POINTER_UP, 0))
-            assertEquals(listOf(PointerButton.Secondary, PointerButton.Primary), pressed)
+            assertEquals<List<PointerButton?>>(listOf(PointerButton.Secondary, PointerButton.Primary), pressed)
         } finally {
             scene.close()
         }
