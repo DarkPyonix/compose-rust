@@ -286,6 +286,13 @@ jobs:
           grep -A1 "^SECTION HEADER" renderer-headers.txt | grep -oE "\.pdata[^ ]*" | sed 's/\$.*/$NAME/' | sort | uniq -c
           grep -B2 -A12 "^SECTION HEADER" renderer-headers.txt | grep -B3 -A10 " \.pdata$" | head -40
 
+      - name: Keep the renderer object for the LNK1223 analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: renderer-object-windows-kn
+          path: renderer/build/windows/libcompose_rust_renderer.a
+          retention-days: 5
+
       - name: Build hand-check against the renderer
         # A debug build, as check-windows-consumer.sh makes: the release link of the
         # Kotlin/Native object fails with LNK1223 (invalid .pdata contributions), which is
