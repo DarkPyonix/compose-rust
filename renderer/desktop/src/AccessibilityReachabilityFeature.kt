@@ -31,7 +31,7 @@ import org.graalvm.nativeimage.hosted.RuntimeResourceAccess
  *
  * Registration alone was not enough: the role classes are reached only by name from
  * Objective-C, so the linker dropped 26 of them and the build script now roots them with
- * `-Wl,-u`. See `experiments/accessibility/README.md` for the evidence.
+ * `-Wl,-u`. See `experiments/accessibility/README.md` on the develop branch for the evidence.
  */
 class AccessibilityReachabilityFeature : Feature {
 
