@@ -32,19 +32,6 @@ int dxc_dcomp_attach(HWND window, IUnknown *swapchain);
 /** Whether a swapchain is on a window through composition right now. */
 int dxc_dcomp_active(void);
 
-/**
- * Clips the visual to the top-left width x height pixels. Goes into the batch the next
- * commit sends, so a clip and the present it belongs to reach the compositor together.
- * Zero on success.
- */
-int dxc_dcomp_set_clip(float width, float height);
-
-/**
- * Scales the visual by sx, sy about its top left. Goes into the batch the next commit
- * sends. Zero on success.
- */
-int dxc_dcomp_set_scale(float sx, float sy);
-
 /** Commits whatever is pending on the visual. Zero on success. */
 int dxc_dcomp_commit(void);
 
