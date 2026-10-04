@@ -153,6 +153,9 @@ internal class Win32Window private constructor(
 
     private val textInput = NativeTextInput()
 
+    /** The right-click menu of text and selections, drawn by the system. */
+    private val textToolbar = Win32TextToolbar { window }
+
     /** Handed to UI Automation, which the C side answers for. */
     private val semantics = NativeSemantics { elements -> describe(elements) }
 
@@ -167,6 +170,7 @@ internal class Win32Window private constructor(
     private val platformContext: PlatformContext =
         object : PlatformContext by PlatformContext.Empty() {
             override val windowInfo get() = this@Win32Window.windowInfo
+            override val textToolbar get() = this@Win32Window.textToolbar
             override val semanticsOwnerListener get() = semantics
 
             override suspend fun startInputMethod(

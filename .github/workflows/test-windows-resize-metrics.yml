@@ -254,6 +254,38 @@ jobs:
           ls -la renderer/build/windows renderer/build/windows/*/
           du -sh renderer/build/windows
 
+      - name: Release link, diagnosed
+        # Why a release build of an application fails to link the renderer object
+        # (LNK1223, invalid .pdata contributions) while a debug build links. rustc passes
+        # /OPT:REF,ICF to a release link and /OPT:REF,NOICF to one with debug info, so the
+        # same release build is linked three ways, and the object's unwind sections are
+        # counted by kind.
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          export DXC_WINDOWS_NATIVE_LIB="$(cygpath -w "$PWD/renderer/build/windows")"
+          manifest=compose-rust/tests/fixtures/hand-check/Cargo.toml
+          for variant in default noicf noref; do
+            case "$variant" in
+              default) flags="" ;;
+              noicf) flags="-Clink-arg=/OPT:NOICF" ;;
+              noref) flags="-Clink-arg=/OPT:NOREF" ;;
+            esac
+            if RUSTFLAGS="$flags" CARGO_TARGET_DIR="target/release-link-$variant" \
+                cargo build --release --manifest-path "$manifest" > "release-link-$variant.log" 2>&1; then
+              echo "release link [$variant: $flags]: ok"
+            else
+              echo "release link [$variant: $flags]: FAIL"
+              grep -m3 -E "LNK1[0-9]+" "release-link-$variant.log" || tail -5 "release-link-$variant.log"
+            fi
+          done
+          archive="$(cygpath -w "$PWD/renderer/build/windows/libcompose_rust_renderer.a")"
+          dumpbin -nologo -headers "$archive" > renderer-headers.txt 2>&1 || true
+          echo "-- unwind sections in the renderer object, by name and COMDAT kind"
+          grep -c "^SECTION HEADER" renderer-headers.txt || true
+          grep -A1 "^SECTION HEADER" renderer-headers.txt | grep -oE "\.pdata[^ ]*" | sed 's/\$.*/$NAME/' | sort | uniq -c
+          grep -B2 -A12 "^SECTION HEADER" renderer-headers.txt | grep -B3 -A10 " \.pdata$" | head -40
+
       - name: Build hand-check against the renderer
         # A debug build, as check-windows-consumer.sh makes: the release link of the
         # Kotlin/Native object fails with LNK1223 (invalid .pdata contributions), which is

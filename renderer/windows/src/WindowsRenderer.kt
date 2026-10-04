@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package dev.darkpyonix.composerust.ui.platform
 
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
@@ -17,6 +19,9 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // Toasts, before the Host starts: its first batch may already post one. A press on the
     // body of one brings this application's window forward, which the C side does itself
     // because it is the side that knows the window.
+    // The menu a selection offers goes through the platform's TextToolbar
+    // (Win32TextToolbar), as on macOS; the new context menu path would draw Compose's own.
+    androidx.compose.foundation.ComposeFoundationFlags.isNewContextMenuEnabled = false
     Notifications.platform = Win32Notifications()
     // Started before there is a window, because what the window should look like is in the
     // first batch and a window cannot be told afterwards. Started on this thread, which is
