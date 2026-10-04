@@ -159,7 +159,8 @@ static char *dxc_clip_text;
 static size_t dxc_clip_length;
 static int dxc_owns_clipboard;
 static int dxc_owns_primary;
-#define DXC_PASTE_BYTES 65536
+// The most a paste can carry: what one property read returns, which is 4 MiB.
+#define DXC_PASTE_BYTES (4 << 20)
 
 // Set from any thread to ask the window to come forward; acted on in the next turn, which
 // is on the thread Xlib is used from.
@@ -231,6 +232,7 @@ static int32_t dxc_key_code(KeySym key) {
         case XK_BackSpace: return 0x33;
         case XK_Escape: return 0x35;
         case XK_Delete: return 0x75;
+        case XK_Insert: return 0x72;
         case XK_Left: return 0x7B;
         case XK_Right: return 0x7C;
         case XK_Down: return 0x7D;
@@ -496,6 +498,45 @@ static int32_t dxc_read_selection(Atom selection, int owned, char *out, int32_t 
         select(ConnectionNumber(dxc_display) + 1, &readable, NULL, NULL, &wait);
     }
     return 0;
+}
+
+/*
+ * Text waiting to be delivered as commit events. A paste can be far longer than one event
+ * holds, so it is kept whole here and handed out a piece at a time as the renderer asks for
+ * events, each piece cut at a character boundary. Nothing is dropped and the event queue,
+ * which is small, never has to hold more than one piece of it.
+ */
+static char *dxc_pending_text;
+static size_t dxc_pending_length, dxc_pending_at;
+
+/* Reads [selection] and queues all of it to be typed into the focused field. */
+static void dxc_paste_selection(Atom selection, int owned) {
+    free(dxc_pending_text);
+    dxc_pending_text = NULL;
+    dxc_pending_length = dxc_pending_at = 0;
+    char *buffer = (char *)malloc(DXC_PASTE_BYTES);
+    if (buffer == NULL) return;
+    int32_t length = dxc_read_selection(selection, owned, buffer, DXC_PASTE_BYTES);
+    if (length <= 0) { free(buffer); return; }
+    dxc_pending_text = buffer;
+    dxc_pending_length = (size_t)length;
+}
+
+/* Moves the next piece of a waiting paste into the event queue. */
+static void dxc_feed_pending(void) {
+    if (dxc_pending_text == NULL) return;
+    size_t left = dxc_pending_length - dxc_pending_at;
+    size_t take = left < DXC_TEXT_BYTES - 1 ? left : DXC_TEXT_BYTES - 1;
+    while (take > 0 && take < left &&
+           ((unsigned char)dxc_pending_text[dxc_pending_at + take] & 0xC0) == 0x80) {
+        take--;
+    }
+    dxc_push_text(DXC_EVENT_TEXT_COMMIT, dxc_pending_text + dxc_pending_at, take);
+    dxc_pending_at += take;
+    if (take == 0 || dxc_pending_at >= dxc_pending_length) {
+        free(dxc_pending_text);
+        dxc_pending_text = NULL;
+    }
 }
 
 /** The clipboard's text as UTF-8 copied into [out], and its length; zero where none. */
@@ -876,10 +917,7 @@ static void dxc_pump_events(void) {
                         // program does: what was last selected, with no copy asked for.
                         record.modifiers = dxc_modifiers(event.xbutton.state);
                         dxc_push_event(record);
-                        static char pasted[DXC_PASTE_BYTES];
-                        int32_t length = dxc_read_selection(dxc_a_primary, dxc_owns_primary,
-                                                            pasted, DXC_PASTE_BYTES);
-                        if (length > 0) dxc_push_text(DXC_EVENT_TEXT_COMMIT, pasted, (size_t)length);
+                        dxc_paste_selection(dxc_a_primary, dxc_owns_primary);
                         continue;
                     }
                 }
@@ -906,16 +944,6 @@ static void dxc_pump_events(void) {
                         memcpy(bytes, converted, (size_t)length);
                         count = length;
                     }
-                }
-                if (symbol == XK_Insert && (event.xkey.state & (ShiftMask | ControlMask)) == ShiftMask) {
-                    // Shift and Insert paste the clipboard on every X desktop. The shared key
-                    // reader has no Insert key, so the paste is made here, as typed text.
-                    if (event.type == KeyPress) {
-                        static char pasted[DXC_PASTE_BYTES];
-                        int32_t length = dxc_native_clipboard_read(pasted, DXC_PASTE_BYTES);
-                        if (length > 0) dxc_push_text(DXC_EVENT_TEXT_COMMIT, pasted, (size_t)length);
-                    }
-                    continue;
                 }
                 record.kind = event.type == KeyPress ? DXC_EVENT_KEY_DOWN : DXC_EVENT_KEY_UP;
                 record.key_code = dxc_key_code(symbol);
@@ -1151,6 +1179,7 @@ int32_t dxc_notify_next_event(char *key, int32_t capacity, int32_t *value) {
 }
 
 int32_t dxc_native_poll_event(struct dxc_event *out) {
+    if (dxc_event_count == 0) dxc_feed_pending();
     if (dxc_event_count == 0) return 0;
     *out = dxc_events[dxc_event_head];
     dxc_event_head = (dxc_event_head + 1) % DXC_EVENT_CAPACITY;

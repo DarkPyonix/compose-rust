@@ -68,6 +68,7 @@ internal fun composeKey(platformKey: Int): Key = when (platformKey) {
     0x33 -> Key.Backspace
     0x35 -> Key.Escape
     0x75 -> Key.Delete
+    0x72 -> Key.Insert
     0x7B -> Key.DirectionLeft
     0x7C -> Key.DirectionRight
     0x7D -> Key.DirectionDown

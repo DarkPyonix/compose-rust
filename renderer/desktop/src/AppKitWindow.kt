@@ -4,6 +4,7 @@
 package dev.darkpyonix.composerust.ui.platform
 
 import org.graalvm.nativeimage.StackValue
+import org.graalvm.nativeimage.UnmanagedMemory
 import org.graalvm.nativeimage.c.function.CFunction
 import org.graalvm.nativeimage.c.type.CCharPointer
 import org.graalvm.nativeimage.c.type.CIntPointer
@@ -448,14 +449,18 @@ fun installApplicationMenu(name: String) {
 
 /** What is on the clipboard, or empty where it holds something that is not text. */
 fun readClipboard(): String {
-    val buffer = StackValue.get<Pointer>(CLIPBOARD_BYTES)
-    val length = clipboardRead(buffer, CLIPBOARD_BYTES)
-    if (length <= 0) return ""
-    val bytes = ByteArray(length)
-    for (index in 0 until length) {
-        bytes[index] = buffer.readByte(index)
+    val buffer = UnmanagedMemory.malloc<Pointer>(CLIPBOARD_BYTES)
+    try {
+        val length = clipboardRead(buffer, CLIPBOARD_BYTES)
+        if (length <= 0) return ""
+        val bytes = ByteArray(length)
+        for (index in 0 until length) {
+            bytes[index] = buffer.readByte(index)
+        }
+        return String(bytes, Charsets.UTF_8)
+    } finally {
+        UnmanagedMemory.free(buffer)
     }
-    return String(bytes, Charsets.UTF_8)
 }
 
 /** Puts text on the clipboard, replacing what was there. */
@@ -469,12 +474,12 @@ fun writeClipboard(text: String) {
 }
 
 /**
- * How much of the clipboard a paste may carry.
- *
- * A paragraph rather than a book. What crosses is stack storage, and a field that is
- * handed a novel has a different problem from the one this is solving.
+ * How much of the clipboard a paste may carry: 4 MiB, which is the most one X11 property
+ * read returns. The buffer is taken from the heap for the length of the read, because the
+ * stack is too small for it, and a clipboard larger than this answers empty rather than
+ * handing over a cut text.
  */
-private const val CLIPBOARD_BYTES = 64 * 1024
+private const val CLIPBOARD_BYTES = 4 * 1024 * 1024
 
 /** What a pointer can look like, in the small set both sides agree on. */
 object PointerShape {
