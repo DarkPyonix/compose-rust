@@ -193,6 +193,12 @@ static int dxc_presenting_ahead;
 // asks dxc_client_rect, which answers this while it is set.
 static int32_t dxc_pending_client_width;
 static int32_t dxc_pending_client_height;
+// The source size and clip a shrinking frame is shown at: still the old size, so for the
+// compositor tick in which the window keeps its old rectangle the visual still covers
+// it. The WM_SIZE that follows, once the rectangle has shrunk, presents the new size.
+// Zero when nothing is held.
+static int32_t dxc_hold_width;
+static int32_t dxc_hold_height;
 
 /** The client rectangle, or the one the window is about to have while it is being sized. */
 static BOOL dxc_client_rect(HWND window, RECT *out) {
@@ -1390,9 +1396,18 @@ static void dxc_present_ahead(int32_t width, int32_t height) {
     dxc_pending_client_width = width;
     dxc_pending_client_height = height;
     dxc_resize_note(&dxc_sizing, width, height);
+    // Shrinking the other way round. Presenting the smaller size now would leave the
+    // old, larger rectangle uncovered until the window shrinks. The new layout is
+    // presented with the old size shown, and WM_SIZE presents the new size after.
+    if (width < dxc_presented_width || height < dxc_presented_height) {
+        dxc_hold_width = width > dxc_presented_width ? width : dxc_presented_width;
+        dxc_hold_height = height > dxc_presented_height ? height : dxc_presented_height;
+    }
     dxc_presenting_ahead = 1;
     dxc_draw_one_frame();
     dxc_presenting_ahead = 0;
+    dxc_hold_width = 0;
+    dxc_hold_height = 0;
     dxc_pending_client_width = 0;
     dxc_pending_client_height = 0;
 }
@@ -2516,8 +2531,10 @@ int32_t dxc_native_frame_begin(void *swapchain_pointer, void **texture_out) {
     if (dxc_source_size_works) {
         if (dxc_drag_buffer_width > buffer_width) buffer_width = dxc_drag_buffer_width;
         if (dxc_drag_buffer_height > buffer_height) buffer_height = dxc_drag_buffer_height;
+        if (dxc_hold_width > buffer_width) buffer_width = dxc_hold_width;
+        if (dxc_hold_height > buffer_height) buffer_height = dxc_hold_height;
     }
-    int must_refit = wanted_width > dxc_buffer_width || wanted_height > dxc_buffer_height ||
+    int must_refit = buffer_width > dxc_buffer_width || buffer_height > dxc_buffer_height ||
                      !dxc_source_size_works || !dxc_sizing.dragging;
     if (must_refit && (buffer_width != dxc_buffer_width || buffer_height != dxc_buffer_height)) {
         // Nothing may still be reading the buffers when they are let go, and a swapchain
@@ -2547,9 +2564,16 @@ int32_t dxc_native_frame_begin(void *swapchain_pointer, void **texture_out) {
     dxc_resize_fitted(&dxc_sizing, wanted_width, wanted_height);
     // Only the top-left of the buffer is shown. Set every frame because a refit resets it
     // to the whole buffer; it takes effect with the present that follows.
+    int32_t shown_width = wanted_width;
+    int32_t shown_height = wanted_height;
+    if (dxc_source_size_works && dxc_hold_width > 0 && dxc_hold_height > 0 &&
+        dxc_hold_width <= dxc_buffer_width && dxc_hold_height <= dxc_buffer_height) {
+        shown_width = dxc_hold_width;
+        shown_height = dxc_hold_height;
+    }
     if (dxc_source_size_works) {
-        if (FAILED(IDXGISwapChain3_SetSourceSize(swapchain, (UINT)wanted_width,
-                                                 (UINT)wanted_height))) {
+        if (FAILED(IDXGISwapChain3_SetSourceSize(swapchain, (UINT)shown_width,
+                                                 (UINT)shown_height))) {
             // Never again. This frame is skipped, and the next one refits the buffers to
             // the size it draws at, as every frame did before source sizes were used.
             dxc_source_size_works = 0;
@@ -2557,8 +2581,8 @@ int32_t dxc_native_frame_begin(void *swapchain_pointer, void **texture_out) {
             return 2;
         }
     }
-    dxc_shown_width = wanted_width;
-    dxc_shown_height = wanted_height;
+    dxc_shown_width = shown_width;
+    dxc_shown_height = shown_height;
 
     dxc_frame_index = IDXGISwapChain3_GetCurrentBackBufferIndex(swapchain);
     if (dxc_buffers[dxc_frame_index] == NULL) {
