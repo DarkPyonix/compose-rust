@@ -122,7 +122,8 @@ pids+=("$app_pid")
 
 window=""
 for _ in $(seq 1 120); do
-    window="$(xdotool search --onlyvisible --pid "$app_pid" 2>/dev/null | head -1 || true)"
+    # The window sets no _NET_WM_PID, so it is found by its name, which is the renderer's default.
+    window="$(xdotool search --onlyvisible --name 'compose-rust' 2>/dev/null | head -1 || true)"
     [[ -n "$window" ]] && break
     kill -0 "$app_pid" 2>/dev/null || fail "the application exited before it opened a window"
     sleep 0.5
