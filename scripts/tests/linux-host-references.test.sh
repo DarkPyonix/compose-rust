@@ -80,37 +80,26 @@ sed 's/[[:space:]]*#.*$//' "$build" |
         failures=$((failures + 1))
     }
 
-# The Kotlin/Native renderer is a static archive, so the references travel in a library of
-# their own, libcompose_rust_host_exports.so, which the Host keeps linked by referring to
-# one byte in it. Both files have to go into it, and the byte has to be the one the Host
-# names, or GNU ld drops the library and the application exports nothing.
-static_build=renderer/desktop/scripts/build-linux.sh
-anchor_source=renderer/desktop/c/linux_host_exports.c
-for file in "$static_build" "$anchor_source"; do
-    [[ -f "$file" ]] || { echo "fail  $file is missing" >&2; failures=$((failures + 1)); }
-done
-if [[ -f "$static_build" ]]; then
-    exports_link="$(sed 's/[[:space:]]*#.*$//' "$static_build" |
-        awk '/cc -shared/ { inside = 1 } inside { print } inside && !/\\$/ { inside = 0 }')"
-    for source in linux_host_references.c linux_host_exports.c; do
-        grep -q "$source" <<< "$exports_link" || {
-            echo "fail  $static_build does not link $source into the host exports library" >&2
-            failures=$((failures + 1))
-        }
-    done
+# The Kotlin/Native renderer is a static archive inside the application, so it refers to
+# the Host's functions at link time instead, through the generated cinterop definition, and
+# no library travels beside the executable to make it export them. That definition has to
+# name the same set, and the library that used to carry the references must stay gone: an
+# application that names it is not one executable.
+static_def=renderer/linux/cinterop/host.def
+if [[ -f "$static_def" ]]; then
+    static_referenced="$(grep -oE '^extern void compose_rust_host_[a-z_]+\(' "$static_def" |
+        sed 's/^extern void //; s/($//' | sort -u)"
+    compare "the static renderer refers to a different set than the Host defines" \
+        "$static_referenced" "$defined" "$static_def" "the Host"
+else
+    echo "fail  $static_def is missing" >&2
+    failures=$((failures + 1))
 fi
-anchor_defined="$(grep -oE 'compose_rust_renderer_host_exports = ' "$anchor_source" 2>/dev/null |
-    sed 's/ = //')"
-anchor_used="$(grep -oE 'static compose_rust_renderer_host_exports:' "$host" | sed 's/static //; s/://')"
-[[ -n "$anchor_defined" && "$anchor_defined" == "$anchor_used" ]] || {
-    echo "fail  the Host refers to '${anchor_used:-nothing}' and the library defines '${anchor_defined:-nothing}'" >&2
-    echo "      Without a reference GNU ld drops the library, and the application exports nothing." >&2
+if grep -q 'compose_rust_host_exports' compose-rust/build.rs compose-rust/src/boundary.rs; then
+    echo "fail  the Host still links libcompose_rust_host_exports.so" >&2
+    echo "      An application that needs a library beside it is not one executable." >&2
     failures=$((failures + 1))
-}
-grep -q 'rustc-link-lib=dylib=compose_rust_host_exports' compose-rust/build.rs || {
-    echo "fail  the Host's build script does not link libcompose_rust_host_exports.so" >&2
-    failures=$((failures + 1))
-}
+fi
 
 if [[ "$failures" -gt 0 ]]; then
     echo "a Host function missing here is one an application does not export on Linux" >&2

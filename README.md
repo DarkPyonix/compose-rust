@@ -23,11 +23,11 @@ compose-rust is four things put together:
 - **An AOT-compiled Compose renderer.** Compiled ahead of time to native code on every
   platform, Kotlin/Wasm in the browser and an Android library on Android. Compose's own text
   layout, widgets and platform IME do the drawing and the typing.
-- **No webview, and no bundled JVM.** The goal on the desktop is one executable that links only
-  the system's own libraries. The 0.0.1 release does not do that yet: its desktop renderers are
-  GraalVM native-image shared libraries that sit beside the application. A Kotlin/Native
-  renderer linked into the executable already runs in CI on macOS and Linux and becomes the
-  default in a following release; Windows follows.
+- **No webview, and no bundled JVM.** On the desktop an application is one executable that links
+  only the system's own libraries. The 0.0.1 release does not do that yet: its desktop renderers
+  are GraalVM native-image shared libraries that sit beside the application. From the next
+  release, macOS and Linux (x64 and arm64) download a Kotlin/Native static archive instead, and
+  the build links it into the executable; CI proves the result on all three. Windows follows.
 
 ---
 
@@ -109,8 +109,8 @@ Where work exists, it sits in an open pull request or a branch.
 
 | Platform | State | Renderer |
 |---|---|---|
-| 🍎 **macOS (arm64)** | **Works end to end** | 0.0.1 ships a GraalVM native-image library beside the app. The Kotlin/Native renderer linked into the executable (its own window, drawing through Metal) runs in CI and is planned to replace it ([#22](https://github.com/DarkPyonix/compose-rust/issues/22)). Basic Korean IME input works; the full IME checklist is not finished |
-| 🐧 Linux (x64, arm64) | Builds and starts | 0.0.1 ships a GraalVM native-image library. The Kotlin/Native renderer (its own X11 window, drawing through GLX) passes a headless startup test for both architectures in CI and is planned to replace it ([#22](https://github.com/DarkPyonix/compose-rust/issues/22)) |
+| 🍎 **macOS (arm64)** | **Works end to end** | 0.0.1 ships a GraalVM native-image library beside the app. The Kotlin/Native renderer linked into the executable (its own window, drawing through Metal) runs in CI and replaces it in a following release. Basic Korean IME input works; the full IME checklist is not finished |
+| 🐧 Linux (x64, arm64) | Builds and starts | 0.0.1 ships a GraalVM native-image library. The Kotlin/Native renderer (its own X11 window, drawing through GLX; arm64 cross compiled on x64) replaces it in a following release. In CI an application built from it is one executable naming only libc, X11, GL, fontconfig and the C++ runtime (and EGL on arm64), and copied alone into an empty directory it draws under Xvfb. Nobody has used it interactively yet |
 | 🪟 Windows | Builds and starts | GraalVM native image, smoke-tested on every renderer change. The Kotlin/Native renderer that makes Windows one executable too is planned ([#24](https://github.com/DarkPyonix/compose-rust/issues/24)) |
 | 📱 iOS | Builds and starts | Kotlin/Native static archive exporting the same C symbols, released as an XCFramework |
 | 🤖 Android | **Works end to end** | A Kotlin Activity owns the process and the loop, Rust is a cdylib, and the JNI shims on both sides are generated from the schema. The crate carries the renderer's Kotlin sources and its build script stages them into the Gradle project |
@@ -204,9 +204,15 @@ outside `target/`, and links it. There is no environment variable to set and no 
 The cache is keyed by version and target, so it survives `cargo clean` and is shared between
 projects.
 
+Where the artifact is the static archive (macOS and Linux from the next release), what `cargo
+build` produces is **one executable**: the renderer, Compose, Skia and ICU are inside it, nothing
+sits beside it, and it loads only the system's libraries (frameworks and `/usr/lib` on macOS;
+libc, X11, GL, fontconfig and FreeType on Linux). Copy it anywhere and it runs. Windows downloads
+the GraalVM native image, a DLL with its companions beside it, until its static renderer lands.
+
 | Variable | Effect |
 |---|---|
-| `COMPOSE_RUST_RENDERER_DIR` | Use the renderer in this directory. Checked first, and nothing is downloaded when it is set, so a renderer you built yourself, a vendored copy or an offline build all work through it |
+| `COMPOSE_RUST_RENDERER_DIR` | Use the renderer in this directory: an unpacked artifact, or the directory a renderer build wrote. It may hold the static archive or a shared library, and whichever it holds is linked. Checked first, and nothing is downloaded when it is set, so a renderer you built yourself, a vendored copy or an offline build all work through it |
 | `COMPOSE_RUST_CACHE_DIR` | Move the cache off `$HOME/.cache/compose-rust` (`%LOCALAPPDATA%\compose-rust` on Windows) |
 
 `default-features = false` builds with no renderer at all, for a headless or documentation
@@ -232,16 +238,27 @@ menu, the copy keys). Build that once, then the renderer:
 ```bash
 # macOS
 ./renderer/scripts/build-compose.sh
-cd renderer && ./desktop/scripts/build-macos.sh --release      # build/macos/<target>/
+./renderer/desktop/scripts/build-macos.sh --release                # build/macos/
 
-# Linux
-./renderer/scripts/build-compose.sh --target linuxX64
-cd renderer && ./desktop/scripts/build-linux.sh --release      # build/linux/<target>/
+# Linux (both architectures' Compose; arm64 is cross compiled on x64)
+./renderer/scripts/build-compose.sh --target linux
+./renderer/desktop/scripts/build-linux.sh --release                # build/linux/
+./renderer/desktop/scripts/build-linux.sh --release --arch arm64   # build/linux-arm64/
 ```
 
 Each produces one static library, `libcompose_rust_renderer.a`, with Compose, Skia and the
-interpreter inside it. Windows still builds the GraalVM native image, with
+interpreter inside it, the same archive the release ships, with `schema-hash.txt` beside it. In a
+checkout the build links that workspace build before anything it could download, then a native
+image in `renderer/build/native-image/dist/lib`; `DXC_MACOS_NATIVE_LIB` and
+`DXC_LINUX_NATIVE_LIB` still name a static renderer directory directly, ahead of everything.
+Windows still builds the GraalVM native image, with
 `renderer/desktop/scripts/build-native-windows.ps1`.
+
+CI packages the archive with `.github/scripts/package-static-renderer.sh` and proves the result
+with `.github/scripts/check-single-executable.sh`: it builds an application from the artifact
+exactly as the release carries it, reads `otool -L` or `readelf -d`, then copies the executable
+alone into an empty directory and requires it to draw and, with no ICU data file on the machine,
+to lay Korean out correctly (every glyph found, words found whole, lines broken between words).
 
 **The JVM development shell** is the fastest loop when working on the renderer itself, with hot
 reload and `@Preview`. The JVM is allowed only here; shipped artifacts never contain one.

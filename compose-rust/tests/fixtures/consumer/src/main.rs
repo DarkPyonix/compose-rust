@@ -39,6 +39,7 @@ use std::time::{Duration, Instant};
 
 const COLUMN: u32 = 1;
 const TEXT: u32 = 2;
+const KOREAN: u32 = 3;
 
 /// The highest step the self-check reached. Read after the renderer loop has ended.
 static STEP: AtomicU32 = AtomicU32::new(0);
@@ -106,6 +107,23 @@ impl Runtime for Screen {
             parent_id: COLUMN,
             node_id: TEXT,
             index: 0,
+        });
+        // Korean, so the frames the check waits for draw it too. Whether it is shaped and
+        // wrapped correctly is the renderer's to say when COMPOSE_RUST_TEXT_SELF_CHECK is
+        // set, and .github/scripts/check-single-executable.sh sets it.
+        self.batch.write(Mutation::Create {
+            node_id: KOREAN,
+            widget: WidgetKind::Text,
+        });
+        self.batch.write(Mutation::SetProp {
+            node_id: KOREAN,
+            property: PropertyKind::Text,
+            value: PropertyValue::String("안녕하세요 반갑습니다. 한국어 줄바꿈과 단어 경계를 확인합니다."),
+        });
+        self.batch.write(Mutation::Insert {
+            parent_id: COLUMN,
+            node_id: KOREAN,
+            index: 1,
         });
     }
 
