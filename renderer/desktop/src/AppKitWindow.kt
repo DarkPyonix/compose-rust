@@ -24,25 +24,34 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asComposeCanvas
+import androidx.compose.ui.graphics.asSkiaBitmap
+import dev.darkpyonix.composerust.runtime.asksForWindowMaterial
 import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.scene.ComposeScene
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.thisisthepy.compose.window.WindowEvent
+import org.thisisthepy.compose.window.graalvm.macos.AppKitUpcallSlots
 import org.thisisthepy.compose.window.graalvm.macos.NativeWindow
+import org.thisisthepy.compose.window.graalvm.macos.configureNativeWindow
 import org.thisisthepy.compose.window.graalvm.macos.describeTo
 import org.thisisthepy.compose.window.graalvm.macos.drainWindowEvents
+import org.thisisthepy.compose.window.graalvm.macos.forgetFrameCallback
 import org.thisisthepy.compose.window.graalvm.macos.installApplicationMenu
 import org.thisisthepy.compose.window.graalvm.macos.isWindowClosed
+import org.thisisthepy.compose.window.graalvm.macos.measureCaption
 import org.thisisthepy.compose.window.graalvm.macos.openNativeWindow
 import org.thisisthepy.compose.window.graalvm.macos.pumpWindowEvents
+import org.thisisthepy.compose.window.graalvm.macos.readDroppedPaths
+import org.thisisthepy.compose.window.graalvm.macos.registerFrameCallback
+import org.thisisthepy.compose.window.graalvm.macos.setApplicationIcon
 import org.thisisthepy.compose.window.graalvm.macos.setPointerShape
 import org.thisisthepy.compose.window.graalvm.macos.AccessibleElement as AppKitElement
 
 // A window that is ours, drawn into with Skia and with no toolkit in between.
 //
-// The window itself, its C side and the calls that reach it are the Compose fork's
+// The window itself, its C and the calls that reach it are the Compose fork's
 // `extended/window/graalvm/graalvm-macos` module. What is here is the Compose half: the
 // scene the window is drawn from, the events it hears handed to that scene, and the loop.
 //
@@ -53,16 +62,55 @@ import org.thisisthepy.compose.window.graalvm.macos.AccessibleElement as AppKitE
 // unstable APIs asks for. A Compose upgrade changes these files or it changes nothing.
 
 /**
- * Draws a Compose scene into a window of our own, and holds it there.
- *
- * The step worth taking first, and the one everything after it rests on: a scene that
- * Compose composed, painted by Skia into a drawable AppKit gave us, reaching the screen
- * with no toolkit anywhere between. What follows is input, text and the rest, and none of
- * it means anything until this does.
- *
- * Reached by setting `DXC_APPKIT_WINDOW`, so the ordinary path is untouched.
+ * The strip of the window the title bar occupies and the room its three buttons take, in the
+ * form the renderer's content is laid out around.
  */
-internal fun runAppKitSpike() {
+internal fun NativeWindow.captionStrip(): dev.darkpyonix.composerust.runtime.WindowCaption {
+    val metrics = measureCaption()
+    return dev.darkpyonix.composerust.runtime.WindowCaption(
+        height = metrics.height.dp,
+        buttonsWidth = metrics.buttonsWidth.dp,
+        buttonsAtStart = true,
+    )
+}
+
+/** The pixels [setApplicationIcon] takes, from a picture Compose holds. */
+internal fun iconPixels(picture: androidx.compose.ui.graphics.ImageBitmap): Triple<ByteArray, Int, Int>? {
+    val bitmap = picture.asSkiaBitmap()
+    val info = org.jetbrains.skia.ImageInfo(
+        bitmap.width,
+        bitmap.height,
+        org.jetbrains.skia.ColorType.RGBA_8888,
+        org.jetbrains.skia.ColorAlphaType.PREMUL,
+    )
+    val pixels = bitmap.readPixels(info, info.minRowBytes) ?: return null
+    return Triple(pixels, bitmap.width, bitmap.height)
+}
+
+/**
+ * Draws the application into a window of our own, and holds it there until it is closed.
+ *
+ * A scene that Compose composed, painted by Skia into a drawable AppKit gave us, reaching
+ * the screen with no toolkit anywhere between. This is the window every macOS run opens:
+ * it is made from what the application asked for in its first batch, takes its title bar
+ * from the system, and hears the input method and the screen reader through AppKit's own
+ * protocols.
+ *
+ * [autoExitMillis] closes the window by itself after that long, for runs that nobody
+ * watches.
+ */
+internal fun runAppKitWindow(autoExitMillis: Long? = null) {
+    // Before the first frame, because every piece of text drawn after this reads them.
+    dev.darkpyonix.composerust.design.installPlatformUiFamily()
+    dev.darkpyonix.composerust.ui.installReducedMotion()
+    dev.darkpyonix.composerust.ui.installHighContrast()
+    dev.darkpyonix.composerust.ui.node.platformFileDrop = { modifier, node, dispatcher ->
+        modifier.nativeFileDrop(node, dispatcher)
+    }
+    // The window is a real one with the desktop behind it, so a design that draws glass
+    // can let that show through. Set before the Host starts: its first batch may already
+    // ask.
+    dev.darkpyonix.composerust.runtime.platformBacksWindowWithMaterial = { true }
     // The Host is started before there is a window, because what the window should look
     // like is in its first batch and a window cannot be told afterwards. Started on this
     // thread, which is the one every later call to it is made from: the boundary is a
@@ -70,6 +118,14 @@ internal fun runAppKitSpike() {
     val host = dev.darkpyonix.composerust.runtime.ComposeRustHost(NativeHostConnection())
     host.start()
     val asked = host.table.window
+    val backdrop = host.table.asksForWindowMaterial(host.roots)
+    configureNativeWindow(
+        resizable = asked?.resizable ?: true,
+        minWidth = asked?.minWidth?.takeIf { it > 0 } ?: 0,
+        minHeight = asked?.minHeight?.takeIf { it > 0 } ?: 0,
+        systemChrome = asked?.chrome == dev.darkpyonix.composerust.protocol.Chrome.System,
+        backdrop = backdrop,
+    )
     val window = openNativeWindow(
         asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
         if (asked != null && asked.width > 0) asked.width else 520,
@@ -91,11 +147,17 @@ internal fun runAppKitSpike() {
     // a size reads this: the scene, the render target, and what the scene is told about
     // the window it is in.
     var size = androidx.compose.ui.unit.IntSize(measured.width, measured.height)
+    // The strip the title bar takes, which the bar at the top of the application's tree is
+    // laid out around. Measured again whenever the window changes size, because entering
+    // full screen removes the bar and leaving it brings it back.
+    val caption = androidx.compose.runtime.mutableStateOf(window.captionStrip())
     val textInput = NativeTextInput()
+    val synthetic = System.getenv("DXC_SYNTH")?.let { SyntheticInput(it) }
     val semantics = NativeSemantics { elements ->
         if (report) {
             System.err.println("compose-rust: the window has ${elements.size} things to say")
         }
+        synthetic?.noteElements(elements)
         window.describeTo(elements.map { AppKitElement(it.role, it.x, it.y, it.width, it.height, it.label) })
     }
     // Kept rather than left to the scene. What a scene picks for itself is the toolkit's
@@ -109,56 +171,135 @@ internal fun runAppKitSpike() {
         coroutineContext = work,
         platformContext = NativePlatformContext({ size }, textInput, semantics, ::setPointerShape),
     )
-    // The application's own tree, drawn by the same interpreter the toolkit path uses.
-    // Nothing in it knows which of the two it is running on, which is the point.
-    scene.setContent { dev.darkpyonix.composerust.runtime.ComposeRustContent(host) }
+    // The application's own tree, drawn by the same interpreter every window uses.
+    // Nothing in it knows which window it is in, which is the point.
+    val clipboard = WindowClipboard()
+    @Suppress("DEPRECATION")
+    val clipboardManager = WindowClipboardManager()
+    scene.setContent {
+        androidx.compose.runtime.CompositionLocalProvider(
+            dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver provides {
+                rememberSystemDark().value
+            },
+            androidx.compose.ui.platform.LocalClipboard provides clipboard,
+            androidx.compose.ui.platform.LocalClipboardManager provides clipboardManager,
+        ) {
+            dev.darkpyonix.composerust.runtime.ComposeRustContent(
+                host,
+                Modifier.fillMaxSize(),
+                caption = caption.value,
+            )
+        }
+    }
     installApplicationMenu(asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust")
+
+    val started = System.nanoTime()
+    var iconId = 0
+    var painted = false
+    var frame = 0
+    var drew = false
+    val legacyResize = System.getenv("DXC_LEGACY_RESIZE") != null
+
+    // What one frame is, wherever the ask comes from. The loop below is one caller and the
+    // window's own resize is the other: AppKit stays inside a tracking loop for as long as
+    // an edge is dragged, so the loop is not running then and the view asks for the frame
+    // itself, at the size it has just become. Both go through the one door, which refuses
+    // a second ask while one is being drawn, because a scene rendered from inside its own
+    // render is not something Compose survives.
+    Win32Frames.paint = {
+        frame++
+        // The scene's own work first, before anything is read from it: a list that asked
+        // for rows on the last frame wants them in hand before this one is measured.
+        work.runPending()
+        // The application's picture, once the asset it named has arrived. The id is
+        // known from the first batch and the bitmap a little later, so this asks each
+        // frame until it is there and then stops.
+        if (iconId == 0 && asked != null && asked.icon != 0) {
+            val raster = host.table.assets.asset(asked.icon)
+                as? dev.darkpyonix.composerust.ui.node.Asset.Raster
+            if (raster != null) {
+                iconId = asked.icon
+                iconPixels(raster.bitmap)?.let { (pixels, width, height) ->
+                    setApplicationIcon(pixels, width, height)
+                }
+            }
+        }
+        var heard = false
+        val events = drainWindowEvents()
+        for (event in synthetic?.due(System.nanoTime(), size) ?: emptyList()) {
+            scene.receive(event)
+            textInput.receive(event)
+            LatencyTrace.mark("synthetic ${event.kind} sent")
+        }
+        for (event in events) {
+            if (report && event.kind != WindowEvent.POINTER_MOVE) {
+                System.err.println("compose-rust: window heard $event")
+            }
+            if (event.kind == WindowEvent.FILES_ENTERED ||
+                event.kind == WindowEvent.FILES_DROPPED ||
+                event.kind == WindowEvent.FILES_EXITED
+            ) {
+                routeFileDrop(event.kind, androidx.compose.ui.geometry.Offset(event.x, event.y)) {
+                    readDroppedPaths()
+                }
+            }
+            if (event.kind == WindowEvent.RESIZE) {
+                size = androidx.compose.ui.unit.IntSize(event.x.toInt(), event.y.toInt())
+                scene.size = size
+                caption.value = window.captionStrip()
+            }
+            if (LatencyTrace.enabled && event.kind != WindowEvent.POINTER_MOVE) {
+                LatencyTrace.mark("window heard ${event.kind}")
+            }
+            scene.receive(event)
+            textInput.receive(event)
+            heard = true
+        }
+        // Only when there is something to draw. Every frame reaches the window by asking
+        // the main thread for a drawable and waiting for it, and the main thread is where
+        // AppKit answers everything else: sixty of those a second left the input method
+        // unable to reach this process at all, which showed up as every letter being
+        // committed on its own instead of composing.
+        if (!painted || heard || scene.hasInvalidations()) {
+            val begun = System.nanoTime()
+            LatencyTrace.mark("draw begin (heard=$heard invalidated=${scene.hasInvalidations()})")
+            drawFrame(window, context, scene, frame.toLong() * FRAME_NANOS, size, backdrop)
+            LatencyTrace.mark("draw end")
+            LatencyTrace.frameDrawn(System.nanoTime() - begun)
+            painted = true
+            drew = true
+        }
+    }
+    if (!legacyResize) registerAppKitFrameCallback()
 
     try {
         // A plain loop rather than a clock. Pacing is the frame clock's work and comes
         // later; what this has to show is that what the window hears reaches the scene
         // and changes what the next frame draws.
-        var painted = false
-        var frame = 0
         while (!isWindowClosed()) {
-            frame++
+            if (autoExitMillis != null &&
+                (System.nanoTime() - started) / NANOS_PER_MILLI >= autoExitMillis
+            ) {
+                break
+            }
+            // Cleared before the window is given its turn, because a resize inside it
+            // draws its own frames and the semantics below must hear of them.
+            drew = false
             // The window's own turn, before anything is read from it. This thread is the
             // one AppKit delivers on, so the events of this frame arrive here or not at
             // all. Waiting the frame's length rather than sleeping afterwards, because a
             // window with nothing happening should rest rather than spin.
             pumpWindowEvents(FRAME_SECONDS)
-            // Before the events and before the drawing. What is waiting here is the
-            // scene's own work, and a list that asked for rows on the last frame wants
-            // them in hand before this one is measured.
-            work.runPending()
-            var heard = false
-            var drew = false
-            for (event in drainWindowEvents()) {
-                if (report && event.kind != WindowEvent.POINTER_MOVE) {
-                    System.err.println("compose-rust: window heard $event")
-                }
-                if (event.kind == WindowEvent.FILES_DROPPED) {
-                    val paths = event.text.split('\u0000').filter { it.isNotEmpty() }
-                    spikeDroppedFiles.value = "dropped ${paths.size}: ${paths.joinToString(", ")}"
-                }
-                if (event.kind == WindowEvent.RESIZE) {
-                    size = androidx.compose.ui.unit.IntSize(event.x.toInt(), event.y.toInt())
-                    scene.size = size
-                }
-                scene.receive(event)
-                textInput.receive(event)
-                heard = true
+            LatencyTrace.mark("loop turn $frame")
+            if (synthetic != null && synthetic.resizeDue(System.nanoTime())) {
+                window.scriptedResize(size.width / measured.scale.toInt() to size.height / measured.scale.toInt(),
+                    360 to 420, 60, 8_000)
             }
-            // Only when there is something to draw. Every frame reaches the window by
-            // asking the main thread for a drawable and waiting for it, and the main
-            // thread is where AppKit answers everything else: sixty of those a second
-            // left the input method unable to reach this process at all, which showed up
-            // as every letter being committed on its own instead of composing.
-            if (!painted || heard || scene.hasInvalidations()) {
-                drawFrame(window, context, scene, frame.toLong() * FRAME_NANOS, size)
-                painted = true
-                drew = true
+            synthetic?.keysDue(System.nanoTime())?.let { (code, character) ->
+                LatencyTrace.mark("synthetic key '$character' posted")
+                window.postKey(code, character)
             }
+            Win32Frames.draw()
             // Every frame, and after the drawing. After, because that is when what is in
             // the window has been placed and can say where it is. Every frame, because a
             // tree that changed on the last one is a tree nobody has been told about, and
@@ -166,12 +307,34 @@ internal fun runAppKitSpike() {
             // Costs a comparison when nothing has changed, which is almost always.
             semantics.pushIfChanged(afterDrawing = drew)
         }
+        LatencyTrace.summary()
     } finally {
+        Win32Frames.paint = null
+        forgetAppKitFrameCallback()
         scene.close()
         context.close()
         host.shutdown()
     }
 }
+
+/**
+ * Gives the window an address to ask for a frame at, and takes it away again.
+ *
+ * The thread goes with the address because an entry point of this image cannot be called
+ * without being told which thread of which isolate is calling. Written out at the call
+ * because native-image accepts a word value in straight-line code inside one method only.
+ */
+private fun registerAppKitFrameCallback() {
+    AppKitUpcallSlots.frame = Runnable { Win32Frames.draw() }
+    registerFrameCallback()
+}
+
+private fun forgetAppKitFrameCallback() {
+    forgetFrameCallback()
+    AppKitUpcallSlots.frame = null
+}
+
+private const val NANOS_PER_MILLI = 1_000_000L
 
 /** One frame: take a drawable, let the scene paint it, give it to the screen. */
 private fun drawFrame(
@@ -180,6 +343,7 @@ private fun drawFrame(
     scene: ComposeScene,
     nanos: Long,
     size: androidx.compose.ui.unit.IntSize,
+    transparent: Boolean = false,
 ) {
     val texture = window.beginFrame()
     // Zero means the system had no drawable to give, which happens when frames are made
@@ -199,6 +363,9 @@ private fun drawFrame(
         window.endFrame()
         return
     }
+    // A drawable comes back with whatever was last in it, and a window that shows what is
+    // behind it must start every frame from nothing rather than from the last one.
+    if (transparent) surface.canvas.clear(0)
     scene.render(surface.canvas.asComposeCanvas(), nanos)
     // Submitted, not only recorded. Skia's Metal backend keeps the frame in a command
     // buffer of its own, and a drawable presented before that buffer runs is a drawable

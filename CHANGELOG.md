@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### The native-image renderer opens its own window on macOS
+
+On the GraalVM native-image path, macOS now opens the AppKit window the renderer makes
+itself, with no environment variable and no toolkit between the scene and the screen. It
+carries what the toolkit's window did: the application's title, size, minimum size and
+resizable choice, the system or the transparent title bar, the icon, the material behind a
+glass design, files dropped on a drop target, and the window closing by itself for unattended
+runs. Pointer positions and accessibility rectangles are now converted between points and
+pixels, which they were not at 200% before. Korean input, VoiceOver and the feel of a live
+resize at 100% and 200% still need a person on a Mac.
+
 ### The Dioxus path lives in dioxus-compose
 
 The Dioxus adapter, the Dioxus baseline and the twelve `rsx!` samples moved to
