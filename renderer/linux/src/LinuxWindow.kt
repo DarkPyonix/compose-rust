@@ -71,11 +71,14 @@ import x11.PMinSize
 import x11.XAllocSizeHints
 import x11.XMapRaised
 import x11.XSetWMNormalHints
-import resize.dxc_resize_present
+import x11.XWindowAttributes
+import resize.dxc_resize_present_against
 import resize.dxc_resize_reset
 import resize.dxc_resize_step
+import resize.dxc_resize_stale_ratio
 import resize.dxc_resize_stats
 import resize.dxc_resize_stretched
+import x11.XGetWindowAttributes
 import x11.XResizeWindow
 import x11.XSendEvent
 import x11.GLXContext
@@ -223,6 +226,7 @@ internal class LinuxWindow private constructor(
      * count with, so a drag is counted the same way on every path. Reported at the end of the
      * run when `DXC_REPORT_RESIZE` is set.
      */
+    private val reportResize = System.getenv("DXC_REPORT_RESIZE") != null
     private val resizeStats = nativeHeap.alloc<dxc_resize_stats>().also { dxc_resize_reset(it.ptr) }
 
     /** Input and resizing made up from inside the window, for the parity check. Unset, nothing runs. */
@@ -391,7 +395,17 @@ internal class LinuxWindow private constructor(
         }
         if (drew) {
             painted = true
-            dxc_resize_present(resizeStats.ptr, size.width, size.height)
+            if (reportResize) {
+                // The window's size now, asked of the server: a frame at any other size than
+                // the window has is stale, whatever the last size event said.
+                memScoped {
+                    val attributes = alloc<XWindowAttributes>()
+                    XGetWindowAttributes(display, window, attributes.ptr)
+                    dxc_resize_present_against(
+                        resizeStats.ptr, size.width, size.height, attributes.width, attributes.height,
+                    )
+                }
+            }
             LatencyTrace.frameDrawn(System.nanoTime() - begun)
             // The drawing goes to the server and then the manager is told, in that order. This
             // is the whole of what keeps a dragged edge attached to what is inside it.
@@ -504,10 +518,11 @@ internal class LinuxWindow private constructor(
             }
         } finally {
             LatencyTrace.summary()
-            if (System.getenv("DXC_REPORT_RESIZE") != null) {
+            if (reportResize) {
                 System.err.println(
                     "dxc resize: steps=${resizeStats.steps} presented=${resizeStats.presented} " +
-                        "stale=${resizeStats.stale} stretched=${dxc_resize_stretched(resizeStats.ptr)}",
+                        "stale=${resizeStats.stale} stretched=${dxc_resize_stretched(resizeStats.ptr)} " +
+                        "stale_ratio=${fixed(dxc_resize_stale_ratio(resizeStats.ptr), 4)}",
                 )
             }
             close()

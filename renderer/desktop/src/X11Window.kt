@@ -30,6 +30,9 @@ private external fun beginFrame(window: Pointer?): Int
 @CFunction("dxc_native_frame_end")
 private external fun endFrame(display: Pointer?)
 
+@CFunction("dxc_native_note_present")
+private external fun countPresent(width: Int, height: Int)
+
 @CFunction("dxc_native_debug_resize")
 private external fun debugResize(
     window: Pointer?, view: Pointer?, fromWidth: Int, fromHeight: Int, toWidth: Int,
@@ -53,6 +56,9 @@ class X11NativeWindow internal constructor(
 
     fun beginFrame(): Boolean = beginFrame(WordFactory.pointer(window)) == 0
     fun endFrame() = endFrame(WordFactory.pointer(queue))
+
+    /** Counts a frame at this size for the resize report. See `DXC_REPORT_RESIZE`. */
+    internal fun notePresent(width: Int, height: Int) = countPresent(width, height)
 
     /** Takes the window through the sizes a drag would, for measuring. See `DXC_SYNTH`. */
     internal fun scriptedResize(from: Pair<Int, Int>, to: Pair<Int, Int>, steps: Int, pauseMicros: Int) {
@@ -324,6 +330,7 @@ private fun drawFrame(
     surface.close()
     target.close()
     window.endFrame()
+    window.notePresent(size.width, size.height)
     return true
 }
 

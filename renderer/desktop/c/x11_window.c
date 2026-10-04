@@ -177,9 +177,11 @@ static volatile int dxc_raise_requested;
 static struct dxc_resize_stats dxc_resize_stats;
 
 static void dxc_resize_report(void) {
-    fprintf(stderr, "dxc resize: steps=%lld presented=%lld stale=%lld stretched=%lld\n",
+    fprintf(stderr,
+            "dxc resize: steps=%lld presented=%lld stale=%lld stretched=%lld stale_ratio=%.4f\n",
             (long long)dxc_resize_stats.steps, (long long)dxc_resize_stats.presented,
-            (long long)dxc_resize_stats.stale, (long long)dxc_resize_stretched(&dxc_resize_stats));
+            (long long)dxc_resize_stats.stale, (long long)dxc_resize_stretched(&dxc_resize_stats),
+            dxc_resize_stale_ratio(&dxc_resize_stats));
 }
 
 static XIM dxc_im;
@@ -1256,7 +1258,6 @@ void dxc_native_frame_end(void *display_pointer) {
         return;
     }
     glXSwapBuffers(dxc_display, dxc_window);
-    dxc_resize_present(&dxc_resize_stats, dxc_width, dxc_height);
     // After the swap, because what the manager is waiting to hear is that the drawing for
     // the size it gave us has been handed over. Until it hears that, it holds the frame it
     // was about to show, so the edge it moved and what is inside it appear together.
@@ -1264,6 +1265,20 @@ void dxc_native_frame_end(void *display_pointer) {
     // Out to the server before this returns. A swap sitting in the output buffer is a frame
     // nobody has been shown.
     XFlush(dxc_display);
+}
+
+/**
+ * Counts a frame handed to the screen, for the resize report: its picture was [width] by
+ * [height], and the window is asked how large it is now. Asked of the server rather than
+ * remembered, because what is being counted is a frame at a size the window no longer has.
+ * Does nothing unless DXC_REPORT_RESIZE is set, since the question costs a round trip.
+ */
+void dxc_native_note_present(int32_t width, int32_t height) {
+    if (dxc_display == NULL || dxc_closed || getenv("DXC_REPORT_RESIZE") == NULL) return;
+    XWindowAttributes attributes;
+    if (!XGetWindowAttributes(dxc_display, dxc_window, &attributes)) return;
+    dxc_resize_present_against(&dxc_resize_stats, width, height, attributes.width,
+                               attributes.height);
 }
 
 /**

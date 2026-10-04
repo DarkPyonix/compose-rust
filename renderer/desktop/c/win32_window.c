@@ -2377,3 +2377,11 @@ int32_t dxc_native_ime_reset(char *out, int32_t capacity) {
     (void)out; (void)capacity;
     return 0;
 }
+
+/**
+ * Counts a frame handed to the screen, for the resize report. The window answers for its own
+ * frames here, against the texture it presents, so there is nothing for the caller to add.
+ */
+void dxc_native_note_present(int32_t width, int32_t height) {
+    (void)width; (void)height;
+}

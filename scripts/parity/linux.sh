@@ -25,6 +25,8 @@
 #   resize_presented       frames handed to the screen while it ran
 #   resize_stale           presented frames at a size other than the window's
 #   resize_stretched       sizes that were left without a frame of their own
+#   resize_stale_ratio     share of presented frames drawn at a size other than the window's at that
+#                          moment (background fill, stretch, old frame); has to be 0.0000
 #   shortcut_ctrl_<k>      key and modifiers the scene was handed for ctrl+a, c, v, x, z
 #   clipboard              ctrl+a then ctrl+c in the field, read back from the display server
 #   system_theme           what the window thinks the desktop's theme is
@@ -147,6 +149,14 @@ row resize_steps "$(resize_field steps || true)"
 row resize_presented "$(resize_field presented || true)"
 row resize_stale "$(resize_field stale || true)"
 row resize_stretched "$(resize_field stretched || true)"
+ratio="$(echo "$resize_line" | sed -nE 's/.*stale_ratio=([0-9.]+).*/\1/p')"
+if [[ -z "$ratio" ]]; then
+    row resize_stale_ratio "FAIL not reported"
+elif [[ "$ratio" == "0" || "$ratio" =~ ^0\.0*$ ]]; then
+    row resize_stale_ratio "ok $ratio"
+else
+    row resize_stale_ratio "FAIL $ratio of the frames were drawn at a size other than the window's"
+fi
 row system_theme "$(sed -nE 's/.*parity system_theme ([a-z]+).*/\1/p' "$err" | tail -1)"
 
 echo "== parity: $label"

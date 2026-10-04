@@ -50,6 +50,27 @@ static inline void dxc_resize_present(struct dxc_resize_stats *stats, int32_t wi
     }
 }
 
+/**
+ * A frame whose picture is [width] by [height] was handed to the screen while the window
+ * measured [window_width] by [window_height], read at that moment.
+ *
+ * The criterion is that no frame is drawn at a size other than the window's current one: a
+ * background fill, a stretch of the old frame or a frame for a size the window has already
+ * left all count as stale, and the ratio of those to the frames presented has to be zero.
+ */
+static inline void dxc_resize_present_against(struct dxc_resize_stats *stats, int32_t width,
+                                              int32_t height, int32_t window_width,
+                                              int32_t window_height) {
+    stats->view_width = window_width;
+    stats->view_height = window_height;
+    dxc_resize_present(stats, width, height);
+}
+
+/** Presented frames that were not at the window's size, as a share of all presented. */
+static inline double dxc_resize_stale_ratio(const struct dxc_resize_stats *stats) {
+    return stats->presented > 0 ? (double)stats->stale / (double)stats->presented : 0.0;
+}
+
 /** Sizes left without a frame, counting the last one, which has no successor to say so. */
 static inline int64_t dxc_resize_stretched(const struct dxc_resize_stats *stats) {
     return stats->stretched + (stats->step_unanswered ? 1 : 0);

@@ -6,6 +6,8 @@ import kotlinx.cinterop.alloc
 import kotlinx.cinterop.nativeHeap
 import kotlinx.cinterop.ptr
 import resize.dxc_resize_present
+import resize.dxc_resize_present_against
+import resize.dxc_resize_stale_ratio
 import resize.dxc_resize_reset
 import resize.dxc_resize_step
 import resize.dxc_resize_stats
@@ -57,5 +59,34 @@ class ResizeStatsTest {
             dxc_resize_present(stats.ptr, 480, 640)
         }
         assertEquals(listOf(1L, 1L, 1L, 1L), result)
+    }
+
+    @Test
+    fun a_frame_is_stale_when_it_is_not_the_size_the_window_has_now() {
+        val stats = nativeHeap.alloc<dxc_resize_stats>()
+        try {
+            dxc_resize_reset(stats.ptr)
+            // Three frames at the window's size, then one for a size it has already left.
+            for (width in 400..402) {
+                dxc_resize_present_against(stats.ptr, width, 300, width, 300)
+            }
+            dxc_resize_present_against(stats.ptr, 402, 300, 405, 300)
+            assertEquals(4L, stats.presented)
+            assertEquals(1L, stats.stale)
+            assertEquals(0.25, dxc_resize_stale_ratio(stats.ptr))
+        } finally {
+            nativeHeap.free(stats.rawPtr)
+        }
+    }
+
+    @Test
+    fun nothing_presented_is_a_ratio_of_zero() {
+        val stats = nativeHeap.alloc<dxc_resize_stats>()
+        try {
+            dxc_resize_reset(stats.ptr)
+            assertEquals(0.0, dxc_resize_stale_ratio(stats.ptr))
+        } finally {
+            nativeHeap.free(stats.rawPtr)
+        }
     }
 }

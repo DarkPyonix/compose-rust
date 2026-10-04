@@ -62,6 +62,17 @@ int main(void) {
     dxc_resize_present(&late, 480, 640);
     printf("late %lld %lld %lld %lld\n", (long long)late.steps, (long long)late.presented,
            (long long)late.stale, (long long)dxc_resize_stretched(&late));
+
+    /* A frame is judged against the size the window has when it is presented. Three frames
+       at the window's size and one for a size it has left: a quarter of them are stale. */
+    struct dxc_resize_stats against;
+    dxc_resize_reset(&against);
+    for (int width = 400; width <= 402; width++) {
+        dxc_resize_present_against(&against, width, 300, width, 300);
+    }
+    dxc_resize_present_against(&against, 402, 300, 405, 300);
+    printf("against %lld %lld %.2f\n", (long long)against.presented, (long long)against.stale,
+           dxc_resize_stale_ratio(&against));
     return 0;
 }
 PROBE
@@ -74,6 +85,8 @@ PROBE
             fail "a drag with a frame at every size should count nothing stretched or stale: $out"
         [[ "$(grep '^ignored' <<< "$out")" == "ignored 60 0 0 60" ]] ||
             fail "a drag with no frames should count every size stretched: $out"
+        [[ "$(grep '^against' <<< "$out")" == "against 4 1 0.25" ]] ||
+            fail "a frame at a size the window has left should count stale, a quarter of four: $out"
         [[ "$(grep '^late' <<< "$out")" == "late 1 1 1 1" ]] ||
             fail "a frame at the previous size should count stale and leave the size stretched: $out"
     fi
