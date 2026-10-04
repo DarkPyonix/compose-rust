@@ -171,6 +171,8 @@ fn main() {
                 "IOKit",
                 "Carbon",
                 "OpenGL",
+                // The renderer's notifications (UNUserNotificationCenter), as develop links.
+                "UserNotifications",
             ] {
                 println!("cargo:rustc-link-lib=framework={framework}");
             }
