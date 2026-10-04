@@ -92,20 +92,6 @@ grep -q 'renderer_gate" build' "$repo_root/scripts/check.sh" ||
 grep -q 'renderer_gate" test' "$repo_root/scripts/check.sh" ||
     fail "scripts/check.sh does not ask which platforms to test"
 
-# The design systems are their own project and their tests were going unrun. The gate has
-# to reach both, and it has to ask the same question of each.
-grep -q 'design-systems' "$repo_root/scripts/check.sh" ||
-    fail "scripts/check.sh does not run the design systems project"
-[[ "$(grep -c 'kotlin test' "$repo_root/scripts/check.sh")" -ge 2 ]] ||
-    fail "scripts/check.sh runs only one project's tests"
-
-# And the lister has to answer for a project other than its own, or the line above is
-# asking the wrong project's question.
-design="$("$lister" test "$repo_root/design-systems" 2>/dev/null | sort)"
-[[ -n "$design" ]] || fail "the lister answers nothing for the design systems project"
-echo "$design" | grep -qx macosArm64 &&
-    fail "the design systems project has no macOS target and the lister named one"
-
 if [[ $failures -eq 0 ]]; then
     echo "ok    the gate names what this machine can build and what it can test"
 else

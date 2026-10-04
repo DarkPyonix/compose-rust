@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fails if the planning documents are missing from the working branch.
 #
-# They exist only on develop: scripts/publish-main.sh strips them when it builds the
+# They exist only on develop: .github/scripts/release/sync-release.sh strips them when it builds the
 # public branch. That makes them easy to lose by accident, and the loss is quiet. A
 # worktree cut from main or release starts without them, and merging such a branch back
 # into develop replays the deletion as if someone meant it. That has happened.
@@ -47,7 +47,7 @@ if (( ${#missing[@]} )); then
     cat >&2 <<'HINT'
 
 This usually means a branch cut from main or release was merged into develop, which
-replays the deletion publish-main.sh made. Restore them from the last commit that had
+replays the deletion sync-release.sh made. Restore them from the last commit that had
 them, and rebase the offending work onto develop instead of merging it:
 
   git log --diff-filter=D --oneline -- AGENTS.md CLAUDE.md

@@ -1,8 +1,8 @@
 # Static renderer: one platform's Kotlin/Native renderer, built and packaged exactly as the
 # release carries it.
 #
-# Called, not run on its own. native-renderer.yml calls it for the release and for the
-# check that an application built on it is one executable; samples.yml calls it so that
+# Called, not run on its own. test-native-renderer.yml calls it for the release and for the
+# check that an application built on it is one executable; test-samples.yml calls it so that
 # every sample on macOS and Linux is one executable too. One definition, so the two cannot
 # drift into building different things.
 #

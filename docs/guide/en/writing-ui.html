@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Writing UI · compose-rust guide</title>
-<meta name="description" content="rsx!, the shape of the widget set, modifier attributes, event handlers, event consumption, and the uncontrolled TextField.">
-<link rel="alternate" hreflang="en" href="writing-ui.html">
+<meta name="description" content="The planned compose-rust authoring API: composable functions, remember, state, effects, events and animation. Arrives with 1.0.0.">
+<link rel="alternate" hreflang="en" href="../en/writing-ui.html">
 <link rel="alternate" hreflang="ko" href="../ko/writing-ui.html">
-<link rel="alternate" hreflang="x-default" href="writing-ui.html">
+<link rel="alternate" hreflang="x-default" href="../en/writing-ui.html">
 <link rel="stylesheet" href="../assets/style.css?v=20">
 <script>(function(){try{var t=localStorage.getItem("dxc-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
 </head>
@@ -33,303 +33,231 @@
         <li><a href="overview.html">Overview</a></li>
         <li><a href="getting-started.html">Getting started</a></li>
         <li><a href="writing-ui.html" aria-current="page">Writing UI</a></li>
-        <li><a href="composables.html">Composable reference</a></li>
+        <li><a href="composables.html">Widget reference</a></li>
         <li><a href="lists-and-streaming.html">Lists &amp; streaming</a></li>
         <li><a href="design-systems.html">Design systems</a></li>
         <li><a href="architecture.html">Architecture</a></li>
         <li><a href="troubleshooting.html">Troubleshooting</a></li>
       </ul>
-      <h2>On this page</h2>
+      <h2>Repository</h2>
       <ul>
-        <li><a href="#shape">The shape of an app</a></li>
-        <li><a href="#widgets">The widget set</a></li>
-        <li><a href="#modifiers">Modifiers</a></li>
-        <li><a href="#events">Event handlers</a></li>
-        <li><a href="#consumption">Event consumption</a></li>
-        <li><a href="#textfield">The uncontrolled TextField</a></li>
-        <li><a href="#state">Where state lives</a></li>
+        <li><a href="https://github.com/DarkPyonix/compose-rust">GitHub</a></li>
+        <li><a href="https://crates.io/crates/compose-rust">crates.io</a></li>
+        <li><a href="https://github.com/DarkPyonix/compose-rust/issues">Issues</a></li>
       </ul>
     </nav>
   </aside>
 
   <main id="main">
     <p class="eyebrow">Writing UI</p>
-    <h1>rsx!, widgets and events</h1>
+    <h1>Composables, state and events <span class="pill planned">Planned</span></h1>
     <p class="lede">
-      If you have written Dioxus before, almost everything here is familiar: components, hooks,
-      signals and <code>rsx!</code> work as they do anywhere else. What is specific to this project
-      is the closed widget schema, the way key events are consumed, and the rule that text
-      composition never crosses the boundary.
+      This page describes the authoring API that arrives with compose-rust 1.0.0 on 2026-10-20. It
+      follows Compose: a composable is a function, state lives in <code>remember</code>, and when
+      state changes only the code that read it runs again.
     </p>
 
-    <h2 id="shape">The shape of an app</h2>
+    <div class="warn">
+      <span class="label">Planned, not yet in the crate</span>
+      <p>
+        None of the code on this page compiles against 0.0.x. It shows the intended shape, and the
+        names are not final. The work is tracked in
+        <a href="https://github.com/DarkPyonix/compose-rust/issues/23">#23</a>. The rules about
+        events, text input and UI-local state already hold today, because the renderer and the
+        boundary enforce them.
+      </p>
+    </div>
+
+    <h2 id="composables">A composable is a function</h2>
     <p>
-      An application is a function returning <code>Element</code> plus a call to
-      <code>launch</code>. The prelude brings in the widgets, the hooks and the macros.
+      You mark a function with <code>#[composable]</code> and call widgets inside it. The widgets are
+      functions too, with Compose's names: <code>Column</code>, <code>Text</code>,
+      <code>Button</code>. A widget that holds children takes them as a closure.
     </p>
 
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
-      <figcaption>rust</figcaption>
-<pre><code><span class="k">use</span> compose_rust::prelude::*;
-
-<span class="k">fn</span> <span class="f">app</span>() -&gt; <span class="ty">Element</span> {
-    <span class="k">let</span> <span class="k">mut</span> count = <span class="f">use_signal</span>(|| <span class="n">0</span>i32);
-
-    <span class="f">rsx!</span> {
-        <span class="ty">Column</span> {
-            <span class="at">fill_max_width</span>: <span class="k">true</span>,
-            <span class="ty">Text</span> { <span class="at">text</span>: <span class="f">format!</span>(<span class="s">"count: {}"</span>, count()) }
-            <span class="ty">Button</span> {
-                <span class="at">text</span>: <span class="s">"increment"</span>,
-                <span class="at">on_click</span>: <span class="k">move</span> |_| count += <span class="n">1</span>,
-            }
-        }
-    }
+      <figcaption>rust, planned shape (does not compile against 0.0.x)</figcaption>
+<pre><code><span class="at">#[composable]</span>
+<span class="k">fn</span> <span class="f">counter</span>() {
+    <span class="k">let</span> count = <span class="f">remember</span>(|| <span class="f">mutable_state_of</span>(<span class="n">0</span>));
+    <span class="f">Column</span>(<span class="ty">Modifier</span>::<span class="f">new</span>().<span class="f">fill_max_width</span>(), || {
+        <span class="f">Text</span>(<span class="f">format!</span>(<span class="s">"{}"</span>, count.<span class="f">get</span>()));
+        <span class="f">Button</span>(|| count.<span class="f">set</span>(count.<span class="f">get</span>() + <span class="n">1</span>), || <span class="f">Text</span>(<span class="s">"+1"</span>));
+    });
 }
 
 <span class="k">fn</span> <span class="f">main</span>() {
-    compose_rust::<span class="f">launch</span>(app);
+    compose_rust::<span class="f">launch</span>(counter);
 }</code></pre>
     </figure>
 
     <p>
-      <code>launch</code> is shorthand for <code>LaunchBuilder::new().launch(app)</code>. The
-      builder carries two settings, the loop mode and the theme:
-    </p>
-
-    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
-      <figcaption>rust</figcaption>
-<pre><code><span class="ty">LaunchBuilder</span>::<span class="f">new</span>()
-    .<span class="f">with_mode</span>(<span class="ty">LoopMode</span>::Renderer)  <span class="c">// desktop and iOS: Rust main drives the renderer</span>
-    .<span class="f">with_theme</span>(<span class="ty">Theme</span>::<span class="f">unified</span>(<span class="ty">DesignSystem</span>::Material3))
-    .<span class="f">launch</span>(app);</code></pre>
-    </figure>
-
-    <p>
-      <code>LoopMode::Renderer</code> is the default and the only mode that runs today.
-      <code>LoopMode::Platform</code>, where Android or the browser owns the loop and calls into
-      the Host, is defined in the protocol and has no implementation yet. Saying nothing about the
-      theme gives you <code>Theme::adaptive(DesignSystem::Material3)</code>: the host platform's
-      look, with Material 3 where the platform has none of its own. See
-      <a href="design-systems.html">Design systems</a>.
-    </p>
-
-    <h2 id="widgets">The widget set</h2>
-    <p>
-      The schema is closed on purpose. The renderer interprets exactly the widgets below; a kind it
-      does not recognise produces a <code>ProtocolError</code> event rather than a crash. Adding a
-      widget means extending the Rust schema, the Kotlin interpreter and the codegen together.
+      <code>#[composable]</code> inserts the groups that the runtime uses to tell one call site from
+      another. You never write groups or keys by hand. They close correctly through
+      <code>if</code>, <code>match</code>, loops, early <code>return</code>, <code>continue</code>,
+      <code>break</code>, <code>?</code> and unwinding, because the macro owns them rather than you.
     </p>
     <p>
-      This is the shape of the vocabulary. Every composable, with its props, its defaults and a
-      runnable example, is in the <a href="composables.html">composable reference</a>.
+      The widget vocabulary is the one in the schema, listed in the
+      <a href="composables.html">widget reference</a>. The authoring API defines no widget or
+      property of its own, so what you can write and what the renderer can draw are the same list.
     </p>
 
-    <div class="tablewrap">
-      <table>
-        <thead><tr><th scope="col">Group</th><th scope="col">Composables</th></tr></thead>
-        <tbody>
-          <tr><td>Layout</td><td><code>Column</code>, <code>Row</code>, <code>Box</code>, <code>ScrollColumn</code>, <code>ScrollRow</code>, <code>Spacer</code>, <code>SplitPane</code></td></tr>
-          <tr><td>Text and input</td><td><code>Text</code>, <code>TextField</code>, <code>SelectionContainer</code></td></tr>
-          <tr><td>Controls</td><td><code>Button</code>, <code>Checkbox</code>, <code>RadioButton</code>, <code>Switch</code>, <code>Slider</code>, <code>Dropdown</code>, <code>DatePicker</code>, <code>TimePicker</code>, <code>ProgressIndicator</code></td></tr>
-          <tr><td>Containers</td><td><code>Card</code>, <code>Surface</code>, <code>TopAppBar</code>, <code>Divider</code>, <code>Separator</code>, <code>Tooltip</code>, <code>Badge</code></td></tr>
-          <tr><td>Lists</td><td><code>LazyColumn</code>, <code>LazyRow</code></td></tr>
-          <tr><td>Navigation</td><td><code>Navigation</code>, <code>NavigationItem</code>, <code>Tabs</code></td></tr>
-          <tr><td>Overlays</td><td><code>Dialog</code>, <code>Menu</code>, <code>Sheet</code>, plus <code>show_message</code> and <code>Message</code>, which are not part of the tree</td></tr>
-          <tr><td>Pictures</td><td><code>Image</code>, <code>Icon</code>, <code>Canvas</code></td></tr>
-          <tr><td>Extension example</td><td><code>LinearProgressIndicator</code></td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <div class="warn">
-      <span class="label">Write <code>compose_rust::Box</code>, not <code>Box</code></span>
-      <p>
-        The <code>rsx!</code> expansion in dioxus-core 0.7 refers to an unqualified
-        <code>Box&lt;T&gt;</code> internally. Importing the Compose <code>Box</code> through the
-        glob prelude would shadow <code>std::boxed::Box</code> and break that expansion, so the
-        prelude deliberately leaves it out. Use the qualified path until upstream qualifies its own.
-      </p>
-    </div>
-
-    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
-      <figcaption>rust, from compose-rust/tests/rsx_api.rs</figcaption>
-<pre><code><span class="f">rsx!</span> {
-    compose_rust::<span class="ty">Box</span> {
-        <span class="at">fill_max_width</span>: <span class="k">true</span>,
-        <span class="ty">Text</span> { <span class="at">text</span>: <span class="s">"qualified Box"</span> }
-    }
-}</code></pre>
-    </figure>
-
-    <h2 id="modifiers">Modifiers</h2>
+    <h2 id="recomposition">State and recomposition</h2>
     <p>
-      In Compose a <code>Modifier</code> applies to any composable, and the same is true here.
-      Every widget takes the same thirteen attributes, so the set that applies to a
-      <code>Card</code> and to a <code>Text</code> is one set: <code>weight</code>,
-      <code>fill_max_width</code>, <code>fill_max_height</code>, <code>width</code>,
-      <code>height</code>, <code>padding</code>, <code>padding_role</code>,
-      <code>background</code>, <code>shape_role</code>, <code>corner_radius</code>,
-      <code>border_width</code>, <code>border_color</code> and <code>elevation</code>.
+      A state object records which scopes read it. Writing to it invalidates exactly those scopes,
+      and the next frame runs them again. That is the whole change detection: there is no tree diff.
     </p>
+    <ul>
+      <li><strong>Unchanged calls are skipped.</strong> Inside a scope that runs again, a composable
+        call whose arguments equal last time's does not run its body.</li>
+      <li><strong>Writes in one frame coalesce.</strong> Several writes before the next frame cause
+        one recomposition, not one each.</li>
+      <li><strong>One changed text sends one record.</strong> Changing the content of one
+        <code>Text</code> sends a single <code>SetProp</code>, and its siblings and parent do not
+        run.</li>
+    </ul>
 
-    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
-      <figcaption>rust</figcaption>
-<pre><code><span class="f">rsx!</span> {
-    <span class="ty">Card</span> {
-        <span class="at">fill_max_width</span>: <span class="k">true</span>,
-        <span class="at">padding_role</span>: <span class="ty">SpaceRole</span>::Md,
-        <span class="at">shape_role</span>: <span class="ty">ShapeRole</span>::Large,
-        <span class="at">background</span>: <span class="ty">Paint</span>::<span class="ty">Role</span>(<span class="ty">ColorRole</span>::SurfaceContainer),
-        <span class="ty">Text</span> { <span class="at">text</span>: <span class="s">"in a panel"</span> }
-    }
-}</code></pre>
-    </figure>
-
+    <h2 id="remember">Positional memory and keys</h2>
     <p>
-      They are serialised as a list of values, for example
-      <code>[PaddingRole(Md), FillMaxWidth, Background(paint)]</code>, and the renderer rebuilds
-      them into a Compose <code>Modifier</code> chain. An attribute you did not write sends nothing
-      at all rather than a zero, because no padding and a padding of zero look the same on screen
-      but only one of them should cost a mutation.
+      <code>remember</code> is bound to its call site: the path of groups and the order inside them.
+      When a branch disappears and comes back, or a loop grows and shrinks, each call site keeps its
+      own value and never receives another's.
+    </p>
+    <p>
+      In a loop, position is sometimes the wrong identity. When items can be reordered, give each
+      one a key, as with Compose's <code>key</code>. A keyed item that changes place is sent as a
+      move rather than a removal and a re-creation, and its remembered values travel with it.
     </p>
 
-    <div class="note">
-      <span class="label">Role or number</span>
-      <p>
-        <code>padding_role</code> and <code>shape_role</code> take the design system's answer;
-        <code>padding</code> and <code>corner_radius</code> take yours. Each pair shares one slot,
-        so set one or the other. Prefer the role: density and corner radius differ per design
-        system, and a number pins your layout to whichever one you had open at the time. The full
-        table, with types and defaults, is in the
-        <a href="composables.html#modifiers">composable reference</a>.
-      </p>
-    </div>
+    <h2 id="effects">Effects</h2>
+    <p>
+      Three kinds of effect follow Compose's <code>SideEffect</code>, <code>LaunchedEffect</code>
+      and <code>DisposableEffect</code>:
+    </p>
+    <ul>
+      <li>an effect that runs once after each composition is applied;</li>
+      <li>an effect that restarts when its keys change and is cancelled when it leaves the
+        composition;</li>
+      <li>an effect that runs a cleanup once when it leaves the composition.</li>
+    </ul>
+    <p>
+      A state write inside an event handler causes a recomposition. A state write during a
+      recomposition is deferred to the next frame, so a composition never feeds itself.
+    </p>
 
     <h2 id="events">Event handlers</h2>
     <p>
-      Handlers are ordinary Rust closures. They are called <em>synchronously</em>: the renderer
-      calls into the Host on its UI thread, your handler runs, the resulting diff is computed, and
-      the mutation batch travels back in the same call. Nothing is queued.
-    </p>
-
-    <div class="tablewrap">
-      <table>
-        <thead><tr><th scope="col">Handler</th><th scope="col">Payload</th><th scope="col">On</th></tr></thead>
-        <tbody>
-          <tr><td><code>on_click</code></td><td><code>()</code></td><td><code>Button</code>, <code>NavigationItem</code></td></tr>
-          <tr><td><code>on_value_change</code></td><td><code>String</code></td><td><code>TextField</code></td></tr>
-          <tr><td><code>on_submit</code></td><td><code>String</code></td><td><code>TextField</code></td></tr>
-          <tr><td><code>on_focus_lost</code></td><td><code>()</code></td><td><code>TextField</code></td></tr>
-          <tr><td><code>on_key_down</code></td><td><code>KeyEvent</code></td><td><code>TextField</code></td></tr>
-          <tr><td><code>on_change</code></td><td><code>bool</code>, <code>f32</code>, <code>usize</code>, <code>i64</code> or <code>u32</code></td><td><code>Checkbox</code>, <code>RadioButton</code>, <code>Switch</code>, <code>Slider</code>, <code>Dropdown</code>, <code>DatePicker</code>, <code>TimePicker</code></td></tr>
-          <tr><td><code>on_dismiss</code></td><td><code>()</code></td><td><code>Dialog</code>, <code>Menu</code>, <code>Sheet</code></td></tr>
-          <tr><td>range requests</td><td><code>RangeRequest</code></td><td><code>LazyColumn</code> and <code>LazyRow</code>, handled inside the component; you pass <code>item</code> and <code>key_of</code> instead</td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <p>
-      Because handlers run on the UI thread, they must stay cheap. Anything that blocks, a PTY
-      read, a network call, a file, belongs on a Host worker thread. Workers update signals; the
-      Host asks the renderer for a frame on its own. You never call a boundary function yourself.
-    </p>
-
-    <h2 id="consumption">Event consumption: Enter versus Shift+Enter</h2>
-    <p>
-      A chat input needs <kbd>Enter</kbd> to send and <kbd>Shift</kbd>+<kbd>Enter</kbd> to insert a
-      newline. That requires telling the renderer, synchronously, whether the key was handled, the same idea as <code>preventDefault()</code> on the web or
-      <code>PointerInputChange.consume()</code> in Compose.
+      Handlers are ordinary Rust closures, like the first argument of <code>Button</code> above.
+      They run <em>synchronously</em>. The renderer calls into the Host on its UI thread, your
+      handler runs, the runtime recomposes, and the batch of changes travels back in the same call.
+      Nothing is queued.
     </p>
     <p>
-      Dioxus 0.7 handlers return nothing, so consumption is marked on the event object instead. The
-      boundary reads that mark afterwards and returns it to the renderer, where
-      <code>Modifier.onKeyEvent</code> reports it as handled.
+      Because handlers run on the UI thread, they must stay cheap. Anything that blocks, such as a
+      PTY read, a network call or file I/O, belongs on a worker thread. A worker writes to the same
+      state objects, and the Host asks the renderer for a frame by itself. Your code never calls a
+      boundary function.
     </p>
 
-    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
-      <figcaption>rust, from compose-rust/examples/desktop_demo.rs</figcaption>
-<pre><code><span class="ty">TextField</span> {
-    <span class="at">placeholder</span>: <span class="s">"Write a message"</span>,
-    <span class="at">multiline</span>: <span class="k">true</span>,
-    <span class="at">on_value_change</span>: <span class="k">move</span> |value| draft.<span class="f">set</span>(value),
-    <span class="at">on_key_down</span>: <span class="k">move</span> |event: <span class="ty">KeyEvent</span>| {
-        <span class="k">if</span> event.<span class="f">key</span>() == <span class="ty">Key</span>::Enter &amp;&amp; !event.<span class="f">shift_key</span>() {
-            <span class="k">let</span> message = draft().<span class="f">trim</span>().<span class="f">to_owned</span>();
-            <span class="k">if</span> !message.<span class="f">is_empty</span>() {
-                messages.<span class="f">write</span>().<span class="f">push</span>(message);
-                draft.<span class="f">set</span>(<span class="ty">String</span>::<span class="f">new</span>());
-            }
-            event.<span class="f">consume</span>();   <span class="c">// the renderer's onKeyEvent returns true</span>
-        }
-    }
-}</code></pre>
-    </figure>
-
+    <h3 id="consumption">Consuming a key: Enter versus Shift+Enter</h3>
     <p>
-      <code>KeyEvent</code> exposes <code>key()</code>, <code>shift_key()</code>,
-      <code>ctrl_key()</code>, <code>alt_key()</code>, <code>meta_key()</code>, plus
-      <code>consume()</code> and <code>consumed()</code>. The <code>Key</code> enum currently has a
-      single variant, <code>Key::Enter</code>, the only key the M0 schema carries. More keys are a
-      schema addition, not a code change in your app.
+      A chat input needs <kbd>Enter</kbd> to send and <kbd>Shift</kbd>+<kbd>Enter</kbd> to insert
+      a newline. The renderer has to learn, inside the same call, whether the key was handled. This
+      is the same idea as <code>preventDefault()</code> on the web and a consumed key event in
+      Compose.
+    </p>
+    <p>
+      The boundary already carries this today. A key handler's result returns to the renderer as
+      the call's return value, and the renderer reports it to Compose as handled. The authoring API
+      exposes it as a key handler that says whether it consumed the key.
     </p>
 
     <div class="note">
       <span class="label">Enter during IME composition</span>
       <p>
-        While an IME is composing, the renderer does not send key events to the Host at all. An
-        <kbd>Enter</kbd> pressed mid-composition means "commit this syllable", not "submit". If that
-        rule were broken, pressing <kbd>Enter</kbd> while typing Korean would submit the message
-        with the composing syllable missing. Your handler never sees those keystrokes, which is why
-        the simple condition above is correct rather than merely convenient.
+        While an IME is composing, the renderer sends no key events to the Host at all. An
+        <kbd>Enter</kbd> pressed mid-composition means "commit this syllable", not "submit". If
+        that rule were broken, pressing <kbd>Enter</kbd> while typing Korean would submit the
+        message with the composing syllable missing. Your handler never sees those keystrokes, so
+        a plain "Enter without Shift" condition is correct.
       </p>
     </div>
 
     <h2 id="textfield">The uncontrolled TextField</h2>
     <p>
-      <code>TextField</code> has no <code>value</code> property. The edit buffer, the selection and
-      the composition state belong to the renderer. Rust learns about changes through events:
+      <code>TextField</code> has no value property. The edit buffer, the selection and the
+      composition state belong to the renderer. Rust learns about changes through events: a
+      debounced notification of the current text, a submitted value, and a lost focus.
+    </p>
+    <p>
+      The reason is Hangul. A Korean syllable is assembled from jamo as you type. If in-progress
+      text made a round trip through the Host, every keystroke would leave the renderer, come back,
+      and reset the composition, destroying the syllable. Japanese and Chinese input behave the
+      same way. Keeping the buffer in Kotlin makes that failure impossible rather than rare.
+    </p>
+    <p>
+      When the Host has to change the text, for example to clear an input after sending, it sends
+      an explicit <code>SetText</code> record with the text and the selection. The renderer applies
+      it only after any composition finishes. In 0.0.1 that is <code>Host::set_text</code>.
+    </p>
+
+    <h2 id="animation">Animation</h2>
+    <p>
+      The authoring API writes the same animation records the renderer already plays, with
+      Compose's names.
     </p>
     <ul>
-      <li><code>on_value_change</code>, a notification, debounced, of the current text.</li>
-      <li><code>on_submit</code>, a committed value.</li>
-      <li><code>on_focus_lost</code>, the field lost focus.</li>
+      <li><code>Modifier::graphics_layer</code> takes rotation, scale, translation, origin and
+        alpha.</li>
+      <li><code>animate_float_as_state</code>, <code>animate_color_as_state</code>,
+        <code>animate_offset_as_state</code> and the other <code>animate_*_as_state</code>
+        functions send one start record when the target changes. The renderer plays the animation,
+        and the value they return is the target.</li>
     </ul>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>rust, planned shape (does not compile against 0.0.x)</figcaption>
+<pre><code><span class="at">#[composable]</span>
+<span class="k">fn</span> <span class="f">banner</span>(visible: <span class="ty">bool</span>) {
+    <span class="k">let</span> alpha = <span class="f">animate_float_as_state</span>(<span class="k">if</span> visible { <span class="n">1.0</span> } <span class="k">else</span> { <span class="n">0.0</span> });
+    <span class="f">Box</span>(<span class="ty">Modifier</span>::<span class="f">new</span>().<span class="f">graphics_layer</span>(|layer| layer.alpha = alpha), || {
+        <span class="f">Text</span>(<span class="s">"Saved"</span>);
+    });
+}</code></pre>
+    </figure>
+
     <p>
-      This is not a simplification; it is the central design decision. Round-tripping in-progress
-      text through the Host means that every keystroke of a Korean syllable would leave the
-      renderer, be echoed back, and reset the composition. Hangul is assembled from jamo as you
-      type, so a reset mid-syllable destroys what you were typing. The same applies to Japanese and
-      Chinese input. Keeping the buffer in Kotlin makes the failure impossible rather than rare.
-    </p>
-    <p>
-      When the Host genuinely has to change the text, clearing an input after send, restoring a
-      draft, it uses an explicit <code>SetText(node_id, text, selection)</code> command, and the
-      renderer defers applying it until any composition finishes. On the Rust side that is
-      <code>Host::set_text</code>, part of the boundary surface rather than something you reach for
-      from a component. In component code, the usual way to clear a field is to give it a new
-      identity, exactly as you would in Dioxus on any other renderer.
+      While the animation plays, the Host does not recompose at all. The values in between live in
+      the renderer, on the Compose frame clock, and the Host never sees them. Without an explicit
+      duration and curve, an animation takes the design system's <code>MotionRole::Standard</code>,
+      so motion follows the platform. A duration and a curve of your own are the escape hatch.
     </p>
 
     <h2 id="state">Where state lives</h2>
+    <p>
+      Application state is yours, in Rust. UI-local state is the renderer's, in Kotlin, and the
+      recomposition runtime does not move it into Rust. This already holds today.
+    </p>
     <div class="tablewrap">
       <table>
         <thead><tr><th scope="col">State</th><th scope="col">Owner</th><th scope="col">Why</th></tr></thead>
         <tbody>
-          <tr><td>Application and domain state</td><td>Rust (signals)</td><td>It is your program. Dioxus reconciles it into mutations.</td></tr>
-          <tr><td>Text being edited, IME composition</td><td>Kotlin</td><td>Composition must never round-trip (see above).</td></tr>
-          <tr><td>Scroll position</td><td>Kotlin</td><td>UI-local; it would be a frame behind if Rust owned it.</td></tr>
-          <tr><td>Focus</td><td>Kotlin</td><td>Same reason, and the platform already owns focus.</td></tr>
-          <tr><td>Animation progress</td><td>Kotlin</td><td>Runs on the Compose frame clock.</td></tr>
-          <tr><td>Whether a dialog, menu, dropdown or sheet is open</td><td>Kotlin</td><td>The boolean you pass seeds it; the renderer owns the enter and the exit so the animation never round-trips.</td></tr>
+          <tr><td>Application and domain state</td><td>Rust</td><td>It is your program.</td></tr>
+          <tr><td>Text being edited, IME composition</td><td>Kotlin</td><td>Composition must never make a round trip (see above).</td></tr>
+          <tr><td>Scroll position</td><td>Kotlin</td><td>It would be a frame behind if Rust owned it.</td></tr>
+          <tr><td>Focus</td><td>Kotlin</td><td>The platform already owns focus.</td></tr>
+          <tr><td>Animation progress</td><td>Kotlin</td><td>It runs on the Compose frame clock.</td></tr>
+          <tr><td>Whether a dialog, menu, dropdown or sheet is open</td><td>Kotlin</td><td>The value you pass seeds it, and the renderer owns the enter and the exit, so the animation never makes a round trip.</td></tr>
           <tr><td>The position a slider drag is passing through</td><td>Kotlin</td><td>Following a finger should not cost a boundary call.</td></tr>
+          <tr><td>The app zoom level</td><td>Kotlin</td><td>It is saved per application by the renderer. See <a href="architecture.html#zoom">Architecture</a>.</td></tr>
         </tbody>
       </table>
     </div>
 
     <nav class="pagenav" aria-label="Pagination">
       <a class="prev" href="getting-started.html"><span>Previous</span>&larr; Getting started</a>
-      <a class="next" href="composables.html"><span>Next</span>Composable reference &rarr;</a>
+      <a class="next" href="composables.html"><span>Next</span>Widget reference &rarr;</a>
     </nav>
   </main>
 </div>
@@ -337,8 +265,8 @@
 <footer class="site">
   <div class="inner">
     <span>compose-rust &middot; Apache License 2.0</span>
-    <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/INTENT.md">INTENT.md</a></span>
-    <span>Guide last reviewed against the repository on 2026-09-22</span>
+    <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://crates.io/crates/compose-rust">crates.io</a></span>
+    <span>Guide last reviewed against the repository on 2026-10-03</span>
   </div>
 </footer>
 

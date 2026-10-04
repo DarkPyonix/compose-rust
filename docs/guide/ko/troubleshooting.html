@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>문제 해결 · compose-rust 가이드</title>
-<meta name="description" content="렌더러 라이브러리 없음, 잘못된 JDK, IME 실패 등 실제로 겪은 문제를 알아보는 방법.">
+<meta name="description" content="compose-rust를 빌드하거나 실행하다 만날 수 있는 실패와 각각을 알아보는 방법입니다.">
 <link rel="alternate" hreflang="en" href="../en/troubleshooting.html">
-<link rel="alternate" hreflang="ko" href="troubleshooting.html">
+<link rel="alternate" hreflang="ko" href="../ko/troubleshooting.html">
 <link rel="alternate" hreflang="x-default" href="../en/troubleshooting.html">
 <link rel="stylesheet" href="../assets/style.css?v=20">
 <script>(function(){try{var t=localStorage.getItem("dxc-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
@@ -33,198 +33,181 @@
         <li><a href="overview.html">개요</a></li>
         <li><a href="getting-started.html">시작하기</a></li>
         <li><a href="writing-ui.html">UI 작성하기</a></li>
-        <li><a href="composables.html">컴포저블 레퍼런스</a></li>
+        <li><a href="composables.html">위젯 레퍼런스</a></li>
         <li><a href="lists-and-streaming.html">목록과 스트리밍</a></li>
         <li><a href="design-systems.html">디자인 시스템</a></li>
         <li><a href="architecture.html">아키텍처</a></li>
         <li><a href="troubleshooting.html" aria-current="page">문제 해결</a></li>
       </ul>
-      <h2>이 페이지</h2>
+      <h2>저장소</h2>
       <ul>
-        <li><a href="#no-library">렌더러를 못 찾음</a></li>
-        <li><a href="#no-window">실행되는데 창이 없음</a></li>
-        <li><a href="#wrong-jdk">잘못된 JDK</a></li>
-        <li><a href="#main-thread">바로 끝나거나 안 끝남</a></li>
-        <li><a href="#ime">IME 문제</a></li>
-        <li><a href="#protocol">ProtocolError</a></li>
-        <li><a href="#stale">생성된 Kotlin이 낡음</a></li>
+        <li><a href="https://github.com/DarkPyonix/compose-rust">GitHub</a></li>
+        <li><a href="https://crates.io/crates/compose-rust">crates.io</a></li>
+        <li><a href="https://github.com/DarkPyonix/compose-rust/issues">이슈</a></li>
       </ul>
     </nav>
   </aside>
 
   <main id="main">
     <p class="eyebrow">문제 해결</p>
-    <h1>실제로 겪은 실패와 그것을 알아보는 법</h1>
+    <h1>만날 수 있는 실패와 알아보는 법</h1>
     <p class="lede">
-      이 페이지의 거의 모든 문제는 옷만 바꿔 입은 세 가지입니다. 렌더러 라이브러리가 링커가
-      기대하는 자리에 없거나, JDK가 다른 것이거나, 건드리면 안 되는 텍스트 경로를 건드린
-      것입니다.
+      이 페이지의 문제는 대부분 셋 중 하나입니다. 렌더러가 링커가 기대하는 곳에 없거나, JDK가 틀렸거나,
+      건드리면 안 되는 텍스트 경로를 무언가가 건드렸습니다.
     </p>
 
-    <h2 id="no-library">링커가 렌더러를 찾지 못함</h2>
+    <h2 id="no-library">빌드가 렌더러를 찾지 못합니다</h2>
     <p>
-      증상: <code>cargo run</code>이
-      <code>library not found for -lcompose_rust_renderer</code>로 실패하거나, 링크는 됐는데
-      실행 직후 <code>libcompose_rust_renderer.dylib</code>을 언급하는 동적 로더 오류로
-      죽습니다.
+      이 저장소 밖에서는 빌드가 렌더러를 내려받으므로, 여기서의 실패에는 무엇을 시도했고 무엇을 해야
+      하는지 말하는 메시지가 따라옵니다. 읽어 보십시오. 네트워크가 없는 경우와 릴리스에 대상이 없는
+      경우를 구별하고, 오프라인이라면 둘 파일과 둘 디렉터리를 알려 줍니다.
+      <code>COMPOSE_RUST_RENDERER_DIR</code> 은 이미 가진 렌더러를 빌드에 알려 줍니다.
     </p>
     <p>
-      이 저장소 밖에서는 빌드가 렌더러를 내려받으므로, 여기서 실패하면 무엇을 시도했고 무엇을
-      하면 되는지 말하는 메시지가 함께 나옵니다. 그 메시지를 읽으세요. 네트워크가 없는 경우와
-      릴리스에 해당 타깃이 없는 경우를 구분하고, 네트워크가 없는 경우에는 놓아야 할 파일 두
-      개와 놓을 디렉터리를 이름으로 말합니다.
-    </p>
-    <p>
-      체크아웃 안에서는 빌드가 워크스페이스 빌드를 내려받기보다 먼저 씁니다.
-      <code>renderer/build/macos</code>(또는 <code>build/linux</code>,
-      <code>build/linux-arm64</code>)의 정적 아카이브가 먼저이고, 그다음이
-      <code>renderer/build/native-image/dist/lib</code>의 네이티브 이미지입니다.
-      정적 아카이브는 실행 파일 안으로 링크되므로 시작할 때 찾을 것이 없습니다. 디렉터리는
-      있는데 아카이브가 없다면 렌더러를 아직 빌드하지 않은 것입니다.
+      체크아웃 안에서는 빌드가 내려받을 수 있는 어떤 것보다 작업 공간의 빌드를 먼저 씁니다.
+      <code>renderer/build/macos</code>(또는 <code>build/linux</code>, <code>build/linux-arm64</code>)의
+      정적 아카이브가 먼저이고, 그다음이 <code>renderer/build/native-image/dist/lib</code> 의
+      네이티브 이미지입니다. 정적 아카이브는 실행 파일 안에 링크되므로 시작할 때 찾을 것이 없습니다.
+      디렉터리가 있는데 비어 있다면 렌더러를 빌드하지 않은 것입니다.
     </p>
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
-      <figcaption>shell</figcaption>
+      <figcaption>shell, macOS</figcaption>
 <pre><code>ls renderer/build/macos
-<span class="c"># 기대: libcompose_rust_renderer.a, libcompose_rust_renderer_api.h, schema-hash.txt</span>
+<span class="c"># expect libcompose_rust_renderer.a, libcompose_rust_renderer_api.h and schema-hash.txt</span>
 
 ./renderer/desktop/scripts/build-macos.sh --release</code></pre>
     </figure>
     <p>
-      시작할 때 경로로 찾는 것은 네이티브 이미지입니다. 그 네 파일을 따로 떼어 옮기지 마세요. 렌더러는 <code>dladdr</code>로 자기 위치를 알아낸 다음
-      그 디렉터리에서 <code>java.home</code>, <code>skiko.library.path</code>,
-      <code>skiko.data.path</code>를 끌어냅니다. 혼자 다른 곳에 복사된 라이브러리는 로드는 되고
-      Skia나 AWT를 못 찾습니다.
+      '찾을 것이 없다'는 말의 예외가 네이티브 이미지입니다. 그 파일들을 떼어 놓지 마십시오. 네이티브 이미지는 실행 중에 자기 위치를 찾고, Skia와 AWT가 어디
+      있는지를 자기 디렉터리에서 끌어냅니다. 라이브러리만 따로 다른 곳에 복사하면 로드는 되지만 그것들을
+      찾지 못합니다.
+    </p>
+    <p>
+      <code>DXC_MACOS_NATIVE_LIB</code> 와 <code>DXC_LINUX_NATIVE_LIB</code> 는
+      <code>libcompose_rust_renderer.a</code> 가 있는 디렉터리를 가리키며 다른 어떤 것보다 먼저
+      확인됩니다. 둘 중 하나가 오래된 디렉터리를 가리키면 방금 빌드한 것이 아니라 그 렌더러가
+      링크됩니다.
     </p>
 
-    <h2 id="no-window">빌드도 실행도 되는데 창이 안 뜸</h2>
+    <h2 id="no-window">빌드되고 실행되는데 창이 뜨지 않습니다</h2>
     <p>
-      <code>default-features = false</code>로 만든 바이너리는 이제 조용히 그러지 않습니다.
-      무엇이 없는지 말하고 0이 아닌 상태로 끝나므로, 아무 말 없이 창만 안 뜨는 상황은 그 경우가
-      아닙니다. <code>mock-renderer</code> 기능으로 만든 빌드는 창 없는 Host를 요청한 것이므로
-      의도적으로 조용합니다.
+      <code>default-features = false</code> 로 빌드한 바이너리는 이것을 조용히 하지 않습니다. 무엇이
+      빠졌는지 출력하고 0이 아닌 값으로 끝납니다. <code>mock-renderer</code> 기능으로 빌드한 것은
+      창 없는 Host를 요청한 것이므로 일부러 조용합니다.
     </p>
     <p>
-      기능이 켜져 있는데도 그렇다면, 양쪽을 분리해 보세요. 스모크 테스트는 최소한의 C 호스트를
-      라이브러리에 링크해 <code>run</code>을 직접 부릅니다.
+      그 밖이라면 두 반쪽을 떼어 봅니다. 스모크 테스트는 작은 C 호스트를 라이브러리에 링크해
+      <code>run</code> 을 직접 부릅니다.
     </p>
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
       <figcaption>shell</figcaption>
 <pre><code>./renderer/desktop/scripts/smoke-test.sh</code></pre>
     </figure>
     <p>
-      여기서는 창이 뜨는데 Rust에서는 안 뜬다면 바이너리 링크 문제입니다. 여기서도 안 뜨면
+      거기서는 창이 뜨고 Rust에서는 뜨지 않는다면 바이너리의 링크를 보십시오. 거기서도 뜨지 않는다면
       렌더러 라이브러리 자체가 잘못된 것이고, 보통 다음 문제입니다.
     </p>
 
-    <h2 id="wrong-jdk">잘못된 JDK: Darwin AWT 함정</h2>
+    <h2 id="wrong-jdk">잘못된 JDK: Darwin의 AWT 함정</h2>
     <p>
-      증상: 빌드 스크립트가
-      <code>error: set GRAALVM_HOME to a Liberica NIK 25 Full installation</code>로 멈춥니다.
-      이건 좋은 경우입니다. 문제를 대신 잡아 준 것이니까요.
+      macOS의 네이티브 이미지에 해당합니다. 좋은 경우는 빌드 스크립트가
+      <code>no Liberica NIK 25 Full found, and GRAALVM_HOME is not set</code> 으로 멈추는 것입니다.
+      문제를 대신 잡아 준 것입니다.
     </p>
     <p>
-      나쁜 경우는 <code>PATH</code>에 upstream GraalVM의 <code>native-image</code>가 있어서
-      빌드는 되는데, 실행 시 AWT 클래스나 심볼이 없다고 죽거나 창이 아예 뜨지 않는 것입니다.
-      upstream GraalVM은 Darwin에서 AWT를 건너뜁니다
-      (<a href="https://github.com/oracle/graal/issues/13272">oracle/graal#13272</a>). Liberica
-      NIK Full은 정적으로 링크합니다. 실제로 무엇을 가리키고 있는지 확인하세요.
+      나쁜 경우는 <code>PATH</code> 에 업스트림 GraalVM의 <code>native-image</code> 가 있는 것입니다.
+      빌드는 되지만, 실행하면 AWT 클래스나 심볼이 없다며 실패하거나 창을 아예 열지 않습니다. 업스트림
+      GraalVM은 Darwin에서 AWT를 빼고
+      (<a href="https://github.com/oracle/graal/issues/13272">oracle/graal#13272</a>), Liberica NIK
+      Full은 그것을 정적으로 링크합니다. 실제로 무엇을 가리키는지 확인하십시오.
     </p>
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
       <figcaption>shell</figcaption>
-<pre><code><span class="k">echo</span> <span class="s">"$GRAALVM_HOME"</span>
-<span class="s">"$GRAALVM_HOME"</span>/bin/native-image --version   <span class="c"># Liberica NIK 25 빌드여야 합니다</span></code></pre>
+<pre><code>echo "$GRAALVM_HOME"
+"$GRAALVM_HOME"/bin/native-image --version   <span class="c"># expect a Liberica NIK 25 build</span></code></pre>
     </figure>
     <p>
-      비슷한 변형이 하나 더 있습니다. 메타데이터를 수집하는 JVM 실행과 네이티브 빌드는 같은
-      JDK여야 합니다. 스크립트는 <code>GRAALVM_HOME</code>으로 <code>JAVA_HOME</code>을 설정해서
-      이를 강제합니다. 다른 JVM에서 렌더러를 돌린 뒤 이미지를 빌드하면, 컴파일 대상이 아닌 JDK를
-      묘사한 reachability 메타데이터를 쓰게 됩니다.
+      <code>./scripts/install-nik.sh</code> 가 맞는 것을 설치합니다. 메타데이터 수집과 네이티브 빌드도
+      같은 JDK를 써야 하며, 스크립트는 <code>GRAALVM_HOME</code> 으로 <code>JAVA_HOME</code> 을 정해
+      이것을 강제합니다. 그렇지 않으면 도달성 메타데이터가 컴파일하는 것과 다른 JDK를 기술합니다.
     </p>
 
-    <h2 id="main-thread">시작하자마자 끝나거나, 끝나지 않음</h2>
+    <h2 id="main-thread">앱이 시작하자마자 돌아옵니다</h2>
     <p>
-      <code>compose_rust_renderer_run</code>은 프로세스 메인 스레드에서 불러야 합니다. macOS에서
-      다른 스레드에서 부르면 아무 일도 하지 않고 <code>RUN_NOT_MAIN_THREAD</code>(<code>-4</code>)를
-      반환합니다. 같은 진입점의 다른 음수 코드도 알아 두면 좋습니다.
+      <code>compose_rust_renderer_run</code> 은 프로세스의 메인 스레드에서 불러야 합니다. macOS에서
+      다른 곳에서 부르면 아무것도 하지 않고 <code>RUN_NOT_MAIN_THREAD</code>(<code>-4</code>)를
+      돌려줍니다. 네이티브 이미지의 다른 음수 코드도 알아 둘 만합니다.
     </p>
     <div class="tablewrap">
       <table>
-        <thead><tr><th scope="col">코드</th><th scope="col">의미</th></tr></thead>
+        <thead><tr><th scope="col">코드</th><th scope="col">뜻</th></tr></thead>
         <tbody>
-          <tr><td><code>-1</code></td><td>GraalVM isolate를 만들지 못했습니다.</td></tr>
-          <tr><td><code>-2</code></td><td><code>run</code>이 두 번 호출됐습니다.</td></tr>
-          <tr><td><code>-3</code></td><td>라이브러리가 자기 경로를 알아내지 못해 런타임 레이아웃을 모릅니다.</td></tr>
+          <tr><td><code>-1</code></td><td>GraalVM isolate를 만들 수 없었습니다.</td></tr>
+          <tr><td><code>-2</code></td><td><code>run</code> 을 두 번 불렀습니다.</td></tr>
+          <tr><td><code>-3</code></td><td>라이브러리가 자기 경로를 알아내지 못해 Skia와 AWT를 찾을 수 없습니다.</td></tr>
           <tr><td><code>-4</code></td><td>메인 스레드가 아닙니다.</td></tr>
-          <tr><td><code>-5</code></td><td>렌더러 스레드를 시작하지 못했습니다.</td></tr>
+          <tr><td><code>-5</code></td><td>렌더러 스레드를 시작할 수 없었습니다.</td></tr>
         </tbody>
       </table>
     </div>
     <p>
-      반대로 창은 닫혔는데 프로세스가 끝나지 않는다면 AppKit 재진입 문제입니다. AWT가 이벤트
-      루프를 소유해 <code>[NSApp run]</code>에 다시 들어갔고, 그래서 제어가 Host로 돌아오지
-      않습니다. 메인 스레드가 <code>NSApplication</code>을 직접 돌리고 렌더러를 보조 스레드에 두는
-      설계가 바로 이걸 피하기 위한 것입니다.
+      Linux의 Kotlin/Native 렌더러도 <code>-2</code> 와 <code>-4</code> 를 같은 뜻으로 씁니다.
     </p>
 
     <h2 id="ime">IME 문제</h2>
-    <p>헷갈리기 쉬운 세 가지 실패입니다.</p>
-    <h3>Enter가 조합 중이던 글자를 삼키고 전송됨</h3>
+    <p>서로 다른 실패 셋이 있고, 헷갈리기 쉽습니다.</p>
+    <h3>Enter가 전송하면서 음절을 먹습니다</h3>
     <p>
-      한글을 치다가 글자를 확정하려고 <kbd>Enter</kbd>를 눌렀는데 그 글자가 빠진 채 메시지가
-      전송됩니다. 조합 중에 키 이벤트가 Host까지 올라왔다는 뜻입니다. 규칙은 조합 중에는 렌더러가
-      키 이벤트를 아예 전달하지 않는 것이고, 조합 중의 <kbd>Enter</kbd>는 제출이 아니라 확정입니다.
-      이 증상을 보면 버그는 핸들러가 아니라 렌더러 쪽 키 경로에 있습니다.
+      한글을 치고 음절을 확정하려고 <kbd>Enter</kbd> 를 눌렀는데, 그 음절이 빠진 채 메시지가
+      전송됩니다. 조합 중에 키 이벤트가 Host에 닿은 것입니다. 렌더러는 조합 중에 키 이벤트를 넘기면
+      안 됩니다. 조합 중의 <kbd>Enter</kbd> 는 전송이 아니라 확정이기 때문입니다. 이것을 보았다면
+      버그는 핸들러가 아니라 렌더러 쪽 키 경로에 있습니다.
     </p>
-    <h3>입력 중에 조합이 리셋됨</h3>
+    <h3>치는 동안 조합이 초기화됩니다</h3>
     <p>
-      글자를 만드는 도중 글자가 사라지거나 순서가 흐트러집니다. 텍스트가 Host를 왕복한 전형적인
-      증상으로, 조합 중에 Rust가 필드 값을 설정한 것입니다. <code>TextField</code>가 비제어인 이유가
-      이것이고, <code>SetText</code> 명령도 조합이 끝날 때까지 기다리도록 정의돼 있습니다.
+      음절을 조립하는 동안 글자가 사라지거나 순서가 바뀝니다. 텍스트가 Host를 왕복한 흔적입니다.
+      조합 중에 무언가가 Rust에서 입력창의 텍스트를 바꾼 것입니다. <code>TextField</code> 가 비제어인
+      것이 이 때문이고, <code>SetText</code> 는 조합이 끝날 때까지 기다립니다.
     </p>
-    <h3>네이티브 이미지에서만 조합이 안 됨</h3>
+    <h3>네이티브 이미지에서 조합이 아예 되지 않습니다</h3>
     <p>
-      JVM에서 렌더러를 돌리면 한글이 되는데 네이티브 이미지에서는 안 됩니다. 이것은 설계상
-      <em>설정</em> 문제로 다룹니다. AOT 컴파일은 어떤 코드 경로가 도는지를 바꾸지 않기 때문입니다.
-      순서대로 확인하세요. <code>InputMethodDescriptor</code> ServiceLoader 리소스, JNI/리플렉션
-      메타데이터, 로케일과 문자셋 리소스, 그리고 CJK 폰트 폴백입니다.
+      렌더러를 JVM에서 돌리면 한글 입력이 되는데 네이티브 이미지에서는 되지 않습니다. 이것은
+      <em>설정</em> 문제로 다룹니다. 미리 컴파일한다고 실행되는 코드가 바뀌지는 않기 때문입니다.
+      <code>InputMethodDescriptor</code> ServiceLoader 리소스, JNI와 리플렉션 메타데이터, 로캘과
+      문자셋 리소스, CJK 글꼴 대체를 차례로 확인하십시오.
     </p>
     <div class="warn">
-      <span class="label">메타데이터는 한글을 실제로 입력하면서 수집하세요</span>
+      <span class="label">한글을 치면서 메타데이터를 수집하십시오</span>
       <p>
-        tracing agent는 실제로 실행된 코드 경로만 기록합니다. 앱을 띄웠다가 그냥 닫으면 IME에 대해
-        아무것도 기록되지 않습니다. <code>collect-metadata.sh</code>를 돌린 다음 창에 한글을 입력하고,
-        이것저것 눌러 보고, 창이 스스로 닫히게 두세요. 그렇게 하지 않고 모은 메타데이터는 정확히 이
-        증상으로 텍스트 입력이 깨진 네이티브 이미지를 만듭니다.
+        추적 에이전트는 실제로 실행된 코드 경로만 기록합니다. 앱을 열었다 닫기만 하면 IME에 대해서는
+        아무것도 기록되지 않습니다. <code>collect-metadata.sh</code> 를 실행하고, 창에 한글을 치고,
+        이것저것 누른 뒤, 창이 스스로 닫히게 두십시오. 그렇게 하지 않고 수집한 메타데이터로 만든
+        네이티브 이미지는 텍스트 입력이 정확히 이렇게 망가집니다.
       </p>
     </div>
-    <p>
-      전체 수동 체크리스트: "안녕하세요" 조합, 자모 단위 백스페이스, 화살표 이동 시 조합 확정,
-      문장 중간 삽입, 멀티라인에서의 Enter 처리, 한글 섞인 텍스트 붙여넣기, 일본어·중국어 후보창,
-      두부 문자 없음, 은 SPEC §6에 있고 JVM 셸이 아니라 네이티브 이미지에서 확인합니다.
-    </p>
 
     <h2 id="protocol">ProtocolError 이벤트</h2>
     <p>
-      렌더러가 모르는 위젯 타입이나 속성, Modifier가 와도 아무것도 죽지 않습니다. 렌더러가 코드와
-      메시지를 담은 <code>ProtocolError</code> 이벤트를 보냅니다. 이 이벤트가 보인다면 양쪽이
-      스키마에 대해 다른 생각을 하고 있다는 뜻이고, 보통은 지금 돌리는 Rust 크레이트와 다른
-      소스에서 빌드된 렌더러 라이브러리입니다. 렌더러를 다시 빌드하세요.
+      렌더러가 모르는 위젯, 속성, Modifier는 아무것도 충돌시키지 않습니다. 렌더러는 코드와 메시지를
+      담은 <code>ProtocolError</code> 이벤트를 보냅니다. 이것이 보이면 두 쪽이 스키마에 대해 의견이
+      다른 것이고, 보통은 실행 중인 Rust 크레이트와 다른 소스로 빌드한 렌더러입니다. 렌더러를 다시
+      빌드하십시오.
     </p>
     <p>
-      완전한 불일치는 더 일찍 걸립니다. 핸드셰이크가 스키마 해시와 프로토콜 버전을 비교해 다르면
-      초기화를 실패시킵니다.
+      완전한 불일치는 더 일찍 잡힙니다. 빌드가 렌더러의 스키마 해시를 크레이트의 것과 비교하고,
+      핸드셰이크가 시작할 때 다시 비교해 다르면 초기화를 거부합니다.
     </p>
 
-    <h2 id="stale">생성된 Kotlin 때문에 테스트가 실패함</h2>
+    <h2 id="stale">테스트가 생성된 Kotlin에서 실패합니다</h2>
     <p>
-      생성된 Kotlin과 저장소의 파일을 비교하는 테스트가 실패했다면, Rust 스키마를 고치고
-      재생성하지 않은 것입니다. 의도된 경보입니다. 스키마가 단일 소스이므로, 갱신되지 않은 Kotlin
-      인터프리터는 런타임에 어긋나는 대신 빌드에서 막혀야 합니다.
+      생성한 Kotlin과 체크인된 파일을 비교하는 테스트가 실패한다면, Rust 스키마를 바꾸고 다시 생성하지
+      않은 것입니다. 의도한 경보입니다. 스키마가 유일한 원천이고, 갱신되지 않은 Kotlin 쪽은 런타임에
+      엇나가기보다 빌드에서 실패해야 합니다. <code>cargo run -p compose-rust --bin codegen</code> 을
+      실행하고 결과를 커밋하십시오.
     </p>
 
     <nav class="pagenav" aria-label="페이지 이동">
       <a class="prev" href="architecture.html"><span>이전</span>&larr; 아키텍처</a>
-      <a class="next" href="overview.html"><span>다음</span>개요 &rarr;</a>
     </nav>
   </main>
 </div>
@@ -232,8 +215,8 @@
 <footer class="site">
   <div class="inner">
     <span>compose-rust &middot; Apache License 2.0</span>
-    <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/INTENT.md">INTENT.md</a></span>
-    <span>이 가이드는 2026-09-20 기준 저장소 내용과 대조했습니다</span>
+    <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://crates.io/crates/compose-rust">crates.io</a></span>
+    <span>이 가이드는 2026-10-03 기준 저장소 내용과 대조했습니다</span>
   </div>
 </footer>
 

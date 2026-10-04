@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Troubleshooting · compose-rust guide</title>
-<meta name="description" content="How to recognise a missing renderer library, the wrong JDK, an IME that aborts, and the other failures this project actually hit.">
-<link rel="alternate" hreflang="en" href="troubleshooting.html">
+<meta name="description" content="Failures you can meet building or running compose-rust, and how to recognise each one.">
+<link rel="alternate" hreflang="en" href="../en/troubleshooting.html">
 <link rel="alternate" hreflang="ko" href="../ko/troubleshooting.html">
-<link rel="alternate" hreflang="x-default" href="troubleshooting.html">
+<link rel="alternate" hreflang="x-default" href="../en/troubleshooting.html">
 <link rel="stylesheet" href="../assets/style.css?v=20">
 <script>(function(){try{var t=localStorage.getItem("dxc-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
 </head>
@@ -33,120 +33,113 @@
         <li><a href="overview.html">Overview</a></li>
         <li><a href="getting-started.html">Getting started</a></li>
         <li><a href="writing-ui.html">Writing UI</a></li>
-        <li><a href="composables.html">Composable reference</a></li>
+        <li><a href="composables.html">Widget reference</a></li>
         <li><a href="lists-and-streaming.html">Lists &amp; streaming</a></li>
         <li><a href="design-systems.html">Design systems</a></li>
         <li><a href="architecture.html">Architecture</a></li>
         <li><a href="troubleshooting.html" aria-current="page">Troubleshooting</a></li>
       </ul>
-      <h2>On this page</h2>
+      <h2>Repository</h2>
       <ul>
-        <li><a href="#no-library">No renderer library</a></li>
-        <li><a href="#no-window">Builds, but no window</a></li>
-        <li><a href="#wrong-jdk">Wrong JDK</a></li>
-        <li><a href="#main-thread">Nothing happens, or the app hangs</a></li>
-        <li><a href="#ime">IME problems</a></li>
-        <li><a href="#protocol">Protocol errors</a></li>
-        <li><a href="#stale">Stale generated Kotlin</a></li>
+        <li><a href="https://github.com/DarkPyonix/compose-rust">GitHub</a></li>
+        <li><a href="https://crates.io/crates/compose-rust">crates.io</a></li>
+        <li><a href="https://github.com/DarkPyonix/compose-rust/issues">Issues</a></li>
       </ul>
     </nav>
   </aside>
 
   <main id="main">
     <p class="eyebrow">Troubleshooting</p>
-    <h1>Failures we actually hit, and how to recognise them</h1>
+    <h1>Failures you can meet, and how to recognise them</h1>
     <p class="lede">
-      Almost every problem on this page is one of three things wearing different clothes: the
-      renderer library is not where the linker expects it, the JDK is the wrong one, or something
-      touched the text path that should not have.
+      Most problems on this page are one of three things: the renderer is not where the linker
+      expects it, the JDK is the wrong one, or something touched the text path that should not have.
     </p>
 
-    <h2 id="no-library">The linker cannot find the renderer</h2>
-    <p>
-      Symptoms: <code>cargo run</code> fails with
-      <code>library not found for -lcompose_rust_renderer</code>, or the binary links but dies at
-      startup with a dynamic-loader error naming
-      <code>libcompose_rust_renderer.dylib</code>.
-    </p>
+    <h2 id="no-library">The build cannot find the renderer</h2>
     <p>
       Outside this repository the build downloads the renderer, so a failure here comes with a
-      message that says what it tried and what to do. Read it: it distinguishes no network from a
-      release that does not carry your target, and the offline case names the two files to place
-      and the directory to place them in.
+      message that says what it tried and what to do. Read it. It tells no network apart from a
+      release that does not carry your target, and the offline case names the files to place and
+      the directory to place them in. <code>COMPOSE_RUST_RENDERER_DIR</code> points the build at a
+      renderer you already have.
     </p>
     <p>
-      Inside a checkout the build prefers a workspace build over anything downloadable: the
-      static archive in <code>renderer/build/macos</code> (or
-      <code>build/linux</code>, <code>build/linux-arm64</code>) first, then the native image in
-      <code>renderer/build/native-image/dist/lib</code>. The static archive is
-      linked into the executable, so there is nothing to find at startup. If the directory
-      exists but holds no archive, the renderer has not been built.
+      Inside a checkout the build prefers a workspace build over anything it could download: the
+      static archive in <code>renderer/build/macos</code> (or <code>build/linux</code>,
+      <code>build/linux-arm64</code>) first, then the native image in
+      <code>renderer/build/native-image/dist/lib</code>. The static archive is linked into the
+      executable, so there is nothing to find at startup. If the directory exists but is empty, the
+      renderer has not been built.
     </p>
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
-      <figcaption>shell</figcaption>
+      <figcaption>shell, macOS</figcaption>
 <pre><code>ls renderer/build/macos
-<span class="c"># expect: libcompose_rust_renderer.a, libcompose_rust_renderer_api.h, schema-hash.txt</span>
+<span class="c"># expect libcompose_rust_renderer.a, libcompose_rust_renderer_api.h and schema-hash.txt</span>
 
 ./renderer/desktop/scripts/build-macos.sh --release</code></pre>
     </figure>
     <p>
-      The native image is the one that is found at startup, by the path the build named it after.
-      Do not move its four files apart. The renderer finds itself with <code>dladdr</code> and
-      derives <code>java.home</code>, <code>skiko.library.path</code> and
-      <code>skiko.data.path</code> from that one directory. A library copied somewhere on its own
-      will load and then fail to find Skia or AWT.
+      The native image is the exception to "nothing to find": do not move its files apart. It finds itself at runtime and derives where
+      Skia and AWT are from its own directory. A library copied somewhere on its own loads and then
+      fails to find them.
+    </p>
+    <p>
+      <code>DXC_MACOS_NATIVE_LIB</code> and <code>DXC_LINUX_NATIVE_LIB</code> name a directory that
+      holds <code>libcompose_rust_renderer.a</code> and are checked ahead of everything else. If
+      one of them is set to a stale directory, the binary links that renderer, not the one you just
+      built.
     </p>
 
     <h2 id="no-window">It builds and runs, but no window appears</h2>
     <p>
-      A binary built with <code>default-features = false</code> no longer does this quietly: it
-      prints what is missing and exits non-zero, so a silent window-less run is not that case. A
-      build with the <code>mock-renderer</code> feature is silent on purpose, because it is asking
-      for a Host with no window.
+      A binary built with <code>default-features = false</code> does not do this quietly: it prints
+      what is missing and exits non-zero. A build with the <code>mock-renderer</code> feature is
+      silent on purpose, because it asks for a Host with no window.
     </p>
     <p>
-      If the feature <em>is</em> on, isolate the halves. Run the smoke test: it links a minimal C
-      host against the library and calls <code>run</code> directly.
+      Otherwise, isolate the halves. The smoke test links a small C host against the library and
+      calls <code>run</code> directly.
     </p>
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
       <figcaption>shell</figcaption>
 <pre><code>./renderer/desktop/scripts/smoke-test.sh</code></pre>
     </figure>
     <p>
-      A window there and none from Rust points at the linking of your binary. No window there
-      either means the renderer library itself is bad, usually the next problem.
+      A window there and none from Rust points at how your binary is linked. No window there either
+      means the renderer library itself is bad, usually the next problem.
     </p>
 
     <h2 id="wrong-jdk">Wrong JDK: the AWT-on-Darwin trap</h2>
     <p>
-      Symptom: the build script stops with
-      <code>error: set GRAALVM_HOME to a Liberica NIK 25 Full installation</code>. That is the good
-      case, it caught the problem for you.
+      This applies to the native image on macOS. The good case is the build script stopping with
+      <code>no Liberica NIK 25 Full found, and GRAALVM_HOME is not set</code>: it caught the
+      problem for you.
     </p>
     <p>
-      The bad case is a <code>native-image</code> on <code>PATH</code> from upstream GraalVM that
-      builds something which then fails at runtime with missing AWT classes or symbols, or opens no
+      The bad case is a <code>native-image</code> on <code>PATH</code> from upstream GraalVM. It
+      builds something that then fails at runtime with missing AWT classes or symbols, or opens no
       window at all. Upstream GraalVM skips AWT on Darwin
-      (<a href="https://github.com/oracle/graal/issues/13272">oracle/graal#13272</a>); Liberica NIK
-      Full links it statically. Check what you are actually pointing at:
+      (<a href="https://github.com/oracle/graal/issues/13272">oracle/graal#13272</a>), and Liberica
+      NIK Full links it statically. Check what you are pointing at:
     </p>
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
       <figcaption>shell</figcaption>
-<pre><code><span class="k">echo</span> <span class="s">"$GRAALVM_HOME"</span>
-<span class="s">"$GRAALVM_HOME"</span>/bin/native-image --version   <span class="c"># expect a Liberica NIK 25 build</span></code></pre>
+<pre><code>echo "$GRAALVM_HOME"
+"$GRAALVM_HOME"/bin/native-image --version   <span class="c"># expect a Liberica NIK 25 build</span></code></pre>
     </figure>
     <p>
-      A related variant: the JVM metadata run and the native build must use the same JDK. The
-      scripts enforce this by setting <code>JAVA_HOME</code> from <code>GRAALVM_HOME</code> for the
-      metadata run. If you run the renderer on some other JVM and then build the image, the
-      reachability metadata describes a JDK that is not the one being compiled.
+      <code>./scripts/install-nik.sh</code> installs the right one. The metadata run and the native
+      build must also use the same JDK, which the scripts enforce by setting
+      <code>JAVA_HOME</code> from <code>GRAALVM_HOME</code>. Otherwise the reachability metadata
+      describes a JDK that is not the one being compiled.
     </p>
 
-    <h2 id="main-thread">The app starts and immediately returns, or hangs on exit</h2>
+    <h2 id="main-thread">The app starts and returns at once</h2>
     <p>
       <code>compose_rust_renderer_run</code> must be called on the process main thread. Called
-      anywhere else on macOS it returns <code>RUN_NOT_MAIN_THREAD</code> (<code>-4</code>) without
-      doing anything. Other negative codes from the same entry point are worth knowing:
+      anywhere else on macOS it returns <code>RUN_NOT_MAIN_THREAD</code> (<code>-4</code>) and does
+      nothing. The native image's other negative codes are worth knowing:
     </p>
     <div class="tablewrap">
       <table>
@@ -154,18 +147,15 @@
         <tbody>
           <tr><td><code>-1</code></td><td>The GraalVM isolate could not be created.</td></tr>
           <tr><td><code>-2</code></td><td><code>run</code> was called twice.</td></tr>
-          <tr><td><code>-3</code></td><td>The library could not work out its own path, so the runtime layout is unknown.</td></tr>
+          <tr><td><code>-3</code></td><td>The library could not work out its own path, so it cannot find Skia and AWT.</td></tr>
           <tr><td><code>-4</code></td><td>Not on the main thread.</td></tr>
           <tr><td><code>-5</code></td><td>The renderer thread could not be started.</td></tr>
         </tbody>
       </table>
     </div>
     <p>
-      If instead the window closes but the process never exits, that is the AppKit re-entry
-      problem: AWT was allowed to own the event loop and re-entered <code>[NSApp run]</code>, so
-      control never returns to the Host. The design keeps the main thread running
-      <code>NSApplication</code> itself and the renderer on a secondary thread precisely to avoid
-      this.
+      The Linux Kotlin/Native renderer uses <code>-2</code> and <code>-4</code> with the same
+      meanings.
     </p>
 
     <h2 id="ime">IME problems</h2>
@@ -173,66 +163,58 @@
     <h3>Enter submits and eats the syllable</h3>
     <p>
       You type Korean, press <kbd>Enter</kbd> to commit the syllable, and the message is sent
-      without it. This means key events reached the Host while composition was in progress. The
-      rule is that the renderer does not forward key events during composition at all; an
-      <kbd>Enter</kbd> mid-composition is a commit, not a submit. If you see this, the bug is on
-      the renderer side of the key path, not in your handler.
+      without it. Key events reached the Host while composition was in progress. The renderer must
+      not forward key events during composition, because <kbd>Enter</kbd> mid-composition is a
+      commit, not a submit. If you see this, the bug is on the renderer side of the key path, not in
+      your handler.
     </p>
     <h3>Composition resets as you type</h3>
     <p>
-      Characters disappear or re-order while a syllable is being built. That is the signature of
-      text round-tripping through the Host: something set the field's value from Rust during
-      composition. <code>TextField</code> is uncontrolled for this reason, and the
-      <code>SetText</code> command is defined to wait until composition ends.
+      Characters disappear or reorder while a syllable is being built. That is the signature of text
+      making a round trip through the Host: something set the field's text from Rust during
+      composition. <code>TextField</code> is uncontrolled for this reason, and
+      <code>SetText</code> waits until composition ends.
     </p>
     <h3>No composition at all in the native image</h3>
     <p>
-      Korean input works when the renderer runs on the JVM but not in the native image. By design
-      this is treated as a <em>configuration</em> problem, not an implementation one: AOT
-      compilation does not change which code paths run. Check, in order, the
-      <code>InputMethodDescriptor</code> ServiceLoader resources, the JNI and reflection metadata,
-      the locale and charset resources, and CJK font fallback.
+      Korean input works when the renderer runs on the JVM but not in the native image. Treat it as
+      a <em>configuration</em> problem, because ahead-of-time compilation does not change which code
+      runs. Check, in order, the <code>InputMethodDescriptor</code> ServiceLoader resources, the JNI
+      and reflection metadata, the locale and charset resources, and CJK font fallback.
     </p>
     <div class="warn">
       <span class="label">Collect metadata while typing Korean</span>
       <p>
-        The tracing agent only records code paths that actually execute. Running the app and
-        closing it records nothing about the IME. Run
-        <code>collect-metadata.sh</code>, then type Korean into the window, click things and let the
-        window close on its own. Metadata collected without doing that will produce a native image
-        whose text input is broken in exactly this way.
+        The tracing agent records only code paths that actually run. Running the app and closing it
+        records nothing about the IME. Run <code>collect-metadata.sh</code>, type Korean into the
+        window, click things, and let the window close on its own. Metadata collected without that
+        produces a native image whose text input is broken in exactly this way.
       </p>
     </div>
-    <p>
-      The full manual checklist, composing 안녕하세요, jamo-level backspace, cursor movement
-      committing the composition, insertion mid-sentence, Enter handling in a multiline field,
-      pasting mixed text, candidate windows for Japanese and Chinese, no tofu glyphs, lives in
-      SPEC §6 and is run against the native image, not the JVM shell.
-    </p>
 
     <h2 id="protocol">ProtocolError events</h2>
     <p>
-      A widget type, property or modifier the renderer does not recognise does not crash anything.
-      The renderer sends a <code>ProtocolError</code> event carrying a code and a message. Seeing
-      one means the two sides disagree about the schema, normally a renderer library built from
-      different sources than the Rust crate you are running. Rebuild the renderer.
+      A widget, property or modifier the renderer does not recognise crashes nothing. The renderer
+      sends a <code>ProtocolError</code> event with a code and a message. Seeing one means the two
+      sides disagree about the schema, normally a renderer built from different sources than the
+      Rust crate you are running. Rebuild the renderer.
     </p>
     <p>
-      An outright mismatch is caught earlier: the handshake compares a schema hash and a protocol
-      version and refuses to initialise if they differ.
+      An outright mismatch is caught earlier. The build compares the renderer's schema hash with
+      the crate's, and the handshake compares them again at startup and refuses to initialise if
+      they differ.
     </p>
 
     <h2 id="stale">The test suite fails on generated Kotlin</h2>
     <p>
-      A failing test that compares generated Kotlin against the checked-in file means you changed
-      the Rust schema without regenerating. This is the intended alarm: the schema is the single
-      source of truth, and a Kotlin interpreter that was not updated should fail the build rather
-      than produce a mismatch at runtime.
+      A failing test that compares generated Kotlin with the checked-in file means the Rust schema
+      changed without regenerating. That is the intended alarm: the schema is the single source,
+      and a Kotlin side that was not updated should fail the build rather than misbehave at
+      runtime. Run <code>cargo run -p compose-rust --bin codegen</code> and commit the result.
     </p>
 
     <nav class="pagenav" aria-label="Pagination">
       <a class="prev" href="architecture.html"><span>Previous</span>&larr; Architecture</a>
-      <a class="next" href="overview.html"><span>Next</span>Overview &rarr;</a>
     </nav>
   </main>
 </div>
@@ -240,8 +222,8 @@
 <footer class="site">
   <div class="inner">
     <span>compose-rust &middot; Apache License 2.0</span>
-    <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/INTENT.md">INTENT.md</a></span>
-    <span>Guide last reviewed against the repository on 2026-09-20</span>
+    <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://crates.io/crates/compose-rust">crates.io</a></span>
+    <span>Guide last reviewed against the repository on 2026-10-03</span>
   </div>
 </footer>
 

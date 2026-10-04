@@ -15,12 +15,15 @@ docs/guide/
 │  ├─ style.css          # 사이트 전체의 유일한 스타일시트
 │  └─ guide.js           # 유일한 자바스크립트 (테마, 사이드바, 코드 복사)
 ├─ en/                   # 영어 페이지
-│  ├─ index.html             Overview
-│  ├─ getting-started.html   Getting started
-│  ├─ writing-ui.html        Writing UI
-│  ├─ lists-and-streaming.html
-│  ├─ architecture.html
-│  └─ troubleshooting.html
+│  ├─ index.html                 첫 화면(랜딩)
+│  ├─ overview.html              Overview
+│  ├─ getting-started.html       Getting started
+│  ├─ writing-ui.html            Writing UI (계획한 작성 API)
+│  ├─ composables.html           Widget reference
+│  ├─ lists-and-streaming.html   Lists & streaming
+│  ├─ design-systems.html        Design systems
+│  ├─ architecture.html          Architecture
+│  └─ troubleshooting.html       Troubleshooting
 └─ ko/                   # 한국어 페이지. 파일 이름은 en/과 1:1로 같습니다
 ```
 
@@ -38,6 +41,9 @@ docs/guide/
   확인할 수 없으면 예시(illustrative)임을 코드 블록 캡션에 명시하고, 계획 단계의 기능은
   `<span class="pill planned">` 배지로 표시합니다.
 - 번역은 직역이 아니라 각 언어로 자연스럽게 씁니다. 내용과 구조는 같게 유지합니다.
+- Dioxus와 `rsx!`는 개요 페이지의 dioxus-compose 안내 한 줄에만 나옵니다. 가이드는 compose-rust를
+  설명합니다. `scripts/tests/guide-text.test.sh`가 이것과, 계획 문서의 요구사항 ID가 가이드에
+  없는지를 확인합니다.
 
 ## 페이지 추가하기
 
@@ -51,15 +57,14 @@ docs/guide/
 3. 상단 언어 전환 링크를 새 파일 이름으로 맞춥니다. 현재 언어 쪽에 `aria-current="true"`를 둡니다.
 4. 같은 이름으로 `ko/` 페이지를 만듭니다. `<html lang="ko">`로 바꾸고, `hreflang` 두 줄을
    서로 반대로(`en` → `../en/새이름.html`, `ko` → `새이름.html`) 씁니다.
-5. **여섯 개 파일 모두**(en 5 + ko 5, 그리고 새 페이지 2개)의 사이드바 목록에 새 항목을
-   추가합니다. 현재 페이지에는 `aria-current="page"`를 붙입니다.
+5. **두 언어의 모든 내용 페이지**와 새 페이지 2개의 사이드바 목록에 새 항목을 추가합니다. 현재 페이지에는 `aria-current="page"`를 붙입니다.
 6. 앞뒤 페이지의 `.pagenav` 링크를 갱신합니다.
 
 ## 로컬에서 확인하기
 
 ```bash
 cd docs/guide
-python3 -m http.server 8000
+uv run python -m http.server 8000
 # http://localhost:8000/  → en/ 으로 이동합니다
 ```
 

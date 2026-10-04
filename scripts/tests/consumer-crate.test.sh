@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# A crate whose Cargo.toml names only the Dioxus adapter builds, links, and starts, with
-# compose-rust and its build script reaching it as the adapter's dependency.
+# A crate whose Cargo.toml names only compose-rust builds, links, and starts, with
+# compose-rust's build script finding the renderer for it.
 #
 # This is the case the rest of the test suite could not reach. Every sample in this
 # repository used to carry a build script that repeated the library's rpath, so the
@@ -59,7 +59,7 @@ command -v cargo >/dev/null || fail "cargo is not on PATH" \
 target="$repo_root/target/consumer-crate"
 export CARGO_TARGET_DIR="$target"
 
-echo "== building a crate that depends on the Dioxus adapter and nothing else"
+echo "== building a crate that depends on compose-rust and nothing else"
 # The real renderer, found the way a consumer's build finds it: the published one for this
 # version unless the environment or the workspace has another.
 #
@@ -161,7 +161,7 @@ echo "== starting it"
 # into were checked above.
 "$binary" >/dev/null
 
-echo "ok    a crate depending only on the Dioxus adapter builds, has no rpath, and starts"
+echo "ok    a crate depending only on compose-rust builds, has no rpath, and starts"
 echo "      renderer: $renderer"
 
 # ------------------------------------------------------------------------------------

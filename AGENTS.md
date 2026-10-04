@@ -10,8 +10,11 @@ compose-rust lets Rust code author declarative UI with **Dioxus** (`dioxus-core`
 - `renderer/`: Kotlin side (Renderer). Amper project. The schema interpreter
   lives in `desktop/src/renderer/`; `ios/src/shared/` symlinks the same files so there is one
   copy. `shared/` is the JVM development shell only, not the renderer.
-- `design-systems/`: a separate Amper project holding the six design systems and the
-  Liquid Glass material. It must never depend on the renderer, so it can be published alone.
+- The design systems and the Liquid Glass material live in the Compose fork,
+  `thisisthepy/compose-multiplatform-core-extended`, under `extended/design-systems/`. They
+  must never depend on the renderer, so they can be published alone. The token test reads
+  them at the commit `renderer/scripts/build-compose.sh` pins, fetched into `.scratch/` by
+  `scripts/fetch-design-systems.sh`.
 - `docs/INTENT.md`: why the project exists, decisions (D1–D9), rejected alternatives.
 - `docs/SPEC.md`: requirements (`FR-*`, `NFR-*`, `PR-*`) with acceptance criteria.
 - `PROJECT.md`: scope, milestones (M0–M7), open questions.
@@ -43,7 +46,7 @@ compose-rust lets Rust code author declarative UI with **Dioxus** (`dioxus-core`
 ## Branches
 
 `develop` is where work happens. `release` and `main` are produced from it by
-`scripts/publish-main.sh`, which strips `PROJECT.md`, `AGENTS.md`, `CLAUDE.md` and everything directly
+`.github/scripts/release/sync-release.sh`, which strips `PROJECT.md`, `AGENTS.md`, `CLAUDE.md` and everything directly
 under `docs/`.
 
 1. **Publishing is one way: develop to release to main.** Never merge `release` or `main`
@@ -83,6 +86,18 @@ under `docs/`.
     `archive/` tag either. In the forks, `extended` and the upstream branch (`jb-main`) stay, and a branch merged
     into `extended` is deleted the same way.
 
+## CI naming
+
+Workflow files and names, in `.github/workflows/`:
+
+- `test.yml`, "Test": the basic checks.
+- `release-sync.yml`, "Release sync": develop to main sync; its script is `.github/scripts/release/sync-release.sh`.
+- `publish-crates.yml`, "Publish to crates.io": the tag release, started by `workflow_run` once the renderer workflow has succeeded.
+- `pages.yml`, "Pages": docs.
+- `test-<target>.yml`, "<Target> test": a special check for one target.
+
+Job names are English sentence case and say briefly what the job does. Matrix jobs read "<what> (<os>, <version>)". The same role keeps the same name across repos.
+
 ## Where files go
 
 1. **Everything this project makes stays inside this repository.** Worktrees, experiments,
@@ -117,19 +132,22 @@ none of it.
    file. Propose it first: what it is, why it is needed, and why no existing directory
    can hold it. Then wait for the answer.
 2. The approved root entries are:
-   - folders: `.github/`, `bench/`, `compose-rust/`, `docs/`, `experiments/`,
+   - folders: `.github/`, `compose-rust/`, `docs/`, `experiments/`,
      `renderer/`, `samples/`, `scripts/`;
    - files: `.gitignore`, `Cargo.toml`, `Cargo.lock`, `CHANGELOG.md`, `LICENSE`,
      `README.md`, `AGENTS.md`, `CLAUDE.md`, `PROJECT.md`;
    - temporary, each with the date it leaves:
-     - `adapters/`, to dioxus-compose, by 2026-10-05 (#37 step 4);
-     - `design-systems/`, to compose-multiplatform-core-extended, by 2026-10-15 (#39).
-     `bench/dioxus-baseline/` leaves with `adapters/`; `bench/` itself stays.
+   `adapters/` and `bench/dioxus-baseline/` moved to dioxus-compose on 2026-10-04 (#37
+   step 4); `design-systems/` moved to compose-multiplatform-core-extended (#39). The
+   twelve samples under `samples/` stay and are being rewritten on the compose-rust API
+   (#85); until then they are outside the workspace and their release builds are skipped.
+   `scripts/bench/` holds the pin of the Dioxus baseline FR-39 compares against
+   (`scripts/bench/fr39-baseline.env`).
 
    Ignored local directories (`.claude/`, `.scratch/`, `target/`, `build/`) are not part
    of the tree and are covered by "Where files go" above.
 3. A crate, benchmark or tool that needs a home goes inside the folder it belongs to
-   (`compose-rust/macros/`, `bench/<name>/`, `renderer/desktop/<name>/`), not beside it.
+   (`compose-rust/macros/`, `compose-rust/benches/<name>/`, `renderer/desktop/<name>/`), not beside it.
 4. Scripts that only CI runs live in `.github/scripts/`. `scripts/tests/` is the one test
    folder outside the crates.
 
@@ -212,6 +230,25 @@ the launchers inject them ahead of whatever the prompt says.
 
 ## Writing
 
+The house style is `docs/style/writing.md` in `thisisthepy/pythonx-compose`, on its
+`develop` branch
+([source](https://github.com/thisisthepy/pythonx-compose/blob/develop/docs/style/writing.md)).
+It is the standard for every document here, and it applies whenever a doc is edited:
+README files, the guide, the planning documents, doc comments. The owner set one style for
+the thisisthepy and darkpyonix projects, so a reader moving between them meets the same
+voice. In short:
+
+- Present tense for what is true now. What is not done carries its status and the issue
+  that tracks it, so a plan never reads as shipped.
+- Short, plain sentences, one idea each. A rule or a limitation comes with its reason.
+- English and Korean say the same things in the same order, written naturally in each
+  language rather than translated word for word.
+- Korean user docs (README, the guide) use 합니다체; internal docs use 한다체.
+- Code, commands, file names and identifiers keep their original spelling, in code format.
+
+Apply it to the lines you write or change. A whole-document rewrite is its own task, not a
+side effect of an unrelated edit. The rules below come on top of it.
+
 1. **Never use em dashes.** Not in docs, code comments, commit messages, pull request text or UI copy. Use a comma, a colon, parentheses, or start a new sentence. Hyphens in compound words and en dashes in numeric ranges are fine.
 2. Language: `README.md` and the guide site (`docs/guide/`) are English, with translations under `docs/locales/` and `docs/guide/ko/`. The internal planning documents (`PROJECT.md`, `docs/INTENT.md`, `docs/SPEC.md`) are Korean. Code, code comments, scripts and this file are English.
 3. **Never cite SPEC or INTENT from code.** No `(SPEC PR-4)`, no `NFR-8 needs this`, no
@@ -231,6 +268,12 @@ the launchers inject them ahead of whatever the prompt says.
    **test names** (`fr4_set_prop_does_not_recompose_siblings`) keep theirs, because the
    traceability from a failing test to its requirement is the point of the TDD rules below.
    Anything a test *prints* follows the rule above.
+4. **Python-side tooling in examples is uv, ppp (pypackpack) and tcl (toolchain-lite) only.**
+   Never `pip install`, `python -m pip` or a bare `python3 script.py`: run a script with
+   `uv run`, add a package with `uv add`, `ppp` or `tcl`. Rust examples stay `cargo`. The
+   reason is one toolchain story across the thisisthepy and darkpyonix projects: a reader
+   who set up uv for one of them can run every example in all of them, and a single pip
+   line sends them down a second setup. `scripts/tests/no-pip-examples.test.sh` checks it.
 
 ## Test Driven Development
 

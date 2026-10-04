@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>개요 · compose-rust 가이드</title>
-<meta name="description" content="dioxus-compose는 Rust에서 Dioxus 방식으로 선언형 UI를 작성하고, AOT 컴파일된 Compose Multiplatform이 그리게 하는 GUI 스택입니다. 웹뷰도, 동봉된 JVM도 없습니다.">
+<meta name="description" content="compose-rust는 Compose 모양의 Rust UI API이고, AOT 컴파일된 Compose 렌더러가 그립니다. 웹뷰도, 동봉된 JVM도 없습니다. 무엇인지, 0.0.1에 무엇이 있는지, 1.0.0에 무엇이 오는지 설명합니다.">
 <link rel="alternate" hreflang="en" href="../en/overview.html">
 <link rel="alternate" hreflang="ko" href="../ko/overview.html">
-<link rel="alternate" hreflang="x-default" href="../en/">
+<link rel="alternate" hreflang="x-default" href="../en/overview.html">
 <link rel="stylesheet" href="../assets/style.css?v=20">
 <script>(function(){try{var t=localStorage.getItem("dxc-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
 </head>
@@ -33,17 +33,17 @@
         <li><a href="overview.html" aria-current="page">개요</a></li>
         <li><a href="getting-started.html">시작하기</a></li>
         <li><a href="writing-ui.html">UI 작성하기</a></li>
-        <li><a href="composables.html">컴포저블 레퍼런스</a></li>
+        <li><a href="composables.html">위젯 레퍼런스</a></li>
         <li><a href="lists-and-streaming.html">목록과 스트리밍</a></li>
         <li><a href="design-systems.html">디자인 시스템</a></li>
         <li><a href="architecture.html">아키텍처</a></li>
         <li><a href="troubleshooting.html">문제 해결</a></li>
       </ul>
-      <h2>저장소 문서</h2>
+      <h2>저장소</h2>
       <ul>
-        <li><a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/INTENT.md">INTENT.md</a></li>
-        <li><a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/SPEC.md">SPEC.md</a></li>
-        <li><a href="https://github.com/DarkPyonix/compose-rust/blob/develop/PROJECT.md">PROJECT.md</a></li>
+        <li><a href="https://github.com/DarkPyonix/compose-rust">GitHub</a></li>
+        <li><a href="https://crates.io/crates/compose-rust">crates.io</a></li>
+        <li><a href="https://github.com/DarkPyonix/compose-rust/issues">이슈</a></li>
       </ul>
     </nav>
   </aside>
@@ -51,183 +51,218 @@
   <main id="main">
     <div class="hero">
       <p class="eyebrow">Rust로 쓰는 네이티브 UI</p>
-      <h1>UI는 Dioxus로 쓰고, 그리는 일은 Compose에게 맡깁니다.</h1>
+      <h1>Rust로 Compose 모양의 UI를 쓰면, Compose가 그립니다.</h1>
       <p class="lede">
-        dioxus-compose는 Rust 코드가 <code>rsx!</code>와 컴포넌트, 훅으로 화면을 기술하고,
-        미리 컴파일해 둔 Compose Multiplatform 렌더러가 그것을 그리는 GUI 스택입니다.
-        웹뷰를 품지 않고, JVM을 함께 배포하지도 않습니다.
+        compose-rust는 Rust에 Compose 모양의 API를 줍니다. composable 함수, <code>remember</code>,
+        recomposition입니다. 그것들이 기술한 것은 미리 컴파일된(AOT) Compose 렌더러가 그립니다.
+        웹뷰를 넣지 않고, 애플리케이션과 함께 JVM을 배포하지도 않습니다.
       </p>
       <div class="cta">
         <a class="btn" href="getting-started.html">시작하기</a>
-        <a class="btn secondary" href="architecture.html">동작 원리</a>
+        <a class="btn secondary" href="architecture.html">동작 방식</a>
       </div>
     </div>
 
-    <h2>왜 만드는가</h2>
+    <h2 id="what">무엇인가</h2>
+    <p>compose-rust는 네 가지를 합친 것입니다.</p>
+    <ul>
+      <li><strong>Compose 모양의 Rust API.</strong> 슬롯 테이블과 recomposition 런타임을 갖춥니다.
+        composable은 함수이고, 상태는 <code>remember</code> 에 둡니다. 상태가 바뀌면 그 상태를
+        읽은 스코프만 다시 실행됩니다. 무엇이 바뀌었는지 트리를 비교해서 찾지 않습니다.
+        1.0.0을 향한 <span class="pill planned">계획</span>입니다.</li>
+      <li><strong>좁은 C ABI 경계와 스키마.</strong> 위젯, 속성, 레코드를 Rust에서 한 번 정의합니다.
+        Kotlin 타입과 플랫폼 심은 그 정의에서 생성하고, 손으로 쓰지 않습니다.
+        <span class="pill works">구현</span></li>
+      <li><strong>AOT 컴파일된 Compose 렌더러.</strong> 모든 플랫폼에서 미리 네이티브 코드로
+        컴파일하고, 브라우저에서는 Kotlin/Wasm, Android에서는 Android 라이브러리입니다. 그리기와
+        입력은 Compose 자신의 텍스트 레이아웃, 위젯, 플랫폼 IME가 맡습니다.
+        <span class="pill works">구현</span></li>
+      <li><strong>웹뷰 없음, 동봉된 JVM 없음.</strong> 데스크톱의 목표는 시스템 라이브러리만
+        링크하는 실행 파일 하나입니다. 0.0.1은 아직 거기에 닿지 않았습니다.
+        <a href="#platforms">플랫폼</a>을 보십시오. <span class="pill partial">부분</span></li>
+    </ul>
+
+    <h2 id="why">왜 만드나</h2>
     <p>
-      이 스택이 겨냥하는 것은 하루 종일 켜 두는 애플리케이션입니다. 늘 켜 두는 도구에서는 무게가
-      매시간 체감됩니다. 그런데 웹 기반 셸은 가볍지 않습니다. 웹뷰는 브라우저 엔진을 통째로
-      데려오고, JRE는 <code>jlink</code>로 줄여도 80~120&nbsp;MB가 붙습니다.
+      하루 종일 켜 두는 애플리케이션을 겨냥합니다. 그런 앱은 무게가 매시간 느껴집니다. 웹뷰는
+      브라우저 엔진을 함께 데려옵니다. 동봉된 Java 런타임은 <code>jlink</code> 를 거쳐도 80~120&nbsp;MB를
+      더합니다.
     </p>
     <p>
-      그렇다고 순수 Rust UI 프레임워크로 가면, 텍스트를 다루는 앱에서 가장 중요한 부분인 텍스트
-      자체에서 막힙니다. 한국어·일본어·중국어 입력은 플랫폼 IME를 거치고, 90%만 맞는 IME는 결국 쓸 수 없는
-      앱입니다. Compose Multiplatform은 텍스트와 IME, 위젯 품질이 이미 성숙해 있습니다. 그래서 이
-      프로젝트는 딱 그 부분만 빌려 옵니다. 애플리케이션 코드는 Rust에 남고, Compose는 Rust가
-      보내는 UI 트리를 해석하는 인터프리터가 됩니다.
+      순수 Rust UI 툴킷은 글을 많이 다루는 앱에 가장 중요한 곳, 곧 글자 자체에서 막힙니다. 한국어,
+      일본어, 중국어 입력은 플랫폼 IME를 거치고, 90%만 맞는 IME로는 앱을 쓸 수 없습니다. Compose
+      Multiplatform에는 이미 성숙한 텍스트, IME, 위젯 동작이 있습니다. compose-rust는 딱 그것을
+      빌려 옵니다. 애플리케이션 코드는 Rust에 남고, Compose는 Rust가 보낸 UI 트리를 해석합니다.
     </p>
 
     <div class="tablewrap">
       <table>
         <thead>
-          <tr><th scope="col">협상 불가 조건</th><th scope="col">그래서 생기는 결과</th></tr>
+          <tr><th scope="col">제약</th><th scope="col">결과</th></tr>
         </thead>
         <tbody>
-          <tr><td>웹뷰 금지</td><td>WKWebView, WebView2, WebKitGTK를 쓰지 않습니다. Tauri와 wry도 마찬가지입니다.</td></tr>
-          <tr><td>JVM 동봉 금지</td><td>macOS와 Linux는 렌더러를 Kotlin/Native 정적 아카이브로 배포해 실행 파일 하나에 링크합니다. Windows는 정적 렌더러가 들어오기 전까지 GraalVM <code>native-image</code> 공유 라이브러리이고, iOS는 Kotlin/Native 정적 아카이브입니다.</td></tr>
-          <tr><td>수동 JNI·cinterop 금지</td><td>경계 심(shim)은 전부 Rust 스키마에서 생성합니다.</td></tr>
-          <tr><td>UI 코드는 Rust에</td><td>Kotlin은 렌더러의 구현 세부일 뿐, 기능을 작성하는 자리가 아닙니다.</td></tr>
-          <tr><td>Compose 수준의 텍스트·IME</td><td>Compose의 플랫폼 텍스트 입력을 우회하는 경로를 만들지 않습니다.</td></tr>
+          <tr><td>웹뷰 없음</td><td>WKWebView, WebView2, WebKitGTK를 쓰지 않고, Tauri나 wry도 쓰지 않습니다.</td></tr>
+          <tr><td>동봉된 JVM 없음</td><td>렌더러는 미리 컴파일합니다. macOS와 Linux에서는 Kotlin/Native 정적 아카이브로 실행 파일 하나에 링크되고, Windows에서는 GraalVM 네이티브 이미지입니다. JVM은 렌더러 자체를 개발하는 셸에만 나타납니다.</td></tr>
+          <tr><td>손으로 쓴 JNI나 cinterop 없음</td><td>경계 심은 모두 Rust 스키마에서 생성하므로 두 쪽이 모르게 어긋날 수 없습니다.</td></tr>
+          <tr><td>UI 코드는 Rust에</td><td>Kotlin은 렌더러의 구현이지, 기능을 작성하는 곳이 아닙니다.</td></tr>
+          <tr><td>Compose 수준의 텍스트와 IME</td><td>Compose의 플랫폼 텍스트 입력을 우회하는 코드 경로가 없습니다.</td></tr>
         </tbody>
       </table>
     </div>
 
-    <h2>코드는 이렇게 생겼습니다</h2>
+    <h2 id="status">현재 상태</h2>
     <p>
-      저장소의 <code>desktop_demo</code> 예제를 줄인 것입니다. 위젯 이름은 Compose 그대로이고,
-      속성은 그것을 <code>snake_case</code>로 옮긴 Rust 표기입니다.
+      <strong>0.0.x는 이름을 확보하고 렌더러를 배포하는 단계입니다.</strong> API는 바뀝니다. 0.0.1
+      크레이트에 지금 들어 있는 것은 다음과 같습니다.
+    </p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">부분</th><th scope="col">상태</th><th scope="col">내용</th></tr></thead>
+        <tbody>
+          <tr><td>경계</td><td><span class="pill works">구현</span></td><td>렌더러가 부르는 <code>compose_rust_host_*</code> C 함수들, <code>Host</code>, <code>LaunchBuilder</code>, <code>launch_runtime</code>, 그리고 워커 스레드에서 프레임을 깨우는 <code>request_frame_from_worker</code> 입니다.</td></tr>
+          <tr><td>프로토콜</td><td><span class="pill works">구현</span></td><td>고정 레이아웃 mutation 레코드입니다. 배치 버퍼 하나에 쓰이고 렌더러가 그 자리에서 읽습니다. 핫 패스에 직렬화 포맷이 없습니다.</td></tr>
+          <tr><td>스키마</td><td><span class="pill works">구현</span></td><td>위젯, 속성, Modifier, 디자인 역할, <code>Theme</code>, <code>DesignSystem</code> 입니다. 서로 다른 스키마로 빌드된 Host와 렌더러는 스키마 해시 때문에 함께 돌지 못합니다. <code>codegen</code> 바이너리가 여기서 Kotlin 쪽을 생성합니다.</td></tr>
+          <tr><td><code>Runtime</code> 트레이트</td><td><span class="pill works">구현</span></td><td>트리를 만드는 쪽이 구현하는 인터페이스와 그 주변 타입입니다. 에셋, 커스텀 드로잉, 입력 이벤트, 알림, 메시지, 팔레트, 창 크기 클래스가 있습니다.</td></tr>
+          <tr><td>렌더러 다운로드</td><td><span class="pill works">구현</span></td><td>빌드 스크립트가 대상에 맞는 미리 빌드된 렌더러를 받아 검증하고 링크합니다. <a href="getting-started.html">시작하기</a>를 보십시오.</td></tr>
+          <tr><td>작성 API</td><td><span class="pill planned">계획</span></td><td><code>#[composable]</code>, <code>remember</code>, <code>Recomposer</code>, <code>launch</code>, 위젯 함수입니다. <strong>2026-10-20의 1.0.0</strong>에 들어오며, <a href="https://github.com/DarkPyonix/compose-rust/issues/23">#23</a> 과 <a href="https://github.com/DarkPyonix/compose-rust/issues/64">#64</a> 가 추적합니다.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      1.0.0 전까지 이 크레이트는 트리를 만드는 층이 올라설 토대입니다. 아직 화면을 직접 쓰는 도구가
+      아닙니다.
     </p>
 
+    <h2 id="shape">계획한 모양</h2>
+    <div class="warn">
+      <span class="label">계획이며, 아직 크레이트에 없습니다</span>
+      <p>
+        아래 코드는 작성 API가 가질 모양을 보입니다. 0.0.x에서는 컴파일되지 않고, 이름도 확정되지
+        않았습니다.
+      </p>
+    </div>
+
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
-      <figcaption>compose-rust/examples/desktop_demo.rs</figcaption>
-<pre><code><span class="k">use</span> compose_rust::prelude::*;
-
-<span class="k">fn</span> <span class="f">app</span>() -&gt; <span class="ty">Element</span> {
-    <span class="k">let</span> <span class="k">mut</span> messages = <span class="f">use_signal</span>(<span class="ty">Vec</span>::&lt;<span class="ty">String</span>&gt;::new);
-    <span class="k">let</span> <span class="k">mut</span> draft = <span class="f">use_signal</span>(<span class="ty">String</span>::new);
-
-    <span class="f">rsx!</span> {
-        <span class="ty">Column</span> {
-            <span class="at">fill_max_width</span>: <span class="k">true</span>,
-            <span class="ty">Text</span> { <span class="at">text</span>: <span class="s">"compose-rust chat"</span> }
-            <span class="k">for</span> message <span class="k">in</span> messages() {
-                <span class="ty">Text</span> { <span class="at">text</span>: message }
-            }
-            <span class="ty">TextField</span> {
-                <span class="at">placeholder</span>: <span class="s">"Write a message"</span>,
-                <span class="at">multiline</span>: <span class="k">true</span>,
-                <span class="at">on_value_change</span>: <span class="k">move</span> |value| draft.<span class="f">set</span>(value),
-                <span class="at">on_key_down</span>: <span class="k">move</span> |event: <span class="ty">KeyEvent</span>| {
-                    <span class="k">if</span> event.<span class="f">key</span>() == <span class="ty">Key</span>::Enter &amp;&amp; !event.<span class="f">shift_key</span>() {
-                        <span class="c">// … draft를 messages에 넣습니다 …</span>
-                        event.<span class="f">consume</span>();
-                    }
-                }
-            }
-        }
-    }
+      <figcaption>rust, 계획한 모양(0.0.x에서 컴파일되지 않음)</figcaption>
+<pre><code><span class="at">#[composable]</span>
+<span class="k">fn</span> <span class="f">counter</span>() {
+    <span class="k">let</span> count = <span class="f">remember</span>(|| <span class="f">mutable_state_of</span>(<span class="n">0</span>));
+    <span class="f">Column</span>(<span class="ty">Modifier</span>::<span class="f">new</span>().<span class="f">fill_max_width</span>(), || {
+        <span class="f">Text</span>(<span class="f">format!</span>(<span class="s">"{}"</span>, count.<span class="f">get</span>()));
+        <span class="f">Button</span>(|| count.<span class="f">set</span>(count.<span class="f">get</span>() + <span class="n">1</span>), || <span class="f">Text</span>(<span class="s">"+1"</span>));
+    });
 }
 
 <span class="k">fn</span> <span class="f">main</span>() {
-    compose_rust::<span class="f">launch</span>(app);
+    compose_rust::<span class="f">launch</span>(counter);
 }</code></pre>
     </figure>
 
-    <h2>현재 상태</h2>
     <p>
-      로드맵을 기능 목록처럼 포장하지 않고 있는 그대로 적습니다. 사람이 직접 써 본 플랫폼은
-      macOS 데스크톱뿐이고, 나머지는 CI가 빌드하고 스모크 테스트를 돌릴 뿐이어서 증명하는 것이
-      그만큼 적습니다. <em>계획</em>으로 표시한 항목은 설계만 되어 있고 구현은 없습니다.
+      정해진 것은 세 가지입니다. <code>#[composable]</code> 이 그룹을 넣으므로 그룹이나 키를 손으로
+      쓰지 않으며, 분기, 반복문, 조기 <code>return</code>, <code>?</code>, 되감기를 지나도 그룹이
+      맞게 닫힙니다. 이름은 Compose를 따릅니다. 위젯 어휘는 스키마에 있는 그것 하나이므로 두 번
+      정의하지 않습니다. 작성 API의 나머지는 <a href="writing-ui.html">UI 작성하기</a>에 있습니다.
+    </p>
+
+    <div class="note">
+      <p><strong>Dioxus와 <code>rsx!</code>가 좋다면</strong> <a href="https://github.com/DarkPyonix/dioxus-compose">dioxus-compose</a>를 쓰십시오. compose-rust 위에서 돌고, HTML/CSS <code>rsx!</code>와 Compose 위젯 <code>rsx!</code>를 모두 지원합니다.</p>
+    </div>
+
+    <h2 id="platforms">플랫폼</h2>
+    <p>
+      아래 표는 0.0.1에서 플랫폼마다 받는 렌더러입니다. "처음부터 끝까지 동작"은 사람이 직접 써 본
+      플랫폼이라는 뜻입니다. "빌드되고 시작됨"은 CI가 빌드하고 스모크 테스트가 창을 열어 그린다는
+      뜻이며, 증명하는 것이 그보다 적습니다.
     </p>
 
     <div class="tablewrap">
       <table>
         <thead>
-          <tr><th scope="col">플랫폼</th><th scope="col">상태</th><th scope="col">방식</th></tr>
+          <tr><th scope="col">플랫폼</th><th scope="col">상태</th><th scope="col">0.0.1의 렌더러</th></tr>
         </thead>
         <tbody>
           <tr>
-            <td>macOS 데스크톱 (arm64)</td>
-            <td><span class="pill works">동작</span></td>
-            <td>Kotlin/Native 정적 아카이브로 빌드한 렌더러가 애플리케이션 안에 링크되고, 애플리케이션은 시스템 프레임워크만 불러오는 실행 파일 하나입니다. 한글 IME 체크리스트와 VoiceOver는 2026-09-21에 이전의 GraalVM native-image 빌드에서 사람이 확인했고, 이 빌드에서 다시 확인할 차례입니다.</td>
+            <td>macOS (arm64)</td>
+            <td><span class="pill works">처음부터 끝까지 동작</span></td>
+            <td>애플리케이션 옆에 놓이는 GraalVM 네이티브 이미지 라이브러리입니다. 실행 파일 안에 링크되는 Kotlin/Native 렌더러(자기 창, Metal로 그림)는 CI에서 돌고 있고, 다음 릴리스에서 이것을 대신합니다. 기본적인 한글 IME 입력은 동작하고, IME 체크리스트 전체는 아직 끝나지 않았습니다.</td>
           </tr>
           <tr>
-            <td>Windows 데스크톱 (x64)</td>
-            <td><span class="pill partial">빌드와 기동</span></td>
-            <td>업스트림 GraalVM 25로 빌드하고 렌더러가 바뀔 때마다 스모크 테스트를 돌립니다. 창이 열리고, 그려지고, 깨끗이 닫히며 0을 반환합니다. 호스티드 러너는 클릭을 할 수 없으므로 포인터 입력은 검증되지 않았고, 사람이 직접 써 본 적도 없습니다.</td>
+            <td>Linux (x64, arm64)</td>
+            <td><span class="pill partial">빌드되고 시작됨</span></td>
+            <td>GraalVM 네이티브 이미지 라이브러리입니다. Kotlin/Native 렌더러(자기 X11 창, GLX로 그림, arm64는 x64에서 교차 컴파일)가 다음 릴리스에서 이것을 대신합니다. CI에서 그것으로 빌드한 애플리케이션은 libc, X11, GL, fontconfig, C++ 런타임(arm64는 EGL 포함)만 부르는 실행 파일 하나이고, 빈 디렉터리에 혼자 복사해도 Xvfb에서 그립니다. 사람이 직접 써 본 적은 아직 없습니다.</td>
           </tr>
           <tr>
-            <td>Linux 데스크톱 (x64, arm64)</td>
-            <td><span class="pill partial">빌드와 기동</span></td>
-            <td>두 아키텍처 모두 CI에서 Xvfb 아래 빌드되고 헤드리스 기동 스모크 테스트를 통과합니다. 증명하는 것은 거기까지이고, 실제 Linux 데스크톱 세션에서 이 렌더러가 그린 적은 없습니다.</td>
+            <td>Windows</td>
+            <td><span class="pill partial">빌드되고 시작됨</span></td>
+            <td>GraalVM 네이티브 이미지이고, 렌더러가 바뀔 때마다 스모크 테스트를 합니다. Windows도 실행 파일 하나가 되도록 Kotlin/Native로 옮겨 가는 중입니다(<a href="https://github.com/DarkPyonix/compose-rust/issues/24">#24</a>).</td>
           </tr>
           <tr>
             <td>iOS</td>
-            <td><span class="pill partial">빌드와 기동</span></td>
-            <td>Kotlin/Native <code>-produce static</code>으로 같은 C 심볼을 내보냅니다. 프로토콜 코덱 테스트가 Kotlin/Native에서 돌고, 기기용과 시뮬레이터용 아카이브가 빌드되며, 시뮬레이터 스모크 테스트가 스크린샷을 찍습니다. XCFramework로 배포합니다.</td>
+            <td><span class="pill partial">빌드되고 시작됨</span></td>
+            <td>같은 C 심볼을 내보내는 Kotlin/Native 정적 아카이브이고, XCFramework로 릴리스합니다.</td>
           </tr>
           <tr>
             <td>Android</td>
-            <td><span class="pill partial">에뮬레이터에서 동작</span></td>
-            <td>Kotlin이 프로세스와 루프를 소유하고, Rust cdylib을 생성된 JNI 심으로 호출합니다. API&nbsp;36 에뮬레이터에서 확인했습니다. 화면이 그려지고, 회전과 다크모드 전환에서 트리를 다시 만들지 않고 같은 프로세스가 유지되며, 죽인 프로세스도 다시 돌아옵니다. 경계 호출은 그곳에서 101&nbsp;ns로, 스레드 상태 전환을 건너뛸 만큼 짧은 호출 하나는 4.5&nbsp;ns로 측정됐습니다. 노드마다가 아니라 프레임마다 몇 번 부르는 호출입니다.</td>
+            <td><span class="pill works">처음부터 끝까지 동작</span></td>
+            <td>Kotlin Activity가 프로세스와 루프를 갖고, Rust는 cdylib입니다. 양쪽 JNI 심은 스키마에서 생성합니다. 크레이트가 렌더러의 Kotlin 소스를 싣고 있고, 빌드 스크립트가 그것을 Gradle 프로젝트에 풀어 놓습니다.</td>
           </tr>
           <tr>
             <td>Web (wasm)</td>
-            <td><span class="pill partial">브라우저에서 그려짐</span></td>
-            <td>Kotlin이 wasm linear memory를 소유하고 Rust가 그것을 import합니다. 배치 arena를 제자리에서 공유하므로 복사가 없고, 경계 호출은 코드젠으로 만든 JS forwarder를 거칩니다. Safari에서 약 12&nbsp;ns로 실측했고 다른 엔진에서는 아직 재지 않았습니다.</td>
+            <td><span class="pill works">처음부터 끝까지 동작</span></td>
+            <td><code>WebAssembly.Memory</code> 하나를 Kotlin/Wasm 모듈이 갖고 Rust 모듈이 가져다 쓰므로, 배치는 쓰인 자리에서 읽힙니다. 렌더러에서 Host로 가는 호출은 생성된 JavaScript 포워더를 거치며, 약 12&nbsp;ns로 측정했습니다. 포워더 없는 직결 호출은 계획입니다(<a href="https://github.com/DarkPyonix/compose-rust/issues/54">#54</a>).</td>
           </tr>
         </tbody>
       </table>
     </div>
 
-    <h3>기능별 상태</h3>
+    <h3 id="weight">실제 무게</h3>
+    <p>
+      notepad 샘플을 릴리스로 빌드하고 스트립한 숫자이며, Kotlin/Native 렌더러를 링크했습니다.
+      0.0.1이 배포하는 경로가 아니라 0.0.1 다음에 기본이 되는 경로입니다. 결과는 실행 파일
+      하나이고, 옆에 놓이는 런타임도 안에 든 가상 머신도 없습니다.
+    </p>
     <div class="tablewrap">
       <table>
-        <thead>
-          <tr><th scope="col">기능</th><th scope="col">상태</th><th scope="col">메모</th></tr>
-        </thead>
+        <thead><tr><th scope="col">플랫폼</th><th scope="col">실행 파일</th><th scope="col">실제 점유 메모리</th></tr></thead>
         <tbody>
-          <tr><td>위젯 어휘</td><td><span class="pill works">동작</span></td><td>컴포저블 33개 전부에 렌더러 쪽 구현이 있습니다. 스키마는 닫혀 있어서 그 밖의 것은 스키마부터 넓혀야 합니다. <a href="composables.html">컴포저블 레퍼런스</a>를 보세요.</td></tr>
-          <tr><td>이벤트와 동기 소비</td><td><span class="pill works">동작</span></td><td><code>on_click</code>, <code>on_value_change</code>, <code>on_submit</code>, <code>on_focus_lost</code>, <code>event.consume()</code>이 붙는 <code>on_key_down</code>, 그리고 <code>on_change</code>와 <code>on_dismiss</code>.</td></tr>
-          <tr><td>비제어 <code>TextField</code></td><td><span class="pill works">동작</span></td><td>편집 값과 조합 상태를 렌더러가 소유합니다.</td></tr>
-          <tr><td>Rust 스키마 → Kotlin 프로토콜 코드젠</td><td><span class="pill works">동작</span></td><td>생성물이 낡으면 테스트가 실패합니다.</td></tr>
-          <tr><td>Modifier</td><td><span class="pill works">동작</span></td><td>모든 위젯에 속성 열세 개: weight, fill, 고정 크기, dp 또는 역할로 주는 패딩, 배경, 역할이나 반지름으로 주는 모양, 테두리, 높이. <code>Clickable</code>은 와이어에는 있지만 타입이 붙은 프로퍼티가 없습니다.</td></tr>
-          <tr><td>디자인 시스템과 테마</td><td><span class="pill works">동작</span></td><td>하나의 역할 기반 계약 뒤에 디자인 시스템 일곱 개가 있고, 통일하거나 호스트 플랫폼을 따르도록 고릅니다. <a href="design-systems.html">디자인 시스템</a>을 보세요.</td></tr>
-          <tr><td><code>LazyColumn</code>과 <code>LazyRow</code> 윈도잉</td><td><span class="pill works">동작</span></td><td>렌더러가 범위를 요청하고 Host가 정확히 그 범위만 만듭니다. <a href="lists-and-streaming.html">목록과 스트리밍</a>을 보세요.</td></tr>
-          <tr><td>내비게이션, 시트, 한 번 지나가는 메시지</td><td><span class="pill works">동작</span></td><td>렌더러가 재 본 너비를 보고 바인지 레일인지 드로어인지 고르고, 시트가 어느 가장자리에서 들어올지도 같은 방식으로 정합니다.</td></tr>
-          <tr><td>창 크기 클래스</td><td><span class="pill works">동작</span></td><td><code>use_window_size()</code>가 compact, medium, expanded를 알려 주고 클래스가 바뀔 때만 컴포넌트를 깨웁니다.</td></tr>
-          <tr><td>직접 그리기</td><td><span class="pill works">동작</span></td><td><code>Canvas</code>가 <code>DrawList</code> 값을 받습니다. 같은 목록 둘은 아무것도 보내지 않습니다.</td></tr>
-          <tr><td><code>AppendText</code> 스트리밍</td><td><span class="pill partial">rsx! API 없음</span></td><td>Host가 프레임당 한 건으로 모으고 렌더러가 적용합니다. <code>rsx!</code> 수준 API는 없고 <code>Host::append_text</code>는 프로토콜 node id를 받습니다.</td></tr>
-          <tr><td>서드파티 위젯 확장</td><td><span class="pill partial">컴파일 시점만</span></td><td>확장은 양쪽에 함께 빌드되는 Rust와 Kotlin 소스 쌍이고, <code>LinearProgressIndicator</code>가 그 예제입니다. 배포된 렌더러는 새 위젯을 불러올 수 없습니다.</td></tr>
+          <tr><td>macOS (arm64)</td><td>28.76&nbsp;MB</td><td>35.1&nbsp;MB</td></tr>
+          <tr><td>Linux (x86-64)</td><td>37.93&nbsp;MB</td><td>아직 재지 않음</td></tr>
+          <tr><td>Windows</td><td>아직 재지 않음</td><td>아직 재지 않음</td></tr>
         </tbody>
       </table>
     </div>
+    <p>
+      비교하자면, 렌더러가 아직 Java 런타임을 싣고 있던 때 macOS의 같은 종류 앱은 파일 넷,
+      93.1&nbsp;MB였고 실제 점유는 56&nbsp;MB였습니다. 브라우저에서는 렌더러와 Skia를 합쳐 gzip으로
+      6.95&nbsp;MB입니다.
+    </p>
 
-    <h2>다음으로 읽을 곳</h2>
+    <h2 id="next">다음으로</h2>
     <div class="cards">
       <a class="card" href="getting-started.html">
         <h3>시작하기</h3>
-<p>의존성 한 줄을 넣고, 컴포넌트를 쓰고, 실행합니다.</p>
+        <p>크레이트를 더하고, 빌드가 렌더러를 받아 오게 하고, 이 저장소를 빌드합니다.</p>
       </a>
       <a class="card" href="writing-ui.html">
         <h3>UI 작성하기</h3>
-        <p>이벤트 핸들러, 키 소비, 비제어 텍스트 필드.</p>
+        <p>계획한 작성 API입니다. composable, 상태, effect, 이벤트, 애니메이션을 다룹니다.</p>
       </a>
       <a class="card" href="composables.html">
-        <h3>컴포저블 레퍼런스</h3>
-        <p>모든 컴포저블과 그 프로퍼티, 기본값, 역할 어휘, 그리고 각각의 상태가 어디에 있는지.</p>
+        <h3>위젯 레퍼런스</h3>
+        <p>스키마의 위젯, Modifier, 역할 전부와, 위젯마다 상태를 어디에 두는지입니다.</p>
       </a>
       <a class="card" href="lists-and-streaming.html">
         <h3>목록과 스트리밍</h3>
-<p>윈도잉 목록과 토큰 스트리밍, 그리고 스크롤 위치를 어느 쪽이 가지는지.</p>
+        <p>윈도잉 목록, 스트리밍 텍스트, 워커 스레드의 일입니다.</p>
       </a>
       <a class="card" href="design-systems.html">
         <h3>디자인 시스템</h3>
-<p>디자인 시스템 일곱 개, 색·타입·모양·간격 역할, 그리고 두 가지 테마 모드.</p>
+        <p>역할 하나 뒤의 디자인 시스템 일곱 개를 통일형 또는 적응형으로 고릅니다.</p>
       </a>
       <a class="card" href="architecture.html">
         <h3>아키텍처</h3>
-        <p>Host/Renderer 분리, C ABI, 프로토콜, 프레임 모델.</p>
+        <p>경계, 레코드, 측정 호출, 확대 배율, 플랫폼마다의 렌더러입니다.</p>
       </a>
     </div>
 
@@ -240,8 +275,8 @@
 <footer class="site">
   <div class="inner">
     <span>compose-rust &middot; Apache License 2.0</span>
-    <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/SPEC.md">SPEC.md</a> &middot; <a href="https://github.com/DarkPyonix/compose-rust/blob/develop/docs/INTENT.md">INTENT.md</a></span>
-    <span>이 가이드는 2026-09-22 기준 저장소 내용과 대조했습니다</span>
+    <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://crates.io/crates/compose-rust">crates.io</a></span>
+    <span>이 가이드는 2026-10-03 기준 저장소 내용과 대조했습니다</span>
   </div>
 </footer>
 

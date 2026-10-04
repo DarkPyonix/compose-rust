@@ -3121,7 +3121,7 @@ fn lent(address: u32) -> bool {
 /// all in that case.
 ///
 /// The application exports this as `{WEB_START_SYMBOL}` through its authoring layer's
-/// entry macro (`web_main!` in the Dioxus adapter), and the export lives there rather than
+/// entry point (`web_main!` in dioxus-compose), and the export lives there rather than
 /// here because a wasm module cannot be linked with an undefined symbol the way an ELF
 /// shared library can: an import nobody satisfies stops the module from being
 /// instantiated, so this crate's own module must not name a function only an application

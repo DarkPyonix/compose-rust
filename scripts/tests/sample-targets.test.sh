@@ -6,7 +6,7 @@
 #
 # Two lists that have to agree and had nothing between them. `PUBLISHED_TARGETS` in the
 # build script's search rules says which platforms a renderer artifact exists for; the
-# matrix in .github/workflows/samples.yml says which ones a sample is built for. The
+# matrix in .github/workflows/test-samples.yml says which ones a sample is built for. The
 # first sample release went out for three of the four, because Linux on arm64 was in one
 # list and not the other, and the two spelled x86_64 differently besides.
 #
@@ -36,7 +36,7 @@ published="$(grep -o 'PUBLISHED_TARGETS: &\[&str\] = &\[[^]]*\]' compose-rust/bu
     grep -o '"[a-z0-9_-]*"' | tr -d '"' | sort)"
 # The build matrix's rows: a bare target name. The static renderer's matrix list and the
 # expression that passes a row on are not rows.
-built="$(grep -E '^\s+target: [a-z0-9-]+$' .github/workflows/samples.yml |
+built="$(grep -E '^\s+target: [a-z0-9-]+$' .github/workflows/test-samples.yml |
     sed -E 's/.*target: *//' | tr -d '"' | sort)"
 
 if [[ -z "$published" ]]; then
@@ -45,7 +45,7 @@ if [[ -z "$published" ]]; then
         "shape this reads, so nothing was compared and this test passed on nothing."
 elif [[ -z "$built" ]]; then
     fail "the sample matrix could not be read" \
-        "No target: lines in .github/workflows/samples.yml."
+        "No target: lines in .github/workflows/test-samples.yml."
 elif [[ "$published" != "$built" ]]; then
     fail "the samples are not built for the platforms the renderer is published for" \
         "published: $(echo "$published" | tr '\n' ' ')" \
@@ -58,14 +58,14 @@ fi
 # each was missing from the first sample release, so their absence is worth an assertion
 # rather than a reader's memory.
 for job in android ios web; do
-    if ! grep -qE "^  $job:$" .github/workflows/samples.yml; then
+    if ! grep -qE "^  $job:$" .github/workflows/test-samples.yml; then
         fail "the samples are not built for $job" \
             "It is a job of its own rather than a matrix row, because there a sample is" \
             "not a program. Without it that platform ships a library and no examples."
     fi
 done
 
-if ! grep -q "needs: \[build, android, ios, web\]" .github/workflows/samples.yml; then
+if ! grep -q "needs: \[build, android, ios, web\]" .github/workflows/test-samples.yml; then
     fail "the release does not wait for every platform" \
         "A release attached before a platform finishes is a release missing it."
 fi

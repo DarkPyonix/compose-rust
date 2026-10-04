@@ -128,7 +128,7 @@ pub fn renderer_lib_subdir(target_os: &str) -> &'static str {
 pub const RENDERER_VERSION_FILE: &str = "renderer.version";
 
 /// The release artifact for a crate version and platform target, as
-/// `.github/workflows/native-renderer.yml` names it.
+/// `.github/workflows/test-native-renderer.yml` names it.
 pub fn artifact_file_name(crate_version: &str, target: &str) -> String {
     format!("compose-rust-renderer-v{crate_version}-{target}.tar.gz")
 }
