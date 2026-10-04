@@ -1,0 +1,199 @@
+# GraalVM renderer test: builds the GraalVM native-image renderer and smoke tests it.
+#
+# Kotlin/Native is the default renderer now, and the macOS and Linux native-image jobs were
+# removed from test-native-renderer.yml with it. The GraalVM window code
+# (renderer/desktop/c/appkit_window.m, x11_window.c and the shared C and Kotlin files that
+# path uses) still lives in this repository, so this workflow keeps building and starting it.
+#
+# This file exists until the window code moves to the Compose fork. It then moves to the
+# fork's CI and is deleted here. The Windows native-image job stays in
+# test-native-renderer.yml and is not repeated here.
+
+name: GraalVM renderer test
+
+on:
+  pull_request:
+    paths:
+      - 'renderer/desktop/**'
+      - 'renderer/libs.versions.toml'
+      - 'renderer/kotlin'
+      - 'renderer/**/module.yaml'
+      - 'scripts/install-nik.sh'
+      - 'scripts/tests/renderer/**'
+      - '.github/workflows/test-graalvm-renderer.yml'
+  push:
+    branches: [develop]
+    paths:
+      - 'renderer/desktop/**'
+      - 'renderer/libs.versions.toml'
+      - 'renderer/kotlin'
+      - 'renderer/**/module.yaml'
+      - 'scripts/install-nik.sh'
+      - 'scripts/tests/renderer/**'
+      - '.github/workflows/test-graalvm-renderer.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: test-graalvm-renderer-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    name: Build and smoke test the GraalVM renderer (macOS, arm64)
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Liberica NIK
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/compose-rust/nik
+          key: nik-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/install-nik.sh') }}
+
+      - name: Install Liberica NIK 25 Full
+        run: ./scripts/install-nik.sh --github-env
+
+      - name: Cache the Kotlin toolchain and Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/JetBrains/Kotlin
+            ~/.m2/repository
+          key: kotlin-${{ runner.os }}-${{ hashFiles('renderer/kotlin', 'renderer/libs.versions.toml', 'renderer/**/module.yaml') }}
+          restore-keys: |
+            kotlin-${{ runner.os }}-
+
+      - name: Build the renderer shared library
+        run: ./renderer/desktop/scripts/build-native.sh
+
+      - name: Accessibility classes are linked in
+        run: ./scripts/tests/renderer/accessibility-link.test.sh
+
+      - name: Smoke test
+        env:
+          COMPOSE_RUST_AUTOEXIT_MS: '5000'
+        run: ./renderer/desktop/scripts/smoke-test.sh
+
+      - name: Report the distribution size
+        run: du -sh renderer/build/native-image/dist/lib
+
+      - name: Upload the renderer for inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: graalvm-renderer-macos-arm64
+          path: renderer/build/native-image/dist/
+          retention-days: 7
+
+  linux-x64:
+    name: Build and smoke test the GraalVM renderer (Linux, x64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install upstream GraalVM Community for JDK 25
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25.0.1'
+          distribution: 'graalvm-community'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Linux AWT, Skia, font, and virtual-display dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential zlib1g-dev unzip pkg-config fontconfig \
+            libx11-dev libxext-dev libxi-dev libxrender-dev libxtst-dev libxrandr-dev \
+            libfontconfig1-dev libfreetype6-dev libgl1 libgl1-mesa-dri libegl1 \
+            libgl1-mesa-dev fonts-noto-cjk xvfb xauth dbus-x11
+
+      - name: Cache the Kotlin toolchain and Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/JetBrains/Kotlin
+            ~/.m2/repository
+          key: kotlin-linux-${{ hashFiles('renderer/kotlin', 'renderer/libs.versions.toml', 'renderer/**/module.yaml') }}
+          restore-keys: |
+            kotlin-linux-
+
+      - name: Run Linux script contract tests
+        run: bash scripts/tests/renderer/linux-build.test.sh
+
+      - name: Run the Linux metadata contract test
+        run: bash scripts/tests/renderer/linux-metadata.test.sh
+
+      - name: Build the Linux renderer under Xvfb
+        run: xvfb-run -a ./renderer/desktop/scripts/build-native-linux.sh
+
+      - name: Inspect staged dynamic dependencies
+        run: |
+          find renderer/build/native-image-linux/dist/lib -maxdepth 1 -type f -print | sort
+          ldd renderer/build/native-image-linux/dist/lib/*.so
+
+      - name: Headless startup smoke only
+        env:
+          COMPOSE_RUST_AUTOEXIT_MS: '5000'
+        run: xvfb-run -a ./renderer/desktop/scripts/smoke-test-linux.sh
+
+      - name: Upload the Linux renderer for inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: graalvm-renderer-linux-x64
+          path: renderer/build/native-image-linux/dist/
+          retention-days: 7
+
+  linux-arm64:
+    name: Build and smoke test the GraalVM renderer (Linux, arm64)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install upstream GraalVM Community for JDK 25
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25.0.1'
+          distribution: 'graalvm-community'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Linux AWT, Skia, font, and virtual-display dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential zlib1g-dev unzip pkg-config fontconfig \
+            libx11-dev libxext-dev libxi-dev libxrender-dev libxtst-dev libxrandr-dev \
+            libfontconfig1-dev libfreetype6-dev libgl1 libgl1-mesa-dri libegl1 \
+            libgl1-mesa-dev fonts-noto-cjk xvfb xauth dbus-x11
+
+      - name: Cache the Kotlin toolchain and Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/JetBrains/Kotlin
+            ~/.m2/repository
+          key: kotlin-linux-${{ hashFiles('renderer/kotlin', 'renderer/libs.versions.toml', 'renderer/**/module.yaml') }}
+          restore-keys: |
+            kotlin-linux-
+
+      - name: Build the Linux renderer under Xvfb
+        run: xvfb-run -a ./renderer/desktop/scripts/build-native-linux.sh
+
+      - name: Inspect staged dynamic dependencies
+        run: |
+          find renderer/build/native-image-linux/dist/lib -maxdepth 1 -type f -print | sort
+          ldd renderer/build/native-image-linux/dist/lib/*.so
+
+      - name: Headless startup smoke only
+        env:
+          COMPOSE_RUST_AUTOEXIT_MS: '5000'
+        run: xvfb-run -a ./renderer/desktop/scripts/smoke-test-linux.sh
+
+      - name: Upload the Linux renderer for inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: graalvm-renderer-linux-arm64
+          path: renderer/build/native-image-linux/dist/
+          retention-days: 7

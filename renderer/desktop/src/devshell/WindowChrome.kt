@@ -83,22 +83,6 @@ internal fun platformDrawsWindowButtons(
 ): Boolean = isMacOs(osName)
 
 /**
- * The caption strip Windows gives up, and the room its three buttons take at the trailing
- * edge.
- *
- * Fixed rather than measured, because the native side has to agree with it: it answers
- * the hit test for this strip and has to know which part of it is buttons that take
- * ordinary clicks and which part drags the window. A decorated frame's top inset is the
- * caption plus the resize border, which is not the number either side wants.
- *
- * The room for the buttons is reserved on the native side rather than here, because the
- * design system decides how wide its own three are and the hit test cannot wait for that.
- * It reserves the widest any design system draws, so a narrower set leaves a little of
- * the strip draggable that could have been clickable, and never the reverse.
- */
-internal val windowsCaptionHeight = 32.dp
-
-/**
  * Applies [chrome] to an already created window.
  *
  * On macOS this is three AWT client properties and no native code:
