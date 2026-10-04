@@ -330,7 +330,7 @@ internal class Win32Window private constructor(
             context,
             target,
             SurfaceOrigin.TOP_LEFT,
-            SurfaceColorFormat.RGBA_8888,
+            SurfaceColorFormat.BGRA_8888,
             ColorSpace.sRGB,
             SurfaceProps(PixelGeometry.RGB_H),
         )
@@ -506,11 +506,11 @@ private const val ELEMENT_LABEL_OFFSET = 20
 private const val ELEMENT_BYTES = 116
 
 /**
- * DXGI_FORMAT_R8G8B8A8_UNORM, what the swapchain was made with and Skia has to be told again.
+ * DXGI_FORMAT_B8G8R8A8_UNORM, what the swapchain was made with and Skia has to be told again.
  * A format that disagrees between the two is a window of swapped colour channels rather than
  * a failure anything reports.
  */
-private const val SWAPCHAIN_FORMAT = 28
+private const val SWAPCHAIN_FORMAT = 87
 
 private const val CURSOR_ARROW = 0
 private const val CURSOR_HAND = 1
