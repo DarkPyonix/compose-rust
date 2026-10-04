@@ -15,6 +15,10 @@ source "$(dirname "$0")/env-linux.sh"
 COMPOSE_RUST_AUTOEXIT_MS=1 run_on_jvm ""
 classpath="$(cat "$CLASSPATH_FILE")"
 obj="$BUILD_DIR/obj"
+# PROBE
+for jar in $(tr ':' ' ' <<< "$classpath"); do
+    [[ -f "$jar" ]] && unzip -l "$jar" 2>/dev/null | grep 'META-INF/native-image' | sed "s|^|PROBE $(basename "$jar"): |"
+done
 lib="$DIST_DIR/lib"
 rm -rf "$DIST_DIR" "$obj"
 mkdir -p "$obj" "$lib"
