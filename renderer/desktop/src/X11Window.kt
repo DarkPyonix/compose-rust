@@ -37,7 +37,7 @@ private const val GL_RGBA8 = 0x8058
  * the painter registered below. A loop that drew it on its next turn would be a window
  * whose edge moves before its content does.
  *
- * Reached by setting `DXC_X11_WINDOW`, so the ordinary path is untouched.
+ * [autoExitMillis] closes the window by itself after that long, for runs nobody watches.
  */
 internal fun runX11Window(autoExitMillis: Long? = null) {
     // The Host is started before there is a window, because what the window should look
