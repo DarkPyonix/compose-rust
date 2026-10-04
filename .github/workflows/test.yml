@@ -5,7 +5,7 @@
 # The GraalVM native-image build of the renderer is *not* here: it needs a
 # ~1GB Liberica NIK download and tens of minutes of native-image compilation
 # (INTENT D9-macOS), which is too slow to put in front of every push. That
-# build lives in native-renderer.yml, on a schedule and on pushes to main.
+# build lives in test-native-renderer.yml, on a schedule and on pushes to main.
 #
 # INTENT D7 is the reason this split is legitimate: the development path (JVM
 # / Rust) and the distribution path (native-image) are separate by design, and
@@ -15,7 +15,7 @@
 # portable, so Linux is in the matrix too: it costs nothing extra in wall time
 # and it catches accidental macOS-only assumptions in the Rust code early.
 
-name: CI
+name: Test
 
 on:
   # Only what is about to become public, or what already is. Work lands on develop many
@@ -46,7 +46,7 @@ env:
 
 jobs:
   rust:
-    name: Rust quality gate (${{ matrix.os }})
+    name: Check Rust formatting, lints and tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -112,7 +112,7 @@ jobs:
     # The split also keeps each cache honest. The jvm and android jobs never download
     # konan at all, and a Kotlin/Native toolchain change no longer invalidates the cache
     # of the job that finishes first.
-    name: Kotlin gate (${{ matrix.platform }})
+    name: Build and test the renderer (${{ matrix.platform }})
     runs-on: ${{ matrix.runs-on }}
     strategy:
       fail-fast: false
@@ -177,7 +177,7 @@ jobs:
         run: ./kotlin test -p ${{ matrix.platform }}
 
   shell:
-    name: Shell script tests (${{ matrix.os }})
+    name: Run the shell script tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -209,7 +209,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y patchelf
 
       - name: Run scripts/tests
-        # scripts/publish-main.sh and scripts/install-nik.sh carry their own
+        # the release sync script and scripts/install-nik.sh carry their own
         # tests; they run against throwaway temporary directories only.
         #
         # Every test runs whatever came before it. Stopping at the first red meant one
@@ -231,7 +231,7 @@ jobs:
           fi
 
   packaging:
-    name: crates.io packaging check
+    name: Check the crates.io package
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
