@@ -104,6 +104,47 @@ class TextFieldTest {
     }
 
     @Test
+    fun fr5_the_first_edit_reaches_the_host_without_waiting_out_the_debounce() = runComposeUiTest {
+        val connection = FakeHostConnection(field())
+        setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+        mainClock.autoAdvance = false
+
+        onNodeWithTag(nodeTestTag(FIELD)).performTextInput("h")
+        mainClock.advanceTimeByFrame()
+        mainClock.advanceTimeByFrame()
+
+        // One frame or two, not the 120 ms the old trailing debounce held it back for.
+        val changes = connection.events.filterIsInstance<HostEvent.TextChanged>()
+        assertEquals(listOf("h"), changes.map { it.text }, "events were ${connection.events}")
+    }
+
+    @Test
+    fun fr5_a_burst_of_edits_is_collapsed_and_the_last_text_is_sent() = runComposeUiTest {
+        val connection = FakeHostConnection(field())
+        setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+        mainClock.autoAdvance = false
+
+        onNodeWithTag(nodeTestTag(FIELD)).performTextInput("a")
+        mainClock.advanceTimeByFrame()
+        onNodeWithTag(nodeTestTag(FIELD)).performTextInput("b")
+        mainClock.advanceTimeByFrame()
+        onNodeWithTag(nodeTestTag(FIELD)).performTextInput("c")
+        mainClock.advanceTimeByFrame()
+        // Inside the interval: the first went out, the others are waiting.
+        assertEquals(
+            listOf("a"),
+            connection.events.filterIsInstance<HostEvent.TextChanged>().map { it.text },
+        )
+
+        mainClock.advanceTimeBy(TEXT_CHANGED_DEBOUNCE_MILLIS * 2)
+        assertEquals(
+            listOf("a", "abc"),
+            connection.events.filterIsInstance<HostEvent.TextChanged>().map { it.text },
+            "events were ${connection.events}",
+        )
+    }
+
+    @Test
     fun fr5_host_set_text_replaces_the_value_when_no_composition_is_active() = runComposeUiTest {
         val connection = FakeHostConnection(field())
         connection.respondWith {

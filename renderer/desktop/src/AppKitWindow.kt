@@ -37,6 +37,9 @@ import androidx.compose.ui.scene.ComposeScene
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.graalvm.nativeimage.CurrentIsolate
+import org.graalvm.nativeimage.IsolateThread
+import org.graalvm.nativeimage.c.function.CFunctionPointer
 import org.graalvm.word.Pointer
 import org.graalvm.word.WordFactory
 
@@ -88,6 +91,24 @@ private external fun setCursorShape(shape: Int)
 
 @CFunction("dxc_native_pump")
 private external fun pumpEvents(seconds: Double)
+
+@CFunction("dxc_native_set_draw_callback")
+private external fun setAppKitDrawCallback(callback: CFunctionPointer?, isolateThread: IsolateThread?)
+
+@CFunction("dxc_native_debug_resize")
+private external fun debugResize(
+    window: Pointer?,
+    view: Pointer?,
+    fromWidth: Int,
+    fromHeight: Int,
+    toWidth: Int,
+    toHeight: Int,
+    steps: Int,
+    pauseMicros: Int,
+)
+
+@CFunction("dxc_native_debug_key")
+private external fun debugKey(window: Pointer?, keyCode: Int, characters: CCharPointer?)
 
 @CFunction("dxc_native_clipboard_read")
 private external fun clipboardRead(out: Pointer?, capacity: Int): Int
@@ -177,6 +198,24 @@ class NativeWindow internal constructor(
 
     /** Puts the painted frame on the screen. */
     fun endFrame() = endFrame(WordFactory.pointer(queue))
+
+    /** Posts a key press for [character] to the window. See `DXC_SYNTH`. */
+    internal fun postKey(keyCode: Int, character: String) {
+        val holder = CTypeConversion.toCString(character)
+        try {
+            debugKey(WordFactory.pointer(window), keyCode, holder.get())
+        } finally {
+            holder.close()
+        }
+    }
+
+    /** Takes the window through the sizes a drag would, for measuring. See `DXC_SYNTH_RESIZE`. */
+    internal fun scriptedResize(from: Pair<Int, Int>, to: Pair<Int, Int>, steps: Int, pauseMicros: Int) {
+        debugResize(
+            WordFactory.pointer(window), WordFactory.pointer(view),
+            from.first, from.second, to.first, to.second, steps, pauseMicros,
+        )
+    }
 
 }
 
@@ -563,10 +602,12 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
     // full screen removes the bar and leaving it brings it back.
     val caption = androidx.compose.runtime.mutableStateOf(window.measureCaption())
     val textInput = NativeTextInput()
+    val synthetic = System.getenv("DXC_SYNTH")?.let { SyntheticInput(it) }
     val semantics = NativeSemantics { elements ->
         if (report) {
             System.err.println("compose-rust: the window has ${elements.size} things to say")
         }
+        synthetic?.noteElements(elements)
         window.describeTo(elements)
     }
     // Kept rather than left to the scene. What a scene picks for itself is the toolkit's
@@ -588,66 +629,112 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
     installApplicationMenu(options.title)
 
     val started = System.nanoTime()
-    var iconSettled = false
+    var iconId = 0
+    var painted = false
+    var frame = 0
+    var drew = false
+    val legacyResize = System.getenv("DXC_LEGACY_RESIZE") != null
+
+    // What one frame is, wherever the ask comes from. The loop below is one caller and the
+    // window's own resize is the other: AppKit stays inside a tracking loop for as long as
+    // an edge is dragged, so the loop is not running then and the view asks for the frame
+    // itself, at the size it has just become. Both go through the one door, which refuses
+    // a second ask while one is being drawn, because a scene rendered from inside its own
+    // render is not something Compose survives.
+    Win32Frames.paint = {
+        frame++
+        // The scene's own work first, before anything is read from it: a list that asked
+        // for rows on the last frame wants them in hand before this one is measured.
+        work.runPending()
+        // The application's picture, once the asset it named has arrived. The id is
+        // known from the first batch and the bitmap a little later, so this asks each
+        // frame until it is there and then stops.
+        if (iconId == 0 && asked != null && asked.icon != 0) {
+            val raster = host.table.assets.asset(asked.icon)
+                as? dev.darkpyonix.composerust.ui.node.Asset.Raster
+            if (raster != null) {
+                iconId = asked.icon
+                iconPixels(raster.bitmap)?.let { (pixels, width, height) ->
+                    setApplicationIcon(pixels, width, height)
+                }
+            }
+        }
+        var heard = false
+        val events = drainWindowEvents()
+        for (event in synthetic?.due(System.nanoTime(), size) ?: emptyList()) {
+            scene.receive(event)
+            textInput.receive(event)
+            LatencyTrace.mark("synthetic ${event.kind} sent")
+        }
+        for (event in events) {
+            if (report && event.kind != WindowEvent.POINTER_MOVE) {
+                System.err.println("compose-rust: window heard $event")
+            }
+            if (event.kind == WindowEvent.FILES_ENTERED ||
+                event.kind == WindowEvent.FILES_DROPPED ||
+                event.kind == WindowEvent.FILES_EXITED
+            ) {
+                routeFileDrop(event.kind, androidx.compose.ui.geometry.Offset(event.x, event.y)) {
+                    readDroppedPaths()
+                }
+            }
+            if (event.kind == WindowEvent.RESIZE) {
+                size = androidx.compose.ui.unit.IntSize(event.x.toInt(), event.y.toInt())
+                scene.size = size
+                caption.value = window.measureCaption()
+            }
+            if (LatencyTrace.enabled && event.kind != WindowEvent.POINTER_MOVE) {
+                LatencyTrace.mark("window heard ${event.kind}")
+            }
+            scene.receive(event)
+            textInput.receive(event)
+            heard = true
+        }
+        // Only when there is something to draw. Every frame reaches the window by asking
+        // the main thread for a drawable and waiting for it, and the main thread is where
+        // AppKit answers everything else: sixty of those a second left the input method
+        // unable to reach this process at all, which showed up as every letter being
+        // committed on its own instead of composing.
+        if (!painted || heard || scene.hasInvalidations()) {
+            val begun = System.nanoTime()
+            LatencyTrace.mark("draw begin (heard=$heard invalidated=${scene.hasInvalidations()})")
+            drawFrame(window, context, scene, frame.toLong() * FRAME_NANOS, size, backdrop)
+            LatencyTrace.mark("draw end")
+            LatencyTrace.frameDrawn(System.nanoTime() - begun)
+            painted = true
+            drew = true
+        }
+    }
+    if (!legacyResize) registerAppKitFrameCallback()
+
     try {
         // A plain loop rather than a clock. Pacing is the frame clock's work and comes
         // later; what this has to show is that what the window hears reaches the scene
         // and changes what the next frame draws.
-        var painted = false
-        var frame = 0
         while (!isWindowClosed()) {
             if (autoExitMillis != null &&
                 (System.nanoTime() - started) / NANOS_PER_MILLI >= autoExitMillis
             ) {
                 break
             }
-            frame++
+            // Cleared before the window is given its turn, because a resize inside it
+            // draws its own frames and the semantics below must hear of them.
+            drew = false
             // The window's own turn, before anything is read from it. This thread is the
             // one AppKit delivers on, so the events of this frame arrive here or not at
             // all. Waiting the frame's length rather than sleeping afterwards, because a
             // window with nothing happening should rest rather than spin.
             pumpWindowEvents(FRAME_SECONDS)
-            // Before the events and before the drawing. What is waiting here is the
-            // scene's own work, and a list that asked for rows on the last frame wants
-            // them in hand before this one is measured.
-            work.runPending()
-            // The application's picture, once the asset it named has arrived. The id is
-            // known from the first batch and the bitmap a little later, so this asks each
-            // frame until it is there and then stops.
-            if (!iconSettled) iconSettled = applyNamedIcon(host, asked?.icon ?: 0)
-            var heard = false
-            var drew = false
-            for (event in drainWindowEvents()) {
-                if (report && event.kind != WindowEvent.POINTER_MOVE) {
-                    System.err.println("compose-rust: window heard $event")
-                }
-                if (event.kind == WindowEvent.FILES_ENTERED ||
-                    event.kind == WindowEvent.FILES_DROPPED ||
-                    event.kind == WindowEvent.FILES_EXITED
-                ) {
-                    routeFileDrop(event.kind, androidx.compose.ui.geometry.Offset(event.x, event.y)) {
-                        readDroppedPaths()
-                    }
-                }
-                if (event.kind == WindowEvent.RESIZE) {
-                    size = androidx.compose.ui.unit.IntSize(event.x.toInt(), event.y.toInt())
-                    scene.size = size
-                    caption.value = window.measureCaption()
-                }
-                scene.receive(event)
-                textInput.receive(event)
-                heard = true
+            LatencyTrace.mark("loop turn $frame")
+            if (synthetic != null && synthetic.resizeDue(System.nanoTime())) {
+                window.scriptedResize(size.width / measured.scale.toInt() to size.height / measured.scale.toInt(),
+                    360 to 420, 60, 8_000)
             }
-            // Only when there is something to draw. Every frame reaches the window by
-            // asking the main thread for a drawable and waiting for it, and the main
-            // thread is where AppKit answers everything else: sixty of those a second
-            // left the input method unable to reach this process at all, which showed up
-            // as every letter being committed on its own instead of composing.
-            if (!painted || heard || scene.hasInvalidations()) {
-                drawFrame(window, context, scene, frame.toLong() * FRAME_NANOS, size, backdrop)
-                painted = true
-                drew = true
+            synthetic?.keysDue(System.nanoTime())?.let { (code, character) ->
+                LatencyTrace.mark("synthetic key '$character' posted")
+                window.postKey(code, character)
             }
+            Win32Frames.draw()
             // Every frame, and after the drawing. After, because that is when what is in
             // the window has been placed and can say where it is. Every frame, because a
             // tree that changed on the last one is a tree nobody has been told about, and
@@ -656,12 +743,30 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
             semantics.pushIfChanged(afterDrawing = drew)
             reportCaret(textInput)
         }
+        LatencyTrace.summary()
     } finally {
+        Win32Frames.paint = null
+        forgetAppKitFrameCallback()
         scene.close()
         context.close()
         host.shutdown()
     }
 }
+
+/**
+ * Gives the window an address to ask for a frame at, and takes it away again.
+ *
+ * The thread goes with the address because an entry point of this image cannot be called
+ * without being told which thread of which isolate is calling. Written out at the call
+ * because native-image accepts a word value in straight-line code inside one method only.
+ */
+private fun registerAppKitFrameCallback() =
+    setAppKitDrawCallback(Win32DrawCallback.POINTER.functionPointer, CurrentIsolate.getCurrentThread())
+
+private fun forgetAppKitFrameCallback() = setAppKitDrawCallback(
+    WordFactory.nullPointer<CFunctionPointer>(),
+    WordFactory.nullPointer<IsolateThread>(),
+)
 
 private const val NANOS_PER_MILLI = 1_000_000L
 

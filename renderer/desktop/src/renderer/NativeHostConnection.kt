@@ -75,6 +75,7 @@ class NativeHostConnection : HostConnection {
     }
 
     override fun dispatchEvent(event: HostEvent, onMutation: (Mutation) -> Unit): Long {
+        dev.darkpyonix.composerust.ui.platform.LatencyTrace.mark("dispatch_event in")
         eventBuffer.clear()
         val length = Protocol.encodeEvent(event, eventBuffer)
         var result = 0L
@@ -99,10 +100,12 @@ class NativeHostConnection : HostConnection {
         } finally {
             pinned.close()
         }
+        dev.darkpyonix.composerust.ui.platform.LatencyTrace.mark("dispatch_event out")
         return result
     }
 
     override fun renderFrame(frameTimeNanos: Long, onMutation: (Mutation) -> Unit) {
+        dev.darkpyonix.composerust.ui.platform.LatencyTrace.mark("render_frame in")
         val batch = StackValue.get<Pointer>(BATCH_BYTES)
         checkStatus(hostRenderFrame(frameTimeNanos, batch), "render_frame")
         try {
@@ -116,6 +119,7 @@ class NativeHostConnection : HostConnection {
             // Host reuses, so it is invalid the moment this call returns.
             hostReleaseBatch(batch)
         }
+        dev.darkpyonix.composerust.ui.platform.LatencyTrace.mark("render_frame out (batch applied)")
     }
 
     override fun shutdown() = hostShutdown()
