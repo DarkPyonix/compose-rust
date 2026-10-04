@@ -119,6 +119,8 @@ for _ in $(seq 1 30); do
 done
 [[ -n "$selected" ]] || fail "the hangul engine could not be selected" "Install ibus-hangul."
 echo "-- engine: $(ibus engine)"
+sleep 2
+echo "-- XIM servers on the display: $(xprop -root XIM_SERVERS 2>&1 || true)"
 
 echo "== starting the application"
 DXC_REPORT_INPUT=1 DXC_REPORT_FRAMES=1 "$logs/consumer" --input-check \

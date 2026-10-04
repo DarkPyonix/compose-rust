@@ -625,7 +625,7 @@ jobs:
       - name: Install an input method, an accessibility registry and input tools
         run: |
           sudo apt-get install -y ibus ibus-hangul at-spi2-core python3-gi gir1.2-atspi-2.0 \
-            xdotool dbus-x11 libglib2.0-bin
+            xdotool dbus-x11 libglib2.0-bin x11-utils
 
       - name: Type Korean and read the window, through a real input method and registry
         # ibus with its XIM server and the hangul engine, and the at-spi2 registry, on a

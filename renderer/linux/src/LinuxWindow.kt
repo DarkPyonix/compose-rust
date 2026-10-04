@@ -267,6 +267,13 @@ internal class LinuxWindow private constructor(
             // selects: left out, some of them never see the key they are meant to filter.
             XSelectInput(display, window, EVENT_MASK or context.filterMask)
         }
+        if (reportFrames) {
+            System.err.println(
+                "compose-rust: input method: " + (xim?.let {
+                    if (it.inline) "XIM, composition drawn in the field" else "XIM, composition drawn by the input method"
+                } ?: "none (${XimContext.failure})"),
+            )
+        }
     }
 
     /**

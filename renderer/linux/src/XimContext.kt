@@ -23,6 +23,7 @@ import kotlinx.cinterop.staticCFunction
 import kotlinx.cinterop.toKString
 import kotlinx.cinterop.value
 import platform.posix.LC_CTYPE
+import platform.posix.getenv
 import platform.posix.setlocale
 import x11.Display
 import x11.XCloseIM
@@ -194,10 +195,12 @@ internal class XimContext private constructor(
             window: Window,
             session: ImeSession,
         ): XimContext? {
-            if (!chooseUtf8Locale()) return null
-            if (XSupportsLocale() == 0) return null
+            failure = ""
+            if (!chooseUtf8Locale()) return fails("no UTF-8 locale")
+            if (XSupportsLocale() == 0) return fails("Xlib does not support this locale")
             XSetLocaleModifiers("")
-            val method = XOpenIM(display, null, null, null) ?: return null
+            val method = XOpenIM(display, null, null, null)
+                ?: return fails("XOpenIM found no input method (XMODIFIERS=${getenv("XMODIFIERS")?.toKString()})")
             val style = memScoped {
                 val styles = alloc<kotlinx.cinterop.CPointerVar<XIMStyles>>()
                 val failed = XGetIMValues(method, XNQueryInputStyle.cstr.ptr, styles.ptr, null)
@@ -220,7 +223,7 @@ internal class XimContext private constructor(
             }
             if (style == null) {
                 XCloseIM(method)
-                return null
+                return fails("the input method offers no usable input style")
             }
             val inline = style and XIMPreeditCallbacks.toLong() != 0L
             val state = StableRef.create(session)
@@ -270,7 +273,7 @@ internal class XimContext private constructor(
                 XCloseIM(method)
                 for (callback in callbacks) nativeHeap.free(callback.rawValue)
                 state.dispose()
-                return null
+                return fails("XCreateIC failed")
             }
             // What the input method needs the window to select, over and above what it
             // already does. Left out, some of them never see the key they are meant to
@@ -297,6 +300,15 @@ internal class XimContext private constructor(
                 if (isUtf8Locale(setlocale(LC_CTYPE, name)?.toKString())) return true
             }
             return false
+        }
+
+        /** Why the last attempt to open an input method gave none, for the frame report. */
+        var failure: String = ""
+            private set
+
+        private fun fails(reason: String): XimContext? {
+            failure = reason
+            return null
         }
 
         private const val LOOKUP_BYTES = 64
