@@ -1411,7 +1411,7 @@ static void dxc_draw_resize(int32_t width, int32_t height) {
     }
 }
 
-static LRESULT CALLBACK dxc_native_window_proc(static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
+static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
     switch (message) {
     case WM_NCCALCSIZE: {
         if (dxc_options.system_chrome || wparam != TRUE) {
