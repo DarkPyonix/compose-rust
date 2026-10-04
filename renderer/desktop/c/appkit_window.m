@@ -773,9 +773,16 @@ int32_t dxc_native_window_open(
         // that this executable owns a foreground window. AWT performs this registration
         // for its own window, but the headless path bypasses it.
         ProcessSerialNumber process = {0, kCurrentProcess};
-        if (TransformProcessType(&process, kProcessTransformToForegroundApplication) != noErr) {
-            status = 3;
-            return;
+        OSStatus transformed =
+            TransformProcessType(&process, kProcessTransformToForegroundApplication);
+        if (transformed != noErr) {
+            // Not fatal. The application's activation policy is set to regular below,
+            // which is what makes it a foreground application, and a session that
+            // refuses this call (an unattended runner, a remote login) still opens a
+            // window with it. What the system said is kept so a window that does not come
+            // forward has something to be read from.
+            fprintf(stderr, "compose-rust: the process manager answered %d to the "
+                            "foreground request\n", (int)transformed);
         }
 
         id<MTLDevice> device = MTLCreateSystemDefaultDevice();
