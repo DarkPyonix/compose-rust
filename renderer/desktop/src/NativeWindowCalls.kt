@@ -3,9 +3,7 @@
 package dev.darkpyonix.composerust.ui.platform
 
 import androidx.compose.ui.graphics.asSkiaBitmap
-import org.graalvm.nativeimage.UnmanagedMemory
 import org.graalvm.nativeimage.c.function.CFunction
-import org.graalvm.word.Pointer
 import org.thisisthepy.compose.window.graalvm.macos.setApplicationIcon
 
 // The few calls into a window's C that the Compose half makes and the fork's window modules do
@@ -13,9 +11,6 @@ import org.thisisthepy.compose.window.graalvm.macos.setApplicationIcon
 // hand-off of a drag to the window manager, and a paste the window is holding. The C symbols are
 // the ones the fork's `x11_window.c` and `appkit_window.m` define, and every desktop's C answers
 // them, so these are declared once here.
-
-@CFunction("dxc_native_take_paste")
-private external fun takePaste(out: Pointer?, capacity: Int): Int
 
 @CFunction("dxc_native_set_ime_spot")
 private external fun setImeSpot(x: Float, y: Float)
@@ -81,22 +76,3 @@ internal fun iconPixels(picture: androidx.compose.ui.graphics.ImageBitmap): Trip
     val pixels = bitmap.readPixels(info, info.minRowBytes) ?: return null
     return Triple(pixels, bitmap.width, bitmap.height)
 }
-
-/** The text of a paste the window is holding, whole, and empty where there is none. */
-internal fun readPaste(): String {
-    val buffer = UnmanagedMemory.malloc<Pointer>(PASTE_BYTES)
-    try {
-        val length = takePaste(buffer, PASTE_BYTES)
-        if (length <= 0) return ""
-        val bytes = ByteArray(length)
-        for (index in 0 until length) {
-            bytes[index] = buffer.readByte(index)
-        }
-        return String(bytes, Charsets.UTF_8)
-    } finally {
-        UnmanagedMemory.free(buffer)
-    }
-}
-
-/** The most a paste may carry: 4 MiB, which is the most one X11 property read returns. */
-private const val PASTE_BYTES = 4 * 1024 * 1024

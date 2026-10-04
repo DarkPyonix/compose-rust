@@ -56,14 +56,6 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
     var closed = false
     val listener = object : WindowListener {
         override fun onEvent(event: WindowEvent) {
-            // A paste the window is holding becomes the text it carries, committed as one edit.
-            if (event.kind == WindowEvent.TEXT_PASTE) {
-                val pasted = readPaste()
-                if (pasted.isNotEmpty()) {
-                    heard.add(WindowEvent(WindowEvent.TEXT_COMMIT, 0f, 0f, 0, 0, 0, 0, pasted))
-                }
-                return
-            }
             heard.add(event)
         }
 
