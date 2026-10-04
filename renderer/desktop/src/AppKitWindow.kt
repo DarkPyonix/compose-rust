@@ -529,10 +529,11 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
     host.start()
     val asked = host.table.window
     val backdrop = host.table.asksForWindowMaterial(host.roots)
+    val minimum = contentMinimum(asked?.minWidth ?: 0, asked?.minHeight ?: 0)
     configureNativeWindow(
         resizable = asked?.resizable ?: true,
-        minWidth = asked?.minWidth?.takeIf { it > 0 } ?: 0,
-        minHeight = asked?.minHeight?.takeIf { it > 0 } ?: 0,
+        minWidth = minimum?.first?.toInt() ?: 0,
+        minHeight = minimum?.second?.toInt() ?: 0,
         systemChrome = asked?.chrome == dev.darkpyonix.composerust.protocol.Chrome.System,
         backdrop = backdrop,
     )
@@ -584,12 +585,21 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
     // The application's own tree, drawn by the same interpreter every window uses.
     // Nothing in it knows which window it is in, which is the point.
     val clipboard = WindowClipboard()
+    // The same monitor the Kotlin/Native window uses. This one is polled, because the
+    // setting is read through the toolkit-free theme query rather than announced.
+    val appearance = SystemDarkMonitor(read = ::systemIsDarkNow)
     @Suppress("DEPRECATION")
     val clipboardManager = WindowClipboardManager()
     scene.setContent {
         androidx.compose.runtime.CompositionLocalProvider(
             dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver provides {
-                rememberSystemDark().value
+                androidx.compose.runtime.LaunchedEffect(Unit) {
+                    while (true) {
+                        kotlinx.coroutines.delay(SYSTEM_DARK_POLL_MILLIS)
+                        appearance.refresh()
+                    }
+                }
+                appearance.dark.value
             },
             androidx.compose.ui.platform.LocalClipboard provides clipboard,
             androidx.compose.ui.platform.LocalClipboardManager provides clipboardManager,
@@ -605,7 +615,16 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
     installTextMenu()
 
     val started = System.nanoTime()
-    var iconId = 0
+    val dockIcon = DockIcon<androidx.compose.ui.graphics.ImageBitmap>(
+        lookup = { id ->
+            (host.table.assets.asset(id) as? dev.darkpyonix.composerust.ui.node.Asset.Raster)?.bitmap
+        },
+        apply = { picture ->
+            iconPixels(picture)?.let { (pixels, width, height) ->
+                setApplicationIcon(pixels, width, height)
+            }
+        },
+    )
     var painted = false
     var frame = 0
     var drew = false
@@ -622,19 +641,9 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
         // The scene's own work first, before anything is read from it: a list that asked
         // for rows on the last frame wants them in hand before this one is measured.
         work.runPending()
-        // The application's picture, once the asset it named has arrived. The id is
-        // known from the first batch and the bitmap a little later, so this asks each
-        // frame until it is there and then stops.
-        if (iconId == 0 && asked != null && asked.icon != 0) {
-            val raster = host.table.assets.asset(asked.icon)
-                as? dev.darkpyonix.composerust.ui.node.Asset.Raster
-            if (raster != null) {
-                iconId = asked.icon
-                iconPixels(raster.bitmap)?.let { (pixels, width, height) ->
-                    setApplicationIcon(pixels, width, height)
-                }
-            }
-        }
+        // The application's picture, once the asset it named has arrived. Asked each frame
+        // until it is there and then not at all, by the same rule the other macOS window uses.
+        if (!dockIcon.applied && asked != null) dockIcon.tryApply(asked.icon)
         var heard = false
         val events = drainWindowEvents()
         for (event in synthetic?.due(System.nanoTime(), size) ?: emptyList()) {

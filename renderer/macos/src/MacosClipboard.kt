@@ -10,20 +10,6 @@ import androidx.compose.ui.text.AnnotatedString
 import platform.AppKit.NSPasteboard
 import platform.AppKit.NSPasteboardTypeString
 
-/**
- * The text on a pasteboard, which is all a text field asks for.
- *
- * A seam rather than the pasteboard itself so that what the clipboard does with it can be
- * exercised without a window server: a test holds a string in a variable.
- */
-internal interface TextPasteboard {
-    /** The text on it, or null where it holds nothing or holds something that is not text. */
-    fun read(): String?
-
-    /** Replaces what is on it with [text]. */
-    fun write(text: String)
-}
-
 /** The system's general pasteboard, the one every other application copies to and from. */
 internal class GeneralPasteboard : TextPasteboard {
     override fun read(): String? =
@@ -47,17 +33,16 @@ internal class MacosClipboard(
     private val pasteboard: TextPasteboard = GeneralPasteboard(),
 ) : Clipboard {
     override suspend fun getClipEntry(): ClipEntry? =
-        pasteboard.read()?.takeIf { it.isNotEmpty() }?.let { ClipEntry.withPlainText(it) }
+        pasteboard.pasteText()?.let { ClipEntry.withPlainText(it) }
 
     override suspend fun setClipEntry(clipEntry: ClipEntry?) {
-        val text = clipEntry?.getPlainText()
-        if (text != null) pasteboard.write(text)
+        pasteboard.copyText(clipEntry?.getPlainText())
     }
 
     override val nativeClipboard: NativeClipboard get() = NSPasteboard.generalPasteboard
 
     /** Whether there is text to paste, which is what decides if Paste is offered. */
-    fun hasText(): Boolean = !pasteboard.read().isNullOrEmpty()
+    fun hasText(): Boolean = pasteboard.hasText()
 }
 
 /** The older entry point to the same pasteboard, which some of Compose still asks for. */
@@ -65,17 +50,13 @@ internal class MacosClipboard(
 internal class MacosClipboardManager(
     private val pasteboard: TextPasteboard = GeneralPasteboard(),
 ) : ClipboardManager {
-    override fun getText(): AnnotatedString? =
-        pasteboard.read()?.takeIf { it.isNotEmpty() }?.let(::AnnotatedString)
+    override fun getText(): AnnotatedString? = pasteboard.pasteText()?.let(::AnnotatedString)
 
-    override fun setText(annotatedString: AnnotatedString) = pasteboard.write(annotatedString.text)
+    override fun setText(annotatedString: AnnotatedString) = pasteboard.copyText(annotatedString.text)
 
-    override fun hasText(): Boolean = !pasteboard.read().isNullOrEmpty()
+    override fun hasText(): Boolean = pasteboard.hasText()
 
-    override fun getClip(): ClipEntry? = pasteboard.read()?.takeIf { it.isNotEmpty() }
-        ?.let { ClipEntry.withPlainText(it) }
+    override fun getClip(): ClipEntry? = pasteboard.pasteText()?.let { ClipEntry.withPlainText(it) }
 
-    override fun setClip(clipEntry: ClipEntry?) {
-        clipEntry?.getPlainText()?.let(pasteboard::write)
-    }
+    override fun setClip(clipEntry: ClipEntry?) = pasteboard.copyText(clipEntry?.getPlainText())
 }

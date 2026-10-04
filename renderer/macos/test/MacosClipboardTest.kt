@@ -14,8 +14,8 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * What a text field copies to and pastes from on this platform, against a pasteboard that
- * is a variable.
+ * The Compose clipboard types over a pasteboard that is a variable. The rules for what
+ * counts as text live in shared code and are tested there; this is the ClipEntry glue.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 class MacosClipboardTest {

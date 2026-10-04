@@ -99,11 +99,8 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // Whether the system is dark, now and as it changes. Held here so the first answer is
     // the real one and the window is not drawn light and corrected a moment later.
     var requestFrame: () -> Unit = {}
-    val appearance = SystemDarkMonitor(
-        read = ::systemIsDark,
-        subscribe = ::observeSystemAppearance,
-        requestFrame = { requestFrame() },
-    )
+    val appearance = SystemDarkMonitor(read = ::systemIsDark, requestFrame = { requestFrame() })
+    observeSystemAppearance(appearance::refresh)
     val dressing = resolveTheme(
         theme = host.table.theme,
         platform = HostPlatform.MacOs,
