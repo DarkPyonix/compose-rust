@@ -230,7 +230,7 @@ absent 'usleep|sleep\(' "$window" \
 
 # The window answers null rather than throwing, because a Kotlin exception crossing back into the
 # C entry point that called in is undefined.
-grep -Fq 'fun open(title: String, width: Int, height: Int): LinuxWindow?' "$window" ||
+grep -Eq '^        \): LinuxWindow\?|fun open\(title: String, width: Int, height: Int\): LinuxWindow\?' "$window" ||
     fail "the window does not answer null where there is no display server to open one on"
 grep -Fq 'RUN_FAILED' "$entry" ||
     fail "the entry point does not turn a window that would not open into a status code"

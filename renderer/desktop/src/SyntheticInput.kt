@@ -1,6 +1,7 @@
 package dev.darkpyonix.composerust.ui.platform
 
 import androidx.compose.ui.unit.IntSize
+import java.lang.System
 
 /**
  * Input and resizing made up from inside the window, for measuring without a hand.
@@ -8,15 +9,21 @@ import androidx.compose.ui.unit.IntSize
  * A session with no accessibility permission cannot post a click, type a letter or drag
  * an edge, and the two things worth timing here are exactly those: how long a typed letter
  * takes to show, and what a drag does to the picture. Asked for with `DXC_SYNTH`, a
- * comma separated list of `type` and `resize`; unset, nothing here runs.
+ * comma separated list of `type`, `resize` and `exit`; unset, nothing here runs.
  *
  * `type` presses on the first text field the window describes, then commits one letter
  * every 700 ms from two seconds in. `resize` takes the window from its size to 360x420 in
- * 60 steps, six seconds in, from a single call that holds the thread as a drag does.
+ * 60 steps, six seconds in (`DXC_SYNTH_RESIZE_AT` seconds, where set), from a single call
+ * that holds the thread as a drag does. `exit` ends the window two seconds after the resize
+ * (`DXC_SYNTH_EXIT_AT` seconds in, where set), so a run measures and finishes by itself and
+ * the summary at the end of the loop is printed.
  */
 internal class SyntheticInput(what: String) {
     private val wantsType = "type" in what.split(',')
     private val wantsResize = "resize" in what.split(',')
+    private val wantsExit = "exit" in what.split(',')
+    private val resizeAt = System.getenv("DXC_SYNTH_RESIZE_AT")?.toDoubleOrNull() ?: 6.0
+    private val exitAt = System.getenv("DXC_SYNTH_EXIT_AT")?.toDoubleOrNull() ?: (resizeAt + 2.0)
     private val started = System.nanoTime()
     private var field: AccessibleElement? = null
     private var clicked = false
@@ -66,10 +73,14 @@ internal class SyntheticInput(what: String) {
 
     /** True once, when it is time to take the window through its sizes. */
     fun resizeDue(now: Long): Boolean {
-        if (!wantsResize || resized || seconds(now) < 6.0) return false
+        if (!wantsResize || resized || seconds(now) < resizeAt) return false
         resized = true
         return true
     }
+
+    /** True once the run has done what it was asked to and should close the window. */
+    fun exitDue(now: Long): Boolean =
+        wantsExit && (!wantsResize || resized) && seconds(now) >= exitAt
 
     /** Remembers where the field is, and says when the echo line has caught up. */
     fun noteElements(elements: List<AccessibleElement>) {

@@ -14,6 +14,7 @@ import org.graalvm.nativeimage.c.type.CIntPointer
 import org.graalvm.nativeimage.c.type.CTypeConversion
 import org.graalvm.word.Pointer
 import org.graalvm.word.WordFactory
+import androidx.compose.ui.unit.dp
 
 // X11 and GLX own the window and framebuffer. The event record, scene input conversion
 // and window content are shared with the other desktop windows.
@@ -28,6 +29,15 @@ private external fun beginFrame(window: Pointer?): Int
 
 @CFunction("dxc_native_frame_end")
 private external fun endFrame(display: Pointer?)
+
+@CFunction("dxc_native_note_present")
+private external fun countPresent(width: Int, height: Int)
+
+@CFunction("dxc_native_debug_resize")
+private external fun debugResize(
+    window: Pointer?, view: Pointer?, fromWidth: Int, fromHeight: Int, toWidth: Int,
+    toHeight: Int, steps: Int, pauseMicros: Int,
+)
 
 class X11NativeWindow internal constructor(
     val window: Long,
@@ -46,6 +56,17 @@ class X11NativeWindow internal constructor(
 
     fun beginFrame(): Boolean = beginFrame(WordFactory.pointer(window)) == 0
     fun endFrame() = endFrame(WordFactory.pointer(queue))
+
+    /** Counts a frame at this size for the resize report. See `DXC_REPORT_RESIZE`. */
+    internal fun notePresent(width: Int, height: Int) = countPresent(width, height)
+
+    /** Takes the window through the sizes a drag would, for measuring. See `DXC_SYNTH`. */
+    internal fun scriptedResize(from: Pair<Int, Int>, to: Pair<Int, Int>, steps: Int, pauseMicros: Int) {
+        debugResize(
+            WordFactory.pointer(window), WordFactory.pointer(view),
+            from.first, from.second, to.first, to.second, steps, pauseMicros,
+        )
+    }
 }
 
 /**
@@ -93,20 +114,27 @@ private const val GL_RGBA8 = 0x8058
  * the painter registered below. A loop that drew it on its next turn would be a window
  * whose edge moves before its content does.
  *
- * Reached by setting `DXC_X11_WINDOW`, so the ordinary path is untouched.
+ * [autoExitMillis] closes the window by itself after that long, for runs nobody watches.
  */
-internal fun runX11Window() {
+internal fun runX11Window(autoExitMillis: Long? = null) {
+    // The window shows nothing behind itself, so a design is told it has no material.
+    installNativeWindowHooks(backdropSupported = false)
     // The Host is started before there is a window, because what the window should look
     // like is in its first batch and a window cannot be told afterwards. Started on this
     // thread, which is the one every later call to it is made from.
     val host = dev.darkpyonix.composerust.runtime.ComposeRustHost(NativeHostConnection())
     host.start()
     val asked = host.table.window
-    val window = openX11Window(
-        asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
-        if (asked != null && asked.width > 0) asked.width else 520,
-        if (asked != null && asked.height > 0) asked.height else 360,
+    val options = nativeWindowOptions(host, backdropSupported = false)
+    configureNativeWindow(
+        resizable = options.resizable,
+        minWidth = options.minWidth,
+        minHeight = options.minHeight,
+        systemChrome = options.systemChrome,
+        backdrop = false,
     )
+    val x11Events = X11Events(::resetInputMethod)
+    val window = openX11Window(options.title, options.width, options.height)
     if (window == null) {
         System.err.println("compose-rust: X11 or a GLX visual is unavailable")
         host.shutdown()
@@ -124,10 +152,13 @@ internal fun runX11Window() {
     // the render target, and what the scene is told about the window it is in.
     var size = androidx.compose.ui.unit.IntSize(measured.width, measured.height)
     val textInput = NativeTextInput()
+    // Input and resizing made up from inside the window, for the parity check. Unset, nothing runs.
+    val synthetic = System.getenv("DXC_SYNTH")?.let { SyntheticInput(it) }
     val semantics = NativeSemantics { elements ->
         if (report) {
             System.err.println("compose-rust: the window has ${elements.size} things to say")
         }
+        synthetic?.noteElements(elements)
         window.describeTo(elements)
     }
     // Kept rather than left to the scene. What a scene picks for itself is the toolkit's
@@ -142,7 +173,27 @@ internal fun runX11Window() {
     )
     // The application's own tree, drawn by the same interpreter the toolkit path uses.
     // Nothing in it knows which of the two it is running on, which is the point.
-    scene.setContent { dev.darkpyonix.composerust.runtime.ComposeRustContent(host) }
+    // Without the manager's frame the renderer draws the caption: a strip that moves the
+    // window, the three buttons, and the edges that resize it. The window manager does the
+    // moving and the resizing; what is drawn here is only where a press starts it.
+    val framed = options.systemChrome
+    val caption = if (framed) {
+        dev.darkpyonix.composerust.runtime.WindowCaption.None
+    } else {
+        dev.darkpyonix.composerust.runtime.WindowCaption(height = linuxCaptionHeight)
+    }
+    val actions = if (framed) null else nativeWindowActions()
+    scene.setContent {
+        NativeWindowContent(
+            host,
+            caption,
+            actions,
+            drag = { if (!framed) NativeCaptionDrag(linuxCaptionHeight, actions) },
+            overlay = { if (!framed && options.resizable) NativeResizeEdges() },
+        )
+    }
+    val started = System.nanoTime()
+    var iconSettled = false
 
     // A clock rather than a count of turns, because a turn and a frame are no longer the
     // same thing: a resize draws its own, and a count only the loop advanced would hand
@@ -158,8 +209,10 @@ internal fun runX11Window() {
             scene.size = fitted
         }
         size = fitted
+        val begun = System.nanoTime()
         if (drawFrame(window, context, scene, System.nanoTime() - opened, fitted)) {
             painted = true
+            LatencyTrace.frameDrawn(System.nanoTime() - begun)
         }
     }
     try {
@@ -169,6 +222,13 @@ internal fun runX11Window() {
         // nothing of a scene that has closed.
         setX11FramePainter { frames.draw() }
         while (!isWindowClosed()) {
+            if (synthetic != null && synthetic.exitDue(System.nanoTime())) break
+            if (autoExitMillis != null &&
+                (System.nanoTime() - started) / NANOS_PER_MILLI >= autoExitMillis
+            ) {
+                break
+            }
+            if (!iconSettled) iconSettled = applyNamedIcon(host, asked?.icon ?: 0)
             // The window's own turn, before anything is read from it. This thread is the
             // one the display server answers on, so the events of this frame arrive here
             // or not at all. Waiting the frame's length rather than sleeping afterwards,
@@ -181,11 +241,32 @@ internal fun runX11Window() {
             work.runPending()
             var heard = false
             var drew = false
-            for (event in drainWindowEvents()) {
+            for (event in synthetic?.due(System.nanoTime(), size) ?: emptyList()) {
+                if (event.kind == WindowEvent.TEXT_COMMIT) LatencyTrace.inputSent()
+                LatencyTrace.mark("synthetic ${event.kind} sent")
+                scene.receive(event)
+                textInput.receive(event)
+                heard = true
+            }
+            if (synthetic != null && synthetic.resizeDue(System.nanoTime())) {
+                LatencyTrace.phase = "resize"
+                window.scriptedResize(size.width to size.height, 360 to 420, 60, 8_000)
+                LatencyTrace.phase = "idle"
+            }
+            for (event in drainWindowEvents().flatMap { x11Events.heard(it) }) {
                 if (report && event.kind != WindowEvent.POINTER_MOVE) {
                     System.err.println("compose-rust: window heard $event")
                 }
+                if (event.kind == WindowEvent.FILES_ENTERED ||
+                    event.kind == WindowEvent.FILES_DROPPED ||
+                    event.kind == WindowEvent.FILES_EXITED
+                ) {
+                    routeFileDrop(event.kind, androidx.compose.ui.geometry.Offset(event.x, event.y)) {
+                        readDroppedPaths()
+                    }
+                }
                 scene.receive(event)
+                textInput.receive(event)
                 heard = true
             }
             // Only when there is something to draw. A window that is being resized has
@@ -199,11 +280,13 @@ internal fun runX11Window() {
             // tree that changed on the last one is a tree nobody has been told about, and
             // a window that has gone still is exactly where that would be forgotten.
             semantics.pushIfChanged(afterDrawing = drew)
+            reportCaret(textInput)
         }
     } finally {
         // Before the scene closes. A resize arriving between the two would otherwise ask a
         // scene that has gone to draw into a context that has gone with it.
         clearX11FramePainter()
+        LatencyTrace.summary()
         scene.close()
         context.close()
         host.shutdown()
@@ -247,6 +330,7 @@ private fun drawFrame(
     surface.close()
     target.close()
     window.endFrame()
+    window.notePresent(size.width, size.height)
     return true
 }
 
@@ -256,4 +340,8 @@ private fun drawFrame(
  * A frame at sixty per second. It is a ceiling rather than a pace: anything arriving sooner
  * ends the wait, and a resize is drawn inside it rather than after it.
  */
+private const val NANOS_PER_MILLI = 1_000_000L
 private const val FRAME_SECONDS = 0.016
+
+/** The caption strip a window with no frame of the system's draws for itself. */
+internal val linuxCaptionHeight = 32.dp

@@ -32,6 +32,7 @@ import kotlinx.cinterop.cValuesOf
 import kotlinx.cinterop.convert
 import kotlinx.cinterop.get
 import kotlinx.cinterop.memScoped
+import kotlinx.cinterop.nativeHeap
 import kotlinx.cinterop.pointed
 import kotlinx.cinterop.ptr
 import kotlinx.cinterop.reinterpret
@@ -65,7 +66,20 @@ import x11.NotifyNormal
 import x11.NotifyWhileGrabbed
 import x11.SubstructureNotifyMask
 import x11.SubstructureRedirectMask
+import x11.PMaxSize
+import x11.PMinSize
+import x11.XAllocSizeHints
 import x11.XMapRaised
+import x11.XSetWMNormalHints
+import x11.XWindowAttributes
+import resize.dxc_resize_present_against
+import resize.dxc_resize_reset
+import resize.dxc_resize_step
+import resize.dxc_resize_stale_ratio
+import resize.dxc_resize_stats
+import resize.dxc_resize_stretched
+import x11.XGetWindowAttributes
+import x11.XResizeWindow
 import x11.XSendEvent
 import x11.GLXContext
 import x11.GLX_BLUE_SIZE
@@ -207,8 +221,20 @@ internal class LinuxWindow private constructor(
      */
     private var described: List<AccessibleElement> = emptyList()
 
+    /**
+     * What a resize cost and what it showed, counted by the header the native image windows
+     * count with, so a drag is counted the same way on every path. Reported at the end of the
+     * run when `DXC_REPORT_RESIZE` is set.
+     */
+    private val reportResize = System.getenv("DXC_REPORT_RESIZE") != null
+    private val resizeStats = nativeHeap.alloc<dxc_resize_stats>().also { dxc_resize_reset(it.ptr) }
+
+    /** Input and resizing made up from inside the window, for the parity check. Unset, nothing runs. */
+    private val synthetic = System.getenv("DXC_SYNTH")?.let { SyntheticInput(it) }
+
     private val semantics = NativeSemantics { elements ->
         described = elements
+        synthetic?.noteElements(elements)
         if (reportFrames) {
             System.err.println(
                 "compose-rust: the window holds ${described.size} things to say" +
@@ -363,11 +389,24 @@ internal class LinuxWindow private constructor(
             scene.size = size
         }
         val nanos = monotonicNanos() - openedAt
+        val begun = System.nanoTime()
         val drew = surface.draw(size.width, size.height) { canvas ->
             scene.render(canvas.asComposeCanvas(), nanos)
         }
         if (drew) {
             painted = true
+            if (reportResize) {
+                // The window's size now, asked of the server: a frame at any other size than
+                // the window has is stale, whatever the last size event said.
+                memScoped {
+                    val attributes = alloc<XWindowAttributes>()
+                    XGetWindowAttributes(display, window, attributes.ptr)
+                    dxc_resize_present_against(
+                        resizeStats.ptr, size.width, size.height, attributes.width, attributes.height,
+                    )
+                }
+            }
+            LatencyTrace.frameDrawn(System.nanoTime() - begun)
             // The drawing goes to the server and then the manager is told, in that order. This
             // is the whole of what keeps a dragged edge attached to what is inside it.
             sync.frameDrawn()
@@ -439,6 +478,16 @@ internal class LinuxWindow private constructor(
                 work.runPending()
                 drained.clear()
                 log.drain(drained)
+                synthetic?.due(System.nanoTime(), measured)?.forEach { event ->
+                    if (event.kind == WindowEvent.TEXT_COMMIT) LatencyTrace.inputSent()
+                    LatencyTrace.mark("synthetic ${event.kind} sent")
+                    drained.add(event)
+                }
+                if (synthetic != null && synthetic.resizeDue(System.nanoTime())) scriptedResize()
+                if (synthetic != null && synthetic.exitDue(System.nanoTime())) {
+                    closed = true
+                    continue
+                }
                 for (event in drained) {
                     if (reportInput && event.kind != WindowEvent.POINTER_MOVE) {
                         System.err.println("compose-rust: window heard $event")
@@ -468,8 +517,37 @@ internal class LinuxWindow private constructor(
                 updateInputMethod()
             }
         } finally {
+            LatencyTrace.summary()
+            if (reportResize) {
+                System.err.println(
+                    "dxc resize: steps=${resizeStats.steps} presented=${resizeStats.presented} " +
+                        "stale=${resizeStats.stale} stretched=${dxc_resize_stretched(resizeStats.ptr)} " +
+                        "stale_ratio=${fixed(dxc_resize_stale_ratio(resizeStats.ptr), 4)}",
+                )
+            }
             close()
         }
+    }
+
+    /**
+     * Takes the window through the sizes a drag would, for measuring: from the size it has to
+     * 360 by 420 in sixty steps, each asked of the server and its events read before the next,
+     * so that the frame that belongs to a size is drawn inside the handling of it, as it is
+     * for a hand on an edge.
+     */
+    private fun scriptedResize() {
+        LatencyTrace.phase = "resize"
+        dxc_resize_reset(resizeStats.ptr)
+        val from = measured
+        for (step in 1..SYNTHETIC_RESIZE_STEPS) {
+            val t = step.toDouble() / SYNTHETIC_RESIZE_STEPS
+            val width = (from.width + (SYNTHETIC_RESIZE_WIDTH - from.width) * t).toInt().coerceAtLeast(1)
+            val height = (from.height + (SYNTHETIC_RESIZE_HEIGHT - from.height) * t).toInt().coerceAtLeast(1)
+            XResizeWindow(display, window, width.toUInt(), height.toUInt())
+            XFlush(display)
+            pump(SYNTHETIC_RESIZE_PAUSE_MILLISECONDS)
+        }
+        LatencyTrace.phase = "idle"
     }
 
     /**
@@ -602,6 +680,7 @@ internal class LinuxWindow private constructor(
                     return
                 }
                 measured = IntSize(width, height)
+                dxc_resize_step(resizeStats.ptr, width, height)
                 // Drawn here, inside the handling of the size change, rather than written down
                 // for the next turn of the loop. See this class's own documentation: the strip
                 // of unpainted window a later frame leaves is as wide as the speed of the hand.
@@ -668,7 +747,7 @@ internal class LinuxWindow private constructor(
         val press = event.type == KeyPress
         val keysym = XLookupKeysym(event.xkey.ptr, 0)
         val typed = if (!press) "" else xim?.lookup(event) ?: latinText(event)
-        return keyEventsFor(press, event.xkey.state, keysym, typed)
+        return keyEventsFor(press, event.xkey.state.toInt(), keysym.toLong(), typed)
     }
 
     /** What the key types without an input method: Latin-1, as `XLookupString` answers. */
@@ -815,7 +894,14 @@ internal class LinuxWindow private constructor(
          * double buffered visual, has nothing to say beyond that, and a Kotlin exception must not
          * be allowed to reach the C entry point that called in.
          */
-        fun open(title: String, width: Int, height: Int): LinuxWindow? {
+        fun open(
+            title: String,
+            width: Int,
+            height: Int,
+            minWidth: Int = 0,
+            minHeight: Int = 0,
+            resizable: Boolean = true,
+        ): LinuxWindow? {
             val display = XOpenDisplay(null) ?: return null
             val screen = XDefaultScreen(display)
             // Terminated by zero, which is what X's `None` is and what a binding cannot carry
@@ -885,6 +971,27 @@ internal class LinuxWindow private constructor(
                 XSetWMProtocols(display, window, protocols, count)
             }
             XStoreName(display, window, title)
+            // What sizes the window may take, told to the manager before the window is mapped
+            // because that is when it reads them. The rule is the native image window's.
+            sizeHintsFor(minWidth, minHeight, resizable, width, height, DENSITY)?.let { hints ->
+                val raw = XAllocSizeHints()
+                if (raw != null) {
+                    var flags = 0L
+                    hints.min?.let { (smallestWidth, smallestHeight) ->
+                        flags = flags or PMinSize.toLong()
+                        raw.pointed.min_width = smallestWidth
+                        raw.pointed.min_height = smallestHeight
+                    }
+                    hints.max?.let { (largestWidth, largestHeight) ->
+                        flags = flags or PMaxSize.toLong()
+                        raw.pointed.max_width = largestWidth
+                        raw.pointed.max_height = largestHeight
+                    }
+                    raw.pointed.flags = flags
+                    XSetWMNormalHints(display, window, raw)
+                    XFree(raw)
+                }
+            }
             XMapWindow(display, window)
             XFlush(display)
 
@@ -971,6 +1078,10 @@ internal class LinuxWindow private constructor(
         private const val DENSITY = 1.0f
 
         private const val NANOS_PER_SECOND = 1_000_000_000L
+        private const val SYNTHETIC_RESIZE_STEPS = 60
+        private const val SYNTHETIC_RESIZE_WIDTH = 360
+        private const val SYNTHETIC_RESIZE_HEIGHT = 420
+        private const val SYNTHETIC_RESIZE_PAUSE_MILLISECONDS = 8
 
         /**
          * A mask for the low 32 bits: the manager splits the counter value across two words.

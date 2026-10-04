@@ -203,6 +203,49 @@ jobs:
         # field and a button. See the script for what this proves and what it cannot.
         run: xvfb-run -a -s '-screen 0 1280x1024x24' ./.github/scripts/check-linux-input-access.sh renderer/build/linux "$RUNNER_TEMP/input-access"
 
+      - name: Parity checklist and measurements, Kotlin/Native path
+        if: inputs.target == 'linux-x64'
+        timeout-minutes: 12
+        # The same checklist and the same measurements test-graalvm-renderer.yml runs on the
+        # GraalVM path, with the same application (the consumer fixture the step above
+        # built). The table is in the job summary; a row that fails is a warning, not a stop.
+        run: |
+          sudo apt-get install -y xclip
+          xvfb-run -a -s '-screen 0 1280x1024x24' ./scripts/parity/linux.sh native "$RUNNER_TEMP/parity" -- \
+            "$PWD/target/linux-input-check/debug/consumer" --parity
+
+      - name: Keep the parity run's logs
+        if: always() && inputs.target == 'linux-x64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: parity-native-linux
+          path: ${{ runner.temp }}/parity/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Parity measurements, Kotlin/Native macOS path
+        if: inputs.target == 'macos-aarch64'
+        timeout-minutes: 15
+        # The measured half of the checklist test-graalvm-renderer.yml runs on the GraalVM
+        # path, with the same application: the consumer fixture, linked to the renderer built
+        # above. A hosted session cannot post a key from outside, so the rows that need a
+        # hand say n/a. The table is in the job summary.
+        run: |
+          rustup toolchain install stable --profile minimal && rustup default stable
+          DXC_MACOS_NATIVE_LIB="$PWD/renderer/build/macos" CARGO_TARGET_DIR="$PWD/target/parity" \
+            cargo build --manifest-path compose-rust/tests/fixtures/consumer/Cargo.toml
+          ./scripts/parity/macos.sh native "$RUNNER_TEMP/parity" -- \
+            "$PWD/target/parity/debug/consumer" --parity
+
+      - name: Keep the macOS parity run's logs
+        if: always() && inputs.target == 'macos-aarch64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: parity-native-macos
+          path: ${{ runner.temp }}/parity/
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Keep the input and accessibility check's logs
         if: always() && inputs.target == 'linux-x64'
         uses: actions/upload-artifact@v4

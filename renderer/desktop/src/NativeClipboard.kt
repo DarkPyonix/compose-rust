@@ -33,7 +33,7 @@ internal class WindowClipboardManager : ClipboardManager {
     override fun hasText(): Boolean = clipboardText() != null
 }
 
-internal class WindowClipboard : Clipboard {
+internal class WindowClipboardImpl : Clipboard {
     override suspend fun getClipEntry(): ClipEntry? =
         clipboardText()?.let { ClipEntry(StringSelection(it)) }
 
@@ -46,3 +46,9 @@ internal class WindowClipboard : Clipboard {
 
     override val nativeClipboard: NativeClipboard get() = this
 }
+
+/** One of each for every window: they hold nothing, they only ask the platform. */
+internal val WindowClipboard: Clipboard = WindowClipboardImpl()
+
+@Suppress("DEPRECATION")
+internal val WindowClipboardManagerInstance: ClipboardManager = WindowClipboardManager()

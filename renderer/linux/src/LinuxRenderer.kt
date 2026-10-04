@@ -37,11 +37,14 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // What the application asked for. A window that said nothing is listed under whatever this
     // renderer happens to be called, which is the library's name and not any application's, and a
     // measurement of zero means it did not ask.
-    val asked = host.table.window
+    val options = nativeWindowOptions(host, backdropSupported = false)
     val window = LinuxWindow.open(
-        title = asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
-        width = if (asked != null && asked.width > 0) asked.width else DEFAULT_WIDTH,
-        height = if (asked != null && asked.height > 0) asked.height else DEFAULT_HEIGHT,
+        title = options.title,
+        width = options.width,
+        height = options.height,
+        minWidth = options.minWidth,
+        minHeight = options.minHeight,
+        resizable = options.resizable,
     )
     if (window == null) {
         java.lang.System.err.println(
@@ -72,7 +75,3 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     }
     return RendererApi.RUN_OK
 }
-
-/** What a window that did not say is opened at, in the units the scene measures in. */
-private const val DEFAULT_WIDTH = 520
-private const val DEFAULT_HEIGHT = 360

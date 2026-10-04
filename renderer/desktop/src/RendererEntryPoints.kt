@@ -5,12 +5,13 @@ package dev.darkpyonix.composerust.ui.platform
 import org.graalvm.nativeimage.IsolateThread
 import org.graalvm.nativeimage.c.function.CEntryPoint
 import org.graalvm.nativeimage.c.type.CCharPointer
+import org.graalvm.nativeimage.c.function.CFunction
 import org.graalvm.nativeimage.c.type.CTypeConversion
 import dev.darkpyonix.composerust.ui.platform.NativeHostConnection
+import dev.darkpyonix.composerust.ui.platform.bringNativeWindowToFront
 import dev.darkpyonix.composerust.ui.platform.runAppKitWindow
 import dev.darkpyonix.composerust.ui.platform.runWin32Window
 import dev.darkpyonix.composerust.ui.platform.runX11Window
-import org.graalvm.nativeimage.c.function.CFunction
 
 // C entry points of the renderer shared library.
 //
@@ -37,12 +38,16 @@ private external fun setWindowMaterial(asked: Int)
 fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
     try {
         configureRuntimeLayout(CTypeConversion.toJavaString(libraryDir))
-        // Which window this platform opens. macOS opens one of its own, made from AppKit
-        // and Metal with no toolkit between; the other platforms still open the
-        // toolkit's. The C files behind each answer for the same symbols, so the one
-        // compiled into an image is the one that can be reached: which platform this is
-        // decides, and nothing is read from the environment.
+        // Which window this platform opens. Each desktop opens one of its own, made from
+        // the platform's windowing and graphics APIs with no toolkit between: AppKit and
+        // Metal, Win32 and Direct3D 12, X11 and GLX. The C files behind each answer for the
+        // same symbols, so the one compiled into an image is the one that can be reached:
+        // which platform this is decides, and nothing is read from the environment.
         val platform = System.getProperty("os.name", "")
+        // Linux still opens the toolkit's window unless asked for the X11 one: that window
+        // is finished but its typing, clipboard and input method have not been checked on a
+        // real desktop, so it is not the default yet.
+        val linuxOwnWindow = platform.startsWith("Linux") && System.getenv("DXC_X11_WINDOW") != null
         val autoExitMillis =
             (System.getenv("COMPOSE_RUST_AUTOEXIT_MS") ?: System.getenv("DIOXUS_COMPOSE_AUTOEXIT_MS"))
                 ?.toLongOrNull()
@@ -56,38 +61,37 @@ fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
                 NativeDesktopNotifications()
             platform.startsWith("Linux") -> DBusNotifications(
                 open = { JvmBusConnection.open(wake = FrameRequests::request) },
-                bringToFront = ::bringAwtWindowToFront,
+                bringToFront = if (linuxOwnWindow) ::bringNativeWindowToFront else ::bringAwtWindowToFront,
                 applicationName = JvmBusConnection.applicationName(),
             )
             else -> UnsupportedNotifications
         }
-        if (platform.startsWith("Mac")) {
-            // Before anything else on this path. The toolkit, if it is ever woken, asks
-            // the main thread to run the application, and this thread is the one drawing
-            // the frames: that request is delivered on the first frame and never comes
-            // back. Saying up front that there is no display to open keeps the toolkit
-            // from asking, and nothing on this path wants one.
+        // A window of our own means there is no display for the toolkit to open. Saying so up
+        // front keeps it from being woken: on macOS it would ask the main thread to run the
+        // application, and this thread is the one drawing the frames, so that request would
+        // be delivered on the first frame and never come back.
+        if (!platform.startsWith("Linux") || linuxOwnWindow) {
             System.setProperty("java.awt.headless", "true")
-            runAppKitWindow(autoExitMillis)
-            return@rendererRun 0
         }
-        if (System.getenv("DXC_WIN32_WINDOW") != null && platform.startsWith("Windows")) {
-            runWin32Window()
-            return@rendererRun 0
-        }
-        if (System.getenv("DXC_X11_WINDOW") != null && platform.startsWith("Linux")) {
-            runX11Window()
-            return@rendererRun 0
+        when {
+            platform.startsWith("Mac") -> {
+                runAppKitWindow(autoExitMillis)
+                return@rendererRun 0
+            }
+            platform.startsWith("Windows") -> {
+                runWin32Window(autoExitMillis)
+                return@rendererRun 0
+            }
+            linuxOwnWindow -> {
+                runX11Window(autoExitMillis)
+                return@rendererRun 0
+            }
         }
         dev.darkpyonix.composerust.ui.node.platformWindowMaterial = { asked ->
             setWindowMaterial(if (asked) 1 else 0)
         }
-        // Whether asking for a material actually put anything behind the window. The
-        // toolkit's window cannot, on any platform that still opens one, so its design
-        // system draws for an opaque window rather than for a desktop that never shows
-        // through.
         dev.darkpyonix.composerust.runtime.platformBacksWindowWithMaterial = { false }
-        // Lets automated smoke tests close the window; unset in normal use.
+        // The toolkit's window, which Linux still opens by default.
         runRenderer(autoExitMillis) {
             NativeHostConnection()
         }

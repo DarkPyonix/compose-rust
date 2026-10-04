@@ -27,6 +27,8 @@ import x11.XK_Left
 import x11.XK_Return
 import x11.XK_Tab
 import x11.XK_a
+import x11.XK_c
+import x11.XK_v
 import x11.XK_space
 
 /**
@@ -84,15 +86,20 @@ class LinuxInputTest {
     }
 
     /**
-     * A key that types a letter has no meaning of its own.
+     * A letter is its own key, because a shortcut is matched by which key it is.
      *
-     * Zero rather than a wrong answer. The letter travels beside the key as a character, and a
-     * key given some other key's number would move the caret instead of typing.
+     * It used to answer no key, so control with C, V, X, Z or A reached the scene as an unknown
+     * key and none of the editing shortcuts worked. The GraalVM window's table always had them.
+     * What a letter types still travels beside it as a character; an unlisted key still has no
+     * meaning.
      */
     @Test
-    fun a_key_that_types_a_character_claims_no_meaning() {
-        assertEquals(-1, platformKey(XK_a.toULong()))
-        assertEquals(Key.Unknown, composeKey(platformKey(XK_a.toULong())))
+    fun a_letter_is_the_key_it_is_and_an_unlisted_key_claims_nothing() {
+        assertEquals(Key.A, composeKey(platformKey(XK_a.toULong())))
+        assertEquals(Key.C, composeKey(platformKey(XK_c.toULong())))
+        assertEquals(Key.V, composeKey(platformKey(XK_v.toULong())))
+        assertEquals(-1, platformKey(0xFFBEUL))
+        assertEquals(Key.Unknown, composeKey(platformKey(0xFFBEUL)))
     }
 
     /** No two named keys share a number, or one of them does what the other means. */

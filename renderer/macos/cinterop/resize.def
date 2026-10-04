@@ -1,0 +1,6 @@
+# The resize accounting the AppKit window counts with, header only and without any window system
+# in it, so that the Kotlin/Native window counts a drag exactly as the native image windows do.
+# `include/appkit_resize.h` is a link to the one copy in `desktop/c/`.
+package = resize
+
+headers = appkit_resize.h

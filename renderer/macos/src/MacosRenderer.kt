@@ -102,6 +102,8 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
         cornerRadius = dressing.windowCornerRadius,
     )
     window.setContent { ComposeRustContent(host, caption = window.caption.value) }
+    // The made-up input of a parity run, when `DXC_SYNTH` asks for it.
+    window.startSynthetic()
 
     application.activateIgnoringOtherApps(true)
     application.run()
