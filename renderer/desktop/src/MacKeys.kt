@@ -11,6 +11,7 @@ import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
+import java.lang.System
 
 // How a key pressed in an AppKit window reaches Compose, written once for both macOS
 // windows: the one the native image opens through C and the Kotlin/Native one. Each of
