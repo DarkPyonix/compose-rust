@@ -40,8 +40,9 @@
 | HostTextField 보내기 규칙 | `renderer/HostTextField.kt` | 같은 파일의 심볼릭 링크 | 이미 공유 | 변경 없음 |
 | 배율과 DPI | `X11Window.kt:43`, `Win32Window.kt:92`, `AppKitWindow.kt:176` (C가 `scale`을 잼) | `LinuxWindow.kt:971` 상수 1.0, `MacosWindow.kt:652` `backingScaleFactor` | 아니오 | OS를 묻는 일이라 경로별입니다. 결과를 `WindowMeasurement`로 넘기는 모양은 이미 같습니다 |
 | 클립보드 | `x11_window.c:458,497`, `appkit_window.m:228,249`, `win32_window.c:1690` | `MacosClipboard.kt`(#147에서 추가), Linux는 없음 | 부분 | 장면 쪽 `NativeClipboard.kt:28`은 이미 공유입니다. OS 호출은 경로별입니다. K/N Linux에는 클립보드 구현이 없다는 점이 일치 점검표에서 드러납니다 |
+| 최소 크기, Dock 아이콘 타이밍, 시스템 다크 모드 감시, 클립보드 텍스트 규칙 | `AppKitWindow.kt`, `NativeClipboard.kt`, `SystemAppearance.kt` | `MacosWindowChrome.kt`, `MacosAppearance.kt`, `MacosClipboard.kt` | 예 | #147(`feat/macos-window-parity`)이 `WindowParity.kt` 한 벌로 옮기는 중입니다. 이 작업은 같은 것을 만들지 않고, #147이 develop에 들어온 뒤 그 파일을 Linux 창이 쓰게 합니다 |
 | 창 크롬 수치 | `WindowChrome.kt:143,210` (캡션 높이, 버튼 폭) | `MacosWindow.kt:300` `measureCaption`, #147의 `MacosWindowChrome.kt` | 부분 | 최소 크기 규칙(`contentMinimum`)은 #147이 macOS 쪽에 두었습니다. 같은 규칙이 `appkit_window.m:909`에도 있어 공유 후보입니다. #147이 끝난 뒤 맞춥니다 |
-| 지연 추적과 합성 입력 | `LatencyTrace.kt`, `SyntheticInput.kt` (AppKit 창에서만 씀) | 없음 | 예 | 두 파일을 K/N 창과 GraalVM X11 창이 씁니다 (일치 점검의 3절) |
+| 지연 추적과 합성 입력 | `LatencyTrace.kt`, `SyntheticInput.kt` (AppKit 창에서만 썼음) | 없었음 | 예 | 두 파일이 이식 가능해졌고(`String.format` 제거, `System.nanoTime` 심) K/N Linux 창과 GraalVM X11 창이 씁니다 |
 
 ## 일치 점검표
 
@@ -53,3 +54,15 @@
 - 클립보드, 다크 모드, 최소 크기, 아이콘
 
 어느 점검이 어느 CI 작업에서 도는지와 첫 수치는 PR에 적습니다.
+
+## 이번 작업에서 옮긴 것
+
+- 키 번호 표와 수정키 비트(X11): `desktop/src/X11Keys.kt`. 두 X11 창이 키심과 상태 값을 그대로 넘기고 Kotlin이 번호로 바꿉니다.
+- IME 모델(X11): `desktop/src/ImeComposition.kt`(`PreeditBuffer`, `ImeSession`, `keyEventsFor`, `candidateSpot`)와 `X11Keys.kt`의 `X11Events`. GraalVM C 창의 조합 버퍼와 키 규칙 C 코드는 없어졌고, 조합 변경(`PREEDIT_*` 이벤트)과 키심, 상태, 글자를 그대로 넘깁니다.
+- 지연 추적, 합성 입력, 크기 조절 통계: `LatencyTrace.kt`, `SyntheticInput.kt`, `appkit_resize.h`를 K/N Linux 창과 GraalVM X11 창이 같이 씁니다.
+- 일치 점검표: `scripts/parity/linux.sh`가 같은 앱에 같은 환경 변수와 같은 입력을 주고 한 표를 냅니다. K/N 쪽은 `static-renderer.yml`, GraalVM 쪽은 `test-graalvm-renderer.yml`에서 돕니다.
+
+## 동작이 바뀌는 곳
+
+- K/N Linux: 글자 키가 이제 자기 키로 갑니다(이전에는 모두 알 수 없는 키). ctrl+c, v, x, z, a가 장면에 닿습니다.
+- GraalVM X11: 평범한 ASCII 키는 키 이벤트 하나가 글자를 달고 갑니다(이전에는 C가 같은 글자를 commit으로도 보냈습니다). K/N 규칙으로 맞췄습니다. 실제 Linux에서 영어와 한글을 쳐 보는 확인이 필요합니다.
