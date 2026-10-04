@@ -24,16 +24,19 @@ internal class GcExperiment private constructor() {
     fun due(now: Long): Boolean = !done && now - started >= 3_000_000_000L
 
     /** Runs the whole measurement. [resize] takes the window from one size to another in points. */
-    fun run(resize: (from: Pair<Int, Int>, to: Pair<Int, Int>, steps: Int) -> Unit) {
+    fun run(
+        resize: (from: Pair<Int, Int>, to: Pair<Int, Int>, steps: Int) -> Unit,
+        memory: (String) -> Unit = {},
+    ) {
         done = true
-        phase("start")
+        phase("start"); memory("start")
         dirty()
-        phase("dirtied")
+        phase("dirtied"); memory("dirtied")
         active = true
         resize(800 to 600, 1200 to 900, 50)
         resize(1200 to 900, 800 to 600, 50)
         active = false
-        phase("after-100-resizes")
+        phase("after-100-resizes"); memory("after-100-resizes")
     }
 
     /** Around every frame drawn; prints only during the scripted drag. */

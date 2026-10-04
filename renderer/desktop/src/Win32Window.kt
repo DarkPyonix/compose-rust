@@ -74,6 +74,21 @@ private external fun debugResize(
 @CFunction("dxc_native_debug_key")
 private external fun debugKey(window: Pointer?, keyCode: Int, characters: CCharPointer?)
 
+@CFunction("dxc_native_set_raster_resize")
+private external fun setRasterResize(enabled: Int)
+
+@CFunction("dxc_native_frame_mode")
+private external fun frameMode(): Int
+
+@CFunction("dxc_native_raster_begin")
+private external fun nativeRasterBegin(pixels: Pointer?, rowBytes: CIntPointer?, width: CIntPointer?, height: CIntPointer?): Int
+
+@CFunction("dxc_native_raster_end")
+private external fun nativeRasterEnd()
+
+@CFunction("dxc_native_report_metrics")
+private external fun reportMetrics(label: CCharPointer?)
+
 @CFunction("dxc_native_set_draw_callback")
 private external fun setDrawCallback(callback: CFunctionPointer?, isolateThread: IsolateThread?)
 
@@ -124,6 +139,32 @@ class Win32NativeWindow internal constructor(
 
     /** Puts the painted frame on the screen. */
     fun endFrame() = endFrame(WordFactory.pointer(queue))
+
+    /** True while the window wants its resize frames as CPU pixels. */
+    fun rasterFrame(): Boolean = frameMode() != 0
+
+    /** The CPU frame's pixels: address, row bytes, width, height; null where there are none. */
+    fun rasterBegin(): RasterTarget? {
+        val pixels = StackValue.get<Pointer>(8)
+        val rowBytes = StackValue.get<CIntPointer>(4)
+        val width = StackValue.get<CIntPointer>(4)
+        val height = StackValue.get<CIntPointer>(4)
+        if (nativeRasterBegin(pixels, rowBytes, width, height) != 0) return null
+        return RasterTarget(pixels.readWord<Pointer>(0).rawValue(), rowBytes.read(), width.read(), height.read())
+    }
+
+    /** Copies the CPU frame into the window. */
+    fun rasterEnd() = nativeRasterEnd()
+
+    /** Prints the process's memory under [label]; see dxc_native_report_metrics. */
+    internal fun reportMemory(label: String) {
+        val holder = CTypeConversion.toCString(label)
+        try {
+            reportMetrics(holder.get())
+        } finally {
+            holder.close()
+        }
+    }
 
     /** Posts a key press for [character] to the window. See `DXC_SYNTH`. */
     internal fun postKey(keyCode: Int, character: String) {
@@ -326,6 +367,9 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
         backdrop = false,
     )
     val window = openWin32Window(options.title, options.width, options.height)
+    // Resize frames on the CPU, copied into the window before the resize returns, unless
+    // asked not to (DXC_RASTER_RESIZE=0).
+    if (window != null) setRasterResize(if (System.getenv("DXC_RASTER_RESIZE") == "0") 0 else 1)
     if (window == null) {
         System.err.println("compose-rust: this machine has no Direct3D 12 adapter")
         host.shutdown()
@@ -401,7 +445,7 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
         nanos += FRAME_NANOS
         val begun = System.nanoTime()
         LatencyTrace.mark("draw begin (invalidated=${scene.hasInvalidations()})")
-        val at = drawFrame(window, context, scene, nanos)
+        val at = if (window.rasterFrame()) drawRasterFrame(window, scene, nanos) else drawFrame(window, context, scene, nanos)
         if (at != null) {
             size = at
             painted = true
@@ -475,7 +519,10 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
                 )
             }
             if (experiment != null && experiment.due(System.nanoTime())) {
-                experiment.run { from, to, steps -> window.scriptedResize(from, to, steps, 0) }
+                experiment.run(
+                    resize = { from, to, steps -> window.scriptedResize(from, to, steps, 0) },
+                    memory = { label -> window.reportMemory(label) },
+                )
             }
             synthetic?.keysDue(System.nanoTime())?.let { (code, character) ->
                 LatencyTrace.mark("synthetic key '$character' posted")
@@ -516,6 +563,42 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
  * stays down, and a swapchain that could not be made to fit a size it was given answers
  * it once.
  */
+/** Where a CPU frame is drawn: the C side's bitmap, [width] x [height] of it. */
+class RasterTarget(val address: Long, val rowBytes: Int, val width: Int, val height: Int)
+
+/**
+ * One resize frame on the CPU: the same scene, drawn by Skia's raster backend into the
+ * pixels the C side hands over, with the GPU frame's colour space and pixel geometry, then
+ * copied into the window before the resize returns.
+ */
+private fun drawRasterFrame(window: Win32NativeWindow, scene: ComposeScene, nanos: Long): IntSize? {
+    val target = window.rasterBegin() ?: return null
+    val measured = window.measure()
+    val fitted = IntSize(target.width, target.height)
+    val density = Density(measured.scale)
+    if (scene.size != fitted || scene.density != density) {
+        scene.density = density
+        scene.size = fitted
+    }
+    val surface = org.jetbrains.skia.Surface.makeRasterDirect(
+        org.jetbrains.skia.ImageInfo(
+            target.width,
+            target.height,
+            org.jetbrains.skia.ColorType.BGRA_8888,
+            org.jetbrains.skia.ColorAlphaType.PREMUL,
+            org.jetbrains.skia.ColorSpace.sRGB,
+        ),
+        target.address,
+        target.rowBytes,
+        org.jetbrains.skia.SurfaceProps(org.jetbrains.skia.PixelGeometry.RGB_H),
+    )
+    if (RESIZE_DIAG) surface.canvas.clear(RESIZE_DIAG_COLOR)
+    scene.render(surface.canvas.asComposeCanvas(), nanos)
+    surface.close()
+    window.rasterEnd()
+    return fitted
+}
+
 private fun drawFrame(
     window: Win32NativeWindow,
     context: org.jetbrains.skia.DirectContext,

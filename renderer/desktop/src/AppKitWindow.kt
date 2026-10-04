@@ -717,7 +717,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
                     360 to 420, 60, 8_000)
             }
             if (experiment != null && experiment.due(System.nanoTime())) {
-                experiment.run { from, to, steps -> window.scriptedResize(from, to, steps, 0) }
+                experiment.run(resize = { from, to, steps -> window.scriptedResize(from, to, steps, 0) })
             }
             synthetic?.keysDue(System.nanoTime())?.let { (code, character) ->
                 LatencyTrace.mark("synthetic key '$character' posted")
