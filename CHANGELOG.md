@@ -5,8 +5,9 @@
 ### The Linux renderer no longer links the Java toolkit
 
 The Linux native image is built without the toolkit: no preserved `java.desktop` module, no
-input method or accessibility reachability features, and no `libawt`, `libawt_xawt` or
-`libawt_headless` beside it. `libjawt.so` is a stub whose `JAWT_GetAWT` reports failure, so
+input method or accessibility reachability features. Native Image still writes the JDK's
+desktop libraries beside the image because Skiko's classes name them; nothing loads them.
+`libjawt.so` is a stub whose `JAWT_GetAWT` reports failure, so
 Skiko's load by path still succeeds. A notification's press raises the X11 window directly.
 The Kotlin/Native Linux renderer never had a toolkit. Follows #173, which did the same for
 macOS. Windows still opens the toolkit's window.

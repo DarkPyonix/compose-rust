@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # The renderer Linux ships opens its own X11 window and draws with Skia over GLX, so it does
-# not load the Java toolkit: no libawt, no X11 toolkit, no input method or accessibility
+# not load the Java toolkit: no X11 toolkit, no input method or accessibility
 # registration, and no preserved java.desktop module.
 #
 # This test fails when:
 #   - the Linux build script preserves java.desktop, registers the toolkit's input method or
-#     accessibility features, or expects the toolkit's libraries beside the image,
+#     accessibility features,
 #   - the Linux entry point stops declaring that there is no display for the toolkit,
 #   - the stub that stands in for libjawt is missing,
 #   - a source outside the toolkit-window list names a toolkit type (the same scan the macOS
@@ -27,10 +27,6 @@ if grep -q 'Preserve=module=java.desktop' <<< "$code"; then
 fi
 if grep -q 'ImeReachabilityFeature\|AccessibilityReachabilityFeature' <<< "$code"; then
     fail "$build registers the toolkit's input method or accessibility bridge"
-fi
-if grep -q 'libawt_xawt\.so\|libawt_headless\.so' <<< "$code" \
-    && ! grep -q 'toolkit_file in' <<< "$code"; then
-    fail "$build expects the toolkit's libraries beside the image"
 fi
 if ! grep -q 'jawt_absent\.c' <<< "$code" || [[ ! -f "$desktop/c/jawt_absent.c" ]]; then
     fail "the stub libjawt is not built from $desktop/c/jawt_absent.c"
