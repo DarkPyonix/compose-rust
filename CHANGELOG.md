@@ -2,10 +2,12 @@
 
 ## Unreleased
 
-### Windows and Linux open their own window too
+### Windows opens its own window, and Linux's is finished but not the default
 
-The Win32 and X11 windows are now the default on the native-image path, with no environment
-variable. Windows keeps its frame and takes the caption strip into the content as before
+The Win32 window is now the default on the native-image path, with no environment
+variable. The X11 window is finished the same way but Linux keeps the toolkit's window
+until typing, copy and paste and Korean input have been checked on a real desktop; set
+`DXC_X11_WINDOW` to try it. Windows keeps its frame and takes the caption strip into the content as before
 (the logic moved from the shim into the window's own procedure), and now honours the
 application's minimum size, resizable choice and icon, has a clipboard, and takes files
 dropped on a drop target. Linux draws its own caption and edges and hands the move and the

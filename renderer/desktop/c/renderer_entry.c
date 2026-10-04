@@ -43,6 +43,33 @@ int32_t compose_rust_renderer_run_impl(graal_isolatethread_t *thread, const char
 void compose_rust_renderer_request_frame_impl(graal_isolatethread_t *thread);
 int32_t compose_rust_renderer_run(void);
 
+/**
+ * Whether the application asked for a material behind its window.
+ *
+ * Off until the renderer says otherwise, because a window that did not ask must come up
+ * the way it always did: no effect view is built for it and nothing about its drawing
+ * changes. The renderer knows the answer only after the first batch has been applied,
+ * and the macOS poller is still running by then, so a late yes is still acted on.
+ *
+ * Exported on every desktop so the renderer has one symbol to call. Only macOS has
+ * anything to do with the answer today; Windows and Linux record it and draw as before.
+ */
+#ifdef _WIN32
+// MSVC's C compiler has no <stdatomic.h> without an experimental switch, so Windows keeps
+// the flag with the Interlocked functions, which are full barriers like atomic_store.
+static volatile LONG dxc_window_material_asked;
+
+void dxc_set_window_material(int32_t asked) {
+    InterlockedExchange(&dxc_window_material_asked, asked != 0);
+}
+#else
+static atomic_int dxc_window_material_asked;
+
+void dxc_set_window_material(int32_t asked) {
+    atomic_store(&dxc_window_material_asked, asked != 0);
+}
+#endif
+
 #ifdef __APPLE__
 #include <dispatch/dispatch.h>
 #include <objc/message.h>
