@@ -1,4 +1,8 @@
-@file:OptIn(kotlin.native.runtime.NativeRuntimeApi::class, kotlinx.cinterop.ExperimentalForeignApi::class)
+@file:OptIn(
+    kotlin.native.runtime.NativeRuntimeApi::class,
+    kotlin.ExperimentalStdlibApi::class,
+    kotlinx.cinterop.ExperimentalForeignApi::class,
+)
 
 package dev.darkpyonix.composerust.ui.platform
 

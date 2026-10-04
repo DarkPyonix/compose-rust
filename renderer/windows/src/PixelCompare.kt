@@ -62,7 +62,7 @@ internal object PixelCompare {
         val cpuInfo = ImageInfo(WIDTH, HEIGHT, ColorType.BGRA_8888, ColorAlphaType.PREMUL, ColorSpace.sRGB)
 
         // GPU-only content: an image whose pixels exist only in a texture.
-        val source = Surface.makeRenderTarget(context, false, gpuInfo, surfaceProps = props)
+        val source = Surface.makeRenderTarget(context, false, gpuInfo, 0, props)
         drawImageSource(source.canvas)
         source.flushAndSubmit(true)
         val textureImage = source.makeImageSnapshot()
@@ -72,7 +72,7 @@ internal object PixelCompare {
         textureImage.readPixels(context, readBack, 0, 0)
         val rasterImage = Image.makeFromBitmap(readBack)
 
-        val gpu = Surface.makeRenderTarget(context, false, gpuInfo, surfaceProps = props)
+        val gpu = Surface.makeRenderTarget(context, false, gpuInfo, 0, props)
         drawScene(gpu.canvas, textureImage)
         gpu.flushAndSubmit(true)
         val cpu = Surface.makeRaster(cpuInfo, WIDTH * 4, props)
