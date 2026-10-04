@@ -61,7 +61,6 @@
 
 #include "win32_resize.h"
 #include "win32_ime_text.h"
-#include "win32_dcomp.h"
 
 // What happened in the window, waiting to be read.
 //
@@ -129,21 +128,12 @@ static int dxc_event_count;
 
 static HWND dxc_window;
 static IDXGISwapChain3 *dxc_swapchain;
-// The window is shown through DirectComposition when it can be: the swapchain is a
-// composition swapchain, held by a visual that a target puts on the window. Nothing is
-// then left for DWM to fill with black while a resize is waiting to be presented. False
-// on the fallback, where the swapchain is attached to the window directly. The device,
-// target and visual themselves live in win32_dcomp.cpp; this file only asks whether one
-// is active, which win32_dcomp.h answers through dxc_dcomp_active without naming a DComp
-// type here.
 // What the swapchain was made with, and what every later refit has to say again: a refit
 // that names other flags is refused.
 static UINT dxc_swapchain_flags;
 // Signalled when the swapchain will take another frame without queueing it. NULL where
 // the swapchain was made without the latency flag.
 static HANDLE dxc_latency_wait;
-// Set once a commit has failed, so the failure is said once and not once a frame.
-static int dxc_commit_failed;
 // A frame is being drawn on this call stack. A resize message that arrives while it is
 // draws nothing: the frame in flight already reads the size that message wrote down.
 static int dxc_drawing;
@@ -163,37 +153,19 @@ static UINT dxc_frame_index;
 static struct dxc_resize dxc_sizing;
 // Set when the window has gone, so the frame loop stops rather than drawing into nothing.
 static int dxc_window_gone;
-// The size last presented and committed, so the WM_SIZE that follows a size already
-// drawn from WM_NCCALCSIZE draws nothing a second time.
+// A resize is being drawn: WM_SIZE has recorded a size and is drawing it before it
+// returns. The frame presents only if it was drawn at exactly that size, and only once.
+static int dxc_resizing;
+static int32_t dxc_resize_target_width;
+static int32_t dxc_resize_target_height;
+// The size last presented, so one size is never presented twice by a resize.
 static int32_t dxc_presented_width;
 static int32_t dxc_presented_height;
-// Set while a frame is drawn from WM_NCCALCSIZE: it presents without waiting for a
-// vertical blank and then waits for the compositor instead.
-static int dxc_presenting_ahead;
-// The client size WM_NCCALCSIZE is about to give the window. Until it returns,
-// GetClientRect still answers the old one, so anything that asks for the client size
-// asks dxc_client_rect, which answers this while it is set.
-static int32_t dxc_pending_client_width;
-static int32_t dxc_pending_client_height;
-// Whether the frame drawn from WM_NCCALCSIZE waits for the compositor before the
-// message returns. Set when the window grows, cleared when it shrinks (see
-// dxc_present_ahead).
-static int dxc_wait_after_present;
-// DXC_REPORT_LATENCY: each step drawn from WM_NCCALCSIZE prints how long the draw, the
-// present, the commit and the wait took together.
-static int dxc_report_latency = -1;
-
-/** The client rectangle, or the one the window is about to have while it is being sized. */
-static BOOL dxc_client_rect(HWND window, RECT *out) {
-    if (dxc_pending_client_width > 0 && dxc_pending_client_height > 0) {
-        out->left = 0;
-        out->top = 0;
-        out->right = dxc_pending_client_width;
-        out->bottom = dxc_pending_client_height;
-        return TRUE;
-    }
-    return GetClientRect(window, out);
-}
+// DXC_REPORT_LATENCY: each resize step prints how long the refit, the draw, the present
+// and the DwmFlush took together.
+static int dxc_report_latency;
+// The longest a resize step may hold WM_SIZE before DwmFlush is skipped.
+#define DXC_RESIZE_STEP_CAP_MS 100.0
 
 // A frame, asked for by the window rather than by the loop that usually draws them.
 //
@@ -904,7 +876,7 @@ static HRESULT STDMETHODCALLTYPE dxc_root_frag_get_bounding_rect(
     DxcRootProvider *root = dxc_root_from_fragment(self);
     if (root->window != NULL) {
         RECT rc;
-        dxc_client_rect(root->window, &rc);
+        GetClientRect(root->window, &rc);
         POINT pt = {0, 0};
         ClientToScreen(root->window, &pt);
         out->left = (double)pt.x;
@@ -1363,76 +1335,94 @@ static LRESULT dxc_caption_hit_test(HWND window, LPARAM lparam) {
 // not find this one, so the two never meet; the names are kept distinct anyway,
 // because a reader who found both would have every reason to think they were.
 
+typedef HRESULT(WINAPI *dxc_dwm_flush_fn)(void);
+typedef HRESULT(WINAPI *dxc_dwm_enabled_fn)(BOOL *);
+
 /**
- * Draws, presents and commits a frame at a client size the window does not have yet, and
- * waits until the compositor has shown it. Only through a visual: without one the window
- * shows its own swapchain and nothing here would order it against the rectangle.
+ * DwmFlush, where DWM composition is on. Looked up at run time so the build links
+ * nothing new. Zero when it did not run.
  */
-static void dxc_present_ahead(int32_t width, int32_t height) {
-    if (dxc_swapchain == NULL || !dxc_dcomp_active() || dxc_draw_frame == NULL ||
-        dxc_drawing || width <= 0 || height <= 0) {
-        return;
+static int dxc_dwm_flush(void) {
+    static int looked_up;
+    static dxc_dwm_flush_fn flush;
+    static dxc_dwm_enabled_fn enabled;
+    if (!looked_up) {
+        looked_up = 1;
+        HMODULE dwm = LoadLibraryW(L"dwmapi.dll");
+        if (dwm != NULL) {
+            flush = (dxc_dwm_flush_fn)(void *)GetProcAddress(dwm, "DwmFlush");
+            enabled = (dxc_dwm_enabled_fn)(void *)GetProcAddress(dwm, "DwmIsCompositionEnabled");
+        }
     }
+    BOOL on = FALSE;
+    if (flush == NULL || enabled == NULL || FAILED(enabled(&on)) || !on) {
+        return 0;
+    }
+    flush();
+    return 1;
+}
+
+static double dxc_elapsed_ms(LARGE_INTEGER since) {
+    LARGE_INTEGER now, frequency;
+    QueryPerformanceCounter(&now);
+    QueryPerformanceFrequency(&frequency);
+    return (double)(now.QuadPart - since.QuadPart) * 1000.0 / (double)frequency.QuadPart;
+}
+
+/**
+ * Draws one frame at the size WM_SIZE has just recorded and presents it before WM_SIZE
+ * returns, then waits for DWM to take it.
+ *
+ * WM_SIZE runs inside the SetWindowPos that changed the window, and that call does not
+ * return until this does, so the next step of a drag cannot begin before this frame is
+ * presented. The window keeps its redirection surface, so until the present lands DWM
+ * shows the last frame unscaled (the swapchain is DXGI_SCALING_NONE), never a gap. The
+ * DwmFlush makes the next step wait until DWM has composed this one; without it steps
+ * queue faster than DWM shows them and an older size can be on screen with a newer
+ * rectangle.
+ */
+static void dxc_draw_resize(int32_t width, int32_t height) {
     if (width == dxc_presented_width && height == dxc_presented_height) {
         return;
     }
-    dxc_pending_client_width = width;
-    dxc_pending_client_height = height;
-    dxc_resize_note(&dxc_sizing, width, height);
-    // Every frame sets the source size and the clip to exactly what it drew, before its
-    // present and inside the batch its commit sends, so no frame shows a pixel it did
-    // not draw. What remains is ordering against the window rectangle, which is not in
-    // that batch. Growing, the frame is waited onto the screen first: for that tick the
-    // old rectangle crops the new frame and nothing is uncovered. Shrinking, waiting
-    // first would leave the old rectangle wider than the frame for a whole tick, so the
-    // message returns at once and the commit and the new rectangle are sent for the
-    // same compositor frame. That is a race, not a guarantee; captures decide it.
-    dxc_wait_after_present = width >= dxc_presented_width && height >= dxc_presented_height;
-    if (dxc_report_latency < 0) {
-        dxc_report_latency = getenv("DXC_REPORT_LATENCY") != NULL;
-    }
-    LARGE_INTEGER started, finished, frequency;
+    LARGE_INTEGER started;
     QueryPerformanceCounter(&started);
-    dxc_presenting_ahead = 1;
+    dxc_resize_target_width = width;
+    dxc_resize_target_height = height;
+    dxc_resizing = 1;
     dxc_draw_one_frame();
-    dxc_presenting_ahead = 0;
-    if (dxc_report_latency) {
-        QueryPerformanceCounter(&finished);
-        QueryPerformanceFrequency(&frequency);
-        fprintf(stderr, "compose-rust: resize step %dx%d %s took %.2f ms (refit, draw, present, commit, wait)\n", (int)width,
-                (int)height, dxc_wait_after_present ? "grow" : "shrink",
-                (double)(finished.QuadPart - started.QuadPart) * 1000.0 /
-                    (double)frequency.QuadPart);
+    dxc_resizing = 0;
+    int presented = dxc_presented_width == width && dxc_presented_height == height;
+    double drawn_ms = dxc_elapsed_ms(started);
+    int flushed = 0;
+    if (presented && drawn_ms < DXC_RESIZE_STEP_CAP_MS) {
+        flushed = dxc_dwm_flush();
     }
-    dxc_pending_client_width = 0;
-    dxc_pending_client_height = 0;
+    double total_ms = dxc_elapsed_ms(started);
+    if (total_ms >= DXC_RESIZE_STEP_CAP_MS) {
+        fprintf(stderr, "compose-rust: resize step %dx%d hit the %.0f ms cap (%.2f ms)\n",
+                (int)width, (int)height, DXC_RESIZE_STEP_CAP_MS, total_ms);
+    }
+    if (dxc_report_latency) {
+        fprintf(stderr,
+                "compose-rust: resize step %dx%d %s, %s, took %.2f ms (refit, draw, present, DwmFlush)\n",
+                (int)width, (int)height, presented ? "presented" : "not presented",
+                flushed ? "flushed" : "not flushed", total_ms);
+    }
 }
 
-static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
+static LRESULT CALLBACK dxc_native_window_proc(static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
     switch (message) {
     case WM_NCCALCSIZE: {
-        if (wparam != TRUE) {
+        if (dxc_options.system_chrome || wparam != TRUE) {
             break;
         }
         NCCALCSIZE_PARAMS *params = (NCCALCSIZE_PARAMS *)lparam;
         LONG requested_top = params->rgrc[0].top;
-        LRESULT answer = DefWindowProcW(window, message, wparam, lparam);
-        if (!dxc_options.system_chrome) {
-            params->rgrc[0].top = IsZoomed(window) ? requested_top + dxc_maximised_overhang()
-                                                   : requested_top;
-            answer = 0;
-        }
-        // rgrc[0] is now the client rectangle the window is about to have. This is the
-        // last message before the new window rectangle reaches the compositor, and by
-        // WM_SIZE it already has: a frame drawn there is drawn after the compositor has
-        // shown the new rectangle with the old frame in it, which, with no redirection
-        // surface behind the visual, is a gap the desktop shows through. Drawn here,
-        // presented, committed and waited for, the frame is on screen first.
-        if (!IsIconic(window)) {
-            dxc_present_ahead(params->rgrc[0].right - params->rgrc[0].left,
-                              params->rgrc[0].bottom - params->rgrc[0].top);
-        }
-        return answer;
+        DefWindowProcW(window, message, wparam, lparam);
+        params->rgrc[0].top = IsZoomed(window) ? requested_top + dxc_maximised_overhang()
+                                               : requested_top;
+        return 0;
     }
     case WM_NCHITTEST:
         if (dxc_options.system_chrome) {
@@ -1577,36 +1567,29 @@ static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM
         return 0;
     }
     case WM_SIZE:
-        // Written down rather than acted on. The buffer being refitted may be the one the
-        // frame in flight is drawing into, so the swapchain is refitted where a frame
-        // begins instead. Nothing to do while minimised: the client area is empty and a
-        // swapchain cannot have a zero dimension.
+        // Written down, then drawn: the frame refits the swapchain where it begins, never
+        // while a buffer is being drawn into. Nothing to do while minimised: the client
+        // area is empty and a swapchain cannot have a zero dimension.
         if (dxc_swapchain != NULL && wparam != SIZE_MINIMIZED) {
             dxc_resize_note(&dxc_sizing, (int32_t)LOWORD(lparam), (int32_t)HIWORD(lparam));
-            // With a visual the frame is drawn, presented and committed before this
-            // message returns, whether or not a drag is on, so that a size is never
-            // on screen as an area nothing has painted.
-            if (dxc_dcomp_active()) {
-                // Already on screen when WM_NCCALCSIZE drew it; a second present of the
-                // same size is a wasted frame that can land out of order.
-                if ((int32_t)LOWORD(lparam) == dxc_presented_width &&
-                    (int32_t)HIWORD(lparam) == dxc_presented_height) {
-                    return 0;
-                }
-                dxc_draw_one_frame();
-                return 0;
-            }
-            // Inside a drag the note is not enough. Nothing is going to come back and
-            // read it: the frame loop is stopped several frames back inside the press
-            // that began the drag, and what the screen shows meanwhile is the last frame
-            // the window drew, stretched or cut to whatever size the window now is. The
-            // frame is drawn here instead, inside this message, which is the only place
-            // that runs while the reader is dragging.
-            if (dxc_resize_draw_here(&dxc_sizing)) {
-                dxc_draw_one_frame();
-            }
+            // Drawn here, inside the SetWindowPos that resized the window, whether or not
+            // a drag is on: during one there is no other place that runs, and outside one
+            // the same ordering keeps the frame ahead of the next size.
+            dxc_draw_resize((int32_t)LOWORD(lparam), (int32_t)HIWORD(lparam));
         }
         return 0;
+    case WM_PAINT: {
+        // Validated so the window stops asking. A frame is drawn only when no resize is
+        // in flight: during one, WM_SIZE draws, and a second frame here would present the
+        // same size twice.
+        PAINTSTRUCT paint;
+        BeginPaint(window, &paint);
+        EndPaint(window, &paint);
+        if (!dxc_resizing && dxc_resize_draw_here(&dxc_sizing)) {
+            dxc_draw_one_frame();
+        }
+        return 0;
+    }
     case WM_ERASEBKGND:
         // Answered so the window is never painted white between frames. Every pixel of
         // the client area comes from the swapchain.
@@ -1622,7 +1605,6 @@ static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM
         dxc_a11y_count = 0;
         dxc_a11y_dirty = 0;
         dxc_a11y_update_posted = 0;
-        dxc_dcomp_release();
         dxc_window = NULL;
         dxc_window_gone = 1;
         PostQuitMessage(0);
@@ -2167,7 +2149,6 @@ static void dxc_abandon_window(IDXGIAdapter1 *adapter) {
     if (dxc_allocator != NULL) { ID3D12CommandAllocator_Release(dxc_allocator); dxc_allocator = NULL; }
     if (dxc_fence != NULL) { ID3D12Fence_Release(dxc_fence); dxc_fence = NULL; }
     if (dxc_fence_signalled != NULL) { CloseHandle(dxc_fence_signalled); dxc_fence_signalled = NULL; }
-    dxc_dcomp_release();
     dxc_latency_wait = NULL;
     if (dxc_swapchain != NULL) { IDXGISwapChain3_Release(dxc_swapchain); dxc_swapchain = NULL; }
     if (dxc_queue != NULL) { ID3D12CommandQueue_Release(dxc_queue); dxc_queue = NULL; }
@@ -2241,23 +2222,16 @@ int32_t dxc_native_window_open(
         wide_title[0] = L'\0';
     }
 
-    // Before the window, because the extended style below depends on it.
-    int32_t dcomp_device_made = dxc_dcomp_make_device();
+    // With its redirection surface, as Flutter's view has one: while a resize is being
+    // drawn, DWM keeps showing the last presented frame instead of the desktop.
     HWND window = CreateWindowExW(
-        // Without this, Windows keeps a GDI redirection surface behind the window for
-        // DWM to composite from, separate from the swapchain. A live resize grows that
-        // surface before this window procedure hears about it, and the growth is not
-        // ours to fill: it comes up black, however fast WM_SIZE redraws the swapchain
-        // underneath it. This style tells DWM there is no redirection surface, so what
-        // is on screen is this window's swapchain and nothing else.
-        dcomp_device_made ? WS_EX_NOREDIRECTIONBITMAP : 0,
+        0,
         DXC_WINDOW_CLASS,
         wide_title,
         dxc_window_style(),
         CW_USEDEFAULT, CW_USEDEFAULT, width, height,
         NULL, NULL, GetModuleHandleW(NULL), NULL);
     if (window == NULL) {
-        dxc_dcomp_release();
         return 2;
     }
 
@@ -2358,42 +2332,20 @@ int32_t dxc_native_window_open(
     swapchain_description.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
     IDXGISwapChain1 *first = NULL;
     HRESULT made = E_FAIL;
-    if (dcomp_device_made) {
-        // CreateSwapChainForComposition requires DXGI_SCALING_STRETCH. The buffer is
-        // shown stretched to its own extent, so it is refitted to exactly the frame's
-        // size on every resize (dxc_native_frame_begin) and the stretch is 1:1.
-        swapchain_description.Scaling = DXGI_SCALING_STRETCH;
-        swapchain_description.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
-        made = IDXGIFactory4_CreateSwapChainForComposition(
-            factory, (IUnknown *)queue, &swapchain_description, NULL, &first);
-        if (SUCCEEDED(made) && dxc_dcomp_attach(window, (IUnknown *)first) != 0) {
-            IDXGISwapChain1_Release(first);
-            first = NULL;
-            made = E_FAIL;
-        }
-        if (FAILED(made)) {
-            // Fall back to the window's own swapchain. The window was made without a
-            // redirection surface for composition's sake, and without composition that
-            // is the black this exists to avoid, so the style is taken off again.
-            dxc_dcomp_release();
-            SetWindowLongPtrW(window, GWL_EXSTYLE,
-                              GetWindowLongPtrW(window, GWL_EXSTYLE) & ~(LONG_PTR)WS_EX_NOREDIRECTIONBITMAP);
-            SetWindowPos(window, NULL, 0, 0, 0, 0,
-                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
-            fprintf(stderr, "compose-rust: DirectComposition is not available, presenting to the window directly\n");
-        }
-    }
-    if (first == NULL) {
-        // Left at its zero value this is DXGI_SCALING_STRETCH, which fills the client
-        // area from whatever the back buffer holds, so a frame skipped by
-        // dxc_native_frame_begin would show the previous buffer stretched.
-        swapchain_description.Scaling = DXGI_SCALING_NONE;
+    // A flip model swapchain on the window itself. DXGI_SCALING_NONE, so a buffer and a
+    // window that disagree for a moment show the buffer unscaled at the top left, never
+    // stretched. Every resize refits the buffer to exactly the client size.
+    swapchain_description.Scaling = DXGI_SCALING_NONE;
+    swapchain_description.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
+    made = IDXGIFactory4_CreateSwapChainForHwnd(
+        factory, (IUnknown *)queue, window, &swapchain_description, NULL, NULL, &first);
+    if (FAILED(made)) {
+        // Without the latency waitable, which every frame then simply does not wait on.
         swapchain_description.Flags = 0;
         made = IDXGIFactory4_CreateSwapChainForHwnd(
             factory, (IUnknown *)queue, window, &swapchain_description, NULL, NULL, &first);
     }
     if (FAILED(made)) {
-        dxc_dcomp_release();
         ID3D12CommandQueue_Release(queue);
         ID3D12Device_Release(device);
         IDXGIAdapter1_Release(adapter);
@@ -2402,9 +2354,7 @@ int32_t dxc_native_window_open(
         return 7;
     }
     dxc_swapchain_flags = swapchain_description.Flags;
-    fprintf(stderr, "compose-rust: swapchain for %s, scaling %s\n",
-            dxc_dcomp_active() ? "composition" : "the window",
-            swapchain_description.Scaling == DXGI_SCALING_NONE ? "NONE" : "STRETCH");
+    fprintf(stderr, "compose-rust: swapchain for the window (flip model, redirection surface kept), scaling NONE\n");
     // DXGI answers alt-enter by putting the window into its own idea of full screen,
     // which is a mode nothing here knows how to draw in.
     IDXGIFactory4_MakeWindowAssociation(factory, window, DXGI_MWA_NO_ALT_ENTER);
@@ -2423,7 +2373,6 @@ int32_t dxc_native_window_open(
         dxc_latency_wait = IDXGISwapChain3_GetFrameLatencyWaitableObject(swapchain);
     }
     if (FAILED(upgraded)) {
-        dxc_dcomp_release();
         ID3D12CommandQueue_Release(queue);
         ID3D12Device_Release(device);
         IDXGIAdapter1_Release(adapter);
@@ -2440,6 +2389,8 @@ int32_t dxc_native_window_open(
     // recognised as the size the swapchain already is.
     dxc_resize_fitted(&dxc_sizing, (int32_t)pixel_width, (int32_t)pixel_height);
     dxc_report_latency = getenv("DXC_REPORT_LATENCY") != NULL;
+    dxc_presented_width = (int32_t)pixel_width;
+    dxc_presented_height = (int32_t)pixel_height;
 
     if (dxc_acquire_buffers() != 0) {
         dxc_abandon_window(adapter);
@@ -2506,7 +2457,7 @@ void dxc_native_window_size(void *window_pointer, int32_t *width, int32_t *heigh
         return;
     }
     RECT client;
-    if (dxc_client_rect(window, &client)) {
+    if (GetClientRect(window, &client)) {
         *width = (int32_t)(client.right - client.left);
         *height = (int32_t)(client.bottom - client.top);
     }
@@ -2533,17 +2484,13 @@ int32_t dxc_native_frame_begin(void *swapchain_pointer, void **texture_out) {
     // is the black this exists to avoid, so it is drawn whether or not the screen is ready.
     if (dxc_latency_wait != NULL) {
         WaitForSingleObjectEx(dxc_latency_wait,
-                              dxc_sizing.dragging || dxc_presenting_ahead ? 0 : 100, FALSE);
+                              dxc_sizing.dragging || dxc_resizing ? 0 : 100, FALSE);
     }
     int32_t wanted_width = 0;
     int32_t wanted_height = 0;
     if (dxc_resize_take(&dxc_sizing, &wanted_width, &wanted_height)) {
-        // Refitted to exactly the size drawn, every step. A composition swapchain is
-        // always DXGI_SCALING_STRETCH, which shows the buffer stretched to its own
-        // extent: 1:1 only when buffer and frame are the same size. A larger buffer
-        // with a source size and a visual scale to undo the stretch was tried; the
-        // source size applies at Present and the scale at Commit, so a frame could
-        // land with one and not the other, which is a stretched frame.
+        // Refitted to exactly the size drawn, every step, so the buffer and the client
+        // area always agree and DXGI_SCALING_NONE never has anything to pad or crop.
         //
         // Nothing may still be reading the buffers when they are let go, and a swapchain
         // refuses to be refitted while anything holds one.
@@ -2602,26 +2549,24 @@ void dxc_native_frame_end(void *queue_pointer) {
     lists[0] = (ID3D12CommandList *)(void *)dxc_commands;
     ID3D12CommandQueue_ExecuteCommandLists(queue, 1, lists);
 
-    // One, so the frame waits for the screen. A window that presents without waiting
-    // spends a machine to draw frames nobody sees.
-    // From WM_NCCALCSIZE the interval is zero: the compositor wait below paces the
-    // frame, and a vertical blank waited for first would be one more frame between the
-    // present and the rectangle changing.
-    IDXGISwapChain3_Present(dxc_swapchain, dxc_presenting_ahead ? 0 : 1, 0);
-    // The present is not on the window until the visual's changes are committed, and a
-    // present without a commit after it leaves the previous buffer showing. The two
-    // always go together.
-    if (dxc_dcomp_active() && !dxc_commit_failed && dxc_dcomp_commit() != 0) {
-        dxc_commit_failed = 1;
-        fprintf(stderr, "compose-rust: DirectComposition commit failed, frames may not reach the window\n");
+    // A resize frame presents only at exactly the size WM_SIZE recorded, and only once
+    // for that size: a frame of any other size would be shown cut or padded against the
+    // new rectangle, and a second present of the same size is a frame out of order.
+    if (dxc_resizing &&
+        (dxc_sizing.fitted_width != dxc_resize_target_width ||
+         dxc_sizing.fitted_height != dxc_resize_target_height ||
+         (dxc_presented_width == dxc_resize_target_width &&
+          dxc_presented_height == dxc_resize_target_height))) {
+        dxc_wait_for_gpu();
+        return;
     }
-    if (dxc_dcomp_active()) {
-        dxc_presented_width = dxc_sizing.fitted_width;
-        dxc_presented_height = dxc_sizing.fitted_height;
-        if (dxc_presenting_ahead && dxc_wait_after_present) {
-            dxc_dcomp_wait_for_compositor();
-        }
-    }
+    // Interval one outside a resize, so the frame waits for the screen; a window that
+    // presents without waiting spends a machine to draw frames nobody sees. Zero inside
+    // one, where the DwmFlush that follows paces it instead and a vertical blank waited
+    // for first would hold the drag for one more frame.
+    IDXGISwapChain3_Present(dxc_swapchain, dxc_resizing ? 0 : 1, 0);
+    dxc_presented_width = dxc_sizing.fitted_width;
+    dxc_presented_height = dxc_sizing.fitted_height;
 
     // The next frame will paint into a buffer this one may still be reading from, and a
     // swapchain two buffers deep comes back around immediately.

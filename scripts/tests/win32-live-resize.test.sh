@@ -59,9 +59,16 @@ expect_in dxc_resize_begin_drag "the message that starts a drag" "$enter" \
 expect_in dxc_resize_end_drag "the message that ends a drag" "$exit_drag" \
     "record that it has ended"
 expect_in dxc_resize_note "the size message" "$sized" "write the new size down"
-expect_in dxc_resize_draw_here "the size message" "$sized" "ask whether a drag is on"
-expect_in dxc_draw_one_frame "the size message" "$sized" \
+expect_in dxc_draw_resize "the size message" "$sized" \
     "draw a frame where the size arrived"
+resize_step="$(awk '
+    /^static void dxc_draw_resize/ { inside = 1 }
+    inside { print }
+    inside && /^}/ { exit }
+' "$source_file")"
+expect_in dxc_draw_one_frame "the resize step" "$resize_step" "draw the frame"
+expect_in dxc_dwm_flush "the resize step" "$resize_step" \
+    "wait for DWM to take the frame before the next step"
 
 # The refit itself is not free to move. A swapchain refuses while anything holds one of its
 # buffers, so the wait and the release come first; the size the frame is drawn at is

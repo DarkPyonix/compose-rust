@@ -66,7 +66,6 @@ $MetadataDir = Join-Path $ScriptsDir "windows-metadata"
 $LibraryName = "libcompose_rust_renderer"
 $RendererSource = Join-Path $NativeDir "c\renderer_entry.c"
 $WindowSource = Join-Path $NativeDir "c\win32_window.c"
-$DCompSource = Join-Path $NativeDir "c\win32_dcomp.cpp"
 $NotificationsSource = Join-Path $NativeDir "c\win32_notifications.c"
 $KotlinWrapper = Join-Path $ProjectDir "kotlin.bat"
 $ClasspathFile = Join-Path $BuildDir "classpath-windows.txt"
@@ -278,17 +277,6 @@ if ($LASTEXITCODE -ne 0) {
     Fail "MSVC could not compile $NotificationsSource"
 }
 
-# DirectComposition, the one part of this window that is not C11: dcomp.h declares
-# overloaded COM methods, which only a C++ compiler can parse. No /EH flag leaves
-# exceptions off (cl.exe's default), and /GR- turns off RTTI, because nothing here throws
-# or asks what type it is holding; both keep this from pulling in a C++ runtime the rest
-# of the image has no other use for.
-$DCompObject = Join-Path $ObjDir "win32_dcomp.obj"
-Invoke-Native { & cl.exe /nologo /c /O2 /std:c++17 /GR- "/Fo$DCompObject" $DCompSource }
-if ($LASTEXITCODE -ne 0) {
-    Fail "MSVC could not compile $DCompSource"
-}
-
 # PE/COFF requires the Host boundary to resolve at DLL link time. renderer_entry.obj supplies
 # forwarding definitions that use GetProcAddress on the host executable. Only the two public
 # Renderer functions are exported from the DLL.
@@ -321,7 +309,6 @@ $NativeImageArgs = @(
     "-H:NativeLinkerOption=$RendererObject",
     "-H:NativeLinkerOption=$WindowObject",
     "-H:NativeLinkerOption=$NotificationsObject",
-    "-H:NativeLinkerOption=$DCompObject",
     # Named rather than left to the linker. Direct3D and DXGI resolve nowhere else, and
     # dxguid carries the interface identifiers that C code has to name as values because
     # it cannot ask for them the way C++ does. user32 is where the window, its messages
@@ -330,7 +317,6 @@ $NativeImageArgs = @(
     "-H:NativeLinkerOption=d3d12.lib",
     "-H:NativeLinkerOption=dxgi.lib",
     "-H:NativeLinkerOption=dxguid.lib",
-    "-H:NativeLinkerOption=dcomp.lib",
     "-H:NativeLinkerOption=user32.lib",
     # GetDeviceCaps, which the window's scale falls back to where per-monitor DPI is not
     # available.
