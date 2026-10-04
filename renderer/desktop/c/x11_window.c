@@ -356,6 +356,22 @@ void dxc_native_install_menu(const char *application_name) {
 }
 
 /*
+ * Measuring aids of the AppKit window, named because the Kotlin that drives every desktop
+ * names them and answered here by doing nothing: a drag cannot be scripted from inside
+ * this window, and nothing asks for it to be.
+ */
+void dxc_native_debug_resize(void *window_pointer, void *view_pointer, int32_t from_width,
+                             int32_t from_height, int32_t to_width, int32_t to_height,
+                             int32_t steps, int32_t pause_micros) {
+    (void)window_pointer; (void)view_pointer; (void)from_width; (void)from_height;
+    (void)to_width; (void)to_height; (void)steps; (void)pause_micros;
+}
+
+void dxc_native_debug_key(void *window_pointer, int32_t key_code, const char *characters) {
+    (void)window_pointer; (void)key_code; (void)characters;
+}
+
+/*
  * Asked for by name by the window code every desktop shares, and answered here by saying
  * nothing: this window takes its options another way, has no strip of the system's to
  * measure, and reads no list of dropped paths from the platform.

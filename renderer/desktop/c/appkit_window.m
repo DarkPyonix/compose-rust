@@ -16,6 +16,7 @@
 
 #import <AppKit/AppKit.h>
 #import <Carbon/Carbon.h>
+#import <QuartzCore/QuartzCore.h>
 #import <QuartzCore/CAMetalLayer.h>
 #import <Metal/Metal.h>
 #include <stdatomic.h>
@@ -24,6 +25,9 @@
 #include <string.h>
 #include <stdlib.h>
 #include <pthread.h>
+#include "appkit_resize.h"
+#include <unistd.h>
+#include <mach/mach_time.h>
 
 // What happened in the window, waiting to be read.
 //
@@ -304,19 +308,60 @@ void dxc_native_install_menu(const char *application_name) {
     });
 }
 
-/**
- * The way back into the renderer that this window has no use for.
- *
- * Named because one piece of Kotlin drives both desktops and the symbol has to resolve on
- * each. The Windows window needs it: Windows runs a loop of its own while an edge is
- * being dragged, and the renderer has to be asked for a frame from inside that loop or
- * nothing is drawn for the length of the drag. AppKit hands a live resize back to the
- * same run loop the frame loop is already pumping, so there is nothing here to ask from.
- * Nothing on this platform registers, and so nothing here is ever called.
- */
+// The way back into the renderer, for the one moment the run loop cannot be pumped.
+//
+// While an edge is being dragged AppKit stays inside its own tracking loop and only calls
+// the view back, so the frame loop that pumps events is not running. The window asks the
+// renderer for a frame from inside that callback instead, and a window that waited for
+// the loop would show the last frame stretched to the new size for the whole drag.
+typedef void (*dxc_draw_frame_fn)(void *);
+static dxc_draw_frame_fn dxc_draw_frame;
+static void *dxc_draw_thread;
+
 void dxc_native_set_draw_callback(void (*callback)(void *), void *isolate_thread) {
-    (void)callback;
-    (void)isolate_thread;
+    dxc_draw_frame = callback;
+    dxc_draw_thread = isolate_thread;
+}
+
+// What a resize cost and what it showed, kept for the report asked for with
+// DXC_REPORT_RESIZE. A stretched step is one the reader saw as the old picture scaled.
+static struct dxc_resize_stats dxc_resize_stats;
+
+static int dxc_legacy_resize(void) {
+    static int cached = -1;
+    if (cached < 0) cached = getenv("DXC_LEGACY_RESIZE") != NULL ? 1 : 0;
+    return cached;
+}
+
+static int dxc_report_resize(void) {
+    static int cached = -1;
+    if (cached < 0) {
+        cached = getenv("DXC_REPORT_RESIZE") != NULL ? 1 : 0;
+    }
+    return cached;
+}
+
+static double dxc_ticks_to_millis(int64_t ticks) {
+    static mach_timebase_info_data_t base;
+    if (base.denom == 0) {
+        mach_timebase_info(&base);
+    }
+    return (double)ticks * base.numer / base.denom / 1.0e6;
+}
+
+static void dxc_native_resize_report(void) {
+    if (!dxc_report_resize()) {
+        return;
+    }
+    int64_t stretched = dxc_resize_stretched(&dxc_resize_stats);
+    double average = dxc_resize_stats.steps > 0
+        ? dxc_ticks_to_millis(dxc_resize_stats.callback_ticks) / dxc_resize_stats.steps : 0;
+    fprintf(stderr,
+            "dxc resize: steps=%lld presented=%lld stale=%lld stretched=%lld "
+            "per-step=%.2fms max=%.2fms\n",
+            (long long)dxc_resize_stats.steps, (long long)dxc_resize_stats.presented,
+            (long long)dxc_resize_stats.stale, (long long)stretched, average,
+            dxc_ticks_to_millis(dxc_resize_stats.callback_max_ticks));
 }
 
 /**
@@ -692,6 +737,37 @@ void dxc_native_set_cursor(int32_t shape) {
     record.x = (float)(size.width * scale);
     record.y = (float)(size.height * scale);
     dxc_push_event(record);
+
+    dxc_resize_step(&dxc_resize_stats, (int32_t)record.x, (int32_t)record.y);
+
+    // Drawn now, at the size the view just became. The frame loop is not running while
+    // an edge is dragged, so waiting for it leaves the layer showing the last frame
+    // scaled to fit. Skipped before the renderer has registered, which covers the sizes
+    // the window takes while it is being made.
+    if (dxc_draw_frame != NULL && !dxc_legacy_resize()) {
+        uint64_t begun = mach_absolute_time();
+        dxc_draw_frame(dxc_draw_thread);
+        int64_t spent = (int64_t)(mach_absolute_time() - begun);
+        dxc_resize_stats.callback_ticks += spent;
+        if (spent > dxc_resize_stats.callback_max_ticks) {
+            dxc_resize_stats.callback_max_ticks = spent;
+        }
+    }
+}
+
+// A drag of an edge is a run of frames that must reach the screen in step with the
+// window's own geometry. The layer presents inside the transaction that moves the window
+// for as long as the drag lasts, so a frame and the edge it was drawn for appear together
+// rather than the edge arriving first and the picture a frame later.
+- (void)viewWillStartLiveResize {
+    [super viewWillStartLiveResize];
+    ((CAMetalLayer *)self.layer).presentsWithTransaction = !dxc_legacy_resize();
+}
+
+- (void)viewDidEndLiveResize {
+    [super viewDidEndLiveResize];
+    ((CAMetalLayer *)self.layer).presentsWithTransaction = NO;
+    dxc_native_resize_report();
 }
 
 - (void)updateTrackingAreas {
@@ -838,6 +914,10 @@ int32_t dxc_native_window_open(
         layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
         // Skia reads the texture back in places, and a framebuffer-only one cannot be.
         layer.framebufferOnly = NO;
+        // Where the layer and its drawable disagree about size, anchored to the corner
+        // and cropped rather than scaled: a stale frame then looks like an old picture
+        // that has not caught up, not like a stretched one.
+        if (!dxc_legacy_resize()) layer.contentsGravity = kCAGravityTopLeft;
         // Drawn at the density of the screen the window is on rather than in points, so
         // text is as sharp as the display can draw it.
         layer.contentsScale = window.backingScaleFactor;
@@ -1038,11 +1118,82 @@ void dxc_native_frame_end(void *queue_pointer) {
         if (dxc_pending_drawable == nil) {
             return;
         }
+        id<CAMetalDrawable> drawable = dxc_pending_drawable;
+        dxc_pending_drawable = nil;
+        dxc_resize_present(&dxc_resize_stats, (int32_t)drawable.texture.width,
+                           (int32_t)drawable.texture.height);
         id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)queue_pointer;
         id<MTLCommandBuffer> buffer = [queue commandBuffer];
-        [buffer presentDrawable:dxc_pending_drawable];
-        [buffer commit];
-        dxc_pending_drawable = nil;
+        if (drawable.layer.presentsWithTransaction) {
+            // Presented by the layer from inside the window's transaction, once the
+            // work is scheduled: the contract of a layer that presents with one.
+            [buffer commit];
+            [buffer waitUntilScheduled];
+            [drawable present];
+        } else {
+            [buffer presentDrawable:drawable];
+            [buffer commit];
+        }
+    }
+    });
+}
+
+/**
+ * Resizes the window from the inside, the way a drag would, for measuring.
+ *
+ * A mouse drag cannot be scripted without the accessibility permission, so the sizes a
+ * drag passes through are taken here, one after another, with the thread held inside this
+ * call as it is held inside AppKit's tracking loop: nothing but the view's own callback
+ * runs between two sizes. Used only when asked for, by DXC_SYNTH_RESIZE.
+ */
+void dxc_native_debug_resize(void *window_pointer, void *view_pointer, int32_t from_width,
+                             int32_t from_height, int32_t to_width, int32_t to_height,
+                             int32_t steps, int32_t pause_micros) {
+    dxc_on_main(^{
+    @autoreleasepool {
+        NSWindow *window = (__bridge NSWindow *)window_pointer;
+        NSView *view = (__bridge NSView *)view_pointer;
+        dxc_resize_reset(&dxc_resize_stats);
+        [view viewWillStartLiveResize];
+        for (int32_t step = 1; step <= steps; step++) {
+            double t = (double)step / steps;
+            NSSize size = NSMakeSize(from_width + (to_width - from_width) * t,
+                                     from_height + (to_height - from_height) * t);
+            [window setContentSize:size];
+            [CATransaction flush];
+            usleep((useconds_t)pause_micros);
+        }
+        [view viewDidEndLiveResize];
+    }
+    });
+}
+
+/**
+ * Posts a key press and its release to the window, as the keyboard would, for measuring.
+ *
+ * The events go through the application's own queue and so reach the view, the input
+ * method and the renderer by the road a real key takes. Used only when asked for, by
+ * DXC_SYNTH.
+ */
+void dxc_native_debug_key(void *window_pointer, int32_t key_code, const char *characters) {
+    dxc_on_main(^{
+    @autoreleasepool {
+        NSWindow *window = (__bridge NSWindow *)window_pointer;
+        NSString *text = [NSString stringWithUTF8String:characters];
+        NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
+        for (int up = 0; up < 2; up++) {
+            NSEvent *event = [NSEvent keyEventWithType:up ? NSEventTypeKeyUp : NSEventTypeKeyDown
+                                              location:NSZeroPoint
+                                         modifierFlags:0
+                                             timestamp:now
+                                          windowNumber:window.windowNumber
+                                               context:nil
+                                            characters:text
+                           charactersIgnoringModifiers:text
+                                             isARepeat:NO
+                                               keyCode:(unsigned short)key_code];
+            [NSApp postEvent:event atStart:NO];
+        }
     }
     });
 }
