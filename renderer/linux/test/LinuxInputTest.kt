@@ -91,7 +91,7 @@ class LinuxInputTest {
      */
     @Test
     fun a_key_that_types_a_character_claims_no_meaning() {
-        assertEquals(0, platformKey(XK_a.toULong()))
+        assertEquals(-1, platformKey(XK_a.toULong()))
         assertEquals(Key.Unknown, composeKey(platformKey(XK_a.toULong())))
     }
 

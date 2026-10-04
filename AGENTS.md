@@ -46,8 +46,9 @@ compose-rust lets Rust code author declarative UI with **Dioxus** (`dioxus-core`
 ## Branches
 
 `develop` is where work happens. `release` and `main` are produced from it by
-`.github/scripts/release/sync-release.sh`, which strips `PROJECT.md`, `AGENTS.md`, `CLAUDE.md` and everything directly
-under `docs/`.
+`.github/scripts/release/sync-release.sh`, which strips `PROJECT.md`, `AGENTS.md`, `CLAUDE.md`, everything directly
+under `docs/`, and the whole `experiments/` folder. A file on `main` must therefore never depend on
+something under `experiments/`; a comment may name it only as being on `develop`.
 
 1. **Publishing is one way: develop to release to main.** Never merge `release` or `main`
    back into `develop`. Their history contains the deletion of the planning documents, and
@@ -108,7 +109,7 @@ Job names are English sentence case and say briefly what the job does. Matrix jo
 2. Where inside:
    - worktrees: `.claude/worktrees/<name>/` (ignored by git);
    - throwaway work, probes and downloads: `.scratch/<name>/` (ignored by git);
-   - experiments worth keeping: `experiments/<name>/`, committed;
+   - experiments worth keeping: `experiments/<name>/`, committed (on `develop` only; it is not published to `main`);
    - build outputs: `target/` and `build/`, where the tools already put them.
 3. A change to Compose or skiko goes to `thisisthepy/compose-multiplatform-core-extended`
    (branch `extended`) as a commit. This repository uses a pinned commit of that fork

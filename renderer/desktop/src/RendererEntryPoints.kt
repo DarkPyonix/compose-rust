@@ -106,6 +106,7 @@ fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
 
 @CEntryPoint(name = "compose_rust_renderer_request_frame_impl")
 fun rendererRequestFrame(thread: IsolateThread?) {
+    dev.darkpyonix.composerust.ui.platform.LatencyTrace.mark("request_frame")
     FrameRequests.request()
 }
 
