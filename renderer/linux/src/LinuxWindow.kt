@@ -1,5 +1,6 @@
 @file:OptIn(
     androidx.compose.ui.InternalComposeUiApi::class,
+    androidx.compose.ui.ExperimentalComposeUiApi::class,
     kotlinx.cinterop.ExperimentalForeignApi::class,
 )
 
@@ -14,6 +15,7 @@ import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.platform.PlatformContext
 import androidx.compose.ui.platform.PlatformTextInputMethodRequest
 import androidx.compose.ui.platform.WindowInfo
+import androidx.compose.ui.semantics.SemanticsOwner
 import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
@@ -102,9 +104,11 @@ import x11.XNextEvent
 import x11.XOpenDisplay
 import x11.XPending
 import x11.XRootWindow
+import x11.XSelectInput
 import x11.XSetWMProtocols
 import x11.XSetWindowAttributes
 import x11.XStoreName
+import x11.XTranslateCoordinates
 import x11.XSyncCounter
 import x11.XSyncCreateCounter
 import x11.XSyncInitialize
@@ -151,6 +155,7 @@ internal class LinuxWindow private constructor(
     private val protocolsAtom: Atom,
     private val syncRequest: Atom,
     private val syncCounter: XSyncCounter,
+    private val title: String,
     width: Int,
     height: Int,
 ) {
@@ -196,13 +201,9 @@ internal class LinuxWindow private constructor(
     private val textInput = NativeTextInput()
 
     /**
-     * What the window would tell a reader who cannot see it.
-     *
-     * Kept rather than published. What answers an assistive technology on this desktop is
-     * AT-SPI, which is a bus, an interface and a registration of its own; holding the newest
-     * tree is the half of it that belongs to the window, so that when that work arrives it
-     * reads from here rather than asking the scene across a thread it is not on, which is the
-     * one thing a frame loop cannot afford.
+     * What the window would tell a reader who cannot see it, as the platform-neutral list the
+     * other desktops hand their reader. Kept for the frame report below; what a Linux screen
+     * reader is answered from is [atspiSource], which keeps the tree rather than a list.
      */
     private var described: List<AccessibleElement> = emptyList()
 
@@ -213,6 +214,58 @@ internal class LinuxWindow private constructor(
                 "compose-rust: the window holds ${described.size} things to say" +
                     (described.firstOrNull()?.let { ", the first being \"${it.label}\"" } ?: ""),
             )
+        }
+    }
+
+    /** The scene's semantics, read into the tree AT-SPI serves. */
+    private val atspiSource = AtspiSemanticsSource()
+
+    /** Both listeners hear every change: the scene has one place to report to. */
+    private val semanticsListeners: PlatformContext.SemanticsOwnerListener = object : PlatformContext.SemanticsOwnerListener {
+        override fun onSemanticsOwnerAppended(semanticsOwner: SemanticsOwner) {
+            semantics.onSemanticsOwnerAppended(semanticsOwner)
+            atspiSource.onSemanticsOwnerAppended(semanticsOwner)
+        }
+
+        override fun onSemanticsOwnerRemoved(semanticsOwner: SemanticsOwner) {
+            semantics.onSemanticsOwnerRemoved(semanticsOwner)
+            atspiSource.onSemanticsOwnerRemoved(semanticsOwner)
+        }
+
+        override fun onSemanticsChange(semanticsOwner: SemanticsOwner) {
+            semantics.onSemanticsChange(semanticsOwner)
+            atspiSource.onSemanticsChange(semanticsOwner)
+        }
+
+        override fun onLayoutChange(semanticsOwner: SemanticsOwner, semanticsNodeId: Int) {
+            semantics.onLayoutChange(semanticsOwner, semanticsNodeId)
+            atspiSource.onLayoutChange(semanticsOwner, semanticsNodeId)
+        }
+    }
+
+    /** This window's place on the accessibility bus, once [startAccessibility] has joined it. */
+    private var accessibility: AtspiBridge? = null
+
+    /**
+     * What an input method says, recorded into the same log the pointer and keys go into, so
+     * that a syllable and the key pressed after it reach the scene in the order they happened.
+     */
+    private val ime = ImeSession { event -> log.heard(event) }
+
+    /** The connection to the desktop's input method, or null where there is none. */
+    private var xim: XimContext? = null
+
+    /** The field that asked to be typed into, kept to ask where its caret is. */
+    private var inputRequest: PlatformTextInputMethodRequest? = null
+
+    /** Where the input method was last told the caret is. */
+    private var lastSpot: Pair<Int, Int>? = null
+
+    init {
+        xim = XimContext.open(display, window, ime)?.also { context ->
+            // The events the input method asked to see, over and above the ones this window
+            // selects: left out, some of them never see the key they are meant to filter.
+            XSelectInput(display, window, EVENT_MASK or context.filterMask)
         }
     }
 
@@ -240,11 +293,19 @@ internal class LinuxWindow private constructor(
     private val platformContext: PlatformContext =
         object : PlatformContext by PlatformContext.Empty() {
             override val windowInfo get() = this@LinuxWindow.windowInfo
-            override val semanticsOwnerListener get() = semantics
+            override val semanticsOwnerListener get() = semanticsListeners
 
             override suspend fun startInputMethod(
                 request: PlatformTextInputMethodRequest,
-            ): Nothing = textInput.run(request)
+            ): Nothing {
+                inputRequest = request
+                try {
+                    textInput.run(request)
+                } finally {
+                    inputRequest = null
+                    lastSpot = null
+                }
+            }
 
             /**
              * The shape the pointer takes over whatever it is on.
@@ -362,6 +423,9 @@ internal class LinuxWindow private constructor(
                 // resize that arrives during the wait is drawn inside it.
                 pump(FRAME_MILLISECONDS)
                 onTurn()
+                // A reader's questions are answered between frames, on this thread, so that
+                // a press it asks for happens where every other press does.
+                accessibility?.pump()
                 // Before the events and before the drawing. What is waiting here is the scene's
                 // own work, and a list that asked for rows on the last frame wants them in hand
                 // before this one is measured.
@@ -388,6 +452,13 @@ internal class LinuxWindow private constructor(
                 // that changed on the last one is a tree nobody has been told about, and a window
                 // that has gone still is exactly where that would be forgotten.
                 semantics.pushIfChanged(afterDrawing = drew)
+                accessibility?.let { bridge ->
+                    // After the drawing, for the reason the line above is: what is read is where
+                    // everything was placed.
+                    atspiSource.capture(title)?.let { bridge.update(it) }
+                    bridge.windowActive(focused)
+                }
+                updateInputMethod()
             }
         } finally {
             close()
@@ -429,6 +500,11 @@ internal class LinuxWindow private constructor(
         // window the server has already destroyed, and presenting a frame into one of those is an
         // X error rather than a frame.
         if (closed) return
+        // The input method sees every event first, and what it takes is not the window's to
+        // act on. Only a key can be taken: the protocol's own messages are ordinary events
+        // that it answers, and a focus change it filters is still one this window has.
+        val taken = xim?.filter(event) == true
+        if (taken && (event.type == KeyPress || event.type == KeyRelease)) return
         when (event.type) {
             MotionNotify -> log.heard(
                 WindowEvent(
@@ -445,6 +521,9 @@ internal class LinuxWindow private constructor(
 
             ButtonPress, ButtonRelease -> {
                 val button = event.xbutton.button.toInt()
+                // The caret is about to move, and an input method left composing would go on
+                // building a syllable at a place the reader has left.
+                if (event.type == ButtonPress && button !in SCROLL_BUTTONS) finishComposition()
                 if (button in SCROLL_BUTTONS) {
                     // A wheel arrives as a press and a release of a button that does not exist.
                     // The release says nothing the press did not.
@@ -503,7 +582,7 @@ internal class LinuxWindow private constructor(
                 }
             }
 
-            KeyPress, KeyRelease -> log.heard(readKey(event))
+            KeyPress, KeyRelease -> for (heard in readKey(event)) log.heard(heard)
 
             ConfigureNotify -> {
                 val width = event.xconfigure.width
@@ -573,29 +652,93 @@ internal class LinuxWindow private constructor(
      * dismisses a sheet, and the character beside it is what a text field types. A key that has
      * no character carries none, which is most of the keys in the table.
      *
-     * The text is Latin-1, which is what `XLookupString` answers with. Anything beyond it is
-     * composed by an input method through an input context, which is its own work and is not
-     * here: `XIM`, ibus and fcitx all arrive through that door, and the desktop's native image
-     * window does not open it either.
+     * What it types is asked of the input method when there is one, and then it is UTF-8 and
+     * can be a Hangul syllable or a word an input method committed. With none it is what
+     * `XLookupString` answers, which is Latin-1. Which of the two events a key becomes is
+     * [keyEventsFor]'s decision, and it is the same one either way.
      */
-    private fun readKey(event: XEvent): WindowEvent = memScoped {
+    private fun readKey(event: XEvent): List<WindowEvent> {
+        val press = event.type == KeyPress
+        val keysym = XLookupKeysym(event.xkey.ptr, 0)
+        val typed = if (!press) "" else xim?.lookup(event) ?: latinText(event)
+        return keyEventsFor(press, event.xkey.state, keysym, typed)
+    }
+
+    /** What the key types without an input method: Latin-1, as `XLookupString` answers. */
+    private fun latinText(event: XEvent): String = memScoped {
         val bytes = allocArray<ByteVar>(KEY_TEXT_BYTES)
         val count = XLookupString(event.xkey.ptr, bytes, KEY_TEXT_BYTES, null, null)
-        val keysym = XLookupKeysym(event.xkey.ptr, 0)
-        val first = if (count >= 1) bytes[0].toInt() and 0xFF else 0
-        WindowEvent(
-            kind = if (event.type == KeyPress) WindowEvent.KEY_DOWN else WindowEvent.KEY_UP,
-            x = 0f,
-            y = 0f,
-            buttons = 0,
-            modifiers = modifiersOf(event.xkey.state),
-            keyCode = platformKey(keysym),
-            // Control characters are keys rather than text. Return and Tab and Escape all come
-            // back from XLookupString as a byte, and typing them into a field would put a
-            // control character in it as well as doing what the key means.
-            codePoint = if (first >= FIRST_PRINTABLE) first else 0,
-            text = "",
+        buildString {
+            for (index in 0 until count) append((bytes[index].toInt() and 0xFF).toChar())
+        }
+    }
+
+    /**
+     * Gives the input method the keyboard when a field wants text and the window has it, and
+     * tells it where the caret is so that its candidate window follows.
+     *
+     * Every turn, after the frame, because that is when the field has been placed and its
+     * caret can be asked for. Told only when it moved: the spot is a request to the server.
+     */
+    private fun updateInputMethod() {
+        val method = xim ?: return
+        val wanted = focused && textInput.isActive
+        method.focus(wanted)
+        if (!wanted) return
+        val spot = candidateSpot(inputRequest?.focusedRectInRoot?.invoke(), DENSITY) ?: return
+        if (spot == lastSpot) return
+        lastSpot = spot
+        method.spot(spot.first, spot.second)
+    }
+
+    /**
+     * Ends whatever the input method is composing where it stands, keeping what was typed.
+     */
+    private fun finishComposition() {
+        val method = xim ?: return
+        if (!ime.composing) return
+        val finished = method.reset()
+        if (finished.isNotEmpty()) ime.commit(finished) else ime.preeditDone()
+    }
+
+    /**
+     * Joins the accessibility bus, so that a screen reader can read this window.
+     *
+     * Called once, before the loop starts, by the entry point that knows the application's name.
+     * Where there is no accessibility bus this does nothing, and the window carries on; the
+     * standard switch for turning the bridge off, `NO_AT_BRIDGE`, is honoured.
+     */
+    fun startAccessibility(applicationName: String) {
+        if (accessibility != null || System.getenv("NO_AT_BRIDGE") == "1") return
+        val actions = object : AtspiActions {
+            override fun click(id: Int) = atspiSource.click(id)
+            override fun focus(id: Int) = atspiSource.focus(id)
+            override fun windowOrigin(): Pair<Int, Int> = this@LinuxWindow.originOnScreen()
+        }
+        val bridge = AtspiBridge(
+            openSession = { PosixBusConnection.open() },
+            openAccessibility = { address -> PosixBusConnection.open(address) },
+            userId = platform.posix.getuid().toLong(),
+            applicationName = applicationName,
+            actions = actions,
         )
+        if (bridge.start()) {
+            accessibility = bridge
+            if (reportFrames) System.err.println("compose-rust: joined the accessibility bus as ${bridge.busName}")
+        } else if (reportFrames) {
+            System.err.println("compose-rust: no accessibility bus to join")
+        }
+    }
+
+    /** Where the window's top left corner is on the screen. */
+    private fun originOnScreen(): Pair<Int, Int> = memScoped {
+        val x = alloc<IntVar>()
+        val y = alloc<IntVar>()
+        val child = alloc<ULongVar>()
+        XTranslateCoordinates(
+            display, window, XRootWindow(display, XDefaultScreen(display)), 0, 0, x.ptr, y.ptr, child.ptr,
+        )
+        x.value to y.value
     }
 
     /**
@@ -636,6 +779,10 @@ internal class LinuxWindow private constructor(
         // Before the scene closes, so that nothing arriving between the two asks a scene that
         // has gone to draw into a context that has gone with it.
         closed = true
+        accessibility?.close()
+        accessibility = null
+        xim?.close()
+        xim = null
         scene.close()
         surface.close()
         glXMakeCurrent(display, 0uL, null)
@@ -646,6 +793,10 @@ internal class LinuxWindow private constructor(
     }
 
     companion object {
+        /** What the window asks the server to tell it about. */
+        private const val EVENT_MASK = ExposureMask or StructureNotifyMask or PointerMotionMask or
+            ButtonPressMask or ButtonReleaseMask or KeyPressMask or KeyReleaseMask or FocusChangeMask
+
         /** `_NET_ACTIVE_WINDOW`'s source indication for a pager, which the user drives. */
         private const val SOURCE_PAGER = 2L
 
@@ -684,9 +835,7 @@ internal class LinuxWindow private constructor(
             val window = memScoped {
                 val settings = alloc<XSetWindowAttributes>()
                 settings.colormap = colormap
-                settings.event_mask = ExposureMask or StructureNotifyMask or PointerMotionMask or
-                    ButtonPressMask or ButtonReleaseMask or KeyPressMask or KeyReleaseMask or
-                    FocusChangeMask
+                settings.event_mask = EVENT_MASK
                 XCreateWindow(
                     display,
                     XRootWindow(display, screen),
@@ -741,6 +890,7 @@ internal class LinuxWindow private constructor(
                 protocolsAtom = protocolsAtom,
                 syncRequest = syncRequest,
                 syncCounter = syncCounter,
+                title = title,
                 width = width,
                 height = height,
             )
@@ -822,9 +972,6 @@ internal class LinuxWindow private constructor(
 
         /** As much of one keystroke's text as XLookupString is given room for. */
         private const val KEY_TEXT_BYTES = 32
-
-        /** Below this a byte is a control character rather than something a field would type. */
-        private const val FIRST_PRINTABLE = 32
 
     }
 }
