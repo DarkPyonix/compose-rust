@@ -38,7 +38,10 @@ import kotlinx.cinterop.staticCFunction
 import kotlinx.cinterop.toLong
 import kotlinx.cinterop.value
 import org.jetbrains.skia.BackendRenderTarget
+import org.jetbrains.skia.ColorAlphaType
 import org.jetbrains.skia.ColorSpace
+import org.jetbrains.skia.ColorType
+import org.jetbrains.skia.ImageInfo
 import org.jetbrains.skia.DirectContext
 import org.jetbrains.skia.PixelGeometry
 import org.jetbrains.skia.Surface
@@ -99,6 +102,23 @@ private external fun debugResize(
     steps: Int,
     pauseMicros: Int,
 )
+
+@SymbolName("dxc_native_set_raster_resize")
+private external fun setRasterResize(enabled: Int)
+
+@SymbolName("dxc_native_frame_mode")
+private external fun frameMode(): Int
+
+@SymbolName("dxc_native_raster_begin")
+private external fun rasterBegin(
+    pixels: CPointer<COpaquePointerVar>?,
+    rowBytes: CPointer<IntVar>?,
+    width: CPointer<IntVar>?,
+    height: CPointer<IntVar>?,
+): Int
+
+@SymbolName("dxc_native_raster_end")
+private external fun rasterEnd()
 
 @SymbolName("dxc_native_report_metrics")
 private external fun reportMetrics(label: CPointer<ByteVar>?)
@@ -251,7 +271,9 @@ internal class Win32Window private constructor(
             work.runPending()
             nanos += FRAME_NANOS
             ResizeMetrics.frameBegin()
-            val drawn = drawFrame()
+            // While the window is changing size the C side asks for the frame in CPU
+            // pixels, which it copies into the window before the resize returns.
+            val drawn = if (frameMode() != 0) drawRasterFrame() else drawFrame()
             ResizeMetrics.frameEnd(size.width, size.height)
             if (drawn) {
                 painted = true
@@ -321,6 +343,41 @@ internal class Win32Window private constructor(
         return true
     }
 
+    /**
+     * One resize frame on the CPU: the same scene, drawn by Skia's raster backend into the
+     * pixels the C side hands over (its DIB), at the size the window is becoming.
+     *
+     * The same colour type order as the window's buffer reads (BGRA is the DIB's byte order),
+     * the same colour space and the same pixel geometry as the GPU frame, so the switch
+     * between the two is not visible.
+     */
+    private fun drawRasterFrame(): Boolean = memScoped {
+        val pixels = alloc<COpaquePointerVar>()
+        val rowBytes = alloc<IntVar>()
+        val width = alloc<IntVar>()
+        val height = alloc<IntVar>()
+        if (rasterBegin(pixels.ptr, rowBytes.ptr, width.ptr, height.ptr) != 0) return false
+        val address = pixels.value ?: return false
+        val measured = measure(window)
+        val fitted = IntSize(width.value, height.value)
+        val density = Density(measured.scale)
+        if (scene.size != fitted || scene.density != density) {
+            scene.density = density
+            scene.size = fitted
+        }
+        size = fitted
+        val surface = Surface.makeRasterDirect(
+            ImageInfo(fitted.width, fitted.height, ColorType.BGRA_8888, ColorAlphaType.PREMUL, ColorSpace.sRGB),
+            address.rawValue,
+            rowBytes.value,
+            SurfaceProps(PixelGeometry.RGB_H),
+        )
+        scene.render(surface.canvas.asComposeCanvas(), nanos)
+        surface.close()
+        rasterEnd()
+        true
+    }
+
     private fun describe(elements: List<AccessibleElement>) {
         val capped = if (elements.size > MAX_ELEMENTS) elements.take(MAX_ELEMENTS) else elements
         memScoped {
@@ -355,6 +412,8 @@ internal class Win32Window private constructor(
                 configureWindow(1, 0, 0, 1, 0)
                 val opened = memScoped { openWindow(title.cstr.ptr, width, height, pointers) }
                 if (opened != 0) return null
+                // Resize frames on the CPU unless asked not to (DXC_RASTER_RESIZE=0).
+                setRasterResize(if (System.getenv("DXC_RASTER_RESIZE") == "0") 0 else 1)
                 // Five pointers, in the order the C struct declares them.
                 val window = pointers[0] ?: return null
                 val device = pointers[1] ?: return null
@@ -362,6 +421,7 @@ internal class Win32Window private constructor(
                 val adapter = pointers[3] ?: return null
                 val swapchain = pointers[4] ?: return null
                 val context = DirectContext.makeDirect3D(adapter.rawValue, device.rawValue, queue.rawValue)
+                if (System.getenv("DXC_PIXEL_COMPARE") == "1") PixelCompare.run(context)
                 val measured = measure(window)
                 System.err.println(
                     "compose-rust: a window of our own, ${measured.width}x${measured.height} " +
