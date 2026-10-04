@@ -1,4 +1,4 @@
-# CI -- the fast quality gate. Runs on every pull request and every push.
+# CI -- the fast quality gate. Runs on every pull request, whatever its base.
 #
 # This workflow is deliberately Rust-only. `scripts/check.sh` (fmt, clippy,
 # tests, --quick benchmarks) finishes in minutes, so it can gate every PR.
