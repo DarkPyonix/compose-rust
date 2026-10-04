@@ -53,6 +53,14 @@ int dxc_dcomp_active(void) {
     return g_visual != nullptr;
 }
 
+int dxc_dcomp_set_clip(float width, float height) {
+    if (g_visual == nullptr) {
+        return 1;
+    }
+    D2D_RECT_F clip = {0.0f, 0.0f, width, height};
+    return SUCCEEDED(g_visual->SetClip(clip)) ? 0 : 1;
+}
+
 int dxc_dcomp_commit(void) {
     if (g_device == nullptr) {
         return 1;

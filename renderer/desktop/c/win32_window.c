@@ -163,6 +163,24 @@ static UINT dxc_frame_index;
 static struct dxc_resize dxc_sizing;
 // Set when the window has gone, so the frame loop stops rather than drawing into nothing.
 static int dxc_window_gone;
+// The swapchain's buffers, which can be larger than what is drawn. While the reader drags
+// an edge they are sized to the monitor's work area once, so a drag step is a draw and a
+// present and never a ResizeBuffers: refitting reallocates every buffer and waits for the
+// GPU, which is what made a step late. Only the top-left of the buffer is drawn, and the
+// swapchain's source size and the visual's clip say how much of it is shown.
+static int32_t dxc_buffer_width;
+static int32_t dxc_buffer_height;
+// What the buffers grow to for the length of a drag. Zero outside one.
+static int32_t dxc_drag_buffer_width;
+static int32_t dxc_drag_buffer_height;
+// How much of the buffer the screen is shown: what the swapchain's source size and the
+// visual's clip were last set to.
+static int32_t dxc_shown_width;
+static int32_t dxc_shown_height;
+// Cleared the first time the swapchain refuses a source size. From then on the buffers
+// are refitted to every size, as they were before, because a buffer larger than the
+// window with nothing saying how much of it to show would be shown whole.
+static int dxc_source_size_works = 1;
 
 // A frame, asked for by the window rather than by the loop that usually draws them.
 //
@@ -1332,6 +1350,26 @@ static LRESULT dxc_caption_hit_test(HWND window, LPARAM lparam) {
 // not find this one, so the two never meet; the names are kept distinct anyway,
 // because a reader who found both would have every reason to think they were.
 
+/**
+ * Writes down how large the buffers grow for a drag: the work area of the monitor the
+ * window is on, in pixels, rounded up to 64. The next frame grows them, once.
+ */
+static void dxc_size_buffers_for_drag(HWND window) {
+    if (!dxc_source_size_works) {
+        return;
+    }
+    MONITORINFO monitor;
+    memset(&monitor, 0, sizeof monitor);
+    monitor.cbSize = sizeof monitor;
+    if (!GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor)) {
+        return;
+    }
+    int32_t width = (int32_t)(monitor.rcWork.right - monitor.rcWork.left);
+    int32_t height = (int32_t)(monitor.rcWork.bottom - monitor.rcWork.top);
+    dxc_drag_buffer_width = (width + 63) / 64 * 64;
+    dxc_drag_buffer_height = (height + 63) / 64 * 64;
+}
+
 static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
     switch (message) {
     case WM_NCCALCSIZE: {
@@ -1425,11 +1463,21 @@ static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM
         // inside `DefWindowProc` rather than from the renderer's frame loop, and that
         // loop does not return until the reader lets go.
         dxc_resize_begin_drag(&dxc_sizing);
+        dxc_size_buffers_for_drag(window);
         return 0;
     case WM_EXITSIZEMOVE:
         // Let go. The frame loop has its turns back, so a size arriving after this is
         // written down and taken by the next frame.
         dxc_resize_end_drag(&dxc_sizing);
+        // The buffers were grown to the work area for the drag. A frame now gives that
+        // memory back; the frame loop would only draw again when something changed.
+        dxc_drag_buffer_width = 0;
+        dxc_drag_buffer_height = 0;
+        if (dxc_dcomp_active() &&
+            (dxc_buffer_width != dxc_sizing.fitted_width ||
+             dxc_buffer_height != dxc_sizing.fitted_height)) {
+            dxc_draw_one_frame();
+        }
         return 0;
     case WM_IME_STARTCOMPOSITION:
         dxc_ime_composing = 1;
@@ -2202,14 +2250,19 @@ int32_t dxc_native_window_open(
     IDXGISwapChain1 *first = NULL;
     HRESULT made = E_FAIL;
     if (dcomp_device_made) {
-        // A composition swapchain cannot be DXGI_SCALING_NONE; creating one with it
-        // fails. STRETCH does not stretch here: the visual shows the buffer at its own
-        // size, and every resize is presented before its message returns, so a buffer of
-        // another size than the window is never on screen.
-        swapchain_description.Scaling = DXGI_SCALING_STRETCH;
+        // NONE first, so a buffer and a window that disagree show as a crop and never
+        // as a stretch. Some versions refuse NONE for a composition swapchain; STRETCH
+        // is then taken, and it does not stretch either while the source size below
+        // matches what was drawn, which every frame sets.
+        swapchain_description.Scaling = DXGI_SCALING_NONE;
         swapchain_description.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
         made = IDXGIFactory4_CreateSwapChainForComposition(
             factory, (IUnknown *)queue, &swapchain_description, NULL, &first);
+        if (FAILED(made)) {
+            swapchain_description.Scaling = DXGI_SCALING_STRETCH;
+            made = IDXGIFactory4_CreateSwapChainForComposition(
+                factory, (IUnknown *)queue, &swapchain_description, NULL, &first);
+        }
         if (SUCCEEDED(made) && dxc_dcomp_attach(window, (IUnknown *)first) != 0) {
             IDXGISwapChain1_Release(first);
             first = NULL;
@@ -2280,6 +2333,11 @@ int32_t dxc_native_window_open(
     // down now so that the size the window reports as it is shown, which is this one, is
     // recognised as the size the swapchain already is.
     dxc_resize_fitted(&dxc_sizing, (int32_t)pixel_width, (int32_t)pixel_height);
+    dxc_buffer_width = (int32_t)pixel_width;
+    dxc_buffer_height = (int32_t)pixel_height;
+    dxc_shown_width = (int32_t)pixel_width;
+    dxc_shown_height = (int32_t)pixel_height;
+    dxc_source_size_works = dxc_dcomp_active();
 
     if (dxc_acquire_buffers() != 0) {
         dxc_abandon_window(adapter);
@@ -2325,10 +2383,10 @@ int32_t dxc_native_window_open(
 /**
  * What the window is drawn at, in pixels, and how many of them go to a point.
  *
- * The swapchain's size and not the client area's. The two agree as soon as a resize has
- * been taken, and where one was refused they do not: a buffer described to Skia as bigger
- * than it is would be painted past its end. The client area answers only before there is
- * a swapchain to ask.
+ * The size the swapchain is drawn at and not the client area's. The two agree as soon as
+ * a resize has been taken, and where one was refused they do not: a buffer described to
+ * Skia as bigger than it is would be painted past its end. The client area answers only
+ * before there is a swapchain to ask.
  */
 void dxc_native_window_size(void *window_pointer, int32_t *width, int32_t *height, float *scale) {
     HWND window = (HWND)window_pointer;
@@ -2339,11 +2397,11 @@ void dxc_native_window_size(void *window_pointer, int32_t *width, int32_t *heigh
         return;
     }
     *scale = dxc_scale_of(window);
-    DXGI_SWAP_CHAIN_DESC1 description;
-    if (dxc_swapchain != NULL &&
-        SUCCEEDED(IDXGISwapChain3_GetDesc1(dxc_swapchain, &description))) {
-        *width = (int32_t)description.Width;
-        *height = (int32_t)description.Height;
+    // The size drawn at, not the buffer's: the buffer can be larger, and only its top
+    // left this many pixels is shown.
+    if (dxc_swapchain != NULL && dxc_sizing.fitted_width > 0 && dxc_sizing.fitted_height > 0) {
+        *width = dxc_sizing.fitted_width;
+        *height = dxc_sizing.fitted_height;
         return;
     }
     RECT client;
@@ -2375,15 +2433,32 @@ int32_t dxc_native_frame_begin(void *swapchain_pointer, void **texture_out) {
     if (dxc_latency_wait != NULL) {
         WaitForSingleObjectEx(dxc_latency_wait, dxc_sizing.dragging ? 0 : 100, FALSE);
     }
-    int32_t wanted_width = 0;
-    int32_t wanted_height = 0;
-    if (dxc_resize_take(&dxc_sizing, &wanted_width, &wanted_height)) {
+    int32_t wanted_width = dxc_sizing.fitted_width;
+    int32_t wanted_height = dxc_sizing.fitted_height;
+    int32_t taken_width = 0;
+    int32_t taken_height = 0;
+    if (dxc_resize_take(&dxc_sizing, &taken_width, &taken_height)) {
+        wanted_width = taken_width;
+        wanted_height = taken_height;
+    }
+    // The buffers are refitted only when what is drawn no longer fits in them, or when a
+    // drag has ended and they are larger than the window. Inside a drag they are sized
+    // to the work area once, so the steps that follow refit nothing.
+    int32_t buffer_width = wanted_width;
+    int32_t buffer_height = wanted_height;
+    if (dxc_source_size_works) {
+        if (dxc_drag_buffer_width > buffer_width) buffer_width = dxc_drag_buffer_width;
+        if (dxc_drag_buffer_height > buffer_height) buffer_height = dxc_drag_buffer_height;
+    }
+    int must_refit = wanted_width > dxc_buffer_width || wanted_height > dxc_buffer_height ||
+                     !dxc_source_size_works || !dxc_sizing.dragging;
+    if (must_refit && (buffer_width != dxc_buffer_width || buffer_height != dxc_buffer_height)) {
         // Nothing may still be reading the buffers when they are let go, and a swapchain
         // refuses to be refitted while anything holds one.
         dxc_wait_for_gpu();
         dxc_release_buffers();
         HRESULT resized = IDXGISwapChain3_ResizeBuffers(
-            swapchain, DXC_BUFFER_COUNT, (UINT)wanted_width, (UINT)wanted_height,
+            swapchain, DXC_BUFFER_COUNT, (UINT)buffer_width, (UINT)buffer_height,
             DXC_SWAPCHAIN_FORMAT, dxc_swapchain_flags);
         // A refusal leaves the swapchain the size it was, so the old buffers are taken
         // back and the window carries on drawing at the size it had. Losing this frame
@@ -2396,8 +2471,27 @@ int32_t dxc_native_frame_begin(void *swapchain_pointer, void **texture_out) {
         if (dxc_acquire_buffers() != 0) {
             return 2;
         }
-        dxc_resize_fitted(&dxc_sizing, wanted_width, wanted_height);
+        dxc_buffer_width = buffer_width;
+        dxc_buffer_height = buffer_height;
     }
+    if (wanted_width > dxc_buffer_width || wanted_height > dxc_buffer_height) {
+        return 2;
+    }
+    dxc_resize_fitted(&dxc_sizing, wanted_width, wanted_height);
+    // Only the top-left of the buffer is shown. Set every frame because a refit resets it
+    // to the whole buffer; it takes effect with the present that follows.
+    if (dxc_source_size_works) {
+        if (FAILED(IDXGISwapChain3_SetSourceSize(swapchain, (UINT)wanted_width,
+                                                 (UINT)wanted_height))) {
+            // Never again. This frame is skipped, and the next one refits the buffers to
+            // the size it draws at, as every frame did before source sizes were used.
+            dxc_source_size_works = 0;
+            fprintf(stderr, "compose-rust: the swapchain refused a source size, refitting it on every resize\n");
+            return 2;
+        }
+    }
+    dxc_shown_width = wanted_width;
+    dxc_shown_height = wanted_height;
 
     dxc_frame_index = IDXGISwapChain3_GetCurrentBackBufferIndex(swapchain);
     if (dxc_buffers[dxc_frame_index] == NULL) {
@@ -2437,6 +2531,12 @@ void dxc_native_frame_end(void *queue_pointer) {
 
     // One, so the frame waits for the screen. A window that presents without waiting
     // spends a machine to draw frames nobody sees.
+    // The clip goes into the same batch as the commit below, so the visual is cut to the
+    // part of the buffer this present shows and the rest of the buffer, which holds
+    // whatever an earlier, larger frame left there, is never on screen.
+    if (dxc_dcomp_active()) {
+        dxc_dcomp_set_clip((float)dxc_shown_width, (float)dxc_shown_height);
+    }
     IDXGISwapChain3_Present(dxc_swapchain, 1, 0);
     // The present is not on the window until the visual's changes are committed, and a
     // present without a commit after it leaves the previous buffer showing. The two
