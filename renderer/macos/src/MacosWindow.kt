@@ -23,8 +23,24 @@ import androidx.compose.ui.platform.WindowInfo
 import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
+import java.lang.System
 import kotlinx.cinterop.CValue
+import kotlinx.cinterop.alloc
+import kotlinx.cinterop.nativeHeap
+import kotlinx.cinterop.ptr
 import kotlinx.cinterop.useContents
+import platform.AppKit.NSApplication
+import platform.Foundation.NSDate
+import platform.Foundation.NSRunLoop
+import platform.Foundation.NSTimer
+import platform.Foundation.NSMakeSize
+import platform.QuartzCore.CATransaction
+import resize.dxc_resize_present_against
+import resize.dxc_resize_reset
+import resize.dxc_resize_stale_ratio
+import resize.dxc_resize_step
+import resize.dxc_resize_stats
+import resize.dxc_resize_stretched
 import platform.CoreGraphics.CGPoint
 import platform.CoreGraphics.CGRect
 import platform.Foundation.NSPointInRect
@@ -156,7 +172,20 @@ internal class MacosWindow(
 
     // What the window says about itself, kept in step with the scene by the listener the
     // context carries. Pushed on change rather than asked for.
-    private val semantics = NativeSemantics { elements -> describeToReader(elements) }
+    private val semantics = NativeSemantics { elements ->
+        synthetic?.noteElements(elements)
+        describeToReader(elements)
+    }
+
+    /** Made-up input and resizing, for the parity check. Null unless `DXC_SYNTH` asked. */
+    private var synthetic: SyntheticInput? = null
+
+    /**
+     * What a resize cost and what it showed, counted by the header the native image windows
+     * count with, so a drag is counted the same way on every path. Reported at the end of a
+     * synthetic run when `DXC_REPORT_RESIZE` is set.
+     */
+    private val resizeStats = nativeHeap.alloc<dxc_resize_stats>().also { dxc_resize_reset(it.ptr) }
 
     /** Where committed and composing text goes. */
     private val textInput = NativeTextInput()
@@ -218,10 +247,22 @@ internal class MacosWindow(
         val size = IntSize(widthInPixels, heightInPixels)
         measured = size
         scene.size = size
+        val begun = System.nanoTime()
         scene.render(
             canvas.asComposeCanvas(),
             (NSProcessInfo.processInfo.systemUptime * 1_000_000_000.0).toLong(),
         )
+        if (synthetic != null) {
+            LatencyTrace.frameDrawn(System.nanoTime() - begun)
+            // Against the size the view has now, asked of it rather than remembered.
+            val scale = window.backingScaleFactor
+            view.frame.useContents {
+                dxc_resize_present_against(
+                    resizeStats.ptr, widthInPixels, heightInPixels,
+                    (this.size.width * scale).toInt(), (this.size.height * scale).toInt(),
+                )
+            }
+        }
         // After the drawing, because that is when what is in the window has been placed
         // and can say where it is. Asked before, every control answers with an empty
         // rectangle and a reader finds the screen stacked in one corner.
@@ -377,6 +418,12 @@ internal class MacosWindow(
     private val backdrop = object : NSVisualEffectView(window.frame) {
         override fun setFrameSize(newSize: CValue<CGSize>) {
             super.setFrameSize(newSize)
+            if (synthetic != null) {
+                val scale = window?.backingScaleFactor ?: 1.0
+                newSize.useContents {
+                    dxc_resize_step(resizeStats.ptr, (width * scale).toInt(), (height * scale).toInt())
+                }
+            }
             measureCaption()
         }
     }.also {
@@ -661,6 +708,71 @@ internal class MacosWindow(
     }
 
     /**
+     * Starts the made-up input of a parity run: a click in the first text field, five letters,
+     * the sizes a drag would pass through, and then the end of the run. Asked for with
+     * `DXC_SYNTH`, the same variable and the same timeline every other window reads, so the
+     * numbers it leaves in `LatencyTrace` are comparable.
+     *
+     * Driven from a timer on the main run loop, which is where AppKit delivers everything
+     * else, so the made-up input arrives the way a real one would.
+     */
+    fun startSynthetic() {
+        val what = System.getenv("DXC_SYNTH") ?: return
+        val input = SyntheticInput(what)
+        synthetic = input
+        // Something has to be asking for the tree, or the field is never found: a reader
+        // normally does, and nobody is reading this.
+        readerIsListening = true
+        NSTimer.scheduledTimerWithTimeInterval(SYNTHETIC_TURN_SECONDS, repeats = true) { _ ->
+            val now = System.nanoTime()
+            for (event in input.due(now, measured)) {
+                if (event.kind == WindowEvent.TEXT_COMMIT) LatencyTrace.inputSent()
+                LatencyTrace.mark("synthetic ${event.kind} sent")
+                scene.receive(event)
+                textInput.receive(event)
+                view.needsDisplay = true
+            }
+            if (input.resizeDue(now)) scriptedResize()
+            if (input.exitDue(now)) endSyntheticRun()
+        }
+    }
+
+    /**
+     * Takes the window through the sizes a drag would, from the size it has to 360 by 420 in
+     * sixty steps, each one set and its drawing committed before the next.
+     */
+    private fun scriptedResize() {
+        LatencyTrace.phase = "resize"
+        dxc_resize_reset(resizeStats.ptr)
+        val from = view.frame.useContents { size.width to size.height }
+        for (step in 1..SYNTHETIC_RESIZE_STEPS) {
+            val t = step.toDouble() / SYNTHETIC_RESIZE_STEPS
+            window.setContentSize(
+                NSMakeSize(
+                    from.first + (SYNTHETIC_RESIZE_WIDTH - from.first) * t,
+                    from.second + (SYNTHETIC_RESIZE_HEIGHT - from.second) * t,
+                ),
+            )
+            CATransaction.flush()
+            NSRunLoop.currentRunLoop.runUntilDate(NSDate.dateWithTimeIntervalSinceNow(0.008))
+        }
+        LatencyTrace.phase = "idle"
+    }
+
+    /** Prints what the run measured and ends the application. */
+    private fun endSyntheticRun() {
+        LatencyTrace.summary()
+        if (System.getenv("DXC_REPORT_RESIZE") != null) {
+            System.err.println(
+                "dxc resize: steps=${resizeStats.steps} presented=${resizeStats.presented} " +
+                    "stale=${resizeStats.stale} stretched=${dxc_resize_stretched(resizeStats.ptr)} " +
+                    "stale_ratio=${fixed(dxc_resize_stale_ratio(resizeStats.ptr), 4)}",
+            )
+        }
+        NSApplication.sharedApplication().terminate(null)
+    }
+
+    /**
      * Hands the reader what the scene last said, as elements it can ask about.
      *
      * Replaced whole rather than edited. The tree arrives whole, a reader asks for it on
@@ -804,3 +916,9 @@ private class MenuShortcut(private val run: () -> Unit) : platform.darwin.NSObje
     @kotlinx.cinterop.ObjCAction
     fun perform() = run()
 }
+
+/** How often the made-up input of a parity run looks at the clock. */
+private const val SYNTHETIC_TURN_SECONDS = 0.016
+private const val SYNTHETIC_RESIZE_STEPS = 60
+private const val SYNTHETIC_RESIZE_WIDTH = 360.0
+private const val SYNTHETIC_RESIZE_HEIGHT = 420.0

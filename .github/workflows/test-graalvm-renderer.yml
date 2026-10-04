@@ -83,6 +83,28 @@ jobs:
       - name: Report the distribution size
         run: du -sh renderer/build/native-image/dist/lib
 
+      - name: Parity measurements, GraalVM path
+        timeout-minutes: 15
+        # The measured half of the checklist static-renderer.yml runs on the Kotlin/Native
+        # path, with the same application: the consumer fixture, linked to the renderer this
+        # job just built. A hosted session cannot post a key from outside, so the rows that
+        # need a hand say n/a. The table is in the job summary.
+        run: |
+          dist="$PWD/renderer/build/native-image/dist/lib"
+          COMPOSE_RUST_RENDERER_DIR="$dist" CARGO_TARGET_DIR="$PWD/target/parity" \
+            cargo build --manifest-path compose-rust/tests/fixtures/consumer/Cargo.toml
+          DYLD_LIBRARY_PATH="$dist" ./scripts/parity/macos.sh graalvm "$RUNNER_TEMP/parity" -- \
+            "$PWD/target/parity/debug/consumer" --parity
+
+      - name: Keep the parity run's logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: parity-graalvm-macos-arm64
+          path: ${{ runner.temp }}/parity/
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Upload the renderer for inspection
         uses: actions/upload-artifact@v4
         with:
