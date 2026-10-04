@@ -52,6 +52,8 @@ enum {
     // field, separated by the one byte no path may contain.
     DXC_EVENT_FILES_ENTERED = 10,
     DXC_EVENT_FILES_DROPPED = 11,
+    // The files left without being let go.
+    DXC_EVENT_FILES_EXITED = 12,
 };
 
 // Room for what an input method is composing, which is a syllable or a word and never a
@@ -190,7 +192,10 @@ void dxc_native_set_accessibility(const struct dxc_element *elements, int32_t co
                                        frame:NSZeroRect
                                        label:label != nil ? label : @""
                                       parent:view];
-            NSRect local = NSMakeRect(element->x, element->y, element->width, element->height);
+            // The scene's pixels, turned into the view's points.
+            CGFloat scale = view.window.backingScaleFactor > 0 ? view.window.backingScaleFactor : 1;
+            NSRect local = NSMakeRect(element->x / scale, element->y / scale,
+                                      element->width / scale, element->height / scale);
             NSRect inWindow = [view convertRect:local toView:nil];
             NSRect onScreen = [view.window convertRectToScreen:inWindow];
             [made setAccessibilityFrame:onScreen];
@@ -389,6 +394,9 @@ static NSString *dxc_marked_text;
  * and to the one holding focus, and a plain NSView answers none of them; everything here
  * turns one into a record and puts it on the queue above.
  */
+// The paths of the files last dragged over the window, NUL separated.
+static NSString *dxc_dropped_paths;
+
 @interface DxcView : NSView <NSTextInputClient>
 @end
 
@@ -454,11 +462,15 @@ void dxc_native_set_cursor(int32_t shape) {
 
 - (void)dxcSend:(int32_t)kind event:(NSEvent *)event {
     NSPoint where = [self convertPoint:event.locationInWindow fromView:nil];
+    // In pixels, like the scene the events are given to: the view works in points, and a
+    // scene that is twice as many pixels across as points would otherwise hear every
+    // click at half the distance from the corner.
+    CGFloat scale = self.window.backingScaleFactor > 0 ? self.window.backingScaleFactor : 1;
     struct dxc_event record;
     memset(&record, 0, sizeof record);
     record.kind = kind;
-    record.x = (float)where.x;
-    record.y = (float)where.y;
+    record.x = (float)(where.x * scale);
+    record.y = (float)(where.y * scale);
     record.buttons = (int32_t)NSEvent.pressedMouseButtons;
     record.modifiers = (int32_t)event.modifierFlags;
     if (kind == DXC_EVENT_SCROLL) {
@@ -514,12 +526,41 @@ void dxc_native_set_cursor(int32_t shape) {
         }
     }
     // NUL, because it is the one byte no path on any desktop may contain.
-    [self dxcSendText:kind string:[paths componentsJoinedByString:@"\0"]];
+    NSString *joined = [paths componentsJoinedByString:@"\0"];
+    // Where the drag is, in the same pixels the pointer is reported in, so the renderer
+    // can tell which drop target the files are over.
+    NSPoint where = [self convertPoint:info.draggingLocation fromView:nil];
+    CGFloat scale = self.window.backingScaleFactor > 0 ? self.window.backingScaleFactor : 1;
+    struct dxc_event record;
+    memset(&record, 0, sizeof record);
+    record.kind = kind;
+    record.x = (float)(where.x * scale);
+    record.y = (float)(where.y * scale);
+    // The paths themselves wait here, not in the event: an event has room for a syllable
+    // and a list of paths is longer than that by a long way. They are read once the event
+    // has been heard.
+    @synchronized ([NSApplication class]) {
+        dxc_dropped_paths = joined;
+    }
+    dxc_push_event(record);
 }
 
 - (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender {
     [self dxcSendPaths:DXC_EVENT_FILES_ENTERED info:sender];
     return NSDragOperationCopy;
+}
+
+// Said again as the files move, so the renderer can tell which node they are over.
+- (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)sender {
+    [self dxcSendPaths:DXC_EVENT_FILES_ENTERED info:sender];
+    return NSDragOperationCopy;
+}
+
+- (void)draggingExited:(id<NSDraggingInfo>)sender {
+    struct dxc_event record;
+    memset(&record, 0, sizeof record);
+    record.kind = DXC_EVENT_FILES_EXITED;
+    dxc_push_event(record);
 }
 
 - (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
@@ -676,6 +717,41 @@ struct dxc_native_window {
     void *layer;
 };
 
+// What the application asked of its window, held until the window is made.
+//
+// A struct filled in by a separate call rather than more arguments to the open call,
+// because the open call is also the one a probe makes with nothing to ask for, and the
+// defaults below are what that probe has always got.
+static struct {
+    int32_t resizable;
+    int32_t min_width;
+    int32_t min_height;
+    int32_t system_chrome;
+    int32_t backdrop;
+} dxc_options = {1, 0, 0, 0, 0};
+
+/**
+ * Says how the next window should be made. Called once, before it is opened.
+ *
+ * `system_chrome` keeps the ordinary title bar above the content. Without it the content
+ * runs under a transparent bar and the system's three buttons stay where they are, which
+ * is the look every window of this renderer has had. `backdrop` puts what is behind the
+ * window under the page, for a design that draws glass.
+ */
+void dxc_native_window_configure(
+    int32_t resizable,
+    int32_t min_width,
+    int32_t min_height,
+    int32_t system_chrome,
+    int32_t backdrop
+) {
+    dxc_options.resizable = resizable;
+    dxc_options.min_width = min_width;
+    dxc_options.min_height = min_height;
+    dxc_options.system_chrome = system_chrome;
+    dxc_options.backdrop = backdrop;
+}
+
 /**
  * Opens a window with a Metal layer filling it.
  *
@@ -715,15 +791,34 @@ int32_t dxc_native_window_open(
 
         NSRect frame = NSMakeRect(0, 0, width, height);
         NSWindowStyleMask mask = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
-            NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable |
-            NSWindowStyleMaskFullSizeContentView;
+            NSWindowStyleMaskMiniaturizable;
+        if (dxc_options.resizable) {
+            mask |= NSWindowStyleMaskResizable;
+        }
+        if (!dxc_options.system_chrome) {
+            mask |= NSWindowStyleMaskFullSizeContentView;
+        }
         NSWindow *window = [[NSWindow alloc] initWithContentRect:frame
                                                       styleMask:mask
                                                         backing:NSBackingStoreBuffered
                                                           defer:NO];
         window.title = [NSString stringWithUTF8String:title];
-        window.titlebarAppearsTransparent = YES;
-        window.titleVisibility = NSWindowTitleHidden;
+        if (!dxc_options.system_chrome) {
+            window.titlebarAppearsTransparent = YES;
+            window.titleVisibility = NSWindowTitleHidden;
+            // An empty unified toolbar: its only job is to make the title bar the height a
+            // toolbar gives it, which centres the three buttons on the line the bar's own
+            // content is drawn on. Everything in the bar is the renderer's, underneath.
+            NSToolbar *toolbar = [[NSToolbar alloc] initWithIdentifier:@"compose-rust"];
+            toolbar.showsBaselineSeparator = NO;
+            window.toolbar = toolbar;
+            if (@available(macOS 11.0, *)) {
+                window.toolbarStyle = NSWindowToolbarStyleUnified;
+            }
+        }
+        if (dxc_options.min_width > 0 || dxc_options.min_height > 0) {
+            window.contentMinSize = NSMakeSize(dxc_options.min_width, dxc_options.min_height);
+        }
         window.releasedWhenClosed = NO;
         // Held for the life of the window, which owns it through the delegate reference.
         static DxcWindowDelegate *delegate;
@@ -763,6 +858,23 @@ int32_t dxc_native_window_open(
         [window makeFirstResponder:view];
         [view registerForDraggedTypes:@[NSPasteboardTypeFileURL]];
         window.acceptsMouseMovedEvents = YES;
+        if (dxc_options.backdrop) {
+            // The half of the glass that cannot be drawn: what is behind the window. The
+            // effect view is a sibling under the content view, in the frame view both
+            // hang from, so neither is asked to change. The window and the layer then
+            // stop claiming to fill their rectangle, or nothing composites behind them.
+            NSVisualEffectView *effect = [[NSVisualEffectView alloc] init];
+            effect.material = NSVisualEffectMaterialSidebar;
+            effect.blendingMode = NSVisualEffectBlendingModeBehindWindow;
+            effect.state = NSVisualEffectStateActive;
+            effect.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+            NSView *frame_view = window.contentView.superview;
+            effect.frame = frame_view.bounds;
+            [frame_view addSubview:effect positioned:NSWindowBelow relativeTo:window.contentView];
+            window.opaque = NO;
+            window.backgroundColor = NSColor.clearColor;
+            layer.opaque = NO;
+        }
         [window center];
         [window makeKeyAndOrderFront:nil];
         [NSApp activateIgnoringOtherApps:YES];
@@ -777,6 +889,73 @@ int32_t dxc_native_window_open(
     }
     });
     return status;
+}
+
+/**
+ * The strip across the top of the window that belongs to the title bar, and the room the
+ * system's three buttons take at its leading edge, both in points.
+ *
+ * Measured from the window, because the height follows the platform: a unified toolbar
+ * makes it taller than the standard bar, and the next release may change it again. Zero
+ * for a window that kept its ordinary title bar, which has nothing to run underneath.
+ */
+void dxc_native_window_caption(void *view_pointer, float *height, float *buttons_width) {
+    dxc_on_main(^{
+    @autoreleasepool {
+        DxcView *view = (__bridge DxcView *)view_pointer;
+        NSWindow *window = view.window;
+        *height = 0;
+        *buttons_width = 0;
+        if (window == nil || dxc_options.system_chrome) {
+            return;
+        }
+        CGFloat strip = window.frame.size.height - window.contentLayoutRect.size.height;
+        if (strip < 0) {
+            return;
+        }
+        *height = (float)strip;
+        NSButton *close = [window standardWindowButton:NSWindowCloseButton];
+        NSButton *zoom = [window standardWindowButton:NSWindowZoomButton];
+        if (close != nil && zoom != nil) {
+            *buttons_width = (float)(NSMaxX(zoom.frame) + close.frame.origin.x);
+        }
+    }
+    });
+}
+
+/**
+ * The paths of the files last dragged over the window, copied into [out], and the number
+ * of bytes that is. They are separated by NUL, the one byte no path may contain, and the
+ * count is zero when nothing was carried.
+ */
+int32_t dxc_native_dropped_paths(char *out, int32_t capacity) {
+    NSString *paths;
+    @synchronized ([NSApplication class]) {
+        paths = dxc_dropped_paths;
+    }
+    const char *utf8 = paths.UTF8String;
+    if (utf8 == NULL) {
+        return 0;
+    }
+    NSUInteger bytes = [paths lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+    if ((NSUInteger)capacity < bytes) {
+        return 0;
+    }
+    memcpy(out, utf8, bytes);
+    return (int32_t)bytes;
+}
+
+/** Gives the application the picture it named, from the bytes of an encoded image. */
+void dxc_native_set_icon(const uint8_t *bytes, int32_t length) {
+    NSData *data = [NSData dataWithBytes:bytes length:(NSUInteger)length];
+    dxc_on_main(^{
+    @autoreleasepool {
+        NSImage *image = [[NSImage alloc] initWithData:data];
+        if (image != nil) {
+            NSApp.applicationIconImage = image;
+        }
+    }
+    });
 }
 
 /** What the layer is drawn at, in pixels, and how many of them go to a point. */

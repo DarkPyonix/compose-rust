@@ -1443,6 +1443,42 @@ void dxc_native_clipboard_write(const char *text) {
     (void)text;
 }
 
+/*
+ * Asked for by name by the window code every desktop shares, and answered here by saying
+ * nothing: this window takes its options another way, has no strip of the system's to
+ * measure, and reads no list of dropped paths from the platform.
+ */
+void dxc_native_window_configure(
+    int32_t resizable,
+    int32_t min_width,
+    int32_t min_height,
+    int32_t system_chrome,
+    int32_t backdrop
+) {
+    (void)resizable;
+    (void)min_width;
+    (void)min_height;
+    (void)system_chrome;
+    (void)backdrop;
+}
+
+void dxc_native_window_caption(void *view_pointer, float *height, float *buttons_width) {
+    (void)view_pointer;
+    *height = 0;
+    *buttons_width = 0;
+}
+
+void dxc_native_set_icon(const uint8_t *bytes, int32_t length) {
+    (void)bytes;
+    (void)length;
+}
+
+int32_t dxc_native_dropped_paths(char *out, int32_t capacity) {
+    (void)out;
+    (void)capacity;
+    return 0;
+}
+
 void dxc_native_set_frame_callback(void *callback, void *isolate_thread) {
     (void)callback;
     (void)isolate_thread;
