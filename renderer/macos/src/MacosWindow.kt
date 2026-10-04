@@ -7,7 +7,6 @@ package dev.darkpyonix.composerust.ui.platform
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.ui.unit.dp
 import dev.darkpyonix.composerust.runtime.WindowCaption
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asComposeCanvas
@@ -34,6 +33,11 @@ import org.jetbrains.skia.Canvas
 import androidx.compose.ui.input.pointer.PointerIcon
 import platform.AppKit.NSBackingStoreBuffered
 import platform.AppKit.NSWindowCloseButton
+import dev.darkpyonix.composerust.protocol.TitleBar
+import dev.darkpyonix.composerust.protocol.Chrome
+import platform.AppKit.NSWindowTitleVisible
+import platform.AppKit.NSWindowToolbarStyleUnified
+import platform.AppKit.NSToolbar
 import platform.AppKit.NSWindowZoomButton
 import platform.AppKit.NSViewLayerContentsRedrawDuringViewResize
 import platform.CoreGraphics.CGSize
@@ -93,10 +97,6 @@ import platform.CoreGraphics.CGRectMake
 import platform.Foundation.NSMakeRect
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
-import platform.CoreGraphics.CGPointMake
-import platform.AppKit.NSWindowMiniaturizeButton
-import androidx.compose.ui.unit.Dp
-import platform.AppKit.NSWindowButton
 
 /**
  * A window of this renderer's own, rather than the one Compose opens for this platform.
@@ -115,10 +115,11 @@ internal class MacosWindow(
     private val name: String,
     width: Int,
     height: Int,
-    /** How far in from the corner the system's three buttons sit. Zero leaves them. */
-    private val buttonInset: Dp = 0.dp,
-    /** How round the window is. Zero leaves the system's own. */
-    private val cornerRadius: Dp = 0.dp,
+    /**
+     * How the title bar is built: the same answer the native image's window is given, so
+     * the two have the same corners and their content starts at the same height.
+     */
+    private val chrome: MacosWindowChrome = MacosWindowChrome.of(Chrome.Modern, TitleBar.Normal),
 ) {
     private var measured = IntSize(width, height)
     private val components = DefaultArchitectureComponentsOwner()
@@ -243,81 +244,17 @@ internal class MacosWindow(
      */
     val caption = mutableStateOf(WindowCaption.None)
 
-    /**
-     * Moves the system's three buttons in from the corner and rounds the window.
-     *
-     * Both are what a window on this platform looks like in its ordinary mode, and both
-     * are measurements the design system answered rather than numbers written here.
-     *
-     * The buttons are moved by their frames rather than by a layout: they are the
-     * system's, they are laid out by the system's own title bar, and the only thing an
-     * application is given is where they ended up. Moving them again on every caption
-     * measurement keeps them there when the system puts them back, which it does whenever
-     * it rebuilds that bar.
-     */
-    /**
-     * Where the system put each of its three buttons, read once.
-     *
-     * The system lays that bar out again whenever it rebuilds it, so the answer is taken
-     * the first time each button is seen and the offset is applied to that rather than to
-     * wherever the button happens to be now.
-     */
-    private val systemButtonOrigins = mutableMapOf<NSWindowButton, Pair<Double, Double>>()
-
-    private fun dressTheTitleBar() {
-        if (buttonInset > 0.dp) {
-            val step = buttonInset.value.toDouble()
-            for (which in listOf(NSWindowCloseButton, NSWindowMiniaturizeButton, NSWindowZoomButton)) {
-                val button = window.standardWindowButton(which) ?: continue
-                // Measured from where the system put them, not from where they are. This
-                // runs again on every caption measurement, which is every resize, and
-                // adding the step to the current origin each time marches the buttons off
-                // the corner one step per drag.
-                val home = systemButtonOrigins.getOrPut(which) {
-                    button.frame.useContents { origin.x to origin.y }
-                }
-                button.setFrameOrigin(CGPointMake(home.first + step, home.second - step))
-            }
-        }
-        if (cornerRadius > 0.dp) {
-            // The window's own corner, not the layer's clip. The backing layer is where the
-            // drawing lands, so rounding it is what rounds what anyone sees; the window
-            // stays square underneath and nothing is drawn out there.
-            metal.layer.cornerRadius = cornerRadius.value.toDouble()
-            metal.layer.masksToBounds = true
-            // And the material behind it, which is a second thing that reaches the corner
-            // now. Left square it would stand outside the drawing's own corner as four
-            // grey wedges.
-            backdrop.wantsLayer = true
-            backdrop.layer?.cornerRadius = cornerRadius.value.toDouble()
-            backdrop.layer?.masksToBounds = true
-        }
-    }
-
     private fun measureCaption() {
-        val scale = 1.0
-        val height = window.frame.useContents { size.height } -
-            window.contentLayoutRect.useContents { size.height }
         val close = window.standardWindowButton(NSWindowCloseButton)
         val zoom = window.standardWindowButton(NSWindowZoomButton)
-        val width = if (close == null || zoom == null) 0.0 else {
-            val leading = close.frame.useContents { origin.x }
-            zoom.frame.useContents { origin.x + size.width } + leading
-        }
-        dressTheTitleBar()
-        // Read while the window's frame is changing, which is now as the content view is
-        // sized and before the window has worked out its new layout rect, the difference
-        // between the two can come out negative for a moment. A caption is never shorter
-        // than nothing, and the page's top is made of this: a negative one was a negative
-        // padding, and the window closed the instant it was resized. The last reading
-        // stands until there is a real one.
-        if (height < 0.0 || width < 0.0) return
-        caption.value = WindowCaption(
-            height = (height * scale).dp,
-            // The platform's own, and this platform puts them at the leading edge.
-            buttonsWidth = (width * scale).dp,
-            buttonsAtStart = true,
-        )
+        // Null while the window is between sizes; the last reading stands until then.
+        caption.value = macosWindowCaption(
+            chrome = chrome,
+            windowHeight = window.frame.useContents { size.height },
+            contentLayoutHeight = window.contentLayoutRect.useContents { size.height },
+            closeMinX = close?.frame?.useContents { origin.x },
+            zoomMaxX = zoom?.frame?.useContents { origin.x + size.width },
+        ) ?: return
     }
 
     val window = object : NSWindow(
@@ -328,7 +265,7 @@ internal class MacosWindow(
             // of the system's. The bar is still there and still the system's, which is
             // what keeps the three buttons and the drag and the double click to zoom;
             // it is see-through, and what shows through is the application.
-            NSWindowStyleMaskFullSizeContentView,
+            (if (chrome.fullSizeContentView) NSWindowStyleMaskFullSizeContentView else 0uL),
         backing = NSBackingStoreBuffered,
         defer = true,
     ) {
@@ -364,12 +301,8 @@ internal class MacosWindow(
      * the material through. It follows the window's active state, which is what makes
      * everything drawn on it flatten together when the window stops being the one in use.
      */
-    // A subclass for one reason: it is the content view now, so it is the view AppKit sizes
-    // when the window's frame changes, and a change of size is when the system lays its
-    // three buttons out again and puts them back where it keeps them. The drawing used to
-    // be the content view and moved the buttons back from its own resize; once it became a
-    // view inside this one, nothing moved them back and the ordinary mode's inset was gone
-    // from the moment the window first came up.
+    // A subclass for one reason: it is the content view, so it is the view AppKit sizes
+    // when the window's frame changes, and the title bar's height is measured again then.
     // Made at the content's size, at the origin. The window's frame is a rectangle on the
     // screen, and a view built from it carries the window's screen position as its own
     // offset inside its parent.
@@ -676,8 +609,7 @@ internal class MacosWindow(
         // switcher and in Mission Control, so it is set; it is hidden because the
         // application draws its own heading where the bar would have written it.
         window.setTitle(name)
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = NSWindowTitleHidden
+        applyChrome(window, chrome)
         // The material is the content view and the application draws inside it. The window
         // itself stops being opaque and stops painting a colour, because either one is a
         // sheet of paint laid over the thing this was all for.
@@ -827,3 +759,22 @@ internal fun scenePoint(view: NSView, locationInWindow: CValue<CGPoint>, scale: 
     view.convertPoint(locationInWindow, fromView = null).useContents {
         Offset((x * scale).toFloat(), (y * scale).toFloat())
     }
+
+/**
+ * Builds [window]'s title bar the way [chrome] says, as the native image's window does in
+ * `dxc_native_window_open`. The style mask is set where the window is made.
+ */
+internal fun applyChrome(window: NSWindow, chrome: MacosWindowChrome) {
+    window.titlebarAppearsTransparent = chrome.titlebarAppearsTransparent
+    window.titleVisibility = if (chrome.titleHidden) NSWindowTitleHidden else NSWindowTitleVisible
+    if (chrome.unifiedToolbar) {
+        // Empty: it sets the bar's height, which centres the three buttons on the line the
+        // bar's own content is drawn on, and gives the window the radius such a window has.
+        val toolbar = NSToolbar(identifier = "compose-rust")
+        toolbar.showsBaselineSeparator = false
+        window.toolbar = toolbar
+        window.toolbarStyle = NSWindowToolbarStyleUnified
+    } else {
+        window.toolbar = null
+    }
+}

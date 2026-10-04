@@ -1116,10 +1116,26 @@ void dxc_native_window_configure(
     dxc_options.backdrop = backdrop;
 }
 
-void dxc_native_window_caption(void *view_pointer, float *height, float *buttons_width) {
+// macOS only: the native image's shared Kotlin declares them, so every platform defines
+// them. Nothing on this platform calls them.
+void dxc_native_window_title_bar(void *view_pointer, float *out) {
     (void)view_pointer;
-    *height = 0;
-    *buttons_width = 0;
+    out[0] = 0;
+    out[1] = 0;
+    out[2] = -1;
+    out[3] = -1;
+}
+
+void dxc_native_window_chrome(
+    int32_t full_size_content,
+    int32_t transparent_title_bar,
+    int32_t title_hidden,
+    int32_t unified_toolbar
+) {
+    (void)full_size_content;
+    (void)transparent_title_bar;
+    (void)title_hidden;
+    (void)unified_toolbar;
 }
 
 /**
