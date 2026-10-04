@@ -225,6 +225,17 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+      - name: Publish both Linux architectures for the renderer
+        # The comparison above is x64 only, because the old build only knew x64. The renderer's
+        # Linux modules declare linuxArm64 as well, so resolving them needs the arm64 variants
+        # and the root metadata that lists both. Publishing the fork's full Linux set over the
+        # restored x64 one supplies them.
+        if: runner.os == 'Linux'
+        run: |
+          rm -rf "$COMPOSE_WORK"
+          DXC_COMPOSE_BUILD="$COMPOSE_WORK" \
+            ./renderer/scripts/build-compose.sh --target linux --clean
+
       - name: Build the renderer and its static library against it
         run: ./renderer/desktop/scripts/${{ matrix.renderer_script }}
 
