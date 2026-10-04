@@ -654,44 +654,21 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
     // The application's own tree, drawn by the same interpreter every window uses.
     // Nothing in it knows which window it is in, which is the point.
     scene.setContent {
-<<<<<<< HEAD
-        androidx.compose.runtime.CompositionLocalProvider(
-            dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver provides {
-                rememberSystemDark().value
-            },
-            androidx.compose.ui.platform.LocalClipboard provides clipboard,
-            androidx.compose.ui.platform.LocalClipboardManager provides clipboardManager,
-            // The right-click menu is the system's. Given as the default, so a part of the
-            // tree that provides its own replaces it rather than showing a second one.
-            androidx.compose.foundation.LocalContextMenuRepresentation provides
-                NativeContextMenuRepresentation { entries -> window.showContextMenu(entries) },
-        ) {
-            // `DXC_MENU_OVERRIDE=drawn` stands in for an application that draws its own
-            // menu: it provides Compose's drawn representation further in, exactly as an
-            // application would, so the one menu that comes up is that one and not the
-            // system's. For checking that an override wins, on any sample.
-            if (System.getenv("DXC_MENU_OVERRIDE") == "drawn") {
-                androidx.compose.runtime.CompositionLocalProvider(
-                    androidx.compose.foundation.LocalContextMenuRepresentation provides
-                        androidx.compose.foundation.LightDefaultContextMenuRepresentation,
-                ) {
-                    dev.darkpyonix.composerust.runtime.ComposeRustContent(
-                        host,
-                        Modifier.fillMaxSize(),
-                        caption = caption.value,
-                    )
-                }
-            } else {
-                dev.darkpyonix.composerust.runtime.ComposeRustContent(
-                    host,
-                    Modifier.fillMaxSize(),
-                    caption = caption.value,
-                )
-            }
+        // The right-click menu is the system's. Given as the default, so a part of the
+        // tree that provides its own replaces it rather than showing a second one.
+        // `DXC_MENU_OVERRIDE=drawn` stands in for an application that draws its own menu:
+        // it provides Compose's drawn representation instead, as an application would, so
+        // the one menu that comes up is that one. For checking that an override wins.
+        val menu = if (System.getenv("DXC_MENU_OVERRIDE") == "drawn") {
+            androidx.compose.foundation.LightDefaultContextMenuRepresentation
+        } else {
+            NativeContextMenuRepresentation { entries -> window.showContextMenu(entries) }
         }
-=======
-        NativeWindowContent(host, caption.value, actions = null)
->>>>>>> origin/develop
+        androidx.compose.runtime.CompositionLocalProvider(
+            androidx.compose.foundation.LocalContextMenuRepresentation provides menu,
+        ) {
+            NativeWindowContent(host, caption.value, actions = null)
+        }
     }
     installApplicationMenu(options.title)
 

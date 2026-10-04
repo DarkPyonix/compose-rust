@@ -1349,7 +1349,6 @@ void dxc_native_debug_key(void *window_pointer, int32_t key_code, const char *ch
     });
 }
 
-<<<<<<< HEAD
 // The entry the reader chose from the context menu, or -1 where the menu was dismissed.
 static int32_t dxc_menu_chosen = -1;
 
@@ -1400,7 +1399,8 @@ int32_t dxc_native_context_menu(void *view_pointer, const char *items) {
         [menu popUpMenuPositioningItem:nil atLocation:local inView:view];
     });
     return dxc_menu_chosen;
-=======
+}
+
 /** What a button of the application's own caption asks: 0 minimises, 1 zooms, 2 closes. */
 void dxc_native_window_action(int32_t action) {
     dxc_on_main(^{
@@ -1425,5 +1425,4 @@ void dxc_native_window_begin_drag(int32_t edge) {
 void dxc_native_set_ime_spot(float x, float y) {
     dxc_ime_spot_x = x;
     dxc_ime_spot_y = y;
->>>>>>> origin/develop
 }
