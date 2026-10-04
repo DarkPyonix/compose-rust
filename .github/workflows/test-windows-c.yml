@@ -1,0 +1,53 @@
+# Windows C compile check -- compiles the C the Windows build compiles, with MSVC, on every
+# pull request that touches it. No linking, no native-image, no Kotlin.
+#
+# native-renderer.yml builds the whole Windows renderer, but it takes an hour, so it does not
+# run on pull requests. A C-mode compile error therefore used to surface on real hardware.
+# This job takes under a minute and fails on the pull request instead.
+#
+# The flags are the ones build-native-windows.ps1 passes to cl.exe. If that script changes
+# them or adds a source, change them here as well.
+
+name: Windows C compile
+
+on:
+  pull_request:
+    paths:
+      - "renderer/desktop/c/**"
+      - ".github/workflows/test-windows-c.yml"
+  workflow_dispatch:
+
+concurrency:
+  # One in-flight run per branch or PR; superseded runs are cancelled.
+  group: test-windows-c-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    name: MSVC compiles the Windows C sources
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: cl /c each source
+        shell: pwsh
+        run: |
+          $sources = @("renderer_entry.c", "win32_window.c", "win32_notifications.c")
+          New-Item -ItemType Directory -Force -Path obj | Out-Null
+          $failed = @()
+          foreach ($s in $sources) {
+            $path = Join-Path "renderer/desktop/c" $s
+            $name = [IO.Path]::GetFileNameWithoutExtension($s)
+            & cl.exe /nologo /c /O2 /std:c11 "/Fo:obj\$name.obj" $path
+            if ($LASTEXITCODE -ne 0) { $failed += $s }
+          }
+          if ($failed.Count -gt 0) {
+            Write-Error "MSVC could not compile: $($failed -join ', ')"
+            exit 1
+          }
