@@ -4,6 +4,7 @@
 package dev.darkpyonix.composerust.ui.platform
 
 import org.graalvm.nativeimage.StackValue
+import org.graalvm.nativeimage.UnmanagedMemory
 import org.graalvm.nativeimage.c.function.CFunction
 import org.graalvm.nativeimage.c.type.CCharPointer
 import org.graalvm.nativeimage.c.type.CIntPointer
@@ -30,11 +31,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asComposeCanvas
+import androidx.compose.ui.graphics.asSkiaBitmap
+import dev.darkpyonix.composerust.runtime.asksForWindowMaterial
 import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.scene.ComposeScene
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.graalvm.nativeimage.CurrentIsolate
+import org.graalvm.nativeimage.IsolateThread
+import org.graalvm.nativeimage.c.function.CFunctionPointer
 import org.graalvm.word.Pointer
 import org.graalvm.word.WordFactory
 
@@ -75,6 +81,9 @@ private external fun beginFrame(layer: Pointer?, textureOut: Pointer?): Int
 @CFunction("dxc_native_frame_end")
 private external fun endFrame(queue: Pointer?)
 
+@CFunction("dxc_native_take_paste")
+private external fun takePaste(out: Pointer?, capacity: Int): Int
+
 @CFunction("dxc_native_poll_event")
 private external fun pollEvent(out: Pointer?): Int
 
@@ -87,6 +96,24 @@ private external fun setCursorShape(shape: Int)
 @CFunction("dxc_native_pump")
 private external fun pumpEvents(seconds: Double)
 
+@CFunction("dxc_native_set_draw_callback")
+private external fun setAppKitDrawCallback(callback: CFunctionPointer?, isolateThread: IsolateThread?)
+
+@CFunction("dxc_native_debug_resize")
+private external fun debugResize(
+    window: Pointer?,
+    view: Pointer?,
+    fromWidth: Int,
+    fromHeight: Int,
+    toWidth: Int,
+    toHeight: Int,
+    steps: Int,
+    pauseMicros: Int,
+)
+
+@CFunction("dxc_native_debug_key")
+private external fun debugKey(window: Pointer?, keyCode: Int, characters: CCharPointer?)
+
 @CFunction("dxc_native_clipboard_read")
 private external fun clipboardRead(out: Pointer?, capacity: Int): Int
 
@@ -95,6 +122,33 @@ private external fun clipboardWrite(text: CCharPointer?)
 
 @CFunction("dxc_native_install_menu")
 private external fun installMenu(name: CCharPointer?)
+
+@CFunction("dxc_native_window_configure")
+private external fun configureWindow(
+    resizable: Int,
+    minWidth: Int,
+    minHeight: Int,
+    systemChrome: Int,
+    backdrop: Int,
+)
+
+@CFunction("dxc_native_window_caption")
+private external fun windowCaption(view: Pointer?, height: CFloatPointer?, buttonsWidth: CFloatPointer?)
+
+@CFunction("dxc_native_set_icon")
+private external fun setIcon(rgba: CCharPointer?, width: Int, height: Int)
+
+@CFunction("dxc_native_dropped_paths")
+private external fun droppedPaths(out: Pointer?, capacity: Int): Int
+
+@CFunction("dxc_native_set_ime_spot")
+private external fun setImeSpot(x: Float, y: Float)
+
+@CFunction("dxc_native_window_action")
+private external fun windowAction(action: Int)
+
+@CFunction("dxc_native_window_begin_drag")
+private external fun beginWindowDrag(edge: Int)
 
 @CFunction("dxc_native_window_closed")
 private external fun windowClosed(): Int
@@ -143,6 +197,24 @@ class NativeWindow internal constructor(
     /** Puts the painted frame on the screen. */
     fun endFrame() = endFrame(WordFactory.pointer(queue))
 
+    /** Posts a key press for [character] to the window. See `DXC_SYNTH`. */
+    internal fun postKey(keyCode: Int, character: String) {
+        val holder = CTypeConversion.toCString(character)
+        try {
+            debugKey(WordFactory.pointer(window), keyCode, holder.get())
+        } finally {
+            holder.close()
+        }
+    }
+
+    /** Takes the window through the sizes a drag would, for measuring. See `DXC_SYNTH_RESIZE`. */
+    internal fun scriptedResize(from: Pair<Int, Int>, to: Pair<Int, Int>, steps: Int, pauseMicros: Int) {
+        debugResize(
+            WordFactory.pointer(window), WordFactory.pointer(view),
+            from.first, from.second, to.first, to.second, steps, pauseMicros,
+        )
+    }
+
 }
 
 /**
@@ -166,6 +238,13 @@ fun drainWindowEvents(): List<WindowEvent> {
             if (byte == ZERO) break
             bytes[length] = byte
             length++
+        }
+        if (record.readInt(0) == WindowEvent.TEXT_PASTE) {
+            val pasted = readPaste()
+            if (pasted.isNotEmpty()) {
+                events.add(WindowEvent(WindowEvent.TEXT_COMMIT, 0f, 0f, 0, 0, 0, 0, pasted))
+            }
+            continue
         }
         events.add(
             WindowEvent(
@@ -229,6 +308,129 @@ internal fun describeWindow(view: Long, elements: List<AccessibleElement>) {
 fun setPointerShape(shape: Int) = setCursorShape(shape)
 
 /**
+ * What the application asked of its window, handed over before the window is made.
+ *
+ * Sizes are in points, which is what the window measures its content in.
+ */
+internal fun configureNativeWindow(
+    resizable: Boolean,
+    minWidth: Int,
+    minHeight: Int,
+    systemChrome: Boolean,
+    backdrop: Boolean,
+) = configureWindow(
+    if (resizable) 1 else 0,
+    minWidth,
+    minHeight,
+    if (systemChrome) 1 else 0,
+    if (backdrop) 1 else 0,
+)
+
+/**
+ * The strip of the window the title bar occupies and the room its three buttons take at the
+ * leading edge, as the window reports them.
+ *
+ * Measured rather than assumed, because the height follows the platform: it is taller
+ * under a toolbar than under the standard bar and has changed between releases.
+ */
+internal fun NativeWindow.measureCaption(): dev.darkpyonix.composerust.runtime.WindowCaption {
+    val height = StackValue.get<CFloatPointer>(4)
+    val buttons = StackValue.get<CFloatPointer>(4)
+    windowCaption(WordFactory.pointer(view), height, buttons)
+    return dev.darkpyonix.composerust.runtime.WindowCaption(
+        height = height.read().dp,
+        buttonsWidth = buttons.read().dp,
+        buttonsAtStart = true,
+    )
+}
+
+/** Tells the window where the caret is, so the input method's candidates open beside it. */
+internal fun reportCaret(textInput: NativeTextInput) {
+    val spot = textInput.caretSpot() ?: return
+    if (spot == lastCaret) return
+    lastCaret = spot
+    setImeSpot(spot.x, spot.y)
+}
+
+private var lastCaret: androidx.compose.ui.geometry.Offset? = null
+
+/** Brings the window forward. Safe from any thread: it is a request the window acts on in its next turn. */
+internal fun bringNativeWindowToFront() = windowAction(3)
+
+/** What a button of the application's own caption does to the window. */
+internal fun nativeWindowActions() = dev.darkpyonix.composerust.runtime.WindowActions(
+    minimise = { windowAction(0) },
+    maximise = { windowAction(1) },
+    close = { windowAction(2) },
+)
+
+/**
+ * Hands the move or the resize of an undecorated window to the window manager, which does
+ * it better than a drag measured here could: 0 moves, and 1 to 8 pull the edge or corner
+ * [WindowEdge] names.
+ */
+internal fun beginNativeWindowDrag(edge: Int) = beginWindowDrag(edge)
+
+/** The paths of the files last dragged over the window, one string, NUL between them. */
+internal fun readDroppedPaths(): String {
+    val buffer = StackValue.get<Pointer>(DROPPED_PATHS_BYTES)
+    val length = droppedPaths(buffer, DROPPED_PATHS_BYTES)
+    if (length <= 0) return ""
+    val bytes = ByteArray(length)
+    for (index in 0 until length) {
+        bytes[index] = buffer.readByte(index)
+    }
+    return String(bytes, Charsets.UTF_8)
+}
+
+private const val DROPPED_PATHS_BYTES = 64 * 1024
+
+/**
+ * Puts a picture on the application, which is what the Dock and the switcher show.
+ *
+ * [rgba] is eight bits each of red, green, blue and alpha, the colour already multiplied by
+ * the alpha, row after row with no padding.
+ */
+internal fun setApplicationIcon(rgba: ByteArray, width: Int, height: Int) {
+    val holder = CTypeConversion.toCBytes(rgba)
+    try {
+        setIcon(holder.get(), width, height)
+    } finally {
+        holder.close()
+    }
+}
+
+/**
+ * Puts the picture the application named on the window, once the asset has arrived.
+ *
+ * Asked each frame until it is there, because the id is known from the first batch and the
+ * bitmap a little later. Answers true once it has been put on, so the caller can stop.
+ */
+internal fun applyNamedIcon(host: dev.darkpyonix.composerust.runtime.ComposeRustHost, id: Int): Boolean {
+    if (id == 0) return true
+    val raster = host.table.assets.asset(id) as? dev.darkpyonix.composerust.ui.node.Asset.Raster
+        ?: return false
+    iconPixels(raster.bitmap)?.let { (pixels, width, height) ->
+        setApplicationIcon(pixels, width, height)
+    }
+    return true
+}
+
+/** The pixels [setApplicationIcon] takes, from a picture Compose holds. */
+internal fun iconPixels(picture: androidx.compose.ui.graphics.ImageBitmap): Triple<ByteArray, Int, Int>? {
+    val bitmap = picture.asSkiaBitmap()
+    val info = org.jetbrains.skia.ImageInfo(
+        bitmap.width,
+        bitmap.height,
+        org.jetbrains.skia.ColorType.RGBA_8888,
+        org.jetbrains.skia.ColorAlphaType.PREMUL,
+    )
+    val pixels = bitmap.readPixels(info, info.minRowBytes) ?: return null
+    return Triple(pixels, bitmap.width, bitmap.height)
+}
+
+
+/**
  * Lets the window answer for itself for a moment.
  *
  * Called once a frame. The thread that draws is the thread the platform delivers on, so a
@@ -257,14 +459,34 @@ fun installApplicationMenu(name: String) {
 
 /** What is on the clipboard, or empty where it holds something that is not text. */
 fun readClipboard(): String {
-    val buffer = StackValue.get<Pointer>(CLIPBOARD_BYTES)
-    val length = clipboardRead(buffer, CLIPBOARD_BYTES)
-    if (length <= 0) return ""
-    val bytes = ByteArray(length)
-    for (index in 0 until length) {
-        bytes[index] = buffer.readByte(index)
+    val buffer = UnmanagedMemory.malloc<Pointer>(CLIPBOARD_BYTES)
+    try {
+        val length = clipboardRead(buffer, CLIPBOARD_BYTES)
+        if (length <= 0) return ""
+        val bytes = ByteArray(length)
+        for (index in 0 until length) {
+            bytes[index] = buffer.readByte(index)
+        }
+        return String(bytes, Charsets.UTF_8)
+    } finally {
+        UnmanagedMemory.free(buffer)
     }
-    return String(bytes, Charsets.UTF_8)
+}
+
+/** The text of a paste the window is holding, whole, and empty where there is none. */
+private fun readPaste(): String {
+    val buffer = UnmanagedMemory.malloc<Pointer>(CLIPBOARD_BYTES)
+    try {
+        val length = takePaste(buffer, CLIPBOARD_BYTES)
+        if (length <= 0) return ""
+        val bytes = ByteArray(length)
+        for (index in 0 until length) {
+            bytes[index] = buffer.readByte(index)
+        }
+        return String(bytes, Charsets.UTF_8)
+    } finally {
+        UnmanagedMemory.free(buffer)
+    }
 }
 
 /** Puts text on the clipboard, replacing what was there. */
@@ -278,12 +500,12 @@ fun writeClipboard(text: String) {
 }
 
 /**
- * How much of the clipboard a paste may carry.
- *
- * A paragraph rather than a book. What crosses is stack storage, and a field that is
- * handed a novel has a different problem from the one this is solving.
+ * How much of the clipboard a paste may carry: 4 MiB, which is the most one X11 property
+ * read returns. The buffer is taken from the heap for the length of the read, because the
+ * stack is too small for it, and a clipboard larger than this answers empty rather than
+ * handing over a cut text.
  */
-private const val CLIPBOARD_BYTES = 64 * 1024
+private const val CLIPBOARD_BYTES = 4 * 1024 * 1024
 
 /** What a pointer can look like, in the small set both sides agree on. */
 object PointerShape {
@@ -341,16 +563,21 @@ fun openNativeWindow(title: String, width: Int, height: Int): NativeWindow? {
 private const val WINDOW_STRUCT_BYTES = 40
 
 /**
- * Draws a Compose scene into a window of our own, and holds it there.
+ * Draws the application into a window of our own, and holds it there until it is closed.
  *
- * The step worth taking first, and the one everything after it rests on: a scene that
- * Compose composed, painted by Skia into a drawable AppKit gave us, reaching the screen
- * with no toolkit anywhere between. What follows is input, text and the rest, and none of
- * it means anything until this does.
+ * A scene that Compose composed, painted by Skia into a drawable AppKit gave us, reaching
+ * the screen with no toolkit anywhere between. This is the window every macOS run opens:
+ * it is made from what the application asked for in its first batch, takes its title bar
+ * from the system, and hears the input method and the screen reader through AppKit's own
+ * protocols.
  *
- * Reached by setting `DXC_APPKIT_WINDOW`, so the ordinary path is untouched.
+ * [autoExitMillis] closes the window by itself after that long, for runs that nobody
+ * watches.
  */
-internal fun runAppKitSpike() {
+internal fun runAppKitWindow(autoExitMillis: Long? = null) {
+    // The window is a real one with the desktop behind it, so a design that draws glass
+    // can let that show through.
+    installNativeWindowHooks(backdropSupported = true)
     // The Host is started before there is a window, because what the window should look
     // like is in its first batch and a window cannot be told afterwards. Started on this
     // thread, which is the one every later call to it is made from: the boundary is a
@@ -358,11 +585,16 @@ internal fun runAppKitSpike() {
     val host = dev.darkpyonix.composerust.runtime.ComposeRustHost(NativeHostConnection())
     host.start()
     val asked = host.table.window
-    val window = openNativeWindow(
-        asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
-        if (asked != null && asked.width > 0) asked.width else 520,
-        if (asked != null && asked.height > 0) asked.height else 360,
+    val options = nativeWindowOptions(host, backdropSupported = true)
+    val backdrop = options.backdrop
+    configureNativeWindow(
+        resizable = options.resizable,
+        minWidth = options.minWidth,
+        minHeight = options.minHeight,
+        systemChrome = options.systemChrome,
+        backdrop = backdrop,
     )
+    val window = openNativeWindow(options.title, options.width, options.height)
     if (window == null) {
         System.err.println("compose-rust: this machine has no Metal device")
         return
@@ -379,11 +611,17 @@ internal fun runAppKitSpike() {
     // a size reads this: the scene, the render target, and what the scene is told about
     // the window it is in.
     var size = androidx.compose.ui.unit.IntSize(measured.width, measured.height)
+    // The strip the title bar takes, which the bar at the top of the application's tree is
+    // laid out around. Measured again whenever the window changes size, because entering
+    // full screen removes the bar and leaving it brings it back.
+    val caption = androidx.compose.runtime.mutableStateOf(window.measureCaption())
     val textInput = NativeTextInput()
+    val synthetic = System.getenv("DXC_SYNTH")?.let { SyntheticInput(it) }
     val semantics = NativeSemantics { elements ->
         if (report) {
             System.err.println("compose-rust: the window has ${elements.size} things to say")
         }
+        synthetic?.noteElements(elements)
         window.describeTo(elements)
     }
     // Kept rather than left to the scene. What a scene picks for itself is the toolkit's
@@ -397,69 +635,154 @@ internal fun runAppKitSpike() {
         coroutineContext = work,
         platformContext = NativePlatformContext({ size }, textInput, semantics),
     )
-    // The application's own tree, drawn by the same interpreter the toolkit path uses.
-    // Nothing in it knows which of the two it is running on, which is the point.
-    scene.setContent { dev.darkpyonix.composerust.runtime.ComposeRustContent(host) }
-    installApplicationMenu(asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust")
+    // The application's own tree, drawn by the same interpreter every window uses.
+    // Nothing in it knows which window it is in, which is the point.
+    scene.setContent {
+        NativeWindowContent(host, caption.value, actions = null)
+    }
+    installApplicationMenu(options.title)
+
+    val started = System.nanoTime()
+    var iconId = 0
+    var painted = false
+    var frame = 0
+    var drew = false
+    val legacyResize = System.getenv("DXC_LEGACY_RESIZE") != null
+
+    // What one frame is, wherever the ask comes from. The loop below is one caller and the
+    // window's own resize is the other: AppKit stays inside a tracking loop for as long as
+    // an edge is dragged, so the loop is not running then and the view asks for the frame
+    // itself, at the size it has just become. Both go through the one door, which refuses
+    // a second ask while one is being drawn, because a scene rendered from inside its own
+    // render is not something Compose survives.
+    Win32Frames.paint = {
+        frame++
+        // The scene's own work first, before anything is read from it: a list that asked
+        // for rows on the last frame wants them in hand before this one is measured.
+        work.runPending()
+        // The application's picture, once the asset it named has arrived. The id is
+        // known from the first batch and the bitmap a little later, so this asks each
+        // frame until it is there and then stops.
+        if (iconId == 0 && asked != null && asked.icon != 0) {
+            val raster = host.table.assets.asset(asked.icon)
+                as? dev.darkpyonix.composerust.ui.node.Asset.Raster
+            if (raster != null) {
+                iconId = asked.icon
+                iconPixels(raster.bitmap)?.let { (pixels, width, height) ->
+                    setApplicationIcon(pixels, width, height)
+                }
+            }
+        }
+        var heard = false
+        val events = drainWindowEvents()
+        for (event in synthetic?.due(System.nanoTime(), size) ?: emptyList()) {
+            scene.receive(event)
+            textInput.receive(event)
+            LatencyTrace.mark("synthetic ${event.kind} sent")
+        }
+        for (event in events) {
+            if (report && event.kind != WindowEvent.POINTER_MOVE) {
+                System.err.println("compose-rust: window heard $event")
+            }
+            if (event.kind == WindowEvent.FILES_ENTERED ||
+                event.kind == WindowEvent.FILES_DROPPED ||
+                event.kind == WindowEvent.FILES_EXITED
+            ) {
+                routeFileDrop(event.kind, androidx.compose.ui.geometry.Offset(event.x, event.y)) {
+                    readDroppedPaths()
+                }
+            }
+            if (event.kind == WindowEvent.RESIZE) {
+                size = androidx.compose.ui.unit.IntSize(event.x.toInt(), event.y.toInt())
+                scene.size = size
+                caption.value = window.measureCaption()
+            }
+            if (LatencyTrace.enabled && event.kind != WindowEvent.POINTER_MOVE) {
+                LatencyTrace.mark("window heard ${event.kind}")
+            }
+            scene.receive(event)
+            textInput.receive(event)
+            heard = true
+        }
+        // Only when there is something to draw. Every frame reaches the window by asking
+        // the main thread for a drawable and waiting for it, and the main thread is where
+        // AppKit answers everything else: sixty of those a second left the input method
+        // unable to reach this process at all, which showed up as every letter being
+        // committed on its own instead of composing.
+        if (!painted || heard || scene.hasInvalidations()) {
+            val begun = System.nanoTime()
+            LatencyTrace.mark("draw begin (heard=$heard invalidated=${scene.hasInvalidations()})")
+            drawFrame(window, context, scene, frame.toLong() * FRAME_NANOS, size, backdrop)
+            LatencyTrace.mark("draw end")
+            LatencyTrace.frameDrawn(System.nanoTime() - begun)
+            painted = true
+            drew = true
+        }
+    }
+    if (!legacyResize) registerAppKitFrameCallback()
 
     try {
         // A plain loop rather than a clock. Pacing is the frame clock's work and comes
         // later; what this has to show is that what the window hears reaches the scene
         // and changes what the next frame draws.
-        var painted = false
-        var frame = 0
         while (!isWindowClosed()) {
-            frame++
+            if (autoExitMillis != null &&
+                (System.nanoTime() - started) / NANOS_PER_MILLI >= autoExitMillis
+            ) {
+                break
+            }
+            // Cleared before the window is given its turn, because a resize inside it
+            // draws its own frames and the semantics below must hear of them.
+            drew = false
             // The window's own turn, before anything is read from it. This thread is the
             // one AppKit delivers on, so the events of this frame arrive here or not at
             // all. Waiting the frame's length rather than sleeping afterwards, because a
             // window with nothing happening should rest rather than spin.
             pumpWindowEvents(FRAME_SECONDS)
-            // Before the events and before the drawing. What is waiting here is the
-            // scene's own work, and a list that asked for rows on the last frame wants
-            // them in hand before this one is measured.
-            work.runPending()
-            var heard = false
-            var drew = false
-            for (event in drainWindowEvents()) {
-                if (report && event.kind != WindowEvent.POINTER_MOVE) {
-                    System.err.println("compose-rust: window heard $event")
-                }
-                if (event.kind == WindowEvent.FILES_DROPPED) {
-                    val paths = event.text.split('\u0000').filter { it.isNotEmpty() }
-                    spikeDroppedFiles.value = "dropped ${paths.size}: ${paths.joinToString(", ")}"
-                }
-                if (event.kind == WindowEvent.RESIZE) {
-                    size = androidx.compose.ui.unit.IntSize(event.x.toInt(), event.y.toInt())
-                    scene.size = size
-                }
-                scene.receive(event)
-                textInput.receive(event)
-                heard = true
+            LatencyTrace.mark("loop turn $frame")
+            if (synthetic != null && synthetic.resizeDue(System.nanoTime())) {
+                window.scriptedResize(size.width / measured.scale.toInt() to size.height / measured.scale.toInt(),
+                    360 to 420, 60, 8_000)
             }
-            // Only when there is something to draw. Every frame reaches the window by
-            // asking the main thread for a drawable and waiting for it, and the main
-            // thread is where AppKit answers everything else: sixty of those a second
-            // left the input method unable to reach this process at all, which showed up
-            // as every letter being committed on its own instead of composing.
-            if (!painted || heard || scene.hasInvalidations()) {
-                drawFrame(window, context, scene, frame.toLong() * FRAME_NANOS, size)
-                painted = true
-                drew = true
+            synthetic?.keysDue(System.nanoTime())?.let { (code, character) ->
+                LatencyTrace.mark("synthetic key '$character' posted")
+                window.postKey(code, character)
             }
+            Win32Frames.draw()
             // Every frame, and after the drawing. After, because that is when what is in
             // the window has been placed and can say where it is. Every frame, because a
             // tree that changed on the last one is a tree nobody has been told about, and
             // a window that has gone still is exactly where that would be forgotten.
             // Costs a comparison when nothing has changed, which is almost always.
             semantics.pushIfChanged(afterDrawing = drew)
+            reportCaret(textInput)
         }
+        LatencyTrace.summary()
     } finally {
+        Win32Frames.paint = null
+        forgetAppKitFrameCallback()
         scene.close()
         context.close()
         host.shutdown()
     }
 }
+
+/**
+ * Gives the window an address to ask for a frame at, and takes it away again.
+ *
+ * The thread goes with the address because an entry point of this image cannot be called
+ * without being told which thread of which isolate is calling. Written out at the call
+ * because native-image accepts a word value in straight-line code inside one method only.
+ */
+private fun registerAppKitFrameCallback() =
+    setAppKitDrawCallback(Win32DrawCallback.POINTER.functionPointer, CurrentIsolate.getCurrentThread())
+
+private fun forgetAppKitFrameCallback() = setAppKitDrawCallback(
+    WordFactory.nullPointer<CFunctionPointer>(),
+    WordFactory.nullPointer<IsolateThread>(),
+)
+
+private const val NANOS_PER_MILLI = 1_000_000L
 
 /** One frame: take a drawable, let the scene paint it, give it to the screen. */
 private fun drawFrame(
@@ -468,6 +791,7 @@ private fun drawFrame(
     scene: ComposeScene,
     nanos: Long,
     size: androidx.compose.ui.unit.IntSize,
+    transparent: Boolean = false,
 ) {
     val texture = window.beginFrame()
     // Zero means the system had no drawable to give, which happens when frames are made
@@ -487,6 +811,9 @@ private fun drawFrame(
         window.endFrame()
         return
     }
+    // A drawable comes back with whatever was last in it, and a window that shows what is
+    // behind it must start every frame from nothing rather than from the last one.
+    if (transparent) surface.canvas.clear(0)
     scene.render(surface.canvas.asComposeCanvas(), nanos)
     // Submitted, not only recorded. Skia's Metal backend keeps the frame in a command
     // buffer of its own, and a drawable presented before that buffer runs is a drawable

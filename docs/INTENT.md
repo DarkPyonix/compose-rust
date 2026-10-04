@@ -28,6 +28,8 @@ Rust에서 Compose API를 직접 호출하지 않습니다. GraalVM `@CEntryPoin
 
 ### D2. Rust 측 작성 모델은 compose-rust 자신의 Compose 모양 API이고, Dioxus는 그 위에 얹힌다
 
+> **현황(2026-10-04).** 결정은 기록되었고 구현은 develop에 없습니다. 런타임은 `feature/compose-api` 브랜치에 있고 PR은 아직 열리지 않았습니다(이슈 #23, #64, SPEC FR-39).
+
 **소유자의 결정입니다(2026-10-03).** 2026-09-28부터 같은 말로 여러 번 주어졌고, 이 문서에 적히지 않은 채 다시 질문으로 돌아갔습니다.
 
 > "이미 결정했는데 왜 대체 안하는거야? 왜 다시 물어보는거야?" (2026-10-03)
@@ -46,7 +48,7 @@ Rust에서 Compose API를 직접 호출하지 않습니다. GraalVM `@CEntryPoin
 - **Dioxus 없이 씁니다.** compose-rust만 의존하는 애플리케이션이 화면을 작성하고, 실행하고, 이벤트를 받을 수 있어야 합니다. `dioxus-core`는 compose-rust의 의존성이 아닙니다.
 - **dioxus-compose는 compose-rust 위에 얹힙니다.** `rsx!`와 `dioxus-core` VirtualDom으로 쓰고 싶은 사람을 위한 층이고, compose-rust가 내놓는 같은 노드 트리와 같은 와이어로 내려갑니다(D19의 `darkpyonix/dioxus-compose`). 사용자 앞에 놓이는 이름과 모양은 Compose입니다.
 - **경계 아래는 바뀌지 않습니다.** D1(트리를 값으로 보내고 Kotlin 인터프리터가 그린다), D5(UI 로컬 상태는 Kotlin), D6(Rust 단일 소스 스키마), D8(동기 직접 호출, zero-copy 배치)과 PR-1~PR-6은 그대로입니다. Compose 모양이라는 것은 Rust 쪽 작성 API의 모양이지 Rust에서 Kotlin의 Compose API를 부른다는 뜻이 아닙니다. 런타임이 내보내는 것은 지금과 같은 Mutation 레코드이고, 같은 렌더러가 그것을 그립니다.
-- **1.0.0 범위입니다(2026-10-20).** 요구사항과 수용 기준은 SPEC FR-39입니다.
+- **1.0.0 범위입니다(2026-11-14).** 요구사항과 수용 기준은 SPEC FR-39입니다. 소유자의 결정입니다(2026-10-04): "1.0을 10/31 이후로". 원래 목표는 2026-10-20이었습니다. 창 코드를 포크로 옮기는 일이 끝나는 2026-10-31에 안정화 2주(하드웨어 확인, 동등성 테스트, 릴리스 후보)를 더한 날짜입니다. 약속은 그대로이고 날짜만 옮겼습니다.
 
 **측정이 말하는 것과 말하지 않는 것.** `experiments/recomposition-host`(2026-09-30, Apple M1, 릴리스 빌드)가 이 결정 이전에 잰 숫자입니다.
 
@@ -82,6 +84,8 @@ Rust에서 Compose API를 직접 호출하지 않습니다. GraalVM `@CEntryPoin
 | Web | 대상 플랫폼. Compose wasmJs + Dioxus wasm. 브라우저에서 실행하는 것이라 앱이 웹뷰를 내장하는 것과는 다르고 C1에 해당하지 않습니다. 메모리는 공유하고 호출만 생성된 JS forwarder를 거칩니다(SPEC PR-6) |
 
 ### D4. 데스크톱 렌더러는 AWT 없이 만들고, 그것을 기본으로 배포한다
+
+> **현황(2026-10-04).** develop에서 배포되는 데스크톱 렌더러는 아직 GraalVM native-image AWT 경로입니다. 기본값 전환은 `feature/native-default-renderer` 브랜치에 있고 PR은 없습니다(이슈 #22, SPEC NFR-14).
 
 **소유자의 결정입니다(2026-10-03).**
 
@@ -310,7 +314,7 @@ macOS 26과 iOS 26은 같은 재질을 쓰지만 같은 방식으로 쓰지 않�
 
 > "내가 지시한지가 언제인데 아직 물어보나?" (2026-10-03)
 
-**결정.** compose-rust로 만든 데스크톱 애플리케이션은 macOS, Windows, Linux 모두에서 **실행 파일 하나**입니다. 옆에 놓이는 렌더러 라이브러리, Skia 라이브러리, `icudtl.dat`, JDK DLL, `lib/` 디렉터리가 없습니다. 실행 파일이 불러오는 것은 그 플랫폼의 시스템 라이브러리뿐입니다. 이것은 "목표"가 아니라 compose-rust 1.0.0(2026-10-20)의 요구사항이고, SPEC NFR-15가 수용 기준입니다. 번들(`.app`, msix, AppImage)은 이 실행 파일을 감싸는 것이지 대신하는 것이 아닙니다.
+**결정.** compose-rust로 만든 데스크톱 애플리케이션은 macOS, Windows, Linux 모두에서 **실행 파일 하나**입니다. 옆에 놓이는 렌더러 라이브러리, Skia 라이브러리, `icudtl.dat`, JDK DLL, `lib/` 디렉터리가 없습니다. 실행 파일이 불러오는 것은 그 플랫폼의 시스템 라이브러리뿐입니다. 이것은 "목표"가 아니라 compose-rust 1.0.0(2026-11-14)의 요구사항이고, SPEC NFR-15가 수용 기준입니다. 번들(`.app`, msix, AppImage)은 이 실행 파일을 감싸는 것이지 대신하는 것이 아닙니다.
 
 **D2와 D4에서 이렇게 따라 나옵니다.**
 
@@ -342,6 +346,8 @@ macOS 26과 iOS 26은 같은 재질을 쓰지만 같은 방식으로 쓰지 않�
 **2026-09-23의 "단일 exe는 비용이 너무 크니 번들을 먼저"는 제안이었고 결정이 아니었습니다.** 기록하지 않아서 결정처럼 굳었고, 그래서 이 항목이 뒤늦게 적힙니다.
 
 ### D18. Windows 렌더러는 Kotlin/Native로 만들고, MinGW는 Kotlin 오브젝트 안에 가둔다
+
+> **현황(2026-10-04).** develop의 Windows 렌더러는 GraalVM native-image입니다. Kotlin/Native 렌더러는 `feature/windows-kotlin-native` 브랜치에 있고 PR은 없습니다(이슈 #24, SPEC NFR-13).
 
 **소유자의 결정입니다(2026-10-03). 실험이 아니라 정식 통합입니다.**
 
@@ -396,6 +402,8 @@ skiko는 `mingwX64`를 발행하지 않고 Compose도 Windows용 Kotlin/Native �
 
 ### D19. Compose를 확장하는 일은 이 프로젝트 밖, Compose의 포크에서 한다
 
+> **현황(2026-10-04).** 디자인 시스템 소스는 포크로 옮겨졌습니다(PR #86). 두 층으로 나누는 일과 남은 좌표 이동은 두 포크의 `chore/thisisthepy-coordinates` 브랜치에 있고 병합되지 않았습니다(이슈 #39). 창 코드의 이동은 이슈 #26이 추적합니다.
+
 이 저장소에는 성격이 다른 세 가지가 섞여 있었습니다. Compose 자체를 고치는 일(upstream 패치, GraalVM native-image에서 AWT를 걷어내는 경로, Kotlin/Native로 직접 만든 데스크톱 창), Rust에서 Compose를 쓰게 하는 일(위젯 스키마, 인터프리터, 경계), 그리고 Dioxus를 붙이는 일입니다. 첫째는 Rust와 무관하고, 같은 회사의 다른 프로젝트(Python에서 Compose를 쓰는 pythonx-compose)도 필요로 합니다. **2026-10-02에 셋으로 나눕니다.**
 
 | 저장소 | 맡는 것 |
@@ -443,6 +451,33 @@ skiko는 `mingwX64`를 발행하지 않고 Compose도 Windows용 Kotlin/Native �
 - **공통 계약은 별도 모듈 `org.thisisthepy.compose.designsystem`에 남깁니다.** 역할 enum, `DesignSystem` 인터페이스, 토큰입니다. 두 층이 모두 이것에 의존합니다. adaptive에 합치지 않는 이유는 의존 방향입니다. adaptive는 1층 일곱 개 전부에 의존하고, 1층은 adaptive에 의존하면 안 됩니다. 계약이 adaptive 안에 있으면 1층이 계약을 쓰려고 adaptive에 의존하게 되어 순환이 생깁니다.
 - **이름이 비슷한 것 하나.** JetBrains의 `androidx.compose.material3.adaptive`는 적응형 레이아웃(창 크기 클래스)이고 `org.thisisthepy.compose.adaptive`와 무관합니다. 네임스페이스가 달라 부딪히지 않습니다.
 - 요구사항과 수용 기준은 SPEC FR-14.11입니다.
+
+### D21. 데스크톱 창 코드는 두 벌로 두고, 공통 로직은 한 벌로, 일치는 시험으로 지킨다 (2026-10-04)
+
+**소유자의 결정입니다(2026-10-04, darkpyonix 리더가 전달).**
+
+> [user] "두 벌 + 공통 로직 + 일치 테스트" (2026-10-04)
+
+이 결정에 이르는 과정에서 소유자가 한 말입니다.
+
+> [user] "통합하지 않거나 Kotlin/native쪽에 맞출 방법이 필요할거 같아" (2026-10-04)
+
+> [user] "니 말만 들으면 구현을 따로 하는게 나아보이긴 하네" (2026-10-04)
+
+- 데스크톱 창은 macOS와 Linux에서 구현이 둘입니다(Windows는 아래 예외). 경로마다 얇은 OS 층을 둡니다. GraalVM 경로는 `appkit_window.m`, `win32_window.c`, `x11_window.c`이고, Kotlin/Native 경로는 Kotlin cinterop입니다(D18의 Windows를 포함).
+- 공통 로직은 Kotlin 소스 한 벌에 둡니다(D3). 두 경로가 같은 소스를 컴파일합니다.
+- 일치 테스트: 같은 점검표와 측정을 두 경로에 CI에서 돌립니다.
+- **폐기:** 컴파일한 K/N 창 모듈을 GraalVM 이미지에 정적으로 링크하는 통합(조사 문서의 선택지 A)과 그 전제를 확인하려던 실험 E1 ~ E4는 하지 않습니다. 왜 그랬는지는 `docs/design/graalvm-reuse-kn-window.md`(PR #148)에 있습니다.
+- **E0(upcall 비용 측정)은 끝났습니다(2026-10-04).** upcall 한 번은 약 8 ~ 9 ns라 허용합니다. 핸드셰이크(스레드 사이 왕복, 약 2.75 us)는 프레임당 몇 번까지만 허용합니다. 접근성 질의는 캐시에서 답하고 경계를 넘지 않습니다. Win32와 X11의 그리기 콜백은 upcall로 둡니다.
+- **공통 로직에는 순수 C 헤더도 들어갑니다.** 두 경로가 OS 콜백 안의 계산에 함께 쓰는 헤더(`win32_resize.h`, `appkit_resize.h`)입니다. GraalVM 경로에서는 C에서 직접 부르고, K/N 경로에서는 cinterop으로 부릅니다. 같은 계산이 한 벌의 소스에서 나옵니다.
+- **Windows 예외 (소유자 결정, 2026-10-04).** Windows K/N 렌더러(#119, `feature/windows-kotlin-native`)는 GraalVM 경로가 쓰는 `renderer/desktop/c/win32_window.c`를 그대로 링크합니다(`renderer/windows/module.yaml`, `Win32Window.kt`가 심볼 이름으로 부릅니다). 그래서 Windows의 창은 두 경로가 공유하는 C 구현 하나이고, "구현이 둘"은 macOS와 Linux에만 해당합니다. K/N도 macOS처럼 자기 Kotlin 창을 가질지 물었고, 소유자가 C 한 벌 유지로 정했습니다(리더의 권고와 같습니다).
+
+> [user] "C 한 벌 유지" (2026-10-04)
+
+  Kotlin 창을 따로 두는 안은 폐기합니다. 이유는 MinGW 객체와 MSVC 링크가 맞물리는 위험이 창 코드까지 번지는 것, 그리고 Windows에도 일치 테스트가 하나 더 필요해지는 부담입니다.
+- 이동 계획: D19가 포크로 옮기기로 한 창 코드는 이 구조에 맞춰 `extended/window/{common, native/<os>, graalvm/<os>, parity}`로 나눕니다. 순서와 날짜는 `docs/design/fork-window-move.md`에 있습니다.
+
+**치르는 값.** 같은 동작을 두 곳에서 구현하므로 표류가 생길 수 있고, 시험이 그것을 막는 유일한 장치입니다. 시험이 덮지 못하는 것(IME, VoiceOver, 리사이즈 감)은 사람이 실기기에서 봅니다.
 
 ### D15. iOS의 Liquid Glass는 시스템에게 받아 온다. UIKit을 Kotlin이 직접 몬다
 

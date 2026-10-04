@@ -1,7 +1,7 @@
 # compose-rust
 
-[![CI](https://github.com/DarkPyonix/compose-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/DarkPyonix/compose-rust/actions/workflows/ci.yml)
-[![Native renderer](https://github.com/DarkPyonix/compose-rust/actions/workflows/native-renderer.yml/badge.svg)](https://github.com/DarkPyonix/compose-rust/actions/workflows/native-renderer.yml)
+[![Test](https://github.com/DarkPyonix/compose-rust/actions/workflows/test.yml/badge.svg)](https://github.com/DarkPyonix/compose-rust/actions/workflows/test.yml)
+[![Native renderer test](https://github.com/DarkPyonix/compose-rust/actions/workflows/test-native-renderer.yml/badge.svg)](https://github.com/DarkPyonix/compose-rust/actions/workflows/test-native-renderer.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust 1.85+](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org)
 
@@ -23,11 +23,11 @@ compose-rust is four things put together:
 - **An AOT-compiled Compose renderer.** Compiled ahead of time to native code on every
   platform, Kotlin/Wasm in the browser and an Android library on Android. Compose's own text
   layout, widgets and platform IME do the drawing and the typing.
-- **No webview, and no bundled JVM.** The goal on the desktop is one executable that links only
-  the system's own libraries. The 0.0.1 release does not do that yet: its desktop renderers are
-  GraalVM native-image shared libraries that sit beside the application. A Kotlin/Native
-  renderer linked into the executable already runs in CI on macOS and Linux and becomes the
-  default in a following release; Windows follows.
+- **No webview, and no bundled JVM.** On the desktop an application is one executable that links
+  only the system's own libraries. The 0.0.1 release does not do that yet: its desktop renderers
+  are GraalVM native-image shared libraries that sit beside the application. From the next
+  release, macOS and Linux (x64 and arm64) download a Kotlin/Native static archive instead, and
+  the build links it into the executable; CI proves the result on all three. Windows follows.
 
 ---
 
@@ -52,7 +52,7 @@ What the crate contains today:
   checks it and links it (see [Getting started](#-getting-started)).
 
 What it does **not** contain yet is its own authoring API. `#[composable]`, the `Recomposer`
-and `launch` are in progress, targeting **1.0.0 on 2026-10-20**. Until then the crate is a
+and `launch` are in progress ([#23](https://github.com/DarkPyonix/compose-rust/issues/23), [#64](https://github.com/DarkPyonix/compose-rust/issues/64)), targeting **1.0.0 on 2026-11-14** (the window-code move to the fork finishes on 2026-10-31, plus two weeks of stabilisation). Until then the crate is a
 foundation for a layer that builds the tree, not something you write screens with directly.
 
 ### The planned shape
@@ -81,6 +81,28 @@ Names follow Compose. The widget vocabulary is the one in the schema; nothing is
 
 > 🧩 **Prefer Dioxus and `rsx!`?** Use [dioxus-compose](https://github.com/DarkPyonix/dioxus-compose), which runs on top of compose-rust and supports both HTML/CSS `rsx!` and Compose-widget `rsx!`.
 
+### Designed, not yet on develop
+
+These are designed and agreed, but none of them is in the crate or the renderer on `develop`.
+Where work exists, it sits in an open pull request or a branch.
+
+| Item | Status | Issue | Work in progress |
+|---|---|---|---|
+| The authoring API (`#[composable]`, `remember`, `launch`) | partial | [#23](https://github.com/DarkPyonix/compose-rust/issues/23), [#64](https://github.com/DarkPyonix/compose-rust/issues/64) | branch `feature/compose-api` |
+| Direct Kotlin to Rust calls on the web, replacing the JavaScript forwarder | partial | [#54](https://github.com/DarkPyonix/compose-rust/issues/54) | [#84](https://github.com/DarkPyonix/compose-rust/pull/84) |
+| HTML/CSS drawing elements (`AbsoluteBox` and its modifiers) | partial | [#104](https://github.com/DarkPyonix/compose-rust/issues/104) | [#74](https://github.com/DarkPyonix/compose-rust/pull/74) |
+| Transforms and animations the renderer plays | partial | [#105](https://github.com/DarkPyonix/compose-rust/issues/105) | [#83](https://github.com/DarkPyonix/compose-rust/pull/83) |
+| HTML text properties and the measure call | partial | [#106](https://github.com/DarkPyonix/compose-rust/issues/106) | branch `feat/measure-call` |
+| OS text size and app zoom | partial | [#68](https://github.com/DarkPyonix/compose-rust/issues/68) | [#77](https://github.com/DarkPyonix/compose-rust/pull/77) (OS text size on the desktop only) |
+| Action keys (dense keypad buttons) | partial | [#57](https://github.com/DarkPyonix/compose-rust/issues/57) | [#76](https://github.com/DarkPyonix/compose-rust/pull/76) |
+| The bar's title in the platform caption | planned | [#79](https://github.com/DarkPyonix/compose-rust/issues/79) | none |
+| Design systems split into per-system libraries and an adaptive layer | partial | [#39](https://github.com/DarkPyonix/compose-rust/issues/39) | branch `chore/thisisthepy-coordinates` in the Compose forks |
+| The AWT-free Kotlin/Native renderer as the default on macOS and Linux | partial | [#22](https://github.com/DarkPyonix/compose-rust/issues/22) | branch `feature/native-default-renderer` |
+| The Windows Kotlin/Native renderer | partial | [#24](https://github.com/DarkPyonix/compose-rust/issues/24) | branch `feature/windows-kotlin-native` |
+| Samples rewritten on the authoring API | planned | [#85](https://github.com/DarkPyonix/compose-rust/issues/85) | none |
+| An event when the system colour scheme changes | proposed, awaiting approval | [#97](https://github.com/DarkPyonix/compose-rust/issues/97) | none |
+| Focus-gained and key-up events per node | proposed, awaiting approval | [#98](https://github.com/DarkPyonix/compose-rust/issues/98) | none |
+
 ---
 
 ## 🖥 Platforms
@@ -88,11 +110,11 @@ Names follow Compose. The widget vocabulary is the one in the schema; nothing is
 | Platform | State | Renderer |
 |---|---|---|
 | 🍎 **macOS (arm64)** | **Works end to end** | 0.0.1 ships a GraalVM native-image library beside the app. The Kotlin/Native renderer linked into the executable (its own window, drawing through Metal) runs in CI and replaces it in a following release. Basic Korean IME input works; the full IME checklist is not finished |
-| 🐧 Linux (x64, arm64) | Builds and starts | 0.0.1 ships a GraalVM native-image library. The Kotlin/Native renderer (its own X11 window, drawing through GLX) passes a headless startup test for both architectures in CI and replaces it in a following release |
-| 🪟 Windows | Builds and starts | GraalVM native image, smoke-tested on every renderer change. Moving to Kotlin/Native so that Windows is one executable too |
+| 🐧 Linux (x64, arm64) | Builds and starts | 0.0.1 ships a GraalVM native-image library. The Kotlin/Native renderer (its own X11 window, drawing through GLX; arm64 cross compiled on x64) replaces it in a following release. In CI an application built from it is one executable naming only libc, X11, GL, fontconfig and the C++ runtime (and EGL on arm64), and copied alone into an empty directory it draws under Xvfb. Nobody has used it interactively yet |
+| 🪟 Windows | Builds and starts | GraalVM native image, smoke-tested on every renderer change. The Kotlin/Native renderer that makes Windows one executable too is planned ([#24](https://github.com/DarkPyonix/compose-rust/issues/24)) |
 | 📱 iOS | Builds and starts | Kotlin/Native static archive exporting the same C symbols, released as an XCFramework |
 | 🤖 Android | **Works end to end** | A Kotlin Activity owns the process and the loop, Rust is a cdylib, and the JNI shims on both sides are generated from the schema. The crate carries the renderer's Kotlin sources and its build script stages them into the Gradle project |
-| 🌐 Web (wasm) | **Works end to end** | One `WebAssembly.Memory`, owned by the Kotlin/Wasm module and imported by the Rust one, so a batch is read where it was written. Calls from the renderer to the Host cross a generated JavaScript forwarder, measured at about 12 ns |
+| 🌐 Web (wasm) | **Works end to end** | One `WebAssembly.Memory`, owned by the Kotlin/Wasm module and imported by the Rust one, so a batch is read where it was written. Calls from the renderer to the Host cross a generated JavaScript forwarder, measured at about 12 ns. Direct calls without the forwarder are planned ([#54](https://github.com/DarkPyonix/compose-rust/issues/54)) |
 
 ### What it weighs
 
@@ -159,8 +181,8 @@ application. Widgets emit roles (colour, type, shape, space), and the renderer r
 tokens, so switching to dark mode is one theme change rather than a property update on every
 node.
 
-The design systems are moving out of this repository into the thisisthepy Compose fork, as
-ordinary Compose libraries under `org.thisisthepy.compose.*`: one component library per system
+The design systems have moved out of this repository into the thisisthepy Compose fork, where
+they are becoming ordinary Compose libraries under `org.thisisthepy.compose.*`: one component library per system
 (`org.thisisthepy.compose.material3`, `.cupertino`, `.fluent`, `.liquidglass` and the others),
 `org.thisisthepy.compose.adaptive` on top of them, which follows the platform's own system by
 default, and `org.thisisthepy.compose.designsystem` for the contract both layers share.
@@ -182,9 +204,15 @@ outside `target/`, and links it. There is no environment variable to set and no 
 The cache is keyed by version and target, so it survives `cargo clean` and is shared between
 projects.
 
+Where the artifact is the static archive (macOS and Linux from the next release), what `cargo
+build` produces is **one executable**: the renderer, Compose, Skia and ICU are inside it, nothing
+sits beside it, and it loads only the system's libraries (frameworks and `/usr/lib` on macOS;
+libc, X11, GL, fontconfig and FreeType on Linux). Copy it anywhere and it runs. Windows downloads
+the GraalVM native image, a DLL with its companions beside it, until its static renderer lands.
+
 | Variable | Effect |
 |---|---|
-| `COMPOSE_RUST_RENDERER_DIR` | Use the renderer in this directory. Checked first, and nothing is downloaded when it is set, so a renderer you built yourself, a vendored copy or an offline build all work through it |
+| `COMPOSE_RUST_RENDERER_DIR` | Use the renderer in this directory: an unpacked artifact, or the directory a renderer build wrote. It may hold the static archive or a shared library, and whichever it holds is linked. Checked first, and nothing is downloaded when it is set, so a renderer you built yourself, a vendored copy or an offline build all work through it |
 | `COMPOSE_RUST_CACHE_DIR` | Move the cache off `$HOME/.cache/compose-rust` (`%LOCALAPPDATA%\compose-rust` on Windows) |
 
 `default-features = false` builds with no renderer at all, for a headless or documentation
@@ -210,16 +238,27 @@ menu, the copy keys). Build that once, then the renderer:
 ```bash
 # macOS
 ./renderer/scripts/build-compose.sh
-cd renderer && ./desktop/scripts/build-macos.sh --release      # build/macos/<target>/
+./renderer/desktop/scripts/build-macos.sh --release                # build/macos/
 
-# Linux
-./renderer/scripts/build-compose.sh --target linuxX64
-cd renderer && ./desktop/scripts/build-linux.sh --release      # build/linux/<target>/
+# Linux (both architectures' Compose; arm64 is cross compiled on x64)
+./renderer/scripts/build-compose.sh --target linux
+./renderer/desktop/scripts/build-linux.sh --release                # build/linux/
+./renderer/desktop/scripts/build-linux.sh --release --arch arm64   # build/linux-arm64/
 ```
 
 Each produces one static library, `libcompose_rust_renderer.a`, with Compose, Skia and the
-interpreter inside it. Windows still builds the GraalVM native image, with
+interpreter inside it, the same archive the release ships, with `schema-hash.txt` beside it. In a
+checkout the build links that workspace build before anything it could download, then a native
+image in `renderer/build/native-image/dist/lib`; `DXC_MACOS_NATIVE_LIB` and
+`DXC_LINUX_NATIVE_LIB` still name a static renderer directory directly, ahead of everything.
+Windows still builds the GraalVM native image, with
 `renderer/desktop/scripts/build-native-windows.ps1`.
+
+CI packages the archive with `.github/scripts/package-static-renderer.sh` and proves the result
+with `.github/scripts/check-single-executable.sh`: it builds an application from the artifact
+exactly as the release carries it, reads `otool -L` or `readelf -d`, then copies the executable
+alone into an empty directory and requires it to draw and, with no ICU data file on the machine,
+to lay Korean out correctly (every glyph found, words found whole, lines broken between words).
 
 **The JVM development shell** is the fastest loop when working on the renderer itself, with hot
 reload and `@Preview`. The JVM is allowed only here; shipped artifacts never contain one.
@@ -235,16 +274,16 @@ cd renderer && ./kotlin run -m desktop
 ```
 compose-rust/     the crate: boundary, protocol, schema, codegen, renderer download
 renderer/         the Kotlin renderer: interpreter, generated shims, one module per platform
-samples/          sample applications
-bench/            benchmarks and their recorded baselines
+samples/          12 sample applications, being rewritten; they do not build until then (#85)
 docs/             the user guide (docs/guide) and translations (docs/locales)
-experiments/      measured experiments kept for their results
 scripts/          setup check, quality gate, release and publishing scripts, script tests
 .github/          CI workflows
 ```
 
-`adapters/` and `design-systems/` are leaving the repository: the authoring layer that lived in
-`adapters/` moves to its own project, and the design systems move to the Compose fork.
+The Dioxus adapter and its baseline moved to [dioxus-compose](https://github.com/DarkPyonix/dioxus-compose).
+The samples under `samples/` are being rewritten on the compose-rust authoring API (#85) and do
+not build until then. The design systems moved to the Compose fork, under `extended/design-systems/` in
+[thisisthepy/compose-multiplatform-core-extended](https://github.com/thisisthepy/compose-multiplatform-core-extended).
 
 ---
 

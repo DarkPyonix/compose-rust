@@ -15,6 +15,9 @@ import dev.darkpyonix.composerust.runtime.HostConnection
  * Returns when the window closes.
  */
 internal fun runRenderer(connection: () -> HostConnection): Int {
+    // Asked for by a build that proves the executable shapes and wraps Korean with no ICU data
+    // file beside it. A failure stops here, before a window, so the build sees it.
+    if (runTextSelfCheckIfAsked() == false) return RendererApi.RUN_FAILED
     // The notification daemon, over the session bus, before the Host starts: its first batch
     // may already post one. A press on a notification's body raises the window, which does
     // not exist yet, so it is found when the press arrives.
@@ -55,6 +58,9 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // No caption is passed. The window manager draws this platform's title bar itself, outside
     // the window, so there is no strip of our own for content to step clear of.
     opened = window
+    // Joined before the loop starts: a screen reader that is already running reads the window
+    // from its first frame. Nothing happens where there is no accessibility bus.
+    window.startAccessibility(PosixBusConnection.applicationName())
     // The bus is read on this thread every turn, because there is no other thread to read it
     // on and nothing else would notice a press arriving while the window is idle.
     window.onTurn = { host.table.notifications.pump() }

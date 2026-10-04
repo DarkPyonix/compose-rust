@@ -62,7 +62,7 @@
         0.0.1 contains the boundary, the protocol, the schema, the <code>Runtime</code> trait and the
         renderer download. It does not contain the authoring API yet, so there is no
         <code>launch(app)</code> to call and no screen to write. That arrives with 1.0.0 on
-        2026-10-20 (<a href="https://github.com/DarkPyonix/compose-rust/issues/23">#23</a>).
+        2026-11-14 (<a href="https://github.com/DarkPyonix/compose-rust/issues/23">#23</a>, <a href="https://github.com/DarkPyonix/compose-rust/issues/64">#64</a>).
         Until then the crate serves a layer that builds the tree by implementing
         <code>Runtime</code>.
       </p>
@@ -72,6 +72,14 @@
     <p>
       The renderer is far too large for crates.io, so each release carries it as a checksummed
       artifact. Fetching it is the build script's job, not yours.
+    </p>
+    <p>
+      On macOS (arm64) and Linux (x64 and arm64) the renderer is a static archive, so the program
+      <code>cargo build</code> produces is one executable. The renderer, Compose, Skia and ICU are
+      inside it, nothing sits beside it, and it loads only the system's own libraries. Windows
+      downloads the GraalVM native image, a DLL with its companions beside it, until its static
+      renderer lands. 0.0.1 still ships the native image everywhere; the static archives go out
+      with the release that follows it.
     </p>
 
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
@@ -168,19 +176,22 @@ compose-rust = <span class="s">"0.0.1"</span></code></pre>
       <figcaption>shell</figcaption>
 <pre><code><span class="c"># macOS</span>
 ./renderer/scripts/build-compose.sh
-cd renderer &amp;&amp; ./desktop/scripts/build-macos.sh --release      <span class="c"># build/macos/&lt;target&gt;/</span>
+cd renderer &amp;&amp; ./desktop/scripts/build-macos.sh --release      <span class="c"># build/macos/</span>
 
 <span class="c"># Linux</span>
 ./renderer/scripts/build-compose.sh --target linuxX64
-cd renderer &amp;&amp; ./desktop/scripts/build-linux.sh --release      <span class="c"># build/linux/&lt;target&gt;/</span></code></pre>
+cd renderer &amp;&amp; ./desktop/scripts/build-linux.sh --release      <span class="c"># build/linux/</span>
+cd renderer &amp;&amp; ./desktop/scripts/build-linux.sh --release --arch arm64   <span class="c"># build/linux-arm64/, cross compiled on x64</span></code></pre>
     </figure>
 
     <p>
       Each produces one static library, <code>libcompose_rust_renderer.a</code>, with Compose,
-      Skia and the interpreter inside it. The Rust build links it when
-      <code>DXC_MACOS_NATIVE_LIB</code> or <code>DXC_LINUX_NATIVE_LIB</code> names its directory.
-      Without one of those, a checkout links the GraalVM native image from
-      <code>renderer/build/native-image/dist/lib</code>, which is what 0.0.1 ships.
+      Skia and the interpreter inside it, and a <code>schema-hash.txt</code> that the Rust build
+      checks against its own schema. In a checkout the Rust build prefers it to anything it could
+      download, and falls back to a native image in
+      <code>renderer/build/native-image/dist/lib</code> when there is no archive.
+      <code>DXC_MACOS_NATIVE_LIB</code> and <code>DXC_LINUX_NATIVE_LIB</code> still name a static
+      renderer directory directly, ahead of all of that.
     </p>
     <p>
       Windows still builds the GraalVM native image, with
@@ -226,10 +237,10 @@ cd renderer &amp;&amp; ./desktop/scripts/build-linux.sh --release      <span cla
 
     <h2 id="samples">Samples</h2>
     <p>
-      The <code>samples/</code> directory holds clones of real applications: a calculator, a
-      notepad, a task list, a chat client and others. They are being rewritten on the authoring API
-      for 1.0.0, and the rewritten set becomes the public samples
-      (<a href="https://github.com/DarkPyonix/compose-rust/issues/2">#2</a>).
+      The <code>samples/</code> directory holds 12 samples, clones of real applications such as a
+      calculator, a notepad, a task list and a chat client. They do not build today, because they
+      are being rewritten on the authoring API <span class="pill planned">Planned</span> (<a href="https://github.com/DarkPyonix/compose-rust/issues/85">#85</a>). The
+      rewritten set becomes the public samples (<a href="https://github.com/DarkPyonix/compose-rust/issues/2">#2</a>).
     </p>
 
     <h2 id="schema-check">The generated code check</h2>

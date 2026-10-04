@@ -10,7 +10,7 @@
 # edits by hand and publishes the result under the version the renderer asks for, so that
 # the modules that are not changed keep resolving from JetBrains.
 #
-# Usage: build-compose.sh [--target macosArm64|linuxX64] [--clean]
+# Usage: build-compose.sh [--target macosArm64|linux|linuxX64|linuxArm64] [--clean]
 #
 # The work directory is a sibling of the renderer called compose-build. Set
 # DXC_COMPOSE_BUILD to put it elsewhere. It is not inside the renderer because it is a
@@ -19,13 +19,16 @@ set -euo pipefail
 
 # The commit, not the branch. A branch that moves is a build that changes for a reason
 # nobody chose here. This one is JetBrains release/1.11 at 73ac849 with the Linux targets,
-# the native text context menu and the published version on top, and nothing else: the
-# commits after it on `extended` add a mingwX64 target to every module's build and read
-# skiko from the local Maven repository first, which a macOS or Linux build has no use
-# for. compose-fork.changes lists what this commit must hold at every path it changes,
-# and scripts/tests/compose-fork.test.sh checks it.
+# the native text context menu and the published version on top (c396dcf), then the
+# design systems under extended/design-systems, which this build does not read and
+# scripts/fetch-design-systems.sh does. Nothing else: the commits after c396dcf on
+# `extended` add a mingwX64 target to every module's build and read skiko from the local
+# Maven repository first, which a macOS or Linux build has no use for, so the design
+# systems were added on top of c396dcf and merged into `extended` from there.
+# compose-fork.changes lists what this commit must hold at every path it changes, and
+# scripts/tests/compose-fork.test.sh checks it.
 FORK="https://github.com/thisisthepy/compose-multiplatform-core-extended.git"
-REVISION="c396dcff48c02b8a7c6707e273a7d34038ba5d7e"
+REVISION="02ff96c42a412d8eded411d48c56da131f570af6"
 PUBLISHED_AS="1.11.1"
 # Material 3 is versioned on its own line and the renderer asks for it by that version, so
 # publishing it as the others would leave a coordinate nobody looks for.
@@ -70,14 +73,24 @@ done
 # runtime, ui, foundation and material3.
 case "$target" in
     macosArm64)
-        publication="MacosArm64"
+        publications=(MacosArm64)
         modules=(
             compose:foundation:foundation
             compose:ui:ui
         )
         ;;
-    linuxX64)
-        publication="LinuxX64"
+    linux|linuxArm64|linuxX64)
+        # arm64 is the same list for the other architecture, cross compiled on an x86-64
+        # machine: Kotlin/Native has no arm64 Linux host. `linux` is both, which is what
+        # building the renderer's Linux module takes: the toolchain resolves every
+        # platform a module declares, even when it is asked to build one.
+        if [[ "$target" == linuxX64 ]]; then
+            publications=(LinuxX64)
+        elif [[ "$target" == linuxArm64 ]]; then
+            publications=(LinuxArm64)
+        else
+            publications=(LinuxX64 LinuxArm64)
+        fi
         modules=(
             compose:animation:animation
             compose:animation:animation-core
@@ -95,7 +108,7 @@ case "$target" in
             compose:ui:ui-util
         )
         ;;
-    *) die "unknown target '$target'" "known: macosArm64, linuxX64" ;;
+    *) die "unknown target '$target'" "known: macosArm64, linux (both of the next two), linuxX64, linuxArm64" ;;
 esac
 
 [[ $clean -eq 1 ]] && rm -rf "$WORK"
@@ -132,7 +145,9 @@ echo "==> publishing ${#modules[@]} compose module(s) for $target as $PUBLISHED_
 # was published and not of what was built.
 tasks=()
 for module in "${modules[@]}"; do
-    tasks+=(":$module:publish${publication}PublicationToMavenLocal")
+    for publication in "${publications[@]}"; do
+        tasks+=(":$module:publish${publication}PublicationToMavenLocal")
+    done
     tasks+=(":$module:publishKotlinMultiplatformPublicationToMavenLocal")
 done
 (

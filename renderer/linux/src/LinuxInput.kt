@@ -72,8 +72,8 @@ internal fun modifiersOf(state: UInt): Int {
  *
  * The numbers are not this platform's, and that is deliberate: they are the ones `composeKey`
  * reads, which every desktop translates into before the scene sees them, so the table from a
- * number to a Compose key is written once rather than three times. Zero means a key with no
- * meaning of its own, which is most of them: a key that types a character carries the character
+ * number to a Compose key is written once rather than three times. Minus one means a key with no
+ * meaning of its own (zero is the letter A in that numbering), which is most of them: a key that types a character carries the character
  * beside it and the scene reads that instead.
  */
 internal fun platformKey(keysym: KeySym): Int = when (keysym.toInt()) {
@@ -91,7 +91,7 @@ internal fun platformKey(keysym: KeySym): Int = when (keysym.toInt()) {
     XK_End -> PLATFORM_END
     XK_Prior -> PLATFORM_PAGE_UP
     XK_Next -> PLATFORM_PAGE_DOWN
-    else -> 0
+    else -> -1
 }
 
 /**

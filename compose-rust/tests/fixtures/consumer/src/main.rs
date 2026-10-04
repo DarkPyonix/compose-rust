@@ -1,5 +1,7 @@
-//! An application that depends on the Dioxus adapter and nothing else, so compose-rust
-//! reaches it only as the adapter's dependency.
+//! An application that depends on compose-rust and nothing else.
+//!
+//! The tree is built by a runtime written by hand, a column with one text in it, so no
+//! authoring layer stands between this program and the boundary.
 //!
 //! Run with `--launch` to open the window. Without it the program returns as soon as it
 //! starts, which is what `scripts/tests/consumer-crate.test.sh` wants: by the time `main`
@@ -15,22 +17,29 @@
 //! part of what passes. Without it, for a renderer that cannot close its own window (the
 //! Kotlin/Native one on Linux), the check ends the process itself once the frames are in.
 //!
-//! The call to `launch` stays in the binary because the branch is decided at run time.
+//! `--input-check` opens a window with a text field and a button, for a person typing Korean
+//! into it and for `.github/scripts/check-linux-input-access.sh`, which drives it with a real
+//! input method and a real accessibility registry. It stays open until it is killed and says
+//! on standard output what its handlers heard: the field's text each time it changes, and
+//! each press of the button. That is the only way the check can tell that an event arrived
+//! all the way at the Host.
+//!
+//! The call to launch stays in the binary because the branch is decided at run time.
 //! That is what makes the renderer a load-time dependency of this executable rather than
 //! a library the linker drops for being unused.
 
-use dioxus_compose_adapter::prelude::*;
+use compose_rust::boundary::STATUS_OK;
+use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, ProtocolError};
+use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind};
+use compose_rust::{Batch, LaunchBuilder, Runtime};
 use std::ffi::c_int;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
-fn app() -> Element {
-    rsx! {
-        Column {
-            Text { text: "A consumer of compose-rust." }
-        }
-    }
-}
+const COLUMN: u32 = 1;
+const TEXT: u32 = 2;
+const KOREAN: u32 = 3;
 
 /// The highest step the self-check reached. Read after the renderer loop has ended.
 static STEP: AtomicU32 = AtomicU32::new(0);
@@ -44,22 +53,187 @@ static STEP: AtomicU32 = AtomicU32::new(0);
 /// through, not only the start of one.
 const FRAMES: u32 = 2;
 
-fn self_check() -> Element {
-    let mut step = use_signal(|| 0_u32);
-    let current = step();
-    STEP.fetch_max(current, Ordering::SeqCst);
-    if current < FRAMES {
-        // A task rather than a write during render, so the change reaches the screen the
-        // way any application's does: the Host asks the renderer for a frame and renders
-        // it when the renderer calls back.
-        dioxus_core::spawn(async move {
-            step.set(current + 1);
+/// One column holding one text. With `counting` set, every frame moves the text one step
+/// on and asks for the next frame, until `FRAMES` steps have been drawn.
+struct Screen {
+    batch: Batch,
+    counting: bool,
+    step: u32,
+}
+
+impl Screen {
+    fn new(counting: bool) -> Self {
+        Self {
+            batch: Batch::new(),
+            counting,
+            step: 0,
+        }
+    }
+
+    fn label(&mut self) {
+        let text = if self.counting {
+            format!("self-check frame {} of {FRAMES}", self.step)
+        } else {
+            "A consumer of compose-rust.".to_owned()
+        };
+        self.batch.write(Mutation::SetProp {
+            node_id: TEXT,
+            property: PropertyKind::Text,
+            value: PropertyValue::String(&text),
         });
     }
-    rsx! {
-        Column {
-            Text { text: format!("self-check frame {current} of {FRAMES}") }
+}
+
+impl Runtime for Screen {
+    fn batch(&self) -> &Batch {
+        &self.batch
+    }
+
+    fn batch_mut(&mut self) -> &mut Batch {
+        &mut self.batch
+    }
+
+    fn rebuild(&mut self) {
+        self.batch.write(Mutation::Create {
+            node_id: COLUMN,
+            widget: WidgetKind::Column,
+        });
+        self.batch.write(Mutation::Create {
+            node_id: TEXT,
+            widget: WidgetKind::Text,
+        });
+        self.label();
+        self.batch.write(Mutation::Insert {
+            parent_id: COLUMN,
+            node_id: TEXT,
+            index: 0,
+        });
+        // Korean, so the frames the check waits for draw it too. Whether it is shaped and
+        // wrapped correctly is the renderer's to say when COMPOSE_RUST_TEXT_SELF_CHECK is
+        // set, and .github/scripts/check-single-executable.sh sets it.
+        self.batch.write(Mutation::Create {
+            node_id: KOREAN,
+            widget: WidgetKind::Text,
+        });
+        self.batch.write(Mutation::SetProp {
+            node_id: KOREAN,
+            property: PropertyKind::Text,
+            value: PropertyValue::String("안녕하세요 반갑습니다. 한국어 줄바꿈과 단어 경계를 확인합니다."),
+        });
+        self.batch.write(Mutation::Insert {
+            parent_id: COLUMN,
+            node_id: KOREAN,
+            index: 1,
+        });
+    }
+
+    fn render(&mut self) {
+        if self.counting && self.step < FRAMES {
+            self.step += 1;
+            STEP.fetch_max(self.step, Ordering::SeqCst);
+            self.label();
         }
+    }
+
+    fn handle_event(&mut self, _event: &HostEvent<'_>) -> Result<i64, ProtocolError> {
+        // Nothing on this screen has a handler, so any event names one that does not exist.
+        Err(ProtocolError::InvalidValueKind(0))
+    }
+
+    /// Asks for the next frame while steps are left. The Host turns a ready poll into a
+    /// frame request, the way it does for any runtime with work waiting.
+    fn poll_work(&mut self, _context: &mut Context<'_>) -> Poll<()> {
+        if self.counting && self.step < FRAMES {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
+    }
+}
+
+const FORM: u32 = 10;
+const FIELD: u32 = 11;
+const SAVE: u32 = 12;
+const ON_VALUE_CHANGE: u64 = 1;
+const ON_CLICK: u64 = 2;
+
+/// A column holding a text field and a button, and nothing else.
+struct Form {
+    batch: Batch,
+}
+
+impl Form {
+    fn new() -> Self {
+        Self {
+            batch: Batch::new(),
+        }
+    }
+
+    fn text(&mut self, node_id: u32, property: PropertyKind, value: &str) {
+        self.batch.write(Mutation::SetProp {
+            node_id,
+            property,
+            value: PropertyValue::String(value),
+        });
+    }
+
+    fn handler(&mut self, node_id: u32, property: PropertyKind, handler_id: u64) {
+        self.batch.write(Mutation::SetProp {
+            node_id,
+            property,
+            value: PropertyValue::Integer(handler_id as i64),
+        });
+    }
+}
+
+impl Runtime for Form {
+    fn batch(&self) -> &Batch {
+        &self.batch
+    }
+
+    fn batch_mut(&mut self) -> &mut Batch {
+        &mut self.batch
+    }
+
+    fn rebuild(&mut self) {
+        for (node_id, widget) in [
+            (FORM, WidgetKind::Column),
+            (FIELD, WidgetKind::TextField),
+            (SAVE, WidgetKind::Button),
+        ] {
+            self.batch.write(Mutation::Create { node_id, widget });
+        }
+        self.text(FIELD, PropertyKind::Placeholder, "Name");
+        self.handler(FIELD, PropertyKind::OnValueChange, ON_VALUE_CHANGE);
+        self.text(SAVE, PropertyKind::Text, "Save");
+        self.handler(SAVE, PropertyKind::OnClick, ON_CLICK);
+        for (index, node_id) in [FIELD, SAVE].into_iter().enumerate() {
+            self.batch.write(Mutation::Insert {
+                parent_id: FORM,
+                node_id,
+                index: index as u32,
+            });
+        }
+    }
+
+    fn render(&mut self) {}
+
+    fn handle_event(&mut self, event: &HostEvent<'_>) -> Result<i64, ProtocolError> {
+        match (event.node_id, event.handler_id, &event.payload) {
+            (FIELD, ON_VALUE_CHANGE, EventPayload::TextChanged(value)) => {
+                println!("input-check: field = {value}");
+                Ok(0)
+            }
+            (SAVE, ON_CLICK, EventPayload::Clicked) => {
+                println!("input-check: clicked");
+                Ok(0)
+            }
+            _ => Err(ProtocolError::InvalidValueKind(0)),
+        }
+    }
+
+    fn poll_work(&mut self, _context: &mut Context<'_>) -> Poll<()> {
+        Poll::Pending
     }
 }
 
@@ -106,9 +280,10 @@ fn main() {
         if std::env::var_os("COMPOSE_RUST_AUTOEXIT_MS").is_none() {
             end_when_drawn();
         }
-        let status = LaunchBuilder::new().try_launch(self_check);
+        let status = LaunchBuilder::new()
+            .try_launch_runtime(|| Box::new(Screen::new(true)) as Box<dyn Runtime>);
         let reached = STEP.load(Ordering::SeqCst);
-        if status != dioxus_compose_adapter::boundary::STATUS_OK {
+        if status != STATUS_OK {
             eprintln!("self-check: the renderer loop ended with status {status}");
             std::process::exit(1);
         }
@@ -122,8 +297,12 @@ fn main() {
         println!("self-check: the renderer drew {reached} frames");
         return;
     }
+    if std::env::args().any(|argument| argument == "--input-check") {
+        LaunchBuilder::new().launch_runtime(|| Box::new(Form::new()) as Box<dyn Runtime>);
+        return;
+    }
     if std::env::args().any(|argument| argument == "--launch") {
-        launch(app);
+        LaunchBuilder::new().launch_runtime(|| Box::new(Screen::new(false)) as Box<dyn Runtime>);
         return;
     }
     println!("the renderer was loaded and this program started");

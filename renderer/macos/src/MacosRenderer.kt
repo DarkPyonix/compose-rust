@@ -31,6 +31,9 @@ import dev.darkpyonix.composerust.design.HostPlatform
  * Returns when the application stops, which is when the window closes.
  */
 internal fun runRenderer(connection: () -> HostConnection): Int {
+    // Asked for by a build that proves the executable shapes and wraps Korean with no ICU data
+    // file beside it. A failure stops here, before a window, so the build sees it.
+    if (runTextSelfCheckIfAsked() == false) return RendererApi.RUN_FAILED
     val application = NSApplication.sharedApplication()
     // An executable that is not inside a bundle is not, by default, something the system
     // will put in front of anything else: it has no place in the dock and cannot take the

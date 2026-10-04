@@ -142,7 +142,7 @@ initialisation_args=("--initialize-at-run-time=org.jetbrains.skiko.SkikoProperti
 static_skiko_args=()
 if [[ -n "${DXC_STATIC_SKIKO:-}" ]]; then
     [[ -f "$DXC_STATIC_SKIKO" ]] || die "no archive at $DXC_STATIC_SKIKO" \
-        "experiments/static-library/build-static-skiko.sh builds one."
+        "experiments/static-library/build-static-skiko.sh (on the develop branch) builds one."
     static_skiko_dir="$(cd "$(dirname "$DXC_STATIC_SKIKO")" && pwd)"
     static_skiko_args=(
         "--features=dev.darkpyonix.composerust.ui.platform.StaticSkikoFeature"
@@ -159,10 +159,10 @@ if [[ -n "${DXC_STATIC_SKIKO:-}" ]]; then
     # native methods everywhere and compiles only this one's, which is invisible while the
     # library is loaded by name at run time and fatal once it is linked in: macOS binds
     # every symbol at load, so the first Direct3D declaration kills the process before
-    # anything is drawn. experiments/static-library/generate-foreign-stubs.sh writes them.
+    # anything is drawn. experiments/static-library/generate-foreign-stubs.sh (develop only) writes them.
     foreign_stubs="$static_skiko_dir/foreign-stubs.o"
     [[ -f "$foreign_stubs" ]] || die "no $foreign_stubs" \
-        "experiments/static-library/generate-foreign-stubs.sh writes the source for it."
+        "experiments/static-library/generate-foreign-stubs.sh (on the develop branch) writes the source for it."
     static_skiko_args+=(
         "-H:NativeLinkerOption=$foreign_stubs"
         # The three packages the feature reaches into are not exported by the builder

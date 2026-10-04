@@ -41,6 +41,16 @@ else
         fail "this machine has the X11 header and the gate leaves linuxX64 out"
 fi
 
+# linuxArm64 is cross compiled and linked against arm64 libraries, so it is built only on
+# an x86-64 Linux machine that has them, and never tested.
+if echo "$declared" | grep -qx linuxArm64; then
+    echo "$testable" | grep -qx linuxArm64 && fail "the gate runs arm64 Linux tests on $(uname -m)"
+    if [[ ! -e /usr/lib/aarch64-linux-gnu/libX11.so || "$(uname -s)" != Linux ]]; then
+        echo "$listed" | grep -qx linuxArm64 &&
+            fail "this machine has no arm64 X11 library and the gate still names linuxArm64"
+    fi
+fi
+
 # A device target has no test task, so naming it is an error rather than a skip. It is
 # still built.
 echo "$listed" | grep -qx iosArm64 || fail "iosArm64 is not built"
@@ -65,7 +75,7 @@ fi
 
 # Everything else a module declares has to be built.
 while read -r platform; do
-    [[ "$platform" == "linuxX64" ]] && continue
+    [[ "$platform" == "linuxX64" || "$platform" == "linuxArm64" ]] && continue
     echo "$listed" | grep -qx "$platform" ||
         fail "$platform is declared by a module and the gate does not name it"
 done <<< "$declared"
@@ -81,20 +91,6 @@ grep -q 'renderer_gate" build' "$repo_root/scripts/check.sh" ||
     fail "scripts/check.sh does not ask which platforms to build"
 grep -q 'renderer_gate" test' "$repo_root/scripts/check.sh" ||
     fail "scripts/check.sh does not ask which platforms to test"
-
-# The design systems are their own project and their tests were going unrun. The gate has
-# to reach both, and it has to ask the same question of each.
-grep -q 'design-systems' "$repo_root/scripts/check.sh" ||
-    fail "scripts/check.sh does not run the design systems project"
-[[ "$(grep -c 'kotlin test' "$repo_root/scripts/check.sh")" -ge 2 ]] ||
-    fail "scripts/check.sh runs only one project's tests"
-
-# And the lister has to answer for a project other than its own, or the line above is
-# asking the wrong project's question.
-design="$("$lister" test "$repo_root/design-systems" 2>/dev/null | sort)"
-[[ -n "$design" ]] || fail "the lister answers nothing for the design systems project"
-echo "$design" | grep -qx macosArm64 &&
-    fail "the design systems project has no macOS target and the lister named one"
 
 if [[ $failures -eq 0 ]]; then
     echo "ok    the gate names what this machine can build and what it can test"
