@@ -195,51 +195,9 @@ static int32_t dxc_buttons(unsigned int state) {
            ((state & Button2Mask) ? 4 : 0);
 }
 
-// The shared Compose reader uses these four bits, as NSEvent does. Translate at the
-// boundary so the same reader receives the same meaning on every desktop.
-static int32_t dxc_modifiers(unsigned int state) {
-    return ((state & ShiftMask) ? (1 << 17) : 0) |
-           ((state & ControlMask) ? (1 << 18) : 0) |
-           ((state & Mod1Mask) ? (1 << 19) : 0) |
-           ((state & Mod4Mask) ? (1 << 20) : 0);
-}
-
-// The key numbers are the shared reader's, which are the macOS ones: the letters and digits
-// by where they sit on a board, and the special keys by name. A key with no number answers
-// -1, never 0, because 0 is the A key and a shortcut that does not map would otherwise arrive
-// as ctrl and A.
-//
-// Printable keys also carry their code point, obtained from XLookupString for the current
-// keyboard layout.
-static int32_t dxc_key_code(KeySym key) {
-    static const int32_t letters[26] = {
-        0x00, 0x0B, 0x08, 0x02, 0x0E, 0x03, 0x05, 0x04, 0x22, 0x26, 0x28, 0x25, 0x2E,
-        0x2D, 0x1F, 0x23, 0x0C, 0x0F, 0x01, 0x11, 0x20, 0x09, 0x0D, 0x07, 0x10, 0x06,
-    };
-    static const int32_t digits[10] = {
-        0x1D, 0x12, 0x13, 0x14, 0x15, 0x17, 0x16, 0x1A, 0x1C, 0x19,
-    };
-    if (key >= XK_a && key <= XK_z) return letters[key - XK_a];
-    if (key >= XK_A && key <= XK_Z) return letters[key - XK_A];
-    if (key >= XK_0 && key <= XK_9) return digits[key - XK_0];
-    switch (key) {
-        case XK_Return: case XK_KP_Enter: return 0x24;
-        case XK_Tab: case XK_ISO_Left_Tab: return 0x30;
-        case XK_space: return 0x31;
-        case XK_BackSpace: return 0x33;
-        case XK_Escape: return 0x35;
-        case XK_Delete: return 0x75;
-        case XK_Left: return 0x7B;
-        case XK_Right: return 0x7C;
-        case XK_Down: return 0x7D;
-        case XK_Up: return 0x7E;
-        case XK_Home: return 0x73;
-        case XK_End: return 0x77;
-        case XK_Prior: return 0x74;
-        case XK_Next: return 0x79;
-        default: return -1;
-    }
-}
+// Keys and modifiers cross as the server wrote them: a keysym and a state word. Turning
+// them into what the shared reader understands is Kotlin's, in one table both X11 windows
+// ask (`X11Keys.kt`).
 
 /**
  * Tells the window manager that the drawing it was waiting for is done.
@@ -831,7 +789,7 @@ static void dxc_pump_events(void) {
                 record.x = (float)event.xmotion.x;
                 record.y = (float)event.xmotion.y;
                 record.buttons = dxc_buttons(event.xmotion.state);
-                record.modifiers = dxc_modifiers(event.xmotion.state);
+                record.modifiers = (int32_t)event.xmotion.state;
                 break;
             case ButtonPress:
             case ButtonRelease: {
@@ -861,7 +819,7 @@ static void dxc_pump_events(void) {
                     if (event.type == ButtonPress) record.buttons |= bit;
                     else record.buttons &= ~bit;
                 }
-                record.modifiers = dxc_modifiers(event.xbutton.state);
+                record.modifiers = (int32_t)event.xbutton.state;
                 break;
             }
             case KeyPress:
@@ -886,8 +844,10 @@ static void dxc_pump_events(void) {
                     }
                 }
                 record.kind = event.type == KeyPress ? DXC_EVENT_KEY_DOWN : DXC_EVENT_KEY_UP;
-                record.key_code = dxc_key_code(symbol);
-                record.modifiers = dxc_modifiers(event.xkey.state);
+                // The keysym and the state word as the server gave them. `X11Keys.kt` turns them into
+                // the shared numbering, the same function the Kotlin/Native window asks.
+                record.key_code = (int32_t)symbol;
+                record.modifiers = (int32_t)event.xkey.state;
                 if (count == 1 && (unsigned char)bytes[0] >= 32 && (unsigned char)bytes[0] < 127) {
                     record.code_point = (unsigned char)bytes[0];
                 }

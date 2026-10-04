@@ -214,7 +214,7 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
             work.runPending()
             var heard = false
             var drew = false
-            for (event in drainWindowEvents()) {
+            for (event in drainWindowEvents().map { it.fromX11() }) {
                 if (report && event.kind != WindowEvent.POINTER_MOVE) {
                     System.err.println("compose-rust: window heard $event")
                 }

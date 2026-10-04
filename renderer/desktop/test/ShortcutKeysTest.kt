@@ -11,8 +11,8 @@ import kotlin.test.assertEquals
  *
  * A key the table does not know used to arrive as key number zero, which is A on the board
  * the table is written for, so on the X11 window every one of these selected everything.
- * The X11 half is checked by scripts/tests/x11-key-codes.test.sh, which reads the numbers the
- * window sends; this is the other half, what those numbers mean.
+ * The X11 half is `X11KeysTest`, which checks the table both X11 windows read; this is the
+ * other half, what those numbers mean.
  */
 class ShortcutKeysTest {
 
