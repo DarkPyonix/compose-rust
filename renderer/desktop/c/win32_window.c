@@ -193,12 +193,13 @@ static int dxc_presenting_ahead;
 // asks dxc_client_rect, which answers this while it is set.
 static int32_t dxc_pending_client_width;
 static int32_t dxc_pending_client_height;
-// The source size and clip a shrinking frame is shown at: still the old size, so for the
-// compositor tick in which the window keeps its old rectangle the visual still covers
-// it. The WM_SIZE that follows, once the rectangle has shrunk, presents the new size.
-// Zero when nothing is held.
-static int32_t dxc_hold_width;
-static int32_t dxc_hold_height;
+// Whether the frame drawn from WM_NCCALCSIZE waits for the compositor before the
+// message returns. Set when the window grows, cleared when it shrinks (see
+// dxc_present_ahead).
+static int dxc_wait_after_present;
+// DXC_REPORT_LATENCY: each step drawn from WM_NCCALCSIZE prints how long the draw, the
+// present, the commit and the wait took together.
+static int dxc_report_latency = -1;
 
 /** The client rectangle, or the one the window is about to have while it is being sized. */
 static BOOL dxc_client_rect(HWND window, RECT *out) {
@@ -1396,18 +1397,31 @@ static void dxc_present_ahead(int32_t width, int32_t height) {
     dxc_pending_client_width = width;
     dxc_pending_client_height = height;
     dxc_resize_note(&dxc_sizing, width, height);
-    // Shrinking the other way round. Presenting the smaller size now would leave the
-    // old, larger rectangle uncovered until the window shrinks. The new layout is
-    // presented with the old size shown, and WM_SIZE presents the new size after.
-    if (width < dxc_presented_width || height < dxc_presented_height) {
-        dxc_hold_width = width > dxc_presented_width ? width : dxc_presented_width;
-        dxc_hold_height = height > dxc_presented_height ? height : dxc_presented_height;
+    // Every frame sets the source size and the clip to exactly what it drew, before its
+    // present and inside the batch its commit sends, so no frame shows a pixel it did
+    // not draw. What remains is ordering against the window rectangle, which is not in
+    // that batch. Growing, the frame is waited onto the screen first: for that tick the
+    // old rectangle crops the new frame and nothing is uncovered. Shrinking, waiting
+    // first would leave the old rectangle wider than the frame for a whole tick, so the
+    // message returns at once and the commit and the new rectangle are sent for the
+    // same compositor frame. That is a race, not a guarantee; captures decide it.
+    dxc_wait_after_present = width >= dxc_presented_width && height >= dxc_presented_height;
+    if (dxc_report_latency < 0) {
+        dxc_report_latency = getenv("DXC_REPORT_LATENCY") != NULL;
     }
+    LARGE_INTEGER started, finished, frequency;
+    QueryPerformanceCounter(&started);
     dxc_presenting_ahead = 1;
     dxc_draw_one_frame();
     dxc_presenting_ahead = 0;
-    dxc_hold_width = 0;
-    dxc_hold_height = 0;
+    if (dxc_report_latency) {
+        QueryPerformanceCounter(&finished);
+        QueryPerformanceFrequency(&frequency);
+        fprintf(stderr, "compose-rust: resize step %dx%d %s took %.2f ms\n", (int)width,
+                (int)height, dxc_wait_after_present ? "grow" : "shrink",
+                (double)(finished.QuadPart - started.QuadPart) * 1000.0 /
+                    (double)frequency.QuadPart);
+    }
     dxc_pending_client_width = 0;
     dxc_pending_client_height = 0;
 }
@@ -2593,8 +2607,6 @@ int32_t dxc_native_frame_begin(void *swapchain_pointer, void **texture_out) {
     if (dxc_source_size_works) {
         if (dxc_drag_buffer_width > buffer_width) buffer_width = dxc_drag_buffer_width;
         if (dxc_drag_buffer_height > buffer_height) buffer_height = dxc_drag_buffer_height;
-        if (dxc_hold_width > buffer_width) buffer_width = dxc_hold_width;
-        if (dxc_hold_height > buffer_height) buffer_height = dxc_hold_height;
     }
     int must_refit = buffer_width > dxc_buffer_width || buffer_height > dxc_buffer_height ||
                      !dxc_source_size_works || !dxc_sizing.dragging;
@@ -2628,11 +2640,6 @@ int32_t dxc_native_frame_begin(void *swapchain_pointer, void **texture_out) {
     // to the whole buffer; it takes effect with the present that follows.
     int32_t shown_width = wanted_width;
     int32_t shown_height = wanted_height;
-    if (dxc_source_size_works && dxc_hold_width > 0 && dxc_hold_height > 0 &&
-        dxc_hold_width <= dxc_buffer_width && dxc_hold_height <= dxc_buffer_height) {
-        shown_width = dxc_hold_width;
-        shown_height = dxc_hold_height;
-    }
     if (dxc_source_size_works) {
         if (FAILED(IDXGISwapChain3_SetSourceSize(swapchain, (UINT)shown_width,
                                                  (UINT)shown_height))) {
@@ -2704,7 +2711,7 @@ void dxc_native_frame_end(void *queue_pointer) {
     if (dxc_dcomp_active()) {
         dxc_presented_width = dxc_shown_width;
         dxc_presented_height = dxc_shown_height;
-        if (dxc_presenting_ahead) {
+        if (dxc_presenting_ahead && dxc_wait_after_present) {
             dxc_dcomp_wait_for_compositor();
         }
     }
