@@ -29,8 +29,8 @@ on:
     branches: [feature/windows-kotlin-native]
 
 concurrency:
-  group: windows-static-${{ github.ref }}
-  cancel-in-progress: true
+  group: windows-static-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
