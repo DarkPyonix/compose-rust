@@ -53,6 +53,7 @@ data class WindowEvent(
         const val RESIZE = 9
         const val FILES_ENTERED = 10
         const val FILES_DROPPED = 11
+        const val FILES_EXITED = 12
     }
 }
 
