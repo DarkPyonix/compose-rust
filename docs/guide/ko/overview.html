@@ -102,7 +102,7 @@
         </thead>
         <tbody>
           <tr><td>웹뷰 없음</td><td>WKWebView, WebView2, WebKitGTK를 쓰지 않고, Tauri나 wry도 쓰지 않습니다.</td></tr>
-          <tr><td>동봉된 JVM 없음</td><td>렌더러는 미리 컴파일합니다. JVM은 렌더러 자체를 개발하는 셸에만 나타납니다.</td></tr>
+          <tr><td>동봉된 JVM 없음</td><td>렌더러는 미리 컴파일합니다. macOS와 Linux에서는 Kotlin/Native 정적 아카이브로 실행 파일 하나에 링크되고, Windows에서는 GraalVM 네이티브 이미지입니다. JVM은 렌더러 자체를 개발하는 셸에만 나타납니다.</td></tr>
           <tr><td>손으로 쓴 JNI나 cinterop 없음</td><td>경계 심은 모두 Rust 스키마에서 생성하므로 두 쪽이 모르게 어긋날 수 없습니다.</td></tr>
           <tr><td>UI 코드는 Rust에</td><td>Kotlin은 렌더러의 구현이지, 기능을 작성하는 곳이 아닙니다.</td></tr>
           <tr><td>Compose 수준의 텍스트와 IME</td><td>Compose의 플랫폼 텍스트 입력을 우회하는 코드 경로가 없습니다.</td></tr>
@@ -185,12 +185,12 @@
           <tr>
             <td>macOS (arm64)</td>
             <td><span class="pill works">처음부터 끝까지 동작</span></td>
-            <td>애플리케이션 옆에 놓이는 GraalVM 네이티브 이미지 라이브러리입니다. 실행 파일 안에 링크되는 Kotlin/Native 렌더러(자기 창, Metal로 그림)는 CI에서 돌고 있고, 다음 릴리스에서 이것을 대신합니다(<a href="https://github.com/DarkPyonix/compose-rust/issues/22">#22</a>). 기본적인 한글 IME 입력은 동작하고, IME 체크리스트 전체는 아직 끝나지 않았습니다.</td>
+            <td>애플리케이션 옆에 놓이는 GraalVM 네이티브 이미지 라이브러리입니다. 실행 파일 안에 링크되는 Kotlin/Native 렌더러(자기 창, Metal로 그림)는 CI에서 돌고 있고, 다음 릴리스에서 이것을 대신합니다. 기본적인 한글 IME 입력은 동작하고, IME 체크리스트 전체는 아직 끝나지 않았습니다.</td>
           </tr>
           <tr>
             <td>Linux (x64, arm64)</td>
             <td><span class="pill partial">빌드되고 시작됨</span></td>
-            <td>GraalVM 네이티브 이미지 라이브러리입니다. Kotlin/Native 렌더러(자기 X11 창, GLX로 그림)는 두 아키텍처 모두 CI에서 헤드리스 시작 테스트를 통과하고, 다음 릴리스에서 이것을 대신합니다.</td>
+            <td>GraalVM 네이티브 이미지 라이브러리입니다. Kotlin/Native 렌더러(자기 X11 창, GLX로 그림, arm64는 x64에서 교차 컴파일)가 다음 릴리스에서 이것을 대신합니다. CI에서 그것으로 빌드한 애플리케이션은 libc, X11, GL, fontconfig, C++ 런타임(arm64는 EGL 포함)만 부르는 실행 파일 하나이고, 빈 디렉터리에 혼자 복사해도 Xvfb에서 그립니다. 사람이 직접 써 본 적은 아직 없습니다.</td>
           </tr>
           <tr>
             <td>Windows</td>

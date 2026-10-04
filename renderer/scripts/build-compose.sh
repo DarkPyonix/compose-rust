@@ -10,7 +10,7 @@
 # edits by hand and publishes the result under the version the renderer asks for, so that
 # the modules that are not changed keep resolving from JetBrains.
 #
-# Usage: build-compose.sh [--target macosArm64|linuxX64] [--clean]
+# Usage: build-compose.sh [--target macosArm64|linux|linuxX64|linuxArm64] [--clean]
 #
 # The work directory is a sibling of the renderer called compose-build. Set
 # DXC_COMPOSE_BUILD to put it elsewhere. It is not inside the renderer because it is a
@@ -73,14 +73,24 @@ done
 # runtime, ui, foundation and material3.
 case "$target" in
     macosArm64)
-        publication="MacosArm64"
+        publications=(MacosArm64)
         modules=(
             compose:foundation:foundation
             compose:ui:ui
         )
         ;;
-    linuxX64)
-        publication="LinuxX64"
+    linux|linuxArm64|linuxX64)
+        # arm64 is the same list for the other architecture, cross compiled on an x86-64
+        # machine: Kotlin/Native has no arm64 Linux host. `linux` is both, which is what
+        # building the renderer's Linux module takes: the toolchain resolves every
+        # platform a module declares, even when it is asked to build one.
+        if [[ "$target" == linuxX64 ]]; then
+            publications=(LinuxX64)
+        elif [[ "$target" == linuxArm64 ]]; then
+            publications=(LinuxArm64)
+        else
+            publications=(LinuxX64 LinuxArm64)
+        fi
         modules=(
             compose:animation:animation
             compose:animation:animation-core
@@ -98,7 +108,7 @@ case "$target" in
             compose:ui:ui-util
         )
         ;;
-    *) die "unknown target '$target'" "known: macosArm64, linuxX64" ;;
+    *) die "unknown target '$target'" "known: macosArm64, linux (both of the next two), linuxX64, linuxArm64" ;;
 esac
 
 [[ $clean -eq 1 ]] && rm -rf "$WORK"
@@ -135,7 +145,9 @@ echo "==> publishing ${#modules[@]} compose module(s) for $target as $PUBLISHED_
 # was published and not of what was built.
 tasks=()
 for module in "${modules[@]}"; do
-    tasks+=(":$module:publish${publication}PublicationToMavenLocal")
+    for publication in "${publications[@]}"; do
+        tasks+=(":$module:publish${publication}PublicationToMavenLocal")
+    done
     tasks+=(":$module:publishKotlinMultiplatformPublicationToMavenLocal")
 done
 (
