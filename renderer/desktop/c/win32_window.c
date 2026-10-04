@@ -2455,6 +2455,69 @@ void dxc_native_debug_key(void *window_pointer, int32_t key_code, const char *ch
     }
 }
 
+/**
+ * Shows the system's context menu at the pointer and answers with the index of the entry
+ * chosen, or -1 when it was dismissed. Returns when the menu closes.
+ *
+ * [items] is one line per entry, fields separated by a tab: the index, enabled (0 or 1)
+ * and the label in UTF-8, the format the macOS window reads (packMenu in
+ * NativeContextMenu.kt). Which entries are enabled is the caller's to say: Compose
+ * already disables Paste when the clipboard holds no text.
+ */
+int32_t dxc_native_context_menu(void *window_pointer, const char *items) {
+    HWND window = window_pointer != NULL ? (HWND)window_pointer : dxc_window;
+    if (window == NULL || items == NULL) {
+        return -1;
+    }
+    HMENU menu = CreatePopupMenu();
+    if (menu == NULL) {
+        return -1;
+    }
+    int entries = 0;
+    const char *line = items;
+    while (*line != '\0') {
+        const char *end = strchr(line, '\n');
+        size_t length = end != NULL ? (size_t)(end - line) : strlen(line);
+        char field[512];
+        if (length >= sizeof field) length = sizeof field - 1;
+        memcpy(field, line, length);
+        field[length] = '\0';
+        char *first_tab = strchr(field, '\t');
+        char *second_tab = first_tab != NULL ? strchr(first_tab + 1, '\t') : NULL;
+        if (second_tab != NULL) {
+            *first_tab = '\0';
+            *second_tab = '\0';
+            int index = atoi(field);
+            int enabled = atoi(first_tab + 1) != 0;
+            WCHAR label[256];
+            if (MultiByteToWideChar(CP_UTF8, 0, second_tab + 1, -1, label,
+                                    (int)(sizeof label / sizeof *label)) == 0) {
+                label[0] = L'\0';
+            }
+            // Command ids start at 1, because TrackPopupMenuEx answers 0 for "nothing".
+            AppendMenuW(menu, MF_STRING | (enabled ? MF_ENABLED : MF_GRAYED),
+                        (UINT_PTR)(index + 1), label);
+            entries++;
+        }
+        if (end == NULL) break;
+        line = end + 1;
+    }
+    int32_t chosen = -1;
+    if (entries > 0) {
+        POINT pointer;
+        GetCursorPos(&pointer);
+        // Without the window in front the menu does not close when the reader clicks
+        // elsewhere; the posted message lets it finish closing (KB135788).
+        SetForegroundWindow(window);
+        UINT command = (UINT)TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NONOTIFY,
+                                              pointer.x, pointer.y, window, NULL);
+        PostMessageW(window, WM_NULL, 0, 0);
+        chosen = command == 0 ? -1 : (int32_t)command - 1;
+    }
+    DestroyMenu(menu);
+    return chosen;
+}
+
 /*
  * The names below are answered here and do nothing.
  *
