@@ -80,8 +80,22 @@ tool_path() {
     if [[ "$host" == windows ]]; then cygpath -m "$1"; else echo "$1"; fi
 }
 
-PYTHON="$(command -v python3 || command -v python || true)"
-[[ -n "$PYTHON" ]] || die "no python3 on PATH" "fix-mingw-objects.py rewrites the renderer object with it."
+# Windows puts an app execution alias named python3 on PATH when no interpreter is
+# installed, which opens the Store rather than running anything: `command -v` finds it,
+# and it answers to `--version` with nothing useful and exit code 0, so a plain existence
+# check is not enough. A real interpreter is the one that prints its own version.
+PYTHON=""
+for candidate in python3 python; do
+    found="$(command -v "$candidate" || true)"
+    if [[ -n "$found" ]] && "$found" --version >/dev/null 2>&1; then
+        PYTHON="$found"
+        break
+    fi
+done
+[[ -n "$PYTHON" ]] || die "no working python3 on PATH" \
+    "fix-mingw-objects.py rewrites the renderer object with it." \
+    "A python3 found on PATH that does nothing useful is the Store's app execution" \
+    "alias; install Python and put it ahead of that alias."
 
 KOTLIN_WRAPPER="$PROJECT_DIR/kotlin"
 [[ -x "$KOTLIN_WRAPPER" ]] || die "$KOTLIN_WRAPPER is missing or not executable" \
