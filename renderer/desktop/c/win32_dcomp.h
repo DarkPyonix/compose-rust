@@ -39,6 +39,12 @@ int dxc_dcomp_active(void);
  */
 int dxc_dcomp_set_clip(float width, float height);
 
+/**
+ * Scales the visual by sx, sy about its top left. Goes into the batch the next commit
+ * sends. Zero on success.
+ */
+int dxc_dcomp_set_scale(float sx, float sy);
+
 /** Commits whatever is pending on the visual. Zero on success. */
 int dxc_dcomp_commit(void);
 

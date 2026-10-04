@@ -200,6 +200,9 @@ static int dxc_wait_after_present;
 // DXC_REPORT_LATENCY: each step drawn from WM_NCCALCSIZE prints how long the draw, the
 // present, the commit and the wait took together.
 static int dxc_report_latency = -1;
+// The visual scale last applied, so DXC_REPORT_LATENCY prints only changes.
+static float dxc_logged_sx;
+static float dxc_logged_sy;
 
 /** The client rectangle, or the one the window is about to have while it is being sized. */
 static BOOL dxc_client_rect(HWND window, RECT *out) {
@@ -2407,19 +2410,14 @@ int32_t dxc_native_window_open(
     IDXGISwapChain1 *first = NULL;
     HRESULT made = E_FAIL;
     if (dcomp_device_made) {
-        // NONE first, so a buffer and a window that disagree show as a crop and never
-        // as a stretch. Some versions refuse NONE for a composition swapchain; STRETCH
-        // is then taken, and it does not stretch either while the source size below
-        // matches what was drawn, which every frame sets.
-        swapchain_description.Scaling = DXGI_SCALING_NONE;
+        // CreateSwapChainForComposition requires DXGI_SCALING_STRETCH. With it, the
+        // source size region is stretched over the whole buffer's extent on the visual,
+        // so a frame that draws only the top left of a larger buffer is scaled back down
+        // by the visual's transform (dxc_native_frame_end) to come out 1:1.
+        swapchain_description.Scaling = DXGI_SCALING_STRETCH;
         swapchain_description.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
         made = IDXGIFactory4_CreateSwapChainForComposition(
             factory, (IUnknown *)queue, &swapchain_description, NULL, &first);
-        if (FAILED(made)) {
-            swapchain_description.Scaling = DXGI_SCALING_STRETCH;
-            made = IDXGIFactory4_CreateSwapChainForComposition(
-                factory, (IUnknown *)queue, &swapchain_description, NULL, &first);
-        }
         if (SUCCEEDED(made) && dxc_dcomp_attach(window, (IUnknown *)first) != 0) {
             IDXGISwapChain1_Release(first);
             first = NULL;
@@ -2456,6 +2454,9 @@ int32_t dxc_native_window_open(
         return 7;
     }
     dxc_swapchain_flags = swapchain_description.Flags;
+    fprintf(stderr, "compose-rust: swapchain for %s, scaling %s\n",
+            dxc_dcomp_active() ? "composition" : "the window",
+            swapchain_description.Scaling == DXGI_SCALING_NONE ? "NONE" : "STRETCH");
     // DXGI answers alt-enter by putting the window into its own idea of full screen,
     // which is a mode nothing here knows how to draw in.
     IDXGIFactory4_MakeWindowAssociation(factory, window, DXGI_MWA_NO_ALT_ENTER);
@@ -2495,6 +2496,7 @@ int32_t dxc_native_window_open(
     dxc_shown_width = (int32_t)pixel_width;
     dxc_shown_height = (int32_t)pixel_height;
     dxc_source_size_works = dxc_dcomp_active();
+    dxc_report_latency = getenv("DXC_REPORT_LATENCY") != NULL;
 
     if (dxc_acquire_buffers() != 0) {
         dxc_abandon_window(adapter);
@@ -2695,7 +2697,22 @@ void dxc_native_frame_end(void *queue_pointer) {
     // part of the buffer this present shows and the rest of the buffer, which holds
     // whatever an earlier, larger frame left there, is never on screen.
     if (dxc_dcomp_active()) {
-        dxc_dcomp_set_clip((float)dxc_shown_width, (float)dxc_shown_height);
+        // The source region is stretched over the buffer's extent, so the visual is
+        // scaled by shown / buffer to put every drawn pixel on one screen pixel. The
+        // clip is the buffer's extent in the visual's own space, which after that scale
+        // is the shown size; if the clip is applied after the transform instead, it
+        // removes nothing, and the source size already shows nothing beyond the frame.
+        float sx = (float)dxc_shown_width / (float)dxc_buffer_width;
+        float sy = (float)dxc_shown_height / (float)dxc_buffer_height;
+        dxc_dcomp_set_scale(sx, sy);
+        dxc_dcomp_set_clip((float)dxc_buffer_width, (float)dxc_buffer_height);
+        if (dxc_report_latency > 0 && (sx != dxc_logged_sx || sy != dxc_logged_sy)) {
+            fprintf(stderr, "compose-rust: drawn %dx%d of buffer %dx%d, visual scale %.6f x %.6f, clip %dx%d\n",
+                    (int)dxc_shown_width, (int)dxc_shown_height, (int)dxc_buffer_width,
+                    (int)dxc_buffer_height, sx, sy, (int)dxc_buffer_width, (int)dxc_buffer_height);
+        }
+        dxc_logged_sx = sx;
+        dxc_logged_sy = sy;
     }
     // From WM_NCCALCSIZE the interval is zero: the compositor wait below paces the
     // frame, and a vertical blank waited for first would be one more frame between the
