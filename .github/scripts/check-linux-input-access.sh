@@ -138,15 +138,20 @@ done
 echo "-- window $window"
 
 echo "== reading the window through AT-SPI"
-python3 "$repo_root/.github/scripts/atspi-walk.py" consumer 2>&1 | tee "$logs/atspi.log" ||
-    fail "the window is not readable through AT-SPI"
+# Neither check hides the other: a failure here is remembered and the typing check still runs.
+accessibility_failed=""
+if ! python3 "$repo_root/.github/scripts/atspi-walk.py" consumer 2>&1 | tee "$logs/atspi.log"; then
+    accessibility_failed="the window is not readable through AT-SPI"
+fi
 for _ in $(seq 1 40); do
     grep -q 'input-check: clicked' "$logs/host.log" && break
     sleep 0.25
 done
-grep -q 'input-check: clicked' "$logs/host.log" ||
-    fail "pressing the button through AT-SPI did not reach the Host"
-echo "ok    the button pressed through AT-SPI was clicked in the Host"
+if grep -q 'input-check: clicked' "$logs/host.log"; then
+    echo "ok    the button pressed through AT-SPI was clicked in the Host"
+else
+    accessibility_failed="${accessibility_failed:+$accessibility_failed; }pressing the button through AT-SPI did not reach the Host"
+fi
 
 echo "== typing Korean through ibus-hangul"
 xdotool windowfocus "$window" || true
@@ -178,4 +183,5 @@ grep -q 'input-check: field = .*한글' "$logs/host.log" ||
     fail "the field did not end up holding the word" \
          "Expected 한글 in what the Host heard the field change to."
 
+[[ -z "$accessibility_failed" ]] || fail "$accessibility_failed"
 echo "ok    Korean typed through ibus-hangul reached the field, composed first and committed after"

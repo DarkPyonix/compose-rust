@@ -72,7 +72,7 @@ def main():
     if not windows or windows[0].get_role_name() != "frame":
         failures.append("the application has no window with the role frame")
     buttons = [n for _, n in nodes if n.get_role_name() == "push button" and n.get_name() == "Save"]
-    fields = [n for _, n in nodes if n.get_role_name() == "text"]
+    fields = [n for _, n in nodes if n.get_role_name() in ("entry", "text")]
     if not buttons:
         failures.append("no push button named Save")
     if not fields:
