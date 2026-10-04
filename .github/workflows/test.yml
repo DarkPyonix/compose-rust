@@ -26,8 +26,6 @@ on:
   # merges, so that run is the gate, and it finishes before main moves. Running again on
   # the push afterwards tested the identical tree and doubled every number on the actions
   # page for nothing.
-  push:
-    branches: [feature/native-default-renderer]  # TEMP: remove before merge
   pull_request:
     branches: [main]
   workflow_dispatch:

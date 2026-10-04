@@ -58,7 +58,7 @@ on:
   # same filtering where it can tell a tag from a branch, so main pushes that left the
   # renderer alone cost one cheap job instead of four long ones.
   push:
-    branches: [main, feature/native-default-renderer]  # TEMP: remove before merge
+    branches: [main]
     tags: ['v*']
   schedule:
     # 03:00 UTC daily. Scheduled runs only fire on the default branch.
