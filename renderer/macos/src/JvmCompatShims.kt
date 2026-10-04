@@ -2,13 +2,7 @@
 
 package java.lang
 
-import kotlinx.cinterop.alloc
-import kotlinx.cinterop.memScoped
-import kotlinx.cinterop.ptr
 import kotlinx.cinterop.toKString
-import platform.posix.CLOCK_MONOTONIC
-import platform.posix.clock_gettime
-import platform.posix.timespec
 import platform.Foundation.NSLog
 import platform.posix.getenv
 
@@ -38,12 +32,13 @@ object System {
 
     fun getenv(name: String): String? = platform.posix.getenv(name)?.toKString()
 
-    /** The monotonic clock in nanoseconds, which is what the JVM's call of this name answers. */
-    fun nanoTime(): Long = memScoped {
-        val now = alloc<timespec>()
-        clock_gettime(CLOCK_MONOTONIC, now.ptr)
-        now.tv_sec * 1_000_000_000L + now.tv_nsec
-    }
+    private val origin = kotlin.time.TimeSource.Monotonic.markNow()
+
+    /**
+     * The monotonic clock in nanoseconds from when this was first asked, which is all the JVM's
+     * call of this name promises: only the difference between two answers means anything.
+     */
+    fun nanoTime(): Long = origin.elapsedNow().inWholeNanoseconds
 
     class ErrorStream internal constructor() {
         fun println(line: String) = NSLog("%s", line)
