@@ -146,8 +146,8 @@ Compose 포크 `thisisthepy/compose-multiplatform-core-extended`의 `extended` �
 `RendererApi`는 주 스레드를 요구하지 않습니다. X11에는 디스플레이 연결을 소유하는
 스레드가 없습니다.
 
-창은 `linux/src/LinuxWindow.kt`이고, Xlib과 GLX와 sync 확장을 직접 부릅니다.
-`desktop/c/x11_window.c`를 가져오지 않았습니다. 그 파일은 그대로 남아 있고 윈도우가
+창은 Compose 포크의 `extended/window/native/linux`이고, Xlib과 GLX와 sync 확장을 직접 부릅니다.
+`linux/src/LinuxWindow.kt`는 그 창에 씬을 그리는 Compose 쪽입니다. 포크의 `graalvm-linux`에 있는 `x11_window.c`는 가져오지 않았습니다. 그 파일은 포크에 남아 있고 윈도우가
 링크하며 네이티브 이미지가 여는 창입니다. 다만 그 모양은 X11의 모양이 아니라 GraalVM의
 모양입니다: 워드 값이 만들어진 메서드를 떠날 수 없어서 이벤트를 링 버퍼에 적고,
 `IsolateThread*`를 들고 함수 포인터로 되돌아옵니다. Kotlin/Native에는 그중 어느 것도
