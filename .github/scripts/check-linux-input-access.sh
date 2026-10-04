@@ -110,8 +110,14 @@ for _ in $(seq 1 40); do
     sleep 0.5
 done
 ibus address >/dev/null 2>&1 || fail "ibus-daemon did not come up"
-ibus engine hangul >"$logs/ibus-engine.log" 2>&1 ||
-    fail "the hangul engine could not be selected" "Install ibus-hangul."
+# The daemon answers `ibus address` before it accepts clients, so selecting the engine is
+# retried until it takes.
+selected=""
+for _ in $(seq 1 30); do
+    if ibus engine hangul >"$logs/ibus-engine.log" 2>&1; then selected=1; break; fi
+    sleep 1
+done
+[[ -n "$selected" ]] || fail "the hangul engine could not be selected" "Install ibus-hangul."
 echo "-- engine: $(ibus engine)"
 
 echo "== starting the application"
