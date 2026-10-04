@@ -122,7 +122,7 @@ internal fun NativeWindowContent(
  */
 @Composable
 internal fun NativeCaptionDrag(height: androidx.compose.ui.unit.Dp, actions: WindowActions?) {
-    var lastPress by androidx.compose.runtime.remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    val lastPress = androidx.compose.runtime.remember { LongArray(1) }
     Box(
         Modifier
             .fillMaxWidth()
@@ -131,11 +131,11 @@ internal fun NativeCaptionDrag(height: androidx.compose.ui.unit.Dp, actions: Win
                 awaitEachGesture {
                     awaitFirstDown()
                     val now = System.nanoTime()
-                    if (now - lastPress < DOUBLE_PRESS_NANOS) {
-                        lastPress = 0L
+                    if (now - lastPress[0] < DOUBLE_PRESS_NANOS) {
+                        lastPress[0] = 0L
                         actions?.maximise?.invoke()
                     } else {
-                        lastPress = now
+                        lastPress[0] = now
                         beginNativeWindowDrag(0)
                     }
                 }
