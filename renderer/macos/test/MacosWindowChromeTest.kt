@@ -14,7 +14,7 @@ import platform.AppKit.NSWindowStyleMaskMiniaturizable
 import platform.AppKit.NSWindowStyleMaskResizable
 import platform.AppKit.NSWindowStyleMaskTitled
 import platform.AppKit.NSWindowTitleHidden
-import platform.AppKit.NSWindowToolbarStyleUnified
+import platform.AppKit.NSWindowToolbarStyle
 import platform.AppKit.NSWindowZoomButton
 import platform.Foundation.NSMakeRect
 import kotlin.test.Test
@@ -61,7 +61,7 @@ class MacosWindowChromeTest {
         val window = window(chrome)
         val toolbar = assertNotNull(window.toolbar, "the window is built with a toolbar")
         assertEquals(false, toolbar.showsBaselineSeparator)
-        assertEquals(NSWindowToolbarStyleUnified, window.toolbarStyle)
+        assertEquals(NSWindowToolbarStyle.NSWindowToolbarStyleUnified, window.toolbarStyle)
         assertTrue(window.titlebarAppearsTransparent)
         assertEquals(NSWindowTitleHidden, window.titleVisibility)
         assertTrue(window.styleMask and NSWindowStyleMaskFullSizeContentView != 0uL)
