@@ -464,12 +464,17 @@ skiko는 `mingwX64`를 발행하지 않고 Compose도 Windows용 Kotlin/Native �
 
 > [user] "니 말만 들으면 구현을 따로 하는게 나아보이긴 하네" (2026-10-04)
 
-- 데스크톱 창은 구현이 둘입니다. 경로마다 얇은 OS 층을 둡니다. GraalVM 경로는 `appkit_window.m`, `win32_window.c`, `x11_window.c`이고, Kotlin/Native 경로는 Kotlin cinterop입니다(D18의 Windows를 포함).
+- 데스크톱 창은 macOS와 Linux에서 구현이 둘입니다(Windows는 아래 예외). 경로마다 얇은 OS 층을 둡니다. GraalVM 경로는 `appkit_window.m`, `win32_window.c`, `x11_window.c`이고, Kotlin/Native 경로는 Kotlin cinterop입니다(D18의 Windows를 포함).
 - 공통 로직은 Kotlin 소스 한 벌에 둡니다(D3). 두 경로가 같은 소스를 컴파일합니다.
 - 일치 테스트: 같은 점검표와 측정을 두 경로에 CI에서 돌립니다.
 - **폐기:** 컴파일한 K/N 창 모듈을 GraalVM 이미지에 정적으로 링크하는 통합(조사 문서의 선택지 A)과 그 전제를 확인하려던 실험 E1 ~ E4는 하지 않습니다. 왜 그랬는지는 `docs/design/graalvm-reuse-kn-window.md`(PR #148)에 있습니다.
 - **E0(upcall 비용 측정)은 끝났습니다(2026-10-04).** upcall 한 번은 약 8 ~ 9 ns라 허용합니다. 핸드셰이크(스레드 사이 왕복, 약 2.75 us)는 프레임당 몇 번까지만 허용합니다. 접근성 질의는 캐시에서 답하고 경계를 넘지 않습니다. Win32와 X11의 그리기 콜백은 upcall로 둡니다.
 - **공통 로직에는 순수 C 헤더도 들어갑니다.** 두 경로가 OS 콜백 안의 계산에 함께 쓰는 헤더(`win32_resize.h`, `appkit_resize.h`)입니다. GraalVM 경로에서는 C에서 직접 부르고, K/N 경로에서는 cinterop으로 부릅니다. 같은 계산이 한 벌의 소스에서 나옵니다.
+- **Windows 예외 (소유자 결정, 2026-10-04).** Windows K/N 렌더러(#119, `feature/windows-kotlin-native`)는 GraalVM 경로가 쓰는 `renderer/desktop/c/win32_window.c`를 그대로 링크합니다(`renderer/windows/module.yaml`, `Win32Window.kt`가 심볼 이름으로 부릅니다). 그래서 Windows의 창은 두 경로가 공유하는 C 구현 하나이고, "구현이 둘"은 macOS와 Linux에만 해당합니다. K/N도 macOS처럼 자기 Kotlin 창을 가질지 물었고, 소유자가 C 한 벌 유지로 정했습니다(리더의 권고와 같습니다).
+
+> [user] "C 한 벌 유지" (2026-10-04)
+
+  Kotlin 창을 따로 두는 안은 폐기합니다. 이유는 MinGW 객체와 MSVC 링크가 맞물리는 위험이 창 코드까지 번지는 것, 그리고 Windows에도 일치 테스트가 하나 더 필요해지는 부담입니다.
 - 이동 계획: D19가 포크로 옮기기로 한 창 코드는 이 구조에 맞춰 `extended/window/{common, native/<os>, graalvm/<os>, parity}`로 나눕니다. 순서와 날짜는 `docs/design/fork-window-move.md`에 있습니다.
 
 **치르는 값.** 같은 동작을 두 곳에서 구현하므로 표류가 생길 수 있고, 시험이 그것을 막는 유일한 장치입니다. 시험이 덮지 못하는 것(IME, VoiceOver, 리사이즈 감)은 사람이 실기기에서 봅니다.
