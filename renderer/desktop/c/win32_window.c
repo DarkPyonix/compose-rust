@@ -47,6 +47,8 @@
 #include <imm.h>
 #include <d3d12.h>
 #include <dxgi1_4.h>
+#include <d3d11.h>
+#include <d3d11on12.h>
 #include <ole2.h>
 #include <shellapi.h>
 #include <uiautomation.h>
@@ -109,10 +111,12 @@ struct dxc_event {
 // draining, and holding a thousand stale mouse moves helps no one.
 #define DXC_EVENT_CAPACITY 256
 
-// How many buffers the swapchain flips between. Two is what a window that waits for the
-// vertical blank needs; a third only buys anything to a renderer that runs ahead of the
-// screen, and this one does not.
-#define DXC_BUFFER_COUNT 2
+// One buffer, as Flutter's window swapchain has (ANGLE's NativeWindow11Win32 for a
+// window without DirectComposition). It is a copy model swapchain: Present copies the
+// buffer into the window's own redirection surface, which DWM resizes with the window,
+// so the window's size and its content reach the screen together. Skia draws into a
+// Direct3D 12 texture of the same size, which is copied into that buffer each frame.
+#define DXC_BUFFER_COUNT 1
 
 // The format the swapchain and Skia have to agree on. Named here as a number because the
 // Kotlin side has to pass the same one to Skia and cannot see this header.
@@ -127,7 +131,16 @@ static int dxc_event_head;
 static int dxc_event_count;
 
 static HWND dxc_window;
-static IDXGISwapChain3 *dxc_swapchain;
+static IDXGISwapChain1 *dxc_swapchain;
+// The Direct3D 11 device the swapchain belongs to, made on the renderer's Direct3D 12
+// device and queue through D3D11On12, and the texture Skia draws into, wrapped for it.
+static ID3D11Device *dxc_d3d11;
+static ID3D11DeviceContext *dxc_d3d11_context;
+static ID3D11On12Device *dxc_on12;
+static ID3D11Resource *dxc_wrapped;
+// ID3D11On12Device, named here because not every SDK's dxguid.lib carries it.
+static const IID dxc_iid_on12_device =
+    {0x85611e73, 0x70a9, 0x490e, {0x96, 0x14, 0xa9, 0xe3, 0x02, 0x77, 0x79, 0x04}};
 // What the swapchain was made with, and what every later refit has to say again: a refit
 // that names other flags is refused.
 static UINT dxc_swapchain_flags;
@@ -173,6 +186,7 @@ static double dxc_step_gpu_idle_ms;
 static double dxc_step_refit_ms;
 static double dxc_step_draw_ms;
 static double dxc_step_present_ms;
+static double dxc_step_copy_ms;
 static LARGE_INTEGER dxc_step_mark;
 
 // A frame, asked for by the window rather than by the loop that usually draws them.
@@ -1399,6 +1413,7 @@ static void dxc_draw_resize(int32_t width, int32_t height) {
     dxc_resize_target_height = height;
     dxc_resizing = 1;
     dxc_step_gpu_idle_ms = dxc_step_refit_ms = dxc_step_draw_ms = dxc_step_present_ms = 0.0;
+    dxc_step_copy_ms = 0.0;
     dxc_draw_one_frame();
     dxc_resizing = 0;
     int presented = dxc_presented_width == width && dxc_presented_height == height;
@@ -1412,42 +1427,26 @@ static void dxc_draw_resize(int32_t width, int32_t height) {
     if (dxc_report_latency) {
         fprintf(stderr,
                 "compose-rust: resize step %dx%d %s, %s, took %.2f ms: gpu idle %.2f, refit %.2f, "
-                "draw %.2f, present %.2f, DwmFlush %.2f\n",
+                "draw %.2f, copy %.2f, present %.2f, DwmFlush %.2f\n",
                 (int)width, (int)height, presented ? "presented" : "not presented",
                 flushed ? "flushed" : "not flushed", total_ms, dxc_step_gpu_idle_ms,
-                dxc_step_refit_ms, dxc_step_draw_ms, dxc_step_present_ms, total_ms - drawn_ms);
+                dxc_step_refit_ms, dxc_step_draw_ms, dxc_step_copy_ms, dxc_step_present_ms,
+                total_ms - drawn_ms);
     }
 }
 
 static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
     switch (message) {
     case WM_NCCALCSIZE: {
-        if (wparam != TRUE) {
+        if (dxc_options.system_chrome || wparam != TRUE) {
             break;
         }
         NCCALCSIZE_PARAMS *params = (NCCALCSIZE_PARAMS *)lparam;
         LONG requested_top = params->rgrc[0].top;
-        LRESULT answer = DefWindowProcW(window, message, wparam, lparam);
-        if (!dxc_options.system_chrome) {
-            params->rgrc[0].top = IsZoomed(window) ? requested_top + dxc_maximised_overhang()
-                                                   : requested_top;
-            answer = 0;
-        }
-        // Growing, the frame for the new size is presented here, before the window and
-        // its redirection surface grow. By WM_SIZE they already have, and DWM can compose
-        // the new area, cleared to black, before a present made there lands. With
-        // DXGI_SCALING_NONE a buffer larger than the old client area is shown unscaled at
-        // its top left and cut by the window, so presenting early shows nothing wrong.
-        // Shrinking needs none of this: the old buffer is cut by the smaller window until
-        // WM_SIZE presents the new size.
-        int32_t width = params->rgrc[0].right - params->rgrc[0].left;
-        int32_t height = params->rgrc[0].bottom - params->rgrc[0].top;
-        if (dxc_swapchain != NULL && !IsIconic(window) && width > 0 && height > 0 &&
-            (width > dxc_presented_width || height > dxc_presented_height)) {
-            dxc_resize_note(&dxc_sizing, width, height);
-            dxc_draw_resize(width, height);
-        }
-        return answer;
+        DefWindowProcW(window, message, wparam, lparam);
+        params->rgrc[0].top = IsZoomed(window) ? requested_top + dxc_maximised_overhang()
+                                               : requested_top;
+        return 0;
     }
     case WM_NCHITTEST:
         if (dxc_options.system_chrome) {
@@ -2142,22 +2141,57 @@ static void dxc_wait_for_gpu(void) {
 }
 
 static void dxc_release_buffers(void) {
+    if (dxc_wrapped != NULL) {
+        ID3D11Resource_Release(dxc_wrapped);
+        dxc_wrapped = NULL;
+    }
     for (int index = 0; index < DXC_BUFFER_COUNT; index++) {
         if (dxc_buffers[index] != NULL) {
             ID3D12Resource_Release(dxc_buffers[index]);
             dxc_buffers[index] = NULL;
         }
     }
+    // Direct3D 11 defers destruction until its context is flushed, and the swapchain
+    // will not resize while anything of the old size is still alive.
+    if (dxc_d3d11_context != NULL) {
+        ID3D11DeviceContext_ClearState(dxc_d3d11_context);
+        ID3D11DeviceContext_Flush(dxc_d3d11_context);
+    }
 }
 
-static int32_t dxc_acquire_buffers(void) {
-    for (int index = 0; index < DXC_BUFFER_COUNT; index++) {
-        HRESULT taken = IDXGISwapChain3_GetBuffer(
-            dxc_swapchain, (UINT)index, &IID_ID3D12Resource, (void **)&dxc_buffers[index]);
-        if (FAILED(taken)) {
-            dxc_release_buffers();
-            return 1;
-        }
+/** Makes the texture Skia draws into, width x height, and wraps it for Direct3D 11. */
+static int32_t dxc_acquire_buffers(int32_t width, int32_t height) {
+    D3D12_HEAP_PROPERTIES heap;
+    memset(&heap, 0, sizeof heap);
+    heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+    D3D12_RESOURCE_DESC description;
+    memset(&description, 0, sizeof description);
+    description.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    description.Width = (UINT64)width;
+    description.Height = (UINT)height;
+    description.DepthOrArraySize = 1;
+    description.MipLevels = 1;
+    description.Format = DXC_SWAPCHAIN_FORMAT;
+    description.SampleDesc.Count = 1;
+    description.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    description.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    if (FAILED(ID3D12Device_CreateCommittedResource(
+            dxc_device, &heap, D3D12_HEAP_FLAG_NONE, &description, D3D12_RESOURCE_STATE_PRESENT,
+            NULL, &IID_ID3D12Resource, (void **)&dxc_buffers[0]))) {
+        dxc_buffers[0] = NULL;
+        return 1;
+    }
+    // In and out in the present state, which is where dxc_native_frame_end leaves the
+    // texture after Skia, and where Skia is told to find it.
+    D3D11_RESOURCE_FLAGS flags;
+    memset(&flags, 0, sizeof flags);
+    flags.BindFlags = D3D11_BIND_RENDER_TARGET;
+    if (FAILED(ID3D11On12Device_CreateWrappedResource(
+            dxc_on12, (IUnknown *)dxc_buffers[0], &flags, D3D12_RESOURCE_STATE_PRESENT,
+            D3D12_RESOURCE_STATE_PRESENT, &IID_ID3D11Resource, (void **)&dxc_wrapped))) {
+        dxc_wrapped = NULL;
+        dxc_release_buffers();
+        return 1;
     }
     return 0;
 }
@@ -2175,7 +2209,10 @@ static void dxc_abandon_window(IDXGIAdapter1 *adapter) {
     if (dxc_fence != NULL) { ID3D12Fence_Release(dxc_fence); dxc_fence = NULL; }
     if (dxc_fence_signalled != NULL) { CloseHandle(dxc_fence_signalled); dxc_fence_signalled = NULL; }
     dxc_latency_wait = NULL;
-    if (dxc_swapchain != NULL) { IDXGISwapChain3_Release(dxc_swapchain); dxc_swapchain = NULL; }
+    if (dxc_swapchain != NULL) { IDXGISwapChain1_Release(dxc_swapchain); dxc_swapchain = NULL; }
+    if (dxc_on12 != NULL) { ID3D11On12Device_Release(dxc_on12); dxc_on12 = NULL; }
+    if (dxc_d3d11_context != NULL) { ID3D11DeviceContext_Release(dxc_d3d11_context); dxc_d3d11_context = NULL; }
+    if (dxc_d3d11 != NULL) { ID3D11Device_Release(dxc_d3d11); dxc_d3d11 = NULL; }
     if (dxc_queue != NULL) { ID3D12CommandQueue_Release(dxc_queue); dxc_queue = NULL; }
     if (dxc_device != NULL) { ID3D12Device_Release(dxc_device); dxc_device = NULL; }
     if (adapter != NULL) { IDXGIAdapter1_Release(adapter); }
@@ -2345,6 +2382,33 @@ int32_t dxc_native_window_open(
         return 6;
     }
 
+    // Direct3D 11 on the renderer's Direct3D 12 device and queue, for the swapchain.
+    // Looked up at run time so the build links nothing new.
+    ID3D11Device *d3d11 = NULL;
+    ID3D11DeviceContext *d3d11_context = NULL;
+    ID3D11On12Device *on12 = NULL;
+    HMODULE d3d11_library = LoadLibraryW(L"d3d11.dll");
+    PFN_D3D11ON12_CREATE_DEVICE create_on12 = d3d11_library == NULL ? NULL
+        : (PFN_D3D11ON12_CREATE_DEVICE)(void *)GetProcAddress(d3d11_library, "D3D11On12CreateDevice");
+    IUnknown *queues[1] = {(IUnknown *)queue};
+    if (create_on12 == NULL ||
+        FAILED(create_on12((IUnknown *)device, 0, NULL, 0, queues, 1, 0, &d3d11,
+                           &d3d11_context, NULL)) ||
+        FAILED(ID3D11Device_QueryInterface(d3d11, &dxc_iid_on12_device, (void **)&on12))) {
+        if (d3d11_context != NULL) ID3D11DeviceContext_Release(d3d11_context);
+        if (d3d11 != NULL) ID3D11Device_Release(d3d11);
+        ID3D12CommandQueue_Release(queue);
+        ID3D12Device_Release(device);
+        IDXGIAdapter1_Release(adapter);
+        IDXGIFactory4_Release(factory);
+        DestroyWindow(window);
+        return 7;
+    }
+
+    // Flutter's window swapchain, as ANGLE makes it for a window without
+    // DirectComposition: copy model (DXGI_SWAP_EFFECT_SEQUENTIAL), one buffer, STRETCH.
+    // Every resize refits it to exactly the client size before anything is presented, so
+    // the stretch is always 1:1.
     DXGI_SWAP_CHAIN_DESC1 swapchain_description;
     memset(&swapchain_description, 0, sizeof swapchain_description);
     swapchain_description.Width = pixel_width;
@@ -2353,24 +2417,17 @@ int32_t dxc_native_window_open(
     swapchain_description.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     swapchain_description.BufferCount = DXC_BUFFER_COUNT;
     swapchain_description.SampleDesc.Count = 1;
-    swapchain_description.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-    swapchain_description.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
-    IDXGISwapChain1 *first = NULL;
-    HRESULT made = E_FAIL;
-    // A flip model swapchain on the window itself. DXGI_SCALING_NONE, so a buffer and a
-    // window that disagree for a moment show the buffer unscaled at the top left, never
-    // stretched. Every resize refits the buffer to exactly the client size.
-    swapchain_description.Scaling = DXGI_SCALING_NONE;
-    swapchain_description.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
-    made = IDXGIFactory4_CreateSwapChainForHwnd(
-        factory, (IUnknown *)queue, window, &swapchain_description, NULL, NULL, &first);
+    swapchain_description.SwapEffect = DXGI_SWAP_EFFECT_SEQUENTIAL;
+    swapchain_description.Scaling = DXGI_SCALING_STRETCH;
+    swapchain_description.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
+    swapchain_description.Flags = 0;
+    IDXGISwapChain1 *swapchain = NULL;
+    HRESULT made = IDXGIFactory4_CreateSwapChainForHwnd(
+        factory, (IUnknown *)d3d11, window, &swapchain_description, NULL, NULL, &swapchain);
     if (FAILED(made)) {
-        // Without the latency waitable, which every frame then simply does not wait on.
-        swapchain_description.Flags = 0;
-        made = IDXGIFactory4_CreateSwapChainForHwnd(
-            factory, (IUnknown *)queue, window, &swapchain_description, NULL, NULL, &first);
-    }
-    if (FAILED(made)) {
+        ID3D11On12Device_Release(on12);
+        ID3D11DeviceContext_Release(d3d11_context);
+        ID3D11Device_Release(d3d11);
         ID3D12CommandQueue_Release(queue);
         ID3D12Device_Release(device);
         IDXGIAdapter1_Release(adapter);
@@ -2378,37 +2435,20 @@ int32_t dxc_native_window_open(
         DestroyWindow(window);
         return 7;
     }
-    dxc_swapchain_flags = swapchain_description.Flags;
-    fprintf(stderr, "compose-rust: swapchain for the window (flip model, redirection surface kept), scaling NONE\n");
+    dxc_swapchain_flags = 0;
+    fprintf(stderr, "compose-rust: swapchain for the window, copy model (sequential), 1 buffer, STRETCH\n");
     // DXGI answers alt-enter by putting the window into its own idea of full screen,
     // which is a mode nothing here knows how to draw in.
     IDXGIFactory4_MakeWindowAssociation(factory, window, DXGI_MWA_NO_ALT_ENTER);
     IDXGIFactory4_Release(factory);
 
-    IDXGISwapChain3 *swapchain = NULL;
-    // The third revision is the one that will say which buffer is next, and a swapchain
-    // that flips has no other way of telling.
-    HRESULT upgraded = IDXGISwapChain1_QueryInterface(first, &IID_IDXGISwapChain3,
-                                                      (void **)&swapchain);
-    IDXGISwapChain1_Release(first);
-    if (SUCCEEDED(upgraded) && dxc_swapchain_flags != 0) {
-        // One frame of latency: the waitable below is signalled when the next present
-        // will not queue behind one already waiting.
-        IDXGISwapChain3_SetMaximumFrameLatency(swapchain, 1);
-        dxc_latency_wait = IDXGISwapChain3_GetFrameLatencyWaitableObject(swapchain);
-    }
-    if (FAILED(upgraded)) {
-        ID3D12CommandQueue_Release(queue);
-        ID3D12Device_Release(device);
-        IDXGIAdapter1_Release(adapter);
-        DestroyWindow(window);
-        return 8;
-    }
-
     dxc_window = window;
     dxc_device = device;
     dxc_queue = queue;
     dxc_swapchain = swapchain;
+    dxc_d3d11 = d3d11;
+    dxc_d3d11_context = d3d11_context;
+    dxc_on12 = on12;
     // The size frames are drawn at from here until something resizes the window. Written
     // down now so that the size the window reports as it is shown, which is this one, is
     // recognised as the size the swapchain already is.
@@ -2417,7 +2457,7 @@ int32_t dxc_native_window_open(
     dxc_presented_width = (int32_t)pixel_width;
     dxc_presented_height = (int32_t)pixel_height;
 
-    if (dxc_acquire_buffers() != 0) {
+    if (dxc_acquire_buffers((int32_t)pixel_width, (int32_t)pixel_height) != 0) {
         dxc_abandon_window(adapter);
         return 9;
     }
@@ -2496,7 +2536,7 @@ void dxc_native_window_size(void *window_pointer, int32_t *width, int32_t *heigh
  * None of those is an error. The frame is skipped and the next one asks again.
  */
 int32_t dxc_native_frame_begin(void *swapchain_pointer, void **texture_out) {
-    IDXGISwapChain3 *swapchain = (IDXGISwapChain3 *)swapchain_pointer;
+    IDXGISwapChain1 *swapchain = (IDXGISwapChain1 *)swapchain_pointer;
     if (swapchain == NULL || dxc_window == NULL) {
         return 1;
     }
@@ -2515,7 +2555,7 @@ int32_t dxc_native_frame_begin(void *swapchain_pointer, void **texture_out) {
     int32_t wanted_height = 0;
     if (dxc_resize_take(&dxc_sizing, &wanted_width, &wanted_height)) {
         // Refitted to exactly the size drawn, every step, so the buffer and the client
-        // area always agree and DXGI_SCALING_NONE never has anything to pad or crop.
+        // area always agree and STRETCH is always 1:1.
         //
         // Nothing may still be reading the buffers when they are let go, and a swapchain
         // refuses to be refitted while anything holds one.
@@ -2524,7 +2564,7 @@ int32_t dxc_native_frame_begin(void *swapchain_pointer, void **texture_out) {
         dxc_wait_for_gpu();
         dxc_step_gpu_idle_ms = dxc_elapsed_ms(refit_started);
         dxc_release_buffers();
-        HRESULT resized = IDXGISwapChain3_ResizeBuffers(
+        HRESULT resized = IDXGISwapChain1_ResizeBuffers(
             swapchain, DXC_BUFFER_COUNT, (UINT)wanted_width, (UINT)wanted_height,
             DXC_SWAPCHAIN_FORMAT, dxc_swapchain_flags);
         // A refusal leaves the swapchain the size it was, so the old buffers are taken
@@ -2532,18 +2572,18 @@ int32_t dxc_native_frame_begin(void *swapchain_pointer, void **texture_out) {
         // is a stretched image for a moment; not taking them back is a window that
         // stays black from here on.
         if (FAILED(resized)) {
-            dxc_acquire_buffers();
+            dxc_acquire_buffers(dxc_sizing.fitted_width, dxc_sizing.fitted_height);
             return 2;
         }
-        if (dxc_acquire_buffers() != 0) {
+        if (dxc_acquire_buffers(wanted_width, wanted_height) != 0) {
             return 2;
         }
         dxc_resize_fitted(&dxc_sizing, wanted_width, wanted_height);
         dxc_step_refit_ms = dxc_elapsed_ms(refit_started) - dxc_step_gpu_idle_ms;
     }
 
-    dxc_frame_index = IDXGISwapChain3_GetCurrentBackBufferIndex(swapchain);
-    if (dxc_buffers[dxc_frame_index] == NULL) {
+    dxc_frame_index = 0;
+    if (dxc_buffers[dxc_frame_index] == NULL || dxc_wrapped == NULL) {
         return 3;
     }
     *texture_out = (void *)dxc_buffers[dxc_frame_index];
@@ -2595,17 +2635,32 @@ void dxc_native_frame_end(void *queue_pointer) {
         dxc_wait_for_gpu();
         return;
     }
+    // The copy into the swapchain's buffer, on the same queue after the barrier above,
+    // through Direct3D 11. One GPU copy of the frame per present.
+    LARGE_INTEGER copy_started;
+    QueryPerformanceCounter(&copy_started);
+    ID3D11Resource *back = NULL;
+    if (FAILED(IDXGISwapChain1_GetBuffer(dxc_swapchain, 0, &IID_ID3D11Resource, (void **)&back))) {
+        dxc_wait_for_gpu();
+        return;
+    }
+    ID3D11On12Device_AcquireWrappedResources(dxc_on12, &dxc_wrapped, 1);
+    ID3D11DeviceContext_CopyResource(dxc_d3d11_context, back, dxc_wrapped);
+    ID3D11On12Device_ReleaseWrappedResources(dxc_on12, &dxc_wrapped, 1);
+    ID3D11DeviceContext_Flush(dxc_d3d11_context);
+    ID3D11Resource_Release(back);
+    dxc_step_copy_ms = dxc_elapsed_ms(copy_started);
     // Interval one outside a resize, so the frame waits for the screen; a window that
     // presents without waiting spends a machine to draw frames nobody sees. Zero inside
     // one, where the DwmFlush that follows paces it instead and a vertical blank waited
     // for first would hold the drag for one more frame.
-    IDXGISwapChain3_Present(dxc_swapchain, dxc_resizing ? 0 : 1, 0);
+    IDXGISwapChain1_Present(dxc_swapchain, dxc_resizing ? 0 : 1, 0);
     dxc_presented_width = dxc_sizing.fitted_width;
     dxc_presented_height = dxc_sizing.fitted_height;
 
-    // The next frame will paint into a buffer this one may still be reading from, and a
-    // swapchain two buffers deep comes back around immediately.
-    dxc_wait_for_gpu();    dxc_step_present_ms = dxc_elapsed_ms(present_started);
+    // The next frame paints into the same texture the copy reads from.
+    dxc_wait_for_gpu();
+    dxc_step_present_ms = dxc_elapsed_ms(present_started) - dxc_step_copy_ms;
 }
 
 /** Says where the caret is, in pixels from the window's top left. */
