@@ -17,6 +17,7 @@ import platform.AppKit.NSWindowTitleHidden
 import platform.AppKit.NSWindowToolbarStyleUnified
 import platform.AppKit.NSWindowZoomButton
 import platform.Foundation.NSMakeRect
+import platform.Foundation.NSProcessInfo
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -53,7 +54,11 @@ class MacosWindowChromeTest {
         zoomMaxX = window.standardWindowButton(NSWindowZoomButton)?.frame?.useContents {
             origin.x + size.width
         },
+        cornerRadius = systemCornerRadius(window),
     )
+
+    private val macosMajor: Long =
+        NSProcessInfo.processInfo.operatingSystemVersion.useContents { majorVersion }
 
     @Test
     fun fr19_the_ordinary_window_has_the_unified_toolbar_the_native_image_window_has() {
@@ -85,5 +90,46 @@ class MacosWindowChromeTest {
             "a unified toolbar makes the bar taller (${tall.height} against ${plain.height})",
         )
         assertTrue(tall.buttonsWidth.value > 0f)
+    }
+
+    @Test
+    fun fr19_7_both_styles_take_their_corner_radius_from_the_system() {
+        val normal = MacosWindowChrome.of(Chrome.Modern, TitleBar.Normal)
+        val simple = MacosWindowChrome.of(Chrome.Modern, TitleBar.Simple)
+        val toolbar = assertNotNull(caption(window(normal), normal))
+        val plain = assertNotNull(caption(window(simple), simple))
+        assertTrue(plain.cornerRadius.value > 0f, "the system reported no radius for the plain window")
+        assertTrue(
+            toolbar.cornerRadius >= plain.cornerRadius,
+            "a toolbar window is less round (${toolbar.cornerRadius}) than a plain one (${plain.cornerRadius})",
+        )
+        if (macosMajor >= 26) {
+            assertTrue(
+                toolbar.cornerRadius > plain.cornerRadius,
+                "macOS $macosMajor rounds a toolbar window more than a plain one",
+            )
+        }
+    }
+
+    @Test
+    fun fr19_7_the_toolbar_style_sets_the_buttons_in_from_the_corner() {
+        val normal = MacosWindowChrome.of(Chrome.Modern, TitleBar.Normal)
+        val simple = MacosWindowChrome.of(Chrome.Modern, TitleBar.Simple)
+        val toolbar = assertNotNull(caption(window(normal), normal))
+        val plain = assertNotNull(caption(window(simple), simple))
+        assertTrue(plain.buttonsWidth.value > 0f)
+        if (macosMajor >= 26) {
+            assertTrue(
+                toolbar.buttonsWidth > plain.buttonsWidth,
+                "macOS $macosMajor sets a toolbar window's buttons further in",
+            )
+        }
+    }
+
+    @Test
+    fun fr19_7_the_radius_is_read_under_the_key_the_native_image_window_uses() {
+        val window = window(MacosWindowChrome.of(Chrome.Modern, TitleBar.Simple))
+        assertEquals("_cornerRadius", MACOS_CORNER_RADIUS_KEY)
+        assertNotNull(systemCornerRadius(window), "this release answers no corner radius")
     }
 }

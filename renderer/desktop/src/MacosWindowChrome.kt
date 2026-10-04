@@ -55,11 +55,16 @@ data class MacosWindowChrome(
  * The strip the title bar takes and the room its buttons take, from what the window
  * reports, in points.
  *
- * Both macOS windows measure the same four numbers and hand them here, so the content
+ * Both macOS windows measure the same five numbers and hand them here, so the content
  * starts at the same height in both. [windowHeight] is the window's frame,
  * [contentLayoutHeight] the part of it below the bar, [closeMinX] where the close button
  * starts and [zoomMaxX] where the zoom button ends, or null for a window with no buttons.
- * The gap in front of the first button is mirrored after the last.
+ * The gap in front of the first button is mirrored after the last. [cornerRadius] is the
+ * radius the system gave the window's corners, or null where it does not say.
+ *
+ * Every one of them is the system's. A window with a unified toolbar has its buttons
+ * further in, a taller bar and rounder corners than one without, and the numbers move
+ * between releases, so a constant would be right for one style on one release only.
  *
  * Null while the window is changing size: the frame and the layout rect are updated at
  * different moments and the difference can be negative for an instant. The last reading
@@ -72,6 +77,7 @@ fun macosWindowCaption(
     contentLayoutHeight: Double,
     closeMinX: Double?,
     zoomMaxX: Double?,
+    cornerRadius: Double? = null,
 ): WindowCaption? {
     if (!chrome.fullSizeContentView) return WindowCaption.None
     val height = windowHeight - contentLayoutHeight
@@ -83,5 +89,16 @@ fun macosWindowCaption(
         buttonsWidth = width.toFloat().dp,
         // The platform's own, and this platform puts them at the leading edge.
         buttonsAtStart = true,
+        cornerRadius = (cornerRadius?.takeIf { it > 0.0 } ?: 0.0).toFloat().dp,
     )
 }
+
+/**
+ * The key both macOS windows read the system's corner radius under.
+ *
+ * AppKit has no public property for it. The window answers `_cornerRadius` on every
+ * release that draws rounded windows, and both windows ask by key value coding after
+ * checking that it answers, so a release that drops it gives no radius rather than an
+ * exception. Asked the same way in both so they cannot read different numbers.
+ */
+const val MACOS_CORNER_RADIUS_KEY: String = "_cornerRadius"

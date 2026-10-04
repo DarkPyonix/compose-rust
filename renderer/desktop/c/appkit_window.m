@@ -1156,12 +1156,29 @@ int32_t dxc_native_window_open(
 /**
  * What the title bar's size is worked out from, in points: the window's frame height, the
  * height of the part below the bar, where the close button starts and where the zoom button
- * ends (both -1 where the window has no buttons).
+ * ends (both -1 where the window has no buttons), and the radius the system gave the
+ * window's corners (-1 where it does not say). `out` holds five floats.
  *
  * Raw measurements rather than an answer, because the answer is `macosWindowCaption` in
  * Kotlin, which the Kotlin/Native window also uses, so the two cannot disagree about where
  * the content starts.
  */
+/**
+ * The radius the system gave [window]'s corners, or -1 where it does not say.
+ *
+ * AppKit has no public property for it, so this asks for `_cornerRadius` by key value
+ * coding after checking the window answers it; a release without it gives -1 rather than
+ * an exception. MacosWindow.kt asks the same way under the same key
+ * (MACOS_CORNER_RADIUS_KEY), so both windows read one number.
+ */
+static CGFloat dxc_window_corner_radius(NSWindow *window) {
+    if (![window respondsToSelector:NSSelectorFromString(@"_cornerRadius")]) {
+        return -1;
+    }
+    id value = [window valueForKey:@"_cornerRadius"];
+    return [value respondsToSelector:@selector(doubleValue)] ? [value doubleValue] : -1;
+}
+
 void dxc_native_window_title_bar(void *view_pointer, float *out) {
     dxc_on_main(^{
     @autoreleasepool {
@@ -1171,9 +1188,11 @@ void dxc_native_window_title_bar(void *view_pointer, float *out) {
         out[1] = 0;
         out[2] = -1;
         out[3] = -1;
+        out[4] = -1;
         if (window == nil) {
             return;
         }
+        out[4] = (float)dxc_window_corner_radius(window);
         out[0] = (float)window.frame.size.height;
         out[1] = (float)window.contentLayoutRect.size.height;
         NSButton *close = [window standardWindowButton:NSWindowCloseButton];

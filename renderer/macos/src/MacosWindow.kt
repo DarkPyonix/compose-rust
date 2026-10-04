@@ -98,6 +98,9 @@ import platform.AppKit.NSAccessibilityStaticTextRole
 import platform.AppKit.NSAccessibilityTextFieldRole
 import platform.CoreGraphics.CGRectMake
 import platform.Foundation.NSMakeRect
+import platform.Foundation.NSNumber
+import platform.Foundation.NSSelectorFromString
+import platform.Foundation.valueForKey
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 
@@ -257,6 +260,7 @@ internal class MacosWindow(
             contentLayoutHeight = window.contentLayoutRect.useContents { size.height },
             closeMinX = close?.frame?.useContents { origin.x },
             zoomMaxX = zoom?.frame?.useContents { origin.x + size.width },
+            cornerRadius = systemCornerRadius(window),
         ) ?: return
     }
 
@@ -823,6 +827,19 @@ internal fun scenePoint(view: NSView, locationInWindow: CValue<CGPoint>, scale: 
     view.convertPoint(locationInWindow, fromView = null).useContents {
         Offset((x * scale).toFloat(), (y * scale).toFloat())
     }
+
+/**
+ * The radius the system gave [window]'s corners, or null where it does not say.
+ *
+ * AppKit has no public property for it. Asked by key value coding under
+ * [MACOS_CORNER_RADIUS_KEY] after checking the window answers it, the same way the native
+ * image's window asks in `appkit_window.m`, so a release without it gives no radius rather
+ * than an exception and both windows read one number.
+ */
+internal fun systemCornerRadius(window: NSWindow): Double? {
+    if (!window.respondsToSelector(NSSelectorFromString(MACOS_CORNER_RADIUS_KEY))) return null
+    return (window.valueForKey(MACOS_CORNER_RADIUS_KEY) as? NSNumber)?.doubleValue
+}
 
 /**
  * Builds [window]'s title bar the way [chrome] says, as the native image's window does in
