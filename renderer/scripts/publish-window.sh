@@ -21,7 +21,12 @@ window="$fork_dir/extended/window"
 modules=(common graalvm/graalvm-macos graalvm/graalvm-linux)
 case "$(uname -s)" in
     Darwin) modules+=(native/macos) ;;
-    Linux) [[ -d "$window/native/linux" ]] && modules+=(native/linux) ;;
+    # native/linux compiles against the patched Compose for linuxX64, which only a machine that
+    # ran build-compose.sh has. The GraalVM image build has no use for it.
+    Linux)
+        if [[ -d "$window/native/linux" && -d "$HOME/.m2/repository/org/jetbrains/compose/ui/ui-linuxx64" ]]; then
+            modules+=(native/linux)
+        fi ;;
 esac
 
 # The fork's project lists every module, and a machine that cannot build one of them lists
