@@ -180,6 +180,8 @@ static int32_t dxc_dropped_length;
 static Window dxc_drag_source;
 static int dxc_drag_has_files;
 static Time dxc_drop_time;
+// Where the last XdndPosition said the files were, in root coordinates.
+static int dxc_drag_root_x, dxc_drag_root_y;
 
 static void dxc_push_event(struct dxc_event event) {
     if (dxc_event_count == DXC_EVENT_CAPACITY) {
@@ -205,9 +207,24 @@ static int32_t dxc_modifiers(unsigned int state) {
            ((state & Mod4Mask) ? (1 << 20) : 0);
 }
 
-// The special key values are the shared reader's values. Printable keys also carry
-// their code point, obtained from XLookupString for the current keyboard layout.
+// The key numbers are the shared reader's, which are the macOS ones: the letters and digits
+// by where they sit on a board, and the special keys by name. A key with no number answers
+// -1, never 0, because 0 is the A key and a shortcut that does not map would otherwise arrive
+// as ctrl and A.
+//
+// Printable keys also carry their code point, obtained from XLookupString for the current
+// keyboard layout.
 static int32_t dxc_key_code(KeySym key) {
+    static const int32_t letters[26] = {
+        0x00, 0x0B, 0x08, 0x02, 0x0E, 0x03, 0x05, 0x04, 0x22, 0x26, 0x28, 0x25, 0x2E,
+        0x2D, 0x1F, 0x23, 0x0C, 0x0F, 0x01, 0x11, 0x20, 0x09, 0x0D, 0x07, 0x10, 0x06,
+    };
+    static const int32_t digits[10] = {
+        0x1D, 0x12, 0x13, 0x14, 0x15, 0x17, 0x16, 0x1A, 0x1C, 0x19,
+    };
+    if (key >= XK_a && key <= XK_z) return letters[key - XK_a];
+    if (key >= XK_A && key <= XK_Z) return letters[key - XK_A];
+    if (key >= XK_0 && key <= XK_9) return digits[key - XK_0];
     switch (key) {
         case XK_Return: case XK_KP_Enter: return 0x24;
         case XK_Tab: case XK_ISO_Left_Tab: return 0x30;
@@ -223,7 +240,7 @@ static int32_t dxc_key_code(KeySym key) {
         case XK_End: return 0x77;
         case XK_Prior: return 0x74;
         case XK_Next: return 0x79;
-        default: return 0;
+        default: return -1;
     }
 }
 
@@ -628,6 +645,8 @@ static int dxc_handle_dnd(XClientMessageEvent *message) {
     if (type == dxc_a_xdnd_position) {
         int root_x = (int)((message->data.l[2] >> 16) & 0xFFFF);
         int root_y = (int)(message->data.l[2] & 0xFFFF);
+        dxc_drag_root_x = root_x;
+        dxc_drag_root_y = root_y;
         if (dxc_drag_has_files) dxc_push_drag(DXC_EVENT_FILES_ENTERED, root_x, root_y);
         dxc_send_dnd(dxc_a_xdnd_status, dxc_drag_has_files ? 1 : 0, 0, 0,
                      dxc_drag_has_files ? (long)dxc_a_xdnd_copy : 0);
@@ -670,11 +689,9 @@ static void dxc_finish_drop(XSelectionEvent *arrived) {
         }
     }
     if (ok) {
-        Window root, child;
-        int root_x = 0, root_y = 0, x = 0, y = 0;
-        unsigned int mask = 0;
-        XQueryPointer(dxc_display, dxc_window, &root, &child, &root_x, &root_y, &x, &y, &mask);
-        dxc_push_drag(DXC_EVENT_FILES_DROPPED, root_x, root_y);
+        // Where the files were when they were let go, as the last position said, rather than
+        // where the pointer is by the time this is read.
+        dxc_push_drag(DXC_EVENT_FILES_DROPPED, dxc_drag_root_x, dxc_drag_root_y);
     }
     dxc_send_dnd(dxc_a_xdnd_finished, ok ? 1 : 0, ok ? (long)dxc_a_xdnd_copy : 0, 0, 0);
     dxc_drag_has_files = 0;
