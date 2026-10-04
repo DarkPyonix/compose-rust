@@ -48,15 +48,13 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // is called are settled when it is made.
     // The menu a selection offers, drawn by the system rather than by Compose.
     //
-    // Off, and that is the opposite of what it was. The new path was turned on because it
-    // is the one that asks the platform for a menu and this platform answers, through the
-    // `NSMenu` the text toolbar builds. It does not ask on this platform: what it draws is
-    // a menu of its own, at the window's top left corner rather than under the pointer,
-    // with every item in it dead. The old path goes through the toolbar, which is ours.
-    //
-    // To be turned back on when the new path reaches this platform, and the way to tell is
-    // that the menu comes up where the pointer is.
-    ComposeFoundationFlags.isNewContextMenuEnabled = false
+    // On, because the new path is the one with a place to say what the menu is: a text
+    // field or selection asks `LocalTextContextMenuDropdownProvider`, and the Compose this
+    // links answers it on this platform with an `NSMenu` holding Compose's own items. The
+    // old path has no such place here and draws a menu of its own, which came up beside
+    // the one the window put up, two menus for one click. The window puts up none now,
+    // so the one that appears is the system's, the same one the native image shows.
+    ComposeFoundationFlags.isNewContextMenuEnabled = true
 
     declareWindowBackdrop()
     // The notification centre, before the Host exists: the Host's first batch may already
