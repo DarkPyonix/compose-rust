@@ -105,6 +105,15 @@ internal class PosixBusConnection private constructor(private val socket: Int) :
             val user = getuid().toLong()
             val address = BusAddress.parse(getenv("DBUS_SESSION_BUS_ADDRESS")?.toKString(), user)
                 ?: return null
+            return open(address)
+        }
+
+        /**
+         * Connects and authenticates to the bus at [address]: the session bus, or the
+         * accessibility bus, which the session bus names and which is a socket of its own.
+         */
+        fun open(address: BusAddress): PosixBusConnection? {
+            val user = getuid().toLong()
             val socket = socket(AF_UNIX, SOCK_STREAM, 0)
             if (socket < 0) return null
             val connected = memScoped {

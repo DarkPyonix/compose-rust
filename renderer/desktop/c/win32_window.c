@@ -1879,6 +1879,22 @@ static void dxc_accept_files(HWND window) {
 }
 
 /*
+ * Measuring aids of the AppKit window, named because the Kotlin that drives every desktop
+ * names them and answered here by doing nothing: a drag cannot be scripted from inside
+ * this window, and nothing asks for it to be.
+ */
+void dxc_native_debug_resize(void *window_pointer, void *view_pointer, int32_t from_width,
+                             int32_t from_height, int32_t to_width, int32_t to_height,
+                             int32_t steps, int32_t pause_micros) {
+    (void)window_pointer; (void)view_pointer; (void)from_width; (void)from_height;
+    (void)to_width; (void)to_height; (void)steps; (void)pause_micros;
+}
+
+void dxc_native_debug_key(void *window_pointer, int32_t key_code, const char *characters) {
+    (void)window_pointer; (void)key_code; (void)characters;
+}
+
+/*
  * The names below are answered here and do nothing.
  *
  * One piece of Kotlin drives every desktop and reaches their windows by name, so each of

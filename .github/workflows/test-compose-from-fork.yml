@@ -40,8 +40,10 @@ on:
       - .github/scripts/compare-maven-repos.py
 
 concurrency:
-  group: test-compose-from-fork-${{ github.ref }}
-  cancel-in-progress: true
+  # One run per pull request: a new commit cancels the older run. Pushes to develop,
+  # dispatches and tag runs are never cancelled, so a release is never cut short.
+  group: test-compose-from-fork-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -183,11 +185,14 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --no-tags --depth 1 origin "$LEGACY_REF"
+          # LEGACY_REF predates the rename of dioxus-compose-renderer/ to renderer/,
+          # so its files live under the old prefix, not today's paths.
+          old=dioxus-compose-renderer
           legacy="$RUNNER_TEMP/legacy/renderer"
           mkdir -p "$legacy/scripts" "$legacy/patches"
-          git show "$LEGACY_REF:renderer/scripts/build-compose.sh" > "$legacy/scripts/build-compose.sh"
+          git show "$LEGACY_REF:$old/scripts/build-compose.sh" > "$legacy/scripts/build-compose.sh"
           chmod +x "$legacy/scripts/build-compose.sh"
-          git ls-tree --name-only "$LEGACY_REF" renderer/patches/ | grep '\.patch$' |
+          git ls-tree --name-only "$LEGACY_REF" "$old/patches/" | grep '\.patch$' |
             while read -r patch; do
               git show "$LEGACY_REF:$patch" > "$legacy/patches/$(basename "$patch")"
             done

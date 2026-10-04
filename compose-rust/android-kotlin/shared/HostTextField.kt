@@ -33,8 +33,10 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.PropertyKind
@@ -49,12 +51,13 @@ import dev.darkpyonix.composerust.ui.node.HostText
 import dev.darkpyonix.composerust.design.LocalGlassDepth
 
 /**
- * Quiet period before a `TextChanged` notification is sent.
+ * The shortest time between two `TextChanged` notifications from one field.
  *
  * The Host is told about edits, but not once per keystroke: `TextChanged` is a notification,
- * not the mechanism that keeps the field's value, so it can wait for typing to pause. The
- * interval is chosen here rather than negotiated; 120 ms is short enough to feel immediate
- * and long enough to collapse a burst of typing into one event.
+ * not the mechanism that keeps the field's value. The first edit after a quiet period is
+ * sent immediately and the ones that follow are collapsed to one per interval, the last of
+ * them always sent. The interval is chosen here rather than negotiated; 120 ms is short
+ * enough to feel immediate and long enough to collapse a burst of typing into a few events.
  */
 const val TEXT_CHANGED_DEBOUNCE_MILLIS: Long = 120
 
@@ -104,16 +107,33 @@ internal fun HostTextField(node: Node, modifier: Modifier, dispatcher: EventDisp
         }
     }
 
-    // Debounced change notification. The Host is told what the field now shows; it never
-    // sends the value back, so the composition cannot be reset by the round trip.
+    // Change notification, sent when typing starts and again when it has changed since.
+    //
+    // The first edit after a quiet period goes to the Host at once, so a line that echoes
+    // what was typed follows the key rather than trailing it by the length of a pause.
+    // Edits that keep coming are collapsed: at most one more is sent per
+    // [TEXT_CHANGED_DEBOUNCE_MILLIS], carrying the latest text, and the last one is always
+    // sent. A burst therefore costs the Host a handful of events and not one per key, and
+    // the field never waits for the typing to stop before the Host hears of it. The Host is
+    // told what the field now shows; it never sends the value back, so the composition
+    // cannot be reset by the round trip.
     if (changeHandler != null) {
         LaunchedEffect(nodeId, changeHandler) {
             var lastSent = value.text
-            snapshotFlow { value.text }.collectLatest { text ->
-                if (text == lastSent) return@collectLatest
-                delay(TEXT_CHANGED_DEBOUNCE_MILLIS)
-                lastSent = text
-                dispatcher.dispatch(HostEvent.TextChanged(nodeId, changeHandler, text))
+            var latest = lastSent
+            var sending: Job? = null
+            coroutineScope {
+                snapshotFlow { value.text }.collect { text ->
+                    latest = text
+                    if (text == lastSent || sending?.isActive == true) return@collect
+                    sending = launch {
+                        do {
+                            lastSent = latest
+                            dispatcher.dispatch(HostEvent.TextChanged(nodeId, changeHandler, lastSent))
+                            delay(TEXT_CHANGED_DEBOUNCE_MILLIS)
+                        } while (latest != lastSent)
+                    }
+                }
             }
         }
     }
