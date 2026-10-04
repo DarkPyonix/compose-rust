@@ -1708,7 +1708,17 @@ static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM
         if (dxc_swapchain != NULL) {
             dxc_log_monitor(window, "WM_DPICHANGED");
         }
-        break;
+        // A per monitor aware window is not resized by the system when its DPI changes;
+        // it is handed the rectangle that keeps its size in points and has to apply it.
+        // Applied with SetWindowPos, so the new size goes through WM_SIZE and is drawn,
+        // presented and flushed there like any other resize.
+        {
+            const RECT *suggested = (const RECT *)lparam;
+            SetWindowPos(window, NULL, suggested->left, suggested->top,
+                         suggested->right - suggested->left, suggested->bottom - suggested->top,
+                         SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+        return 0;
     case WM_DISPLAYCHANGE:
         if (dxc_swapchain != NULL) {
             dxc_log_monitor(window, "WM_DISPLAYCHANGE");
