@@ -15,11 +15,15 @@ pub enum FieldType {
     Paint,
     /// A role enum, named so codegen can emit the matching Kotlin type.
     Role(&'static str),
+    /// A word that is 0 or 1. Any other value is a protocol error, not a third state.
+    Bool,
 }
 
-/// Which half of which `(first, second)` word a modifier field occupies.
+/// Which half of which `u64` word of a modifier's value a field occupies.
 ///
-/// Two `f32` share one `u64`: the low 32 bits hold the first value.
+/// Two `f32` share one `u64`: the low 32 bits hold the first value. Every modifier has the
+/// `first` and `second` words; the words after them exist only for a modifier whose
+/// schema entry gives it `extra_words`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FieldSlot {
     FirstLow,
@@ -28,6 +32,38 @@ pub enum FieldSlot {
     SecondLow,
     SecondHigh,
     Second,
+    ThirdLow,
+    ThirdHigh,
+    Third,
+    FourthLow,
+    FourthHigh,
+    Fourth,
+    FifthLow,
+    FifthHigh,
+    Fifth,
+    SixthLow,
+    SixthHigh,
+    Sixth,
+}
+
+impl FieldSlot {
+    /// Which word, counting from zero, and whether the field is that word's high half.
+    pub const fn word(self) -> (usize, bool) {
+        match self {
+            Self::FirstLow | Self::First => (0, false),
+            Self::FirstHigh => (0, true),
+            Self::SecondLow | Self::Second => (1, false),
+            Self::SecondHigh => (1, true),
+            Self::ThirdLow | Self::Third => (2, false),
+            Self::ThirdHigh => (2, true),
+            Self::FourthLow | Self::Fourth => (3, false),
+            Self::FourthHigh => (3, true),
+            Self::FifthLow | Self::Fifth => (4, false),
+            Self::FifthHigh => (4, true),
+            Self::SixthLow | Self::Sixth => (5, false),
+            Self::SixthHigh => (5, true),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -41,7 +77,26 @@ pub struct FieldSchema {
 pub struct VariantSchema {
     pub name: &'static str,
     pub tag: u16,
+    /// How many eight byte words this modifier's value takes beyond the two every
+    /// `SetModifier` record carries. The record is `28 + 8 * extra_words` bytes long, fixed
+    /// per tag, so a decoder knows the length from the tag before it reads the value.
+    pub extra_words: u8,
     pub fields: &'static [FieldSchema],
+}
+
+/// The most words any modifier's value takes, the two every record has included.
+pub const MAX_MODIFIER_WORDS: usize = 6;
+
+/// The `extra_words` the schema gives a modifier tag, or `None` for a tag it does not list.
+pub const fn modifier_extra_words(tag: u16) -> Option<u8> {
+    let mut index = 0;
+    while index < MODIFIER_SCHEMA.len() {
+        if MODIFIER_SCHEMA[index].tag == tag {
+            return Some(MODIFIER_SCHEMA[index].extra_words);
+        }
+        index += 1;
+    }
+    None
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -74,9 +129,9 @@ pub struct EventSchema {
 /// Canonical schema text. Variant order is wire-significant and must only be appended to.
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
-    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane;",
+    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,AbsoluteBox;",
     "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible;",
-    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material;",
+    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha;",
     "keys=Enter;",
     "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged;",
     "windowsizeclasses=Compact,Medium,Expanded;",
@@ -123,6 +178,7 @@ const fn schema_hash() -> u64 {
         let modifier = MODIFIER_SCHEMA[index];
         hash = hash_bytes(hash, modifier.name.as_bytes());
         hash = hash_bytes(hash, &modifier.tag.to_le_bytes());
+        hash = hash_bytes(hash, &[modifier.extra_words]);
         let mut field_index = 0;
         while field_index < modifier.fields.len() {
             let field = modifier.fields[field_index];
@@ -135,6 +191,7 @@ const fn schema_hash() -> u64 {
                     FieldType::U64 => 3,
                     FieldType::Paint => 4,
                     FieldType::Role(_) => 5,
+                    FieldType::Bool => 6,
                 }],
             );
             if let FieldType::Role(role) = field.ty {
@@ -149,6 +206,18 @@ const fn schema_hash() -> u64 {
                     FieldSlot::SecondLow => 3,
                     FieldSlot::SecondHigh => 4,
                     FieldSlot::Second => 5,
+                    FieldSlot::ThirdLow => 6,
+                    FieldSlot::ThirdHigh => 7,
+                    FieldSlot::Third => 8,
+                    FieldSlot::FourthLow => 9,
+                    FieldSlot::FourthHigh => 10,
+                    FieldSlot::Fourth => 11,
+                    FieldSlot::FifthLow => 12,
+                    FieldSlot::FifthHigh => 13,
+                    FieldSlot::Fifth => 14,
+                    FieldSlot::SixthLow => 15,
+                    FieldSlot::SixthHigh => 16,
+                    FieldSlot::Sixth => 17,
                 }],
             );
             field_index += 1;
@@ -357,6 +426,12 @@ crate::extensions::define_widget_schema_with_extensions!(define_wire_enum; WIDGE
     // side, with the side pane laid over the body, or one at a time, are the design
     // system's answers.
     SplitPane = 42,
+    // Children laid where the Host already put them. Each child is placed at its own
+    // `Offset`, relative to this box, and no child moves or sizes another: the layout was
+    // computed on the Host (an HTML engine, for instance) and laying it out a second time
+    // here would only be a second answer that can disagree with the first. Later children
+    // draw over earlier ones, so a stacking order is the child order.
+    AbsoluteBox = 44,
 });
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -1235,6 +1310,117 @@ pub enum Modifier {
     /// A role, so that a system which blurs blurs and a system which does not lifts its
     /// surface instead. Nothing here claims a particular effect was achieved.
     Material(MaterialRole),
+    /// Where this node sits inside its parent, in dp from the parent's top left corner.
+    ///
+    /// The position a layout engine on the Host already computed. Left and right are the
+    /// screen's, not the reading direction's: the Host's coordinates are physical, so a
+    /// right-to-left page is not mirrored a second time here.
+    Offset {
+        x: f32,
+        y: f32,
+    },
+    /// This node's size in dp, whatever its parent's constraints say. The size a layout
+    /// engine on the Host already computed, which is not open to negotiation.
+    RequiredSize {
+        width: f32,
+        height: f32,
+    },
+    /// A border whose four sides each have their own width and paint. A node whose four
+    /// sides are the same uses `Border`.
+    BorderEach {
+        top: f32,
+        right: f32,
+        bottom: f32,
+        left: f32,
+        top_paint: Paint,
+        right_paint: Paint,
+        bottom_paint: Paint,
+        left_paint: Paint,
+    },
+    /// A radius in dp for each corner, cut as plain circular arcs. The background, the
+    /// border, the shadow and a `Clip` all follow it. A node with one radius for every
+    /// corner uses `Shape`.
+    CornerEach {
+        top_left: f32,
+        top_right: f32,
+        bottom_right: f32,
+        bottom_left: f32,
+    },
+    /// One shadow cast by this node's outline: an offset, a blur radius and a spread in dp,
+    /// and its paint, drawn only outside the node as CSS draws `box-shadow`. Several
+    /// shadows are several of these. A modifier list draws in its order, so a later shadow
+    /// lies over an earlier one; CSS puts the first of its list on top, so a Host sends
+    /// that list last to first.
+    Shadow {
+        x: f32,
+        y: f32,
+        blur: f32,
+        spread: f32,
+        paint: Paint,
+    },
+    /// Whether this node's content is cut to its outline: the `CornerEach` shape where it
+    /// has one, its rectangle otherwise.
+    Clip(bool),
+    /// The opacity of this node and everything in it, from 0 to 1, applied once to the
+    /// whole group rather than to each child.
+    Alpha(f32),
+}
+
+impl Modifier {
+    /// A border with a width and a paint for each side, in CSS order: top, right, bottom,
+    /// left.
+    ///
+    /// Four equal sides are one `Border`, which is the record every node with an ordinary
+    /// border already sends. `BorderEach` is written only where the sides differ, so a
+    /// screen that never mixes them never sends the longer record.
+    pub fn border_sides(widths: [f32; 4], paints: [Paint; 4]) -> Self {
+        let [top, right, bottom, left] = widths;
+        let [top_paint, right_paint, bottom_paint, left_paint] = paints;
+        if widths.iter().all(|width| width.to_bits() == top.to_bits())
+            && paints.iter().all(|paint| *paint == top_paint)
+        {
+            return Self::Border {
+                width: top,
+                paint: top_paint,
+            };
+        }
+        Self::BorderEach {
+            top,
+            right,
+            bottom,
+            left,
+            top_paint,
+            right_paint,
+            bottom_paint,
+            left_paint,
+        }
+    }
+
+    /// A radius for each corner, in CSS order: top left, top right, bottom right, bottom
+    /// left.
+    ///
+    /// One radius for every corner is one `Shape`, the record an ordinary rounded node
+    /// already sends. `CornerEach` is written only where the corners differ.
+    pub fn corner_radii(radii: [f32; 4]) -> Self {
+        let [top_left, top_right, bottom_right, bottom_left] = radii;
+        if radii
+            .iter()
+            .all(|radius| radius.to_bits() == top_left.to_bits())
+        {
+            return Self::Shape {
+                top_start: top_left,
+                top_end: top_left,
+                bottom_end: top_left,
+                bottom_start: top_left,
+            };
+        }
+        Self::CornerEach {
+            top_left,
+            top_right,
+            bottom_right,
+            bottom_left,
+        }
+    }
 }
 
 const NO_FIELDS: &[FieldSchema] = &[];
@@ -1346,102 +1532,275 @@ const BORDER_FIELDS: &[FieldSchema] = &[
         slot: FieldSlot::Second,
     },
 ];
+const OFFSET_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "x",
+        ty: FieldType::Float,
+        slot: FieldSlot::FirstLow,
+    },
+    FieldSchema {
+        name: "y",
+        ty: FieldType::Float,
+        slot: FieldSlot::SecondLow,
+    },
+];
+const BORDER_EACH_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "top",
+        ty: FieldType::Float,
+        slot: FieldSlot::FirstLow,
+    },
+    FieldSchema {
+        name: "right",
+        ty: FieldType::Float,
+        slot: FieldSlot::FirstHigh,
+    },
+    FieldSchema {
+        name: "bottom",
+        ty: FieldType::Float,
+        slot: FieldSlot::SecondLow,
+    },
+    FieldSchema {
+        name: "left",
+        ty: FieldType::Float,
+        slot: FieldSlot::SecondHigh,
+    },
+    FieldSchema {
+        name: "topPaint",
+        ty: FieldType::Paint,
+        slot: FieldSlot::Third,
+    },
+    FieldSchema {
+        name: "rightPaint",
+        ty: FieldType::Paint,
+        slot: FieldSlot::Fourth,
+    },
+    FieldSchema {
+        name: "bottomPaint",
+        ty: FieldType::Paint,
+        slot: FieldSlot::Fifth,
+    },
+    FieldSchema {
+        name: "leftPaint",
+        ty: FieldType::Paint,
+        slot: FieldSlot::Sixth,
+    },
+];
+const CORNER_EACH_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "topLeft",
+        ty: FieldType::Float,
+        slot: FieldSlot::FirstLow,
+    },
+    FieldSchema {
+        name: "topRight",
+        ty: FieldType::Float,
+        slot: FieldSlot::FirstHigh,
+    },
+    FieldSchema {
+        name: "bottomRight",
+        ty: FieldType::Float,
+        slot: FieldSlot::SecondLow,
+    },
+    FieldSchema {
+        name: "bottomLeft",
+        ty: FieldType::Float,
+        slot: FieldSlot::SecondHigh,
+    },
+];
+const SHADOW_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "x",
+        ty: FieldType::Float,
+        slot: FieldSlot::FirstLow,
+    },
+    FieldSchema {
+        name: "y",
+        ty: FieldType::Float,
+        slot: FieldSlot::FirstHigh,
+    },
+    FieldSchema {
+        name: "blur",
+        ty: FieldType::Float,
+        slot: FieldSlot::SecondLow,
+    },
+    FieldSchema {
+        name: "spread",
+        ty: FieldType::Float,
+        slot: FieldSlot::SecondHigh,
+    },
+    FieldSchema {
+        name: "paint",
+        ty: FieldType::Paint,
+        slot: FieldSlot::Third,
+    },
+];
+const ENABLED_FIELD: &[FieldSchema] = &[FieldSchema {
+    name: "enabled",
+    ty: FieldType::Bool,
+    slot: FieldSlot::First,
+}];
 
 pub const MODIFIER_SCHEMA: &[VariantSchema] = &[
     VariantSchema {
         name: "Empty",
         tag: 0,
+        extra_words: 0,
         fields: NO_FIELDS,
     },
     VariantSchema {
         name: "Padding",
         tag: 1,
+        extra_words: 0,
         fields: VALUE_FLOAT_FIELD,
     },
     VariantSchema {
         name: "FillMaxWidth",
         tag: 2,
+        extra_words: 0,
         fields: NO_FIELDS,
     },
     VariantSchema {
         name: "FillMaxHeight",
         tag: 3,
+        extra_words: 0,
         fields: NO_FIELDS,
     },
     VariantSchema {
         name: "Width",
         tag: 4,
+        extra_words: 0,
         fields: VALUE_FLOAT_FIELD,
     },
     VariantSchema {
         name: "Height",
         tag: 5,
+        extra_words: 0,
         fields: VALUE_FLOAT_FIELD,
     },
     VariantSchema {
         name: "Size",
         tag: 6,
+        extra_words: 0,
         fields: SIZE_FIELDS,
     },
     VariantSchema {
         name: "Background",
         tag: 7,
+        extra_words: 0,
         fields: PAINT_FIELD,
     },
     VariantSchema {
         name: "Clickable",
         tag: 8,
+        extra_words: 0,
         fields: HANDLER_ID_FIELD,
     },
     VariantSchema {
         name: "PaddingRole",
         tag: 9,
+        extra_words: 0,
         fields: SPACE_ROLE_FIELD,
     },
     VariantSchema {
         name: "PaddingEach",
         tag: 10,
+        extra_words: 0,
         fields: PADDING_EACH_FIELDS,
     },
     VariantSchema {
         name: "Weight",
         tag: 11,
+        extra_words: 0,
         fields: VALUE_FLOAT_FIELD,
     },
     VariantSchema {
         name: "Shape",
         tag: 12,
+        extra_words: 0,
         fields: SHAPE_FIELDS,
     },
     VariantSchema {
         name: "ShapeRole",
         tag: 13,
+        extra_words: 0,
         fields: SHAPE_ROLE_FIELD,
     },
     VariantSchema {
         name: "Border",
         tag: 14,
+        extra_words: 0,
         fields: BORDER_FIELDS,
     },
     VariantSchema {
         name: "Elevation",
         tag: 15,
+        extra_words: 0,
         fields: VALUE_FLOAT_FIELD,
     },
     VariantSchema {
         name: "ObserveSize",
         tag: 16,
+        extra_words: 0,
         fields: TOKEN_U32_FIELD,
     },
     VariantSchema {
         name: "Motion",
         tag: 17,
+        extra_words: 0,
         fields: MOTION_ROLE_FIELD,
     },
     VariantSchema {
         name: "Material",
         tag: 18,
+        extra_words: 0,
         fields: MATERIAL_ROLE_FIELD,
+    },
+    // The elements an HTML and CSS screen is drawn with: boxes a layout engine on the Host
+    // already placed and sized, and the decoration CSS gives them.
+    VariantSchema {
+        name: "Offset",
+        tag: 19,
+        extra_words: 0,
+        fields: OFFSET_FIELDS,
+    },
+    VariantSchema {
+        name: "RequiredSize",
+        tag: 20,
+        extra_words: 0,
+        fields: SIZE_FIELDS,
+    },
+    // Four widths and four paints are six words, so the record is four words longer.
+    VariantSchema {
+        name: "BorderEach",
+        tag: 21,
+        extra_words: 4,
+        fields: BORDER_EACH_FIELDS,
+    },
+    VariantSchema {
+        name: "CornerEach",
+        tag: 22,
+        extra_words: 0,
+        fields: CORNER_EACH_FIELDS,
+    },
+    // Four measurements and a paint are three words, one more than the record has.
+    VariantSchema {
+        name: "Shadow",
+        tag: 23,
+        extra_words: 1,
+        fields: SHADOW_FIELDS,
+    },
+    VariantSchema {
+        name: "Clip",
+        tag: 24,
+        extra_words: 0,
+        fields: ENABLED_FIELD,
+    },
+    VariantSchema {
+        name: "Alpha",
+        tag: 25,
+        extra_words: 0,
+        fields: VALUE_FLOAT_FIELD,
     },
 ];
 

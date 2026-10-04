@@ -1,9 +1,10 @@
 //! Fixed-layout little-endian boundary protocol.
 
 use crate::schema::{
-    AssetKind, ColorScheme, DesignSystem, Key, MaterialRole, MessageDuration, Modifier, MotionRole,
-    NotificationImportance, NotificationPermission, NotificationPresentation, Paint, PropertyKind,
-    Selection, ShapeRole, SpaceRole, TYPE_ROLE_COUNT, Theme, WidgetKind,
+    AssetKind, ColorScheme, DesignSystem, Key, MAX_MODIFIER_WORDS, MaterialRole, MessageDuration,
+    Modifier, MotionRole, NotificationImportance, NotificationPermission, NotificationPresentation,
+    Paint, PropertyKind, Selection, ShapeRole, SpaceRole, TYPE_ROLE_COUNT, Theme, WidgetKind,
+    modifier_extra_words,
 };
 use core::fmt;
 
@@ -544,13 +545,18 @@ impl BatchEncoder {
                 index,
                 modifier,
             } => {
-                self.begin_record(TAG_SET_MODIFIER, 24);
+                let (tag, words) = modifier_fields(modifier);
+                // The tag fixes how long the value is, so the record is as long as the
+                // schema says that tag's records are and every other modifier keeps the
+                // 28 bytes it always had.
+                let extra = modifier_extra_words(tag).ok_or(ProtocolError::InvalidModifier(tag))?;
+                self.begin_record(TAG_SET_MODIFIER, 24 + 8 * u16::from(extra));
                 self.put_u32(*node_id);
                 self.put_u16(*index);
-                let (tag, first, second) = modifier_fields(modifier);
                 self.put_u16(tag);
-                self.put_u64(first);
-                self.put_u64(second);
+                for word in &words[..2 + usize::from(extra)] {
+                    self.put_u64(*word);
+                }
             }
             Mutation::Insert {
                 parent_id,
@@ -843,15 +849,28 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                     value,
                 }
             }
-            TAG_SET_MODIFIER if len == 28 => Mutation::SetModifier {
-                node_id: read_u32(bytes, payload)?,
-                index: read_u16(bytes, payload + 4)?,
-                modifier: decode_modifier(
-                    read_u16(bytes, payload + 6)?,
-                    read_u64(bytes, payload + 8)?,
-                    read_u64(bytes, payload + 16)?,
-                )?,
-            },
+            TAG_SET_MODIFIER if len >= 28 => {
+                // The modifier's tag says how long its record is: 28 bytes and eight more
+                // for each word the schema gives it beyond the first two. A record of any
+                // other length is refused before its value is read.
+                let modifier_tag = read_u16(bytes, payload + 6)?;
+                let extra = usize::from(
+                    modifier_extra_words(modifier_tag)
+                        .ok_or(ProtocolError::InvalidModifier(modifier_tag))?,
+                );
+                if len != 28 + 8 * extra {
+                    return Err(ProtocolError::InvalidRecordLength);
+                }
+                let mut words = [0_u64; MAX_MODIFIER_WORDS];
+                for (word_index, word) in words.iter_mut().take(2 + extra).enumerate() {
+                    *word = read_u64(bytes, payload + 8 + 8 * word_index)?;
+                }
+                Mutation::SetModifier {
+                    node_id: read_u32(bytes, payload)?,
+                    index: read_u16(bytes, payload + 4)?,
+                    modifier: decode_modifier(modifier_tag, &words)?,
+                }
+            }
             TAG_INSERT if len == 16 => Mutation::Insert {
                 parent_id: read_u32(bytes, payload)?,
                 node_id: read_u32(bytes, payload + 4)?,
@@ -1014,27 +1033,40 @@ const fn unpack_high(word: u64) -> f32 {
     f32::from_bits((word >> 32) as u32)
 }
 
-fn modifier_fields(modifier: &Modifier) -> (u16, u64, u64) {
+/// The value's words with nothing past the first two, which is every modifier but the few
+/// whose schema entry gives them more.
+const fn two_words(first: u64, second: u64) -> [u64; MAX_MODIFIER_WORDS] {
+    [first, second, 0, 0, 0, 0]
+}
+
+fn float_word(value: f32) -> u64 {
+    u64::from(value.to_bits())
+}
+
+/// A modifier's tag and the words of its value. Only as many words as the schema gives
+/// that tag are written; the rest are zero and never leave this function.
+fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
     match modifier {
-        Modifier::Empty => (0, 0, 0),
-        Modifier::Padding(value) => (1, u64::from(value.to_bits()), 0),
-        Modifier::FillMaxWidth => (2, 0, 0),
-        Modifier::FillMaxHeight => (3, 0, 0),
-        Modifier::Width(value) => (4, u64::from(value.to_bits()), 0),
-        Modifier::Height(value) => (5, u64::from(value.to_bits()), 0),
-        Modifier::Size { width, height } => {
-            (6, u64::from(width.to_bits()), u64::from(height.to_bits()))
-        }
-        Modifier::Background(paint) => (7, paint.to_bits(), 0),
-        Modifier::Clickable { handler_id } => (8, *handler_id, 0),
-        Modifier::PaddingRole(role) => (9, *role as u64, 0),
+        Modifier::Empty => (0, two_words(0, 0)),
+        Modifier::Padding(value) => (1, two_words(float_word(*value), 0)),
+        Modifier::FillMaxWidth => (2, two_words(0, 0)),
+        Modifier::FillMaxHeight => (3, two_words(0, 0)),
+        Modifier::Width(value) => (4, two_words(float_word(*value), 0)),
+        Modifier::Height(value) => (5, two_words(float_word(*value), 0)),
+        Modifier::Size { width, height } => (6, two_words(float_word(*width), float_word(*height))),
+        Modifier::Background(paint) => (7, two_words(paint.to_bits(), 0)),
+        Modifier::Clickable { handler_id } => (8, two_words(*handler_id, 0)),
+        Modifier::PaddingRole(role) => (9, two_words(*role as u64, 0)),
         Modifier::PaddingEach {
             start,
             top,
             end,
             bottom,
-        } => (10, pack_floats(*start, *top), pack_floats(*end, *bottom)),
-        Modifier::Weight(value) => (11, u64::from(value.to_bits()), 0),
+        } => (
+            10,
+            two_words(pack_floats(*start, *top), pack_floats(*end, *bottom)),
+        ),
+        Modifier::Weight(value) => (11, two_words(float_word(*value), 0)),
         Modifier::Shape {
             top_start,
             top_end,
@@ -1042,15 +1074,72 @@ fn modifier_fields(modifier: &Modifier) -> (u16, u64, u64) {
             bottom_start,
         } => (
             12,
-            pack_floats(*top_start, *top_end),
-            pack_floats(*bottom_end, *bottom_start),
+            two_words(
+                pack_floats(*top_start, *top_end),
+                pack_floats(*bottom_end, *bottom_start),
+            ),
         ),
-        Modifier::ShapeRole(role) => (13, *role as u64, 0),
-        Modifier::Border { width, paint } => (14, u64::from(width.to_bits()), paint.to_bits()),
-        Modifier::Elevation(dp) => (15, u64::from(dp.to_bits()), 0),
-        Modifier::ObserveSize { token } => (16, u64::from(*token), 0),
-        Modifier::Motion(role) => (17, *role as u64, 0),
-        Modifier::Material(role) => (18, *role as u64, 0),
+        Modifier::ShapeRole(role) => (13, two_words(*role as u64, 0)),
+        Modifier::Border { width, paint } => (14, two_words(float_word(*width), paint.to_bits())),
+        Modifier::Elevation(dp) => (15, two_words(float_word(*dp), 0)),
+        Modifier::ObserveSize { token } => (16, two_words(u64::from(*token), 0)),
+        Modifier::Motion(role) => (17, two_words(*role as u64, 0)),
+        Modifier::Material(role) => (18, two_words(*role as u64, 0)),
+        Modifier::Offset { x, y } => (19, two_words(float_word(*x), float_word(*y))),
+        Modifier::RequiredSize { width, height } => {
+            (20, two_words(float_word(*width), float_word(*height)))
+        }
+        Modifier::BorderEach {
+            top,
+            right,
+            bottom,
+            left,
+            top_paint,
+            right_paint,
+            bottom_paint,
+            left_paint,
+        } => (
+            21,
+            [
+                pack_floats(*top, *right),
+                pack_floats(*bottom, *left),
+                top_paint.to_bits(),
+                right_paint.to_bits(),
+                bottom_paint.to_bits(),
+                left_paint.to_bits(),
+            ],
+        ),
+        Modifier::CornerEach {
+            top_left,
+            top_right,
+            bottom_right,
+            bottom_left,
+        } => (
+            22,
+            two_words(
+                pack_floats(*top_left, *top_right),
+                pack_floats(*bottom_right, *bottom_left),
+            ),
+        ),
+        Modifier::Shadow {
+            x,
+            y,
+            blur,
+            spread,
+            paint,
+        } => (
+            23,
+            [
+                pack_floats(*x, *y),
+                pack_floats(*blur, *spread),
+                paint.to_bits(),
+                0,
+                0,
+                0,
+            ],
+        ),
+        Modifier::Clip(enabled) => (24, two_words(u64::from(*enabled), 0)),
+        Modifier::Alpha(value) => (25, two_words(float_word(*value), 0)),
     }
 }
 
@@ -1063,7 +1152,8 @@ fn decode_paint(bits: u64) -> Result<Paint, ProtocolError> {
     Paint::from_bits(bits).ok_or(ProtocolError::InvalidModifier(0))
 }
 
-fn decode_modifier(tag: u16, first: u64, second: u64) -> Result<Modifier, ProtocolError> {
+fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifier, ProtocolError> {
+    let [first, second, third, fourth, fifth, sixth] = *words;
     match tag {
         0 => Ok(Modifier::Empty),
         1 => Ok(Modifier::Padding(f32::from_bits(first as u32))),
@@ -1102,6 +1192,45 @@ fn decode_modifier(tag: u16, first: u64, second: u64) -> Result<Modifier, Protoc
         }),
         17 => Ok(Modifier::Motion(decode_role::<MotionRole>(first)?)),
         18 => Ok(Modifier::Material(decode_role::<MaterialRole>(first)?)),
+        19 => Ok(Modifier::Offset {
+            x: f32::from_bits(first as u32),
+            y: f32::from_bits(second as u32),
+        }),
+        20 => Ok(Modifier::RequiredSize {
+            width: f32::from_bits(first as u32),
+            height: f32::from_bits(second as u32),
+        }),
+        21 => Ok(Modifier::BorderEach {
+            top: unpack_low(first),
+            right: unpack_high(first),
+            bottom: unpack_low(second),
+            left: unpack_high(second),
+            top_paint: decode_paint(third)?,
+            right_paint: decode_paint(fourth)?,
+            bottom_paint: decode_paint(fifth)?,
+            left_paint: decode_paint(sixth)?,
+        }),
+        22 => Ok(Modifier::CornerEach {
+            top_left: unpack_low(first),
+            top_right: unpack_high(first),
+            bottom_right: unpack_low(second),
+            bottom_left: unpack_high(second),
+        }),
+        23 => Ok(Modifier::Shadow {
+            x: unpack_low(first),
+            y: unpack_high(first),
+            blur: unpack_low(second),
+            spread: unpack_high(second),
+            paint: decode_paint(third)?,
+        }),
+        // A flag is 0 or 1. Anything else is a record the two sides disagree about, and
+        // reading it as "on" would hide that.
+        24 => match first {
+            0 => Ok(Modifier::Clip(false)),
+            1 => Ok(Modifier::Clip(true)),
+            _ => Err(ProtocolError::InvalidModifier(24)),
+        },
+        25 => Ok(Modifier::Alpha(f32::from_bits(first as u32))),
         other => Err(ProtocolError::InvalidModifier(other)),
     }
 }
