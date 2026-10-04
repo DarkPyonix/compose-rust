@@ -77,7 +77,9 @@ internal object ResizeMetrics {
         val fresh = if (lastEpoch < 0) 1 else info.epoch - lastEpoch
         lastEpoch = info.epoch
         collections += fresh
-        val pause = info.pauseEndTimeNs - info.pauseStartTimeNs
+        // A collection stops the world once to mark and may stop it again to finish.
+        val second = info.secondPauseEndTimeNs?.let { end -> info.secondPauseStartTimeNs?.let { end - it } } ?: 0L
+        val pause = info.firstPauseEndTimeNs - info.firstPauseStartTimeNs + second
         pauseNanos += pause
         return pause
     }
