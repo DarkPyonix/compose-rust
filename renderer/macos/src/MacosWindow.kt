@@ -25,6 +25,7 @@ import kotlinx.cinterop.CValue
 import kotlinx.cinterop.alloc
 import kotlinx.cinterop.ptr
 import kotlinx.cinterop.reinterpret
+import kotlinx.cinterop.toKString
 import kotlinx.cinterop.useContents
 import kotlinx.cinterop.value
 import java.lang.System
@@ -695,6 +696,16 @@ internal class MacosWindow(
                         "metal_allocated_mb=${metal.allocatedBytes / 1048576} " +
                         "footprint_mb=${footprint / 1048576} resident_mb=${resident / 1048576}",
                 )
+                // Where the footprint is, by kind, when one number is not enough to say.
+                if (platform.posix.getenv("DXC_METRICS_BREAKDOWN")?.toKString() == "1") {
+                    val pid = platform.posix.getpid()
+                    platform.posix.fflush(null)
+                    platform.posix.system(
+                        "echo 'compose-rust: breakdown $name'; /usr/bin/footprint $pid 1>&2; " +
+                            "/usr/bin/vmmap --summary $pid 2>/dev/null | " +
+                            "grep -E 'IOSurface|IOAccelerator|CoreAnimation|MALLOC|TOTAL|Region' 1>&2",
+                    )
+                }
         }
         ResizeMetrics.run(
             phase = phase,
