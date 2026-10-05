@@ -21,12 +21,13 @@ set -euo pipefail
 # nobody chose here. This one is the head of `extended`: JetBrains release/1.11 at 73ac849
 # with the Linux targets, the native text context menu (opening at the pointer on macOS),
 # the AWT-free copy, text direction and main dispatcher, the AppKit pump on the main thread, the main dispatcher property,
-# the published version and the design systems under extended/design-systems, which this
+# the published version, text layouts kept when a new maximum width does not change them,
+# and the design systems under extended/design-systems, which this
 # build does not read and scripts/fetch-design-systems.sh does.
 # compose-fork.changes lists what this commit must hold at every path it changes, and
 # scripts/tests/compose-fork.test.sh checks it.
 FORK="https://github.com/thisisthepy/compose-multiplatform-core-extended.git"
-REVISION="825570f7ecfbf9061bcbbd97c005f7456f744ea5"
+REVISION="11da941766762c4760df9cf3c11429837d772bdd"
 # The window modules and skiko's static build are newer than that and are not Compose sources:
 # the renderer builds them from this commit (scripts/fetch-fork-window.sh and fetch-fork-skiko.sh)
 # into artifacts of its own, so they move without moving the Compose build above.
