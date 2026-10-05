@@ -815,21 +815,6 @@ data class CaptionStyle(
     val edgePadding: Dp,
     val titleAlignment: CaptionTitleAlignment,
     /**
-     * How far in from the window's corner the platform's own buttons sit.
-     *
-     * macOS only, and only where the window's buttons are the system's. Everywhere else
-     * the caption's buttons are ours and drawn where [side] says, so there is no corner to
-     * come in from. Zero leaves them where the system put them.
-     */
-    val platformButtonInset: Dp = 0.dp,
-    /**
-     * How round the window's own corners are, or zero to leave the system's.
-     *
-     * macOS only, for the same reason. On Windows and Linux the window's outline belongs
-     * to the compositor rather than to the application.
-     */
-    val windowCornerRadius: Dp = 0.dp,
-    /**
      * How tall the caption is where the application draws it.
      *
      * Windows and Linux. Zero means the design system has nothing to say and the caption
@@ -936,6 +921,15 @@ data class NavigationStyle(
     val stripMaterial: SurfaceMaterial? = null,
     /** The outline of a floating strip. A strip on the window's edge has none. */
     val stripShape: Shape = RectangleShape,
+    /**
+     * The exponent of a floating strip's corner when it is cut concentric with the
+     * window's, or null for a strip whose outline is [stripShape] alone.
+     *
+     * The window's radius is the system's and is only known once the window is open, so
+     * the rules say how the corner is cut and the strip takes the radius from the window.
+     * [stripShape] stands where the window reports no radius.
+     */
+    val stripCornerExponent: Double? = null,
     /**
      * How far a floating strip stands off the edges of the window it is laid along.
      *

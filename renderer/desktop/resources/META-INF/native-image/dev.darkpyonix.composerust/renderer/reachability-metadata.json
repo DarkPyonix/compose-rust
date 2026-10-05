@@ -278,6 +278,16 @@
       ]
     },
     {
+      "type": "java.awt.GraphicsEnvironment",
+      "jniAccessible": true,
+      "methods": [
+        {
+          "name": "isHeadless",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
       "type": "java.awt.Insets",
       "jniAccessible": true,
       "methods": [

@@ -18,9 +18,8 @@ import platform.AppKit.NSApplicationWillTerminateNotification
 import platform.AppKit.NSWindow
 import platform.Foundation.NSNotificationCenter
 import platform.Foundation.NSOperationQueue
+import dev.darkpyonix.composerust.protocol.Chrome
 import dev.darkpyonix.composerust.protocol.TitleBar
-import dev.darkpyonix.composerust.design.resolveTheme
-import dev.darkpyonix.composerust.design.HostPlatform
 
 /**
  * Runs the renderer's Compose application. This is what `compose_rust_renderer_run`
@@ -50,15 +49,13 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // is called are settled when it is made.
     // The menu a selection offers, drawn by the system rather than by Compose.
     //
-    // Off, and that is the opposite of what it was. The new path was turned on because it
-    // is the one that asks the platform for a menu and this platform answers, through the
-    // `NSMenu` the text toolbar builds. It does not ask on this platform: what it draws is
-    // a menu of its own, at the window's top left corner rather than under the pointer,
-    // with every item in it dead. The old path goes through the toolbar, which is ours.
-    //
-    // To be turned back on when the new path reaches this platform, and the way to tell is
-    // that the menu comes up where the pointer is.
-    ComposeFoundationFlags.isNewContextMenuEnabled = false
+    // On, because the new path is the one with a place to say what the menu is: a text
+    // field or selection asks `LocalTextContextMenuDropdownProvider`, and the Compose this
+    // links answers it on this platform with an `NSMenu` holding Compose's own items. The
+    // old path has no such place here and draws a menu of its own, which came up beside
+    // the one the window put up, two menus for one click. The window puts up none now,
+    // so the one that appears is the system's, the same one the native image shows.
+    ComposeFoundationFlags.isNewContextMenuEnabled = true
 
     declareWindowBackdrop()
     // The notification centre, before the Host exists: the Host's first batch may already
@@ -85,23 +82,22 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // this renderer happens to be called, which is the library's name and not any
     // application's, and a measurement of zero means it did not ask.
     val asked = host.table.window
-    // What the two title bar modes are worth here. Asked of the design system rather than
-    // written down, and asked before the window is made because both answers are things a
-    // window is built with rather than things it is told later.
-    //
-    // The theme is resolved for this platform at the narrowest class: neither answer
-    // depends on how wide the window is, and the window does not exist yet to be measured.
-    val dressing = resolveTheme(
-        theme = host.table.theme,
-        platform = HostPlatform.MacOs,
-        systemDark = false,
-    ).let { it.rules.caption(it, asked?.titleBar ?: TitleBar.Normal) }
+    // How the title bar is built, by the same decision the native image's window takes, so
+    // both macOS renderers have the same corners and start the content at the same height.
+    val chrome = MacosWindowChrome.of(
+        chrome = asked?.chrome ?: Chrome.Modern,
+        titleBar = asked?.titleBar ?: TitleBar.Normal,
+    )
     val window = MacosWindow(
         name = asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
         width = if (asked != null && asked.width > 0) asked.width else 520,
         height = if (asked != null && asked.height > 0) asked.height else 360,
-        buttonInset = dressing.platformButtonInset,
-        cornerRadius = dressing.windowCornerRadius,
+        chrome = org.thisisthepy.compose.window.macos.MacosWindowChrome(
+            fullSizeContentView = chrome.fullSizeContentView,
+            titlebarAppearsTransparent = chrome.titlebarAppearsTransparent,
+            titleHidden = chrome.titleHidden,
+            unifiedToolbar = chrome.unifiedToolbar,
+        ),
     )
     window.setContent {
         val strip = window.caption.value
@@ -112,6 +108,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
                 buttonsWidth = strip.buttonsWidth,
                 buttonsAtStart = strip.buttonsAtStart,
                 insetTop = strip.insetTop,
+                cornerRadius = strip.cornerRadius,
             ),
         )
     }

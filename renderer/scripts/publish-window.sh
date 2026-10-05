@@ -21,7 +21,6 @@ window="$fork_dir/extended/window"
 modules=(common graalvm/graalvm-macos graalvm/graalvm-linux)
 case "$(uname -s)" in
     Darwin) modules+=(native/macos) ;;
-    Linux) [[ -d "$window/native/linux" ]] && modules+=(native/linux) ;;
 esac
 
 # The fork's project lists every module, and a machine that cannot build one of them lists
@@ -34,8 +33,40 @@ cp "$window/project.yaml" "$window/project.yaml.all"
 trap 'mv "$window/project.yaml.all" "$window/project.yaml"' EXIT
 
 cd "$window"
+# Kotlin/Native has no compiler for an arm64 Linux host, and the Kotlin toolchain has no way to
+# publish only some targets of a module, so there the common module is published for the JVM
+# alone. That is all the GraalVM image needs, and the fetched checkout is this script's own.
+if [[ "$(uname -s)" == "Linux" && "$(uname -m)" != "x86_64" ]]; then
+    sed -i 's/^  platforms: \[.*\]$/  platforms: [ jvm ]/' "$window/common/module.yaml"
+fi
 case "$(uname -s)" in
     MINGW*|MSYS*|CYGWIN*) cmd //c kotlin.bat publish mavenLocal ;;
     *) ./kotlin publish mavenLocal ;;
 esac
+
+# native/linux is published once for each architecture, under a coordinate of its own
+# (native-linux-linuxx64 and native-linux-linuxarm64), the way the patched Compose is. Published as
+# one module for both, the toolchain compiles the common metadata first, and that has none of the
+# platform-specific dependencies the module names, so each architecture is built alone. It
+# compiles against the patched Compose for linuxX64, which only a machine that ran build-compose.sh
+# has, and the GraalVM image build has no use for it.
+if [[ "$(uname -s)" == "Linux" && "$(uname -m)" == "x86_64" && -d "$window/native/linux" &&
+      -d "$HOME/.m2/repository/org/jetbrains/compose/ui/ui-linuxx64" ]]; then
+    linux_module="$window/native/linux/module.yaml"
+    cp "$linux_module" "$linux_module.all"
+    trap 'mv "$linux_module.all" "$linux_module"; mv "$window/project.yaml.all" "$window/project.yaml"' EXIT
+    printf 'modules:\n  - common\n  - native/linux\n' > "$window/project.yaml"
+    for architecture in linuxX64 linuxArm64; do
+        other=linuxArm64
+        [[ "$architecture" == "linuxArm64" ]] && other=linuxX64
+        # One platform, and without the other architecture's dependency block.
+        awk -v drop="dependencies@$other:" -v arch="$architecture" '
+            /^  platforms:/ { print "  platforms: [ " arch " ]"; next }
+            $0 == drop { skipping = 1; next }
+            skipping && NF == 0 { skipping = 0 }
+            !skipping { print }
+        ' "$linux_module.all" > "$linux_module"
+        ./kotlin publish mavenLocal
+    done
+fi
 echo "published the window modules from $fork_dir"

@@ -159,7 +159,7 @@ link_image() {
     (cd "$lib" && "$GRAALVM_HOME/bin/native-image" \
         ${probe_args[@]+"${probe_args[@]}"} \
         "${initialisation_args[@]}" \
-        "${static_skiko_args[@]}" \
+        ${static_skiko_args[@]+"${static_skiko_args[@]}"} \
         ${stub_args[@]+"${stub_args[@]}"} \
         --shared \
         -cp "$classpath" \

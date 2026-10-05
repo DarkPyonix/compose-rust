@@ -26,6 +26,8 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.graphics.asSkiaBitmap
 import dev.darkpyonix.composerust.runtime.asksForWindowMaterial
+import dev.darkpyonix.composerust.protocol.Chrome
+import dev.darkpyonix.composerust.protocol.TitleBar
 import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.scene.ComposeScene
 import androidx.compose.ui.text.TextStyle
@@ -40,7 +42,9 @@ import org.thisisthepy.compose.window.graalvm.macos.drainWindowEvents
 import org.thisisthepy.compose.window.graalvm.macos.forgetFrameCallback
 import org.thisisthepy.compose.window.graalvm.macos.installApplicationMenu
 import org.thisisthepy.compose.window.graalvm.macos.isWindowClosed
-import org.thisisthepy.compose.window.graalvm.macos.measureCaption
+import org.thisisthepy.compose.window.graalvm.macos.measureTitleBar
+import org.thisisthepy.compose.window.graalvm.macos.configureNativeWindowChrome
+import org.thisisthepy.compose.window.graalvm.macos.showContextMenu
 import org.thisisthepy.compose.window.graalvm.macos.openNativeWindow
 import org.thisisthepy.compose.window.graalvm.macos.pumpWindowEvents
 import org.thisisthepy.compose.window.graalvm.macos.readDroppedPaths
@@ -65,27 +69,25 @@ import org.thisisthepy.compose.window.graalvm.macos.AccessibleElement as AppKitE
  * The strip of the window the title bar occupies and the room its three buttons take, in the
  * form the renderer's content is laid out around.
  */
-internal fun NativeWindow.captionStrip(): dev.darkpyonix.composerust.runtime.WindowCaption {
-    val metrics = measureCaption()
-    return dev.darkpyonix.composerust.runtime.WindowCaption(
-        height = metrics.height.dp,
-        buttonsWidth = metrics.buttonsWidth.dp,
-        buttonsAtStart = true,
+internal fun NativeWindow.captionStrip(chrome: MacosWindowChrome): dev.darkpyonix.composerust.runtime.WindowCaption? {
+    val bar = measureTitleBar()
+    return macosWindowCaption(
+        chrome = chrome,
+        windowHeight = bar.windowHeight.toDouble(),
+        contentLayoutHeight = bar.contentLayoutHeight.toDouble(),
+        closeMinX = bar.closeMinX?.toDouble(),
+        zoomMaxX = bar.zoomMaxX?.toDouble(),
+        cornerRadius = bar.cornerRadius?.toDouble(),
     )
 }
 
-/** The pixels [setApplicationIcon] takes, from a picture Compose holds. */
-internal fun iconPixels(picture: androidx.compose.ui.graphics.ImageBitmap): Triple<ByteArray, Int, Int>? {
-    val bitmap = picture.asSkiaBitmap()
-    val info = org.jetbrains.skia.ImageInfo(
-        bitmap.width,
-        bitmap.height,
-        org.jetbrains.skia.ColorType.RGBA_8888,
-        org.jetbrains.skia.ColorAlphaType.PREMUL,
-    )
-    val pixels = bitmap.readPixels(info, info.minRowBytes) ?: return null
-    return Triple(pixels, bitmap.width, bitmap.height)
-}
+/** Hands the window the title bar [chrome] describes, before the window is made. */
+private fun chromeForNextWindow(chrome: MacosWindowChrome) = configureNativeWindowChrome(
+    fullSizeContentView = chrome.fullSizeContentView,
+    titlebarAppearsTransparent = chrome.titlebarAppearsTransparent,
+    titleHidden = chrome.titleHidden,
+    unifiedToolbar = chrome.unifiedToolbar,
+)
 
 /**
  * Draws the application into a window of our own, and holds it there until it is closed.
@@ -100,17 +102,9 @@ internal fun iconPixels(picture: androidx.compose.ui.graphics.ImageBitmap): Trip
  * watches.
  */
 internal fun runAppKitWindow(autoExitMillis: Long? = null) {
-    // Before the first frame, because every piece of text drawn after this reads them.
-    dev.darkpyonix.composerust.design.installPlatformUiFamily()
-    dev.darkpyonix.composerust.ui.installReducedMotion()
-    dev.darkpyonix.composerust.ui.installHighContrast()
-    dev.darkpyonix.composerust.ui.node.platformFileDrop = { modifier, node, dispatcher ->
-        modifier.nativeFileDrop(node, dispatcher)
-    }
     // The window is a real one with the desktop behind it, so a design that draws glass
-    // can let that show through. Set before the Host starts: its first batch may already
-    // ask.
-    dev.darkpyonix.composerust.runtime.platformBacksWindowWithMaterial = { true }
+    // can let that show through.
+    installNativeWindowHooks(backdropSupported = true)
     // The Host is started before there is a window, because what the window should look
     // like is in its first batch and a window cannot be told afterwards. Started on this
     // thread, which is the one every later call to it is made from: the boundary is a
@@ -118,19 +112,21 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
     val host = dev.darkpyonix.composerust.runtime.ComposeRustHost(NativeHostConnection())
     host.start()
     val asked = host.table.window
-    val backdrop = host.table.asksForWindowMaterial(host.roots)
+    val options = nativeWindowOptions(host, backdropSupported = true)
+    val backdrop = options.backdrop
     configureNativeWindow(
-        resizable = asked?.resizable ?: true,
-        minWidth = asked?.minWidth?.takeIf { it > 0 } ?: 0,
-        minHeight = asked?.minHeight?.takeIf { it > 0 } ?: 0,
-        systemChrome = asked?.chrome == dev.darkpyonix.composerust.protocol.Chrome.System,
+        resizable = options.resizable,
+        minWidth = options.minWidth,
+        minHeight = options.minHeight,
+        systemChrome = options.systemChrome,
         backdrop = backdrop,
     )
-    val window = openNativeWindow(
-        asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
-        if (asked != null && asked.width > 0) asked.width else 520,
-        if (asked != null && asked.height > 0) asked.height else 360,
+    val chrome = MacosWindowChrome.of(
+        chrome = if (options.systemChrome) Chrome.System else Chrome.Modern,
+        titleBar = asked?.titleBar ?: TitleBar.Normal,
     )
+    chromeForNextWindow(chrome)
+    val window = openNativeWindow(options.title, options.width, options.height)
     if (window == null) {
         System.err.println("compose-rust: this machine has no Metal device")
         return
@@ -150,7 +146,9 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
     // The strip the title bar takes, which the bar at the top of the application's tree is
     // laid out around. Measured again whenever the window changes size, because entering
     // full screen removes the bar and leaving it brings it back.
-    val caption = androidx.compose.runtime.mutableStateOf(window.captionStrip())
+    val caption = androidx.compose.runtime.mutableStateOf(
+        window.captionStrip(chrome) ?: dev.darkpyonix.composerust.runtime.WindowCaption.None,
+    )
     val textInput = NativeTextInput()
     val synthetic = System.getenv("DXC_SYNTH")?.let { SyntheticInput(it) }
     val semantics = NativeSemantics { elements ->
@@ -173,25 +171,24 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
     )
     // The application's own tree, drawn by the same interpreter every window uses.
     // Nothing in it knows which window it is in, which is the point.
-    val clipboard = WindowClipboard()
-    @Suppress("DEPRECATION")
-    val clipboardManager = WindowClipboardManager()
     scene.setContent {
+        // The right-click menu is the system's. Given as the default, so a part of the
+        // tree that provides its own replaces it rather than showing a second one.
+        // `DXC_MENU_OVERRIDE=drawn` stands in for an application that draws its own menu:
+        // it provides Compose's drawn representation instead, as an application would, so
+        // the one menu that comes up is that one. For checking that an override wins.
+        val menu = if (System.getenv("DXC_MENU_OVERRIDE") == "drawn") {
+            androidx.compose.foundation.LightDefaultContextMenuRepresentation
+        } else {
+            NativeContextMenuRepresentation { entries -> window.showContextMenu(packMenu(entries)) }
+        }
         androidx.compose.runtime.CompositionLocalProvider(
-            dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver provides {
-                rememberSystemDark().value
-            },
-            androidx.compose.ui.platform.LocalClipboard provides clipboard,
-            androidx.compose.ui.platform.LocalClipboardManager provides clipboardManager,
+            androidx.compose.foundation.LocalContextMenuRepresentation provides menu,
         ) {
-            dev.darkpyonix.composerust.runtime.ComposeRustContent(
-                host,
-                Modifier.fillMaxSize(),
-                caption = caption.value,
-            )
+            NativeWindowContent(host, caption.value, actions = null)
         }
     }
-    installApplicationMenu(asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust")
+    installApplicationMenu(options.title)
 
     val started = System.nanoTime()
     var iconId = 0
@@ -228,7 +225,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
         val events = drainWindowEvents()
         for (event in synthetic?.due(System.nanoTime(), size) ?: emptyList()) {
             scene.receive(event)
-            textInput.receive(event)
+            textInput.receive(event, macos = true)
             LatencyTrace.mark("synthetic ${event.kind} sent")
         }
         for (event in events) {
@@ -246,13 +243,13 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
             if (event.kind == WindowEvent.RESIZE) {
                 size = androidx.compose.ui.unit.IntSize(event.x.toInt(), event.y.toInt())
                 scene.size = size
-                caption.value = window.captionStrip()
+                window.captionStrip(chrome)?.let { caption.value = it }
             }
             if (LatencyTrace.enabled && event.kind != WindowEvent.POINTER_MOVE) {
                 LatencyTrace.mark("window heard ${event.kind}")
             }
             scene.receive(event)
-            textInput.receive(event)
+            textInput.receive(event, macos = true)
             heard = true
         }
         // Only when there is something to draw. Every frame reaches the window by asking
@@ -306,6 +303,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
             // a window that has gone still is exactly where that would be forgotten.
             // Costs a comparison when nothing has changed, which is almost always.
             semantics.pushIfChanged(afterDrawing = drew)
+            reportCaret(textInput)
         }
         LatencyTrace.summary()
     } finally {
