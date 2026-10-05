@@ -1576,6 +1576,8 @@ static int dxc_last_blit;
 static int dxc_last_validated;
 // A real drag driven by the test hook is running; see dxc_native_debug_resize.
 static int dxc_real_drag_active;
+static int dxc_capture_steps;
+static int dxc_capture_failures;
 static void dxc_capture_step(HWND window);
 // When the last CPU frame was copied into the window.
 static LARGE_INTEGER dxc_blit_time;
@@ -2467,8 +2469,6 @@ static void dxc_accept_files(HWND window) {
  * by black pixels alone. The strip of the window above the client area, the caption, is
  * counted for black as well.
  */
-static int dxc_capture_steps;
-static int dxc_capture_failures;
 
 /*
  * Desktop Duplication: the frame DWM composed, as the display receives it, on the adapter
