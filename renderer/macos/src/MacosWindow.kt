@@ -22,7 +22,12 @@ import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import kotlinx.cinterop.CValue
+import kotlinx.cinterop.alloc
+import kotlinx.cinterop.ptr
+import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.useContents
+import kotlinx.cinterop.value
+import java.lang.System
 import platform.CoreGraphics.CGPoint
 import platform.CoreGraphics.CGRect
 import platform.Foundation.NSPointInRect
@@ -464,7 +469,11 @@ internal class MacosWindow(
         override fun updateLayer() {
             val scale = window?.backingScaleFactor ?: 1.0
             bounds.useContents { metal.resize(size.width, size.height, scale) }
+            ResizeMetrics.frameBegin()
             metal.draw(::paintFrame)
+            bounds.useContents {
+                ResizeMetrics.frameEnd((size.width * scale).toInt(), (size.height * scale).toInt())
+            }
         }
 
         // Redrawn when it is resized rather than stretched, which is what a layer does with
@@ -658,6 +667,61 @@ internal class MacosWindow(
         measureCaption()
         components.enableSavedStateHandles()
         components.lifecycle.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+        if (ResizeMetrics.enabled) {
+            platform.darwin.dispatch_after(
+                platform.darwin.dispatch_time(platform.darwin.DISPATCH_TIME_NOW, 3_000_000_000L),
+                platform.darwin.dispatch_get_main_queue(),
+            ) { runMetrics() }
+        }
+    }
+
+    /**
+     * DXC_METRICS=1: the scripted drag and its measurements; see [ResizeMetrics].
+     *
+     * All 100 sizes are set inside this one block, so the run loop does not turn between
+     * them. That is the hardest case for anything a frame leaves to an autorelease pool,
+     * and it is the case a fast drag of the edge comes closest to.
+     */
+    private fun runMetrics() {
+        ResizeMetrics.run(
+            phase = { name ->
+                val (footprint, resident) = processMemory()
+                System.err.println(
+                    "compose-rust: metrics phase $name ${ResizeMetrics.summary()} " +
+                        "skia_cache_limit_mb=${metal.cacheLimitBytes / 1048576} " +
+                        "metal_allocated_mb=${metal.allocatedBytes / 1048576} " +
+                        "footprint_mb=${footprint / 1048576} resident_mb=${resident / 1048576}",
+                )
+            },
+            resize = { from, to, steps ->
+                for (step in 1..steps) {
+                    val t = step.toDouble() / steps
+                    window.setContentSize(
+                        platform.Foundation.NSMakeSize(
+                            from.first + (to.first - from.first) * t,
+                            from.second + (to.second - from.second) * t,
+                        ),
+                    )
+                    window.displayIfNeeded()
+                    platform.QuartzCore.CATransaction.flush()
+                }
+            },
+        )
+    }
+
+    /** Physical footprint and resident size of this process, in bytes. */
+    private fun processMemory(): Pair<Long, Long> = kotlinx.cinterop.memScoped {
+        val info = alloc<platform.darwin.task_vm_info_data_t>()
+        val count = alloc<platform.darwin.mach_msg_type_number_tVar>()
+        count.value = (kotlinx.cinterop.sizeOf<platform.darwin.task_vm_info_data_t>() / 4).toUInt()
+        // TASK_VM_INFO
+        platform.darwin.task_info(
+            platform.darwin.mach_task_self_,
+            22u,
+            info.ptr.reinterpret(),
+            count.ptr,
+        )
+        info.phys_footprint.toLong() to info.resident_size.toLong()
     }
 
     /**
