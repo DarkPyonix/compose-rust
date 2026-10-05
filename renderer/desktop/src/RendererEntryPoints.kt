@@ -69,6 +69,8 @@ fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
             // back. Saying up front that there is no display to open keeps the toolkit
             // from asking, and nothing on this path wants one.
             System.setProperty("java.awt.headless", "true")
+            // Compose's main dispatcher is kotlinx.coroutines' Dispatchers.Main, not Swing's queue.
+            System.setProperty("compose.main.dispatcher", "coroutines")
             runAppKitWindow(autoExitMillis)
             return@rendererRun 0
         }
