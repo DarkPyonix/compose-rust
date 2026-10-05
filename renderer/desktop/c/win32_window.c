@@ -1566,6 +1566,14 @@ static double dxc_elapsed_ms(LARGE_INTEGER since) {
 static void dxc_wait_for_gpu(void);
 static void dxc_release_buffers(void);
 static int32_t dxc_acquire_buffers(int32_t width, int32_t height);
+// The child window the swapchain presents to. During a size change it is hidden and the
+// top-level window shows its own GDI redirection surface, into which each step's CPU frame is
+// copied before WM_SIZE returns; nothing is presented until the size has settled.
+static HWND dxc_surface;
+// Presents since the current size change began, for the per-step proof line.
+static int32_t dxc_presents_in_change;
+static int dxc_last_blit;
+static int dxc_last_validated;
 static int dxc_raster_enabled;
 static int dxc_cpu_mode;
 static HDC dxc_dib_dc;
@@ -1591,12 +1599,34 @@ int32_t dxc_native_frame_mode(void) {
     return dxc_cpu_mode ? 1 : 0;
 }
 
+static void dxc_draw_one_frame(void);
+
+/**
+ * Back to the GPU once the size has settled: the hidden child is fitted to the client
+ * area, the swapchain is refitted and a frame at that size is drawn and presented to it
+ * while it is still hidden, and only then is it shown, so it appears with that frame.
+ */
+static void dxc_return_to_gpu(HWND window, int32_t width, int32_t height) {
+    if (dxc_surface != NULL) {
+        SetWindowPos(dxc_surface, NULL, 0, 0, width, height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE);
+    }
+    dxc_resize_note(&dxc_sizing, width, height);
+    dxc_draw_one_frame();
+    if (dxc_surface != NULL) {
+        ShowWindow(dxc_surface, SW_SHOWNA);
+    }
+    fprintf(stderr, "compose-rust: resize-mode: surface shown at %dx%d after its frame was presented\n",
+            (int)width, (int)height);
+    (void)window;
+}
+
 static void dxc_switch_frames(int cpu, int32_t width, int32_t height, const char *reason) {
     if (dxc_cpu_mode == cpu) {
         return;
     }
     dxc_cpu_mode = cpu;
     dxc_mode_switches++;
+    if (cpu) dxc_presents_in_change = 0;
     fprintf(stderr, "compose-rust: resize-mode: frames %s -> %s at %dx%d because %s (switch %d)\n",
             cpu ? "gpu" : "cpu", cpu ? "cpu" : "gpu", (int)width, (int)height, reason,
             (int)dxc_mode_switches);
@@ -1685,53 +1715,31 @@ void dxc_native_raster_end(void) {
     dxc_step_draw_ms = dxc_elapsed_ms(dxc_step_mark);
     LARGE_INTEGER copy_started;
     QueryPerformanceCounter(&copy_started);
-    // Into the swapchain's own buffer, refitted to exactly this size, and presented: what
-    // DWM shows of this window is what the swapchain last presented, not what GDI drew
-    // into the window.
-    int presented = 0;
-    if (dxc_swapchain != NULL &&
-        (dxc_sizing.fitted_width != dxc_raster_width || dxc_sizing.fitted_height != dxc_raster_height)) {
-        dxc_wait_for_gpu();
-        dxc_release_buffers();
-        HRESULT resized = IDXGISwapChain1_ResizeBuffers(dxc_swapchain, DXC_BUFFER_COUNT,
-                                                        (UINT)dxc_raster_width, (UINT)dxc_raster_height,
-                                                        DXC_SWAPCHAIN_FORMAT, dxc_swapchain_flags);
-        if (FAILED(resized)) {
-            dxc_log_dxgi_failure("ResizeBuffers (CPU frame)", resized);
-        } else {
-            dxc_resize_fitted(&dxc_sizing, dxc_raster_width, dxc_raster_height);
-        }
+    // Into the top-level window, through GDI, before the message that asked for it returns.
+    // The swapchain's child window is hidden for the length of the size change, so what DWM
+    // composes for this window is its GDI redirection surface, which this copy fills.
+    dxc_last_blit = 0;
+    HDC window_dc = GetDC(dxc_window);
+    if (window_dc != NULL) {
+        dxc_last_blit = BitBlt(window_dc, 0, 0, dxc_raster_width, dxc_raster_height, dxc_dib_dc, 0, 0, SRCCOPY) != 0;
+        GdiFlush();
+        ReleaseDC(dxc_window, window_dc);
     }
-    if (dxc_swapchain != NULL && dxc_sizing.fitted_width == dxc_raster_width &&
-        dxc_sizing.fitted_height == dxc_raster_height) {
-        IDXGISurface1 *surface = NULL;
-        HRESULT got = IDXGISwapChain1_GetBuffer(dxc_swapchain, 0, &IID_IDXGISurface1, (void **)&surface);
-        if (SUCCEEDED(got)) {
-            HDC buffer_dc = NULL;
-            if (SUCCEEDED(IDXGISurface1_GetDC(surface, FALSE, &buffer_dc))) {
-                BitBlt(buffer_dc, 0, 0, dxc_raster_width, dxc_raster_height, dxc_dib_dc, 0, 0, SRCCOPY);
-                IDXGISurface1_ReleaseDC(surface, NULL);
-                HRESULT shown = IDXGISwapChain1_Present(dxc_swapchain, 0, 0);
-                if (FAILED(shown)) {
-                    dxc_log_dxgi_failure("Present (CPU frame)", shown);
-                } else {
-                    presented = 1;
-                }
-            }
-            IDXGISurface1_Release(surface);
-        } else {
-            dxc_log_dxgi_failure("GetBuffer (CPU frame)", got);
-        }
+    dxc_last_validated = ValidateRect(dxc_window, NULL) != 0;
+    // Hidden after the copy, in the same step, so the redirection surface it reveals already
+    // holds this frame.
+    if (dxc_surface != NULL && IsWindowVisible(dxc_surface)) {
+        ShowWindow(dxc_surface, SW_HIDE);
+        dxc_last_validated = ValidateRect(dxc_window, NULL) != 0 && dxc_last_validated;
     }
-    if (!presented) {
-        fprintf(stderr, "compose-rust: resize-mode: skipped present %dx%d because the CPU frame could not reach the swapchain\n",
-                (int)dxc_raster_width, (int)dxc_raster_height);
-    }
-    ValidateRect(dxc_window, NULL);
+    int presented = dxc_last_blit;
     dxc_step_copy_ms = dxc_elapsed_ms(copy_started);
     if (presented) {
         dxc_presented_width = dxc_raster_width;
         dxc_presented_height = dxc_raster_height;
+    } else {
+        fprintf(stderr, "compose-rust: resize-mode: skipped frame %dx%d because the blit failed\n",
+                (int)dxc_raster_width, (int)dxc_raster_height);
     }
 }
 
@@ -1753,8 +1761,20 @@ static void dxc_draw_resize(int32_t width, int32_t height) {
     dxc_resizing = 1;
     dxc_step_gpu_idle_ms = dxc_step_refit_ms = dxc_step_draw_ms = dxc_step_present_ms = 0.0;
     dxc_step_copy_ms = 0.0;
+    dxc_last_blit = 0;
+    dxc_last_validated = 0;
     dxc_draw_one_frame();
     dxc_resizing = 0;
+    if (dxc_cpu_mode) {
+        // What this step put on screen and how, for the CI assertion over these lines.
+        fprintf(stderr,
+                "compose-rust: resize-proof step %dx%d presents=%d child_visible=%d blit=%d validated=%d\n",
+                (int)width, (int)height, (int)dxc_presents_in_change,
+                dxc_surface != NULL && IsWindowVisible(dxc_surface) ? 1 : 0, dxc_last_blit, dxc_last_validated);
+    } else if (dxc_surface != NULL) {
+        // Frames on the GPU during the resize (DXC_RASTER_RESIZE=0): the child follows.
+        SetWindowPos(dxc_surface, NULL, 0, 0, width, height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE);
+    }
     // Outside a drag the size has stopped changing once this message is done; the GPU
     // takes over on the next turn of the message loop.
     if (dxc_cpu_mode && !dxc_sizing.dragging && !dxc_gpu_return_posted && dxc_window != NULL) {
@@ -1762,7 +1782,9 @@ static void dxc_draw_resize(int32_t width, int32_t height) {
     }
     int presented = dxc_presented_width == width && dxc_presented_height == height;
     double drawn_ms = dxc_elapsed_ms(started);
-    int flushed = presented ? dxc_dwm_flush() : 0;
+    // Not on the CPU path: its copy is in the window's own GDI surface, which DWM composes
+    // with the new window size, so there is no present to wait for.
+    int flushed = presented && !dxc_cpu_mode ? dxc_dwm_flush() : 0;
     double total_ms = dxc_elapsed_ms(started);
     if (total_ms >= DXC_RESIZE_STEP_CAP_MS) {
         fprintf(stderr, "compose-rust: resize step %dx%d hit the %.0f ms cap (%.2f ms)\n",
@@ -1890,7 +1912,7 @@ static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM
             GetClientRect(window, &client);
             dxc_switch_frames(0, client.right - client.left, client.bottom - client.top,
                               "the drag ended");
-            dxc_draw_one_frame();
+            dxc_return_to_gpu(window, client.right - client.left, client.bottom - client.top);
         }
         if (dxc_thread_priority_before != THREAD_PRIORITY_ERROR_RETURN) {
             SetThreadPriority(GetCurrentThread(), dxc_thread_priority_before);
@@ -2040,7 +2062,7 @@ static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM
             GetClientRect(window, &client);
             dxc_switch_frames(0, client.right - client.left, client.bottom - client.top,
                               "the size stopped changing");
-            dxc_draw_one_frame();
+            dxc_return_to_gpu(window, client.right - client.left, client.bottom - client.top);
         }
         return 0;
     case DXC_WM_ACCESSIBILITY_UPDATE:
@@ -2434,6 +2456,119 @@ static void dxc_accept_files(HWND window) {
 static int dxc_capture_steps;
 static int dxc_capture_failures;
 
+/*
+ * Desktop Duplication: the frame DWM composed, as the display receives it, on the adapter
+ * that drives the monitor. A screen-DC BitBlt reads GDI's idea of the screen, which need not
+ * be what DWM put on it; this is what was put on it.
+ */
+static IDXGIOutputDuplication *dxc_dup;
+static ID3D11Device *dxc_dup_device;
+static ID3D11DeviceContext *dxc_dup_context;
+static ID3D11Texture2D *dxc_dup_copy;
+static RECT dxc_dup_desktop;
+static int dxc_dup_state; // 0 untried, 1 working, -1 unavailable
+
+typedef HRESULT(WINAPI *dxc_d3d11_create_fn)(IDXGIAdapter *, D3D_DRIVER_TYPE, HMODULE, UINT,
+                                              const D3D_FEATURE_LEVEL *, UINT, UINT, ID3D11Device **,
+                                              D3D_FEATURE_LEVEL *, ID3D11DeviceContext **);
+
+static void dxc_dup_start(HWND window) {
+    dxc_dup_state = -1;
+    HMONITOR monitor = MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST);
+    HMODULE d3d11_library = LoadLibraryW(L"d3d11.dll");
+    dxc_d3d11_create_fn create = d3d11_library == NULL ? NULL
+        : (dxc_d3d11_create_fn)(void *)GetProcAddress(d3d11_library, "D3D11CreateDevice");
+    IDXGIFactory1 *factory = NULL;
+    if (create == NULL || FAILED(CreateDXGIFactory1(&IID_IDXGIFactory1, (void **)&factory))) {
+        fprintf(stderr, "compose-rust: capture by desktop duplication unavailable (no factory)\n");
+        return;
+    }
+    IDXGIAdapter1 *adapter = NULL;
+    for (UINT a = 0; dxc_dup_state < 0 && IDXGIFactory1_EnumAdapters1(factory, a, &adapter) != DXGI_ERROR_NOT_FOUND; a++) {
+        IDXGIOutput *output = NULL;
+        for (UINT o = 0; dxc_dup_state < 0 && IDXGIAdapter1_EnumOutputs(adapter, o, &output) != DXGI_ERROR_NOT_FOUND; o++) {
+            DXGI_OUTPUT_DESC described;
+            IDXGIOutput1 *output1 = NULL;
+            if (SUCCEEDED(IDXGIOutput_GetDesc(output, &described)) && described.Monitor == monitor &&
+                SUCCEEDED(IDXGIOutput_QueryInterface(output, &IID_IDXGIOutput1, (void **)&output1))) {
+                HRESULT made = create((IDXGIAdapter *)adapter, D3D_DRIVER_TYPE_UNKNOWN, NULL, 0, NULL, 0,
+                                      D3D11_SDK_VERSION, &dxc_dup_device, NULL, &dxc_dup_context);
+                HRESULT duplicated = FAILED(made) ? made
+                    : IDXGIOutput1_DuplicateOutput(output1, (IUnknown *)dxc_dup_device, &dxc_dup);
+                if (SUCCEEDED(duplicated)) {
+                    dxc_dup_desktop = described.DesktopCoordinates;
+                    dxc_dup_state = 1;
+                } else {
+                    fprintf(stderr, "compose-rust: capture by desktop duplication unavailable (0x%08lx)\n",
+                            (unsigned long)duplicated);
+                }
+                IDXGIOutput1_Release(output1);
+            }
+            IDXGIOutput_Release(output);
+        }
+        IDXGIAdapter1_Release(adapter);
+    }
+    IDXGIFactory1_Release(factory);
+    fprintf(stderr, "compose-rust: capture by %s\n",
+            dxc_dup_state > 0 ? "desktop duplication (what DWM composed)" : "screen DC BitBlt");
+}
+
+/** Copies the latest composed desktop frame's region into pixels (BGRA, width per row). */
+static int dxc_dup_read(int x, int y, int width, int height, uint32_t *pixels) {
+    if (dxc_dup_state <= 0) return 0;
+    DXGI_OUTDUPL_FRAME_INFO info;
+    IDXGIResource *resource = NULL;
+    // The frame DWM composed after this step. A timeout means nothing changed since the
+    // last one, which the copy below still holds.
+    HRESULT acquired = IDXGIOutputDuplication_AcquireNextFrame(dxc_dup, 100, &info, &resource);
+    if (SUCCEEDED(acquired)) {
+        ID3D11Texture2D *frame = NULL;
+        if (SUCCEEDED(IDXGIResource_QueryInterface(resource, &IID_ID3D11Texture2D, (void **)&frame))) {
+            if (dxc_dup_copy == NULL) {
+                D3D11_TEXTURE2D_DESC description;
+                ID3D11Texture2D_GetDesc(frame, &description);
+                description.Usage = D3D11_USAGE_STAGING;
+                description.BindFlags = 0;
+                description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+                description.MiscFlags = 0;
+                ID3D11Device_CreateTexture2D(dxc_dup_device, &description, NULL, &dxc_dup_copy);
+            }
+            if (dxc_dup_copy != NULL) {
+                ID3D11DeviceContext_CopyResource(dxc_dup_context, (ID3D11Resource *)dxc_dup_copy, (ID3D11Resource *)frame);
+            }
+            ID3D11Texture2D_Release(frame);
+        }
+        IDXGIResource_Release(resource);
+        IDXGIOutputDuplication_ReleaseFrame(dxc_dup);
+    } else if (acquired != DXGI_ERROR_WAIT_TIMEOUT) {
+        fprintf(stderr, "compose-rust: desktop duplication failed (0x%08lx)\n", (unsigned long)acquired);
+        dxc_dup_state = -1;
+        return 0;
+    }
+    if (dxc_dup_copy == NULL) return 0;
+    D3D11_MAPPED_SUBRESOURCE mapped;
+    if (FAILED(ID3D11DeviceContext_Map(dxc_dup_context, (ID3D11Resource *)dxc_dup_copy, 0, D3D11_MAP_READ, 0, &mapped))) {
+        return 0;
+    }
+    int left = x - dxc_dup_desktop.left;
+    int top = y - dxc_dup_desktop.top;
+    int desktop_width = dxc_dup_desktop.right - dxc_dup_desktop.left;
+    int desktop_height = dxc_dup_desktop.bottom - dxc_dup_desktop.top;
+    for (int row = 0; row < height; row++) {
+        for (int column = 0; column < width; column++) {
+            int sx = left + column;
+            int sy = top + row;
+            uint32_t value = 0;
+            if (sx >= 0 && sy >= 0 && sx < desktop_width && sy < desktop_height) {
+                value = ((uint32_t *)((uint8_t *)mapped.pData + (size_t)sy * mapped.RowPitch))[sx];
+            }
+            pixels[(size_t)row * width + column] = value;
+        }
+    }
+    ID3D11DeviceContext_Unmap(dxc_dup_context, (ID3D11Resource *)dxc_dup_copy, 0);
+    return 1;
+}
+
 static int dxc_capture(int x, int y, int width, int height, uint32_t **pixels, HBITMAP *bitmap, HDC *dc) {
     if (width <= 0 || height <= 0) return 0;
     HDC screen = GetDC(NULL);
@@ -2454,10 +2589,13 @@ static int dxc_capture(int x, int y, int width, int height, uint32_t **pixels, H
         return 0;
     }
     SelectObject(*dc, *bitmap);
-    BitBlt(*dc, 0, 0, width, height, screen, x, y, SRCCOPY | CAPTUREBLT);
-    GdiFlush();
-    ReleaseDC(NULL, screen);
     *pixels = (uint32_t *)bits;
+    if (dxc_dup_state == 0 && dxc_window != NULL) dxc_dup_start(dxc_window);
+    if (!dxc_dup_read(x, y, width, height, *pixels)) {
+        BitBlt(*dc, 0, 0, width, height, screen, x, y, SRCCOPY | CAPTUREBLT);
+        GdiFlush();
+    }
+    ReleaseDC(NULL, screen);
     return 1;
 }
 
@@ -2483,13 +2621,28 @@ static void dxc_capture_step(HWND window) {
     memset(&monitor, 0, sizeof monitor);
     monitor.cbSize = sizeof monitor;
     GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor);
-    int visible_right = monitor.rcMonitor.right - origin.x;
-    int visible_bottom = monitor.rcMonitor.bottom - origin.y;
+    // The work area, not the whole monitor: the taskbar sits over whatever of the window
+    // reaches below it.
+    int visible_right = monitor.rcWork.right - origin.x;
+    int visible_bottom = monitor.rcWork.bottom - origin.y;
+    // With the caption given to the content, Windows still draws its frame's one-pixel top
+    // border over the client's first row (the accent-coloured line every such window has).
+    // That row is the system's frame, judged apart and reported, not the frame's content.
+    int border_row = !dxc_options.system_chrome && !IsZoomed(window) ? 1 : 0;
+    long border_differing = 0;
     int expected = dxc_dib_bits != NULL && dxc_raster_width == width && dxc_raster_height == height;
     long black = 0;
     long differing = 0;
     long total = 0;
+    int first_row = -1;
+    int last_row = -1;
+    int rows = 0;
+    int row_had = 0;
+    uint32_t sample_seen = 0;
+    uint32_t sample_drawn = 0;
+    int sample_x = -1;
     for (int y = 0; y < height && y < visible_bottom; y++) {
+        row_had = 0;
         for (int x = 0; x < width && x < visible_right; x++) {
             total++;
             uint32_t seen = pixels[(size_t)y * width + x];
@@ -2499,7 +2652,18 @@ static void dxc_capture_step(HWND window) {
                 for (int shift = 0; shift < 24; shift += 8) {
                     int a = (int)((seen >> shift) & 0xFF);
                     int b = (int)((drawn >> shift) & 0xFF);
-                    if (a - b > 24 || b - a > 24) { differing++; break; }
+                    if (a - b > 24 || b - a > 24) {
+                        if (y < border_row) { border_differing++; break; }
+                        differing++;
+                        if (!row_had) {
+                            row_had = 1;
+                            rows++;
+                            if (first_row < 0) first_row = y;
+                            last_row = y;
+                        }
+                        if (sample_x < 0) { sample_x = x; sample_seen = seen; sample_drawn = drawn; }
+                        break;
+                    }
                 }
             }
         }
@@ -2521,7 +2685,20 @@ static void dxc_capture_step(HWND window) {
         DeleteObject(bitmap);
         DeleteDC(dc);
     }
-    int failed = expected ? differing * 50 > total : black * 20 > total;
+    // Not one pixel of the drawn frame may be missing: a row that is not the frame's is an
+    // old or undrawn row.
+    int failed = expected ? differing > 0 : black * 20 > total;
+    DXGI_SWAP_CHAIN_DESC1 described;
+    memset(&described, 0, sizeof described);
+    if (dxc_swapchain != NULL) IDXGISwapChain1_GetDesc1(dxc_swapchain, &described);
+    if (dxc_swapchain != NULL && ((int)described.Width != width || (int)described.Height != height)) {
+        failed = 1;
+    }
+    fprintf(stderr,
+            "compose-rust: capture detail %dx%d buffer %ux%u rows_differing=%d first_row=%d last_row=%d "
+            "frame_border_pixels=%ld sample x=%d seen=%08x drawn=%08x\n",
+            width, height, described.Width, described.Height, rows, first_row, last_row, border_differing, sample_x,
+            (unsigned)sample_seen, (unsigned)sample_drawn);
     dxc_capture_steps++;
     if (failed) dxc_capture_failures++;
     fprintf(stderr,
@@ -2912,6 +3089,29 @@ static float dxc_scale_of(HWND window) {
 }
 
 static const wchar_t *DXC_WINDOW_CLASS = L"ComposeRustWindow";
+static const wchar_t *DXC_SURFACE_CLASS = L"ComposeRustSurface";
+
+/**
+ * The swapchain's child window. It takes no input: every press passes through to the
+ * window under it (HTTRANSPARENT), which is the one that owns focus, the input method and
+ * the accessibility tree. It paints nothing of its own.
+ */
+static LRESULT CALLBACK dxc_surface_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
+    switch (message) {
+    case WM_NCHITTEST:
+        return HTTRANSPARENT;
+    case WM_ERASEBKGND:
+        return 1;
+    case WM_PAINT: {
+        PAINTSTRUCT paint;
+        BeginPaint(window, &paint);
+        EndPaint(window, &paint);
+        return 0;
+    }
+    default:
+        return DefWindowProcW(window, message, wparam, lparam);
+    }
+}
 
 static int32_t dxc_register_class(void) {
     static int registered;
@@ -2931,6 +3131,12 @@ static int32_t dxc_register_class(void) {
     // the first frame lands, which reads as a white flash on a dark scene.
     description.hbrBackground = NULL;
     description.lpszClassName = DXC_WINDOW_CLASS;
+    if (RegisterClassExW(&description) == 0) {
+        return 1;
+    }
+    description.style = 0;
+    description.lpfnWndProc = dxc_surface_proc;
+    description.lpszClassName = DXC_SURFACE_CLASS;
     if (RegisterClassExW(&description) == 0) {
         return 1;
     }
@@ -3134,14 +3340,18 @@ int32_t dxc_native_window_open(
     swapchain_description.SwapEffect = DXGI_SWAP_EFFECT_SEQUENTIAL;
     swapchain_description.Scaling = DXGI_SCALING_STRETCH;
     swapchain_description.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
-    // GDI compatible, so a CPU frame can be copied into the buffer itself and presented.
-    // A swapchain's present goes to DWM through its own redirection surface, which covers
-    // what GDI drew into the window: a BitBlt into the window's DC is not seen once the
-    // swapchain has presented, and the grown edge shows that surface's black instead.
-    swapchain_description.Flags = DXGI_SWAP_CHAIN_FLAG_GDI_COMPATIBLE;
+    swapchain_description.Flags = 0;
+    // On a child window covering the client area, not on the window itself. A swapchain's
+    // presents reach DWM through a surface of their own over the window's GDI redirection
+    // surface, so on the same window a GDI copy made during a resize would not be what DWM
+    // shows. On a child, hiding the child during the size change leaves the top-level
+    // window's GDI surface, which DWM resizes and composes together with the window.
+    dxc_surface = CreateWindowExW(0, DXC_SURFACE_CLASS, L"", WS_CHILD | WS_VISIBLE, 0, 0,
+                                  (int)pixel_width, (int)pixel_height, window, NULL,
+                                  GetModuleHandleW(NULL), NULL);
     IDXGISwapChain1 *swapchain = NULL;
-    HRESULT made = IDXGIFactory4_CreateSwapChainForHwnd(
-        factory, (IUnknown *)d3d11, window, &swapchain_description, NULL, NULL, &swapchain);
+    HRESULT made = dxc_surface == NULL ? E_FAIL : IDXGIFactory4_CreateSwapChainForHwnd(
+        factory, (IUnknown *)d3d11, dxc_surface, &swapchain_description, NULL, NULL, &swapchain);
     if (FAILED(made)) {
         ID3D11On12Device_Release(on12);
         ID3D11DeviceContext_Release(d3d11_context);
@@ -3169,11 +3379,11 @@ int32_t dxc_native_window_open(
             dxc_priority() >= 1 ? "on" : "off",
             queue_description.Priority == D3D12_COMMAND_QUEUE_PRIORITY_HIGH ? "high" : "normal",
             gpu_priority_set ? "+5" : (dxc_priority() >= 2 ? "refused" : "off"));
-    fprintf(stderr, "compose-rust: swapchain for the window, copy model (sequential), 1 buffer, STRETCH, GDI compatible, %ux%u\n",
+    fprintf(stderr, "compose-rust: swapchain on a child window of the window, copy model (sequential), 1 buffer, STRETCH, %ux%u\n",
             pixel_width, pixel_height);
     // DXGI answers alt-enter by putting the window into its own idea of full screen,
     // which is a mode nothing here knows how to draw in.
-    IDXGIFactory4_MakeWindowAssociation(factory, window, DXGI_MWA_NO_ALT_ENTER);
+    IDXGIFactory4_MakeWindowAssociation(factory, dxc_surface, DXGI_MWA_NO_ALT_ENTER);
     IDXGIFactory4_Release(factory);
 
     dxc_window = window;
@@ -3419,6 +3629,7 @@ void dxc_native_frame_end(void *queue_pointer) {
     // presents without waiting spends a machine to draw frames nobody sees. Zero inside
     // one, where the DwmFlush that follows paces it instead and a vertical blank waited
     // for first would hold the drag for one more frame.
+    dxc_presents_in_change++;
     HRESULT shown = IDXGISwapChain1_Present(dxc_swapchain, dxc_resizing ? 0 : 1, 0);
     if (FAILED(shown)) {
         dxc_log_dxgi_failure("Present", shown);
