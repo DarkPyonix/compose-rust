@@ -4,8 +4,8 @@
 #   build/native-image/dist/lib/
 #     libcompose_rust_renderer.dylib   the renderer, with Skia (no JAWT), Compose and our code in it
 set -euo pipefail
-SCRIPT_DIR_NATIVE="$(cd "$(dirname "$0")" && pwd)"
 source "$(dirname "$0")/env.sh"
+SCRIPT_DIR_NATIVE="$(cd "$(dirname "$0")" && pwd)"
 
 # env.sh validates the platform, the architecture, the Xcode tools and the NIK install.
 arch="$HOST_ARCH"
