@@ -217,6 +217,32 @@ jobs:
       - name: The fork's window modules name no AWT
         run: ./scripts/tests/renderer/window-modules-no-awt.test.sh
 
+      - name: PROBE who reaches the toolkit
+        if: always()
+        continue-on-error: true
+        run: |
+          f="$(ls renderer/build/native-image-linux/dist/lib/reports/call_tree_*.txt | head -1)"
+          python3 - "$f" <<'PY'
+          import re, sys
+          pats = ["javax.swing.UIManager", "Toolkit.getDefaultToolkit", "java.awt.Component.<init>", "java.awt.Cursor.<init>", "javax.swing.Timer.<init>", "EventQueue.invokeLater"]
+          shown = {p: 0 for p in pats}
+          stack = []
+          for line in open(sys.argv[1], encoding="utf-8", errors="replace"):
+              line = line.rstrip("\n")
+              m = re.match(r"^([ \u2502]*)(?:\u251c|\u2514)\u2500\u2500 (.*)$", line)
+              if not m:
+                  continue
+              depth, text = len(m.group(1)), m.group(2)
+              while stack and stack[-1][0] >= depth:
+                  stack.pop()
+              stack.append((depth, text))
+              for p in pats:
+                  if p in text and shown[p] < 2 and "is overridden" not in text and ("directly calls" in text or "virtually calls" in text):
+                      shown[p] += 1
+                      print("=== " + p)
+                      for d, t in stack[-30:]:
+                          print(t[:190])
+          PY
       - name: The image carries no Java toolkit
         run: bash scripts/tests/renderer/linux-image-has-no-awt.test.sh
 
