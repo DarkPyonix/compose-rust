@@ -1574,6 +1574,8 @@ static HWND dxc_surface;
 static int32_t dxc_presents_in_change;
 static int dxc_last_blit;
 static int dxc_last_validated;
+// When the last CPU frame was copied into the window.
+static LARGE_INTEGER dxc_blit_time;
 static int dxc_raster_enabled;
 static int dxc_cpu_mode;
 static HDC dxc_dib_dc;
@@ -2468,8 +2470,7 @@ static ID3D11DeviceContext *dxc_dup_context;
 static ID3D11Texture2D *dxc_dup_copy;
 static RECT dxc_dup_desktop;
 static int dxc_dup_state; // 0 untried, 1 working, -1 unavailable
-// When the last CPU frame was copied into the window, and how stale the captured frame was.
-static LARGE_INTEGER dxc_blit_time;
+// How stale the captured frame was.
 static int dxc_dup_waits;
 static long long dxc_dup_lag;
 
