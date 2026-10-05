@@ -105,6 +105,9 @@ jobs:
       - name: The linked image carries no AWT
         run: ./scripts/tests/renderer/image-has-no-awt.test.sh
 
+      - name: The image's ways into the toolkit
+        run: bash scripts/tests/renderer/linux-image-toolkit-boundary.test.sh renderer/build/native-image/dist/lib
+
       - name: Smoke test
         env:
           COMPOSE_RUST_AUTOEXIT_MS: '5000'

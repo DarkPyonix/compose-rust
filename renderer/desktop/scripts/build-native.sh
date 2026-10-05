@@ -28,6 +28,20 @@ classpath="$(cat "$CLASSPATH_FILE")"
 # Swing's coroutine provider is left out: the window answers `Dispatchers.Main` itself
 # (FrameMainDispatcher), and the provider would wake the Java toolkit.
 classpath="$(tr ':' '\n' <<< "$classpath" | grep -v 'kotlinx-coroutines-swing' | paste -sd: -)"
+
+# The fork's desktop modules must be what the classpath names, not upstream's. The desktop module
+# reads the local Maven repository first and quietly falls back to upstream's jars when the fork's
+# are not there, and upstream's Compose sends its main-thread work to Swing: an image built that
+# way links, passes a build and dies when the first scene is made, with the toolkit's library
+# missing. build-compose.sh --target desktop publishes them.
+for fork_jar in 'repository/org/jetbrains/compose/ui/ui-desktop/' 'repository/org/jetbrains/skiko/skiko-awt/'; do
+    grep -q "$fork_jar" <<< "$(tr ':' '\n' <<< "$classpath")" || die \
+        "the class path holds no $fork_jar" \
+        "These are the Compose fork's desktop modules and its skiko-awt, published to the local" \
+        "Maven repository. Without them the image would use upstream Compose and need the Java toolkit." \
+        "fix: renderer/scripts/build-compose.sh --target desktop, then scripts/fetch-fork-skiko.sh and its" \
+        "extended/skiko/build-skiko-awt.sh <work-dir> (the compose-desktop job in test-graalvm-renderer.yml shows both)"
+done
 obj="$BUILD_DIR/obj"
 lib="$DIST_DIR/lib"
 rm -rf "$DIST_DIR" "$obj"
@@ -175,6 +189,10 @@ link_image() {
         -H:IncludeLocales=en,ko \
         -Os \
         -H:+UnlockExperimentalVMOptions \
+        -H:ReportAnalysisForbiddenType=java.awt.Toolkit \
+        -H:ReportAnalysisForbiddenType=java.awt.Component \
+        -H:+PrintAnalysisCallTree \
+        -H:PrintAnalysisCallTreeType=TXT \
         "${memory_args[@]}" \
         "${linker_args[@]}")
 }
