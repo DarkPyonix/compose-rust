@@ -130,12 +130,27 @@ jobs:
         continue-on-error: true
         run: |
           f="$(ls renderer/build/native-image-linux/dist/lib/reports/call_tree_*.txt | head -1)"
-          ls -la "$f"
-          for cls in 'java.awt.Component' 'java.awt.Toolkit' 'javax.swing.Timer' 'java.awt.EventQueue'; do
-            echo "=== $cls"
-            awk -v pat="$cls" '
-              { match($0, /^[ |+\-]*/); d = RLENGTH; stack[d] = $0; if (index($0, pat) && !(shown++ >= 3)) { print "---"; for (i = 0; i <= d; i += 1) if (stack[i] != "") print substr(stack[i], 1, 200) } }' "$f" | head -150
-          done
+          python3 - "$f" <<'PY'
+          import re, sys
+          pats = ["Toolkit.getDefaultToolkit", "Component.setCursor", "Toolkit.getEventQueue", "enabledOnToolkit", "javax.swing.Timer.<init>", "java.awt.Component.<init>", "java.awt.Cursor"]
+          shown = {p: 0 for p in pats}
+          stack = []
+          for line in open(sys.argv[1], encoding="utf-8", errors="replace"):
+              line = line.rstrip("\n")
+              m = re.match(r"^([ \u2502]*)(?:\u251c|\u2514)\u2500\u2500 (.*)$", line)
+              if not m:
+                  continue
+              depth, text = len(m.group(1)), m.group(2)
+              while stack and stack[-1][0] >= depth:
+                  stack.pop()
+              stack.append((depth, text))
+              for p in pats:
+                  if p in text and shown[p] < 2 and "is overridden" not in text:
+                      shown[p] += 1
+                      print("=== " + p)
+                      for d, t in stack[-25:]:
+                          print("  " * 0 + t[:170])
+          PY
       - name: Inspect staged dynamic dependencies
         run: |
           find renderer/build/native-image-linux/dist/lib -maxdepth 1 -type f -print | sort
