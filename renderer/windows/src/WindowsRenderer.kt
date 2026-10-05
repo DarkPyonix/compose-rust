@@ -2,6 +2,7 @@
 
 package dev.darkpyonix.composerust.ui.platform
 
+import androidx.compose.ui.unit.dp
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
 import dev.darkpyonix.composerust.runtime.HostConnection
@@ -32,10 +33,18 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // What the application asked for. A window that said nothing is listed under whatever
     // this renderer happens to be called, and a measurement of zero means it did not ask.
     val asked = host.table.window
+    // Who draws the caption, as the application asked and as the native image does: with
+    // Chrome.System the system's caption, otherwise the window gives the caption strip to
+    // the content, which draws the title and the three buttons in it.
+    val systemChrome = asked?.chrome == dev.darkpyonix.composerust.protocol.Chrome.System
     val window = Win32Window.open(
         title = asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
         width = if (asked != null && asked.width > 0) asked.width else DEFAULT_WIDTH,
         height = if (asked != null && asked.height > 0) asked.height else DEFAULT_HEIGHT,
+        resizable = asked?.resizable ?: true,
+        minWidth = asked?.minWidth?.takeIf { it > 0 } ?: 0,
+        minHeight = asked?.minHeight?.takeIf { it > 0 } ?: 0,
+        systemChrome = systemChrome,
     )
     if (window == null) {
         java.lang.System.err.println(
@@ -47,7 +56,25 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     }
 
     // The application's own tree, drawn by the same interpreter every other platform uses.
-    window.setContent { ComposeRustContent(host) }
+    if (systemChrome) {
+        window.setContent { ComposeRustContent(host) }
+    } else {
+        val actions = dev.darkpyonix.composerust.runtime.WindowActions(
+            minimise = { Win32Window.action(0) },
+            maximise = { Win32Window.action(1) },
+            close = { Win32Window.action(2) },
+        )
+        window.setContent {
+            androidx.compose.runtime.CompositionLocalProvider(
+                dev.darkpyonix.composerust.runtime.LocalWindowActions provides actions,
+            ) {
+                ComposeRustContent(
+                    host,
+                    caption = dev.darkpyonix.composerust.runtime.WindowCaption(height = WINDOWS_CAPTION_HEIGHT),
+                )
+            }
+        }
+    }
     try {
         window.run()
     } finally {
@@ -60,3 +87,6 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
 /** What a window that did not say is opened at, in the units the scene measures in. */
 private const val DEFAULT_WIDTH = 520
 private const val DEFAULT_HEIGHT = 360
+
+/** Windows 11's caption height, the same number win32_window.c lays the caption out with. */
+private val WINDOWS_CAPTION_HEIGHT = 32.dp

@@ -91,6 +91,9 @@ private external fun windowClosed(): Int
 @SymbolName("dxc_native_window_configure")
 private external fun configureWindow(resizable: Int, minWidth: Int, minHeight: Int, systemChrome: Int, backdrop: Int)
 
+@SymbolName("dxc_native_window_action")
+private external fun windowAction(action: Int)
+
 @SymbolName("dxc_native_debug_resize")
 private external fun debugResize(
     window: COpaquePointer?,
@@ -413,11 +416,21 @@ internal class Win32Window private constructor(
          *
          * Null rather than an exception: a machine without one is not a mistake in this code.
          */
-        fun open(title: String, width: Int, height: Int): Win32Window? {
+        /** What a caption button asks of the window: 0 minimises, 1 maximises or restores, 2 closes. */
+        fun action(which: Int) = windowAction(which)
+
+        fun open(
+            title: String,
+            width: Int,
+            height: Int,
+            resizable: Boolean = true,
+            minWidth: Int = 0,
+            minHeight: Int = 0,
+            systemChrome: Boolean = true,
+        ): Win32Window? {
             val pointers = nativeHeap.allocArray<COpaquePointerVar>(WINDOW_POINTERS)
             try {
-                // The system's caption: this renderer draws no title bar of its own.
-                configureWindow(1, 0, 0, 1, 0)
+                configureWindow(if (resizable) 1 else 0, minWidth, minHeight, if (systemChrome) 1 else 0, 0)
                 val opened = memScoped { openWindow(title.cstr.ptr, width, height, pointers) }
                 if (opened != 0) return null
                 // Resize frames on the CPU unless asked not to (DXC_RASTER_RESIZE=0).
