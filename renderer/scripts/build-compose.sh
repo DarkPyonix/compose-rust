@@ -180,6 +180,10 @@ for module in "${modules[@]}"; do
         tasks+=(":$module:publish${publication}PublicationToMavenLocal")
     done
     tasks+=(":$module:publishKotlinMultiplatformPublicationToMavenLocal")
+    # The fork's build replaces the root publication with a redirecting one (a root that names
+    # the target's artifacts), and disables the plain one, which is why that task reports SKIPPED.
+    # A version nobody else published has no root unless this one is asked for too.
+    [[ "$published_as" == "$PUBLISHED_AS" ]] || tasks+=(":$module:publishKotlinMultiplatformDecoratedPublicationToMavenLocal")
 done
 marker="$(mktemp)"
 trap 'rm -f "$marker"' EXIT
