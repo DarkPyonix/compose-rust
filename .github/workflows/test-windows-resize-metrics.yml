@@ -418,6 +418,8 @@ jobs:
           for label in windows-kn-real windows-kn-real-fast; do
             grep -E "capture-check verdict .*real drag" "$dir/$label.log" || { echo "$label: no real drag verdict" >&2; exit 1; }
             ! grep -q "capture-check verdict FAIL" "$dir/$label.log" || { echo "$label: a step showed something other than its frame" >&2; exit 1; }
+            grep -qE "capture-check verdict PASS \(0 of [1-9][0-9]* steps failed\) real drag" "$dir/$label.log" ||
+              { echo "$label: the drag judged no steps" >&2; exit 1; }
           done
           log="$dir/windows-kn-real.log"
           grep -E "hit-test verdict" "$dir/windows-kn.log" || { echo "the hit test did not run" >&2; exit 1; }
