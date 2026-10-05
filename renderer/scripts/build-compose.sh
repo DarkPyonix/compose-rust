@@ -26,7 +26,7 @@ set -euo pipefail
 # compose-fork.changes lists what this commit must hold at every path it changes, and
 # scripts/tests/compose-fork.test.sh checks it.
 FORK="https://github.com/thisisthepy/compose-multiplatform-core-extended.git"
-REVISION="825570f7ecfbf9061bcbbd97c005f7456f744ea5"
+REVISION="45bb114c367a34862147abf4747ffae68c59ef07"
 # The window modules and skiko's static build are newer than that and are not Compose sources:
 # the renderer builds them from this commit (scripts/fetch-fork-window.sh and fetch-fork-skiko.sh)
 # into artifacts of its own, so they move without moving the Compose build above.
