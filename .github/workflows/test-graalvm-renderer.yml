@@ -20,6 +20,8 @@ on:
       - 'renderer/**/module.yaml'
       - 'scripts/install-nik.sh'
       - 'scripts/fetch-fork-window.sh'
+      - 'scripts/fetch-fork-skiko.sh'
+      - 'experiments/static-library/**'
       - 'renderer/scripts/publish-window.sh'
       - 'renderer/scripts/build-compose.sh'
       - 'renderer/scripts/compose-fork.changes'
@@ -34,6 +36,8 @@ on:
       - 'renderer/**/module.yaml'
       - 'scripts/install-nik.sh'
       - 'scripts/fetch-fork-window.sh'
+      - 'scripts/fetch-fork-skiko.sh'
+      - 'experiments/static-library/**'
       - 'renderer/scripts/publish-window.sh'
       - 'renderer/scripts/build-compose.sh'
       - 'renderer/scripts/compose-fork.changes'
@@ -76,6 +80,15 @@ jobs:
           restore-keys: |
             kotlin-${{ runner.os }}-
 
+      - name: Install JDK 21 for skiko's Gradle build
+        uses: actions/setup-java@v4
+        with:
+          distribution: corretto
+          java-version: '21'
+
+      - name: Remember where that JDK is
+        run: echo "DXC_SKIKO_JAVA_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
+
       - name: Take the Compose fork's desktop modules
         uses: actions/download-artifact@v4
         with:
@@ -83,10 +96,14 @@ jobs:
           path: ~/.m2/repository/org/jetbrains/compose
 
       - name: Build the renderer shared library
+        # With the fork's skiko built without JAWT and linked in, so the image carries no AWT.
         run: ./renderer/desktop/scripts/build-native.sh
 
       - name: The fork's window modules name no AWT
         run: ./scripts/tests/renderer/window-modules-no-awt.test.sh
+
+      - name: The linked image carries no AWT
+        run: ./scripts/tests/renderer/image-has-no-awt.test.sh
 
       - name: Smoke test
         env:
