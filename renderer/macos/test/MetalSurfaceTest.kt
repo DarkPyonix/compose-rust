@@ -114,14 +114,13 @@ class MetalSurfaceTest {
      * A frame gives its drawable back when it is done, however many frames are drawn
      * before the run loop next turns.
      *
-     * The drawable owns a texture the size of the window and reaches Kotlin as an object
-     * that keeps it until the collector frees it. A resize makes a texture at every size,
-     * and 100 sizes in a row held 528 MB of Metal memory on macOS CI. Here no run loop
-     * turns and nothing else allocates, so nothing but the surface itself gives them back.
+     * The drawable owns a texture the size of the window. Held by a Kotlin object, it was
+     * kept until the collector freed that object and the main run loop turned to release
+     * it, and 100 sizes in a row held 528 MB of Metal memory on macOS CI. Here no run loop
+     * turns and nothing else allocates, so nothing but the frame's own pool gives them back.
      *
      * The bound is three drawables at the largest size drawn (Core Animation keeps up to
-     * three), the 48 MB of new sizes the surface lets pile up before it collects, and room
-     * for Skia's own resources. The leak was several times it.
+     * three) and room for Skia's own resources. The leak was several times it.
      */
     @Test
     fun nfr9_frames_drawn_in_one_turn_release_their_drawables() {
@@ -143,12 +142,12 @@ class MetalSurfaceTest {
             val grownMb = (surface.allocatedBytes - before) / 1048576.0
             println("metal growth over 100 frames: $grownMb MB")
             val largestDrawableMb = 1200.0 * 900.0 * 4 / 1048576.0
-            val boundMb = largestDrawableMb * 3 + 48 + 16
+            val boundMb = largestDrawableMb * 3 + 16
             assertTrue(
                 grownMb <= boundMb,
                 "Metal memory grew by $grownMb MB over 100 frames at changing sizes; " +
-                    "at most $boundMb MB is expected, three drawables at the largest size, " +
-                    "what is let pile up before a collection, and Skia's resources. " +
+                    "at most $boundMb MB is expected, three drawables at the largest size " +
+                    "and Skia's resources. " +
                     "Something a frame was handed is being kept.",
             )
         } finally {
