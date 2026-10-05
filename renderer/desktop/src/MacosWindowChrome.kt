@@ -60,11 +60,14 @@ data class MacosWindowChrome(
  * [contentLayoutHeight] the part of it below the bar, [closeMinX] where the close button
  * starts and [zoomMaxX] where the zoom button ends, or null for a window with no buttons.
  * The gap in front of the first button is mirrored after the last. [cornerRadius] is the
- * radius the system gave the window's corners, or null where it does not say.
+ * radius the system draws on the window's corners, or null where it is not known.
  *
- * Every one of them is the system's. A window with a unified toolbar has its buttons
+ * The first four are read from the window. A window with a unified toolbar has its buttons
  * further in, a taller bar and rounder corners than one without, and the numbers move
- * between releases, so a constant would be right for one style on one release only.
+ * between releases, so a constant would be right for one style on one release only. AppKit
+ * reports no corner radius through a public API, so the fork's window looks it up in a
+ * table keyed by title bar style and macOS release, which its CI checks against the corner
+ * drawn on screen.
  *
  * Null while the window is changing size: the frame and the layout rect are updated at
  * different moments and the difference can be negative for an instant. The last reading
@@ -92,13 +95,3 @@ fun macosWindowCaption(
         cornerRadius = (cornerRadius?.takeIf { it > 0.0 } ?: 0.0).toFloat().dp,
     )
 }
-
-/**
- * The key both macOS windows read the system's corner radius under.
- *
- * AppKit has no public property for it. The window answers `_cornerRadius` on every
- * release that draws rounded windows, and both windows ask by key value coding after
- * checking that it answers, so a release that drops it gives no radius rather than an
- * exception. Asked the same way in both so they cannot read different numbers.
- */
-const val MACOS_CORNER_RADIUS_KEY: String = "_cornerRadius"
