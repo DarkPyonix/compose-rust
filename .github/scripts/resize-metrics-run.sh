@@ -10,7 +10,7 @@ out="$2"
 label="$3"
 mkdir -p "$out"
 log="$out/$label.log"
-DXC_METRICS=1 DXC_REPORT_LATENCY=1 "$app" > "$log" 2>&1 &
+DXC_METRICS=1 DXC_METRICS_BREAKDOWN=1 DXC_REPORT_LATENCY=1 "$app" > "$log" 2>&1 &
 pid=$!
 for _ in $(seq 240); do
     grep -q "metrics phase after-100-resizes" "$log" 2>/dev/null && break
@@ -18,7 +18,7 @@ for _ in $(seq 240); do
     sleep 0.5
 done
 # Long enough for the "settled" reading two seconds after the last resize.
-sleep 4
+sleep 10
 kill "$pid" 2>/dev/null || true
 sleep 1
 kill -9 "$pid" 2>/dev/null || true

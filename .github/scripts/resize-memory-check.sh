@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Fails if a scripted resize left memory behind. Reads the phase lines the renderer prints
-# with DXC_METRICS=1 (see resize-metrics-run.sh) and compares "after-100-resizes" with
-# "start". It reads "settled", taken two seconds after the last resize once the run loop has
-# turned, when the renderer prints one; otherwise "after-100-resizes".
+# with DXC_METRICS=1 (see resize-metrics-run.sh) and compares each reading taken during and
+# after the drag with "start": "mid-drag" (after the first 50 sizes) and "after-100-resizes"
+# (right after the last), which are what a drag holds while it is going on, and "settled",
+# two seconds later once the run loop has had time to turn. "after-100-resizes" is required;
+# the other two are checked when the renderer prints them.
 #
 # The bounds, in MB above the start:
 #
@@ -30,21 +32,27 @@ value() {
     sed -nE "s/.* $key=([0-9]+).*/\1/p" <<< "$line"
 }
 
-final=after-100-resizes
-grep -q "metrics phase settled " "$log" && final=settled
-failed=0
-for pair in "footprint_mb:$footprint_bound" "metal_allocated_mb:$metal_bound"; do
-    key="${pair%%:*}"
-    bound="${pair##*:}"
-    start="$(value start "$key")"
-    after="$(value "$final" "$key")"
-    [[ -n "$start" && -n "$after" ]] || { echo "the phase lines in $log carry no $key" >&2; exit 1; }
-    grown=$((after - start))
-    if (( grown > bound )); then
-        echo "FAIL $key: $start -> $after MB after 100 resizes ($final), grew $grown MB, bound $bound MB" >&2
-        failed=1
-    else
-        echo "ok   $key: $start -> $after MB after 100 resizes ($final), grew $grown MB, bound $bound MB"
+phases=()
+for phase in mid-drag after-100-resizes settled; do
+    if [[ "$phase" == after-100-resizes ]] || grep -q "metrics phase $phase " "$log"; then
+        phases+=("$phase")
     fi
+done
+failed=0
+for phase in "${phases[@]}"; do
+    for pair in "footprint_mb:$footprint_bound" "metal_allocated_mb:$metal_bound"; do
+        key="${pair%%:*}"
+        bound="${pair##*:}"
+        start="$(value start "$key")"
+        after="$(value "$phase" "$key")"
+        [[ -n "$start" && -n "$after" ]] || { echo "the phase lines in $log carry no $key" >&2; exit 1; }
+        grown=$((after - start))
+        if (( grown > bound )); then
+            echo "FAIL $key: $start -> $after MB at $phase, grew $grown MB, bound $bound MB" >&2
+            failed=1
+        else
+            echo "ok   $key: $start -> $after MB at $phase, grew $grown MB, bound $bound MB"
+        fi
+    done
 done
 exit "$failed"
