@@ -35,6 +35,17 @@ PUBLISHED_AS="1.11.1"
 # Material 3 is versioned on its own line and the renderer asks for it by that version, so
 # publishing it as the others would leave a coordinate nobody looks for.
 MATERIAL3_PUBLISHED_AS="1.11.0-alpha07"
+# Targets whose modules JetBrains publishes too (desktop, and macOS for ui and foundation) get
+# a version of their own. Under 1.11.1 the fork's jars sit at upstream's coordinates, and a
+# resolver that already holds upstream's 1.11.1 (Amper's cache does) takes those and never
+# looks in the local repository: the build links, and the app runs upstream's Compose. A
+# fourth number sorts above 1.11.1 for every resolver, so the fork's module also wins when
+# upstream's is pulled in behind another dependency. The renderer modules ask for these
+# versions by name, and scripts/tests/fork-versions.test.sh checks that they do.
+EXTENDED_AS="1.11.1.1"
+EXTENDED_AS="${DXC_COMPOSE_EXTENDED_AS:-$EXTENDED_AS}"
+# The fork's patched skiko-awt, published by scripts/publish-skiko-awt.sh under the same rule.
+SKIKO_AWT_EXTENDED_AS="0.144.6.1"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RENDERER_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -76,6 +87,7 @@ done
 case "$target" in
     macosArm64)
         publications=(MacosArm64)
+        published_as="$EXTENDED_AS"
         modules=(
             compose:foundation:foundation
             compose:ui:ui
@@ -112,10 +124,11 @@ case "$target" in
         ;;
     desktop)
         # The Java side of Compose, for the native image renderers. Only what the fork changes
-        # is rebuilt: the desktop renderer reads mavenLocal first and takes every other module
-        # from upstream at the same version. The roots are not published: upstream's root
-        # already maps a desktop consumer to these coordinates.
+        # is rebuilt, under EXTENDED_AS; every other module is upstream's at the version it
+        # always had. The roots are published as well, because upstream's root at this version
+        # does not exist: they map a desktop consumer to these coordinates.
         publications=(Desktop)
+        published_as="$EXTENDED_AS"
         modules=(
             compose:foundation:foundation
             compose:ui:ui
@@ -124,6 +137,8 @@ case "$target" in
         ;;
     *) die "unknown target '$target'" "known: macosArm64, linux (both of the next two), linuxX64, linuxArm64, desktop" ;;
 esac
+
+published_as="${published_as:-$PUBLISHED_AS}"
 
 [[ $clean -eq 1 ]] && rm -rf "$WORK"
 
@@ -152,7 +167,7 @@ git -C "$WORK" clean -qfd -e build -e '.gradle' -e 'out'
 [[ -n "${JAVA_HOME:-}" ]] || die "JAVA_HOME is not set" \
     "The Compose build needs a JDK 17; the toolchain wrapper's does not apply here."
 
-echo "==> publishing ${#modules[@]} compose module(s) for $target as $PUBLISHED_AS"
+echo "==> publishing ${#modules[@]} compose module(s) for $target as $published_as"
 # Two publications per module, not one. The target's own carries the klib; the root one
 # carries the metadata that says which targets exist. Without the root, a consumer asking
 # for the module is told the library does not support this platform, which is true of what
@@ -162,8 +177,10 @@ for module in "${modules[@]}"; do
     for publication in "${publications[@]}"; do
         tasks+=(":$module:publish${publication}PublicationToMavenLocal")
     done
-    [[ "$target" == desktop ]] || tasks+=(":$module:publishKotlinMultiplatformPublicationToMavenLocal")
+    tasks+=(":$module:publishKotlinMultiplatformPublicationToMavenLocal")
 done
+marker="$(mktemp)"
+trap 'rm -f "$marker"' EXIT
 (
     cd "$WORK"
     # The fork declares mingwX64 on every UI module, and skiko publishes no mingwX64 artifact:
@@ -171,11 +188,34 @@ done
     # leave that platform out rather than fail resolving skiko for it.
     ./gradlew --no-daemon --no-configuration-cache \
         "-Pandroidx.enabled.kmp.target.platforms=-windows" \
-        "-Pjetbrains.publication.version.COMPOSE=$PUBLISHED_AS" \
+        "-Pjetbrains.publication.version.COMPOSE=$published_as" \
         "-Pjetbrains.publication.version.COMPOSE_MATERIAL3=$MATERIAL3_PUBLISHED_AS" \
         "${tasks[@]}"
 )
 
+# Every module here depends on its siblings at the version it was published as. Only some
+# siblings were built, so a dependency on one that was not has to name the upstream module it
+# stands for, or the consumer asks for a coordinate nobody published.
+if [[ "$published_as" != "$PUBLISHED_AS" ]]; then
+    repo="$HOME/.m2/repository/org/jetbrains/compose"
+    built="$(find "$repo" -type d -name "$published_as" -newer "$marker" | sed "s#.*/\([^/]*\)/$published_as\$#\1#" | sort -u | paste -sd, -)"
+    [[ -n "$built" ]] || die "nothing was published as $published_as under $repo"
+    echo "==> pointing dependencies on modules that were not built back at $PUBLISHED_AS"
+    find "$repo" -type d -name "$published_as" -newer "$marker" | while read -r dir; do
+        for file in "$dir"/*.pom "$dir"/*.module; do
+            [[ -f "$file" ]] || continue
+            BUILT="$built" FROM="$published_as" TO="$PUBLISHED_AS" perl -0777 -i -pe '
+                my %built = map { $_ => 1 } split /,/, $ENV{BUILT};
+                my ($from, $to) = ($ENV{FROM}, $ENV{TO});
+                s{("group":\s*"org\.jetbrains\.compose[^"]*",\s*"module":\s*")([^"]+)(",\s*"version":\s*\{(?:\s*"[a-z]+":\s*"[^"]*",)*\s*"requires":\s*")\Q$from\E(")}
+                 { $1 . $2 . $3 . ($built{$2} ? $from : $to) . $4 }ge;
+                s{(<groupId>org\.jetbrains\.compose[^<]*</groupId>\s*<artifactId>)([^<]+)(</artifactId>\s*<version>)\Q$from\E(</version>)}
+                 { $1 . $2 . $3 . ($built{$2} ? $from : $to) . $4 }ge;
+            ' "$file"
+        done
+    done
+fi
+
 echo
-echo "published to $HOME/.m2/repository/org/jetbrains/compose as $PUBLISHED_AS"
+echo "published to $HOME/.m2/repository/org/jetbrains/compose as $published_as"
 echo "the renderer's macos and linux modules read mavenLocal first, so the next build links these"

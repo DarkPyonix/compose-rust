@@ -27,18 +27,26 @@ obj="$BUILD_DIR/obj"
 # With the provider on the class path it is still found, and everything it reaches comes with it.
 classpath="$(tr ':' '\n' <<< "$classpath" | grep -v 'kotlinx-coroutines-swing' | paste -sd: -)"
 
-# The fork's desktop modules must be what the classpath names, not upstream's. The desktop module
-# reads the local Maven repository first and quietly falls back to upstream's jars when the fork's
-# are not there, and upstream's Compose sends its main-thread work to Swing: an image built that
-# way links, passes a build and dies when the first scene is made, with the toolkit's library
-# missing. build-compose.sh --target desktop publishes them.
-for fork_jar in 'repository/org/jetbrains/compose/ui/ui-desktop/' 'repository/org/jetbrains/skiko/skiko-awt/'; do
+# The fork's desktop modules must be what the classpath names, not upstream's. They are published
+# under versions of their own (EXTENDED_AS and SKIKO_AWT_EXTENDED_AS in build-compose.sh) because
+# at upstream's version a resolver that holds upstream's jars, Amper's cache does, takes those and
+# never reads the local Maven repository. An image built that way links, passes a build and dies
+# when the first scene is made: upstream's Compose sends its main-thread work to Swing, with the
+# toolkit's library missing.
+compose_script="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/scripts/build-compose.sh"
+compose_as="$(sed -n 's/^EXTENDED_AS="\([^"]*\)"$/\1/p' "$compose_script" | head -1)"
+skiko_as="$(sed -n 's/^SKIKO_AWT_EXTENDED_AS="\([^"]*\)"$/\1/p' "$compose_script")"
+[[ -n "$compose_as" && -n "$skiko_as" ]] || die "$compose_script names no EXTENDED_AS or SKIKO_AWT_EXTENDED_AS"
+for fork_jar in "repository/org/jetbrains/compose/ui/ui-desktop/$compose_as/" \
+                "repository/org/jetbrains/skiko/skiko-awt/$skiko_as/"; do
     grep -q "$fork_jar" <<< "$(tr ':' '\n' <<< "$classpath")" || die \
         "the class path holds no $fork_jar" \
         "These are the Compose fork's desktop modules and its skiko-awt, published to the local" \
-        "Maven repository. Without them the image would use upstream Compose and need the Java toolkit." \
-        "fix: renderer/scripts/build-compose.sh --target desktop, then scripts/fetch-fork-skiko.sh and its" \
-        "extended/skiko/build-skiko-awt.sh <work-dir> (the compose-desktop job in test-graalvm-renderer.yml shows both)"
+        "Maven repository under versions of their own. Without them the image would use upstream" \
+        "Compose and need the Java toolkit. If the jars are in the local repository, the module that" \
+        "asks for them (desktop/module.yaml) names a different version than $compose_script." \
+        "fix: renderer/scripts/build-compose.sh --target desktop, then scripts/publish-skiko-awt.sh <work-dir>" \
+        "(the compose-desktop job in test-graalvm-renderer.yml shows both)"
 done
 lib="$DIST_DIR/lib"
 rm -rf "$DIST_DIR" "$obj"
