@@ -80,17 +80,48 @@ internal class MetalSurface {
      * Returns false when there was no drawable to be had, which is the ordinary way a
      * layer says it is not on screen or is already as far ahead as it is allowed to be.
      */
-    fun draw(paint: (Canvas, Int, Int) -> Unit): Boolean = autoreleasepool {
+    fun draw(paint: (Canvas, Int, Int) -> Unit): Boolean {
         // Its own pool, because the drawable and the command buffer are handed out
-        // autoreleased, and the drawable owns a texture the size of the window. A pool is
-        // drained only when whoever made it returns, and a frame drawn from inside a resize
-        // can be a long way from that: a drag of the window's edge, or a resize done in a
-        // loop, draws frame after frame inside one turn of the run loop. Each of those
-        // frames kept its texture until the turn ended, one per size the window passed
-        // through, and 100 sizes in one turn held 528 MB of Metal memory. Drained here, a
-        // frame's drawable goes back to the layer's pool when the frame is done with it.
-        drawFrame(paint)
+        // autoreleased, and a frame drawn inside a resize can be many frames away from the
+        // run loop draining the pool it would otherwise land in.
+        val drawn = autoreleasepool { drawFrame(paint) }
+        releaseDrawablesOfOldSizes()
+        return drawn
     }
+
+    private var lastWidth = 0
+    private var lastHeight = 0
+    private var bytesSinceCollection = 0L
+
+    /**
+     * Gives back the textures of sizes the window has left.
+     *
+     * The drawable this frame was handed reaches Kotlin as an object, and that object holds
+     * the drawable, and the drawable its texture, until the collector frees the object. The
+     * collector counts what Kotlin allocated and knows nothing of the texture, so a resize,
+     * which makes a new texture at every size, outruns it: 100 sizes held 528 MB of Metal
+     * memory, with 34 collections run and none of them soon enough, because what a
+     * collection frees is given back on the main thread when its run loop next turns, and a
+     * resize does not let it turn. A collection run here, on the main thread, gives them
+     * back at once.
+     *
+     * Only when textures of new sizes have added up to more than a few frames' worth. A
+     * window that keeps its size reuses the same three drawables and never asks for one.
+     */
+    @OptIn(kotlin.native.runtime.NativeRuntimeApi::class)
+    private fun releaseDrawablesOfOldSizes() {
+        val width = lastDrawn.first
+        val height = lastDrawn.second
+        if (width == lastWidth && height == lastHeight) return
+        lastWidth = width
+        lastHeight = height
+        bytesSinceCollection += width.toLong() * height * 4
+        if (bytesSinceCollection < COLLECT_AFTER_BYTES) return
+        bytesSinceCollection = 0
+        kotlin.native.runtime.GC.collect()
+    }
+
+    private var lastDrawn = 0 to 0
 
     private fun drawFrame(paint: (Canvas, Int, Int) -> Unit): Boolean {
         val width: Int
@@ -100,6 +131,7 @@ internal class MetalSurface {
             height = this.height.toInt()
         }
         if (width <= 0 || height <= 0) return false
+        lastDrawn = width to height
         val drawable = layer.nextDrawable() ?: return false
         val target = BackendRenderTarget.makeMetal(width, height, drawable.texture.objcPtr())
         val surface = Surface.makeFromBackendRenderTarget(
@@ -152,6 +184,9 @@ internal class MetalSurface {
     }
 
     companion object {
+        /** About three drawables of a 2400 by 1800 pixel window. */
+        private const val COLLECT_AFTER_BYTES = 48L * 1024 * 1024
+
         /**
          * Empties the canvas a frame is about to be drawn on.
          *
