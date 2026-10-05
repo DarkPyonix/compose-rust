@@ -42,6 +42,12 @@ internal class MetalSurface {
     }
     private val context = DirectContext.makeMetal(device.objcPtr(), queue.objcPtr())
 
+    /** What Metal has allocated for this device, in bytes, for measuring. */
+    val allocatedBytes: Long get() = device.currentAllocatedSize.toLong()
+
+    /** Skia's resource cache limit, in bytes, for measuring. */
+    val cacheLimitBytes: Long get() = context.resourceCacheLimit
+
     val layer = CAMetalLayer().also {
         @Suppress("CAST_NEVER_SUCCEEDS")
         it.device = device as objcnames.protocols.MTLDeviceProtocol

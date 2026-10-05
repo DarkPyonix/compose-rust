@@ -15,6 +15,7 @@ import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.scene.ComposeScene
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
+import dev.darkpyonix.composerust.ui.node.LayoutProfile
 import java.lang.System
 import kotlinx.cinterop.ByteVar
 import kotlinx.cinterop.CFunction
@@ -85,6 +86,47 @@ private external fun pump(seconds: Double)
 @SymbolName("dxc_native_window_closed")
 private external fun windowClosed(): Int
 
+@SymbolName("dxc_native_window_configure")
+private external fun configureWindow(resizable: Int, minWidth: Int, minHeight: Int, systemChrome: Int, backdrop: Int)
+
+@SymbolName("dxc_native_window_action")
+private external fun windowAction(action: Int)
+
+@SymbolName("dxc_native_debug_resize")
+private external fun debugResize(
+    window: COpaquePointer?,
+    view: COpaquePointer?,
+    fromWidth: Int,
+    fromHeight: Int,
+    toWidth: Int,
+    toHeight: Int,
+    steps: Int,
+    pauseMicros: Int,
+)
+
+@SymbolName("dxc_native_set_raster_resize")
+private external fun setRasterResize(enabled: Int)
+
+@SymbolName("dxc_native_frame_mode")
+private external fun frameMode(): Int
+
+@SymbolName("dxc_native_raster_begin")
+private external fun rasterBegin(
+    pixels: CPointer<COpaquePointerVar>?,
+    rowBytes: CPointer<IntVar>?,
+    width: CPointer<IntVar>?,
+    height: CPointer<IntVar>?,
+): Int
+
+@SymbolName("dxc_native_raster_end")
+private external fun rasterEnd()
+
+@SymbolName("dxc_native_debug_hit_test")
+private external fun debugHitTest(window: COpaquePointer?)
+
+@SymbolName("dxc_native_report_metrics")
+private external fun reportMetrics(label: CPointer<ByteVar>?)
+
 /**
  * A window of this renderer's own on Windows, drawn into with Skia through Direct3D 12 and with
  * no toolkit in between.
@@ -115,6 +157,9 @@ internal class Win32Window private constructor(
 
     private val textInput = NativeTextInput()
 
+    /** The right-click menu of text and selections, drawn by the system. */
+    private val textToolbar = Win32TextToolbar { window }
+
     /** Handed to UI Automation, which the C side answers for. */
     private val semantics = NativeSemantics { elements -> describe(elements) }
 
@@ -129,6 +174,7 @@ internal class Win32Window private constructor(
     private val platformContext: PlatformContext =
         object : PlatformContext by PlatformContext.Empty() {
             override val windowInfo get() = this@Win32Window.windowInfo
+            override val textToolbar get() = this@Win32Window.textToolbar
             override val semanticsOwnerListener get() = semantics
 
             override suspend fun startInputMethod(
@@ -176,12 +222,28 @@ internal class Win32Window private constructor(
         // waited for the screen inside Present, and waiting again would halve the rate of
         // anything that animates.
         var busy = true
+        if (System.getenv("DXC_HITTEST_CHECK") == "1") debugHitTest(window)
         while (windowClosed() == 0) {
             drew = false
             // The window's own turn, before anything is read from it. This thread is the one
             // Windows delivers to, so the messages of this frame arrive here or not at all.
             pump(if (busy) 0.0 else FRAME_SECONDS)
             work.runPending()
+            if (DrawBench.due()) DrawBench.run(scene, context) { nanos }
+            if (ResizeMetrics.due()) {
+                ResizeMetrics.run(
+                    phase = { name ->
+                        System.err.println(
+                            "compose-rust: metrics phase $name ${ResizeMetrics.summary()} " +
+                                "skia_cache_limit_mb=${context.resourceCacheLimit / 1048576}",
+                        )
+                        memScoped { reportMetrics(name.cstr.ptr) }
+                    },
+                    resize = { from, to, steps ->
+                        debugResize(window, null, from.first, from.second, to.first, to.second, steps, 0)
+                    },
+                )
+            }
             var heard = false
             for (event in drainEvents()) {
                 if (reportInput && event.kind != WindowEvent.POINTER_MOVE) {
@@ -218,7 +280,12 @@ internal class Win32Window private constructor(
             // place that runs at all.
             work.runPending()
             nanos += FRAME_NANOS
-            if (drawFrame()) {
+            ResizeMetrics.frameBegin()
+            // While the window is changing size the C side asks for the frame in CPU
+            // pixels, which it copies into the window before the resize returns.
+            val drawn = if (frameMode() != 0) drawRasterFrame() else drawFrame()
+            ResizeMetrics.frameEnd(size.width, size.height)
+            if (drawn) {
                 painted = true
                 drew = true
             }
@@ -265,13 +332,14 @@ internal class Win32Window private constructor(
             context,
             target,
             SurfaceOrigin.TOP_LEFT,
-            SurfaceColorFormat.RGBA_8888,
+            SurfaceColorFormat.BGRA_8888,
             ColorSpace.sRGB,
             SurfaceProps(PixelGeometry.RGB_H),
         )
         if (surface == null) {
+            // Not ended: ending moves the texture from render target to present, and Skia
+            // never put it in render target, so that barrier would be invalid.
             target.close()
-            endFrame(queue)
             return false
         }
         scene.render(surface.canvas.asComposeCanvas(), nanos)
@@ -283,6 +351,36 @@ internal class Win32Window private constructor(
         // Waits for the screen, so there is no sleep after this.
         endFrame(queue)
         return true
+    }
+
+    /**
+     * One resize frame on the CPU: the same scene, drawn by Skia's raster backend into the
+     * pixels the C side hands over (its DIB), at the size the window is becoming.
+     *
+     * The same colour type order as the window's buffer reads (BGRA is the DIB's byte order),
+     * the same colour space and the same pixel geometry as the GPU frame, so the switch
+     * between the two is not visible.
+     */
+    private fun drawRasterFrame(): Boolean = memScoped {
+        val pixels = alloc<COpaquePointerVar>()
+        val rowBytes = alloc<IntVar>()
+        val width = alloc<IntVar>()
+        val height = alloc<IntVar>()
+        if (rasterBegin(pixels.ptr, rowBytes.ptr, width.ptr, height.ptr) != 0) return false
+        val address = pixels.value ?: return false
+        val measured = measure(window)
+        val fitted = IntSize(width.value, height.value)
+        val density = Density(measured.scale)
+        if (scene.size != fitted || scene.density != density) {
+            scene.density = density
+            scene.size = fitted
+        }
+        size = fitted
+        RasterDraw.draw(RasterVariant.chosen, address, rowBytes.value, fitted.width, fitted.height) { canvas ->
+            scene.render(canvas.asComposeCanvas(), nanos)
+        }
+        rasterEnd()
+        true
     }
 
     private fun describe(elements: List<AccessibleElement>) {
@@ -312,11 +410,26 @@ internal class Win32Window private constructor(
          *
          * Null rather than an exception: a machine without one is not a mistake in this code.
          */
-        fun open(title: String, width: Int, height: Int): Win32Window? {
+        /** What a caption button asks of the window: 0 minimises, 1 maximises or restores, 2 closes. */
+        fun action(which: Int) = windowAction(which)
+
+        fun open(
+            title: String,
+            width: Int,
+            height: Int,
+            resizable: Boolean = true,
+            minWidth: Int = 0,
+            minHeight: Int = 0,
+            systemChrome: Boolean = true,
+        ): Win32Window? {
             val pointers = nativeHeap.allocArray<COpaquePointerVar>(WINDOW_POINTERS)
             try {
+                if (System.getenv("DXC_LAYOUT_PROFILE") == "1") LayoutProfile.enabled = true
+                configureWindow(if (resizable) 1 else 0, minWidth, minHeight, if (systemChrome) 1 else 0, 0)
                 val opened = memScoped { openWindow(title.cstr.ptr, width, height, pointers) }
                 if (opened != 0) return null
+                // Resize frames on the CPU unless asked not to (DXC_RASTER_RESIZE=0).
+                setRasterResize(if (System.getenv("DXC_RASTER_RESIZE") == "0") 0 else 1)
                 // Five pointers, in the order the C struct declares them.
                 val window = pointers[0] ?: return null
                 val device = pointers[1] ?: return null
@@ -324,6 +437,7 @@ internal class Win32Window private constructor(
                 val adapter = pointers[3] ?: return null
                 val swapchain = pointers[4] ?: return null
                 val context = DirectContext.makeDirect3D(adapter.rawValue, device.rawValue, queue.rawValue)
+                if (System.getenv("DXC_PIXEL_COMPARE") == "1") PixelCompare.run(context)
                 val measured = measure(window)
                 System.err.println(
                     "compose-rust: a window of our own, ${measured.width}x${measured.height} " +
@@ -400,11 +514,11 @@ private const val ELEMENT_LABEL_OFFSET = 20
 private const val ELEMENT_BYTES = 116
 
 /**
- * DXGI_FORMAT_R8G8B8A8_UNORM, what the swapchain was made with and Skia has to be told again.
+ * DXGI_FORMAT_B8G8R8A8_UNORM, what the swapchain was made with and Skia has to be told again.
  * A format that disagrees between the two is a window of swapped colour channels rather than
  * a failure anything reports.
  */
-private const val SWAPCHAIN_FORMAT = 28
+private const val SWAPCHAIN_FORMAT = 87
 
 private const val CURSOR_ARROW = 0
 private const val CURSOR_HAND = 1

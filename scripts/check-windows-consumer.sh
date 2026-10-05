@@ -159,6 +159,15 @@ build "$fixture/Cargo.toml" shared
 binary="$target/shared/debug/consumer.exe"
 [[ -f "$binary" ]] || fail "the build produced no $binary"
 
+# The same application as a release build. rustc links an optimised build with /OPT:ICF, which
+# folds identical functions, and the renderer object once failed there with LNK1223 while a
+# debug build linked; fix-mingw-objects.py says why. Built so that cannot come back unseen.
+echo "== 1b. the same application, release build"
+CARGO_TARGET_DIR="$repo_root/target/windows-consumer-check/release" \
+    cargo build --release --manifest-path "$fixture/Cargo.toml" >&2 ||
+    fail "the release build did not link" "See fix-mingw-objects.py, point 3, for the LNK1223 case."
+[[ -f "$target/release/release/consumer.exe" ]] || fail "the release build produced no consumer.exe"
+
 echo "== 2. what it needs to start"
 only_windows "$binary"
 default_size="$(size_of "$binary")"
