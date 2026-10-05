@@ -17,7 +17,8 @@ for _ in $(seq 240); do
     kill -0 "$pid" 2>/dev/null || break
     sleep 0.5
 done
-sleep 2
+# Long enough for the "settled" reading two seconds after the last resize.
+sleep 4
 kill "$pid" 2>/dev/null || true
 sleep 1
 kill -9 "$pid" 2>/dev/null || true

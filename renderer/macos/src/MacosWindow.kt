@@ -683,8 +683,7 @@ internal class MacosWindow(
      * and it is the case a fast drag of the edge comes closest to.
      */
     private fun runMetrics() {
-        ResizeMetrics.run(
-            phase = { name ->
+        val phase = { name: String ->
                 val (footprint, resident) = processMemory()
                 System.err.println(
                     "compose-rust: metrics phase $name ${ResizeMetrics.summary()} " +
@@ -692,7 +691,9 @@ internal class MacosWindow(
                         "metal_allocated_mb=${metal.allocatedBytes / 1048576} " +
                         "footprint_mb=${footprint / 1048576} resident_mb=${resident / 1048576}",
                 )
-            },
+        }
+        ResizeMetrics.run(
+            phase = phase,
             resize = { from, to, steps ->
                 // Each size in a pool of its own, as each event of a real drag is: AppKit
                 // hands back what a resize made (the material view's backing at the new
@@ -712,6 +713,14 @@ internal class MacosWindow(
                 }
             },
         )
+        // Again two seconds later, with the run loop having turned. Surfaces the window
+        // server shared with this process for sizes it has left are given back only once
+        // the frames that showed them are off the screen, so a reading taken in the same
+        // turn as the last resize counts memory that is already on its way out.
+        platform.darwin.dispatch_after(
+            platform.darwin.dispatch_time(platform.darwin.DISPATCH_TIME_NOW, 2_000_000_000L),
+            platform.darwin.dispatch_get_main_queue(),
+        ) { phase("settled") }
     }
 
     /** Physical footprint and resident size of this process, in bytes. */

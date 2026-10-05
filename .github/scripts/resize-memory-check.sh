@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Fails if a scripted resize left memory behind. Reads the phase lines the renderer prints
 # with DXC_METRICS=1 (see resize-metrics-run.sh) and compares "after-100-resizes" with
-# "start".
+# "start". It reads "settled", taken two seconds after the last resize once the run loop has
+# turned, when the renderer prints one; otherwise "after-100-resizes".
 #
 # The bounds, in MB above the start:
 #
@@ -29,19 +30,21 @@ value() {
     sed -nE "s/.* $key=([0-9]+).*/\1/p" <<< "$line"
 }
 
+final=after-100-resizes
+grep -q "metrics phase settled " "$log" && final=settled
 failed=0
 for pair in "footprint_mb:$footprint_bound" "metal_allocated_mb:$metal_bound"; do
     key="${pair%%:*}"
     bound="${pair##*:}"
     start="$(value start "$key")"
-    after="$(value after-100-resizes "$key")"
+    after="$(value "$final" "$key")"
     [[ -n "$start" && -n "$after" ]] || { echo "the phase lines in $log carry no $key" >&2; exit 1; }
     grown=$((after - start))
     if (( grown > bound )); then
-        echo "FAIL $key: $start -> $after MB over 100 resizes, grew $grown MB, bound $bound MB" >&2
+        echo "FAIL $key: $start -> $after MB after 100 resizes ($final), grew $grown MB, bound $bound MB" >&2
         failed=1
     else
-        echo "ok   $key: $start -> $after MB over 100 resizes, grew $grown MB, bound $bound MB"
+        echo "ok   $key: $start -> $after MB after 100 resizes ($final), grew $grown MB, bound $bound MB"
     fi
 done
 exit "$failed"
