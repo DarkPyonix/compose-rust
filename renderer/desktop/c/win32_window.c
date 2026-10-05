@@ -2483,8 +2483,15 @@ static void dxc_capture_step(HWND window) {
     memset(&monitor, 0, sizeof monitor);
     monitor.cbSize = sizeof monitor;
     GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor);
-    int visible_right = monitor.rcMonitor.right - origin.x;
-    int visible_bottom = monitor.rcMonitor.bottom - origin.y;
+    // The work area, not the whole monitor: the taskbar sits over whatever of the window
+    // reaches below it.
+    int visible_right = monitor.rcWork.right - origin.x;
+    int visible_bottom = monitor.rcWork.bottom - origin.y;
+    // With the caption given to the content, Windows still draws its frame's one-pixel top
+    // border over the client's first row (the accent-coloured line every such window has).
+    // That row is the system's frame, judged apart and reported, not the frame's content.
+    int border_row = !dxc_options.system_chrome && !IsZoomed(window) ? 1 : 0;
+    long border_differing = 0;
     int expected = dxc_dib_bits != NULL && dxc_raster_width == width && dxc_raster_height == height;
     long black = 0;
     long differing = 0;
@@ -2508,6 +2515,7 @@ static void dxc_capture_step(HWND window) {
                     int a = (int)((seen >> shift) & 0xFF);
                     int b = (int)((drawn >> shift) & 0xFF);
                     if (a - b > 24 || b - a > 24) {
+                        if (y < border_row) { border_differing++; break; }
                         differing++;
                         if (!row_had) {
                             row_had = 1;
@@ -2550,8 +2558,8 @@ static void dxc_capture_step(HWND window) {
     }
     fprintf(stderr,
             "compose-rust: capture detail %dx%d buffer %ux%u rows_differing=%d first_row=%d last_row=%d "
-            "sample x=%d seen=%08x drawn=%08x\n",
-            width, height, described.Width, described.Height, rows, first_row, last_row, sample_x,
+            "frame_border_pixels=%ld sample x=%d seen=%08x drawn=%08x\n",
+            width, height, described.Width, described.Height, rows, first_row, last_row, border_differing, sample_x,
             (unsigned)sample_seen, (unsigned)sample_drawn);
     dxc_capture_steps++;
     if (failed) dxc_capture_failures++;
