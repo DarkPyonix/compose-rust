@@ -136,6 +136,9 @@ jobs:
           path: ~/.m2/repository
           key: ${{ steps.compose-cache.outputs.cache-primary-key }}
 
+      - name: Publish the fork's window modules
+        run: ./renderer/scripts/publish-window.sh
+
       - name: Build and test the macOS renderer
         if: matrix.module == 'macos'
         working-directory: renderer

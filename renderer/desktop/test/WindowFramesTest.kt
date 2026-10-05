@@ -1,8 +1,8 @@
 package dev.darkpyonix.composerust.test
 
 import androidx.compose.ui.unit.IntSize
-import dev.darkpyonix.composerust.ui.platform.WindowFrames
-import dev.darkpyonix.composerust.ui.platform.WindowMeasurement
+import org.thisisthepy.compose.window.WindowFrames
+import org.thisisthepy.compose.window.WindowMeasurement
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -27,9 +27,9 @@ class WindowFramesTest {
     private val painted = mutableListOf<IntSize>()
     private val scales = mutableListOf<Float>()
 
-    private val frames = WindowFrames({ measured }) { size, density ->
-        painted.add(size)
-        scales.add(density.density)
+    private val frames = WindowFrames({ measured }) { width, height, scale ->
+        painted.add(IntSize(width, height))
+        scales.add(scale)
     }
 
     // A field rather than a local, because the one test that uses it has its painting ask
@@ -66,8 +66,8 @@ class WindowFramesTest {
     @Test
     fun nfr9_a_second_request_while_a_frame_is_drawing_does_not_start_another() {
         val refused = mutableListOf<Boolean>()
-        gate = WindowFrames({ measured }) { size, _ ->
-            painted.add(size)
+        gate = WindowFrames({ measured }) { width, height, _ ->
+            painted.add(IntSize(width, height))
             // The window asking for a frame in the middle of one, which is what a resize
             // arriving while a frame is already being drawn does.
             refused.add(gate.draw())

@@ -23,11 +23,17 @@ set -uo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source_file="$repo_root/renderer/desktop/c/win32_window.c"
 kotlin_file="$repo_root/renderer/desktop/src/Win32Window.kt"
-appkit_source="$repo_root/renderer/desktop/c/appkit_window.m"
-appkit_kotlin="$repo_root/renderer/desktop/src/AppKitWindow.kt"
+# The macOS window is the Compose fork's graalvm-macos module. Its C declares the event
+# record this window's C has to match.
+source "$repo_root/scripts/tests/fork-window.sh"
+fork_window_or_skip "$repo_root"
+appkit_source="$fork_window/graalvm/graalvm-macos/native/appkit_window.m"
+# The Windows window reads events with its own copy of the reader, in Win32Window.kt, until it
+# moves to the fork too.
+appkit_kotlin="$kotlin_file"
 red=0
 
-for file in "$source_file" "$kotlin_file" "$appkit_source" "$appkit_kotlin"; do
+for file in "$source_file" "$kotlin_file" "$appkit_source"; do
     [[ -f "$file" ]] || { echo "missing $file"; exit 1; }
 done
 
@@ -122,16 +128,16 @@ for field in window device queue adapter swapchain; do
     check_field "$field"
 done
 
-# The event is read in AppKitWindow.kt, which is where `drainWindowEvents` lives and where
-# both windows' events are turned into records. Checked from here as well as from the
-# macOS test, because that test steps aside on a machine that is not a Mac and this is the
-# one that runs where the Windows renderer is built.
+# The event is read in Win32Window.kt by `drainWindowEvents`, which reads the record the way the
+# fork's macOS wrapper does. Checked from here as well as from the macOS test, because that test
+# steps aside on a machine that is not a Mac and this is the one that runs where the Windows
+# renderer is built.
 check_event_field() {
     local field="$1" reader="$2" name="$3"
     local offset
     offset="$(awk -v f="$field" '$1 == f { print $2 }' <<< "$layout")"
     if ! grep -q "$name = record.$reader($offset)" "$appkit_kotlin"; then
-        echo "fail: C puts $field at $offset, which is not where AppKitWindow.kt reads it"
+        echo "fail: C puts $field at $offset, which is not where Win32Window.kt reads it"
         red=1
     fi
 }
@@ -146,7 +152,7 @@ check_event_field code_point readInt codePoint
 
 event_size="$(awk '$1 == "event_size" { print $2 }' <<< "$layout")"
 if ! grep -q "EVENT_STRUCT_BYTES = $event_size" "$appkit_kotlin"; then
-    echo "fail: an event is $event_size bytes, which is not what AppKitWindow.kt reserves"
+    echo "fail: an event is $event_size bytes, which is not what Win32Window.kt reserves"
     red=1
 fi
 

@@ -20,7 +20,11 @@
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-c_dir="$repo_root/renderer/desktop/c"
+# The AppKit window and its resize accounting are the Compose fork's graalvm-macos module, read
+# here at the commit the renderer pins.
+source "$repo_root/scripts/tests/fork-window.sh"
+fork_window_or_skip "$repo_root"
+c_dir="$fork_window/graalvm/graalvm-macos/native"
 header="$c_dir/appkit_resize.h"
 source_file="$c_dir/appkit_window.m"
 status=0

@@ -1,6 +1,9 @@
 package dev.darkpyonix.composerust.ui.platform
 
 import androidx.compose.ui.unit.IntSize
+import org.thisisthepy.compose.window.AccessibleElement
+import org.thisisthepy.compose.window.ElementRole
+import org.thisisthepy.compose.window.WindowEvent
 
 /**
  * Input and resizing made up from inside the window, for measuring without a hand.

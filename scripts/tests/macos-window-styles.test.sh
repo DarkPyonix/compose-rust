@@ -7,6 +7,7 @@
 # numbers is the system's: the renderers read them from the window instead of keeping a
 # design system constant, because a constant is right for one style on one release.
 #
+# Both windows are the Compose fork's (extended/window), fetched at the pinned revision.
 # The native image's window is `appkit_window.m`. The Kotlin/Native one is `MacosWindow.kt`,
 # which this script cannot compile, so its `applyChrome` is checked line for line against
 # the window built here in its place. Each style is opened twice, once by the C window and
@@ -15,8 +16,10 @@
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-source_dir="$repo_root/renderer/desktop/c"
-native_kt="$repo_root/renderer/macos/src/MacosWindow.kt"
+fork_window="$("$repo_root/scripts/fetch-fork-window.sh")/extended/window" ||
+    { echo "FAIL: could not fetch the fork's window modules"; exit 1; }
+source_dir="$fork_window/graalvm/graalvm-macos/native"
+native_kt="$fork_window/native/macos/src/org/thisisthepy/compose/window/macos/MacosWindow.kt"
 chrome_kt="$repo_root/renderer/desktop/src/MacosWindowChrome.kt"
 status=0
 fail() { echo "FAIL: $1"; status=1; }

@@ -1,5 +1,10 @@
 product: jvm/app
 
+# The window modules come from the Compose fork and are published to the local repository by
+# scripts/publish-window.sh, at the commit scripts/build-compose.sh pins.
+repositories:
+  - mavenLocal
+
 dependencies:
   - $compose.desktop.currentOs
   # FR-11's example extension draws a Material 3 progress indicator.
@@ -10,6 +15,11 @@ dependencies:
   # Annotations and C interop types for @CEntryPoint. Supplied by the native-image
   # builder at image build time, so it is not bundled into the jar.
   - org.graalvm.sdk:nativeimage:25.0.1: compile-only
+  # What every window decides the same way, and the AppKit and X11 windows of the native
+  # image path. The Windows window is still this module's own.
+  - org.thisisthepy.compose.window:common:0.1.0
+  - org.thisisthepy.compose.window:graalvm-macos:0.1.0
+  - org.thisisthepy.compose.window:graalvm-linux:0.1.0
 
 test-dependencies:
   - $compose.desktop.uiTestJUnit4

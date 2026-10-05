@@ -11,6 +11,8 @@ import androidx.compose.ui.text.AnnotatedString
 import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.ClipboardOwner
 import java.awt.datatransfer.StringSelection
+import org.thisisthepy.compose.window.graalvm.macos.readClipboard
+import org.thisisthepy.compose.window.graalvm.macos.writeClipboard
 import java.awt.datatransfer.Transferable
 
 // The clipboard of a window that has no toolkit.
