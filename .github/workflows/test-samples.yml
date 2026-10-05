@@ -61,9 +61,16 @@ jobs:
       target: ${{ matrix.target }}
       ref: ${{ inputs.tag || github.ref }}
 
+  fork-desktop:
+    # The Windows renderer's desktop module asks for the fork's Compose and skiko-awt by version.
+    needs: status
+    if: ${{ needs.status.outputs.rewritten == 'true' }}
+    name: Build the Compose fork's desktop modules
+    uses: ./.github/workflows/fork-desktop-modules.yml
+
   build:
     name: Build the sample (${{ matrix.target }})
-    needs: [status, static-renderer]
+    needs: [status, static-renderer, fork-desktop]
     # Windows builds its own renderer and does not need the static ones, and one platform's
     # renderer failing does not stop the others' samples.
     if: ${{ !cancelled() && needs.status.outputs.rewritten == 'true' }}
@@ -145,6 +152,20 @@ jobs:
           path: ~/.m2/repository
           key: kotlin-${{ matrix.target }}-${{ hashFiles('renderer/**/module.yaml') }}
           restore-keys: kotlin-${{ matrix.target }}-
+
+      - name: Take the Compose fork's desktop modules
+        if: runner.os == 'Windows'
+        uses: actions/download-artifact@v4
+        with:
+          name: compose-fork-desktop
+          path: ${{ runner.temp }}/compose-fork-desktop
+
+      - name: Put them where the renderer's build looks
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          mkdir -p ~/.m2/repository/org/jetbrains
+          cp -R "$RUNNER_TEMP/compose-fork-desktop/." ~/.m2/repository/org/jetbrains/
 
       - name: Build the Windows renderer
         if: runner.os == 'Windows'

@@ -117,8 +117,15 @@ jobs:
   # machine, so this job *is* the Windows verification: if it goes red, Windows is
   # broken. It proves build, startup, render, clean close and exit 0. It cannot prove
   # mouse input, because a hosted runner has no one to click (see SPEC PR-8).
-  windows:
+  fork-desktop:
+    # The desktop module asks for the fork's Compose and skiko-awt by version.
     needs: changed
+    if: needs.changed.outputs.renderer == 'true'
+    name: Build the Compose fork's desktop modules
+    uses: ./.github/workflows/fork-desktop-modules.yml
+
+  windows:
+    needs: [changed, fork-desktop]
     if: needs.changed.outputs.renderer == 'true'
     name: Build and smoke test the renderer (Windows, x64)
     runs-on: windows-2022
@@ -146,6 +153,18 @@ jobs:
           distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
           native-image-job-reports: 'true'
+
+      - name: Take the Compose fork's desktop modules
+        uses: actions/download-artifact@v4
+        with:
+          name: compose-fork-desktop
+          path: ${{ runner.temp }}/compose-fork-desktop
+
+      - name: Put them where the renderer's build looks
+        shell: bash
+        run: |
+          mkdir -p ~/.m2/repository/org/jetbrains
+          cp -R "$RUNNER_TEMP/compose-fork-desktop/." ~/.m2/repository/org/jetbrains/
 
       - name: Build the Windows renderer
         shell: powershell
