@@ -46,7 +46,7 @@ for line in \
     'window.titleVisibility = if (chrome.titleHidden) NSWindowTitleHidden else NSWindowTitleVisible' \
     'toolbar.showsBaselineSeparator = false' \
     'window.toolbar = toolbar' \
-    'window.toolbarStyle = NSWindowToolbarStyleUnified' \
+    'NSWindowToolbarStyleUnified' \
     'window.toolbar = null'; do
     grep -qF "$line" <<< "$apply_body" ||
         fail "MacosWindow.kt's applyChrome no longer does '$line', so the stand-in here is stale"
