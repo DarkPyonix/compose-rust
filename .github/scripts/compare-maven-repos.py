@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compare two local Maven repositories by what they hold, not by how it was packed.
 
-Usage: compare-maven-repos.py <expected repo> <actual repo> [--report <file>]
+Usage: compare-maven-repos.py <expected repo> <actual repo> [--report <file>] [--changed <prefix>]...
 
 Two builds of the same source can still differ in bytes nobody chose: the time an archive
 entry was written, the timestamp Maven writes into maven-metadata-local.xml, and the
@@ -20,6 +20,11 @@ exactly those and nothing else:
   - checksum sidecar files (.md5, .sha1, .sha256, .sha512) are skipped for the same reason as
     the .module digests;
   - everything else is compared byte for byte.
+
+A --changed prefix names a publication whose sources changed on purpose since the expected
+build's source, such as `org/jetbrains/compose/foundation/foundation`. A difference under it,
+in that directory or its per-platform one such as `foundation-macosarm64`, is printed as CHANGED ON PURPOSE
+and not counted: every other publication must still be the same.
 
 Exits 0 when the two hold the same contents, 1 when anything differs, and prints every
 difference with its path.
@@ -86,6 +91,11 @@ def main(argv):
         index = args.index("--report")
         report_path = args[index + 1]
         del args[index:index + 2]
+    changed_prefixes = []
+    while "--changed" in args:
+        index = args.index("--changed")
+        changed_prefixes.append(args[index + 1].rstrip("/"))
+        del args[index:index + 2]
     if len(args) != 2:
         print(__doc__.strip().splitlines()[2], file=sys.stderr)
         return 2
@@ -108,7 +118,25 @@ def main(argv):
         print("one of the repositories is empty, so there is nothing to compare", file=sys.stderr)
         return 1
 
+    # A module publishes under its own name and once per platform with the platform's name
+    # appended. Only those count as the module: `ui/ui` must not take in `ui/ui-graphics`.
+    platform = re.compile(r"-(macos|linux|mingw|ios|tvos|watchos|android|js|wasm|desktop|jvm|uikit)[a-z0-9]*")
+
+    def intended(relative):
+        parts = relative.split("/")
+        for prefix in changed_prefixes:
+            depth = prefix.count("/") + 1
+            if len(parts) <= depth:
+                continue
+            head = "/".join(parts[:depth])
+            if head == prefix:
+                return True
+            if head.startswith(prefix + "-") and platform.fullmatch(head[len(prefix):]):
+                return True
+        return False
+
     differences = 0
+    intended_changes = 0
     only_expected = sorted(expected - actual)
     only_actual = sorted(actual - expected)
     for path in only_expected:
@@ -148,17 +176,25 @@ def main(argv):
                 else:
                     say(f"ENTRY DIFFERS: {relative}!/{entry} ({a[:12]} vs {b[:12]})")
             if changed:
-                differences += 1
+                if intended(relative):
+                    say(f"CHANGED ON PURPOSE: {relative}")
+                    intended_changes += 1
+                else:
+                    differences += 1
         else:
             others += 1
             if normalised(left, relative) != normalised(right, relative):
                 say(f"FILE DIFFERS: {relative}")
-                differences += 1
+                if intended(relative):
+                    intended_changes += 1
+                else:
+                    differences += 1
 
     say("")
     say(f"published files: {len(expected)} expected, {len(actual)} actual, {len(common)} on both sides")
     say(f"archives compared entry by entry: {archives} ({entries_compared} entries)")
     say(f"other files compared: {others}")
+    say(f"files that differ because their sources changed on purpose: {intended_changes}")
     say(f"files that differ or are missing on one side: {differences}")
     say("IDENTICAL" if differences == 0 else "DIFFERENT")
 
