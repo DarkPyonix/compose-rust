@@ -20,6 +20,7 @@ import dev.darkpyonix.composerust.design.glassSurface
 import dev.darkpyonix.composerust.protocol.SpaceRole
 import dev.darkpyonix.composerust.runtime.LocalStripTakesTheTop
 import dev.darkpyonix.composerust.runtime.LocalWindowCaption
+import dev.darkpyonix.composerust.runtime.LocalWindowCornerRadius
 import androidx.compose.ui.unit.Dp
 import dev.darkpyonix.composerust.runtime.WindowCaption
 import dev.darkpyonix.composerust.runtime.opensWithABar
@@ -591,7 +592,19 @@ private fun SideStrip(
         return
     }
     val inset = style.floatingInset
-    val shape = style.stripShape
+    // Cut concentric with the window's own corner, which is the system's and differs
+    // between a window with a toolbar and one without. The rules' outline stands where the
+    // window reports no radius.
+    val windowCorner = LocalWindowCornerRadius.current
+    val exponent = style.stripCornerExponent
+    val shape = if (exponent != null && windowCorner > 0.dp) {
+        dev.darkpyonix.composerust.design.ContinuousCornerShape(
+            dev.darkpyonix.composerust.design.concentricRadius(windowCorner, inset),
+            exponent = exponent,
+        )
+    } else {
+        style.stripShape
+    }
     Box(
         Modifier
             .width(width + inset)

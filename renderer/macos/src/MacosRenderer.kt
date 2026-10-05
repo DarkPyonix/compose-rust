@@ -108,6 +108,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
                 buttonsWidth = strip.buttonsWidth,
                 buttonsAtStart = strip.buttonsAtStart,
                 insetTop = strip.insetTop,
+                cornerRadius = strip.cornerRadius,
             ),
         )
     }

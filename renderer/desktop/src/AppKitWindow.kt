@@ -77,6 +77,7 @@ internal fun NativeWindow.captionStrip(chrome: MacosWindowChrome): dev.darkpyoni
         contentLayoutHeight = bar.contentLayoutHeight.toDouble(),
         closeMinX = bar.closeMinX?.toDouble(),
         zoomMaxX = bar.zoomMaxX?.toDouble(),
+        cornerRadius = bar.cornerRadius?.toDouble(),
     )
 }
 
