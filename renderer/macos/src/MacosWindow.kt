@@ -39,7 +39,7 @@ import platform.AppKit.NSMenuDidEndTrackingNotification
 import dev.darkpyonix.composerust.protocol.TitleBar
 import dev.darkpyonix.composerust.protocol.Chrome
 import platform.AppKit.NSWindowTitleVisible
-import platform.AppKit.NSWindowToolbarStyleUnified
+import platform.AppKit.NSWindowToolbarStyle
 import platform.AppKit.NSToolbar
 import platform.AppKit.NSWindowZoomButton
 import platform.AppKit.NSViewLayerContentsRedrawDuringViewResize
@@ -854,7 +854,7 @@ internal fun applyChrome(window: NSWindow, chrome: MacosWindowChrome) {
         val toolbar = NSToolbar(identifier = "compose-rust")
         toolbar.showsBaselineSeparator = false
         window.toolbar = toolbar
-        window.toolbarStyle = NSWindowToolbarStyleUnified
+        window.toolbarStyle = NSWindowToolbarStyle.NSWindowToolbarStyleUnified
     } else {
         window.toolbar = null
     }
