@@ -374,15 +374,23 @@ internal class LinuxWindow private constructor(
          * Opens the window, or answers null where there is no X11 display or no double
          * buffered GLX visual on it.
          */
-        fun open(title: String, width: Int, height: Int): LinuxWindow? {
+        fun open(title: String, width: Int, height: Int): LinuxWindow? =
+            open(WindowConfig(title = title, width = width, height = height))
+
+        /**
+         * Opens the window as [config] describes it. Whether it may be resized and the smallest
+         * size it may be dragged to go to the window manager as size hints, which the platform
+         * layer works out from the config, so they are settled before the window is mapped.
+         */
+        fun open(config: WindowConfig): LinuxWindow? {
             val x11 = X11Window()
             // The listener is the window being made, and the window cannot exist before the
             // platform does, so it is handed over once both are there.
             val handoff = Handoff()
-            if (!x11.open(WindowConfig(title = title, width = width, height = height), handoff)) {
+            if (!x11.open(config, handoff)) {
                 return null
             }
-            val window = LinuxWindow(x11, title)
+            val window = LinuxWindow(x11, config.title)
             handoff.target = window
             return window
         }
