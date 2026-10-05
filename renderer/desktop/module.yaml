@@ -2,6 +2,9 @@ product: jvm/app
 
 # The window modules come from the Compose fork and are published to the local repository by
 # scripts/publish-window.sh, at the commit scripts/build-compose.sh pins.
+# The Compose fork's desktop modules, when `scripts/build-compose.sh --target desktop` has
+# published them, come before upstream's at the same version. They carry what the toolkit-free
+# Linux window needs and upstream does not have.
 repositories:
   - mavenLocal
 
@@ -9,6 +12,9 @@ dependencies:
   - $compose.desktop.currentOs
   # FR-11's example extension draws a Material 3 progress indicator.
   - $compose.material3
+  # Swing's Dispatchers.Main, which a run on a JVM with the toolkit's window needs. The native
+  # image scripts take it off the image's class path: the windows there answer Dispatchers.Main
+  # themselves (FrameMainDispatcher).
   - $libs.kotlinx.coroutines.swing
   - $libs.androidx.lifecycle.runtime.compose
   - $libs.androidx.lifecycle.viewmodel.compose

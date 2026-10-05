@@ -72,6 +72,7 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
             minWidth = options.minWidth,
             minHeight = options.minHeight,
             decorated = options.systemChrome,
+            resizable = options.resizable,
         ),
         listener,
     )
@@ -174,6 +175,7 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
             // Before the events and before the drawing. What is waiting here is the
             // scene's own work, and a list that asked for rows on the last frame wants
             // them in hand before this one is measured.
+            FrameMainDispatcher.runPending()
             work.runPending()
             var anyHeard = false
             var drew = false

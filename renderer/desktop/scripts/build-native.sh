@@ -25,6 +25,9 @@ appkit_source="$fork_window/graalvm/graalvm-macos/native/appkit_window.m"
 # The classpath comes from a short JVM run so that it matches what the metadata describes.
 COMPOSE_RUST_AUTOEXIT_MS=1 run_on_jvm ""
 classpath="$(cat "$CLASSPATH_FILE")"
+# Swing's coroutine provider is left out: the window answers `Dispatchers.Main` itself
+# (FrameMainDispatcher), and the provider would wake the Java toolkit.
+classpath="$(tr ':' '\n' <<< "$classpath" | grep -v 'kotlinx-coroutines-swing' | paste -sd: -)"
 obj="$BUILD_DIR/obj"
 lib="$DIST_DIR/lib"
 rm -rf "$DIST_DIR" "$obj"
@@ -165,6 +168,7 @@ link_image() {
         -cp "$classpath" \
         -o "$LIBRARY_NAME" \
         --no-fallback \
+        -Ddxc.toolkit.window=false \
         -Djava.awt.headless=false \
         -H:IncludeLocales=en,ko \
         -Os \

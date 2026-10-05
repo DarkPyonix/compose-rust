@@ -219,6 +219,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
         frame++
         // The scene's own work first, before anything is read from it: a list that asked
         // for rows on the last frame wants them in hand before this one is measured.
+        FrameMainDispatcher.runPending()
         work.runPending()
         // The application's picture, once the asset it named has arrived. Asked each frame
         // until it is there and then not at all, by the same rule the other macOS window uses.
