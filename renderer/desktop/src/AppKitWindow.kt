@@ -349,7 +349,8 @@ internal fun configureNativeWindowChrome(chrome: MacosWindowChrome) = windowChro
 
 /**
  * The strip of the window the title bar occupies and the room its three buttons take at the
- * leading edge, or null while the window is between sizes.
+ * leading edge, and the radius the system gave its corners, or null while the window is
+ * between sizes.
  *
  * The window reports its measurements and [macosWindowCaption] turns them into the caption,
  * the same function the Kotlin/Native window uses, so the content starts at the same height
@@ -358,7 +359,7 @@ internal fun configureNativeWindowChrome(chrome: MacosWindowChrome) = windowChro
 internal fun NativeWindow.measureCaption(
     chrome: MacosWindowChrome,
 ): dev.darkpyonix.composerust.runtime.WindowCaption? {
-    val out = StackValue.get<CFloatPointer>(16)
+    val out = StackValue.get<CFloatPointer>(20)
     windowTitleBar(WordFactory.pointer(view), out)
     val close = out.read(2)
     val zoom = out.read(3)
@@ -368,6 +369,7 @@ internal fun NativeWindow.measureCaption(
         contentLayoutHeight = out.read(1).toDouble(),
         closeMinX = close.takeIf { it >= 0f }?.toDouble(),
         zoomMaxX = zoom.takeIf { it >= 0f }?.toDouble(),
+        cornerRadius = out.read(4).takeIf { it >= 0f }?.toDouble(),
     )
 }
 
