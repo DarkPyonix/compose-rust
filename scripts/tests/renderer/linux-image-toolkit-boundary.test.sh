@@ -4,16 +4,13 @@
 # The Linux image is built with the toolkit switched off (compose.awt=false, so the fork's
 # desktop code never names it, and dxc.toolkit.window=false). Native Image's analysis still walks
 # every branch of code it can reach, so a java.awt class stays in the image when some branch
-# names one. The ones that remain are listed below, each with its reason. Any other frame of
-# application code that calls into the toolkit is a new way in, and fails here with the frame.
+# names one. A frame of application code that calls into the toolkit is a new way in, and fails
+# here with the frame.
 #
-# Allowed:
-#   org.jetbrains.skiko.Actuals_awtKt.setSystemLookAndFeel
-#       Skiko's loader calls it only when skiko.rendering.laf.global is true, which is a run-time
-#       property and so cannot be folded away. Skiko is not built here, and the loader maps no
-#       AWT library when the property is unset.
-#   DMarlinRenderingEngine
-#       The JDK's own rendering engine factory, registered by Native Image itself.
+# Nothing is allowed: with the fork's ExtendedAwt and skiko's AwtSwitch off, no frame of application
+# code calls into java.awt or Swing. (Native Image still keeps some toolkit types, reached through
+# the JDK's own classes and not through any call of ours, so -H:ReportAnalysisForbiddenType cannot
+# be the guard; the staged libraries are removed and the smoke test runs without them.)
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
@@ -25,7 +22,7 @@ python3 - "$report" <<'PY'
 import re
 import sys
 
-allowed = ("org.jetbrains.skiko.Actuals_awtKt.setSystemLookAndFeel", "DMarlinRenderingEngine")
+allowed = ()
 jdk = re.compile(r"^directly calls null:(java\.awt|javax\.swing|javax\.accessibility|sun\.java2d\.marlin)")
 stack = []
 found = {}
@@ -54,7 +51,7 @@ if bad:
     for k, v in bad.items():
         print("  " + k[:200] + "\n      calls " + v[:160], file=sys.stderr)
     sys.exit(1)
-print("the Linux image's only ways into the toolkit are the two allowed ones: ok (%d seen)" % len(found))
+print("no application code calls into the toolkit in the Linux image: ok (%d seen)" % len(found))
 PY
 status=$?
 # The report is large and is not part of what ships.
