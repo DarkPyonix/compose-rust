@@ -47,15 +47,24 @@ class LinuxComposeKeyTest {
     }
 
     /**
-     * A key that types a letter has no meaning of its own.
+     * A letter key reaches the scene as its own letter, in either case.
      *
-     * No key rather than a wrong answer. The letter travels beside the key as a character, and a
-     * key given some other key's number would move the caret instead of typing.
+     * The fork's X11 window numbers letters the way an AppKit keyboard does, so Control with a
+     * letter is a shortcut Compose recognises. The character still travels beside the key, and
+     * Compose types from that, not from the key.
      */
     @Test
-    fun a_key_that_types_a_character_claims_no_meaning() {
-        assertEquals(NO_KEY, number(XK_LOWER_A))
-        assertEquals(Key.Unknown, composeKey(number(XK_LOWER_A)))
+    fun a_letter_key_reaches_the_scene_as_its_letter() {
+        assertEquals(Key.A, composeKey(number(XK_LOWER_A)))
+        assertEquals(Key.A, composeKey(number(XK_LOWER_A - 0x20)))
+    }
+
+    /** A key the window gives no number to claims no meaning rather than a wrong one. */
+    @Test
+    fun a_key_with_no_number_claims_no_meaning() {
+        // F1, which the window does not number.
+        assertEquals(NO_KEY, number(0xFFBEL))
+        assertEquals(Key.Unknown, composeKey(NO_KEY))
     }
 
     /** No two named keys share a number, or one of them does what the other means. */

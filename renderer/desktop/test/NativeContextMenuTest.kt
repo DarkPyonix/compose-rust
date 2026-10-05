@@ -39,7 +39,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import dev.darkpyonix.composerust.ui.platform.NativeContextMenuRepresentation
 import dev.darkpyonix.composerust.ui.platform.NativeMenuEntry
-import dev.darkpyonix.composerust.ui.platform.WindowEvent
+import org.thisisthepy.compose.window.WindowEvent
 import dev.darkpyonix.composerust.ui.platform.receive
 import org.jetbrains.skia.Surface
 import kotlinx.coroutines.Dispatchers

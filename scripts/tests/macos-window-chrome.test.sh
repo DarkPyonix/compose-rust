@@ -31,7 +31,7 @@ grep -q 'macosWindowCaption(' "$appkit_kt" || fail "the native image window meas
 grep -q 'MacosWindowChrome.of(' "$native_entry" || fail "the Kotlin/Native window does not ask MacosWindowChrome"
 grep -q 'fullSizeContentView = chrome.fullSizeContentView' "$native_entry" \
     || fail "the Kotlin/Native window is not given the chrome MacosWindowChrome chose"
-if grep -q 'buttonInset\|cornerRadius' "$native_entry"; then
+if grep -q 'buttonInset\|windowCornerRadius' "$native_entry"; then
     fail "the Kotlin/Native window is given its own corner or button inset, which stands inside the system's"
 fi
 
