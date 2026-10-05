@@ -91,6 +91,11 @@ fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
         // system draws for an opaque window rather than for a desktop that never shows
         // through.
         dev.darkpyonix.composerust.runtime.platformBacksWindowWithMaterial = { false }
+        // The toolkit's window: Windows for now, and development runs on a JVM. An image built
+        // without it (see ToolkitWindow) has no way to get here and says so.
+        if (!ToolkitWindow.available) {
+            error("this renderer was built without the Java toolkit's window, and $platform has no other")
+        }
         // Lets automated smoke tests close the window; unset in normal use.
         runRenderer(autoExitMillis) {
             NativeHostConnection()

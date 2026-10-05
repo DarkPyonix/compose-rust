@@ -70,6 +70,7 @@ image_name="${LIBRARY_NAME}_image"
     -cp "$classpath" \
     -o "$image_name" \
     --no-fallback \
+    -Ddxc.toolkit.window=false \
     -Djava.awt.headless=false \
     -H:IncludeLocales=en,ko \
     -Os \
