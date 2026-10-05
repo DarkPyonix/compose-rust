@@ -82,8 +82,6 @@ image_name="${LIBRARY_NAME}_image"
     -H:IncludeLocales=en,ko \
     -Os \
     -H:+UnlockExperimentalVMOptions \
-    -H:+PrintAnalysisCallTree \
-    -H:PrintAnalysisCallTreeType=TXT \
     "-H:NativeLinkerOption=$obj/x11_window.o" \
     '-H:NativeLinkerOption=-lX11' \
     '-H:NativeLinkerOption=-lGL' \
@@ -91,14 +89,18 @@ image_name="${LIBRARY_NAME}_image"
     "-H:NativeLinkerOption=-Wl,-soname,$image_name.so" \
     '-H:NativeLinkerOption=-Wl,-rpath,$ORIGIN')
 
-# The image library is the one file the link below needs from Native Image. It also writes
-# the JDK's desktop libraries beside the image whenever any java.desktop class is reachable,
-# and Skiko's own classes name a few, so they are listed here rather than refused. Nothing
-# loads them: no toolkit class is initialised, which is what the header of this script and
-# scripts/tests/no-awt-on-linux-path.test.sh guard.
+# The image library is the one file the link below needs from Native Image.
 [[ -f "$lib/$image_name.so" ]] || die "Native Image did not emit $image_name.so" \
     "Keep $BUILD_DIR and report: $GRAALVM_HOME/bin/native-image --version"
-echo "JDK desktop libraries Native Image wrote beside the image (not loaded): $(cd "$lib" && ls libawt*.so libfontmanager.so 2>/dev/null | tr '\n' ' ')"
+
+# Native Image writes the JDK's desktop libraries beside an image whenever a java.awt class is
+# reachable, and Compose's and Skiko's desktop classes name a few that nothing runs here: no
+# toolkit class is initialised, because the window is the X11 one of our own and Compose's
+# main-thread work runs in its frame loop. They are removed, so that an image that does reach
+# the toolkit at run time fails at once with a missing library instead of quietly loading it.
+# The smoke test is what proves nothing does.
+rm -f "$lib"/libawt.so "$lib"/libawt_xawt.so "$lib"/libawt_headless.so \
+      "$lib"/libfontmanager.so "$lib"/liblcms.so "$lib"/libjavajpeg.so
 
 # The shim calls these five. Check them before linking, so a rename or a dropped export is
 # reported as itself rather than as an undefined reference in the middle of a cc command.
