@@ -1,4 +1,4 @@
-# CI -- the fast quality gate. Runs on every pull request and every push.
+# CI -- the fast quality gate. Runs on every pull request, whatever its base.
 #
 # This workflow is deliberately Rust-only. `scripts/check.sh` (fmt, clippy,
 # tests, --quick benchmarks) finishes in minutes, so it can gate every PR.
@@ -18,16 +18,12 @@
 name: Test
 
 on:
-  # Only what is about to become public, or what already is. Work lands on develop many
-  # times an hour and running the matrix on each push is noise rather than signal. Every
-  # release reaches main as a pull request, so the gate still runs before anything is
-  # published, which is the moment that matters.
-  # The pull request only. `release` reaches `main` through a pull request that a human
-  # merges, so that run is the gate, and it finishes before main moves. Running again on
-  # the push afterwards tested the identical tree and doubled every number on the actions
-  # page for nothing.
+  # Every pull request, whatever its base. Work lands on develop through pull requests, so
+  # a filter on main alone let those merge with no check at all while the merge rule
+  # assumed this gate had run. The release pull request into main is gated by the same run.
+  # Pushes are not a trigger: a merged pull request was already tested as a pull request,
+  # and running again on the push tested the identical tree and doubled the actions page.
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 concurrency:

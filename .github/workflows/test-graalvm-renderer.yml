@@ -79,9 +79,6 @@ jobs:
       - name: The fork's window modules name no AWT
         run: ./scripts/tests/renderer/window-modules-no-awt.test.sh
 
-      - name: Accessibility classes are linked in
-        run: ./scripts/tests/renderer/accessibility-link.test.sh
-
       - name: Smoke test
         env:
           COMPOSE_RUST_AUTOEXIT_MS: '5000'

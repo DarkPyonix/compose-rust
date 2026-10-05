@@ -6,11 +6,13 @@ package dev.darkpyonix.composerust.ui.platform
 import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.scene.ComposeScene
+import androidx.compose.ui.unit.dp
 import org.thisisthepy.compose.window.WindowConfig
 import org.thisisthepy.compose.window.WindowEvent
 import org.thisisthepy.compose.window.WindowFrames
 import org.thisisthepy.compose.window.WindowListener
 import org.thisisthepy.compose.window.graalvm.linux.X11Upcalls
+import org.thisisthepy.compose.window.graalvm.macos.readDroppedPaths
 import org.thisisthepy.compose.window.graalvm.linux.X11Window as ForkX11Window
 
 // X11 and GLX own the window and framebuffer, and they are the Compose fork's
@@ -35,16 +37,21 @@ private const val GL_RGBA8 = 0x8058
  * the painter registered below. A loop that drew it on its next turn would be a window
  * whose edge moves before its content does.
  *
- * Reached by setting `DXC_X11_WINDOW`, so the ordinary path is untouched.
+ * [autoExitMillis] closes the window by itself after that long, for runs nobody watches.
  */
-internal fun runX11Window() {
+internal fun runX11Window(autoExitMillis: Long? = null) {
     // The Host is started before there is a window, because what the window should look
     // like is in its first batch and a window cannot be told afterwards. Started on this
     // thread, which is the one every later call to it is made from.
+    // The window shows nothing behind itself, so a design is told it has no material.
+    installNativeWindowHooks(backdropSupported = false)
     val host = dev.darkpyonix.composerust.runtime.ComposeRustHost(NativeHostConnection())
     host.start()
     val asked = host.table.window
+    val options = nativeWindowOptions(host, backdropSupported = false)
     val window = ForkX11Window()
+    window.resizable = options.resizable
+    window.backdrop = false
     val heard = ArrayList<WindowEvent>()
     var closed = false
     val listener = object : WindowListener {
@@ -59,9 +66,12 @@ internal fun runX11Window() {
     }
     val opened = window.open(
         WindowConfig(
-            title = asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
-            width = if (asked != null && asked.width > 0) asked.width else 520,
-            height = if (asked != null && asked.height > 0) asked.height else 360,
+            title = options.title,
+            width = options.width,
+            height = options.height,
+            minWidth = options.minWidth,
+            minHeight = options.minHeight,
+            decorated = options.systemChrome,
         ),
         listener,
     )
@@ -100,7 +110,27 @@ internal fun runX11Window() {
     )
     // The application's own tree, drawn by the same interpreter the toolkit path uses.
     // Nothing in it knows which of the two it is running on, which is the point.
-    scene.setContent { dev.darkpyonix.composerust.runtime.ComposeRustContent(host) }
+    // Without the manager's frame the renderer draws the caption: a strip that moves the
+    // window, the three buttons, and the edges that resize it. The window manager does the
+    // moving and the resizing; what is drawn here is only where a press starts it.
+    val framed = options.systemChrome
+    val caption = if (framed) {
+        dev.darkpyonix.composerust.runtime.WindowCaption.None
+    } else {
+        dev.darkpyonix.composerust.runtime.WindowCaption(height = linuxCaptionHeight)
+    }
+    val actions = if (framed) null else nativeWindowActions()
+    scene.setContent {
+        NativeWindowContent(
+            host,
+            caption,
+            actions,
+            drag = { if (!framed) NativeCaptionDrag(linuxCaptionHeight, actions) },
+            overlay = { if (!framed && options.resizable) NativeResizeEdges() },
+        )
+    }
+    val autoStarted = System.nanoTime()
+    var iconSettled = false
 
     // A clock rather than a count of turns, because a turn and a frame are no longer the
     // same thing: a resize draws its own, and a count only the loop advanced would hand
@@ -129,6 +159,12 @@ internal fun runX11Window() {
         // nothing of a scene that has closed.
         X11Upcalls.setFramePainter { frames.draw() }
         while (!closed) {
+            if (autoExitMillis != null &&
+                (System.nanoTime() - autoStarted) / NANOS_PER_MILLI >= autoExitMillis
+            ) {
+                break
+            }
+            if (!iconSettled) iconSettled = applyNamedIcon(host, asked?.icon ?: 0)
             // The window's own turn, before anything is read from it. This thread is the
             // one the display server answers on, so the events of this frame arrive here
             // or not at all. Waiting the frame's length rather than sleeping afterwards,
@@ -145,7 +181,16 @@ internal fun runX11Window() {
                 if (report && event.kind != WindowEvent.POINTER_MOVE) {
                     System.err.println("compose-rust: window heard $event")
                 }
+                if (event.kind == WindowEvent.FILES_ENTERED ||
+                    event.kind == WindowEvent.FILES_DROPPED ||
+                    event.kind == WindowEvent.FILES_EXITED
+                ) {
+                    routeFileDrop(event.kind, androidx.compose.ui.geometry.Offset(event.x, event.y)) {
+                        readDroppedPaths()
+                    }
+                }
                 scene.receive(event)
+                textInput.receive(event)
                 anyHeard = true
             }
             heard.clear()
@@ -160,6 +205,7 @@ internal fun runX11Window() {
             // tree that changed on the last one is a tree nobody has been told about, and
             // a window that has gone still is exactly where that would be forgotten.
             semantics.pushIfChanged(afterDrawing = drew)
+            reportCaret(textInput)
         }
     } finally {
         // Before the scene closes. A resize arriving between the two would otherwise ask a
@@ -218,3 +264,7 @@ private fun drawFrame(
  * ends the wait, and a resize is drawn inside it rather than after it.
  */
 private const val FRAME_MILLIS = 16L
+private const val NANOS_PER_MILLI = 1_000_000L
+
+/** The caption strip a window with no frame of the system's draws for itself. */
+internal val linuxCaptionHeight = 32.dp

@@ -7,6 +7,7 @@ import org.graalvm.nativeimage.c.function.CEntryPoint
 import org.graalvm.nativeimage.c.type.CCharPointer
 import org.graalvm.nativeimage.c.type.CTypeConversion
 import dev.darkpyonix.composerust.ui.platform.NativeHostConnection
+import dev.darkpyonix.composerust.ui.platform.bringNativeWindowToFront
 import dev.darkpyonix.composerust.ui.platform.runAppKitWindow
 import dev.darkpyonix.composerust.ui.platform.runWin32Window
 import dev.darkpyonix.composerust.ui.platform.runX11Window
@@ -37,8 +38,8 @@ private external fun setWindowMaterial(asked: Int)
 fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
     try {
         configureRuntimeLayout(CTypeConversion.toJavaString(libraryDir))
-        // Which window this platform opens. macOS opens one of its own, made from AppKit
-        // and Metal with no toolkit between; the other platforms still open the
+        // Which window this platform opens. macOS and Linux open one of their own, made from
+        // AppKit and Metal, or X11 and GLX, with no toolkit between; Windows still opens the
         // toolkit's. The C files behind each answer for the same symbols, so the one
         // compiled into an image is the one that can be reached: which platform this is
         // decides, and nothing is read from the environment.
@@ -56,7 +57,7 @@ fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
                 NativeDesktopNotifications()
             platform.startsWith("Linux") -> DBusNotifications(
                 open = { JvmBusConnection.open(wake = FrameRequests::request) },
-                bringToFront = ::bringAwtWindowToFront,
+                bringToFront = ::bringNativeWindowToFront,
                 applicationName = JvmBusConnection.applicationName(),
             )
             else -> UnsupportedNotifications
@@ -75,8 +76,11 @@ fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
             runWin32Window()
             return@rendererRun 0
         }
-        if (System.getenv("DXC_X11_WINDOW") != null && platform.startsWith("Linux")) {
-            runX11Window()
+        if (platform.startsWith("Linux")) {
+            // As on macOS, there is no display for the toolkit to open, and saying so keeps
+            // it from being woken.
+            System.setProperty("java.awt.headless", "true")
+            runX11Window(autoExitMillis)
             return@rendererRun 0
         }
         dev.darkpyonix.composerust.ui.node.platformWindowMaterial = { asked ->
@@ -104,22 +108,4 @@ fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
 fun rendererRequestFrame(thread: IsolateThread?) {
     dev.darkpyonix.composerust.ui.platform.LatencyTrace.mark("request_frame")
     FrameRequests.request()
-}
-
-/**
- * Brings the application's window up for a press on a notification's body: back from
- * being minimised, and in front of the others.
- *
- * On the toolkit's thread, because that is the only thread a toolkit window may be touched
- * from, and a press is reported from wherever the bus was read.
- */
-private fun bringAwtWindowToFront() {
-    java.awt.EventQueue.invokeLater {
-        val window = java.awt.Window.getWindows().firstOrNull { it.isVisible } ?: return@invokeLater
-        if (window is java.awt.Frame) {
-            window.extendedState = window.extendedState and java.awt.Frame.ICONIFIED.inv()
-        }
-        window.toFront()
-        window.requestFocus()
-    }
 }

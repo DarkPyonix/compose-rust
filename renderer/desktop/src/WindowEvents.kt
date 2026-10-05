@@ -39,21 +39,36 @@ internal fun ComposeScene.receive(event: WindowEvent, win32: Boolean = false) {
     when (event.kind) {
         // Built from parts rather than from a platform event. The toolkit's own key
         // event is what the supported path converts, and there is none here to convert.
-        WindowEvent.KEY_DOWN, WindowEvent.KEY_UP -> sendKeyEvent(
-            KeyEvent(
-                key = if (win32) win32ComposeKey(event.keyCode) else composeKey(event.keyCode),
-                type = if (event.kind == WindowEvent.KEY_DOWN) {
-                    KeyEventType.KeyDown
-                } else {
-                    KeyEventType.KeyUp
-                },
-                codePoint = event.codePoint,
-                isAltPressed = event.modifiers and (if (win32) 4 else MODIFIER_OPTION) != 0,
-                isCtrlPressed = event.modifiers and (if (win32) 2 else MODIFIER_CONTROL) != 0,
-                isMetaPressed = event.modifiers and (if (win32) 8 else MODIFIER_COMMAND) != 0,
-                isShiftPressed = event.modifiers and (if (win32) 1 else MODIFIER_SHIFT) != 0,
-            ),
-        )
+        WindowEvent.KEY_DOWN, WindowEvent.KEY_UP -> {
+            val type = if (event.kind == WindowEvent.KEY_DOWN) {
+                KeyEventType.KeyDown
+            } else {
+                KeyEventType.KeyUp
+            }
+            val key = if (win32) {
+                KeyEvent(
+                    key = win32ComposeKey(event.keyCode),
+                    type = type,
+                    codePoint = event.codePoint,
+                    isAltPressed = event.modifiers and 4 != 0,
+                    isCtrlPressed = event.modifiers and 2 != 0,
+                    isMetaPressed = event.modifiers and 8 != 0,
+                    isShiftPressed = event.modifiers and 1 != 0,
+                )
+            } else {
+                // The modifiers are AppKit's flag word, which the X11 window fills in
+                // with the same bits.
+                macKeyEvent(event.keyCode, event.modifiers.toLong() and 0xFFFFFFFFL, type, event.codePoint)
+            }
+            val consumed = sendKeyEvent(key)
+            if (!win32) KeyLog.compose(key, consumed)
+        }
+
+        WindowEvent.EDIT_COMMAND -> {
+            val keys = editingKeyEvents(event.text)
+            KeyLog.command(event.text, keys != null)
+            keys?.forEach { sendKeyEvent(it) }
+        }
 
         WindowEvent.POINTER_MOVE -> sendPointerEvent(
             eventType = PointerEventType.Move,
@@ -64,14 +79,17 @@ internal fun ComposeScene.receive(event: WindowEvent, win32: Boolean = false) {
         WindowEvent.POINTER_DOWN -> sendPointerEvent(
             eventType = PointerEventType.Press,
             position = Offset(event.x, event.y),
-            button = PointerButton.Primary,
-            buttons = PointerButtons(isPrimaryPressed = true),
+            button = pressedButton(event),
+            buttons = PointerButtons(
+                isPrimaryPressed = !event.isSecondary,
+                isSecondaryPressed = event.isSecondary,
+            ),
         )
 
         WindowEvent.POINTER_UP -> sendPointerEvent(
             eventType = PointerEventType.Release,
             position = Offset(event.x, event.y),
-            button = PointerButton.Primary,
+            button = pressedButton(event),
             buttons = PointerButtons(isPrimaryPressed = false),
         )
 
@@ -85,6 +103,12 @@ internal fun ComposeScene.receive(event: WindowEvent, win32: Boolean = false) {
     }
 }
 
+
+private val WindowEvent.isSecondary: Boolean
+    get() = buttons and WindowEvent.SECONDARY_BUTTON != 0
+
+private fun pressedButton(event: WindowEvent): PointerButton =
+    if (event.isSecondary) PointerButton.Secondary else PointerButton.Primary
 
 internal fun win32ComposeKey(virtualKey: Int): Key = when (virtualKey) {
     0x0D -> Key.Enter
@@ -104,12 +128,6 @@ internal fun win32ComposeKey(virtualKey: Int): Key = when (virtualKey) {
     else -> Key.Unknown
 }
 
-// From NSEvent.h. The bits a modifier flag word carries.
-private const val MODIFIER_SHIFT = 1 shl 17
-private const val MODIFIER_CONTROL = 1 shl 18
-private const val MODIFIER_OPTION = 1 shl 19
-private const val MODIFIER_COMMAND = 1 shl 20
-
 /**
  * Puts what the input method produced into the field that asked to be typed into.
  *
@@ -121,7 +139,16 @@ private const val MODIFIER_COMMAND = 1 shl 20
  * and backspace. Nothing is committed from a key's character, because a key that types
  * one has already produced it through the path above and doing both would type it twice.
  */
-internal fun NativeTextInput.receive(event: WindowEvent) {
+internal fun NativeTextInput.receive(event: WindowEvent, macos: Boolean = false) {
+    if (macos && event.kind == WindowEvent.TEXT_COMMIT) {
+        // AppKit's input methods can hand over a Control letter's own character as text,
+        // and a field that takes it draws a box. Dropped here, as the Kotlin/Native window
+        // drops it in its `insertText`.
+        val inserted = insertableText(event.text)
+        KeyLog.insertText(event.text, inserted)
+        if (isActive && inserted.isNotEmpty()) commit(inserted)
+        return
+    }
     if (!isActive) return
     when (event.kind) {
         WindowEvent.TEXT_COMMIT -> commit(event.text)
