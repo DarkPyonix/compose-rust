@@ -18,16 +18,15 @@
 set -euo pipefail
 
 # The commit, not the branch. A branch that moves is a build that changes for a reason
-# nobody chose here. This one is JetBrains release/1.11 at 73ac849 with the Linux targets,
-# the native text context menu and the published version on top (c396dcf), then the design
-# systems under extended/design-systems, which this build does not read and
-# scripts/fetch-design-systems.sh does. Nothing else: the commits after it on `extended` add a
-# mingwX64 target to every module's build, and a Compose build for macOS or Linux then fails
-# resolving skiko for mingwX64, which only the fork's own Windows build publishes.
+# nobody chose here. This one is the head of `extended`: JetBrains release/1.11 at 73ac849
+# with the Linux targets, the native text context menu (opening at the pointer on macOS),
+# the AWT-free copy, text direction and main dispatcher, the AppKit pump on the main thread,
+# the published version and the design systems under extended/design-systems, which this
+# build does not read and scripts/fetch-design-systems.sh does.
 # compose-fork.changes lists what this commit must hold at every path it changes, and
 # scripts/tests/compose-fork.test.sh checks it.
 FORK="https://github.com/thisisthepy/compose-multiplatform-core-extended.git"
-REVISION="02ff96c42a412d8eded411d48c56da131f570af6"
+REVISION="734dded392de485deee50231ff651eed86972e4d"
 # The window modules and skiko's static build are newer than that and are not Compose sources:
 # the renderer builds them from this commit (scripts/fetch-fork-window.sh and fetch-fork-skiko.sh)
 # into artifacts of its own, so they move without moving the Compose build above.
