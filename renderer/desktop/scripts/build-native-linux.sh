@@ -7,6 +7,13 @@ source "$(dirname "$0")/env-linux.sh"
 
 [[ -f "$NATIVE_DIR/c/renderer_entry.c" ]] || die "missing $NATIVE_DIR/c/renderer_entry.c"
 
+# The X11 window is the Compose fork's: its C is compiled from the checkout at the pinned
+# commit, and its Kotlin is the published module the renderer's desktop module depends on.
+"$PROJECT_DIR/scripts/publish-window.sh"
+fork_window="$("$PROJECT_DIR/../scripts/fetch-fork-window.sh")/extended/window"
+x11_source="$fork_window/graalvm/graalvm-linux/c/x11_window.c"
+[[ -f "$x11_source" ]] || die "missing $x11_source"
+
 # The window is the X11 one this renderer makes itself, so the image carries no Java toolkit:
 # no libawt, libawt_xawt or libawt_headless beside it, no input method or accessibility
 # registration, and no preserved java.desktop module. Text input comes from XIM in the
@@ -20,7 +27,7 @@ rm -rf "$DIST_DIR" "$obj"
 mkdir -p "$obj" "$lib"
 
 cc -c -O2 -fPIC -o "$obj/renderer_entry.o" "$NATIVE_DIR/c/renderer_entry.c"
-cc -c -O2 -fPIC -o "$obj/x11_window.o" "$NATIVE_DIR/c/x11_window.c"
+cc -c -O2 -fPIC -o "$obj/x11_window.o" "$x11_source"
 cc -c -O2 -fPIC -o "$obj/linux_host_references.o" "$NATIVE_DIR/c/linux_host_references.c"
 
 # Why the C shim is not handed to native-image here, the way build-native.sh does on macOS.
@@ -60,7 +67,7 @@ image_name="${LIBRARY_NAME}_image"
 # or the pointer stays null and every resize silently draws nothing. Asked for by name so
 # that a class which cannot be initialised at build time fails this build instead.
 (cd "$lib" && "$GRAALVM_HOME/bin/native-image" \
-    --initialize-at-build-time=dev.darkpyonix.composerust.ui.platform.X11FrameCallback \
+    --initialize-at-build-time=org.thisisthepy.compose.window.graalvm.linux.X11Upcalls \
     --shared \
     -cp "$classpath" \
     -o "$image_name" \

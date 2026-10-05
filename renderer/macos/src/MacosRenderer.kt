@@ -10,6 +10,8 @@ import androidx.compose.foundation.ComposeFoundationFlags
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
 import dev.darkpyonix.composerust.runtime.HostConnection
+import dev.darkpyonix.composerust.runtime.WindowCaption
+import org.thisisthepy.compose.window.macos.MacosWindow
 import platform.AppKit.NSApplication
 import platform.AppKit.NSApplicationActivationPolicy
 import platform.AppKit.NSApplicationWillTerminateNotification
@@ -90,9 +92,26 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
         name = asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
         width = if (asked != null && asked.width > 0) asked.width else 520,
         height = if (asked != null && asked.height > 0) asked.height else 360,
-        chrome = chrome,
+        chrome = org.thisisthepy.compose.window.macos.MacosWindowChrome(
+            fullSizeContentView = chrome.fullSizeContentView,
+            titlebarAppearsTransparent = chrome.titlebarAppearsTransparent,
+            titleHidden = chrome.titleHidden,
+            unifiedToolbar = chrome.unifiedToolbar,
+        ),
     )
-    window.setContent { ComposeRustContent(host, caption = window.caption.value) }
+    window.setContent {
+        val strip = window.caption.value
+        ComposeRustContent(
+            host,
+            caption = WindowCaption(
+                height = strip.height,
+                buttonsWidth = strip.buttonsWidth,
+                buttonsAtStart = strip.buttonsAtStart,
+                insetTop = strip.insetTop,
+                cornerRadius = strip.cornerRadius,
+            ),
+        )
+    }
 
     application.activateIgnoringOtherApps(true)
     application.run()
@@ -103,7 +122,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
  * Tells the design systems that a page or a piece of chrome drawn with alpha has something
  * behind it to show.
  *
- * True because [MacosWindow] puts the system's own material behind everything it draws.
+ * True because the fork's `MacosWindow` puts the system's own material behind everything it draws.
  * Said here rather than read off the operating system's name: that name is true of every
  * build for this platform and describes only the ones that put a material there.
  *

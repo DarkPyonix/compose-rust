@@ -1,14 +1,21 @@
 #!/usr/bin/env bash
 # Compare all three event records everywhere. On Linux, also ask C for the actual
-# offsets and sizes that the Kotlin reader uses.
+# offsets and sizes that the Kotlin readers use.
+#
+# The X11 and AppKit windows, their C and their Kotlin readers are the Compose fork's
+# graalvm-linux and graalvm-macos modules, read here at the commit the renderer pins; the
+# Windows window is still this repository's.
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-source_file="$repo_root/renderer/desktop/c/x11_window.c"
-appkit_source="$repo_root/renderer/desktop/c/appkit_window.m"
+source "$repo_root/scripts/tests/fork-window.sh"
+fork_window_or_skip "$repo_root"
+source_file="$fork_window/graalvm/graalvm-linux/c/x11_window.c"
+appkit_source="$fork_window/graalvm/graalvm-macos/native/appkit_window.m"
 win32_source="$repo_root/renderer/desktop/c/win32_window.c"
-kotlin_file="$repo_root/renderer/desktop/src/X11Window.kt"
-event_reader="$repo_root/renderer/desktop/src/AppKitWindow.kt"
+kotlin_file="$fork_window/graalvm/graalvm-linux/src/org/thisisthepy/compose/window/graalvm/linux/X11Window.kt"
+layout_file="$fork_window/graalvm/graalvm-linux/src/org/thisisthepy/compose/window/graalvm/linux/X11Natives.kt"
+event_reader="$kotlin_file"
 for file in "$source_file" "$appkit_source" "$win32_source" "$kotlin_file" "$event_reader"; do
     [[ -f "$file" ]] || { echo "missing $file"; exit 1; }
 done
@@ -77,9 +84,12 @@ cc -o "$work/layout" "$probe" || { echo "fail: the declarations did not compile"
 layout="$("$work/layout")"
 offset() { awk -v f="$1" '$1 == f {print $2}' <<< "$layout"; }
 red=0
-for field in window view device queue layer; do
+# The fork's wrapper keeps the window and the queue out of the five pointers, so those are
+# the two it reads by offset.
+for entry in window:windowPointer queue:queuePointer; do
+    IFS=: read -r field name <<< "$entry"
     value="$(offset "$field")"
-    if ! grep -Fq "$field = out.readWord<Pointer>($value)" "$kotlin_file"; then
+    if ! grep -Fq "$name = out.readWord<Pointer>($value)" "$kotlin_file"; then
         echo "fail: X11Window.kt reads $field at the wrong offset"
         red=1
     fi
@@ -92,14 +102,19 @@ for entry in kind:readInt:kind x:readFloat:x y:readFloat:y buttons:readInt:butto
         red=1
     fi
 done
-grep -Fq "TEXT_OFFSET = $(offset text)" "$event_reader" || { echo "fail: text offset"; red=1; }
-grep -Fq "EVENT_STRUCT_BYTES = $(offset event_size)" "$event_reader" || { echo "fail: event size"; red=1; }
-grep -Fq "WINDOW_STRUCT_BYTES = $(offset window_size)" "$kotlin_file" || { echo "fail: window size"; red=1; }
-# The accessibility records are written by the shared code the X11 window hands its tree to,
-# so the offsets it writes at are checked against the C the X11 window declares.
-grep -Fq "ELEMENT_LABEL_OFFSET = $(offset element_label)" "$event_reader" ||
+grep -Fq "record.readByte($(offset text) + length)" "$event_reader" || { echo "fail: text offset"; red=1; }
+grep -Fq "EVENT_BYTES = $(offset text) + EVENT_TEXT_BYTES" "$layout_file" || { echo "fail: event size"; red=1; }
+grep -Fq "WINDOW_BYTES = $(offset window_size)" "$layout_file" || { echo "fail: window size"; red=1; }
+# The accessibility records are written by the X11 window's setAccessibility, so the offsets it
+# writes at are checked against the C the X11 window declares.
+grep -Fq "ELEMENT_LABEL_OFFSET = $(offset element_label)" "$layout_file" ||
     { echo "fail: an element's label is not written where C keeps it"; red=1; }
-grep -Fq "ELEMENT_BYTES = $(offset element_size)" "$event_reader" ||
-    { echo "fail: an element is not the size C declares"; red=1; }
+text_capacity="$(sed -n 's/^#define DXC_TEXT_BYTES \([0-9]*\)$/\1/p' "$source_file")"
+grep -Fq "EVENT_TEXT_BYTES = $text_capacity" "$layout_file" ||
+    { echo "fail: the Kotlin text capacity is not the one C declares"; red=1; }
+grep -Fq "ELEMENT_BYTES = ELEMENT_LABEL_OFFSET + EVENT_TEXT_BYTES" "$layout_file" ||
+    { echo "fail: an element is not label offset plus text in Kotlin"; red=1; }
+[[ "$(( $(offset element_label) + text_capacity ))" == "$(offset element_size)" ]] ||
+    { echo "fail: an element is not the size the Kotlin layout computes"; red=1; }
 (( red == 0 )) || exit 1
 echo "ok: X11 fields and shared events match their Kotlin offsets"

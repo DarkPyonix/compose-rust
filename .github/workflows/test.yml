@@ -164,6 +164,12 @@ jobs:
           restore-keys: |
             kotlin-${{ matrix.platform }}-${{ runner.os }}-
 
+      - name: Publish the fork's window modules
+        # The desktop module depends on them as Maven artifacts, built from the commit
+        # build-compose.sh pins.
+        if: matrix.platform == 'jvm'
+        run: ./renderer/scripts/publish-window.sh
+
       - name: Build the renderer
         working-directory: renderer
         run: ./kotlin build -p ${{ matrix.platform }}

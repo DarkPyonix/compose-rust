@@ -12,6 +12,7 @@ import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.node.Node
+import org.thisisthepy.compose.window.WindowEvent
 
 // Files let go over a window of our own, delivered to the node they were let go over.
 //
