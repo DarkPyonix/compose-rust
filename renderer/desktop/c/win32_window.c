@@ -1726,6 +1726,7 @@ void dxc_native_raster_end(void) {
         ReleaseDC(dxc_window, window_dc);
     }
     dxc_last_validated = ValidateRect(dxc_window, NULL) != 0;
+    QueryPerformanceCounter(&dxc_blit_time);
     // Hidden after the copy, in the same step, so the redirection surface it reveals already
     // holds this frame.
     if (dxc_surface != NULL && IsWindowVisible(dxc_surface)) {
@@ -2467,6 +2468,10 @@ static ID3D11DeviceContext *dxc_dup_context;
 static ID3D11Texture2D *dxc_dup_copy;
 static RECT dxc_dup_desktop;
 static int dxc_dup_state; // 0 untried, 1 working, -1 unavailable
+// When the last CPU frame was copied into the window, and how stale the captured frame was.
+static LARGE_INTEGER dxc_blit_time;
+static int dxc_dup_waits;
+static long long dxc_dup_lag;
 
 typedef HRESULT(WINAPI *dxc_d3d11_create_fn)(IDXGIAdapter *, D3D_DRIVER_TYPE, HMODULE, UINT,
                                               const D3D_FEATURE_LEVEL *, UINT, UINT, ID3D11Device **,
@@ -2520,7 +2525,19 @@ static int dxc_dup_read(int x, int y, int width, int height, uint32_t *pixels) {
     IDXGIResource *resource = NULL;
     // The frame DWM composed after this step. A timeout means nothing changed since the
     // last one, which the copy below still holds.
-    HRESULT acquired = IDXGIOutputDuplication_AcquireNextFrame(dxc_dup, 100, &info, &resource);
+    // A frame DWM composed after the copy, not one from before it: frames are taken until
+    // the latest one was presented after the copy (or nothing new comes for 200 ms).
+    HRESULT acquired;
+    dxc_dup_waits = 0;
+    for (;;) {
+        acquired = IDXGIOutputDuplication_AcquireNextFrame(dxc_dup, 200, &info, &resource);
+        if (FAILED(acquired)) break;
+        dxc_dup_lag = info.LastPresentTime.QuadPart - dxc_blit_time.QuadPart;
+        if (info.LastPresentTime.QuadPart >= dxc_blit_time.QuadPart || dxc_dup_waits >= 8) break;
+        dxc_dup_waits++;
+        IDXGIResource_Release(resource);
+        IDXGIOutputDuplication_ReleaseFrame(dxc_dup);
+    }
     if (SUCCEEDED(acquired)) {
         ID3D11Texture2D *frame = NULL;
         if (SUCCEEDED(IDXGIResource_QueryInterface(resource, &IID_ID3D11Texture2D, (void **)&frame))) {
@@ -2699,8 +2716,9 @@ static void dxc_capture_step(HWND window) {
     }
     fprintf(stderr,
             "compose-rust: capture detail %dx%d buffer %ux%u rows_differing=%d first_row=%d last_row=%d "
-            "frame_border_pixels=%ld sample x=%d seen=%08x drawn=%08x\n",
-            width, height, described.Width, described.Height, rows, first_row, last_row, border_differing, sample_x,
+            "frame_border_pixels=%ld frames_skipped=%d frame_minus_blit_qpc=%lld sample x=%d seen=%08x drawn=%08x\n",
+            width, height, described.Width, described.Height, rows, first_row, last_row, border_differing,
+            dxc_dup_waits, dxc_dup_lag, sample_x,
             (unsigned)sample_seen, (unsigned)sample_drawn);
     dxc_capture_steps++;
     if (failed) dxc_capture_failures++;
