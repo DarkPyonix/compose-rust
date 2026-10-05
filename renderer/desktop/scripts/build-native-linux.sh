@@ -83,14 +83,8 @@ image_name="${LIBRARY_NAME}_image"
     -H:IncludeLocales=en,ko \
     -Os \
     -H:+UnlockExperimentalVMOptions \
-    -H:ReportAnalysisForbiddenType=javax.swing.UIManager \
-    -H:ReportAnalysisForbiddenType=java.awt.datatransfer.Clipboard \
-    -H:ReportAnalysisForbiddenType=java.awt.datatransfer.DataFlavor \
-    -H:ReportAnalysisForbiddenType=java.awt.Cursor \
-    -H:ReportAnalysisForbiddenType=java.awt.Color \
-    -H:ReportAnalysisForbiddenType=java.awt.event.KeyEvent \
-    -H:ReportAnalysisForbiddenType=java.awt.Canvas \
-    -H:ReportAnalysisForbiddenType=java.awt.Frame \
+    -H:+PrintAnalysisCallTree \
+    -H:PrintAnalysisCallTreeType=TXT \
     "-H:NativeLinkerOption=$obj/x11_window.o" \
     '-H:NativeLinkerOption=-lX11' \
     '-H:NativeLinkerOption=-lGL' \

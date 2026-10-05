@@ -239,45 +239,7 @@ jobs:
       - name: The fork's window modules name no AWT
         run: ./scripts/tests/renderer/window-modules-no-awt.test.sh
 
-      - name: PROBE class initialization of the toolkit
-        if: always()
-        continue-on-error: true
-        run: |
-          ls renderer/build/native-image-linux/dist/lib/reports | head -20
-          for f in renderer/build/native-image-linux/dist/lib/reports/class_initialization*; do
-            echo "== $f"
-            grep -E 'java\.awt\.(Component|Toolkit|Container)[,"]|java\.awt\.Component$' "$f" | head -12 | cut -c1-400
-          done
-      - name: PROBE app frames above toolkit types
-        if: always()
-        continue-on-error: true
-        run: |
-          f="$(ls renderer/build/native-image-linux/dist/lib/reports/call_tree_*.txt | head -1)"
-          python3 - "$f" <<'PY'
-          import re, sys
-          pats = ["java.awt.Component.<init>", "java.awt.Container.<init>", "java.awt.Toolkit.getDefaultToolkit", "java.awt.Canvas", "java.awt.Component.<clinit>", "javax.swing.JComponent.<init>", "java.awt.Component.", "java.awt.Frame", "java.awt.Window"]
-          shown = {p: 0 for p in pats}
-          stack = []
-          for line in open(sys.argv[1], encoding="utf-8", errors="replace"):
-              line = line.rstrip("\n")
-              m = re.match(r"^([ \u2502]*)(?:\u251c|\u2514)\u2500\u2500 (.*)$", line)
-              if not m:
-                  continue
-              depth, text = len(m.group(1)), m.group(2)
-              while stack and stack[-1][0] >= depth:
-                  stack.pop()
-              stack.append((depth, text))
-              for p in pats:
-                  if p in text and "null:" in text and shown[p] < 2:
-                      shown[p] += 1
-                      print("=== " + p + " :: " + text[:100])
-                      for d, t in stack[:-1]:
-                          if "NativeImageClassLoader:" in t or t.startswith("entry app"):
-                              print("   ", t.replace("com.oracle.svm.hosted.NativeImageClassLoader:", "")[:170])
-          PY
-      - name: PROBE the image's ways into the toolkit
-        if: always()
-        continue-on-error: true
+      - name: The image's ways into the toolkit
         run: bash scripts/tests/renderer/linux-image-toolkit-boundary.test.sh
 
       - name: The image carries no Java toolkit
@@ -342,36 +304,7 @@ jobs:
       - name: Build the Linux renderer under Xvfb
         run: xvfb-run -a ./renderer/desktop/scripts/build-native-linux.sh
 
-      - name: PROBE app frames above toolkit types
-        if: always()
-        continue-on-error: true
-        run: |
-          f="$(ls renderer/build/native-image-linux/dist/lib/reports/call_tree_*.txt | head -1)"
-          python3 - "$f" <<'PY'
-          import re, sys
-          pats = ["java.awt.Component.<init>", "java.awt.Container.<init>", "java.awt.Toolkit.getDefaultToolkit", "java.awt.Canvas", "java.awt.Component.<clinit>", "javax.swing.JComponent.<init>", "java.awt.Component.", "java.awt.Frame", "java.awt.Window"]
-          shown = {p: 0 for p in pats}
-          stack = []
-          for line in open(sys.argv[1], encoding="utf-8", errors="replace"):
-              line = line.rstrip("\n")
-              m = re.match(r"^([ \u2502]*)(?:\u251c|\u2514)\u2500\u2500 (.*)$", line)
-              if not m:
-                  continue
-              depth, text = len(m.group(1)), m.group(2)
-              while stack and stack[-1][0] >= depth:
-                  stack.pop()
-              stack.append((depth, text))
-              for p in pats:
-                  if p in text and "null:" in text and shown[p] < 2:
-                      shown[p] += 1
-                      print("=== " + p + " :: " + text[:100])
-                      for d, t in stack[:-1]:
-                          if "NativeImageClassLoader:" in t or t.startswith("entry app"):
-                              print("   ", t.replace("com.oracle.svm.hosted.NativeImageClassLoader:", "")[:170])
-          PY
-      - name: PROBE the image's ways into the toolkit
-        if: always()
-        continue-on-error: true
+      - name: The image's ways into the toolkit
         run: bash scripts/tests/renderer/linux-image-toolkit-boundary.test.sh
 
       - name: The image carries no Java toolkit

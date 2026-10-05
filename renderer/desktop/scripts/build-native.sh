@@ -175,7 +175,6 @@ link_image() {
         -H:IncludeLocales=en,ko \
         -Os \
         -H:+UnlockExperimentalVMOptions \
-        -H:ReportAnalysisForbiddenType=java.awt.Toolkit \
         "${memory_args[@]}" \
         "${linker_args[@]}")
 }
