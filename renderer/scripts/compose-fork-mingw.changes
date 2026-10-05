@@ -21,6 +21,8 @@ d5513f4f908e5da84f5e6138a52b9b7943a6823f compose/animation/animation-core/src/mi
 700b779b121a6b4e34b72c4a3a51bf4c971106d6 compose/animation/animation/build.gradle
 ba7568eee6f36b55f9684ac0998fb8752ef48500 compose/foundation/foundation-layout/build.gradle
 9ecc078ef19d2391e3f5655110f49a810dd85c75 compose/foundation/foundation/build.gradle
+8e8eb7a4b58fb98b49ed21e57778bcdb37bd99e3 compose/foundation/foundation/src/commonMain/kotlin/androidx/compose/foundation/text/modifiers/MultiParagraphLayoutCache.kt
+bea85f2b5b496240934e2304c2993e417aeeb348 compose/foundation/foundation/src/commonMain/kotlin/androidx/compose/foundation/text/modifiers/ParagraphLayoutCache.kt
 1ca98578603e66c5eb984e3e9bb89aa058ca4f15 compose/foundation/foundation/src/iosMain/kotlin/androidx/compose/foundation/text/contextmenu/internal/ProvideDefaultPlatformTextContextMenuProviders.ios.kt
 8840943dfa742c17b41315a09368a1420a78c14e compose/foundation/foundation/src/linuxMain/kotlin/androidx/compose/foundation/Clickable.linux.kt
 d79b2c666175d2343cbbd4c1044e2a2c2b2775a7 compose/foundation/foundation/src/linuxMain/kotlin/androidx/compose/foundation/Overscroll.linux.kt
@@ -79,6 +81,7 @@ c18b81002f5757db28ba51637e509cf0e5559d2d compose/foundation/foundation/src/mingw
 57313362dc588423e0138ea140ea6c30a1eed188 compose/foundation/foundation/src/nativeMain/kotlin/androidx/compose/foundation/text/NativeTextContextMenuBuilders.native.kt
 f5f80a51d0d61060a5697e7226e89de492fc634f compose/foundation/foundation/src/nativeMain/kotlin/androidx/compose/foundation/text/NativeTextContextMenuItems.native.kt
 - compose/foundation/foundation/src/nativeMain/kotlin/androidx/compose/foundation/text/contextmenu/internal/ProvideDefaultPlatformTextContextMenuProviders.native.kt
+407536ee80fb380a80816adb9de13b1d1f9cf466 compose/foundation/foundation/src/skikoTest/kotlin/androidx/compose/foundation/text/modifiers/LayoutCacheWidthChangeTest.kt
 9f6b6a928e009b5a97b9bf09b3f590906485c4c0 compose/material/material-navigation/build.gradle
 a93c71739aaa1cc9dbb811918beb80d1bda81246 compose/material/material-ripple/build.gradle
 fc56acdeb9af68f4a1b21e2127cac46af6ecaf32 compose/material/material/build.gradle
