@@ -12,13 +12,13 @@ mkdir -p "$out"
 log="$out/$label.log"
 DXC_METRICS=1 DXC_METRICS_BREAKDOWN=1 DXC_REPORT_LATENCY=1 "$app" > "$log" 2>&1 &
 pid=$!
-for _ in $(seq 240); do
-    grep -q "metrics phase after-100-resizes" "$log" 2>/dev/null && break
+# The scripted drag, its settled reading, then the drag made of mouse events and its own.
+for _ in $(seq 360); do
+    grep -q "metrics done" "$log" 2>/dev/null && break
     kill -0 "$pid" 2>/dev/null || break
     sleep 0.5
 done
-# Long enough for the "settled" reading two seconds after the last resize.
-sleep 10
+sleep 1
 kill "$pid" 2>/dev/null || true
 sleep 1
 kill -9 "$pid" 2>/dev/null || true

@@ -6,6 +6,12 @@
 # two seconds later once the run loop has had time to turn. "after-100-resizes" is required;
 # the other two are checked when the renderer prints them.
 #
+# The scripted drag sets sizes directly and turns the run loop between them, because a drag
+# of the edge does. "event-drag" checks that assumption against the real path: a drag made
+# of mouse events that AppKit runs its own live resize for, read at the last position with
+# the button held, and "event-settled" two seconds after release. When the renderer prints
+# them, the drag must have widened the window, or it measured nothing.
+#
 # The bounds, in MB above the start:
 #
 #   metal      112  Core Animation keeps up to three drawables. At 1200x900 points and two
@@ -33,12 +39,21 @@ value() {
 }
 
 phases=()
-for phase in mid-drag after-100-resizes settled; do
+for phase in mid-drag after-100-resizes settled event-drag event-settled; do
     if [[ "$phase" == after-100-resizes ]] || grep -q "metrics phase $phase " "$log"; then
         phases+=("$phase")
     fi
 done
 failed=0
+if grep -q "metrics phase event-drag " "$log"; then
+    widened="$(sed -nE 's/.*metrics event-drag widened_by=(-?[0-9]+).*/\1/p' "$log" | tail -1)"
+    if [[ -z "$widened" ]] || (( widened <= 0 )); then
+        echo "FAIL the drag made of mouse events did not resize the window (widened_by=${widened:-none})" >&2
+        failed=1
+    else
+        echo "ok   the drag made of mouse events widened the window by $widened points"
+    fi
+fi
 for phase in "${phases[@]}"; do
     for pair in "footprint_mb:$footprint_bound" "metal_allocated_mb:$metal_bound"; do
         key="${pair%%:*}"
