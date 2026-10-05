@@ -141,6 +141,14 @@ class MetalSurfaceTest {
                 }
             }
             val grownMb = (surface.allocatedBytes - before) / 1048576.0
+            @OptIn(kotlin.native.runtime.NativeRuntimeApi::class)
+            kotlin.native.runtime.GC.collect()
+            val afterGcMb = (surface.allocatedBytes - before) / 1048576.0
+            platform.Foundation.NSRunLoop.mainRunLoop.runUntilDate(
+                platform.Foundation.NSDate.dateWithTimeIntervalSinceNow(0.5),
+            )
+            val afterTurnMb = (surface.allocatedBytes - before) / 1048576.0
+            println("metal growth MB: frames=$grownMb after_gc=$afterGcMb after_turn=$afterTurnMb")
             val largestDrawableMb = 1200.0 * 900.0 * 4 / 1048576.0
             val boundMb = largestDrawableMb * 3 + 16
             assertTrue(
