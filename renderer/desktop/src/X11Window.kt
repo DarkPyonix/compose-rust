@@ -72,6 +72,7 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
             minWidth = options.minWidth,
             minHeight = options.minHeight,
             decorated = options.systemChrome,
+            resizable = options.resizable,
         ),
         listener,
     )
