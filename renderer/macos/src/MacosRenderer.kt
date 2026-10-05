@@ -11,7 +11,22 @@ import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
 import dev.darkpyonix.composerust.runtime.HostConnection
 import dev.darkpyonix.composerust.runtime.WindowCaption
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalClipboardManager
+import dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver
+import dev.darkpyonix.composerust.ui.node.Asset
+import kotlinx.coroutines.delay
+import org.thisisthepy.compose.window.DockIcon
+import org.thisisthepy.compose.window.SystemDarkMonitor
+import org.thisisthepy.compose.window.contentMinimum
+import org.thisisthepy.compose.window.macos.MacosClipboard
+import org.thisisthepy.compose.window.macos.MacosClipboardManager
 import org.thisisthepy.compose.window.macos.MacosWindow
+import org.thisisthepy.compose.window.macos.observeSystemAppearance
+import org.thisisthepy.compose.window.macos.systemIsDark
 import platform.AppKit.NSApplication
 import platform.AppKit.NSApplicationActivationPolicy
 import platform.AppKit.NSApplicationWillTerminateNotification
@@ -88,10 +103,24 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
         chrome = asked?.chrome ?: Chrome.Modern,
         titleBar = asked?.titleBar ?: TitleBar.Normal,
     )
+    // Whether the system is dark, now and as it changes. Held here so the first answer is the
+    // real one and the window is not drawn light and corrected a moment later.
+    var requestFrame: () -> Unit = {}
+    val dark = mutableStateOf(systemIsDark())
+    val appearance = SystemDarkMonitor(
+        read = ::systemIsDark,
+        requestFrame = { requestFrame() },
+        onChange = { dark.value = it },
+    )
+    observeSystemAppearance(appearance::refresh)
+    val clipboard = MacosClipboard()
+    @Suppress("DEPRECATION")
+    val clipboardManager = MacosClipboardManager()
     val window = MacosWindow(
         name = asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
         width = if (asked != null && asked.width > 0) asked.width else 520,
         height = if (asked != null && asked.height > 0) asked.height else 360,
+        minimumSize = contentMinimum(asked?.minWidth ?: 0, asked?.minHeight ?: 0),
         chrome = org.thisisthepy.compose.window.macos.MacosWindowChrome(
             fullSizeContentView = chrome.fullSizeContentView,
             titlebarAppearsTransparent = chrome.titlebarAppearsTransparent,
@@ -99,18 +128,38 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
             unifiedToolbar = chrome.unifiedToolbar,
         ),
     )
+    requestFrame = window::requestFrame
+    val dockIcon = DockIcon(
+        lookup = { id -> (host.table.assets.asset(id) as? Asset.Raster)?.bitmap },
+        apply = { picture -> picture.toNSImage()?.let { application.applicationIconImage = it } },
+    )
+    val iconAsset = asked?.icon ?: 0
+    @Suppress("DEPRECATION")
     window.setContent {
-        val strip = window.caption.value
-        ComposeRustContent(
-            host,
-            caption = WindowCaption(
-                height = strip.height,
-                buttonsWidth = strip.buttonsWidth,
-                buttonsAtStart = strip.buttonsAtStart,
-                insetTop = strip.insetTop,
-                cornerRadius = strip.cornerRadius,
-            ),
-        )
+        CompositionLocalProvider(
+            LocalSystemDarkObserver provides { dark.value },
+            LocalClipboard provides clipboard,
+            LocalClipboardManager provides clipboardManager,
+        ) {
+            // The asset arrives a little after the first batch names it, so it is looked for
+            // until it is there.
+            if (iconAsset != 0) {
+                LaunchedEffect(Unit) {
+                    while (!dockIcon.tryApply(iconAsset)) delay(100)
+                }
+            }
+            val strip = window.caption.value
+            ComposeRustContent(
+                host,
+                caption = WindowCaption(
+                    height = strip.height,
+                    buttonsWidth = strip.buttonsWidth,
+                    buttonsAtStart = strip.buttonsAtStart,
+                    insetTop = strip.insetTop,
+                    cornerRadius = strip.cornerRadius,
+                ),
+            )
+        }
     }
 
     application.activateIgnoringOtherApps(true)
