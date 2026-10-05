@@ -175,6 +175,10 @@ link_image() {
         -H:IncludeLocales=en,ko \
         -Os \
         -H:+UnlockExperimentalVMOptions \
+        -H:ReportAnalysisForbiddenType=java.awt.Toolkit \
+        -H:ReportAnalysisForbiddenType=java.awt.Component \
+        -H:+PrintAnalysisCallTree \
+        -H:PrintAnalysisCallTreeType=TXT \
         "${memory_args[@]}" \
         "${linker_args[@]}")
 }

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Run after build-native-linux.sh, which asks Native Image for its call tree.
+# Run after build-native-linux.sh or build-native.sh (macOS), which ask Native Image for its call
+# tree. Takes the directory the image was written to; the Linux one by default.
 #
 # The Linux image is built with the toolkit switched off (compose.awt=false, so the fork's
 # desktop code never names it, and dxc.toolkit.window=false). Native Image's analysis still walks
@@ -47,11 +48,11 @@ for line in open(sys.argv[1], encoding="utf-8", errors="replace"):
 
 bad = {k: v for k, v in found.items() if not any(a in k for a in allowed)}
 if bad:
-    print("FAIL: application code reaches the Java toolkit in the Linux image:", file=sys.stderr)
+    print("FAIL: application code reaches the Java toolkit in the image:", file=sys.stderr)
     for k, v in bad.items():
         print("  " + k[:200] + "\n      calls " + v[:160], file=sys.stderr)
     sys.exit(1)
-print("no application code calls into the toolkit in the Linux image: ok (%d seen)" % len(found))
+print("no application code calls into the toolkit in the image: ok (%d seen)" % len(found))
 PY
 status=$?
 # The report is large and is not part of what ships.
