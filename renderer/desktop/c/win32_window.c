@@ -2477,12 +2477,21 @@ static void dxc_capture_step(HWND window) {
     HBITMAP bitmap = NULL;
     HDC dc = NULL;
     if (!dxc_capture(origin.x, origin.y, width, height, &pixels, &bitmap, &dc)) return;
+    // Only what is on a monitor is judged: a window that runs off the screen captures black
+    // for the part nothing shows.
+    MONITORINFO monitor;
+    memset(&monitor, 0, sizeof monitor);
+    monitor.cbSize = sizeof monitor;
+    GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor);
+    int visible_right = monitor.rcMonitor.right - origin.x;
+    int visible_bottom = monitor.rcMonitor.bottom - origin.y;
     int expected = dxc_dib_bits != NULL && dxc_raster_width == width && dxc_raster_height == height;
     long black = 0;
     long differing = 0;
-    long total = (long)width * height;
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
+    long total = 0;
+    for (int y = 0; y < height && y < visible_bottom; y++) {
+        for (int x = 0; x < width && x < visible_right; x++) {
+            total++;
             uint32_t seen = pixels[(size_t)y * width + x];
             if (dxc_is_black(seen)) black++;
             if (expected) {
@@ -2538,7 +2547,10 @@ void dxc_native_debug_hit_test(void *window_pointer) {
     int caption_middle = dxc_options.system_chrome
         ? outer.top + (origin.y - outer.top) / 2 + GetSystemMetricsForDpi(SM_CYSIZEFRAME, dpi) / 2
         : outer.top + dxc_scaled(window, DXC_CAPTION_HEIGHT_DIP) / 2;
-    int button = dxc_scaled(window, DXC_CAPTION_BUTTON_WIDTH_DIP);
+    // The system's buttons are SM_CXSIZE wide; the ones the content draws are the
+    // Windows 11 caption metrics this file lays the custom caption out with.
+    int button = dxc_options.system_chrome ? GetSystemMetricsForDpi(SM_CXSIZE, dpi)
+                                           : dxc_scaled(window, DXC_CAPTION_BUTTON_WIDTH_DIP);
     struct { const char *where; int x; int y; LRESULT expected; } points[] = {
         {"caption", (outer.left + outer.right) / 2, caption_middle, HTCAPTION},
         {"close", outer.right - button / 2 - 8, caption_middle, dxc_options.system_chrome ? HTCLOSE : HTCLIENT},
@@ -2583,6 +2595,16 @@ void dxc_native_debug_resize(void *window_pointer, void *view_pointer, int32_t f
     UINT dpi = GetDpiForWindow(window);
     if (dpi == 0) {
         dpi = USER_DEFAULT_SCREEN_DPI;
+    }
+    if (getenv("DXC_CAPTURE_CHECK") != NULL) {
+        // At the top left of the work area, so the sizes the drag reaches stay on screen.
+        MONITORINFO monitor;
+        memset(&monitor, 0, sizeof monitor);
+        monitor.cbSize = sizeof monitor;
+        if (GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor)) {
+            SetWindowPos(window, NULL, monitor.rcWork.left, monitor.rcWork.top, 0, 0,
+                         SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        }
     }
     SendMessageW(window, WM_ENTERSIZEMOVE, 0, 0);
     for (int32_t step = 1; step <= steps; step++) {

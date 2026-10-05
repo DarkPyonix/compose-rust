@@ -294,20 +294,18 @@ jobs:
           retention-days: 5
 
       - name: Build hand-check against the renderer
-        # A debug build, as check-windows-consumer.sh makes: the release link of the
-        # Kotlin/Native object fails with LNK1223 (invalid .pdata contributions), which is
-        # the renderer object's problem and not this measurement's.
+        # Release: the link that LNK1223 broke (see fix-mingw-objects.py, point 3).
         run: |
           set -euo pipefail
           export DXC_WINDOWS_NATIVE_LIB="$(cygpath -w "$PWD/renderer/build/windows")"
-          cargo build --manifest-path compose-rust/tests/fixtures/hand-check/Cargo.toml
+          cargo build --release --manifest-path compose-rust/tests/fixtures/hand-check/Cargo.toml
 
       - name: Package hand-check for a check by hand
         run: |
           set -euo pipefail
           package="$(cygpath -u "$RUNNER_TEMP")/hand-check-windows"
           mkdir -p "$package"
-          cp compose-rust/tests/fixtures/hand-check/target/debug/hand-check.exe "$package/"
+          cp compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe "$package/"
           cat > "$package/README.txt" <<'TEXT'
           hand-check, Kotlin/Native renderer, resize frames on the CPU (commit ${{ github.sha }})
 
@@ -337,7 +335,7 @@ jobs:
 
       - name: The executable is the Kotlin/Native renderer
         run: |
-          exe=compose-rust/tests/fixtures/hand-check/target/debug/hand-check.exe
+          exe=compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe
           ls -la "$exe"
           echo "graal_create_isolate occurrences: $(grep -a -c graal_create_isolate "$exe" || true)"
           echo "Kotlin/Native runtime strings (kotlin.native): $(grep -a -c 'kotlin.native' "$exe" || true)"
@@ -352,11 +350,11 @@ jobs:
         run: |
           out="$(cygpath -u "$RUNNER_TEMP")/resize-metrics"
           ./.github/scripts/resize-metrics-run.sh \
-            compose-rust/tests/fixtures/hand-check/target/debug/hand-check.exe "$out" windows-kn
+            compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe "$out" windows-kn
           cat "$out/windows-kn.md" >> "$GITHUB_STEP_SUMMARY"
           # The same drag with resize frames on the GPU, for comparison.
           DXC_RASTER_RESIZE=0 ./.github/scripts/resize-metrics-run.sh \
-            compose-rust/tests/fixtures/hand-check/target/debug/hand-check.exe "$out" windows-kn-gpu
+            compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe "$out" windows-kn-gpu
           for label in windows-kn windows-kn-gpu; do
             echo "### $label: on-screen capture and hit tests" >> "$GITHUB_STEP_SUMMARY"
             echo '```' >> "$GITHUB_STEP_SUMMARY"
@@ -425,12 +423,12 @@ jobs:
         run: |
           set -euo pipefail
           export DXC_MACOS_NATIVE_LIB="$PWD/renderer/build/macos"
-          cargo build --manifest-path compose-rust/tests/fixtures/hand-check/Cargo.toml
+          cargo build --release --manifest-path compose-rust/tests/fixtures/hand-check/Cargo.toml
 
       - name: Scripted resize, measured
         run: |
           ./.github/scripts/resize-metrics-run.sh \
-            compose-rust/tests/fixtures/hand-check/target/debug/hand-check \
+            compose-rust/tests/fixtures/hand-check/target/release/hand-check \
             "$RUNNER_TEMP/resize-metrics" macos-kn
           cat "$RUNNER_TEMP/resize-metrics/macos-kn.md" >> "$GITHUB_STEP_SUMMARY"
 
