@@ -9,6 +9,7 @@ import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.scene.ComposeScene
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
+import dev.darkpyonix.composerust.ui.node.LayoutProfile
 import java.lang.System
 import kotlinx.cinterop.ByteVar
 import kotlinx.cinterop.allocArray
@@ -69,6 +70,7 @@ internal object DrawBench {
         )
         try {
             scene.density = Density(2f)
+            if (LayoutProfile.enabled) profile(scene, pixels, rowBytes, nanos)
             for (variant in RasterVariant.entries) {
                 fun frame(width: Int) {
                     scene.size = IntSize(width, HEIGHT)
@@ -135,6 +137,49 @@ internal object DrawBench {
             scene.size = savedSize
         }
         System.err.println("compose-rust: draw-bench done")
+    }
+
+    /**
+     * The drag again with every node's measuring timed by kind: per frame, layout as a whole
+     * and each kind's own share of it, most first. What no node accounts for is Compose's own
+     * work around them.
+     */
+    private fun profile(
+        scene: ComposeScene,
+        pixels: kotlinx.cinterop.CPointer<ByteVar>,
+        rowBytes: Int,
+        nanos: () -> Long,
+    ) {
+        for (index in 0 until WARMUP) {
+            scene.size = IntSize(FIRST_WIDTH + STEP * index, HEIGHT)
+            RasterDraw.draw(RasterVariant.DIRECT, pixels, rowBytes, FIRST_WIDTH + STEP * index, HEIGHT) { canvas ->
+                scene.render(canvas.asComposeCanvas(), nanos())
+            }
+        }
+        LayoutProfile.reset()
+        var layoutTotal = 0.0
+        for (index in 0 until SIZES) {
+            val width = FIRST_WIDTH + STEP * index
+            scene.size = IntSize(width, HEIGHT)
+            val laid = kotlin.time.TimeSource.Monotonic.markNow()
+            scene.focusManager.getFocusRect(afterLayout = true)
+            layoutTotal += laid.elapsedNow().inWholeMicroseconds / 1000.0
+            RasterDraw.draw(RasterVariant.DIRECT, pixels, rowBytes, width, HEIGHT) { canvas ->
+                scene.render(canvas.asComposeCanvas(), nanos())
+            }
+        }
+        val kinds = LayoutProfile.snapshot()
+        val accounted = kinds.sumOf { it.second }
+        System.err.println(
+            "compose-rust: draw-bench layout-profile per_frame_layout=${f(layoutTotal / SIZES)} " +
+                "in_nodes=${f(accounted / SIZES)} outside_nodes=${f((layoutTotal - accounted) / SIZES)}",
+        )
+        for ((kind, millis, count) in kinds.take(15)) {
+            System.err.println(
+                "compose-rust: draw-bench layout-profile kind=$kind own_ms_per_frame=${f(millis / SIZES)} " +
+                    "measures_per_frame=${count / SIZES}",
+            )
+        }
     }
 
     /** The CPU frame just drawn against the same frame on the GPU, over every pixel. */

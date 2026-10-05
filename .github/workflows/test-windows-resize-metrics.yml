@@ -366,30 +366,39 @@ jobs:
       - name: Resize frames on the CPU at 200%, each way of drawing them
         # Times the scene at the sizes a drag at 200% passes (density 2, 961 to 1157 by 1400
         # pixels), drawn each way the renderer offers, and compares each with the GPU frame.
+        # Run a second time with every node's measuring timed by kind, which slows layout
+        # and so is kept out of the first run's numbers.
         run: |
           set -uo pipefail
           out="$(cygpath -u "$RUNNER_TEMP")/resize-metrics"
           mkdir -p "$out"
-          log="$out/draw-bench.log"
-          DXC_DRAW_BENCH=1 compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe > "$log" 2>&1 &
-          pid=$!
-          for _ in $(seq 600); do
-            grep -q "draw-bench done" "$log" 2>/dev/null && break
-            kill -0 "$pid" 2>/dev/null || break
-            sleep 0.5
-          done
-          kill "$pid" 2>/dev/null || true
-          sleep 1
-          kill -9 "$pid" 2>/dev/null || true
-          {
-            echo "### CPU resize frame draw at 200%"
-            echo "CPU: $(powershell -NoProfile -Command '(Get-CimInstance Win32_Processor | Select-Object -First 1).Name') x $(nproc) logical"
-            echo '```'
+          cpu="$(powershell -NoProfile -Command '(Get-CimInstance Win32_Processor | Select-Object -First 1).Name') x $(nproc) logical"
+          status=0
+          for profile in 0 1; do
+            log="$out/draw-bench-$profile.log"
+            DXC_DRAW_BENCH=1 DXC_LAYOUT_PROFILE=$profile \
+              compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe > "$log" 2>&1 &
+            pid=$!
+            for _ in $(seq 600); do
+              grep -q "draw-bench done" "$log" 2>/dev/null && break
+              kill -0 "$pid" 2>/dev/null || break
+              sleep 0.5
+            done
+            kill "$pid" 2>/dev/null || true
+            sleep 1
+            kill -9 "$pid" 2>/dev/null || true
+            {
+              echo "### CPU resize frame draw at 200% (layout profile: $profile)"
+              echo "CPU: $cpu"
+              echo '```'
+              grep "draw-bench" "$log" || tail -40 "$log"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "CPU: $cpu"
             grep "draw-bench" "$log" || tail -40 "$log"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          grep "draw-bench" "$log" || tail -40 "$log"
-          grep -q "draw-bench done" "$log"
+            grep -q "draw-bench done" "$log" || status=1
+          done
+          exit $status
 
       - name: What is on screen during a resize must be the frame drawn for it
         run: |

@@ -15,6 +15,7 @@ import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.scene.ComposeScene
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
+import dev.darkpyonix.composerust.ui.node.LayoutProfile
 import java.lang.System
 import kotlinx.cinterop.ByteVar
 import kotlinx.cinterop.CFunction
@@ -423,6 +424,7 @@ internal class Win32Window private constructor(
         ): Win32Window? {
             val pointers = nativeHeap.allocArray<COpaquePointerVar>(WINDOW_POINTERS)
             try {
+                if (System.getenv("DXC_LAYOUT_PROFILE") == "1") LayoutProfile.enabled = true
                 configureWindow(if (resizable) 1 else 0, minWidth, minHeight, if (systemChrome) 1 else 0, 0)
                 val opened = memScoped { openWindow(title.cstr.ptr, width, height, pointers) }
                 if (opened != 0) return null
