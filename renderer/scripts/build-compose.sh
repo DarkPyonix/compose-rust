@@ -30,7 +30,7 @@ REVISION="45bb114c367a34862147abf4747ffae68c59ef07"
 # The window modules and skiko's static build are newer than that and are not Compose sources:
 # the renderer builds them from this commit (scripts/fetch-fork-window.sh and fetch-fork-skiko.sh)
 # into artifacts of its own, so they move without moving the Compose build above.
-WINDOW_REVISION="0dfcaaf4425f3073f4ad934c791627a17d9dac32"
+WINDOW_REVISION="ffb37cce8e5713879cd7c5c52f27db3a77c30d78"
 PUBLISHED_AS="1.11.1"
 # Material 3 is versioned on its own line and the renderer asks for it by that version, so
 # publishing it as the others would leave a coordinate nobody looks for.
