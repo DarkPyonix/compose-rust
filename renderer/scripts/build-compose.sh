@@ -110,7 +110,19 @@ case "$target" in
             compose:ui:ui-util
         )
         ;;
-    *) die "unknown target '$target'" "known: macosArm64, linux (both of the next two), linuxX64, linuxArm64" ;;
+    desktop)
+        # The Java side of Compose, for the native image renderers. Only what the fork changes
+        # is rebuilt: the desktop renderer reads mavenLocal first and takes every other module
+        # from upstream at the same version. The roots are not published: upstream's root
+        # already maps a desktop consumer to these coordinates.
+        publications=(Desktop)
+        modules=(
+            compose:foundation:foundation
+            compose:ui:ui
+            compose:ui:ui-text
+        )
+        ;;
+    *) die "unknown target '$target'" "known: macosArm64, linux (both of the next two), linuxX64, linuxArm64, desktop" ;;
 esac
 
 [[ $clean -eq 1 ]] && rm -rf "$WORK"
@@ -150,7 +162,7 @@ for module in "${modules[@]}"; do
     for publication in "${publications[@]}"; do
         tasks+=(":$module:publish${publication}PublicationToMavenLocal")
     done
-    tasks+=(":$module:publishKotlinMultiplatformPublicationToMavenLocal")
+    [[ "$target" == desktop ]] || tasks+=(":$module:publishKotlinMultiplatformPublicationToMavenLocal")
 done
 (
     cd "$WORK"

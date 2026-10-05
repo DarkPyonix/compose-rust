@@ -100,7 +100,9 @@ internal class WindowClipboardImpl(
 }
 
 /** One of each for every window: they hold nothing, they only ask the platform. */
-internal val WindowClipboard: Clipboard = WindowClipboardImpl()
+internal val WindowClipboard: Clipboard =
+    if (ToolkitWindow.awtClipboard) WindowClipboardImpl() else PlainWindowClipboard()
 
 @Suppress("DEPRECATION")
-internal val WindowClipboardManagerInstance: ClipboardManager = WindowClipboardManager()
+internal val WindowClipboardManagerInstance: ClipboardManager =
+    if (ToolkitWindow.awtClipboard) WindowClipboardManager() else PlainClipboardManager()

@@ -69,7 +69,7 @@ absent 'windows-metadata' "$linux_build" \
 # So what is required here is that ONE of the two answers is present, the way the Linux
 # check above is written: either the module is preserved, or the feature that registers
 # the reached classes is on. Neither would be an image that cannot start.
-grep -q 'ConfigurationFileDirectories=$MetadataDir,$ResourceMetadataDir' "$windows_build"
+grep -q 'ConfigurationFileDirectories=$MetadataDir,$ResourceMetadataDir,$ToolkitMetadataDir' "$windows_build"
 if ! grep -q -- '-H:Preserve=module=java.desktop' "$windows_build" &&
     ! grep -q 'AccessibilityReachabilityFeature' "$windows_build"; then
     echo "fail  the Windows build neither preserves java.desktop nor registers the" >&2
@@ -89,10 +89,16 @@ entries = {entry["type"]: entry for entry in metadata["reflection"]}
 # Skiko and Skia are not part of java.desktop, so preserving that module does not reach them.
 # These come from the classpath metadata on every platform, and Skia's native code resolves
 # them through JNI on the first frame.
-required = {"org.jetbrains.skia.impl.Native", "org.jetbrains.skia.Rect", "java.awt.Toolkit"}
+required = {"org.jetbrains.skia.impl.Native", "org.jetbrains.skia.Rect"}
 missing = sorted(required - entries.keys())
 if missing:
     raise SystemExit("shared classpath metadata is missing: " + ", ".join(missing))
+# Registering a toolkit type for reflection or JNI makes it reachable, and with it the native
+# library its static initialiser loads. The registrations live in toolkit-metadata, which only
+# the Windows build reads.
+toolkit = sorted(n for n in entries if n.startswith(("java.awt", "sun.awt", "sun.java2d", "sun.lwawt", "javax.swing", "androidx.compose.ui.awt", "org.jetbrains.skiko.SkiaLayer", "org.jetbrains.skiko.HardwareLayer", "androidx.compose.ui.scene.ComposeSceneMediator$Invisible", "androidx.compose.ui.scene.skia.")))
+if toolkit:
+    raise SystemExit("the shared classpath metadata registers toolkit types: " + ", ".join(toolkit))
 if not entries["org.jetbrains.skia.impl.Native"].get("jniAccessible"):
     raise SystemExit("org.jetbrains.skia.impl.Native must be registered as JNI accessible")
 
