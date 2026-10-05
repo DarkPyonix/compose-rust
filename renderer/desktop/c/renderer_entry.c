@@ -36,6 +36,47 @@ typedef struct graal_isolate_t graal_isolate_t;
 typedef struct graal_isolatethread_t graal_isolatethread_t;
 
 int graal_create_isolate(void *params, graal_isolate_t **isolate, graal_isolatethread_t **thread);
+
+/*
+ * graal_create_isolate_params_t up to version 3, which added the isolate's own argument
+ * list. Declared here because the renderer ships no graal_isolate.h.
+ */
+struct dxc_isolate_params {
+    int version;
+    uintptr_t reserved_address_space_size;
+    const char *auxiliary_image_path;
+    uintptr_t auxiliary_image_reserved_space_size;
+    int argc;
+    char **argv;
+};
+
+/*
+ * Runtime options for the isolate from DXC_SVM_OPTIONS, space separated (for example
+ * "-XX:+PrintGC -Xmn256m"), for measuring the collector. NULL when unset, which is the
+ * ordinary case and creates the isolate exactly as before.
+ */
+static void *dxc_isolate_params(void) {
+    static struct dxc_isolate_params params;
+    static char text[1024];
+    static char *argv[32];
+    const char *asked = getenv("DXC_SVM_OPTIONS");
+    if (asked == NULL || asked[0] == '\0') {
+        return NULL;
+    }
+    strncpy(text, asked, sizeof text - 1);
+    int argc = 0;
+    argv[argc++] = "compose-rust-renderer";
+    for (char *word = strtok(text, " "); word != NULL && argc < 31; word = strtok(NULL, " ")) {
+        argv[argc++] = word;
+    }
+    argv[argc] = NULL;
+    memset(&params, 0, sizeof params);
+    params.version = 3;
+    params.argc = argc;
+    params.argv = argv;
+    fprintf(stderr, "compose-rust: isolate options: %s\n", asked);
+    return &params;
+}
 int graal_attach_thread(graal_isolate_t *isolate, graal_isolatethread_t **thread);
 graal_isolatethread_t *graal_get_current_thread(graal_isolate_t *isolate);
 
@@ -237,7 +278,7 @@ static void *renderer_thread(void *arg) {
     struct renderer_run *run = arg;
     graal_isolate_t *isolate;
     graal_isolatethread_t *thread;
-    if (graal_create_isolate(NULL, &isolate, &thread) != 0) {
+    if (graal_create_isolate(dxc_isolate_params(), &isolate, &thread) != 0) {
         run->status = RUN_ISOLATE_FAILED;
     } else {
 #ifdef _WIN32
@@ -389,7 +430,7 @@ int32_t compose_rust_renderer_run(void) {
     // the thread delivering them.
     graal_isolate_t *isolate;
     graal_isolatethread_t *thread;
-    if (graal_create_isolate(NULL, &isolate, &thread) != 0) {
+    if (graal_create_isolate(dxc_isolate_params(), &isolate, &thread) != 0) {
         return RUN_ISOLATE_FAILED;
     }
     atomic_store(&renderer_isolate, isolate);

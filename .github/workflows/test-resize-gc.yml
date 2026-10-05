@@ -1,0 +1,123 @@
+# Resize GC experiment -- builds the GraalVM renderer on macOS and runs a scripted drag of
+# 100 sizes after dirtying the heap, once per heap setting, with the collector's own log on.
+# Answers whether collection pauses line up with slow resize frames. Run by hand only.
+
+name: Resize GC experiment
+
+on:
+  workflow_dispatch:
+  # A new workflow cannot be dispatched until it is on the default branch, so it also runs
+  # once on the pull request that changes it.
+  pull_request:
+    paths:
+      - ".github/workflows/test-resize-gc.yml"
+      - ".github/scripts/resize-gc-run.sh"
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    name: GraalVM renderer, scripted resize under three heap settings (macOS, arm64)
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Liberica NIK
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/compose-rust/nik
+          key: nik-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/install-nik.sh') }}
+
+      - name: Install Liberica NIK 25 Full
+        run: ./scripts/install-nik.sh --github-env
+
+      - name: Cache the Kotlin toolchain and Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/JetBrains/Kotlin
+            ~/.m2/repository
+          key: kotlin-${{ runner.os }}-${{ hashFiles('renderer/kotlin', 'renderer/libs.versions.toml', 'renderer/**/module.yaml') }}
+          restore-keys: |
+            kotlin-${{ runner.os }}-
+
+      - name: Build the renderer shared library
+        run: ./renderer/desktop/scripts/build-native.sh
+
+      - name: Scripted resize under each heap setting
+        run: |
+          ./.github/scripts/resize-gc-run.sh "$RUNNER_TEMP/resize-gc"
+          cat "$RUNNER_TEMP/resize-gc/summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resize-gc-macos
+          path: ${{ runner.temp }}/resize-gc/
+          retention-days: 14
+
+  windows:
+    name: GraalVM renderer, heap cap before and after, scripted resize (Windows, x64)
+    runs-on: windows-2022
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install upstream GraalVM 25
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build the Windows renderer
+        shell: powershell
+        run: .\renderer\desktop\scripts\build-native-windows.ps1
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Scripted resize, heap capped and not
+        shell: pwsh
+        run: |
+          $bin = "renderer\build\native-image\dist\bin"
+          $out = Join-Path $env:RUNNER_TEMP "resize-gc"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          & cl.exe /nologo /O2 "/Fe$out\smoke_host.exe" renderer\desktop\c\smoke_host.c /link "/LIBPATH:$bin" libcompose_rust_renderer.lib
+          $env:PATH = "$((Resolve-Path $bin).Path);$env:PATH"
+          $env:DXC_METRICS = "1"
+          $env:DXC_D3D12_WARP = "1"
+          $env:DXC_REPORT_LATENCY = "1"
+          $env:COMPOSE_RUST_AUTOEXIT_MS = "30000"
+          $runs = [ordered]@{
+            "capped-64m" = "-XX:+PrintGC"
+            "uncapped" = "-XX:+PrintGC -Xmx0"
+            "xmx-2g" = "-XX:+PrintGC -Xmx2g"
+          }
+          $summary = Join-Path $out "summary.md"
+          "## Windows GraalVM heap" | Out-File $summary
+          foreach ($name in $runs.Keys) {
+            $env:DXC_SVM_OPTIONS = $runs[$name]
+            $log = Join-Path $out "$name.log"
+            $ErrorActionPreference = "Continue"
+            & "$out\smoke_host.exe" 2>&1 | ForEach-Object { $_.ToString() } | Out-File $log
+            "### $name ($($runs[$name]))" | Out-File $summary -Append
+            '```' | Out-File $summary -Append
+            Select-String -Path $log -Pattern "metrics (phase|memory)|resize-mode: frames|isolate options" |
+              ForEach-Object { $_.Line } | Out-File $summary -Append
+            '```' | Out-File $summary -Append
+          }
+          Get-Content $summary
+          Get-Content $summary | Out-File $env:GITHUB_STEP_SUMMARY -Append
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resize-gc-windows
+          path: ${{ runner.temp }}/resize-gc/
+          retention-days: 14

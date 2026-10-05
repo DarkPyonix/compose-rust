@@ -624,7 +624,9 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
     // itself, at the size it has just become. Both go through the one door, which refuses
     // a second ask while one is being drawn, because a scene rendered from inside its own
     // render is not something Compose survives.
+    val experiment = GcExperiment.fromEnvironment()
     Win32Frames.paint = {
+        experiment?.frameBegin()
         frame++
         // The scene's own work first, before anything is read from it: a list that asked
         // for rows on the last frame wants them in hand before this one is measured.
@@ -684,6 +686,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
             drawFrame(window, context, scene, frame.toLong() * FRAME_NANOS, size, backdrop)
             LatencyTrace.mark("draw end")
             LatencyTrace.frameDrawn(System.nanoTime() - begun)
+            experiment?.frameEnd(size.width, size.height)
             painted = true
             drew = true
         }
@@ -712,6 +715,9 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
             if (synthetic != null && synthetic.resizeDue(System.nanoTime())) {
                 window.scriptedResize(size.width / measured.scale.toInt() to size.height / measured.scale.toInt(),
                     360 to 420, 60, 8_000)
+            }
+            if (experiment != null && experiment.due(System.nanoTime())) {
+                experiment.run(resize = { from, to, steps -> window.scriptedResize(from, to, steps, 0) })
             }
             synthetic?.keysDue(System.nanoTime())?.let { (code, character) ->
                 LatencyTrace.mark("synthetic key '$character' posted")

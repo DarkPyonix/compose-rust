@@ -39,22 +39,12 @@ jobs:
         shell: pwsh
         run: |
           $cSources = @("renderer_entry.c", "win32_window.c", "win32_notifications.c")
-          # win32_dcomp.cpp alone: dcomp.h declares overloaded COM methods, which only a
-          # C++ compiler can parse. No /EH flag leaves exceptions off, and /GR- turns off
-          # RTTI, matching what build-native-windows.ps1 compiles it with.
-          $cxxSources = @("win32_dcomp.cpp")
           New-Item -ItemType Directory -Force -Path obj | Out-Null
           $failed = @()
           foreach ($s in $cSources) {
             $path = Join-Path "renderer/desktop/c" $s
             $name = [IO.Path]::GetFileNameWithoutExtension($s)
             & cl.exe /nologo /c /O2 /std:c11 "/Fo:obj\$name.obj" $path
-            if ($LASTEXITCODE -ne 0) { $failed += $s }
-          }
-          foreach ($s in $cxxSources) {
-            $path = Join-Path "renderer/desktop/c" $s
-            $name = [IO.Path]::GetFileNameWithoutExtension($s)
-            & cl.exe /nologo /c /O2 /std:c++17 /GR- "/Fo:obj\$name.obj" $path
             if ($LASTEXITCODE -ne 0) { $failed += $s }
           }
           if ($failed.Count -gt 0) {

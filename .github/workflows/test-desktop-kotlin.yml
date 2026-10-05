@@ -1,0 +1,49 @@
+# Desktop Kotlin compile check -- compiles the renderer's desktop module for the JVM on every
+# pull request that touches it. No native-image, no tests.
+#
+# test.yml compiles it too, but only on pull requests into main, and the GraalVM workflow
+# reaches it through a JVM run whose exit status it deliberately ignores. So a Kotlin
+# compile error in a file only Windows runs (Win32Window.kt, for one) used to surface on
+# real hardware. This job fails on the pull request instead.
+
+name: Desktop Kotlin compile
+
+on:
+  pull_request:
+    paths:
+      - "renderer/desktop/src/**"
+      - "renderer/desktop/module.yaml"
+      - "renderer/libs.versions.toml"
+      - "renderer/kotlin"
+      - ".github/workflows/test-desktop-kotlin.yml"
+  workflow_dispatch:
+
+concurrency:
+  # One in-flight run per branch or PR; superseded runs are cancelled.
+  group: test-desktop-kotlin-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    name: Compile the desktop module for the JVM
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache the Kotlin toolchain and Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/JetBrains/Kotlin
+            ~/.m2/repository
+          key: kotlin-desktop-${{ runner.os }}-${{ hashFiles('renderer/**/module.yaml', 'renderer/libs.versions.toml', 'renderer/kotlin') }}
+          restore-keys: |
+            kotlin-desktop-${{ runner.os }}-
+
+      - name: Build the desktop module
+        working-directory: renderer
+        run: ./kotlin build -m desktop

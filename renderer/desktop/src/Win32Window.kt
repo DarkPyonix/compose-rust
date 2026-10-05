@@ -59,6 +59,36 @@ private external fun beginFrame(swapchain: Pointer?, resourceOut: Pointer?): Int
 @CFunction("dxc_native_frame_end")
 private external fun endFrame(queue: Pointer?)
 
+@CFunction("dxc_native_debug_resize")
+private external fun debugResize(
+    window: Pointer?,
+    view: Pointer?,
+    fromWidth: Int,
+    fromHeight: Int,
+    toWidth: Int,
+    toHeight: Int,
+    steps: Int,
+    pauseMicros: Int,
+)
+
+@CFunction("dxc_native_debug_key")
+private external fun debugKey(window: Pointer?, keyCode: Int, characters: CCharPointer?)
+
+@CFunction("dxc_native_set_raster_resize")
+private external fun setRasterResize(enabled: Int)
+
+@CFunction("dxc_native_frame_mode")
+private external fun frameMode(): Int
+
+@CFunction("dxc_native_raster_begin")
+private external fun nativeRasterBegin(pixels: Pointer?, rowBytes: CIntPointer?, width: CIntPointer?, height: CIntPointer?): Int
+
+@CFunction("dxc_native_raster_end")
+private external fun nativeRasterEnd()
+
+@CFunction("dxc_native_report_metrics")
+private external fun reportMetrics(label: CCharPointer?)
+
 @CFunction("dxc_native_set_draw_callback")
 private external fun setDrawCallback(callback: CFunctionPointer?, isolateThread: IsolateThread?)
 
@@ -109,6 +139,50 @@ class Win32NativeWindow internal constructor(
 
     /** Puts the painted frame on the screen. */
     fun endFrame() = endFrame(WordFactory.pointer(queue))
+
+    /** True while the window wants its resize frames as CPU pixels. */
+    fun rasterFrame(): Boolean = frameMode() != 0
+
+    /** The CPU frame's pixels: address, row bytes, width, height; null where there are none. */
+    fun rasterBegin(): RasterTarget? {
+        val pixels = StackValue.get<Pointer>(8)
+        val rowBytes = StackValue.get<CIntPointer>(4)
+        val width = StackValue.get<CIntPointer>(4)
+        val height = StackValue.get<CIntPointer>(4)
+        if (nativeRasterBegin(pixels, rowBytes, width, height) != 0) return null
+        return RasterTarget(pixels.readWord<Pointer>(0).rawValue(), rowBytes.read(), width.read(), height.read())
+    }
+
+    /** Copies the CPU frame into the window. */
+    fun rasterEnd() = nativeRasterEnd()
+
+    /** Prints the process's memory under [label]; see dxc_native_report_metrics. */
+    internal fun reportMemory(label: String) {
+        val holder = CTypeConversion.toCString(label)
+        try {
+            reportMetrics(holder.get())
+        } finally {
+            holder.close()
+        }
+    }
+
+    /** Posts a key press for [character] to the window. See `DXC_SYNTH`. */
+    internal fun postKey(keyCode: Int, character: String) {
+        val holder = CTypeConversion.toCString(character)
+        try {
+            debugKey(WordFactory.pointer(window), keyCode, holder.get())
+        } finally {
+            holder.close()
+        }
+    }
+
+    /** Takes the window through the sizes a drag would, for measuring. See `DXC_SYNTH`. */
+    internal fun scriptedResize(from: Pair<Int, Int>, to: Pair<Int, Int>, steps: Int, pauseMicros: Int) {
+        debugResize(
+            WordFactory.pointer(window), WordFactory.pointer(0L),
+            from.first, from.second, to.first, to.second, steps, pauseMicros,
+        )
+    }
 
 }
 
@@ -192,12 +266,12 @@ internal fun win32LabelBytes(label: String): ByteArray {
 /**
  * What the swapchain was made with, which Skia has to be told again.
  *
- * `DXGI_FORMAT_R8G8B8A8_UNORM`. Named by its number because the C side holds the header
+ * `DXGI_FORMAT_B8G8R8A8_UNORM`. Named by its number because the C side holds the header
  * this comes from and nothing on this side can see it, and repeated rather than asked for
  * because a format that disagrees between the two is a window of swapped colour channels
  * rather than a failure anything reports.
  */
-private const val SWAPCHAIN_FORMAT = 28
+private const val SWAPCHAIN_FORMAT = 87
 
 /**
  * The one door a frame is drawn through, and the only thing that decides there is one.
@@ -293,6 +367,9 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
         backdrop = false,
     )
     val window = openWin32Window(options.title, options.width, options.height)
+    // Resize frames on the CPU, copied into the window before the resize returns, unless
+    // asked not to (DXC_RASTER_RESIZE=0).
+    if (window != null) setRasterResize(if (System.getenv("DXC_RASTER_RESIZE") == "0") 0 else 1)
     if (window == null) {
         System.err.println("compose-rust: this machine has no Direct3D 12 adapter")
         host.shutdown()
@@ -358,7 +435,9 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
     var nanos = 0L
     var painted = false
     var drew = false
+    val experiment = GcExperiment.fromEnvironment()
     Win32Frames.paint = {
+        experiment?.frameBegin()
         // The scene's own work first. A list that asked for rows on the last frame wants
         // them in hand before this one is measured, and during a drag of the window's
         // edge this is the only place that runs at all.
@@ -366,7 +445,7 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
         nanos += FRAME_NANOS
         val begun = System.nanoTime()
         LatencyTrace.mark("draw begin (invalidated=${scene.hasInvalidations()})")
-        val at = drawFrame(window, context, scene, nanos)
+        val at = if (window.rasterFrame()) drawRasterFrame(window, scene, nanos) else drawFrame(window, context, scene, nanos)
         if (at != null) {
             size = at
             painted = true
@@ -374,6 +453,7 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
             LatencyTrace.mark("draw end ${at.width}x${at.height}")
         }
         LatencyTrace.frameDrawn(System.nanoTime() - begun)
+        experiment?.frameEnd(size.width, size.height)
     }
     registerFrameCallback()
     val started = System.nanoTime()
@@ -429,11 +509,25 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
                 textInput.receive(event)
                 heard = true
             }
-            // DXC_SYNTH's resize and keys modes post through dxc_native_debug_resize and
-            // dxc_native_debug_key, which this platform answers and does nothing: a real
-            // drag or key press on Windows goes through SendInput, which nothing here
-            // drives yet. Only the type and click modes, sent as WindowEvent through
-            // synthetic.due above, work on this platform today.
+            // DXC_SYNTH's resize and keys modes, through the window's own messages. The
+            // resize returns once every step has been drawn, from inside those messages.
+            if (synthetic != null && synthetic.resizeDue(System.nanoTime())) {
+                val scale = window.measure().scale
+                window.scriptedResize(
+                    (size.width / scale).toInt() to (size.height / scale).toInt(),
+                    360 to 420, 60, 8_000,
+                )
+            }
+            if (experiment != null && experiment.due(System.nanoTime())) {
+                experiment.run(
+                    resize = { from, to, steps -> window.scriptedResize(from, to, steps, 0) },
+                    memory = { label -> window.reportMemory(label) },
+                )
+            }
+            synthetic?.keysDue(System.nanoTime())?.let { (code, character) ->
+                LatencyTrace.mark("synthetic key '$character' posted")
+                window.postKey(code, character)
+            }
             // Only when there is something to draw. A window that is being looked at
             // rather than used should cost a comparison a frame.
             if (!painted || heard || scene.hasInvalidations()) {
@@ -469,6 +563,42 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
  * stays down, and a swapchain that could not be made to fit a size it was given answers
  * it once.
  */
+/** Where a CPU frame is drawn: the C side's bitmap, [width] x [height] of it. */
+class RasterTarget(val address: Long, val rowBytes: Int, val width: Int, val height: Int)
+
+/**
+ * One resize frame on the CPU: the same scene, drawn by Skia's raster backend into the
+ * pixels the C side hands over, with the GPU frame's colour space and pixel geometry, then
+ * copied into the window before the resize returns.
+ */
+private fun drawRasterFrame(window: Win32NativeWindow, scene: ComposeScene, nanos: Long): IntSize? {
+    val target = window.rasterBegin() ?: return null
+    val measured = window.measure()
+    val fitted = IntSize(target.width, target.height)
+    val density = Density(measured.scale)
+    if (scene.size != fitted || scene.density != density) {
+        scene.density = density
+        scene.size = fitted
+    }
+    val surface = org.jetbrains.skia.Surface.makeRasterDirect(
+        org.jetbrains.skia.ImageInfo(
+            target.width,
+            target.height,
+            org.jetbrains.skia.ColorType.BGRA_8888,
+            org.jetbrains.skia.ColorAlphaType.PREMUL,
+            org.jetbrains.skia.ColorSpace.sRGB,
+        ),
+        target.address,
+        target.rowBytes,
+        org.jetbrains.skia.SurfaceProps(org.jetbrains.skia.PixelGeometry.RGB_H),
+    )
+    if (RESIZE_DIAG) surface.canvas.clear(RESIZE_DIAG_COLOR)
+    scene.render(surface.canvas.asComposeCanvas(), nanos)
+    surface.close()
+    window.rasterEnd()
+    return fitted
+}
+
 private fun drawFrame(
     window: Win32NativeWindow,
     context: org.jetbrains.skia.DirectContext,
@@ -477,6 +607,7 @@ private fun drawFrame(
 ): IntSize? {
     val resource = window.beginFrame()
     if (resource == 0L) return null
+    val began = System.nanoTime()
     // After the buffer and not before it, because that is where a swapchain waiting to be
     // refitted is refitted, and what is measured here is the buffer that came back.
     val measured = window.measure()
@@ -504,16 +635,23 @@ private fun drawFrame(
         context,
         target,
         org.jetbrains.skia.SurfaceOrigin.TOP_LEFT,
-        org.jetbrains.skia.SurfaceColorFormat.RGBA_8888,
+        org.jetbrains.skia.SurfaceColorFormat.BGRA_8888,
         org.jetbrains.skia.ColorSpace.sRGB,
         org.jetbrains.skia.SurfaceProps(org.jetbrains.skia.PixelGeometry.RGB_H),
     )
     if (surface == null) {
+        // Not ended: ending transitions the texture from render target to present, and
+        // Skia never put it in render target, so that barrier would be invalid.
+        System.err.println("compose-rust: resize-mode: skipped frame ${fitted.width}x${fitted.height} because Skia made no surface")
         target.close()
-        window.endFrame()
         return null
     }
+    val surfaced = System.nanoTime()
+    // Diagnostic only: a vivid fill under the scene, so a capture can tell a frame whose
+    // content was late (this colour shows) from one never presented (black shows).
+    if (RESIZE_DIAG) surface.canvas.clear(RESIZE_DIAG_COLOR)
     scene.render(surface.canvas.asComposeCanvas(), nanos)
+    val rendered = System.nanoTime()
     // Submitted, not only recorded. Skia's Direct3D backend keeps the frame in a command
     // list of its own, and a buffer presented before that list runs is a buffer with
     // nothing in it: on macOS the same mistake made the window come up black with the
@@ -521,6 +659,15 @@ private fun drawFrame(
     surface.flushAndSubmit(true)
     surface.close()
     target.close()
+    if (REPORT_LATENCY) {
+        val submitted = System.nanoTime()
+        System.err.println(
+            "compose-rust: frame ${fitted.width}x${fitted.height} drawn: surface " +
+                "%.2f ms, layout and draw %.2f ms, flush and GPU %.2f ms".format(
+                    (surfaced - began) / 1e6, (rendered - surfaced) / 1e6, (submitted - rendered) / 1e6,
+                ),
+        )
+    }
     // Waits for the screen, so there is no sleep after this: presenting with an interval
     // of one is what paces a frame that was drawn.
     window.endFrame()
@@ -528,5 +675,12 @@ private fun drawFrame(
 }
 
 private const val NANOS_PER_MILLI = 1_000_000L
+
+private val REPORT_LATENCY = System.getenv("DXC_REPORT_LATENCY") != null
+
+// Off unless DXC_RESIZE_DIAG=1. Cyan: unlike the magenta wallpaper and the black of an
+// unpainted window, and unlike any app background.
+private val RESIZE_DIAG = System.getenv("DXC_RESIZE_DIAG") == "1"
+private const val RESIZE_DIAG_COLOR = 0xFF00FFFF.toInt()
 private const val FRAME_SECONDS = 0.016
 private const val FRAME_NANOS = 16_000_000L
