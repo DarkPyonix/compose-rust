@@ -694,7 +694,12 @@ internal class MacosWindow(
                 )
             },
             resize = { from, to, steps ->
-                for (step in 1..steps) {
+                // Each size in a pool of its own, as each event of a real drag is: AppKit
+                // hands back what a resize made (the material view's backing at the new
+                // size among it) autoreleased, and one pool around all 100 kept every one.
+                // What the frame itself holds is the surface's to give back, and the pool
+                // does not reach it.
+                for (step in 1..steps) kotlinx.cinterop.autoreleasepool {
                     val t = step.toDouble() / steps
                     window.setContentSize(
                         platform.Foundation.NSMakeSize(
