@@ -15,4 +15,10 @@ if [[ -n "$found" ]]; then
     echo "$found" >&2
     exit 1
 fi
-echo "the Linux image carries no Java toolkit library: ok"
+for type in java.awt.Toolkit java.awt.Component; do
+    if ! grep -q "ReportAnalysisForbiddenType=$type" "$repo_root/renderer/desktop/scripts/build-native-linux.sh"; then
+        echo "FAIL: build-native-linux.sh no longer forbids $type" >&2
+        exit 1
+    fi
+done
+echo "the Linux image carries no Java toolkit library and the build forbids the toolkit's types: ok"
