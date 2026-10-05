@@ -9,6 +9,8 @@ import androidx.compose.ui.semantics.SemanticsOwner
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.semantics.Role
+import org.thisisthepy.compose.window.AccessibleElement
+import org.thisisthepy.compose.window.ElementRole
 
 // What the window tells a reader who cannot see it.
 //
@@ -21,26 +23,6 @@ import androidx.compose.ui.semantics.Role
 // Flattened rather than kept as a tree. A first tree that says what is there and where is
 // worth more than a perfect shape nobody has tested, and the nesting can follow once a
 // reader has been heard using this.
-
-/** What a control is, in the small set both sides agree on. */
-internal object ElementRole {
-    const val GROUP = 0
-    const val BUTTON = 1
-    const val TEXT = 2
-    const val FIELD = 3
-    const val CHECKBOX = 4
-    const val IMAGE = 5
-}
-
-/** One thing in the window, as a reader would meet it. */
-data class AccessibleElement(
-    val role: Int,
-    val x: Float,
-    val y: Float,
-    val width: Float,
-    val height: Float,
-    val label: String,
-)
 
 /**
  * Everything in this tree worth announcing, in the order it is laid out.

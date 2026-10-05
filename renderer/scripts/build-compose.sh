@@ -18,16 +18,19 @@
 set -euo pipefail
 
 # The commit, not the branch. A branch that moves is a build that changes for a reason
-# nobody chose here. This one is the tip of `extended` after the AWT-free work merged
-# (embedder main dispatcher, plain-text clipboard entries, text direction without
-# java.awt.ComponentOrientation), on JetBrains release/1.11 at 73ac849 with the Linux
-# targets, the native text context menu, the published version, the design systems and
-# the window modules on top. The mingwX64 target it adds to every module's build is of no
-# use to a macOS or Linux build and does not get in its way.
+# nobody chose here. This one is the head of `extended`: JetBrains release/1.11 at 73ac849
+# with the Linux targets, the native text context menu (opening at the pointer on macOS),
+# the AWT-free copy, text direction and main dispatcher, the AppKit pump on the main thread, the main dispatcher property,
+# the published version and the design systems under extended/design-systems, which this
+# build does not read and scripts/fetch-design-systems.sh does.
 # compose-fork.changes lists what this commit must hold at every path it changes, and
 # scripts/tests/compose-fork.test.sh checks it.
 FORK="https://github.com/thisisthepy/compose-multiplatform-core-extended.git"
-REVISION="090e361ab3c314f35b90a10179c14e85ac1fd009"
+REVISION="825570f7ecfbf9061bcbbd97c005f7456f744ea5"
+# The window modules and skiko's static build are newer than that and are not Compose sources:
+# the renderer builds them from this commit (scripts/fetch-fork-window.sh and fetch-fork-skiko.sh)
+# into artifacts of its own, so they move without moving the Compose build above.
+WINDOW_REVISION="af23a35c9da18c896fc3f943688af06c376a456d"
 PUBLISHED_AS="1.11.1"
 # Material 3 is versioned on its own line and the renderer asks for it by that version, so
 # publishing it as the others would leave a coordinate nobody looks for.
@@ -163,7 +166,11 @@ for module in "${modules[@]}"; do
 done
 (
     cd "$WORK"
+    # The fork declares mingwX64 on every UI module, and skiko publishes no mingwX64 artifact:
+    # only the fork's own Windows build makes one. None of the targets here is Windows, so
+    # leave that platform out rather than fail resolving skiko for it.
     ./gradlew --no-daemon --no-configuration-cache \
+        "-Pandroidx.enabled.kmp.target.platforms=-windows" \
         "-Pjetbrains.publication.version.COMPOSE=$PUBLISHED_AS" \
         "-Pjetbrains.publication.version.COMPOSE_MATERIAL3=$MATERIAL3_PUBLISHED_AS" \
         "${tasks[@]}"

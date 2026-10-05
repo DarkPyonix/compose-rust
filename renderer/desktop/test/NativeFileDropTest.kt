@@ -5,7 +5,7 @@ import androidx.compose.ui.geometry.Rect
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.platform.NativeFileDrops
-import dev.darkpyonix.composerust.ui.platform.WindowEvent
+import org.thisisthepy.compose.window.WindowEvent
 import dev.darkpyonix.composerust.ui.platform.routeFileDrop
 import dev.darkpyonix.composerust.ui.platform.splitDroppedPaths
 import kotlin.test.AfterTest

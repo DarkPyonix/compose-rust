@@ -10,7 +10,9 @@
 # that runtime rather than anything drawn. Compose publishes this target, so on this
 # platform none of it is needed.
 #
-# Windows and Linux have no such target and keep the native image path.
+# The window itself, AppKit and the Metal surface, is the fork's `extended/window/native/macos`
+# module; this module draws the renderer's content in it. Windows has no such target and keeps
+# the native image path.
 product:
   type: lib
   platforms: [ macosArm64 ]
@@ -29,6 +31,10 @@ dependencies:
   - $compose.foundation
   - $compose.material3
   - $compose.ui
+  # The window: AppKit and Metal, and what every window decides the same way. Published by
+  # scripts/publish-window.sh from the pinned fork commit, next to the patched Compose.
+  - org.thisisthepy.compose.window:common:0.1.0
+  - org.thisisthepy.compose.window:native-macos:0.1.0
 
 test-dependencies:
   - $kotlin.test

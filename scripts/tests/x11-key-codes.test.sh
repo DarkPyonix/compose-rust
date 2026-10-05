@@ -7,7 +7,10 @@
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-source_file="$repo_root/renderer/desktop/c/x11_window.c"
+# The X11 window is the Compose fork's graalvm-linux module, read at the commit the renderer pins.
+source "$repo_root/scripts/tests/fork-window.sh"
+fork_window_or_skip "$repo_root"
+source_file="$fork_window/graalvm/graalvm-linux/c/x11_window.c"
 [[ -f "$source_file" ]] || { echo "missing $source_file"; exit 1; }
 
 dir="$(mktemp -d)"

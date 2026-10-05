@@ -3,9 +3,8 @@
 # The fork is thisisthepy/compose-multiplatform-core-extended, and build-compose.sh pins
 # one commit of it. These lines are what that commit holds at each path it changed
 # relative to the upstream revision it starts from (JetBrains release/1.11, 73ac849):
-# the Linux targets, the native text context menu, the version it publishes as, the design
-# systems under extended/design-systems, the AWT-free desktop changes (embedder main
-# dispatcher, clipboard entries, text direction, pointer icons) and the window modules.
+# the Linux targets, the native text context menu, the version it publishes as, and the
+# design systems under extended/design-systems with the workflow that builds them.
 # scripts/tests/compose-fork.test.sh reads the pinned commit's tree and checks every line,
 # so a pin that loses one of these changes fails there and not in a renderer build an
 # hour later.
@@ -138,13 +137,13 @@ f863e4dd433da53c552e170104132df0365af1c8 compose/ui/ui/build.gradle
 18ed6c46a212ec2f55dc2ac0ed9c702b90d207b2 compose/ui/ui/src/desktopMain/kotlin/androidx/compose/ui/Actuals.desktop.kt
 b263924bd292b6efc7d7a0ea31a64c1c46f8da74 compose/ui/ui/src/desktopMain/kotlin/androidx/compose/ui/awt/AwtEvents.desktop.kt
 209a2da00df207d81df4299fc038038960de8050 compose/ui/ui/src/desktopMain/kotlin/androidx/compose/ui/input/pointer/PointerIcon.desktop.kt
-d2d3e5f8b88349a419248c5706c5d82f1338725c compose/ui/ui/src/desktopMain/kotlin/androidx/compose/ui/internal/ExtendedMainDispatcher.desktop.kt
+b6d6c4e97ff664126c5d99d5718f273b7eed5379 compose/ui/ui/src/desktopMain/kotlin/androidx/compose/ui/internal/ExtendedMainDispatcher.desktop.kt
 c93c963f54c49c0120b7d4afcf9464bb7ed77c61 compose/ui/ui/src/desktopMain/kotlin/androidx/compose/ui/internal/ExtendedPointerIcon.desktop.kt
 e169679b0545acbf9aa1f00549b98ffe43134a12 compose/ui/ui/src/desktopMain/kotlin/androidx/compose/ui/platform/GlobalSnapshotManager.desktop.kt
 3a23e117dd184d8afe892b976d34e470a28a18e8 compose/ui/ui/src/desktopMain/kotlin/androidx/compose/ui/platform/PlatformClipboard.desktop.kt
 16fd9b4b892e79bebc7afadb8ded43dea80f2914 compose/ui/ui/src/desktopMain/kotlin/androidx/compose/ui/scene/ComposeSceneMediator.desktop.kt
 7f93b20ffef469e8eeab3734c4d17ab1c751ec89 compose/ui/ui/src/desktopTest/kotlin/androidx/compose/ui/input/pointer/AwtFreePointerIconTest.kt
-ea9dcedc22d53ad6847cf264d6ca49cde1ef784f compose/ui/ui/src/desktopTest/kotlin/androidx/compose/ui/internal/AwtFreeMainDispatcherTest.desktop.kt
+26e45beea8b9c5f73ed05ed7b6c053e9f5261ec2 compose/ui/ui/src/desktopTest/kotlin/androidx/compose/ui/internal/AwtFreeMainDispatcherTest.desktop.kt
 eeaec03f8a4073efee2a60f9cc6b436d5e537726 compose/ui/ui/src/linuxMain/kotlin/androidx/compose/ui/draganddrop/DragAndDrop.linux.kt
 44eebf07eee639ae79e188306d42f9d98e587334 compose/ui/ui/src/linuxMain/kotlin/androidx/compose/ui/focus/Focusability.linux.kt
 f3afc0c0a72dec78adf071a396391881594938d3 compose/ui/ui/src/linuxMain/kotlin/androidx/compose/ui/input/key/Key.linux.kt
@@ -306,10 +305,11 @@ ef959a931824a607e6c1e331dd7fc603e6f48876 extended/window/native/linux/test/X11Wi
 65397379ce005b54ac43515d2c7d7f1c81425c3c extended/window/native/macos/src/org/thisisthepy/compose/window/macos/MacosClipboard.kt
 13271313f2ffd1bc1491c7267ccd9948026b42c6 extended/window/native/macos/src/org/thisisthepy/compose/window/macos/MacosFileDrop.kt
 11867ff15b233ef62f8b7a6d291c1d3efe7f4b51 extended/window/native/macos/src/org/thisisthepy/compose/window/macos/MacosTextToolbar.kt
-86c60758ea1f0b7790e18b7918b2c9231978fb3c extended/window/native/macos/src/org/thisisthepy/compose/window/macos/MacosWindow.kt
+1045ac1b1aa1d66fb8f3649437cb7654c82bd039 extended/window/native/macos/src/org/thisisthepy/compose/window/macos/MacosWindow.kt
 077328c0319ce61049a44f88803fca2de256bb58 extended/window/native/macos/src/org/thisisthepy/compose/window/macos/MacosWindowChrome.kt
 d3f29aedfdf30c6419dab3efbebba73e8fa402a9 extended/window/native/macos/src/org/thisisthepy/compose/window/macos/MacosWindowPlatform.kt
-345efc68bd67fb8941a628fe552e77465665abf5 extended/window/native/macos/src/org/thisisthepy/compose/window/macos/MetalSurface.kt
+933fbdaaeaa4ae415d79d62162eae5c51419d6f7 extended/window/native/macos/src/org/thisisthepy/compose/window/macos/MetalSurface.kt
+db596f5645c2ca92c21241a31a8ce37e5da3a242 extended/window/native/macos/src/org/thisisthepy/compose/window/macos/ResizeMetrics.kt
 4687f06b41a42edd997ea04860a9dfc492ad02f6 extended/window/native/macos/src/org/thisisthepy/compose/window/macos/TextContextMenu.kt
 6f92bb6f5891c783c49949b290fd09282789f594 extended/window/native/macos/src/org/thisisthepy/compose/window/macos/TextInputSession.kt
 25f801983a9c32eff60647ba1268a7a619f537c2 extended/window/native/macos/src/org/thisisthepy/compose/window/macos/WindowCaption.kt
@@ -321,7 +321,7 @@ d6b869e16576736f30112ef9fb25c78fc160282b extended/window/native/macos/src/org/th
 33ab0b290240fd4328eb0ca221c21857dcd6d7f3 extended/window/native/macos/test/MacosClipboardTest.kt
 7ba29ca33f750824a0a47bcbc3de92a9089dd2d5 extended/window/native/macos/test/MacosWindowChromeTest.kt
 746d4d60c5c89386fcfb1c9964fe6d38e433a66a extended/window/native/macos/test/MacosWindowPlatformTest.kt
-13089bd91a2b55b0e7093605184451030abf5b62 extended/window/native/macos/test/MetalSurfaceTest.kt
+0e346ba60af694aa9c1fa2ba0ff99ae877389126 extended/window/native/macos/test/MetalSurfaceTest.kt
 424f25c41bbca2f7b9a82437e66cf8e1355e1023 extended/window/project.yaml
 0b3330e1e4185f39e0d40dd0de679c4344c12841 extended/window/scripts/check-klib-names.sh
 2751345e0f0e8cf4b03588e55101a6a3c8e90891 gradle.properties

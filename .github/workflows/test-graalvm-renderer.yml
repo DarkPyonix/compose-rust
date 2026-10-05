@@ -19,6 +19,8 @@ on:
       - 'renderer/kotlin'
       - 'renderer/**/module.yaml'
       - 'scripts/install-nik.sh'
+      - 'scripts/fetch-fork-window.sh'
+      - 'renderer/scripts/publish-window.sh'
       - 'renderer/scripts/build-compose.sh'
       - 'renderer/scripts/compose-fork.changes'
       - 'scripts/tests/renderer/**'
@@ -31,6 +33,8 @@ on:
       - 'renderer/kotlin'
       - 'renderer/**/module.yaml'
       - 'scripts/install-nik.sh'
+      - 'scripts/fetch-fork-window.sh'
+      - 'renderer/scripts/publish-window.sh'
       - 'renderer/scripts/build-compose.sh'
       - 'renderer/scripts/compose-fork.changes'
       - 'scripts/tests/renderer/**'
@@ -80,6 +84,9 @@ jobs:
 
       - name: Build the renderer shared library
         run: ./renderer/desktop/scripts/build-native.sh
+
+      - name: The fork's window modules name no AWT
+        run: ./scripts/tests/renderer/window-modules-no-awt.test.sh
 
       - name: Smoke test
         env:
@@ -206,6 +213,9 @@ jobs:
 
       - name: Build the Linux renderer under Xvfb
         run: xvfb-run -a ./renderer/desktop/scripts/build-native-linux.sh
+
+      - name: The fork's window modules name no AWT
+        run: ./scripts/tests/renderer/window-modules-no-awt.test.sh
 
       - name: The image carries no Java toolkit
         run: bash scripts/tests/renderer/linux-image-has-no-awt.test.sh

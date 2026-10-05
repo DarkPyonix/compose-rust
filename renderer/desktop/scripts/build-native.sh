@@ -14,9 +14,16 @@ arch="$HOST_ARCH"
 skiko_arch="$SKIKO_ARCH"
 
 for source_file in renderer_entry.c macos_awt_compat.c macos_main_thread.m \
-                   appkit_window.m macos_notifications.m jawt_forwarder.c lwawt_placeholder.c; do
+                   macos_notifications.m jawt_forwarder.c lwawt_placeholder.c; do
     [[ -f "$NATIVE_DIR/c/$source_file" ]] || die "missing $NATIVE_DIR/c/$source_file"
 done
+
+# The AppKit window is the Compose fork's: its C is compiled from the checkout at the pinned
+# commit, and its Kotlin is the published module the renderer's desktop module depends on.
+"$PROJECT_DIR/scripts/publish-window.sh"
+fork_window="$("$PROJECT_DIR/../scripts/fetch-fork-window.sh")/extended/window"
+appkit_source="$fork_window/graalvm/graalvm-macos/native/appkit_window.m"
+[[ -f "$appkit_source" ]] || die "missing $appkit_source"
 
 # The classpath comes from a short JVM run so that it matches what the metadata describes.
 COMPOSE_RUST_AUTOEXIT_MS=1 run_on_jvm ""
@@ -35,7 +42,7 @@ cc -c -O2 -arch "$arch" -o "$obj/macos_main_thread.o" "$NATIVE_DIR/c/macos_main_
 # The window the renderer is learning to open for itself. Compiled with ARC because it
 # holds AppKit and Metal objects, and reference counting them by hand is a class of bug
 # this project has no reason to invite.
-cc -c -O2 -fobjc-arc -arch "$arch" -o "$obj/appkit_window.o" "$NATIVE_DIR/c/appkit_window.m"
+cc -c -O2 -fobjc-arc -arch "$arch" -o "$obj/appkit_window.o" "$appkit_source"
 # Notifications through UNUserNotificationCenter. With ARC for the same reason as the window.
 cc -c -O2 -fobjc-arc -arch "$arch" -o "$obj/macos_notifications.o" "$NATIVE_DIR/c/macos_notifications.m"
 

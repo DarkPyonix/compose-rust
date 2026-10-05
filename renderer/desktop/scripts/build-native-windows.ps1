@@ -86,6 +86,14 @@ if (-not (Test-Path -LiteralPath $KotlinWrapper -PathType Leaf)) {
         "The checked-in Kotlin Toolchain wrapper is required; no separate Gradle install is used."
     )
 }
+# The desktop module depends on the Compose fork's window modules, published to the local Maven
+# repository from the commit build-compose.sh pins. The Windows window is still this
+# repository's own, so only the shared logic and the other desktops' wrappers are needed.
+$PublishWindow = Join-Path $ProjectDir "scripts\publish-window.sh"
+& bash $PublishWindow
+if ($LASTEXITCODE -ne 0) {
+    Fail "could not publish the window modules from the Compose fork"
+}
 # This carries the whole verified Compose desktop AWT stack, not just the sun.awt.windows
 # classes. An earlier Windows-only selection kept the entries whose names mention Windows and
 # dropped the rest, which removed the JNI registration of java.awt.Toolkit.getDefaultToolkit.

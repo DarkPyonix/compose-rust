@@ -3,13 +3,6 @@
 
 package dev.darkpyonix.composerust.ui.platform
 
-import org.graalvm.nativeimage.StackValue
-import org.graalvm.nativeimage.UnmanagedMemory
-import org.graalvm.nativeimage.c.function.CFunction
-import org.graalvm.nativeimage.c.type.CCharPointer
-import org.graalvm.nativeimage.c.type.CIntPointer
-import org.graalvm.nativeimage.c.type.CFloatPointer
-import org.graalvm.nativeimage.c.type.CTypeConversion
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
@@ -33,550 +26,70 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.graphics.asSkiaBitmap
 import dev.darkpyonix.composerust.runtime.asksForWindowMaterial
+import dev.darkpyonix.composerust.protocol.Chrome
+import dev.darkpyonix.composerust.protocol.TitleBar
 import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.scene.ComposeScene
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import org.graalvm.nativeimage.CurrentIsolate
-import org.graalvm.nativeimage.IsolateThread
-import org.graalvm.nativeimage.c.function.CFunctionPointer
-import org.graalvm.word.Pointer
-import org.graalvm.word.WordFactory
+import org.thisisthepy.compose.window.DockIcon
+import org.thisisthepy.compose.window.WindowEvent
+import org.thisisthepy.compose.window.contentMinimum
+import org.thisisthepy.compose.window.graalvm.macos.AppKitUpcallSlots
+import org.thisisthepy.compose.window.graalvm.macos.NativeWindow
+import org.thisisthepy.compose.window.graalvm.macos.configureNativeWindow
+import org.thisisthepy.compose.window.graalvm.macos.describeTo
+import org.thisisthepy.compose.window.graalvm.macos.drainWindowEvents
+import org.thisisthepy.compose.window.graalvm.macos.forgetFrameCallback
+import org.thisisthepy.compose.window.graalvm.macos.installApplicationMenu
+import org.thisisthepy.compose.window.graalvm.macos.isWindowClosed
+import org.thisisthepy.compose.window.graalvm.macos.measureTitleBar
+import org.thisisthepy.compose.window.graalvm.macos.configureNativeWindowChrome
+import org.thisisthepy.compose.window.graalvm.macos.showContextMenu
+import org.thisisthepy.compose.window.graalvm.macos.openNativeWindow
+import org.thisisthepy.compose.window.graalvm.macos.pumpWindowEvents
+import org.thisisthepy.compose.window.graalvm.macos.readDroppedPaths
+import org.thisisthepy.compose.window.graalvm.macos.registerFrameCallback
+import org.thisisthepy.compose.window.graalvm.macos.setApplicationIcon
+import org.thisisthepy.compose.window.graalvm.macos.setPointerShape
+import org.thisisthepy.compose.window.graalvm.macos.AccessibleElement as AppKitElement
 
 // A window that is ours, drawn into with Skia and with no toolkit in between.
 //
-// Beside `NativeHostConnection` rather than among the renderer's own files, and for the
-// same reason: this is the only other place that names GraalVM types, so a development
-// run on a JVM never loads them.
-//
-// The C side is `c/appkit_window.m`. It owns the window, the view, the layer, the Metal
-// device and the queue, and answers with the pointers. Nothing there draws.
+// The window itself, its C and the calls that reach it are the Compose fork's
+// `extended/window/graalvm/graalvm-macos` module. What is here is the Compose half: the
+// scene the window is drawn from, the events it hears handed to that scene, and the loop.
 //
 // The scene this drives is Compose's own, reached through an interface the library marks
 // as being for its own modules. There is no other way in: the supported entry builds a
-// toolkit window, and a toolkit window is the thing being removed. Kept to this one file
-// and pinned to the version in the module file, which is what the rule about unstable
-// APIs asks for. A Compose upgrade changes this file or it changes nothing.
-
-@CFunction("dxc_native_window_open")
-private external fun openWindow(
-    title: CCharPointer?,
-    width: Int,
-    height: Int,
-    out: Pointer?,
-): Int
-
-@CFunction("dxc_native_window_size")
-private external fun windowSize(
-    view: Pointer?,
-    width: CIntPointer?,
-    height: CIntPointer?,
-    scale: CFloatPointer?,
-)
-
-@CFunction("dxc_native_frame_begin")
-private external fun beginFrame(layer: Pointer?, textureOut: Pointer?): Int
-
-@CFunction("dxc_native_frame_end")
-private external fun endFrame(queue: Pointer?)
-
-@CFunction("dxc_native_take_paste")
-private external fun takePaste(out: Pointer?, capacity: Int): Int
-
-@CFunction("dxc_native_poll_event")
-private external fun pollEvent(out: Pointer?): Int
-
-@CFunction("dxc_native_set_accessibility")
-private external fun setAccessibility(elements: Pointer?, count: Int, view: Pointer?)
-
-@CFunction("dxc_native_set_cursor")
-private external fun setCursorShape(shape: Int)
-
-@CFunction("dxc_native_pump")
-private external fun pumpEvents(seconds: Double)
-
-@CFunction("dxc_native_set_draw_callback")
-private external fun setAppKitDrawCallback(callback: CFunctionPointer?, isolateThread: IsolateThread?)
-
-@CFunction("dxc_native_debug_resize")
-private external fun debugResize(
-    window: Pointer?,
-    view: Pointer?,
-    fromWidth: Int,
-    fromHeight: Int,
-    toWidth: Int,
-    toHeight: Int,
-    steps: Int,
-    pauseMicros: Int,
-)
-
-@CFunction("dxc_native_debug_key")
-private external fun debugKey(window: Pointer?, keyCode: Int, characters: CCharPointer?)
-
-@CFunction("dxc_native_clipboard_read")
-private external fun clipboardRead(out: Pointer?, capacity: Int): Int
-
-@CFunction("dxc_native_clipboard_write")
-private external fun clipboardWrite(text: CCharPointer?)
-
-@CFunction("dxc_native_install_menu")
-private external fun installMenu(name: CCharPointer?)
-
-@CFunction("dxc_native_context_menu")
-private external fun nativeContextMenu(view: Pointer?, items: CCharPointer?): Int
-
-@CFunction("dxc_native_window_configure")
-private external fun configureWindow(
-    resizable: Int,
-    minWidth: Int,
-    minHeight: Int,
-    systemChrome: Int,
-    backdrop: Int,
-)
-
-@CFunction("dxc_native_window_caption")
-private external fun windowCaption(view: Pointer?, height: CFloatPointer?, buttonsWidth: CFloatPointer?)
-
-@CFunction("dxc_native_set_icon")
-private external fun setIcon(rgba: CCharPointer?, width: Int, height: Int)
-
-@CFunction("dxc_native_dropped_paths")
-private external fun droppedPaths(out: Pointer?, capacity: Int): Int
-
-@CFunction("dxc_native_set_ime_spot")
-private external fun setImeSpot(x: Float, y: Float)
-
-@CFunction("dxc_native_window_action")
-private external fun windowAction(action: Int)
-
-@CFunction("dxc_native_window_begin_drag")
-private external fun beginWindowDrag(edge: Int)
-
-@CFunction("dxc_native_window_closed")
-private external fun windowClosed(): Int
+// toolkit window, and a toolkit window is the thing being removed. Kept to the window
+// files and pinned to the version in the module file, which is what the rule about
+// unstable APIs asks for. A Compose upgrade changes these files or it changes nothing.
 
 /**
- * The four pointers a window is, once AppKit has made one.
- *
- * Words rather than objects, because that is what crosses: native-image accepts a word
- * value in straight-line code inside one method and nowhere else, so each is read out
- * once, here, and carried as a plain `Long` after that.
+ * The strip of the window the title bar occupies and the room its three buttons take, in the
+ * form the renderer's content is laid out around.
  */
-class NativeWindow internal constructor(
-    val window: Long,
-    val view: Long,
-    val device: Long,
-    val queue: Long,
-    val layer: Long,
-) {
-
-    // A word value is made where it is used and nowhere else. Native-image accepts one
-    // in straight-line code inside a single method, so a helper that returned one, or a
-    // variable that held one across a call, is rejected: `WordFactory.pointer` is
-    // written out at each call rather than wrapped.
-
-    /** The size of the drawable in pixels, and how many of them go to a point. */
-    fun measure(): WindowMeasurement {
-        val width = StackValue.get<CIntPointer>(4)
-        val height = StackValue.get<CIntPointer>(4)
-        val scale = StackValue.get<CFloatPointer>(4)
-        windowSize(WordFactory.pointer(layer), width, height, scale)
-        return WindowMeasurement(width.read(), height.read(), scale.read())
-    }
-
-    /**
-     * The texture this frame paints into, or zero where the system had none to give.
-     *
-     * Zero is not a failure. It means frames are being produced faster than the screen
-     * takes them, and the answer to that is to skip one rather than to wait.
-     */
-    fun beginFrame(): Long {
-        val texture = StackValue.get<Pointer>(8)
-        if (beginFrame(WordFactory.pointer(layer), texture) != 0) return 0
-        return texture.readWord<Pointer>(0).rawValue()
-    }
-
-    /** Puts the painted frame on the screen. */
-    fun endFrame() = endFrame(WordFactory.pointer(queue))
-
-    /** Posts a key press for [character] to the window. See `DXC_SYNTH`. */
-    internal fun postKey(keyCode: Int, character: String) {
-        val holder = CTypeConversion.toCString(character)
-        try {
-            debugKey(WordFactory.pointer(window), keyCode, holder.get())
-        } finally {
-            holder.close()
-        }
-    }
-
-    /** Takes the window through the sizes a drag would, for measuring. See `DXC_SYNTH_RESIZE`. */
-    internal fun scriptedResize(from: Pair<Int, Int>, to: Pair<Int, Int>, steps: Int, pauseMicros: Int) {
-        debugResize(
-            WordFactory.pointer(window), WordFactory.pointer(view),
-            from.first, from.second, to.first, to.second, steps, pauseMicros,
-        )
-    }
-
-}
-
-/**
- * Takes everything the window has heard since the last frame.
- *
- * Drained rather than delivered. AppKit answers on its own thread and the Host keeps its
- * state on the one that draws, so an event that arrived as a call would arrive on the
- * wrong thread; the shell writes them down and this reads them where they can be used.
- */
-fun drainWindowEvents(): List<WindowEvent> {
-    val record = StackValue.get<Pointer>(EVENT_STRUCT_BYTES)
-    val events = ArrayList<WindowEvent>()
-    // Everything about the record is read here. A word value may not leave the method it
-    // was made in, so the text is copied out byte by byte rather than by handing the
-    // pointer to something that knows how to read a string.
-    val bytes = ByteArray(TEXT_BYTES)
-    while (pollEvent(record) != 0) {
-        var length = 0
-        while (length < TEXT_BYTES) {
-            val byte = record.readByte(TEXT_OFFSET + length)
-            if (byte == ZERO) break
-            bytes[length] = byte
-            length++
-        }
-        if (record.readInt(0) == WindowEvent.TEXT_PASTE) {
-            val pasted = readPaste()
-            if (pasted.isNotEmpty()) {
-                events.add(WindowEvent(WindowEvent.TEXT_COMMIT, 0f, 0f, 0, 0, 0, 0, pasted))
-            }
-            continue
-        }
-        events.add(
-            WindowEvent(
-                kind = record.readInt(0),
-                x = record.readFloat(4),
-                y = record.readFloat(8),
-                buttons = record.readInt(12),
-                modifiers = record.readInt(16),
-                keyCode = record.readInt(20),
-                codePoint = record.readInt(24),
-                text = if (length == 0) "" else String(bytes, 0, length, Charsets.UTF_8),
-            ),
-        )
-    }
-    return events
-}
-
-/**
- * Hands the platform what the window would tell a reader who cannot see it.
- *
- * Written into stack storage and copied on the other side. The elements are few, they
- * change when the screen changes rather than when a frame is drawn, and the alternative
- * is the platform asking across threads at a moment nobody chose.
- */
-fun NativeWindow.describeTo(elements: List<AccessibleElement>) = describeWindow(view, elements)
-
-/**
- * Writes the records and hands them to whichever window asked.
- *
- * Apart from the extension above because the windows the other desktops open are not this
- * class, and what a tree looks like on the way across does not differ between them: one
- * layout, written once, so a field that moves cannot move in one place only.
- */
-internal fun describeWindow(view: Long, elements: List<AccessibleElement>) {
-    val capped = if (elements.size > MAX_ELEMENTS) elements.take(MAX_ELEMENTS) else elements
-    val records = StackValue.get<Pointer>(MAX_ELEMENTS * ELEMENT_BYTES)
-    for ((index, element) in capped.withIndex()) {
-        val at = index * ELEMENT_BYTES
-        records.writeInt(at, element.role)
-        records.writeFloat(at + 4, element.x)
-        records.writeFloat(at + 8, element.y)
-        records.writeFloat(at + 12, element.width)
-        records.writeFloat(at + 16, element.height)
-        val bytes = element.label.toByteArray(Charsets.UTF_8)
-        var length = 0
-        while (length < bytes.size && length < TEXT_BYTES - 1) {
-            records.writeByte(at + ELEMENT_LABEL_OFFSET + length, bytes[length])
-            length++
-        }
-        records.writeByte(at + ELEMENT_LABEL_OFFSET + length, ZERO)
-    }
-    setAccessibility(records, capped.size, WordFactory.pointer(view))
-}
-
-/**
- * Sets the shape of the pointer over the window.
- *
- * The scene decides: a control that is a link asks for a hand, a field asks for a bar.
- * Which platform cursor that is belongs to the shell, so what crosses is a number.
- */
-fun setPointerShape(shape: Int) = setCursorShape(shape)
-
-/**
- * What the application asked of its window, handed over before the window is made.
- *
- * Sizes are in points, which is what the window measures its content in.
- */
-internal fun configureNativeWindow(
-    resizable: Boolean,
-    minWidth: Int,
-    minHeight: Int,
-    systemChrome: Boolean,
-    backdrop: Boolean,
-) = configureWindow(
-    if (resizable) 1 else 0,
-    minWidth,
-    minHeight,
-    if (systemChrome) 1 else 0,
-    if (backdrop) 1 else 0,
-)
-
-/**
- * The strip of the window the title bar occupies and the room its three buttons take at the
- * leading edge, as the window reports them.
- *
- * Measured rather than assumed, because the height follows the platform: it is taller
- * under a toolbar than under the standard bar and has changed between releases.
- */
-internal fun NativeWindow.measureCaption(): dev.darkpyonix.composerust.runtime.WindowCaption {
-    val height = StackValue.get<CFloatPointer>(4)
-    val buttons = StackValue.get<CFloatPointer>(4)
-    windowCaption(WordFactory.pointer(view), height, buttons)
-    return dev.darkpyonix.composerust.runtime.WindowCaption(
-        height = height.read().dp,
-        buttonsWidth = buttons.read().dp,
-        buttonsAtStart = true,
+internal fun NativeWindow.captionStrip(chrome: MacosWindowChrome): dev.darkpyonix.composerust.runtime.WindowCaption? {
+    val bar = measureTitleBar()
+    return macosWindowCaption(
+        chrome = chrome,
+        windowHeight = bar.windowHeight.toDouble(),
+        contentLayoutHeight = bar.contentLayoutHeight.toDouble(),
+        closeMinX = bar.closeMinX?.toDouble(),
+        zoomMaxX = bar.zoomMaxX?.toDouble(),
+        cornerRadius = bar.cornerRadius?.toDouble(),
     )
 }
 
-/** Tells the window where the caret is, so the input method's candidates open beside it. */
-internal fun reportCaret(textInput: NativeTextInput) {
-    val spot = textInput.caretSpot() ?: return
-    if (spot == lastCaret) return
-    lastCaret = spot
-    setImeSpot(spot.x, spot.y)
-}
-
-private var lastCaret: androidx.compose.ui.geometry.Offset? = null
-
-/** Brings the window forward. Safe from any thread: it is a request the window acts on in its next turn. */
-internal fun bringNativeWindowToFront() = windowAction(3)
-
-/** What a button of the application's own caption does to the window. */
-internal fun nativeWindowActions() = dev.darkpyonix.composerust.runtime.WindowActions(
-    minimise = { windowAction(0) },
-    maximise = { windowAction(1) },
-    close = { windowAction(2) },
+/** Hands the window the title bar [chrome] describes, before the window is made. */
+private fun chromeForNextWindow(chrome: MacosWindowChrome) = configureNativeWindowChrome(
+    fullSizeContentView = chrome.fullSizeContentView,
+    titlebarAppearsTransparent = chrome.titlebarAppearsTransparent,
+    titleHidden = chrome.titleHidden,
+    unifiedToolbar = chrome.unifiedToolbar,
 )
-
-/**
- * Hands the move or the resize of an undecorated window to the window manager, which does
- * it better than a drag measured here could: 0 moves, and 1 to 8 pull the edge or corner
- * [WindowEdge] names.
- */
-internal fun beginNativeWindowDrag(edge: Int) = beginWindowDrag(edge)
-
-/** The paths of the files last dragged over the window, one string, NUL between them. */
-internal fun readDroppedPaths(): String {
-    val buffer = StackValue.get<Pointer>(DROPPED_PATHS_BYTES)
-    val length = droppedPaths(buffer, DROPPED_PATHS_BYTES)
-    if (length <= 0) return ""
-    val bytes = ByteArray(length)
-    for (index in 0 until length) {
-        bytes[index] = buffer.readByte(index)
-    }
-    return String(bytes, Charsets.UTF_8)
-}
-
-private const val DROPPED_PATHS_BYTES = 64 * 1024
-
-/**
- * Puts a picture on the application, which is what the Dock and the switcher show.
- *
- * [rgba] is eight bits each of red, green, blue and alpha, the colour already multiplied by
- * the alpha, row after row with no padding.
- */
-internal fun setApplicationIcon(rgba: ByteArray, width: Int, height: Int) {
-    val holder = CTypeConversion.toCBytes(rgba)
-    try {
-        setIcon(holder.get(), width, height)
-    } finally {
-        holder.close()
-    }
-}
-
-/**
- * Puts the picture the application named on the window, once the asset has arrived.
- *
- * Asked each frame until it is there, because the id is known from the first batch and the
- * bitmap a little later. Answers true once it has been put on, so the caller can stop.
- */
-internal fun applyNamedIcon(host: dev.darkpyonix.composerust.runtime.ComposeRustHost, id: Int): Boolean {
-    if (id == 0) return true
-    val raster = host.table.assets.asset(id) as? dev.darkpyonix.composerust.ui.node.Asset.Raster
-        ?: return false
-    iconPixels(raster.bitmap)?.let { (pixels, width, height) ->
-        setApplicationIcon(pixels, width, height)
-    }
-    return true
-}
-
-/** The pixels [setApplicationIcon] takes, from a picture Compose holds. */
-internal fun iconPixels(picture: androidx.compose.ui.graphics.ImageBitmap): Triple<ByteArray, Int, Int>? {
-    val bitmap = picture.asSkiaBitmap()
-    val info = org.jetbrains.skia.ImageInfo(
-        bitmap.width,
-        bitmap.height,
-        org.jetbrains.skia.ColorType.RGBA_8888,
-        org.jetbrains.skia.ColorAlphaType.PREMUL,
-    )
-    val pixels = bitmap.readPixels(info, info.minRowBytes) ?: return null
-    return Triple(pixels, bitmap.width, bitmap.height)
-}
-
-
-/**
- * Lets the window answer for itself for a moment.
- *
- * Called once a frame. The thread that draws is the thread the platform delivers on, so a
- * loop that never gave it a turn would be a window that heard nothing.
- */
-fun pumpWindowEvents(seconds: Double) = pumpEvents(seconds)
-
-/** True once the reader has closed the window. */
-fun isWindowClosed(): Boolean = windowClosed() != 0
-
-/**
- * Puts up a menu the system draws, at the pointer, and answers with the index of the
- * entry chosen or -1 when it was dismissed. Returns when the menu closes.
- */
-fun NativeWindow.showContextMenu(entries: List<NativeMenuEntry>): Int {
-    val holder = CTypeConversion.toCString(packMenu(entries))
-    try {
-        return nativeContextMenu(WordFactory.pointer(view), holder.get())
-    } finally {
-        holder.close()
-    }
-}
-
-/**
- * Gives the application the menu bar every application on this platform has.
- *
- * Without one, the shortcuts a reader expects do nothing: command-Q does not quit and
- * command-C does not copy. The items are the system's own actions and are sent to
- * whatever holds focus, so no window is asked to implement them.
- */
-fun installApplicationMenu(name: String) {
-    val holder = CTypeConversion.toCString(name)
-    try {
-        installMenu(holder.get())
-    } finally {
-        holder.close()
-    }
-}
-
-/** What is on the clipboard, or empty where it holds something that is not text. */
-fun readClipboard(): String {
-    val buffer = UnmanagedMemory.malloc<Pointer>(CLIPBOARD_BYTES)
-    try {
-        val length = clipboardRead(buffer, CLIPBOARD_BYTES)
-        if (length <= 0) return ""
-        val bytes = ByteArray(length)
-        for (index in 0 until length) {
-            bytes[index] = buffer.readByte(index)
-        }
-        return String(bytes, Charsets.UTF_8)
-    } finally {
-        UnmanagedMemory.free(buffer)
-    }
-}
-
-/** The text of a paste the window is holding, whole, and empty where there is none. */
-private fun readPaste(): String {
-    val buffer = UnmanagedMemory.malloc<Pointer>(CLIPBOARD_BYTES)
-    try {
-        val length = takePaste(buffer, CLIPBOARD_BYTES)
-        if (length <= 0) return ""
-        val bytes = ByteArray(length)
-        for (index in 0 until length) {
-            bytes[index] = buffer.readByte(index)
-        }
-        return String(bytes, Charsets.UTF_8)
-    } finally {
-        UnmanagedMemory.free(buffer)
-    }
-}
-
-/** Puts text on the clipboard, replacing what was there. */
-fun writeClipboard(text: String) {
-    val holder = CTypeConversion.toCString(text)
-    try {
-        clipboardWrite(holder.get())
-    } finally {
-        holder.close()
-    }
-}
-
-/**
- * How much of the clipboard a paste may carry: 4 MiB, which is the most one X11 property
- * read returns. The buffer is taken from the heap for the length of the read, because the
- * stack is too small for it, and a clipboard larger than this answers empty rather than
- * handing over a cut text.
- */
-private const val CLIPBOARD_BYTES = 4 * 1024 * 1024
-
-/** What a pointer can look like, in the small set both sides agree on. */
-object PointerShape {
-    const val ARROW = 0
-    const val HAND = 1
-    const val TEXT = 2
-    const val CROSSHAIR = 3
-    const val RESIZE_LEFT_RIGHT = 4
-    const val RESIZE_UP_DOWN = 5
-}
-
-/**
- * How many things a screen may say it has.
- *
- * Enough for a screen and not for a document. A list of ten thousand rows is windowed
- * before it reaches the scene, so what is here is what is on screen.
- */
-private const val MAX_ELEMENTS = 256
-private const val ELEMENT_LABEL_OFFSET = 20
-private const val ELEMENT_BYTES = 116
-
-private const val ZERO: Byte = 0
-private const val TEXT_OFFSET = 28
-private const val TEXT_BYTES = 96
-private const val EVENT_STRUCT_BYTES = 124
-
-/**
- * Opens a window, or null where this machine has no Metal device.
- *
- * Null rather than an exception: a machine without Metal is not a mistake in this code,
- * and the caller has an older path it can take instead.
- */
-fun openNativeWindow(title: String, width: Int, height: Int): NativeWindow? {
-    val holder = CTypeConversion.toCString(title)
-    try {
-        // Four pointers, in the order the C struct declares them.
-        val out = StackValue.get<Pointer>(WINDOW_STRUCT_BYTES)
-        val status = openWindow(holder.get(), width, height, out)
-        if (status == 1 || status == 2) {
-            return null
-        }
-        check(status == 0) { "AppKit could not register the process for mouse input ($status)" }
-        return NativeWindow(
-            window = out.readWord<Pointer>(0).rawValue(),
-            view = out.readWord<Pointer>(8).rawValue(),
-            device = out.readWord<Pointer>(16).rawValue(),
-            queue = out.readWord<Pointer>(24).rawValue(),
-            layer = out.readWord<Pointer>(32).rawValue(),
-        )
-    } finally {
-        holder.close()
-    }
-}
-
-private const val WINDOW_STRUCT_BYTES = 40
 
 /**
  * Draws the application into a window of our own, and holds it there until it is closed.
@@ -603,13 +116,19 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
     val asked = host.table.window
     val options = nativeWindowOptions(host, backdropSupported = true)
     val backdrop = options.backdrop
+    val minimum = contentMinimum(options.minWidth, options.minHeight)
     configureNativeWindow(
         resizable = options.resizable,
-        minWidth = options.minWidth,
-        minHeight = options.minHeight,
+        minWidth = minimum?.first?.toInt() ?: 0,
+        minHeight = minimum?.second?.toInt() ?: 0,
         systemChrome = options.systemChrome,
         backdrop = backdrop,
     )
+    val chrome = MacosWindowChrome.of(
+        chrome = if (options.systemChrome) Chrome.System else Chrome.Modern,
+        titleBar = asked?.titleBar ?: TitleBar.Normal,
+    )
+    chromeForNextWindow(chrome)
     val window = openNativeWindow(options.title, options.width, options.height)
     if (window == null) {
         System.err.println("compose-rust: this machine has no Metal device")
@@ -630,7 +149,9 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
     // The strip the title bar takes, which the bar at the top of the application's tree is
     // laid out around. Measured again whenever the window changes size, because entering
     // full screen removes the bar and leaving it brings it back.
-    val caption = androidx.compose.runtime.mutableStateOf(window.measureCaption())
+    val caption = androidx.compose.runtime.mutableStateOf(
+        window.captionStrip(chrome) ?: dev.darkpyonix.composerust.runtime.WindowCaption.None,
+    )
     val textInput = NativeTextInput()
     val synthetic = System.getenv("DXC_SYNTH")?.let { SyntheticInput(it) }
     val semantics = NativeSemantics { elements ->
@@ -638,7 +159,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
             System.err.println("compose-rust: the window has ${elements.size} things to say")
         }
         synthetic?.noteElements(elements)
-        window.describeTo(elements)
+        window.describeTo(elements.map { AppKitElement(it.role, it.x, it.y, it.width, it.height, it.label) })
     }
     // Kept rather than left to the scene. What a scene picks for itself is the toolkit's
     // queue, and the Host this renderer talks to is on this thread and invisible from
@@ -649,7 +170,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
         density = androidx.compose.ui.unit.Density(measured.scale),
         size = size,
         coroutineContext = work,
-        platformContext = NativePlatformContext({ size }, textInput, semantics),
+        platformContext = NativePlatformContext({ size }, textInput, semantics, ::setPointerShape),
     )
     // The application's own tree, drawn by the same interpreter every window uses.
     // Nothing in it knows which window it is in, which is the point.
@@ -662,7 +183,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
         val menu = if (System.getenv("DXC_MENU_OVERRIDE") == "drawn") {
             androidx.compose.foundation.LightDefaultContextMenuRepresentation
         } else {
-            NativeContextMenuRepresentation { entries -> window.showContextMenu(entries) }
+            NativeContextMenuRepresentation { entries -> window.showContextMenu(packMenu(entries)) }
         }
         androidx.compose.runtime.CompositionLocalProvider(
             androidx.compose.foundation.LocalContextMenuRepresentation provides menu,
@@ -673,7 +194,16 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
     installApplicationMenu(options.title)
 
     val started = System.nanoTime()
-    var iconId = 0
+    val dockIcon = DockIcon<androidx.compose.ui.graphics.ImageBitmap>(
+        lookup = { id ->
+            (host.table.assets.asset(id) as? dev.darkpyonix.composerust.ui.node.Asset.Raster)?.bitmap
+        },
+        apply = { picture ->
+            iconPixels(picture)?.let { (pixels, width, height) ->
+                setApplicationIcon(pixels, width, height)
+            }
+        },
+    )
     var painted = false
     var frame = 0
     var drew = false
@@ -691,19 +221,9 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
         // for rows on the last frame wants them in hand before this one is measured.
         FrameMainDispatcher.runPending()
         work.runPending()
-        // The application's picture, once the asset it named has arrived. The id is
-        // known from the first batch and the bitmap a little later, so this asks each
-        // frame until it is there and then stops.
-        if (iconId == 0 && asked != null && asked.icon != 0) {
-            val raster = host.table.assets.asset(asked.icon)
-                as? dev.darkpyonix.composerust.ui.node.Asset.Raster
-            if (raster != null) {
-                iconId = asked.icon
-                iconPixels(raster.bitmap)?.let { (pixels, width, height) ->
-                    setApplicationIcon(pixels, width, height)
-                }
-            }
-        }
+        // The application's picture, once the asset it named has arrived. Asked each frame
+        // until it is there and then not at all, by the same rule the other macOS window uses.
+        if (!dockIcon.applied && asked != null) dockIcon.tryApply(asked.icon)
         var heard = false
         val events = drainWindowEvents()
         for (event in synthetic?.due(System.nanoTime(), size) ?: emptyList()) {
@@ -726,7 +246,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
             if (event.kind == WindowEvent.RESIZE) {
                 size = androidx.compose.ui.unit.IntSize(event.x.toInt(), event.y.toInt())
                 scene.size = size
-                caption.value = window.measureCaption()
+                window.captionStrip(chrome)?.let { caption.value = it }
             }
             if (LatencyTrace.enabled && event.kind != WindowEvent.POINTER_MOVE) {
                 LatencyTrace.mark("window heard ${event.kind}")
@@ -762,6 +282,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
             ) {
                 break
             }
+            if (synthetic?.exitDue(System.nanoTime()) == true) break
             // Cleared before the window is given its turn, because a resize inside it
             // draws its own frames and the semantics below must hear of them.
             drew = false
@@ -805,13 +326,15 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
  * without being told which thread of which isolate is calling. Written out at the call
  * because native-image accepts a word value in straight-line code inside one method only.
  */
-private fun registerAppKitFrameCallback() =
-    setAppKitDrawCallback(Win32DrawCallback.POINTER.functionPointer, CurrentIsolate.getCurrentThread())
+private fun registerAppKitFrameCallback() {
+    AppKitUpcallSlots.frame = Runnable { Win32Frames.draw() }
+    registerFrameCallback()
+}
 
-private fun forgetAppKitFrameCallback() = setAppKitDrawCallback(
-    WordFactory.nullPointer<CFunctionPointer>(),
-    WordFactory.nullPointer<IsolateThread>(),
-)
+private fun forgetAppKitFrameCallback() {
+    forgetFrameCallback()
+    AppKitUpcallSlots.frame = null
+}
 
 private const val NANOS_PER_MILLI = 1_000_000L
 
