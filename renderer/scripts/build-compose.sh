@@ -48,7 +48,7 @@ REVISION="02ff96c42a412d8eded411d48c56da131f570af6"
 # what they publish (every module's root metadata would name a mingw_x64 variant nobody
 # built there) for nothing they use. compose-fork-mingw.changes lists what this commit must
 # hold, and scripts/tests/compose-fork.test.sh checks both pins.
-MINGW_REVISION="e41edc778ee96418941ae9f05c483e5017132227"
+MINGW_REVISION="11da941766762c4760df9cf3c11429837d772bdd"
 PUBLISHED_AS="1.11.1"
 # Material 3 is versioned on its own line and the renderer asks for it by that version, so
 # publishing it as the others would leave a coordinate nobody looks for.
