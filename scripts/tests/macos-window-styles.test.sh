@@ -4,15 +4,19 @@
 #
 # A window can ask for the plain title bar (no toolbar) or the toolbar one. macOS gives the
 # two different corner radii, bar heights and button positions, and every one of those
-# numbers is the system's: the renderers read them from the window instead of keeping a
-# design system constant, because a constant is right for one style on one release.
+# numbers is the system's. The renderers read the bar and the buttons from the window
+# instead of keeping a design system constant, because a constant is right for one style on
+# one release. AppKit reports no corner radius through a public API, and a private key is
+# rejected by Mac App Store review, so the radius comes from the fork's table keyed by style
+# and release (MacosCornerRadius.kt), and the fork's corner check measures the corner the
+# system draws on screen against it.
 #
 # Both windows are the Compose fork's (extended/window), fetched at the pinned revision.
 # The native image's window is `appkit_window.m`. The Kotlin/Native one is `MacosWindow.kt`,
 # which this script cannot compile, so its `applyChrome` is checked line for line against
 # the window built here in its place. Each style is opened twice, once by the C window and
 # once the Kotlin/Native way, and the two must report the same geometry: frame height,
-# the height below the bar, where the buttons start and end, and the corner radius.
+# the height below the bar, where the buttons start and end, and whether it has a toolbar.
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -28,13 +32,20 @@ for file in "$source_dir/appkit_window.m" "$native_kt" "$chrome_kt"; do
     [[ -f "$file" ]] || { echo "FAIL: $file is missing"; exit 1; }
 done
 
-# Both windows read the radius under one key, and neither keeps a number of its own.
-key="$(sed -n 's/^const val MACOS_CORNER_RADIUS_KEY: String = "\(.*\)"$/\1/p' "$chrome_kt")"
-[[ -n "$key" ]] || fail "MacosWindowChrome.kt names no key for the corner radius"
-grep -q "valueForKey:@\"$key\"" "$source_dir/appkit_window.m" ||
-    fail "the C window reads the corner radius under a different key from $key"
-grep -q 'MACOS_CORNER_RADIUS_KEY' "$native_kt" ||
-    fail "the Kotlin/Native window does not read the corner radius under the shared key"
+table_kt="$fork_window/common/src/org/thisisthepy/compose/window/MacosCornerRadius.kt"
+[[ -f "$table_kt" ]] || fail "the fork has no corner radius table at $table_kt"
+
+# fr19_7_no_private_api_in_the_window_code
+# A private selector or key (`_cornerRadius` and the like) is rejected by Mac App Store
+# review and can break in any update.
+calls='valueForKey(Path)?|setValue[^"]*forKey(Path)?|performSelector[A-Za-z]*|respondsToSelector|NSSelectorFromString|sel_registerName|sel_getUid'
+private="(($calls)[[:space:]]*[:(][^\"]{0,80}@?\"_)|(@selector\\([[:space:]]*_)|_cornerRadius"
+hits="$(grep -rEn "$private" "$fork_window" "$repo_root/renderer/desktop/src" "$repo_root/renderer/macos/src" \
+    --include='*.kt' --include='*.m' --include='*.c' --include='*.h' --include='*.java' \
+    --exclude-dir=build --exclude-dir=scripts || true)"
+[[ -z "$hits" ]] || fail "fr19_7 the window code names a private selector or key:
+$hits"
+
 for rules in "$repo_root/renderer/desktop/src/renderer/ComponentRules.kt" \
     "$repo_root/renderer/desktop/src/renderer/DesignSystem.kt"; do
     if grep -q 'windowCornerRadius\|platformButtonInset' "$rules"; then
@@ -69,8 +80,9 @@ trap 'rm -rf "$work"' EXIT
 cat > "$work/styles.m" <<'EOF'
 #include "appkit_window.m"
 
-// The five numbers each renderer hands macosWindowCaption.
-struct geometry { float frame, layout, close, zoom, radius; };
+// What each renderer measures: the four numbers it hands macosWindowCaption, and whether
+// the window has a toolbar, which with the release picks the corner radius from the table.
+struct geometry { float frame, layout, close, zoom, toolbar; };
 
 // The Kotlin/Native window: its style mask, then MacosWindow.kt's applyChrome.
 static struct geometry kotlin_native(int toolbar) {
@@ -101,7 +113,7 @@ static struct geometry kotlin_native(int toolbar) {
         (float)window.contentLayoutRect.size.height,
         close ? (float)close.frame.origin.x : -1,
         zoom ? (float)NSMaxX(zoom.frame) : -1,
-        (float)dxc_window_corner_radius(window),
+        window.toolbar != nil ? 1 : 0,
     };
     [window close];
     return g;
@@ -113,7 +125,7 @@ static int native_image(int toolbar, struct geometry *g) {
     struct dxc_native_window native = {0};
     if (dxc_native_window_open("title bar styles", 480, 640, &native) != 0) return 1;
     dxc_native_pump(0.1);
-    float out[5];
+    float out[6];
     dxc_native_window_title_bar(native.view, out);
     *g = (struct geometry){out[0], out[1], out[2], out[3], out[4]};
     [(__bridge NSWindow *)native.window close];
@@ -133,9 +145,9 @@ int main(void) {
             printf("%s c %.1f %.1f %.1f %.1f %.1f k %.1f %.1f %.1f %.1f %.1f\n",
                    names[toolbar],
                    c[toolbar].frame, c[toolbar].layout, c[toolbar].close, c[toolbar].zoom,
-                   c[toolbar].radius,
+                   c[toolbar].toolbar,
                    k[toolbar].frame, k[toolbar].layout, k[toolbar].close, k[toolbar].zoom,
-                   k[toolbar].radius);
+                   k[toolbar].toolbar);
         }
         printf("os %ld\n", (long)NSProcessInfo.processInfo.operatingSystemVersion.majorVersion);
         return 0;
@@ -157,16 +169,16 @@ if [[ $run_status -eq 3 ]]; then
 fi
 [[ $run_status -eq 0 ]] || { echo "FAIL: the probe exited $run_status"; exit 1; }
 
-read -r _ _ s_frame s_layout s_close s_zoom s_radius _ ks_frame ks_layout ks_close ks_zoom ks_radius \
+read -r _ _ s_frame s_layout s_close s_zoom s_toolbar _ ks_frame ks_layout ks_close ks_zoom ks_toolbar \
     <<< "$(grep '^simple ' <<< "$output")"
-read -r _ _ t_frame t_layout t_close t_zoom t_radius _ kt_frame kt_layout kt_close kt_zoom kt_radius \
+read -r _ _ t_frame t_layout t_close t_zoom t_toolbar _ kt_frame kt_layout kt_close kt_zoom kt_toolbar \
     <<< "$(grep '^toolbar ' <<< "$output")"
 os="$(sed -n 's/^os //p' <<< "$output")"
 
 # fr19_7_both_paths_open_the_same_window_per_style
-[[ "$s_frame $s_layout $s_close $s_zoom $s_radius" == "$ks_frame $ks_layout $ks_close $ks_zoom $ks_radius" ]] ||
+[[ "$s_frame $s_layout $s_close $s_zoom $s_toolbar" == "$ks_frame $ks_layout $ks_close $ks_zoom $ks_toolbar" ]] ||
     fail "fr19_7 the simple title bar differs between the native image and Kotlin/Native windows"
-[[ "$t_frame $t_layout $t_close $t_zoom $t_radius" == "$kt_frame $kt_layout $kt_close $kt_zoom $kt_radius" ]] ||
+[[ "$t_frame $t_layout $t_close $t_zoom $t_toolbar" == "$kt_frame $kt_layout $kt_close $kt_zoom $kt_toolbar" ]] ||
     fail "fr19_7 the toolbar title bar differs between the native image and Kotlin/Native windows"
 
 # fr19_7_the_content_top_follows_the_style
@@ -174,13 +186,32 @@ awk -v t="$t_frame" -v tl="$t_layout" -v s="$s_frame" -v sl="$s_layout" \
     'BEGIN { exit !((t - tl) > (s - sl) && (s - sl) > 0) }' ||
     fail "fr19_7 the toolbar bar is not taller than the plain one ($t_frame-$t_layout against $s_frame-$s_layout)"
 
-# fr19_7_the_radius_is_the_systems
-awk -v s="$s_radius" -v t="$t_radius" 'BEGIN { exit !(s > 0 && t >= s) }' ||
-    fail "fr19_7 the system reported no radius, or a toolbar window rounder by less than a plain one ($t_radius against $s_radius)"
-# macOS 26 is the release that rounds a toolbar window more and sets its buttons further in.
+# fr19_7_the_style_picks_the_toolbar_the_table_is_keyed_by
+[[ "$s_toolbar" == 0.0 && "$t_toolbar" == 1.0 ]] ||
+    fail "fr19_7 the simple window has a toolbar or the toolbar window has none ($s_toolbar, $t_toolbar)"
+
+# fr19_7_the_radius_comes_from_the_table_for_the_style_and_release
+row="$(sed -n 's/^ *MacosCornerRadiusRow(fromMajor = \([0-9]*\), simple = \([0-9.]*\), toolbar = \([0-9.]*\)),$/\1 \2 \3/p' "$table_kt" |
+    awk -v os="${os:-0}" '$1 <= os { r = $0 } END { print r }')"
+if [[ -z "$row" ]]; then
+    fail "fr19_7 the corner radius table has no row for macOS ${os:-unknown}"
+else
+    read -r _ want_simple want_toolbar <<< "$row"
+    echo "corner radius from the table for macOS $os: simple $want_simple, toolbar $want_toolbar"
+    # macOS 26 is the release that rounds a toolbar window more and sets its buttons further in.
+    if [[ "${os:-0}" -ge 26 ]]; then
+        awk -v s="$want_simple" -v t="$want_toolbar" 'BEGIN { exit !(t > s) }' ||
+            fail "fr19_7 on macOS $os the table does not round the toolbar window more than the plain one"
+    fi
+fi
+
+# fr19_7_the_table_matches_the_corner_the_system_draws
+corner_output="$("$fork_window/scripts/check-macos-corner-radius.sh" 2>&1)" ||
+    fail "fr19_7 the corner the system draws differs from the table:
+$corner_output"
+echo "$corner_output"
+
 if [[ "${os:-0}" -ge 26 ]]; then
-    awk -v s="$s_radius" -v t="$t_radius" 'BEGIN { exit !(t > s) }' ||
-        fail "fr19_7 on macOS $os the toolbar window is not rounder than the plain one"
     awk -v s="$s_close" -v t="$t_close" 'BEGIN { exit !(t > s) }' ||
         fail "fr19_7 on macOS $os the toolbar window's buttons are not further in"
 fi
