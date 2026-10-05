@@ -2807,32 +2807,39 @@ struct dxc_real_drag_plan {
 };
 static struct dxc_real_drag_plan dxc_real_drag;
 
-static void dxc_send_mouse(DWORD flags) {
+/** One mouse event at an absolute screen position, as a real mouse would send it. */
+static void dxc_send_mouse(DWORD flags, int x, int y) {
     INPUT input;
     memset(&input, 0, sizeof input);
     input.type = INPUT_MOUSE;
-    input.mi.dwFlags = flags;
+    int width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+    int height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+    int left = GetSystemMetrics(SM_XVIRTUALSCREEN);
+    int top = GetSystemMetrics(SM_YVIRTUALSCREEN);
+    input.mi.dx = (LONG)(((long long)(x - left) * 65535 + width / 2) / (width - 1));
+    input.mi.dy = (LONG)(((long long)(y - top) * 65535 + height / 2) / (height - 1));
+    input.mi.dwFlags = flags | MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
     SendInput(1, &input, sizeof input);
 }
 
 static DWORD WINAPI dxc_real_drag_thread(LPVOID unused) {
     (void)unused;
     Sleep(300);
-    SetCursorPos(dxc_real_drag.x, dxc_real_drag.y);
-    Sleep(50);
-    dxc_send_mouse(MOUSEEVENTF_LEFTDOWN);
+    dxc_send_mouse(0, dxc_real_drag.x, dxc_real_drag.y);
+    Sleep(100);
+    dxc_send_mouse(MOUSEEVENTF_LEFTDOWN, dxc_real_drag.x, dxc_real_drag.y);
+    Sleep(100);
     int step = dxc_real_drag.interval_ms <= 1 ? 2 : 8;
     for (int moved = step; moved <= dxc_real_drag.travel; moved += step) {
-        SetCursorPos(dxc_real_drag.x + moved, dxc_real_drag.y);
-        dxc_send_mouse(MOUSEEVENTF_MOVE);
+        dxc_send_mouse(0, dxc_real_drag.x + moved, dxc_real_drag.y);
         Sleep((DWORD)dxc_real_drag.interval_ms);
     }
     for (int moved = dxc_real_drag.travel - step; moved >= 0; moved -= step) {
-        SetCursorPos(dxc_real_drag.x + moved, dxc_real_drag.y);
-        dxc_send_mouse(MOUSEEVENTF_MOVE);
+        dxc_send_mouse(0, dxc_real_drag.x + moved, dxc_real_drag.y);
         Sleep((DWORD)dxc_real_drag.interval_ms);
     }
-    dxc_send_mouse(MOUSEEVENTF_LEFTUP);
+    Sleep(100);
+    dxc_send_mouse(MOUSEEVENTF_LEFTUP, dxc_real_drag.x, dxc_real_drag.y);
     return 0;
 }
 
