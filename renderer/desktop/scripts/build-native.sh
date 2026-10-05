@@ -117,7 +117,7 @@ skia_archives=("$static_dir"/skia/*.a)
 foreign_stubs="$BUILD_DIR/foreign-stubs.o"
 static_skiko_args=(
     "--features=dev.darkpyonix.composerust.ui.platform.StaticSkikoFeature"
-    "-Ddioxus.compose.staticSkiko=true"
+    "-Ddev.darkpyonix.composerust.staticSkiko=true"
     "-H:CLibraryPath=$static_dir"
     # Every member, not only the ones something refers to. A JNI entry point is reached by
     # name at run time and nothing in the image refers to it by symbol, so ordinary archive
