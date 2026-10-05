@@ -53,6 +53,11 @@ env:
   # them. Pinned rather than read from develop, because develop stops having them once the
   # fork replaces them, and the old build has to stay reproducible after that.
   LEGACY_REF: ba5cf56c9aa488b7a9dc4b0e8c4af4f09cbe83ae
+  # The fork commit shown to build the same as the patches above. The pin has moved past it
+  # to take later fork changes on purpose. A module whose sources changed between this and the
+  # pin may differ, and the list is read from the fork's diff, never written by hand. Every
+  # other module must still be identical, so a change nobody meant still fails.
+  EQUIVALENT_REVISION: 02ff96c42a412d8eded411d48c56da131f570af6
 
 jobs:
   build:
@@ -215,8 +220,24 @@ jobs:
         id: compare
         continue-on-error: true
         run: |
+          set -euo pipefail
+          fork="$(sed -n 's/^FORK="\(.*\)"$/\1/p' renderer/scripts/build-compose.sh)"
+          revision="$(sed -n 's/^REVISION="\([0-9a-f]\{40\}\)"$/\1/p' renderer/scripts/build-compose.sh)"
+          history="$RUNNER_TEMP/fork-history"
+          rm -rf "$history"
+          git init -q --bare "$history"
+          git -C "$history" fetch -q --filter=blob:none "$fork" "$EQUIVALENT_REVISION" "$revision"
+          # compose/<group>/<module>/src/... publishes as org/jetbrains/compose/<group>/<module>.
+          sources="$(git -C "$history" diff --name-only "$EQUIVALENT_REVISION" "$revision" -- 'compose/*/*/src/*')"
+          changed=()
+          for prefix in $(awk -F/ '{ print "org/jetbrains/compose/" $2 "/" $3 }' <<< "$sources" | sort -u); do
+            module="${prefix#org/jetbrains/compose/}"
+            echo "allowed to differ: $prefix, because these sources changed since $EQUIVALENT_REVISION:"
+            grep "^compose/$module/src/" <<< "$sources" | sed 's/^/  /'
+            changed+=(--changed "$prefix")
+          done
           python3 .github/scripts/compare-maven-repos.py "$LEGACY_REPO" "$FORK_REPO" \
-            --report "$RUNNER_TEMP/compose-equivalence-${{ matrix.target }}.txt"
+            --report "$RUNNER_TEMP/compose-equivalence-${{ matrix.target }}.txt" ${changed[@]+"${changed[@]}"}
 
       - name: Keep the comparison report
         if: always()
