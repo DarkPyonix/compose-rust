@@ -33,6 +33,9 @@ on:
       - renderer/kotlin.bat
       - renderer/libs.versions.toml
       - renderer/project.yaml
+      - compose-rust/tests/fixtures/consumer/**
+      - .github/scripts/resize-metrics-run.sh
+      - .github/scripts/resize-memory-check.sh
       - .github/workflows/test-kn-desktop-renderer.yml
 
 concurrency:
@@ -140,6 +143,39 @@ jobs:
         if: matrix.module == 'macos'
         working-directory: renderer
         run: ./kotlin test -m macos
+
+      - name: Build the static macOS renderer and an application on it
+        if: matrix.module == 'macos'
+        run: |
+          set -euo pipefail
+          ./renderer/desktop/scripts/build-macos.sh
+          export DXC_MACOS_NATIVE_LIB="$PWD/renderer/build/macos"
+          cargo build --release --manifest-path compose-rust/tests/fixtures/consumer/Cargo.toml
+
+      - name: Memory after 100 scripted resizes stays bounded
+        # A frame drawn inside a resize used to leave its drawable to the run loop's pool,
+        # and 100 sizes in one turn held 528 MB of Metal memory. The bounds and why they are
+        # what they are: .github/scripts/resize-memory-check.sh.
+        if: matrix.module == 'macos'
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/resize-metrics"
+          app=compose-rust/tests/fixtures/consumer/target/release/consumer
+          # The consumer opens its window only when asked to.
+          printf '#!/bin/sh\nexec "%s" --launch\n' "$PWD/$app" > "$RUNNER_TEMP/consumer-launch"
+          chmod +x "$RUNNER_TEMP/consumer-launch"
+          ./.github/scripts/resize-metrics-run.sh "$RUNNER_TEMP/consumer-launch" "$out" macos-kn
+          cat "$out/macos-kn.md" >> "$GITHUB_STEP_SUMMARY"
+          ./.github/scripts/resize-memory-check.sh "$out/macos-kn.log" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the resize logs
+        if: always() && matrix.module == 'macos'
+        uses: actions/upload-artifact@v4
+        with:
+          name: resize-metrics-macos-kn
+          path: ${{ runner.temp }}/resize-metrics/
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Build and test the Linux renderer
         if: matrix.module == 'linux'
