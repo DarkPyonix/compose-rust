@@ -266,12 +266,12 @@ internal fun win32LabelBytes(label: String): ByteArray {
 /**
  * What the swapchain was made with, which Skia has to be told again.
  *
- * `DXGI_FORMAT_R8G8B8A8_UNORM`. Named by its number because the C side holds the header
+ * `DXGI_FORMAT_B8G8R8A8_UNORM`. Named by its number because the C side holds the header
  * this comes from and nothing on this side can see it, and repeated rather than asked for
  * because a format that disagrees between the two is a window of swapped colour channels
  * rather than a failure anything reports.
  */
-private const val SWAPCHAIN_FORMAT = 28
+private const val SWAPCHAIN_FORMAT = 87
 
 /**
  * The one door a frame is drawn through, and the only thing that decides there is one.
@@ -635,7 +635,7 @@ private fun drawFrame(
         context,
         target,
         org.jetbrains.skia.SurfaceOrigin.TOP_LEFT,
-        org.jetbrains.skia.SurfaceColorFormat.RGBA_8888,
+        org.jetbrains.skia.SurfaceColorFormat.BGRA_8888,
         org.jetbrains.skia.ColorSpace.sRGB,
         org.jetbrains.skia.SurfaceProps(org.jetbrains.skia.PixelGeometry.RGB_H),
     )

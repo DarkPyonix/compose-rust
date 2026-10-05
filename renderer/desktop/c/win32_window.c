@@ -121,7 +121,9 @@ struct dxc_event {
 
 // The format the swapchain and Skia have to agree on. Named here as a number because the
 // Kotlin side has to pass the same one to Skia and cannot see this header.
-#define DXC_SWAPCHAIN_FORMAT DXGI_FORMAT_R8G8B8A8_UNORM
+// BGRA rather than RGBA because it is the one format a swapchain can hand GDI a device
+// context for (DXGI_SWAP_CHAIN_FLAG_GDI_COMPATIBLE), which the CPU resize frames need.
+#define DXC_SWAPCHAIN_FORMAT DXGI_FORMAT_B8G8R8A8_UNORM
 
 // No lock. On macOS the events arrive on AppKit's thread and are read on the renderer's,
 // so that queue is guarded; here the window belongs to the thread that draws and the
@@ -1561,6 +1563,9 @@ static double dxc_elapsed_ms(LARGE_INTEGER since) {
  * Opt in from the renderer (dxc_native_set_raster_resize), because the renderer has to
  * draw the frame into the pixels this hands it rather than into the swapchain.
  */
+static void dxc_wait_for_gpu(void);
+static void dxc_release_buffers(void);
+static int32_t dxc_acquire_buffers(int32_t width, int32_t height);
 static int dxc_raster_enabled;
 static int dxc_cpu_mode;
 static HDC dxc_dib_dc;
@@ -1680,16 +1685,54 @@ void dxc_native_raster_end(void) {
     dxc_step_draw_ms = dxc_elapsed_ms(dxc_step_mark);
     LARGE_INTEGER copy_started;
     QueryPerformanceCounter(&copy_started);
-    HDC window_dc = GetDC(dxc_window);
-    if (window_dc != NULL) {
-        BitBlt(window_dc, 0, 0, dxc_raster_width, dxc_raster_height, dxc_dib_dc, 0, 0, SRCCOPY);
-        GdiFlush();
-        ReleaseDC(dxc_window, window_dc);
+    // Into the swapchain's own buffer, refitted to exactly this size, and presented: what
+    // DWM shows of this window is what the swapchain last presented, not what GDI drew
+    // into the window.
+    int presented = 0;
+    if (dxc_swapchain != NULL &&
+        (dxc_sizing.fitted_width != dxc_raster_width || dxc_sizing.fitted_height != dxc_raster_height)) {
+        dxc_wait_for_gpu();
+        dxc_release_buffers();
+        HRESULT resized = IDXGISwapChain1_ResizeBuffers(dxc_swapchain, DXC_BUFFER_COUNT,
+                                                        (UINT)dxc_raster_width, (UINT)dxc_raster_height,
+                                                        DXC_SWAPCHAIN_FORMAT, dxc_swapchain_flags);
+        if (FAILED(resized)) {
+            dxc_log_dxgi_failure("ResizeBuffers (CPU frame)", resized);
+        } else {
+            dxc_resize_fitted(&dxc_sizing, dxc_raster_width, dxc_raster_height);
+        }
+    }
+    if (dxc_swapchain != NULL && dxc_sizing.fitted_width == dxc_raster_width &&
+        dxc_sizing.fitted_height == dxc_raster_height) {
+        IDXGISurface1 *surface = NULL;
+        HRESULT got = IDXGISwapChain1_GetBuffer(dxc_swapchain, 0, &IID_IDXGISurface1, (void **)&surface);
+        if (SUCCEEDED(got)) {
+            HDC buffer_dc = NULL;
+            if (SUCCEEDED(IDXGISurface1_GetDC(surface, FALSE, &buffer_dc))) {
+                BitBlt(buffer_dc, 0, 0, dxc_raster_width, dxc_raster_height, dxc_dib_dc, 0, 0, SRCCOPY);
+                IDXGISurface1_ReleaseDC(surface, NULL);
+                HRESULT shown = IDXGISwapChain1_Present(dxc_swapchain, 0, 0);
+                if (FAILED(shown)) {
+                    dxc_log_dxgi_failure("Present (CPU frame)", shown);
+                } else {
+                    presented = 1;
+                }
+            }
+            IDXGISurface1_Release(surface);
+        } else {
+            dxc_log_dxgi_failure("GetBuffer (CPU frame)", got);
+        }
+    }
+    if (!presented) {
+        fprintf(stderr, "compose-rust: resize-mode: skipped present %dx%d because the CPU frame could not reach the swapchain\n",
+                (int)dxc_raster_width, (int)dxc_raster_height);
     }
     ValidateRect(dxc_window, NULL);
     dxc_step_copy_ms = dxc_elapsed_ms(copy_started);
-    dxc_presented_width = dxc_raster_width;
-    dxc_presented_height = dxc_raster_height;
+    if (presented) {
+        dxc_presented_width = dxc_raster_width;
+        dxc_presented_height = dxc_raster_height;
+    }
 }
 
 static void dxc_draw_resize(int32_t width, int32_t height) {
@@ -2377,6 +2420,161 @@ static void dxc_accept_files(HWND window) {
     RegisterDragDrop(window, &dxc_drop_target);
 }
 
+/*
+ * What is on the screen during a scripted resize, for DXC_CAPTURE_CHECK=1.
+ *
+ * After each step, once DWM has composed, the window's client area is copied from the
+ * screen (the composed desktop, not the window's own surfaces) and compared with the frame
+ * this window drew for that step at that size. A step fails when more than 2% of its pixels
+ * differ by more than 24 levels: black, a fill, an old frame or a stretched one all do. When
+ * the step was drawn on the GPU there is no CPU copy to compare with, and the step is judged
+ * by black pixels alone. The strip of the window above the client area, the caption, is
+ * counted for black as well.
+ */
+static int dxc_capture_steps;
+static int dxc_capture_failures;
+
+static int dxc_capture(int x, int y, int width, int height, uint32_t **pixels, HBITMAP *bitmap, HDC *dc) {
+    if (width <= 0 || height <= 0) return 0;
+    HDC screen = GetDC(NULL);
+    *dc = CreateCompatibleDC(screen);
+    BITMAPINFO info;
+    memset(&info, 0, sizeof info);
+    info.bmiHeader.biSize = sizeof info.bmiHeader;
+    info.bmiHeader.biWidth = width;
+    info.bmiHeader.biHeight = -height;
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+    void *bits = NULL;
+    *bitmap = CreateDIBSection(*dc, &info, DIB_RGB_COLORS, &bits, NULL, 0);
+    if (*bitmap == NULL || bits == NULL) {
+        DeleteDC(*dc);
+        ReleaseDC(NULL, screen);
+        return 0;
+    }
+    SelectObject(*dc, *bitmap);
+    BitBlt(*dc, 0, 0, width, height, screen, x, y, SRCCOPY | CAPTUREBLT);
+    GdiFlush();
+    ReleaseDC(NULL, screen);
+    *pixels = (uint32_t *)bits;
+    return 1;
+}
+
+static int dxc_is_black(uint32_t pixel) {
+    return (pixel & 0xFF) < 8 && ((pixel >> 8) & 0xFF) < 8 && ((pixel >> 16) & 0xFF) < 8;
+}
+
+static void dxc_capture_step(HWND window) {
+    dxc_dwm_flush();
+    RECT client;
+    GetClientRect(window, &client);
+    POINT origin = {0, 0};
+    ClientToScreen(window, &origin);
+    int width = client.right - client.left;
+    int height = client.bottom - client.top;
+    uint32_t *pixels = NULL;
+    HBITMAP bitmap = NULL;
+    HDC dc = NULL;
+    if (!dxc_capture(origin.x, origin.y, width, height, &pixels, &bitmap, &dc)) return;
+    // Only what is on a monitor is judged: a window that runs off the screen captures black
+    // for the part nothing shows.
+    MONITORINFO monitor;
+    memset(&monitor, 0, sizeof monitor);
+    monitor.cbSize = sizeof monitor;
+    GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor);
+    int visible_right = monitor.rcMonitor.right - origin.x;
+    int visible_bottom = monitor.rcMonitor.bottom - origin.y;
+    int expected = dxc_dib_bits != NULL && dxc_raster_width == width && dxc_raster_height == height;
+    long black = 0;
+    long differing = 0;
+    long total = 0;
+    for (int y = 0; y < height && y < visible_bottom; y++) {
+        for (int x = 0; x < width && x < visible_right; x++) {
+            total++;
+            uint32_t seen = pixels[(size_t)y * width + x];
+            if (dxc_is_black(seen)) black++;
+            if (expected) {
+                uint32_t drawn = ((uint32_t *)dxc_dib_bits)[(size_t)y * dxc_dib_width + x];
+                for (int shift = 0; shift < 24; shift += 8) {
+                    int a = (int)((seen >> shift) & 0xFF);
+                    int b = (int)((drawn >> shift) & 0xFF);
+                    if (a - b > 24 || b - a > 24) { differing++; break; }
+                }
+            }
+        }
+    }
+    DeleteObject(bitmap);
+    DeleteDC(dc);
+    // The caption: the part of the window above the client area.
+    RECT outer;
+    GetWindowRect(window, &outer);
+    long caption_black = 0;
+    long caption_total = 0;
+    int caption_height = origin.y - outer.top;
+    if (caption_height > 0 &&
+        dxc_capture(outer.left, outer.top, outer.right - outer.left, caption_height, &pixels, &bitmap, &dc)) {
+        caption_total = (long)(outer.right - outer.left) * caption_height;
+        for (long index = 0; index < caption_total; index++) {
+            if (dxc_is_black(pixels[index])) caption_black++;
+        }
+        DeleteObject(bitmap);
+        DeleteDC(dc);
+    }
+    int failed = expected ? differing * 50 > total : black * 20 > total;
+    dxc_capture_steps++;
+    if (failed) dxc_capture_failures++;
+    fprintf(stderr,
+            "compose-rust: capture step %dx%d %s black=%ld/%ld differing=%ld caption_black=%ld/%ld %s\n",
+            width, height, expected ? "vs-cpu-frame" : "black-only", black, total, differing,
+            caption_black, caption_total, failed ? "FAIL" : "ok");
+}
+
+/**
+ * Hit-tests the window where a reader would press, for DXC_HITTEST_CHECK=1, and prints
+ * what Windows answers against what a window with this caption should answer.
+ */
+void dxc_native_debug_hit_test(void *window_pointer) {
+    HWND window = window_pointer != NULL ? (HWND)window_pointer : dxc_window;
+    if (window == NULL) return;
+    RECT outer;
+    GetWindowRect(window, &outer);
+    POINT origin = {0, 0};
+    ClientToScreen(window, &origin);
+    RECT client;
+    GetClientRect(window, &client);
+    UINT dpi = GetDpiForWindow(window);
+    int caption_middle = dxc_options.system_chrome
+        ? outer.top + (origin.y - outer.top) / 2 + GetSystemMetricsForDpi(SM_CYSIZEFRAME, dpi) / 2
+        : outer.top + dxc_scaled(window, DXC_CAPTION_HEIGHT_DIP) / 2;
+    // The system's buttons are SM_CXSIZE wide; the ones the content draws are the
+    // Windows 11 caption metrics this file lays the custom caption out with.
+    int button = dxc_options.system_chrome ? GetSystemMetricsForDpi(SM_CXSIZE, dpi)
+                                           : dxc_scaled(window, DXC_CAPTION_BUTTON_WIDTH_DIP);
+    struct { const char *where; int x; int y; LRESULT expected; } points[] = {
+        {"caption", (outer.left + outer.right) / 2, caption_middle, HTCAPTION},
+        {"close", outer.right - button / 2 - 8, caption_middle, dxc_options.system_chrome ? HTCLOSE : HTCLIENT},
+        {"maximise", outer.right - button * 3 / 2 - 8, caption_middle, dxc_options.system_chrome ? HTMAXBUTTON : HTCLIENT},
+        {"minimise", outer.right - button * 5 / 2 - 8, caption_middle, dxc_options.system_chrome ? HTMINBUTTON : HTCLIENT},
+        {"client", origin.x + client.right / 2, origin.y + client.bottom / 2, HTCLIENT},
+        {"left edge", outer.left + 2, (outer.top + outer.bottom) / 2, HTLEFT},
+        {"right edge", outer.right - 3, (outer.top + outer.bottom) / 2, HTRIGHT},
+        {"bottom edge", (outer.left + outer.right) / 2, outer.bottom - 3, HTBOTTOM},
+        {"bottom-right", outer.right - 3, outer.bottom - 3, HTBOTTOMRIGHT},
+        {"top edge", (outer.left + outer.right) / 2, outer.top + 2, HTTOP},
+    };
+    int failures = 0;
+    for (size_t index = 0; index < sizeof points / sizeof *points; index++) {
+        LRESULT got = SendMessageW(window, WM_NCHITTEST, 0, MAKELPARAM(points[index].x, points[index].y));
+        int ok = got == points[index].expected;
+        if (!ok) failures++;
+        fprintf(stderr, "compose-rust: hit-test %s at %d,%d got %ld expected %ld %s\n", points[index].where,
+                points[index].x, points[index].y, (long)got, (long)points[index].expected, ok ? "ok" : "FAIL");
+    }
+    fprintf(stderr, "compose-rust: hit-test verdict %s (%s caption)\n", failures == 0 ? "PASS" : "FAIL",
+            dxc_options.system_chrome ? "system" : "custom");
+}
+
 /**
  * Takes the window through the sizes a drag would, for measuring. Used only when asked
  * for, by DXC_SYNTH.
@@ -2398,6 +2596,16 @@ void dxc_native_debug_resize(void *window_pointer, void *view_pointer, int32_t f
     if (dpi == 0) {
         dpi = USER_DEFAULT_SCREEN_DPI;
     }
+    if (getenv("DXC_CAPTURE_CHECK") != NULL) {
+        // At the top left of the work area, so the sizes the drag reaches stay on screen.
+        MONITORINFO monitor;
+        memset(&monitor, 0, sizeof monitor);
+        monitor.cbSize = sizeof monitor;
+        if (GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor)) {
+            SetWindowPos(window, NULL, monitor.rcWork.left, monitor.rcWork.top, 0, 0,
+                         SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+    }
     SendMessageW(window, WM_ENTERSIZEMOVE, 0, 0);
     for (int32_t step = 1; step <= steps; step++) {
         double t = (double)step / steps;
@@ -2414,11 +2622,18 @@ void dxc_native_debug_resize(void *window_pointer, void *view_pointer, int32_t f
         int outer_height = dxc_options.system_chrome ? outer.bottom - outer.top : outer.bottom;
         SetWindowPos(window, NULL, 0, 0, outer.right - outer.left, outer_height,
                      SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+        if (getenv("DXC_CAPTURE_CHECK") != NULL) {
+            dxc_capture_step(window);
+        }
         if (pause_micros > 0) {
             Sleep((DWORD)((pause_micros + 999) / 1000));
         }
     }
     SendMessageW(window, WM_EXITSIZEMOVE, 0, 0);
+    if (getenv("DXC_CAPTURE_CHECK") != NULL) {
+        fprintf(stderr, "compose-rust: capture-check verdict %s (%d of %d steps failed)\n",
+                dxc_capture_failures == 0 ? "PASS" : "FAIL", dxc_capture_failures, dxc_capture_steps);
+    }
 }
 
 /**
@@ -2919,7 +3134,11 @@ int32_t dxc_native_window_open(
     swapchain_description.SwapEffect = DXGI_SWAP_EFFECT_SEQUENTIAL;
     swapchain_description.Scaling = DXGI_SCALING_STRETCH;
     swapchain_description.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
-    swapchain_description.Flags = 0;
+    // GDI compatible, so a CPU frame can be copied into the buffer itself and presented.
+    // A swapchain's present goes to DWM through its own redirection surface, which covers
+    // what GDI drew into the window: a BitBlt into the window's DC is not seen once the
+    // swapchain has presented, and the grown edge shows that surface's black instead.
+    swapchain_description.Flags = DXGI_SWAP_CHAIN_FLAG_GDI_COMPATIBLE;
     IDXGISwapChain1 *swapchain = NULL;
     HRESULT made = IDXGIFactory4_CreateSwapChainForHwnd(
         factory, (IUnknown *)d3d11, window, &swapchain_description, NULL, NULL, &swapchain);
@@ -2934,7 +3153,7 @@ int32_t dxc_native_window_open(
         DestroyWindow(window);
         return 7;
     }
-    dxc_swapchain_flags = 0;
+    dxc_swapchain_flags = swapchain_description.Flags;
     int gpu_priority_set = 0;
     if (dxc_priority() >= 2) {
         IDXGIDevice *dxgi_device = NULL;
@@ -2950,7 +3169,7 @@ int32_t dxc_native_window_open(
             dxc_priority() >= 1 ? "on" : "off",
             queue_description.Priority == D3D12_COMMAND_QUEUE_PRIORITY_HIGH ? "high" : "normal",
             gpu_priority_set ? "+5" : (dxc_priority() >= 2 ? "refused" : "off"));
-    fprintf(stderr, "compose-rust: swapchain for the window, copy model (sequential), 1 buffer, STRETCH, %ux%u\n",
+    fprintf(stderr, "compose-rust: swapchain for the window, copy model (sequential), 1 buffer, STRETCH, GDI compatible, %ux%u\n",
             pixel_width, pixel_height);
     // DXGI answers alt-enter by putting the window into its own idea of full screen,
     // which is a mode nothing here knows how to draw in.
@@ -3102,6 +3321,10 @@ int32_t dxc_native_frame_begin(void *swapchain_pointer, void **texture_out) {
         dxc_step_refit_ms = dxc_elapsed_ms(refit_started) - dxc_step_gpu_idle_ms;
     }
 
+    // A CPU frame may have refitted the swapchain without growing the draw texture.
+    if (dxc_acquire_buffers(dxc_sizing.fitted_width, dxc_sizing.fitted_height) != 0) {
+        return 2;
+    }
     dxc_frame_index = 0;
     if (dxc_buffers[dxc_frame_index] == NULL || dxc_wrapped == NULL) {
         fprintf(stderr, "compose-rust: resize-mode: skipped frame because there is no draw texture\n");
