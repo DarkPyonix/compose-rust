@@ -234,6 +234,9 @@ jobs:
       - name: The fork's window modules name no AWT
         run: ./scripts/tests/renderer/window-modules-no-awt.test.sh
 
+      - name: The image's ways into the toolkit
+        run: bash scripts/tests/renderer/linux-image-toolkit-boundary.test.sh
+
       - name: The image carries no Java toolkit
         run: bash scripts/tests/renderer/linux-image-has-no-awt.test.sh
 
@@ -295,6 +298,9 @@ jobs:
 
       - name: Build the Linux renderer under Xvfb
         run: xvfb-run -a ./renderer/desktop/scripts/build-native-linux.sh
+
+      - name: The image's ways into the toolkit
+        run: bash scripts/tests/renderer/linux-image-toolkit-boundary.test.sh
 
       - name: The image carries no Java toolkit
         run: bash scripts/tests/renderer/linux-image-has-no-awt.test.sh

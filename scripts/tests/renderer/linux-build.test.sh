@@ -31,9 +31,8 @@ cc -c -O2 -D__linux__ -o "${TMPDIR:-/tmp}/compose-rust-smoke-linux-test.o" \
     "$native_dir/c/smoke_host.c"
 
 build="$scripts_dir/build-native-linux.sh"
-grep -q 'libjawt\.so' "$build"
-grep -q 'jawt_absent\.c' "$build"
-[[ -f "$native_dir/c/jawt_absent.c" ]]
+absent 'libjawt' "$build" "No libjawt is staged: skiko does not link it and the renderer asks for no AWT canvas"
+[[ ! -e "$native_dir/c/jawt_absent.c" ]]
 grep -q 'libskiko-linux-' "$build"
 
 # pr2_linux_entry_points_are_exported: the two public C entry points come from the shim, not
