@@ -19,6 +19,16 @@ Two conventions differ, and both are fixed here:
    were a leaf function: the return address is read from the wrong slot and the unwinder
    loops. Marking them associative to .text$NAME (selection 5) says, in the form the
    format defines, that they live and die with that code.
+
+3. Unwind data that spans sections. The unwind data with an empty suffix (.pdata$ and
+   .xdata$) is not one function's: its entries cover the code of every section named plain
+   .text, and Kotlin/Native writes thousands of those, each a COMDAT whose selection is "no
+   duplicates". A release link folds identical COMDAT functions (/OPT:ICF, which rustc
+   passes for every optimised build), and an entry of that table then describes code that
+   folding removed: link.exe stops with LNK1223, invalid .pdata contributions. Those .text
+   sections are made ordinary sections instead. "No duplicates" already forbids a second
+   copy, so nothing about which code is linked changes; the one difference is that the
+   linker no longer folds or drops them, which is exactly what the shared table needs.
 """
 import struct, sys
 
@@ -27,6 +37,8 @@ CTORS, CRT = b".ctors\0\0", b".CRT$XCU"
 # `#pragma section(".CRT$XCU", read)` gives a section in MSVC's own objects.
 CRT_CHARACTERISTICS = 0x40400040
 SELECT_ASSOCIATIVE = 5
+SELECT_NODUPLICATES = 1
+IMAGE_SCN_LNK_COMDAT = 0x1000
 
 def section_name(buf, at, strtab):
     raw = bytes(buf[at:at + 8])
@@ -87,6 +99,8 @@ def patch(buf, base):
     if "" not in text_index and ".text" in names:
         text_index[""] = names.index(".text") + 1
     associated = 0
+    unfolded = 0
+    shared_unwind = ".pdata$" in names or ".xdata$" in names
     i = 0
     while i < nsym:
         at = symtab + i * record
@@ -100,6 +114,12 @@ def patch(buf, base):
             storage, aux = buf[at + 16], buf[at + 17]
         if storage == 3 and aux and secnum > 0:
             name = names[secnum - 1]
+            if shared_unwind and name == ".text":
+                section = table + (secnum - 1) * 40 + 36
+                characteristics = struct.unpack_from("<I", buf, section)[0]
+                if characteristics & IMAGE_SCN_LNK_COMDAT and buf[at + record + 14] == SELECT_NODUPLICATES:
+                    struct.pack_into("<I", buf, section, characteristics & ~IMAGE_SCN_LNK_COMDAT)
+                    unfolded += 1
             for prefix in (".pdata$", ".xdata$"):
                 if name.startswith(prefix):
                     target = text_index.get(name[len(prefix):])
@@ -113,18 +133,19 @@ def patch(buf, base):
                             struct.pack_into("<H", buf, a + 16, target >> 16)
                         associated += 1
         i += 1 + aux
-    return ctors, associated
+    return ctors, associated, unfolded
 
 path = sys.argv[1]
 buf = bytearray(open(path, "rb").read())
 assert buf[:8] == b"!<arch>\n"
-pos, ctors, associated = 8, 0, 0
+pos, ctors, associated, unfolded = 8, 0, 0, 0
 while pos + 60 <= len(buf):
     size = int(buf[pos + 48:pos + 58].decode().strip())
     body = pos + 60
     if layout(buf, body) is not None:
-        c, a = patch(buf, body)
-        ctors += c; associated += a
+        c, a, u = patch(buf, body)
+        ctors += c; associated += a; unfolded += u
     pos = body + size + (size & 1)
 open(path, "wb").write(buf)
-print(f"{path}: moved {ctors} .ctors sections, made {associated} unwind sections associative")
+print(f"{path}: moved {ctors} .ctors sections, made {associated} unwind sections associative, "
+      f"made {unfolded} .text sections ordinary for the shared unwind table")
