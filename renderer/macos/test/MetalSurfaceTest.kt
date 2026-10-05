@@ -3,6 +3,10 @@
 package dev.darkpyonix.composerust.ui.platform
 
 import kotlinx.cinterop.useContents
+import platform.Foundation.NSDate
+import platform.Foundation.NSRunLoop
+import platform.Foundation.dateWithTimeIntervalSinceNow
+import platform.Foundation.runUntilDate
 import org.jetbrains.skia.Surface
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -144,9 +148,7 @@ class MetalSurfaceTest {
             @OptIn(kotlin.native.runtime.NativeRuntimeApi::class)
             kotlin.native.runtime.GC.collect()
             val afterGcMb = (surface.allocatedBytes - before) / 1048576.0
-            platform.Foundation.NSRunLoop.mainRunLoop.runUntilDate(
-                platform.Foundation.NSDate.dateWithTimeIntervalSinceNow(0.5),
-            )
+            NSRunLoop.mainRunLoop.runUntilDate(NSDate.dateWithTimeIntervalSinceNow(0.5))
             val afterTurnMb = (surface.allocatedBytes - before) / 1048576.0
             println("metal growth MB: frames=$grownMb after_gc=$afterGcMb after_turn=$afterTurnMb")
             val largestDrawableMb = 1200.0 * 900.0 * 4 / 1048576.0
