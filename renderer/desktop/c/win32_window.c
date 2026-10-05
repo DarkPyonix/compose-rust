@@ -2489,7 +2489,15 @@ static void dxc_capture_step(HWND window) {
     long black = 0;
     long differing = 0;
     long total = 0;
+    int first_row = -1;
+    int last_row = -1;
+    int rows = 0;
+    int row_had = 0;
+    uint32_t sample_seen = 0;
+    uint32_t sample_drawn = 0;
+    int sample_x = -1;
     for (int y = 0; y < height && y < visible_bottom; y++) {
+        row_had = 0;
         for (int x = 0; x < width && x < visible_right; x++) {
             total++;
             uint32_t seen = pixels[(size_t)y * width + x];
@@ -2499,7 +2507,17 @@ static void dxc_capture_step(HWND window) {
                 for (int shift = 0; shift < 24; shift += 8) {
                     int a = (int)((seen >> shift) & 0xFF);
                     int b = (int)((drawn >> shift) & 0xFF);
-                    if (a - b > 24 || b - a > 24) { differing++; break; }
+                    if (a - b > 24 || b - a > 24) {
+                        differing++;
+                        if (!row_had) {
+                            row_had = 1;
+                            rows++;
+                            if (first_row < 0) first_row = y;
+                            last_row = y;
+                        }
+                        if (sample_x < 0) { sample_x = x; sample_seen = seen; sample_drawn = drawn; }
+                        break;
+                    }
                 }
             }
         }
@@ -2521,7 +2539,20 @@ static void dxc_capture_step(HWND window) {
         DeleteObject(bitmap);
         DeleteDC(dc);
     }
-    int failed = expected ? differing * 50 > total : black * 20 > total;
+    // Not one pixel of the drawn frame may be missing: a row that is not the frame's is an
+    // old or undrawn row.
+    int failed = expected ? differing > 0 : black * 20 > total;
+    DXGI_SWAP_CHAIN_DESC1 described;
+    memset(&described, 0, sizeof described);
+    if (dxc_swapchain != NULL) IDXGISwapChain1_GetDesc1(dxc_swapchain, &described);
+    if (dxc_swapchain != NULL && ((int)described.Width != width || (int)described.Height != height)) {
+        failed = 1;
+    }
+    fprintf(stderr,
+            "compose-rust: capture detail %dx%d buffer %ux%u rows_differing=%d first_row=%d last_row=%d "
+            "sample x=%d seen=%08x drawn=%08x\n",
+            width, height, described.Width, described.Height, rows, first_row, last_row, sample_x,
+            (unsigned)sample_seen, (unsigned)sample_drawn);
     dxc_capture_steps++;
     if (failed) dxc_capture_failures++;
     fprintf(stderr,
