@@ -154,7 +154,11 @@ for module in "${modules[@]}"; do
 done
 (
     cd "$WORK"
+    # The fork declares mingwX64 on every UI module, and skiko publishes no mingwX64 artifact:
+    # only the fork's own Windows build makes one. None of the targets here is Windows, so
+    # leave that platform out rather than fail resolving skiko for it.
     ./gradlew --no-daemon --no-configuration-cache \
+        "-Pandroidx.enabled.kmp.target.platforms=-windows" \
         "-Pjetbrains.publication.version.COMPOSE=$PUBLISHED_AS" \
         "-Pjetbrains.publication.version.COMPOSE_MATERIAL3=$MATERIAL3_PUBLISHED_AS" \
         "${tasks[@]}"
