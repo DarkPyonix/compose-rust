@@ -164,12 +164,19 @@ while IFS= read -r line; do library_args+=("-library=$line"); done < "$libraries
 # for every public Compose declaration, which fails: NullPointerException in CAdapterCodegen
 # (Kotlin 2.4.10). The archive still contains the whole renderer, because -produce static
 # links everything the entry points reach.
+#
+# objcDisposeOnMain=false: an Objective-C object a collection frees from Kotlin is released
+# where the collector runs, not handed to the main run loop to release on its next turn. A
+# window being resized draws frame after frame without that turn coming, and each frame's
+# drawable, a texture the size of the window, waited for it: 100 sizes held 528 MB of Metal
+# memory. Nothing this renderer holds from Kotlin has to be released on the main thread.
 "$konan_home/bin/konanc" \
     -produce static \
     -target "$konan_target" \
     "$optimization" \
     -module-name compose_rust_renderer \
     -opt-in kotlin.experimental.ExperimentalNativeApi \
+    -Xbinary=objcDisposeOnMain=false \
     "${library_args[@]}" \
     "$entry_source" \
     -o "$output" 2>&1 | tee "$LOG_DIR/$amper_platform-link.log"
