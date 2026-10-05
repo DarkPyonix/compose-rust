@@ -239,6 +239,15 @@ jobs:
       - name: The fork's window modules name no AWT
         run: ./scripts/tests/renderer/window-modules-no-awt.test.sh
 
+      - name: PROBE class initialization of the toolkit
+        if: always()
+        continue-on-error: true
+        run: |
+          ls renderer/build/native-image-linux/dist/lib/reports | head -20
+          for f in renderer/build/native-image-linux/dist/lib/reports/class_initialization*; do
+            echo "== $f"
+            grep -E 'java\.awt\.(Component|Toolkit|Container)[,"]|java\.awt\.Component$' "$f" | head -12 | cut -c1-400
+          done
       - name: PROBE app frames above toolkit types
         if: always()
         continue-on-error: true
