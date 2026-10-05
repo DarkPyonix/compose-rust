@@ -2691,7 +2691,10 @@ static void dxc_capture_step(HWND window) {
     DXGI_SWAP_CHAIN_DESC1 described;
     memset(&described, 0, sizeof described);
     if (dxc_swapchain != NULL) IDXGISwapChain1_GetDesc1(dxc_swapchain, &described);
-    if (dxc_swapchain != NULL && ((int)described.Width != width || (int)described.Height != height)) {
+    // The buffer has to match only when the swapchain is what is shown: during a CPU
+    // resize its child is hidden and its buffer keeps the size it had.
+    if (dxc_swapchain != NULL && dxc_surface != NULL && IsWindowVisible(dxc_surface) &&
+        ((int)described.Width != width || (int)described.Height != height)) {
         failed = 1;
     }
     fprintf(stderr,
