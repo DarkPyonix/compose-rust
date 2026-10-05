@@ -96,7 +96,7 @@ if missing:
 # Registering a toolkit type for reflection or JNI makes it reachable, and with it the native
 # library its static initialiser loads. The registrations live in toolkit-metadata, which only
 # the Windows build reads.
-toolkit = sorted(n for n in entries if n.startswith(("java.awt", "sun.awt", "sun.java2d", "sun.lwawt", "javax.swing", "androidx.compose.ui.awt")))
+toolkit = sorted(n for n in entries if n.startswith(("java.awt", "sun.awt", "sun.java2d", "sun.lwawt", "javax.swing", "androidx.compose.ui.awt", "org.jetbrains.skiko.SkiaLayer", "org.jetbrains.skiko.HardwareLayer", "androidx.compose.ui.scene.")))
 if toolkit:
     raise SystemExit("the shared classpath metadata registers toolkit types: " + ", ".join(toolkit))
 if not entries["org.jetbrains.skia.impl.Native"].get("jniAccessible"):

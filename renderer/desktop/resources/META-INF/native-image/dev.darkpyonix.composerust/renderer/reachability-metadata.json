@@ -116,18 +116,12 @@
       ]
     },
     {
-      "type": "androidx.compose.ui.scene.ComposeSceneMediator$InvisibleComponent"
-    },
-    {
       "type": "androidx.compose.ui.scene.ComposeSceneRecomposer$1",
       "fields": [
         {
           "name": "label"
         }
       ]
-    },
-    {
-      "type": "androidx.compose.ui.scene.skia.WindowSkiaLayerComponent$hierarchyRoot$1"
     },
     {
       "type": "java.io.OutputStream",
@@ -1144,15 +1138,6 @@
           "name": "label"
         }
       ]
-    },
-    {
-      "type": "org.jetbrains.skiko.HardwareLayer"
-    },
-    {
-      "type": "org.jetbrains.skiko.SkiaLayer"
-    },
-    {
-      "type": "org.jetbrains.skiko.SkiaLayer$1"
     },
     {
       "type": "org.jetbrains.skiko.redrawer.MetalRedrawer",
