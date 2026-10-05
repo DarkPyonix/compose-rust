@@ -81,4 +81,37 @@ class MacosWindowChromeTest {
         val chrome = MacosWindowChrome.of(Chrome.System, TitleBar.Normal)
         assertEquals(WindowCaption.None, macosWindowCaption(chrome, 700.0, 672.0, 20.0, 88.0))
     }
+
+    @Test
+    fun fr19_7_the_corner_radius_is_the_one_the_window_reported() {
+        for (mode in TitleBar.entries) {
+            val chrome = MacosWindowChrome.of(Chrome.Modern, mode)
+            val caption = macosWindowCaption(chrome, 700.0, 648.0, 20.0, 88.0, cornerRadius = 26.0)
+            assertEquals(26.dp, caption?.cornerRadius, "at $mode")
+        }
+    }
+
+    @Test
+    fun fr19_7_a_window_that_reports_no_radius_has_none() {
+        val chrome = MacosWindowChrome.of(Chrome.Modern, TitleBar.Simple)
+        assertEquals(0.dp, macosWindowCaption(chrome, 700.0, 672.0, 7.0, 75.0, cornerRadius = null)?.cornerRadius)
+        assertEquals(0.dp, macosWindowCaption(chrome, 700.0, 672.0, 7.0, 75.0, cornerRadius = -1.0)?.cornerRadius)
+    }
+
+    /**
+     * The two styles, each measured as the window reported it, give each its own caption:
+     * the content of the toolbar style starts lower and clears buttons set further in. The
+     * numbers are what macOS 26 reports for each; the function does not know which is which.
+     */
+    @Test
+    fun fr19_7_the_content_top_and_inset_follow_the_style_the_window_reported() {
+        val toolbar = macosWindowCaption(
+            MacosWindowChrome.of(Chrome.Modern, TitleBar.Normal), 700.0, 648.0, 20.0, 88.0, 26.0,
+        )
+        val plain = macosWindowCaption(
+            MacosWindowChrome.of(Chrome.Modern, TitleBar.Simple), 700.0, 672.0, 7.0, 75.0, 16.0,
+        )
+        assertEquals(WindowCaption(52.dp, 108.dp, true, cornerRadius = 26.dp), toolbar)
+        assertEquals(WindowCaption(28.dp, 82.dp, true, cornerRadius = 16.dp), plain)
+    }
 }

@@ -413,6 +413,7 @@ fun ComposeRustContent(
         LocalDesignTheme provides theme,
         LocalReduceTransparency provides reduceTransparency,
         LocalWindowCaption provides barCaption,
+        LocalWindowCornerRadius provides caption.cornerRadius,
         LocalStripTakesTheTop provides (barIsCaption && stripTakesTheTop),
         LocalSystemBars provides bars,
     ) {
@@ -540,6 +541,14 @@ data class WindowCaption(
      * same would draw its title through the time.
      */
     val insetTop: Dp = 0.dp,
+    /**
+     * How round the system made the window's corners, or zero where it does not say.
+     *
+     * Read from the window rather than written into a design system: macOS gives a window
+     * with a toolbar a larger radius than one without, and changes both between releases.
+     * A strip laid along the window's edge cuts its own corner concentric with this one.
+     */
+    val cornerRadius: Dp = 0.dp,
 ) {
     companion object {
         /** No strip to avoid: a system title bar, or a platform without one. */
@@ -556,6 +565,14 @@ data class WindowCaption(
  * line with everything beside it.
  */
 val LocalWindowCaption = staticCompositionLocalOf { WindowCaption.None }
+
+/**
+ * How round the system made the window's corners, or zero where it does not say.
+ *
+ * Separate from [LocalWindowCaption], which only a bar opening the tree receives: a
+ * sidebar beside that bar still stands inside the same window corner.
+ */
+val LocalWindowCornerRadius = staticCompositionLocalOf { 0.dp }
 
 /**
  * Whether a rail or a sidebar at the root of the tree runs to the top of the window and
