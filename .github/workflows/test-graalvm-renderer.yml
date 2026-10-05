@@ -93,7 +93,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: compose-fork-desktop
-          path: ~/.m2/repository/org/jetbrains/compose
+          path: ~/.m2/repository/org/jetbrains
 
       - name: Build the renderer shared library
         # With the fork's skiko built without JAWT and linked in, so the image carries no AWT.
@@ -174,13 +174,18 @@ jobs:
         run: |
           rm -rf ~/.m2/repository
           ./renderer/scripts/build-compose.sh --target desktop --clean
+          # skiko-awt with the switch that keeps UIManager out of a toolkit-free image.
+          skiko="$(./scripts/fetch-fork-skiko.sh)"
+          "$skiko/extended/skiko/build-skiko-awt.sh" "$RUNNER_TEMP/skiko-awt"
           find ~/.m2/repository/org/jetbrains/compose -name '*.jar' | sort
 
       - name: Keep the published modules
         uses: actions/upload-artifact@v4
         with:
           name: compose-fork-desktop
-          path: ~/.m2/repository/org/jetbrains/compose
+          path: |
+            ~/.m2/repository/org/jetbrains/compose
+            ~/.m2/repository/org/jetbrains/skiko/skiko-awt
           retention-days: 7
 
   linux-x64:
@@ -220,7 +225,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: compose-fork-desktop
-          path: ~/.m2/repository/org/jetbrains/compose
+          path: ~/.m2/repository/org/jetbrains
 
       - name: Run Linux script contract tests
         run: bash scripts/tests/renderer/linux-build.test.sh
@@ -233,9 +238,6 @@ jobs:
 
       - name: The fork's window modules name no AWT
         run: ./scripts/tests/renderer/window-modules-no-awt.test.sh
-
-      - name: The image's ways into the toolkit
-        run: bash scripts/tests/renderer/linux-image-toolkit-boundary.test.sh
 
       - name: The image carries no Java toolkit
         run: bash scripts/tests/renderer/linux-image-has-no-awt.test.sh
@@ -294,13 +296,10 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: compose-fork-desktop
-          path: ~/.m2/repository/org/jetbrains/compose
+          path: ~/.m2/repository/org/jetbrains
 
       - name: Build the Linux renderer under Xvfb
         run: xvfb-run -a ./renderer/desktop/scripts/build-native-linux.sh
-
-      - name: The image's ways into the toolkit
-        run: bash scripts/tests/renderer/linux-image-toolkit-boundary.test.sh
 
       - name: The image carries no Java toolkit
         run: bash scripts/tests/renderer/linux-image-has-no-awt.test.sh

@@ -83,8 +83,7 @@ image_name="${LIBRARY_NAME}_image"
     -H:IncludeLocales=en,ko \
     -Os \
     -H:+UnlockExperimentalVMOptions \
-    -H:+PrintAnalysisCallTree \
-    -H:PrintAnalysisCallTreeType=TXT \
+    -H:ReportAnalysisForbiddenType=java.awt.Toolkit \
     "-H:NativeLinkerOption=$obj/x11_window.o" \
     '-H:NativeLinkerOption=-lX11' \
     '-H:NativeLinkerOption=-lGL' \
