@@ -69,6 +69,8 @@ fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
             // back. Saying up front that there is no display to open keeps the toolkit
             // from asking, and nothing on this path wants one.
             System.setProperty("java.awt.headless", "true")
+            // Compose's main-thread work runs in this window's frame, not on Swing's queue.
+            FrameMainDispatcher.install()
             runAppKitWindow(autoExitMillis)
             return@rendererRun 0
         }

@@ -46,6 +46,7 @@ permissions:
 
 jobs:
   macos:
+    needs: compose-desktop
     name: Build and smoke test the GraalVM renderer (macOS, arm64)
     runs-on: macos-latest
     timeout-minutes: 90
@@ -70,6 +71,12 @@ jobs:
           key: kotlin-${{ runner.os }}-${{ hashFiles('renderer/kotlin', 'renderer/libs.versions.toml', 'renderer/**/module.yaml') }}
           restore-keys: |
             kotlin-${{ runner.os }}-
+
+      - name: Take the Compose fork's desktop modules
+        uses: actions/download-artifact@v4
+        with:
+          name: compose-fork-desktop
+          path: ~/.m2/repository/org/jetbrains/compose
 
       - name: Build the renderer shared library
         run: ./renderer/desktop/scripts/build-native.sh
@@ -200,6 +207,9 @@ jobs:
       - name: Build the Linux renderer under Xvfb
         run: xvfb-run -a ./renderer/desktop/scripts/build-native-linux.sh
 
+      - name: The image carries no Java toolkit
+        run: bash scripts/tests/renderer/linux-image-has-no-awt.test.sh
+
       - name: Inspect staged dynamic dependencies
         run: |
           find renderer/build/native-image-linux/dist/lib -maxdepth 1 -type f -print | sort
@@ -258,6 +268,9 @@ jobs:
 
       - name: Build the Linux renderer under Xvfb
         run: xvfb-run -a ./renderer/desktop/scripts/build-native-linux.sh
+
+      - name: The image carries no Java toolkit
+        run: bash scripts/tests/renderer/linux-image-has-no-awt.test.sh
 
       - name: Inspect staged dynamic dependencies
         run: |
