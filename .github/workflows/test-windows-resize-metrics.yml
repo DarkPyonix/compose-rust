@@ -366,6 +366,13 @@ jobs:
         run: |
           log="$(cygpath -u "$RUNNER_TEMP")/resize-metrics/windows-kn.log"
           grep -E "capture-check verdict|hit-test verdict" "$log" || { echo "the checks did not run" >&2; exit 1; }
+          # Every CPU resize step: nothing presented since the size change began, the
+          # swapchain's child hidden, the frame copied into the window and validated.
+          grep -q "resize-proof step" "$log" || { echo "no resize-proof lines" >&2; exit 1; }
+          if grep "resize-proof step" "$log" | grep -vE "presents=0 child_visible=0 blit=1 validated=1$"; then
+            echo "a resize step presented, left the child visible, or did not copy and validate" >&2
+            exit 1
+          fi
           ! grep -qE "capture-check verdict FAIL|hit-test verdict FAIL" "$log"
 
       - name: CPU and GPU frames must match
