@@ -725,6 +725,7 @@ internal class MacosWindow(
                     )
                     window.displayIfNeeded()
                     platform.QuartzCore.CATransaction.flush()
+                    turnAsADragDoes()
                 }
             },
         )
@@ -739,6 +740,24 @@ internal class MacosWindow(
     }
 
     /** Physical footprint and resident size of this process, in bytes. */
+    /**
+     * Lets the run loop turn in the mode a live resize runs it in, for one event's worth
+     * of time at 60 events a second, as it does between the events of a real drag.
+     *
+     * Core Animation hands each size's surfaces to the window server, and learns that the
+     * server is done with them through a port the run loop services. Setting 100 sizes in
+     * one turn never services it: run 37256866302 held 499 MB of surfaces this process owns
+     * and no longer maps, all given back once the loop turned. A drag of the edge turns the
+     * loop between events, so the scripted one does too, and its reading is the drag's.
+     */
+    private fun turnAsADragDoes() {
+        val until = platform.Foundation.NSDate.dateWithTimeIntervalSinceNow(1.0 / 60)
+        val loop = platform.Foundation.NSRunLoop.currentRunLoop
+        while (until.timeIntervalSinceNow > 0 &&
+            loop.runMode(platform.AppKit.NSEventTrackingRunLoopMode, beforeDate = until)
+        ) Unit
+    }
+
     private fun processMemory(): Pair<Long, Long> = kotlinx.cinterop.memScoped {
         val info = alloc<platform.darwin.task_vm_info_data_t>()
         val count = alloc<platform.darwin.mach_msg_type_number_tVar>()

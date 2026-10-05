@@ -42,6 +42,8 @@ internal object ResizeMetrics {
         phase("dirtied")
         active = true
         resize(800 to 600, 1200 to 900, 50)
+        observe()
+        phase("mid-drag")
         resize(1200 to 900, 800 to 600, 50)
         active = false
         observe()
