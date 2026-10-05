@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+### The Linux renderer no longer links the Java toolkit
+
+The Linux native image is built without the toolkit: no preserved `java.desktop` module, no
+input method or accessibility reachability features. Native Image still writes the JDK's
+desktop libraries beside the image because Skiko's classes name them; nothing loads them.
+`libjawt.so` is a stub whose `JAWT_GetAWT` reports failure, so
+Skiko's load by path still succeeds. A notification's press raises the X11 window directly.
+The Kotlin/Native Linux renderer never had a toolkit. Follows #173, which did the same for
+macOS. Windows still opens the toolkit's window.
+
+### The macOS renderer no longer links the Java toolkit's window code
+
+The macOS native image does not force-load the toolkit's `libawt_lwawt` archive, its
+accessibility class roots, or the input method and accessibility reachability features: the
+AppKit window handles text input and accessibility itself. The divider's resize pointer is an
+icon of our own on macOS. Windows and Linux still open the toolkit's window by default, so
+their sources and the shared reachability metadata stay as they are until those windows
+become the default (#134 for Windows, #160 for Linux).
+
+### Linux opens its own window by default
+
+On the GraalVM native-image path Linux now opens the X11 window the renderer makes itself,
+with no environment variable and no toolkit between the scene and the screen. It draws its
+own caption and edges and hands the move and the resize to the window manager, has the
+CLIPBOARD and PRIMARY selections (the middle button pastes PRIMARY), text input with
+composition through XIM, drag and drop of files, the application's icon and the display
+scale, and sends the caret position to the input method. Shortcuts reach Compose as the
+keys they are: control with C, V, X, Z and A, shift with Insert, control with Insert and
+shift with Delete. A paste of any size arrives as one edit. Windows still opens the
+toolkit's window. Not done on Linux: AT-SPI accessibility, which is being built for the
+Kotlin/Native window; IME candidate windows and the feel of a live resize still need a
+person on a real desktop.
+
+### The native-image renderer opens its own window on macOS
+
+On the GraalVM native-image path, macOS now opens the AppKit window the renderer makes
+itself, with no environment variable and no toolkit between the scene and the screen. It
+carries what the toolkit's window did: the application's title, size, minimum size and
+resizable choice, the system or the transparent title bar, the icon, the material behind a
+glass design, files dropped on a drop target, and the window closing by itself for unattended
+runs. Pointer positions and accessibility rectangles are now converted between points and
+pixels, which they were not at 200% before. Korean input, VoiceOver and the feel of a live
+resize at 100% and 200% still need a person on a Mac.
+
 ### The Dioxus path lives in dioxus-compose
 
 The Dioxus adapter, the Dioxus baseline and the twelve `rsx!` samples moved to

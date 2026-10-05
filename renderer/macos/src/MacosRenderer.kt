@@ -10,15 +10,31 @@ import androidx.compose.foundation.ComposeFoundationFlags
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
 import dev.darkpyonix.composerust.runtime.HostConnection
+import dev.darkpyonix.composerust.runtime.WindowCaption
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalClipboardManager
+import dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver
+import dev.darkpyonix.composerust.ui.node.Asset
+import kotlinx.coroutines.delay
+import org.thisisthepy.compose.window.DockIcon
+import org.thisisthepy.compose.window.SystemDarkMonitor
+import org.thisisthepy.compose.window.contentMinimum
+import org.thisisthepy.compose.window.macos.MacosClipboard
+import org.thisisthepy.compose.window.macos.MacosClipboardManager
+import org.thisisthepy.compose.window.macos.MacosWindow
+import org.thisisthepy.compose.window.macos.observeSystemAppearance
+import org.thisisthepy.compose.window.macos.systemIsDark
 import platform.AppKit.NSApplication
 import platform.AppKit.NSApplicationActivationPolicy
 import platform.AppKit.NSApplicationWillTerminateNotification
 import platform.AppKit.NSWindow
 import platform.Foundation.NSNotificationCenter
 import platform.Foundation.NSOperationQueue
+import dev.darkpyonix.composerust.protocol.Chrome
 import dev.darkpyonix.composerust.protocol.TitleBar
-import dev.darkpyonix.composerust.design.resolveTheme
-import dev.darkpyonix.composerust.design.HostPlatform
 
 /**
  * Runs the renderer's Compose application. This is what `compose_rust_renderer_run`
@@ -31,6 +47,9 @@ import dev.darkpyonix.composerust.design.HostPlatform
  * Returns when the application stops, which is when the window closes.
  */
 internal fun runRenderer(connection: () -> HostConnection): Int {
+    // Asked for by a build that proves the executable shapes and wraps Korean with no ICU data
+    // file beside it. A failure stops here, before a window, so the build sees it.
+    if (runTextSelfCheckIfAsked() == false) return RendererApi.RUN_FAILED
     val application = NSApplication.sharedApplication()
     // An executable that is not inside a bundle is not, by default, something the system
     // will put in front of anything else: it has no place in the dock and cannot take the
@@ -45,15 +64,13 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // is called are settled when it is made.
     // The menu a selection offers, drawn by the system rather than by Compose.
     //
-    // Off, and that is the opposite of what it was. The new path was turned on because it
-    // is the one that asks the platform for a menu and this platform answers, through the
-    // `NSMenu` the text toolbar builds. It does not ask on this platform: what it draws is
-    // a menu of its own, at the window's top left corner rather than under the pointer,
-    // with every item in it dead. The old path goes through the toolbar, which is ours.
-    //
-    // To be turned back on when the new path reaches this platform, and the way to tell is
-    // that the menu comes up where the pointer is.
-    ComposeFoundationFlags.isNewContextMenuEnabled = false
+    // On, because the new path is the one with a place to say what the menu is: a text
+    // field or selection asks `LocalTextContextMenuDropdownProvider`, and the Compose this
+    // links answers it on this platform with an `NSMenu` holding Compose's own items. The
+    // old path has no such place here and draws a menu of its own, which came up beside
+    // the one the window put up, two menus for one click. The window puts up none now,
+    // so the one that appears is the system's, the same one the native image shows.
+    ComposeFoundationFlags.isNewContextMenuEnabled = true
 
     declareWindowBackdrop()
     // The notification centre, before the Host exists: the Host's first batch may already
@@ -80,25 +97,70 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // this renderer happens to be called, which is the library's name and not any
     // application's, and a measurement of zero means it did not ask.
     val asked = host.table.window
-    // What the two title bar modes are worth here. Asked of the design system rather than
-    // written down, and asked before the window is made because both answers are things a
-    // window is built with rather than things it is told later.
-    //
-    // The theme is resolved for this platform at the narrowest class: neither answer
-    // depends on how wide the window is, and the window does not exist yet to be measured.
-    val dressing = resolveTheme(
-        theme = host.table.theme,
-        platform = HostPlatform.MacOs,
-        systemDark = false,
-    ).let { it.rules.caption(it, asked?.titleBar ?: TitleBar.Normal) }
+    // How the title bar is built, by the same decision the native image's window takes, so
+    // both macOS renderers have the same corners and start the content at the same height.
+    val chrome = MacosWindowChrome.of(
+        chrome = asked?.chrome ?: Chrome.Modern,
+        titleBar = asked?.titleBar ?: TitleBar.Normal,
+    )
+    // Whether the system is dark, now and as it changes. Held here so the first answer is the
+    // real one and the window is not drawn light and corrected a moment later.
+    var requestFrame: () -> Unit = {}
+    val dark = mutableStateOf(systemIsDark())
+    val appearance = SystemDarkMonitor(
+        read = ::systemIsDark,
+        requestFrame = { requestFrame() },
+        onChange = { dark.value = it },
+    )
+    observeSystemAppearance(appearance::refresh)
+    val clipboard = MacosClipboard()
+    @Suppress("DEPRECATION")
+    val clipboardManager = MacosClipboardManager()
     val window = MacosWindow(
         name = asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
         width = if (asked != null && asked.width > 0) asked.width else 520,
         height = if (asked != null && asked.height > 0) asked.height else 360,
-        buttonInset = dressing.platformButtonInset,
-        cornerRadius = dressing.windowCornerRadius,
+        minimumSize = contentMinimum(asked?.minWidth ?: 0, asked?.minHeight ?: 0),
+        chrome = org.thisisthepy.compose.window.macos.MacosWindowChrome(
+            fullSizeContentView = chrome.fullSizeContentView,
+            titlebarAppearsTransparent = chrome.titlebarAppearsTransparent,
+            titleHidden = chrome.titleHidden,
+            unifiedToolbar = chrome.unifiedToolbar,
+        ),
     )
-    window.setContent { ComposeRustContent(host, caption = window.caption.value) }
+    requestFrame = window::requestFrame
+    val dockIcon = DockIcon(
+        lookup = { id -> (host.table.assets.asset(id) as? Asset.Raster)?.bitmap },
+        apply = { picture -> picture.toNSImage()?.let { application.applicationIconImage = it } },
+    )
+    val iconAsset = asked?.icon ?: 0
+    @Suppress("DEPRECATION")
+    window.setContent {
+        CompositionLocalProvider(
+            LocalSystemDarkObserver provides { dark.value },
+            LocalClipboard provides clipboard,
+            LocalClipboardManager provides clipboardManager,
+        ) {
+            // The asset arrives a little after the first batch names it, so it is looked for
+            // until it is there.
+            if (iconAsset != 0) {
+                LaunchedEffect(Unit) {
+                    while (!dockIcon.tryApply(iconAsset)) delay(100)
+                }
+            }
+            val strip = window.caption.value
+            ComposeRustContent(
+                host,
+                caption = WindowCaption(
+                    height = strip.height,
+                    buttonsWidth = strip.buttonsWidth,
+                    buttonsAtStart = strip.buttonsAtStart,
+                    insetTop = strip.insetTop,
+                    cornerRadius = strip.cornerRadius,
+                ),
+            )
+        }
+    }
 
     application.activateIgnoringOtherApps(true)
     application.run()
@@ -109,7 +171,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
  * Tells the design systems that a page or a piece of chrome drawn with alpha has something
  * behind it to show.
  *
- * True because [MacosWindow] puts the system's own material behind everything it draws.
+ * True because the fork's `MacosWindow` puts the system's own material behind everything it draws.
  * Said here rather than read off the operating system's name: that name is true of every
  * build for this platform and describes only the ones that put a material there.
  *

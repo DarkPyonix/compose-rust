@@ -1,33 +1,51 @@
 #!/usr/bin/env bash
 # Builds the renderer as a Linux native shared library and stages dist/lib.
 #
-# UNTESTED ON LINUX as of 2026-09-20. This script encodes the expected upstream GraalVM
-# Linux AWT layout, but no Linux native-image build or target run was available here.
 # Verify it with the exact commands in linux-build-evidence.md.
 set -euo pipefail
 source "$(dirname "$0")/env-linux.sh"
 
 [[ -f "$NATIVE_DIR/c/renderer_entry.c" ]] || die "missing $NATIVE_DIR/c/renderer_entry.c"
 
-# Unlike Darwin, upstream GraalVM supports Linux AWT. Its Native Image feature registers
-# awt_xawt and writes the dynamic AWT libraries and libjava/libjvm shims beside the image.
-# Do not force-load libawt_xawt.a and do not add the macOS placeholder or JNI_OnLoad_osxui.
-#
-# The JNI half of that support still has to be asked for. Staging the libraries only decides
-# which ones load; it does not put any class in the image's JNI tables, and libawt's
-# JNI_OnLoad starts by resolving java/awt/GraphicsEnvironment with FindClass to decide
-# between the headless and the X11 toolkit. Without a registration that FindClass returns
-# null and the process dies with NoClassDefFoundError on a class the JDK plainly has, inside
-# Toolkit.loadLibraries, before any window exists. See the preserve flag below.
+# The X11 window is the Compose fork's: its C is compiled from the checkout at the pinned
+# commit, and its Kotlin is the published module the renderer's desktop module depends on.
+"$PROJECT_DIR/scripts/publish-window.sh"
+fork_window="$("$PROJECT_DIR/../scripts/fetch-fork-window.sh")/extended/window"
+x11_source="$fork_window/graalvm/graalvm-linux/c/x11_window.c"
+[[ -f "$x11_source" ]] || die "missing $x11_source"
+
+# The window is the X11 one this renderer makes itself, so the image carries no Java toolkit:
+# no libawt, libawt_xawt or libawt_headless beside it, no input method or accessibility
+# registration, and no preserved java.desktop module. Text input comes from XIM in the
+# window's own C. Nothing on this path may name java.awt, and
+# scripts/tests/no-awt-on-unix-path.test.sh fails the build when something does.
 COMPOSE_RUST_AUTOEXIT_MS=1 run_on_jvm ""
 classpath="$(cat "$CLASSPATH_FILE")"
 obj="$BUILD_DIR/obj"
+# Swing's coroutine provider is left out of the image. It is a main dispatcher that wakes the
+# Java toolkit, and the window here answers `Dispatchers.Main` itself (FrameMainDispatcher).
+# With the provider on the class path it is still found, and everything it reaches comes with it.
+classpath="$(tr ':' '\n' <<< "$classpath" | grep -v 'kotlinx-coroutines-swing' | paste -sd: -)"
+
+# The fork's desktop modules must be what the classpath names, not upstream's. The desktop module
+# reads the local Maven repository first and quietly falls back to upstream's jars when the fork's
+# are not there, and upstream's Compose sends its main-thread work to Swing: an image built that
+# way links, passes a build and dies when the first scene is made, with the toolkit's library
+# missing. build-compose.sh --target desktop publishes them.
+for fork_jar in 'repository/org/jetbrains/compose/ui/ui-desktop/' 'repository/org/jetbrains/skiko/skiko-awt/'; do
+    grep -q "$fork_jar" <<< "$(tr ':' '\n' <<< "$classpath")" || die \
+        "the class path holds no $fork_jar" \
+        "These are the Compose fork's desktop modules and its skiko-awt, published to the local" \
+        "Maven repository. Without them the image would use upstream Compose and need the Java toolkit." \
+        "fix: renderer/scripts/build-compose.sh --target desktop, then scripts/fetch-fork-skiko.sh and its" \
+        "extended/skiko/build-skiko-awt.sh <work-dir> (the compose-desktop job in test-graalvm-renderer.yml shows both)"
+done
 lib="$DIST_DIR/lib"
 rm -rf "$DIST_DIR" "$obj"
 mkdir -p "$obj" "$lib"
 
 cc -c -O2 -fPIC -o "$obj/renderer_entry.o" "$NATIVE_DIR/c/renderer_entry.c"
-cc -c -O2 -fPIC -o "$obj/x11_window.o" "$NATIVE_DIR/c/x11_window.c"
+cc -c -O2 -fPIC -o "$obj/x11_window.o" "$x11_source"
 cc -c -O2 -fPIC -o "$obj/linux_host_references.o" "$NATIVE_DIR/c/linux_host_references.c"
 
 # Why the C shim is not handed to native-image here, the way build-native.sh does on macOS.
@@ -56,14 +74,6 @@ image_name="${LIBRARY_NAME}_image"
 # renderer and one another in the staged lib directory. The soname keeps the wrapper's
 # DT_NEEDED entry a bare file name, so the staged directory stays relocatable.
 #
-# -H:Preserve=module=java.desktop is how the AWT classes reach the image's reflection and JNI
-# tables. It is what GraalVM itself passes to build its own non-headless java.desktop
-# integration test, which is the only AWT image upstream runs on Linux, and it is documented
-# as removing the need to write reachability metadata for what it covers. The alternative
-# would be a hand-written list of the X11 toolkit classes that libawt_xawt calls back into,
-# and nobody here can run Linux to find out where such a list stops. It costs build time and
-# image size, which is what -Os above is for, and the Linux job prints the staged size.
-#
 # The Compose, Skiko and Skia registrations are not part of java.desktop. They come from
 # desktop/resources/META-INF/native-image, which is on the classpath and is therefore read on
 # every platform without a -H:ConfigurationFileDirectories argument.
@@ -75,17 +85,22 @@ image_name="${LIBRARY_NAME}_image"
 # or the pointer stays null and every resize silently draws nothing. Asked for by name so
 # that a class which cannot be initialised at build time fails this build instead.
 (cd "$lib" && "$GRAALVM_HOME/bin/native-image" \
-    --initialize-at-build-time=dev.darkpyonix.composerust.ui.platform.X11FrameCallback \
+    --initialize-at-build-time=org.thisisthepy.compose.window.graalvm.linux.X11Upcalls \
     --shared \
     -cp "$classpath" \
     -o "$image_name" \
     --no-fallback \
-    --features=dev.darkpyonix.composerust.ui.platform.ImeReachabilityFeature \
+    -Ddxc.toolkit.window=false \
+    -Dcompose.awt=false \
+    -Ddxc.awt.clipboard=false \
     -Djava.awt.headless=false \
     -H:IncludeLocales=en,ko \
     -Os \
     -H:+UnlockExperimentalVMOptions \
-    -H:Preserve=module=java.desktop \
+    -H:ReportAnalysisForbiddenType=java.awt.Toolkit \
+    -H:ReportAnalysisForbiddenType=java.awt.Component \
+    -H:+PrintAnalysisCallTree \
+    -H:PrintAnalysisCallTreeType=TXT \
     "-H:NativeLinkerOption=$obj/x11_window.o" \
     '-H:NativeLinkerOption=-lX11' \
     '-H:NativeLinkerOption=-lGL' \
@@ -93,14 +108,18 @@ image_name="${LIBRARY_NAME}_image"
     "-H:NativeLinkerOption=-Wl,-soname,$image_name.so" \
     '-H:NativeLinkerOption=-Wl,-rpath,$ORIGIN')
 
-# These files are emitted by upstream Native Image when AWT is reachable. Fail here instead
-# of shipping an image that later resolves its toolkit against a developer JDK.
-for runtime_file in "$image_name.so" libawt.so libawt_headless.so libawt_xawt.so \
-                    libfontmanager.so libjava.so libjvm.so; do
-    [[ -f "$lib/$runtime_file" ]] || die "Native Image did not emit $runtime_file" \
-        "This upstream GraalVM Linux AWT layout is untested for the selected JDK build." \
-        "Keep $BUILD_DIR and report: $GRAALVM_HOME/bin/native-image --version"
-done
+# The image library is the one file the link below needs from Native Image.
+[[ -f "$lib/$image_name.so" ]] || die "Native Image did not emit $image_name.so" \
+    "Keep $BUILD_DIR and report: $GRAALVM_HOME/bin/native-image --version"
+
+# Native Image writes the JDK's desktop libraries beside an image whenever a java.awt class is
+# reachable, and Compose's and Skiko's desktop classes name a few that nothing runs here: no
+# toolkit class is initialised, because the window is the X11 one of our own and Compose's
+# main-thread work runs in its frame loop. They are removed, so that an image that does reach
+# the toolkit at run time fails at once with a missing library instead of quietly loading it.
+# The smoke test is what proves nothing does.
+rm -f "$lib"/libawt.so "$lib"/libawt_xawt.so "$lib"/libawt_headless.so \
+      "$lib"/libfontmanager.so "$lib"/liblcms.so "$lib"/libjavajpeg.so
 
 # The shim calls these five. Check them before linking, so a rename or a dropped export is
 # reported as itself rather than as an undefined reference in the middle of a cc command.
@@ -161,13 +180,8 @@ needed="$(readelf -d "$lib/$LIBRARY_NAME.so" | grep NEEDED | grep "$image_name" 
     "readelf -d reported: ${needed:-no matching NEEDED entry}" \
     "Check that -Wl,-soname reached the Native Image link."
 
-# Skiko loads JAWT from <java.home>/lib. Native Image may emit it when it sees the load. If
-# it does not, stage the matching library from the same GraalVM. This fallback is untested.
-if [[ ! -f "$lib/libjawt.so" ]]; then
-    [[ -f "$GRAALVM_HOME/lib/libjawt.so" ]] || die "libjawt.so was neither emitted nor found in GraalVM" \
-        "Looked for $lib/libjawt.so and $GRAALVM_HOME/lib/libjawt.so."
-    cp "$GRAALVM_HOME/lib/libjawt.so" "$lib/libjawt.so"
-fi
+# No libjawt is staged. The skiko library does not link it and its loader maps none when nothing
+# asks for an AWT canvas, which nothing in this renderer does; the smoke test runs without one.
 
 skiko_jar="$(tr ':' '\n' <<< "$classpath" | grep "skiko-awt-runtime-linux-$SKIKO_ARCH" | head -1)"
 [[ -n "$skiko_jar" ]] || die "no skiko-awt-runtime-linux-$SKIKO_ARCH jar on the runtime classpath" \

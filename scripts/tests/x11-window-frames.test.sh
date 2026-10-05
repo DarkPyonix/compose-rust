@@ -7,16 +7,24 @@
 # rather than on the next turn. The size a frame is drawn at and the refusal of a second
 # frame while one is running are checked by WindowFramesTest; what is left is the wiring
 # between the two sides, which is what this reads.
+#
+# The window's C and the table of calls back into the image are the Compose fork's
+# graalvm-linux module, read at the commit the renderer pins. The loop that draws is this
+# repository's.
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-window_source="$repo_root/renderer/desktop/c/x11_window.c"
+source "$repo_root/scripts/tests/fork-window.sh"
+fork_window_or_skip "$repo_root"
+linux_module="$fork_window/graalvm/graalvm-linux"
+fork_kotlin="$linux_module/src/org/thisisthepy/compose/window/graalvm/linux"
+window_source="$linux_module/c/x11_window.c"
 loop_file="$repo_root/renderer/desktop/src/X11Window.kt"
-callback_file="$repo_root/renderer/desktop/src/X11FrameCallback.kt"
-frames_file="$repo_root/renderer/desktop/src/WindowFrames.kt"
+callback_file="$fork_kotlin/X11Upcalls.kt"
+natives_file="$fork_kotlin/X11Natives.kt"
 model_file="$repo_root/renderer/desktop/src/AppKitWindow.kt"
 build_script="$repo_root/renderer/desktop/scripts/build-native-linux.sh"
-for file in "$window_source" "$loop_file" "$callback_file" "$frames_file" "$model_file" \
+for file in "$window_source" "$loop_file" "$callback_file" "$natives_file" "$model_file" \
             "$build_script"; do
     [[ -f "$file" ]] || { echo "missing $file"; exit 1; }
 done
@@ -38,7 +46,7 @@ absent() {
 
 # The loop runs until the window closes. A count of frames is a window that goes away while
 # someone is using it, which is what this replaced.
-grep -Fq 'while (!isWindowClosed())' "$loop_file" ||
+grep -Fq 'while (!closed)' "$loop_file" ||
     fail "X11Window.kt does not run until the window closes"
 absent 'SPIKE_FRAMES' "$loop_file" "a loop that stops after so many frames is not a loop"
 absent 'Thread\.sleep' "$loop_file" \
@@ -48,12 +56,16 @@ absent 'Thread\.sleep' "$loop_file" \
 # these is a defect that has been found on that one: a window that hears nothing, a list
 # whose rows are fetched on a thread with no Host, a screen redrawn sixty times a second
 # while an input method is trying to reach the process, a tree nobody was told about.
-for call in 'pumpWindowEvents(' 'work.runPending()' 'drainWindowEvents()' \
-            'scene.hasInvalidations()' 'semantics.pushIfChanged(afterDrawing'; do
+for call in 'work.runPending()' 'scene.hasInvalidations()' 'semantics.pushIfChanged(afterDrawing'; do
     grep -Fq "$call" "$model_file" ||
         fail "AppKitWindow.kt no longer does '$call', so this test is comparing against nothing"
     grep -Fq "$call" "$loop_file" || fail "the X11 loop does not do '$call' per frame"
 done
+# The turn itself differs in how the window is read: the macOS loop pumps and drains the
+# window's queue, the X11 loop pumps the fork's window, which hands each event to a listener.
+grep -Fq 'pumpWindowEvents(' "$model_file" || fail "the macOS loop no longer gives the window a turn"
+grep -Fq 'window.pump(' "$loop_file" || fail "the X11 loop never gives the window a turn"
+grep -Fq 'override fun onEvent' "$loop_file" || fail "the X11 loop never listens for events"
 
 # The frame that belongs to a resize is drawn where the resize is handled. The size being
 # written down and the drawing left to the loop is the defect: the display server has moved
@@ -72,35 +84,32 @@ grep -Fq 'case Expose:' "$window_source" || fail "x11_window.c ignores being unc
 # The frame the window asks for is drawn by the renderer, through a pointer it was given.
 grep -Fq 'void dxc_native_set_frame_callback(' "$window_source" ||
     fail "x11_window.c has no way to be given the function that draws a frame"
-grep -Fq '@CFunction("dxc_native_set_frame_callback")' "$callback_file" ||
+grep -Fq '@CFunction("dxc_native_set_frame_callback")' "$natives_file" ||
     fail "nothing on the Kotlin side registers the frame callback"
-grep -Fq 'setX11FramePainter' "$loop_file" || fail "the X11 loop never registers a painter"
-grep -Fq 'clearX11FramePainter' "$loop_file" ||
+grep -Fq 'X11Upcalls.setFramePainter' "$loop_file" || fail "the X11 loop never registers a painter"
+grep -Fq 'X11Upcalls.clearFramePainter' "$loop_file" ||
     fail "the X11 loop never takes the painter away, so a closing window can still ask"
 
-# The entry point the pointer points at, and the class it is looked up in. Native Image
-# resolves both by name while it builds the image, so a rename that misses one of them is a
-# pointer to nothing and a resize that draws nothing.
-jvm_name="$(sed -n 's/^@file:JvmName("\([A-Za-z0-9_]*\)")$/\1/p' "$callback_file")"
-package="$(sed -n 's/^package \([a-z.]*\)$/\1/p' "$callback_file")"
-qualified="$package.$jvm_name"
-if [[ -z "$jvm_name" || -z "$package" ]]; then
-    fail "X11FrameCallback.kt has no package or no JvmName to resolve the entry point by"
-else
-    grep -Fq "Class.forName(\"$qualified\")" "$callback_file" ||
-        fail "the entry point is looked up in a class other than $qualified"
-    # Asked for by name so the flag cannot go on pointing at a class that has been renamed.
-    grep -Fq -- "--initialize-at-build-time=$qualified" "$build_script" ||
-        fail "the Linux build does not initialise $qualified while it builds the image, so the function pointer stays null"
+# The entry point the pointer points at, and the class it is created from. Native Image
+# resolves both while it builds the image, so a rename that misses one of them is a pointer
+# to nothing and a resize that draws nothing. The pointer is made from a class literal, so
+# there is no name looked up at run time to go stale.
+upcalls_class="$(sed -n 's/^package \([a-z.]*\)$/\1/p' "$callback_file").X11Upcalls"
+grep -Fq 'X11Upcalls::class.java' "$callback_file" ||
+    fail "the entry point is not made from the table's class literal"
+if grep -v '^ *\*\|^ */\*\|^ *//' "$callback_file" | grep -Fq 'Class.forName'; then
+    fail "the entry point is looked up by name at run time"
 fi
-method="$(sed -n '/CEntryPointLiteral.create(/,/^)/p' "$callback_file" |
+grep -Fq -- "--initialize-at-build-time=$upcalls_class" "$build_script" ||
+    fail "the Linux build does not initialise $upcalls_class while it builds the image, so the function pointer stays null"
+method="$(sed -n '/CEntryPointLiteral.create(/,/^    )/p' "$callback_file" |
     sed -n 's/^ *"\([A-Za-z0-9_]*\)",$/\1/p')"
 if [[ -z "$method" ]]; then
-    fail "X11FrameCallback.kt does not name the method the pointer points at"
+    fail "X11Upcalls.kt does not name the method the pointer points at"
 else
-    grep -Eq "^fun $method\(" "$callback_file" ||
-        fail "the pointer names $method, which is not a top-level function in that file"
-    grep -Fq "@CEntryPoint" "$callback_file" || fail "$method is not an entry point"
+    grep -Eq "fun $method\(" "$callback_file" ||
+        fail "the pointer names $method, which is not a function of the table"
+    grep -Fq '@CEntryPoint(name = "dxc_x11_draw_frame")' "$callback_file" || fail "$method is not the entry point C calls"
 fi
 
 # Held rather than dropped: the manager hands out a number with a resize and shows the new
@@ -135,7 +144,7 @@ for symbol in dxc_native_window_open dxc_native_window_size dxc_native_frame_beg
               dxc_native_set_frame_callback; do
     grep -Eq "^(void|int32_t) $symbol\(" "$window_source" ||
         fail "x11_window.c does not define $symbol"
-    grep -rqF "@CFunction(\"$symbol\")" "$repo_root/renderer/desktop/src" ||
+    grep -rqF "@CFunction(\"$symbol\")" "$fork_kotlin" ||
         fail "nothing declares $symbol, so this list has outlived the code"
 done
 

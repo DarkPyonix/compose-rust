@@ -63,6 +63,10 @@ $BinDir = Join-Path $DistDir "bin"
 $LibDir = Join-Path $DistDir "lib"
 $ObjDir = Join-Path $BuildDir "obj-windows"
 $MetadataDir = Join-Path $ScriptsDir "windows-metadata"
+# The toolkit's own reachability registrations. Windows still opens the toolkit's window, so
+# it keeps them; the shared metadata on the classpath carries none, so that the other
+# platforms' images reach no java.awt class through it.
+$ToolkitMetadataDir = Join-Path $ScriptsDir "toolkit-metadata"
 $LibraryName = "libcompose_rust_renderer"
 $RendererSource = Join-Path $NativeDir "c\renderer_entry.c"
 $WindowSource = Join-Path $NativeDir "c\win32_window.c"
@@ -81,6 +85,14 @@ if (-not (Test-Path -LiteralPath $KotlinWrapper -PathType Leaf)) {
     Fail "missing $KotlinWrapper" @(
         "The checked-in Kotlin Toolchain wrapper is required; no separate Gradle install is used."
     )
+}
+# The desktop module depends on the Compose fork's window modules, published to the local Maven
+# repository from the commit build-compose.sh pins. The Windows window is still this
+# repository's own, so only the shared logic and the other desktops' wrappers are needed.
+$PublishWindow = Join-Path $ProjectDir "scripts\publish-window.sh"
+& bash $PublishWindow
+if ($LASTEXITCODE -ne 0) {
+    Fail "could not publish the window modules from the Compose fork"
 }
 # This carries the whole verified Compose desktop AWT stack, not just the sun.awt.windows
 # classes. An earlier Windows-only selection kept the entries whose names mention Windows and
@@ -297,7 +309,7 @@ $NativeImageArgs = @(
     "-H:IncludeLocales=en,ko",
     "-Os",
     "-H:+UnlockExperimentalVMOptions",
-    "-H:ConfigurationFileDirectories=$MetadataDir,$ResourceMetadataDir",
+    "-H:ConfigurationFileDirectories=$MetadataDir,$ResourceMetadataDir,$ToolkitMetadataDir",
     # The JDK half of the desktop stack, registered wholesale for reflection and JNI.
     # Curated metadata got the image past Toolkit.getDefaultToolkit and straight into the
     # next reflective lookup: Swing asks UIManager for a ComponentUI by class name, and a

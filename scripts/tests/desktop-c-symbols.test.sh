@@ -14,7 +14,12 @@
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# The AppKit and X11 windows, their C and the @CFunction declarations that reach it, are the
+# Compose fork's graalvm modules at the pinned commit. The Windows window is still ours.
+source "$repo/scripts/tests/fork-window.sh"
+fork_window_or_skip "$repo"
 src="$repo/renderer/desktop/src"
+fork_src="$fork_window/graalvm"
 scripts="$repo/renderer/desktop/scripts"
 failures=0
 
@@ -26,10 +31,29 @@ declared="$(grep -rho '@CFunction("[a-z0-9_]*")' "$src" |
     sed 's/@CFunction("\(.*\)")/\1/' | grep -v '^compose_rust_host_' | sort -u)"
 [ -n "$declared" ] || { echo "  FAIL: no @CFunction declarations found at all" >&2; exit 1; }
 
+# What the fork's two wrappers declare, which only their own desktop's C has to answer in full:
+# the wrappers carry calls (window actions, debug hooks) that the renderer's loops never make, so
+# an image for another desktop never links them.
+fork_names() {
+    grep -rho '@CFunction("[a-z0-9_]*")' "$fork_src/$1" --include='*.kt' |
+        sed 's/@CFunction("\(.*\)")/\1/' | sort -u
+}
+macos_fork_names="$(fork_names graalvm-macos)"
+linux_fork_names="$(fork_names graalvm-linux)"
+# The calls the renderer's own loops make through those wrappers, which every desktop's image
+# reaches because the platform switch names all three loops.
+loop_names="dxc_native_window_open dxc_native_window_size dxc_native_frame_begin
+dxc_native_frame_end dxc_native_poll_event dxc_native_pump dxc_native_window_closed
+dxc_native_set_cursor dxc_native_set_accessibility dxc_native_install_menu
+dxc_native_set_frame_callback"
+declared="$(printf '%s\n' $declared $loop_names | sort -u)"
+
 # Which C files each desktop compiles, read from its own build script rather than listed
 # again here, so that adding a file to a build is not a way of quietly failing this.
-macos_files="$(grep -ho 'c/[a-z0-9_]*\.[mc]' "$scripts/build-native.sh" | sort -u)"
-linux_files="$(grep -ho 'c/[a-z0-9_]*\.[mc]' "$scripts/build-native-linux.sh" | sort -u)"
+macos_files="$(grep -ho 'c/[a-z0-9_]*\.[mc]' "$scripts/build-native.sh" | sort -u)
+$fork_window/graalvm/graalvm-macos/native/appkit_window.m"
+linux_files="$(grep -ho 'c/[a-z0-9_]*\.[mc]' "$scripts/build-native-linux.sh" | sort -u)
+$fork_window/graalvm/graalvm-linux/c/x11_window.c"
 windows_files="$(grep -ho 'c[/\\][a-z0-9_]*\.[mc]' "$scripts/build-native-windows.ps1" |
     tr '\\' '/' | sort -u)"
 
@@ -70,13 +94,18 @@ for_desktop() {
 }
 
 check() {
-    local desktop="$1" macro="$2"
-    shift 2
+    local desktop="$1" macro="$2" own="$3"
+    shift 3
     local files=""
-    for relative in "$@"; do files="$files $repo/renderer/desktop/$relative"; done
+    for relative in "$@"; do
+        case "$relative" in
+            /*) files="$files $relative" ;;
+            *) files="$files $repo/renderer/desktop/$relative" ;;
+        esac
+    done
     [ -n "$files" ] || { echo "  FAIL: no C files read for $desktop" >&2; failures=$((failures + 1)); return; }
     local missing="" duplicated=""
-    for symbol in $declared; do
+    for symbol in $declared $own; do
         # A definition, not a mention: the name after a return type at the start of a
         # line, which is how every one of these files writes them.
         local defined
@@ -106,9 +135,9 @@ check() {
     fi
 }
 
-check macOS __APPLE__ $macos_files
-check Linux __linux__ $linux_files
-check Windows _WIN32 $windows_files
+check macOS __APPLE__ "$macos_fork_names" $macos_files
+check Linux __linux__ "$linux_fork_names" $linux_files
+check Windows _WIN32 "" $windows_files
 
 if [ "$failures" -ne 0 ]; then
     echo "  $failures of 3 desktops would not link" >&2

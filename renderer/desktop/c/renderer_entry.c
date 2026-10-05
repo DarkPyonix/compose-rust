@@ -76,8 +76,6 @@ void dxc_set_window_material(int32_t asked) {
 #include <objc/runtime.h>
 
 void compose_rust_prepare_main_thread(void);
-void compose_rust_park_main_thread(atomic_bool *finished);
-void compose_rust_stop_main_thread(void);
 #endif
 
 enum {
@@ -233,6 +231,7 @@ static int renderer_library_dir(char *out, size_t out_size) {
 }
 #endif
 
+#ifndef __APPLE__
 /* Creates the isolate on the calling thread and runs the renderer until its window closes. */
 static void *renderer_thread(void *arg) {
     struct renderer_run *run = arg;
@@ -251,11 +250,9 @@ static void *renderer_thread(void *arg) {
 #ifndef _WIN32
     atomic_store(&run->finished, true);
 #endif
-#ifdef __APPLE__
-    compose_rust_stop_main_thread();
-#endif
     return NULL;
 }
+#endif
 
 #ifdef _WIN32
 /**
@@ -515,371 +512,6 @@ static DWORD WINAPI dxc_reclaim_caption(LPVOID unused) {
 }
 #endif
 
-#ifdef __APPLE__
-/*
- * Bringing the window buttons down to the bar's line.
- *
- * A bar that is the window's caption puts its content on the same line as the close,
- * minimise and zoom buttons, which is what macOS itself does. macOS makes that line by
- * moving the buttons, not by moving the toolbar: a window with a unified toolbar has its
- * buttons centred in the taller title bar. There is no way to ask for that from Java. The
- * AWT peer reads eight client properties and none of them is this one, so a window built
- * through AWT alone leaves the buttons centred in the standard 28 point bar while the
- * bar's content sits lower, and on the calculator that was a 15 pixel step.
- *
- * So it is asked for here, through the Objective-C runtime, in the same file and the same
- * spirit as the Windows window procedure a few hundred lines up. What may not be written
- * by hand is the shim between the Host and the Renderer, which is generated; the renderer
- * talking to its own window is not that.
- *
- * Only windows that asked for modern chrome are touched. Kotlin says so by setting
- * `apple.awt.fullWindowContent`, which the peer turns into the full size content view
- * style, so the style mask is the message: a window that kept the ordinary title bar
- * never gets one.
- */
-
-// From NSWindow.h. Unified is the one that puts the title and the toolbar on one line,
-// which is the line the buttons are then centred on.
-enum { DXC_TOOLBAR_STYLE_UNIFIED = 3 };
-// NSWindowStyleMaskFullSizeContentView.
-enum { DXC_FULL_SIZE_CONTENT_VIEW = 1 << 15 };
-// Titled, Closable, Miniaturizable, Resizable: what a window needs in its mask before
-// AppKit gives it a title bar and draws the three buttons in it.
-enum {
-    DXC_TITLED = 1 << 0,
-    DXC_CLOSABLE = 1 << 1,
-    DXC_MINIATURIZABLE = 1 << 2,
-    DXC_RESIZABLE = 1 << 3,
-};
-// NSWindowTitleHidden.
-enum { DXC_TITLE_HIDDEN = 1 };
-
-static id dxc_send(id self, const char *selector) {
-    return ((id (*)(id, SEL))objc_msgSend)(self, sel_registerName(selector));
-}
-
-static id dxc_send_class(const char *name, const char *selector) {
-    Class type = objc_getClass(name);
-    if (type == NULL) {
-        return NULL;
-    }
-    return ((id (*)(Class, SEL))objc_msgSend)(type, sel_registerName(selector));
-}
-
-/** Puts a unified toolbar on one window, which is what moves its buttons. */
-static void dxc_unify_window(id window) {
-    long mask = ((long (*)(id, SEL))objc_msgSend)(window, sel_registerName("styleMask"));
-    if ((mask & DXC_FULL_SIZE_CONTENT_VIEW) == 0) {
-        return;
-    }
-    if (dxc_send(window, "toolbar") != NULL) {
-        return;
-    }
-    id identifier = ((id (*)(Class, SEL, const char *))objc_msgSend)(
-        objc_getClass("NSString"), sel_registerName("stringWithUTF8String:"),
-        "compose-rust");
-    id toolbar = dxc_send_class("NSToolbar", "alloc");
-    if (toolbar == NULL || identifier == NULL) {
-        return;
-    }
-    toolbar = ((id (*)(id, SEL, id))objc_msgSend)(
-        toolbar, sel_registerName("initWithIdentifier:"), identifier);
-    if (toolbar == NULL) {
-        return;
-    }
-    // The toolbar is empty and stays empty. Its job is to make the title bar the height a
-    // toolbar gives it, so the buttons are centred there; everything in the bar is drawn
-    // by the renderer underneath, through the full size content view.
-    ((void (*)(id, SEL, signed char))objc_msgSend)(
-        toolbar, sel_registerName("setShowsBaselineSeparator:"), 0);
-    ((void (*)(id, SEL, id))objc_msgSend)(window, sel_registerName("setToolbar:"), toolbar);
-    ((void (*)(id, SEL, long))objc_msgSend)(
-        window, sel_registerName("setToolbarStyle:"), DXC_TOOLBAR_STYLE_UNIFIED);
-}
-
-// From NSVisualEffectView.h, blended with what is behind the window rather than with what
-// is behind the view.
-//
-// The sidebar material rather than the window background one. The window background
-// material is nearly opaque grey in the light appearance, so the desktop behind it reached
-// the eye as a faint cast at best; the sidebar material is the one AppKit puts behind a
-// source list, and it is what lets a pink wallpaper read as pink through the chrome that
-// sits on it. The renderer paints the page over it at most of its opacity, so the page
-// still reads as a page and only the chrome carries the desktop's colour at full strength.
-enum {
-    DXC_MATERIAL_SIDEBAR = 7,
-    DXC_BLENDING_BEHIND_WINDOW = 0,
-    DXC_EFFECT_STATE_ACTIVE = 1,
-};
-// NSViewWidthSizable | NSViewHeightSizable.
-enum { DXC_VIEW_SIZABLE = 2 | 16 };
-
-/**
- * Puts a layer behind the window that shows what is behind the window.
- *
- * This is the half of the glass that cannot be drawn. Everything the renderer paints can
- * be translucent over what it painted before, but the desktop is not something it
- * painted, and a material that does not pick up the desktop is a flat tint whatever its
- * alpha is: measured against a window that has it, a sidebar's blue channel climbed from
- * 34 to 59 down its length while ours stayed on one value from top to bottom.
- *
- * The view is inserted under everything else in the content view and told to follow it,
- * so it is the window's backmost layer and nothing has to lay it out. Whether any of it
- * reaches the eye depends on what is painted over it, which is the renderer's half.
- */
-/**
- * Says why the window has no material behind it, when asked to.
- *
- * Every step here is a message to a toolkit object that may not be what this expects, and
- * a silent early return leaves a window that simply looks ordinary with nothing to read.
- * Off unless `DXC_REPORT_MATERIAL` is set, so it costs a pointer comparison in normal use.
- */
-static void dxc_report_material(const char *what) {
-    static int asked = -1;
-    if (asked < 0) {
-        asked = getenv("DXC_REPORT_MATERIAL") != NULL;
-    }
-    if (asked) {
-        fprintf(stderr, "dxc material: %s\n", what);
-    }
-}
-
-/**
- * Stops the window claiming it fills its own rectangle, and takes its fill away.
- *
- * Both are needed and neither sticks. The system composites nothing behind an opaque
- * window, and a window with a background colour paints that colour over whatever was
- * composited; the toolkit sets the colour from its own side, so this is said again on
- * every pass rather than once at the start.
- */
-static void dxc_clear_window_background(id window) {
-    ((void (*)(id, SEL, signed char))objc_msgSend)(window, sel_registerName("setOpaque:"), 0);
-    id clear = dxc_send_class("NSColor", "clearColor");
-    if (clear != NULL) {
-        ((void (*)(id, SEL, id))objc_msgSend)(
-            window, sel_registerName("setBackgroundColor:"), clear);
-    }
-}
-
-/**
- * Stops a view and everything under it from claiming to fill its own rectangle.
- *
- * A layer that says it is opaque is composited as though nothing behind it matters, so
- * the material under the window never reaches the eye however much alpha the page was
- * painted with. The renderer draws into a layer several views down, so the whole branch
- * is asked rather than the top of it.
- *
- * Depth-limited because this walks a view tree the toolkit owns and a cycle there would
- * be its problem becoming ours.
- */
-static void dxc_open_layers(id view, int depth) {
-    if (view == NULL || depth > 12) {
-        return;
-    }
-    if (depth == 0) {
-        dxc_report_material("opening the layers under the content view");
-    }
-    ((void (*)(id, SEL, signed char))objc_msgSend)(view, sel_registerName("setWantsLayer:"), 1);
-    id layer = dxc_send(view, "layer");
-    if (layer != NULL) {
-        ((void (*)(id, SEL, signed char))objc_msgSend)(layer, sel_registerName("setOpaque:"), 0);
-        ((void (*)(id, SEL, void *))objc_msgSend)(
-            layer, sel_registerName("setBackgroundColor:"), NULL);
-    }
-    id children = dxc_send(view, "subviews");
-    if (children == NULL) {
-        return;
-    }
-    unsigned long count =
-        ((unsigned long (*)(id, SEL))objc_msgSend)(children, sel_registerName("count"));
-    for (unsigned long i = 0; i < count; i++) {
-        dxc_open_layers(
-            ((id (*)(id, SEL, unsigned long))objc_msgSend)(
-                children, sel_registerName("objectAtIndex:"), i),
-            depth + 1);
-    }
-}
-
-/**
- * Gives a window its own frame back, with the system's buttons in it.
- *
- * The toolkit is asked for a window with no decoration, because that is the only window
- * it will let draw transparently, and a window that cannot draw transparently can have
- * any amount of material put behind it and show none of it.
- *
- * What is given up in that request is given up on the toolkit's side only. The window is
- * a real one and AppKit will draw it a title bar and the three buttons the moment its
- * style mask says to, so the mask is put back here: titled, closable, miniaturizable,
- * resizable, and the content running the full height with the bar transparent over it.
- * Nothing of the frame is drawn by this project, which is the whole point: an imitation
- * of those three buttons is the most visible way to fail at looking native.
- *
- * Said again on every pass. Changing the mask makes AppKit rebuild the frame view, and a
- * rebuilt frame has its own idea of what the window's background is.
- */
-static void dxc_restore_window_frame(id window) {
-    long mask = ((long (*)(id, SEL))objc_msgSend)(window, sel_registerName("styleMask"));
-    long wanted = mask | DXC_TITLED | DXC_CLOSABLE | DXC_MINIATURIZABLE | DXC_RESIZABLE |
-        DXC_FULL_SIZE_CONTENT_VIEW;
-    if (mask != wanted) {
-        ((void (*)(id, SEL, long))objc_msgSend)(window, sel_registerName("setStyleMask:"), wanted);
-        long now = ((long (*)(id, SEL))objc_msgSend)(window, sel_registerName("styleMask"));
-        char line[160];
-        snprintf(line, sizeof line, "frame asked for 0x%lx, window now reports 0x%lx", wanted, now);
-        dxc_report_material(line);
-    }
-    ((void (*)(id, SEL, signed char))objc_msgSend)(
-        window, sel_registerName("setTitlebarAppearsTransparent:"), 1);
-    ((void (*)(id, SEL, long))objc_msgSend)(
-        window, sel_registerName("setTitleVisibility:"), DXC_TITLE_HIDDEN);
-    {
-        static int said;
-        if (!said) {
-            said = 1;
-            // NSWindowCloseButton is 0. Whether AppKit built the three is the question
-            // this answers: a mask that reads back correctly and a window with no buttons
-            // in it are two different failures and look alike from a screenshot.
-            id close = ((id (*)(id, SEL, long))objc_msgSend)(
-                window, sel_registerName("standardWindowButton:"), 0);
-            id title = dxc_send(window, "title");
-            const char *text = title == NULL ? NULL :
-                ((const char *(*)(id, SEL))objc_msgSend)(title, sel_registerName("UTF8String"));
-            signed char opaque =
-                ((signed char (*)(id, SEL))objc_msgSend)(window, sel_registerName("isOpaque"));
-            char line[220];
-            snprintf(line, sizeof line,
-                     "window %s (%s): close button %s, opaque %d",
-                     text == NULL ? "?" : text, object_getClassName(window),
-                     close == NULL ? "missing" : "present", (int)opaque);
-            dxc_report_material(line);
-        }
-    }
-}
-
-static void dxc_back_window_with_material(id window) {
-    if (!atomic_load(&dxc_window_material_asked)) {
-        return;
-    }
-    // Only the window the renderer draws into. The toolkit keeps others of its own, and
-    // a material put behind one of those is a material nobody sees.
-    id content = dxc_send(window, "contentView");
-    if (content == NULL) {
-        dxc_report_material("the window has no content view yet");
-        return;
-    }
-    if (!((signed char (*)(id, SEL))objc_msgSend)(window, sel_registerName("isVisible"))) {
-        return;
-    }
-    dxc_restore_window_frame(window);
-    // Once is enough. This runs from a thread that asks repeatedly until the window
-    // exists, so without the mark it would stack a hundred of them.
-    id already = dxc_send(content, "superview");
-    if (already != NULL) {
-        id siblings = dxc_send(already, "subviews");
-        unsigned long count = siblings == NULL ? 0 :
-            ((unsigned long (*)(id, SEL))objc_msgSend)(siblings, sel_registerName("count"));
-        for (unsigned long i = 0; i < count; i++) {
-            id view = ((id (*)(id, SEL, unsigned long))objc_msgSend)(
-                siblings, sel_registerName("objectAtIndex:"), i);
-            if (view != NULL &&
-                ((signed char (*)(id, SEL, Class))objc_msgSend)(
-                    view, sel_registerName("isKindOfClass:"),
-                    objc_getClass("NSVisualEffectView"))) {
-                // The view is there, and that is not the end of it. The toolkit sets the
-                // window's own background from its Java side whenever it realises or
-                // updates the peer, and an opaque one there covers the material however
-                // the view is configured, so the two are pressed down again each time
-                // rather than once.
-                dxc_clear_window_background(window);
-                dxc_open_layers(content, 0);
-                dxc_report_material("already backed");
-                return;
-            }
-        }
-    }
-
-    id effect = dxc_send_class("NSVisualEffectView", "alloc");
-    if (effect == NULL) {
-        return;
-    }
-    effect = dxc_send(effect, "init");
-    if (effect == NULL) {
-        return;
-    }
-    ((void (*)(id, SEL, long))objc_msgSend)(
-        effect, sel_registerName("setMaterial:"), DXC_MATERIAL_SIDEBAR);
-    ((void (*)(id, SEL, long))objc_msgSend)(
-        effect, sel_registerName("setBlendingMode:"), DXC_BLENDING_BEHIND_WINDOW);
-    ((void (*)(id, SEL, long))objc_msgSend)(
-        effect, sel_registerName("setState:"), DXC_EFFECT_STATE_ACTIVE);
-    ((void (*)(id, SEL, unsigned long))objc_msgSend)(
-        effect, sel_registerName("setAutoresizingMask:"), DXC_VIEW_SIZABLE);
-
-    dxc_clear_window_background(window);
-
-    // A sibling behind the content view, not a child of it and not in its place.
-    //
-    // A child is drawn over its parent's own layer, and the renderer draws into that
-    // layer, so an effect view added inside covered the application: the window showed
-    // the desktop and nothing else. Taking the content view's place instead broke the
-    // toolkit, which calls methods of its own on whatever the window says its content
-    // view is: `-[NSVisualEffectView mouseIsOver]`, unrecognised, and the process ended
-    // on the first frame.
-    //
-    // The window's frame view is the parent of both, so the material goes there, below
-    // the content view, and neither the toolkit nor the renderer is asked to change.
-    id frame = dxc_send(content, "superview");
-    if (frame == NULL) {
-        return;
-    }
-    typedef struct { double x, y, w, h; } dxc_rect;
-    dxc_rect bounds = ((dxc_rect (*)(id, SEL))objc_msgSend)(frame, sel_registerName("bounds"));
-    ((void (*)(id, SEL, dxc_rect))objc_msgSend)(effect, sel_registerName("setFrame:"), bounds);
-    // NSWindowBelow is -1.
-    ((void (*)(id, SEL, id, long, id))objc_msgSend)(
-        frame, sel_registerName("addSubview:positioned:relativeTo:"), effect, -1, content);
-    dxc_open_layers(content, 0);
-    dxc_report_material("backed the window with a material");
-}
-
-/** Runs on the main thread, because AppKit is only safe there. */
-static void dxc_unify_all_windows(void *unused) {
-    (void)unused;
-    id app = dxc_send_class("NSApplication", "sharedApplication");
-    if (app == NULL) {
-        return;
-    }
-    id windows = dxc_send(app, "windows");
-    if (windows == NULL) {
-        return;
-    }
-    unsigned long count =
-        ((unsigned long (*)(id, SEL))objc_msgSend)(windows, sel_registerName("count"));
-    for (unsigned long i = 0; i < count; i++) {
-        id window = ((id (*)(id, SEL, unsigned long))objc_msgSend)(
-            windows, sel_registerName("objectAtIndex:"), i);
-        if (window != NULL) {
-            dxc_unify_window(window);
-            dxc_back_window_with_material(window);
-        }
-    }
-}
-
-static void *dxc_unify_titlebars(void *unused) {
-    (void)unused;
-    // The window is created by AWT, on AWT's thread, some time after this returns control
-    // to Kotlin, and the client property that marks it arrives when the peer is realised.
-    // There is no callback to wait on that would not mean a bridge from Kotlin into this
-    // file, so this asks repeatedly for a while and then stops. A window that never
-    // appears leaves nothing running.
-    for (int attempt = 0; attempt < 600; attempt++) {
-        dispatch_async_f(dispatch_get_main_queue(), NULL, dxc_unify_all_windows);
-        usleep(50 * 1000);
-    }
-    return NULL;
-}
-#endif
-
 
 int32_t compose_rust_renderer_run(void) {
 #ifdef _WIN32
@@ -928,35 +560,20 @@ int32_t compose_rust_renderer_run(void) {
 
 #ifdef __APPLE__
     compose_rust_prepare_main_thread();
-    // A window this library opens for itself runs on the main thread, which is the
-    // thread AppKit answers on and the only one it will make a window from. Everything
-    // else follows from that: the frame is drawn there, the scene is composed there, and
-    // the Host is started there, so nothing ever waits on another thread to reach the
-    // platform. Three separate faults came from a renderer thread waiting on this one,
-    // and the last of them left a window that heard nothing because the thread that
-    // drains its events was waiting for the thread delivering them.
-    //
-    // The toolkit's own window keeps the older arrangement, because the toolkit occupies
-    // the main thread itself and a renderer that took it would leave neither able to run.
-    if (getenv("DXC_APPKIT_WINDOW") != NULL) {
-        graal_isolate_t *isolate;
-        graal_isolatethread_t *thread;
-        if (graal_create_isolate(NULL, &isolate, &thread) != 0) {
-            return RUN_ISOLATE_FAILED;
-        }
-        atomic_store(&renderer_isolate, isolate);
-        return compose_rust_renderer_run_impl(thread, run.library_dir);
+    // The window is AppKit's own and runs on the main thread, which is the thread AppKit
+    // answers on and the only one it will make a window from. Everything else follows from
+    // that: the frame is drawn there, the scene is composed there, and the Host is started
+    // there, so nothing ever waits on another thread to reach the platform. Three separate
+    // faults came from a renderer thread waiting on this one, and the last of them left a
+    // window that heard nothing because the thread that drains its events was waiting for
+    // the thread delivering them.
+    graal_isolate_t *isolate;
+    graal_isolatethread_t *thread;
+    if (graal_create_isolate(NULL, &isolate, &thread) != 0) {
+        return RUN_ISOLATE_FAILED;
     }
-    pthread_t unifier;
-    if (pthread_create(&unifier, NULL, dxc_unify_titlebars, NULL) == 0) {
-        pthread_detach(unifier);
-    }
-    pthread_t thread;
-    if (pthread_create(&thread, NULL, renderer_thread, &run) != 0) {
-        return RUN_THREAD_FAILED;
-    }
-    compose_rust_park_main_thread(&run.finished);
-    pthread_join(thread, NULL);
+    atomic_store(&renderer_isolate, isolate);
+    return compose_rust_renderer_run_impl(thread, run.library_dir);
 #else
     renderer_thread(&run);
 #endif

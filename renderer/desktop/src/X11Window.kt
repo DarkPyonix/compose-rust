@@ -6,76 +6,20 @@ package dev.darkpyonix.composerust.ui.platform
 import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.scene.ComposeScene
-import org.graalvm.nativeimage.StackValue
-import org.graalvm.nativeimage.c.function.CFunction
-import org.graalvm.nativeimage.c.type.CCharPointer
-import org.graalvm.nativeimage.c.type.CFloatPointer
-import org.graalvm.nativeimage.c.type.CIntPointer
-import org.graalvm.nativeimage.c.type.CTypeConversion
-import org.graalvm.word.Pointer
-import org.graalvm.word.WordFactory
+import androidx.compose.ui.unit.dp
+import org.thisisthepy.compose.window.WindowConfig
+import org.thisisthepy.compose.window.WindowEvent
+import org.thisisthepy.compose.window.WindowFrames
+import org.thisisthepy.compose.window.WindowListener
+import org.thisisthepy.compose.window.graalvm.linux.X11Upcalls
+import org.thisisthepy.compose.window.graalvm.macos.readDroppedPaths
+import org.thisisthepy.compose.window.graalvm.linux.X11Window as ForkX11Window
 
-// X11 and GLX own the window and framebuffer. The event record, scene input conversion
-// and window content are shared with the other desktop windows.
-@CFunction("dxc_native_window_open")
-private external fun openWindow(title: CCharPointer?, width: Int, height: Int, out: Pointer?): Int
+// X11 and GLX own the window and framebuffer, and they are the Compose fork's
+// `extended/window/graalvm/graalvm-linux` module: the C file, the calls into it and the
+// table of calls back. What is here is the Compose half. The event record, scene input
+// conversion and window content are shared with the other desktop windows.
 
-@CFunction("dxc_native_window_size")
-private external fun windowSize(window: Pointer?, width: CIntPointer?, height: CIntPointer?, scale: CFloatPointer?)
-
-@CFunction("dxc_native_frame_begin")
-private external fun beginFrame(window: Pointer?): Int
-
-@CFunction("dxc_native_frame_end")
-private external fun endFrame(display: Pointer?)
-
-class X11NativeWindow internal constructor(
-    val window: Long,
-    val view: Long,
-    val device: Long,
-    val queue: Long,
-    val layer: Long,
-) {
-    fun measure(): WindowMeasurement {
-        val width = StackValue.get<CIntPointer>(4)
-        val height = StackValue.get<CIntPointer>(4)
-        val scale = StackValue.get<CFloatPointer>(4)
-        windowSize(WordFactory.pointer(window), width, height, scale)
-        return WindowMeasurement(width.read(), height.read(), scale.read())
-    }
-
-    fun beginFrame(): Boolean = beginFrame(WordFactory.pointer(window)) == 0
-    fun endFrame() = endFrame(WordFactory.pointer(queue))
-}
-
-/**
- * Hands the window what it would tell a reader who cannot see it.
- *
- * The same records the other windows are given, written by the same code: what a tree looks
- * like on the way across does not differ between platforms, and what each platform does
- * with it does. This one keeps it until something on this desktop is able to answer from
- * it.
- */
-fun X11NativeWindow.describeTo(elements: List<AccessibleElement>) = describeWindow(window, elements)
-
-fun openX11Window(title: String, width: Int, height: Int): X11NativeWindow? {
-    val holder = CTypeConversion.toCString(title)
-    try {
-        val out = StackValue.get<Pointer>(WINDOW_STRUCT_BYTES)
-        if (openWindow(holder.get(), width, height, out) != 0) return null
-        return X11NativeWindow(
-            window = out.readWord<Pointer>(0).rawValue(),
-            view = out.readWord<Pointer>(8).rawValue(),
-            device = out.readWord<Pointer>(16).rawValue(),
-            queue = out.readWord<Pointer>(24).rawValue(),
-            layer = out.readWord<Pointer>(32).rawValue(),
-        )
-    } finally {
-        holder.close()
-    }
-}
-
-private const val WINDOW_STRUCT_BYTES = 40
 private const val GL_RGBA8 = 0x8058
 
 /**
@@ -93,21 +37,46 @@ private const val GL_RGBA8 = 0x8058
  * the painter registered below. A loop that drew it on its next turn would be a window
  * whose edge moves before its content does.
  *
- * Reached by setting `DXC_X11_WINDOW`, so the ordinary path is untouched.
+ * [autoExitMillis] closes the window by itself after that long, for runs nobody watches.
  */
-internal fun runX11Window() {
+internal fun runX11Window(autoExitMillis: Long? = null) {
     // The Host is started before there is a window, because what the window should look
     // like is in its first batch and a window cannot be told afterwards. Started on this
     // thread, which is the one every later call to it is made from.
+    // The window shows nothing behind itself, so a design is told it has no material.
+    installNativeWindowHooks(backdropSupported = false)
     val host = dev.darkpyonix.composerust.runtime.ComposeRustHost(NativeHostConnection())
     host.start()
     val asked = host.table.window
-    val window = openX11Window(
-        asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
-        if (asked != null && asked.width > 0) asked.width else 520,
-        if (asked != null && asked.height > 0) asked.height else 360,
+    val options = nativeWindowOptions(host, backdropSupported = false)
+    val window = ForkX11Window()
+    window.resizable = options.resizable
+    window.backdrop = false
+    val heard = ArrayList<WindowEvent>()
+    var closed = false
+    val listener = object : WindowListener {
+        override fun onEvent(event: WindowEvent) {
+            heard.add(event)
+        }
+
+        override fun onCloseRequested(): Boolean {
+            closed = true
+            return true
+        }
+    }
+    val opened = window.open(
+        WindowConfig(
+            title = options.title,
+            width = options.width,
+            height = options.height,
+            minWidth = options.minWidth,
+            minHeight = options.minHeight,
+            decorated = options.systemChrome,
+            resizable = options.resizable,
+        ),
+        listener,
     )
-    if (window == null) {
+    if (!opened) {
         System.err.println("compose-rust: X11 or a GLX visual is unavailable")
         host.shutdown()
         return
@@ -128,7 +97,7 @@ internal fun runX11Window() {
         if (report) {
             System.err.println("compose-rust: the window has ${elements.size} things to say")
         }
-        window.describeTo(elements)
+        window.setAccessibility(elements)
     }
     // Kept rather than left to the scene. What a scene picks for itself is the toolkit's
     // queue, and the Host this renderer talks to is on this thread and invisible from
@@ -138,18 +107,40 @@ internal fun runX11Window() {
         density = androidx.compose.ui.unit.Density(measured.scale),
         size = size,
         coroutineContext = work,
-        platformContext = NativePlatformContext({ size }, textInput, semantics),
+        platformContext = NativePlatformContext({ size }, textInput, semantics, window::setCursor),
     )
     // The application's own tree, drawn by the same interpreter the toolkit path uses.
     // Nothing in it knows which of the two it is running on, which is the point.
-    scene.setContent { dev.darkpyonix.composerust.runtime.ComposeRustContent(host) }
+    // Without the manager's frame the renderer draws the caption: a strip that moves the
+    // window, the three buttons, and the edges that resize it. The window manager does the
+    // moving and the resizing; what is drawn here is only where a press starts it.
+    val framed = options.systemChrome
+    val caption = if (framed) {
+        dev.darkpyonix.composerust.runtime.WindowCaption.None
+    } else {
+        dev.darkpyonix.composerust.runtime.WindowCaption(height = linuxCaptionHeight)
+    }
+    val actions = if (framed) null else nativeWindowActions()
+    scene.setContent {
+        NativeWindowContent(
+            host,
+            caption,
+            actions,
+            drag = { if (!framed) NativeCaptionDrag(linuxCaptionHeight, actions) },
+            overlay = { if (!framed && options.resizable) NativeResizeEdges() },
+        )
+    }
+    val autoStarted = System.nanoTime()
+    var iconSettled = false
 
     // A clock rather than a count of turns, because a turn and a frame are no longer the
     // same thing: a resize draws its own, and a count only the loop advanced would hand
     // two frames in a row the same time and stop whatever is animating between them.
-    val opened = System.nanoTime()
+    val startNanos = System.nanoTime()
     var painted = false
-    val frames = WindowFrames({ window.measure() }) { fitted, density ->
+    val frames = WindowFrames({ window.measure() }) { width, height, scale ->
+        val fitted = androidx.compose.ui.unit.IntSize(width, height)
+        val density = androidx.compose.ui.unit.Density(scale)
         // Told to the scene here, in the frame that is about to be drawn at that size,
         // because a drawable that fits and a scene that does not is a window drawing its
         // old size into a corner of its new one.
@@ -158,7 +149,7 @@ internal fun runX11Window() {
             scene.size = fitted
         }
         size = fitted
-        if (drawFrame(window, context, scene, System.nanoTime() - opened, fitted)) {
+        if (drawFrame(window, context, scene, System.nanoTime() - startNanos, fitted)) {
             painted = true
         }
     }
@@ -167,31 +158,48 @@ internal fun runX11Window() {
         // that mapped the window are already waiting and one of them is its first real
         // size. Inside the try, so that whatever happens next the window is left asking
         // nothing of a scene that has closed.
-        setX11FramePainter { frames.draw() }
-        while (!isWindowClosed()) {
+        X11Upcalls.setFramePainter { frames.draw() }
+        while (!closed) {
+            if (autoExitMillis != null &&
+                (System.nanoTime() - autoStarted) / NANOS_PER_MILLI >= autoExitMillis
+            ) {
+                break
+            }
+            if (!iconSettled) iconSettled = applyNamedIcon(host, asked?.icon ?: 0)
             // The window's own turn, before anything is read from it. This thread is the
             // one the display server answers on, so the events of this frame arrive here
             // or not at all. Waiting the frame's length rather than sleeping afterwards,
             // because a window with nothing happening should rest rather than spin, and
             // because a resize that arrives during the wait is drawn inside it.
-            pumpWindowEvents(FRAME_SECONDS)
+            window.pump(FRAME_MILLIS)
             // Before the events and before the drawing. What is waiting here is the
             // scene's own work, and a list that asked for rows on the last frame wants
             // them in hand before this one is measured.
+            FrameMainDispatcher.runPending()
             work.runPending()
-            var heard = false
+            var anyHeard = false
             var drew = false
-            for (event in drainWindowEvents()) {
+            for (event in heard) {
                 if (report && event.kind != WindowEvent.POINTER_MOVE) {
                     System.err.println("compose-rust: window heard $event")
                 }
+                if (event.kind == WindowEvent.FILES_ENTERED ||
+                    event.kind == WindowEvent.FILES_DROPPED ||
+                    event.kind == WindowEvent.FILES_EXITED
+                ) {
+                    routeFileDrop(event.kind, androidx.compose.ui.geometry.Offset(event.x, event.y)) {
+                        readDroppedPaths()
+                    }
+                }
                 scene.receive(event)
-                heard = true
+                textInput.receive(event)
+                anyHeard = true
             }
+            heard.clear()
             // Only when there is something to draw. A window that is being resized has
             // already had its frame drawn by the resize, and a window where nothing is
             // happening should leave the screen alone.
-            if (!painted || heard || scene.hasInvalidations()) {
+            if (!painted || anyHeard || scene.hasInvalidations()) {
                 drew = frames.draw()
             }
             // Every frame, and after the drawing. After, because that is when what is in
@@ -199,11 +207,12 @@ internal fun runX11Window() {
             // tree that changed on the last one is a tree nobody has been told about, and
             // a window that has gone still is exactly where that would be forgotten.
             semantics.pushIfChanged(afterDrawing = drew)
+            reportCaret(textInput)
         }
     } finally {
         // Before the scene closes. A resize arriving between the two would otherwise ask a
         // scene that has gone to draw into a context that has gone with it.
-        clearX11FramePainter()
+        X11Upcalls.clearFramePainter()
         scene.close()
         context.close()
         host.shutdown()
@@ -218,7 +227,7 @@ internal fun runX11Window() {
  * what Skia is told and what the scene was told cannot disagree.
  */
 private fun drawFrame(
-    window: X11NativeWindow,
+    window: ForkX11Window,
     context: org.jetbrains.skia.DirectContext,
     scene: ComposeScene,
     nanos: Long,
@@ -246,7 +255,7 @@ private fun drawFrame(
     surface.flushAndSubmit(true)
     surface.close()
     target.close()
-    window.endFrame()
+    window.present(size.width, size.height)
     return true
 }
 
@@ -256,4 +265,8 @@ private fun drawFrame(
  * A frame at sixty per second. It is a ceiling rather than a pace: anything arriving sooner
  * ends the wait, and a resize is drawn inside it rather than after it.
  */
-private const val FRAME_SECONDS = 0.016
+private const val FRAME_MILLIS = 16L
+private const val NANOS_PER_MILLI = 1_000_000L
+
+/** The caption strip a window with no frame of the system's draws for itself. */
+internal val linuxCaptionHeight = 32.dp

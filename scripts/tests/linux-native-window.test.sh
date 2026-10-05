@@ -16,16 +16,22 @@
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# The window is the Compose fork's native/linux module and the logic it shares is the fork's
+# common module, both read here at the commit the renderer pins. The renderer's own part is the
+# Compose half in LinuxWindow.kt.
+source "$repo_root/scripts/tests/fork-window.sh"
+fork_window_or_skip "$repo_root"
 renderer="$repo_root/renderer"
 project="$renderer/project.yaml"
 module="$renderer/linux/module.yaml"
-window="$renderer/linux/src/LinuxWindow.kt"
-surface="$renderer/linux/src/GlSurface.kt"
+host_window="$renderer/linux/src/LinuxWindow.kt"
+window="$fork_window/native/linux/src/X11Window.kt"
+surface="$fork_window/native/linux/src/GlSurface.kt"
 entry="$renderer/linux/src/LinuxRenderer.kt"
-definition="$renderer/linux/cinterop/x11.def"
-sync_source="$renderer/desktop/src/ResizeSync.kt"
-log_source="$renderer/desktop/src/WindowEventLog.kt"
-frames_source="$renderer/desktop/src/WindowFrames.kt"
+definition="$fork_window/native/linux/cinterop/x11.def"
+sync_source="$fork_window/common/src/org/thisisthepy/compose/window/ResizeSync.kt"
+log_source="$fork_window/common/src/org/thisisthepy/compose/window/WindowEventLog.kt"
+frames_source="$fork_window/common/src/org/thisisthepy/compose/window/WindowFrames.kt"
 model="$renderer/desktop/src/X11Window.kt"
 staticlib="$renderer/staticlib-linux/module.yaml"
 compose_script="$renderer/scripts/build-compose.sh"
@@ -38,7 +44,7 @@ fail() {
     red=1
 }
 
-for file in "$project" "$module" "$window" "$surface" "$entry" "$definition" \
+for file in "$project" "$module" "$host_window" "$window" "$surface" "$entry" "$definition" \
             "$sync_source" "$log_source" "$frames_source" "$model" "$staticlib" \
             "$compose_script" "$compose_changes"; do
     [[ -f "$file" ]] || fail "missing $file"
@@ -62,14 +68,20 @@ grep -Eq '^ +- linux$' "$project" ||
     fail "project.yaml does not list the linux module, so nothing builds it"
 grep -Eq '^ +- staticlib-linux$' "$project" ||
     fail "project.yaml does not list staticlib-linux, so the Host has no symbols to link"
-grep -Fq 'platforms: [ linuxX64 ]' "$module" ||
+grep -Eq '^  platforms: \[ linuxX64(, linuxArm64)? \]' "$module" ||
     fail "the linux module does not declare linuxX64"
+# Each architecture names the same Compose modules, by its own coordinate.
+x64_modules="$(sed -n '/^dependencies@linuxX64:/,/^$/p' "$module" | grep -c 'linuxx64:')"
+arm64_modules="$(sed -n '/^dependencies@linuxArm64:/,/^$/p' "$module" | grep -c 'linuxarm64:')"
+if grep -q 'linuxArm64' "$module" && [[ "$x64_modules" != "$arm64_modules" ]]; then
+    fail "the linux module names $x64_modules Compose modules for x64 and $arm64_modules for arm64"
+fi
 grep -Fq 'mavenLocal' "$module" ||
     fail "the linux module does not read the local Maven repository, which is the only place the patched Compose for this target is"
 
 # Nothing of GraalVM may reach a Kotlin/Native module: the annotations are not on its classpath and
 # there is no isolate for them to describe.
-for source in "$renderer"/linux/src/*.kt; do
+for source in "$renderer"/linux/src/*.kt "$fork_window"/native/linux/src/*.kt; do
     absent 'org\.graalvm' "$source" "Kotlin/Native has no native-image annotations"
 done
 
@@ -173,10 +185,15 @@ done
 # ---------------------------------------------------------------------------
 
 configure="$(sed -n '/ConfigureNotify -> {/,/^            Expose ->/p' "$window")"
-grep -Fq 'frames.draw()' <<< "$configure" ||
-    fail "the window records a new size without drawing the frame for it, so the edge moves before the content does"
-grep -Fq 'measured = IntSize(width, height)' <<< "$configure" ||
+# The platform hands the listener a resize event from inside the handling of the configure
+# event and expects the frame drawn before the call returns; the renderer's window draws it.
+grep -Fq 'resized()' <<< "$configure" ||
+    fail "the window records a new size without asking for the frame for it, so the edge moves before the content does"
+grep -Fq 'measured = WindowMeasurement(width, height, DENSITY)' <<< "$configure" ||
     fail "the window no longer takes the new size from the configure event"
+resize_branch="$(sed -n '/override fun onEvent(event: WindowEvent) {/,/^    }/p' "$host_window")"
+grep -Fq 'WindowEvent.RESIZE' <<< "$resize_branch" && grep -Fq 'frames.draw()' <<< "$resize_branch" ||
+    fail "the renderer's window does not draw the frame for a new size inside the resize event"
 
 # An uncovered window is redrawn. The loop draws when the scene changed, and being uncovered
 # changes nothing in the scene.
@@ -199,6 +216,8 @@ grep -Fq 'XSyncSetCounter' "$window" ||
     fail "the window never tells the manager the drawing for a new size is done"
 grep -Fq 'sync.frameDrawn()' "$window" ||
     fail "the window does not end a frame through ResizeSync, which is what keeps swap-then-tell in that order"
+grep -Fq 'x11.present(' "$host_window" ||
+    fail "the renderer's window presents no frame it drew"
 grep -Fq 'sync.noFrame()' "$window" ||
     fail "a request that produced no frame leaves the manager waiting for a counter nobody will set"
 
@@ -215,16 +234,18 @@ fi
 for call in 'work.runPending()' 'scene.hasInvalidations()' 'semantics.pushIfChanged(afterDrawing'; do
     grep -Fq "$call" "$model" ||
         fail "X11Window.kt no longer does '$call', so this test is comparing against nothing"
-    grep -Fq "$call" "$window" || fail "the Linux window does not do '$call' per frame"
+    grep -Fq "$call" "$host_window" || fail "the Linux window does not do '$call' per frame"
 done
-grep -Fq 'while (!closed)' "$window" ||
+grep -Fq 'while (!x11.isClosed)' "$host_window" ||
     fail "the Linux window does not run until it is closed"
+absent 'usleep|sleep\(' "$host_window" \
+    "the waiting belongs in the window's own turn, where an event that arrives ends it"
 absent 'usleep|sleep\(' "$window" \
     "the waiting belongs in the window's own turn, where an event that arrives ends it"
 
 # The window answers null rather than throwing, because a Kotlin exception crossing back into the
 # C entry point that called in is undefined.
-grep -Fq 'fun open(title: String, width: Int, height: Int): LinuxWindow?' "$window" ||
+grep -Fq 'fun open(title: String, width: Int, height: Int): LinuxWindow?' "$host_window" ||
     fail "the window does not answer null where there is no display server to open one on"
 grep -Fq 'RUN_FAILED' "$entry" ||
     fail "the entry point does not turn a window that would not open into a status code"

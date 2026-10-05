@@ -103,7 +103,7 @@
         </thead>
         <tbody>
           <tr><td>No webview</td><td>No WKWebView, WebView2 or WebKitGTK, and no Tauri or wry.</td></tr>
-          <tr><td>No bundled JVM</td><td>The renderer is compiled ahead of time. A JVM appears only in the development shell for the renderer itself.</td></tr>
+          <tr><td>No bundled JVM</td><td>The renderer is compiled ahead of time. On macOS and Linux it is a Kotlin/Native static archive linked into one executable, on Windows a GraalVM native image. A JVM appears only in the development shell for the renderer itself.</td></tr>
           <tr><td>No hand-written JNI or cinterop</td><td>Every boundary shim is generated from the Rust schema, so the two sides cannot drift silently.</td></tr>
           <tr><td>UI code lives in Rust</td><td>Kotlin is the renderer's implementation, not a place where you write features.</td></tr>
           <tr><td>Compose-quality text and IME</td><td>No code path bypasses Compose's platform text input.</td></tr>
@@ -125,7 +125,7 @@
           <tr><td>The schema</td><td><span class="pill works">Works</span></td><td>Widgets, properties, modifiers, design roles, <code>Theme</code> and <code>DesignSystem</code>. A schema hash stops a Host and a renderer built from different schemas from running together. The <code>codegen</code> binary generates the Kotlin side from it.</td></tr>
           <tr><td>The <code>Runtime</code> trait</td><td><span class="pill works">Works</span></td><td>The interface that whatever builds the tree implements, plus the types around it: assets, custom drawing, input events, notifications, messages, palettes and window size classes.</td></tr>
           <tr><td>The renderer download</td><td><span class="pill works">Works</span></td><td>The build script fetches the prebuilt renderer for your target, checks it and links it. See <a href="getting-started.html">Getting started</a>.</td></tr>
-          <tr><td>The authoring API</td><td><span class="pill planned">Planned</span></td><td><code>#[composable]</code>, <code>remember</code>, the <code>Recomposer</code>, <code>launch</code> and the widget functions. They arrive with <strong>1.0.0 on 2026-10-20</strong>, tracked in <a href="https://github.com/DarkPyonix/compose-rust/issues/23">#23</a> and <a href="https://github.com/DarkPyonix/compose-rust/issues/64">#64</a>.</td></tr>
+          <tr><td>The authoring API</td><td><span class="pill planned">Planned</span></td><td><code>#[composable]</code>, <code>remember</code>, the <code>Recomposer</code>, <code>launch</code> and the widget functions. They arrive with <strong>1.0.0 on 2026-11-14</strong>, tracked in <a href="https://github.com/DarkPyonix/compose-rust/issues/23">#23</a> and <a href="https://github.com/DarkPyonix/compose-rust/issues/64">#64</a>.</td></tr>
         </tbody>
       </table>
     </div>
@@ -187,12 +187,12 @@
           <tr>
             <td>macOS (arm64)</td>
             <td><span class="pill works">Works end to end</span></td>
-            <td>A GraalVM native-image library beside the application. The Kotlin/Native renderer linked into the executable (its own window, drawing through Metal) runs in CI and replaces it in a following release (<a href="https://github.com/DarkPyonix/compose-rust/issues/22">#22</a>). Basic Korean IME input works; the full IME checklist is not finished.</td>
+            <td>A GraalVM native-image library beside the application. The Kotlin/Native renderer linked into the executable (its own window, drawing through Metal) runs in CI and replaces it in a following release. Basic Korean IME input works; the full IME checklist is not finished.</td>
           </tr>
           <tr>
             <td>Linux (x64, arm64)</td>
             <td><span class="pill partial">Builds and starts</span></td>
-            <td>A GraalVM native-image library. The Kotlin/Native renderer (its own X11 window, drawing through GLX) passes a headless startup test for both architectures in CI and replaces it in a following release.</td>
+            <td>A GraalVM native-image library. The Kotlin/Native renderer (its own X11 window, drawing through GLX; arm64 cross compiled on x64) replaces it in a following release. In CI an application built from it is one executable naming only libc, X11, GL, fontconfig and the C++ runtime (and EGL on arm64), and copied alone into an empty directory it draws under Xvfb. Nobody has used it interactively yet.</td>
           </tr>
           <tr>
             <td>Windows</td>

@@ -3,6 +3,7 @@ package dev.darkpyonix.composerust.ui.platform
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
 import dev.darkpyonix.composerust.runtime.HostConnection
+import org.thisisthepy.compose.window.WindowConfig
 
 /**
  * Runs the renderer's Compose application. This is what `compose_rust_renderer_run` calls.
@@ -15,6 +16,9 @@ import dev.darkpyonix.composerust.runtime.HostConnection
  * Returns when the window closes.
  */
 internal fun runRenderer(connection: () -> HostConnection): Int {
+    // Asked for by a build that proves the executable shapes and wraps Korean with no ICU data
+    // file beside it. A failure stops here, before a window, so the build sees it.
+    if (runTextSelfCheckIfAsked() == false) return RendererApi.RUN_FAILED
     // The notification daemon, over the session bus, before the Host starts: its first batch
     // may already post one. A press on a notification's body raises the window, which does
     // not exist yet, so it is found when the press arrives.
@@ -35,11 +39,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // renderer happens to be called, which is the library's name and not any application's, and a
     // measurement of zero means it did not ask.
     val asked = host.table.window
-    val window = LinuxWindow.open(
-        title = asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
-        width = if (asked != null && asked.width > 0) asked.width else DEFAULT_WIDTH,
-        height = if (asked != null && asked.height > 0) asked.height else DEFAULT_HEIGHT,
-    )
+    val window = LinuxWindow.open(linuxWindowConfig(asked))
     if (window == null) {
         java.lang.System.err.println(
             "compose-rust: no X11 display, or no double buffered GLX visual on it. " +
@@ -55,6 +55,9 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // No caption is passed. The window manager draws this platform's title bar itself, outside
     // the window, so there is no strip of our own for content to step clear of.
     opened = window
+    // Joined before the loop starts: a screen reader that is already running reads the window
+    // from its first frame. Nothing happens where there is no accessibility bus.
+    window.startAccessibility(PosixBusConnection.applicationName())
     // The bus is read on this thread every turn, because there is no other thread to read it
     // on and nothing else would notice a press arriving while the window is idle.
     window.onTurn = { host.table.notifications.pump() }
@@ -70,3 +73,22 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
 /** What a window that did not say is opened at, in the units the scene measures in. */
 private const val DEFAULT_WIDTH = 520
 private const val DEFAULT_HEIGHT = 360
+
+/**
+ * The window the application asked for, in the form the X11 layer opens one from.
+ *
+ * Everything the application can say about its window's size travels: whether it may be
+ * resized and the smallest size it may be dragged to, as well as the size it opens at. The
+ * X11 layer turns the last three into the hints the window manager reads, so a window that
+ * asked not to be resized stays at its size and one with a minimum is not dragged below it.
+ * A window that said nothing opens at the default size, resizable, with no minimum.
+ */
+internal fun linuxWindowConfig(asked: dev.darkpyonix.composerust.protocol.Window?): WindowConfig =
+    WindowConfig(
+        title = asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
+        width = if (asked != null && asked.width > 0) asked.width else DEFAULT_WIDTH,
+        height = if (asked != null && asked.height > 0) asked.height else DEFAULT_HEIGHT,
+        minWidth = asked?.minWidth?.takeIf { it > 0 } ?: 0,
+        minHeight = asked?.minHeight?.takeIf { it > 0 } ?: 0,
+        resizable = asked?.resizable ?: true,
+    )

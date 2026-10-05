@@ -2,57 +2,66 @@
 # Builds the renderer as a native shared library and stages a self-contained lib/ directory:
 #
 #   build/native-image/dist/lib/
-#     libcompose_rust_renderer.dylib   the renderer (AWT, Skiko JNI, Compose, our code)
-#     libskiko-macos-<arch>.dylib        Skia, loaded by Skiko by path
-#     libjawt.dylib                      forwards JAWT_GetAWT into the renderer
-#     libawt_lwawt.dylib                 placeholder libawt loads by path
+#     libcompose_rust_renderer.dylib   the renderer, with Skia (no JAWT), Compose and our code in it
 set -euo pipefail
 source "$(dirname "$0")/env.sh"
+SCRIPT_DIR_NATIVE="$(cd "$(dirname "$0")" && pwd)"
 
 # env.sh validates the platform, the architecture, the Xcode tools and the NIK install.
 arch="$HOST_ARCH"
 skiko_arch="$SKIKO_ARCH"
 
-for source_file in renderer_entry.c macos_awt_compat.c macos_main_thread.m \
-                   appkit_window.m macos_notifications.m jawt_forwarder.c lwawt_placeholder.c; do
+for source_file in renderer_entry.c macos_main_thread.m macos_notifications.m; do
     [[ -f "$NATIVE_DIR/c/$source_file" ]] || die "missing $NATIVE_DIR/c/$source_file"
 done
+
+# The AppKit window is the Compose fork's: its C is compiled from the checkout at the pinned
+# commit, and its Kotlin is the published module the renderer's desktop module depends on.
+"$PROJECT_DIR/scripts/publish-window.sh"
+fork_window="$("$PROJECT_DIR/../scripts/fetch-fork-window.sh")/extended/window"
+appkit_source="$fork_window/graalvm/graalvm-macos/native/appkit_window.m"
+[[ -f "$appkit_source" ]] || die "missing $appkit_source"
 
 # The classpath comes from a short JVM run so that it matches what the metadata describes.
 COMPOSE_RUST_AUTOEXIT_MS=1 run_on_jvm ""
 classpath="$(cat "$CLASSPATH_FILE")"
+# Swing's coroutine provider is left out: the window answers `Dispatchers.Main` itself
+# (FrameMainDispatcher), and the provider would wake the Java toolkit.
+classpath="$(tr ':' '\n' <<< "$classpath" | grep -v 'kotlinx-coroutines-swing' | paste -sd: -)"
+
+# The fork's desktop modules must be what the classpath names, not upstream's. The desktop module
+# reads the local Maven repository first and quietly falls back to upstream's jars when the fork's
+# are not there, and upstream's Compose sends its main-thread work to Swing: an image built that
+# way links, passes a build and dies when the first scene is made, with the toolkit's library
+# missing. build-compose.sh --target desktop publishes them.
+for fork_jar in 'repository/org/jetbrains/compose/ui/ui-desktop/' 'repository/org/jetbrains/skiko/skiko-awt/'; do
+    grep -q "$fork_jar" <<< "$(tr ':' '\n' <<< "$classpath")" || die \
+        "the class path holds no $fork_jar" \
+        "These are the Compose fork's desktop modules and its skiko-awt, published to the local" \
+        "Maven repository. Without them the image would use upstream Compose and need the Java toolkit." \
+        "fix: renderer/scripts/build-compose.sh --target desktop, then scripts/fetch-fork-skiko.sh and its" \
+        "extended/skiko/build-skiko-awt.sh <work-dir> (the compose-desktop job in test-graalvm-renderer.yml shows both)"
+done
 obj="$BUILD_DIR/obj"
 lib="$DIST_DIR/lib"
 rm -rf "$DIST_DIR" "$obj"
 mkdir -p "$obj" "$lib"
 
 cc -c -O2 -arch "$arch" -o "$obj/renderer_entry.o" "$NATIVE_DIR/c/renderer_entry.c"
-cc -c -O2 -arch "$arch" -o "$obj/macos_awt_compat.o" "$NATIVE_DIR/c/macos_awt_compat.c"
 cc -c -O2 -arch "$arch" -o "$obj/macos_main_thread.o" "$NATIVE_DIR/c/macos_main_thread.m"
 # The window the renderer is learning to open for itself. Compiled with ARC because it
 # holds AppKit and Metal objects, and reference counting them by hand is a class of bug
 # this project has no reason to invite.
-cc -c -O2 -fobjc-arc -arch "$arch" -o "$obj/appkit_window.o" "$NATIVE_DIR/c/appkit_window.m"
+cc -c -O2 -fobjc-arc -arch "$arch" -o "$obj/appkit_window.o" "$appkit_source"
 # Notifications through UNUserNotificationCenter. With ARC for the same reason as the window.
 cc -c -O2 -fobjc-arc -arch "$arch" -o "$obj/macos_notifications.o" "$NATIVE_DIR/c/macos_notifications.m"
 
-exported=(compose_rust_renderer_run compose_rust_renderer_request_frame
-          compose_rust_jawt_get_awt JNI_OnLoad_osxui)
+exported=(compose_rust_renderer_run compose_rust_renderer_request_frame)
 # The renderer calls the Host's compose_rust_host_* functions, which live in the Rust
 # executable that loads this library. They are resolved at load time, so the link must
 # tolerate them being undefined here.
-# The IME entry points (Java_sun_lwawt_macosx_CInputMethod_*) live in objects of the AWT
-# toolkit archive that nothing else references, so the linker drops them and the image
-# aborts the first time an input method touches a text field. Forcing the whole archive in
-# also brings the accessibility entry points (Java_sun_lwawt_macosx_CAccessib*) and the
-# Objective-C side that AppKit drives, without which the native build publishes an empty
-# accessibility tree and aborts when one is queried.
-awt_archive="$GRAALVM_HOME/lib/static/darwin-$([[ "$arch" == "arm64" ]] && echo aarch64 || echo amd64)/libawt_lwawt.a"
-[[ -f "$awt_archive" ]] || { echo "error: missing $awt_archive" >&2; exit 1; }
-
 linker_args=("-H:NativeLinkerOption=-Wl,-undefined,dynamic_lookup"
-             "-H:NativeLinkerOption=-Wl,-force_load,$awt_archive"
-             "-H:NativeLinkerOption=$obj/renderer_entry.o" "-H:NativeLinkerOption=$obj/macos_awt_compat.o"
+             "-H:NativeLinkerOption=$obj/renderer_entry.o"
              "-H:NativeLinkerOption=$obj/macos_main_thread.o"
              "-H:NativeLinkerOption=$obj/appkit_window.o"
              "-H:NativeLinkerOption=$obj/macos_notifications.o"
@@ -69,28 +78,6 @@ linker_args=("-H:NativeLinkerOption=-Wl,-undefined,dynamic_lookup"
 for symbol in "${exported[@]}"; do
     linker_args+=("-H:NativeLinkerOption=-Wl,-exported_symbol,_$symbol")
 done
-
-# Forcing the archive in is not enough for the accessibility classes.
-# AppKit never names them: the Objective-C side maps a Java role to a class name and looks the
-# class up with NSClassFromString, so nothing in the image refers to GroupAccessibility,
-# ButtonAccessibility or the rest by symbol, and the link drops them as dead code. The lookup
-# then returns nil, allocating from a nil class gives a nil child, and AppKit aborts the
-# process with "object cannot be nil" the moment anything reads the window's children.
-#
-# Listing the classes by hand would rot, so the list is read back out of the archive that
-# defines them and every one is made a root of the link. They are small, and keeping them is
-# the whole of the accessibility tree below the window.
-a11y_classes=()
-while IFS= read -r class_symbol; do
-    a11y_classes+=("-H:NativeLinkerOption=-Wl,-u,$class_symbol")
-done < <(nm -g "$awt_archive" 2>/dev/null |
-    awk '$2 == "S" && $3 ~ /^_OBJC_CLASS_\$_[A-Za-z]+Accessibility$/ { print $3 }' | sort -u)
-[[ ${#a11y_classes[@]} -gt 0 ]] || die \
-    "no Objective-C accessibility classes found in $awt_archive" \
-    "AppKit looks these classes up by name at runtime, so nothing references them by symbol" \
-    "and the linker is free to drop them. When it does, the build and the window are fine" \
-    "and the process aborts the moment an assistive technology attaches."
-linker_args+=("${a11y_classes[@]}")
 
 # Heap and GC settings, in service of the desktop memory target (an empty window under
 # 56MB of physical footprint). `-R:` options are baked in as the image's runtime defaults. Measure with desktop/scripts/measure-memory.sh.
@@ -132,48 +119,44 @@ memory_args=("-R:MaxHeapSize=64m"
 # machine's java.home and user.home.
 initialisation_args=("--initialize-at-run-time=org.jetbrains.skiko.SkikoProperties")
 
-# Skia inside the image rather than beside it, when an archive has been built for it.
+# Skia inside the image rather than beside it, and no AWT with it.
 #
-# Off unless DXC_STATIC_SKIKO names one, because the interface the feature uses to do it
-# lives under com.oracle.svm.core, is documented nowhere, and is not promised to survive a
-# GraalVM release. When it is on, the archive is put on the linker's library path and the
-# feature is added; the dylib beside the renderer is then unnecessary and the staging step
-# below says so.
-static_skiko_args=()
-if [[ -n "${DXC_STATIC_SKIKO:-}" ]]; then
-    [[ -f "$DXC_STATIC_SKIKO" ]] || die "no archive at $DXC_STATIC_SKIKO" \
-        "experiments/static-library/build-static-skiko.sh (on the develop branch) builds one."
-    static_skiko_dir="$(cd "$(dirname "$DXC_STATIC_SKIKO")" && pwd)"
-    static_skiko_args=(
-        "--features=dev.darkpyonix.composerust.ui.platform.StaticSkikoFeature"
-        "-Ddioxus.compose.staticSkiko=true"
-        "-H:CLibraryPath=$static_skiko_dir"
-        # Every member, not only the ones something refers to. A JNI entry point is
-        # reached by name at run time and nothing in the image refers to it by symbol, so
-        # ordinary archive semantics drop the member that defines it and the library
-        # fails to load with the first such name in it. The AWT archive above is forced
-        # in for the same reason.
-        "-H:NativeLinkerOption=-Wl,-force_load,$DXC_STATIC_SKIKO"
-    )
-    # The entry points belonging to other platforms. Skiko declares every platform's
-    # native methods everywhere and compiles only this one's, which is invisible while the
-    # library is loaded by name at run time and fatal once it is linked in: macOS binds
-    # every symbol at load, so the first Direct3D declaration kills the process before
-    # anything is drawn. experiments/static-library/generate-foreign-stubs.sh (develop only) writes them.
-    foreign_stubs="$static_skiko_dir/foreign-stubs.o"
-    [[ -f "$foreign_stubs" ]] || die "no $foreign_stubs" \
-        "experiments/static-library/generate-foreign-stubs.sh (on the develop branch) writes the source for it."
-    static_skiko_args+=(
-        "-H:NativeLinkerOption=$foreign_stubs"
-        # The three packages the feature reaches into are not exported by the builder
-        # module, which is the module system saying what the comment on the feature says:
-        # this is not an API. `-J` passes a flag to the builder's own JVM.
-        "-J--add-exports=org.graalvm.nativeimage.builder/com.oracle.svm.core.jdk=ALL-UNNAMED"
-        "-J--add-exports=org.graalvm.nativeimage.builder/com.oracle.svm.hosted=ALL-UNNAMED"
-        "-J--add-exports=org.graalvm.nativeimage.builder/com.oracle.svm.hosted.c=ALL-UNNAMED"
-    )
-    echo "==> linking Skia into the image from $DXC_STATIC_SKIKO"
-fi
+# skiko's JVM natives are built as a static archive from the Compose fork's script with JAWT
+# left out (build-static-skiko.sh), so the image links neither libjawt nor libawt for Skia's
+# sake and nothing of the toolkit ships beside the renderer. The interface the feature uses to
+# link it lives under com.oracle.svm.core, is documented nowhere, and is not promised to
+# survive a GraalVM release, so it fails loudly rather than falling back to a Skia loaded from
+# somewhere else.
+static_dir="$("$SCRIPT_DIR_NATIVE/build-static-skiko.sh")"
+DXC_STATIC_SKIKO="$static_dir/libskiko-static.a"
+skia_archives=("$static_dir"/skia/*.a)
+[[ -f "$DXC_STATIC_SKIKO" && -f "${skia_archives[0]}" ]] || die "no static skiko under $static_dir"
+foreign_stubs="$BUILD_DIR/foreign-stubs.o"
+static_skiko_args=(
+    "--features=dev.darkpyonix.composerust.ui.platform.StaticSkikoFeature"
+    "-Ddev.darkpyonix.composerust.staticSkiko=true"
+    "-H:CLibraryPath=$static_dir"
+    # Every member, not only the ones something refers to. A JNI entry point is reached by
+    # name at run time and nothing in the image refers to it by symbol, so ordinary archive
+    # semantics drop the member that defines it and the library fails to load with the
+    # first such name in it.
+    "-H:NativeLinkerOption=-Wl,-force_load,$DXC_STATIC_SKIKO"
+)
+# Skia's own archives are ordinary ones: its module archives each carry a copy of Skia's core
+# objects, and forcing them in would define those twice.
+for archive in "${skia_archives[@]}"; do
+    static_skiko_args+=("-H:NativeLinkerOption=$archive")
+done
+for framework in CoreText CoreGraphics CoreFoundation Foundation ApplicationServices IOSurface; do
+    static_skiko_args+=("-H:NativeLinkerOption=-framework" "-H:NativeLinkerOption=$framework")
+done
+# The builder's own packages the feature reaches into, which the module system does not export.
+static_skiko_args+=(
+    "-J--add-exports=org.graalvm.nativeimage.builder/com.oracle.svm.core.jdk=ALL-UNNAMED"
+    "-J--add-exports=org.graalvm.nativeimage.builder/com.oracle.svm.hosted=ALL-UNNAMED"
+    "-J--add-exports=org.graalvm.nativeimage.builder/com.oracle.svm.hosted.c=ALL-UNNAMED"
+)
+echo "==> linking Skia into the image from $DXC_STATIC_SKIKO"
 
 # Locale data and reachable code are already as small as they can safely go.
 # `-H:IncludeLocales=en,ko` is the minimum the product supports and ko is not removable:
@@ -189,40 +172,44 @@ if [[ -n "${DXC_NATIVE_COMPILER:-}" ]]; then
     probe_args+=("--native-compiler-path=$DXC_NATIVE_COMPILER")
 fi
 
-(cd "$lib" && "$GRAALVM_HOME/bin/native-image" \
-    ${probe_args[@]+"${probe_args[@]}"} \
-    "${initialisation_args[@]}" \
-    ${static_skiko_args[@]+"${static_skiko_args[@]}"} \
-    --shared \
-    -cp "$classpath" \
-    -o "$LIBRARY_NAME" \
-    --no-fallback \
-    --features=dev.darkpyonix.composerust.ui.platform.ImeReachabilityFeature \
-    --features=dev.darkpyonix.composerust.ui.platform.AccessibilityReachabilityFeature \
-    -Djava.awt.headless=false \
-    -H:IncludeLocales=en,ko \
-    -Os \
-    -H:+UnlockExperimentalVMOptions \
-    "${memory_args[@]}" \
-    "${linker_args[@]}")
+link_image() {
+    (cd "$lib" && "$GRAALVM_HOME/bin/native-image" \
+        ${probe_args[@]+"${probe_args[@]}"} \
+        "${initialisation_args[@]}" \
+        ${static_skiko_args[@]+"${static_skiko_args[@]}"} \
+        ${stub_args[@]+"${stub_args[@]}"} \
+        --shared \
+        -cp "$classpath" \
+        -o "$LIBRARY_NAME" \
+        --no-fallback \
+        -Ddxc.toolkit.window=false \
+        -Dcompose.awt=false \
+        -Ddxc.awt.clipboard=false \
+        -Djava.awt.headless=false \
+        -H:IncludeLocales=en,ko \
+        -Os \
+        -H:+UnlockExperimentalVMOptions \
+        -H:ReportAnalysisForbiddenType=java.awt.Toolkit \
+        -H:ReportAnalysisForbiddenType=java.awt.Component \
+        -H:+PrintAnalysisCallTree \
+        -H:PrintAnalysisCallTreeType=TXT \
+        "${memory_args[@]}" \
+        "${linker_args[@]}")
+}
 
-# Skia goes beside the library, unless this build put it inside. Staging it anyway would
-# leave the one file the whole exercise exists to remove, and would hide a substitution
-# that had stopped working: the loader would find the file and the image would look fine.
-if [[ -z "${DXC_STATIC_SKIKO:-}" ]]; then
-    skiko_jar="$(tr ':' '\n' <<< "$classpath" | grep "skiko-awt-runtime-macos-$skiko_arch" | head -1)"
-    [[ -n "$skiko_jar" ]] || die \
-        "no skiko-awt-runtime-macos-$skiko_arch jar on the runtime classpath" \
-        "Skia ships inside that jar and is staged next to the library." \
-        "Check $CLASSPATH_FILE and the compose dependency in desktop/module.yaml."
-    unzip -q -o -j "$skiko_jar" "libskiko-macos-$skiko_arch.dylib" -d "$lib"
-else
-    rm -f "$lib/libskiko-macos-$skiko_arch.dylib"
+# Skiko declares every platform's native methods and compiles one platform's. Linked in, the
+# image refers to all of them, and macOS binds every symbol at load, so the ones this platform
+# does not have are defined as stubs that stop. Which ones is read off a first link, which is
+# why the image is linked twice the first time and once when the stubs are already there.
+stub_args=()
+if [[ ! -f "$foreign_stubs" ]]; then
+    link_image
+    "$NATIVE_DIR/../../experiments/static-library/generate-foreign-stubs.sh" \
+        "$lib/$LIBRARY_NAME.dylib" "$DXC_STATIC_SKIKO" "$BUILD_DIR/foreign-stubs.c"
+    cc -c -O2 -arch "$arch" -o "$foreign_stubs" "$BUILD_DIR/foreign-stubs.c"
 fi
-cc -dynamiclib -O2 -arch "$arch" -install_name @rpath/libjawt.dylib \
-    -o "$lib/libjawt.dylib" "$NATIVE_DIR/c/jawt_forwarder.c"
-cc -dynamiclib -O2 -arch "$arch" -install_name @rpath/libawt_lwawt.dylib \
-    -o "$lib/libawt_lwawt.dylib" "$NATIVE_DIR/c/lwawt_placeholder.c"
+stub_args=("-H:NativeLinkerOption=$foreign_stubs")
+link_image
 
 # native-image leaves headers and build reports next to the library; keep lib/ runtime-only.
 mkdir -p "$DIST_DIR/include"

@@ -1,5 +1,6 @@
 @file:OptIn(
     androidx.compose.ui.InternalComposeUiApi::class,
+    androidx.compose.ui.ExperimentalComposeUiApi::class,
     kotlinx.cinterop.ExperimentalForeignApi::class,
 )
 
@@ -14,157 +15,62 @@ import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.platform.PlatformContext
 import androidx.compose.ui.platform.PlatformTextInputMethodRequest
 import androidx.compose.ui.platform.WindowInfo
+import androidx.compose.ui.semantics.SemanticsOwner
 import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import java.lang.System
-import kotlinx.cinterop.ByteVar
-import kotlinx.cinterop.CPointer
-import kotlinx.cinterop.IntVar
-import kotlinx.cinterop.LongVar
-import kotlinx.cinterop.ULongVar
 import kotlinx.cinterop.alloc
-import kotlinx.cinterop.allocArray
-import kotlinx.cinterop.cValue
-import kotlinx.cinterop.cValuesOf
-import kotlinx.cinterop.convert
-import kotlinx.cinterop.get
 import kotlinx.cinterop.memScoped
-import kotlinx.cinterop.pointed
 import kotlinx.cinterop.ptr
-import kotlinx.cinterop.reinterpret
-import kotlinx.cinterop.set
-import kotlinx.cinterop.value
 import platform.posix.CLOCK_MONOTONIC
-import platform.posix.POLLIN
 import platform.posix.clock_gettime
-import platform.posix.poll
-import platform.posix.pollfd
+import platform.posix.getuid
 import platform.posix.timespec
-import x11.AllocNone
-import x11.Atom
-import x11.ButtonPress
-import x11.ButtonPressMask
-import x11.ButtonRelease
-import x11.ButtonReleaseMask
-import x11.CWColormap
-import x11.CWEventMask
-import x11.ClientMessage
-import x11.Colormap
-import x11.ConfigureNotify
-import x11.DestroyNotify
-import x11.Display
-import x11.Expose
-import x11.ExposureMask
-import x11.FocusChangeMask
-import x11.FocusIn
-import x11.FocusOut
-import x11.NotifyNormal
-import x11.NotifyWhileGrabbed
-import x11.SubstructureNotifyMask
-import x11.SubstructureRedirectMask
-import x11.XMapRaised
-import x11.XSendEvent
-import x11.GLXContext
-import x11.GLX_BLUE_SIZE
-import x11.GLX_DOUBLEBUFFER
-import x11.GLX_GREEN_SIZE
-import x11.GLX_RED_SIZE
-import x11.GLX_RGBA
-import x11.InputOutput
-import x11.KeyPress
-import x11.KeyPressMask
-import x11.KeyRelease
-import x11.KeyReleaseMask
-import x11.MotionNotify
-import x11.PointerMotionMask
-import x11.PropModeReplace
-import x11.StructureNotifyMask
-import x11.Window
-import x11.XCloseDisplay
-import x11.XChangeProperty
-import x11.XConnectionNumber
-import x11.XCreateColormap
-import x11.XCreateFontCursor
-import x11.XCreateWindow
-import x11.XDefaultScreen
-import x11.XDefineCursor
-import x11.XDestroyWindow
-import x11.XEvent
-import x11.XFlush
-import x11.XFree
-import x11.XFreeColormap
-import x11.XInternAtom
-import x11.XLookupKeysym
-import x11.XLookupString
-import x11.XMapWindow
-import x11.XNextEvent
-import x11.XOpenDisplay
-import x11.XPending
-import x11.XRootWindow
-import x11.XSetWMProtocols
-import x11.XSetWindowAttributes
-import x11.XStoreName
-import x11.XSyncCounter
-import x11.XSyncCreateCounter
-import x11.XSyncInitialize
-import x11.XSyncQueryExtension
-import x11.XSyncSetCounter
-import x11.XSyncValue
-import x11.glXChooseVisual
-import x11.glXCreateContext
-import x11.glXDestroyContext
-import x11.glXMakeCurrent
+import org.thisisthepy.compose.window.CaretRect
+import org.thisisthepy.compose.window.WindowConfig
+import org.thisisthepy.compose.window.WindowEvent
+import org.thisisthepy.compose.window.WindowFrames
+import org.thisisthepy.compose.window.WindowListener
+import org.thisisthepy.compose.window.candidateSpot
+import org.thisisthepy.compose.window.linux.AtspiActions
+import org.thisisthepy.compose.window.linux.AtspiBridge
+import org.thisisthepy.compose.window.linux.AtspiSemanticsSource
+import org.thisisthepy.compose.window.linux.CURSOR_ARROW
+import org.thisisthepy.compose.window.linux.CURSOR_CROSSHAIR
+import org.thisisthepy.compose.window.linux.CURSOR_HAND
+import org.thisisthepy.compose.window.linux.CURSOR_TEXT
+import org.thisisthepy.compose.window.linux.X11Window
+import org.thisisthepy.compose.window.linux.PosixBusConnection as AccessibilityBusConnection
 
 /**
- * A window of this renderer's own on X11, drawn into with Skia and with no toolkit in between.
+ * The Compose half of the window this renderer opens on X11: the scene, what is typed into it
+ * and what a reader is told about it.
  *
- * The pair of `MacosWindow`, and written the same way: the platform is called directly from
- * Kotlin rather than through C of ours. On this platform that is Xlib, GLX and the sync
- * extension, reached through `cinterop/x11.def`. XWayland takes the same connection, so this is
- * the window on a Wayland desktop as well until one of its own is written.
+ * The window itself, Xlib, GLX, the sync extension, the input method and the clipboard, is the
+ * Compose fork's `extended/window/native/linux` module, which implements the common window
+ * interface and knows nothing of Compose. This class listens to it and draws a scene into it,
+ * and it is the only place the two meet.
  *
- * The one thing it does that no toolkit window does, and the reason it exists: **the frame that
- * belongs to a resize is drawn from inside the handling of the resize.** The display server has
- * already moved the window's edge by the time the event arrives, and what is inside that edge
- * is whatever was last painted. A frame drawn on the next turn of the loop leaves a strip of
- * window that has been claimed and not painted, as wide as the speed of the hand times how late
- * the painting is. Measured on the other desktop where the same mistake was made: one screen
- * refresh late at every speed, which is 3 pixels for a slow drag and 350 for a flick.
- *
- * Drawing inside the resize is only half of it. The other half is [ResizeSync]: the window
- * manager holds the frame it was about to show until the counter says the drawing for the size
- * it asked about exists.
- *
- * Two rules follow from drawing inside an event, and both are their own tested class because
- * both have been broken here before. A second frame started on top of one already being drawn
- * is refused, which is [WindowFrames]. The display server is read in one place only, which is
- * [WindowEventLog]: a read reached from inside a read would take the rest of a drag out of the
- * queue while the turn handling one size change is still running.
+ * The one thing that window does that no toolkit window does, and the reason it exists: **the
+ * frame that belongs to a resize is drawn from inside the handling of the resize.** The display
+ * server has already moved the window's edge by the time the event arrives, and what is inside
+ * that edge is whatever was last painted. A frame drawn on the next turn of the loop leaves a
+ * strip of window that has been claimed and not painted, as wide as the speed of the hand times
+ * how late the painting is. So the window hands the listener a resize event and expects the
+ * frame drawn and presented before the call returns: [frames] is that, and it refuses a second
+ * frame started on top of one already being drawn.
  */
 internal class LinuxWindow private constructor(
-    private val display: CPointer<Display>,
-    private val window: Window,
-    private val context: GLXContext,
-    private val colormap: Colormap,
-    private val deleteWindow: Atom,
-    private val protocolsAtom: Atom,
-    private val syncRequest: Atom,
-    private val syncCounter: XSyncCounter,
-    width: Int,
-    height: Int,
-) {
+    private val x11: X11Window,
+    private val title: String,
+) : WindowListener {
 
     private val reportFrames = System.getenv("DXC_REPORT_FRAMES") != null
     private val reportInput = System.getenv("DXC_REPORT_INPUT") != null
 
-    /** The size the window was last told it has. Never measured: the server tells us. */
-    private var measured = IntSize(width, height)
-
-    private var closed = false
-
     /**
-     * Whether this window has the keyboard, as the server last said.
+     * Whether this window has the keyboard, as the window last said.
      *
      * Snapshot state, so that what reads it in composition is told when it changes: whether
      * the window is the active one decides whether a notification that asked to be shown only
@@ -180,31 +86,18 @@ internal class LinuxWindow private constructor(
      */
     var onTurn: () -> Unit = {}
 
-    private val surface = GlSurface(display, window, context)
-
-    private val log = WindowEventLog()
-
-    /** Reused across turns, because a frame is not the place to allocate a list. */
-    private val drained = mutableListOf<WindowEvent>()
-
-    private val sync = ResizeSync(
-        present = { surface.present() },
-        tell = { value -> setCounter(value) },
-    )
+    /** What the window heard this turn, in order. Reused, because a frame is not the place to allocate a list. */
+    private val heard = mutableListOf<WindowEvent>()
 
     /** Where committed and composing text goes. */
     private val textInput = NativeTextInput()
 
     /**
-     * What the window would tell a reader who cannot see it.
-     *
-     * Kept rather than published. What answers an assistive technology on this desktop is
-     * AT-SPI, which is a bus, an interface and a registration of its own; holding the newest
-     * tree is the half of it that belongs to the window, so that when that work arrives it
-     * reads from here rather than asking the scene across a thread it is not on, which is the
-     * one thing a frame loop cannot afford.
+     * What the window would tell a reader who cannot see it, as the platform-neutral list the
+     * other desktops hand their reader. Kept for the frame report below; what a Linux screen
+     * reader is answered from is [atspiSource], which keeps the tree rather than a list.
      */
-    private var described: List<AccessibleElement> = emptyList()
+    private var described: List<org.thisisthepy.compose.window.AccessibleElement> = emptyList()
 
     private val semantics = NativeSemantics { elements ->
         described = elements
@@ -216,12 +109,37 @@ internal class LinuxWindow private constructor(
         }
     }
 
-    /**
-     * What the pointer looks like now, so that a crossing into the shape it already has asks
-     * the server nothing.
-     */
-    private var cursorShape = -1
-    private val cursors = LongArray(CURSOR_SHAPES)
+    /** The scene's semantics, read into the tree AT-SPI serves. */
+    private val atspiSource = AtspiSemanticsSource()
+
+    /** Both listeners hear every change: the scene has one place to report to. */
+    private val semanticsListeners: PlatformContext.SemanticsOwnerListener = object : PlatformContext.SemanticsOwnerListener {
+        override fun onSemanticsOwnerAppended(semanticsOwner: SemanticsOwner) {
+            semantics.onSemanticsOwnerAppended(semanticsOwner)
+            atspiSource.onSemanticsOwnerAppended(semanticsOwner)
+        }
+
+        override fun onSemanticsOwnerRemoved(semanticsOwner: SemanticsOwner) {
+            semantics.onSemanticsOwnerRemoved(semanticsOwner)
+            atspiSource.onSemanticsOwnerRemoved(semanticsOwner)
+        }
+
+        override fun onSemanticsChange(semanticsOwner: SemanticsOwner) {
+            semantics.onSemanticsChange(semanticsOwner)
+            atspiSource.onSemanticsChange(semanticsOwner)
+        }
+
+        override fun onLayoutChange(semanticsOwner: SemanticsOwner, semanticsNodeId: Int) {
+            semantics.onLayoutChange(semanticsOwner, semanticsNodeId)
+            atspiSource.onLayoutChange(semanticsOwner, semanticsNodeId)
+        }
+    }
+
+    /** This window's place on the accessibility bus, once [startAccessibility] has joined it. */
+    private var accessibility: AtspiBridge? = null
+
+    /** The field that asked to be typed into, kept to ask where its caret is. */
+    private var inputRequest: PlatformTextInputMethodRequest? = null
 
     /**
      * Where the scene's own work runs: here, on the thread that draws, once a frame.
@@ -234,17 +152,26 @@ internal class LinuxWindow private constructor(
 
     private val windowInfo = object : WindowInfo {
         override val isWindowFocused: Boolean get() = focused
-        override val containerSize: IntSize get() = measured
+        override val containerSize: IntSize
+            get() = x11.measure().let { IntSize(it.width, it.height) }
     }
 
     private val platformContext: PlatformContext =
         object : PlatformContext by PlatformContext.Empty() {
             override val windowInfo get() = this@LinuxWindow.windowInfo
-            override val semanticsOwnerListener get() = semantics
+            override val semanticsOwnerListener get() = semanticsListeners
 
             override suspend fun startInputMethod(
                 request: PlatformTextInputMethodRequest,
-            ): Nothing = textInput.run(request)
+            ): Nothing {
+                inputRequest = request
+                try {
+                    textInput.run(request)
+                } finally {
+                    inputRequest = null
+                    x11.setImeActive(false)
+                }
+            }
 
             /**
              * The shape the pointer takes over whatever it is on.
@@ -254,7 +181,7 @@ internal class LinuxWindow private constructor(
              * like anyway.
              */
             override fun setPointerIcon(pointerIcon: PointerIcon) {
-                setCursor(
+                x11.setCursor(
                     when (pointerIcon) {
                         PointerIcon.Hand -> CURSOR_HAND
                         PointerIcon.Text -> CURSOR_TEXT
@@ -267,7 +194,7 @@ internal class LinuxWindow private constructor(
 
     private val scene = CanvasLayersComposeScene(
         density = Density(DENSITY),
-        size = measured,
+        size = x11.measure().let { IntSize(it.width, it.height) },
         coroutineContext = work,
         platformContext = platformContext,
     )
@@ -284,9 +211,9 @@ internal class LinuxWindow private constructor(
      * size. The size is read here rather than remembered, because the resize recorded it a
      * moment ago and nothing has told the loop.
      */
-    private val frames = WindowFrames(
-        { WindowMeasurement(measured.width, measured.height, DENSITY) },
-    ) { size, density ->
+    private val frames = WindowFrames({ x11.measure() }) { width, height, scale ->
+        val size = IntSize(width, height)
+        val density = Density(scale)
         // Told to the scene here, in the frame that is about to be drawn at that size, because
         // a framebuffer that fits and a scene that does not is a window drawing its old size
         // into a corner of its new one.
@@ -295,21 +222,29 @@ internal class LinuxWindow private constructor(
             scene.size = size
         }
         val nanos = monotonicNanos() - openedAt
-        val drew = surface.draw(size.width, size.height) { canvas ->
+        val drew = x11.draw(width, height) { canvas ->
             scene.render(canvas.asComposeCanvas(), nanos)
         }
         if (drew) {
             painted = true
             // The drawing goes to the server and then the manager is told, in that order. This
             // is the whole of what keeps a dragged edge attached to what is inside it.
-            sync.frameDrawn()
+            x11.present(width, height)
         } else {
-            sync.noFrame()
+            x11.noFrame()
         }
-        // Out to the server before this returns. A swap sitting in the output buffer is a frame
-        // nobody has been shown.
-        XFlush(display)
     }
+
+    override fun onEvent(event: WindowEvent) {
+        if (event.kind == WindowEvent.RESIZE) {
+            // The window is waiting for the frame that belongs to this size.
+            frames.draw()
+            return
+        }
+        heard.add(event)
+    }
+
+    override fun onCloseRequested(): Boolean = true
 
     fun setContent(content: @Composable () -> Unit) {
         scene.setContent(content)
@@ -322,27 +257,7 @@ internal class LinuxWindow private constructor(
      * request says it comes from a pager, which is the source a manager honours without its
      * focus stealing prevention: the press on a notification that led here was the user's.
      */
-    fun raise() {
-        if (closed) return
-        memScoped {
-            val event = alloc<XEvent>()
-            event.xclient.type = ClientMessage
-            event.xclient.window = window
-            event.xclient.message_type = XInternAtom(display, "_NET_ACTIVE_WINDOW", 0)
-            event.xclient.format = 32
-            event.xclient.data.l[0] = SOURCE_PAGER
-            event.xclient.data.l[1] = 0
-            XSendEvent(
-                display,
-                XRootWindow(display, XDefaultScreen(display)),
-                0,
-                SubstructureRedirectMask or SubstructureNotifyMask,
-                event.ptr,
-            )
-        }
-        XMapRaised(display, window)
-        XFlush(display)
-    }
+    fun raise() = x11.raise()
 
     /**
      * Runs the window until the reader closes it.
@@ -354,31 +269,35 @@ internal class LinuxWindow private constructor(
      */
     fun run() {
         try {
-            while (!closed) {
+            while (!x11.isClosed) {
                 // The window's own turn, before anything is read from it. This thread is the one
                 // the display server answers on, so the events of this frame arrive here or not
                 // at all. Waiting the frame's length rather than sleeping afterwards, because a
                 // window with nothing happening should rest rather than spin, and because a
                 // resize that arrives during the wait is drawn inside it.
-                pump(FRAME_MILLISECONDS)
+                x11.pump(FRAME_MILLISECONDS)
+                focused = x11.isFocused
                 onTurn()
+                // A reader's questions are answered between frames, on this thread, so that
+                // a press it asks for happens where every other press does.
+                accessibility?.pump()
                 // Before the events and before the drawing. What is waiting here is the scene's
                 // own work, and a list that asked for rows on the last frame wants them in hand
                 // before this one is measured.
                 work.runPending()
-                drained.clear()
-                log.drain(drained)
-                for (event in drained) {
+                val turnHeard = heard.isNotEmpty()
+                for (event in heard) {
                     if (reportInput && event.kind != WindowEvent.POINTER_MOVE) {
                         System.err.println("compose-rust: window heard $event")
                     }
                     scene.receive(event)
                     textInput.receive(event)
                 }
+                heard.clear()
                 // Only when there is something to draw. A window that is being resized has
                 // already had its frame drawn by the resize, and a window where nothing is
                 // happening should leave the screen alone.
-                val drew = if (!painted || drained.isNotEmpty() || scene.hasInvalidations()) {
+                val drew = if (!painted || turnHeard || scene.hasInvalidations()) {
                     frames.draw()
                 } else {
                     false
@@ -388,6 +307,13 @@ internal class LinuxWindow private constructor(
                 // that changed on the last one is a tree nobody has been told about, and a window
                 // that has gone still is exactly where that would be forgotten.
                 semantics.pushIfChanged(afterDrawing = drew)
+                accessibility?.let { bridge ->
+                    // After the drawing, for the reason the line above is: what is read is where
+                    // everything was placed.
+                    atspiSource.capture(title)?.let { bridge.update(it) }
+                    bridge.windowActive(focused)
+                }
+                updateInputMethod()
             }
         } finally {
             close()
@@ -395,400 +321,90 @@ internal class LinuxWindow private constructor(
     }
 
     /**
-     * Lets the window answer for itself for a moment, and rests if it has nothing to say.
-     *
-     * The waiting is here rather than in a sleep afterwards, and that is the point of it: a
-     * resize that arrives while this is waiting is drawn inside the wait, in the same step that
-     * recorded the new size, instead of a turn of the loop later.
+     * Gives the input method the keyboard while a field wants text, and tells it where the caret
+     * is so that its candidate window opens under it. Asking again where it already is costs the
+     * window nothing: it sends the server only a change.
      */
-    private fun pump(milliseconds: Int) {
-        // XPending sends whatever is still in the output buffer before it answers, so the frame
-        // just presented is on its way out before this thread goes to sleep.
-        if (milliseconds > 0 && XPending(display) == 0) {
-            memScoped {
-                val watched = alloc<pollfd>()
-                watched.fd = XConnectionNumber(display)
-                watched.events = POLLIN.toShort()
-                poll(watched.ptr, 1.convert(), milliseconds)
-            }
+    private fun updateInputMethod() {
+        val wanted = focused && textInput.isActive
+        x11.setImeActive(wanted)
+        if (!wanted) return
+        val caret = inputRequest?.focusedRectInRoot?.invoke()?.let {
+            CaretRect(it.left, it.top, it.right, it.bottom)
         }
-        // The only place the display server is read. See WindowEventLog for why that matters.
-        log.read {
-            memScoped {
-                val event = alloc<XEvent>()
-                while (XPending(display) > 0) {
-                    XNextEvent(display, event.ptr)
-                    handle(event)
-                }
-            }
-        }
-    }
-
-    private fun handle(event: XEvent) {
-        // Nothing after the window has gone. The rest of a batch can hold a size change for a
-        // window the server has already destroyed, and presenting a frame into one of those is an
-        // X error rather than a frame.
-        if (closed) return
-        when (event.type) {
-            MotionNotify -> log.heard(
-                WindowEvent(
-                    kind = WindowEvent.POINTER_MOVE,
-                    x = event.xmotion.x.toFloat(),
-                    y = event.xmotion.y.toFloat(),
-                    buttons = buttonsOf(event.xmotion.state),
-                    modifiers = modifiersOf(event.xmotion.state),
-                    keyCode = 0,
-                    codePoint = 0,
-                    text = "",
-                ),
-            )
-
-            ButtonPress, ButtonRelease -> {
-                val button = event.xbutton.button.toInt()
-                if (button in SCROLL_BUTTONS) {
-                    // A wheel arrives as a press and a release of a button that does not exist.
-                    // The release says nothing the press did not.
-                    if (event.type == ButtonPress) {
-                        log.heard(
-                            WindowEvent(
-                                kind = WindowEvent.SCROLL,
-                                x = when (button) {
-                                    WHEEL_LEFT -> -SCROLL_LINES
-                                    WHEEL_RIGHT -> SCROLL_LINES
-                                    else -> 0f
-                                },
-                                y = when (button) {
-                                    WHEEL_UP -> -SCROLL_LINES
-                                    WHEEL_DOWN -> SCROLL_LINES
-                                    else -> 0f
-                                },
-                                buttons = 0,
-                                modifiers = modifiersOf(event.xbutton.state),
-                                keyCode = 0,
-                                codePoint = 0,
-                                text = "",
-                            ),
-                        )
-                    }
-                } else {
-                    val bit = when (button) {
-                        1 -> 1
-                        3 -> 2
-                        2 -> 4
-                        else -> 0
-                    }
-                    val held = buttonsOf(event.xbutton.state)
-                    log.heard(
-                        WindowEvent(
-                            kind = if (event.type == ButtonPress) {
-                                WindowEvent.POINTER_DOWN
-                            } else {
-                                WindowEvent.POINTER_UP
-                            },
-                            x = event.xbutton.x.toFloat(),
-                            y = event.xbutton.y.toFloat(),
-                            // The state a button event carries is the state before it, so the
-                            // button this event is about is put in or taken out by hand.
-                            buttons = if (event.type == ButtonPress) {
-                                held or bit
-                            } else {
-                                held and bit.inv()
-                            },
-                            modifiers = modifiersOf(event.xbutton.state),
-                            keyCode = 0,
-                            codePoint = 0,
-                            text = "",
-                        ),
-                    )
-                }
-            }
-
-            KeyPress, KeyRelease -> log.heard(readKey(event))
-
-            ConfigureNotify -> {
-                val width = event.xconfigure.width
-                val height = event.xconfigure.height
-                if (width == measured.width && height == measured.height) {
-                    // The window was moved, or told again what it already was. Nothing needs
-                    // painting, and a manager waiting for a counter it asked about this change
-                    // is answered here rather than left holding the window.
-                    sync.noFrame()
-                    return
-                }
-                measured = IntSize(width, height)
-                // Drawn here, inside the handling of the size change, rather than written down
-                // for the next turn of the loop. See this class's own documentation: the strip
-                // of unpainted window a later frame leaves is as wide as the speed of the hand.
-                if (!frames.draw()) {
-                    sync.noFrame()
-                }
-            }
-
-            Expose -> {
-                // Whatever was covering the window has gone, and the copy the server kept is not
-                // ours to trust. Nothing in the scene changed, so the loop would draw nothing and
-                // a window uncovered on a server with no compositor would go on showing what was
-                // in front of it. The last of a run of these is enough: they arrive one per
-                // exposed rectangle and one frame paints all of them.
-                if (event.xexpose.count == 0 && !frames.draw()) {
-                    sync.noFrame()
-                }
-            }
-
-            ClientMessage -> {
-                // Only the manager's own messages, and only the two this window offered to
-                // answer. A message of somebody else's whose first word happened to equal one of
-                // these atoms would otherwise close the window or promise a frame nobody asked
-                // for.
-                if (event.xclient.message_type == protocolsAtom) {
-                    when (event.xclient.data.l[0].toULong()) {
-                        syncRequest -> {
-                            // The manager is about to resize the window and will hold the frame
-                            // it was about to show until the counter carries this number. The
-                            // number arrives split across two of the message's words, low half
-                            // first.
-                            val low = event.xclient.data.l[2].toULong() and LOW_HALF
-                            val high = event.xclient.data.l[3].toULong() and LOW_HALF
-                            sync.requested(((high shl 32) or low).toLong())
-                        }
-
-                        deleteWindow -> closed = true
-                    }
-                }
-            }
-
-            DestroyNotify -> closed = true
-
-            // A grab or an ungrab moves focus too, and moves it back; only a real change of
-            // which window has the keyboard is taken as one.
-            FocusIn -> if (event.xfocus.mode == NotifyNormal || event.xfocus.mode == NotifyWhileGrabbed) focused = true
-            FocusOut -> if (event.xfocus.mode == NotifyNormal || event.xfocus.mode == NotifyWhileGrabbed) focused = false
-        }
+        val spot = candidateSpot(caret, DENSITY) ?: return
+        x11.setImeSpot(spot.first, spot.second)
     }
 
     /**
-     * One key, as both a key and as whatever it types.
-     *
-     * Both, because Compose reads the two separately: the key itself is what moves a caret or
-     * dismisses a sheet, and the character beside it is what a text field types. A key that has
-     * no character carries none, which is most of the keys in the table.
-     *
-     * The text is Latin-1, which is what `XLookupString` answers with. Anything beyond it is
-     * composed by an input method through an input context, which is its own work and is not
-     * here: `XIM`, ibus and fcitx all arrive through that door, and the desktop's native image
-     * window does not open it either.
+     * Joins the accessibility bus, so that a screen reader that is already running reads this
+     * window from its first frame. Nothing happens where there is no accessibility bus.
      */
-    private fun readKey(event: XEvent): WindowEvent = memScoped {
-        val bytes = allocArray<ByteVar>(KEY_TEXT_BYTES)
-        val count = XLookupString(event.xkey.ptr, bytes, KEY_TEXT_BYTES, null, null)
-        val keysym = XLookupKeysym(event.xkey.ptr, 0)
-        val first = if (count >= 1) bytes[0].toInt() and 0xFF else 0
-        WindowEvent(
-            kind = if (event.type == KeyPress) WindowEvent.KEY_DOWN else WindowEvent.KEY_UP,
-            x = 0f,
-            y = 0f,
-            buttons = 0,
-            modifiers = modifiersOf(event.xkey.state),
-            keyCode = platformKey(keysym),
-            // Control characters are keys rather than text. Return and Tab and Escape all come
-            // back from XLookupString as a byte, and typing them into a field would put a
-            // control character in it as well as doing what the key means.
-            codePoint = if (first >= FIRST_PRINTABLE) first else 0,
-            text = "",
-        )
-    }
-
-    /**
-     * Sets the shape of the pointer over the window.
-     *
-     * The scene asks on every crossing, and a pointer moving across a row of links asks for the
-     * hand it already has. Answering that with a request to the server would be traffic on the
-     * thread the frames are drawn from.
-     */
-    private fun setCursor(shape: Int) {
-        if (closed || shape == cursorShape) return
-        val wanted = if (shape in cursors.indices) shape else CURSOR_ARROW
-        if (cursors[wanted] == 0L) {
-            cursors[wanted] = XCreateFontCursor(display, cursorFont(wanted).convert()).toLong()
+    fun startAccessibility(applicationName: String) {
+        if (accessibility != null || System.getenv("NO_AT_BRIDGE") == "1") return
+        val actions = object : AtspiActions {
+            override fun click(id: Int) = atspiSource.click(id)
+            override fun focus(id: Int) = atspiSource.focus(id)
+            override fun windowOrigin(): Pair<Int, Int> = x11.originOnScreen()
         }
-        XDefineCursor(display, window, cursors[wanted].toULong())
-        cursorShape = wanted
-        XFlush(display)
-    }
-
-    /** Tells the window manager that the drawing it was waiting for exists. */
-    private fun setCounter(value: Long) {
-        if (syncCounter == 0uL) return
-        XSyncSetCounter(
-            display,
-            syncCounter,
-            cValue<XSyncValue> {
-                hi = (value ushr 32).toInt()
-                lo = (value and LOW_HALF.toLong()).toUInt()
-            },
+        val bridge = AtspiBridge(
+            openSession = { AccessibilityBusConnection.open() },
+            openAccessibility = { address -> AccessibilityBusConnection.open(address) },
+            userId = getuid().toLong(),
+            applicationName = applicationName,
+            actions = actions,
         )
-        // Out to the server, or the manager is still waiting on a number this process has
-        // already set and the window stops moving with the hand dragging it.
-        XFlush(display)
+        if (bridge.start()) {
+            accessibility = bridge
+            if (reportFrames) System.err.println("compose-rust: joined the accessibility bus as ${bridge.busName}")
+        } else if (reportFrames) {
+            System.err.println("compose-rust: no accessibility bus to join")
+        }
     }
 
     private fun close() {
-        // Before the scene closes, so that nothing arriving between the two asks a scene that
-        // has gone to draw into a context that has gone with it.
-        closed = true
+        accessibility?.close()
+        accessibility = null
         scene.close()
-        surface.close()
-        glXMakeCurrent(display, 0uL, null)
-        glXDestroyContext(display, context)
-        XDestroyWindow(display, window)
-        XFreeColormap(display, colormap)
-        XCloseDisplay(display)
+        x11.close()
     }
 
     companion object {
-        /** `_NET_ACTIVE_WINDOW`'s source indication for a pager, which the user drives. */
-        private const val SOURCE_PAGER = 2L
-
+        /**
+         * Opens the window, or answers null where there is no X11 display or no double
+         * buffered GLX visual on it.
+         */
+        fun open(title: String, width: Int, height: Int): LinuxWindow? =
+            open(WindowConfig(title = title, width = width, height = height))
 
         /**
-         * Opens a window, or answers null where this machine has no display server to open one on.
-         *
-         * Null rather than a throw: a renderer started with no `DISPLAY`, or on a server with no
-         * double buffered visual, has nothing to say beyond that, and a Kotlin exception must not
-         * be allowed to reach the C entry point that called in.
+         * Opens the window as [config] describes it. Whether it may be resized and the smallest
+         * size it may be dragged to go to the window manager as size hints, which the platform
+         * layer works out from the config, so they are settled before the window is mapped.
          */
-        fun open(title: String, width: Int, height: Int): LinuxWindow? {
-            val display = XOpenDisplay(null) ?: return null
-            val screen = XDefaultScreen(display)
-            // Terminated by zero, which is what X's `None` is and what a binding cannot carry
-            // as a name: the macro is a cast.
-            val visual = glXChooseVisual(
-                display,
-                screen,
-                cValuesOf(
-                    GLX_RGBA, GLX_DOUBLEBUFFER,
-                    GLX_RED_SIZE, 8, GLX_GREEN_SIZE, 8, GLX_BLUE_SIZE, 8,
-                    0,
-                ),
-            )
-            if (visual == null) {
-                XCloseDisplay(display)
+        fun open(config: WindowConfig): LinuxWindow? {
+            val x11 = X11Window()
+            // The listener is the window being made, and the window cannot exist before the
+            // platform does, so it is handed over once both are there.
+            val handoff = Handoff()
+            if (!x11.open(config, handoff)) {
                 return null
             }
-            val colormap = XCreateColormap(
-                display,
-                XRootWindow(display, screen),
-                visual.pointed.visual,
-                AllocNone,
-            )
-            val window = memScoped {
-                val settings = alloc<XSetWindowAttributes>()
-                settings.colormap = colormap
-                settings.event_mask = ExposureMask or StructureNotifyMask or PointerMotionMask or
-                    ButtonPressMask or ButtonReleaseMask or KeyPressMask or KeyReleaseMask or
-                    FocusChangeMask
-                XCreateWindow(
-                    display,
-                    XRootWindow(display, screen),
-                    0, 0,
-                    width.convert(), height.convert(),
-                    0u,
-                    visual.pointed.depth,
-                    InputOutput.convert(),
-                    visual.pointed.visual,
-                    (CWColormap or CWEventMask).convert(),
-                    settings.ptr,
-                )
-            }
-            val context = glXCreateContext(display, visual, null, 1)
-            XFree(visual)
-            if (window == 0uL || context == null || glXMakeCurrent(display, window, context) == 0) {
-                if (context != null) glXDestroyContext(display, context)
-                if (window != 0uL) XDestroyWindow(display, window)
-                XFreeColormap(display, colormap)
-                XCloseDisplay(display)
-                return null
-            }
-
-            val deleteWindow = XInternAtom(display, "WM_DELETE_WINDOW", 0)
-            val protocolsAtom = XInternAtom(display, "WM_PROTOCOLS", 0)
-            val syncRequest = XInternAtom(display, "_NET_WM_SYNC_REQUEST", 0)
-            val syncCounter = createSyncCounter(display, window)
-
-            // Offered to the window manager before the window is mapped, because that is when the
-            // manager reads what a window can do. A manager that does not offer the counter is not
-            // an error and nothing here depends on having one.
-            memScoped {
-                val protocols = allocArray<ULongVar>(2)
-                protocols[0] = deleteWindow
-                var count = 1
-                if (syncCounter != 0uL) {
-                    protocols[1] = syncRequest
-                    count = 2
-                }
-                XSetWMProtocols(display, window, protocols, count)
-            }
-            XStoreName(display, window, title)
-            XMapWindow(display, window)
-            XFlush(display)
-
-            return LinuxWindow(
-                display = display,
-                window = window,
-                context = context,
-                colormap = colormap,
-                deleteWindow = deleteWindow,
-                protocolsAtom = protocolsAtom,
-                syncRequest = syncRequest,
-                syncCounter = syncCounter,
-                width = width,
-                height = height,
-            )
+            val window = LinuxWindow(x11, config.title)
+            handoff.target = window
+            return window
         }
 
-        /**
-         * A counter for the window manager to hold a resize against, or zero where this server
-         * has no sync extension.
-         *
-         * Zero is not a failure. Without it the frame changes when the manager says so and the
-         * drawing arrives when it is ready, which is the lateness this window exists to remove,
-         * but a window that still draws is better than one that refuses to open.
-         */
-        private fun createSyncCounter(display: CPointer<Display>, window: Window): XSyncCounter =
-            memScoped {
-                val eventBase = alloc<IntVar>()
-                val errorBase = alloc<IntVar>()
-                val major = alloc<IntVar>()
-                val minor = alloc<IntVar>()
-                if (XSyncQueryExtension(display, eventBase.ptr, errorBase.ptr) == 0) return 0uL
-                if (XSyncInitialize(display, major.ptr, minor.ptr) == 0) return 0uL
-                val counter = XSyncCreateCounter(
-                    display,
-                    cValue<XSyncValue> {
-                        hi = 0
-                        lo = 0u
-                    },
-                )
-                if (counter == 0uL) return 0uL
-                // A property of format 32 is read out of an array of long, whatever a long is on
-                // this machine. One entry is the basic protocol; a second would offer the extended
-                // one, which asks to be told when each frame was actually shown.
-                val id = alloc<LongVar>()
-                id.value = counter.toLong()
-                XChangeProperty(
-                    display,
-                    window,
-                    XInternAtom(display, "_NET_WM_SYNC_REQUEST_COUNTER", 0),
-                    // Asked for by name rather than written as the number 6. The predefined atom
-                    // is a cast in a macro, which is not something a Kotlin binding can carry.
-                    XInternAtom(display, "CARDINAL", 0),
-                    32,
-                    PropModeReplace,
-                    id.ptr.reinterpret(),
-                    1,
-                )
-                counter
+        /** Forwards to the window once it exists, and holds nothing back before that. */
+        private class Handoff : WindowListener {
+            var target: LinuxWindow? = null
+
+            override fun onEvent(event: WindowEvent) {
+                target?.onEvent(event)
             }
+
+            override fun onCloseRequested(): Boolean = target?.onCloseRequested() ?: true
+        }
 
         private fun monotonicNanos(): Long = memScoped {
             val now = alloc<timespec>()
@@ -796,35 +412,10 @@ internal class LinuxWindow private constructor(
             now.tv_sec * NANOS_PER_SECOND + now.tv_nsec
         }
 
-        /**
-         * How long a turn of the loop is willing to wait for something to happen.
-         *
-         * A frame at sixty per second. It is a ceiling rather than a pace: anything arriving
-         * sooner ends the wait, and a resize is drawn inside it rather than after it.
-         */
-        private const val FRAME_MILLISECONDS = 16
+        private const val FRAME_MILLISECONDS = 16L
 
-        /**
-         * How many pixels go to a point.
-         *
-         * One, because X11 has no per-window scale to ask for: what a desktop does about a dense
-         * display is a number in its own settings, and every toolkit reads a different one. The
-         * native image window answers the same, so this is not a difference between the two.
-         */
         private const val DENSITY = 1.0f
 
         private const val NANOS_PER_SECOND = 1_000_000_000L
-
-        /**
-         * A mask for the low 32 bits: the manager splits the counter value across two words.
-         */
-        private const val LOW_HALF = 0xFFFFFFFFuL
-
-        /** As much of one keystroke's text as XLookupString is given room for. */
-        private const val KEY_TEXT_BYTES = 32
-
-        /** Below this a byte is a control character rather than something a field would type. */
-        private const val FIRST_PRINTABLE = 32
-
     }
 }

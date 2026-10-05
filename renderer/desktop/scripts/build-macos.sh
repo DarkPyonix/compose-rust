@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 # Builds the renderer as a Kotlin/Native static library for macOS:
 #
-#   build/macos/<target>/
+#   build/macos/
 #     libcompose_rust_renderer.a        the renderer (Compose, Skia, the interpreter, our code)
 #     libcompose_rust_renderer_api.h    the header Kotlin/Native generates for it
+#     schema-hash.txt                     the schema it was generated from
+#
+# The archive is what the release ships and what an application links: the application is
+# then one executable with the renderer, Skia and ICU inside, needing only the system's own
+# frameworks.
 #
 # The two symbols the Host calls are the same ones the desktop build exports, with the same
 # names and the same signatures: compose_rust_renderer_run and
@@ -39,6 +44,10 @@ while [[ $# -gt 0 ]]; do
         *) die "unknown argument '$1'" "usage: build-macos.sh [--release]" ;;
     esac
 done
+
+# The window is the Compose fork's native/macos module, published beside the patched Compose
+# from the commit build-compose.sh pins.
+"$PROJECT_DIR/scripts/publish-window.sh"
 
 konan_target="macos_arm64"
 amper_platform="macosArm64"
@@ -188,6 +197,17 @@ for symbol in compose_rust_renderer_run compose_rust_renderer_request_frame; do
         die "$archive does not export $symbol" \
             "Check the @CName annotations in staticlib/src/IosEntryPoints.kt."
 done
+
+# The schema this renderer was generated from, written beside it, so the Host's build script
+# can see the two disagree before a program built from them opens an empty window.
+schema_hash_decimal="$(
+    grep -o 'const val SCHEMA_HASH: Long = -\?[0-9]*' \
+        "$PROJECT_DIR/desktop/src/protocol/Protocol.gen.kt" |
+        grep -o -- '-\?[0-9]*$'
+)"
+[[ -n "$schema_hash_decimal" ]] || die "could not read SCHEMA_HASH from desktop/src/protocol/Protocol.gen.kt"
+# printf rather than awk: the hash fills all 64 bits and awk works in doubles.
+printf '0x%016x\n' "$schema_hash_decimal" > "$OUT_DIR/schema-hash.txt"
 
 echo
 echo "$archive"

@@ -18,6 +18,9 @@ import androidx.compose.ui.scene.ComposeScene
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import org.graalvm.word.Pointer
+import org.thisisthepy.compose.window.WindowEvent
+import org.thisisthepy.compose.window.WindowMeasurement
+import org.thisisthepy.compose.window.AccessibleElement
 import org.graalvm.word.WordFactory
 
 // A window that is ours on Windows, drawn into with Skia and with no toolkit in between.
@@ -29,13 +32,12 @@ import org.graalvm.word.WordFactory
 // The C side is `c/win32_window.c`. It owns the window, the Direct3D device, the queue,
 // the adapter and the swapchain, and answers with the pointers. Nothing there draws.
 //
-// The same C symbols the macOS file calls, because the two C files are alternatives:
+// The same C symbols the macOS and Linux windows call, because the C files are alternatives:
 // exactly one of them is compiled into an image, and each answers for the window its own
 // platform knows how to open. What the five pointers mean differs, which is why each
-// platform reads them here rather than sharing a struct. What an event looks like does
-// not differ, so `WindowEvent` and `drainWindowEvents` are the macOS file's and used as
-// they are, and so are the shell's own turns: `pumpWindowEvents` and `isWindowClosed`
-// name what every window does and are declared once, there.
+// platform reads them here rather than sharing a struct. This window's events, pump and
+// close flag are declared below, beside the rest of what only this file uses, until the
+// Windows window moves to the Compose fork's shared module and these go with it.
 
 @CFunction("dxc_native_window_open")
 private external fun openWindow(
@@ -61,6 +63,18 @@ private external fun endFrame(queue: Pointer?)
 
 @CFunction("dxc_native_set_draw_callback")
 private external fun setDrawCallback(callback: CFunctionPointer?, isolateThread: IsolateThread?)
+
+@CFunction("dxc_native_poll_event")
+private external fun pollEvent(out: Pointer?): Int
+
+@CFunction("dxc_native_pump")
+private external fun pumpEvents(seconds: Double)
+
+@CFunction("dxc_native_window_closed")
+private external fun windowClosed(): Int
+
+@CFunction("dxc_native_set_cursor")
+private external fun setCursorShape(shape: Int)
 
 @CFunction("dxc_native_set_accessibility")
 private external fun setAccessibility(elements: Pointer?, count: Int, window: Pointer?)
@@ -165,6 +179,44 @@ fun Win32NativeWindow.describeTo(elements: List<AccessibleElement>) {
     }
     setAccessibility(records, capped.size, WordFactory.pointer(window))
 }
+
+/**
+ * Takes everything the window has heard since the last frame.
+ *
+ * Drained rather than delivered: Win32 answers on the thread that pumps, and the Host keeps
+ * its state on the one that draws. The text is copied out byte by byte because a word value
+ * may not leave the method it was made in.
+ */
+private fun drainWindowEvents(): List<WindowEvent> {
+    val record = StackValue.get<Pointer>(EVENT_STRUCT_BYTES)
+    val events = ArrayList<WindowEvent>()
+    val bytes = ByteArray(TEXT_BYTES)
+    while (pollEvent(record) != 0) {
+        var length = 0
+        while (length < TEXT_BYTES) {
+            val byte = record.readByte(EVENT_TEXT_OFFSET + length)
+            if (byte == ZERO) break
+            bytes[length] = byte
+            length++
+        }
+        events.add(
+            WindowEvent(
+                kind = record.readInt(0),
+                x = record.readFloat(4),
+                y = record.readFloat(8),
+                buttons = record.readInt(12),
+                modifiers = record.readInt(16),
+                keyCode = record.readInt(20),
+                codePoint = record.readInt(24),
+                text = if (length == 0) "" else String(bytes, 0, length, Charsets.UTF_8),
+            ),
+        )
+    }
+    return events
+}
+
+private const val EVENT_TEXT_OFFSET = 28
+private const val EVENT_STRUCT_BYTES = 124
 
 /**
  * How many things a screen may say it has.
@@ -326,7 +378,7 @@ internal fun runWin32Window() {
         density = Density(measured.scale),
         size = size,
         coroutineContext = work,
-        platformContext = NativePlatformContext({ size }, textInput, semantics),
+        platformContext = NativePlatformContext({ size }, textInput, semantics, ::setCursorShape),
     )
     // The application's own tree, drawn by the same interpreter the toolkit path uses.
     // Nothing in it knows which of the two it is running on, which is the point.
@@ -357,7 +409,7 @@ internal fun runWin32Window() {
         // already waited for the screen inside `Present`, and waiting again on top of
         // that would halve the rate of anything that animates.
         var busy = true
-        while (!isWindowClosed()) {
+        while (windowClosed() == 0) {
             // Cleared before the window is given its turn rather than after. A drag of an
             // edge draws its frames from inside that turn, and a turn that forgot them
             // would be a window that said nothing about itself for the length of a drag,
@@ -366,7 +418,7 @@ internal fun runWin32Window() {
             // The window's own turn, before anything is read from it. This thread is the
             // one Windows delivers to, so the messages of this frame arrive here or not
             // at all.
-            pumpWindowEvents(if (busy) 0.0 else FRAME_SECONDS)
+            pumpEvents(if (busy) 0.0 else FRAME_SECONDS)
             work.runPending()
             var heard = false
             for (event in drainWindowEvents()) {

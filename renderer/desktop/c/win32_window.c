@@ -1411,6 +1411,28 @@ int32_t dxc_native_window_closed(void) {
     return dxc_window_gone ? 1 : 0;
 }
 
+/*
+ * Calls the shared Kotlin names for the other desktops' windows, answered here by doing
+ * nothing: this window keeps its own frame, takes its caption from the system and reads a
+ * paste through the clipboard call, so none of these has anything to carry out.
+ */
+int32_t dxc_native_take_paste(char *out, int32_t capacity) {
+    (void)out; (void)capacity;
+    return 0;
+}
+
+void dxc_native_window_action(int32_t action) {
+    (void)action;
+}
+
+void dxc_native_window_begin_drag(int32_t edge) {
+    (void)edge;
+}
+
+void dxc_native_set_ime_spot(float x, float y) {
+    (void)x; (void)y;
+}
+
 /**
  * The menu bar this platform does not have.
  *
@@ -1422,6 +1444,33 @@ int32_t dxc_native_window_closed(void) {
  */
 void dxc_native_install_menu(const char *application_name) {
     (void)application_name;
+}
+
+/*
+ * The macOS window's context menu, which this window does not put up: the native image
+ * links one body of Kotlin for every desktop, so the symbol it names has to exist here.
+ * Answers that nothing was chosen.
+ */
+int32_t dxc_native_context_menu(void *view, const char *items) {
+    (void)view;
+    (void)items;
+    return -1;
+}
+
+/*
+ * Measuring aids of the AppKit window, named because the Kotlin that drives every desktop
+ * names them and answered here by doing nothing: a drag cannot be scripted from inside
+ * this window, and nothing asks for it to be.
+ */
+void dxc_native_debug_resize(void *window_pointer, void *view_pointer, int32_t from_width,
+                             int32_t from_height, int32_t to_width, int32_t to_height,
+                             int32_t steps, int32_t pause_micros) {
+    (void)window_pointer; (void)view_pointer; (void)from_width; (void)from_height;
+    (void)to_width; (void)to_height; (void)steps; (void)pause_micros;
+}
+
+void dxc_native_debug_key(void *window_pointer, int32_t key_code, const char *characters) {
+    (void)window_pointer; (void)key_code; (void)characters;
 }
 
 /*
@@ -1441,6 +1490,59 @@ int32_t dxc_native_clipboard_read(char *out, int32_t capacity) {
 
 void dxc_native_clipboard_write(const char *text) {
     (void)text;
+}
+
+/*
+ * Asked for by name by the window code every desktop shares, and answered here by saying
+ * nothing: this window takes its options another way, has no strip of the system's to
+ * measure, and reads no list of dropped paths from the platform.
+ */
+void dxc_native_window_configure(
+    int32_t resizable,
+    int32_t min_width,
+    int32_t min_height,
+    int32_t system_chrome,
+    int32_t backdrop
+) {
+    (void)resizable;
+    (void)min_width;
+    (void)min_height;
+    (void)system_chrome;
+    (void)backdrop;
+}
+
+// macOS only: the native image's shared Kotlin declares them, so every platform defines
+// them. Nothing on this platform calls them.
+void dxc_native_window_title_bar(void *view_pointer, float *out) {
+    (void)view_pointer;
+    out[0] = 0;
+    out[1] = 0;
+    out[2] = -1;
+    out[3] = -1;
+}
+
+void dxc_native_window_chrome(
+    int32_t full_size_content,
+    int32_t transparent_title_bar,
+    int32_t title_hidden,
+    int32_t unified_toolbar
+) {
+    (void)full_size_content;
+    (void)transparent_title_bar;
+    (void)title_hidden;
+    (void)unified_toolbar;
+}
+
+void dxc_native_set_icon(const uint8_t *rgba, int32_t width, int32_t height) {
+    (void)rgba;
+    (void)width;
+    (void)height;
+}
+
+int32_t dxc_native_dropped_paths(char *out, int32_t capacity) {
+    (void)out;
+    (void)capacity;
+    return 0;
 }
 
 void dxc_native_set_frame_callback(void *callback, void *isolate_thread) {

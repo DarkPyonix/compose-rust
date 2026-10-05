@@ -9,6 +9,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import kotlinx.coroutines.delay
 import org.jetbrains.skiko.SystemTheme
+import org.thisisthepy.compose.window.SystemDarkMonitor
 import org.jetbrains.skiko.currentSystemTheme
 
 /**
@@ -28,15 +29,22 @@ import org.jetbrains.skiko.currentSystemTheme
  */
 @Composable
 internal fun rememberSystemDark(): State<Boolean> {
-    val state = remember { mutableStateOf(currentSystemTheme == SystemTheme.DARK) }
+    val state = remember { mutableStateOf(systemIsDarkNow()) }
+    // The same monitor the Kotlin/Native window uses, polled here because the setting is
+    // read through the toolkit-free theme query rather than announced.
+    val monitor = remember { SystemDarkMonitor(read = ::systemIsDarkNow, onChange = { state.value = it }) }
     LaunchedEffect(Unit) {
         while (true) {
             delay(POLL_INTERVAL_MILLIS)
-            val dark = currentSystemTheme == SystemTheme.DARK
-            if (dark != state.value) state.value = dark
+            monitor.refresh()
         }
     }
     return state
 }
 
-private const val POLL_INTERVAL_MILLIS = 1_000L
+/** The system's setting, read now. */
+internal fun systemIsDarkNow(): Boolean = currentSystemTheme == SystemTheme.DARK
+
+internal const val SYSTEM_DARK_POLL_MILLIS = 1_000L
+
+private const val POLL_INTERVAL_MILLIS = SYSTEM_DARK_POLL_MILLIS
