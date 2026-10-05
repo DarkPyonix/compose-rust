@@ -17,4 +17,12 @@ package dev.darkpyonix.composerust.ui.platform
 internal object ToolkitWindow {
     @JvmField
     val available: Boolean = System.getProperty("dxc.toolkit.window") != "false"
+
+    /**
+     * Whether the window's clipboard is the toolkit's clipboard type. macOS still answers that
+     * type, which the fork's text menus read; an image built with `-Ddxc.awt.clipboard=false`
+     * answers the plain-text one instead and names no `java.awt.datatransfer` class.
+     */
+    @JvmField
+    val awtClipboard: Boolean = System.getProperty("dxc.awt.clipboard") != "false"
 }

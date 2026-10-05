@@ -77,6 +77,7 @@ image_name="${LIBRARY_NAME}_image"
     -o "$image_name" \
     --no-fallback \
     -Ddxc.toolkit.window=false \
+    -Ddxc.awt.clipboard=false \
     -Djava.awt.headless=false \
     -H:IncludeLocales=en,ko \
     -Os \

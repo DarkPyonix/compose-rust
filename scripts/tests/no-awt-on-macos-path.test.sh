@@ -32,7 +32,8 @@ if grep -q 'Accessibility\$\|a11y_classes' <<< "$code"; then
     fail "$build roots the toolkit's accessibility classes"
 fi
 
-# Sources only the toolkit window (Windows for now) reaches.
+# Sources only the toolkit window (Windows and Linux for now) reaches, and the one place
+# macOS needs a toolkit type: Compose's ClipEntry is a java.awt.datatransfer type.
 toolkit_only=(
     AccessibilityReachabilityFeature.kt ImeReachabilityFeature.kt ReachabilityRegistration.kt
     MetadataCollectionMain.kt Renderer.kt RendererEntryPoints.kt WindowChrome.kt WindowIcon.kt
@@ -46,6 +47,9 @@ while IFS= read -r file; do
     for name in "${toolkit_only[@]}"; do [[ "$rel" == "$name" ]] && skip=1; done
     [[ $skip -eq 1 ]] && continue
     hits="$(grep -nE "$pattern" "$file" | grep -vE '^[0-9]+:[[:space:]]*(//|\*|/\*)' || true)"
+    if [[ "$rel" == "NativeClipboard.kt" ]]; then
+        hits="$(grep -vE 'java\.awt\.datatransfer\.|asAwtTransferable' <<< "$hits" || true)"
+    fi
     [[ -n "$hits" ]] && fail "$file names the Java toolkit outside the toolkit-window list:
 $hits"
 done < <(find "$desktop/src" -name '*.kt' | sort)
