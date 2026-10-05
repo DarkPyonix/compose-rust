@@ -955,7 +955,13 @@ static struct {
     int32_t min_height;
     int32_t system_chrome;
     int32_t backdrop;
-} dxc_options = {1, 0, 0, 0, 0};
+    // How the title bar is built, as MacosWindowChrome.kt decides it for both macOS
+    // windows. The defaults are its answer for a window that asked for nothing.
+    int32_t full_size_content;
+    int32_t transparent_title_bar;
+    int32_t title_hidden;
+    int32_t unified_toolbar;
+} dxc_options = {1, 0, 0, 0, 0, 1, 1, 1, 1};
 
 /**
  * Says how the next window should be made. Called once, before it is opened.
@@ -977,6 +983,22 @@ void dxc_native_window_configure(
     dxc_options.min_height = min_height;
     dxc_options.system_chrome = system_chrome;
     dxc_options.backdrop = backdrop;
+}
+
+/**
+ * Says how the next window's title bar is built. Called once, before it is opened, with
+ * the values `MacosWindowChrome` chose; the Kotlin/Native window applies the same ones.
+ */
+void dxc_native_window_chrome(
+    int32_t full_size_content,
+    int32_t transparent_title_bar,
+    int32_t title_hidden,
+    int32_t unified_toolbar
+) {
+    dxc_options.full_size_content = full_size_content;
+    dxc_options.transparent_title_bar = transparent_title_bar;
+    dxc_options.title_hidden = title_hidden;
+    dxc_options.unified_toolbar = unified_toolbar;
 }
 
 /**
@@ -1029,7 +1051,7 @@ int32_t dxc_native_window_open(
         if (dxc_options.resizable) {
             mask |= NSWindowStyleMaskResizable;
         }
-        if (!dxc_options.system_chrome) {
+        if (dxc_options.full_size_content) {
             mask |= NSWindowStyleMaskFullSizeContentView;
         }
         NSWindow *window = [[NSWindow alloc] initWithContentRect:frame
@@ -1037,12 +1059,14 @@ int32_t dxc_native_window_open(
                                                         backing:NSBackingStoreBuffered
                                                           defer:NO];
         window.title = [NSString stringWithUTF8String:title];
-        if (!dxc_options.system_chrome) {
-            window.titlebarAppearsTransparent = YES;
-            window.titleVisibility = NSWindowTitleHidden;
+        window.titlebarAppearsTransparent = dxc_options.transparent_title_bar ? YES : NO;
+        window.titleVisibility =
+            dxc_options.title_hidden ? NSWindowTitleHidden : NSWindowTitleVisible;
+        if (dxc_options.unified_toolbar) {
             // An empty unified toolbar: its only job is to make the title bar the height a
             // toolbar gives it, which centres the three buttons on the line the bar's own
-            // content is drawn on. Everything in the bar is the renderer's, underneath.
+            // content is drawn on, and to give the window the radius such a window has.
+            // Everything in the bar is the renderer's, underneath.
             NSToolbar *toolbar = [[NSToolbar alloc] initWithIdentifier:@"compose-rust"];
             toolbar.showsBaselineSeparator = NO;
             window.toolbar = toolbar;
@@ -1130,32 +1154,33 @@ int32_t dxc_native_window_open(
 }
 
 /**
- * The strip across the top of the window that belongs to the title bar, and the room the
- * system's three buttons take at its leading edge, both in points.
+ * What the title bar's size is worked out from, in points: the window's frame height, the
+ * height of the part below the bar, where the close button starts and where the zoom button
+ * ends (both -1 where the window has no buttons).
  *
- * Measured from the window, because the height follows the platform: a unified toolbar
- * makes it taller than the standard bar, and the next release may change it again. Zero
- * for a window that kept its ordinary title bar, which has nothing to run underneath.
+ * Raw measurements rather than an answer, because the answer is `macosWindowCaption` in
+ * Kotlin, which the Kotlin/Native window also uses, so the two cannot disagree about where
+ * the content starts.
  */
-void dxc_native_window_caption(void *view_pointer, float *height, float *buttons_width) {
+void dxc_native_window_title_bar(void *view_pointer, float *out) {
     dxc_on_main(^{
     @autoreleasepool {
         DxcView *view = (__bridge DxcView *)view_pointer;
         NSWindow *window = view.window;
-        *height = 0;
-        *buttons_width = 0;
-        if (window == nil || dxc_options.system_chrome) {
+        out[0] = 0;
+        out[1] = 0;
+        out[2] = -1;
+        out[3] = -1;
+        if (window == nil) {
             return;
         }
-        CGFloat strip = window.frame.size.height - window.contentLayoutRect.size.height;
-        if (strip < 0) {
-            return;
-        }
-        *height = (float)strip;
+        out[0] = (float)window.frame.size.height;
+        out[1] = (float)window.contentLayoutRect.size.height;
         NSButton *close = [window standardWindowButton:NSWindowCloseButton];
         NSButton *zoom = [window standardWindowButton:NSWindowZoomButton];
         if (close != nil && zoom != nil) {
-            *buttons_width = (float)(NSMaxX(zoom.frame) + close.frame.origin.x);
+            out[2] = (float)close.frame.origin.x;
+            out[3] = (float)NSMaxX(zoom.frame);
         }
     }
     });

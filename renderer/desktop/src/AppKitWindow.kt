@@ -33,6 +33,8 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.graphics.asSkiaBitmap
 import dev.darkpyonix.composerust.runtime.asksForWindowMaterial
+import dev.darkpyonix.composerust.protocol.Chrome
+import dev.darkpyonix.composerust.protocol.TitleBar
 import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.scene.ComposeScene
 import androidx.compose.ui.text.TextStyle
@@ -135,8 +137,16 @@ private external fun configureWindow(
     backdrop: Int,
 )
 
-@CFunction("dxc_native_window_caption")
-private external fun windowCaption(view: Pointer?, height: CFloatPointer?, buttonsWidth: CFloatPointer?)
+@CFunction("dxc_native_window_chrome")
+private external fun windowChrome(
+    fullSizeContent: Int,
+    transparentTitleBar: Int,
+    titleHidden: Int,
+    unifiedToolbar: Int,
+)
+
+@CFunction("dxc_native_window_title_bar")
+private external fun windowTitleBar(view: Pointer?, out: CFloatPointer?)
 
 @CFunction("dxc_native_set_icon")
 private external fun setIcon(rgba: CCharPointer?, width: Int, height: Int)
@@ -329,21 +339,35 @@ internal fun configureNativeWindow(
     if (backdrop) 1 else 0,
 )
 
+/** Hands the window the title bar [chrome] describes, before the window is made. */
+internal fun configureNativeWindowChrome(chrome: MacosWindowChrome) = windowChrome(
+    if (chrome.fullSizeContentView) 1 else 0,
+    if (chrome.titlebarAppearsTransparent) 1 else 0,
+    if (chrome.titleHidden) 1 else 0,
+    if (chrome.unifiedToolbar) 1 else 0,
+)
+
 /**
  * The strip of the window the title bar occupies and the room its three buttons take at the
- * leading edge, as the window reports them.
+ * leading edge, or null while the window is between sizes.
  *
- * Measured rather than assumed, because the height follows the platform: it is taller
- * under a toolbar than under the standard bar and has changed between releases.
+ * The window reports its measurements and [macosWindowCaption] turns them into the caption,
+ * the same function the Kotlin/Native window uses, so the content starts at the same height
+ * in both.
  */
-internal fun NativeWindow.measureCaption(): dev.darkpyonix.composerust.runtime.WindowCaption {
-    val height = StackValue.get<CFloatPointer>(4)
-    val buttons = StackValue.get<CFloatPointer>(4)
-    windowCaption(WordFactory.pointer(view), height, buttons)
-    return dev.darkpyonix.composerust.runtime.WindowCaption(
-        height = height.read().dp,
-        buttonsWidth = buttons.read().dp,
-        buttonsAtStart = true,
+internal fun NativeWindow.measureCaption(
+    chrome: MacosWindowChrome,
+): dev.darkpyonix.composerust.runtime.WindowCaption? {
+    val out = StackValue.get<CFloatPointer>(16)
+    windowTitleBar(WordFactory.pointer(view), out)
+    val close = out.read(2)
+    val zoom = out.read(3)
+    return macosWindowCaption(
+        chrome = chrome,
+        windowHeight = out.read(0).toDouble(),
+        contentLayoutHeight = out.read(1).toDouble(),
+        closeMinX = close.takeIf { it >= 0f }?.toDouble(),
+        zoomMaxX = zoom.takeIf { it >= 0f }?.toDouble(),
     )
 }
 
@@ -610,6 +634,11 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
         systemChrome = options.systemChrome,
         backdrop = backdrop,
     )
+    val chrome = MacosWindowChrome.of(
+        chrome = if (options.systemChrome) Chrome.System else Chrome.Modern,
+        titleBar = asked?.titleBar ?: TitleBar.Normal,
+    )
+    configureNativeWindowChrome(chrome)
     val window = openNativeWindow(options.title, options.width, options.height)
     if (window == null) {
         System.err.println("compose-rust: this machine has no Metal device")
@@ -630,7 +659,9 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
     // The strip the title bar takes, which the bar at the top of the application's tree is
     // laid out around. Measured again whenever the window changes size, because entering
     // full screen removes the bar and leaving it brings it back.
-    val caption = androidx.compose.runtime.mutableStateOf(window.measureCaption())
+    val caption = androidx.compose.runtime.mutableStateOf(
+        window.measureCaption(chrome) ?: dev.darkpyonix.composerust.runtime.WindowCaption.None,
+    )
     val textInput = NativeTextInput()
     val synthetic = System.getenv("DXC_SYNTH")?.let { SyntheticInput(it) }
     val semantics = NativeSemantics { elements ->
@@ -725,7 +756,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
             if (event.kind == WindowEvent.RESIZE) {
                 size = androidx.compose.ui.unit.IntSize(event.x.toInt(), event.y.toInt())
                 scene.size = size
-                caption.value = window.measureCaption()
+                window.measureCaption(chrome)?.let { caption.value = it }
             }
             if (LatencyTrace.enabled && event.kind != WindowEvent.POINTER_MOVE) {
                 LatencyTrace.mark("window heard ${event.kind}")
