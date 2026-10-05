@@ -51,10 +51,14 @@ internal enum class RasterVariant(val label: String) {
     val alphaType get() = if (this == OPAQUE || this == TILES_OPAQUE) ColorAlphaType.OPAQUE else ColorAlphaType.PREMUL
 
     companion object {
-        /** DXC_RASTER_DRAW names one; tiles otherwise, the one measured fastest. */
+        /**
+         * DXC_RASTER_DRAW names one; direct otherwise. Measured at 200%, none of the others
+         * was faster: playing the frame costs under a millisecond whichever way, and the rest
+         * is the scene producing its drawing at the new size.
+         */
         val chosen: RasterVariant by lazy {
             val asked = System.getenv("DXC_RASTER_DRAW")
-            entries.firstOrNull { it.label == asked } ?: TILES
+            entries.firstOrNull { it.label == asked } ?: DIRECT
         }
     }
 }

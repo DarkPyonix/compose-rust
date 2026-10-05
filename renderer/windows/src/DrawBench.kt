@@ -42,6 +42,8 @@ internal object DrawBench {
     private val enabled = System.getenv("DXC_DRAW_BENCH") == "1"
     private val started = kotlin.time.TimeSource.Monotonic.markNow()
     private var done = false
+    private var layoutMs = 0.0
+    private var pendingAfterLayout = false
 
     private const val HEIGHT = 1400
     private const val FIRST_WIDTH = 961
@@ -70,6 +72,12 @@ internal object DrawBench {
             for (variant in RasterVariant.entries) {
                 fun frame(width: Int) {
                     scene.size = IntSize(width, HEIGHT)
+                    // Measure and place first, on their own, so the frame's time splits into
+                    // layout and the rest (recomposition, recording the layers, playing them).
+                    val laid = kotlin.time.TimeSource.Monotonic.markNow()
+                    scene.focusManager.getFocusRect(afterLayout = true)
+                    layoutMs = laid.elapsedNow().inWholeMicroseconds / 1000.0
+                    pendingAfterLayout = scene.hasInvalidations()
                     RasterDraw.draw(variant, pixels, rowBytes, width, HEIGHT) { canvas ->
                         scene.render(canvas.asComposeCanvas(), nanos())
                     }
@@ -78,12 +86,16 @@ internal object DrawBench {
                 val total = ArrayList<Double>()
                 val record = ArrayList<Double>()
                 val raster = ArrayList<Double>()
+                val layout = ArrayList<Double>()
+                var pending = 0
                 for (index in 0 until SIZES) {
                     val mark = kotlin.time.TimeSource.Monotonic.markNow()
                     frame(FIRST_WIDTH + STEP * index)
                     total.add(mark.elapsedNow().inWholeMicroseconds / 1000.0)
                     record.add(RasterDraw.recordMs)
                     raster.add(RasterDraw.rasterMs)
+                    layout.add(layoutMs)
+                    if (pendingAfterLayout) pending++
                 }
                 val cached = ArrayList<Double>()
                 for (index in 0 until CACHED) {
@@ -96,10 +108,27 @@ internal object DrawBench {
                 System.err.println(
                     "compose-rust: draw-bench variant=${variant.label} " +
                         "median=${f(pct(total, 50))} p90=${f(pct(total, 90))} max=${f(total.max())} " +
+                        "layout_median=${f(pct(layout, 50))} pending_after_layout=$pending/$SIZES " +
                         "record_median=${f(pct(record, 50))} raster_median=${f(pct(raster, 50))} " +
                         "cached_median=${f(pct(cached, 50))} $compared",
                 )
             }
+            // Only the height changing, at one width: what a size change costs when no text
+            // has to be laid out again across a new width.
+            val tall = ArrayList<Double>()
+            for (index in 0 until SIZES) {
+                val height = HEIGHT - 4 * (SIZES - index)
+                scene.size = IntSize(FIRST_WIDTH, height)
+                val mark = kotlin.time.TimeSource.Monotonic.markNow()
+                RasterDraw.draw(RasterVariant.DIRECT, pixels, rowBytes, FIRST_WIDTH, height) { canvas ->
+                    scene.render(canvas.asComposeCanvas(), nanos())
+                }
+                tall.add(mark.elapsedNow().inWholeMicroseconds / 1000.0)
+            }
+            System.err.println(
+                "compose-rust: draw-bench height-only width=$FIRST_WIDTH median=${f(pct(tall, 50))} " +
+                    "p90=${f(pct(tall, 90))} max=${f(tall.max())}",
+            )
         } finally {
             nativeHeap.free(pixels.rawValue)
             scene.density = savedDensity
