@@ -77,11 +77,14 @@ image_name="${LIBRARY_NAME}_image"
     -o "$image_name" \
     --no-fallback \
     -Ddxc.toolkit.window=false \
+    -Dcompose.awt=false \
     -Ddxc.awt.clipboard=false \
     -Djava.awt.headless=false \
     -H:IncludeLocales=en,ko \
     -Os \
     -H:+UnlockExperimentalVMOptions \
+    -H:+PrintAnalysisCallTree \
+    -H:PrintAnalysisCallTreeType=TXT \
     "-H:NativeLinkerOption=$obj/x11_window.o" \
     '-H:NativeLinkerOption=-lX11' \
     '-H:NativeLinkerOption=-lGL' \
@@ -161,9 +164,8 @@ needed="$(readelf -d "$lib/$LIBRARY_NAME.so" | grep NEEDED | grep "$image_name" 
     "readelf -d reported: ${needed:-no matching NEEDED entry}" \
     "Check that -Wl,-soname reached the Native Image link."
 
-# Skiko opens libjawt by path. There is no toolkit to ask for a canvas, so the file is a stub
-# whose JAWT_GetAWT reports failure, and the toolkit's libawt is not needed beside it.
-cc -shared -fPIC -O2 -Wl,-soname,libjawt.so -o "$lib/libjawt.so" "$NATIVE_DIR/c/jawt_absent.c"
+# No libjawt is staged. The skiko library does not link it and its loader maps none when nothing
+# asks for an AWT canvas, which nothing in this renderer does; the smoke test runs without one.
 
 skiko_jar="$(tr ':' '\n' <<< "$classpath" | grep "skiko-awt-runtime-linux-$SKIKO_ARCH" | head -1)"
 [[ -n "$skiko_jar" ]] || die "no skiko-awt-runtime-linux-$SKIKO_ARCH jar on the runtime classpath" \

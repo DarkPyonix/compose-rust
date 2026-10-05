@@ -7,7 +7,7 @@
 #   - the Linux build script preserves java.desktop, registers the toolkit's input method or
 #     accessibility features,
 #   - the Linux entry point stops declaring that there is no display for the toolkit,
-#   - the stub that stands in for libjawt is missing,
+#   - a libjawt stub comes back,
 #   - a source outside the toolkit-window list names a toolkit type (the same scan the macOS
 #     test makes, run here so a Linux-only change cannot slip past it).
 set -uo pipefail
@@ -28,8 +28,8 @@ fi
 if grep -q 'ImeReachabilityFeature\|AccessibilityReachabilityFeature' <<< "$code"; then
     fail "$build registers the toolkit's input method or accessibility bridge"
 fi
-if ! grep -q 'jawt_absent\.c' <<< "$code" || [[ ! -f "$desktop/c/jawt_absent.c" ]]; then
-    fail "the stub libjawt is not built from $desktop/c/jawt_absent.c"
+if grep -q 'libjawt' <<< "$code" || [[ -e "$desktop/c/jawt_absent.c" ]]; then
+    fail "$build stages a libjawt, which the Linux image no longer needs"
 fi
 
 for flag in dxc.toolkit.window=false dxc.awt.clipboard=false; do
