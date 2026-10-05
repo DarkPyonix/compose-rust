@@ -38,9 +38,11 @@ MATERIAL3_PUBLISHED_AS="1.11.0-alpha07"
 # Targets whose modules JetBrains publishes too (desktop, and macOS for ui and foundation) get
 # a version of their own. Under 1.11.1 the fork's jars sit at upstream's coordinates, and a
 # resolver that already holds upstream's 1.11.1 (Amper's cache does) takes those and never
-# looks in the local repository: the build links, and the app runs upstream's Compose. A
-# fourth number sorts above 1.11.1 for every resolver, so the fork's module also wins when
-# upstream's is pulled in behind another dependency. The renderer modules ask for these
+# looks in the local repository: the build links, and the app runs upstream's Compose. The
+# fork's Gradle build takes only major.minor.patch with an optional tag, and a tag sorts below
+# the release in Gradle and above it in Maven, so the patch number is raised instead: 1.11.1001
+# sorts above 1.11.1 everywhere, and the fork's module also wins when upstream's is pulled in
+# behind another dependency. The renderer modules ask for these
 # versions by name, and scripts/tests/fork-versions.test.sh checks that they do.
 EXTENDED_AS="1.11.1001"
 EXTENDED_AS="${DXC_COMPOSE_EXTENDED_AS:-$EXTENDED_AS}"
