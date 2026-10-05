@@ -7,10 +7,10 @@
 # The bounds, in MB above the start:
 #
 #   metal      112  Core Animation keeps up to three drawables. At 1200x900 points and two
-#                   pixels per point each is 16.5 MB, so three are 50 MB. The surface lets
-#                   up to 48 MB of drawables of sizes already left pile up before it runs a
-#                   collection, and Skia keeps resources of its own. The leak this guards
-#                   against grew it by 528 MB.
+#                   pixels per point each is 16.5 MB, so three are 50 MB. A frame's drawable
+#                   goes back with the frame's own autorelease pool; the rest of the bound
+#                   is Skia's own resources and margin. The leak this guards against grew
+#                   it by 528 MB.
 #   footprint  160  The Metal bound above, which the footprint includes, plus what the
 #                   process itself grows: the native image grew 17 MB over 50 resizes (46 to
 #                   63) and this renderer 23 MB (37 to 60), both on macOS arm64, and the
