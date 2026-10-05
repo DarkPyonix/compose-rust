@@ -15,6 +15,7 @@ import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.scene.ComposeScene
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
+import dev.darkpyonix.composerust.ui.node.LayoutProfile
 import java.lang.System
 import kotlinx.cinterop.ByteVar
 import kotlinx.cinterop.CFunction
@@ -38,10 +39,7 @@ import kotlinx.cinterop.staticCFunction
 import kotlinx.cinterop.toLong
 import kotlinx.cinterop.value
 import org.jetbrains.skia.BackendRenderTarget
-import org.jetbrains.skia.ColorAlphaType
 import org.jetbrains.skia.ColorSpace
-import org.jetbrains.skia.ColorType
-import org.jetbrains.skia.ImageInfo
 import org.jetbrains.skia.DirectContext
 import org.jetbrains.skia.PixelGeometry
 import org.jetbrains.skia.Surface
@@ -231,6 +229,7 @@ internal class Win32Window private constructor(
             // Windows delivers to, so the messages of this frame arrive here or not at all.
             pump(if (busy) 0.0 else FRAME_SECONDS)
             work.runPending()
+            if (DrawBench.due()) DrawBench.run(scene, context) { nanos }
             if (ResizeMetrics.due()) {
                 ResizeMetrics.run(
                     phase = { name ->
@@ -377,14 +376,9 @@ internal class Win32Window private constructor(
             scene.size = fitted
         }
         size = fitted
-        val surface = Surface.makeRasterDirect(
-            ImageInfo(fitted.width, fitted.height, ColorType.BGRA_8888, ColorAlphaType.PREMUL, ColorSpace.sRGB),
-            address.rawValue,
-            rowBytes.value,
-            SurfaceProps(PixelGeometry.RGB_H),
-        )
-        scene.render(surface.canvas.asComposeCanvas(), nanos)
-        surface.close()
+        RasterDraw.draw(RasterVariant.chosen, address, rowBytes.value, fitted.width, fitted.height) { canvas ->
+            scene.render(canvas.asComposeCanvas(), nanos)
+        }
         rasterEnd()
         true
     }
@@ -430,6 +424,7 @@ internal class Win32Window private constructor(
         ): Win32Window? {
             val pointers = nativeHeap.allocArray<COpaquePointerVar>(WINDOW_POINTERS)
             try {
+                if (System.getenv("DXC_LAYOUT_PROFILE") == "1") LayoutProfile.enabled = true
                 configureWindow(if (resizable) 1 else 0, minWidth, minHeight, if (systemChrome) 1 else 0, 0)
                 val opened = memScoped { openWindow(title.cstr.ptr, width, height, pointers) }
                 if (opened != 0) return null
