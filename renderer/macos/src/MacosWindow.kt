@@ -51,6 +51,8 @@ import platform.AppKit.NSWindowZoomButton
 import platform.AppKit.NSViewLayerContentsRedrawDuringViewResize
 import platform.CoreGraphics.CGSize
 import platform.Foundation.NSProcessInfo
+import platform.Foundation.runMode
+import platform.Foundation.timeIntervalSinceNow
 import platform.QuartzCore.CALayer
 import platform.QuartzCore.CALayerDelegateProtocol
 import platform.AppKit.NSColor
@@ -751,7 +753,7 @@ internal class MacosWindow(
      * loop between events, so the scripted one does too, and its reading is the drag's.
      */
     private fun turnAsADragDoes() {
-        val until = platform.Foundation.NSDate.dateWithTimeIntervalSinceNow(1.0 / 60)
+        val until = platform.Foundation.NSDate(timeIntervalSinceNow = 1.0 / 60)
         val loop = platform.Foundation.NSRunLoop.currentRunLoop
         while (until.timeIntervalSinceNow > 0 &&
             loop.runMode(platform.AppKit.NSEventTrackingRunLoopMode, beforeDate = until)
