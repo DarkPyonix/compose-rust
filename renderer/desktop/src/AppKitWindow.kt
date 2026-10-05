@@ -33,7 +33,9 @@ import androidx.compose.ui.scene.ComposeScene
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.thisisthepy.compose.window.DockIcon
 import org.thisisthepy.compose.window.WindowEvent
+import org.thisisthepy.compose.window.contentMinimum
 import org.thisisthepy.compose.window.graalvm.macos.AppKitUpcallSlots
 import org.thisisthepy.compose.window.graalvm.macos.NativeWindow
 import org.thisisthepy.compose.window.graalvm.macos.configureNativeWindow
@@ -114,10 +116,11 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
     val asked = host.table.window
     val options = nativeWindowOptions(host, backdropSupported = true)
     val backdrop = options.backdrop
+    val minimum = contentMinimum(options.minWidth, options.minHeight)
     configureNativeWindow(
         resizable = options.resizable,
-        minWidth = options.minWidth,
-        minHeight = options.minHeight,
+        minWidth = minimum?.first?.toInt() ?: 0,
+        minHeight = minimum?.second?.toInt() ?: 0,
         systemChrome = options.systemChrome,
         backdrop = backdrop,
     )
@@ -191,7 +194,16 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
     installApplicationMenu(options.title)
 
     val started = System.nanoTime()
-    var iconId = 0
+    val dockIcon = DockIcon<androidx.compose.ui.graphics.ImageBitmap>(
+        lookup = { id ->
+            (host.table.assets.asset(id) as? dev.darkpyonix.composerust.ui.node.Asset.Raster)?.bitmap
+        },
+        apply = { picture ->
+            iconPixels(picture)?.let { (pixels, width, height) ->
+                setApplicationIcon(pixels, width, height)
+            }
+        },
+    )
     var painted = false
     var frame = 0
     var drew = false
@@ -208,19 +220,9 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
         // The scene's own work first, before anything is read from it: a list that asked
         // for rows on the last frame wants them in hand before this one is measured.
         work.runPending()
-        // The application's picture, once the asset it named has arrived. The id is
-        // known from the first batch and the bitmap a little later, so this asks each
-        // frame until it is there and then stops.
-        if (iconId == 0 && asked != null && asked.icon != 0) {
-            val raster = host.table.assets.asset(asked.icon)
-                as? dev.darkpyonix.composerust.ui.node.Asset.Raster
-            if (raster != null) {
-                iconId = asked.icon
-                iconPixels(raster.bitmap)?.let { (pixels, width, height) ->
-                    setApplicationIcon(pixels, width, height)
-                }
-            }
-        }
+        // The application's picture, once the asset it named has arrived. Asked each frame
+        // until it is there and then not at all, by the same rule the other macOS window uses.
+        if (!dockIcon.applied && asked != null) dockIcon.tryApply(asked.icon)
         var heard = false
         val events = drainWindowEvents()
         for (event in synthetic?.due(System.nanoTime(), size) ?: emptyList()) {
@@ -279,6 +281,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
             ) {
                 break
             }
+            if (synthetic?.exitDue(System.nanoTime()) == true) break
             // Cleared before the window is given its turn, because a resize inside it
             // draws its own frames and the semantics below must hear of them.
             drew = false

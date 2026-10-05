@@ -11,6 +11,10 @@ import androidx.compose.ui.text.AnnotatedString
 import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.ClipboardOwner
 import java.awt.datatransfer.StringSelection
+import org.thisisthepy.compose.window.TextPasteboard
+import org.thisisthepy.compose.window.copyText
+import org.thisisthepy.compose.window.hasText
+import org.thisisthepy.compose.window.pasteText
 import org.thisisthepy.compose.window.graalvm.macos.readClipboard
 import org.thisisthepy.compose.window.graalvm.macos.writeClipboard
 import java.awt.datatransfer.Transferable
@@ -36,10 +40,16 @@ import java.awt.datatransfer.Transferable
  * toolkit; only its text flavour is answered.
  */
 internal class PasteboardClipboard(
-    private val read: () -> String,
-    private val write: (String) -> Unit,
+    readText: () -> String?,
+    writeText: (String) -> Unit,
 ) : java.awt.datatransfer.Clipboard("pasteboard") {
-    private fun text(): String? = read().takeIf { it.isNotEmpty() }
+    // The fork's pasteboard rules: an empty string is nothing to paste, null clears.
+    private val pasteboard = object : TextPasteboard {
+        override fun read(): String? = readText()
+        override fun write(text: String) = writeText(text)
+    }
+
+    private fun text(): String? = pasteboard.pasteText()
 
     override fun getContents(requestor: Any?): Transferable? = text()?.let(::StringSelection)
 
@@ -47,14 +57,14 @@ internal class PasteboardClipboard(
         val text = contents?.let {
             runCatching { it.getTransferData(DataFlavor.stringFlavor) as? String }.getOrNull()
         }
-        write(text.orEmpty())
+        pasteboard.copyText(text)
     }
 
     override fun getAvailableDataFlavors(): Array<DataFlavor> =
-        if (text() != null) arrayOf(DataFlavor.stringFlavor) else emptyArray()
+        if (pasteboard.hasText()) arrayOf(DataFlavor.stringFlavor) else emptyArray()
 
     override fun isDataFlavorAvailable(flavor: DataFlavor): Boolean =
-        flavor == DataFlavor.stringFlavor && text() != null
+        flavor == DataFlavor.stringFlavor && pasteboard.hasText()
 
     override fun getData(flavor: DataFlavor): Any {
         val text = text()
