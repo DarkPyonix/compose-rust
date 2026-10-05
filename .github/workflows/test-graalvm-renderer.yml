@@ -126,6 +126,16 @@ jobs:
       - name: Build the Linux renderer under Xvfb
         run: xvfb-run -a ./renderer/desktop/scripts/build-native-linux.sh
 
+      - name: PROBE who reaches the toolkit
+        continue-on-error: true
+        run: |
+          f="$(ls renderer/build/native-image-linux/dist/lib/reports/call_tree_*.txt | head -1)"
+          ls -la "$f"
+          for cls in 'java.awt.Component' 'java.awt.Toolkit' 'javax.swing.Timer' 'java.awt.EventQueue'; do
+            echo "=== $cls"
+            awk -v pat="$cls" '
+              { match($0, /^[ |+\-]*/); d = RLENGTH; stack[d] = $0; if (index($0, pat) && !(shown++ >= 3)) { print "---"; for (i = 0; i <= d; i += 1) if (stack[i] != "") print substr(stack[i], 1, 200) } }' "$f" | head -150
+          done
       - name: Inspect staged dynamic dependencies
         run: |
           find renderer/build/native-image-linux/dist/lib -maxdepth 1 -type f -print | sort
