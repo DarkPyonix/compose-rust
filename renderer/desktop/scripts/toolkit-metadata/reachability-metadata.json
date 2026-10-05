@@ -1091,6 +1091,26 @@
     },
     {
       "type": "org.jetbrains.skiko.SkiaLayer$1"
+    },
+    {
+      "type": "org.jetbrains.skiko.redrawer.MetalRedrawer",
+      "jniAccessible": true,
+      "methods": [
+        {
+          "name": "onOcclusionStateChanged",
+          "parameterTypes": [
+            "boolean"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "org.jetbrains.skiko.redrawer.MetalVSyncer$job$1",
+      "fields": [
+        {
+          "name": "label"
+        }
+      ]
     }
   ],
   "resources": [
