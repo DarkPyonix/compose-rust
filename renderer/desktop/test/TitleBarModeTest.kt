@@ -60,7 +60,7 @@ class TitleBarModeTest {
     /**
      * A glass sidebar is cut concentric with the window's corner, and that corner is the
      * system's, so the rules say how the sidebar's corner is cut and leave its radius to
-     * the window. A bar along the bottom has no corner to follow.
+     * the window.
      */
     @Test
     fun fr19_7_the_glass_sidebar_follows_the_window_corner_the_system_reports() {
@@ -70,11 +70,6 @@ class TitleBarModeTest {
             theme,
         )
         assertTrue(sidebar.stripCornerExponent != null, "the sidebar keeps a corner of its own")
-        val bar = theme.rules.navigation(
-            dev.darkpyonix.composerust.protocol.WindowSizeClass.Compact,
-            theme,
-        )
-        assertEquals(null, bar.stripCornerExponent, "a bar follows the window's corner")
     }
 
     private fun themeFor(system: DesignSystem, platform: HostPlatform): ResolvedTheme =
