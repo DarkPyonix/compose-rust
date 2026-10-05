@@ -110,4 +110,47 @@ class MetalSurfaceTest {
             surface.close()
         }
     }
+    /**
+     * A frame gives its drawable back when it is done, however many frames are drawn
+     * before the run loop next turns.
+     *
+     * The drawable is handed out autoreleased and owns a texture the size of the window. A
+     * frame that left it to the caller's pool kept it until that pool drained, and a resize
+     * draws frame after frame inside one turn: 100 sizes in a row held 528 MB of Metal
+     * memory on macOS CI. A test thread has no pool that drains at all, so it is the
+     * strictest place to ask.
+     *
+     * The bound is three drawables at the largest size drawn (Core Animation keeps up to
+     * three), plus room for Skia's own resources, and the leak was over ten times it.
+     */
+    @Test
+    fun nfr9_frames_drawn_in_one_turn_release_their_drawables() {
+        val surface = MetalSurface()
+        try {
+            // A layer has to be given a size before it hands out a drawable.
+            surface.withoutAnimation {
+                surface.resize(800.0, 600.0, 1.0)
+                surface.draw { _, _, _ -> }
+            }
+            val before = surface.allocatedBytes
+            for (step in 1..100) {
+                val grow = if (step <= 50) step else 100 - step
+                surface.withoutAnimation {
+                    surface.resize(800.0 + grow * 8, 600.0 + grow * 6, 1.0)
+                    surface.draw { canvas, _, _ -> canvas.clear(0xFF336699.toInt()) }
+                }
+            }
+            val grownMb = (surface.allocatedBytes - before) / 1048576.0
+            val largestDrawableMb = 1200.0 * 900.0 * 4 / 1048576.0
+            val boundMb = largestDrawableMb * 3 + 16
+            assertTrue(
+                grownMb <= boundMb,
+                "Metal memory grew by $grownMb MB over 100 frames at changing sizes; " +
+                    "at most $boundMb MB is expected, three drawables at the largest size " +
+                    "and Skia's resources. Something a frame was handed is being kept.",
+            )
+        } finally {
+            surface.close()
+        }
+    }
 }

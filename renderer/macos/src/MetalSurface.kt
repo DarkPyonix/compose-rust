@@ -2,6 +2,7 @@
 
 package dev.darkpyonix.composerust.ui.platform
 
+import kotlinx.cinterop.autoreleasepool
 import kotlinx.cinterop.objcPtr
 import kotlinx.cinterop.useContents
 import org.jetbrains.skia.BackendRenderTarget
@@ -42,6 +43,12 @@ internal class MetalSurface {
     }
     private val context = DirectContext.makeMetal(device.objcPtr(), queue.objcPtr())
 
+    /** What Metal has allocated for this device, in bytes, for measuring. */
+    val allocatedBytes: Long get() = device.currentAllocatedSize.toLong()
+
+    /** Skia's resource cache limit, in bytes, for measuring. */
+    val cacheLimitBytes: Long get() = context.resourceCacheLimit
+
     val layer = CAMetalLayer().also {
         @Suppress("CAST_NEVER_SUCCEEDS")
         it.device = device as objcnames.protocols.MTLDeviceProtocol
@@ -73,7 +80,19 @@ internal class MetalSurface {
      * Returns false when there was no drawable to be had, which is the ordinary way a
      * layer says it is not on screen or is already as far ahead as it is allowed to be.
      */
-    fun draw(paint: (Canvas, Int, Int) -> Unit): Boolean {
+    fun draw(paint: (Canvas, Int, Int) -> Unit): Boolean = autoreleasepool {
+        // Its own pool, because the drawable and the command buffer are handed out
+        // autoreleased, and the drawable owns a texture the size of the window. A pool is
+        // drained only when whoever made it returns, and a frame drawn from inside a resize
+        // can be a long way from that: a drag of the window's edge, or a resize done in a
+        // loop, draws frame after frame inside one turn of the run loop. Each of those
+        // frames kept its texture until the turn ended, one per size the window passed
+        // through, and 100 sizes in one turn held 528 MB of Metal memory. Drained here, a
+        // frame's drawable goes back to the layer's pool when the frame is done with it.
+        drawFrame(paint)
+    }
+
+    private fun drawFrame(paint: (Canvas, Int, Int) -> Unit): Boolean {
         val width: Int
         val height: Int
         layer.drawableSize.useContents {
