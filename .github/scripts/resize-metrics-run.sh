@@ -13,7 +13,11 @@ log="$out/$label.log"
 DXC_METRICS=1 DXC_REPORT_LATENCY=1 "$app" > "$log" 2>&1 &
 pid=$!
 for _ in $(seq 240); do
-    grep -q "metrics phase after-100-resizes" "$log" 2>/dev/null && break
+    if [[ -n "${DXC_REAL_DRAG:-}" ]]; then
+        grep -q "real drag$" "$log" 2>/dev/null && break
+    else
+        grep -q "metrics phase after-100-resizes" "$log" 2>/dev/null && break
+    fi
     kill -0 "$pid" 2>/dev/null || break
     sleep 0.5
 done

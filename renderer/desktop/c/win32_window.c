@@ -1574,6 +1574,9 @@ static HWND dxc_surface;
 static int32_t dxc_presents_in_change;
 static int dxc_last_blit;
 static int dxc_last_validated;
+// A real drag driven by the test hook is running; see dxc_native_debug_resize.
+static int dxc_real_drag_active;
+static void dxc_capture_step(HWND window);
 // When the last CPU frame was copied into the window.
 static LARGE_INTEGER dxc_blit_time;
 static int dxc_raster_enabled;
@@ -1774,6 +1777,9 @@ static void dxc_draw_resize(int32_t width, int32_t height) {
                 "compose-rust: resize-proof step %dx%d presents=%d child_visible=%d blit=%d validated=%d\n",
                 (int)width, (int)height, (int)dxc_presents_in_change,
                 dxc_surface != NULL && IsWindowVisible(dxc_surface) ? 1 : 0, dxc_last_blit, dxc_last_validated);
+        if (dxc_real_drag_active && getenv("DXC_CAPTURE_CHECK") != NULL) {
+            dxc_capture_step(dxc_window);
+        }
     } else if (dxc_surface != NULL) {
         // Frames on the GPU during the resize (DXC_RASTER_RESIZE=0): the child follows.
         SetWindowPos(dxc_surface, NULL, 0, 0, width, height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE);
@@ -1910,6 +1916,11 @@ static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM
         // written down and taken by the next frame.
         dxc_resize_end_drag(&dxc_sizing);
         dxc_mode("size-move", "on", "off", "WM_EXITSIZEMOVE");
+        if (dxc_real_drag_active) {
+            dxc_real_drag_active = 0;
+            fprintf(stderr, "compose-rust: capture-check verdict %s (%d of %d steps failed) real drag\n",
+                    dxc_capture_failures == 0 ? "PASS" : "FAIL", dxc_capture_failures, dxc_capture_steps);
+        }
         if (dxc_cpu_mode) {
             RECT client;
             GetClientRect(window, &client);
@@ -2783,12 +2794,77 @@ void dxc_native_debug_hit_test(void *window_pointer) {
  * step comes through WM_NCCALCSIZE and WM_SIZE exactly as a dragged edge's does. Runs on
  * the window's own thread and returns when the last step has been taken.
  */
+/*
+ * A real drag of the right edge, for DXC_REAL_DRAG: mouse input sent from another thread, so
+ * the window's own modal sizing loop (DefWindowProc) delivers WM_SIZE at its natural rate
+ * while this thread pumps it. "fast" moves the mouse every millisecond, faster than any
+ * display refreshes; otherwise every 16 ms. Each WM_SIZE of the drag is captured.
+ */
+static volatile LONG dxc_real_drag_started;
+
+struct dxc_real_drag_plan {
+    int x, y, travel, interval_ms;
+};
+static struct dxc_real_drag_plan dxc_real_drag;
+
+static void dxc_send_mouse(DWORD flags) {
+    INPUT input;
+    memset(&input, 0, sizeof input);
+    input.type = INPUT_MOUSE;
+    input.mi.dwFlags = flags;
+    SendInput(1, &input, sizeof input);
+}
+
+static DWORD WINAPI dxc_real_drag_thread(LPVOID unused) {
+    (void)unused;
+    Sleep(300);
+    SetCursorPos(dxc_real_drag.x, dxc_real_drag.y);
+    Sleep(50);
+    dxc_send_mouse(MOUSEEVENTF_LEFTDOWN);
+    int step = dxc_real_drag.interval_ms <= 1 ? 2 : 8;
+    for (int moved = step; moved <= dxc_real_drag.travel; moved += step) {
+        SetCursorPos(dxc_real_drag.x + moved, dxc_real_drag.y);
+        dxc_send_mouse(MOUSEEVENTF_MOVE);
+        Sleep((DWORD)dxc_real_drag.interval_ms);
+    }
+    for (int moved = dxc_real_drag.travel - step; moved >= 0; moved -= step) {
+        SetCursorPos(dxc_real_drag.x + moved, dxc_real_drag.y);
+        dxc_send_mouse(MOUSEEVENTF_MOVE);
+        Sleep((DWORD)dxc_real_drag.interval_ms);
+    }
+    dxc_send_mouse(MOUSEEVENTF_LEFTUP);
+    return 0;
+}
+
 void dxc_native_debug_resize(void *window_pointer, void *view_pointer, int32_t from_width,
                              int32_t from_height, int32_t to_width, int32_t to_height,
                              int32_t steps, int32_t pause_micros) {
     (void)view_pointer;
     HWND window = (HWND)window_pointer;
     if (window == NULL || steps <= 0) {
+        return;
+    }
+    const char *real = getenv("DXC_REAL_DRAG");
+    if (real != NULL && real[0] != '\0') {
+        // Once: the drag runs out and back on its own, while the caller's loop pumps.
+        if (InterlockedExchange(&dxc_real_drag_started, 1) != 0) return;
+        MONITORINFO monitor;
+        memset(&monitor, 0, sizeof monitor);
+        monitor.cbSize = sizeof monitor;
+        GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor);
+        SetWindowPos(window, NULL, monitor.rcWork.left, monitor.rcWork.top, 640, 480,
+                     SWP_NOZORDER);
+        SetForegroundWindow(window);
+        RECT outer;
+        GetWindowRect(window, &outer);
+        dxc_real_drag.x = outer.right - 3;
+        dxc_real_drag.y = (outer.top + outer.bottom) / 2;
+        dxc_real_drag.travel = (monitor.rcWork.right - outer.right) - 8;
+        dxc_real_drag.interval_ms = strcmp(real, "fast") == 0 ? 1 : 16;
+        dxc_real_drag_active = 1;
+        fprintf(stderr, "compose-rust: real drag of the right edge by %d px, mouse every %d ms\n",
+                dxc_real_drag.travel, dxc_real_drag.interval_ms);
+        CloseHandle(CreateThread(NULL, 0, dxc_real_drag_thread, NULL, 0, NULL));
         return;
     }
     UINT dpi = GetDpiForWindow(window);
@@ -2822,6 +2898,9 @@ void dxc_native_debug_resize(void *window_pointer, void *view_pointer, int32_t f
         SetWindowPos(window, NULL, 0, 0, outer.right - outer.left, outer_height,
                      SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
         if (getenv("DXC_CAPTURE_CHECK") != NULL) {
+            // DXC_CAPTURE_PACE=1: one more composition before looking, in this test hook
+            // only, so a step is judged after DWM has had a full frame to show it.
+            if (getenv("DXC_CAPTURE_PACE") != NULL) dxc_dwm_flush();
             dxc_capture_step(window);
         }
         if (pause_micros > 0) {

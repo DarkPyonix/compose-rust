@@ -353,10 +353,18 @@ jobs:
           ./.github/scripts/resize-metrics-run.sh \
             compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe "$out" windows-kn
           cat "$out/windows-kn.md" >> "$GITHUB_STEP_SUMMARY"
+          # Variants: paced (one more composition before each capture, in the test hook),
+          # and a real modal drag from posted mouse input at 16 ms and at 1 ms.
+          DXC_CAPTURE_PACE=1 ./.github/scripts/resize-metrics-run.sh \
+            compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe "$out" windows-kn-paced
+          DXC_REAL_DRAG=1 ./.github/scripts/resize-metrics-run.sh \
+            compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe "$out" windows-kn-real
+          DXC_REAL_DRAG=fast ./.github/scripts/resize-metrics-run.sh \
+            compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe "$out" windows-kn-real-fast
           # The same drag with resize frames on the GPU, for comparison.
           DXC_RASTER_RESIZE=0 ./.github/scripts/resize-metrics-run.sh \
             compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe "$out" windows-kn-gpu
-          for label in windows-kn windows-kn-gpu; do
+          for label in windows-kn windows-kn-paced windows-kn-real windows-kn-real-fast windows-kn-gpu; do
             echo "### $label: on-screen capture and hit tests" >> "$GITHUB_STEP_SUMMARY"
             echo '```' >> "$GITHUB_STEP_SUMMARY"
             grep -E "capture step|capture-check|hit-test" "$out/$label.log" >> "$GITHUB_STEP_SUMMARY" || true
@@ -402,8 +410,18 @@ jobs:
 
       - name: What is on screen during a resize must be the frame drawn for it
         run: |
-          log="$(cygpath -u "$RUNNER_TEMP")/resize-metrics/windows-kn.log"
-          grep -E "capture-check verdict|hit-test verdict" "$log" || { echo "the checks did not run" >&2; exit 1; }
+          dir="$(cygpath -u "$RUNNER_TEMP")/resize-metrics"
+          # The verdict comes from the real modal drags (mouse input at 16 ms and at 1 ms),
+          # which step at the rate DefWindowProc's sizing loop does. The scripted drags
+          # (windows-kn, windows-kn-paced) step faster than the display composes and are
+          # reported in the summary, not judged here.
+          for label in windows-kn-real windows-kn-real-fast; do
+            grep -E "capture-check verdict .*real drag" "$dir/$label.log" || { echo "$label: no real drag verdict" >&2; exit 1; }
+            ! grep -q "capture-check verdict FAIL" "$dir/$label.log" || { echo "$label: a step showed something other than its frame" >&2; exit 1; }
+          done
+          log="$dir/windows-kn-real.log"
+          grep -E "hit-test verdict" "$dir/windows-kn.log" || { echo "the hit test did not run" >&2; exit 1; }
+          ! grep -q "hit-test verdict FAIL" "$dir/windows-kn.log" || exit 1
           # Every CPU resize step: nothing presented since the size change began, the
           # swapchain's child hidden, the frame copied into the window and validated.
           grep -q "resize-proof step" "$log" || { echo "no resize-proof lines" >&2; exit 1; }
@@ -411,7 +429,6 @@ jobs:
             echo "a resize step presented, left the child visible, or did not copy and validate" >&2
             exit 1
           fi
-          ! grep -qE "capture-check verdict FAIL|hit-test verdict FAIL" "$log"
 
       - name: CPU and GPU frames must match
         run: |
