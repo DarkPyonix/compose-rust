@@ -2434,6 +2434,119 @@ static void dxc_accept_files(HWND window) {
 static int dxc_capture_steps;
 static int dxc_capture_failures;
 
+/*
+ * Desktop Duplication: the frame DWM composed, as the display receives it, on the adapter
+ * that drives the monitor. A screen-DC BitBlt reads GDI's idea of the screen, which need not
+ * be what DWM put on it; this is what was put on it.
+ */
+static IDXGIOutputDuplication *dxc_dup;
+static ID3D11Device *dxc_dup_device;
+static ID3D11DeviceContext *dxc_dup_context;
+static ID3D11Texture2D *dxc_dup_copy;
+static RECT dxc_dup_desktop;
+static int dxc_dup_state; // 0 untried, 1 working, -1 unavailable
+
+typedef HRESULT(WINAPI *dxc_d3d11_create_fn)(IDXGIAdapter *, D3D_DRIVER_TYPE, HMODULE, UINT,
+                                              const D3D_FEATURE_LEVEL *, UINT, UINT, ID3D11Device **,
+                                              D3D_FEATURE_LEVEL *, ID3D11DeviceContext **);
+
+static void dxc_dup_start(HWND window) {
+    dxc_dup_state = -1;
+    HMONITOR monitor = MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST);
+    HMODULE d3d11_library = LoadLibraryW(L"d3d11.dll");
+    dxc_d3d11_create_fn create = d3d11_library == NULL ? NULL
+        : (dxc_d3d11_create_fn)(void *)GetProcAddress(d3d11_library, "D3D11CreateDevice");
+    IDXGIFactory1 *factory = NULL;
+    if (create == NULL || FAILED(CreateDXGIFactory1(&IID_IDXGIFactory1, (void **)&factory))) {
+        fprintf(stderr, "compose-rust: capture by desktop duplication unavailable (no factory)\n");
+        return;
+    }
+    IDXGIAdapter1 *adapter = NULL;
+    for (UINT a = 0; dxc_dup_state < 0 && IDXGIFactory1_EnumAdapters1(factory, a, &adapter) != DXGI_ERROR_NOT_FOUND; a++) {
+        IDXGIOutput *output = NULL;
+        for (UINT o = 0; dxc_dup_state < 0 && IDXGIAdapter1_EnumOutputs(adapter, o, &output) != DXGI_ERROR_NOT_FOUND; o++) {
+            DXGI_OUTPUT_DESC described;
+            IDXGIOutput1 *output1 = NULL;
+            if (SUCCEEDED(IDXGIOutput_GetDesc(output, &described)) && described.Monitor == monitor &&
+                SUCCEEDED(IDXGIOutput_QueryInterface(output, &IID_IDXGIOutput1, (void **)&output1))) {
+                HRESULT made = create((IDXGIAdapter *)adapter, D3D_DRIVER_TYPE_UNKNOWN, NULL, 0, NULL, 0,
+                                      D3D11_SDK_VERSION, &dxc_dup_device, NULL, &dxc_dup_context);
+                HRESULT duplicated = FAILED(made) ? made
+                    : IDXGIOutput1_DuplicateOutput(output1, (IUnknown *)dxc_dup_device, &dxc_dup);
+                if (SUCCEEDED(duplicated)) {
+                    dxc_dup_desktop = described.DesktopCoordinates;
+                    dxc_dup_state = 1;
+                } else {
+                    fprintf(stderr, "compose-rust: capture by desktop duplication unavailable (0x%08lx)\n",
+                            (unsigned long)duplicated);
+                }
+                IDXGIOutput1_Release(output1);
+            }
+            IDXGIOutput_Release(output);
+        }
+        IDXGIAdapter1_Release(adapter);
+    }
+    IDXGIFactory1_Release(factory);
+    fprintf(stderr, "compose-rust: capture by %s\n",
+            dxc_dup_state > 0 ? "desktop duplication (what DWM composed)" : "screen DC BitBlt");
+}
+
+/** Copies the latest composed desktop frame's region into pixels (BGRA, width per row). */
+static int dxc_dup_read(int x, int y, int width, int height, uint32_t *pixels) {
+    if (dxc_dup_state <= 0) return 0;
+    DXGI_OUTDUPL_FRAME_INFO info;
+    IDXGIResource *resource = NULL;
+    // The frame DWM composed after this step. A timeout means nothing changed since the
+    // last one, which the copy below still holds.
+    HRESULT acquired = IDXGIOutputDuplication_AcquireNextFrame(dxc_dup, 100, &info, &resource);
+    if (SUCCEEDED(acquired)) {
+        ID3D11Texture2D *frame = NULL;
+        if (SUCCEEDED(IDXGIResource_QueryInterface(resource, &IID_ID3D11Texture2D, (void **)&frame))) {
+            if (dxc_dup_copy == NULL) {
+                D3D11_TEXTURE2D_DESC description;
+                ID3D11Texture2D_GetDesc(frame, &description);
+                description.Usage = D3D11_USAGE_STAGING;
+                description.BindFlags = 0;
+                description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+                description.MiscFlags = 0;
+                ID3D11Device_CreateTexture2D(dxc_dup_device, &description, NULL, &dxc_dup_copy);
+            }
+            if (dxc_dup_copy != NULL) {
+                ID3D11DeviceContext_CopyResource(dxc_dup_context, (ID3D11Resource *)dxc_dup_copy, (ID3D11Resource *)frame);
+            }
+            ID3D11Texture2D_Release(frame);
+        }
+        IDXGIResource_Release(resource);
+        IDXGIOutputDuplication_ReleaseFrame(dxc_dup);
+    } else if (acquired != DXGI_ERROR_WAIT_TIMEOUT) {
+        fprintf(stderr, "compose-rust: desktop duplication failed (0x%08lx)\n", (unsigned long)acquired);
+        dxc_dup_state = -1;
+        return 0;
+    }
+    if (dxc_dup_copy == NULL) return 0;
+    D3D11_MAPPED_SUBRESOURCE mapped;
+    if (FAILED(ID3D11DeviceContext_Map(dxc_dup_context, (ID3D11Resource *)dxc_dup_copy, 0, D3D11_MAP_READ, 0, &mapped))) {
+        return 0;
+    }
+    int left = x - dxc_dup_desktop.left;
+    int top = y - dxc_dup_desktop.top;
+    int desktop_width = dxc_dup_desktop.right - dxc_dup_desktop.left;
+    int desktop_height = dxc_dup_desktop.bottom - dxc_dup_desktop.top;
+    for (int row = 0; row < height; row++) {
+        for (int column = 0; column < width; column++) {
+            int sx = left + column;
+            int sy = top + row;
+            uint32_t value = 0;
+            if (sx >= 0 && sy >= 0 && sx < desktop_width && sy < desktop_height) {
+                value = ((uint32_t *)((uint8_t *)mapped.pData + (size_t)sy * mapped.RowPitch))[sx];
+            }
+            pixels[(size_t)row * width + column] = value;
+        }
+    }
+    ID3D11DeviceContext_Unmap(dxc_dup_context, (ID3D11Resource *)dxc_dup_copy, 0);
+    return 1;
+}
+
 static int dxc_capture(int x, int y, int width, int height, uint32_t **pixels, HBITMAP *bitmap, HDC *dc) {
     if (width <= 0 || height <= 0) return 0;
     HDC screen = GetDC(NULL);
@@ -2454,10 +2567,13 @@ static int dxc_capture(int x, int y, int width, int height, uint32_t **pixels, H
         return 0;
     }
     SelectObject(*dc, *bitmap);
-    BitBlt(*dc, 0, 0, width, height, screen, x, y, SRCCOPY | CAPTUREBLT);
-    GdiFlush();
-    ReleaseDC(NULL, screen);
     *pixels = (uint32_t *)bits;
+    if (dxc_dup_state == 0 && dxc_window != NULL) dxc_dup_start(dxc_window);
+    if (!dxc_dup_read(x, y, width, height, *pixels)) {
+        BitBlt(*dc, 0, 0, width, height, screen, x, y, SRCCOPY | CAPTUREBLT);
+        GdiFlush();
+    }
+    ReleaseDC(NULL, screen);
     return 1;
 }
 
