@@ -22,6 +22,7 @@ on:
       - 'scripts/fetch-fork-window.sh'
       - 'renderer/scripts/publish-window.sh'
       - 'renderer/scripts/build-compose.sh'
+      - 'renderer/scripts/compose-fork.changes'
       - 'scripts/tests/renderer/**'
       - '.github/workflows/test-graalvm-renderer.yml'
   push:
@@ -35,6 +36,7 @@ on:
       - 'scripts/fetch-fork-window.sh'
       - 'renderer/scripts/publish-window.sh'
       - 'renderer/scripts/build-compose.sh'
+      - 'renderer/scripts/compose-fork.changes'
       - 'scripts/tests/renderer/**'
       - '.github/workflows/test-graalvm-renderer.yml'
   workflow_dispatch:
@@ -48,6 +50,7 @@ permissions:
 
 jobs:
   macos:
+    needs: compose-desktop
     name: Build and smoke test the GraalVM renderer (macOS, arm64)
     runs-on: macos-latest
     timeout-minutes: 90
@@ -73,6 +76,12 @@ jobs:
           restore-keys: |
             kotlin-${{ runner.os }}-
 
+      - name: Take the Compose fork's desktop modules
+        uses: actions/download-artifact@v4
+        with:
+          name: compose-fork-desktop
+          path: ~/.m2/repository/org/jetbrains/compose
+
       - name: Build the renderer shared library
         run: ./renderer/desktop/scripts/build-native.sh
 
@@ -94,7 +103,71 @@ jobs:
           path: renderer/build/native-image/dist/
           retention-days: 7
 
+  compose-desktop:
+    name: Build the Compose fork's desktop modules
+    # The Linux image carries no Java toolkit, which takes changes Compose's desktop modules
+    # do not have upstream (the embedder main dispatcher, clipboard entries and text direction
+    # without java.awt). They are built once here, on a machine with the Android SDK the
+    # Compose build configures against, and the Linux jobs take the result: the jars do not
+    # depend on the architecture.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost \
+            /opt/hostedtoolcache/CodeQL /usr/share/swift /usr/local/share/powershell \
+            /usr/local/lib/node_modules /usr/local/julia* /opt/microsoft /opt/google
+          df -h /
+
+      - name: Report the machine
+        run: echo "ANDROID_HOME=${ANDROID_HOME:?the runner image has no Android SDK}"
+
+      - name: Install JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'corretto'
+
+      - name: Point the Compose build at the JDK
+        run: echo "ANDROIDX_JDK21=$JAVA_HOME" >> "$GITHUB_ENV"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+          gradle-home-cache-excludes: |
+            caches/build-cache-1
+
+      - name: Configure Gradle for this runner
+        run: |
+          mkdir -p ~/.gradle
+          cat > ~/.gradle/gradle.properties <<EOF
+          org.gradle.caching=false
+          org.gradle.workers.max=4
+          org.gradle.jvmargs=-Xmx11g -XX:MaxMetaspaceSize=2g -XX:+UseParallelGC -Dlint.nullness.ignore-deprecated=true -Dfile.encoding=UTF-8
+          kotlin.compiler.execution.strategy=in-process
+          EOF
+
+      - name: Build and publish the desktop modules
+        env:
+          DXC_COMPOSE_BUILD: ${{ github.workspace }}/../compose-build
+        run: |
+          rm -rf ~/.m2/repository
+          ./renderer/scripts/build-compose.sh --target desktop --clean
+          find ~/.m2/repository/org/jetbrains/compose -name '*.jar' | sort
+
+      - name: Keep the published modules
+        uses: actions/upload-artifact@v4
+        with:
+          name: compose-fork-desktop
+          path: ~/.m2/repository/org/jetbrains/compose
+          retention-days: 7
+
   linux-x64:
+    needs: compose-desktop
     name: Build and smoke test the GraalVM renderer (Linux, x64)
     runs-on: ubuntu-24.04
     timeout-minutes: 90
@@ -126,6 +199,12 @@ jobs:
           restore-keys: |
             kotlin-linux-
 
+      - name: Take the Compose fork's desktop modules
+        uses: actions/download-artifact@v4
+        with:
+          name: compose-fork-desktop
+          path: ~/.m2/repository/org/jetbrains/compose
+
       - name: Run Linux script contract tests
         run: bash scripts/tests/renderer/linux-build.test.sh
 
@@ -137,6 +216,9 @@ jobs:
 
       - name: The fork's window modules name no AWT
         run: ./scripts/tests/renderer/window-modules-no-awt.test.sh
+
+      - name: The image carries no Java toolkit
+        run: bash scripts/tests/renderer/linux-image-has-no-awt.test.sh
 
       - name: Inspect staged dynamic dependencies
         run: |
@@ -156,6 +238,7 @@ jobs:
           retention-days: 7
 
   linux-arm64:
+    needs: compose-desktop
     name: Build and smoke test the GraalVM renderer (Linux, arm64)
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
@@ -187,8 +270,17 @@ jobs:
           restore-keys: |
             kotlin-linux-
 
+      - name: Take the Compose fork's desktop modules
+        uses: actions/download-artifact@v4
+        with:
+          name: compose-fork-desktop
+          path: ~/.m2/repository/org/jetbrains/compose
+
       - name: Build the Linux renderer under Xvfb
         run: xvfb-run -a ./renderer/desktop/scripts/build-native-linux.sh
+
+      - name: The image carries no Java toolkit
+        run: bash scripts/tests/renderer/linux-image-has-no-awt.test.sh
 
       - name: Inspect staged dynamic dependencies
         run: |

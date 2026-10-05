@@ -32,6 +32,10 @@ if ! grep -q 'jawt_absent\.c' <<< "$code" || [[ ! -f "$desktop/c/jawt_absent.c" 
     fail "the stub libjawt is not built from $desktop/c/jawt_absent.c"
 fi
 
+for flag in dxc.toolkit.window=false dxc.awt.clipboard=false; do
+    grep -q -- "-D$flag" <<< "$code" || fail "$build does not pass -D$flag"
+done
+
 cursor="$desktop/src/renderer/ResizeCursor.kt"
 grep -q 'startsWith("Linux")' "$cursor" || fail "$cursor gives Linux the toolkit's resize cursor, which loads the toolkit at startup"
 
