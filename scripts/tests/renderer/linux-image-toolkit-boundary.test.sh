@@ -26,7 +26,7 @@ import re
 import sys
 
 allowed = ("org.jetbrains.skiko.Actuals_awtKt.setSystemLookAndFeel", "DMarlinRenderingEngine")
-jdk = re.compile(r"^directly calls null:(java\.awt|javax\.swing|sun\.awt|sun\.java2d|java\.beans|javax\.accessibility)")
+jdk = re.compile(r"^directly calls null:(java\.awt|javax\.swing|javax\.accessibility|sun\.java2d\.marlin)")
 stack = []
 found = {}
 for line in open(sys.argv[1], encoding="utf-8", errors="replace"):
@@ -39,8 +39,10 @@ for line in open(sys.argv[1], encoding="utf-8", errors="replace"):
     stack.append((depth, text))
     if not jdk.search(text):
         continue
-    app = next((t for d, t in reversed(stack[:-1]) if "NativeImageClassLoader:" in t or t.startswith("entry app")), None)
-    if app is None:
+    # Only a direct call from application code. Deeper in, the tree is the analysis assuming that
+    # any override of a method it can reach is reachable too, which says nothing about us.
+    app = stack[-2][1] if len(stack) > 1 else None
+    if app is None or not ("NativeImageClassLoader:" in app or app.startswith("entry app")):
         continue
     key = re.sub(r"^(entry |directly calls |virtually calls )", "", app)
     key = key.replace("com.oracle.svm.hosted.NativeImageClassLoader:", "")
