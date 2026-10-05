@@ -18,17 +18,16 @@
 set -euo pipefail
 
 # The commit, not the branch. A branch that moves is a build that changes for a reason
-# nobody chose here. This one is JetBrains release/1.11 at 73ac849 with the Linux targets,
-# the native text context menu and the published version on top (c396dcf), then the
-# design systems under extended/design-systems, which this build does not read and
-# scripts/fetch-design-systems.sh does. Nothing else: the commits after c396dcf on
-# `extended` add a mingwX64 target to every module's build and read skiko from the local
-# Maven repository first, which a macOS or Linux build has no use for, so the design
-# systems were added on top of c396dcf and merged into `extended` from there.
+# nobody chose here. This one is the tip of `extended` after the AWT-free work merged
+# (embedder main dispatcher, plain-text clipboard entries, text direction without
+# java.awt.ComponentOrientation), on JetBrains release/1.11 at 73ac849 with the Linux
+# targets, the native text context menu, the published version, the design systems and
+# the window modules on top. The mingwX64 target it adds to every module's build is of no
+# use to a macOS or Linux build and does not get in its way.
 # compose-fork.changes lists what this commit must hold at every path it changes, and
 # scripts/tests/compose-fork.test.sh checks it.
 FORK="https://github.com/thisisthepy/compose-multiplatform-core-extended.git"
-REVISION="02ff96c42a412d8eded411d48c56da131f570af6"
+REVISION="090e361ab3c314f35b90a10179c14e85ac1fd009"
 PUBLISHED_AS="1.11.1"
 # Material 3 is versioned on its own line and the renderer asks for it by that version, so
 # publishing it as the others would leave a coordinate nobody looks for.
@@ -108,7 +107,19 @@ case "$target" in
             compose:ui:ui-util
         )
         ;;
-    *) die "unknown target '$target'" "known: macosArm64, linux (both of the next two), linuxX64, linuxArm64" ;;
+    desktop)
+        # The Java side of Compose, for the native image renderers. Only what the fork changes
+        # is rebuilt: the desktop renderer reads mavenLocal first and takes every other module
+        # from upstream at the same version. The roots are not published: upstream's root
+        # already maps a desktop consumer to these coordinates.
+        publications=(Desktop)
+        modules=(
+            compose:foundation:foundation
+            compose:ui:ui
+            compose:ui:ui-text
+        )
+        ;;
+    *) die "unknown target '$target'" "known: macosArm64, linux (both of the next two), linuxX64, linuxArm64, desktop" ;;
 esac
 
 [[ $clean -eq 1 ]] && rm -rf "$WORK"
@@ -148,7 +159,7 @@ for module in "${modules[@]}"; do
     for publication in "${publications[@]}"; do
         tasks+=(":$module:publish${publication}PublicationToMavenLocal")
     done
-    tasks+=(":$module:publishKotlinMultiplatformPublicationToMavenLocal")
+    [[ "$target" == desktop ]] || tasks+=(":$module:publishKotlinMultiplatformPublicationToMavenLocal")
 done
 (
     cd "$WORK"

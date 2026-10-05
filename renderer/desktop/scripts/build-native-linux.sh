@@ -15,11 +15,10 @@ source "$(dirname "$0")/env-linux.sh"
 COMPOSE_RUST_AUTOEXIT_MS=1 run_on_jvm ""
 classpath="$(cat "$CLASSPATH_FILE")"
 obj="$BUILD_DIR/obj"
-# PROBE
-for jar in $(tr ':' ' ' <<< "$classpath"); do
-    [[ -f "$jar" ]] || continue
-    unzip -l "$jar" 2>/dev/null | grep 'META-INF/native-image' | sed "s|^|PROBE $(basename "$jar"): |" || true
-done
+# Swing's coroutine provider is left out of the image. It is a main dispatcher that wakes the
+# Java toolkit, and the window here answers `Dispatchers.Main` itself (FrameMainDispatcher).
+# With the provider on the class path it is still found, and everything it reaches comes with it.
+classpath="$(tr ':' '\n' <<< "$classpath" | grep -v 'kotlinx-coroutines-swing' | paste -sd: -)"
 lib="$DIST_DIR/lib"
 rm -rf "$DIST_DIR" "$obj"
 mkdir -p "$obj" "$lib"
@@ -75,8 +74,7 @@ image_name="${LIBRARY_NAME}_image"
     -H:IncludeLocales=en,ko \
     -Os \
     -H:+UnlockExperimentalVMOptions \
-    -H:+PrintAnalysisCallTree \
-    -H:PrintAnalysisCallTreeType=TXT \
+    -H:ReportAnalysisForbiddenType=java.awt.Toolkit \
     "-H:NativeLinkerOption=$obj/x11_window.o" \
     '-H:NativeLinkerOption=-lX11' \
     '-H:NativeLinkerOption=-lGL' \
