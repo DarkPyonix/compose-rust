@@ -43,26 +43,13 @@ done
 
 bash -n "$linux_build"
 
-# awt_graphics_environment_is_registered_for_jni: either the module is preserved or the class
-# is named in the shared metadata. One of the two has to be true or the image cannot start.
-if ! grep -q -- '-H:Preserve=module=java.desktop' "$linux_build"; then
-    python3 - "$shared_metadata" <<'PY'
-import json
-import sys
-
-types = {entry["type"] for entry in json.load(open(sys.argv[1], encoding="utf-8"))["reflection"]}
-if "java.awt.GraphicsEnvironment" not in types:
-    raise SystemExit(
-        "the Linux build neither preserves java.desktop nor registers "
-        "java.awt.GraphicsEnvironment, so libawt's JNI_OnLoad cannot resolve it"
-    )
-PY
-fi
-
-# -H:Preserve is an experimental option and is documented as needing -Os to keep the image
-# from growing without bound, so a build that loses either flag loses the preserve too.
-grep -q -- '-H:+UnlockExperimentalVMOptions' "$linux_build"
-grep -q -- '-Os' "$linux_build"
+# The Linux image has no Java toolkit, so libawt's JNI_OnLoad is never reached and neither the
+# preserved java.desktop module nor the input method and accessibility features are wanted.
+# The check that none of them comes back is scripts/tests/no-awt-on-linux-path.test.sh.
+absent '-H:Preserve=module=java.desktop' "$linux_build" \
+    "Preserving the module keeps the whole Java toolkit in the image"
+absent 'ReachabilityFeature' "$linux_build" \
+    "Those features register the toolkit's input method and accessibility classes"
 
 # The Windows overlay is a list of sun.awt.windows and sun.java2d.windows classes. Pointing
 # the Linux build at it would register nothing that exists on Linux.
