@@ -169,6 +169,8 @@ link_image() {
         -o "$LIBRARY_NAME" \
         --no-fallback \
         -Ddxc.toolkit.window=false \
+        -Dcompose.awt=false \
+        -Ddxc.awt.clipboard=false \
         -Djava.awt.headless=false \
         -H:IncludeLocales=en,ko \
         -Os \
