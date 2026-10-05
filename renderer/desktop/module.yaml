@@ -12,9 +12,9 @@ repositories:
 
 dependencies:
   - $compose.desktop.currentOs
-  - org.jetbrains.compose.ui:ui:1.11.1.1
-  - org.jetbrains.compose.ui:ui-text:1.11.1.1
-  - org.jetbrains.compose.foundation:foundation:1.11.1.1
+  - org.jetbrains.compose.ui:ui:1.11.1001
+  - org.jetbrains.compose.ui:ui-text:1.11.1001
+  - org.jetbrains.compose.foundation:foundation:1.11.1001
   - org.jetbrains.skiko:skiko-awt:0.144.6.1
   # FR-11's example extension draws a Material 3 progress indicator.
   - $compose.material3
