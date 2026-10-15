@@ -39,11 +39,28 @@ cd "$window"
 if [[ "$(uname -s)" == "Linux" && "$(uname -m)" != "x86_64" ]]; then
     sed -i 's/^  platforms: \[.*\]$/  platforms: [ jvm ]/' "$window/common/module.yaml"
 fi
+# The PATH kotlin.bat runs with on Windows: System32 first, and none of Git's own directories
+# but Git\cmd (git itself). Started from Git Bash, kotlin.bat would otherwise unpack its toolchain
+# with Git's GNU tar, which takes C:\... for a remote host, and the toolchain's launcher (busybox)
+# would find Git's shasum, a Perl script it cannot run, and fail every download's checksum.
+windows_tool_path() {
+    local git_root entry native kept
+    git_root="$(cygpath -w / | tr 'A-Z' 'a-z')"
+    git_root="${git_root%\\}"
+    kept="$(cygpath -u "${SYSTEMROOT:-C:\\Windows}")/System32"
+    local IFS=:
+    for entry in $PATH; do
+        native="$(cygpath -w "$entry" 2>/dev/null | tr 'A-Z' 'a-z')"
+        native="${native%\\}"
+        if [[ "$native" == "$git_root" || "$native" == "$git_root"\\* ]] && [[ "$native" != "$git_root\\cmd" ]]; then
+            continue
+        fi
+        kept="$kept:$entry"
+    done
+    echo "$kept"
+}
 case "$(uname -s)" in
-    # Started from Git Bash, kotlin.bat would inherit Git's Unix tools ahead of Windows' own, and
-    # unpack its toolchain with GNU tar, which takes C:\... for a remote host. System32 first.
-    MINGW*|MSYS*|CYGWIN*)
-        PATH="$(cygpath -u "${SYSTEMROOT:-C:\\Windows}")/System32:$PATH" cmd //c kotlin.bat publish mavenLocal ;;
+    MINGW*|MSYS*|CYGWIN*) PATH="$(windows_tool_path)" cmd //c kotlin.bat publish mavenLocal ;;
     *) ./kotlin publish mavenLocal ;;
 esac
 
