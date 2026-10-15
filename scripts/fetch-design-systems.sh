@@ -38,7 +38,10 @@ rm -rf "$dest"
 mkdir -p "$dest"
 git -C "$dest" init -q
 git -C "$dest" remote add origin "$fork"
-git -C "$dest" sparse-checkout set --no-cone /extended/design-systems/
+# On standard input, not as an argument: Git Bash rewrites an argument that looks like an
+# absolute path into a Windows one (under its install directory) before git sees it, and the
+# checkout then holds nothing.
+printf '%s\n' '/extended/design-systems/' | git -C "$dest" sparse-checkout set --no-cone --stdin
 # A partial fetch: trees only, and the blobs of the sparse paths when they are checked out.
 # The fork is a whole copy of AndroidX, and none of the rest of it is read here.
 if ! git -C "$dest" fetch -q --depth 1 --filter=blob:none origin "$revision"; then
