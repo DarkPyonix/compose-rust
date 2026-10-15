@@ -40,7 +40,10 @@ if [[ "$(uname -s)" == "Linux" && "$(uname -m)" != "x86_64" ]]; then
     sed -i 's/^  platforms: \[.*\]$/  platforms: [ jvm ]/' "$window/common/module.yaml"
 fi
 case "$(uname -s)" in
-    MINGW*|MSYS*|CYGWIN*) cmd //c kotlin.bat publish mavenLocal ;;
+    # Started from Git Bash, kotlin.bat would inherit Git's Unix tools ahead of Windows' own, and
+    # unpack its toolchain with GNU tar, which takes C:\... for a remote host. System32 first.
+    MINGW*|MSYS*|CYGWIN*)
+        PATH="$(cygpath -u "${SYSTEMROOT:-C:\\Windows}")/System32:$PATH" cmd //c kotlin.bat publish mavenLocal ;;
     *) ./kotlin publish mavenLocal ;;
 esac
 
