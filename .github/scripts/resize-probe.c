@@ -28,6 +28,7 @@
 #define UNICODE
 #define _UNICODE
 #define COBJMACROS
+#define _CRT_SECURE_NO_WARNINGS
 #include <windows.h>
 #include <d3d11.h>
 #include <dxgi1_2.h>
@@ -42,6 +43,7 @@
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
+#pragma comment(lib, "dxguid.lib")
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "winmm.lib")
 
