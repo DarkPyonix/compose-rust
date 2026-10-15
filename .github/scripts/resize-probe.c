@@ -545,6 +545,13 @@ int main(int argc, char **argv) {
         return 2;
     }
     if (travel <= 0) travel = (int)(monitor.rcWork.right - outer.right) - 16;
+    /*
+     * The backdrop goes directly behind the window, above everything else: the runner's
+     * console window covers the desktop (run 38793375645 saw only its 0c0c0c), and a backdrop
+     * at the bottom is behind that.
+     */
+    SetWindowPos(backdrop, window, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    Sleep(500);
     InterlockedExchange(&rows_ready, 1);
     InterlockedExchange(&calibrate_request, 1);
     for (int waited = 0; calibrate_request && waited < 2000; waited += 10) Sleep(10);
@@ -555,6 +562,11 @@ int main(int argc, char **argv) {
     }
     say("client %ldx%ld at %ld,%ld rows y=%d,%d edge_offset=%d travel=%d", client.right, client.bottom, origin.x,
         origin.y, row_y[0], row_y[1], edge_offset, travel);
+    if (right < 0 || right + desktop.left >= desktop.right - 2) {
+        say("verdict ERROR: the backdrop does not show beside the window (row ends at %d), so holes could not be seen",
+            right + desktop.left);
+        return 2;
+    }
 
     /*
      * "Show window contents while dragging". With it off, the sizing loop draws an outline and
