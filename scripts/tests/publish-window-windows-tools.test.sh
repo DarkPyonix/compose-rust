@@ -7,10 +7,16 @@
 # "tar (child): Cannot connect to C: resolve failed" and "could not publish the window modules
 # from the Compose fork" (Native renderer run 38793394544).
 #
+# With System32 first that got further and stopped one step later (run 38810090140): the
+# toolchain's launcher runs under busybox, finds Git's shasum (a Perl script) on the inherited
+# PATH, cannot run it, and reports every download as a checksum mismatch ("Can't find shasum on
+# PATH", "expected checksum ... but got "). So the wrapper must see none of Git's Unix tools.
+#
 # This runs publish-window.sh in a copy of the tree, with the fork fetch stubbed to a fork whose
 # kotlin.bat (and ./kotlin elsewhere) only records which tar the wrapper would run, and checks:
 #   - the script reaches the wrapper and succeeds;
-#   - on Windows, the tar the wrapper finds first is Windows' own (System32), not Git's.
+#   - on Windows, the tar the wrapper finds first is Windows' own (System32), not Git's;
+#   - on Windows, none of Git's Unix tools (shasum, sha256sum, sh) are on the wrapper's PATH.
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -39,8 +45,12 @@ printf '#!/usr/bin/env bash\necho "ran ./kotlin $*" > "%s"\n' "$record" > "$wind
 chmod +x "$window/kotlin"
 native_record="$record"
 if command -v cygpath > /dev/null; then native_record="$(cygpath -w "$record")"; fi
-printf '@echo off\r\necho ran kotlin.bat %%*> "%s"\r\nfor %%%%i in (tar.exe) do @echo tar=%%%%~$PATH:i>> "%s"\r\n' \
-    "$native_record" "$native_record" > "$window/kotlin.bat"
+{
+    printf '@echo off\r\necho ran kotlin.bat %%*> "%s"\r\n' "$native_record"
+    for tool in tar.exe shasum sha256sum.exe sh.exe; do
+        printf 'for %%%%i in (%s) do @echo %s=%%%%~$PATH:i>> "%s"\r\n' "$tool" "$tool" "$native_record"
+    done
+} > "$window/kotlin.bat"
 
 if ! output="$(bash "$tree/renderer/scripts/publish-window.sh" 2>&1)"; then
     fail "publish-window.sh failed: $output"
@@ -51,7 +61,7 @@ else
     sed 's/^/  wrapper: /' "$record" | tr -d '\r'
     case "$(uname -s)" in
         MINGW*|MSYS*|CYGWIN*)
-            tar_line="$(grep '^tar=' "$record" | tr -d '\r')"
+            tar_line="$(grep '^tar.exe=' "$record" | tr -d '\r' | sed 's/^tar.exe/tar/')"
             system32="$(cygpath -w "${SYSTEMROOT:-C:\\Windows}\\System32" | tr 'A-Z' 'a-z')"
             found="$(tr 'A-Z' 'a-z' <<< "${tar_line#tar=}")"
             if [[ "$found" != "$system32\\tar.exe" ]]; then
@@ -59,6 +69,17 @@ else
             else
                 echo "  ok: the wrapper runs Windows' tar"
             fi
+            for tool in shasum sha256sum.exe sh.exe; do
+                found="$(grep "^$tool=" "$record" | tr -d '\r')"
+                found="${found#$tool=}"
+                git_root="$(cygpath -w / | tr 'A-Z' 'a-z')"
+                git_root="${git_root%\\}"
+                if [[ "$(tr 'A-Z' 'a-z' <<< "$found")" == "$git_root"\\* ]]; then
+                    fail "the wrapper would find Git's $tool at '$found'"
+                else
+                    echo "  ok: the wrapper does not find Git's $tool (found: '${found:-nothing}')"
+                fi
+            done
             ;;
         *) echo "  ok: not Windows, the wrapper is ./kotlin" ;;
     esac
