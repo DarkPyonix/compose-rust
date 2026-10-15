@@ -208,26 +208,21 @@ static void analyse_row(const uint32_t *pixels, int y, struct row_result *result
         if (!is_desktop(pixels[x], was[x])) result->right = x;
     }
     if (result->right < 0) return;
-    /* Holes: desktop runs of 3+ bounded by window runs of 2+ on both sides. */
-    int x = left;
-    while (x <= result->right) {
-        if (!is_desktop(pixels[x], was[x])) {
-            if (is_black(pixels[x]) && !is_black(was[x])) result->black++;
-            x++;
-            continue;
-        }
-        int start = x;
-        while (x <= result->right && is_desktop(pixels[x], was[x])) x++;
-        int run = x - start;
-        int window_after = 0;
-        for (int k = x; k <= result->right && k < x + 2; k++) {
-            if (!is_desktop(pixels[k], was[k])) window_after++;
-        }
-        int window_before = start - left >= 2 && !is_desktop(pixels[start - 1], was[start - 1]) &&
-                            !is_desktop(pixels[start - 2], was[start - 2]);
-        if (run >= 3 && window_after == 2 && window_before) {
-            if (result->hole_from < 0) result->hole_from = start + desktop.left;
-            result->holes += run;
+    for (int x = left; x <= result->right; x++) {
+        if (!is_desktop(pixels[x], was[x]) && is_black(pixels[x]) && !is_black(was[x])) result->black++;
+    }
+    /*
+     * Holes: desktop pixels in the last 48 px of the window with window pixels after them. On
+     * a dark desktop the window's right end is the content, then its one pixel border, and the
+     * shadow does not show; a strip of desktop before that border is the window's rectangle
+     * without its picture. Only the end of the row is judged, because the content further in
+     * can hold pixels that match the desktop. The rows are kept off the cursor's height.
+     */
+    int from_hole = result->right - 48 > left ? result->right - 48 : left;
+    for (int x = from_hole; x < result->right; x++) {
+        if (is_desktop(pixels[x], was[x])) {
+            if (result->hole_from < 0) result->hole_from = x + desktop.left;
+            result->holes++;
         }
     }
     /* Classes from 64 px left of the right end to 8 px past it: W window, D desktop, K black. */
@@ -249,7 +244,7 @@ static void analyse_row(const uint32_t *pixels, int y, struct row_result *result
         }
     }
     used = 0;
-    for (int k = result->right - 6; k <= result->right + 3 && used < sizeof result->raw - 24; k++) {
+    for (int k = result->right - 4; k <= result->right + 2 && used < sizeof result->raw - 24; k++) {
         if (k < 0 || k >= width) continue;
         used += (size_t)snprintf(result->raw + used, sizeof result->raw - used, "%06x/%06x ",
                                  pixels[k] & 0xFFFFFF, was[k] & 0xFFFFFF);
@@ -289,7 +284,8 @@ static void analyse_latest(long long present, UINT accumulated, int calibrating)
     if (holes > 0) frames_with_hole++;
     if (black > 0) frames_with_black++;
     int in_drag = drag_from_qpc != 0 && present >= drag_from_qpc && (drag_to_qpc == 0 || present <= drag_to_qpc);
-    int inferred = calibrated && results[0].right >= 0 ? results[0].right + desktop.left - scan_left - edge_offset : -1;
+    /* The window's width as the frame shows it: from the client's left edge to its border. */
+    int inferred = results[1].right >= 0 ? results[1].right + desktop.left - scan_left : -1;
     if (in_drag) {
         frames_in_drag++;
         holes_in_drag += holes > 0;
@@ -309,12 +305,13 @@ static void analyse_latest(long long present, UINT accumulated, int calibrating)
     fprintf(out,
             "resize-probe: frame n=%ld qpc_present=%lld accumulated=%u qpc_taken=%lld cframe=%llu qpc_compose=%llu "
             "qpc_vblank=%llu crefresh=%llu cframe_displayed=%llu in_drag=%d width=%d right0=%d right1=%d "
-            "holes0=%d holes1=%d hole_from0=%d hole_from1=%d black=%d runs0=%s| raw0=%s\n",
+            "holes0=%d holes1=%d hole_from0=%d hole_from1=%d black=%d runs0=%s| runs1=%s| raw0=%s| raw1=%s\n",
             frames_analysed, present, accumulated, now_qpc(), (unsigned long long)info.cFrame,
             (unsigned long long)info.qpcCompose, (unsigned long long)info.qpcVBlank,
             (unsigned long long)info.cRefresh, (unsigned long long)info.cFrameDisplayed, in_drag, inferred,
             results[0].right + desktop.left, results[1].right + desktop.left, results[0].holes, results[1].holes,
-            results[0].hole_from, results[1].hole_from, black, results[0].runs, results[0].raw);
+            results[0].hole_from, results[1].hole_from, black, results[0].runs, results[1].runs, results[0].raw,
+            results[1].raw);
 }
 
 static DWORD WINAPI capture_thread(LPVOID unused) {
@@ -476,7 +473,8 @@ int main(int argc, char **argv) {
     POINT origin = {0, 0};
     ClientToScreen(window, &origin);
     scan_left = origin.x;
-    row_y[0] = origin.y + client.bottom / 2;
+    /* Above and below the height the cursor is pressed at (the middle), which it would cover. */
+    row_y[0] = origin.y + client.bottom / 4;
     row_y[1] = origin.y + client.bottom * 3 / 4;
     MONITORINFO monitor;
     memset(&monitor, 0, sizeof monitor);
