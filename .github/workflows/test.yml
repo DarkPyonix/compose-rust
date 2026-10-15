@@ -247,6 +247,21 @@ jobs:
             exit 1
           fi
 
+  shell-windows:
+    # The Windows renderer build runs the fork fetch scripts under Git Bash, which rewrites
+    # path-like arguments before git sees them. The rest of the shell suite assumes a Unix
+    # system, so only the tests about what Git Bash does run here.
+    name: Run the Git Bash shell script tests (windows-latest)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fork fetch scripts check out their directory under Git Bash
+        run: bash scripts/tests/fork-fetch-sparse-paths.test.sh
+
   packaging:
     name: Check the crates.io package
     runs-on: ubuntu-latest
