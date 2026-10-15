@@ -109,6 +109,7 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
         coroutineContext = work,
         platformContext = NativePlatformContext({ size }, textInput, semantics, window::setCursor),
     )
+    WindowStartReport.sceneCreated(size.width, size.height, measured.scale)
     // The application's own tree, drawn by the same interpreter the toolkit path uses.
     // Nothing in it knows which of the two it is running on, which is the point.
     // Without the manager's frame the renderer draws the caption: a strip that moves the
@@ -151,6 +152,7 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
         size = fitted
         if (drawFrame(window, context, scene, System.nanoTime() - startNanos, fitted)) {
             painted = true
+            WindowStartReport.frameDrawn(fitted.width, fitted.height)
         }
     }
     try {
