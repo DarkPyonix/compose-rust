@@ -19,7 +19,7 @@ log="$out/$label.log"
 probe_log="$out/$label-probe.log"
 native() { if command -v cygpath > /dev/null; then cygpath -w "$1"; else echo "$1"; fi; }
 
-"$probe" --interval-ms "$interval" --step-px "$step" --out "$(native "$probe_log")" &
+"$probe" --turn-on-full-window-drag --interval-ms "$interval" --step-px "$step" --out "$(native "$probe_log")" &
 probe_pid=$!
 for _ in $(seq 60); do
     grep -q "waiting for a" "$probe_log" 2>/dev/null && break

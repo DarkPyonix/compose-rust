@@ -424,6 +424,10 @@ int main(int argc, char **argv) {
     int travel = atoi(argument(argc, argv, "--travel", "0"));
     int wait_seconds = atoi(argument(argc, argv, "--wait-seconds", "180"));
     const char *class_name = argument(argc, argv, "--class", "ComposeRustWindow");
+    int turn_on_full_drag = 0;
+    for (int index = 1; index < argc; index++) {
+        if (strcmp(argv[index], "--turn-on-full-window-drag") == 0) turn_on_full_drag = 1;
+    }
     QueryPerformanceFrequency(&frequency);
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     timeBeginPeriod(1);
@@ -494,6 +498,33 @@ int main(int argc, char **argv) {
     say("client %ldx%ld at %ld,%ld rows y=%d,%d edge_offset=%d travel=%d", client.right, client.bottom, origin.x,
         origin.y, row_y[0], row_y[1], edge_offset, travel);
 
+    /*
+     * "Show window contents while dragging". With it off, the sizing loop draws an outline and
+     * resizes the window once, on release: no WM_SIZE during the drag, so nothing about live
+     * resize can be measured. Off on some machines (CI runners among them). Turned on only when
+     * asked, for this session and not saved, and put back afterwards.
+     */
+    BOOL full_drag = FALSE;
+    SystemParametersInfoW(SPI_GETDRAGFULLWINDOWS, 0, &full_drag, 0);
+    int turned_on = 0;
+    if (!full_drag) {
+        if (!turn_on_full_drag) {
+            say("verdict ERROR: \"show window contents while dragging\" is off, so the window would only be "
+                "resized on release; turn it on (System Properties > Performance) or pass --turn-on-full-window-drag");
+            return 2;
+        }
+        turned_on = SystemParametersInfoW(SPI_SETDRAGFULLWINDOWS, TRUE, NULL, SPIF_SENDCHANGE) != 0;
+        SystemParametersInfoW(SPI_GETDRAGFULLWINDOWS, 0, &full_drag, 0);
+        say("full-window drag was off; turned on for this drag: %s", full_drag ? "yes" : "FAILED");
+        if (!full_drag) {
+            say("verdict ERROR: could not turn on full-window drag");
+            return 2;
+        }
+        Sleep(200);
+    } else {
+        say("full-window drag is on");
+    }
+
     /* The drag. */
     int x = outer.right - 3;
     int y = origin.y + client.bottom / 2;
@@ -539,6 +570,7 @@ int main(int argc, char **argv) {
     Sleep(500);
     InterlockedExchange(&stop, 1);
     WaitForSingleObject(capture, 5000);
+    if (turned_on) SystemParametersInfoW(SPI_SETDRAGFULLWINDOWS, FALSE, NULL, SPIF_SENDCHANGE);
 
     int failed = !looping || widths_seen_count < 2 || holes_in_drag > 0 || black_in_drag > 0;
     say("summary frames_total=%ld frames_analysed=%ld frames_in_drag=%ld distinct_widths_in_drag=%d "

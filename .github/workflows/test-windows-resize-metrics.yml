@@ -379,12 +379,10 @@ jobs:
           # and a real modal drag from posted mouse input at 16 ms and at 1 ms.
           DXC_CAPTURE_PACE=1 ./.github/scripts/resize-metrics-run.sh \
             compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe "$out" windows-kn-paced
-          # The in-process drag of earlier runs, with the trace on: when its input arrived
-          # against when the window's thread took it.
-          DXC_REAL_DRAG=1 DXC_RESIZE_TRACE=1 ./.github/scripts/resize-metrics-run.sh \
-            compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe "$out" windows-kn-oldhook
           # Real modal drags from another process at three mouse rates: 16 ms / 8 px,
-          # 8 ms / 4 px and 1 ms / 1 px.
+          # 8 ms / 4 px and 1 ms / 1 px. The runner has "show window contents while dragging"
+          # off, which makes the sizing loop resize only on release, so the probe turns it on
+          # for each drag and back off after.
           probe="$(cygpath -u "$RUNNER_TEMP")/resize-probe/resize-probe.exe"
           for rate in "16 8" "8 4" "1 1"; do
             set -- $rate
@@ -395,7 +393,7 @@ jobs:
           # The same drag with resize frames on the GPU, for comparison.
           DXC_RASTER_RESIZE=0 ./.github/scripts/resize-metrics-run.sh \
             compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe "$out" windows-kn-gpu
-          for label in windows-kn windows-kn-paced windows-kn-oldhook windows-kn-gpu; do
+          for label in windows-kn windows-kn-paced windows-kn-gpu; do
             echo "### $label: on-screen capture and hit tests" >> "$GITHUB_STEP_SUMMARY"
             echo '```' >> "$GITHUB_STEP_SUMMARY"
             grep -E "capture step|capture-check|hit-test" "$out/$label.log" >> "$GITHUB_STEP_SUMMARY" || true

@@ -27,6 +27,11 @@ How to run (PowerShell, in the folder that holds hand-check.exe and resize-probe
        --interval-ms 1 --step-px 1   (a 1000 Hz mouse)      probe-1.log,  hand-check-1.log
   4. Send all six logs.
 
+  "Show window contents while dragging" (System Properties > Advanced > Performance) must be
+  on: with it off, Windows draws an outline during the drag and resizes the window only on
+  release, and the probe stops with an error. --turn-on-full-window-drag turns it on for the
+  session and back off afterwards (CI uses this).
+
   Options: --interval-ms N (time between mouse moves), --step-px N (pixels per move),
   --travel N (how far out, default to the right edge of the work area less 16 px),
   --out FILE (default: the console), --class NAME (window class, default ComposeRustWindow),
