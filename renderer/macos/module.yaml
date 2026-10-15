@@ -31,6 +31,10 @@ dependencies:
   - $compose.foundation
   - $compose.material3
   - $compose.ui
+  # The patched modules, under a version of their own: at upstream's 1.11.1 a resolver that
+  # holds upstream's klibs takes those and never reads the local repository.
+  - org.jetbrains.compose.foundation:foundation:1.11.1001
+  - org.jetbrains.compose.ui:ui:1.11.1001
   # The window: AppKit and Metal, and what every window decides the same way. Published by
   # scripts/publish-window.sh from the pinned fork commit, next to the patched Compose.
   - org.thisisthepy.compose.window:common:0.1.0

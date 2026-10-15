@@ -176,9 +176,11 @@ jobs:
           cat ~/.gradle/gradle.properties
 
       - name: Build Compose from the fork
+        # Published under the coordinates the old build uses, so the two can be compared path
+        # for path. The renderer is built against the versions of its own further down.
         run: |
           rm -rf ~/.m2/repository
-          DXC_COMPOSE_BUILD="$COMPOSE_WORK" \
+          DXC_COMPOSE_EXTENDED_AS=1.11.1 DXC_COMPOSE_BUILD="$COMPOSE_WORK" \
             ./renderer/scripts/build-compose.sh --target ${{ matrix.target }} --clean
           rm -rf "$FORK_REPO"
           cp -a ~/.m2/repository "$FORK_REPO"
@@ -258,6 +260,15 @@ jobs:
           rm -rf "$COMPOSE_WORK"
           DXC_COMPOSE_BUILD="$COMPOSE_WORK" \
             ./renderer/scripts/build-compose.sh --target linux --clean
+
+      - name: Publish the macOS modules under the version the renderer asks for
+        # The comparison above publishes them as upstream's 1.11.1. The renderer's macOS module
+        # names the fork's own version, which a cache of upstream's klibs cannot shadow.
+        if: runner.os == 'macOS'
+        run: |
+          rm -rf "$COMPOSE_WORK"
+          DXC_COMPOSE_BUILD="$COMPOSE_WORK" \
+            ./renderer/scripts/build-compose.sh --target macosArm64 --clean
 
       - name: Build the renderer and its static library against it
         run: ./renderer/desktop/scripts/${{ matrix.renderer_script }}

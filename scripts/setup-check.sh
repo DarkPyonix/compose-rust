@@ -168,10 +168,10 @@ fi
 # it so that there is one place to change it.
 if [[ "$uname_s" == "Darwin" ]]; then
     compose_build_script="$renderer_dir/scripts/build-compose.sh"
-    patched_version="$(sed -n 's/^PUBLISHED_AS="\([^"]*\)"$/\1/p' "$compose_build_script" 2>/dev/null)"
+    patched_version="$(sed -n 's/^EXTENDED_AS="\([^"]*\)"$/\1/p' "$compose_build_script" 2>/dev/null | head -1)"
     if [[ -z "$patched_version" ]]; then
         fail "cannot tell which Compose version $compose_build_script publishes" \
-             "It is read from the PUBLISHED_AS assignment there. Either the script is" \
+             "It is read from the EXTENDED_AS assignment there. Either the script is" \
              "missing or that line was renamed, and this check has nothing to look for."
     else
         patched_compose="$HOME/.m2/repository/org/jetbrains/compose/ui/ui-macosarm64/$patched_version"
