@@ -262,6 +262,9 @@ jobs:
       - name: Fork fetch scripts check out their directory under Git Bash
         run: bash scripts/tests/fork-fetch-sparse-paths.test.sh
 
+      - name: The window publish runs the toolchain wrapper with Windows' own tools
+        run: bash scripts/tests/publish-window-windows-tools.test.sh
+
   packaging:
     name: Check the crates.io package
     runs-on: ubuntu-latest
