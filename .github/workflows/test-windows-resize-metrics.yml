@@ -14,6 +14,8 @@ on:
     paths:
       - ".github/workflows/test-windows-resize-metrics.yml"
       - ".github/scripts/resize-metrics-run.sh"
+      - ".github/scripts/resize-real-drag-run.sh"
+      - ".github/scripts/resize-probe.c"
 
 permissions:
   contents: read
@@ -342,6 +344,26 @@ jobs:
           echo "Kotlin/Native runtime strings (kotlin.native): $(grep -a -c 'kotlin.native' "$exe" || true)"
           echo "DLLs it loads:"; dumpbin -nologo -dependents "$(cygpath -w "$exe")" | grep -i "\.dll" || true
 
+      - name: Build the resize probe
+        # The probe drags the window from another process and records every composed frame.
+        # Built with the MSVC tools entered above; kept as an artifact to run by hand as well.
+        run: |
+          set -euo pipefail
+          dir="$(cygpath -u "$RUNNER_TEMP")/resize-probe"
+          mkdir -p "$dir"
+          source="$(cygpath -w "$PWD/.github/scripts/resize-probe.c")"
+          (cd "$dir" && MSYS_NO_PATHCONV=1 cl /nologo /O2 /W3 "$source")
+          cp .github/scripts/resize-probe-README.txt "$dir/README.txt"
+          rm -f "$dir"/*.obj
+          ls -la "$dir"
+
+      - name: Keep the resize probe
+        uses: actions/upload-artifact@v4
+        with:
+          name: resize-probe-windows
+          path: ${{ runner.temp }}/resize-probe/
+          retention-days: 30
+
       - name: Scripted resize, measured
         env:
           DXC_D3D12_WARP: '1'
@@ -357,17 +379,33 @@ jobs:
           # and a real modal drag from posted mouse input at 16 ms and at 1 ms.
           DXC_CAPTURE_PACE=1 ./.github/scripts/resize-metrics-run.sh \
             compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe "$out" windows-kn-paced
-          DXC_REAL_DRAG=1 ./.github/scripts/resize-metrics-run.sh \
-            compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe "$out" windows-kn-real
-          DXC_REAL_DRAG=fast ./.github/scripts/resize-metrics-run.sh \
-            compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe "$out" windows-kn-real-fast
+          # The in-process drag of earlier runs, with the trace on: when its input arrived
+          # against when the window's thread took it.
+          DXC_REAL_DRAG=1 DXC_RESIZE_TRACE=1 ./.github/scripts/resize-metrics-run.sh \
+            compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe "$out" windows-kn-oldhook
+          # Real modal drags from another process at three mouse rates: 16 ms / 8 px,
+          # 8 ms / 4 px and 1 ms / 1 px.
+          probe="$(cygpath -u "$RUNNER_TEMP")/resize-probe/resize-probe.exe"
+          for rate in "16 8" "8 4" "1 1"; do
+            set -- $rate
+            ./.github/scripts/resize-real-drag-run.sh \
+              compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe "$probe" "$out" \
+              "windows-kn-real-$1" "$1" "$2"
+          done
           # The same drag with resize frames on the GPU, for comparison.
           DXC_RASTER_RESIZE=0 ./.github/scripts/resize-metrics-run.sh \
             compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe "$out" windows-kn-gpu
-          for label in windows-kn windows-kn-paced windows-kn-real windows-kn-real-fast windows-kn-gpu; do
+          for label in windows-kn windows-kn-paced windows-kn-oldhook windows-kn-gpu; do
             echo "### $label: on-screen capture and hit tests" >> "$GITHUB_STEP_SUMMARY"
             echo '```' >> "$GITHUB_STEP_SUMMARY"
             grep -E "capture step|capture-check|hit-test" "$out/$label.log" >> "$GITHUB_STEP_SUMMARY" || true
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          done
+          for label in windows-kn-real-16 windows-kn-real-8 windows-kn-real-1; do
+            echo "### $label: real drag from another process" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            grep -hE "resize-probe: (window|client|move-size|summary|verdict)|real drag (ready|done)" \
+              "$out/$label-probe.log" "$out/$label.log" >> "$GITHUB_STEP_SUMMARY" || true
             echo '```' >> "$GITHUB_STEP_SUMMARY"
           done
 
@@ -411,17 +449,19 @@ jobs:
       - name: What is on screen during a resize must be the frame drawn for it
         run: |
           dir="$(cygpath -u "$RUNNER_TEMP")/resize-metrics"
-          # The verdict comes from the real modal drags (mouse input at 16 ms and at 1 ms),
-          # which step at the rate DefWindowProc's sizing loop does. The scripted drags
-          # (windows-kn, windows-kn-paced) step faster than the display composes and are
-          # reported in the summary, not judged here.
-          for label in windows-kn-real windows-kn-real-fast; do
-            grep -E "capture-check verdict .*real drag" "$dir/$label.log" || { echo "$label: no real drag verdict" >&2; exit 1; }
-            ! grep -q "capture-check verdict FAIL" "$dir/$label.log" || { echo "$label: a step showed something other than its frame" >&2; exit 1; }
-            grep -qE "capture-check verdict PASS \(0 of [1-9][0-9]* steps failed\) real drag" "$dir/$label.log" ||
-              { echo "$label: the drag judged no steps" >&2; exit 1; }
+          # The verdict comes from the real modal drags, driven from another process at three
+          # mouse rates, which step at the rate DefWindowProc's sizing loop does. The probe
+          # judges every frame the compositor showed during the drag: no desktop and no black
+          # inside the window, and the window must have changed size. The window must have
+          # drawn at least one step. The scripted drags are reported in the summary, not
+          # judged here.
+          for label in windows-kn-real-16 windows-kn-real-8 windows-kn-real-1; do
+            grep -E "resize-probe: verdict" "$dir/$label-probe.log" || { echo "$label: the probe gave no verdict" >&2; exit 1; }
+            grep -q "resize-probe: verdict PASS" "$dir/$label-probe.log" || { echo "$label: the probe saw a failure" >&2; exit 1; }
+            grep -qE "real drag done steps=[1-9][0-9]* verdict PASS" "$dir/$label.log" ||
+              { echo "$label: the window drew no step of the drag" >&2; exit 1; }
           done
-          log="$dir/windows-kn-real.log"
+          log="$dir/windows-kn-real-16.log"
           grep -E "hit-test verdict" "$dir/windows-kn.log" || { echo "the hit test did not run" >&2; exit 1; }
           ! grep -q "hit-test verdict FAIL" "$dir/windows-kn.log" || exit 1
           # Every CPU resize step: nothing presented since the size change began, the
