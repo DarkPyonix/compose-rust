@@ -89,6 +89,17 @@ if (-not (Test-Path -LiteralPath $KotlinWrapper -PathType Leaf)) {
 # The desktop module depends on the Compose fork's window modules, published to the local Maven
 # repository from the commit build-compose.sh pins. The Windows window is still this
 # repository's own, so only the shared logic and the other desktops' wrappers are needed.
+# The Compose fork's desktop modules and its skiko-awt are asked for by versions only the fork
+# publishes, to the local Maven repository. Resolved before they are there, the toolchain records
+# the failed download in its own cache and keeps failing after they are published, so this checks
+# first, before anything runs the toolchain, and stops with the command that publishes them.
+$RequireForkArtifacts = Join-Path $ProjectDir "scripts\require-fork-artifacts.sh"
+& bash $RequireForkArtifacts desktop
+if ($LASTEXITCODE -ne 0) {
+    Fail "the Compose fork's desktop modules are not in the local Maven repository" @(
+        "require-fork-artifacts.sh printed what is missing and the command that publishes it."
+    )
+}
 $PublishWindow = Join-Path $ProjectDir "scripts\publish-window.sh"
 & bash $PublishWindow
 if ($LASTEXITCODE -ne 0) {

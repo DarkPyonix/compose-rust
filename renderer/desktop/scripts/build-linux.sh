@@ -63,6 +63,11 @@ case "$arch" in
     *) die "unknown architecture '$arch'" "known: x64, arm64" ;;
 esac
 
+# The patched Compose has to be in ~/.m2 before anything resolves it, or the toolchain records
+# the failed download and keeps failing after it is published (require-fork-artifacts.sh says
+# how). Checked first, so a machine that has not published it is told so and nothing runs.
+"$PROJECT_DIR/scripts/require-fork-artifacts.sh" linux
+
 # Built where the libraries it links against are. Kotlin/Native can cross compile the code,
 # but the archive this produces is linked into an application by Cargo against the X11, Xext
 # and GL of the machine doing that linking, so producing it anywhere else only moves the

@@ -45,6 +45,11 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# The patched Compose has to be in ~/.m2 before anything resolves it, or the toolchain records
+# the failed download and keeps failing after it is published (require-fork-artifacts.sh says
+# how). Checked first, so a machine that has not published it is told so and nothing runs.
+"$PROJECT_DIR/scripts/require-fork-artifacts.sh" macos
+
 # The window is the Compose fork's native/macos module, published beside the patched Compose
 # from the commit build-compose.sh pins.
 "$PROJECT_DIR/scripts/publish-window.sh"
