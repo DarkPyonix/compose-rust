@@ -6,8 +6,10 @@ What it does
   right and back on a fixed schedule, and lets go. While it does, it records every frame the
   desktop compositor (DWM) puts on the primary monitor, through Desktop Duplication. For each
   frame it compares two rows through the window with the desktop as it was before the window
-  opened. A stretch of desktop inside the window (the window's frame is there, its picture is
-  not) or black inside the window is a failure.
+  opened. Before that it covers the primary monitor with a magenta backdrop, below every
+  window, so that any part of the window's rectangle without its picture shows as magenta.
+  Magenta inside the window (the window's frame is there, its picture is not) or black inside
+  the window is a failure.
 
   Do not touch the mouse while it runs: the probe is moving it.
 
@@ -52,7 +54,8 @@ What the output means (probe log)
       width                 the window's client width the frame shows
       holes0/holes1         desktop pixels inside the window on each row (must be 0)
       black                 black pixels inside the window (must be 0)
-      runs0                 the row near the window's right end: W window, D desktop, K black
+      runs0, runs1          each row near the window's right end: W window, D backdrop,
+                            S shadow over the backdrop, K black
   summary / verdict         PASS when the loop was entered, the window changed size, and no
                             frame during the drag had desktop or black inside the window
   Exit code: 0 PASS, 1 FAIL, 2 could not run.

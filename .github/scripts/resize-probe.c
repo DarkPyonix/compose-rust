@@ -179,6 +179,12 @@ static int is_desktop(uint32_t seen, uint32_t was) {
     return 1;
 }
 
+/* The backdrop's magenta, or the window's shadow darkening it: red and blue well above green. */
+static int is_backdropish(uint32_t pixel) {
+    int b = (int)(pixel & 0xFF), g = (int)((pixel >> 8) & 0xFF), r = (int)((pixel >> 16) & 0xFF);
+    return r - g > 40 && b - g > 40;
+}
+
 static int is_black(uint32_t pixel) {
     return (pixel & 0xFF) < 8 && ((pixel >> 8) & 0xFF) < 8 && ((pixel >> 16) & 0xFF) < 8;
 }
@@ -204,23 +210,19 @@ static void analyse_row(const uint32_t *pixels, int y, struct row_result *result
     if (left < 0) left = 0;
     int width = desktop_width;
     const uint32_t *was = background + (size_t)(y - desktop.top) * desktop_width;
+    /*
+     * Behind the window is the probe's magenta backdrop. The window's right end is its last
+     * pixel that is not magenta-ish (its shadow over the backdrop is a darker magenta, so it
+     * does not count). Inside that, any magenta-ish pixel is backdrop showing through the
+     * window's rectangle: a hole. The rows are kept off the cursor's height.
+     */
     for (int x = left; x < width; x++) {
-        if (!is_desktop(pixels[x], was[x])) result->right = x;
+        if (!is_backdropish(pixels[x])) result->right = x;
     }
     if (result->right < 0) return;
     for (int x = left; x <= result->right; x++) {
-        if (!is_desktop(pixels[x], was[x]) && is_black(pixels[x]) && !is_black(was[x])) result->black++;
-    }
-    /*
-     * Holes: desktop pixels in the last 48 px of the window with window pixels after them. On
-     * a dark desktop the window's right end is the content, then its one pixel border, and the
-     * shadow does not show; a strip of desktop before that border is the window's rectangle
-     * without its picture. Only the end of the row is judged, because the content further in
-     * can hold pixels that match the desktop. The rows are kept off the cursor's height.
-     */
-    int from_hole = result->right - 48 > left ? result->right - 48 : left;
-    for (int x = from_hole; x < result->right; x++) {
-        if (is_desktop(pixels[x], was[x])) {
+        if (is_black(pixels[x]) && !is_black(was[x])) result->black++;
+        if (is_backdropish(pixels[x])) {
             if (result->hole_from < 0) result->hole_from = x + desktop.left;
             result->holes++;
         }
@@ -233,7 +235,7 @@ static void analyse_row(const uint32_t *pixels, int y, struct row_result *result
     int run_start = from;
     for (int k = from; k <= to + 1 && used < sizeof result->runs - 32; k++) {
         char cls = 0;
-        if (k <= to) cls = is_desktop(pixels[k], was[k]) ? 'D' : (is_black(pixels[k]) ? 'K' : 'W');
+        if (k <= to) cls = is_desktop(pixels[k], was[k]) ? 'D' : is_backdropish(pixels[k]) ? 'S' : (is_black(pixels[k]) ? 'K' : 'W');
         if (cls != current) {
             if (current != 0) {
                 used += (size_t)snprintf(result->runs + used, sizeof result->runs - used, "%c%d-%d ", current,
@@ -369,6 +371,47 @@ static DWORD WINAPI capture_thread(LPVOID unused) {
     return 0;
 }
 
+/* The backdrop window. */
+static volatile HWND backdrop;
+
+static LRESULT CALLBACK backdrop_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
+    if (message == WM_MOUSEACTIVATE) return MA_NOACTIVATE;
+    return DefWindowProcW(window, message, wparam, lparam);
+}
+
+static DWORD WINAPI backdrop_main(LPVOID unused) {
+    (void)unused;
+    SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    WNDCLASSW description;
+    memset(&description, 0, sizeof description);
+    description.lpfnWndProc = backdrop_proc;
+    description.hInstance = GetModuleHandleW(NULL);
+    description.hbrBackground = CreateSolidBrush(RGB(255, 0, 255));
+    description.lpszClassName = L"ResizeProbeBackdrop";
+    RegisterClassW(&description);
+    POINT origin_point = {0, 0};
+    MONITORINFO monitor;
+    memset(&monitor, 0, sizeof monitor);
+    monitor.cbSize = sizeof monitor;
+    GetMonitorInfoW(MonitorFromPoint(origin_point, MONITOR_DEFAULTTOPRIMARY), &monitor);
+    HWND window = CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW, L"ResizeProbeBackdrop", L"", WS_POPUP,
+                                  monitor.rcMonitor.left, monitor.rcMonitor.top,
+                                  monitor.rcMonitor.right - monitor.rcMonitor.left,
+                                  monitor.rcMonitor.bottom - monitor.rcMonitor.top, NULL, NULL,
+                                  GetModuleHandleW(NULL), NULL);
+    if (window == NULL) return 1;
+    ShowWindow(window, SW_SHOWNOACTIVATE);
+    SetWindowPos(window, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    UpdateWindow(window);
+    backdrop = window;
+    MSG message;
+    while (GetMessageW(&message, NULL, 0, 0) > 0) {
+        TranslateMessage(&message);
+        DispatchMessageW(&message);
+    }
+    return 0;
+}
+
 /* Mouse input. */
 static void send_mouse(DWORD flags, int x, int y, long index) {
     INPUT input;
@@ -429,6 +472,22 @@ int main(int argc, char **argv) {
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     timeBeginPeriod(1);
     say("start qpc_frequency=%lld interval_ms=%d step_px=%d", (long long)frequency.QuadPart, interval_ms, step_px);
+
+    /*
+     * A magenta backdrop over the whole primary monitor, made before the application's window
+     * and kept below it, so that anything of the window's rectangle that is not drawn shows as
+     * a colour nothing else on the screen has. Its own thread pumps it, so Windows never
+     * replaces it with a "not responding" ghost.
+     */
+    HANDLE backdrop_thread = CreateThread(NULL, 0, backdrop_main, NULL, 0, NULL);
+    for (int waited = 0; backdrop == NULL && waited < 5000; waited += 10) Sleep(10);
+    if (backdrop == NULL) {
+        say("verdict ERROR: could not make the backdrop window");
+        return 2;
+    }
+    Sleep(500);
+    say("backdrop %p shown", (void *)backdrop);
+    (void)backdrop_thread;
 
     if (!start_duplication()) {
         say("verdict ERROR: no desktop duplication on the primary monitor");
