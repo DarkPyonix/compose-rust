@@ -27,7 +27,10 @@ rm -rf "$dest"
 mkdir -p "$dest"
 git -C "$dest" init -q
 git -C "$dest" remote add origin "$fork"
-git -C "$dest" sparse-checkout set --no-cone /extended/skiko/
+# On standard input, not as an argument: Git Bash rewrites an argument that looks like an
+# absolute path into a Windows one (under its install directory) before git sees it, and the
+# checkout then holds nothing.
+printf '%s\n' '/extended/skiko/' | git -C "$dest" sparse-checkout set --no-cone --stdin
 if ! git -C "$dest" fetch -q --depth 1 --filter=blob:none origin "$revision"; then
     rm -rf "$dest"
     echo "error: could not fetch $revision from $fork" >&2
