@@ -2,14 +2,20 @@ product: jvm/app
 
 # The window modules come from the Compose fork and are published to the local repository by
 # scripts/publish-window.sh, at the commit scripts/build-compose.sh pins.
-# The Compose fork's desktop modules, when `scripts/build-compose.sh --target desktop` has
-# published them, come before upstream's at the same version. They carry what the toolkit-free
-# Linux window needs and upstream does not have.
+# The Compose fork's desktop modules, which `scripts/build-compose.sh --target desktop`
+# publishes, and its skiko-awt, which `scripts/publish-skiko-awt.sh` publishes. They carry what
+# the toolkit-free Linux window needs and upstream does not have. They are published under
+# versions of their own and asked for below by name: at upstream's version a resolver that
+# already holds upstream's jars takes those and never reads the local repository.
 repositories:
   - mavenLocal
 
 dependencies:
   - $compose.desktop.currentOs
+  - org.jetbrains.compose.ui:ui:1.11.1001
+  - org.jetbrains.compose.ui:ui-text:1.11.1001
+  - org.jetbrains.compose.foundation:foundation:1.11.1001
+  - org.jetbrains.skiko:skiko-awt:0.144.6.1
   # FR-11's example extension draws a Material 3 progress indicator.
   - $compose.material3
   # Swing's Dispatchers.Main, which a run on a JVM with the toolkit's window needs. The native
