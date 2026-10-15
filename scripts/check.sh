@@ -81,6 +81,16 @@ fi
 
 renderer_gate="$repo_root/renderer/scripts/gate-platforms.sh"
 
+# The modules built below ask for the Compose fork's artifacts by versions only the fork
+# publishes, to ~/.m2. Resolved before they are there, the toolchain records the failed
+# download in its own cache and keeps failing after they are published, so they are checked
+# before anything runs it: desktop always, macOS and Linux when this machine builds them.
+fork_modules=(desktop)
+gate_builds="$("$renderer_gate" build "$repo_root/renderer")"
+grep -qx macosArm64 <<< "$gate_builds" && fork_modules+=(macos)
+grep -qE '^linux(X64|Arm64)$' <<< "$gate_builds" && fork_modules+=(linux)
+"$repo_root/renderer/scripts/require-fork-artifacts.sh" "${fork_modules[@]}"
+
 # The renderer depends on the Compose fork's window modules as Maven artifacts. Published first,
 # from the commit renderer/scripts/build-compose.sh pins.
 "$repo_root/renderer/scripts/publish-window.sh"
