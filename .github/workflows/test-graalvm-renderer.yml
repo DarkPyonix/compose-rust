@@ -21,6 +21,7 @@ on:
       - 'scripts/install-nik.sh'
       - 'scripts/fetch-fork-window.sh'
       - 'scripts/fetch-fork-skiko.sh'
+      - 'scripts/publish-skiko-awt.sh'
       - 'experiments/static-library/**'
       - 'renderer/scripts/publish-window.sh'
       - 'renderer/scripts/build-compose.sh'
@@ -37,6 +38,7 @@ on:
       - 'scripts/install-nik.sh'
       - 'scripts/fetch-fork-window.sh'
       - 'scripts/fetch-fork-skiko.sh'
+      - 'scripts/publish-skiko-awt.sh'
       - 'experiments/static-library/**'
       - 'renderer/scripts/publish-window.sh'
       - 'renderer/scripts/build-compose.sh'
@@ -178,8 +180,8 @@ jobs:
           rm -rf ~/.m2/repository
           ./renderer/scripts/build-compose.sh --target desktop --clean
           # skiko-awt with the switch that keeps UIManager out of a toolkit-free image.
-          skiko="$(./scripts/fetch-fork-skiko.sh)"
-          "$skiko/extended/skiko/build-skiko-awt.sh" "$RUNNER_TEMP/skiko-awt"
+          # It is published under a version of its own, so no cache of upstream's can shadow it.
+          ./scripts/publish-skiko-awt.sh "$RUNNER_TEMP/skiko-awt"
           find ~/.m2/repository/org/jetbrains/compose -name '*.jar' | sort
 
       - name: Keep the published modules

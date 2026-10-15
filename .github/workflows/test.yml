@@ -97,7 +97,14 @@ jobs:
           DXC_SKIP_KOTLIN: '1'
         run: ./scripts/check.sh
 
+  fork-desktop:
+    # The renderer's desktop module asks for the fork's Compose and skiko-awt by version, and
+    # nobody publishes those but this repository's own build.
+    name: Build the Compose fork's desktop modules
+    uses: ./.github/workflows/fork-desktop-modules.yml
+
   kotlin:
+    needs: fork-desktop
     # One job per platform, not one job for all of them.
     #
     # `./kotlin build` with no argument compiles every module for every platform it
@@ -163,6 +170,13 @@ jobs:
           key: kotlin-${{ matrix.platform }}-${{ runner.os }}-${{ hashFiles('renderer/**/module.yaml', 'renderer/libs.versions.toml', 'renderer/kotlin') }}
           restore-keys: |
             kotlin-${{ matrix.platform }}-${{ runner.os }}-
+
+      - name: Take the Compose fork's desktop modules
+        if: matrix.platform == 'jvm'
+        uses: actions/download-artifact@v4
+        with:
+          name: compose-fork-desktop
+          path: ~/.m2/repository/org/jetbrains
 
       - name: Publish the fork's window modules
         # The desktop module depends on them as Maven artifacts, built from the commit
