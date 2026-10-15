@@ -17,6 +17,8 @@ done
 
 # The AppKit window is the Compose fork's: its C is compiled from the checkout at the pinned
 # commit, and its Kotlin is the published module the renderer's desktop module depends on.
+# Before anything runs the toolchain; env.sh says why.
+require_fork_artifacts
 "$PROJECT_DIR/scripts/publish-window.sh"
 fork_window="$("$PROJECT_DIR/../scripts/fetch-fork-window.sh")/extended/window"
 appkit_source="$fork_window/graalvm/graalvm-macos/native/appkit_window.m"
