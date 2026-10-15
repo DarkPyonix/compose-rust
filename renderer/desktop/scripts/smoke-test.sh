@@ -10,11 +10,10 @@ lib="$DIST_DIR/lib"
 
 host="$BUILD_DIR/smoke_host"
 cc -O2 -o "$host" "$NATIVE_DIR/c/smoke_host.c" -L"$lib" -lcompose_rust_renderer -Wl,-rpath,"$lib"
-# Not only that the renderer returned 0. The host sends two synthetic clicks once the window has
-# composed, so seeing both answered means a Compose scene was made, drew, and took input.
-out="$("$host")" || { echo "$out"; exit 1; }
+# Everything the run prints, the renderer's own lines on stderr included, because those are
+# the ones that say a scene was made and a frame was drawn. smoke-startup.sh says which.
+source "$(dirname "$0")/smoke-startup.sh"
+status=0
+out="$("$host" 2>&1)" || status=$?
 echo "$out"
-for needed in "compose_rust_host_init" "dispatch_event: click 2" "compose_rust_renderer_run returned 0"; do
-    grep -q "$needed" <<< "$out" || die "the smoke run never printed '$needed'" \
-        "The renderer returned without composing, drawing and answering input."
-done
+check_smoke_startup "$out" "$status" || exit 1
