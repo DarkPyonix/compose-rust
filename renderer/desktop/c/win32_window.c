@@ -47,6 +47,7 @@
 #include <imm.h>
 #include <d3d12.h>
 #include <dxgi1_4.h>
+#include <dwmapi.h>
 #include <d3d11.h>
 #include <d3d11on12.h>
 #include <ole2.h>
@@ -1538,6 +1539,188 @@ static double dxc_elapsed_ms(LARGE_INTEGER since) {
     return (double)(now.QuadPart - since.QuadPart) * 1000.0 / (double)frequency.QuadPart;
 }
 
+/*
+ * Resize trace, for DXC_RESIZE_TRACE=1: when each message of a size change arrived and when
+ * each step's frame was copied into the window, against DWM's own composition clock, so a
+ * capture taken by another process can be lined up with the step it shows. Written into a
+ * fixed array during the drag (no I/O while it runs) and printed when the size change ends.
+ * Unset, nothing here runs.
+ */
+enum dxc_trace_kind {
+    DXC_TRACE_SWP_CALL, DXC_TRACE_SWP_RET, DXC_TRACE_NCLBUTTONDOWN, DXC_TRACE_ENTERSIZEMOVE,
+    DXC_TRACE_SIZING, DXC_TRACE_WPCHANGING, DXC_TRACE_NCCALC, DXC_TRACE_WPCHANGED,
+    DXC_TRACE_WM_SIZE, DXC_TRACE_BLIT, DXC_TRACE_VALID, DXC_TRACE_WM_SIZE_RET,
+    DXC_TRACE_EXITSIZEMOVE, DXC_TRACE_PAINT, DXC_TRACE_SEND, DXC_TRACE_KIND_COUNT
+};
+static const char *const dxc_trace_names[DXC_TRACE_KIND_COUNT] = {
+    "SWP_CALL", "SWP_RET", "NCLBUTTONDOWN", "ENTERSIZEMOVE", "SIZING", "WPCHANGING", "NCCALC",
+    "WPCHANGED", "WM_SIZE", "BLIT", "VALID", "WM_SIZE_RET", "EXITSIZEMOVE", "PAINT", "SEND",
+};
+struct dxc_trace_record {
+    long long qpc;
+    int kind;
+    int width;
+    int height;
+    int step;
+    unsigned long long frame;
+    unsigned long long compose;
+    unsigned long long vblank;
+    unsigned long long refresh;
+    unsigned long long frame_displayed;
+    unsigned long long frame_displayed_qpc;
+    long long cost;
+};
+#define DXC_TRACE_CAPACITY 32768
+typedef HRESULT(WINAPI *dxc_dwm_timing_fn)(HWND, DWM_TIMING_INFO *);
+static struct dxc_trace_record *dxc_trace_records;
+static volatile LONG dxc_trace_count;
+static int dxc_trace_state; // 0 unread, 1 on, -1 off
+static int dxc_trace_step;
+static int dxc_trace_last_width;
+static int dxc_trace_last_height;
+static dxc_dwm_timing_fn dxc_trace_timing;
+
+static int dxc_trace_on(void) {
+    if (dxc_trace_state == 0) {
+        const char *asked = getenv("DXC_RESIZE_TRACE");
+        dxc_trace_state = asked != NULL && strcmp(asked, "1") == 0 ? 1 : -1;
+        if (dxc_trace_state > 0) {
+            dxc_trace_records = (struct dxc_trace_record *)calloc(DXC_TRACE_CAPACITY, sizeof *dxc_trace_records);
+            HMODULE dwm = LoadLibraryW(L"dwmapi.dll");
+            if (dwm != NULL) {
+                dxc_trace_timing = (dxc_dwm_timing_fn)(void *)GetProcAddress(dwm, "DwmGetCompositionTimingInfo");
+            }
+            if (dxc_trace_records == NULL) dxc_trace_state = -1;
+            LARGE_INTEGER frequency;
+            QueryPerformanceFrequency(&frequency);
+            DWM_TIMING_INFO timing;
+            memset(&timing, 0, sizeof timing);
+            timing.cbSize = sizeof timing;
+            HRESULT got = dxc_trace_timing != NULL ? dxc_trace_timing(NULL, &timing) : E_FAIL;
+            fprintf(stderr,
+                    "compose-rust: resize-trace start qpc_frequency=%lld dwm_timing=0x%08lx "
+                    "refresh_period_qpc=%llu refresh_rate=%u/%u compose_rate=%u/%u\n",
+                    (long long)frequency.QuadPart, (unsigned long)got,
+                    (unsigned long long)timing.qpcRefreshPeriod, timing.rateRefresh.uiNumerator,
+                    timing.rateRefresh.uiDenominator, timing.rateCompose.uiNumerator,
+                    timing.rateCompose.uiDenominator);
+        }
+    }
+    return dxc_trace_state > 0;
+}
+
+/** Records one event; safe from any thread. */
+static void dxc_trace_event(int kind, int width, int height) {
+    if (!dxc_trace_on()) return;
+    LONG slot = InterlockedIncrement(&dxc_trace_count) - 1;
+    if (slot >= DXC_TRACE_CAPACITY) return;
+    struct dxc_trace_record *record = &dxc_trace_records[slot];
+    LARGE_INTEGER now, after;
+    QueryPerformanceCounter(&now);
+    record->qpc = now.QuadPart;
+    record->kind = kind;
+    record->width = width;
+    record->height = height;
+    record->step = dxc_trace_step;
+    if (dxc_trace_timing != NULL) {
+        DWM_TIMING_INFO timing;
+        memset(&timing, 0, sizeof timing);
+        timing.cbSize = sizeof timing;
+        if (SUCCEEDED(dxc_trace_timing(NULL, &timing))) {
+            record->frame = timing.cFrame;
+            record->compose = timing.qpcCompose;
+            record->vblank = timing.qpcVBlank;
+            record->refresh = timing.cRefresh;
+            record->frame_displayed = timing.cFrameDisplayed;
+            record->frame_displayed_qpc = timing.qpcFrameDisplayed;
+        }
+    }
+    QueryPerformanceCounter(&after);
+    record->cost = after.QuadPart - now.QuadPart;
+}
+
+/** Prints what was recorded and starts again. */
+static void dxc_trace_dump(const char *why) {
+    if (!dxc_trace_on()) return;
+    LONG count = dxc_trace_count;
+    if (count > DXC_TRACE_CAPACITY) count = DXC_TRACE_CAPACITY;
+    fprintf(stderr, "compose-rust: resize-trace dump %ld events because %s%s\n", (long)count, why,
+            dxc_trace_count > DXC_TRACE_CAPACITY ? " (capacity reached, later events lost)" : "");
+    for (LONG index = 0; index < count; index++) {
+        const struct dxc_trace_record *record = &dxc_trace_records[index];
+        fprintf(stderr,
+                "compose-rust: resize-trace qpc=%lld kind=%s w=%d h=%d step=%d cframe=%llu "
+                "qpc_compose=%llu qpc_vblank=%llu crefresh=%llu cframe_displayed=%llu "
+                "qpc_frame_displayed=%llu cost_qpc=%lld\n",
+                record->qpc, dxc_trace_names[record->kind], record->width, record->height,
+                record->step, record->frame, record->compose, record->vblank, record->refresh,
+                record->frame_displayed, record->frame_displayed_qpc, record->cost);
+    }
+    fflush(stderr);
+    InterlockedExchange(&dxc_trace_count, 0);
+}
+
+/** The window messages of a size change, recorded as they arrive. */
+static void dxc_trace_message(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
+    switch (message) {
+    case WM_NCLBUTTONDOWN:
+        dxc_trace_event(DXC_TRACE_NCLBUTTONDOWN, GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));
+        break;
+    case WM_ENTERSIZEMOVE:
+        dxc_trace_event(DXC_TRACE_ENTERSIZEMOVE, 0, 0);
+        break;
+    case WM_SIZING: {
+        const RECT *rect = (const RECT *)lparam;
+        dxc_trace_event(DXC_TRACE_SIZING, rect->right - rect->left, rect->bottom - rect->top);
+        break;
+    }
+    case WM_WINDOWPOSCHANGING: {
+        const WINDOWPOS *position = (const WINDOWPOS *)lparam;
+        if (!(position->flags & SWP_NOSIZE)) {
+            dxc_trace_event(DXC_TRACE_WPCHANGING, position->cx, position->cy);
+        }
+        break;
+    }
+    case WM_NCCALCSIZE:
+        if (wparam == TRUE) {
+            const NCCALCSIZE_PARAMS *params = (const NCCALCSIZE_PARAMS *)lparam;
+            dxc_trace_event(DXC_TRACE_NCCALC, params->rgrc[0].right - params->rgrc[0].left,
+                            params->rgrc[0].bottom - params->rgrc[0].top);
+        }
+        break;
+    case WM_WINDOWPOSCHANGED: {
+        const WINDOWPOS *position = (const WINDOWPOS *)lparam;
+        if (!(position->flags & SWP_NOSIZE)) {
+            dxc_trace_event(DXC_TRACE_WPCHANGED, position->cx, position->cy);
+        }
+        break;
+    }
+    case WM_SIZE: {
+        int width = (int)LOWORD(lparam);
+        int height = (int)HIWORD(lparam);
+        if (width != dxc_trace_last_width || height != dxc_trace_last_height) {
+            dxc_trace_step++;
+            dxc_trace_last_width = width;
+            dxc_trace_last_height = height;
+        }
+        dxc_trace_event(DXC_TRACE_WM_SIZE, width, height);
+        break;
+    }
+    case WM_PAINT:
+        dxc_trace_event(DXC_TRACE_PAINT, 0, 0);
+        break;
+    case WM_EXITSIZEMOVE: {
+        RECT client;
+        GetClientRect(window, &client);
+        dxc_trace_event(DXC_TRACE_EXITSIZEMOVE, client.right, client.bottom);
+        dxc_trace_dump("WM_EXITSIZEMOVE");
+        break;
+    }
+    default:
+        break;
+    }
+}
+
 /**
  * Draws one frame at the size WM_SIZE has just recorded and presents it before WM_SIZE
  * returns, then waits for DWM to take it.
@@ -1576,6 +1759,9 @@ static int dxc_last_blit;
 static int dxc_last_validated;
 // A real drag driven by the test hook is running; see dxc_native_debug_resize.
 static int dxc_real_drag_active;
+// A drag driven from another process (DXC_REAL_DRAG=external), and the size changes it made.
+static int dxc_external_drag;
+static int dxc_external_drag_steps;
 static int dxc_capture_steps;
 static int dxc_capture_failures;
 static void dxc_capture_step(HWND window);
@@ -1732,7 +1918,9 @@ void dxc_native_raster_end(void) {
         GdiFlush();
         ReleaseDC(dxc_window, window_dc);
     }
+    if (dxc_trace_state > 0) dxc_trace_event(DXC_TRACE_BLIT, dxc_raster_width, dxc_raster_height);
     dxc_last_validated = ValidateRect(dxc_window, NULL) != 0;
+    if (dxc_trace_state > 0) dxc_trace_event(DXC_TRACE_VALID, dxc_raster_width, dxc_raster_height);
     QueryPerformanceCounter(&dxc_blit_time);
     // Hidden after the copy, in the same step, so the redirection surface it reveals already
     // holds this frame.
@@ -1813,6 +2001,7 @@ static void dxc_draw_resize(int32_t width, int32_t height) {
 }
 
 static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
+    if (dxc_trace_state >= 0 && dxc_trace_on()) dxc_trace_message(window, message, wparam, lparam);
     switch (message) {
     case WM_NCCALCSIZE: {
         if (dxc_options.system_chrome || wparam != TRUE) {
@@ -1918,10 +2107,20 @@ static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM
         // written down and taken by the next frame.
         dxc_resize_end_drag(&dxc_sizing);
         dxc_mode("size-move", "on", "off", "WM_EXITSIZEMOVE");
+        if (dxc_external_drag) {
+            // The window's side of an external drag: how many sizes it drew. None is a
+            // failure of the drag, not a pass.
+            fprintf(stderr, "compose-rust: real drag done steps=%d verdict %s\n", dxc_external_drag_steps,
+                    dxc_external_drag_steps > 0 ? "PASS" : "FAIL (no step)");
+            fflush(stderr);
+            dxc_external_drag_steps = 0;
+        }
         if (dxc_real_drag_active) {
             dxc_real_drag_active = 0;
+            // A drag that judged no step proves nothing, so it fails.
             fprintf(stderr, "compose-rust: capture-check verdict %s (%d of %d steps failed) real drag\n",
-                    dxc_capture_failures == 0 ? "PASS" : "FAIL", dxc_capture_failures, dxc_capture_steps);
+                    dxc_capture_failures == 0 && dxc_capture_steps > 0 ? "PASS" : "FAIL",
+                    dxc_capture_failures, dxc_capture_steps);
         }
         if (dxc_cpu_mode) {
             RECT client;
@@ -2036,6 +2235,8 @@ static LRESULT CALLBACK dxc_native_window_proc(HWND window, UINT message, WPARAM
             // the same ordering keeps the frame ahead of the next size.
             dxc_draw_resize((int32_t)LOWORD(lparam), (int32_t)HIWORD(lparam));
         }
+        if (dxc_trace_state > 0) dxc_trace_event(DXC_TRACE_WM_SIZE_RET, (int)LOWORD(lparam), (int)HIWORD(lparam));
+        if (dxc_external_drag && dxc_sizing.dragging) dxc_external_drag_steps++;
         return 0;
     case WM_PAINT: {
         // Validated so the window stops asking. Outside a drag the frame is drawn again:
@@ -2819,7 +3020,8 @@ static void dxc_send_mouse(DWORD flags, int x, int y) {
     input.mi.dx = (LONG)(((long long)(x - left) * 65535 + width / 2) / (width - 1));
     input.mi.dy = (LONG)(((long long)(y - top) * 65535 + height / 2) / (height - 1));
     input.mi.dwFlags = flags | MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
-    SendInput(1, &input, sizeof input);
+    UINT sent = SendInput(1, &input, sizeof input);
+    if (dxc_trace_state > 0) dxc_trace_event(DXC_TRACE_SEND, x, (int)sent);
 }
 
 static DWORD WINAPI dxc_real_drag_thread(LPVOID unused) {
@@ -2855,6 +3057,23 @@ void dxc_native_debug_resize(void *window_pointer, void *view_pointer, int32_t f
     if (real != NULL && real[0] != '\0') {
         // Once: the drag runs out and back on its own, while the caller's loop pumps.
         if (InterlockedExchange(&dxc_real_drag_started, 1) != 0) return;
+        if (strcmp(real, "external") == 0) {
+            // Driven by another process (resize-probe): the window is only put where the
+            // drag can run to the right of it, and the mouse comes from outside. Nothing here
+            // captures or waits, so the sizing loop steps at its own rate.
+            MONITORINFO work;
+            memset(&work, 0, sizeof work);
+            work.cbSize = sizeof work;
+            GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &work);
+            SetWindowPos(window, NULL, work.rcWork.left, work.rcWork.top, 640, 480, SWP_NOZORDER);
+            SetForegroundWindow(window);
+            dxc_external_drag_steps = 0;
+            dxc_external_drag = 1;
+            fprintf(stderr, "compose-rust: real drag ready hwnd=%p pid=%lu tid=%lu\n", (void *)window,
+                    (unsigned long)GetCurrentProcessId(), (unsigned long)GetWindowThreadProcessId(window, NULL));
+            fflush(stderr);
+            return;
+        }
         MONITORINFO monitor;
         memset(&monitor, 0, sizeof monitor);
         monitor.cbSize = sizeof monitor;
@@ -2902,8 +3121,10 @@ void dxc_native_debug_resize(void *window_pointer, void *view_pointer, int32_t f
         // Without the system caption the client area starts at the top of the window,
         // as where the window was first sized.
         int outer_height = dxc_options.system_chrome ? outer.bottom - outer.top : outer.bottom;
+        if (dxc_trace_state > 0) dxc_trace_event(DXC_TRACE_SWP_CALL, outer.right - outer.left, outer_height);
         SetWindowPos(window, NULL, 0, 0, outer.right - outer.left, outer_height,
                      SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+        if (dxc_trace_state > 0) dxc_trace_event(DXC_TRACE_SWP_RET, outer.right - outer.left, outer_height);
         if (getenv("DXC_CAPTURE_CHECK") != NULL) {
             // DXC_CAPTURE_PACE=1: one more composition before looking, in this test hook
             // only, so a step is judged after DWM has had a full frame to show it.
@@ -2917,7 +3138,8 @@ void dxc_native_debug_resize(void *window_pointer, void *view_pointer, int32_t f
     SendMessageW(window, WM_EXITSIZEMOVE, 0, 0);
     if (getenv("DXC_CAPTURE_CHECK") != NULL) {
         fprintf(stderr, "compose-rust: capture-check verdict %s (%d of %d steps failed)\n",
-                dxc_capture_failures == 0 ? "PASS" : "FAIL", dxc_capture_failures, dxc_capture_steps);
+                dxc_capture_failures == 0 && dxc_capture_steps > 0 ? "PASS" : "FAIL",
+                dxc_capture_failures, dxc_capture_steps);
     }
 }
 
