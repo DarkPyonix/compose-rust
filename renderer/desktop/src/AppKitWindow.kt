@@ -172,6 +172,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
         coroutineContext = work,
         platformContext = NativePlatformContext({ size }, textInput, semantics, ::setPointerShape),
     )
+    WindowStartReport.sceneCreated(size.width, size.height, measured.scale)
     // The application's own tree, drawn by the same interpreter every window uses.
     // Nothing in it knows which window it is in, which is the point.
     scene.setContent {
@@ -263,7 +264,9 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
         if (!painted || heard || scene.hasInvalidations()) {
             val begun = System.nanoTime()
             LatencyTrace.mark("draw begin (heard=$heard invalidated=${scene.hasInvalidations()})")
-            drawFrame(window, context, scene, frame.toLong() * FRAME_NANOS, size, backdrop)
+            if (drawFrame(window, context, scene, frame.toLong() * FRAME_NANOS, size, backdrop)) {
+                WindowStartReport.frameDrawn(size.width, size.height)
+            }
             LatencyTrace.mark("draw end")
             LatencyTrace.frameDrawn(System.nanoTime() - begun)
             painted = true
@@ -338,7 +341,11 @@ private fun forgetAppKitFrameCallback() {
 
 private const val NANOS_PER_MILLI = 1_000_000L
 
-/** One frame: take a drawable, let the scene paint it, give it to the screen. */
+/**
+ * One frame: take a drawable, let the scene paint it, give it to the screen.
+ *
+ * False where the frame was skipped: no drawable to take, or no surface over it.
+ */
 private fun drawFrame(
     window: NativeWindow,
     context: org.jetbrains.skia.DirectContext,
@@ -346,11 +353,11 @@ private fun drawFrame(
     nanos: Long,
     size: androidx.compose.ui.unit.IntSize,
     transparent: Boolean = false,
-) {
+): Boolean {
     val texture = window.beginFrame()
     // Zero means the system had no drawable to give, which happens when frames are made
     // faster than the screen takes them. The answer is to skip one.
-    if (texture == 0L) return
+    if (texture == 0L) return false
     val target = org.jetbrains.skia.BackendRenderTarget.makeMetal(size.width, size.height, texture)
     val surface = org.jetbrains.skia.Surface.makeFromBackendRenderTarget(
         context,
@@ -363,7 +370,7 @@ private fun drawFrame(
     if (surface == null) {
         target.close()
         window.endFrame()
-        return
+        return false
     }
     // A drawable comes back with whatever was last in it, and a window that shows what is
     // behind it must start every frame from nothing rather than from the last one.
@@ -376,6 +383,7 @@ private fun drawFrame(
     surface.close()
     target.close()
     window.endFrame()
+    return true
 }
 
 /**
