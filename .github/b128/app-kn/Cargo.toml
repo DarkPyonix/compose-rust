@@ -1,0 +1,8 @@
+[workspace]
+[package]
+name = "b128appkn"
+version = "0.0.0"
+edition = "2024"
+publish = false
+[dependencies]
+compose-rust = { path = "../../../compose-rust" }

@@ -1,0 +1,251 @@
+# Builds the two macOS hand-check applications (Kotlin/Native and GraalVM) for a person to
+# download and run. Dispatch only: it exists to produce test builds when a local build is not
+# possible, and it is not a gate. The steps copy test-kn-desktop-renderer.yml (macOS job) and
+# test-graalvm-renderer.yml (macOS job); the applications are in .github/b128/.
+name: Build the B128 hand-check applications
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  desktop-modules:
+    name: Build the Compose fork's desktop modules
+    uses: ./.github/workflows/fork-desktop-modules.yml
+
+  kn:
+    name: B128-KN.app (Kotlin/Native, macOS arm64)
+    runs-on: macos-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install JDK 21 for the Compose build
+        uses: actions/setup-java@v4
+        with:
+          distribution: corretto
+          java-version: '21'
+
+      - name: Point the Compose build at the JDK
+        run: echo "ANDROIDX_JDK21=$JAVA_HOME" >> "$GITHUB_ENV"
+
+      - name: Restore the patched Compose
+        id: compose-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.m2/repository
+          key: compose-macosarm64-${{ hashFiles('renderer/scripts/build-compose.sh', 'renderer/scripts/compose-fork.changes') }}
+
+      - name: Cache the Kotlin toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/JetBrains/Kotlin
+            ~/.konan
+          key: kotlin-native-macos-aarch64-${{ hashFiles('renderer/kotlin', 'renderer/libs.versions.toml', 'renderer/**/module.yaml') }}
+          restore-keys: |
+            kotlin-native-macos-aarch64-
+
+      - name: Configure Gradle for this runner
+        if: steps.compose-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.gradle
+          cat > ~/.gradle/gradle.properties <<EOF2
+          org.gradle.workers.max=2
+          org.gradle.jvmargs=-Xmx5g -XX:MaxMetaspaceSize=2g -XX:+UseParallelGC -Dfile.encoding=UTF-8
+          kotlin.compiler.execution.strategy=in-process
+          EOF2
+
+      - name: Build and publish the patched Compose
+        if: steps.compose-cache.outputs.cache-hit != 'true'
+        env:
+          DXC_COMPOSE_BUILD: ${{ runner.temp }}/compose-build
+        run: ./renderer/scripts/build-compose.sh --target macosArm64
+
+      - name: Publish the patched Compose again, with Gradle up to date
+        if: steps.compose-cache.outputs.cache-hit != 'true'
+        env:
+          DXC_COMPOSE_BUILD: ${{ runner.temp }}/compose-build
+        run: ./renderer/scripts/build-compose.sh --target macosArm64
+
+      - name: Check the published Compose names only published modules
+        run: ./renderer/scripts/require-fork-artifacts.sh macos
+
+      - name: Keep the patched Compose for the next run
+        if: steps.compose-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ steps.compose-cache.outputs.cache-primary-key }}
+
+      - name: Publish the fork's window modules
+        run: ./renderer/scripts/publish-window.sh
+
+      - name: Build the static macOS renderer and the application on it
+        run: |
+          set -euo pipefail
+          ./renderer/desktop/scripts/build-macos.sh
+          export DXC_MACOS_NATIVE_LIB="$PWD/renderer/build/macos"
+          cargo build --release --manifest-path .github/b128/app-kn/Cargo.toml
+
+      - name: Assemble and sign B128-KN.app
+        run: |
+          set -euo pipefail
+          app="$RUNNER_TEMP/out/B128-KN.app"
+          mkdir -p "$app/Contents/MacOS"
+          cp .github/b128/app-kn/Info.plist "$app/Contents/Info.plist"
+          cp .github/b128/app-kn/target/release/b128appkn "$app/Contents/MacOS/b128appkn"
+          codesign --force --deep -s - "$app"
+          codesign -dv "$app" 2>&1 | tail -3
+          du -sh "$app"
+
+      - name: Run it for 10 seconds
+        run: |
+          set -uo pipefail
+          out="$RUNNER_TEMP/out"
+          log="$out/smoke-kn.log"
+          COMPOSE_RUST_AUTOEXIT_MS=10000 DXC_REPORT_LATENCY=1 "$out/B128-KN.app/Contents/MacOS/b128appkn" > "$log" 2>&1 &
+          pid=$!
+          for _ in $(seq 40); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
+          kill "$pid" 2>/dev/null || true
+          sleep 1; kill -9 "$pid" 2>/dev/null || true
+          echo "--- lines about the window, the dispatcher and the first frame"
+          grep -iE "window|dispatcher|first frame|returned" "$log" || echo "(none: see the full log below)"
+          echo "--- full log, first 80 lines"
+          head -80 "$log"
+
+      - name: Zip it
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/out"
+          ditto -c -k --keepParent B128-KN.app B128-KN.zip
+          ls -l B128-KN.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: b128-part-kn
+          path: |
+            ${{ runner.temp }}/out/B128-KN.zip
+            ${{ runner.temp }}/out/smoke-kn.log
+
+  graal:
+    needs: desktop-modules
+    name: B128.app (GraalVM, macOS arm64)
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Liberica NIK
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/compose-rust/nik
+          key: nik-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/install-nik.sh') }}
+
+      - name: Install Liberica NIK 25 Full
+        run: ./scripts/install-nik.sh --github-env
+
+      - name: Cache the Kotlin toolchain and Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/JetBrains/Kotlin
+            ~/.m2/repository
+          key: kotlin-${{ runner.os }}-${{ hashFiles('renderer/kotlin', 'renderer/libs.versions.toml', 'renderer/**/module.yaml') }}
+          restore-keys: |
+            kotlin-${{ runner.os }}-
+
+      - name: Install JDK 21 for skiko's Gradle build
+        uses: actions/setup-java@v4
+        with:
+          distribution: corretto
+          java-version: '21'
+
+      - name: Remember where that JDK is
+        run: echo "DXC_SKIKO_JAVA_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
+
+      - name: Take the Compose fork's desktop modules
+        uses: actions/download-artifact@v4
+        with:
+          name: compose-fork-desktop
+          path: ~/.m2/repository/org/jetbrains
+
+      - name: Build the renderer shared library
+        run: ./renderer/desktop/scripts/build-native.sh
+
+      - name: Build the application on it
+        run: |
+          set -euo pipefail
+          export COMPOSE_RUST_RENDERER_DIR="$PWD/renderer/build/native-image/dist/lib"
+          cargo build --release --manifest-path .github/b128/app-graal/Cargo.toml
+
+      - name: Assemble and sign B128.app
+        run: |
+          set -euo pipefail
+          app="$RUNNER_TEMP/out/B128.app"
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Frameworks"
+          cp .github/b128/app-graal/Info.plist "$app/Contents/Info.plist"
+          cp -R renderer/build/native-image/dist/lib "$app/Contents/Frameworks/lib"
+          cp .github/b128/app-graal/target/release/b128app "$app/Contents/MacOS/b128app"
+          ./scripts/bundle-renderer.sh "$app/Contents/MacOS/b128app" ../Frameworks/lib
+          codesign --force --deep -s - "$app"
+          codesign -dv "$app" 2>&1 | tail -3
+          du -sh "$app"
+
+      - name: Run it for 10 seconds
+        run: |
+          set -uo pipefail
+          out="$RUNNER_TEMP/out"
+          log="$out/smoke-graal.log"
+          COMPOSE_RUST_AUTOEXIT_MS=10000 DXC_REPORT_LATENCY=1 "$out/B128.app/Contents/MacOS/b128app" > "$log" 2>&1 &
+          pid=$!
+          for _ in $(seq 40); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
+          kill "$pid" 2>/dev/null || true
+          sleep 1; kill -9 "$pid" 2>/dev/null || true
+          echo "--- lines about the window, the dispatcher and the first frame"
+          grep -iE "window|dispatcher|first frame|returned" "$log" || echo "(none: see the full log below)"
+          echo "--- full log, first 80 lines"
+          head -80 "$log"
+
+      - name: Zip it
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/out"
+          ditto -c -k --keepParent B128.app B128.zip
+          ls -l B128.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: b128-part-graal
+          path: |
+            ${{ runner.temp }}/out/B128.zip
+            ${{ runner.temp }}/out/smoke-graal.log
+
+  package:
+    needs: [kn, graal]
+    name: Collect both applications
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: b128-part-*
+          merge-multiple: true
+          path: apps
+
+      - name: Record what built them
+        run: |
+          {
+            echo "commit: ${{ github.sha }}"
+            grep -E '^(REVISION|WINDOW_REVISION)=' renderer/scripts/build-compose.sh
+          } | tee apps/BUILD.txt
+          ls -l apps
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: B128-apps-${{ github.sha }}
+          path: apps/
+          retention-days: 14
