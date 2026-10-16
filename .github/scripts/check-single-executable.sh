@@ -32,6 +32,9 @@ fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 fixture="$repo_root/compose-rust/tests/fixtures/consumer"
+# check_window_start: what a run that came up prints, the same check every smoke run uses.
+# shellcheck source=../../renderer/desktop/scripts/smoke-startup.sh
+source "$repo_root/renderer/desktop/scripts/smoke-startup.sh"
 
 fail() {
     echo "fail  $1" >&2
@@ -224,6 +227,12 @@ run_alone() {
         fail "the renderer did not lay Korean text out correctly with no ICU data file" \
             "Its own report is above."
     [[ "$status" -eq 0 ]] || fail "the executable did not draw on its own (exit $status)"
+    # And the renderer said so itself: its window opened, its scene was made on the main
+    # dispatcher this platform has, and a frame reached the window.
+    local dispatcher="$smoke_main_dispatcher_kn_linux"
+    [[ "$os" != Darwin ]] || dispatcher="$smoke_main_dispatcher_kn_macos"
+    check_window_start "$(cat "$log")" "$status" "$dispatcher" ||
+        fail "the renderer did not report its window, its scene and a frame" "Its own output is above."
 }
 
 report() {
