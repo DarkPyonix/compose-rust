@@ -6,6 +6,10 @@ name: Build the B128 hand-check applications
 
 on:
   workflow_dispatch:
+  # Temporary: GitHub lists a new workflow for dispatch only once its file is on the default
+  # branch, so a push to this branch is what starts the first run. Removed before any merge.
+  push:
+    branches: [feat/b128-apps-ci]
 
 permissions:
   contents: read
