@@ -11,10 +11,15 @@
 #
 # Why this has to run first rather than letting the build fail: when the toolchain resolves one
 # of those coordinates and the local repository does not have it, it asks the remote
-# repositories, fails, and records the failure in its own cache (.m2.cache under the Kotlin
-# toolchain's cache directory). From then on resolution keeps failing with "Unable to download
-# checksums of file foundation-1.11.1001.pom" even once ~/.m2 has the files, and nothing in that
-# message says where the stale entry is. Checking here means the toolchain never asks.
+# repositories, fails with "Unable to download checksums of file foundation-1.11.1001.pom", and
+# keeps that result in the renderer's own build directory (build/incremental.state). The entry is
+# keyed on the coordinates and repositories alone, not on what ~/.m2 holds, so every later build
+# replays it as up to date, even once ~/.m2 has the files, and nothing in the message says where
+# it is. Checking here means the toolchain never asks.
+#
+# A checkout that asked before the artifacts were published still holds such an entry. Once
+# every artifact is in place, this removes each state file that records a failure to resolve a
+# fork version, and names it, so the next build resolves again.
 #
 # What is checked, for each coordinate the module names: the .pom and the .module of the root
 # publication and, for Compose, of the target's own publication beside it (foundation and
@@ -115,7 +120,27 @@ for check in ${checks[@]+"${checks[@]}"}; do
     add_fix "$fix"
 done
 
-[[ ${#missing[@]} -eq 0 ]] && exit 0
+if [[ ${#missing[@]} -eq 0 ]]; then
+    state_dir="$renderer_dir/build/incremental.state"
+    if [[ -d "$state_dir" ]]; then
+        while IFS= read -r stale; do
+            rm -f "$stale"
+            echo "removed a cached resolution failure for a fork version: $stale"
+        done < <(VERSIONS="$compose_as $skiko_as" find "$state_dir" -maxdepth 1 -type f -exec perl -0777 -e '
+            my @versions = split " ", $ENV{VERSIONS};
+            for my $file (@ARGV) {
+                open my $in, "<", $file or next;
+                local $/;
+                my $text = <$in>;
+                while ($text =~ /diagnostics\.(?:UnableToDownloadChecksums|UnableToDownloadFile|UnableToResolveDependency)\b/g) {
+                    my $window = substr($text, pos($text), 2000);
+                    if (grep { index($window, $_) >= 0 } @versions) { print "$file\n"; last }
+                }
+            }
+        ' {} +)
+    fi
+    exit 0
+fi
 
 lines=("The renderer asks for these by version, and only the Compose fork publishes them, to the"
        "local Maven repository. The Kotlin toolchain was not started: asked for them now, it would"
@@ -125,7 +150,6 @@ lines+=("missing, under $repository:")
 for entry in "${missing[@]}"; do lines+=("  $entry"); done
 lines+=("fix, from the repository root, then run this build again:")
 for fix in "${fixes[@]}"; do lines+=("  $fix"); done
-lines+=("If a build already ran without them, the toolchain's cache still holds the failed"
-        "downloads: remove the directories of the versions above from .m2.cache in"
-        "~/Library/Caches/JetBrains/Kotlin (macOS) or ~/.cache/JetBrains/Kotlin (Linux).")
+lines+=("If a build already ran without them, its failure is kept in renderer/build/incremental.state;"
+        "the next run of this check removes it once the artifacts above are published.")
 die "the Compose fork's artifacts are not in the local Maven repository" "${lines[@]}"
