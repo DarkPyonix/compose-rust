@@ -129,6 +129,22 @@ jobs:
           DXC_COMPOSE_BUILD: ${{ runner.temp }}/compose-build
         run: ./renderer/scripts/build-compose.sh --target ${{ matrix.compose }}
 
+      # A second run with Gradle up to date, as on a workstation that already built Compose
+      # once. It overwrites the published metadata in place, and has to repoint it again; a run
+      # into an empty repository never takes that path, which is how a broken one went unseen.
+      # Only macOS publishes under the fork's own version, so only macOS has anything to repoint.
+      - name: Publish the patched Compose again, with Gradle up to date
+        if: steps.compose-cache.outputs.cache-hit != 'true' && matrix.module == 'macos'
+        env:
+          DXC_COMPOSE_BUILD: ${{ runner.temp }}/compose-build
+        run: ./renderer/scripts/build-compose.sh --target ${{ matrix.compose }}
+
+      # Restored or just built, the repository must name no module nobody published, or the
+      # toolchain goes to the network for it. The build scripts check this; `./kotlin test`
+      # below does not go through them.
+      - name: Check the published Compose names only published modules
+        run: ./renderer/scripts/require-fork-artifacts.sh ${{ matrix.module }}
+
       - name: Keep the patched Compose for the next run
         if: steps.compose-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
