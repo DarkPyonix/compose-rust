@@ -199,6 +199,15 @@ internal class LinuxWindow private constructor(
         platformContext = platformContext,
     )
 
+    init {
+        // How far the start got, in the words the native image's window uses: the window is
+        // open and the scene is made, at the size and density it was made with. The density is
+        // corrected to the screen's in the first frame, as every later change of it is.
+        val opened = x11.measure()
+        WindowStartReport.windowOpened(opened.width, opened.height, opened.scale)
+        WindowStartReport.sceneCreated(opened.width, opened.height, DENSITY)
+    }
+
     /** Whether anything has been drawn yet, so the first turn always draws one. */
     private var painted = false
 
@@ -230,6 +239,7 @@ internal class LinuxWindow private constructor(
             // The drawing goes to the server and then the manager is told, in that order. This
             // is the whole of what keeps a dragged edge attached to what is inside it.
             x11.present(width, height)
+            WindowStartReport.frameDrawn(width, height)
         } else {
             x11.noFrame()
         }

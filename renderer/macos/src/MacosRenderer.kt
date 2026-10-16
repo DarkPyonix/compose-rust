@@ -162,6 +162,15 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
         }
     }
 
+    // How far the start got, in the words the native image's window uses. The scene was
+    // made with the window, but its size and density are the screen's, which are known only
+    // now that the window is on one. The frame is the window's to report: it is drawn where
+    // AppKit displays the view, a turn of the run loop from here.
+    val opened = window.measure()
+    WindowStartReport.windowOpened(opened.width, opened.height, opened.scale)
+    WindowStartReport.sceneCreated(opened.width, opened.height, opened.scale)
+    window.onFrameDrawn = { width, height -> WindowStartReport.frameDrawn(width, height) }
+
     application.activateIgnoringOtherApps(true)
     application.run()
     return 0
