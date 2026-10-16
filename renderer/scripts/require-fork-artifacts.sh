@@ -20,6 +20,10 @@
 # publication and, for Compose, of the target's own publication beside it (foundation and
 # foundation-macosarm64). A root without its target still sends the toolchain to the network
 # for the target.
+#
+# And, for every one of those publications, that the dependencies its .pom and .module name at a
+# fork version are themselves published at that version (fork-dependencies.sh check). One that is
+# not sends the toolchain to the network the same way.
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -43,10 +47,17 @@ skiko_as="$(sed -n 's/^SKIKO_AWT_EXTENDED_AS="\([^"]*\)"$/\1/p' "$compose_script
 
 missing=()
 fixes=()
+checks=()
 add_fix() {
     local fix
     for fix in ${fixes[@]+"${fixes[@]}"}; do [[ "$fix" == "$1" ]] && return 0; done
     fixes+=("$1")
+}
+# version|target|fix: the published metadata to read for dependencies nobody published.
+add_check() {
+    local check
+    for check in ${checks[@]+"${checks[@]}"}; do [[ "$check" == "$1|$2|$3" ]] && return 0; done
+    checks+=("$1|$2|$3")
 }
 
 for module in "$@"; do
@@ -67,6 +78,10 @@ for module in "$@"; do
             "$compose_as":*|"$skiko_as":*|*:*-linuxx64|*:*-linuxarm64) ;;
             *) continue ;;
         esac
+        case "$version" in
+            "$compose_as") add_check "$version" "$variant" "$compose_fix" ;;
+            "$skiko_as")   add_check "$version" "" "scripts/publish-skiko-awt.sh <work-dir>" ;;
+        esac
         names=("$artifact")
         if [[ -n "$variant" && "$group" == org.jetbrains.compose* ]]; then
             names+=("$artifact-$variant")
@@ -85,6 +100,19 @@ for module in "$@"; do
             done
         done
     done < <(sed -En 's/^[[:space:]]*-[[:space:]]*(org\.jetbrains\.(compose[A-Za-z0-9.]*|skiko)):([A-Za-z0-9._-]+):([A-Za-z0-9._-]+)[[:space:]]*$/\1 \3 \4/p' "$module_file")
+done
+
+# The files being there is half of it. A .pom or .module the fork published names its siblings
+# at the fork version, and a sibling nobody published at that version sends the toolchain to the
+# network just as a missing file does. build-compose.sh points those back at upstream; this
+# catches a repository where that step did not run.
+for check in ${checks[@]+"${checks[@]}"}; do
+    IFS="|" read -r version target fix <<< "$check"
+    unpublished="$("$script_dir/fork-dependencies.sh" check "$version" "$target")" && continue
+    while IFS= read -r entry; do
+        [[ -n "$entry" ]] && missing+=("$entry")
+    done <<< "$unpublished"
+    add_fix "$fix"
 done
 
 [[ ${#missing[@]} -eq 0 ]] && exit 0

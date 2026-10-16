@@ -185,8 +185,6 @@ for module in "${modules[@]}"; do
     # A version nobody else published has no root unless this one is asked for too.
     [[ "$published_as" == "$PUBLISHED_AS" ]] || tasks+=(":$module:publishKotlinMultiplatformDecoratedPublicationToMavenLocal")
 done
-marker="$(mktemp)"
-trap 'rm -f "$marker"' EXIT
 (
     cd "$WORK"
     # The fork declares mingwX64 on every UI module, and skiko publishes no mingwX64 artifact:
@@ -201,25 +199,22 @@ trap 'rm -f "$marker"' EXIT
 
 # Every module here depends on its siblings at the version it was published as. Only some
 # siblings were built, so a dependency on one that was not has to name the upstream module it
-# stands for, or the consumer asks for a coordinate nobody published.
+# stands for, or the consumer asks for a coordinate nobody published and the Kotlin toolchain
+# goes to the network for it.
+#
+# This reads every .pom and .module under that version in ~/.m2, not only what this run wrote.
+# A run whose Gradle tasks were up to date still overwrites the published files with Gradle's
+# own, in directories that already existed, so asking which directories are newer than the
+# run finds nothing; and a run that stopped before this step left files that still need it.
 if [[ "$published_as" != "$PUBLISHED_AS" ]]; then
     repo="$HOME/.m2/repository/org/jetbrains/compose"
-    built="$(find "$repo" -type d -name "$published_as" -newer "$marker" | sed "s#.*/\([^/]*\)/$published_as\$#\1#" | sort -u | paste -sd, -)"
-    [[ -n "$built" ]] || die "nothing was published as $published_as under $repo"
+    published="$(find "$repo" -type f -path "*/$published_as/*-$published_as.module" -print -quit 2>/dev/null || true)"
+    [[ -n "$published" ]] || die "nothing was published as $published_as under $repo"
     echo "==> pointing dependencies on modules that were not built back at $PUBLISHED_AS"
-    find "$repo" -type d -name "$published_as" -newer "$marker" | while read -r dir; do
-        for file in "$dir"/*.pom "$dir"/*.module; do
-            [[ -f "$file" ]] || continue
-            BUILT="$built" FROM="$published_as" TO="$PUBLISHED_AS" perl -0777 -i -pe '
-                my %built = map { $_ => 1 } split /,/, $ENV{BUILT};
-                my ($from, $to) = ($ENV{FROM}, $ENV{TO});
-                s{("group":\s*"org\.jetbrains\.compose[^"]*",\s*"module":\s*")([^"]+)(",\s*"version":\s*\{(?:\s*"[a-z]+":\s*"[^"]*",)*\s*"requires":\s*")\Q$from\E(")}
-                 { $1 . $2 . $3 . ($built{$2} ? $from : $to) . $4 }ge;
-                s{(<groupId>org\.jetbrains\.compose[^<]*</groupId>\s*<artifactId>)([^<]+)(</artifactId>\s*<version>)\Q$from\E(</version>)}
-                 { $1 . $2 . $3 . ($built{$2} ? $from : $to) . $4 }ge;
-            ' "$file"
-        done
-    done
+    "$SCRIPT_DIR/fork-dependencies.sh" repair "$published_as" "$PUBLISHED_AS"
+    "$SCRIPT_DIR/fork-dependencies.sh" check "$published_as" >/dev/null ||
+        die "dependencies at $published_as still name modules nobody published" \
+            "run renderer/scripts/fork-dependencies.sh check $published_as to list them"
 fi
 
 echo

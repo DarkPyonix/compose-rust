@@ -63,6 +63,8 @@ cp "$repo"/renderer/desktop/scripts/*.sh "$tree/renderer/desktop/scripts/"
 cp "$repo/renderer/scripts/build-compose.sh" "$tree/renderer/scripts/"
 [[ -f "$repo/renderer/scripts/require-fork-artifacts.sh" ]] &&
     cp "$repo/renderer/scripts/require-fork-artifacts.sh" "$tree/renderer/scripts/"
+[[ -f "$repo/renderer/scripts/fork-dependencies.sh" ]] &&
+    cp "$repo/renderer/scripts/fork-dependencies.sh" "$tree/renderer/scripts/"
 for module in macos desktop linux; do
     mkdir -p "$tree/renderer/$module"
     cp "$repo/renderer/$module/module.yaml" "$tree/renderer/$module/"
