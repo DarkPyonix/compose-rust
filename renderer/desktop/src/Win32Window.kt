@@ -350,10 +350,7 @@ internal fun runWin32Window() {
         window.queue,
     )
     val measured = window.measure()
-    System.err.println(
-        "compose-rust: a window of our own, ${measured.width}x${measured.height} " +
-            "at ${measured.scale}x, with no toolkit in it",
-    )
+    WindowStartReport.windowOpened(measured.width, measured.height, measured.scale)
 
     val report = System.getenv("DXC_REPORT_INPUT") != null
     // Held rather than measured once. The window is resizable, and what the scene is told

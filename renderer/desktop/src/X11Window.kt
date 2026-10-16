@@ -83,10 +83,7 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
     }
     val context = org.jetbrains.skia.DirectContext.makeGL()
     val measured = window.measure()
-    System.err.println(
-        "compose-rust: a window of our own, ${measured.width}x${measured.height} " +
-            "at ${measured.scale}x, with no toolkit in it",
-    )
+    WindowStartReport.windowOpened(measured.width, measured.height, measured.scale)
 
     val report = System.getenv("DXC_REPORT_INPUT") != null
     // Held rather than measured once. Everything that reads a size reads this: the scene,
