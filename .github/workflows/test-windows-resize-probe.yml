@@ -43,8 +43,14 @@ env:
   HAND_CHECK_RUN: "38807049709"
 
 jobs:
+  fork-desktop:
+    # The desktop module asks for the fork's Compose and skiko-awt by version.
+    name: Build the Compose fork's desktop modules
+    uses: ./.github/workflows/fork-desktop-modules.yml
+
   graalvm:
     name: GraalVM renderer and hand-check (Windows, x64)
+    needs: fork-desktop
     runs-on: windows-2022
     timeout-minutes: 90
     steps:
@@ -57,6 +63,18 @@ jobs:
           java-version: '25'
           distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Take the Compose fork's desktop modules
+        uses: actions/download-artifact@v4
+        with:
+          name: compose-fork-desktop
+          path: ${{ runner.temp }}/compose-fork-desktop
+
+      - name: Put them where the renderer's build looks
+        shell: bash
+        run: |
+          mkdir -p ~/.m2/repository/org/jetbrains
+          cp -R "$RUNNER_TEMP/compose-fork-desktop/." ~/.m2/repository/org/jetbrains/
 
       - name: The window code this build compiles
         shell: bash
@@ -101,7 +119,7 @@ jobs:
           package="$(cygpath -u "$RUNNER_TEMP")/graalvm"
           mkdir -p "$package/bin" "$package/lib"
           cp -r renderer/build/native-image/dist/bin/. "$package/bin/"
-          cp -r renderer/build/native-image/dist/lib/. "$package/lib/"
+          [ ! -d renderer/build/native-image/dist/lib ] || cp -r renderer/build/native-image/dist/lib/. "$package/lib/"
           cp compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe "$package/bin/"
           ls -la "$package/bin" "$package/lib"
 
