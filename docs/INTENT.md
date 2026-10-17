@@ -28,7 +28,7 @@ Rust에서 Compose API를 직접 호출하지 않습니다. GraalVM `@CEntryPoin
 
 ### D2. Rust 측 작성 모델은 compose-rust 자신의 Compose 모양 API이고, Dioxus는 그 위에 얹힌다
 
-> **현황(2026-10-04).** 결정은 기록되었고 구현은 develop에 없습니다. 런타임은 `feature/compose-api` 브랜치에 있고 PR은 아직 열리지 않았습니다(이슈 #23, #64, SPEC FR-39).
+> **현황(2026-10-04).** 결정은 기록되었고 구현은 develop에 없습니다. 런타임은 초안 PR #112(`feature/compose-api`)에 있고 병합되지 않았습니다(이슈 #23, #64, SPEC FR-39).
 
 **소유자의 결정입니다(2026-10-03).** 2026-09-28부터 같은 말로 여러 번 주어졌고, 이 문서에 적히지 않은 채 다시 질문으로 돌아갔습니다.
 
@@ -85,7 +85,7 @@ Rust에서 Compose API를 직접 호출하지 않습니다. GraalVM `@CEntryPoin
 
 ### D4. 데스크톱 렌더러는 AWT 없이 만들고, 그것을 기본으로 배포한다
 
-> **현황(2026-10-04).** develop에서 배포되는 데스크톱 렌더러는 아직 GraalVM native-image AWT 경로입니다. 기본값 전환은 `feature/native-default-renderer` 브랜치에 있고 PR은 없습니다(이슈 #22, SPEC NFR-14).
+> **현황(2026-10-17).** macOS와 Linux에서 develop이 배포하는 데스크톱 렌더러는 AWT 없는 Kotlin/Native 정적 렌더러입니다. 기본값 전환은 PR #113(3be2ec74, 2026-10-04 병합)으로 들어왔고 이슈 #22는 닫혔습니다(SPEC NFR-14). 실행 38823417678의 "One executable" 잡이 macOS와 Linux에서 이를 확인합니다. Windows는 아직 GraalVM native-image AWT 경로이고 PR #119, #174가 그것을 바꿉니다. compose-rust가 내는 길은 Kotlin/Native뿐입니다(소유자, 2026-10-17).
 
 **소유자의 결정입니다(2026-10-03).**
 
@@ -347,7 +347,7 @@ macOS 26과 iOS 26은 같은 재질을 쓰지만 같은 방식으로 쓰지 않�
 
 ### D18. Windows 렌더러는 Kotlin/Native로 만들고, MinGW는 Kotlin 오브젝트 안에 가둔다
 
-> **현황(2026-10-04).** develop의 Windows 렌더러는 GraalVM native-image입니다. Kotlin/Native 렌더러는 `feature/windows-kotlin-native` 브랜치에 있고 PR은 없습니다(이슈 #24, SPEC NFR-13).
+> **현황(2026-10-17).** develop의 Windows 렌더러는 아직 GraalVM native-image입니다. Kotlin/Native 렌더러는 초안 PR #119(`feature/windows-kotlin-native`)와 그 위의 초안 PR #174에 있고 병합되지 않았습니다(이슈 #24, SPEC NFR-13).
 
 **소유자의 결정입니다(2026-10-03). 실험이 아니라 정식 통합입니다.**
 
@@ -402,7 +402,7 @@ skiko는 `mingwX64`를 발행하지 않고 Compose도 Windows용 Kotlin/Native �
 
 ### D19. Compose를 확장하는 일은 이 프로젝트 밖, Compose의 포크에서 한다
 
-> **현황(2026-10-04).** 디자인 시스템 소스는 포크로 옮겨졌습니다(PR #86). 두 층으로 나누는 일과 남은 좌표 이동은 두 포크의 `chore/thisisthepy-coordinates` 브랜치에 있고 병합되지 않았습니다(이슈 #39). 창 코드의 이동은 이슈 #26이 추적합니다.
+> **현황(2026-10-17).** 디자인 시스템 소스는 포크로 옮겨졌습니다(PR #86). 두 층으로 나누는 일과 남은 좌표 이동은 두 포크의 `chore/thisisthepy-coordinates` 브랜치에 있고 병합되지 않았습니다. compose-rust 쪽은 초안 PR #109입니다(이슈 #39). 창 코드는 macOS와 Linux 몫이 PR #165(45eaa177)로 포크로 옮겨졌고 이 저장소의 복사본은 지워졌습니다. Windows 창 코드는 아직 이 저장소에 있고, 이동은 이슈 #26이 추적합니다.
 
 이 저장소에는 성격이 다른 세 가지가 섞여 있었습니다. Compose 자체를 고치는 일(upstream 패치, GraalVM native-image에서 AWT를 걷어내는 경로, Kotlin/Native로 직접 만든 데스크톱 창), Rust에서 Compose를 쓰게 하는 일(위젯 스키마, 인터프리터, 경계), 그리고 Dioxus를 붙이는 일입니다. 첫째는 Rust와 무관하고, 같은 회사의 다른 프로젝트(Python에서 Compose를 쓰는 pythonx-compose)도 필요로 합니다. **2026-10-02에 셋으로 나눕니다.**
 
