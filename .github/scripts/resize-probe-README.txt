@@ -13,7 +13,19 @@ What it does
 
   Do not touch the mouse while it runs: the probe is moving it.
 
-How to run (PowerShell, in the folder that holds hand-check.exe and resize-probe.exe)
+The quick way: both apps, both paths, all three rates
+  Double-click run-probe-v2.cmd (or run run-probe-v2.ps1 in PowerShell) and do not touch the
+  mouse until it says "Done". It drags hand-check.exe (the Kotlin/Native renderer) and then
+  graalvm\bin\hand-check.exe (the GraalVM native image renderer), each with resize frames on
+  the CPU (new) and on the GPU (old, DXC_RASTER_RESIZE=0), at 16, 8 and 1 ms per mouse move,
+  and zips the logs into probe-logs.zip. Send that file.
+
+  Then check by hand, in each app (hand-check.exe and graalvm\bin\hand-check.exe), in the
+  first text field: type a few letters, press Ctrl+A (all of it is selected), Ctrl+C, click
+  at the end and press Ctrl+V (the text appears again). Say for each app whether all three
+  worked.
+
+How to run one drag by hand (PowerShell, in the folder that holds hand-check.exe and resize-probe.exe)
   1. Put nothing over the top left of the primary monitor, and keep the window there.
      The probe compares against the desktop as it is when it starts, so start it first.
   2. Start the probe, then hand-check with the drag handed to the probe:

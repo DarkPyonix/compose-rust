@@ -1,9 +1,16 @@
 # Windows resize probe test: real drags of hand-check's right edge from resize-probe, a separate
-# process, at 100% and at 200% display scale, with resize frames on the CPU (the default) and on
-# the GPU (DXC_RASTER_RESIZE=0), each at three mouse rates. Only the probe is compiled here:
-# hand-check.exe is the one the Resize metrics workflow built in run 38807049709, so a run takes
-# minutes rather than the two hours a renderer build does. The probe and that hand-check go out
-# together as one artifact, to run by hand with the same procedure.
+# process, for both Windows renderers, at 100% and at 200% display scale, with resize frames on
+# the CPU (the default) and on the GPU (DXC_RASTER_RESIZE=0), each at three mouse rates.
+#
+# The Kotlin/Native hand-check.exe is the one the Resize metrics workflow built in run
+# 38807049709, so its two-hour build is not repeated. The GraalVM native image renderer is
+# built here from this commit, with build-native-windows.ps1, and a hand-check linked to it.
+# Both run under the same run-probe-v2.ps1 the kit hands to a person.
+#
+# What this shows is that the probe and both apps work on the runner: the drag happens, the
+# widths change, the backdrop shows, and both apps take the same resize path in the same C. It
+# is not a resize verdict. The runner draws with WARP on the Basic Render Driver, where frames
+# drawn the old way show no hole either; that verdict comes from a real machine.
 
 name: Windows resize probe test
 
@@ -17,8 +24,14 @@ on:
       - ".github/scripts/resize-probe.c"
       - ".github/scripts/resize-probe.manifest"
       - ".github/scripts/resize-probe-README.txt"
+      - ".github/scripts/resize-probe-match.sh"
+      - ".github/scripts/run-probe-v2.ps1"
+      - ".github/scripts/run-probe-v2.cmd"
       - ".github/scripts/set-display-scale.c"
-      - ".github/scripts/resize-real-drag-run.sh"
+      - "renderer/desktop/c/win32_window.c"
+      - "renderer/desktop/src/Win32Window.kt"
+      - "renderer/desktop/src/RendererEntryPoints.kt"
+      - "renderer/desktop/scripts/build-native-windows.ps1"
 
 permissions:
   contents: read
@@ -26,14 +39,84 @@ permissions:
   actions: read
 
 env:
-  # The run whose hand-check.exe (artifact hand-check-windows-kn) this tests.
+  # The run whose Kotlin/Native hand-check.exe (artifact hand-check-windows-kn) this tests.
   HAND_CHECK_RUN: "38807049709"
 
 jobs:
+  graalvm:
+    name: GraalVM renderer and hand-check (Windows, x64)
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install upstream GraalVM 25
+        # As test-native-renderer.yml's Windows job does.
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: The window code this build compiles
+        shell: bash
+        run: |
+          file=renderer/desktop/c/win32_window.c
+          echo "commit $GITHUB_SHA"
+          echo "git blob of $file at HEAD: $(git rev-parse "HEAD:$file")"
+          echo "hash of the file on disk:   $(git hash-object "$file")"
+          grep -nE '^(int32_t|void) dxc_native_(set_raster_resize|frame_mode|raster_begin|raster_end)\(' "$file"
+
+      - name: Build the GraalVM Windows renderer
+        shell: powershell
+        run: .\renderer\desktop\scripts\build-native-windows.ps1
+
+      - name: The renderer holds that window code
+        shell: bash
+        run: |
+          set -euo pipefail
+          obj=renderer/build/native-image/obj-windows/win32_window.obj
+          dll=renderer/build/native-image/dist/bin/libcompose_rust_renderer.dll
+          ls -la "$obj" "$dll"
+          echo "win32_window.obj built from the file above: $(stat -c %y "$obj")"
+          for text in "resize frames on the CPU (Skia raster, GDI blit)" "resize-proof step" "resize-trace qpc="; do
+            echo "\"$text\" in the renderer: $(grep -a -c -F "$text" "$dll" || true)"
+            grep -a -q -F "$text" "$dll"
+          done
+
+      - name: Build hand-check against the GraalVM renderer
+        shell: bash
+        run: |
+          set -euo pipefail
+          export COMPOSE_RUST_RENDERER_DIR="$(cygpath -w "$PWD/renderer/build/native-image/dist")"
+          cargo build --release --manifest-path compose-rust/tests/fixtures/hand-check/Cargo.toml
+
+      - name: Package it
+        # bin\ holds hand-check.exe beside the renderer and its libraries; lib\ beside bin\ is
+        # where the renderer looks for the files java.home names.
+        shell: bash
+        run: |
+          set -euo pipefail
+          package="$(cygpath -u "$RUNNER_TEMP")/graalvm"
+          mkdir -p "$package/bin" "$package/lib"
+          cp -r renderer/build/native-image/dist/bin/. "$package/bin/"
+          cp -r renderer/build/native-image/dist/lib/. "$package/lib/"
+          cp compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe "$package/bin/"
+          ls -la "$package/bin" "$package/lib"
+
+      - name: Keep it
+        uses: actions/upload-artifact@v4
+        with:
+          name: hand-check-windows-graalvm
+          path: ${{ runner.temp }}/graalvm/
+          if-no-files-found: error
+          retention-days: 14
+
   probe:
     name: Real drags from the resize probe at 100% and 200% (Windows, x64)
+    needs: graalvm
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     defaults:
       run:
         shell: bash
@@ -42,13 +125,19 @@ jobs:
         with:
           sparse-checkout: .github
 
-      - name: Receive hand-check from the earlier run
+      - name: Receive the Kotlin/Native hand-check from the earlier run
         uses: actions/download-artifact@v4
         with:
           name: hand-check-windows-kn
           run-id: ${{ env.HAND_CHECK_RUN }}
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/hand-check
+
+      - name: Receive the GraalVM hand-check
+        uses: actions/download-artifact@v4
+        with:
+          name: hand-check-windows-graalvm
+          path: ${{ runner.temp }}/probe-kit/graalvm
 
       - name: Enter the Visual Studio developer environment
         shell: pwsh
@@ -69,10 +158,10 @@ jobs:
           $bin | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
           # mt.exe, which the linker runs to embed the probe's manifest.
           Join-Path $sdkbin "x64" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
-          Write-Output "Windows SDK tools: $(Join-Path $sdkbin 'x64')"
           Write-Output "MSVC tools: $bin"
+          Write-Output "Windows SDK tools: $(Join-Path $sdkbin 'x64')"
 
-      - name: Build the resize probe and the display scale tool
+      - name: Build the resize probe and the display scale tool, and lay out the kit
         # The probe's manifest makes it per-monitor DPI aware before any of its code runs.
         run: |
           set -euo pipefail
@@ -85,13 +174,19 @@ jobs:
           (cd "$tools" && MSYS_NO_PATHCONV=1 cl /nologo /O2 /W3 "$scripts\\set-display-scale.c")
           rm -f "$kit"/*.obj "$tools"/*.obj
           cp "$(cygpath -u "$RUNNER_TEMP")/hand-check/hand-check.exe" "$kit/"
+          cp .github/scripts/run-probe-v2.ps1 .github/scripts/run-probe-v2.cmd "$kit/"
           cp .github/scripts/resize-probe-README.txt "$kit/README.txt"
-          echo "hand-check.exe from run $HAND_CHECK_RUN, resize-probe.exe from commit $GITHUB_SHA" >> "$kit/README.txt"
-          ls -la "$kit" "$tools"
-          sha256sum "$kit"/*.exe
+          {
+            echo
+            echo "This kit: hand-check.exe is the Kotlin/Native renderer from run $HAND_CHECK_RUN;"
+            echo "graalvm\\bin\\hand-check.exe is the GraalVM native image renderer and"
+            echo "resize-probe.exe the probe, both from commit $GITHUB_SHA."
+          } >> "$kit/README.txt"
+          ls -la "$kit" "$kit/graalvm/bin" | head -60
+          sha256sum "$kit"/*.exe "$kit"/graalvm/bin/hand-check.exe
 
       - name: Keep the probe kit
-        # hand-check.exe and resize-probe.exe side by side, for run-probe.ps1 on a real machine.
+        # Both apps and the probe, for run-probe-v2.cmd on a real machine.
         uses: actions/upload-artifact@v4
         with:
           name: resize-probe-kit-windows
@@ -100,23 +195,18 @@ jobs:
           retention-days: 30
 
       - name: Real drags at 100%
+        # The kit's own script, as a person runs it. The runner has no graphics card, so both
+        # renderers draw with WARP.
         env:
           DXC_D3D12_WARP: '1'
         run: |
-          kit="$(cygpath -u "$RUNNER_TEMP")/probe-kit"
-          out="$(cygpath -u "$RUNNER_TEMP")/probe-logs"
-          for path in new old; do
-            for rate in "16 8" "8 4" "1 1"; do
-              set -- $rate
-              if [ "$path" = old ]; then export DXC_RASTER_RESIZE=0; else unset DXC_RASTER_RESIZE; fi
-              ./.github/scripts/resize-real-drag-run.sh "$kit/hand-check.exe" "$kit/resize-probe.exe" "$out" \
-                "1x-$path-$1" "$1" "$2"
-            done
-          done
+          kit="$(cygpath -w "$RUNNER_TEMP/probe-kit")"
+          out="$(cygpath -w "$RUNNER_TEMP/probe-logs/1x")"
+          powershell -NoProfile -ExecutionPolicy Bypass -File "$kit\\run-probe-v2.ps1" -NoPause -Out "$out"
 
       - name: Set the display to 200%
-        # The runner's display is 1024x768, where Windows offers no scale but 100%, so the
-        # resolution changes first: the largest mode that offers 200% (1920x1080 stops at 175%).
+        # The runner's display is 1024x768, where Windows offers no scale but 100%, and
+        # 1920x1080 stops at 175%: the scale tool picks the largest mode that offers 200%.
         id: scale
         run: |
           tools="$(cygpath -u "$RUNNER_TEMP")/tools"
@@ -133,70 +223,37 @@ jobs:
         env:
           DXC_D3D12_WARP: '1'
         run: |
-          kit="$(cygpath -u "$RUNNER_TEMP")/probe-kit"
-          out="$(cygpath -u "$RUNNER_TEMP")/probe-logs"
-          for path in new old; do
-            for rate in "16 8" "8 4" "1 1"; do
-              set -- $rate
-              if [ "$path" = old ]; then export DXC_RASTER_RESIZE=0; else unset DXC_RASTER_RESIZE; fi
-              ./.github/scripts/resize-real-drag-run.sh "$kit/hand-check.exe" "$kit/resize-probe.exe" "$out" \
-                "2x-$path-$1" "$1" "$2"
-            done
-          done
-
-      - name: Receive the earlier probe, built without a manifest
-        uses: actions/download-artifact@v4
-        with:
-          name: resize-probe-windows
-          run-id: ${{ env.HAND_CHECK_RUN }}
-          github-token: ${{ github.token }}
-          path: ${{ runner.temp }}/earlier-probe
-
-      - name: The earlier probe at 200%, for comparison
-        # The probe from the same run as hand-check, which stopped on a 200% laptop with "the
-        # window is not on the primary monitor". Reported, not judged.
-        env:
-          DXC_D3D12_WARP: '1'
-        run: |
-          kit="$(cygpath -u "$RUNNER_TEMP")/probe-kit"
-          out="$(cygpath -u "$RUNNER_TEMP")/probe-logs"
-          probe="$(cygpath -u "$RUNNER_TEMP")/earlier-probe/resize-probe.exe"
-          log="$out/2x-earlier-probe-16-probe.log"
-          "$probe" --turn-on-full-window-drag --interval-ms 16 --step-px 8 --wait-seconds 20 --out "$(cygpath -w "$log")" &
-          probe_pid=$!
-          for _ in $(seq 60); do grep -q "waiting for a" "$log" 2>/dev/null && break; sleep 0.5; done
-          DXC_METRICS=1 DXC_REAL_DRAG=external DXC_RESIZE_TRACE=1 "$kit/hand-check.exe" > "$out/2x-earlier-probe-16.log" 2>&1 &
-          app_pid=$!
-          wait "$probe_pid" || true
-          kill "$app_pid" 2>/dev/null || true
-          sleep 1
-          kill -9 "$app_pid" 2>/dev/null || true
-          grep -vE "resize-probe: (frame|send) n=" "$log" || true
+          kit="$(cygpath -w "$RUNNER_TEMP/probe-kit")"
+          out="$(cygpath -w "$RUNNER_TEMP/probe-logs/2x")"
+          powershell -NoProfile -ExecutionPolicy Bypass -File "$kit\\run-probe-v2.ps1" -NoPause -Out "$out"
 
       - name: Report the drags
         if: always()
         run: |
           out="$(cygpath -u "$RUNNER_TEMP")/probe-logs"
           {
+            echo "These show that the probe and both apps work here; they are not a resize verdict."
             echo "### Display scale"
             echo '```'
             cat "$out/set-display-scale.log" 2>/dev/null || echo "no set-display-scale log"
             echo '```'
-            echo "### The earlier probe at 200%"
-            echo '```'
-            grep -vE "resize-probe: (frame|send) n=" "$out/2x-earlier-probe-16-probe.log" 2>/dev/null || echo "no log"
-            echo '```'
             for scale in 1x 2x; do
-              for path in new old; do
-                for rate in 16 8 1; do
-                  label="$scale-$path-$rate"
-                  echo "### $label"
-                  echo '```'
-                  grep -hE "resize-probe: (dpi awareness|duplicating|window|  |client|move-size|summary|verdict)" \
-                    "$out/$label-probe.log" 2>/dev/null || echo "no probe log"
-                  grep -hE "a window of our own|resize-mode: (monitor|resize frames)|real drag (ready|done)" \
-                    "$out/$label.log" 2>/dev/null || echo "no application log"
-                  echo '```'
+              for app in kn graalvm; do
+                for path in new old; do
+                  for rate in 16 8 1; do
+                    label="$app-$path-$rate"
+                    dir="$out/$scale"
+                    echo "### $scale $label"
+                    echo '```'
+                    grep -hE "resize-probe: (dpi awareness|duplicating|placed|window|  |client|move-size|summary|verdict)" \
+                      "$dir/$label-probe.log" 2>/dev/null || echo "no probe log"
+                    cat "$dir/$label.log" "$dir/$label.log.err" 2>/dev/null |
+                      grep -E "a window of our own|Compose scene created|first frame drawn|resize-mode: (monitor|resize frames)|real drag (ready|done)" |
+                      sort | uniq -c || true
+                    cat "$dir/$label.log" "$dir/$label.log.err" 2>/dev/null > "$dir/$label.all.log"
+                    bash .github/scripts/resize-probe-match.sh "$dir/$label.all.log" "$dir/$label-probe.log" 2>/dev/null | tail -3
+                    echo '```'
+                  done
                 done
               done
             done
@@ -210,25 +267,45 @@ jobs:
           path: ${{ runner.temp }}/probe-logs/
           retention-days: 14
 
-      - name: Every drag ran and passed, at both scales
+      - name: The probe ran, and both apps took the same resize path
+        # Not a resize verdict (see the top of this file). Each drag must have run: a verdict
+        # that is not ERROR, the move-size loop entered, more than one width seen. And both
+        # apps must take the path asked for, in the same words from the same C: frames on the
+        # CPU with every step blitted and validated, or frames on the GPU with no such step.
         run: |
           out="$(cygpath -u "$RUNNER_TEMP")/probe-logs"
           [ "${{ steps.scale.outputs.status }}" = 0 ] || { echo "the display did not go to 200%" >&2; exit 1; }
           grep -q "effective dpi 192" "$out/set-display-scale.log" || { echo "the display is not at 192 dpi" >&2; exit 1; }
           status=0
           for scale in 1x 2x; do
-            for path in new old; do
-              for rate in 16 8 1; do
-                label="$scale-$path-$rate"
-                verdict="$(grep -h "resize-probe: verdict" "$out/$label-probe.log" 2>/dev/null || echo "no verdict")"
-                echo "$label: $verdict"
-                case "$verdict" in *"verdict PASS"*) ;; *) status=1 ;; esac
-                grep -qE "real drag done steps=[1-9][0-9]* verdict PASS" "$out/$label.log" ||
-                  { echo "$label: the window drew no step of the drag"; status=1; }
+            want="$([ $scale = 1x ] && echo "dpi 96 (1.00x)" || echo "dpi 192 (2.00x)")"
+            for app in kn graalvm; do
+              for path in new old; do
+                for rate in 16 8 1; do
+                  label="$app-$path-$rate"
+                  dir="$out/$scale"
+                  probe="$dir/$label-probe.log"
+                  log="$dir/$label.all.log"
+                  [ -f "$log" ] || cat "$dir/$label.log" "$dir/$label.log.err" > "$log" 2>/dev/null
+                  verdict="$(grep -h "resize-probe: verdict" "$probe" 2>/dev/null || echo "no verdict")"
+                  echo "$scale $label: $verdict"
+                  case "$verdict" in *"verdict PASS"*|*"verdict FAIL"*) ;; *) echo "  the probe did not run"; status=1 ;; esac
+                  grep -q "move-size loop entered" "$probe" 2>/dev/null || { echo "  no move-size loop"; status=1; }
+                  grep -qF "px, $want" "$probe" 2>/dev/null || { echo "  the window was not at $want"; status=1; }
+                  if [ "$path" = new ]; then
+                    grep -qF "resize-mode: resize frames on the CPU (Skia raster, GDI blit)" "$log" ||
+                      { echo "  $app did not take the CPU resize path"; status=1; }
+                    steps="$(grep -c "resize-proof step" "$log")"
+                    bad="$(grep "resize-proof step" "$log" | grep -vcE "presents=0 child_visible=0 blit=1 validated=1$")"
+                    echo "  resize-proof steps: $steps, not blitted and validated: $bad"
+                    { [ "$steps" -gt 0 ] && [ "$bad" = 0 ]; } || status=1
+                  else
+                    grep -qF "resize-mode: resize frames on the GPU" "$log" ||
+                      { echo "  $app did not take the GPU resize path"; status=1; }
+                    ! grep -q "resize-proof step" "$log" || { echo "  $app drew CPU steps with DXC_RASTER_RESIZE=0"; status=1; }
+                  fi
+                done
               done
             done
-            want="$([ $scale = 1x ] && echo "dpi 96 (1.00x)" || echo "dpi 192 (2.00x)")"
-            grep -qF "px, $want" "$out/$scale-new-16-probe.log" ||
-              { echo "$scale: the window was not at the expected dpi"; status=1; }
           done
           exit $status
