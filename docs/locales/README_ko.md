@@ -27,8 +27,9 @@ compose-rust는 네 가지를 합친 것입니다.
 - **웹뷰 없음, 동봉된 JVM 없음.** 데스크톱 애플리케이션은 시스템 라이브러리만 링크하는 실행 파일
   하나입니다. 0.0.2부터 macOS와 Linux(x64, arm64)는 Kotlin/Native 정적 아카이브를 내려받고,
   빌드가 그것을 실행 파일 안에 링크합니다. CI가 세 대상 모두에서 그 결과를 확인합니다. Windows는
-  Kotlin/Native 렌더러가 들어오기 전까지 애플리케이션 옆에 놓이는 GraalVM 네이티브 이미지 공유
-  라이브러리를 씁니다([#24](https://github.com/DarkPyonix/compose-rust/issues/24)).
+  Kotlin/Native 정적 아카이브가 게시될 때까지 애플리케이션 옆에 놓이는 GraalVM 네이티브 이미지 공유
+  라이브러리를 내려받습니다([#24](https://github.com/DarkPyonix/compose-rust/issues/24)). 체크아웃에서
+  빌드하면 Windows Kotlin/Native 렌더러도 이미 MSVC가 링크한 실행 파일 하나가 됩니다.
 
 ---
 
@@ -106,7 +107,7 @@ fn main() {
 | 동작 키(조밀한 키패드 버튼) | 부분 | [#57](https://github.com/DarkPyonix/compose-rust/issues/57) | [#76](https://github.com/DarkPyonix/compose-rust/pull/76) |
 | 막대 제목을 플랫폼 캡션에 맡기기 | 계획 | [#79](https://github.com/DarkPyonix/compose-rust/issues/79) | 없음 |
 | 디자인 시스템을 시스템별 라이브러리와 적응형 층으로 나누기 | 부분 | [#39](https://github.com/DarkPyonix/compose-rust/issues/39) | Compose 포크의 `chore/thisisthepy-coordinates` 브랜치 |
-| Windows Kotlin/Native 렌더러 | 부분 | [#24](https://github.com/DarkPyonix/compose-rust/issues/24) | [#119](https://github.com/DarkPyonix/compose-rust/pull/119) |
+| 내려받는 기본값으로서의 Windows Kotlin/Native 렌더러 | 부분: 체크아웃에서 빌드됨 | [#24](https://github.com/DarkPyonix/compose-rust/issues/24) | [#174](https://github.com/DarkPyonix/compose-rust/pull/174) |
 | 시스템 색 구성표가 바뀌었다는 이벤트 | 제안, 승인 대기 | [#97](https://github.com/DarkPyonix/compose-rust/issues/97) | 없음 |
 | 노드마다 포커스를 얻은 이벤트와 키를 뗀 이벤트 | 제안, 승인 대기 | [#98](https://github.com/DarkPyonix/compose-rust/issues/98) | 없음 |
 
@@ -118,7 +119,7 @@ fn main() {
 |---|---|---|
 | 🍎 **macOS (arm64)** | **처음부터 끝까지 동작** | 실행 파일 안에 링크되는 Kotlin/Native 렌더러이고, 포크의 AppKit 창에 Metal로 그립니다. 0.0.2는 그것을 빌드가 실행 파일 안에 링크하는 정적 아카이브로 배포하므로, 앱은 실행 파일 하나입니다. 기본적인 한글 IME 입력은 동작하고, IME 체크리스트 전체는 아직 끝나지 않았습니다 |
 | 🐧 Linux (x64, arm64) | 빌드되고 시작됨 | Kotlin/Native 렌더러이고, 포크의 X11 창에 GLX로 그립니다. arm64는 x64에서 교차 컴파일합니다. 0.0.2는 그것을 빌드가 실행 파일 안에 링크하는 정적 아카이브로 배포합니다. CI에서 그것으로 빌드한 애플리케이션은 libc, X11, GL, fontconfig, C++ 런타임(arm64는 EGL 포함)만 부르는 실행 파일 하나이고, 빈 디렉터리에 혼자 복사해도 Xvfb에서 그립니다. 사람이 직접 써 본 적은 아직 없습니다 |
-| 🪟 Windows | 빌드되고 시작됨 | Kotlin/Native 렌더러가 Windows도 실행 파일 하나로 만들 때까지는 GraalVM 네이티브 이미지이고, 렌더러가 바뀔 때마다 스모크 테스트를 합니다([#24](https://github.com/DarkPyonix/compose-rust/issues/24), 진행 중) |
+| 🪟 Windows | 빌드되고 시작됨 | 내려받는 것은 GraalVM 네이티브 이미지이고, 렌더러가 바뀔 때마다 스모크 테스트를 합니다. 체크아웃에서는 Kotlin/Native 렌더러를 MSVC가 실행 파일 하나로 링크하며, CI가 확인합니다. 정적 아카이브가 게시되면 그것을 내려받습니다([#24](https://github.com/DarkPyonix/compose-rust/issues/24)) |
 | 📱 iOS | 빌드되고 시작됨 | 같은 C 심볼을 내보내는 Kotlin/Native 정적 아카이브. XCFramework로 릴리스합니다 |
 | 🤖 Android | **처음부터 끝까지 동작** | Kotlin Activity가 프로세스와 루프를 갖고, Rust는 cdylib이며, 양쪽 JNI 심은 스키마에서 생성됩니다. 크레이트가 렌더러의 Kotlin 소스를 싣고 있고, 빌드 스크립트가 그것을 Gradle 프로젝트에 풀어 놓습니다 |
 | 🌐 Web (wasm) | **처음부터 끝까지 동작** | `WebAssembly.Memory` 하나를 Kotlin/Wasm 모듈이 갖고 Rust 모듈이 가져다 쓰므로, 배치는 쓰인 자리에서 읽힙니다. 렌더러에서 Host로 가는 호출은 생성된 JavaScript 포워더를 거치며, 약 12 ns로 측정되었습니다. 포워더 없는 직결 호출은 계획입니다([#54](https://github.com/DarkPyonix/compose-rust/issues/54)) |
@@ -211,8 +212,9 @@ cargo add compose-rust@0.0.2
 아티팩트가 정적 아카이브인 곳(0.0.2부터 macOS와 Linux)에서 `cargo build`가 내는 것은 **실행
 파일 하나**입니다. 렌더러, Compose, Skia, ICU가 그 안에 있고, 옆에 놓이는 것은 없으며, 불러오는 것은
 시스템 라이브러리뿐입니다(macOS는 프레임워크와 `/usr/lib`, Linux는 libc, X11, GL, fontconfig,
-FreeType). 어디로 복사해도 실행됩니다. Windows는 정적 렌더러가 들어오기 전까지 GraalVM 네이티브
-이미지, 즉 동반 파일을 옆에 둔 DLL을 내려받습니다.
+FreeType). 어디로 복사해도 실행됩니다. Windows는 정적 렌더러가 게시될 때까지 GraalVM 네이티브
+이미지, 즉 동반 파일을 옆에 둔 DLL을 내려받습니다([#24](https://github.com/DarkPyonix/compose-rust/issues/24)).
+체크아웃에서 빌드하면 Windows Kotlin/Native 렌더러는 이미 실행 파일 하나입니다.
 
 | 변수 | 효과 |
 |---|---|
@@ -300,8 +302,12 @@ CI는 `.github/scripts/package-static-renderer.sh`로 아카이브를 묶고
 복사해 그리는지, 그리고 기계에 ICU 데이터 파일이 없는 상태에서 한국어를 바르게 배치하는지(모든
 글리프를 찾고, 단어를 통째로 찾고, 줄을 단어 사이에서 나누는지) 봅니다.
 
-Windows는 아직 GraalVM 네이티브 이미지를 `renderer/desktop/scripts/build-native-windows.ps1`로
-빌드하며, 이 스크립트는 bash 부분을 Git Bash로 돌립니다. 빌드가 실패하면
+Windows에서는 `renderer/desktop/scripts/build-windows.sh`가 Kotlin/Native 렌더러를 빌드하고,
+`DXC_WINDOWS_NATIVE_LIB`가 그 출력(`renderer/build/windows`)을 가리키면 빌드가 그것을 링크합니다.
+MSVC가 링크한 실행 파일 하나이고, 옆에 놓이는 것은 없습니다. 이 변수가 없으면 Windows는
+`renderer/desktop/scripts/build-native-windows.ps1`로 빌드하는 GraalVM 네이티브 이미지를 쓰며, 이
+스크립트는 bash 부분을 Git Bash로 돌립니다. Kotlin/Native 아카이브는 게시되면 내려받는 기본값이
+됩니다([#24](https://github.com/DarkPyonix/compose-rust/issues/24)). 빌드가 실패하면
 [문제 해결 페이지](https://darkpyonix.dev/compose-rust/ko/troubleshooting.html)가 포크의 아티팩트, 낡은
 해석 상태, Windows에서 Git Bash의 `PATH` 문제를 다룹니다.
 

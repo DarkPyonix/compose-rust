@@ -28,8 +28,10 @@ compose-rust is four things put together:
 - **No webview, and no bundled JVM.** On the desktop an application is one executable that links
   only the system's own libraries. From 0.0.2, macOS and Linux (x64 and arm64) download a
   Kotlin/Native static archive, and the build links it into the executable; CI proves the result
-  on all three. Windows still uses a GraalVM native-image shared library beside the application,
-  until its Kotlin/Native renderer lands ([#24](https://github.com/DarkPyonix/compose-rust/issues/24)).
+  on all three. Windows downloads a GraalVM native-image shared library beside the application
+  until its Kotlin/Native static archive is published
+  ([#24](https://github.com/DarkPyonix/compose-rust/issues/24)). From a checkout the Windows
+  Kotlin/Native renderer already builds into one MSVC-linked executable.
 
 ---
 
@@ -112,7 +114,7 @@ Where work exists, it sits in an open pull request or a branch.
 | Action keys (dense keypad buttons) | partial | [#57](https://github.com/DarkPyonix/compose-rust/issues/57) | [#76](https://github.com/DarkPyonix/compose-rust/pull/76) |
 | The bar's title in the platform caption | planned | [#79](https://github.com/DarkPyonix/compose-rust/issues/79) | none |
 | Design systems split into per-system libraries and an adaptive layer | partial | [#39](https://github.com/DarkPyonix/compose-rust/issues/39) | branch `chore/thisisthepy-coordinates` in the Compose forks |
-| The Windows Kotlin/Native renderer | partial | [#24](https://github.com/DarkPyonix/compose-rust/issues/24) | [#119](https://github.com/DarkPyonix/compose-rust/pull/119) |
+| The Windows Kotlin/Native renderer as the downloaded default | partial: builds from a checkout | [#24](https://github.com/DarkPyonix/compose-rust/issues/24) | [#174](https://github.com/DarkPyonix/compose-rust/pull/174) |
 | An event when the system colour scheme changes | proposed, awaiting approval | [#97](https://github.com/DarkPyonix/compose-rust/issues/97) | none |
 | Focus-gained and key-up events per node | proposed, awaiting approval | [#98](https://github.com/DarkPyonix/compose-rust/issues/98) | none |
 
@@ -124,7 +126,7 @@ Where work exists, it sits in an open pull request or a branch.
 |---|---|---|
 | 🍎 **macOS (arm64)** | **Works end to end** | The Kotlin/Native renderer linked into the executable, drawing through Metal into the fork's AppKit window. 0.0.2 ships it as a static archive the build links into the executable, so the app is one executable. Basic Korean IME input works; the full IME checklist is not finished |
 | 🐧 Linux (x64, arm64) | Builds and starts | The Kotlin/Native renderer, drawing through GLX into the fork's X11 window; arm64 is cross compiled on x64. 0.0.2 ships it as a static archive the build links into the executable. In CI an application built from it is one executable naming only libc, X11, GL, fontconfig and the C++ runtime (and EGL on arm64), and copied alone into an empty directory it draws under Xvfb. Nobody has used it interactively yet |
-| 🪟 Windows | Builds and starts | GraalVM native image, smoke-tested on every renderer change, until the Kotlin/Native renderer makes Windows one executable too ([#24](https://github.com/DarkPyonix/compose-rust/issues/24), in progress) |
+| 🪟 Windows | Builds and starts | Downloaded: a GraalVM native image, smoke-tested on every renderer change. From a checkout: the Kotlin/Native renderer, linked by MSVC into one executable and checked in CI. It becomes the download once its static archive is published ([#24](https://github.com/DarkPyonix/compose-rust/issues/24)) |
 | 📱 iOS | Builds and starts | Kotlin/Native static archive exporting the same C symbols, released as an XCFramework |
 | 🤖 Android | **Works end to end** | A Kotlin Activity owns the process and the loop, Rust is a cdylib, and the JNI shims on both sides are generated from the schema. The crate carries the renderer's Kotlin sources and its build script stages them into the Gradle project |
 | 🌐 Web (wasm) | **Works end to end** | One `WebAssembly.Memory`, owned by the Kotlin/Wasm module and imported by the Rust one, so a batch is read where it was written. Calls from the renderer to the Host cross a generated JavaScript forwarder, measured at about 12 ns. Direct calls without the forwarder are planned ([#54](https://github.com/DarkPyonix/compose-rust/issues/54)) |
@@ -226,7 +228,9 @@ Where the artifact is the static archive (macOS and Linux from 0.0.2), what `car
 build` produces is **one executable**: the renderer, Compose, Skia and ICU are inside it, nothing
 sits beside it, and it loads only the system's libraries (frameworks and `/usr/lib` on macOS;
 libc, X11, GL, fontconfig and FreeType on Linux). Copy it anywhere and it runs. Windows downloads
-the GraalVM native image, a DLL with its companions beside it, until its static renderer lands.
+the GraalVM native image, a DLL with its companions beside it, until its static renderer is
+published ([#24](https://github.com/DarkPyonix/compose-rust/issues/24)); built from a checkout,
+the Windows Kotlin/Native renderer is already one executable.
 
 | Variable | Effect |
 |---|---|
@@ -309,8 +313,12 @@ interpreter inside it, the same archive the release ships, with `schema-hash.txt
 checkout the build links that workspace build before anything it could download, then a native
 image in `renderer/build/native-image/dist/lib`; `DXC_MACOS_NATIVE_LIB` and
 `DXC_LINUX_NATIVE_LIB` still name a static renderer directory directly, ahead of everything.
-Windows still builds the GraalVM native image, with
-`renderer/desktop/scripts/build-native-windows.ps1`, which runs the bash parts under Git Bash.
+On Windows, `renderer/desktop/scripts/build-windows.sh` builds the Kotlin/Native renderer, and
+`DXC_WINDOWS_NATIVE_LIB` pointing at its output (`renderer/build/windows`) makes the build link it:
+one executable, linked by MSVC, with nothing beside it. Without that variable Windows uses the
+GraalVM native image, built with `renderer/desktop/scripts/build-native-windows.ps1`, which runs
+the bash parts under Git Bash. The Kotlin/Native archive becomes the download once it is
+published ([#24](https://github.com/DarkPyonix/compose-rust/issues/24)).
 When a build fails, the [troubleshooting page](https://darkpyonix.dev/compose-rust/en/troubleshooting.html)
 covers the fork's artifacts, stale resolution state and Git Bash's `PATH` on Windows.
 

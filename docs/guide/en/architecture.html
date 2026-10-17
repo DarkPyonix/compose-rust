@@ -247,7 +247,7 @@
         <tbody>
           <tr><td>macOS</td><td>Kotlin/Native static archive, linked into the executable</td><td>Shipped from 0.0.2</td></tr>
           <tr><td>Linux (x64, arm64)</td><td>Kotlin/Native static archive, linked into the executable</td><td>Shipped from 0.0.2</td></tr>
-          <tr><td>Windows</td><td>Kotlin/Native (<code>mingwX64</code>), linked into an MSVC executable</td><td>In progress (<a href="https://github.com/DarkPyonix/compose-rust/issues/24">#24</a>). Until it lands, Windows gets a GraalVM native image.</td></tr>
+          <tr><td>Windows</td><td>Kotlin/Native (<code>mingwX64</code>), linked into an MSVC executable</td><td>Builds from a checkout into one MSVC-linked executable, checked in CI. The download is still a GraalVM native image until the static archive is published (<a href="https://github.com/DarkPyonix/compose-rust/issues/24">#24</a>).</td></tr>
           <tr><td>iOS</td><td>Kotlin/Native static archive</td><td>Released as an XCFramework</td></tr>
           <tr><td>Android</td><td>Android library, built from Kotlin sources the crate carries</td><td>Shipped</td></tr>
           <tr><td>Web</td><td>Kotlin/Wasm</td><td>Shipped</td></tr>
