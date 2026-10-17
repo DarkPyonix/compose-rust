@@ -133,6 +133,10 @@ jobs:
           printf '#!/bin/sh\nCOMPOSE_RUST_AUTOEXIT_MS=600000 exec "%s"\n' "$PWD/renderer/build/native-image/smoke_host" > "$RUNNER_TEMP/smoke-launch"
           chmod +x "$RUNNER_TEMP/smoke-launch"
           ./.github/scripts/resize-metrics-run.sh "$RUNNER_TEMP/smoke-launch" "$out" soak-macos-graalvm soak
+          # Diagnostic, temporary: where the graphics driver memory kept per drag comes from.
+          DXC_SKIA_CACHE_MB=0 ./.github/scripts/resize-metrics-run.sh "$RUNNER_TEMP/smoke-launch" "$out" soak-macos-graalvm-cache0 soak
+          DXC_LEGACY_RESIZE=1 ./.github/scripts/resize-metrics-run.sh "$RUNNER_TEMP/smoke-launch" "$out" soak-macos-graalvm-legacy soak
+          for d in cache0 legacy; do { echo "### GraalVM diagnostic $d"; ./.github/scripts/resize-memory-check.sh --soak "$out/soak-macos-graalvm-$d.log" 100000 || true; } | tee -a "$GITHUB_STEP_SUMMARY"; done
           { echo "### GraalVM soak"; ./.github/scripts/resize-memory-check.sh --soak "$out/soak-macos-graalvm.log" "$SOAK_BOUND_MB"; } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Keep the resize logs
