@@ -185,5 +185,24 @@ grep -q 'input-check: field = .*한글' "$logs/host.log" ||
     fail "the field did not end up holding the word" \
          "Expected 한글 in what the Host heard the field change to."
 
+echo "== dropping files on the window (XDND)"
+# A file manager's drop, played by a client of its own over the X drag and drop protocol. The
+# drop target sits below the field and the button, and its height is the label's, so the point is
+# tried down the column until the Host hears a drop.
+cc -O1 -o "$logs/xdnd-drop" "$repo_root/.github/scripts/xdnd-drop.c" -lX11 ||
+    fail "the drop client did not compile" "It needs libx11-dev."
+drop_path="$logs/dropped file.txt"
+: >"$drop_path"
+for y in $(seq 70 6 330); do
+    "$logs/xdnd-drop" "$window" 80 "$y" "$drop_path" >>"$logs/xdnd-drop.log" 2>&1 || true
+    sleep 0.5
+    grep -q 'input-check: dropped = ' "$logs/host.log" && break
+done
+grep -q "input-check: dropped = .*dropped file.txt" "$logs/host.log" ||
+    fail "the files dropped on the window did not reach the Host" \
+         "Expected the path, with its space, in what the Host heard." \
+         "$(cat "$logs/xdnd-drop.log" 2>/dev/null || true)"
+echo "ok    files dropped over XDND reached the Host as paths"
+
 [[ -z "$accessibility_failed" ]] || fail "$accessibility_failed"
 echo "ok    Korean typed through ibus-hangul reached the field, composed first and committed after"

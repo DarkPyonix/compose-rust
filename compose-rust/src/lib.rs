@@ -48,7 +48,8 @@ pub mod window;
 mod writer;
 
 pub use animation::{
-    AnimationMoment, AnimationSpec, GraphicsLayer, control_animation, reduced_motion,
+    Animated, AnimationMoment, AnimationSpec, GraphicsLayer, animate_color_as_state,
+    animate_float_as_state, animate_offset_as_state, control_animation, reduced_motion,
     start_animation, transition,
 };
 pub use asset::asset;
