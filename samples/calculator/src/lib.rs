@@ -884,10 +884,6 @@ mod tests {
                 .collect()
         }
 
-        fn has_button(&self, label: &str) -> bool {
-            self.button_labels().iter().any(|found| found == label)
-        }
-
         /// Whether a button carrying this icon stands on the screen.
         fn has_icon_button(&self, role: IconRole) -> bool {
             self.buttons

@@ -11,7 +11,7 @@ smoke_script="$scripts_dir/smoke-test-windows.ps1"
 metadata="$scripts_dir/windows-metadata/reachability-metadata.json"
 resources="$scripts_dir/windows-metadata/resources/resource-config.json"
 evidence="$scripts_dir/windows-metadata/evidence.json"
-workflow="$native_dir/../../.github/workflows/native-renderer.yml"
+workflow="$native_dir/../../.github/workflows/test-native-renderer.yml"
 
 for file in "$build_script" "$smoke_script" "$metadata" "$resources" "$evidence"; do
     [[ -f "$file" ]] || { echo "error: missing $file" >&2; exit 1; }

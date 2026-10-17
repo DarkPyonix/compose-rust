@@ -33,8 +33,10 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
+import androidx.compose.runtime.withFrameNanos
+import kotlinx.coroutines.launch
 import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.PropertyKind
@@ -49,20 +51,10 @@ import dev.darkpyonix.composerust.ui.node.HostText
 import dev.darkpyonix.composerust.design.LocalGlassDepth
 
 /**
- * Quiet period before a `TextChanged` notification is sent.
- *
- * The Host is told about edits, but not once per keystroke: `TextChanged` is a notification,
- * not the mechanism that keeps the field's value, so it can wait for typing to pause. The
- * interval is chosen here rather than negotiated; 120 ms is short enough to feel immediate
- * and long enough to collapse a burst of typing into one event.
- */
-const val TEXT_CHANGED_DEBOUNCE_MILLIS: Long = 120
-
-/**
  * The uncontrolled TextField.
  *
  * The editing value and the IME composition live in `remember` and never round-trip through
- * the Host. The Host learns about edits through debounced `TextChanged` and through the
+ * the Host. The Host learns about edits through coalesced `TextChanged` and through the
  * commit events `TextSubmitted` and `FocusLost`; it changes the value only with `SetText`,
  * which is held back while a composition is in progress.
  *
@@ -104,16 +96,38 @@ internal fun HostTextField(node: Node, modifier: Modifier, dispatcher: EventDisp
         }
     }
 
-    // Debounced change notification. The Host is told what the field now shows; it never
-    // sends the value back, so the composition cannot be reset by the round trip.
+    // Change notification, at most one a frame.
+    //
+    // An edit is told to the Host on the next frame, carrying the latest text, so keys that
+    // arrive within one frame cost it one event and a key is never held back by a timer: the
+    // line that echoes what was typed follows the key by a frame. The last text is always
+    // sent, because the frame that follows an edit sends whatever the field holds then, and
+    // a later edit starts another. The Host is told what the field now shows; it never sends
+    // the value back, so the composition cannot be reset by the round trip.
     if (changeHandler != null) {
         LaunchedEffect(nodeId, changeHandler) {
             var lastSent = value.text
-            snapshotFlow { value.text }.collectLatest { text ->
-                if (text == lastSent) return@collectLatest
-                delay(TEXT_CHANGED_DEBOUNCE_MILLIS)
-                lastSent = text
-                dispatcher.dispatch(HostEvent.TextChanged(nodeId, changeHandler, text))
+            var latest = lastSent
+            var sending: Job? = null
+            coroutineScope {
+                snapshotFlow { value.text }.collect { text ->
+                    latest = text
+                    if (text == lastSent || sending?.isActive == true) return@collect
+                    sending = launch {
+                        do {
+                            // Sent from inside the frame callback, not after it. Resuming
+                            // from withFrameNanos goes back through the scene's dispatcher,
+                            // which on the desktop windows runs what is waiting at the start
+                            // of the next frame, so the send and the recomposition that
+                            // follows it each cost a frame. In the callback the Host's batch
+                            // is applied before this frame is composed and drawn.
+                            withFrameNanos {
+                                lastSent = latest
+                                dispatcher.dispatch(HostEvent.TextChanged(nodeId, changeHandler, lastSent))
+                            }
+                        } while (latest != lastSent)
+                    }
+                }
             }
         }
     }

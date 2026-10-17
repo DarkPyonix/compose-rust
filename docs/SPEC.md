@@ -90,7 +90,7 @@ Host 상태가 변경되면 변경분만 전송하고, Renderer는 해당 노드
 - `interpreter_exhaustiveness.rs`가 두 번째 고리를 봅니다. 생성기가 내놓는 `WidgetKind`, `PropertyKind`, `Modifier`, `Mutation`의 모든 변형이 인터프리터의 해당 `when`에 이름으로 나와 있어야 합니다. Kotlin의 exhaustive `when`이 원래 하던 일이지만 `else` 한 줄이면 사라지므로, `else`로 바꿔도 빨개지도록 Rust 테스트가 대신 확인합니다. iOS가 같은 파일을 심링크로 쓰는지도 같은 파일이 봅니다.
 - 실제로 확인했습니다: `PropertyKind`에 변형을 하나 더하고 인터프리터를 그대로 두면 `fr7_every_property_in_the_schema_has_an_arm_in_the_interpreter`가 실패하고, `PropertyKind.Progress` 팔을 `else -> false`로 바꿔도 같은 테스트가 실패합니다.
 - 체크아웃 경계: `codegen_tree.rs`가 codegen 바이너리를 다른 `CARGO_MANIFEST_DIR`로 실행해서 그 디렉터리가 비어 있는 채로 남는지, 종료 코드와 메시지가 두 경로를 말하는지 확인합니다.
-- 스키마 해시: `boundary_hardening.rs`의 `nfr7_init_with_a_wrong_schema_hash_returns_a_status`가 불일치 핸드셰이크에서 `init`이 실패 상태를 돌려주는지 보고, iOS 쪽은 `ProtocolBufferTest.pr4_handshake_carries_the_schema_hash_the_host_checks`가 Host가 검사하는 그 해시를 핸드셰이크에 싣는지 봅니다.
+- 스키마 해시: `boundary_hardening.rs`(지금 dioxus-compose에 있음)의 `nfr7_init_with_a_wrong_schema_hash_returns_a_status`가 불일치 핸드셰이크에서 `init`이 실패 상태를 돌려주는지 보고, iOS 쪽은 `ProtocolBufferTest.pr4_handshake_carries_the_schema_hash_the_host_checks`가 Host가 검사하는 그 해시를 핸드셰이크에 싣는지 봅니다.
 
 ### FR-8 LazyColumn 윈도잉 (`Done`)
 - Host는 아이템 총 개수와 안정적인 key를 알립니다.
@@ -320,13 +320,13 @@ Property 태그(기존 `OnRangeRequested=12` 뒤에 덧붙입니다): `TypeRole=
 목록과 폼을 실제로 그려 보면 13.1~13.8 어휘로는 두 가지를 말할 수 없습니다. 둘 다 새 위젯이나 새 태그 없이 해결합니다.
 
 - **파괴적 동작**: 삭제 버튼은 세 시스템 모두에서 "평범한 버튼인데 라벨만 경고색"입니다. `ButtonVariant`를 하나 더 늘리는 대신, `Button`이 이미 있는 `Color`(태그 18) 속성을 받습니다. 노드가 색을 지정하면 그 값이 variant가 정한 라벨 색을 덮고, 지정하지 않으면 지금까지와 같습니다. 보내는 것은 여전히 `Paint::Role(ColorRole::Error)`이므로 실제 색조는 디자인 시스템이 정합니다.
-  - 수용 기준: `fr13_button_label_colour_is_sent_as_a_role`.
+  - 수용 기준: `fr13_button_label_colour_is_sent_as_a_role` (이 테스트는 지금 dioxus-compose의 `tests/design_primitives.rs`에 있습니다).
 - **구분선**: 묶인 목록은 행과 행 사이를 하이라인으로 나눕니다(HIG의 그룹 목록, Material의 Divider, Fluent의 층 스트로크). 애플리케이션 코드가 두께와 색을 들지 않는다는 것이 이 항목의 요점이고, 그 부분은 그대로입니다. 이름도 `Separator` 그대로입니다.
 
   **2026-09-21 정정**: 이 항목은 원래 "두께는 역할로 표현할 수 없는 상수이므로 라이브러리가 1dp를 들고, `Box` 하나로 그려서 위젯 태그를 늘리지 않는다"고 적혀 있었습니다. 15.2.4가 `Divider`를 태그 17로 넣으면서 그 근거가 둘 다 없어졌습니다. 태그는 이미 늘었고, 두께가 상수라는 전제도 틀렸습니다. Material의 divider와 Fluent의 층 스트로크와 HIG의 그룹 구분선은 두께도 색도 들여쓰기도 서로 다르며, 그것을 정하는 것이 디자인 시스템이 하는 일입니다(FR-14.1). 1dp를 라이브러리에 박아 두면 세 시스템 중 둘이 틀린 굵기로 그려집니다.
 
   따라서 `Separator`는 `Divider` 하나를 렌더링합니다. 같은 개념에 이름이 둘 있는 상태를 남기지 않되, 애플리케이션 코드가 이미 쓰고 있는 이름은 유지합니다.
-  - 수용 기준: `fr13_separator_is_one_divider_so_the_design_system_sets_its_weight`.
+  - 수용 기준: `fr13_separator_is_one_divider_so_the_design_system_sets_its_weight` (이 테스트는 지금 dioxus-compose의 `tests/design_primitives.rs`에 있습니다).
 
 #### 13.10 비활성 상태는 보여야 합니다
 
@@ -712,7 +712,9 @@ LaunchBuilder::new()
 - **팔레트를 디자인 시스템별로 줄 것인가.** 이 항목은 `adaptive`에서 한 팔레트가 어느 시스템에나 얹히게 했습니다. 브랜드가 "macOS에서는 유리 위에서 더 밝은 주황"처럼 시스템별 값을 원하면 `(design_system, role, scheme)` 항목이 필요합니다. 지금은 넣지 않았고, 요청한 앱의 브랜드 지침이 그것을 요구하는지 확인이 필요합니다.
 - **씨앗 색에서 팔레트 만들기.** Material 3는 색 하나에서 배색 전체를 만드는 알고리즘(dynamic color)이 있습니다. 다른 여섯 시스템에는 없으므로 이 항목은 값을 직접 주게 했습니다. Material 3 전용 편의 함수(`Palette::from_seed`)를 Host 쪽에 둘지는 정하지 않았습니다.
 
-#### 14.11 디자인 시스템 라이브러리의 두 층 (`Agreed`)
+#### 14.11 디자인 시스템 라이브러리의 두 층 (`Agreed`, 진행 중, 이슈 #39)
+
+> **현황(2026-10-04).** 디자인 시스템 소스는 포크(`compose-multiplatform-core-extended`의 `extended/design-systems/`)로 옮겨졌습니다(PR #86). 1층 라이브러리 일곱 개와 2층 `org.thisisthepy.compose.adaptive`로 나누는 일, 그리고 남은 좌표 이동은 두 포크의 `chore/thisisthepy-coordinates` 브랜치에 있고 병합되지 않았습니다(#39).
 
 INTENT D19의 2026-10-03 결정입니다. 디자인 시스템은 `compose-multiplatform-core-extended`에서 Compose 라이브러리로 나가고, 두 층으로 나뉩니다.
 
@@ -1334,7 +1336,7 @@ Window::new().with_title_bar(TitleBar::Normal)
 - `TitleBar::Normal`이 **기본값**입니다. 지금 그 플랫폼의 애플리케이션이 실제로 그러한 창입니다.
 - `TitleBar::Simple`은 보통 창입니다. 도구형 애플리케이션과, `Normal`이 어색해지는 자리를 위한 것이며, `Chrome::System`이 `Chrome::Modern`에 대해 그러하듯 **돌아갈 곳**입니다.
 
-**플랫폼마다 무엇이 달라지는지는 다릅니다.** 모드는 두 개의 답 중 하나를 고르는 것이고, 그 답이 무엇인지는 디자인 시스템이 정합니다(FR-14.1). Host는 어느 쪽인지만 말하고 숫자를 말하지 않습니다.
+**플랫폼마다 무엇이 달라지는지는 다릅니다.** 모드는 두 개의 답 중 하나를 고르는 것이고, 그 답이 무엇인지는 디자인 시스템이 정합니다(FR-14.1). macOS의 반경과 버튼 자리는 예외로, 시스템에서 읽습니다(아래). Host는 어느 쪽인지만 말하고 숫자를 말하지 않습니다.
 
 | 플랫폼 | `Normal` | `Simple` |
 |---|---|---|
@@ -1353,6 +1355,13 @@ Window::new().with_title_bar(TitleBar::Normal)
 2. Windows와 Linux에서 두 모드의 캡션 높이가 다르고, 두 모드 모두 버튼은 그 플랫폼이 두는 끝에 있습니다.
 3. `Chrome::System`으로 연 창은 두 모드에서 같습니다.
 4. 아무것도 말하지 않은 애플리케이션은 `Normal`을 얻습니다.
+
+**macOS의 반경은 표에서, 버튼 자리는 시스템에서 얻습니다.** 디자인 시스템의 상수(`ComponentRules`의 창 모서리 반경, 창 버튼 인셋)로 두지 않습니다. macOS는 툴바가 없는 보통 타이틀바와 툴바가 있는(통합) 타이틀바에 서로 다른 모서리 반경과 버튼 자리를 주고, 그 값은 OS 버전마다 바뀝니다. 상수 하나는 한 버전의 한 스타일만 맞습니다. 그런데 시스템은 창의 모서리 반경을 공개 API로 알려 주지 않습니다. 비공개 키(`_cornerRadius` 같은 것)로 읽으면 Mac App Store 심사가 거절하고, OS가 바뀌면 예고 없이 깨집니다. 그래서 반경은 타이틀바 스타일(단순, 툴바)과 macOS 주 버전을 키로 하는 표에서 얻습니다(macOS 26: 단순 16.75, 툴바 26.75). 표에 없는 새 버전은 알려진 마지막 행을 씁니다. 표의 행 가운데 macOS 14, 15, 26은 CI 러너에서 실제 화면의 모서리로 측정한 값입니다. macOS 11부터 13까지는 측정하지 않았습니다. 그 버전을 주는 러너가 없어서 14와 15의 값을 그대로 씁니다. 새 macOS가 값을 바꾸면 CI가 실제 화면에 그려진 모서리와 표를 비교해 잡습니다. 버튼 인셋은 공개 API(`standardWindowButton`의 프레임)로 그 창에서 읽습니다. macOS에서 `Simple`은 툴바 없는 타이틀바 스타일로, `Normal`은 툴바(통합) 타이틀바 스타일로 창을 엽니다. 이 선택과 표는 GraalVM 경로(`appkit_window.m`)와 Kotlin/Native 경로(`MacosWindow.kt`)가 함께 쓰는 공통 macOS 크롬 규칙(`MacosWindowChrome`)에 있습니다. 소유자의 결정입니다(2026-10-05, 표로 바꾸기는 같은 날 추가 결정).
+
+5. macOS 창의 모서리 반경은 시스템이 그리는 모서리와 같고, 타이틀바 스타일(단순, 툴바)과 macOS 버전을 키로 하는 표에서 얻습니다(macOS 26: 16.75, 26.75). 창 코드 어디에도 비공개 API(`_cornerRadius` 같은 비공개 셀렉터나 KVC 키)가 없습니다. Mac App Store 심사가 그것을 거절하고 OS 업데이트가 그것을 깨기 때문입니다. CI가 표의 값을 실제 화면의 창 모서리와 비교하고, 새 macOS가 값을 바꾸면 실패합니다. 창 버튼 인셋은 그 창의 공개 API가 보고한 값입니다. `ComponentRules`에 창 모서리 반경과 창 버튼 인셋 값이 없습니다.
+6. 공통 macOS 크롬 규칙으로 툴바 없는 보통 타이틀바(`Simple`, 작은 시스템 반경)와 툴바(통합) 타이틀바(`Normal`, 큰 시스템 반경)를 모두 고를 수 있습니다.
+7. 콘텐츠의 위쪽 시작점과 캡션 인셋이 고른 스타일을 따릅니다. 두 스타일에서 바의 내용은 각자의 창 버튼과 같은 줄에 놓입니다(19.2).
+8. 스타일마다 GraalVM 경로와 Kotlin/Native 경로가 같은 기하(모서리 반경, 버튼 자리, 콘텐츠 위쪽, 캡션 인셋)를 냅니다. 두 스타일 각각에 대해 테스트(JVM 단위 테스트, 실제 `NSWindow`를 여는 테스트, 셸 검사)가 이것을 확인합니다.
 
 #### 19.5 창 버튼의 모양은 디자인 시스템이 정합니다
 
@@ -1392,6 +1401,7 @@ INTENT D19가 Compose 자체를 고치는 일을 `thisisthepy/compose-multiplatf
 1. 지금 이 저장소가 창에 대해 돌리는 검사(19.4, 19.7의 수용 기준, 그리고 `scripts/tests/`의 창 검사: 캡션 기하, Win32와 X11 창 배치, 크기 조절 중 그리기)가 포크의 샘플(`compose-multiplatform-extended`의 hello 앱)에 대해 같은 결과로 통과합니다. 캡션의 색과 크기 조절 중 그리기가 그 샘플에 지금 없는 것이 이 이전이 끝나지 않았다는 표시입니다.
 2. 그 확인을 화면 배율 100%와 200%에서 각각 하고, 각 배율의 스크린숏을 기록합니다.
 3. 옮긴 뒤 compose-rust의 샘플이 포크의 창으로 같은 검사를 통과하고, 이 저장소의 창 사본이 지워집니다.
+4. **크기를 바꾸는 동안 화면에 나오는 프레임은 모두 그 순간의 창 크기로 Skia가 그린 프레임입니다.** 측정 기준은 "현재 창 크기와 다른 크기로 그려진 프레임의 비율 = 0"입니다. 배경색으로 빈 곳을 가리는 것, 이전 프레임을 늘리는 것, 이전 프레임을 그대로 보여 주는 것은 모두 실패입니다. 이 기준은 macOS, Linux, Windows의 Kotlin/Native 경로와 GraalVM 경로 모두에 같게 적용되고, 일치 시험(`parity/`)의 리사이즈 항목도 이 비율로 판정합니다. Windows에서는 크기가 바뀌는 순간 `ResizeBuffers`, Skia 그리기, `Present`, DirectComposition `Commit`을 차례로 마친 뒤에 크기 변경 메시지를 돌려줍니다.
 
 ### FR-20 반응형 레이아웃 기반 (창 크기 클래스) (`Done`)
 
@@ -1635,16 +1645,41 @@ tag 12, 32바이트: handler_id: u64, text: (offset, len), action: (offset, len)
 
 #### 21.8 지금까지 확인된 것
 
-1번부터 7번까지 통과했습니다. 1번은 `fr21_one_declaration_is_a_bar_a_rail_and_a_drawer`가 500dp/700dp/1100dp에서 막대/레일/서랍의 치수를 재고, 같은 폭에서 찍은 스크린샷 아홉 장(디자인 시스템 3 × 폭 3)을 눈으로 확인했습니다. 2번은 `fr21_navigation_is_one_declaration_and_a_resize_creates_nothing`, 3번은 Host와 Renderer 양쪽, 4번은 `fr21_dragging_a_sheet_shut_reports_one_dismissal_and_nothing_during_the_drag`, 5번은 `fr21_two_messages_in_one_batch_are_shown_one_at_a_time_in_order`, 6번은 양쪽, 7번은 갱신된 `mutations.bin` 벡터와 `fr21_the_message_record_in_the_vector_decodes_to_the_same_values`입니다.
+1번부터 7번까지 통과했습니다. 1번은 `fr21_one_declaration_is_a_bar_a_rail_and_a_drawer`가 500dp/700dp/1100dp에서 막대/레일/서랍의 치수를 재고, 같은 폭에서 찍은 스크린샷 아홉 장(디자인 시스템 3 × 폭 3)을 눈으로 확인했습니다. 2번은 `fr21_navigation_is_one_declaration_and_a_resize_creates_nothing`(지금 dioxus-compose의 `tests/navigation_sheets_messages.rs`에 있음), 3번은 Host와 Renderer 양쪽, 4번은 `fr21_dragging_a_sheet_shut_reports_one_dismissal_and_nothing_during_the_drag`, 5번은 `fr21_two_messages_in_one_batch_are_shown_one_at_a_time_in_order`, 6번은 양쪽, 7번은 갱신된 `mutations.bin` 벡터와 `fr21_the_message_record_in_the_vector_decodes_to_the_same_values`입니다.
 
 **8번은 아직입니다.** Renderer의 `ComponentRules` 구현은 현재 셋(Material 3, Cupertino, Fluent)이고, GNOME/Breeze/Deepin은 다른 작업에서 들어오는 중입니다. 세 멤버 전부 토큰 표에서 유도한 기본 구현을 가지므로 그 셋이 합류할 때 컴파일이 깨지지 않고 각자의 색으로 나오지만, "여섯 시스템 전부"는 그 작업이 합쳐진 뒤에 확인해야 합니다. 그때까지 이 요구사항은 `Done`이 아닙니다.
 
 
 ### FR-22 샘플 애플리케이션의 참조 구현 (`Agreed`)
 
-#### 22.6 데스크톱 샘플 배포 번들 (`Agreed`)
+#### 22.6 데스크톱 샘플 배포 번들 (`Draft`)
 
 샘플 릴리스는 각 데스크톱 대상에 설치하거나 바로 실행할 수 있는 플랫폼 형식을 제공합니다. macOS arm64는 실행 가능한 `.app`과 전달용 `.dmg`, Windows x64는 압축을 푼 자리에서 실행되는 `.zip`과 `.msix`, Linux x64와 arm64는 `.AppImage`를 만듭니다. 이름, 번들 식별자, 설명은 각 샘플의 `Dioxus.toml`에서 읽고 아이콘과 플랫폼 메타데이터에 사용합니다.
+
+**2026-10-05: 배포 형식은 Compose 플러그인의 형식 표와 같습니다.** compose-rust는 별도 표를 두지 않고 Compose 플러그인과 같은 표를 따릅니다. 형식의 템플릿과 메타데이터는 core-extended의 `extended/packaging/`에서 가져오며 커밋으로 고정합니다. 이 절의 수용 기준이 판단의 기준입니다.
+
+**2026-10-05: 앱 밖에서 하는 직접 배포는 세 OS 모두 Velopack으로 패키징하고 갱신합니다.** `vpk`는 CI 러너에만 설치합니다. 스토어 패키지와 배포판 패키지는 Velopack 밖에서 따로 만듭니다.
+
+| OS | 앱 | 직접 배포 패키지 (Velopack) | 따로 만드는 패키지 |
+|---|---|---|---|
+| macOS | `.app` | `.dmg` (vpk의 portable `.zip` 안의 `.app`으로 만듦) | 스토어 `.pkg` |
+| Linux | `.AppImage` (vpk의 자체 갱신 AppImage) | 같음 | `.deb`, `.rpm`, Flatpak |
+| Windows | `.exe` | `Setup.exe`, `.msi` (`vpk pack --msi`) | 스토어 `.msix` |
+
+- Windows: 설치 `.exe`는 vpk의 `Setup.exe`입니다. NSIS나 WiX를 직접 다루지 않습니다. `.msi`는 `vpk pack --msi`로 만들며(Velopack이 자체 WiX 포크를 묶어 둡니다) 더 이상 결정 중이 아닙니다. 설치 위치는 `PerUser`가 기본이고 `PerMachine`은 선택입니다. 갱신은 두 설치 방식 모두 `Update.exe`가 맡습니다. `.msix`는 스토어용으로 따로 만듭니다.
+- macOS: Velopack은 `.dmg`를 만들지 않으므로, 우리의 dmg 단계가 vpk의 portable `.zip` 안의 `.app`으로 `.dmg`를 만듭니다. Sparkle은 쓰지 않고, Velopack이 `.app`을 갱신합니다. Mac App Store용 `.pkg`는 따로 만듭니다(vpk의 `.pkg`는 일반 설치 프로그램입니다).
+- Linux: `.AppImage`는 vpk의 자체 갱신 AppImage이며 zsync는 쓰지 않습니다. `.deb`, `.rpm`, Flatpak은 따로 만듭니다.
+- Mac App Store용 `.pkg`는 2026-10-03에 범위 밖으로 두었으나(이슈 #4) 이제 범위 안입니다.
+- **범위 밖: 앱 안의 업데이트 SDK나 래퍼.** 앱 개발자는 Velopack SDK를 직접 씁니다. 우리가 만드는 것은 패키지와 갱신 피드(nupkg 전체와 델타, `releases.{channel}.json`)입니다.
+- 기존 규칙은 그대로입니다. 번들은 실행 파일 하나와 아이콘, 메타데이터만 담고, 체크섬을 기록하며, MSIX는 서명하지 않은 채 설치 안내와 함께 냅니다.
+
+> 윈도우는 Velopack으로 하자. NSIS랑 wix는 너무 별로야.
+>
+> 업스트림이 지원하는게 저렇게 다양하면 업스트림쪽에서 확장하는게 맞긴 하지. Mac: 앱은 .app 패키지는 .dmg 스토어 패키지는 .pkg / 리눅스: 앱 .appimage 패키지는 .deb/.rpm 스토어 패키지는 .flatpack / 윈도우: 앱 .exe 패키지는 .msi/.exe(설치) 스토어 패키지는 .msix
+>
+> 업데이트 sdk 때문에 그런거면 그건 우리가 커버쳐줄 부분은 아닌거같아.
+>
+> (소유자, 2026-10-05)
 
 **2026-10-03(INTENT D17, NFR-15): 번들이 담는 것은 실행 파일 하나입니다.** 렌더러와 Skia와 ICU 데이터가 실행 파일 안에 있으므로, 아래 문단의 라이브러리 배치는 GraalVM native-image 경로의 기록이고 1.0.0의 번들에는 해당하지 않습니다.
 
@@ -1656,6 +1691,14 @@ tag 12, 32바이트: handler_id: u64, text: (offset, len), action: (offset, len)
 2. 각 번들의 실행 파일은 빌드 머신의 렌더러 절대 경로를 참조하지 않으며, 번들 안에 렌더러와 동반 파일이 있습니다.
 3. 번들의 이름, 식별자, 설명은 샘플 설정과 일치하고 아이콘이 포함됩니다.
 4. MSIX는 서명되지 않은 패키지로 생성됩니다. 설치에는 개발자 모드 또는 신뢰된 인증서로 다시 서명하는 절차가 필요함을 릴리스에 알립니다. 실제 설치 확인은 Windows 환경에서 수동으로 합니다.
+5. 위 표의 형식마다 아티팩트를 만들고 체크섬을 기록합니다. 형식이 `.dmg`, `.pkg`, `.deb`, `.rpm`, `Setup.exe`, `.msi`, Flatpak 중 무엇이든 번들은 실행 파일 하나와 아이콘, 메타데이터만 담습니다. CI가 아티팩트의 존재와 내용물 목록, 체크섬 기록을 검사합니다.
+6. `.deb`와 `.rpm`은 각각 `dpkg-deb --info`와 `rpm -qp --info`로 이름, 버전, 설명이 샘플 설정과 일치하는지 CI에서 확인합니다. 실제 설치와 실행은 해당 배포판에서 수동으로 확인합니다.
+7. 세 OS의 직접 배포 패키지는 Velopack으로 만들고, 이전 버전에서 새 버전으로 가는 델타 패키지와 갱신 피드(nupkg 전체와 델타, `releases.{channel}.json`)를 함께 만듭니다. 패키지와 피드의 존재와 메타데이터는 CI에서 확인하고, 설치된 빌드가 델타로 갱신되어 다시 뜨는 것은 각 OS 환경에서 수동으로 확인합니다. Windows `.msi`는 `PerUser` 기본과 `PerMachine` 선택 설치가 각각 되는지도 Windows에서 수동으로 확인합니다. Linux `.AppImage`에는 zsync 갱신 정보가 없습니다.
+8. macOS `.pkg`는 Mac App Store 제출 형식으로 만들며, 구조와 메타데이터는 `pkgutil --check-signature`와 `pkgutil --payload-files`로 CI에서 확인합니다. 스토어 제출과 승인은 Apple 계정이 있는 환경에서 수동으로만 확인할 수 있습니다.
+9. Flatpak은 Flathub용 매니페스트로 만들고 `flatpak-builder`로 빌드되는 것을 CI에서 확인합니다. 설치와 실행은 수동으로 확인합니다.
+10. `.msi`는 `vpk pack --msi`로 만들며, 5번과 7번의 검사 대상입니다.
+11. 템플릿과 메타데이터가 core-extended의 `extended/packaging/`에서 오고 그 커밋이 고정되어 있음을 CI가 확인합니다.
+12. **실험 중:** ad-hoc 서명한 `.app`을 `.dmg`에서 설치한 Apple Silicon 기기가 Velopack 갱신을 받고, 갱신 뒤에도 실행됩니다(quarantine 속성 포함). Velopack 문서는 서명과 공증이 없는 macOS 앱은 실행되지 않는다고 하므로 확인이 필요하며, 프로브를 돌리는 중입니다. 결과가 나오기 전에는 이 항목을 통과로 보지 않습니다.
 
 **2026-09-22: 샘플이 일곱 플랫폼 전부에서 돕니다.** 데스크톱 넷(macOS arm64, Linux x64, Linux arm64, Windows x64)과 Android, iOS 시뮬레이터, 브라우저입니다. statistics 샘플을 iOS 시뮬레이터와 Android 에뮬레이터와 Chromium에서 각각 띄워 같은 세이지와 주황과 파우더 블루가 나오는 것을 확인했습니다. 통합 샘플이 플랫폼과 무관하게 같은 디자인을 그린다는 것이 이것으로 처음 실증됐습니다.
 
@@ -1876,7 +1919,9 @@ FR-20은 창의 크기를 답합니다. 이것은 특정 노드의 크기를 답
 - 14.1의 규칙은 그대로입니다. 이것이 켜졌을 때에만 "창 뒤를 비춘다"고 말할 수 있고, 켜지지 않은 환경에서 그렇게 주장하지 않습니다.
 - 수용 기준: macOS에서 이 재질을 쓴 창이 뒤에 있는 창을 실제로 비춥니다(스크린샷을 데스크톱 배경만 바꿔 두 번 찍어 픽셀이 달라지는 것으로 확인합니다). 재질을 쓰지 않은 창은 지금과 같은 경로로 뜨고 `NSVisualEffectView`가 만들어지지 않습니다. 이 기능이 없는 플랫폼에서 같은 선언이 흐림으로 그려집니다.
 
-### FR-30 플랫폼 고유 동작 표면과 제목 배치 (`Agreed`)
+### FR-30 플랫폼 고유 동작 표면과 제목 배치 (`Agreed`, 진행 중, 이슈 #57, #79)
+
+> **현황(2026-10-04).** develop에는 30.1과 30.2 모두 없습니다. 30.1 동작 키(속성 태그 75)는 PR #76(`feat/fr30-action-keys`, #57)에 있습니다. 30.2 제목을 플랫폼 캡션에 맡기는 일은 #79가 추적하며 작업 브랜치가 없습니다.
 
 적응형 애플리케이션은 디자인 시스템의 이름을 묻지 않고 자기가 놓는 것이 무엇인지 말합니다.
 렌더러의 `ComponentRules`가 그 뜻을 현재 디자인 시스템의 모양과 배치로 바꿉니다.
@@ -2022,6 +2067,25 @@ if design.is_apple() {
 4. 선택 영역 안의 `Text` 하나의 내용이 바뀌는 재구성(스트리밍으로 마지막 메시지가 길어지는 경우)에서, 바뀌지 않은 다른 `Text`의 선택은 유지됩니다.
 5. 선택 영역 안의 버튼은 눌리고, 선택에 들어가지 않습니다.
 6. 데스크톱 셋에서 단축키와 우클릭 메뉴 양쪽으로 복사됩니다. 모바일의 길게 누르기는 수동 확인입니다(§6과 같은 방식으로 기록).
+
+#### 33.1 우클릭 메뉴: 기본은 OS 메뉴, 앱이 덮어쓰면 그것 하나
+
+> [user] 2026-10-05 결정(리더 전달): 기본값은 OS 네이티브 메뉴이고, 앱이 표준 확장점으로 덮어쓰면 네이티브 메뉴 없이 그것만 보여 줍니다.
+
+- **기본값은 그 OS의 메뉴입니다.** macOS는 `NSMenu`, Windows와 Linux는 각 OS의 메뉴입니다. OS 메뉴를 쓰면 macOS의 서비스와 찾아보기 같은 시스템 항목과 그 플랫폼의 모양이 그대로 따라옵니다.
+- **새 API를 만들지 않습니다.** Compose의 표준 확장점인 `LocalContextMenuRepresentation`과 `LocalTextContextMenu`의 기본값을 OS 메뉴 구현으로 바꿔 제공합니다.
+- **앱이 덮어쓰면 그것 하나만 뜹니다.** 앱이 `CompositionLocalProvider`로 `ContextMenuRepresentation`이나 `TextContextMenu`를 직접 정하면(자체 디자인의 메뉴), OS 메뉴는 띄우지 않고 앱이 정한 것만 보여 줍니다.
+- **메뉴는 어느 경우에도 하나입니다.** OS 메뉴와 Compose 메뉴가 함께 뜨는 일은 없습니다.
+- **항목은 두 방식에 똑같이 들어갑니다.** `ContextMenuDataProvider`로 더한 항목과 텍스트의 잘라내기, 복사, 붙여넣기, 전체 선택이 OS 메뉴와 Compose 메뉴에 같은 순서와 같은 사용 가능 상태로 들어갑니다.
+- 이 구현은 포크(`compose-multiplatform-core-extended`)의 창 공통 로직에 두고, GraalVM 경로와 Kotlin/Native 경로가 같은 결과를 내는지 일치 시험으로 확인합니다.
+
+수용 기준:
+1. 기본 상태에서 입력란과 `SelectionContainer` 안의 글자를 우클릭하면 OS 메뉴 하나가 뜹니다. macOS는 화면 캡처로 `NSMenu`임을 확인합니다.
+2. 앱이 `LocalContextMenuRepresentation`이나 `LocalTextContextMenu`를 덮어쓴 샘플에서는 앱이 정한 메뉴 하나만 뜨고 OS 메뉴는 뜨지 않습니다. 화면 캡처로 확인합니다.
+3. 두 경우 모두 우클릭 한 번에 메뉴 요청이 정확히 하나입니다. 메뉴 요청 수를 세는 시험으로 확인합니다.
+4. `ContextMenuDataProvider` 항목과 텍스트 항목(잘라내기, 복사, 붙여넣기, 전체 선택)이 두 방식에서 같은 순서와 같은 사용 가능 상태입니다. 항목 목록을 비교하는 시험으로 확인합니다.
+5. 같은 장면에서 GraalVM 경로와 Kotlin/Native 경로가 같은 항목과 같은 메뉴 종류를 냅니다(일치 시험).
+6. 실제 OS 메뉴의 모양과 시스템 항목(서비스, 찾아보기)은 기기에서 손으로 확인합니다.
 
 ### FR-36 OS 알림 (`Draft`)
 
@@ -2248,9 +2312,11 @@ Notification::new("세션이 끝났습니다")
 
 비용: 위젯 태그 하나(43), 속성 일곱(100-106), 명령 하나(17), 이벤트 다섯(26-30), `EventPayloadType` 다섯. 디자인 시스템 규칙 일곱 벌에 편집기 모양(줄 번호 영역, 현재 줄, 밑줄 굵기). 측정 결과가 (나)이면 Renderer 쪽 텍스트 그리기 코드가 새로 생깁니다.
 
-### FR-39 compose-rust 작성 API와 recomposition 런타임 (`Agreed`, 1.0.0 범위)
+### FR-39 compose-rust 작성 API와 recomposition 런타임 (`Agreed`, 진행 중, 이슈 #23, #64)
 
-**2026-10-03 소유자 결정(INTENT D2).** compose-rust는 Dioxus 없이 쓸 수 있는 자기 작성 API를 가집니다. 모양은 Compose이고, 그 아래는 슬롯 테이블 위의 recomposition 런타임입니다. dioxus-compose는 이 위에 얹힙니다. compose-rust 1.0.0(2026-10-20)의 범위입니다.
+> **현황(2026-10-04).** develop에는 이 API가 없습니다. 런타임과 Host 배선은 `feature/compose-api` 브랜치(develop보다 18커밋 앞)에 있고 PR은 아직 열리지 않았습니다(#64). 소유자 결정의 기록은 #23, 이름 조회와 재전송 비용은 #65가 추적합니다.
+
+**2026-10-03 소유자 결정(INTENT D2).** compose-rust는 Dioxus 없이 쓸 수 있는 자기 작성 API를 가집니다. 모양은 Compose이고, 그 아래는 슬롯 테이블 위의 recomposition 런타임입니다. dioxus-compose는 이 위에 얹힙니다. compose-rust 1.0.0(2026-11-14)의 범위입니다. 날짜는 2026-10-04 소유자 결정으로 2026-10-20에서 옮겼습니다. 창 코드를 포크로 옮기는 일이 끝나는 2026-10-31에 안정화 2주(하드웨어 확인, 동등성 테스트, 릴리스 후보)를 더한 날짜입니다.
 
 #### 39.1 모양
 
@@ -2309,7 +2375,9 @@ fn main() {
    7. **실행 조건을 기록합니다.** 기계, 부하 평균, 반복 횟수, 워밍업 횟수, 시나리오마다 p50, p99, 최대값과 원시 데이터의 경로를 `benches/baseline.json`에 남깁니다. 부하 평균이 높을 때 잰 값은 그 사실과 함께 기록하고, 판정에는 한가한 기계에서 잰 값을 씁니다.
    8. **결과는 그대로 보고합니다.** 10배에 못 미치면 실측 배수를 그대로 보고합니다. 목표를 맞추려고 시나리오, 지표, 판정 방법을 바꾸는 것은 금지입니다. 이 기준을 `Done`으로 표시하는 것은 측정한 쪽이 아니라, 다른 세션이 같은 벤치를 다시 돌려 같은 결과를 확인한 뒤입니다.
 
-### FR-40 HTML 텍스트 속성 (`Agreed`)
+### FR-40 HTML 텍스트 속성 (`Agreed`, 진행 중, 이슈 #106)
+
+> **현황(2026-10-04).** develop에는 없습니다. 구현은 `feat/measure-call` 브랜치(develop보다 14커밋 앞, PR 없음)에 PR-2.1과 함께 있습니다. 그 경로에서 나온 후속 문제는 #90, #91입니다.
 
 CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 데 필요한 속성입니다. 측정 호출(PR-2.1)의 값이 그려진 값과 같으려면, 그리기도 같은 칸을 같은 뜻으로 받아야 합니다. 노드 단위 글꼴은 역할이 없는 텍스트에만 엽니다(INTENT D20, 2026-10-03 소유자 결정).
 
@@ -2325,7 +2393,7 @@ CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 
    - 한국어 `Normal`은 음절 사이에서 끊을 수 있고, `KeepAll`은 공백에서만 끊습니다.
    - Compose의 기본 줄바꿈은 플랫폼마다 다르므로, Renderer가 이 값에 맞춰 줄바꿈 전략을 정합니다.
 4. `tab_size: u8`(기본 8). 탭은 다음 탭 위치까지 차지합니다. 비례 글꼴에서는 Host가 탭을 공백으로 펼칠 수 없습니다.
-5. `absolute_size: bool`. 참이면 시스템 글꼴 배율을 적용하지 않습니다(CSS px). 측정과 그리기에 똑같이 적용됩니다.
+5. `absolute_size: bool`. 참이면 시스템 글꼴 배율을 적용하지 않습니다(CSS px). 측정과 그리기에 똑같이 적용됩니다. **구현은 `fontScale = 1`인 `Density`입니다.** 글자 크기를 글꼴 배율로 나누는 방식은 쓰지 않습니다. Android 14부터 글꼴 배율이 비선형이라 나눗셈으로 되돌릴 수 없기 때문입니다. HTML 텍스트의 접근성 배율은 FR-43의 확대 배율 `k`가 맡습니다.
 6. 공백 규칙: Renderer는 받은 문자열의 공백을 자르거나 접지 않습니다. 접기는 Host의 일입니다.
 
 수용 기준:
@@ -2340,7 +2408,9 @@ CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 
 5. 다섯 플랫폼과 Web에서 기준 1의 라틴 경우가 통과합니다.
 
 - HTML 화면의 접근성 배율(시스템 글꼴 배율을 `absolute_size` 텍스트에 어떻게 반영할지)은 아직 정하지 않았습니다. 검토 문서를 만들어 소유자가 정합니다. `absolute_size` 칸 자체는 어느 결정에서도 필요합니다.
-### FR-41 Transform과 렌더러가 재생하는 애니메이션 (`Agreed`)
+### FR-41 Transform과 렌더러가 재생하는 애니메이션 (`Agreed`, 진행 중, 이슈 #105, PR #83)
+
+> **현황(2026-10-04).** develop에는 없습니다. FR-41.1, 41.2, 41.4는 PR #83(`feat/html-primitives`)에 있고, 그 PR은 PR #74(FR-42)를 포함합니다. 41.4는 FR-39 런타임이 develop에 없어 Dioxus 어댑터에 대고 구현되어 있습니다. 41.3은 `Draft`입니다.
 
 요청한 쪽: dioxus-compose FR-34.1(CSS transform 전부, M14 10-18)과 FR-34.2(CSS transition과 animation, 혼합안). 소유자 결정(2026-10-03): `opacity`, `color`, `background-color`, `transform`은 렌더러가 Compose 애니메이션으로 재생하고, 레이아웃 속성은 나중에(M15) Host가 매 프레임 시각을 넘겨 계산합니다. 이 초안은 그중 렌더러 쪽 둘을 compose-rust 스키마에 적습니다.
 
@@ -2349,7 +2419,12 @@ CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 
 소유자 결정(2026-10-03):
 - **2D 먼저, 3D는 다음 단계.** M14에서는 2D 아핀만 구현합니다. 3D는 FR-41.3에 다음 단계 항목으로 남깁니다. "지원하지 않음"이 아닙니다.
 - **앱 작성 API에도 엽니다.** 같은 레코드를 FR-39의 compose-rust API에서 쓸 수 있습니다(FR-41.4).
-- **이벤트 레코드의 프레임 시각은 검토 중입니다.** 결론이 나기 전까지 기본값은 "싣지 않음"이고, 이 항목은 `Ready` 이벤트와 Host의 추정으로 시작 시각을 압니다.
+- **시각은 그것이 필요한 이벤트에만 싣습니다(2026-10-03).** 소유자가 판단을 맡겼습니다: "이벤트 프레임 시각은 내가 판단이 잘 안되네. 니가 잘 판단해." 검토(모든 이벤트에 싣기, 필요한 이벤트에만, 싣지 않기)의 권장안을 리더가 채택했습니다.
+  - 공통 이벤트 머리에는 시각을 싣지 않습니다. 사례마다 필요한 시계가 다르고(프레임 시각, 입력 시각, 미디어 시각), 머리 배치는 스키마 해시에 들어가지 않아 바꾸면 핸드셰이크를 지나 모든 이벤트가 깨지기 때문입니다.
+  - `AnimationEvent`는 자기 시각 칸을 그대로 갖습니다. 시작 시각은 이것과 `Ready` 이벤트로 압니다.
+  - 입력 시각은 FR-18 제스처(1.1)에서 `DragStart`, `DragMove`, `DragEnd`, `Scroll` payload에 더합니다.
+  - **와이어에 실리는 모든 시각은 `render_frame`의 `frame_time_nanos`와 같은 단조 나노초 시계입니다.** 플랫폼이 주는 시각은 그 시계로 바꾼 뒤 싣고, 기준점을 다시 잡지 않습니다.
+  - **Host의 이벤트 열거형(`HostEvent`, `EventPayload`)은 1.0 전에 `#[non_exhaustive]`가 됩니다.** 그래야 1.0 뒤에 이벤트나 칸을 더하는 것이 메이저 버전 변경이 되지 않습니다. 수용 기준: 두 열거형에 `#[non_exhaustive]`가 붙어 있고, 크레이트 밖의 match가 와일드카드 갈래 없이는 컴파일되지 않습니다(fr41_event_enums_are_non_exhaustive).
 
 ### FR-41.1 `Transform` 수정자 (`Agreed`)
 
@@ -2666,7 +2741,9 @@ FR-39의 compose-rust API가 같은 레코드를 씁니다. Compose의 이름을
 4. **터치 대상 확장.** Compose는 48dp보다 작은 노드의 터치 적중 영역을 넓힙니다(`minimumTouchTargetSize`). CSS에는 없는 동작이라 터치 입력에서는 Chromium과 판정이 다를 수 있습니다. 수용 기준 5는 마우스로 잽니다.
 5. **번호.** Mutation 18, 19, 이벤트 31, 32는 FR-38(CodeEditor)이 17과 26~30을 가져간 뒤의 다음 빈 번호입니다(2026-10-03 다시 매김). 수정자 26은 HTML/CSS 원소 초안의 19~25 다음 번호입니다. 다른 초안이 먼저 가져가면 설계자가 다시 매깁니다.
 
-### FR-42 HTML/CSS 화면을 그리는 원소 (`Agreed`)
+### FR-42 HTML/CSS 화면을 그리는 원소 (`Agreed`, 진행 중, 이슈 #104, PR #74)
+
+> **현황(2026-10-04).** develop에는 없습니다. 스키마, 코덱, 프로토콜 벡터, 인터프리터 분기는 PR #74(`feat/html-primitives-schema`)에 있고, 그리기 테스트는 후속 PR로 남아 있습니다.
 
 요청한 쪽: dioxus-compose FR-34(M12, 10-15). Host(`blitz-dom`)가 계산한 상자와 텍스트를 Compose로 그리려면, 계산된 결과를 그대로 놓을 수 있는 원소가 필요합니다. M10 측정(dioxus-compose PR #28)에서 상자 배치는 Chromium과 정확히 같았고 텍스트 폭은 허용치를 넘었습니다. 그래서 **상자는 Host가 계산한 자리에 놓고, 텍스트의 크기는 Compose가 잽니다**(PR-2.1). 소유자 승인 2026-10-03.
 
@@ -2724,6 +2801,61 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 위젯 태그 하나(44), 수정자 일곱. 렌더러의 그리기 코드(테두리 네 변, 그림자). 디자인 시스템 규칙은 늘지 않습니다. CSS가 모양을 정하므로 디자인 시스템이 개입하지 않는 것이 이 원소들의 성격입니다.
 
 열린 질문: `AbsoluteBox`라는 이름. 더 나은 개념 이름이 있으면 바꿉니다.
+
+### FR-43 확대 배율: OS 글자 크기와 앱 확대 (`Agreed`, 진행 중, 이슈 #68, PR #77)
+
+> **현황(2026-10-04).** develop의 데스크톱 렌더러는 `fontScale`을 1로 고정하고 OS 글자 크기를 읽지 않습니다(#68). PR #77(`feat/desktop-text-scale`)이 데스크톱의 OS 글자 크기를 읽습니다. 앱 확대 수준, `ZoomChanged`, `IslandZoom`은 어느 브랜치에도 없습니다.
+
+소유자 결정(2026-10-03): "vscode 기준". VS Code의 `window.zoomLevel`처럼 화면 전체를 확대하고, 시작값은 OS 글자 크기입니다. 검토 문서(HTML 화면의 접근성 배율)의 (e)안입니다.
+
+- **배율.** `k = os × app`입니다.
+  - `os`는 OS의 글자 크기 배율입니다(Windows `UISettings.TextScaleFactor`, GNOME `text-scaling-factor`, KDE 글꼴 DPI, iOS Dynamic Type, Android `fontScale`. macOS는 공개 설정이 없어 1입니다).
+  - `app`은 앱 확대 수준 `level`에서 `1.2^level`입니다. VS Code와 같은 단계입니다. `level`은 정수이고 -8에서 8까지입니다.
+- **조절 경로.** Renderer가 키를 받습니다. macOS는 `⌘+`, `⌘-`, `⌘0`, Windows와 Linux는 `Ctrl++`, `Ctrl+-`, `Ctrl+0`입니다. 앱이 `on_key`에서 그 키를 소비하면(FR-12) 확대하지 않습니다. Host가 수준을 정하는 길도 있습니다. 창 노드의 `ZoomLevel` 속성(정수)이고, 메뉴의 "확대" 항목이 이것을 씁니다.
+- **저장.** 앱 확대 수준은 UI 로컬 상태라 Renderer가 저장합니다(D5). 앱 식별자마다 하나이고, 위치는 플랫폼의 설정 저장소입니다(macOS `NSUserDefaults`, Windows `%APPDATA%\<앱>\`, Linux `$XDG_CONFIG_HOME/<앱>/`, iOS와 Android는 앱의 기본 설정, Web은 `localStorage`). 다음 실행에서 그대로 시작합니다.
+- **적용.**
+  - HTML 영역(FR-42의 `AbsoluteBox` 하위 트리)은 `Density(density × k, fontScale = 1)` 안에서 그립니다. 영역의 `k`는 영역 뿌리 `AbsoluteBox`의 속성 `IslandZoom`(f32)으로 Host가 보냅니다. Host는 `ZoomChanged`로 받은 `k`를 그대로 쓰거나, 영역마다 다른 값을 줄 수 있습니다. `absolute_size` 텍스트는 이 `Density`로 재고 그립니다. Host는 CSS 뷰포트를 창 크기 ÷ `k`로 잡고 배치합니다. 포인터 좌표는 영역 기준 CSS px로 옵니다.
+  - 네이티브 위젯은 `Density(density × app, fontScale = os)`입니다. 같은 `k`에서 HTML 글자와 네이티브 글자의 크기가 같습니다.
+  - 측정 호출(PR-2.1)은 요청의 `zoom` 칸으로 같은 배율을 씁니다.
+- **Host에 알리기.** 이벤트 `ZoomChanged`(이벤트 태그 33)가 `k`, `os`, `level`을 싣고, 시작할 때 한 번, 그 뒤 값이 바뀔 때마다 옵니다. Host는 받으면 측정 캐시를 비우고 다시 배치합니다. 화면을 다른 모니터로 옮겨 `density`만 바뀌는 것은 `k`를 바꾸지 않으므로 이 이벤트가 오지 않습니다.
+
+수용 기준:
+1. OS 글자 크기를 바꾸면 재시작 없이 `ZoomChanged`가 한 번 오고, HTML 영역과 네이티브 위젯의 글자가 같은 비율로 커집니다(fr43_os_text_size_reaches_both_worlds).
+2. `⌘+`를 두 번 누르면 `level = 2`, `k = os × 1.44`가 되고, 다시 실행해도 `level = 2`로 시작합니다(fr43_app_zoom_steps_and_persists).
+3. 앱이 소비한 `⌘+`는 확대하지 않습니다(fr43_consumed_zoom_key_does_not_zoom).
+4. `k = 1.25, 1.5, 2`에서 측정 호출의 값과 그린 크기가 같습니다(fr43_measure_follows_zoom).
+5. `k`가 바뀌어도 `absolute_size` 텍스트의 `fontScale`은 1이고, 크기는 `k`로만 바뀝니다(fr43_absolute_size_ignores_font_scale).
+6. 다섯 플랫폼과 Web에서 기준 1과 2가 통과합니다. macOS는 기준 2만 해당합니다.
+
+### FR-44 시스템 색 구성표가 바뀌었다는 이벤트 (`Draft`, 제안, 소유자 승인 대기, 이슈 #97)
+
+> **제안입니다.** 소유자가 승인하기 전까지 구현하지 않습니다. 이벤트 태그 번호는 승인할 때 정합니다.
+
+`Theme`의 `color_scheme`이 `FollowSystem`이어도 Host는 시스템의 밝음과 어두움이 바뀐 것을 알 수 없습니다. HTML 경로는 `prefers-color-scheme` 미디어 쿼리를 다시 풀고 다시 배치해야 하므로 이 사실이 필요합니다. dioxus-compose의 HTML 다리(`feat/html-compose-bridge`)를 쓰다가 드러났습니다.
+
+제안하는 모양:
+- 새 이벤트 `ColorSchemeChanged`. `ReducedMotionChanged`(FR-41.2)와 `DesignSystemResolved`(FR-32)처럼 노드가 아니라 Host에게 오며, `node_id = 0`, `handler_id = 0`입니다.
+- 페이로드는 `scheme: u32`(0 밝음, 1 어두움)입니다.
+- 시작할 때 한 번, 그 뒤 시스템 값이 바뀔 때마다 옵니다. 같은 값이 연달아 오지 않습니다.
+
+제안하는 수용 기준:
+1. OS의 밝음/어두움을 바꾸면 재시작 없이 `ColorSchemeChanged`가 한 번 옵니다(fr44_system_scheme_change_reaches_the_host).
+2. 다섯 플랫폼과 Web에서 기준 1이 통과합니다.
+
+### FR-45 노드마다 포커스를 얻은 사건과 키를 뗀 사건 (`Draft`, 제안, 소유자 승인 대기, 이슈 #98)
+
+> **제안입니다.** 소유자가 승인하기 전까지 구현하지 않습니다. 이벤트 태그 번호는 승인할 때 정합니다.
+
+지금 노드 이벤트에는 `OnFocusLost`(8)와 `OnKeyDown`(9)만 있습니다. DOM의 `onfocus`, `onfocusin`, `onkeyup`은 대응하는 원천 사건이 없어 HTML 경로에서 결코 일어나지 않습니다. dioxus-compose의 HTML 다리를 쓰다가 드러났습니다.
+
+제안하는 모양:
+- 새 노드 이벤트 `OnFocusGained`. 그 노드나 그 하위가 포커스를 얻을 때 옵니다. 페이로드는 없습니다.
+- 새 노드 이벤트 `OnKeyUp`. `OnKeyDown`과 같은 페이로드(키, 수정자)를 싣고, 키를 뗄 때 옵니다.
+- 둘 다 핸들러가 등록된 노드에만 보냅니다. 등록이 없으면 경계를 건너지 않습니다.
+
+제안하는 수용 기준:
+1. 포커스를 받은 `TextField`가 `OnFocusGained`를 한 번 보내고, 포커스를 잃으면 `OnFocusLost`를 보냅니다(fr45_focus_gained_and_lost_pair).
+2. 키 하나를 눌렀다 떼면 `OnKeyDown` 다음에 같은 키의 `OnKeyUp`이 옵니다(fr45_key_up_follows_key_down).
 
 ## 4. 경계 프로토콜
 
@@ -2791,7 +2923,9 @@ compose_rust_host_dispatch_event: click 1
 - iOS에는 isolate가 없어 `@CName`이 공개 심볼을 Kotlin 함수에 직접 붙입니다. isolate 심이 하던 나머지 역할은 Kotlin/Native 런타임과 `NSThread.isMainThread` 검사가 대신합니다.
 - Web은 검증되었습니다(PR-6의 검증 절). 같은 다섯 개 논리 연산이 브라우저에서도 그대로 서고, 초기 배치와 클릭 왕복이 공유 메모리 위에서 돕니다. **Android는 2026-09-22 API 36 에뮬레이터에서 확인했습니다.** 같은 다섯 연산이 생성된 JNI 심을 통해 서고, 화면이 그려지며, 워커의 프레임 요청이 경계를 넘어옵니다. 호출당 비용도 그 자리에서 쟀습니다(PR-5의 수용 기준 1).
 
-### PR-2.1 측정 호출 (`Agreed`)
+### PR-2.1 측정 호출 (`Agreed`, 진행 중, 이슈 #106)
+
+> **현황(2026-10-04).** develop에는 측정 진입점이 없습니다. 구현은 `feat/measure-call` 브랜치(PR 없음)에 FR-40과 함께 있습니다.
 
 **무엇을 하나.** Host가 자기 레이아웃을 계산하는 도중에, 텍스트 한 덩이나 이미 보낸 위젯 하나가 주어진 제약 안에서 차지할 크기를 Renderer에게 묻습니다. Renderer는 **그릴 때와 같은 글꼴 해석, 같은 Density와 글꼴 배율, 같은 디자인 시스템 타입 스케일**로 재서 그 자리에서 돌려줍니다. 측정값과 그려진 크기가 같다는 것이 이 호출의 존재 이유입니다.
 
@@ -2817,6 +2951,7 @@ compose_rust_host_dispatch_event: click 1
     - `tab_size: u8` (CSS `tab-size`, 기본 8). 탭은 다음 탭 위치까지 차지합니다.
     - `word_break: Normal | KeepAll | BreakAll`, `overflow_wrap: Normal | Anywhere | BreakWord`
     - `absolute_size: u8`. 1이면 시스템 글꼴 배율을 적용하지 않습니다(CSS px). 측정과 그리기에 똑같이 적용됩니다.
+    - `zoom: f32`. 이 요청이 속한 HTML 영역의 확대 배율 `k`(FR-43). 0이면 1입니다. Renderer는 `Density(density × k, fontScale = 1)`로 잽니다. 배율을 Renderer의 상태로 두지 않고 요청마다 싣는 것은, Host 하나가 서로 다른 배율의 HTML 영역을 여럿 가질 수 있기 때문입니다.
   - **Renderer는 받은 문자열의 공백을 자르거나 접지 않습니다.** 공백 접기(`normal`, `pre-line`)는 Host의 일입니다. `pre`는 그대로 보낸 문자열과 `wrap = 0`, `pre-wrap`은 그대로 보낸 문자열과 `wrap = 1`입니다.
   - 제약 `constraint: MinContent = 1 | MaxContent = 2 | AtMost = 3`과 `width: f32`(`AtMost`일 때만 씀). 결과는 다음과 같습니다.
     - `MinContent`: 가장 긴 끊을 수 없는 조각의 폭. Compose `ParagraphIntrinsics.minIntrinsicWidth`.
@@ -2825,6 +2960,7 @@ compose_rust_host_dispatch_event: click 1
 - `MeasureNode = 2`
   - `node: NodeId`. Host가 이미 보냈고 Renderer가 이미 적용한 노드입니다.
   - 제약 `min_width, max_width, min_height, max_height: f32`. 제한 없음은 `+inf`입니다.
+  - `zoom: f32`. `MeasureText`와 같은 뜻입니다.
   - 그 노드의 하위 트리를 Compose 레이아웃이 주어진 제약에서 잴 때의 크기를 돌려줍니다.
 
 **결과 레코드** (`MeasureResult`, 32바이트):
@@ -2996,7 +3132,9 @@ compose_rust_host_dispatch_event: click 1
   - `scripts/tests/android-kotlin-travels.test.sh`가 담긴 사본이 렌더러와 같은지와 패키지 목록에 들어 있는지를 봅니다. 사본이 뒤처지면 애플리케이션이 Host보다 낡은 인터프리터를 컴파일하고 핸드셰이크가 거부합니다.
   - **`sample-v0.1.1`의 APK는 이 경로로 만든 것이 아닙니다.** 우리 Amper 모듈(`renderer/android`)에 샘플의 cdylib을 넣어 빌드한 것이고, 그것이 증명하는 것은 Android에서 렌더러와 Host가 동작한다는 것이지 사용자가 겪을 경로가 동작한다는 것은 아닙니다. 다음 샘플 릴리스의 APK는 dx로 만듭니다.
 
-### PR-6 Web 경계 (`Agreed`, 재측정 중)
+### PR-6 Web 경계 (`Agreed`, 재측정 중, 이슈 #54, PR #84)
+
+> **현황(2026-10-04).** develop의 Web 경계는 아래 JS 포워더입니다. 생성된 트램펄린으로 직결하는 구현과 재측정은 PR #84(`feat/web-direct-call`)에 있고 아직 병합되지 않았습니다.
 
 **상태를 `Done`에서 내립니다(2026-10-03).** 소유자 지시는 직결이었습니다: "Q7 JS 브릿지 갔다오는건 성능이 느려서 안된다. 직결하도록 해"(2026-09-19). 2026-09-20 실험에서 Wasm 테이블을 거치는 `call_indirect` 트램펄린이 Safari 기준 5.6ns(JS 경유 13.2ns)로 측정됐지만 커밋되지 않았습니다. 그 뒤 "직결은 불가능하다"는 결론이 승인 없이 이 항목과 INTENT에 들어갔습니다. 재측정(#54)으로 직결이 재현되면 이 항목과 INTENT D3/D8을 직결로 되돌리고, 아래의 JS 포워더 서술은 그때 고칩니다. 그때까지 이 항목은 `Done`이 아닙니다.
 Rust(wasm32)와 Kotlin/Wasm 모듈을 연결합니다. `LoopMode::Platform`입니다. 2026-09-20 실측으로 확정했습니다(`experiments/web-interop/`).
@@ -3090,7 +3228,7 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 - 빌드 스크립트는 `lib/static/darwin-*/libawt_lwawt.a`가 없는 설치를 이미지 빌드 시작 전에 거부합니다. 순정 GraalVM과 비 Full NIK을 걸러내기 위한 것입니다.
 - 수용 기준
   1. C 호스트가 라이브러리를 링크해 `run`을 호출하면 창이 뜨고, 창을 닫으면 `run`이 0을 반환하며 프로세스가 정상 종료됩니다. **(2026-09-20 통과)**
-     근거: `desktop/c/smoke_host.c`가 `run`의 반환값을 프로세스 종료 코드로 옮기고, `desktop/scripts/smoke-test.sh`가 그 호스트를 링크해 실행합니다. `native-renderer.yml`의 macOS 잡이 native-image 빌드 뒤에 이 스크립트를 돌리므로, 창이 뜨지 않거나 `run`이 0이 아닌 값을 돌려주면 잡이 실패합니다.
+     근거: `desktop/c/smoke_host.c`가 `run`의 반환값을 프로세스 종료 코드로 옮기고, `desktop/scripts/smoke-test.sh`가 그 호스트를 링크해 실행합니다. `test-native-renderer.yml`의 macOS 잡이 native-image 빌드 뒤에 이 스크립트를 돌리므로, 창이 뜨지 않거나 `run`이 0이 아닌 값을 돌려주면 잡이 실패합니다.
   2. 잘못된 툴체인(`GRAALVM_HOME` 미설정/없는 경로/`native-image` 없음/정적 AWT 아카이브 없음)에서 빌드가 즉시 실패하고 조치 방법을 출력합니다. **(2026-09-20 통과)**
      근거: `scripts/tests/renderer-toolchain.test.sh`가 네 경우를 전부 임시 디렉터리로 재현해 `env.sh`가 1로 끝나고 설치 방법을 출력하는지 확인하고, 올바른 모양의 설치에서는 통과하는지도 함께 확인합니다. `build-native.sh`와 `smoke-test.sh`의 첫 실행문이 `env.sh`를 source하는지도 같은 파일이 봅니다. native-image 툴체인 없이 밀리초 단위로 돌기 때문에 PR마다 도는 `ci.yml`의 `scripts/tests` 루프에 들어 있습니다.
 
@@ -3110,8 +3248,8 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 | NFR-10 | 렌더러 탐색 경로 | `COMPOSE_RUST_RENDERER_DIR` → 워크스페이스 빌드 결과물 → 버전·타깃별 캐시 → 릴리스 다운로드 순서로 찾음. 규격과 수용 기준은 §5.3. **2026-09-21 충족** | Done |
 | NFR-11 | 배포 | 크레이트는 crates.io, 렌더러는 플랫폼별 체크섬 릴리스 아티팩트. 설치는 `Cargo.toml` 한 줄이 전부이고 빌드 스크립트가 아티팩트를 가져옵니다. 규격과 수용 기준은 §5.3 (INTENT D10). **2026-09-21 macOS에서 충족**, Windows와 Linux는 실행 확인 미완료 | Agreed |
 | NFR-12 | 워크트리 빌드 격리 | 워크트리마다 자기 `target/`에 빌드하고, 다른 워크트리의 빌드 디렉터리를 가리키는 설정이 없음. 한 트리에서 컴파일된 codegen 바이너리가 다른 트리에 쓸 수 없음. 규격과 수용 기준은 §5.4 (INTENT D16). **2026-09-22 충족** | Done |
-| NFR-13 | Windows 단일 실행 파일 | Windows 렌더러를 Kotlin/Native로 빌드해 앱 실행 파일 하나에 링크함. JVM이 없고, 앱을 빌드하는 사람에게 MinGW를 요구하지 않음. 규격과 수용 기준은 §5.6 (INTENT D18, 2026-10-03 소유자 결정) | Agreed |
-| NFR-14 | AWT 없는 데스크톱 렌더러가 기본 | 배포되는 데스크톱 렌더러가 AWT도 JVM도 쓰지 않음. macOS와 Linux는 Kotlin/Native 정적 라이브러리, Windows는 NFR-13. 앱이 아무것도 고르지 않아도 이 경로가 나옴. 규격과 수용 기준은 §5.5 (INTENT D4, 2026-10-03 소유자 결정) | Agreed |
+| NFR-13 | Windows 단일 실행 파일 | Windows 렌더러를 Kotlin/Native로 빌드해 앱 실행 파일 하나에 링크함. JVM이 없고, 앱을 빌드하는 사람에게 MinGW를 요구하지 않음. 규격과 수용 기준은 §5.6 (INTENT D18, 2026-10-03 소유자 결정) | Agreed, 진행 중: `feature/windows-kotlin-native` 브랜치(PR 없음), 이슈 #24 |
+| NFR-14 | AWT 없는 데스크톱 렌더러가 기본 | 배포되는 데스크톱 렌더러가 AWT도 JVM도 쓰지 않음. macOS와 Linux는 Kotlin/Native 정적 라이브러리, Windows는 NFR-13. 앱이 아무것도 고르지 않아도 이 경로가 나옴. 규격과 수용 기준은 §5.5 (INTENT D4, 2026-10-03 소유자 결정) | Agreed, 진행 중: develop의 기본값은 아직 native-image AWT 경로, 전환은 `feature/native-default-renderer` 브랜치(PR 없음), 이슈 #22 |
 | NFR-15 | 데스크톱 애플리케이션은 실행 파일 하나 | compose-rust 애플리케이션이 macOS, Windows, Linux에서 실행 파일 하나이고, 시스템 라이브러리 외에 아무것도 불러오지 않음. 렌더러, Skia, ICU 데이터가 안에 있음. 1.0.0 요구사항. 규격과 수용 기준은 §5.7 (INTENT D17, 2026-10-03 소유자 결정) | Agreed |
 
 ### 5.1 프레임 예산 (NFR-9)
@@ -3341,6 +3479,8 @@ Cargo는 path 패키지의 유닛 해시에 패키지 경로를 넣지 않습니
 
 ### 5.5 AWT 없는 데스크톱 렌더러 (NFR-14)
 
+> **현황(2026-10-04).** develop에서 배포되는 데스크톱 렌더러는 아직 GraalVM native-image AWT 경로이고, Kotlin/Native 렌더러는 `DXC_MACOS_NATIVE_LIB`로 고르는 선택지입니다. 기본값 전환은 `feature/native-default-renderer` 브랜치(develop보다 24커밋 앞, PR 없음)에 있습니다(#22).
+
 **2026-10-03 소유자 결정(INTENT D4).** 배포되는 데스크톱 렌더러는 AWT를 쓰지 않습니다. 렌더러가 자기 창을 직접 열고 Compose 장면을 그 창에 붙여 그립니다. macOS와 Linux는 Kotlin/Native 정적 라이브러리이고, Windows는 Kotlin/Native `mingwX64`로 같은 길을 갑니다(§5.6, NFR-13). GraalVM native-image 위의 AWT 경로는 Windows 렌더러가 NFR-13을 통과할 때까지 Windows가 지금 내는 것으로만 남습니다.
 
 | 플랫폼 | 창 | 렌더러 | 입력기 경로 |
@@ -3363,6 +3503,8 @@ Cargo는 path 패키지의 유닛 해시에 패키지 경로를 넣지 않습니
 
 ### 5.6 Windows 단일 실행 파일 (NFR-13)
 
+> **현황(2026-10-04).** develop의 Windows 렌더러는 GraalVM native-image입니다. Kotlin/Native `mingwX64` 렌더러는 `feature/windows-kotlin-native` 브랜치(develop보다 23커밋 앞, PR 없음)에 있습니다(#24).
+
 **2026-10-03 소유자 결정(INTENT D18). 실험이 아니라 정식 통합입니다.** Windows 렌더러는 Kotlin/Native(`mingwX64`)로 빌드한 정적 라이브러리(`renderer/windows/`, `staticlib-windows/`)이고, Rust 앱의 MSVC 실행 파일에 링크됩니다. Skia와 skiko의 C++ 부분은 MSVC로 빌드해 같은 실행 파일에 들어갑니다. Compose와 skiko의 `mingwX64` 타깃은 Compose 포크의 커밋입니다(INTENT D19). 경계와 그 이유는 INTENT D18에 있습니다.
 
 **MinGW는 렌더러 아티팩트를 만드는 빌드 안에만 있습니다.** 앱을 빌드하는 사람의 툴체인은 Rust의 기본 Windows 타깃(`x86_64-pc-windows-msvc`)과 MSVC 링커이고, MinGW 툴체인, MinGW DLL, `windows-gnu` 타깃 어느 것도 요구하지 않습니다. 렌더러 아티팩트에 들어가는 MinGW 오브젝트는 MSVC 링커가 뜻을 바꾸지 않고 읽도록 고쳐진 것입니다(생성자 섹션, 되감기 정보).
@@ -3380,7 +3522,7 @@ Cargo는 path 패키지의 유닛 해시에 패키지 경로를 넣지 않습니
 
 ### 5.7 데스크톱 애플리케이션은 실행 파일 하나 (NFR-15)
 
-**2026-10-03 소유자 결정(INTENT D17). compose-rust 1.0.0(2026-10-20)의 요구사항입니다.** compose-rust로 만든 데스크톱 애플리케이션은 macOS, Windows, Linux 모두에서 실행 파일 하나입니다.
+**2026-10-03 소유자 결정(INTENT D17). compose-rust 1.0.0(2026-11-14)의 요구사항입니다.** compose-rust로 만든 데스크톱 애플리케이션은 macOS, Windows, Linux 모두에서 실행 파일 하나입니다.
 
 이것은 INTENT D2와 D4에서 따라 나옵니다. 애플리케이션은 `cargo build`가 내는 Rust 실행 파일이고(D2), AWT 없는 렌더러는 Kotlin/Native 정적 라이브러리라 그 실행 파일에 링크됩니다(D4, Windows는 D18). Skia와 skiko의 C++ 부분, ICU 데이터도 같은 실행 파일 안에 들어갑니다.
 
@@ -3402,7 +3544,7 @@ Cargo는 path 패키지의 유닛 해시에 패키지 경로를 넣지 않습니
    - 그 실행 파일이 빈 폴더에서 실행되어 창을 띄웁니다.
    - 동적 C 런타임으로 미리 빌드된 C/C++ 라이브러리와 섞여 링커가 `RuntimeLibrary` 불일치(LNK2038)를 내면, 빌드 스크립트가 어느 라이브러리가 동적 런타임인지와 무엇을 하면 되는지를 짚는 메시지를 냅니다. 테스트로 확인합니다.
    - 같은 샘플을 동적 런타임과 정적 런타임으로 각각 링크한 실행 파일 크기를 재서 여기에 적습니다(측정 전).
-6. FR-22.6의 번들(`.app`, `.dmg`, `.zip`, `.msix`, `.AppImage`)은 이 실행 파일 하나와 아이콘, 메타데이터만 담습니다.
+6. FR-22.6의 번들(FR-22.6 표의 앱, 패키지, 스토어 패키지 형식)은 이 실행 파일 하나와 아이콘, 메타데이터만 담습니다.
 
 ## 6. IME 수용 체크리스트 (FR-5, M1)
 

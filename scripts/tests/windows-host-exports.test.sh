@@ -88,10 +88,19 @@ echo "ok    $(echo "$exported" | wc -l | tr -d ' ') host functions are exported,
 # crate's own cdylib on the way: `/ENTRY:mainCRTStartup` points at a `main` a library does
 # not have. So every sample carries the attribute, and anyone building on this crate has
 # to as well.
+#
+# There are no samples until #85 closes, so the loop finds nothing to check and says so;
+# it checks every sample again the moment one is back.
 missing=()
+checked=0
 for main in samples/*/src/main.rs; do
+    [[ -f "$main" ]] || continue
+    checked=$((checked + 1))
     grep -q 'windows_subsystem = "windows"' "$main" || missing+=("$main")
 done
+if [[ "$checked" -eq 0 ]]; then
+    echo "note  no samples to check for the window subsystem (#85)"
+fi
 if [[ "${#missing[@]}" -gt 0 ]]; then
     echo "fail  ${#missing[@]} sample(s) would open a console beside their window:" >&2
     printf '        %s\n' "${missing[@]}" >&2

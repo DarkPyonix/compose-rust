@@ -259,7 +259,7 @@ fn pr6_the_arena_is_never_copied() {
 fn pr6_the_two_regions_are_stated_the_same_on_both_sides() {
     let rust = generate_wasm_rust();
     let kotlin = generate_web_bridge_kotlin();
-    let loader = generate_web_loader_js();
+    let _loader = generate_web_loader_js();
 
     assert!(
         kotlin.contains(&format!(

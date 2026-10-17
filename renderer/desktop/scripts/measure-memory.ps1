@@ -22,7 +22,9 @@ number was 40MB out.
 The application to measure. A sample from a release works, and so does
 target\release\examples\memory_probe.exe, which takes DXC_PROBE_WIDTH, DXC_PROBE_HEIGHT and
 DXC_PROBE_ROWS and is the one that isolates what the window costs from what the content
-costs.
+costs. The probe is an example of the Dioxus adapter, which lives in dioxus-compose
+(https://github.com/DarkPyonix/dioxus-compose), so it is built there; the commands below
+are run in that checkout.
 
 .PARAMETER Width
 .PARAMETER Height

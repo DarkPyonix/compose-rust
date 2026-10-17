@@ -10,4 +10,10 @@ lib="$DIST_DIR/lib"
 
 host="$BUILD_DIR/smoke_host"
 cc -O2 -o "$host" "$NATIVE_DIR/c/smoke_host.c" -L"$lib" -lcompose_rust_renderer -Wl,-rpath,"$lib"
-"$host"
+# Everything the run prints, the renderer's own lines on stderr included, because those are
+# the ones that say a scene was made and a frame was drawn. smoke-startup.sh says which.
+source "$(dirname "$0")/smoke-startup.sh"
+status=0
+out="$("$host" 2>&1)" || status=$?
+echo "$out"
+check_smoke_startup "$out" "$status" || exit 1

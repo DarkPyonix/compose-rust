@@ -18,6 +18,7 @@ import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.test.withKeyDown
+import androidx.compose.ui.text.AnnotatedString
 import dev.darkpyonix.composerust.protocol.ColorScheme
 import dev.darkpyonix.composerust.protocol.DesignSystem
 import dev.darkpyonix.composerust.protocol.HostEvent
@@ -94,8 +95,14 @@ private class RecordingClipboard : Clipboard {
     override suspend fun getClipEntry(): ClipEntry? = null
 
     override suspend fun setClipEntry(clipEntry: ClipEntry?) {
-        val transferable = clipEntry?.nativeClipEntry as? Transferable ?: return
-        copied = transferable.getTransferData(DataFlavor.stringFlavor) as? String
+        // The toolkit-free Compose answers a copy with plain text or an AnnotatedString, and
+        // upstream's with a Transferable. Either is what a copy produced.
+        copied = when (val native = clipEntry?.nativeClipEntry) {
+            is String -> native
+            is AnnotatedString -> native.text
+            is Transferable -> native.getTransferData(DataFlavor.stringFlavor) as? String
+            else -> return
+        }
     }
 
     override val nativeClipboard: NativeClipboard =

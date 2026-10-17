@@ -333,6 +333,7 @@ macro_rules! define_wire_enum {
             // to say beyond being unknown, and every caller turns it into its own error.
             #[allow(dead_code, clippy::result_unit_err)]
             #[doc(hidden)]
+            #[allow(clippy::result_unit_err)]
             pub fn from_name(value: &str) -> Result<Self, ()> {
                 $(if wire_name_eq(value, stringify!($variant)) {
                     return Ok(Self::$variant);

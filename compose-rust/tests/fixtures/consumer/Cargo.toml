@@ -1,7 +1,7 @@
 # A consumer of this crate, with nothing else in it.
 #
 # The point of this crate is what it does not contain: there is no build.rs. An
-# application that adds the Dioxus adapter to its Cargo.toml and writes an app writes
+# application that adds compose-rust to its Cargo.toml and registers a runtime writes
 # exactly this much, and it has to build, link and start. Every sample in this repository
 # used to carry a build script to make that work, which meant the case a real consumer
 # hits was the one case nothing tested.
@@ -17,7 +17,6 @@ edition = "2024"
 publish = false
 
 [dependencies]
-# The Dioxus authoring layer, which brings compose-rust with it. The renderer is still
-# found, downloaded and linked by compose-rust's build script, which is the point: this
-# crate has none of its own.
-dioxus-compose-adapter = { path = "../../../../adapters/dioxus" }
+# compose-rust alone. The renderer is found, downloaded and linked by compose-rust's build
+# script, which is the point: this crate has none of its own.
+compose-rust = { path = "../../.." }
