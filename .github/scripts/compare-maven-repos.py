@@ -44,6 +44,7 @@ difference with its path.
 """
 
 import hashlib
+import difflib
 import json
 import os
 import re
@@ -145,6 +146,24 @@ def entry_contents(name, data, renamed):
     except UnicodeDecodeError:
         return data
     return rename_text(data)
+
+
+def text_diff(expected, actual, label, limit=40):
+    """The first lines of a unified diff of two texts, or nothing when either is not text."""
+    try:
+        left = expected.decode("utf-8").splitlines()
+        right = actual.decode("utf-8").splitlines()
+    except UnicodeDecodeError:
+        return []
+    lines = list(difflib.unified_diff(left, right, f"expected/{label}", f"actual/{label}", n=1, lineterm=""))
+    if len(lines) > limit:
+        lines = lines[:limit] + [f"... {len(lines) - limit} more diff lines"]
+    return ["    " + line for line in lines]
+
+
+def archive_entry(path, name, renamed=False):
+    with zipfile.ZipFile(path) as archive:
+        return entry_contents(name, archive.read(name), renamed)
 
 
 def archive_entries(path, renamed=False):
@@ -281,6 +300,9 @@ def main(argv):
                     say(f"ENTRY ONLY IN EXPECTED: {relative}!/{entry}")
                 else:
                     say(f"ENTRY DIFFERS: {relative}!/{entry} ({a[:12]} vs {b[:12]})")
+                    if not entry.endswith((".class", ".knm", "linkdata/module")):
+                        for line in text_diff(archive_entry(left, entry), archive_entry(right, entry, renamed=True), entry):
+                            say(line)
             if changed:
                 if intended(relative):
                     say(f"CHANGED ON PURPOSE: {relative}")
@@ -289,8 +311,12 @@ def main(argv):
                     differences += 1
         else:
             others += 1
-            if normalised(left, relative) != normalised(right, relative, renamed=True):
+            expected_text = normalised(left, relative)
+            actual_text = normalised(right, relative, renamed=True)
+            if expected_text != actual_text:
                 say(f"FILE DIFFERS: {relative}")
+                for line in text_diff(expected_text, actual_text, os.path.basename(relative)):
+                    say(line)
                 if intended(relative):
                     intended_changes += 1
                 else:
