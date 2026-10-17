@@ -22,8 +22,10 @@ How to run (PowerShell, in the folder that holds hand-check.exe and resize-probe
        $env:DXC_METRICS = '1'; $env:DXC_REAL_DRAG = 'external'; $env:DXC_RESIZE_TRACE = '1'
        .\hand-check.exe 2>&1 | Tee-Object hand-check-16.log
 
-     hand-check moves its window to the top left at 640x480 and prints "real drag ready". The
-     probe then drags. When hand-check prints "real drag done", close hand-check.
+     hand-check moves its window to the top left of the work area, asks for 640x480 pixels
+     and prints "real drag ready". Above 100% the window's minimum size can be larger than
+     that (at 200% the minimum is twice as many pixels), so the probe takes whatever size the
+     window settles at, once it has held still for a second. The probe then drags. When hand-check prints "real drag done", close hand-check.
   3. Again at the other two mouse rates, each with its own pair of logs:
        --interval-ms 8 --step-px 4   (a 125 Hz mouse)       probe-8.log,  hand-check-8.log
        --interval-ms 1 --step-px 1   (a 1000 Hz mouse)      probe-1.log,  hand-check-1.log
@@ -42,7 +44,12 @@ How to run (PowerShell, in the folder that holds hand-check.exe and resize-probe
 What the output means (probe log)
   duplicating ...           the monitor and graphics adapter being recorded
   background captured ...   the desktop it compares against
-  window ... (ready)        the window is at 640x480 and the drag can start
+  window ... (ready)        the window settled at the top left and the drag can start: its
+                            size in physical and logical pixels and its dpi
+  rcMonitor, rcWork, ...    where the monitor, the work area, the captured desktop, the
+                            window's rectangle, its visible frame and its client area are,
+                            in physical pixels and in the window's logical pixels. The window
+                            must be on the captured monitor and its client area inside it.
   client ... edge_offset    where the rows are, and how far past the picture's right edge the
                             window's frame and shadow reach
   send n=... qpc=...        every mouse event, when it was sent (QPC) and where the cursor was

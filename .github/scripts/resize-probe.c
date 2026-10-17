@@ -80,6 +80,7 @@ static ID3D11Device *device;
 static ID3D11DeviceContext *context;
 static IDXGIOutputDuplication *duplication;
 static RECT desktop;            /* the duplicated output, in desktop coordinates */
+static HMONITOR desktop_monitor; /* and the monitor it shows */
 static int desktop_width, desktop_height;
 static ID3D11Texture2D *latest;  /* the last frame handed out, kept on the GPU */
 static ID3D11Texture2D *full_staging;
@@ -107,6 +108,7 @@ static int start_duplication(void) {
                 HRESULT duplicated = FAILED(made) ? made : IDXGIOutput1_DuplicateOutput(output1, (IUnknown *)device, &duplication);
                 if (SUCCEEDED(duplicated)) {
                     desktop = output_description.DesktopCoordinates;
+                    desktop_monitor = output_description.Monitor;
                     desktop_width = desktop.right - desktop.left;
                     desktop_height = desktop.bottom - desktop.top;
                     say("duplicating %ls on %ls (vendor %04x device %04x), %dx%d at %ld,%ld",
@@ -456,6 +458,19 @@ static const char *argument(int argc, char **argv, const char *name, const char 
     return fallback;
 }
 
+static const char *awareness_name(DPI_AWARENESS awareness) {
+    return awareness == DPI_AWARENESS_PER_MONITOR_AWARE ? "per-monitor"
+           : awareness == DPI_AWARENESS_SYSTEM_AWARE    ? "system"
+           : awareness == DPI_AWARENESS_UNAWARE         ? "unaware"
+                                                        : "unknown";
+}
+
+static void say_rect(const char *name, const RECT *rect, int dpi) {
+    say("  %s %ld,%ld-%ld,%ld px, %ldx%ld (%d,%d-%d,%d logical at dpi %d)", name, rect->left, rect->top, rect->right,
+        rect->bottom, rect->right - rect->left, rect->bottom - rect->top, MulDiv(rect->left, 96, dpi),
+        MulDiv(rect->top, 96, dpi), MulDiv(rect->right, 96, dpi), MulDiv(rect->bottom, 96, dpi), dpi);
+}
+
 int main(int argc, char **argv) {
     const char *path = argument(argc, argv, "--out", NULL);
     out = path != NULL ? fopen(path, "w") : stdout;
@@ -469,10 +484,25 @@ int main(int argc, char **argv) {
     for (int index = 1; index < argc; index++) {
         if (strcmp(argv[index], "--turn-on-full-window-drag") == 0) turn_on_full_drag = 1;
     }
+    /*
+     * Physical pixels everywhere: Desktop Duplication, SendInput's absolute coordinates and the
+     * window's rectangles must all be in the same units, and a process that is not per-monitor
+     * aware is handed scaled ones on a monitor above 100%. The executable's manifest declares
+     * per-monitor (v2) awareness, so this call normally finds it set already; it is kept for a
+     * build without the manifest.
+     */
+    BOOL aware = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    DWORD aware_error = aware ? 0 : GetLastError();
     QueryPerformanceFrequency(&frequency);
-    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     timeBeginPeriod(1);
     say("start qpc_frequency=%lld interval_ms=%d step_px=%d", (long long)frequency.QuadPart, interval_ms, step_px);
+    DPI_AWARENESS awareness = GetAwarenessFromDpiAwarenessContext(GetThreadDpiAwarenessContext());
+    say("dpi awareness %s (SetProcessDpiAwarenessContext %s, error %lu), system dpi %u", awareness_name(awareness),
+        aware ? "ok" : "refused", (unsigned long)aware_error, GetDpiForSystem());
+    if (awareness != DPI_AWARENESS_PER_MONITOR_AWARE) {
+        say("verdict ERROR: the probe is not per-monitor DPI aware, so its coordinates would not be physical pixels");
+        return 2;
+    }
 
     /*
      * A magenta backdrop over the whole primary monitor, made before the application's window
@@ -517,33 +547,102 @@ int main(int argc, char **argv) {
         return 2;
     }
     DWORD thread = GetWindowThreadProcessId(window, NULL);
-    /* Ready: the application puts the window at 640x480 for the drag; wait for that size to hold. */
-    RECT outer;
-    int held = 0;
-    for (int waited = 0; waited < wait_seconds * 1000 && held < 1000; waited += 50) {
-        GetWindowRect(window, &outer);
-        held = outer.right - outer.left == 640 && outer.bottom - outer.top == 480 ? held + 50 : 0;
+    /*
+     * Ready: the application (DXC_REAL_DRAG=external) moves its window to the top left of the
+     * work area and asks for 640x480 pixels. What it gets can be larger, because the window's
+     * minimum size is in logical pixels: at 200% the minimum is twice as many physical pixels,
+     * and 640x480 is below it. So the probe does not wait for 640x480. It waits for the window
+     * to have left where it opened, to sit at the work area's top left, at least 640x480, and
+     * to hold that rectangle for a second, and takes whatever size that is.
+     */
+    RECT first, outer, last;
+    GetWindowRect(window, &first);
+    outer = last = first;
+    int moved = 0, held = 0, settled = 0;
+    MONITORINFO placed_on;
+    for (int waited = 0; waited < wait_seconds * 1000 && IsWindow(window); waited += 50) {
         Sleep(50);
+        GetWindowRect(window, &outer);
+        if (!EqualRect(&outer, &first)) moved = 1;
+        memset(&placed_on, 0, sizeof placed_on);
+        placed_on.cbSize = sizeof placed_on;
+        GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &placed_on);
+        int placed = outer.left == placed_on.rcWork.left && outer.top == placed_on.rcWork.top &&
+                     outer.right - outer.left >= 640 && outer.bottom - outer.top >= 480;
+        held = placed && EqualRect(&outer, &last) ? held + 50 : 0;
+        last = outer;
+        /* Opened in place already: then only time tells that nothing is still to come. */
+        if (held >= 1000 && (moved || waited >= 5000)) { settled = 1; break; }
     }
-    GetWindowRect(window, &outer);
-    say("window %p thread %lu at %ld,%ld %ldx%ld (%s)", (void *)window, (unsigned long)thread, outer.left, outer.top,
-        outer.right - outer.left, outer.bottom - outer.top, held >= 1000 ? "ready" : "size never settled at 640x480");
+    if (!IsWindow(window)) {
+        say("verdict ERROR: the window closed before it was ready for the drag");
+        return 2;
+    }
+    UINT window_dpi = GetDpiForWindow(window);
+    int scale = window_dpi > 0 ? (int)window_dpi : 96;
+    say("window %p thread %lu at %ld,%ld %ldx%ld px, dpi %u (%.2fx), %dx%d logical, window awareness %s (%s)",
+        (void *)window, (unsigned long)thread, outer.left, outer.top, outer.right - outer.left,
+        outer.bottom - outer.top, window_dpi, scale / 96.0, MulDiv(outer.right - outer.left, 96, scale),
+        MulDiv(outer.bottom - outer.top, 96, scale),
+        awareness_name(GetAwarenessFromDpiAwarenessContext(GetWindowDpiAwarenessContext(window))),
+        !settled ? "NOT SETTLED" : outer.right - outer.left == 640 && outer.bottom - outer.top == 480
+                       ? "ready, at the 640x480 asked for"
+                       : "ready, larger than the 640x480 asked for: the window's minimum size at this scale");
     RECT client;
     GetClientRect(window, &client);
     POINT origin = {0, 0};
     ClientToScreen(window, &origin);
+    RECT client_screen = {origin.x, origin.y, origin.x + client.right, origin.y + client.bottom};
+    RECT frame;
+    HRESULT framed = DwmGetWindowAttribute(window, DWMWA_EXTENDED_FRAME_BOUNDS, &frame, sizeof frame);
+    if (FAILED(framed)) SetRectEmpty(&frame);
+    MONITORINFO monitor;
+    memset(&monitor, 0, sizeof monitor);
+    monitor.cbSize = sizeof monitor;
+    HMONITOR window_monitor = MonitorFromWindow(window, MONITOR_DEFAULTTONULL);
+    if (window_monitor != NULL) GetMonitorInfoW(window_monitor, &monitor);
+    /*
+     * Where everything is, in physical pixels and in the window's logical pixels. The outer
+     * rectangle includes the invisible resize border at the left, right and bottom, so its
+     * left can be off the monitor while everything visible is on it; the
+     * visible frame (DWM's extended frame bounds) and the client are what the capture sees.
+     */
+    say("monitor of the window %p%s, captured monitor %p", (void *)window_monitor,
+        window_monitor == NULL ? " (none)" : "", (void *)desktop_monitor);
+    say_rect("rcMonitor", &monitor.rcMonitor, scale);
+    say_rect("rcWork", &monitor.rcWork, scale);
+    say_rect("captured desktop (DesktopCoordinates)", &desktop, scale);
+    say_rect("GetWindowRect", &outer, scale);
+    if (SUCCEEDED(framed)) {
+        say_rect("DWMWA_EXTENDED_FRAME_BOUNDS", &frame, scale);
+    } else {
+        say("  DWMWA_EXTENDED_FRAME_BOUNDS unavailable (0x%08lx)", (unsigned long)framed);
+    }
+    say_rect("client (ClientToScreen)", &client_screen, scale);
+    if (!settled) {
+        say("verdict ERROR: the window never settled at the work area's top left (at least 640x480 px, still for "
+            "1 s) in %d s; is the application running with DXC_METRICS=1 and DXC_REAL_DRAG=external?",
+            wait_seconds);
+        return 2;
+    }
+    /*
+     * The capture is the monitor the duplication runs on. What has to be on it is the window's
+     * monitor (by handle, not by comparing rectangles from two APIs) and the client area, which
+     * is all the rows scan.
+     */
+    RECT overlap;
+    int client_captured = IntersectRect(&overlap, &client_screen, &desktop) && EqualRect(&overlap, &client_screen);
+    if (window_monitor == NULL || window_monitor != desktop_monitor || !client_captured) {
+        say("verdict ERROR: the window is not on the captured monitor (%s)",
+            window_monitor == NULL ? "it is on no monitor"
+            : window_monitor != desktop_monitor ? "its monitor is another one"
+                                                : "its client area reaches outside the captured desktop");
+        return 2;
+    }
     scan_left = origin.x;
     /* Above and below the height the cursor is pressed at (the middle), which it would cover. */
     row_y[0] = origin.y + client.bottom / 4;
     row_y[1] = origin.y + client.bottom * 3 / 4;
-    MONITORINFO monitor;
-    memset(&monitor, 0, sizeof monitor);
-    monitor.cbSize = sizeof monitor;
-    GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor);
-    if (!EqualRect(&monitor.rcMonitor, &desktop)) {
-        say("verdict ERROR: the window is not on the primary monitor, which is the one captured");
-        return 2;
-    }
     if (travel <= 0) travel = (int)(monitor.rcWork.right - outer.right) - 16;
     /*
      * The backdrop goes directly behind the window, above everything else: the runner's
