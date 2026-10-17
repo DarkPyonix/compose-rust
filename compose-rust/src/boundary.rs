@@ -476,7 +476,7 @@ impl Host {
                 }
                 self.batch().begin();
                 if crate::animation::publish_reduced_motion(state) {
-                    self.runtime.render();
+                    self.runtime.render(None);
                 }
                 self.flush_messages();
                 self.arm_scheduler_wake();
