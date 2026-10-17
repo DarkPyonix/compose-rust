@@ -1,10 +1,12 @@
-# Samples test -- builds every sample for every desktop platform when a `sample-v*` tag is
-# pushed, and attaches the binaries to a GitHub Release.
+# Samples test -- builds every sample for every platform: the desktop matrix, Android,
+# the iOS simulator and the browser. A `sample-v*` tag, or a dispatch naming one, also
+# attaches the results to a GitHub Release.
 #
-# Skipped while the samples are rewritten on the compose-rust API (#85). The twelve samples
-# under samples/ still name the Dioxus adapter, which moved to dioxus-compose, so they do
-# not build until the rewrite lands. The `status` job says so as a notice and every build
-# job is skipped, not failed. Resuming is setting `rewritten` to true once #85 closes.
+# On a pull request it is a heavy check, so it runs only when asked: the run-heavy-ci
+# label, or a push while the label is on (heavy-checks.yml holds the merge until it has
+# passed on the head). Then it builds everything and releases nothing. The paths below are
+# the ones a sample build reads beyond the crate itself; a change to compose-rust alone is
+# tested by the workspace's own tests, which include every sample's.
 #
 # A sample that does not build on a platform is skipped and the release goes ahead with
 # the rest. Eleven samples across three platforms is thirty-three builds, and holding all
@@ -23,41 +25,54 @@
 name: Samples test
 
 on:
+  push:
+    tags:
+      - 'sample-v*'
+  pull_request:
+    # Only when asked: the run-heavy-ci label going on, or a push or reopen while it is on.
+    # The request job below decides; heavy-checks.yml holds the merge until it has passed.
+    types: [synchronize, reopened, labeled]
+    paths:
+      - samples/**
+      - scripts/build-sample-apks.sh
+      - scripts/build-sample-pages.sh
+      - renderer/desktop/scripts/build-sample-ios.sh
+      - .github/workflows/test-samples.yml
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing sample-v* tag to build a release for'
-        required: true
+        description: 'Existing sample-v* tag to build a release for; empty builds without releasing'
+        required: false
         type: string
+        default: ''
 
 concurrency:
-  # One run per tag; a second dispatch for the same tag waits rather than cancelling a
-  # release half way.
-  group: test-samples-${{ inputs.tag }}
-  cancel-in-progress: false
+  # One run per pull request: a new commit cancels the older run. A tag push or a dispatch
+  # is never cancelled, so a release is not cut short half way, and a second one for the
+  # same tag waits. A run started by some other label going on gets a group of its own, so
+  # it cannot cancel a heavy run.
+  group: test-samples-${{ github.event.pull_request.number || inputs.tag || github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'run-heavy-ci' && format('-other-label-{0}', github.run_id) || '' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 jobs:
-  status:
-    name: Report that the samples are skipped
+  requested:
+    name: Heavy checks requested
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.action == 'labeled' && github.event.label.name == 'run-heavy-ci') ||
+      (github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'run-heavy-ci'))
     runs-on: ubuntu-latest
-    outputs:
-      rewritten: ${{ steps.state.outputs.rewritten }}
     steps:
-      - id: state
-        name: Report the state
-        run: |
-          echo "rewritten=false" >> "$GITHUB_OUTPUT"
-          echo "::notice title=Samples skipped::The samples are being rewritten on the compose-rust API (https://github.com/DarkPyonix/compose-rust/issues/85). Their builds are skipped until then."
+      - run: echo "Heavy checks requested by ${{ github.event_name }} ${{ github.event.action }}"
 
   # The renderers macOS and Linux ship, from the same reusable workflow the release uses,
   # so that every sample there is one executable, built the way an application is.
   static-renderer:
     name: renderer
-    needs: status
-    if: needs.status.outputs.rewritten == 'true'
+    needs: requested
     strategy:
       fail-fast: false
       matrix:
@@ -69,17 +84,16 @@ jobs:
 
   fork-desktop:
     # The Windows renderer's desktop module asks for the fork's Compose and skiko-awt by version.
-    needs: status
-    if: ${{ needs.status.outputs.rewritten == 'true' }}
+    needs: requested
     name: Build the Compose fork's desktop modules
     uses: ./.github/workflows/fork-desktop-modules.yml
 
   build:
     name: Build the sample (${{ matrix.target }})
-    needs: [status, static-renderer, fork-desktop]
+    needs: [requested, static-renderer, fork-desktop]
     # Windows builds its own renderer and does not need the static ones, and one platform's
     # renderer failing does not stop the others' samples.
-    if: ${{ !cancelled() && needs.status.outputs.rewritten == 'true' }}
+    if: ${{ !cancelled() && needs.requested.result == 'success' }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     strategy:
@@ -287,8 +301,7 @@ jobs:
 
 
   android:
-    needs: status
-    if: needs.status.outputs.rewritten == 'true'
+    needs: requested
     name: Build the sample (Android)
     runs-on: ubuntu-24.04
     timeout-minutes: 120
@@ -349,8 +362,7 @@ jobs:
           path: artifacts/
 
   ios:
-    needs: status
-    if: needs.status.outputs.rewritten == 'true'
+    needs: requested
     name: Build the sample (iOS, simulator)
     runs-on: macos-26
     timeout-minutes: 120
@@ -405,8 +417,7 @@ jobs:
           path: artifacts/
 
   web:
-    needs: status
-    if: needs.status.outputs.rewritten == 'true'
+    needs: requested
     name: Build the sample (web)
     runs-on: ubuntu-24.04
     timeout-minutes: 120
@@ -452,6 +463,9 @@ jobs:
   release:
     name: Attach the samples to the GitHub release
     needs: [build, android, ios, web]
+    # A tag, or a dispatch that names one. A pull request run and a dispatch without a tag
+    # build everything and stop there.
+    if: github.event_name == 'push' || inputs.tag != ''
     runs-on: ubuntu-latest
     permissions:
       contents: write

@@ -131,31 +131,98 @@ dependencies = [
 ]
 
 [[package]]
-name = "sample-calculator-compose"
+name = "sample-academic"
+version = "0.1.0"
+dependencies = [
+ "compose-rust",
+ "sample-frames",
+]
+
+[[package]]
+name = "sample-calculator"
+version = "0.1.0"
+dependencies = [
+ "compose-rust",
+ "sample-frames",
+]
+
+[[package]]
+name = "sample-chat"
+version = "0.1.0"
+dependencies = [
+ "compose-rust",
+ "sample-frames",
+]
+
+[[package]]
+name = "sample-frames"
 version = "0.1.0"
 dependencies = [
  "compose-rust",
 ]
 
 [[package]]
-name = "sample-chat-compose"
+name = "sample-minimal"
 version = "0.1.0"
 dependencies = [
  "compose-rust",
+ "sample-frames",
 ]
 
 [[package]]
-name = "sample-minimal-compose"
+name = "sample-notepad"
 version = "0.1.0"
 dependencies = [
  "compose-rust",
+ "sample-frames",
 ]
 
 [[package]]
-name = "sample-todo-compose"
+name = "sample-podcast"
 version = "0.1.0"
 dependencies = [
  "compose-rust",
+ "sample-frames",
+]
+
+[[package]]
+name = "sample-selfcare"
+version = "0.1.0"
+dependencies = [
+ "compose-rust",
+ "sample-frames",
+]
+
+[[package]]
+name = "sample-social"
+version = "0.1.0"
+dependencies = [
+ "compose-rust",
+ "sample-frames",
+]
+
+[[package]]
+name = "sample-statistics"
+version = "0.1.0"
+dependencies = [
+ "compose-rust",
+ "sample-frames",
+]
+
+[[package]]
+name = "sample-store"
+version = "0.1.0"
+dependencies = [
+ "compose-rust",
+ "sample-frames",
+]
+
+[[package]]
+name = "sample-todo"
+version = "0.1.0"
+dependencies = [
+ "compose-rust",
+ "sample-frames",
 ]
 
 [[package]]
