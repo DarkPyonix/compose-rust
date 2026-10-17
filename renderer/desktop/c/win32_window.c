@@ -235,6 +235,8 @@ static double dxc_video_mb(DXGI_MEMORY_SEGMENT_GROUP group) {
  * One line of what this process holds, for measuring: working set and private bytes, and
  * the video memory it uses on and off the adapter.
  */
+static void dxc_memory_point(const char *where, IDXGIAdapter1 *adapter);
+
 void dxc_native_report_metrics(const char *label) {
     PROCESS_MEMORY_COUNTERS_EX counters;
     memset(&counters, 0, sizeof counters);
@@ -249,6 +251,7 @@ void dxc_native_report_metrics(const char *label) {
             dxc_video_mb(DXGI_MEMORY_SEGMENT_GROUP_LOCAL),
             dxc_video_mb(DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL),
             (int)dxc_texture_width, (int)dxc_texture_height);
+    dxc_memory_point(label == NULL ? "" : label, dxc_adapter);
 }
 
 // The adapter the Direct3D 12 device was made on, and the monitor the window was last on.
@@ -3481,6 +3484,58 @@ static int32_t dxc_register_class(void) {
  * and those are the failures here that are not a mistake of ours: a machine with no
  * Direct3D 12 adapter has nothing this path can use.
  */
+/*
+ * Where the window's memory goes, for DXC_METRICS=1: one line at each step of opening the
+ * window and at every metrics phase, with the process's private bytes and working set, the
+ * video memory the adapter reports for this process, and the sizes of what the window holds
+ * itself (the draw texture, the CPU frames' bitmap and the swapchain's buffers), each in MB
+ * at four bytes a pixel. What the lines do not separate (the Direct3D runtime, Skia and its
+ * caches, the language runtime) is the rest of the private bytes between one step and the
+ * next.
+ */
+static int dxc_memory_points_on = -1;
+
+static double dxc_adapter_video_mb(IDXGIAdapter1 *adapter, DXGI_MEMORY_SEGMENT_GROUP group) {
+    IDXGIAdapter3 *adapter3 = NULL;
+    double answer = -1.0;
+    if (adapter != NULL &&
+        SUCCEEDED(IDXGIAdapter1_QueryInterface(adapter, &IID_IDXGIAdapter3, (void **)&adapter3))) {
+        DXGI_QUERY_VIDEO_MEMORY_INFO info;
+        if (SUCCEEDED(IDXGIAdapter3_QueryVideoMemoryInfo(adapter3, 0, group, &info))) {
+            answer = (double)info.CurrentUsage / (1024.0 * 1024.0);
+        }
+        IDXGIAdapter3_Release(adapter3);
+    }
+    return answer;
+}
+
+static void dxc_memory_point(const char *where, IDXGIAdapter1 *adapter) {
+    if (dxc_memory_points_on < 0) {
+        const char *asked = getenv("DXC_METRICS");
+        dxc_memory_points_on = asked != NULL && asked[0] != '\0' && asked[0] != '0';
+    }
+    if (!dxc_memory_points_on) return;
+    PROCESS_MEMORY_COUNTERS_EX counters;
+    memset(&counters, 0, sizeof counters);
+    counters.cb = sizeof counters;
+    K32GetProcessMemoryInfo(GetCurrentProcess(), (PROCESS_MEMORY_COUNTERS *)&counters, sizeof counters);
+    const double mb = 1024.0 * 1024.0;
+    fprintf(stderr,
+            "compose-rust: memory-breakdown %s private_mb=%.1f working_set_mb=%.1f peak_working_set_mb=%.1f "
+            "video_local_mb=%.1f video_nonlocal_mb=%.1f draw_texture=%dx%d (%.1f MB) "
+            "raster_bitmap=%dx%d (%.1f MB) swapchain=%dx%d x%d (%.1f MB)\n",
+            where, (double)counters.PrivateUsage / mb, (double)counters.WorkingSetSize / mb,
+            (double)counters.PeakWorkingSetSize / mb,
+            dxc_adapter_video_mb(adapter, DXGI_MEMORY_SEGMENT_GROUP_LOCAL),
+            dxc_adapter_video_mb(adapter, DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL),
+            (int)dxc_texture_width, (int)dxc_texture_height,
+            (double)dxc_texture_width * dxc_texture_height * 4.0 / mb,
+            (int)dxc_dib_width, (int)dxc_dib_height, (double)dxc_dib_width * dxc_dib_height * 4.0 / mb,
+            (int)dxc_sizing.fitted_width, (int)dxc_sizing.fitted_height, DXC_BUFFER_COUNT,
+            (double)dxc_sizing.fitted_width * dxc_sizing.fitted_height * 4.0 * DXC_BUFFER_COUNT / mb);
+    fflush(stderr);
+}
+
 int32_t dxc_native_window_open(
     const char *title,
     int32_t width,
@@ -3563,6 +3618,8 @@ int32_t dxc_native_window_open(
         return 4;
     }
 
+    dxc_memory_point("before the Direct3D device", NULL);
+
     // The first adapter that is a real one and can make a device. A software adapter is
     // skipped rather than taken: it would draw, slowly, and hide the fact that the
     // machine has nothing to draw with.
@@ -3631,6 +3688,7 @@ int32_t dxc_native_window_open(
         DestroyWindow(window);
         return 6;
     }
+    dxc_memory_point("with the device and its queue", adapter);
 
     // Direct3D 11 on the renderer's Direct3D 12 device and queue, for the swapchain.
     // Looked up at run time so the build links nothing new.
@@ -3694,6 +3752,7 @@ int32_t dxc_native_window_open(
         return 7;
     }
     dxc_swapchain_flags = swapchain_description.Flags;
+    dxc_memory_point("with the swapchain", adapter);
     int gpu_priority_set = 0;
     if (dxc_priority() >= 2) {
         IDXGIDevice *dxgi_device = NULL;
@@ -3729,6 +3788,7 @@ int32_t dxc_native_window_open(
     dxc_resize_fitted(&dxc_sizing, (int32_t)pixel_width, (int32_t)pixel_height);
     dxc_report_latency = getenv("DXC_REPORT_LATENCY") != NULL;
     dxc_log_monitor(window, "the window opened");
+    dxc_memory_point("the window opened", adapter);
     dxc_presented_width = (int32_t)pixel_width;
     dxc_presented_height = (int32_t)pixel_height;
 
