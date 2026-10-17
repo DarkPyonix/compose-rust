@@ -99,6 +99,11 @@ class ProtocolVectorsTest {
                 is Mutation.PostNotification -> false
                 is Mutation.WithdrawNotification -> false
                 is Mutation.RequestNotificationPermission -> false
+                // An animation is played on a node, so one that names a node the vector
+                // never created is reported once the batch is in.
+                is Mutation.StartAnimation -> mutation.animation.nodeId !in created
+                // A control for a key nothing plays under is left alone, not reported.
+                is Mutation.ControlAnimation -> false
             }
         }
         assertEquals(
@@ -221,6 +226,7 @@ class ProtocolVectorsTest {
                 ProtocolModifier.Shadow(0f, 2f, 6f, -1f, Paint.Literal(0x40000000)),
                 ProtocolModifier.Clip(true),
                 ProtocolModifier.Alpha(0.5f),
+                ProtocolModifier.Transform(0.75f, 0.5f, -0.25f, 1.25f, 12f, -6f, 0.5f, 0.25f),
             ),
             modifiers,
         )
@@ -239,7 +245,7 @@ class ProtocolVectorsTest {
             mutations.filterIsInstance<Mutation.Create>().single { it.nodeId == 8 },
         )
         val onBox = mutations.filterIsInstance<Mutation.SetModifier>().filter { it.nodeId == 8 }
-        assertEquals((0..6).toList(), onBox.map { it.index })
+        assertEquals((0..7).toList(), onBox.map { it.index })
 
         // The record lengths, read from the bytes rather than from the decoder: 28 for a
         // value of two words, 36 for the shadow's three and 60 for the border's six.
@@ -256,7 +262,7 @@ class ProtocolVectorsTest {
             offset += length
         }
         assertEquals(
-            mapOf(19 to 28, 20 to 28, 21 to 60, 22 to 28, 23 to 36, 24 to 28, 25 to 28),
+            mapOf(19 to 28, 20 to 28, 21 to 60, 22 to 28, 23 to 36, 24 to 28, 25 to 28, 26 to 44),
             lengths,
         )
     }
@@ -278,6 +284,112 @@ class ProtocolVectorsTest {
                 "a $length byte record for modifier $modifierTag decoded instead of being refused: $failure",
             )
         }
+    }
+
+    /**
+     * The animations in the vector: one per property, a transform for each function kind
+     * and one of three functions, and a control record, read from the bytes the Host wrote.
+     */
+    @Test
+    fun fr41_the_animation_records_in_the_vector_decode_to_the_same_values() {
+        val mutations = decodeVector("mutations.bin")
+        val animations = mutations.filterIsInstance<Mutation.StartAnimation>().map { it.animation }
+        assertEquals(10, animations.size)
+        // The border colour came after every record that was there before it.
+        assertEquals(dev.darkpyonix.composerust.protocol.AnimatedProperty.BorderColor, animations.last().property)
+        assertEquals(
+            dev.darkpyonix.composerust.protocol.KeyframeValue.PaintValue(
+                dev.darkpyonix.composerust.protocol.Paint.Literal(0xFF336699.toInt()),
+            ),
+            animations.last().keyframes.last().value,
+        )
+        val alpha = animations.first()
+        assertEquals(dev.darkpyonix.composerust.protocol.AnimatedProperty.Alpha, alpha.property)
+        assertEquals(dev.darkpyonix.composerust.protocol.PlaybackDirection.Alternate, alpha.direction)
+        assertEquals(dev.darkpyonix.composerust.protocol.FillMode.Both, alpha.fill)
+        assertEquals(-250f, alpha.delayMs)
+        assertEquals(2.5f, alpha.iterations)
+        assertEquals(2 or 8, alpha.events)
+        assertEquals(
+            listOf(
+                dev.darkpyonix.composerust.protocol.Keyframe(
+                    0f,
+                    dev.darkpyonix.composerust.protocol.Timing.CubicBezier(0.25f, 0.1f, 0.25f, 1f),
+                    true,
+                    dev.darkpyonix.composerust.protocol.KeyframeValue.Alpha(0f),
+                ),
+                dev.darkpyonix.composerust.protocol.Keyframe(
+                    0.6f,
+                    dev.darkpyonix.composerust.protocol.Timing.Steps(4, dev.darkpyonix.composerust.protocol.StepPosition.JumpBoth),
+                    false,
+                    dev.darkpyonix.composerust.protocol.KeyframeValue.Alpha(1f),
+                ),
+                dev.darkpyonix.composerust.protocol.Keyframe(
+                    1f,
+                    dev.darkpyonix.composerust.protocol.Timing.Linear,
+                    false,
+                    dev.darkpyonix.composerust.protocol.KeyframeValue.Alpha(1f),
+                ),
+            ),
+            alpha.keyframes,
+        )
+        val kinds = animations.drop(3).take(6).map { animation ->
+            (animation.keyframes.last().value as dev.darkpyonix.composerust.protocol.KeyframeValue.Transform)
+                .functions.map { it.kind }
+        }
+        assertEquals(
+            listOf(
+                listOf(dev.darkpyonix.composerust.protocol.TransformFunctionKind.Translate),
+                listOf(dev.darkpyonix.composerust.protocol.TransformFunctionKind.Rotate),
+                listOf(dev.darkpyonix.composerust.protocol.TransformFunctionKind.Scale),
+                listOf(dev.darkpyonix.composerust.protocol.TransformFunctionKind.Skew),
+                listOf(dev.darkpyonix.composerust.protocol.TransformFunctionKind.Matrix),
+                listOf(
+                    dev.darkpyonix.composerust.protocol.TransformFunctionKind.Rotate,
+                    dev.darkpyonix.composerust.protocol.TransformFunctionKind.Translate,
+                    dev.darkpyonix.composerust.protocol.TransformFunctionKind.Scale,
+                ),
+            ),
+            kinds,
+        )
+        assertEquals(
+            Mutation.ControlAnimation(
+                8, 1,
+                dev.darkpyonix.composerust.protocol.AnimatedProperty.Alpha, 0,
+                dev.darkpyonix.composerust.protocol.AnimationControl.Pause, 1_500_000_000L,
+            ),
+            mutations.filterIsInstance<Mutation.ControlAnimation>().single(),
+        )
+    }
+
+    /** The animation event and the motion setting encode to the bytes the Host decodes. */
+    @Test
+    fun fr41_the_animation_events_encode_to_the_vector_bytes() {
+        val bytes = vectorFile("events.bin").readBytes()
+        val out = ByteBuffer.allocate(64)
+        val length = Protocol.encodeEvent(
+            HostEvent.AnimationEvent(
+                nodeId = 8,
+                handlerId = 0,
+                animationId = 7,
+                kind = dev.darkpyonix.composerust.protocol.AnimationEventKind.End,
+                property = dev.darkpyonix.composerust.protocol.AnimatedProperty.Transform,
+                slot = 2,
+                iteration = 3,
+                elapsedMs = 3000f,
+                timeNanos = 123_456_789_012L,
+            ),
+            out,
+        )
+        assertEquals(40, length)
+        assertEquals(bytes.copyOfRange(282, 322).toList(), out.array().copyOf(length).toList())
+        val motion = ByteBuffer.allocate(32)
+        val motionLength = Protocol.encodeEvent(
+            HostEvent.ReducedMotionChanged(0, 0, dev.darkpyonix.composerust.protocol.ReducedMotion.On),
+            motion,
+        )
+        assertEquals(20, motionLength)
+        assertEquals(bytes.copyOfRange(322, 342).toList(), motion.array().copyOf(motionLength).toList())
     }
 
     /** The theme record carries the palette behind it, and both sides read the same entries. */
