@@ -176,7 +176,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: compose-fork-desktop
-          path: ~/.m2/repository/org/jetbrains
+          path: ~/.m2/repository/org
 
       - name: Publish the fork's window modules
         # The desktop module depends on them as Maven artifacts, built from the commit

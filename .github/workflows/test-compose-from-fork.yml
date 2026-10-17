@@ -14,8 +14,13 @@
 #      repository, in the same work directory the fork build used, so that no absolute path
 #      differs between the two;
 #   3. the two repositories are compared file by file, and every archive entry by entry with
-#      zip timestamps left out (.github/scripts/compare-maven-repos.py). Any difference fails
-#      the job and is printed with its path, but only at the end, so the renderer still builds;
+#      zip timestamps left out (.github/scripts/compare-maven-repos.py). The fork publishes
+#      under its own coordinates (org.thisisthepy.compose at 1.11.1-ext.1) where the old build
+#      used JetBrains' (org.jetbrains.compose at 1.11.1), so the fork's side is read under the
+#      old names: its paths, its metadata and the module names inside its klibs. It also
+#      publishes every sibling its modules name, which the old build took from JetBrains, so
+#      a file only the fork has is reported and not counted. Any other difference fails the
+#      job and is printed with its path, but only at the end, so the renderer still builds;
 #   4. the fork's publication is put back, and the renderer's platform module and its static
 #      library are built against it, the way desktop/scripts/build-linux.sh and build-macos.sh
 #      build them, and the static library is kept as an artifact.
@@ -176,11 +181,10 @@ jobs:
           cat ~/.gradle/gradle.properties
 
       - name: Build Compose from the fork
-        # Published under the coordinates the old build uses, so the two can be compared path
-        # for path. The renderer is built against the versions of its own further down.
+        # Under the fork's own coordinates. The comparison reads them under the old build's.
         run: |
           rm -rf ~/.m2/repository
-          DXC_COMPOSE_EXTENDED_AS=1.11.1 DXC_COMPOSE_BUILD="$COMPOSE_WORK" \
+          DXC_COMPOSE_BUILD="$COMPOSE_WORK" \
             ./renderer/scripts/build-compose.sh --target ${{ matrix.target }} --clean
           rm -rf "$FORK_REPO"
           cp -a ~/.m2/repository "$FORK_REPO"
@@ -238,7 +242,13 @@ jobs:
             grep "^compose/$module/src/" <<< "$sources" | sed 's/^/  /'
             changed+=(--changed "$prefix")
           done
+          compose_as="$(sed -n 's/^COMPOSE_AS="\([^"]*\)"$/\1/p' renderer/scripts/build-compose.sh)"
+          material3_as="$(sed -n 's/^MATERIAL3_AS="\([^"]*\)"$/\1/p' renderer/scripts/build-compose.sh)"
           python3 .github/scripts/compare-maven-repos.py "$LEGACY_REPO" "$FORK_REPO" \
+            --rename "org.thisisthepy.compose.=org.jetbrains.compose." \
+            --rename "$compose_as=${compose_as%-ext.*}" \
+            --rename "$material3_as=${material3_as%-ext.*}" \
+            --extra-allowed \
             --report "$RUNNER_TEMP/compose-equivalence-${{ matrix.target }}.txt" ${changed[@]+"${changed[@]}"}
 
       - name: Keep the comparison report
@@ -261,14 +271,6 @@ jobs:
           DXC_COMPOSE_BUILD="$COMPOSE_WORK" \
             ./renderer/scripts/build-compose.sh --target linux --clean
 
-      - name: Publish the macOS modules under the version the renderer asks for
-        # The comparison above publishes them as upstream's 1.11.1. The renderer's macOS module
-        # names the fork's own version, which a cache of upstream's klibs cannot shadow.
-        if: runner.os == 'macOS'
-        run: |
-          rm -rf "$COMPOSE_WORK"
-          DXC_COMPOSE_BUILD="$COMPOSE_WORK" \
-            ./renderer/scripts/build-compose.sh --target macosArm64 --clean
 
       - name: Build the renderer and its static library against it
         run: ./renderer/desktop/scripts/${{ matrix.renderer_script }}

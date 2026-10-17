@@ -2,6 +2,7 @@
 """Compare two local Maven repositories by what they hold, not by how it was packed.
 
 Usage: compare-maven-repos.py <expected repo> <actual repo> [--report <file>] [--changed <prefix>]...
+                              [--rename <actual>=<expected>]... [--extra-allowed]
 
 Two builds of the same source can still differ in bytes nobody chose: the time an archive
 entry was written, the timestamp Maven writes into maven-metadata-local.xml, and the
@@ -25,6 +26,18 @@ A --changed prefix names a publication whose sources changed on purpose since th
 build's source, such as `org/jetbrains/compose/foundation/foundation`. A difference under it,
 in that directory or its per-platform one such as `foundation-macosarm64`, is printed as CHANGED ON PURPOSE
 and not counted: every other publication must still be the same.
+
+A --rename names a string the actual side writes where the expected side writes another, such
+as the fork's group and version (`org.thisisthepy.compose.=org.jetbrains.compose.`,
+`1.11.1-ext.1=1.11.1`). Each is applied to the actual side's paths (with dots as slashes too)
+and to its text: .pom, .module and maven-metadata files, every archive entry that is UTF-8
+text, and the header of a klib (`linkdata/module`), whose module name is a length-prefixed
+protobuf string and is rewritten with its length. What is left is compared as above, so a
+publication that differs only in its coordinates is the same.
+
+--extra-allowed reports a file present on the actual side only as EXTRA and does not count it:
+for an actual build that publishes more modules than the expected one, such as every sibling
+under its own group where the expected build took them from JetBrains.
 
 Exits 0 when the two hold the same contents, 1 when anything differs, and prints every
 difference with its path.
@@ -55,14 +68,93 @@ def sha256(data):
     return hashlib.sha256(data).hexdigest()
 
 
-def archive_entries(path):
+RENAMES = []
+
+
+def rename_text(data):
+    for old, new in RENAMES:
+        data = data.replace(old.encode(), new.encode())
+    return data
+
+
+def rename_path(path):
+    for old, new in RENAMES:
+        path = path.replace(old, new).replace(old.replace(".", "/"), new.replace(".", "/"))
+    return path
+
+
+def varint(data, index):
+    shift = value = 0
+    while True:
+        byte = data[index]
+        index += 1
+        value |= (byte & 0x7F) << shift
+        if not byte & 0x80:
+            return value, index
+        shift += 7
+
+
+def encode_varint(value):
+    out = bytearray()
+    while True:
+        byte = value & 0x7F
+        value >>= 7
+        out.append(byte | (0x80 if value else 0))
+        if not value:
+            return bytes(out)
+
+
+def rename_protobuf(data):
+    """The top-level length-delimited fields of a protobuf message, renamed, with new lengths."""
+    out = bytearray()
+    index = 0
+    try:
+        while index < len(data):
+            start = index
+            key, index = varint(data, index)
+            wire = key & 7
+            if wire == 0:
+                _, index = varint(data, index)
+                out += data[start:index]
+            elif wire == 1:
+                index += 8
+                out += data[start:index]
+            elif wire == 5:
+                index += 4
+                out += data[start:index]
+            elif wire == 2:
+                length, body = varint(data, index)
+                field = data[body:body + length]
+                index = body + length
+                renamed = rename_text(field)
+                out += encode_varint(key) + encode_varint(len(renamed)) + renamed
+            else:
+                return rename_text(data)
+    except IndexError:
+        return rename_text(data)
+    return bytes(out)
+
+
+def entry_contents(name, data, renamed):
+    if not renamed or not RENAMES:
+        return data
+    if name.endswith("linkdata/module"):
+        return rename_protobuf(data)
+    try:
+        data.decode("utf-8")
+    except UnicodeDecodeError:
+        return data
+    return rename_text(data)
+
+
+def archive_entries(path, renamed=False):
     entries = {}
     with zipfile.ZipFile(path) as archive:
         for info in archive.infolist():
             if info.is_dir():
                 entries.setdefault(info.filename, "<directory>")
                 continue
-            entries[info.filename] = sha256(archive.read(info))
+            entries[info.filename] = sha256(entry_contents(info.filename, archive.read(info), renamed))
     return entries
 
 
@@ -74,9 +166,11 @@ def strip_digests(node):
     return node
 
 
-def normalised(path, relative):
+def normalised(path, relative, renamed=False):
     with open(path, "rb") as handle:
         data = handle.read()
+    if renamed:
+        data = rename_text(data)
     if relative.endswith(".module"):
         return json.dumps(strip_digests(json.loads(data)), sort_keys=True, indent=1).encode()
     if os.path.basename(relative).startswith("maven-metadata"):
@@ -96,6 +190,16 @@ def main(argv):
         index = args.index("--changed")
         changed_prefixes.append(args[index + 1].rstrip("/"))
         del args[index:index + 2]
+    while "--rename" in args:
+        index = args.index("--rename")
+        old, _, new = args[index + 1].partition("=")
+        RENAMES.append((old, new))
+        del args[index:index + 2]
+    # Longest first, so a version that contains another is renamed whole.
+    RENAMES.sort(key=lambda pair: len(pair[0]), reverse=True)
+    extra_allowed = "--extra-allowed" in args
+    if extra_allowed:
+        args.remove("--extra-allowed")
     if len(args) != 2:
         print(__doc__.strip().splitlines()[2], file=sys.stderr)
         return 2
@@ -112,7 +216,9 @@ def main(argv):
         lines.append(text)
 
     expected = {p for p in files_under(expected_root) if not p.endswith(SIDECARS)}
-    actual = {p for p in files_under(actual_root) if not p.endswith(SIDECARS)}
+    # The actual side under the expected side's names; actual_path finds the file again.
+    actual_path = {rename_path(p): p for p in files_under(actual_root) if not p.endswith(SIDECARS)}
+    actual = set(actual_path)
 
     if not expected or not actual:
         print("one of the repositories is empty, so there is nothing to compare", file=sys.stderr)
@@ -142,8 +248,8 @@ def main(argv):
     for path in only_expected:
         say(f"ONLY IN {expected_root}: {path}")
     for path in only_actual:
-        say(f"ONLY IN {actual_root}: {path}")
-    differences += len(only_expected) + len(only_actual)
+        say(f"{'EXTRA' if extra_allowed else 'ONLY'} IN {actual_root}: {actual_path[path]}")
+    differences += len(only_expected) + (0 if extra_allowed else len(only_actual))
 
     common = sorted(expected & actual)
     archives = 0
@@ -151,12 +257,12 @@ def main(argv):
     others = 0
     for relative in common:
         left = os.path.join(expected_root, relative)
-        right = os.path.join(actual_root, relative)
+        right = os.path.join(actual_root, actual_path[relative])
         if relative.endswith(ARCHIVES):
             archives += 1
             try:
                 left_entries = archive_entries(left)
-                right_entries = archive_entries(right)
+                right_entries = archive_entries(right, renamed=True)
             except zipfile.BadZipFile as error:
                 say(f"UNREADABLE ARCHIVE: {relative}: {error}")
                 differences += 1
@@ -183,7 +289,7 @@ def main(argv):
                     differences += 1
         else:
             others += 1
-            if normalised(left, relative) != normalised(right, relative):
+            if normalised(left, relative) != normalised(right, relative, renamed=True):
                 say(f"FILE DIFFERS: {relative}")
                 if intended(relative):
                     intended_changes += 1
