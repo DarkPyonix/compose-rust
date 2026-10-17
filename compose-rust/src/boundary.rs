@@ -376,7 +376,7 @@ impl Host {
     /// closes the batch. The tail every call that renders shares.
     fn render_and_finish(&mut self, result: i64) -> Result<(&[u8], i64), ProtocolError> {
         self.batch().begin();
-        self.runtime.render();
+        self.runtime.render(None);
         self.flush_messages();
         self.arm_scheduler_wake();
         Ok((self.runtime.batch_mut().finish()?, result))
@@ -406,7 +406,7 @@ impl Host {
         };
         self.batch().begin();
         if woke {
-            self.runtime.render();
+            self.runtime.render(None);
         }
         self.flush_messages();
         self.arm_scheduler_wake();
@@ -423,7 +423,7 @@ impl Host {
     ) -> Result<(&[u8], i64), ProtocolError> {
         self.batch().begin();
         if crate::notification::publish_permission(state) {
-            self.runtime.render();
+            self.runtime.render(None);
         }
         self.flush_messages();
         self.arm_scheduler_wake();
@@ -467,6 +467,55 @@ impl Host {
                     return Err(ProtocolError::InvalidValueKind(0));
                 }
                 return self.publish_notification_permission(state);
+            }
+            // About the platform, like the permission above: no node and no handler, and
+            // a repeat of the same answer wakes nobody.
+            EventPayload::ReducedMotionChanged(state) => {
+                if event.node_id != 0 || event.handler_id != 0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                self.batch().begin();
+                if crate::animation::publish_reduced_motion(state) {
+                    self.runtime.render(None);
+                }
+                self.flush_messages();
+                self.arm_scheduler_wake();
+                return Ok((self.runtime.batch_mut().finish()?, 0));
+            }
+            // A moment in an animation the Renderer is playing. It names the node the
+            // animation plays on but no handler: whoever registered for animation events
+            // hears about it, and what they change is rendered in the same call, so a
+            // handler that starts the next animation does not leave a frame between them.
+            EventPayload::AnimationEvent {
+                animation_id,
+                kind,
+                property,
+                slot,
+                iteration,
+                elapsed_ms,
+                time_nanos,
+            } => {
+                if event.handler_id != 0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                let moment = crate::animation::AnimationMoment {
+                    node_id: event.node_id,
+                    animation_id,
+                    kind,
+                    property,
+                    slot,
+                    iteration,
+                    elapsed_ms,
+                    time_nanos,
+                };
+                let _dispatch_guard = EventDispatchGuard::enter();
+                let mut delivered = false;
+                self.runtime
+                    .run_in_context(&mut || delivered = crate::animation::deliver(moment));
+                if !delivered {
+                    return self.empty_batch();
+                }
+                return self.render_and_finish(0);
             }
             _ => {}
         }
@@ -521,7 +570,7 @@ impl Host {
         self.render_and_finish(result)
     }
 
-    pub fn render_frame(&mut self, _frame_time_nanos: u64) -> Result<&[u8], ProtocolError> {
+    pub fn render_frame(&mut self, frame_time_nanos: u64) -> Result<&[u8], ProtocolError> {
         let _call = HostCallGuard::enter();
         if LIFECYCLE_SUPPRESSED.load(Ordering::Acquire) {
             // The platform has the UI off screen and the Renderer called anyway, which it
@@ -537,7 +586,7 @@ impl Host {
         EVENT_DISPATCH_ACTIVE.store(false, Ordering::Release);
         DEFERRED_FRAME_REQUEST.store(false, Ordering::Release);
         self.batch().begin();
-        self.runtime.render();
+        self.runtime.render(Some(frame_time_nanos));
         self.flush_pending_appends();
         self.flush_messages();
         self.arm_scheduler_wake();
@@ -593,6 +642,9 @@ impl Host {
             );
         });
         self.flush_notifications();
+        // Animations an application started from a handler, a component or a worker.
+        let batch = self.runtime.batch_mut();
+        crate::animation::drain(|mutation| batch.write(mutation));
     }
 
     /// Writes the notification commands waiting in the Host into this batch.

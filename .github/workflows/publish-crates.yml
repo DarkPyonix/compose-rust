@@ -65,6 +65,10 @@ jobs:
         # just attached it to, which is why that job has to finish first: publishing a
         # crate whose build script cannot find its own renderer would ship a version
         # nobody can build.
+        #
+        # compose-rust-macros goes in the same call: compose-rust names it by version, so it
+        # has to be on crates.io first, and publishing both at once uploads them in
+        # dependency order.
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo publish -p compose-rust
+        run: cargo publish -p compose-rust-macros -p compose-rust

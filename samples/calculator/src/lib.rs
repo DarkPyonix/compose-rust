@@ -5,30 +5,22 @@
 //! the shape: the number at the foot of a reading area, a row of memory keys, and four
 //! columns of keys along the bottom.
 //!
-//! Written the way an application using this library would be written: `rsx!` and hooks,
-//! no Kotlin and no protocol types.
+//! Written with compose-rust's own API: state lives in `mutable_state_of`, screens are
+//! `#[composable]` functions, and a widget is a statement. No Kotlin and no protocol types.
 //!
-//! There is no keyboard entry, and the reason is worth saying out loud because it used to
-//! be here. Only Enter can cross the boundary as a key, so digits had to be read out of a
-//! focused text field by comparing what it held before against what it holds now. That
-//! works, and it needs a field on the screen to hold the focus: a line of development
-//! scaffolding sitting under the keypad, doing nothing a calculator does. A keypad is
-//! pressed. When the protocol can name the keys, typing comes back as typing.
+//! There is no keyboard entry. A keypad is pressed, and a text field kept on screen only to
+//! hold the focus would be development scaffolding under the keypad, doing nothing a
+//! calculator does.
 
-use dioxus_compose_adapter::prelude::*;
+use compose_rust::runtime::*;
+use compose_rust::ui::*;
+use std::rc::Rc;
 
 mod engine;
 
 use engine::Calculator;
 
 /// The key grid, top to bottom and left to right.
-///
-/// One shape at every width. There used to be a second, wider one, where the function keys
-/// left the grid and stood in a column of their own beside it: a desk calculator, which is
-/// a real instrument but not one any of the three references is. Windows, macOS and Deepin
-/// all keep four columns however wide the window gets, and the wide pad put equals beside
-/// plus, which none of them does either. What changes with the window here is where the
-/// tape is, which is the adaptation this screen actually has.
 const ROWS: [[&str; 4]; 5] = [
     ["C", "\u{232b}", "%", "\u{00f7}"],
     ["7", "8", "9", "\u{00d7}"],
@@ -37,13 +29,7 @@ const ROWS: [[&str; 4]; 5] = [
     ["\u{00b1}", "0", ".", "="],
 ];
 
-/// The same pad as Apple's, which is not the same pad.
-///
-/// Apple's calculator has no memory row and no `C`: the top row is erase, clear
-/// everything, percent and divide, and the memory keys live behind a menu rather than on
-/// the face. Windows' has `C` and six memory keys across the pad. Both are calculators
-/// and neither is a restyling of the other, which is why this is the one place in this
-/// sample that reads which design system is running rather than asking for a role.
+/// Apple's pad: erase and clear everything in the top row, and no memory keys.
 const APPLE_ROWS: [[&str; 4]; 5] = [
     ["\u{232b}", "AC", "%", "\u{00f7}"],
     ["7", "8", "9", "\u{00d7}"],
@@ -52,14 +38,8 @@ const APPLE_ROWS: [[&str; 4]; 5] = [
     ["\u{00b1}", "0", ".", "="],
 ];
 
-/// A keypad is a field of keys, so every key has a surface and the three kinds of key are
-/// told apart by which surface they get.
-///
-/// Equals is the accent action, digits are the quiet filled keys that most of the pad is
-/// made of, and operators use the design system's operator role. That role is an accent
-/// fill on macOS, a neutral key on Windows, and a neutral key with accent ink on Deepin.
-/// The function keys are outlined, which is a key with an edge rather than a key with a
-/// fill. A plain text button is not a key at all: it reads as a label lying on the case.
+/// Equals is the accent, operators the operator role, function keys outlined, and digits
+/// the quiet filled keys most of the pad is made of.
 fn variant_for(label: &str) -> ButtonVariant {
     match label {
         "=" => ButtonVariant::Filled,
@@ -69,13 +49,7 @@ fn variant_for(label: &str) -> ButtonVariant {
     }
 }
 
-/// Whether a key carries content rather than a command.
-///
-/// The digits and the decimal point are the number being entered, and a number is content.
-/// A tonal button is a secondary *action* in every design system, so its label is the
-/// accent colour: left alone, a keypad prints its digits in the link colour. The digits
-/// therefore name their own ink and the command keys keep the tint, which leaves one
-/// meaning on the pad reading as accent, something that acts on the number.
+/// Whether a key carries content rather than a command: the digits and the point.
 fn is_content_key(label: &str) -> bool {
     matches!(
         label,
@@ -88,445 +62,359 @@ fn color_for(label: &str) -> Option<Paint> {
     is_content_key(label).then_some(Paint::Role(ColorRole::OnSurface))
 }
 
+/// What a key press does, whichever key it was.
+type Press = Rc<dyn Fn(&'static str)>;
+
 /// The keypad, in the shape this platform's calculator has.
-fn keypad(apple: bool, press: EventHandler<&'static str>) -> Element {
-    // Every row an equal share of the height, every key an equal share of its row. Weight
-    // is what makes this a grid rather than five lines of differently sized buttons.
-    rsx! {
-        Column {
-            fill_max_width: true,
-            fill_max_height: true,
-            space_role: SpaceRole::Xs,
-            for (index , row) in if apple { APPLE_ROWS } else { ROWS }.iter().enumerate() {
-                Row {
-                    key: "row-{index}",
-                    fill_max_width: true,
-                    weight: 1.0,
-                    space_role: SpaceRole::Xs,
-                    for label in row.iter().copied() {
-                        Button {
-                            key: "{label}",
-                            text: label,
-                            weight: 1.0,
-                            fill_max_height: true,
-                            variant: variant_for(label),
-                            color: color_for(label),
-                            on_click: move |_| press.call(label),
-                        }
-                    }
-                }
+#[composable]
+fn keypad(apple: bool, press: Press) {
+    Column()
+        .modifier(Modifier.fill_max_width().fill_max_height())
+        .space_role(SpaceRole::Xs)
+        .content(|| {
+            for (index, row) in if apple { APPLE_ROWS } else { ROWS }.iter().enumerate() {
+                key(format!("row-{index}"), || {
+                    Row()
+                        .modifier(Modifier.fill_max_width().weight(1.0))
+                        .space_role(SpaceRole::Xs)
+                        .content(|| {
+                            for label in row.iter().copied() {
+                                let press = Rc::clone(&press);
+                                key(label, || {
+                                    Button(label)
+                                        .modifier(Modifier.weight(1.0).fill_max_height())
+                                        .variant(variant_for(label))
+                                        .color_if(color_for(label))
+                                        .on_click(move || press(label));
+                                });
+                            }
+                        });
+                });
             }
-        }
-    }
+        });
 }
 
 /// The memory keys, as the row the Windows and Deepin references give them.
-///
-/// A second register beside the running value. They are text keys rather than keys in the
-/// pad, because they do not enter anything: the pad is what a number is typed on, and a
-/// row of quiet labels above it is how both references say "these act on what is already
-/// there".
-fn memory_row(memory_set: bool, press: EventHandler<&'static str>) -> Element {
-    rsx! {
-        Row {
-            fill_max_width: true,
-            space_role: SpaceRole::Xs,
-            alignment: Alignment::CenterStart,
+#[composable]
+fn memory_row(memory_set: bool, press: Press) {
+    Row()
+        .modifier(Modifier.fill_max_width())
+        .space_role(SpaceRole::Xs)
+        .alignment(Alignment::CenterStart)
+        .content(|| {
             for label in engine::MEMORY_KEYS {
-                Button {
-                    key: "{label}",
-                    text: label,
-                    weight: 1.0,
-                    variant: ButtonVariant::Text,
-                    color: Paint::Role(ColorRole::OnSurfaceVariant),
-                    // Recalling and clearing act on what is stored, so they are dead keys
-                    // until something is. The reference greys them the same way.
-                    enabled: memory_set || !matches!(label, "MC" | "MR"),
-                    on_click: move |_| press.call(label),
-                }
+                let press = Rc::clone(&press);
+                key(label, || {
+                    Button(label)
+                        .modifier(Modifier.weight(1.0))
+                        .variant(ButtonVariant::Text)
+                        .color(Paint::Role(ColorRole::OnSurfaceVariant))
+                        // Recalling and clearing act on what is stored, so they are dead
+                        // keys until something is.
+                        .enabled(memory_set || !matches!(label, "MC" | "MR"))
+                        .on_click(move || press(label));
+                });
             }
-        }
-    }
+        });
 }
 
 /// The readout: what is being worked out, and what it comes to.
-///
-/// Printed on the case rather than set into it. It used to be a filled panel, on the
-/// reasoning that a calculator's display is a component behind glass, and none of the
-/// three references does that: the Windows, macOS and Deepin calculators all set the
-/// number directly on the page with nothing drawn behind it. A panel also fought the
-/// reading area, which is mostly the room above the number.
-fn readout(status: String, display: String) -> Element {
-    rsx! {
-        dioxus_compose_adapter::Box {
-            fill_max_width: true,
-            Column {
-                fill_max_width: true,
-                space_role: SpaceRole::Xs,
-                // The pending operation is a line only while there is one. An empty line
-                // still has a height, and the panel is meant to be as tall as the type it
-                // holds and no taller.
+#[composable]
+fn readout(status: String, display: String) {
+    Box().modifier(Modifier.fill_max_width()).content(|| {
+        Column()
+            .modifier(Modifier.fill_max_width())
+            .space_role(SpaceRole::Xs)
+            .content(|| {
+                // The pending operation is a line only while there is one.
                 if !status.is_empty() {
-                    Text {
-                        text: status,
-                        fill_max_width: true,
-                        text_align: TextAlign::End,
-                        type_role: TypeRole::Caption,
-                        color: Paint::Role(ColorRole::OnSurfaceVariant),
-                        max_lines: 1,
-                        overflow: TextOverflow::Ellipsis,
-                    }
+                    Text(status.clone())
+                        .modifier(Modifier.fill_max_width())
+                        .text_align(TextAlign::End)
+                        .type_role(TypeRole::Caption)
+                        .color(Paint::Role(ColorRole::OnSurfaceVariant))
+                        .max_lines(1)
+                        .overflow(TextOverflow::Ellipsis);
                 }
-                Text {
-                    text: display,
-                    fill_max_width: true,
-                    text_align: TextAlign::End,
-                    type_role: TypeRole::Display,
-                    color: Paint::Role(ColorRole::OnSurface),
-                    max_lines: 1,
-                    overflow: TextOverflow::Ellipsis,
-                }
-            }
-        }
-    }
+                Text(display.clone())
+                    .modifier(Modifier.fill_max_width())
+                    .text_align(TextAlign::End)
+                    .type_role(TypeRole::Display)
+                    .color(Paint::Role(ColorRole::OnSurface))
+                    .max_lines(1)
+                    .overflow(TextOverflow::Ellipsis);
+            });
+    });
 }
 
 /// One finished calculation, kept so it can be read back and used again.
 #[derive(Clone, PartialEq)]
 struct TapeEntry {
-    /// Never reused, so it is the list key and a row that scrolls past another row is not
-    /// mistaken for the same row changing.
     id: u64,
     expression: String,
     result: String,
     value: f64,
 }
 
-/// What the app bar calls the tape, and what the sheet is opened by.
+/// What the app bar calls the tape.
 const TAPE_LABEL: &str = "History";
 
-/// The tape: what has been worked out, newest at the top, each line a key back into the
-/// calculation it came from.
-///
-/// Every desk calculator with a printer has one of these, and it is the answer to the
-/// thing a calculator is worst at: you work something out, you work the next thing out,
-/// and the first answer is gone.
-fn tape(entries: Vec<TapeEntry>, recall: EventHandler<f64>, clear: EventHandler<()>) -> Element {
-    rsx! {
-        Column {
-            fill_max_width: true,
-            fill_max_height: true,
-            space_role: SpaceRole::Sm,
-            Row {
-                fill_max_width: true,
-                space_role: SpaceRole::Sm,
-                alignment: Alignment::CenterStart,
-                Text { text: TAPE_LABEL, type_role: TypeRole::Subtitle, weight: 1.0 }
-                // Throwing the tape away is the one thing here that destroys something, so
-                // it is the error ink and it offers the tape back afterwards.
-                Button {
-                    text: "Clear",
-                    variant: ButtonVariant::Text,
-                    color: Paint::Role(ColorRole::Error),
-                    enabled: !entries.is_empty(),
-                    on_click: move |_| clear.call(()),
-                }
-            }
-            Separator {}
+/// The tape: what has been worked out, newest at the top.
+#[composable]
+fn tape(entries: Vec<TapeEntry>, recall: Rc<dyn Fn(f64)>, clear: Rc<dyn Fn()>) {
+    Column()
+        .modifier(Modifier.fill_max_width().fill_max_height())
+        .space_role(SpaceRole::Sm)
+        .content(|| {
+            Row()
+                .modifier(Modifier.fill_max_width())
+                .space_role(SpaceRole::Sm)
+                .alignment(Alignment::CenterStart)
+                .content(|| {
+                    Text(TAPE_LABEL)
+                        .type_role(TypeRole::Subtitle)
+                        .modifier(Modifier.weight(1.0));
+                    // Throwing the tape away is the one destructive thing here, so it is
+                    // the error ink and it offers the tape back afterwards.
+                    let clear = Rc::clone(&clear);
+                    Button("Clear")
+                        .variant(ButtonVariant::Text)
+                        .color(Paint::Role(ColorRole::Error))
+                        .enabled(!entries.is_empty())
+                        .on_click(move || clear());
+                });
+            Separator(None);
             if entries.is_empty() {
-                dioxus_compose_adapter::Box {
-                    fill_max_width: true,
-                    weight: 1.0,
-                    alignment: Alignment::Center,
-                    Text {
-                        text: "Nothing worked out yet. Press equals and it lands here.",
-                        type_role: TypeRole::Body,
-                        text_align: TextAlign::Center,
-                        color: Paint::Role(ColorRole::OnSurfaceVariant),
-                    }
-                }
+                Box()
+                    .modifier(Modifier.fill_max_width().weight(1.0))
+                    .alignment(Alignment::Center)
+                    .content(|| {
+                        Text("Nothing worked out yet. Press equals and it lands here.")
+                            .type_role(TypeRole::Body)
+                            .text_align(TextAlign::Center)
+                            .color(Paint::Role(ColorRole::OnSurfaceVariant));
+                    });
             } else {
-                // Newest first: the thing you are most likely to want back is the thing
-                // you worked out last, and it should not be at the bottom of a scroll.
-                ScrollColumn {
-                    fill_max_width: true,
-                    weight: 1.0,
-                    for entry in entries.iter().rev() {
-                        Button {
-                            key: "{entry.id}",
-                            text: "{entry.expression} = {entry.result}",
-                            fill_max_width: true,
-                            variant: ButtonVariant::Text,
-                            color: Paint::Role(ColorRole::OnSurface),
-                            on_click: {
-                                let value = entry.value;
-                                move |_| recall.call(value)
-                            },
+                // Newest first: the thing most likely wanted back is the last one.
+                ScrollColumn()
+                    .modifier(Modifier.fill_max_width().weight(1.0))
+                    .content(|| {
+                        for entry in entries.iter().rev() {
+                            let recall = Rc::clone(&recall);
+                            let value = entry.value;
+                            key(entry.id, || {
+                                Button(format!("{} = {}", entry.expression, entry.result))
+                                    .modifier(Modifier.fill_max_width())
+                                    .variant(ButtonVariant::Text)
+                                    .color(Paint::Role(ColorRole::OnSurface))
+                                    .on_click(move || recall(value));
+                            });
                         }
-                    }
-                }
+                    });
             }
-        }
-    }
+        });
 }
 
 /// How the reading area and the keypad share the instrument's height.
-///
-/// All three references put the keypad along the bottom and let the number sit at the
-/// foot of whatever is left above it. The ratio is theirs too: measured off the three
-/// shots it runs from one to two to one to three, and the keys grow with the window in
-/// every one of them rather than stopping at a size.
 const READING_SHARE: f32 = 1.0;
 const KEYPAD_SHARE: f32 = 3.0;
 
 /// How the instrument and the tape share an expanded window.
-///
-/// The keypad is what the hand is on, so it gets the larger share, and the tape is a
-/// column of short lines that gains nothing from being wider.
 const INSTRUMENT_SHARE: f32 = 3.0;
 const TAPE_SHARE: f32 = 2.0;
 
-pub fn app() -> Element {
-    let window = use_window_size();
-    // The one thing on this screen that a role cannot answer. Apple's calculator and
-    // Windows' differ in which keys exist, not in how the same keys are painted, so this
-    // reads the system the Renderer resolved the theme to and nothing else about it.
+/// The calculator.
+#[composable]
+pub fn app() {
+    let window = current_window_size();
+    // The one thing a role cannot answer: Apple's calculator has different keys.
     let apple = matches!(
-        use_design_system(),
+        current_design_system(),
         DesignSystem::Cupertino | DesignSystem::LiquidGlass
     );
-    let mut calculator = use_signal(Calculator::new);
-    let mut entries = use_signal(Vec::<TapeEntry>::new);
-    let mut next_entry = use_signal(|| 1_u64);
-    let mut tape_open = use_signal(|| false);
+    let calculator =
+        remember(|| mutable_state_of_with_policy(Calculator::new(), never_equal_policy()));
+    let entries = remember(|| mutable_state_of(Vec::<TapeEntry>::new()));
+    let next_entry = remember(|| mutable_state_of(1_u64));
+    let tape_open = remember(|| mutable_state_of(false));
 
-    let display = calculator.read().display();
-    let status = calculator.read().status();
-    let memory_set = calculator.read().memory_set();
-    // A desktop window has room for the tape to stand beside the keypad. Narrower than
-    // that it is a sheet, which is the same tape arriving from an edge instead.
+    let (display, status, memory_set) =
+        calculator.with(|state| (state.display(), state.status(), state.memory_set()));
     let tape_beside = window.is_expanded();
-    // The keypad stops widening once there is more window than a keypad needs, and centres
-    // in what is left: a key the width of a hand is not easier to press, and no calculator
-    // on any of the three platforms grows one. The condition used to read
-    // `!tape_beside && window.is_expanded()`, which is never true, so the pad had been
-    // growing without limit the whole time.
     let pad_width = (!window.is_compact()).then_some(WindowSizeClass::MEDIUM_MIN_WIDTH_DP);
 
     // One key press, whichever key it was. The tape is written here rather than in the
-    // engine because a tape is a thing the application keeps, not a thing arithmetic has.
-    let press = move |label: &'static str| {
-        let finished = {
-            let mut state = calculator.write();
-            state.press(label);
-            state.take_completed()
-        };
-        let Some(finished) = finished else { return };
-        if finished.failed {
-            // A result a calculator cannot show is worth one sentence, and the sentence
-            // is not a widget this code places: it is handed over once and the Renderer
-            // decides where it goes and how long it stays.
-            Message::new(format!("{} has no answer", finished.expression)).show();
-            return;
-        }
-        let id = next_entry();
-        next_entry.set(id + 1);
-        entries.write().push(TapeEntry {
-            id,
-            expression: finished.expression,
-            result: finished.result,
-            value: finished.value,
-        });
+    // engine, because a tape is a thing the application keeps.
+    let press: Press = {
+        let (calculator, entries, next_entry) =
+            (calculator.clone(), entries.clone(), next_entry.clone());
+        Rc::new(move |label: &'static str| {
+            let mut finished = None;
+            calculator.update(|state| {
+                state.press(label);
+                finished = state.take_completed();
+            });
+            let Some(finished) = finished else { return };
+            if finished.failed {
+                Message::new(format!("{} has no answer", finished.expression)).show();
+                return;
+            }
+            let id = next_entry.get_untracked();
+            next_entry.set(id + 1);
+            entries.update(|entries| {
+                entries.push(TapeEntry {
+                    id,
+                    expression: finished.expression,
+                    result: finished.result,
+                    value: finished.value,
+                });
+            });
+        })
     };
 
-    let recall = EventHandler::new(move |value: f64| {
-        calculator.write().recall(value);
-        tape_open.set(false);
-    });
-    let clear_tape = EventHandler::new(move |()| {
-        let thrown_away = std::mem::take(&mut *entries.write());
-        let lines = if thrown_away.len() == 1 {
-            "line"
-        } else {
-            "lines"
-        };
-        Message::new(format!("Cleared {} {lines}", thrown_away.len()))
-            .with_action("Undo", move |()| entries.set(thrown_away.clone()))
-            .with_duration(MessageDuration::Long)
-            .show();
-    });
+    let recall: Rc<dyn Fn(f64)> = {
+        let (calculator, tape_open) = (calculator.clone(), tape_open.clone());
+        Rc::new(move |value: f64| {
+            calculator.update(|state| state.recall(value));
+            tape_open.set(false);
+        })
+    };
+    let clear_tape: Rc<dyn Fn()> = {
+        let entries = entries.clone();
+        Rc::new(move || {
+            let thrown_away = entries.get_untracked();
+            entries.update(Vec::clear);
+            let lines = if thrown_away.len() == 1 {
+                "line"
+            } else {
+                "lines"
+            };
+            let restore = entries.clone();
+            Message::new(format!("Cleared {} {lines}", thrown_away.len()))
+                .with_action("Undo", move |()| restore.set(thrown_away.clone()))
+                .with_duration(MessageDuration::Long)
+                .show();
+        })
+    };
 
-    rsx! {
-        // The frame is named rather than built. What the bar becomes here, whether it is
-        // the window's caption or a bar under the system's, and where the page starts, are
-        // answers this screen never has to know.
-        Scaffold {
-            top_bar: rsx! {
-                TopAppBar {
-                    fill_max_width: true,
-                    Button {
-                        text: "",
-                        icon: IconRole::Menu,
-                        variant: ButtonVariant::Text,
-                        on_click: move |_| {},
-                    }
-                    // Apple's calculator names no mode across its bar: the two icons are
-                    // the whole of it, and the mode is where the menu leads. Windows'
-                    // names the mode in bold beside the menu, which is what the bar is
-                    // mostly for there. The spacer keeps the trailing icon at the trailing
-                    // edge either way.
-                    if apple {
-                        Spacer { weight: 1.0 }
-                    } else {
-                        Text { text: "Standard", type_role: TypeRole::Title, weight: 1.0 }
-                    }
-                    if !tape_beside {
-                        Button {
-                            text: "",
-                            icon: IconRole::History,
-                            variant: ButtonVariant::Text,
-                            on_click: move |_| tape_open.set(true),
-                        }
-                    }
+    Scaffold()
+        .top_bar(|| {
+            TopAppBar().modifier(Modifier.fill_max_width()).content(|| {
+                Button("")
+                    .icon(IconRole::Menu)
+                    .variant(ButtonVariant::Text)
+                    .on_click(|| {});
+                if apple {
+                    Spacer().modifier(Modifier.weight(1.0));
+                } else {
+                    Text("Standard")
+                        .type_role(TypeRole::Title)
+                        .modifier(Modifier.weight(1.0));
                 }
-            },
-
-            Row {
-                fill_max_width: true,
-                fill_max_height: true,
-                // The instrument: the number, the memory keys and the pad, all on one
-                // measure so their edges agree. The pad used to be the only one of the
-                // three that stopped widening, which put the number to the right of the
-                // keys it belongs to.
-                dioxus_compose_adapter::Box {
-                    weight: INSTRUMENT_SHARE,
-                    fill_max_height: true,
-                    alignment: Alignment::TopCenter,
-                    Column {
-                        fill_max_width: pad_width.is_none(),
-                        width: pad_width,
-                        fill_max_height: true,
-                        // The bar insets its own contents by the medium step, so the
-                        // instrument under it uses the same one and the two line up.
-                        padding_role: SpaceRole::Md,
-                        space_role: SpaceRole::Md,
-
-                        // The reading area takes the height the keys leave and the number
-                        // sits at its foot, which is where all three references put it:
-                        // the room above the number is what a long expression grows into
-                        // rather than something that pushes the keys down.
-                        dioxus_compose_adapter::Box {
-                            fill_max_width: true,
-                            weight: READING_SHARE,
-                            alignment: Alignment::BottomCenter,
-                            {readout(status, display)}
-                        }
-                        // Apple's calculator has no memory row on its face, so there is
-                        // none here when Apple's language is what is running.
-                        if !apple {
-                            {memory_row(memory_set, EventHandler::new(press))}
-                        }
-                        dioxus_compose_adapter::Box {
-                            fill_max_width: true,
-                            weight: KEYPAD_SHARE,
-                            alignment: Alignment::BottomCenter,
-                            {keypad(apple, EventHandler::new(press))}
-                        }
-                    }
-                }
-                if tape_beside {
-                    Divider { vertical: true }
-                    Column {
-                        weight: TAPE_SHARE,
-                        fill_max_height: true,
-                        padding_role: SpaceRole::Md,
-                        {tape(entries(), recall, clear_tape)}
-                    }
-                }
-            }
-
-            // The same tape, arriving from an edge, for the windows with no room beside
-            // the keys. Which edge is the Renderer's decision: up from the bottom of a
-            // phone, in from the side of a tablet.
-            Sheet {
-                open: tape_open() && !tape_beside,
-                on_dismiss: move |_| tape_open.set(false),
-                fill_max_width: true,
-                // Only where the tape is not already beside the keys. Declaring it in
-                // both places would be two tapes: one list of nodes per finished
-                // calculation, twice, and a scroll position each.
                 if !tape_beside {
-                    {tape(entries(), recall, clear_tape)}
+                    let open = tape_open.clone();
+                    Button("")
+                        .icon(IconRole::History)
+                        .variant(ButtonVariant::Text)
+                        .on_click(move || open.set(true));
                 }
-            }
-        }
-    }
+            });
+        })
+        .content(|| {
+            Row()
+                .modifier(Modifier.fill_max_width().fill_max_height())
+                .content(|| {
+                    Box()
+                        .modifier(Modifier.weight(INSTRUMENT_SHARE).fill_max_height())
+                        .alignment(Alignment::TopCenter)
+                        .content(|| {
+                            Column()
+                                .modifier(
+                                    Modifier
+                                        .fill_max_width_if(pad_width.is_none())
+                                        .width_if(pad_width)
+                                        .fill_max_height()
+                                        .padding_role(SpaceRole::Md),
+                                )
+                                .space_role(SpaceRole::Md)
+                                .content(|| {
+                                    Box()
+                                        .modifier(Modifier.fill_max_width().weight(READING_SHARE))
+                                        .alignment(Alignment::BottomCenter)
+                                        .content(|| readout(status.clone(), display.clone()));
+                                    if !apple {
+                                        memory_row(memory_set, Rc::clone(&press));
+                                    }
+                                    Box()
+                                        .modifier(Modifier.fill_max_width().weight(KEYPAD_SHARE))
+                                        .alignment(Alignment::BottomCenter)
+                                        .content(|| keypad(apple, Rc::clone(&press)));
+                                });
+                        });
+                    if tape_beside {
+                        Divider().vertical(true);
+                        Column()
+                            .modifier(
+                                Modifier
+                                    .weight(TAPE_SHARE)
+                                    .fill_max_height()
+                                    .padding_role(SpaceRole::Md),
+                            )
+                            .content(|| {
+                                tape(entries.get(), Rc::clone(&recall), Rc::clone(&clear_tape))
+                            });
+                    }
+                });
+
+            // The same tape, arriving from an edge, for windows with no room beside the
+            // keys.
+            let close = tape_open.clone();
+            Sheet(tape_open.get() && !tape_beside)
+                .on_dismiss(move || close.set(false))
+                .modifier(Modifier.fill_max_width())
+                .content(|| {
+                    if !tape_beside {
+                        tape(entries.get(), Rc::clone(&recall), Rc::clone(&clear_tape));
+                    }
+                });
+        });
 }
 
-// Samples are demonstrations, so they let you see any of the design systems rather than
-// only the one this machine happens to select. Unset, the app adapts to the host platform,
-// which is what a real application wants.
-/// Runs the sample as a program of its own. The desktop binary is one line of this.
+/// Runs the sample as a program of its own.
 pub fn launch() {
-    launch_builder().launch(app);
+    launch_builder().application(app);
 }
 
 /// How this sample is configured, in one place because three entry points need it.
 ///
-/// The theme above all: a sample that names one and then reaches a platform through an
-/// entry point that makes its own builder is a sample that draws the same screens in a
-/// different design system depending on where it runs.
-fn launch_builder() -> dioxus_compose_adapter::LaunchBuilder {
-    // The name the window carries. A desktop lists windows by it, so a window that said
-    // nothing was listed under whatever the renderer happened to be called, and every
-    // sample here was listed under the toolkit's default name until this line existed.
-    dioxus_compose_adapter::LaunchBuilder::new()
-        .with_theme(dioxus_compose_adapter::demo_theme())
+/// A calculator is a tall narrow window on all three of the machines this is a rebuild of:
+/// the keys are a grid four across, and a wider window stretches a key rather than giving
+/// one back.
+fn launch_builder() -> LaunchBuilder {
+    LaunchBuilder::new()
+        .with_theme(compose_rust::demo_theme())
         .with_window(
-            dioxus_compose_adapter::schema::Window::new()
+            compose_rust::schema::Window::new()
                 .with_title("Calculator")
-                // A calculator is a tall narrow window on all three of the machines this
-                // is a rebuild of, and for the same reason on each: the keys are a grid
-                // four across, and a window wider than that grid needs to be does not
-                // give a key back, it stretches it. Left at the renderer's own default
-                // this opened at 800 by 600 and drew the keys as wide lozenges, which is
-                // the one shape none of the three references has.
                 .with_size(380, 620)
                 .with_min_size(320, 480)
-                // Without one the window wears the toolkit's picture, which on
-                // Windows is the Java coffee cup, wherever the system lists
-                // windows. The bytes travel as an asset and the renderer refers
-                // to them by id: a path would be a fact about the machine this
-                // was built on, and a name would ask the toolkit to find
-                // something it may not have.
-                .with_icon(dioxus_compose_adapter::asset::asset(
-                    dioxus_compose_adapter::schema::AssetKind::Png,
+                .with_icon(compose_rust::asset::asset(
+                    compose_rust::schema::AssetKind::Png,
                     include_bytes!("../assets/icon.png"),
                 )),
         )
 }
 
-// The platforms where the sample is not a program. Android's Activity and the browser's
-// page both own the loop, so neither has a `main` to call: each names an entry point that
-// registers the root component, and these macros define it.
-//
-// Both are declared unconditionally. Each macro compiles into nothing that runs off its
-// own platform, and gating them here instead would mean a desktop build never checks that
-// this sample can still be built for the other two.
-dioxus_compose_adapter::android_main!({ launch_builder() }, app);
-dioxus_compose_adapter::web_main!({ launch_builder() }, app);
-dioxus_compose_adapter::ios_main!(launch);
+compose_rust::android_application!({ launch_builder() }, app);
+compose_rust::web_application!({ launch_builder() }, app);
+compose_rust::ios_main!(launch);
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dioxus_compose_adapter::Host;
-    use dioxus_compose_adapter::protocol::{
-        HostEvent, Mutation, PropertyValue, decode_batch, encode_event,
-    };
-    use dioxus_compose_adapter::schema::{
-        EventPayload, MessageDuration, PropertyKind, TypeRole, WidgetKind,
-    };
+    use compose_rust::ComposeHost;
+    use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
+    use compose_rust::schema::{EventPayload, MessageDuration, PropertyKind, TypeRole, WidgetKind};
     use std::collections::HashMap;
 
     /// Whether a label belongs to the keypad rather than to the rest of the screen.
@@ -599,11 +487,11 @@ mod tests {
     /// declared in, because a memory row under the keypad would be a different screen.
     #[test]
     fn fr22_the_memory_row_stands_between_the_reading_area_and_the_keys() {
-        dioxus_compose_adapter::window::reset_window_size();
-        let mut host = Host::new(app);
+        compose_rust::window::reset_window_size();
+        let mut host = ComposeHost::new(app);
         let batch = host.rebuild().expect("the first frame failed to encode");
         let labels = collect_button_labels(batch);
-        dioxus_compose_adapter::window::reset_window_size();
+        compose_rust::window::reset_window_size();
 
         let memory_at = labels
             .iter()
@@ -692,12 +580,8 @@ mod tests {
     /// that would have caught it.
     #[test]
     fn the_declared_tree_encodes_without_a_protocol_error() {
-        let mut dom = VirtualDom::new(app);
-        let mut renderer = dioxus_compose_adapter::renderer::ComposeRenderer::new();
-        renderer.begin_frame();
-        dom.rebuild(&mut renderer);
-        renderer
-            .finish_frame()
+        ComposeHost::new(app)
+            .rebuild()
             .expect("the calculator tree encodes");
     }
 
@@ -732,7 +616,7 @@ mod tests {
     /// screen grows: a tape line is a button that did not exist when the screen was built,
     /// and a harness that only looked at the first frame could never press one.
     struct Screen {
-        host: Host,
+        host: ComposeHost,
         /// Node to the label printed on it.
         texts: HashMap<u32, String>,
         /// What each live node was created as, so a test can ask where something sits.
@@ -757,7 +641,7 @@ mod tests {
     impl Screen {
         fn new() -> Self {
             let mut screen = Self {
-                host: Host::new(app),
+                host: ComposeHost::new(app),
                 texts: HashMap::new(),
                 widgets: HashMap::new(),
                 buttons: Vec::new(),
@@ -860,7 +744,7 @@ mod tests {
         /// applies the change to it: reading the resize batch alone would show only what
         /// moved.
         fn at(width_dp: f32) -> Self {
-            dioxus_compose_adapter::window::reset_window_size();
+            compose_rust::window::reset_window_size();
             let mut screen = Self::new();
             screen.dispatch(
                 0,
@@ -868,11 +752,11 @@ mod tests {
                 EventPayload::WindowSizeChanged {
                     width_dp,
                     height_dp: 800.0,
-                    class: dioxus_compose_adapter::WindowSizeClass::from_width_dp(width_dp),
-                    height_class: dioxus_compose_adapter::WindowHeightClass::from_height_dp(800.0),
+                    class: WindowSizeClass::from_width_dp(width_dp),
+                    height_class: WindowHeightClass::from_height_dp(800.0),
                 },
             );
-            dioxus_compose_adapter::window::reset_window_size();
+            compose_rust::window::reset_window_size();
             screen
         }
 

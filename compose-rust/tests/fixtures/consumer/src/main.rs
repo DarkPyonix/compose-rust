@@ -130,7 +130,7 @@ impl Runtime for Screen {
         });
     }
 
-    fn render(&mut self) {
+    fn render(&mut self, _frame_time_nanos: Option<u64>) {
         if self.counting && self.step < FRAMES {
             self.step += 1;
             STEP.fetch_max(self.step, Ordering::SeqCst);
@@ -242,7 +242,7 @@ impl Runtime for Form {
         }
     }
 
-    fn render(&mut self) {}
+    fn render(&mut self, _frame_time_nanos: Option<u64>) {}
 
     fn handle_event(&mut self, event: &HostEvent<'_>) -> Result<i64, ProtocolError> {
         match (event.node_id, event.handler_id, &event.payload) {
