@@ -34,6 +34,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.thisisthepy.compose.window.DockIcon
+import org.thisisthepy.compose.window.FrameClock
 import org.thisisthepy.compose.window.WindowEvent
 import org.thisisthepy.compose.window.contentMinimum
 import org.thisisthepy.compose.window.graalvm.macos.AppKitUpcallSlots
@@ -42,6 +43,7 @@ import org.thisisthepy.compose.window.graalvm.macos.configureNativeWindow
 import org.thisisthepy.compose.window.graalvm.macos.describeTo
 import org.thisisthepy.compose.window.graalvm.macos.drainWindowEvents
 import org.thisisthepy.compose.window.graalvm.macos.forgetFrameCallback
+import org.thisisthepy.compose.window.graalvm.macos.frameTimeNanos
 import org.thisisthepy.compose.window.graalvm.macos.installApplicationMenu
 import org.thisisthepy.compose.window.graalvm.macos.isWindowClosed
 import org.thisisthepy.compose.window.graalvm.macos.measureTitleBar
@@ -204,6 +206,9 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
     )
     var painted = false
     var frame = 0
+    // When each frame reaches the screen, from the display link, so an animation moves at the
+    // speed of the wall clock whatever the refresh rate and however late a frame.
+    val frameClock = FrameClock(::frameTimeNanos)
     var drew = false
     val legacyResize = System.getenv("DXC_LEGACY_RESIZE") != null
 
@@ -261,7 +266,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
         if (!painted || heard || scene.hasInvalidations()) {
             val begun = System.nanoTime()
             LatencyTrace.mark("draw begin (heard=$heard invalidated=${scene.hasInvalidations()})")
-            if (drawFrame(window, context, scene, frame.toLong() * FRAME_NANOS, size, backdrop)) {
+            if (drawFrame(window, context, scene, frameClock.frameNanos(), size, backdrop)) {
                 WindowStartReport.frameDrawn(size.width, size.height)
             }
             LatencyTrace.mark("draw end")
@@ -273,9 +278,8 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
     if (!legacyResize) registerAppKitFrameCallback()
 
     try {
-        // A plain loop rather than a clock. Pacing is the frame clock's work and comes
-        // later; what this has to show is that what the window hears reaches the scene
-        // and changes what the next frame draws.
+        // A plain loop rather than a clock: it waits for the window rather than for a
+        // refresh. What a frame is drawn at comes from the display link, above.
         while (!isWindowClosed()) {
             if (autoExitMillis != null &&
                 (System.nanoTime() - started) / NANOS_PER_MILLI >= autoExitMillis
@@ -290,7 +294,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
             // one AppKit delivers on, so the events of this frame arrive here or not at
             // all. Waiting the frame's length rather than sleeping afterwards, because a
             // window with nothing happening should rest rather than spin.
-            pumpWindowEvents(FRAME_SECONDS)
+            pumpWindowEvents(TURN_WAIT_SECONDS)
             LatencyTrace.mark("loop turn $frame")
             if (synthetic != null && synthetic.resizeDue(System.nanoTime())) {
                 window.scriptedResize(size.width / measured.scale.toInt() to size.height / measured.scale.toInt(),
@@ -454,5 +458,6 @@ internal fun SpikeContent() {
  */
 internal val spikeDroppedFiles = androidx.compose.runtime.mutableStateOf("")
 
-private const val FRAME_SECONDS = 0.016
-private const val FRAME_NANOS = 16_000_000L
+// The longest a turn of the loop waits for the window to say something. Not a frame's
+// length: frames are timed by the display link, and a turn ends as soon as there is an event.
+private const val TURN_WAIT_SECONDS = 0.016
