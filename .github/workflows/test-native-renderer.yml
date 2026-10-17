@@ -31,6 +31,8 @@
 # This is the counterpart to test.yml. test.yml runs on every pull request because it is
 # fast; the builds here compile Compose and the renderer ahead of time, which costs tens of
 # minutes per platform. So it runs:
+#   - on a pull request that touches the renderer, once it carries the run-heavy-ci label
+#     (heavy-checks.yml then holds the merge until this has passed on the head),
 #   - on pushes to main that touch the renderer, its scripts or how the crate links it,
 #   - nightly, to catch toolchain drift even when nobody touched the renderer,
 #   - on demand.
@@ -42,15 +44,29 @@
 name: Native renderer test
 
 on:
-  # Pushes to main only, and deliberately not on the pull request that proposes them.
-  # This is the slow half of the gate: a ~1GB toolchain download and tens of minutes of
-  # native-image compilation per platform. Running it on the release proposal would hold
-  # every publication behind an hour of building, so it runs once the tree is on main and
-  # reports afterwards, with the nightly schedule catching toolchain drift in between.
-  #
-  # That is a real gap and worth naming: a renderer that stops building is found after
-  # main has moved, not before. The release workflow builds the renderer again for the
-  # artifacts, so nothing is published from a tree that cannot produce one.
+  # On a pull request only when asked, with the run-heavy-ci label, and then once per head
+  # rather than on every push. This is the slow half of the gate: a ~1GB toolchain download
+  # and tens of minutes of compilation per platform. heavy-checks.yml fails until it has
+  # passed on the head that is merged, so a renderer that stops building is found before the
+  # merge, not after. The paths are the ones the `changed` job below looks for on main.
+  pull_request:
+    types: [synchronize, reopened, labeled]
+    paths:
+      - renderer/**
+      - compose-rust/build.rs
+      - compose-rust/build/**
+      - scripts/install-nik.sh
+      - .github/scripts/check-single-executable.sh
+      - .github/scripts/package-static-renderer.sh
+      - .github/scripts/check-linux-input-access.sh
+      - .github/scripts/atspi-walk.py
+      - .github/workflows/test-native-renderer.yml
+      - .github/workflows/static-renderer.yml
+      - .github/workflows/fork-desktop-modules.yml
+  # Pushes to main as well: the release branch is rebuilt from develop, so its head is a
+  # different commit from any that was checked as a pull request. The release workflow
+  # builds the renderer again for the artifacts, so nothing is published from a tree that
+  # cannot produce one.
   # A version tag also runs this, and then the release jobs at the bottom attach what it
   # built. There is no path filter on the trigger, and there cannot be one: a path filter
   # applies to tag pushes too, so a release whose tagged commit happened not to touch the
@@ -66,19 +82,34 @@ on:
   workflow_dispatch:
 
 concurrency:
-  # One run per pull request: a new commit cancels the older run. Pushes to develop,
-  # dispatches and tag runs are never cancelled, so a release is never cut short.
-  group: test-native-renderer-${{ github.event.pull_request.number || github.ref }}
+  # One run per pull request: a new commit cancels the older run. Pushes to develop and main,
+  # dispatches and tag runs are never cancelled, so a release is never cut short. A run started
+  # by some other label going on gets a group of its own, so it cannot cancel a heavy run.
+  group: test-native-renderer-${{ github.event.pull_request.number || github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'run-heavy-ci' && format('-other-label-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 jobs:
+  # Heavy: runs only when asked for (the run-heavy-ci label on a pull request, or any other
+  # event). Every job below needs this one, through `changed`, so a run nobody asked for is
+  # skipped whole, and heavy-checks.yml does not count it.
+  requested:
+    name: Heavy checks requested
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.action == 'labeled' && github.event.label.name == 'run-heavy-ci') ||
+      (github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'run-heavy-ci'))
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Heavy checks requested by ${{ github.event_name }} ${{ github.event.action }}"
+
   # main moves on every publication, not only on releases, so without this every push of
   # unrelated work would start four native-image builds. A tag always builds: that is the
   # release, and it must produce artifacts whatever its commit happened to touch.
   changed:
+    needs: requested
     name: Check whether the renderer changed
     runs-on: ubuntu-latest
     outputs:
@@ -98,7 +129,8 @@ jobs:
             exit 0
           fi
           # The nightly run exists to catch toolchain drift, which by definition changes
-          # nothing in this repository, and a manual run was asked for on purpose.
+          # nothing in this repository, a manual run was asked for on purpose, and a pull
+          # request run was asked for with its label after its own path filter matched.
           if [[ "$GITHUB_EVENT_NAME" != "push" ]]; then
             echo "$GITHUB_EVENT_NAME always builds"
             echo "renderer=true" >> "$GITHUB_OUTPUT"

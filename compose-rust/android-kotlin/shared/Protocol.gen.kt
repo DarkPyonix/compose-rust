@@ -6,7 +6,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.charset.StandardCharsets
 
-enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, LinearProgressIndicator }
+enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, AbsoluteBox, LinearProgressIndicator }
 
 enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, Progress }
 
@@ -463,6 +463,13 @@ sealed interface Modifier {
     data class ObserveSize(val token: Int) : Modifier
     data class Motion(val role: dev.darkpyonix.composerust.protocol.MotionRole) : Modifier
     data class Material(val role: dev.darkpyonix.composerust.protocol.MaterialRole) : Modifier
+    data class Offset(val x: kotlin.Float, val y: kotlin.Float) : Modifier
+    data class RequiredSize(val width: kotlin.Float, val height: kotlin.Float) : Modifier
+    data class BorderEach(val top: kotlin.Float, val right: kotlin.Float, val bottom: kotlin.Float, val left: kotlin.Float, val topPaint: Paint, val rightPaint: Paint, val bottomPaint: Paint, val leftPaint: Paint) : Modifier
+    data class CornerEach(val topLeft: kotlin.Float, val topRight: kotlin.Float, val bottomRight: kotlin.Float, val bottomLeft: kotlin.Float) : Modifier
+    data class Shadow(val x: kotlin.Float, val y: kotlin.Float, val blur: kotlin.Float, val spread: kotlin.Float, val paint: Paint) : Modifier
+    data class Clip(val enabled: Boolean) : Modifier
+    data class Alpha(val value: kotlin.Float) : Modifier
 }
 
 sealed interface Mutation {
@@ -566,7 +573,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -6082458096398358368L
+    const val SCHEMA_HASH: Long = 5732741981503512717L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -670,16 +677,15 @@ object Protocol {
                         )
                     }
                     TAG_SET_MODIFIER -> {
-                        requireRecordLength(length, 28, offset)
+                        // The modifier's tag fixes the record's length: 28 bytes, and eight
+                        // more for each word its value takes beyond the first two.
+                        if (length < 28) requireRecordLength(length, 28, offset)
+                        val modifierTag = readU16(batch, base, available, offset + 10)
+                        requireRecordLength(length, 28 + 8 * modifierExtraWords(modifierTag, offset + 10), offset)
                         Mutation.SetModifier(
                             readU32(batch, base, available, offset + 4).toInt(),
                             readU16(batch, base, available, offset + 8),
-                            modifier(
-                                readU16(batch, base, available, offset + 10),
-                                readU64(batch, base, available, offset + 12),
-                                readU64(batch, base, available, offset + 20),
-                                offset + 10,
-                            ),
+                            modifier(modifierTag, batch, base, available, offset + 12, offset + 10),
                         )
                     }
                     TAG_INSERT -> {
@@ -1061,6 +1067,7 @@ object Protocol {
         40 -> WidgetKind.Badge
         41 -> WidgetKind.SelectionContainer
         42 -> WidgetKind.SplitPane
+        44 -> WidgetKind.AbsoluteBox
         100 -> WidgetKind.LinearProgressIndicator
         else -> throw ProtocolException("unknown widget tag $tag", offset)
     }
@@ -1464,27 +1471,79 @@ object Protocol {
         }
     }
 
-    private fun modifier(tag: Int, first: Long, second: Long, offset: Int): Modifier = when (tag) {
-        0 -> Modifier.Empty
-        1 -> Modifier.Padding(kotlin.Float.fromBits(first.toInt()))
-        2 -> Modifier.FillMaxWidth
-        3 -> Modifier.FillMaxHeight
-        4 -> Modifier.Width(kotlin.Float.fromBits(first.toInt()))
-        5 -> Modifier.Height(kotlin.Float.fromBits(first.toInt()))
-        6 -> Modifier.Size(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits(second.toInt()))
-        7 -> Modifier.Background(paint(first, offset))
-        8 -> Modifier.Clickable(first)
-        9 -> Modifier.PaddingRole(spaceRole(first.toInt(), offset))
-        10 -> Modifier.PaddingEach(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits((first ushr 32).toInt()), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()))
-        11 -> Modifier.Weight(kotlin.Float.fromBits(first.toInt()))
-        12 -> Modifier.Shape(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits((first ushr 32).toInt()), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()))
-        13 -> Modifier.ShapeRole(shapeRole(first.toInt(), offset))
-        14 -> Modifier.Border(kotlin.Float.fromBits(first.toInt()), paint(second, offset))
-        15 -> Modifier.Elevation(kotlin.Float.fromBits(first.toInt()))
-        16 -> Modifier.ObserveSize(first.toInt())
-        17 -> Modifier.Motion(motionRole(first.toInt(), offset))
-        18 -> Modifier.Material(materialRole(first.toInt(), offset))
+    /** A word that says yes or no. Any value but 0 and 1 is a record the sides disagree on. */
+    private fun flag(word: Long, offset: Int): Boolean = when (word) {
+        0L -> false
+        1L -> true
+        else -> throw ProtocolException("invalid flag $word", offset)
+    }
+
+    /**
+     * How many eight byte words a modifier's value takes beyond the two every record has.
+     * The tag fixes it, so a record of any other length is refused before it is read.
+     */
+    private fun modifierExtraWords(tag: Int, offset: Int): Int = when (tag) {
+        0 -> 0
+        1 -> 0
+        2 -> 0
+        3 -> 0
+        4 -> 0
+        5 -> 0
+        6 -> 0
+        7 -> 0
+        8 -> 0
+        9 -> 0
+        10 -> 0
+        11 -> 0
+        12 -> 0
+        13 -> 0
+        14 -> 0
+        15 -> 0
+        16 -> 0
+        17 -> 0
+        18 -> 0
+        19 -> 0
+        20 -> 0
+        21 -> 4
+        22 -> 0
+        23 -> 1
+        24 -> 0
+        25 -> 0
         else -> throw ProtocolException("unknown modifier tag $tag", offset)
+    }
+
+    private fun modifier(tag: Int, batch: ByteBuffer, base: Int, available: Int, at: Int, offset: Int): Modifier {
+        val first = readU64(batch, base, available, at)
+        val second = readU64(batch, base, available, at + 8)
+        return when (tag) {
+            0 -> Modifier.Empty
+            1 -> Modifier.Padding(kotlin.Float.fromBits(first.toInt()))
+            2 -> Modifier.FillMaxWidth
+            3 -> Modifier.FillMaxHeight
+            4 -> Modifier.Width(kotlin.Float.fromBits(first.toInt()))
+            5 -> Modifier.Height(kotlin.Float.fromBits(first.toInt()))
+            6 -> Modifier.Size(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits(second.toInt()))
+            7 -> Modifier.Background(paint(first, offset))
+            8 -> Modifier.Clickable(first)
+            9 -> Modifier.PaddingRole(spaceRole(first.toInt(), offset))
+            10 -> Modifier.PaddingEach(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits((first ushr 32).toInt()), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()))
+            11 -> Modifier.Weight(kotlin.Float.fromBits(first.toInt()))
+            12 -> Modifier.Shape(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits((first ushr 32).toInt()), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()))
+            13 -> Modifier.ShapeRole(shapeRole(first.toInt(), offset))
+            14 -> Modifier.Border(kotlin.Float.fromBits(first.toInt()), paint(second, offset))
+            15 -> Modifier.Elevation(kotlin.Float.fromBits(first.toInt()))
+            16 -> Modifier.ObserveSize(first.toInt())
+            17 -> Modifier.Motion(motionRole(first.toInt(), offset))
+            18 -> Modifier.Material(materialRole(first.toInt(), offset))
+            19 -> Modifier.Offset(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits(second.toInt()))
+            20 -> Modifier.RequiredSize(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits(second.toInt()))
+            21 -> Modifier.BorderEach(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits((first ushr 32).toInt()), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()), paint(readU64(batch, base, available, at + 16), offset), paint(readU64(batch, base, available, at + 24), offset), paint(readU64(batch, base, available, at + 32), offset), paint(readU64(batch, base, available, at + 40), offset))
+            22 -> Modifier.CornerEach(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits((first ushr 32).toInt()), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()))
+            23 -> Modifier.Shadow(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits((first ushr 32).toInt()), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()), paint(readU64(batch, base, available, at + 16), offset))
+            24 -> Modifier.Clip(flag(first, offset))
+            25 -> Modifier.Alpha(kotlin.Float.fromBits(first.toInt()))
+            else -> throw ProtocolException("unknown modifier tag $tag", offset)
+        }
     }
 
     /**

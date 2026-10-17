@@ -17,7 +17,13 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.Measurable
+import androidx.compose.ui.layout.MeasurePolicy
+import androidx.compose.ui.layout.MeasureResult
+import androidx.compose.ui.layout.MeasureScope
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.Constraints
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.TypeRole
 import dev.darkpyonix.composerust.protocol.WidgetKind
@@ -288,6 +294,53 @@ fun RenderNode(
         // shown one at a time is the design system's answer for the split pane's own width,
         // and the drag on the divider never leaves this side until it is let go.
         WidgetKind.SplitPane -> HostSplitPane(node, modifier, table, dispatcher, theme)
+
+        // Children laid where the Host already put them, each at its own `Offset`. Nothing
+        // here arranges, aligns or sizes one child by another: the Host's layout engine
+        // has decided all of it, and a second layout pass could only disagree with it.
+        WidgetKind.AbsoluteBox -> Layout(
+            content = {
+                node.children.forEach { childId ->
+                    key(childId) { RenderNode(childId, table, dispatcher) }
+                }
+            },
+            modifier = modifier,
+            measurePolicy = AbsoluteBoxMeasurePolicy,
+        )
+    }
+}
+
+/**
+ * How an `AbsoluteBox` lays out: every child at the box's own origin, moved from there by
+ * its `Offset`, with later children drawn over earlier ones.
+ *
+ * Each child is measured with no limit at all, so it is exactly the size its own modifiers
+ * say. Under a limit, a child bigger than the box would be squeezed, or, with a required
+ * size, centred on the room it was given, and either would move it away from where the
+ * Host put it. CSS lets a box overflow its parent, and so does this.
+ *
+ * The box itself is as big as its largest child, within what its parent allows, the way a
+ * `Box` is. An HTML screen gives every box a `RequiredSize`, so this is rarely what decides.
+ */
+private object AbsoluteBoxMeasurePolicy : MeasurePolicy {
+    override fun MeasureScope.measure(
+        measurables: List<Measurable>,
+        constraints: Constraints,
+    ): MeasureResult {
+        val placeables = measurables.map { it.measure(Constraints()) }
+        var width = constraints.minWidth
+        var height = constraints.minHeight
+        for (placeable in placeables) {
+            width = maxOf(width, placeable.width)
+            height = maxOf(height, placeable.height)
+        }
+        width = width.coerceAtMost(constraints.maxWidth)
+        height = height.coerceAtMost(constraints.maxHeight)
+        // `place` rather than `placeRelative`: the Host's coordinates are the screen's, so a
+        // right-to-left layout direction must not mirror them a second time.
+        return layout(width, height) {
+            for (placeable in placeables) placeable.place(0, 0)
+        }
     }
 }
 

@@ -15,7 +15,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-pin="$repo_root/bench/fr39-baseline.env"
+pin="$repo_root/scripts/bench/fr39-baseline.env"
 
 fail() {
     echo "fail  $1" >&2

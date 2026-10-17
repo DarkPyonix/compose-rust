@@ -127,7 +127,7 @@ impl Runtime for App {
         }
     }
 
-    fn render(&mut self) {
+    fn render(&mut self, _frame_time_nanos: Option<u64>) {
         if !self.dirty {
             return;
         }
