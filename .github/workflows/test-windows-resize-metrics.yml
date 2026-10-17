@@ -264,6 +264,8 @@ jobs:
           du -sh renderer/build/windows
 
       - name: Release link, diagnosed
+        # Off on this branch, which only collects the pixel-compare frames as images.
+        if: false
         # Why a release build of an application fails to link the renderer object
         # (LNK1223, invalid .pdata contributions) while a debug build links. rustc passes
         # /OPT:REF,ICF to a release link and /OPT:REF,NOICF to one with debug info, so the
@@ -296,6 +298,8 @@ jobs:
           grep -B2 -A12 "^SECTION HEADER" renderer-headers.txt | grep -B3 -A10 " \.pdata$" | head -40
 
       - name: Keep the renderer object for the LNK1223 analysis
+        # Off on this branch, which only collects the pixel-compare frames as images.
+        if: false
         uses: actions/upload-artifact@v4
         with:
           name: renderer-object-windows-kn
@@ -309,7 +313,42 @@ jobs:
           export DXC_WINDOWS_NATIVE_LIB="$(cygpath -w "$PWD/renderer/build/windows")"
           cargo build --release --manifest-path compose-rust/tests/fixtures/hand-check/Cargo.toml
 
+      - name: Pixel-compare frames as images, at 1x and 2x
+        env:
+          DXC_D3D12_WARP: '1'
+          DXC_PIXEL_COMPARE: '1'
+        run: |
+          set -uo pipefail
+          out="$(cygpath -u "$RUNNER_TEMP")/pixel-compare"
+          mkdir -p "$out"
+          log="$out/hand-check.log"
+          DXC_PIXEL_DUMP="$(cygpath -w "$out")" \
+            compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe > "$log" 2>&1 &
+          pid=$!
+          for _ in $(seq 240); do
+            grep -q "pixel-compare scale=2 verdict" "$log" 2>/dev/null && break
+            kill -0 "$pid" 2>/dev/null || break
+            sleep 0.5
+          done
+          sleep 1
+          kill "$pid" 2>/dev/null || true
+          sleep 1
+          kill -9 "$pid" 2>/dev/null || true
+          grep "pixel-compare" "$log" || tail -40 "$log"
+          ls -la "$out"
+          ls "$out"/*.rgba > /dev/null
+
+      - name: Keep the pixel-compare frames
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pixel-compare-frames
+          path: ${{ runner.temp }}/pixel-compare/
+          retention-days: 14
+
       - name: Package hand-check for a check by hand
+        # Off on this branch, which only collects the pixel-compare frames as images.
+        if: false
         run: |
           set -euo pipefail
           package="$(cygpath -u "$RUNNER_TEMP")/hand-check-windows"
@@ -335,6 +374,8 @@ jobs:
           sed -i 's/^          //' "$package/README.txt"
 
       - name: Keep the package
+        # Off on this branch, which only collects the pixel-compare frames as images.
+        if: false
         id: package
         uses: actions/upload-artifact@v4
         with:
@@ -343,6 +384,8 @@ jobs:
           retention-days: 30
 
       - name: The executable is the Kotlin/Native renderer
+        # Off on this branch, which only collects the pixel-compare frames as images.
+        if: false
         run: |
           exe=compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe
           ls -la "$exe"
@@ -351,6 +394,8 @@ jobs:
           echo "DLLs it loads:"; dumpbin -nologo -dependents "$(cygpath -w "$exe")" | grep -i "\.dll" || true
 
       - name: Build the resize probe
+        # Off on this branch, which only collects the pixel-compare frames as images.
+        if: false
         # The probe drags the window from another process and records every composed frame.
         # Built with the MSVC tools entered above; kept as an artifact to run by hand as well.
         run: |
@@ -364,6 +409,8 @@ jobs:
           ls -la "$dir"
 
       - name: Keep the resize probe
+        # Off on this branch, which only collects the pixel-compare frames as images.
+        if: false
         uses: actions/upload-artifact@v4
         with:
           name: resize-probe-windows
@@ -371,6 +418,8 @@ jobs:
           retention-days: 30
 
       - name: Scripted resize, measured
+        # Off on this branch, which only collects the pixel-compare frames as images.
+        if: false
         env:
           DXC_D3D12_WARP: '1'
           DXC_PIXEL_COMPARE: '1'
@@ -414,6 +463,8 @@ jobs:
           done
 
       - name: Resize frames on the CPU at 200%, each way of drawing them
+        # Off on this branch, which only collects the pixel-compare frames as images.
+        if: false
         # Times the scene at the sizes a drag at 200% passes (density 2, 961 to 1157 by 1400
         # pixels), drawn each way the renderer offers, and compares each with the GPU frame.
         # Run a second time with every node's measuring timed by kind, which slows layout
@@ -451,6 +502,8 @@ jobs:
           exit $status
 
       - name: What is on screen during a resize must be the frame drawn for it
+        # Off on this branch, which only collects the pixel-compare frames as images.
+        if: false
         run: |
           dir="$(cygpath -u "$RUNNER_TEMP")/resize-metrics"
           # The verdict comes from the real modal drags, driven from another process at three
@@ -477,12 +530,16 @@ jobs:
           fi
 
       - name: CPU and GPU frames must match
+        # Off on this branch, which only collects the pixel-compare frames as images.
+        if: false
         run: |
           log="$(cygpath -u "$RUNNER_TEMP")/resize-metrics/windows-kn.log"
           grep "pixel-compare" "$log" || { echo "no pixel comparison ran" >&2; exit 1; }
           ! grep -q "pixel-compare verdict FAIL" "$log"
 
       - name: Keep the logs
+        # Off on this branch, which only collects the pixel-compare frames as images.
+        if: false
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -492,6 +549,7 @@ jobs:
 
   macos:
     name: Kotlin/Native renderer, hand-check under a scripted resize (macOS, arm64)
+    if: false
     runs-on: macos-latest
     timeout-minutes: 360
     steps:

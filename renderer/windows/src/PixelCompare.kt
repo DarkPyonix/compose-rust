@@ -1,6 +1,12 @@
 package dev.darkpyonix.composerust.ui.platform
 
 import java.lang.System
+import kotlinx.cinterop.addressOf
+import kotlinx.cinterop.convert
+import kotlinx.cinterop.usePinned
+import platform.posix.fclose
+import platform.posix.fopen
+import platform.posix.fwrite
 import org.jetbrains.skia.Bitmap
 import org.jetbrains.skia.Canvas
 import org.jetbrains.skia.Color
@@ -55,14 +61,30 @@ internal object PixelCompare {
         Region("gpu-image", Rect.makeXYWH(0f, 240f, 480f, 80f)),
     )
 
-    /** Runs the comparison and prints one line per region and a verdict. True when it passes. */
+    /**
+     * Runs the comparison at 1x and at 2x (the scene drawn under a 2x canvas scale, as a
+     * window at 200% draws it) and prints one line per region and a verdict for each. With
+     * DXC_PIXEL_DUMP set to a directory, both frames of each scale are also written there
+     * as raw RGBA, named cpu-<s>x-<w>x<h>.rgba and gpu-<s>x-<w>x<h>.rgba. True when both pass.
+     */
     fun run(context: DirectContext): Boolean {
+        val dump = System.getenv("DXC_PIXEL_DUMP")
+        var passed = true
+        for (scale in listOf(1, 2)) passed = runAt(context, scale, dump) && passed
+        return passed
+    }
+
+    private fun runAt(context: DirectContext, scale: Int, dump: String?): Boolean {
+        val width = WIDTH * scale
+        val height = HEIGHT * scale
+        val tag = if (scale == 1) "" else "scale=$scale "
         val props = SurfaceProps(PixelGeometry.RGB_H)
-        val gpuInfo = ImageInfo(WIDTH, HEIGHT, ColorType.RGBA_8888, ColorAlphaType.PREMUL, ColorSpace.sRGB)
-        val cpuInfo = ImageInfo(WIDTH, HEIGHT, ColorType.BGRA_8888, ColorAlphaType.PREMUL, ColorSpace.sRGB)
+        val gpuInfo = ImageInfo(width, height, ColorType.RGBA_8888, ColorAlphaType.PREMUL, ColorSpace.sRGB)
+        val cpuInfo = ImageInfo(width, height, ColorType.BGRA_8888, ColorAlphaType.PREMUL, ColorSpace.sRGB)
 
         // GPU-only content: an image whose pixels exist only in a texture.
         val source = Surface.makeRenderTarget(context, false, gpuInfo, 0, props)
+        source.canvas.scale(scale.toFloat(), scale.toFloat())
         drawImageSource(source.canvas)
         source.flushAndSubmit(true)
         val textureImage = source.makeImageSnapshot()
@@ -73,46 +95,64 @@ internal object PixelCompare {
         val rasterImage = Image.makeFromBitmap(readBack)
 
         val gpu = Surface.makeRenderTarget(context, false, gpuInfo, 0, props)
-        drawScene(gpu.canvas, textureImage)
+        gpu.canvas.scale(scale.toFloat(), scale.toFloat())
+        drawScene(gpu.canvas, textureImage, scale)
         gpu.flushAndSubmit(true)
-        val cpu = Surface.makeRaster(cpuInfo, WIDTH * 4, props)
-        drawScene(cpu.canvas, rasterImage)
+        val cpu = Surface.makeRaster(cpuInfo, width * 4, props)
+        cpu.canvas.scale(scale.toFloat(), scale.toFloat())
+        drawScene(cpu.canvas, rasterImage, scale)
 
-        val gpuPixels = read(gpu, gpuInfo)
-        val cpuPixels = read(cpu, gpuInfo)
+        val gpuPixels = read(gpu, gpuInfo, width)
+        val cpuPixels = read(cpu, gpuInfo, width)
+        if (dump != null) {
+            if (gpuPixels != null) write("$dump/gpu-${scale}x-${width}x$height.rgba", gpuPixels)
+            if (cpuPixels != null) write("$dump/cpu-${scale}x-${width}x$height.rgba", cpuPixels)
+        }
         var passed = gpuPixels != null && cpuPixels != null
         if (gpuPixels != null && cpuPixels != null) {
             for (region in regions) {
-                passed = report(region, gpuPixels, cpuPixels) && passed
+                passed = report(region, gpuPixels, cpuPixels, scale, tag) && passed
             }
         } else {
-            System.err.println("compose-rust: pixel-compare could not read a surface back")
+            System.err.println("compose-rust: pixel-compare ${tag}could not read a surface back")
         }
-        System.err.println("compose-rust: pixel-compare verdict ${if (passed) "PASS" else "FAIL"}")
+        System.err.println("compose-rust: pixel-compare ${tag}verdict ${if (passed) "PASS" else "FAIL"}")
         source.close()
         gpu.close()
         cpu.close()
         return passed
     }
 
-    private fun read(surface: Surface, info: ImageInfo): ByteArray? {
+    private fun read(surface: Surface, info: ImageInfo, width: Int): ByteArray? {
         val bitmap = Bitmap()
         bitmap.allocPixels(info)
         if (!surface.readPixels(bitmap, 0, 0)) return null
-        return bitmap.readPixels(info, WIDTH * 4, 0, 0)
+        return bitmap.readPixels(info, width * 4, 0, 0)
     }
 
-    private fun report(region: Region, gpu: ByteArray, cpu: ByteArray): Boolean {
+    private fun write(path: String, bytes: ByteArray) {
+        val file = fopen(path, "wb")
+        if (file == null) {
+            System.err.println("compose-rust: pixel-compare could not open $path")
+            return
+        }
+        bytes.usePinned { fwrite(it.addressOf(0), 1.convert(), bytes.size.convert(), file) }
+        fclose(file)
+        System.err.println("compose-rust: pixel-compare wrote $path")
+    }
+
+    private fun report(region: Region, gpu: ByteArray, cpu: ByteArray, scale: Int, tag: String): Boolean {
+        val width = WIDTH * scale
         var max = 0
         var sum = 0L
         var samples = 0L
         var differing = 0
         var pixels = 0
-        val left = region.rect.left.toInt()
-        val top = region.rect.top.toInt()
-        for (y in top until region.rect.bottom.toInt()) {
-            for (x in left until region.rect.right.toInt()) {
-                val at = (y * WIDTH + x) * 4
+        val left = region.rect.left.toInt() * scale
+        val top = region.rect.top.toInt() * scale
+        for (y in top until region.rect.bottom.toInt() * scale) {
+            for (x in left until region.rect.right.toInt() * scale) {
+                val at = (y * width + x) * 4
                 var worst = 0
                 for (channel in 0 until 4) {
                     val difference = kotlin.math.abs((gpu[at + channel].toInt() and 0xFF) - (cpu[at + channel].toInt() and 0xFF))
@@ -129,7 +169,7 @@ internal object PixelCompare {
         val fraction = differing.toDouble() / pixels
         val passed = mean <= 1.0 && fraction <= 0.01
         System.err.println(
-            "compose-rust: pixel-compare region=${region.name} max=$max " +
+            "compose-rust: pixel-compare ${tag}region=${region.name} max=$max " +
                 "mean=${hundredths(mean)} differing_over_8=$differing/$pixels " +
                 "(${hundredths(fraction * 100)}%) ${if (passed) "pass" else "FAIL"}",
         )
@@ -145,7 +185,7 @@ internal object PixelCompare {
         }
     }
 
-    private fun drawScene(canvas: Canvas, image: Image) {
+    private fun drawScene(canvas: Canvas, image: Image, scale: Int) {
         canvas.clear(Color.WHITE)
         val typeface = FontMgr.default.matchFamilyStyle("Segoe UI", FontStyle.NORMAL)
             ?: FontMgr.default.legacyMakeTypeface("", FontStyle.NORMAL)
@@ -168,7 +208,8 @@ internal object PixelCompare {
         canvas.drawCircle(300f, 190f, 40.3f, edge)
         canvas.drawRRect(org.jetbrains.skia.RRect.makeXYWH(350.5f, 155.25f, 110f, 70f, 12f), edge)
         val band = Rect.makeXYWH(0f, 240f, 480f, 80f)
-        canvas.drawImageRect(image, band, band)
+        val source = Rect.makeXYWH(0f, 240f * scale, 480f * scale, 80f * scale)
+        canvas.drawImageRect(image, source, band)
     }
 
     private fun hundredths(value: Double): String {
