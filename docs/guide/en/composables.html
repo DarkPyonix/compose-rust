@@ -61,10 +61,10 @@
       <span class="label">What exists today</span>
       <p>
         The schema and the renderer half of every widget below exist in 0.0.1
-        <span class="pill works">Works</span>. The Rust functions you call to emit them, such as
-        <code>Column(...)</code> and <code>Text(...)</code>, arrive with the authoring API in 1.0.0
-        <span class="pill planned">Planned</span>. The authoring API adds no widget of its own, so
-        this page is also the list you will write with.
+        <span class="pill works">Works</span>. The Rust functions you call to write them, such as
+        <code>Column()</code> and <code>Text("...")</code>, are on <code>develop</code> and are
+        released with 1.0.0. They add no widget of their own, so this page is also the list you
+        write with. <a href="#calls">How each widget is written</a> gives the call for each.
       </p>
     </div>
 
@@ -113,12 +113,72 @@
       </table>
     </div>
 
+    <h2 id="calls">How each widget is written</h2>
+    <p>
+      Each widget is a function with its Compose name that takes what the widget cannot do
+      without. Methods set the rest, and a container takes its children with
+      <code>content(|| ...)</code>. <a href="writing-ui.html#widgets">Writing UI</a> explains the
+      shape.
+    </p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">Call</th><th scope="col">Main methods</th></tr></thead>
+        <tbody>
+          <tr><td><code>Column()</code>, <code>Row()</code></td><td><code>arrangement</code>, <code>spacing</code>, <code>space_role</code>, <code>alignment</code>, <code>content</code></td></tr>
+          <tr><td><code>Box()</code></td><td><code>alignment</code>, <code>content</code></td></tr>
+          <tr><td><code>ScrollColumn()</code>, <code>ScrollRow()</code>, <code>Card()</code>, <code>Surface()</code>, <code>SelectionContainer()</code>, <code>Spacer()</code></td><td><code>modifier</code>, <code>content</code></td></tr>
+          <tr><td><code>Text(text)</code></td><td><code>type_role</code>, <code>color</code>, <code>text_align</code>, <code>max_lines</code>, <code>overflow</code>, <code>spans</code>, and one method per type axis</td></tr>
+          <tr><td><code>TextField()</code></td><td><code>text</code> (the starting text), <code>placeholder</code>, <code>multiline</code>, <code>enabled</code>, <code>on_value_change</code>, <code>on_submit</code>, <code>on_focus_lost</code>, <code>on_key_down</code></td></tr>
+          <tr><td><code>Button(label)</code></td><td><code>variant</code>, <code>icon</code>, <code>enabled</code>, <code>color</code>, <code>on_click</code>. An empty label with an icon is an icon button.</td></tr>
+          <tr><td><code>Checkbox(checked)</code>, <code>RadioButton(selected)</code>, <code>Switch(checked)</code></td><td><code>enabled</code>, <code>on_change</code></td></tr>
+          <tr><td><code>Slider(value)</code></td><td><code>range</code>, <code>steps</code>, <code>enabled</code>, <code>on_change</code></td></tr>
+          <tr><td><code>Dropdown(selected_index)</code></td><td><code>enabled</code>, <code>on_change</code>; each child is one option</td></tr>
+          <tr><td><code>DatePicker(days)</code>, <code>TimePicker(minutes)</code></td><td><code>min</code>, <code>max</code>, <code>enabled</code>, <code>on_change</code></td></tr>
+          <tr><td><code>Chip(label)</code></td><td><code>selected</code>, <code>icon</code>, <code>enabled</code>, <code>on_click</code></td></tr>
+          <tr><td><code>ProgressIndicator(fraction)</code>, <code>IndeterminateProgressIndicator()</code></td><td><code>circular</code></td></tr>
+          <tr><td><code>Divider()</code>, <code>Separator(color)</code></td><td><code>vertical</code></td></tr>
+          <tr><td><code>TopAppBar()</code></td><td><code>title</code>, <code>content</code></td></tr>
+          <tr><td><code>Scaffold()</code></td><td><code>top_bar</code>, <code>bottom_bar</code>, <code>floating_action</code>, <code>content</code></td></tr>
+          <tr><td><code>Navigation(selected_index)</code>, <code>NavigationItem(label)</code></td><td><code>head</code>, <code>foot</code>, <code>content</code>; an item takes <code>icon</code>, <code>section</code>, <code>on_click</code></td></tr>
+          <tr><td><code>Tabs(selected_index)</code></td><td><code>content</code>; each child is one tab</td></tr>
+          <tr><td><code>Dialog(open)</code>, <code>Sheet(open)</code></td><td><code>on_dismiss</code>, <code>content</code></td></tr>
+          <tr><td><code>Menu(expanded)</code></td><td><code>anchor</code>, <code>on_dismiss</code>, <code>content</code></td></tr>
+          <tr><td><code>Tooltip(text)</code>, <code>Badge()</code></td><td><code>content</code>; a badge takes <code>value</code>, <code>text</code>, <code>color</code></td></tr>
+          <tr><td><code>FloatingAction(label)</code></td><td><code>icon</code>, <code>on_click</code></td></tr>
+          <tr><td><code>SplitPane()</code></td><td><code>value</code>, <code>min</code>, <code>max</code>, <code>collapsible</code>, <code>on_change</code>, <code>content</code> with exactly two children</td></tr>
+          <tr><td><code>FileDropTarget()</code></td><td><code>on_files_entered</code>, <code>on_files_dropped</code>, <code>content</code></td></tr>
+          <tr><td><code>LazyColumn()</code>, <code>LazyRow()</code>, <code>LazyGrid()</code></td><td><code>columns</code> or <code>min_column_width</code> for a grid, and <code>content(|list| ...)</code>. See <a href="lists-and-streaming.html#windowing">Lists &amp; streaming</a>.</td></tr>
+          <tr><td><code>Image(asset_id)</code>, <code>Icon(asset_id)</code></td><td><code>color</code></td></tr>
+          <tr><td><code>Canvas(draw_list)</code></td><td><code>modifier</code></td></tr>
+          <tr><td><code>LinearProgressIndicator(progress)</code></td><td>The extension widget. See <a href="#extensions">Extensions</a>.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      Every one of them also takes <code>modifier(Modifier...)</code>. Each widget is used by at
+      least one of the <a href="getting-started.html#samples">samples</a>, and
+      <a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/minimal"><code>minimal</code></a>
+      uses all of them.
+    </p>
+
     <h2 id="modifiers">Modifiers</h2>
     <p>
       In Compose a <code>Modifier</code> applies to any composable, and the same is true here: every
       widget takes every modifier, including <code>Text</code> and <code>Spacer</code>. On the
       wire a modifier list is a sequence of fixed-size values, and the renderer rebuilds it into a
       Compose <code>Modifier</code> chain.
+    </p>
+    <p>
+      In Rust you start from the value <code>Modifier</code> and chain the methods:
+      <code>Modifier.fill_max_width().padding_role(SpaceRole::Md).background(Paint::Role(ColorRole::Surface))</code>.
+      The methods are <code>weight</code>, <code>width</code>, <code>height</code>,
+      <code>size</code>, <code>fill_max_width</code>, <code>fill_max_height</code>,
+      <code>fill_max_size</code>, <code>padding</code>, <code>padding_role</code>,
+      <code>background</code>, <code>shape_role</code>, <code>corner_radius</code>,
+      <code>border</code>, <code>elevation</code>, <code>material</code>, <code>motion</code> and
+      <code>observe_size</code>. The ones ending in <code>_if</code> take an <code>Option</code> or a
+      <code>bool</code>, for a modifier that depends on the window. The order of the calls does not
+      matter, because each kind has a fixed place in the chain.
     </p>
 
     <div class="tablewrap">
@@ -273,10 +333,12 @@
     <h2 id="window">Window size</h2>
     <p>
       The UI is described in Rust and measured by the renderer, so the only way Rust learns the
-      window's width is for the renderer to report it. <code>window_size()</code> returns a
+      window's width is for the renderer to report it. Inside a composable,
+      <code>current_window_size()</code> reads it and runs the scope again when the class changes.
+      Outside one, <code>window_size()</code> returns a
       <code>WindowSize</code> with <code>width_dp</code>, <code>height_dp</code> and
       <code>class</code>, plus <code>is_compact()</code>, <code>is_medium()</code> and
-      <code>is_expanded()</code>. It exists in 0.0.1.
+      <code>is_expanded()</code>.
     </p>
 
     <div class="tablewrap">
@@ -313,7 +375,7 @@
       <table>
         <thead><tr><th scope="col">Widget</th><th scope="col">What the renderer owns</th><th scope="col">What Rust sends</th></tr></thead>
         <tbody>
-          <tr><td><code>TextField</code></td><td>The whole edit buffer, the selection, the IME composition</td><td>No value. Changes arrive as events; <code>SetText</code> replaces the text after composition ends.</td></tr>
+          <tr><td><code>TextField</code></td><td>The whole edit buffer, the selection, the IME composition</td><td>At most a starting text. Changes arrive as events; a new <code>key</code> gives a new field.</td></tr>
           <tr><td><code>Dialog</code>, <code>Sheet</code>, <code>Menu</code></td><td>Open state, and the enter and exit animation</td><td>An open flag that seeds it and carries an outside change.</td></tr>
           <tr><td><code>Dropdown</code></td><td>Whether the popup is open</td><td>The selected index only.</td></tr>
           <tr><td><code>Navigation</code>, <code>Tabs</code></td><td>Which one is marked, and the move between them</td><td>The selected index, which seeds it.</td></tr>
@@ -351,7 +413,7 @@
   <div class="inner">
     <span>compose-rust &middot; Apache License 2.0</span>
     <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://crates.io/crates/compose-rust">crates.io</a></span>
-    <span>Guide last reviewed against the repository on 2026-10-03</span>
+    <span>Guide last reviewed against the repository on 2026-10-17</span>
   </div>
 </footer>
 
