@@ -20,8 +20,11 @@
 mod mood;
 mod palette;
 
-use dioxus_compose_adapter::prelude::*;
+use compose_rust::AssetKind;
+use compose_rust::runtime::*;
+use compose_rust::ui::*;
 use mood::{Mood, SESSIONS, Session, WORRIES, week_line};
+use std::rc::Rc;
 
 /// A phone design in a desktop window is still a phone design.
 const PAGE_MEASURE: f32 = 420.0;
@@ -83,610 +86,602 @@ enum Step {
     Done,
 }
 
+/// What a press does. Shared, because one handler can reach more than one control.
+type Action = Rc<dyn Fn()>;
+
 /// The mood picker: the face, the strip under it, and the question.
-fn feeling_step(
-    chosen: Signal<Mood>,
-    on_skip: EventHandler<()>,
-    on_next: EventHandler<()>,
-) -> Element {
-    let mut chosen = chosen;
-    let (fill, _ink) = chosen().pair();
-    rsx! {
-        Column {
-            fill_max_width: true,
-            fill_max_height: true,
+#[composable]
+fn feeling_step(chosen: MutableState<Mood>, on_skip: Action, on_next: Action) {
+    let current = chosen.get();
+    let (fill, _ink) = current.pair();
+    Column().modifier(Modifier.fill_max_size()).content(|| {
+        // The face fills the top of the screen in the tint of the feeling it is showing,
+        // which is the reference's whole idea: the answer is the colour. It runs to the
+        // window's edges, so it is outside the inset column below rather than the first
+        // row of it.
+        Box()
+            .modifier(
+                Modifier
+                    .fill_max_width()
+                    .height(FACE_SIDE * 1.4)
+                    .background(Paint::Literal(fill)),
+            )
+            .alignment(Alignment::Center)
+            .content(|| {
+                Image(asset(AssetKind::Svg, current.picture()))
+                    .modifier(Modifier.size(FACE_SIDE, FACE_SIDE));
+            });
 
-            // The face fills the top of the screen in the tint of the feeling it is
-            // showing, which is the reference's whole idea: the answer is the colour. It
-            // runs to the window's edges, so it is outside the inset column below rather
-            // than the first row of it.
-            dioxus_compose_adapter::Box {
-                fill_max_width: true,
-                height: FACE_SIDE * 1.4,
-                background: Paint::Literal(fill),
-                alignment: Alignment::Center,
-                Image {
-                    width: FACE_SIDE,
-                    height: FACE_SIDE,
-                    asset_id: asset(AssetKind::Svg, chosen().picture()),
-                }
-            }
-
-            // Everything under the face, inset once and spaced once.
-            //
-            // Each of these used to carry its own padding inside a column that was also
-            // spacing them, so the gap between two of them was the space rung plus two
-            // paddings and the gap between two others was the rung alone. The ladder
-            // answers how far apart two things sit; it cannot do that if half the answer
-            // is added again by each thing.
-            Column {
-                fill_max_width: true,
-                weight: 1.0,
-                padding_role: SpaceRole::Md,
-                space_role: SpaceRole::Lg,
-
+        // Everything under the face, inset once and spaced once.
+        //
+        // Each of these used to carry its own padding inside a column that was also
+        // spacing them, so the gap between two of them was the space rung plus two
+        // paddings and the gap between two others was the rung alone. The ladder answers
+        // how far apart two things sit; it cannot do that if half the answer is added
+        // again by each thing.
+        Column()
+            .modifier(
+                Modifier
+                    .fill_max_width()
+                    .weight(1.0)
+                    .padding_role(SpaceRole::Md),
+            )
+            .space_role(SpaceRole::Lg)
+            .content(|| {
                 // The strip of answers. The chosen one is filled and the rest are plain,
                 // so which colour "filled" means stays the design system's.
-                Row {
-                    fill_max_width: true,
-                    space_role: SpaceRole::Sm,
-                    for option in Mood::STRIP {
-                        Button {
-                            key: "{option.label()}",
-                            text: option.label(),
-                            weight: 1.0,
-                            variant: ButtonVariant::Filled,
-                            shape_role: ShapeRole::Full,
+                Row()
+                    .modifier(Modifier.fill_max_width())
+                    .space_role(SpaceRole::Sm)
+                    .content(|| {
+                        for option in Mood::STRIP {
                             // The chosen answer is filled with the feeling's own colour
                             // and the rest are the quiet grey the reference gives them.
                             // The answer is the colour, so the colour is what changes.
-                            background: if option == chosen() {
-                                Paint::Literal(option.pair().0)
+                            let picked = option == current;
+                            let (background, ink) = if picked {
+                                (option.pair().0, option.pair().1)
                             } else {
-                                Paint::Literal(palette::CHIP)
-                            },
-                            color: if option == chosen() {
-                                Paint::Literal(option.pair().1)
-                            } else {
-                                Paint::Literal(palette::INK)
-                            },
-                            on_click: move |_| chosen.set(option),
+                                (palette::CHIP, palette::INK)
+                            };
+                            let choose = chosen.clone();
+                            key(option.label(), || {
+                                Button(option.label())
+                                    .variant(ButtonVariant::Filled)
+                                    .color(Paint::Literal(ink))
+                                    .modifier(
+                                        Modifier
+                                            .weight(1.0)
+                                            .shape_role(ShapeRole::Full)
+                                            .background(Paint::Literal(background)),
+                                    )
+                                    .on_click(move || choose.set(option));
+                            });
                         }
-                    }
-                }
+                    });
 
-                Column {
-                    fill_max_width: true,
-                    space_role: SpaceRole::Xs,
-                    alignment: Alignment::Center,
-                    Text {
-                        text: "How do you feel today?",
-                        type_role: TypeRole::Headline,
-                        text_align: TextAlign::Center,
-                        color: Paint::Literal(palette::INK),
-                    }
-                }
+                Column()
+                    .modifier(Modifier.fill_max_width())
+                    .space_role(SpaceRole::Xs)
+                    .alignment(Alignment::Center)
+                    .content(|| {
+                        Text("How do you feel today?")
+                            .type_role(TypeRole::Headline)
+                            .text_align(TextAlign::Center)
+                            .color(Paint::Literal(palette::INK));
+                    });
 
-                Spacer { weight: 1.0 }
+                Spacer().modifier(Modifier.weight(1.0));
 
-                Row {
-                    fill_max_width: true,
-                    space_role: SpaceRole::Md,
-                    alignment: Alignment::CenterStart,
-                    Button {
-                        text: "Skip",
-                        variant: ButtonVariant::Text,
-                        color: Paint::Literal(palette::INK),
-                        on_click: move |_| on_skip.call(()),
-                    }
-                    Button {
-                        text: "Next",
-                        weight: 1.0,
-                        variant: ButtonVariant::Filled,
-                        shape_role: ShapeRole::Full,
-                        background: Paint::Literal(palette::INK),
-                        color: Paint::Literal(palette::PAGE),
-                        on_click: move |_| on_next.call(()),
-                    }
-                }
-            }
-        }
-    }
+                Row()
+                    .modifier(Modifier.fill_max_width())
+                    .space_role(SpaceRole::Md)
+                    .alignment(Alignment::CenterStart)
+                    .content(|| {
+                        let skip = Rc::clone(&on_skip);
+                        Button("Skip")
+                            .variant(ButtonVariant::Text)
+                            .color(Paint::Literal(palette::INK))
+                            .on_click(move || skip());
+                        let next = Rc::clone(&on_next);
+                        Button("Next")
+                            .variant(ButtonVariant::Filled)
+                            .color(Paint::Literal(palette::PAGE))
+                            .modifier(
+                                Modifier
+                                    .weight(1.0)
+                                    .shape_role(ShapeRole::Full)
+                                    .background(Paint::Literal(palette::INK)),
+                            )
+                            .on_click(move || next());
+                    });
+            });
+    });
 }
 
 /// The worry picker: ten chips, any number of them chosen.
-fn worry_step(
-    picked: Signal<Vec<&'static str>>,
-    on_skip: EventHandler<()>,
-    on_next: EventHandler<()>,
-) -> Element {
-    let mut picked = picked;
-    let chosen = picked();
+#[composable]
+fn worry_step(picked: MutableState<Vec<&'static str>>, on_skip: Action, on_next: Action) {
+    let chosen = picked.get();
     // Two to a row. There is no wrapping row in the vocabulary, so a grid is rows of a
     // fixed count and the code says how many rather than the layout working it out.
     let rows: Vec<&[&'static str]> = WORRIES.chunks(2).collect();
-    rsx! {
-        Column {
-            fill_max_width: true,
-            fill_max_height: true,
-            padding_role: SpaceRole::Md,
-            space_role: SpaceRole::Md,
+    Column()
+        .modifier(Modifier.fill_max_size().padding_role(SpaceRole::Md))
+        .space_role(SpaceRole::Md)
+        .content(|| {
+            Text("What's worrying you?")
+                .type_role(TypeRole::Headline)
+                .text_align(TextAlign::Center)
+                .modifier(Modifier.fill_max_width());
 
-            Text {
-                text: "What's worrying you?",
-                type_role: TypeRole::Headline,
-                text_align: TextAlign::Center,
-                fill_max_width: true,
-            }
-
-            Column {
-                fill_max_width: true,
-                space_role: SpaceRole::Sm,
-                for (index, row) in rows.iter().enumerate() {
-                    Row {
-                        key: "{index}",
-                        fill_max_width: true,
-                        space_role: SpaceRole::Sm,
-                        for worry in row.iter().copied() {
-                            Button {
-                                key: "{worry}",
-                                text: worry,
-                                weight: 1.0,
-                                variant: if chosen.contains(&worry) {
-                                    ButtonVariant::Filled
-                                } else {
-                                    ButtonVariant::Tonal
-                                },
-                                on_click: move |_| {
-                                    let mut list = picked.write();
-                                    match list.iter().position(|found| *found == worry) {
-                                        Some(at) => {
-                                            list.remove(at);
-                                        }
-                                        None => list.push(worry),
+            Column()
+                .modifier(Modifier.fill_max_width())
+                .space_role(SpaceRole::Sm)
+                .content(|| {
+                    for (index, row) in rows.iter().enumerate() {
+                        key(index, || {
+                            Row()
+                                .modifier(Modifier.fill_max_width())
+                                .space_role(SpaceRole::Sm)
+                                .content(|| {
+                                    for worry in row.iter().copied() {
+                                        let variant = if chosen.contains(&worry) {
+                                            ButtonVariant::Filled
+                                        } else {
+                                            ButtonVariant::Tonal
+                                        };
+                                        let list = picked.clone();
+                                        key(worry, || {
+                                            Button(worry)
+                                                .variant(variant)
+                                                .modifier(Modifier.weight(1.0))
+                                                .on_click(move || {
+                                                    list.update(|list| {
+                                                        match list
+                                                            .iter()
+                                                            .position(|found| *found == worry)
+                                                        {
+                                                            Some(at) => {
+                                                                list.remove(at);
+                                                            }
+                                                            None => list.push(worry),
+                                                        }
+                                                    })
+                                                });
+                                        });
                                     }
-                                },
-                            }
-                        }
+                                });
+                        });
                     }
-                }
-            }
+                });
 
-            Spacer { weight: 1.0 }
+            Spacer().modifier(Modifier.weight(1.0));
 
-            Row {
-                fill_max_width: true,
-                space_role: SpaceRole::Md,
-                alignment: Alignment::CenterStart,
-                Button {
-                    text: "Skip",
-                    variant: ButtonVariant::Text,
-                    on_click: move |_| on_skip.call(()),
-                }
-                Button {
-                    text: "Next",
-                    weight: 1.0,
-                    variant: ButtonVariant::Filled,
-                    on_click: move |_| on_next.call(()),
-                }
-            }
-        }
-    }
+            Row()
+                .modifier(Modifier.fill_max_width())
+                .space_role(SpaceRole::Md)
+                .alignment(Alignment::CenterStart)
+                .content(|| {
+                    let skip = Rc::clone(&on_skip);
+                    Button("Skip")
+                        .variant(ButtonVariant::Text)
+                        .on_click(move || skip());
+                    let next = Rc::clone(&on_next);
+                    Button("Next")
+                        .variant(ButtonVariant::Filled)
+                        .modifier(Modifier.weight(1.0))
+                        .on_click(move || next());
+                });
+        });
 }
 
 /// What the check-in leaves behind: the day, in one line, and a way back into it.
-fn checked_in(chosen: Mood, worries: Vec<&'static str>, again: EventHandler<()>) -> Element {
+#[composable]
+fn checked_in(chosen: Mood, worries: Vec<&'static str>, again: Action) {
     let (fill, ink) = chosen.pair();
     let summary = if worries.is_empty() {
         "Nothing in particular.".to_owned()
     } else {
         worries.join(", ")
     };
-    rsx! {
-        Column {
-            fill_max_width: true,
-            fill_max_height: true,
-            padding_role: SpaceRole::Md,
-            space_role: SpaceRole::Md,
-            Column {
-                fill_max_width: true,
-                background: Paint::Literal(fill),
-                shape_role: ShapeRole::Large,
-                padding_role: SpaceRole::Lg,
-                space_role: SpaceRole::Sm,
-                alignment: Alignment::Center,
-                Image {
-                    width: FACE_SIDE * 0.6,
-                    height: FACE_SIDE * 0.6,
-                    asset_id: asset(AssetKind::Svg, chosen.picture()),
-                }
-                Text {
-                    text: "Today felt {chosen.label().to_lowercase()}.",
-                    type_role: TypeRole::Title,
-                    color: Paint::Literal(ink),
-                    text_align: TextAlign::Center,
-                }
-                Text {
-                    text: summary,
-                    type_role: TypeRole::Body,
-                    color: Paint::Literal(ink),
-                    text_align: TextAlign::Center,
-                }
-            }
-            Button {
-                text: "Check in again",
-                fill_max_width: true,
-                variant: ButtonVariant::Tonal,
-                on_click: move |_| again.call(()),
-            }
-            Spacer { weight: 1.0 }
-        }
-    }
+    Column()
+        .modifier(Modifier.fill_max_size().padding_role(SpaceRole::Md))
+        .space_role(SpaceRole::Md)
+        .content(|| {
+            Column()
+                .modifier(
+                    Modifier
+                        .fill_max_width()
+                        .background(Paint::Literal(fill))
+                        .shape_role(ShapeRole::Large)
+                        .padding_role(SpaceRole::Lg),
+                )
+                .space_role(SpaceRole::Sm)
+                .alignment(Alignment::Center)
+                .content(|| {
+                    Image(asset(AssetKind::Svg, chosen.picture()))
+                        .modifier(Modifier.size(FACE_SIDE * 0.6, FACE_SIDE * 0.6));
+                    Text(format!("Today felt {}.", chosen.label().to_lowercase()))
+                        .type_role(TypeRole::Title)
+                        .color(Paint::Literal(ink))
+                        .text_align(TextAlign::Center);
+                    Text(summary)
+                        .type_role(TypeRole::Body)
+                        .color(Paint::Literal(ink))
+                        .text_align(TextAlign::Center);
+                });
+            Button("Check in again")
+                .variant(ButtonVariant::Tonal)
+                .modifier(Modifier.fill_max_width())
+                .on_click(move || again());
+            Spacer().modifier(Modifier.weight(1.0));
+        });
+}
+
+/// Says that playing a session is not part of this sample.
+fn not_playable() {
+    Message::new("Playback is not part of this sample").show();
 }
 
 /// One session, as a card in the row that runs off the edge.
-fn session_card(session: &Session) -> Element {
+fn session_card(session: &Session) {
     let (fill, ink) = session.mood.pair();
-    rsx! {
-        Column {
-            fill_max_width: true,
-            fill_max_height: true,
-            background: Paint::Literal(fill),
-            shape_role: ShapeRole::Large,
-            padding_role: SpaceRole::Md,
-            space_role: SpaceRole::Xs,
-            Text {
-                text: session.title,
-                type_role: TypeRole::Subtitle,
-                color: Paint::Literal(ink),
-                max_lines: 2,
-                overflow: TextOverflow::Ellipsis,
-            }
-            Spacer { weight: 1.0 }
-            Row {
-                fill_max_width: true,
-                space_role: SpaceRole::Sm,
-                alignment: Alignment::CenterStart,
-                Text {
-                    text: "{session.minutes} min",
-                    type_role: TypeRole::Label,
-                    color: Paint::Literal(ink),
-                }
-                Spacer { weight: 1.0 }
-                Button {
-                    text: "\u{25b6}",
-                    variant: ButtonVariant::Filled,
-                    on_click: move |_| {
-                        Message::new("Playback is not part of this sample").show();
-                    },
-                }
-            }
-        }
-    }
+    Column()
+        .modifier(
+            Modifier
+                .fill_max_size()
+                .background(Paint::Literal(fill))
+                .shape_role(ShapeRole::Large)
+                .padding_role(SpaceRole::Md),
+        )
+        .space_role(SpaceRole::Xs)
+        .content(|| {
+            Text(session.title)
+                .type_role(TypeRole::Subtitle)
+                .color(Paint::Literal(ink))
+                .max_lines(2)
+                .overflow(TextOverflow::Ellipsis);
+            Spacer().modifier(Modifier.weight(1.0));
+            Row()
+                .modifier(Modifier.fill_max_width())
+                .space_role(SpaceRole::Sm)
+                .alignment(Alignment::CenterStart)
+                .content(|| {
+                    Text(format!("{} min", session.minutes))
+                        .type_role(TypeRole::Label)
+                        .color(Paint::Literal(ink));
+                    Spacer().modifier(Modifier.weight(1.0));
+                    Button("\u{25b6}")
+                        .variant(ButtonVariant::Filled)
+                        .on_click(not_playable);
+                });
+        });
 }
 
 /// The listening screen: a greeting, a search field and the sessions.
-fn listen_page() -> Element {
-    rsx! {
-        Column {
-            fill_max_width: true,
-            padding_role: SpaceRole::Md,
-            space_role: SpaceRole::Md,
+#[composable]
+fn listen_page() {
+    Column()
+        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
+        .space_role(SpaceRole::Md)
+        .content(|| {
+            Text("Hello, Paul").type_role(TypeRole::Headline);
+            TextField()
+                .modifier(Modifier.fill_max_width())
+                .placeholder("Search");
 
-            Text { text: "Hello, Paul", type_role: TypeRole::Headline }
-            TextField { fill_max_width: true, placeholder: "Search" }
+            Text("Picked for today")
+                .type_role(TypeRole::Label)
+                .color(Paint::Role(ColorRole::OnSurfaceVariant));
+            LazyRow()
+                .modifier(Modifier.fill_max_width().height(CARD_HEIGHT))
+                .content(|list| {
+                    list.items_keyed(
+                        SESSIONS.len(),
+                        |position| SESSIONS[position].title.to_owned(),
+                        |position| {
+                            Box()
+                                .modifier(
+                                    Modifier
+                                        .width(CARD_WIDTH)
+                                        .fill_max_height()
+                                        .padding_role(SpaceRole::Xs),
+                                )
+                                .content(|| session_card(&SESSIONS[position]));
+                        },
+                    );
+                });
 
-            Text {
-                text: "Picked for today",
-                type_role: TypeRole::Label,
-                color: Paint::Role(ColorRole::OnSurfaceVariant),
-            }
-            LazyRow {
-                fill_max_width: true,
-                height: CARD_HEIGHT,
-                item_count: SESSIONS.len(),
-                key_of: move |position: usize| SESSIONS[position].title.to_owned(),
-                item: move |position: usize| {
-                    rsx! {
-                        dioxus_compose_adapter::Box {
-                            width: CARD_WIDTH,
-                            fill_max_height: true,
-                            padding_role: SpaceRole::Xs,
-                            {session_card(&SESSIONS[position])}
+            Text("Special for you")
+                .type_role(TypeRole::Label)
+                .color(Paint::Role(ColorRole::OnSurfaceVariant));
+            Surface()
+                .modifier(Modifier.fill_max_width().shape_role(ShapeRole::Large))
+                .content(|| {
+                    Column().modifier(Modifier.fill_max_width()).content(|| {
+                        for (index, session) in SESSIONS.iter().enumerate() {
+                            key(session.title, || {
+                                special_row(session, index + 1 < SESSIONS.len());
+                            });
                         }
-                    }
-                },
-            }
+                    });
+                });
+        });
+}
 
-            Text {
-                text: "Special for you",
-                type_role: TypeRole::Label,
-                color: Paint::Role(ColorRole::OnSurfaceVariant),
-            }
-            Surface {
-                fill_max_width: true,
-                shape_role: ShapeRole::Large,
-                Column {
-                    fill_max_width: true,
-                    for (index, session) in SESSIONS.iter().enumerate() {
-                        Column { key: "{session.title}", fill_max_width: true,
-                            Row {
-                                fill_max_width: true,
-                                padding_role: SpaceRole::Md,
-                                space_role: SpaceRole::Sm,
-                                alignment: Alignment::CenterStart,
-                                Column {
-                                    weight: 1.0,
-                                    space_role: SpaceRole::Xs,
-                                    Text {
-                                        text: session.title,
-                                        type_role: TypeRole::Body,
-                                        max_lines: 1,
-                                        overflow: TextOverflow::Ellipsis,
-                                    }
-                                    Text {
-                                        text: "{session.minutes} min \u{00b7} {session.when}",
-                                        type_role: TypeRole::Caption,
-                                        color: Paint::Role(ColorRole::OnSurfaceVariant),
-                                    }
-                                }
-                                Button {
-                                    text: "\u{25b6}",
-                                    variant: ButtonVariant::Tonal,
-                                    on_click: move |_| {
-                                        Message::new("Playback is not part of this sample")
-                                            .show();
-                                    },
-                                }
-                            }
-                            if index + 1 < SESSIONS.len() {
-                                Separator {}
-                            }
-                        }
-                    }
-                }
-            }
+/// One row of "Special for you", with the hairline under every row but the last.
+#[composable]
+fn special_row(session: &'static Session, separated: bool) {
+    Column().modifier(Modifier.fill_max_width()).content(|| {
+        Row()
+            .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
+            .space_role(SpaceRole::Sm)
+            .alignment(Alignment::CenterStart)
+            .content(|| {
+                Column()
+                    .modifier(Modifier.weight(1.0))
+                    .space_role(SpaceRole::Xs)
+                    .content(|| {
+                        Text(session.title)
+                            .type_role(TypeRole::Body)
+                            .max_lines(1)
+                            .overflow(TextOverflow::Ellipsis);
+                        Text(format!(
+                            "{} min \u{00b7} {}",
+                            session.minutes, session.when
+                        ))
+                        .type_role(TypeRole::Caption)
+                        .color(Paint::Role(ColorRole::OnSurfaceVariant));
+                    });
+                Button("\u{25b6}")
+                    .variant(ButtonVariant::Tonal)
+                    .on_click(not_playable);
+            });
+        if separated {
+            Separator(None);
         }
-    }
+    });
 }
 
 /// Everything there is, as a plain list.
-fn library_page() -> Element {
-    rsx! {
-        Column {
-            fill_max_width: true,
-            padding_role: SpaceRole::Md,
-            space_role: SpaceRole::Md,
-            Text { text: "Library", type_role: TypeRole::Headline }
-            Column {
-                fill_max_width: true,
-                space_role: SpaceRole::Sm,
-                for session in SESSIONS {
-                    Row {
-                        key: "{session.title}",
-                        fill_max_width: true,
-                        space_role: SpaceRole::Sm,
-                        alignment: Alignment::CenterStart,
-                        dioxus_compose_adapter::Box {
-                            width: 48.0,
-                            height: 48.0,
-                            background: Paint::Literal(session.mood.pair().0),
-                            shape_role: ShapeRole::Medium,
-                        }
-                        Column {
-                            weight: 1.0,
-                            Text {
-                                text: session.title,
-                                type_role: TypeRole::Body,
-                                max_lines: 1,
-                                overflow: TextOverflow::Ellipsis,
-                            }
-                            Text {
-                                text: "{session.minutes} min \u{00b7} {session.when}",
-                                type_role: TypeRole::Caption,
-                                color: Paint::Role(ColorRole::OnSurfaceVariant),
-                            }
-                        }
+#[composable]
+fn library_page() {
+    Column()
+        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
+        .space_role(SpaceRole::Md)
+        .content(|| {
+            Text("Library").type_role(TypeRole::Headline);
+            Column()
+                .modifier(Modifier.fill_max_width())
+                .space_role(SpaceRole::Sm)
+                .content(|| {
+                    for session in SESSIONS.iter() {
+                        key(session.title, || {
+                            Row()
+                                .modifier(Modifier.fill_max_width())
+                                .space_role(SpaceRole::Sm)
+                                .alignment(Alignment::CenterStart)
+                                .content(|| {
+                                    Box().modifier(
+                                        Modifier
+                                            .size(48.0, 48.0)
+                                            .background(Paint::Literal(session.mood.pair().0))
+                                            .shape_role(ShapeRole::Medium),
+                                    );
+                                    Column().modifier(Modifier.weight(1.0)).content(|| {
+                                        Text(session.title)
+                                            .type_role(TypeRole::Body)
+                                            .max_lines(1)
+                                            .overflow(TextOverflow::Ellipsis);
+                                        Text(format!(
+                                            "{} min \u{00b7} {}",
+                                            session.minutes, session.when
+                                        ))
+                                        .type_role(TypeRole::Caption)
+                                        .color(Paint::Role(ColorRole::OnSurfaceVariant));
+                                    });
+                                });
+                        });
                     }
-                }
-            }
-        }
-    }
+                });
+        });
 }
 
 /// The profile: who this is, how the week went, and the settings under it.
-fn profile_page(chosen: Mood) -> Element {
+#[composable]
+fn profile_page(chosen: Mood) {
     let (fill, ink) = chosen.pair();
-    rsx! {
-        Column {
-            fill_max_width: true,
-            padding_role: SpaceRole::Md,
-            space_role: SpaceRole::Md,
+    Column()
+        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
+        .space_role(SpaceRole::Md)
+        .content(|| {
+            Column()
+                .modifier(Modifier.fill_max_width())
+                .space_role(SpaceRole::Xs)
+                .alignment(Alignment::Center)
+                .content(|| {
+                    Image(asset(AssetKind::Svg, chosen.picture()))
+                        .modifier(Modifier.size(96.0, 96.0));
+                    Text("Paul Wilson").type_role(TypeRole::Title);
+                    Text(chosen.label())
+                        .type_role(TypeRole::Label)
+                        .color(Paint::Literal(ink))
+                        .modifier(
+                            Modifier
+                                .background(Paint::Literal(fill))
+                                .shape_role(ShapeRole::Full)
+                                .padding_role(SpaceRole::Sm),
+                        );
+                });
 
-            Column {
-                fill_max_width: true,
-                space_role: SpaceRole::Xs,
-                alignment: Alignment::Center,
-                Image {
-                    width: 96.0,
-                    height: 96.0,
-                    asset_id: asset(AssetKind::Svg, chosen.picture()),
-                }
-                Text { text: "Paul Wilson", type_role: TypeRole::Title }
-                Text {
-                    text: chosen.label(),
-                    type_role: TypeRole::Label,
-                    color: Paint::Literal(ink),
-                    background: Paint::Literal(fill),
-                    shape_role: ShapeRole::Full,
-                    padding_role: SpaceRole::Sm,
-                }
-            }
-
-            Surface {
-                fill_max_width: true,
-                shape_role: ShapeRole::Large,
-                padding_role: SpaceRole::Md,
-                Column {
-                    fill_max_width: true,
-                    space_role: SpaceRole::Sm,
-                    Text {
-                        text: "This week",
-                        type_role: TypeRole::Label,
-                        color: Paint::Role(ColorRole::OnSurfaceVariant),
-                    }
-                    Canvas {
-                        width: CHART.0,
-                        height: CHART.1,
-                        commands: week_line(
-                            CHART.0,
-                            CHART.1,
-                            ColorRole::OnSurfaceVariant,
-                            ColorRole::Primary,
-                        ),
-                    }
-                }
-            }
+            Surface()
+                .modifier(
+                    Modifier
+                        .fill_max_width()
+                        .shape_role(ShapeRole::Large)
+                        .padding_role(SpaceRole::Md),
+                )
+                .content(|| {
+                    Column()
+                        .modifier(Modifier.fill_max_width())
+                        .space_role(SpaceRole::Sm)
+                        .content(|| {
+                            Text("This week")
+                                .type_role(TypeRole::Label)
+                                .color(Paint::Role(ColorRole::OnSurfaceVariant));
+                            Canvas(week_line(
+                                CHART.0,
+                                CHART.1,
+                                ColorRole::OnSurfaceVariant,
+                                ColorRole::Primary,
+                            ))
+                            .modifier(Modifier.size(CHART.0, CHART.1));
+                        });
+                });
 
             // The quote card, which is the one place on the screen where a paragraph sits
             // on an accent fill rather than on a reading surface.
-            Column {
-                fill_max_width: true,
-                background: Paint::Role(ColorRole::PrimaryContainer),
-                shape_role: ShapeRole::Large,
-                padding_role: SpaceRole::Md,
-                space_role: SpaceRole::Xs,
-                Text {
-                    text: "\u{201c}",
-                    type_role: TypeRole::Display,
-                    color: Paint::Role(ColorRole::OnPrimaryContainer),
-                }
-                Text {
-                    text: "Every day is a new opportunity for growth and positive change.",
-                    type_role: TypeRole::Body,
-                    color: Paint::Role(ColorRole::OnPrimaryContainer),
-                }
-            }
+            Column()
+                .modifier(
+                    Modifier
+                        .fill_max_width()
+                        .background(Paint::Role(ColorRole::PrimaryContainer))
+                        .shape_role(ShapeRole::Large)
+                        .padding_role(SpaceRole::Md),
+                )
+                .space_role(SpaceRole::Xs)
+                .content(|| {
+                    Text("\u{201c}")
+                        .type_role(TypeRole::Display)
+                        .color(Paint::Role(ColorRole::OnPrimaryContainer));
+                    Text("Every day is a new opportunity for growth and positive change.")
+                        .type_role(TypeRole::Body)
+                        .color(Paint::Role(ColorRole::OnPrimaryContainer));
+                });
 
-            Surface {
-                fill_max_width: true,
-                shape_role: ShapeRole::Large,
-                Column {
-                    fill_max_width: true,
-                    for (index, entry) in ["Settings", "Language", "FAQ"].iter().enumerate() {
-                        Column { key: "{entry}", fill_max_width: true,
-                            Row {
-                                fill_max_width: true,
-                                padding_role: SpaceRole::Md,
-                                alignment: Alignment::CenterStart,
-                                Text { text: *entry, type_role: TypeRole::Body, weight: 1.0 }
-                                Text {
-                                    text: "\u{203a}",
-                                    type_role: TypeRole::Body,
-                                    color: Paint::Role(ColorRole::OnSurfaceVariant),
-                                }
-                            }
-                            if index < 2 {
-                                Separator {}
-                            }
+            Surface()
+                .modifier(Modifier.fill_max_width().shape_role(ShapeRole::Large))
+                .content(|| {
+                    Column().modifier(Modifier.fill_max_width()).content(|| {
+                        for (index, entry) in ["Settings", "Language", "FAQ"].into_iter().enumerate()
+                        {
+                            key(entry, || settings_row(entry, index < 2));
                         }
-                    }
-                }
-            }
+                    });
+                });
+        });
+}
+
+/// One entry under the profile, with the hairline under every entry but the last.
+#[composable]
+fn settings_row(entry: &'static str, separated: bool) {
+    Column().modifier(Modifier.fill_max_width()).content(|| {
+        Row()
+            .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
+            .alignment(Alignment::CenterStart)
+            .content(|| {
+                Text(entry)
+                    .type_role(TypeRole::Body)
+                    .modifier(Modifier.weight(1.0));
+                Text("\u{203a}")
+                    .type_role(TypeRole::Body)
+                    .color(Paint::Role(ColorRole::OnSurfaceVariant));
+            });
+        if separated {
+            Separator(None);
         }
+    });
+}
+
+/// The page for one destination, and for the check-in the step it is on.
+#[composable]
+fn page(
+    destination: Destination,
+    step: MutableState<Step>,
+    chosen: MutableState<Mood>,
+    picked: MutableState<Vec<&'static str>>,
+) {
+    let to = |next: Step| -> Action {
+        let step = step.clone();
+        Rc::new(move || step.set(next))
+    };
+    match destination {
+        Destination::Today => match step.get() {
+            Step::Feeling => feeling_step(chosen.clone(), to(Step::Done), to(Step::Worry)),
+            Step::Worry => worry_step(picked.clone(), to(Step::Done), to(Step::Done)),
+            Step::Done => checked_in(chosen.get(), picked.get(), to(Step::Feeling)),
+        },
+        Destination::Listen => listen_page(),
+        Destination::Library => library_page(),
+        Destination::Profile => profile_page(chosen.get()),
     }
 }
 
-pub fn app() -> Element {
-    let window = use_window_size();
+#[composable]
+pub fn app() {
+    let window = current_window_size();
     let measure = if window.is_compact() {
         None
     } else {
         Some(PAGE_MEASURE)
     };
 
-    let mut destination = use_signal(|| Destination::Today);
-    let mut step = use_signal(|| Step::Feeling);
-    let chosen = use_signal(|| Mood::Calm);
-    let picked = use_signal(Vec::<&'static str>::new);
+    let destination = remember(|| mutable_state_of(Destination::Today));
+    let step = remember(|| mutable_state_of(Step::Feeling));
+    let chosen = remember(|| mutable_state_of(Mood::Calm));
+    let picked = remember(|| mutable_state_of(Vec::<&'static str>::new()));
 
-    let today = match step() {
-        Step::Feeling => feeling_step(
-            chosen,
-            EventHandler::new(move |()| step.set(Step::Done)),
-            EventHandler::new(move |()| step.set(Step::Worry)),
-        ),
-        Step::Worry => worry_step(
-            picked,
-            EventHandler::new(move |()| step.set(Step::Done)),
-            EventHandler::new(move |()| step.set(Step::Done)),
-        ),
-        Step::Done => checked_in(
-            chosen(),
-            picked(),
-            EventHandler::new(move |()| step.set(Step::Feeling)),
-        ),
-    };
-
+    let current = destination.get();
     // The check-in runs to the window's edges, because the tint behind the face is the
     // screen rather than a card on it. The rest are pages that scroll.
-    let scrolls = destination() != Destination::Today || step() != Step::Feeling;
+    let scrolls = current != Destination::Today || step.get() != Step::Feeling;
+    let frame = Modifier
+        .width_if(measure)
+        .fill_max_width_if(measure.is_none())
+        .fill_max_height();
 
-    let body = match destination() {
-        Destination::Today => today,
-        Destination::Listen => listen_page(),
-        Destination::Library => library_page(),
-        Destination::Profile => profile_page(chosen()),
-    };
-
-    rsx! {
-        // The frame is named rather than built. Which of a bar, a rail or a drawer the
-        // destinations become, and where the page sits beside them, are answers this
-        // screen never has to know.
-        Scaffold {
-            background: Paint::Literal(palette::PAGE),
-            bottom_bar: rsx! {
-                Navigation {
-                    background: Paint::Literal(palette::PAGE),
-                    selected_index: destination().index(),
+    // The frame is named rather than built. Which of a bar, a rail or a drawer the
+    // destinations become, and where the page sits beside them, are answers this screen
+    // never has to know.
+    Scaffold()
+        .modifier(Modifier.background(Paint::Literal(palette::PAGE)))
+        .bottom_bar(|| {
+            Navigation(current.index())
+                .modifier(Modifier.background(Paint::Literal(palette::PAGE)))
+                .content(|| {
                     for choice in Destination::STRIP {
-                        NavigationItem {
-                            key: "{choice.label()}",
-                            text: choice.label(),
-                            icon: choice.icon(),
-                            on_click: move |()| destination.set(choice),
-                        }
+                        let go = destination.clone();
+                        key(choice.label(), || {
+                            NavigationItem(choice.label())
+                                .icon(choice.icon())
+                                .on_click(move || go.set(choice));
+                        });
                     }
-                }
-            },
-
-            Column {
-                fill_max_width: true,
-                fill_max_height: true,
-                background: Paint::Literal(palette::PAGE),
-                dioxus_compose_adapter::Box {
-                    fill_max_width: true,
-                    fill_max_height: true,
-                    alignment: Alignment::TopCenter,
-                    if scrolls {
-                        ScrollColumn {
-                            width: measure,
-                            fill_max_width: measure.is_none(),
-                            fill_max_height: true,
-                            {body}
-                        }
-                    } else {
-                        Column {
-                            width: measure,
-                            fill_max_width: measure.is_none(),
-                            fill_max_height: true,
-                            {body}
-                        }
-                    }
-                }
-            }
-        }
-    }
+                });
+        })
+        .content(|| {
+            Column()
+                .modifier(
+                    Modifier
+                        .fill_max_size()
+                        .background(Paint::Literal(palette::PAGE)),
+                )
+                .content(|| {
+                    Box()
+                        .modifier(Modifier.fill_max_size())
+                        .alignment(Alignment::TopCenter)
+                        .content(|| {
+                            let body =
+                                || page(current, step.clone(), chosen.clone(), picked.clone());
+                            if scrolls {
+                                ScrollColumn().modifier(frame).content(body);
+                            } else {
+                                Column().modifier(frame).content(body);
+                            }
+                        });
+                });
+        });
 }
 
 /// The design this sample draws, named once.
@@ -703,13 +698,9 @@ pub fn app() -> Element {
 /// whose system is set the other way sees a screen the design was never drawn for.
 const THEME: Theme = Theme::unified(DesignSystem::Cupertino).with_color_scheme(ColorScheme::Dark);
 
-/// `demo_theme_for` rather than `THEME` alone: a sample is something to look at, and one
-/// machine can only show the design system and the scheme it is set to. `DXC_DESIGN` and
-/// `DXC_SCHEME` each override the half they name, so the line above stays the answer to
-/// everything nobody asked about.
 /// Runs the sample as a program of its own. The desktop binary is one line of this.
 pub fn launch() {
-    launch_builder().launch(app);
+    launch_builder().application(app);
 }
 
 /// How this sample is configured, in one place because three entry points need it.
@@ -717,23 +708,24 @@ pub fn launch() {
 /// The theme above all: a sample that names one and then reaches a platform through an
 /// entry point that makes its own builder is a sample that draws the same screens in a
 /// different design system depending on where it runs.
-fn launch_builder() -> dioxus_compose_adapter::LaunchBuilder {
+///
+/// `demo_theme_for` rather than `THEME` alone: a sample is something to look at, and one
+/// machine can only show the design system and the scheme it is set to. `DXC_DESIGN` and
+/// `DXC_SCHEME` each override the half they name, so `THEME` stays the answer to
+/// everything nobody asked about.
+fn launch_builder() -> LaunchBuilder {
     // The name the window carries. A desktop lists windows by it, so a window that said
-    // nothing was listed under whatever the renderer happened to be called, and every
-    // sample here was listed under the toolkit's default name until this line existed.
-    dioxus_compose_adapter::LaunchBuilder::new()
-        .with_theme(dioxus_compose_adapter::demo_theme_for(THEME))
+    // nothing was listed under whatever the renderer happened to be called.
+    LaunchBuilder::new()
+        .with_theme(compose_rust::demo_theme_for(THEME))
         .with_window(
-            dioxus_compose_adapter::schema::Window::new()
+            compose_rust::schema::Window::new()
                 .with_title("Self-care")
-                // Without one the window wears the toolkit's picture, which on
-                // Windows is the Java coffee cup, wherever the system lists
-                // windows. The bytes travel as an asset and the renderer refers
-                // to them by id: a path would be a fact about the machine this
-                // was built on, and a name would ask the toolkit to find
-                // something it may not have.
-                .with_icon(dioxus_compose_adapter::asset::asset(
-                    dioxus_compose_adapter::schema::AssetKind::Png,
+                // Without one the window wears the toolkit's picture wherever the system
+                // lists windows. The bytes travel as an asset and the renderer refers to
+                // them by id: a path would be a fact about the machine this was built on.
+                .with_icon(compose_rust::asset::asset(
+                    AssetKind::Png,
                     include_bytes!("../assets/icon.png"),
                 )),
         )
@@ -741,23 +733,21 @@ fn launch_builder() -> dioxus_compose_adapter::LaunchBuilder {
 
 // The platforms where the sample is not a program. Android's Activity and the browser's
 // page both own the loop, so neither has a `main` to call: each names an entry point that
-// registers the root component, and these macros define it.
+// registers the root composable, and these macros define it.
 //
-// Both are declared unconditionally. Each macro compiles into nothing that runs off its
-// own platform, and gating them here instead would mean a desktop build never checks that
-// this sample can still be built for the other two.
-dioxus_compose_adapter::android_main!({ launch_builder() }, app);
-dioxus_compose_adapter::web_main!({ launch_builder() }, app);
-dioxus_compose_adapter::ios_main!(launch);
+// All three are declared unconditionally. Each compiles into nothing that runs off its own
+// platform, and gating them here instead would mean a desktop build never checks that this
+// sample can still be built for the others.
+compose_rust::android_application!({ launch_builder() }, app);
+compose_rust::web_application!({ launch_builder() }, app);
+compose_rust::ios_main!(launch);
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dioxus_compose_adapter::Host;
-    use dioxus_compose_adapter::protocol::{
-        HostEvent, Mutation, PropertyValue, decode_batch, encode_event,
-    };
-    use dioxus_compose_adapter::schema::{EventPayload, PropertyKind, WidgetKind};
+    use compose_rust::ComposeHost;
+    use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
+    use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind};
 
     /// Named for what it defends: the reference is a dark design, and a machine set the
     /// other way drew this sample light with nothing to compare against.
@@ -766,8 +756,7 @@ mod tests {
         // Through the wire rather than off the constant: what settles the question is the
         // record the Renderer reads, and a scheme that never leaves the Host is a scheme
         // nobody is drawn in.
-        dioxus_compose_adapter::window::reset_window_size();
-        let mut host = Host::with_theme(app, THEME);
+        let mut host = ComposeHost::with_theme(app, THEME);
         let batch = host.rebuild().expect("the first frame failed").to_vec();
         let first = decode_batch(&batch)
             .expect("the first batch did not decode")
@@ -784,14 +773,13 @@ mod tests {
     /// The screen, driven the way a Renderer drives it. Every batch is kept, because a
     /// batch is the change since the frame before it rather than what is on screen.
     struct Screen {
-        host: Host,
+        host: ComposeHost,
         frames: Vec<Vec<u8>>,
     }
 
     impl Screen {
         fn new() -> Self {
-            dioxus_compose_adapter::window::reset_window_size();
-            let mut host = Host::new(app);
+            let mut host = ComposeHost::new(app);
             let first = host.rebuild().expect("the first frame failed").to_vec();
             Self {
                 host,
@@ -869,15 +857,14 @@ mod tests {
 
     #[test]
     fn the_first_frame_encodes_without_a_protocol_error() {
-        assert!(Host::new(app).rebuild().is_ok());
+        assert!(ComposeHost::new(app).rebuild().is_ok());
     }
 
     /// The face on the check-in has to reach the Renderer as a picture. An `Image` whose
     /// id names nothing is a blank square, which on this screen is most of the screen.
     #[test]
     fn fr16_the_check_in_draws_a_face() {
-        dioxus_compose_adapter::window::reset_window_size();
-        let batch = Host::new(app)
+        let batch = ComposeHost::new(app)
             .rebuild()
             .expect("the first frame failed")
             .to_vec();
@@ -917,7 +904,6 @@ mod tests {
             )),
             "the face draws an id that was never registered"
         );
-        dioxus_compose_adapter::window::reset_window_size();
     }
 
     /// Choosing a mood changes the picture rather than only the label under it. A picker
@@ -948,7 +934,6 @@ mod tests {
             )),
             "the mood changed and the face did not"
         );
-        dioxus_compose_adapter::window::reset_window_size();
     }
 
     /// The check-in is three steps and the last one has to be reachable. A flow whose end
@@ -973,7 +958,6 @@ mod tests {
                 .any(|text| text.contains(WORRIES[2])),
             "the summary does not carry what was chosen"
         );
-        dioxus_compose_adapter::window::reset_window_size();
     }
 
     /// Every destination has to encode, not just the one the app opens on.
@@ -987,7 +971,6 @@ mod tests {
                 choice.label()
             );
         }
-        dioxus_compose_adapter::window::reset_window_size();
     }
 
     /// The check-in, in the design system it ships, in both schemes, at all three widths.
