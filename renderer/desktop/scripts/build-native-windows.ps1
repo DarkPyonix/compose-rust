@@ -296,6 +296,13 @@ $NativeImageArgs = @(
     "-Djava.awt.headless=false",
     "-H:IncludeLocales=en,ko",
     "-Os",
+    # The heap the macOS image has (build-native.sh), for the same reason: without a cap
+    # Substrate VM sizes the heap from the machine's physical memory, and the process grew
+    # to hundreds of MB on Windows against tens on macOS. A run can still raise it with
+    # -Xmx (see DXC_SVM_OPTIONS in renderer_entry.c).
+    "-R:MaxHeapSize=64m",
+    "-R:MaxHeapFree=4m",
+    "-R:MaximumYoungGenerationSizePercent=25",
     "-H:+UnlockExperimentalVMOptions",
     "-H:ConfigurationFileDirectories=$MetadataDir,$ResourceMetadataDir",
     # The JDK half of the desktop stack, registered wholesale for reflection and JNI.
