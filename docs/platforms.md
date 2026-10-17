@@ -146,8 +146,8 @@ Compose 포크 `thisisthepy/compose-multiplatform-core-extended`의 `extended` �
 `RendererApi`는 주 스레드를 요구하지 않습니다. X11에는 디스플레이 연결을 소유하는
 스레드가 없습니다.
 
-창은 `linux/src/LinuxWindow.kt`이고, Xlib과 GLX와 sync 확장을 직접 부릅니다.
-`desktop/c/x11_window.c`를 가져오지 않았습니다. 그 파일은 그대로 남아 있고 윈도우가
+창은 Compose 포크의 `extended/window/native/linux`이고, Xlib과 GLX와 sync 확장을 직접 부릅니다.
+`linux/src/LinuxWindow.kt`는 그 창에 씬을 그리는 Compose 쪽입니다. 포크의 `graalvm-linux`에 있는 `x11_window.c`는 가져오지 않았습니다. 그 파일은 포크에 남아 있고 윈도우가
 링크하며 네이티브 이미지가 여는 창입니다. 다만 그 모양은 X11의 모양이 아니라 GraalVM의
 모양입니다: 워드 값이 만들어진 메서드를 떠날 수 없어서 이벤트를 링 버퍼에 적고,
 `IsolateThread*`를 들고 함수 포인터로 되돌아옵니다. Kotlin/Native에는 그중 어느 것도
@@ -165,7 +165,7 @@ Kotlin 툴체인이 그 디렉터리의 `.def`를 알아서 찾으므로 module.
 리사이즈와 함께 번호를 하나 건네고, 카운터가 그 번호를 실을 때까지 보여주려던 프레임을
 붙들고 있습니다. 순서가 전부입니다: 먼저 그린 것을 서버에 넘기고, 그다음에 알립니다.
 프레임이 나오지 않은 요청도 값을 치러야 합니다. 그러지 않으면 관리자가 포기할 때까지
-창이 멈춥니다. 그 순서는 `desktop/src/ResizeSync.kt`에 있고 JVM에서 테스트합니다.
+창이 멈춥니다. 그 순서는 Compose 포크의 `extended/window/common`에 있는 `ResizeSync`에 있고, 이 저장소에서도 `desktop/test/ResizeSyncTest.kt`로 JVM에서 테스트합니다.
 
 ### 아직 없는 것
 
@@ -200,7 +200,7 @@ cd renderer
 고칠 수 있는 종류가 아닙니다: 낭독기가 원하는 트리는 씬의 플랫폼 컨텍스트를 통해
 나오는데, 자기 컨텍스트를 만드는 창은 들어갈 자리를 주지 않습니다.
 
-그래서 `macos/src/MacosWindow.kt`가 씬을 직접 만듭니다. 컨텍스트에 듣는 쪽을 달고,
+그래서 Compose 포크의 `extended/window/native/macos`에 있는 `MacosWindow`가 씬을 직접 만듭니다. 컨텍스트에 듣는 쪽을 달고,
 그리기가 끝난 뒤에 트리를 밀어냅니다. 그 전에 물으면 모든 컨트롤이 빈 사각형을 답하고,
 낭독기는 화면 전체가 한구석에 쌓여 있다고 알게 됩니다. 나머지는 Compose의 창이 하는
 것과 일부러 가깝게 두었습니다.

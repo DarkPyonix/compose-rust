@@ -1,5 +1,7 @@
 # Sample apps
 
+> **Being rewritten (#85).** These twelve samples are written in `rsx!` against the Dioxus adapter, which moved to [dioxus-compose](https://github.com/DarkPyonix/dioxus-compose). They are being rewritten on the compose-rust authoring API and do not build until that lands. Their CI builds and releases are skipped until #85 closes.
+
 > **These `rsx!` versions are the Dioxus baseline, not the public samples.** compose-rust
 > is getting an authoring API of its own, and the samples will be rewritten on it; that
 > version becomes the public set. What is here stays as written, built against the Dioxus

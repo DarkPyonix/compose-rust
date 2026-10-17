@@ -124,7 +124,7 @@ Before the fix that printed 12 names, and `GroupAccessibility`, `ButtonAccessibi
 `StaticTextAccessibility` and `IgnoreAccessibility` were not among them. The fix in
 `build-native.sh` reads the class list back out of `libawt_lwawt.a` and makes every one a
 root of the link with `-Wl,-u`, so the list cannot rot when the JDK adds a role.
-`desktop/scripts/tests/accessibility-link.test.sh` compares the two lists and fails if the
+`scripts/tests/renderer/accessibility-link.test.sh` compares the two lists and fails if the
 image is missing any, and it runs in CI after the build.
 
 ### How it was found, and what it rules out

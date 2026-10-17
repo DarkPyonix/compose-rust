@@ -67,11 +67,20 @@ KOTLIN_WRAPPER="$PROJECT_DIR/kotlin"
 
 CLASSPATH_FILE="$BUILD_DIR/classpath.txt"
 
+# The desktop module asks for the Compose fork's desktop modules and its skiko-awt by versions
+# only the fork publishes, to ~/.m2. Resolved before they are there, the toolchain records the
+# failed download in its own cache and keeps failing after they are published, so every path
+# that runs the desktop module checks first and stops with the command that publishes them.
+require_fork_artifacts() {
+    "$PROJECT_DIR/scripts/require-fork-artifacts.sh" desktop
+}
+
 # Resolving the platform classpath starts the Compose JVM application briefly. It needs an
 # X11 display even though no human interaction is required. On a headless builder, wrap the
 # calling script in xvfb-run. Xvfb does not validate Wayland or an input method.
 run_on_jvm() {
     local extra_jvm_args="$1"
+    require_fork_artifacts
     local log="$BUILD_DIR/jvm-run.log"
     mkdir -p "$BUILD_DIR"
     # Metadata describes the JDK it was collected on, so the JVM run uses NIK itself.

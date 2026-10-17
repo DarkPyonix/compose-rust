@@ -8,25 +8,163 @@ Nothing in the repository depends on this directory. The Rust crate declares its
 own empty `[workspace]`, so the root `cargo` workspace never sees it, and
 `scripts/check.sh` is unchanged.
 
-## Verdict
+## Verdict (remeasured 2026-10-03)
 
-**PR-6 does not hold as written.** Both halves of the claim are individually
-true and they cannot both be true at the same time.
+**A shared memory and a JS-free Kotlin to Rust call can be had together.** The
+first version of this experiment (2026-09-20, kept below) said they could not,
+and that the Kotlin to Rust edge needed a JS closure. That conclusion was wrong.
 
-- Direct wasm-to-wasm calls: **yes**, and they are essentially free
-  (**1.45 ns/call**, against 0.30 ns for a call that never leaves the module).
-- One shared `WebAssembly.Memory`: **only if Kotlin owns it**, because a
-  Kotlin/Wasm module always *defines and exports* its own memory and has no way
-  to import one.
-- Combining the two is impossible today, because Kotlin must be instantiated
-  before its memory exists, and its wasm imports must be supplied before it can
-  be instantiated. That cycle can only be broken with JS closures on the
-  Kotlin-to-Rust import edge, which costs **12.05 ns/call**.
+- One shared `WebAssembly.Memory`: **yes, owned by Kotlin.** A Kotlin/Wasm module
+  always *defines and exports* its own memory and cannot import one, so Rust
+  imports Kotlin's (`--import-memory`).
+- Rust to Kotlin: **direct.** Rust is instantiated last, so its import is bound
+  straight to Kotlin's export.
+- Kotlin to Rust: **direct, through a wasm trampoline.** Kotlin is instantiated
+  before Rust exists, so it cannot import a Rust export. It imports the exports
+  of a third, 109-byte wasm module instead, which imports a `WebAssembly.Table`
+  and forwards each call with `call_indirect`. The table is filled with the
+  Rust exports once Rust is instantiated. Kotlin never declares the table, so
+  the Kotlin/Wasm limitation that ruled this out in the first version does not
+  apply. JS wires the modules at instantiation and is on no call path after it.
+  See [`trampoline/`](trampoline/).
 
-The recommendation is to take the shared memory and pay the ~11 ns: see
-[What PR-6 should say](#what-pr-6-should-say).
+Measured per call, loop overhead subtracted, median of 7 page loads:
 
-## What was built
+| Kotlin -> Rust | Safari 26.5 | Chrome 154 (headless shell) |
+|---|---:|---:|
+| **through the wasm trampoline** | **4.35 ns** | **7.11 ns** |
+| through a JS forwarder (`@JsFun` arrow function) | 12.45 ns | 25.57 ns |
+
+The trampoline costs about a third of the JS forwarder in both engines. The
+result recorded on 2026-09-20 (5.6 ns against 13.2 ns in Safari, one run)
+reproduces. Details, raw numbers and the method are in
+[Trampoline against JS forwarder](#trampoline-against-js-forwarder-2026-10-03).
+
+## Trampoline against JS forwarder (2026-10-03)
+
+### Setup
+
+| | |
+|---|---|
+| Date | 2026-10-03 |
+| Machine | Mac mini (Macmini9,1), Apple M1, 8 cores, 16 GB |
+| OS | macOS 26.5.1 (25F80) |
+| Safari | 26.5 (21624.2.5.11.4), JavaScriptCore |
+| Chrome | Chrome for Testing 154.0.8037.92, `chrome-headless-shell` build, V8 |
+| Rust | 1.98.0, `wasm32-unknown-unknown`, release, LTO |
+| Kotlin/Wasm | Amper `./kotlin build`, debug variant (as in the 2026-09-20 run) |
+
+The machine is shared. The recorded runs were taken with a load average of
+about 6 to 8 on 8 cores. An earlier Safari set taken at a load average of about
+33 is kept as `trampoline/results/safari-high-load.json`; it has the same
+medians within 1 ns and three times the spread, and is not used below.
+
+### Method
+
+`trampoline/run-bench.py` serves `trampoline/dist/`, loads the harness page once
+per run, and collects the JSON each page POSTs back into
+`trampoline/results/<label>.json`. Every run is a fresh page load, so all four
+modules (table, trampoline, Kotlin, Rust) are instantiated from scratch each time.
+
+- Safari is driven with `open -a Safari <url>`, the method the first run used.
+  (`safari-webdriver` is also supported, but needs "Allow Remote Automation",
+  which was off on this machine.)
+- Chrome is launched as a new process per run (`chrome-headless-shell <url>`)
+  and killed after the page reports. Headless Chrome for Testing with
+  `--headless=new` and chromedriver both failed to start on this machine
+  (chromedriver: "DevToolsActivePort file doesn't exist"); the headless shell
+  carries the same V8 and was stable, so headed Chrome was not needed.
+
+Inside a page, each call edge is a loop that runs *inside wasm*: Kotlin's
+`bench_direct` makes 20,000,000 calls to `rust.add` (bound to the trampoline),
+and `bench_shim` makes 20,000,000 calls to a `@JsFun("(a, b) => ...")` arrow
+function that calls the same Rust export. The only JS on the timed path of the
+direct edge is the single call that starts the loop. Each edge is timed with
+`performance.now()` over 9 samples after 2 warm-up passes; the per-run value is
+the median sample, and the loop with no call in it (`bench_local`) is subtracted.
+20,000,000 calls keeps a sample at 25 to 500 ms, far above Safari's 1 ms timer
+granularity. The table reports the median of the 7 per-run values and their
+range; "all samples" is the min and max over all 63 samples, before the
+baseline is subtracted.
+
+All four shared-memory checks pass in every run in both browsers: Kotlin reads
+what Rust wrote, Rust reads what Kotlin wrote, JS sees the same bytes, and a
+round trip driven from Kotlin returns the expected sum.
+
+### Results
+
+Net ns per call, median of 7 runs (range of the 7 per-run medians):
+
+| Edge | Safari 26.5 | Chrome 154 |
+|---|---:|---:|
+| **Kotlin -> Rust, wasm trampoline (`call` + `call_indirect`)** | **4.35** (4.30 .. 4.45) | **7.11** (6.97 .. 7.15) |
+| Kotlin -> JS forwarder -> Rust | 12.45 (11.95 .. 12.60) | 25.57 (24.91 .. 25.73) |
+| Rust -> Kotlin, direct import | 1.55 (1.45 .. 1.55) | 2.36 (2.27 .. 2.39) |
+| Rust -> JS -> Kotlin | 12.65 (12.05 .. 15.25) | 13.46 (13.06 .. 13.51) |
+
+Gross ns per loop iteration, before subtraction, median of the 7 runs (all 63
+samples min .. max):
+
+| Loop | Safari 26.5 | Chrome 154 |
+|---|---:|---:|
+| Kotlin loop, no call | 0.70 (0.65 .. 0.80) | 0.39 (0.38 .. 0.56) |
+| Kotlin -> Rust, trampoline | 5.05 (4.85 .. 5.25) | 7.51 (7.30 .. 7.99) |
+| Kotlin -> JS -> Rust | 13.15 (12.50 .. 13.50) | 25.96 (25.29 .. 26.63) |
+| Rust -> Kotlin, direct | 1.55 (1.40 .. 1.65) | 2.36 (2.23 .. 2.49) |
+| Rust -> JS -> Kotlin | 12.65 (11.95 .. 15.75) | 13.46 (12.91 .. 19.61) |
+
+(The Rust loop with no call compiles to a closed form and measures 0, so the
+Rust rows have nothing to subtract.)
+
+Per-run net values, Kotlin -> Rust:
+
+| Run | Safari trampoline | Safari JS | Chrome trampoline | Chrome JS |
+|---|---:|---:|---:|---:|
+| 0 | 4.35 | 12.60 | 6.97 | 24.98 |
+| 1 | 4.35 | 12.45 | 7.15 | 25.69 |
+| 2 | 4.30 | 11.95 | 6.97 | 24.91 |
+| 3 | 4.35 | 12.45 | 7.14 | 25.73 |
+| 4 | 4.40 | 12.45 | 7.15 | 25.66 |
+| 5 | 4.45 | 12.50 | 7.05 | 25.12 |
+| 6 | 4.35 | 12.45 | 7.11 | 25.57 |
+
+Shared memory from Kotlin, ns per `i32`: Safari 0.63 read, 0.54 write; Chrome
+0.63 read, 0.61 write. Rust reads the same words at 0.20 (Safari) and 0.30
+(Chrome).
+
+The rows the harness drives from a JS loop (`js -> rust export`,
+`js -> kotlin export`) are in the JSON but not reported: in V8 the JIT treats
+the JS baseline loop and the calling loop differently enough that the
+subtraction goes negative, so they say nothing about the boundary.
+
+### Does the 2026-09-20 result reproduce?
+
+Yes. The recovered Safari run measured 5.6 ns through the trampoline and 13.2 ns
+through JS. Today's Safari medians are 4.35 ns and 12.45 ns: the JS forwarder
+lands within 1 ns of both earlier Safari measurements (12.05 and 13.2), and the
+trampoline is a little faster than the one recorded run, with all seven runs
+inside 4.30 .. 4.45. The ratio holds in V8 as well, where the JS forwarder is
+dearer (25.6 ns) and the trampoline costs 7.1 ns.
+
+What the trampoline costs over a plain wasm-to-wasm call (1.45 to 1.55 ns in
+Safari) is the second hop and the `call_indirect` signature check: about 3 ns in
+Safari and 5 ns in V8.
+
+### Reproducing
+
+    cd trampoline
+    ./build-rust.sh                 # cargo test, then the two wasm32 variants into dist/
+    ./build-kotlin.sh               # the Kotlin/Wasm module into dist/
+    uv run build-trampoline.py     # dist/trampoline.wasm
+    uv run run-bench.py safari --runs 7
+    uv run run-bench.py chrome --runs 7 --label chrome-headless-shell \
+        --chrome <path>/chrome-headless-shell-mac-arm64/chrome-headless-shell
+
+Chrome for Testing and its headless shell were downloaded into the repository's
+`.scratch/chrome/`, from the Chrome for Testing `last-known-good-versions`
+listing.
+
+## What was built (2026-09-20)
 
 | Path | What it is |
 |---|---|
@@ -36,6 +174,7 @@ The recommendation is to take the shared memory and pay the ~11 ns: see
 | `harness/host-module.mjs` | The `host` ES module that Kotlin's generated import object resolves. Implements both wiring modes. |
 | `harness/serve.py` | Serves the harness and writes `results-<mode>.json`. |
 | `build.sh` | Builds everything into `harness/`. |
+| `trampoline/` | Added 2026-10-03: the same question answered with a `call_indirect` trampoline, with the JS forwarder measured beside it in one harness. See the top of this file. |
 
 `renderer/kotlin` (the Amper/Kotlin CLI wrapper) builds a
 standalone Kotlin/Wasm module fine; `kotlin-renderer/kotlin` is a copy of that
@@ -43,9 +182,13 @@ wrapper and `kotlin-renderer/module.yaml` is four lines.
 
 ### How to reproduce
 
+The rest of this file, down to [What PR-6 should say](#what-pr-6-should-say), is
+the first version of this experiment, dated 2026-09-20. Its measurements stand;
+its conclusion that the call edge needs JS does not, see the corrections inline.
+
 ```sh
 ./build.sh
-python3 harness/serve.py 8765
+uv run harness/serve.py 8765
 open -a Safari 'http://127.0.0.1:8765/?mode=direct'
 open -a Safari 'http://127.0.0.1:8765/?mode=shim'
 ```
@@ -151,29 +294,43 @@ materialised on the Kotlin heap. A real interpreter reads `u16`/`u32` fields
 rather than bytes and would be several times faster per record, so this is a
 conservative upper bound.
 
-## Why the two halves cannot be combined
+## The instantiation cycle, and how it is broken
 
 `WebAssembly.instantiate` requires *every* import to be supplied at
 instantiation time. Therefore:
 
-- Kotlin cannot be instantiated until Rust's exports exist.
+- Kotlin cannot be instantiated until whatever it imports exists.
 - Rust cannot be instantiated until Kotlin's memory exists.
 - Kotlin's memory does not exist until Kotlin is instantiated.
 
-The usual ways out do not apply here:
+So Kotlin cannot import a Rust export directly. The ways out considered:
 
 - **Single-module linking.** There is no linker that merges a WasmGC module and
   an LLVM linear-memory module. Not available.
 - **A third module owning the memory.** Does not help: the blocker is that
   Kotlin cannot import a memory from anyone.
-- **A funcref table plus `call_indirect`,** which is how a circular link is
-  normally broken. Kotlin/Wasm cannot declare an imported table or a
-  `call_indirect` through one.
+- **A funcref table plus `call_indirect`.** **Works.** The first version of this
+  file ruled it out because Kotlin/Wasm cannot declare an imported table or a
+  `call_indirect` through one. That is true and beside the point: Kotlin does
+  not have to. A third wasm module imports the table and exports one
+  `call_indirect` forwarder per boundary function; Kotlin imports those with
+  ordinary `@WasmImport` declarations, and the table is filled with the Rust
+  exports after Rust is instantiated. Measured at 4.35 ns (Safari) and 7.11 ns
+  (Chrome) per call, see [`trampoline/`](trampoline/) and the section above.
 - **Component model / module linking.** Not shipping in any browser.
-- **JS closures on one import edge.** Works, costs 10.6 ns/call. This is the
-  only option available today.
+- **JS closures on one import edge.** Works, 12.45 ns (Safari) and 25.57 ns
+  (Chrome) per call. Slower than the trampoline in both engines.
 
 ## What PR-6 should say
+
+**Superseded (2026-10-03).** This section was written before the trampoline was
+measured. Its premise, that a shared memory forces a JS forwarder onto the
+Kotlin to Rust edge, is wrong: wiring B with the trampoline keeps the shared
+memory and takes JS off that edge, at 4.35 ns a call in Safari and 7.11 ns in
+Chrome instead of 12.45 ns and 25.57 ns. The text below, including the
+suggested Korean wording that says the two cannot hold at once ("동시에 성립할
+수 없습니다"), is kept as the record of what was proposed then, not as a
+recommendation.
 
 The two candidate wirings, priced:
 

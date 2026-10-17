@@ -10,7 +10,6 @@ use compose_rust::runtime::*;
 use compose_rust::ui::*;
 use std::rc::Rc;
 
-#[path = "../../../calculator/src/engine.rs"]
 mod engine;
 
 use engine::Calculator;

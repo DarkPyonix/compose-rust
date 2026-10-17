@@ -1,0 +1,16 @@
+# A window to check by hand on a real desktop: text shortcuts, live resize, an input method,
+# focus between two fields, a click and a scrolling list with Korean in it.
+#
+# Like the consumer fixture next to it, this is its own workspace root, so `cargo run` works
+# in this directory on Windows, macOS and Linux whatever the enclosing workspace says. It
+# names its edition outright for the same reason: an excluded crate cannot inherit one.
+[workspace]
+
+[package]
+name = "hand-check"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+compose-rust = { path = "../../.." }

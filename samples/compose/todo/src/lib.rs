@@ -8,7 +8,6 @@ use compose_rust::runtime::*;
 use compose_rust::ui::*;
 use std::rc::Rc;
 
-#[path = "../../../todo/src/store.rs"]
 mod store;
 
 use store::{Filter, Task};

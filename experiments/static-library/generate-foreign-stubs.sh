@@ -23,7 +23,8 @@ archive="${2:?}"
 output="${3:?}"
 
 defined="$(nm -g "$archive" | awk '$2 == "T" { print substr($3, 2) }' | sort -u)"
-undefined="$(nm -u "$renderer" | sed 's/^_//' | grep '^Java_org_jetbrains_ski' | sort -u)"
+# None at all is a valid answer: grep finding nothing must not stop the script.
+undefined="$(nm -u "$renderer" | sed 's/^_//' | { grep '^Java_org_jetbrains_ski' || true; } | sort -u)"
 foreign="$(comm -23 <(echo "$undefined") <(echo "$defined"))"
 
 count="$(echo "$foreign" | grep -c . || true)"
