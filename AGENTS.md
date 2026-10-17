@@ -87,6 +87,26 @@ something under `experiments/`; a comment may name it only as being on `develop`
     `archive/` tag either. In the forks, `extended` and the upstream branch (`jb-main`) stay, and a branch merged
     into `extended` is deleted the same way.
 
+### Releasing
+
+A new version is what reaches `main`, so a release goes through `main` and nowhere else.
+
+1. **Bump the version on `develop`.** A pull request sets the crate version in
+   `compose-rust/Cargo.toml` and `Cargo.lock` and turns `## Unreleased` in `CHANGELOG.md`
+   into the version's heading. It merges like any other pull request.
+2. **Release sync carries it to `main`.** The push to `develop` runs
+   `.github/workflows/release-sync.yml`, which rebuilds `release` and opens or updates the
+   pull request from `release` into `main`. Every check on that pull request has to pass.
+3. **The merge into `main` is the owner's.** An agent never merges `release` into `main`;
+   it reports that the pull request is green and stops.
+4. **The tag goes on `main`'s merge commit, never on `develop`.** Once the owner has merged,
+   tag that merge commit `v<version>` and push the tag. The tag runs the Native renderer
+   test, which attaches the renderers to the GitHub release, and its success starts
+   Publish to crates.io. The tag is the release: a tag on `develop` would publish a commit
+   that never reached `main`.
+5. Never delete or move a published tag or release. A crates.io version can be yanked but
+   never replaced, so a broken release is fixed by the next version.
+
 ## CI naming
 
 Workflow files and names, in `.github/workflows/`:

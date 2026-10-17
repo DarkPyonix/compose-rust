@@ -9,23 +9,26 @@
 
 **Rust로 Compose 모양의 UI를 쓰면, AOT 컴파일된 Compose 렌더러가 그립니다.**
 
-*웹뷰도, 동봉된 JVM도 없는 네이티브 UI. 데스크톱 앱 하나를 실행 파일 하나로 배포하는 것이 목표입니다.*
+*웹뷰도, 동봉된 JVM도 없는 네이티브 UI. 데스크톱 앱 하나는 실행 파일 하나입니다.*
 
 compose-rust는 네 가지를 합친 것입니다.
 
-- **Compose 모양의 Rust API.** 슬롯 테이블과 recomposition 런타임을 갖추며, 지금 만드는 중입니다
-  ([현재 상태](#-현재-상태) 참고). composable은 함수이고, 상태는 `remember`에 두며, 상태가 바뀌면
-  그 상태를 읽은 스코프만 다시 실행됩니다. 무엇이 바뀌었는지 트리를 비교해서 찾지 않습니다.
+- **Compose 모양의 Rust API.** 슬롯 테이블과 recomposition 런타임을 갖추며, 0.0.2에
+  들어 있습니다([현재 상태](#-현재-상태) 참고). composable은 함수이고, 위젯은 Compose
+  이름을 가진 호출이며, 상태는 `remember`에 두고, 상태가 바뀌면 그 상태를 읽은 스코프만 다시
+  실행됩니다. 무엇이 바뀌었는지 트리를 비교해서 찾지 않습니다.
 - **좁은 C ABI 경계와 스키마.** 위젯, 속성, 레코드를 Rust에서 한 번 정의하고, Kotlin 타입과
   플랫폼 심은 그 정의에서 생성합니다. 손으로 쓰지 않습니다.
-- **AOT 컴파일된 Compose 렌더러.** 모든 플랫폼에서 미리 네이티브 코드로 컴파일하고, 브라우저는
+- **AOT 컴파일된 Compose 렌더러.** 데스크톱과 iOS는 Kotlin/Native로 컴파일하고, 브라우저는
   Kotlin/Wasm, Android는 Android 라이브러리입니다. 그리기와 입력은 Compose 자신의 텍스트 레이아웃, 위젯,
-  플랫폼 IME가 맡습니다.
+  플랫폼 IME가 맡습니다. 데스크톱 창과 그 입력, IME, 메뉴, 크롬, 리사이즈는 Compose 포크
+  [thisisthepy/compose-multiplatform-core-extended](https://github.com/thisisthepy/compose-multiplatform-core-extended)가
+  제공합니다.
 - **웹뷰 없음, 동봉된 JVM 없음.** 데스크톱 애플리케이션은 시스템 라이브러리만 링크하는 실행 파일
-  하나입니다. 0.0.1 릴리스는 아직 그렇지 않습니다. 데스크톱 렌더러가 애플리케이션 옆에 놓이는
-  GraalVM 네이티브 이미지 공유 라이브러리입니다. 다음 릴리스부터 macOS와 Linux(x64, arm64)는
-  Kotlin/Native 정적 아카이브를 내려받고, 빌드가 그것을 실행 파일 안에 링크합니다. CI가 세 대상
-  모두에서 그 결과를 확인합니다. Windows가 그 뒤를 따릅니다.
+  하나입니다. 0.0.2부터 macOS와 Linux(x64, arm64)는 Kotlin/Native 정적 아카이브를 내려받고,
+  빌드가 그것을 실행 파일 안에 링크합니다. CI가 세 대상 모두에서 그 결과를 확인합니다. Windows는
+  Kotlin/Native 렌더러가 들어오기 전까지 애플리케이션 옆에 놓이는 GraalVM 네이티브 이미지 공유
+  라이브러리를 씁니다([#24](https://github.com/DarkPyonix/compose-rust/issues/24)).
 
 ---
 
@@ -33,8 +36,16 @@ compose-rust는 네 가지를 합친 것입니다.
 
 **0.0.x는 이름을 확보하고 렌더러를 배포하는 단계입니다.** API는 바뀝니다.
 
-지금 크레이트에 있는 것:
+0.0.2 크레이트에 있는 것:
 
+- **작성 API.** `#[composable]`, `remember`, 상태와 effect, `Recomposer`, `launch`, 그리고
+  위젯마다 하나씩인 함수입니다([#23](https://github.com/DarkPyonix/compose-rust/issues/23), [#64](https://github.com/DarkPyonix/compose-rust/issues/64)).
+  0.0.2에서 새로 들어왔고, 애니메이션도 함께 있습니다. `Modifier.graphics_layer`, `Modifier.alpha`,
+  그리고 `animate_float_as_state`, `animate_color_as_state`, `animate_offset_as_state` 이며, 그 값은
+  `Modifier.animated_alpha`, `animated_background`, `animated_offset` 에 줍니다. 목표값이 바뀔 때마다
+  전환 하나를 보내고 렌더러가 자기 시계로 재생하며, 재생하는 동안 아무것도 다시 compose되지
+  않습니다([애니메이션](https://darkpyonix.dev/compose-rust/ko/writing-ui.html#animation)).
+  1.0 전의 API라 아직 바뀔 수 있고, **2026-11-14로 계획된 1.0.0**부터 안정됩니다.
 - **경계.** 렌더러가 부르는 `compose_rust_host_*` C 함수들, `Host`, `LaunchBuilder`,
   `launch_runtime`, 그리고 워커 스레드에서 프레임을 깨우는 `request_frame_from_worker`.
 - **프로토콜.** 고정 레이아웃 mutation 레코드. 배치 버퍼 하나에 쓰이고 렌더러가 그 자리에서
@@ -44,25 +55,27 @@ compose-rust는 네 가지를 합친 것입니다.
   Kotlin 쪽을 생성합니다.
 - **`Runtime` 트레이트.** 트리를 만드는 쪽이 구현하는 인터페이스입니다. 그 주변의 타입도 있습니다:
   에셋, 커스텀 드로잉, 입력 이벤트, 알림, 메시지, 팔레트, 창 크기 클래스.
+- **그리기, 변환, 애니메이션.** 0.0.2에서 새로 들어왔습니다. HTML/CSS 그리기 원소(`AbsoluteBox` 와
+  Modifier `RequiredSize`, `BorderEach`, `CornerEach`, `Shadow`, `Clip`, `Alpha`), 2D CSS 변환을
+  위한 `Transform` Modifier, 그리고 렌더러가 스스로 재생하는 애니메이션(`StartAnimation`,
+  `ControlAnimation`, `AnimationEvent`, `ReducedMotionChanged`)입니다. 레이아웃 컨테이너의 글자
+  색은 그 안의 텍스트가 물려받고, 테두리 색도 애니메이션할 수 있습니다.
 - **렌더러 다운로드.** 빌드 스크립트가 대상 플랫폼에 맞는 미리 빌드된 렌더러를 받아 검증하고
   링크합니다([시작하기](#-시작하기) 참고).
 
-아직 **없는** 것은 자기 작성 API입니다. `#[composable]`, `Recomposer`, `launch`는 만드는 중이며([#23](https://github.com/DarkPyonix/compose-rust/issues/23), [#64](https://github.com/DarkPyonix/compose-rust/issues/64))
-**2026-11-14의 1.0.0**을 목표로 합니다(창 코드를 포크로 옮기는 일이 2026-10-31에 끝나고, 안정화 2주를 더한 날짜입니다). 그때까지 이 크레이트는 화면을 직접 쓰는 도구가 아니라,
-트리를 만드는 층이 올라설 토대입니다.
-
-### 계획한 모양
-
-> ⚠️ **계획이며, 아직 크레이트에 없습니다.** 아래 코드는 작성 API가 가질 모양을 보입니다.
-> 0.0.x에서는 컴파일되지 않고, 이름도 확정되지 않았습니다.
+### 생김새
 
 ```rust
+use compose_rust::runtime::*;
+use compose_rust::ui::*;
+
 #[composable]
 fn counter() {
     let count = remember(|| mutable_state_of(0));
-    Column(Modifier::new().fill_max_width(), || {
-        Text(format!("{}", count.get()));
-        Button(|| count.set(count.get() + 1), || Text("+1"));
+    Column().modifier(Modifier.padding(16.0).fill_max_width()).content(|| {
+        Text(format!("Count: {}", count.get())).type_role(TypeRole::Title);
+        let more = count.clone();
+        Button("Increment").on_click(move || more.update(|count| *count += 1));
     });
 }
 
@@ -71,9 +84,11 @@ fn main() {
 }
 ```
 
-정해진 것은 이렇습니다. `#[composable]`이 그룹을 넣으므로 그룹이나 키를 손으로 쓰지 않으며,
-분기, 반복문, 조기 `return`, `?`, 되감기를 지나도 그룹이 맞게 닫힙니다. 이름은 Compose를 따릅니다.
-위젯 어휘는 스키마에 있는 그것 하나이고, 두 번 정의하지 않습니다.
+위젯은 문장 하나입니다. `Text("Hello")`가 위젯을 기술하고, 그 메서드들이 Compose가 이름 붙은
+인자로 받는 것을 정하며, 컨테이너의 자식은 `content`에 넘긴 클로저입니다. `#[composable]`이 그룹을
+넣으므로 그룹을 손으로 쓰지 않으며, 분기, 조기 `return`, `?`, 되감기를 지나도 그룹이 맞게 닫힙니다.
+이름은 Compose를 따릅니다. 위젯 어휘는 스키마에 있는 그것 하나이고, 두 번 정의하지 않습니다. 나머지는
+[가이드](https://darkpyonix.dev/compose-rust/ko/writing-ui.html)에 있습니다.
 
 > 🧩 **Dioxus와 `rsx!`가 좋다면** [dioxus-compose](https://github.com/DarkPyonix/dioxus-compose)를 쓰십시오. compose-rust 위에서 돌고, HTML/CSS `rsx!`와 Compose 위젯 `rsx!`를 모두 지원합니다.
 
@@ -84,17 +99,14 @@ fn main() {
 
 | 항목 | 상태 | 이슈 | 진행 중인 작업 |
 |---|---|---|---|
-| 작성 API(`#[composable]`, `remember`, `launch`) | 부분 | [#23](https://github.com/DarkPyonix/compose-rust/issues/23), [#64](https://github.com/DarkPyonix/compose-rust/issues/64) | `feature/compose-api` 브랜치 |
 | 웹에서 JavaScript 포워더 대신 Kotlin에서 Rust로 직결 호출 | 부분 | [#54](https://github.com/DarkPyonix/compose-rust/issues/54) | [#84](https://github.com/DarkPyonix/compose-rust/pull/84) |
-| HTML/CSS 그리기 원소(`AbsoluteBox` 와 그 Modifier) | 부분 | [#104](https://github.com/DarkPyonix/compose-rust/issues/104) | [#74](https://github.com/DarkPyonix/compose-rust/pull/74) |
-| 변환과 렌더러가 재생하는 애니메이션 | 부분 | [#105](https://github.com/DarkPyonix/compose-rust/issues/105) | [#83](https://github.com/DarkPyonix/compose-rust/pull/83) |
+| 3D 변환 | 계획 | [#105](https://github.com/DarkPyonix/compose-rust/issues/105) | 없음 |
 | HTML 텍스트 속성과 측정 호출 | 부분 | [#106](https://github.com/DarkPyonix/compose-rust/issues/106) | `feat/measure-call` 브랜치 |
 | OS 글자 크기와 앱 확대 | 부분 | [#68](https://github.com/DarkPyonix/compose-rust/issues/68) | [#77](https://github.com/DarkPyonix/compose-rust/pull/77)(데스크톱의 OS 글자 크기만) |
 | 동작 키(조밀한 키패드 버튼) | 부분 | [#57](https://github.com/DarkPyonix/compose-rust/issues/57) | [#76](https://github.com/DarkPyonix/compose-rust/pull/76) |
 | 막대 제목을 플랫폼 캡션에 맡기기 | 계획 | [#79](https://github.com/DarkPyonix/compose-rust/issues/79) | 없음 |
 | 디자인 시스템을 시스템별 라이브러리와 적응형 층으로 나누기 | 부분 | [#39](https://github.com/DarkPyonix/compose-rust/issues/39) | Compose 포크의 `chore/thisisthepy-coordinates` 브랜치 |
-| macOS와 Linux에서 AWT 없는 Kotlin/Native 렌더러를 기본으로 | 부분 | [#22](https://github.com/DarkPyonix/compose-rust/issues/22) | `feature/native-default-renderer` 브랜치 |
-| Windows Kotlin/Native 렌더러 | 부분 | [#24](https://github.com/DarkPyonix/compose-rust/issues/24) | `feature/windows-kotlin-native` 브랜치 |
+| Windows Kotlin/Native 렌더러 | 부분 | [#24](https://github.com/DarkPyonix/compose-rust/issues/24) | [#119](https://github.com/DarkPyonix/compose-rust/pull/119) |
 | 시스템 색 구성표가 바뀌었다는 이벤트 | 제안, 승인 대기 | [#97](https://github.com/DarkPyonix/compose-rust/issues/97) | 없음 |
 | 노드마다 포커스를 얻은 이벤트와 키를 뗀 이벤트 | 제안, 승인 대기 | [#98](https://github.com/DarkPyonix/compose-rust/issues/98) | 없음 |
 
@@ -104,16 +116,16 @@ fn main() {
 
 | 플랫폼 | 상태 | 렌더러 |
 |---|---|---|
-| 🍎 **macOS (arm64)** | **처음부터 끝까지 동작** | 0.0.1은 앱 옆에 놓이는 GraalVM 네이티브 이미지 라이브러리를 배포합니다. 실행 파일 안에 링크되는 Kotlin/Native 렌더러(자기 창, Metal로 그림)는 CI에서 돌고 있고 다음 릴리스에서 이것을 대신합니다. 기본적인 한글 IME 입력은 동작하고, IME 체크리스트 전체는 아직 끝나지 않았습니다 |
-| 🐧 Linux (x64, arm64) | 빌드되고 시작됨 | 0.0.1은 GraalVM 네이티브 이미지 라이브러리를 배포합니다. Kotlin/Native 렌더러(자기 X11 창, GLX로 그림, arm64는 x64에서 교차 컴파일)가 다음 릴리스에서 이것을 대신합니다. CI에서 그것으로 빌드한 애플리케이션은 libc, X11, GL, fontconfig, C++ 런타임(arm64는 EGL 포함)만 부르는 실행 파일 하나이고, 빈 디렉터리에 혼자 복사해도 Xvfb에서 그립니다. 사람이 직접 써 본 적은 아직 없습니다 |
-| 🪟 Windows | 빌드되고 시작됨 | 지금은 GraalVM 네이티브 이미지이고, 렌더러가 바뀔 때마다 스모크 테스트를 합니다. Windows도 실행 파일 하나가 되도록 Kotlin/Native로 옮기는 것이 계획입니다([#24](https://github.com/DarkPyonix/compose-rust/issues/24)) |
+| 🍎 **macOS (arm64)** | **처음부터 끝까지 동작** | 실행 파일 안에 링크되는 Kotlin/Native 렌더러이고, 포크의 AppKit 창에 Metal로 그립니다. 0.0.2는 그것을 빌드가 실행 파일 안에 링크하는 정적 아카이브로 배포하므로, 앱은 실행 파일 하나입니다. 기본적인 한글 IME 입력은 동작하고, IME 체크리스트 전체는 아직 끝나지 않았습니다 |
+| 🐧 Linux (x64, arm64) | 빌드되고 시작됨 | Kotlin/Native 렌더러이고, 포크의 X11 창에 GLX로 그립니다. arm64는 x64에서 교차 컴파일합니다. 0.0.2는 그것을 빌드가 실행 파일 안에 링크하는 정적 아카이브로 배포합니다. CI에서 그것으로 빌드한 애플리케이션은 libc, X11, GL, fontconfig, C++ 런타임(arm64는 EGL 포함)만 부르는 실행 파일 하나이고, 빈 디렉터리에 혼자 복사해도 Xvfb에서 그립니다. 사람이 직접 써 본 적은 아직 없습니다 |
+| 🪟 Windows | 빌드되고 시작됨 | Kotlin/Native 렌더러가 Windows도 실행 파일 하나로 만들 때까지는 GraalVM 네이티브 이미지이고, 렌더러가 바뀔 때마다 스모크 테스트를 합니다([#24](https://github.com/DarkPyonix/compose-rust/issues/24), 진행 중) |
 | 📱 iOS | 빌드되고 시작됨 | 같은 C 심볼을 내보내는 Kotlin/Native 정적 아카이브. XCFramework로 릴리스합니다 |
 | 🤖 Android | **처음부터 끝까지 동작** | Kotlin Activity가 프로세스와 루프를 갖고, Rust는 cdylib이며, 양쪽 JNI 심은 스키마에서 생성됩니다. 크레이트가 렌더러의 Kotlin 소스를 싣고 있고, 빌드 스크립트가 그것을 Gradle 프로젝트에 풀어 놓습니다 |
 | 🌐 Web (wasm) | **처음부터 끝까지 동작** | `WebAssembly.Memory` 하나를 Kotlin/Wasm 모듈이 갖고 Rust 모듈이 가져다 쓰므로, 배치는 쓰인 자리에서 읽힙니다. 렌더러에서 Host로 가는 호출은 생성된 JavaScript 포워더를 거치며, 약 12 ns로 측정되었습니다. 포워더 없는 직결 호출은 계획입니다([#54](https://github.com/DarkPyonix/compose-rust/issues/54)) |
 
 ### 실제 무게
 
-notepad 샘플을 릴리스로 빌드하고 스트립한 것이며, Kotlin/Native 렌더러를 링크했습니다(0.0.1 다음에 기본이 되는 경로). 실행 파일 하나입니다: 옆에 놓이는 런타임도,
+notepad 샘플을 릴리스로 빌드하고 스트립한 것이며, Kotlin/Native 렌더러를 링크했습니다(0.0.2가 macOS와 Linux에 배포하는 렌더러). 실행 파일 하나입니다: 옆에 놓이는 런타임도,
 안에 든 가상 머신도 없고, 링크된 것은 시스템 라이브러리뿐입니다.
 
 | 플랫폼 | 실행 파일 | 실제 점유 메모리 |
@@ -132,7 +144,7 @@ notepad 샘플을 릴리스로 빌드하고 스트립한 것이며, Kotlin/Nativ
 ```
 ┌──────────────────────── Host (Rust) ────────────────────────┐
 │  your code                                                  │
-│  the layer that builds the tree (Runtime)                   │
+│  composables: slot table, recomposer (Runtime)              │
 │  compose-rust: schema, fixed-layout records, one batch      │
 └──────────────────────────────┬──────────────────────────────┘
                                │
@@ -142,7 +154,7 @@ notepad 샘플을 릴리스로 빌드하고 스트립한 것이며, Kotlin/Nativ
 ┌──────────────────────────────┴──────────────────────────────┐
 │  generated shims (C exports, JNI, wasm)                     │
 │  protocol decoder ──► node table                            │
-│  schema interpreter ──► Compose                             │
+│  schema interpreter ──► Compose ──► the fork's window       │
 └──────────────────── Renderer (Kotlin, AOT) ─────────────────┘
 ```
 
@@ -158,6 +170,11 @@ Host 워커 스레드에서 돌며, 워커는 상태를 갱신하고 프레임�
 
 **넘어가는 것은 primitive, 포인터, 길이뿐입니다.** Kotlin 타입이 Rust의 단일 정의에서 생성되므로
 그 선 위에서 타입 안전이 돌아오고, 두 쪽이 어긋나면 스키마 해시가 빌드를 실패시킵니다.
+
+**창은 Compose 포크의 것입니다.** 데스크톱 창, 입력, IME, 메뉴, 크롬, 리사이즈, 접근성은
+[thisisthepy/compose-multiplatform-core-extended](https://github.com/thisisthepy/compose-multiplatform-core-extended)의
+`extended/window` 아래, 이 저장소가 고정한 커밋에 있습니다. 렌더러에는 창과 이어 주는 코드만 남으므로,
+창에 관한 수정은 포크에서 하고 이 저장소는 고정 커밋을 옮깁니다.
 
 **UI 로컬 상태는 Kotlin에 있습니다.** `TextField`는 비제어이고, IME 조합 중인 텍스트는 Rust를
 왕복하지 않습니다. 스크롤 위치, 포커스, 애니메이션 상태도 렌더러의 것입니다.
@@ -182,9 +199,8 @@ Material 3, Apple HIG, Fluent, Liquid Glass를 비롯한 디자인 시스템 일
 
 ### 크레이트 쓰기
 
-```toml
-[dependencies]
-compose-rust = "0.0.1"
+```bash
+cargo add compose-rust@0.0.2
 ```
 
 `cargo build`가 대상에 필요한 렌더러를 알아내고, 크레이트의 정확한 버전에 맞는 릴리스 아티팩트를
@@ -192,7 +208,7 @@ compose-rust = "0.0.1"
 변수도, 실행할 스크립트도 없습니다. 캐시는 버전과 대상으로 구분되므로 `cargo clean` 뒤에도 남고
 프로젝트끼리 공유됩니다.
 
-아티팩트가 정적 아카이브인 곳(다음 릴리스부터 macOS와 Linux)에서 `cargo build`가 내는 것은 **실행
+아티팩트가 정적 아카이브인 곳(0.0.2부터 macOS와 Linux)에서 `cargo build`가 내는 것은 **실행
 파일 하나**입니다. 렌더러, Compose, Skia, ICU가 그 안에 있고, 옆에 놓이는 것은 없으며, 불러오는 것은
 시스템 라이브러리뿐입니다(macOS는 프레임워크와 `/usr/lib`, Linux는 libc, X11, GL, fontconfig,
 FreeType). 어디로 복사해도 실행됩니다. Windows는 정적 렌더러가 들어오기 전까지 GraalVM 네이티브
@@ -205,6 +221,43 @@ FreeType). 어디로 복사해도 실행됩니다. Windows는 정적 렌더러�
 
 `default-features = false`로 빌드하면 렌더러 없이 빌드되며, 헤드리스나 문서용 빌드에 씁니다. 그렇게
 빌드한 바이너리는 창 없이 조용히 끝나지 않고, 무엇이 빠졌는지 알린 뒤 0이 아닌 값으로 종료합니다.
+
+### `develop`의 작성 API 쓰기
+
+0.0.2에는 작성 API와 같은 스키마로 빌드한 렌더러가 들어 있으므로, 0.0.2에 의존하는 프로젝트는
+따로 준비할 것 없이 화면을 씁니다. 렌더러는 릴리스와 함께만 게시되고, 빌드는 스키마가 다른 렌더러를
+거부합니다. 그래서 0.0.2 이후 `develop`에 있는 것을 쓰려면 체크아웃에서 렌더러를 빌드한 뒤(아래)
+샘플을 실행합니다. 체크아웃 안에서는 빌드가 내려받을 수 있는 무엇보다 그 렌더러를 먼저 링크합니다.
+
+```bash
+cargo run -p sample-minimal
+```
+
+체크아웃 바깥의 프로젝트는 `compose-rust`에 경로로 의존하고, `COMPOSE_RUST_RENDERER_DIR`로
+렌더러를 가리킵니다(`$HOME/src/compose-rust/renderer/build/macos` 같은 절대 경로).
+
+### 샘플
+
+[`samples/`](https://github.com/DarkPyonix/compose-rust/tree/main/samples) 아래 애플리케이션 열한 개는
+각각 실제 앱을 본떠 만들었고, 작성 API로 쓰였습니다.
+
+| 샘플 | 다루는 것 |
+|---|---|
+| [`calculator`](https://github.com/DarkPyonix/compose-rust/tree/main/samples/calculator) | 빽빽한 버튼 격자, 메모리 레지스터, 키 옆이나 시트에 놓이는 기록 |
+| [`notepad`](https://github.com/DarkPyonix/compose-rust/tree/main/samples/notepad) | 여러 줄 편집, IME, 워커 스레드의 파일 I/O |
+| [`todo`](https://github.com/DarkPyonix/compose-rust/tree/main/samples/todo) | 안정된 키, 목적지로 쓰는 필터, 수천 행을 다루는 `LazyColumn` |
+| [`chat`](https://github.com/DarkPyonix/compose-rust/tree/main/samples/chat) | Enter로 보내고 Shift+Enter로 줄을 바꾸는 입력, 워커 스레드에서 흘러 들어오는 답 |
+| [`minimal`](https://github.com/DarkPyonix/compose-rust/tree/main/samples/minimal) | 스키마의 모든 컨트롤, 채움, 글꼴과 모서리 단계, `Canvas` |
+| [`store`](https://github.com/DarkPyonix/compose-rust/tree/main/samples/store) | 캐러셀, 분류 띠, 두 칸 격자, 합계를 내는 장바구니 |
+| [`statistics`](https://github.com/DarkPyonix/compose-rust/tree/main/samples/statistics) | `Canvas`로 그리고 역할로만 칠한 다이얼과 한 주의 비용 |
+| [`selfcare`](https://github.com/DarkPyonix/compose-rust/tree/main/samples/selfcare) | 기분 고르기, 그려 낸 얼굴, 칩 격자, 윈도잉되는 카드 행 |
+| [`podcast`](https://github.com/DarkPyonix/compose-rust/tree/main/samples/podcast) | `Canvas`로 그린 파형, 내비게이션 막대를 덮는 전체 화면 페이지 |
+| [`academic`](https://github.com/DarkPyonix/compose-rust/tree/main/samples/academic) | 과목 타일 격자, 열린 강의와 잠긴 강의 |
+| [`social`](https://github.com/DarkPyonix/compose-rust/tree/main/samples/social) | 그림이 든 카드, 선반 셋, 내비게이션 막대를 덮는 강좌 페이지 |
+
+앞의 넷은 적응형으로, 플랫폼의 디자인 시스템을 따릅니다. 나머지 일곱은 Cupertino로 통일되어
+있습니다. [가이드의 샘플 표](https://darkpyonix.dev/compose-rust/ko/getting-started.html#samples)가
+각 샘플을 그것이 보여 주는 절에 이어 줍니다.
 
 ### 이 저장소에서 작업하기
 
@@ -219,12 +272,14 @@ Kotlin은 따로 설치할 것이 없습니다. `renderer/kotlin`(Windows는 `ko
 
 **렌더러 빌드.** 렌더러는
 [`thisisthepy/compose-multiplatform-core-extended`](https://github.com/thisisthepy/compose-multiplatform-core-extended)의
-고정된 커밋을 씁니다. 게시된 빌드에 없는 것(Linux 타깃, 텍스트 선택 메뉴, 복사 키)을 더한 Compose
-포크입니다. 그것을 한 번 빌드한 다음 렌더러를 빌드합니다.
+고정된 커밋을 씁니다. 게시된 빌드에 없는 것(Linux 타깃, 텍스트 선택 메뉴, 복사 키)을 더하고 데스크톱
+창 코드를 가진 Compose 포크입니다. 먼저 포크를 `~/.m2`에 게시하고, 그다음 렌더러를 빌드합니다.
+렌더러 스크립트는 Kotlin 툴체인이 돌기 전에 포크의 아티팩트를 확인하고, 빠진 것이 있으면 그것을
+게시하는 명령을 알려 줍니다.
 
 ```bash
 # macOS
-./renderer/scripts/build-compose.sh
+./renderer/scripts/build-compose.sh --target macosArm64
 ./renderer/desktop/scripts/build-macos.sh --release                # build/macos/
 
 # Linux (두 아키텍처의 Compose. arm64는 x64에서 교차 컴파일)
@@ -233,7 +288,7 @@ Kotlin은 따로 설치할 것이 없습니다. `renderer/kotlin`(Windows는 `ko
 ./renderer/desktop/scripts/build-linux.sh --release --arch arm64   # build/linux-arm64/
 ```
 
-각각 Compose, Skia, 인터프리터가 들어간 정적 라이브러리 하나, `libcompose_rust_renderer.a`를
+각 렌더러 스크립트는 고정 커밋의 포크 창 모듈도 게시하고, Compose, Skia, 인터프리터가 들어간 정적 라이브러리 하나, `libcompose_rust_renderer.a`를
 만듭니다. 릴리스가 내보내는 것과 같은 아카이브이고, 옆에 `schema-hash.txt`가 놓입니다. 체크아웃
 안에서는 빌드가 내려받을 수 있는 무엇보다 이 워크스페이스 빌드를 먼저 링크하고, 그다음이
 `renderer/build/native-image/dist/lib`의 네이티브 이미지입니다. `DXC_MACOS_NATIVE_LIB`과
@@ -246,7 +301,9 @@ CI는 `.github/scripts/package-static-renderer.sh`로 아카이브를 묶고
 글리프를 찾고, 단어를 통째로 찾고, 줄을 단어 사이에서 나누는지) 봅니다.
 
 Windows는 아직 GraalVM 네이티브 이미지를 `renderer/desktop/scripts/build-native-windows.ps1`로
-빌드합니다.
+빌드하며, 이 스크립트는 bash 부분을 Git Bash로 돌립니다. 빌드가 실패하면
+[문제 해결 페이지](https://darkpyonix.dev/compose-rust/ko/troubleshooting.html)가 포크의 아티팩트, 낡은
+해석 상태, Windows에서 Git Bash의 `PATH` 문제를 다룹니다.
 
 **JVM 개발 셸**은 렌더러 자체를 고칠 때 가장 빠른 루프이며, 핫 리로드와 `@Preview`가 됩니다. JVM은
 여기서만 허용되고, 배포물에는 절대 들어가지 않습니다.
@@ -268,10 +325,11 @@ scripts/          setup check, quality gate, release and publishing scripts, scr
 .github/          CI workflows
 ```
 
-Dioxus 어댑터와 기준선은 [dioxus-compose](https://github.com/DarkPyonix/dioxus-compose)로 옮겨 갔습니다.
-`samples/` 아래 샘플은 compose-rust 작성 API로 작성되어 있으며 워크스페이스와 함께 빌드됩니다. 디자인 시스템은 Compose 포크로 옮겨 갔으며,
-[thisisthepy/compose-multiplatform-core-extended](https://github.com/thisisthepy/compose-multiplatform-core-extended)의
-`extended/design-systems/` 아래에 있습니다.
+dioxus-compose용 어댑터와 기준선은 [dioxus-compose](https://github.com/DarkPyonix/dioxus-compose)로 옮겨 갔습니다.
+`samples/` 아래 샘플은 compose-rust 작성 API로 작성되어 있으며 워크스페이스와 함께 빌드됩니다. 디자인
+시스템은 `extended/design-systems/` 아래로, 데스크톱 창 코드는 `extended/window/` 아래로 Compose 포크
+[thisisthepy/compose-multiplatform-core-extended](https://github.com/thisisthepy/compose-multiplatform-core-extended)에
+옮겨 갔습니다.
 
 ---
 

@@ -106,12 +106,12 @@
 
     <h2 id="modes">통일형과 적응형</h2>
     <p>
-      애플리케이션이 시작할 때 고릅니다. <code>Theme</code> 과 <code>DesignSystem</code> 은 0.0.1에
+      애플리케이션이 시작할 때 고릅니다. <code>Theme</code> 과 <code>DesignSystem</code> 은 0.0.2에
       있고, 아래 값은 지금 컴파일됩니다.
     </p>
 
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
-      <figcaption>rust, 0.0.1에서 컴파일됨</figcaption>
+      <figcaption>rust, 0.0.2에서 컴파일됨</figcaption>
 <pre><code><span class="k">use</span> compose_rust::{<span class="ty">ColorScheme</span>, <span class="ty">DesignSystem</span>, <span class="ty">Theme</span>};
 
 <span class="c">// The same design system on every platform.</span>
@@ -125,7 +125,18 @@
     </figure>
 
     <p>
-      트리를 만드는 층이 테마를 <code>LaunchBuilder::with_theme</code> 에 넘깁니다. 부르지 않으면
+      애플리케이션은 루트를 실행하기 전에 테마를 <code>LaunchBuilder::with_theme</code> 에 넘깁니다.
+    </p>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>rust</figcaption>
+<pre><code><span class="k">fn</span> <span class="f">main</span>() {
+    <span class="ty">LaunchBuilder</span>::<span class="f">new</span>().<span class="f">with_theme</span>(<span class="ty">DARK</span>).<span class="f">application</span>(app);
+}</code></pre>
+    </figure>
+
+    <p>
+      부르지 않으면
       <code>Theme::adaptive(DesignSystem::Material3)</code> 입니다. 플랫폼 자신의 모양이고, 플랫폼에
       그것이 없으면 Material 3입니다. 대체값이 필수 인자이므로 <code>adaptive</code> 가 고를 것이 없는
       플랫폼은 없습니다.
@@ -157,6 +168,20 @@
       입니다. 시스템이 어두워지면 렌더러가 먼저 알고 스스로 적용합니다. Host는 관여하지 않습니다.
       스크롤 위치와 포커스가 Kotlin에 머무는 것과 같은 이유입니다.
     </p>
+    <p>
+      어느 시스템이 그리고 있는지 알아야 하는 composable은 <code>current_design_system()</code> 을
+      읽고, <code>theme()</code> 은 실행 중에 테마를 바꾸는 핸들을 돌려줍니다. 바꾸는 일은 레코드
+      하나입니다.
+    </p>
+    <p>
+      샘플이 두 방식을 모두 보여 줍니다.
+      <a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/calculator"><code>calculator</code></a>,
+      <a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/notepad"><code>notepad</code></a>,
+      <a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/todo"><code>todo</code></a>,
+      <a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/chat"><code>chat</code></a>
+      은 적응형입니다. 나머지 일곱 개는 Cupertino로 통일되어 있고, 각자 색 구성도 정합니다. 각
+      샘플이 다시 만든 디자인이 밝은 것이거나 어두운 것이기 때문입니다.
+    </p>
 
     <h2 id="palette">앱 색 <span class="pill works">구현</span></h2>
     <p>
@@ -167,7 +192,7 @@
     </p>
 
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
-      <figcaption>rust, 0.0.1에서 컴파일됨</figcaption>
+      <figcaption>rust, 0.0.2에서 컴파일됨</figcaption>
 <pre><code><span class="k">use</span> compose_rust::{<span class="ty">Color</span>, <span class="ty">ColorRole</span>, <span class="ty">DesignSystem</span>, <span class="ty">Palette</span>, <span class="ty">Theme</span>};
 
 <span class="k">const</span> <span class="ty">EMBER</span>: <span class="ty">Palette</span> = <span class="ty">Palette</span>::<span class="f">new</span>()
@@ -181,6 +206,8 @@
       <code>with</code> 는 밝은 값과 어두운 값을 함께 주고, <code>with_light</code> 와
       <code>with_dark</code> 는 하나씩 줍니다. 두 구성이 함께 건너가므로 시스템을 따라 어두워질 때
       Host에 묻지 않습니다. 주지 않은 역할은 시스템의 값을 그대로 씁니다.
+      <a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/store"><code>store</code></a>
+      같은 통일형 샘플은 참조 디자인을 이루는 리터럴을 <code>palette</code> 모듈에 둡니다.
       <code>Palette::check(design_system)</code> 은 팔레트가 대비를 채우지 못한 짝을 나열합니다. 일곱
       시스템 모두에 대해 자기 테스트에서 부르십시오. 플랫폼의 고대비 모드에서는 팔레트를 내려놓고
       시스템 자신의 색을 그립니다.

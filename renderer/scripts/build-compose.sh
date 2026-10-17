@@ -26,11 +26,11 @@ set -euo pipefail
 # compose-fork.changes lists what this commit must hold at every path it changes, and
 # scripts/tests/compose-fork.test.sh checks it.
 FORK="https://github.com/thisisthepy/compose-multiplatform-core-extended.git"
-REVISION="f34e8bb9bdfeabb2e0b0885291a8ef9b32c0a538"
+REVISION="81ce95e51f36a17d0a7ba23847bdca8e62b080c8"
 # The window modules and skiko's static build are newer than that and are not Compose sources:
 # the renderer builds them from this commit (scripts/fetch-fork-window.sh and fetch-fork-skiko.sh)
 # into artifacts of its own, so they move without moving the Compose build above.
-WINDOW_REVISION="e6ad91c970f2b44f05a2b758a77c939b2259afb5"
+WINDOW_REVISION="1c2dc37c528cd2e52f10542ec1a1921cb4d51f58"
 PUBLISHED_AS="1.11.1"
 # Material 3 is versioned on its own line and the renderer asks for it by that version, so
 # publishing it as the others would leave a coordinate nobody looks for.
