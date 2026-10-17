@@ -46,6 +46,7 @@ on:
       - compose-rust/tests/fixtures/consumer/**
       - .github/scripts/resize-metrics-run.sh
       - .github/scripts/resize-memory-check.sh
+      - .github/scripts/resize-soak-check.sh
       - .github/scripts/vertical-resize-run.sh
       - .github/scripts/vertical-resize-check.sh
       - .github/workflows/test-kn-desktop-renderer.yml
@@ -220,6 +221,19 @@ jobs:
           cat "$out/macos-kn.md" >> "$GITHUB_STEP_SUMMARY"
           ./.github/scripts/resize-memory-check.sh "$out/macos-kn.log" | tee -a "$GITHUB_STEP_SUMMARY"
 
+      - name: Memory after 1500 resizes settles near rest
+        # 15 rounds of one drag each, 100 mouse events on the right edge, and a reading two
+        # seconds after each. Memory that levels off passes; memory that grows round after
+        # round reaches the bound. The bound and why it is what it is:
+        # .github/scripts/resize-soak-check.sh.
+        if: matrix.module == 'macos'
+        env:
+          SOAK_BOUND_MB: '16'
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/resize-metrics"
+          ./.github/scripts/resize-metrics-run.sh "$RUNNER_TEMP/consumer-launch" "$out" soak-macos-kn soak
+          { echo "### Kotlin/Native soak"; ./.github/scripts/resize-memory-check.sh --soak "$out/soak-macos-kn.log" "$SOAK_BOUND_MB"; } | tee -a "$GITHUB_STEP_SUMMARY"
       - name: The content stays put while the window's height is dragged
         # Drags the bottom edge and then the top edge with mouse events and takes the
         # window's image throughout; a mark drawn at a fixed distance below the top of every

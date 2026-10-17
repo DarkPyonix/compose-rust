@@ -27,6 +27,9 @@ on:
       - 'renderer/scripts/build-compose.sh'
       - 'renderer/scripts/compose-fork.changes'
       - 'scripts/tests/renderer/**'
+      - '.github/scripts/resize-metrics-run.sh'
+      - '.github/scripts/resize-memory-check.sh'
+      - '.github/scripts/resize-soak-check.sh'
       - '.github/workflows/test-graalvm-renderer.yml'
       - '.github/scripts/vertical-resize-run.sh'
       - '.github/scripts/vertical-resize-check.sh'
@@ -46,6 +49,9 @@ on:
       - 'renderer/scripts/build-compose.sh'
       - 'renderer/scripts/compose-fork.changes'
       - 'scripts/tests/renderer/**'
+      - '.github/scripts/resize-metrics-run.sh'
+      - '.github/scripts/resize-memory-check.sh'
+      - '.github/scripts/resize-soak-check.sh'
       - '.github/workflows/test-graalvm-renderer.yml'
       - '.github/scripts/vertical-resize-run.sh'
       - '.github/scripts/vertical-resize-check.sh'
@@ -118,6 +124,29 @@ jobs:
         env:
           COMPOSE_RUST_AUTOEXIT_MS: '5000'
         run: ./renderer/desktop/scripts/smoke-test.sh
+
+      - name: Memory after 1500 resizes settles near rest
+        # The Kotlin/Native renderer's soak, on the native image's window: 15 rounds of one
+        # drag each, 100 mouse events on the right edge, and a reading two seconds after
+        # each. The bound and why it is what it is: .github/scripts/resize-soak-check.sh.
+        env:
+          SOAK_BOUND_MB: '16'
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/resize-metrics"
+          printf '#!/bin/sh\nCOMPOSE_RUST_AUTOEXIT_MS=600000 exec "%s"\n' "$PWD/renderer/build/native-image/smoke_host" > "$RUNNER_TEMP/smoke-launch"
+          chmod +x "$RUNNER_TEMP/smoke-launch"
+          ./.github/scripts/resize-metrics-run.sh "$RUNNER_TEMP/smoke-launch" "$out" soak-macos-graalvm soak
+          { echo "### GraalVM soak"; ./.github/scripts/resize-memory-check.sh --soak "$out/soak-macos-graalvm.log" "$SOAK_BOUND_MB"; } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the resize logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resize-soak-macos-graalvm
+          path: ${{ runner.temp }}/resize-metrics/
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: The content stays put while the window's height is dragged
         # The smoke host again, with the probe that drags the bottom edge and then the top
