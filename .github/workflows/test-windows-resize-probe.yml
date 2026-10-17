@@ -57,14 +57,19 @@ jobs:
           $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
           $vcvars = Join-Path $vs "VC\Auxiliary\Build\vcvars64.bat"
           $tools = $null
+          $sdkbin = $null
           cmd /c "`"$vcvars`" >nul && set" | ForEach-Object {
             if ($_ -match '^(INCLUDE|LIB|LIBPATH|VCToolsInstallDir|WindowsSdkDir|WindowsSDKVersion)=(.*)$') {
               "$($matches[1])=$($matches[2])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
             }
             if ($_ -match '^VCToolsInstallDir=(.*)$') { $tools = $matches[1] }
+            if ($_ -match '^WindowsSdkVerBinPath=(.*)$') { $sdkbin = $matches[1] }
           }
           $bin = Join-Path $tools "bin\Hostx64\x64"
           $bin | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          # mt.exe, which the linker runs to embed the probe's manifest.
+          Join-Path $sdkbin "x64" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          Write-Output "Windows SDK tools: $(Join-Path $sdkbin 'x64')"
           Write-Output "MSVC tools: $bin"
 
       - name: Build the resize probe and the display scale tool
