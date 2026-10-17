@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>개요 · compose-rust 가이드</title>
-<meta name="description" content="compose-rust는 Compose 모양의 Rust UI API이고, AOT 컴파일된 Compose 렌더러가 그립니다. 웹뷰도, 동봉된 JVM도 없습니다. 무엇인지, 0.0.1에 무엇이 있는지, 1.0.0에 무엇이 오는지 설명합니다.">
+<meta name="description" content="compose-rust는 Compose 모양의 Rust UI API이고, AOT 컴파일된 Compose 렌더러가 그립니다. 웹뷰도, 동봉된 JVM도 없습니다. 무엇인지, 0.0.2에 무엇이 있는지, 어느 플랫폼에서 도는지 설명합니다.">
 <link rel="alternate" hreflang="en" href="../en/overview.html">
 <link rel="alternate" hreflang="ko" href="../ko/overview.html">
 <link rel="alternate" hreflang="x-default" href="../en/overview.html">
@@ -53,7 +53,7 @@
       <p class="eyebrow">Rust로 쓰는 네이티브 UI</p>
       <h1>Rust로 Compose 모양의 UI를 쓰면, Compose가 그립니다.</h1>
       <p class="lede">
-        compose-rust는 Rust에 Compose 모양의 API를 줍니다. composable 함수, <code>remember</code>,
+        compose-rust는 Rust에 Compose 모양의 API를 줍니다. ì»´í¬ì ë¸ 함수, <code>remember</code>,
         recomposition입니다. 그것들이 기술한 것은 미리 컴파일된(AOT) Compose 렌더러가 그립니다.
         웹뷰를 넣지 않고, 애플리케이션과 함께 JVM을 배포하지도 않습니다.
       </p>
@@ -69,7 +69,7 @@
       <li><strong>Compose 모양의 Rust API.</strong> 슬롯 테이블과 recomposition 런타임을 갖춥니다.
         composable은 함수이고, 상태는 <code>remember</code> 에 둡니다. 상태가 바뀌면 그 상태를
         읽은 스코프만 다시 실행됩니다. 무엇이 바뀌었는지 트리를 비교해서 찾지 않습니다.
-        1.0.0을 향한 <span class="pill planned">계획</span>입니다.</li>
+        0.0.2에 <span class="pill works">구현</span>되어 있습니다.</li>
       <li><strong>좁은 C ABI 경계와 스키마.</strong> 위젯, 속성, 레코드를 Rust에서 한 번 정의합니다.
         Kotlin 타입과 플랫폼 심은 그 정의에서 생성하고, 손으로 쓰지 않습니다.
         <span class="pill works">구현</span></li>
@@ -77,8 +77,9 @@
         컴파일하고, 브라우저에서는 Kotlin/Wasm, Android에서는 Android 라이브러리입니다. 그리기와
         입력은 Compose 자신의 텍스트 레이아웃, 위젯, 플랫폼 IME가 맡습니다.
         <span class="pill works">구현</span></li>
-      <li><strong>웹뷰 없음, 동봉된 JVM 없음.</strong> 데스크톱의 목표는 시스템 라이브러리만
-        링크하는 실행 파일 하나입니다. 0.0.1은 아직 거기에 닿지 않았습니다.
+      <li><strong>웹뷰 없음, 동봉된 JVM 없음.</strong> 데스크톱에서 애플리케이션은 시스템
+        라이브러리만 링크하는 실행 파일 하나입니다. macOS와 Linux는 0.0.2부터 그렇게
+        빌드되고, Windows는 Kotlin/Native 렌더러와 함께 뒤따릅니다.
         <a href="#platforms">플랫폼</a>을 보십시오. <span class="pill partial">부분</span></li>
     </ul>
 
@@ -102,7 +103,7 @@
         </thead>
         <tbody>
           <tr><td>웹뷰 없음</td><td>WKWebView, WebView2, WebKitGTK를 쓰지 않고, Tauri나 wry도 쓰지 않습니다.</td></tr>
-          <tr><td>동봉된 JVM 없음</td><td>렌더러는 미리 컴파일합니다. macOS와 Linux에서는 Kotlin/Native 정적 아카이브로 실행 파일 하나에 링크되고, Windows에서는 GraalVM 네이티브 이미지입니다. JVM은 렌더러 자체를 개발하는 셸에만 나타납니다.</td></tr>
+          <tr><td>동봉된 JVM 없음</td><td>렌더러는 Kotlin/Native로 미리 컴파일해 애플리케이션의 실행 파일 하나에 링크합니다. Windows는 Kotlin/Native 렌더러가 들어올 때까지 GraalVM 네이티브 이미지를 씁니다. JVM은 렌더러 자체를 개발하는 셸에만 나타납니다.</td></tr>
           <tr><td>손으로 쓴 JNI나 cinterop 없음</td><td>경계 심은 모두 Rust 스키마에서 생성하므로 두 쪽이 모르게 어긋날 수 없습니다.</td></tr>
           <tr><td>UI 코드는 Rust에</td><td>Kotlin은 렌더러의 구현이지, 기능을 작성하는 곳이 아닙니다.</td></tr>
           <tr><td>Compose 수준의 텍스트와 IME</td><td>Compose의 플랫폼 텍스트 입력을 우회하는 코드 경로가 없습니다.</td></tr>
@@ -112,7 +113,7 @@
 
     <h2 id="status">현재 상태</h2>
     <p>
-      <strong>0.0.x는 이름을 확보하고 렌더러를 배포하는 단계입니다.</strong> API는 바뀝니다. 0.0.1
+      <strong>0.0.x는 이름을 확보하고 렌더러를 배포하는 단계입니다.</strong> API는 바뀝니다. 0.0.2
       크레이트에 지금 들어 있는 것은 다음과 같습니다.
     </p>
     <div class="tablewrap">
@@ -123,33 +124,30 @@
           <tr><td>프로토콜</td><td><span class="pill works">구현</span></td><td>고정 레이아웃 mutation 레코드입니다. 배치 버퍼 하나에 쓰이고 렌더러가 그 자리에서 읽습니다. 핫 패스에 직렬화 포맷이 없습니다.</td></tr>
           <tr><td>스키마</td><td><span class="pill works">구현</span></td><td>위젯, 속성, Modifier, 디자인 역할, <code>Theme</code>, <code>DesignSystem</code> 입니다. 서로 다른 스키마로 빌드된 Host와 렌더러는 스키마 해시 때문에 함께 돌지 못합니다. <code>codegen</code> 바이너리가 여기서 Kotlin 쪽을 생성합니다.</td></tr>
           <tr><td><code>Runtime</code> 트레이트</td><td><span class="pill works">구현</span></td><td>트리를 만드는 쪽이 구현하는 인터페이스와 그 주변 타입입니다. 에셋, 커스텀 드로잉, 입력 이벤트, 알림, 메시지, 팔레트, 창 크기 클래스가 있습니다.</td></tr>
+          <tr><td>그리기, 변환, 애니메이션</td><td><span class="pill works">구현</span></td><td>0.0.2에서 새로 들어왔습니다. HTML/CSS 그리기 원소인 <code>AbsoluteBox</code> 와 Modifier <code>RequiredSize</code>, <code>BorderEach</code>, <code>CornerEach</code>, <code>Shadow</code>, <code>Clip</code>, <code>Alpha</code> 입니다. 2D CSS 변환을 위한 <code>Transform</code> Modifier가 있습니다. 렌더러가 스스로 재생하는 애니메이션은 <code>StartAnimation</code>, <code>ControlAnimation</code>, <code>AnimationEvent</code>, <code>ReducedMotionChanged</code> 로 다룹니다. 레이아웃 컨테이너의 글자 색은 그 안의 텍스트가 물려받고, 테두리 색도 애니메이션할 수 있습니다.</td></tr>
           <tr><td>렌더러 다운로드</td><td><span class="pill works">구현</span></td><td>빌드 스크립트가 대상에 맞는 미리 빌드된 렌더러를 받아 검증하고 링크합니다. <a href="getting-started.html">시작하기</a>를 보십시오.</td></tr>
-          <tr><td>작성 API</td><td><span class="pill planned">계획</span></td><td><code>#[composable]</code>, <code>remember</code>, <code>Recomposer</code>, <code>launch</code>, 위젯 함수입니다. <strong>2026-11-14의 1.0.0</strong>에 들어오며, <a href="https://github.com/DarkPyonix/compose-rust/issues/23">#23</a> 과 <a href="https://github.com/DarkPyonix/compose-rust/issues/64">#64</a> 가 추적합니다.</td></tr>
+          <tr><td>작성 API</td><td><span class="pill partial">부분</span></td><td><code>#[composable]</code>, <code>remember</code>, 상태와 effect, <code>Recomposer</code>, <code>launch</code>, 위젯마다 하나인 함수입니다. 0.0.2에서 새로 들어왔습니다. 1.0 전의 API라 아직 바뀔 수 있고, <strong>2026-11-14로 계획된 1.0.0</strong>부터 안정됩니다(<a href="https://github.com/DarkPyonix/compose-rust/issues/23">#23</a>, <a href="https://github.com/DarkPyonix/compose-rust/issues/64">#64</a>). 애니메이션도 들어 있습니다. <code>Modifier.graphics_layer</code>, <code>Modifier.alpha</code>, 그리고 렌더러가 재생하는 동안 아무것도 다시 compose하지 않는 <code>animate_*_as_state</code> 함수입니다. 3D 변환은 아직 만들어지지 않았습니다(<a href="https://github.com/DarkPyonix/compose-rust/issues/105">#105</a>).</td></tr>
         </tbody>
       </table>
     </div>
     <p>
-      1.0.0 전까지 이 크레이트는 트리를 만드는 층이 올라설 토대입니다. 아직 화면을 직접 쓰는 도구가
-      아닙니다.
+      crates.io의 0.0.2로 화면을 직접 씁니다. 이 크레이트는 트리를 만드는 다른 층이
+      올라설 토대이기도 합니다.
     </p>
 
-    <h2 id="shape">계획한 모양</h2>
-    <div class="warn">
-      <span class="label">계획이며, 아직 크레이트에 없습니다</span>
-      <p>
-        아래 코드는 작성 API가 가질 모양을 보입니다. 0.0.x에서는 컴파일되지 않고, 이름도 확정되지
-        않았습니다.
-      </p>
-    </div>
-
+    <h2 id="shape">어떻게 생겼나</h2>
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
-      <figcaption>rust, 계획한 모양(0.0.x에서 컴파일되지 않음)</figcaption>
-<pre><code><span class="at">#[composable]</span>
+      <figcaption>src/main.rs, 0.0.2에서 컴파일됨</figcaption>
+<pre><code><span class="k">use</span> compose_rust::runtime::*;
+<span class="k">use</span> compose_rust::ui::*;
+
+<span class="at">#[composable]</span>
 <span class="k">fn</span> <span class="f">counter</span>() {
     <span class="k">let</span> count = <span class="f">remember</span>(|| <span class="f">mutable_state_of</span>(<span class="n">0</span>));
-    <span class="f">Column</span>(<span class="ty">Modifier</span>::<span class="f">new</span>().<span class="f">fill_max_width</span>(), || {
-        <span class="f">Text</span>(<span class="f">format!</span>(<span class="s">"{}"</span>, count.<span class="f">get</span>()));
-        <span class="f">Button</span>(|| count.<span class="f">set</span>(count.<span class="f">get</span>() + <span class="n">1</span>), || <span class="f">Text</span>(<span class="s">"+1"</span>));
+    <span class="f">Column</span>().<span class="f">modifier</span>(<span class="ty">Modifier</span>.<span class="f">padding</span>(<span class="n">16.0</span>).<span class="f">fill_max_width</span>()).<span class="f">content</span>(|| {
+        <span class="f">Text</span>(<span class="f">format!</span>(<span class="s">"Count: {}"</span>, count.<span class="f">get</span>())).<span class="f">type_role</span>(<span class="ty">TypeRole</span>::Title);
+        <span class="k">let</span> more = count.<span class="f">clone</span>();
+        <span class="f">Button</span>(<span class="s">"Increment"</span>).<span class="f">on_click</span>(<span class="k">move</span> || more.<span class="f">update</span>(|count| *count += <span class="n">1</span>));
     });
 }
 
@@ -159,10 +157,11 @@
     </figure>
 
     <p>
-      정해진 것은 세 가지입니다. <code>#[composable]</code> 이 그룹을 넣으므로 그룹이나 키를 손으로
-      쓰지 않으며, 분기, 반복문, 조기 <code>return</code>, <code>?</code>, 되감기를 지나도 그룹이
-      맞게 닫힙니다. 이름은 Compose를 따릅니다. 위젯 어휘는 스키마에 있는 그것 하나이므로 두 번
-      정의하지 않습니다. 작성 API의 나머지는 <a href="writing-ui.html">UI 작성하기</a>에 있습니다.
+      <code>#[composable]</code> 이 그룹을 넣으므로 그룹을 손으로 쓰지 않으며, 분기, 조기
+      <code>return</code>, <code>?</code>, 되감기를 지나도 그룹이 맞게 닫힙니다. 이름은 Compose를
+      따릅니다. 위젯 어휘는 스키마에 있는 그것 하나이므로 두 번 정의하지 않습니다. 작성 API의
+      나머지는 <a href="writing-ui.html">UI 작성하기</a>에 있고, 샘플 열한 개가
+      실제 애플리케이션으로 보여 줍니다(<a href="getting-started.html#samples">샘플</a>).
     </p>
 
     <div class="note">
@@ -171,7 +170,7 @@
 
     <h2 id="platforms">플랫폼</h2>
     <p>
-      아래 표는 0.0.1에서 플랫폼마다 받는 렌더러입니다. "처음부터 끝까지 동작"은 사람이 직접 써 본
+      아래 표는 플랫폼마다 받는 렌더러입니다. "처음부터 끝까지 동작"은 사람이 직접 써 본
       플랫폼이라는 뜻입니다. "빌드되고 시작됨"은 CI가 빌드하고 스모크 테스트가 창을 열어 그린다는
       뜻이며, 증명하는 것이 그보다 적습니다.
     </p>
@@ -179,23 +178,23 @@
     <div class="tablewrap">
       <table>
         <thead>
-          <tr><th scope="col">플랫폼</th><th scope="col">상태</th><th scope="col">0.0.1의 렌더러</th></tr>
+          <tr><th scope="col">플랫폼</th><th scope="col">상태</th><th scope="col">렌더러</th></tr>
         </thead>
         <tbody>
           <tr>
             <td>macOS (arm64)</td>
             <td><span class="pill works">처음부터 끝까지 동작</span></td>
-            <td>애플리케이션 옆에 놓이는 GraalVM 네이티브 이미지 라이브러리입니다. 실행 파일 안에 링크되는 Kotlin/Native 렌더러(자기 창, Metal로 그림)는 CI에서 돌고 있고, 다음 릴리스에서 이것을 대신합니다. 기본적인 한글 IME 입력은 동작하고, IME 체크리스트 전체는 아직 끝나지 않았습니다.</td>
+            <td>실행 파일 안에 링크되는 Kotlin/Native 렌더러이고, 포크의 AppKit 창에 Metal로 그립니다. 0.0.2는 그것을 빌드가 실행 파일 안에 링크하는 정적 아카이브로 배포하므로, 애플리케이션은 실행 파일 하나입니다. 기본적인 한글 IME 입력은 동작하고, IME 체크리스트 전체는 아직 끝나지 않았습니다.</td>
           </tr>
           <tr>
             <td>Linux (x64, arm64)</td>
             <td><span class="pill partial">빌드되고 시작됨</span></td>
-            <td>GraalVM 네이티브 이미지 라이브러리입니다. Kotlin/Native 렌더러(자기 X11 창, GLX로 그림, arm64는 x64에서 교차 컴파일)가 다음 릴리스에서 이것을 대신합니다. CI에서 그것으로 빌드한 애플리케이션은 libc, X11, GL, fontconfig, C++ 런타임(arm64는 EGL 포함)만 부르는 실행 파일 하나이고, 빈 디렉터리에 혼자 복사해도 Xvfb에서 그립니다. 사람이 직접 써 본 적은 아직 없습니다.</td>
+            <td>Kotlin/Native 렌더러이고, 포크의 X11 창에 GLX로 그립니다. arm64는 x64에서 교차 컴파일합니다. 0.0.2는 그것을 빌드가 실행 파일 안에 링크하는 정적 아카이브로 배포합니다. CI에서 그것으로 빌드한 애플리케이션은 libc, X11, GL, fontconfig, C++ 런타임(arm64는 EGL 포함)만 부르는 실행 파일 하나이고, 빈 디렉터리에 혼자 복사해도 Xvfb에서 그립니다. 사람이 직접 써 본 적은 아직 없습니다.</td>
           </tr>
           <tr>
             <td>Windows</td>
             <td><span class="pill partial">빌드되고 시작됨</span></td>
-            <td>GraalVM 네이티브 이미지이고, 렌더러가 바뀔 때마다 스모크 테스트를 합니다. Windows도 실행 파일 하나가 되도록 Kotlin/Native로 옮겨 가는 중입니다(<a href="https://github.com/DarkPyonix/compose-rust/issues/24">#24</a>).</td>
+            <td>GraalVM 네이티브 이미지이고, 렌더러가 바뀔 때마다 스모크 테스트를 합니다. Kotlin/Native 렌더러가 Windows도 실행 파일 하나로 만들 때까지 그렇습니다(<a href="https://github.com/DarkPyonix/compose-rust/issues/24">#24</a>, 진행 중).</td>
           </tr>
           <tr>
             <td>iOS</td>
@@ -218,8 +217,8 @@
 
     <h3 id="weight">실제 무게</h3>
     <p>
-      notepad 샘플을 릴리스로 빌드하고 스트립한 숫자이며, Kotlin/Native 렌더러를 링크했습니다.
-      0.0.1이 배포하는 경로가 아니라 0.0.1 다음에 기본이 되는 경로입니다. 결과는 실행 파일
+      notepad 샘플을 릴리스로 빌드하고 스트립한 숫자이며, 0.0.2가 macOS와 Linux에 배포하는 Kotlin/Native
+      렌더러를 링크했습니다. 결과는 실행 파일
       하나이고, 옆에 놓이는 런타임도 안에 든 가상 머신도 없습니다.
     </p>
     <div class="tablewrap">
@@ -246,7 +245,7 @@
       </a>
       <a class="card" href="writing-ui.html">
         <h3>UI 작성하기</h3>
-        <p>계획한 작성 API입니다. composable, 상태, effect, 이벤트, 애니메이션을 다룹니다.</p>
+        <p>작성 API입니다. ì»´í¬ì ë¸, 상태, effect, 이벤트, 워커 스레드를 다룹니다.</p>
       </a>
       <a class="card" href="composables.html">
         <h3>위젯 레퍼런스</h3>

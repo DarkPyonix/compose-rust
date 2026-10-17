@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Overview · compose-rust guide</title>
-<meta name="description" content="compose-rust is a Compose-shaped Rust UI API drawn by an AOT-compiled Compose renderer, with no webview and no bundled JVM. What it is, what 0.0.1 contains, and what arrives with 1.0.0.">
+<meta name="description" content="compose-rust is a Compose-shaped Rust UI API drawn by an AOT-compiled Compose renderer, with no webview and no bundled JVM. What it is, what 0.0.2 contains, and which platforms it runs on.">
 <link rel="alternate" hreflang="en" href="../en/overview.html">
 <link rel="alternate" hreflang="ko" href="../ko/overview.html">
 <link rel="alternate" hreflang="x-default" href="../en/overview.html">
@@ -69,7 +69,7 @@
       <li><strong>A Compose-shaped Rust API</strong> with a slot table and a recomposition
         runtime. A composable is a function, and state lives in <code>remember</code>. When state
         changes, only the scopes that read it run again. Nothing compares trees to find what
-        changed. <span class="pill planned">Planned</span> for 1.0.0.</li>
+        changed. <span class="pill works">Works</span> in 0.0.2.</li>
       <li><strong>A narrow C ABI boundary and a schema.</strong> Rust defines the widgets,
         properties and records once. The Kotlin types and the platform shims are generated from
         that definition, never written by hand. <span class="pill works">Works</span></li>
@@ -77,8 +77,9 @@
         code on every platform, to Kotlin/Wasm in the browser, and to an Android library on Android.
         Compose's own text layout, widgets and platform IME do the drawing and the typing.
         <span class="pill works">Works</span></li>
-      <li><strong>No webview, and no bundled JVM.</strong> On the desktop the goal is one
-        executable that links only the system's own libraries. 0.0.1 does not reach it yet; see
+      <li><strong>No webview, and no bundled JVM.</strong> On the desktop an application is one
+        executable that links only the system's own libraries. macOS and Linux build that way from
+        0.0.2, and Windows follows with its Kotlin/Native renderer; see
         <a href="#platforms">Platforms</a>. <span class="pill partial">Partial</span></li>
     </ul>
 
@@ -103,7 +104,7 @@
         </thead>
         <tbody>
           <tr><td>No webview</td><td>No WKWebView, WebView2 or WebKitGTK, and no Tauri or wry.</td></tr>
-          <tr><td>No bundled JVM</td><td>The renderer is compiled ahead of time. On macOS and Linux it is a Kotlin/Native static archive linked into one executable, on Windows a GraalVM native image. A JVM appears only in the development shell for the renderer itself.</td></tr>
+          <tr><td>No bundled JVM</td><td>The renderer is compiled ahead of time with Kotlin/Native and linked into the application's one executable. Windows uses a GraalVM native image until its Kotlin/Native renderer lands. A JVM appears only in the development shell for the renderer itself.</td></tr>
           <tr><td>No hand-written JNI or cinterop</td><td>Every boundary shim is generated from the Rust schema, so the two sides cannot drift silently.</td></tr>
           <tr><td>UI code lives in Rust</td><td>Kotlin is the renderer's implementation, not a place where you write features.</td></tr>
           <tr><td>Compose-quality text and IME</td><td>No code path bypasses Compose's platform text input.</td></tr>
@@ -114,7 +115,7 @@
     <h2 id="status">Status</h2>
     <p>
       <strong>0.0.x is the name reservation and renderer distribution stage.</strong> The API will
-      change. This is what the 0.0.1 crate contains today:
+      change. This is what the 0.0.2 crate contains today:
     </p>
     <div class="tablewrap">
       <table>
@@ -124,33 +125,30 @@
           <tr><td>The protocol</td><td><span class="pill works">Works</span></td><td>Fixed-layout mutation records, written into one batch buffer and read in place by the renderer. No serialisation format runs on the hot path.</td></tr>
           <tr><td>The schema</td><td><span class="pill works">Works</span></td><td>Widgets, properties, modifiers, design roles, <code>Theme</code> and <code>DesignSystem</code>. A schema hash stops a Host and a renderer built from different schemas from running together. The <code>codegen</code> binary generates the Kotlin side from it.</td></tr>
           <tr><td>The <code>Runtime</code> trait</td><td><span class="pill works">Works</span></td><td>The interface that whatever builds the tree implements, plus the types around it: assets, custom drawing, input events, notifications, messages, palettes and window size classes.</td></tr>
+          <tr><td>Drawing, transforms and animations</td><td><span class="pill works">Works</span></td><td>New in 0.0.2. HTML/CSS drawing elements: <code>AbsoluteBox</code> and the modifiers <code>RequiredSize</code>, <code>BorderEach</code>, <code>CornerEach</code>, <code>Shadow</code>, <code>Clip</code> and <code>Alpha</code>. A <code>Transform</code> modifier for 2D CSS transforms. Animations the renderer plays itself, through <code>StartAnimation</code>, <code>ControlAnimation</code>, <code>AnimationEvent</code> and <code>ReducedMotionChanged</code>. A layout container's text colour is inherited by the text inside it, and a border's colour can animate.</td></tr>
           <tr><td>The renderer download</td><td><span class="pill works">Works</span></td><td>The build script fetches the prebuilt renderer for your target, checks it and links it. See <a href="getting-started.html">Getting started</a>.</td></tr>
-          <tr><td>The authoring API</td><td><span class="pill planned">Planned</span></td><td><code>#[composable]</code>, <code>remember</code>, the <code>Recomposer</code>, <code>launch</code> and the widget functions. They arrive with <strong>1.0.0 on 2026-11-14</strong>, tracked in <a href="https://github.com/DarkPyonix/compose-rust/issues/23">#23</a> and <a href="https://github.com/DarkPyonix/compose-rust/issues/64">#64</a>.</td></tr>
+          <tr><td>The authoring API</td><td><span class="pill partial">Partial</span></td><td><code>#[composable]</code>, <code>remember</code>, the states and effects, the <code>Recomposer</code>, <code>launch</code> and one function per widget. New in 0.0.2. It is a pre-1.0 API that may still change, and it is stable from <strong>1.0.0, planned for 2026-11-14</strong> (<a href="https://github.com/DarkPyonix/compose-rust/issues/23">#23</a>, <a href="https://github.com/DarkPyonix/compose-rust/issues/64">#64</a>). Animation is in it: <code>Modifier.graphics_layer</code>, <code>Modifier.alpha</code> and the <code>animate_*_as_state</code> functions, which the renderer plays with nothing composed again. 3D transforms are not built yet (<a href="https://github.com/DarkPyonix/compose-rust/issues/105">#105</a>).</td></tr>
         </tbody>
       </table>
     </div>
     <p>
-      Until 1.0.0 the crate is a foundation for a layer that builds the tree. It is not yet
-      something you write screens with directly.
+      With 0.0.2 from crates.io you write screens with it directly. The crate is also a
+      foundation for another layer that builds the tree.
     </p>
 
-    <h2 id="shape">The planned shape</h2>
-    <div class="warn">
-      <span class="label">Planned, not yet in the crate</span>
-      <p>
-        The code below shows the intended shape of the authoring API. It does not compile against
-        0.0.x, and the names are not final.
-      </p>
-    </div>
-
+    <h2 id="shape">What it looks like</h2>
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
-      <figcaption>rust, planned shape (does not compile against 0.0.x)</figcaption>
-<pre><code><span class="at">#[composable]</span>
+      <figcaption>src/main.rs, compiles against 0.0.2</figcaption>
+<pre><code><span class="k">use</span> compose_rust::runtime::*;
+<span class="k">use</span> compose_rust::ui::*;
+
+<span class="at">#[composable]</span>
 <span class="k">fn</span> <span class="f">counter</span>() {
     <span class="k">let</span> count = <span class="f">remember</span>(|| <span class="f">mutable_state_of</span>(<span class="n">0</span>));
-    <span class="f">Column</span>(<span class="ty">Modifier</span>::<span class="f">new</span>().<span class="f">fill_max_width</span>(), || {
-        <span class="f">Text</span>(<span class="f">format!</span>(<span class="s">"{}"</span>, count.<span class="f">get</span>()));
-        <span class="f">Button</span>(|| count.<span class="f">set</span>(count.<span class="f">get</span>() + <span class="n">1</span>), || <span class="f">Text</span>(<span class="s">"+1"</span>));
+    <span class="f">Column</span>().<span class="f">modifier</span>(<span class="ty">Modifier</span>.<span class="f">padding</span>(<span class="n">16.0</span>).<span class="f">fill_max_width</span>()).<span class="f">content</span>(|| {
+        <span class="f">Text</span>(<span class="f">format!</span>(<span class="s">"Count: {}"</span>, count.<span class="f">get</span>())).<span class="f">type_role</span>(<span class="ty">TypeRole</span>::Title);
+        <span class="k">let</span> more = count.<span class="f">clone</span>();
+        <span class="f">Button</span>(<span class="s">"Increment"</span>).<span class="f">on_click</span>(<span class="k">move</span> || more.<span class="f">update</span>(|count| *count += <span class="n">1</span>));
     });
 }
 
@@ -160,11 +158,11 @@
     </figure>
 
     <p>
-      Three things about it are settled. <code>#[composable]</code> inserts the groups, so you never
-      write groups or keys by hand, and they close correctly through branches, loops, early
-      <code>return</code>, <code>?</code> and unwinding. Names follow Compose. The widget vocabulary
-      is the one in the schema, so nothing is defined twice. <a href="writing-ui.html">Writing UI</a>
-      describes the rest of the planned API.
+      <code>#[composable]</code> inserts the groups, so you never write them by hand, and they close
+      correctly through branches, early <code>return</code>, <code>?</code> and unwinding. Names
+      follow Compose. The widget vocabulary is the one in the schema, so nothing is defined twice.
+      <a href="writing-ui.html">Writing UI</a> describes the rest of the API, and eleven
+      <a href="getting-started.html#samples">samples</a> show it in real applications.
     </p>
 
     <div class="note">
@@ -173,7 +171,7 @@
 
     <h2 id="platforms">Platforms</h2>
     <p>
-      The table lists the renderer each platform gets in 0.0.1. "Works end to end" means the
+      The table lists the renderer each platform gets. "Works end to end" means the
       platform has been used by hand. "Builds and starts" means CI builds it and a smoke test opens
       and draws a window, which proves rather less.
     </p>
@@ -181,23 +179,23 @@
     <div class="tablewrap">
       <table>
         <thead>
-          <tr><th scope="col">Platform</th><th scope="col">Status</th><th scope="col">Renderer in 0.0.1</th></tr>
+          <tr><th scope="col">Platform</th><th scope="col">Status</th><th scope="col">Renderer</th></tr>
         </thead>
         <tbody>
           <tr>
             <td>macOS (arm64)</td>
             <td><span class="pill works">Works end to end</span></td>
-            <td>A GraalVM native-image library beside the application. The Kotlin/Native renderer linked into the executable (its own window, drawing through Metal) runs in CI and replaces it in a following release. Basic Korean IME input works; the full IME checklist is not finished.</td>
+            <td>The Kotlin/Native renderer linked into the executable, drawing through Metal into the fork's AppKit window. 0.0.2 ships it as a static archive the build links into the executable, so the application is one executable. Basic Korean IME input works; the full IME checklist is not finished.</td>
           </tr>
           <tr>
             <td>Linux (x64, arm64)</td>
             <td><span class="pill partial">Builds and starts</span></td>
-            <td>A GraalVM native-image library. The Kotlin/Native renderer (its own X11 window, drawing through GLX; arm64 cross compiled on x64) replaces it in a following release. In CI an application built from it is one executable naming only libc, X11, GL, fontconfig and the C++ runtime (and EGL on arm64), and copied alone into an empty directory it draws under Xvfb. Nobody has used it interactively yet.</td>
+            <td>The Kotlin/Native renderer, drawing through GLX into the fork's X11 window; arm64 is cross compiled on x64. 0.0.2 ships it as a static archive the build links into the executable. In CI an application built from it is one executable naming only libc, X11, GL, fontconfig and the C++ runtime (and EGL on arm64), and copied alone into an empty directory it draws under Xvfb. Nobody has used it interactively yet.</td>
           </tr>
           <tr>
             <td>Windows</td>
             <td><span class="pill partial">Builds and starts</span></td>
-            <td>A GraalVM native image, smoke-tested on every renderer change. Moving to Kotlin/Native so that Windows is one executable too (<a href="https://github.com/DarkPyonix/compose-rust/issues/24">#24</a>).</td>
+            <td>A GraalVM native image, smoke-tested on every renderer change, until the Kotlin/Native renderer makes Windows one executable too (<a href="https://github.com/DarkPyonix/compose-rust/issues/24">#24</a>, in progress).</td>
           </tr>
           <tr>
             <td>iOS</td>
@@ -221,8 +219,8 @@
     <h3 id="weight">What it weighs</h3>
     <p>
       These numbers are for the notepad sample, built for release and stripped, with the
-      Kotlin/Native renderer linked in. That is the path that becomes the default after 0.0.1, not
-      what 0.0.1 ships. The result is one executable, with no runtime beside it and no virtual
+      Kotlin/Native renderer linked in, the renderer 0.0.2 ships on macOS and Linux. The result is one
+      executable, with no runtime beside it and no virtual
       machine inside it.
     </p>
     <div class="tablewrap">
@@ -249,7 +247,7 @@
       </a>
       <a class="card" href="writing-ui.html">
         <h3>Writing UI</h3>
-        <p>The planned authoring API: composables, state, effects, events and animation.</p>
+        <p>The authoring API: composables, state, effects, events and worker threads.</p>
       </a>
       <a class="card" href="composables.html">
         <h3>Widget reference</h3>
@@ -279,7 +277,7 @@
   <div class="inner">
     <span>compose-rust &middot; Apache License 2.0</span>
     <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://crates.io/crates/compose-rust">crates.io</a></span>
-    <span>Guide last reviewed against the repository on 2026-10-03</span>
+    <span>Guide last reviewed against the repository on 2026-10-17</span>
   </div>
 </footer>
 

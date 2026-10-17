@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.0.2
 
 ### Windows opens its own window on the native image too
 
@@ -141,9 +141,12 @@ motion setting at start and when the window comes back into use, on macOS, Windo
 Linux, iOS, Android and the web. Windows now reads "Show animations in Windows" being off
 as reduced motion; it was read the wrong way round (#89).
 
-`GraphicsLayer`, `AnimationSpec` and `transition()` build these records from Rust. The
-`animate_*_as_state` hooks for `rsx!` are in dioxus-compose, with the rest of the Dioxus
-path.
+`GraphicsLayer`, `AnimationSpec` and `transition()` build these records from Rust. In
+compose-rust's own API, `Modifier.graphics_layer` draws a Compose graphics layer as a
+transform and an opacity, and `animate_float_as_state`, `animate_color_as_state` and
+`animate_offset_as_state` give a Modifier an opacity, a background or a translation that
+the renderer animates to whenever the target changes, with one record and no composition
+while it plays. The same hooks for `rsx!` are in dioxus-compose.
 
 ### The renderer is built for the platform where Compose publishes one
 

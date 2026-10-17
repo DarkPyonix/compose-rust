@@ -52,8 +52,9 @@
     <p class="eyebrow">Troubleshooting</p>
     <h1>Failures you can meet, and how to recognise them</h1>
     <p class="lede">
-      Most problems on this page are one of three things: the renderer is not where the linker
-      expects it, the JDK is the wrong one, or something touched the text path that should not have.
+      Most problems on this page are one of four things: the renderer is not where the linker
+      expects it, the Compose fork's artifacts are missing or stale, the toolchain found the wrong
+      tool, or something touched the text path that should not have.
     </p>
 
     <h2 id="no-library">The build cannot find the renderer</h2>
@@ -67,10 +68,10 @@
     <p>
       Inside a checkout the build prefers a workspace build over anything it could download: the
       static archive in <code>renderer/build/macos</code> (or <code>build/linux</code>,
-      <code>build/linux-arm64</code>) first, then the native image in
-      <code>renderer/build/native-image/dist/lib</code>. The static archive is linked into the
-      executable, so there is nothing to find at startup. If the directory exists but is empty, the
-      renderer has not been built.
+      <code>build/linux-arm64</code>) first, then a native image in
+      <code>renderer/build/native-image/dist/lib</code>, which is what Windows builds. The static
+      archive is linked into the executable, so there is nothing to find at startup. If the
+      directory exists but is empty, the renderer has not been built.
     </p>
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
       <figcaption>shell, macOS</figcaption>
@@ -80,7 +81,7 @@
 ./renderer/desktop/scripts/build-macos.sh --release</code></pre>
     </figure>
     <p>
-      The native image is the exception to "nothing to find": do not move its files apart. It finds itself at runtime and derives where
+      The Windows native image is the exception to "nothing to find": do not move its files apart. It finds itself at runtime and derives where
       Skia and AWT are from its own directory. A library copied somewhere on its own loads and then
       fails to find them.
     </p>
@@ -98,21 +99,115 @@
       silent on purpose, because it asks for a Host with no window.
     </p>
     <p>
-      Otherwise, isolate the halves. The smoke test links a small C host against the library and
-      calls <code>run</code> directly.
+      Otherwise, read what the renderer printed. The Kotlin/Native renderers print a window line,
+      a scene line naming the main dispatcher, and a line for the first frame.
+      <code>smoke-test-kn.sh</code> runs an application and fails, naming the line, unless all
+      three appear.
     </p>
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
       <figcaption>shell</figcaption>
-<pre><code>./renderer/desktop/scripts/smoke-test.sh</code></pre>
+<pre><code>./renderer/desktop/scripts/smoke-test-kn.sh &lt;application&gt; macos   <span class="c"># or linux</span></code></pre>
     </figure>
     <p>
-      A window there and none from Rust points at how your binary is linked. No window there either
-      means the renderer library itself is bad, usually the next problem.
+      No window line means the window never opened, so look at the fork's window modules and the
+      pin (next sections). A window and no frame means the scene was made but never drew. On
+      Windows, <code>smoke-test-windows.ps1</code> links a small C host against the native image
+      and calls <code>run</code> directly.
+    </p>
+
+    <h2 id="fork-artifacts">The build stops: the fork's artifacts are missing</h2>
+    <p>
+      The renderer depends on modules only the Compose fork publishes, and only into
+      <code>~/.m2</code>: the patched Compose under a version of its own (<code>1.11.1001</code>),
+      skiko-awt under <code>0.144.6.1</code>, the Linux targets, and the window modules. Every
+      renderer script checks for them before the Kotlin toolchain runs and stops like this:
+    </p>
+    <figure class="codeblock">
+      <figcaption>output</figcaption>
+<pre><code>error: the Compose fork's artifacts are not in the local Maven repository
+       ...
+       missing, under ~/.m2/repository:
+         org/jetbrains/compose/foundation/foundation/1.11.1001/foundation-1.11.1001.pom
+       fix, from the repository root, then run this build again:
+         renderer/scripts/build-compose.sh --target macosArm64</code></pre>
+    </figure>
+    <p>
+      Run the command it names, then the renderer script again. The check runs first on purpose:
+      when the toolchain itself asks for a coordinate that is not there, the failure is cached and
+      outlives the fix (next section).
+    </p>
+    <p>
+      The check also reads the metadata the fork published. Gradle writes each sibling module at
+      the fork's version whether it was built or not, so <code>foundation 1.11.1001</code> can ask
+      for a <code>runtime 1.11.1001</code> that exists nowhere. <code>build-compose.sh</code> points
+      every such dependency back at upstream on every run, and
+      <code>renderer/scripts/fork-dependencies.sh check</code> lists any that are left. If it lists
+      some, run <code>build-compose.sh</code> again.
+    </p>
+
+    <h2 id="stale-state">The fork is published and resolution still fails</h2>
+    <p>
+      The symptom is a build that keeps failing after <code>~/.m2</code> has the files:
+    </p>
+    <figure class="codeblock">
+      <figcaption>output</figcaption>
+<pre><code>ERROR: Unable to resolve dependency org.jetbrains.compose.foundation:foundation:1.11.1001
+  Unable to download checksums of file foundation-1.11.1001.pom</code></pre>
+    </figure>
+    <p>
+      The cause is the Kotlin toolchain's incremental state. A build that ran before the fork was
+      published recorded the failed resolution in <code>renderer/build/incremental.state</code>. The
+      entry is keyed on the coordinates and repositories alone, not on what <code>~/.m2</code>
+      holds, so every later build replays it as up to date.
+    </p>
+    <p>
+      The renderer scripts now clean it up. Once every fork artifact is present,
+      <code>require-fork-artifacts.sh</code> removes each state file that records a failure to
+      resolve a fork version and prints it:
+      <code>removed a cached resolution failure for a fork version: ...</code>. On a checkout from
+      before that fix, delete <code>renderer/build/incremental.state</code> by hand.
+    </p>
+
+    <h2 id="shadowed">The renderer builds, but with upstream Compose</h2>
+    <p>
+      Nothing fails, and yet what the fork adds is missing: no native text selection menu, or a
+      window that behaves like upstream's. The fork's modules were published at upstream's own
+      version, so the toolchain's cached copy of upstream won. That is why the fork publishes its
+      desktop and macOS Compose and skiko-awt under versions of their own. If you set
+      <code>DXC_COMPOSE_EXTENDED_AS</code>, do not set it to an upstream version.
+    </p>
+
+    <h2 id="git-bash">Windows: Git Bash and PATH</h2>
+    <p>
+      <code>build-native-windows.ps1</code> runs the bash parts of the build under Git Bash. Git
+      Bash changes two things a Windows program relies on, and each showed up as a different
+      failure.
+    </p>
+    <ul>
+      <li><strong><code>has no extended/window; pin a commit that does</code></strong>, although the
+        pinned commit has it. Git Bash rewrites an argument that looks like a path into a Windows
+        path before <code>git.exe</code> sees it, so the sparse pattern
+        <code>/extended/window/</code> matched nothing. The fetch scripts now hand the pattern to
+        git on standard input.</li>
+      <li><strong><code>tar (child): Cannot connect to C: resolve failed</code></strong> while the
+        fork's <code>kotlin.bat</code> unpacks its toolchain. The batch file inherits Git Bash's
+        <code>PATH</code>, where Git's <code>/usr/bin</code> comes before <code>System32</code>, so
+        GNU tar ran and read <code>C:\...</code> as a remote host.</li>
+      <li><strong><code>Can't find shasum on PATH</code></strong> and then a checksum mismatch for
+        every download. The toolchain's launcher runs under busybox and found Git's
+        <code>shasum</code>, a Perl script busybox cannot run.</li>
+    </ul>
+    <p>
+      <code>publish-window.sh</code> now runs <code>kotlin.bat</code> with <code>System32</code>
+      first and Git's own directories taken off <code>PATH</code>, except <code>Git\cmd</code> for
+      git itself. If you run <code>kotlin.bat</code> yourself, start it from PowerShell or
+      <code>cmd</code>, not from Git Bash.
     </p>
 
     <h2 id="wrong-jdk">Wrong JDK: the AWT-on-Darwin trap</h2>
     <p>
-      This applies to the native image on macOS. The good case is the build script stopping with
+      This applies only to a GraalVM native image built on macOS, which compose-rust no longer
+      ships but its GraalVM test path still builds. The good case is the build script stopping with
       <code>no Liberica NIK 25 Full found, and GRAALVM_HOME is not set</code>: it caught the
       problem for you.
     </p>
@@ -223,7 +318,7 @@
   <div class="inner">
     <span>compose-rust &middot; Apache License 2.0</span>
     <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://crates.io/crates/compose-rust">crates.io</a></span>
-    <span>Guide last reviewed against the repository on 2026-10-03</span>
+    <span>Guide last reviewed against the repository on 2026-10-17</span>
   </div>
 </footer>
 

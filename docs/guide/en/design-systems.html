@@ -109,11 +109,11 @@
     <h2 id="modes">Unified and adaptive</h2>
     <p>
       The application chooses at launch. <code>Theme</code> and <code>DesignSystem</code> exist in
-      0.0.1, and these values compile today.
+      0.0.2, and these values compile today.
     </p>
 
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
-      <figcaption>rust, compiles against 0.0.1</figcaption>
+      <figcaption>rust, compiles against 0.0.2</figcaption>
 <pre><code><span class="k">use</span> compose_rust::{<span class="ty">ColorScheme</span>, <span class="ty">DesignSystem</span>, <span class="ty">Theme</span>};
 
 <span class="c">// The same design system on every platform.</span>
@@ -127,8 +127,19 @@
     </figure>
 
     <p>
-      A layer that builds the tree passes the theme to <code>LaunchBuilder::with_theme</code>. Not
-      calling it gives <code>Theme::adaptive(DesignSystem::Material3)</code>: the platform's own
+      The application passes the theme to <code>LaunchBuilder::with_theme</code> before it launches
+      its root:
+    </p>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>rust</figcaption>
+<pre><code><span class="k">fn</span> <span class="f">main</span>() {
+    <span class="ty">LaunchBuilder</span>::<span class="f">new</span>().<span class="f">with_theme</span>(<span class="ty">DARK</span>).<span class="f">application</span>(app);
+}</code></pre>
+    </figure>
+
+    <p>
+      Not calling it gives <code>Theme::adaptive(DesignSystem::Material3)</code>: the platform's own
       look, with Material 3 where the platform has none. The fallback is a required argument, so
       there is no platform for which <code>adaptive</code> has nothing to choose.
     </p>
@@ -160,6 +171,20 @@
       it itself. The Host is not involved, for the same reason that scroll position and focus stay
       in Kotlin.
     </p>
+    <p>
+      A composable that needs to know which system is drawing reads
+      <code>current_design_system()</code>, and <code>theme()</code> returns a handle that changes
+      the theme while the application runs. A change is one record.
+    </p>
+    <p>
+      The samples show both modes.
+      <a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/calculator"><code>calculator</code></a>,
+      <a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/notepad"><code>notepad</code></a>,
+      <a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/todo"><code>todo</code></a> and
+      <a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/chat"><code>chat</code></a>
+      are adaptive. The other seven are unified on Cupertino, and each names its colour scheme too,
+      because the design each rebuilds is a light one or a dark one.
+    </p>
 
     <h2 id="palette">Application colours <span class="pill works">Works</span></h2>
     <p>
@@ -170,7 +195,7 @@
     </p>
 
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
-      <figcaption>rust, compiles against 0.0.1</figcaption>
+      <figcaption>rust, compiles against 0.0.2</figcaption>
 <pre><code><span class="k">use</span> compose_rust::{<span class="ty">Color</span>, <span class="ty">ColorRole</span>, <span class="ty">DesignSystem</span>, <span class="ty">Palette</span>, <span class="ty">Theme</span>};
 
 <span class="k">const</span> <span class="ty">EMBER</span>: <span class="ty">Palette</span> = <span class="ty">Palette</span>::<span class="f">new</span>()
@@ -183,7 +208,9 @@
     <p>
       <code>with</code> gives light and dark together; <code>with_light</code> and
       <code>with_dark</code> give one. Both schemes travel at once, so following the system into
-      dark never asks the Host. A role you do not give keeps the system's value.
+      dark never asks the Host. A role you do not give keeps the system's value. The unified
+      samples, such as <a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/store"><code>store</code></a>,
+      keep the literals their reference is made of in a <code>palette</code> module.
       <code>Palette::check(design_system)</code> lists the pairs your palette leaves short of
       contrast; call it from your own tests for all seven systems. In a platform high-contrast mode
       the palette is set aside and the system's own colours are drawn.
@@ -236,7 +263,7 @@
   <div class="inner">
     <span>compose-rust &middot; Apache License 2.0</span>
     <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://crates.io/crates/compose-rust">crates.io</a></span>
-    <span>Guide last reviewed against the repository on 2026-10-03</span>
+    <span>Guide last reviewed against the repository on 2026-10-17</span>
   </div>
 </footer>
 
