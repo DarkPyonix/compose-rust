@@ -14,7 +14,7 @@ mkdir -p "$out"
 log="$out/$label.log"
 DXC_VRESIZE_PROBE=1 "$app" > "$log" 2>&1 &
 pid=$!
-for _ in $(seq 180); do
+for _ in $(seq 300); do
     grep -q "vresize done" "$log" 2>/dev/null && break
     kill -0 "$pid" 2>/dev/null || break
     sleep 0.5

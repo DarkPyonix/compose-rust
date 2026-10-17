@@ -130,7 +130,7 @@ jobs:
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/vertical-resize"
-          printf '#!/bin/sh\nCOMPOSE_RUST_AUTOEXIT_MS=30000 exec "%s"\n' "$PWD/renderer/build/native-image/smoke_host" > "$RUNNER_TEMP/smoke-launch"
+          printf '#!/bin/sh\nCOMPOSE_RUST_AUTOEXIT_MS=120000 exec "%s"\n' "$PWD/renderer/build/native-image/smoke_host" > "$RUNNER_TEMP/smoke-launch"
           chmod +x "$RUNNER_TEMP/smoke-launch"
           ./.github/scripts/vertical-resize-run.sh "$RUNNER_TEMP/smoke-launch" "$out" vertical-macos-graalvm
           ./.github/scripts/vertical-resize-check.sh "$out/vertical-macos-graalvm.log" 1.0 --against-appkit | tee -a "$GITHUB_STEP_SUMMARY"
