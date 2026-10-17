@@ -89,8 +89,8 @@ echo "ok    $(echo "$exported" | wc -l | tr -d ' ') host functions are exported,
 # not have. So every sample carries the attribute, and anyone building on this crate has
 # to as well.
 #
-# There are no samples until #85 closes, so the loop finds nothing to check and says so;
-# it checks every sample again the moment one is back.
+# Finding no sample at all is a failure too: a glob that matches nothing would otherwise
+# pass on nothing.
 missing=()
 checked=0
 for main in samples/*/src/main.rs; do
@@ -99,7 +99,8 @@ for main in samples/*/src/main.rs; do
     grep -q 'windows_subsystem = "windows"' "$main" || missing+=("$main")
 done
 if [[ "$checked" -eq 0 ]]; then
-    echo "note  no samples to check for the window subsystem (#85)"
+    echo "fail  no sample application was found under samples/ to check" >&2
+    exit 1
 fi
 if [[ "${#missing[@]}" -gt 0 ]]; then
     echo "fail  ${#missing[@]} sample(s) would open a console beside their window:" >&2

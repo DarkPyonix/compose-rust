@@ -99,7 +99,6 @@ Where work exists, it sits in an open pull request or a branch.
 | Design systems split into per-system libraries and an adaptive layer | partial | [#39](https://github.com/DarkPyonix/compose-rust/issues/39) | branch `chore/thisisthepy-coordinates` in the Compose forks |
 | The AWT-free Kotlin/Native renderer as the default on macOS and Linux | partial | [#22](https://github.com/DarkPyonix/compose-rust/issues/22) | branch `feature/native-default-renderer` |
 | The Windows Kotlin/Native renderer | partial | [#24](https://github.com/DarkPyonix/compose-rust/issues/24) | branch `feature/windows-kotlin-native` |
-| Samples rewritten on the authoring API | planned | [#85](https://github.com/DarkPyonix/compose-rust/issues/85) | none |
 | An event when the system colour scheme changes | proposed, awaiting approval | [#97](https://github.com/DarkPyonix/compose-rust/issues/97) | none |
 | Focus-gained and key-up events per node | proposed, awaiting approval | [#98](https://github.com/DarkPyonix/compose-rust/issues/98) | none |
 
@@ -274,15 +273,15 @@ cd renderer && ./kotlin run -m desktop
 ```
 compose-rust/     the crate: boundary, protocol, schema, codegen, renderer download
 renderer/         the Kotlin renderer: interpreter, generated shims, one module per platform
-samples/          12 sample applications, being rewritten; they do not build until then (#85)
+samples/          11 sample applications on the authoring API, and the frames library their tests record through
 docs/             the user guide (docs/guide) and translations (docs/locales)
 scripts/          setup check, quality gate, release and publishing scripts, script tests
 .github/          CI workflows
 ```
 
 The Dioxus adapter and its baseline moved to [dioxus-compose](https://github.com/DarkPyonix/dioxus-compose).
-The samples under `samples/` are being rewritten on the compose-rust authoring API (#85) and do
-not build until then. The design systems moved to the Compose fork, under `extended/design-systems/` in
+The samples under `samples/` are written on the compose-rust authoring API and build with the
+workspace. The design systems moved to the Compose fork, under `extended/design-systems/` in
 [thisisthepy/compose-multiplatform-core-extended](https://github.com/thisisthepy/compose-multiplatform-core-extended).
 
 ---
