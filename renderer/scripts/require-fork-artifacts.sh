@@ -5,13 +5,13 @@
 # Usage: require-fork-artifacts.sh <macos|desktop|linux>...
 #
 # Each name is a renderer module. The modules ask for coordinates only the fork publishes, and
-# only to ~/.m2: the patched Compose under EXTENDED_AS and skiko-awt under
-# SKIKO_AWT_EXTENDED_AS (macos, desktop), and the Linux targets upstream does not publish at
-# all (linux). They are put there by build-compose.sh and scripts/publish-skiko-awt.sh.
+# only to ~/.m2: its Compose under org.thisisthepy.compose at COMPOSE_AS and MATERIAL3_AS, and
+# its skiko-awt at SKIKO_AWT_AS (desktop). They are put there by build-compose.sh and
+# scripts/publish-skiko-awt.sh.
 #
 # Why this has to run first rather than letting the build fail: when the toolchain resolves one
 # of those coordinates and the local repository does not have it, it asks the remote
-# repositories, fails with "Unable to download checksums of file foundation-1.11.1001.pom", and
+# repositories, fails with "Unable to download checksums of file foundation-1.11.1-ext.1.pom", and
 # keeps that result in the renderer's own build directory (build/incremental.state). The entry is
 # keyed on the coordinates and repositories alone, not on what ~/.m2 holds, so every later build
 # replays it as up to date, even once ~/.m2 has the files, and nothing in the message says where
@@ -29,6 +29,9 @@
 # And, for every one of those publications, that the dependencies its .pom and .module name at a
 # fork version are themselves published at that version (fork-dependencies.sh check). One that is
 # not sends the toolchain to the network the same way.
+#
+# The window modules (org.thisisthepy.compose.window) are versioned on their own and published
+# by publish-window.sh, which the build scripts run after this check.
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -46,9 +49,11 @@ die() {
 
 [[ $# -gt 0 ]] || die "usage: require-fork-artifacts.sh <macos|desktop|linux>..."
 
-compose_as="$(sed -n 's/^EXTENDED_AS="\([^"]*\)"$/\1/p' "$compose_script" | head -1)"
-skiko_as="$(sed -n 's/^SKIKO_AWT_EXTENDED_AS="\([^"]*\)"$/\1/p' "$compose_script")"
-[[ -n "$compose_as" && -n "$skiko_as" ]] || die "$compose_script names no EXTENDED_AS or SKIKO_AWT_EXTENDED_AS"
+compose_as="$(sed -n 's/^COMPOSE_AS="\([^"]*\)"$/\1/p' "$compose_script")"
+material3_as="$(sed -n 's/^MATERIAL3_AS="\([^"]*\)"$/\1/p' "$compose_script")"
+skiko_as="$(sed -n 's/^SKIKO_AWT_AS="\([^"]*\)"$/\1/p' "$compose_script")"
+[[ -n "$compose_as" && -n "$material3_as" && -n "$skiko_as" ]] ||
+    die "$compose_script names no COMPOSE_AS, MATERIAL3_AS or SKIKO_AWT_AS"
 
 missing=()
 fixes=()
@@ -77,18 +82,23 @@ for module in "$@"; do
     module_file="$renderer_dir/$module/module.yaml"
     [[ -f "$module_file" ]] || die "missing $module_file"
 
-    # `- group:artifact:version` lines naming Compose or skiko, without a scope after them.
+    # `- group:artifact:version` lines naming the fork's Compose or skiko-awt, without a scope
+    # after them.
     while read -r group artifact version; do
-        case "$version:$artifact" in
-            "$compose_as":*|"$skiko_as":*|*:*-linuxx64|*:*-linuxarm64) ;;
+        case "$group:$version" in
+            org.thisisthepy.compose.window*) continue ;;
+            org.thisisthepy.compose.*:"$compose_as"|org.thisisthepy.compose.*:"$material3_as") ;;
+            org.jetbrains.skiko:"$skiko_as") ;;
             *) continue ;;
         esac
         case "$version" in
-            "$compose_as") add_check "$version" "$variant" "$compose_fix" ;;
-            "$skiko_as")   add_check "$version" "" "scripts/publish-skiko-awt.sh <work-dir>" ;;
+            "$skiko_as") ;;
+            *) add_check "$version" "$variant" "$compose_fix" ;;
         esac
         names=("$artifact")
-        if [[ -n "$variant" && "$group" == org.jetbrains.compose* ]]; then
+        # The desktop module publishes one jar per system (desktop-jvm-<os>-<arch>), not one per
+        # target, so its root is all there is to look for.
+        if [[ -n "$variant" && "$group" == org.thisisthepy.compose.* && "$group" != org.thisisthepy.compose.desktop ]]; then
             names+=("$artifact-$variant")
         fi
         for name in "${names[@]}"; do
@@ -104,13 +114,12 @@ for module in "$@"; do
                 fi
             done
         done
-    done < <(sed -En 's/^[[:space:]]*-[[:space:]]*(org\.jetbrains\.(compose[A-Za-z0-9.]*|skiko)):([A-Za-z0-9._-]+):([A-Za-z0-9._-]+)[[:space:]]*$/\1 \3 \4/p' "$module_file")
+    done < <(sed -En 's/^[[:space:]]*-[[:space:]]*(org\.thisisthepy\.compose[A-Za-z0-9.]*|org\.jetbrains\.skiko):([A-Za-z0-9._-]+):([A-Za-z0-9._-]+)[[:space:]]*$/\1 \2 \3/p' "$module_file")
 done
 
 # The files being there is half of it. A .pom or .module the fork published names its siblings
 # at the fork version, and a sibling nobody published at that version sends the toolchain to the
-# network just as a missing file does. build-compose.sh points those back at upstream; this
-# catches a repository where that step did not run.
+# network just as a missing file does: a build that stopped half way leaves exactly that.
 for check in ${checks[@]+"${checks[@]}"}; do
     IFS="|" read -r version target fix <<< "$check"
     unpublished="$("$script_dir/fork-dependencies.sh" check "$version" "$target")" && continue
@@ -126,7 +135,7 @@ if [[ ${#missing[@]} -eq 0 ]]; then
         while IFS= read -r stale; do
             rm -f "$stale"
             echo "removed a cached resolution failure for a fork version: $stale"
-        done < <(VERSIONS="$compose_as $skiko_as" find "$state_dir" -maxdepth 1 -type f -exec perl -0777 -e '
+        done < <(VERSIONS="$compose_as $material3_as $skiko_as" find "$state_dir" -maxdepth 1 -type f -exec perl -0777 -e '
             my @versions = split " ", $ENV{VERSIONS};
             for my $file (@ARGV) {
                 open my $in, "<", $file or next;

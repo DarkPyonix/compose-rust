@@ -197,7 +197,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p ~/.m2/repository/org/jetbrains
-          cp -R "$RUNNER_TEMP/compose-fork-desktop/." ~/.m2/repository/org/jetbrains/
+          cp -R "$RUNNER_TEMP/compose-fork-desktop/." ~/.m2/repository/org/
 
       - name: Build the Windows renderer
         shell: powershell

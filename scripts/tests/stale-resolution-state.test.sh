@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # When the Kotlin toolchain resolves a coordinate only the Compose fork publishes before the fork
 # has published it, the resolution fails with "Unable to download checksums of file
-# foundation-1.11.1001.pom" and the toolchain keeps that result in the renderer's
+# foundation-1.11.1-ext.1.pom" and the toolchain keeps that result in the renderer's
 # build/incremental.state. The entry is keyed on the coordinates and repositories, not on what
 # ~/.m2 holds, so every later build replays the failure, even once ~/.m2 has the files.
 #
@@ -25,8 +25,9 @@ work="$(mktemp -d "$repo/.scratch/stale-resolution-state-test.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 
 compose_script="$repo/renderer/scripts/build-compose.sh"
-fork_as="$(sed -n 's/^EXTENDED_AS="\([^"]*\)"$/\1/p' "$compose_script" | head -1)"
-[[ -n "$fork_as" ]] || { fail "build-compose.sh names no EXTENDED_AS"; exit 1; }
+fork_as="$(sed -n 's/^COMPOSE_AS="\([^"]*\)"$/\1/p' "$compose_script")"
+material3_as="$(sed -n 's/^MATERIAL3_AS="\([^"]*\)"$/\1/p' "$compose_script")"
+[[ -n "$fork_as" && -n "$material3_as" ]] || { fail "build-compose.sh names no COMPOSE_AS or MATERIAL3_AS"; exit 1; }
 
 tree="$work/tree"
 mkdir -p "$tree/renderer/scripts" "$tree/renderer/macos"
@@ -49,10 +50,10 @@ plant_states() {
     failure_state UnableToDownloadChecksums "foundation-$fork_as.pom" > "$states/stale-checksums"
     failure_state UnableToResolveDependency "ui-$fork_as.module" > "$states/stale-resolve"
     failure_state UnableToDownloadFile "kotlin-stdlib-0.0.1.pom" > "$states/other-version"
-    printf '{\n    "inputValues": {"dependencies": "org.jetbrains.compose.ui:ui:%s"},\n    "serializedOutput": "{}"\n}\n' "$fork_as" > "$states/resolved"
+    printf '{\n    "inputValues": {"dependencies": "org.thisisthepy.compose.ui:ui:%s"},\n    "serializedOutput": "{}"\n}\n' "$fork_as" > "$states/resolved"
 }
 
-# A ~/.m2 holding every file the macos module names at the fork version.
+# A ~/.m2 holding every file the macos module names at the fork's versions.
 home_complete="$work/home-complete"
 while read -r group artifact version; do
     for name in "$artifact" "$artifact-macosarm64"; do
@@ -60,7 +61,7 @@ while read -r group artifact version; do
         mkdir -p "$directory"
         for extension in pom module; do echo stand-in > "$directory/$name-$version.$extension"; done
     done
-done < <(sed -En "s/^[[:space:]]*-[[:space:]]*(org\.jetbrains\.compose[A-Za-z0-9.]*):([A-Za-z0-9._-]+):($fork_as)[[:space:]]*\$/\1 \2 \3/p" \
+done < <(sed -En "s/^[[:space:]]*-[[:space:]]*(org\.thisisthepy\.compose\.(ui|foundation|material3|runtime)[A-Za-z0-9.]*):([A-Za-z0-9._-]+):($fork_as|$material3_as)[[:space:]]*\$/\1 \3 \4/p" \
     "$tree/renderer/macos/module.yaml")
 [[ -d "$home_complete/.m2" ]] || { fail "renderer/macos/module.yaml names nothing at $fork_as"; exit 1; }
 home_empty="$work/home-empty"

@@ -19,8 +19,13 @@ fork_dir="$("$repo/scripts/fetch-fork-window.sh")"
 window="$fork_dir/extended/window"
 
 modules=(common graalvm/graalvm-macos graalvm/graalvm-linux)
+# native/macos compiles against the fork's Compose for macosArm64, which only a build that ran
+# build-compose.sh --target macosArm64 has; a desktop-only build has no use for it.
 case "$(uname -s)" in
-    Darwin) modules+=(native/macos) ;;
+    Darwin)
+        if [[ -d "$HOME/.m2/repository/org/thisisthepy/compose/ui/ui-macosarm64" ]]; then
+            modules+=(native/macos)
+        fi ;;
 esac
 
 # The fork's project lists every module, and a machine that cannot build one of them lists
@@ -71,7 +76,7 @@ esac
 # compiles against the patched Compose for linuxX64, which only a machine that ran build-compose.sh
 # has, and the GraalVM image build has no use for it.
 if [[ "$(uname -s)" == "Linux" && "$(uname -m)" == "x86_64" && -d "$window/native/linux" &&
-      -d "$HOME/.m2/repository/org/jetbrains/compose/ui/ui-linuxx64" ]]; then
+      -d "$HOME/.m2/repository/org/thisisthepy/compose/ui/ui-linuxx64" ]]; then
     linux_module="$window/native/linux/module.yaml"
     cp "$linux_module" "$linux_module.all"
     trap 'mv "$linux_module.all" "$linux_module"; mv "$window/project.yaml.all" "$window/project.yaml"' EXIT
