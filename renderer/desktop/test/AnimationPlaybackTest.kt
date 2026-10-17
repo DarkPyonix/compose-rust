@@ -30,6 +30,7 @@ import dev.darkpyonix.composerust.protocol.TransformFunctionKind
 import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.node.TableError
+import androidx.compose.runtime.snapshots.Snapshot
 import java.lang.management.ManagementFactory
 import kotlin.math.abs
 import kotlin.math.sqrt
@@ -393,10 +394,23 @@ class AnimationPlaybackTest {
         }
         assertEquals(emptyList(), table.drainErrors())
         var time = 0.0
-        repeat(200) { frame(time); time += 16.0 }
-        val before = threads.currentThreadAllocatedBytes
-        repeat(1000) { frame(time); time += 16.0 }
-        val perFrame = (threads.currentThreadAllocatedBytes - before) / 1000
+        // Played inside a snapshot of its own. The values are snapshot state, and in a test
+        // process where another test has started Compose's global apply loop, every apply
+        // gives the global snapshot a new set of modified objects and its states new records:
+        // that is the snapshot system's cost, paid by whatever else writes state, and it comes
+        // and goes with the order the tests run in. The table's own work is what is measured.
+        val snapshot = Snapshot.takeMutableSnapshot()
+        var perFrame = 0L
+        try {
+            snapshot.enter {
+                repeat(200) { frame(time); time += 16.0 }
+                val before = threads.currentThreadAllocatedBytes
+                repeat(1000) { frame(time); time += 16.0 }
+                perFrame = (threads.currentThreadAllocatedBytes - before) / 1000
+            }
+        } finally {
+            snapshot.dispose()
+        }
         assertEquals(0L, perFrame, "bytes allocated per frame with a hundred animations playing")
 
         val ending = NodeTable()
