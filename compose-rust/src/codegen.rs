@@ -446,16 +446,15 @@ object Protocol {
                         )
                     }
                     TAG_SET_MODIFIER -> {
-                        requireRecordLength(length, 28, offset)
+                        // The modifier's tag fixes the record's length: 28 bytes, and eight
+                        // more for each word its value takes beyond the first two.
+                        if (length < 28) requireRecordLength(length, 28, offset)
+                        val modifierTag = readU16(batch, base, available, offset + 10)
+                        requireRecordLength(length, 28 + 8 * modifierExtraWords(modifierTag, offset + 10), offset)
                         Mutation.SetModifier(
                             readU32(batch, base, available, offset + 4).toInt(),
                             readU16(batch, base, available, offset + 8),
-                            modifier(
-                                readU16(batch, base, available, offset + 10),
-                                readU64(batch, base, available, offset + 12),
-                                readU64(batch, base, available, offset + 20),
-                                offset + 10,
-                            ),
+                            modifier(modifierTag, batch, base, available, offset + 12, offset + 10),
                         )
                     }
                     TAG_INSERT -> {
@@ -1020,13 +1019,37 @@ object Protocol {
         }
     }
 
-    private fun modifier(tag: Int, first: Long, second: Long, offset: Int): Modifier = when (tag) {
+    /** A word that says yes or no. Any value but 0 and 1 is a record the sides disagree on. */
+    private fun flag(word: Long, offset: Int): Boolean = when (word) {
+        0L -> false
+        1L -> true
+        else -> throw ProtocolException("invalid flag $word", offset)
+    }
+
+    /**
+     * How many eight byte words a modifier's value takes beyond the two every record has.
+     * The tag fixes it, so a record of any other length is refused before it is read.
+     */
+    private fun modifierExtraWords(tag: Int, offset: Int): Int = when (tag) {
+"#,
+    );
+    for variant in MODIFIER_SCHEMA {
+        writeln!(output, "        {} -> {}", variant.tag, variant.extra_words).unwrap();
+    }
+    output.push_str(
+        r#"        else -> throw ProtocolException("unknown modifier tag $tag", offset)
+    }
+
+    private fun modifier(tag: Int, batch: ByteBuffer, base: Int, available: Int, at: Int, offset: Int): Modifier {
+        val first = readU64(batch, base, available, at)
+        val second = readU64(batch, base, available, at + 8)
+        return when (tag) {
 "#,
     );
     for variant in MODIFIER_SCHEMA {
         write!(
             output,
-            "        {} -> Modifier.{}",
+            "            {} -> Modifier.{}",
             variant.tag, variant.name
         )
         .unwrap();
@@ -1044,7 +1067,8 @@ object Protocol {
         }
     }
     output.push_str(
-        r#"        else -> throw ProtocolException("unknown modifier tag $tag", offset)
+        r#"            else -> throw ProtocolException("unknown modifier tag $tag", offset)
+        }
     }
 
     /**
@@ -1690,6 +1714,72 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             property: PropertyKind::Collapsible,
             value: PropertyValue::Bool(true),
         },
+        // A box whose children sit where the Host put them, and the seven modifiers an HTML
+        // and CSS screen is drawn with. Two of them are longer than 28 bytes, which is the
+        // rule both decoders have to read the same way. They come after every older record,
+        // so the bytes of those are where they always were.
+        Mutation::Create {
+            node_id: 8,
+            widget: WidgetKind::AbsoluteBox,
+        },
+        Mutation::SetModifier {
+            node_id: 8,
+            index: 0,
+            modifier: Modifier::Offset { x: 12.5, y: -4.0 },
+        },
+        Mutation::SetModifier {
+            node_id: 8,
+            index: 1,
+            modifier: Modifier::RequiredSize {
+                width: 320.0,
+                height: 180.0,
+            },
+        },
+        Mutation::SetModifier {
+            node_id: 8,
+            index: 2,
+            modifier: Modifier::BorderEach {
+                top: 1.0,
+                right: 2.0,
+                bottom: 3.0,
+                left: 4.0,
+                top_paint: Paint::Literal(Color::argb(0xff11_2233)),
+                right_paint: Paint::Role(ColorRole::Outline),
+                bottom_paint: Paint::Literal(Color::argb(0x8044_5566)),
+                left_paint: Paint::Role(ColorRole::Primary),
+            },
+        },
+        Mutation::SetModifier {
+            node_id: 8,
+            index: 3,
+            modifier: Modifier::CornerEach {
+                top_left: 4.0,
+                top_right: 8.0,
+                bottom_right: 12.0,
+                bottom_left: 16.0,
+            },
+        },
+        Mutation::SetModifier {
+            node_id: 8,
+            index: 4,
+            modifier: Modifier::Shadow {
+                x: 0.0,
+                y: 2.0,
+                blur: 6.0,
+                spread: -1.0,
+                paint: Paint::Literal(Color::argb(0x4000_0000)),
+            },
+        },
+        Mutation::SetModifier {
+            node_id: 8,
+            index: 5,
+            modifier: Modifier::Clip(true),
+        },
+        Mutation::SetModifier {
+            node_id: 8,
+            index: 6,
+            modifier: Modifier::Alpha(0.5),
+        },
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {
@@ -1793,8 +1883,8 @@ pub fn generate_vector_description() -> String {
   "byteOrder": "little-endian",
   "mutations": {{
     "file": "mutations.bin",
-    "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run and split pane property",
-    "recordCount": 46,
+    "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property and the HTML and CSS drawing elements",
+    "recordCount": 55,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
@@ -1846,17 +1936,21 @@ fn kotlin_type(ty: FieldType) -> String {
         FieldType::U64 => "Long".to_owned(),
         FieldType::Paint => "Paint".to_owned(),
         FieldType::Role(name) => format!("{KOTLIN_PACKAGE}.{name}"),
+        FieldType::Bool => "Boolean".to_owned(),
     }
 }
 
-/// The `u64` word a field lives in, and whether it occupies the high 32 bits.
-fn slot_word(slot: FieldSlot) -> (&'static str, bool) {
-    match slot {
-        FieldSlot::FirstLow | FieldSlot::First => ("first", false),
-        FieldSlot::FirstHigh => ("first", true),
-        FieldSlot::SecondLow | FieldSlot::Second => ("second", false),
-        FieldSlot::SecondHigh => ("second", true),
-    }
+/// The Kotlin expression for the `u64` word a field lives in, and whether it occupies the
+/// high 32 bits. The first two words are read for every modifier; a word past them is read
+/// only by the modifier that has it.
+fn slot_word(slot: FieldSlot) -> (String, bool) {
+    let (index, high) = slot.word();
+    let word = match index {
+        0 => "first".to_owned(),
+        1 => "second".to_owned(),
+        _ => format!("readU64(batch, base, available, at + {})", 8 * index),
+    };
+    (word, high)
 }
 
 fn modifier_decode_expression(field: &FieldSchema) -> String {
@@ -1869,9 +1963,10 @@ fn modifier_decode_expression(field: &FieldSchema) -> String {
     match field.ty {
         FieldType::Float => format!("kotlin.Float.fromBits({narrow})"),
         FieldType::U32 => narrow,
-        FieldType::U64 => word.to_owned(),
+        FieldType::U64 => word,
         FieldType::Paint => format!("paint({word}, offset)"),
         FieldType::Role(name) => format!("{}({narrow}, offset)", lower_camel(name)),
+        FieldType::Bool => format!("flag({word}, offset)"),
     }
 }
 
