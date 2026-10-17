@@ -85,11 +85,12 @@ jobs:
           done
 
       - name: Build hand-check against the GraalVM renderer
-        shell: bash
+        # From PowerShell: Git Bash puts its own link (coreutils) ahead of MSVC's link.exe.
+        shell: pwsh
         run: |
-          set -euo pipefail
-          export COMPOSE_RUST_RENDERER_DIR="$(cygpath -w "$PWD/renderer/build/native-image/dist")"
+          $env:COMPOSE_RUST_RENDERER_DIR = Join-Path $PWD "renderer\build\native-image\dist"
           cargo build --release --manifest-path compose-rust/tests/fixtures/hand-check/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Package it
         # bin\ holds hand-check.exe beside the renderer and its libraries; lib\ beside bin\ is
