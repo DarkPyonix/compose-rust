@@ -37,11 +37,11 @@ private external fun setWindowMaterial(asked: Int)
 fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
     try {
         configureRuntimeLayout(CTypeConversion.toJavaString(libraryDir))
-        // The window of our own, while it is being built. Off unless asked for: every
-        // sample and every test still rides the toolkit's path until this one can carry
-        // them.
+        // The window of our own. On Windows it is the window every run opens, with no
+        // variable asking for it: the shipped path has no toolkit window. On macOS and Linux
+        // it is still asked for by name until those windows can carry every sample.
         //
-        // One per platform, and each asked for by name. The C files behind them answer
+        // One per platform. The C files behind them answer
         // for the same symbols, so the one compiled into an image is the one any of them
         // would reach: asking for the Windows window on a Mac would open an AppKit window
         // and read its view as a Direct3D device. Which platform this is decides, rather
@@ -72,8 +72,11 @@ fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
             runAppKitSpike()
             return@rendererRun 0
         }
-        if (System.getenv("DXC_WIN32_WINDOW") != null && platform.startsWith("Windows")) {
-            runWin32Window()
+        if (platform.startsWith("Windows")) {
+            runWin32Window(
+                (System.getenv("COMPOSE_RUST_AUTOEXIT_MS") ?: System.getenv("DIOXUS_COMPOSE_AUTOEXIT_MS"))
+                    ?.toLongOrNull(),
+            )
             return@rendererRun 0
         }
         if (System.getenv("DXC_X11_WINDOW") != null && platform.startsWith("Linux")) {

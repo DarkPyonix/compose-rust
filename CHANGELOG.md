@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Windows opens its own window on the native image too
+
+The Win32 window, which the Kotlin/Native renderer already ships, is now what every Windows
+run of the native image opens, with no environment variable asking for it. Both renderers
+compile the same window code and draw resize frames the same way: on the CPU, copied into
+the window before the resize returns (`DXC_RASTER_RESIZE=0` keeps them on the GPU). Control
+with a letter or a digit now reaches a text field as that key, so select all, copy, cut,
+paste and undo work in the window of our own.
+
 ### The Dioxus path lives in dioxus-compose
 
 The Dioxus adapter, the Dioxus baseline and the twelve `rsx!` samples moved to

@@ -300,9 +300,10 @@ private fun forgetFrameCallback() = setDrawCallback(
  * composed, painted by Skia into a swapchain buffer Direct3D gave us, reaching the screen
  * with no toolkit anywhere between.
  *
- * Reached by setting `DXC_WIN32_WINDOW`, so the ordinary path is untouched.
+ * The window every Windows run of the native image opens. [autoExitMillis], when given, closes
+ * it after that long, for the smoke runs.
  */
-internal fun runWin32Window() {
+internal fun runWin32Window(autoExitMillis: Long? = null) {
     // The Host is started before there is a window, because what the window should look
     // like is in its first batch and a window cannot be told afterwards. Started on this
     // thread, which is the one every later call to it is made from: the boundary is a
@@ -333,10 +334,7 @@ internal fun runWin32Window() {
         window.queue,
     )
     val measured = window.measure()
-    System.err.println(
-        "compose-rust: a window of our own, ${measured.width}x${measured.height} " +
-            "at ${measured.scale}x, with no toolkit in it",
-    )
+    WindowStartReport.windowOpened(measured.width, measured.height, measured.scale)
 
     val report = System.getenv("DXC_REPORT_INPUT") != null
     // Held rather than measured once. The window is resizable, and what the scene is told
@@ -366,6 +364,7 @@ internal fun runWin32Window() {
     // The application's own tree, drawn by the same interpreter the toolkit path uses.
     // Nothing in it knows which of the two it is running on, which is the point.
     scene.setContent { dev.darkpyonix.composerust.runtime.ComposeRustContent(host) }
+    WindowStartReport.sceneCreated(size.width, size.height, measured.scale)
 
     // What a frame is, wherever the ask comes from. The loop below is one caller and the
     // window's own resize handling is the other, and they draw the same frame.
@@ -383,9 +382,11 @@ internal fun runWin32Window() {
             size = at
             painted = true
             drew = true
+            WindowStartReport.frameDrawn(at.width, at.height)
         }
     }
     registerFrameCallback()
+    val started = System.nanoTime()
 
     try {
         // Rests only when the last turn found nothing to do. A frame that drew has
@@ -393,6 +394,9 @@ internal fun runWin32Window() {
         // that would halve the rate of anything that animates.
         var busy = true
         while (!isWindowClosed()) {
+            if (autoExitMillis != null && (System.nanoTime() - started) / 1_000_000 >= autoExitMillis) {
+                break
+            }
             // Cleared before the window is given its turn rather than after. A drag of an
             // edge draws its frames from inside that turn, and a turn that forgot them
             // would be a window that said nothing about itself for the length of a drag,
