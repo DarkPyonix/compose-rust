@@ -2,7 +2,7 @@
 
 ## 한 줄 정의
 
-Rust(Dioxus)로 선언형 UI를 쓰고, AOT 컴파일된 Compose Multiplatform이 그리게 하는 네이티브 GUI 스택입니다.
+Rust에서 Compose 모양의 API(compose-rust 자신의 API, Dioxus는 그 위에 얹히는 층)로 선언형 UI를 쓰고, AOT 컴파일된 Compose Multiplatform이 그리게 하는 네이티브 GUI 스택입니다.
 
 ## 배경
 
@@ -73,18 +73,18 @@ SPEC과 코드가 어긋나면 SPEC이 기준입니다. SPEC이 틀렸다면 SPE
 
 | 항목 | 요구사항 | 상태 | 이슈 | PR 또는 브랜치 |
 |---|---|---|---|---|
-| compose-rust 작성 API | FR-39 | 진행 중 | #23, #64 | `feature/compose-api`(PR 없음) |
+| compose-rust 작성 API | FR-39 | 진행 중 | #23, #64 | 초안 PR #112(`feature/compose-api`) |
 | Web 직결 호출 | PR-6 | 재측정 중 | #54 | PR #84 |
 | Transform과 렌더러 애니메이션 | FR-41 | 진행 중 | #105 | PR #83 |
 | HTML/CSS 그리기 원소 | FR-42 | 진행 중 | #104 | PR #74 |
-| HTML 텍스트 속성과 측정 호출 | FR-40, PR-2.1 | 진행 중 | #106 | `feat/measure-call`(PR 없음) |
+| HTML 텍스트 속성과 측정 호출 | FR-40, PR-2.1 | 진행 중 | #106 | 초안 PR #110(`feat/measure-call`) |
 | OS 글자 크기와 앱 확대 | FR-43 | 진행 중 | #68 | PR #77(OS 글자 크기만) |
-| 디자인 시스템 두 층과 남은 포크 이동 | FR-14.11, D19 | 진행 중 | #39 | 포크의 `chore/thisisthepy-coordinates` |
+| 디자인 시스템 두 층과 남은 포크 이동 | FR-14.11, D19 | 진행 중 | #39 | 포크의 `chore/thisisthepy-coordinates`, 초안 PR #109 |
 | 동작 키 | FR-30.1 | 진행 중 | #57 | PR #76 |
 | 제목을 플랫폼 캡션에 | FR-30.2 | `Agreed`, 작업 없음 | #79 | 없음 |
 | 샘플 다시 쓰기 | 없음 | 계획 | #85 | 없음 |
-| Windows Kotlin/Native 렌더러 | NFR-13, D18 | 진행 중 | #24 | `feature/windows-kotlin-native`(PR 없음) |
-| AWT 없는 렌더러를 기본으로 | NFR-14, D4 | 진행 중 | #22 | `feature/native-default-renderer`(PR 없음) |
+| Windows Kotlin/Native 렌더러 | NFR-13, D18 | 진행 중 | #24 | 초안 PR #119(`feature/windows-kotlin-native`)와 초안 PR #174 |
+| AWT 없는 렌더러를 기본으로 | NFR-14, D4 | 진행 중(macOS와 Linux는 병합, Windows가 남음) | #22(닫힘) | PR #113(3be2ec74 병합), Windows는 PR #119, #174 |
 | 시스템 색 구성표 이벤트 | FR-44 | `Draft`, 소유자 승인 대기 | #97 | 없음 |
 | 포커스 얻음과 키 뗌 이벤트 | FR-45 | `Draft`, 소유자 승인 대기 | #98 | 없음 |
 
