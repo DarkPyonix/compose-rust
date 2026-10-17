@@ -1127,6 +1127,12 @@ mod tests {
                 .collect()
         }
 
+        /// What is on screen now, without the nodes later batches removed. A control is
+        /// looked up here, so a press never names a handler that went with its node.
+        fn live(&self) -> Vec<Mutation<'_>> {
+            sample_frames::live(self.mutations())
+        }
+
         fn texts(&self) -> Vec<String> {
             self.mutations()
                 .iter()
@@ -1147,7 +1153,7 @@ mod tests {
         /// the run belongs to whichever screen is showing now, and the older node is
         /// something the Renderer has already thrown away.
         fn node_saying(&self, label: &str) -> Option<u32> {
-            self.mutations()
+            self.live()
                 .iter()
                 .rev()
                 .find_map(|mutation| match mutation {
@@ -1177,7 +1183,7 @@ mod tests {
 
         /// The node that last drew this asset.
         fn node_drawing(&self, asset_id: u32) -> Option<u32> {
-            self.mutations()
+            self.live()
                 .iter()
                 .rev()
                 .find_map(|mutation| match mutation {
@@ -1192,7 +1198,7 @@ mod tests {
 
         /// What each node was last inserted into.
         fn parents(&self) -> Vec<(u32, u32)> {
-            self.mutations()
+            self.live()
                 .iter()
                 .filter_map(|mutation| match mutation {
                     Mutation::Insert {
@@ -1212,7 +1218,7 @@ mod tests {
 
         /// The handler a node declared for a press.
         fn handler_of(&self, node: u32) -> Option<u64> {
-            self.mutations()
+            self.live()
                 .iter()
                 .rev()
                 .find_map(|mutation| match mutation {
