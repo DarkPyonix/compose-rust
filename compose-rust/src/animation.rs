@@ -291,7 +291,7 @@ pub fn transition(
     };
     let colour = matches!(
         property,
-        AnimatedProperty::Color | AnimatedProperty::Background
+        AnimatedProperty::Color | AnimatedProperty::Background | AnimatedProperty::BorderColor
     );
     let transform = property == AnimatedProperty::Transform;
     Animation {

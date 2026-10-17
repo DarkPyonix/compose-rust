@@ -1271,7 +1271,7 @@ fn decode_animation(record: &[u8]) -> Result<crate::schema::Animation<'static>, 
     let play_state: PlayState = byte_enum(record, 16)?;
     let colour = matches!(
         property,
-        AnimatedProperty::Color | AnimatedProperty::Background
+        AnimatedProperty::Color | AnimatedProperty::Background | AnimatedProperty::BorderColor
     );
     let interpolation = match (colour, read_u8(record, 17)?) {
         (false, 0) => None,
@@ -1353,7 +1353,9 @@ fn decode_animation(record: &[u8]) -> Result<crate::schema::Animation<'static>, 
                 }
                 (KeyframeValue::Alpha(value), 4)
             }
-            AnimatedProperty::Color | AnimatedProperty::Background => {
+            AnimatedProperty::Color
+            | AnimatedProperty::Background
+            | AnimatedProperty::BorderColor => {
                 // A colour can be mixed with another colour; a brush cannot.
                 let paint = Paint::from_bits(read_u64(record, value_at)?)
                     .filter(|paint| !matches!(paint, Paint::Asset(_)))

@@ -341,9 +341,20 @@ class AnimationPlaybackTest {
         table.apply(Mutation.StartAnimation(animation(AnimatedProperty.Background, paint(0xFF000000), paint(0xFFFFFFFF))))
         assertEquals(listOf(TableError.INVALID_ANIMATION), table.drainErrors().map { it.code }, "no Background")
 
-        table.apply(Mutation.Create(2, WidgetKind.Box))
+        table.apply(Mutation.Create(2, WidgetKind.Spacer))
         table.apply(Mutation.StartAnimation(animation(AnimatedProperty.Color, paint(0xFF000000), paint(0xFFFFFFFF)).copy(nodeId = 2)))
-        assertEquals(listOf(TableError.INVALID_ANIMATION), table.drainErrors().map { it.code }, "a Box has no colour")
+        assertEquals(listOf(TableError.INVALID_ANIMATION), table.drainErrors().map { it.code }, "a Spacer has no colour")
+
+        // A layout container's colour is the one its text inherits, so it can be animated.
+        table.apply(Mutation.Create(3, WidgetKind.Box))
+        table.apply(Mutation.StartAnimation(animation(AnimatedProperty.Color, paint(0xFF000000), paint(0xFFFFFFFF)).copy(nodeId = 3)))
+        assertEquals(emptyList(), table.drainErrors(), "a Box's colour is what its text inherits")
+
+        table.apply(Mutation.StartAnimation(animation(AnimatedProperty.BorderColor, paint(0xFF000000), paint(0xFFFFFFFF))))
+        assertEquals(listOf(TableError.INVALID_ANIMATION), table.drainErrors().map { it.code }, "no Border or BorderEach")
+        table.apply(Mutation.StartAnimation(animation(AnimatedProperty.BorderColor, paint(0xFF000000), paint(0xFFFFFFFF))))
+        table.apply(Mutation.SetModifier(NODE, 1, ProtocolModifier.Border(1f, Paint.Literal(0))))
+        assertEquals(emptyList(), table.drainErrors(), "the Border arrived in the same batch")
     }
 
     /** A role in a keyframe is resolved against the theme every frame. */

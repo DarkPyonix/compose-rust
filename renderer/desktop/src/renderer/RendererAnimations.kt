@@ -180,8 +180,8 @@ internal object WebAnimationTiming {
 /**
  * The values a node draws while an animation plays on it, read in the draw phase only.
  *
- * Nothing here is read during composition except [twoLayers], so writing a value every
- * frame redraws the node and neither recomposes nor remeasures it.
+ * Nothing here is read during composition except [twoLayers] and [borderAnimated], so
+ * writing a value every frame redraws the node and neither recomposes nor remeasures it.
  */
 class AnimatedNode internal constructor() {
     /** The opacity an animation shows, or NaN where none does. */
@@ -206,6 +206,16 @@ class AnimatedNode internal constructor() {
      */
     internal val twoLayers = mutableStateOf(false)
 
+    /** The colour every side of the border shows, as `Color.value`, or [NO_COLOR]. */
+    internal val borderColor = mutableLongStateOf(NO_COLOR)
+
+    /**
+     * Whether a uniform `Border` has to be drawn by the layer that can repaint it. Read in
+     * composition, and set once, the first time a border colour animation plays on the node,
+     * so a border nothing animates is still drawn by Compose's own modifier.
+     */
+    internal val borderAnimated = mutableStateOf(false)
+
     /** The colour a Text draws with: the animation's while one plays, its own otherwise. */
     val textColorProducer: ColorProducer = ColorProducer {
         val bits = textColor.longValue
@@ -214,6 +224,11 @@ class AnimatedNode internal constructor() {
 
     internal fun backgroundOverride(): Color? {
         val bits = background.longValue
+        return if (bits == NO_COLOR) null else Color(bits.toULong())
+    }
+
+    internal fun borderOverride(): Color? {
+        val bits = borderColor.longValue
         return if (bits == NO_COLOR) null else Color(bits.toULong())
     }
 
@@ -277,6 +292,9 @@ class AnimationTable internal constructor(private val table: NodeTable) {
         entries += Entry(animation, holder)
         if (animation.property == AnimatedProperty.Transform) {
             holder.twoLayers.value = true
+        }
+        if (animation.property == AnimatedProperty.BorderColor) {
+            holder.borderAnimated.value = true
         }
         generation.intValue += 1
     }
@@ -361,6 +379,12 @@ class AnimationTable internal constructor(private val table: NodeTable) {
             AnimatedProperty.Transform -> if (node.modifiers.none { it is ProtocolModifier.Transform }) "no Transform modifier" else null
             AnimatedProperty.Color ->
                 if (!NodeTable.supportsProperty(node.widget, PropertyKind.Color)) "${node.widget} has no color" else null
+            AnimatedProperty.BorderColor ->
+                if (node.modifiers.none { it is ProtocolModifier.Border || it is ProtocolModifier.BorderEach }) {
+                    "no Border or BorderEach modifier"
+                } else {
+                    null
+                }
         }?.let { "animation ${animation.animationId} on node ${animation.nodeId}: $it to play on" }
     }
 
@@ -495,12 +519,16 @@ class AnimationTable internal constructor(private val table: NodeTable) {
                 val end = (to.value as KeyframeValue.Alpha).value
                 node.alpha.floatValue = (start + (end - start) * eased).coerceIn(0f, 1f)
             }
-            AnimatedProperty.Color, AnimatedProperty.Background -> {
+            AnimatedProperty.Color, AnimatedProperty.Background, AnimatedProperty.BorderColor -> {
                 val start = colorOf(fromValue, theme)
                 val end = theme.color((to.value as KeyframeValue.PaintValue).paint)
                 val mixed = mix(start, end, eased, animation.interpolation ?: ColorInterpolation.SrgbPremultiplied)
                 val bits = mixed.value.toLong()
-                if (property == AnimatedProperty.Color) node.textColor.longValue = bits else node.background.longValue = bits
+                when (property) {
+                    AnimatedProperty.Color -> node.textColor.longValue = bits
+                    AnimatedProperty.Background -> node.background.longValue = bits
+                    else -> node.borderColor.longValue = bits
+                }
             }
             AnimatedProperty.Transform -> {
                 transformBetween(fromValue, to.value as KeyframeValue.Transform, eased, node.matrix)
@@ -530,6 +558,7 @@ class AnimationTable internal constructor(private val table: NodeTable) {
             AnimatedProperty.Alpha -> if (!node.alpha.floatValue.isNaN()) node.alpha.floatValue = Float.NaN
             AnimatedProperty.Color -> if (node.textColor.longValue != AnimatedNode.NO_COLOR) node.textColor.longValue = AnimatedNode.NO_COLOR
             AnimatedProperty.Background -> if (node.background.longValue != AnimatedNode.NO_COLOR) node.background.longValue = AnimatedNode.NO_COLOR
+            AnimatedProperty.BorderColor -> if (node.borderColor.longValue != AnimatedNode.NO_COLOR) node.borderColor.longValue = AnimatedNode.NO_COLOR
             AnimatedProperty.Transform -> if (node.transformShown) {
                 node.transformShown = false
                 node.transformVersion.intValue += 1
@@ -598,11 +627,18 @@ class AnimationTable internal constructor(private val table: NodeTable) {
                 ?: (node.modifiers.firstOrNull { it is ProtocolModifier.Background } as ProtocolModifier.Background?)
                     ?.let { theme.color(it.paint) }
                 ?: Color.Transparent
-            AnimatedProperty.Color -> shown?.textColor?.longValue?.takeUnless { it == AnimatedNode.NO_COLOR }
-                ?.let { Color(it.toULong()) }
-                ?: ((node.property(PropertyKind.Color) as? PropertyValue.Integer)?.value)
-                    ?.let { bits -> paintOf(bits)?.let(theme::color) }
+            // A container with no colour of its own shows the one its text inherits.
+            AnimatedProperty.Color -> presentedColor(animation.nodeId, theme)
                 ?: theme.color(dev.darkpyonix.composerust.protocol.ColorRole.OnSurface)
+            AnimatedProperty.BorderColor -> shown?.borderOverride()
+                ?: node.modifiers.firstNotNullOfOrNull { modifier ->
+                    when (modifier) {
+                        is ProtocolModifier.Border -> modifier.paint
+                        is ProtocolModifier.BorderEach -> modifier.topPaint
+                        else -> null
+                    }
+                }?.let { theme.color(it) }
+                ?: Color.Transparent
             AnimatedProperty.Transform -> FloatArray(6).also { matrix ->
                 if (shown != null && shown.transformShown) {
                     shown.matrix.copyInto(matrix)
@@ -617,6 +653,24 @@ class AnimationTable internal constructor(private val table: NodeTable) {
                 }
             }
         }
+    }
+
+    /**
+     * The text colour [nodeId] shows: what an animation wrote last frame, its own `color`,
+     * or else the nearest enclosing node's, the way the text inside it inherits one.
+     */
+    private fun presentedColor(nodeId: Int, theme: ResolvedTheme): Color? {
+        var id = nodeId
+        while (id != NodeTable.ROOT_ID) {
+            val node = table.node(id) ?: return null
+            nodes[id]?.textColor?.longValue?.takeUnless { it == AnimatedNode.NO_COLOR }
+                ?.let { return Color(it.toULong()) }
+            ((node.property(PropertyKind.Color) as? PropertyValue.Integer)?.value)
+                ?.let { bits -> paintOf(bits)?.let(theme::color) }
+                ?.let { return it }
+            id = node.parentId
+        }
+        return null
     }
 
     private fun colorOf(value: Any, theme: ResolvedTheme): Color = when (value) {

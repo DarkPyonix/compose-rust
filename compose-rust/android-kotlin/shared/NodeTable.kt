@@ -503,7 +503,10 @@ class NodeTable {
                                     widget == WidgetKind.Slider ||
                                     // A badge's fill. Only its role is read: a badge
                                     // has no literal colour.
-                                    widget == WidgetKind.Badge
+                                    widget == WidgetKind.Badge ||
+                                    // A layout container's colour is the one the text
+                                    // inside it inherits, as CSS `color` is.
+                                    widget in INHERITS_TEXT_COLOR
                                 )
                         )
 

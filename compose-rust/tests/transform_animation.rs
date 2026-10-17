@@ -107,7 +107,7 @@ fn animation(property: AnimatedProperty, values: Vec<KeyframeValue>) -> Animatio
     let count = values.len();
     let colour = matches!(
         property,
-        AnimatedProperty::Color | AnimatedProperty::Background
+        AnimatedProperty::Color | AnimatedProperty::Background | AnimatedProperty::BorderColor
     );
     Animation {
         node_id: 3,
@@ -283,7 +283,7 @@ fn fr41_start_animation_round_trips() {
         .iter()
         .filter(|mutation| matches!(mutation, Mutation::StartAnimation(_)))
         .count();
-    assert_eq!(animations, 9, "the vector carries nine animations");
+    assert_eq!(animations, 10, "the vector carries ten animations");
     assert!(
         mutations
             .iter()
@@ -376,5 +376,42 @@ fn fr41_an_animation_that_cannot_be_played_is_a_protocol_error() {
         decode_batch(&bytes),
         Err(ProtocolError::InvalidAnimation),
         "three keyframes counted, two sent"
+    );
+}
+
+/// A border's colour is one animation for the whole border: one record that names the
+/// property, with a colour in each keyframe, mixed the way the record says. The checked-in
+/// vector carries one, after every record that was there before it.
+#[test]
+fn fr41_border_color_animation_round_trips() {
+    let record = Mutation::StartAnimation(animation(
+        AnimatedProperty::BorderColor,
+        vec![
+            KeyframeValue::Paint(Paint::Role(ColorRole::Outline)),
+            KeyframeValue::Paint(Paint::Literal(Color::argb(0xff33_6699))),
+        ],
+    ));
+    let bytes = encode(std::slice::from_ref(&record));
+    assert_eq!(decode_batch(&bytes), Ok(vec![record]));
+
+    let mutations = decode_batch(include_bytes!("vectors/mutations.bin")).unwrap();
+    let last = mutations
+        .iter()
+        .rev()
+        .find_map(|mutation| match mutation {
+            Mutation::StartAnimation(animation) => Some(animation),
+            _ => None,
+        })
+        .expect("the vector carries animations");
+    assert_eq!(last.property, AnimatedProperty::BorderColor);
+    assert_eq!(
+        last.interpolation,
+        Some(ColorInterpolation::SrgbPremultiplied)
+    );
+    assert_eq!(
+        last.keyframes.last().map(|keyframe| &keyframe.value),
+        Some(&KeyframeValue::Paint(Paint::Literal(Color::argb(
+            0xff33_6699
+        ))))
     );
 }

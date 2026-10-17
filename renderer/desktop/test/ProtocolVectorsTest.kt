@@ -294,7 +294,15 @@ class ProtocolVectorsTest {
     fun fr41_the_animation_records_in_the_vector_decode_to_the_same_values() {
         val mutations = decodeVector("mutations.bin")
         val animations = mutations.filterIsInstance<Mutation.StartAnimation>().map { it.animation }
-        assertEquals(9, animations.size)
+        assertEquals(10, animations.size)
+        // The border colour came after every record that was there before it.
+        assertEquals(dev.darkpyonix.composerust.protocol.AnimatedProperty.BorderColor, animations.last().property)
+        assertEquals(
+            dev.darkpyonix.composerust.protocol.KeyframeValue.PaintValue(
+                dev.darkpyonix.composerust.protocol.Paint.Literal(0xFF336699.toInt()),
+            ),
+            animations.last().keyframes.last().value,
+        )
         val alpha = animations.first()
         assertEquals(dev.darkpyonix.composerust.protocol.AnimatedProperty.Alpha, alpha.property)
         assertEquals(dev.darkpyonix.composerust.protocol.PlaybackDirection.Alternate, alpha.direction)
@@ -325,7 +333,7 @@ class ProtocolVectorsTest {
             ),
             alpha.keyframes,
         )
-        val kinds = animations.drop(3).map { animation ->
+        val kinds = animations.drop(3).take(6).map { animation ->
             (animation.keyframes.last().value as dev.darkpyonix.composerust.protocol.KeyframeValue.Transform)
                 .functions.map { it.kind }
         }
