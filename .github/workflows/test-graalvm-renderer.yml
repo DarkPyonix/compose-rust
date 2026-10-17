@@ -134,9 +134,11 @@ jobs:
           chmod +x "$RUNNER_TEMP/smoke-launch"
           ./.github/scripts/resize-metrics-run.sh "$RUNNER_TEMP/smoke-launch" "$out" soak-macos-graalvm soak
           # Diagnostic, temporary: where the graphics driver memory kept per drag comes from.
-          DXC_SKIA_CACHE_MB=0 ./.github/scripts/resize-metrics-run.sh "$RUNNER_TEMP/smoke-launch" "$out" soak-macos-graalvm-cache0 soak
-          DXC_LEGACY_RESIZE=1 ./.github/scripts/resize-metrics-run.sh "$RUNNER_TEMP/smoke-launch" "$out" soak-macos-graalvm-legacy soak
-          for d in cache0 legacy; do { echo "### GraalVM diagnostic $d"; ./.github/scripts/resize-memory-check.sh --soak "$out/soak-macos-graalvm-$d.log" 100000 || true; } | tee -a "$GITHUB_STEP_SUMMARY"; done
+          # Legacy resize draws nothing during a drag, so the heap stays flat.
+          DXC_LEGACY_RESIZE=1 DXC_RESIZE_SOAK=60 ./.github/scripts/resize-metrics-run.sh "$RUNNER_TEMP/smoke-launch" "$out" soak-macos-graalvm-legacy60 soak
+          DXC_LEGACY_RESIZE=1 DXC_RESIZE_SOAK_EVENTS=10 ./.github/scripts/resize-metrics-run.sh "$RUNNER_TEMP/smoke-launch" "$out" soak-macos-graalvm-legacy-e10 soak
+          DXC_LEGACY_RESIZE=1 DXC_RESIZE_SOAK_EVENTS=2 ./.github/scripts/resize-metrics-run.sh "$RUNNER_TEMP/smoke-launch" "$out" soak-macos-graalvm-legacy-e2 soak
+          for d in legacy60 legacy-e10 legacy-e2; do { echo "### GraalVM diagnostic $d"; ./.github/scripts/resize-memory-check.sh --soak "$out/soak-macos-graalvm-$d.log" 100000 1 || true; } | tee -a "$GITHUB_STEP_SUMMARY"; done
           { echo "### GraalVM soak"; ./.github/scripts/resize-memory-check.sh --soak "$out/soak-macos-graalvm.log" "$SOAK_BOUND_MB"; } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Keep the resize logs
