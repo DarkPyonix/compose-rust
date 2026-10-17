@@ -1681,7 +1681,7 @@ tag 12, 32바이트: handler_id: u64, text: (offset, len), action: (offset, len)
 >
 > (소유자, 2026-10-05)
 
-**2026-10-03(INTENT D17, NFR-15): 번들이 담는 것은 실행 파일 하나입니다.** 렌더러와 Skia와 ICU 데이터가 실행 파일 안에 있으므로, 아래 문단의 라이브러리 배치는 GraalVM native-image 경로의 기록이고 1.0.0의 번들에는 해당하지 않습니다.
+**2026-10-03(INTENT D17, NFR-15): 번들이 담는 것은 실행 파일 하나입니다.** 렌더러와 Skia와 ICU 데이터가 실행 파일 안에 있으므로, 아래 문단의 라이브러리 배치는 예전 GraalVM native-image 경로의 기록이고 1.0.0의 번들에는 해당하지 않습니다. **2026-10-17 소유자 결정(INTENT D17): 이 배치는 GraalVM native-image 경로에서도 Kotlin/Native 경로에서도 더 이상 받아들이지 않습니다.** 소유자의 말은 "graal, kn 둘다 돌아야 하는 조건인걸 잊은거니"입니다. 두 경로의 번들 모두 실행 파일 하나를 담습니다(§5.7).
 
 렌더러 라이브러리와 동반 파일은 각 번들 안에 그대로 들어갑니다. macOS는 렌더러의 `lib` 디렉터리 전체를 `Contents/Frameworks/lib`에 두며 실행 파일의 참조를 상대 경로로 바꿉니다. Windows는 DLL을 실행 파일 옆에 두고 렌더러의 `lib` 디렉터리를 보존합니다. Linux는 실행 파일 옆 `lib` 디렉터리를 두고 `DT_NEEDED`와 rpath를 상대 경로로 바꿉니다. 라이브러리 파일 자체를 압축하지 않습니다.
 
@@ -3250,7 +3250,7 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 | NFR-12 | 워크트리 빌드 격리 | 워크트리마다 자기 `target/`에 빌드하고, 다른 워크트리의 빌드 디렉터리를 가리키는 설정이 없음. 한 트리에서 컴파일된 codegen 바이너리가 다른 트리에 쓸 수 없음. 규격과 수용 기준은 §5.4 (INTENT D16). **2026-09-22 충족** | Done |
 | NFR-13 | Windows 단일 실행 파일 | Windows 렌더러를 Kotlin/Native로 빌드해 앱 실행 파일 하나에 링크함. JVM이 없고, 앱을 빌드하는 사람에게 MinGW를 요구하지 않음. 규격과 수용 기준은 §5.6 (INTENT D18, 2026-10-03 소유자 결정) | Agreed, 진행 중: `feature/windows-kotlin-native` 브랜치(PR 없음), 이슈 #24 |
 | NFR-14 | AWT 없는 데스크톱 렌더러가 기본 | 배포되는 데스크톱 렌더러가 AWT도 JVM도 쓰지 않음. macOS와 Linux는 Kotlin/Native 정적 라이브러리, Windows는 NFR-13. 앱이 아무것도 고르지 않아도 이 경로가 나옴. 규격과 수용 기준은 §5.5 (INTENT D4, 2026-10-03 소유자 결정) | Agreed, 진행 중: develop의 기본값은 아직 native-image AWT 경로, 전환은 `feature/native-default-renderer` 브랜치(PR 없음), 이슈 #22 |
-| NFR-15 | 데스크톱 애플리케이션은 실행 파일 하나 | compose-rust 애플리케이션이 macOS, Windows, Linux에서 실행 파일 하나이고, 시스템 라이브러리 외에 아무것도 불러오지 않음. 렌더러, Skia, ICU 데이터가 안에 있음. 1.0.0 요구사항. 규격과 수용 기준은 §5.7 (INTENT D17, 2026-10-03 소유자 결정) | Agreed |
+| NFR-15 | 데스크톱 애플리케이션은 실행 파일 하나 | compose-rust 애플리케이션이 macOS, Windows, Linux에서 실행 파일 하나이고, 시스템 라이브러리 외에 아무것도 불러오지 않음. 렌더러, Skia, ICU 데이터가 안에 있음. 1.0.0 요구사항. GraalVM native-image 경로와 Kotlin/Native 경로 둘 다에 적용됨(2026-10-17 소유자 결정). 규격과 수용 기준은 §5.7 (INTENT D17, 2026-10-03 소유자 결정) | Agreed |
 
 ### 5.1 프레임 예산 (NFR-9)
 
@@ -3524,6 +3524,14 @@ Cargo는 path 패키지의 유닛 해시에 패키지 경로를 넣지 않습니
 
 **2026-10-03 소유자 결정(INTENT D17). compose-rust 1.0.0(2026-11-14)의 요구사항입니다.** compose-rust로 만든 데스크톱 애플리케이션은 macOS, Windows, Linux 모두에서 실행 파일 하나입니다.
 
+**2026-10-17 소유자 결정(INTENT D17): 이 요구사항은 GraalVM native-image 경로와 Kotlin/Native 경로 둘 다에 적용됩니다.**
+
+> "graal, kn 둘다 돌아야 하는 조건인걸 잊은거니" (소유자, 2026-10-17)
+>
+> GraalVM 빌드가 파일 여러 개로 나간다는 보고에: "씨발 뭔 개소리야. 이미 그렇게 하기로 했잖아. 안하고 뭐했는데?" (소유자, 2026-10-17)
+
+GraalVM 경로는 덜한 경로가 아닙니다. 렌더러, Skia, JDK 라이브러리를 실행 파일 옆에 두는 배치(FR-22.6 번들 문단의 예전 기록)는 어느 경로에서도 받아들이지 않습니다. 아래 표와 수용 기준은 두 경로에 똑같이 적용됩니다.
+
 이것은 INTENT D2와 D4에서 따라 나옵니다. 애플리케이션은 `cargo build`가 내는 Rust 실행 파일이고(D2), AWT 없는 렌더러는 Kotlin/Native 정적 라이브러리라 그 실행 파일에 링크됩니다(D4, Windows는 D18). Skia와 skiko의 C++ 부분, ICU 데이터도 같은 실행 파일 안에 들어갑니다.
 
 | 플랫폼 | 실행 파일 안에 있는 것 | 실행 파일이 불러오는 것 |
@@ -3545,6 +3553,8 @@ Cargo는 path 패키지의 유닛 해시에 패키지 경로를 넣지 않습니
    - 동적 C 런타임으로 미리 빌드된 C/C++ 라이브러리와 섞여 링커가 `RuntimeLibrary` 불일치(LNK2038)를 내면, 빌드 스크립트가 어느 라이브러리가 동적 런타임인지와 무엇을 하면 되는지를 짚는 메시지를 냅니다. 테스트로 확인합니다.
    - 같은 샘플을 동적 런타임과 정적 런타임으로 각각 링크한 실행 파일 크기를 재서 여기에 적습니다(측정 전).
 6. FR-22.6의 번들(FR-22.6 표의 앱, 패키지, 스토어 패키지 형식)은 이 실행 파일 하나와 아이콘, 메타데이터만 담습니다.
+7. 수용 기준 1 ~ 4를 확인하는 CI의 "One executable" 게이트는 경로와 플랫폼의 모든 칸에서 돕니다. GraalVM native-image와 Kotlin/Native 각각에 대해 macOS, Windows, Linux, 모두 여섯 칸입니다. 한 칸이라도 빠지거나 실패하면 이 요구사항은 충족되지 않습니다.
+8. GraalVM native-image 경로의 결과물도 실행 파일 하나입니다. 렌더러 공유 라이브러리, `libskiko-*`, JDK DLL, `lib/` 디렉터리가 실행 파일 옆에 나오면 그 칸의 게이트가 실패합니다.
 
 ## 6. IME 수용 체크리스트 (FR-5, M1)
 

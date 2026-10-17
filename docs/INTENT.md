@@ -99,6 +99,7 @@ Rust에서 Compose API를 직접 호출하지 않습니다. GraalVM `@CEntryPoin
 
 - **배포되는 데스크톱 렌더러는 AWT를 쓰지 않습니다.** 렌더러가 자기 창을 직접 열고(macOS는 AppKit, Linux는 X11, Windows는 Win32), Compose의 장면(scene)을 그 창에 붙여 그립니다. 앱을 빌드하는 사람이 아무것도 고르지 않아도 이 경로가 나옵니다.
 - **macOS와 Linux는 Kotlin/Native입니다.** 렌더러는 Kotlin/Native 정적 라이브러리이고 Rust 실행 파일에 링크됩니다. JVM도 GraalVM native-image도 없습니다. **Windows는 D18을 따릅니다**(Kotlin/Native `mingwX64`, MSVC 실행 파일에 정적 링크).
+- **GraalVM 경로도 실행 파일 하나입니다(소유자, 2026-10-17).** "graal, kn 둘다 돌아야 하는 조건인걸 잊은거니". GraalVM native-image 경로는 Kotlin/Native 경로와 같은 제약을 지고, 배포물은 macOS, Windows, Linux에서 실행 파일 하나입니다(D17). 별도 라이브러리를 옆에 두는 배치는 어느 경로에서도 받아들이지 않습니다.
 - **AWT 경로는 기본값에서 빠집니다.** GraalVM native-image로 AWT 위의 Compose Desktop을 싣는 경로(아래 이전 결정, D3의 데스크톱 행, D9-macOS)는 D18의 Windows 렌더러가 SPEC NFR-13을 통과하기 전까지 Windows가 지금 내는 것으로만 남고, 새 기능을 그 경로에 맞추지 않습니다.
 - **C5는 움직이지 않습니다.** 창을 AWT가 아니라 렌더러가 가지므로, 입력기는 AWT의 IME 경로가 아니라 그 창이 Compose의 플랫폼 텍스트 입력에 이어 주는 경로로 들어옵니다(macOS `NSTextInputClient`, Windows IMM32/TSF, Linux XIM과 ibus/fcitx). Compose의 플랫폼 텍스트 입력을 우회하는 경로는 여전히 두지 않습니다. §6 IME 체크리스트와 §7 접근성은 이 빌드에서 확인하고, 실패는 이 경로에서 고칩니다. AWT 경로로 돌아가는 것은 고치는 방법이 아닙니다.
 - **창 코드는 Compose의 포크가 가집니다(D19).** 툴킷 없는 창과 Kotlin/Native 데스크톱 창은 Rust와 무관한 Compose의 일이므로 `compose-multiplatform-core-extended`로 옮깁니다. 옮기는 동안의 기준은 SPEC FR-19.8입니다.
@@ -313,6 +314,17 @@ macOS 26과 iOS 26은 같은 재질을 쓰지만 같은 방식으로 쓰지 않�
 **소유자의 결정입니다(2026-10-03). 1.0.0의 요구사항입니다.**
 
 > "내가 지시한지가 언제인데 아직 물어보나?" (2026-10-03)
+
+**두 경로 모두에 적용합니다(소유자, 2026-10-17, darkpyonix 리더가 전달).**
+
+> "graal, kn 둘다 돌아야 하는 조건인걸 잊은거니" (2026-10-17)
+>
+> GraalVM 빌드가 파일 여러 개로 나간다는 보고에: "씨발 뭔 개소리야. 이미 그렇게 하기로 했잖아. 안하고 뭐했는데?" (2026-10-17)
+
+- 실행 파일 하나라는 규칙(이 결정과 SPEC NFR-15)은 **GraalVM native-image 경로와 Kotlin/Native 경로 둘 다에** 적용됩니다. macOS, Windows, Linux 모두입니다. 두 경로는 D21대로 함께 돌고, 어느 한쪽이 규칙에서 빠지지 않습니다.
+- **GraalVM은 덜한 경로가 아닙니다.** 렌더러 라이브러리, Skia 라이브러리, JDK DLL, `lib/` 디렉터리를 실행 파일 옆에 두는 배치는 GraalVM 경로에서도 받아들이지 않습니다. 아래 이전 결정의 네 항목은 GraalVM 경로에서 풀어야 할 일로 남아 있고, 기록으로 덮어 둘 일이 아닙니다.
+- 2026-10-05 소유자 결정과 같은 방향입니다. compose-extended는 그 자체로 쓰는 KMP 빌드 도구이고, 플러그인이 내는 GUI 결과물은 `.app`, `.AppImage`, Windows `.exe`입니다. 그 결과물 안의 실행 파일도 하나입니다.
+- 치르는 값: GraalVM 이미지를 세 OS에서 실행 파일 안으로 링크하는 작업이 남습니다(native-image의 정적 라이브러리 출력, Skia와 ICU를 이미지 안에 두기). 얻는 것: 어느 경로로 빌드해도 배포물이 같아서, 경로 선택이 사용자에게 보이는 차이를 만들지 않습니다.
 
 **결정.** compose-rust로 만든 데스크톱 애플리케이션은 macOS, Windows, Linux 모두에서 **실행 파일 하나**입니다. 옆에 놓이는 렌더러 라이브러리, Skia 라이브러리, `icudtl.dat`, JDK DLL, `lib/` 디렉터리가 없습니다. 실행 파일이 불러오는 것은 그 플랫폼의 시스템 라이브러리뿐입니다. 이것은 "목표"가 아니라 compose-rust 1.0.0(2026-11-14)의 요구사항이고, SPEC NFR-15가 수용 기준입니다. 번들(`.app`, msix, AppImage)은 이 실행 파일을 감싸는 것이지 대신하는 것이 아닙니다.
 
