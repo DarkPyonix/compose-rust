@@ -319,6 +319,10 @@ $NativeImageArgs = @(
     "-Djava.awt.headless=false",
     "-H:IncludeLocales=en,ko",
     "-Os",
+    # The call tree, which scripts/tests/renderer/linux-image-toolkit-boundary.test.sh reads
+    # for any frame of application code that calls into the toolkit. Written to bin\reports.
+    "-H:+PrintAnalysisCallTree",
+    "-H:PrintAnalysisCallTreeType=TXT",
     # The heap the macOS image has (build-native.sh), for the same reason: without a cap
     # Substrate VM sizes the heap from the machine's physical memory, and the process grew
     # to hundreds of MB on Windows against tens on macOS. A run can still raise it with

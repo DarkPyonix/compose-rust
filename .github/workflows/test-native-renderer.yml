@@ -170,6 +170,18 @@ jobs:
         shell: powershell
         run: .\renderer\desktop\scripts\build-native-windows.ps1
 
+      - name: The linked image carries no toolkit
+        shell: bash
+        run: bash scripts/tests/renderer/windows-image-has-no-awt.test.sh renderer/build/native-image/dist/bin
+
+      - name: The image's ways into the toolkit
+        # The check is Python, and Windows' Python is python.exe only.
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/python3"
+          cp "$(command -v python)" "$RUNNER_TEMP/python3/python3.exe"
+          PATH="$RUNNER_TEMP/python3:$PATH" bash scripts/tests/renderer/linux-image-toolkit-boundary.test.sh renderer/build/native-image/dist/bin
+
       - name: Non-interactive Windows smoke test
         # This proves startup, rendering long enough to open, clean close, and return 0.
         # It does not prove mouse input because a hosted runner cannot perform the required click.
