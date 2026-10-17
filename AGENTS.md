@@ -137,6 +137,13 @@ Job names are English sentence case and say briefly what the job does. Matrix jo
    (`renderer/scripts/build-compose.sh`,
    `renderer/scripts/compose-fork.changes`) and builds it inside `.scratch/`.
    No Compose or skiko change lives in this repository.
+   **Every change to desktop window code goes to the fork as well** (owner, 2026-10-17;
+   INTENT D19): window, input, IME, menus, chrome, resize, accessibility and the window's
+   C/Obj-C layer, for both the GraalVM and the Kotlin/Native path, on every OS. Fix it in
+   `extended`, then move the pin here. This repository keeps only the renderer's glue to a
+   window (the calls it makes and the symbols it links). A window fix made here first, even
+   as a stopgap, is not allowed: it is how Windows and GraalVM window code ended up living
+   only in this repository's branches.
 4. Caches a toolchain keeps for itself (`~/.cargo`, `~/.rustup`, `~/.gradle`, `~/.m2`,
    `~/.konan`, cargo-xwin's cache) belong to the tool and stay where it puts them.
    Downloading or installing a tool this project does not already use is not a cache: ask
@@ -160,9 +167,7 @@ none of it.
      `README.md`, `AGENTS.md`, `CLAUDE.md`, `PROJECT.md`;
    - temporary, each with the date it leaves:
    `adapters/` and `bench/dioxus-baseline/` moved to dioxus-compose on 2026-10-04 (#37
-   step 4); `design-systems/` moved to compose-multiplatform-core-extended (#39). The
-   twelve samples under `samples/` stay and are being rewritten on the compose-rust API
-   (#85); until then they are outside the workspace and their release builds are skipped.
+   step 4); `design-systems/` moved to compose-multiplatform-core-extended (#39).
    `scripts/bench/` holds the pin of the Dioxus baseline FR-39 compares against
    (`scripts/bench/fr39-baseline.env`).
 

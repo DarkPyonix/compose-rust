@@ -1,10 +1,22 @@
 [workspace]
 members = [
     "compose-rust",
+    "compose-rust/macros",
+    # The sample applications, written on the compose-rust authoring API, and the library
+    # their recording tests draw their screens through.
+    "samples/academic",
+    "samples/calculator",
+    "samples/chat",
+    "samples/frames",
+    "samples/minimal",
+    "samples/notepad",
+    "samples/podcast",
+    "samples/selfcare",
+    "samples/social",
+    "samples/statistics",
+    "samples/store",
+    "samples/todo",
 ]
-# The samples are being rewritten on the compose-rust authoring API (#85) and are kept out of
-# the workspace until then; they still name the Dioxus adapter, which moved to dioxus-compose.
-exclude = ["samples"]
 resolver = "2"
 
 [workspace.package]

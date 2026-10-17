@@ -20,14 +20,9 @@ import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import java.lang.System
-import kotlinx.cinterop.alloc
-import kotlinx.cinterop.memScoped
-import kotlinx.cinterop.ptr
-import platform.posix.CLOCK_MONOTONIC
-import platform.posix.clock_gettime
 import platform.posix.getuid
-import platform.posix.timespec
 import org.thisisthepy.compose.window.CaretRect
+import org.thisisthepy.compose.window.FrameClock
 import org.thisisthepy.compose.window.WindowConfig
 import org.thisisthepy.compose.window.WindowEvent
 import org.thisisthepy.compose.window.WindowFrames
@@ -211,7 +206,9 @@ internal class LinuxWindow private constructor(
     /** Whether anything has been drawn yet, so the first turn always draws one. */
     private var painted = false
 
-    private val openedAt = monotonicNanos()
+    // The window says when each frame is drawn, on the monotonic clock the Host reads too, so
+    // an animation moves at the speed of the wall clock whatever the refresh rate.
+    private val frameClock = FrameClock(x11::frameTimeNanos)
 
     /**
      * The one place a frame is drawn from, whoever asked for it.
@@ -230,7 +227,7 @@ internal class LinuxWindow private constructor(
             scene.density = density
             scene.size = size
         }
-        val nanos = monotonicNanos() - openedAt
+        val nanos = frameClock.frameNanos()
         val drew = x11.draw(width, height) { canvas ->
             scene.render(canvas.asComposeCanvas(), nanos)
         }
@@ -429,16 +426,8 @@ internal class LinuxWindow private constructor(
             override fun onCloseRequested(): Boolean = target?.onCloseRequested() ?: true
         }
 
-        private fun monotonicNanos(): Long = memScoped {
-            val now = alloc<timespec>()
-            clock_gettime(CLOCK_MONOTONIC, now.ptr)
-            now.tv_sec * NANOS_PER_SECOND + now.tv_nsec
-        }
-
         private const val FRAME_MILLISECONDS = 16L
 
         private const val DENSITY = 1.0f
-
-        private const val NANOS_PER_SECOND = 1_000_000_000L
     }
 }
