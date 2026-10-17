@@ -84,6 +84,11 @@ pub struct Modifier {
     border_width: Option<f32>,
     border_color: Option<Paint>,
     elevation: Option<f32>,
+    alpha: Option<f32>,
+    transform: Option<[f32; 8]>,
+    animated_alpha: Option<crate::Animated<f32>>,
+    animated_background: Option<crate::Animated<Paint>>,
+    animated_offset: Option<crate::Animated<(f32, f32)>>,
     fill_max_width: bool,
     fill_max_height: bool,
 }
@@ -110,6 +115,11 @@ impl Modifier {
             border_width: None,
             border_color: None,
             elevation: None,
+            alpha: None,
+            transform: None,
+            animated_alpha: None,
+            animated_background: None,
+            animated_offset: None,
             fill_max_width: false,
             fill_max_height: false,
         }
@@ -233,6 +243,54 @@ impl Modifier {
         self.material = Some(role);
         self
     }
+
+    /// An opacity for the node and everything in it, faded as one group.
+    pub const fn alpha(mut self, alpha: f32) -> Self {
+        self.alpha = Some(alpha);
+        self
+    }
+
+    /// Compose's `graphicsLayer`: a rotation, a scale and a translation about an origin,
+    /// drawn without moving the layout, and an opacity for the whole group. A pointer is
+    /// tested against the shape that is drawn.
+    pub fn graphics_layer(mut self, layer: crate::GraphicsLayer) -> Self {
+        if let crate::schema::Modifier::Transform {
+            a,
+            b,
+            c,
+            d,
+            e,
+            f,
+            origin_x,
+            origin_y,
+        } = layer.transform()
+        {
+            self.transform = Some([a, b, c, d, e, f, origin_x, origin_y]);
+        }
+        self.alpha = Some(layer.alpha);
+        self
+    }
+
+    /// An opacity the Renderer animates to, from [`crate::animate_float_as_state`]. It
+    /// takes the place of `alpha`.
+    pub const fn animated_alpha(mut self, value: crate::Animated<f32>) -> Self {
+        self.animated_alpha = Some(value);
+        self
+    }
+
+    /// A background the Renderer animates to, from [`crate::animate_color_as_state`]. It
+    /// takes the place of `background`.
+    pub const fn animated_background(mut self, value: crate::Animated<Paint>) -> Self {
+        self.animated_background = Some(value);
+        self
+    }
+
+    /// A translation the Renderer animates to, from [`crate::animate_offset_as_state`].
+    /// It takes the place of the transform a `graphics_layer` would draw.
+    pub const fn animated_offset(mut self, value: crate::Animated<(f32, f32)>) -> Self {
+        self.animated_offset = Some(value);
+        self
+    }
 }
 
 /// Which Modifier attributes a widget's `rsx!` counterpart always writes. The others are
@@ -314,10 +372,15 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
     push(chip, "height", float(modifier.height));
     push(chip, "padding", float(modifier.padding));
     push(chip, "padding_role", role(modifier.padding_role));
+    // An animated background owns the background's slot while it is set.
     push(
         standard || scaffold,
         "background",
-        paint(modifier.background),
+        paint(if modifier.animated_background.is_some() {
+            None
+        } else {
+            modifier.background
+        }),
     );
     push(standard, "shape_role", role(modifier.shape_role));
     push(standard, "corner_radius", float(modifier.corner_radius));
@@ -333,6 +396,63 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
         standard,
         "fill_max_height",
         OwnedAttr::Bool(modifier.fill_max_height),
+    );
+    // The layer and the values the Renderer animates, written only when they are set. An
+    // animated value owns its slot while it is set, as an animated background does above.
+    push(
+        false,
+        "alpha",
+        float(if modifier.animated_alpha.is_some() {
+            None
+        } else {
+            modifier.alpha
+        }),
+    );
+    push(
+        false,
+        "transform",
+        match (modifier.animated_offset, modifier.transform) {
+            (None, Some(values)) => OwnedAttr::Bytes(
+                values
+                    .iter()
+                    .flat_map(|value| value.to_le_bytes())
+                    .collect(),
+            ),
+            _ => OwnedAttr::None,
+        },
+    );
+    push(
+        false,
+        "animated_alpha",
+        modifier.animated_alpha.map_or(OwnedAttr::None, |value| {
+            OwnedAttr::Bytes(crate::animation::animated_bytes(
+                &[value.target.to_bits()],
+                &value.spec,
+            ))
+        }),
+    );
+    push(
+        false,
+        "animated_background",
+        modifier
+            .animated_background
+            .map_or(OwnedAttr::None, |value| {
+                let bits = value.target.to_bits();
+                OwnedAttr::Bytes(crate::animation::animated_bytes(
+                    &[bits as u32, (bits >> 32) as u32],
+                    &value.spec,
+                ))
+            }),
+    );
+    push(
+        false,
+        "animated_offset",
+        modifier.animated_offset.map_or(OwnedAttr::None, |value| {
+            OwnedAttr::Bytes(crate::animation::animated_bytes(
+                &[value.target.0.to_bits(), value.target.1.to_bits()],
+                &value.spec,
+            ))
+        }),
     );
 }
 

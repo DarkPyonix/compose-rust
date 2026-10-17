@@ -378,3 +378,114 @@ impl GraphicsLayer {
         crate::schema::Modifier::Alpha(self.alpha)
     }
 }
+
+/// A value the Renderer animates to whenever it changes: what [`animate_float_as_state`]
+/// and its siblings return. [`value`](Self::value) is the target, because the value in
+/// between is the Renderer's and is never sent back.
+///
+/// Given to a Modifier (`animated_alpha`, `animated_background`, `animated_offset`). The
+/// first value a node is given is where it starts; every later one is a change, written
+/// as one `StartAnimation` that the Renderer plays on its own clock, so nothing is composed
+/// again while it plays.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Animated<T> {
+    pub target: T,
+    pub spec: AnimationSpec,
+}
+
+impl<T: Copy> Animated<T> {
+    /// The target, which is also what the screen shows once the change has played.
+    pub fn value(&self) -> T {
+        self.target
+    }
+}
+
+/// An opacity the Renderer animates to whenever `target` changes. Compose's
+/// `animateFloatAsState`, for the one float a node draws without laying out again.
+pub fn animate_float_as_state(target: f32, spec: AnimationSpec) -> Animated<f32> {
+    Animated { target, spec }
+}
+
+/// A background the Renderer animates to whenever `target` changes.
+pub fn animate_color_as_state(
+    target: crate::schema::Paint,
+    spec: AnimationSpec,
+) -> Animated<crate::schema::Paint> {
+    Animated { target, spec }
+}
+
+/// A translation in dp the Renderer animates to whenever `target` changes. Drawn as a
+/// transform, so the layout does not move.
+pub fn animate_offset_as_state(target: (f32, f32), spec: AnimationSpec) -> Animated<(f32, f32)> {
+    Animated { target, spec }
+}
+
+/// How an animated value travels as a widget attribute, which carries scalars and bytes
+/// only: the target's words, then the spec. Read back by [`read_animated`].
+pub(crate) fn animated_bytes(target: &[u32], spec: &AnimationSpec) -> Vec<u8> {
+    use crate::schema::Timing;
+    let mut out = Vec::with_capacity(4 * target.len() + 28);
+    out.push(target.len() as u8);
+    for word in target {
+        out.extend_from_slice(&word.to_le_bytes());
+    }
+    out.extend_from_slice(&spec.duration_ms.to_le_bytes());
+    out.extend_from_slice(&spec.delay_ms.to_le_bytes());
+    match spec.timing {
+        Timing::Linear => out.push(1),
+        Timing::CubicBezier { x1, y1, x2, y2 } => {
+            out.push(2);
+            for value in [x1, y1, x2, y2] {
+                out.extend_from_slice(&value.to_le_bytes());
+            }
+        }
+        Timing::Steps { count, position } => {
+            out.push(3);
+            out.extend_from_slice(&count.to_le_bytes());
+            out.extend_from_slice(&u16::from(position).to_le_bytes());
+        }
+    }
+    out
+}
+
+/// The target's words and the spec [`animated_bytes`] wrote, or `None` for bytes it did
+/// not write.
+pub(crate) fn read_animated(bytes: &[u8]) -> Option<(Vec<u32>, AnimationSpec)> {
+    use crate::schema::{StepPosition, Timing};
+    let word = |at: usize| -> Option<u32> {
+        Some(u32::from_le_bytes(bytes.get(at..at + 4)?.try_into().ok()?))
+    };
+    let float = |at: usize| word(at).map(f32::from_bits);
+    let count = usize::from(*bytes.first()?);
+    let target = (0..count)
+        .map(|index| word(1 + 4 * index))
+        .collect::<Option<Vec<_>>>()?;
+    let at = 1 + 4 * count;
+    let duration_ms = float(at)?;
+    let delay_ms = float(at + 4)?;
+    let timing = match *bytes.get(at + 8)? {
+        1 => Timing::Linear,
+        2 => Timing::CubicBezier {
+            x1: float(at + 9)?,
+            y1: float(at + 13)?,
+            x2: float(at + 17)?,
+            y2: float(at + 21)?,
+        },
+        3 => Timing::Steps {
+            count: word(at + 9)?,
+            position: StepPosition::try_from(u16::from_le_bytes(
+                bytes.get(at + 13..at + 15)?.try_into().ok()?,
+            ))
+            .ok()?,
+        },
+        _ => return None,
+    };
+    Some((
+        target,
+        AnimationSpec {
+            duration_ms,
+            delay_ms,
+            timing,
+        },
+    ))
+}

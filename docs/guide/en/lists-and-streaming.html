@@ -54,8 +54,8 @@
     <p class="lede">
       A chat client is a very long list plus text that arrives a token at a time. compose-rust has a
       record for each: a windowed list that the renderer drives, and an append that carries only
-      the new tail. Both work today at the boundary. The authoring API that writes them arrives with
-      1.0.0.
+      the new tail. Both work at the boundary in 0.0.1, and the authoring API on
+      <code>develop</code> writes both for you.
     </p>
 
     <h2 id="windowing">Windowed lists <span class="pill works">Works</span></h2>
@@ -77,9 +77,37 @@
     </p>
     <p>
       <code>LazyColumn</code>, <code>LazyRow</code> and <code>LazyGrid</code> share this
-      contract. In 0.0.1 a <code>Runtime</code> receives the request as a <code>RangeRequest</code>
-      and answers it with records. The authoring API writes the same records, so a lazy list written
-      with it is windowed the same way <span class="pill planned">Planned</span>.
+      contract. In the authoring API the list takes a builder, as Compose's does. The builder says
+      what the items are, in one or more runs, and composes none of them itself.
+    </p>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>rust</figcaption>
+<pre><code><span class="k">let</span> ids: <span class="ty">Vec</span>&lt;<span class="ty">String</span>&gt; = tasks.<span class="f">with</span>(|tasks| tasks.<span class="f">iter</span>().<span class="f">map</span>(|task| task.id.<span class="f">to_string</span>()).<span class="f">collect</span>());
+<span class="k">let</span> count = ids.<span class="f">len</span>();
+<span class="ty">LazyColumn</span>().<span class="f">modifier</span>(<span class="ty">Modifier</span>.<span class="f">fill_max_size</span>()).<span class="f">content</span>(<span class="k">move</span> |list| {
+    list.<span class="f">item</span>(|| { <span class="f">Text</span>(<span class="s">"Tasks"</span>).<span class="f">type_role</span>(<span class="ty">TypeRole</span>::Headline); });
+    list.<span class="f">items_keyed</span>(count, <span class="k">move</span> |index| ids[index].<span class="f">clone</span>(), <span class="k">move</span> |index| {
+        <span class="f">task_row</span>(index);
+    });
+});</code></pre>
+    </figure>
+
+    <p>
+      <code>item</code> adds one item, <code>items(count, ...)</code> adds a run keyed by position,
+      and <code>items_keyed(count, key, ...)</code> adds a run with a stable key per item, so an item
+      that moves keeps its node and what it remembered. The visible range is a state only the items
+      read, so scrolling runs the list's items and nothing above it. <code>LazyGrid()</code> takes
+      <code>columns(n)</code> or <code>min_column_width(dp)</code>.
+    </p>
+    <p>
+      The <a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/todo"><code>todo</code></a>
+      sample fills a <code>LazyColumn</code> with five thousand rows, and
+      <a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/chat"><code>chat</code></a>
+      keeps its scrollback in one. <a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/store"><code>store</code></a>
+      and <a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/academic"><code>academic</code></a>
+      lay out grids, and <a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/selfcare"><code>selfcare</code></a>
+      has a windowed row of cards.
     </p>
 
     <h2 id="plain">A plain column</h2>
@@ -105,18 +133,32 @@
       is 125&nbsp;ns.
     </p>
 
+    <p>
+      In the authoring API you write nothing special. A <code>Text</code> whose new text is the old
+      text with more at the end goes out as an <code>AppendText</code> with only the tail. A worker
+      appends to a message in a state, the message's <code>Text</code> runs again, and the tail is
+      what crosses. Text with styled runs is sent whole, because the runs are offsets into all of it.
+    </p>
+
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
-      <figcaption>rust, the 0.0.1 boundary API</figcaption>
-<pre><code><span class="c">// Queues a tail for the next frame. Repeated calls coalesce into one record</span>
-<span class="c">// per node and into a single frame request.</span>
-host.<span class="f">append_text</span>(node_id, <span class="s">" token"</span>);</code></pre>
+      <figcaption>rust</figcaption>
+<pre><code><span class="c">// On a worker thread: MutableState is Send.</span>
+<span class="k">let</span> reply = reply.<span class="f">clone</span>();
+std::thread::<span class="f">spawn</span>(<span class="k">move</span> || {
+    <span class="k">for</span> token <span class="k">in</span> <span class="f">stream_tokens</span>() {
+        reply.<span class="f">update</span>(|text| text.<span class="f">push_str</span>(&amp;token));
+    }
+});
+
+<span class="c">// In the composable: sent as the tail, not as the whole message again.</span>
+<span class="f">Text</span>(reply.<span class="f">get</span>());</code></pre>
     </figure>
 
     <p>
-      <code>Host::append_text</code> takes a protocol node id. It is meant for the layer that builds
-      the tree, not for application code. A <code>Runtime</code> writes the same record with
-      <code>Batch::append_text_node</code>. The authoring API will expose streaming without node ids
-      <span class="pill planned">Planned</span>.
+      A layer that builds the tree itself writes the same record with
+      <code>Batch::append_text_node</code>, and the Host's <code>append_text</code> takes a protocol
+      node id for the same purpose. Application code needs neither. The
+      <code>chat</code> sample streams its replies this way.
     </p>
 
     <h2 id="workers">Work on worker threads</h2>
@@ -128,8 +170,9 @@ host.<span class="f">append_text</span>(node_id, <span class="s">" token"</span>
       A worker's only job, as far as the UI is concerned, is to change state. Waking the renderer is
       internal: <code>request_frame_from_worker</code> asks for a frame from any thread, and
       repeated requests coalesce into one frame on the Compose frame clock. In the authoring API a
-      worker writes the same state objects as the UI thread, and the Host requests the frame for
-      it. Application code never calls a boundary function, and there is no queue between the two
+      worker writes the same <code>MutableState</code> the UI thread reads, or a future awaits
+      <code>with_worker</code>, and the Host requests the frame for it. See
+      <a href="writing-ui.html#workers">Writing UI</a>. Application code never calls a boundary function, and there is no queue between the two
       sides to fill up.
     </p>
 
@@ -179,7 +222,7 @@ host.<span class="f">append_text</span>(node_id, <span class="s">" token"</span>
   <div class="inner">
     <span>compose-rust &middot; Apache License 2.0</span>
     <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://crates.io/crates/compose-rust">crates.io</a></span>
-    <span>Guide last reviewed against the repository on 2026-10-03</span>
+    <span>Guide last reviewed against the repository on 2026-10-17</span>
   </div>
 </footer>
 

@@ -15,6 +15,7 @@
 # means deciding, path by path, that each change is still there:
 #
 #   git diff --raw --no-renames --no-abbrev <upstream base> <pinned commit> |
+#       awk '{ print ($5 == "D" ? "-" : $4), $6 }'
 e6bf249c38261a72debb8e1936c790d75fa3c4b8 .github/actions/fork-compose/action.yml
 10ea84f93bea1345a89f098e02351c1a8deb12d9 .github/workflows/design-systems.yml
 40452ed02fa0aa65b03846c86de539c49ec3718b .github/workflows/extended-coordinates.yml

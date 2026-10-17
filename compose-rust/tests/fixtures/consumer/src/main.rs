@@ -163,8 +163,11 @@ const FIELD: u32 = 11;
 const SAVE: u32 = 12;
 const ON_VALUE_CHANGE: u64 = 1;
 const ON_CLICK: u64 = 2;
+const DROP: u32 = 13;
+const LABEL: u32 = 14;
+const ON_DROP: u64 = 3;
 
-/// A column holding a text field and a button, and nothing else.
+/// A column holding a text field, a button and a place to drop files, and nothing else.
 struct Form {
     batch: Batch,
     /// Asks for a window of its own: a title and a smallest size, which the parity check reads
@@ -226,6 +229,8 @@ impl Runtime for Form {
             (FORM, WidgetKind::Column),
             (FIELD, WidgetKind::TextField),
             (SAVE, WidgetKind::Button),
+            (DROP, WidgetKind::FileDropTarget),
+            (LABEL, WidgetKind::Text),
         ] {
             self.batch.write(Mutation::Create { node_id, widget });
         }
@@ -233,7 +238,10 @@ impl Runtime for Form {
         self.handler(FIELD, PropertyKind::OnValueChange, ON_VALUE_CHANGE);
         self.text(SAVE, PropertyKind::Text, "Save");
         self.handler(SAVE, PropertyKind::OnClick, ON_CLICK);
-        for (index, node_id) in [FIELD, SAVE].into_iter().enumerate() {
+        self.text(LABEL, PropertyKind::Text, "DROP FILES HERE ................................");
+        self.handler(DROP, PropertyKind::OnFilesDropped, ON_DROP);
+        self.batch.write(Mutation::Insert { parent_id: DROP, node_id: LABEL, index: 0 });
+        for (index, node_id) in [FIELD, SAVE, DROP].into_iter().enumerate() {
             self.batch.write(Mutation::Insert {
                 parent_id: FORM,
                 node_id,
@@ -248,6 +256,10 @@ impl Runtime for Form {
         match (event.node_id, event.handler_id, &event.payload) {
             (FIELD, ON_VALUE_CHANGE, EventPayload::TextChanged(value)) => {
                 println!("input-check: field = {value}");
+                Ok(0)
+            }
+            (DROP, ON_DROP, EventPayload::FilesDropped(paths)) => {
+                println!("input-check: dropped = {paths}");
                 Ok(0)
             }
             (SAVE, ON_CLICK, EventPayload::Clicked) => {

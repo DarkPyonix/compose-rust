@@ -62,7 +62,7 @@
       <figcaption>the stack</figcaption>
 <pre><code><span class="c">┌──────────────────────── Host (Rust) ────────────────────────┐</span>
 <span class="c">│</span>  your code                                                  <span class="c">│</span>
-<span class="c">│</span>  the layer that builds the tree (Runtime)                   <span class="c">│</span>
+<span class="c">│</span>  composables: slot table, recomposer (Runtime)              <span class="c">│</span>
 <span class="c">│</span>  compose-rust: schema, fixed-layout records, one batch      <span class="c">│</span>
 <span class="c">└──────────────────────────────┬──────────────────────────────┘</span>
                                <span class="c">│</span>
@@ -72,7 +72,7 @@
 <span class="c">┌──────────────────────────────┴──────────────────────────────┐</span>
 <span class="c">│</span>  generated shims (C exports, JNI, wasm)                     <span class="c">│</span>
 <span class="c">│</span>  protocol decoder ──► node table                            <span class="c">│</span>
-<span class="c">│</span>  schema interpreter ──► Compose                             <span class="c">│</span>
+<span class="c">│</span>  schema interpreter ──► Compose ──► the fork's window       <span class="c">│</span>
 <span class="c">└──────────────────── Renderer (Kotlin, AOT) ─────────────────┘</span></code></pre>
     </figure>
 
@@ -80,9 +80,9 @@
       <dt>Host</dt>
       <dd>The Rust side. Owns your code, your domain logic, and the runtime that builds the tree.</dd>
       <dt>Runtime</dt>
-      <dd>Whatever builds and changes the tree, behind the <code>Runtime</code> trait. In 1.0.0 that is compose-rust's own recomposition runtime.</dd>
+      <dd>Whatever builds and changes the tree, behind the <code>Runtime</code> trait. For an application written with <code>#[composable]</code> that is compose-rust's own recomposition runtime, the <code>Recomposer</code>.</dd>
       <dt>Renderer</dt>
-      <dd>The ahead-of-time compiled Kotlin and Compose library, including the schema interpreter.</dd>
+      <dd>The ahead-of-time compiled Kotlin and Compose library, including the schema interpreter. On the desktop it draws into a window that the Compose fork provides.</dd>
       <dt>Schema</dt>
       <dd>The closed set of widgets, properties, modifiers, roles and events the renderer understands.</dd>
       <dt>Mutation</dt>
@@ -238,34 +238,45 @@
 
     <h2 id="runtimes">What runs where</h2>
     <p>
-      The renderer is built two ways. Where Compose can be compiled for the platform directly, there
-      is no virtual machine in the result. Where it cannot yet, the renderer is a GraalVM native
-      image with a Java runtime compiled into it. Neither needs Java installed on the user's
-      machine.
+      compose-rust ships Kotlin/Native renderers. Compose is compiled for the platform directly, so
+      there is no virtual machine in the result and nothing to install on the user's machine.
     </p>
     <div class="tablewrap">
       <table>
-        <thead><tr><th scope="col">Platform</th><th scope="col">0.0.1 ships</th><th scope="col">Next</th></tr></thead>
+        <thead><tr><th scope="col">Platform</th><th scope="col">Renderer</th><th scope="col">Status</th></tr></thead>
         <tbody>
-          <tr><td>macOS</td><td>Native image</td><td>Kotlin/Native, linked into the executable; runs in CI (<a href="https://github.com/DarkPyonix/compose-rust/issues/22">#22</a>)</td></tr>
-          <tr><td>Linux</td><td>Native image</td><td>Kotlin/Native, linked into the executable; passes a startup test in CI (<a href="https://github.com/DarkPyonix/compose-rust/issues/22">#22</a>)</td></tr>
-          <tr><td>Windows</td><td>Native image</td><td>Kotlin/Native (<a href="https://github.com/DarkPyonix/compose-rust/issues/24">#24</a>)</td></tr>
-          <tr><td>iOS</td><td>Kotlin/Native static archive</td><td>unchanged</td></tr>
-          <tr><td>Android</td><td>Android library</td><td>unchanged</td></tr>
-          <tr><td>Web</td><td>Kotlin/Wasm</td><td>unchanged</td></tr>
+          <tr><td>macOS</td><td>Kotlin/Native static archive, linked into the executable</td><td>From the next release; 0.0.1 shipped a native image</td></tr>
+          <tr><td>Linux (x64, arm64)</td><td>Kotlin/Native static archive, linked into the executable</td><td>From the next release; 0.0.1 shipped a native image</td></tr>
+          <tr><td>Windows</td><td>Kotlin/Native (<code>mingwX64</code>), linked into an MSVC executable</td><td>In progress (<a href="https://github.com/DarkPyonix/compose-rust/issues/24">#24</a>). Until it lands, Windows gets a GraalVM native image.</td></tr>
+          <tr><td>iOS</td><td>Kotlin/Native static archive</td><td>Released as an XCFramework</td></tr>
+          <tr><td>Android</td><td>Android library, built from Kotlin sources the crate carries</td><td>Shipped</td></tr>
+          <tr><td>Web</td><td>Kotlin/Wasm</td><td>Shipped</td></tr>
         </tbody>
       </table>
     </div>
     <p>
-      The difference is most of the weight. The notepad sample on macOS with the Kotlin/Native
-      renderer is one 28.76&nbsp;MB file with nothing beside it. The same sample built with the native
-      image was 93.1&nbsp;MB across four files. The extra is not Compose and not compose-rust's own
-      code, but the Java runtime and the metadata a closed world needs.
+      <strong>One application is one executable.</strong> On macOS, Linux and Windows the
+      executable <code>cargo build</code> produces is the whole application. The renderer, Compose,
+      Skia and ICU's data are linked into it, nothing sits beside it, and it loads only the
+      system's own libraries. A bundle such as a <code>.app</code>, an AppImage or an msix wraps that
+      executable; it does not replace it.
     </p>
     <p>
-      Linux has no published Compose UI for Kotlin/Native either, but nothing prevents building it,
-      so the pinned Compose fork adds the Linux targets. Windows is harder: Kotlin/Native's target
-      there is MinGW and Skia's build is MSVC, so the two cannot simply be linked.
+      The difference is most of the weight. The notepad sample on macOS with the Kotlin/Native
+      renderer is one 28.76&nbsp;MB file with nothing beside it. The same sample built with a
+      GraalVM native image was 93.1&nbsp;MB across four files. The extra is not Compose and not
+      compose-rust's own code, but the Java runtime and the metadata a closed world needs.
+    </p>
+    <p>
+      The 0.0.1 release still shipped GraalVM native images on every desktop. Building Compose desktop
+      applications into one executable on the GraalVM path is the Compose fork's work, not this
+      repository's.
+    </p>
+    <p>
+      Compose publishes no Kotlin/Native desktop target for Linux or Windows, so the pinned
+      Compose fork adds them. Windows is the harder one: Kotlin/Native's target there is MinGW and
+      Skia's build is MSVC, so the renderer build rewrites the Kotlin objects for the MSVC linker,
+      and MinGW never reaches the application's toolchain.
     </p>
     <div class="note">
       <span class="label">The application does not know which</span>
@@ -275,9 +286,26 @@
       </p>
     </div>
 
-    <h2 id="macos">The Kotlin/Native renderer on macOS</h2>
+    <h2 id="fork">The window lives in the Compose fork</h2>
     <p>
-      The window is the renderer's own <code>NSWindow</code>, not the one Compose opens for this
+      Everything about the desktop window is Compose's business rather than Rust's, so it lives in
+      <a href="https://github.com/thisisthepy/compose-multiplatform-core-extended"><code>thisisthepy/compose-multiplatform-core-extended</code></a>,
+      under <code>extended/window</code>: the window itself, input, IME, menus, the chrome, resizing
+      and accessibility, together with their C and Objective-C layer, on every OS. Living there,
+      they are usable by any Compose application, not only by compose-rust.
+    </p>
+    <p>
+      This repository pins one commit of the fork (<code>renderer/scripts/build-compose.sh</code>)
+      and publishes the window modules from it (<code>renderer/scripts/publish-window.sh</code>).
+      The renderer keeps only its glue to the window: the scene host, the text input session, the
+      semantics walk, the key mapping and the frame clock. A window fix is made in the fork first,
+      and then the pin moves here. The Windows window still has a copy in this repository until the
+      fork's shared Windows module lands.
+    </p>
+
+    <h2 id="macos">The renderer on macOS</h2>
+    <p>
+      The window is the fork's own <code>NSWindow</code>, not the one Compose opens for this
       platform. Compose's window draws correctly, but nothing in it is named: a screen reader sees
       the title and the three title bar buttons and nothing the application drew. Owning the window
       makes the contents readable.
@@ -297,6 +325,8 @@
       AppKit demands the main thread. The renderer runs <code>NSApplication</code> on the thread it
       was called on, and the call returns when the window closes. So
       <code>compose_rust_renderer_run</code> must be called on the process main thread.
+      <code>launch</code> does that for you, because it is the last statement of
+      <code>main</code>.
     </p>
 
     <nav class="pagenav" aria-label="Pagination">
@@ -310,7 +340,7 @@
   <div class="inner">
     <span>compose-rust &middot; Apache License 2.0</span>
     <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://crates.io/crates/compose-rust">crates.io</a></span>
-    <span>Guide last reviewed against the repository on 2026-10-03</span>
+    <span>Guide last reviewed against the repository on 2026-10-17</span>
   </div>
 </footer>
 
