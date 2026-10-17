@@ -9,6 +9,10 @@
 #   macos  `./kotlin test -m macos` on macos-latest.
 #   linux  `./kotlin test -m linux` on ubuntu under a virtual display.
 #
+# Each then links the static renderer into the consumer fixture and runs it through
+# renderer/desktop/scripts/smoke-test-kn.sh, which fails unless the window, scene and first
+# frame lines appear and the run exits 0.
+#
 # `test` compiles the module and links its test executable first, so it is also the build.
 # There is no Windows Kotlin/Native renderer on develop yet; its job is added with it.
 #
@@ -33,6 +37,9 @@ on:
       - renderer/kotlin.bat
       - renderer/libs.versions.toml
       - renderer/project.yaml
+      - compose-rust/tests/fixtures/consumer/**
+      - .github/scripts/resize-metrics-run.sh
+      - .github/scripts/resize-memory-check.sh
       - .github/workflows/test-kn-desktop-renderer.yml
 
 concurrency:
@@ -126,6 +133,22 @@ jobs:
           DXC_COMPOSE_BUILD: ${{ runner.temp }}/compose-build
         run: ./renderer/scripts/build-compose.sh --target ${{ matrix.compose }}
 
+      # A second run with Gradle up to date, as on a workstation that already built Compose
+      # once. It overwrites the published metadata in place, and has to repoint it again; a run
+      # into an empty repository never takes that path, which is how a broken one went unseen.
+      # Only macOS publishes under the fork's own version, so only macOS has anything to repoint.
+      - name: Publish the patched Compose again, with Gradle up to date
+        if: steps.compose-cache.outputs.cache-hit != 'true' && matrix.module == 'macos'
+        env:
+          DXC_COMPOSE_BUILD: ${{ runner.temp }}/compose-build
+        run: ./renderer/scripts/build-compose.sh --target ${{ matrix.compose }}
+
+      # Restored or just built, the repository must name no module nobody published, or the
+      # toolchain goes to the network for it. The build scripts check this; `./kotlin test`
+      # below does not go through them.
+      - name: Check the published Compose names only published modules
+        run: ./renderer/scripts/require-fork-artifacts.sh ${{ matrix.module }}
+
       - name: Keep the patched Compose for the next run
         if: steps.compose-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
@@ -133,12 +156,72 @@ jobs:
           path: ~/.m2/repository
           key: ${{ steps.compose-cache.outputs.cache-primary-key }}
 
+      - name: Publish the fork's window modules
+        run: ./renderer/scripts/publish-window.sh
+
       - name: Build and test the macOS renderer
         if: matrix.module == 'macos'
         working-directory: renderer
         run: ./kotlin test -m macos
 
+      - name: Build the static macOS renderer and an application on it
+        if: matrix.module == 'macos'
+        run: |
+          set -euo pipefail
+          ./renderer/desktop/scripts/build-macos.sh
+          export DXC_MACOS_NATIVE_LIB="$PWD/renderer/build/macos"
+          cargo build --release --manifest-path compose-rust/tests/fixtures/consumer/Cargo.toml
+
+      - name: The application comes up on the macOS renderer
+        # Fails unless the run exits 0 and prints the window line, the scene line on the main
+        # run loop's dispatcher and the first frame line, which the native image's smoke
+        # requires too. An application that opened a window and never drew passes nothing else.
+        if: matrix.module == 'macos'
+        run: ./renderer/desktop/scripts/smoke-test-kn.sh compose-rust/tests/fixtures/consumer/target/release/consumer macos
+
+      - name: Memory after 100 scripted resizes stays bounded
+        # A frame drawn inside a resize used to leave its drawable to the run loop's pool,
+        # and 100 sizes in one turn held 528 MB of Metal memory. The bounds and why they are
+        # what they are: .github/scripts/resize-memory-check.sh.
+        if: matrix.module == 'macos'
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/resize-metrics"
+          app=compose-rust/tests/fixtures/consumer/target/release/consumer
+          # The consumer opens its window only when asked to.
+          printf '#!/bin/sh\nexec "%s" --launch\n' "$PWD/$app" > "$RUNNER_TEMP/consumer-launch"
+          chmod +x "$RUNNER_TEMP/consumer-launch"
+          ./.github/scripts/resize-metrics-run.sh "$RUNNER_TEMP/consumer-launch" "$out" macos-kn
+          cat "$out/macos-kn.md" >> "$GITHUB_STEP_SUMMARY"
+          ./.github/scripts/resize-memory-check.sh "$out/macos-kn.log" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the resize logs
+        if: always() && matrix.module == 'macos'
+        uses: actions/upload-artifact@v4
+        with:
+          name: resize-metrics-macos-kn
+          path: ${{ runner.temp }}/resize-metrics/
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Build and test the Linux renderer
         if: matrix.module == 'linux'
         working-directory: renderer
         run: xvfb-run -a -s '-screen 0 1280x1024x24' ./kotlin test -m linux
+
+      - name: Install the Rust toolchain for the application
+        if: matrix.module == 'linux'
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      - name: Build the static Linux renderer and an application on it
+        if: matrix.module == 'linux'
+        run: |
+          set -euo pipefail
+          ./renderer/desktop/scripts/build-linux.sh
+          export DXC_LINUX_NATIVE_LIB="$PWD/renderer/build/linux"
+          cargo build --release --manifest-path compose-rust/tests/fixtures/consumer/Cargo.toml
+
+      - name: The application comes up on the Linux renderer
+        # The same check as the macOS job's, with the main dispatcher Linux has.
+        if: matrix.module == 'linux'
+        run: xvfb-run -a -s '-screen 0 1280x1024x24' ./renderer/desktop/scripts/smoke-test-kn.sh compose-rust/tests/fixtures/consumer/target/release/consumer linux

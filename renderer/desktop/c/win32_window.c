@@ -1447,6 +1447,17 @@ void dxc_native_install_menu(const char *application_name) {
 }
 
 /*
+ * The macOS window's context menu, which this window does not put up: the native image
+ * links one body of Kotlin for every desktop, so the symbol it names has to exist here.
+ * Answers that nothing was chosen.
+ */
+int32_t dxc_native_context_menu(void *view, const char *items) {
+    (void)view;
+    (void)items;
+    return -1;
+}
+
+/*
  * Measuring aids of the AppKit window, named because the Kotlin that drives every desktop
  * names them and answered here by doing nothing: a drag cannot be scripted from inside
  * this window, and nothing asks for it to be.
@@ -1500,10 +1511,26 @@ void dxc_native_window_configure(
     (void)backdrop;
 }
 
-void dxc_native_window_caption(void *view_pointer, float *height, float *buttons_width) {
+// macOS only: the native image's shared Kotlin declares them, so every platform defines
+// them. Nothing on this platform calls them.
+void dxc_native_window_title_bar(void *view_pointer, float *out) {
     (void)view_pointer;
-    *height = 0;
-    *buttons_width = 0;
+    out[0] = 0;
+    out[1] = 0;
+    out[2] = -1;
+    out[3] = -1;
+}
+
+void dxc_native_window_chrome(
+    int32_t full_size_content,
+    int32_t transparent_title_bar,
+    int32_t title_hidden,
+    int32_t unified_toolbar
+) {
+    (void)full_size_content;
+    (void)transparent_title_bar;
+    (void)title_hidden;
+    (void)unified_toolbar;
 }
 
 void dxc_native_set_icon(const uint8_t *rgba, int32_t width, int32_t height) {

@@ -63,6 +63,11 @@ case "$arch" in
     *) die "unknown architecture '$arch'" "known: x64, arm64" ;;
 esac
 
+# The patched Compose has to be in ~/.m2 before anything resolves it, or the toolchain records
+# the failed download and keeps failing after it is published (require-fork-artifacts.sh says
+# how). Checked first, so a machine that has not published it is told so and nothing runs.
+"$PROJECT_DIR/scripts/require-fork-artifacts.sh" linux
+
 # Built where the libraries it links against are. Kotlin/Native can cross compile the code,
 # but the archive this produces is linked into an application by Cargo against the X11, Xext
 # and GL of the machine doing that linking, so producing it anywhere else only moves the
@@ -83,6 +88,10 @@ KOTLIN_WRAPPER="$PROJECT_DIR/kotlin"
     "$KOTLIN_WRAPPER is missing or not executable" \
     "It is the self-bootstrapping Kotlin Toolchain wrapper; no separate install is needed." \
     "fix: chmod +x $KOTLIN_WRAPPER"
+
+# The window is the Compose fork's native/linux module, published beside the patched Compose
+# from the commit build-compose.sh pins.
+"$PROJECT_DIR/scripts/publish-window.sh"
 
 if [[ "$(uname -m)" != "x86_64" ]]; then
     die "Kotlin/Native builds Linux targets on an x86-64 machine only (this is $(uname -m))" \

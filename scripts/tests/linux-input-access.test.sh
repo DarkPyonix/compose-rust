@@ -17,13 +17,20 @@
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# The input method and the accessibility bridge are the Compose fork's native/linux module,
+# read here at the commit the renderer pins. The renderer's own part is the Compose half in
+# LinuxWindow.kt, which wires the scene to them.
+source "$repo_root/scripts/tests/fork-window.sh"
+fork_window_or_skip "$repo_root"
 src="$repo_root/renderer/linux/src"
-window="$src/LinuxWindow.kt"
-xim="$src/XimContext.kt"
-ime="$src/InputMethod.kt"
+fork_src="$fork_window/native/linux/src"
+host_window="$src/LinuxWindow.kt"
+window="$fork_src/X11Window.kt"
+xim="$fork_src/XimContext.kt"
+ime="$fork_src/InputMethod.kt"
 entry="$src/LinuxRenderer.kt"
-bridge="$src/AtspiBridge.kt"
-server="$src/AtspiServer.kt"
+bridge="$fork_src/AtspiBridge.kt"
+server="$fork_src/AtspiServer.kt"
 # The Linux static renderer is built, and checked, in the reusable workflow the native
 # renderer workflow calls for linux-x64.
 workflow="$repo_root/.github/workflows/static-renderer.yml"
@@ -34,10 +41,10 @@ fail() {
     red=1
 }
 
-for file in "$window" "$xim" "$ime" "$entry" "$bridge" "$server" "$src/AtspiSemantics.kt" \
-            "$src/AtspiModel.kt" "$src/AtspiWire.kt" \
-            "$repo_root/renderer/linux/test/InputMethodTest.kt" \
-            "$repo_root/renderer/linux/test/AtspiTest.kt"; do
+for file in "$host_window" "$window" "$xim" "$ime" "$entry" "$bridge" "$server" \
+            "$fork_src/AtspiSemantics.kt" "$fork_src/AtspiModel.kt" "$fork_src/AtspiWire.kt" \
+            "$fork_window/native/linux/test/InputMethodTest.kt" \
+            "$fork_window/native/linux/test/AtspiTest.kt"; do
     [[ -f "$file" ]] || fail "missing $file"
 done
 (( red == 0 )) || exit 1
@@ -75,17 +82,18 @@ when_line="$(grep -n '        when (event.type) {' "$window" | head -1 | cut -d:
     fail "the window handles events before the input method has been offered them"
 has 'taken && \(event.type == KeyPress \|\| event.type == KeyRelease\)' "$window" \
     "a key the input method took is handled again by the window"
-has 'EVENT_MASK or context.filterMask' "$window" "the events the input method asked for are not selected"
-has 'updateInputMethod\(\)' "$window" "the input method is never told where the caret is or when a field has focus"
+has 'EVENT_MASK or input.filterMask' "$window" "the events the input method asked for are not selected"
+has 'updateInputMethod\(\)' "$host_window" "the input method is never told where the caret is or when a field has focus"
+has 'x11.setImeSpot\(' "$host_window" "the input method is never told where the caret is"
 has 'finishComposition\(\)' "$window" "a click does not end a composition"
 
 # Composing text reaches Compose through the window's own log and the text input session.
 has 'ImeSession \{ event -> log.heard\(event\) \}' "$window" \
     "what an input method says does not go through the log every other event goes through"
-has 'textInput.receive\(event\)' "$window" "recorded text events never reach the text input session"
+has 'textInput.receive\(event\)' "$host_window" "recorded text events never reach the text input session"
 absent 'compose_rust_host|HostConnection|dispatch_event' "$xim" "composition text must never be sent to the Host"
 absent 'compose_rust_host|HostConnection|dispatch_event' "$ime" "composition text must never be sent to the Host"
-absent 'PlatformTextInputService|setPlatformImeService' "$window" "this bypasses Compose's platform text input"
+absent 'PlatformTextInputService|setPlatformImeService' "$host_window" "this bypasses Compose's platform text input"
 
 # ---- AT-SPI --------------------------------------------------------------------------------
 has 'org.a11y.atspi.Socket' "$bridge" "the window never registers with the registry"
@@ -95,9 +103,9 @@ has 'org.a11y.atspi.Accessible' "$server" "the accessible interface is not serve
 has 'org.a11y.atspi.Component' "$server" "the component interface is not served, so no reader can place a control"
 has 'org.a11y.atspi.Action' "$server" "the action interface is not served, so nothing can be pressed"
 has 'startAccessibility\(' "$entry" "the entry point never joins the accessibility bus"
-has 'accessibility\?\.pump\(\)' "$window" "calls from a reader are never answered"
-has 'semanticsListeners' "$window" "the scene does not report its semantics to the bridge"
-has 'NO_AT_BRIDGE' "$window" "the standard switch for turning the bridge off is not honoured"
+has 'accessibility\?\.pump\(\)' "$host_window" "calls from a reader are never answered"
+has 'semanticsListeners' "$host_window" "the scene does not report its semantics to the bridge"
+has 'NO_AT_BRIDGE' "$host_window" "the standard switch for turning the bridge off is not honoured"
 absent 'java\.|JNI|org\.graalvm' "$bridge" "Kotlin/Native has no JVM"
 
 # ---- the check that runs a real registry and input method -----------------------------------

@@ -23,7 +23,7 @@ import platform.posix.read
 import platform.posix.readlink
 import platform.posix.socket
 import platform.posix.write
-import unixsocket.dxc_connect_unix
+import renderer_unixsocket.dxc_connect_unix
 
 /**
  * The session bus, for the Kotlin/Native renderer on Linux: a Unix socket read on the

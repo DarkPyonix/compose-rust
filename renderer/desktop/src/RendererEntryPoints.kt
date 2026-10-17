@@ -57,7 +57,7 @@ fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
                 NativeDesktopNotifications()
             platform.startsWith("Linux") -> DBusNotifications(
                 open = { JvmBusConnection.open(wake = FrameRequests::request) },
-                bringToFront = if (platform.startsWith("Linux")) ::bringNativeWindowToFront else ::bringAwtWindowToFront,
+                bringToFront = ::bringNativeWindowToFront,
                 applicationName = JvmBusConnection.applicationName(),
             )
             else -> UnsupportedNotifications
@@ -69,6 +69,8 @@ fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
             // back. Saying up front that there is no display to open keeps the toolkit
             // from asking, and nothing on this path wants one.
             System.setProperty("java.awt.headless", "true")
+            // Compose's main-thread work runs in this window's frame, not on Swing's queue.
+            FrameMainDispatcher.install()
             runAppKitWindow(autoExitMillis)
             return@rendererRun 0
         }
@@ -80,6 +82,8 @@ fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
             // As on macOS, there is no display for the toolkit to open, and saying so keeps
             // it from being woken.
             System.setProperty("java.awt.headless", "true")
+            // Compose's main-thread work runs in this window's frame loop, not on Swing's queue.
+            FrameMainDispatcher.install()
             runX11Window(autoExitMillis)
             return@rendererRun 0
         }
@@ -91,6 +95,11 @@ fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
         // system draws for an opaque window rather than for a desktop that never shows
         // through.
         dev.darkpyonix.composerust.runtime.platformBacksWindowWithMaterial = { false }
+        // The toolkit's window: Windows for now, and development runs on a JVM. An image built
+        // without it (see ToolkitWindow) has no way to get here and says so.
+        if (!ToolkitWindow.available) {
+            error("this renderer was built without the Java toolkit's window, and $platform has no other")
+        }
         // Lets automated smoke tests close the window; unset in normal use.
         runRenderer(autoExitMillis) {
             NativeHostConnection()
@@ -108,22 +117,4 @@ fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
 fun rendererRequestFrame(thread: IsolateThread?) {
     dev.darkpyonix.composerust.ui.platform.LatencyTrace.mark("request_frame")
     FrameRequests.request()
-}
-
-/**
- * Brings the application's window up for a press on a notification's body: back from
- * being minimised, and in front of the others.
- *
- * On the toolkit's thread, because that is the only thread a toolkit window may be touched
- * from, and a press is reported from wherever the bus was read.
- */
-private fun bringAwtWindowToFront() {
-    java.awt.EventQueue.invokeLater {
-        val window = java.awt.Window.getWindows().firstOrNull { it.isVisible } ?: return@invokeLater
-        if (window is java.awt.Frame) {
-            window.extendedState = window.extendedState and java.awt.Frame.ICONIFIED.inv()
-        }
-        window.toFront()
-        window.requestFocus()
-    }
 }
