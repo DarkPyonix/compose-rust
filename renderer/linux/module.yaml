@@ -41,6 +41,11 @@ repositories:
 # and `linux-native-window.test.sh` says so when they stop agreeing.
 dependencies:
   - $compose.runtime
+  # Named rather than left to arrive behind Compose, so its version is the catalog's. The
+  # renderer installs its own `Dispatchers.Main` through an internal kotlinx.coroutines
+  # function (src/MainDispatcherInstall.kt), and an upgrade has to be a decision taken here
+  # rather than one a Compose update makes for it.
+  - $libs.kotlinx.coroutines.core
   # The window and what every window decides the same way. Published by
   # scripts/publish-window.sh from the pinned fork commit, next to the patched Compose.
   - org.thisisthepy.compose.window:common:0.1.0

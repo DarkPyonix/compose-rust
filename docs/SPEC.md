@@ -714,7 +714,7 @@ LaunchBuilder::new()
 
 #### 14.11 디자인 시스템 라이브러리의 두 층 (`Agreed`, 진행 중, 이슈 #39)
 
-> **현황(2026-10-04).** 디자인 시스템 소스는 포크(`compose-multiplatform-core-extended`의 `extended/design-systems/`)로 옮겨졌습니다(PR #86). 1층 라이브러리 일곱 개와 2층 `org.thisisthepy.compose.adaptive`로 나누는 일, 그리고 남은 좌표 이동은 두 포크의 `chore/thisisthepy-coordinates` 브랜치에 있고 병합되지 않았습니다(#39).
+> **현황(2026-10-04).** 디자인 시스템 소스는 포크(`compose-multiplatform-core-extended`의 `extended/design-systems/`)로 옮겨졌습니다(PR #86). 1층 라이브러리 일곱 개와 2층 `org.thisisthepy.compose.adaptive`로 나누는 일, 그리고 남은 좌표 이동은 두 포크의 `chore/thisisthepy-coordinates` 브랜치에 있고 병합되지 않았습니다. compose-rust 쪽은 초안 PR #109입니다(#39).
 
 INTENT D19의 2026-10-03 결정입니다. 디자인 시스템은 `compose-multiplatform-core-extended`에서 Compose 라이브러리로 나가고, 두 층으로 나뉩니다.
 
@@ -2314,7 +2314,7 @@ Notification::new("세션이 끝났습니다")
 
 ### FR-39 compose-rust 작성 API와 recomposition 런타임 (`Agreed`, 진행 중, 이슈 #23, #64)
 
-> **현황(2026-10-04).** develop에는 이 API가 없습니다. 런타임과 Host 배선은 `feature/compose-api` 브랜치(develop보다 18커밋 앞)에 있고 PR은 아직 열리지 않았습니다(#64). 소유자 결정의 기록은 #23, 이름 조회와 재전송 비용은 #65가 추적합니다.
+> **현황(2026-10-04).** develop에는 이 API가 없습니다. 런타임과 Host 배선은 초안 PR #112(`feature/compose-api`)에 있고 병합되지 않았습니다(#64). 소유자 결정의 기록은 #23, 이름 조회와 재전송 비용은 #65가 추적합니다.
 
 **2026-10-03 소유자 결정(INTENT D2).** compose-rust는 Dioxus 없이 쓸 수 있는 자기 작성 API를 가집니다. 모양은 Compose이고, 그 아래는 슬롯 테이블 위의 recomposition 런타임입니다. dioxus-compose는 이 위에 얹힙니다. compose-rust 1.0.0(2026-11-14)의 범위입니다. 날짜는 2026-10-04 소유자 결정으로 2026-10-20에서 옮겼습니다. 창 코드를 포크로 옮기는 일이 끝나는 2026-10-31에 안정화 2주(하드웨어 확인, 동등성 테스트, 릴리스 후보)를 더한 날짜입니다.
 
@@ -2377,7 +2377,7 @@ fn main() {
 
 ### FR-40 HTML 텍스트 속성 (`Agreed`, 진행 중, 이슈 #106)
 
-> **현황(2026-10-04).** develop에는 없습니다. 구현은 `feat/measure-call` 브랜치(develop보다 14커밋 앞, PR 없음)에 PR-2.1과 함께 있습니다. 그 경로에서 나온 후속 문제는 #90, #91입니다.
+> **현황(2026-10-04).** develop에는 없습니다. 구현은 초안 PR #110(`feat/measure-call`)에 PR-2.1과 함께 있고 병합되지 않았습니다. 그 경로에서 나온 후속 문제는 #90, #91입니다.
 
 CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 데 필요한 속성입니다. 측정 호출(PR-2.1)의 값이 그려진 값과 같으려면, 그리기도 같은 칸을 같은 뜻으로 받아야 합니다. 노드 단위 글꼴은 역할이 없는 텍스트에만 엽니다(INTENT D20, 2026-10-03 소유자 결정).
 
@@ -2925,7 +2925,7 @@ compose_rust_host_dispatch_event: click 1
 
 ### PR-2.1 측정 호출 (`Agreed`, 진행 중, 이슈 #106)
 
-> **현황(2026-10-04).** develop에는 측정 진입점이 없습니다. 구현은 `feat/measure-call` 브랜치(PR 없음)에 FR-40과 함께 있습니다.
+> **현황(2026-10-04).** develop에는 측정 진입점이 없습니다. 구현은 초안 PR #110(`feat/measure-call`)에 FR-40과 함께 있고 병합되지 않았습니다.
 
 **무엇을 하나.** Host가 자기 레이아웃을 계산하는 도중에, 텍스트 한 덩이나 이미 보낸 위젯 하나가 주어진 제약 안에서 차지할 크기를 Renderer에게 묻습니다. Renderer는 **그릴 때와 같은 글꼴 해석, 같은 Density와 글꼴 배율, 같은 디자인 시스템 타입 스케일**로 재서 그 자리에서 돌려줍니다. 측정값과 그려진 크기가 같다는 것이 이 호출의 존재 이유입니다.
 
@@ -3243,13 +3243,13 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 | NFR-5 | 개발 경험 | Renderer는 JVM 개발 셸에서 hot reload와 `@Preview`로 작업 가능. native-image 빌드는 개발 루프에 필요 없음. 새 머신의 준비 상태를 `scripts/setup-check.sh` 한 번으로 확인 가능 | Agreed |
 | NFR-6 | 안정 API만 사용 | `@InternalComposeUiApi`, `@ExperimentalComposeUiApi` 의존을 금지하거나, 쓰더라도 어댑터 한 파일에 격리하고 버전 핀을 둠. **2026-09-22 충족**: 실험 API를 쓰는 파일은 `web/src/main.kt` 하나이고 `@OptIn`이 그 자리에 붙어 있습니다 | Done |
 | NFR-7 | 크래시 격리 | 프로토콜 오류로 프로세스가 종료되지 않고 `ProtocolError` 이벤트를 보냄 | Agreed |
-| NFR-8 | 데스크톱 접근성 | 배포 빌드(2026-10-03부터 AWT 없는 렌더러, NFR-14)의 접근성 트리가 JVM 개발 셸과 같은 구조로 노출될 것. smoke test의 종료 코드 0은 근거가 되지 않습니다(접근성을 질의하지 않으므로). **2026-09-21 트리 노출 충족**, VoiceOver 수동 확인은 미완료(§7) | Agreed |
+| NFR-8 | 데스크톱 접근성 | 배포 빌드(2026-10-03부터 AWT 없는 렌더러, NFR-14)의 접근성 트리가 JVM 개발 셸과 같은 구조로 노출될 것. smoke test의 종료 코드 0은 근거가 되지 않습니다(접근성을 질의하지 않으므로). **2026-09-21 트리 노출 충족**(그 측정은 지금 배포되지 않는 AWT native-image 빌드에서 했습니다), VoiceOver 수동 확인은 미완료(§7). AWT 없는 빌드에서 CI가 트리를 걷는 곳은 Kotlin/Native Linux뿐입니다(실행 38823417678의 "linux-x64 static renderer") | Agreed |
 | NFR-9 | 네이티브 수준 프레임 성능 | §5.1 기준 충족 | Agreed |
 | NFR-10 | 렌더러 탐색 경로 | `COMPOSE_RUST_RENDERER_DIR` → 워크스페이스 빌드 결과물 → 버전·타깃별 캐시 → 릴리스 다운로드 순서로 찾음. 규격과 수용 기준은 §5.3. **2026-09-21 충족** | Done |
-| NFR-11 | 배포 | 크레이트는 crates.io, 렌더러는 플랫폼별 체크섬 릴리스 아티팩트. 설치는 `Cargo.toml` 한 줄이 전부이고 빌드 스크립트가 아티팩트를 가져옵니다. 규격과 수용 기준은 §5.3 (INTENT D10). **2026-09-21 macOS에서 충족**, Windows와 Linux는 실행 확인 미완료 | Agreed |
+| NFR-11 | 배포 | 크레이트는 crates.io, 렌더러는 플랫폼별 체크섬 릴리스 아티팩트. 설치는 `Cargo.toml` 한 줄이 전부이고 빌드 스크립트가 아티팩트를 가져옵니다. 규격과 수용 기준은 §5.3 (INTENT D10). **2026-09-21 macOS에서 충족**, Linux는 "Native renderer test" 실행 38823417678의 "One executable on linux-x64"와 "One executable on linux-arm64" 잡이 릴리스 모양의 타르볼로 소비자 크레이트를 빌드해 실행하는 것까지 확인했습니다. Windows는 실행 확인 미완료 | Agreed |
 | NFR-12 | 워크트리 빌드 격리 | 워크트리마다 자기 `target/`에 빌드하고, 다른 워크트리의 빌드 디렉터리를 가리키는 설정이 없음. 한 트리에서 컴파일된 codegen 바이너리가 다른 트리에 쓸 수 없음. 규격과 수용 기준은 §5.4 (INTENT D16). **2026-09-22 충족** | Done |
-| NFR-13 | Windows 단일 실행 파일 | Windows 렌더러를 Kotlin/Native로 빌드해 앱 실행 파일 하나에 링크함. JVM이 없고, 앱을 빌드하는 사람에게 MinGW를 요구하지 않음. 규격과 수용 기준은 §5.6 (INTENT D18, 2026-10-03 소유자 결정) | Agreed, 진행 중: `feature/windows-kotlin-native` 브랜치(PR 없음), 이슈 #24 |
-| NFR-14 | AWT 없는 데스크톱 렌더러가 기본 | 배포되는 데스크톱 렌더러가 AWT도 JVM도 쓰지 않음. macOS와 Linux는 Kotlin/Native 정적 라이브러리, Windows는 NFR-13. 앱이 아무것도 고르지 않아도 이 경로가 나옴. 규격과 수용 기준은 §5.5 (INTENT D4, 2026-10-03 소유자 결정) | Agreed, 진행 중: develop의 기본값은 아직 native-image AWT 경로, 전환은 `feature/native-default-renderer` 브랜치(PR 없음), 이슈 #22 |
+| NFR-13 | Windows 단일 실행 파일 | Windows 렌더러를 Kotlin/Native로 빌드해 앱 실행 파일 하나에 링크함. JVM이 없고, 앱을 빌드하는 사람에게 MinGW를 요구하지 않음. 규격과 수용 기준은 §5.6 (INTENT D18, 2026-10-03 소유자 결정) | Agreed, 진행 중: 초안 PR #119(`feature/windows-kotlin-native`)와 그 위의 초안 PR #174, 이슈 #24. 둘 다 develop에 병합되지 않았습니다 |
+| NFR-14 | AWT 없는 데스크톱 렌더러가 기본 | 배포되는 데스크톱 렌더러가 AWT도 JVM도 쓰지 않음. macOS와 Linux는 Kotlin/Native 정적 라이브러리, Windows는 NFR-13. 앱이 아무것도 고르지 않아도 이 경로가 나옴. 규격과 수용 기준은 §5.5 (INTENT D4, 2026-10-03 소유자 결정) | Agreed, 진행 중: macOS와 Linux의 기본값은 PR #113(3be2ec74, 2026-10-04 병합)으로 Kotlin/Native 정적 렌더러이고 이슈 #22는 닫혔습니다. Windows는 PR #119, #174가 병합되기 전까지 GraalVM native-image AWT 경로로 남습니다. compose-rust가 내는 길은 Kotlin/Native뿐이라는 것이 소유자의 말입니다(2026-10-17) |
 | NFR-15 | 데스크톱 애플리케이션은 실행 파일 하나 | compose-rust 애플리케이션이 macOS, Windows, Linux에서 실행 파일 하나이고, 시스템 라이브러리 외에 아무것도 불러오지 않음. 렌더러, Skia, ICU 데이터가 안에 있음. 1.0.0 요구사항. 규격과 수용 기준은 §5.7 (INTENT D17, 2026-10-03 소유자 결정) | Agreed |
 
 ### 5.1 프레임 예산 (NFR-9)
@@ -3479,7 +3479,7 @@ Cargo는 path 패키지의 유닛 해시에 패키지 경로를 넣지 않습니
 
 ### 5.5 AWT 없는 데스크톱 렌더러 (NFR-14)
 
-> **현황(2026-10-04).** develop에서 배포되는 데스크톱 렌더러는 아직 GraalVM native-image AWT 경로이고, Kotlin/Native 렌더러는 `DXC_MACOS_NATIVE_LIB`로 고르는 선택지입니다. 기본값 전환은 `feature/native-default-renderer` 브랜치(develop보다 24커밋 앞, PR 없음)에 있습니다(#22).
+> **현황(2026-10-17).** macOS와 Linux에서 develop이 배포하는 데스크톱 렌더러는 Kotlin/Native 정적 렌더러이고 AWT를 쓰지 않습니다. 기본값 전환은 PR #113(3be2ec74, 2026-10-04 병합)으로 들어왔고 이슈 #22는 닫혔습니다. Windows는 아직 GraalVM native-image AWT 경로입니다. 그 경로는 Windows 렌더러(§5.6, PR #119, #174)가 들어오기 전까지만 남고, compose-rust가 내는 길은 Kotlin/Native뿐입니다(소유자, 2026-10-17).
 
 **2026-10-03 소유자 결정(INTENT D4).** 배포되는 데스크톱 렌더러는 AWT를 쓰지 않습니다. 렌더러가 자기 창을 직접 열고 Compose 장면을 그 창에 붙여 그립니다. macOS와 Linux는 Kotlin/Native 정적 라이브러리이고, Windows는 Kotlin/Native `mingwX64`로 같은 길을 갑니다(§5.6, NFR-13). GraalVM native-image 위의 AWT 경로는 Windows 렌더러가 NFR-13을 통과할 때까지 Windows가 지금 내는 것으로만 남습니다.
 
@@ -3503,7 +3503,7 @@ Cargo는 path 패키지의 유닛 해시에 패키지 경로를 넣지 않습니
 
 ### 5.6 Windows 단일 실행 파일 (NFR-13)
 
-> **현황(2026-10-04).** develop의 Windows 렌더러는 GraalVM native-image입니다. Kotlin/Native `mingwX64` 렌더러는 `feature/windows-kotlin-native` 브랜치(develop보다 23커밋 앞, PR 없음)에 있습니다(#24).
+> **현황(2026-10-17).** develop의 Windows 렌더러는 아직 GraalVM native-image입니다. Kotlin/Native `mingwX64` 렌더러는 초안 PR #119(`feature/windows-kotlin-native`)와 그 위의 초안 PR #174에 있고 병합되지 않았습니다(#24).
 
 **2026-10-03 소유자 결정(INTENT D18). 실험이 아니라 정식 통합입니다.** Windows 렌더러는 Kotlin/Native(`mingwX64`)로 빌드한 정적 라이브러리(`renderer/windows/`, `staticlib-windows/`)이고, Rust 앱의 MSVC 실행 파일에 링크됩니다. Skia와 skiko의 C++ 부분은 MSVC로 빌드해 같은 실행 파일에 들어갑니다. Compose와 skiko의 `mingwX64` 타깃은 Compose 포크의 커밋입니다(INTENT D19). 경계와 그 이유는 INTENT D18에 있습니다.
 

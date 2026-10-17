@@ -297,5 +297,9 @@ jobs:
       - name: Use a renderer generated from this tree's schema
         run: ./scripts/stand-in-renderer.sh --if-refused target/stand-in-renderer >> "$GITHUB_ENV"
 
+      # compose-rust depends on compose-rust-macros by version as well as by path, and the
+      # macro crate is published from this repository with it. Packaging the two together
+      # lets the verification build resolve the macro crate from its own package rather
+      # than from a registry that may not have this version yet.
       - name: cargo package
-        run: cargo package -p compose-rust
+        run: cargo package -p compose-rust-macros -p compose-rust

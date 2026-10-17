@@ -18,11 +18,12 @@
 # The class each renderer's `Dispatchers.Main` is. The native image installs its own, which
 # runs the work on the window's thread once a frame. Kotlin/Native on macOS has
 # kotlinx.coroutines' dispatcher onto the main run loop, which is where the fork's window
-# sends the scene's work. Kotlin/Native on Linux has none: the stand-in answers, and the Linux
-# window gives its scene a dispatcher of its own instead.
+# sends the scene's work. Kotlin/Native on Linux has none of its own, so the renderer installs
+# the window's frame dispatcher as `Dispatchers.Main` before it makes the scene. A Linux run
+# that names kotlinx.coroutines' stand-in instead has a `Dispatchers.Main` that throws.
 smoke_main_dispatcher_native_image="dev.darkpyonix.composerust.ui.platform.FrameMainDispatcher"
 smoke_main_dispatcher_kn_macos="kotlinx.coroutines.DarwinMainDispatcher"
-smoke_main_dispatcher_kn_linux="kotlinx.coroutines.MissingMainDispatcher"
+smoke_main_dispatcher_kn_linux="dev.darkpyonix.composerust.ui.platform.FrameDispatcher"
 
 # What the native image's smoke host prints on top: it was started and answered two events.
 smoke_host_lines=(
