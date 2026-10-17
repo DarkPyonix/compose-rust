@@ -17,7 +17,7 @@
 #       awk '{ print ($5 == "D" ? "-" : $4), $6 }'
 10ea84f93bea1345a89f098e02351c1a8deb12d9 .github/workflows/design-systems.yml
 0a264ed0d3746e303bc7527a8cd896027300c47f .github/workflows/extended-desktop-test.yml
-a50ab3735dafa77d8281cf7e3907f724978f3824 .github/workflows/extended-foundation-macos.yml
+362dfe90cb673c941030bca17672c241a3e40ae9 .github/workflows/extended-foundation-macos.yml
 8adf1f176b40f6fa65d5fb84516dfe21ae52dfdc .github/workflows/extended-foundation-text.yml
 1bb9da55216200dc8bc6f43d63b3cf9b18c76b5c .github/workflows/extended-packaging.yml
 c489d6b9cc0125393c7046ec68d1c9bf2613c724 .github/workflows/extended-pointericon-test.yml
@@ -25,7 +25,7 @@ c489d6b9cc0125393c7046ec68d1c9bf2613c724 .github/workflows/extended-pointericon-
 27162e79c3f8f6f202fbdc74b7c41fe2ebe8e03b .github/workflows/extended-skiko-awt-free.yml
 47b4f348b0f32540cd58b19b1720c17feb50d429 .github/workflows/extended-skiko-awt-jar.yml
 1c7c99a2152edb15911d90ab4de153fb08c72cdd .github/workflows/extended-skiko-static.yml
-b26acaeb46f24bb73a4f3ca84de509598ba1942f .github/workflows/extended-window-common.yml
+caa35fa45c7f606806d3f14fa0eea023fe94309e .github/workflows/extended-window-common.yml
 f8593c179dcc9323db860a4fb105847981ab48f2 .github/workflows/extended-window-graalvm-linux.yml
 59dd7f474957dd3bed4d60985d48fbcaf5c9c64e .github/workflows/extended-window-graalvm-macos.yml
 03326c783483c358887846bed45fbcc178e3507d .github/workflows/extended-window-linux.yml
@@ -75,10 +75,11 @@ c18b81002f5757db28ba51637e509cf0e5559d2d compose/foundation/foundation/src/linux
 8c0054a7c171d6e10c976c3bc2005d72e3991051 compose/foundation/foundation/src/linuxMain/kotlin/androidx/compose/foundation/text/selection/SelectionHandles.linux.kt
 5d74a80d73414bc5fe0655695267286d8de10ce5 compose/foundation/foundation/src/linuxMain/kotlin/androidx/compose/foundation/text/selection/SelectionManager.linux.kt
 67357fb069b13841572424e6544fc745ef5be7c4 compose/foundation/foundation/src/linuxMain/kotlin/androidx/compose/foundation/text/selection/TextFieldSelectionManager.linux.kt
-29fa07e4f1926329832af050ae179282c1108033 compose/foundation/foundation/src/macosMain/kotlin/androidx/compose/foundation/text/contextmenu/internal/ProvideDefaultPlatformTextContextMenuProviders.macos.kt
+e9bec593d0cf02c9288fd3a91a2001fe412effc2 compose/foundation/foundation/src/macosMain/kotlin/androidx/compose/foundation/text/contextmenu/internal/ProvideDefaultPlatformTextContextMenuProviders.macos.kt
 3918e2591cd12bfaaf218d93286aac8cf3eba908 compose/foundation/foundation/src/macosMain/kotlin/androidx/compose/foundation/text/input/internal/selection/TextFieldSelectionState.macos.kt
 e734071cd081440d716c096a7c0c09f8cf442abd compose/foundation/foundation/src/macosMain/kotlin/androidx/compose/foundation/text/selection/SelectionManager.macos.kt
 67357fb069b13841572424e6544fc745ef5be7c4 compose/foundation/foundation/src/macosMain/kotlin/androidx/compose/foundation/text/selection/TextFieldSelectionManager.macos.kt
+8cb941931a9a0a474ec57269432d78f03413787b compose/foundation/foundation/src/macosTest/kotlin/androidx/compose/foundation/text/contextmenu/MacosTextContextMenuProviderTest.kt
 549c24ebb7d466e9b6afdcb4673f055c94b039fe compose/foundation/foundation/src/macosTest/kotlin/androidx/compose/foundation/text/contextmenu/internal/MenuLocationTest.kt
 8840943dfa742c17b41315a09368a1420a78c14e compose/foundation/foundation/src/mingwMain/kotlin/androidx/compose/foundation/Clickable.mingw.kt
 d79b2c666175d2343cbbd4c1044e2a2c2b2775a7 compose/foundation/foundation/src/mingwMain/kotlin/androidx/compose/foundation/Overscroll.mingw.kt
@@ -244,7 +245,7 @@ d420882d224dae07b4794b1818c4f63f8e6b66fc extended/skiko/build-skiko-awt.sh
 03db2672a61b1555986396a43b44c5ae393e467c extended/skiko/static_no_jawt.c
 f8ac74889ef52398d6762dea1b862d5b2c98b880 extended/skiko/tests/LoaderCheck.java
 c6a8386c8163f2346f936fb07f115b908aec005d extended/window/.gitignore
-c55bbcc21278779776887e92be3cc72b1628f588 extended/window/common/module.yaml
+190d72bbbda6d6b637672f5ad963cf81bba6a2dd extended/window/common/module.yaml
 27f4b08848b2d785aa7690847f317814c4c5ec14 extended/window/common/src/org/thisisthepy/compose/window/AccessibilityCache.kt
 d787c70f2c263d57452e9d518804f9151604a462 extended/window/common/src/org/thisisthepy/compose/window/CodePoints.kt
 929c03acedd747df05ca67e4076a72031dcc5f64 extended/window/common/src/org/thisisthepy/compose/window/EditMenu.kt
@@ -321,7 +322,7 @@ ef959a931824a607e6c1e331dd7fc603e6f48876 extended/window/native/linux/test/X11Wi
 65397379ce005b54ac43515d2c7d7f1c81425c3c extended/window/native/macos/src/org/thisisthepy/compose/window/macos/MacosClipboard.kt
 13271313f2ffd1bc1491c7267ccd9948026b42c6 extended/window/native/macos/src/org/thisisthepy/compose/window/macos/MacosFileDrop.kt
 11867ff15b233ef62f8b7a6d291c1d3efe7f4b51 extended/window/native/macos/src/org/thisisthepy/compose/window/macos/MacosTextToolbar.kt
-e0b94c756523790af62a63c4b616272a1098948a extended/window/native/macos/src/org/thisisthepy/compose/window/macos/MacosWindow.kt
+443b81147d83b92be3da4be11fa52d53268df7c2 extended/window/native/macos/src/org/thisisthepy/compose/window/macos/MacosWindow.kt
 077328c0319ce61049a44f88803fca2de256bb58 extended/window/native/macos/src/org/thisisthepy/compose/window/macos/MacosWindowChrome.kt
 d3f29aedfdf30c6419dab3efbebba73e8fa402a9 extended/window/native/macos/src/org/thisisthepy/compose/window/macos/MacosWindowPlatform.kt
 a88a3835e65030895c038043fd791d9ddc615988 extended/window/native/macos/src/org/thisisthepy/compose/window/macos/MetalSurface.kt
@@ -338,6 +339,7 @@ b156938aa1b7af53bac7181f1ebdf94351e21b60 extended/window/native/macos/test/AppKi
 33ab0b290240fd4328eb0ca221c21857dcd6d7f3 extended/window/native/macos/test/MacosClipboardTest.kt
 990e34134c9e5405ae50eb2e29ae2137377ec8a9 extended/window/native/macos/test/MacosWindowChromeTest.kt
 746d4d60c5c89386fcfb1c9964fe6d38e433a66a extended/window/native/macos/test/MacosWindowPlatformTest.kt
+38458f01050d4e07222198b8f016374273cc6259 extended/window/native/macos/test/MacosWindowStartTest.kt
 9bfbf134b9872c452bdd384a1b2b3419a1b5d440 extended/window/native/macos/test/MetalSurfaceTest.kt
 0fe39f857c9e97859f858bcec7e51ef3bbd937d3 extended/window/project.yaml
 cbf1a1232cce832119890783d205615bdc56ce7c extended/window/scene/module.yaml

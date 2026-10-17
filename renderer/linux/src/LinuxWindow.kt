@@ -324,6 +324,14 @@ internal class LinuxWindow private constructor(
                     if (reportInput && event.kind != WindowEvent.POINTER_MOVE) {
                         System.err.println("compose-rust: window heard $event")
                     }
+                    if (event.kind == WindowEvent.FILES_ENTERED ||
+                        event.kind == WindowEvent.FILES_DROPPED ||
+                        event.kind == WindowEvent.FILES_EXITED
+                    ) {
+                        routeFileDrop(event.kind, androidx.compose.ui.geometry.Offset(event.x, event.y)) {
+                            event.text
+                        }
+                    }
                     scene.receive(event)
                     textInput.receive(event)
                 }

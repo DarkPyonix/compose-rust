@@ -15,7 +15,6 @@ import org.thisisthepy.compose.window.WindowListener
 import org.thisisthepy.compose.window.atspi.AtspiSemanticsSource
 import org.thisisthepy.compose.window.graalvm.linux.X11Accessibility
 import org.thisisthepy.compose.window.graalvm.linux.X11Upcalls
-import org.thisisthepy.compose.window.graalvm.macos.readDroppedPaths
 import org.thisisthepy.compose.window.graalvm.linux.X11Window as ForkX11Window
 
 // X11 and GLX own the window and framebuffer, and they are the Compose fork's
@@ -225,7 +224,7 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
                     event.kind == WindowEvent.FILES_EXITED
                 ) {
                     routeFileDrop(event.kind, androidx.compose.ui.geometry.Offset(event.x, event.y)) {
-                        readDroppedPaths()
+                        window.readDroppedPaths()
                     }
                 }
                 scene.receive(event)
