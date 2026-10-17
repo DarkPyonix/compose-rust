@@ -25,10 +25,14 @@ product:
 repositories:
   - mavenLocal
 
+# Compose's compiler plugin through the template rather than `compose: enabled`, which would add
+# JetBrains' runtime and components-resources and with them JetBrains' Compose next to the fork's.
+apply:
+  - ../compose.module-template.yaml
+
 dependencies:
-  # JetBrains' runtime, which `compose: enabled` adds anyway: a stub with no classes that points
-  # at androidx.compose.runtime, as the fork's runtime does.
-  - $compose.runtime
+  # The fork's runtime: a stub with no classes that points at androidx.compose.runtime.
+  - org.thisisthepy.compose.runtime:runtime:1.11.1-ext.1
   # The fork's Compose. Not `$compose.foundation` and the rest: those are JetBrains', and the two
   # side by side would be the same classes twice under two groups.
   - org.thisisthepy.compose.foundation:foundation:1.11.1-ext.1
@@ -43,7 +47,6 @@ test-dependencies:
   - $kotlin.test
 
 settings:
-  compose: enabled
   kotlin:
     optIns:
       - kotlinx.cinterop.ExperimentalForeignApi

@@ -1,0 +1,20 @@
+# Compose's compiler plugin, for the renderer modules that draw with the Compose fork's Compose.
+#
+# Exactly what `settings: compose: enabled` applies (the same plugin, ID and options), without
+# the rest of that setting: it also adds JetBrains' org.jetbrains.compose.runtime:runtime and
+# org.jetbrains.compose.components:components-resources to the module, and components-resources
+# brings JetBrains' foundation, UI and animation with it. Next to the fork's Compose
+# (org.thisisthepy.compose) those are the same classes twice: on the JVM two copies on the class
+# path, and in a Kotlin/Native link "IrPropertySymbolImpl is already bound". The plugin is
+# released with Kotlin and has to be the Kotlin the toolchain compiles with (2.4.10 for the
+# toolchain renderer/kotlin pins).
+#
+# Applied with `apply: [ ../compose.module-template.yaml ]`.
+settings:
+  kotlin:
+    compilerPlugins:
+      - id: androidx.compose.compiler.plugins.kotlin
+        dependency: org.jetbrains.kotlin:kotlin-compose-compiler-plugin-embeddable:2.4.10
+        options:
+          generateFunctionKeyMetaAnnotations: "true"
+          sourceInformation: "true"

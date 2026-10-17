@@ -15,7 +15,6 @@
 # means deciding, path by path, that each change is still there:
 #
 #   git diff --raw --no-renames --no-abbrev <upstream base> <pinned commit> |
-#       awk '{ print ($5 == "D" ? "-" : $4), $6 }'
 e6bf249c38261a72debb8e1936c790d75fa3c4b8 .github/actions/fork-compose/action.yml
 10ea84f93bea1345a89f098e02351c1a8deb12d9 .github/workflows/design-systems.yml
 40452ed02fa0aa65b03846c86de539c49ec3718b .github/workflows/extended-coordinates.yml
@@ -24,7 +23,7 @@ e6bf249c38261a72debb8e1936c790d75fa3c4b8 .github/actions/fork-compose/action.yml
 8adf1f176b40f6fa65d5fb84516dfe21ae52dfdc .github/workflows/extended-foundation-text.yml
 1bb9da55216200dc8bc6f43d63b3cf9b18c76b5c .github/workflows/extended-packaging.yml
 c489d6b9cc0125393c7046ec68d1c9bf2613c724 .github/workflows/extended-pointericon-test.yml
-afdd3226babd7acba0998c7e19501d50d8f82802 .github/workflows/extended-public-api.yml
+52cfcc117590fe697c0baf84b21433678fb4c4b8 .github/workflows/extended-public-api.yml
 7a4ed72e43124e2971c9964cda64884c7f22ae1c .github/workflows/extended-skiko-awt-free.yml
 26aa0155c28c7909a05d7942b1a90a77cc528b2e .github/workflows/extended-skiko-awt-jar.yml
 1c7c99a2152edb15911d90ab4de153fb08c72cdd .github/workflows/extended-skiko-static.yml
@@ -32,9 +31,9 @@ caa35fa45c7f606806d3f14fa0eea023fe94309e .github/workflows/extended-window-commo
 c826990774474984b6d805831ad2401945fe67bd .github/workflows/extended-window-graalvm-linux.yml
 d05dcf1682a8a74c71f92ac6c481ccadb99fe6a8 .github/workflows/extended-window-graalvm-macos.yml
 11aeca3e732efe15e32cb166992baaf0a1edbc0b .github/workflows/extended-window-linux.yml
-2c1b6696fced2a11e8964c9303f1c3d56e8e8f15 .github/workflows/extended-window-macos.yml
+e2d4f4c604a5a95f3a0855b403ed5f10ade57926 .github/workflows/extended-window-macos.yml
 ef065872ff6e951bb4b92182f16bb166fe53ce8a .github/workflows/extended-window-publish.yml
-34f9a29c52344080ce5bc47e861742f8ebf90600 .github/workflows/extended-window-scene.yml
+b2472337ff825fecefe8f3854b89588f71657c1a .github/workflows/extended-window-scene.yml
 1db821c392a19de3cb74f1d98f0a0ff5ac6a9925 buildSrc-tests/src/test/java/androidx/build/VersionTest.kt
 031817243c3ab9f48394ae288aceea3c2999bb0f buildSrc-tests/src/test/java/org/jetbrains/androidx/build/JetBrainsPublicationTest.kt
 04c6e5b91c0e7ee81cb294a72cd4cf3178495869 buildSrc/private/src/main/kotlin/org/jetbrains/androidx/build/JetBrainsCapabilityRule.kt
@@ -286,6 +285,7 @@ fc340523b8c30b228ac8ca2cf425ee54d9309e74 extended/window/common/test/org/thisist
 5b304e22c3d4664d5bb436932bd81f9f22cad862 extended/window/common/test/org/thisisthepy/compose/window/WindowSizeHintsTest.kt
 18090e4222f3a6271224296135e611956f1983a4 extended/window/common/test/org/thisisthepy/compose/window/X11EventsTest.kt
 ab48ed1ee0f65b16301b265ed49f3cb70951d637 extended/window/common/test/org/thisisthepy/compose/window/X11KeysTest.kt
+afe1013dd81c215a38284e954de8be0cea12af6b extended/window/compose.module-template.yaml
 f3074d45459f9822d2719ef160e0b58e96bef42c extended/window/graalvm/graalvm-linux/c/x11_window.c
 357e10d587032e1df715e6d80cb338540b026758 extended/window/graalvm/graalvm-linux/module.yaml
 7bbd9dd50074e850ce0badb741e3afdad20b68fe extended/window/graalvm/graalvm-linux/src/org/thisisthepy/compose/window/graalvm/linux/X11Natives.kt
@@ -317,7 +317,7 @@ a54579f8645b40fe718e3564ecec71c16cd807cf extended/window/native/linux/cinterop/i
 da620b1b6080a2a07324f54f0d4434840b14efb5 extended/window/native/linux/cinterop/langinfo.def
 c5f57ddcd1246d84bcd39e6db48dac3ee1f62eaf extended/window/native/linux/cinterop/unixsocket.def
 3c180bb2d644187885adf1731eb226cb07e88bda extended/window/native/linux/cinterop/x11.def
-6777c8bda59295efaaf751e9238d1580ca256f50 extended/window/native/linux/module.yaml
+741a283eebabaa6e42f0942d630ef7c8bddc80c7 extended/window/native/linux/module.yaml
 9e712be7964f537c628c2242a1be8af6140c7839 extended/window/native/linux/src/AtspiBridge.kt
 0b72db851ff3af787ba7898fb4a398310216c561 extended/window/native/linux/src/AtspiModel.kt
 12df1e3046d108f0e4147bcea9bdb1d3c4969938 extended/window/native/linux/src/AtspiSemantics.kt
@@ -338,7 +338,7 @@ dac9be8339cfec11511c7a72ab454070e83d6156 extended/window/native/linux/test/Input
 674f306fc9efb449a7350d9d4eeb8c590304be77 extended/window/native/linux/test/LinuxInputTest.kt
 ef959a931824a607e6c1e331dd7fc603e6f48876 extended/window/native/linux/test/X11WindowTest.kt
 b9ad59fb535891a0b86512f6284a3326c03cf02f extended/window/native/linux/test/XdndDropTest.kt
-e2d260c41fb317b5410c6be3ca08d3a4a6407067 extended/window/native/macos/module.yaml
+8006e941395f026f65eb1d7ab896328d6b8e4d55 extended/window/native/macos/module.yaml
 2b4e547e35a9bff77b23ca9db3354f3725309e4b extended/window/native/macos/src/org/thisisthepy/compose/window/macos/AppKitAccessibility.kt
 4da22802744c4dd46e3261e1f737a424c97f99c8 extended/window/native/macos/src/org/thisisthepy/compose/window/macos/AppKitKeys.kt
 0ea953e6f30ed9849398e731ba123a5381145809 extended/window/native/macos/src/org/thisisthepy/compose/window/macos/HeldButtons.kt
@@ -368,7 +368,7 @@ b156938aa1b7af53bac7181f1ebdf94351e21b60 extended/window/native/macos/test/AppKi
 38458f01050d4e07222198b8f016374273cc6259 extended/window/native/macos/test/MacosWindowStartTest.kt
 9bfbf134b9872c452bdd384a1b2b3419a1b5d440 extended/window/native/macos/test/MetalSurfaceTest.kt
 0fe39f857c9e97859f858bcec7e51ef3bbd937d3 extended/window/project.yaml
-c0f08340c4d3ec62c2262a39c0162af0ca0fe16b extended/window/scene/module.yaml
+21d96f855b62f55dd18a4efb800763592ea989a8 extended/window/scene/module.yaml
 39aa2d39bb31e37dedf6d82998103ae5dd8f517e extended/window/scene/src/org/thisisthepy/compose/window/scene/ComposeWindow.kt
 1eb807b56aff86eb737ba070c17c38fe2a68e24a extended/window/scene/src/org/thisisthepy/compose/window/scene/DrawnEditMenu.kt
 0fe9785ac694cff01163289404f2ed770db09c37 extended/window/scene/src/org/thisisthepy/compose/window/scene/FrameDispatcher.kt
@@ -383,7 +383,7 @@ e9e2d844942bd490423e26a73cc2c17f2b61a724 extended/window/scene/test/org/thisisth
 0b3330e1e4185f39e0d40dd0de679c4344c12841 extended/window/scripts/check-klib-names.sh
 5d2b457847dd5eddc985ffe273d459325f657565 extended/window/scripts/check-macos-corner-radius.sh
 43030dc980ce70b280fa5bb4da2a7eec79f05590 extended/window/scripts/check-no-private-api.sh
-5c1cbc05e110dd77dd2c7e0598fbbd02611bd404 extended/window/scripts/publish-native-linux.sh
+19a038b692f7f4917fb6244e47191a6eddd45399 extended/window/scripts/publish-native-linux.sh
 200a32f345e2bfa404c4e05fc97f927980c3962c gradle.properties
 2e0aec0fbc9ec9e25ae72da58087c5e83d1df837 lifecycle/gradle.properties
 1d581935788a0f47e1c4d7bac3f2067809ee74c8 navigation/gradle.properties

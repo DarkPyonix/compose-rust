@@ -33,15 +33,19 @@ repositories:
 # for a module's root, whose metadata lists which targets it has, and the root is published
 # by a task the toolchain skips on a machine that is not building every target at once. The
 # target's own coordinate carries the klib and says what it is, which is the whole of what
-# is needed here. Runtime keeps the shorthand: JetBrains' runtime is a stub with no classes
-# that points at androidx.compose.runtime, which has this target, as the fork's runtime does.
+# is needed here. The runtime is the fork's too, a stub with no classes that points at
+# androidx.compose.runtime, which has this target.
 #
 # Every module is named, not only the four the renderer draws with, because a coordinate
 # that points at one target carries no list of what it needs and nothing is brought in
 # behind it. The list is what `scripts/build-compose.sh` publishes; the two have to agree
 # and `linux-native-window.test.sh` says so when they stop agreeing.
+# Compose's compiler plugin through the template rather than `compose: enabled`, which would add
+# JetBrains' runtime and components-resources and with them JetBrains' Compose next to the fork's.
+apply:
+  - ../compose.module-template.yaml
+
 dependencies:
-  - $compose.runtime
   # Named rather than left to arrive behind Compose, so its version is the catalog's. The
   # renderer installs its own `Dispatchers.Main` through an internal kotlinx.coroutines
   # function (src/MainDispatcherInstall.kt), and an upgrade has to be a decision taken here
@@ -52,6 +56,8 @@ dependencies:
   - org.thisisthepy.compose.window:common:0.1.0
 
 dependencies@linuxX64:
+  - org.thisisthepy.compose.runtime:runtime-linuxx64:1.11.1-ext.1
+  - org.thisisthepy.compose.runtime:runtime-saveable-linuxx64:1.11.1-ext.1
   - org.thisisthepy.compose.window:native-linux-linuxx64:0.1.0
   - org.thisisthepy.compose.animation:animation-linuxx64:1.11.1-ext.1
   - org.thisisthepy.compose.animation:animation-core-linuxx64:1.11.1-ext.1
@@ -69,6 +75,8 @@ dependencies@linuxX64:
   - org.thisisthepy.compose.ui:ui-util-linuxx64:1.11.1-ext.1
 
 dependencies@linuxArm64:
+  - org.thisisthepy.compose.runtime:runtime-linuxarm64:1.11.1-ext.1
+  - org.thisisthepy.compose.runtime:runtime-saveable-linuxarm64:1.11.1-ext.1
   - org.thisisthepy.compose.window:native-linux-linuxarm64:0.1.0
   - org.thisisthepy.compose.animation:animation-linuxarm64:1.11.1-ext.1
   - org.thisisthepy.compose.animation:animation-core-linuxarm64:1.11.1-ext.1
@@ -89,7 +97,6 @@ test-dependencies:
   - $kotlin.test
 
 settings:
-  compose: enabled
   kotlin:
     optIns:
       - kotlinx.cinterop.ExperimentalForeignApi

@@ -61,7 +61,7 @@ while read -r group artifact version; do
         mkdir -p "$directory"
         for extension in pom module; do echo stand-in > "$directory/$name-$version.$extension"; done
     done
-done < <(sed -En "s/^[[:space:]]*-[[:space:]]*(org\.thisisthepy\.compose\.(ui|foundation|material3)[A-Za-z0-9.]*):([A-Za-z0-9._-]+):($fork_as|$material3_as)[[:space:]]*\$/\1 \3 \4/p" \
+done < <(sed -En "s/^[[:space:]]*-[[:space:]]*(org\.thisisthepy\.compose\.(ui|foundation|material3|runtime)[A-Za-z0-9.]*):([A-Za-z0-9._-]+):($fork_as|$material3_as)[[:space:]]*\$/\1 \3 \4/p" \
     "$tree/renderer/macos/module.yaml")
 [[ -d "$home_complete/.m2" ]] || { fail "renderer/macos/module.yaml names nothing at $fork_as"; exit 1; }
 home_empty="$work/home-empty"

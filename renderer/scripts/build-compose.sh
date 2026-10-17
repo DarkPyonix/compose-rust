@@ -32,12 +32,12 @@ set -euo pipefail
 # compose-fork.changes lists what this commit must hold at every path it changes, and
 # scripts/tests/compose-fork.test.sh checks it.
 FORK="https://github.com/thisisthepy/compose-multiplatform-core-extended.git"
-REVISION="500d8b59147386f85588ea07c21f83d402f4ba71"
+REVISION="127311dc737d8badb68953291d248db8a7071cca"
 # The window modules and skiko's builds are not Compose sources: the renderer builds them from
 # this commit (scripts/fetch-fork-window.sh and fetch-fork-skiko.sh) into artifacts of its own,
 # so they can move without moving the Compose build above. Today both are the same commit: the
 # window modules compile against the fork's Compose coordinates, which that commit introduced.
-WINDOW_REVISION="500d8b59147386f85588ea07c21f83d402f4ba71"
+WINDOW_REVISION="127311dc737d8badb68953291d248db8a7071cca"
 # What the pinned commit publishes as: its gradle.properties gives every library line a version
 # of the form <upstream version>-ext.<N>. The renderer modules ask for these by name, and
 # scripts/tests/fork-versions.test.sh checks that they do; this script checks the pinned

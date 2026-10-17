@@ -44,4 +44,12 @@ for module in renderer/desktop/module.yaml renderer/macos/module.yaml renderer/l
     [ -z "$hits" ] || fail "$module names JetBrains' Compose: $hits"
 done
 
+# `compose: enabled` adds JetBrains' runtime and components-resources, and the latter brings
+# JetBrains' foundation, UI and animation. These modules apply the compiler plugin through
+# renderer/compose.module-template.yaml instead.
+for module in renderer/desktop/module.yaml renderer/macos/module.yaml renderer/linux/module.yaml; do
+    grep -qE '^\s*compose:\s*enabled|^\s*-\s*\$compose\.' "$repo/$module" && fail "$module enables Compose or names \$compose.*, which brings JetBrains' Compose"
+    grep -q 'compose.module-template.yaml' "$repo/$module" || fail "$module does not apply compose.module-template.yaml"
+done
+
 if [ "$failures" -eq 0 ]; then echo "  ok"; else exit 1; fi

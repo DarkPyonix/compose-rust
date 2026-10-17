@@ -10,11 +10,17 @@ product: jvm/app
 repositories:
   - mavenLocal
 
+# Compose's compiler plugin through the template rather than `compose: enabled`, which would add
+# JetBrains' runtime and components-resources and with them JetBrains' Compose next to the fork's.
+apply:
+  - ../compose.module-template.yaml
+
 dependencies:
   # What `$compose.desktop.currentOs` was, from the fork: Compose for the desktop, and skiko's
   # native half for each desktop system a build script here supports. The toolchain can pick
   # the system only for JetBrains' own desktop module, so every one is named; each loads only
   # its own library at run time, and the native image scripts keep only this system's.
+  - org.thisisthepy.compose.runtime:runtime:1.11.1-ext.1
   - org.thisisthepy.compose.desktop:desktop:1.11.1-ext.1
   - org.thisisthepy.compose.ui:ui:1.11.1-ext.1
   - org.thisisthepy.compose.ui:ui-text:1.11.1-ext.1
@@ -47,7 +53,6 @@ test-dependencies:
   - $kotlin.test
 
 settings:
-  compose: enabled
   jvm:
     # Used only for JVM runs that collect reachability metadata with the tracing agent.
     # The native image is built as a shared library and is entered through C entry points.
