@@ -12,6 +12,11 @@
 #
 # The drag must also have changed the window's height, or it measured nothing.
 #
+# The probe also puts a plain AppKit view at the same distance from the top
+# (control_top_pt), drawn by nobody but AppKit. Its spread is printed beside the content's
+# for comparison and is not bounded: it says what the window server does to any content
+# during the same drag.
+#
 # Usage: vertical-resize-check.sh <log> [tolerance in points]
 set -euo pipefail
 log="$1"
@@ -38,6 +43,14 @@ awk -v tolerance="$tolerance" '
         if (n == 1 || hp < hmin) hmin = hp
         if (n == 1 || hp > hmax) hmax = hp
         if (field("found") != "1") { missing++; if (missing <= 10) bad[++nbad] = "missing: " $0; next }
+        c = field("control_top_pt")
+        if (c != "" && c + 0 >= 0) {
+            controls++
+            if (controls == 1 || c + 0 < cmin) cmin = c + 0
+            if (controls == 1 || c + 0 > cmax) cmax = c + 0
+            ccount[sprintf("%.2f", c + 0)]++
+            cs[controls] = c + 0
+        }
         y = field("marker_top_pt") + 0
         ys[++found] = y
         line[found] = $0
@@ -61,6 +74,12 @@ awk -v tolerance="$tolerance" '
             }
             printf "marker_top_pt: usual %.2f, min %.2f, max %.2f, spread %.2f pt; %d of %d images off by more than %.2f pt\n", best, ymin, ymax, ymax - ymin, off, found, tolerance
             if (ymax - ymin > tolerance) { printf "FAIL the content moved by %.2f pt during the vertical drag, more than %.2f\n", ymax - ymin, tolerance; failed = 1 }
+        }
+        if (controls > 0) {
+            cbest = ""; for (k in ccount) if (cbest == "" || ccount[k] > ccount[cbest]) cbest = k
+            coff = 0
+            for (i = 1; i <= controls; i++) { d = cs[i] - cbest; if (d < 0) d = -d; if (d > tolerance) coff++ }
+            printf "info AppKit control control_top_pt: usual %.2f, min %.2f, max %.2f, spread %.2f pt; %d of %d images off by more than %.2f pt\n", cbest, cmin, cmax, cmax - cmin, coff, controls, tolerance
         }
         if (missing > 0) { printf "FAIL %d images had no content where it was drawn\n", missing; failed = 1 }
         for (i = 1; i <= nbad; i++) print "  " bad[i]
