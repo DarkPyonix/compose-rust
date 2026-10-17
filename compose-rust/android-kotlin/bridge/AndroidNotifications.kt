@@ -44,6 +44,22 @@ object AndroidNotifications {
             platform = it
             Notifications.platform = it
         }
+        // Read through the same Activity, which is what every platform setting is asked
+        // through here: the animator duration scale, where zero is the system's way of
+        // saying remove animations.
+        val context = activity.applicationContext
+        dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting = {
+            val scale = android.provider.Settings.Global.getFloat(
+                context.contentResolver,
+                android.provider.Settings.Global.ANIMATOR_DURATION_SCALE,
+                1f,
+            )
+            if (scale == 0f) {
+                dev.darkpyonix.composerust.protocol.ReducedMotion.On
+            } else {
+                dev.darkpyonix.composerust.protocol.ReducedMotion.Off
+            }
+        }
         installed.askThrough = requestPermission
     }
 

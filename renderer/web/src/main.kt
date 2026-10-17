@@ -32,8 +32,20 @@ import dev.darkpyonix.composerust.ui.platform.WebHostConnection
 fun main() {
     // Before the Host: its first batch may already post a notification.
     dev.darkpyonix.composerust.ui.platform.Notifications.platform = dev.darkpyonix.composerust.ui.platform.WebNotifications()
+    // The browser's own answer to the media query a page would ask.
+    dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting = {
+        if (prefersReducedMotion()) {
+            dev.darkpyonix.composerust.protocol.ReducedMotion.On
+        } else {
+            dev.darkpyonix.composerust.protocol.ReducedMotion.Off
+        }
+    }
     val connection: HostConnection = WebHostConnection.install() ?: m0DemoHost()
     ComposeViewport {
         ComposeRustContent(rememberComposeRustHost(remember { connection }), Modifier.fillMaxSize())
     }
 }
+
+/** `matchMedia('(prefers-reduced-motion: reduce)').matches`, or false where it cannot ask. */
+private fun prefersReducedMotion(): Boolean =
+    js("typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches")

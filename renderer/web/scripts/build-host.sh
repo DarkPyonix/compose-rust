@@ -6,7 +6,7 @@
 # hand, so the module carries no authoring layer. Any target that exports
 # `compose_rust_host_web_start` works the same way, which is what --sample reaches: a
 # sample is an rlib for its desktop binary and a cdylib here, because a page owns the
-# loop and there is no `main` of ours to run. There are no samples until #85 closes.
+# loop and there is no `main` of ours to run.
 #
 # Three link arguments make this module the Host half of a shared memory rather than a
 # program of its own:

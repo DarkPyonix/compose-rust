@@ -31,6 +31,8 @@ import platform.AppKit.NSApplication
 import platform.AppKit.NSApplicationActivationPolicy
 import platform.AppKit.NSApplicationWillTerminateNotification
 import platform.AppKit.NSWindow
+import platform.AppKit.NSWorkspace
+import platform.AppKit.accessibilityDisplayShouldReduceMotion
 import platform.Foundation.NSNotificationCenter
 import platform.Foundation.NSOperationQueue
 import dev.darkpyonix.composerust.protocol.Chrome
@@ -73,6 +75,17 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     ComposeFoundationFlags.isNewContextMenuEnabled = true
 
     declareWindowBackdrop()
+    // The accessibility setting a page's `prefers-reduced-motion` answers to, asked at start
+    // and whenever the window comes back into use.
+    dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting = {
+        // A property of an AppKit category, so Kotlin/Native binds it as an extension that
+        // has to be imported by name.
+        if (NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) {
+            dev.darkpyonix.composerust.protocol.ReducedMotion.On
+        } else {
+            dev.darkpyonix.composerust.protocol.ReducedMotion.Off
+        }
+    }
     // The notification centre, before the Host exists: the Host's first batch may already
     // post one. A press on the body brings this application to the front and its window
     // back from the Dock, which is what the platform does for an application it launches.
