@@ -38,7 +38,7 @@ REVISION="f34e8bb9bdfeabb2e0b0885291a8ef9b32c0a538"
 # The window modules and skiko's static build are newer than that and are not Compose sources:
 # the renderer builds them from this commit (scripts/fetch-fork-window.sh and fetch-fork-skiko.sh)
 # into artifacts of its own, so they move without moving the Compose build above.
-WINDOW_REVISION="2280a6d98312e7bf860d3270e8fea81f1be9b5a6"
+WINDOW_REVISION="c5f33cd2d682e30d20db46b7d73d3966b0e59aab"
 # The commit the Windows build takes, which is its own on purpose. Windows needs the
 # commits the Compose pin (REVISION) leaves out: 296beb3 adds mingwX64 to every Compose UI module and
 # reads skiko from the local Maven repository first, and f17cb30 adds the skiko build for
