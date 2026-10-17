@@ -384,7 +384,7 @@ pub fn app() {
                             Page::Today => {
                                 ScrollColumn()
                                     .modifier(Modifier.fill_max_width().fill_max_height())
-                                    .content(|| today_page());
+                                    .content(today_page);
                             }
                             // The costs page is the panel, edge to edge, so it does not
                             // scroll inside something else: the tint has to reach the
