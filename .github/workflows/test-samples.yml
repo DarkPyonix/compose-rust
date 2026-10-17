@@ -30,6 +30,12 @@ on:
         required: true
         type: string
 
+concurrency:
+  # One run per tag; a second dispatch for the same tag waits rather than cancelling a
+  # release half way.
+  group: test-samples-${{ inputs.tag }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
