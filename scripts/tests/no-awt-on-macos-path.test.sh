@@ -32,13 +32,15 @@ if grep -q 'Accessibility\$\|a11y_classes' <<< "$code"; then
     fail "$build roots the toolkit's accessibility classes"
 fi
 
-# Sources only the toolkit window (Windows and Linux for now) reaches, and the one place
+# Sources only the toolkit window (the development shell on a JVM) reaches, and the one place
 # macOS needs a toolkit type: Compose's ClipEntry is a java.awt.datatransfer type.
 toolkit_only=(
-    AccessibilityReachabilityFeature.kt ImeReachabilityFeature.kt ReachabilityRegistration.kt
-    MetadataCollectionMain.kt Renderer.kt RendererEntryPoints.kt WindowChrome.kt WindowIcon.kt
-    WindowResize.kt renderer/HostFileDrop.kt renderer/WindowTransparency.kt
-    renderer/ToolkitResizeCursor.kt renderer/DevMain.kt renderer/DesignShowcase.kt
+    RendererEntryPoints.kt
+    devshell/AccessibilityReachabilityFeature.kt devshell/ImeReachabilityFeature.kt
+    devshell/ReachabilityRegistration.kt devshell/MetadataCollectionMain.kt devshell/Renderer.kt
+    devshell/WindowChrome.kt devshell/WindowIcon.kt devshell/WindowResize.kt
+    devshell/HostFileDrop.kt devshell/WindowTransparency.kt devshell/ToolkitResizeCursor.kt
+    devshell/DevMain.kt devshell/DesignShowcase.kt
 )
 pattern='(^|[^"[:alnum:]_.])(java\.awt|javax\.swing|sun\.awt|sun\.lwawt|com\.apple\.eawt|com\.apple\.laf|javax\.accessibility)\.[A-Za-z]|awtTransferable|toAwtImage|kotlinx\.coroutines\.swing'
 while IFS= read -r file; do
