@@ -157,6 +157,9 @@ not_published_for_linux=(
     compose:material3:material3-window-size-class
     compose:ui:ui-test
     navigation:navigation-compose
+    # Its build file changes in the fork only so that it depends on the fork's own Compose
+    # coordinates; it gains no Linux target and the renderer does not reach it.
+    navigation3:navigation3-ui
 )
 # build-compose.sh runs the fork's extended/compose/publish-local.sh at the pinned commit, so the
 # list is that script's. Only that directory is fetched, once per revision.

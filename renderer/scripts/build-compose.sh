@@ -24,19 +24,20 @@
 set -euo pipefail
 
 # The commit, not the branch. A branch that moves is a build that changes for a reason
-# nobody chose here. This one is the head of `extended`: JetBrains release/1.11 at 73ac849
-# with the Linux targets, the native text context menu (opening at the pointer on macOS),
-# the AWT-free copy, text direction and main dispatcher, the AppKit pump on the main thread, the main dispatcher property,
-# the published version and the design systems under extended/design-systems, which this
-# build does not read and scripts/fetch-design-systems.sh does.
+# nobody chose here. This one is JetBrains release/1.11 at 73ac849 with the Linux targets, the
+# native text context menu (opening at the pointer on macOS), the AWT-free copy, text direction
+# and main dispatcher, the AppKit pump on the main thread, the window modules, the design systems
+# under extended/design-systems (which scripts/fetch-design-systems.sh reads), and the
+# org.thisisthepy.compose coordinates with extended/compose/publish-local.sh, which this runs.
 # compose-fork.changes lists what this commit must hold at every path it changes, and
 # scripts/tests/compose-fork.test.sh checks it.
 FORK="https://github.com/thisisthepy/compose-multiplatform-core-extended.git"
-REVISION="f34e8bb9bdfeabb2e0b0885291a8ef9b32c0a538"
-# The window modules and skiko's static build are newer than that and are not Compose sources:
-# the renderer builds them from this commit (scripts/fetch-fork-window.sh and fetch-fork-skiko.sh)
-# into artifacts of its own, so they move without moving the Compose build above.
-WINDOW_REVISION="2280a6d98312e7bf860d3270e8fea81f1be9b5a6"
+REVISION="500d8b59147386f85588ea07c21f83d402f4ba71"
+# The window modules and skiko's builds are not Compose sources: the renderer builds them from
+# this commit (scripts/fetch-fork-window.sh and fetch-fork-skiko.sh) into artifacts of its own,
+# so they can move without moving the Compose build above. Today both are the same commit: the
+# window modules compile against the fork's Compose coordinates, which that commit introduced.
+WINDOW_REVISION="500d8b59147386f85588ea07c21f83d402f4ba71"
 # What the pinned commit publishes as: its gradle.properties gives every library line a version
 # of the form <upstream version>-ext.<N>. The renderer modules ask for these by name, and
 # scripts/tests/fork-versions.test.sh checks that they do; this script checks the pinned
