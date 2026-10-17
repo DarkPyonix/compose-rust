@@ -160,9 +160,7 @@ none of it.
      `README.md`, `AGENTS.md`, `CLAUDE.md`, `PROJECT.md`;
    - temporary, each with the date it leaves:
    `adapters/` and `bench/dioxus-baseline/` moved to dioxus-compose on 2026-10-04 (#37
-   step 4); `design-systems/` moved to compose-multiplatform-core-extended (#39). The
-   twelve samples under `samples/` stay and are being rewritten on the compose-rust API
-   (#85); until then they are outside the workspace and their release builds are skipped.
+   step 4); `design-systems/` moved to compose-multiplatform-core-extended (#39).
    `scripts/bench/` holds the pin of the Dioxus baseline FR-39 compares against
    (`scripts/bench/fr39-baseline.env`).
 
