@@ -116,7 +116,7 @@ impl Runtime for Composer {
         }
     }
 
-    fn render(&mut self) {
+    fn render(&mut self, _frame_time_nanos: Option<u64>) {
         if self.shown != self.typed {
             self.label();
         }

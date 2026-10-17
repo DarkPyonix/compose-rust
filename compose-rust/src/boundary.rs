@@ -376,7 +376,7 @@ impl Host {
     /// closes the batch. The tail every call that renders shares.
     fn render_and_finish(&mut self, result: i64) -> Result<(&[u8], i64), ProtocolError> {
         self.batch().begin();
-        self.runtime.render();
+        self.runtime.render(None);
         self.flush_messages();
         self.arm_scheduler_wake();
         Ok((self.runtime.batch_mut().finish()?, result))
@@ -406,7 +406,7 @@ impl Host {
         };
         self.batch().begin();
         if woke {
-            self.runtime.render();
+            self.runtime.render(None);
         }
         self.flush_messages();
         self.arm_scheduler_wake();
@@ -423,7 +423,7 @@ impl Host {
     ) -> Result<(&[u8], i64), ProtocolError> {
         self.batch().begin();
         if crate::notification::publish_permission(state) {
-            self.runtime.render();
+            self.runtime.render(None);
         }
         self.flush_messages();
         self.arm_scheduler_wake();
@@ -570,7 +570,7 @@ impl Host {
         self.render_and_finish(result)
     }
 
-    pub fn render_frame(&mut self, _frame_time_nanos: u64) -> Result<&[u8], ProtocolError> {
+    pub fn render_frame(&mut self, frame_time_nanos: u64) -> Result<&[u8], ProtocolError> {
         let _call = HostCallGuard::enter();
         if LIFECYCLE_SUPPRESSED.load(Ordering::Acquire) {
             // The platform has the UI off screen and the Renderer called anyway, which it
@@ -586,7 +586,7 @@ impl Host {
         EVENT_DISPATCH_ACTIVE.store(false, Ordering::Release);
         DEFERRED_FRAME_REQUEST.store(false, Ordering::Release);
         self.batch().begin();
-        self.runtime.render();
+        self.runtime.render(Some(frame_time_nanos));
         self.flush_pending_appends();
         self.flush_messages();
         self.arm_scheduler_wake();

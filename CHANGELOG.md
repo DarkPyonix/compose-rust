@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+### compose-rust has an authoring API of its own
+
+Composables, with Compose's shape and Compose's names, on a recomposition runtime that
+compares nothing to find out what changed. `#[composable]` gives a function and every
+branch in it a group, so `remember` belongs to its call site and a branch that stops being
+taken takes its state with it; `mutable_state_of` records who read it and runs exactly
+those again; `key` keeps an item's identity when it moves. Effects run after the
+composition is applied: `side_effect`, `launched_effect`, `disposable_effect`, and futures
+that wait on the frame clock, a timer or a worker thread.
+
+Every widget in the schema is a composable that writes what its `rsx!` counterpart writes,
+so the same Renderer draws both. The calculator, todo, chat and minimal samples are ported
+under `samples/compose/`, and `compose-rust/benches/fr39/` measures the two paths against
+each other over scenarios fixed before the runtime was written.
+
+```rust
+#[composable]
+fn counter() {
+    let count = remember(|| mutable_state_of(0));
+    Column().content(|| {
+        Text(format!("{}", count.get()));
+        let more = count.clone();
+        Button("+1").on_click(move || more.update(|count| *count += 1));
+    });
+}
+```
+
 ### The Linux renderer no longer links the Java toolkit
 
 The Linux native image is built without the toolkit: no preserved `java.desktop` module, no

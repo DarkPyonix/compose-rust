@@ -187,7 +187,12 @@ pub trait Runtime {
 
     /// Writes whatever changed since the last call: state a worker wrote, a scope that a
     /// size class or a design system woke, the consequences of an event.
-    fn render(&mut self);
+    ///
+    /// `frame_time_nanos` is the time of the frame the Renderer is serving, when this call
+    /// is serving one, and `None` when it answers an event. A runtime whose animations and
+    /// timers run on the frame clock reads it here; one that has no clock of its own
+    /// ignores it.
+    fn render(&mut self, frame_time_nanos: Option<u64>);
 
     /// Runs the handler an event names, and nothing else: the Host renders afterwards.
     ///
