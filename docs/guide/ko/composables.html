@@ -61,10 +61,10 @@
       <span class="label">지금 있는 것</span>
       <p>
         아래 위젯 전부의 스키마와 렌더러 쪽 구현은 0.0.1에 있습니다
-        <span class="pill works">구현</span>. 그것을 내보내려고 부르는 Rust 함수,
-        <code>Column(...)</code> 이나 <code>Text(...)</code> 같은 것은 1.0.0의 작성 API와 함께
-        들어옵니다 <span class="pill planned">계획</span>. 작성 API는 자기 위젯을 더하지 않으므로, 이
-        페이지가 곧 앞으로 쓸 목록입니다.
+        <span class="pill works">구현</span>. 그것을 쓰려고 부르는 Rust 함수,
+        <code>Column()</code> 이나 <code>Text("...")</code> 같은 것은 <code>develop</code> 에 있고
+        1.0.0과 함께 릴리스됩니다. 이 함수들은 자기 위젯을 더하지 않으므로, 이 페이지가 곧 쓰는
+        목록입니다. 위젯마다의 호출은 <a href="#calls">위젯마다 쓰는 법</a>에 있습니다.
       </p>
     </div>
 
@@ -113,12 +113,71 @@
       </table>
     </div>
 
+    <h2 id="calls">위젯마다 쓰는 법</h2>
+    <p>
+      위젯은 저마다 Compose 이름을 가진 함수이고, 그 위젯이 없으면 안 되는 것을 인자로 받습니다.
+      나머지는 메서드로 정하고, 컨테이너는 자식을 <code>content(|| ...)</code> 로 받습니다. 이 모양은
+      <a href="writing-ui.html#widgets">UI 작성하기</a>가 설명합니다.
+    </p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">호출</th><th scope="col">주요 메서드</th></tr></thead>
+        <tbody>
+          <tr><td><code>Column()</code>, <code>Row()</code></td><td><code>arrangement</code>, <code>spacing</code>, <code>space_role</code>, <code>alignment</code>, <code>content</code></td></tr>
+          <tr><td><code>Box()</code></td><td><code>alignment</code>, <code>content</code></td></tr>
+          <tr><td><code>ScrollColumn()</code>, <code>ScrollRow()</code>, <code>Card()</code>, <code>Surface()</code>, <code>SelectionContainer()</code>, <code>Spacer()</code></td><td><code>modifier</code>, <code>content</code></td></tr>
+          <tr><td><code>Text(text)</code></td><td><code>type_role</code>, <code>color</code>, <code>text_align</code>, <code>max_lines</code>, <code>overflow</code>, <code>spans</code>, 그리고 타입 축마다 메서드 하나</td></tr>
+          <tr><td><code>TextField()</code></td><td><code>placeholder</code>, <code>multiline</code>, <code>enabled</code>, <code>on_value_change</code>, <code>on_submit</code>, <code>on_focus_lost</code>, <code>on_key_down</code></td></tr>
+          <tr><td><code>Button(label)</code></td><td><code>variant</code>, <code>icon</code>, <code>enabled</code>, <code>color</code>, <code>on_click</code>. 레이블이 비어 있고 아이콘이 있으면 아이콘 버튼입니다.</td></tr>
+          <tr><td><code>Checkbox(checked)</code>, <code>RadioButton(selected)</code>, <code>Switch(checked)</code></td><td><code>enabled</code>, <code>on_change</code></td></tr>
+          <tr><td><code>Slider(value)</code></td><td><code>range</code>, <code>steps</code>, <code>enabled</code>, <code>on_change</code></td></tr>
+          <tr><td><code>Dropdown(selected_index)</code></td><td><code>enabled</code>, <code>on_change</code>. 자식 하나가 선택지 하나입니다</td></tr>
+          <tr><td><code>DatePicker(days)</code>, <code>TimePicker(minutes)</code></td><td><code>min</code>, <code>max</code>, <code>enabled</code>, <code>on_change</code></td></tr>
+          <tr><td><code>Chip(label)</code></td><td><code>selected</code>, <code>icon</code>, <code>enabled</code>, <code>on_click</code></td></tr>
+          <tr><td><code>ProgressIndicator(fraction)</code>, <code>IndeterminateProgressIndicator()</code></td><td><code>circular</code></td></tr>
+          <tr><td><code>Divider()</code>, <code>Separator(color)</code></td><td><code>vertical</code></td></tr>
+          <tr><td><code>TopAppBar()</code></td><td><code>title</code>, <code>content</code></td></tr>
+          <tr><td><code>Scaffold()</code></td><td><code>top_bar</code>, <code>bottom_bar</code>, <code>floating_action</code>, <code>content</code></td></tr>
+          <tr><td><code>Navigation(selected_index)</code>, <code>NavigationItem(label)</code></td><td><code>head</code>, <code>foot</code>, <code>content</code>. 항목은 <code>icon</code>, <code>section</code>, <code>on_click</code> 을 받습니다</td></tr>
+          <tr><td><code>Tabs(selected_index)</code></td><td><code>content</code>. 자식 하나가 탭 하나입니다</td></tr>
+          <tr><td><code>Dialog(open)</code>, <code>Sheet(open)</code></td><td><code>on_dismiss</code>, <code>content</code></td></tr>
+          <tr><td><code>Menu(expanded)</code></td><td><code>anchor</code>, <code>on_dismiss</code>, <code>content</code></td></tr>
+          <tr><td><code>Tooltip(text)</code>, <code>Badge()</code></td><td><code>content</code>. 배지는 <code>value</code>, <code>text</code>, <code>color</code> 를 받습니다</td></tr>
+          <tr><td><code>FloatingAction(label)</code></td><td><code>icon</code>, <code>on_click</code></td></tr>
+          <tr><td><code>SplitPane()</code></td><td><code>value</code>, <code>min</code>, <code>max</code>, <code>collapsible</code>, <code>on_change</code>, 그리고 자식이 정확히 둘인 <code>content</code></td></tr>
+          <tr><td><code>FileDropTarget()</code></td><td><code>on_files_entered</code>, <code>on_files_dropped</code>, <code>content</code></td></tr>
+          <tr><td><code>LazyColumn()</code>, <code>LazyRow()</code>, <code>LazyGrid()</code></td><td>격자는 <code>columns</code> 나 <code>min_column_width</code>, 그리고 <code>content(|list| ...)</code>. <a href="lists-and-streaming.html#windowing">목록과 스트리밍</a>을 보세요.</td></tr>
+          <tr><td><code>Image(asset_id)</code>, <code>Icon(asset_id)</code></td><td><code>color</code></td></tr>
+          <tr><td><code>Canvas(draw_list)</code></td><td><code>modifier</code></td></tr>
+          <tr><td><code>LinearProgressIndicator(progress)</code></td><td>확장 위젯입니다. <a href="#extensions">확장</a>을 보세요.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      모두 <code>modifier(Modifier...)</code> 도 받습니다. 위젯마다 적어도 한
+      <a href="getting-started.html#samples">샘플</a>이 쓰고,
+      <a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/minimal"><code>minimal</code></a>
+      은 전부를 씁니다.
+    </p>
+
     <h2 id="modifiers">Modifier</h2>
     <p>
       Compose에서 <code>Modifier</code> 는 어느 composable에나 붙고, 여기서도 같습니다. 모든 위젯이
       모든 Modifier를 받으며, <code>Text</code> 와 <code>Spacer</code> 도 예외가 아닙니다. 와이어에서
       Modifier 목록은 고정 크기 값의 나열이고, 렌더러가 이것을 Compose <code>Modifier</code> 체인으로
       다시 만듭니다.
+    </p>
+    <p>
+      Rust에서는 값 <code>Modifier</code> 에서 시작해 메서드를 잇습니다.
+      <code>Modifier.fill_max_width().padding_role(SpaceRole::Md).background(Paint::Role(ColorRole::Surface))</code>
+      처럼 씁니다. 메서드는 <code>weight</code>, <code>width</code>, <code>height</code>,
+      <code>size</code>, <code>fill_max_width</code>, <code>fill_max_height</code>,
+      <code>fill_max_size</code>, <code>padding</code>, <code>padding_role</code>,
+      <code>background</code>, <code>shape_role</code>, <code>corner_radius</code>,
+      <code>border</code>, <code>elevation</code>, <code>material</code>, <code>motion</code>,
+      <code>observe_size</code> 입니다. 이름이 <code>_if</code> 로 끝나는 것은 창에 따라 달라지는
+      Modifier를 위해 <code>Option</code> 이나 <code>bool</code> 을 받습니다. 종류마다 사슬 안의
+      자리가 정해져 있으므로 부르는 순서는 상관없습니다.
     </p>
 
     <div class="tablewrap">
@@ -270,9 +329,10 @@
     <h2 id="window">창 크기</h2>
     <p>
       UI는 Rust가 기술하고 렌더러가 잽니다. 그래서 Rust가 창 너비를 아는 길은 렌더러가 알려 주는 것
-      하나뿐입니다. <code>window_size()</code> 는 <code>width_dp</code>, <code>height_dp</code>,
-      <code>class</code> 와 <code>is_compact()</code>, <code>is_medium()</code>,
-      <code>is_expanded()</code> 를 가진 <code>WindowSize</code> 를 돌려줍니다. 0.0.1에 있습니다.
+      하나뿐입니다. 컴포저블 안에서는 <code>current_window_size()</code> 가 그것을 읽고, 클래스가
+      바뀌면 스코프를 다시 실행합니다. 밖에서는 <code>window_size()</code> 가 <code>width_dp</code>,
+      <code>height_dp</code>, <code>class</code> 와 <code>is_compact()</code>, <code>is_medium()</code>,
+      <code>is_expanded()</code> 를 가진 <code>WindowSize</code> 를 돌려줍니다.
     </p>
 
     <div class="tablewrap">
@@ -346,7 +406,7 @@
   <div class="inner">
     <span>compose-rust &middot; Apache License 2.0</span>
     <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://crates.io/crates/compose-rust">crates.io</a></span>
-    <span>이 가이드는 2026-10-03 기준 저장소 내용과 대조했습니다</span>
+    <span>이 가이드는 2026-10-17 기준 저장소 내용과 대조했습니다</span>
   </div>
 </footer>
 

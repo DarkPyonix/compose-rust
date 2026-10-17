@@ -94,13 +94,13 @@
   </div>
 
   <div class="showcase" id="how">
-<pre><code><span class="c">// Planned shape for 1.0.0. Does not compile against 0.0.x.</span>
-<span class="at">#[composable]</span>
+<pre><code><span class="at">#[composable]</span>
 <span class="k">fn</span> <span class="f">counter</span>() {
     <span class="k">let</span> count = <span class="f">remember</span>(|| <span class="f">mutable_state_of</span>(<span class="n">0</span>));
-    <span class="f">Column</span>(<span class="ty">Modifier</span>::<span class="f">new</span>().<span class="f">fill_max_width</span>(), || {
-        <span class="f">Text</span>(<span class="f">format!</span>(<span class="s">"{}"</span>, count.<span class="f">get</span>()));
-        <span class="f">Button</span>(|| count.<span class="f">set</span>(count.<span class="f">get</span>() + <span class="n">1</span>), || <span class="f">Text</span>(<span class="s">"+1"</span>));
+    <span class="f">Column</span>().<span class="f">modifier</span>(<span class="ty">Modifier</span>.<span class="f">padding</span>(<span class="n">16.0</span>)).<span class="f">content</span>(|| {
+        <span class="f">Text</span>(<span class="f">format!</span>(<span class="s">"Count: {}"</span>, count.<span class="f">get</span>()));
+        <span class="k">let</span> more = count.<span class="f">clone</span>();
+        <span class="f">Button</span>(<span class="s">"Increment"</span>).<span class="f">on_click</span>(<span class="k">move</span> || more.<span class="f">update</span>(|n| *n += <span class="n">1</span>));
     });
 }</code></pre>
     <div class="note">
@@ -108,8 +108,8 @@
       <p>코드와 상태는 Rust가 갖고, 픽셀과 텍스트 스택과 입력기는 Kotlin이 갖습니다. 둘 사이에는
         좁은 C ABI 하나뿐입니다. 한 스레드 위에서 동기로 호출하고, 레코드는 쓰인 자리에서 읽히므로,
         키를 누르면 같은 호출 안에서 답이 돌아옵니다.</p>
-      <p>여기 보인 작성 API는 2026-11-14의 1.0.0에 들어옵니다. 그 아래의 경계, 스키마, 렌더러는
-        지금 0.0.1로 배포됩니다.</p>
+      <p>여기 보인 작성 API는 <code>develop</code> 에 있고 2026-11-14의 1.0.0과 함께 릴리스됩니다.
+        그 아래의 경계, 스키마, 렌더러는 지금 0.0.1로 배포됩니다.</p>
     </div>
   </div>
 
@@ -119,8 +119,8 @@
     <div class="metric"><b>약 12 ns</b><span>브라우저에서 렌더러가 Host를 부르는 호출 한 번</span></div>
     <div class="metric"><b>6.95 MB</b><span>브라우저의 렌더러와 Skia, gzip 기준</span></div>
   </div>
-  <p class="fineprint">앞의 두 숫자는 실행 파일 안에 링크되는 Kotlin/Native 렌더러의 것이며, 이것은
-    0.0.1 다음에 기본이 됩니다. 0.0.1은 데스크톱에서 GraalVM 네이티브 이미지를 배포합니다.
+  <p class="fineprint">앞의 두 숫자는 실행 파일 안에 링크되는 Kotlin/Native 렌더러의 것이며, 다음 릴리스가
+    macOS와 Linux에서 이것을 배포합니다. 0.0.1은 데스크톱에서 GraalVM 네이티브 이미지를 배포했습니다.
     <a href="architecture.html#runtimes">어디서 무엇이 도나</a>를 보십시오.</p>
 
   <section>
@@ -129,7 +129,7 @@
       <thead><tr><th>부분</th><th>상태</th></tr></thead>
       <tbody>
         <tr><td>경계, 프로토콜, 스키마, 렌더러 다운로드</td><td>0.0.1에 <span class="pill works">구현</span></td></tr>
-        <tr><td>작성 API: <code>#[composable]</code>, <code>remember</code>, <code>launch</code></td><td>2026-11-14의 1.0.0을 향한 <span class="pill planned">계획</span></td></tr>
+        <tr><td>작성 API: <code>#[composable]</code>, <code>remember</code>, <code>launch</code></td><td><span class="pill partial">부분</span>: <code>develop</code> 에 있고, 2026-11-14의 1.0.0과 함께 릴리스</td></tr>
         <tr><td>macOS, Android, Web</td><td><span class="pill works">처음부터 끝까지 동작</span></td></tr>
         <tr><td>Linux, Windows, iOS</td><td><span class="pill partial">빌드되고 시작됨</span></td></tr>
       </tbody>
@@ -143,7 +143,7 @@
     <h2>어디서부터 볼까</h2>
     <div class="cards">
       <a class="card" href="getting-started.html"><h3>시작하기</h3><p>크레이트를 더하고, 빌드가 렌더러를 받아 오게 하고, 이 저장소를 빌드합니다.</p></a>
-      <a class="card" href="writing-ui.html"><h3>UI 작성하기</h3><p>계획한 작성 API입니다. composable, 상태, effect, 이벤트, 애니메이션을 다룹니다.</p></a>
+      <a class="card" href="writing-ui.html"><h3>UI 작성하기</h3><p>작성 API입니다. 컴포저블, 상태, effect, 이벤트, 워커 스레드를 다룹니다.</p></a>
       <a class="card" href="composables.html"><h3>위젯 레퍼런스</h3><p>스키마의 위젯, Modifier, 역할 전부와, 위젯마다 상태를 어디에 두는지입니다.</p></a>
       <a class="card" href="design-systems.html"><h3>디자인 시스템</h3><p>역할 하나 뒤의 디자인 시스템 일곱 개를 통일형 또는 적응형으로 고릅니다.</p></a>
       <a class="card" href="architecture.html"><h3>아키텍처</h3><p>경계, 레코드, 측정 호출, 확대 배율, 플랫폼마다의 렌더러입니다.</p></a>

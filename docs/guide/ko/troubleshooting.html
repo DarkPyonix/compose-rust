@@ -52,8 +52,9 @@
     <p class="eyebrow">문제 해결</p>
     <h1>만날 수 있는 실패와 알아보는 법</h1>
     <p class="lede">
-      이 페이지의 문제는 대부분 셋 중 하나입니다. 렌더러가 링커가 기대하는 곳에 없거나, JDK가 틀렸거나,
-      건드리면 안 되는 텍스트 경로를 무언가가 건드렸습니다.
+      이 페이지의 문제는 대부분 넷 중 하나입니다. 렌더러가 링커가 기대하는 곳에 없거나, Compose 포크의
+      아티팩트가 없거나 낡았거나, 툴체인이 엉뚱한 도구를 찾았거나, 건드리면 안 되는 텍스트 경로를
+      무언가가 건드렸습니다.
     </p>
 
     <h2 id="no-library">빌드가 렌더러를 찾지 못합니다</h2>
@@ -67,7 +68,7 @@
       체크아웃 안에서는 빌드가 내려받을 수 있는 어떤 것보다 작업 공간의 빌드를 먼저 씁니다.
       <code>renderer/build/macos</code>(또는 <code>build/linux</code>, <code>build/linux-arm64</code>)의
       정적 아카이브가 먼저이고, 그다음이 <code>renderer/build/native-image/dist/lib</code> 의
-      네이티브 이미지입니다. 정적 아카이브는 실행 파일 안에 링크되므로 시작할 때 찾을 것이 없습니다.
+      네이티브 이미지입니다. 네이티브 이미지는 Windows가 빌드하는 것입니다. 정적 아카이브는 실행 파일 안에 링크되므로 시작할 때 찾을 것이 없습니다.
       디렉터리가 있는데 비어 있다면 렌더러를 빌드하지 않은 것입니다.
     </p>
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
@@ -78,7 +79,7 @@
 ./renderer/desktop/scripts/build-macos.sh --release</code></pre>
     </figure>
     <p>
-      '찾을 것이 없다'는 말의 예외가 네이티브 이미지입니다. 그 파일들을 떼어 놓지 마십시오. 네이티브 이미지는 실행 중에 자기 위치를 찾고, Skia와 AWT가 어디
+      '찾을 것이 없다'는 말의 예외가 Windows의 네이티브 이미지입니다. 그 파일들을 떼어 놓지 마십시오. 네이티브 이미지는 실행 중에 자기 위치를 찾고, Skia와 AWT가 어디
       있는지를 자기 디렉터리에서 끌어냅니다. 라이브러리만 따로 다른 곳에 복사하면 로드는 되지만 그것들을
       찾지 못합니다.
     </p>
@@ -96,21 +97,112 @@
       창 없는 Host를 요청한 것이므로 일부러 조용합니다.
     </p>
     <p>
-      그 밖이라면 두 반쪽을 떼어 봅니다. 스모크 테스트는 작은 C 호스트를 라이브러리에 링크해
-      <code>run</code> 을 직접 부릅니다.
+      그 밖이라면 렌더러가 출력한 것을 읽습니다. Kotlin/Native 렌더러는 창 줄, 메인 디스패처를 밝히는
+      장면 줄, 첫 프레임 줄을 출력합니다. <code>smoke-test-kn.sh</code> 는 애플리케이션을 실행하고,
+      셋이 모두 나오지 않으면 빠진 줄을 밝히며 실패합니다.
     </p>
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
       <figcaption>shell</figcaption>
-<pre><code>./renderer/desktop/scripts/smoke-test.sh</code></pre>
+<pre><code>./renderer/desktop/scripts/smoke-test-kn.sh &lt;application&gt; macos   <span class="c"># 또는 linux</span></code></pre>
     </figure>
     <p>
-      거기서는 창이 뜨고 Rust에서는 뜨지 않는다면 바이너리의 링크를 보십시오. 거기서도 뜨지 않는다면
-      렌더러 라이브러리 자체가 잘못된 것이고, 보통 다음 문제입니다.
+      창 줄이 없다면 창이 열리지 않은 것이므로 포크의 창 모듈과 고정 커밋을 보십시오(다음 절들).
+      창은 있는데 프레임이 없다면 장면은 만들어졌지만 그리지 못한 것입니다. Windows에서는
+      <code>smoke-test-windows.ps1</code> 이 작은 C 호스트를 네이티브 이미지에 링크해
+      <code>run</code> 을 직접 부릅니다.
+    </p>
+
+    <h2 id="fork-artifacts">빌드가 멈춥니다: 포크의 아티팩트가 없습니다</h2>
+    <p>
+      렌더러는 Compose 포크만 게시하는 모듈에 기대고, 포크는 그것을 <code>~/.m2</code> 에만
+      게시합니다. 자기 버전(<code>1.11.1001</code>)으로 낸 패치된 Compose, <code>0.144.6.1</code> 의
+      skiko-awt, Linux 타깃, 창 모듈입니다. 렌더러 스크립트는 모두 Kotlin 툴체인을 돌리기 전에 이것을
+      확인하고, 없으면 이렇게 멈춥니다.
+    </p>
+    <figure class="codeblock">
+      <figcaption>출력</figcaption>
+<pre><code>error: the Compose fork's artifacts are not in the local Maven repository
+       ...
+       missing, under ~/.m2/repository:
+         org/jetbrains/compose/foundation/foundation/1.11.1001/foundation-1.11.1001.pom
+       fix, from the repository root, then run this build again:
+         renderer/scripts/build-compose.sh --target macosArm64</code></pre>
+    </figure>
+    <p>
+      알려 준 명령을 실행하고, 렌더러 스크립트를 다시 실행하십시오. 확인을 먼저 하는 데는 이유가
+      있습니다. 없는 좌표를 툴체인이 직접 찾으면 그 실패가 캐시되어 고친 뒤에도 남습니다(다음 절).
+    </p>
+    <p>
+      이 확인은 포크가 게시한 메타데이터도 읽습니다. Gradle은 형제 모듈을 빌드했든 안 했든 포크의
+      버전으로 적으므로, <code>foundation 1.11.1001</code> 이 어디에도 없는
+      <code>runtime 1.11.1001</code> 을 요구할 수 있습니다. <code>build-compose.sh</code> 는 실행할
+      때마다 그런 의존성을 모두 업스트림으로 되돌리고,
+      <code>renderer/scripts/fork-dependencies.sh check</code> 는 남은 것을 나열합니다. 나열되는 것이
+      있으면 <code>build-compose.sh</code> 를 다시 실행하십시오.
+    </p>
+
+    <h2 id="stale-state">포크를 게시했는데도 의존성 해석이 실패합니다</h2>
+    <p>
+      증상은 <code>~/.m2</code> 에 파일이 생긴 뒤에도 계속 실패하는 빌드입니다.
+    </p>
+    <figure class="codeblock">
+      <figcaption>출력</figcaption>
+<pre><code>ERROR: Unable to resolve dependency org.jetbrains.compose.foundation:foundation:1.11.1001
+  Unable to download checksums of file foundation-1.11.1001.pom</code></pre>
+    </figure>
+    <p>
+      원인은 Kotlin 툴체인의 증분 상태입니다. 포크를 게시하기 전에 돈 빌드가 실패한 해석을
+      <code>renderer/build/incremental.state</code> 에 기록했습니다. 그 항목은 <code>~/.m2</code> 에
+      무엇이 있는지가 아니라 좌표와 저장소만으로 키가 정해지므로, 이후의 빌드는 모두 그것을 최신
+      상태로 보고 그대로 되풀이합니다.
+    </p>
+    <p>
+      이제는 렌더러 스크립트가 이것을 치웁니다. 포크의 아티팩트가 모두 있으면
+      <code>require-fork-artifacts.sh</code> 가 포크 버전의 해석 실패를 기록한 상태 파일을 하나씩
+      지우고 출력합니다:
+      <code>removed a cached resolution failure for a fork version: ...</code>. 그 수정 이전의
+      체크아웃이라면 <code>renderer/build/incremental.state</code> 를 손으로 지우십시오.
+    </p>
+
+    <h2 id="shadowed">렌더러가 빌드되는데 업스트림 Compose로 빌드됩니다</h2>
+    <p>
+      아무것도 실패하지 않는데 포크가 더한 것이 없습니다. 네이티브 텍스트 선택 메뉴가 없거나, 창이
+      업스트림처럼 동작합니다. 포크의 모듈이 업스트림과 같은 버전으로 게시되어, 툴체인이 캐시해 둔
+      업스트림이 이긴 것입니다. 그래서 포크는 데스크톱과 macOS의 Compose, skiko-awt를 자기 버전으로
+      게시합니다. <code>DXC_COMPOSE_EXTENDED_AS</code> 를 설정한다면 업스트림 버전으로 설정하지
+      마십시오.
+    </p>
+
+    <h2 id="git-bash">Windows: Git Bash와 PATH</h2>
+    <p>
+      <code>build-native-windows.ps1</code> 은 빌드의 bash 부분을 Git Bash에서 돌립니다. Git Bash는
+      Windows 프로그램이 기대는 것 두 가지를 바꾸고, 그때마다 다른 실패로 나타났습니다.
+    </p>
+    <ul>
+      <li><strong><code>has no extended/window; pin a commit that does</code></strong>: 고정한
+        커밋에 그 디렉터리가 있는데도 나옵니다. Git Bash는 경로처럼 보이는 인자를
+        <code>git.exe</code> 가 보기 전에 Windows 경로로 바꾸므로, sparse 패턴
+        <code>/extended/window/</code> 가 아무것에도 맞지 않았습니다. 이제 fetch 스크립트는 패턴을
+        표준 입력으로 git에 넘깁니다.</li>
+      <li><strong><code>tar (child): Cannot connect to C: resolve failed</code></strong>: 포크의
+        <code>kotlin.bat</code> 이 툴체인을 풀 때 나옵니다. 배치 파일은 Git Bash의 <code>PATH</code>
+        를 물려받는데, 거기서는 Git의 <code>/usr/bin</code> 이 <code>System32</code> 보다 앞에
+        있어서 GNU tar가 돌았고, <code>C:\...</code> 를 원격 호스트로 읽었습니다.</li>
+      <li><strong><code>Can't find shasum on PATH</code></strong>: 그 뒤로 모든 다운로드의 체크섬이
+        맞지 않습니다. 툴체인의 런처는 busybox에서 도는데, busybox가 실행할 수 없는 Perl
+        스크립트인 Git의 <code>shasum</code> 을 찾았습니다.</li>
+    </ul>
+    <p>
+      이제 <code>publish-window.sh</code> 는 <code>System32</code> 를 앞에 두고 Git 자신의 디렉터리를
+      <code>PATH</code> 에서 뺀 채로 <code>kotlin.bat</code> 을 실행합니다. git 자체를 위한
+      <code>Git\cmd</code> 만 남깁니다. <code>kotlin.bat</code> 을 직접 실행한다면 Git Bash가 아니라
+      PowerShell이나 <code>cmd</code> 에서 시작하십시오.
     </p>
 
     <h2 id="wrong-jdk">잘못된 JDK: Darwin의 AWT 함정</h2>
     <p>
-      macOS의 네이티브 이미지에 해당합니다. 좋은 경우는 빌드 스크립트가
+      macOS에서 빌드하는 GraalVM 네이티브 이미지에만 해당합니다. compose-rust는 더 이상 그것을
+      배포하지 않지만 GraalVM 테스트 경로는 아직 빌드합니다. 좋은 경우는 빌드 스크립트가
       <code>no Liberica NIK 25 Full found, and GRAALVM_HOME is not set</code> 으로 멈추는 것입니다.
       문제를 대신 잡아 준 것입니다.
     </p>
