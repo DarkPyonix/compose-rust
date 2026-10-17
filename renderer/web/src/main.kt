@@ -33,7 +33,8 @@ fun main() {
     // Before the Host: its first batch may already post a notification.
     dev.darkpyonix.composerust.ui.platform.Notifications.platform = dev.darkpyonix.composerust.ui.platform.WebNotifications()
     val connection: HostConnection = WebHostConnection.install() ?: m0DemoHost()
-    ComposeViewport {
+    val a11y = !kotlinx.browser.window.location.search.contains("a11y=0")
+    ComposeViewport(configure = { isA11YEnabled = a11y }) {
         ComposeRustContent(rememberComposeRustHost(remember { connection }), Modifier.fillMaxSize())
     }
 }
