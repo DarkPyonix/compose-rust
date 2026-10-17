@@ -306,6 +306,8 @@ internal class LinuxWindow private constructor(
                 work.runPending()
                 synthetic?.due(System.nanoTime(), x11.measure().let { IntSize(it.width, it.height) })?.forEach { event ->
                     if (event.kind == WindowEvent.TEXT_COMMIT) LatencyTrace.inputSent()
+                    // The parity script waits for these before it presses the shortcuts.
+                    LatencyTrace.mark("synthetic ${event.kind} sent")
                     heard.add(event)
                 }
                 if (synthetic != null && synthetic.resizeDue(System.nanoTime())) {

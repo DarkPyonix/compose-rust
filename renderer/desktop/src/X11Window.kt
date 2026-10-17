@@ -204,6 +204,8 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
             var drew = false
             for (event in synthetic?.due(System.nanoTime(), size) ?: emptyList()) {
                 if (event.kind == WindowEvent.TEXT_COMMIT) LatencyTrace.inputSent()
+                // The parity script waits for these before it presses the shortcuts.
+                LatencyTrace.mark("synthetic ${event.kind} sent")
                 scene.receive(event)
                 textInput.receive(event)
                 anyHeard = true

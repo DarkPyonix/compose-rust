@@ -174,9 +174,25 @@ fi
 
 echo "== typing Korean through ibus-hangul"
 xdotool windowfocus "$window" || true
-# A click in the field, which is at the top of the column: it opens the text input session
-# the input method is attached to.
-xdotool mousemove --window "$window" 80 28 click 1
+# A click in the field: it opens the text input session the input method is attached to.
+# Where the field is comes from what the AT-SPI walk above read, because it is not in the same
+# place on both windows: the GraalVM X11 window draws its own caption above the content, and
+# the Kotlin/Native one leaves the caption to the window manager. Without the walk, the top
+# of the column is the guess.
+field_x=80
+field_y=28
+extents="$(sed -nE "s/.*entry '[^']*' (-?[0-9]+),(-?[0-9]+) ([0-9]+)x([0-9]+).*/\1 \2 \3 \4/p" "$logs/atspi.log" | head -1)"
+# AT-SPI places things on the screen; the click is placed in the window, so the frame's own
+# place is taken off.
+frame="$(sed -nE "s/.*frame '[^']*' (-?[0-9]+),(-?[0-9]+) .*/\1 \2/p" "$logs/atspi.log" | head -1)"
+if [[ -n "$extents" ]]; then
+    read -r fx fy fw fh <<< "$extents"
+    read -r ox oy <<< "${frame:-0 0}"
+    field_x=$((fx - ox + (fw < 160 ? fw / 2 : 80)))
+    field_y=$((fy - oy + fh / 2))
+fi
+echo "-- clicking the field at $field_x,$field_y"
+xdotool mousemove --window "$window" "$field_x" "$field_y" click 1
 sleep 1
 # Shift+Space is ibus-hangul's switch between Latin and Hangul. It starts in Latin.
 xdotool key --delay 150 shift+space

@@ -7,6 +7,7 @@
 
 package dev.darkpyonix.composerust.ui.platform
 
+import java.lang.System
 import kotlin.concurrent.atomics.AtomicInt
 import kotlin.concurrent.atomics.AtomicLong
 import kotlin.test.Test
@@ -44,7 +45,12 @@ import platform.posix.usleep
 class WakeLatencyTest {
     @Test
     fun pr3_work_dispatched_from_a_worker_runs_on_the_window_thread_within_a_millisecond() {
-        if (getenv("DISPLAY")?.toKString().isNullOrEmpty()) return
+        if (getenv("DISPLAY")?.toKString().isNullOrEmpty()) {
+            // CI runs these under a virtual display, so a missing one there is a test that did
+            // not measure anything, not a machine without a screen.
+            assertTrue(getenv("CI") == null, "no DISPLAY under CI, so the latency was not measured")
+            return
+        }
         val work = mainForTests()
         work.runPending()
         work.takeWake()
@@ -94,7 +100,7 @@ class WakeLatencyTest {
         val median = samples[POSTS / 2] / 1e6
         val p99 = samples[POSTS * 99 / 100 - 1] / 1e6
         val worst = samples[POSTS - 1] / 1e6
-        println(
+        System.err.println(
             "linux renderer dispatch-to-run latency over $POSTS dispatches: median=${fixed(median, 3)} ms " +
                 "p99=${fixed(p99, 3)} ms max=${fixed(worst, 3)} ms",
         )

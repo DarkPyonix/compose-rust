@@ -49,6 +49,7 @@ for window in renderer/desktop/src/X11Window.kt renderer/linux/src/LinuxWindow.k
     grep -q 'LatencyTrace.summary' "$repo_root/$window" || fail "$window does not print the summary"
     grep -q 'DXC_REPORT_RESIZE' "$repo_root/$window" || fail "$window does not print the resize line"
     grep -q 'scriptedResize(' "$repo_root/$window" || fail "$window does not take the window through a drag"
+    grep -q 'synthetic \${event.kind} sent' "$repo_root/$window" || fail "$window does not say when it sent made-up input, which the script waits for"
 done
 grep -q 'startParityRun(' "$repo_root/renderer/macos/src/MacosRenderer.kt" || fail "the macOS renderer never starts a parity run"
 for shared in LatencyTrace.kt SyntheticInput.kt; do

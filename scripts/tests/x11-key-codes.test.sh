@@ -37,5 +37,33 @@ grep -q 'keyEventsFor(' "$native_window" \
     || fail "the Kotlin/Native window does not decide a key's events with the shared rule"
 grep -q 'fun x11KeyNumber(' "$table" || fail "the shared key table is gone from common"
 
+# What the table answers, which is what the C table answered before it moved: the shortcut
+# letters on the shared board (zero is the A key, so an unknown key must not be zero), a digit,
+# the named keys, and -1 for a key with no number.
+hex_list() { sed -n "/^private val $1 = intArrayOf(/,/)/p" "$table" | tr -d '\n' |
+    sed -E 's/.*intArrayOf\(//; s/\).*//' | tr ',' '\n' | sed -E 's/ //g' | grep . ; }
+letters=($(hex_list X11_LETTERS))
+digits=($(hex_list X11_DIGITS))
+[[ ${#letters[@]} -eq 26 ]] || fail "the shared letter table has ${#letters[@]} entries, not 26"
+[[ ${#digits[@]} -eq 10 ]] || fail "the shared digit table has ${#digits[@]} entries, not 10"
+letter() { printf '%d' "${letters[$(( $(printf '%d' "'$1") - 97 ))]}"; }
+got="c $(letter c)
+v $(letter v)
+x $(letter x)
+z $(letter z)
+a $(letter a)
+5 $(printf '%d' "${digits[5]}")"
+expected="c 8
+v 9
+x 7
+z 6
+a 0
+5 23"
+[[ "$got" == "$expected" ]] || fail "the shared key table answers differently from the shared board: $(diff <(echo "$expected") <(echo "$got") | tr '\n' ' ')"
+grep -Eq 'XK_RETURN, XK_KP_ENTER -> 0x24' "$table" || fail "Return is not key 36 in the shared table"
+grep -Eq 'XK_INSERT -> 0x72' "$table" || fail "Insert is not key 114 in the shared table"
+grep -Eq 'else -> NO_KEY' "$table" || fail "a key the table does not know does not answer NO_KEY"
+grep -Eq 'const val NO_KEY = -1' "$table" || fail "NO_KEY is not -1, and zero is the A key"
+
 [[ $status -eq 0 ]] && echo "both X11 windows read one key table and one input method model: ok"
 exit $status
