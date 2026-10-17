@@ -19,6 +19,12 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // Asked for by a build that proves the executable shapes and wraps Korean with no ICU data
     // file beside it. A failure stops here, before a window, so the build sees it.
     if (runTextSelfCheckIfAsked() == false) return RendererApi.RUN_FAILED
+    // `Dispatchers.Main` is the window's frame dispatcher, made here on the thread that will
+    // draw the window. Installed first, before the Host starts and before any scene exists,
+    // because Compose asks what Main is once and keeps the answer, and kotlinx.coroutines on
+    // Linux would otherwise answer with a stand-in that throws at the first dispatch.
+    val main = FrameDispatcher()
+    installMainDispatcher(main)
     // The notification daemon, over the session bus, before the Host starts: its first batch
     // may already post one. A press on a notification's body raises the window, which does
     // not exist yet, so it is found when the press arrives.
@@ -39,7 +45,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // renderer happens to be called, which is the library's name and not any application's, and a
     // measurement of zero means it did not ask.
     val asked = host.table.window
-    val window = LinuxWindow.open(linuxWindowConfig(asked))
+    val window = LinuxWindow.open(linuxWindowConfig(asked), main)
     if (window == null) {
         java.lang.System.err.println(
             "compose-rust: no X11 display, or no double buffered GLX visual on it. " +
