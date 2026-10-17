@@ -71,7 +71,7 @@ esac
 # compiles against the patched Compose for linuxX64, which only a machine that ran build-compose.sh
 # has, and the GraalVM image build has no use for it.
 if [[ "$(uname -s)" == "Linux" && "$(uname -m)" == "x86_64" && -d "$window/native/linux" &&
-      -d "$HOME/.m2/repository/org/jetbrains/compose/ui/ui-linuxx64" ]]; then
+      -d "$HOME/.m2/repository/org/thisisthepy/compose/ui/ui-linuxx64" ]]; then
     linux_module="$window/native/linux/module.yaml"
     cp "$linux_module" "$linux_module.all"
     trap 'mv "$linux_module.all" "$linux_module"; mv "$window/project.yaml.all" "$window/project.yaml"' EXIT

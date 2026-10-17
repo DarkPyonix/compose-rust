@@ -4,7 +4,7 @@
 # scripts/publish-skiko-awt.sh). When a build script runs the Kotlin toolchain before they are
 # there, the toolchain tries to download them, fails, and records the failure in its own cache.
 # From then on the build keeps failing with "Unable to download checksums of file
-# foundation-1.11.1001.pom" even after ~/.m2 holds the files, until someone finds that cache.
+# foundation-1.11.1-ext.1.pom" even after ~/.m2 holds the files, until someone finds that cache.
 #
 # So every script that resolves those versions checks ~/.m2 first and stops before the
 # toolchain runs. This proves it for each script by running it in a copy of the tree with the
@@ -29,28 +29,33 @@ work="$(mktemp -d "$repo/.scratch/fork-artifacts-test.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 
 compose_script="$repo/renderer/scripts/build-compose.sh"
-compose_as="$(sed -n 's/^EXTENDED_AS="\([^"]*\)"$/\1/p' "$compose_script" | head -1)"
-skiko_as="$(sed -n 's/^SKIKO_AWT_EXTENDED_AS="\([^"]*\)"$/\1/p' "$compose_script")"
-[[ -n "$compose_as" && -n "$skiko_as" ]] || { fail "build-compose.sh names no EXTENDED_AS or SKIKO_AWT_EXTENDED_AS"; exit 1; }
+compose_as="$(sed -n 's/^COMPOSE_AS="\([^"]*\)"$/\1/p' "$compose_script")"
+material3_as="$(sed -n 's/^MATERIAL3_AS="\([^"]*\)"$/\1/p' "$compose_script")"
+skiko_as="$(sed -n 's/^SKIKO_AWT_AS="\([^"]*\)"$/\1/p' "$compose_script")"
+[[ -n "$compose_as" && -n "$material3_as" && -n "$skiko_as" ]] ||
+    { fail "build-compose.sh names no COMPOSE_AS, MATERIAL3_AS or SKIKO_AWT_AS"; exit 1; }
 
 # The files a complete local repository holds for one renderer module, relative to
-# ~/.m2/repository: every Compose or skiko coordinate the module names under a version only the
-# fork publishes (EXTENDED_AS, SKIKO_AWT_EXTENDED_AS) or for a Linux target upstream does not
-# publish, and for Compose the target's own publication beside the root one.
+# ~/.m2/repository: every coordinate of the fork's Compose (org.thisisthepy.compose at
+# COMPOSE_AS or MATERIAL3_AS) and its skiko-awt (SKIKO_AWT_AS) the module names, and for Compose
+# the target's own publication beside the root one. The window modules are published by
+# publish-window.sh after the check, so they are not among them.
 fork_files() {
     local module="$1" variant="$2" group artifact version base name
     while read -r group artifact version; do
-        case "$version:$artifact" in
-            "$compose_as":*|"$skiko_as":*|*:*-linuxx64|*:*-linuxarm64) ;;
+        case "$group:$version" in
+            org.thisisthepy.compose.window*) continue ;;
+            org.thisisthepy.compose.*:"$compose_as"|org.thisisthepy.compose.*:"$material3_as") ;;
+            org.jetbrains.skiko:"$skiko_as") ;;
             *) continue ;;
         esac
         base="$(tr . / <<< "$group")"
         for name in "$artifact" ${variant:+"$artifact-$variant"}; do
-            [[ "$name" == "$artifact" || "$group" == org.jetbrains.compose* ]] || continue
+            [[ "$name" == "$artifact" || "$group" == org.thisisthepy.compose.* ]] || continue
             echo "$base/$name/$version/$name-$version.pom"
             echo "$base/$name/$version/$name-$version.module"
         done
-    done < <(sed -En 's/^[[:space:]]*-[[:space:]]*(org\.jetbrains\.(compose[A-Za-z0-9.]*|skiko)):([A-Za-z0-9._-]+):([A-Za-z0-9._-]+)[[:space:]]*$/\1 \3 \4/p' \
+    done < <(sed -En 's/^[[:space:]]*-[[:space:]]*(org\.thisisthepy\.compose[A-Za-z0-9.]*|org\.jetbrains\.skiko):([A-Za-z0-9._-]+):([A-Za-z0-9._-]+)[[:space:]]*$/\1 \2 \3/p' \
         "$repo/renderer/$module/module.yaml")
 }
 

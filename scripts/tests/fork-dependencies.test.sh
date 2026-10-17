@@ -1,23 +1,21 @@
 #!/usr/bin/env bash
-# The Compose fork publishes a few modules to ~/.m2 under a version of its own (EXTENDED_AS in
-# renderer/scripts/build-compose.sh), and Gradle writes every dependency on a sibling module at
-# that same version, built or not. foundation 1.11.1001 then asks for runtime 1.11.1001, which
-# nobody published, and the Kotlin toolchain fails with "Unable to download checksums of file
-# foundation-1.11.1001.pom". build-compose.sh points those dependencies back at upstream.
+# The Compose fork publishes its Compose to ~/.m2 under org.thisisthepy.compose at a version of
+# its own (COMPOSE_AS in renderer/scripts/build-compose.sh), and every module names its siblings
+# at that version. A sibling that is not there, because a build stopped half way or a module was
+# left off the fork's publish-local.sh, sends the Kotlin toolchain to the network for a coordinate
+# nobody published: "Unable to download checksums of file foundation-1.11.1-ext.1.pom", kept in
+# its own cache after that.
 #
-# It used to find what to repoint by asking which directories were newer than the run. A second
-# run whose Gradle tasks were up to date overwrote the published files in directories that
-# already existed, found nothing newer, stopped with "nothing was published", and left Gradle's
-# unrepointed metadata in place. CI never saw it, because CI publishes once into an empty ~/.m2
-# or restores a repository that was repointed when it was saved.
+# This runs build-compose.sh in a copy of the tree with git stubbed and a fake fork checkout
+# whose extended/compose/publish-local.sh writes metadata the way the fork's build does, and
+# checks:
 #
-# This runs build-compose.sh in a copy of the tree with git stubbed and a fake ./gradlew that
-# writes metadata the way the fork's build does, and checks:
-#
-#   a first run and an up-to-date second run both repoint what was not published
-#   a desktop publish beside a macOS one keeps each target's own dependencies right
-#   require-fork-artifacts.sh refuses a repository whose metadata names unpublished modules,
-#     and names the module, and accepts the repaired one
+#   build-compose.sh publishes through the fork's script, as COMPOSE_AS, and rewrites nothing
+#   a second run, with everything already there, leaves the same files
+#   build-compose.sh refuses a pin whose gradle.properties publishes another version
+#   require-fork-artifacts.sh refuses a repository whose metadata names a sibling nobody
+#     published, names it and the command that publishes it, and accepts the complete one
+#   a constraint (an atomic group naming every module in it) is not a missing sibling
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -31,9 +29,9 @@ work="$(mktemp -d "$repo/.scratch/fork-dependencies-test.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 
 compose_script="$repo/renderer/scripts/build-compose.sh"
-fork_as="$(sed -n 's/^EXTENDED_AS="\([^"]*\)"$/\1/p' "$compose_script" | head -1)"
-upstream_as="$(sed -n 's/^PUBLISHED_AS="\([^"]*\)"$/\1/p' "$compose_script")"
-[[ -n "$fork_as" && -n "$upstream_as" ]] || { fail "build-compose.sh names no EXTENDED_AS or PUBLISHED_AS"; exit 1; }
+fork_as="$(sed -n 's/^COMPOSE_AS="\([^"]*\)"$/\1/p' "$compose_script")"
+material3_as="$(sed -n 's/^MATERIAL3_AS="\([^"]*\)"$/\1/p' "$compose_script")"
+[[ -n "$fork_as" && -n "$material3_as" ]] || { fail "build-compose.sh names no COMPOSE_AS or MATERIAL3_AS"; exit 1; }
 
 tree="$work/tree"
 mkdir -p "$tree/renderer/scripts" "$tree/bin"
@@ -45,38 +43,41 @@ done
 printf '#!/usr/bin/env bash\nexit 0\n' > "$tree/bin/git"
 chmod +x "$tree/bin/git"
 
-# The fake Compose checkout. Its gradlew publishes each module the tasks name, root and target,
-# with dependencies at the publication version on every sibling, as the fork's build does. It
-# writes over files in place, as Gradle does, so a second run adds no directory entries.
+# The fake fork checkout: the version lines build-compose.sh reads, a check that passes, and a
+# publish-local.sh that writes each module's root and its target's publication, naming its
+# siblings at the fork version and an atomic group of constraints, as the fork's build does.
 compose="$work/compose-build"
-mkdir -p "$compose/.git"
-cat > "$compose/gradlew" <<'GRADLEW'
+mkdir -p "$compose/.git" "$compose/extended/compose"
+printf 'jetbrains.publication.version.COMPOSE=%s\njetbrains.publication.version.COMPOSE_MATERIAL3=%s\n' \
+    "$fork_as" "$material3_as" > "$compose/gradle.properties"
+printf 'import sys\nsys.exit(0)\n' > "$compose/extended/compose/check-local.py"
+cat > "$compose/extended/compose/publish-local.sh" <<'PUBLISH'
 #!/usr/bin/env bash
 set -euo pipefail
-version=""
-for argument in "$@"; do
-    case "$argument" in -Pjetbrains.publication.version.COMPOSE=*) version="${argument#*=}" ;; esac
-done
+compose_version="$(sed -n 's/^jetbrains.publication.version.COMPOSE=//p' "$(dirname "$0")/../../gradle.properties")"
+material3_version="$(sed -n 's/^jetbrains.publication.version.COMPOSE_MATERIAL3=//p' "$(dirname "$0")/../../gradle.properties")"
+modules="${FAKE_MODULES:-runtime ui-util ui-text ui foundation material3}"
 m2="$HOME/.m2/repository"
 group_of() {
     case "$1" in
-        animation*) echo org.jetbrains.compose.animation ;;
-        foundation*) echo org.jetbrains.compose.foundation ;;
-        runtime*) echo org.jetbrains.compose.runtime ;;
-        *) echo org.jetbrains.compose.ui ;;
+        foundation*) echo org.thisisthepy.compose.foundation ;;
+        material3*) echo org.thisisthepy.compose.material3 ;;
+        runtime*) echo org.thisisthepy.compose.runtime ;;
+        *) echo org.thisisthepy.compose.ui ;;
     esac
 }
 dependencies_of() {
     case "$1" in
-        foundation) echo animation foundation-layout runtime ui ui-text ui-util ;;
-        ui) echo runtime ui-geometry ui-text ui-util ;;
-        ui-text) echo runtime ui-graphics ui-util ;;
+        foundation) echo runtime ui ui-text ui-util ;;
+        ui) echo runtime ui-text ui-util ;;
+        ui-text) echo runtime ui-util ;;
     esac
 }
-# publish <module> <artifact> <suffix for dependencies in the pom>
-publish() {
+version_of() { case "$1" in material3*) echo "$material3_version" ;; *) echo "$compose_version" ;; esac; }
+publish() { # <module> <artifact> <suffix>
     local module="$1" artifact="$2" suffix="$3" group directory dependency separator
     group="$(group_of "$module")"
+    version="$(version_of "$module")"
     directory="$m2/$(tr . / <<< "$group")/$artifact/$version"
     mkdir -p "$directory"
     {
@@ -84,15 +85,15 @@ publish() {
         printf '  "variants": [\n    {\n      "name": "apiElements",\n      "dependencies": [\n'
         separator=""
         for dependency in $(dependencies_of "$module"); do
-            printf '%s        {\n          "group": "%s",\n          "module": "%s",\n          "version": {\n            "requires": "%s"\n          }\n        }' \
-                "$separator" "$(group_of "$dependency")" "$dependency" "$version"
+            printf '%s        {\n          "group": "%s",\n          "module": "%s%s",\n          "version": {\n            "requires": "%s"\n          }\n        }' \
+                "$separator" "$(group_of "$dependency")" "$dependency" "$suffix" "$version"
             separator=$',\n'
         done
-        printf '\n      ],\n      "dependencyConstraints": [\n        {\n          "group": "org.jetbrains.compose.foundation",\n          "module": "foundation-layout",\n          "version": {\n            "requires": "%s"\n          },\n          "reason": "atomic group"\n        }\n      ]\n    }\n  ]\n}\n' "$version"
+        printf '\n      ],\n      "dependencyConstraints": [\n        {\n          "group": "org.thisisthepy.compose.ui",\n          "module": "ui-test-junit4",\n          "version": {\n            "requires": "%s"\n          },\n          "reason": "atomic group"\n        }\n      ]\n    }\n  ]\n}\n' "$version"
     } > "$directory/$artifact-$version.module"
     {
         printf '<project>\n  <groupId>%s</groupId>\n  <artifactId>%s</artifactId>\n  <version>%s</version>\n' "$group" "$artifact" "$version"
-        printf '  <dependencyManagement>\n    <dependencies>\n      <dependency>\n        <groupId>org.jetbrains.compose.foundation</groupId>\n        <artifactId>foundation-layout</artifactId>\n        <version>%s</version>\n      </dependency>\n    </dependencies>\n  </dependencyManagement>\n  <dependencies>\n' "$version"
+        printf '  <dependencyManagement>\n    <dependencies>\n      <dependency>\n        <groupId>org.thisisthepy.compose.ui</groupId>\n        <artifactId>ui-test-junit4</artifactId>\n        <version>%s</version>\n      </dependency>\n    </dependencies>\n  </dependencyManagement>\n  <dependencies>\n' "$version"
         for dependency in $(dependencies_of "$module"); do
             printf '    <dependency>\n      <groupId>%s</groupId>\n      <artifactId>%s%s</artifactId>\n      <version>%s</version>\n      <scope>compile</scope>\n    </dependency>\n' \
                 "$(group_of "$dependency")" "$dependency" "$suffix" "$version"
@@ -100,127 +101,79 @@ publish() {
         printf '  </dependencies>\n</project>\n'
     } > "$directory/$artifact-$version.pom"
 }
-for task in "$@"; do
-    case "$task" in
-        :compose:*:publish*PublicationToMavenLocal) ;;
-        *) continue ;;
+for target in "$@"; do
+    case "$target" in
+        macosArm64) suffix=macosarm64 ;;
+        desktop) suffix=desktop ;;
+        *) suffix="$(tr '[:upper:]' '[:lower:]' <<< "$target")" ;;
     esac
-    path="${task%:*}"
-    module="${path##*:}"
-    publication="${task##*:publish}"
-    publication="${publication%PublicationToMavenLocal}"
-    case "$publication" in
-        KotlinMultiplatform) ;;
-        KotlinMultiplatformDecorated) publish "$module" "$module" "" ;;
-        *) target="$(tr '[:upper:]' '[:lower:]' <<< "$publication")"
-           publish "$module" "$module-$target" "-$target" ;;
-    esac
+    for module in $modules; do
+        publish "$module" "$module" ""
+        publish "$module" "$module-$suffix" "-$suffix"
+    done
 done
-GRADLEW
-chmod +x "$compose/gradlew"
+PUBLISH
+chmod +x "$compose/extended/compose/publish-local.sh"
 
 # build <home> <target>: one build-compose.sh run; output in $work/out.
 build() {
     HOME="$1" PATH="$tree/bin:$PATH" JAVA_HOME="$work/jdk" DXC_COMPOSE_BUILD="$compose" \
         bash "$tree/renderer/scripts/build-compose.sh" --target "$2" > "$work/out" 2>&1
 }
+digest() { find "$1/.m2" -type f -print0 | sort -z | xargs -0 shasum | shasum | cut -d' ' -f1; }
+require() { HOME="$1" bash "$tree/renderer/scripts/require-fork-artifacts.sh" "$2" > "$work/out" 2>&1; }
 
-# required <home> <file under ~/.m2/repository/org/jetbrains/compose> <dependency> : the version
-# that file asks for the dependency at.
-required() {
-    local file="$1/.m2/repository/org/jetbrains/compose/$2"
-    [[ -f "$file" ]] || { echo "absent"; return; }
-    DEPENDENCY="$3" perl -0777 -ne '
-        my $d = $ENV{DEPENDENCY};
-        if (/"module":\s*"\Q$d\E",\s*"version":\s*\{\s*"requires":\s*"([^"]+)"/) { print $1; exit }
-        if (m{<artifactId>\Q$d\E</artifactId>\s*<version>([^<]+)</version>}) { print $1; exit }
-        print "none";
-    ' "$file"
-}
+foundation_module="$work/home-once/.m2/repository/org/thisisthepy/compose/foundation/foundation/$fork_as/foundation-$fork_as.module"
 
-expect() {
-    local home="$1" file="$2" dependency="$3" want="$4" context="$5" got
-    got="$(required "$home" "$file" "$dependency")"
-    [[ "$got" == "$want" ]] || fail "$context: $file asks for $dependency at $got, expected $want"
-}
-
-foundation="foundation/foundation/$fork_as/foundation-$fork_as"
-foundation_macos="foundation/foundation-macosarm64/$fork_as/foundation-macosarm64-$fork_as"
-foundation_desktop="foundation/foundation-desktop/$fork_as/foundation-desktop-$fork_as"
-
-expect_macos_repointed() {
-    local home="$1" context="$2"
-    expect "$home" "$foundation.module" runtime "$upstream_as" "$context"
-    expect "$home" "$foundation.module" animation "$upstream_as" "$context"
-    expect "$home" "$foundation.module" ui-text "$upstream_as" "$context"
-    expect "$home" "$foundation.module" ui "$fork_as" "$context"
-    expect "$home" "$foundation.pom" foundation-layout "$upstream_as" "$context"
-    expect "$home" "$foundation_macos.module" ui-util "$upstream_as" "$context"
-    expect "$home" "$foundation_macos.module" ui "$fork_as" "$context"
-    expect "$home" "$foundation_macos.pom" runtime-macosarm64 "$upstream_as" "$context"
-    expect "$home" "$foundation_macos.pom" ui-macosarm64 "$fork_as" "$context"
-    expect "$home" "ui/ui-macosarm64/$fork_as/ui-macosarm64-$fork_as.module" ui-geometry "$upstream_as" "$context"
-}
-
-# A first run into an empty repository.
+# A first run into an empty repository, and the same run again.
 home="$work/home-once"
 mkdir -p "$home"
 if build "$home" macosArm64; then
-    expect_macos_repointed "$home" "first macOS run"
+    [[ -f "$foundation_module" ]] || fail "build-compose.sh did not publish foundation as $fork_as through the fork's script"
+    grep -q '"requires": "'"$fork_as"'"' "$foundation_module" ||
+        fail "foundation's metadata no longer names its siblings at $fork_as: build-compose.sh rewrote it"
+    first="$(digest "$home")"
+    if build "$home" macosArm64; then
+        [[ "$(digest "$home")" == "$first" ]] || fail "a second macOS run changed what the first published"
+    else
+        fail "a second macOS run failed: $(tail -1 "$work/out")"
+    fi
 else
-    fail "the first macOS run failed: $(tail -1 "$work/out")"
+    fail "the first macOS run failed: $(tail -2 "$work/out" | head -1)"
 fi
 
-# The same run again, Gradle up to date: the published files are overwritten in place.
-if build "$home" macosArm64; then
-    expect_macos_repointed "$home" "second macOS run"
-else
-    fail "a second macOS run, with Gradle up to date, failed: $(tail -1 "$work/out")"
+# What the fork published is complete, and its constraints are not missing siblings.
+if ! require "$home" macos; then
+    fail "require-fork-artifacts.sh macos refused what build-compose.sh left: $(grep -m1 -E ', named by |missing' "$work/out" || tail -1 "$work/out")"
 fi
 
-# Desktop and macOS in one repository: ui-text is published for desktop and not for macOS, and
-# the root foundation serves both.
-home="$work/home-both"
+# A pin that publishes another version is refused before anything is built.
+moved="$work/compose-moved"
+cp -R "$compose" "$moved"
+printf 'jetbrains.publication.version.COMPOSE=1.11.1-ext.9\njetbrains.publication.version.COMPOSE_MATERIAL3=%s\n' "$material3_as" > "$moved/gradle.properties"
+mkdir -p "$work/home-moved"
+if HOME="$work/home-moved" PATH="$tree/bin:$PATH" JAVA_HOME="$work/jdk" DXC_COMPOSE_BUILD="$moved" \
+        bash "$tree/renderer/scripts/build-compose.sh" --target macosArm64 > "$work/out" 2>&1; then
+    fail "build-compose.sh built a pin that publishes 1.11.1-ext.9 while the renderer asks for $fork_as"
+else
+    grep -q "does not publish jetbrains.publication.version.COMPOSE=$fork_as" "$work/out" ||
+        fail "build-compose.sh refused the moved pin without saying which version: $(tail -1 "$work/out")"
+    [[ ! -d "$work/home-moved/.m2" ]] || fail "build-compose.sh published something before refusing the moved pin"
+fi
+
+# A build that stopped half way: foundation and ui are there, the runtime they name is not.
+home="$work/home-partial"
 mkdir -p "$home"
-if build "$home" desktop && build "$home" macosArm64; then
-    expect "$home" "$foundation_desktop.module" ui-text "$fork_as" "desktop then macOS"
-    expect "$home" "$foundation_desktop.pom" ui-text-desktop "$fork_as" "desktop then macOS"
-    expect "$home" "$foundation_macos.module" ui-text "$upstream_as" "desktop then macOS"
-    expect "$home" "$foundation.module" ui-text "$upstream_as" "desktop then macOS"
-    expect "$home" "$foundation.module" ui "$fork_as" "desktop then macOS"
-else
-    fail "desktop then macOS failed: $(tail -1 "$work/out")"
-fi
-
-# require-fork-artifacts.sh, on a repository holding every file the macOS module names, as
-# Gradle wrote them: it has to refuse, and name what is missing.
-home="$work/home-raw"
-mkdir -p "$home"
-HOME="$home" bash -c "cd '$compose' && ./gradlew -Pjetbrains.publication.version.COMPOSE=$fork_as \
-    :compose:foundation:foundation:publishMacosArm64PublicationToMavenLocal \
-    :compose:foundation:foundation:publishKotlinMultiplatformDecoratedPublicationToMavenLocal \
-    :compose:ui:ui:publishMacosArm64PublicationToMavenLocal \
-    :compose:ui:ui:publishKotlinMultiplatformDecoratedPublicationToMavenLocal"
-if HOME="$home" bash "$tree/renderer/scripts/require-fork-artifacts.sh" macos > "$work/out" 2>&1; then
+HOME="$home" FAKE_MODULES="ui-util ui-text ui foundation" "$compose/extended/compose/publish-local.sh" macosArm64
+if require "$home" macos; then
     fail "require-fork-artifacts.sh accepted metadata that names runtime $fork_as, which nobody published"
 else
-    grep -q "org.jetbrains.compose.runtime:runtime:$fork_as" "$work/out" ||
+    grep -q "org.thisisthepy.compose.runtime:runtime:$fork_as" "$work/out" ||
         fail "require-fork-artifacts.sh refused without naming runtime $fork_as: $(tail -1 "$work/out")"
     grep -q "build-compose.sh --target macosArm64" "$work/out" ||
-        fail "require-fork-artifacts.sh did not name the command that repairs it"
+        fail "require-fork-artifacts.sh did not name the command that publishes it"
+    grep -q "ui-test-junit4" "$work/out" &&
+        fail "require-fork-artifacts.sh reported ui-test-junit4, which only a constraint names"
 fi
-
-# And the repositories build-compose.sh left are accepted.
-for checked in "home-once macos" "home-both macos" "home-both desktop"; do
-    read -r name module <<< "$checked"
-    if ! HOME="$work/$name" bash "$tree/renderer/scripts/require-fork-artifacts.sh" "$module" > "$work/out" 2>&1; then
-        # Desktop names skiko-awt too, which this does not publish; only a dependency complaint counts.
-        if grep -q ", named by " "$work/out"; then
-            fail "require-fork-artifacts.sh $module refused what build-compose.sh left in $name: $(grep ', named by ' "$work/out" | head -1)"
-        elif [[ "$module" != desktop ]]; then
-            fail "require-fork-artifacts.sh $module refused $name: $(grep -v '^ *$' "$work/out" | sed -n 7p)"
-        fi
-    fi
-done
 
 if [[ "$failures" -eq 0 ]]; then echo "  ok"; else exit 1; fi
