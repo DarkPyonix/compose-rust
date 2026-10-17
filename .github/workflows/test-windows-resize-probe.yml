@@ -273,6 +273,8 @@ jobs:
         # that is not ERROR, the move-size loop entered, more than one width seen. And both
         # apps must take the path asked for, in the same words from the same C: frames on the
         # CPU with every step blitted and validated, or frames on the GPU with no such step.
+        # Every check here counts and goes on, so the step lists every failure, not the first.
+        shell: bash --noprofile --norc -o pipefail {0}
         run: |
           out="$(cygpath -u "$RUNNER_TEMP")/probe-logs"
           [ "${{ steps.scale.outputs.status }}" = 0 ] || { echo "the display did not go to 200%" >&2; exit 1; }
@@ -296,8 +298,8 @@ jobs:
                   if [ "$path" = new ]; then
                     grep -qF "resize-mode: resize frames on the CPU (Skia raster, GDI blit)" "$log" ||
                       { echo "  $app did not take the CPU resize path"; status=1; }
-                    steps="$(grep -c "resize-proof step" "$log")"
-                    bad="$(grep "resize-proof step" "$log" | grep -vcE "presents=0 child_visible=0 blit=1 validated=1$")"
+                    steps="$(grep -c "resize-proof step" "$log" || true)"
+                    bad="$(grep "resize-proof step" "$log" | grep -vcE "presents=0 child_visible=0 blit=1 validated=1$" || true)"
                     echo "  resize-proof steps: $steps, not blitted and validated: $bad"
                     { [ "$steps" -gt 0 ] && [ "$bad" = 0 ]; } || status=1
                   else
