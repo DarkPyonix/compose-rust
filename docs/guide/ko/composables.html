@@ -174,7 +174,9 @@
       <code>fill_max_size</code>, <code>padding</code>, <code>padding_role</code>,
       <code>background</code>, <code>shape_role</code>, <code>corner_radius</code>,
       <code>border</code>, <code>elevation</code>, <code>material</code>, <code>motion</code>,
-      <code>observe_size</code> 입니다. 이름이 <code>_if</code> 로 끝나는 것은 창에 따라 달라지는
+      <code>observe_size</code>, <code>alpha</code>, <code>graphics_layer</code>, 그리고 렌더러가
+      애니메이션할 목표값을 받는 <code>animated_alpha</code>, <code>animated_background</code>,
+      <code>animated_offset</code> 입니다(<a href="writing-ui.html#animation">애니메이션</a> 참고). 이름이 <code>_if</code> 로 끝나는 것은 창에 따라 달라지는
       Modifier를 위해 <code>Option</code> 이나 <code>bool</code> 을 받습니다. 종류마다 사슬 안의
       자리가 정해져 있으므로 부르는 순서는 상관없습니다.
     </p>
@@ -195,6 +197,8 @@
           <tr><td><code>Elevation</code></td><td>dp</td><td>떠 있는 높이. 디자인 시스템마다 자기 방식으로 그립니다.</td></tr>
           <tr><td><code>Material</code></td><td><code>MaterialRole</code></td><td>유리처럼 표면이 무엇으로 만들어졌는지. 디자인 시스템이 풉니다.</td></tr>
           <tr><td><code>Motion</code></td><td><code>MotionRole</code></td><td>이 위젯 자신의 전환에 쓰는 디자인 시스템의 타이밍.</td></tr>
+          <tr><td><code>Alpha</code></td><td><code>f32</code></td><td>위젯과 그 안의 모든 것을 한 묶음으로 흐리게 하는 투명도. <code>alpha</code> 와 <code>graphics_layer</code> 가 씁니다.</td></tr>
+          <tr><td><code>Transform</code></td><td>2D 행렬과 기준점</td><td>레이아웃을 움직이지 않고 그리는 회전, 크기, 이동. <code>graphics_layer</code> 가 씁니다. 포인터는 그려진 모양으로 판정합니다.</td></tr>
           <tr><td><code>Clickable</code></td><td>핸들러 id</td><td>어느 위젯이든 클릭을 알리게 합니다.</td></tr>
           <tr><td><code>ObserveSize</code></td><td>토큰</td><td>이 노드의 잰 크기를 앱이 고른 토큰으로 알려 달라고 렌더러에 요청합니다. <code>node_size</code> 로 읽습니다.</td></tr>
         </tbody>

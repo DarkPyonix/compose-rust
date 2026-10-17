@@ -42,8 +42,13 @@ What the 0.0.2 crate contains:
 - **The authoring API.** `#[composable]`, `remember`, the states and effects, the `Recomposer`,
   `launch` and one function per widget
   ([#23](https://github.com/DarkPyonix/compose-rust/issues/23), [#64](https://github.com/DarkPyonix/compose-rust/issues/64)).
-  It is new in 0.0.2. It is a pre-1.0 API that may still change, and it is stable from
-  **1.0.0, planned for 2026-11-14**.
+  It is new in 0.0.2, with animation: `Modifier.graphics_layer`, `Modifier.alpha`, and
+  `animate_float_as_state`, `animate_color_as_state` and `animate_offset_as_state`, whose
+  values go to `Modifier.animated_alpha`, `animated_background` and `animated_offset`. Each new
+  target sends one transition that the renderer plays on its own clock, and nothing is composed
+  again while it plays ([Animation](https://darkpyonix.dev/compose-rust/en/writing-ui.html#animation)).
+  It is a pre-1.0 API that may still change, and it is stable from **1.0.0, planned for
+  2026-11-14**.
 - **The boundary.** The `compose_rust_host_*` C functions the renderer calls, `Host`,
   `LaunchBuilder`, `launch_runtime`, and `request_frame_from_worker` for waking a frame from a
   worker thread.

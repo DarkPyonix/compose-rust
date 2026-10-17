@@ -174,8 +174,11 @@
       <code>size</code>, <code>fill_max_width</code>, <code>fill_max_height</code>,
       <code>fill_max_size</code>, <code>padding</code>, <code>padding_role</code>,
       <code>background</code>, <code>shape_role</code>, <code>corner_radius</code>,
-      <code>border</code>, <code>elevation</code>, <code>material</code>, <code>motion</code> and
-      <code>observe_size</code>. The ones ending in <code>_if</code> take an <code>Option</code> or a
+      <code>border</code>, <code>elevation</code>, <code>material</code>, <code>motion</code>,
+      <code>observe_size</code>, <code>alpha</code> and <code>graphics_layer</code>, plus
+      <code>animated_alpha</code>, <code>animated_background</code> and <code>animated_offset</code>,
+      which take a value the renderer animates to (see
+      <a href="writing-ui.html#animation">Animation</a>). The ones ending in <code>_if</code> take an <code>Option</code> or a
       <code>bool</code>, for a modifier that depends on the window. The order of the calls does not
       matter, because each kind has a fixed place in the chain.
     </p>
@@ -196,6 +199,8 @@
           <tr><td><code>Elevation</code></td><td>dp</td><td>Resting height. Each design system draws it its own way.</td></tr>
           <tr><td><code>Material</code></td><td><code>MaterialRole</code></td><td>What a surface is made of, such as glass, resolved by the design system.</td></tr>
           <tr><td><code>Motion</code></td><td><code>MotionRole</code></td><td>The design system's timing for this widget's own transitions.</td></tr>
+          <tr><td><code>Alpha</code></td><td><code>f32</code></td><td>An opacity for the widget and everything in it, faded as one group. Written by <code>alpha</code> and <code>graphics_layer</code>.</td></tr>
+          <tr><td><code>Transform</code></td><td>a 2D matrix and an origin</td><td>A rotation, a scale and a translation, drawn without moving the layout. Written by <code>graphics_layer</code>. A pointer is tested against the shape that is drawn.</td></tr>
           <tr><td><code>Clickable</code></td><td>a handler id</td><td>Makes any widget report clicks.</td></tr>
           <tr><td><code>ObserveSize</code></td><td>a token</td><td>Asks the renderer to report this node's measured size, under a token the application chose, read with <code>node_size</code>.</td></tr>
         </tbody>

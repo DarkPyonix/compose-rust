@@ -434,17 +434,62 @@
       <a href="design-systems.html#modes">Design systems</a> explains the theme.
     </p>
 
-    <h2 id="animation">Animation <span class="pill planned">Planned</span></h2>
+    <h2 id="animation">Animation <span class="pill works">Works</span></h2>
     <p>
       Animation follows the same rule as scrolling: the renderer plays it on the Compose frame
-      clock, and the values in between never reach the Host. The authoring API will write the
-      animation records the renderer plays, with Compose's names: <code>graphics_layer</code> for
-      rotation, scale, translation and alpha, and the <code>animate_*_as_state</code> functions,
-      which send one record when the target changes. Neither is in the API yet
-      (<a href="https://github.com/DarkPyonix/compose-rust/issues/105">#105</a>). Without an
-      explicit duration and curve an animation will take the design system's
-      <code>MotionRole::Standard</code>, so motion follows the platform. A widget's own transitions
-      already follow <code>Modifier.motion(role)</code>.
+      clock, and the values in between never reach the Host. The authoring API writes the records
+      the renderer plays, with Compose's names. Both parts below are in 0.0.2.
+    </p>
+    <p>
+      <strong>A graphics layer.</strong> <code>Modifier.graphics_layer(GraphicsLayer { .. })</code>
+      is Compose's <code>graphicsLayer</code>. <code>GraphicsLayer</code> has
+      <code>rotation_z</code> in degrees, <code>scale_x</code> and <code>scale_y</code>,
+      <code>translation_x</code> and <code>translation_y</code> in dp, a
+      <code>transform_origin</code> as a fraction of the node's size, and an <code>alpha</code>.
+      The layer is drawn without moving the layout, and a pointer is tested against the shape that
+      is drawn. <code>Modifier.alpha(f32)</code> sets only the opacity. Either one fades the node and
+      everything in it as one group.
+    </p>
+    <p>
+      <strong>A value that animates to its target.</strong>
+      <code>animate_float_as_state(target, spec)</code>,
+      <code>animate_color_as_state(target, spec)</code> and
+      <code>animate_offset_as_state(target, spec)</code> return an <code>Animated</code> value. You
+      give it to <code>Modifier.animated_alpha</code>, <code>animated_background</code> or
+      <code>animated_offset</code>. The first value a node gets is where it starts. Each later
+      target sends one transition, and the renderer plays it on its own clock. Nothing is composed
+      again while it plays. <code>.value()</code> returns the target, because the value in between
+      belongs to the renderer and is never sent back. An offset is drawn as a transform, so the
+      layout does not move.
+    </p>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>rust, a box that fades out when a state flips</figcaption>
+<pre><code><span class="k">use</span> compose_rust::runtime::*;
+<span class="k">use</span> compose_rust::ui::*;
+<span class="k">use</span> compose_rust::{<span class="ty">AnimationSpec</span>, animate_float_as_state};
+
+<span class="at">#[composable]</span>
+<span class="k">fn</span> <span class="f">fading</span>(faded: <span class="ty">MutableState</span>&lt;<span class="ty">bool</span>&gt;) {
+    <span class="k">let</span> target = <span class="k">if</span> faded.<span class="f">get</span>() { <span class="n">0.0</span> } <span class="k">else</span> { <span class="n">1.0</span> };
+    <span class="f">Box</span>()
+        .<span class="f">modifier</span>(
+            <span class="ty">Modifier</span>
+                .<span class="f">size</span>(<span class="n">40.0</span>, <span class="n">40.0</span>)
+                .<span class="f">animated_alpha</span>(<span class="f">animate_float_as_state</span>(target, <span class="ty">AnimationSpec</span>::<span class="ty">STANDARD</span>)),
+        )
+        .<span class="f">content</span>(|| {});
+}</code></pre>
+    </figure>
+
+    <p>
+      When <code>faded</code> becomes <code>true</code>, the next frame sends the new opacity and one
+      transition to it, and the box fades on the renderer's clock. <code>AnimationSpec</code> says
+      how long a change takes and along which curve. <code>AnimationSpec::STANDARD</code> is
+      300&nbsp;ms along <code>cubic-bezier(0.2, 0, 0, 1)</code>, the standard motion of Material 3,
+      and <code>AnimationSpec::tween(duration_ms, timing)</code> picks your own. A widget's own
+      transitions follow <code>Modifier.motion(role)</code>. 3D transforms are not built yet
+      (<a href="https://github.com/DarkPyonix/compose-rust/issues/105">#105</a>).
     </p>
 
     <h2 id="owners">Where state lives</h2>

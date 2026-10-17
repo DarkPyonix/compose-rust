@@ -40,8 +40,12 @@ compose-rust는 네 가지를 합친 것입니다.
 
 - **작성 API.** `#[composable]`, `remember`, 상태와 effect, `Recomposer`, `launch`, 그리고
   위젯마다 하나씩인 함수입니다([#23](https://github.com/DarkPyonix/compose-rust/issues/23), [#64](https://github.com/DarkPyonix/compose-rust/issues/64)).
-  0.0.2에서 새로 들어왔습니다. 1.0 전의 API라 아직 바뀔 수 있고,
-  **2026-11-14로 계획된 1.0.0**부터 안정됩니다.
+  0.0.2에서 새로 들어왔고, 애니메이션도 함께 있습니다. `Modifier.graphics_layer`, `Modifier.alpha`,
+  그리고 `animate_float_as_state`, `animate_color_as_state`, `animate_offset_as_state` 이며, 그 값은
+  `Modifier.animated_alpha`, `animated_background`, `animated_offset` 에 줍니다. 목표값이 바뀔 때마다
+  전환 하나를 보내고 렌더러가 자기 시계로 재생하며, 재생하는 동안 아무것도 다시 compose되지
+  않습니다([애니메이션](https://darkpyonix.dev/compose-rust/ko/writing-ui.html#animation)).
+  1.0 전의 API라 아직 바뀔 수 있고, **2026-11-14로 계획된 1.0.0**부터 안정됩니다.
 - **경계.** 렌더러가 부르는 `compose_rust_host_*` C 함수들, `Host`, `LaunchBuilder`,
   `launch_runtime`, 그리고 워커 스레드에서 프레임을 깨우는 `request_frame_from_worker`.
 - **프로토콜.** 고정 레이아웃 mutation 레코드. 배치 버퍼 하나에 쓰이고 렌더러가 그 자리에서
