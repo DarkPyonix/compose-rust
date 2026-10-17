@@ -298,10 +298,13 @@ impl Inserter {
     /// Wraps a block so that what it remembers belongs to this branch and no other.
     fn wrap(&mut self, block: &mut Block) {
         let (key, guard) = self.next();
-        let inner = block.clone();
+        // The branch's own statements, spliced in after the guard rather than nested as a
+        // block of their own: a nested block around a tail value is braces the compiler
+        // warns about, and the warning would point at the user's code.
+        let statements = &block.stmts;
         *block = parse_quote!({
             let #guard = ::compose_rust::runtime::__private::group(#key);
-            #inner
+            #(#statements)*
         });
     }
 }
@@ -327,10 +330,25 @@ impl VisitMut for Inserter {
                 for arm in &mut matched.arms {
                     let (key, guard) = self.next();
                     let body = arm.body.clone();
-                    arm.body = parse_quote!({
-                        let #guard = ::compose_rust::runtime::__private::group(#key);
-                        #body
-                    });
+                    arm.body = match *body {
+                        // A block arm's statements go after the guard, for the reason
+                        // `wrap` gives.
+                        Expr::Block(syn::ExprBlock {
+                            ref attrs,
+                            label: None,
+                            ref block,
+                        }) if attrs.is_empty() => {
+                            let statements = &block.stmts;
+                            parse_quote!({
+                                let #guard = ::compose_rust::runtime::__private::group(#key);
+                                #(#statements)*
+                            })
+                        }
+                        body => parse_quote!({
+                            let #guard = ::compose_rust::runtime::__private::group(#key);
+                            #body
+                        }),
+                    };
                 }
             }
             _ => {}
