@@ -13,22 +13,36 @@
 # The drag must also have changed the window's height, or it measured nothing.
 #
 # The probe also puts a plain AppKit view at the same distance from the top
-# (control_top_pt), drawn by nobody but AppKit. Its spread is printed beside the content's
-# for comparison and is not bounded: it says what the window server does to any content
-# during the same drag. The native image's probe then drags a plain AppKit window of the
+# (control_top_pt), drawn by nobody but AppKit. Its spread is printed beside the content's:
+# it says what the window server does to any content during the same drag. The native image's probe then drags a plain AppKit window of the
 # same size and place, with only that view in it ("plain-sample" lines), and its spread is
 # printed too: what the window server does to a window that nothing but AppKit draws.
 #
-# Usage: vertical-resize-check.sh <log> [tolerance in points]
+# Two bounds, chosen by the caller:
+#
+#   (default)         the content moves by no more than the tolerance in any image.
+#   --against-appkit  an image where the content is off by more than the tolerance passes
+#                     only if AppKit's own view in the same image is off by the same amount,
+#                     within the tolerance. The window server takes a step of a drag in
+#                     pieces, and on the native image's window it sometimes shows the
+#                     window's frame a step behind the layers for a few milliseconds; AppKit's
+#                     own view is then off by the same amount. That is a frame of another
+#                     height than the window on the screen, so the absolute bound is not met
+#                     there, and the script says so whenever it happens. What this bound
+#                     holds is that the content is never anywhere AppKit's own view is not.
+#
+# Usage: vertical-resize-check.sh <log> [tolerance in points] [--against-appkit]
 set -euo pipefail
 log="$1"
 tolerance="${2:-1.0}"
+against_appkit=0
+[[ "${3:-}" == "--against-appkit" ]] && against_appkit=1
 
 grep -q "vresize begin" "$log" || { echo "FAIL the vertical resize probe did not start (no 'vresize begin' in $log)" >&2; exit 1; }
 grep -q "vresize done" "$log" || { echo "FAIL the vertical resize probe did not finish (no 'vresize done' in $log)" >&2; exit 1; }
 grep -E "vresize (begin|error)" "$log" || true
 
-awk -v tolerance="$tolerance" '
+awk -v tolerance="$tolerance" -v against_appkit="$against_appkit" '
     function field(name,   i, kv) {
         for (i = 1; i <= NF; i++) if (index($i, name "=") == 1) { return substr($i, length(name) + 2) }
         return ""
@@ -63,6 +77,7 @@ awk -v tolerance="$tolerance" '
             cs[controls] = c + 0
         }
         y = field("marker_top_pt") + 0
+        cv[found + 1] = (c != "" && c + 0 >= 0) ? c + 0 : -1
         ys[++found] = y
         line[found] = $0
         count[sprintf("%.2f", y)]++
@@ -76,15 +91,25 @@ awk -v tolerance="$tolerance" '
         if (found > 0) {
             # The distance most images agree on is where the content belongs.
             best = ""; for (k in count) if (best == "" || count[k] > count[best]) best = k
-            ymin = ys[1]; ymax = ys[1]; off = 0
+            cbest2 = ""; for (k in ccount) if (cbest2 == "" || ccount[k] > ccount[cbest2]) cbest2 = k
+            ymin = ys[1]; ymax = ys[1]; off = 0; worse = 0
             for (i = 1; i <= found; i++) {
                 if (ys[i] < ymin) ymin = ys[i]
                 if (ys[i] > ymax) ymax = ys[i]
                 d = ys[i] - best; if (d < 0) d = -d
-                if (d > tolerance) { off++; if (off <= 15) bad[++nbad] = sprintf("moved %+.2f pt: %s", ys[i] - best, line[i]) }
+                if (d > tolerance) {
+                    off++
+                    e = (cv[i] < 0 || cbest2 == "") ? 1e9 : (ys[i] - best) - (cv[i] - cbest2); if (e < 0) e = -e
+                    if (e > tolerance) worse++
+                    if (off <= 15) bad[++nbad] = sprintf("moved %+.2f pt, AppKit'"'"'s view %s: %s", ys[i] - best, (cv[i] < 0 || cbest2 == "") ? "not found" : sprintf("%+.2f pt", cv[i] - cbest2), line[i])
+                }
             }
             printf "marker_top_pt: usual %.2f, min %.2f, max %.2f, spread %.2f pt; %d of %d images off by more than %.2f pt\n", best, ymin, ymax, ymax - ymin, off, found, tolerance
-            if (ymax - ymin > tolerance) { printf "FAIL the content moved by %.2f pt during the vertical drag, more than %.2f\n", ymax - ymin, tolerance; failed = 1 }
+            printf "%d of those %d images off by more than AppKit'"'"'s own view in the same image\n", worse, off
+            if (against_appkit) {
+                if (off > 0) printf "NOTE the absolute bound is not met: in %d images the content was more than %.2f pt from where it was drawn, a frame of another height than the window on the screen\n", off, tolerance
+                if (worse > 0) { printf "FAIL the content moved by more than %.2f pt where AppKit'"'"'s own view did not, in %d images\n", tolerance, worse; failed = 1 }
+            } else if (ymax - ymin > tolerance) { printf "FAIL the content moved by %.2f pt during the vertical drag, more than %.2f\n", ymax - ymin, tolerance; failed = 1 }
         }
         if (controls > 0) {
             cbest = ""; for (k in ccount) if (cbest == "" || ccount[k] > ccount[cbest]) cbest = k
@@ -100,7 +125,8 @@ awk -v tolerance="$tolerance" '
         }
         if (missing > 0) { printf "FAIL %d images had no content where it was drawn\n", missing; failed = 1 }
         for (i = 1; i <= nbad; i++) print "  " bad[i]
-        if (!failed) print "ok   the content stayed within " tolerance " pt of where it was drawn through the vertical drag"
+        if (!failed && (!against_appkit || off == 0)) print "ok   the content stayed within " tolerance " pt of where it was drawn through the vertical drag"
+        else if (!failed) print "ok   through the vertical drag the content was never more than " tolerance " pt from where it was drawn, except where AppKit'"'"'s own view was off by the same amount"
         exit failed
     }
 ' "$log"
