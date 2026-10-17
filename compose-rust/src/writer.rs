@@ -28,7 +28,7 @@ const SPANS_BIT: u32 = 63;
 
 /// How many Modifier slots a node has. The slot numbers are assigned in `modifier_for`,
 /// and this is one past the last of them.
-const MODIFIER_SLOTS: usize = 14;
+const MODIFIER_SLOTS: usize = 16;
 
 /// Node id 0 is the "no node" sentinel: a placeholder, which draws nothing and takes no
 /// slot in the Compose tree. It is also the root every top-level node is inserted under.
@@ -84,6 +84,12 @@ pub struct NodeWriter {
     modifier_slots: HashMap<u32, [&'static str; MODIFIER_SLOTS]>,
     /// Which application token each observed node was given, for reading a report back.
     size_tokens: HashMap<u32, u32>,
+    /// Which animated values each node has been given, one bit for each of
+    /// `animated_alpha`, `animated_background` and `animated_offset`. The first value is
+    /// where the node starts; every later one is a change to animate.
+    animated: HashMap<u32, u8>,
+    /// The name the next animation this writer starts is given. Never 0.
+    next_animation_id: u32,
 }
 
 impl Default for NodeWriter {
@@ -106,6 +112,9 @@ impl NodeWriter {
             // Empty until a screen asks, which is the point: a tree that observes nothing
             // allocates nothing here.
             size_tokens: HashMap::new(),
+            // Empty until a screen animates something, for the same reason.
+            animated: HashMap::new(),
+            next_animation_id: 1,
         }
     }
 
@@ -206,22 +215,29 @@ impl NodeWriter {
     ) -> Option<Option<(u16, crate::Modifier)>> {
         use crate::Modifier;
 
-        // Slot assignments. Append only: an existing slot never changes meaning, because a
-        // node keeps whatever a slot held until something overwrites it.
+        // Slot assignments. A slot keeps its meaning for as long as a Host runs, because a
+        // node keeps whatever a slot held until something overwrites it; the Renderer starts
+        // with every slot empty, so the numbers only have to agree within one run.
+        //
+        // The transform and the opacity sit outside the shape, the fill and the outline, so
+        // all of them turn and fade with the node, and inside the size, so the node turns
+        // about itself where it was laid out.
         const WEIGHT: u16 = 0;
         const FILL_MAX_WIDTH: u16 = 1;
         const FILL_MAX_HEIGHT: u16 = 2;
         const WIDTH: u16 = 3;
         const HEIGHT: u16 = 4;
-        const SHAPE: u16 = 5;
-        const BACKGROUND: u16 = 6;
-        const BORDER: u16 = 7;
-        const ELEVATION: u16 = 8;
-        const CLICKABLE: u16 = 9;
-        const PADDING: u16 = 10;
-        const OBSERVE_SIZE: u16 = 11;
-        const MOTION: u16 = 12;
-        const MATERIAL: u16 = 13;
+        const TRANSFORM: u16 = 5;
+        const ALPHA: u16 = 6;
+        const SHAPE: u16 = 7;
+        const BACKGROUND: u16 = 8;
+        const BORDER: u16 = 9;
+        const ELEVATION: u16 = 10;
+        const CLICKABLE: u16 = 11;
+        const PADDING: u16 = 12;
+        const OBSERVE_SIZE: u16 = 13;
+        const MOTION: u16 = 14;
+        const MATERIAL: u16 = 15;
 
         let float = |value: &AttrValue<'_>| match value {
             AttrValue::Float(number) => Some(*number as f32),
@@ -241,7 +257,9 @@ impl NodeWriter {
             "width" => Some(WIDTH),
             "height" => Some(HEIGHT),
             "shape_role" | "corner_radius" => Some(SHAPE),
-            "background" => Some(BACKGROUND),
+            "background" | "animated_background" => Some(BACKGROUND),
+            "transform" | "animated_offset" => Some(TRANSFORM),
+            "alpha" | "animated_alpha" => Some(ALPHA),
             "border_width" | "border_color" => Some(BORDER),
             "elevation" => Some(ELEVATION),
             "onclickable" => Some(CLICKABLE),
@@ -268,6 +286,16 @@ impl NodeWriter {
                 return Some(None);
             }
             owners[slot as usize] = "";
+            // An animated value taken away starts again from wherever it is next set.
+            let bit = match name {
+                "animated_alpha" => 1,
+                "animated_background" => 2,
+                "animated_offset" => 4,
+                _ => 0,
+            };
+            if let Some(seen) = self.animated.get_mut(&node_id) {
+                *seen &= !bit;
+            }
             return Some(Some((slot, crate::Modifier::Empty)));
         }
         self.modifier_slots
@@ -365,6 +393,101 @@ impl NodeWriter {
                 };
                 Some(Some((BORDER, Modifier::Border { width, paint })))
             }
+            "alpha" => Some(Some((ALPHA, Modifier::Alpha(float(value)?)))),
+            // CSS `matrix(a, b, c, d, e, f)` and the origin it turns about, eight floats.
+            "transform" => {
+                let AttrValue::Bytes(bytes) = value else {
+                    return Some(None);
+                };
+                let mut words = [0.0_f32; 8];
+                for (index, word) in words.iter_mut().enumerate() {
+                    *word = f32::from_le_bytes(bytes.get(4 * index..4 * index + 4)?.try_into().ok()?);
+                }
+                let [a, b, c, d, e, f, origin_x, origin_y] = words;
+                Some(Some((
+                    TRANSFORM,
+                    Modifier::Transform {
+                        a,
+                        b,
+                        c,
+                        d,
+                        e,
+                        f,
+                        origin_x,
+                        origin_y,
+                    },
+                )))
+            }
+            // A value that is animated to. The node's underlying value becomes the target at
+            // once, and from the second value on a transition from whatever is on screen to
+            // it goes out in the same batch, for the Renderer to play on its own clock.
+            "animated_alpha" | "animated_background" | "animated_offset" => {
+                use crate::schema::{AnimatedProperty, KeyframeValue, TransformFunction};
+                let AttrValue::Bytes(bytes) = value else {
+                    return Some(None);
+                };
+                let (target, spec) = crate::animation::read_animated(bytes)?;
+                let (slot, base, property, to, bit) = match (name, target.as_slice()) {
+                    ("animated_alpha", [alpha]) => {
+                        let alpha = f32::from_bits(*alpha);
+                        (
+                            ALPHA,
+                            Modifier::Alpha(alpha),
+                            AnimatedProperty::Alpha,
+                            KeyframeValue::Alpha(alpha),
+                            1_u8,
+                        )
+                    }
+                    ("animated_background", [low, high]) => {
+                        let paint =
+                            crate::Paint::from_bits(u64::from(*low) | (u64::from(*high) << 32))?;
+                        (
+                            BACKGROUND,
+                            Modifier::Background(paint),
+                            AnimatedProperty::Background,
+                            KeyframeValue::Paint(paint),
+                            2,
+                        )
+                    }
+                    ("animated_offset", [x, y]) => {
+                        let (x, y) = (f32::from_bits(*x), f32::from_bits(*y));
+                        (
+                            TRANSFORM,
+                            Modifier::Transform {
+                                a: 1.0,
+                                b: 0.0,
+                                c: 0.0,
+                                d: 1.0,
+                                e: x,
+                                f: y,
+                                origin_x: 0.5,
+                                origin_y: 0.5,
+                            },
+                            AnimatedProperty::Transform,
+                            KeyframeValue::Transform(std::borrow::Cow::Owned(vec![
+                                TransformFunction::translate(x, y),
+                            ])),
+                            4,
+                        )
+                    }
+                    _ => return None,
+                };
+                let seen = self.animated.entry(node_id).or_insert(0);
+                let first = *seen & bit == 0;
+                *seen |= bit;
+                if !first {
+                    let animation_id = self.next_animation_id;
+                    self.next_animation_id = self.next_animation_id.wrapping_add(1).max(1);
+                    self.write(Mutation::StartAnimation(crate::animation::transition(
+                        node_id,
+                        animation_id,
+                        property,
+                        to,
+                        spec,
+                    )));
+                }
+                Some(Some((slot, base)))
+            }
             // No composable writes a clickable modifier; a clickable widget is a Button.
             "onclickable" => Some(None),
             _ => None,
@@ -447,6 +570,7 @@ impl NodeWriter {
     /// The caller has already taken the node out of its parent's list.
     fn forget(&mut self, node_id: u32) {
         self.parents.remove(&node_id);
+        self.animated.remove(&node_id);
         for child in self.children.remove(&node_id).unwrap_or_default() {
             self.forget(child);
         }
