@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.0.2
 
 ### compose-rust has an authoring API of its own
 

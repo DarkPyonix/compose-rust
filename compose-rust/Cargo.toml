@@ -55,7 +55,7 @@ native-renderer = []
 # crate and not the other way round. `scripts/tests/core-has-no-dioxus.test.sh` fails the
 # build if that changes.
 [dependencies]
-compose-rust-macros = { path = "macros", version = "0.0.1" }
+compose-rust-macros = { path = "macros", version = "0.0.2" }
 
 # The Android shims are generated against jni-rs. Nothing here is linked into a desktop,
 # iOS or web build, and the alternative bindings generators were rejected for their
