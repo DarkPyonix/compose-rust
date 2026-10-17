@@ -65,10 +65,6 @@ $BinDir = Join-Path $DistDir "bin"
 $LibDir = Join-Path $DistDir "lib"
 $ObjDir = Join-Path $BuildDir "obj-windows"
 $MetadataDir = Join-Path $ScriptsDir "windows-metadata"
-# The toolkit's own reachability registrations. Windows still opens the toolkit's window, so
-# it keeps them; the shared metadata on the classpath carries none, so that the other
-# platforms' images reach no java.awt class through it.
-$ToolkitMetadataDir = Join-Path $ScriptsDir "toolkit-metadata"
 $LibraryName = "libcompose_rust_renderer"
 $RendererSource = Join-Path $NativeDir "c\renderer_entry.c"
 $WindowSource = Join-Path $NativeDir "c\win32_window.c"
