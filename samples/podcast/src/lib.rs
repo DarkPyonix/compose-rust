@@ -376,8 +376,9 @@ fn new_page(followed: MutableState<Vec<usize>>, on_play: Handler<u32>, on_open: 
                                 move |position| {
                                     let found = EPISODES[position];
                                     let open = Rc::clone(&on_open);
-                                    Box().modifier(Modifier.padding_role(SpaceRole::Xs)).content(
-                                        || {
+                                    Box()
+                                        .modifier(Modifier.padding_role(SpaceRole::Xs))
+                                        .content(|| {
                                             // The inner box is measured, not wrapped. A
                                             // child that fills its parent inside a box
                                             // with no size of its own takes the whole
@@ -393,8 +394,7 @@ fn new_page(followed: MutableState<Vec<usize>>, on_play: Handler<u32>, on_open: 
                                                         .modifier(Modifier.fill_max_size())
                                                         .on_click(move || open(found.id));
                                                 });
-                                        },
-                                    );
+                                        });
                                 },
                             );
                         });
@@ -789,7 +789,11 @@ pub fn app() {
                 .alignment(Alignment::Center)
                 .content(|| {
                     Column()
-                        .modifier(Modifier.width_if(measure).fill_max_width_if(measure.is_none()))
+                        .modifier(
+                            Modifier
+                                .width_if(measure)
+                                .fill_max_width_if(measure.is_none()),
+                        )
                         .content(|| {
                             let go = destination.clone();
                             bottom_bar(current, Rc::new(move |choice| go.set(choice)));
@@ -804,11 +808,9 @@ pub fn app() {
                     ScrollColumn()
                         .modifier(Modifier.width_if(measure))
                         .content(|| match current {
-                            Destination::New => new_page(
-                                followed.clone(),
-                                Rc::clone(&on_play),
-                                Rc::clone(&on_play),
-                            ),
+                            Destination::New => {
+                                new_page(followed.clone(), Rc::clone(&on_play), Rc::clone(&on_play))
+                            }
                             Destination::Shows => shows_page(Rc::clone(&on_play)),
                             Destination::You => you_page(followed.with(Vec::len)),
                         });

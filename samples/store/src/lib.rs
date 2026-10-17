@@ -374,9 +374,9 @@ fn catalogue_screen(
                                 .content(|| {
                                     for product in row.iter().copied() {
                                         key(product.id, || {
-                                            Column().modifier(Modifier.weight(1.0)).content(
-                                                || grid_cell(product, Rc::clone(&on_open)),
-                                            );
+                                            Column().modifier(Modifier.weight(1.0)).content(|| {
+                                                grid_cell(product, Rc::clone(&on_open))
+                                            });
                                         });
                                     }
                                     // A shelf with an odd number of garments leaves a gap
@@ -663,11 +663,9 @@ fn bag_line(bag: MutableState<Vec<BagLine>>, index: usize, line: BagLine, last: 
                             .type_role(TypeRole::Caption)
                             .color(palette::MUTED);
                     });
-                Text(price(
-                    named.map_or(0, |found| found.cents) * line.quantity,
-                ))
-                .type_role(TypeRole::BodyStrong)
-                .color(palette::INK);
+                Text(price(named.map_or(0, |found| found.cents) * line.quantity))
+                    .type_role(TypeRole::BodyStrong)
+                    .color(palette::INK);
                 let lines = bag.clone();
                 Button("Remove")
                     .variant(ButtonVariant::Text)
@@ -680,8 +678,8 @@ fn bag_line(bag: MutableState<Vec<BagLine>>, index: usize, line: BagLine, last: 
                             }
                         });
                         let Some(removed) = removed else { return };
-                        let name =
-                            catalogue::product(removed.product).map_or("An item", |found| found.name);
+                        let name = catalogue::product(removed.product)
+                            .map_or("An item", |found| found.name);
                         let restore = lines.clone();
                         Message::new(format!("Removed {name}"))
                             .with_action("Undo", move |()| {

@@ -427,12 +427,9 @@ fn special_row(session: &'static Session, separated: bool) {
                             .type_role(TypeRole::Body)
                             .max_lines(1)
                             .overflow(TextOverflow::Ellipsis);
-                        Text(format!(
-                            "{} min \u{00b7} {}",
-                            session.minutes, session.when
-                        ))
-                        .type_role(TypeRole::Caption)
-                        .color(Paint::Role(ColorRole::OnSurfaceVariant));
+                        Text(format!("{} min \u{00b7} {}", session.minutes, session.when))
+                            .type_role(TypeRole::Caption)
+                            .color(Paint::Role(ColorRole::OnSurfaceVariant));
                     });
                 Button("\u{25b6}")
                     .variant(ButtonVariant::Tonal)
@@ -564,7 +561,8 @@ fn profile_page(chosen: Mood) {
                 .modifier(Modifier.fill_max_width().shape_role(ShapeRole::Large))
                 .content(|| {
                     Column().modifier(Modifier.fill_max_width()).content(|| {
-                        for (index, entry) in ["Settings", "Language", "FAQ"].into_iter().enumerate()
+                        for (index, entry) in
+                            ["Settings", "Language", "FAQ"].into_iter().enumerate()
                         {
                             key(entry, || settings_row(entry, index < 2));
                         }
