@@ -15,7 +15,9 @@
 # The probe also puts a plain AppKit view at the same distance from the top
 # (control_top_pt), drawn by nobody but AppKit. Its spread is printed beside the content's
 # for comparison and is not bounded: it says what the window server does to any content
-# during the same drag.
+# during the same drag. The native image's probe then drags a plain AppKit window of the
+# same size and place, with only that view in it ("plain-sample" lines), and its spread is
+# printed too: what the window server does to a window that nothing but AppKit draws.
 #
 # Usage: vertical-resize-check.sh <log> [tolerance in points]
 set -euo pipefail
@@ -33,6 +35,15 @@ awk -v tolerance="$tolerance" '
     }
     /vresize step / { steps++ }
     /vresize drawn / { drawn++ }
+    /vresize plain-sample / {
+        c = field("control_top_pt")
+        if (c != "" && c + 0 >= 0) {
+            plains++
+            pcount[sprintf("%.2f", c + 0)]++
+            ps[plains] = c + 0
+        }
+        next
+    }
     /vresize sample / {
         if (field("error") != "") { errors++; next }
         n++
@@ -80,6 +91,12 @@ awk -v tolerance="$tolerance" '
             coff = 0
             for (i = 1; i <= controls; i++) { d = cs[i] - cbest; if (d < 0) d = -d; if (d > tolerance) coff++ }
             printf "info AppKit control control_top_pt: usual %.2f, min %.2f, max %.2f, spread %.2f pt; %d of %d images off by more than %.2f pt\n", cbest, cmin, cmax, cmax - cmin, coff, controls, tolerance
+        }
+        if (plains > 0) {
+            pbest = ""; for (k in pcount) if (pbest == "" || pcount[k] > pcount[pbest]) pbest = k
+            poff = 0; pmin = ps[1]; pmax = ps[1]
+            for (i = 1; i <= plains; i++) { if (ps[i] < pmin) pmin = ps[i]; if (ps[i] > pmax) pmax = ps[i]; d = ps[i] - pbest; if (d < 0) d = -d; if (d > tolerance) poff++ }
+            printf "info plain AppKit window, same drag: control_top_pt usual %.2f, min %.2f, max %.2f, spread %.2f pt; %d of %d images off by more than %.2f pt\n", pbest, pmin, pmax, pmax - pmin, poff, plains, tolerance
         }
         if (missing > 0) { printf "FAIL %d images had no content where it was drawn\n", missing; failed = 1 }
         for (i = 1; i <= nbad; i++) print "  " bad[i]
