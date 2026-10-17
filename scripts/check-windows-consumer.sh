@@ -214,6 +214,19 @@ export DXC_D3D12_WARP="${DXC_D3D12_WARP:-1}"
 run_alone "$scratch/alone" "$binary"
 run_alone "$scratch/alone" "$binary" --self-check
 
+echo "== 3b. Korean: found in a system font, shaped, wrapped and drawn"
+# Which Korean fonts this machine has, so a failure below can be told apart from a machine
+# without one. Windows ships Malgun Gothic; the renderer finds it through DirectWrite's
+# fallback, the same way Compose's default font family does.
+ls -la /c/Windows/Fonts/malgun* 2>&1 || echo "-- no Malgun Gothic in C:/Windows/Fonts"
+text_log="$scratch/text-self-check.log"
+status=0
+( cd "$scratch/alone" && COMPOSE_RUST_TEXT_SELF_CHECK=1 ./consumer.exe --self-check ) 2> "$text_log" || status=$?
+grep 'text self-check' -A6 "$text_log" || true
+if [[ "$status" -ne 0 ]] || ! grep -q '^compose-rust text self-check: ok' "$text_log"; then
+    failed+=("the Korean text self-check (status $status; see the lines above)")
+fi
+
 echo "== 4. beside a C++ library built for the runtime DLL (/MD)"
 mixed_lib="$scratch/mixed-runtime-lib"
 mkdir -p "$mixed_lib"

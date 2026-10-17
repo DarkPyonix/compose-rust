@@ -18,6 +18,10 @@ import dev.darkpyonix.composerust.runtime.HostConnection
  * Returns when the window closes.
  */
 internal fun runRenderer(connection: () -> HostConnection): Int {
+    // Asked for by a build that proves the executable finds, shapes, wraps and draws Korean
+    // with no ICU data file beside it. A failure stops here, before a window, so the build
+    // sees it.
+    if (runTextSelfCheckIfAsked() == false) return RendererApi.RUN_FAILED
     // Toasts, before the Host starts: its first batch may already post one. A press on the
     // body of one brings this application's window forward, which the C side does itself
     // because it is the side that knows the window.

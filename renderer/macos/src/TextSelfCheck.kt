@@ -1,5 +1,8 @@
 package dev.darkpyonix.composerust.ui.platform
 
+import org.jetbrains.skia.Bitmap
+import org.jetbrains.skia.Canvas
+import org.jetbrains.skia.Color
 import org.jetbrains.skia.FontMgr
 import org.jetbrains.skia.paragraph.FontCollection
 import org.jetbrains.skia.paragraph.Paragraph
@@ -24,7 +27,10 @@ import org.jetbrains.skia.paragraph.TextStyle
  *    is what draws as a box);
  * 2. the word around a syllable of a Korean word is that whole word;
  * 3. wrapped to a narrow width, lines break only between words or between Hangul syllables,
- *    and a Latin word that fits on a line is never split.
+ *    and a Latin word that fits on a line is never split;
+ * 4. two Hangul syllables drawn into a bitmap each ink pixels, and not the same picture: a
+ *    character with no glyph draws as the same box whatever it is, so two different
+ *    syllables that come out identical are boxes even where the first check saw a font.
  *
  * Returns null when the check was not asked for, true when it passed and false when it
  * failed, and says which on standard error either way.
@@ -86,11 +92,23 @@ internal fun runTextSelfCheckIfAsked(): Boolean? {
         failures += "\"$LATIN_WORD\" fits on a line and was split across lines"
     }
 
+    // 4. Ink. Drawn the way a frame draws text, onto white, and read back.
+    val firstInk = inkOf(INK_SAMPLE[0].toString(), fonts)
+    val secondInk = inkOf(INK_SAMPLE[1].toString(), fonts)
+    val firstCount = firstInk.count { it }
+    val secondCount = secondInk.count { it }
+    if (firstCount < MIN_INK || secondCount < MIN_INK) {
+        failures += "'${INK_SAMPLE[0]}' inks $firstCount and '${INK_SAMPLE[1]}' $secondCount dark pixels, " +
+            "fewer than $MIN_INK; Hangul is not being drawn"
+    } else if (firstInk.contentEquals(secondInk)) {
+        failures += "'${INK_SAMPLE[0]}' and '${INK_SAMPLE[1]}' draw the same picture, which is a missing-glyph box"
+    }
+
     val breaks = lines.dropLast(1).map { it.endIndex }
     return if (failures.isEmpty()) {
         java.lang.System.err.println(
             "compose-rust text self-check: ok (no unresolved glyphs, word \"$found\", " +
-                "${lines.size} lines breaking at $breaks)",
+                "${lines.size} lines breaking at $breaks, ink $INK_SAMPLE $firstCount/$secondCount px)",
         )
         true
     } else {
@@ -98,6 +116,29 @@ internal fun runTextSelfCheckIfAsked(): Boolean? {
         failures.forEach { java.lang.System.err.println("  $it") }
         false
     }
+}
+
+/**
+ * Which pixels of a [INK_SIZE] square came out dark when [text] was laid out through [fonts] in
+ * black at 32 points and drawn onto white.
+ */
+private fun inkOf(text: String, fonts: FontCollection): BooleanArray {
+    val bitmap = Bitmap()
+    bitmap.allocN32Pixels(INK_SIZE, INK_SIZE)
+    val canvas = Canvas(bitmap)
+    canvas.clear(Color.WHITE)
+    val style = ParagraphStyle()
+    style.textStyle = TextStyle().setFontSize(32f).setColor(Color.BLACK)
+    ParagraphBuilder(style, fonts).addText(text).build().layout(INK_SIZE.toFloat()).paint(canvas, 4f, 4f)
+    val dark = BooleanArray(INK_SIZE * INK_SIZE)
+    for (y in 0 until INK_SIZE) {
+        for (x in 0 until INK_SIZE) {
+            dark[y * INK_SIZE + x] = Color.getG(bitmap.getColor(x, y)) < 128
+        }
+    }
+    canvas.close()
+    bitmap.close()
+    return dark
 }
 
 private fun isHangul(c: Char): Boolean = c in '가'..'힣' || c in 'ᄀ'..'ᇿ' || c in '㄰'..'㆏'
@@ -112,6 +153,14 @@ private const val KOREAN_WORD = "반갑습니다"
 
 /** A Latin word long enough that a broken line breaker would split it. */
 private const val LATIN_WORD = "internationalization"
+
+/** Two different Hangul syllables, U+D55C and U+AE00. */
+private const val INK_SAMPLE = "한글"
+
+private const val INK_SIZE = 48
+
+/** Fewer dark pixels than this in a 32 point syllable is not a drawn syllable. */
+private const val MIN_INK = 30
 
 private const val SAMPLE =
     "안녕하세요 반갑습니다. 한국어 문장의 줄바꿈과 단어 경계를 internationalization 단어와 함께 확인합니다."

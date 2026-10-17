@@ -149,10 +149,20 @@ internal object PixelCompare {
         canvas.clear(Color.WHITE)
         val typeface = FontMgr.default.matchFamilyStyle("Segoe UI", FontStyle.NORMAL)
             ?: FontMgr.default.legacyMakeTypeface("", FontStyle.NORMAL)
+        // drawString draws with the one typeface it is given and falls back to nothing, and
+        // Segoe UI has no Hangul, so the Korean is drawn with the typeface the system picks for
+        // it (Malgun Gothic on Windows, through DirectWrite's fallback). One typeface for the
+        // whole string drew U+D55C and U+AE00 as two missing-glyph boxes.
+        val korean = FontMgr.default.matchFamilyStyleCharacter(null, FontStyle.NORMAL, arrayOf("ko-KR"), 0xD55C)
+            ?: typeface
         val text = Paint().apply { color = Color.BLACK; isAntiAlias = true }
         for ((row, size) in listOf(12f, 16f, 24f).withIndex()) {
             val font = Font(typeface, size).apply { edging = FontEdging.SUBPIXEL_ANTI_ALIAS; isSubpixel = true }
-            canvas.drawString("Hamburgefonstiv 0123 한글", 8.5f, 20f + row * 24f, font, text)
+            val koreanFont = Font(korean, size).apply { edging = FontEdging.SUBPIXEL_ANTI_ALIAS; isSubpixel = true }
+            val latin = "Hamburgefonstiv 0123 "
+            val y = 20f + row * 24f
+            canvas.drawString(latin, 8.5f, y, font, text)
+            canvas.drawString("\uD55C\uAE00", 8.5f + font.measureTextWidth(latin), y, koreanFont, text)
         }
         val gradient = Paint().apply {
             shader = Shader.makeLinearGradient(Point(0f, 0f), Point(480f, 0f), intArrayOf(Color.RED, Color.BLUE))
