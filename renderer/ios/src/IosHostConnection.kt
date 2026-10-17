@@ -164,7 +164,7 @@ private object HostSymbols {
     // executable and the static archive refers to it by name (see LinkedHostFunctions.kt).
     // The lookup is the answer everywhere else, and the fallback where no Host was linked.
     private fun <T : CFunction<*>> lookup(name: String): CPointer<T> =
-        (linkedHostFunction(name) ?: dlsym(image, name))?.reinterpret()
+        (linkedHostFunction(name) ?: hostSymbol(name))?.reinterpret()
             ?: throw HostCallException(
                 "$name is not in this image. The renderer reaches the Host's functions " +
                     "by name, so the Host executable has to define all five of " +
