@@ -329,9 +329,7 @@ macro_rules! define_wire_enum {
         }
 
         impl $name {
-            // `()` for the same reason `TryFrom` above uses it: an unknown name has nothing
-            // to say beyond being unknown, and every caller turns it into its own error.
-            #[allow(dead_code, clippy::result_unit_err)]
+            #[allow(dead_code)]
             #[doc(hidden)]
             #[allow(clippy::result_unit_err)]
             pub fn from_name(value: &str) -> Result<Self, ()> {
