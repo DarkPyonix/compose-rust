@@ -31,6 +31,8 @@ import platform.AppKit.NSApplication
 import platform.AppKit.NSApplicationActivationPolicy
 import platform.AppKit.NSApplicationWillTerminateNotification
 import platform.AppKit.NSWindow
+import platform.AppKit.NSWorkspace
+import platform.AppKit.accessibilityDisplayShouldReduceMotion
 import platform.Foundation.NSNotificationCenter
 import platform.Foundation.NSOperationQueue
 import dev.darkpyonix.composerust.protocol.Chrome
@@ -76,7 +78,9 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // The accessibility setting a page's `prefers-reduced-motion` answers to, asked at start
     // and whenever the window comes back into use.
     dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting = {
-        if (platform.AppKit.NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) {
+        // A property of an AppKit category, so Kotlin/Native binds it as an extension that
+        // has to be imported by name.
+        if (NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) {
             dev.darkpyonix.composerust.protocol.ReducedMotion.On
         } else {
             dev.darkpyonix.composerust.protocol.ReducedMotion.Off
