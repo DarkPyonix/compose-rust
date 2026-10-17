@@ -60,10 +60,9 @@
     <div class="note">
       <span class="label">지금 있는 것</span>
       <p>
-        아래 위젯 전부의 스키마와 렌더러 쪽 구현은 0.0.1에 있습니다
-        <span class="pill works">구현</span>. 그것을 쓰려고 부르는 Rust 함수,
-        <code>Column()</code> 이나 <code>Text("...")</code> 같은 것은 <code>develop</code> 에 있고
-        1.0.0과 함께 릴리스됩니다. 이 함수들은 자기 위젯을 더하지 않으므로, 이 페이지가 곧 쓰는
+        아래 위젯은 모두 0.0.2에 있습니다. 스키마, 렌더러 쪽 구현, 그리고 그것을 쓰려고 부르는
+        <code>Column()</code> 이나 <code>Text("...")</code> 같은 Rust 함수가 함께 있습니다
+        <span class="pill works">구현</span>. 이 함수들은 자기 위젯을 더하지 않으므로, 이 페이지가 곧 쓰는
         목록입니다. 위젯마다의 호출은 <a href="#calls">위젯마다 쓰는 법</a>에 있습니다.
       </p>
     </div>
@@ -106,7 +105,7 @@
           <tr><td rowspan="2">탐색</td><td><code>Navigation</code>, <code>NavigationItem</code></td><td>목적지 묶음. 렌더러가 잰 너비에 따라 바, 레일, 서랍으로 그립니다.</td></tr>
           <tr><td><code>Tabs</code></td><td>페이지 위쪽의 탭.</td></tr>
           <tr><td rowspan="2">오버레이</td><td><code>Dialog</code>, <code>Menu</code>, <code>Sheet</code></td><td>페이지 위에 뜨는 내용. 시트가 들어오는 가장자리와 열리고 닫히는 동작은 렌더러가 정합니다.</td></tr>
-          <tr><td>메시지</td><td>잠깐 뜨는 메시지는 트리에 속하지 않습니다. <code>show_message</code> 와 <code>Message</code> 가 보내며, 0.0.1에 있습니다.</td></tr>
+          <tr><td>메시지</td><td>잠깐 뜨는 메시지는 트리에 속하지 않습니다. <code>show_message</code> 와 <code>Message</code> 가 보내며, 0.0.2에 있습니다.</td></tr>
           <tr><td rowspan="2">그림</td><td><code>Image</code>, <code>Icon</code></td><td>등록한 에셋의 이미지, 역할로 고르는 아이콘.</td></tr>
           <tr><td><code>Canvas</code></td><td><code>DrawList</code> 값으로 그리는 커스텀 드로잉. 같은 목록 둘은 아무것도 보내지 않습니다.</td></tr>
         </tbody>
@@ -175,7 +174,9 @@
       <code>fill_max_size</code>, <code>padding</code>, <code>padding_role</code>,
       <code>background</code>, <code>shape_role</code>, <code>corner_radius</code>,
       <code>border</code>, <code>elevation</code>, <code>material</code>, <code>motion</code>,
-      <code>observe_size</code> 입니다. 이름이 <code>_if</code> 로 끝나는 것은 창에 따라 달라지는
+      <code>observe_size</code>, <code>alpha</code>, <code>graphics_layer</code>, 그리고 렌더러가
+      애니메이션할 목표값을 받는 <code>animated_alpha</code>, <code>animated_background</code>,
+      <code>animated_offset</code> 입니다(<a href="writing-ui.html#animation">애니메이션</a> 참고). 이름이 <code>_if</code> 로 끝나는 것은 창에 따라 달라지는
       Modifier를 위해 <code>Option</code> 이나 <code>bool</code> 을 받습니다. 종류마다 사슬 안의
       자리가 정해져 있으므로 부르는 순서는 상관없습니다.
     </p>
@@ -196,6 +197,8 @@
           <tr><td><code>Elevation</code></td><td>dp</td><td>떠 있는 높이. 디자인 시스템마다 자기 방식으로 그립니다.</td></tr>
           <tr><td><code>Material</code></td><td><code>MaterialRole</code></td><td>유리처럼 표면이 무엇으로 만들어졌는지. 디자인 시스템이 풉니다.</td></tr>
           <tr><td><code>Motion</code></td><td><code>MotionRole</code></td><td>이 위젯 자신의 전환에 쓰는 디자인 시스템의 타이밍.</td></tr>
+          <tr><td><code>Alpha</code></td><td><code>f32</code></td><td>위젯과 그 안의 모든 것을 한 묶음으로 흐리게 하는 투명도. <code>alpha</code> 와 <code>graphics_layer</code> 가 씁니다.</td></tr>
+          <tr><td><code>Transform</code></td><td>2D 행렬과 기준점</td><td>레이아웃을 움직이지 않고 그리는 회전, 크기, 이동. <code>graphics_layer</code> 가 씁니다. 포인터는 그려진 모양으로 판정합니다.</td></tr>
           <tr><td><code>Clickable</code></td><td>핸들러 id</td><td>어느 위젯이든 클릭을 알리게 합니다.</td></tr>
           <tr><td><code>ObserveSize</code></td><td>토큰</td><td>이 노드의 잰 크기를 앱이 고른 토큰으로 알려 달라고 렌더러에 요청합니다. <code>node_size</code> 로 읽습니다.</td></tr>
         </tbody>
@@ -213,7 +216,7 @@
       위젯은 리터럴이 아니라 <em>역할</em>을 내보냅니다. 역할은 일의 이름("강조색", "제목 단",
       "중간 모서리")이고, 렌더러가 활성 디자인 시스템에 맞춰 풉니다. 그래서 같은 트리가 어떤 기계에서는
       Material 3로, 다른 기계에서는 Liquid Glass로 나옵니다. 시스템을 고르는 방법은
-      <a href="design-systems.html">디자인 시스템</a>에 있습니다. 아래 타입은 모두 0.0.1에 있습니다.
+      <a href="design-systems.html">디자인 시스템</a>에 있습니다. 아래 타입은 모두 0.0.2에 있습니다.
     </p>
 
     <h3 id="paint">Paint와 Color</h3>
@@ -223,7 +226,7 @@
     </p>
 
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
-      <figcaption>rust, 0.0.1에서 컴파일됨</figcaption>
+      <figcaption>rust, 0.0.2에서 컴파일됨</figcaption>
 <pre><code><span class="k">use</span> compose_rust::{<span class="ty">Color</span>, <span class="ty">ColorRole</span>, <span class="ty">Paint</span>};
 
 <span class="k">let</span> accent = <span class="ty">Paint</span>::<span class="ty">Role</span>(<span class="ty">ColorRole</span>::Primary);          <span class="c">// resolved by the design system</span>
