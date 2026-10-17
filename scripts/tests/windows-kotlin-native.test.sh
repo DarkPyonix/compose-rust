@@ -172,7 +172,7 @@ grep -q 'DXC_D3D12_WARP' "$consumer_check" ||
     fail "check-windows-consumer.sh does not ask for the software adapter, so on a runner the window never opens"
 grep -q 'dumpbin' "$consumer_check" ||
     fail "check-windows-consumer.sh does not read which DLLs the executable needs"
-grep -q 'windows-static.yml' "$repo_root/.github/workflows/native-renderer.yml" ||
+grep -q 'windows-static.yml' "$repo_root/.github/workflows/test-native-renderer.yml" ||
     fail "the native renderer workflow does not run the Windows static renderer job"
 
 if (( red == 0 )); then
