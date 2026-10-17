@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.0.2
 
 ### The GraalVM X11 window reads like the Kotlin/Native one
 
