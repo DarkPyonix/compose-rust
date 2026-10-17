@@ -36,6 +36,7 @@
 #include <timeapi.h>
 #include <psapi.h>
 #include <pdh.h>
+#include <pdhmsg.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
