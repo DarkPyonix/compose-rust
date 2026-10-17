@@ -64,6 +64,15 @@ import org.thisisthepy.compose.window.linux.PosixBusConnection as AccessibilityB
 internal class LinuxWindow private constructor(
     private val x11: X11Window,
     private val title: String,
+    /**
+     * Where the scene's own work runs: here, on the thread that draws, once a frame.
+     *
+     * Kept rather than left to the scene. A scene left to choose hands its work to a dispatcher
+     * of the library's choosing, and the Host this renderer talks to is on this thread and
+     * invisible from every other. The renderer passes the one it installed as
+     * `Dispatchers.Main`, so the application's main-thread work runs here too, in the same queue.
+     */
+    private val work: FrameDispatcher,
 ) : WindowListener {
 
     private val reportFrames = System.getenv("DXC_REPORT_FRAMES") != null
@@ -140,15 +149,6 @@ internal class LinuxWindow private constructor(
 
     /** The field that asked to be typed into, kept to ask where its caret is. */
     private var inputRequest: PlatformTextInputMethodRequest? = null
-
-    /**
-     * Where the scene's own work runs: here, on the thread that draws, once a frame.
-     *
-     * Kept rather than left to the scene. A scene left to choose hands its work to a dispatcher
-     * of the library's choosing, and the Host this renderer talks to is on this thread and
-     * invisible from every other.
-     */
-    private val work = FrameDispatcher()
 
     private val windowInfo = object : WindowInfo {
         override val isWindowFocused: Boolean get() = focused
@@ -292,10 +292,12 @@ internal class LinuxWindow private constructor(
                 // a press it asks for happens where every other press does.
                 accessibility?.pump()
                 // Before the events and before the drawing. What is waiting here is the scene's
-                // own work, and a list that asked for rows on the last frame wants them in hand
-                // before this one is measured.
+                // own work and whatever was sent to `Dispatchers.Main`, and a list that asked for
+                // rows on the last frame wants them in hand before this one is measured. Work sent
+                // from another thread asks for a frame, because what it changed is news to this one.
+                val woken = work.takeWake()
                 work.runPending()
-                val turnHeard = heard.isNotEmpty()
+                val turnHeard = heard.isNotEmpty() || woken
                 for (event in heard) {
                     if (reportInput && event.kind != WindowEvent.POINTER_MOVE) {
                         System.err.println("compose-rust: window heard $event")
@@ -391,8 +393,11 @@ internal class LinuxWindow private constructor(
          * Opens the window as [config] describes it. Whether it may be resized and the smallest
          * size it may be dragged to go to the window manager as size hints, which the platform
          * layer works out from the config, so they are settled before the window is mapped.
+         *
+         * [work] is where the scene's work runs. It must have been made on this thread, which is
+         * the one the window is run on.
          */
-        fun open(config: WindowConfig): LinuxWindow? {
+        fun open(config: WindowConfig, work: FrameDispatcher = FrameDispatcher()): LinuxWindow? {
             val x11 = X11Window()
             // The listener is the window being made, and the window cannot exist before the
             // platform does, so it is handed over once both are there.
@@ -400,7 +405,7 @@ internal class LinuxWindow private constructor(
             if (!x11.open(config, handoff)) {
                 return null
             }
-            val window = LinuxWindow(x11, config.title)
+            val window = LinuxWindow(x11, config.title, work)
             handoff.target = window
             return window
         }

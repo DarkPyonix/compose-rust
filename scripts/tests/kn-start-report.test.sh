@@ -75,7 +75,10 @@ macos_window="${nslog}compose-rust: a window of our own, 1040x720 at 2.0x, with 
 macos_scene="${nslog}compose-rust: Compose scene created, main dispatcher kotlinx.coroutines.DarwinMainDispatcher (compose.main.dispatcher=unset), window 1040x720 at 2.0x"
 macos_frame="${nslog}compose-rust: first frame drawn, 1040x720"
 linux_window='compose-rust: a window of our own, 520x360 at 1.0x, with no toolkit in it'
-linux_scene='compose-rust: Compose scene created, main dispatcher kotlinx.coroutines.MissingMainDispatcher (compose.main.dispatcher=unset), window 520x360 at 1.0x'
+linux_scene='compose-rust: Compose scene created, main dispatcher dev.darkpyonix.composerust.ui.platform.FrameDispatcher (compose.main.dispatcher=unset), window 520x360 at 1.0x'
+# What the Linux renderer printed before it installed a main dispatcher of its own: the stand-in
+# kotlinx.coroutines answers with where a platform has none, which throws at the first dispatch.
+linux_missing_scene='compose-rust: Compose scene created, main dispatcher kotlinx.coroutines.MissingMainDispatcher (compose.main.dispatcher=unset), window 520x360 at 1.0x'
 linux_frame='compose-rust: first frame drawn, 520x360'
 drew='self-check: the renderer drew 2 frames'
 
@@ -95,7 +98,10 @@ expect nfr14_kn_smoke_fails_when_no_frame_was_drawn fail linux 0 \
     "$linux_window"$'\n'"$linux_scene"$'\n'"$drew" "first frame drawn"
 # Each platform names its own main dispatcher, and a scene on the other one is not this one.
 expect nfr14_kn_smoke_fails_a_scene_on_another_main_dispatcher fail linux 0 \
-    "$linux_window"$'\n'"${macos_scene#"$nslog"}"$'\n'"$linux_frame"$'\n'"$drew" "MissingMainDispatcher"
+    "$linux_window"$'\n'"${macos_scene#"$nslog"}"$'\n'"$linux_frame"$'\n'"$drew" "FrameDispatcher"
+# A Linux run whose Dispatchers.Main is still the stand-in fails: work sent there throws.
+expect nfr14_kn_linux_smoke_fails_a_scene_on_the_missing_main_dispatcher fail linux 0 \
+    "$linux_window"$'\n'"$linux_missing_scene"$'\n'"$linux_frame"$'\n'"$drew" "FrameDispatcher"
 expect nfr14_kn_smoke_fails_a_nonzero_exit fail macos 1 \
     "$macos_window"$'\n'"$macos_scene"$'\n'"$macos_frame" "exited with status 1"
 expect nfr14_kn_smoke_refuses_an_unknown_platform fail windows 0 \
