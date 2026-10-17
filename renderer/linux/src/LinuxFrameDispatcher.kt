@@ -1,21 +1,12 @@
-@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class, kotlin.experimental.ExperimentalNativeApi::class)
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class, kotlin.concurrent.atomics.ExperimentalAtomicApi::class)
 
 package dev.darkpyonix.composerust.ui.platform
 
+import kotlin.concurrent.atomics.AtomicInt
 import kotlin.coroutines.CoroutineContext
-import kotlin.native.ref.createCleaner
-import kotlinx.cinterop.alloc
-import kotlinx.cinterop.free
-import kotlinx.cinterop.nativeHeap
-import kotlinx.cinterop.ptr
 import kotlinx.coroutines.MainCoroutineDispatcher
 import kotlinx.coroutines.Runnable
 import platform.posix.pthread_equal
-import platform.posix.pthread_mutex_destroy
-import platform.posix.pthread_mutex_init
-import platform.posix.pthread_mutex_lock
-import platform.posix.pthread_mutex_t
-import platform.posix.pthread_mutex_unlock
 import platform.posix.pthread_self
 
 /**
@@ -43,7 +34,9 @@ import platform.posix.pthread_self
  * sent from anywhere runs on the next turn.
  *
  * Written again rather than shared because the desktop one holds its work in a
- * `java.util.concurrent` queue, which Kotlin/Native has not got.
+ * `java.util.concurrent` queue, which Kotlin/Native has not got. The Kotlin/Native Windows
+ * renderer links this same file, so the lock is a Kotlin atomic rather than a
+ * `pthread_mutex_t`, which MinGW's headers declare as a plain integer and Linux's as a struct.
  *
  * The thread that makes it is the window's thread: [runPending] must be called there, and
  * [immediate] runs work in place there.
@@ -51,13 +44,11 @@ import platform.posix.pthread_self
 internal class FrameDispatcher : MainCoroutineDispatcher() {
     private val owner = pthread_self()
 
-    private val lock = nativeHeap.alloc<pthread_mutex_t>().also { pthread_mutex_init(it.ptr, null) }
-
-    @Suppress("unused")
-    private val freeLock = createCleaner(lock) {
-        pthread_mutex_destroy(it.ptr)
-        nativeHeap.free(it)
-    }
+    /**
+     * 1 while a thread is inside [locked]. A spin lock is enough: it is only ever held across one
+     * operation on a short queue, never across running the work.
+     */
+    private val lock = AtomicInt(0)
 
     /** What has been sent and not yet run. Read and written only under [lock]. */
     private val waiting = ArrayDeque<Runnable>()
@@ -119,11 +110,13 @@ internal class FrameDispatcher : MainCoroutineDispatcher() {
     override fun toString(): String = "FrameDispatcher"
 
     private inline fun <T> locked(block: () -> T): T {
-        pthread_mutex_lock(lock.ptr)
+        while (!lock.compareAndSet(0, 1)) {
+            // Held for one queue operation; the holder is about to let go.
+        }
         try {
             return block()
         } finally {
-            pthread_mutex_unlock(lock.ptr)
+            lock.store(0)
         }
     }
 
