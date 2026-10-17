@@ -3,6 +3,7 @@
 package dev.darkpyonix.composerust.ui.platform
 
 import java.lang.System
+import org.thisisthepy.compose.window.AccessibleElement
 import org.thisisthepy.compose.window.WindowEvent
 import org.thisisthepy.compose.window.macos.MacosWindow
 import platform.AppKit.NSApplication
@@ -22,7 +23,13 @@ import platform.Foundation.NSTimer
 internal fun startParityRun(window: MacosWindow) {
     val what = System.getenv("DXC_SYNTH") ?: return
     val input = SyntheticInput(what)
-    window.onElements = { elements -> input.noteElements(elements) }
+    // The macOS window describes itself in its own element type, the same fields and roles as
+    // the shared one the made-up input reads.
+    window.onElements = { elements ->
+        input.noteElements(
+            elements.map { AccessibleElement(it.role, it.x, it.y, it.width, it.height, it.label) },
+        )
+    }
     // Something has to be asking for the tree, or the field is never found: a reader
     // normally does, and nobody is reading this.
     window.listenForReader()
