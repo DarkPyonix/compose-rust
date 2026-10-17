@@ -13,8 +13,8 @@
 
 compose-rust는 네 가지를 합친 것입니다.
 
-- **Compose 모양의 Rust API.** 슬롯 테이블과 recomposition 런타임을 갖추며, `develop`에 있고
-  1.0.0과 함께 릴리스됩니다([현재 상태](#-현재-상태) 참고). composable은 함수이고, 위젯은 Compose
+- **Compose 모양의 Rust API.** 슬롯 테이블과 recomposition 런타임을 갖추며, 0.0.2에
+  들어 있습니다([현재 상태](#-현재-상태) 참고). composable은 함수이고, 위젯은 Compose
   이름을 가진 호출이며, 상태는 `remember`에 두고, 상태가 바뀌면 그 상태를 읽은 스코프만 다시
   실행됩니다. 무엇이 바뀌었는지 트리를 비교해서 찾지 않습니다.
 - **좁은 C ABI 경계와 스키마.** 위젯, 속성, 레코드를 Rust에서 한 번 정의하고, Kotlin 타입과
@@ -25,11 +25,10 @@ compose-rust는 네 가지를 합친 것입니다.
   [thisisthepy/compose-multiplatform-core-extended](https://github.com/thisisthepy/compose-multiplatform-core-extended)가
   제공합니다.
 - **웹뷰 없음, 동봉된 JVM 없음.** 데스크톱 애플리케이션은 시스템 라이브러리만 링크하는 실행 파일
-  하나입니다. 0.0.1 릴리스는 아직 그렇지 않습니다. 데스크톱 렌더러가 애플리케이션 옆에 놓이는
-  GraalVM 네이티브 이미지 공유 라이브러리입니다. 다음 릴리스부터 macOS와 Linux(x64, arm64)는
-  Kotlin/Native 정적 아카이브를 내려받고, 빌드가 그것을 실행 파일 안에 링크합니다. CI가 세 대상
-  모두에서 그 결과를 확인합니다. Windows는 Kotlin/Native 렌더러와 함께 그 뒤를 따릅니다
-  ([#24](https://github.com/DarkPyonix/compose-rust/issues/24)).
+  하나입니다. 0.0.2부터 macOS와 Linux(x64, arm64)는 Kotlin/Native 정적 아카이브를 내려받고,
+  빌드가 그것을 실행 파일 안에 링크합니다. CI가 세 대상 모두에서 그 결과를 확인합니다. Windows는
+  Kotlin/Native 렌더러가 들어오기 전까지 애플리케이션 옆에 놓이는 GraalVM 네이티브 이미지 공유
+  라이브러리를 씁니다([#24](https://github.com/DarkPyonix/compose-rust/issues/24)).
 
 ---
 
@@ -37,8 +36,12 @@ compose-rust는 네 가지를 합친 것입니다.
 
 **0.0.x는 이름을 확보하고 렌더러를 배포하는 단계입니다.** API는 바뀝니다.
 
-0.0.1 크레이트에 있는 것:
+0.0.2 크레이트에 있는 것:
 
+- **작성 API.** `#[composable]`, `remember`, 상태와 effect, `Recomposer`, `launch`, 그리고
+  위젯마다 하나씩인 함수입니다([#23](https://github.com/DarkPyonix/compose-rust/issues/23), [#64](https://github.com/DarkPyonix/compose-rust/issues/64)).
+  0.0.2에서 새로 들어왔습니다. 1.0 전의 API라 아직 바뀔 수 있고,
+  **2026-11-14로 계획된 1.0.0**부터 안정됩니다.
 - **경계.** 렌더러가 부르는 `compose_rust_host_*` C 함수들, `Host`, `LaunchBuilder`,
   `launch_runtime`, 그리고 워커 스레드에서 프레임을 깨우는 `request_frame_from_worker`.
 - **프로토콜.** 고정 레이아웃 mutation 레코드. 배치 버퍼 하나에 쓰이고 렌더러가 그 자리에서
@@ -48,13 +51,13 @@ compose-rust는 네 가지를 합친 것입니다.
   Kotlin 쪽을 생성합니다.
 - **`Runtime` 트레이트.** 트리를 만드는 쪽이 구현하는 인터페이스입니다. 그 주변의 타입도 있습니다:
   에셋, 커스텀 드로잉, 입력 이벤트, 알림, 메시지, 팔레트, 창 크기 클래스.
+- **그리기, 변환, 애니메이션.** 0.0.2에서 새로 들어왔습니다. HTML/CSS 그리기 원소(`AbsoluteBox` 와
+  Modifier `RequiredSize`, `BorderEach`, `CornerEach`, `Shadow`, `Clip`, `Alpha`), 2D CSS 변환을
+  위한 `Transform` Modifier, 그리고 렌더러가 스스로 재생하는 애니메이션(`StartAnimation`,
+  `ControlAnimation`, `AnimationEvent`, `ReducedMotionChanged`)입니다. 레이아웃 컨테이너의 글자
+  색은 그 안의 텍스트가 물려받고, 테두리 색도 애니메이션할 수 있습니다.
 - **렌더러 다운로드.** 빌드 스크립트가 대상 플랫폼에 맞는 미리 빌드된 렌더러를 받아 검증하고
   링크합니다([시작하기](#-시작하기) 참고).
-
-작성 API는 `develop`에 있고 0.0.1에는 없습니다. `#[composable]`, `remember`, 상태와 effect,
-`Recomposer`, `launch`, 그리고 위젯마다 하나씩인 함수입니다([#23](https://github.com/DarkPyonix/compose-rust/issues/23), [#64](https://github.com/DarkPyonix/compose-rust/issues/64)).
-**2026-11-14의 1.0.0**과 함께 릴리스됩니다. 그때까지는 체크아웃에서, 같은 체크아웃에서 빌드한
-렌더러와 함께 씁니다([시작하기](#-시작하기) 참고).
 
 ### 생김새
 
@@ -93,8 +96,7 @@ fn main() {
 | 항목 | 상태 | 이슈 | 진행 중인 작업 |
 |---|---|---|---|
 | 웹에서 JavaScript 포워더 대신 Kotlin에서 Rust로 직결 호출 | 부분 | [#54](https://github.com/DarkPyonix/compose-rust/issues/54) | [#84](https://github.com/DarkPyonix/compose-rust/pull/84) |
-| HTML/CSS 그리기 원소(`AbsoluteBox` 와 그 Modifier) | 부분 | [#104](https://github.com/DarkPyonix/compose-rust/issues/104) | [#74](https://github.com/DarkPyonix/compose-rust/pull/74) |
-| 변환과 렌더러가 재생하는 애니메이션 | 부분 | [#105](https://github.com/DarkPyonix/compose-rust/issues/105) | [#83](https://github.com/DarkPyonix/compose-rust/pull/83) |
+| 3D 변환 | 계획 | [#105](https://github.com/DarkPyonix/compose-rust/issues/105) | 없음 |
 | HTML 텍스트 속성과 측정 호출 | 부분 | [#106](https://github.com/DarkPyonix/compose-rust/issues/106) | `feat/measure-call` 브랜치 |
 | OS 글자 크기와 앱 확대 | 부분 | [#68](https://github.com/DarkPyonix/compose-rust/issues/68) | [#77](https://github.com/DarkPyonix/compose-rust/pull/77)(데스크톱의 OS 글자 크기만) |
 | 동작 키(조밀한 키패드 버튼) | 부분 | [#57](https://github.com/DarkPyonix/compose-rust/issues/57) | [#76](https://github.com/DarkPyonix/compose-rust/pull/76) |
@@ -110,8 +112,8 @@ fn main() {
 
 | 플랫폼 | 상태 | 렌더러 |
 |---|---|---|
-| 🍎 **macOS (arm64)** | **처음부터 끝까지 동작** | 실행 파일 안에 링크되는 Kotlin/Native 렌더러이고, 포크의 AppKit 창에 Metal로 그립니다. 0.0.1은 그 대신 앱 옆에 놓이는 GraalVM 네이티브 이미지 라이브러리를 배포했고, 다음 릴리스가 Kotlin/Native 렌더러를 배포합니다. 기본적인 한글 IME 입력은 동작하고, IME 체크리스트 전체는 아직 끝나지 않았습니다 |
-| 🐧 Linux (x64, arm64) | 빌드되고 시작됨 | Kotlin/Native 렌더러이고, 포크의 X11 창에 GLX로 그립니다. arm64는 x64에서 교차 컴파일합니다. 0.0.1은 그 대신 GraalVM 네이티브 이미지 라이브러리를 배포했습니다. CI에서 그것으로 빌드한 애플리케이션은 libc, X11, GL, fontconfig, C++ 런타임(arm64는 EGL 포함)만 부르는 실행 파일 하나이고, 빈 디렉터리에 혼자 복사해도 Xvfb에서 그립니다. 사람이 직접 써 본 적은 아직 없습니다 |
+| 🍎 **macOS (arm64)** | **처음부터 끝까지 동작** | 실행 파일 안에 링크되는 Kotlin/Native 렌더러이고, 포크의 AppKit 창에 Metal로 그립니다. 0.0.2는 그것을 빌드가 실행 파일 안에 링크하는 정적 아카이브로 배포하므로, 앱은 실행 파일 하나입니다. 기본적인 한글 IME 입력은 동작하고, IME 체크리스트 전체는 아직 끝나지 않았습니다 |
+| 🐧 Linux (x64, arm64) | 빌드되고 시작됨 | Kotlin/Native 렌더러이고, 포크의 X11 창에 GLX로 그립니다. arm64는 x64에서 교차 컴파일합니다. 0.0.2는 그것을 빌드가 실행 파일 안에 링크하는 정적 아카이브로 배포합니다. CI에서 그것으로 빌드한 애플리케이션은 libc, X11, GL, fontconfig, C++ 런타임(arm64는 EGL 포함)만 부르는 실행 파일 하나이고, 빈 디렉터리에 혼자 복사해도 Xvfb에서 그립니다. 사람이 직접 써 본 적은 아직 없습니다 |
 | 🪟 Windows | 빌드되고 시작됨 | Kotlin/Native 렌더러가 Windows도 실행 파일 하나로 만들 때까지는 GraalVM 네이티브 이미지이고, 렌더러가 바뀔 때마다 스모크 테스트를 합니다([#24](https://github.com/DarkPyonix/compose-rust/issues/24), 진행 중) |
 | 📱 iOS | 빌드되고 시작됨 | 같은 C 심볼을 내보내는 Kotlin/Native 정적 아카이브. XCFramework로 릴리스합니다 |
 | 🤖 Android | **처음부터 끝까지 동작** | Kotlin Activity가 프로세스와 루프를 갖고, Rust는 cdylib이며, 양쪽 JNI 심은 스키마에서 생성됩니다. 크레이트가 렌더러의 Kotlin 소스를 싣고 있고, 빌드 스크립트가 그것을 Gradle 프로젝트에 풀어 놓습니다 |
@@ -119,7 +121,7 @@ fn main() {
 
 ### 실제 무게
 
-notepad 샘플을 릴리스로 빌드하고 스트립한 것이며, Kotlin/Native 렌더러를 링크했습니다(다음 릴리스가 배포하는 렌더러). 실행 파일 하나입니다: 옆에 놓이는 런타임도,
+notepad 샘플을 릴리스로 빌드하고 스트립한 것이며, Kotlin/Native 렌더러를 링크했습니다(0.0.2가 macOS와 Linux에 배포하는 렌더러). 실행 파일 하나입니다: 옆에 놓이는 런타임도,
 안에 든 가상 머신도 없고, 링크된 것은 시스템 라이브러리뿐입니다.
 
 | 플랫폼 | 실행 파일 | 실제 점유 메모리 |
@@ -194,7 +196,7 @@ Material 3, Apple HIG, Fluent, Liquid Glass를 비롯한 디자인 시스템 일
 ### 크레이트 쓰기
 
 ```bash
-cargo add compose-rust
+cargo add compose-rust@0.0.2
 ```
 
 `cargo build`가 대상에 필요한 렌더러를 알아내고, 크레이트의 정확한 버전에 맞는 릴리스 아티팩트를
@@ -202,7 +204,7 @@ cargo add compose-rust
 변수도, 실행할 스크립트도 없습니다. 캐시는 버전과 대상으로 구분되므로 `cargo clean` 뒤에도 남고
 프로젝트끼리 공유됩니다.
 
-아티팩트가 정적 아카이브인 곳(다음 릴리스부터 macOS와 Linux)에서 `cargo build`가 내는 것은 **실행
+아티팩트가 정적 아카이브인 곳(0.0.2부터 macOS와 Linux)에서 `cargo build`가 내는 것은 **실행
 파일 하나**입니다. 렌더러, Compose, Skia, ICU가 그 안에 있고, 옆에 놓이는 것은 없으며, 불러오는 것은
 시스템 라이브러리뿐입니다(macOS는 프레임워크와 `/usr/lib`, Linux는 libc, X11, GL, fontconfig,
 FreeType). 어디로 복사해도 실행됩니다. Windows는 정적 렌더러가 들어오기 전까지 GraalVM 네이티브
@@ -216,11 +218,12 @@ FreeType). 어디로 복사해도 실행됩니다. Windows는 정적 렌더러�
 `default-features = false`로 빌드하면 렌더러 없이 빌드되며, 헤드리스나 문서용 빌드에 씁니다. 그렇게
 빌드한 바이너리는 창 없이 조용히 끝나지 않고, 무엇이 빠졌는지 알린 뒤 0이 아닌 값으로 종료합니다.
 
-### 1.0.0 전에 작성 API 쓰기
+### `develop`의 작성 API 쓰기
 
-0.0.1 릴리스에 든 렌더러는 0.0.1의 스키마로 빌드되었고, 빌드는 스키마가 다른 렌더러를 거부합니다.
-그래서 1.0.0 전까지는 `develop` 체크아웃에서 API를 씁니다. 렌더러를 빌드한 뒤(아래) 샘플을
-실행합니다. 체크아웃 안에서는 빌드가 내려받을 수 있는 무엇보다 그 렌더러를 먼저 링크합니다.
+0.0.2에는 작성 API와 같은 스키마로 빌드한 렌더러가 들어 있으므로, 0.0.2에 의존하는 프로젝트는
+따로 준비할 것 없이 화면을 씁니다. 렌더러는 릴리스와 함께만 게시되고, 빌드는 스키마가 다른 렌더러를
+거부합니다. 그래서 0.0.2 이후 `develop`에 있는 것을 쓰려면 체크아웃에서 렌더러를 빌드한 뒤(아래)
+샘플을 실행합니다. 체크아웃 안에서는 빌드가 내려받을 수 있는 무엇보다 그 렌더러를 먼저 링크합니다.
 
 ```bash
 cargo run -p sample-minimal

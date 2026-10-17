@@ -60,10 +60,9 @@
     <div class="note">
       <span class="label">What exists today</span>
       <p>
-        The schema and the renderer half of every widget below exist in 0.0.1
-        <span class="pill works">Works</span>. The Rust functions you call to write them, such as
-        <code>Column()</code> and <code>Text("...")</code>, are on <code>develop</code> and are
-        released with 1.0.0. They add no widget of their own, so this page is also the list you
+        Every widget below exists in 0.0.2, with its schema, its renderer half and the Rust
+        function you call to write it, such as <code>Column()</code> and <code>Text("...")</code>
+        <span class="pill works">Works</span>. The functions add no widget of their own, so this page is also the list you
         write with. <a href="#calls">How each widget is written</a> gives the call for each.
       </p>
     </div>
@@ -106,7 +105,7 @@
           <tr><td rowspan="2">Navigation</td><td><code>Navigation</code>, <code>NavigationItem</code></td><td>A set of destinations. The renderer draws a bar, a rail or a drawer from the width it measured.</td></tr>
           <tr><td><code>Tabs</code></td><td>Tabs across the top of a page.</td></tr>
           <tr><td rowspan="2">Overlays</td><td><code>Dialog</code>, <code>Menu</code>, <code>Sheet</code></td><td>Content over the page. The renderer picks the edge a sheet enters from, and owns the enter and exit.</td></tr>
-          <tr><td>messages</td><td>Transient messages are not part of the tree. <code>show_message</code> and <code>Message</code> send them, and they exist in 0.0.1.</td></tr>
+          <tr><td>messages</td><td>Transient messages are not part of the tree. <code>show_message</code> and <code>Message</code> send them, and they exist in 0.0.2.</td></tr>
           <tr><td rowspan="2">Pictures</td><td><code>Image</code>, <code>Icon</code></td><td>An image from a registered asset; an icon by role.</td></tr>
           <tr><td><code>Canvas</code></td><td>Custom drawing from a <code>DrawList</code> value. Two equal lists send nothing.</td></tr>
         </tbody>
@@ -215,7 +214,7 @@
       heading rung", "a medium corner"), and the renderer resolves it against the active design
       system. That is what lets one tree come out as Material 3 on one machine and Liquid Glass on
       another. <a href="design-systems.html">Design systems</a> explains how the system is chosen.
-      All of these types exist in 0.0.1.
+      All of these types exist in 0.0.2.
     </p>
 
     <h3 id="paint">Paint and Color</h3>
@@ -225,7 +224,7 @@
     </p>
 
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
-      <figcaption>rust, compiles against 0.0.1</figcaption>
+      <figcaption>rust, compiles against 0.0.2</figcaption>
 <pre><code><span class="k">use</span> compose_rust::{<span class="ty">Color</span>, <span class="ty">ColorRole</span>, <span class="ty">Paint</span>};
 
 <span class="k">let</span> accent = <span class="ty">Paint</span>::<span class="ty">Role</span>(<span class="ty">ColorRole</span>::Primary);          <span class="c">// resolved by the design system</span>
