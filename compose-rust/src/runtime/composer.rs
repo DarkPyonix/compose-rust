@@ -1020,7 +1020,9 @@ impl Composer {
                             && new.len() > old.len()
                             && new.starts_with(old.as_str())
                         {
-                            self.writer.append_text_node(node, &new[old.len()..]);
+                            self.writer
+                                .batch_mut()
+                                .append_text_node(node, &new[old.len()..]);
                             continue;
                         }
                     }
