@@ -17,13 +17,23 @@
 //! part of what passes. Without it, for a renderer that cannot close its own window (the
 //! Kotlin/Native one on Linux), the check ends the process itself once the frames are in.
 //!
+//! `--input-check` opens a window with a text field and a button, for a person typing Korean
+//! into it and for `.github/scripts/check-linux-input-access.sh`, which drives it with a real
+//! input method and a real accessibility registry. It stays open until it is killed and says
+//! on standard output what its handlers heard: the field's text each time it changes, and
+//! each press of the button. That is the only way the check can tell that an event arrived
+//! all the way at the Host.
+//!
+//! `--parity` is that window with a title and a smallest size of its own, for
+//! `scripts/parity/linux.sh`, which reads both back from the display server.
+//!
 //! The call to launch stays in the binary because the branch is decided at run time.
 //! That is what makes the renderer a load-time dependency of this executable rather than
 //! a library the linker drops for being unused.
 
 use compose_rust::boundary::STATUS_OK;
 use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, ProtocolError};
-use compose_rust::schema::{PropertyKind, WidgetKind};
+use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind, Window};
 use compose_rust::{Batch, LaunchBuilder, Runtime};
 use std::ffi::c_int;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -32,6 +42,7 @@ use std::time::{Duration, Instant};
 
 const COLUMN: u32 = 1;
 const TEXT: u32 = 2;
+const KOREAN: u32 = 3;
 
 /// The highest step the self-check reached. Read after the renderer loop has ended.
 static STEP: AtomicU32 = AtomicU32::new(0);
@@ -100,6 +111,23 @@ impl Runtime for Screen {
             node_id: TEXT,
             index: 0,
         });
+        // Korean, so the frames the check waits for draw it too. Whether it is shaped and
+        // wrapped correctly is the renderer's to say when COMPOSE_RUST_TEXT_SELF_CHECK is
+        // set, and .github/scripts/check-single-executable.sh sets it.
+        self.batch.write(Mutation::Create {
+            node_id: KOREAN,
+            widget: WidgetKind::Text,
+        });
+        self.batch.write(Mutation::SetProp {
+            node_id: KOREAN,
+            property: PropertyKind::Text,
+            value: PropertyValue::String("안녕하세요 반갑습니다. 한국어 줄바꿈과 단어 경계를 확인합니다."),
+        });
+        self.batch.write(Mutation::Insert {
+            parent_id: COLUMN,
+            node_id: KOREAN,
+            index: 1,
+        });
     }
 
     fn render(&mut self) {
@@ -123,6 +151,115 @@ impl Runtime for Screen {
         } else {
             Poll::Pending
         }
+    }
+}
+
+/// The smallest size `--parity` asks the window to allow, which the parity check reads back.
+const PARITY_MIN_WIDTH: u16 = 300;
+const PARITY_MIN_HEIGHT: u16 = 260;
+
+const FORM: u32 = 10;
+const FIELD: u32 = 11;
+const SAVE: u32 = 12;
+const ON_VALUE_CHANGE: u64 = 1;
+const ON_CLICK: u64 = 2;
+
+/// A column holding a text field and a button, and nothing else.
+struct Form {
+    batch: Batch,
+    /// Asks for a window of its own: a title and a smallest size, which the parity check reads
+    /// back from the display server on every path.
+    parity: bool,
+}
+
+impl Form {
+    fn new() -> Self {
+        Self {
+            batch: Batch::new(),
+            parity: false,
+        }
+    }
+
+    fn for_parity() -> Self {
+        Self {
+            batch: Batch::new(),
+            parity: true,
+        }
+    }
+
+    fn text(&mut self, node_id: u32, property: PropertyKind, value: &str) {
+        self.batch.write(Mutation::SetProp {
+            node_id,
+            property,
+            value: PropertyValue::String(value),
+        });
+    }
+
+    fn handler(&mut self, node_id: u32, property: PropertyKind, handler_id: u64) {
+        self.batch.write(Mutation::SetProp {
+            node_id,
+            property,
+            value: PropertyValue::Integer(handler_id as i64),
+        });
+    }
+}
+
+impl Runtime for Form {
+    fn batch(&self) -> &Batch {
+        &self.batch
+    }
+
+    fn batch_mut(&mut self) -> &mut Batch {
+        &mut self.batch
+    }
+
+    fn rebuild(&mut self) {
+        if self.parity {
+            self.batch.write(Mutation::SetWindow(Window {
+                title: "compose-rust parity",
+                min_width: PARITY_MIN_WIDTH,
+                min_height: PARITY_MIN_HEIGHT,
+                ..Window::new()
+            }));
+        }
+        for (node_id, widget) in [
+            (FORM, WidgetKind::Column),
+            (FIELD, WidgetKind::TextField),
+            (SAVE, WidgetKind::Button),
+        ] {
+            self.batch.write(Mutation::Create { node_id, widget });
+        }
+        self.text(FIELD, PropertyKind::Placeholder, "Name");
+        self.handler(FIELD, PropertyKind::OnValueChange, ON_VALUE_CHANGE);
+        self.text(SAVE, PropertyKind::Text, "Save");
+        self.handler(SAVE, PropertyKind::OnClick, ON_CLICK);
+        for (index, node_id) in [FIELD, SAVE].into_iter().enumerate() {
+            self.batch.write(Mutation::Insert {
+                parent_id: FORM,
+                node_id,
+                index: index as u32,
+            });
+        }
+    }
+
+    fn render(&mut self) {}
+
+    fn handle_event(&mut self, event: &HostEvent<'_>) -> Result<i64, ProtocolError> {
+        match (event.node_id, event.handler_id, &event.payload) {
+            (FIELD, ON_VALUE_CHANGE, EventPayload::TextChanged(value)) => {
+                println!("input-check: field = {value}");
+                Ok(0)
+            }
+            (SAVE, ON_CLICK, EventPayload::Clicked) => {
+                println!("input-check: clicked");
+                Ok(0)
+            }
+            _ => Err(ProtocolError::InvalidValueKind(0)),
+        }
+    }
+
+    fn poll_work(&mut self, _context: &mut Context<'_>) -> Poll<()> {
+        Poll::Pending
     }
 }
 
@@ -184,6 +321,14 @@ fn main() {
             std::process::exit(1);
         }
         println!("self-check: the renderer drew {reached} frames");
+        return;
+    }
+    if std::env::args().any(|argument| argument == "--input-check") {
+        LaunchBuilder::new().launch_runtime(|| Box::new(Form::new()) as Box<dyn Runtime>);
+        return;
+    }
+    if std::env::args().any(|argument| argument == "--parity") {
+        LaunchBuilder::new().launch_runtime(|| Box::new(Form::for_parity()) as Box<dyn Runtime>);
         return;
     }
     if std::env::args().any(|argument| argument == "--launch") {

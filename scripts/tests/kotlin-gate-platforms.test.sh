@@ -57,6 +57,15 @@ case "$(uname -s)" in
     *) echo "$testable" | grep -qx mingwX64 &&
         fail "this is not Windows and the gate still runs the mingwX64 tests" ;;
 esac
+# linuxArm64 is cross compiled and linked against arm64 libraries, so it is built only on
+# an x86-64 Linux machine that has them, and never tested.
+if echo "$declared" | grep -qx linuxArm64; then
+    echo "$testable" | grep -qx linuxArm64 && fail "the gate runs arm64 Linux tests on $(uname -m)"
+    if [[ ! -e /usr/lib/aarch64-linux-gnu/libX11.so || "$(uname -s)" != Linux ]]; then
+        echo "$listed" | grep -qx linuxArm64 &&
+            fail "this machine has no arm64 X11 library and the gate still names linuxArm64"
+    fi
+fi
 
 # A device target has no test task, so naming it is an error rather than a skip. It is
 # still built.
@@ -82,7 +91,7 @@ fi
 
 # Everything else a module declares has to be built.
 while read -r platform; do
-    [[ "$platform" == "linuxX64" || "$platform" == "mingwX64" ]] && continue
+    [[ "$platform" == "linuxX64" || "$platform" == "linuxArm64" || "$platform" == "mingwX64" ]] && continue
     echo "$listed" | grep -qx "$platform" ||
         fail "$platform is declared by a module and the gate does not name it"
 done <<< "$declared"

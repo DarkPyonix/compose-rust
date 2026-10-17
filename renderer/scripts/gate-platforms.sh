@@ -13,6 +13,10 @@
 #   linuxX64   the window reaches Xlib, the sync extension and GLX through cinterop, and
 #              cinterop compiles against the real headers rather than a copy of them. One
 #              package manager line on Linux; XQuartz on macOS, which is a download.
+#   linuxArm64 the same, cross compiled on an x86-64 Linux machine (Kotlin/Native has no arm64
+#              Linux host), and its test executable is linked against the arm64 X11, GL,
+#              fontconfig and FreeType, so the machine needs those installed for arm64 as
+#              well. Never tested here: an x86-64 machine cannot run what it links.
 #   mingwX64   Compose and skiko publish no Kotlin/Native target for Windows, so both are
 #              built from the fork and published to the local Maven repository first
 #              (scripts/build-compose.sh --target mingwX64, an hour and the MSVC headers).
@@ -75,6 +79,11 @@ is_windows() {
     esac
 }
 
+has_arm64_x11() {
+    has_x11 && [[ "$(uname -s)" == Linux && "$(uname -m)" == x86_64 ]] &&
+        [[ -e /usr/lib/aarch64-linux-gnu/libX11.so ]]
+}
+
 has_ios_simulator() {
     command -v xcrun >/dev/null 2>&1 || return 1
     # Available rather than booted: the test runner starts one, but it cannot install one.
@@ -96,6 +105,7 @@ all_platforms | while read -r platform; do
             has_mingw_compose || continue
             [[ "$phase" == "build" ]] || is_windows || continue
             ;;
+        linuxArm64) [[ "$phase" == "build" ]] && has_arm64_x11 || continue ;;
         android) [[ "$phase" == "build" ]] || has_android_device || continue ;;
         iosArm64) [[ "$phase" == "build" ]] || continue ;;
         iosSimulatorArm64) [[ "$phase" == "build" ]] || has_ios_simulator || continue ;;

@@ -20,7 +20,12 @@ if [[ "$(uname -s)" != Darwin ]]; then
 fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-source_dir="${DXC_APPKIT_SOURCE_DIR:-$repo_root/renderer/desktop/c}"
+if [[ -z "${DXC_APPKIT_SOURCE_DIR:-}" ]]; then
+    # The window is the Compose fork's graalvm-macos module, at the commit the renderer pins.
+    source "$repo_root/scripts/tests/fork-window.sh"
+    fork_window_or_skip "$repo_root"
+fi
+source_dir="${DXC_APPKIT_SOURCE_DIR:-$fork_window/graalvm/graalvm-macos/native}"
 work="$(mktemp -d "$repo_root/.appkit-mouse-test.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 

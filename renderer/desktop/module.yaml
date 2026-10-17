@@ -1,15 +1,37 @@
 product: jvm/app
 
+# The window modules come from the Compose fork and are published to the local repository by
+# scripts/publish-window.sh, at the commit scripts/build-compose.sh pins.
+# The Compose fork's desktop modules, which `scripts/build-compose.sh --target desktop`
+# publishes, and its skiko-awt, which `scripts/publish-skiko-awt.sh` publishes. They carry what
+# the toolkit-free Linux window needs and upstream does not have. They are published under
+# versions of their own and asked for below by name: at upstream's version a resolver that
+# already holds upstream's jars takes those and never reads the local repository.
+repositories:
+  - mavenLocal
+
 dependencies:
   - $compose.desktop.currentOs
+  - org.jetbrains.compose.ui:ui:1.11.1001
+  - org.jetbrains.compose.ui:ui-text:1.11.1001
+  - org.jetbrains.compose.foundation:foundation:1.11.1001
+  - org.jetbrains.skiko:skiko-awt:0.144.6.1
   # FR-11's example extension draws a Material 3 progress indicator.
   - $compose.material3
+  # Swing's Dispatchers.Main, which a run on a JVM with the toolkit's window needs. The native
+  # image scripts take it off the image's class path: the windows there answer Dispatchers.Main
+  # themselves (FrameMainDispatcher).
   - $libs.kotlinx.coroutines.swing
   - $libs.androidx.lifecycle.runtime.compose
   - $libs.androidx.lifecycle.viewmodel.compose
   # Annotations and C interop types for @CEntryPoint. Supplied by the native-image
   # builder at image build time, so it is not bundled into the jar.
   - org.graalvm.sdk:nativeimage:25.0.1: compile-only
+  # What every window decides the same way, and the AppKit and X11 windows of the native
+  # image path. The Windows window is still this module's own.
+  - org.thisisthepy.compose.window:common:0.1.0
+  - org.thisisthepy.compose.window:graalvm-macos:0.1.0
+  - org.thisisthepy.compose.window:graalvm-linux:0.1.0
 
 test-dependencies:
   - $compose.desktop.uiTestJUnit4

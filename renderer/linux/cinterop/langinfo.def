@@ -10,7 +10,7 @@
 # that file: a header in the toolchain's own sysroot is taken to be already answered by the
 # posix platform library and is dropped whole, which produces a definition that builds and
 # a library with nothing in it.
-package = langinfo
+package = renderer_langinfo
 
 headers = dxc_langinfo.h
 compilerOpts = -D_GNU_SOURCE

@@ -20,7 +20,7 @@ $env:PATH = "C:\path\to\renderer\dist\bin;$env:PATH"
 cargo run --release
 ```
 
-On Linux the X11 window is opt-in until it is the default: add `DXC_X11_WINDOW=1`.
+On Linux the X11 window is the default; nothing needs to be set.
 
 ## What to check
 

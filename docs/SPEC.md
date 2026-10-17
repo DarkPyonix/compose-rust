@@ -1336,7 +1336,7 @@ Window::new().with_title_bar(TitleBar::Normal)
 - `TitleBar::Normal`이 **기본값**입니다. 지금 그 플랫폼의 애플리케이션이 실제로 그러한 창입니다.
 - `TitleBar::Simple`은 보통 창입니다. 도구형 애플리케이션과, `Normal`이 어색해지는 자리를 위한 것이며, `Chrome::System`이 `Chrome::Modern`에 대해 그러하듯 **돌아갈 곳**입니다.
 
-**플랫폼마다 무엇이 달라지는지는 다릅니다.** 모드는 두 개의 답 중 하나를 고르는 것이고, 그 답이 무엇인지는 디자인 시스템이 정합니다(FR-14.1). Host는 어느 쪽인지만 말하고 숫자를 말하지 않습니다.
+**플랫폼마다 무엇이 달라지는지는 다릅니다.** 모드는 두 개의 답 중 하나를 고르는 것이고, 그 답이 무엇인지는 디자인 시스템이 정합니다(FR-14.1). macOS의 반경과 버튼 자리는 예외로, 시스템에서 읽습니다(아래). Host는 어느 쪽인지만 말하고 숫자를 말하지 않습니다.
 
 | 플랫폼 | `Normal` | `Simple` |
 |---|---|---|
@@ -1355,6 +1355,13 @@ Window::new().with_title_bar(TitleBar::Normal)
 2. Windows와 Linux에서 두 모드의 캡션 높이가 다르고, 두 모드 모두 버튼은 그 플랫폼이 두는 끝에 있습니다.
 3. `Chrome::System`으로 연 창은 두 모드에서 같습니다.
 4. 아무것도 말하지 않은 애플리케이션은 `Normal`을 얻습니다.
+
+**macOS의 반경은 표에서, 버튼 자리는 시스템에서 얻습니다.** 디자인 시스템의 상수(`ComponentRules`의 창 모서리 반경, 창 버튼 인셋)로 두지 않습니다. macOS는 툴바가 없는 보통 타이틀바와 툴바가 있는(통합) 타이틀바에 서로 다른 모서리 반경과 버튼 자리를 주고, 그 값은 OS 버전마다 바뀝니다. 상수 하나는 한 버전의 한 스타일만 맞습니다. 그런데 시스템은 창의 모서리 반경을 공개 API로 알려 주지 않습니다. 비공개 키(`_cornerRadius` 같은 것)로 읽으면 Mac App Store 심사가 거절하고, OS가 바뀌면 예고 없이 깨집니다. 그래서 반경은 타이틀바 스타일(단순, 툴바)과 macOS 주 버전을 키로 하는 표에서 얻습니다(macOS 26: 단순 16.75, 툴바 26.75). 표에 없는 새 버전은 알려진 마지막 행을 씁니다. 표의 행 가운데 macOS 14, 15, 26은 CI 러너에서 실제 화면의 모서리로 측정한 값입니다. macOS 11부터 13까지는 측정하지 않았습니다. 그 버전을 주는 러너가 없어서 14와 15의 값을 그대로 씁니다. 새 macOS가 값을 바꾸면 CI가 실제 화면에 그려진 모서리와 표를 비교해 잡습니다. 버튼 인셋은 공개 API(`standardWindowButton`의 프레임)로 그 창에서 읽습니다. macOS에서 `Simple`은 툴바 없는 타이틀바 스타일로, `Normal`은 툴바(통합) 타이틀바 스타일로 창을 엽니다. 이 선택과 표는 GraalVM 경로(`appkit_window.m`)와 Kotlin/Native 경로(`MacosWindow.kt`)가 함께 쓰는 공통 macOS 크롬 규칙(`MacosWindowChrome`)에 있습니다. 소유자의 결정입니다(2026-10-05, 표로 바꾸기는 같은 날 추가 결정).
+
+5. macOS 창의 모서리 반경은 시스템이 그리는 모서리와 같고, 타이틀바 스타일(단순, 툴바)과 macOS 버전을 키로 하는 표에서 얻습니다(macOS 26: 16.75, 26.75). 창 코드 어디에도 비공개 API(`_cornerRadius` 같은 비공개 셀렉터나 KVC 키)가 없습니다. Mac App Store 심사가 그것을 거절하고 OS 업데이트가 그것을 깨기 때문입니다. CI가 표의 값을 실제 화면의 창 모서리와 비교하고, 새 macOS가 값을 바꾸면 실패합니다. 창 버튼 인셋은 그 창의 공개 API가 보고한 값입니다. `ComponentRules`에 창 모서리 반경과 창 버튼 인셋 값이 없습니다.
+6. 공통 macOS 크롬 규칙으로 툴바 없는 보통 타이틀바(`Simple`, 작은 시스템 반경)와 툴바(통합) 타이틀바(`Normal`, 큰 시스템 반경)를 모두 고를 수 있습니다.
+7. 콘텐츠의 위쪽 시작점과 캡션 인셋이 고른 스타일을 따릅니다. 두 스타일에서 바의 내용은 각자의 창 버튼과 같은 줄에 놓입니다(19.2).
+8. 스타일마다 GraalVM 경로와 Kotlin/Native 경로가 같은 기하(모서리 반경, 버튼 자리, 콘텐츠 위쪽, 캡션 인셋)를 냅니다. 두 스타일 각각에 대해 테스트(JVM 단위 테스트, 실제 `NSWindow`를 여는 테스트, 셸 검사)가 이것을 확인합니다.
 
 #### 19.5 창 버튼의 모양은 디자인 시스템이 정합니다
 
@@ -1394,6 +1401,7 @@ INTENT D19가 Compose 자체를 고치는 일을 `thisisthepy/compose-multiplatf
 1. 지금 이 저장소가 창에 대해 돌리는 검사(19.4, 19.7의 수용 기준, 그리고 `scripts/tests/`의 창 검사: 캡션 기하, Win32와 X11 창 배치, 크기 조절 중 그리기)가 포크의 샘플(`compose-multiplatform-extended`의 hello 앱)에 대해 같은 결과로 통과합니다. 캡션의 색과 크기 조절 중 그리기가 그 샘플에 지금 없는 것이 이 이전이 끝나지 않았다는 표시입니다.
 2. 그 확인을 화면 배율 100%와 200%에서 각각 하고, 각 배율의 스크린숏을 기록합니다.
 3. 옮긴 뒤 compose-rust의 샘플이 포크의 창으로 같은 검사를 통과하고, 이 저장소의 창 사본이 지워집니다.
+4. **크기를 바꾸는 동안 화면에 나오는 프레임은 모두 그 순간의 창 크기로 Skia가 그린 프레임입니다.** 측정 기준은 "현재 창 크기와 다른 크기로 그려진 프레임의 비율 = 0"입니다. 배경색으로 빈 곳을 가리는 것, 이전 프레임을 늘리는 것, 이전 프레임을 그대로 보여 주는 것은 모두 실패입니다. 이 기준은 macOS, Linux, Windows의 Kotlin/Native 경로와 GraalVM 경로 모두에 같게 적용되고, 일치 시험(`parity/`)의 리사이즈 항목도 이 비율로 판정합니다. Windows에서는 크기가 바뀌는 순간 `ResizeBuffers`, Skia 그리기, `Present`, DirectComposition `Commit`을 차례로 마친 뒤에 크기 변경 메시지를 돌려줍니다.
 
 ### FR-20 반응형 레이아웃 기반 (창 크기 클래스) (`Done`)
 
@@ -1644,9 +1652,34 @@ tag 12, 32바이트: handler_id: u64, text: (offset, len), action: (offset, len)
 
 ### FR-22 샘플 애플리케이션의 참조 구현 (`Agreed`)
 
-#### 22.6 데스크톱 샘플 배포 번들 (`Agreed`)
+#### 22.6 데스크톱 샘플 배포 번들 (`Draft`)
 
 샘플 릴리스는 각 데스크톱 대상에 설치하거나 바로 실행할 수 있는 플랫폼 형식을 제공합니다. macOS arm64는 실행 가능한 `.app`과 전달용 `.dmg`, Windows x64는 압축을 푼 자리에서 실행되는 `.zip`과 `.msix`, Linux x64와 arm64는 `.AppImage`를 만듭니다. 이름, 번들 식별자, 설명은 각 샘플의 `Dioxus.toml`에서 읽고 아이콘과 플랫폼 메타데이터에 사용합니다.
+
+**2026-10-05: 배포 형식은 Compose 플러그인의 형식 표와 같습니다.** compose-rust는 별도 표를 두지 않고 Compose 플러그인과 같은 표를 따릅니다. 형식의 템플릿과 메타데이터는 core-extended의 `extended/packaging/`에서 가져오며 커밋으로 고정합니다. 이 절의 수용 기준이 판단의 기준입니다.
+
+**2026-10-05: 앱 밖에서 하는 직접 배포는 세 OS 모두 Velopack으로 패키징하고 갱신합니다.** `vpk`는 CI 러너에만 설치합니다. 스토어 패키지와 배포판 패키지는 Velopack 밖에서 따로 만듭니다.
+
+| OS | 앱 | 직접 배포 패키지 (Velopack) | 따로 만드는 패키지 |
+|---|---|---|---|
+| macOS | `.app` | `.dmg` (vpk의 portable `.zip` 안의 `.app`으로 만듦) | 스토어 `.pkg` |
+| Linux | `.AppImage` (vpk의 자체 갱신 AppImage) | 같음 | `.deb`, `.rpm`, Flatpak |
+| Windows | `.exe` | `Setup.exe`, `.msi` (`vpk pack --msi`) | 스토어 `.msix` |
+
+- Windows: 설치 `.exe`는 vpk의 `Setup.exe`입니다. NSIS나 WiX를 직접 다루지 않습니다. `.msi`는 `vpk pack --msi`로 만들며(Velopack이 자체 WiX 포크를 묶어 둡니다) 더 이상 결정 중이 아닙니다. 설치 위치는 `PerUser`가 기본이고 `PerMachine`은 선택입니다. 갱신은 두 설치 방식 모두 `Update.exe`가 맡습니다. `.msix`는 스토어용으로 따로 만듭니다.
+- macOS: Velopack은 `.dmg`를 만들지 않으므로, 우리의 dmg 단계가 vpk의 portable `.zip` 안의 `.app`으로 `.dmg`를 만듭니다. Sparkle은 쓰지 않고, Velopack이 `.app`을 갱신합니다. Mac App Store용 `.pkg`는 따로 만듭니다(vpk의 `.pkg`는 일반 설치 프로그램입니다).
+- Linux: `.AppImage`는 vpk의 자체 갱신 AppImage이며 zsync는 쓰지 않습니다. `.deb`, `.rpm`, Flatpak은 따로 만듭니다.
+- Mac App Store용 `.pkg`는 2026-10-03에 범위 밖으로 두었으나(이슈 #4) 이제 범위 안입니다.
+- **범위 밖: 앱 안의 업데이트 SDK나 래퍼.** 앱 개발자는 Velopack SDK를 직접 씁니다. 우리가 만드는 것은 패키지와 갱신 피드(nupkg 전체와 델타, `releases.{channel}.json`)입니다.
+- 기존 규칙은 그대로입니다. 번들은 실행 파일 하나와 아이콘, 메타데이터만 담고, 체크섬을 기록하며, MSIX는 서명하지 않은 채 설치 안내와 함께 냅니다.
+
+> 윈도우는 Velopack으로 하자. NSIS랑 wix는 너무 별로야.
+>
+> 업스트림이 지원하는게 저렇게 다양하면 업스트림쪽에서 확장하는게 맞긴 하지. Mac: 앱은 .app 패키지는 .dmg 스토어 패키지는 .pkg / 리눅스: 앱 .appimage 패키지는 .deb/.rpm 스토어 패키지는 .flatpack / 윈도우: 앱 .exe 패키지는 .msi/.exe(설치) 스토어 패키지는 .msix
+>
+> 업데이트 sdk 때문에 그런거면 그건 우리가 커버쳐줄 부분은 아닌거같아.
+>
+> (소유자, 2026-10-05)
 
 **2026-10-03(INTENT D17, NFR-15): 번들이 담는 것은 실행 파일 하나입니다.** 렌더러와 Skia와 ICU 데이터가 실행 파일 안에 있으므로, 아래 문단의 라이브러리 배치는 GraalVM native-image 경로의 기록이고 1.0.0의 번들에는 해당하지 않습니다.
 
@@ -1658,6 +1691,14 @@ tag 12, 32바이트: handler_id: u64, text: (offset, len), action: (offset, len)
 2. 각 번들의 실행 파일은 빌드 머신의 렌더러 절대 경로를 참조하지 않으며, 번들 안에 렌더러와 동반 파일이 있습니다.
 3. 번들의 이름, 식별자, 설명은 샘플 설정과 일치하고 아이콘이 포함됩니다.
 4. MSIX는 서명되지 않은 패키지로 생성됩니다. 설치에는 개발자 모드 또는 신뢰된 인증서로 다시 서명하는 절차가 필요함을 릴리스에 알립니다. 실제 설치 확인은 Windows 환경에서 수동으로 합니다.
+5. 위 표의 형식마다 아티팩트를 만들고 체크섬을 기록합니다. 형식이 `.dmg`, `.pkg`, `.deb`, `.rpm`, `Setup.exe`, `.msi`, Flatpak 중 무엇이든 번들은 실행 파일 하나와 아이콘, 메타데이터만 담습니다. CI가 아티팩트의 존재와 내용물 목록, 체크섬 기록을 검사합니다.
+6. `.deb`와 `.rpm`은 각각 `dpkg-deb --info`와 `rpm -qp --info`로 이름, 버전, 설명이 샘플 설정과 일치하는지 CI에서 확인합니다. 실제 설치와 실행은 해당 배포판에서 수동으로 확인합니다.
+7. 세 OS의 직접 배포 패키지는 Velopack으로 만들고, 이전 버전에서 새 버전으로 가는 델타 패키지와 갱신 피드(nupkg 전체와 델타, `releases.{channel}.json`)를 함께 만듭니다. 패키지와 피드의 존재와 메타데이터는 CI에서 확인하고, 설치된 빌드가 델타로 갱신되어 다시 뜨는 것은 각 OS 환경에서 수동으로 확인합니다. Windows `.msi`는 `PerUser` 기본과 `PerMachine` 선택 설치가 각각 되는지도 Windows에서 수동으로 확인합니다. Linux `.AppImage`에는 zsync 갱신 정보가 없습니다.
+8. macOS `.pkg`는 Mac App Store 제출 형식으로 만들며, 구조와 메타데이터는 `pkgutil --check-signature`와 `pkgutil --payload-files`로 CI에서 확인합니다. 스토어 제출과 승인은 Apple 계정이 있는 환경에서 수동으로만 확인할 수 있습니다.
+9. Flatpak은 Flathub용 매니페스트로 만들고 `flatpak-builder`로 빌드되는 것을 CI에서 확인합니다. 설치와 실행은 수동으로 확인합니다.
+10. `.msi`는 `vpk pack --msi`로 만들며, 5번과 7번의 검사 대상입니다.
+11. 템플릿과 메타데이터가 core-extended의 `extended/packaging/`에서 오고 그 커밋이 고정되어 있음을 CI가 확인합니다.
+12. **실험 중:** ad-hoc 서명한 `.app`을 `.dmg`에서 설치한 Apple Silicon 기기가 Velopack 갱신을 받고, 갱신 뒤에도 실행됩니다(quarantine 속성 포함). Velopack 문서는 서명과 공증이 없는 macOS 앱은 실행되지 않는다고 하므로 확인이 필요하며, 프로브를 돌리는 중입니다. 결과가 나오기 전에는 이 항목을 통과로 보지 않습니다.
 
 **2026-09-22: 샘플이 일곱 플랫폼 전부에서 돕니다.** 데스크톱 넷(macOS arm64, Linux x64, Linux arm64, Windows x64)과 Android, iOS 시뮬레이터, 브라우저입니다. statistics 샘플을 iOS 시뮬레이터와 Android 에뮬레이터와 Chromium에서 각각 띄워 같은 세이지와 주황과 파우더 블루가 나오는 것을 확인했습니다. 통합 샘플이 플랫폼과 무관하게 같은 디자인을 그린다는 것이 이것으로 처음 실증됐습니다.
 
@@ -2027,6 +2068,25 @@ if design.is_apple() {
 5. 선택 영역 안의 버튼은 눌리고, 선택에 들어가지 않습니다.
 6. 데스크톱 셋에서 단축키와 우클릭 메뉴 양쪽으로 복사됩니다. 모바일의 길게 누르기는 수동 확인입니다(§6과 같은 방식으로 기록).
 
+#### 33.1 우클릭 메뉴: 기본은 OS 메뉴, 앱이 덮어쓰면 그것 하나
+
+> [user] 2026-10-05 결정(리더 전달): 기본값은 OS 네이티브 메뉴이고, 앱이 표준 확장점으로 덮어쓰면 네이티브 메뉴 없이 그것만 보여 줍니다.
+
+- **기본값은 그 OS의 메뉴입니다.** macOS는 `NSMenu`, Windows와 Linux는 각 OS의 메뉴입니다. OS 메뉴를 쓰면 macOS의 서비스와 찾아보기 같은 시스템 항목과 그 플랫폼의 모양이 그대로 따라옵니다.
+- **새 API를 만들지 않습니다.** Compose의 표준 확장점인 `LocalContextMenuRepresentation`과 `LocalTextContextMenu`의 기본값을 OS 메뉴 구현으로 바꿔 제공합니다.
+- **앱이 덮어쓰면 그것 하나만 뜹니다.** 앱이 `CompositionLocalProvider`로 `ContextMenuRepresentation`이나 `TextContextMenu`를 직접 정하면(자체 디자인의 메뉴), OS 메뉴는 띄우지 않고 앱이 정한 것만 보여 줍니다.
+- **메뉴는 어느 경우에도 하나입니다.** OS 메뉴와 Compose 메뉴가 함께 뜨는 일은 없습니다.
+- **항목은 두 방식에 똑같이 들어갑니다.** `ContextMenuDataProvider`로 더한 항목과 텍스트의 잘라내기, 복사, 붙여넣기, 전체 선택이 OS 메뉴와 Compose 메뉴에 같은 순서와 같은 사용 가능 상태로 들어갑니다.
+- 이 구현은 포크(`compose-multiplatform-core-extended`)의 창 공통 로직에 두고, GraalVM 경로와 Kotlin/Native 경로가 같은 결과를 내는지 일치 시험으로 확인합니다.
+
+수용 기준:
+1. 기본 상태에서 입력란과 `SelectionContainer` 안의 글자를 우클릭하면 OS 메뉴 하나가 뜹니다. macOS는 화면 캡처로 `NSMenu`임을 확인합니다.
+2. 앱이 `LocalContextMenuRepresentation`이나 `LocalTextContextMenu`를 덮어쓴 샘플에서는 앱이 정한 메뉴 하나만 뜨고 OS 메뉴는 뜨지 않습니다. 화면 캡처로 확인합니다.
+3. 두 경우 모두 우클릭 한 번에 메뉴 요청이 정확히 하나입니다. 메뉴 요청 수를 세는 시험으로 확인합니다.
+4. `ContextMenuDataProvider` 항목과 텍스트 항목(잘라내기, 복사, 붙여넣기, 전체 선택)이 두 방식에서 같은 순서와 같은 사용 가능 상태입니다. 항목 목록을 비교하는 시험으로 확인합니다.
+5. 같은 장면에서 GraalVM 경로와 Kotlin/Native 경로가 같은 항목과 같은 메뉴 종류를 냅니다(일치 시험).
+6. 실제 OS 메뉴의 모양과 시스템 항목(서비스, 찾아보기)은 기기에서 손으로 확인합니다.
+
 ### FR-36 OS 알림 (`Draft`)
 
 창 밖에서 사용자를 부르는 것입니다. 요청한 앱(Ember)에서는 "세션이 끝났습니다"와 "승인을 기다리고 있습니다" 둘이고, 둘 다 사용자가 다른 창에 가 있을 때 의미가 있습니다. 그 플랫폼의 알림으로 나와야 합니다. macOS 알림 센터(`UNUserNotificationCenter`), Windows 토스트(앱 알림), Linux 데스크톱 알림(`org.freedesktop.Notifications`), iOS(`UNUserNotificationCenter`), Android(`NotificationManager`), 그리고 브라우저(Web Notifications API)입니다.
@@ -2256,7 +2316,7 @@ Notification::new("세션이 끝났습니다")
 
 > **현황(2026-10-04).** develop에는 이 API가 없습니다. 런타임과 Host 배선은 `feature/compose-api` 브랜치(develop보다 18커밋 앞)에 있고 PR은 아직 열리지 않았습니다(#64). 소유자 결정의 기록은 #23, 이름 조회와 재전송 비용은 #65가 추적합니다.
 
-**2026-10-03 소유자 결정(INTENT D2).** compose-rust는 Dioxus 없이 쓸 수 있는 자기 작성 API를 가집니다. 모양은 Compose이고, 그 아래는 슬롯 테이블 위의 recomposition 런타임입니다. dioxus-compose는 이 위에 얹힙니다. compose-rust 1.0.0(2026-10-20)의 범위입니다.
+**2026-10-03 소유자 결정(INTENT D2).** compose-rust는 Dioxus 없이 쓸 수 있는 자기 작성 API를 가집니다. 모양은 Compose이고, 그 아래는 슬롯 테이블 위의 recomposition 런타임입니다. dioxus-compose는 이 위에 얹힙니다. compose-rust 1.0.0(2026-11-14)의 범위입니다. 날짜는 2026-10-04 소유자 결정으로 2026-10-20에서 옮겼습니다. 창 코드를 포크로 옮기는 일이 끝나는 2026-10-31에 안정화 2주(하드웨어 확인, 동등성 테스트, 릴리스 후보)를 더한 날짜입니다.
 
 #### 39.1 모양
 
@@ -3462,7 +3522,7 @@ Cargo는 path 패키지의 유닛 해시에 패키지 경로를 넣지 않습니
 
 ### 5.7 데스크톱 애플리케이션은 실행 파일 하나 (NFR-15)
 
-**2026-10-03 소유자 결정(INTENT D17). compose-rust 1.0.0(2026-10-20)의 요구사항입니다.** compose-rust로 만든 데스크톱 애플리케이션은 macOS, Windows, Linux 모두에서 실행 파일 하나입니다.
+**2026-10-03 소유자 결정(INTENT D17). compose-rust 1.0.0(2026-11-14)의 요구사항입니다.** compose-rust로 만든 데스크톱 애플리케이션은 macOS, Windows, Linux 모두에서 실행 파일 하나입니다.
 
 이것은 INTENT D2와 D4에서 따라 나옵니다. 애플리케이션은 `cargo build`가 내는 Rust 실행 파일이고(D2), AWT 없는 렌더러는 Kotlin/Native 정적 라이브러리라 그 실행 파일에 링크됩니다(D4, Windows는 D18). Skia와 skiko의 C++ 부분, ICU 데이터도 같은 실행 파일 안에 들어갑니다.
 
@@ -3484,7 +3544,7 @@ Cargo는 path 패키지의 유닛 해시에 패키지 경로를 넣지 않습니
    - 그 실행 파일이 빈 폴더에서 실행되어 창을 띄웁니다.
    - 동적 C 런타임으로 미리 빌드된 C/C++ 라이브러리와 섞여 링커가 `RuntimeLibrary` 불일치(LNK2038)를 내면, 빌드 스크립트가 어느 라이브러리가 동적 런타임인지와 무엇을 하면 되는지를 짚는 메시지를 냅니다. 테스트로 확인합니다.
    - 같은 샘플을 동적 런타임과 정적 런타임으로 각각 링크한 실행 파일 크기를 재서 여기에 적습니다(측정 전).
-6. FR-22.6의 번들(`.app`, `.dmg`, `.zip`, `.msix`, `.AppImage`)은 이 실행 파일 하나와 아이콘, 메타데이터만 담습니다.
+6. FR-22.6의 번들(FR-22.6 표의 앱, 패키지, 스토어 패키지 형식)은 이 실행 파일 하나와 아이콘, 메타데이터만 담습니다.
 
 ## 6. IME 수용 체크리스트 (FR-5, M1)
 

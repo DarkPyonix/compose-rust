@@ -96,6 +96,7 @@ Workflow files and names, in `.github/workflows/`:
 - `publish-crates.yml`, "Publish to crates.io": the tag release, started by `workflow_run` once the renderer workflow has succeeded.
 - `pages.yml`, "Pages": docs.
 - `test-<target>.yml`, "<Target> test": a special check for one target.
+- `test-graalvm-renderer.yml`, "GraalVM renderer test": builds and smoke tests the GraalVM native-image renderer on macOS and Linux. It exists until the window code moves to the fork, then moves to the fork's CI and is deleted here.
 
 Job names are English sentence case and say briefly what the job does. Matrix jobs read "<what> (<os>, <version>)". The same role keeps the same name across repos.
 

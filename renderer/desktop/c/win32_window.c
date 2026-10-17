@@ -3982,3 +3982,33 @@ void dxc_native_set_ime_spot(float x, float y) {
         dxc_position_ime(dxc_window);
     }
 }
+
+/*
+ * Named by the Kotlin every desktop of the native image shares, and answered here by doing
+ * nothing: this window reads a paste through the clipboard call and keeps the system's
+ * caption, so a pending paste and the macOS title bar and chrome have nothing to carry here.
+ */
+int32_t dxc_native_take_paste(char *out, int32_t capacity) {
+    (void)out; (void)capacity;
+    return 0;
+}
+
+void dxc_native_window_title_bar(void *view_pointer, float *out) {
+    (void)view_pointer;
+    out[0] = 0;
+    out[1] = 0;
+    out[2] = -1;
+    out[3] = -1;
+}
+
+void dxc_native_window_chrome(
+    int32_t full_size_content,
+    int32_t transparent_title_bar,
+    int32_t title_hidden,
+    int32_t unified_toolbar
+) {
+    (void)full_size_content;
+    (void)transparent_title_bar;
+    (void)title_hidden;
+    (void)unified_toolbar;
+}

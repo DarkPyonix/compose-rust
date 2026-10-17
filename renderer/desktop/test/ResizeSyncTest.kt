@@ -1,6 +1,6 @@
 package dev.darkpyonix.composerust.test
 
-import dev.darkpyonix.composerust.ui.platform.ResizeSync
+import org.thisisthepy.compose.window.ResizeSync
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse

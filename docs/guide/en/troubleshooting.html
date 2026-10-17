@@ -65,27 +65,30 @@
       renderer you already have.
     </p>
     <p>
-      Inside a checkout the build prefers the native image at
-      <code>renderer/build/native-image/dist/lib</code> over anything it could download. If that
-      directory exists but is empty, the renderer has not been built.
+      Inside a checkout the build prefers a workspace build over anything it could download: the
+      static archive in <code>renderer/build/macos</code> (or <code>build/linux</code>,
+      <code>build/linux-arm64</code>) first, then the native image in
+      <code>renderer/build/native-image/dist/lib</code>. The static archive is linked into the
+      executable, so there is nothing to find at startup. If the directory exists but is empty, the
+      renderer has not been built.
     </p>
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
       <figcaption>shell, macOS</figcaption>
-<pre><code>ls renderer/build/native-image/dist/lib
-<span class="c"># expect libcompose_rust_renderer.dylib with Skia and AWT libraries beside it</span>
+<pre><code>ls renderer/build/macos
+<span class="c"># expect libcompose_rust_renderer.a, libcompose_rust_renderer_api.h and schema-hash.txt</span>
 
-./renderer/desktop/scripts/build-native.sh</code></pre>
+./renderer/desktop/scripts/build-macos.sh --release</code></pre>
     </figure>
     <p>
-      Do not move those files apart. The native image finds itself at runtime and derives where
+      The native image is the exception to "nothing to find": do not move its files apart. It finds itself at runtime and derives where
       Skia and AWT are from its own directory. A library copied somewhere on its own loads and then
       fails to find them.
     </p>
     <p>
-      The Kotlin/Native static library is linked only when <code>DXC_MACOS_NATIVE_LIB</code> or
-      <code>DXC_LINUX_NATIVE_LIB</code> names the directory that holds
-      <code>libcompose_rust_renderer.a</code>. If you built it and the binary still loads the native
-      image, check that variable.
+      <code>DXC_MACOS_NATIVE_LIB</code> and <code>DXC_LINUX_NATIVE_LIB</code> name a directory that
+      holds <code>libcompose_rust_renderer.a</code> and are checked ahead of everything else. If
+      one of them is set to a stale directory, the binary links that renderer, not the one you just
+      built.
     </p>
 
     <h2 id="no-window">It builds and runs, but no window appears</h2>
