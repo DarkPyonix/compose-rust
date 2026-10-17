@@ -299,10 +299,10 @@ fn deliver(callback: &EventCallback, payload: &EventPayload<'_>) -> Result<i64, 
         (
             EventCallback::Unit(handler),
             EventPayload::Clicked | EventPayload::FocusLost | EventPayload::FilesEntered,
-        ) => (&mut *handler.borrow_mut())(),
+        ) => (*handler.borrow_mut())(),
         (EventCallback::Text(handler), EventPayload::TextChanged(text))
         | (EventCallback::Text(handler), EventPayload::TextSubmitted(text)) => {
-            (&mut *handler.borrow_mut())((*text).to_owned())
+            (*handler.borrow_mut())((*text).to_owned())
         }
         (
             EventCallback::Key(handler),
@@ -315,17 +315,17 @@ fn deliver(callback: &EventCallback, payload: &EventPayload<'_>) -> Result<i64, 
             },
         ) => {
             let event = KeyEvent::new(*key, *shift_key, *ctrl_key, *alt_key, *meta_key);
-            (&mut *handler.borrow_mut())(event.clone());
+            (*handler.borrow_mut())(event.clone());
             return Ok(i64::from(event.consumed()));
         }
         (EventCallback::Value(handler), EventPayload::ValueChanged(value)) => {
-            (&mut *handler.borrow_mut())(*value)
+            (*handler.borrow_mut())(*value)
         }
         (EventCallback::Range(handler), EventPayload::RangeRequested { start, count }) => {
-            (&mut *handler.borrow_mut())(RangeRequest::new(*start, *count))
+            (*handler.borrow_mut())(RangeRequest::new(*start, *count))
         }
         (EventCallback::Files(handler), EventPayload::FilesDropped(paths)) => {
-            (&mut *handler.borrow_mut())(crate::FileDrop::new(paths))
+            (*handler.borrow_mut())(crate::FileDrop::new(paths))
         }
         _ => return Err(ProtocolError::InvalidValueKind(0)),
     }

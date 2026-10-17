@@ -541,10 +541,13 @@ pub fn remember_node_size() -> crate::window::NodeSize {
     }
 }
 
+/// A notification handler, shared between the slot and the registration that calls it.
+type ActivationHandler = Rc<RefCell<Box<dyn FnMut(crate::NotificationActivation)>>>;
+
 /// The slot a notification handler lives in: the latest handler, and the registration
 /// that lasts as long as the slot does.
 struct ActivationSlot {
-    handler: Rc<RefCell<Box<dyn FnMut(crate::NotificationActivation)>>>,
+    handler: ActivationHandler,
     _subscription: crate::notification::ActivationSubscription,
 }
 
@@ -570,9 +573,7 @@ pub fn on_notification_activated(handler: impl FnMut(crate::NotificationActivati
         ));
         let forward = Rc::clone(&shared);
         let subscription = crate::notification::on_activation(Rc::new(
-            move |activation: crate::NotificationActivation| {
-                (&mut *forward.borrow_mut())(activation)
-            },
+            move |activation: crate::NotificationActivation| (*forward.borrow_mut())(activation),
         ));
         composer.remember_new(ActivationSlot {
             handler: shared,

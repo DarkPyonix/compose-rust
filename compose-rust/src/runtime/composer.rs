@@ -451,7 +451,7 @@ impl Composer {
                 self.forget_slot(slot);
             }
         }
-        let new = std::mem::replace(&mut frame.new, Vec::new());
+        let new = std::mem::take(&mut frame.new);
         let old_buffer = std::mem::take(&mut frame.old);
         self.groups[group as usize].children = new;
         self.give_vec(old_buffer);
@@ -988,7 +988,7 @@ impl Composer {
             // `dioxus-core` removes one that left a template's attribute list.
             for (name, _) in &previous {
                 if !attrs.iter().any(|(new_name, _)| new_name == name) {
-                    self.writer.set_attribute(node, *name, &AttrValue::None);
+                    self.writer.set_attribute(node, name, &AttrValue::None);
                 }
             }
             for (name, value) in &attrs {
@@ -1022,7 +1022,7 @@ impl Composer {
                         }
                     }
                 }
-                self.writer.set_attribute(node, *name, &value.as_value());
+                self.writer.set_attribute(node, name, &value.as_value());
             }
             for (name, callback) in listeners {
                 match handlers.iter().find(|(existing, _)| *existing == name) {
@@ -1057,7 +1057,7 @@ impl Composer {
             // Attributes and listeners go out in the order the widget lists them, which
             // for every widget here is attributes first and listeners after.
             for (name, value) in &attrs {
-                self.writer.set_attribute(node, *name, &value.as_value());
+                self.writer.set_attribute(node, name, &value.as_value());
             }
             for (name, callback) in listeners {
                 let id = self.writer.allocate_handler_id();
