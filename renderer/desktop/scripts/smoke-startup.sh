@@ -70,3 +70,18 @@ check_smoke_startup() {
         fi
     done
 }
+
+# Run rather than sourced, by a smoke run that is not bash (smoke-test-windows.ps1):
+#   smoke-startup.sh check-log <log file> <exit status>
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    case "${1:-}" in
+        check-log)
+            check_smoke_startup "$(cat "$2")" "$3"
+            exit $?
+            ;;
+        *)
+            echo "usage: smoke-startup.sh check-log <log file> <exit status>" >&2
+            exit 2
+            ;;
+    esac
+fi
