@@ -11,14 +11,12 @@
 //! looked at. The width is part of the file name, so the Renderer draws each recording in
 //! a window of the size the Host was told about rather than guessing one.
 
-use dioxus_compose_adapter::protocol::{
-    HostEvent, Mutation, PropertyValue, decode_batch, encode_event,
-};
-use dioxus_compose_adapter::schema::{
+use compose_rust::ComposeHost;
+use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
+use compose_rust::schema::{
     ColorScheme, DesignSystem, EventPayload, PropertyKind, Theme, WidgetKind, WindowHeightClass,
     WindowSizeClass,
 };
-use dioxus_compose_adapter::{Element, Host};
 use std::path::{Path, PathBuf};
 
 /// A window the Host is told about and the Renderer draws into.
@@ -71,7 +69,7 @@ pub const SCHEMES: [ColorScheme; 2] = [ColorScheme::Light, ColorScheme::Dark];
 /// screen is rarely one batch: a list holds no rows until something asks for a window, and
 /// a window size arrives as an event rather than as part of the first frame.
 pub struct Screen {
-    host: Host,
+    host: ComposeHost,
     frames: Vec<Vec<u8>>,
     event: Vec<u8>,
     viewport: Viewport,
@@ -170,7 +168,7 @@ impl Screen {
         lists.len()
     }
 
-    pub fn press_icon(&mut self, icon: dioxus_compose_adapter::schema::IconRole) -> bool {
+    pub fn press_icon(&mut self, icon: compose_rust::schema::IconRole) -> bool {
         let found = {
             let mutations = self.mutations();
             let node = mutations.iter().find_map(|mutation| match mutation {
@@ -341,7 +339,7 @@ pub fn frame_dir() -> Option<PathBuf> {
 /// Unset, which is the normal run, it still builds all thirty-six: a design system or a
 /// width nobody can encode is exactly the failure this is here to catch, and catching it
 /// should not depend on someone having asked for pictures.
-pub fn record(screen: &str, app: fn() -> Element, prepare: impl FnMut(&mut Screen)) {
+pub fn record(screen: &str, app: fn(), prepare: impl FnMut(&mut Screen)) {
     record_in(screen, &SYSTEMS, app, prepare);
 }
 
@@ -357,7 +355,7 @@ pub fn record(screen: &str, app: fn() -> Element, prepare: impl FnMut(&mut Scree
 pub fn record_in(
     screen: &str,
     systems: &[DesignSystem],
-    app: fn() -> Element,
+    app: fn(),
     prepare: impl FnMut(&mut Screen),
 ) {
     let themes: Vec<Theme> = systems
@@ -390,19 +388,14 @@ pub fn as_designed(theme: Theme, systems: &[DesignSystem]) -> Vec<Theme> {
 }
 
 /// Records one screen once per theme and window.
-pub fn record_as(
-    screen: &str,
-    themes: &[Theme],
-    app: fn() -> Element,
-    mut prepare: impl FnMut(&mut Screen),
-) {
+pub fn record_as(screen: &str, themes: &[Theme], app: fn(), mut prepare: impl FnMut(&mut Screen)) {
     let directory = frame_dir();
     for theme in themes.iter().copied() {
         let system = theme.design_system;
         let scheme = theme.color_scheme;
         for viewport in VIEWPORTS {
-            dioxus_compose_adapter::window::reset_window_size();
-            let mut host = Host::with_theme(app, theme);
+            compose_rust::window::reset_window_size();
+            let mut host = ComposeHost::with_theme(app, theme);
             let first = host
                 .rebuild()
                 .unwrap_or_else(|error| {
@@ -439,7 +432,7 @@ pub fn record_as(
             }
         }
     }
-    dioxus_compose_adapter::window::reset_window_size();
+    compose_rust::window::reset_window_size();
 }
 
 /// The name carries the window it was recorded for, so the Renderer draws each recording
