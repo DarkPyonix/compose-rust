@@ -7,6 +7,7 @@ import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.scene.ComposeScene
 import androidx.compose.ui.unit.dp
+import org.thisisthepy.compose.window.FrameClock
 import org.thisisthepy.compose.window.WindowConfig
 import org.thisisthepy.compose.window.WindowEvent
 import org.thisisthepy.compose.window.WindowFrames
@@ -133,8 +134,9 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
 
     // A clock rather than a count of turns, because a turn and a frame are no longer the
     // same thing: a resize draws its own, and a count only the loop advanced would hand
-    // two frames in a row the same time and stop whatever is animating between them.
-    val startNanos = System.nanoTime()
+    // two frames in a row the same time and stop whatever is animating between them. The
+    // window says what the time is, on the monotonic clock the Host reads too.
+    val frameClock = FrameClock(window::frameTimeNanos)
     var painted = false
     val frames = WindowFrames({ window.measure() }) { width, height, scale ->
         val fitted = androidx.compose.ui.unit.IntSize(width, height)
@@ -147,7 +149,7 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
             scene.size = fitted
         }
         size = fitted
-        if (drawFrame(window, context, scene, System.nanoTime() - startNanos, fitted)) {
+        if (drawFrame(window, context, scene, frameClock.frameNanos(), fitted)) {
             painted = true
             WindowStartReport.frameDrawn(fitted.width, fitted.height)
         }
@@ -170,7 +172,7 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
             // or not at all. Waiting the frame's length rather than sleeping afterwards,
             // because a window with nothing happening should rest rather than spin, and
             // because a resize that arrives during the wait is drawn inside it.
-            window.pump(FRAME_MILLIS)
+            window.pump(TURN_WAIT_MILLIS)
             // Before the events and before the drawing. What is waiting here is the
             // scene's own work, and a list that asked for rows on the last frame wants
             // them in hand before this one is measured.
@@ -261,10 +263,11 @@ private fun drawFrame(
 /**
  * How long a turn of the loop is willing to wait for something to happen.
  *
- * A frame at sixty per second. It is a ceiling rather than a pace: anything arriving sooner
- * ends the wait, and a resize is drawn inside it rather than after it.
+ * A ceiling rather than a pace, and not how frames are timed: anything arriving sooner ends
+ * the wait, a resize is drawn inside it rather than after it, and each frame is drawn at the
+ * time the window reports.
  */
-private const val FRAME_MILLIS = 16L
+private const val TURN_WAIT_MILLIS = 16L
 private const val NANOS_PER_MILLI = 1_000_000L
 
 /** The caption strip a window with no frame of the system's draws for itself. */
