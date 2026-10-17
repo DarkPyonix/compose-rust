@@ -11,6 +11,9 @@ on:
   # A new workflow cannot be dispatched until it is on the default branch, so it also runs
   # on the pull request that changes it.
   pull_request:
+    # Only when asked: the run-heavy-ci label going on, or a push or reopen while it is on.
+    # The request job below decides; heavy-checks.yml holds the merge until it has passed.
+    types: [synchronize, reopened, labeled]
     paths:
       - ".github/workflows/test-windows-resize-metrics.yml"
       - ".github/scripts/resize-metrics-run.sh"
@@ -20,14 +23,28 @@ on:
 concurrency:
   # One run per pull request: a new commit cancels the older run. Pushes to develop,
   # dispatches and tag runs are never cancelled.
-  group: test-windows-resize-metrics-${{ github.event.pull_request.number || github.ref }}
+  group: test-windows-resize-metrics-${{ github.event.pull_request.number || github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'run-heavy-ci' && format('-other-label-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 jobs:
+  # Heavy: runs only when asked for (the run-heavy-ci label on a pull request, or any other
+  # event). Every job below needs this one, so a run nobody asked for is skipped whole, and
+  # heavy-checks.yml does not count it.
+  requested:
+    name: Heavy checks requested
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.action == 'labeled' && github.event.label.name == 'run-heavy-ci') ||
+      (github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'run-heavy-ci'))
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Heavy checks requested by ${{ github.event_name }} ${{ github.event.action }}"
+
   compose:
+    needs: requested
     name: Compose and skiko for mingwX64 (built on Linux)
     runs-on: ubuntu-24.04
     timeout-minutes: 300
@@ -491,6 +508,7 @@ jobs:
           retention-days: 14
 
   macos:
+    needs: requested
     name: Kotlin/Native renderer, hand-check under a scripted resize (macOS, arm64)
     runs-on: macos-latest
     timeout-minutes: 360

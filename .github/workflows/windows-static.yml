@@ -22,11 +22,9 @@ name: Windows static renderer
 
 on:
   workflow_call:
+  # Heavy (two to three hours), so it never starts on its own: by hand, or from a workflow
+  # that calls it.
   workflow_dispatch:
-  # Temporary, while the job is brought up on its branch: a workflow file that is not on the
-  # default branch cannot be dispatched by hand. To be removed before the branch is merged.
-  push:
-    branches: [feature/windows-kotlin-native]
 
 concurrency:
   group: windows-static-${{ github.event.pull_request.number || github.ref }}
