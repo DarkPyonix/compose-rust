@@ -1,8 +1,7 @@
-@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class, kotlin.concurrent.atomics.ExperimentalAtomicApi::class)
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
 
 package dev.darkpyonix.composerust.ui.platform
 
-import kotlin.concurrent.atomics.AtomicInt
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.MainCoroutineDispatcher
 import kotlinx.coroutines.Runnable
@@ -34,9 +33,7 @@ import platform.posix.pthread_self
  * sent from anywhere runs on the next turn.
  *
  * Written again rather than shared because the desktop one holds its work in a
- * `java.util.concurrent` queue, which Kotlin/Native has not got. The Kotlin/Native Windows
- * renderer links this same file, so the lock is a Kotlin atomic rather than a
- * `pthread_mutex_t`, which MinGW's headers declare as a plain integer and Linux's as a struct.
+ * `java.util.concurrent` queue, which Kotlin/Native has not got.
  *
  * The thread that makes it is the window's thread: [runPending] must be called there, and
  * [immediate] runs work in place there.
@@ -44,11 +41,8 @@ import platform.posix.pthread_self
 internal class FrameDispatcher : MainCoroutineDispatcher() {
     private val owner = pthread_self()
 
-    /**
-     * 1 while a thread is inside [locked]. A spin lock is enough: it is only ever held across one
-     * operation on a short queue, never across running the work.
-     */
-    private val lock = AtomicInt(0)
+    /** Each platform's own lock (`FrameLock.kt`): a pthread mutex on Linux, an SRW lock on Windows. */
+    private val lock = FrameLock()
 
     /** What has been sent and not yet run. Read and written only under [lock]. */
     private val waiting = ArrayDeque<Runnable>()
@@ -110,13 +104,11 @@ internal class FrameDispatcher : MainCoroutineDispatcher() {
     override fun toString(): String = "FrameDispatcher"
 
     private inline fun <T> locked(block: () -> T): T {
-        while (!lock.compareAndSet(0, 1)) {
-            // Held for one queue operation; the holder is about to let go.
-        }
+        lock.lock()
         try {
             return block()
         } finally {
-            lock.store(0)
+            lock.unlock()
         }
     }
 
