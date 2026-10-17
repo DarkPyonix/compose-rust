@@ -52,8 +52,19 @@ private fun askForMotion(): ReducedMotion {
         else -> listOf("gsettings", "get", "org.gnome.desktop.interface", "enable-animations")
     }
     val answer = ask(query) ?: return ReducedMotion.Unknown
-    return readMotionAnswer(answer, inverted = !name.contains("mac") && !name.contains("win"))
+    return readMotionAnswer(answer, inverted = motionAnswerIsInverted(name))
 }
+
+/**
+ * Whether the motion setting of the desktop called [osName] is phrased as animations being
+ * on, so that a yes means motion is not reduced.
+ *
+ * Only macOS asks the question directly (`ReduceMotionEnabled`). Windows keeps `MinAnimate`,
+ * which is 1 while window animations play and 0 once "Show animations in Windows" is
+ * switched off, and GNOME keeps `enable-animations`: both answer the other way round.
+ */
+internal fun motionAnswerIsInverted(osName: String): Boolean =
+    !osName.lowercase().contains("mac")
 
 private fun ask(query: List<String>): String? = runCatching {
     val process = ProcessBuilder(query).redirectErrorStream(true).start()
