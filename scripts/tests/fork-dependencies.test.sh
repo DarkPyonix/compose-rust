@@ -15,7 +15,8 @@
 #   build-compose.sh refuses a pin whose gradle.properties publishes another version
 #   require-fork-artifacts.sh refuses a repository whose metadata names a sibling nobody
 #     published, names it and the command that publishes it, and accepts the complete one
-#   a constraint (an atomic group naming every module in it) is not a missing sibling
+#   a constraint (an atomic group naming every module in it) is not a missing sibling, and
+#     neither is a dependency of a root's variant for a target that was not built
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -89,7 +90,11 @@ publish() { # <module> <artifact> <suffix>
                 "$separator" "$(group_of "$dependency")" "$dependency" "$suffix" "$version"
             separator=$',\n'
         done
-        printf '\n      ],\n      "dependencyConstraints": [\n        {\n          "group": "org.thisisthepy.compose.ui",\n          "module": "ui-test-junit4",\n          "version": {\n            "requires": "%s"\n          },\n          "reason": "atomic group"\n        }\n      ]\n    }\n  ]\n}\n' "$version"
+        printf '\n      ],\n      "dependencyConstraints": [\n        {\n          "group": "org.thisisthepy.compose.ui",\n          "module": "ui-test-junit4",\n          "version": {\n            "requires": "%s"\n          },\n          "reason": "atomic group"\n        }\n      ]\n    }' "$version"
+        # A root lists every configured target, built here or not: an iOS variant naming
+        # ui-uikit, which a macOS build never publishes.
+        [[ -z "$suffix" ]] && printf ',\n    {\n      "name": "iosArm64ApiElements-published",\n      "dependencies": [\n        {\n          "group": "org.thisisthepy.compose.ui",\n          "module": "ui-uikit",\n          "version": {\n            "requires": "%s"\n          }\n        }\n      ]\n    }' "$version"
+        printf '\n  ]\n}\n'
     } > "$directory/$artifact-$version.module"
     {
         printf '<project>\n  <groupId>%s</groupId>\n  <artifactId>%s</artifactId>\n  <version>%s</version>\n' "$group" "$artifact" "$version"
@@ -174,6 +179,8 @@ else
         fail "require-fork-artifacts.sh did not name the command that publishes it"
     grep -q "ui-test-junit4" "$work/out" &&
         fail "require-fork-artifacts.sh reported ui-test-junit4, which only a constraint names"
+    grep -q "ui-uikit" "$work/out" &&
+        fail "require-fork-artifacts.sh reported ui-uikit, which only the root's iOS variant names"
 fi
 
 if [[ "$failures" -eq 0 ]]; then echo "  ok"; else exit 1; fi

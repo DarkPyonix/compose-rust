@@ -43,6 +43,7 @@ VERSION="$version" ARGUMENT="$argument" REPOSITORY="$repository" perl -e '
 use strict;
 use warnings;
 use File::Find;
+use JSON::PP;
 
 my ($version, $argument, $repository) = @ENV{qw(VERSION ARGUMENT REPOSITORY)};
 my @targets = qw(desktop jvm android macosarm64 macosx64 linuxx64 linuxarm64 mingwx64
@@ -99,16 +100,15 @@ for my $file (sort @files) {
     next if $argument ne "" && defined $own_target && $own_target ne $argument;
     my @served = served_targets($group, $artifact);
 
+    # Gradle and the Kotlin toolchain read the .module where there is one; the .pom beside it is
+    # for Maven and lists the dependencies of every target in one place.
+    (my $module_file = $file) =~ s/\.pom$/.module/;
+    next if $file =~ /\.pom$/ && -f $module_file;
+
     open my $in, "<", $file or die "cannot read $file: $!\n";
     local $/;
     my $text = <$in>;
     close $in;
-
-    # Only what a consumer resolves. A constraint (Gradle) or a managed version (Maven) names a
-    # module without asking for it, and an atomic group names every module in it, published
-    # for this target or not.
-    $text =~ s{"dependencyConstraints":\s*\[.*?\]}{}gs;
-    $text =~ s{<dependencyManagement>.*?</dependencyManagement>}{}gs;
 
     my $check = sub {
         my ($dependency_group, $dependency) = @_;
@@ -119,18 +119,34 @@ for my $file (sort @files) {
         push @problems, "$dependency_group:$dependency:$version, named by $relative";
     };
 
-    # Gradle module metadata: every dependency at the fork version.
-    while ($text =~ m{\{\s*"group":\s*"([^"]+)",\s*"module":\s*"([^"]+)",\s*"version":\s*\{([^{}]*)\}}g) {
-        my ($dependency_group, $dependency, $fields) = ($1, $2, $3);
-        $check->($dependency_group, $dependency) if $fields =~ /"\Q$version\E"/;
-    }
-    # Maven: every <dependency> at the fork version.
-    while ($text =~ m{<dependency>(.*?)</dependency>}gs) {
-        my $body = $1;
-        my ($dependency_group) = $body =~ m{<groupId>\s*([^<\s]+)\s*</groupId>};
-        my ($dependency) = $body =~ m{<artifactId>\s*([^<\s]+)\s*</artifactId>};
-        next unless defined $dependency_group && defined $dependency;
-        $check->($dependency_group, $dependency) if $body =~ m{<version>\s*\Q$version\E\s*</version>};
+    if ($file =~ /\.module$/) {
+        my $metadata = JSON::PP->new->decode($text);
+        my %served = map { $_ => 1 } @served;
+        for my $variant (@{ $metadata->{variants} || [] }) {
+            # A root lists a variant for every target the build configured; only the targets
+            # published here are ones a consumer reaches. Constraints name a module without
+            # asking for it (an atomic group names every module in it), so only dependencies count.
+            my ($target) = ($variant->{name} // "") =~ /^([a-z][A-Za-z0-9]*?)(?:Api|Runtime|Sources|Metadata|Javadoc)Elements/;
+            if (defined $target && !defined $own_target) {
+                $target = lc $target;
+                next unless $target eq "metadata" || $served{$target};
+            }
+            for my $dependency (@{ $variant->{dependencies} || [] }) {
+                my $requested = $dependency->{version} || {};
+                next unless grep { defined $_ && $_ eq $version } @$requested{qw(requires strictly prefers)};
+                $check->($dependency->{group}, $dependency->{module});
+            }
+        }
+    } else {
+        # Maven: every <dependency> at the fork version, outside the managed versions.
+        $text =~ s{<dependencyManagement>.*?</dependencyManagement>}{}gs;
+        while ($text =~ m{<dependency>(.*?)</dependency>}gs) {
+            my $body = $1;
+            my ($dependency_group) = $body =~ m{<groupId>\s*([^<\s]+)\s*</groupId>};
+            my ($dependency) = $body =~ m{<artifactId>\s*([^<\s]+)\s*</artifactId>};
+            next unless defined $dependency_group && defined $dependency;
+            $check->($dependency_group, $dependency) if $body =~ m{<version>\s*\Q$version\E\s*</version>};
+        }
     }
 }
 
