@@ -132,32 +132,7 @@ impl Screen {
     /// Returns how many lists were filled, so a caller can assert its list exists rather
     /// than photographing an empty one and wondering.
     pub fn fill_lists(&mut self, count: u32) -> usize {
-        let lists: Vec<(u32, u64)> = {
-            let mutations = self.mutations();
-            let nodes: Vec<u32> = mutations
-                .iter()
-                .filter_map(|mutation| match mutation {
-                    Mutation::Create {
-                        node_id,
-                        widget: WidgetKind::LazyColumn | WidgetKind::LazyRow,
-                    } => Some(*node_id),
-                    _ => None,
-                })
-                .collect();
-            nodes
-                .iter()
-                .filter_map(|node| {
-                    mutations.iter().find_map(|mutation| match mutation {
-                        Mutation::SetProp {
-                            node_id,
-                            property: PropertyKind::OnRangeRequested,
-                            value: PropertyValue::Integer(id),
-                        } if node_id == node => Some((*node, *id as u64)),
-                        _ => None,
-                    })
-                })
-                .collect()
-        };
+        let lists = self.live_lists();
         for (node_id, handler_id) in &lists {
             self.dispatch(HostEvent {
                 node_id: *node_id,
@@ -166,6 +141,72 @@ impl Screen {
             });
         }
         lists.len()
+    }
+
+    /// The windowing lists still on screen, each with the range handler it declared last,
+    /// in the order they were created.
+    ///
+    /// Replayed in order rather than searched, because a screen that moved to another page
+    /// has removed the lists the first page had, and their handlers went with them: asking
+    /// one of those for rows is an event for a handler that no longer exists. A list that
+    /// was given a new handler is asked through the new one for the same reason.
+    fn live_lists(&self) -> Vec<(u32, u64)> {
+        use std::collections::HashMap;
+        let mut order: Vec<u32> = Vec::new();
+        let mut handlers: HashMap<u32, u64> = HashMap::new();
+        let mut parents: HashMap<u32, u32> = HashMap::new();
+        for mutation in self.mutations() {
+            match mutation {
+                Mutation::Create {
+                    node_id,
+                    widget: WidgetKind::LazyColumn | WidgetKind::LazyRow,
+                } => {
+                    order.retain(|node| *node != node_id);
+                    order.push(node_id);
+                    handlers.remove(&node_id);
+                }
+                Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::OnRangeRequested,
+                    value: PropertyValue::Integer(id),
+                } => {
+                    handlers.insert(node_id, id as u64);
+                }
+                Mutation::Insert {
+                    parent_id, node_id, ..
+                }
+                | Mutation::Move {
+                    parent_id, node_id, ..
+                } => {
+                    parents.insert(node_id, parent_id);
+                }
+                Mutation::Remove { node_id } => {
+                    // A removed node takes everything under it along.
+                    let mut gone = vec![node_id];
+                    let mut index = 0;
+                    while index < gone.len() {
+                        let parent = gone[index];
+                        gone.extend(
+                            parents
+                                .iter()
+                                .filter(|(_, of)| **of == parent)
+                                .map(|(child, _)| *child),
+                        );
+                        index += 1;
+                    }
+                    for node in gone {
+                        parents.remove(&node);
+                        handlers.remove(&node);
+                        order.retain(|list| *list != node);
+                    }
+                }
+                _ => {}
+            }
+        }
+        order
+            .into_iter()
+            .filter_map(|node| handlers.get(&node).map(|handler| (node, *handler)))
+            .collect()
     }
 
     pub fn press_icon(&mut self, icon: compose_rust::schema::IconRole) -> bool {
