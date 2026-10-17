@@ -106,7 +106,6 @@ Where work exists, it sits in an open pull request or a branch.
 | The bar's title in the platform caption | planned | [#79](https://github.com/DarkPyonix/compose-rust/issues/79) | none |
 | Design systems split into per-system libraries and an adaptive layer | partial | [#39](https://github.com/DarkPyonix/compose-rust/issues/39) | branch `chore/thisisthepy-coordinates` in the Compose forks |
 | The Windows Kotlin/Native renderer | partial | [#24](https://github.com/DarkPyonix/compose-rust/issues/24) | [#119](https://github.com/DarkPyonix/compose-rust/pull/119) |
-| Sample releases on the authoring API | partial | [#85](https://github.com/DarkPyonix/compose-rust/issues/85) | the samples are rewritten; their releases resume with #85 |
 | An event when the system colour scheme changes | proposed, awaiting approval | [#97](https://github.com/DarkPyonix/compose-rust/issues/97) | none |
 | Focus-gained and key-up events per node | proposed, awaiting approval | [#98](https://github.com/DarkPyonix/compose-rust/issues/98) | none |
 
@@ -327,15 +326,16 @@ cd renderer && ./kotlin run -m desktop
 ```
 compose-rust/     the crate: boundary, protocol, schema, codegen, renderer download
 renderer/         the Kotlin renderer: interpreter, generated shims, one module per platform
-samples/          eleven sample applications on the authoring API, and the screen recorder (frames)
+samples/          11 sample applications on the authoring API, and the frames library their tests record through
 docs/             the user guide (docs/guide) and translations (docs/locales)
 scripts/          setup check, quality gate, release and publishing scripts, script tests
 .github/          CI workflows
 ```
 
 The adapter for dioxus-compose and its baseline moved to [dioxus-compose](https://github.com/DarkPyonix/dioxus-compose).
-The design systems moved to the Compose fork, under `extended/design-systems/`, and the desktop
-window code under `extended/window/`, both in
+The samples under `samples/` are written on the compose-rust authoring API and build with the
+workspace. The design systems moved to the Compose fork, under `extended/design-systems/`, and the
+desktop window code under `extended/window/`, both in
 [thisisthepy/compose-multiplatform-core-extended](https://github.com/thisisthepy/compose-multiplatform-core-extended).
 
 ---

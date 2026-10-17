@@ -54,6 +54,7 @@ KNOWN_HEAVY = [
     "test-compose-from-fork.yml",
     "test-kn-desktop-renderer.yml",
     "test-native-renderer.yml",
+    "test-samples.yml",
     "test-windows-resize-metrics.yml",
     "test-windows-resize-probe.yml",
 ]

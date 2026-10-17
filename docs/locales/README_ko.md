@@ -101,7 +101,6 @@ fn main() {
 | 막대 제목을 플랫폼 캡션에 맡기기 | 계획 | [#79](https://github.com/DarkPyonix/compose-rust/issues/79) | 없음 |
 | 디자인 시스템을 시스템별 라이브러리와 적응형 층으로 나누기 | 부분 | [#39](https://github.com/DarkPyonix/compose-rust/issues/39) | Compose 포크의 `chore/thisisthepy-coordinates` 브랜치 |
 | Windows Kotlin/Native 렌더러 | 부분 | [#24](https://github.com/DarkPyonix/compose-rust/issues/24) | [#119](https://github.com/DarkPyonix/compose-rust/pull/119) |
-| 작성 API로 쓴 샘플의 릴리스 | 부분 | [#85](https://github.com/DarkPyonix/compose-rust/issues/85) | 샘플은 다시 썼고, 릴리스는 #85와 함께 재개됩니다 |
 | 시스템 색 구성표가 바뀌었다는 이벤트 | 제안, 승인 대기 | [#97](https://github.com/DarkPyonix/compose-rust/issues/97) | 없음 |
 | 노드마다 포커스를 얻은 이벤트와 키를 뗀 이벤트 | 제안, 승인 대기 | [#98](https://github.com/DarkPyonix/compose-rust/issues/98) | 없음 |
 
@@ -313,15 +312,16 @@ cd renderer && ./kotlin run -m desktop
 ```
 compose-rust/     the crate: boundary, protocol, schema, codegen, renderer download
 renderer/         the Kotlin renderer: interpreter, generated shims, one module per platform
-samples/          eleven sample applications on the authoring API, and the screen recorder (frames)
+samples/          11 sample applications on the authoring API, and the frames library their tests record through
 docs/             the user guide (docs/guide) and translations (docs/locales)
 scripts/          setup check, quality gate, release and publishing scripts, script tests
 .github/          CI workflows
 ```
 
 dioxus-compose용 어댑터와 기준선은 [dioxus-compose](https://github.com/DarkPyonix/dioxus-compose)로 옮겨 갔습니다.
-디자인 시스템은 `extended/design-systems/` 아래로, 데스크톱 창 코드는 `extended/window/` 아래로 Compose
-포크 [thisisthepy/compose-multiplatform-core-extended](https://github.com/thisisthepy/compose-multiplatform-core-extended)에
+`samples/` 아래 샘플은 compose-rust 작성 API로 작성되어 있으며 워크스페이스와 함께 빌드됩니다. 디자인
+시스템은 `extended/design-systems/` 아래로, 데스크톱 창 코드는 `extended/window/` 아래로 Compose 포크
+[thisisthepy/compose-multiplatform-core-extended](https://github.com/thisisthepy/compose-multiplatform-core-extended)에
 옮겨 갔습니다.
 
 ---
