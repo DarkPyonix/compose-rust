@@ -163,6 +163,25 @@ static int edge_offset;          /* rightmost window pixel minus client right ed
 static long frames_total, frames_analysed, frames_with_hole, frames_with_black;
 static long long drag_from_qpc, drag_to_qpc;
 static long frames_in_drag, holes_in_drag, black_in_drag;
+static long torn_in_drag, strip_holes_in_drag, strip_black_in_drag;
+
+/*
+ * The strip: every second row of the client area from 24 px below its top to 24 px above
+ * its bottom, leaving out 24 px either side of the height the cursor is pressed at. Two rows
+ * see a hole only where it crosses them; the strip sees one anywhere down the window's
+ * height, and a frame whose rows end at different x (the top drawn at one width, the bottom
+ * at another) is a frame torn between two sizes.
+ */
+static int strip_top, strip_bottom, cursor_y;
+#define STRIP_MARGIN 24
+#define TORN_PX 2
+
+struct strip_result {
+    int rows;
+    int right_min, right_max;
+    int hole_rows, black_rows;
+    int first_hole_y, first_hole_x;
+};
 static int widths_seen[4096];
 static int widths_seen_count;
 
@@ -256,6 +275,57 @@ static void analyse_row(const uint32_t *pixels, int y, struct row_result *result
     }
 }
 
+static void analyse_strip(struct strip_result *result) {
+    memset(result, 0, sizeof *result);
+    result->right_min = 1 << 30;
+    result->right_max = -1;
+    result->first_hole_y = result->first_hole_x = -1;
+    if (strip_bottom <= strip_top) return;
+    D3D11_BOX box;
+    box.left = 0;
+    box.right = (UINT)desktop_width;
+    box.top = (UINT)(strip_top - desktop.top);
+    box.bottom = (UINT)(strip_bottom - desktop.top);
+    box.front = 0;
+    box.back = 1;
+    ID3D11DeviceContext_CopySubresourceRegion(context, (ID3D11Resource *)full_staging, 0, 0, box.top, 0,
+                                              (ID3D11Resource *)latest, 0, &box);
+    D3D11_MAPPED_SUBRESOURCE mapped;
+    if (FAILED(ID3D11DeviceContext_Map(context, (ID3D11Resource *)full_staging, 0, D3D11_MAP_READ, 0, &mapped))) return;
+    int left = scan_left - desktop.left;
+    if (left < 0) left = 0;
+    for (int y = strip_top; y < strip_bottom; y += 2) {
+        if (y > cursor_y - STRIP_MARGIN && y < cursor_y + STRIP_MARGIN) continue;
+        const uint32_t *pixels = (const uint32_t *)((const uint8_t *)mapped.pData + (size_t)(y - desktop.top) * mapped.RowPitch);
+        const uint32_t *was = background + (size_t)(y - desktop.top) * desktop_width;
+        int right = -1;
+        for (int x = left; x < desktop_width; x++) {
+            if (!is_backdropish(pixels[x])) right = x;
+        }
+        if (right < 0) continue;
+        result->rows++;
+        if (right < result->right_min) result->right_min = right;
+        if (right > result->right_max) result->right_max = right;
+        int hole = 0, black = 0;
+        for (int x = left; x <= right; x++) {
+            if (is_backdropish(pixels[x])) {
+                if (!hole && result->first_hole_y < 0) {
+                    result->first_hole_y = y;
+                    result->first_hole_x = x + desktop.left;
+                }
+                hole = 1;
+            }
+            if (is_black(pixels[x]) && !is_black(was[x])) black = 1;
+        }
+        result->hole_rows += hole;
+        result->black_rows += black;
+    }
+    ID3D11DeviceContext_Unmap(context, (ID3D11Resource *)full_staging, 0);
+    if (result->rows == 0) result->right_min = result->right_max = -1 - desktop.left;
+    result->right_min += desktop.left;
+    result->right_max += desktop.left;
+}
+
 typedef HRESULT(WINAPI *timing_fn)(HWND, DWM_TIMING_INFO *);
 
 static void analyse_latest(long long present, UINT accumulated, int calibrating) {
@@ -284,6 +354,9 @@ static void analyse_latest(long long present, UINT accumulated, int calibrating)
         return;
     }
     frames_analysed++;
+    struct strip_result strip;
+    analyse_strip(&strip);
+    int torn = strip.rows > 0 && strip.right_max - strip.right_min > TORN_PX;
     int holes = results[0].holes + results[1].holes;
     int black = results[0].black + results[1].black;
     if (holes > 0) frames_with_hole++;
@@ -295,6 +368,9 @@ static void analyse_latest(long long present, UINT accumulated, int calibrating)
         frames_in_drag++;
         holes_in_drag += holes > 0;
         black_in_drag += black > 0;
+        torn_in_drag += torn;
+        strip_holes_in_drag += strip.hole_rows > 0;
+        strip_black_in_drag += strip.black_rows > 0;
         if (inferred > 0) note_width(inferred);
     }
     static timing_fn timing;
@@ -310,12 +386,15 @@ static void analyse_latest(long long present, UINT accumulated, int calibrating)
     fprintf(out,
             "resize-probe: frame n=%ld qpc_present=%lld accumulated=%u qpc_taken=%lld cframe=%llu qpc_compose=%llu "
             "qpc_vblank=%llu crefresh=%llu cframe_displayed=%llu in_drag=%d width=%d right0=%d right1=%d "
-            "holes0=%d holes1=%d hole_from0=%d hole_from1=%d black=%d runs0=%s| runs1=%s| raw0=%s| raw1=%s\n",
+            "holes0=%d holes1=%d hole_from0=%d hole_from1=%d black=%d strip_rows=%d strip_right=%d-%d torn=%d "
+            "strip_hole_rows=%d strip_first_hole=%d,%d strip_black_rows=%d runs0=%s| runs1=%s| raw0=%s| raw1=%s\n",
             frames_analysed, present, accumulated, now_qpc(), (unsigned long long)info.cFrame,
             (unsigned long long)info.qpcCompose, (unsigned long long)info.qpcVBlank,
             (unsigned long long)info.cRefresh, (unsigned long long)info.cFrameDisplayed, in_drag, inferred,
             results[0].right + desktop.left, results[1].right + desktop.left, results[0].holes, results[1].holes,
-            results[0].hole_from, results[1].hole_from, black, results[0].runs, results[1].runs, results[0].raw,
+            results[0].hole_from, results[1].hole_from, black, strip.rows, strip.right_min, strip.right_max, torn,
+            strip.hole_rows, strip.first_hole_x, strip.first_hole_y, strip.black_rows, results[0].runs, results[1].runs,
+            results[0].raw,
             results[1].raw);
 }
 
@@ -480,9 +559,10 @@ int main(int argc, char **argv) {
     int travel = atoi(argument(argc, argv, "--travel", "0"));
     int wait_seconds = atoi(argument(argc, argv, "--wait-seconds", "180"));
     const char *class_name = argument(argc, argv, "--class", "ComposeRustWindow");
-    int turn_on_full_drag = 0;
+    int turn_on_full_drag = 0, place = 0;
     for (int index = 1; index < argc; index++) {
         if (strcmp(argv[index], "--turn-on-full-window-drag") == 0) turn_on_full_drag = 1;
+        if (strcmp(argv[index], "--place") == 0) place = 1;
     }
     /*
      * Physical pixels everywhere: Desktop Duplication, SendInput's absolute coordinates and the
@@ -547,6 +627,30 @@ int main(int argc, char **argv) {
         return 2;
     }
     DWORD thread = GetWindowThreadProcessId(window, NULL);
+    if (place) {
+        /*
+         * --place: an application that does not put its window in place for the drag (the
+         * GraalVM renderer has no DXC_REAL_DRAG hook) has it put there from here, once it is
+         * showing and has stopped moving: the work area's top left, 640x480 pixels asked for.
+         */
+        RECT before, now;
+        GetWindowRect(window, &before);
+        int still = 0;
+        for (int waited = 0; waited < wait_seconds * 1000 && IsWindow(window) && still < 1000; waited += 50) {
+            Sleep(50);
+            GetWindowRect(window, &now);
+            still = IsWindowVisible(window) && EqualRect(&now, &before) ? still + 50 : 0;
+            before = now;
+        }
+        MONITORINFO work;
+        memset(&work, 0, sizeof work);
+        work.cbSize = sizeof work;
+        GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &work);
+        BOOL placed = SetWindowPos(window, NULL, work.rcWork.left, work.rcWork.top, 640, 480,
+                                   SWP_NOZORDER | SWP_NOACTIVATE);
+        say("placed the window at %ld,%ld asking for 640x480 px: %s", work.rcWork.left, work.rcWork.top,
+            placed ? "ok" : "FAILED");
+    }
     /*
      * Ready: the application (DXC_REAL_DRAG=external) moves its window to the top left of the
      * work area and asks for 640x480 pixels. What it gets can be larger, because the window's
@@ -643,6 +747,11 @@ int main(int argc, char **argv) {
     /* Above and below the height the cursor is pressed at (the middle), which it would cover. */
     row_y[0] = origin.y + client.bottom / 4;
     row_y[1] = origin.y + client.bottom * 3 / 4;
+    cursor_y = origin.y + client.bottom / 2;
+    strip_top = origin.y + STRIP_MARGIN;
+    strip_bottom = origin.y + client.bottom - STRIP_MARGIN;
+    if (strip_top < desktop.top) strip_top = desktop.top;
+    if (strip_bottom > desktop.bottom) strip_bottom = desktop.bottom;
     if (travel <= 0) travel = (int)(monitor.rcWork.right - outer.right) - 16;
     /*
      * The backdrop goes directly behind the window, above everything else: the runner's
@@ -741,14 +850,17 @@ int main(int argc, char **argv) {
     WaitForSingleObject(capture, 5000);
     if (turned_on) SystemParametersInfoW(SPI_SETDRAGFULLWINDOWS, FALSE, NULL, SPIF_SENDCHANGE);
 
-    int failed = !looping || widths_seen_count < 2 || holes_in_drag > 0 || black_in_drag > 0;
+    int failed = !looping || widths_seen_count < 2 || holes_in_drag > 0 || black_in_drag > 0 || torn_in_drag > 0 ||
+                 strip_holes_in_drag > 0 || strip_black_in_drag > 0;
     say("summary frames_total=%ld frames_analysed=%ld frames_in_drag=%ld distinct_widths_in_drag=%d "
-        "frames_with_hole_in_drag=%ld frames_with_black_in_drag=%ld frames_with_hole_all=%ld",
+        "frames_with_hole_in_drag=%ld frames_with_black_in_drag=%ld frames_with_hole_all=%ld "
+        "strip_frames_torn_in_drag=%ld strip_frames_with_hole_in_drag=%ld strip_frames_with_black_in_drag=%ld",
         frames_total, frames_analysed, frames_in_drag, widths_seen_count, holes_in_drag, black_in_drag,
-        frames_with_hole);
-    say("verdict %s (loop %s, %d widths seen, %ld frames with desktop inside the window, %ld with black)",
+        frames_with_hole, torn_in_drag, strip_holes_in_drag, strip_black_in_drag);
+    say("verdict %s (loop %s, %d widths seen, %ld frames with desktop inside the window, %ld with black; "
+        "full height: %ld torn, %ld with desktop, %ld with black)",
         failed ? "FAIL" : "PASS", looping ? "entered" : "not entered", widths_seen_count, holes_in_drag,
-        black_in_drag);
+        black_in_drag, torn_in_drag, strip_holes_in_drag, strip_black_in_drag);
     if (out != stdout) fclose(out);
     return failed ? 1 : 0;
 }

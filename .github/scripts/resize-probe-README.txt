@@ -39,7 +39,9 @@ How to run (PowerShell, in the folder that holds hand-check.exe and resize-probe
   Options: --interval-ms N (time between mouse moves), --step-px N (pixels per move),
   --travel N (how far out, default to the right edge of the work area less 16 px),
   --out FILE (default: the console), --class NAME (window class, default ComposeRustWindow),
-  --wait-seconds N (how long to wait for the window, default 180).
+  --wait-seconds N (how long to wait for the window, default 180), --place (put the window at
+  the work area's top left at 640x480 from the probe, for an application that does not do it
+  itself: the GraalVM renderer, which has no DXC_REAL_DRAG hook).
 
 What the output means (probe log)
   duplicating ...           the monitor and graphics adapter being recorded
@@ -61,10 +63,17 @@ What the output means (probe log)
       width                 the window's client width the frame shows
       holes0/holes1         desktop pixels inside the window on each row (must be 0)
       black                 black pixels inside the window (must be 0)
+      strip_rows            rows scanned down the whole client height (every second row,
+                            24 px clear of its top, its bottom and the cursor's height)
+      strip_right           the leftmost and rightmost x those rows end at; torn=1 when they
+                            differ by more than 2 px, a frame showing two sizes at once
+      strip_hole_rows       rows with backdrop inside the window, and the first such pixel
+      strip_black_rows      rows with black inside the window
       runs0, runs1          each row near the window's right end: W window, D backdrop,
                             S shadow over the backdrop, K black
   summary / verdict         PASS when the loop was entered, the window changed size, and no
-                            frame during the drag had desktop or black inside the window
+                            frame during the drag had desktop or black inside the window,
+                            on the two rows or anywhere down the strip, or was torn
   Exit code: 0 PASS, 1 FAIL, 2 could not run.
 
 hand-check log (with DXC_RESIZE_TRACE=1)
