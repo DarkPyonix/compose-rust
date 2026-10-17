@@ -116,14 +116,14 @@ jobs:
 
       - name: Set the display to 200%
         # The runner's display is 1024x768, where Windows offers no scale but 100%, so the
-        # resolution goes up to the largest mode first.
+        # resolution changes first: the largest mode that offers 200% (1920x1080 stops at 175%).
         id: scale
         run: |
           tools="$(cygpath -u "$RUNNER_TEMP")/tools"
           out="$(cygpath -u "$RUNNER_TEMP")/probe-logs"
           mkdir -p "$out"
           set +e
-          "$tools/set-display-scale.exe" 200 --largest > "$out/set-display-scale.log" 2>&1
+          "$tools/set-display-scale.exe" 200 --fit > "$out/set-display-scale.log" 2>&1
           status=$?
           cat "$out/set-display-scale.log"
           echo "status=$status" >> "$GITHUB_OUTPUT"

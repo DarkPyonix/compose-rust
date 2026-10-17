@@ -2,11 +2,12 @@
  * set-display-scale: sets the primary monitor's display scale ("Change the size of text, apps
  * and other items" in Settings > Display), for a CI runner, without signing out.
  *
- *   set-display-scale.exe <percent> [--resolution WxH | --largest]
+ *   set-display-scale.exe <percent> [--resolution WxH | --largest | --fit]
  *
  * Windows only offers the scales the monitor's resolution allows: at 1024x768 that is 100% and
- * nothing else. So the resolution is raised first when asked to (--largest picks the mode with
- * the most pixels). The scale is then set the way the Settings page sets it, through
+ * nothing else, and at 1920x1080 it stops at 175%. So the resolution is changed first when
+ * asked to: --largest picks the mode with the most pixels, --fit tries the modes from the most
+ * pixels down and keeps the first one whose range reaches the scale asked for. The scale is then set the way the Settings page sets it, through
  * DisplayConfigSetDeviceInfo with the device-info types Settings uses (-3 reads the range,
  * -4 sets it). Those types are not in the SDK headers; they are how the per-user "DpiValue" in
  * HKCU\Control Panel\Desktop\PerMonitorSettings gets written and applied at once, which the
@@ -133,9 +134,61 @@ static int set_resolution(int width, int height, int largest) {
     return changed == DISP_CHANGE_SUCCESSFUL;
 }
 
+/* The highest scale (index into scales) the primary monitor offers now, or -1. */
+static int highest_offered(void) {
+    LUID adapter;
+    UINT32 source = 0;
+    dpi_scale_get range;
+    if (!primary_source(&adapter, &source) || !read_range(adapter, source, &range)) return -1;
+    int highest = -range.min_relative + range.max_relative;
+    return highest < SCALE_COUNT ? highest : SCALE_COUNT - 1;
+}
+
+static int by_area_descending(const void *a, const void *b) {
+    const DWORD *x = a, *y = b;
+    unsigned long long ax = (unsigned long long)x[0] * x[1], by = (unsigned long long)y[0] * y[1];
+    return ax < by ? 1 : ax > by ? -1 : 0;
+}
+
+/* Tries the offered modes from the most pixels down until one offers the target scale. */
+static void fit_resolution(int target) {
+    DEVMODEW current, mode;
+    memset(&current, 0, sizeof current);
+    current.dmSize = sizeof current;
+    EnumDisplaySettingsW(NULL, ENUM_CURRENT_SETTINGS, &current);
+    DWORD sizes[256][2];
+    int count = 0;
+    for (DWORD index = 0; count < 256; index++) {
+        memset(&mode, 0, sizeof mode);
+        mode.dmSize = sizeof mode;
+        if (!EnumDisplaySettingsW(NULL, index, &mode)) break;
+        if (mode.dmBitsPerPel != current.dmBitsPerPel) continue;
+        int seen = 0;
+        for (int k = 0; k < count; k++) {
+            if (sizes[k][0] == mode.dmPelsWidth && sizes[k][1] == mode.dmPelsHeight) seen = 1;
+        }
+        if (!seen) {
+            sizes[count][0] = mode.dmPelsWidth;
+            sizes[count][1] = mode.dmPelsHeight;
+            count++;
+        }
+    }
+    qsort(sizes, (size_t)count, sizeof sizes[0], by_area_descending);
+    for (int k = 0; k < count; k++) {
+        if (!set_resolution((int)sizes[k][0], (int)sizes[k][1], 0)) continue;
+        Sleep(1000);
+        int highest = highest_offered();
+        printf("set-display-scale: at %lux%lu the highest scale offered is %d%%\n", sizes[k][0], sizes[k][1],
+               highest >= 0 ? scales[highest] : -1);
+        if (highest >= target) return;
+    }
+    /* None does: back to the one with the most pixels, which offers the most. */
+    if (count > 0) set_resolution((int)sizes[0][0], (int)sizes[0][1], 0);
+}
+
 int main(int argc, char **argv) {
     if (argc < 2) {
-        fprintf(stderr, "usage: set-display-scale <percent> [--resolution WxH | --largest]\n");
+        fprintf(stderr, "usage: set-display-scale <percent> [--resolution WxH | --largest | --fit]\n");
         return 2;
     }
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
@@ -151,6 +204,8 @@ int main(int argc, char **argv) {
     for (int index = 2; index < argc; index++) {
         if (strcmp(argv[index], "--largest") == 0) {
             set_resolution(0, 0, 1);
+        } else if (strcmp(argv[index], "--fit") == 0) {
+            fit_resolution(target);
         } else if (strcmp(argv[index], "--resolution") == 0 && index + 1 < argc) {
             int width = 0, height = 0;
             if (sscanf(argv[++index], "%dx%d", &width, &height) != 2) return 2;
