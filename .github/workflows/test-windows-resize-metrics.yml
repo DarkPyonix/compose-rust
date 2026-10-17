@@ -540,7 +540,6 @@ jobs:
       - name: Keep the logs
         # Off on this branch, which only collects the pixel-compare frames as images.
         if: false
-        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: resize-metrics-windows-kn
