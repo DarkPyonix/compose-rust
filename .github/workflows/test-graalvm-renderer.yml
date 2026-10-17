@@ -133,9 +133,6 @@ jobs:
           printf '#!/bin/sh\nCOMPOSE_RUST_AUTOEXIT_MS=600000 exec "%s"\n' "$PWD/renderer/build/native-image/smoke_host" > "$RUNNER_TEMP/smoke-launch"
           chmod +x "$RUNNER_TEMP/smoke-launch"
           ./.github/scripts/resize-metrics-run.sh "$RUNNER_TEMP/smoke-launch" "$out" soak-macos-graalvm soak
-          # Diagnostic, temporary: which code allocates the graphics driver memory kept per drag.
-          DXC_SOAK_TRACE=1 DXC_LEGACY_RESIZE=1 DXC_RESIZE_SOAK=12 DXC_RESIZE_SOAK_EVENTS=10 ./.github/scripts/resize-metrics-run.sh "$RUNNER_TEMP/smoke-launch" "$out" soak-macos-graalvm-trace soak || true
-          { echo "### GraalVM trace"; echo '```'; cat "$out/soak-macos-graalvm-trace.trace" || true; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
           { echo "### GraalVM soak"; ./.github/scripts/resize-memory-check.sh --soak "$out/soak-macos-graalvm.log" "$SOAK_BOUND_MB"; } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Keep the resize logs

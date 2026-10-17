@@ -25,12 +25,15 @@
 #                  pixel step 1.5 (IOSurface), malloc 1, the graphics driver 0.3.
 #   GraalVM image  rest 29 MB; settled +1 to +9, a saw: the image's heap ("untagged") grows
 #                  0.5 MB a round to 7 MB used of its 64 MB cap and drops at the young
-#                  collection (round 13), and the graphics driver grew 128 KB every round,
-#                  which was the leak the check below catches.
+#                  collection (round 13). The graphics driver's memory also grew 128 KB
+#                  every drag, without end over 60: the Skia command buffers of frames the
+#                  renderer's loop drew were autoreleased on a thread no pool drained. The
+#                  fork's window now draws each frame in a pool of its own; the check below
+#                  is what caught it.
 #
 #   Skia's GPU resource cache is not part of it: the same soaks with its limit at 16 MB
-#   instead of the default 256 gave the same readings to the megabyte on both paths, and
-#   Skia's CPU cache stayed at 0. Metal's own allocation rose 2 MB and stayed.
+#   instead of the default 256 gave the same readings to the megabyte on both paths, and so
+#   did the native image's with it at 0. Skia's CPU cache stayed at 0.
 #
 # 16 is twice the largest plateau, which leaves room for the heap's saw and a drawable step
 # at a size the runner's screen rounds differently, and memory that grew without end at the
@@ -48,7 +51,8 @@ rounds_wanted="${3:-15}"
 # How much the graphics driver's memory (footprint's "IOAccelerator" kinds) may grow from round
 # 3 to the last. It is allocated in 64 KB regions. The Kotlin/Native window's wandered by 160 KB
 # over 13 rounds with no trend (CI run 39028836346); the native image's window grew by two
-# regions every round, 1.9 MB over 15 rounds (run 39028159924). 512 KB is eight regions: well
+# regions every round, 1.9 MB over 15 rounds (run 39028159924), until its frames were drawn in
+# autorelease pools of their own. 512 KB is eight regions: well
 # above the wander, and over the 12 rounds compared a leak of 43 KB a drag or more reaches it.
 accel_bound_kb=512
 

@@ -29,33 +29,6 @@ stop() {
     kill -9 "$pid" 2>/dev/null || true
 }
 
-if [[ "$mode" == "soak" && "${DXC_SOAK_TRACE:-}" == "1" ]]; then
-    # Which code allocated the graphics driver memory a soak keeps: the application runs with
-    # malloc stack logging, its IOAccelerator regions are listed after round 3 and after the
-    # last round, and the allocation stack of each region that appeared in between is
-    # printed. Diagnostic only.
-    rounds="${DXC_RESIZE_SOAK:-15}"
-    MallocStackLogging=1 DXC_RESIZE_SOAK="$rounds" DXC_METRICS_BREAKDOWN=1 "$app" > "$log" 2>&1 &
-    pid=$!
-    regions() { vmmap -noCoalesce "$pid" 2>/dev/null | awk '/^IOAccelerator/ { for (i = 1; i <= NF; i++) if ($i ~ /^[0-9a-f]+-[0-9a-f]+$/) { split($i, r, "-"); print r[1] } }' | sort -u; }
-    for _ in $(seq 600); do grep -q "soak phase settled round=3 " "$log" 2>/dev/null && break; sleep 0.5; done
-    regions > "$out/$label.regions-before"
-    for _ in $(seq 1200); do grep -q "soak done" "$log" 2>/dev/null && break; kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
-    regions > "$out/$label.regions-after"
-    {
-        echo "trace regions before=$(wc -l < "$out/$label.regions-before") after=$(wc -l < "$out/$label.regions-after")"
-        for address in $(comm -13 "$out/$label.regions-before" "$out/$label.regions-after" | head -6); do
-            echo "trace new IOAccelerator region 0x$address"
-            malloc_history "$pid" "0x$address" 2>&1 | head -80
-        done
-        vmmap -noCoalesce "$pid" 2>/dev/null | grep -E "^IOAccelerator" | head -80
-    } > "$out/$label.trace" 2>&1
-    kill "$pid" 2>/dev/null || true
-    sleep 1
-    kill -9 "$pid" 2>/dev/null || true
-    exit 0
-fi
-
 if [[ "$mode" == "soak" ]]; then
     rounds="${DXC_RESIZE_SOAK:-15}"
     DXC_RESIZE_SOAK="$rounds" DXC_METRICS_BREAKDOWN=1 "$app" > "$log" 2>&1 &
