@@ -77,9 +77,11 @@ layout, the same as in CSS. 3D transforms are not in yet (#105).
 `StartAnimation` describes an animation once, with its keyframes, timing function,
 delay, iterations, direction and fill, and the renderer plays it on its own frame clock
 with the Web Animations timing model, so the Host does no work per frame. It animates
-`Alpha`, `Color`, `Background` and `Transform`. `ControlAnimation` pauses, resumes
-or cancels one, and `AnimationEvent` reports the start, each iteration and the end the
-Host asked to hear about. `ReducedMotionChanged` tells the Host the platform's reduced
+`Alpha`, `Color`, `Background`, `Transform` and `BorderColor`, the colour of every side of
+a border. A layout container's `color` is the colour the text inside it inherits, as CSS
+`color` is, so one animation on a container recolours all of its text and sends nothing to
+any of it. `ControlAnimation` pauses, resumes or cancels one, and `AnimationEvent` reports
+the start, each iteration and the end the Host asked to hear about. `ReducedMotionChanged` tells the Host the platform's reduced
 motion setting at start and when the window comes back into use, on macOS, Windows,
 Linux, iOS, Android and the web. Windows now reads "Show animations in Windows" being off
 as reduced motion; it was read the wrong way round (#89).

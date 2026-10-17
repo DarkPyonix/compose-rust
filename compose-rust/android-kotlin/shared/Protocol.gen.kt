@@ -62,7 +62,7 @@ enum class NotificationPresentation { Always, WhenInactive }
 
 enum class NotificationPermission { NotDetermined, Granted, Denied, Unsupported }
 
-enum class AnimatedProperty { Alpha, Color, Background, Transform }
+enum class AnimatedProperty { Alpha, Color, Background, Transform, BorderColor }
 
 enum class PlaybackDirection { Normal, Reverse, Alternate, AlternateReverse }
 
@@ -525,7 +525,7 @@ data class TransformFunction(
 sealed interface KeyframeValue {
     data class Alpha(val value: kotlin.Float) : KeyframeValue
 
-    /** For `Color` and `Background`. A role is resolved against the theme every frame. */
+    /** For `Color`, `Background` and `BorderColor`. A role is resolved against the theme every frame. */
     data class PaintValue(val paint: Paint) : KeyframeValue
 
     /** The same kinds in the same order in every keyframe of one animation. */
@@ -686,7 +686,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 1500485662558452653L
+    const val SCHEMA_HASH: Long = 2900904971925903247L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1325,6 +1325,7 @@ object Protocol {
         AnimatedProperty.Color -> 2
         AnimatedProperty.Background -> 3
         AnimatedProperty.Transform -> 4
+        AnimatedProperty.BorderColor -> 5
     }
 
     private fun reducedMotionTag(value: ReducedMotion): Int = when (value) {
@@ -1640,6 +1641,7 @@ object Protocol {
         2 -> AnimatedProperty.Color
         3 -> AnimatedProperty.Background
         4 -> AnimatedProperty.Transform
+        5 -> AnimatedProperty.BorderColor
         else -> throw ProtocolException("unknown AnimatedProperty tag $tag", offset)
     }
 
@@ -1987,7 +1989,8 @@ object Protocol {
         fun float(at: Int): kotlin.Float = kotlin.Float.fromBits(readU32(batch, base, available, at).toInt())
         fun bad(message: String, at: Int): Nothing = throw ProtocolException("invalid animation: $message", at)
         val property = animatedProperty(readU8(batch, base, available, start + 12), start + 12)
-        val colour = property == AnimatedProperty.Color || property == AnimatedProperty.Background
+        val colour = property == AnimatedProperty.Color || property == AnimatedProperty.Background ||
+            property == AnimatedProperty.BorderColor
         val rawInterpolation = readU8(batch, base, available, start + 17)
         val interpolation = when {
             colour -> colorInterpolation(rawInterpolation, start + 17)
@@ -2046,7 +2049,7 @@ object Protocol {
                     value = KeyframeValue.Alpha(alpha)
                     at = valueAt + 4
                 }
-                AnimatedProperty.Color, AnimatedProperty.Background -> {
+                AnimatedProperty.Color, AnimatedProperty.Background, AnimatedProperty.BorderColor -> {
                     val paint = paint(readU64(batch, base, available, valueAt), valueAt)
                     if (paint is Paint.Asset) bad("a brush cannot be mixed with another colour", valueAt)
                     value = KeyframeValue.PaintValue(paint)

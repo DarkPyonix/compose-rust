@@ -244,7 +244,7 @@ data class TransformFunction(
 sealed interface KeyframeValue {
     data class Alpha(val value: kotlin.Float) : KeyframeValue
 
-    /** For `Color` and `Background`. A role is resolved against the theme every frame. */
+    /** For `Color`, `Background` and `BorderColor`. A role is resolved against the theme every frame. */
     data class PaintValue(val paint: Paint) : KeyframeValue
 
     /** The same kinds in the same order in every keyframe of one animation. */
@@ -1425,7 +1425,8 @@ object Protocol {
         fun float(at: Int): kotlin.Float = kotlin.Float.fromBits(readU32(batch, base, available, at).toInt())
         fun bad(message: String, at: Int): Nothing = throw ProtocolException("invalid animation: $message", at)
         val property = animatedProperty(readU8(batch, base, available, start + 12), start + 12)
-        val colour = property == AnimatedProperty.Color || property == AnimatedProperty.Background
+        val colour = property == AnimatedProperty.Color || property == AnimatedProperty.Background ||
+            property == AnimatedProperty.BorderColor
         val rawInterpolation = readU8(batch, base, available, start + 17)
         val interpolation = when {
             colour -> colorInterpolation(rawInterpolation, start + 17)
@@ -1484,7 +1485,7 @@ object Protocol {
                     value = KeyframeValue.Alpha(alpha)
                     at = valueAt + 4
                 }
-                AnimatedProperty.Color, AnimatedProperty.Background -> {
+                AnimatedProperty.Color, AnimatedProperty.Background, AnimatedProperty.BorderColor -> {
                     val paint = paint(readU64(batch, base, available, valueAt), valueAt)
                     if (paint is Paint.Asset) bad("a brush cannot be mixed with another colour", valueAt)
                     value = KeyframeValue.PaintValue(paint)
@@ -1783,7 +1784,7 @@ fn vector_animation(
 ) -> Animation<'static> {
     let colour = matches!(
         property,
-        AnimatedProperty::Color | AnimatedProperty::Background
+        AnimatedProperty::Color | AnimatedProperty::Background | AnimatedProperty::BorderColor
     );
     let [first, last] = values;
     Animation {
@@ -2269,6 +2270,18 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             op: AnimationControl::Pause,
             at_time_nanos: 1_500_000_000,
         },
+        // The border colour, after every record that was here before it so their bytes
+        // stay where they were. Node 2 again, which the vector never creates.
+        Mutation::StartAnimation(vector_animation(
+            2,
+            10,
+            AnimatedProperty::BorderColor,
+            0,
+            [
+                KeyframeValue::Paint(Paint::Role(ColorRole::Outline)),
+                KeyframeValue::Paint(Paint::Literal(Color::argb(0xff33_6699))),
+            ],
+        )),
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {

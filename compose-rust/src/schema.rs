@@ -896,12 +896,15 @@ define_wire_enum!(SLOT_ROLE_SCHEMA, SlotRole {
 // disagree about.
 
 // What an animation changes. Each has a place it is drawn from: the node's first `Alpha`,
-// its `color` property, its first `Background` and its first `Transform`.
+// its `color` property, its first `Background`, its first `Transform`, and the colour of
+// every side of its first `Border` or `BorderEach`. A container's `color` is the colour
+// the text inside it inherits, so one animation on it recolours all of that text.
 define_wire_enum!(ANIMATED_PROPERTY_SCHEMA, AnimatedProperty {
     Alpha = 1,
     Color = 2,
     Background = 3,
     Transform = 4,
+    BorderColor = 5,
 });
 
 define_wire_enum!(PLAYBACK_DIRECTION_SCHEMA, PlaybackDirection {
@@ -1647,7 +1650,7 @@ impl TransformFunction {
 #[derive(Clone, Debug, PartialEq)]
 pub enum KeyframeValue {
     Alpha(f32),
-    /// For `Color` and `Background`. A role is resolved against the theme every frame.
+    /// For `Color`, `Background` and `BorderColor`. A role is resolved against the theme every frame.
     Paint(Paint),
     /// A list of functions, the same kinds in the same order in every keyframe.
     Transform(std::borrow::Cow<'static, [TransformFunction]>),
@@ -1705,7 +1708,7 @@ pub struct Animation<'a> {
     pub direction: PlaybackDirection,
     pub fill: FillMode,
     pub play_state: PlayState,
-    /// For `Color` and `Background` only, and required there.
+    /// For `Color`, `Background` and `BorderColor` only, and required there.
     pub interpolation: Option<ColorInterpolation>,
     /// On the Renderer's frame clock. Zero starts it on the first frame that draws it.
     pub start_time_nanos: u64,

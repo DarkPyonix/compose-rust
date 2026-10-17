@@ -43,10 +43,12 @@ import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import kotlin.math.ceil
@@ -100,12 +102,13 @@ internal fun List<ProtocolModifier>.toComposeModifier(
     // The corners an HTML box asked for, which its background, border, shadow and clip all
     // follow. Null where the node named no corners of its own.
     val corners = cornerEachShape()
-    // The first opacity, background and transform of a node are where an animation the
+    // The first opacity, background, transform and border of a node are where an animation the
     // Renderer plays on it is drawn. They read the animated value in the draw phase, so
     // the animation never recomposes or remeasures the node.
     var alphaSeen = false
     var backgroundSeen = false
     var transformSeen = false
+    var borderSeen = false
     return fold(surface) { chain, value ->
         when (value) {
             is ProtocolModifier.Empty -> chain
@@ -131,7 +134,15 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             is ProtocolModifier.Shape -> chain.clip(shape)
             is ProtocolModifier.ShapeRole -> chain.clip(shape)
             is ProtocolModifier.Border -> theme.brush(value.paint)?.let { brush ->
-                chain.border(value.width.dp, brush, shape)
+                val holder = if (!borderSeen) animated?.invoke() else null
+                borderSeen = true
+                // Compose's own border until an animation first plays on this one, then the
+                // layer that can repaint it in the draw phase.
+                if (holder != null && holder.borderAnimated.value) {
+                    chain.animatedBorder(value.width.dp, brush, shape, holder)
+                } else {
+                    chain.border(value.width.dp, brush, shape)
+                }
             } ?: chain.composed { reportUnknownBrush(nodeId, value.paint, dispatcher) }
             is ProtocolModifier.Elevation ->
                 theme.rules.elevation(chain, value.value.dp, shape, theme)
@@ -169,7 +180,9 @@ internal fun List<ProtocolModifier>.toComposeModifier(
                 if (missing != null) {
                     chain.composed { reportUnknownBrush(nodeId, paints[missing], dispatcher) }
                 } else {
-                    chain.borderEach(value, brushes.map { it!! }, corners)
+                    val holder = if (!borderSeen) animated?.invoke() else null
+                    borderSeen = true
+                    chain.borderEach(value, brushes.map { it!! }, corners, holder)
                 }
             }
 
@@ -249,6 +262,37 @@ private fun Modifier.animatedBackground(
             shown != null -> drawOutline(outline!!, color = shown)
             outline == null -> drawRect(brush)
             else -> drawOutline(outline, brush)
+        }
+    }
+}
+
+/**
+ * A uniform border that an animation can repaint without recomposing the node: a stroke of
+ * [width] along the inside of the node's [shape], drawn over the content as
+ * `Modifier.border` draws it, in the animated colour while one plays.
+ */
+private fun Modifier.animatedBorder(
+    width: Dp,
+    brush: Brush,
+    shape: Shape,
+    holder: dev.darkpyonix.composerust.ui.node.AnimatedNode,
+): Modifier = drawWithCache {
+    val stroke = width.toPx().coerceIn(0f, minOf(size.width, size.height) / 2f)
+    val half = stroke / 2f
+    val inner = Size((size.width - stroke).coerceAtLeast(0f), (size.height - stroke).coerceAtLeast(0f))
+    val outline = shape.createOutline(inner, layoutDirection, this)
+    val style = Stroke(stroke)
+    onDrawWithContent {
+        drawContent()
+        if (stroke > 0f) {
+            val shown = holder.borderOverride()
+            translate(half, half) {
+                if (shown != null) {
+                    drawOutline(outline, color = shown, style = style)
+                } else {
+                    drawOutline(outline, brush, style = style)
+                }
+            }
         }
     }
 }
@@ -407,6 +451,8 @@ private fun Modifier.borderEach(
     value: ProtocolModifier.BorderEach,
     brushes: List<Brush>,
     corners: CornerEachShape?,
+    /** Where an animation of the border's colour writes the colour every side shows. */
+    holder: dev.darkpyonix.composerust.ui.node.AnimatedNode? = null,
 ): Modifier = drawWithCache {
     val width = size.width
     val height = size.height
@@ -479,9 +525,12 @@ private fun Modifier.borderEach(
         ) else null,
     )
     onDrawBehind {
+        val shown = holder?.borderOverride()
         regions.forEachIndexed { index, region ->
             if (region != null) {
-                clipPath(region) { drawPath(ring, brushes[index]) }
+                clipPath(region) {
+                    if (shown != null) drawPath(ring, color = shown) else drawPath(ring, brushes[index])
+                }
             }
         }
     }

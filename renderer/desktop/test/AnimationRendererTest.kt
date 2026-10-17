@@ -85,7 +85,9 @@ private fun played(
         direction = PlaybackDirection.Normal,
         fill = FillMode.None,
         playState = playState,
-        interpolation = if (property == AnimatedProperty.Color || property == AnimatedProperty.Background) {
+        interpolation = if (property == AnimatedProperty.Color || property == AnimatedProperty.Background ||
+            property == AnimatedProperty.BorderColor
+        ) {
             ColorInterpolation.SrgbPremultiplied
         } else {
             null
@@ -308,5 +310,164 @@ class AnimationRendererTest {
         )
         val pixel = onNodeWithTag(nodeTestTag(ROOT)).captureToImage().toPixelMap()[20, 20]
         assertTrue(abs(pixel.green - 0.5f) < 0.02f, "still played, half way, found $pixel")
+    }
+
+    /** A literal colour as the `color` property carries it: the literal tag over the ARGB bits. */
+    private fun literalColor(argb: Int) = PropertyValue.Integer((2L shl 32) or (argb.toLong() and 0xFFFFFFFFL))
+
+    private fun MutableList<Mutation>.text(id: Int, parent: Int, value: String, color: Int? = null) {
+        add(Mutation.Create(id, WidgetKind.Text))
+        add(Mutation.SetProp(id, PropertyKind.Text, PropertyValue.Text(value)))
+        add(Mutation.SetProp(id, PropertyKind.FontSize, PropertyValue.Float(48f)))
+        if (color != null) add(Mutation.SetProp(id, PropertyKind.Color, literalColor(color)))
+        add(Mutation.Insert(parent, id, -1))
+    }
+
+    /**
+     * The inkiest pixel of a node: the one furthest from the white page, which is where a
+     * glyph is solid and its colour is not mixed with the page by antialiasing.
+     */
+    private fun ComposeUiTest.ink(node: Int): androidx.compose.ui.graphics.Color {
+        val pixels = onNodeWithTag(nodeTestTag(node)).captureToImage().toPixelMap()
+        var best = androidx.compose.ui.graphics.Color.White
+        var bestWhite = Float.MAX_VALUE
+        for (x in 0 until pixels.width) {
+            for (y in 0 until pixels.height) {
+                val pixel = pixels[x, y]
+                val white = pixel.red + pixel.green + pixel.blue
+                if (white < bestWhite) {
+                    bestWhite = white
+                    best = pixel
+                }
+            }
+        }
+        return best
+    }
+
+    private fun near(expected: Float, found: Float) = abs(expected - found) < 0.08f
+
+    /**
+     * A container's colour is what the text in it inherits: a Text without a colour of its
+     * own, however deep, draws in it, and a Text with its own keeps it.
+     */
+    @Test
+    fun fr41_text_inherits_its_containers_colour() = runComposeUiTest {
+        mainClock.autoAdvance = false
+        show(
+            FakeHostConnection(
+                page {
+                    node(2, ProtocolModifier.RequiredSize(300f, 200f))
+                    add(Mutation.SetProp(2, PropertyKind.Color, literalColor(0xFF0000FF.toInt())))
+                    node(3, widget = WidgetKind.Column, parent = 2)
+                    text(4, 3, "HH")
+                    text(5, 3, "HH", color = RED)
+                },
+            ),
+        )
+        frames(3)
+        val inherited = ink(4)
+        assertTrue(near(0f, inherited.red) && near(1f, inherited.blue), "the container's blue, found $inherited")
+        val own = ink(5)
+        assertTrue(near(1f, own.red) && near(0f, own.blue), "its own red, found $own")
+    }
+
+    /**
+     * One animation on a container's colour recolours every Text that inherits it: no
+     * record names any of them, none of them is composed again while it plays, and a Text
+     * with a colour of its own is left as it is.
+     */
+    @Test
+    fun fr41_one_animation_on_a_container_recolours_every_text_inside_it() = runComposeUiTest {
+        mainClock.autoAdvance = false
+        val compositions = mutableMapOf<Int, Int>()
+        RenderNodeObserver.onCompose = { id -> compositions[id] = (compositions[id] ?: 0) + 1 }
+        val records = page {
+            node(2, ProtocolModifier.RequiredSize(300f, 200f))
+            add(Mutation.SetProp(2, PropertyKind.Color, literalColor(RED)))
+            node(3, widget = WidgetKind.Column, parent = 2)
+            text(4, 3, "HH")
+            node(6, widget = WidgetKind.Box, parent = 3)
+            text(5, 6, "HH")
+            text(7, 3, "HH", color = 0xFF00FF00.toInt())
+            // Paused half way from red to blue, so the colour is exact whatever the clock does.
+            add(
+                played(
+                    2, 1, AnimatedProperty.Color,
+                    KeyframeValue.PaintValue(Paint.Literal(RED)),
+                    KeyframeValue.PaintValue(Paint.Literal(0xFF0000FF.toInt())),
+                    delayMs = -500f, playState = PlayState.Paused,
+                ),
+            )
+        }
+        assertEquals(1, records.count { it is Mutation.StartAnimation }, "one record for the whole container")
+        assertTrue(
+            records.none { it is Mutation.StartAnimation && it.animation.nodeId != 2 },
+            "no record names a Text",
+        )
+        show(FakeHostConnection(records))
+        frames(3)
+        val composed = compositions.toMap()
+        frames(20)
+        for (id in listOf(4, 5)) {
+            val ink = ink(id)
+            assertTrue(
+                near(0.5f, ink.red) && near(0.5f, ink.blue) && ink.green < 0.1f,
+                "text $id half way from red to blue, found $ink",
+            )
+            assertEquals(composed[id], compositions[id], "text $id was composed again while it played")
+        }
+        val own = ink(7)
+        assertTrue(near(1f, own.green) && near(0f, own.red), "a Text with its own colour keeps it, found $own")
+    }
+
+    /**
+     * A border's colour is one animation for every side, of a border with a width and
+     * paint for each side and of a uniform one alike.
+     */
+    @Test
+    fun fr41_an_animated_border_colour_is_what_is_drawn() = runComposeUiTest {
+        mainClock.autoAdvance = false
+        val red = Paint.Literal(RED)
+        show(
+            FakeHostConnection(
+                page {
+                    node(
+                        2,
+                        ProtocolModifier.Offset(10f, 10f),
+                        ProtocolModifier.RequiredSize(60f, 60f),
+                        ProtocolModifier.BorderEach(8f, 8f, 8f, 8f, red, red, red, red),
+                    )
+                    node(
+                        3,
+                        ProtocolModifier.Offset(100f, 10f),
+                        ProtocolModifier.RequiredSize(60f, 60f),
+                        ProtocolModifier.Border(8f, red),
+                    )
+                    for (id in listOf(2, 3)) {
+                        add(
+                            played(
+                                id, id, AnimatedProperty.BorderColor,
+                                KeyframeValue.PaintValue(red),
+                                KeyframeValue.PaintValue(Paint.Literal(0xFF0000FF.toInt())),
+                                delayMs = -500f, playState = PlayState.Paused,
+                            ),
+                        )
+                    }
+                },
+            ),
+        )
+        frames(3)
+        val pixels = onNodeWithTag(nodeTestTag(ROOT)).captureToImage().toPixelMap()
+        for ((name, x) in listOf("each side" to 10, "uniform" to 100)) {
+            for ((px, py) in listOf(x + 4 to 40, x + 30 to 14, x + 56 to 40, x + 30 to 66)) {
+                val pixel = pixels[px, py]
+                assertTrue(
+                    near(0.5f, pixel.red) && near(0.5f, pixel.blue) && pixel.green < 0.1f,
+                    "$name border at ($px, $py) half way from red to blue, found $pixel",
+                )
+            }
+            val inside = pixels[x + 30, 40]
+            assertTrue(near(1f, inside.green), "$name: the inside is not painted, found $inside")
+        }
     }
 }
