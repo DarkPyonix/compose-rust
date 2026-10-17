@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The Kotlin/Native Linux window's input method and accessibility: what is wired to what.
+# The Linux windows' input method and accessibility: what is wired to what.
 #
 # Whether Korean can be typed and Orca can read the window is a fact about a desktop. What can
 # be read from the sources is the wiring that makes either possible, and each item below has been
@@ -13,7 +13,8 @@
 # - the start callback is reinterpreted as returning an int, because an input method reads the
 #   return register and a Unit function leaves garbage in it;
 # - the accessibility bridge is started before the loop and read once a turn on the window's own
-#   thread, and the semantics listener it reads from is the one the scene reports to.
+#   thread, and the semantics listener it reads from is the one the scene reports to. Both
+#   X11 windows serve it, with one protocol implementation in the fork's common module.
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -29,8 +30,13 @@ window="$fork_src/X11Window.kt"
 xim="$fork_src/XimContext.kt"
 ime="$fork_src/InputMethod.kt"
 entry="$src/LinuxRenderer.kt"
-bridge="$fork_src/AtspiBridge.kt"
-server="$fork_src/AtspiServer.kt"
+atspi="$fork_window/common/src/org/thisisthepy/compose/window/atspi"
+bridge="$atspi/AtspiBridge.kt"
+server="$atspi/AtspiServer.kt"
+graalvm_src="$fork_window/graalvm/graalvm-linux/src/org/thisisthepy/compose/window/graalvm/linux"
+graalvm_access="$graalvm_src/X11Accessibility.kt"
+graalvm_host="$repo_root/renderer/desktop/src/X11Window.kt"
+graalvm_workflow="$repo_root/.github/workflows/test-graalvm-renderer.yml"
 # The Linux static renderer is built, and checked, in the reusable workflow the native
 # renderer workflow calls for linux-x64.
 workflow="$repo_root/.github/workflows/static-renderer.yml"
@@ -42,9 +48,10 @@ fail() {
 }
 
 for file in "$host_window" "$window" "$xim" "$ime" "$entry" "$bridge" "$server" \
-            "$fork_src/AtspiSemantics.kt" "$fork_src/AtspiModel.kt" "$fork_src/AtspiWire.kt" \
+            "$fork_src/AtspiSemantics.kt" "$atspi/AtspiModel.kt" "$atspi/AtspiWire.kt" \
+            "$atspi/DBusWire.kt" "$graalvm_access" "$graalvm_src/JvmBusConnection.kt" "$graalvm_host" \
             "$fork_window/native/linux/test/InputMethodTest.kt" \
-            "$fork_window/native/linux/test/AtspiTest.kt"; do
+            "$fork_window/common/test/org/thisisthepy/compose/window/atspi/AtspiTest.kt"; do
     [[ -f "$file" ]] || fail "missing $file"
 done
 (( red == 0 )) || exit 1
@@ -107,6 +114,22 @@ has 'accessibility\?\.pump\(\)' "$host_window" "calls from a reader are never an
 has 'semanticsListeners' "$host_window" "the scene does not report its semantics to the bridge"
 has 'NO_AT_BRIDGE' "$host_window" "the standard switch for turning the bridge off is not honoured"
 absent 'java\.|JNI|org\.graalvm' "$bridge" "Kotlin/Native has no JVM"
+absent 'java\.|platform\.(posix|linux)|kotlinx\.cinterop' "$server" "the protocol is shared by both windows, so it names neither platform"
+# The semantics reader is one file, held byte for byte in both modules (a link would not survive
+# a Windows checkout, where the GraalVM module is built too).
+cmp -s "$fork_src/AtspiSemantics.kt" \
+    "$fork_window/graalvm/graalvm-linux/src/org/thisisthepy/compose/window/atspi/AtspiSemantics.kt" ||
+    fail "the GraalVM X11 window reads semantics with a reader that differs from the Kotlin/Native one"
+
+# ---- AT-SPI on the GraalVM X11 window -------------------------------------------------------
+has 'AtspiBridge\(' "$graalvm_access" "the GraalVM X11 window never joins the accessibility bus"
+has 'NO_AT_BRIDGE' "$graalvm_access" "the standard switch for turning the bridge off is not honoured"
+has 'bridge\.pump\(\)' "$graalvm_access" "calls from a reader are never answered on the GraalVM X11 window"
+has 'X11Accessibility\.join\(' "$graalvm_host" "the GraalVM renderer never joins the accessibility bus"
+has 'SemanticsFanOut\(semantics, atspiSource\)' "$graalvm_host" "the scene does not report its semantics to the GraalVM bridge"
+has 'afterFrame\(' "$graalvm_host" "the GraalVM bridge is never given the tree or asked to answer"
+has 'check-linux-input-access\.sh renderer/build/native-image-linux' "$graalvm_workflow" \
+    "the headless check is not run against the GraalVM X11 window"
 
 # ---- the check that runs a real registry and input method -----------------------------------
 has 'check-linux-input-access\.sh' "$workflow" "the headless check is not run where the Linux static renderer is built"
