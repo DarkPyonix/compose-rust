@@ -18,7 +18,7 @@ docs/guide/
 │  ├─ index.html                 첫 화면(랜딩)
 │  ├─ overview.html              Overview
 │  ├─ getting-started.html       Getting started
-│  ├─ writing-ui.html            Writing UI (계획한 작성 API)
+│  ├─ writing-ui.html            Writing UI (작성 API)
 │  ├─ composables.html           Widget reference
 │  ├─ lists-and-streaming.html   Lists & streaming
 │  ├─ design-systems.html        Design systems
