@@ -28,12 +28,16 @@ for file in "$header" "$source_file"; do
 done
 
 # Everything between a case label and the answer it gives, so that what a message does can
-# be asked about without depending on how it is laid out.
+# be asked about without depending on how it is laid out. The last case for the label, which
+# is the window procedure's own: the resize trace (DXC_RESIZE_TRACE) has a switch of its own
+# ahead of it that only records each message and breaks.
 handling() {
-    awk -v label="$1" '
-        $0 ~ "case " label ":" { inside = 1 }
-        inside { print }
-        inside && /^        return/ { exit }
+    local from
+    from="$(grep -n "case $1:" "$source_file" | tail -1 | cut -d: -f1)"
+    [[ -n "$from" ]] || return 0
+    awk -v from="$from" '
+        NR >= from { print }
+        NR >= from && /^        return/ { exit }
     ' "$source_file"
 }
 
