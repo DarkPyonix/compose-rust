@@ -51,7 +51,7 @@ fork_files() {
         esac
         base="$(tr . / <<< "$group")"
         for name in "$artifact" ${variant:+"$artifact-$variant"}; do
-            [[ "$name" == "$artifact" || "$group" == org.thisisthepy.compose.* ]] || continue
+            [[ "$name" == "$artifact" || ( "$group" == org.thisisthepy.compose.* && "$group" != org.thisisthepy.compose.desktop ) ]] || continue
             echo "$base/$name/$version/$name-$version.pom"
             echo "$base/$name/$version/$name-$version.module"
         done

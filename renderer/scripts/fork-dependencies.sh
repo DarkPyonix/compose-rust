@@ -46,7 +46,10 @@ use File::Find;
 use JSON::PP;
 
 my ($version, $argument, $repository) = @ENV{qw(VERSION ARGUMENT REPOSITORY)};
-my @targets = qw(desktop jvm android macosarm64 macosx64 linuxx64 linuxarm64 mingwx64
+# The fork's Compose names its JVM target desktop. jvm is left out: the desktop module's own
+# publications are desktop-jvm-<os>-<arch>, and reading desktop-jvm as a jvm target would make
+# every sibling's desktop-jvm publication look missing.
+my @targets = qw(desktop android macosarm64 macosx64 linuxx64 linuxarm64 mingwx64
                  iosarm64 iosx64 iossimulatorarm64 wasmjs js);
 my $target_pattern = join "|", @targets;
 my $fork_group = qr/^org\.thisisthepy\.compose\./;
@@ -129,7 +132,10 @@ for my $file (sort @files) {
             my ($target) = ($variant->{name} // "") =~ /^([a-z][A-Za-z0-9]*?)(?:Api|Runtime|Sources|Metadata|Javadoc)Elements/;
             if (defined $target && !defined $own_target) {
                 $target = lc $target;
-                next unless $target eq "metadata" || $served{$target};
+                # The shared metadata variant lists the dependencies of every source set, a
+                # target nobody built here included (ui-uikit, for iOS). The toolchain compiles
+                # a platform module against the target publications, so it is left out.
+                next unless $served{$target};
             }
             for my $dependency (@{ $variant->{dependencies} || [] }) {
                 my $requested = $dependency->{version} || {};

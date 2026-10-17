@@ -93,6 +93,7 @@ publish() { # <module> <artifact> <suffix>
         printf '\n      ],\n      "dependencyConstraints": [\n        {\n          "group": "org.thisisthepy.compose.ui",\n          "module": "ui-test-junit4",\n          "version": {\n            "requires": "%s"\n          },\n          "reason": "atomic group"\n        }\n      ]\n    }' "$version"
         # A root lists every configured target, built here or not: an iOS variant naming
         # ui-uikit, which a macOS build never publishes.
+        [[ -z "$suffix" ]] && printf ',\n    {\n      "name": "metadataApiElements",\n      "dependencies": [\n        {\n          "group": "org.thisisthepy.compose.ui",\n          "module": "ui-uikit",\n          "version": {\n            "requires": "%s"\n          }\n        }\n      ]\n    }' "$version"
         [[ -z "$suffix" ]] && printf ',\n    {\n      "name": "iosArm64ApiElements-published",\n      "dependencies": [\n        {\n          "group": "org.thisisthepy.compose.ui",\n          "module": "ui-uikit",\n          "version": {\n            "requires": "%s"\n          }\n        }\n      ]\n    }' "$version"
         printf '\n  ]\n}\n'
     } > "$directory/$artifact-$version.module"
@@ -173,14 +174,16 @@ HOME="$home" FAKE_MODULES="ui-util ui-text ui foundation" "$compose/extended/com
 if require "$home" macos; then
     fail "require-fork-artifacts.sh accepted metadata that names runtime $fork_as, which nobody published"
 else
-    grep -q "org.thisisthepy.compose.runtime:runtime:$fork_as" "$work/out" ||
+    # Named either as a sibling nobody published or, since the macOS module names the runtime
+    # itself, as a file that is not there.
+    grep -q -e "org.thisisthepy.compose.runtime:runtime:$fork_as" -e "org/thisisthepy/compose/runtime/runtime/$fork_as/" "$work/out" ||
         fail "require-fork-artifacts.sh refused without naming runtime $fork_as: $(tail -1 "$work/out")"
     grep -q "build-compose.sh --target macosArm64" "$work/out" ||
         fail "require-fork-artifacts.sh did not name the command that publishes it"
     grep -q "ui-test-junit4" "$work/out" &&
         fail "require-fork-artifacts.sh reported ui-test-junit4, which only a constraint names"
     grep -q "ui-uikit" "$work/out" &&
-        fail "require-fork-artifacts.sh reported ui-uikit, which only the root's iOS variant names"
+        fail "require-fork-artifacts.sh reported ui-uikit, which only the root's iOS and shared metadata variants name"
 fi
 
 if [[ "$failures" -eq 0 ]]; then echo "  ok"; else exit 1; fi

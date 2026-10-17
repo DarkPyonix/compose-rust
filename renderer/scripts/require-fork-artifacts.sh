@@ -96,7 +96,9 @@ for module in "$@"; do
             *) add_check "$version" "$variant" "$compose_fix" ;;
         esac
         names=("$artifact")
-        if [[ -n "$variant" && "$group" == org.thisisthepy.compose.* ]]; then
+        # The desktop module publishes one jar per system (desktop-jvm-<os>-<arch>), not one per
+        # target, so its root is all there is to look for.
+        if [[ -n "$variant" && "$group" == org.thisisthepy.compose.* && "$group" != org.thisisthepy.compose.desktop ]]; then
             names+=("$artifact-$variant")
         fi
         for name in "${names[@]}"; do

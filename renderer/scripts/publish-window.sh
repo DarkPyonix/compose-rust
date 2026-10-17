@@ -19,8 +19,13 @@ fork_dir="$("$repo/scripts/fetch-fork-window.sh")"
 window="$fork_dir/extended/window"
 
 modules=(common graalvm/graalvm-macos graalvm/graalvm-linux)
+# native/macos compiles against the fork's Compose for macosArm64, which only a build that ran
+# build-compose.sh --target macosArm64 has; a desktop-only build has no use for it.
 case "$(uname -s)" in
-    Darwin) modules+=(native/macos) ;;
+    Darwin)
+        if [[ -d "$HOME/.m2/repository/org/thisisthepy/compose/ui/ui-macosarm64" ]]; then
+            modules+=(native/macos)
+        fi ;;
 esac
 
 # The fork's project lists every module, and a machine that cannot build one of them lists
