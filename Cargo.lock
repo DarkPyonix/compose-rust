@@ -32,7 +32,7 @@ dependencies = [
 
 [[package]]
 name = "compose-rust"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "compose-rust-macros",
  "jni",
