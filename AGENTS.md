@@ -97,6 +97,26 @@ Workflow files and names, in `.github/workflows/`:
 - `pages.yml`, "Pages": docs.
 - `test-<target>.yml`, "<Target> test": a special check for one target.
 - `test-graalvm-renderer.yml`, "GraalVM renderer test": builds and smoke tests the GraalVM native-image renderer on macOS and Linux. It exists until the window code moves to the fork, then moves to the fork's CI and is deleted here.
+- `heavy-checks.yml`, "Heavy checks", job "Heavy checks passed on this head": the merge gate for the heavy workflows below.
+
+Heavy workflows run on request, not on every push. They take half an hour to two hours a
+run, and starting all of them on every push to every pull request queued them for hours.
+They are `test-compose-from-fork.yml`, `test-kn-desktop-renderer.yml`,
+`test-native-renderer.yml` and the Windows resize workflows (`KNOWN_HEAVY` in
+`.github/scripts/heavy-checks.py`). Each has a job "Heavy checks requested" that every other
+job needs, and it only runs for the `run-heavy-ci` label or a manual dispatch. "Heavy checks"
+fails until each heavy workflow whose path filter the pull request matches has passed on
+the pull request's current head, so they still pass before every merge. Run them once the
+pull request is ready:
+
+```sh
+gh pr edit <number> --add-label run-heavy-ci
+```
+
+While the label is on, every push runs them again for the new head. Fast gates ("Test",
+"GraalVM renderer test", "Windows C compile") run on every pull request.
+`scripts/tests/ci-on-demand.test.sh` fails if a heavy workflow can run unasked or a workflow
+has no concurrency group. A new workflow of the same cost goes into `KNOWN_HEAVY`.
 
 Job names are English sentence case and say briefly what the job does. Matrix jobs read "<what> (<os>, <version>)". The same role keeps the same name across repos.
 
