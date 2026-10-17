@@ -10,11 +10,19 @@
 # edits by hand and publishes the result under the version the renderer asks for, so that
 # the modules that are not changed keep resolving from JetBrains.
 #
-# Usage: build-compose.sh [--target macosArm64|linux|linuxX64|linuxArm64] [--clean]
+# Usage: build-compose.sh [--target macosArm64|linux|linuxX64|linuxArm64|mingwX64|desktop] [--clean]
 #
 # The work directory is a sibling of the renderer called compose-build. Set
 # DXC_COMPOSE_BUILD to put it elsewhere. It is not inside the renderer because it is a
 # checkout of someone else's repository and a build of it costs several gigabytes.
+#
+# mingwX64 builds skiko first, because skiko publishes no Kotlin/Native target for Windows
+# either and the Compose modules cannot resolve without one. The fork carries that build as
+# extended/skiko/build-skiko-mingw.sh, which publishes skiko's Kotlin half to the local Maven
+# repository and leaves its C++ half, compiled for MSVC, in .scratch/skiko-build/out (set
+# DXC_SKIKO_BUILD to put it elsewhere), where desktop/scripts/build-windows.sh takes it from.
+# That script needs what it says it needs: the MSVC runtime and Windows SDK headers in the
+# layout cargo-xwin or `xwin splat` writes, and Kotlin/Native's LLVM under ~/.konan.
 set -euo pipefail
 
 # The commit, not the branch. A branch that moves is a build that changes for a reason
@@ -30,7 +38,19 @@ REVISION="81ce95e51f36a17d0a7ba23847bdca8e62b080c8"
 # The window modules and skiko's static build are newer than that and are not Compose sources:
 # the renderer builds them from this commit (scripts/fetch-fork-window.sh and fetch-fork-skiko.sh)
 # into artifacts of its own, so they move without moving the Compose build above.
-WINDOW_REVISION="1b3de18ff3c288d62b043ca75906413630cb981d"
+WINDOW_REVISION="00768c9d4324197b51820e9e24d168800a71779d"
+# The commit the Windows build takes, which is its own on purpose. Windows needs the
+# commits the Compose pin (REVISION) leaves out: 296beb3 adds mingwX64 to every Compose UI module and
+# reads skiko from the local Maven repository first, and f17cb30 adds the skiko build for
+# mingwX64 under extended/. This is the tip of `extended` that merged them and the fixes to
+# that skiko build after it, 8ec7c32. Every commit between 296beb3 and here changes only
+# extended/skiko, so the Compose sources are the ones 296beb3 left, and extended/skiko is
+# where the ICU loader the Windows link compiles (embedded_icu.cpp) comes from as well.
+# Two pins rather than one moved for everybody, because moving macOS and Linux would change
+# what they publish (every module's root metadata would name a mingw_x64 variant nobody
+# built there) for nothing they use. compose-fork-mingw.changes lists what this commit must
+# hold, and scripts/tests/compose-fork.test.sh checks both pins.
+MINGW_REVISION="11da941766762c4760df9cf3c11429837d772bdd"
 PUBLISHED_AS="1.11.1"
 # Material 3 is versioned on its own line and the renderer asks for it by that version, so
 # publishing it as the others would leave a coordinate nobody looks for.
@@ -52,6 +72,7 @@ SKIKO_AWT_EXTENDED_AS="0.144.6.1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RENDERER_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WORK="${DXC_COMPOSE_BUILD:-$(dirname "$RENDERER_DIR")/compose-build}"
+SKIKO_WORK="${DXC_SKIKO_BUILD:-$(dirname "$RENDERER_DIR")/.scratch/skiko-build}"
 
 die() {
     echo "error: $1" >&2
@@ -66,7 +87,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --target) target="${2:-}"; shift 2 ;;
         --clean) clean=1; shift ;;
-        -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
         *) die "unknown argument '$1'" "usage: build-compose.sh [--target <target>] [--clean]" ;;
     esac
 done
@@ -86,6 +107,7 @@ done
 # published artifact that has no Linux variant at all, so building them here is not slow,
 # it is impossible. None of them is reachable from what the renderer draws, which is
 # runtime, ui, foundation and material3.
+revision="$REVISION"
 case "$target" in
     macosArm64)
         publications=(MacosArm64)
@@ -124,6 +146,28 @@ case "$target" in
             compose:ui:ui-util
         )
         ;;
+    # The same closure as Linux: the renderer draws with the same four modules, and the
+    # three left out there have no Windows variant either.
+    mingwX64)
+        publications=(MingwX64)
+        revision="$MINGW_REVISION"
+        modules=(
+            compose:animation:animation
+            compose:animation:animation-core
+            compose:foundation:foundation
+            compose:foundation:foundation-layout
+            compose:material:material-ripple
+            compose:material3:material3
+            compose:ui:ui
+            compose:ui:ui-backhandler
+            compose:ui:ui-geometry
+            compose:ui:ui-graphics
+            compose:ui:ui-text
+            compose:ui:ui-tooling-preview
+            compose:ui:ui-unit
+            compose:ui:ui-util
+        )
+        ;;
     desktop)
         # The Java side of Compose, for the native image renderers. Only what the fork changes
         # is rebuilt, under EXTENDED_AS; every other module is upstream's at the version it
@@ -137,7 +181,7 @@ case "$target" in
             compose:ui:ui-text
         )
         ;;
-    *) die "unknown target '$target'" "known: macosArm64, linux (both of the next two), linuxX64, linuxArm64, desktop" ;;
+    *) die "unknown target '$target'" "known: macosArm64, linux (both of the next two), linuxX64, linuxArm64, mingwX64, desktop" ;;
 esac
 
 published_as="${published_as:-$PUBLISHED_AS}"
@@ -154,20 +198,34 @@ if [[ ! -d "$WORK/.git" ]]; then
     git -C "$WORK" remote add origin "$FORK"
 fi
 git -C "$WORK" remote set-url origin "$FORK"
-if ! git -C "$WORK" cat-file -e "$REVISION^{commit}" 2>/dev/null; then
-    echo "==> fetching $REVISION"
-    git -C "$WORK" fetch -q --depth 1 origin "$REVISION"
+if ! git -C "$WORK" cat-file -e "$revision^{commit}" 2>/dev/null; then
+    echo "==> fetching $revision"
+    git -C "$WORK" fetch -q --depth 1 origin "$revision"
 fi
 
 # Reset rather than built on top of whatever is there. A tree somebody edited builds
 # something nobody can reproduce, and a work directory from before the fork still holds
 # the patches that used to be applied here.
-echo "==> checking out $REVISION"
-git -C "$WORK" -c advice.detachedHead=false checkout -q --force "$REVISION"
+echo "==> checking out $revision"
+git -C "$WORK" -c advice.detachedHead=false checkout -q --force "$revision"
 git -C "$WORK" clean -qfd -e build -e '.gradle' -e 'out'
 
 [[ -n "${JAVA_HOME:-}" ]] || die "JAVA_HOME is not set" \
     "The Compose build needs a JDK 17; the toolchain wrapper's does not apply here."
+
+# skiko before Compose on Windows, from the same commit, so the two cannot disagree about
+# which skiko the Compose modules were built against.
+if [[ "$target" == mingwX64 ]]; then
+    skiko_script="$WORK/extended/skiko/build-skiko-mingw.sh"
+    [[ -f "$skiko_script" ]] || die "$revision has no extended/skiko/build-skiko-mingw.sh" \
+        "The Windows pin has to be a commit of the fork that carries the skiko build."
+    echo "==> building skiko for mingwX64 into $SKIKO_WORK"
+    bash "$skiko_script" "$SKIKO_WORK"
+    # Skia's ICU loader with the data compiled in, which the Windows link needs so that no
+    # icudtl.dat has to sit beside the executable. Put with the rest of skiko's Windows half,
+    # where desktop/scripts/build-windows.sh compiles it against the icudtl.dat already there.
+    cp "$WORK/extended/skiko/embedded_icu.cpp" "$SKIKO_WORK/out/windows-x64/"
+fi
 
 echo "==> publishing ${#modules[@]} compose module(s) for $target as $published_as"
 # Two publications per module, not one. The target's own carries the klib; the root one
@@ -188,10 +246,13 @@ done
 (
     cd "$WORK"
     # The fork declares mingwX64 on every UI module, and skiko publishes no mingwX64 artifact:
-    # only the fork's own Windows build makes one. None of the targets here is Windows, so
-    # leave that platform out rather than fail resolving skiko for it.
+    # only the fork's own Windows build makes one, which the mingwX64 target builds first. The
+    # other targets are not Windows, so they leave that platform out rather than fail
+    # resolving skiko for it.
+    platforms=()
+    [[ "$target" == mingwX64 ]] || platforms=("-Pandroidx.enabled.kmp.target.platforms=-windows")
     ./gradlew --no-daemon --no-configuration-cache \
-        "-Pandroidx.enabled.kmp.target.platforms=-windows" \
+        "${platforms[@]}" \
         "-Pjetbrains.publication.version.COMPOSE=$published_as" \
         "-Pjetbrains.publication.version.COMPOSE_MATERIAL3=$MATERIAL3_PUBLISHED_AS" \
         "${tasks[@]}"
@@ -219,4 +280,4 @@ fi
 
 echo
 echo "published to $HOME/.m2/repository/org/jetbrains/compose as $published_as"
-echo "the renderer's macos and linux modules read mavenLocal first, so the next build links these"
+echo "the renderer's macos, linux and windows modules read mavenLocal first, so the next build links these"

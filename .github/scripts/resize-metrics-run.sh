@@ -12,13 +12,20 @@ mkdir -p "$out"
 log="$out/$label.log"
 DXC_METRICS=1 DXC_METRICS_BREAKDOWN=1 DXC_REPORT_LATENCY=1 "$app" > "$log" 2>&1 &
 pid=$!
-# The scripted drag, its settled reading, then the drag made of mouse events and its own.
+# The scripted drag, its settled reading, then the drag made of mouse events and its own
+# ("metrics done"). The Windows renderer has no "metrics done": it ends at its last phase, or
+# with DXC_REAL_DRAG at its real drag.
+case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) done_line="metrics phase after-100-resizes" ;;
+    *) done_line="metrics done" ;;
+esac
+[[ -n "${DXC_REAL_DRAG:-}" ]] && done_line="real drag$"
 for _ in $(seq 360); do
-    grep -q "metrics done" "$log" 2>/dev/null && break
+    grep -q "$done_line" "$log" 2>/dev/null && break
     kill -0 "$pid" 2>/dev/null || break
     sleep 0.5
 done
-sleep 1
+sleep 2
 kill "$pid" 2>/dev/null || true
 sleep 1
 kill -9 "$pid" 2>/dev/null || true

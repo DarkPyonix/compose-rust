@@ -200,6 +200,7 @@ jobs:
           cp -R "$RUNNER_TEMP/compose-fork-desktop/." ~/.m2/repository/org/jetbrains/
 
       - name: Build the Windows renderer
+        id: renderer-build
         shell: powershell
         run: .\renderer\desktop\scripts\build-native-windows.ps1
 
@@ -208,6 +209,21 @@ jobs:
         # It does not prove mouse input because a hosted runner cannot perform the required click.
         shell: powershell
         run: .\renderer\desktop\scripts\smoke-test-windows.ps1
+
+      - name: The linked image carries no toolkit
+        # Run whatever the smoke test said, so a run shows every way it fails.
+        if: ${{ !cancelled() && steps.renderer-build.outcome == 'success' }}
+        shell: bash
+        run: bash scripts/tests/renderer/windows-image-has-no-awt.test.sh renderer/build/native-image/dist/bin
+
+      - name: The image's ways into the toolkit
+        # The check is Python, and Windows' Python is python.exe only.
+        if: ${{ !cancelled() && steps.renderer-build.outcome == 'success' }}
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/python3"
+          cp "$(command -v python)" "$RUNNER_TEMP/python3/python3.exe"
+          PATH="$RUNNER_TEMP/python3:$PATH" bash scripts/tests/renderer/linux-image-toolkit-boundary.test.sh renderer/build/native-image/dist/bin
 
       # A run artifact, which is a different thing from the release asset below: it belongs
       # to this run, lasts a fortnight, and is not published anywhere. The release asset
@@ -358,6 +374,15 @@ jobs:
           else
             ./.github/scripts/check-single-executable.sh "$tarball" "$RUNNER_TEMP/single-executable"
           fi
+
+  # The Windows twin of linux-static: the Kotlin/Native renderer linked into one MSVC
+  # executable with the application, which then has to start from an empty directory with
+  # nothing but Windows beneath it. Its own workflow, because Compose for mingwX64 is built
+  # on Linux first and the two halves are two jobs; windows-static.yml says why.
+  windows-static:
+    needs: changed
+    if: needs.changed.outputs.renderer == 'true'
+    uses: ./.github/workflows/windows-static.yml
 
   # iOS is Kotlin/Native, not native-image, so it shares nothing with the jobs above
   # except the interpreter source. It builds both slices (simulator and device) and

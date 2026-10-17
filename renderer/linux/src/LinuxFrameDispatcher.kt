@@ -1,21 +1,11 @@
-@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class, kotlin.experimental.ExperimentalNativeApi::class)
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
 
 package dev.darkpyonix.composerust.ui.platform
 
 import kotlin.coroutines.CoroutineContext
-import kotlin.native.ref.createCleaner
-import kotlinx.cinterop.alloc
-import kotlinx.cinterop.free
-import kotlinx.cinterop.nativeHeap
-import kotlinx.cinterop.ptr
 import kotlinx.coroutines.MainCoroutineDispatcher
 import kotlinx.coroutines.Runnable
 import platform.posix.pthread_equal
-import platform.posix.pthread_mutex_destroy
-import platform.posix.pthread_mutex_init
-import platform.posix.pthread_mutex_lock
-import platform.posix.pthread_mutex_t
-import platform.posix.pthread_mutex_unlock
 import platform.posix.pthread_self
 
 /**
@@ -51,13 +41,8 @@ import platform.posix.pthread_self
 internal class FrameDispatcher : MainCoroutineDispatcher() {
     private val owner = pthread_self()
 
-    private val lock = nativeHeap.alloc<pthread_mutex_t>().also { pthread_mutex_init(it.ptr, null) }
-
-    @Suppress("unused")
-    private val freeLock = createCleaner(lock) {
-        pthread_mutex_destroy(it.ptr)
-        nativeHeap.free(it)
-    }
+    /** Each platform's own lock (`FrameLock.kt`): a pthread mutex on Linux, an SRW lock on Windows. */
+    private val lock = FrameLock()
 
     /** What has been sent and not yet run. Read and written only under [lock]. */
     private val waiting = ArrayDeque<Runnable>()
@@ -129,11 +114,11 @@ internal class FrameDispatcher : MainCoroutineDispatcher() {
     override fun toString(): String = "FrameDispatcher"
 
     private inline fun <T> locked(block: () -> T): T {
-        pthread_mutex_lock(lock.ptr)
+        lock.lock()
         try {
             return block()
         } finally {
-            pthread_mutex_unlock(lock.ptr)
+            lock.unlock()
         }
     }
 

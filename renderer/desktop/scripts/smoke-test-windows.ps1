@@ -2,6 +2,8 @@
 #
 # UNTESTED: authored on macOS. With -RequireClick, click the button before the 30 second
 # timeout. The script fails unless the Host receives a dispatch event and run returns zero.
+# Without -RequireClick it fails unless the window opened, its scene was made on the native
+# image's own main dispatcher, a frame was drawn and run returned zero (smoke-startup.sh).
 [CmdletBinding()]
 param(
     [switch]$RequireClick
@@ -100,12 +102,24 @@ try {
     $env:PATH = $OldPath
     $env:COMPOSE_RUST_AUTOEXIT_MS = $OldAutoExit
 }
-if ($ExitCode -ne 0) {
-    Fail "smoke host returned $ExitCode; see $SmokeLog"
+# Came up means what it means on every desktop: the run exited 0, printed the three window
+# start lines (WindowStartReport.kt) with Compose's main-thread work on the native image's own
+# dispatcher, and the smoke host answered. smoke-startup.sh decides, as it does for the macOS
+# and Linux smoke runs, so the three read one rule. It is bash, which Git for Windows brings;
+# the one in System32 is WSL's and cannot read these paths.
+$Bash = Join-Path $env:ProgramFiles "Git\bin\bash.exe"
+if (-not (Test-Path -LiteralPath $Bash)) {
+    Fail "Git for Windows' bash is needed for the shared start check, at $Bash"
 }
-$Output = Get-Content -LiteralPath $SmokeLog -Raw
-if ($Output -notmatch "compose_rust_renderer_run returned 0") {
-    Fail "renderer did not report a zero return; see $SmokeLog"
+$Checker = Join-Path $ScriptsDir "smoke-startup.sh"
+# Tee-Object writes UTF-16 in Windows PowerShell, which grep does not read, so the checker is
+# handed a UTF-8 copy.
+$Output = [string](Get-Content -LiteralPath $SmokeLog -Raw)
+$CheckedLog = "$SmokeLog.utf8"
+[IO.File]::WriteAllText($CheckedLog, $Output, (New-Object System.Text.UTF8Encoding $false))
+Invoke-Native { & $Bash $Checker check-log $CheckedLog "$ExitCode" }
+if ($LASTEXITCODE -ne 0) {
+    Fail "the renderer did not come up; see $SmokeLog"
 }
 if ($RequireClick -and $Output -notmatch "compose_rust_host_dispatch_event: click") {
     Fail "no click reached the Host; click the button before the 30 second timeout and rerun"

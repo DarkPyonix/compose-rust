@@ -84,5 +84,32 @@ expect nfr14_smoke_fails_when_no_window_opened fail 0 "$no_window" "a window of 
 
 expect nfr14_smoke_fails_a_nonzero_exit fail 3 "$came_up" "exited with status 3"
 
+# Windows, from the native image's smoke run on windows-2022 (run 39014707510, the Win32
+# window opened by default). smoke-test-windows.ps1 hands its log to the same check.
+windows_resize='compose-rust: resize-mode: monitor 0000000000010001 dpi 96, monitor adapter 00000000:00006449, device adapter 00000000:00006449 (same adapter) because the window opened
+compose-rust: resize-mode: resize frames on the CPU (Skia raster, GDI blit)'
+windows_scene='compose-rust: Compose scene created, main dispatcher dev.darkpyonix.composerust.ui.platform.FrameMainDispatcher (compose.main.dispatcher=coroutines), window 520x360 at 1.0x'
+expect nfr14_windows_smoke_passes_a_win32_window_that_drew_a_frame pass 0 "$windows_resize
+$window
+$windows_scene
+$frame
+$host
+$returned"
+
+# That run as it was: the window drew, but Compose's main-thread work went to Swing, which
+# loads the toolkit the window of our own has no use for.
+expect nfr14_windows_smoke_fails_a_win32_scene_on_swing fail 0 "$windows_resize
+$window
+compose-rust: Compose scene created, main dispatcher kotlinx.coroutines.swing.Swing (compose.main.dispatcher=unset), window 520x360 at 1.0x
+$frame
+$host
+$returned" "FrameMainDispatcher"
+
+# A machine with no Direct3D 12 adapter: no window opens, the renderer says so and still
+# returns 0, and a check of the return alone passed it.
+expect nfr14_windows_smoke_fails_a_run_with_no_direct3d_adapter fail 0 "compose-rust: this machine has no Direct3D 12 adapter. Where there is no graphics card at all, set DXC_D3D12_WARP=1 to draw with the software one.
+$host
+$returned" "a window of our own"
+
 printf '\n%d test(s), %d failure(s)\n' "$tests_run" "$tests_failed"
 [[ $tests_failed -eq 0 ]]

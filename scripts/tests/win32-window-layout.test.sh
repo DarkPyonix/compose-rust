@@ -21,13 +21,14 @@
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-source_file="$repo_root/renderer/desktop/c/win32_window.c"
 kotlin_file="$repo_root/renderer/desktop/src/Win32Window.kt"
 # The macOS window is the Compose fork's graalvm-macos module. Its C declares the event
 # record this window's C has to match.
 source "$repo_root/scripts/tests/fork-window.sh"
 fork_window_or_skip "$repo_root"
 appkit_source="$fork_window/graalvm/graalvm-macos/native/appkit_window.m"
+# The Windows window's C is the fork's windows-shared module.
+source_file="$fork_window/windows-shared/c/win32_window.c"
 # The Windows window reads events with its own copy of the reader, in Win32Window.kt, until it
 # moves to the fork too.
 appkit_kotlin="$kotlin_file"
