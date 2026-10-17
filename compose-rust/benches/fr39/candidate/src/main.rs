@@ -46,10 +46,10 @@ fn root(app: App) -> fn() {
             SLOTS.store(slots, Ordering::Relaxed);
             sweep
         }
-        App::Calculator => sample_calculator_compose::app,
-        App::Todo => sample_todo_compose::app,
-        App::Chat => sample_chat_compose::app,
-        App::Minimal => sample_minimal_compose::app,
+        App::Calculator => sample_calculator::app,
+        App::Todo => sample_todo::app,
+        App::Chat => sample_chat::app,
+        App::Minimal => sample_minimal::app,
     }
 }
 
