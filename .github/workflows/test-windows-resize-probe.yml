@@ -144,6 +144,35 @@ jobs:
             done
           done
 
+      - name: Receive the earlier probe, built without a manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: resize-probe-windows
+          run-id: ${{ env.HAND_CHECK_RUN }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/earlier-probe
+
+      - name: The earlier probe at 200%, for comparison
+        # The probe from the same run as hand-check, which stopped on a 200% laptop with "the
+        # window is not on the primary monitor". Reported, not judged.
+        env:
+          DXC_D3D12_WARP: '1'
+        run: |
+          kit="$(cygpath -u "$RUNNER_TEMP")/probe-kit"
+          out="$(cygpath -u "$RUNNER_TEMP")/probe-logs"
+          probe="$(cygpath -u "$RUNNER_TEMP")/earlier-probe/resize-probe.exe"
+          log="$out/2x-earlier-probe-16-probe.log"
+          "$probe" --turn-on-full-window-drag --interval-ms 16 --step-px 8 --wait-seconds 20 --out "$(cygpath -w "$log")" &
+          probe_pid=$!
+          for _ in $(seq 60); do grep -q "waiting for a" "$log" 2>/dev/null && break; sleep 0.5; done
+          DXC_METRICS=1 DXC_REAL_DRAG=external DXC_RESIZE_TRACE=1 "$kit/hand-check.exe" > "$out/2x-earlier-probe-16.log" 2>&1 &
+          app_pid=$!
+          wait "$probe_pid" || true
+          kill "$app_pid" 2>/dev/null || true
+          sleep 1
+          kill -9 "$app_pid" 2>/dev/null || true
+          grep -vE "resize-probe: (frame|send) n=" "$log" || true
+
       - name: Report the drags
         if: always()
         run: |
@@ -152,6 +181,10 @@ jobs:
             echo "### Display scale"
             echo '```'
             cat "$out/set-display-scale.log" 2>/dev/null || echo "no set-display-scale log"
+            echo '```'
+            echo "### The earlier probe at 200%"
+            echo '```'
+            grep -vE "resize-probe: (frame|send) n=" "$out/2x-earlier-probe-16-probe.log" 2>/dev/null || echo "no log"
             echo '```'
             for scale in 1x 2x; do
               for path in new old; do
