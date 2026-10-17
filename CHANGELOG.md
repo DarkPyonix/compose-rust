@@ -18,6 +18,11 @@ Swing's. The clipboard is the window's own. skiko's library still imports `JAWT_
 stub `jawt.dll` that answers "no toolkit" goes beside it. The toolkit's window remains only in
 the development shell on a JVM.
 
+The Windows window, its C and its Kotlin/Native layer, now comes from the Compose fork's
+`extended/window/windows-shared` module at the pinned commit, as the macOS and Linux windows
+do. Korean is checked on Windows too: the renderer's text self-check now also draws two Hangul
+syllables and fails if they do not ink or come out as the same missing-glyph box.
+
 ### compose-rust has an authoring API of its own
 
 Composables, with Compose's shape and Compose's names, on a recomposition runtime that
