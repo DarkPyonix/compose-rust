@@ -28,9 +28,9 @@ import org.thisisthepy.compose.window.WindowEvent
 import org.thisisthepy.compose.window.WindowFrames
 import org.thisisthepy.compose.window.WindowListener
 import org.thisisthepy.compose.window.candidateSpot
-import org.thisisthepy.compose.window.linux.AtspiActions
-import org.thisisthepy.compose.window.linux.AtspiBridge
-import org.thisisthepy.compose.window.linux.AtspiSemanticsSource
+import org.thisisthepy.compose.window.atspi.AtspiActions
+import org.thisisthepy.compose.window.atspi.AtspiBridge
+import org.thisisthepy.compose.window.atspi.AtspiSemanticsSource
 import org.thisisthepy.compose.window.linux.CURSOR_ARROW
 import org.thisisthepy.compose.window.linux.CURSOR_CROSSHAIR
 import org.thisisthepy.compose.window.linux.CURSOR_HAND
@@ -103,8 +103,12 @@ internal class LinuxWindow private constructor(
      */
     private var described: List<org.thisisthepy.compose.window.AccessibleElement> = emptyList()
 
+    /** Input and resizing made up from inside the window, for the parity check. Unset, nothing runs. */
+    private val synthetic = System.getenv("DXC_SYNTH")?.let { SyntheticInput(it) }
+
     private val semantics = NativeSemantics { elements ->
         described = elements
+        synthetic?.noteElements(elements)
         if (reportFrames) {
             System.err.println(
                 "compose-rust: the window holds ${described.size} things to say" +
@@ -228,11 +232,13 @@ internal class LinuxWindow private constructor(
             scene.size = size
         }
         val nanos = frameClock.frameNanos()
+        val begun = System.nanoTime()
         val drew = x11.draw(width, height) { canvas ->
             scene.render(canvas.asComposeCanvas(), nanos)
         }
         if (drew) {
             painted = true
+            LatencyTrace.frameDrawn(System.nanoTime() - begun)
             // The drawing goes to the server and then the manager is told, in that order. This
             // is the whole of what keeps a dragged edge attached to what is inside it.
             x11.present(width, height)
@@ -275,6 +281,10 @@ internal class LinuxWindow private constructor(
      * happening, a tree nobody was told about.
      */
     fun run() {
+        // Work for this thread sent from another one ends the wait in the pump at once, rather
+        // than when the frame's wait runs out: a worker's frame request and a coroutine
+        // resumed on `Dispatchers.Main` both arrive in [work].
+        work.wakeLoop = x11::wake
         try {
             while (!x11.isClosed) {
                 // The window's own turn, before anything is read from it. This thread is the one
@@ -294,6 +304,19 @@ internal class LinuxWindow private constructor(
                 // from another thread asks for a frame, because what it changed is news to this one.
                 val woken = work.takeWake()
                 work.runPending()
+                synthetic?.due(System.nanoTime(), x11.measure().let { IntSize(it.width, it.height) })?.forEach { event ->
+                    if (event.kind == WindowEvent.TEXT_COMMIT) LatencyTrace.inputSent()
+                    heard.add(event)
+                }
+                if (synthetic != null && synthetic.resizeDue(System.nanoTime())) {
+                    LatencyTrace.phase = "resize"
+                    x11.scriptedResize(
+                        SYNTHETIC_RESIZE_WIDTH, SYNTHETIC_RESIZE_HEIGHT, SYNTHETIC_RESIZE_STEPS,
+                        SYNTHETIC_RESIZE_PAUSE_MILLISECONDS,
+                    )
+                    LatencyTrace.phase = "idle"
+                }
+                if (synthetic != null && synthetic.exitDue(System.nanoTime())) break
                 val turnHeard = heard.isNotEmpty() || woken
                 for (event in heard) {
                     if (reportInput && event.kind != WindowEvent.POINTER_MOVE) {
@@ -325,6 +348,9 @@ internal class LinuxWindow private constructor(
                 updateInputMethod()
             }
         } finally {
+            work.wakeLoop = {}
+            LatencyTrace.summary()
+            if (System.getenv("DXC_REPORT_RESIZE") != null) System.err.println(x11.resizeStats.report())
             close()
         }
     }
@@ -419,6 +445,12 @@ internal class LinuxWindow private constructor(
         }
 
         private const val FRAME_MILLISECONDS = 16L
+
+        // The scripted drag of a parity run: the size every window is taken to, in the same steps.
+        private const val SYNTHETIC_RESIZE_WIDTH = 360
+        private const val SYNTHETIC_RESIZE_HEIGHT = 420
+        private const val SYNTHETIC_RESIZE_STEPS = 60
+        private const val SYNTHETIC_RESIZE_PAUSE_MILLISECONDS = 8L
 
         private const val DENSITY = 1.0f
     }

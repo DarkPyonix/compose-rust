@@ -12,6 +12,8 @@ import org.thisisthepy.compose.window.WindowConfig
 import org.thisisthepy.compose.window.WindowEvent
 import org.thisisthepy.compose.window.WindowFrames
 import org.thisisthepy.compose.window.WindowListener
+import org.thisisthepy.compose.window.atspi.AtspiSemanticsSource
+import org.thisisthepy.compose.window.graalvm.linux.X11Accessibility
 import org.thisisthepy.compose.window.graalvm.linux.X11Upcalls
 import org.thisisthepy.compose.window.graalvm.macos.readDroppedPaths
 import org.thisisthepy.compose.window.graalvm.linux.X11Window as ForkX11Window
@@ -91,11 +93,24 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
     // the render target, and what the scene is told about the window it is in.
     var size = androidx.compose.ui.unit.IntSize(measured.width, measured.height)
     val textInput = NativeTextInput()
+    // Input and resizing made up from inside the window, for the parity check. Unset, nothing runs.
+    val synthetic = System.getenv("DXC_SYNTH")?.let { SyntheticInput(it) }
     val semantics = NativeSemantics { elements ->
         if (report) {
             System.err.println("compose-rust: the window has ${elements.size} things to say")
         }
+        synthetic?.noteElements(elements)
         window.setAccessibility(elements)
+    }
+    // A screen reader on this desktop is answered over AT-SPI from a tree of its own, so the
+    // scene tells both what changed. Null where there is no accessibility bus to join.
+    val atspiSource = AtspiSemanticsSource()
+    val accessibility = X11Accessibility.join(window, atspiSource)
+    if (report) {
+        System.err.println(
+            accessibility?.let { "compose-rust: joined the accessibility bus as ${it.busName}" }
+                ?: "compose-rust: no accessibility bus to join",
+        )
     }
     // Kept rather than left to the scene. What a scene picks for itself is the toolkit's
     // queue, and the Host this renderer talks to is on this thread and invisible from
@@ -105,7 +120,7 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
         density = androidx.compose.ui.unit.Density(measured.scale),
         size = size,
         coroutineContext = work,
-        platformContext = NativePlatformContext({ size }, textInput, semantics, window::setCursor),
+        platformContext = NativePlatformContext({ size }, textInput, SemanticsFanOut(semantics, atspiSource), window::setCursor),
     )
     WindowStartReport.sceneCreated(size.width, size.height, measured.scale)
     // The application's own tree, drawn by the same interpreter the toolkit path uses.
@@ -149,8 +164,10 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
             scene.size = fitted
         }
         size = fitted
+        val begun = System.nanoTime()
         if (drawFrame(window, context, scene, frameClock.frameNanos(), fitted)) {
             painted = true
+            LatencyTrace.frameDrawn(System.nanoTime() - begun)
             WindowStartReport.frameDrawn(fitted.width, fitted.height)
         }
     }
@@ -160,6 +177,11 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
         // size. Inside the try, so that whatever happens next the window is left asking
         // nothing of a scene that has closed.
         X11Upcalls.setFramePainter { frames.draw() }
+        // Work for this thread sent from another one ends the loop's wait at once, rather
+        // than when the wait runs out: a worker's frame request reaches the scene's work, and
+        // a coroutine resumed on the main dispatcher reaches that one.
+        work.loopWake.attach(window::wake)
+        FrameMainDispatcher.loopWake.attach(window::wake)
         while (!closed) {
             if (autoExitMillis != null &&
                 (System.nanoTime() - autoStarted) / NANOS_PER_MILLI >= autoExitMillis
@@ -180,6 +202,18 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
             work.runPending()
             var anyHeard = false
             var drew = false
+            for (event in synthetic?.due(System.nanoTime(), size) ?: emptyList()) {
+                if (event.kind == WindowEvent.TEXT_COMMIT) LatencyTrace.inputSent()
+                scene.receive(event)
+                textInput.receive(event)
+                anyHeard = true
+            }
+            if (synthetic != null && synthetic.resizeDue(System.nanoTime())) {
+                LatencyTrace.phase = "resize"
+                window.scriptedResize(SYNTHETIC_RESIZE_WIDTH, SYNTHETIC_RESIZE_HEIGHT, SYNTHETIC_RESIZE_STEPS, 8_000)
+                LatencyTrace.phase = "idle"
+            }
+            if (synthetic != null && synthetic.exitDue(System.nanoTime())) break
             for (event in heard) {
                 if (report && event.kind != WindowEvent.POINTER_MOVE) {
                     System.err.println("compose-rust: window heard $event")
@@ -208,12 +242,20 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
             // tree that changed on the last one is a tree nobody has been told about, and
             // a window that has gone still is exactly where that would be forgotten.
             semantics.pushIfChanged(afterDrawing = drew)
+            // After the drawing, for the same reason: what a reader is told is where
+            // everything was placed. Its questions are answered here too, on this thread.
+            accessibility?.afterFrame(options.title)
             reportCaret(textInput)
         }
     } finally {
+        work.loopWake.detach()
+        FrameMainDispatcher.loopWake.detach()
         // Before the scene closes. A resize arriving between the two would otherwise ask a
         // scene that has gone to draw into a context that has gone with it.
         X11Upcalls.clearFramePainter()
+        accessibility?.close()
+        LatencyTrace.summary()
+        if (System.getenv("DXC_REPORT_RESIZE") != null) System.err.println(window.resizeReport())
         scene.close()
         context.close()
         host.shutdown()
@@ -268,6 +310,11 @@ private fun drawFrame(
  * time the window reports.
  */
 private const val TURN_WAIT_MILLIS = 16L
+
+// The scripted drag of a parity run: the size every window is taken to, in the same steps.
+private const val SYNTHETIC_RESIZE_WIDTH = 360
+private const val SYNTHETIC_RESIZE_HEIGHT = 420
+private const val SYNTHETIC_RESIZE_STEPS = 60
 private const val NANOS_PER_MILLI = 1_000_000L
 
 /** The caption strip a window with no frame of the system's draws for itself. */

@@ -170,6 +170,8 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     WindowStartReport.windowOpened(opened.width, opened.height, opened.scale)
     WindowStartReport.sceneCreated(opened.width, opened.height, opened.scale)
     window.onFrameDrawn = { width, height -> WindowStartReport.frameDrawn(width, height) }
+    // The made-up input of a parity run, when `DXC_SYNTH` asks for it.
+    startParityRun(window)
 
     application.activateIgnoringOtherApps(true)
     application.run()

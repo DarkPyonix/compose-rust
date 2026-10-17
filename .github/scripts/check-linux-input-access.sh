@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
-# Usage: .github/scripts/check-linux-input-access.sh <static renderer directory> <scratch directory>
+# Usage: .github/scripts/check-linux-input-access.sh <renderer directory> <scratch directory>
 #
-# Types Korean into the Kotlin/Native Linux window through a real input method, and reads the
-# window through a real AT-SPI registry. Needs a display: run it under `xvfb-run -a`. It starts
-# its own session bus, so it can run on a machine that has none.
+# Types Korean into a Linux window through a real input method, and reads the window through a
+# real AT-SPI registry. Needs a display: run it under `xvfb-run -a`. It starts its own session
+# bus, so it can run on a machine that has none.
 #
-#   <static renderer directory>  what build-linux.sh writes (libcompose_rust_renderer.a beside
-#                                libcompose_rust_host_exports.so)
+#   <renderer directory>         either what build-linux.sh writes for the Kotlin/Native window
+#                                (libcompose_rust_renderer.a beside
+#                                libcompose_rust_host_exports.so), or the lib directory
+#                                build-native-linux.sh writes for the GraalVM X11 window
+#                                (libcompose_rust_renderer.so). Both windows are checked the
+#                                same way, because both answer AT-SPI and XIM.
 #   <scratch directory>          where the application is copied to and its logs are kept
 #
 # What it proves, and what it does not.
@@ -28,7 +32,7 @@
 set -euo pipefail
 
 if [[ $# -ne 2 ]]; then
-    echo "usage: $0 <static renderer directory> <scratch directory>" >&2
+    echo "usage: $0 <renderer directory> <scratch directory>" >&2
     exit 2
 fi
 
@@ -55,8 +59,14 @@ for tool in cargo xdotool ibus-daemon ibus python3 gdbus; do
 done
 
 distribution="$(cd "$1" && pwd)"
-[[ -f "$distribution/libcompose_rust_renderer.a" ]] ||
-    { echo "fail  $distribution is not a static renderer directory" >&2; exit 1; }
+if [[ -f "$distribution/libcompose_rust_renderer.a" ]]; then
+    kind=static
+elif [[ -f "$distribution/libcompose_rust_renderer.so" ]]; then
+    kind=shared
+else
+    echo "fail  $distribution holds neither a static renderer nor the GraalVM shared one" >&2
+    exit 1
+fi
 mkdir -p "$2"
 scratch="$(cd "$2" && pwd)"
 case "$scratch/" in
@@ -82,11 +92,18 @@ show_logs() {
     done
 }
 
-echo "== building the application"
-export DXC_LINUX_NATIVE_LIB="$distribution"
-CARGO_TARGET_DIR="$repo_root/target/linux-input-check" \
+echo "== building the application against the $kind renderer"
+# A build directory per kind, so that one never links what the other left behind.
+if [[ "$kind" == static ]]; then
+    export DXC_LINUX_NATIVE_LIB="$distribution"
+    unset COMPOSE_RUST_RENDERER_DIR
+else
+    export COMPOSE_RUST_RENDERER_DIR="$distribution"
+    unset DXC_LINUX_NATIVE_LIB
+fi
+CARGO_TARGET_DIR="$repo_root/target/linux-input-check-$kind" \
     cargo build --manifest-path "$repo_root/compose-rust/tests/fixtures/consumer/Cargo.toml" >&2
-cp "$repo_root/target/linux-input-check/debug/consumer" "$logs/consumer"
+cp "$repo_root/target/linux-input-check-$kind/debug/consumer" "$logs/consumer"
 
 echo "== starting the accessibility bus and its registry"
 # The session bus starts the accessibility bus the first time it is asked where it is, and the
