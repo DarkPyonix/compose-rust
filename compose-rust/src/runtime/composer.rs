@@ -33,11 +33,6 @@ const TAKEN: GroupId = u32::MAX;
 /// The root group. It is never disposed while the composition lives.
 pub(crate) const ROOT: GroupId = 0;
 
-/// How many times one frame may run invalidated scopes again because composing them
-/// invalidated more. A composition that writes the state it reads would otherwise loop
-/// for ever; this many rounds is far past anything a screen needs.
-pub(crate) const MAX_RECOMPOSE_ROUNDS: usize = 16;
-
 pub(crate) struct Group {
     pub(crate) key: u64,
     pub(crate) parent: GroupId,

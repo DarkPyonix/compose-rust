@@ -268,7 +268,7 @@ fn storable(ty: &Type, generics: &[Ident]) -> bool {
                 self.ok = false;
             }
             if let Some(first) = path.path.segments.first() {
-                if first.ident == "Self" || self.generics.iter().any(|g| first.ident == *g) {
+                if first.ident == "Self" || self.generics.contains(&first.ident) {
                     self.ok = false;
                 }
             }

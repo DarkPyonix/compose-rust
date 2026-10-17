@@ -140,10 +140,6 @@ impl Executor {
             waker.wake();
         }
     }
-
-    pub(crate) fn has_frame_waiters(&self) -> bool {
-        !self.frame_waiters.is_empty()
-    }
 }
 
 impl Composer {
