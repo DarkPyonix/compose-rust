@@ -66,6 +66,28 @@ group). A `SetModifier` record is now as long as its modifier's tag says, so the
 the shadow carry their values whole; every modifier that existed before keeps its 28 bytes
 exactly.
 
+### CSS transforms, and animations the renderer plays itself
+
+A `Transform` modifier carries a 2D CSS transform as a matrix about a fractional origin,
+so `translate`, `rotate`, `scale`, `skew`, `matrix()` and their products draw with the
+box's text and children, and a press is tested against the transformed shape. A matrix
+that collapses the box draws nothing and takes no input. The transform does not change
+layout, the same as in CSS. 3D transforms are not in yet (#105).
+
+`StartAnimation` describes an animation once, with its keyframes, timing function,
+delay, iterations, direction and fill, and the renderer plays it on its own frame clock
+with the Web Animations timing model, so the Host does no work per frame. It animates
+`Alpha`, `Color`, `Background` and `Transform`. `ControlAnimation` pauses, resumes
+or cancels one, and `AnimationEvent` reports the start, each iteration and the end the
+Host asked to hear about. `ReducedMotionChanged` tells the Host the platform's reduced
+motion setting at start and when the window comes back into use, on macOS, Windows,
+Linux, iOS, Android and the web. Windows now reads "Show animations in Windows" being off
+as reduced motion; it was read the wrong way round (#89).
+
+`GraphicsLayer`, `AnimationSpec` and `transition()` build these records from Rust. The
+`animate_*_as_state` hooks for `rsx!` are in dioxus-compose, with the rest of the Dioxus
+path.
+
 ### The renderer is built for the platform where Compose publishes one
 
 macOS no longer carries a Java runtime. Where Compose publishes a target of its own, the
