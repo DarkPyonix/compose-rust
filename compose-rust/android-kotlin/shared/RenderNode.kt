@@ -17,6 +17,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.testTag
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.TypeRole
@@ -106,7 +107,8 @@ fun RenderNode(
     // Observation point for the recomposition test; null in production.
     RenderNodeObserver.onCompose?.let { observer -> SideEffect { observer(nodeId) } }
     val theme = LocalDesignTheme.current
-    val chain = parentModifier
+    val profiled = if (LayoutProfile.enabled) parentModifier.then(LayoutProfile.modifier(node.widget.name)) else parentModifier
+    val chain = profiled
         .then(node.modifiers.toComposeModifier(nodeId, dispatcher, theme))
         .testTag(nodeTestTag(nodeId))
     // The TextField wires its own key handling, because it has an editor to intercept and a
@@ -454,3 +456,41 @@ private fun BoxScope.Children(node: Node, table: NodeTable, dispatcher: EventDis
 
 /** The label of a Button follows the design system's button type role unless overridden. */
 internal fun Node.buttonTextStyle(theme: ResolvedTheme, role: TypeRole) = textStyle(theme, role)
+
+/**
+ * Where a frame's measuring goes, by kind of node, for a profile of a resize. Off unless a
+ * measurement switches it on before the content is composed; when off it adds nothing to any
+ * node. Each node's time is its own: what its children took is taken out of it, so a kind's
+ * total is what measuring nodes of that kind cost in themselves.
+ */
+object LayoutProfile {
+    var enabled = false
+
+    private class Entry(var nanos: Long = 0, var count: Int = 0)
+
+    private val totals = HashMap<String, Entry>()
+    private val childNanos = ArrayList<Long>()
+
+    fun modifier(kind: String): Modifier = Modifier.layout { measurable, constraints ->
+        childNanos.add(0L)
+        val started = kotlin.time.TimeSource.Monotonic.markNow()
+        val placeable = measurable.measure(constraints)
+        val inclusive = started.elapsedNow().inWholeNanoseconds
+        val children = childNanos.removeAt(childNanos.size - 1)
+        if (childNanos.isNotEmpty()) childNanos[childNanos.size - 1] = childNanos[childNanos.size - 1] + inclusive
+        val entry = totals.getOrPut(kind) { Entry() }
+        entry.nanos += inclusive - children
+        entry.count++
+        layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+    }
+
+    /** Clears what was gathered. */
+    fun reset() {
+        totals.clear()
+        childNanos.clear()
+    }
+
+    /** Kinds by their own measuring time, most first: kind, milliseconds, nodes measured. */
+    fun snapshot(): List<Triple<String, Double, Int>> =
+        totals.entries.map { Triple(it.key, it.value.nanos / 1e6, it.value.count) }.sortedByDescending { it.second }
+}
