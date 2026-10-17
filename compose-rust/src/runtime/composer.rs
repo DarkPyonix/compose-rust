@@ -124,6 +124,9 @@ pub(crate) enum OwnedAttr {
     Bool(bool),
     Draw(DrawList),
     Spans(TextSpans),
+    /// A value that is more than one scalar, such as a transform or an animated value,
+    /// in the layout the writer reads it back from.
+    Bytes(Vec<u8>),
 }
 
 impl OwnedAttr {
@@ -136,6 +139,7 @@ impl OwnedAttr {
             Self::Bool(value) => AttrValue::Bool(*value),
             Self::Draw(list) => AttrValue::Bytes(list.as_bytes()),
             Self::Spans(spans) => AttrValue::Bytes(spans.as_bytes()),
+            Self::Bytes(bytes) => AttrValue::Bytes(bytes),
         }
     }
 
