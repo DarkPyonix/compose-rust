@@ -4,9 +4,9 @@
 mod support;
 
 use compose_rust::ComposeHost;
-use compose_rust::protocol::{HostEvent, decode_batch};
+use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch};
 use compose_rust::runtime::*;
-use compose_rust::schema::{EventPayload, PropertyKind};
+use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind};
 use compose_rust::ui::*;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -760,4 +760,82 @@ fn fr39_a_static_string_parameter_is_compared_and_skipped() {
     tick.set(1);
     frame(&mut host, &mut tree);
     assert_eq!(runs_of("greeting"), 1);
+}
+
+// ----- text fields ------------------------------------------------------------------------
+
+/// The `Text` property each text field in `batch` was given, by node.
+fn text_field_texts(batch: &[u8], fields: &[u32]) -> Vec<(u32, String)> {
+    decode_batch(batch)
+        .expect("the batch decodes")
+        .iter()
+        .filter_map(|mutation| match mutation {
+            Mutation::SetProp {
+                node_id,
+                property: PropertyKind::Text,
+                value,
+            } if fields.contains(node_id) => Some((
+                *node_id,
+                match value {
+                    PropertyValue::String(text) => (*text).to_owned(),
+                    other => format!("{other:?}"),
+                },
+            )),
+            Mutation::SetText { node_id, text, .. } if fields.contains(node_id) => {
+                Some((*node_id, format!("SetText {text}")))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn fr5_a_text_field_starts_with_its_text_and_typing_is_not_sent_back() {
+    reset();
+    let draft = mutable_state_of(String::new());
+    let shown = draft.clone();
+    let mut host = ComposeHost::with_content(move || {
+        // Read, so that typing runs the screen again.
+        let _ = shown.get();
+        let typed = shown.clone();
+        TextField()
+            .text("Buy milk")
+            .placeholder("Title")
+            .on_value_change(move |value| typed.set(value));
+        TextField().placeholder("Nothing yet");
+    });
+    let mut tree = Tree::default();
+    let batch = host.rebuild().expect("the first batch encodes").to_vec();
+    tree.apply(&batch);
+    let fields: Vec<u32> = decode_batch(&batch)
+        .expect("the batch decodes")
+        .iter()
+        .filter_map(|mutation| match mutation {
+            Mutation::Create {
+                node_id,
+                widget: WidgetKind::TextField,
+            } => Some(*node_id),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(fields.len(), 2);
+    // The first field starts with its text; the one given none is sent none.
+    assert_eq!(
+        text_field_texts(&batch, &fields),
+        vec![(fields[0], "Buy milk".to_owned())]
+    );
+
+    // The user types. The screen runs again, and the field is told nothing.
+    let (node_id, handler_id) = tree.find("TextField", None, 0, PropertyKind::OnValueChange);
+    let (batch, _) = host
+        .dispatch(HostEvent {
+            node_id,
+            handler_id,
+            payload: EventPayload::TextChanged("Buy oat milk"),
+        })
+        .expect("the change is accepted");
+    let batch = batch.to_vec();
+    tree.apply(&batch);
+    assert_eq!(draft.get_untracked(), "Buy oat milk");
+    assert_eq!(text_field_texts(&batch, &fields), Vec::new());
 }

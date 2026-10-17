@@ -482,7 +482,7 @@ fn task_row(
                     let (lost_draft, saved_draft) = (edit_draft.clone(), edit_draft.clone());
                     TextField()
                         .modifier(Modifier.weight(1.0))
-                        .placeholder(task.title.clone())
+                        .text(task.title.clone())
                         .on_value_change(move |value| typed.set(value))
                         .on_submit(move |value: String| submit(value))
                         .on_focus_lost(move || lost(lost_draft.get_untracked()));

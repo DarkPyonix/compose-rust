@@ -439,6 +439,7 @@ composed_on_drop!(TextScope);
 /// A `TextField` and its builder.
 pub struct TextFieldScope {
     modifier: Modifier,
+    text: String,
     placeholder: String,
     enabled: bool,
     multiline: bool,
@@ -456,6 +457,7 @@ pub struct TextFieldScope {
 pub fn TextField() -> TextFieldScope {
     TextFieldScope {
         modifier: Modifier::new(),
+        text: String::new(),
         placeholder: String::new(),
         enabled: true,
         multiline: false,
@@ -469,6 +471,15 @@ pub fn TextField() -> TextFieldScope {
 }
 
 impl TextFieldScope {
+    /// The text the field starts with. Only the start: the field stays uncontrolled, so
+    /// what the user types is never written back, and a later value here changes nothing
+    /// on the field that is already there. To show other text, such as another document,
+    /// give the field a new identity with `key`, and the new field starts with this text.
+    pub fn text(mut self, text: impl Into<String>) -> Self {
+        self.text = text.into();
+        self
+    }
+
     pub fn placeholder(mut self, placeholder: impl Into<String>) -> Self {
         self.placeholder = placeholder.into();
         self
@@ -514,6 +525,7 @@ impl TextFieldScope {
 
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = self.modifier;
+        let text = std::mem::take(&mut self.text);
         let placeholder = std::mem::take(&mut self.placeholder);
         let (enabled, multiline, type_role) = (self.enabled, self.multiline, self.type_role);
         let key_down: EventCallback = match self.on_key_down.take() {
@@ -531,6 +543,11 @@ impl TextFieldScope {
             WidgetKind::TextField,
             |attrs| {
                 push_modifiers(&modifier, Mods::Standard, attrs);
+                // Written only when there is a starting text, so a field without one sends
+                // the same records it always did.
+                if !text.is_empty() {
+                    attrs.push(("text", OwnedAttr::Text(text)));
+                }
                 attrs.push(("placeholder", OwnedAttr::Text(placeholder)));
                 attrs.push(("enabled", OwnedAttr::Bool(enabled)));
                 attrs.push(("multiline", OwnedAttr::Bool(multiline)));
