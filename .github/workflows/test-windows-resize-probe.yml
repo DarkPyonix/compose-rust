@@ -197,9 +197,18 @@ jobs:
           cp .github/scripts/resize-probe-README.txt "$kit/README.txt"
           {
             echo
-            echo "This kit: hand-check.exe is the Kotlin/Native renderer from run $HAND_CHECK_RUN;"
-            echo "graalvm\\bin\\hand-check.exe is the GraalVM native image renderer and"
-            echo "resize-probe.exe the probe, both from commit $GITHUB_SHA."
+            echo "This kit"
+            echo "  graalvm\\bin\\hand-check.exe  the GraalVM native image renderer, built from commit $GITHUB_SHA"
+            echo "  resize-probe.exe               the probe, from commit $GITHUB_SHA"
+            echo "  hand-check.exe                 the Kotlin/Native renderer, PRE-MERGE: built in run $HAND_CHECK_RUN"
+            echo "                                 from commit 2332cd29, before develop was merged into this branch."
+            echo "      It lacks, against this kit's GraalVM app: the letter and digit keys (Ctrl+A, Ctrl+C,"
+            echo "      Ctrl+V, Ctrl+X and Ctrl+Z reach Compose as unknown keys, so expect those to fail in it),"
+            echo "      the window start lines, and everything develop brought since. Its resize path in"
+            echo "      win32_window.c is the same as this commit's (the merge left those functions unchanged)."
+            echo
+            echo "sha256"
+            (cd "$kit" && sha256sum hand-check.exe resize-probe.exe graalvm/bin/hand-check.exe graalvm/bin/libcompose_rust_renderer.dll)
           } >> "$kit/README.txt"
           ls -la "$kit" "$kit/graalvm/bin" | head -60
           sha256sum "$kit"/*.exe "$kit"/graalvm/bin/hand-check.exe
