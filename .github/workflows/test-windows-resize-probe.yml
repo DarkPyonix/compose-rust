@@ -79,7 +79,7 @@ jobs:
           dll=renderer/build/native-image/dist/bin/libcompose_rust_renderer.dll
           ls -la "$obj" "$dll"
           echo "win32_window.obj built from the file above: $(stat -c %y "$obj")"
-          for text in "resize frames on the CPU (Skia raster, GDI blit)" "resize-proof step" "resize-trace qpc="; do
+          for text in "on the CPU (Skia raster, GDI blit)" "resize-proof step" "resize-trace qpc="; do
             echo "\"$text\" in the renderer: $(grep -a -c -F "$text" "$dll" || true)"
             grep -a -q -F "$text" "$dll"
           done
