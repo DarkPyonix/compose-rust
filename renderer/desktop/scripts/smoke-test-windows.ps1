@@ -2,6 +2,8 @@
 #
 # UNTESTED: authored on macOS. With -RequireClick, click the button before the 30 second
 # timeout. The script fails unless the Host receives a dispatch event and run returns zero.
+# Without -RequireClick it fails unless the window opened, its scene was made and a frame was
+# drawn, and run returned zero.
 [CmdletBinding()]
 param(
     [switch]$RequireClick
@@ -106,6 +108,19 @@ if ($ExitCode -ne 0) {
 $Output = Get-Content -LiteralPath $SmokeLog -Raw
 if ($Output -notmatch "compose_rust_renderer_run returned 0") {
     Fail "renderer did not report a zero return; see $SmokeLog"
+}
+# A zero return alone does not show that anything was drawn: a machine with no Direct3D 12
+# adapter opens no window, says so, and still returns 0. These are the lines every desktop
+# renderer prints as it comes up (WindowStartReport.kt): the window opened, the scene was
+# made, and a frame reached the window.
+foreach ($Line in @(
+    "compose-rust: a window of our own",
+    "compose-rust: Compose scene created, main dispatcher ",
+    "compose-rust: first frame drawn"
+)) {
+    if (-not ([string]$Output).Contains($Line)) {
+        Fail "the renderer never printed `"$Line`", so it did not show that it drew; see $SmokeLog"
+    }
 }
 if ($RequireClick -and $Output -notmatch "compose_rust_host_dispatch_event: click") {
     Fail "no click reached the Host; click the button before the 30 second timeout and rerun"
