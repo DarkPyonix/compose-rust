@@ -366,11 +366,19 @@
       way. Keeping the buffer in Kotlin makes that failure impossible rather than rare.
     </p>
     <p>
-      Replacing the text from Rust, for example clearing an input after sending, is a
-      <code>SetText</code> record with the text and the selection, which the renderer applies only
-      after any composition finishes. The widget composables do not write it yet. A layer that
-      builds the tree writes it with <code>Batch::set_text_node</code>.
+      <code>text(..)</code> gives the field the text it starts with, and only that: a later value
+      changes nothing on a field that already exists. To show other text, such as another
+      document, or to clear an input after sending, give the field a new identity with
+      <code>key</code>. The new field starts with the text you pass.
     </p>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>rust</figcaption>
+<pre><code><span class="c">// A new key after each send is a new, empty field.</span>
+<span class="f">key</span>(sent.<span class="f">get</span>(), || {
+    <span class="f">TextField</span>().<span class="f">text</span>(draft.<span class="f">get_untracked</span>()).<span class="f">on_submit</span>(<span class="k">move</span> |text: <span class="ty">String</span>| <span class="f">send</span>(text));
+});</code></pre>
+    </figure>
 
     <h2 id="window">Reading the window</h2>
     <p>

@@ -127,7 +127,7 @@
           <tr><td><code>Box()</code></td><td><code>alignment</code>, <code>content</code></td></tr>
           <tr><td><code>ScrollColumn()</code>, <code>ScrollRow()</code>, <code>Card()</code>, <code>Surface()</code>, <code>SelectionContainer()</code>, <code>Spacer()</code></td><td><code>modifier</code>, <code>content</code></td></tr>
           <tr><td><code>Text(text)</code></td><td><code>type_role</code>, <code>color</code>, <code>text_align</code>, <code>max_lines</code>, <code>overflow</code>, <code>spans</code>, 그리고 타입 축마다 메서드 하나</td></tr>
-          <tr><td><code>TextField()</code></td><td><code>placeholder</code>, <code>multiline</code>, <code>enabled</code>, <code>on_value_change</code>, <code>on_submit</code>, <code>on_focus_lost</code>, <code>on_key_down</code></td></tr>
+          <tr><td><code>TextField()</code></td><td><code>text</code>(처음 텍스트), <code>placeholder</code>, <code>multiline</code>, <code>enabled</code>, <code>on_value_change</code>, <code>on_submit</code>, <code>on_focus_lost</code>, <code>on_key_down</code></td></tr>
           <tr><td><code>Button(label)</code></td><td><code>variant</code>, <code>icon</code>, <code>enabled</code>, <code>color</code>, <code>on_click</code>. 레이블이 비어 있고 아이콘이 있으면 아이콘 버튼입니다.</td></tr>
           <tr><td><code>Checkbox(checked)</code>, <code>RadioButton(selected)</code>, <code>Switch(checked)</code></td><td><code>enabled</code>, <code>on_change</code></td></tr>
           <tr><td><code>Slider(value)</code></td><td><code>range</code>, <code>steps</code>, <code>enabled</code>, <code>on_change</code></td></tr>
@@ -369,7 +369,7 @@
       <table>
         <thead><tr><th scope="col">위젯</th><th scope="col">렌더러가 갖는 것</th><th scope="col">Rust가 보내는 것</th></tr></thead>
         <tbody>
-          <tr><td><code>TextField</code></td><td>편집 버퍼 전체, 선택 영역, IME 조합</td><td>값은 없습니다. 변화는 이벤트로 오고, <code>SetText</code> 는 조합이 끝난 뒤에 텍스트를 바꿉니다.</td></tr>
+          <tr><td><code>TextField</code></td><td>편집 버퍼 전체, 선택 영역, IME 조합</td><td>많아야 처음 텍스트입니다. 변화는 이벤트로 오고, 새 <code>key</code> 는 새 필드를 줍니다.</td></tr>
           <tr><td><code>Dialog</code>, <code>Sheet</code>, <code>Menu</code></td><td>열림 상태, 열리고 닫히는 애니메이션</td><td>시작값이 되고 바깥의 변화를 전하는 열림 플래그.</td></tr>
           <tr><td><code>Dropdown</code></td><td>팝업이 열려 있는지</td><td>선택된 인덱스뿐.</td></tr>
           <tr><td><code>Navigation</code>, <code>Tabs</code></td><td>어느 것이 표시되었는지, 그 사이의 이동</td><td>시작값이 되는 선택된 인덱스.</td></tr>

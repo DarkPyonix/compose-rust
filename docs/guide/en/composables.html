@@ -128,7 +128,7 @@
           <tr><td><code>Box()</code></td><td><code>alignment</code>, <code>content</code></td></tr>
           <tr><td><code>ScrollColumn()</code>, <code>ScrollRow()</code>, <code>Card()</code>, <code>Surface()</code>, <code>SelectionContainer()</code>, <code>Spacer()</code></td><td><code>modifier</code>, <code>content</code></td></tr>
           <tr><td><code>Text(text)</code></td><td><code>type_role</code>, <code>color</code>, <code>text_align</code>, <code>max_lines</code>, <code>overflow</code>, <code>spans</code>, and one method per type axis</td></tr>
-          <tr><td><code>TextField()</code></td><td><code>placeholder</code>, <code>multiline</code>, <code>enabled</code>, <code>on_value_change</code>, <code>on_submit</code>, <code>on_focus_lost</code>, <code>on_key_down</code></td></tr>
+          <tr><td><code>TextField()</code></td><td><code>text</code> (the starting text), <code>placeholder</code>, <code>multiline</code>, <code>enabled</code>, <code>on_value_change</code>, <code>on_submit</code>, <code>on_focus_lost</code>, <code>on_key_down</code></td></tr>
           <tr><td><code>Button(label)</code></td><td><code>variant</code>, <code>icon</code>, <code>enabled</code>, <code>color</code>, <code>on_click</code>. An empty label with an icon is an icon button.</td></tr>
           <tr><td><code>Checkbox(checked)</code>, <code>RadioButton(selected)</code>, <code>Switch(checked)</code></td><td><code>enabled</code>, <code>on_change</code></td></tr>
           <tr><td><code>Slider(value)</code></td><td><code>range</code>, <code>steps</code>, <code>enabled</code>, <code>on_change</code></td></tr>
@@ -375,7 +375,7 @@
       <table>
         <thead><tr><th scope="col">Widget</th><th scope="col">What the renderer owns</th><th scope="col">What Rust sends</th></tr></thead>
         <tbody>
-          <tr><td><code>TextField</code></td><td>The whole edit buffer, the selection, the IME composition</td><td>No value. Changes arrive as events; <code>SetText</code> replaces the text after composition ends.</td></tr>
+          <tr><td><code>TextField</code></td><td>The whole edit buffer, the selection, the IME composition</td><td>At most a starting text. Changes arrive as events; a new <code>key</code> gives a new field.</td></tr>
           <tr><td><code>Dialog</code>, <code>Sheet</code>, <code>Menu</code></td><td>Open state, and the enter and exit animation</td><td>An open flag that seeds it and carries an outside change.</td></tr>
           <tr><td><code>Dropdown</code></td><td>Whether the popup is open</td><td>The selected index only.</td></tr>
           <tr><td><code>Navigation</code>, <code>Tabs</code></td><td>Which one is marked, and the move between them</td><td>The selected index, which seeds it.</td></tr>
