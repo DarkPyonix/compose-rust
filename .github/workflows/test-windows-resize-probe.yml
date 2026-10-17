@@ -1,16 +1,14 @@
 # Windows resize probe test: real drags of hand-check's right edge from resize-probe, a separate
-# process, for both Windows renderers, at 100% and at 200% display scale, with resize frames on
-# the CPU (the default) and on the GPU (DXC_RASTER_RESIZE=0), each at three mouse rates.
+# process, at 100% and at 200% display scale, with resize frames on the CPU (the default) and on
+# the GPU (DXC_RASTER_RESIZE=0), each at three mouse rates.
 #
 # The Kotlin/Native hand-check.exe is the one the Resize metrics workflow built in run
-# 38807049709, so its two-hour build is not repeated. The GraalVM native image renderer is
-# built here from this commit, with build-native-windows.ps1, and a hand-check linked to it.
-# Both run under the same run-probe-v2.ps1 the kit hands to a person.
+# 38807049709, so its two-hour build is not repeated. It runs under the same run-probe-v2.ps1
+# the kit hands to a person.
 #
-# What this shows is that the probe and both apps work on the runner: the drag happens, the
-# widths change, the backdrop shows, and both apps take the same resize path in the same C. It
-# is not a resize verdict. The runner draws with WARP on the Basic Render Driver, where frames
-# drawn the old way show no hole either; that verdict comes from a real machine.
+# What this shows is that the probe works on the runner: the drag happens, the widths change,
+# the backdrop shows, and the app takes the resize path asked for. It is not a resize verdict:
+# the runner draws with WARP on the Basic Render Driver; that verdict comes from a real machine.
 
 name: Windows resize probe test
 
@@ -29,9 +27,6 @@ on:
       - ".github/scripts/run-probe-v2.cmd"
       - ".github/scripts/set-display-scale.c"
       - "renderer/desktop/c/win32_window.c"
-      - "renderer/desktop/src/Win32Window.kt"
-      - "renderer/desktop/src/RendererEntryPoints.kt"
-      - "renderer/desktop/scripts/build-native-windows.ps1"
 
 concurrency:
   # One run per pull request: a new commit cancels the older run. Pushes to develop,
@@ -49,97 +44,8 @@ env:
   HAND_CHECK_RUN: "38807049709"
 
 jobs:
-  fork-desktop:
-    # The desktop module asks for the fork's Compose and skiko-awt by version.
-    name: Build the Compose fork's desktop modules
-    uses: ./.github/workflows/fork-desktop-modules.yml
-
-  graalvm:
-    name: GraalVM renderer and hand-check (Windows, x64)
-    needs: fork-desktop
-    runs-on: windows-2022
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install upstream GraalVM 25
-        # As test-native-renderer.yml's Windows job does.
-        uses: graalvm/setup-graalvm@v1
-        with:
-          java-version: '25'
-          distribution: 'graalvm'
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Take the Compose fork's desktop modules
-        uses: actions/download-artifact@v4
-        with:
-          name: compose-fork-desktop
-          path: ${{ runner.temp }}/compose-fork-desktop
-
-      - name: Put them where the renderer's build looks
-        shell: bash
-        run: |
-          mkdir -p ~/.m2/repository/org/jetbrains
-          cp -R "$RUNNER_TEMP/compose-fork-desktop/." ~/.m2/repository/org/jetbrains/
-
-      - name: The window code this build compiles
-        shell: bash
-        run: |
-          file=renderer/desktop/c/win32_window.c
-          echo "commit $GITHUB_SHA"
-          echo "git blob of $file at HEAD: $(git rev-parse "HEAD:$file")"
-          echo "hash of the file on disk:   $(git hash-object "$file")"
-          grep -nE '^(int32_t|void) dxc_native_(set_raster_resize|frame_mode|raster_begin|raster_end)\(' "$file"
-
-      - name: Build the GraalVM Windows renderer
-        shell: powershell
-        run: .\renderer\desktop\scripts\build-native-windows.ps1
-
-      - name: The renderer holds that window code
-        shell: bash
-        run: |
-          set -euo pipefail
-          obj=renderer/build/native-image/obj-windows/win32_window.obj
-          dll=renderer/build/native-image/dist/bin/libcompose_rust_renderer.dll
-          ls -la "$obj" "$dll"
-          echo "win32_window.obj built from the file above: $(stat -c %y "$obj")"
-          for text in "on the CPU (Skia raster, GDI blit)" "resize-proof step" "resize-trace qpc="; do
-            echo "\"$text\" in the renderer: $(grep -a -c -F "$text" "$dll" || true)"
-            grep -a -q -F "$text" "$dll"
-          done
-
-      - name: Build hand-check against the GraalVM renderer
-        # From PowerShell: Git Bash puts its own link (coreutils) ahead of MSVC's link.exe.
-        shell: pwsh
-        run: |
-          $env:COMPOSE_RUST_RENDERER_DIR = Join-Path $PWD "renderer\build\native-image\dist"
-          cargo build --release --manifest-path compose-rust/tests/fixtures/hand-check/Cargo.toml
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Package it
-        # bin\ holds hand-check.exe beside the renderer and its libraries; lib\ beside bin\ is
-        # where the renderer looks for the files java.home names.
-        shell: bash
-        run: |
-          set -euo pipefail
-          package="$(cygpath -u "$RUNNER_TEMP")/graalvm"
-          mkdir -p "$package/bin" "$package/lib"
-          cp -r renderer/build/native-image/dist/bin/. "$package/bin/"
-          [ ! -d renderer/build/native-image/dist/lib ] || cp -r renderer/build/native-image/dist/lib/. "$package/lib/"
-          cp compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe "$package/bin/"
-          ls -la "$package/bin" "$package/lib"
-
-      - name: Keep it
-        uses: actions/upload-artifact@v4
-        with:
-          name: hand-check-windows-graalvm
-          path: ${{ runner.temp }}/graalvm/
-          if-no-files-found: error
-          retention-days: 14
-
   probe:
     name: Real drags from the resize probe at 100% and 200% (Windows, x64)
-    needs: graalvm
     runs-on: windows-latest
     timeout-minutes: 60
     defaults:
@@ -157,12 +63,6 @@ jobs:
           run-id: ${{ env.HAND_CHECK_RUN }}
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/hand-check
-
-      - name: Receive the GraalVM hand-check
-        uses: actions/download-artifact@v4
-        with:
-          name: hand-check-windows-graalvm
-          path: ${{ runner.temp }}/probe-kit/graalvm
 
       - name: Enter the Visual Studio developer environment
         shell: pwsh
@@ -204,20 +104,19 @@ jobs:
           {
             echo
             echo "This kit"
-            echo "  graalvm\\bin\\hand-check.exe  the GraalVM native image renderer, built from commit $GITHUB_SHA"
             echo "  resize-probe.exe               the probe, from commit $GITHUB_SHA"
             echo "  hand-check.exe                 the Kotlin/Native renderer, PRE-MERGE: built in run $HAND_CHECK_RUN"
             echo "                                 from commit 2332cd29, before develop was merged into this branch."
-            echo "      It lacks, against this kit's GraalVM app: the letter and digit keys (Ctrl+A, Ctrl+C,"
+            echo "      It lacks, against this commit: the letter and digit keys (Ctrl+A, Ctrl+C,"
             echo "      Ctrl+V, Ctrl+X and Ctrl+Z reach Compose as unknown keys, so expect those to fail in it),"
             echo "      the window start lines, and everything develop brought since. Its resize path in"
             echo "      win32_window.c is the same as this commit's (the merge left those functions unchanged)."
             echo
             echo "sha256"
-            (cd "$kit" && sha256sum hand-check.exe resize-probe.exe graalvm/bin/hand-check.exe graalvm/bin/libcompose_rust_renderer.dll)
+            (cd "$kit" && sha256sum hand-check.exe resize-probe.exe)
           } >> "$kit/README.txt"
-          ls -la "$kit" "$kit/graalvm/bin" | head -60
-          sha256sum "$kit"/*.exe "$kit"/graalvm/bin/hand-check.exe
+          ls -la "$kit"
+          sha256sum "$kit"/*.exe
 
       - name: Keep the probe kit
         # Both apps and the probe, for run-probe-v2.cmd on a real machine.
@@ -272,7 +171,7 @@ jobs:
             cat "$out/set-display-scale.log" 2>/dev/null || echo "no set-display-scale log"
             echo '```'
             for scale in 1x 2x; do
-              for app in kn graalvm; do
+              for app in kn; do
                 for path in new old; do
                   for rate in 16 8 1; do
                     label="$app-$path-$rate"
@@ -306,7 +205,7 @@ jobs:
             echo "| scale | app | path | rate | start | peak during the drag | settled |"
             echo "|---|---|---|---|---|---|---|"
             for scale in 1x 2x; do
-              for app in kn graalvm; do
+              for app in kn; do
                 for path in new old; do
                   for rate in 16 8 1; do
                     f="$out/$scale/$app-$path-$rate-probe.log"
@@ -321,7 +220,7 @@ jobs:
               done
             done
             for scale in 1x 2x; do
-              for app in kn graalvm; do
+              for app in kn; do
                 echo "### $scale $app (new, 16 ms): the window's own breakdown"
                 echo '```'
                 cat "$out/$scale/$app-new-16.log" "$out/$scale/$app-new-16.log.err" 2>/dev/null |
@@ -353,7 +252,7 @@ jobs:
           status=0
           for scale in 1x 2x; do
             want="$([ $scale = 1x ] && echo "dpi 96 (1.00x)" || echo "dpi 192 (2.00x)")"
-            for app in kn graalvm; do
+            for app in kn; do
               for path in new old; do
                 for rate in 16 8 1; do
                   label="$app-$path-$rate"
