@@ -120,7 +120,7 @@ mod tests {
     /// name keeps them readable when one is left behind.
     fn scratch(name: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!(
-            "dioxus-compose-notepad-{name}-{}.tmp",
+            "compose-rust-notepad-{name}-{}.tmp",
             std::process::id()
         ))
     }

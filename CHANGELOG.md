@@ -34,9 +34,8 @@ composition is applied: `side_effect`, `launched_effect`, `disposable_effect`, a
 that wait on the frame clock, a timer or a worker thread.
 
 Every widget in the schema is a composable that writes what its `rsx!` counterpart writes,
-so the same Renderer draws both. The calculator, todo, chat and minimal samples are ported
-under `samples/compose/`, and `compose-rust/benches/fr39/` measures the two paths against
-each other over scenarios fixed before the runtime was written.
+so the same Renderer draws both. `compose-rust/benches/fr39/` measures the two paths
+against each other over scenarios fixed before the runtime was written.
 
 ```rust
 #[composable]
@@ -49,6 +48,16 @@ fn counter() {
     });
 }
 ```
+
+### The samples are written on the authoring API
+
+All eleven sample applications under `samples/` are rewritten on compose-rust's own API:
+calculator, chat, minimal, todo, notepad, social, podcast, selfcare, store, statistics and
+academic. They are workspace members again, their tests run with the workspace's, and
+`samples/frames` is the library their recording tests draw their screens through. The todo
+editor opens holding the task's title, now that a `TextField` can start with text of its
+own. Sample releases are back: a `sample-v*` tag builds every sample for the desktop
+platforms, Android, the iOS simulator and the browser (#85).
 
 ### The Linux renderer no longer links the Java toolkit
 
@@ -98,9 +107,7 @@ resize at 100% and 200% still need a person on a Mac.
 
 The Dioxus adapter, the Dioxus baseline and the twelve `rsx!` samples moved to
 [dioxus-compose](https://github.com/DarkPyonix/dioxus-compose), where the samples are
-native-widget examples. No crate in this repository depends on Dioxus any more. compose-rust's
-own samples return when they are rewritten on its authoring API (#64), and sample releases
-are paused until then (#85).
+native-widget examples. No crate in this repository depends on Dioxus any more.
 
 
 ### Elements for drawing an HTML and CSS screen
@@ -113,6 +120,30 @@ and paint on each side (`BorderEach`), a radius for each corner (`CornerEach`), 
 group). A `SetModifier` record is now as long as its modifier's tag says, so the border and
 the shadow carry their values whole; every modifier that existed before keeps its 28 bytes
 exactly.
+
+### CSS transforms, and animations the renderer plays itself
+
+A `Transform` modifier carries a 2D CSS transform as a matrix about a fractional origin,
+so `translate`, `rotate`, `scale`, `skew`, `matrix()` and their products draw with the
+box's text and children, and a press is tested against the transformed shape. A matrix
+that collapses the box draws nothing and takes no input. The transform does not change
+layout, the same as in CSS. 3D transforms are not in yet (#105).
+
+`StartAnimation` describes an animation once, with its keyframes, timing function,
+delay, iterations, direction and fill, and the renderer plays it on its own frame clock
+with the Web Animations timing model, so the Host does no work per frame. It animates
+`Alpha`, `Color`, `Background`, `Transform` and `BorderColor`, the colour of every side of
+a border. A layout container's `color` is the colour the text inside it inherits, as CSS
+`color` is, so one animation on a container recolours all of its text and sends nothing to
+any of it. `ControlAnimation` pauses, resumes or cancels one, and `AnimationEvent` reports
+the start, each iteration and the end the Host asked to hear about. `ReducedMotionChanged` tells the Host the platform's reduced
+motion setting at start and when the window comes back into use, on macOS, Windows,
+Linux, iOS, Android and the web. Windows now reads "Show animations in Windows" being off
+as reduced motion; it was read the wrong way round (#89).
+
+`GraphicsLayer`, `AnimationSpec` and `transition()` build these records from Rust. The
+`animate_*_as_state` hooks for `rsx!` are in dioxus-compose, with the rest of the Dioxus
+path.
 
 ### The renderer is built for the platform where Compose publishes one
 
