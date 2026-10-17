@@ -187,12 +187,13 @@ grep -q 'input-check: field = .*한글' "$logs/host.log" ||
 
 echo "== dropping files on the window (XDND)"
 # A file manager's drop, played by a client of its own over the X drag and drop protocol. The
-# drop target sits below the field and the button, so the point is tried at a few heights.
+# drop target sits below the field and the button, and its height is the label's, so the point is
+# tried down the column until the Host hears a drop.
 cc -O1 -o "$logs/xdnd-drop" "$repo_root/.github/scripts/xdnd-drop.c" -lX11 ||
     fail "the drop client did not compile" "It needs libx11-dev."
 drop_path="$logs/dropped file.txt"
 : >"$drop_path"
-for y in 120 150 180 210 240; do
+for y in $(seq 70 6 330); do
     "$logs/xdnd-drop" "$window" 80 "$y" "$drop_path" >>"$logs/xdnd-drop.log" 2>&1 || true
     sleep 0.5
     grep -q 'input-check: dropped = ' "$logs/host.log" && break
