@@ -2509,7 +2509,7 @@ Offset, RequiredSize, Transform, Alpha, Shadow, Background, Border/BorderEach, C
 
 ### FR-41.2 렌더러가 재생하는 애니메이션 (`Agreed`)
 
-Host가 애니메이션 하나를 한 번 기술하면, 렌더러가 자기 프레임 클록으로 끝까지 재생합니다. 재생하는 동안 Host로 가는 호출은 없습니다(D5: 애니메이션 상태는 렌더러). 대상은 레이아웃에 영향이 없는 넷, `Alpha`, `Color`, `Background`, `Transform`입니다.
+Host가 애니메이션 하나를 한 번 기술하면, 렌더러가 자기 프레임 클록으로 끝까지 재생합니다. 재생하는 동안 Host로 가는 호출은 없습니다(D5: 애니메이션 상태는 렌더러). 대상은 레이아웃에 영향이 없는 다섯, `Alpha`, `Color`, `Background`, `Transform`, `BorderColor`입니다. 레이아웃 컨테이너의 `Color`는 그 안의 글자가 물려받는 색입니다(CSS `color`의 상속). 그래서 컨테이너 하나에 건 애니메이션 하나가 그 안의 글자를 모두 다시 칠합니다.
 
 #### FR-24와의 관계
 
@@ -2530,14 +2530,17 @@ Host가 애니메이션 하나를 한 번 기술하면, 렌더러가 자기 프�
 | `property` | 값 | 바탕값을 들고 있는 자리 | 그리는 단계 |
 |---|---|---|---|
 | `Alpha = 1` | `f32` | 그 노드의 첫 `Alpha` 수정자(25) | `graphicsLayer { alpha }` |
-| `Color = 2` | `Paint` | 그 노드의 `color` 속성(`Text` 등 `color` 속성이 있는 위젯) | 그리기 단계에서 읽는 색(`BasicText`의 `ColorProducer`) |
+| `Color = 2` | `Paint` | 그 노드의 `color` 속성(`Text` 등 `color` 속성이 있는 위젯, 그리고 레이아웃 컨테이너) | 그리기 단계에서 읽는 색(`BasicText`의 `ColorProducer`). 컨테이너의 색은 `CompositionLocal`로 내려가는 `ColorProducer`이고, 자기 `color`가 없는 `Text`가 그것을 읽습니다 |
 | `Background = 3` | `Paint` | 그 노드의 첫 `Background` 수정자(7) | `drawBehind`에서 읽는 색 |
 | `Transform = 4` | 변환 함수 목록 | 그 노드의 첫 `Transform` 수정자(26) | `graphicsLayer` 두 겹(FR-41.1) |
+| `BorderColor = 5` | `Paint` | 그 노드의 첫 `Border` 수정자(14) 또는 첫 `BorderEach` 수정자(21) | 테두리를 그리는 `drawWithCache`에서 읽는 색. 네 변을 모두 그 색으로 칠합니다 |
 
 - **애니메이션은 바탕값을 가진 자리에서 그려집니다.** 수정자는 순서가 뜻을 가지므로(FR-41.1의 순서), 애니메이션된 `Transform`이 체인의 어디에 끼는지가 정해져 있어야 합니다. 그래서 `Alpha`, `Background`, `Transform` 애니메이션은 같은 종류의 수정자가 이미 그 노드에 있어야 하고, 렌더러는 그 첫 수정자의 자리에서 값을 바꿔 그립니다. CSS에 바탕값이 없으면 Host가 항등값(`Alpha(1)`, 투명 `Background`, 항등 `Transform`)을 둡니다.
   - 확인 시점은 배치 전체를 적용한 뒤입니다. 같은 배치 안에서 `StartAnimation`이 바탕 수정자보다 먼저 와도 됩니다.
-  - 배치를 다 적용한 뒤에도 그 자리가 없거나, `Color` 대상인데 그 위젯에 `color` 속성이 없으면 `ProtocolError`입니다.
+  - 배치를 다 적용한 뒤에도 그 자리가 없거나, `Color` 대상인데 그 위젯에 `color` 속성이 없거나(레이아웃 컨테이너는 있습니다), `BorderColor` 대상인데 그 노드에 `Border`도 `BorderEach`도 없으면 `ProtocolError`입니다.
   - 나중의 `SetModifier`가 그 자리를 없애면(다른 종류로 바꾸거나 `Empty`로) 그 노드의 그 속성 애니메이션은 모두 조용히 취소됩니다. Host가 그렇게 보냈으므로 Host는 이미 압니다.
+- **글자는 컨테이너의 색을 물려받습니다.** 레이아웃 컨테이너(`Column`, `Row`, `Box`, `FileDropTarget`, `AbsoluteBox`, `ScrollColumn`, `ScrollRow`, `LazyColumn`, `LazyRow`, `LazyGrid`)는 `color` 속성을 받습니다. 그 색은 CSS `color`처럼 안의 모든 글자에 상속됩니다. 자기 `color`가 없는 `Text`는 가장 가까운 컨테이너의 색으로 그려지고, 자기 `color`가 있는 `Text`는 그 색을 지킵니다. 어느 컨테이너에도 색이 없으면 지금처럼 디자인 시스템의 글자 색입니다. 정적인 `SetProp`과 `Color` 애니메이션이 같은 길로 내려갑니다. 렌더러는 컨테이너마다 `ColorProducer`를 `CompositionLocal`로 내려 주고, 글자는 그리기 단계에서 그것을 읽습니다. 그래서 컨테이너의 색이 바뀌거나 재생되는 동안 안의 글자는 다시 구성되지 않고, 글자마다 레코드가 나가지 않습니다.
+- **테두리 색은 요소 하나에 레코드 하나입니다.** `BorderColor`는 네 변의 색을 한꺼번에 바꿉니다. 변마다 다른 색으로 끝나는 전환은 `BorderEach`의 바탕값을 바꾸는 것으로 표현하고, 재생은 한 색입니다. 너비는 바꾸지 않습니다(레이아웃 속성).
 - **값을 그리기 단계에서만 바꿉니다.** 렌더러는 매 프레임 상태 하나를 쓰고, 그 상태는 `graphicsLayer {}` 블록이나 그리기 람다 안에서만 읽힙니다. 그래서 재생 중에 그 노드는 다시 구성(recomposition)되지도, 다시 측정되지도 않습니다. `Color`도 글자를 다시 배치하지 않습니다.
 
 #### `StartAnimation` (Mutation 태그 18)
@@ -2547,7 +2550,7 @@ Host가 애니메이션 하나를 한 번 기술하면, 렌더러가 자기 프�
 offset  0  tag: u16 = 18            offset  2  len: u16
 offset  4  node_id: u32
 offset  8  animation_id: u32        Host가 붙이는 이름. 이벤트가 그대로 돌려줍니다
-offset 12  property: u8             Alpha=1, Color=2, Background=3, Transform=4
+offset 12  property: u8             Alpha=1, Color=2, Background=3, Transform=4, BorderColor=5
 offset 13  slot: u8                 같은 노드·속성 안의 우선순위. 클수록 위
 offset 14  direction: u8            Normal=1, Reverse=2, Alternate=3, AlternateReverse=4
 offset 15  fill: u8                 None=1, Forwards=2, Backwards=3, Both=4
@@ -2687,8 +2690,8 @@ dioxus-compose FR-34.2 수용 기준 5(`prefers-reduced-motion`)는 Host가 미�
 - **렌더러는 `StartAnimation`에 모션 감소를 적용하지 않습니다.** 무엇을 줄일지는 CSS(Host)가 정합니다. FR-24의 `Motion` 역할은 지금처럼 렌더러가 `Instant`로 해석합니다.
 
 수용 기준:
-1. `StartAnimation`(네 속성 각각, `Transform`은 다섯 함수 종류 각각과 함수 셋짜리 목록), `ControlAnimation`, `AnimationEvent`, `ReducedMotionChanged`가 Rust와 Kotlin에서 같은 바이트로 인코딩되고 디코딩됩니다(체크인된 프로토콜 벡터, `fr41_start_animation_round_trips` 등).
-2. 다음은 모두 `ProtocolError` 이벤트가 되고 프로세스가 중단되지 않습니다: 모르는 열거값, 키프레임 2개 미만, 오프셋이 0에서 시작하지 않거나 1로 끝나지 않거나 줄어드는 것, 음수 길이, NaN 또는 음수 반복 횟수, 키프레임마다 다른 변환 함수 목록, `len`과 맞지 않는 키프레임 수, 배치를 다 적용한 뒤에도 바탕 수정자가 없는 대상, `color` 속성이 없는 위젯의 `Color`.
+1. `StartAnimation`(다섯 속성 각각, `Transform`은 다섯 함수 종류 각각과 함수 셋짜리 목록), `ControlAnimation`, `AnimationEvent`, `ReducedMotionChanged`가 Rust와 Kotlin에서 같은 바이트로 인코딩되고 디코딩됩니다(체크인된 프로토콜 벡터, `fr41_start_animation_round_trips`, `fr41_border_color_animation_round_trips` 등). `BorderColor` 레코드는 벡터의 기존 레코드 뒤에 붙고, 기존 레코드의 바이트는 하나도 바뀌지 않습니다.
+2. 다음은 모두 `ProtocolError` 이벤트가 되고 프로세스가 중단되지 않습니다: 모르는 열거값, 키프레임 2개 미만, 오프셋이 0에서 시작하지 않거나 1로 끝나지 않거나 줄어드는 것, 음수 길이, NaN 또는 음수 반복 횟수, 키프레임마다 다른 변환 함수 목록, `len`과 맞지 않는 키프레임 수, 배치를 다 적용한 뒤에도 바탕 수정자가 없는 대상, `color` 속성이 없는 위젯(예: `Spacer`)의 `Color`, `Border`와 `BorderEach`가 모두 없는 노드의 `BorderColor`. 레이아웃 컨테이너의 `Color`는 오류가 아닙니다(`fr41_an_animation_needs_its_underlying_modifier_after_the_batch`).
 3. 시간 모델 함수의 표 테스트: `linear`, `ease`(0.25, 0.1, 0.25, 1)의 0.5 지점, `steps(4)`의 네 점프 항 각각의 경계 값(before flag 포함), 반복 2.5회와 네 방향, 음수 지연, 네 fill 모드의 앞·뒤 단계 값, 무한 반복, 길이 0. 기대값은 Web Animations Level 1의 식으로 계산해 테스트에 적습니다.
 4. 렌더러 테스트(테스트 시계, `mainClock.autoAdvance = false`): 바탕 `Alpha(0.2)`에 0에서 1로 가는 1000ms `linear`, 지연 200ms, fill 없음을 걸면 100ms에 0.2, 700ms에 0.5, 1300ms에 0.2입니다. fill `Backwards`면 100ms에 0, `Forwards`면 1300ms에 1입니다. 같은 방식으로 `Background`(sRGB 사전곱 중간색), `Color`, `Transform`(`rotate(0)`에서 `rotate(720deg)`, 500ms에 360도가 아니라 정확히 한 바퀴 돈 모양이고, 250ms에 180도)를 확인합니다. 값은 노드의 그리기 결과와 `boundsInRoot`로 읽습니다. `Matrix` 보간과 `linear()` 분할은 꼭짓점 기준 0.01dp 안입니다.
 5. 1초짜리 `Alpha`와 `Transform` 애니메이션이 60프레임 도는 동안, 이벤트를 요청하지 않았으면 Host의 `render_frame`과 `dispatch_event`가 한 번도 불리지 않습니다. `Active`와 `End`를 요청했으면 정확히 두 번 불립니다(가짜 Host의 호출 횟수).
@@ -2704,6 +2707,9 @@ dioxus-compose FR-34.2 수용 기준 5(`prefers-reduced-motion`)는 Host가 미�
 15. 애니메이션 100개가 도는 정상 상태에서 렌더러의 프레임당 힙 할당이 0바이트입니다(`BoundaryCostTest`와 같은 방식으로 실측). 모두 끝난 뒤에는 프레임이 더 요청되지 않습니다.
 16. 노드 1000개가 동시에 `Transform` 애니메이션을 도는 화면의 프레임 시간이 NFR-9 예산 안이고, 수치를 이 항목에 기록합니다.
 17. `ReducedMotionChanged`가 시작 후 한 번 오고, 시스템 설정을 바꾸면 한 번 더 옵니다. 모션 감소가 켜져 있어도 `StartAnimation`은 레코드대로 재생되고, `Motion` 역할은 한 프레임 안에 끝납니다. 시스템 설정 변경은 데스크톱 세 플랫폼에서 수동으로 확인하고 그렇게 적습니다.
+18. 상속되는 글자 색(렌더러 테스트, 테스트 시계). `color`가 파랑인 `AbsoluteBox` 안의 `Column`에 든 `Text` 둘 가운데 자기 `color`가 없는 것은 파랑으로, 자기 `color`가 빨강인 것은 빨강으로 그려집니다(`fr41_text_inherits_its_containers_colour`).
+19. 컨테이너 하나의 애니메이션이 그 안의 글자를 모두 다시 칠합니다(렌더러 테스트, 테스트 시계). 빨강에서 파랑으로 가는 `Color` 애니메이션 하나를 컨테이너에 걸고 절반에서 멈추면, 그 안에서 자기 색이 없는 `Text`는 깊이와 상관없이(컨테이너 안의 `Column` 안, 그 안의 `Box` 안) 모두 빨강과 파랑의 중간색으로 그려지고, 자기 색이 있는 `Text`는 그 색을 지킵니다. 배치에는 `StartAnimation`이 하나뿐이고 어느 `Text`도 레코드를 받지 않으며, 재생하는 동안 그 `Text`들은 다시 구성되지 않습니다(`fr41_one_animation_on_a_container_recolours_every_text_inside_it`).
+20. 테두리 색 애니메이션(렌더러 테스트, 테스트 시계). 너비 8의 `BorderEach`(네 변 빨강)와 너비 8의 `Border`(빨강)에 각각 빨강에서 파랑으로 가는 `BorderColor` 하나를 걸고 절반에서 멈추면, 네 변의 테두리 모두 중간색으로 그려지고 테두리 안쪽은 칠해지지 않습니다(`fr41_an_animated_border_colour_is_what_is_drawn`).
 
 ---
 
