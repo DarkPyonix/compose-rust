@@ -27,24 +27,28 @@ import dev.darkpyonix.composerust.runtime.windowSizeClassOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ClipOp
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.translate
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import kotlin.math.ceil
@@ -72,6 +76,7 @@ internal fun List<ProtocolModifier>.toComposeModifier(
     nodeId: Int,
     dispatcher: EventDispatcher,
     theme: ResolvedTheme,
+    animated: (() -> dev.darkpyonix.composerust.ui.node.AnimatedNode)? = null,
 ): Modifier {
     // The last Shape or ShapeRole in the list is what clips, what the border
     // follows and what the background fills, whatever their order in the chain.
@@ -97,6 +102,13 @@ internal fun List<ProtocolModifier>.toComposeModifier(
     // The corners an HTML box asked for, which its background, border, shadow and clip all
     // follow. Null where the node named no corners of its own.
     val corners = cornerEachShape()
+    // The first opacity, background, transform and border of a node are where an animation the
+    // Renderer plays on it is drawn. They read the animated value in the draw phase, so
+    // the animation never recomposes or remeasures the node.
+    var alphaSeen = false
+    var backgroundSeen = false
+    var transformSeen = false
+    var borderSeen = false
     return fold(surface) { chain, value ->
         when (value) {
             is ProtocolModifier.Empty -> chain
@@ -110,7 +122,9 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             // that names a brush nobody registered is reported and left unpainted: a
             // guess would leave a screen subtly wrong with nothing to read about why.
             is ProtocolModifier.Background -> theme.brush(value.paint)?.let { brush ->
-                chain.background(brush, shape)
+                val holder = if (!backgroundSeen) animated?.invoke() else null
+                backgroundSeen = true
+                if (holder == null) chain.background(brush, shape) else chain.animatedBackground(brush, shape, holder)
             } ?: chain.composed { reportUnknownBrush(nodeId, value.paint, dispatcher) }
             is ProtocolModifier.Clickable -> chain.hostClickable(nodeId, value.handlerId, dispatcher)
 
@@ -120,7 +134,15 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             is ProtocolModifier.Shape -> chain.clip(shape)
             is ProtocolModifier.ShapeRole -> chain.clip(shape)
             is ProtocolModifier.Border -> theme.brush(value.paint)?.let { brush ->
-                chain.border(value.width.dp, brush, shape)
+                val holder = if (!borderSeen) animated?.invoke() else null
+                borderSeen = true
+                // Compose's own border until an animation first plays on this one, then the
+                // layer that can repaint it in the draw phase.
+                if (holder != null && holder.borderAnimated.value) {
+                    chain.animatedBorder(value.width.dp, brush, shape, holder)
+                } else {
+                    chain.border(value.width.dp, brush, shape)
+                }
             } ?: chain.composed { reportUnknownBrush(nodeId, value.paint, dispatcher) }
             is ProtocolModifier.Elevation ->
                 theme.rules.elevation(chain, value.value.dp, shape, theme)
@@ -158,7 +180,9 @@ internal fun List<ProtocolModifier>.toComposeModifier(
                 if (missing != null) {
                     chain.composed { reportUnknownBrush(nodeId, paints[missing], dispatcher) }
                 } else {
-                    chain.borderEach(value, brushes.map { it!! }, corners)
+                    val holder = if (!borderSeen) animated?.invoke() else null
+                    borderSeen = true
+                    chain.borderEach(value, brushes.map { it!! }, corners, holder)
                 }
             }
 
@@ -175,18 +199,137 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             is ProtocolModifier.Clip ->
                 if (value.enabled) chain.clip(corners ?: RectangleShape) else chain
 
+            // CSS `transform`: drawn through layers, so the layout is untouched and a
+            // pointer is tested against the shape that is drawn.
+            is ProtocolModifier.Transform -> {
+                val holder = if (!transformSeen) animated?.invoke() else null
+                transformSeen = true
+                chain.affineTransform(
+                    value.originX,
+                    value.originY,
+                    AffineParts.isOneLayer(value.a, value.b, value.c, value.d) &&
+                        holder?.twoLayers?.value != true,
+                ) { matrix ->
+                    // Read so a layer redraws when an animation writes a new matrix.
+                    val shown = holder != null && holder.transformVersion.intValue >= 0 && holder.transformShown
+                    if (shown) {
+                        holder!!.matrix.copyInto(matrix)
+                    } else {
+                        matrix[0] = value.a
+                        matrix[1] = value.b
+                        matrix[2] = value.c
+                        matrix[3] = value.d
+                        matrix[4] = value.e
+                        matrix[5] = value.f
+                    }
+                }
+            }
+
             // The node and everything in it are drawn into one layer first, and the layer is
             // faded once. Fading each child separately would show where they overlap, which
             // CSS `opacity` does not.
-            is ProtocolModifier.Alpha -> chain.graphicsLayer {
-                val opacity = value.value.coerceIn(0f, 1f)
-                alpha = opacity
-                compositingStrategy =
-                    if (opacity < 1f) CompositingStrategy.Offscreen else CompositingStrategy.Auto
+            is ProtocolModifier.Alpha -> {
+                val holder = if (!alphaSeen) animated?.invoke() else null
+                alphaSeen = true
+                if (holder == null) {
+                    chain.groupAlpha { value.value }
+                } else {
+                    chain.groupAlpha {
+                        val shown = holder.alpha.floatValue
+                        if (shown.isNaN()) value.value else shown
+                    }
+                }
             }
         }
     }
 }
+
+/**
+ * A background that an animation can repaint without recomposing the node: the same fill
+ * `Modifier.background` draws, with the animated colour read in the draw phase in its
+ * place while one plays.
+ */
+private fun Modifier.animatedBackground(
+    brush: Brush,
+    shape: Shape,
+    holder: dev.darkpyonix.composerust.ui.node.AnimatedNode,
+): Modifier = drawWithCache {
+    val outline = if (shape === RectangleShape) null else shape.createOutline(size, layoutDirection, this)
+    onDrawBehind {
+        val shown = holder.backgroundOverride()
+        when {
+            shown != null && outline == null -> drawRect(color = shown)
+            shown != null -> drawOutline(outline!!, color = shown)
+            outline == null -> drawRect(brush)
+            else -> drawOutline(outline, brush)
+        }
+    }
+}
+
+/**
+ * A uniform border that an animation can repaint without recomposing the node: a stroke of
+ * [width] along the inside of the node's [shape], drawn over the content as
+ * `Modifier.border` draws it, in the animated colour while one plays.
+ */
+private fun Modifier.animatedBorder(
+    width: Dp,
+    brush: Brush,
+    shape: Shape,
+    holder: dev.darkpyonix.composerust.ui.node.AnimatedNode,
+): Modifier = drawWithCache {
+    val stroke = width.toPx().coerceIn(0f, minOf(size.width, size.height) / 2f)
+    val half = stroke / 2f
+    val inner = Size((size.width - stroke).coerceAtLeast(0f), (size.height - stroke).coerceAtLeast(0f))
+    val outline = shape.createOutline(inner, layoutDirection, this)
+    val style = Stroke(stroke)
+    onDrawWithContent {
+        drawContent()
+        if (stroke > 0f) {
+            val shown = holder.borderOverride()
+            translate(half, half) {
+                if (shown != null) {
+                    drawOutline(outline, color = shown, style = style)
+                } else {
+                    drawOutline(outline, brush, style = style)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Fades this node and everything drawn inside it as one group, the way CSS `opacity` does.
+ *
+ * The content is drawn into a layer of its own and the layer is drawn once at [alpha], so
+ * where two children overlap the overlap is no darker than either of them. The layer has
+ * no edge of its own: a child that overflows the node, or content a transform has turned
+ * past the node's rectangle, is faded rather than cut off. A Compose layer with an
+ * offscreen buffer would cut it at the node's bounds, which CSS never does.
+ *
+ * [alpha] is read while drawing, so a value that changes every frame only redraws.
+ */
+internal fun Modifier.groupAlpha(alpha: () -> Float): Modifier {
+    val paint = Paint()
+    return drawWithContent {
+        val opacity = alpha().coerceIn(0f, 1f)
+        when {
+            opacity >= 1f -> drawContent()
+            opacity <= 0f -> Unit
+            else -> {
+                paint.alpha = opacity
+                drawContext.canvas.saveLayer(UNBOUNDED_GROUP, paint)
+                drawContent()
+                drawContext.canvas.restore()
+            }
+        }
+    }
+}
+
+/**
+ * A layer as large as anything a screen can draw. The layer that is allocated is only as
+ * large as what is visible, because drawing is limited to the clip before it starts.
+ */
+private val UNBOUNDED_GROUP = Rect(-1e7f, -1e7f, 1e7f, 1e7f)
 
 /**
  * Says that a paint named a brush that is not registered, and paints nothing.
@@ -308,6 +451,8 @@ private fun Modifier.borderEach(
     value: ProtocolModifier.BorderEach,
     brushes: List<Brush>,
     corners: CornerEachShape?,
+    /** Where an animation of the border's colour writes the colour every side shows. */
+    holder: dev.darkpyonix.composerust.ui.node.AnimatedNode? = null,
 ): Modifier = drawWithCache {
     val width = size.width
     val height = size.height
@@ -380,9 +525,12 @@ private fun Modifier.borderEach(
         ) else null,
     )
     onDrawBehind {
+        val shown = holder?.borderOverride()
         regions.forEachIndexed { index, region ->
             if (region != null) {
-                clipPath(region) { drawPath(ring, brushes[index]) }
+                clipPath(region) {
+                    if (shown != null) drawPath(ring, color = shown) else drawPath(ring, brushes[index])
+                }
             }
         }
     }
