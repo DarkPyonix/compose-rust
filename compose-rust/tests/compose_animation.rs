@@ -80,7 +80,10 @@ fn fr41_compose_api_emits_the_same_records() {
     let boxed = node_of(&first, WidgetKind::Box);
 
     faded.set(true);
-    let batch = host.render_frame(16_666_667).expect("the frame encodes").to_vec();
+    let batch = host
+        .render_frame(16_666_667)
+        .expect("the frame encodes")
+        .to_vec();
     tree.apply(&batch);
     let changed = owned(&batch);
     let started: Vec<_> = changed
@@ -124,11 +127,17 @@ fn fr41_compose_api_animation_does_not_recompose() {
     let state = faded.clone();
     let (mut host, mut tree, _) = start(move || Fading(state.clone()));
     faded.set(true);
-    let batch = host.render_frame(16_666_667).expect("the frame encodes").to_vec();
+    let batch = host
+        .render_frame(16_666_667)
+        .expect("the frame encodes")
+        .to_vec();
     tree.apply(&batch);
     let composed = COMPOSED.with(Cell::get);
     for frame in 2..=61_u64 {
-        let batch = owned(host.render_frame(frame * 16_666_667).expect("the frame encodes"));
+        let batch = owned(
+            host.render_frame(frame * 16_666_667)
+                .expect("the frame encodes"),
+        );
         assert!(batch.is_empty(), "frame {frame} carried {batch:?}");
     }
     assert_eq!(
@@ -233,7 +242,10 @@ fn fr41_compose_api_offset_and_colour_are_one_transition_each() {
     assert!(
         changed.iter().any(|mutation| matches!(
             mutation,
-            Mutation::SetModifier { modifier: Wire::Background(Paint::Role(ColorRole::Primary)), .. }
+            Mutation::SetModifier {
+                modifier: Wire::Background(Paint::Role(ColorRole::Primary)),
+                ..
+            }
         )),
         "{changed:?}"
     );

@@ -401,7 +401,8 @@ impl NodeWriter {
                 };
                 let mut words = [0.0_f32; 8];
                 for (index, word) in words.iter_mut().enumerate() {
-                    *word = f32::from_le_bytes(bytes.get(4 * index..4 * index + 4)?.try_into().ok()?);
+                    *word =
+                        f32::from_le_bytes(bytes.get(4 * index..4 * index + 4)?.try_into().ok()?);
                 }
                 let [a, b, c, d, e, f, origin_x, origin_y] = words;
                 Some(Some((
