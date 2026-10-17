@@ -25,6 +25,20 @@ The quick way: both apps, both paths, all three rates
   at the end and press Ctrl+V (the text appears again). Say for each app whether all three
   worked.
 
+Memory, both apps
+  Every probe log has three lines from outside the app, the same way for both renderers:
+      memory start                 once the window has opened and drawn, before the drag
+      memory peak during the drag  the highest of samples taken every 50 ms while the button is down
+      memory settled               about two seconds after the button came up
+  each with private_mb (private bytes), working_set_mb and gpu_local_mb / gpu_nonlocal_mb (the
+  GPU Process Memory counters for the app's process). The app's own log (DXC_METRICS=1, which
+  run-probe-v2 sets) adds "memory-breakdown" lines from the window: private bytes before the
+  Direct3D device, with the device and its queue, with the swapchain, once the window opened,
+  and at each metrics phase, with the sizes of what the window holds itself (draw texture, the
+  CPU frames' bitmap, the swapchain), so the start value can be taken apart.
+  Also note, for each app, Task Manager's Memory column once the window is open, while you drag
+  its edge by hand, and a few seconds after you let go.
+
 How to run one drag by hand (PowerShell, in the folder that holds hand-check.exe and resize-probe.exe)
   1. Put nothing over the top left of the primary monitor, and keep the window there.
      The probe compares against the desktop as it is when it starts, so start it first.

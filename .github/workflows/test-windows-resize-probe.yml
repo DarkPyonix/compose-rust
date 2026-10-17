@@ -293,6 +293,44 @@ jobs:
             done
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Report memory
+        # From outside each app (the probe reads its private bytes, working set and the GPU
+        # process counters) before the drag, at the drag's peak and settled after it, and from
+        # inside it the window's own breakdown (DXC_METRICS memory-breakdown lines).
+        if: always()
+        run: |
+          out="$(cygpath -u "$RUNNER_TEMP")/probe-logs"
+          num() { sed -n "s/.*resize-probe: memory $2 .*$3=\([-0-9.]*\).*/\1/p" "$1" | head -1; }
+          {
+            echo "### Memory, MB (private / working set / GPU local), from outside the app"
+            echo "| scale | app | path | rate | start | peak during the drag | settled |"
+            echo "|---|---|---|---|---|---|---|"
+            for scale in 1x 2x; do
+              for app in kn graalvm; do
+                for path in new old; do
+                  for rate in 16 8 1; do
+                    f="$out/$scale/$app-$path-$rate-probe.log"
+                    [ -f "$f" ] || continue
+                    row="| $scale | $app | $path | $rate ms"
+                    for when in start "peak during the drag" settled; do
+                      row="$row | $(num "$f" "$when" private_mb) / $(num "$f" "$when" working_set_mb) / $(num "$f" "$when" gpu_local_mb)"
+                    done
+                    echo "$row |"
+                  done
+                done
+              done
+            done
+            for scale in 1x 2x; do
+              for app in kn graalvm; do
+                echo "### $scale $app (new, 16 ms): the window's own breakdown"
+                echo '```'
+                cat "$out/$scale/$app-new-16.log" "$out/$scale/$app-new-16.log.err" 2>/dev/null |
+                  grep -E "memory-breakdown|metrics memory|draw texture ->|raster bitmap ->|swapchain on" || echo "none"
+                echo '```'
+              done
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Keep the logs
         if: always()
         uses: actions/upload-artifact@v4

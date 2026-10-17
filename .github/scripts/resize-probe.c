@@ -34,6 +34,8 @@
 #include <dxgi1_2.h>
 #include <dwmapi.h>
 #include <timeapi.h>
+#include <psapi.h>
+#include <pdh.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -47,6 +49,7 @@
 #pragma comment(lib, "dxguid.lib")
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "winmm.lib")
+#pragma comment(lib, "pdh.lib")
 
 #define ROWS 2
 #define TOLERANCE 12
@@ -530,6 +533,95 @@ static int in_move_size(DWORD thread) {
     return GetGUIThreadInfo(thread, &info) && (info.flags & GUI_INMOVESIZE) != 0;
 }
 
+/*
+ * The application's memory, read from outside it, so both renderers are measured the same way:
+ * its private bytes and working set, and the video memory the GPU counters give the process
+ * (GPU Process Memory, local and non-local). Sampled every 50 ms on a thread of its own; the
+ * drag's peak is the highest sample while the button is down.
+ */
+struct memory_sample {
+    double private_mb, working_set_mb, gpu_local_mb, gpu_nonlocal_mb;
+};
+static HANDLE app_process;
+static PDH_HQUERY gpu_query;
+static PDH_HCOUNTER gpu_local_counter, gpu_nonlocal_counter;
+static volatile LONG memory_stop, memory_tracking;
+static struct memory_sample memory_peak;
+static CRITICAL_SECTION memory_lock;
+
+static double gpu_counter_mb(PDH_HCOUNTER counter) {
+    DWORD size = 0, count = 0;
+    if (counter == NULL) return -1.0;
+    if (PdhGetFormattedCounterArrayW(counter, PDH_FMT_DOUBLE, &size, &count, NULL) != PDH_MORE_DATA) return -1.0;
+    PDH_FMT_COUNTERVALUE_ITEM_W *items = (PDH_FMT_COUNTERVALUE_ITEM_W *)malloc(size);
+    double total = 0.0;
+    if (items != NULL && PdhGetFormattedCounterArrayW(counter, PDH_FMT_DOUBLE, &size, &count, items) == ERROR_SUCCESS) {
+        for (DWORD index = 0; index < count; index++) total += items[index].FmtValue.doubleValue;
+    } else {
+        total = -1.0;
+    }
+    free(items);
+    return total < 0.0 ? total : total / (1024.0 * 1024.0);
+}
+
+static struct memory_sample sample_memory(void) {
+    struct memory_sample sample = {-1.0, -1.0, -1.0, -1.0};
+    PROCESS_MEMORY_COUNTERS_EX counters;
+    memset(&counters, 0, sizeof counters);
+    counters.cb = sizeof counters;
+    if (app_process != NULL && K32GetProcessMemoryInfo(app_process, (PROCESS_MEMORY_COUNTERS *)&counters, sizeof counters)) {
+        sample.private_mb = (double)counters.PrivateUsage / (1024.0 * 1024.0);
+        sample.working_set_mb = (double)counters.WorkingSetSize / (1024.0 * 1024.0);
+    }
+    if (gpu_query != NULL && PdhCollectQueryData(gpu_query) == ERROR_SUCCESS) {
+        sample.gpu_local_mb = gpu_counter_mb(gpu_local_counter);
+        sample.gpu_nonlocal_mb = gpu_counter_mb(gpu_nonlocal_counter);
+    }
+    return sample;
+}
+
+static void say_memory(const char *when, struct memory_sample sample) {
+    say("memory %s private_mb=%.1f working_set_mb=%.1f gpu_local_mb=%.1f gpu_nonlocal_mb=%.1f", when,
+        sample.private_mb, sample.working_set_mb, sample.gpu_local_mb, sample.gpu_nonlocal_mb);
+}
+
+static DWORD WINAPI memory_thread(LPVOID unused) {
+    (void)unused;
+    while (!memory_stop) {
+        struct memory_sample sample = sample_memory();
+        if (memory_tracking) {
+            EnterCriticalSection(&memory_lock);
+            if (sample.private_mb > memory_peak.private_mb) memory_peak.private_mb = sample.private_mb;
+            if (sample.working_set_mb > memory_peak.working_set_mb) memory_peak.working_set_mb = sample.working_set_mb;
+            if (sample.gpu_local_mb > memory_peak.gpu_local_mb) memory_peak.gpu_local_mb = sample.gpu_local_mb;
+            if (sample.gpu_nonlocal_mb > memory_peak.gpu_nonlocal_mb) memory_peak.gpu_nonlocal_mb = sample.gpu_nonlocal_mb;
+            LeaveCriticalSection(&memory_lock);
+        }
+        Sleep(50);
+    }
+    return 0;
+}
+
+static void start_memory(HWND window) {
+    DWORD pid = 0;
+    GetWindowThreadProcessId(window, &pid);
+    app_process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, FALSE, pid);
+    if (app_process == NULL) app_process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    wchar_t path[128];
+    if (PdhOpenQueryW(NULL, 0, &gpu_query) == ERROR_SUCCESS) {
+        swprintf(path, 128, L"\\GPU Process Memory(pid_%lu_*)\\Local Usage", (unsigned long)pid);
+        if (PdhAddEnglishCounterW(gpu_query, path, 0, &gpu_local_counter) != ERROR_SUCCESS) gpu_local_counter = NULL;
+        swprintf(path, 128, L"\\GPU Process Memory(pid_%lu_*)\\Non Local Usage", (unsigned long)pid);
+        if (PdhAddEnglishCounterW(gpu_query, path, 0, &gpu_nonlocal_counter) != ERROR_SUCCESS) gpu_nonlocal_counter = NULL;
+        PdhCollectQueryData(gpu_query);
+    }
+    InitializeCriticalSection(&memory_lock);
+    memory_peak.private_mb = memory_peak.working_set_mb = memory_peak.gpu_local_mb = memory_peak.gpu_nonlocal_mb = -1.0;
+    say("memory of process %lu (%s), gpu counters %s", (unsigned long)pid, app_process != NULL ? "opened" : "NOT opened",
+        gpu_local_counter != NULL ? "found" : "NOT found");
+    CreateThread(NULL, 0, memory_thread, NULL, 0, NULL);
+}
+
 static const char *argument(int argc, char **argv, const char *name, const char *fallback) {
     for (int index = 1; index + 1 < argc; index++) {
         if (strcmp(argv[index], name) == 0) return argv[index + 1];
@@ -803,6 +895,11 @@ int main(int argc, char **argv) {
         say("full-window drag is on");
     }
 
+    /* The application's memory before the drag: what it holds once it has opened and drawn. */
+    start_memory(window);
+    Sleep(200);
+    say_memory("start", sample_memory());
+
     /* The drag. */
     int x = outer.right - 3;
     int y = origin.y + client.bottom / 2;
@@ -810,6 +907,7 @@ int main(int argc, char **argv) {
     send_mouse(0, x, y, sends++);
     Sleep(200);
     drag_from_qpc = now_qpc();
+    InterlockedExchange(&memory_tracking, 1);
     send_mouse(MOUSEEVENTF_LEFTDOWN, x, y, sends++);
     long long pressed = now_qpc();
     int looping = 0;
@@ -836,6 +934,7 @@ int main(int argc, char **argv) {
     }
     send_mouse(MOUSEEVENTF_LEFTUP, x, y, sends++);
     long long released = now_qpc();
+    InterlockedExchange(&memory_tracking, 0);
     int left_loop = 0;
     for (int waited = 0; waited < 2000; waited += 5) {
         if (!in_move_size(thread)) { left_loop = 1; break; }
@@ -848,6 +947,14 @@ int main(int argc, char **argv) {
     Sleep(500);
     InterlockedExchange(&stop, 1);
     WaitForSingleObject(capture, 5000);
+    EnterCriticalSection(&memory_lock);
+    struct memory_sample peak = memory_peak;
+    LeaveCriticalSection(&memory_lock);
+    say_memory("peak during the drag", peak);
+    /* Settled: two seconds after the button came up, when the window is back on the GPU. */
+    Sleep(1200);
+    say_memory("settled", sample_memory());
+    InterlockedExchange(&memory_stop, 1);
     if (turned_on) SystemParametersInfoW(SPI_SETDRAGFULLWINDOWS, FALSE, NULL, SPIF_SENDCHANGE);
 
     int failed = !looping || widths_seen_count < 2 || holes_in_drag > 0 || black_in_drag > 0 || torn_in_drag > 0 ||
