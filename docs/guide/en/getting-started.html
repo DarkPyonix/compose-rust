@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Getting started · compose-rust guide</title>
-<meta name="description" content="Add compose-rust to a Cargo project, let the build fetch the renderer, and build this repository from a checkout.">
+<meta name="description" content="Add compose-rust to a Cargo project, write a first application, run the samples, and build the renderer from a checkout.">
 <link rel="alternate" hreflang="en" href="../en/getting-started.html">
 <link rel="alternate" hreflang="ko" href="../ko/getting-started.html">
 <link rel="alternate" hreflang="x-default" href="../en/getting-started.html">
@@ -50,21 +50,23 @@
 
   <main id="main">
     <p class="eyebrow">Getting started</p>
-    <h1>Adding the crate, and building this repository</h1>
+    <h1>Your first application, and building this repository</h1>
     <p class="lede">
       Using the crate is one line in a <code>Cargo.toml</code>, because the build downloads the
-      renderer it needs. Working on compose-rust itself is the longer path further down.
+      renderer it needs. This page also covers building the renderer, which work on
+      <code>develop</code> and on this repository needs.
     </p>
 
     <div class="warn">
-      <span class="label">What 0.0.1 gives you</span>
+      <span class="label">What 0.0.2 gives you</span>
       <p>
-        0.0.1 contains the boundary, the protocol, the schema, the <code>Runtime</code> trait and the
-        renderer download. It does not contain the authoring API yet, so there is no
-        <code>launch(app)</code> to call and no screen to write. That arrives with 1.0.0 on
-        2026-10-20 (<a href="https://github.com/DarkPyonix/compose-rust/issues/23">#23</a>, <a href="https://github.com/DarkPyonix/compose-rust/issues/64">#64</a>).
-        Until then the crate serves a layer that builds the tree by implementing
-        <code>Runtime</code>.
+        The 0.0.2 crate on crates.io contains the authoring API, the boundary, the protocol, the
+        schema, the <code>Runtime</code> trait and the renderer download. It is a pre-1.0 API that may still change,
+        and it is stable from 1.0.0, planned for 2026-11-14
+        (<a href="https://github.com/DarkPyonix/compose-rust/issues/23">#23</a>,
+        <a href="https://github.com/DarkPyonix/compose-rust/issues/64">#64</a>). A renderer is
+        published only with a release, so a build of <code>develop</code> needs a renderer built
+        from the same checkout: <a href="#renderer">Build the renderer</a> below.
       </p>
     </div>
 
@@ -76,13 +78,13 @@
 
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
       <figcaption>shell</figcaption>
-<pre><code>cargo add compose-rust@0.0.1</code></pre>
+<pre><code>cargo add compose-rust@0.0.2</code></pre>
     </figure>
 
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
       <figcaption>Cargo.toml, the line that command writes</figcaption>
 <pre><code>[dependencies]
-compose-rust = <span class="s">"0.0.1"</span></code></pre>
+compose-rust = <span class="s">"0.0.2"</span></code></pre>
     </figure>
 
     <p>
@@ -92,12 +94,21 @@ compose-rust = <span class="s">"0.0.1"</span></code></pre>
       variable to set and no script to run. The cache is keyed by version and target, so it
       survives <code>cargo clean</code> and is shared between projects.
     </p>
+    <p>
+      On macOS (arm64) and Linux (x64 and arm64) the renderer is a Kotlin/Native static archive, so
+      the program <code>cargo build</code> produces is <strong>one executable</strong>. The
+      renderer, Compose, Skia and ICU are inside it, nothing sits beside it, and it loads only the
+      system's own libraries. Windows gets the same once its Kotlin/Native renderer lands
+      (<a href="https://github.com/DarkPyonix/compose-rust/issues/24">#24</a>). Until then Windows
+      downloads a GraalVM native image, a DLL with its companions beside it. 0.0.2 is the first
+      release that ships the static archives.
+    </p>
 
     <div class="tablewrap">
       <table>
         <thead><tr><th scope="col">Variable</th><th scope="col">Effect</th></tr></thead>
         <tbody>
-          <tr><td><code>COMPOSE_RUST_RENDERER_DIR</code></td><td>Use the renderer in this directory. It is checked first, and nothing is downloaded when it is set. A renderer you built yourself, a vendored copy and an offline build all work through it.</td></tr>
+          <tr><td><code>COMPOSE_RUST_RENDERER_DIR</code></td><td>Use the renderer in this directory. It is checked first, and nothing is downloaded when it is set. A renderer you built yourself, a vendored copy and an offline build all work through it. The path must be absolute, because a build script runs in its package's directory.</td></tr>
           <tr><td><code>COMPOSE_RUST_CACHE_DIR</code></td><td>Moves the cache off <code>$HOME/.cache/compose-rust</code> (<code>%LOCALAPPDATA%\compose-rust</code> on Windows).</td></tr>
         </tbody>
       </table>
@@ -119,20 +130,109 @@ compose-rust = <span class="s">"0.0.1"</span></code></pre>
       </p>
     </div>
 
-    <h2 id="today">What you can build on today</h2>
+    <h2 id="app">Your first application</h2>
     <p>
-      The crate's public surface in 0.0.1 is the part every authoring layer shares. A layer
-      implements <code>Runtime</code>: it writes the tree's records into a <code>Batch</code> on
-      <code>rebuild</code>, writes what changed on <code>render</code>, and runs a handler in
-      <code>handle_event</code>, returning the value the boundary hands back. It then registers
-      itself with <code>launch_runtime</code> or <code>LaunchBuilder</code>. Everything else, the
-      entry points, the batch, the theme, assets, messages and frame requests, belongs to the
-      <code>Host</code> and behaves the same whatever built the tree.
+      A compose-rust application is a Rust program whose <code>main</code> launches a composable.
+      This one is a complete program. <a href="writing-ui.html">Writing UI</a> explains each line.
     </p>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>src/main.rs</figcaption>
+<pre><code><span class="c">// A window application rather than a console one on Windows.</span>
+<span class="at">#![windows_subsystem = "windows"]</span>
+
+<span class="k">use</span> compose_rust::runtime::*;
+<span class="k">use</span> compose_rust::ui::*;
+
+<span class="at">#[composable]</span>
+<span class="k">fn</span> <span class="f">app</span>() {
+    <span class="k">let</span> name = <span class="f">remember</span>(|| <span class="f">mutable_state_of</span>(<span class="ty">String</span>::<span class="f">new</span>()));
+    <span class="k">let</span> typed = name.<span class="f">clone</span>();
+    <span class="f">Column</span>()
+        .<span class="f">modifier</span>(<span class="ty">Modifier</span>.<span class="f">fill_max_size</span>().<span class="f">padding_role</span>(<span class="ty">SpaceRole</span>::Lg))
+        .<span class="f">space_role</span>(<span class="ty">SpaceRole</span>::Md)
+        .<span class="f">content</span>(|| {
+            <span class="f">TextField</span>()
+                .<span class="f">placeholder</span>(<span class="s">"Your name"</span>)
+                .<span class="f">on_value_change</span>(<span class="k">move</span> |text| typed.<span class="f">set</span>(text));
+            <span class="f">Text</span>(<span class="f">format!</span>(<span class="s">"Hello, {}"</span>, name.<span class="f">get</span>())).<span class="f">type_role</span>(<span class="ty">TypeRole</span>::Title);
+        });
+}
+
+<span class="k">fn</span> <span class="f">main</span>() {
+    compose_rust::<span class="f">launch</span>(app);
+}</code></pre>
+    </figure>
+
     <p>
-      The <code>Theme</code>, <code>DesignSystem</code> and <code>Palette</code> values on
-      <a href="design-systems.html">Design systems</a> compile today. The full API reference is on
-      <a href="https://docs.rs/compose-rust">docs.rs</a>.
+      With <code>compose-rust = "0.0.2"</code> this program builds as it is. <code>cargo run</code>
+      downloads the renderer and opens the window.
+    </p>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>shell</figcaption>
+<pre><code>cargo run</code></pre>
+    </figure>
+
+    <p>
+      To use what is on <code>develop</code> after 0.0.2, run it inside a checkout. There the build
+      links the renderer you built before anything it could download, and no release carries a
+      renderer built from <code>develop</code>'s schema. Build the renderer once (below), then run
+      a sample:
+    </p>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>shell, in a checkout of develop</figcaption>
+<pre><code>cargo run -p sample-minimal</code></pre>
+    </figure>
+
+    <p>
+      A project of your own outside the checkout depends on the crate by path and names the
+      renderer you built with <code>COMPOSE_RUST_RENDERER_DIR</code>, because the build refuses a
+      renderer built from a different schema.
+    </p>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>Cargo.toml, to use develop</figcaption>
+<pre><code>[dependencies]
+compose-rust = { path = <span class="s">"../compose-rust/compose-rust"</span> }</code></pre>
+    </figure>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>shell, macOS</figcaption>
+<pre><code>COMPOSE_RUST_RENDERER_DIR=$HOME/src/compose-rust/renderer/build/macos cargo run</code></pre>
+    </figure>
+
+    <h2 id="samples">Samples</h2>
+    <p>
+      The <code>samples/</code> directory holds eleven applications, each a clone of a real one and
+      each written on the authoring API, plus <code>frames</code>, which records their screens for
+      the screenshot tests. They exist to be copied: a sample is a library with a one
+      line <code>main.rs</code> in front of it, so the same screen also runs on Android, iOS and in
+      a browser. The four adaptive samples take whichever design system the platform picks. The
+      seven unified ones each name one design system, Cupertino, and draw the same way everywhere.
+    </p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">Sample</th><th scope="col">What it exercises</th><th scope="col">Read with</th></tr></thead>
+        <tbody>
+          <tr><td><a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/calculator"><code>calculator</code></a></td><td>Dense button grids, <code>Row</code> and <code>Column</code> nesting, a memory register, a tape beside the keys or in a sheet</td><td><a href="writing-ui.html#state">State</a>, <a href="writing-ui.html#window">Reading the window</a></td></tr>
+          <tr><td><a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/notepad"><code>notepad</code></a></td><td>Multiline editing, IME, file I/O from a worker thread, several documents with the list beside the page or in a sheet</td><td><a href="writing-ui.html#textfield">TextField</a>, <a href="writing-ui.html#workers">Worker threads</a></td></tr>
+          <tr><td><a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/todo"><code>todo</code></a></td><td>Stable keys, checkboxes, filters as destinations, a <code>LazyColumn</code> over thousands of rows, saving from a worker thread</td><td><a href="writing-ui.html#remember">Keys</a>, <a href="lists-and-streaming.html#windowing">Windowed lists</a></td></tr>
+          <tr><td><a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/chat"><code>chat</code></a></td><td>Conversations as destinations, scrollback, Enter sends and Shift+Enter starts a line, a reply streamed from a worker thread</td><td><a href="writing-ui.html#consumption">Consuming a key</a>, <a href="lists-and-streaming.html#streaming">Streaming text</a></td></tr>
+          <tr><td><a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/minimal"><code>minimal</code></a></td><td>Every control the schema has, all nine fills, the type and corner ladders, a <code>Canvas</code></td><td><a href="composables.html">Widget reference</a></td></tr>
+          <tr><td><a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/store"><code>store</code></a></td><td>A carousel with page dots, a category strip, a two-up grid, a product page and a bag that adds up</td><td><a href="lists-and-streaming.html#windowing">Windowed lists</a>, <a href="design-systems.html#palette">Application colours</a></td></tr>
+          <tr><td><a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/statistics"><code>statistics</code></a></td><td>A dial and a week of costs drawn with <code>Canvas</code>, painted entirely in roles</td><td><a href="composables.html#roles">Roles</a></td></tr>
+          <tr><td><a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/selfcare"><code>selfcare</code></a></td><td>A mood picker whose answers are colours, a drawn face per feeling, a chip grid, a windowed row of cards</td><td><a href="lists-and-streaming.html#windowing">Windowed lists</a></td></tr>
+          <tr><td><a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/podcast"><code>podcast</code></a></td><td>A waveform drawn with <code>Canvas</code>, a cover per show, a full-screen page over the navigation bar</td><td><a href="composables.html#widgets">Widgets</a></td></tr>
+          <tr><td><a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/academic"><code>academic</code></a></td><td>A grid of subject tiles, a stage strip, open and locked lessons</td><td><a href="lists-and-streaming.html#windowing">Windowed lists</a></td></tr>
+          <tr><td><a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/social"><code>social</code></a></td><td>Illustrated cards, three shelves, a course page over the navigation bar</td><td><a href="design-systems.html#modes">Unified and adaptive</a></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      <code>DXC_DESIGN</code> and <code>DXC_SCHEME</code> override a sample's design system and
+      colour scheme, so any sample can be looked at in any of the seven systems, light or dark.
     </p>
 
     <h2 id="repository">Working on this repository</h2>
@@ -158,59 +258,63 @@ compose-rust = <span class="s">"0.0.1"</span></code></pre>
 
     <h2 id="renderer">Build the renderer</h2>
     <p>
-      The renderer uses a pinned commit of
-      <a href="https://github.com/thisisthepy/compose-multiplatform-core-extended"><code>thisisthepy/compose-multiplatform-core-extended</code></a>.
-      It is a Compose fork that adds what the published build lacks: the Linux targets, the text
-      selection menu and the copy keys. Build the fork once, then the renderer.
+      The renderer is built on a pinned commit of
+      <a href="https://github.com/thisisthepy/compose-multiplatform-core-extended"><code>thisisthepy/compose-multiplatform-core-extended</code></a>,
+      a Compose fork. The fork adds what the published Compose lacks: the Linux targets, the text
+      selection menu and the copy keys. It also owns the desktop window code: the window, input,
+      IME, menus, chrome and resize for every OS. This repository keeps only the renderer's glue to
+      that window.
+    </p>
+    <p>
+      The order matters. Publish the fork into <code>~/.m2</code> first, then build the renderer.
+      The renderer scripts check for the fork's artifacts before the Kotlin toolchain runs and stop
+      with the command to run if any is missing.
     </p>
 
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
       <figcaption>shell</figcaption>
 <pre><code><span class="c"># macOS</span>
-./renderer/scripts/build-compose.sh
-cd renderer &amp;&amp; ./desktop/scripts/build-macos.sh --release      <span class="c"># build/macos/&lt;target&gt;/</span>
+./renderer/scripts/build-compose.sh --target macosArm64
+./renderer/desktop/scripts/build-macos.sh --release                <span class="c"># renderer/build/macos/</span>
 
-<span class="c"># Linux</span>
-./renderer/scripts/build-compose.sh --target linuxX64
-cd renderer &amp;&amp; ./desktop/scripts/build-linux.sh --release      <span class="c"># build/linux/&lt;target&gt;/</span></code></pre>
+<span class="c"># Linux (both architectures' Compose; arm64 is cross compiled on x64)</span>
+./renderer/scripts/build-compose.sh --target linux
+./renderer/desktop/scripts/build-linux.sh --release                <span class="c"># renderer/build/linux/</span>
+./renderer/desktop/scripts/build-linux.sh --release --arch arm64   <span class="c"># renderer/build/linux-arm64/</span></code></pre>
     </figure>
 
     <p>
-      Each produces one static library, <code>libcompose_rust_renderer.a</code>, with Compose,
-      Skia and the interpreter inside it. The Rust build links it when
-      <code>DXC_MACOS_NATIVE_LIB</code> or <code>DXC_LINUX_NATIVE_LIB</code> names its directory.
-      Without one of those, a checkout links the GraalVM native image from
-      <code>renderer/build/native-image/dist/lib</code>, which is what 0.0.1 ships.
+      Each renderer script publishes the fork's window modules at the same pinned commit
+      (<code>renderer/scripts/publish-window.sh</code>) and then produces one static library,
+      <code>libcompose_rust_renderer.a</code>, with Compose, Skia and the interpreter inside it, and
+      a <code>schema-hash.txt</code> that the Rust build checks against its own schema. In a
+      checkout the Rust build links that archive before anything it could download.
+      <code>DXC_MACOS_NATIVE_LIB</code> and <code>DXC_LINUX_NATIVE_LIB</code> name a static renderer
+      directory directly, ahead of everything else.
     </p>
     <p>
-      Windows still builds the GraalVM native image, with
-      <code>renderer/desktop/scripts/build-native-windows.ps1</code>. The native image on macOS
-      needs Liberica NIK 25 Full, because upstream GraalVM skips AWT on Darwin
-      (<a href="https://github.com/oracle/graal/issues/13272">oracle/graal#13272</a>).
-      <code>./scripts/install-nik.sh</code> installs it. See
-      <a href="troubleshooting.html#wrong-jdk">Troubleshooting</a> for how a wrong JDK shows up.
+      Windows builds the GraalVM native image with
+      <code>renderer/desktop/scripts/build-native-windows.ps1</code> until its Kotlin/Native
+      renderer lands (<a href="https://github.com/DarkPyonix/compose-rust/issues/24">#24</a>). The
+      script runs the bash parts under Git Bash. <a href="troubleshooting.html#git-bash">Troubleshooting</a>
+      covers what Git Bash's <code>PATH</code> does to them.
     </p>
     <p>
       The first build is slow, because Compose and Skia are compiled ahead of time. You repeat it
-      only when the Kotlin side changes; ordinary Rust work reuses the library.
+      only when the Kotlin side or the fork pin changes; ordinary Rust work reuses the library.
     </p>
 
-    <h2 id="smoke">Smoke-test the library</h2>
+    <h2 id="smoke">Smoke-test an application</h2>
     <p>
-      Before involving Rust, check that the native-image library alone can open a window. The smoke
-      test links a small C host against it and calls <code>compose_rust_renderer_run</code>.
+      <code>renderer/desktop/scripts/smoke-test-kn.sh</code> runs an executable linked against the
+      static renderer and fails unless the window came up: the run exits <code>0</code> and prints
+      the window line, the scene line on the platform's main dispatcher and the first frame.
     </p>
 
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
       <figcaption>shell</figcaption>
-<pre><code>./renderer/desktop/scripts/build-native.sh
-./renderer/desktop/scripts/smoke-test.sh</code></pre>
+<pre><code>./renderer/desktop/scripts/smoke-test-kn.sh &lt;application&gt; macos   <span class="c"># or linux</span></code></pre>
     </figure>
-
-    <p>
-      A window should appear. Closing it makes <code>run</code> return <code>0</code>, and the
-      process exits normally.
-    </p>
 
     <h2 id="shell">The JVM development shell</h2>
     <p>
@@ -223,14 +327,6 @@ cd renderer &amp;&amp; ./desktop/scripts/build-linux.sh --release      <span cla
       <figcaption>shell</figcaption>
 <pre><code>cd renderer &amp;&amp; ./kotlin run -m desktop</code></pre>
     </figure>
-
-    <h2 id="samples">Samples</h2>
-    <p>
-      The <code>samples/</code> directory holds 12 samples, clones of real applications such as a
-      calculator, a notepad, a task list and a chat client. They do not build today, because they
-      are being rewritten on the authoring API <span class="pill planned">Planned</span> (<a href="https://github.com/DarkPyonix/compose-rust/issues/85">#85</a>). The
-      rewritten set becomes the public samples (<a href="https://github.com/DarkPyonix/compose-rust/issues/2">#2</a>).
-    </p>
 
     <h2 id="schema-check">The generated code check</h2>
     <p>
@@ -256,7 +352,7 @@ cd renderer &amp;&amp; ./desktop/scripts/build-linux.sh --release      <span cla
   <div class="inner">
     <span>compose-rust &middot; Apache License 2.0</span>
     <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://crates.io/crates/compose-rust">crates.io</a></span>
-    <span>Guide last reviewed against the repository on 2026-10-03</span>
+    <span>Guide last reviewed against the repository on 2026-10-17</span>
   </div>
 </footer>
 

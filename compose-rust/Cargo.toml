@@ -3,7 +3,7 @@ name = "compose-rust"
 # 0.0.x on purpose: the boundary works and so do the desktop and iOS renderers, but the
 # widget vocabulary is still being filled in and nothing here is stable yet. A number that
 # says so is more honest than one that implies a first usable release.
-version = "0.0.1"
+version = "0.0.2"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
@@ -55,6 +55,7 @@ native-renderer = []
 # crate and not the other way round. `scripts/tests/core-has-no-dioxus.test.sh` fails the
 # build if that changes.
 [dependencies]
+compose-rust-macros = { path = "macros", version = "0.0.2" }
 
 # The Android shims are generated against jni-rs. Nothing here is linked into a desktop,
 # iOS or web build, and the alternative bindings generators were rejected for their

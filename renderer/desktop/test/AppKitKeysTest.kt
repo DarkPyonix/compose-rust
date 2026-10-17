@@ -29,6 +29,8 @@ class AppKitKeysTest {
         assertEquals(Key.Enter, composeKey(0x24))
         assertEquals(Key.Backspace, composeKey(0x33))
         assertEquals(Key.DirectionLeft, composeKey(0x7B))
+        assertEquals(Key.Insert, composeKey(0x72), "Insert is half of copy and paste on X11 and it did not arrive")
+        assertEquals(Key.Delete, composeKey(0x75), "Delete is half of cut on X11 and it did not arrive")
         assertEquals(Key.Unknown, composeKey(0x7FF), "a key nobody maps is not a key")
     }
 }

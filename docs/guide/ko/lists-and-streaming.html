@@ -54,7 +54,7 @@
     <p class="lede">
       채팅 클라이언트는 아주 긴 목록에, 토큰 하나씩 도착하는 텍스트를 더한 것입니다. compose-rust에는
       각각을 위한 레코드가 있습니다. 렌더러가 이끄는 윈도잉 목록, 그리고 새로 온 뒷부분만 싣는
-      덧붙이기입니다. 둘 다 지금 경계에서 동작합니다. 이것을 쓰는 작성 API는 1.0.0에 들어옵니다.
+      덧붙이기입니다. 둘 다 0.0.2에서 동작하고, 작성 API가 둘 다 대신 써 줍니다.
     </p>
 
     <h2 id="windowing">윈도잉 목록 <span class="pill works">구현</span></h2>
@@ -75,9 +75,37 @@
     </p>
     <p>
       <code>LazyColumn</code>, <code>LazyRow</code>, <code>LazyGrid</code> 가 이 약속을 함께
-      따릅니다. 0.0.1에서는 <code>Runtime</code> 이 요청을 <code>RangeRequest</code> 로 받아 레코드로
-      답합니다. 작성 API도 같은 레코드를 쓰므로, 그것으로 쓴 lazy 목록도 같은 방식으로 윈도잉됩니다
-      <span class="pill planned">계획</span>.
+      따릅니다. 작성 API에서 목록은 Compose처럼 빌더를 받습니다. 빌더는 항목이 무엇인지를 하나 이상의
+      묶음으로 말할 뿐, 스스로 하나도 compose하지 않습니다.
+    </p>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>rust</figcaption>
+<pre><code><span class="k">let</span> ids: <span class="ty">Vec</span>&lt;<span class="ty">String</span>&gt; = tasks.<span class="f">with</span>(|tasks| tasks.<span class="f">iter</span>().<span class="f">map</span>(|task| task.id.<span class="f">to_string</span>()).<span class="f">collect</span>());
+<span class="k">let</span> count = ids.<span class="f">len</span>();
+<span class="ty">LazyColumn</span>().<span class="f">modifier</span>(<span class="ty">Modifier</span>.<span class="f">fill_max_size</span>()).<span class="f">content</span>(<span class="k">move</span> |list| {
+    list.<span class="f">item</span>(|| { <span class="f">Text</span>(<span class="s">"Tasks"</span>).<span class="f">type_role</span>(<span class="ty">TypeRole</span>::Headline); });
+    list.<span class="f">items_keyed</span>(count, <span class="k">move</span> |index| ids[index].<span class="f">clone</span>(), <span class="k">move</span> |index| {
+        <span class="f">task_row</span>(index);
+    });
+});</code></pre>
+    </figure>
+
+    <p>
+      <code>item</code> 은 항목 하나를, <code>items(count, ...)</code> 는 위치로 키가 정해지는 묶음을,
+      <code>items_keyed(count, key, ...)</code> 는 항목마다 고정된 키를 가진 묶음을 더합니다. 그래서
+      자리를 옮긴 항목도 자기 노드와 기억한 값을 지킵니다. 보이는 범위는 항목들만 읽는 상태이므로,
+      스크롤하면 목록의 항목만 다시 실행되고 그 위는 실행되지 않습니다. <code>LazyGrid()</code> 는
+      <code>columns(n)</code> 이나 <code>min_column_width(dp)</code> 를 받습니다.
+    </p>
+    <p>
+      <a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/todo"><code>todo</code></a>
+      샘플은 <code>LazyColumn</code> 에 5천 행을 채우고,
+      <a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/chat"><code>chat</code></a>
+      은 스크롤백을 거기에 둡니다. <a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/store"><code>store</code></a>
+      와 <a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/academic"><code>academic</code></a>
+      은 격자를 배치하고, <a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/selfcare"><code>selfcare</code></a>
+      에는 윈도잉되는 카드 행이 있습니다.
     </p>
 
     <h2 id="plain">평범한 열</h2>
@@ -101,18 +129,31 @@
       64바이트 아래이고 스트리밍 프레임의 p99는 125&nbsp;ns입니다.
     </p>
 
+    <p>
+      작성 API에서는 특별히 쓸 것이 없습니다. 새 텍스트가 옛 텍스트 끝에 무언가를 더한 것인
+      <code>Text</code> 는 뒷부분만 실은 <code>AppendText</code> 로 나갑니다. 워커가 상태 안의 메시지에
+      덧붙이면 그 메시지의 <code>Text</code> 가 다시 실행되고, 경계를 넘는 것은 뒷부분입니다. 스타일이
+      입혀진 구간이 있는 텍스트는 통째로 보냅니다. 구간이 전체 텍스트 안의 오프셋이기 때문입니다.
+    </p>
+
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
-      <figcaption>rust, 0.0.1의 경계 API</figcaption>
-<pre><code><span class="c">// Queues a tail for the next frame. Repeated calls coalesce into one record</span>
-<span class="c">// per node and into a single frame request.</span>
-host.<span class="f">append_text</span>(node_id, <span class="s">" token"</span>);</code></pre>
+      <figcaption>rust</figcaption>
+<pre><code><span class="c">// On a worker thread: MutableState is Send.</span>
+<span class="k">let</span> reply = reply.<span class="f">clone</span>();
+std::thread::<span class="f">spawn</span>(<span class="k">move</span> || {
+    <span class="k">for</span> token <span class="k">in</span> <span class="f">stream_tokens</span>() {
+        reply.<span class="f">update</span>(|text| text.<span class="f">push_str</span>(&amp;token));
+    }
+});
+
+<span class="c">// In the ì»´í¬ì ë¸: sent as the tail, not as the whole message again.</span>
+<span class="f">Text</span>(reply.<span class="f">get</span>());</code></pre>
     </figure>
 
     <p>
-      <code>Host::append_text</code> 는 프로토콜 노드 id를 받습니다. 애플리케이션 코드가 아니라
-      트리를 만드는 층을 위한 것입니다. <code>Runtime</code> 은 <code>Batch::append_text_node</code>
-      로 같은 레코드를 씁니다. 작성 API는 노드 id 없이 스트리밍을 쓰게 할 것입니다
-      <span class="pill planned">계획</span>.
+      트리를 직접 만드는 층은 같은 레코드를 <code>Batch::append_text_node</code> 로 쓰고, Host의
+      <code>append_text</code> 는 같은 목적으로 프로토콜 노드 id를 받습니다. 애플리케이션 코드에는 둘 다
+      필요 없습니다. <code>chat</code> 샘플이 이렇게 답장을 스트리밍합니다.
     </p>
 
     <h2 id="workers">워커 스레드의 일</h2>
@@ -123,8 +164,9 @@ host.<span class="f">append_text</span>(node_id, <span class="s">" token"</span>
     <p>
       UI의 관점에서 워커가 할 일은 상태를 바꾸는 것뿐입니다. 렌더러를 깨우는 것은 내부의 일입니다.
       <code>request_frame_from_worker</code> 는 어느 스레드에서든 프레임을 요청하고, 여러 요청은
-      Compose 프레임 시계 위의 프레임 하나로 합쳐집니다. 작성 API에서는 워커가 UI 스레드와 같은 상태
-      객체에 쓰고, 프레임은 Host가 대신 요청합니다. 애플리케이션 코드는 경계 함수를 부르지 않으며, 두
+      Compose 프레임 시계 위의 프레임 하나로 합쳐집니다. 작성 API에서는 워커가 UI 스레드가 읽는 같은
+      <code>MutableState</code> 에 쓰거나, future가 <code>with_worker</code> 를 기다리고, 프레임은
+      Host가 대신 요청합니다. <a href="writing-ui.html#workers">UI 작성하기</a>를 보십시오. 애플리케이션 코드는 경계 함수를 부르지 않으며, 두
       쪽 사이에 차오를 큐도 없습니다.
     </p>
 

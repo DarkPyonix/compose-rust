@@ -3,6 +3,12 @@ package dev.darkpyonix.composerust.ui.platform
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
 import dev.darkpyonix.composerust.runtime.HostConnection
+import kotlinx.cinterop.ByteVar
+import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.allocArray
+import kotlinx.cinterop.memScoped
+import kotlinx.cinterop.toKString
+import org.thisisthepy.compose.window.WindowConfig
 
 /**
  * Runs the renderer's Compose application. This is what `compose_rust_renderer_run` calls.
@@ -15,10 +21,20 @@ import dev.darkpyonix.composerust.runtime.HostConnection
  * Returns when the window closes.
  */
 internal fun runRenderer(connection: () -> HostConnection): Int {
+    // Asked for by a build that proves the executable shapes and wraps Korean with no ICU data
+    // file beside it. A failure stops here, before a window, so the build sees it.
+    if (runTextSelfCheckIfAsked() == false) return RendererApi.RUN_FAILED
+    // `Dispatchers.Main` is the window's frame dispatcher, made here on the thread that will
+    // draw the window. Installed first, before the Host starts and before any scene exists,
+    // because Compose asks what Main is once and keeps the answer, and kotlinx.coroutines on
+    // Linux would otherwise answer with a stand-in that throws at the first dispatch.
+    val main = FrameDispatcher()
+    installMainDispatcher(main)
     // The notification daemon, over the session bus, before the Host starts: its first batch
     // may already post one. A press on a notification's body raises the window, which does
     // not exist yet, so it is found when the press arrives.
     var opened: LinuxWindow? = null
+    dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting = ::askLinuxForMotion
     Notifications.platform = DBusNotifications(
         open = { PosixBusConnection.open() },
         bringToFront = { opened?.raise() },
@@ -28,6 +44,11 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // batch and a window cannot be told afterwards: how big it is and what it is called are
     // settled when it is made. Started on this thread, which is the one every later call to it is
     // made from and the one the frames are drawn on.
+    // Files let go over the window go to the node under them. Set before the Host starts, because
+    // its first batch may already contain a drop target.
+    dev.darkpyonix.composerust.ui.node.platformFileDrop = { modifier, node, dispatcher ->
+        modifier.nativeFileDrop(node, dispatcher)
+    }
     val host = ComposeRustHost(connection())
     host.start()
 
@@ -35,11 +56,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // renderer happens to be called, which is the library's name and not any application's, and a
     // measurement of zero means it did not ask.
     val asked = host.table.window
-    val window = LinuxWindow.open(
-        title = asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
-        width = if (asked != null && asked.width > 0) asked.width else DEFAULT_WIDTH,
-        height = if (asked != null && asked.height > 0) asked.height else DEFAULT_HEIGHT,
-    )
+    val window = LinuxWindow.open(linuxWindowConfig(asked), main)
     if (window == null) {
         java.lang.System.err.println(
             "compose-rust: no X11 display, or no double buffered GLX visual on it. " +
@@ -55,6 +72,9 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // No caption is passed. The window manager draws this platform's title bar itself, outside
     // the window, so there is no strip of our own for content to step clear of.
     opened = window
+    // Joined before the loop starts: a screen reader that is already running reads the window
+    // from its first frame. Nothing happens where there is no accessibility bus.
+    window.startAccessibility(PosixBusConnection.applicationName())
     // The bus is read on this thread every turn, because there is no other thread to read it
     // on and nothing else would notice a press arriving while the window is idle.
     window.onTurn = { host.table.notifications.pump() }
@@ -70,3 +90,61 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
 /** What a window that did not say is opened at, in the units the scene measures in. */
 private const val DEFAULT_WIDTH = 520
 private const val DEFAULT_HEIGHT = 360
+
+/**
+ * The window the application asked for, in the form the X11 layer opens one from.
+ *
+ * Everything the application can say about its window's size travels: whether it may be
+ * resized and the smallest size it may be dragged to, as well as the size it opens at. The
+ * X11 layer turns the last three into the hints the window manager reads, so a window that
+ * asked not to be resized stays at its size and one with a minimum is not dragged below it.
+ * A window that said nothing opens at the default size, resizable, with no minimum.
+ */
+internal fun linuxWindowConfig(asked: dev.darkpyonix.composerust.protocol.Window?): WindowConfig =
+    WindowConfig(
+        title = asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
+        width = if (asked != null && asked.width > 0) asked.width else DEFAULT_WIDTH,
+        height = if (asked != null && asked.height > 0) asked.height else DEFAULT_HEIGHT,
+        minWidth = asked?.minWidth?.takeIf { it > 0 } ?: 0,
+        minHeight = asked?.minHeight?.takeIf { it > 0 } ?: 0,
+        resizable = asked?.resizable ?: true,
+    )
+
+/**
+ * What the desktop says about reducing motion: KDE's animation speed factor, where zero is
+ * no animation, in a KDE session, and GNOME's `enable-animations` otherwise, which is the
+ * same question the other way round. Unknown where neither can be asked.
+ */
+@OptIn(ExperimentalForeignApi::class)
+internal fun askLinuxForMotion(): dev.darkpyonix.composerust.protocol.ReducedMotion {
+    val kde = platform.posix.getenv("XDG_CURRENT_DESKTOP")?.toKString()
+        .orEmpty().contains("KDE", ignoreCase = true)
+    if (kde) {
+        val factor = runQuery("kreadconfig5 --group KDE --key AnimationDurationFactor 2>/dev/null")
+            ?.trim()?.toDoubleOrNull()
+        if (factor != null) {
+            return if (factor == 0.0) dev.darkpyonix.composerust.protocol.ReducedMotion.On
+            else dev.darkpyonix.composerust.protocol.ReducedMotion.Off
+        }
+    }
+    return when (runQuery("gsettings get org.gnome.desktop.interface enable-animations 2>/dev/null")?.trim()) {
+        "false" -> dev.darkpyonix.composerust.protocol.ReducedMotion.On
+        "true" -> dev.darkpyonix.composerust.protocol.ReducedMotion.Off
+        else -> dev.darkpyonix.composerust.protocol.ReducedMotion.Unknown
+    }
+}
+
+/** The first line a shell command prints, or null where it could not be run. */
+@OptIn(ExperimentalForeignApi::class)
+private fun runQuery(command: String): String? {
+    val pipe = platform.posix.popen(command, "r") ?: return null
+    try {
+        memScoped {
+            val buffer = allocArray<ByteVar>(256)
+            val line = platform.posix.fgets(buffer, 256, pipe) ?: return null
+            return line.toKString()
+        }
+    } finally {
+        platform.posix.pclose(pipe)
+    }
+}

@@ -13,6 +13,10 @@
 #   linuxX64   the window reaches Xlib, the sync extension and GLX through cinterop, and
 #              cinterop compiles against the real headers rather than a copy of them. One
 #              package manager line on Linux; XQuartz on macOS, which is a download.
+#   linuxArm64 the same, cross compiled on an x86-64 Linux machine (Kotlin/Native has no arm64
+#              Linux host), and its test executable is linked against the arm64 X11, GL,
+#              fontconfig and FreeType, so the machine needs those installed for arm64 as
+#              well. Never tested here: an x86-64 machine cannot run what it links.
 #   android    the tests are instrumented, so they need a device or an emulator. Building
 #              needs neither, so it is only left out of the test run.
 #   iosArm64   a device target has no test task at all, and naming one that has none is an
@@ -57,6 +61,11 @@ has_x11() {
     [[ -e /usr/include/X11/Xlib.h || -e /opt/X11/include/X11/Xlib.h ]]
 }
 
+has_arm64_x11() {
+    has_x11 && [[ "$(uname -s)" == Linux && "$(uname -m)" == x86_64 ]] &&
+        [[ -e /usr/lib/aarch64-linux-gnu/libX11.so ]]
+}
+
 has_ios_simulator() {
     command -v xcrun >/dev/null 2>&1 || return 1
     # Available rather than booted: the test runner starts one, but it cannot install one.
@@ -74,6 +83,7 @@ has_android_device() {
 all_platforms | while read -r platform; do
     case "$platform" in
         linuxX64) has_x11 || continue ;;
+        linuxArm64) [[ "$phase" == "build" ]] && has_arm64_x11 || continue ;;
         android) [[ "$phase" == "build" ]] || has_android_device || continue ;;
         iosArm64) [[ "$phase" == "build" ]] || continue ;;
         iosSimulatorArm64) [[ "$phase" == "build" ]] || has_ios_simulator || continue ;;
