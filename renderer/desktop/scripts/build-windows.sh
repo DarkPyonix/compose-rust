@@ -114,6 +114,13 @@ LOG_DIR="$BUILD_DIR/windows-logs"
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR/gcc" "$OUT_DIR/native" "$OUT_DIR/skiko" "$LOG_DIR"
 
+# 0. The fork's window logic, which the module links as org.thisisthepy.compose.window:common,
+# published to the local Maven repository from the commit build-compose.sh pins (its
+# WINDOW_REVISION), as the macOS and Linux builds publish it.
+echo "==> publishing the fork's window modules"
+"$PROJECT_DIR/scripts/publish-window.sh" > "$LOG_DIR/publish-window.log" 2>&1 ||
+    { tail -60 "$LOG_DIR/publish-window.log" >&2; die "could not publish the fork's window modules" "Full log: $LOG_DIR/publish-window.log"; }
+
 # 1. The module, with the debug log that names every klib the compile resolved. The link step
 # has to be handed exactly what the compile used, not a list kept by hand. The task directory
 # is found without regard to case, for the reason build-linux.sh gives.

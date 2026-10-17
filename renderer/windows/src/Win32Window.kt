@@ -46,6 +46,9 @@ import org.jetbrains.skia.Surface
 import org.jetbrains.skia.SurfaceColorFormat
 import org.jetbrains.skia.SurfaceOrigin
 import org.jetbrains.skia.SurfaceProps
+import org.thisisthepy.compose.window.AccessibleElement
+import org.thisisthepy.compose.window.WindowEvent
+import org.thisisthepy.compose.window.WindowMeasurement
 
 // The C side of the window: `desktop/c/win32_window.c`, linked into the same executable.
 // Called by symbol name, which is also how the native image calls it, so the one C file
@@ -209,7 +212,10 @@ internal class Win32Window private constructor(
     private var painted = false
     private var drew = false
 
-    fun setContent(content: @Composable () -> Unit) = scene.setContent(content)
+    fun setContent(content: @Composable () -> Unit) {
+        scene.setContent(content)
+        WindowStartReport.sceneCreated(size.width, size.height, scene.density.density)
+    }
 
     /** Holds the window until it closes. */
     fun run() {
@@ -288,6 +294,7 @@ internal class Win32Window private constructor(
             if (drawn) {
                 painted = true
                 drew = true
+                WindowStartReport.frameDrawn(size.width, size.height)
             }
         } finally {
             drawing = false
@@ -439,10 +446,7 @@ internal class Win32Window private constructor(
                 val context = DirectContext.makeDirect3D(adapter.rawValue, device.rawValue, queue.rawValue)
                 if (System.getenv("DXC_PIXEL_COMPARE") == "1") PixelCompare.run(context)
                 val measured = measure(window)
-                System.err.println(
-                    "compose-rust: a window of our own, ${measured.width}x${measured.height} " +
-                        "at ${measured.scale}x, with no toolkit and no virtual machine in it",
-                )
+                WindowStartReport.windowOpened(measured.width, measured.height, measured.scale)
                 return Win32Window(window, queue, swapchain, context, measured)
             } finally {
                 nativeHeap.free(pointers.rawValue)

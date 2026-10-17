@@ -48,6 +48,10 @@ dependencies:
   - org.jetbrains.compose.ui:ui-tooling-preview-mingwx64:1.11.1
   - org.jetbrains.compose.ui:ui-unit-mingwx64:1.11.1
   - org.jetbrains.compose.ui:ui-util-mingwx64:1.11.1
+  # What every window decides the same way, and the event and accessibility records: the
+  # fork's window logic, published for mingwX64 by scripts/publish-window.sh from the pinned
+  # fork commit, as the macOS and Linux renderers link it.
+  - org.thisisthepy.compose.window:common:0.1.0
 
 test-dependencies:
   - $kotlin.test
