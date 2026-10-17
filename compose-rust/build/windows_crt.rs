@@ -117,9 +117,7 @@ pub fn blank_runtime_directives(bytes: &mut [u8]) -> Blanked {
             continue;
         }
         if let Some(end) = match_directive(bytes, index, &mut found) {
-            for at in index..end {
-                bytes[at] = b' ';
-            }
+            bytes[index..end].fill(b' ');
             found.directives += 1;
             index = end;
         } else {
