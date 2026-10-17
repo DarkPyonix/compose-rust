@@ -24,8 +24,12 @@ internal object FrameMainDispatcher : MainCoroutineDispatcher() {
 
     override val immediate: MainCoroutineDispatcher get() = this
 
+    /** How a window whose loop waits between turns is told work arrived from another thread. */
+    val loopWake = LoopWake()
+
     override fun dispatch(context: CoroutineContext, block: Runnable) {
         waiting.add(block)
+        loopWake.workArrived()
     }
 
     /**

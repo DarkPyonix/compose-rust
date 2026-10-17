@@ -2,6 +2,20 @@
 
 ## v0.0.2
 
+### The GraalVM X11 window reads like the Kotlin/Native one
+
+The GraalVM X11 window joins the AT-SPI accessibility bus, so Orca and other libatspi
+clients read it and press its buttons, with the protocol code the Kotlin/Native X11 window
+uses. `NO_AT_BRIDGE=1` turns it off. Its keys and input method composition now go through
+the same key table and composition model as the Kotlin/Native window: a plain ASCII key is
+one key event carrying its character, where the window used to commit the character as text
+as well. Both live in the Compose fork's window modules.
+
+Work sent to a Linux window's thread from another thread, a Host worker's frame request or
+a coroutine resumed on `Dispatchers.Main`, now ends the window's wait at once rather than up
+to a frame later. Both Linux windows and the Kotlin/Native macOS window report the same
+latency and resize numbers to the parity checks, which CI runs on both paths.
+
 ### Windows opens its own window on the native image too
 
 The Win32 window, which the Kotlin/Native renderer already ships, is now what every Windows

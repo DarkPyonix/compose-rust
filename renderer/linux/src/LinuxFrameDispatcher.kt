@@ -27,10 +27,10 @@ import platform.posix.pthread_self
  *
  * Being main means being sent work from any thread: a Host worker that finished reading a file
  * and resumes on Main dispatches from the worker. So the queue is guarded by a lock, and a
- * dispatch from another thread wakes the frame loop: [takeWake] answers true on the window's
- * next turn, and the window draws a frame for what that work changed. The loop never sleeps
- * longer than one frame (it waits on the display connection with a frame's timeout), so what is
- * sent from anywhere runs on the next turn.
+ * dispatch from another thread wakes the frame loop: [wakeLoop] ends the window's wait on its
+ * display connection at once, and [takeWake] answers true on the turn that follows, so the
+ * window draws a frame for what that work changed. What is sent from anywhere runs on that
+ * turn, not when the frame's wait would have run out.
  *
  * Written again rather than shared because the desktop one holds its work in a
  * `java.util.concurrent` queue, which Kotlin/Native has not got.
@@ -50,6 +50,13 @@ internal class FrameDispatcher : MainCoroutineDispatcher() {
     /** Whether work arrived from another thread since [takeWake] last answered. Under [lock]. */
     private var woken = false
 
+    /**
+     * Ends the window loop's wait, called when work arrives from another thread. The window
+     * sets it to its own wake once it runs; until then nothing waits, and [takeWake] is enough.
+     */
+    @kotlin.concurrent.Volatile
+    var wakeLoop: () -> Unit = {}
+
     /** What this frame runs, taken out of [waiting]. Touched only on the window's thread. */
     private val running = ArrayDeque<Runnable>()
 
@@ -67,6 +74,9 @@ internal class FrameDispatcher : MainCoroutineDispatcher() {
             waiting.addLast(block)
             if (elsewhere) woken = true
         }
+        // Outside the lock: the wake is a write to the window's pipe, and nothing it does
+        // needs the queue.
+        if (elsewhere) wakeLoop()
     }
 
     /**

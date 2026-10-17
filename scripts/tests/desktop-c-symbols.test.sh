@@ -138,9 +138,17 @@ check() {
     fi
 }
 
-check macOS __APPLE__ "$macos_fork_names" $macos_files
+# The renderer's one jar carries both GraalVM window modules on every desktop, and a native
+# image links every C function its reachable code can call. The X11 window's calls below are
+# reached from the renderer's own X11 loop and the window's event reading, so they have to
+# resolve on macOS and Windows as well, where they do nothing: an image that lacks one fails
+# to link (Windows) or dies at its first call (macOS, which binds lazily).
+reached_x11_names="dxc_native_wake dxc_native_window_origin dxc_native_window_focused
+dxc_native_ime_reset dxc_native_resize_serial dxc_native_window_server_size
+dxc_native_debug_resize"
+check macOS __APPLE__ "$macos_fork_names $reached_x11_names" $macos_files
 check Linux __linux__ "$linux_fork_names" $linux_files
-check Windows _WIN32 "" $windows_files
+check Windows _WIN32 "$reached_x11_names" $windows_files
 
 if [ "$failures" -ne 0 ]; then
     echo "  $failures of 3 desktops would not link" >&2
