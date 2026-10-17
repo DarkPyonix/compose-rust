@@ -223,14 +223,17 @@ jobs:
       - name: The content stays put while the window's height is dragged
         # Drags the bottom edge and then the top edge with mouse events and takes the
         # window's image throughout; a mark drawn at a fixed distance below the top of every
-        # frame must stay within a point of where it was drawn. See
+        # frame must stay within a point of where it was drawn, except in an image where
+        # AppKit's own view is off by the same amount: the window server shows a window's
+        # frame a step behind its layers now and then, a plain AppKit window included, and
+        # that is a miss of the absolute bound the check still prints. See
         # .github/scripts/vertical-resize-check.sh.
         if: matrix.module == 'macos'
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/resize-metrics"
           ./.github/scripts/vertical-resize-run.sh "$RUNNER_TEMP/consumer-launch" "$out" vertical-macos-kn
-          ./.github/scripts/vertical-resize-check.sh "$out/vertical-macos-kn.log" | tee -a "$GITHUB_STEP_SUMMARY"
+          ./.github/scripts/vertical-resize-check.sh "$out/vertical-macos-kn.log" 1.0 --against-appkit | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Keep the resize logs
         if: always() && matrix.module == 'macos'

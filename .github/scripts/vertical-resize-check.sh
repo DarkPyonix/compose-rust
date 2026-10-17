@@ -24,9 +24,10 @@
 #   --against-appkit  an image where the content is off by more than the tolerance passes
 #                     only if AppKit's own view in the same image is off by the same amount,
 #                     within the tolerance. The window server takes a step of a drag in
-#                     pieces, and on the native image's window it sometimes shows the
-#                     window's frame a step behind the layers for a few milliseconds; AppKit's
-#                     own view is then off by the same amount. That is a frame of another
+#                     pieces, and it sometimes shows a window's frame a step behind its
+#                     layers for a few milliseconds; AppKit's own view is then off by the
+#                     same amount. It does so to a plain AppKit window with nothing else in
+#                     it as well, which the native image's probe drags after its own. That is a frame of another
 #                     height than the window on the screen, so the absolute bound is not met
 #                     there, and the script says so whenever it happens. What this bound
 #                     holds is that the content is never anywhere AppKit's own view is not.
