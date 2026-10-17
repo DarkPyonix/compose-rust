@@ -29,7 +29,8 @@ import org.graalvm.word.WordFactory
 // `NativeHostConnection`: these are the only places that name GraalVM types, so a
 // development run on a JVM never loads them.
 //
-// The C side is `c/win32_window.c`. It owns the window, the Direct3D device, the queue,
+// The C side is the Compose fork's `extended/window/windows-shared/c/win32_window.c`, compiled
+// into the image by build-native-windows.ps1 from the pinned fork commit. It owns the window, the Direct3D device, the queue,
 // the adapter and the swapchain, and answers with the pointers. Nothing there draws.
 //
 // The same C symbols the macOS and Linux windows call, because the C files are alternatives:

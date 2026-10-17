@@ -10,7 +10,8 @@ import dev.darkpyonix.composerust.runtime.HostConnection
 /**
  * Runs the renderer's Compose application. This is what `compose_rust_renderer_run` calls.
  *
- * The window is `desktop/c/win32_window.c`, the one the native image opens on this platform,
+ * The window is the Compose fork's `extended/window/windows-shared`, the one the native image
+ * opens on this platform too,
  * linked into the application's own executable beside this renderer. What differs from the
  * native image is what is not here: no Java runtime and no toolkit underneath.
  *

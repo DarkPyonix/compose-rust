@@ -9,7 +9,7 @@
 # Compose is. The Kotlin/JVM modules are published on every machine, so a Linux or Windows
 # checkout resolves the coordinates the renderer's desktop module asks for. native/macos is
 # published on a Mac and native/linux on Linux, because each is built from that system's
-# headers.
+# headers, and windows-shared on Windows, the host the Windows renderer is built on.
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,6 +21,9 @@ window="$fork_dir/extended/window"
 modules=(common graalvm/graalvm-macos graalvm/graalvm-linux)
 case "$(uname -s)" in
     Darwin) modules+=(native/macos) ;;
+    # The Windows window's Kotlin/Native layer, for mingwX64. Its C is compiled by MSVC from
+    # the same fetched checkout (windows-shared/c) by the build that links it.
+    MINGW*|MSYS*|CYGWIN*) modules+=(windows-shared) ;;
 esac
 
 # The fork's project lists every module, and a machine that cannot build one of them lists

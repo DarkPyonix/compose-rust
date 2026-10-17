@@ -16,6 +16,10 @@ project="$renderer/project.yaml"
 module="$renderer/windows/module.yaml"
 staticlib="$renderer/staticlib-windows/module.yaml"
 compose_script="$renderer/scripts/build-compose.sh"
+# The window's C is the Compose fork's windows-shared module, at the commit build-compose.sh pins.
+source "$repo_root/scripts/tests/fork-window.sh"
+fork_window_or_skip "$repo_root"
+window_c_dir="$fork_window/windows-shared/c"
 
 red=0
 fail() {
@@ -99,7 +103,7 @@ grep -q 'extended/skiko/build-skiko-mingw.sh' "$compose_script" ||
 # A hosted runner has no card, only Windows' software adapter, which the window skips so a
 # machine with nothing to draw with is not hidden behind a slow window. The CI job asks for
 # it by name; without the opt-in the job could not show the renderer drawing at all.
-window_c="$renderer/desktop/c/win32_window.c"
+window_c="$window_c_dir/win32_window.c"
 grep -q 'getenv("DXC_D3D12_WARP")' "$window_c" ||
     fail "win32_window.c has no way to be asked for the software adapter"
 grep -q 'EnumWarpAdapter' "$window_c" ||
@@ -116,10 +120,10 @@ if [[ ! -f "$build_script" ]]; then
     fail "missing $build_script"
 else
     c_files=()
-    while IFS= read -r relative; do
-        c_files+=("$renderer/$relative")
+    while IFS= read -r path; do
+        c_files+=("$path")
     done < <(grep -oE '^compile "\$(c_dir|PROJECT_DIR)/[^"]+\.c"' "$build_script" |
-        sed -E 's/^compile "\$c_dir\//desktop\/c\//; s/^compile "\$PROJECT_DIR\///; s/"$//')
+        sed -E "s#^compile \"\\\$c_dir/#$window_c_dir/#; s#^compile \"\\\$PROJECT_DIR/#$renderer/#; s#\"\$##")
     if [[ "${#c_files[@]}" -eq 0 ]]; then
         fail "build-windows.sh compiles no C file of ours"
     fi
@@ -128,7 +132,6 @@ else
     done
     called="$(grep -rhoE '@SymbolName\("[a-z0-9_]+"\)' "$renderer/windows/src" |
         sed -E 's/@SymbolName\("(.*)"\)/\1/' | sort -u)"
-    [[ -n "$called" ]] || fail "the windows module calls nothing by symbol name; the window is reached that way"
     for symbol in $called; do
         defined="$(cat "${c_files[@]}" 2>/dev/null | grep -cE "^[a-zA-Z_][a-zA-Z0-9_ *]*[ *]$symbol\(" || true)"
         [[ "$defined" -eq 1 ]] ||

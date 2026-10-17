@@ -67,8 +67,27 @@ $ObjDir = Join-Path $BuildDir "obj-windows"
 $MetadataDir = Join-Path $ScriptsDir "windows-metadata"
 $LibraryName = "libcompose_rust_renderer"
 $RendererSource = Join-Path $NativeDir "c\renderer_entry.c"
-$WindowSource = Join-Path $NativeDir "c\win32_window.c"
-$NotificationsSource = Join-Path $NativeDir "c\win32_notifications.c"
+# The window and the toasts are the Compose fork's extended/window/windows-shared, fetched at the
+# commit build-compose.sh pins (WINDOW_REVISION): the same C the Kotlin/Native renderer compiles.
+# fetch-fork-window.sh puts that commit in .scratch\fork-window\<revision>; the path is built
+# here rather than read from its output, which is a Git Bash path cl.exe cannot open.
+$RepoDir = Split-Path -Parent $ProjectDir
+$ComposeScript = Join-Path $ProjectDir "scripts\build-compose.sh"
+$WindowRevision = Select-String -LiteralPath $ComposeScript -Pattern '^WINDOW_REVISION="([0-9a-f]{40})"$' |
+    ForEach-Object { $_.Matches[0].Groups[1].Value } | Select-Object -First 1
+if (-not $WindowRevision) {
+    Fail "$ComposeScript names no 40 character WINDOW_REVISION"
+}
+& bash ((Join-Path $RepoDir "scripts\fetch-fork-window.sh") -replace '\\', '/') | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    Fail "could not fetch the window modules from the Compose fork" @(
+        "scripts/fetch-fork-window.sh fetches extended/window at the pinned WINDOW_REVISION; it needs git and the network."
+    )
+}
+$ForkWindowDir = Join-Path $RepoDir ".scratch\fork-window\$WindowRevision"
+$WindowCDir = Join-Path $ForkWindowDir "extended\window\windows-shared\c"
+$WindowSource = Join-Path $WindowCDir "win32_window.c"
+$NotificationsSource = Join-Path $WindowCDir "win32_notifications.c"
 $KotlinWrapper = Join-Path $ProjectDir "kotlin.bat"
 $ClasspathFile = Join-Path $BuildDir "classpath-windows.txt"
 $JvmLog = Join-Path $BuildDir "jvm-run-windows.log"
@@ -85,8 +104,8 @@ if (-not (Test-Path -LiteralPath $KotlinWrapper -PathType Leaf)) {
     )
 }
 # The desktop module depends on the Compose fork's window modules, published to the local Maven
-# repository from the commit build-compose.sh pins. The Windows window is still this
-# repository's own, so only the shared logic and the other desktops' wrappers are needed.
+# repository from the commit build-compose.sh pins. The Windows window's C is compiled from the
+# fetched checkout above, so only the shared logic and the other desktops' wrappers are needed.
 # The Compose fork's desktop modules and its skiko-awt are asked for by versions only the fork
 # publishes, to the local Maven repository. Resolved before they are there, the toolchain records
 # the failed download in its own cache and keeps failing after they are published, so this checks

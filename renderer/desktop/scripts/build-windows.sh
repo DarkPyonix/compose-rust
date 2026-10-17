@@ -114,9 +114,10 @@ LOG_DIR="$BUILD_DIR/windows-logs"
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR/gcc" "$OUT_DIR/native" "$OUT_DIR/skiko" "$LOG_DIR"
 
-# 0. The fork's window logic, which the module links as org.thisisthepy.compose.window:common,
-# published to the local Maven repository from the commit build-compose.sh pins (its
-# WINDOW_REVISION), as the macOS and Linux builds publish it.
+# 0. The fork's window modules, which the module links as org.thisisthepy.compose.window:common
+# and :windows-shared, published to the local Maven repository from the commit build-compose.sh
+# pins (its WINDOW_REVISION), as the macOS and Linux builds publish theirs. The window's C is
+# compiled from the same fetched checkout in step 5.
 echo "==> publishing the fork's window modules"
 "$PROJECT_DIR/scripts/publish-window.sh" > "$LOG_DIR/publish-window.log" 2>&1 ||
     { tail -60 "$LOG_DIR/publish-window.log" >&2; die "could not publish the fork's window modules" "Full log: $LOG_DIR/publish-window.log"; }
@@ -276,7 +277,11 @@ compile() {
     MSYS_NO_PATHCONV=1 "$clang" "${c_flags[@]}" "$@" "$(tool_path "$source")" "/Fo$(tool_path "$object")" ||
         die "$source did not compile in MSVC mode"
 }
-c_dir="$PROJECT_DIR/desktop/c"
+# The window and the toasts are the Compose fork's extended/window/windows-shared, at the pinned
+# WINDOW_REVISION: the same C the native image compiles, compiled for MSVC here.
+c_dir="$("$PROJECT_DIR/../scripts/fetch-fork-window.sh")/extended/window/windows-shared/c" ||
+    die "could not fetch the window modules from the Compose fork"
+[[ -f "$c_dir/win32_window.c" ]] || die "the pinned fork commit has no extended/window/windows-shared/c/win32_window.c"
 compile "$c_dir/win32_window.c" "$OUT_DIR/native/win32_window.obj" "/I$(tool_path "$c_dir")"
 compile "$c_dir/win32_notifications.c" "$OUT_DIR/native/win32_notifications.obj"
 compile "$PROJECT_DIR/windows/native/mingw_bridge.c" "$OUT_DIR/native/mingw_bridge.obj"

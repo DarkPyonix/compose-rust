@@ -29,7 +29,7 @@ on:
       - ".github/scripts/run-probe-v2.ps1"
       - ".github/scripts/run-probe-v2.cmd"
       - ".github/scripts/set-display-scale.c"
-      - "renderer/desktop/c/win32_window.c"
+      - "renderer/scripts/build-compose.sh"
 
 concurrency:
   # One run per pull request: a new commit cancels the older run. Pushes to develop,

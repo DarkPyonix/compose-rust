@@ -16,9 +16,9 @@ import kotlinx.cinterop.ptr
 import kotlinx.cinterop.readBytes
 import kotlinx.cinterop.value
 
-// The toasts of `desktop/c/win32_notifications.c`, linked into the same executable. The same
-// C file and the same names the native image reaches through `NativeDesktopNotifications`,
-// called here by symbol name, which is how this renderer reaches its window as well.
+// The toasts of the Compose fork's `extended/window/windows-shared/c/win32_notifications.c`,
+// compiled for MSVC and linked into the same executable. The same C file and the same names
+// the native image reaches through `NativeDesktopNotifications`, called here by symbol name.
 
 @SymbolName("dxc_notify_start")
 private external fun notifyStart(): Int

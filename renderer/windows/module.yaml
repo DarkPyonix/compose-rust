@@ -13,10 +13,12 @@
 # and nothing of MinGW is left outside the renderer's own object: no MinGW DLL, no MinGW
 # startup code, and an MSVC linker doing the link.
 #
-# The window is `desktop/c/win32_window.c`, the one the native image opens: Win32, a
-# Direct3D 12 swapchain, IMM32 composition and UI Automation. `src/Win32Window.kt` calls it
-# by symbol name, which is how the native image calls it too. The toasts are
-# `desktop/c/win32_notifications.c`, reached the same way.
+# The window is the Compose fork's `extended/window/windows-shared`, the one the native image
+# opens too: Win32, a Direct3D 12 swapchain, IMM32 composition and UI Automation, in C that
+# `desktop/scripts/build-windows.sh` compiles for MSVC from the pinned fork commit, and the
+# Kotlin/Native layer over it, linked below as org.thisisthepy.compose.window:windows-shared.
+# `src/Win32Window.kt` is the scene on top of it. The toasts and the context menu are the same
+# C, reached by symbol name.
 product:
   type: lib
   platforms: [ mingwX64 ]
@@ -52,6 +54,9 @@ dependencies:
   # fork's window logic, published for mingwX64 by scripts/publish-window.sh from the pinned
   # fork commit, as the macOS and Linux renderers link it.
   - org.thisisthepy.compose.window:common:0.1.0
+  # The window itself: the Kotlin/Native layer over the fork's Win32 C (Win32NativeWindow,
+  # Win32Loop), published for mingwX64 by the same script on Windows.
+  - org.thisisthepy.compose.window:windows-shared:0.1.0
 
 test-dependencies:
   - $kotlin.test

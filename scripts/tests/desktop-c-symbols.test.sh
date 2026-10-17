@@ -15,7 +15,8 @@ set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # The AppKit and X11 windows, their C and the @CFunction declarations that reach it, are the
-# Compose fork's graalvm modules at the pinned commit. The Windows window is still ours.
+# Compose fork's graalvm modules at the pinned commit. The Windows window's C is the fork's
+# windows-shared module; its @CFunction declarations are still this renderer's.
 source "$repo/scripts/tests/fork-window.sh"
 fork_window_or_skip "$repo"
 src="$repo/renderer/desktop/src"
@@ -55,7 +56,9 @@ $fork_window/graalvm/graalvm-macos/native/appkit_window.m"
 linux_files="$(grep -ho 'c/[a-z0-9_]*\.[mc]' "$scripts/build-native-linux.sh" | sort -u)
 $fork_window/graalvm/graalvm-linux/c/x11_window.c"
 windows_files="$(grep -ho 'c[/\\][a-z0-9_]*\.[mc]' "$scripts/build-native-windows.ps1" |
-    tr '\\' '/' | sort -u)"
+    tr '\\' '/' | sort -u)
+$fork_window/windows-shared/c/win32_window.c
+$fork_window/windows-shared/c/win32_notifications.c"
 
 # What one desktop's compiler sees of a file: the lines inside conditionals that hold on
 # that desktop. Only the platform macros are known (`_WIN32`, `__APPLE__`, `__linux__`);

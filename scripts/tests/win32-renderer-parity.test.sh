@@ -6,13 +6,16 @@
 # and each renderer only opts in and draws what it is handed. A second copy of that C, or a
 # renderer that stopped opting in, would let one path change while the other kept its old
 # behaviour, and nothing in a single build would say so. Nothing here needs Windows: it reads
-# the two builds and the two Kotlin files.
+# the two builds, the two Kotlin files and the fork's C at the pinned commit.
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
 
-window_c="renderer/desktop/c/win32_window.c"
+# The window's C is the Compose fork's windows-shared module, at the commit build-compose.sh pins.
+source "$repo_root/scripts/tests/fork-window.sh"
+fork_window_or_skip "$repo_root"
+window_c="$fork_window/windows-shared/c/win32_window.c"
 graal_build="renderer/desktop/scripts/build-native-windows.ps1"
 kn_build="renderer/desktop/scripts/build-windows.sh"
 graal_kotlin="renderer/desktop/src/Win32Window.kt"
@@ -28,32 +31,38 @@ for file in "$window_c" "$graal_build" "$kn_build" "$graal_kotlin" "$kn_kotlin";
     [ -f "$file" ] || { echo "FAIL: $file is missing"; exit 1; }
 done
 
-# One window file in the tree, and both builds compile it.
+# One window file, the fork's, and both builds compile it. A copy back in this tree would be a
+# second window that drifts from the first.
 copies="$(git ls-files | grep -c '/win32_window\.c$')"
-[ "$copies" = 1 ] || fail "there are $copies copies of win32_window.c; both renderers must compile the one file"
-grep -q 'Join-Path \$NativeDir "c\\win32_window.c"' "$graal_build" ||
-    fail "the native image build no longer compiles renderer/desktop/c/win32_window.c"
+[ "$copies" = 0 ] || fail "there are $copies copies of win32_window.c in this tree; both renderers compile the fork's"
+grep -qF 'extended\window\windows-shared\c' "$graal_build" &&
+    grep -qF '$WindowSource = Join-Path $WindowCDir "win32_window.c"' "$graal_build" ||
+    fail "the native image build no longer compiles the fork's windows-shared/c/win32_window.c"
 grep -q 'compile "\$c_dir/win32_window.c"' "$kn_build" ||
-    fail "the Kotlin/Native build no longer compiles renderer/desktop/c/win32_window.c"
-grep -qE '^c_dir=.*desktop/c' "$kn_build" ||
-    fail "the Kotlin/Native build's c_dir is not renderer/desktop/c"
+    fail "the Kotlin/Native build no longer compiles win32_window.c"
+grep -qE '^c_dir=.*fetch-fork-window\.sh.*/extended/window/windows-shared/c"' "$kn_build" ||
+    fail "the Kotlin/Native build's c_dir is not the fork's extended/window/windows-shared/c"
 
-# The resize decisions live in the C, and both renderers reach the same entry points.
+# The resize decisions live in the C, and both renderers reach the same entry points: the native
+# image by @CFunction, Kotlin/Native through the fork's Win32Loop.
 for symbol in dxc_native_set_raster_resize dxc_native_frame_mode dxc_native_raster_begin dxc_native_raster_end; do
     grep -qE "^(int32_t|void) $symbol\(" "$window_c" || fail "$window_c no longer defines $symbol"
     grep -q "@CFunction(\"$symbol\")" "$graal_kotlin" || fail "the native image renderer does not call $symbol"
-    grep -q "@SymbolName(\"$symbol\")" "$kn_kotlin" || fail "the Kotlin/Native renderer does not call $symbol"
+done
+for call in 'Win32Loop.setRasterResize(' 'Win32Loop.rasterFrameWanted' 'Win32Loop.beginRasterFrame()' 'Win32Loop.endRasterFrame()'; do
+    grep -qF "$call" "$kn_kotlin" || fail "the Kotlin/Native renderer does not call $call"
 done
 
 # Both opt in the same way: CPU resize frames unless DXC_RASTER_RESIZE=0.
-opt_in='setRasterResize(if (System.getenv("DXC_RASTER_RESIZE") == "0") 0 else 1)'
-grep -qF "$opt_in" "$graal_kotlin" || fail "the native image renderer does not opt into CPU resize frames the same way"
-grep -qF "$opt_in" "$kn_kotlin" || fail "the Kotlin/Native renderer does not opt into CPU resize frames the same way"
+grep -qF 'setRasterResize(if (System.getenv("DXC_RASTER_RESIZE") == "0") 0 else 1)' "$graal_kotlin" ||
+    fail "the native image renderer does not opt into CPU resize frames the same way"
+grep -qF 'Win32Loop.setRasterResize(System.getenv("DXC_RASTER_RESIZE") != "0")' "$kn_kotlin" ||
+    fail "the Kotlin/Native renderer does not opt into CPU resize frames the same way"
 
 # Both draw a CPU frame when the window asks for one.
 grep -qE 'if \(window\.rasterFrame\(\)\) drawRasterFrame' "$graal_kotlin" ||
     fail "the native image renderer does not draw CPU frames when the window asks"
-grep -qE 'if \(frameMode\(\) != 0\) drawRasterFrame' "$kn_kotlin" ||
+grep -qE 'if \(Win32Loop\.rasterFrameWanted\) drawRasterFrame' "$kn_kotlin" ||
     fail "the Kotlin/Native renderer does not draw CPU frames when the window asks"
 
 # Keys: one table, which the Kotlin/Native renderer links rather than copies.
@@ -62,5 +71,5 @@ if [ ! -L "$link" ] || [ "$(readlink "$link")" != "../../../desktop/src/WindowEv
     fail "$link is not a link to the native image's WindowEvents.kt, so the two key tables can drift"
 fi
 
-[ $status -eq 0 ] && echo "ok: both Windows renderers compile one win32_window.c and opt into its resize frames the same way"
+[ $status -eq 0 ] && echo "ok: both Windows renderers compile the fork's one win32_window.c and opt into its resize frames the same way"
 exit $status
