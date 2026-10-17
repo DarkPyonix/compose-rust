@@ -120,7 +120,7 @@ impl Runtime for Chat {
         self.show_new_messages();
     }
 
-    fn render(&mut self) {
+    fn render(&mut self, _frame_time_nanos: Option<u64>) {
         self.show_new_messages();
     }
 
