@@ -216,6 +216,14 @@ class AnimatedNode internal constructor() {
      */
     internal val borderAnimated = mutableStateOf(false)
 
+    /**
+     * The frame each property's [winner] was chosen in, and the animation chosen: the highest
+     * slot in effect on that property. Kept here so choosing them takes one pass over the
+     * table rather than one per animation. Indexed by [AnimatedProperty.ordinal].
+     */
+    internal val winnerFrame = LongArray(PROPERTIES)
+    internal val winner = arrayOfNulls<Any>(PROPERTIES)
+
     /** The colour a Text draws with: the animation's while one plays, its own otherwise. */
     val textColorProducer: ColorProducer = ColorProducer {
         val bits = textColor.longValue
@@ -235,6 +243,9 @@ class AnimatedNode internal constructor() {
     internal companion object {
         /** No colour a paint resolves to has this value: its low bits name a colour space. */
         const val NO_COLOR = 1L
+
+        /** How many properties an animation can play on. */
+        val PROPERTIES = AnimatedProperty.entries.size
     }
 }
 
@@ -276,6 +287,9 @@ class AnimationTable internal constructor(private val table: NodeTable) {
     private val scratchFrom = FloatArray(6)
     private val scratchTo = FloatArray(6)
     private val pendingEvents = ArrayList<HostEvent>()
+
+    /** Counts the frames played, to mark which frame a node's winners were chosen in. */
+    private var frame = 0L
 
     /** The node's draw-phase values, made the first time anything asks. */
     private val nodes = HashMap<Int, AnimatedNode>()
@@ -453,18 +467,33 @@ class AnimationTable internal constructor(private val table: NodeTable) {
             }
             index++
         }
-        // Write each property's winning value, once per node and property.
+        // The winner of each node and property: the highest slot in effect, the first of equal
+        // ones. One pass, through a mark on the node, so a thousand animations are a thousand
+        // steps and not a million.
+        frame += 1
         for (position in entries.indices) {
-            val animation = entries[position].animation
-            var first = true
-            for (earlier in 0 until position) {
-                val other = entries[earlier].animation
-                if (other.nodeId == animation.nodeId && other.property == animation.property) {
-                    first = false
-                    break
-                }
+            val entry = entries[position]
+            val holder = entry.holder
+            val property = entry.animation.property.ordinal
+            if (holder.winnerFrame[property] != frame) {
+                holder.winnerFrame[property] = frame
+                holder.winner[property] = null
             }
-            if (first) writeWinner(entries[position].holder, animation.nodeId, animation.property, frameNanos, theme)
+            if (inEffect(entry, frameNanos)) {
+                val current = holder.winner[property] as Entry?
+                if (current == null || entry.animation.slot > current.animation.slot) holder.winner[property] = entry
+            }
+        }
+        // Each winner writes its value once. A node and property with nothing in effect shows
+        // its underlying value again.
+        for (position in entries.indices) {
+            val entry = entries[position]
+            val winner = entry.holder.winner[entry.animation.property.ordinal]
+            if (winner == null) {
+                clearValue(entry.holder, entry.animation.property)
+            } else if (winner === entry) {
+                writeValue(entry, frameNanos, theme)
+            }
         }
         // Handed over once every value is written: a handler that starts the next animation
         // has it applied in this same frame, before anything is drawn.
@@ -472,26 +501,10 @@ class AnimationTable internal constructor(private val table: NodeTable) {
         pendingEvents.clear()
     }
 
-    private fun writeWinner(
-        node: AnimatedNode,
-        nodeId: Int,
-        property: AnimatedProperty,
-        frameNanos: Long,
-        theme: ResolvedTheme,
-    ) {
-        var winner: Entry? = null
-        for (position in entries.indices) {
-            val entry = entries[position]
-            val animation = entry.animation
-            if (animation.nodeId != nodeId || animation.property != property) continue
-            if (winner == null || animation.slot > winner.animation.slot) {
-                if (inEffect(entry, frameNanos)) winner = entry
-            }
-        }
-        if (winner == null) {
-            clearValue(node, property)
-            return
-        }
+    /** Writes what [winner] shows at [frameNanos] where its node draws it. */
+    private fun writeValue(winner: Entry, frameNanos: Long, theme: ResolvedTheme) {
+        val node = winner.holder
+        val property = winner.animation.property
         val time = if (winner.pausedAtNanos != NOT_PAUSED) winner.pausedAtNanos else frameNanos
         val animation = winner.animation
         WebAnimationTiming.sample(
