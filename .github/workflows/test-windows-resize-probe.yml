@@ -1,0 +1,196 @@
+# Windows resize probe test: real drags of hand-check's right edge from resize-probe, a separate
+# process, at 100% and at 200% display scale, with resize frames on the CPU (the default) and on
+# the GPU (DXC_RASTER_RESIZE=0), each at three mouse rates. Only the probe is compiled here:
+# hand-check.exe is the one the Resize metrics workflow built in run 38807049709, so a run takes
+# minutes rather than the two hours a renderer build does. The probe and that hand-check go out
+# together as one artifact, to run by hand with the same procedure.
+
+name: Windows resize probe test
+
+on:
+  workflow_dispatch:
+  # A new workflow cannot be dispatched until it is on the default branch, so it also runs
+  # on the pull request that changes it.
+  pull_request:
+    paths:
+      - ".github/workflows/test-windows-resize-probe.yml"
+      - ".github/scripts/resize-probe.c"
+      - ".github/scripts/resize-probe.manifest"
+      - ".github/scripts/resize-probe-README.txt"
+      - ".github/scripts/set-display-scale.c"
+      - ".github/scripts/resize-real-drag-run.sh"
+
+permissions:
+  contents: read
+  # To download hand-check from the earlier run.
+  actions: read
+
+env:
+  # The run whose hand-check.exe (artifact hand-check-windows-kn) this tests.
+  HAND_CHECK_RUN: "38807049709"
+
+jobs:
+  probe:
+    name: Real drags from the resize probe at 100% and 200% (Windows, x64)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github
+
+      - name: Receive hand-check from the earlier run
+        uses: actions/download-artifact@v4
+        with:
+          name: hand-check-windows-kn
+          run-id: ${{ env.HAND_CHECK_RUN }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/hand-check
+
+      - name: Enter the Visual Studio developer environment
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $vcvars = Join-Path $vs "VC\Auxiliary\Build\vcvars64.bat"
+          $tools = $null
+          cmd /c "`"$vcvars`" >nul && set" | ForEach-Object {
+            if ($_ -match '^(INCLUDE|LIB|LIBPATH|VCToolsInstallDir|WindowsSdkDir|WindowsSDKVersion)=(.*)$') {
+              "$($matches[1])=$($matches[2])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            }
+            if ($_ -match '^VCToolsInstallDir=(.*)$') { $tools = $matches[1] }
+          }
+          $bin = Join-Path $tools "bin\Hostx64\x64"
+          $bin | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          Write-Output "MSVC tools: $bin"
+
+      - name: Build the resize probe and the display scale tool
+        # The probe's manifest makes it per-monitor DPI aware before any of its code runs.
+        run: |
+          set -euo pipefail
+          kit="$(cygpath -u "$RUNNER_TEMP")/probe-kit"
+          tools="$(cygpath -u "$RUNNER_TEMP")/tools"
+          mkdir -p "$kit" "$tools"
+          scripts="$(cygpath -w "$PWD/.github/scripts")"
+          (cd "$kit" && MSYS_NO_PATHCONV=1 cl /nologo /O2 /W3 "$scripts\\resize-probe.c" \
+            /link /MANIFEST:EMBED "/MANIFESTINPUT:$scripts\\resize-probe.manifest")
+          (cd "$tools" && MSYS_NO_PATHCONV=1 cl /nologo /O2 /W3 "$scripts\\set-display-scale.c")
+          rm -f "$kit"/*.obj "$tools"/*.obj
+          cp "$(cygpath -u "$RUNNER_TEMP")/hand-check/hand-check.exe" "$kit/"
+          cp .github/scripts/resize-probe-README.txt "$kit/README.txt"
+          echo "hand-check.exe from run $HAND_CHECK_RUN, resize-probe.exe from commit $GITHUB_SHA" >> "$kit/README.txt"
+          ls -la "$kit" "$tools"
+          sha256sum "$kit"/*.exe
+
+      - name: Keep the probe kit
+        # hand-check.exe and resize-probe.exe side by side, for run-probe.ps1 on a real machine.
+        uses: actions/upload-artifact@v4
+        with:
+          name: resize-probe-kit-windows
+          path: ${{ runner.temp }}/probe-kit/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Real drags at 100%
+        env:
+          DXC_D3D12_WARP: '1'
+        run: |
+          kit="$(cygpath -u "$RUNNER_TEMP")/probe-kit"
+          out="$(cygpath -u "$RUNNER_TEMP")/probe-logs"
+          for path in new old; do
+            for rate in "16 8" "8 4" "1 1"; do
+              set -- $rate
+              if [ "$path" = old ]; then export DXC_RASTER_RESIZE=0; else unset DXC_RASTER_RESIZE; fi
+              ./.github/scripts/resize-real-drag-run.sh "$kit/hand-check.exe" "$kit/resize-probe.exe" "$out" \
+                "1x-$path-$1" "$1" "$2"
+            done
+          done
+
+      - name: Set the display to 200%
+        # The runner's display is 1024x768, where Windows offers no scale but 100%, so the
+        # resolution goes up to the largest mode first.
+        id: scale
+        run: |
+          tools="$(cygpath -u "$RUNNER_TEMP")/tools"
+          out="$(cygpath -u "$RUNNER_TEMP")/probe-logs"
+          mkdir -p "$out"
+          set +e
+          "$tools/set-display-scale.exe" 200 --largest > "$out/set-display-scale.log" 2>&1
+          status=$?
+          cat "$out/set-display-scale.log"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          echo "set-display-scale exit $status"
+
+      - name: Real drags at 200%
+        env:
+          DXC_D3D12_WARP: '1'
+        run: |
+          kit="$(cygpath -u "$RUNNER_TEMP")/probe-kit"
+          out="$(cygpath -u "$RUNNER_TEMP")/probe-logs"
+          for path in new old; do
+            for rate in "16 8" "8 4" "1 1"; do
+              set -- $rate
+              if [ "$path" = old ]; then export DXC_RASTER_RESIZE=0; else unset DXC_RASTER_RESIZE; fi
+              ./.github/scripts/resize-real-drag-run.sh "$kit/hand-check.exe" "$kit/resize-probe.exe" "$out" \
+                "2x-$path-$1" "$1" "$2"
+            done
+          done
+
+      - name: Report the drags
+        if: always()
+        run: |
+          out="$(cygpath -u "$RUNNER_TEMP")/probe-logs"
+          {
+            echo "### Display scale"
+            echo '```'
+            cat "$out/set-display-scale.log" 2>/dev/null || echo "no set-display-scale log"
+            echo '```'
+            for scale in 1x 2x; do
+              for path in new old; do
+                for rate in 16 8 1; do
+                  label="$scale-$path-$rate"
+                  echo "### $label"
+                  echo '```'
+                  grep -hE "resize-probe: (dpi awareness|duplicating|window|  |client|move-size|summary|verdict)" \
+                    "$out/$label-probe.log" 2>/dev/null || echo "no probe log"
+                  grep -hE "a window of our own|resize-mode: (monitor|resize frames)|real drag (ready|done)" \
+                    "$out/$label.log" 2>/dev/null || echo "no application log"
+                  echo '```'
+                done
+              done
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resize-probe-logs-windows
+          path: ${{ runner.temp }}/probe-logs/
+          retention-days: 14
+
+      - name: Every drag ran and passed, at both scales
+        run: |
+          out="$(cygpath -u "$RUNNER_TEMP")/probe-logs"
+          [ "${{ steps.scale.outputs.status }}" = 0 ] || { echo "the display did not go to 200%" >&2; exit 1; }
+          grep -q "effective dpi 192" "$out/set-display-scale.log" || { echo "the display is not at 192 dpi" >&2; exit 1; }
+          status=0
+          for scale in 1x 2x; do
+            for path in new old; do
+              for rate in 16 8 1; do
+                label="$scale-$path-$rate"
+                verdict="$(grep -h "resize-probe: verdict" "$out/$label-probe.log" 2>/dev/null || echo "no verdict")"
+                echo "$label: $verdict"
+                case "$verdict" in *"verdict PASS"*) ;; *) status=1 ;; esac
+                grep -qE "real drag done steps=[1-9][0-9]* verdict PASS" "$out/$label.log" ||
+                  { echo "$label: the window drew no step of the drag"; status=1; }
+              done
+            done
+            want="$([ $scale = 1x ] && echo "dpi 96 (1.00x)" || echo "dpi 192 (2.00x)")"
+            grep -qF "px, $want" "$out/$scale-new-16-probe.log" ||
+              { echo "$scale: the window was not at the expected dpi"; status=1; }
+          done
+          exit $status
