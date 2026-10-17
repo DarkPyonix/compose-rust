@@ -167,26 +167,30 @@ jobs:
           cp -R "$RUNNER_TEMP/compose-fork-desktop/." ~/.m2/repository/org/jetbrains/
 
       - name: Build the Windows renderer
+        id: renderer-build
         shell: powershell
         run: .\renderer\desktop\scripts\build-native-windows.ps1
-
-      - name: The linked image carries no toolkit
-        shell: bash
-        run: bash scripts/tests/renderer/windows-image-has-no-awt.test.sh renderer/build/native-image/dist/bin
-
-      - name: The image's ways into the toolkit
-        # The check is Python, and Windows' Python is python.exe only.
-        shell: bash
-        run: |
-          mkdir -p "$RUNNER_TEMP/python3"
-          cp "$(command -v python)" "$RUNNER_TEMP/python3/python3.exe"
-          PATH="$RUNNER_TEMP/python3:$PATH" bash scripts/tests/renderer/linux-image-toolkit-boundary.test.sh renderer/build/native-image/dist/bin
 
       - name: Non-interactive Windows smoke test
         # This proves startup, rendering long enough to open, clean close, and return 0.
         # It does not prove mouse input because a hosted runner cannot perform the required click.
         shell: powershell
         run: .\renderer\desktop\scripts\smoke-test-windows.ps1
+
+      - name: The linked image carries no toolkit
+        # Run whatever the smoke test said, so a run shows every way it fails.
+        if: ${{ !cancelled() && steps.renderer-build.outcome == 'success' }}
+        shell: bash
+        run: bash scripts/tests/renderer/windows-image-has-no-awt.test.sh renderer/build/native-image/dist/bin
+
+      - name: The image's ways into the toolkit
+        # The check is Python, and Windows' Python is python.exe only.
+        if: ${{ !cancelled() && steps.renderer-build.outcome == 'success' }}
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/python3"
+          cp "$(command -v python)" "$RUNNER_TEMP/python3/python3.exe"
+          PATH="$RUNNER_TEMP/python3:$PATH" bash scripts/tests/renderer/linux-image-toolkit-boundary.test.sh renderer/build/native-image/dist/bin
 
       # A run artifact, which is a different thing from the release asset below: it belongs
       # to this run, lasts a fortnight, and is not published anywhere. The release asset
