@@ -11,6 +11,9 @@ categories = ["gui"]
 
 [lib]
 proc-macro = true
+# No benchmarks here, and the default bench harness rejects Criterion's flags (--quick),
+# which the workspace's `cargo bench --benches` passes to every target it runs.
+bench = false
 
 [dependencies]
 proc-macro2 = "1"
