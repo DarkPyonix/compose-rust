@@ -39,8 +39,8 @@
 # --soak reads the long soak resize-metrics-run.sh runs with "soak" (DXC_RESIZE_SOAK): a table
 # of every round, then the bound. Each settled reading, two seconds after a round's drag is
 # let go, must be within <bound> MB of the second idle reading, and all <rounds> rounds (15
-# unless given) must have run and widened the window. The bounds the workflows pass, and why
-# they are what they are, are written beside them.
+# unless given) must have run and widened the window. The bound the workflows pass, and why it
+# is what it is: resize-soak-check.sh.
 set -euo pipefail
 if [[ "${1:-}" == "--soak" ]]; then
     exec "$(dirname "$0")/resize-soak-check.sh" "${@:2}"

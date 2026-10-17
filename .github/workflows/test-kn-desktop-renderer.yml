@@ -223,17 +223,14 @@ jobs:
         # 15 rounds of one drag each, 100 mouse events on the right edge, and a reading two
         # seconds after each. Memory that levels off passes; memory that grows round after
         # round reaches the bound. The bound and why it is what it is:
-        # .github/scripts/resize-soak-check.sh and the numbers in its table. A second soak
-        # with Skia's resource cache at 16 MB is printed beside it, for the cache's share.
+        # .github/scripts/resize-soak-check.sh.
         if: matrix.module == 'macos'
         env:
-          SOAK_BOUND_MB: '1000'
+          SOAK_BOUND_MB: '16'
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/resize-metrics"
           ./.github/scripts/resize-metrics-run.sh "$RUNNER_TEMP/consumer-launch" "$out" soak-macos-kn soak
-          DXC_SKIA_CACHE_MB=16 ./.github/scripts/resize-metrics-run.sh "$RUNNER_TEMP/consumer-launch" "$out" soak-macos-kn-cache16 soak
-          { echo "### Kotlin/Native, Skia cache 16 MB (not bounded)"; ./.github/scripts/resize-memory-check.sh --soak "$out/soak-macos-kn-cache16.log" 100000 || true; } | tee -a "$GITHUB_STEP_SUMMARY"
           { echo "### Kotlin/Native soak"; ./.github/scripts/resize-memory-check.sh --soak "$out/soak-macos-kn.log" "$SOAK_BOUND_MB"; } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Keep the resize logs

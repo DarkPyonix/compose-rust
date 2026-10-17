@@ -16,15 +16,45 @@
 #
 # Prints a Markdown table of every reading, then one line per check.
 #
+# The bound both macOS jobs pass is 16 MB over 1500 resizes (15 rounds), from CI runs
+# 39028836346 and 39028159924 on macOS arm64:
+#
+#   Kotlin/Native  rest 30 MB; settled 35 after round 1 and 37 to 38 from round 2 to 15, so
+#                  +7 to +8 and flat. Of the 7: 4.7 in footprint's "app-specific tag 7" (the
+#                  runtime's heap pages; 10 to 11 MB live), a drawable at the next 256
+#                  pixel step 1.5 (IOSurface), malloc 1, the graphics driver 0.3.
+#   GraalVM image  rest 29 MB; settled +1 to +9, a saw: the image's heap ("untagged") grows
+#                  0.5 MB a round to 7 MB used of its 64 MB cap and drops at the young
+#                  collection (round 13), and the graphics driver grew 128 KB every round,
+#                  which was the leak the check below catches.
+#
+#   Skia's GPU resource cache is not part of it: the same soaks with its limit at 16 MB
+#   instead of the default 256 gave the same readings to the megabyte on both paths, and
+#   Skia's CPU cache stayed at 0. Metal's own allocation rose 2 MB and stayed.
+#
+# 16 is twice the largest plateau, which leaves room for the heap's saw and a drawable step
+# at a size the runner's screen rounds differently, and memory that grew without end at the
+# rate the owner's machine showed for the native image (about 2 MB per 150 resizes) would
+# cross it inside the 1500.
+#
+# It also fails if the graphics driver's memory keeps growing from round to round, which a
+# bound on the whole footprint is too coarse to see early: see accel_bound_kb.
+#
 # Usage: resize-soak-check.sh <log> <bound MB> [rounds]
 set -euo pipefail
 log="$1"
 bound="$2"
 rounds_wanted="${3:-15}"
+# How much the graphics driver's memory (footprint's "IOAccelerator" kinds) may grow from round
+# 3 to the last. It is allocated in 64 KB regions. The Kotlin/Native window's wandered by 160 KB
+# over 13 rounds with no trend (CI run 39028836346); the native image's window grew by two
+# regions every round, 1.9 MB over 15 rounds (run 39028159924). 512 KB is eight regions: well
+# above the wander, and over the 12 rounds compared a leak of 43 KB a drag or more reaches it.
+accel_bound_kb=512
 
 [[ -f "$log" ]] || { echo "FAIL no log at $log" >&2; exit 1; }
 
-awk -v bound="$bound" -v wanted="$rounds_wanted" '
+awk -v bound="$bound" -v wanted="$rounds_wanted" -v accel_bound_kb="$accel_bound_kb" '
     function field(line, key,    n, i, parts, kv) {
         n = split(line, parts, " ")
         for (i = 1; i <= n; i++) if (index(parts[i], key "=") == 1) { split(parts[i], kv, "="); return kv[2] }
@@ -58,6 +88,7 @@ awk -v bound="$bound" -v wanted="$rounds_wanted" '
         dirty = size_mb(w[3], w[4])
         if (category ~ /IOSurface/) surf[key] += dirty
         else if (category ~ /IOAccelerator|graphics|IOKit/) gfx[key] += dirty
+        if (category ~ /IOAccelerator/) accel[key] += dirty
         else if (category ~ /MALLOC/) malloc_mb[key] += dirty
         else if (category ~ /untagged|VM_ALLOCATE/) untagged[key] += dirty
         next
@@ -123,6 +154,22 @@ awk -v bound="$bound" -v wanted="$rounds_wanted" '
                 printf "FAIL round %s settled at %d MB, %d MB over the %d MB at rest, bound %d MB\n", row_round[i], row_fp[i], over, idle, bound
                 failed = 1
             }
+        }
+        # What the graphics driver holds for the process must stop growing once the rounds
+        # are under way. Read from round 3, when every size the drag passes has been drawn
+        # at least twice, to the last round.
+        first = "round=3 settled"; last = "round=" settled_rounds " settled"
+        if ((first in accel) && (last in accel)) {
+            grew = (accel[last] - accel[first]) * 1024
+            if (grew > accel_bound_kb) {
+                printf "FAIL IOAccelerator memory grew %d KB from round 3 to round %d, bound %d KB: something is allocated per drag and kept\n", grew, settled_rounds, accel_bound_kb
+                failed = 1
+            } else {
+                printf "ok   IOAccelerator memory grew %d KB from round 3 to round %d, bound %d KB\n", grew, settled_rounds, accel_bound_kb
+            }
+        } else if (settled_rounds >= 3) {
+            print "FAIL the settled readings carry no footprint breakdown (DXC_METRICS_BREAKDOWN=1)"
+            failed = 1
         }
         if (worst >= 0 && worst <= bound) {
             printf "ok   every settled reading within %d MB of the %d MB at rest (most: %d MB, round %s)\n", bound, idle, worst, worst_round

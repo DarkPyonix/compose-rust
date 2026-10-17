@@ -124,19 +124,15 @@ jobs:
       - name: Memory after 1500 resizes settles near rest
         # The Kotlin/Native renderer's soak, on the native image's window: 15 rounds of one
         # drag each, 100 mouse events on the right edge, and a reading two seconds after
-        # each. The bound and why it is what it is: .github/scripts/resize-soak-check.sh and
-        # the numbers in its table. A second soak with Skia's resource cache at 16 MB is
-        # printed beside it, for the cache's share.
+        # each. The bound and why it is what it is: .github/scripts/resize-soak-check.sh.
         env:
-          SOAK_BOUND_MB: '1000'
+          SOAK_BOUND_MB: '16'
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/resize-metrics"
           printf '#!/bin/sh\nCOMPOSE_RUST_AUTOEXIT_MS=600000 exec "%s"\n' "$PWD/renderer/build/native-image/smoke_host" > "$RUNNER_TEMP/smoke-launch"
           chmod +x "$RUNNER_TEMP/smoke-launch"
           ./.github/scripts/resize-metrics-run.sh "$RUNNER_TEMP/smoke-launch" "$out" soak-macos-graalvm soak
-          DXC_SKIA_CACHE_MB=16 ./.github/scripts/resize-metrics-run.sh "$RUNNER_TEMP/smoke-launch" "$out" soak-macos-graalvm-cache16 soak
-          { echo "### GraalVM, Skia cache 16 MB (not bounded)"; ./.github/scripts/resize-memory-check.sh --soak "$out/soak-macos-graalvm-cache16.log" 100000 || true; } | tee -a "$GITHUB_STEP_SUMMARY"
           { echo "### GraalVM soak"; ./.github/scripts/resize-memory-check.sh --soak "$out/soak-macos-graalvm.log" "$SOAK_BOUND_MB"; } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Keep the resize logs
