@@ -245,8 +245,8 @@
       <table>
         <thead><tr><th scope="col">Platform</th><th scope="col">Renderer</th><th scope="col">Status</th></tr></thead>
         <tbody>
-          <tr><td>macOS</td><td>Kotlin/Native static archive, linked into the executable</td><td>From the next release; 0.0.1 shipped a native image</td></tr>
-          <tr><td>Linux (x64, arm64)</td><td>Kotlin/Native static archive, linked into the executable</td><td>From the next release; 0.0.1 shipped a native image</td></tr>
+          <tr><td>macOS</td><td>Kotlin/Native static archive, linked into the executable</td><td>Shipped from 0.0.2</td></tr>
+          <tr><td>Linux (x64, arm64)</td><td>Kotlin/Native static archive, linked into the executable</td><td>Shipped from 0.0.2</td></tr>
           <tr><td>Windows</td><td>Kotlin/Native (<code>mingwX64</code>), linked into an MSVC executable</td><td>In progress (<a href="https://github.com/DarkPyonix/compose-rust/issues/24">#24</a>). Until it lands, Windows gets a GraalVM native image.</td></tr>
           <tr><td>iOS</td><td>Kotlin/Native static archive</td><td>Released as an XCFramework</td></tr>
           <tr><td>Android</td><td>Android library, built from Kotlin sources the crate carries</td><td>Shipped</td></tr>
@@ -268,7 +268,8 @@
       compose-rust's own code, but the Java runtime and the metadata a closed world needs.
     </p>
     <p>
-      The 0.0.1 release still shipped GraalVM native images on every desktop. Building Compose desktop
+      Releases before 0.0.2 shipped GraalVM native images on every desktop, and 0.0.2 still
+      ships one on Windows. Building Compose desktop
       applications into one executable on the GraalVM path is the Compose fork's work, not this
       repository's.
     </p>

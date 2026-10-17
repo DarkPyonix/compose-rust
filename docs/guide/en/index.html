@@ -109,8 +109,8 @@
       <p>Rust owns your code and your state. Kotlin owns the pixels, the text stack and the input
         method. Between them sits a narrow C ABI: synchronous, on one thread, with records read
         where they were written, so a keystroke gets its answer inside the same call.</p>
-      <p>The authoring API shown here is on <code>develop</code> and is released with 1.0.0 on
-        2026-11-14. The boundary, the schema and the renderers under it ship today in 0.0.1.</p>
+      <p>The authoring API shown here ships in 0.0.2, with the boundary, the schema and the
+        renderers under it. It is a pre-1.0 API that may still change, and it is stable from 1.0.0, planned for 2026-11-14.</p>
     </div>
   </div>
 
@@ -121,16 +121,16 @@
     <div class="metric"><b>6.95 MB</b><span>Renderer and Skia in the browser, gzipped</span></div>
   </div>
   <p class="fineprint">The first two numbers are for the Kotlin/Native renderer linked into the
-    executable, which the next release ships on macOS and Linux. 0.0.1 shipped a GraalVM native
-    image on the desktop. See <a href="architecture.html#runtimes">What runs where</a>.</p>
+    executable, which 0.0.2 ships on macOS and Linux. Windows still ships a GraalVM native
+    image. See <a href="architecture.html#runtimes">What runs where</a>.</p>
 
   <section>
     <h2>Where it stands today</h2>
     <table>
       <thead><tr><th>Part</th><th>State</th></tr></thead>
       <tbody>
-        <tr><td>Boundary, protocol, schema, renderer download</td><td><span class="pill works">Works</span> in 0.0.1</td></tr>
-        <tr><td>Authoring API: <code>#[composable]</code>, <code>remember</code>, <code>launch</code></td><td><span class="pill partial">Partial</span>: on <code>develop</code>, released with 1.0.0 on 2026-11-14</td></tr>
+        <tr><td>Boundary, protocol, schema, renderer download</td><td><span class="pill works">Works</span> in 0.0.2</td></tr>
+        <tr><td>Authoring API: <code>#[composable]</code>, <code>remember</code>, <code>launch</code></td><td><span class="pill partial">Partial</span>: in 0.0.2 as a pre-1.0 API that may change, stable from 1.0.0 (planned for 2026-11-14)</td></tr>
         <tr><td>macOS, Android, Web</td><td><span class="pill works">Works end to end</span></td></tr>
         <tr><td>Linux, Windows, iOS</td><td><span class="pill partial">Builds and starts</span></td></tr>
       </tbody>

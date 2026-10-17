@@ -108,8 +108,8 @@
       <p>코드와 상태는 Rust가 갖고, 픽셀과 텍스트 스택과 입력기는 Kotlin이 갖습니다. 둘 사이에는
         좁은 C ABI 하나뿐입니다. 한 스레드 위에서 동기로 호출하고, 레코드는 쓰인 자리에서 읽히므로,
         키를 누르면 같은 호출 안에서 답이 돌아옵니다.</p>
-      <p>여기 보인 작성 API는 <code>develop</code> 에 있고 2026-11-14의 1.0.0과 함께 릴리스됩니다.
-        그 아래의 경계, 스키마, 렌더러는 지금 0.0.1로 배포됩니다.</p>
+      <p>여기 보인 작성 API는 그 아래의 경계, 스키마, 렌더러와 함께 0.0.2로 배포됩니다.
+        1.0 전의 API라 아직 바뀔 수 있고, 2026-11-14로 계획된 1.0.0부터 안정됩니다.</p>
     </div>
   </div>
 
@@ -119,8 +119,8 @@
     <div class="metric"><b>약 12 ns</b><span>브라우저에서 렌더러가 Host를 부르는 호출 한 번</span></div>
     <div class="metric"><b>6.95 MB</b><span>브라우저의 렌더러와 Skia, gzip 기준</span></div>
   </div>
-  <p class="fineprint">앞의 두 숫자는 실행 파일 안에 링크되는 Kotlin/Native 렌더러의 것이며, 다음 릴리스가
-    macOS와 Linux에서 이것을 배포합니다. 0.0.1은 데스크톱에서 GraalVM 네이티브 이미지를 배포했습니다.
+  <p class="fineprint">앞의 두 숫자는 실행 파일 안에 링크되는 Kotlin/Native 렌더러의 것이며, 0.0.2가
+    macOS와 Linux에서 이것을 배포합니다. Windows는 아직 GraalVM 네이티브 이미지를 배포합니다.
     <a href="architecture.html#runtimes">어디서 무엇이 도나</a>를 보십시오.</p>
 
   <section>
@@ -128,8 +128,8 @@
     <table>
       <thead><tr><th>부분</th><th>상태</th></tr></thead>
       <tbody>
-        <tr><td>경계, 프로토콜, 스키마, 렌더러 다운로드</td><td>0.0.1에 <span class="pill works">구현</span></td></tr>
-        <tr><td>작성 API: <code>#[composable]</code>, <code>remember</code>, <code>launch</code></td><td><span class="pill partial">부분</span>: <code>develop</code> 에 있고, 2026-11-14의 1.0.0과 함께 릴리스</td></tr>
+        <tr><td>경계, 프로토콜, 스키마, 렌더러 다운로드</td><td>0.0.2에 <span class="pill works">구현</span></td></tr>
+        <tr><td>작성 API: <code>#[composable]</code>, <code>remember</code>, <code>launch</code></td><td><span class="pill partial">부분</span>: 0.0.2에 있는 1.0 전의 API라 바뀔 수 있고, 2026-11-14로 계획된 1.0.0부터 안정</td></tr>
         <tr><td>macOS, Android, Web</td><td><span class="pill works">처음부터 끝까지 동작</span></td></tr>
         <tr><td>Linux, Windows, iOS</td><td><span class="pill partial">빌드되고 시작됨</span></td></tr>
       </tbody>

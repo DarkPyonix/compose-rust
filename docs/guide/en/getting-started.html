@@ -53,16 +53,16 @@
     <h1>Your first application, and building this repository</h1>
     <p class="lede">
       Using the crate is one line in a <code>Cargo.toml</code>, because the build downloads the
-      renderer it needs. Until 1.0.0 the authoring API is used from a checkout of this repository,
-      so this page also covers building the renderer.
+      renderer it needs. This page also covers building the renderer, which work on
+      <code>develop</code> and on this repository needs.
     </p>
 
     <div class="warn">
-      <span class="label">What each version gives you</span>
+      <span class="label">What 0.0.2 gives you</span>
       <p>
-        The 0.0.1 crate on crates.io contains the boundary, the protocol, the schema, the
-        <code>Runtime</code> trait and the renderer download, but not the authoring API. The API is
-        on <code>develop</code> and is released with 1.0.0 on 2026-11-14
+        The 0.0.2 crate on crates.io contains the authoring API, the boundary, the protocol, the
+        schema, the <code>Runtime</code> trait and the renderer download. It is a pre-1.0 API that may still change,
+        and it is stable from 1.0.0, planned for 2026-11-14
         (<a href="https://github.com/DarkPyonix/compose-rust/issues/23">#23</a>,
         <a href="https://github.com/DarkPyonix/compose-rust/issues/64">#64</a>). A renderer is
         published only with a release, so a build of <code>develop</code> needs a renderer built
@@ -78,7 +78,13 @@
 
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
       <figcaption>shell</figcaption>
-<pre><code>cargo add compose-rust</code></pre>
+<pre><code>cargo add compose-rust@0.0.2</code></pre>
+    </figure>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>Cargo.toml, the line that command writes</figcaption>
+<pre><code>[dependencies]
+compose-rust = <span class="s">"0.0.2"</span></code></pre>
     </figure>
 
     <p>
@@ -94,8 +100,8 @@
       renderer, Compose, Skia and ICU are inside it, nothing sits beside it, and it loads only the
       system's own libraries. Windows gets the same once its Kotlin/Native renderer lands
       (<a href="https://github.com/DarkPyonix/compose-rust/issues/24">#24</a>). Until then Windows
-      downloads a GraalVM native image, a DLL with its companions beside it. 0.0.1 itself still
-      ships native images on every desktop; the static archives go out with the next release.
+      downloads a GraalVM native image, a DLL with its companions beside it. 0.0.2 is the first
+      release that ships the static archives.
     </p>
 
     <div class="tablewrap">
@@ -159,9 +165,20 @@
     </figure>
 
     <p>
-      Until 1.0.0 the quickest way to run code like this is inside a checkout, where the build
-      links the renderer you built before anything it could download. Build the renderer once
-      (below), then run a sample:
+      With <code>compose-rust = "0.0.2"</code> this program builds as it is. <code>cargo run</code>
+      downloads the renderer and opens the window.
+    </p>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>shell</figcaption>
+<pre><code>cargo run</code></pre>
+    </figure>
+
+    <p>
+      To use what is on <code>develop</code> after 0.0.2, run it inside a checkout. There the build
+      links the renderer you built before anything it could download, and no release carries a
+      renderer built from <code>develop</code>'s schema. Build the renderer once (below), then run
+      a sample:
     </p>
 
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
@@ -171,12 +188,12 @@
 
     <p>
       A project of your own outside the checkout depends on the crate by path and names the
-      renderer you built with <code>COMPOSE_RUST_RENDERER_DIR</code>, because the renderer the 0.0.1
-      release carries was built from a different schema and the build refuses it.
+      renderer you built with <code>COMPOSE_RUST_RENDERER_DIR</code>, because the build refuses a
+      renderer built from a different schema.
     </p>
 
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
-      <figcaption>Cargo.toml, until 1.0.0</figcaption>
+      <figcaption>Cargo.toml, to use develop</figcaption>
 <pre><code>[dependencies]
 compose-rust = { path = <span class="s">"../compose-rust/compose-rust"</span> }</code></pre>
     </figure>
