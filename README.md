@@ -13,8 +13,8 @@
 
 compose-rust is four things put together:
 
-- **A Compose-shaped Rust API** with a slot table and a recomposition runtime, on `develop`
-  and released with 1.0.0 (see [Status](#-status)). A composable is a function, a widget is a
+- **A Compose-shaped Rust API** with a slot table and a recomposition runtime, in 0.0.2
+  (see [Status](#-status)). A composable is a function, a widget is a
   call with Compose's name, state lives in `remember`, and when state changes only the scopes
   that read it run again. Nothing compares trees to find what changed.
 - **A narrow C ABI boundary and a schema.** Rust defines the widgets, properties and records
@@ -26,11 +26,10 @@ compose-rust is four things put together:
   menus, chrome and resizing come from the Compose fork,
   [thisisthepy/compose-multiplatform-core-extended](https://github.com/thisisthepy/compose-multiplatform-core-extended).
 - **No webview, and no bundled JVM.** On the desktop an application is one executable that links
-  only the system's own libraries. The 0.0.1 release does not do that yet: its desktop renderers
-  are GraalVM native-image shared libraries that sit beside the application. From the next
-  release, macOS and Linux (x64 and arm64) download a Kotlin/Native static archive instead, and
-  the build links it into the executable; CI proves the result on all three. Windows follows
-  with its Kotlin/Native renderer ([#24](https://github.com/DarkPyonix/compose-rust/issues/24)).
+  only the system's own libraries. From 0.0.2, macOS and Linux (x64 and arm64) download a
+  Kotlin/Native static archive, and the build links it into the executable; CI proves the result
+  on all three. Windows still uses a GraalVM native-image shared library beside the application,
+  until its Kotlin/Native renderer lands ([#24](https://github.com/DarkPyonix/compose-rust/issues/24)).
 
 ---
 
@@ -38,8 +37,18 @@ compose-rust is four things put together:
 
 **0.0.x is the name reservation and renderer distribution stage.** The API will change.
 
-What the 0.0.1 crate contains:
+What the 0.0.2 crate contains:
 
+- **The authoring API.** `#[composable]`, `remember`, the states and effects, the `Recomposer`,
+  `launch` and one function per widget
+  ([#23](https://github.com/DarkPyonix/compose-rust/issues/23), [#64](https://github.com/DarkPyonix/compose-rust/issues/64)).
+  It is new in 0.0.2, with animation: `Modifier.graphics_layer`, `Modifier.alpha`, and
+  `animate_float_as_state`, `animate_color_as_state` and `animate_offset_as_state`, whose
+  values go to `Modifier.animated_alpha`, `animated_background` and `animated_offset`. Each new
+  target sends one transition that the renderer plays on its own clock, and nothing is composed
+  again while it plays ([Animation](https://darkpyonix.dev/compose-rust/en/writing-ui.html#animation)).
+  It is a pre-1.0 API that may still change, and it is stable from **1.0.0, planned for
+  2026-11-14**.
 - **The boundary.** The `compose_rust_host_*` C functions the renderer calls, `Host`,
   `LaunchBuilder`, `launch_runtime`, and `request_frame_from_worker` for waking a frame from a
   worker thread.
@@ -51,14 +60,13 @@ What the 0.0.1 crate contains:
 - **The `Runtime` trait**, the interface whatever builds the tree implements, plus the
   supporting types around it: assets, custom drawing, input events, notifications, messages,
   palettes and window size classes.
+- **Drawing, transforms and animations**, new in 0.0.2. HTML/CSS drawing elements (`AbsoluteBox`
+  and the modifiers `RequiredSize`, `BorderEach`, `CornerEach`, `Shadow`, `Clip` and `Alpha`), a
+  `Transform` modifier for 2D CSS transforms, and animations the renderer plays itself
+  (`StartAnimation`, `ControlAnimation`, `AnimationEvent` and `ReducedMotionChanged`). A layout
+  container's text colour is inherited by the text inside it, and a border's colour can animate.
 - **The renderer download.** The build script fetches the prebuilt renderer for your target,
   checks it and links it (see [Getting started](#-getting-started)).
-
-The authoring API is on `develop` and is not in 0.0.1: `#[composable]`, `remember`, the states
-and effects, the `Recomposer`, `launch` and one function per widget
-([#23](https://github.com/DarkPyonix/compose-rust/issues/23), [#64](https://github.com/DarkPyonix/compose-rust/issues/64)).
-It is released with **1.0.0 on 2026-11-14**. Until then you use it from a checkout, with a
-renderer built from the same checkout (see [Getting started](#-getting-started)).
 
 ### What it looks like
 
@@ -98,8 +106,7 @@ Where work exists, it sits in an open pull request or a branch.
 | Item | Status | Issue | Work in progress |
 |---|---|---|---|
 | Direct Kotlin to Rust calls on the web, replacing the JavaScript forwarder | partial | [#54](https://github.com/DarkPyonix/compose-rust/issues/54) | [#84](https://github.com/DarkPyonix/compose-rust/pull/84) |
-| HTML/CSS drawing elements (`AbsoluteBox` and its modifiers) | partial | [#104](https://github.com/DarkPyonix/compose-rust/issues/104) | [#74](https://github.com/DarkPyonix/compose-rust/pull/74) |
-| Transforms and animations the renderer plays | partial | [#105](https://github.com/DarkPyonix/compose-rust/issues/105) | [#83](https://github.com/DarkPyonix/compose-rust/pull/83) |
+| 3D transforms | planned | [#105](https://github.com/DarkPyonix/compose-rust/issues/105) | none |
 | HTML text properties and the measure call | partial | [#106](https://github.com/DarkPyonix/compose-rust/issues/106) | branch `feat/measure-call` |
 | OS text size and app zoom | partial | [#68](https://github.com/DarkPyonix/compose-rust/issues/68) | [#77](https://github.com/DarkPyonix/compose-rust/pull/77) (OS text size on the desktop only) |
 | Action keys (dense keypad buttons) | partial | [#57](https://github.com/DarkPyonix/compose-rust/issues/57) | [#76](https://github.com/DarkPyonix/compose-rust/pull/76) |
@@ -115,8 +122,8 @@ Where work exists, it sits in an open pull request or a branch.
 
 | Platform | State | Renderer |
 |---|---|---|
-| 🍎 **macOS (arm64)** | **Works end to end** | The Kotlin/Native renderer linked into the executable, drawing through Metal into the fork's AppKit window. 0.0.1 shipped a GraalVM native-image library beside the app instead; the next release ships the Kotlin/Native one. Basic Korean IME input works; the full IME checklist is not finished |
-| 🐧 Linux (x64, arm64) | Builds and starts | The Kotlin/Native renderer, drawing through GLX into the fork's X11 window; arm64 is cross compiled on x64. 0.0.1 shipped a GraalVM native-image library instead. In CI an application built from it is one executable naming only libc, X11, GL, fontconfig and the C++ runtime (and EGL on arm64), and copied alone into an empty directory it draws under Xvfb. Nobody has used it interactively yet |
+| 🍎 **macOS (arm64)** | **Works end to end** | The Kotlin/Native renderer linked into the executable, drawing through Metal into the fork's AppKit window. 0.0.2 ships it as a static archive the build links into the executable, so the app is one executable. Basic Korean IME input works; the full IME checklist is not finished |
+| 🐧 Linux (x64, arm64) | Builds and starts | The Kotlin/Native renderer, drawing through GLX into the fork's X11 window; arm64 is cross compiled on x64. 0.0.2 ships it as a static archive the build links into the executable. In CI an application built from it is one executable naming only libc, X11, GL, fontconfig and the C++ runtime (and EGL on arm64), and copied alone into an empty directory it draws under Xvfb. Nobody has used it interactively yet |
 | 🪟 Windows | Builds and starts | GraalVM native image, smoke-tested on every renderer change, until the Kotlin/Native renderer makes Windows one executable too ([#24](https://github.com/DarkPyonix/compose-rust/issues/24), in progress) |
 | 📱 iOS | Builds and starts | Kotlin/Native static archive exporting the same C symbols, released as an XCFramework |
 | 🤖 Android | **Works end to end** | A Kotlin Activity owns the process and the loop, Rust is a cdylib, and the JNI shims on both sides are generated from the schema. The crate carries the renderer's Kotlin sources and its build script stages them into the Gradle project |
@@ -125,7 +132,7 @@ Where work exists, it sits in an open pull request or a branch.
 ### What it weighs
 
 The notepad sample, built for release and stripped, with the Kotlin/Native renderer linked in
-(the renderer the next release ships). One executable: no runtime beside it, no
+(the renderer 0.0.2 ships on macOS and Linux). One executable: no runtime beside it, no
 virtual machine inside it, and nothing linked but the system's own libraries.
 
 | Platform | Executable | Physical footprint |
@@ -206,7 +213,7 @@ default, and `org.thisisthepy.compose.designsystem` for the contract both layers
 ### Using the crate
 
 ```bash
-cargo add compose-rust
+cargo add compose-rust@0.0.2
 ```
 
 `cargo build` works out which renderer the target needs, downloads the release artifact for the
@@ -215,7 +222,7 @@ outside `target/`, and links it. There is no environment variable to set and no 
 The cache is keyed by version and target, so it survives `cargo clean` and is shared between
 projects.
 
-Where the artifact is the static archive (macOS and Linux from the next release), what `cargo
+Where the artifact is the static archive (macOS and Linux from 0.0.2), what `cargo
 build` produces is **one executable**: the renderer, Compose, Skia and ICU are inside it, nothing
 sits beside it, and it loads only the system's libraries (frameworks and `/usr/lib` on macOS;
 libc, X11, GL, fontconfig and FreeType on Linux). Copy it anywhere and it runs. Windows downloads
@@ -230,12 +237,13 @@ the GraalVM native image, a DLL with its companions beside it, until its static 
 build. A binary built that way says what is missing and exits non-zero rather than opening no
 window.
 
-### Using the authoring API before 1.0.0
+### Using the authoring API from `develop`
 
-The 0.0.1 release carries a renderer built from 0.0.1's schema, and the build refuses a renderer
-whose schema differs. So until 1.0.0, use the API from a checkout of `develop`: build the
-renderer (below), then run a sample. In a checkout the build links that renderer before anything
-it could download.
+0.0.2 carries the authoring API and a renderer built from the same schema, so a project that
+depends on it writes screens with no further setup. A renderer is published only with a
+release, and the build refuses a renderer whose schema differs. So to use what is on `develop`
+after 0.0.2, build the renderer in a checkout (below), then run a sample. In a checkout the
+build links that renderer before anything it could download.
 
 ```bash
 cargo run -p sample-minimal
