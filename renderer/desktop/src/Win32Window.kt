@@ -418,7 +418,18 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
     )
     // The application's own tree, drawn by the same interpreter the toolkit path uses.
     // Nothing in it knows which of the two it is running on, which is the point.
-    scene.setContent { dev.darkpyonix.composerust.runtime.ComposeRustContent(host) }
+    // The window's own clipboard (dxc_native_clipboard_read and _write), as the AppKit and X11
+    // windows have through NativeWindowContent: Compose's desktop default is the toolkit's, and
+    // this image carries no toolkit.
+    @Suppress("DEPRECATION")
+    scene.setContent {
+        androidx.compose.runtime.CompositionLocalProvider(
+            androidx.compose.ui.platform.LocalClipboard provides WindowClipboard,
+            androidx.compose.ui.platform.LocalClipboardManager provides WindowClipboardManagerInstance,
+        ) {
+            dev.darkpyonix.composerust.runtime.ComposeRustContent(host)
+        }
+    }
     WindowStartReport.sceneCreated(size.width, size.height, measured.scale)
 
     // What a frame is, wherever the ask comes from. The loop below is one caller and the
@@ -429,7 +440,9 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
     Win32Frames.paint = {
         // The scene's own work first. A list that asked for rows on the last frame wants
         // them in hand before this one is measured, and during a drag of the window's
-        // edge this is the only place that runs at all.
+        // edge this is the only place that runs at all. Compose's main-thread work first,
+        // as the AppKit and X11 windows do: it runs here, once a frame, not on Swing's queue.
+        FrameMainDispatcher.runPending()
         work.runPending()
         nanos += FRAME_NANOS
         val begun = System.nanoTime()
@@ -466,6 +479,7 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
             // at all.
             pumpEvents(if (busy) 0.0 else FRAME_SECONDS)
             LatencyTrace.mark("loop turn")
+            FrameMainDispatcher.runPending()
             work.runPending()
             var heard = false
             // DXC_SYNTH's type and click modes, as window events. Its resize and keys modes

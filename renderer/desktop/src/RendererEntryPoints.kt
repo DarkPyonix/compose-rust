@@ -75,6 +75,11 @@ fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
             return@rendererRun 0
         }
         if (platform.startsWith("Windows")) {
+            // As on macOS and Linux, there is no display for the toolkit to open, and saying so
+            // keeps it from being woken.
+            System.setProperty("java.awt.headless", "true")
+            // Compose's main-thread work runs in this window's frame loop, not on Swing's queue.
+            FrameMainDispatcher.install()
             runWin32Window(autoExitMillis)
             return@rendererRun 0
         }

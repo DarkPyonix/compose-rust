@@ -11,6 +11,13 @@ the window before the resize returns (`DXC_RASTER_RESIZE=0` keeps them on the GP
 with a letter or a digit now reaches a text field as that key, so select all, copy, cut,
 paste and undo work in the window of our own.
 
+The Windows native image carries no Java toolkit any more, as the macOS and Linux ones do
+not: no `awt.dll` beside it, no preserved `java.desktop` module, no toolkit metadata, and
+Compose's main-thread work on the window's own dispatcher (`FrameMainDispatcher`) instead of
+Swing's. The clipboard is the window's own. skiko's library still imports `JAWT_GetAWT`, so a
+stub `jawt.dll` that answers "no toolkit" goes beside it. The toolkit's window remains only in
+the development shell on a JVM.
+
 ### The Linux renderer no longer links the Java toolkit
 
 The Linux native image is built without the toolkit: no preserved `java.desktop` module, no
