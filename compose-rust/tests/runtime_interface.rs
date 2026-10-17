@@ -17,7 +17,7 @@ use compose_rust::schema::{
     EventPayload, LoopMode, PROTOCOL_VERSION, PropertyKind, SCHEMA_HASH, WidgetKind,
 };
 use compose_rust::{Batch, LaunchBuilder, Message, Runtime};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
 const BUTTON: u32 = 1;
@@ -26,6 +26,8 @@ const ON_CLICK: u64 = 1;
 static FACTORY_CALLS: AtomicUsize = AtomicUsize::new(0);
 static IN_CONTEXT: AtomicBool = AtomicBool::new(false);
 static ACTION_RAN_IN_CONTEXT: AtomicBool = AtomicBool::new(false);
+/// The frame time the runtime was last handed, or `u64::MAX` for a render with none.
+static LAST_FRAME_TIME: AtomicU64 = AtomicU64::new(0);
 
 /// What is launched is process-global, so the tests that launch take turns.
 static LAUNCH: Mutex<()> = Mutex::new(());
@@ -86,7 +88,8 @@ impl Runtime for Counter {
         });
     }
 
-    fn render(&mut self) {
+    fn render(&mut self, frame_time_nanos: Option<u64>) {
+        LAST_FRAME_TIME.store(frame_time_nanos.unwrap_or(u64::MAX), Ordering::SeqCst);
         if self.shown != self.count {
             self.label();
         }
@@ -286,6 +289,32 @@ fn fr39_a_resync_builds_a_fresh_runtime_from_the_registered_factory() {
             tree.iter().any(|record| record.starts_with("Create")),
             "a resync batch creates the tree: {tree:?}"
         );
+        compose_rust_host_shutdown();
+    })
+    .join()
+    .unwrap();
+}
+
+/// A runtime whose animations run on the frame clock needs the frame's time, and only a
+/// frame has one: a render that answers an event is handed none.
+#[test]
+fn fr39_a_frame_hands_the_runtime_its_time_and_an_event_does_not() {
+    let _launch = launch_guard();
+    launch_counter();
+    let handshake = handshake();
+    std::thread::spawn(move || {
+        let mut output = MutationBatch::default();
+        // SAFETY: both buffers are live for the call.
+        let status = unsafe {
+            compose_rust_host_init(handshake.as_ptr(), handshake.len() as u32, &mut output)
+        };
+        assert_eq!(status, STATUS_OK);
+        // SAFETY: the output is live for the call.
+        let status = unsafe { compose_rust_host_render_frame(16_666_667, &mut output) };
+        assert_eq!(status, STATUS_OK);
+        assert_eq!(LAST_FRAME_TIME.load(Ordering::SeqCst), 16_666_667);
+        assert_eq!(click(BUTTON, ON_CLICK, &mut output), STATUS_OK);
+        assert_eq!(LAST_FRAME_TIME.load(Ordering::SeqCst), u64::MAX);
         compose_rust_host_shutdown();
     })
     .join()

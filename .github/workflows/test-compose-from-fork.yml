@@ -26,13 +26,18 @@
 #
 # Nothing else in CI builds Compose: the renderer's Kotlin/Native modules are otherwise built
 # on a developer's machine. Building Compose twice per platform is slow, so this runs on
-# demand and when the pin or the build script changes, not on every push.
+# demand, not on every push: by hand, or on a pull request that changes the pin or the build
+# script once it carries the run-heavy-ci label. heavy-checks.yml holds such a pull request's
+# merge until this has passed on its head.
 
 name: Compose from fork test
 
 on:
   workflow_dispatch:
   pull_request:
+    # Only when asked: the run-heavy-ci label going on, or a push or reopen while it is on.
+    # The request job below decides; heavy-checks.yml holds the merge until it has passed.
+    types: [synchronize, reopened, labeled]
     paths:
       - renderer/scripts/build-compose.sh
       - renderer/scripts/compose-fork.changes
@@ -40,9 +45,10 @@ on:
       - .github/scripts/compare-maven-repos.py
 
 concurrency:
-  # One run per pull request: a new commit cancels the older run. Pushes to develop,
-  # dispatches and tag runs are never cancelled, so a release is never cut short.
-  group: test-compose-from-fork-${{ github.event.pull_request.number || github.ref }}
+  # One run per pull request: a new commit cancels the older run. Pushes to develop and main,
+  # dispatches and tag runs are never cancelled, so a release is never cut short. A run started
+  # by some other label going on gets a group of its own, so it cannot cancel a heavy run.
+  group: test-compose-from-fork-${{ github.event.pull_request.number || github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'run-heavy-ci' && format('-other-label-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -60,7 +66,21 @@ env:
   EQUIVALENT_REVISION: 02ff96c42a412d8eded411d48c56da131f570af6
 
 jobs:
+  # Heavy: runs only when asked for (the run-heavy-ci label on a pull request, or any other
+  # event). Every job below needs this one, so a run nobody asked for is skipped whole, and
+  # heavy-checks.yml does not count it.
+  requested:
+    name: Heavy checks requested
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.action == 'labeled' && github.event.label.name == 'run-heavy-ci') ||
+      (github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'run-heavy-ci'))
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Heavy checks requested by ${{ github.event_name }} ${{ github.event.action }}"
+
   build:
+    needs: requested
     name: Build Compose from the fork (${{ matrix.name }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
