@@ -21,7 +21,9 @@
 #      publishes every sibling its modules name, which the old build took from JetBrains, so
 #      a file only the fork has is reported and not counted. It names those siblings in another
 #      order and builds no web targets locally, so dependencies compare as a set and what the
-#      metadata says about js and wasm is left out on both sides. Any other difference fails the
+#      metadata says about js and wasm is left out on both sides. Nothing here consumes a web
+#      build of the fork: the wasmJs renderer (renderer/web) takes JetBrains' Compose through
+#      Amper's `compose: enabled`, not the fork's. Any other difference fails the
 #      job and is printed with its path, but only at the end, so the renderer still builds;
 #   4. the fork's publication is put back, and the renderer's platform module and its static
 #      library are built against it, the way desktop/scripts/build-linux.sh and build-macos.sh
