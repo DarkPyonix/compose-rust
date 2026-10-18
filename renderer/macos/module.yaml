@@ -17,24 +17,27 @@ product:
   type: lib
   platforms: [ macosArm64 ]
 
-# Where the patched Compose comes from. The macOS context menu, the entries a selection
-# offers and the keys that copy are all empty in the published build for this platform,
-# and none of them can be answered from outside the module that holds them. They are
-# commits in a fork of Compose; `scripts/build-compose.sh` builds them and publishes them under
-# the version asked for below, and everything else still resolves from what JetBrains
-# published.
+# Where Compose comes from. The macOS context menu, the entries a selection offers and the
+# keys that copy are all empty in the published build for this platform, and none of them can
+# be answered from outside the module that holds them. They are commits in a fork of Compose;
+# `scripts/build-compose.sh` builds it and publishes it under the fork's own coordinates,
+# org.thisisthepy.compose.*, which nothing JetBrains publishes can stand in for.
 repositories:
   - mavenLocal
 
+# Compose's compiler plugin through the template rather than `compose: enabled`, which would add
+# JetBrains' runtime and components-resources and with them JetBrains' Compose next to the fork's.
+apply:
+  - ../compose.module-template.yaml
+
 dependencies:
-  - $compose.runtime
-  - $compose.foundation
-  - $compose.material3
-  - $compose.ui
-  # The patched modules, under a version of their own: at upstream's 1.11.1 a resolver that
-  # holds upstream's klibs takes those and never reads the local repository.
-  - org.jetbrains.compose.foundation:foundation:1.11.1001
-  - org.jetbrains.compose.ui:ui:1.11.1001
+  # The fork's runtime: a stub with no classes that points at androidx.compose.runtime.
+  - org.thisisthepy.compose.runtime:runtime:1.11.1-ext.1
+  # The fork's Compose. Not `$compose.foundation` and the rest: those are JetBrains', and the two
+  # side by side would be the same classes twice under two groups.
+  - org.thisisthepy.compose.foundation:foundation:1.11.1-ext.1
+  - org.thisisthepy.compose.material3:material3:1.11.0-alpha07-ext.1
+  - org.thisisthepy.compose.ui:ui:1.11.1-ext.1
   # The window: AppKit and Metal, and what every window decides the same way. Published by
   # scripts/publish-window.sh from the pinned fork commit, next to the patched Compose.
   - org.thisisthepy.compose.window:common:0.1.0
@@ -44,7 +47,6 @@ test-dependencies:
   - $kotlin.test
 
 settings:
-  compose: enabled
   kotlin:
     optIns:
       - kotlinx.cinterop.ExperimentalForeignApi

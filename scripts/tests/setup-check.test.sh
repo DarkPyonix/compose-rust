@@ -112,10 +112,10 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     # published: a CI runner has never run build-compose.sh, and a developer who has is
     # testing their own ~/.m2, not the check. The version is read from where setup-check
     # reads it, so moving the pin does not leave this looking for the old one.
-    patched_version="$(sed -n 's/^EXTENDED_AS="\([^"]*\)"$/\1/p' \
+    patched_version="$(sed -n 's/^COMPOSE_AS="\([^"]*\)"$/\1/p' \
         "$repo_root/renderer/scripts/build-compose.sh" | head -1)"
     compose_home="$empty_home/compose-home"
-    patched_compose="$compose_home/.m2/repository/org/jetbrains/compose/ui/ui-macosarm64/$patched_version"
+    patched_compose="$compose_home/.m2/repository/org/thisisthepy/compose/ui/ui-macosarm64/$patched_version"
     mkdir -p "$patched_compose"
     assert_run "setup_check_names_the_patched_compose_it_found" 0 "patched Compose: $patched_compose" \
         env -u GRAALVM_HOME HOME="$compose_home" \

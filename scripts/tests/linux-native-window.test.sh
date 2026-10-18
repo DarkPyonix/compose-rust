@@ -129,7 +129,7 @@ grep -Eq '^compilerOpts = .*-idirafter' "$definition" ||
     fail "the cinterop definition searches for the X11 headers with -I rather than -idirafter, which puts the host's libc headers in front of the target's sysroot"
 
 # ---------------------------------------------------------------------------
-# Every Compose module this target has to be given is one the build script publishes.
+# Every Compose module this target has to be given is one the fork's publish-local.sh publishes.
 # ---------------------------------------------------------------------------
 #
 # Compose Multiplatform publishes `runtime` for linuxX64 and nothing else, so every module the
@@ -157,10 +157,39 @@ not_published_for_linux=(
     compose:material3:material3-window-size-class
     compose:ui:ui-test
     navigation:navigation-compose
+    # Its build file changes in the fork only so that it depends on the fork's own Compose
+    # coordinates; it gains no Linux target and the renderer does not reach it.
+    navigation3:navigation3-ui
 )
+# build-compose.sh runs the fork's extended/compose/publish-local.sh at the pinned commit, so the
+# list is that script's. Only that directory is fetched, once per revision.
+compose_revision="$(sed -n 's/^REVISION="\([0-9a-f]\{40\}\)"$/\1/p' "$compose_script")"
+compose_fork="$(sed -n 's/^FORK="\(.*\)"$/\1/p' "$compose_script")"
+fork_compose="$repo_root/.scratch/fork-compose/$compose_revision"
+if [[ ! -f "$fork_compose/.complete" ]]; then
+    rm -rf "$fork_compose"
+    mkdir -p "$fork_compose"
+    git -C "$fork_compose" init -q
+    git -C "$fork_compose" remote add origin "$compose_fork"
+    printf '%s\n' '/extended/compose/' | git -C "$fork_compose" sparse-checkout set --no-cone --stdin
+    if git -C "$fork_compose" fetch -q --depth 1 --filter=blob:none origin "$compose_revision" &&
+        git -C "$fork_compose" -c advice.detachedHead=false checkout -q "$compose_revision"; then
+        touch "$fork_compose/.complete"
+    fi
+fi
+publish_local="$fork_compose/extended/compose/publish-local.sh"
+if [[ ! -x "$publish_local" ]]; then
+    if [[ -n "${CI:-}" ]]; then
+        fail "could not fetch extended/compose/publish-local.sh at $compose_revision of $compose_fork"
+    else
+        echo "skip: the fork's publish-local.sh at $compose_revision could not be fetched (no network?)"
+    fi
+fi
 # One module per line, so a name is matched whole: compose:material:material must not pass
 # because compose:material:material-ripple is on the list.
-linux_publications="$(sed -n '/linuxX64)/,/;;/p' "$compose_script" | tr -d ' \t')"
+linux_publications=""
+[[ -x "$publish_local" ]] && linux_publications="$("$publish_local" --list linuxX64 |
+    sed -n 's/^:\(.*\):publishLinuxX64PublicationToMavenLocal$/\1/p')"
 while IFS= read -r gradle_path; do
     skip=0
     for excepted in "${not_published_for_linux[@]}"; do
@@ -168,7 +197,8 @@ while IFS= read -r gradle_path; do
     done
     [[ $skip -eq 1 ]] && continue
     grep -Fxq "$gradle_path" <<< "$linux_publications" ||
-        fail "the Compose fork adds a linuxX64 target to $gradle_path and build-compose.sh does not publish it"
+        [[ ! -x "$publish_local" ]] ||
+        fail "the Compose fork adds a linuxX64 target to $gradle_path and its publish-local.sh does not publish it"
 done < <(grep -E '^[0-9a-f]{40} .*/build\.gradle$' "$compose_changes" |
     sed -E 's#^[0-9a-f]{40} ##; s#/build\.gradle$##; s#/#:#g' | sort -u)
 
@@ -176,7 +206,7 @@ done < <(grep -E '^[0-9a-f]{40} .*/build\.gradle$' "$compose_changes" |
 # leaving it here would let it be dropped from the build without anything noticing.
 for excepted in "${not_published_for_linux[@]}"; do
     if grep -Fxq "$excepted" <<< "$linux_publications"; then
-        fail "$excepted is listed as not published for Linux, and build-compose.sh publishes it"
+        fail "$excepted is listed as not published for Linux, and the fork's publish-local.sh publishes it"
     fi
 done
 
