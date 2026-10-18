@@ -118,8 +118,9 @@
     <h2 id="fork-artifacts">The build stops: the fork's artifacts are missing</h2>
     <p>
       The renderer depends on modules only the Compose fork publishes, and only into
-      <code>~/.m2</code>: the patched Compose under a version of its own (<code>1.11.1001</code>),
-      skiko-awt under <code>0.144.6.1</code>, the Linux targets, and the window modules. Every
+      <code>~/.m2</code>: the patched Compose under its own group and version
+      (<code>org.thisisthepy.compose.*</code>, <code>1.11.1-ext.1</code>), skiko-awt under
+      <code>0.144.6.1</code>, the Linux targets, and the window modules. Every
       renderer script checks for them before the Kotlin toolchain runs and stops like this:
     </p>
     <figure class="codeblock">
@@ -127,7 +128,7 @@
 <pre><code>error: the Compose fork's artifacts are not in the local Maven repository
        ...
        missing, under ~/.m2/repository:
-         org/jetbrains/compose/foundation/foundation/1.11.1001/foundation-1.11.1001.pom
+         org/thisisthepy/compose/foundation/foundation/1.11.1-ext.1/foundation-1.11.1-ext.1.pom
        fix, from the repository root, then run this build again:
          renderer/scripts/build-compose.sh --target macosArm64</code></pre>
     </figure>
@@ -137,12 +138,12 @@
       outlives the fix (next section).
     </p>
     <p>
-      The check also reads the metadata the fork published. Gradle writes each sibling module at
-      the fork's version whether it was built or not, so <code>foundation 1.11.1001</code> can ask
-      for a <code>runtime 1.11.1001</code> that exists nowhere. <code>build-compose.sh</code> points
-      every such dependency back at upstream on every run, and
-      <code>renderer/scripts/fork-dependencies.sh check</code> lists any that are left. If it lists
-      some, run <code>build-compose.sh</code> again.
+      The check also reads the metadata the fork published. Every module the fork's metadata names
+      under <code>org.thisisthepy.compose</code> has to be published too, for each target the
+      renderer builds, or <code>foundation 1.11.1-ext.1</code> asks for a sibling that exists
+      nowhere. <code>renderer/scripts/fork-dependencies.sh check</code> lists any that are
+      missing. If it lists some, run <code>build-compose.sh</code> again, which publishes the
+      fork's whole set.
     </p>
 
     <h2 id="stale-state">The fork is published and resolution still fails</h2>
@@ -151,8 +152,8 @@
     </p>
     <figure class="codeblock">
       <figcaption>output</figcaption>
-<pre><code>ERROR: Unable to resolve dependency org.jetbrains.compose.foundation:foundation:1.11.1001
-  Unable to download checksums of file foundation-1.11.1001.pom</code></pre>
+<pre><code>ERROR: Unable to resolve dependency org.thisisthepy.compose.foundation:foundation:1.11.1-ext.1
+  Unable to download checksums of file foundation-1.11.1-ext.1.pom</code></pre>
     </figure>
     <p>
       The cause is the Kotlin toolchain's incremental state. A build that ran before the fork was
@@ -171,10 +172,14 @@
     <h2 id="shadowed">The renderer builds, but with upstream Compose</h2>
     <p>
       Nothing fails, and yet what the fork adds is missing: no native text selection menu, or a
-      window that behaves like upstream's. The fork's modules were published at upstream's own
-      version, so the toolchain's cached copy of upstream won. That is why the fork publishes its
-      desktop and macOS Compose and skiko-awt under versions of their own. If you set
-      <code>DXC_COMPOSE_EXTENDED_AS</code>, do not set it to an upstream version.
+      window that behaves like upstream's. JetBrains' Compose came onto the classpath beside the
+      fork's: a dependency, or Amper's own <code>compose: enabled</code>, asked for
+      <code>org.jetbrains.compose</code>. The fork publishes under its own group, so the two are
+      not merged as one library, and whichever classes load first win. The renderer modules
+      name the fork's coordinates and apply the Compose compiler plugin themselves
+      (<code>renderer/compose.module-template.yaml</code>) for this reason. Look for
+      <code>org.jetbrains.compose.foundation</code> or <code>org.jetbrains.compose.ui</code> in
+      the resolved dependencies.
     </p>
 
     <h2 id="git-bash">Windows: Git Bash and PATH</h2>
