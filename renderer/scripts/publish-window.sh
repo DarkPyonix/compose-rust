@@ -18,7 +18,9 @@ repo="$(cd "$script_dir/../.." && pwd)"
 fork_dir="$("$repo/scripts/fetch-fork-window.sh")"
 window="$fork_dir/extended/window"
 
-modules=(common graalvm/graalvm-macos graalvm/graalvm-linux)
+# scene is listed because both GraalVM window modules name it (compile-only, for the window
+# surfaces runComposeWindow uses), and a module another one names has to be in the project.
+modules=(common scene graalvm/graalvm-macos graalvm/graalvm-linux)
 # native/macos compiles against the fork's Compose for macosArm64, which only a build that ran
 # build-compose.sh --target macosArm64 has; a desktop-only build has no use for it.
 case "$(uname -s)" in
@@ -43,6 +45,11 @@ cd "$window"
 # alone. That is all the GraalVM image needs, and the fetched checkout is this script's own.
 if [[ "$(uname -s)" == "Linux" && "$(uname -m)" != "x86_64" ]]; then
     sed -i 's/^  platforms: \[.*\]$/  platforms: [ jvm ]/' "$window/common/module.yaml"
+fi
+# scene's other platform is macosArm64, which only a Mac builds. Elsewhere the GraalVM modules
+# need its JVM half alone, so that is all that is built there.
+if [[ "$(uname -s)" != "Darwin" && -f "$window/scene/module.yaml" ]]; then
+    sed -i 's/^  platforms: \[.*\]$/  platforms: [ jvm ]/' "$window/scene/module.yaml"
 fi
 # The PATH kotlin.bat runs with on Windows: System32 first, and none of Git's own directories
 # but Git\cmd (git itself). Started from Git Bash, kotlin.bat would otherwise unpack its toolchain
