@@ -3,6 +3,7 @@
 
 Usage: compare-maven-repos.py <expected repo> <actual repo> [--report <file>] [--changed <prefix>]...
                               [--rename <actual>=<expected>]... [--extra-allowed]
+                              [--unordered-dependencies] [--without-platforms <type>,...]
 
 Two builds of the same source can still differ in bytes nobody chose: the time an archive
 entry was written, the timestamp Maven writes into maven-metadata-local.xml, and the
@@ -38,6 +39,17 @@ publication that differs only in its coordinates is the same.
 --extra-allowed reports a file present on the actual side only as EXTRA and does not count it:
 for an actual build that publishes more modules than the expected one, such as every sibling
 under its own group where the expected build took them from JetBrains.
+
+--unordered-dependencies compares the dependencies a publication declares as a set: the
+variants' dependency lists in a .module, the <dependency> elements of a .pom and the `depends=`
+line of a klib manifest. A build that names the same dependencies in another order (the fork
+lists its own siblings, which the old build took from JetBrains, in a different place) is the
+same; a dependency added or removed is still a difference.
+
+--without-platforms js,wasm leaves out, on both sides, what a build says about Kotlin platform
+types the actual build does not publish here: those variants in a .module, those targets in
+kotlin-tooling-metadata.json, and the variants and source sets named for them in
+kotlin-project-structure-metadata.json. The fork's local publication builds no web targets.
 
 Exits 0 when the two hold the same contents, 1 when anything differs, and prints every
 difference with its path.
@@ -148,7 +160,7 @@ def entry_contents(name, data, renamed):
     return rename_text(data)
 
 
-def text_diff(expected, actual, label, limit=40):
+def text_diff(expected, actual, label, limit=120):
     """The first lines of a unified diff of two texts, or nothing when either is not text."""
     try:
         left = expected.decode("utf-8").splitlines()
@@ -163,7 +175,73 @@ def text_diff(expected, actual, label, limit=40):
 
 def archive_entry(path, name, renamed=False):
     with zipfile.ZipFile(path) as archive:
-        return entry_contents(name, archive.read(name), renamed)
+        return semantic(name, entry_contents(name, archive.read(name), renamed))
+
+
+UNORDERED = False
+WITHOUT_PLATFORMS = set()
+PLATFORM_PREFIXES = {"js": ("js",), "wasm": ("wasm",)}
+
+
+def _web_name(name):
+    prefixes = tuple(p for t in WITHOUT_PLATFORMS for p in PLATFORM_PREFIXES.get(t, (t,)))
+    if "js" in WITHOUT_PLATFORMS or "wasm" in WITHOUT_PLATFORMS:
+        prefixes += ("web",)
+    return isinstance(name, str) and name.startswith(prefixes)
+
+
+def _drop_web(node):
+    if isinstance(node, dict):
+        return {k: _drop_web(v) for k, v in node.items()}
+    if isinstance(node, list):
+        out = []
+        for v in node:
+            if isinstance(v, dict) and _web_name(v.get("name")):
+                continue
+            if _web_name(v):
+                continue
+            out.append(_drop_web(v))
+        return out
+    return node
+
+
+def semantic(name, data):
+    """Data with what --unordered-dependencies and --without-platforms leave out, left out."""
+    if not UNORDERED and not WITHOUT_PLATFORMS:
+        return data
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return data
+    base = name.rsplit("/", 1)[-1]
+    if base.endswith(".module"):
+        node = json.loads(text)
+        variants = node.get("variants", [])
+        if WITHOUT_PLATFORMS:
+            variants = [v for v in variants
+                        if v.get("attributes", {}).get("org.jetbrains.kotlin.platform.type") not in WITHOUT_PLATFORMS]
+        if UNORDERED:
+            for v in variants:
+                for key in ("dependencies", "dependencyConstraints"):
+                    if key in v:
+                        v[key] = sorted(v[key], key=lambda d: json.dumps(d, sort_keys=True))
+        node["variants"] = variants
+        return json.dumps(node, sort_keys=True, indent=1).encode()
+    if base.endswith(".pom") and UNORDERED:
+        def sort_block(match):
+            items = re.findall(r"<dependency>.*?</dependency>", match.group(1), re.S)
+            return "<dependencies>" + "".join(sorted(i.strip() for i in items)) + "</dependencies>"
+        return re.sub(r"<dependencies>(.*?)</dependencies>", sort_block, text, flags=re.S).encode()
+    if base == "manifest" and UNORDERED:
+        return re.sub(r"(?m)^depends=(.*)$", lambda m: "depends=" + " ".join(sorted(set(m.group(1).split()))), text).encode()
+    if base == "kotlin-tooling-metadata.json" or base.endswith("-kotlin-tooling-metadata.json"):
+        if WITHOUT_PLATFORMS:
+            node = json.loads(text)
+            node["projectTargets"] = [t for t in node.get("projectTargets", []) if t.get("platformType") not in WITHOUT_PLATFORMS]
+            return json.dumps(node, sort_keys=True, indent=1).encode()
+    if base == "kotlin-project-structure-metadata.json" and WITHOUT_PLATFORMS:
+        return json.dumps(_drop_web(json.loads(text)), sort_keys=True, indent=1).encode()
+    return data
 
 
 def archive_entries(path, renamed=False):
@@ -173,7 +251,7 @@ def archive_entries(path, renamed=False):
             if info.is_dir():
                 entries.setdefault(info.filename, "<directory>")
                 continue
-            entries[info.filename] = sha256(entry_contents(info.filename, archive.read(info), renamed))
+            entries[info.filename] = sha256(semantic(info.filename, entry_contents(info.filename, archive.read(info), renamed)))
     return entries
 
 
@@ -190,6 +268,7 @@ def normalised(path, relative, renamed=False):
         data = handle.read()
     if renamed:
         data = rename_text(data)
+    data = semantic(relative, data)
     if relative.endswith(".module"):
         return json.dumps(strip_digests(json.loads(data)), sort_keys=True, indent=1).encode()
     if os.path.basename(relative).startswith("maven-metadata"):
@@ -219,6 +298,14 @@ def main(argv):
     extra_allowed = "--extra-allowed" in args
     if extra_allowed:
         args.remove("--extra-allowed")
+    global UNORDERED
+    if "--unordered-dependencies" in args:
+        UNORDERED = True
+        args.remove("--unordered-dependencies")
+    if "--without-platforms" in args:
+        index = args.index("--without-platforms")
+        WITHOUT_PLATFORMS.update(t.strip() for t in args[index + 1].split(",") if t.strip())
+        del args[index:index + 2]
     if len(args) != 2:
         print(__doc__.strip().splitlines()[2], file=sys.stderr)
         return 2

@@ -19,7 +19,9 @@
 #      used JetBrains' (org.jetbrains.compose at 1.11.1), so the fork's side is read under the
 #      old names: its paths, its metadata and the module names inside its klibs. It also
 #      publishes every sibling its modules name, which the old build took from JetBrains, so
-#      a file only the fork has is reported and not counted. Any other difference fails the
+#      a file only the fork has is reported and not counted. It names those siblings in another
+#      order and builds no web targets locally, so dependencies compare as a set and what the
+#      metadata says about js and wasm is left out on both sides. Any other difference fails the
 #      job and is printed with its path, but only at the end, so the renderer still builds;
 #   4. the fork's publication is put back, and the renderer's platform module and its static
 #      library are built against it, the way desktop/scripts/build-linux.sh and build-macos.sh
@@ -268,7 +270,7 @@ jobs:
             --rename "org.thisisthepy.compose.=org.jetbrains.compose." \
             --rename "$compose_as=${compose_as%-ext.*}" \
             --rename "$material3_as=${material3_as%-ext.*}" \
-            --extra-allowed \
+            --extra-allowed --unordered-dependencies --without-platforms js,wasm \
             --report "$RUNNER_TEMP/compose-equivalence-${{ matrix.target }}.txt" ${changed[@]+"${changed[@]}"}
 
       - name: Keep the comparison report
