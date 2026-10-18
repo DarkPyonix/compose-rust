@@ -52,10 +52,14 @@ cd "$window"
 if [[ "$(uname -s)" == "Linux" && "$(uname -m)" != "x86_64" ]]; then
     sed -i 's/^  platforms: \[.*\]$/  platforms: [ jvm ]/' "$window/common/module.yaml"
 fi
-# scene's other platform is macosArm64, which only a Mac builds. Elsewhere the GraalVM modules
-# need its JVM half alone, so that is all that is built there.
-if [[ " ${modules[*]} " == *" scene "* && "$(uname -s)" != "Darwin" ]]; then
-    sed -i 's/^  platforms: \[.*\]$/  platforms: [ jvm ]/' "$window/scene/module.yaml"
+# The GraalVM modules need scene's JVM half alone, and nothing this renderer builds uses its
+# other platform (macosArm64, which would also need the fork's Compose for macosArm64), so
+# only the JVM half is built.
+if [[ " ${modules[*]} " == *" scene "* ]]; then
+    # A suffix for -i and the copy removed after, because BSD sed on macOS takes the next
+    # argument to -i as one.
+    sed -i.orig 's/^  platforms: \[.*\]$/  platforms: [ jvm ]/' "$window/scene/module.yaml"
+    rm -f "$window/scene/module.yaml.orig"
 fi
 # The PATH kotlin.bat runs with on Windows: System32 first, and none of Git's own directories
 # but Git\cmd (git itself). Started from Git Bash, kotlin.bat would otherwise unpack its toolchain
