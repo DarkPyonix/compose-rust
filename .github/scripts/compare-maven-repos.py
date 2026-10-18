@@ -49,7 +49,9 @@ same; a dependency added or removed is still a difference.
 --without-platforms js,wasm leaves out, on both sides, what a build says about Kotlin platform
 types the actual build does not publish here: those variants in a .module, those targets in
 kotlin-tooling-metadata.json, and the variants and source sets named for them in
-kotlin-project-structure-metadata.json. The fork's local publication builds no web targets.
+kotlin-project-structure-metadata.json, along with what a source set shared with them then
+says differently once it is native only (its cinterop metadata directory, the standard library
+listed or implicit). The fork's local publication builds no web targets.
 
 Exits 0 when the two hold the same contents, 1 when anything differs, and prints every
 difference with its path.
@@ -240,7 +242,20 @@ def semantic(name, data):
             node["projectTargets"] = [t for t in node.get("projectTargets", []) if t.get("platformType") not in WITHOUT_PLATFORMS]
             return json.dumps(node, sort_keys=True, indent=1).encode()
     if base == "kotlin-project-structure-metadata.json" and WITHOUT_PLATFORMS:
-        return json.dumps(_drop_web(json.loads(text)), sort_keys=True, indent=1).encode()
+        node = _drop_web(json.loads(text))
+        # A source set shared by native and web targets is native only once the web targets are
+        # gone, and Kotlin then describes it as one: with a cinterop metadata directory and
+        # with the standard library implicit rather than listed.
+        def native_only(n):
+            if isinstance(n, dict):
+                out = {k: native_only(v) for k, v in n.items() if k != "sourceSetCInteropMetadataDirectory"}
+                if isinstance(out.get("moduleDependency"), list):
+                    out["moduleDependency"] = [d for d in out["moduleDependency"] if d != "org.jetbrains.kotlin:kotlin-stdlib"]
+                return out
+            if isinstance(n, list):
+                return [native_only(v) for v in n]
+            return n
+        return json.dumps(native_only(node), sort_keys=True, indent=1).encode()
     return data
 
 
