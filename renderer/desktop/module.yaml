@@ -2,22 +2,37 @@ product: jvm/app
 
 # The window modules come from the Compose fork and are published to the local repository by
 # scripts/publish-window.sh, at the commit scripts/build-compose.sh pins.
-# The Compose fork's desktop modules, which `scripts/build-compose.sh --target desktop`
+# The Compose fork's desktop Compose, which `scripts/build-compose.sh --target desktop`
 # publishes, and its skiko-awt, which `scripts/publish-skiko-awt.sh` publishes. They carry what
-# the toolkit-free Linux window needs and upstream does not have. They are published under
-# versions of their own and asked for below by name: at upstream's version a resolver that
-# already holds upstream's jars takes those and never reads the local repository.
+# the toolkit-free windows need and upstream does not have. The fork publishes under its own
+# group, org.thisisthepy.compose, so nothing JetBrains publishes can stand in for them, and
+# skiko-awt under a version of its own above JetBrains' 0.144.6.
 repositories:
   - mavenLocal
 
+# Compose's compiler plugin through the template rather than `compose: enabled`, which would add
+# JetBrains' runtime and components-resources and with them JetBrains' Compose next to the fork's.
+apply:
+  - ../compose.module-template.yaml
+
 dependencies:
-  - $compose.desktop.currentOs
-  - org.jetbrains.compose.ui:ui:1.11.1001
-  - org.jetbrains.compose.ui:ui-text:1.11.1001
-  - org.jetbrains.compose.foundation:foundation:1.11.1001
+  # What `$compose.desktop.currentOs` was, from the fork: Compose for the desktop, and skiko's
+  # native half for each desktop system a build script here supports. The toolchain can pick
+  # the system only for JetBrains' own desktop module, so every one is named; each loads only
+  # its own library at run time, and the native image scripts keep only this system's.
+  - org.thisisthepy.compose.runtime:runtime:1.11.1-ext.1
+  - org.thisisthepy.compose.desktop:desktop:1.11.1-ext.1
+  - org.thisisthepy.compose.ui:ui:1.11.1-ext.1
+  - org.thisisthepy.compose.ui:ui-text:1.11.1-ext.1
+  - org.thisisthepy.compose.foundation:foundation:1.11.1-ext.1
   - org.jetbrains.skiko:skiko-awt:0.144.6.1
+  - org.jetbrains.skiko:skiko-awt-runtime-macos-arm64:0.144.6
+  - org.jetbrains.skiko:skiko-awt-runtime-macos-x64:0.144.6
+  - org.jetbrains.skiko:skiko-awt-runtime-linux-x64:0.144.6
+  - org.jetbrains.skiko:skiko-awt-runtime-linux-arm64:0.144.6
+  - org.jetbrains.skiko:skiko-awt-runtime-windows-x64:0.144.6
   # FR-11's example extension draws a Material 3 progress indicator.
-  - $compose.material3
+  - org.thisisthepy.compose.material3:material3:1.11.0-alpha07-ext.1
   # Swing's Dispatchers.Main, which a run on a JVM with the toolkit's window needs. The native
   # image scripts take it off the image's class path: the windows there answer Dispatchers.Main
   # themselves (FrameMainDispatcher).
@@ -34,11 +49,10 @@ dependencies:
   - org.thisisthepy.compose.window:graalvm-linux:0.1.0
 
 test-dependencies:
-  - $compose.desktop.uiTestJUnit4
+  - org.thisisthepy.compose.ui:ui-test-junit4:1.11.1-ext.1
   - $kotlin.test
 
 settings:
-  compose: enabled
   jvm:
     # Used only for JVM runs that collect reachability metadata with the tracing agent.
     # The native image is built as a shared library and is entered through C entry points.

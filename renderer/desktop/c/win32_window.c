@@ -1483,6 +1483,37 @@ void dxc_native_debug_key(void *window_pointer, int32_t key_code, const char *ch
 }
 
 /*
+ * Calls of the X11 window (the fork's graalvm-linux module) that this image carries too,
+ * because the renderer's one jar reaches the X11 loop on every desktop and a native image
+ * links every C function its reachable code names. Without them the image does not link.
+ * None means anything here, and each answers that it has nothing.
+ */
+void dxc_native_wake(void) {}
+
+void dxc_native_window_origin(int32_t *x, int32_t *y) {
+    *x = 0;
+    *y = 0;
+}
+
+int32_t dxc_native_window_focused(void) {
+    return 0;
+}
+
+int32_t dxc_native_ime_reset(char *out, int32_t capacity) {
+    if (out != NULL && capacity > 0) out[0] = 0;
+    return 0;
+}
+
+int64_t dxc_native_resize_serial(void) {
+    return 0;
+}
+
+void dxc_native_window_server_size(int32_t *width, int32_t *height) {
+    *width = 0;
+    *height = 0;
+}
+
+/*
  * The names below are answered here and do nothing.
  *
  * One piece of Kotlin drives every desktop and reaches their windows by name, so each of

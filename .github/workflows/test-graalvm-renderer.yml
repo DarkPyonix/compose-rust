@@ -30,6 +30,9 @@ on:
       - '.github/scripts/resize-metrics-run.sh'
       - '.github/scripts/resize-memory-check.sh'
       - '.github/scripts/resize-soak-check.sh'
+      - 'scripts/parity/**'
+      - '.github/scripts/check-linux-input-access.sh'
+      - '.github/scripts/atspi-walk.py'
       - '.github/workflows/test-graalvm-renderer.yml'
       - '.github/scripts/vertical-resize-run.sh'
       - '.github/scripts/vertical-resize-check.sh'
@@ -52,6 +55,9 @@ on:
       - '.github/scripts/resize-metrics-run.sh'
       - '.github/scripts/resize-memory-check.sh'
       - '.github/scripts/resize-soak-check.sh'
+      - 'scripts/parity/**'
+      - '.github/scripts/check-linux-input-access.sh'
+      - '.github/scripts/atspi-walk.py'
       - '.github/workflows/test-graalvm-renderer.yml'
       - '.github/scripts/vertical-resize-run.sh'
       - '.github/scripts/vertical-resize-check.sh'
@@ -105,7 +111,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: compose-fork-desktop
-          path: ~/.m2/repository/org/jetbrains
+          path: ~/.m2/repository/org
 
       - name: Build the renderer shared library
         # With the fork's skiko built without JAWT and linked in, so the image carries no AWT.
@@ -172,6 +178,28 @@ jobs:
           path: ${{ runner.temp }}/vertical-resize/
           if-no-files-found: ignore
           retention-days: 14
+
+      - name: Parity measurements, GraalVM AppKit path
+        timeout-minutes: 15
+        # The measured half of the checklist static-renderer.yml runs on the Kotlin/Native
+        # macOS window, with the same application: the consumer fixture, linked to the
+        # renderer this job just built. A hosted session cannot post a key from outside, so
+        # the rows that need a hand say n/a. The table is in the job summary.
+        run: |
+          dist="$PWD/renderer/build/native-image/dist/lib"
+          COMPOSE_RUST_RENDERER_DIR="$dist" CARGO_TARGET_DIR="$PWD/target/parity" \
+            cargo build --manifest-path compose-rust/tests/fixtures/consumer/Cargo.toml
+          ./scripts/parity/macos.sh graalvm "$RUNNER_TEMP/parity" -- \
+            "$PWD/target/parity/debug/consumer" --parity
+
+      - name: Keep the macOS parity run's logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: parity-graalvm-macos-arm64
+          path: ${{ runner.temp }}/parity/
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Report the distribution size
         run: du -sh renderer/build/native-image/dist/lib
@@ -240,14 +268,14 @@ jobs:
           # skiko-awt with the switch that keeps UIManager out of a toolkit-free image.
           # It is published under a version of its own, so no cache of upstream's can shadow it.
           ./scripts/publish-skiko-awt.sh "$RUNNER_TEMP/skiko-awt"
-          find ~/.m2/repository/org/jetbrains/compose -name '*.jar' | sort
+          find ~/.m2/repository/org/thisisthepy/compose -name '*.jar' | sort
 
       - name: Keep the published modules
         uses: actions/upload-artifact@v4
         with:
           name: compose-fork-desktop
           path: |
-            ~/.m2/repository/org/jetbrains/compose
+            ~/.m2/repository/org/thisisthepy/compose
             ~/.m2/repository/org/jetbrains/skiko/skiko-awt
           retention-days: 7
 
@@ -288,7 +316,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: compose-fork-desktop
-          path: ~/.m2/repository/org/jetbrains
+          path: ~/.m2/repository/org
 
       - name: Run Linux script contract tests
         run: bash scripts/tests/renderer/linux-build.test.sh
@@ -317,6 +345,45 @@ jobs:
         env:
           COMPOSE_RUST_AUTOEXIT_MS: '5000'
         run: xvfb-run -a ./renderer/desktop/scripts/smoke-test-linux.sh
+
+      - name: Install an input method, an accessibility registry and input tools
+        run: |
+          sudo apt-get install -y ibus ibus-hangul at-spi2-core python3-gi gir1.2-atspi-2.0 \
+            xdotool libglib2.0-bin x11-utils
+
+      - name: Type Korean and read the GraalVM X11 window, through a real input method and registry
+        # The check the Kotlin/Native window passes in static-renderer.yml, against this window:
+        # XIM preedit and commit through ibus-hangul, and the tree walked and a button pressed
+        # through the at-spi2 registry.
+        run: xvfb-run -a -s '-screen 0 1280x1024x24' ./.github/scripts/check-linux-input-access.sh renderer/build/native-image-linux/dist/lib "$RUNNER_TEMP/input-access"
+
+      - name: Keep the input and accessibility check's logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: graalvm-linux-input-access-logs
+          path: ${{ runner.temp }}/input-access/input-check/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Parity checklist and measurements, GraalVM X11 path
+        timeout-minutes: 12
+        # The checklist static-renderer.yml runs on the Kotlin/Native window, with the same
+        # application: the consumer fixture the input check above built against this
+        # renderer. The table is in the job summary; a row that fails is a warning, not a stop.
+        run: |
+          sudo apt-get install -y xclip
+          xvfb-run -a -s '-screen 0 1280x1024x24' ./scripts/parity/linux.sh graalvm "$RUNNER_TEMP/parity" -- \
+            "$PWD/target/linux-input-check-shared/debug/consumer" --parity
+
+      - name: Keep the Linux parity run's logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: parity-graalvm-linux
+          path: ${{ runner.temp }}/parity/
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Upload the Linux renderer for inspection
         uses: actions/upload-artifact@v4
@@ -362,7 +429,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: compose-fork-desktop
-          path: ~/.m2/repository/org/jetbrains
+          path: ~/.m2/repository/org
 
       - name: Build the Linux renderer under Xvfb
         run: xvfb-run -a ./renderer/desktop/scripts/build-native-linux.sh

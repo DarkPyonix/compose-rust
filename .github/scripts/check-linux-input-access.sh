@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
-# Usage: .github/scripts/check-linux-input-access.sh <static renderer directory> <scratch directory>
+# Usage: .github/scripts/check-linux-input-access.sh <renderer directory> <scratch directory>
 #
-# Types Korean into the Kotlin/Native Linux window through a real input method, and reads the
-# window through a real AT-SPI registry. Needs a display: run it under `xvfb-run -a`. It starts
-# its own session bus, so it can run on a machine that has none.
+# Types Korean into a Linux window through a real input method, and reads the window through a
+# real AT-SPI registry. Needs a display: run it under `xvfb-run -a`. It starts its own session
+# bus, so it can run on a machine that has none.
 #
-#   <static renderer directory>  what build-linux.sh writes (libcompose_rust_renderer.a beside
-#                                libcompose_rust_host_exports.so)
+#   <renderer directory>         either what build-linux.sh writes for the Kotlin/Native window
+#                                (libcompose_rust_renderer.a beside
+#                                libcompose_rust_host_exports.so), or the lib directory
+#                                build-native-linux.sh writes for the GraalVM X11 window
+#                                (libcompose_rust_renderer.so). Both windows are checked the
+#                                same way, because both answer AT-SPI and XIM.
 #   <scratch directory>          where the application is copied to and its logs are kept
 #
 # What it proves, and what it does not.
@@ -28,7 +32,7 @@
 set -euo pipefail
 
 if [[ $# -ne 2 ]]; then
-    echo "usage: $0 <static renderer directory> <scratch directory>" >&2
+    echo "usage: $0 <renderer directory> <scratch directory>" >&2
     exit 2
 fi
 
@@ -55,8 +59,14 @@ for tool in cargo xdotool ibus-daemon ibus python3 gdbus; do
 done
 
 distribution="$(cd "$1" && pwd)"
-[[ -f "$distribution/libcompose_rust_renderer.a" ]] ||
-    { echo "fail  $distribution is not a static renderer directory" >&2; exit 1; }
+if [[ -f "$distribution/libcompose_rust_renderer.a" ]]; then
+    kind=static
+elif [[ -f "$distribution/libcompose_rust_renderer.so" ]]; then
+    kind=shared
+else
+    echo "fail  $distribution holds neither a static renderer nor the GraalVM shared one" >&2
+    exit 1
+fi
 mkdir -p "$2"
 scratch="$(cd "$2" && pwd)"
 case "$scratch/" in
@@ -82,11 +92,18 @@ show_logs() {
     done
 }
 
-echo "== building the application"
-export DXC_LINUX_NATIVE_LIB="$distribution"
-CARGO_TARGET_DIR="$repo_root/target/linux-input-check" \
+echo "== building the application against the $kind renderer"
+# A build directory per kind, so that one never links what the other left behind.
+if [[ "$kind" == static ]]; then
+    export DXC_LINUX_NATIVE_LIB="$distribution"
+    unset COMPOSE_RUST_RENDERER_DIR
+else
+    export COMPOSE_RUST_RENDERER_DIR="$distribution"
+    unset DXC_LINUX_NATIVE_LIB
+fi
+CARGO_TARGET_DIR="$repo_root/target/linux-input-check-$kind" \
     cargo build --manifest-path "$repo_root/compose-rust/tests/fixtures/consumer/Cargo.toml" >&2
-cp "$repo_root/target/linux-input-check/debug/consumer" "$logs/consumer"
+cp "$repo_root/target/linux-input-check-$kind/debug/consumer" "$logs/consumer"
 
 echo "== starting the accessibility bus and its registry"
 # The session bus starts the accessibility bus the first time it is asked where it is, and the
@@ -157,9 +174,25 @@ fi
 
 echo "== typing Korean through ibus-hangul"
 xdotool windowfocus "$window" || true
-# A click in the field, which is at the top of the column: it opens the text input session
-# the input method is attached to.
-xdotool mousemove --window "$window" 80 28 click 1
+# A click in the field: it opens the text input session the input method is attached to.
+# Where the field is comes from what the AT-SPI walk above read, because it is not in the same
+# place on both windows: the GraalVM X11 window draws its own caption above the content, and
+# the Kotlin/Native one leaves the caption to the window manager. Without the walk, the top
+# of the column is the guess.
+field_x=80
+field_y=28
+extents="$(sed -nE "s/.*entry '[^']*' (-?[0-9]+),(-?[0-9]+) ([0-9]+)x([0-9]+).*/\1 \2 \3 \4/p" "$logs/atspi.log" | head -1)"
+# AT-SPI places things on the screen; the click is placed in the window, so the frame's own
+# place is taken off.
+frame="$(sed -nE "s/.*frame '[^']*' (-?[0-9]+),(-?[0-9]+) .*/\1 \2/p" "$logs/atspi.log" | head -1)"
+if [[ -n "$extents" ]]; then
+    read -r fx fy fw fh <<< "$extents"
+    read -r ox oy <<< "${frame:-0 0}"
+    field_x=$((fx - ox + (fw < 160 ? fw / 2 : 80)))
+    field_y=$((fy - oy + fh / 2))
+fi
+echo "-- clicking the field at $field_x,$field_y"
+xdotool mousemove --window "$window" "$field_x" "$field_y" click 1
 sleep 1
 # Shift+Space is ibus-hangul's switch between Latin and Hangul. It starts in Latin.
 xdotool key --delay 150 shift+space

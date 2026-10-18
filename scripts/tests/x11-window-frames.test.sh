@@ -141,8 +141,10 @@ grep -Fq "'-H:NativeLinkerOption=-lXext'" "$build_script" ||
 for symbol in dxc_native_window_open dxc_native_window_size dxc_native_frame_begin \
               dxc_native_frame_end dxc_native_poll_event dxc_native_pump \
               dxc_native_window_closed dxc_native_set_cursor dxc_native_set_accessibility \
-              dxc_native_set_frame_callback; do
-    grep -Eq "^(void|int32_t) $symbol\(" "$window_source" ||
+              dxc_native_set_frame_callback dxc_native_wake dxc_native_window_origin \
+              dxc_native_window_focused dxc_native_ime_reset dxc_native_resize_serial \
+              dxc_native_window_server_size dxc_native_debug_resize; do
+    grep -Eq "^(void|int32_t|int64_t) $symbol\(" "$window_source" ||
         fail "x11_window.c does not define $symbol"
     grep -rqF "@CFunction(\"$symbol\")" "$fork_kotlin" ||
         fail "nothing declares $symbol, so this list has outlived the code"

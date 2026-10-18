@@ -60,6 +60,7 @@ on:
       - .github/scripts/package-static-renderer.sh
       - .github/scripts/check-linux-input-access.sh
       - .github/scripts/atspi-walk.py
+      - scripts/parity/**
       - .github/workflows/test-native-renderer.yml
       - .github/workflows/static-renderer.yml
       - .github/workflows/fork-desktop-modules.yml
@@ -137,7 +138,7 @@ jobs:
             exit 0
           fi
           if git diff --name-only HEAD^ HEAD |
-              grep -qE '^(renderer/|compose-rust/build(\.rs|/)|scripts/install-nik\.sh|\.github/scripts/(check-single-executable|package-static-renderer|check-linux-input-access)\.sh|\.github/scripts/atspi-walk\.py|\.github/workflows/(test-native|static)-renderer\.yml)'; then
+              grep -qE '^(renderer/|compose-rust/build(\.rs|/)|scripts/install-nik\.sh|\.github/scripts/(check-single-executable|package-static-renderer|check-linux-input-access)\.sh|\.github/scripts/atspi-walk\.py|scripts/parity/|\.github/workflows/(test-native|static)-renderer\.yml)'; then
             echo "the renderer changed"
             echo "renderer=true" >> "$GITHUB_OUTPUT"
           else
@@ -196,7 +197,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p ~/.m2/repository/org/jetbrains
-          cp -R "$RUNNER_TEMP/compose-fork-desktop/." ~/.m2/repository/org/jetbrains/
+          cp -R "$RUNNER_TEMP/compose-fork-desktop/." ~/.m2/repository/org/
 
       - name: Build the Windows renderer
         shell: powershell

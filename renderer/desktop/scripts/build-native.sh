@@ -30,23 +30,27 @@ classpath="$(cat "$CLASSPATH_FILE")"
 # Swing's coroutine provider is left out: the window answers `Dispatchers.Main` itself
 # (FrameMainDispatcher), and the provider would wake the Java toolkit.
 classpath="$(tr ':' '\n' <<< "$classpath" | grep -v 'kotlinx-coroutines-swing' | paste -sd: -)"
+# skiko's native half for every desktop system is on the JVM class path (desktop/module.yaml names
+# them all, because the toolchain can pick the system only for JetBrains' own desktop module).
+# The image takes this system's alone, as it did when the toolchain picked it.
+classpath="$(tr ':' '\n' <<< "$classpath" | grep -v -E 'skiko-awt-runtime-' ;
+    tr ':' '\n' <<< "$classpath" | grep -E "skiko-awt-runtime-macos-$SKIKO_ARCH-[0-9]" || true)"
+classpath="$(paste -sd: - <<< "$classpath")"
 
-# The fork's desktop modules must be what the classpath names, not upstream's. They are published
-# under versions of their own (EXTENDED_AS and SKIKO_AWT_EXTENDED_AS in build-compose.sh) because
-# at upstream's version a resolver that holds upstream's jars, Amper's cache does, takes those and
-# never reads the local Maven repository. An image built that way links, passes a build and dies
-# when the first scene is made: upstream's Compose sends its main-thread work to Swing, with the
-# toolkit's library missing.
+# The fork's desktop modules must be what the classpath names, not upstream's. Without them the
+# image would carry JetBrains' Compose and skiko-awt, which send main-thread work to Swing; an
+# image built that way links, passes a build and dies when the first scene is made, with the
+# toolkit's library missing. The versions are read from build-compose.sh, which pins the fork.
 compose_script="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/scripts/build-compose.sh"
-compose_as="$(sed -n 's/^EXTENDED_AS="\([^"]*\)"$/\1/p' "$compose_script" | head -1)"
-skiko_as="$(sed -n 's/^SKIKO_AWT_EXTENDED_AS="\([^"]*\)"$/\1/p' "$compose_script")"
-[[ -n "$compose_as" && -n "$skiko_as" ]] || die "$compose_script names no EXTENDED_AS or SKIKO_AWT_EXTENDED_AS"
-for fork_jar in "repository/org/jetbrains/compose/ui/ui-desktop/$compose_as/" \
+compose_as="$(sed -n 's/^COMPOSE_AS="\([^"]*\)"$/\1/p' "$compose_script")"
+skiko_as="$(sed -n 's/^SKIKO_AWT_AS="\([^"]*\)"$/\1/p' "$compose_script")"
+[[ -n "$compose_as" && -n "$skiko_as" ]] || die "$compose_script names no COMPOSE_AS or SKIKO_AWT_AS"
+for fork_jar in "repository/org/thisisthepy/compose/ui/ui-desktop/$compose_as/" \
                 "repository/org/jetbrains/skiko/skiko-awt/$skiko_as/"; do
     grep -q "$fork_jar" <<< "$(tr ':' '\n' <<< "$classpath")" || die \
         "the class path holds no $fork_jar" \
         "These are the Compose fork's desktop modules and its skiko-awt, published to the local" \
-        "Maven repository under versions of their own. Without them the image would use upstream" \
+        "Maven repository under org.thisisthepy.compose and skiko-awt's own version. Without them the image would use upstream" \
         "Compose and need the Java toolkit. If the jars are in the local repository, the module that" \
         "asks for them (desktop/module.yaml) names a different version than $compose_script." \
         "fix: renderer/scripts/build-compose.sh --target desktop, then scripts/publish-skiko-awt.sh <work-dir>" \
