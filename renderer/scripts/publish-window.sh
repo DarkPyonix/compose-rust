@@ -6,10 +6,11 @@
 # The window code is the Compose fork's, at the commit build-compose.sh pins. The renderer
 # depends on it as org.thisisthepy.compose.window:<module>:0.1.0, so the modules are built
 # from that commit and published under ~/.m2 before the renderer is, the same way the patched
-# Compose is. The Kotlin/JVM modules are published on every machine, so a Linux or Windows
-# checkout resolves the coordinates the renderer's desktop module asks for. native/macos is
-# published on a Mac and native/linux on Linux, because each is built from that system's
-# headers.
+# Compose is. common is published on every machine. The GraalVM window modules and the scene
+# they name are published wherever the fork's desktop Compose is in the local repository, which
+# is every build of the renderer's desktop module, so a Linux or Windows checkout resolves the
+# coordinates that module asks for. native/macos is published on a Mac and native/linux on
+# Linux, because each is built from that system's headers.
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -18,9 +19,14 @@ repo="$(cd "$script_dir/../.." && pwd)"
 fork_dir="$("$repo/scripts/fetch-fork-window.sh")"
 window="$fork_dir/extended/window"
 
-# scene is listed because both GraalVM window modules name it (compile-only, for the window
-# surfaces runComposeWindow uses), and a module another one names has to be in the project.
-modules=(common scene graalvm/graalvm-macos graalvm/graalvm-linux)
+modules=(common)
+# The GraalVM window modules name scene (compile-only, for the window surfaces runComposeWindow
+# uses), and scene compiles against the fork's Compose for the desktop, which only a build that
+# published it has (build-compose.sh, or the compose-fork-desktop artifact in CI). A
+# Kotlin/Native build needs none of the three, and would fail resolving scene's Compose.
+if [[ -d "$HOME/.m2/repository/org/thisisthepy/compose/ui/ui-desktop" ]]; then
+    modules+=(scene graalvm/graalvm-macos graalvm/graalvm-linux)
+fi
 # native/macos compiles against the fork's Compose for macosArm64, which only a build that ran
 # build-compose.sh --target macosArm64 has; a desktop-only build has no use for it.
 case "$(uname -s)" in
@@ -48,7 +54,7 @@ if [[ "$(uname -s)" == "Linux" && "$(uname -m)" != "x86_64" ]]; then
 fi
 # scene's other platform is macosArm64, which only a Mac builds. Elsewhere the GraalVM modules
 # need its JVM half alone, so that is all that is built there.
-if [[ "$(uname -s)" != "Darwin" && -f "$window/scene/module.yaml" ]]; then
+if [[ " ${modules[*]} " == *" scene "* && "$(uname -s)" != "Darwin" ]]; then
     sed -i 's/^  platforms: \[.*\]$/  platforms: [ jvm ]/' "$window/scene/module.yaml"
 fi
 # The PATH kotlin.bat runs with on Windows: System32 first, and none of Git's own directories
