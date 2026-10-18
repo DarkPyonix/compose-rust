@@ -34,7 +34,17 @@
 #                   new size at every event held 87 MB over a 50 event drag and grew with it.
 #
 # Usage: resize-memory-check.sh <log> [footprint bound MB] [metal bound MB]
+#        resize-memory-check.sh --soak <log> <bound MB> [rounds]
+#
+# --soak reads the long soak resize-metrics-run.sh runs with "soak" (DXC_RESIZE_SOAK): a table
+# of every round, then the bound. Each settled reading, two seconds after a round's drag is
+# let go, must be within <bound> MB of the second idle reading, and all <rounds> rounds (15
+# unless given) must have run and widened the window. The bound the workflows pass, and why it
+# is what it is: resize-soak-check.sh.
 set -euo pipefail
+if [[ "${1:-}" == "--soak" ]]; then
+    exec "$(dirname "$0")/resize-soak-check.sh" "${@:2}"
+fi
 log="$1"
 footprint_bound="${2:-160}"
 metal_bound="${3:-112}"
