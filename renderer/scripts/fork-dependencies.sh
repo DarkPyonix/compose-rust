@@ -46,9 +46,9 @@ use File::Find;
 use JSON::PP;
 
 my ($version, $argument, $repository) = @ENV{qw(VERSION ARGUMENT REPOSITORY)};
-# The fork's Compose names its JVM target desktop. jvm is left out: the desktop module's own
+# The fork Compose names its JVM target desktop. jvm is left out: the desktop module own
 # publications are desktop-jvm-<os>-<arch>, and reading desktop-jvm as a jvm target would make
-# every sibling's desktop-jvm publication look missing.
+# every sibling desktop-jvm publication look missing.
 my @targets = qw(desktop android macosarm64 macosx64 linuxx64 linuxarm64 mingwx64
                  iosarm64 iosx64 iossimulatorarm64 wasmjs js);
 my $target_pattern = join "|", @targets;

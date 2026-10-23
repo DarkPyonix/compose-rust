@@ -46,11 +46,12 @@ cp "$window/project.yaml" "$window/project.yaml.all"
 trap 'mv "$window/project.yaml.all" "$window/project.yaml"' EXIT
 
 cd "$window"
-# Kotlin/Native has no compiler for an arm64 Linux host, and the Kotlin toolchain has no way to
-# publish only some targets of a module, so there the common module is published for the JVM
-# alone. That is all the GraalVM image needs, and the fetched checkout is this script's own.
-if [[ "$(uname -s)" == "Linux" && "$(uname -m)" != "x86_64" ]]; then
-    sed -i 's/^  platforms: \[.*\]$/  platforms: [ jvm ]/' "$window/common/module.yaml"
+# If no native window modules are being published, publish common for the JVM alone.
+# That is all the desktop JVM and GraalVM images need, and it avoids compiling native klibs for
+# platforms the build does not use.
+if [[ " ${modules[*]} " != *" native/"* ]]; then
+    sed -i.orig 's/^  platforms: \[.*\]$/  platforms: [ jvm ]/' "$window/common/module.yaml"
+    rm -f "$window/common/module.yaml.orig"
 fi
 # The GraalVM modules need scene's JVM half alone, and nothing this renderer builds uses its
 # other platform (macosArm64, which would also need the fork's Compose for macosArm64), so
@@ -81,6 +82,7 @@ windows_tool_path() {
     done
     echo "$kept"
 }
+"$script_dir/prefetch-github-assets.sh" || true
 case "$(uname -s)" in
     MINGW*|MSYS*|CYGWIN*) PATH="$(windows_tool_path)" cmd //c kotlin.bat publish mavenLocal ;;
     *) ./kotlin publish mavenLocal ;;
