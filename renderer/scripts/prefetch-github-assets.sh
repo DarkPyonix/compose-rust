@@ -69,3 +69,44 @@ for item in "${items[@]}"; do
         fi
     fi
 done
+
+# Patch Ktor HTTP client's 8192-character header line limit in any extracted toolchain distributions.
+cli_dir="$(dirname "$cache_dir")/cli"
+if [ -d "$cli_dir" ] && command -v python3 >/dev/null 2>&1; then
+    python3 -c "
+import zipfile, os
+
+cli_dir = '$cli_dir'
+for root, dirs, files in os.walk(cli_dir):
+    for f in files:
+        if f.startswith('ktor-http-cio') and f.endswith('.jar'):
+            jar_path = os.path.join(root, f)
+            try:
+                with zipfile.ZipFile(jar_path, 'r') as zin:
+                    entries = {item.filename: zin.read(item.filename) for item in zin.infolist()}
+                cls_name = 'io/ktor/http/cio/HttpParserKt.class'
+                if cls_name in entries:
+                    b = bytearray(entries[cls_name])
+                    old_long = b'\x00\x00\x00\x00\x00\x00\x20\x00'
+                    new_long = b'\x00\x00\x00\x00\x00\x01\x00\x00'
+                    old_sipush = b'\x11\x20\x00'
+                    new_sipush = b'\x11\x7f\xff'
+                    changed = False
+                    if old_long in b:
+                        b = bytearray(bytes(b).replace(old_long, new_long, 1))
+                        changed = True
+                    if old_sipush in b:
+                        b = bytearray(bytes(b).replace(old_sipush, new_sipush, 1))
+                        changed = True
+                    if changed:
+                        entries[cls_name] = bytes(b)
+                        tmp_jar = jar_path + '.tmp'
+                        with zipfile.ZipFile(tmp_jar, 'w', compression=zipfile.ZIP_DEFLATED) as zout:
+                            for name, data in entries.items():
+                                zout.writestr(name, data)
+                        os.replace(tmp_jar, jar_path)
+            except Exception:
+                pass
+" 2>/dev/null || true
+fi
+

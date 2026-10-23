@@ -53,11 +53,15 @@ cd "$window"
 # other systems build jvm alone.
 case "$(uname -s)" in
     Darwin)
-        sed -i.orig 's/^  platforms: \[.*\]$/  platforms: [ jvm, macosArm64 ]/' "$window/common/module.yaml"
+        if [[ -d "$HOME/.m2/repository/org/thisisthepy/compose/ui/ui-macosarm64" ]]; then
+            sed -i.orig 's/^  platforms: \[.*\]$/  platforms: [ jvm, macosArm64 ]/' "$window/common/module.yaml"
+        else
+            sed -i.orig 's/^  platforms: \[.*\]$/  platforms: [ jvm ]/' "$window/common/module.yaml"
+        fi
         rm -f "$window/common/module.yaml.orig"
         ;;
     Linux)
-        if [[ "$(uname -m)" == "x86_64" ]]; then
+        if [[ "$(uname -m)" == "x86_64" && -d "$HOME/.m2/repository/org/thisisthepy/compose/ui/ui-linuxx64" ]]; then
             sed -i.orig 's/^  platforms: \[.*\]$/  platforms: [ jvm, linuxX64, linuxArm64 ]/' "$window/common/module.yaml"
         else
             sed -i.orig 's/^  platforms: \[.*\]$/  platforms: [ jvm ]/' "$window/common/module.yaml"
