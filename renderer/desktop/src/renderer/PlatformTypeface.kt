@@ -1,5 +1,6 @@
 package dev.darkpyonix.composerust.design
 
+import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle as ComposeFontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -87,6 +88,7 @@ private val platformFontWeights = listOf(
     FontWeight.W900,
 )
 
+@OptIn(ExperimentalTextApi::class)
 private fun systemFontFamily(identity: String): FontFamily = FontFamily(
     platformFontWeights.flatMap { weight ->
         listOf(
