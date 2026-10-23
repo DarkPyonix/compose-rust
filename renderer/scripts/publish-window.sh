@@ -46,13 +46,29 @@ cp "$window/project.yaml" "$window/project.yaml.all"
 trap 'mv "$window/project.yaml.all" "$window/project.yaml"' EXIT
 
 cd "$window"
-# If no native window modules are being published, publish common for the JVM alone.
-# That is all the desktop JVM and GraalVM images need, and it avoids compiling native klibs for
-# platforms the build does not use.
-if [[ " ${modules[*]} " != *" native/"* ]]; then
-    sed -i.orig 's/^  platforms: \[.*\]$/  platforms: [ jvm ]/' "$window/common/module.yaml"
-    rm -f "$window/common/module.yaml.orig"
-fi
+# The common window module lists every platform the fork supports. A host cannot build native
+# klibs for other operating systems, and compiling cross-OS native targets triggers native
+# distribution commonization which requires those other toolchains. Tailor common's platforms
+# to the current host: Darwin builds jvm and macosArm64; Linux builds jvm and linux targets;
+# other systems build jvm alone.
+case "$(uname -s)" in
+    Darwin)
+        sed -i.orig 's/^  platforms: \[.*\]$/  platforms: [ jvm, macosArm64 ]/' "$window/common/module.yaml"
+        rm -f "$window/common/module.yaml.orig"
+        ;;
+    Linux)
+        if [[ "$(uname -m)" == "x86_64" ]]; then
+            sed -i.orig 's/^  platforms: \[.*\]$/  platforms: [ jvm, linuxX64, linuxArm64 ]/' "$window/common/module.yaml"
+        else
+            sed -i.orig 's/^  platforms: \[.*\]$/  platforms: [ jvm ]/' "$window/common/module.yaml"
+        fi
+        rm -f "$window/common/module.yaml.orig"
+        ;;
+    *)
+        sed -i.orig 's/^  platforms: \[.*\]$/  platforms: [ jvm ]/' "$window/common/module.yaml"
+        rm -f "$window/common/module.yaml.orig"
+        ;;
+esac
 # The GraalVM modules need scene's JVM half alone, and nothing this renderer builds uses its
 # other platform (macosArm64, which would also need the fork's Compose for macosArm64), so
 # only the JVM half is built.
