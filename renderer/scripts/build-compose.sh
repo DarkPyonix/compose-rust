@@ -36,8 +36,9 @@ REVISION="127311dc737d8badb68953291d248db8a7071cca"
 # The window modules and skiko's builds are not Compose sources: the renderer builds them from
 # this commit (scripts/fetch-fork-window.sh and fetch-fork-skiko.sh) into artifacts of its own,
 # so they can move without moving the Compose build above. This one is the fork's merge of the
-# coordinates (#119): the window modules compile against the fork's Compose coordinates, which
-# the Compose pin introduced, and it carries the window changes merged before it.
+# resize soak (#109), which draws each GraalVM frame in an autorelease pool of its own; it
+# carries the merge of the coordinates (#119), so the window modules compile against the fork's
+# Compose coordinates, which the Compose pin introduced, and the window changes before it.
 WINDOW_REVISION="57b4a0e102d837ba3271699297b69278fcefedef"
 # What the pinned commit publishes as: its gradle.properties gives every library line a version
 # of the form <upstream version>-ext.<N>. The renderer modules ask for these by name, and
