@@ -57,8 +57,11 @@ assert_run "setup_check_reports_missing_cargo" 1 "cargo not found on PATH" \
 # GraalVM is the right one. Not having it is never fatal. It blocks the native image and
 # nothing else, and on macOS the renderer that ships is not the native image at all.
 if [[ "$(uname -s)" == "Darwin" ]]; then
-    assert_run "setup_check_reports_missing_nik" 1 "no Liberica NIK found" \
-        env -u GRAALVM_HOME HOME="$empty_home" "$setup_check"
+    assert_run "setup_check_reports_missing_nik" 0 "no Liberica NIK found" \
+        env -u GRAALVM_HOME HOME="$empty_home" \
+            RUSTUP_HOME="${RUSTUP_HOME:-$real_home/.rustup}" \
+            CARGO_HOME="${CARGO_HOME:-$real_home/.cargo}" \
+            "$setup_check"
 else
     # Keep rustup discoverable. The empty HOME above exists to make the macOS toolchain
     # glob find nothing, and that glob is not used here, but rustup does live under HOME,

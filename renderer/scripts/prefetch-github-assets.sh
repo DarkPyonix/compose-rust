@@ -58,7 +58,7 @@ for item in "${items[@]}"; do
     url="${item%%|*}"
     file="${item##*|}"
     dest="$cache_dir/$file"
-    if [ ! -f "$dest" ]; then
+    if [ ! -s "$dest" ]; then
         echo "prefetching $file..."
         tmp="$dest.tmp.$$"
         if curl -fSL --retry 3 --retry-delay 2 "$url" -o "$tmp"; then
