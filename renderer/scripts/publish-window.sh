@@ -19,6 +19,12 @@ repo="$(cd "$script_dir/../.." && pwd)"
 fork_dir="$("$repo/scripts/fetch-fork-window.sh")"
 window="$fork_dir/extended/window"
 
+# Ensure the toolchain distribution is provisioned and its Ktor line limit is patched
+# before entering the fork window directory.
+if [[ -x "$repo/renderer/kotlin" ]]; then
+    "$repo/renderer/kotlin" --version >/dev/null 2>&1 || true
+fi
+
 modules=(common)
 # The GraalVM window modules name scene (compile-only, for the window surfaces runComposeWindow
 # uses), and scene compiles against the fork's Compose for the desktop, which only a build that
