@@ -1,0 +1,671 @@
+package dev.darkpyonix.composerust.ui.node
+
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorProducer
+import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.Measurable
+import androidx.compose.ui.layout.MeasurePolicy
+import androidx.compose.ui.layout.MeasureResult
+import androidx.compose.ui.layout.MeasureScope
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.Constraints
+import dev.darkpyonix.composerust.protocol.PropertyKind
+import dev.darkpyonix.composerust.protocol.TypeRole
+import dev.darkpyonix.composerust.protocol.WidgetKind
+import dev.darkpyonix.composerust.design.ContainerRole
+import dev.darkpyonix.composerust.design.ToggleRole
+import dev.darkpyonix.composerust.design.LocalDesignTheme
+import dev.darkpyonix.composerust.design.LocalGlassDepth
+import dev.darkpyonix.composerust.design.SurfaceMaterial
+import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
+import dev.darkpyonix.composerust.design.ResolvedTheme
+import dev.darkpyonix.composerust.foundation.FloatingActionArea
+import dev.darkpyonix.composerust.foundation.HostBadge
+import dev.darkpyonix.composerust.foundation.HostButton
+import dev.darkpyonix.composerust.foundation.HostChip
+import dev.darkpyonix.composerust.foundation.HostCodeEditor
+import dev.darkpyonix.composerust.foundation.HostFloatingAction
+import dev.darkpyonix.composerust.foundation.HostLazyGrid
+import dev.darkpyonix.composerust.foundation.HostRichText
+import dev.darkpyonix.composerust.foundation.HostScaffold
+import dev.darkpyonix.composerust.foundation.HostContainerColumn
+import dev.darkpyonix.composerust.foundation.HostDialog
+import dev.darkpyonix.composerust.foundation.HostDivider
+import dev.darkpyonix.composerust.foundation.HostProgressIndicator
+import dev.darkpyonix.composerust.foundation.HostSlider
+import dev.darkpyonix.composerust.foundation.HostSplitPane
+import dev.darkpyonix.composerust.foundation.HostToggle
+import dev.darkpyonix.composerust.foundation.HostCanvas
+import dev.darkpyonix.composerust.foundation.HostDatePicker
+import dev.darkpyonix.composerust.foundation.HostDropdown
+import dev.darkpyonix.composerust.foundation.HostIcon
+import dev.darkpyonix.composerust.foundation.HostImage
+import dev.darkpyonix.composerust.foundation.HostTimePicker
+import dev.darkpyonix.composerust.foundation.HostLazyColumn
+import dev.darkpyonix.composerust.foundation.HostLazyRow
+import dev.darkpyonix.composerust.foundation.HostMenu
+import dev.darkpyonix.composerust.foundation.HostNavigation
+import dev.darkpyonix.composerust.foundation.HostNavigationItem
+import dev.darkpyonix.composerust.foundation.HostSheet
+import dev.darkpyonix.composerust.foundation.HostTabs
+import dev.darkpyonix.composerust.foundation.HostTooltip
+import dev.darkpyonix.composerust.foundation.HostTopAppBar
+import dev.darkpyonix.composerust.foundation.HostTextField
+import dev.darkpyonix.composerust.foundation.SelectableRegion
+import dev.darkpyonix.composerust.foundation.Unselectable
+import dev.darkpyonix.composerust.foundation.hostKeyEvents
+import dev.darkpyonix.composerust.runtime.EventDispatcher
+import dev.darkpyonix.composerust.ui.boxAlignment
+import dev.darkpyonix.composerust.ui.horizontalAlignment
+import dev.darkpyonix.composerust.ui.horizontalArrangement
+import dev.darkpyonix.composerust.ui.maxLines
+import dev.darkpyonix.composerust.ui.overflow
+import dev.darkpyonix.composerust.ui.paintProp
+import dev.darkpyonix.composerust.ui.textStyle
+import dev.darkpyonix.composerust.ui.toComposeModifier
+import dev.darkpyonix.composerust.ui.verticalAlignment
+import dev.darkpyonix.composerust.ui.verticalArrangement
+import dev.darkpyonix.composerust.ui.weightOf
+
+/**
+ * Counts recompositions of interpreted nodes, so a test can assert that changing one node
+ * does not recompose its siblings. Set only by tests.
+ */
+internal object RenderNodeObserver {
+    var onCompose: ((Int) -> Unit)? = null
+
+    /**
+     * Counts measurements of a box that places its children where the Host put them, so a
+     * test can assert that redrawing a node, moving it through a layer or animating it does
+     * not measure it again. Set only by tests.
+     */
+    var onMeasure: ((Int) -> Unit)? = null
+}
+
+/** Test tag every interpreted node carries, so tests can address nodes by Host node id. */
+fun nodeTestTag(nodeId: Int): String = "compose-node-$nodeId"
+
+/**
+ * Interprets one node of the table into real Compose widgets.
+ *
+ * Only the node's own state is read here, so a `SetProp` on a sibling cannot invalidate this
+ * composable.
+ *
+ * `parentModifier` carries what only the parent layout can express, which today is the
+ * `Weight` modifier: weight is parent data of a `Column` or `Row` scope and cannot be
+ * produced by a modifier chain built outside that scope.
+ */
+@Composable
+fun RenderNode(
+    nodeId: Int,
+    table: NodeTable,
+    dispatcher: EventDispatcher,
+    parentModifier: Modifier = Modifier,
+) {
+    val node = table.node(nodeId) ?: return
+    // Observation point for the recomposition test; null in production.
+    RenderNodeObserver.onCompose?.let { observer -> SideEffect { observer(nodeId) } }
+    val theme = LocalDesignTheme.current
+    val profiled = if (LayoutProfile.enabled) parentModifier.then(LayoutProfile.modifier(node.widget.name)) else parentModifier
+    val chain = profiled
+        .then(node.modifiers.toComposeModifier(nodeId, dispatcher, theme) { table.animations.animated(nodeId) })
+        .testTag(nodeTestTag(nodeId))
+    // The TextField wires its own key handling, because it has an editor to intercept and a
+    // composition to protect; everything else routes keys here.
+    val keyDownHandler = node.handler(PropertyKind.OnKeyDown)
+    val withKeys = if (keyDownHandler == null || node.widget == WidgetKind.TextField) {
+        chain
+    } else {
+        chain.hostKeyEvents(nodeId, keyDownHandler, dispatcher)
+    }
+    // Only where the node said it is a place files may be dropped. Everywhere else this
+    // adds nothing to the chain and the platform shows no drop cursor.
+    val modifier = platformFileDrop(withKeys, node, dispatcher)
+    // A layout made of glass tells what is inside it so. A field in a glass bar is part of
+    // the bar in the systems that draw glass, and it can only take that shape if it knows
+    // what it is sitting on.
+    val glass = node.isMadeOfGlass(theme)
+    ProvideInheritedColor(nodeId, node, table, theme) {
+        when (node.widget) {
+            WidgetKind.Column -> Column(
+                modifier = modifier,
+                verticalArrangement = node.verticalArrangement(theme),
+                horizontalAlignment = node.horizontalAlignment(),
+            ) { OnGlass(glass) { Children(node, table, dispatcher) } }
+
+            WidgetKind.Row -> Row(
+                modifier = modifier,
+                horizontalArrangement = node.horizontalArrangement(theme),
+                verticalAlignment = node.verticalAlignment(),
+            ) { OnGlass(glass) { Children(node, table, dispatcher) } }
+
+            // A place files may be dropped is laid out as a plain box. Being this widget is
+            // the whole of the difference: the drop target is set up for it and for nothing
+            // else in the tree.
+            WidgetKind.Box, WidgetKind.FileDropTarget ->
+                Box(modifier, contentAlignment = node.boxAlignment()) {
+                OnGlass(glass) { Children(node, table, dispatcher) }
+            }
+
+            // One widget whether or not it carries runs. A paragraph with a bold phrase in
+            // it is one piece of text, and three widgets would wrap at the seams.
+            WidgetKind.Text -> {
+                val inherited = LocalInheritedTextColor.current
+                val holder = table.animations.animated(nodeId)
+                HostRichText(
+                    node,
+                    modifier,
+                    dispatcher,
+                    theme,
+                    table.assets,
+                    remember(holder, inherited) { TextColor(node, holder, inherited) },
+                )
+            }
+
+            WidgetKind.Spacer -> Spacer(modifier)
+            // The controls are drawn through `Unselectable`, which leaves them out of a
+            // selectable region around them: a label is pressed, not copied. Outside a region
+            // it adds nothing.
+            WidgetKind.Button -> Unselectable { HostButton(node, modifier, dispatcher, theme) }
+            WidgetKind.TextField -> Unselectable { HostTextField(node, modifier, dispatcher) }
+            WidgetKind.LazyColumn -> HostLazyColumn(node, modifier, table, dispatcher)
+
+            // The same window as a list, rounded to whole rows because a row is what a grid
+            // lays out. How many items a row holds is the grid's own answer where the screen
+            // gave a minimum width instead of a count.
+            WidgetKind.LazyGrid -> HostLazyGrid(node, modifier, table, dispatcher)
+            // Drawing commands rather than children: the size comes from the modifier chain
+            // and the commands are read from the node's one property.
+            WidgetKind.Canvas -> HostCanvas(node, modifier, theme)
+            // ScrollColumn is a column that scrolls without the Host windowing it, so every
+            // child is materialised. Use LazyColumn when the list is long.
+            //
+            // LinearProgressIndicator is declared by an extension package rather than the core
+            // schema, and is drawn like any built-in widget.
+            WidgetKind.LinearProgressIndicator -> {
+                val progress = node.number(PropertyKind.Progress)
+                if (progress == null) {
+                    LinearProgressIndicator(modifier = modifier)
+                } else {
+                    LinearProgressIndicator(progress = { progress }, modifier = modifier)
+                }
+            }
+            WidgetKind.ScrollColumn -> Column(
+                modifier = modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = node.verticalArrangement(theme),
+                horizontalAlignment = node.horizontalAlignment(),
+            ) { Children(node, table, dispatcher) }
+
+            // The same thing on its side: a row that scrolls without the Host windowing it,
+            // so every child is materialised. Use LazyRow when the strip is long. The scroll
+            // state is remembered here, under the node's own key, so a recomposition of the
+            // row or of any child leaves the position where the user put it.
+            WidgetKind.ScrollRow -> Row(
+                modifier = modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = node.horizontalArrangement(theme),
+                verticalAlignment = node.verticalAlignment(),
+            ) { Children(node, table, dispatcher) }
+
+            // The containers, the overlays and the tab strip carry no appearance of their own:
+            // each one names the kind of container it is and the design system decides what
+            // that looks like.
+            WidgetKind.Card ->
+                HostContainerColumn(ContainerRole.Card, node, modifier, table, dispatcher, theme)
+
+            WidgetKind.Surface ->
+                HostContainerColumn(ContainerRole.Surface, node, modifier, table, dispatcher, theme)
+
+            WidgetKind.TopAppBar -> HostTopAppBar(node, modifier, table, dispatcher, theme)
+            WidgetKind.Dialog -> HostDialog(node, modifier, table, dispatcher, theme)
+            WidgetKind.Menu -> HostMenu(node, modifier, table, dispatcher, theme)
+            WidgetKind.Tabs -> Unselectable { HostTabs(node, modifier, table, dispatcher, theme) }
+            WidgetKind.Tooltip -> HostTooltip(node, modifier, table, dispatcher, theme)
+            WidgetKind.LazyRow -> HostLazyRow(node, modifier, table, dispatcher)
+
+            // The selection controls and the indicators. Each one is drawn from the state it
+            // was sent: the tick, the track, the thumb, the sweep and the weight of a rule are
+            // the design system's, so the same declaration is a Material control here and a
+            // Cupertino one there.
+            WidgetKind.Checkbox -> Unselectable {
+                HostToggle(ToggleRole.Checkbox, node, modifier, dispatcher, theme)
+            }
+
+            WidgetKind.RadioButton -> Unselectable {
+                HostToggle(ToggleRole.RadioButton, node, modifier, dispatcher, theme)
+            }
+
+            WidgetKind.Switch -> Unselectable {
+                HostToggle(ToggleRole.Switch, node, modifier, dispatcher, theme)
+            }
+
+            WidgetKind.Slider -> Unselectable { HostSlider(node, modifier, dispatcher, theme) }
+            WidgetKind.ProgressIndicator -> HostProgressIndicator(node, modifier, theme)
+            WidgetKind.Divider -> HostDivider(node, modifier, theme)
+
+            // A picture is one registered id. The bytes were read when the Host registered
+            // them, so what a frame carries is the id and a lookup.
+            WidgetKind.Image -> HostImage(node, modifier, table.assets, dispatcher)
+            WidgetKind.Icon -> HostIcon(node, modifier, table.assets, dispatcher, theme)
+
+            // The pickers carry a value, a range and a change handler. Which way of picking the
+            // user gets, a calendar grid, a wheel, a dial or a flyout, is the design system's
+            // decision, and there is no property that could ask for one of them.
+            WidgetKind.DatePicker -> Unselectable { HostDatePicker(node, modifier, dispatcher, theme) }
+            WidgetKind.TimePicker -> Unselectable { HostTimePicker(node, modifier, dispatcher, theme) }
+            WidgetKind.Dropdown ->
+                Unselectable { HostDropdown(node, modifier, table, dispatcher, theme) }
+
+            // One declaration, three presentations. Which one this is comes from the design
+            // system, asked about the size class this window is in, so the Host that declared
+            // it never learned how wide the window was.
+            WidgetKind.Navigation -> HostNavigation(node, modifier, table, dispatcher, theme)
+
+            // Normally drawn by the Navigation it belongs to, which knows whether it is the
+            // selected one. On its own it is a destination nobody has chosen.
+            WidgetKind.NavigationItem -> Unselectable { HostNavigationItem(node, modifier, theme) }
+
+            // A temporary surface from an edge of the window. Which edge is this side's
+            // decision, and so is everything about the drag that closes it.
+            WidgetKind.Sheet -> HostSheet(node, modifier, table, dispatcher, theme)
+
+            // The screen's frame. The application filled slots; what each one becomes here
+            // comes from the design system and the width this window was measured at.
+            WidgetKind.Scaffold -> HostScaffold(node, modifier, table, dispatcher, theme)
+
+            // Drawn by the frame it belongs to, which is the only thing that knows which slot
+            // this is. On its own it is a tree with a label nobody read.
+            WidgetKind.ScaffoldSlot -> Column(modifier = modifier) {
+                Children(node, table, dispatcher)
+            }
+
+            // A label, perhaps a glyph, and the chosen state exactly as the Host sent it. The
+            // shape of the token is the design system's.
+            WidgetKind.Chip -> HostChip(node, modifier, dispatcher, theme)
+
+            // The one action a screen is about, in the form its design system gives it. Where
+            // it goes is decided by the frame it is in, which asks the same rule.
+            WidgetKind.FloatingAction -> HostFloatingAction(node, modifier, dispatcher, theme)
+
+            // A count, a word or a dot, on its child or on its own. Where it sits and how a
+            // large count is written are the design system's.
+            WidgetKind.Badge -> HostBadge(node, modifier, table, dispatcher, theme)
+
+            // Every Text inside, however deep, is one selection. The modifier goes on the
+            // region rather than the column inside it, so a weight the parent gave it still
+            // reaches the parent's scope.
+            WidgetKind.SelectionContainer -> SelectableRegion(modifier) {
+                Column { Children(node, table, dispatcher) }
+            }
+
+            // A side pane and a body. Whether they are side by side, laid over one another or
+            // shown one at a time is the design system's answer for the split pane's own width,
+            // and the drag on the divider never leaves this side until it is let go.
+            WidgetKind.SplitPane -> HostSplitPane(node, modifier, table, dispatcher, theme)
+
+            // The document is the editor's own: its text, caret, selection and history live in
+            // the node's model, and the Host hears each committed change. Drawn outside a
+            // selectable region around it, because selecting inside an editor is the editor's.
+            WidgetKind.CodeEditor -> Unselectable { HostCodeEditor(node, modifier, dispatcher, theme) }
+
+            // Children laid where the Host already put them, each at its own `Offset`. Nothing
+            // here arranges, aligns or sizes one child by another: the Host's layout engine
+            // has decided all of it, and a second layout pass could only disagree with it.
+            WidgetKind.AbsoluteBox -> Layout(
+                content = {
+                    node.children.forEach { childId ->
+                        key(childId) { RenderNode(childId, table, dispatcher) }
+                    }
+                },
+                modifier = modifier,
+                measurePolicy = remember(nodeId) { AbsoluteBoxMeasurePolicy(nodeId) },
+            )
+        }
+    }
+}
+
+/**
+ * The colour text inside a container inherits, the way CSS `color` reaches every piece of
+ * text below the element that set it. Null outside any container that names one, where a
+ * Text draws in its own style's colour.
+ *
+ * A colour producer rather than a colour, read in the draw phase: an animation the Renderer
+ * plays on the container's colour repaints every Text that inherits it, and none of them is
+ * recomposed or sent a record of its own.
+ */
+val LocalInheritedTextColor = compositionLocalOf<ColorProducer?> { null }
+
+/** The layout containers whose `color` is what the text inside them inherits. */
+internal val INHERITS_TEXT_COLOR: Set<WidgetKind> = setOf(
+    WidgetKind.Column,
+    WidgetKind.Row,
+    WidgetKind.Box,
+    WidgetKind.FileDropTarget,
+    WidgetKind.AbsoluteBox,
+    WidgetKind.ScrollColumn,
+    WidgetKind.ScrollRow,
+    WidgetKind.LazyColumn,
+    WidgetKind.LazyRow,
+    WidgetKind.LazyGrid,
+)
+
+/**
+ * Hands a container's colour down to the text inside it. Every container provides one,
+ * whether or not it names a colour now, so an animation or a `color` that arrives later
+ * reaches its text in the draw phase without the container being composed again.
+ */
+@Composable
+private fun ProvideInheritedColor(
+    nodeId: Int,
+    node: Node,
+    table: NodeTable,
+    theme: ResolvedTheme,
+    content: @Composable () -> Unit,
+) {
+    if (node.widget !in INHERITS_TEXT_COLOR) {
+        content()
+        return
+    }
+    val parent = LocalInheritedTextColor.current
+    val holder = table.animations.animated(nodeId)
+    val inherited = remember(holder, theme, parent) { InheritedColor(node, holder, theme, parent) }
+    CompositionLocalProvider(LocalInheritedTextColor provides inherited, content = content)
+}
+
+/** What a container shows its text: an animation's colour, its own `color`, or its parent's. */
+private class InheritedColor(
+    private val node: Node,
+    private val holder: AnimatedNode,
+    private val theme: ResolvedTheme,
+    private val parent: ColorProducer?,
+) : ColorProducer {
+    override fun invoke(): Color {
+        val bits = holder.textColor.longValue
+        if (bits != AnimatedNode.NO_COLOR) return Color(bits.toULong())
+        node.paintProp(PropertyKind.Color)?.let { return theme.color(it) }
+        return parent?.invoke() ?: Color.Unspecified
+    }
+}
+
+/**
+ * The colour a Text draws with: its own animation's while one plays, its own style where it
+ * names a `color`, and otherwise the colour of the container it is in.
+ */
+private class TextColor(
+    private val node: Node,
+    private val holder: AnimatedNode,
+    private val inherited: ColorProducer?,
+) : ColorProducer {
+    override fun invoke(): Color {
+        val bits = holder.textColor.longValue
+        if (bits != AnimatedNode.NO_COLOR) return Color(bits.toULong())
+        if (node.paintProp(PropertyKind.Color) != null) return Color.Unspecified
+        return inherited?.invoke() ?: Color.Unspecified
+    }
+}
+
+/**
+ * How an `AbsoluteBox` lays out: every child at the box's own origin, moved from there by
+ * its `Offset`, with later children drawn over earlier ones.
+ *
+ * Each child is measured with no limit at all, so it is exactly the size its own modifiers
+ * say. Under a limit, a child bigger than the box would be squeezed, or, with a required
+ * size, centred on the room it was given, and either would move it away from where the
+ * Host put it. CSS lets a box overflow its parent, and so does this.
+ *
+ * The box itself is as big as its largest child, within what its parent allows, the way a
+ * `Box` is. An HTML screen gives every box a `RequiredSize`, so this is rarely what decides.
+ */
+private class AbsoluteBoxMeasurePolicy(private val nodeId: Int) : MeasurePolicy {
+    override fun MeasureScope.measure(
+        measurables: List<Measurable>,
+        constraints: Constraints,
+    ): MeasureResult {
+        RenderNodeObserver.onMeasure?.invoke(nodeId)
+        val placeables = measurables.map { it.measure(Constraints()) }
+        var width = constraints.minWidth
+        var height = constraints.minHeight
+        for (placeable in placeables) {
+            width = maxOf(width, placeable.width)
+            height = maxOf(height, placeable.height)
+        }
+        width = width.coerceAtMost(constraints.maxWidth)
+        height = height.coerceAtMost(constraints.maxHeight)
+        // `place` rather than `placeRelative`: the Host's coordinates are the screen's, so a
+        // right-to-left layout direction must not mirror them a second time.
+        return layout(width, height) {
+            for (placeable in placeables) placeable.place(0, 0)
+        }
+    }
+}
+
+/**
+ * How a node that takes files gets its drop target, filled in by the platform that has
+ * one.
+ *
+ * A hook rather than a call, because setting up a drop target means reading the toolkit's
+ * clipboard flavours and only the desktop has them. A phone has no notion of letting a
+ * file go over a window, so it leaves this alone and the modifier chain is unchanged,
+ * which is the same rule pointer hover follows.
+ */
+var platformFileDrop: @Composable (Modifier, Node, EventDispatcher) -> Modifier =
+    { modifier, _, _ -> modifier }
+
+/**
+ * Whether the system has been asked to reduce motion, answered by the platform that can
+ * be asked.
+ *
+ * A hook for the same reason as the one above: the setting lives in a different place on
+ * each desktop and nowhere at all on a target that has no desktop. The Host is not
+ * consulted and never learns the answer, because this is the user's setting about their
+ * own machine rather than anything the application declared.
+ *
+ * Read only by a node that declared a motion role, so a screen that declares none never
+ * asks the question.
+ */
+var platformReducedMotion: () -> Boolean = { false }
+
+/**
+ * What the platform says about reducing motion, including that it cannot say.
+ *
+ * The answer the Host is told, so a screen written with CSS can answer
+ * `prefers-reduced-motion` the way a browser would. Asked when the Renderer starts and again
+ * when its window comes back into use. A platform that installs nothing answers unknown.
+ */
+var platformReducedMotionSetting: () -> dev.darkpyonix.composerust.protocol.ReducedMotion =
+    { dev.darkpyonix.composerust.protocol.ReducedMotion.Unknown }
+
+/**
+ * Whether the person at this machine has asked the platform for high contrast colours:
+ * Windows' contrast themes, macOS's increased contrast, GNOME's high contrast setting.
+ *
+ * A hook for the same reason as the one above. When it says yes, an application's palette
+ * is set aside and the design system's own colours are drawn: those colours were chosen
+ * by the person so they could see the screen, and a brand must not paint over them.
+ *
+ * Read when the theme is resolved. The desktop answers once and keeps the answer; a
+ * target that does not install anything answers no.
+ */
+var platformHighContrast: () -> Boolean = { false }
+
+/**
+ * Tells the platform whether this window wants a material behind it.
+ *
+ * A hook because only one build can answer: the effect view is put behind the window by
+ * the shared library's own C entry, which exists in the native image and not in the
+ * development shell, and not at all on a platform whose windows are not ours. Whoever
+ * cannot do it leaves this alone, and the window comes up the way it always did.
+ */
+var platformWindowMaterial: (Boolean) -> Unit = { }
+
+/**
+ * The axis a widget stacks its children along, which is the axis a child's `Weight` is a
+ * share of: a weight under a Column is a share of the height, a weight under a Row a share
+ * of the width.
+ */
+internal enum class StackingAxis { Vertical, Horizontal, None }
+
+/**
+ * How the node that hosts a child lays its children out, so a child can tell whether a
+ * `Weight` of its own has already decided one of its sizes.
+ *
+ * Only the layouts that really apply a weight are named here. Anything else, a Box or a
+ * widget that draws its children without a weight scope, leaves a weighted child both of
+ * its axes free.
+ */
+internal fun NodeTable.stackingAxis(nodeId: Int): StackingAxis = when (node(nodeId)?.widget) {
+    WidgetKind.Column,
+    WidgetKind.ScrollColumn,
+    WidgetKind.Card,
+    WidgetKind.Surface,
+    WidgetKind.SelectionContainer,
+    -> StackingAxis.Vertical
+
+    WidgetKind.Row,
+    WidgetKind.ScrollRow,
+    WidgetKind.TopAppBar,
+    -> StackingAxis.Horizontal
+
+    else -> StackingAxis.None
+}
+
+/** Whether this node asked for a material that the running design system draws as glass. */
+private fun Node.isMadeOfGlass(theme: ResolvedTheme): Boolean = modifiers.any { value ->
+    value is ProtocolModifier.Material &&
+        theme.rules.material(value.role, theme) is SurfaceMaterial.Glass
+}
+
+/**
+ * Runs [content] one glass layer deeper where [glass] is true, and unchanged otherwise.
+ *
+ * Unchanged is the ordinary case and costs nothing: no provider is composed for a node
+ * that is not made of glass.
+ */
+@Composable
+internal fun OnGlass(glass: Boolean, content: @Composable () -> Unit) {
+    if (!glass) {
+        content()
+        return
+    }
+    CompositionLocalProvider(LocalGlassDepth provides LocalGlassDepth.current + 1, content = content)
+}
+
+/**
+ * Children of a Column: weight is applied here because `Modifier.weight` exists only inside
+ * `ColumnScope`. Every layout that stacks its children vertically draws them through this,
+ * so a weighted child is given its share wherever it is hosted and not only under a Column.
+ */
+@Composable
+internal fun ColumnScope.Children(node: Node, table: NodeTable, dispatcher: EventDispatcher) {
+    // `key` keeps each child's state attached to its Host node id across Move mutations.
+    node.children.forEach { childId -> key(childId) { WeightedChild(childId, table, dispatcher) } }
+}
+
+@Composable
+private fun ColumnScope.WeightedChild(childId: Int, table: NodeTable, dispatcher: EventDispatcher) {
+    // Its own composable, so reading the child's modifier list subscribes this scope alone
+    // and a `SetModifier` on one child cannot invalidate its siblings.
+    val weight = table.node(childId)?.modifiers?.weightOf()
+    RenderNode(
+        childId,
+        table,
+        dispatcher,
+        if (weight == null) Modifier else Modifier.weight(weight),
+    )
+}
+
+@Composable
+private fun RowScope.Children(node: Node, table: NodeTable, dispatcher: EventDispatcher) {
+    node.children.forEach { childId -> key(childId) { WeightedChild(childId, table, dispatcher) } }
+}
+
+@Composable
+private fun RowScope.WeightedChild(childId: Int, table: NodeTable, dispatcher: EventDispatcher) {
+    val weight = table.node(childId)?.modifiers?.weightOf()
+    RenderNode(
+        childId,
+        table,
+        dispatcher,
+        if (weight == null) Modifier else Modifier.weight(weight),
+    )
+}
+
+/**
+ * A Box has no weight axis, so its children are drawn as they are.
+ *
+ * Except the one action a screen is about. A Box is how a screen holds its page, so an
+ * action declared in one belongs to that page and is laid over it, at the corner the design
+ * system names, without taking any of the room the page is laid out in.
+ */
+@Composable
+private fun BoxScope.Children(node: Node, table: NodeTable, dispatcher: EventDispatcher) {
+    node.children.forEach { childId ->
+        key(childId) {
+            if (table.node(childId)?.widget == WidgetKind.FloatingAction) {
+                FloatingActionArea(LocalDesignTheme.current) { RenderNode(childId, table, dispatcher) }
+            } else {
+                RenderNode(childId, table, dispatcher)
+            }
+        }
+    }
+}
+
+/** The label of a Button follows the design system's button type role unless overridden. */
+internal fun Node.buttonTextStyle(theme: ResolvedTheme, role: TypeRole) = textStyle(theme, role)
+
+/**
+ * Where a frame's measuring goes, by kind of node, for a profile of a resize. Off unless a
+ * measurement switches it on before the content is composed; when off it adds nothing to any
+ * node. Each node's time is its own: what its children took is taken out of it, so a kind's
+ * total is what measuring nodes of that kind cost in themselves.
+ */
+object LayoutProfile {
+    var enabled = false
+
+    private class Entry(var nanos: Long = 0, var count: Int = 0)
+
+    private val totals = HashMap<String, Entry>()
+    private val childNanos = ArrayList<Long>()
+
+    fun modifier(kind: String): Modifier = Modifier.layout { measurable, constraints ->
+        childNanos.add(0L)
+        val started = kotlin.time.TimeSource.Monotonic.markNow()
+        val placeable = measurable.measure(constraints)
+        val inclusive = started.elapsedNow().inWholeNanoseconds
+        val children = childNanos.removeAt(childNanos.size - 1)
+        if (childNanos.isNotEmpty()) childNanos[childNanos.size - 1] = childNanos[childNanos.size - 1] + inclusive
+        val entry = totals.getOrPut(kind) { Entry() }
+        entry.nanos += inclusive - children
+        entry.count++
+        layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+    }
+
+    /** Clears what was gathered. */
+    fun reset() {
+        totals.clear()
+        childNanos.clear()
+    }
+
+    /** Kinds by their own measuring time, most first: kind, milliseconds, nodes measured. */
+    fun snapshot(): List<Triple<String, Double, Int>> =
+        totals.entries.map { Triple(it.key, it.value.nanos / 1e6, it.value.count) }.sortedByDescending { it.second }
+}

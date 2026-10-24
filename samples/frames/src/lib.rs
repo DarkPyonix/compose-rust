@@ -11,12 +11,12 @@
 //! looked at. The width is part of the file name, so the Renderer draws each recording in
 //! a window of the size the Host was told about rather than guessing one.
 
-use dioxus_compose::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
-use dioxus_compose::schema::{
+use compose_rust::ComposeHost;
+use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
+use compose_rust::schema::{
     ColorScheme, DesignSystem, EventPayload, PropertyKind, Theme, WidgetKind, WindowHeightClass,
     WindowSizeClass,
 };
-use dioxus_compose::{Element, Host};
 use std::path::{Path, PathBuf};
 
 /// A window the Host is told about and the Renderer draws into.
@@ -63,13 +63,86 @@ pub const SYSTEMS: [DesignSystem; 7] = [
 
 pub const SCHEMES: [ColorScheme; 2] = [ColorScheme::Light, ColorScheme::Dark];
 
+/// The mutations that still describe the screen, in the order they were sent.
+///
+/// A recording keeps every batch, so it also keeps what later batches took away: nodes
+/// that were removed, with everything under them, and the earlier life of a node id that
+/// was created again. Looking a control up in the whole run can find one of those, and an
+/// event sent to it names a handler the Host has already dropped. This keeps a node's
+/// records only from its latest creation on, and drops a removed node's records
+/// altogether. Records that belong to no node, a theme or an asset, are all kept.
+pub fn live<'a>(mutations: Vec<Mutation<'a>>) -> Vec<Mutation<'a>> {
+    use std::collections::{HashMap, HashSet};
+    let node_of = |mutation: &Mutation<'_>| match mutation {
+        Mutation::Create { node_id, .. }
+        | Mutation::SetProp { node_id, .. }
+        | Mutation::SetModifier { node_id, .. }
+        | Mutation::Insert { node_id, .. }
+        | Mutation::Move { node_id, .. }
+        | Mutation::Remove { node_id }
+        | Mutation::SetText { node_id, .. }
+        | Mutation::AppendText { node_id, .. } => Some(*node_id),
+        _ => None,
+    };
+    let mut created: HashMap<u32, usize> = HashMap::new();
+    let mut parents: HashMap<u32, u32> = HashMap::new();
+    let mut removed: HashSet<u32> = HashSet::new();
+    for (index, mutation) in mutations.iter().enumerate() {
+        match mutation {
+            Mutation::Create { node_id, .. } => {
+                created.insert(*node_id, index);
+                removed.remove(node_id);
+            }
+            Mutation::Insert {
+                parent_id, node_id, ..
+            }
+            | Mutation::Move {
+                parent_id, node_id, ..
+            } => {
+                parents.insert(*node_id, *parent_id);
+            }
+            Mutation::Remove { node_id } => {
+                // A removed node takes everything under it along.
+                let mut gone = vec![*node_id];
+                let mut next = 0;
+                while next < gone.len() {
+                    let parent = gone[next];
+                    gone.extend(
+                        parents
+                            .iter()
+                            .filter(|(_, owner)| **owner == parent)
+                            .map(|(child, _)| *child),
+                    );
+                    next += 1;
+                }
+                for node in gone {
+                    parents.remove(&node);
+                    removed.insert(node);
+                }
+            }
+            _ => {}
+        }
+    }
+    mutations
+        .into_iter()
+        .enumerate()
+        .filter(|(index, mutation)| match node_of(mutation) {
+            None => true,
+            Some(node) => {
+                !removed.contains(&node) && *index >= created.get(&node).copied().unwrap_or(0)
+            }
+        })
+        .map(|(_, mutation)| mutation)
+        .collect()
+}
+
 /// One sample's screen, part way through being built.
 ///
 /// It holds the batches in the order the Renderer would have applied them, because a
 /// screen is rarely one batch: a list holds no rows until something asks for a window, and
 /// a window size arrives as an event rather than as part of the first frame.
 pub struct Screen {
-    host: Host,
+    host: ComposeHost,
     frames: Vec<Vec<u8>>,
     event: Vec<u8>,
     viewport: Viewport,
@@ -103,6 +176,11 @@ impl Screen {
             .collect()
     }
 
+    /// What is on screen now: [`live`] over everything the screen has said.
+    pub fn live_mutations(&self) -> Vec<Mutation<'_>> {
+        live(self.mutations())
+    }
+
     /// The node a widget of this kind was created as, if the screen has exactly one.
     pub fn node_of(&self, widget: WidgetKind) -> Option<u32> {
         self.mutations().iter().find_map(|mutation| match mutation {
@@ -116,14 +194,16 @@ impl Screen {
 
     /// The handler a node declared for a property, if it declared one.
     pub fn handler_of(&self, node: u32, property: PropertyKind) -> Option<u64> {
-        self.mutations().iter().find_map(|mutation| match mutation {
-            Mutation::SetProp {
-                node_id,
-                property: found,
-                value: PropertyValue::Integer(id),
-            } if *node_id == node && *found == property => Some(*id as u64),
-            _ => None,
-        })
+        self.live_mutations()
+            .iter()
+            .find_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    node_id,
+                    property: found,
+                    value: PropertyValue::Integer(id),
+                } if *node_id == node && *found == property => Some(*id as u64),
+                _ => None,
+            })
     }
 
     /// Answers every windowing list's range request, which is what a real Renderer does
@@ -132,32 +212,7 @@ impl Screen {
     /// Returns how many lists were filled, so a caller can assert its list exists rather
     /// than photographing an empty one and wondering.
     pub fn fill_lists(&mut self, count: u32) -> usize {
-        let lists: Vec<(u32, u64)> = {
-            let mutations = self.mutations();
-            let nodes: Vec<u32> = mutations
-                .iter()
-                .filter_map(|mutation| match mutation {
-                    Mutation::Create {
-                        node_id,
-                        widget: WidgetKind::LazyColumn | WidgetKind::LazyRow,
-                    } => Some(*node_id),
-                    _ => None,
-                })
-                .collect();
-            nodes
-                .iter()
-                .filter_map(|node| {
-                    mutations.iter().find_map(|mutation| match mutation {
-                        Mutation::SetProp {
-                            node_id,
-                            property: PropertyKind::OnRangeRequested,
-                            value: PropertyValue::Integer(id),
-                        } if node_id == node => Some((*node, *id as u64)),
-                        _ => None,
-                    })
-                })
-                .collect()
-        };
+        let lists = self.live_lists();
         for (node_id, handler_id) in &lists {
             self.dispatch(HostEvent {
                 node_id: *node_id,
@@ -168,9 +223,40 @@ impl Screen {
         lists.len()
     }
 
-    pub fn press_icon(&mut self, icon: dioxus_compose::schema::IconRole) -> bool {
+    /// The windowing lists still on screen, each with the range handler it declared last,
+    /// in the order they were created.
+    ///
+    /// Read from what is live rather than from the whole run, because a screen that moved
+    /// to another page has removed the lists the first page had, and their handlers went
+    /// with them: asking one of those for rows is an event for a handler that no longer
+    /// exists, which the Host rejects.
+    fn live_lists(&self) -> Vec<(u32, u64)> {
+        let mutations = self.live_mutations();
+        mutations
+            .iter()
+            .filter_map(|mutation| match mutation {
+                Mutation::Create {
+                    node_id,
+                    widget: WidgetKind::LazyColumn | WidgetKind::LazyRow,
+                } => Some(*node_id),
+                _ => None,
+            })
+            .filter_map(|node| {
+                mutations.iter().rev().find_map(|mutation| match mutation {
+                    Mutation::SetProp {
+                        node_id,
+                        property: PropertyKind::OnRangeRequested,
+                        value: PropertyValue::Integer(id),
+                    } if *node_id == node => Some((node, *id as u64)),
+                    _ => None,
+                })
+            })
+            .collect()
+    }
+
+    pub fn press_icon(&mut self, icon: compose_rust::schema::IconRole) -> bool {
         let found = {
-            let mutations = self.mutations();
+            let mutations = self.live_mutations();
             let node = mutations.iter().find_map(|mutation| match mutation {
                 Mutation::SetProp {
                     node_id,
@@ -213,7 +299,7 @@ impl Screen {
     /// Finds what says `label` and presses it.
     pub fn press(&mut self, label: &str) -> bool {
         let found = {
-            let mutations = self.mutations();
+            let mutations = self.live_mutations();
             let node = mutations.iter().find_map(|mutation| match mutation {
                 Mutation::SetProp {
                     node_id,
@@ -252,7 +338,7 @@ impl Screen {
     /// container that label was placed in answers a click.
     pub fn press_beside(&mut self, label: &str) -> bool {
         let found = {
-            let mutations = self.mutations();
+            let mutations = self.live_mutations();
             let named = mutations.iter().rev().find_map(|mutation| match mutation {
                 Mutation::SetProp {
                     node_id,
@@ -336,27 +422,26 @@ pub fn frame_dir() -> Option<PathBuf> {
 /// Builds `app` once per design system, colour scheme and window, hands each screen to
 /// `prepare`, and writes the results out when `DXC_FRAME_DIR` says where.
 ///
-/// Unset, which is the normal run, it still builds all forty-two (seven design systems, two
-/// schemes, three widths): a design system or a width nobody can encode is exactly the
-/// failure this is here to catch, and catching it should not depend on someone having
-/// asked for pictures.
-pub fn record(screen: &str, app: fn() -> Element, prepare: impl FnMut(&mut Screen)) {
+/// Unset, which is the normal run, it still builds all thirty-six: a design system or a
+/// width nobody can encode is exactly the failure this is here to catch, and catching it
+/// should not depend on someone having asked for pictures.
+pub fn record(screen: &str, app: fn(), prepare: impl FnMut(&mut Screen)) {
     record_in(screen, &SYSTEMS, app, prepare);
 }
 
 /// The same, for a screen that ships one design system rather than adapting to the host.
 ///
-/// An adaptive sample is drawn by whichever system the platform picks, so all seven of
-/// them are its real appearance and all seven have to be looked at. A unified sample names
-/// one, and the others are screens it will never show: recording them would be most of
-/// the pictures being of something nobody can reach.
+/// An adaptive sample is drawn by whichever system the platform picks, so all six of them
+/// are its real appearance and all six have to be looked at. A unified sample names one,
+/// and the other five are screens it will never show: recording them would be five sixths
+/// of the pictures being of something nobody can reach.
 ///
 /// What is still worth checking is that the screen encodes, which `record` does for every
 /// system it is given, so a caller who wants that breadth passes the whole list.
 pub fn record_in(
     screen: &str,
     systems: &[DesignSystem],
-    app: fn() -> Element,
+    app: fn(),
     prepare: impl FnMut(&mut Screen),
 ) {
     let themes: Vec<Theme> = systems
@@ -389,19 +474,14 @@ pub fn as_designed(theme: Theme, systems: &[DesignSystem]) -> Vec<Theme> {
 }
 
 /// Records one screen once per theme and window.
-pub fn record_as(
-    screen: &str,
-    themes: &[Theme],
-    app: fn() -> Element,
-    mut prepare: impl FnMut(&mut Screen),
-) {
+pub fn record_as(screen: &str, themes: &[Theme], app: fn(), mut prepare: impl FnMut(&mut Screen)) {
     let directory = frame_dir();
     for theme in themes.iter().copied() {
         let system = theme.design_system;
         let scheme = theme.color_scheme;
         for viewport in VIEWPORTS {
-            dioxus_compose::window::reset_window_size();
-            let mut host = Host::with_theme(app, theme);
+            compose_rust::window::reset_window_size();
+            let mut host = ComposeHost::with_theme(app, theme);
             let first = host
                 .rebuild()
                 .unwrap_or_else(|error| {
@@ -438,7 +518,7 @@ pub fn record_as(
             }
         }
     }
-    dioxus_compose::window::reset_window_size();
+    compose_rust::window::reset_window_size();
 }
 
 /// The name carries the window it was recorded for, so the Renderer draws each recording

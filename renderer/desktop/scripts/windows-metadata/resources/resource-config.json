@@ -1,0 +1,12 @@
+{
+  "resources": {
+    "includes": [{
+      "pattern": "\\QMETA-INF/services/java.lang.System$LoggerFinder\\E"
+    }, {
+      "pattern": "\\QMETA-INF/services/kotlinx.coroutines.internal.MainDispatcherFactory\\E"
+    }, {
+      "pattern": "\\Qskiko-windows-x64.dll.sha256\\E"
+    }]
+  },
+  "bundles": []
+}

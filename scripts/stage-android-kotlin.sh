@@ -18,8 +18,8 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
-source_dir="dioxus-compose-renderer/android/src"
-destination="${1:-dioxus-compose/android-kotlin}"
+source_dir="renderer/android/src"
+destination="${1:-compose-rust/android-kotlin}"
 
 [[ -d "$source_dir" ]] || { echo "no Android sources at $source_dir" >&2; exit 1; }
 

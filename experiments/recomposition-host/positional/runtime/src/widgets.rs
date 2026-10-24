@@ -2,16 +2,16 @@
 //!
 //! The first version of this runtime emitted strings into a `Vec` and had no props, no
 //! schema and no encoder, so its numbers were a floor. This is the part that was missing:
-//! `text` takes the same twenty-odd props `dioxus_compose::Text` takes, compares them the
+//! `text` takes the same twenty-odd props `compose_rust::Text` takes, compares them the
 //! same way, and writes the same records through the same `BatchEncoder`. What it does
 //! differently is only what a slot table does differently: the previous props sit in a
 //! slot, a composition whose props compare equal is skipped in place, and a changed one
 //! writes the properties that moved and nothing else.
 
 use crate::{compose, composable, own_node, remember, skip_to_group_end, take_removed};
-use dioxus_compose::protocol::{BatchEncoder, Mutation, PropertyValue};
-use dioxus_compose::schema::{PropertyKind, WidgetKind};
-use dioxus_compose::{Modifier, Paint, ShapeRole, SpaceRole, TextAlign, TextOverflow, TypeRole};
+use compose_rust::protocol::{BatchEncoder, Mutation, PropertyValue};
+use compose_rust::schema::{PropertyKind, WidgetKind};
+use compose_rust::{Modifier, Paint, ShapeRole, SpaceRole, TextAlign, TextOverflow, TypeRole};
 use std::cell::RefCell;
 
 struct Frame {
@@ -108,7 +108,7 @@ pub fn column(content: impl FnOnce()) {
     FRAME.with(|frame| frame.borrow_mut().parents.pop());
 }
 
-/// The props `dioxus_compose::Text` takes, less the runs of styled spans.
+/// The props `compose_rust::Text` takes, less the runs of styled spans.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct TextProps {
     pub weight: Option<f32>,

@@ -20,7 +20,8 @@ tile, a Start menu tile and a desktop launcher are drawn far larger than a title
 64 pixel picture stretched to fill one is visibly soft. Drawing it again from the shapes
 rather than scaling the small one up is the reason the marks are described as shapes.
 
-Run from the repository root. Writes samples/<name>/assets/icon.png and icon-512.png.
+Run from the repository root with `uv run scripts/make-sample-icons.py`. Writes
+samples/<name>/assets/icon.png and icon-512.png.
 """
 
 import math

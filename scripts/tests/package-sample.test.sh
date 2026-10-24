@@ -2,16 +2,19 @@
 # Usage: ./scripts/tests/package-sample.test.sh
 #
 # The desktop bundles the sample release hands out: what is in them, what they are called,
-# and whether the program in one still looks for the renderer on the machine that built it.
+# and whether the program in one asks the loader for anything but the system's own
+# libraries.
 #
-# Every sample is laid out for all four desktop targets on whatever machine this runs on,
-# with a stand-in program and a stand-in renderer, because the layout and the metadata are
-# file operations and text and need neither the renderer nor the platform. Then, on macOS
-# and on Linux, a real program linked against a real library by absolute path is packaged
-# the whole way, and the bundle is checked the way it would fail on someone else's machine:
-# by what its program asks the loader for, and by running it.
+# A macOS or Linux bundle holds one executable, the icon and the metadata, because the
+# renderer is linked into the executable. Every sample is laid out for all four desktop
+# targets on whatever machine this runs on, with a stand-in program (and, for Windows,
+# whose renderer is still a DLL, a stand-in renderer directory), because the layout and the
+# metadata are file operations and text and need neither the renderer nor the platform.
+# Then, on macOS and on Linux, a real program is packaged the whole way and the bundle is
+# checked the way it would fail on someone else's machine: by what its program asks the
+# loader for, and by running it away from where it was built.
 #
-# Nothing here builds the renderer or a sample. The stand-ins are a few lines of C, built
+# Nothing here builds the renderer or a sample. The stand-in is a few lines of C, built
 # with the system's compiler when there is one; without one that half says so and skips.
 set -uo pipefail
 
@@ -81,31 +84,26 @@ done
 [[ $failures -eq 0 ]] && pass "every sample has a name, identifier, description and bundle icon"
 
 # --- the four layouts, for every sample, anywhere -------------------------------------
-fake_renderer() {
-    # A renderer directory shaped like the real one for that target.
-    local dir="$1" target="$2"
-    mkdir -p "$dir"
-    case "$target" in
-        macos-aarch64)
-            echo lib > "$dir/libdioxus_compose_renderer.dylib"
-            echo awt > "$dir/libawt.dylib"
-            ;;
-        linux-*)
-            echo lib > "$dir/libdioxus_compose_renderer.so"
-            echo awt > "$dir/libawt.so"
-            ;;
-        windows-x64)
-            mkdir -p "$dir/bin" "$dir/lib"
-            echo dll > "$dir/bin/dioxus_compose_renderer.dll"
-            echo fonts > "$dir/lib/fontconfig.bfc"
-            ;;
-    esac
+fake_windows_renderer() {
+    # A renderer directory shaped like the one the Windows build leaves.
+    local dir="$1"
+    mkdir -p "$dir/bin" "$dir/lib"
+    echo dll > "$dir/bin/compose_rust_renderer.dll"
+    echo fonts > "$dir/lib/fontconfig.bfc"
 }
+
+# Every file under a directory, one per line and relative, so a bundle can be compared with
+# what it is allowed to hold.
+files_under() { (cd "$1" && find . -type f | sed 's#^\./##' | sort); }
 
 layout_failures=$failures
 for target in macos-aarch64 windows-x64 linux-x64 linux-arm64; do
-    renderer="$work/renderer-$target"
-    fake_renderer "$renderer" "$target"
+    renderer_args=()
+    if [[ "$target" == windows-x64 ]]; then
+        renderer="$work/renderer-$target"
+        fake_windows_renderer "$renderer"
+        renderer_args=(--renderer "$renderer")
+    fi
     for sample in "${samples[@]}"; do
         program="sample-$sample"
         [[ "$target" == windows-x64 ]] && program="$program.exe"
@@ -114,7 +112,7 @@ for target in macos-aarch64 windows-x64 linux-x64 linux-arm64; do
         printf '#!/bin/sh\necho %s\n' "$sample" > "$exe"
         chmod +x "$exe"
         out="$work/out-$target"
-        if ! output="$("$package" --stage-only "$sample" "$target" "$exe" "$renderer" "$out" 2>&1)"; then
+        if ! output="$("$package" --stage-only ${renderer_args[@]+"${renderer_args[@]}"} "$sample" "$target" "$exe" "$out" 2>&1)"; then
             fail "$sample $target: staging failed" "$output"
             continue
         fi
@@ -138,10 +136,9 @@ for target in macos-aarch64 windows-x64 linux-x64 linux-arm64; do
                     fi
                 done
                 [[ -x "$contents/MacOS/$program" ]] || fail "$sample macOS: no program in Contents/MacOS"
-                [[ -f "$contents/Frameworks/lib/libdioxus_compose_renderer.dylib" &&
-                    -f "$contents/Frameworks/lib/libawt.dylib" ]] ||
-                    fail "$sample macOS: the renderer's lib directory is not whole in Contents/Frameworks/lib"
                 [[ -f "$contents/Resources/$name.png" ]] || fail "$sample macOS: no icon in Resources"
+                held="$(files_under "$stage/$name.app" | grep -vE '^Contents/(Info.plist|MacOS/|Resources/)' || true)"
+                [[ -z "$held" ]] || fail "$sample macOS: the bundle holds more than the executable, icon and metadata" "$held"
                 ;;
             windows-x64)
                 root="$stage/$name"
@@ -154,7 +151,7 @@ for target in macos-aarch64 windows-x64 linux-x64 linux-arm64; do
                     "OID.2.25.311729368913984317654407730594956997722=1"; do
                     grep -qF "$expected" "$manifest" || fail "$sample Windows: manifest lacks $expected"
                 done
-                [[ -f "$root/bin/$program" && -f "$root/bin/dioxus_compose_renderer.dll" ]] ||
+                [[ -f "$root/bin/$program" && -f "$root/bin/compose_rust_renderer.dll" ]] ||
                     fail "$sample Windows: the program is not beside the renderer's DLL"
                 [[ -f "$root/lib/fontconfig.bfc" ]] ||
                     fail "$sample Windows: the renderer's lib directory was not kept"
@@ -171,9 +168,9 @@ for target in macos-aarch64 windows-x64 linux-x64 linux-arm64; do
                 [[ -x "$appdir/AppRun" ]] || fail "$sample Linux: no AppRun"
                 [[ -f "$appdir/$identifier.png" && -e "$appdir/.DirIcon" ]] ||
                     fail "$sample Linux: no icon at the top of the AppDir"
-                [[ -f "$appdir/usr/bin/lib/libdioxus_compose_renderer.so" &&
-                    -f "$appdir/usr/bin/lib/libawt.so" ]] ||
-                    fail "$sample Linux: the renderer is not in a lib directory beside the program"
+                held="$(files_under "$appdir/usr/bin")"
+                [[ "$held" == "$program" ]] ||
+                    fail "$sample Linux: usr/bin holds more than the executable" "$held"
                 ;;
         esac
     done
@@ -182,72 +179,58 @@ done
     pass "every sample lays out as a .app, an MSIX and zip, and an AppImage, named from its Dioxus.toml"
 
 # --- refuses a sample without the configuration a bundle is named from ----------------
-if "$package" --stage-only no-such-sample macos-aarch64 /bin/sh "$work" "$work/none" >/dev/null 2>&1; then
+if "$package" --stage-only no-such-sample macos-aarch64 /bin/sh "$work/none" >/dev/null 2>&1; then
     fail "packaging a sample with no Dioxus.toml succeeded" \
         "A bundle named by guesswork is worse than no bundle."
 else
     pass "a sample with no configuration is refused"
 fi
 
-# --- the whole way, with a real program and a real library ----------------------------
-# Built here because the point is the loader: a program linked against a library at an
-# absolute path, packaged, moved, and run.
-real_library() {
-    local dir="$1" kind="$2"
-    mkdir -p "$dir"
-    cat > "$work/renderer.c" <<'C'
-int dioxus_compose_renderer_probe(void) { return 42; }
-C
+# --- the whole way, with a real program ------------------------------------------------
+# Built here because the point is the loader: a program packaged, moved and run, which
+# must ask for nothing but the system.
+real_program() {
     cat > "$work/program.c" <<'C'
 #include <stdio.h>
-int dioxus_compose_renderer_probe(void);
-int main(void) { printf("renderer says %d\n", dioxus_compose_renderer_probe()); return 0; }
+int main(void) { printf("started\n"); return 0; }
 C
-    if [[ "$kind" == dylib ]]; then
-        cc -dynamiclib -o "$dir/libdioxus_compose_renderer.dylib" \
-            -install_name "$dir/libdioxus_compose_renderer.dylib" "$work/renderer.c" &&
-            cc -o "$work/sample-calculator" "$work/program.c" "$dir/libdioxus_compose_renderer.dylib"
-    else
-        cc -shared -fPIC -o "$dir/libdioxus_compose_renderer.so" "$work/renderer.c" &&
-            cc -o "$work/sample-calculator" "$work/program.c" "$dir/libdioxus_compose_renderer.so"
-    fi
+    cc -o "$work/sample-calculator" "$work/program.c"
 }
 
 case "$(uname -s)" in
     Darwin)
         if ! command -v cc >/dev/null; then
             echo "skip  no C compiler, so the loader half of the macOS bundle is not checked"
-        elif ! real_library "$work/built/lib" dylib; then
-            fail "could not build the stand-in program and library"
+        elif ! real_program; then
+            fail "could not build the stand-in program"
         else
             out="$work/real-macos"
-            if ! output="$("$package" calculator macos-aarch64 "$work/sample-calculator" "$work/built/lib" "$out" 2>&1)"; then
+            if ! output="$("$package" calculator macos-aarch64 "$work/sample-calculator" "$out" 2>&1)"; then
                 fail "packaging for macOS failed" "$output"
             else
                 app="$out/stage/calculator-macos-aarch64/Calculator.app"
-                asked="$(otool -L "$app/Contents/MacOS/sample-calculator" | awk 'NR > 1 { print $1 }' | grep renderer)"
-                [[ "$asked" == "@executable_path/../Frameworks/lib/libdioxus_compose_renderer.dylib" ]] ||
-                    fail "the bundled program asks for $asked" "It has to be a path relative to itself."
+                asked="$(otool -L "$app/Contents/MacOS/sample-calculator" | awk 'NR > 1 { print $1 }' | grep -vE '^(/usr/lib/|/System/)' || true)"
+                [[ -z "$asked" ]] ||
+                    fail "the bundled program asks for $asked" "Only the system's libraries may be named."
                 [[ -f "$app/Contents/Resources/Calculator.icns" ]] || fail "the bundle has no .icns"
                 codesign --verify --deep --strict "$app" 2>/dev/null ||
                     fail "the bundle's signature does not verify" "Apple silicon will not start it."
                 [[ -f "$out/calculator-macos-aarch64.dmg" && -f "$out/calculator-macos-aarch64.app.zip" ]] ||
                     fail "no .dmg or .app.zip was written"
-                # Moved away from the library it was linked against, it must still start.
-                rm -rf "$work/built"
+                rm -f "$work/sample-calculator"
                 ran="$("$app/Contents/MacOS/sample-calculator" 2>&1)"
-                [[ "$ran" == "renderer says 42" ]] ||
+                [[ "$ran" == "started" ]] ||
                     fail "the bundled program did not start without the build tree" "$ran"
                 [[ $failures -eq 0 ]] &&
-                    pass "a macOS bundle carries its renderer, is signed, and starts away from the build"
+                    pass "a macOS bundle is one signed executable that starts away from the build"
             fi
         fi
         ;;
     Linux)
-        if ! command -v cc >/dev/null || ! command -v patchelf >/dev/null; then
-            echo "skip  no C compiler or no patchelf, so the loader half of the AppImage is not checked"
-        elif ! real_library "$work/built/lib" so; then
-            fail "could not build the stand-in program and library"
+        if ! command -v cc >/dev/null; then
+            echo "skip  no C compiler, so the loader half of the AppImage is not checked"
+        elif ! real_program; then
+            fail "could not build the stand-in program"
         else
             # A stand-in for appimagetool that records what it was handed. The image
             # format is the tool's business; what goes into it is this script's.
@@ -260,25 +243,22 @@ TOOL
             chmod +x "$work/appimagetool"
             out="$work/real-linux"
             if ! output="$(APPIMAGETOOL="$work/appimagetool" "$package" calculator linux-x64 \
-                "$work/sample-calculator" "$work/built/lib" "$out" 2>&1)"; then
+                "$work/sample-calculator" "$out" 2>&1)"; then
                 fail "packaging for Linux failed" "$output"
             else
                 appdir="$out/stage/calculator-linux-x64/Calculator.AppDir"
-                needed="$(readelf -d "$appdir/usr/bin/sample-calculator" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p' | grep renderer)"
-                [[ "$needed" == libdioxus_compose_renderer.so ]] ||
-                    fail "the AppImage's program asks for $needed" "It has to be found by run path, not by where it was built."
                 [[ -f "$out/calculator-linux-x64.AppImage" ]] || fail "no AppImage was written"
-                rm -rf "$work/built"
+                rm -f "$work/sample-calculator"
                 ran="$("$appdir/AppRun" 2>&1)"
-                [[ "$ran" == "renderer says 42" ]] ||
+                [[ "$ran" == "started" ]] ||
                     fail "the AppImage's program did not start without the build tree" "$ran"
                 [[ $failures -eq 0 ]] &&
-                    pass "an AppImage carries its renderer and starts away from the build"
+                    pass "an AppImage is one executable that starts away from the build"
             fi
         fi
         ;;
     *)
-        echo "skip  the loader half runs on macOS and Linux; a DLL beside its program needs no rewrite"
+        echo "skip  the loader half runs on macOS and Linux"
         ;;
 esac
 

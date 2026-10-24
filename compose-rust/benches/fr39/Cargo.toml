@@ -1,0 +1,20 @@
+# The performance comparison of the two authoring paths: the Dioxus path at a pinned
+# commit against the slot table path at HEAD, over scenarios fixed before the slot table
+# path was written.
+#
+# A workspace of its own, outside the repository's, for two reasons. The baseline links a
+# second copy of compose-rust, fetched at a fixed commit with the Dioxus adapter and the
+# rsx! screens, and that copy exports the same boundary symbols as the one in this
+# checkout: the two can only ever be linked into separate binaries. And nothing here is
+# part of what the project publishes.
+[workspace]
+members = ["scenarios", "baseline", "candidate"]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[profile.release]
+debug = true

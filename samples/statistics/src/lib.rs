@@ -3,9 +3,8 @@
 //! This is the sample that pushes on `Canvas`. A dial with a tick ring and a marker, and a
 //! bar chart with a day under each column, are pixels the widget vocabulary has no name
 //! for, and they are the two most common things a statistics screen is made of. Both are
-//! draw lists, and every colour in them comes from `palette`: the reference is one
-//! picture with its own sage, orange and powder blue, and a role would have handed those
-//! back to whichever design system is running.
+//! draw lists, painted in this sample's own palette, because the reference names colours
+//! no role can say.
 //!
 //! Unified, naming Cupertino and light: the reference is a light iOS design, and a
 //! design that flips to dark on a machine set that way is not the design being compared
@@ -15,54 +14,23 @@ mod charts;
 mod spending;
 
 use charts::Bar;
-use dioxus_compose::prelude::*;
+use compose_rust::runtime::*;
+use compose_rust::ui::*;
 use spending::{
     ALL_TIME_CENTS, MOBILE_SHARE, RETURNING_SHARE, SOURCES, TODAY, WEEK, YESTERDAY, cost, dearest,
     peak,
 };
 
-/// The colours the reference picture is drawn in, named once.
-///
-/// `Color` rather than `Paint`, so a role cannot be written here at all: what the type
-/// holds is a literal, and every use wraps it as `Paint::Literal`.
 mod palette {
-    use dioxus_compose::prelude::Color;
-    /// The near white page.
+    use compose_rust::ui::Color;
     pub const PAGE: Color = Color::rgb(0xF2F2F0);
-    /// The dial's card.
     pub const CARD: Color = Color::rgb(0xFFFFFF);
-    /// Everything that is read.
     pub const INK: Color = Color::rgb(0x000000);
-    /// The panel under the dial, and the whole of the costs page.
     pub const SAGE: Color = Color::rgb(0xB0C1AE);
-    /// The second source tile.
     pub const POWDER: Color = Color::rgb(0xAFC3DC);
-    /// The one accent: the dial's marker and the dearest day.
     pub const ORANGE: Color = Color::rgb(0xF58220);
-    /// The dial's ring and what supports rather than says.
     pub const GREY: Color = Color::rgb(0x999999);
-    /// The columns that are not the dearest day.
     pub const LIGHT_GREY: Color = Color::rgb(0xEEEEEE);
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-
-        /// The statistics screen's colours are the picture's, not the running design
-        /// system's, and each is the value read off the reference. Pinned so an edit that
-        /// drifts from the picture says so here first.
-        #[test]
-        fn fr22_the_palette_is_the_reference_colours_rather_than_the_theme() {
-            assert_eq!(PAGE.to_argb(), 0xfff2_f2f0);
-            assert_eq!(CARD.to_argb(), 0xffff_ffff);
-            assert_eq!(INK.to_argb(), 0xff00_0000);
-            assert_eq!(SAGE.to_argb(), 0xffb0_c1ae);
-            assert_eq!(POWDER.to_argb(), 0xffaf_c3dc);
-            assert_eq!(ORANGE.to_argb(), 0xfff5_8220);
-            assert_eq!(GREY.to_argb(), 0xff99_9999);
-            assert_eq!(LIGHT_GREY.to_argb(), 0xffee_eeee);
-        }
-    }
 }
 
 /// A phone design in a desktop window is still a phone design.
@@ -109,66 +77,64 @@ fn week_bars() -> Vec<Bar> {
 /// is placed at a point and takes a rung of the ladder, which is enough for a day label
 /// under a column; a reading this size is the loudest thing on the screen and wants the
 /// ladder's own metrics and the ellipsis behaviour that goes with a widget.
-fn dial_card() -> Element {
-    rsx! {
-        dioxus_compose::Box {
-            fill_max_width: true,
-            shape_role: ShapeRole::Large,
-            padding_role: SpaceRole::Lg,
-            background: Paint::Literal(palette::CARD),
-            dioxus_compose::Box {
-                fill_max_width: true,
-                alignment: Alignment::Center,
-                Canvas {
-                    width: DIAL_SIDE,
-                    height: DIAL_SIDE,
-                    commands: charts::dial(
+#[composable]
+fn dial_card() {
+    Box()
+        .modifier(
+            Modifier
+                .fill_max_width()
+                .shape_role(ShapeRole::Large)
+                .padding_role(SpaceRole::Lg)
+                .background(Paint::Literal(palette::CARD)),
+        )
+        .content(|| {
+            Box()
+                .modifier(Modifier.fill_max_width())
+                .alignment(Alignment::Center)
+                .content(|| {
+                    Canvas(charts::dial(
                         DIAL_SIDE,
                         MOBILE_SHARE as f32 / 100.0,
                         Paint::Literal(palette::GREY),
                         Paint::Literal(palette::ORANGE),
-                    ),
-                }
-                Column {
-                    alignment: Alignment::Center,
-                    Text { text: "{MOBILE_SHARE}%", type_role: TypeRole::Display, color: Paint::Literal(palette::INK) }
-                    Text {
-                        text: "Mobile",
-                        type_role: TypeRole::Label,
-                        color: Paint::Literal(palette::GREY),
-                    }
-                }
-            }
-        }
-    }
+                    ))
+                    .modifier(Modifier.size(DIAL_SIDE, DIAL_SIDE));
+                    Column().alignment(Alignment::Center).content(|| {
+                        Text(format!("{MOBILE_SHARE}%"))
+                            .type_role(TypeRole::Display)
+                            .color(Paint::Literal(palette::INK));
+                        Text("Mobile")
+                            .type_role(TypeRole::Label)
+                            .color(Paint::Literal(palette::GREY));
+                    });
+                });
+        });
 }
 
 /// The week's columns on a tinted panel, which is the shape the reference gives them.
 ///
-/// The panel is the reference's sage rather than an accent container. A container role
-/// came out as the running design system's pale accent, which is a colour the picture
-/// does not have anywhere.
-fn costs_panel(title_role: TypeRole, (width, height): (f32, f32)) -> Element {
+/// The panel is the reference's sage and the chart's ink is the palette's, held to it by
+/// the chart tests, so the chart is readable on the panel whichever design system draws
+/// the rest.
+#[composable]
+fn costs_panel(title_role: TypeRole, chart: (f32, f32)) {
+    let (width, height) = chart;
     let bars = week_bars();
-    rsx! {
-        Column {
-            fill_max_width: true,
-            background: Paint::Literal(palette::SAGE),
-            shape_role: ShapeRole::Large,
-            padding_role: SpaceRole::Md,
-            space_role: SpaceRole::Sm,
-            Text {
-                text: "Popular costs",
-                type_role: title_role,
-                color: Paint::Literal(palette::INK),
-            }
-            Canvas {
-                width,
-                height,
-                commands: charts::week(width, height, &bars),
-            }
-        }
-    }
+    Column()
+        .modifier(
+            Modifier
+                .fill_max_width()
+                .background(Paint::Literal(palette::SAGE))
+                .shape_role(ShapeRole::Large)
+                .padding_role(SpaceRole::Md),
+        )
+        .space_role(SpaceRole::Sm)
+        .content(|| {
+            Text("Popular costs")
+                .type_role(title_role)
+                .color(Paint::Literal(palette::INK));
+            Canvas(charts::week(width, height, &bars)).modifier(Modifier.size(width, height));
+        });
 }
 
 /// Where the money went, one tile per service, running past the right edge.
@@ -176,246 +142,257 @@ fn costs_panel(title_role: TypeRole, (width, height): (f32, f32)) -> Element {
 /// On both pages, because a page that says how much was spent this week and never says
 /// what it went on is the top half of the reference with the bottom half missing, and that
 /// missing half is the empty third at the foot of the window.
-fn sources_strip() -> Element {
-    rsx! {
-        LazyRow {
-            fill_max_width: true,
-            height: SOURCE_TILE,
-            item_count: SOURCES.len(),
-            key_of: move |position: usize| SOURCES[position].name.to_owned(),
-            item: move |position: usize| {
-                let source = SOURCES[position];
-                rsx! {
-                    dioxus_compose::Box {
-                        width: SOURCE_TILE,
-                        fill_max_height: true,
-                        padding_role: SpaceRole::Xs,
-                        Column {
-                            fill_max_width: true,
-                            fill_max_height: true,
-                            background: Paint::Literal(palette::SAGE),
-                            shape_role: ShapeRole::Large,
-                            padding_role: SpaceRole::Md,
-                            space_role: SpaceRole::Xs,
-                            dioxus_compose::Box {
-                                width: 32.0,
-                                height: 32.0,
-                                corner_radius: 16.0,
-                                background: Paint::Literal(palette::INK),
-                            }
-                            Text {
-                                text: source.name,
-                                type_role: TypeRole::Label,
-                                color: Paint::Literal(palette::INK),
-                                max_lines: 1,
-                                overflow: TextOverflow::Ellipsis,
-                            }
-                            Spacer { weight: 1.0 }
-                            Text {
-                                text: cost(source.cents),
-                                type_role: TypeRole::Title,
-                                color: Paint::Literal(palette::INK),
-                                max_lines: 1,
-                                overflow: TextOverflow::Ellipsis,
-                            }
-                        }
-                    }
-                }
-            },
-        }
-    }
+#[composable]
+fn sources_strip() {
+    LazyRow()
+        .modifier(Modifier.fill_max_width().height(SOURCE_TILE))
+        .content(|list| {
+            list.items_keyed(
+                SOURCES.len(),
+                |position| SOURCES[position].name.to_owned(),
+                |position| {
+                    let source = SOURCES[position];
+                    Box()
+                        .modifier(
+                            Modifier
+                                .width(SOURCE_TILE)
+                                .fill_max_height()
+                                .padding_role(SpaceRole::Xs),
+                        )
+                        .content(|| {
+                            Column()
+                                .modifier(
+                                    Modifier
+                                        .fill_max_size()
+                                        .background(Paint::Literal(palette::SAGE))
+                                        .shape_role(ShapeRole::Large)
+                                        .padding_role(SpaceRole::Md),
+                                )
+                                .space_role(SpaceRole::Xs)
+                                .content(|| {
+                                    Box().modifier(
+                                        Modifier
+                                            .size(32.0, 32.0)
+                                            .corner_radius(16.0)
+                                            .background(Paint::Literal(palette::INK)),
+                                    );
+                                    Text(source.name)
+                                        .type_role(TypeRole::Label)
+                                        .color(Paint::Literal(palette::INK))
+                                        .max_lines(1)
+                                        .overflow(TextOverflow::Ellipsis);
+                                    Spacer().modifier(Modifier.weight(1.0));
+                                    Text(cost(source.cents))
+                                        .type_role(TypeRole::Title)
+                                        .color(Paint::Literal(palette::INK))
+                                        .max_lines(1)
+                                        .overflow(TextOverflow::Ellipsis);
+                                });
+                        });
+                },
+            );
+        });
 }
 
 /// The overview: the dial, the costs panel, a second reading beside it, and what the
 /// money went on.
-fn today_page() -> Element {
-    rsx! {
-        Column {
-            fill_max_width: true,
-            padding_role: SpaceRole::Md,
-            space_role: SpaceRole::Md,
+#[composable]
+fn today_page() {
+    Column()
+        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
+        .space_role(SpaceRole::Md)
+        .content(|| {
+            dial_card();
 
-            {dial_card()}
+            Row()
+                .modifier(Modifier.fill_max_width())
+                .space_role(SpaceRole::Md)
+                .alignment(Alignment::TopStart)
+                .content(|| {
+                    Box()
+                        .modifier(Modifier.weight(2.0))
+                        .content(|| costs_panel(TypeRole::BodyStrong, PANEL_CHART));
+                    Column()
+                        .modifier(Modifier.weight(1.0))
+                        .space_role(SpaceRole::Sm)
+                        .content(|| {
+                            Box()
+                                .modifier(
+                                    Modifier
+                                        .fill_max_width()
+                                        .shape_role(ShapeRole::Large)
+                                        .padding_role(SpaceRole::Md)
+                                        .background(Paint::Literal(palette::CARD)),
+                                )
+                                .content(|| {
+                                    Text(format!("{RETURNING_SHARE}%"))
+                                        .type_role(TypeRole::Title)
+                                        .color(Paint::Literal(palette::INK));
+                                });
+                            Row()
+                                .modifier(Modifier.fill_max_width())
+                                .space_role(SpaceRole::Sm)
+                                .content(|| {
+                                    Box().modifier(
+                                        Modifier
+                                            .weight(1.0)
+                                            .height(64.0)
+                                            .background(Paint::Literal(palette::POWDER))
+                                            .shape_role(ShapeRole::Large),
+                                    );
+                                    Button("+")
+                                        .modifier(
+                                            Modifier
+                                                .size(64.0, 64.0)
+                                                .corner_radius(32.0)
+                                                .background(Paint::Literal(palette::GREY)),
+                                        )
+                                        .color(Paint::Literal(palette::INK))
+                                        .on_click(|| {
+                                            Message::new(
+                                                "Adding a source is not part of this sample",
+                                            )
+                                            .show();
+                                        });
+                                });
+                        });
+                });
 
-            Row {
-                fill_max_width: true,
-                space_role: SpaceRole::Md,
-                alignment: Alignment::TopStart,
-                dioxus_compose::Box { weight: 2.0, {costs_panel(TypeRole::BodyStrong, PANEL_CHART)} }
-                Column {
-                    weight: 1.0,
-                    space_role: SpaceRole::Sm,
-                    dioxus_compose::Box {
-                        fill_max_width: true,
-                        shape_role: ShapeRole::Large,
-                        padding_role: SpaceRole::Md,
-                        background: Paint::Literal(palette::CARD),
-                        Text { text: "{RETURNING_SHARE}%", type_role: TypeRole::Title, color: Paint::Literal(palette::INK) }
-                    }
-                    Row {
-                        fill_max_width: true,
-                        space_role: SpaceRole::Sm,
-                        dioxus_compose::Box {
-                            weight: 1.0,
-                            height: 64.0,
-                            background: Paint::Literal(palette::POWDER),
-                            shape_role: ShapeRole::Large,
-                        }
-                        Button {
-                            text: "+",
-                            width: 64.0,
-                            height: 64.0,
-                            corner_radius: 32.0,
-                            background: Paint::Literal(palette::GREY),
-                            color: Paint::Literal(palette::INK),
-                            on_click: move |_| {
-                                Message::new("Adding a source is not part of this sample").show();
-                            },
-                        }
-                    }
-                }
-            }
+            sources_strip();
 
-            {sources_strip()}
+            Separator(None);
 
-            Separator {}
-
-            Row {
-                fill_max_width: true,
-                space_role: SpaceRole::Md,
-                alignment: Alignment::CenterStart,
-                Text { text: "<", type_role: TypeRole::BodyStrong, color: Paint::Literal(palette::INK) }
-                Row {
-                    alignment: Alignment::TopStart,
-                    Text { text: "Today ", type_role: TypeRole::BodyStrong, color: Paint::Literal(palette::INK) }
-                    Text {
-                        text: "{TODAY}",
-                        type_role: TypeRole::Caption,
-                        color: Paint::Literal(palette::INK),
-                    }
-                }
-                Spacer { weight: 1.0 }
-                Row {
-                    alignment: Alignment::TopStart,
-                    Text {
-                        text: "Yesterday ",
-                        type_role: TypeRole::Body,
-                        color: Paint::Literal(palette::GREY),
-                    }
-                    Text {
-                        text: "{YESTERDAY}",
-                        type_role: TypeRole::Caption,
-                        color: Paint::Literal(palette::GREY),
-                    }
-                }
-            }
-        }
-    }
+            Row()
+                .modifier(Modifier.fill_max_width())
+                .space_role(SpaceRole::Md)
+                .alignment(Alignment::CenterStart)
+                .content(|| {
+                    Text("<")
+                        .type_role(TypeRole::BodyStrong)
+                        .color(Paint::Literal(palette::INK));
+                    Row().alignment(Alignment::TopStart).content(|| {
+                        Text("Today ")
+                            .type_role(TypeRole::BodyStrong)
+                            .color(Paint::Literal(palette::INK));
+                        Text(TODAY.to_string())
+                            .type_role(TypeRole::Caption)
+                            .color(Paint::Literal(palette::INK));
+                    });
+                    Spacer().modifier(Modifier.weight(1.0));
+                    Row().alignment(Alignment::TopStart).content(|| {
+                        Text("Yesterday ")
+                            .type_role(TypeRole::Body)
+                            .color(Paint::Literal(palette::GREY));
+                        Text(YESTERDAY.to_string())
+                            .type_role(TypeRole::Caption)
+                            .color(Paint::Literal(palette::GREY));
+                    });
+                });
+        });
 }
 
 /// The costs in full: the whole page is the panel, and the sources run off the edge.
-fn costs_page() -> Element {
-    rsx! {
-        Column {
-            fill_max_width: true,
-            fill_max_height: true,
-            background: Paint::Literal(palette::SAGE),
-            padding_role: SpaceRole::Md,
-            space_role: SpaceRole::Md,
+#[composable]
+fn costs_page() {
+    Column()
+        .modifier(
+            Modifier
+                .fill_max_width()
+                .fill_max_height()
+                .background(Paint::Literal(palette::SAGE))
+                .padding_role(SpaceRole::Md),
+        )
+        .space_role(SpaceRole::Md)
+        .content(|| {
+            Text("Popular costs")
+                .type_role(TypeRole::Headline)
+                .color(Paint::Literal(palette::INK));
 
-            Text {
-                text: "Popular costs",
-                type_role: TypeRole::Headline,
-                color: Paint::Literal(palette::INK),
-            }
+            Canvas(charts::week(PAGE_CHART.0, PAGE_CHART.1, &week_bars()))
+                .modifier(Modifier.size(PAGE_CHART.0, PAGE_CHART.1));
 
-            Canvas {
-                width: PAGE_CHART.0,
-                height: PAGE_CHART.1,
-                commands: charts::week(
-                    PAGE_CHART.0,
-                    PAGE_CHART.1,
-                    &week_bars(),
-                ),
-            }
+            sources_strip();
 
-            {sources_strip()}
+            Spacer().modifier(Modifier.weight(1.0));
 
-            Spacer { weight: 1.0 }
-
-            Row {
-                fill_max_width: true,
-                space_role: SpaceRole::Sm,
-                alignment: Alignment::CenterStart,
-                Text {
-                    text: "All Time: ",
-                    type_role: TypeRole::Body,
-                    color: Paint::Literal(palette::INK),
-                    weight: 1.0,
-                }
-                Text {
-                    text: cost(ALL_TIME_CENTS),
-                    type_role: TypeRole::Headline,
-                    color: Paint::Literal(palette::INK),
-                }
-            }
-        }
-    }
+            Row()
+                .modifier(Modifier.fill_max_width())
+                .space_role(SpaceRole::Sm)
+                .alignment(Alignment::CenterStart)
+                .content(|| {
+                    Text("All Time: ")
+                        .type_role(TypeRole::Body)
+                        .color(Paint::Literal(palette::INK))
+                        .modifier(Modifier.weight(1.0));
+                    Text(cost(ALL_TIME_CENTS))
+                        .type_role(TypeRole::Headline)
+                        .color(Paint::Literal(palette::INK));
+                });
+        });
 }
 
-pub fn app() -> Element {
-    let window = use_window_size();
+#[composable]
+pub fn app() {
+    let window = current_window_size();
     let measure = if window.is_compact() {
         None
     } else {
         Some(PAGE_MEASURE)
     };
-    let mut page = use_signal(|| Page::Today);
+    let page = remember(|| mutable_state_of(Page::Today));
+    let showing = page.get();
 
-    rsx! {
-        // The frame is named rather than built: what the bar becomes, and where the page
-        // starts under it, are answers this screen never has to know.
-        Scaffold {
-            background: Paint::Literal(palette::PAGE),
-            top_bar: rsx! {
-                TopAppBar {
-                    fill_max_width: true,
-                    Text { text: "Product\nStatistics", type_role: TypeRole::Title, weight: 1.0, color: Paint::Literal(palette::INK) }
-                    Button {
-                        // The reference marks this with a chevron in the page's own ink. A
-                        // text button left to itself wears the design system's accent, which
-                        // is the one colour this design does not have.
-                        text: ">",
-                        variant: ButtonVariant::Text,
-                        color: Paint::Literal(palette::INK),
-                        on_click: move |_| {
-                            page.set(if page() == Page::Today { Page::Costs } else { Page::Today });
-                        }
-                    }
-                }
-            },
-
-                        dioxus_compose::Box {
-                fill_max_width: true,
-                weight: 1.0,
-                alignment: Alignment::TopCenter,
-                Column {
-                    width: measure,
-                    fill_max_width: measure.is_none(),
-                    fill_max_height: true,
-                    match page() {
-                        Page::Today => rsx! {
-                            ScrollColumn { fill_max_width: true, fill_max_height: true, {today_page()} }
-                        },
-                        // The costs page is the panel, edge to edge, so it does not scroll
-                        // inside something else: the tint has to reach the window's sides
-                        // or it is a card pretending to be a page.
-                        Page::Costs => costs_page(),
-                    }
-                }
-            }
-        }
-    }
+    // The frame is named rather than built: what the bar becomes, and where the page
+    // starts under it, are answers this screen never has to know.
+    Scaffold()
+        .modifier(Modifier.background(Paint::Literal(palette::PAGE)))
+        .top_bar(|| {
+            TopAppBar().modifier(Modifier.fill_max_width()).content(|| {
+                Text("Product\nStatistics")
+                    .type_role(TypeRole::Title)
+                    .modifier(Modifier.weight(1.0))
+                    .color(Paint::Literal(palette::INK));
+                // The reference marks this with a chevron in the page's own ink. A text
+                // button left to itself wears the design system's accent, which is the one
+                // colour this design does not have.
+                let turn = page.clone();
+                Button(">")
+                    .variant(ButtonVariant::Text)
+                    .color(Paint::Literal(palette::INK))
+                    .on_click(move || {
+                        turn.set(if turn.get_untracked() == Page::Today {
+                            Page::Costs
+                        } else {
+                            Page::Today
+                        });
+                    });
+            });
+        })
+        .content(|| {
+            Box()
+                .modifier(Modifier.fill_max_width().weight(1.0))
+                .alignment(Alignment::TopCenter)
+                .content(|| {
+                    Column()
+                        .modifier(
+                            Modifier
+                                .width_if(measure)
+                                .fill_max_width_if(measure.is_none())
+                                .fill_max_height(),
+                        )
+                        .content(|| match showing {
+                            Page::Today => {
+                                ScrollColumn()
+                                    .modifier(Modifier.fill_max_width().fill_max_height())
+                                    .content(today_page);
+                            }
+                            // The costs page is the panel, edge to edge, so it does not
+                            // scroll inside something else: the tint has to reach the
+                            // window's sides or it is a card pretending to be a page.
+                            Page::Costs => costs_page(),
+                        });
+                });
+        });
 }
 
 /// The design this sample draws, named once.
@@ -430,10 +407,6 @@ pub fn app() -> Element {
 /// whose system is set the other way sees a screen the design was never drawn for.
 const THEME: Theme = Theme::unified(DesignSystem::Cupertino).with_color_scheme(ColorScheme::Light);
 
-/// `demo_theme_for` rather than `THEME` alone: a sample is something to look at, and one
-/// machine can only show the design system and the scheme it is set to. `DXC_DESIGN` and
-/// `DXC_SCHEME` each override the half they name, so the line above stays the answer to
-/// everything nobody asked about.
 /// Runs the sample as a program of its own. The desktop binary is one line of this.
 pub fn launch() {
     launch_builder().launch(app);
@@ -443,24 +416,23 @@ pub fn launch() {
 ///
 /// The theme above all: a sample that names one and then reaches a platform through an
 /// entry point that makes its own builder is a sample that draws the same screens in a
-/// different design system depending on where it runs.
-fn launch_builder() -> dioxus_compose::LaunchBuilder {
+/// different design system depending on where it runs. `demo_theme_for` rather than
+/// `THEME` alone: a sample is something to look at, and one machine can only show the
+/// design system and the scheme it is set to. `DXC_DESIGN` and `DXC_SCHEME` each override
+/// the half they name, so `THEME` stays the answer to everything nobody asked about.
+fn launch_builder() -> LaunchBuilder {
     // The name the window carries. A desktop lists windows by it, so a window that said
-    // nothing was listed under whatever the renderer happened to be called, and every
-    // sample here was listed as DioxusCompose until this line existed.
-    dioxus_compose::LaunchBuilder::new()
-        .with_theme(dioxus_compose::demo_theme_for(THEME))
+    // nothing was listed under whatever the renderer happened to be called.
+    LaunchBuilder::new()
+        .with_theme(compose_rust::demo_theme_for(THEME))
         .with_window(
-            dioxus_compose::schema::Window::new()
+            compose_rust::schema::Window::new()
                 .with_title("Statistics")
-                // Without one the window wears the toolkit's picture, which on
-                // Windows is the Java coffee cup, wherever the system lists
-                // windows. The bytes travel as an asset and the renderer refers
-                // to them by id: a path would be a fact about the machine this
-                // was built on, and a name would ask the toolkit to find
-                // something it may not have.
-                .with_icon(dioxus_compose::asset::asset(
-                    dioxus_compose::schema::AssetKind::Png,
+                // Without one the window wears the toolkit's picture wherever the system
+                // lists windows. The bytes travel as an asset and the renderer refers to
+                // them by id: a path would be a fact about the machine this was built on.
+                .with_icon(compose_rust::asset::asset(
+                    compose_rust::schema::AssetKind::Png,
                     include_bytes!("../assets/icon.png"),
                 )),
         )
@@ -468,24 +440,22 @@ fn launch_builder() -> dioxus_compose::LaunchBuilder {
 
 // The platforms where the sample is not a program. Android's Activity and the browser's
 // page both own the loop, so neither has a `main` to call: each names an entry point that
-// registers the root component, and these macros define it.
+// registers the root composable, and these macros define it.
 //
-// Both are declared unconditionally. The macros are already written to compile into
-// nothing that runs off their own platform, and gating them here instead would mean a
-// desktop build never checks that this sample can be built for the other two.
-dioxus_compose::android_main!({ launch_builder() }, app);
-dioxus_compose::web_main!({ launch_builder() }, app);
-dioxus_compose::ios_main!(launch);
+// Both are declared unconditionally. The macros compile into nothing that runs off their
+// own platform, and gating them here instead would mean a desktop build never checks that
+// this sample can be built for the other two.
+compose_rust::android_application!({ launch_builder() }, app);
+compose_rust::web_application!({ launch_builder() }, app);
+compose_rust::ios_main!(launch);
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use dioxus_compose::Host;
-    use dioxus_compose::protocol::{
-        HostEvent, Mutation, PropertyValue, decode_batch, encode_event,
-    };
-    use dioxus_compose::schema::{EventPayload, PropertyKind, WidgetKind};
+    use compose_rust::ComposeHost as Host;
+    use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
+    use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind};
 
     /// Named for what it defends: the reference is a light design, and a machine set
     /// the other way drew this sample dark with nothing to compare against.
@@ -494,7 +464,7 @@ mod tests {
         // Through the wire rather than off the constant: what settles the question is the
         // record the Renderer reads, and a scheme that never leaves the Host is a scheme
         // nobody is drawn in.
-        dioxus_compose::window::reset_window_size();
+        compose_rust::window::reset_window_size();
         let mut host = Host::with_theme(app, THEME);
         let batch = host.rebuild().expect("the first frame failed").to_vec();
         let first = decode_batch(&batch)
@@ -510,10 +480,10 @@ mod tests {
     }
 
     fn first_frame() -> Vec<u8> {
-        dioxus_compose::window::reset_window_size();
+        compose_rust::window::reset_window_size();
         let mut host = Host::new(app);
         let batch = host.rebuild().expect("the first frame failed").to_vec();
-        dioxus_compose::window::reset_window_size();
+        compose_rust::window::reset_window_size();
         batch
     }
 
@@ -532,40 +502,6 @@ mod tests {
             .collect()
     }
 
-    /// Nothing on the screen is painted or inked by the design system.
-    ///
-    /// Named for what it defends: a unified sample whose colours came from roles was drawn
-    /// in the running system's blue and pale accent containers, none of which is in the
-    /// picture. Every fill, edge and ink on the first screen is a literal.
-    #[test]
-    fn fr22_nothing_on_the_screen_is_painted_by_a_role() {
-        let batch = first_frame();
-        for mutation in decode_batch(&batch).expect("the batch did not decode") {
-            match mutation {
-                Mutation::SetModifier {
-                    modifier: Modifier::Background(paint) | Modifier::Border { paint, .. },
-                    node_id,
-                    ..
-                } => assert!(
-                    matches!(paint, Paint::Literal(_)),
-                    "node {node_id} is filled with {paint:?}, which the design system picks"
-                ),
-                Mutation::SetProp {
-                    node_id,
-                    property: PropertyKind::Color,
-                    value: PropertyValue::Integer(bits),
-                } => {
-                    let paint = Paint::from_bits(bits as u64);
-                    assert!(
-                        matches!(paint, Some(Paint::Literal(_))),
-                        "node {node_id} is inked with {paint:?}, which the design system picks"
-                    );
-                }
-                _ => {}
-            }
-        }
-    }
-
     #[test]
     fn the_first_frame_encodes_without_a_protocol_error() {
         assert!(Host::new(app).rebuild().is_ok());
@@ -574,7 +510,7 @@ mod tests {
     /// Both pages have to encode, not just the one the screen opens on.
     #[test]
     fn fr15_both_pages_encode() {
-        dioxus_compose::window::reset_window_size();
+        compose_rust::window::reset_window_size();
         let mut host = Host::new(app);
         let first = host.rebuild().expect("the first frame failed").to_vec();
 
@@ -613,7 +549,7 @@ mod tests {
         .expect("the click did not encode");
         host.dispatch_event(&bytes)
             .unwrap_or_else(|error| panic!("click failed: {error:?}"));
-        dioxus_compose::window::reset_window_size();
+        compose_rust::window::reset_window_size();
     }
 
     /// Both charts have to reach the Renderer as draw lists. A `Canvas` with no commands

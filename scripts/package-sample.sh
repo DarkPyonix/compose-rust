@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# Usage: scripts/package-sample.sh [--stage-only] <sample> <target> <executable> <renderer> <out>
+# Usage: scripts/package-sample.sh [--stage-only] [--renderer <dir>] <sample> <target> <executable> <out>
 #
 #   <sample>      a directory under samples/, e.g. calculator
 #   <target>      macos-aarch64, windows-x64, linux-x64 or linux-arm64
 #   <executable>  the sample's built program
-#   <renderer>    the renderer directory the program was linked against: the `dist/lib`
-#                 a macOS or Linux build leaves, or the whole `dist` a Windows one leaves
 #   <out>         where the finished files go
+#   --renderer    the renderer directory a Windows program was linked against, the whole
+#                 `dist` its build leaves. Only windows-x64 takes it, and it needs it: the
+#                 other three programs carry their renderer inside the executable
 #
 # Turns one built sample into what a person on that platform installs or runs:
 #
@@ -19,35 +20,38 @@
 # sample is restated here, so a sample renamed in its own configuration is renamed in
 # every bundle.
 #
-# The renderer travels inside every bundle as the files it was built as. Each layout below
-# keeps the renderer's directory whole, because the renderer finds its Skia and AWT
-# companions from where it was loaded and reads its font configuration from the `lib`
-# directory beside that. scripts/bundle-renderer.sh then points the program at the copy
-# by a relative path, so nothing in a bundle names the machine that built it.
+# On macOS and Linux the renderer is linked into the executable, so a bundle holds that one
+# file, the icon and the metadata, and nothing in it names the machine that built it. The
+# Windows renderer is still a DLL, so a Windows bundle keeps the renderer's directory whole,
+# because the renderer finds its companions from where it was loaded and reads its font
+# configuration from the `lib` directory beside that.
 #
 # --stage-only lays every bundle out as a directory and stops before the steps that need
-# the platform's own tools: rewriting load commands, signing, and making the image or the
-# package. A layout can then be checked on any machine, which is what
-# scripts/tests/package-sample.test.sh does for all four targets.
+# the platform's own tools: signing, and making the image or the package. A layout can then
+# be checked on any machine, which is what scripts/tests/package-sample.test.sh does for
+# all four targets.
 
 set -euo pipefail
 
 stage_only=0
-if [[ "${1:-}" == "--stage-only" ]]; then
-    stage_only=1
-    shift
-fi
+renderer=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --stage-only) stage_only=1; shift ;;
+        --renderer) renderer="${2:?--renderer needs a directory}"; shift 2 ;;
+        *) break ;;
+    esac
+done
 
-if [[ $# -ne 5 ]]; then
-    sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//' >&2
+if [[ $# -ne 4 ]]; then
+    sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//' >&2
     exit 2
 fi
 
 sample="$1"
 target="$2"
 executable="$3"
-renderer="$4"
-out="$5"
+out="$4"
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -70,7 +74,13 @@ icon="$sample_dir/assets/icon-512.png"
     "Draw it with scripts/make-sample-icons.py. The 64 pixel window icon is too small" \
     "for a Dock tile or a Start menu tile, and stretching it shows."
 [[ -f "$executable" ]] || fail "no executable at $executable"
-[[ -d "$renderer" ]] || fail "no renderer directory at $renderer"
+if [[ "$target" == windows-x64 ]]; then
+    [[ -n "$renderer" && -d "$renderer" ]] || fail "no renderer directory for the Windows program" \
+        "Pass the renderer's dist directory with --renderer."
+elif [[ -n "$renderer" ]]; then
+    fail "--renderer is only for windows-x64" \
+        "The $target program carries its renderer inside the executable."
+fi
 
 # One `key = "value"` from one [section] of a TOML file. The configuration files this
 # reads are flat tables of strings, and a TOML parser is not something every runner has
@@ -137,11 +147,8 @@ stage="$(cd "$stage" && pwd)"
 package_macos() {
     local app="$stage/$name.app"
     local contents="$app/Contents"
-    mkdir -p "$contents/MacOS" "$contents/Frameworks/lib" "$contents/Resources"
+    mkdir -p "$contents/MacOS" "$contents/Resources"
     cp "$executable" "$contents/MacOS/$program"
-    # The renderer's own `lib` directory, carried across whole. Flattened into Frameworks
-    # it starts, loads the renderer, and then fails looking for Contents/lib/libjawt.dylib.
-    cp -R "$renderer/." "$contents/Frameworks/lib/"
     cp "$icon" "$contents/Resources/$name.png"
 
     # NSHighResolutionCapable is what keeps the window sharp. An executable outside a
@@ -203,17 +210,8 @@ PLIST
     iconutil -c icns "$iconset" -o "$contents/Resources/$name.icns"
     rm -rf "$iconset" "$contents/Resources/$name.png"
 
-    "$repo_root/scripts/bundle-renderer.sh" "$contents/MacOS/$program" ../Frameworks/lib
-
-    # Rewriting a load command invalidates the signature the linker left, and Apple
-    # silicon will not start an unsigned program. An ad hoc signature is what the linker
-    # gave it in the first place; libraries first, because signing the bundle seals them.
-    local library
-    while IFS= read -r -d '' library; do
-        if file "$library" | grep -q 'Mach-O'; then
-            codesign --force --sign - "$library"
-        fi
-    done < <(find "$contents/Frameworks" -type f -print0)
+    # Apple silicon will not start an unsigned program. An ad hoc signature needs no
+    # account and is what the linker gave the executable in the first place.
     codesign --force --sign - "$app"
 
     local zip="$out/$sample-$target.app.zip"
@@ -342,11 +340,9 @@ MANIFEST
 package_linux() {
     local appdir="$stage/$name.AppDir"
     local bin="$appdir/usr/bin"
-    mkdir -p "$bin/lib" "$appdir/usr/share/applications" \
+    mkdir -p "$bin" "$appdir/usr/share/applications" \
         "$appdir/usr/share/icons/hicolor/512x512/apps"
     cp "$executable" "$bin/$program"
-    # A `lib` directory beside the program, holding the renderer's own `lib` whole.
-    cp -R "$renderer/." "$bin/lib/"
     cp "$icon" "$appdir/usr/share/icons/hicolor/512x512/apps/$identifier.png"
     cp "$icon" "$appdir/$identifier.png"
     ln -sf "$identifier.png" "$appdir/.DirIcon"
@@ -366,16 +362,14 @@ DESKTOP
 
     cat > "$appdir/AppRun" <<APPRUN
 #!/bin/sh
-# Starts the program from wherever the image was mounted. The program finds the renderer
-# through its own run path, so nothing here sets a library path.
+# Starts the program from wherever the image was mounted. The renderer is inside the
+# program, so nothing here sets a library path.
 here="\$(dirname "\$(readlink -f "\$0")")"
 exec "\$here/usr/bin/$program" "\$@"
 APPRUN
     chmod +x "$appdir/AppRun" "$bin/$program"
 
     [[ $stage_only -eq 1 ]] && return
-
-    "$repo_root/scripts/bundle-renderer.sh" "$bin/$program" lib
 
     local tool="${APPIMAGETOOL:-$(command -v appimagetool || true)}"
     [[ -n "$tool" ]] || fail "appimagetool is not on PATH and APPIMAGETOOL is not set" \

@@ -1,0 +1,66 @@
+# Windows C compile check -- compiles the C the Windows build compiles, with MSVC, on every
+# pull request that touches it. No linking, no native-image, no Kotlin.
+#
+# native-renderer.yml builds the whole Windows renderer, but it takes an hour, so it does not
+# run on pull requests. A C-mode compile error therefore used to surface on real hardware.
+# This job takes under a minute and fails on the pull request instead.
+#
+# The flags are the ones build-native-windows.ps1 passes to cl.exe. If that script changes
+# them or adds a source, change them here as well. The window and the toasts are the Compose
+# fork's extended/window/windows-shared at the pinned WINDOW_REVISION, so moving the pin runs
+# this too.
+
+name: Windows C compile
+
+on:
+  pull_request:
+    paths:
+      - "renderer/desktop/c/**"
+      - "renderer/scripts/build-compose.sh"
+      - "scripts/fetch-fork-window.sh"
+      - ".github/workflows/test-windows-c.yml"
+  workflow_dispatch:
+
+concurrency:
+  # One run per pull request: a new commit cancels the older run. A manual run is never
+  # cancelled.
+  group: test-windows-c-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    name: MSVC compiles the Windows C sources
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Fetch the window's C from the pinned fork commit
+        shell: bash
+        run: |
+          fetched="$(scripts/fetch-fork-window.sh)"
+          echo "WINDOW_C=$(cygpath -w "$fetched/extended/window/windows-shared/c")" >> "$GITHUB_ENV"
+      - name: cl /c each source
+        shell: pwsh
+        run: |
+          $sources = @(
+            (Join-Path "renderer/desktop/c" "renderer_entry.c"),
+            (Join-Path $env:WINDOW_C "win32_window.c"),
+            (Join-Path $env:WINDOW_C "win32_notifications.c")
+          )
+          New-Item -ItemType Directory -Force -Path obj | Out-Null
+          $failed = @()
+          foreach ($path in $sources) {
+            $name = [IO.Path]::GetFileNameWithoutExtension($path)
+            & cl.exe /nologo /c /O2 /std:c11 "/Fo:obj\$name.obj" $path
+            if ($LASTEXITCODE -ne 0) { $failed += $path }
+          }
+          if ($failed.Count -gt 0) {
+            Write-Error "MSVC could not compile: $($failed -join ', ')"
+            exit 1
+          }

@@ -34,17 +34,20 @@ fi
 
 cargo fmt --all -- --check
 cargo clippy --workspace -- -D warnings
+# The token tables are compared with the design systems in the Compose fork, at the commit
+# the renderer is built from. The test reads them from .scratch and fails if they are absent.
+./scripts/fetch-design-systems.sh > /dev/null
 cargo test --workspace
 # The renderer is a default feature, so the run above never builds the crate the way a
 # headless or documentation build gets it. That build has to compile, and the tests that
 # assert it does not quietly pretend to have a renderer only exist in it.
-cargo test -p dioxus-compose --no-default-features
+cargo test -p compose-rust --no-default-features
 # The generated JNI shims are behind cfg(target_os = "android"), so nothing above compiles
 # them. The staleness test proves the checked-in file is what the generator writes; this
 # proves the generator writes something that builds. Skipped where the target is missing,
 # because adding it is a download and this gate is meant to run anywhere.
 if rustup target list --installed | grep -qx aarch64-linux-android; then
-    cargo clippy -p dioxus-compose --target aarch64-linux-android -- -D warnings
+    cargo clippy -p compose-rust --target aarch64-linux-android -- -D warnings
 else
     echo "skipping the Android target (rustup target add aarch64-linux-android)"
 fi
@@ -52,16 +55,23 @@ fi
 # renderer feature is off because a browser links no renderer: the generated web shims
 # install the renderer API from the entry point the page calls.
 if rustup target list --installed | grep -qx wasm32-unknown-unknown; then
-    cargo clippy -p dioxus-compose --no-default-features \
+    cargo clippy -p compose-rust --no-default-features \
+        --target wasm32-unknown-unknown -- -D warnings
+    # The page's entry point is exported by the application, and web_host is the one this
+    # repository builds, so it has to build for the browser too.
+    cargo clippy -p compose-rust --no-default-features --example web_host \
         --target wasm32-unknown-unknown -- -D warnings
 else
     echo "skipping the wasm target (rustup target add wasm32-unknown-unknown)"
 fi
 # What docs.rs does: the feature is on and there is no network to fetch a renderer with.
 # The documentation still has to build.
-DOCS_RS=1 cargo check -p dioxus-compose --all-features
+DOCS_RS=1 cargo check -p compose-rust --all-features
 # --benches restricts the run to Criterion bench targets. Without it cargo also runs the
 # lib's default test harness in bench mode, and that harness rejects Criterion's flags.
+# The workspace has no bench target right now: the Host budget benchmarks drove the Dioxus
+# adapter and moved to dioxus-compose with it. compose-rust's own come with its authoring
+# API (#64), and this line runs them when they land.
 cargo bench --workspace --benches -- "${bench_args[@]}"
 
 if [[ "$skip_kotlin" != "0" ]]; then
@@ -69,9 +79,23 @@ if [[ "$skip_kotlin" != "0" ]]; then
     exit 0
 fi
 
-renderer_gate="$repo_root/dioxus-compose-renderer/scripts/gate-platforms.sh"
+renderer_gate="$repo_root/renderer/scripts/gate-platforms.sh"
 
-cd "$repo_root/dioxus-compose-renderer"
+# The modules built below ask for the Compose fork's artifacts by versions only the fork
+# publishes, to ~/.m2. Resolved before they are there, the toolchain records the failed
+# download in its own cache and keeps failing after they are published, so they are checked
+# before anything runs it: desktop always, macOS and Linux when this machine builds them.
+fork_modules=(desktop)
+gate_builds="$("$renderer_gate" build "$repo_root/renderer")"
+grep -qx macosArm64 <<< "$gate_builds" && fork_modules+=(macos)
+grep -qE '^linux(X64|Arm64)$' <<< "$gate_builds" && fork_modules+=(linux)
+"$repo_root/renderer/scripts/require-fork-artifacts.sh" "${fork_modules[@]}"
+
+# The renderer depends on the Compose fork's window modules as Maven artifacts. Published first,
+# from the commit renderer/scripts/build-compose.sh pins.
+"$repo_root/renderer/scripts/publish-window.sh"
+
+cd "$repo_root/renderer"
 # Which platforms this machine can build, and which it can run tests for. Named rather than
 # left to the default, because three of them need something the machine may not have: the
 # X11 development headers that the Linux window's cinterop compiles against, a device or an
@@ -92,22 +116,3 @@ echo "testing on:   ${test_platforms[*]//--platform /}"
 ./kotlin build "${build_platforms[@]}"
 ./kotlin test "${test_platforms[@]}"
 
-# The design systems are their own Amper project, so they have their own build and their
-# own tests, and nothing here ran either of them. Ten test files, including every rule the
-# Liquid Glass material is checked by, went unrun by the gate that is supposed to be the
-# thing you can believe. Same platform question, asked of that project.
-design_systems="$repo_root/dioxus-design-systems"
-design_build=()
-while read -r platform; do
-    design_build+=(--platform "$platform")
-done < <("$renderer_gate" build "$design_systems")
-design_test=()
-while read -r platform; do
-    design_test+=(--platform "$platform")
-done < <("$renderer_gate" test "$design_systems")
-
-cd "$design_systems"
-echo "design systems, building for: ${design_build[*]//--platform /}"
-echo "design systems, testing on:   ${design_test[*]//--platform /}"
-./kotlin build "${design_build[@]}"
-./kotlin test "${design_test[@]}"

@@ -18,9 +18,9 @@ path = "src/lib.rs"
 crate-type = ["rlib", "cdylib", "staticlib"]
 bench = false
 
+# compose-rust alone: composables, state and the widget composables, and no Dioxus.
 [dependencies]
-dioxus-compose = { path = "../../dioxus-compose" }
-dioxus-hooks.workspace = true
+compose-rust = { path = "../../compose-rust" }
 
 [dev-dependencies]
 sample-frames = { path = "../frames" }
