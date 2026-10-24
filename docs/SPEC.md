@@ -2983,6 +2983,37 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 
 속성 둘(141, 142). 열거형 두 개. 렌더러 쪽에서는 포인터 아래 노드의 `Cursor` 조회와 영역 뿌리의 선택 영역 하나. 노드마다 붙는 비용은 속성이 있을 때만이고, 없는 화면에는 없습니다.
 
+### FR-48 `@font-face`: Host가 글꼴 바이트를 등록하고 글꼴 목록에서 씁니다 (`Draft`, dioxus-compose 소유자 결정 D8, 이슈 #116)
+
+요청한 쪽: dioxus-compose FR-34.5. 아이콘 글꼴(codicon 등)과 `@font-face`로 받은 글꼴을 Host가 한 번 등록하고, 돌려받은 id를 FR-40의 글꼴 목록에 넣고 싶습니다.
+
+**새 경계 진입점도 새 명령도 필요 없습니다.** 길은 이미 있습니다. FR-16.2의 `RegisterAsset`과 `ReleaseAsset`, FR-16.4의 `asset(kind, bytes)`, FR-23.2의 `AssetKind::Font`, FR-40의 `FontRef::Asset(id)`입니다. 이 항목이 하는 일은 그 길이 `@font-face`가 요구하는 모든 경우에 맞는다는 것을 규칙과 수용 기준으로 못 박는 것입니다(PR-2 그대로).
+
+#### 48.1 규칙
+
+1. **등록은 `asset(AssetKind::Font, bytes)`입니다.** 돌려받는 id는 FR-40의 `font` 목록의 `Asset(id)`에 그대로 넣습니다. 같은 바이트는 같은 id입니다(FR-16.4 3). 글꼴 파일이 TrueType, OpenType(`.ttf`, `.otf`), 그리고 그 모음(`.ttc`)인지는 Renderer가 바이트로 알아보며, 그 종류를 `kind`에 따로 싣지 않습니다. WOFF와 WOFF2는 Host가 풀어서 보냅니다(풀기는 CSS 쪽 도구가 하는 일이고 Renderer는 압축을 모릅니다). 알아볼 수 없는 바이트는 `ProtocolError`이고 그 id는 등록되지 않습니다.
+2. **굵기와 기울임은 파일에서 읽습니다.** 한 글꼴 패밀리의 굵기마다 파일이 따로이면 Host가 `@font-face`마다 등록하고, FR-40의 목록에 CSS가 고른 face의 id를 넣습니다. 레코드에 굵기와 기울임 칸을 새로 만들지 않습니다. 가변 글꼴은 `wght` 축을 `font_weight`가 정하는 값으로 씁니다.
+3. **목록의 해석은 FR-40 그대로입니다.** 앞에서부터 처음 해석되는 것을 쓰고, 없는 id는 `ProtocolError`와 함께 다음 항목으로 넘어갑니다. 글꼴에 없는 글자(글리프)는 목록의 다음 글꼴로 넘어가는 것이 CSS의 규칙입니다. 아이콘 글꼴은 사설 영역 글자만 갖고 있어서 이 규칙이 그대로 필요합니다.
+4. **사설 영역(U+E000 이후)도 그 글꼴로 그립니다.** 기본 글꼴 쪽이 먼저 글리프를 낚아채지 않도록, 목록 앞의 글꼴이 글자를 가지고 있으면 그것을 씁니다.
+5. **수명.** 등록한 글꼴은 `ReleaseAsset(id)`까지 살고 Host가 소유합니다(FR-16.2 4). `'static` 바이트를 쓰는 `asset()`(FR-16.4)은 Host가 끝날 때까지 두는 것이 기본이고, 쓰다가 내리고 싶은 경우를 위해 `release_asset(id)`를 작성 API에 둡니다. 새 경계 진입점이 아니라 배치에 `ReleaseAsset`을 싣는 길입니다. 내린 글꼴의 id를 목록에 둔 텍스트는 다음 갱신에서 규칙 3대로 다음 글꼴로 넘어가고 `ProtocolError`가 한 번 옵니다. 글꼴을 내려도 이미 지난 프레임의 그림이 깨지지 않고, 다음 프레임부터 바뀝니다.
+6. **측정과 그리기가 같은 글꼴을 풉니다**(FR-40). 등록한 글꼴이 아직 디코딩 전이어도 측정 호출(PR-2.1)이 그리기와 같은 값을 돌려줍니다. Renderer는 등록 호출 안에서 바이트를 복사하고 글꼴 얼굴을 한 번 만듭니다(FR-16.2 2).
+7. 글꼴 패밀리 이름으로 찾는 길을 만들지 않습니다. 이름 해석은 Host의 `@font-face` 표(CSS)가 하고 Renderer에는 id만 옵니다. `System(name)`은 시스템에 설치된 패밀리용이고 등록한 글꼴과 섞이지 않습니다.
+
+#### 48.2 수용 기준
+
+1. codicon 같은 아이콘 글꼴 바이트를 `asset(AssetKind::Font, ...)`로 등록하고 `font`의 목록 `[Asset(id), Generic(SansSerif)]`을 쓴 텍스트의 사설 영역 한 글자가 그 글꼴로 그려지고 크기가 0이 아닙니다(fr48_registered_icon_font_draws_private_use_glyph, FR-40 기준 2와 같은 확인).
+2. 같은 바이트를 두 번 등록하면 같은 id가 나오고 두 번째 등록은 큐에 들어가지 않습니다(fr48_same_font_bytes_register_once).
+3. 굵기가 다른 두 파일을 등록하고 두 텍스트가 각자의 id를 쓰면 다른 굵기로 그려집니다. 가변 글꼴에 `font_weight` 300과 700을 주면 다른 굵기로 그려집니다(fr48_weight_comes_from_the_font_file).
+4. 글리프가 없는 글자는 목록의 다음 글꼴로 넘어갑니다(fr48_missing_glyph_falls_to_next_font).
+5. `ReleaseAsset` 뒤 그 id를 쓰는 텍스트는 `ProtocolError`와 함께 다음 글꼴로 그려지고 프로세스는 계속 돕니다(fr48_released_font_falls_back_with_protocol_error).
+6. 알아볼 수 없는 바이트는 `ProtocolError`이고 등록되지 않습니다(nfr7_garbage_font_bytes_are_a_protocol_error).
+7. 등록된 글꼴을 쓰는 텍스트의 측정값과 그린 값이 같습니다(FR-40 기준 1을 글꼴 에셋으로 반복, fr48_measure_and_draw_agree_for_registered_font).
+8. 정상 프레임(등록도 해제도 없는)에서 Host 쪽 할당이 0입니다(NFR-9).
+
+#### 48.3 비용
+
+새 레코드도 태그도 없습니다. 스키마 해시가 움직이지 않습니다. 작성 API에 `release_asset(id)` 하나. Renderer는 글꼴 바이트의 형식 판별과 가변 글꼴 축 지정이 필요합니다.
+
 ## 4. 경계 프로토콜
 
 ### PR-1 호출 모델: 동기·동일 스레드 직접 호출 (`Done`)
