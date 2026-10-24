@@ -78,7 +78,7 @@ impl Runtime for Measuring {
         });
     }
 
-    fn render(&mut self) {
+    fn render(&mut self, _frame_time_nanos: Option<u64>) {
         WORK.with(|work| {
             if let Some(work) = work.borrow_mut().as_mut() {
                 work();

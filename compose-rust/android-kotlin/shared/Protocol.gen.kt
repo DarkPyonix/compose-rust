@@ -68,13 +68,6 @@ enum class OverflowWrap { Normal, Anywhere, BreakWord }
 
 enum class GenericFamily { SystemUi, SansSerif, Serif, Monospace }
 
-/**
- * The `TypeRole` property of text with no rung of the ladder at all: CSS text, whose
- * size, weight and font are its own. Present and zero; an absent property is the
- * widget's default rung.
- */
-const val TYPE_ROLE_NONE: Int = 0
-
 enum class AnimatedProperty { Alpha, Color, Background, Transform, BorderColor }
 
 enum class PlaybackDirection { Normal, Reverse, Alternate, AlternateReverse }
@@ -96,6 +89,13 @@ enum class AnimationControl { Pause, Resume, Cancel }
 enum class AnimationEventKind { Ready, Active, Iteration, End }
 
 enum class ReducedMotion { Off, On, Unknown }
+
+/**
+ * The `TypeRole` property of text with no rung of the ladder at all: CSS text, whose
+ * size, weight and font are its own. Present and zero; an absent property is the
+ * widget's default rung.
+ */
+const val TYPE_ROLE_NONE: Int = 0
 
 enum class LoopMode(val wire: Byte) {
     /** The Renderer runs the loop and the Host blocks inside it. Desktop. */
@@ -906,7 +906,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 2900904971925903247L
+    const val SCHEMA_HASH: Long = 7056127032490725870L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
