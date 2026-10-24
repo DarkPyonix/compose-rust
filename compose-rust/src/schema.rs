@@ -2437,40 +2437,40 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // fixed-length records sent whole. Every record carries the document version its
     // range was written against, so a list computed while the reader kept typing still
     // lands where it was meant to.
-    Decorations = 110,
-    SyntaxSpans = 111,
+    Decorations = 100,
+    SyntaxSpans = 101,
     // How many columns a tab advances. Absent leaves it to the design system.
-    TabWidth = 112,
-    OnEditRejected = 113,
-    OnHover = 114,
-    OnSave = 115,
+    TabWidth = 102,
+    OnEditRejected = 103,
+    OnHover = 104,
+    OnSave = 105,
     // One listener for every decoration that can be pressed or accepted. The ids inside
     // the decoration blob are the application's own names for them, not handlers, so the
     // event carries the id and the application tells them apart.
-    OnDecorationClick = 116,
+    OnDecorationClick = 106,
     // The text a page laid out by CSS draws, which takes its letters from its own values
-    // rather than from a rung of the type ladder. 100 opens the block for it.
+    // rather than from a rung of the type ladder. 110 opens the block for it.
     //
     // The fonts to try, in order, for text whose role is `TypeRole::None`: a list of up to
     // eight registered font assets, installed families by name and generic families, as a
     // blob. Text with a role ignores it, because its font is the theme's.
-    Font = 100,
+    Font = 110,
     // Where a line may break, and whether a word too long for its line may be broken
     // inside. The `WordBreak` and `OverflowWrap` roles.
-    WordBreak = 101,
-    OverflowWrap = 102,
+    WordBreak = 111,
+    OverflowWrap = 112,
     // How many spaces' width apart the tab stops are. Absent is eight. A tab advances to
     // the next stop, which only the side that measures the letters can work out.
-    TabSize = 103,
+    TabSize = 113,
     // Whether the sizes are CSS pixels, which the system's font scale does not enlarge.
-    AbsoluteSize = 104,
+    AbsoluteSize = 114,
     // Whether lines wrap at the width they are given. Absent is yes; `false` is CSS
     // `nowrap` and `pre`, whose lines run as long as their text.
-    SoftWrap = 105,
+    SoftWrap = 115,
     // The font each run of a `Text` with no role is set in, as a blob beside `Spans`
     // rather than inside its records: a run record keeps the 36 bytes it has always had,
     // and only text that names fonts carries this at all.
-    SpanFonts = 106,
+    SpanFonts = 116,
 });
 
 #[derive(Clone, Debug, PartialEq)]

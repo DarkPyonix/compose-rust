@@ -1122,7 +1122,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 4907493617292730407L
+    const val SCHEMA_HASH: Long = 2379870722881034395L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1770,20 +1770,20 @@ object Protocol {
         76 -> PropertyKind.Section
         80 -> PropertyKind.Count
         90 -> PropertyKind.Collapsible
-        110 -> PropertyKind.Decorations
-        111 -> PropertyKind.SyntaxSpans
-        112 -> PropertyKind.TabWidth
-        113 -> PropertyKind.OnEditRejected
-        114 -> PropertyKind.OnHover
-        115 -> PropertyKind.OnSave
-        116 -> PropertyKind.OnDecorationClick
-        100 -> PropertyKind.Font
-        101 -> PropertyKind.WordBreak
-        102 -> PropertyKind.OverflowWrap
-        103 -> PropertyKind.TabSize
-        104 -> PropertyKind.AbsoluteSize
-        105 -> PropertyKind.SoftWrap
-        106 -> PropertyKind.SpanFonts
+        100 -> PropertyKind.Decorations
+        101 -> PropertyKind.SyntaxSpans
+        102 -> PropertyKind.TabWidth
+        103 -> PropertyKind.OnEditRejected
+        104 -> PropertyKind.OnHover
+        105 -> PropertyKind.OnSave
+        106 -> PropertyKind.OnDecorationClick
+        110 -> PropertyKind.Font
+        111 -> PropertyKind.WordBreak
+        112 -> PropertyKind.OverflowWrap
+        113 -> PropertyKind.TabSize
+        114 -> PropertyKind.AbsoluteSize
+        115 -> PropertyKind.SoftWrap
+        116 -> PropertyKind.SpanFonts
         27 -> PropertyKind.Progress
         else -> throw ProtocolException("unknown property tag $tag", offset)
     }

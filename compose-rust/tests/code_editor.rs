@@ -102,13 +102,13 @@ fn round_trip(payload: EventPayload<'_>) -> (usize, HostEvent<'static>) {
 #[test]
 fn fr38_code_editor_keeps_its_assigned_tags() {
     assert_eq!(WidgetKind::CodeEditor as u16, 43);
-    assert_eq!(PropertyKind::Decorations as u16, 110);
-    assert_eq!(PropertyKind::SyntaxSpans as u16, 111);
-    assert_eq!(PropertyKind::TabWidth as u16, 112);
-    assert_eq!(PropertyKind::OnEditRejected as u16, 113);
-    assert_eq!(PropertyKind::OnHover as u16, 114);
-    assert_eq!(PropertyKind::OnSave as u16, 115);
-    assert_eq!(PropertyKind::OnDecorationClick as u16, 116);
+    assert_eq!(PropertyKind::Decorations as u16, 100);
+    assert_eq!(PropertyKind::SyntaxSpans as u16, 101);
+    assert_eq!(PropertyKind::TabWidth as u16, 102);
+    assert_eq!(PropertyKind::OnEditRejected as u16, 103);
+    assert_eq!(PropertyKind::OnHover as u16, 104);
+    assert_eq!(PropertyKind::OnSave as u16, 105);
+    assert_eq!(PropertyKind::OnDecorationClick as u16, 106);
     let tag = |name: &str| {
         EVENT_SCHEMA
             .iter()
