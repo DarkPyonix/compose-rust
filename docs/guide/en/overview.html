@@ -79,7 +79,8 @@
         <span class="pill works">Works</span></li>
       <li><strong>No webview, and no bundled JVM.</strong> On the desktop an application is one
         executable that links only the system's own libraries. macOS and Linux build that way from
-        0.0.2, and Windows follows with its Kotlin/Native renderer; see
+        0.0.2. Windows builds that way from a checkout, and the download follows when its
+        Kotlin/Native archive is published; see
         <a href="#platforms">Platforms</a>. <span class="pill partial">Partial</span></li>
     </ul>
 
@@ -104,7 +105,7 @@
         </thead>
         <tbody>
           <tr><td>No webview</td><td>No WKWebView, WebView2 or WebKitGTK, and no Tauri or wry.</td></tr>
-          <tr><td>No bundled JVM</td><td>The renderer is compiled ahead of time with Kotlin/Native and linked into the application's one executable. Windows uses a GraalVM native image until its Kotlin/Native renderer lands. A JVM appears only in the development shell for the renderer itself.</td></tr>
+          <tr><td>No bundled JVM</td><td>The renderer is compiled ahead of time with Kotlin/Native and linked into the application's one executable. Windows downloads a GraalVM native image until its Kotlin/Native archive is published; built from a checkout, it links the Kotlin/Native renderer into one executable already. A JVM appears only in the development shell for the renderer itself.</td></tr>
           <tr><td>No hand-written JNI or cinterop</td><td>Every boundary shim is generated from the Rust schema, so the two sides cannot drift silently.</td></tr>
           <tr><td>UI code lives in Rust</td><td>Kotlin is the renderer's implementation, not a place where you write features.</td></tr>
           <tr><td>Compose-quality text and IME</td><td>No code path bypasses Compose's platform text input.</td></tr>
@@ -195,7 +196,7 @@
           <tr>
             <td>Windows</td>
             <td><span class="pill partial">Builds and starts</span></td>
-            <td>A GraalVM native image, smoke-tested on every renderer change, until the Kotlin/Native renderer makes Windows one executable too (<a href="https://github.com/DarkPyonix/compose-rust/issues/24">#24</a>, in progress).</td>
+            <td>Downloaded: a GraalVM native image, smoke-tested on every renderer change. From a checkout: the Kotlin/Native renderer, linked by MSVC into one executable and checked in CI. It becomes the download once its static archive is published (<a href="https://github.com/DarkPyonix/compose-rust/issues/24">#24</a>).</td>
           </tr>
           <tr>
             <td>iOS</td>

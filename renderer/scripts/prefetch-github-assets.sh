@@ -44,7 +44,7 @@ case "$(uname -s)" in
         fi
         cache_dir="${1:-$win_cache}"
         items=(
-            "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.5%2B8/OpenJDK25U-jdk_x64_windows_hotspot_25.0.5_8.zip|3f354780d9-OpenJDK25U-jdk_x64_windows_hotspot_25.0.5_8.zip"
+            "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.4.1%2B1/OpenJDK25U-jdk_x64_windows_hotspot_25.0.4.1_1.zip|c93db5a50c-OpenJDK25U-jdk_x64_windows_hotspot_25.0.4.1_1.zip"
         )
         ;;
     *)
@@ -73,10 +73,12 @@ done
 # Patch Ktor HTTP client's 8192-character header line limit in any extracted toolchain distributions.
 cli_dir="$(dirname "$cache_dir")/cli"
 if [ -d "$cli_dir" ] && command -v python3 >/dev/null 2>&1; then
+    py_cli_dir="$cli_dir"
+    command -v cygpath >/dev/null 2>&1 && py_cli_dir="$(cygpath -w "$cli_dir")"
     python3 -c "
 import zipfile, os
 
-cli_dir = '$cli_dir'
+cli_dir = r'$py_cli_dir'
 for root, dirs, files in os.walk(cli_dir):
     for f in files:
         if f.startswith('ktor-http-cio') and f.endswith('.jar'):

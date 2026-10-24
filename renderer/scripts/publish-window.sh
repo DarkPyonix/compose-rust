@@ -10,7 +10,8 @@
 # they name are published wherever the fork's desktop Compose is in the local repository, which
 # is every build of the renderer's desktop module, so a Linux or Windows checkout resolves the
 # coordinates that module asks for. native/macos is published on a Mac and native/linux on
-# Linux, because each is built from that system's headers.
+# Linux, because each is built from that system's headers, and windows-shared on Windows, the
+# host the Windows renderer is built on.
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -40,6 +41,9 @@ case "$(uname -s)" in
         if [[ -d "$HOME/.m2/repository/org/thisisthepy/compose/ui/ui-macosarm64" ]]; then
             modules+=(native/macos)
         fi ;;
+    # The Windows window's Kotlin/Native layer, for mingwX64. Its C is compiled by MSVC from
+    # the same fetched checkout (windows-shared/c) by the build that links it.
+    MINGW*|MSYS*|CYGWIN*) modules+=(windows-shared) ;;
 esac
 
 # The fork's project lists every module, and a machine that cannot build one of them lists
@@ -72,6 +76,10 @@ case "$(uname -s)" in
         else
             sed -i.orig 's/^  platforms: \[.*\]$/  platforms: [ jvm ]/' "$window/common/module.yaml"
         fi
+        rm -f "$window/common/module.yaml.orig"
+        ;;
+    MINGW*|MSYS*|CYGWIN*)
+        sed -i.orig 's/^  platforms: \[.*\]$/  platforms: [ jvm, mingwX64 ]/' "$window/common/module.yaml"
         rm -f "$window/common/module.yaml.orig"
         ;;
     *)
