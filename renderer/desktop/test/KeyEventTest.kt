@@ -2,6 +2,7 @@ package dev.darkpyonix.composerust.test
 
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performKeyInput
@@ -161,7 +162,11 @@ class KeyEventTest {
         )
         setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
 
-        onNodeWithTag(nodeTestTag(box)).requestFocus()
+        // A clickable box is a focus target but exposes no RequestFocus semantics action
+        // (only Modifier.focusable does), so it is focused the way a keyboard user does it.
+        onNodeWithTag(nodeTestTag(box)).performKeyInput { pressKey(Key.Tab) }
+        waitForIdle()
+        onNodeWithTag(nodeTestTag(box)).assertIsFocused()
         onNodeWithTag(nodeTestTag(box)).performKeyInput { pressKey(Key.Enter) }
         waitForIdle()
 
