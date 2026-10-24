@@ -129,6 +129,7 @@ if [[ -n "$build_repo" ]]; then
     (
         cd "$out"
         builder --user --force-clean --install-deps-from=flathub \
+            --mirror-screenshots-url=https://dl.flathub.org/media \
             --repo="$build_repo" --install --state-dir="$out/.flatpak-builder" \
             "$out/build" "$manifest"
     )

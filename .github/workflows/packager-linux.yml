@@ -44,6 +44,9 @@ env:
   CALCULATOR_ARM64_URL: https://github.com/DarkPyonix/dioxus-compose/releases/download/sample-v0.1.1/calculator-linux-arm64.tar.gz
   CALCULATOR_ARM64_SHA256: b264dbc9efa2d7dc7e1ff9559743840d63c2aeca01f69a0e6d1ea1da9d97306f
   FLATPAK_RUNTIME: "26.08"
+  # A screenshot for the test listings, pinned to a commit the way a store listing must be
+  # (Ember's large icon; the images are stand-ins, the pinning and mirroring are real).
+  SCREENSHOT_URL: https://raw.githubusercontent.com/DarkPyonix/darkpyonix-ember/faa430a4b75ec45928623130ea2f874b628a7224/src-tauri/icons/128x128@2x.png
   # The renderer release archive, built into the from-source Flatpak so that the step
   # which points an executable at the renderer beside it runs for real.
   RENDERER_URL: https://github.com/DarkPyonix/dioxus-compose/releases/download/v0.0.0/dioxus-compose-renderer-v0.0.0-linux-x64.tar.gz
@@ -260,6 +263,7 @@ jobs:
             --source-path source.tar.gz --cargo-lock Cargo.lock \
             --package packager-linux-demo --bin update-demo \
             --renderer-url "$RENDERER_URL" --renderer-sha256 "$RENDERER_SHA256" \
+            --screenshot "$SCREENSHOT_URL" --screenshot-caption "The demo" \
             --out work/flatpak-src --build work/repo --lint
           id=dev.darkpyonix.compose.UpdateDemo
           flatpak run "$id" --version | tee /dev/stderr | grep -qx "update-demo 1.0.0"
@@ -287,9 +291,10 @@ jobs:
             --source-path source.tar.gz --cargo-lock Cargo.lock \
             --package packager-linux-demo --bin update-demo \
             --renderer-url "$RENDERER_URL" --renderer-sha256 "$RENDERER_SHA256" \
+            --screenshot "$SCREENSHOT_URL" --screenshot-caption "The demo" \
             --out work/flatpak-src
           (cd work/flatpak-src && flatpak-builder \
-            --user --force-clean --state-dir="$PWD/.flatpak-builder" --repo="$PWD/../repo" build "$id.json")
+            --mirror-screenshots-url=https://dl.flathub.org/media --user --force-clean --state-dir="$PWD/.flatpak-builder" --repo="$PWD/../repo" build "$id.json")
           flatpak --user update --noninteractive "$id"
           flatpak run "$id" --version | tee /dev/stderr | grep -qx "update-demo 1.0.1"
           flatpak --user info "$id"
@@ -309,6 +314,7 @@ jobs:
             --exec sample-calculator --icon samples/calculator/assets/icon.png \
             --icon samples/calculator/assets/icon-256.png --version 0.0.0 \
             --prebuilt-path calculator-linux-x64.tar.gz \
+            --screenshot "$SCREENSHOT_URL" --screenshot-caption "The calculator" \
             --out work/flatpak-calculator --build work/repo-calculator --lint
           id=dev.darkpyonix.composerust.samples.calculator
           cat "work/flatpak-calculator/$id.json"
