@@ -57,7 +57,7 @@ pub use boundary::{
     Host, LaunchBuilder, MutationBatch, RendererApi, RuntimeFactory, demo_theme, demo_theme_for,
     install_renderer_api, launch_runtime, request_frame_from_worker,
 };
-pub use brush::{Brush, Stop, brush};
+pub use brush::{Brush, Stop, brush, release_brush};
 pub use design::design_system;
 pub use drawing::{DrawCommand, DrawList, DrawListBuilder};
 pub use input::{FileDrop, KeyEvent, RangeRequest};

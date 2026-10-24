@@ -633,6 +633,7 @@ impl Host {
         crate::asset::drain(|pending| {
             batch.register_asset(pending.asset_id, pending.kind, pending.bytes);
         });
+        crate::asset::drain_releases(|asset_id| batch.release_asset(asset_id));
         crate::message::drain(|message| {
             batch.show_message(
                 message.handler_id,
