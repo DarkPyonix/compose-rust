@@ -38,6 +38,20 @@ internal fun decodeVectorAsset(bytes: ByteArray): VectorDocument? =
 internal fun decodeFontAsset(bytes: ByteArray): FontFamily? =
     FontMgr.default.makeFromData(Data.makeFromBytes(bytes))?.let { FontFamily(Typeface(it)) }
 
+/**
+ * The installed family called [name], or null where this machine has none by that name.
+ *
+ * Asked of the font manager by name, and the face it answers is asked what it actually is:
+ * a manager asked for a name it does not have can answer with a substitute, and a font
+ * list has to move on to its next candidate rather than take that substitute for the one
+ * it named.
+ */
+internal fun systemFontFamily(name: String): FontFamily? {
+    val face = FontMgr.default.matchFamilyStyle(name, org.jetbrains.skia.FontStyle.NORMAL) ?: return null
+    if (!face.familyName.equals(name, ignoreCase = true)) return null
+    return FontFamily(Typeface(face))
+}
+
 /** Draws the document into the whole of the current drawing area. */
 internal fun DrawScope.drawVectorDocument(document: VectorDocument) {
     document.setContainerSize(size.width, size.height)

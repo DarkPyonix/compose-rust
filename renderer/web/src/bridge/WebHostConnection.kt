@@ -6,7 +6,9 @@ import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.LoopMode
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.Protocol
+import dev.darkpyonix.composerust.protocol.MeasureRecords
 import dev.darkpyonix.composerust.runtime.HostConnection
+import dev.darkpyonix.composerust.runtime.RendererMeasure
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.wasm.unsafe.Pointer
@@ -190,6 +192,25 @@ class WebHostConnection private constructor(block: Int) : HostConnection {
          * above it. The anchor is only ever used as a base, never read or written, so it
          * does not matter that its scope has closed by then.
          */
+        /**
+         * Answers a measure call over the Host's two buffers, where they lie in the shared
+         * memory. Both have to be in the Host's region: an address below it is this
+         * module's own allocator's, and reading or writing there would not crash, it would
+         * corrupt something.
+         */
+        internal fun measureAt(requests: Int, length: Int, count: Int, results: Int): Int {
+            if (requests < RUST_REGION_BASE || results < RUST_REGION_BASE || length < 0 || count < 0 ||
+                count > Int.MAX_VALUE / MeasureRecords.RESULT_LENGTH
+            ) {
+                return MeasureRecords.CALL_UNREADABLE
+            }
+            return RendererMeasure.measure(
+                ByteBuffer.wrapPointer(pointerAt(requests), length),
+                count,
+                ByteBuffer.wrapPointer(pointerAt(results), count * MeasureRecords.RESULT_LENGTH),
+            )
+        }
+
         private fun pointerAt(address: Int): Pointer =
             withScopedMemoryAllocator { allocator ->
                 val anchor = allocator.allocate(PROBE_BYTES)
@@ -204,3 +225,11 @@ class WebHostConnection private constructor(block: Int) : HostConnection {
 
 /** A boundary call that returned a non-zero status. Reported, never fatal. */
 class HostCallException(message: String) : RuntimeException(message)
+
+/** What the generated measure export calls. See [WebHostConnection.measureAt]. */
+internal fun measureInSharedMemory(requests: Int, length: Int, count: Int, results: Int): Int =
+    try {
+        WebHostConnection.measureAt(requests, length, count, results)
+    } catch (error: Throwable) {
+        MeasureRecords.CALL_UNREADABLE
+    }

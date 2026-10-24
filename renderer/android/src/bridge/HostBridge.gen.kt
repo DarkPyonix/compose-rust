@@ -68,4 +68,14 @@ fun onFrameRequested() {
     FrameRequests.request()
 }
 
+/**
+ * Called by the Host through JNI to measure, on the UI thread and inside a call this side
+ * made.
+ *
+ * Both buffers are views of the Host's own memory, made for this call and dropped after
+ * it: the requests it wrote and the room for the results it reads back. Nothing is copied.
+ */
+fun onMeasure(requests: ByteBuffer, count: Int, results: ByteBuffer): Int =
+    dev.darkpyonix.composerust.runtime.RendererMeasure.measure(requests, count, results)
+
 private const val FRAME_TAG = "dxc-frame"
