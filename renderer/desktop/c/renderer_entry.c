@@ -602,3 +602,28 @@ void compose_rust_renderer_request_frame(void) {
     }
     compose_rust_renderer_request_frame_impl(thread);
 }
+
+#ifndef __APPLE__
+int32_t dxc_appkit_window_focused(void *window_pointer) {
+    (void)window_pointer;
+    return 0;
+}
+
+int32_t dxc_appkit_process_footprint_mb(void) {
+    return -1;
+}
+
+int32_t dxc_appkit_process_resident_mb(void) {
+    return -1;
+}
+
+int32_t dxc_appkit_metal_allocated_mb(void *device_pointer) {
+    (void)device_pointer;
+    return -1;
+}
+
+void dxc_appkit_footprint_breakdown(int32_t elapsed_s, int32_t is_end) {
+    (void)elapsed_s;
+    (void)is_end;
+}
+#endif
