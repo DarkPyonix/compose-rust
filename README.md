@@ -244,8 +244,7 @@ window.
 ### Shipping a macOS application
 
 `scripts/packager-macos/package-macos` turns the executable `cargo build --release` made into an
-application bundle, using the name, identifier and version your `Dioxus.toml` and
-`Cargo.toml` already state. It needs Python 3.11 and Xcode's command line tools, and no Apple
+application bundle, using the name, identifier and version your `dx` bundle configuration and`Cargo.toml` already state. It needs Python 3.11 and Xcode's command line tools, and no Apple
 developer account.
 
 ```sh

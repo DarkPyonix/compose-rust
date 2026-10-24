@@ -227,7 +227,7 @@ FreeType). 어디로 복사해도 실행됩니다. Windows는 정적 렌더러�
 ### macOS 애플리케이션 배포하기
 
 `scripts/packager-macos/package-macos`는 `cargo build --release`가 만든 실행 파일을 애플리케이션
-번들로 만듭니다. 이름, 식별자, 버전은 `Dioxus.toml`과 `Cargo.toml`에 이미 적힌 것을 씁니다.
+번들로 만듭니다. 이름, 식별자, 버전은 `dx` 번들 설정과 `Cargo.toml`에 이미 적힌 것을 씁니다.
 Python 3.11과 Xcode 명령줄 도구가 필요하고, Apple 개발자 계정은 필요하지 않습니다.
 
 ```sh

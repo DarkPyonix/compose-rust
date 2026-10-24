@@ -1,15 +1,9 @@
-# macOS packaging: the packager's tests, the updater crate's tests, and the rehearsal that
-# installs one version of an application and watches it update itself to the next.
+# macOS packaging: the packager's tests and the updater crate's tests.
 #
-# Everything is signed ad hoc, which is what the project ships without an Apple developer
-# account, and Sparkle trusts an update by its EdDSA signature alone. The rehearsal is the
-# only place the two halves meet a real renderer: it builds the demo against the published
-# dioxus-compose 0.0.0 and the renderer released for it, so nothing here builds the renderer.
-#
-# Its evidence (logs, Info.plists, signatures, the appcast, screenshots) is uploaded as the
-# self-update-evidence artifact whether or not it passed, and the bundles and served site
-# as self-update-bundles, so the same update can be watched on a Mac that built nothing
-# (DEMO_REUSE=1 experiments/self-update/rehearse.sh).
+# The rehearsal that installs one version of an application and watches it update itself
+# to the next is in experiments/self-update on develop. It builds a Dioxus application
+# against the published dioxus-compose, which nothing outside experiments may do, and
+# experiments/ is removed from main, so this workflow no longer runs it.
 
 name: macOS packaging
 
@@ -19,21 +13,19 @@ on:
     paths:
       - 'scripts/packager-macos/**'
       - 'compose-rust/update/**'
-      - 'experiments/self-update/**'
       - 'scripts/bundle-renderer.sh'
       - '.github/workflows/packager-macos.yml'
   pull_request:
     paths:
       - 'scripts/packager-macos/**'
       - 'compose-rust/update/**'
-      - 'experiments/self-update/**'
       - 'scripts/bundle-renderer.sh'
       - '.github/workflows/packager-macos.yml'
   workflow_dispatch:
 
 concurrency:
-  group: packager-macos-${{ github.ref }}
-  cancel-in-progress: true
+  group: packager-macos-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -95,53 +87,3 @@ jobs:
 
       - name: Lint
         run: cargo clippy -p compose-rust-update --all-targets -- -D warnings
-
-  rehearsal:
-    name: Self-update rehearsal (macOS)
-    needs: [packager, updater]
-    runs-on: macos-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install the Rust toolchain
-        run: |
-          rustup toolchain install stable --profile minimal --component clippy
-          rustup default stable
-
-      - name: Rehearse the update
-        timeout-minutes: 25
-        env:
-          DEMO_WORK: ${{ runner.temp }}/self-update
-        run: experiments/self-update/rehearse.sh
-
-      - name: Lint the rehearsal application
-        # After the rehearsal, which fetched the released renderer its build script needs.
-        if: success() || failure()
-        env:
-          DIOXUS_COMPOSE_RENDERER_DIR: ${{ runner.temp }}/self-update/renderer
-        run: |
-          cargo clippy --manifest-path experiments/self-update/app/Cargo.toml -- -D warnings
-          cargo clippy --manifest-path experiments/self-update/app/Cargo.toml --no-default-features -- -D warnings
-
-      - name: Keep the evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: self-update-evidence
-          path: ${{ runner.temp }}/self-update/evidence/
-          if-no-files-found: warn
-
-      - name: Keep the bundles
-        # Zipped by ditto in the script, so the framework's links survive the upload.
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: self-update-bundles
-          path: ${{ runner.temp }}/self-update/bundles/
-          if-no-files-found: warn
-          retention-days: 7

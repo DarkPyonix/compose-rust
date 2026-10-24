@@ -42,7 +42,7 @@ package="$repo/scripts/packager-macos/package-macos"
 app_dir="$repo/experiments/self-update/app"
 evidence="$work/evidence"
 name="Self Update Demo"
-identifier="dev.darkpyonix.dioxus.compose.experiments.selfupdate"
+identifier="dev.darkpyonix.composerust.experiments.selfupdate"
 executable="self-update-demo"
 archive_name="SelfUpdateDemo-2.0.0.zip"
 
