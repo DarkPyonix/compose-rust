@@ -329,7 +329,7 @@ SDD says what to build; TDD is how it gets built. Tests come from SPEC acceptanc
 1. **Red, green, refactor.** Write the failing test first, make it pass with the simplest change, then clean up with the test still green.
 2. **Name tests after the requirement**: `fr4_set_prop_does_not_recompose_siblings`, `pr2_batch_applies_atomically`. A reader should be able to go from a failing test to the SPEC line it defends.
 3. **No production change without a test that would have caught its absence.** A bug fix starts with a test that reproduces the bug.
-4. **Commit order**: the test and the code that makes it pass go in the same commit (the tree must build green at every commit). Say in the commit body which SPEC criterion it covers.
+4. **Commit order**: the test and the code that makes it pass go in the same commit. What merges into `develop` (the pull request head) must pass CI; intermediate commits inside a pull request do not need to build on their own. Say in the commit body which SPEC criterion it covers.
 5. **Test through the public surface**: the Rust crate's API and C exports; the Renderer's interpreter and `HostConnection`. Do not assert on internals that the SPEC does not describe.
 6. **Fakes, not mocks of our own protocol.** Use `FakeHostConnection` and the mock renderer; assert against the checked-in protocol vectors so both sides stay in lockstep.
 7. **Performance is a test too.** §5.1 budgets are benchmarks with recorded numbers, and the allocation ceiling is an assertion, not a note.
