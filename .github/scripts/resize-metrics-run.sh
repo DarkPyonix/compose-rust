@@ -38,6 +38,14 @@ if [[ "$mode" == "soak" ]]; then
     exit 0
 fi
 
+if [[ "$mode" == "idle" ]]; then
+    seconds="${DXC_IDLE_SOAK_SECONDS:-60}"
+    DXC_SYNTH="${DXC_SYNTH:-type}" DXC_IDLE_SOAK_SECONDS="$seconds" DXC_METRICS_BREAKDOWN=1 "$app" > "$log" 2>&1 &
+    # Eight seconds of input and settling, then the idle window, with room for a slow runner.
+    stop $! "idle-soak done" $(( (20 + seconds) * 2 ))
+    exit 0
+fi
+
 DXC_METRICS=1 DXC_METRICS_BREAKDOWN=1 DXC_REPORT_LATENCY=1 "$app" > "$log" 2>&1 &
 # The scripted drag, its settled reading, then the drag made of mouse events and its own.
 stop $! "metrics done" 360

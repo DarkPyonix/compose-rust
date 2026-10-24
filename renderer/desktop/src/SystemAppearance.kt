@@ -7,7 +7,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import org.jetbrains.skiko.SystemTheme
 import org.thisisthepy.compose.window.SystemDarkMonitor
 import org.jetbrains.skiko.currentSystemTheme
@@ -34,9 +36,11 @@ internal fun rememberSystemDark(): State<Boolean> {
     // read through the toolkit-free theme query rather than announced.
     val monitor = remember { SystemDarkMonitor(read = ::systemIsDarkNow, onChange = { state.value = it }) }
     LaunchedEffect(Unit) {
-        while (true) {
-            delay(POLL_INTERVAL_MILLIS)
-            monitor.refresh()
+        withContext(Dispatchers.Default) {
+            while (true) {
+                delay(POLL_INTERVAL_MILLIS)
+                monitor.refresh()
+            }
         }
     }
     return state
