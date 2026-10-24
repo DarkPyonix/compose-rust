@@ -356,8 +356,9 @@ class CodeEditorModel(
     fun lensesByLine(): List<Pair<Int, List<LiveDecoration>>> = decorationList
         .filter { it.kind == DecorationKind.CodeLens }
         .groupBy { it.start.line }
-        .toSortedMap()
-        .map { (line, lenses) -> line to lenses }
+        .entries
+        .sortedBy { it.key }
+        .map { it.key to it.value }
 
     /** The colour runs that touch lines [first] up to, not including, [last]. */
     fun spansInLines(first: Int, last: Int): List<LiveSpan> {
