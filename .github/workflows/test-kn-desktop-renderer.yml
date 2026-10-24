@@ -47,6 +47,7 @@ on:
       - .github/scripts/resize-metrics-run.sh
       - .github/scripts/resize-memory-check.sh
       - .github/scripts/resize-soak-check.sh
+      - .github/scripts/idle-soak-check.sh
       - .github/scripts/vertical-resize-run.sh
       - .github/scripts/vertical-resize-check.sh
       - .github/workflows/test-kn-desktop-renderer.yml
@@ -234,6 +235,19 @@ jobs:
           out="$RUNNER_TEMP/resize-metrics"
           ./.github/scripts/resize-metrics-run.sh "$RUNNER_TEMP/consumer-launch" "$out" soak-macos-kn soak
           { echo "### Kotlin/Native soak"; ./.github/scripts/resize-memory-check.sh --soak "$out/soak-macos-kn.log" "$SOAK_BOUND_MB"; } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Memory and frame count stay flat at rest after typing
+        if: matrix.module == 'macos'
+        env:
+          DXC_IDLE_SOAK_SECONDS: '60'
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/resize-metrics"
+          app=compose-rust/tests/fixtures/consumer/target/release/consumer
+          printf '#!/bin/sh\nexec "%s" --parity\n' "$PWD/$app" > "$RUNNER_TEMP/consumer-idle-launch"
+          chmod +x "$RUNNER_TEMP/consumer-idle-launch"
+          ./.github/scripts/resize-metrics-run.sh "$RUNNER_TEMP/consumer-idle-launch" "$out" idle-macos-kn idle
+          { echo "### Kotlin/Native idle after typing"; ./.github/scripts/idle-soak-check.sh "$out/idle-macos-kn.log" 4 4; } | tee -a "$GITHUB_STEP_SUMMARY"
       - name: The content stays put while the window's height is dragged
         # Drags the bottom edge and then the top edge with mouse events and takes the
         # window's image throughout; a mark drawn at a fixed distance below the top of every

@@ -7,6 +7,7 @@
 package dev.darkpyonix.composerust.ui.platform
 
 import androidx.compose.foundation.ComposeFoundationFlags
+import java.lang.System
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
 import dev.darkpyonix.composerust.runtime.HostConnection
@@ -16,6 +17,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalCursorBlinkEnabled
 import dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver
 import dev.darkpyonix.composerust.ui.node.Asset
 import kotlinx.coroutines.delay
@@ -147,9 +149,12 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
         apply = { picture -> picture.toNSImage()?.let { application.applicationIconImage = it } },
     )
     val iconAsset = asked?.icon ?: 0
+    val cursorBlink = System.getenv("DXC_CURSOR_BLINK")?.let { it != "0" }
+        ?: (System.getenv("DXC_IDLE_SOAK_SECONDS") == null)
     @Suppress("DEPRECATION")
     window.setContent {
         CompositionLocalProvider(
+            LocalCursorBlinkEnabled provides cursorBlink,
             LocalSystemDarkObserver provides { dark.value },
             LocalClipboard provides clipboard,
             LocalClipboardManager provides clipboardManager,
