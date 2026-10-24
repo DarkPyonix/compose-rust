@@ -875,6 +875,8 @@ M0의 위젯 9개는 데모를 굴리는 데 필요했던 만큼이지 설계된
 
 #### 15.2.12 분할 창 (`Draft`)
 
+> **현황(2026-10-25).** develop에 있고 Kotlin 테스트 `fr15_2_12_*`가 19개 있습니다. 상태는 `Draft`로 남습니다. 기준 9의 화면 낭독기 수동 확인이 남았기 때문입니다.
+
 옆 칸과 본문 둘을 나란히 놓고, 그 사이의 경계선을 사용자가 끌어 옆 칸의 폭을 바꾸는 것입니다. 요청한 앱(Ember, AI IDE 클라이언트)은 데스크톱에서 세션 목록과 대화를 두 열로 놓고, 폰에서는 목록을 먼저 보이고 하나를 고르면 대화로 넘어가는 한 열 쌓기로 씁니다.
 
 일곱 시스템 모두에 대응물이 있습니다. Apple은 `NSSplitView`/`NSSplitViewController`(사이드바는 끌어서 폭을 바꾸고 끝까지 밀면 접힙니다)와 iPad의 `UISplitViewController`, Fluent는 `SplitView`와 `TwoPaneView`, GNOME은 `AdwNavigationSplitView`와 `AdwOverlaySplitView`(좁아지면 쌓기나 덮기로 바뀝니다), KDE는 Kirigami의 열 보기와 `QSplitter`, Material 3는 adaptive의 list-detail 창 배치(`ListDetailPaneScaffold`)와 그 끌기 손잡이(`PaneExpansionDragHandle`)입니다. 이름은 Compose에 안정 API로 같은 이름이 없으므로 개념 이름 `SplitPane`을 씁니다.
@@ -2450,7 +2452,7 @@ fn main() {
 
 ### FR-40 HTML 텍스트 속성 (`Agreed`, 진행 중, 이슈 #106)
 
-> **현황(2026-10-04).** develop에는 없습니다. 구현은 초안 PR #110(`feat/measure-call`)에 PR-2.1과 함께 있고 병합되지 않았습니다. 그 경로에서 나온 후속 문제는 #90, #91입니다.
+> **현황(2026-10-25).** develop에 있습니다. PR-2.1과 함께 PR #110(`feat/measure-call`)으로 병합되었습니다. 그 경로에서 나온 후속 문제는 #90, #91입니다. 속성 태그는 FR-40의 텍스트 속성이 110-116(`Font`=110, `WordBreak`=111, `OverflowWrap`=112, `TabSize`=113, `AbsoluteSize`=114, `SoftWrap`=115, `SpanFonts`=116)을 쓰고, 100-109는 `CodeEditor`(FR-38)가 가집니다.
 
 CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 데 필요한 속성입니다. 측정 호출(PR-2.1)의 값이 그려진 값과 같으려면, 그리기도 같은 칸을 같은 뜻으로 받아야 합니다. 노드 단위 글꼴은 역할이 없는 텍스트에만 엽니다(INTENT D20, 2026-10-03 소유자 결정).
 
@@ -2485,7 +2487,7 @@ CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 
 - HTML 화면의 접근성 배율(시스템 글꼴 배율을 `absolute_size` 텍스트에 어떻게 반영할지)은 아직 정하지 않았습니다. 검토 문서를 만들어 소유자가 정합니다. `absolute_size` 칸 자체는 어느 결정에서도 필요합니다.
 ### FR-41 Transform과 렌더러가 재생하는 애니메이션 (`Agreed`, 진행 중, 이슈 #105, PR #83)
 
-> **현황(2026-10-04).** develop에는 없습니다. FR-41.1, 41.2, 41.4는 PR #83(`feat/html-primitives`)에 있고, 그 PR은 PR #74(FR-42)를 포함합니다. 41.4는 FR-39 런타임이 develop에 없어 Dioxus 어댑터에 대고 구현되어 있습니다. 41.3은 `Draft`입니다.
+> **현황(2026-10-25).** FR-41.1, 41.2, 41.4는 develop에 있습니다. PR #83(eeca879a)이 들어왔고, 그 PR은 PR #74(FR-42)를 포함합니다. 41.4는 FR-39 런타임이 develop에 없어 Dioxus 어댑터에 대고 구현되어 있습니다. 41.3은 `Draft`입니다.
 
 요청한 쪽: dioxus-compose FR-34.1(CSS transform 전부, M14 10-18)과 FR-34.2(CSS transition과 animation, 혼합안). 소유자 결정(2026-10-03): `opacity`, `color`, `background-color`, `transform`은 렌더러가 Compose 애니메이션으로 재생하고, 레이아웃 속성은 나중에(M15) Host가 매 프레임 시각을 넘겨 계산합니다. 이 초안은 그중 렌더러 쪽 둘을 compose-rust 스키마에 적습니다.
 
@@ -2824,7 +2826,7 @@ FR-39의 compose-rust API가 같은 레코드를 씁니다. Compose의 이름을
 
 ### FR-42 HTML/CSS 화면을 그리는 원소 (`Agreed`, 진행 중, 이슈 #104, PR #74)
 
-> **현황(2026-10-04).** develop에는 없습니다. 스키마, 코덱, 프로토콜 벡터, 인터프리터 분기는 PR #74(`feat/html-primitives-schema`)에 있고, 그리기 테스트는 후속 PR로 남아 있습니다.
+> **현황(2026-10-25).** develop에 있습니다. 스키마, 코덱, 프로토콜 벡터, 인터프리터 분기는 PR #74(5ffe1144)로, 그리기와 후속 작업은 PR #83(eeca879a)으로 들어왔습니다. 수용 기준이 모두 증명된 것은 아니므로 상태는 그대로 둡니다.
 
 요청한 쪽: dioxus-compose FR-34(M12, 10-15). Host(`blitz-dom`)가 계산한 상자와 텍스트를 Compose로 그리려면, 계산된 결과를 그대로 놓을 수 있는 원소가 필요합니다. M10 측정(dioxus-compose PR #28)에서 상자 배치는 Chromium과 정확히 같았고 텍스트 폭은 허용치를 넘었습니다. 그래서 **상자는 Host가 계산한 자리에 놓고, 텍스트의 크기는 Compose가 잽니다**(PR-2.1). 소유자 승인 2026-10-03.
 
@@ -2888,7 +2890,7 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 
 ### FR-43 확대 배율: OS 글자 크기와 앱 확대 (`Agreed`, 진행 중, 이슈 #68, PR #77)
 
-> **현황(2026-10-04).** develop의 데스크톱 렌더러는 `fontScale`을 1로 고정하고 OS 글자 크기를 읽지 않습니다(#68). PR #77(`feat/desktop-text-scale`)이 데스크톱의 OS 글자 크기를 읽습니다. 앱 확대 수준, `ZoomChanged`, `IslandZoom`은 어느 브랜치에도 없습니다.
+> **현황(2026-10-25).** develop의 데스크톱 렌더러는 `fontScale`을 1로 고정하고 OS 글자 크기를 읽지 않습니다(#68). 창 코드는 포크가 가지므로(FR-19.8) OS 글자 크기 읽기는 포크의 PR #156에 있고, 앱 확대 수준, `ZoomChanged`, `IslandZoom`은 이 저장소의 PR #267에 있습니다. 둘 다 병합되지 않았습니다. 이전 판이 적은 "PR #77이 OS 글자 크기를 읽는다"는 맞지 않습니다.
 
 소유자 결정(2026-10-03): "vscode 기준". VS Code의 `window.zoomLevel`처럼 화면 전체를 확대하고, 시작값은 OS 글자 크기입니다. 검토 문서(HTML 화면의 접근성 배율)의 (e)안입니다.
 
@@ -3009,7 +3011,7 @@ compose_rust_host_dispatch_event: click 1
 
 ### PR-2.1 측정 호출 (`Agreed`, 진행 중, 이슈 #106)
 
-> **현황(2026-10-04).** develop에는 측정 진입점이 없습니다. 구현은 초안 PR #110(`feat/measure-call`)에 FR-40과 함께 있고 병합되지 않았습니다.
+> **현황(2026-10-25).** 측정 진입점은 develop에 있습니다. FR-40과 함께 PR #110(`feat/measure-call`)으로 병합되었습니다.
 
 **무엇을 하나.** Host가 자기 레이아웃을 계산하는 도중에, 텍스트 한 덩이나 이미 보낸 위젯 하나가 주어진 제약 안에서 차지할 크기를 Renderer에게 묻습니다. Renderer는 **그릴 때와 같은 글꼴 해석, 같은 Density와 글꼴 배율, 같은 디자인 시스템 타입 스케일**로 재서 그 자리에서 돌려줍니다. 측정값과 그려진 크기가 같다는 것이 이 호출의 존재 이유입니다.
 
