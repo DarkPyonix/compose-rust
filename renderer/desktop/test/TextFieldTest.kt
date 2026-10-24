@@ -236,7 +236,7 @@ class TextFieldTest {
                 Mutation.Create(box, WidgetKind.Box),
                 Mutation.SetModifier(box, 0, dev.darkpyonix.composerust.protocol.Modifier.Size(300f, 400f)),
                 Mutation.Create(FIELD, WidgetKind.TextField),
-                Mutation.SetProp(FIELD, PropertyKind.Multiline, PropertyValue.Flag(true)),
+                Mutation.SetProp(FIELD, PropertyKind.Multiline, PropertyValue.Bool(true)),
                 Mutation.SetModifier(FIELD, 0, dev.darkpyonix.composerust.protocol.Modifier.FillMaxWidth),
                 Mutation.SetModifier(FIELD, 1, dev.darkpyonix.composerust.protocol.Modifier.FillMaxHeight),
                 Mutation.Insert(box, FIELD, 0),
