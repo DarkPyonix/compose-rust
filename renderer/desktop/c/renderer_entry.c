@@ -629,4 +629,13 @@ int32_t dxc_native_raster_begin(void **pixels, int32_t *row_bytes, int32_t *widt
 
 void dxc_native_raster_end(void) {
 }
+#else
+/*
+ * Answered here and says no soak is running. The resize soak (DXC_RESIZE_SOAK) is the macOS
+ * window's, but the Kotlin that asks for it names it on every desktop, and a name nothing
+ * defines is a link that fails.
+ */
+int32_t dxc_native_soak_state(void) {
+    return 0;
+}
 #endif
