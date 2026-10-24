@@ -833,7 +833,9 @@ mod tests {
     use super::*;
     use compose_rust::ComposeHost;
     use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
-    use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind};
+    use compose_rust::schema::{
+        EventPayload, Modifier as SchemaModifier, PropertyKind, WidgetKind,
+    };
 
     /// Named for what it defends: the reference is a dark design, and a machine set the
     /// other way drew this sample light with nothing to compare against.
@@ -1203,7 +1205,7 @@ mod tests {
         }
         for mutation in screen.mutations() {
             if let Mutation::SetModifier {
-                modifier: Modifier::Background(paint) | Modifier::Border { paint, .. },
+                modifier: SchemaModifier::Background(paint) | SchemaModifier::Border { paint, .. },
                 node_id,
                 ..
             } = mutation
