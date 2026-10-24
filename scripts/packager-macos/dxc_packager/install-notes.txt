@@ -3,11 +3,10 @@ If macOS will not open the app
 
 This app is signed, but not by a developer Apple has verified, so the first time you open
 a copy you downloaded, macOS asks you to confirm. You do this once. After that the app
-opens normally, and the updates it installs itself open without asking again.
+opens normally.
 
 First drag the app into Applications. Opening it straight from the disk image or the
-Downloads folder works too, but macOS then runs it from a hidden temporary copy, where it
-cannot update itself.
+Downloads folder works too, but macOS then runs it from a hidden temporary copy.
 
 macOS 15 (Sequoia) and newer
 ----------------------------

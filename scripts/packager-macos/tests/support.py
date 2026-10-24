@@ -1,6 +1,5 @@
 """Shared helpers for the packager tests."""
 
-import os
 import sys
 import tempfile
 from pathlib import Path
@@ -8,10 +7,6 @@ from pathlib import Path
 PACKAGER = Path(__file__).resolve().parents[1]
 REPOSITORY = PACKAGER.parents[1]
 sys.path.insert(0, str(PACKAGER))
-
-# Where Sparkle's release archive was unpacked, when the run has one. Tests that compare
-# against Sparkle's own tools are skipped without it rather than downloading it.
-SPARKLE_DIR = Path(os.environ["SPARKLE_DIR"]) if os.environ.get("SPARKLE_DIR") else None
 
 
 def project(cargo, dioxus=None, files=()):

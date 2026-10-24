@@ -54,7 +54,7 @@ CATEGORIES = {
     "Weather": "public.app-category.weather",
 }
 
-# The App Store and Sparkle both compare CFBundleVersion as dot separated integers, and App
+# The App Store compares CFBundleVersion as dot separated integers, and App
 # Store Connect refuses anything else, so a version is checked here rather than at upload.
 _BUNDLE_VERSION = re.compile(r"^\d+(\.\d+){0,2}$")
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$")
@@ -141,7 +141,7 @@ def load(manifest_dir, *, executable=None, version=None, build=None):
     if not identifier:
         raise PackagingError(
             f"{manifest_dir}/Dioxus.toml has no [bundle] identifier. The bundle identifier "
-            f"is what macOS, Sparkle and App Store Connect know the application by, so it "
+            f"is what macOS and App Store Connect know the application by, so it "
             f"has to be chosen rather than made up here."
         )
     if not _IDENTIFIER.match(identifier):

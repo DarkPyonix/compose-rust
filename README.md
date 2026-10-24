@@ -248,22 +248,13 @@ application bundle, using the name, identifier and version your `dx` bundle conf
 developer account.
 
 ```sh
-scripts/packager-macos/package-macos keygen --out ~/keys/sparkle.key          # once; keep it safe
-scripts/packager-macos/package-macos app --updater sparkle --manifest-dir . \
-    --executable target/release/my-app --out dist \
-    --feed-url https://example.com/appcast.xml --ed-key-file ~/keys/sparkle.key \
-    --sparkle-framework Sparkle.framework
+scripts/packager-macos/package-macos app --manifest-dir . \
+    --executable target/release/my-app --out dist
 scripts/packager-macos/package-macos dmg --app "dist/My App.app" --out dist/MyApp-1.0.0.dmg
-scripts/packager-macos/package-macos archive --app "dist/My App.app" --out site/MyApp-1.0.0.zip
-scripts/packager-macos/package-macos appcast --appcast site/appcast.xml --app "dist/My App.app" \
-    --archive site/MyApp-1.0.0.zip --url https://example.com/MyApp-1.0.0.zip \
-    --ed-key-file ~/keys/sparkle.key
 ```
 
-The application then updates itself with [Sparkle 2](https://sparkle-project.org): add the
-`compose-rust-update` crate, call `compose_rust_update::start(Default::default())` before
-`launch`, and `check_for_updates()` from a menu item. Every update is checked against the
-EdDSA key the bundle carries; `--updater none` makes a bundle that does not update.
+The bundle carries no update settings: direct distribution is packaged and updated with
+Velopack.
 
 Every bundle is signed ad hoc. Apple silicon needs a signature to run anything, and an ad hoc
 one needs no account, but it does not name a developer Apple has verified, so **macOS asks
@@ -278,8 +269,7 @@ before it opens a downloaded copy for the first time**:
   download mark, and macOS opens it without asking.
 
 Move the app into Applications before the first launch: run from the disk image or Downloads,
-macOS starts a hidden temporary copy that cannot update itself. Updates Sparkle installs open
-without asking again. The disk image carries these steps as `If macOS will not open the
+macOS starts a hidden temporary copy. The disk image carries these steps as `If macOS will not open the
 app.txt`.
 
 

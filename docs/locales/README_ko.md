@@ -231,23 +231,12 @@ FreeType). 어디로 복사해도 실행됩니다. Windows는 정적 렌더러�
 Python 3.11과 Xcode 명령줄 도구가 필요하고, Apple 개발자 계정은 필요하지 않습니다.
 
 ```sh
-scripts/packager-macos/package-macos keygen --out ~/keys/sparkle.key          # 한 번만, 잘 보관
-scripts/packager-macos/package-macos app --updater sparkle --manifest-dir . \
-    --executable target/release/my-app --out dist \
-    --feed-url https://example.com/appcast.xml --ed-key-file ~/keys/sparkle.key \
-    --sparkle-framework Sparkle.framework
+scripts/packager-macos/package-macos app --manifest-dir . \
+    --executable target/release/my-app --out dist
 scripts/packager-macos/package-macos dmg --app "dist/My App.app" --out dist/MyApp-1.0.0.dmg
-scripts/packager-macos/package-macos archive --app "dist/My App.app" --out site/MyApp-1.0.0.zip
-scripts/packager-macos/package-macos appcast --appcast site/appcast.xml --app "dist/My App.app" \
-    --archive site/MyApp-1.0.0.zip --url https://example.com/MyApp-1.0.0.zip \
-    --ed-key-file ~/keys/sparkle.key
 ```
 
-이렇게 만든 애플리케이션은 [Sparkle 2](https://sparkle-project.org)로 스스로 갱신합니다.
-`compose-rust-update` 크레이트를 추가하고, `launch` 전에
-`compose_rust_update::start(Default::default())`를, 메뉴 항목에서 `check_for_updates()`를
-부르면 됩니다. 모든 갱신은 번들이 가진 EdDSA 키로 검증됩니다. `--updater none`은 갱신하지
-않는 번들을 만듭니다.
+번들에는 갱신 설정이 없습니다. 직접 배포는 Velopack으로 패키징하고 갱신합니다.
 
 모든 번들은 임시(ad hoc) 서명됩니다. Apple 실리콘은 서명 없는 코드를 실행하지 않고, 임시
 서명에는 계정이 필요 없습니다. 다만 Apple이 확인한 개발자를 가리키지 않으므로, **내려받은
@@ -261,8 +250,7 @@ scripts/packager-macos/package-macos appcast --appcast site/appcast.xml --app "d
   표시를 지우고, 그러면 macOS가 묻지 않고 엽니다.
 
 처음 실행하기 전에 앱을 응용 프로그램 폴더로 옮기십시오. 디스크 이미지나 다운로드 폴더에서
-실행하면 macOS가 숨겨진 임시 사본을 실행하고, 그 사본은 스스로 갱신할 수 없습니다. Sparkle이
-설치한 갱신은 다시 묻지 않고 열립니다. 디스크 이미지에는 이 절차가
+실행하면 macOS가 숨겨진 임시 사본을 실행합니다. 디스크 이미지에는 이 절차가
 `If macOS will not open the app.txt`로 들어 있습니다.
 
 ### `develop`의 작성 API 쓰기
