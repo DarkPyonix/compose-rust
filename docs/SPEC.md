@@ -2899,20 +2899,20 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 5. `k`가 바뀌어도 `absolute_size` 텍스트의 `fontScale`은 1이고, 크기는 `k`로만 바뀝니다(fr43_absolute_size_ignores_font_scale).
 6. 다섯 플랫폼과 Web에서 기준 1과 2가 통과합니다. macOS는 기준 2만 해당합니다.
 
-### FR-44 시스템 색 구성표가 바뀌었다는 이벤트 (`Draft`, 제안, 소유자 승인 대기, 이슈 #97)
-
-> **제안입니다.** 소유자가 승인하기 전까지 구현하지 않습니다. 이벤트 태그 번호는 승인할 때 정합니다.
+### FR-44 시스템 색 구성표가 바뀌었다는 이벤트 (`Agreed`, 소유자 승인 2026-10-25, 이슈 #97)
 
 `Theme`의 `color_scheme`이 `FollowSystem`이어도 Host는 시스템의 밝음과 어두움이 바뀐 것을 알 수 없습니다. HTML 경로는 `prefers-color-scheme` 미디어 쿼리를 다시 풀고 다시 배치해야 하므로 이 사실이 필요합니다. dioxus-compose의 HTML 다리(`feat/html-compose-bridge`)를 쓰다가 드러났습니다.
 
-제안하는 모양:
-- 새 이벤트 `ColorSchemeChanged`. `ReducedMotionChanged`(FR-41.2)와 `DesignSystemResolved`(FR-32)처럼 노드가 아니라 Host에게 오며, `node_id = 0`, `handler_id = 0`입니다.
-- 페이로드는 `scheme: u32`(0 밝음, 1 어두움)입니다.
-- 시작할 때 한 번, 그 뒤 시스템 값이 바뀔 때마다 옵니다. 같은 값이 연달아 오지 않습니다.
+- 새 이벤트 `ColorSchemeChanged`, 이벤트 태그 41. `ReducedMotionChanged`(FR-41.2)와 `DesignSystemResolved`(FR-32)처럼 노드가 아니라 Host에게 오며, `node_id = 0`, `handler_id = 0`입니다.
+- 페이로드는 `scheme: u32`(0 밝음, 1 어두움)이고, 레코드는 20바이트(머리 16, `scheme@16`)입니다. 모르는 값은 `ProtocolError`입니다.
+- 시작할 때 첫 프레임 전에 한 번, 그 뒤 시스템 값이 바뀔 때마다 옵니다. 같은 값이 연달아 오지 않습니다.
+- 스키마 해시가 바뀌고 `EventPayloadType`이 하나 늘며 프로토콜 벡터에 항목이 하나 더해집니다.
 
-제안하는 수용 기준:
+수용 기준:
 1. OS의 밝음/어두움을 바꾸면 재시작 없이 `ColorSchemeChanged`가 한 번 옵니다(fr44_system_scheme_change_reaches_the_host).
-2. 다섯 플랫폼과 Web에서 기준 1이 통과합니다.
+2. 시작할 때 현재 값이 한 번 오고, 같은 값은 다시 오지 않습니다(fr44_scheme_is_reported_at_start_and_never_repeated).
+3. 레코드가 20바이트이고 프로토콜 벡터와 일치합니다(fr44_color_scheme_event_round_trips).
+4. 다섯 플랫폼과 Web에서 기준 1이 통과합니다. OS 설정을 바꾸는 확인이라 수동입니다.
 
 ### FR-45 노드마다 포커스를 얻은 사건과 키를 뗀 사건 (`Agreed`, 소유자 승인 2026-10-25, 이슈 #98)
 
