@@ -19,7 +19,7 @@ fn u32_at(bytes: &[u8], at: usize) -> u32 {
 }
 
 #[test]
-fn fr35_the_manifest_declares_per_monitor_v2_awareness() {
+fn fr22_6_the_manifest_declares_per_monitor_v2_awareness() {
     // Both elements: `dpiAwareness` is what Windows 10 1607 and later read, `dpiAware`
     // with `/pm` is the fallback for anything older, and the certification kit accepts
     // either.
@@ -35,7 +35,7 @@ fn fr35_the_manifest_declares_per_monitor_v2_awareness() {
 }
 
 #[test]
-fn fr35_the_resource_file_starts_with_the_empty_entry() {
+fn fr22_6_the_resource_file_starts_with_the_empty_entry() {
     let res = manifest_resource(b"<x/>");
     // DataSize 0, HeaderSize 32, type ordinal 0, name ordinal 0, and zeros after. The
     // linker recognises a resource file by exactly these 32 bytes.
@@ -47,7 +47,7 @@ fn fr35_the_resource_file_starts_with_the_empty_entry() {
 }
 
 #[test]
-fn fr35_the_resource_file_holds_the_manifest_as_resource_one() {
+fn fr22_6_the_resource_file_holds_the_manifest_as_resource_one() {
     let manifest = APPLICATION_MANIFEST.as_bytes();
     let res = manifest_resource(manifest);
     let e = 32;
