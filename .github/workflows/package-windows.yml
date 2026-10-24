@@ -10,15 +10,11 @@
 #   stand-in  a tiny windowed program built here, described by the notepad sample's
 #             metadata. It proves the pipeline in minutes and owes nothing to the
 #             renderer.
-#   host      a sample built here from this checkout, against the renderer from that
-#             same release, so that what the crate now puts into every executable (its
-#             application manifest) is in the package the kit inspects. This one has
-#             to pass the kit's DPI awareness check outright.
-#   sample    a real build: the program with the renderer and its companion files
-#             beside it, the shape a compose-rust application ships in. By default the
-#             notepad archive from a published sample release; dispatched with a run id,
-#             an artifact from that run instead (a samples-windows-x64 artifact, or any
-#             build packed the same way).
+#   host      a sample built here from this checkout, against the published renderer
+#             for this crate version (fetched by the crate's build script), so that what
+#             the crate now puts into every executable (its application manifest) is in
+#             the package the kit inspects. This one has to pass the kit's DPI awareness
+#             check outright.
 #
 # Building the renderer is not part of this workflow. It takes most of an hour and a
 # released build is exactly the input the packager is meant to take.
@@ -46,30 +42,6 @@ on:
         description: 'Application directory holding Dioxus.toml and Cargo.toml'
         default: 'samples/notepad'
         type: string
-      payload_url:
-        description: 'URL of a .tar.gz holding a real build (used when no run id is given)'
-        default: 'https://github.com/DarkPyonix/dioxus-compose/releases/download/sample-v0.1.1/notepad-windows-x64.tar.gz'
-        type: string
-      payload_run_id:
-        description: 'Run id whose artifact holds the build to package instead of the URL'
-        default: ''
-        type: string
-      payload_artifact:
-        description: 'Artifact name in that run'
-        default: 'samples-windows-x64'
-        type: string
-      payload_archive:
-        description: 'Archive inside the artifact'
-        default: 'notepad-windows-x64.tar.gz'
-        type: string
-      payload_root:
-        description: 'Directory inside the archive that becomes the package root'
-        default: 'notepad'
-        type: string
-      payload_exe:
-        description: 'The program, relative to that directory'
-        default: 'bin/sample-notepad.exe'
-        type: string
 
 permissions:
   contents: read
@@ -82,10 +54,6 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   PROJECT: ${{ inputs.project || 'samples/notepad' }}
-  PAYLOAD_URL: ${{ inputs.payload_url || 'https://github.com/DarkPyonix/dioxus-compose/releases/download/sample-v0.1.1/notepad-windows-x64.tar.gz' }}
-  PAYLOAD_ARCHIVE: ${{ inputs.payload_archive || 'notepad-windows-x64.tar.gz' }}
-  PAYLOAD_ROOT: ${{ inputs.payload_root || 'notepad' }}
-  PAYLOAD_EXE: ${{ inputs.payload_exe || 'bin/sample-notepad.exe' }}
 
 jobs:
   test:
@@ -119,14 +87,10 @@ jobs:
         run: cargo test --locked -p compose-rust --no-default-features --test windows_manifest
 
   package:
-    name: Package, sign and certify (${{ matrix.payload }})
+    name: Package, sign and certify (stand-in)
     needs: test
     runs-on: windows-latest
     timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        payload: [stand-in, sample]
     steps:
       - uses: actions/checkout@v4
 
@@ -138,22 +102,6 @@ jobs:
       - name: Build the packager and the stand-in program
         run: cargo build --locked --release -p compose-rust-msix --bin compose-rust-msix --example fixture-app
 
-      - name: Fetch the build from a run
-        if: matrix.payload == 'sample' && inputs.payload_run_id != ''
-        uses: actions/download-artifact@v4
-        with:
-          run-id: ${{ inputs.payload_run_id }}
-          name: ${{ inputs.payload_artifact }}
-          path: payload-artifact
-          github-token: ${{ github.token }}
-
-      - name: Fetch the build from a release
-        if: matrix.payload == 'sample' && inputs.payload_run_id == ''
-        run: |
-          $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory -Force -Path payload-artifact | Out-Null
-          Invoke-WebRequest -Uri $env:PAYLOAD_URL -OutFile "payload-artifact\$env:PAYLOAD_ARCHIVE"
-
       - name: Package
         id: pack
         run: |
@@ -161,18 +109,8 @@ jobs:
           $tool = 'target\release\compose-rust-msix.exe'
           $out = Join-Path $env:RUNNER_TEMP 'msix'
           $summary = Join-Path $env:RUNNER_TEMP 'msix-summary.txt'
-          if ('${{ matrix.payload }}' -eq 'sample') {
-            $unpacked = Join-Path $env:RUNNER_TEMP 'payload'
-            New-Item -ItemType Directory -Force -Path $unpacked | Out-Null
-            tar -xzf "payload-artifact\$env:PAYLOAD_ARCHIVE" -C $unpacked
-            if ($LASTEXITCODE -ne 0) { throw "could not unpack $env:PAYLOAD_ARCHIVE" }
-            Get-ChildItem -Recurse (Join-Path $unpacked $env:PAYLOAD_ROOT) | Select-Object -ExpandProperty FullName
-            & $tool --project $env:PROJECT --out $out --summary $summary --test-identity `
-              --payload-dir (Join-Path $unpacked $env:PAYLOAD_ROOT) --exe $env:PAYLOAD_EXE
-          } else {
-            & $tool --project $env:PROJECT --out $out --summary $summary --test-identity `
-              --exe 'target\release\examples\fixture-app.exe'
-          }
+          & $tool --project $env:PROJECT --out $out --summary $summary --test-identity `
+            --exe 'target\release\examples\fixture-app.exe'
           if ($LASTEXITCODE -ne 0) { throw "packaging failed" }
           Get-Content $summary | Add-Content -Path $env:GITHUB_OUTPUT -Encoding utf8
           Get-Content (Join-Path $out 'layout\AppxManifest.xml')
@@ -216,7 +154,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: wack-reports-${{ matrix.payload }}
+          name: wack-reports-stand-in
           path: ${{ runner.temp }}/wack/
           if-no-files-found: warn
 
@@ -224,7 +162,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: msix-packages-${{ matrix.payload }}
+          name: msix-packages-stand-in
           path: |
             ${{ runner.temp }}/msix/*.msix
             ${{ runner.temp }}/msix/*.msixbundle
@@ -244,23 +182,11 @@ jobs:
           rustup toolchain install stable --profile minimal
           rustup default stable
 
-      - name: Fetch a released renderer
-        # The renderer is not built here. The released notepad archive carries the
-        # renderer DLL, its import library and the files AWT reads, which is everything
-        # the crate needs to link a host against. It predates schema hashes, so the build
-        # warns that it cannot tell whether the two agree; the drawing is not what this
-        # job checks, the executable and its manifest are.
-        run: |
-          $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory -Force -Path payload-artifact | Out-Null
-          Invoke-WebRequest -Uri $env:PAYLOAD_URL -OutFile "payload-artifact\$env:PAYLOAD_ARCHIVE"
-          $unpacked = Join-Path $env:RUNNER_TEMP 'renderer'
-          New-Item -ItemType Directory -Force -Path $unpacked | Out-Null
-          tar -xzf "payload-artifact\$env:PAYLOAD_ARCHIVE" -C $unpacked
-          if ($LASTEXITCODE -ne 0) { throw "could not unpack $env:PAYLOAD_ARCHIVE" }
-          Add-Content -Path $env:GITHUB_ENV -Value "COMPOSE_RUST_RENDERER_DIR=$(Join-Path $unpacked $env:PAYLOAD_ROOT)" -Encoding utf8
-
       - name: Build the packager and the notepad sample
+        # COMPOSE_RUST_RENDERER_DIR is left unset on purpose. The crate's build script then
+        # downloads the published Windows renderer for this crate version, the way any
+        # consumer's build does, unpacks it into the user cache, and copies its `bin` and
+        # `lib` beside the executables it builds. The renderer is not built here.
         run: |
           cargo build --locked --release -p compose-rust-msix --bin compose-rust-msix
           if ($LASTEXITCODE -ne 0) { throw "the packager did not build" }
@@ -285,8 +211,12 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $payload = Join-Path $env:RUNNER_TEMP 'host-payload'
           New-Item -ItemType Directory -Force -Path $payload | Out-Null
+          # The build script left the renderer's distribution (`bin` with the DLLs, `lib` with
+          # the files AWT reads) in the profile directory beside the executable.
           foreach ($child in 'bin', 'lib') {
-            Copy-Item -Recurse -Path (Join-Path $env:COMPOSE_RUST_RENDERER_DIR $child) -Destination $payload
+            $source = Join-Path 'target\release' $child
+            if (-not (Test-Path $source)) { throw "the build left no $child beside the sample, so no renderer was linked" }
+            Copy-Item -Recurse -Path $source -Destination $payload
           }
           Copy-Item -Force 'target\release\sample-notepad.exe' (Join-Path $payload 'bin\sample-notepad.exe')
           $out = Join-Path $env:RUNNER_TEMP 'msix'
