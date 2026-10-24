@@ -127,17 +127,21 @@ fun RenderNode(
     RenderNodeObserver.onCompose?.let { observer -> SideEffect { observer(nodeId) } }
     val theme = LocalDesignTheme.current
     val profiled = if (LayoutProfile.enabled) parentModifier.then(LayoutProfile.modifier(node.widget.name)) else parentModifier
-    val chain = profiled
-        .then(node.modifiers.toComposeModifier(nodeId, dispatcher, theme) { table.animations.animated(nodeId) })
-        .testTag(nodeTestTag(nodeId))
+    // The key handler goes ahead of the node's own modifiers. A modifier that makes the node
+    // focusable (a click, say) is a focus target, and a key event reaches only the handlers
+    // outside it on the way down. Placed after it, the handler would see keys from focused
+    // descendants only and never the keys pressed while the node itself has focus.
     // The TextField wires its own key handling, because it has an editor to intercept and a
     // composition to protect; everything else routes keys here.
     val keyDownHandler = node.handler(PropertyKind.OnKeyDown)
-    val withKeys = if (keyDownHandler == null || node.widget == WidgetKind.TextField) {
-        chain
+    val keyed = if (keyDownHandler == null || node.widget == WidgetKind.TextField) {
+        profiled
     } else {
-        chain.hostKeyEvents(nodeId, keyDownHandler, dispatcher)
+        profiled.hostKeyEvents(nodeId, keyDownHandler, dispatcher)
     }
+    val withKeys = keyed
+        .then(node.modifiers.toComposeModifier(nodeId, dispatcher, theme) { table.animations.animated(nodeId) })
+        .testTag(nodeTestTag(nodeId))
     // Only where the node said it is a place files may be dropped. Everywhere else this
     // adds nothing to the chain and the platform shows no drop cursor.
     val modifier = platformFileDrop(withKeys, node, dispatcher)

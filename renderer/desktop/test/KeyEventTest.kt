@@ -14,6 +14,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.Key as ProtocolKey
+import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
@@ -138,6 +139,45 @@ class KeyEventTest {
         assertEquals(
             listOf(HostEvent.TextSubmitted(FIELD, SUBMIT_HANDLER, "")),
             connection.nodeEvents,
+        )
+    }
+
+    /**
+     * A focusable box with `OnKeyDown` receives the keys pressed while the box itself has
+     * focus, not only keys that bubble up from a focused descendant (issue 101). The box has
+     * no children, so the only way a key can reach the handler is through the box's own
+     * focus target.
+     */
+    @Test
+    fun fr12_a_focused_box_receives_its_own_keys() = runComposeUiTest {
+        val box = 2
+        val connection = FakeHostConnection(
+            listOf(
+                Mutation.Create(box, WidgetKind.Box),
+                Mutation.SetModifier(box, 0, ProtocolModifier.Size(40f, 40f)),
+                Mutation.SetModifier(box, 1, ProtocolModifier.Clickable(77L)),
+                Mutation.SetProp(box, PropertyKind.OnKeyDown, PropertyValue.Integer(KEY_HANDLER)),
+            ),
+        )
+        setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+
+        onNodeWithTag(nodeTestTag(box)).requestFocus()
+        onNodeWithTag(nodeTestTag(box)).performKeyInput { pressKey(Key.Enter) }
+        waitForIdle()
+
+        assertEquals(
+            listOf(
+                HostEvent.KeyDown(
+                    nodeId = box,
+                    handlerId = KEY_HANDLER,
+                    key = ProtocolKey.Enter,
+                    shiftKey = false,
+                    ctrlKey = false,
+                    altKey = false,
+                    metaKey = false,
+                ),
+            ),
+            connection.nodeEvents.filterIsInstance<HostEvent.KeyDown>(),
         )
     }
 }
