@@ -2293,6 +2293,53 @@ Notification::new("세션이 끝났습니다")
 6. 저장 단축키가 현재 버전을 담은 저장 이벤트를 보냅니다.
 7. 십만 줄 파일에서 스크롤과 입력의 프레임 시간이 NFR-9 예산 안이고, 수치를 이 항목에 기록합니다.
 8. 일곱 디자인 시스템에서 그려지고 `DesignShowcase`에 나옵니다.
+9. 선택이나 커서가 움직이면 `SelectionChanged`가 Host로 갑니다. 한 프레임 안의 여러 움직임은 마지막 하나로 합칩니다. 좌표는 UTF-16 코드 단위이고 서로게이트 쌍 한가운데를 가리키지 않습니다(fr38_selection_change_reaches_the_host).
+10. `SetSelection`이 선택을 정하고 `RevealRange`가 그 범위를 보이게 스크롤합니다. 문서 밖이거나 시작이 끝보다 뒤인 범위는 그 명령만 버리고 `ProtocolError`를 보냅니다. `base_version`이 오래되었으면 `EditCode`처럼 범위를 옮긴 뒤 적용합니다(fr38_set_selection_and_reveal_range_apply).
+11. 스크롤이나 크기 변화로 보이는 줄 범위가 바뀌면 `VisibleRangeChanged`가 가고, 같은 범위가 연달아 가지 않습니다. 십만 줄 파일의 스크롤 중에도 프레임마다 한 번을 넘지 않습니다(fr38_visible_range_is_reported_once_per_change).
+12. 편집기가 포커스를 얻고 잃을 때 `EditorFocusChanged`가 한 번씩 갑니다(fr38_editor_focus_changes_reach_the_host).
+13. `Folds`로 접을 수 있는 구간을 보내면 그 줄들이 접히고 접힌 줄은 그려지지 않습니다. 사용자가 접거나 펴면 `FoldChanged`가 가고, `SetFolded`로 Host도 접고 폅니다. 접힌 구간 안의 편집, 선택, 장식은 접힌 줄에 가려져도 문서 좌표를 잃지 않습니다(fr38_folded_ranges_hide_lines_and_report_toggles).
+14. `GutterDecorations`가 줄 번호 옆에 그려지고 편집을 따라 움직입니다(기준 4와 같은 규칙). 누르면 `DecorationActivated`가 그 id를 싣고 갑니다(fr38_gutter_decorations_follow_edits_and_activate).
+15. IME 조합이 시작되고 끝날 때 `CompositionChanged`가 한 번씩 갑니다. 조합 중인 글자는 이벤트에 실리지 않고 Renderer에만 있습니다(D5). 조합 중에는 `CodeChanged`가 나가지 않는다는 기준 1은 그대로입니다(fr38_composition_signal_carries_no_text, native-image 수동 확인은 기준 1과 함께 §6 방식으로 기록).
+
+#### 38.9 추가 기능의 와이어 (소유자 승인 2026-10-25, 이슈 #30)
+
+선택과 커서 이벤트, `SetSelection`과 `RevealRange`, 보이는 범위 이벤트, 포커스 이벤트, 접기, 거터 장식, IME 조합 신호를 한 번에 정합니다. 번호를 한꺼번에 잡아 다시 매기지 않게 하는 것이 이유입니다. 경계 진입점은 늘지 않고(PR-2), 레코드는 Rust 스키마에 정의하며 Kotlin 쪽 코덱은 codegen이 만듭니다(FR-7). 스키마 해시가 움직입니다. 38.1의 원칙은 그대로입니다. 커서, 선택, 스크롤, 접힘 상태는 Renderer의 것이고 Host는 알림을 받을 뿐입니다.
+
+- 속성. 38.6의 100-109 블록에 3개가 남아 있어 그 뒤를 채우고, 모자라는 나머지는 15.2.2의 규칙대로 그다음 빈 블록(130-139)을 엽니다. 120-129는 FR-43과 FR-40이 쓰고 있습니다.
+
+| 태그 | 속성 | 값 |
+|---|---|---|
+| 107 | `Folds` | 접을 수 있는 구간 레코드의 블롭 |
+| 108 | `GutterDecorations` | 거터 장식 레코드의 블롭 |
+| 109 | `OnSelectionChange` | 핸들러 id |
+| 130 | `OnVisibleRangeChange` | 핸들러 id |
+| 131 | `OnEditorFocusChange` | 핸들러 id |
+| 132 | `OnFoldChange` | 핸들러 id |
+| 133 | `OnCompositionChange` | 핸들러 id |
+
+- 접을 수 있는 구간 레코드, 16바이트: `version: u32`, `start_line: u32`, `end_line: u32`, `collapsed: u32`(0 또는 1). 접히면 `start_line`만 남고 `start_line + 1`부터 `end_line`까지가 가려집니다.
+- 거터 장식 레코드, 28바이트: `version: u32`, `line: u32`, `kind: u16`(`Dot=1`, `Bar=2`, `Glyph=3`), `color: u16`(`ColorRole`, 0이면 디자인 시스템이 고름), `id: u64`(0이면 누를 수 없음), `glyph: u32`(`Glyph`일 때의 유니코드 스칼라 값), 예약 `u32`.
+- 명령(Mutation), 19 뒤에 덧붙입니다. 18과 19는 FR-41.2가 씁니다.
+
+| 태그 | 명령 | 레코드 |
+|---|---|---|
+| 20 | `SetSelection` | 28바이트: 머리 4, `node_id: u32`, `base_version: u32`, `anchor_line`, `anchor_column`, `active_line`, `active_column`(각 `u32`) |
+| 21 | `RevealRange` | 32바이트: 머리 4, `node_id: u32`, `base_version: u32`, `start_line`, `start_column`, `end_line`, `end_column`(각 `u32`), `align: u32`(`Nearest=1`, `Center=2`, `Top=3`) |
+| 22 | `SetFolded` | 16바이트: 머리 4, `node_id: u32`, `start_line: u32`, `collapsed: u32` |
+
+- 이벤트, FR-43이 가진 33 뒤에 덧붙입니다. 공통 머리 16바이트 뒤에 페이로드가 옵니다.
+
+| 태그 | 이벤트 | 페이로드 |
+|---|---|---|
+| 34 | `SelectionChanged` | 36바이트: `version: u32`, `anchor_line`, `anchor_column`, `active_line`, `active_column`(각 `u32`, UTF-16 열) |
+| 35 | `VisibleRangeChanged` | 28바이트: `version: u32`, `first_line: u32`, `last_line: u32`(보이는 줄, 접힌 줄은 건너뜀) |
+| 36 | `EditorFocusChanged` | 24바이트: `focused: u32`(0 또는 1), 예약 `u32` |
+| 37 | `FoldChanged` | 24바이트: `start_line: u32`, `collapsed: u32` |
+| 38 | `CompositionChanged` | 24바이트: `composing: u32`(0 또는 1), 예약 `u32`. 조합 중인 글자는 싣지 않습니다 |
+
+- `SelectionChanged`는 `CodeChanged`와 같은 버전 계열을 씁니다. 편집이 만든 커서 이동은 변경 이벤트 뒤에 오므로 Host는 선택을 항상 맞는 버전에 대해 읽습니다.
+- `EditorFocusChanged`와 `CompositionChanged`의 값은 닫힌 두 값이고, 모르는 값은 `ProtocolError`입니다.
+- `EventPayloadType`이 다섯 늘고, 나머지 모양은 기존 것을 씁니다.
 
 #### 38.8 일정과 측정 약속 (2026-10-03)
 
