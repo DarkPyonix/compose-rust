@@ -133,6 +133,25 @@ Host 측 규칙:
 - 핸들러 실행 중에 Renderer를 동기로 호출하지 않습니다(재진입 금지). 상태만 바꾸고 프레임 요청으로 넘깁니다.
 - 수용 기준: 멀티라인 TextField에서 Enter는 제출되고 줄바꿈이 생기지 않으며, Shift+Enter는 줄바꿈만 생기고 제출되지 않습니다. 한글 조합 중 Enter는 조합만 확정합니다.
 
+#### 12.1 모든 키를 Host로 보냅니다 (소유자 승인 2026-10-25, 이슈 #100)
+
+지금 Host가 받는 키는 Enter 하나입니다. DOM의 `onkeydown`을 HTML 경로에서 쓰려면 눌린 모든 키가 필요합니다. 새 이벤트 태그 없이 기존 `KeyDown`(이벤트 태그 6)의 페이로드를 넓힙니다.
+
+- 고정 20바이트 레코드를 머리와 길이 붙은 문자열 꼬리로 바꿉니다. 문자열 꼬리는 `TextChanged`와 같은 규약입니다(PR-4).
+- 새 칸:
+  - `code: u32`. 물리 키이고 USB HID usage 값입니다. 배열이 달라도 같은 자리의 키는 같은 값입니다.
+  - `text`. DOM `key` 문자열입니다(`"ArrowDown"`, `"a"`). 길이 붙은 문자열이고 꼬리에 놓입니다.
+  - `repeat: bool`. 누르고 있어서 반복된 이벤트면 참입니다.
+- 수정자 네 개(`shift`, `ctrl`, `alt`, `meta`)는 그대로입니다. 기존 `key: Key` 열거형도 유지합니다.
+- 스키마 해시가 바뀝니다. `KeyDown` 페이로드가 고정 길이가 아니게 되므로 프로토콜 벡터와 생성 코덱이 다시 만들어집니다.
+
+수용 기준:
+1. 방향키, Escape, Tab, 문자 키를 누르면 각각 올바른 `code`와 `text`로 `KeyDown`이 옵니다(fr12_every_key_reaches_the_host_with_code_and_text).
+2. 키를 누르고 있으면 첫 이벤트만 `repeat = false`이고 나머지는 `true`입니다(fr12_held_key_marks_repeat).
+3. IME 조합 중에는 어떤 키도 Host로 가지 않습니다. 기존 규칙 그대로입니다(fr12_no_key_reaches_the_host_during_composition).
+4. 핸들러가 소비한 키는 이전처럼 Renderer가 처리하지 않습니다(fr12_consumed_key_is_not_handled_by_the_renderer).
+5. `KeyDown`의 `text`가 레코드 밖을 가리키면 `ProtocolError`이고 프로세스는 계속 돕니다(nfr7_malformed_key_down_text_is_a_protocol_error).
+
 ### FR-10 Modifier 값 모델 (`Done`)
 Modifier는 값 리스트로 직렬화합니다. 예: `[Padding(16), FillMaxWidth, Background(argb), Clickable(handler_id)]`. Renderer는 이를 `Modifier` 체인으로 재구성합니다.
 - 수용 기준: 스키마의 모든 Modifier 변형이 인코딩 후 디코딩해도 같습니다(`fr10_every_modifier_variant_in_the_vector_round_trips`). **(통과)**
@@ -2895,20 +2914,20 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 1. OS의 밝음/어두움을 바꾸면 재시작 없이 `ColorSchemeChanged`가 한 번 옵니다(fr44_system_scheme_change_reaches_the_host).
 2. 다섯 플랫폼과 Web에서 기준 1이 통과합니다.
 
-### FR-45 노드마다 포커스를 얻은 사건과 키를 뗀 사건 (`Draft`, 제안, 소유자 승인 대기, 이슈 #98)
-
-> **제안입니다.** 소유자가 승인하기 전까지 구현하지 않습니다. 이벤트 태그 번호는 승인할 때 정합니다.
+### FR-45 노드마다 포커스를 얻은 사건과 키를 뗀 사건 (`Agreed`, 소유자 승인 2026-10-25, 이슈 #98)
 
 지금 노드 이벤트에는 `OnFocusLost`(8)와 `OnKeyDown`(9)만 있습니다. DOM의 `onfocus`, `onfocusin`, `onkeyup`은 대응하는 원천 사건이 없어 HTML 경로에서 결코 일어나지 않습니다. dioxus-compose의 HTML 다리를 쓰다가 드러났습니다.
 
-제안하는 모양:
 - 새 노드 이벤트 `OnFocusGained`. 그 노드나 그 하위가 포커스를 얻을 때 옵니다. 페이로드는 없습니다.
-- 새 노드 이벤트 `OnKeyUp`. `OnKeyDown`과 같은 페이로드(키, 수정자)를 싣고, 키를 뗄 때 옵니다.
+- 새 노드 이벤트 `OnKeyUp`. FR-12.1의 `KeyDown`과 같은 페이로드(`code`, `text`, 수정자, `repeat`)를 싣고, 키를 뗄 때 옵니다.
 - 둘 다 핸들러가 등록된 노드에만 보냅니다. 등록이 없으면 경계를 건너지 않습니다.
+- 번호. 핸들러 속성은 `OnFocusGained` 117, `OnKeyUp` 118입니다(15.2.2의 규칙대로 FR-40의 110-116 뒤입니다). 이벤트 태그는 FocusGained 39, KeyUp 40입니다. 33은 FR-43의 `ZoomChanged`가, 34-38은 FR-38.9가 가집니다.
+- 스키마 해시가 바뀝니다.
 
-제안하는 수용 기준:
+수용 기준:
 1. 포커스를 받은 `TextField`가 `OnFocusGained`를 한 번 보내고, 포커스를 잃으면 `OnFocusLost`를 보냅니다(fr45_focus_gained_and_lost_pair).
-2. 키 하나를 눌렀다 떼면 `OnKeyDown` 다음에 같은 키의 `OnKeyUp`이 옵니다(fr45_key_up_follows_key_down).
+2. 키 하나를 눌렀다 떼면 `OnKeyDown` 다음에 같은 `code`의 `OnKeyUp`이 옵니다(fr45_key_up_follows_key_down).
+3. 핸들러가 없는 노드에는 두 이벤트 모두 경계를 건너지 않습니다(fr45_unregistered_nodes_get_no_events).
 
 ## 4. 경계 프로토콜
 
