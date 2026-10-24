@@ -69,13 +69,6 @@ impl Destination {
             Destination::Profile => IconRole::Settings,
         }
     }
-
-    fn index(self) -> usize {
-        Self::STRIP
-            .iter()
-            .position(|found| *found == self)
-            .unwrap_or(0)
-    }
 }
 
 /// The two steps of the check-in.
@@ -213,6 +206,7 @@ fn worry_step(picked: MutableState<Vec<&'static str>>, on_skip: Action, on_next:
             Text("What's worrying you?")
                 .type_role(TypeRole::Headline)
                 .text_align(TextAlign::Center)
+                .color(Paint::Literal(palette::INK))
                 .modifier(Modifier.fill_max_width());
 
             Column()
@@ -226,16 +220,25 @@ fn worry_step(picked: MutableState<Vec<&'static str>>, on_skip: Action, on_next:
                                 .space_role(SpaceRole::Sm)
                                 .content(|| {
                                     for worry in row.iter().copied() {
-                                        let variant = if chosen.contains(&worry) {
-                                            ButtonVariant::Filled
+                                        // Chosen worries are the accent with the page's black
+                                        // on them, the rest the quiet grey the feelings'
+                                        // strip uses.
+                                        let (background, ink) = if chosen.contains(&worry) {
+                                            (palette::ACCENT, palette::ON_MOOD)
                                         } else {
-                                            ButtonVariant::Tonal
+                                            (palette::CHIP, palette::INK)
                                         };
                                         let list = picked.clone();
                                         key(worry, || {
                                             Button(worry)
-                                                .variant(variant)
-                                                .modifier(Modifier.weight(1.0))
+                                                .variant(ButtonVariant::Filled)
+                                                .color(Paint::Literal(ink))
+                                                .modifier(
+                                                    Modifier
+                                                        .weight(1.0)
+                                                        .shape_role(ShapeRole::Full)
+                                                        .background(Paint::Literal(background)),
+                                                )
                                                 .on_click(move || {
                                                     list.update(|list| {
                                                         match list
@@ -266,11 +269,18 @@ fn worry_step(picked: MutableState<Vec<&'static str>>, on_skip: Action, on_next:
                     let skip = Rc::clone(&on_skip);
                     Button("Skip")
                         .variant(ButtonVariant::Text)
+                        .color(Paint::Literal(palette::INK))
                         .on_click(move || skip());
                     let next = Rc::clone(&on_next);
                     Button("Next")
                         .variant(ButtonVariant::Filled)
-                        .modifier(Modifier.weight(1.0))
+                        .color(Paint::Literal(palette::PAGE))
+                        .modifier(
+                            Modifier
+                                .weight(1.0)
+                                .shape_role(ShapeRole::Full)
+                                .background(Paint::Literal(palette::INK)),
+                        )
                         .on_click(move || next());
                 });
         });
@@ -312,8 +322,14 @@ fn checked_in(chosen: Mood, worries: Vec<&'static str>, again: Action) {
                         .text_align(TextAlign::Center);
                 });
             Button("Check in again")
-                .variant(ButtonVariant::Tonal)
-                .modifier(Modifier.fill_max_width())
+                .variant(ButtonVariant::Filled)
+                .color(Paint::Literal(palette::INK))
+                .modifier(
+                    Modifier
+                        .fill_max_width()
+                        .shape_role(ShapeRole::Full)
+                        .background(Paint::Literal(palette::CHIP)),
+                )
                 .on_click(move || again());
             Spacer().modifier(Modifier.weight(1.0));
         });
@@ -352,8 +368,15 @@ fn session_card(session: &Session) {
                         .type_role(TypeRole::Label)
                         .color(Paint::Literal(ink));
                     Spacer().modifier(Modifier.weight(1.0));
+                    // A white disc on the pastel, as the reference draws its play keys.
                     Button("\u{25b6}")
                         .variant(ButtonVariant::Filled)
+                        .color(Paint::Literal(palette::ON_MOOD))
+                        .modifier(
+                            Modifier
+                                .shape_role(ShapeRole::Full)
+                                .background(Paint::Literal(palette::INK)),
+                        )
                         .on_click(not_playable);
                 });
         });
@@ -366,14 +389,21 @@ fn listen_page() {
         .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
         .space_role(SpaceRole::Md)
         .content(|| {
-            Text("Hello, Paul").type_role(TypeRole::Headline);
+            Text("Hello, Paul")
+                .type_role(TypeRole::Headline)
+                .color(Paint::Literal(palette::INK));
             TextField()
-                .modifier(Modifier.fill_max_width())
+                .modifier(
+                    Modifier
+                        .fill_max_width()
+                        .background(Paint::Literal(palette::CARD))
+                        .shape_role(ShapeRole::Full),
+                )
                 .placeholder("Search");
 
             Text("Picked for today")
                 .type_role(TypeRole::Label)
-                .color(Paint::Role(ColorRole::OnSurfaceVariant));
+                .color(Paint::Literal(palette::MUTED));
             LazyRow()
                 .modifier(Modifier.fill_max_width().height(CARD_HEIGHT))
                 .content(|list| {
@@ -395,9 +425,14 @@ fn listen_page() {
 
             Text("Special for you")
                 .type_role(TypeRole::Label)
-                .color(Paint::Role(ColorRole::OnSurfaceVariant));
-            Surface()
-                .modifier(Modifier.fill_max_width().shape_role(ShapeRole::Large))
+                .color(Paint::Literal(palette::MUTED));
+            Column()
+                .modifier(
+                    Modifier
+                        .fill_max_width()
+                        .background(Paint::Literal(palette::CARD))
+                        .shape_role(ShapeRole::Large),
+                )
                 .content(|| {
                     Column().modifier(Modifier.fill_max_width()).content(|| {
                         for (index, session) in SESSIONS.iter().enumerate() {
@@ -425,18 +460,25 @@ fn special_row(session: &'static Session, separated: bool) {
                     .content(|| {
                         Text(session.title)
                             .type_role(TypeRole::Body)
+                            .color(Paint::Literal(palette::INK))
                             .max_lines(1)
                             .overflow(TextOverflow::Ellipsis);
                         Text(format!("{} min \u{00b7} {}", session.minutes, session.when))
                             .type_role(TypeRole::Caption)
-                            .color(Paint::Role(ColorRole::OnSurfaceVariant));
+                            .color(Paint::Literal(palette::MUTED));
                     });
                 Button("\u{25b6}")
-                    .variant(ButtonVariant::Tonal)
+                    .variant(ButtonVariant::Filled)
+                    .color(Paint::Literal(palette::ON_MOOD))
+                    .modifier(
+                        Modifier
+                            .shape_role(ShapeRole::Full)
+                            .background(Paint::Literal(palette::ACCENT)),
+                    )
                     .on_click(not_playable);
             });
         if separated {
-            Separator(None);
+            Separator(Some(Paint::Literal(palette::CHIP)));
         }
     });
 }
@@ -448,7 +490,9 @@ fn library_page() {
         .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
         .space_role(SpaceRole::Md)
         .content(|| {
-            Text("Library").type_role(TypeRole::Headline);
+            Text("Library")
+                .type_role(TypeRole::Headline)
+                .color(Paint::Literal(palette::INK));
             Column()
                 .modifier(Modifier.fill_max_width())
                 .space_role(SpaceRole::Sm)
@@ -469,6 +513,7 @@ fn library_page() {
                                     Column().modifier(Modifier.weight(1.0)).content(|| {
                                         Text(session.title)
                                             .type_role(TypeRole::Body)
+                                            .color(Paint::Literal(palette::INK))
                                             .max_lines(1)
                                             .overflow(TextOverflow::Ellipsis);
                                         Text(format!(
@@ -476,7 +521,7 @@ fn library_page() {
                                             session.minutes, session.when
                                         ))
                                         .type_role(TypeRole::Caption)
-                                        .color(Paint::Role(ColorRole::OnSurfaceVariant));
+                                        .color(Paint::Literal(palette::MUTED));
                                     });
                                 });
                         });
@@ -500,7 +545,9 @@ fn profile_page(chosen: Mood) {
                 .content(|| {
                     Image(asset(AssetKind::Svg, chosen.picture()))
                         .modifier(Modifier.size(96.0, 96.0));
-                    Text("Paul Wilson").type_role(TypeRole::Title);
+                    Text("Paul Wilson")
+                        .type_role(TypeRole::Title)
+                        .color(Paint::Literal(palette::INK));
                     Text(chosen.label())
                         .type_role(TypeRole::Label)
                         .color(Paint::Literal(ink))
@@ -512,10 +559,11 @@ fn profile_page(chosen: Mood) {
                         );
                 });
 
-            Surface()
+            Column()
                 .modifier(
                     Modifier
                         .fill_max_width()
+                        .background(Paint::Literal(palette::CARD))
                         .shape_role(ShapeRole::Large)
                         .padding_role(SpaceRole::Md),
                 )
@@ -526,39 +574,54 @@ fn profile_page(chosen: Mood) {
                         .content(|| {
                             Text("This week")
                                 .type_role(TypeRole::Label)
-                                .color(Paint::Role(ColorRole::OnSurfaceVariant));
+                                .color(Paint::Literal(palette::MUTED));
                             Canvas(week_line(
                                 CHART.0,
                                 CHART.1,
-                                ColorRole::OnSurfaceVariant,
-                                ColorRole::Primary,
+                                palette::MUTED,
+                                palette::ACCENT,
                             ))
                             .modifier(Modifier.size(CHART.0, CHART.1));
                         });
                 });
 
-            // The quote card, which is the one place on the screen where a paragraph sits
-            // on an accent fill rather than on a reading surface.
+            // The quote card. The reference draws it as a dark card with the quotation
+            // mark on a small tile of the accent, not as a panel of an accent container:
+            // that came out of the running design system as a pale lilac the picture does
+            // not have anywhere.
+            Row()
+                .modifier(
+                    Modifier
+                        .fill_max_width()
+                        .background(Paint::Literal(palette::CARD))
+                        .shape_role(ShapeRole::Large)
+                        .padding_role(SpaceRole::Md),
+                )
+                .space_role(SpaceRole::Md)
+                .alignment(Alignment::CenterStart)
+                .content(|| {
+                    Text("\u{201c}")
+                        .type_role(TypeRole::Title)
+                        .color(Paint::Literal(palette::ON_MOOD))
+                        .modifier(
+                            Modifier
+                                .background(Paint::Literal(palette::ACCENT))
+                                .shape_role(ShapeRole::Small)
+                                .padding_role(SpaceRole::Sm),
+                        );
+                    Text("Every day is a new opportunity for growth and positive change.")
+                        .type_role(TypeRole::Body)
+                        .color(Paint::Literal(palette::INK))
+                        .modifier(Modifier.weight(1.0));
+                });
+
             Column()
                 .modifier(
                     Modifier
                         .fill_max_width()
-                        .background(Paint::Role(ColorRole::PrimaryContainer))
-                        .shape_role(ShapeRole::Large)
-                        .padding_role(SpaceRole::Md),
+                        .background(Paint::Literal(palette::CARD))
+                        .shape_role(ShapeRole::Large),
                 )
-                .space_role(SpaceRole::Xs)
-                .content(|| {
-                    Text("\u{201c}")
-                        .type_role(TypeRole::Display)
-                        .color(Paint::Role(ColorRole::OnPrimaryContainer));
-                    Text("Every day is a new opportunity for growth and positive change.")
-                        .type_role(TypeRole::Body)
-                        .color(Paint::Role(ColorRole::OnPrimaryContainer));
-                });
-
-            Surface()
-                .modifier(Modifier.fill_max_width().shape_role(ShapeRole::Large))
                 .content(|| {
                     Column().modifier(Modifier.fill_max_width()).content(|| {
                         for (index, entry) in
@@ -581,13 +644,14 @@ fn settings_row(entry: &'static str, separated: bool) {
             .content(|| {
                 Text(entry)
                     .type_role(TypeRole::Body)
+                    .color(Paint::Literal(palette::INK))
                     .modifier(Modifier.weight(1.0));
                 Text("\u{203a}")
                     .type_role(TypeRole::Body)
-                    .color(Paint::Role(ColorRole::OnSurfaceVariant));
+                    .color(Paint::Literal(palette::MUTED));
             });
         if separated {
-            Separator(None);
+            Separator(Some(Paint::Literal(palette::CHIP)));
         }
     });
 }
@@ -614,6 +678,42 @@ fn page(
         Destination::Library => library_page(),
         Destination::Profile => profile_page(chosen.get()),
     }
+}
+
+/// The bar along the bottom: four icons and nothing else.
+///
+/// Drawn here rather than declared as a `Navigation`, which is the widget for "the
+/// destinations, in whatever shape this design system and this window call for": a
+/// labelled bar with a selection pill, in the running system's accent. This design marks
+/// the destination you are on with its own colour, so the bar is the sample's to draw.
+#[composable]
+fn bottom_bar(destination: Destination, on_go: Rc<dyn Fn(Destination)>) {
+    Row()
+        .modifier(
+            Modifier
+                .fill_max_width()
+                .background(Paint::Literal(palette::PAGE))
+                .padding_role(SpaceRole::Sm),
+        )
+        .arrangement(Arrangement::SpaceAround)
+        .alignment(Alignment::Center)
+        .content(|| {
+            for choice in Destination::STRIP {
+                let tint = if choice == destination {
+                    palette::ACCENT
+                } else {
+                    palette::MUTED
+                };
+                let go = Rc::clone(&on_go);
+                key(choice.label(), || {
+                    Button("")
+                        .icon(choice.icon())
+                        .variant(ButtonVariant::Text)
+                        .color(Paint::Literal(tint))
+                        .on_click(move || go(choice));
+                });
+            }
+        });
 }
 
 #[composable]
@@ -645,18 +745,11 @@ pub fn app() {
     Scaffold()
         .modifier(Modifier.background(Paint::Literal(palette::PAGE)))
         .bottom_bar(|| {
-            Navigation(current.index())
-                .modifier(Modifier.background(Paint::Literal(palette::PAGE)))
-                .content(|| {
-                    for choice in Destination::STRIP {
-                        let go = destination.clone();
-                        key(choice.label(), || {
-                            NavigationItem(choice.label())
-                                .icon(choice.icon())
-                                .on_click(move || go.set(choice));
-                        });
-                    }
-                });
+            let on_go: Rc<dyn Fn(Destination)> = {
+                let destination = destination.clone();
+                Rc::new(move |choice: Destination| destination.set(choice))
+            };
+            bottom_bar(current, on_go);
         })
         .content(|| {
             Column()
@@ -834,6 +927,64 @@ mod tests {
             true
         }
 
+        /// Presses a destination along the bottom, which is an icon with no words.
+        fn press_icon(&mut self, icon: IconRole) -> bool {
+            let found = {
+                let mutations = self.mutations();
+                let node = mutations.iter().rev().find_map(|mutation| match mutation {
+                    Mutation::SetProp {
+                        node_id,
+                        property: PropertyKind::Icon,
+                        value: PropertyValue::Integer(value),
+                    } if *value == icon as i64 => Some(*node_id),
+                    _ => None,
+                });
+                node.and_then(|node| {
+                    mutations.iter().rev().find_map(|mutation| match mutation {
+                        Mutation::SetProp {
+                            node_id,
+                            property: PropertyKind::OnClick,
+                            value: PropertyValue::Integer(handler),
+                        } if *node_id == node => Some((node, *handler as u64)),
+                        _ => None,
+                    })
+                })
+            };
+            let Some((node_id, handler_id)) = found else {
+                return false;
+            };
+            let mut bytes = Vec::new();
+            encode_event(
+                &HostEvent {
+                    node_id,
+                    handler_id,
+                    payload: EventPayload::Clicked,
+                },
+                &mut bytes,
+            )
+            .expect("the click did not encode");
+            let (batch, _) = self.host.dispatch_event(&bytes).expect("the click failed");
+            if !batch.is_empty() {
+                self.frames.push(batch.to_vec());
+            }
+            true
+        }
+
+        /// Every colour the screen set as a property, as the paint it decodes to.
+        fn tints(&self) -> Vec<Paint> {
+            self.mutations()
+                .iter()
+                .filter_map(|mutation| match mutation {
+                    Mutation::SetProp {
+                        property: PropertyKind::Color,
+                        value: PropertyValue::Integer(bits),
+                        ..
+                    } => Paint::from_bits(*bits as u64),
+                    _ => None,
+                })
+                .collect()
+        }
+
         fn latest_texts(&self) -> Vec<String> {
             let Some(frame) = self.frames.last() else {
                 return Vec::new();
@@ -964,11 +1115,117 @@ mod tests {
         let mut screen = Screen::new();
         for choice in Destination::STRIP {
             assert!(
-                screen.press(choice.label()),
-                "the bar has no destination called {}",
+                screen.press_icon(choice.icon()),
+                "the bar has no way to {}",
                 choice.label()
             );
         }
+    }
+
+    /// The bar is icons alone, drawn by the sample, with the one you are on in the
+    /// accent.
+    #[test]
+    fn fr22_the_bar_is_icons_with_the_accent_on_the_destination() {
+        let mut screen = Screen::new();
+        assert!(
+            !screen.mutations().iter().any(|mutation| matches!(
+                mutation,
+                Mutation::Create {
+                    widget: WidgetKind::Navigation | WidgetKind::NavigationItem,
+                    ..
+                }
+            )),
+            "a Navigation draws the design system's labelled bar, not the reference's"
+        );
+        // The ink of each destination's icon, read back from the wire.
+        let bar = |screen: &Screen| -> Vec<Paint> {
+            Destination::STRIP
+                .iter()
+                .map(|choice| {
+                    let mutations = screen.mutations();
+                    let node = mutations
+                        .iter()
+                        .rev()
+                        .find_map(|mutation| match mutation {
+                            Mutation::SetProp {
+                                node_id,
+                                property: PropertyKind::Icon,
+                                value: PropertyValue::Integer(value),
+                            } if *value == choice.icon() as i64 => Some(*node_id),
+                            _ => None,
+                        })
+                        .unwrap_or_else(|| panic!("the bar has no {} icon", choice.label()));
+                    mutations
+                        .iter()
+                        .rev()
+                        .find_map(|mutation| match mutation {
+                            Mutation::SetProp {
+                                node_id,
+                                property: PropertyKind::Color,
+                                value: PropertyValue::Integer(bits),
+                            } if *node_id == node => Paint::from_bits(*bits as u64),
+                            _ => None,
+                        })
+                        .unwrap_or_else(|| panic!("the {} icon has no ink", choice.label()))
+                })
+                .collect()
+        };
+        assert_eq!(
+            bar(&screen),
+            vec![
+                Paint::Literal(palette::ACCENT),
+                Paint::Literal(palette::MUTED),
+                Paint::Literal(palette::MUTED),
+                Paint::Literal(palette::MUTED),
+            ],
+            "the destination you are on is the accent and the rest are quiet"
+        );
+        assert!(screen.press_icon(Destination::Library.icon()));
+        assert_eq!(
+            bar(&screen),
+            vec![
+                Paint::Literal(palette::MUTED),
+                Paint::Literal(palette::MUTED),
+                Paint::Literal(palette::ACCENT),
+                Paint::Literal(palette::MUTED),
+            ],
+            "the accent did not follow the destination"
+        );
+        compose_rust::window::reset_window_size();
+    }
+
+    /// Nothing on any page is painted or inked by the design system.
+    ///
+    /// Named for what it defends: the profile's quote card was an accent container, which
+    /// came out of the running system as a pale lilac, and the week's line was drawn in
+    /// that system's accent. Neither is in the picture.
+    #[test]
+    fn fr22_nothing_on_the_screen_is_painted_by_a_role() {
+        let mut screen = Screen::new();
+        assert!(screen.press("Next"), "the feeling step has no way on");
+        for choice in Destination::STRIP {
+            assert!(screen.press_icon(choice.icon()));
+        }
+        for mutation in screen.mutations() {
+            if let Mutation::SetModifier {
+                modifier: Modifier::Background(paint) | Modifier::Border { paint, .. },
+                node_id,
+                ..
+            } = mutation
+            {
+                assert!(
+                    matches!(paint, Paint::Literal(_)),
+                    "node {node_id} is filled with {paint:?}, which the design system picks"
+                );
+            }
+        }
+        for paint in screen.tints() {
+            assert!(
+                matches!(paint, Paint::Literal(_)),
+                "something is inked with {paint:?}, which the design system picks"
+            );
+        }
+        compose_rust::window::reset_window_size();
     }
 
     /// The check-in, in the design system it ships, in both schemes, at all three widths.
@@ -992,7 +1249,7 @@ mod tests {
             app,
             |screen| {
                 assert!(
-                    screen.press(Destination::Profile.label()),
+                    screen.press_icon(Destination::Profile.icon()),
                     "the bar has no way to the profile"
                 );
             },
@@ -1008,7 +1265,7 @@ mod tests {
             app,
             |screen| {
                 assert!(
-                    screen.press(Destination::Listen.label()),
+                    screen.press_icon(Destination::Listen.icon()),
                     "the bar has no way to the sessions"
                 );
                 assert_eq!(
