@@ -16,7 +16,7 @@ pub enum Channel {
     /// Partner Center. The Store reserves the revision for its own use and rejects a
     /// package whose revision is not zero, so a Store release is `Major.Minor.Patch.0`.
     Store,
-    /// Direct download kept current by App Installer. The revision is a build number
+    /// Direct download outside the Store. The revision is a build number
     /// that only grows, so successive builds of one release (or of a pre-release) each
     /// install over the last.
     Sideload,
@@ -28,7 +28,7 @@ impl Channel {
             "store" => Ok(Channel::Store),
             "sideload" => Ok(Channel::Sideload),
             other => Err(Error::new(format!(
-                "unknown channel `{other}`: use `store` for Partner Center or `sideload` for App Installer"
+                "unknown channel `{other}`: use `store` for Partner Center or `sideload` for a direct download"
             ))),
         }
     }

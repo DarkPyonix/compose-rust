@@ -1,6 +1,5 @@
 # Windows package -- builds an MSIX and an .msixbundle from one executable, signs them
-# with a throwaway certificate, runs the Windows App Certification Kit against them, and
-# proves that a newer bundle published to an App Installer feed replaces an installed one.
+# with a throwaway certificate, and runs the Windows App Certification Kit against them.
 #
 # The kit is what Partner Center runs on a submission, so a package that passes here is
 # not refused there for the same reasons. The Store signs what it takes in itself; the
@@ -324,63 +323,3 @@ jobs:
           name: wack-reports-host
           path: ${{ runner.temp }}/wack/
           if-no-files-found: warn
-
-  update:
-    name: App Installer update
-    needs: test
-    runs-on: windows-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install the Rust toolchain
-        run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
-
-      - name: Build the packager and the stand-in program
-        run: cargo build --locked --release -p compose-rust-msix --bin compose-rust-msix --example fixture-app
-
-      - name: Package two builds of one release for the sideload channel
-        id: pack
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $tool = 'target\release\compose-rust-msix.exe'
-          foreach ($revision in 1, 2) {
-            $out = Join-Path $env:RUNNER_TEMP "sideload-$revision"
-            $summary = Join-Path $env:RUNNER_TEMP "sideload-$revision.txt"
-            & $tool --project $env:PROJECT --out $out --summary $summary `
-              --channel sideload --revision $revision `
-              --feed-base 'http://localhost:8642' `
-              --exe 'target\release\examples\fixture-app.exe'
-            if ($LASTEXITCODE -ne 0) { throw "packaging revision $revision failed" }
-            Get-Content (Join-Path $out '*.appinstaller')
-          }
-          Get-Content (Join-Path $env:RUNNER_TEMP 'sideload-1.txt') |
-            Where-Object { $_ -match '^(identity|publisher|bundle)=' } |
-            Add-Content -Path $env:GITHUB_OUTPUT -Encoding utf8
-          $bundle2 = (Get-Content (Join-Path $env:RUNNER_TEMP 'sideload-2.txt') | Where-Object { $_ -match '^bundle=' }) -replace '^bundle=', ''
-          Add-Content -Path $env:GITHUB_OUTPUT -Value "bundle2=$bundle2" -Encoding utf8
-
-      - name: Create and trust a test certificate
-        id: cert
-        run: >
-          ./scripts/packager-windows/scripts/new-test-certificate.ps1
-          -Publisher '${{ steps.pack.outputs.publisher }}'
-          -OutDir "$env:RUNNER_TEMP\cert" -Trust
-
-      - name: Sign both bundles
-        run: >
-          ./scripts/packager-windows/scripts/sign.ps1
-          -Path '${{ steps.pack.outputs.bundle }}','${{ steps.pack.outputs.bundle2 }}'
-          -Pfx '${{ steps.cert.outputs.pfx }}' -Password '${{ steps.cert.outputs.password }}'
-
-      - name: Install from the feed, publish a newer build, update
-        shell: powershell
-        run: >
-          ./scripts/packager-windows/scripts/test-update.ps1
-          -Older "$env:RUNNER_TEMP\sideload-1"
-          -Newer "$env:RUNNER_TEMP\sideload-2"
-          -Serve "$env:RUNNER_TEMP\feed"
-          -Port 8642
-          -Name '${{ steps.pack.outputs.identity }}'

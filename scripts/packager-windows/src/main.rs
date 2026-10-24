@@ -23,7 +23,7 @@ USAGE:
 REQUIRED:
     --project <dir>      The application's directory, holding Dioxus.toml and Cargo.toml
     --exe <path>         The executable. With --payload-dir, a path inside that directory
-    --out <dir>          Where the layout, .msix, .msixbundle and feed are written
+    --out <dir>          Where the layout, .msix and .msixbundle are written
 
 OPTIONS:
     --payload-dir <dir>  Package this whole directory (renderer beside the program)
@@ -32,7 +32,6 @@ OPTIONS:
     --version <semver>   Use this instead of the version in Cargo.toml
     --arch <arch>        x64 (default) or arm64
     --icon <png>         Use this icon instead of the one Dioxus.toml names
-    --feed-base <url>    Write an App Installer feed for a bundle served from this URL
     --test-identity      Allow the Store channel with a derived identity (for certification runs)
     --layout-only        Stage the package directory and stop; runs on any host
     --summary <file>     Append key=value lines describing the outputs (for CI)
@@ -49,7 +48,6 @@ struct Args {
     version: Option<String>,
     arch: Arch,
     icon: Option<PathBuf>,
-    feed_base: Option<String>,
     test_identity: bool,
     layout_only: bool,
     summary: Option<PathBuf>,
@@ -65,7 +63,6 @@ fn parse_args() -> Result<Option<Args>, Error> {
     let mut version = None;
     let mut arch = Arch::X64;
     let mut icon = None;
-    let mut feed_base = None;
     let mut test_identity = false;
     let mut layout_only = false;
     let mut summary = None;
@@ -97,7 +94,6 @@ fn parse_args() -> Result<Option<Args>, Error> {
                     .ok_or_else(|| Error::new(format!("--arch `{v}`: use x64 or arm64")))?;
             }
             "--icon" => icon = Some(PathBuf::from(value()?)),
-            "--feed-base" => feed_base = Some(value()?),
             "--test-identity" => test_identity = true,
             "--layout-only" => layout_only = true,
             "--summary" => summary = Some(PathBuf::from(value()?)),
@@ -117,7 +113,6 @@ fn parse_args() -> Result<Option<Args>, Error> {
         version,
         arch,
         icon,
-        feed_base,
         test_identity,
         layout_only,
         summary,
@@ -176,15 +171,11 @@ fn run() -> Result<(), Error> {
         format!("layout={}", layout.display()),
     ];
     if !args.layout_only {
-        let outputs = pack(&plan, &layout, &args.out, args.feed_base.as_deref())?;
+        let outputs = pack(&plan, &layout, &args.out)?;
         println!("package {}", outputs.package.display());
         println!("bundle  {}", outputs.bundle.display());
         lines.push(format!("package={}", outputs.package.display()));
         lines.push(format!("bundle={}", outputs.bundle.display()));
-        if let Some(feed) = &outputs.feed {
-            println!("feed    {}", feed.display());
-            lines.push(format!("feed={}", feed.display()));
-        }
     }
     if let Some(path) = &args.summary {
         let mut file = std::fs::OpenOptions::new()

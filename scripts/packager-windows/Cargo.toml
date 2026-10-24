@@ -8,8 +8,7 @@ rust-version.workspace = true
 publish = false
 
 # The packager runs on the machine that ships the application, not inside it, so it is a
-# plain command line tool. Everything it decides (identity, version, manifest, icons,
-# update feed) is ordinary Rust and is tested on any host; only the last step, handing
+# plain command line tool. Everything it decides (identity, version, manifest, icons) is ordinary Rust and is tested on any host; only the last step, handing
 # the staged directory to the Windows SDK's MakeAppx, needs Windows.
 [dependencies]
 png = "0.17"

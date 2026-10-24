@@ -2,15 +2,13 @@
 //!
 //! The input is what a release build already produces: one executable, or a directory
 //! holding the executable with the renderer beside it. The output is a package the
-//! Microsoft Store accepts for submission, a bundle wrapping it, and optionally an App
-//! Installer feed that keeps a downloaded copy current. Name, publisher, description,
+//! Microsoft Store accepts for submission and a bundle wrapping it. Name, publisher, description,
 //! icon and version come from the application's own `Dioxus.toml` and `Cargo.toml`.
 //!
 //! The steps are split so that every decision can be checked anywhere: [`stage`] builds
 //! the package directory (payload, manifest, images) on any host, and [`pack`] hands that
 //! directory to the Windows SDK's MakeAppx, which only exists on Windows.
 
-pub mod appinstaller;
 pub mod assets;
 pub mod manifest;
 pub mod metadata;
@@ -110,10 +108,6 @@ impl Plan {
 
     pub fn bundle_file_name(&self) -> String {
         format!("{}_{}.msixbundle", self.meta.identity_name, self.version)
-    }
-
-    pub fn feed_file_name(&self) -> String {
-        format!("{}.appinstaller", self.meta.identity_name)
     }
 }
 
@@ -226,16 +220,13 @@ pub fn stage(plan: &Plan, layout: &Path) -> Result<Vec<String>, Error> {
 pub struct Outputs {
     pub package: PathBuf,
     pub bundle: PathBuf,
-    pub feed: Option<PathBuf>,
 }
 
-/// Turns a staged directory into `.msix` and `.msixbundle` with MakeAppx, and writes the
-/// App Installer feed when `feed_base` is given. Windows only, because MakeAppx is.
+/// Turns a staged directory into `.msix` and `.msixbundle` with MakeAppx, Windows only, because MakeAppx is.
 pub fn pack(
     plan: &Plan,
     layout: &Path,
     out_dir: &Path,
-    feed_base: Option<&str>,
 ) -> Result<Outputs, Error> {
     let makeappx = sdk::find_tool("makeappx.exe")?;
     std::fs::create_dir_all(out_dir)
@@ -281,21 +272,9 @@ pub fn pack(
     )?;
     std::fs::remove_dir_all(&bundle_src).ok();
 
-    let feed = match feed_base {
-        Some(base) => {
-            let feed =
-                appinstaller::Feed::beside(base, &plan.feed_file_name(), &plan.bundle_file_name())?;
-            let path = out_dir.join(plan.feed_file_name());
-            std::fs::write(&path, feed.render(&plan.meta, plan.version)?)
-                .map_err(|e| Error::new(format!("cannot write {}: {e}", path.display())))?;
-            Some(path)
-        }
-        None => None,
-    };
     Ok(Outputs {
         package,
         bundle,
-        feed,
     })
 }
 
