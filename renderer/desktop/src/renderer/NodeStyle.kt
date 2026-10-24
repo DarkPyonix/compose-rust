@@ -11,6 +11,7 @@ import androidx.compose.ui.unit.sp
 import dev.darkpyonix.composerust.protocol.Alignment
 import dev.darkpyonix.composerust.protocol.Arrangement as ProtocolArrangement
 import dev.darkpyonix.composerust.protocol.ButtonVariant
+import dev.darkpyonix.composerust.protocol.ButtonKind
 import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.Paint
 import dev.darkpyonix.composerust.protocol.PropertyKind
@@ -63,6 +64,9 @@ internal fun Node.typeRole(): TypeRole? = role(PropertyKind.TypeRole, TypeRole.e
 
 internal fun Node.variant(): ButtonVariant =
     role(PropertyKind.Variant, ButtonVariant.entries.toTypedArray()) ?: ButtonVariant.Filled
+
+internal fun Node.buttonKind(): ButtonKind =
+    role(PropertyKind.ButtonKind, ButtonKind.entries.toTypedArray()) ?: ButtonKind.Standard
 
 /**
  * The text style for a node: the design system's rung of the ladder, with each override
