@@ -1114,10 +1114,15 @@ pub fn android_gradle_kotlin(
 /// republishing anything. The versions belong here rather than in an application's own
 /// build file because it is the renderer that is written against them, and an application
 /// that had to name them would be guessing at what its dependency needs.
+///
+/// `ui` and `foundation` are 1.8 or later because the shared Kotlin calls
+/// `TextFieldBuffer.addStyle`, the `MultiParagraph` constructor that takes `Constraints`
+/// and `PrecomposedSlotHandle.getSize`. 1.7 has none of the three and no other way to do
+/// what they do, so the shared source cannot be written around them.
 pub const ANDROID_COMPOSE_DEPENDENCIES: [&str; 4] = [
     "androidx.activity:activity-compose:1.9.3",
-    "androidx.compose.ui:ui:1.7.5",
-    "androidx.compose.foundation:foundation:1.7.5",
+    "androidx.compose.ui:ui:1.8.3",
+    "androidx.compose.foundation:foundation:1.8.3",
     "androidx.compose.material3:material3:1.3.1",
 ];
 
