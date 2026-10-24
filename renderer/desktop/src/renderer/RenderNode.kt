@@ -1,5 +1,6 @@
 package dev.darkpyonix.composerust.ui.node
 
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
@@ -137,7 +138,16 @@ fun RenderNode(
     val keyed = if (keyDownHandler == null || node.widget == WidgetKind.TextField) {
         profiled
     } else {
+        // Plain containers and text are not focus targets on their own, so a node that
+        // listens for keys is made one, ahead of its modifiers like the handler. Without it
+        // Tab never reaches the node and a DOM element with tabindex and onkeydown is dead.
+        // Widgets that are controls bring their own focus handling and are left alone.
+        val focusTarget = when (node.widget) {
+            WidgetKind.Box, WidgetKind.Column, WidgetKind.Row, WidgetKind.FileDropTarget -> true
+            else -> false
+        }
         profiled.hostKeyEvents(nodeId, keyDownHandler, dispatcher)
+            .let { if (focusTarget) it.focusable() else it }
     }
     val withKeys = keyed
         .then(node.modifiers.toComposeModifier(nodeId, dispatcher, theme) { table.animations.animated(nodeId) })

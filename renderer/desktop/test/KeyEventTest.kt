@@ -162,8 +162,8 @@ class KeyEventTest {
         )
         setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
 
-        // A clickable box is a focus target but exposes no RequestFocus semantics action
-        // (only Modifier.focusable does), so it is focused the way a keyboard user does it.
+        // A box with a key handler is made focusable but may expose no RequestFocus action,
+        // so it is focused the way a keyboard user does it.
         onNodeWithTag(nodeTestTag(box)).performKeyInput { pressKey(Key.Tab) }
         waitForIdle()
         onNodeWithTag(nodeTestTag(box)).assertIsFocused()
