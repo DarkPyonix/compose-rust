@@ -2943,6 +2943,46 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 
 이벤트 태그 하나(8), 속성 둘(67 재사용, 140), 이벤트 페이로드 모양 하나. 구독하지 않은 화면에는 비용이 없습니다. `pointer_id`는 터치와 펜에서 플랫폼이 준 포인터 번호이고, 접촉이 끝나면 다른 접촉이 다시 쓸 수 있습니다. 다중 터치에서는 접촉마다 따로 `Enter`, `Down`, `Up`, `Leave`가 옵니다.
 
+### FR-47 커서 모양과 글자 선택 가능 여부 (`Draft`, dioxus-compose 소유자 결정 D8, 이슈 #116)
+
+요청한 쪽: dioxus-compose FR-34.5. CSS `cursor`와 `user-select`는 Host가 상속까지 풀어 계산한 값을 노드마다 보내면 됩니다. 속성 둘이고 새 위젯도 새 경계 진입점도 없습니다.
+
+번호: 속성 `Cursor` 141, `UserSelect` 142(FR-46의 140 뒤, 15.2.2의 140-149 블록).
+
+#### 47.1 `Cursor`
+
+- 값은 `u32` 열거형이고 CSS `cursor` 키워드와 이름이 같습니다. `Auto=0, Default=1, Pointer=2, Text=3, VerticalText=4, Crosshair=5, Move=6, Grab=7, Grabbing=8, NotAllowed=9, NoDrop=10, Wait=11, Progress=12, Help=13, ContextMenu=14, Cell=15, Copy=16, Alias=17, AllScroll=18, ZoomIn=19, ZoomOut=20, ColResize=21, RowResize=22, EResize=23, NResize=24, NeResize=25, NwResize=26, SResize=27, SeResize=28, SwResize=29, WResize=30, EwResize=31, NsResize=32, NeswResize=33, NwseResize=34, None=35`. 모르는 값은 `ProtocolError`이고 그 속성만 버립니다.
+- 상속은 Host의 일입니다. CSS의 `cursor`는 상속되는 속성이므로 Host가 계산해 노드마다 보냅니다. Renderer는 상속을 따로 풀지 않습니다. `url(...)` 형태의 그림 커서는 이 속성에 없고, 그 경우 Host는 목록의 마지막 키워드를 보냅니다.
+- 포인터 아래의 노드 중 가장 깊은, `Auto`가 아닌 `Cursor`를 가진 노드의 값이 보입니다. 모두 `Auto`이면 그 자리의 위젯이 정합니다(`TextField`는 `Text`, 그 밖은 `Default`). 포인터 캡처 중(FR-46.4)에는 캡처한 노드의 값이 보입니다. 끌기 중에 커서가 깜빡이며 바뀌지 않게 하려는 것입니다.
+- 플랫폼에 같은 모양이 없으면 가장 가까운 모양으로 바꿉니다. 짝은 플랫폼 계층의 표로 두며 모든 값에 대해 정해져 있어야 합니다. 예: Windows의 `ZoomIn`은 돋보기가 없으므로 `Crosshair`, `Grab`/`Grabbing`은 손 모양 `Pointer`. 이 표를 빠뜨린 값은 `Default`로 그려지고 시험이 실패해야 합니다. 터치만 있는 기기(iOS, Android)에서는 속성이 받아들여지고 아무것도 하지 않습니다. 마우스를 연결한 iPad와 Android는 그 플랫폼의 포인터 아이콘 API를 씁니다.
+- 창에 커서를 적용하는 코드는 창 코드이므로 포크에 둡니다(INTENT D19). 이 저장소는 값을 포크의 호출로 넘기는 접합부만 가집니다.
+
+#### 47.2 `UserSelect`
+
+- 값은 `Auto=0, None=1, Text=2, All=3`입니다. Host가 CSS 상속을 풀어 보냅니다(`Auto`는 CSS의 `auto`).
+- FR-33과 합치는 규칙입니다. 앱 화면의 기본은 "고를 수 없음"이고 HTML 영역의 기본은 CSS의 `auto`, 곧 "고를 수 있음"입니다. 그래서 `AbsoluteBox` 영역 뿌리(`IslandZoom`을 가진 노드, FR-43)는 `UserSelect`가 `None`이 아니면 스스로 `SelectionContainer`처럼 선택 영역 하나를 엽니다. 그 밖의 노드는 `UserSelect`로 이 영역을 좁히거나 넓힙니다.
+  - `Text`: 그 노드 아래의 글자를 `SelectionContainer` 안에 둡니다. 이미 위에 영역이 있으면 변화가 없습니다.
+  - `None`: Compose의 `DisableSelection`에 해당합니다. 그 노드 아래의 글자는 위의 영역이 있어도 골라지지 않고, 끌기 시작점도 되지 않습니다. 그 안의 버튼과 컨트롤은 평소처럼 눌립니다(FR-33 기준 5와 같습니다).
+  - `All`: 그 노드 아래를 한 번 누르면 노드의 글자 전체가 선택됩니다. 선택을 일부만 할 수 없습니다. 안정 API로 되지 않으면 어댑터 파일 하나에 가두고 버전을 고정합니다(NFR-6).
+  - `Auto`: 부모를 따릅니다.
+- 선택 상태는 Renderer의 것입니다(D5, FR-33). 속성은 "고를 수 있는가"만 정하고 선택 범위는 Host로 가지 않습니다. 복사도 FR-33과 같이 Renderer가 플랫폼 클립보드에 직접 합니다.
+- `TextField`의 입력란 선택에는 영향이 없습니다. CSS에서 `user-select: none`이어도 입력란 안의 글자는 고를 수 있는 것과 같습니다.
+
+#### 47.3 수용 기준
+
+1. 열한 개의 대표 키워드(`Pointer`, `Text`, `Crosshair`, `Move`, `Grab`, `Grabbing`, `NotAllowed`, `Wait`, `ColResize`, `NwseResize`, `None`)가 설정된 노드 위에서 플랫폼 커서가 바뀌고, 노드를 벗어나면 되돌아옵니다. 데스크톱 셋은 창을 띄워 커서 이름을 읽는 시험으로, 그리기는 수동으로 확인합니다(fr47_cursor_keyword_reaches_the_window_cursor).
+2. 모든 `Cursor` 값에 대해 세 데스크톱 플랫폼의 짝이 정해져 있습니다(fr47_every_cursor_value_has_a_platform_mapping).
+3. 겹친 두 노드에서 가장 깊은 `Auto`가 아닌 값이 보이고, 캡처 중에는 캡처한 노드의 값이 포인터가 밖에 있어도 유지됩니다(fr47_deepest_cursor_wins_and_capture_pins_it).
+4. 모르는 `Cursor` 값은 `ProtocolError`이고 프로세스는 계속 돕니다(nfr7_unknown_cursor_value_is_a_protocol_error).
+5. HTML 영역의 글자는 기본으로 끌어서 골라지고 복사됩니다. `UserSelect::None`인 노드 아래의 글자는 골라지지 않고, 그 안의 버튼은 눌립니다(fr47_island_text_selectable_by_default, fr47_user_select_none_blocks_selection_but_not_controls).
+6. `UserSelect::All`인 노드를 누르면 그 노드의 글자 전체가 선택되고, 복사하면 전체가 클립보드에 들어갑니다(fr47_user_select_all_selects_the_whole_node).
+7. 선택 중과 복사에서 Host로 가는 이벤트가 없습니다(FR-33 기준 3과 같음, fr47_selection_sends_nothing_to_the_host).
+8. 터치 기기에서 `Cursor`는 에러 없이 무시됩니다.
+
+#### 47.4 비용
+
+속성 둘(141, 142). 열거형 두 개. 렌더러 쪽에서는 포인터 아래 노드의 `Cursor` 조회와 영역 뿌리의 선택 영역 하나. 노드마다 붙는 비용은 속성이 있을 때만이고, 없는 화면에는 없습니다.
+
 ## 4. 경계 프로토콜
 
 ### PR-1 호출 모델: 동기·동일 스레드 직접 호출 (`Done`)
