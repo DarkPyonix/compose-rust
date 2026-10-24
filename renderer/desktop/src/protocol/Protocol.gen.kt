@@ -572,10 +572,9 @@ object CodeEditorRecords {
     private fun textOf(bytes: ByteArray, offset: Int, length: Int): String? {
         if (length == 0) return ""
         if (offset < 0 || length < 0 || offset.toLong() + length.toLong() > bytes.size.toLong()) return null
-        val decoder = StandardCharsets.UTF_8.newDecoder()
         return try {
-            decoder.decode(ByteBuffer.wrap(bytes, offset, length)).toString()
-        } catch (error: java.nio.charset.CharacterCodingException) {
+            bytes.decodeToString(offset, offset + length, throwOnInvalidSequence = true)
+        } catch (error: CharacterCodingException) {
             null
         }
     }
