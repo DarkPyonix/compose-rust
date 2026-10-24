@@ -6,10 +6,11 @@
 # The window code is the Compose fork's, at the commit build-compose.sh pins. The renderer
 # depends on it as org.thisisthepy.compose.window:<module>:0.1.0, so the modules are built
 # from that commit and published under ~/.m2 before the renderer is, the same way the patched
-# Compose is. The Kotlin/JVM modules are published on every machine, so a Linux or Windows
-# checkout resolves the coordinates the renderer's desktop module asks for. native/macos is
-# published on a Mac and native/linux on Linux, because each is built from that system's
-# headers.
+# Compose is. common is published on every machine. The GraalVM window modules and the scene
+# they name are published wherever the fork's desktop Compose is in the local repository, which
+# is every build of the renderer's desktop module, so a Linux or Windows checkout resolves the
+# coordinates that module asks for. native/macos is published on a Mac and native/linux on
+# Linux, because each is built from that system's headers.
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -18,7 +19,20 @@ repo="$(cd "$script_dir/../.." && pwd)"
 fork_dir="$("$repo/scripts/fetch-fork-window.sh")"
 window="$fork_dir/extended/window"
 
-modules=(common graalvm/graalvm-macos graalvm/graalvm-linux)
+# Ensure the toolchain distribution is provisioned and its Ktor line limit is patched
+# before entering the fork window directory.
+if [[ -x "$repo/renderer/kotlin" ]]; then
+    "$repo/renderer/kotlin" --version >/dev/null 2>&1 || true
+fi
+
+modules=(common)
+# The GraalVM window modules name scene (compile-only, for the window surfaces runComposeWindow
+# uses), and scene compiles against the fork's Compose for the desktop, which only a build that
+# published it has (build-compose.sh, or the compose-fork-desktop artifact in CI). A
+# Kotlin/Native build needs none of the three, and would fail resolving scene's Compose.
+if [[ -d "$HOME/.m2/repository/org/thisisthepy/compose/ui/ui-desktop" ]]; then
+    modules+=(scene graalvm/graalvm-macos graalvm/graalvm-linux)
+fi
 # native/macos compiles against the fork's Compose for macosArm64, which only a build that ran
 # build-compose.sh --target macosArm64 has; a desktop-only build has no use for it.
 case "$(uname -s)" in
@@ -38,11 +52,41 @@ cp "$window/project.yaml" "$window/project.yaml.all"
 trap 'mv "$window/project.yaml.all" "$window/project.yaml"' EXIT
 
 cd "$window"
-# Kotlin/Native has no compiler for an arm64 Linux host, and the Kotlin toolchain has no way to
-# publish only some targets of a module, so there the common module is published for the JVM
-# alone. That is all the GraalVM image needs, and the fetched checkout is this script's own.
-if [[ "$(uname -s)" == "Linux" && "$(uname -m)" != "x86_64" ]]; then
-    sed -i 's/^  platforms: \[.*\]$/  platforms: [ jvm ]/' "$window/common/module.yaml"
+# The common window module lists every platform the fork supports. A host cannot build native
+# klibs for other operating systems, and compiling cross-OS native targets triggers native
+# distribution commonization which requires those other toolchains. Tailor common's platforms
+# to the current host: Darwin builds jvm and macosArm64; Linux builds jvm and linux targets;
+# other systems build jvm alone.
+case "$(uname -s)" in
+    Darwin)
+        if [[ -d "$HOME/.m2/repository/org/thisisthepy/compose/ui/ui-macosarm64" ]]; then
+            sed -i.orig 's/^  platforms: \[.*\]$/  platforms: [ jvm, macosArm64 ]/' "$window/common/module.yaml"
+        else
+            sed -i.orig 's/^  platforms: \[.*\]$/  platforms: [ jvm ]/' "$window/common/module.yaml"
+        fi
+        rm -f "$window/common/module.yaml.orig"
+        ;;
+    Linux)
+        if [[ "$(uname -m)" == "x86_64" && -d "$HOME/.m2/repository/org/thisisthepy/compose/ui/ui-linuxx64" ]]; then
+            sed -i.orig 's/^  platforms: \[.*\]$/  platforms: [ jvm, linuxX64, linuxArm64 ]/' "$window/common/module.yaml"
+        else
+            sed -i.orig 's/^  platforms: \[.*\]$/  platforms: [ jvm ]/' "$window/common/module.yaml"
+        fi
+        rm -f "$window/common/module.yaml.orig"
+        ;;
+    *)
+        sed -i.orig 's/^  platforms: \[.*\]$/  platforms: [ jvm ]/' "$window/common/module.yaml"
+        rm -f "$window/common/module.yaml.orig"
+        ;;
+esac
+# The GraalVM modules need scene's JVM half alone, and nothing this renderer builds uses its
+# other platform (macosArm64, which would also need the fork's Compose for macosArm64), so
+# only the JVM half is built.
+if [[ " ${modules[*]} " == *" scene "* ]]; then
+    # A suffix for -i and the copy removed after, because BSD sed on macOS takes the next
+    # argument to -i as one.
+    sed -i.orig 's/^  platforms: \[.*\]$/  platforms: [ jvm ]/' "$window/scene/module.yaml"
+    rm -f "$window/scene/module.yaml.orig"
 fi
 # The PATH kotlin.bat runs with on Windows: System32 first, and none of Git's own directories
 # but Git\cmd (git itself). Started from Git Bash, kotlin.bat would otherwise unpack its toolchain
@@ -64,6 +108,7 @@ windows_tool_path() {
     done
     echo "$kept"
 }
+"$script_dir/prefetch-github-assets.sh" || true
 case "$(uname -s)" in
     MINGW*|MSYS*|CYGWIN*) PATH="$(windows_tool_path)" cmd //c kotlin.bat publish mavenLocal ;;
     *) ./kotlin publish mavenLocal ;;
