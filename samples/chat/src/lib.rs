@@ -63,7 +63,12 @@ fn title_from(text: &str) -> String {
 
 const RECENT_CONVERSATIONS: usize = 5;
 
-const DESTINATIONS_ABOVE_THE_CHATS: usize = 4;
+///
+/// Five: new chat, search, images, videos and the library. Search is one of them at every
+/// width, because it is a destination like the others rather than a desktop extra; it used
+/// to appear only on an expanded window, so a phone could reach it only through the
+/// composer's menu.
+const DESTINATIONS_ABOVE_THE_CHATS: usize = 5;
 
 fn opening_messages() -> Vec<Message> {
     Vec::new()
@@ -75,6 +80,15 @@ const SPARK_IN_THE_STRIP: f32 = 22.0;
 const ROOM_INSIDE_THE_COMPOSER: f32 = 8.0;
 const THE_SEND_KEY: f32 = 36.0;
 const BESIDE_A_COMPOSER_KEY: f32 = 4.0;
+/// What the search field says while it is empty, and how a test finds it.
+const SEARCH_PLACEHOLDER: &str = "Search conversations";
+
+/// Images, videos and the library are places a full application has and this sample does
+/// not; pressing one says so rather than doing nothing.
+fn not_in_this_sample(place: &str) {
+    compose_rust::Message::new(format!("{place} is not part of this sample")).show();
+}
+
 const THE_ACCOUNT_PICTURE: f32 = 20.0;
 const PAGE_INSET: f32 = 8.0;
 
@@ -202,6 +216,12 @@ pub fn app() {
     let settings_open = remember(|| mutable_state_of(false));
     let length_open = remember(|| mutable_state_of(false));
     let more_open = remember(|| mutable_state_of(false));
+    // The composer's own menu. It shared the top bar's signal, so pressing either key
+    // opened both menus at once.
+    let attach_open = remember(|| mutable_state_of(false));
+    // Counts the times the search was cleared. The field keeps its own text, so emptying
+    // the query alone left the old words showing; a new key replaces the field.
+    let search_field = remember(|| mutable_state_of(0_u64));
     let search_open = remember(|| mutable_state_of(false));
     let search_query = remember(|| mutable_state_of(String::new()));
     let conversations = remember(|| {
@@ -368,13 +388,10 @@ pub fn app() {
             .cloned()
             .collect()
     });
-    let show_search = window.is_expanded();
     let selected = recent
         .iter()
         .position(|entry| entry.id == current_id)
-        .map_or(0, |index| {
-            index + DESTINATIONS_ABOVE_THE_CHATS + usize::from(show_search)
-        });
+        .map_or(0, |index| index + DESTINATIONS_ABOVE_THE_CHATS);
     let current_settings = settings.get();
     let conversation_count = conversations.with(Vec::len);
 
@@ -466,15 +483,19 @@ pub fn app() {
                     NavigationItem("New chat")
                         .icon(IconRole::Compose)
                         .on_click(move || start());
-                    if show_search {
-                        let open = search_open.clone();
-                        NavigationItem("Search")
-                            .icon(IconRole::Search)
-                            .on_click(move || open.set(true));
+                    let open = search_open.clone();
+                    NavigationItem("Search")
+                        .icon(IconRole::Search)
+                        .on_click(move || open.set(true));
+                    for (place, icon) in [
+                        ("Images", IconRole::Image),
+                        ("Videos", IconRole::Video),
+                        ("Library", IconRole::Library),
+                    ] {
+                        NavigationItem(place)
+                            .icon(icon)
+                            .on_click(move || not_in_this_sample(place));
                     }
-                    NavigationItem("Images").icon(IconRole::Image);
-                    NavigationItem("Videos").icon(IconRole::Video);
-                    NavigationItem("Library").icon(IconRole::Library);
                     for conversation in recent.iter().cloned() {
                         let pick = current.clone();
                         let id = conversation.id;
@@ -528,7 +549,7 @@ pub fn app() {
                                 });
 
                             composer_row(
-                                &more_open,
+                                &attach_open,
                                 &search_open,
                                 &settings_open,
                                 &length_open,
@@ -574,16 +595,22 @@ pub fn app() {
                                                 .on_click(move || done.set(false));
                                         });
                                     let typed = search_query.clone();
-                                    TextField()
-                                        .modifier(Modifier.fill_max_width())
-                                        .placeholder("Search conversations")
-                                        .on_value_change(move |value| typed.set(value));
+                                    key(search_field.get(), || {
+                                        TextField()
+                                            .modifier(Modifier.fill_max_width())
+                                            .placeholder(SEARCH_PLACEHOLDER)
+                                            .on_value_change(move |value| typed.set(value));
+                                    });
                                     if !search_query.get().is_empty() {
-                                        let clear = search_query.clone();
+                                        let (clear, field) =
+                                            (search_query.clone(), search_field.clone());
                                         Button("Clear search")
                                             .modifier(Modifier.fill_max_width())
                                             .variant(ButtonVariant::Text)
-                                            .on_click(move || clear.set(String::new()));
+                                            .on_click(move || {
+                                                clear.set(String::new());
+                                                field.update(|count| *count += 1);
+                                            });
                                     }
                                 });
                         });
@@ -653,7 +680,7 @@ fn message_row(rows: &[usize], position: usize, messages: &MutableState<Vec<Mess
 #[composable]
 #[allow(clippy::too_many_arguments)]
 fn composer_row(
-    more_open: &MutableState<bool>,
+    attach_open: &MutableState<bool>,
     search_open: &MutableState<bool>,
     settings_open: &MutableState<bool>,
     length_open: &MutableState<bool>,
@@ -673,8 +700,8 @@ fn composer_row(
         .spacing(BESIDE_A_COMPOSER_KEY)
         .alignment(Alignment::CenterStart)
         .content(|| {
-            let (dismiss, open) = (more_open.clone(), more_open.clone());
-            Menu(more_open.get())
+            let (dismiss, open) = (attach_open.clone(), attach_open.clone());
+            Menu(attach_open.get())
                 .on_dismiss(move || dismiss.set(false))
                 .anchor(move || {
                     Button("")
@@ -684,7 +711,7 @@ fn composer_row(
                         .on_click(move || open.set(true));
                 })
                 .content(|| {
-                    let (more, search) = (more_open.clone(), search_open.clone());
+                    let (more, search) = (attach_open.clone(), search_open.clone());
                     Button("Search conversations")
                         .icon(IconRole::Search)
                         .variant(ButtonVariant::Text)
@@ -694,7 +721,7 @@ fn composer_row(
                             search.set(true);
                         });
                     Divider();
-                    let (more, settings_open) = (more_open.clone(), settings_open.clone());
+                    let (more, settings_open) = (attach_open.clone(), settings_open.clone());
                     Button("Settings")
                         .icon(IconRole::Settings)
                         .variant(ButtonVariant::Text)
@@ -880,6 +907,8 @@ mod tests {
         composer: u32,
         submit_handler: u64,
         change_handler: u64,
+        /// How many nodes the last frame opened, a menu or a sheet each.
+        opened: usize,
         /// The text of every node, as the frames report it.
         texts: HashMap<u32, String>,
         /// The destination nodes that are still on screen, which is the sidebar.
@@ -986,6 +1015,7 @@ mod tests {
                 composer,
                 submit_handler,
                 change_handler,
+                opened: 0,
                 texts,
                 destinations,
                 sections,
@@ -1027,6 +1057,7 @@ mod tests {
 
         /// Applies a batch, keeping what the screen is showing and what it has said.
         fn absorb(&mut self, batch: &[u8]) {
+            self.opened = 0;
             for mutation in decode_batch(batch).expect("a frame did not decode") {
                 match mutation {
                     Mutation::SetProp {
@@ -1057,6 +1088,11 @@ mod tests {
                     } => {
                         self.selected = index.max(0) as usize;
                     }
+                    Mutation::SetProp {
+                        property: PropertyKind::Open,
+                        value: PropertyValue::Bool(true),
+                        ..
+                    } => self.opened += 1,
                     Mutation::ShowMessage { text, action, .. } => {
                         self.messages.push((text.to_owned(), action.to_owned()));
                     }
@@ -1150,6 +1186,27 @@ mod tests {
             drop(batch);
             let handler = self.handler_of(node_id, PropertyKind::OnClick);
             self.dispatch(node_id, handler, EventPayload::Clicked);
+        }
+
+        /// Resizes the window the way the Renderer reports it.
+        fn resize(&mut self, class: WindowSizeClass, width_dp: f32) {
+            self.encode(
+                0,
+                0,
+                EventPayload::WindowSizeChanged {
+                    width_dp,
+                    height_dp: 700.0,
+                    class,
+                    height_class: WindowHeightClass::Medium,
+                },
+            );
+            let batch = self
+                .host
+                .dispatch_event(&self.event)
+                .expect("the resize failed")
+                .0
+                .to_vec();
+            self.absorb(&batch);
         }
 
         /// Polls frames until the assistant has stopped typing, the way the Renderer does
@@ -1602,77 +1659,65 @@ mod tests {
         );
     }
 
-    /// On a desktop the sidebar opens with search, and pressing it opens the filter.
+    /// Search is one of the destinations at every width, not a desktop extra, and pressing
+    /// it opens the filter.
     #[test]
-    fn fr22_the_desktop_search_destination_opens_the_filter_sheet() {
+    fn fr22_search_is_a_destination_at_every_width() {
+        for (class, width) in [
+            (WindowSizeClass::Compact, 400.0),
+            (WindowSizeClass::Medium, 700.0),
+            (WindowSizeClass::Expanded, 1_000.0),
+        ] {
+            compose_rust::window::reset_window_size();
+            let mut screen = Screen::new();
+            screen.resize(class, width);
+            assert_eq!(
+                screen.destinations().get(1).map(String::as_str),
+                Some("Search"),
+                "search should be the second destination at {class:?}: {:?}",
+                screen.destinations()
+            );
+            screen.press("Search");
+            assert!(
+                screen.opened >= 1,
+                "pressing Search did not open its sheet at {class:?}"
+            );
+        }
         compose_rust::window::reset_window_size();
-        let mut host = ComposeHost::new(app);
-        host.rebuild().expect("the first frame failed to encode");
+    }
 
-        let resize = HostEvent {
-            node_id: 0,
-            handler_id: 0,
-            payload: EventPayload::WindowSizeChanged {
-                width_dp: 1_000.0,
-                height_dp: 700.0,
-                class: WindowSizeClass::Expanded,
-                height_class: WindowHeightClass::Medium,
-            },
-        };
-        let mut event = Vec::new();
-        encode_event(&resize, &mut event).expect("the resize did not encode");
-        let (batch, _) = host.dispatch_event(&event).expect("the resize failed");
-        let mutations = decode_batch(batch).expect("the resize batch did not decode");
-        let search = mutations
-            .iter()
-            .find_map(|mutation| match mutation {
-                Mutation::SetProp {
-                    node_id,
-                    property: PropertyKind::Text,
-                    value: PropertyValue::String("Search"),
-                } => Some(*node_id),
-                _ => None,
-            })
-            .expect("the expanded destination set has no search action");
-        let handler = mutations
-            .iter()
-            .find_map(|mutation| match mutation {
-                Mutation::SetProp {
-                    node_id,
-                    property: PropertyKind::OnClick,
-                    value: PropertyValue::Integer(handler),
-                } if *node_id == search => Some(*handler as u64),
-                _ => None,
-            })
-            .expect("the search action cannot be pressed");
+    /// The composer's add key and the top bar's more key each open their own menu.
+    #[test]
+    fn fr22_the_composer_menu_opens_alone() {
+        let mut screen = Screen::new();
+        screen.press_icon(IconRole::Add);
+        assert_eq!(screen.opened, 1, "the add key should open only the composer's menu");
+        let mut screen = Screen::new();
+        screen.press_icon(IconRole::More);
+        assert_eq!(screen.opened, 1, "the more key should open only the top bar's menu");
+    }
 
-        encode_event(
-            &HostEvent {
-                node_id: search,
-                handler_id: handler,
-                payload: EventPayload::Clicked,
-            },
-            &mut event,
-        )
-        .expect("the search click did not encode");
-        let (batch, _) = host
-            .dispatch_event(&event)
-            .expect("the search click failed");
-        assert!(
-            decode_batch(batch)
-                .expect("the search frame did not decode")
-                .iter()
-                .any(|mutation| matches!(
-                    mutation,
-                    Mutation::SetProp {
-                        property: PropertyKind::Open,
-                        value: PropertyValue::Bool(true),
-                        ..
-                    }
-                )),
-            "pressing Search did not open its sheet"
+    /// Images, videos and the library answer when pressed.
+    #[test]
+    fn fr22_the_places_answer_when_pressed() {
+        let mut screen = Screen::new();
+        for place in ["Images", "Videos", "Library"] {
+            screen.press(place);
+        }
+        let said: Vec<&str> = screen
+            .messages
+            .iter()
+            .map(|(text, _)| text.as_str())
+            .collect();
+        assert_eq!(
+            said,
+            [
+                "Images is not part of this sample",
+                "Videos is not part of this sample",
+                "Library is not part of this sample",
+            ],
+            "each place should say it is not part of this sample"
         );
-        compose_rust::window::reset_window_size();
     }
 
     /// The reference puts everything that belongs to sending a message inside one rounded
