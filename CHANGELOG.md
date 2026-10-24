@@ -17,11 +17,11 @@ release does not match this crate's schema.
 
 `CodeEditor` is a widget the Renderer owns: it counts lines the way a language server does
 (`a\r\nb\rc\n\r\nd` is five lines), draws them one at a time, and takes input through the
-platform input session, under all seven design systems, each with a code editor style of its
-own. The drawn path (`CodeEditorPath.Drawn`) uses Compose's clipboard and key events rather
-than the Java toolkit, ignores a clipboard that fails to read, and is linked into the
-Windows renderer. Frame times at 100,000 lines are measured along each path. The widget is declared in the
-schema, the protocol and the Rust API.
+platform input session. The drawn path (`CodeEditorPath.Drawn`) uses Compose's clipboard and
+key events rather than the Java toolkit, ignores a clipboard that fails to read, and is linked
+into the Windows renderer. The widget, its records and its events are in the schema and the
+protocol. The Rust component that declares it and the per design system code styles are not in
+this release yet: they move to dioxus-compose and the Compose fork.
 
 ### Brushes can be released
 
