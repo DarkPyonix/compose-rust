@@ -1225,6 +1225,7 @@ Renderer가 AOT 컴파일된 바이너리이므로 Host가 그리기 코드를 �
 - 구독하지 않은 제스처는 **인식기를 붙이지 않습니다.** `on_drag_move`를 선언한 노드에만 드래그 인식이 걸립니다. 모든 노드에 거는 것은 NFR-9 위반입니다.
 - `DragMove`는 프레임당 최대 1건으로 합칩니다. 포인터 이벤트는 프레임보다 자주 오므로 합치지 않으면 프레임당 여러 번 VirtualDom을 돌게 됩니다.
 - FR-12의 `consume`이 그대로 적용됩니다. 부모로 전파할지는 핸들러가 정합니다.
+- HTML 경로의 노드 단위 포인터 입력(호버, 누름, 휠, 끌기, 캡처)은 FR-46이 `Pointer` 이벤트 하나로 다룹니다. 8번은 `Pointer`가 되고 9번은 쓰지 않는 예약입니다. 아래 표의 `PointerEnter`, `PointerExit`, `ContextMenu`, `Scroll` 행은 구독한 노드에 대해서는 FR-46이 대체합니다.
 - 플랫폼 차이는 Renderer가 흡수합니다. 터치에는 호버가 없으므로 iOS와 Android에서 `PointerEnter`는 발생하지 않습니다. Host 코드는 그대로 두고, 호버로만 보이는 UI를 두지 않는 것은 애플리케이션의 책임입니다.
 
 #### 18.1.1 핸들러 속성 태그
@@ -2862,6 +2863,85 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 제안하는 수용 기준:
 1. 포커스를 받은 `TextField`가 `OnFocusGained`를 한 번 보내고, 포커스를 잃으면 `OnFocusLost`를 보냅니다(fr45_focus_gained_and_lost_pair).
 2. 키 하나를 눌렀다 떼면 `OnKeyDown` 다음에 같은 키의 `OnKeyUp`이 옵니다(fr45_key_up_follows_key_down).
+
+### FR-46 노드 단위 포인터 이벤트 (`Draft`, dioxus-compose 소유자 결정 D8, 이슈 #116)
+
+요청한 쪽: dioxus-compose FR-34.5 수용 기준 1(포인터 이동, hover, `:hover`/`:active`)과 2(`mousedown`/`mouseup`, `dblclick`, `contextmenu`, `wheel`, 드래그, 포인터 캡처). dioxus-compose의 고정 rev에는 포인터 이벤트가 없고, FR-18.1이 8-15를 제스처용으로 예약만 해 두었습니다. HTML 경로는 `blitz-dom`이 만든 표시 목록을 Host가 직접 적중 판정하므로(FR-42), Renderer에 필요한 것은 "어느 HTML 상자인가"가 아니라 "구독한 노드 안에서 포인터가 어떻게 움직였는가"입니다. 그래서 위젯마다 제스처를 나누는 대신 **이벤트 하나에 종류 칸을 둡니다.**
+
+#### 46.1 구독
+
+- 이벤트를 받는 노드는 구독한 노드뿐입니다. 구독은 노드마다의 선택 사항이고 속성 둘로 합니다. 핸들러 `OnPointer`(속성 태그 67, 값은 핸들러 id)와 받을 종류의 비트마스크 `PointerKinds`(속성 태그 140, `u32`, 종류 `k`의 비트는 `1 << (k - 1)`)입니다.
+- 둘 중 하나라도 없거나 마스크가 0이면 구독이 아닙니다. **구독하지 않은 노드에는 포인터 입력 수정자를 붙이지 않습니다**(FR-18.1과 같은 규칙, NFR-9). 마스크에 `Move`가 없으면 이동을 위한 호버 추적도 켜지 않습니다.
+- Renderer는 포인터 아래에서 해당 종류를 구독한 가장 깊은 노드에 먼저 보냅니다. 핸들러가 소비하지 않으면(46.5) 같은 종류를 구독한 가장 가까운 조상으로 올라갑니다. `Enter`와 `Leave`는 올라가지 않고 노드마다 따로 옵니다(DOM의 `pointerenter`, `pointerleave`와 같습니다).
+- 18.1.1이 예약한 67번(`OnPointerEnter`)을 `OnPointer`가 씁니다. 아직 전송된 적이 없어 움직이는 바이트가 없습니다. 68번(`OnPointerExit`)은 예약으로 남기고 쓰지 않습니다. 140은 15.2.2의 규칙대로 FR-40(110-116), FR-45(117, 118), FR-38.9(130-133) 뒤의 새 블록(140-149)을 엽니다.
+
+#### 46.2 이벤트 레코드
+
+18.1의 표에서 **8번을 `Pointer`로 정하고 9번은 쓰지 않는 예약으로 둡니다.** 호버 들어옴과 나감, 우클릭, 휠은 `Pointer`의 종류이므로 18.1의 `PointerEnter`(8), `PointerExit`(9) 행은 이 이벤트로 대체되고, `ContextMenu`(11)와 `Scroll`(15)은 구독 노드에 대해서는 이 이벤트가 맡습니다. 위젯에 붙는 제스처인 `LongPress`(10)와 드래그(12-14)는 18.1 그대로입니다. 끌기는 `Down`, `Move`, `Up`과 캡처(46.4)로 HTML 경로가 직접 만듭니다.
+
+공통 머리 16바이트(`node_id`, `handler_id`) 뒤에 페이로드가 옵니다. 오프셋은 레코드 시작 기준이고 레코드는 72바이트 고정입니다. 가변 부분도, 문자열 참조도 없습니다(PR-4).
+
+| 오프셋 | 칸 | 뜻 |
+|---|---|---|
+| 16 | `kind: u32` | `Move=1, Enter=2, Leave=3, Down=4, Up=5, Cancel=6, Wheel=7, ContextMenu=8`. 모르는 값은 `ProtocolError` |
+| 20 | `pointer_id: u32` | 같은 손가락, 펜, 마우스 하나를 이어서 가리키는 값. 마우스는 1 |
+| 24 | `pointer_type: u32` | `Mouse=1, Touch=2, Pen=3` |
+| 28 | `x: f32` | 받는 노드의 왼쪽 위 모서리 기준, 단위 dp |
+| 32 | `y: f32` | 위와 같음 |
+| 36 | `buttons: u32` | 지금 눌려 있는 버튼의 비트마스크 |
+| 40 | `button: u32` | 이 이벤트를 일으킨 버튼의 비트(`Down`, `Up`만). 그 밖의 종류는 0 |
+| 44 | `modifiers: u32` | `Shift=1, Ctrl=2, Alt=4, Meta=8`. FR-12.1 `KeyDown`의 네 수정자와 같은 뜻 |
+| 48 | `click_count: u32` | `Down`과 `Up`에서 연속 누름 횟수(1, 2, ...). 그 밖의 종류는 0 |
+| 52 | `delta_x: f32` | `Wheel`만. 양수가 오른쪽 |
+| 56 | `delta_y: f32` | `Wheel`만. 양수가 아래쪽 |
+| 60 | `delta_mode: u32` | `Wheel`만. `Pixel=0`(dp), `Line=1`, `Page=2`(DOM과 같은 숫자) |
+| 64 | `timestamp_nanos: u64` | 입력이 OS에서 발생한 시각. 단조 시계이고 `render_frame`의 `frame_time_nanos`와 같은 시계 |
+
+- **버튼 비트.** `Primary=1, Secondary=2, Tertiary=4(가운데), Back=8, Forward=16`. Compose의 `PointerButtons`와 이름과 순서가 같고, DOM의 `buttons`와 숫자도 같습니다. Renderer는 `Back`과 `Forward`를 보조 버튼 하나로 합치거나 `Tertiary`로 바꾸지 않습니다. 포크 쪽 입력 수정(포크 PR #165, 진행 중)이 들어가기 전에는 플랫폼에 따라 뒤의 둘이 오지 않을 수 있고, 그 경우에도 오는 버튼의 비트는 위 표대로입니다.
+- **`dblclick`은 Host가 만듭니다.** `Down`/`Up`의 `click_count`가 2가 되면 Host가 DOM `dblclick`을 일으킵니다. 간격과 거리의 기준은 OS 설정이므로 Renderer가 셉니다.
+- **`ContextMenu`는 Renderer가 정합니다.** 플랫폼 관례대로 오른쪽 버튼 누름, macOS의 Control 누르고 클릭, 터치 길게 누르기, 메뉴 키를 이 종류로 보냅니다. 이때는 `Down`을 따로 보내지 않습니다. 소비되지 않으면 FR-33.1의 기본 메뉴 동작이 이어지고, 소비되면 메뉴를 띄우지 않습니다.
+- **`Enter`와 `Leave`.** 마우스와 펜은 호버로, 터치는 접촉 전후로 옵니다(DOM의 `pointerenter`, `pointerleave`와 같습니다). 좌표는 들어오고 나간 순간의 포인터 자리이고 `Leave`의 좌표는 노드 밖일 수 있습니다. `:hover`는 Host가 `Enter`, `Leave`, `Move`로 계산하며 Renderer에는 호버 상태가 따로 없습니다.
+- **`Cancel`.** OS가 입력을 가져갈 때(창 비활성, 시스템 제스처, 터치 취소) 한 번 옵니다. `Cancel`은 눌린 버튼을 해제한 것으로 치며, 캡처도 끝납니다.
+
+#### 46.3 좌표
+
+- 단위는 dp이고 Host는 dp를 CSS px로 씁니다. 원점은 받는 노드의 왼쪽 위입니다. 화면이나 창 좌표는 보내지 않습니다(18.1과 같은 이유로, Host는 창 위치를 모릅니다).
+- 노드나 조상에 `Transform`(FR-41.1) 또는 3D 변환(FR-41.3)이 있으면 좌표는 **변환 전 노드 공간으로 되돌려** 보냅니다. 적중 판정이 그리는 모양을 따르는 것(FR-41.1 기준 5)과 같은 행렬의 역을 씁니다. 역행렬이 없는 변환(축소가 0)에서는 이벤트를 보내지 않습니다.
+- **확대 배율(FR-43)은 걷어 냅니다.** `IslandZoom` `k`가 있는 HTML 영역 안에서는 좌표와 `Wheel`의 `Pixel` 델타를 `k`로 나눈 값, 곧 영역 기준 CSS px로 보냅니다. FR-43이 "포인터 좌표는 영역 기준 CSS px로 옵니다"라고 정한 것과 같은 값입니다. 영역 밖의 구독 노드는 `k = 1`로 칩니다. 이렇게 해야 Host가 배율을 모른 채 적중 판정을 그대로 할 수 있습니다.
+
+#### 46.4 캡처와 합치기
+
+- **캡처는 암묵적입니다.** `Down`을 받은 노드(`Down`을 구독한 노드)는 그 포인터의 `Up`이나 `Cancel`까지 모든 `Move`와 `Up`을 받습니다. 포인터가 노드 밖으로 나가도 마찬가지이고 좌표는 노드 밖(음수 포함)일 수 있습니다. 경계선 끌기처럼 빠르게 벗어나는 동작이 이것으로 됩니다. 캡처 중에는 다른 노드가 `Enter`, `Leave`, `Move`를 받지 않습니다. 캡처한 노드가 지워지면 이벤트는 조용히 버려지고 `Cancel`은 가지 않습니다. 받을 노드가 없기 때문입니다.
+- 명시적 해제 명령은 두지 않습니다. 끝은 `Up`과 `Cancel`뿐이고, 경계 진입점도 명령도 늘지 않습니다(PR-2).
+- **`Move`는 프레임당 노드마다 최대 한 건입니다.** 포인터 이벤트는 프레임보다 자주 오므로 합치지 않으면 한 프레임에 VirtualDom이 여러 번 돕니다(18.1의 `DragMove`와 같은 이유). Renderer가 가장 최근 위치, `buttons`, `modifiers`를 쥐고 있다가 프레임 시작에 한 건으로 보냅니다. `Wheel`은 델타를 더해 프레임당 한 건으로 합칩니다(`delta_mode`가 다르면 합치지 않고 따로). `Enter`, `Leave`, `Down`, `Up`, `Cancel`, `ContextMenu`는 합치지 않으며, 보내기 전에 쥐고 있던 `Move`를 먼저 내보내 순서가 바뀌지 않게 합니다. 합치는 상태는 노드마다 고정 크기라 정상 상태에서 할당하지 않습니다(NFR-9).
+- 호출은 PR-1대로 같은 스레드의 `dispatch_event` 직접 호출이고, 큐나 스레드가 늘지 않습니다.
+
+#### 46.5 소비
+
+핸들러의 동기 반환값을 `Clicked`와 같이 읽습니다(FR-12). 0이 아니면 소비로 보아 그 이벤트는 위로 올라가지 않고, Compose의 클릭, 스크롤, 선택 같은 기본 동작도 하지 않습니다. 0이면 가장 가까운 구독한 조상으로, 그다음에는 평소 처리로 넘어갑니다. `Wheel`을 소비하지 않으면 감싸는 `ScrollColumn`이 스크롤합니다. IME 조합 중에도 포인터 이벤트는 막지 않습니다(키 이벤트와 다릅니다). 조합 자체를 바꾸지 않기 때문입니다.
+
+#### 46.6 수용 기준
+
+1. 구독한 노드만 이벤트를 받습니다. 구독하지 않은 노드에는 포인터 입력 수정자가 붙지 않습니다(인터프리터 단위 테스트, fr46_unsubscribed_node_gets_no_pointer_modifier).
+2. 마스크에 든 종류만 옵니다. `Down|Up`만 구독한 노드는 `Move`를 받지 않고 호버 추적도 켜지 않습니다(fr46_only_masked_kinds_are_sent).
+3. 마우스가 노드에 들어오면 `Enter`, 안에서 움직이면 `Move`, 나가면 `Leave`가 순서대로 한 번씩 옵니다. `x`, `y`는 노드 기준 dp입니다(fr46_hover_enter_move_leave_in_order).
+4. 한 프레임 안의 `Move` 수십 건이 한 건으로 오고, 위치는 마지막 값입니다. 그 사이에 `Down`이 끼면 `Down` 앞에 `Move`가 먼저 갑니다(fr46_moves_coalesce_to_one_per_frame, fr46_pending_move_flushes_before_down).
+5. `Primary`, `Secondary`, `Tertiary`, `Back`, `Forward`를 각각 누르면 `button`과 `buttons`가 위 비트대로 옵니다. `Back`이 `Secondary`나 `Tertiary`로 합쳐지지 않습니다(fr46_button_bits_match_compose_pointer_buttons).
+6. 같은 자리를 빠르게 두 번 누르면 두 번째 `Down`과 `Up`의 `click_count`가 2입니다(fr46_double_press_reports_click_count_two).
+7. Control 누르고 클릭(macOS)과 오른쪽 버튼 누름이 각각 `ContextMenu` 한 건이고 `Down`은 나가지 않습니다. 핸들러가 소비하면 기본 메뉴가 뜨지 않습니다(fr46_context_menu_kind_and_consume).
+8. `Wheel`은 `delta_x`, `delta_y`, `delta_mode`를 싣고, 한 프레임의 여러 휠이 더해져 한 건으로 옵니다. 소비하지 않으면 감싸는 `ScrollColumn`이 스크롤합니다(fr46_wheel_deltas_sum_per_frame_and_pass_through).
+9. `Down`을 받은 노드는 포인터가 밖으로 나가도 `Up`까지 `Move`를 받고, 그동안 다른 노드는 `Enter`, `Move`를 받지 않습니다(fr46_capture_keeps_moves_after_leaving_bounds).
+10. `Cancel`이 오면 눌림과 캡처가 끝납니다. 캡처한 노드가 지워지면 에러 없이 버려집니다(fr46_cancel_ends_capture, fr46_removed_capture_node_drops_silently).
+11. `rotate(30deg)`한 노드에서 좌표가 변환 전 공간으로 옵니다. 역행렬이 없는 변환에서는 이벤트가 가지 않습니다(fr46_coordinates_are_mapped_back_through_transform).
+12. `k = 1.5`인 HTML 영역 안의 좌표와 `Pixel` 휠 델타가 `k`로 나눠진 CSS px입니다(fr46_island_pointer_coordinates_exclude_zoom).
+13. 소비한 이벤트는 조상에게 올라가지 않고, 소비하지 않은 것은 가장 가까운 구독한 조상에게 갑니다. `Enter`, `Leave`는 올라가지 않습니다(fr46_unconsumed_bubbles_to_subscribed_ancestor).
+14. 모르는 `kind`는 `ProtocolError`이고 프로세스는 계속 돕니다(nfr7_unknown_pointer_kind_is_a_protocol_error).
+15. 터치에서 `Enter`는 `Down` 앞, `Leave`는 `Up` 뒤에 옵니다. 실제 마우스, 펜, 터치의 입력 확인과 `Back`/`Forward` 버튼은 기기에서 손으로 확인하고 §6과 같은 방식으로 기록합니다.
+16. 구독한 노드 천 개가 있는 장면에서 포인터를 움직이는 프레임의 시간이 NFR-9 예산 안이고, 정상 상태 할당이 0입니다. 수치를 이 항목에 기록합니다.
+
+#### 46.7 비용
+
+이벤트 태그 하나(8), 속성 둘(67 재사용, 140), 이벤트 페이로드 모양 하나. 구독하지 않은 화면에는 비용이 없습니다. `pointer_id`는 터치와 펜에서 플랫폼이 준 포인터 번호이고, 접촉이 끝나면 다른 접촉이 다시 쓸 수 있습니다. 다중 터치에서는 접촉마다 따로 `Enter`, `Down`, `Up`, `Leave`가 옵니다.
 
 ## 4. 경계 프로토콜
 
