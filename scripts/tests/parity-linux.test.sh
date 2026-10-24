@@ -62,6 +62,11 @@ done
 # Both paths on both platforms run the scripts in CI.
 grep -q 'scripts/parity/linux.sh native' "$repo_root/.github/workflows/static-renderer.yml" || fail "the Kotlin/Native Linux window is not measured in CI"
 grep -q 'scripts/parity/macos.sh native' "$repo_root/.github/workflows/static-renderer.yml" || fail "the Kotlin/Native macOS window is not measured in CI"
+for workflow in static-renderer.yml test-graalvm-renderer.yml; do
+    grep -q 'PARITY_GATE="resize_stale_ratio resize_stretched"' "$repo_root/.github/workflows/$workflow" \
+        || fail "$workflow does not gate the Linux parity run on the resize rows"
+done
+grep -q 'PARITY_GATE' "$repo_root/scripts/parity/common.sh" || fail "the parity table does not honour PARITY_GATE"
 grep -q 'scripts/parity/linux.sh graalvm' "$repo_root/.github/workflows/test-graalvm-renderer.yml" || fail "the GraalVM X11 window is not measured in CI"
 grep -q 'scripts/parity/macos.sh graalvm' "$repo_root/.github/workflows/test-graalvm-renderer.yml" || fail "the GraalVM AppKit window is not measured in CI"
 
