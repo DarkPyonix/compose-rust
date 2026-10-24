@@ -3,15 +3,42 @@
 # of 100 sizes), waits for the last phase, stops it, and summarises the frames drawn during
 # the drag and the phase lines around it.
 #
-# Usage: resize-metrics-run.sh <application> <output directory> <label>
+# With "soak" as a fourth argument it runs the long soak instead (DXC_RESIZE_SOAK, rounds of
+# 100 mouse events each, 15 rounds unless DXC_RESIZE_SOAK says otherwise) and leaves only the
+# log, which resize-memory-check.sh --soak reads. DXC_SKIA_CACHE_MB is passed through.
+#
+# Usage: resize-metrics-run.sh <application> <output directory> <label> [soak]
 set -uo pipefail
 app="$1"
 out="$2"
 label="$3"
+mode="${4:-metrics}"
 mkdir -p "$out"
 log="$out/$label.log"
+
+stop() {
+    local pid="$1" marker="$2" tries="$3"
+    for _ in $(seq "$tries"); do
+        grep -q "$marker" "$log" 2>/dev/null && break
+        kill -0 "$pid" 2>/dev/null || break
+        sleep 0.5
+    done
+    sleep 1
+    kill "$pid" 2>/dev/null || true
+    sleep 1
+    kill -9 "$pid" 2>/dev/null || true
+}
+
+if [[ "$mode" == "soak" ]]; then
+    rounds="${DXC_RESIZE_SOAK:-15}"
+    DXC_RESIZE_SOAK="$rounds" DXC_METRICS_BREAKDOWN=1 "$app" > "$log" 2>&1 &
+    # Seven seconds of rest, then each round's drag and two seconds after it, with room for
+    # a slow runner; the run is stopped as soon as the soak says it is done.
+    stop $! "soak done" $(( (20 + rounds * 12) * 2 ))
+    exit 0
+fi
+
 DXC_METRICS=1 DXC_METRICS_BREAKDOWN=1 DXC_REPORT_LATENCY=1 "$app" > "$log" 2>&1 &
-pid=$!
 # The scripted drag, its settled reading, then the drag made of mouse events and its own
 # ("metrics done"). The Windows renderer has no "metrics done": it ends at its last phase, or
 # with DXC_REAL_DRAG at its real drag.
@@ -20,15 +47,7 @@ case "$(uname -s)" in
     *) done_line="metrics done" ;;
 esac
 [[ -n "${DXC_REAL_DRAG:-}" ]] && done_line="real drag$"
-for _ in $(seq 360); do
-    grep -q "$done_line" "$log" 2>/dev/null && break
-    kill -0 "$pid" 2>/dev/null || break
-    sleep 0.5
-done
-sleep 2
-kill "$pid" 2>/dev/null || true
-sleep 1
-kill -9 "$pid" 2>/dev/null || true
+stop $! "$done_line" 360
 
 summary="$out/$label.md"
 {

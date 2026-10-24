@@ -31,8 +31,11 @@ import kotlinx.coroutines.awaitCancellation
  * drawing no caret: the field is told the window it sits in is not the one being typed at.
  * Following the real focus is the next thing this learns, and the shell already hears it.
  */
-class NativeWindowInfo(private val size: () -> IntSize) : WindowInfo {
-    override val isWindowFocused: Boolean get() = true
+class NativeWindowInfo(
+    private val size: () -> IntSize,
+    private val focused: () -> Boolean = { true },
+) : WindowInfo {
+    override val isWindowFocused: Boolean get() = focused()
     override val containerSize: IntSize get() = size()
 }
 
@@ -56,9 +59,10 @@ class NativePlatformContext(
     private val semantics: PlatformContext.SemanticsOwnerListener,
     /** Sets the shape of the pointer, by the number [pointerShapeOf] answers with. */
     private val setCursor: (Int) -> Unit,
+    private val focused: () -> Boolean = { true },
 ) : PlatformContext {
 
-    override val windowInfo: WindowInfo = NativeWindowInfo(size)
+    override val windowInfo: WindowInfo = NativeWindowInfo(size, focused)
     override val inputModeManager: InputModeManager = NativeInputModeManager()
     override val semanticsOwnerListener: PlatformContext.SemanticsOwnerListener = semantics
 

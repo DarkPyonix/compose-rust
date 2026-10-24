@@ -280,6 +280,48 @@ download_and_extract "Kotlin Toolchain distribution v$kotlin_cli_version" "$kotl
 
 # ********** Launch the Kotlin CLI **********
 
+# Patch Ktor HTTP client's 8192-character header line limit in the extracted toolchain distribution.
+# GitHub Releases responses include a 9243-character Content-Security-Policy header line,
+# which otherwise triggers io.ktor.utils.io.charsets.TooLongLineException during asset downloads.
+patch_flag="$kotlin_cli_target_dir/.ktor-line-limit-patched"
+if [ ! -f "$patch_flag" ]; then
+  python3 -c "
+import zipfile, os
+
+jar_path = '$kotlin_cli_target_dir/lib/ktor-http-cio-jvm-3.4.1.jar'
+if os.path.exists(jar_path):
+    with zipfile.ZipFile(jar_path, 'r') as zin:
+        entries = {item.filename: zin.read(item.filename) for item in zin.infolist()}
+    cls_name = 'io/ktor/http/cio/HttpParserKt.class'
+    if cls_name in entries:
+        b = bytearray(entries[cls_name])
+        old_long = b'\x00\x00\x00\x00\x00\x00\x20\x00'
+        new_long = b'\x00\x00\x00\x00\x00\x01\x00\x00'
+        if old_long in b:
+            b = bytearray(bytes(b).replace(old_long, new_long, 1))
+        old_sipush = b'\x11\x20\x00'
+        new_sipush = b'\x11\x7f\xff'
+        if old_sipush in b:
+            b = bytearray(bytes(b).replace(old_sipush, new_sipush, 1))
+        entries[cls_name] = bytes(b)
+        tmp_jar = jar_path + '.tmp'
+        with zipfile.ZipFile(tmp_jar, 'w', compression=zipfile.ZIP_DEFLATED) as zout:
+            for name, data in entries.items():
+                zout.writestr(name, data)
+        os.replace(tmp_jar, jar_path)
+" 2>/dev/null && touch "$patch_flag" || true
+fi
+
+# Prefetch toolchain downloads hosted on GitHub Releases, because GitHub's response
+# headers contain a Content-Security-Policy line longer than Ktor's 8192-character limit,
+# which crashes Amper's internal downloader.
+_wrapper_dir="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "$_wrapper_dir/scripts/prefetch-github-assets.sh" ]; then
+  "$_wrapper_dir/scripts/prefetch-github-assets.sh" || true
+elif [ -f "$_wrapper_dir/prefetch-github-assets.sh" ]; then
+  "$_wrapper_dir/prefetch-github-assets.sh" || true
+fi
+
 launcher_script="$kotlin_cli_target_dir/bin/launcher.sh"
 
 KOTLIN_CLI_WRAPPER_PATH="$(realpath "$0")" \

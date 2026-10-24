@@ -27,6 +27,9 @@ on:
       - 'renderer/scripts/build-compose.sh'
       - 'renderer/scripts/compose-fork.changes'
       - 'scripts/tests/renderer/**'
+      - '.github/scripts/resize-metrics-run.sh'
+      - '.github/scripts/resize-memory-check.sh'
+      - '.github/scripts/resize-soak-check.sh'
       - 'scripts/parity/**'
       - '.github/scripts/check-linux-input-access.sh'
       - '.github/scripts/atspi-walk.py'
@@ -49,6 +52,9 @@ on:
       - 'renderer/scripts/build-compose.sh'
       - 'renderer/scripts/compose-fork.changes'
       - 'scripts/tests/renderer/**'
+      - '.github/scripts/resize-metrics-run.sh'
+      - '.github/scripts/resize-memory-check.sh'
+      - '.github/scripts/resize-soak-check.sh'
       - 'scripts/parity/**'
       - '.github/scripts/check-linux-input-access.sh'
       - '.github/scripts/atspi-walk.py'
@@ -105,7 +111,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: compose-fork-desktop
-          path: ~/.m2/repository/org/jetbrains
+          path: ~/.m2/repository/org
 
       - name: Build the renderer shared library
         # With the fork's skiko built without JAWT and linked in, so the image carries no AWT.
@@ -124,6 +130,29 @@ jobs:
         env:
           COMPOSE_RUST_AUTOEXIT_MS: '5000'
         run: ./renderer/desktop/scripts/smoke-test.sh
+
+      - name: Memory after 1500 resizes settles near rest
+        # The Kotlin/Native renderer's soak, on the native image's window: 15 rounds of one
+        # drag each, 100 mouse events on the right edge, and a reading two seconds after
+        # each. The bound and why it is what it is: .github/scripts/resize-soak-check.sh.
+        env:
+          SOAK_BOUND_MB: '16'
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/resize-metrics"
+          printf '#!/bin/sh\nCOMPOSE_RUST_AUTOEXIT_MS=600000 exec "%s"\n' "$PWD/renderer/build/native-image/smoke_host" > "$RUNNER_TEMP/smoke-launch"
+          chmod +x "$RUNNER_TEMP/smoke-launch"
+          ./.github/scripts/resize-metrics-run.sh "$RUNNER_TEMP/smoke-launch" "$out" soak-macos-graalvm soak
+          { echo "### GraalVM soak"; ./.github/scripts/resize-memory-check.sh --soak "$out/soak-macos-graalvm.log" "$SOAK_BOUND_MB"; } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the resize logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resize-soak-macos-graalvm
+          path: ${{ runner.temp }}/resize-metrics/
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: The content stays put while the window's height is dragged
         # The smoke host again, with the probe that drags the bottom edge and then the top
@@ -239,14 +268,14 @@ jobs:
           # skiko-awt with the switch that keeps UIManager out of a toolkit-free image.
           # It is published under a version of its own, so no cache of upstream's can shadow it.
           ./scripts/publish-skiko-awt.sh "$RUNNER_TEMP/skiko-awt"
-          find ~/.m2/repository/org/jetbrains/compose -name '*.jar' | sort
+          find ~/.m2/repository/org/thisisthepy/compose -name '*.jar' | sort
 
       - name: Keep the published modules
         uses: actions/upload-artifact@v4
         with:
           name: compose-fork-desktop
           path: |
-            ~/.m2/repository/org/jetbrains/compose
+            ~/.m2/repository/org/thisisthepy/compose
             ~/.m2/repository/org/jetbrains/skiko/skiko-awt
           retention-days: 7
 
@@ -287,7 +316,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: compose-fork-desktop
-          path: ~/.m2/repository/org/jetbrains
+          path: ~/.m2/repository/org
 
       - name: Run Linux script contract tests
         run: bash scripts/tests/renderer/linux-build.test.sh
@@ -341,10 +370,13 @@ jobs:
         timeout-minutes: 12
         # The checklist static-renderer.yml runs on the Kotlin/Native window, with the same
         # application: the consumer fixture the input check above built against this
-        # renderer. The table is in the job summary; a row that fails is a warning, not a stop.
+        # renderer. The table is in the job summary; a row that fails is a warning, except the
+        # resize rows, which are a gate: no frame at a size other than the window's, no size
+        # without a frame.
         run: |
           sudo apt-get install -y xclip
-          xvfb-run -a -s '-screen 0 1280x1024x24' ./scripts/parity/linux.sh graalvm "$RUNNER_TEMP/parity" -- \
+          PARITY_GATE="resize_stale_ratio resize_stretched" \
+            xvfb-run -a -s '-screen 0 1280x1024x24' ./scripts/parity/linux.sh graalvm "$RUNNER_TEMP/parity" -- \
             "$PWD/target/linux-input-check-shared/debug/consumer" --parity
 
       - name: Keep the Linux parity run's logs
@@ -400,7 +432,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: compose-fork-desktop
-          path: ~/.m2/repository/org/jetbrains
+          path: ~/.m2/repository/org
 
       - name: Build the Linux renderer under Xvfb
         run: xvfb-run -a ./renderer/desktop/scripts/build-native-linux.sh

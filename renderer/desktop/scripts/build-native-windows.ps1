@@ -276,6 +276,13 @@ foreach ($line in Get-Content -LiteralPath $JvmLog) {
         break
     }
 }
+# skiko's native half for every desktop system is on the JVM class path (desktop\module.yaml
+# names them all, because the toolchain can pick the system only for JetBrains' own desktop
+# module). The image takes this system's alone, as it did when the toolchain picked it.
+$ClasspathEntries = [System.Collections.Generic.List[string]]@($ClasspathEntries | Where-Object {
+    $leaf = Split-Path -Leaf $_
+    -not ($leaf -like "skiko-awt-runtime-*.jar") -or ($leaf -like "skiko-awt-runtime-windows-x64-*.jar")
+})
 # Swing's coroutine provider is left out of the image. It is a main dispatcher that wakes the
 # Java toolkit, and the window here answers `Dispatchers.Main` itself (FrameMainDispatcher).
 # With the provider on the class path it is still found, and everything it reaches comes with it.

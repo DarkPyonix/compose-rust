@@ -57,8 +57,11 @@ assert_run "setup_check_reports_missing_cargo" 1 "cargo not found on PATH" \
 # GraalVM is the right one. Not having it is never fatal. It blocks the native image and
 # nothing else, and on macOS the renderer that ships is not the native image at all.
 if [[ "$(uname -s)" == "Darwin" ]]; then
-    assert_run "setup_check_reports_missing_nik" 1 "no Liberica NIK found" \
-        env -u GRAALVM_HOME HOME="$empty_home" "$setup_check"
+    assert_run "setup_check_reports_missing_nik" 0 "no Liberica NIK found" \
+        env -u GRAALVM_HOME HOME="$empty_home" \
+            RUSTUP_HOME="${RUSTUP_HOME:-$real_home/.rustup}" \
+            CARGO_HOME="${CARGO_HOME:-$real_home/.cargo}" \
+            "$setup_check"
 else
     # Keep rustup discoverable. The empty HOME above exists to make the macOS toolchain
     # glob find nothing, and that glob is not used here, but rustup does live under HOME,
@@ -112,10 +115,10 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     # published: a CI runner has never run build-compose.sh, and a developer who has is
     # testing their own ~/.m2, not the check. The version is read from where setup-check
     # reads it, so moving the pin does not leave this looking for the old one.
-    patched_version="$(sed -n 's/^EXTENDED_AS="\([^"]*\)"$/\1/p' \
+    patched_version="$(sed -n 's/^COMPOSE_AS="\([^"]*\)"$/\1/p' \
         "$repo_root/renderer/scripts/build-compose.sh" | head -1)"
     compose_home="$empty_home/compose-home"
-    patched_compose="$compose_home/.m2/repository/org/jetbrains/compose/ui/ui-macosarm64/$patched_version"
+    patched_compose="$compose_home/.m2/repository/org/thisisthepy/compose/ui/ui-macosarm64/$patched_version"
     mkdir -p "$patched_compose"
     assert_run "setup_check_names_the_patched_compose_it_found" 0 "patched Compose: $patched_compose" \
         env -u GRAALVM_HOME HOME="$compose_home" \

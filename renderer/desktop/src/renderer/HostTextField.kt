@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.BasicText
@@ -191,6 +192,12 @@ internal fun HostTextField(node: Node, modifier: Modifier, dispatcher: EventDisp
         }
     }
 
+    val fillsHeight = node.modifiers.any {
+        it is dev.darkpyonix.composerust.protocol.Modifier.FillMaxHeight ||
+            it is dev.darkpyonix.composerust.protocol.Modifier.Height ||
+            it is dev.darkpyonix.composerust.protocol.Modifier.Size
+    }
+
     BasicTextField(
         value = value,
         onValueChange = { value = it },
@@ -207,6 +214,7 @@ internal fun HostTextField(node: Node, modifier: Modifier, dispatcher: EventDisp
                     // it was laid out in belonging to nothing: the composer was a bar you
                     // could only put the caret in by hitting the words.
                     .fillMaxWidth()
+                    .let { if (fillsHeight) it.fillMaxHeight() else it }
                     .defaultMinSize(minHeight = frame.minHeight)
                     .clip(frame.shape)
                     .background(if (focused) frame.containerFocused else frame.container)

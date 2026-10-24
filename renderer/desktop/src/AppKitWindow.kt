@@ -39,6 +39,7 @@ import org.thisisthepy.compose.window.WindowEvent
 import org.thisisthepy.compose.window.contentMinimum
 import org.thisisthepy.compose.window.graalvm.macos.AppKitUpcallSlots
 import org.thisisthepy.compose.window.graalvm.macos.NativeWindow
+import org.thisisthepy.compose.window.graalvm.macos.resizeSoakState
 import org.thisisthepy.compose.window.graalvm.macos.configureNativeWindow
 import org.thisisthepy.compose.window.graalvm.macos.describeTo
 import org.thisisthepy.compose.window.graalvm.macos.drainWindowEvents
@@ -47,6 +48,7 @@ import org.thisisthepy.compose.window.graalvm.macos.frameTimeNanos
 import org.thisisthepy.compose.window.graalvm.macos.installApplicationMenu
 import org.thisisthepy.compose.window.graalvm.macos.isWindowClosed
 import org.thisisthepy.compose.window.graalvm.macos.measureTitleBar
+import org.graalvm.nativeimage.c.function.CFunction
 import org.thisisthepy.compose.window.graalvm.macos.configureNativeWindowChrome
 import org.thisisthepy.compose.window.graalvm.macos.showContextMenu
 import org.thisisthepy.compose.window.graalvm.macos.openNativeWindow
@@ -68,6 +70,9 @@ import org.thisisthepy.compose.window.graalvm.macos.AccessibleElement as AppKitE
 // toolkit window, and a toolkit window is the thing being removed. Kept to the window
 // files and pinned to the version in the module file, which is what the rule about
 // unstable APIs asks for. A Compose upgrade changes these files or it changes nothing.
+
+@CFunction("dxc_native_window_focused")
+private external fun nativeWindowFocused(): Int
 
 /**
  * The strip of the window the title bar occupies and the room its three buttons take, in the
@@ -137,6 +142,10 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
         return
     }
     val context = org.jetbrains.skia.DirectContext.makeMetal(window.device, window.queue)
+    // A smaller Skia resource cache, for a soak that measures how much of what it holds is
+    // that cache. Nothing sets it otherwise, so Skia keeps its own default.
+    System.getenv("DXC_SKIA_CACHE_MB")?.toLongOrNull()?.let { context.resourceCacheLimit = it * 1048576 }
+    val soak = if (System.getenv("DXC_RESIZE_SOAK") != null) SoakHeapReport(context) else null
     val measured = window.measure()
     WindowStartReport.windowOpened(measured.width, measured.height, measured.scale)
 
@@ -165,11 +174,12 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
     // there: a list asking for the rows it is about to show asked from a thread with no
     // Host and was told nothing had been initialised.
     val work = FrameDispatcher()
+    val windowFocused = androidx.compose.runtime.mutableStateOf(true)
     val scene = CanvasLayersComposeScene(
         density = androidx.compose.ui.unit.Density(measured.scale),
         size = size,
         coroutineContext = work,
-        platformContext = NativePlatformContext({ size }, textInput, semantics, ::setPointerShape),
+        platformContext = NativePlatformContext({ size }, textInput, semantics, ::setPointerShape, { windowFocused.value }),
     )
     WindowStartReport.sceneCreated(size.width, size.height, measured.scale)
     // The application's own tree, drawn by the same interpreter every window uses.
@@ -228,6 +238,11 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
         // until it is there and then not at all, by the same rule the other macOS window uses.
         if (!dockIcon.applied && asked != null) dockIcon.tryApply(asked.icon)
         var heard = false
+        val nowFocused = nativeWindowFocused() != 0
+        if (windowFocused.value != nowFocused) {
+            windowFocused.value = nowFocused
+            heard = true
+        }
         val events = drainWindowEvents()
         for (event in synthetic?.due(System.nanoTime(), size) ?: emptyList()) {
             scene.receive(event)
@@ -305,6 +320,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
                 window.postKey(code, character)
             }
             Win32Frames.draw()
+            soak?.tick()
             // Every frame, and after the drawing. After, because that is when what is in
             // the window has been placed and can say where it is. Every frame, because a
             // tree that changed on the last one is a tree nobody has been told about, and
@@ -341,6 +357,47 @@ private fun forgetAppKitFrameCallback() {
 }
 
 private const val NANOS_PER_MILLI = 1_000_000L
+
+/**
+ * The heap's part of the resize soak asked for with DXC_RESIZE_SOAK, which the window runs
+ * and reads the rest of (the fork's graalvm-macos `native/appkit_resize_soak.h`).
+ *
+ * The window sees the process's footprint and what Metal has allocated, not the image's
+ * heap, so this prints the heap twice a second while the soak runs: used (live objects and
+ * garbage not yet collected), committed, and the most it may grow to, with the collections
+ * so far and Skia's own caches. The loop does not turn while an edge is being dragged, so
+ * these lines land between rounds, which is where the soak's settled readings are taken.
+ * When the rounds have ended it collects once, so the last reading says what was held and
+ * what was only waiting for a collection.
+ */
+private class SoakHeapReport(private val context: org.jetbrains.skia.DirectContext) {
+    private var last = 0L
+    private var collected = false
+
+    fun tick() {
+        val state = resizeSoakState()
+        if (state == 0) return
+        if (state == 2 && !collected) {
+            collected = true
+            System.gc()
+        }
+        val now = System.nanoTime()
+        if (now - last < 500_000_000L) return
+        last = now
+        val runtime = Runtime.getRuntime()
+        val gcs = java.lang.management.ManagementFactory.getGarbageCollectorMXBeans()
+            .sumOf { maxOf(it.collectionCount, 0L) }
+        System.err.println(
+            "compose-rust: soak heap used_mb=${mb(runtime.totalMemory() - runtime.freeMemory())} " +
+                "committed_mb=${mb(runtime.totalMemory())} max_mb=${mb(runtime.maxMemory())} gcs=$gcs " +
+                "skia_cache_limit_mb=${mb(context.resourceCacheLimit)} " +
+                "skia_cpu_cache_mb=${mb(org.jetbrains.skia.Graphics.resourceCacheTotalUsed.toLong())} " +
+                "skia_font_cache_mb=${mb(org.jetbrains.skia.Graphics.fontCacheUsed.toLong())}",
+        )
+    }
+
+    private fun mb(bytes: Long): Long = (bytes + 524288) / 1048576
+}
 
 /**
  * One frame: take a drawable, let the scene paint it, give it to the screen.

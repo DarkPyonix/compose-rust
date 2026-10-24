@@ -69,6 +69,8 @@ export DXC_SYNTH_EXIT_AT="${DXC_SYNTH_EXIT_AT:-20}"
 export DXC_REPORT_LATENCY=1
 export DXC_REPORT_INPUT=1
 export DXC_REPORT_RESIZE=1
+# Every requested, confirmed and presented size, so a stale frame can be placed among them.
+export DXC_REPORT_RESIZE_DETAIL=1
 export GTK_THEME="${GTK_THEME:-Adwaita:dark}"
 
 "$@" >"$log" 2>"$err" &
