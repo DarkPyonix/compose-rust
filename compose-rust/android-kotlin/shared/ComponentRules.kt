@@ -25,6 +25,7 @@ import dev.darkpyonix.composerust.protocol.SpaceRole
 import dev.darkpyonix.composerust.protocol.TypeRole
 import dev.darkpyonix.composerust.protocol.WindowSizeClass
 import dev.darkpyonix.composerust.protocol.TitleBar
+import dev.darkpyonix.composerust.foundation.code.UnderlineShape
 
 /**
  * Material 3 Expressive rules: elevation, button variants and motion.
@@ -500,6 +501,18 @@ internal object Material3Rules : ComponentRules {
             ),
             grabWidth = 24.dp,
             sideBackground = theme.color(ColorRole.SurfaceContainer),
+        )
+
+    /**
+     * Material has no code editor of its own, so this one is its surfaces put to the job:
+     * the gutter a container tone below the text, the current line in the surface variant,
+     * a squiggle for a problem, and a suggestion at the 38 percent Material gives content
+     * that is there but not yet the reader's.
+     */
+    override fun codeEditor(theme: ResolvedTheme): CodeEditorStyle =
+        defaultCodeEditorStyle(theme).copy(
+            gutter = theme.color(ColorRole.SurfaceContainer),
+            ghostTextAlpha = 0.38f,
         )
 
     override fun message(theme: ResolvedTheme): MessageStyle = MessageStyle(
@@ -1047,6 +1060,23 @@ internal object CupertinoRules : ComponentRules {
             edgeSwipeBack = true,
         )
 
+    /**
+     * Xcode's editor: the numbers in the secondary label colour on the page itself with no
+     * rule beside them, the current line a faint wash of the accent, a straight line under
+     * a problem rather than a squiggle, and a suggestion in grey.
+     */
+    override fun codeEditor(theme: ResolvedTheme): CodeEditorStyle =
+        defaultCodeEditorStyle(theme).copy(
+            container = theme.color(ColorRole.Background),
+            gutter = theme.color(ColorRole.Background),
+            currentLine = theme.color(ColorRole.Primary).copy(alpha = 0.08f),
+            underline = UnderlineShape.Straight,
+            hintUnderline = UnderlineShape.Dotted,
+            underlineWidth = 1.5.dp,
+            ghostTextAlpha = 0.45f,
+            textInset = 10.dp,
+        )
+
     override fun message(theme: ResolvedTheme): MessageStyle = MessageStyle(
         container = theme.color(ColorRole.SurfaceContainer),
         content = theme.color(ColorRole.OnSurface),
@@ -1546,6 +1576,20 @@ internal object FluentRules : ComponentRules {
             maxWidth = 480.dp,
             lineColor = theme.color(ColorRole.OutlineVariant),
             sideBackground = theme.color(ColorRole.Background),
+        )
+
+    /**
+     * The editor VS Code draws: no fill behind the current line but a thin frame round it,
+     * the gutter the same surface as the text, a squiggle for every severity but a hint,
+     * which is three dots, and a suggestion at half strength.
+     */
+    override fun codeEditor(theme: ResolvedTheme): CodeEditorStyle =
+        defaultCodeEditorStyle(theme).copy(
+            currentLine = Color.Transparent,
+            currentLineBorder = theme.color(ColorRole.OutlineVariant),
+            lineNumber = theme.color(ColorRole.OnSurfaceVariant).copy(alpha = 0.8f),
+            gutterPadding = 16.dp,
+            textInset = 12.dp,
         )
 
     override fun message(theme: ResolvedTheme): MessageStyle = MessageStyle(
@@ -2074,6 +2118,19 @@ internal object GnomeRules : ComponentRules {
             lineColor = theme.color(ColorRole.OutlineVariant),
             grabWidth = 6.dp,
             sideBackground = theme.color(ColorRole.SurfaceContainer),
+        )
+
+    /**
+     * GtkSourceView under Adwaita: quiet numbers on the view's own surface, the current line
+     * a light wash of the ink, the wavy line the platform uses for spelling, and the eight
+     * column tab GtkSourceView sets when nobody chooses one.
+     */
+    override fun codeEditor(theme: ResolvedTheme): CodeEditorStyle =
+        defaultCodeEditorStyle(theme).copy(
+            currentLine = theme.color(ColorRole.OnSurface).copy(alpha = 0.05f),
+            lineNumber = theme.color(ColorRole.OnSurface).copy(alpha = 0.45f),
+            tabWidth = 8,
+            textInset = 6.dp,
         )
 
     override fun message(theme: ResolvedTheme): MessageStyle = MessageStyle(
@@ -2619,6 +2676,20 @@ internal object BreezeRules : ComponentRules {
             sideBackground = theme.color(ColorRole.Background),
         )
 
+    /**
+     * Kate under Breeze: a gutter a shade off the text with a rule along its edge, the
+     * current line filled, and the red squiggle KTextEditor uses.
+     */
+    override fun codeEditor(theme: ResolvedTheme): CodeEditorStyle =
+        defaultCodeEditorStyle(theme).copy(
+            gutter = theme.color(ColorRole.SurfaceContainer),
+            gutterDivider = theme.color(ColorRole.OutlineVariant),
+            gutterDividerWidth = 1.dp,
+            currentLine = theme.color(ColorRole.Primary).copy(alpha = 0.1f),
+            gutterPadding = 8.dp,
+            textInset = 4.dp,
+        )
+
     override fun message(theme: ResolvedTheme): MessageStyle = MessageStyle(
         container = theme.color(ColorRole.SurfaceContainer),
         content = theme.color(ColorRole.OnSurface),
@@ -3154,6 +3225,18 @@ internal object DeepinRules : ComponentRules {
             keyStep = 10.dp,
             lineColor = theme.color(ColorRole.OutlineVariant),
             sideBackground = theme.color(ColorRole.SurfaceContainer),
+        )
+
+    /**
+     * The deepin editor: a gutter on the same surface separated by a faint rule, the current
+     * line a wash of the accent, and a squiggle for a problem.
+     */
+    override fun codeEditor(theme: ResolvedTheme): CodeEditorStyle =
+        defaultCodeEditorStyle(theme).copy(
+            gutterDivider = theme.color(ColorRole.OutlineVariant).copy(alpha = 0.6f),
+            gutterDividerWidth = 1.dp,
+            currentLine = theme.color(ColorRole.Primary).copy(alpha = 0.08f),
+            textInset = 8.dp,
         )
 
     override fun message(theme: ResolvedTheme): MessageStyle = MessageStyle(
@@ -4014,6 +4097,14 @@ internal object LiquidGlassRules : ComponentRules {
             grabWidth = 12.dp,
             edgeSwipeBack = true,
         )
+
+    /**
+     * Xcode as macOS 26 draws it: the same quiet numbers, wash and straight underline as
+     * Cupertino, on the page rather than a panel, because the text a reader works in is
+     * content and the glass is for what floats over it.
+     */
+    override fun codeEditor(theme: ResolvedTheme): CodeEditorStyle =
+        CupertinoRules.codeEditor(theme)
 
     override fun message(theme: ResolvedTheme): MessageStyle = MessageStyle(
         container = theme.color(ColorRole.SurfaceContainer),

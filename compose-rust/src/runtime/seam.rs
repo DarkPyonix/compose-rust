@@ -162,6 +162,29 @@ impl Batch {
         }
     }
 
+    /// Writes one edit the application asked of a code editor: replace `range` of the
+    /// document as it stood at `base_version` with `text`. The Renderer moves it past what
+    /// the reader typed since, or refuses it and reports `request_id` back.
+    pub fn edit_code(
+        &mut self,
+        node_id: u32,
+        request_id: u32,
+        base_version: u32,
+        range: crate::code::CodeRange,
+        text: &str,
+    ) {
+        self.write(Mutation::EditCode {
+            node_id,
+            request_id,
+            base_version,
+            start_line: range.start.line,
+            start_column: range.start.column,
+            end_line: range.end.line,
+            end_column: range.end.column,
+            text,
+        });
+    }
+
     /// Appends the streamed tail to a Text node without resending its whole value.
     pub fn append_text_node(&mut self, node_id: u32, text: &str) {
         self.write(Mutation::AppendText { node_id, text });

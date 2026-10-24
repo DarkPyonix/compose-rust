@@ -14,6 +14,10 @@ import dev.darkpyonix.composerust.protocol.Theme
 import dev.darkpyonix.composerust.protocol.Window
 import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
+import dev.darkpyonix.composerust.foundation.code.CodeEditorModel
+import dev.darkpyonix.composerust.foundation.codeEvents
+import dev.darkpyonix.composerust.protocol.CodeEditorRecords
+import dev.darkpyonix.composerust.protocol.HostEvent
 
 /**
  * Text the Host pushed into a TextField with `SetText`.
@@ -41,6 +45,14 @@ class Node internal constructor(val id: Int, val widget: WidgetKind) {
     internal val children = mutableStateListOf<Int>()
     internal var parentId: Int = NodeTable.ROOT_ID
     internal var hostText by mutableStateOf<HostText?>(null)
+
+    /**
+     * A code editor's document and everything over it. Created with the node and kept for
+     * its life, because the document is the Renderer's from the moment it opens: the Host
+     * feeds it through the node's properties and its edit records, and never replaces it.
+     */
+    internal val code: CodeEditorModel? =
+        if (widget == WidgetKind.CodeEditor) CodeEditorModel() else null
 
     fun property(kind: PropertyKind): PropertyValue? = props[kind]
 
@@ -73,6 +85,8 @@ data class TableError(val code: Int, val message: String) {
         const val INVALID_PALETTE = 9
         const val INVALID_CHILDREN = 10
         const val INVALID_ANIMATION = 11
+        /** A code editor record or edit whose range, version or kind could not be honoured. */
+        const val INVALID_CODE_EDIT = 12
     }
 }
 
@@ -86,6 +100,13 @@ class NodeTable {
     private val nodes = mutableStateMapOf<Int, Node>()
     private val rootChildren = mutableStateListOf<Int>()
     private val errors = mutableListOf<TableError>()
+
+    /**
+     * What applying a batch gave a code editor to say: the change an edit from the Host
+     * made, or the edit it refused. Sent after the batch is applied, never in the middle of
+     * it, so the Host is not entered while it is still writing.
+     */
+    private val outbox = mutableListOf<HostEvent>()
 
     /**
      * The registered assets. Pictures outlive the batch that carried them, so they are not
@@ -142,6 +163,14 @@ class NodeTable {
 
     fun node(id: Int): Node? = nodes[id]
 
+    /** Events code editors queued while a batch was applied; drained after it commits. */
+    internal fun drainEvents(): List<HostEvent> {
+        if (outbox.isEmpty()) return emptyList()
+        val drained = outbox.toList()
+        outbox.clear()
+        return drained
+    }
+
     /** Errors collected while applying a batch; drained after the transaction commits. */
     internal fun drainErrors(): List<TableError> {
         // Asked once the whole batch is in, because a batch may start an animation before
@@ -165,6 +194,7 @@ class NodeTable {
         nodes.clear()
         rootChildren.clear()
         errors.clear()
+        outbox.clear()
         assets.clear()
         messages.clear()
         theme = null
@@ -227,6 +257,65 @@ class NodeTable {
             // somewhere to play it is asked once the whole batch is in.
             is Mutation.StartAnimation -> animations.start(mutation.animation)
             is Mutation.ControlAnimation -> animations.control(mutation)
+            // A request against the editor's document, which the editor may refuse. What
+            // it did is reported once the batch is applied.
+            is Mutation.EditCode -> editCode(mutation)
+        }
+    }
+
+    private fun editCode(mutation: Mutation.EditCode) {
+        val node = nodes[mutation.nodeId] ?: return fail(
+            TableError.UNKNOWN_NODE,
+            "EditCode for unknown node ${mutation.nodeId}",
+        )
+        val code = node.code ?: return fail(
+            TableError.UNSUPPORTED_PROPERTY,
+            "EditCode on ${node.widget}",
+        )
+        code.hostEdit(
+            mutation.requestId,
+            mutation.baseVersion,
+            mutation.startLine,
+            mutation.startColumn,
+            mutation.endLine,
+            mutation.endColumn,
+            mutation.text,
+        )
+        collectCode(node)
+    }
+
+    /**
+     * Hands a code editor what the Host just set on it. The text is compared with the
+     * document rather than applied, and the two lists are read record by record, so a bad
+     * record costs that record and nothing else.
+     */
+    private fun feedCode(node: Node, kind: PropertyKind, value: PropertyValue) {
+        val code = node.code ?: return
+        when (kind) {
+            PropertyKind.Text -> code.setHostText((value as? PropertyValue.Text)?.value ?: "")
+            PropertyKind.Decorations -> code.setDecorations(
+                (value as? PropertyValue.Bytes)?.value?.let { bytes ->
+                    CodeEditorRecords.decodeDecorations(bytes) { message ->
+                        fail(TableError.INVALID_CODE_EDIT, "decorations on node ${node.id}: $message")
+                    }
+                } ?: emptyList(),
+            )
+            PropertyKind.SyntaxSpans -> code.setSyntaxSpans(
+                (value as? PropertyValue.Bytes)?.value?.let { bytes ->
+                    CodeEditorRecords.decodeSyntaxSpans(bytes) { message ->
+                        fail(TableError.INVALID_CODE_EDIT, "syntax spans on node ${node.id}: $message")
+                    }
+                } ?: emptyList(),
+            )
+            else -> return
+        }
+        collectCode(node)
+    }
+
+    private fun collectCode(node: Node) {
+        val code = node.code ?: return
+        outbox += node.codeEvents(code.drainOutput()) { message ->
+            fail(TableError.INVALID_CODE_EDIT, "code editor ${node.id}: $message")
         }
     }
 
@@ -260,6 +349,7 @@ class NodeTable {
         } else {
             node.props[mutation.property] = mutation.value
         }
+        if (node.code != null) feedCode(node, mutation.property, mutation.value)
     }
 
     private fun setModifier(mutation: Mutation.SetModifier) {
@@ -457,7 +547,11 @@ class NodeTable {
                         // A badge's short word, shown where a count would be.
                         widget == WidgetKind.Badge ||
                         // A split pane's is its divider's name for a screen reader.
-                        widget == WidgetKind.SplitPane
+                        widget == WidgetKind.SplitPane ||
+                        // A code editor's document as the Host opened it. A text equal to
+                        // what the editor holds changes nothing; a different one opens a
+                        // new document.
+                        widget == WidgetKind.CodeEditor
 
                 // Note: SpacerProps has width and height in the Rust schema, but there are
                 // no matching PropertyKind variants, so a Spacer can only be sized with
@@ -612,6 +706,16 @@ class NodeTable {
 
                 // Whether a split pane's side pane may be folded away.
                 PropertyKind.Collapsible -> widget == WidgetKind.SplitPane
+
+                // A code editor's lists, its tab width and the handlers only it reports to.
+                PropertyKind.Decorations,
+                PropertyKind.SyntaxSpans,
+                PropertyKind.TabWidth,
+                PropertyKind.OnEditRejected,
+                PropertyKind.OnHover,
+                PropertyKind.OnSave,
+                PropertyKind.OnDecorationClick,
+                -> widget == WidgetKind.CodeEditor
 
                 // Files over a node and files let go on it. Only the widget that exists
                 // to receive them, because a handler is attached whether or not a screen
