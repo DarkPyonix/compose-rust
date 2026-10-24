@@ -1,0 +1,295 @@
+# Kotlin/Native desktop renderers, built and tested on every pull request that touches them,
+# once before it merges. It takes about half an hour, so it runs when the pull request carries
+# the run-heavy-ci label rather than on every push, and heavy-checks.yml fails until it has
+# passed on the head that is merged.
+#
+# test-native-renderer.yml builds and packages these renderers only on main, nightly and on
+# tags, and test.yml runs on pull requests to main only. A pull request to develop therefore
+# compiled the macOS and Linux renderers nowhere, and a content offset and click bug in
+# renderer/macos reached develop that way. This workflow closes that gap with the module's
+# own tests, which is the part of static-renderer.yml a pull request needs.
+#
+#   macos  `./kotlin test -m macos` on macos-latest.
+#   linux  `./kotlin test -m linux` on ubuntu under a virtual display.
+#
+# Each then links the static renderer into the consumer fixture and runs it through
+# renderer/desktop/scripts/smoke-test-kn.sh, which fails unless the window, scene and first
+# frame lines appear and the run exits 0.
+#
+# `test` compiles the module and links its test executable first, so it is also the build.
+# There is no Windows Kotlin/Native renderer on develop yet; its job is added with it.
+#
+# Compose comes from the same cache static-renderer.yml fills, with the same key, so a pull
+# request normally restores it. On a miss it is built once and saved under that key, for
+# this workflow and for static-renderer.yml alike.
+
+name: Kotlin/Native desktop renderer test
+
+on:
+  workflow_dispatch:
+  pull_request:
+    # Only when asked: the run-heavy-ci label going on, or a push or reopen while it is on.
+    # The request job below decides; heavy-checks.yml holds the merge until it has passed.
+    types: [synchronize, reopened, labeled]
+    paths:
+      - renderer/macos/**
+      - renderer/linux/**
+      - renderer/desktop/src/**
+      - renderer/desktop/module.yaml
+      - renderer/desktop/scripts/**
+      - renderer/ios/src/shared/**
+      - renderer/scripts/**
+      - renderer/kotlin
+      - renderer/kotlin.bat
+      - renderer/libs.versions.toml
+      - renderer/project.yaml
+      - compose-rust/tests/fixtures/consumer/**
+      - .github/scripts/resize-metrics-run.sh
+      - .github/scripts/resize-memory-check.sh
+      - .github/scripts/resize-soak-check.sh
+      - .github/scripts/idle-soak-check.sh
+      - .github/scripts/vertical-resize-run.sh
+      - .github/scripts/vertical-resize-check.sh
+      - .github/workflows/test-kn-desktop-renderer.yml
+
+concurrency:
+  # One run per pull request: a new commit cancels the older run. Pushes to develop and main,
+  # dispatches and tag runs are never cancelled, so a release is never cut short. A run started
+  # by some other label going on gets a group of its own, so it cannot cancel a heavy run.
+  group: test-kn-desktop-renderer-${{ github.event.pull_request.number || github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'run-heavy-ci' && format('-other-label-{0}', github.run_id) || '' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  # Heavy: runs only when asked for (the run-heavy-ci label on a pull request, or any other
+  # event). Every job below needs this one, so a run nobody asked for is skipped whole, and
+  # heavy-checks.yml does not count it.
+  requested:
+    name: Heavy checks requested
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.action == 'labeled' && github.event.label.name == 'run-heavy-ci') ||
+      (github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'run-heavy-ci'))
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Heavy checks requested by ${{ github.event_name }} ${{ github.event.action }}"
+
+  test:
+    needs: requested
+    name: Test the ${{ matrix.module }} renderer
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - module: macos
+            runner: macos-latest
+            compose: macosArm64
+            compose_key: macosarm64
+            toolchain: ~/Library/Caches/JetBrains/Kotlin
+            heap: 5g
+            workers: 2
+          - module: linux
+            runner: ubuntu-24.04
+            compose: linux
+            compose_key: linux
+            toolchain: ~/.cache/JetBrains/Kotlin
+            heap: 11g
+            workers: 4
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Make room for the Compose build
+        if: runner.os == 'Linux'
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Install JDK 21 for the Compose build
+        uses: actions/setup-java@v4
+        with:
+          distribution: corretto
+          java-version: '21'
+
+      - name: Point the Compose build at the JDK
+        run: echo "ANDROIDX_JDK21=$JAVA_HOME" >> "$GITHUB_ENV"
+
+      - name: Install the X11, GL and font headers, and a virtual display
+        if: matrix.module == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config unzip xvfb xauth \
+            libx11-dev libxext-dev libxrandr-dev libgl1-mesa-dev libglu1-mesa-dev \
+            libfontconfig1-dev libfreetype-dev
+
+      - name: Restore the patched Compose
+        id: compose-cache
+        # The same key static-renderer.yml uses: compose-<target in lower case>-<hash of the
+        # build script and the pinned changes>.
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.m2/repository
+          key: compose-${{ matrix.compose_key }}-${{ hashFiles('renderer/scripts/build-compose.sh', 'renderer/scripts/compose-fork.changes') }}
+
+      - name: Cache the Kotlin toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ matrix.toolchain }}
+            ~/.konan
+          key: kotlin-native-${{ matrix.module == 'macos' && 'macos-aarch64' || 'linux-x64' }}-${{ hashFiles('renderer/kotlin', 'renderer/libs.versions.toml', 'renderer/**/module.yaml') }}
+          restore-keys: |
+            kotlin-native-${{ matrix.module == 'macos' && 'macos-aarch64' || 'linux-x64' }}-
+
+      - name: Configure Gradle for this runner
+        if: steps.compose-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.gradle
+          cat > ~/.gradle/gradle.properties <<EOF
+          org.gradle.workers.max=${{ matrix.workers }}
+          org.gradle.jvmargs=-Xmx${{ matrix.heap }} -XX:MaxMetaspaceSize=2g -XX:+UseParallelGC -Dfile.encoding=UTF-8
+          kotlin.compiler.execution.strategy=in-process
+          EOF
+
+      - name: Build and publish the patched Compose
+        if: steps.compose-cache.outputs.cache-hit != 'true'
+        env:
+          DXC_COMPOSE_BUILD: ${{ runner.temp }}/compose-build
+        run: ./renderer/scripts/build-compose.sh --target ${{ matrix.compose }}
+
+      # A second run with Gradle up to date, as on a workstation that already built Compose
+      # once. It overwrites the published metadata in place, and has to repoint it again; a run
+      # into an empty repository never takes that path, which is how a broken one went unseen.
+      # Only macOS publishes under the fork's own version, so only macOS has anything to repoint.
+      - name: Publish the patched Compose again, with Gradle up to date
+        if: steps.compose-cache.outputs.cache-hit != 'true' && matrix.module == 'macos'
+        env:
+          DXC_COMPOSE_BUILD: ${{ runner.temp }}/compose-build
+        run: ./renderer/scripts/build-compose.sh --target ${{ matrix.compose }}
+
+      # Restored or just built, the repository must name no module nobody published, or the
+      # toolchain goes to the network for it. The build scripts check this; `./kotlin test`
+      # below does not go through them.
+      - name: Check the published Compose names only published modules
+        run: ./renderer/scripts/require-fork-artifacts.sh ${{ matrix.module }}
+
+      - name: Keep the patched Compose for the next run
+        if: steps.compose-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ steps.compose-cache.outputs.cache-primary-key }}
+
+      - name: Publish the fork's window modules
+        run: ./renderer/scripts/publish-window.sh
+
+      - name: Build and test the macOS renderer
+        if: matrix.module == 'macos'
+        working-directory: renderer
+        run: ./kotlin test -m macos
+
+      - name: Build the static macOS renderer and an application on it
+        if: matrix.module == 'macos'
+        run: |
+          set -euo pipefail
+          ./renderer/desktop/scripts/build-macos.sh
+          export DXC_MACOS_NATIVE_LIB="$PWD/renderer/build/macos"
+          cargo build --release --manifest-path compose-rust/tests/fixtures/consumer/Cargo.toml
+
+      - name: The application comes up on the macOS renderer
+        # Fails unless the run exits 0 and prints the window line, the scene line on the main
+        # run loop's dispatcher and the first frame line, which the native image's smoke
+        # requires too. An application that opened a window and never drew passes nothing else.
+        if: matrix.module == 'macos'
+        run: ./renderer/desktop/scripts/smoke-test-kn.sh compose-rust/tests/fixtures/consumer/target/release/consumer macos
+
+      - name: Memory after 100 scripted resizes stays bounded
+        # A frame drawn inside a resize used to leave its drawable to the run loop's pool,
+        # and 100 sizes in one turn held 528 MB of Metal memory. The bounds and why they are
+        # what they are: .github/scripts/resize-memory-check.sh.
+        if: matrix.module == 'macos'
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/resize-metrics"
+          app=compose-rust/tests/fixtures/consumer/target/release/consumer
+          # The consumer opens its window only when asked to.
+          printf '#!/bin/sh\nexec "%s" --launch\n' "$PWD/$app" > "$RUNNER_TEMP/consumer-launch"
+          chmod +x "$RUNNER_TEMP/consumer-launch"
+          ./.github/scripts/resize-metrics-run.sh "$RUNNER_TEMP/consumer-launch" "$out" macos-kn
+          cat "$out/macos-kn.md" >> "$GITHUB_STEP_SUMMARY"
+          ./.github/scripts/resize-memory-check.sh "$out/macos-kn.log" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Memory after 1500 resizes settles near rest
+        # 15 rounds of one drag each, 100 mouse events on the right edge, and a reading two
+        # seconds after each. Memory that levels off passes; memory that grows round after
+        # round reaches the bound. The bound and why it is what it is:
+        # .github/scripts/resize-soak-check.sh.
+        if: matrix.module == 'macos'
+        env:
+          SOAK_BOUND_MB: '16'
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/resize-metrics"
+          ./.github/scripts/resize-metrics-run.sh "$RUNNER_TEMP/consumer-launch" "$out" soak-macos-kn soak
+          { echo "### Kotlin/Native soak"; ./.github/scripts/resize-memory-check.sh --soak "$out/soak-macos-kn.log" "$SOAK_BOUND_MB"; } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Memory and frame count stay flat at rest after typing
+        if: matrix.module == 'macos'
+        env:
+          DXC_IDLE_SOAK_SECONDS: '60'
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/resize-metrics"
+          app=compose-rust/tests/fixtures/consumer/target/release/consumer
+          printf '#!/bin/sh\nexec "%s" --parity\n' "$PWD/$app" > "$RUNNER_TEMP/consumer-idle-launch"
+          chmod +x "$RUNNER_TEMP/consumer-idle-launch"
+          ./.github/scripts/resize-metrics-run.sh "$RUNNER_TEMP/consumer-idle-launch" "$out" idle-macos-kn idle
+          { echo "### Kotlin/Native idle after typing"; ./.github/scripts/idle-soak-check.sh "$out/idle-macos-kn.log" 4 4; } | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: The content stays put while the window's height is dragged
+        # Drags the bottom edge and then the top edge with mouse events and takes the
+        # window's image throughout; a mark drawn at a fixed distance below the top of every
+        # frame must stay within a point of where it was drawn, except in an image where
+        # AppKit's own view is off by the same amount: the window server shows a window's
+        # frame a step behind its layers now and then, a plain AppKit window included, and
+        # that is a miss of the absolute bound the check still prints. See
+        # .github/scripts/vertical-resize-check.sh.
+        if: matrix.module == 'macos'
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/resize-metrics"
+          ./.github/scripts/vertical-resize-run.sh "$RUNNER_TEMP/consumer-launch" "$out" vertical-macos-kn
+          ./.github/scripts/vertical-resize-check.sh "$out/vertical-macos-kn.log" 1.0 --against-appkit | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the resize logs
+        if: always() && matrix.module == 'macos'
+        uses: actions/upload-artifact@v4
+        with:
+          name: resize-metrics-macos-kn
+          path: ${{ runner.temp }}/resize-metrics/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Build and test the Linux renderer
+        if: matrix.module == 'linux'
+        working-directory: renderer
+        run: xvfb-run -a -s '-screen 0 1280x1024x24' ./kotlin test -m linux
+
+      - name: Install the Rust toolchain for the application
+        if: matrix.module == 'linux'
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      - name: Build the static Linux renderer and an application on it
+        if: matrix.module == 'linux'
+        run: |
+          set -euo pipefail
+          ./renderer/desktop/scripts/build-linux.sh
+          export DXC_LINUX_NATIVE_LIB="$PWD/renderer/build/linux"
+          cargo build --release --manifest-path compose-rust/tests/fixtures/consumer/Cargo.toml
+
+      - name: The application comes up on the Linux renderer
+        # The same check as the macOS job's, with the main dispatcher Linux has.
+        if: matrix.module == 'linux'
+        run: xvfb-run -a -s '-screen 0 1280x1024x24' ./renderer/desktop/scripts/smoke-test-kn.sh compose-rust/tests/fixtures/consumer/target/release/consumer linux

@@ -31,8 +31,11 @@ import kotlinx.coroutines.awaitCancellation
  * drawing no caret: the field is told the window it sits in is not the one being typed at.
  * Following the real focus is the next thing this learns, and the shell already hears it.
  */
-class NativeWindowInfo(private val size: () -> IntSize) : WindowInfo {
-    override val isWindowFocused: Boolean get() = true
+class NativeWindowInfo(
+    private val size: () -> IntSize,
+    private val focused: () -> Boolean = { true },
+) : WindowInfo {
+    override val isWindowFocused: Boolean get() = focused()
     override val containerSize: IntSize get() = size()
 }
 
@@ -54,9 +57,12 @@ class NativePlatformContext(
     private val size: () -> IntSize,
     private val textInput: NativeTextInput,
     private val semantics: PlatformContext.SemanticsOwnerListener,
+    /** Sets the shape of the pointer, by the number [pointerShapeOf] answers with. */
+    private val setCursor: (Int) -> Unit,
+    private val focused: () -> Boolean = { true },
 ) : PlatformContext {
 
-    override val windowInfo: WindowInfo = NativeWindowInfo(size)
+    override val windowInfo: WindowInfo = NativeWindowInfo(size, focused)
     override val inputModeManager: InputModeManager = NativeInputModeManager()
     override val semanticsOwnerListener: PlatformContext.SemanticsOwnerListener = semantics
 
@@ -68,7 +74,7 @@ class NativePlatformContext(
      * looks like anyway.
      */
     override fun setPointerIcon(pointerIcon: PointerIcon) {
-        setPointerShape(pointerShapeOf(pointerIcon))
+        setCursor(pointerShapeOf(pointerIcon))
     }
 
     override suspend fun startInputMethod(request: PlatformTextInputMethodRequest): Nothing =
@@ -90,4 +96,14 @@ internal fun pointerShapeOf(pointerIcon: PointerIcon): Int = when (pointerIcon) 
     // something left or right.
     dev.darkpyonix.composerust.foundation.platformResizeCursor -> PointerShape.RESIZE_LEFT_RIGHT
     else -> PointerShape.ARROW
+}
+
+/** What a pointer can look like, in the small set the renderer and each window's C side agree on. */
+object PointerShape {
+    const val ARROW = 0
+    const val HAND = 1
+    const val TEXT = 2
+    const val CROSSHAIR = 3
+    const val RESIZE_LEFT_RIGHT = 4
+    const val RESIZE_UP_DOWN = 5
 }

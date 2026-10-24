@@ -15,11 +15,18 @@ pub enum FieldType {
     Paint,
     /// A role enum, named so codegen can emit the matching Kotlin type.
     Role(&'static str),
+    /// A word that is 0 or 1. Any other value is a protocol error, not a third state.
+    Bool,
+    /// An `f32` that has to be a number. NaN or an infinity is a protocol error, for a
+    /// value that would otherwise turn a whole subtree into nothing on one side only.
+    FiniteFloat,
 }
 
-/// Which half of which `(first, second)` word a modifier field occupies.
+/// Which half of which `u64` word of a modifier's value a field occupies.
 ///
-/// Two `f32` share one `u64`: the low 32 bits hold the first value.
+/// Two `f32` share one `u64`: the low 32 bits hold the first value. Every modifier has the
+/// `first` and `second` words; the words after them exist only for a modifier whose
+/// schema entry gives it `extra_words`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FieldSlot {
     FirstLow,
@@ -28,6 +35,38 @@ pub enum FieldSlot {
     SecondLow,
     SecondHigh,
     Second,
+    ThirdLow,
+    ThirdHigh,
+    Third,
+    FourthLow,
+    FourthHigh,
+    Fourth,
+    FifthLow,
+    FifthHigh,
+    Fifth,
+    SixthLow,
+    SixthHigh,
+    Sixth,
+}
+
+impl FieldSlot {
+    /// Which word, counting from zero, and whether the field is that word's high half.
+    pub const fn word(self) -> (usize, bool) {
+        match self {
+            Self::FirstLow | Self::First => (0, false),
+            Self::FirstHigh => (0, true),
+            Self::SecondLow | Self::Second => (1, false),
+            Self::SecondHigh => (1, true),
+            Self::ThirdLow | Self::Third => (2, false),
+            Self::ThirdHigh => (2, true),
+            Self::FourthLow | Self::Fourth => (3, false),
+            Self::FourthHigh => (3, true),
+            Self::FifthLow | Self::Fifth => (4, false),
+            Self::FifthHigh => (4, true),
+            Self::SixthLow | Self::Sixth => (5, false),
+            Self::SixthHigh => (5, true),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -41,7 +80,26 @@ pub struct FieldSchema {
 pub struct VariantSchema {
     pub name: &'static str,
     pub tag: u16,
+    /// How many eight byte words this modifier's value takes beyond the two every
+    /// `SetModifier` record carries. The record is `28 + 8 * extra_words` bytes long, fixed
+    /// per tag, so a decoder knows the length from the tag before it reads the value.
+    pub extra_words: u8,
     pub fields: &'static [FieldSchema],
+}
+
+/// The most words any modifier's value takes, the two every record has included.
+pub const MAX_MODIFIER_WORDS: usize = 6;
+
+/// The `extra_words` the schema gives a modifier tag, or `None` for a tag it does not list.
+pub const fn modifier_extra_words(tag: u16) -> Option<u8> {
+    let mut index = 0;
+    while index < MODIFIER_SCHEMA.len() {
+        if MODIFIER_SCHEMA[index].tag == tag {
+            return Some(MODIFIER_SCHEMA[index].extra_words);
+        }
+        index += 1;
+    }
+    None
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -62,6 +120,24 @@ pub enum EventPayloadType {
     NotificationActivation,
     /// One `u32`: the notification permission the Renderer last saw.
     NotificationPermission,
+    /// One moment in a renderer-played animation: its id, what happened, the property and
+    /// slot it plays on, the iteration, the elapsed time and the frame time.
+    Animation,
+    /// One `u32`: whether the platform asks for reduced motion.
+    ReducedMotion,
+    /// One committed edit to a code editor's document: the version it produced, the range
+    /// it replaced in the document as it stood before, and the text that replaced it.
+    CodeChange,
+    /// A Host edit the Renderer would not apply: the request it answers, the version it
+    /// was written against, the version the document had reached, and the range as sent.
+    CodeEditRejected,
+    /// A pointer resting on, or leaving, a place in a code editor: the decoration under it,
+    /// where it is, and which of the two it was.
+    CodeHover,
+    /// The save shortcut, with the version of the document it was pressed on.
+    CodeSave,
+    /// The id the application gave one decoration, which was pressed or accepted.
+    Decoration,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -74,14 +150,14 @@ pub struct EventSchema {
 /// Canonical schema text. Variant order is wire-significant and must only be appended to.
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
-    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible;",
-    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material;",
+    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts;",
+    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform;",
     "keys=Enter;",
-    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged;",
+    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged;",
     "windowsizeclasses=Compact,Medium,Expanded;",
     "windowheightclasses=Compact,Medium,Expanded;",
-    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission"
+    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation"
 );
 
 const fn hash_bytes(mut hash: u64, bytes: &[u8]) -> u64 {
@@ -107,6 +183,7 @@ const fn hash_enum_schema(mut hash: u64, schema: &[EnumVariantSchema]) -> u64 {
 const fn schema_hash() -> u64 {
     let mut hash = hash_bytes(0xcbf2_9ce4_8422_2325_u64, SCHEMA_DESCRIPTOR.as_bytes());
     hash = hash_bytes(hash, crate::extensions::SCHEMA_DESCRIPTOR.as_bytes());
+    hash = hash_bytes(hash, crate::measure::SCHEMA_DESCRIPTOR.as_bytes());
     hash = hash_enum_schema(hash, WIDGET_SCHEMA);
     hash = hash_enum_schema(hash, PROPERTY_SCHEMA);
     hash = hash_enum_schema(hash, KEY_SCHEMA);
@@ -123,6 +200,7 @@ const fn schema_hash() -> u64 {
         let modifier = MODIFIER_SCHEMA[index];
         hash = hash_bytes(hash, modifier.name.as_bytes());
         hash = hash_bytes(hash, &modifier.tag.to_le_bytes());
+        hash = hash_bytes(hash, &[modifier.extra_words]);
         let mut field_index = 0;
         while field_index < modifier.fields.len() {
             let field = modifier.fields[field_index];
@@ -135,6 +213,8 @@ const fn schema_hash() -> u64 {
                     FieldType::U64 => 3,
                     FieldType::Paint => 4,
                     FieldType::Role(_) => 5,
+                    FieldType::Bool => 6,
+                    FieldType::FiniteFloat => 7,
                 }],
             );
             if let FieldType::Role(role) = field.ty {
@@ -149,6 +229,18 @@ const fn schema_hash() -> u64 {
                     FieldSlot::SecondLow => 3,
                     FieldSlot::SecondHigh => 4,
                     FieldSlot::Second => 5,
+                    FieldSlot::ThirdLow => 6,
+                    FieldSlot::ThirdHigh => 7,
+                    FieldSlot::Third => 8,
+                    FieldSlot::FourthLow => 9,
+                    FieldSlot::FourthHigh => 10,
+                    FieldSlot::Fourth => 11,
+                    FieldSlot::FifthLow => 12,
+                    FieldSlot::FifthHigh => 13,
+                    FieldSlot::Fifth => 14,
+                    FieldSlot::SixthLow => 15,
+                    FieldSlot::SixthHigh => 16,
+                    FieldSlot::Sixth => 17,
                 }],
             );
             field_index += 1;
@@ -198,10 +290,19 @@ const fn schema_hash() -> u64 {
                 EventPayloadType::DesignSystem => 7,
                 EventPayloadType::NotificationActivation => 8,
                 EventPayloadType::NotificationPermission => 9,
+                EventPayloadType::Animation => 10,
+                EventPayloadType::ReducedMotion => 11,
+                EventPayloadType::CodeChange => 12,
+                EventPayloadType::CodeEditRejected => 13,
+                EventPayloadType::CodeHover => 14,
+                EventPayloadType::CodeSave => 15,
+                EventPayloadType::Decoration => 16,
             }],
         );
         index += 1;
     }
+    hash = crate::code::hash_record_schema(hash, crate::code::DECORATION_RECORD);
+    hash = crate::code::hash_record_schema(hash, crate::code::SYNTAX_SPAN_RECORD);
     hash
 }
 
@@ -219,9 +320,22 @@ fn wire_name_eq(input: &str, schema_name: &str) -> bool {
 
 macro_rules! define_wire_enum {
     ($schema:ident, $name:ident { $($variant:ident = $tag:literal),+ $(,)? }) => {
+        define_wire_enum!($schema, $name { $($variant = $tag),+ } unlisted {});
+    };
+    // `unlisted` variants exist in Rust and travel as their tag, but are not in the schema
+    // table, so codegen mirrors no Kotlin enum entry for them and `TryFrom` does not
+    // produce them. The one there is, `TypeRole::None`, is tag 0, which every role
+    // decoder already reads as "no role", and an entry for it in the Kotlin enum would
+    // shift every ordinal the Renderer indexes its token tables by.
+    (
+        $schema:ident,
+        $name:ident { $($variant:ident = $tag:literal),+ $(,)? }
+        unlisted { $($extra:ident = $extra_tag:literal),* $(,)? }
+    ) => {
         #[derive(Clone, Copy, Debug, Eq, PartialEq)]
         #[repr(u16)]
         pub enum $name {
+            $($extra = $extra_tag,)*
             $($variant = $tag),+
         }
 
@@ -249,8 +363,11 @@ macro_rules! define_wire_enum {
         }
 
         impl $name {
-            #[allow(dead_code)]
+            // The unit error is the wire's own convention: a name either is a variant or is
+            // not, and the caller reports which name it was.
+            #[allow(dead_code, clippy::result_unit_err)]
             #[doc(hidden)]
+            #[allow(clippy::result_unit_err)]
             pub fn from_name(value: &str) -> Result<Self, ()> {
                 $(if wire_name_eq(value, stringify!($variant)) {
                     return Ok(Self::$variant);
@@ -356,6 +473,20 @@ crate::extensions::define_widget_schema_with_extensions!(define_wire_enum; WIDGE
     // side, with the side pane laid over the body, or one at a time, are the design
     // system's answers.
     SplitPane = 42,
+    // Several lines of code that the reader edits. The text, the caret, the selection,
+    // the scroll position and the undo history are the Renderer's, the way a text field's
+    // are, and the Host is told about each committed edit with the version it produced.
+    // What the Host adds on top is said as ranges: colour runs for the syntax, and
+    // decorations for diagnostics, lenses, hover anchors and inline suggestions. How any
+    // of it is drawn, from the gutter to the weight of an underline, is the design
+    // system's.
+    CodeEditor = 43,
+    // Children laid where the Host already put them. Each child is placed at its own
+    // `Offset`, relative to this box, and no child moves or sizes another: the layout was
+    // computed on the Host (an HTML engine, for instance) and laying it out a second time
+    // here would only be a second answer that can disagree with the first. Later children
+    // draw over earlier ones, so a stacking order is the child order.
+    AbsoluteBox = 44,
 });
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -560,6 +691,11 @@ define_wire_enum!(COLOR_ROLE_SCHEMA, ColorRole {
 pub const COLOR_ROLE_COUNT: usize = 45;
 
 // The nine-rung type ladder every supported design system maps onto.
+//
+// `None` is text with no rung at all, which is what a page laid out by CSS draws: its size,
+// weight, line height, letter spacing and font come from the text's own values and nothing
+// from the design system. It is the only text that may name a font of its own. It is not
+// in the schema table, because it is not a rung: see `define_wire_enum!`.
 define_wire_enum!(TYPE_ROLE_SCHEMA, TypeRole {
     Display = 1,
     Headline = 2,
@@ -570,6 +706,36 @@ define_wire_enum!(TYPE_ROLE_SCHEMA, TypeRole {
     Label = 7,
     Caption = 8,
     Mono = 9,
+} unlisted {
+    None = 0,
+});
+
+// Where a line of text may break, as CSS `word-break` says it. `Normal` breaks where the
+// language does: between words, and between syllables in Korean. `KeepAll` breaks only at
+// spaces, which is how Korean prose is usually set. `BreakAll` breaks between any two
+// characters.
+define_wire_enum!(WORD_BREAK_SCHEMA, WordBreak {
+    Normal = 1,
+    KeepAll = 2,
+    BreakAll = 3,
+});
+
+// Whether a word too long for its line may be broken inside, as CSS `overflow-wrap` says
+// it. `Anywhere` also lets that break count when the narrowest width the text can take is
+// worked out; `BreakWord` does not.
+define_wire_enum!(OVERFLOW_WRAP_SCHEMA, OverflowWrap {
+    Normal = 1,
+    Anywhere = 2,
+    BreakWord = 3,
+});
+
+// The families CSS names without naming a font. Which installed font each one is, is the
+// platform's answer.
+define_wire_enum!(GENERIC_FAMILY_SCHEMA, GenericFamily {
+    SystemUi = 1,
+    SansSerif = 2,
+    Serif = 3,
+    Monospace = 4,
 });
 
 // Corner roles. The radius is the design system's decision.
@@ -804,6 +970,117 @@ define_wire_enum!(SLOT_ROLE_SCHEMA, SlotRole {
     Content = 4,
 });
 
+// What a code editor decoration is. Four kinds and no more: a mark under a range, a line of
+// text above a line, a range that answers a resting pointer, and a suggestion shown in
+// place. Each is what a language server or an extension host already speaks in, so an
+// application can pass its answers through without inventing a fifth.
+define_wire_enum!(DECORATION_KIND_SCHEMA, DecorationKind {
+    Underline = 1,
+    CodeLens = 2,
+    HoverAnchor = 3,
+    GhostText = 4,
+});
+
+// How serious an underlined diagnostic is. The four a language server reports, in its
+// order. The colour each one gets is the design system's unless the application names a
+// role, and how the mark is drawn, a squiggle or a straight line, is always the system's.
+define_wire_enum!(SEVERITY_SCHEMA, Severity {
+    Error = 1,
+    Warning = 2,
+    Information = 3,
+    Hint = 4,
+});
+
+// Whether a pointer has come to rest over a place in a code editor or has left it. Two
+// values, because the Host is told once on arriving and once on leaving and never while
+// the pointer stays.
+define_wire_enum!(HOVER_PHASE_SCHEMA, HoverPhase {
+    Rest = 1,
+    Leave = 2,
+});
+
+// The vocabulary of animations the Renderer plays on its own frame clock. Every one is a
+// byte on the wire and every one starts at 1, so a zero is always a record the two sides
+// disagree about.
+
+// What an animation changes. Each has a place it is drawn from: the node's first `Alpha`,
+// its `color` property, its first `Background`, its first `Transform`, and the colour of
+// every side of its first `Border` or `BorderEach`. A container's `color` is the colour
+// the text inside it inherits, so one animation on it recolours all of that text.
+define_wire_enum!(ANIMATED_PROPERTY_SCHEMA, AnimatedProperty {
+    Alpha = 1,
+    Color = 2,
+    Background = 3,
+    Transform = 4,
+    BorderColor = 5,
+});
+
+define_wire_enum!(PLAYBACK_DIRECTION_SCHEMA, PlaybackDirection {
+    Normal = 1,
+    Reverse = 2,
+    Alternate = 3,
+    AlternateReverse = 4,
+});
+
+define_wire_enum!(FILL_MODE_SCHEMA, FillMode {
+    None = 1,
+    Forwards = 2,
+    Backwards = 3,
+    Both = 4,
+});
+
+define_wire_enum!(PLAY_STATE_SCHEMA, PlayState {
+    Running = 1,
+    Paused = 2,
+});
+
+// How two colours are mixed: the way CSS's older colour syntax does, or in Oklab, the
+// default of CSS Color 4's newer syntax.
+define_wire_enum!(COLOR_INTERPOLATION_SCHEMA, ColorInterpolation {
+    SrgbPremultiplied = 1,
+    Oklab = 2,
+});
+
+define_wire_enum!(TIMING_KIND_SCHEMA, TimingKind {
+    Linear = 1,
+    CubicBezier = 2,
+    Steps = 3,
+});
+
+define_wire_enum!(STEP_POSITION_SCHEMA, StepPosition {
+    JumpStart = 1,
+    JumpEnd = 2,
+    JumpNone = 3,
+    JumpBoth = 4,
+});
+
+define_wire_enum!(TRANSFORM_FUNCTION_KIND_SCHEMA, TransformFunctionKind {
+    Translate = 1,
+    Rotate = 2,
+    Scale = 3,
+    Skew = 4,
+    Matrix = 5,
+});
+
+define_wire_enum!(ANIMATION_CONTROL_SCHEMA, AnimationControl {
+    Pause = 1,
+    Resume = 2,
+    Cancel = 3,
+});
+
+define_wire_enum!(ANIMATION_EVENT_KIND_SCHEMA, AnimationEventKind {
+    Ready = 1,
+    Active = 2,
+    Iteration = 3,
+    End = 4,
+});
+
+define_wire_enum!(REDUCED_MOTION_SCHEMA, ReducedMotion {
+    Off = 1,
+    On = 2,
+    Unknown = 3,
+});
+
 /// Every role enum codegen mirrors, in wire order. Appending is the only allowed edit.
 pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
     RoleEnumSchema {
@@ -897,6 +1174,74 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
     RoleEnumSchema {
         name: "NotificationPermission",
         variants: NOTIFICATION_PERMISSION_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "WordBreak",
+        variants: WORD_BREAK_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "OverflowWrap",
+        variants: OVERFLOW_WRAP_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "GenericFamily",
+        variants: GENERIC_FAMILY_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "AnimatedProperty",
+        variants: ANIMATED_PROPERTY_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "PlaybackDirection",
+        variants: PLAYBACK_DIRECTION_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "FillMode",
+        variants: FILL_MODE_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "PlayState",
+        variants: PLAY_STATE_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "ColorInterpolation",
+        variants: COLOR_INTERPOLATION_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "TimingKind",
+        variants: TIMING_KIND_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "StepPosition",
+        variants: STEP_POSITION_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "TransformFunctionKind",
+        variants: TRANSFORM_FUNCTION_KIND_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "AnimationControl",
+        variants: ANIMATION_CONTROL_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "AnimationEventKind",
+        variants: ANIMATION_EVENT_KIND_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "ReducedMotion",
+        variants: REDUCED_MOTION_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "DecorationKind",
+        variants: DECORATION_KIND_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "Severity",
+        variants: SEVERITY_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "HoverPhase",
+        variants: HOVER_PHASE_SCHEMA,
     },
 ];
 
@@ -1136,7 +1481,13 @@ impl Theme {
     /// Renderer, the same way a picture does. An id that names nothing is reported and
     /// the role falls back to the system font, because a screen in the wrong typeface is
     /// better than no screen.
+    ///
+    /// `TypeRole::None` has no font slot: text with no role names its own font, so asking
+    /// the theme to give it one changes nothing.
     pub const fn with_font(mut self, role: TypeRole, asset: u32) -> Self {
+        if let TypeRole::None = role {
+            return self;
+        }
         self.fonts[role as usize - 1] = asset;
         self
     }
@@ -1154,6 +1505,9 @@ impl Theme {
 
     /// The font this role resolves to, or `None` for the system font.
     pub const fn font(&self, role: TypeRole) -> Option<u32> {
+        if let TypeRole::None = role {
+            return None;
+        }
         match self.fonts[role as usize - 1] {
             0 => None,
             asset => Some(asset),
@@ -1234,6 +1588,282 @@ pub enum Modifier {
     /// A role, so that a system which blurs blurs and a system which does not lifts its
     /// surface instead. Nothing here claims a particular effect was achieved.
     Material(MaterialRole),
+    /// Where this node sits inside its parent, in dp from the parent's top left corner.
+    ///
+    /// The position a layout engine on the Host already computed. Left and right are the
+    /// screen's, not the reading direction's: the Host's coordinates are physical, so a
+    /// right-to-left page is not mirrored a second time here.
+    Offset {
+        x: f32,
+        y: f32,
+    },
+    /// This node's size in dp, whatever its parent's constraints say. The size a layout
+    /// engine on the Host already computed, which is not open to negotiation.
+    RequiredSize {
+        width: f32,
+        height: f32,
+    },
+    /// A border whose four sides each have their own width and paint. A node whose four
+    /// sides are the same uses `Border`.
+    BorderEach {
+        top: f32,
+        right: f32,
+        bottom: f32,
+        left: f32,
+        top_paint: Paint,
+        right_paint: Paint,
+        bottom_paint: Paint,
+        left_paint: Paint,
+    },
+    /// A radius in dp for each corner, cut as plain circular arcs. The background, the
+    /// border, the shadow and a `Clip` all follow it. A node with one radius for every
+    /// corner uses `Shape`.
+    CornerEach {
+        top_left: f32,
+        top_right: f32,
+        bottom_right: f32,
+        bottom_left: f32,
+    },
+    /// One shadow cast by this node's outline: an offset, a blur radius and a spread in dp,
+    /// and its paint, drawn only outside the node as CSS draws `box-shadow`. Several
+    /// shadows are several of these. A modifier list draws in its order, so a later shadow
+    /// lies over an earlier one; CSS puts the first of its list on top, so a Host sends
+    /// that list last to first.
+    Shadow {
+        x: f32,
+        y: f32,
+        blur: f32,
+        spread: f32,
+        paint: Paint,
+    },
+    /// Whether this node's content is cut to its outline: the `CornerEach` shape where it
+    /// has one, its rectangle otherwise.
+    Clip(bool),
+    /// The opacity of this node and everything in it, from 0 to 1, applied once to the
+    /// whole group rather than to each child.
+    Alpha(f32),
+    /// Draws this node and everything in it through a 2D affine matrix, the way CSS
+    /// `transform` does, without changing its layout. Pointer input follows the drawn
+    /// shape.
+    ///
+    /// The matrix means what CSS `matrix(a, b, c, d, e, f)` means: a point `(x, y)` goes to
+    /// `(a x + c y + e, b x + d y + f)`, with `e` and `f` in dp. The origin is a fraction of
+    /// the node's measured size, `(0.5, 0.5)` being its centre, so it stays right when the
+    /// size is decided on the Renderer's side. An origin given as a length is folded into
+    /// the matrix by the Host, which then sends `(0, 0)`. A matrix with no inverse draws
+    /// nothing and takes no input. No value may be NaN or infinite.
+    Transform {
+        a: f32,
+        b: f32,
+        c: f32,
+        d: f32,
+        e: f32,
+        f: f32,
+        origin_x: f32,
+        origin_y: f32,
+    },
+}
+
+impl Modifier {
+    /// A border with a width and a paint for each side, in CSS order: top, right, bottom,
+    /// left.
+    ///
+    /// Four equal sides are one `Border`, which is the record every node with an ordinary
+    /// border already sends. `BorderEach` is written only where the sides differ, so a
+    /// screen that never mixes them never sends the longer record.
+    pub fn border_sides(widths: [f32; 4], paints: [Paint; 4]) -> Self {
+        let [top, right, bottom, left] = widths;
+        let [top_paint, right_paint, bottom_paint, left_paint] = paints;
+        if widths.iter().all(|width| width.to_bits() == top.to_bits())
+            && paints.iter().all(|paint| *paint == top_paint)
+        {
+            return Self::Border {
+                width: top,
+                paint: top_paint,
+            };
+        }
+        Self::BorderEach {
+            top,
+            right,
+            bottom,
+            left,
+            top_paint,
+            right_paint,
+            bottom_paint,
+            left_paint,
+        }
+    }
+
+    /// A radius for each corner, in CSS order: top left, top right, bottom right, bottom
+    /// left.
+    ///
+    /// One radius for every corner is one `Shape`, the record an ordinary rounded node
+    /// already sends. `CornerEach` is written only where the corners differ.
+    pub fn corner_radii(radii: [f32; 4]) -> Self {
+        let [top_left, top_right, bottom_right, bottom_left] = radii;
+        if radii
+            .iter()
+            .all(|radius| radius.to_bits() == top_left.to_bits())
+        {
+            return Self::Shape {
+                top_start: top_left,
+                top_end: top_left,
+                bottom_end: top_left,
+                bottom_start: top_left,
+            };
+        }
+        Self::CornerEach {
+            top_left,
+            top_right,
+            bottom_right,
+            bottom_left,
+        }
+    }
+}
+
+/// The timing function of one keyframe, which shapes the segment to the next one.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Timing {
+    Linear,
+    /// CSS `cubic-bezier(x1, y1, x2, y2)`. Both `x` values are between 0 and 1.
+    CubicBezier {
+        x1: f32,
+        y1: f32,
+        x2: f32,
+        y2: f32,
+    },
+    /// CSS `steps(count, position)`. `count` is at least 1, and at least 2 for `JumpNone`.
+    Steps {
+        count: u32,
+        position: StepPosition,
+    },
+}
+
+/// One CSS transform function: its kind and up to six values, the unused ones zero.
+///
+/// `Translate` is x and y in dp, `Rotate` degrees (not folded into one turn, so 0 to 720
+/// is two turns), `Scale` x and y, `Skew` the x and y angles in degrees, and `Matrix` the
+/// six values of CSS `matrix()`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TransformFunction {
+    pub kind: TransformFunctionKind,
+    pub values: [f32; 6],
+}
+
+impl TransformFunction {
+    pub const fn translate(x: f32, y: f32) -> Self {
+        Self {
+            kind: TransformFunctionKind::Translate,
+            values: [x, y, 0.0, 0.0, 0.0, 0.0],
+        }
+    }
+
+    pub const fn rotate(degrees: f32) -> Self {
+        Self {
+            kind: TransformFunctionKind::Rotate,
+            values: [degrees, 0.0, 0.0, 0.0, 0.0, 0.0],
+        }
+    }
+
+    pub const fn scale(x: f32, y: f32) -> Self {
+        Self {
+            kind: TransformFunctionKind::Scale,
+            values: [x, y, 0.0, 0.0, 0.0, 0.0],
+        }
+    }
+
+    pub const fn skew(x_degrees: f32, y_degrees: f32) -> Self {
+        Self {
+            kind: TransformFunctionKind::Skew,
+            values: [x_degrees, y_degrees, 0.0, 0.0, 0.0, 0.0],
+        }
+    }
+
+    pub const fn matrix(a: f32, b: f32, c: f32, d: f32, e: f32, f: f32) -> Self {
+        Self {
+            kind: TransformFunctionKind::Matrix,
+            values: [a, b, c, d, e, f],
+        }
+    }
+}
+
+/// What one keyframe holds, which has to be what its animation's property takes.
+#[derive(Clone, Debug, PartialEq)]
+pub enum KeyframeValue {
+    Alpha(f32),
+    /// For `Color`, `Background` and `BorderColor`. A role is resolved against the theme every frame.
+    Paint(Paint),
+    /// A list of functions, the same kinds in the same order in every keyframe.
+    Transform(std::borrow::Cow<'static, [TransformFunction]>),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Keyframe {
+    /// Where in an iteration this keyframe stands, from 0 to 1.
+    pub offset: f32,
+    /// How the segment from this keyframe to the next is timed.
+    pub timing: Timing,
+    /// Starts from whatever the node shows the frame this animation begins, instead of
+    /// `value`. Only the first keyframe may say so: it is how a CSS transition that
+    /// changes course midway carries on from where it was without a jump.
+    pub from_presented: bool,
+    pub value: KeyframeValue,
+}
+
+/// Which moments of an animation are reported back as `AnimationEvent`s. None, the
+/// default, means the animation plays to its end without a single call to the Host.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct AnimationEvents(pub u8);
+
+impl AnimationEvents {
+    pub const NONE: Self = Self(0);
+    pub const READY: Self = Self(1);
+    pub const ACTIVE: Self = Self(2);
+    pub const ITERATION: Self = Self(4);
+    pub const END: Self = Self(8);
+    /// Every kind there is. A bit outside these is a record the sides disagree about.
+    pub const ALL: Self = Self(1 | 2 | 4 | 8);
+
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    pub const fn contains(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+}
+
+/// One animation the Renderer plays to its end on its own frame clock, described once.
+///
+/// The key is `(node_id, property, slot)`: a second animation with the same key replaces
+/// the first, and of the ones in effect on one property the highest slot is what shows.
+/// Timing follows Web Animations Level 1, which is what CSS transitions and animations
+/// are defined by.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Animation<'a> {
+    pub node_id: u32,
+    /// The Host's own name for the animation, returned in every event about it.
+    pub animation_id: u32,
+    pub property: AnimatedProperty,
+    pub slot: u8,
+    pub direction: PlaybackDirection,
+    pub fill: FillMode,
+    pub play_state: PlayState,
+    /// For `Color`, `Background` and `BorderColor` only, and required there.
+    pub interpolation: Option<ColorInterpolation>,
+    /// On the Renderer's frame clock. Zero starts it on the first frame that draws it.
+    pub start_time_nanos: u64,
+    /// May be negative, which starts it partway through.
+    pub delay_ms: f32,
+    pub duration_ms: f32,
+    /// Infinite for `infinite`.
+    pub iterations: f32,
+    /// For `Transform` only: the origin, as a fraction of the node's size.
+    pub origin_x: f32,
+    pub origin_y: f32,
+    pub events: AnimationEvents,
+    /// At least two, the first at offset 0 and the last at 1.
+    pub keyframes: std::borrow::Cow<'a, [Keyframe]>,
 }
 
 const NO_FIELDS: &[FieldSchema] = &[];
@@ -1345,102 +1975,324 @@ const BORDER_FIELDS: &[FieldSchema] = &[
         slot: FieldSlot::Second,
     },
 ];
+const OFFSET_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "x",
+        ty: FieldType::Float,
+        slot: FieldSlot::FirstLow,
+    },
+    FieldSchema {
+        name: "y",
+        ty: FieldType::Float,
+        slot: FieldSlot::SecondLow,
+    },
+];
+const BORDER_EACH_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "top",
+        ty: FieldType::Float,
+        slot: FieldSlot::FirstLow,
+    },
+    FieldSchema {
+        name: "right",
+        ty: FieldType::Float,
+        slot: FieldSlot::FirstHigh,
+    },
+    FieldSchema {
+        name: "bottom",
+        ty: FieldType::Float,
+        slot: FieldSlot::SecondLow,
+    },
+    FieldSchema {
+        name: "left",
+        ty: FieldType::Float,
+        slot: FieldSlot::SecondHigh,
+    },
+    FieldSchema {
+        name: "topPaint",
+        ty: FieldType::Paint,
+        slot: FieldSlot::Third,
+    },
+    FieldSchema {
+        name: "rightPaint",
+        ty: FieldType::Paint,
+        slot: FieldSlot::Fourth,
+    },
+    FieldSchema {
+        name: "bottomPaint",
+        ty: FieldType::Paint,
+        slot: FieldSlot::Fifth,
+    },
+    FieldSchema {
+        name: "leftPaint",
+        ty: FieldType::Paint,
+        slot: FieldSlot::Sixth,
+    },
+];
+const CORNER_EACH_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "topLeft",
+        ty: FieldType::Float,
+        slot: FieldSlot::FirstLow,
+    },
+    FieldSchema {
+        name: "topRight",
+        ty: FieldType::Float,
+        slot: FieldSlot::FirstHigh,
+    },
+    FieldSchema {
+        name: "bottomRight",
+        ty: FieldType::Float,
+        slot: FieldSlot::SecondLow,
+    },
+    FieldSchema {
+        name: "bottomLeft",
+        ty: FieldType::Float,
+        slot: FieldSlot::SecondHigh,
+    },
+];
+const SHADOW_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "x",
+        ty: FieldType::Float,
+        slot: FieldSlot::FirstLow,
+    },
+    FieldSchema {
+        name: "y",
+        ty: FieldType::Float,
+        slot: FieldSlot::FirstHigh,
+    },
+    FieldSchema {
+        name: "blur",
+        ty: FieldType::Float,
+        slot: FieldSlot::SecondLow,
+    },
+    FieldSchema {
+        name: "spread",
+        ty: FieldType::Float,
+        slot: FieldSlot::SecondHigh,
+    },
+    FieldSchema {
+        name: "paint",
+        ty: FieldType::Paint,
+        slot: FieldSlot::Third,
+    },
+];
+const TRANSFORM_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "a",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FirstLow,
+    },
+    FieldSchema {
+        name: "b",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FirstHigh,
+    },
+    FieldSchema {
+        name: "c",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::SecondLow,
+    },
+    FieldSchema {
+        name: "d",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::SecondHigh,
+    },
+    FieldSchema {
+        name: "e",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::ThirdLow,
+    },
+    FieldSchema {
+        name: "f",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::ThirdHigh,
+    },
+    FieldSchema {
+        name: "originX",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FourthLow,
+    },
+    FieldSchema {
+        name: "originY",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FourthHigh,
+    },
+];
+const ENABLED_FIELD: &[FieldSchema] = &[FieldSchema {
+    name: "enabled",
+    ty: FieldType::Bool,
+    slot: FieldSlot::First,
+}];
 
 pub const MODIFIER_SCHEMA: &[VariantSchema] = &[
     VariantSchema {
         name: "Empty",
         tag: 0,
+        extra_words: 0,
         fields: NO_FIELDS,
     },
     VariantSchema {
         name: "Padding",
         tag: 1,
+        extra_words: 0,
         fields: VALUE_FLOAT_FIELD,
     },
     VariantSchema {
         name: "FillMaxWidth",
         tag: 2,
+        extra_words: 0,
         fields: NO_FIELDS,
     },
     VariantSchema {
         name: "FillMaxHeight",
         tag: 3,
+        extra_words: 0,
         fields: NO_FIELDS,
     },
     VariantSchema {
         name: "Width",
         tag: 4,
+        extra_words: 0,
         fields: VALUE_FLOAT_FIELD,
     },
     VariantSchema {
         name: "Height",
         tag: 5,
+        extra_words: 0,
         fields: VALUE_FLOAT_FIELD,
     },
     VariantSchema {
         name: "Size",
         tag: 6,
+        extra_words: 0,
         fields: SIZE_FIELDS,
     },
     VariantSchema {
         name: "Background",
         tag: 7,
+        extra_words: 0,
         fields: PAINT_FIELD,
     },
     VariantSchema {
         name: "Clickable",
         tag: 8,
+        extra_words: 0,
         fields: HANDLER_ID_FIELD,
     },
     VariantSchema {
         name: "PaddingRole",
         tag: 9,
+        extra_words: 0,
         fields: SPACE_ROLE_FIELD,
     },
     VariantSchema {
         name: "PaddingEach",
         tag: 10,
+        extra_words: 0,
         fields: PADDING_EACH_FIELDS,
     },
     VariantSchema {
         name: "Weight",
         tag: 11,
+        extra_words: 0,
         fields: VALUE_FLOAT_FIELD,
     },
     VariantSchema {
         name: "Shape",
         tag: 12,
+        extra_words: 0,
         fields: SHAPE_FIELDS,
     },
     VariantSchema {
         name: "ShapeRole",
         tag: 13,
+        extra_words: 0,
         fields: SHAPE_ROLE_FIELD,
     },
     VariantSchema {
         name: "Border",
         tag: 14,
+        extra_words: 0,
         fields: BORDER_FIELDS,
     },
     VariantSchema {
         name: "Elevation",
         tag: 15,
+        extra_words: 0,
         fields: VALUE_FLOAT_FIELD,
     },
     VariantSchema {
         name: "ObserveSize",
         tag: 16,
+        extra_words: 0,
         fields: TOKEN_U32_FIELD,
     },
     VariantSchema {
         name: "Motion",
         tag: 17,
+        extra_words: 0,
         fields: MOTION_ROLE_FIELD,
     },
     VariantSchema {
         name: "Material",
         tag: 18,
+        extra_words: 0,
         fields: MATERIAL_ROLE_FIELD,
+    },
+    // The elements an HTML and CSS screen is drawn with: boxes a layout engine on the Host
+    // already placed and sized, and the decoration CSS gives them.
+    VariantSchema {
+        name: "Offset",
+        tag: 19,
+        extra_words: 0,
+        fields: OFFSET_FIELDS,
+    },
+    VariantSchema {
+        name: "RequiredSize",
+        tag: 20,
+        extra_words: 0,
+        fields: SIZE_FIELDS,
+    },
+    // Four widths and four paints are six words, so the record is four words longer.
+    VariantSchema {
+        name: "BorderEach",
+        tag: 21,
+        extra_words: 4,
+        fields: BORDER_EACH_FIELDS,
+    },
+    VariantSchema {
+        name: "CornerEach",
+        tag: 22,
+        extra_words: 0,
+        fields: CORNER_EACH_FIELDS,
+    },
+    // Four measurements and a paint are three words, one more than the record has.
+    VariantSchema {
+        name: "Shadow",
+        tag: 23,
+        extra_words: 1,
+        fields: SHADOW_FIELDS,
+    },
+    VariantSchema {
+        name: "Clip",
+        tag: 24,
+        extra_words: 0,
+        fields: ENABLED_FIELD,
+    },
+    VariantSchema {
+        name: "Alpha",
+        tag: 25,
+        extra_words: 0,
+        fields: VALUE_FLOAT_FIELD,
+    },
+    // Eight `f32` are four words: the linear part, the translation, and the origin.
+    VariantSchema {
+        name: "Transform",
+        tag: 26,
+        extra_words: 2,
+        fields: TRANSFORM_FIELDS,
     },
 ];
 
@@ -1579,6 +2431,46 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     //
     // 90 opens the split pane's block of ten, after the badge's.
     Collapsible = 90,
+    // A code editor's own block, after the split pane's.
+    //
+    // The decorations over the document and the colour runs of its syntax, each a blob of
+    // fixed-length records sent whole. Every record carries the document version its
+    // range was written against, so a list computed while the reader kept typing still
+    // lands where it was meant to.
+    Decorations = 100,
+    SyntaxSpans = 101,
+    // How many columns a tab advances. Absent leaves it to the design system.
+    TabWidth = 102,
+    OnEditRejected = 103,
+    OnHover = 104,
+    OnSave = 105,
+    // One listener for every decoration that can be pressed or accepted. The ids inside
+    // the decoration blob are the application's own names for them, not handlers, so the
+    // event carries the id and the application tells them apart.
+    OnDecorationClick = 106,
+    // The text a page laid out by CSS draws, which takes its letters from its own values
+    // rather than from a rung of the type ladder. 110 opens the block for it.
+    //
+    // The fonts to try, in order, for text whose role is `TypeRole::None`: a list of up to
+    // eight registered font assets, installed families by name and generic families, as a
+    // blob. Text with a role ignores it, because its font is the theme's.
+    Font = 110,
+    // Where a line may break, and whether a word too long for its line may be broken
+    // inside. The `WordBreak` and `OverflowWrap` roles.
+    WordBreak = 111,
+    OverflowWrap = 112,
+    // How many spaces' width apart the tab stops are. Absent is eight. A tab advances to
+    // the next stop, which only the side that measures the letters can work out.
+    TabSize = 113,
+    // Whether the sizes are CSS pixels, which the system's font scale does not enlarge.
+    AbsoluteSize = 114,
+    // Whether lines wrap at the width they are given. Absent is yes; `false` is CSS
+    // `nowrap` and `pre`, whose lines run as long as their text.
+    SoftWrap = 115,
+    // The font each run of a `Text` with no role is set in, as a blob beside `Spans`
+    // rather than inside its records: a run record keeps the 36 bytes it has always had,
+    // and only text that names fonts carries this at all.
+    SpanFonts = 116,
 });
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1650,6 +2542,65 @@ pub enum EventPayload<'a> {
     /// Whether notifications may be shown, sent once after start and then only when the
     /// answer changes.
     NotificationPermissionChanged(NotificationPermission),
+    /// One committed edit to a code editor's document.
+    ///
+    /// The range is in the document as it stood before the edit, and `version` is the
+    /// version the edit produced. Lines and columns count from zero and columns are UTF-16
+    /// code units, which is what a language server counts in, so the event can be handed
+    /// to one unchanged. Text still being composed by an input method never arrives here:
+    /// only what the reader committed does.
+    CodeChanged {
+        version: u32,
+        start_line: u32,
+        start_column: u32,
+        end_line: u32,
+        end_column: u32,
+        text: &'a str,
+    },
+    /// An edit the Host asked for and the Renderer did not apply, because the reader had
+    /// changed the same place since the version the edit was written against.
+    CodeEditRejected {
+        request_id: u32,
+        base_version: u32,
+        current_version: u32,
+        start_line: u32,
+        start_column: u32,
+        end_line: u32,
+        end_column: u32,
+    },
+    /// A pointer came to rest over a place in a code editor, or left it. `decoration` is
+    /// the id of the hover anchor under it, or zero where there is none.
+    CodeHovered {
+        decoration: u64,
+        line: u32,
+        column: u32,
+        phase: HoverPhase,
+    },
+    /// The reader pressed the platform's save shortcut on a code editor.
+    CodeSaveRequested {
+        version: u32,
+    },
+    /// A decoration was pressed or accepted, named by the id the application gave it.
+    DecorationActivated {
+        decoration: u64,
+    },
+    /// Something happened to an animation the Renderer is playing, sent only for the kinds
+    /// the animation asked for. It names the node the animation plays on and no handler.
+    AnimationEvent {
+        animation_id: u32,
+        kind: AnimationEventKind,
+        property: AnimatedProperty,
+        slot: u8,
+        /// The iteration the animation was in at that moment.
+        iteration: u32,
+        /// What CSS reports as `elapsedTime`: active time, without the delay, in ms.
+        elapsed_ms: f32,
+        /// The frame the moment happened in; for `Ready`, the start time it was given.
+        time_nanos: u64,
+    },
+    /// Whether the platform asks for reduced motion, sent once after start and then only
+    /// when the answer changes.
+    ReducedMotionChanged(ReducedMotion),
 }
 
 pub const EVENT_SCHEMA: &[EventSchema] = &[
@@ -1746,6 +2697,42 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
         name: "NotificationPermissionChanged",
         tag: 25,
         payload: EventPayloadType::NotificationPermission,
+    },
+    EventSchema {
+        name: "CodeChanged",
+        tag: 26,
+        payload: EventPayloadType::CodeChange,
+    },
+    EventSchema {
+        name: "CodeEditRejected",
+        tag: 27,
+        payload: EventPayloadType::CodeEditRejected,
+    },
+    EventSchema {
+        name: "CodeHovered",
+        tag: 28,
+        payload: EventPayloadType::CodeHover,
+    },
+    EventSchema {
+        name: "CodeSaveRequested",
+        tag: 29,
+        payload: EventPayloadType::CodeSave,
+    },
+    EventSchema {
+        name: "DecorationActivated",
+        tag: 30,
+        payload: EventPayloadType::Decoration,
+    },
+    EventSchema {
+        name: "AnimationEvent",
+        tag: 31,
+        payload: EventPayloadType::Animation,
+    },
+    // About the platform rather than a node, like the notification permission.
+    EventSchema {
+        name: "ReducedMotionChanged",
+        tag: 32,
+        payload: EventPayloadType::ReducedMotion,
     },
 ];
 

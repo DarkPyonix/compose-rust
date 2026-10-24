@@ -6,9 +6,9 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.charset.StandardCharsets
 
-enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, LinearProgressIndicator }
+enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, Progress }
 
 enum class Key { Enter }
 
@@ -61,6 +61,47 @@ enum class NotificationImportance { Normal, Urgent }
 enum class NotificationPresentation { Always, WhenInactive }
 
 enum class NotificationPermission { NotDetermined, Granted, Denied, Unsupported }
+
+enum class WordBreak { Normal, KeepAll, BreakAll }
+
+enum class OverflowWrap { Normal, Anywhere, BreakWord }
+
+enum class GenericFamily { SystemUi, SansSerif, Serif, Monospace }
+
+enum class AnimatedProperty { Alpha, Color, Background, Transform, BorderColor }
+
+enum class PlaybackDirection { Normal, Reverse, Alternate, AlternateReverse }
+
+enum class FillMode { None, Forwards, Backwards, Both }
+
+enum class PlayState { Running, Paused }
+
+enum class ColorInterpolation { SrgbPremultiplied, Oklab }
+
+enum class TimingKind { Linear, CubicBezier, Steps }
+
+enum class StepPosition { JumpStart, JumpEnd, JumpNone, JumpBoth }
+
+enum class TransformFunctionKind { Translate, Rotate, Scale, Skew, Matrix }
+
+enum class AnimationControl { Pause, Resume, Cancel }
+
+enum class AnimationEventKind { Ready, Active, Iteration, End }
+
+enum class ReducedMotion { Off, On, Unknown }
+
+enum class DecorationKind { Underline, CodeLens, HoverAnchor, GhostText }
+
+enum class Severity { Error, Warning, Information, Hint }
+
+enum class HoverPhase { Rest, Leave }
+
+/**
+ * The `TypeRole` property of text with no rung of the ladder at all: CSS text, whose
+ * size, weight and font are its own. Present and zero; an absent property is the
+ * widget's default rung.
+ */
+const val TYPE_ROLE_NONE: Int = 0
 
 enum class LoopMode(val wire: Byte) {
     /** The Renderer runs the loop and the Host blocks inside it. Desktop. */
@@ -350,21 +391,38 @@ object SpanRecords {
     fun decode(bytes: ByteArray): List<TextSpanRecord>? {
         if (bytes.size % SPAN_LENGTH != 0) return null
         val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
-        return List(bytes.size / SPAN_LENGTH) { index ->
-            val at = index * SPAN_LENGTH
-            val flags = buffer.getShort(at + FLAGS_AT).toInt() and 0xffff
-            TextSpanRecord(
-                start = buffer.getInt(at + START_AT),
-                length = buffer.getInt(at + LENGTH_AT),
-                typeRole = typeRoleOrNull(buffer.getShort(at + ROLE_AT).toInt() and 0xffff),
-                color = paintOrNull(buffer.getLong(at + COLOR_AT)),
-                background = paintOrNull(buffer.getLong(at + BACKGROUND_AT)),
-                bold = flags and FLAG_BOLD != 0,
-                italic = flags and FLAG_ITALIC != 0,
-                underline = flags and FLAG_UNDERLINE != 0,
-                strikethrough = flags and FLAG_STRIKETHROUGH != 0,
-                handlerId = buffer.getLong(at + HANDLER_AT),
-            )
+        return decodeAt(buffer, bytes.size, 0, bytes.size / SPAN_LENGTH)
+    }
+
+    /**
+     * The [count] runs whose records start at [at] in [buffer], or null where they reach
+     * past [limit]. What a measure request carries, in place.
+     */
+    fun decodeAt(buffer: ByteBuffer, limit: Int, at: Int, count: Int): List<TextSpanRecord>? {
+        if (count < 0 || at < 0 || at.toLong() + count.toLong() * SPAN_LENGTH > limit.toLong()) {
+            return null
+        }
+        val previous = buffer.order()
+        buffer.order(ByteOrder.LITTLE_ENDIAN)
+        try {
+            return List(count) { index ->
+                val record = at + index * SPAN_LENGTH
+                val flags = buffer.getShort(record + FLAGS_AT).toInt() and 0xffff
+                TextSpanRecord(
+                    start = buffer.getInt(record + START_AT),
+                    length = buffer.getInt(record + LENGTH_AT),
+                    typeRole = typeRoleOrNull(buffer.getShort(record + ROLE_AT).toInt() and 0xffff),
+                    color = paintOrNull(buffer.getLong(record + COLOR_AT)),
+                    background = paintOrNull(buffer.getLong(record + BACKGROUND_AT)),
+                    bold = flags and FLAG_BOLD != 0,
+                    italic = flags and FLAG_ITALIC != 0,
+                    underline = flags and FLAG_UNDERLINE != 0,
+                    strikethrough = flags and FLAG_STRIKETHROUGH != 0,
+                    handlerId = buffer.getLong(record + HANDLER_AT),
+                )
+            }
+        } finally {
+            buffer.order(previous)
         }
     }
 
@@ -443,6 +501,381 @@ object SpanRecords {
 
 }
 
+/** One decoration over a code editor's document: an underline, a lens above a line, a hover anchor or an inline suggestion. The range is in the document at `version`; columns are UTF-16 units. `id` is the application's own name for it, zero where it cannot be pressed. */
+data class DecorationRecord(
+    val version: Int,
+    val kind: DecorationKind,
+    val severity: Severity?,
+    val color: ColorRole?,
+    val startLine: Int,
+    val startColumn: Int,
+    val endLine: Int,
+    val endColumn: Int,
+    val id: Long,
+    val text: String,
+)
+
+/** One colour run of a code editor's syntax. The range is in the document at `version`; columns are UTF-16 units. */
+data class SyntaxSpanRecord(
+    val version: Int,
+    val startLine: Int,
+    val startColumn: Int,
+    val endLine: Int,
+    val endColumn: Int,
+    val paint: Paint,
+)
+
+/**
+ * Reads the blobs a code editor carries.
+ *
+ * A record that cannot be read, a kind or a role this side does not know or a text that
+ * points outside the blob, is reported through `onError` and left out. The rest of the list
+ * is read regardless.
+ */
+object CodeEditorRecords {
+    const val DECORATION_LENGTH = 44
+
+    fun decodeDecorations(bytes: ByteArray, onError: (String) -> Unit): List<DecorationRecord> {
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val records = ArrayList<DecorationRecord>(bytes.size / DECORATION_LENGTH)
+        var end = bytes.size
+        var offset = 0
+        var index = 0
+        while (offset + DECORATION_LENGTH <= end) {
+            val textOffset = buffer.getInt(offset + 36)
+            val textLength = buffer.getInt(offset + 40)
+            if (textLength != 0 && textOffset >= 0 && textOffset < end) end = textOffset
+            readDecorationRecord(buffer, bytes, offset, index, onError)?.let(records::add)
+            offset += DECORATION_LENGTH
+            index += 1
+        }
+        return records
+    }
+
+    private fun readDecorationRecord(buffer: ByteBuffer, bytes: ByteArray, offset: Int, index: Int, onError: (String) -> Unit): DecorationRecord? {
+        val version = buffer.getInt(offset + 0)
+        val kindTag = buffer.getShort(offset + 4).toInt() and 0xffff
+        val kind = decorationKindOrNull(kindTag) ?: run { onError("record $index has an unknown kind ${kindTag}"); return null }
+        val severityTag = buffer.getShort(offset + 6).toInt() and 0xffff
+        val severity = if (severityTag == 0) null else severityOrNull(severityTag) ?: run { onError("record $index has an unknown severity ${severityTag}"); return null }
+        val colorTag = buffer.getShort(offset + 8).toInt() and 0xffff
+        val color = if (colorTag == 0) null else colorRoleOrNull(colorTag) ?: run { onError("record $index has an unknown color ${colorTag}"); return null }
+        val startLine = buffer.getInt(offset + 12)
+        val startColumn = buffer.getInt(offset + 16)
+        val endLine = buffer.getInt(offset + 20)
+        val endColumn = buffer.getInt(offset + 24)
+        val id = buffer.getLong(offset + 28)
+        val text = textOf(bytes, buffer.getInt(offset + 36), buffer.getInt(offset + 40)) ?: run { onError("record $index names text outside the list"); return null }
+        return DecorationRecord(version, kind, severity, color, startLine, startColumn, endLine, endColumn, id, text)
+    }
+
+    const val SYNTAX_SPAN_LENGTH = 28
+
+    fun decodeSyntaxSpans(bytes: ByteArray, onError: (String) -> Unit): List<SyntaxSpanRecord> {
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val records = ArrayList<SyntaxSpanRecord>(bytes.size / SYNTAX_SPAN_LENGTH)
+        var end = bytes.size
+        var offset = 0
+        var index = 0
+        while (offset + SYNTAX_SPAN_LENGTH <= end) {
+            readSyntaxSpanRecord(buffer, bytes, offset, index, onError)?.let(records::add)
+            offset += SYNTAX_SPAN_LENGTH
+            index += 1
+        }
+        if (offset != bytes.size) {
+            onError("${bytes.size - offset} bytes after the last whole record")
+        }
+        return records
+    }
+
+    private fun readSyntaxSpanRecord(buffer: ByteBuffer, bytes: ByteArray, offset: Int, index: Int, onError: (String) -> Unit): SyntaxSpanRecord? {
+        val version = buffer.getInt(offset + 0)
+        val startLine = buffer.getInt(offset + 4)
+        val startColumn = buffer.getInt(offset + 8)
+        val endLine = buffer.getInt(offset + 12)
+        val endColumn = buffer.getInt(offset + 16)
+        val paint = paintOrNull(buffer.getLong(offset + 20)) ?: run { onError("record $index has an unreadable paint"); return null }
+        return SyntaxSpanRecord(version, startLine, startColumn, endLine, endColumn, paint)
+    }
+
+    /** UTF-8 text behind the records, or null where the range leaves the blob or is not text. */
+    private fun textOf(bytes: ByteArray, offset: Int, length: Int): String? {
+        if (length == 0) return ""
+        if (offset < 0 || length < 0 || offset.toLong() + length.toLong() > bytes.size.toLong()) return null
+        return try {
+            bytes.decodeToString(offset, offset + length, throwOnInvalidSequence = true)
+        } catch (error: CharacterCodingException) {
+            null
+        }
+    }
+
+    private fun paintOrNull(bits: Long): Paint? {
+        val value = bits.toInt()
+        return when ((bits ushr 32).toInt()) {
+            1 -> colorRoleOrNull(value)?.let { Paint.Role(it) }
+            2 -> Paint.Literal(value)
+            3 -> Paint.Asset(value)
+            else -> null
+        }
+    }
+
+    private fun colorRoleOrNull(tag: Int): ColorRole? = when (tag) {
+        1 -> ColorRole.Primary
+        2 -> ColorRole.OnPrimary
+        3 -> ColorRole.Secondary
+        4 -> ColorRole.OnSecondary
+        5 -> ColorRole.Surface
+        6 -> ColorRole.OnSurface
+        7 -> ColorRole.SurfaceVariant
+        8 -> ColorRole.OnSurfaceVariant
+        9 -> ColorRole.Background
+        10 -> ColorRole.OnBackground
+        11 -> ColorRole.Outline
+        12 -> ColorRole.OutlineVariant
+        13 -> ColorRole.Error
+        14 -> ColorRole.OnError
+        15 -> ColorRole.SurfaceContainer
+        16 -> ColorRole.Tertiary
+        17 -> ColorRole.OnTertiary
+        18 -> ColorRole.PrimaryContainer
+        19 -> ColorRole.OnPrimaryContainer
+        20 -> ColorRole.SecondaryContainer
+        21 -> ColorRole.OnSecondaryContainer
+        22 -> ColorRole.TertiaryContainer
+        23 -> ColorRole.OnTertiaryContainer
+        24 -> ColorRole.SyntaxKeyword
+        25 -> ColorRole.SyntaxString
+        26 -> ColorRole.SyntaxComment
+        27 -> ColorRole.SyntaxNumber
+        28 -> ColorRole.SyntaxConstant
+        29 -> ColorRole.SyntaxType
+        30 -> ColorRole.SyntaxFunction
+        31 -> ColorRole.SyntaxVariable
+        32 -> ColorRole.SyntaxProperty
+        33 -> ColorRole.SyntaxOperator
+        34 -> ColorRole.SyntaxPunctuation
+        35 -> ColorRole.SyntaxTag
+        36 -> ColorRole.SyntaxAttribute
+        37 -> ColorRole.SyntaxEscape
+        38 -> ColorRole.SyntaxMacro
+        39 -> ColorRole.DiffAdded
+        40 -> ColorRole.DiffRemoved
+        41 -> ColorRole.DiffModified
+        42 -> ColorRole.DiffAddedContainer
+        43 -> ColorRole.DiffRemovedContainer
+        44 -> ColorRole.DiffAddedEmphasis
+        45 -> ColorRole.DiffRemovedEmphasis
+        else -> null
+    }
+
+    private fun decorationKindOrNull(tag: Int): DecorationKind? = when (tag) {
+        1 -> DecorationKind.Underline
+        2 -> DecorationKind.CodeLens
+        3 -> DecorationKind.HoverAnchor
+        4 -> DecorationKind.GhostText
+        else -> null
+    }
+
+    private fun severityOrNull(tag: Int): Severity? = when (tag) {
+        1 -> Severity.Error
+        2 -> Severity.Warning
+        3 -> Severity.Information
+        4 -> Severity.Hint
+        else -> null
+    }
+
+}
+
+/**
+ * One font to try for text with no role, in the order a CSS font list gives them. The first
+ * one the Renderer can resolve is the one the text is set in.
+ */
+sealed interface FontRef {
+    /** A font the application registered as an asset. */
+    data class Asset(val assetId: Int) : FontRef
+
+    /** A family installed on the machine, by name. */
+    data class System(val name: String) : FontRef
+
+    /** A family CSS names without naming a font. */
+    data class Generic(val family: GenericFamily) : FontRef
+}
+
+/** Decodes font candidate lists, wherever they sit: a property, a run or a measure request. */
+object FontRefRecords {
+    const val RECORD_LENGTH = 12
+    const val MAX_REFS = 8
+    private const val KIND_AT = 0
+    private const val VALUE_AT = 4
+    private const val LENGTH_AT = 8
+    private const val ASSET = 1
+    private const val SYSTEM = 2
+    private const val GENERIC = 3
+
+    /**
+     * The [count] candidates whose records start at [at] in [buffer], each name read from
+     * the same buffer, or null where anything reaches past [limit] or names a kind this
+     * decoder does not know.
+     */
+    fun decode(buffer: ByteBuffer, limit: Int, at: Int, count: Int): List<FontRef>? {
+        if (count < 0 || count > MAX_REFS) return null
+        if (at < 0 || at.toLong() + count.toLong() * RECORD_LENGTH > limit.toLong()) return null
+        val previous = buffer.order()
+        buffer.order(ByteOrder.LITTLE_ENDIAN)
+        try {
+            val refs = ArrayList<FontRef>(count)
+            for (index in 0 until count) {
+                val record = at + index * RECORD_LENGTH
+                val value = buffer.getInt(record + VALUE_AT)
+                refs += when (buffer.getInt(record + KIND_AT)) {
+                    ASSET -> FontRef.Asset(value)
+                    SYSTEM -> {
+                        val length = buffer.getInt(record + LENGTH_AT)
+                        if (value < 0 || length < 0 || value.toLong() + length > limit.toLong()) {
+                            return null
+                        }
+                        // Relative rather than absolute: the absolute bulk read is not on
+                        // every Android runtime this has to compile against.
+                        val name = ByteArray(length)
+                        val mark = buffer.position()
+                        buffer.position(value)
+                        buffer.get(name, 0, length)
+                        buffer.position(mark)
+                        FontRef.System(name.decodeToString())
+                    }
+                    GENERIC -> FontRef.Generic(genericFamilyOrNull(value) ?: return null)
+                    else -> return null
+                }
+            }
+            return refs
+        } finally {
+            buffer.order(previous)
+        }
+    }
+
+    /** The list a `Font` property carries: a count, then the records and their names. */
+    fun decodeBlob(bytes: ByteArray): List<FontRef>? {
+        if (bytes.isEmpty()) return emptyList()
+        if (bytes.size < 4) return null
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        return decode(buffer, bytes.size, 4, buffer.getInt(0))
+    }
+
+    private fun genericFamilyOrNull(tag: Int): GenericFamily? = when (tag) {
+        1 -> GenericFamily.SystemUi
+        2 -> GenericFamily.SansSerif
+        3 -> GenericFamily.Serif
+        4 -> GenericFamily.Monospace
+        else -> null
+    }
+}
+
+/**
+ * Which runs of a Text name fonts of their own, and which: the `SpanFonts` property, or
+ * the same table inside a measure request. Keyed by the run's index in its run list.
+ */
+object SpanFontRecords {
+    const val ENTRY_LENGTH = 12
+    private const val SPAN_AT = 0
+    private const val OFFSET_AT = 4
+    private const val COUNT_AT = 8
+
+    /** The [count] entries starting at [at] in [buffer], or null where any is malformed. */
+    fun decode(buffer: ByteBuffer, limit: Int, at: Int, count: Int): Map<Int, List<FontRef>>? {
+        if (count < 0 || at < 0 || at.toLong() + count.toLong() * ENTRY_LENGTH > limit.toLong()) {
+            return null
+        }
+        val previous = buffer.order()
+        buffer.order(ByteOrder.LITTLE_ENDIAN)
+        val entries = try {
+            List(count) { index ->
+                val entry = at + index * ENTRY_LENGTH
+                Triple(
+                    buffer.getInt(entry + SPAN_AT),
+                    buffer.getInt(entry + OFFSET_AT),
+                    buffer.getInt(entry + COUNT_AT),
+                )
+            }
+        } finally {
+            buffer.order(previous)
+        }
+        val fonts = HashMap<Int, List<FontRef>>(count)
+        for ((span, offset, refs) in entries) {
+            fonts[span] = FontRefRecords.decode(buffer, limit, offset, refs) ?: return null
+        }
+        return fonts
+    }
+
+    /** The table a `SpanFonts` property carries: a count, then the entries and their lists. */
+    fun decodeBlob(bytes: ByteArray): Map<Int, List<FontRef>>? {
+        if (bytes.isEmpty()) return emptyMap()
+        if (bytes.size < 4) return null
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        return decode(buffer, bytes.size, 4, buffer.getInt(0))
+    }
+}
+
+/**
+ * The layout of a measure call: the request records the Host writes, the result records
+ * the Renderer writes back, and what each status means. The records and their offsets are
+ * the Host's, generated from its schema, so nobody counts bytes by hand on this side.
+ */
+object MeasureRecords {
+    const val RECORD_LENGTH = 72
+    const val RESULT_LENGTH = 32
+    const val KIND_TEXT = 1
+    const val KIND_NODE = 2
+    const val KIND_AT = 0
+    const val TEXT_TYPE_ROLE_AT = 2
+    const val TEXT_TEXT_OFFSET_AT = 4
+    const val TEXT_TEXT_LENGTH_AT = 8
+    const val TEXT_SPANS_OFFSET_AT = 12
+    const val TEXT_SPANS_COUNT_AT = 16
+    const val TEXT_SPAN_FONTS_OFFSET_AT = 20
+    const val TEXT_SPAN_FONTS_COUNT_AT = 24
+    const val TEXT_FONT_OFFSET_AT = 28
+    const val TEXT_FONT_COUNT_AT = 32
+    const val TEXT_FONT_SIZE_AT = 36
+    const val TEXT_FONT_WEIGHT_AT = 40
+    const val TEXT_ITALIC_AT = 42
+    const val TEXT_WRAP_AT = 43
+    const val TEXT_LETTER_SPACING_AT = 44
+    const val TEXT_LINE_HEIGHT_AT = 48
+    const val TEXT_MAX_LINES_AT = 52
+    const val TEXT_TAB_SIZE_AT = 56
+    const val TEXT_WORD_BREAK_AT = 57
+    const val TEXT_OVERFLOW_WRAP_AT = 58
+    const val TEXT_ABSOLUTE_SIZE_AT = 59
+    const val TEXT_CONSTRAINT_AT = 60
+    const val TEXT_WIDTH_AT = 64
+    const val TEXT_ZOOM_AT = 68
+    const val NODE_ID_AT = 4
+    const val NODE_MIN_WIDTH_AT = 8
+    const val NODE_MAX_WIDTH_AT = 12
+    const val NODE_MIN_HEIGHT_AT = 16
+    const val NODE_MAX_HEIGHT_AT = 20
+    const val NODE_ZOOM_AT = 24
+    const val CONSTRAINT_MIN_CONTENT = 1
+    const val CONSTRAINT_MAX_CONTENT = 2
+    const val CONSTRAINT_AT_MOST = 3
+    const val RESULT_WIDTH_AT = 0
+    const val RESULT_HEIGHT_AT = 4
+    const val RESULT_FIRST_BASELINE_AT = 8
+    const val RESULT_LAST_BASELINE_AT = 12
+    const val RESULT_LAST_LINE_WIDTH_AT = 16
+    const val RESULT_LINE_COUNT_AT = 20
+    const val RESULT_FLAGS_AT = 24
+    const val RESULT_STATUS_AT = 28
+    const val FLAG_TRUNCATED = 1
+    const val STATUS_OK = 0
+    const val STATUS_UNKNOWN_NODE = 1
+    const val STATUS_MALFORMED = 2
+    const val CALL_OK = 0
+    const val CALL_UNREADABLE = -1
+    const val CALL_OFF_UI_THREAD = -4
+    const val CALL_UNAVAILABLE = -5
+}
+
 sealed interface Modifier {
     data object Empty : Modifier
     data class Padding(val value: kotlin.Float) : Modifier
@@ -463,7 +896,86 @@ sealed interface Modifier {
     data class ObserveSize(val token: Int) : Modifier
     data class Motion(val role: dev.darkpyonix.composerust.protocol.MotionRole) : Modifier
     data class Material(val role: dev.darkpyonix.composerust.protocol.MaterialRole) : Modifier
+    data class Offset(val x: kotlin.Float, val y: kotlin.Float) : Modifier
+    data class RequiredSize(val width: kotlin.Float, val height: kotlin.Float) : Modifier
+    data class BorderEach(val top: kotlin.Float, val right: kotlin.Float, val bottom: kotlin.Float, val left: kotlin.Float, val topPaint: Paint, val rightPaint: Paint, val bottomPaint: Paint, val leftPaint: Paint) : Modifier
+    data class CornerEach(val topLeft: kotlin.Float, val topRight: kotlin.Float, val bottomRight: kotlin.Float, val bottomLeft: kotlin.Float) : Modifier
+    data class Shadow(val x: kotlin.Float, val y: kotlin.Float, val blur: kotlin.Float, val spread: kotlin.Float, val paint: Paint) : Modifier
+    data class Clip(val enabled: Boolean) : Modifier
+    data class Alpha(val value: kotlin.Float) : Modifier
+    data class Transform(val a: kotlin.Float, val b: kotlin.Float, val c: kotlin.Float, val d: kotlin.Float, val e: kotlin.Float, val f: kotlin.Float, val originX: kotlin.Float, val originY: kotlin.Float) : Modifier
 }
+
+/** How the segment from one keyframe to the next is timed. */
+sealed interface Timing {
+    data object Linear : Timing
+
+    /** CSS `cubic-bezier(x1, y1, x2, y2)`, with both `x` between 0 and 1. */
+    data class CubicBezier(val x1: kotlin.Float, val y1: kotlin.Float, val x2: kotlin.Float, val y2: kotlin.Float) : Timing
+
+    /** CSS `steps(count, position)`. */
+    data class Steps(val count: Int, val position: StepPosition) : Timing
+}
+
+/**
+ * One CSS transform function and its values, the unused ones zero: a translation in dp, a
+ * rotation in degrees (not folded into one turn), a scale, a skew in degrees, or the six
+ * values of `matrix()`.
+ */
+data class TransformFunction(
+    val kind: TransformFunctionKind,
+    val v0: kotlin.Float,
+    val v1: kotlin.Float,
+    val v2: kotlin.Float,
+    val v3: kotlin.Float,
+    val v4: kotlin.Float,
+    val v5: kotlin.Float,
+)
+
+/** What one keyframe holds, which is what its animation's property takes. */
+sealed interface KeyframeValue {
+    data class Alpha(val value: kotlin.Float) : KeyframeValue
+
+    /** For `Color`, `Background` and `BorderColor`. A role is resolved against the theme every frame. */
+    data class PaintValue(val paint: Paint) : KeyframeValue
+
+    /** The same kinds in the same order in every keyframe of one animation. */
+    data class Transform(val functions: List<TransformFunction>) : KeyframeValue
+}
+
+data class Keyframe(
+    val offset: kotlin.Float,
+    val timing: Timing,
+    /** Start from what the node shows the frame the animation begins. First keyframe only. */
+    val fromPresented: Boolean,
+    val value: KeyframeValue,
+)
+
+/**
+ * One animation for the Renderer to play on its own frame clock until it ends.
+ *
+ * Keyed by `(nodeId, property, slot)`: a second one under the same key replaces the first,
+ * and of the ones in effect on one property the highest slot shows. Timing follows Web
+ * Animations Level 1. `events` is a set of bits: 1 ready, 2 active, 4 iteration, 8 end.
+ */
+data class Animation(
+    val nodeId: Int,
+    val animationId: Int,
+    val property: AnimatedProperty,
+    val slot: Int,
+    val direction: PlaybackDirection,
+    val fill: FillMode,
+    val playState: PlayState,
+    val interpolation: ColorInterpolation?,
+    val startTimeNanos: Long,
+    val delayMs: kotlin.Float,
+    val durationMs: kotlin.Float,
+    val iterations: kotlin.Float,
+    val originX: kotlin.Float,
+    val originY: kotlin.Float,
+    val events: Int,
+    val keyframes: List<Keyframe>,
+)
 
 sealed interface Mutation {
     data class Create(val nodeId: Int, val widget: WidgetKind) : Mutation
@@ -537,6 +1049,43 @@ sealed interface Mutation {
 
     /** Asks the platform for permission. The answer comes back as an event. */
     data object RequestNotificationPermission : Mutation
+
+    /**
+     * An edit the application asks of a code editor: replace a range of the document as it
+     * stood at `baseVersion` with `text`.
+     *
+     * The document is this side's, so this is a request. Where the reader has typed since
+     * `baseVersion` the range is moved along with what they typed; where they typed in the
+     * same place the edit is refused and `CodeEditRejected` returns `requestId`. Lines and
+     * columns count from zero and columns are UTF-16 units.
+     */
+    data class EditCode(
+        val nodeId: Int,
+        val requestId: Int,
+        val baseVersion: Int,
+        val startLine: Int,
+        val startColumn: Int,
+        val endLine: Int,
+        val endColumn: Int,
+        val text: String,
+    ) : Mutation
+
+    /** One animation to play on the Renderer's own frame clock until it ends. */
+    data class StartAnimation(val animation: Animation) : Mutation
+
+    /**
+     * Pauses, resumes or cancels the animation under a key, if it is still the one with
+     * this id. Anything else is left alone: an animation that already ended is not an
+     * error to stop.
+     */
+    data class ControlAnimation(
+        val nodeId: Int,
+        val animationId: Int,
+        val property: AnimatedProperty,
+        val slot: Int,
+        val op: AnimationControl,
+        val atTimeNanos: Long,
+    ) : Mutation
 }
 
 sealed interface HostEvent {
@@ -560,13 +1109,20 @@ sealed interface HostEvent {
     data class FilesDropped(override val nodeId: Int, override val handlerId: Long, val text: String) : HostEvent
     data class NotificationActivated(override val nodeId: Int, override val handlerId: Long, val action: Int, val key: String) : HostEvent
     data class NotificationPermissionChanged(override val nodeId: Int, override val handlerId: Long, val state: NotificationPermission) : HostEvent
+    data class CodeChanged(override val nodeId: Int, override val handlerId: Long, val version: Int, val startLine: Int, val startColumn: Int, val endLine: Int, val endColumn: Int, val text: String) : HostEvent
+    data class CodeEditRejected(override val nodeId: Int, override val handlerId: Long, val requestId: Int, val baseVersion: Int, val currentVersion: Int, val startLine: Int, val startColumn: Int, val endLine: Int, val endColumn: Int) : HostEvent
+    data class CodeHovered(override val nodeId: Int, override val handlerId: Long, val decoration: Long, val line: Int, val column: Int, val phase: HoverPhase) : HostEvent
+    data class CodeSaveRequested(override val nodeId: Int, override val handlerId: Long, val version: Int) : HostEvent
+    data class DecorationActivated(override val nodeId: Int, override val handlerId: Long, val decoration: Long) : HostEvent
+    data class AnimationEvent(override val nodeId: Int, override val handlerId: Long, val animationId: Int, val kind: AnimationEventKind, val property: AnimatedProperty, val slot: Int, val iteration: Int, val elapsedMs: kotlin.Float, val timeNanos: Long) : HostEvent
+    data class ReducedMotionChanged(override val nodeId: Int, override val handlerId: Long, val state: ReducedMotion) : HostEvent
 }
 
 class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -6082458096398358368L
+    const val SCHEMA_HASH: Long = 2379870722881034395L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -586,7 +1142,13 @@ object Protocol {
     private const val TAG_POST_NOTIFICATION = 14
     private const val TAG_WITHDRAW_NOTIFICATION = 15
     private const val TAG_REQUEST_NOTIFICATION_PERMISSION = 16
+    private const val TAG_EDIT_CODE = 17
+    private const val TAG_START_ANIMATION = 18
+    private const val TAG_CONTROL_ANIMATION = 19
     private const val ENVELOPE_LENGTH = 12
+    private const val ANIMATION_HEADER_LENGTH = 52
+    private const val KEYFRAME_HEAD_LENGTH = 24
+    private const val TRANSFORM_FUNCTION_LENGTH = 28
     /** Four role tags, one font asset id per type role, then the palette's reference. */
     private val THEME_RECORD_LENGTH = 20 + 4 * TypeRole.entries.size
 
@@ -670,16 +1232,15 @@ object Protocol {
                         )
                     }
                     TAG_SET_MODIFIER -> {
-                        requireRecordLength(length, 28, offset)
+                        // The modifier's tag fixes the record's length: 28 bytes, and eight
+                        // more for each word its value takes beyond the first two.
+                        if (length < 28) requireRecordLength(length, 28, offset)
+                        val modifierTag = readU16(batch, base, available, offset + 10)
+                        requireRecordLength(length, 28 + 8 * modifierExtraWords(modifierTag, offset + 10), offset)
                         Mutation.SetModifier(
                             readU32(batch, base, available, offset + 4).toInt(),
                             readU16(batch, base, available, offset + 8),
-                            modifier(
-                                readU16(batch, base, available, offset + 10),
-                                readU64(batch, base, available, offset + 12),
-                                readU64(batch, base, available, offset + 20),
-                                offset + 10,
-                            ),
+                            modifier(modifierTag, batch, base, available, offset + 12, offset + 10),
                         )
                     }
                     TAG_INSERT -> {
@@ -805,6 +1366,36 @@ object Protocol {
                         requireRecordLength(length, 4, offset)
                         Mutation.RequestNotificationPermission
                     }
+                    TAG_EDIT_CODE -> {
+                        requireRecordLength(length, 40, offset)
+                        Mutation.EditCode(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            readU32(batch, base, available, offset + 8).toInt(),
+                            readU32(batch, base, available, offset + 12).toInt(),
+                            readU32(batch, base, available, offset + 16).toInt(),
+                            readU32(batch, base, available, offset + 20).toInt(),
+                            readU32(batch, base, available, offset + 24).toInt(),
+                            readU32(batch, base, available, offset + 28).toInt(),
+                            readString(batch, base, available, offset + 32),
+                        )
+                    }
+                    TAG_START_ANIMATION -> {
+                        if (length < ANIMATION_HEADER_LENGTH) {
+                            requireRecordLength(length, ANIMATION_HEADER_LENGTH, offset)
+                        }
+                        Mutation.StartAnimation(animation(batch, base, available, offset, length))
+                    }
+                    TAG_CONTROL_ANIMATION -> {
+                        requireRecordLength(length, 24, offset)
+                        Mutation.ControlAnimation(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            readU32(batch, base, available, offset + 8).toInt(),
+                            animatedProperty(readU8(batch, base, available, offset + 12), offset + 12),
+                            readU8(batch, base, available, offset + 13),
+                            animationControl(readU8(batch, base, available, offset + 14), offset + 14),
+                            readU64(batch, base, available, offset + 16),
+                        )
+                    }
                     else -> throw ProtocolException("unknown mutation tag $tag", offset)
                 }
                 onMutation(mutation)
@@ -889,6 +1480,13 @@ object Protocol {
                 is HostEvent.FilesDropped -> event.text.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.NotificationActivated -> event.key.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.NotificationPermissionChanged -> null
+                is HostEvent.CodeChanged -> event.text.toByteArray(StandardCharsets.UTF_8)
+                is HostEvent.CodeEditRejected -> null
+                is HostEvent.CodeHovered -> null
+                is HostEvent.CodeSaveRequested -> null
+                is HostEvent.DecorationActivated -> null
+                is HostEvent.AnimationEvent -> null
+                is HostEvent.ReducedMotionChanged -> null
             }
             val recordLength = when (event) {
                 is HostEvent.Clicked -> 16
@@ -908,6 +1506,13 @@ object Protocol {
                 is HostEvent.FilesDropped -> 24
                 is HostEvent.NotificationActivated -> 28
                 is HostEvent.NotificationPermissionChanged -> 20
+                is HostEvent.CodeChanged -> 44
+                is HostEvent.CodeEditRejected -> 44
+                is HostEvent.CodeHovered -> 36
+                is HostEvent.CodeSaveRequested -> 24
+                is HostEvent.DecorationActivated -> 24
+                is HostEvent.AnimationEvent -> 40
+                is HostEvent.ReducedMotionChanged -> 20
             }
             val totalLength = recordLength.toLong() + (text?.size ?: 0)
             if (totalLength > Int.MAX_VALUE || totalLength > out.remaining().toLong()) {
@@ -931,6 +1536,13 @@ object Protocol {
                 is HostEvent.FilesDropped -> 23
                 is HostEvent.NotificationActivated -> 24
                 is HostEvent.NotificationPermissionChanged -> 25
+                is HostEvent.CodeChanged -> 26
+                is HostEvent.CodeEditRejected -> 27
+                is HostEvent.CodeHovered -> 28
+                is HostEvent.CodeSaveRequested -> 29
+                is HostEvent.DecorationActivated -> 30
+                is HostEvent.AnimationEvent -> 31
+                is HostEvent.ReducedMotionChanged -> 32
             }
             out.putShort(tag.toShort())
             out.putShort(recordLength.toShort())
@@ -980,6 +1592,47 @@ object Protocol {
                 }
                 is HostEvent.NotificationPermissionChanged -> {
                     out.putInt(notificationPermissionTag(event.state))
+                }
+                is HostEvent.CodeChanged -> {
+                    out.putInt(event.version)
+                    out.putInt(event.startLine)
+                    out.putInt(event.startColumn)
+                    out.putInt(event.endLine)
+                    out.putInt(event.endColumn)
+                    writeStringReference(out, recordLength, text!!)
+                }
+                is HostEvent.CodeEditRejected -> {
+                    out.putInt(event.requestId)
+                    out.putInt(event.baseVersion)
+                    out.putInt(event.currentVersion)
+                    out.putInt(event.startLine)
+                    out.putInt(event.startColumn)
+                    out.putInt(event.endLine)
+                    out.putInt(event.endColumn)
+                }
+                is HostEvent.CodeHovered -> {
+                    out.putLong(event.decoration)
+                    out.putInt(event.line)
+                    out.putInt(event.column)
+                    out.putInt(hoverPhaseTag(event.phase))
+                }
+                is HostEvent.CodeSaveRequested -> {
+                    out.putInt(event.version)
+                    out.putInt(0)
+                }
+                is HostEvent.DecorationActivated -> out.putLong(event.decoration)
+                is HostEvent.AnimationEvent -> {
+                    out.putInt(event.animationId)
+                    out.put(animationEventKindTag(event.kind).toByte())
+                    out.put(animatedPropertyTag(event.property).toByte())
+                    out.put(event.slot.toByte())
+                    out.put(0.toByte())
+                    out.putInt(event.iteration)
+                    out.putFloat(event.elapsedMs)
+                    out.putLong(event.timeNanos)
+                }
+                is HostEvent.ReducedMotionChanged -> {
+                    out.putInt(reducedMotionTag(event.state))
                 }
             }
             if (text != null) out.put(text)
@@ -1061,6 +1714,8 @@ object Protocol {
         40 -> WidgetKind.Badge
         41 -> WidgetKind.SelectionContainer
         42 -> WidgetKind.SplitPane
+        43 -> WidgetKind.CodeEditor
+        44 -> WidgetKind.AbsoluteBox
         100 -> WidgetKind.LinearProgressIndicator
         else -> throw ProtocolException("unknown widget tag $tag", offset)
     }
@@ -1115,6 +1770,20 @@ object Protocol {
         76 -> PropertyKind.Section
         80 -> PropertyKind.Count
         90 -> PropertyKind.Collapsible
+        100 -> PropertyKind.Decorations
+        101 -> PropertyKind.SyntaxSpans
+        102 -> PropertyKind.TabWidth
+        103 -> PropertyKind.OnEditRejected
+        104 -> PropertyKind.OnHover
+        105 -> PropertyKind.OnSave
+        106 -> PropertyKind.OnDecorationClick
+        110 -> PropertyKind.Font
+        111 -> PropertyKind.WordBreak
+        112 -> PropertyKind.OverflowWrap
+        113 -> PropertyKind.TabSize
+        114 -> PropertyKind.AbsoluteSize
+        115 -> PropertyKind.SoftWrap
+        116 -> PropertyKind.SpanFonts
         27 -> PropertyKind.Progress
         else -> throw ProtocolException("unknown property tag $tag", offset)
     }
@@ -1145,11 +1814,37 @@ object Protocol {
         DesignSystem.LiquidGlass -> 7
     }
 
+    private fun hoverPhaseTag(phase: HoverPhase): Int = when (phase) {
+        HoverPhase.Rest -> 1
+        HoverPhase.Leave -> 2
+    }
+
     private fun notificationPermissionTag(state: NotificationPermission): Int = when (state) {
         NotificationPermission.NotDetermined -> 1
         NotificationPermission.Granted -> 2
         NotificationPermission.Denied -> 3
         NotificationPermission.Unsupported -> 4
+    }
+
+    private fun animationEventKindTag(value: AnimationEventKind): Int = when (value) {
+        AnimationEventKind.Ready -> 1
+        AnimationEventKind.Active -> 2
+        AnimationEventKind.Iteration -> 3
+        AnimationEventKind.End -> 4
+    }
+
+    private fun animatedPropertyTag(value: AnimatedProperty): Int = when (value) {
+        AnimatedProperty.Alpha -> 1
+        AnimatedProperty.Color -> 2
+        AnimatedProperty.Background -> 3
+        AnimatedProperty.Transform -> 4
+        AnimatedProperty.BorderColor -> 5
+    }
+
+    private fun reducedMotionTag(value: ReducedMotion): Int = when (value) {
+        ReducedMotion.Off -> 1
+        ReducedMotion.On -> 2
+        ReducedMotion.Unknown -> 3
     }
 
     private fun paletteRole(tag: Int): ColorRole? = when (tag) {
@@ -1454,6 +2149,133 @@ object Protocol {
         else -> throw ProtocolException("unknown NotificationPermission tag $tag", offset)
     }
 
+    private fun wordBreak(tag: Int, offset: Int): WordBreak = when (tag) {
+        1 -> WordBreak.Normal
+        2 -> WordBreak.KeepAll
+        3 -> WordBreak.BreakAll
+        else -> throw ProtocolException("unknown WordBreak tag $tag", offset)
+    }
+
+    private fun overflowWrap(tag: Int, offset: Int): OverflowWrap = when (tag) {
+        1 -> OverflowWrap.Normal
+        2 -> OverflowWrap.Anywhere
+        3 -> OverflowWrap.BreakWord
+        else -> throw ProtocolException("unknown OverflowWrap tag $tag", offset)
+    }
+
+    private fun genericFamily(tag: Int, offset: Int): GenericFamily = when (tag) {
+        1 -> GenericFamily.SystemUi
+        2 -> GenericFamily.SansSerif
+        3 -> GenericFamily.Serif
+        4 -> GenericFamily.Monospace
+        else -> throw ProtocolException("unknown GenericFamily tag $tag", offset)
+    }
+
+    private fun animatedProperty(tag: Int, offset: Int): AnimatedProperty = when (tag) {
+        1 -> AnimatedProperty.Alpha
+        2 -> AnimatedProperty.Color
+        3 -> AnimatedProperty.Background
+        4 -> AnimatedProperty.Transform
+        5 -> AnimatedProperty.BorderColor
+        else -> throw ProtocolException("unknown AnimatedProperty tag $tag", offset)
+    }
+
+    private fun playbackDirection(tag: Int, offset: Int): PlaybackDirection = when (tag) {
+        1 -> PlaybackDirection.Normal
+        2 -> PlaybackDirection.Reverse
+        3 -> PlaybackDirection.Alternate
+        4 -> PlaybackDirection.AlternateReverse
+        else -> throw ProtocolException("unknown PlaybackDirection tag $tag", offset)
+    }
+
+    private fun fillMode(tag: Int, offset: Int): FillMode = when (tag) {
+        1 -> FillMode.None
+        2 -> FillMode.Forwards
+        3 -> FillMode.Backwards
+        4 -> FillMode.Both
+        else -> throw ProtocolException("unknown FillMode tag $tag", offset)
+    }
+
+    private fun playState(tag: Int, offset: Int): PlayState = when (tag) {
+        1 -> PlayState.Running
+        2 -> PlayState.Paused
+        else -> throw ProtocolException("unknown PlayState tag $tag", offset)
+    }
+
+    private fun colorInterpolation(tag: Int, offset: Int): ColorInterpolation = when (tag) {
+        1 -> ColorInterpolation.SrgbPremultiplied
+        2 -> ColorInterpolation.Oklab
+        else -> throw ProtocolException("unknown ColorInterpolation tag $tag", offset)
+    }
+
+    private fun timingKind(tag: Int, offset: Int): TimingKind = when (tag) {
+        1 -> TimingKind.Linear
+        2 -> TimingKind.CubicBezier
+        3 -> TimingKind.Steps
+        else -> throw ProtocolException("unknown TimingKind tag $tag", offset)
+    }
+
+    private fun stepPosition(tag: Int, offset: Int): StepPosition = when (tag) {
+        1 -> StepPosition.JumpStart
+        2 -> StepPosition.JumpEnd
+        3 -> StepPosition.JumpNone
+        4 -> StepPosition.JumpBoth
+        else -> throw ProtocolException("unknown StepPosition tag $tag", offset)
+    }
+
+    private fun transformFunctionKind(tag: Int, offset: Int): TransformFunctionKind = when (tag) {
+        1 -> TransformFunctionKind.Translate
+        2 -> TransformFunctionKind.Rotate
+        3 -> TransformFunctionKind.Scale
+        4 -> TransformFunctionKind.Skew
+        5 -> TransformFunctionKind.Matrix
+        else -> throw ProtocolException("unknown TransformFunctionKind tag $tag", offset)
+    }
+
+    private fun animationControl(tag: Int, offset: Int): AnimationControl = when (tag) {
+        1 -> AnimationControl.Pause
+        2 -> AnimationControl.Resume
+        3 -> AnimationControl.Cancel
+        else -> throw ProtocolException("unknown AnimationControl tag $tag", offset)
+    }
+
+    private fun animationEventKind(tag: Int, offset: Int): AnimationEventKind = when (tag) {
+        1 -> AnimationEventKind.Ready
+        2 -> AnimationEventKind.Active
+        3 -> AnimationEventKind.Iteration
+        4 -> AnimationEventKind.End
+        else -> throw ProtocolException("unknown AnimationEventKind tag $tag", offset)
+    }
+
+    private fun reducedMotion(tag: Int, offset: Int): ReducedMotion = when (tag) {
+        1 -> ReducedMotion.Off
+        2 -> ReducedMotion.On
+        3 -> ReducedMotion.Unknown
+        else -> throw ProtocolException("unknown ReducedMotion tag $tag", offset)
+    }
+
+    private fun decorationKind(tag: Int, offset: Int): DecorationKind = when (tag) {
+        1 -> DecorationKind.Underline
+        2 -> DecorationKind.CodeLens
+        3 -> DecorationKind.HoverAnchor
+        4 -> DecorationKind.GhostText
+        else -> throw ProtocolException("unknown DecorationKind tag $tag", offset)
+    }
+
+    private fun severity(tag: Int, offset: Int): Severity = when (tag) {
+        1 -> Severity.Error
+        2 -> Severity.Warning
+        3 -> Severity.Information
+        4 -> Severity.Hint
+        else -> throw ProtocolException("unknown Severity tag $tag", offset)
+    }
+
+    private fun hoverPhase(tag: Int, offset: Int): HoverPhase = when (tag) {
+        1 -> HoverPhase.Rest
+        2 -> HoverPhase.Leave
+        else -> throw ProtocolException("unknown HoverPhase tag $tag", offset)
+    }
+
     private fun paint(bits: Long, offset: Int): Paint {
         val value = bits.toInt()
         return when (val kind = (bits ushr 32).toInt()) {
@@ -1464,27 +2286,85 @@ object Protocol {
         }
     }
 
-    private fun modifier(tag: Int, first: Long, second: Long, offset: Int): Modifier = when (tag) {
-        0 -> Modifier.Empty
-        1 -> Modifier.Padding(kotlin.Float.fromBits(first.toInt()))
-        2 -> Modifier.FillMaxWidth
-        3 -> Modifier.FillMaxHeight
-        4 -> Modifier.Width(kotlin.Float.fromBits(first.toInt()))
-        5 -> Modifier.Height(kotlin.Float.fromBits(first.toInt()))
-        6 -> Modifier.Size(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits(second.toInt()))
-        7 -> Modifier.Background(paint(first, offset))
-        8 -> Modifier.Clickable(first)
-        9 -> Modifier.PaddingRole(spaceRole(first.toInt(), offset))
-        10 -> Modifier.PaddingEach(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits((first ushr 32).toInt()), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()))
-        11 -> Modifier.Weight(kotlin.Float.fromBits(first.toInt()))
-        12 -> Modifier.Shape(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits((first ushr 32).toInt()), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()))
-        13 -> Modifier.ShapeRole(shapeRole(first.toInt(), offset))
-        14 -> Modifier.Border(kotlin.Float.fromBits(first.toInt()), paint(second, offset))
-        15 -> Modifier.Elevation(kotlin.Float.fromBits(first.toInt()))
-        16 -> Modifier.ObserveSize(first.toInt())
-        17 -> Modifier.Motion(motionRole(first.toInt(), offset))
-        18 -> Modifier.Material(materialRole(first.toInt(), offset))
+    /** A word that says yes or no. Any value but 0 and 1 is a record the sides disagree on. */
+    private fun flag(word: Long, offset: Int): Boolean = when (word) {
+        0L -> false
+        1L -> true
+        else -> throw ProtocolException("invalid flag $word", offset)
+    }
+
+    /** A value that has to be a number. NaN or an infinity is a record the sides disagree on. */
+    private fun finite(value: kotlin.Float, offset: Int): kotlin.Float =
+        if (value.isFinite()) value else throw ProtocolException("$value is not a finite number", offset)
+
+    /**
+     * How many eight byte words a modifier's value takes beyond the two every record has.
+     * The tag fixes it, so a record of any other length is refused before it is read.
+     */
+    private fun modifierExtraWords(tag: Int, offset: Int): Int = when (tag) {
+        0 -> 0
+        1 -> 0
+        2 -> 0
+        3 -> 0
+        4 -> 0
+        5 -> 0
+        6 -> 0
+        7 -> 0
+        8 -> 0
+        9 -> 0
+        10 -> 0
+        11 -> 0
+        12 -> 0
+        13 -> 0
+        14 -> 0
+        15 -> 0
+        16 -> 0
+        17 -> 0
+        18 -> 0
+        19 -> 0
+        20 -> 0
+        21 -> 4
+        22 -> 0
+        23 -> 1
+        24 -> 0
+        25 -> 0
+        26 -> 2
         else -> throw ProtocolException("unknown modifier tag $tag", offset)
+    }
+
+    private fun modifier(tag: Int, batch: ByteBuffer, base: Int, available: Int, at: Int, offset: Int): Modifier {
+        val first = readU64(batch, base, available, at)
+        val second = readU64(batch, base, available, at + 8)
+        return when (tag) {
+            0 -> Modifier.Empty
+            1 -> Modifier.Padding(kotlin.Float.fromBits(first.toInt()))
+            2 -> Modifier.FillMaxWidth
+            3 -> Modifier.FillMaxHeight
+            4 -> Modifier.Width(kotlin.Float.fromBits(first.toInt()))
+            5 -> Modifier.Height(kotlin.Float.fromBits(first.toInt()))
+            6 -> Modifier.Size(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits(second.toInt()))
+            7 -> Modifier.Background(paint(first, offset))
+            8 -> Modifier.Clickable(first)
+            9 -> Modifier.PaddingRole(spaceRole(first.toInt(), offset))
+            10 -> Modifier.PaddingEach(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits((first ushr 32).toInt()), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()))
+            11 -> Modifier.Weight(kotlin.Float.fromBits(first.toInt()))
+            12 -> Modifier.Shape(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits((first ushr 32).toInt()), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()))
+            13 -> Modifier.ShapeRole(shapeRole(first.toInt(), offset))
+            14 -> Modifier.Border(kotlin.Float.fromBits(first.toInt()), paint(second, offset))
+            15 -> Modifier.Elevation(kotlin.Float.fromBits(first.toInt()))
+            16 -> Modifier.ObserveSize(first.toInt())
+            17 -> Modifier.Motion(motionRole(first.toInt(), offset))
+            18 -> Modifier.Material(materialRole(first.toInt(), offset))
+            19 -> Modifier.Offset(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits(second.toInt()))
+            20 -> Modifier.RequiredSize(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits(second.toInt()))
+            21 -> Modifier.BorderEach(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits((first ushr 32).toInt()), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()), paint(readU64(batch, base, available, at + 16), offset), paint(readU64(batch, base, available, at + 24), offset), paint(readU64(batch, base, available, at + 32), offset), paint(readU64(batch, base, available, at + 40), offset))
+            22 -> Modifier.CornerEach(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits((first ushr 32).toInt()), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()))
+            23 -> Modifier.Shadow(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits((first ushr 32).toInt()), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()), paint(readU64(batch, base, available, at + 16), offset))
+            24 -> Modifier.Clip(flag(first, offset))
+            25 -> Modifier.Alpha(kotlin.Float.fromBits(first.toInt()))
+            26 -> Modifier.Transform(finite(kotlin.Float.fromBits(first.toInt()), offset), finite(kotlin.Float.fromBits((first ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(second.toInt()), offset), finite(kotlin.Float.fromBits((second ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(readU64(batch, base, available, at + 16).toInt()), offset), finite(kotlin.Float.fromBits((readU64(batch, base, available, at + 16) ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(readU64(batch, base, available, at + 24).toInt()), offset), finite(kotlin.Float.fromBits((readU64(batch, base, available, at + 24) ushr 32).toInt()), offset))
+            else -> throw ProtocolException("unknown modifier tag $tag", offset)
+        }
     }
 
     /**
@@ -1651,6 +2531,140 @@ object Protocol {
         val grown = ByteArray(size)
         stringScratch = grown
         return grown
+    }
+
+    /**
+     * Reads one `StartAnimation` record and refuses anything that is not an animation this
+     * Renderer could play, asking the same questions the Host's decoder asks of the same
+     * bytes: known values, at least two keyframes, offsets from 0 to 1 that never go back,
+     * a duration and an iteration count that are numbers and not negative, values of the
+     * property's own kind, transform lists lined up across keyframes, and a length that
+     * holds exactly its keyframes.
+     */
+    private fun animation(batch: ByteBuffer, base: Int, available: Int, start: Int, length: Int): Animation {
+        val end = start + length
+        fun float(at: Int): kotlin.Float = kotlin.Float.fromBits(readU32(batch, base, available, at).toInt())
+        fun bad(message: String, at: Int): Nothing = throw ProtocolException("invalid animation: $message", at)
+        val property = animatedProperty(readU8(batch, base, available, start + 12), start + 12)
+        val colour = property == AnimatedProperty.Color || property == AnimatedProperty.Background ||
+            property == AnimatedProperty.BorderColor
+        val rawInterpolation = readU8(batch, base, available, start + 17)
+        val interpolation = when {
+            colour -> colorInterpolation(rawInterpolation, start + 17)
+            rawInterpolation == 0 -> null
+            else -> bad("only a colour has an interpolation", start + 17)
+        }
+        val keyframeCount = readU16(batch, base, available, start + 18)
+        val delayMs = float(start + 28)
+        val durationMs = float(start + 32)
+        val iterations = float(start + 36)
+        val originX = float(start + 40)
+        val originY = float(start + 44)
+        val events = readU8(batch, base, available, start + 48)
+        if (keyframeCount < 2) bad("$keyframeCount keyframes", start + 18)
+        if (!delayMs.isFinite()) bad("delay $delayMs", start + 28)
+        if (!durationMs.isFinite() || durationMs < 0f) bad("duration $durationMs", start + 32)
+        if (iterations.isNaN() || iterations < 0f) bad("iteration count $iterations", start + 36)
+        if (!originX.isFinite() || !originY.isFinite()) bad("origin", start + 40)
+        if (events and 0xf.inv() != 0) bad("event bits $events", start + 48)
+        val keyframes = ArrayList<Keyframe>(keyframeCount)
+        var at = start + ANIMATION_HEADER_LENGTH
+        for (index in 0 until keyframeCount) {
+            if (at + KEYFRAME_HEAD_LENGTH > end) bad("keyframe $index runs past the record", at)
+            val keyframeOffset = float(at)
+            val flags = readU16(batch, base, available, at + 6)
+            val timing = when (timingKind(readU8(batch, base, available, at + 4), at + 4)) {
+                TimingKind.Linear -> Timing.Linear
+                TimingKind.CubicBezier -> {
+                    val x1 = float(at + 8)
+                    val y1 = float(at + 12)
+                    val x2 = float(at + 16)
+                    val y2 = float(at + 20)
+                    if (!(x1.isFinite() && y1.isFinite() && x2.isFinite() && y2.isFinite()) ||
+                        x1 < 0f || x1 > 1f || x2 < 0f || x2 > 1f
+                    ) {
+                        bad("cubic-bezier($x1, $y1, $x2, $y2)", at + 8)
+                    }
+                    Timing.CubicBezier(x1, y1, x2, y2)
+                }
+                TimingKind.Steps -> {
+                    val position = stepPosition(readU8(batch, base, available, at + 5), at + 5)
+                    val count = readU32(batch, base, available, at + 8)
+                    val least = if (position == StepPosition.JumpNone) 2L else 1L
+                    if (count < least || count > Int.MAX_VALUE) bad("steps($count, $position)", at + 8)
+                    Timing.Steps(count.toInt(), position)
+                }
+            }
+            if (flags and 1.inv() != 0 || (index > 0 && flags != 0)) bad("keyframe flags $flags", at + 6)
+            if (!(keyframeOffset >= 0f && keyframeOffset <= 1f)) bad("keyframe offset $keyframeOffset", at)
+            val valueAt = at + KEYFRAME_HEAD_LENGTH
+            val value: KeyframeValue
+            when (property) {
+                AnimatedProperty.Alpha -> {
+                    val alpha = float(valueAt)
+                    if (!alpha.isFinite()) bad("alpha $alpha", valueAt)
+                    value = KeyframeValue.Alpha(alpha)
+                    at = valueAt + 4
+                }
+                AnimatedProperty.Color, AnimatedProperty.Background, AnimatedProperty.BorderColor -> {
+                    val paint = paint(readU64(batch, base, available, valueAt), valueAt)
+                    if (paint is Paint.Asset) bad("a brush cannot be mixed with another colour", valueAt)
+                    value = KeyframeValue.PaintValue(paint)
+                    at = valueAt + 8
+                }
+                AnimatedProperty.Transform -> {
+                    val count = readU16(batch, base, available, valueAt)
+                    val functions = ArrayList<TransformFunction>(count)
+                    for (function in 0 until count) {
+                        val functionAt = valueAt + 4 + TRANSFORM_FUNCTION_LENGTH * function
+                        if (functionAt + TRANSFORM_FUNCTION_LENGTH > end) bad("transform function runs past the record", functionAt)
+                        val rawKind = readU32(batch, base, available, functionAt)
+                        if (rawKind > Int.MAX_VALUE) bad("transform function kind $rawKind", functionAt)
+                        val kind = transformFunctionKind(rawKind.toInt(), functionAt)
+                        val values = FloatArray(6) { float(functionAt + 4 + 4 * it) }
+                        if (!values.all { it.isFinite() }) bad("transform values", functionAt + 4)
+                        functions += TransformFunction(kind, values[0], values[1], values[2], values[3], values[4], values[5])
+                    }
+                    value = KeyframeValue.Transform(functions)
+                    at = valueAt + 4 + TRANSFORM_FUNCTION_LENGTH * count
+                }
+            }
+            keyframes += Keyframe(keyframeOffset, timing, flags != 0, value)
+        }
+        if (at != end) bad("the record is $length bytes and its keyframes end at ${at - start}", start + 2)
+        if (keyframes.first().offset != 0f || keyframes.last().offset != 1f) bad("offsets do not run from 0 to 1", start)
+        for (index in 1 until keyframes.size) {
+            if (keyframes[index].offset < keyframes[index - 1].offset) bad("offsets go back", start)
+        }
+        val shape = (keyframes.first().value as? KeyframeValue.Transform)?.functions?.map { it.kind }
+        if (shape != null &&
+            keyframes.any { (it.value as KeyframeValue.Transform).functions.map { function -> function.kind } != shape }
+        ) {
+            bad("transform lists differ between keyframes", start)
+        }
+        return Animation(
+            nodeId = readU32(batch, base, available, start + 4).toInt(),
+            animationId = readU32(batch, base, available, start + 8).toInt(),
+            property = property,
+            slot = readU8(batch, base, available, start + 13),
+            direction = playbackDirection(readU8(batch, base, available, start + 14), start + 14),
+            fill = fillMode(readU8(batch, base, available, start + 15), start + 15),
+            playState = playState(readU8(batch, base, available, start + 16), start + 16),
+            interpolation = interpolation,
+            startTimeNanos = readU64(batch, base, available, start + 20),
+            delayMs = delayMs,
+            durationMs = durationMs,
+            iterations = iterations,
+            originX = originX,
+            originY = originY,
+            events = events,
+            keyframes = keyframes,
+        )
+    }
+
+    private fun readU8(batch: ByteBuffer, base: Int, available: Int, offset: Int): Int {
+        requireRange(available, offset, 1, offset)
+        return batch.get(base + offset).toInt() and 0xff
     }
 
     private fun readU16(batch: ByteBuffer, base: Int, available: Int, offset: Int): Int {

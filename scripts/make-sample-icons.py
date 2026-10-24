@@ -14,8 +14,8 @@ thing that stands out.
 Marks are drawn from squares, circles and bars only. An icon is read at 16 pixels more
 often than at 64, and a drawing that needs detail to be recognised is not one.
 
-Run from the repository root. Writes samples/<name>/assets/icon.png (64 pixels) and
-icon-256.png.
+Run from the repository root with `uv run scripts/make-sample-icons.py`. Writes
+samples/<name>/assets/icon.png (64 pixels) and icon-256.png.
 """
 
 import math

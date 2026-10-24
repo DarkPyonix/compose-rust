@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+# The Linux windows' input method and accessibility: what is wired to what.
+#
+# Whether Korean can be typed and Orca can read the window is a fact about a desktop. What can
+# be read from the sources is the wiring that makes either possible, and each item below has been
+# the reason an input method or a screen reader got nothing from a window that otherwise worked:
+#
+# - the input method is given every event first, and what it takes is not handled twice;
+# - composing text goes to the scene through the window's own event log and the text input
+#   session Compose opened, and never past it into the Host;
+# - the XIM preedit callbacks are registered, because without them the syllable being built is
+#   drawn by the input method outside the field;
+# - the start callback is reinterpreted as returning an int, because an input method reads the
+#   return register and a Unit function leaves garbage in it;
+# - the accessibility bridge is started before the loop and read once a turn on the window's own
+#   thread, and the semantics listener it reads from is the one the scene reports to. Both
+#   X11 windows serve it, with one protocol implementation in the fork's common module.
+set -uo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# The input method and the accessibility bridge are the Compose fork's native/linux module,
+# read here at the commit the renderer pins. The renderer's own part is the Compose half in
+# LinuxWindow.kt, which wires the scene to them.
+source "$repo_root/scripts/tests/fork-window.sh"
+fork_window_or_skip "$repo_root"
+src="$repo_root/renderer/linux/src"
+fork_src="$fork_window/native/linux/src"
+host_window="$src/LinuxWindow.kt"
+window="$fork_src/X11Window.kt"
+xim="$fork_src/XimContext.kt"
+ime="$fork_src/InputMethod.kt"
+entry="$src/LinuxRenderer.kt"
+atspi="$fork_window/common/src/org/thisisthepy/compose/window/atspi"
+bridge="$atspi/AtspiBridge.kt"
+server="$atspi/AtspiServer.kt"
+graalvm_src="$fork_window/graalvm/graalvm-linux/src/org/thisisthepy/compose/window/graalvm/linux"
+graalvm_access="$graalvm_src/X11Accessibility.kt"
+graalvm_host="$repo_root/renderer/desktop/src/X11Window.kt"
+graalvm_workflow="$repo_root/.github/workflows/test-graalvm-renderer.yml"
+# The Linux static renderer is built, and checked, in the reusable workflow the native
+# renderer workflow calls for linux-x64.
+workflow="$repo_root/.github/workflows/static-renderer.yml"
+
+red=0
+fail() {
+    echo "fail: $1"
+    red=1
+}
+
+for file in "$host_window" "$window" "$xim" "$ime" "$entry" "$bridge" "$server" \
+            "$fork_src/AtspiSemantics.kt" "$atspi/AtspiModel.kt" "$atspi/AtspiWire.kt" \
+            "$atspi/DBusWire.kt" "$graalvm_access" "$graalvm_src/JvmBusConnection.kt" "$graalvm_host" \
+            "$fork_window/native/linux/test/InputMethodTest.kt" \
+            "$fork_window/common/test/org/thisisthepy/compose/window/atspi/AtspiTest.kt"; do
+    [[ -f "$file" ]] || fail "missing $file"
+done
+(( red == 0 )) || exit 1
+
+has() {
+    local pattern="$1" file="$2" why="$3"
+    grep -Eq -- "$pattern" "$file" || fail "$(basename "$file") does not match '$pattern': $why"
+}
+absent() {
+    local pattern="$1" file="$2" why="$3"
+    if grep -Eq -- "$pattern" "$file"; then
+        fail "$(basename "$file") matches '$pattern': $why"
+    fi
+}
+
+# ---- XIM -----------------------------------------------------------------------------------
+has 'XOpenIM' "$xim" "no input method is ever opened"
+has 'XCreateIC' "$xim" "no input context is ever made"
+has 'XNPreeditStartCallback' "$xim" "the preedit start callback is not registered"
+has 'XNPreeditDoneCallback' "$xim" "the preedit done callback is not registered"
+has 'XNPreeditDrawCallback' "$xim" "the preedit draw callback is not registered, so the syllable is never drawn in the field"
+has 'XNPreeditCaretCallback' "$xim" "the preedit caret callback is not registered; some input methods refuse a client without it"
+has 'XNSpotLocation' "$xim" "the candidate window is never told where the caret is"
+has 'Xutf8LookupString' "$xim" "committed text is not read as UTF-8"
+has 'XFilterEvent' "$xim" "events are never offered to the input method"
+has 'XSetICFocus' "$xim" "the input context never gets focus"
+# The start callback returns an int. See the comment in XimContext.kt.
+has 'staticCFunction<COpaquePointer\?, COpaquePointer\?, COpaquePointer\?, Int>' "$xim" \
+    "the preedit start callback must return an int, which is the longest composition it will take"
+
+# The window offers every event to the input method before handling it, and drops a key it took.
+filter_line="$(grep -n 'xim?.filter(event)' "$window" | head -1 | cut -d: -f1)"
+when_line="$(grep -n '        when (event.type) {' "$window" | head -1 | cut -d: -f1)"
+[[ -n "$filter_line" && -n "$when_line" && "$filter_line" -lt "$when_line" ]] ||
+    fail "the window handles events before the input method has been offered them"
+has 'taken && \(event.type == KeyPress \|\| event.type == KeyRelease\)' "$window" \
+    "a key the input method took is handled again by the window"
+has 'EVENT_MASK or input.filterMask' "$window" "the events the input method asked for are not selected"
+has 'updateInputMethod\(\)' "$host_window" "the input method is never told where the caret is or when a field has focus"
+has 'x11.setImeSpot\(' "$host_window" "the input method is never told where the caret is"
+has 'finishComposition\(\)' "$window" "a click does not end a composition"
+
+# Composing text reaches Compose through the window's own log and the text input session.
+has 'ImeSession \{ event -> log.heard\(event\) \}' "$window" \
+    "what an input method says does not go through the log every other event goes through"
+has 'textInput.receive\(event\)' "$host_window" "recorded text events never reach the text input session"
+absent 'compose_rust_host|HostConnection|dispatch_event' "$xim" "composition text must never be sent to the Host"
+absent 'compose_rust_host|HostConnection|dispatch_event' "$ime" "composition text must never be sent to the Host"
+absent 'PlatformTextInputService|setPlatformImeService' "$host_window" "this bypasses Compose's platform text input"
+
+# ---- AT-SPI --------------------------------------------------------------------------------
+has 'org.a11y.atspi.Socket' "$bridge" "the window never registers with the registry"
+has '"Embed"' "$bridge" "the embedding call is not made"
+has '"GetAddress"' "$bridge" "the accessibility bus is not looked up through the session bus"
+has 'org.a11y.atspi.Accessible' "$server" "the accessible interface is not served"
+has 'org.a11y.atspi.Component' "$server" "the component interface is not served, so no reader can place a control"
+has 'org.a11y.atspi.Action' "$server" "the action interface is not served, so nothing can be pressed"
+has 'startAccessibility\(' "$entry" "the entry point never joins the accessibility bus"
+has 'accessibility\?\.pump\(\)' "$host_window" "calls from a reader are never answered"
+has 'semanticsListeners' "$host_window" "the scene does not report its semantics to the bridge"
+has 'NO_AT_BRIDGE' "$host_window" "the standard switch for turning the bridge off is not honoured"
+absent 'java\.|JNI|org\.graalvm' "$bridge" "Kotlin/Native has no JVM"
+absent 'java\.|platform\.(posix|linux)|kotlinx\.cinterop' "$server" "the protocol is shared by both windows, so it names neither platform"
+# The semantics reader is one file, held byte for byte in both modules (a link would not survive
+# a Windows checkout, where the GraalVM module is built too).
+cmp -s "$fork_src/AtspiSemantics.kt" \
+    "$fork_window/graalvm/graalvm-linux/src/org/thisisthepy/compose/window/atspi/AtspiSemantics.kt" ||
+    fail "the GraalVM X11 window reads semantics with a reader that differs from the Kotlin/Native one"
+
+# ---- AT-SPI on the GraalVM X11 window -------------------------------------------------------
+has 'AtspiBridge\(' "$graalvm_access" "the GraalVM X11 window never joins the accessibility bus"
+has 'NO_AT_BRIDGE' "$graalvm_access" "the standard switch for turning the bridge off is not honoured"
+has 'bridge\.pump\(\)' "$graalvm_access" "calls from a reader are never answered on the GraalVM X11 window"
+has 'X11Accessibility\.join\(' "$graalvm_host" "the GraalVM renderer never joins the accessibility bus"
+has 'SemanticsFanOut\(semantics, atspiSource\)' "$graalvm_host" "the scene does not report its semantics to the GraalVM bridge"
+has 'afterFrame\(' "$graalvm_host" "the GraalVM bridge is never given the tree or asked to answer"
+has 'check-linux-input-access\.sh renderer/build/native-image-linux' "$graalvm_workflow" \
+    "the headless check is not run against the GraalVM X11 window"
+
+# ---- the check that runs a real registry and input method -----------------------------------
+has 'check-linux-input-access\.sh' "$workflow" "the headless check is not run where the Linux static renderer is built"
+[[ -x "$repo_root/.github/scripts/check-linux-input-access.sh" ]] ||
+    fail "the headless check is missing or not executable"
+
+(( red == 0 )) || exit 1
+echo "ok: the Linux window offers events to the input method first, composes through Compose's text input, and serves AT-SPI"

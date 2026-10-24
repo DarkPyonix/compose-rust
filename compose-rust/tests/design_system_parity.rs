@@ -1,8 +1,8 @@
 //! The three ported systems, as the Host holds them and as the standalone project does.
 //!
-//! GNOME, Breeze and Deepin were worked out first in `design-systems`, a project
-//! that is published on its own and cannot depend on anything here, and their values were
-//! then copied into `tokens.rs` so applications could select them. Two copies of the same
+//! GNOME, Breeze and Deepin were worked out first in the design systems project, which is
+//! published on its own and cannot depend on anything here, and their values were then
+//! copied into `tokens.rs` so applications could select them. Two copies of the same
 //! palette with nothing comparing them is exactly the arrangement that drifts: GNOME's
 //! dark second accent carried white ink in one file and near black in the other, and
 //! Breeze filled a dark panel with two different greys, for long enough that both were
@@ -13,45 +13,95 @@
 //! (Material 3, Cupertino and Fluent derive theirs from palette objects), but it is the
 //! only thing that can see both sides at once, and those three are the ones that were
 //! copied by hand.
+//!
+//! The design systems live in the Compose fork, thisisthepy/compose-multiplatform-core-extended,
+//! under `extended/design-systems`. They are read at the commit
+//! `renderer/scripts/build-compose.sh` pins, from the checkout
+//! `scripts/fetch-design-systems.sh` makes of that one directory under `.scratch/`.
 
 use compose_rust::schema::{ColorScheme, DesignSystem};
 use compose_rust::tokens::table;
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 /// One standalone system: the Host-side enum and the Kotlin source that mirrors it.
 struct Ported {
     system: DesignSystem,
     /// Named for the error messages, which have to say which file to open.
-    path: &'static str,
-    source: &'static str,
+    path: String,
+    source: String,
+}
+
+/// The root of this repository.
+fn repo() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("the crate lives one directory below the repository root")
+        .to_path_buf()
+}
+
+/// The fork commit `build-compose.sh` pins, read from its `REVISION="..."` line.
+fn pinned_revision() -> String {
+    let script = repo().join("renderer/scripts/build-compose.sh");
+    let text = std::fs::read_to_string(&script)
+        .unwrap_or_else(|error| panic!("cannot read {}: {error}", script.display()));
+    text.lines()
+        .find_map(|line| line.strip_prefix("REVISION=\""))
+        .and_then(|rest| rest.strip_suffix('"'))
+        .filter(|revision| revision.len() == 40)
+        .unwrap_or_else(|| {
+            panic!(
+                "{} has no `REVISION=\"<40 hex digits>\"` line, so there is no fork commit \
+                 to read the design systems from",
+                script.display()
+            )
+        })
+        .to_string()
+}
+
+/// The design systems project at the pinned commit, as `fetch-design-systems.sh` left it.
+fn design_systems() -> PathBuf {
+    let revision = pinned_revision();
+    let root = repo()
+        .join(".scratch/design-systems")
+        .join(&revision)
+        .join("extended/design-systems");
+    assert!(
+        root.is_dir(),
+        "{} is missing. The design systems these tables are compared with live in \
+         thisisthepy/compose-multiplatform-core-extended under extended/design-systems, at \
+         the commit renderer/scripts/build-compose.sh pins ({revision}). Run \
+         scripts/fetch-design-systems.sh to fetch that directory, then run this test again.",
+        root.display()
+    );
+    root
 }
 
 fn ported() -> [Ported; 3] {
+    let root = design_systems();
+    let read = |system: DesignSystem, relative: &str| {
+        let file = root.join(relative);
+        let source = std::fs::read_to_string(&file)
+            .unwrap_or_else(|error| panic!("cannot read {}: {error}", file.display()));
+        Ported {
+            system,
+            path: format!("extended/design-systems/{relative}"),
+            source,
+        }
+    };
     [
-        Ported {
-            system: DesignSystem::Gnome,
-            path: "design-systems/gnome/src/org/thisisthepy/compose/gnome/Adwaita.kt",
-            source: include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../design-systems/gnome/src/org/thisisthepy/compose/gnome/Adwaita.kt"
-            )),
-        },
-        Ported {
-            system: DesignSystem::Breeze,
-            path: "design-systems/breeze/src/org/thisisthepy/compose/breeze/Breeze.kt",
-            source: include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../design-systems/breeze/src/org/thisisthepy/compose/breeze/Breeze.kt"
-            )),
-        },
-        Ported {
-            system: DesignSystem::Deepin,
-            path: "design-systems/deepin/src/org/thisisthepy/compose/deepin/Deepin.kt",
-            source: include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../design-systems/deepin/src/org/thisisthepy/compose/deepin/Deepin.kt"
-            )),
-        },
+        read(
+            DesignSystem::Gnome,
+            "gnome/src/org/thisisthepy/compose/gnome/Adwaita.kt",
+        ),
+        read(
+            DesignSystem::Breeze,
+            "breeze/src/org/thisisthepy/compose/breeze/Breeze.kt",
+        ),
+        read(
+            DesignSystem::Deepin,
+            "deepin/src/org/thisisthepy/compose/deepin/Deepin.kt",
+        ),
     ]
 }
 
@@ -124,6 +174,7 @@ fn fr14_ported_palettes_match_the_standalone_project() {
         source,
     } in ported()
     {
+        let (path, source) = (path.as_str(), source.as_str());
         let host = table(system);
         for (scheme, function) in [
             (ColorScheme::Light, "lightColor"),
@@ -167,6 +218,7 @@ fn fr14_ported_shape_and_space_ladders_match_the_standalone_project() {
         source,
     } in ported()
     {
+        let (path, source) = (path.as_str(), source.as_str());
         let host = table(system);
 
         // `Full` is skipped. The shipped table says it with a radius large enough to read

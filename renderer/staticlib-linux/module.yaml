@@ -9,7 +9,7 @@
 # about which thread may call them.
 product:
   type: lib
-  platforms: [ linuxX64 ]
+  platforms: [ linuxX64, linuxArm64 ]
 
 # Where the patched Compose comes from. Compose Multiplatform publishes no Kotlin/Native target
 # for Linux at all; a fork of Compose adds what the target needs and `scripts/build-compose.sh --target

@@ -105,7 +105,7 @@ echo "all install-nik.sh tests passed"
 # version is two places to forget, so they are checked against each other here: a Windows
 # renderer built from a different NIK than the macOS one is a difference nobody chose.
 repo_root="$(cd "$script_dir/../.." && pwd)"
-workflow="$repo_root/.github/workflows/native-renderer.yml"
+workflow="$repo_root/.github/workflows/test-native-renderer.yml"
 if [[ -f "$workflow" ]]; then
     jdk_in_script="$(grep -o 'NIK_JDK_BUILD="[^"]*"' "$repo_root/scripts/install-nik.sh" | cut -d'"' -f2)"
     vm_in_script="$(grep -o 'NIK_VM_BUILD="[^"]*"' "$repo_root/scripts/install-nik.sh" | cut -d'"' -f2)"

@@ -7,6 +7,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.rememberUpdatedState
+import dev.darkpyonix.composerust.protocol.ReducedMotion
+import dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
@@ -21,6 +25,8 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFontFamilyResolver
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import dev.darkpyonix.composerust.foundation.HostMessages
@@ -146,6 +152,14 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
         applyTransaction { apply -> connection.renderFrame(frameTimeNanos, apply) }
     }
 
+    /**
+     * Plays one frame of the animations the Host handed over, and hands the Host the events
+     * they asked for. Called inside a frame, on the thread the Host was started on.
+     */
+    internal fun tickAnimations(frameTimeNanos: Long, theme: dev.darkpyonix.composerust.design.ResolvedTheme) {
+        table.animations.tick(frameTimeNanos, theme) { event -> dispatch(event) }
+    }
+
     fun shutdown() {
         table.notifications.shutdown()
         connection.shutdown()
@@ -153,6 +167,7 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
 
     private fun applyTransaction(call: ((Mutation) -> Unit) -> Unit) {
         val protocolErrors = mutableListOf<TableError>()
+        var editorEvents: List<HostEvent> = emptyList()
         Snapshot.withMutableSnapshot {
             try {
                 call { mutation -> table.apply(mutation) }
@@ -163,6 +178,7 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
                 protocolErrors += TableError(PROTOCOL_DECODE_ERROR, error.describe())
             }
             protocolErrors += table.drainErrors()
+            editorEvents = table.drainEvents()
         }
         // Reported after the transaction so the Host is never re-entered mid-batch.
         //
@@ -187,6 +203,10 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
                 onProtocolError(error)
             }
         }
+        // What a code editor did with an edit the batch asked of it: the change it made, or
+        // the refusal. After the batch for the same reason as the errors above, and each in
+        // its own call, because the Host answers each one with a batch of its own.
+        editorEvents.forEach { event -> dispatch(event) }
     }
 
     private companion object {
@@ -304,6 +324,12 @@ fun ComposeRustContent(
     // not change the class, so a drag across one class costs no boundary calls.
     val reporter = remember(host) { WindowSizeReporter() }
     val density = LocalDensity.current
+    val fontFamilyResolver = LocalFontFamilyResolver.current
+    val layoutDirection = LocalLayoutDirection.current
+    // Where a node the Host already sent is measured when it asks. It composes nothing
+    // until it is asked, and what it composes is never placed.
+    val station = remember(host) { MeasuringStation { nodeId -> MeasuredNode(nodeId, host.table) } }
+    DisposableEffect(host) { onDispose { RendererMeasure.uninstall(host.table) } }
     // The same measurement answers three questions. The Host is told when the class
     // changes so a component can choose what to put on the screen; the widgets that
     // change shape with the window read it from the CompositionLocal, because they are
@@ -333,6 +359,30 @@ fun ComposeRustContent(
         brushOf = { asset -> (host.table.assets.asset(asset) as? Asset.Brush)?.brush },
         windowBackdrop = asked && platformBacksWindowWithMaterial(),
     )
+    // The animations the Host handed over are played here, on this side's frame clock, and
+    // the Host is not called while they play unless one asked for events. The loop waits
+    // for frames only while something is waiting to start or still running, so a screen
+    // that has stopped moving asks for no frames at all.
+    val currentTheme by rememberUpdatedState(theme)
+    LaunchedEffect(host) {
+        snapshotFlow { host.table.animations.generation.intValue }.collect {
+            while (host.table.animations.needsFrames()) {
+                withFrameNanos { frame -> host.tickAnimations(frame, currentTheme) }
+            }
+        }
+    }
+    // Whether the platform asks for reduced motion, told to the Host once and again when it
+    // changes. Asked again when the window comes back into use, which is when a setting
+    // changed in the system's preferences can have changed. The Host decides what to do
+    // with it, as a page does with a media query; nothing here holds an animation still.
+    val reducedMotion = remember(windowFocused) { platformReducedMotionSetting() }
+    val reportedMotion = remember(host) { arrayOfNulls<ReducedMotion>(1) }
+    SideEffect {
+        if (reportedMotion[0] != reducedMotion) {
+            reportedMotion[0] = reducedMotion
+            host.dispatch(HostEvent.ReducedMotionChanged(nodeId = 0, handlerId = 0, state = reducedMotion))
+        }
+    }
     // The answer goes back to the Host, which asked a question it cannot answer itself:
     // an adaptive theme names no system, and the one that ends up running is worked out
     // here where the platform is. Only when it changes, the way a size class is reported.
@@ -342,6 +392,14 @@ fun ComposeRustContent(
     // composition is applied on. A coroutine effect runs on the toolkit's event thread
     // instead, where the Host has no state at all: the call came back refused, with the
     // status that means it was made in the wrong place.
+    // What a measure call is answered with: this composition's density, fonts and design
+    // system, made again whenever any of them changes. Installed here, on the thread the
+    // composition runs on, which is the thread the Host calls back in on.
+    SideEffect {
+        RendererMeasure.install(
+            MeasureContext(host.table, theme, density, layoutDirection, fontFamilyResolver, station),
+        )
+    }
     val reported = remember { arrayOfNulls<DesignSystem>(1) }
     SideEffect {
         if (reported[0] != theme.system) {
@@ -413,6 +471,7 @@ fun ComposeRustContent(
         LocalDesignTheme provides theme,
         LocalReduceTransparency provides reduceTransparency,
         LocalWindowCaption provides barCaption,
+        LocalWindowCornerRadius provides caption.cornerRadius,
         LocalStripTakesTheTop provides (barIsCaption && stripTakesTheTop),
         LocalSystemBars provides bars,
     ) {
@@ -431,6 +490,9 @@ fun ComposeRustContent(
                     .background(host.table.windowFill(host.roots, theme)),
             ) {
                 Box(Modifier.padding(top = pageTop, bottom = pageBottom)) {
+                    // Beside the roots, under the same locals, so a node measured here is
+                    // measured as the page lays it out. It takes no room.
+                    MeasuringStationLayout(station)
                     host.roots.forEach { rootId ->
                         androidx.compose.runtime.key(rootId) {
                             RenderNode(rootId, host.table, host)
@@ -540,6 +602,14 @@ data class WindowCaption(
      * same would draw its title through the time.
      */
     val insetTop: Dp = 0.dp,
+    /**
+     * How round the system made the window's corners, or zero where it does not say.
+     *
+     * Read from the window rather than written into a design system: macOS gives a window
+     * with a toolbar a larger radius than one without, and changes both between releases.
+     * A strip laid along the window's edge cuts its own corner concentric with this one.
+     */
+    val cornerRadius: Dp = 0.dp,
 ) {
     companion object {
         /** No strip to avoid: a system title bar, or a platform without one. */
@@ -556,6 +626,14 @@ data class WindowCaption(
  * line with everything beside it.
  */
 val LocalWindowCaption = staticCompositionLocalOf { WindowCaption.None }
+
+/**
+ * How round the system made the window's corners, or zero where it does not say.
+ *
+ * Separate from [LocalWindowCaption], which only a bar opening the tree receives: a
+ * sidebar beside that bar still stands inside the same window corner.
+ */
+val LocalWindowCornerRadius = staticCompositionLocalOf { 0.dp }
 
 /**
  * Whether a rail or a sidebar at the root of the tree runs to the top of the window and
