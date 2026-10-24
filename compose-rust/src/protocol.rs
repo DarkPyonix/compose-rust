@@ -656,7 +656,7 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::CodeHovered { .. }
         | crate::schema::EventPayload::CodeSaveRequested { .. }
         | crate::schema::EventPayload::DecorationActivated { .. } => unreachable!(),
-        | crate::schema::EventPayload::AnimationEvent { .. }
+        crate::schema::EventPayload::AnimationEvent { .. }
         | crate::schema::EventPayload::ReducedMotionChanged(_) => unreachable!(),
     };
     output.extend_from_slice(&tag.to_le_bytes());
@@ -1412,9 +1412,7 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                     at_time_nanos: read_u64(bytes, payload + 12)?,
                 }
             }
-            TAG_CREATE..=TAG_EDIT_CODE
-            | TAG_START_ANIMATION
-            | TAG_CONTROL_ANIMATION => {
+            TAG_CREATE..=TAG_EDIT_CODE | TAG_START_ANIMATION | TAG_CONTROL_ANIMATION => {
                 return Err(ProtocolError::InvalidRecordLength);
             }
             other => return Err(ProtocolError::InvalidTag(other)),
