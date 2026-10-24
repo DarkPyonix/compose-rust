@@ -227,4 +227,24 @@ class TextFieldTest {
             ),
         )
     }
+
+    @Test
+    fun fr5_a_multiline_field_with_fill_max_height_fills_its_container_height() = runComposeUiTest {
+        val box = 10
+        val connection = FakeHostConnection(
+            listOf(
+                Mutation.Create(box, WidgetKind.Box),
+                Mutation.SetModifier(box, 0, dev.darkpyonix.composerust.protocol.Modifier.Size(300f, 400f)),
+                Mutation.Create(FIELD, WidgetKind.TextField),
+                Mutation.SetProp(FIELD, PropertyKind.Multiline, PropertyValue.Bool(true)),
+                Mutation.SetModifier(FIELD, 0, dev.darkpyonix.composerust.protocol.Modifier.FillMaxWidth),
+                Mutation.SetModifier(FIELD, 1, dev.darkpyonix.composerust.protocol.Modifier.FillMaxHeight),
+                Mutation.Insert(box, FIELD, 0),
+            ),
+        )
+        setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+        waitForIdle()
+        val height = onNodeWithTag(nodeTestTag(FIELD)).fetchSemanticsNode().boundsInRoot.height / density.density
+        assertEquals(400f, height, 1f, "multiline field with FillMaxHeight must fill its 400.dp container")
+    }
 }
