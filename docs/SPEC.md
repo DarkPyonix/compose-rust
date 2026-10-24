@@ -2473,6 +2473,13 @@ CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 
 5. `absolute_size: bool`. 참이면 시스템 글꼴 배율을 적용하지 않습니다(CSS px). 측정과 그리기에 똑같이 적용됩니다. **구현은 `fontScale = 1`인 `Density`입니다.** 글자 크기를 글꼴 배율로 나누는 방식은 쓰지 않습니다. Android 14부터 글꼴 배율이 비선형이라 나눗셈으로 되돌릴 수 없기 때문입니다. HTML 텍스트의 접근성 배율은 FR-43의 확대 배율 `k`가 맡습니다.
 6. 공백 규칙: Renderer는 받은 문자열의 공백을 자르거나 접지 않습니다. 접기는 Host의 일입니다.
 7. 그릴 때의 `letter_spacing`(소유자 승인 2026-10-25, 이슈 #90). 지정하지 않은 값은 NaN이고, 그러면 역할의 값을 씁니다. 명시한 0은 진짜 0이라 자간을 더하지 않습니다. 측정 요청의 `letter_spacing`(PR-2.1)과 같은 규칙이며, CSS `letter-spacing: 0`과 `normal`이 역할의 자간으로 바뀌지 않게 하려는 것입니다. 와이어의 칸은 그대로이고 값의 뜻만 정합니다.
+8. 구간마다 크기와 자간이 다른 텍스트(소유자 승인 2026-10-25). `<p>본문 <span style="font-size:2em">큰 글자</span></p>`처럼 한 덩이 안에서 구간마다 크기가 다른 경우를 재고 그립니다. 지금은 크기와 자간이 노드 전체에 하나뿐이고, 구간이 크기를 가질 수 있는 길은 `type_role`뿐입니다. 크기가 다른 덩어리를 별도 `Text`로 쪼개면 줄바꿈이 이음매에서 끊겨 FR-26이 막으려던 문제(문단이 한 줄을 공유하지 못함)가 그대로 생기므로 쓰지 않습니다.
+  - 곁 표 속성 `SpanMetrics`, 속성 태그 121입니다(120은 FR-43의 `IslandZoom`이 가집니다). `SpanFonts`(116)와 같은 모양이고, 스팬 레코드는 36바이트로 그대로 둡니다. 쓰는 텍스트만 비용을 냅니다.
+  - blob은 `count: u32`와 항목들이고, 항목은 16바이트입니다: `span: u32`(몇 번째 구간), `font_size: f32`(NaN이면 지정 없음, 단위 dp), `letter_spacing: f32`(NaN이면 지정 없음), `reserved: u32`(0). `absolute_size`와 `zoom`은 노드 쪽 규칙을 그대로 따릅니다. 숫자 굵기는 `bold` 플래그로 이미 되므로 이 표에 넣지 않고, 필요해지면 `reserved`를 씁니다.
+  - 이 표는 `TypeRole::None`인 텍스트에서만 읽습니다. 구간에 `type_role`이 있으면 역할이 이깁니다(`SpanFonts`와 같은 규칙).
+  - 구간 번호가 범위 밖이거나, 한 구간 안에서 항목이 중복되거나, 표가 버퍼 밖을 가리키면 `ProtocolError`(NFR-7)이고, 측정은 그 레코드를 `Malformed`로 돌립니다.
+  - 측정과 그리기는 구간 스타일을 만드는 같은 함수(`fontSize = metrics?.fontSize ?: role...`, `letterSpacing = metrics?.letterSpacing`)를 씁니다. 그러므로 `absolute_size`, `zoom`, 글꼴 배율 규칙이 노드 크기와 똑같이 구간에도 적용됩니다.
+  - 덧붙이기만 합니다. 새 속성 종류이고 스키마 해시가 바뀝니다.
 
 수용 기준:
 1. 같은 HTML 텍스트를 측정한 값과 그린 값이 비트 단위로 같습니다(PR-2.1 기준 1). 아래 각 경우를 모두 확인합니다.
@@ -2485,6 +2492,8 @@ CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 
 4. 역할을 가진 텍스트에 `font`를 보내면 무시되고 테마 글꼴로 그려집니다. 역할 원칙이 HTML 경로 밖으로 새지 않는다는 확인입니다.
 5. 다섯 플랫폼과 Web에서 기준 1의 라틴 경우가 통과합니다.
 6. 명시한 `letter_spacing = 0`은 역할의 자간 없이 그려지고, NaN은 역할의 값으로 그려집니다. 측정값과 그린 값이 두 경우 모두 같습니다(fr40_explicit_zero_letter_spacing_is_not_unset).
+7. `SpanMetrics`가 오고 가고(곁 표 인코딩과 디코딩, 프로토콜 벡터), 범위 밖 구간 번호는 `ProtocolError`입니다(fr40_span_metrics_round_trip, fr40_span_metrics_out_of_range_is_protocol_error).
+8. 본문 14와 구간 28, 구간 자간 2dp가 섞인 문단, 한국어 줄바꿈, `absolute_size`, `zoom` 1.5에서 측정한 너비, 높이, 첫 기준선, 줄 수, 마지막 줄 폭이 그린 값과 비트 단위로 같습니다(pr2_measured_text_matches_the_drawn_text의 확장). 구간의 크기는 더 크게 그려지고 구간의 자간은 구간을 넓히며, 역할을 가진 텍스트에서는 무시됩니다(fr40_span_font_size_draws_larger, fr40_span_letter_spacing_widens_the_run, fr40_span_metrics_ignored_when_text_has_a_role).
 
 - HTML 화면의 접근성 배율(시스템 글꼴 배율을 `absolute_size` 텍스트에 어떻게 반영할지)은 아직 정하지 않았습니다. 검토 문서를 만들어 소유자가 정합니다. `absolute_size` 칸 자체는 어느 결정에서도 필요합니다.
 ### FR-41 Transform과 렌더러가 재생하는 애니메이션 (`Agreed`, 진행 중, 이슈 #105, PR #83)
@@ -3040,6 +3049,7 @@ compose_rust_host_dispatch_event: click 1
     - `word_break: Normal | KeepAll | BreakAll`, `overflow_wrap: Normal | Anywhere | BreakWord`
     - `absolute_size: u8`. 1이면 시스템 글꼴 배율을 적용하지 않습니다(CSS px). 측정과 그리기에 똑같이 적용됩니다.
     - `zoom: f32`. 이 요청이 속한 HTML 영역의 확대 배율 `k`(FR-43). 0이면 1입니다. Renderer는 `Density(density × k, fontScale = 1)`로 잽니다. 배율을 Renderer의 상태로 두지 않고 요청마다 싣는 것은, Host 하나가 서로 다른 배율의 HTML 영역을 여럿 가질 수 있기 때문입니다.
+  - `span_metrics: (offset, count)`(소유자 승인 2026-10-25). FR-40 기준 8의 `SpanMetrics` 곁 표(16바이트 항목)를 가리킵니다. `spans`와 `span_fonts`처럼 요청 버퍼의 페이로드 영역에 놓이고, 복사할 때 offset을 옮기는 함수는 `SpanFonts`와 같은 것을 씁니다. 이로써 `MeasureText` 요청 레코드는 72바이트에서 **80바이트**가 됩니다: `span_metrics_offset@72 u32`, `span_metrics_count@76 u32`. `MeasureNode`는 그대로입니다. 호출은 아직 릴리스 전이라 공개된 레코드를 깨지 않고, 스키마 해시가 다른 렌더러는 핸드셰이크에서 거절됩니다.
   - **Renderer는 받은 문자열의 공백을 자르거나 접지 않습니다.** 공백 접기(`normal`, `pre-line`)는 Host의 일입니다. `pre`는 그대로 보낸 문자열과 `wrap = 0`, `pre-wrap`은 그대로 보낸 문자열과 `wrap = 1`입니다.
   - 제약 `constraint: MinContent = 1 | MaxContent = 2 | AtMost = 3`과 `width: f32`(`AtMost`일 때만 씀). 결과는 다음과 같습니다.
     - `MinContent`: 가장 긴 끊을 수 없는 조각의 폭. Compose `ParagraphIntrinsics.minIntrinsicWidth`.
@@ -3109,6 +3119,7 @@ compose_rust_host_dispatch_event: click 1
    - 그 절대 시간을 플랫폼별로 기록합니다.
    - (`benches/measure_sidebar`, 수치는 이 항목 아래에 기록)
 8. 다섯 플랫폼(macOS, Linux, Windows, iOS, Android)과 Web에서 기준 1의 라틴 경우가 통과합니다. CI 스모크로 확인합니다.
+9. `MeasureText` 요청 레코드가 80바이트이고 `span_metrics`의 offset과 길이가 72와 76에 고정됩니다(pr2_measure_record_carries_span_metrics).
 
 ### PR-3 스레드 규칙 (`Done`)
 - VirtualDom, 사용자 컴포넌트, 모든 `compose_rust_host_*` 호출은 Renderer UI 스레드에서만 실행합니다. 그래서 락이 필요 없습니다.
