@@ -1732,6 +1732,24 @@ fn fr23_the_same_brush_is_registered_once() {
     assert_eq!(first, again);
 }
 
+/// A released brush is no longer a brush, and registering it again is a new one.
+#[test]
+fn fr23_a_released_brush_gets_a_new_id_when_registered_again() {
+    use compose_rust::schema::Color;
+    use compose_rust::{Brush, Stop, brush, release_brush};
+
+    let make = || {
+        Brush::vertical(vec![
+            Stop::new(0.0, Color::rgb(0x202020)),
+            Stop::new(1.0, Color::rgb(0xe0e0e0)),
+        ])
+    };
+    let first = brush(make());
+    assert!(release_brush(first));
+    assert!(!release_brush(first), "already released");
+    assert_ne!(brush(make()), first);
+}
+
 /// A brush travels as the two words a Paint has, whichever kind it is.
 #[test]
 fn fr23_a_brush_paint_survives_the_wire() {

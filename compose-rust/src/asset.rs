@@ -9,7 +9,7 @@
 //! rides out on the batch the current call produces, and everything after that is the id.
 
 use crate::schema::AssetKind;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 /// One registration, waiting for the batch that carries it.
 pub(crate) struct PendingAsset {
@@ -26,6 +26,12 @@ thread_local! {
     static REGISTERED: RefCell<Vec<(&'static [u8], u32, AssetKind)>> =
         const { RefCell::new(Vec::new()) };
     static QUEUE: RefCell<Vec<PendingAsset>> = const { RefCell::new(Vec::new()) };
+    /// Ids the application let go of, waiting for the batch that tells the Renderer.
+    static RELEASES: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) };
+    /// The last id handed out. Counted here and not read off the registry's length,
+    /// because a released id leaves a hole and the next registration must not reuse it:
+    /// a stale `Paint` would then silently name a different brush.
+    static LAST_ID: Cell<u32> = const { Cell::new(0) };
 }
 
 /// Registers one picture and returns the id an [`crate::Image`] draws it by.
@@ -50,7 +56,8 @@ pub fn asset(kind: AssetKind, bytes: &'static [u8]) -> u32 {
     // Ids start at one. Zero is what a node with no asset property reads as, so handing it
     // out would make "no picture" and "the first picture" the same value on the wire.
     let asset_id = REGISTERED.with_borrow_mut(|registered| {
-        let asset_id = registered.len() as u32 + 1;
+        let asset_id = LAST_ID.get() + 1;
+        LAST_ID.set(asset_id);
         registered.push((bytes, asset_id, kind));
         asset_id
     });
@@ -124,11 +131,59 @@ pub(crate) fn drain(mut emit: impl FnMut(&PendingAsset)) {
     });
 }
 
+/// Lets go of one registration and queues the release for the Renderer.
+///
+/// Returns whether anything was released: false for an id that was never registered or
+/// was already released. A registration still waiting for its batch is simply dropped,
+/// because the Renderer never heard of it and a release for it would be a protocol error.
+/// The id is not handed out again, so a copy of the old `Paint` stays a dangling name
+/// (reported as a protocol error) and never silently names a different asset.
+pub(crate) fn release(asset_id: u32, kind: AssetKind) -> bool {
+    let removed = REGISTERED.with_borrow_mut(|registered| {
+        let at = registered
+            .iter()
+            .position(|(_, id, known)| *id == asset_id && *known == kind)?;
+        registered.remove(at);
+        Some(())
+    });
+    if removed.is_none() {
+        return false;
+    }
+    let was_waiting = QUEUE.with_borrow_mut(|queue| {
+        let before = queue.len();
+        queue.retain(|pending| pending.asset_id != asset_id);
+        queue.len() != before
+    });
+    if !was_waiting {
+        RELEASES.with_borrow_mut(|releases| releases.push(asset_id));
+    }
+    true
+}
+
+/// Hands every queued release to `emit` and empties the queue.
+pub(crate) fn drain_releases(mut emit: impl FnMut(u32)) {
+    let mut taken = RELEASES.with_borrow_mut(std::mem::take);
+    if taken.is_empty() {
+        return;
+    }
+    for asset_id in &taken {
+        emit(*asset_id);
+    }
+    taken.clear();
+    RELEASES.with_borrow_mut(|releases| {
+        if releases.is_empty() {
+            *releases = taken;
+        }
+    });
+}
+
 /// Forgets every registration and every id. Used between tests.
 #[doc(hidden)]
 pub fn reset_assets() {
     REGISTERED.with_borrow_mut(Vec::clear);
     QUEUE.with_borrow_mut(Vec::clear);
+    RELEASES.with_borrow_mut(Vec::clear);
+    LAST_ID.set(0);
 }
 
 /// Queues every registration again, for a Renderer that has not been told any of them.
@@ -156,6 +211,8 @@ pub(crate) fn requeue_all() {
             })
             .collect()
     });
+    // A new Renderer never held what was released, so telling it would be an error.
+    RELEASES.with_borrow_mut(Vec::clear);
     if all.is_empty() {
         return;
     }
@@ -164,4 +221,34 @@ pub(crate) fn requeue_all() {
         // registered. Replacing rather than appending is what keeps it sent once.
         *queue = all;
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// FR-16.2 item 4 for a brush: a release reaches the Renderer once, a registration
+    /// that never left is dropped silently, and ids are never reused.
+    #[test]
+    fn fr23_released_brush_ids_are_sent_once_and_never_reused() {
+        reset_assets();
+        let kept = register_owned(AssetKind::Brush, vec![1, 2, 3]);
+        let sent = register_owned(AssetKind::Brush, vec![4, 5, 6]);
+        drain(|_| {});
+        let waiting = register_owned(AssetKind::Brush, vec![7, 8, 9]);
+
+        assert!(release(sent, AssetKind::Brush));
+        assert!(release(waiting, AssetKind::Brush));
+        assert!(!release(sent, AssetKind::Brush), "second release is a no-op");
+        assert!(!release(kept, AssetKind::Png), "wrong kind is not released");
+
+        let mut released = Vec::new();
+        drain_releases(|id| released.push(id));
+        assert_eq!(released, [sent], "only the registration the Renderer saw");
+        drain(|pending| panic!("nothing should be waiting, found {}", pending.asset_id));
+
+        let again = register_owned(AssetKind::Brush, vec![4, 5, 6]);
+        assert!(again > waiting, "a released id is not handed out again");
+        reset_assets();
+    }
 }
