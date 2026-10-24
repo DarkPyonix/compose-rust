@@ -36,12 +36,15 @@ import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.utf16CodePoint
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.isShiftPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.ClipboardManager
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -54,9 +57,6 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import dev.darkpyonix.composerust.protocol.DecorationKind
-import java.awt.Toolkit
-import java.awt.datatransfer.DataFlavor
-import java.awt.datatransfer.StringSelection
 import kotlin.math.max
 import kotlin.math.min
 
@@ -105,6 +105,9 @@ private class DrawnState(
     var look: CodeEditorLook,
     var callbacks: CodeEditorCallbacks,
 ) : DrawnInputTarget {
+    /** The platform clipboard, set on every composition. */
+    lateinit var clipboard: ClipboardManager
+
     /** Text an input method is still composing at the caret. Never sent to the Host. */
     var composing by mutableStateOf("")
 
@@ -270,6 +273,7 @@ private fun DrawnSurface(
     val state = remember(model) { DrawnState(model, look, callbacks) }
     state.look = look
     state.callbacks = callbacks
+    state.clipboard = LocalClipboardManager.current
     state.measurer = measurer
     val rowPx = remember(look.textStyle, density) { rowHeightPx(look.textStyle, density) }
     state.rowPx = rowPx
@@ -439,12 +443,12 @@ private fun drawnKey(event: KeyEvent, state: DrawnState): Boolean {
     val model = state.model
     val look = state.look
     val callbacks = state.callbacks
-    val native = event.nativeKeyEvent as? java.awt.event.KeyEvent
     val command = if (look.commandIsMeta) event.isMetaPressed else event.isCtrlPressed
-    if (native?.id == java.awt.event.KeyEvent.KEY_TYPED) {
-        val character = native.keyChar
-        if (command || Character.isISOControl(character) || character == java.awt.event.KeyEvent.CHAR_UNDEFINED) return false
-        state.replaceSelection(character.toString(), EditOrigin.Typing)
+    if (event.type == KeyEventType.Unknown) {
+        // A typed character carries no key code: Compose reports it as an Unknown event with its code point.
+        val codePoint = event.utf16CodePoint
+        if (command || codePoint <= 0 || Character.isISOControl(codePoint) || !Character.isValidCodePoint(codePoint)) return false
+        state.replaceSelection(String(Character.toChars(codePoint)), EditOrigin.Typing)
         return true
     }
     if (event.type != KeyEventType.KeyDown) return false
@@ -477,16 +481,11 @@ private fun drawnKey(event: KeyEvent, state: DrawnState): Boolean {
         }
         command && (event.key == Key.C || event.key == Key.X) -> {
             if (selection.collapsed) return true
-            Toolkit.getDefaultToolkit().systemClipboard.setContents(
-                StringSelection(document.textBetween(selection.start, selection.end)),
-                null,
-            )
+            state.clipboard.setText(AnnotatedString(document.textBetween(selection.start, selection.end)))
             if (event.key == Key.X) state.replaceSelection("", EditOrigin.Reader)
         }
         command && event.key == Key.V -> {
-            val pasted = runCatching {
-                Toolkit.getDefaultToolkit().systemClipboard.getData(DataFlavor.stringFlavor) as String
-            }.getOrNull() ?: return true
+            val pasted = state.clipboard.getText()?.text ?: return true
             state.replaceSelection(pasted, EditOrigin.Reader)
         }
         event.key == Key.DirectionLeft -> move(
