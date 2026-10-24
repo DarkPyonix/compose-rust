@@ -485,7 +485,7 @@ private fun drawnKey(event: KeyEvent, state: DrawnState): Boolean {
             if (event.key == Key.X) state.replaceSelection("", EditOrigin.Reader)
         }
         command && event.key == Key.V -> {
-            val pasted = state.clipboard.getText()?.text ?: return true
+            val pasted = runCatching { state.clipboard.getText()?.text }.getOrNull() ?: return true
             state.replaceSelection(pasted, EditOrigin.Reader)
         }
         event.key == Key.DirectionLeft -> move(
