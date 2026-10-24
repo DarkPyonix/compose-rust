@@ -187,6 +187,13 @@ data class Window(
     val minWidth: Int,
     val minHeight: Int,
     val resizable: Boolean,
+    /**
+     * The application's zoom level, or null where it left the level to the renderer.
+     *
+     * A level here is applied, remembered and reported back the way one chosen with the
+     * keys is. Always inside -8..8.
+     */
+    val zoomLevel: Int? = null,
 )
 
 "#,
@@ -461,6 +468,9 @@ sealed interface Mutation {
                 ", val animationId: Int, val kind: AnimationEventKind, val property: AnimatedProperty, val slot: Int, val iteration: Int, val elapsedMs: kotlin.Float, val timeNanos: Long",
             ),
             EventPayloadType::ReducedMotion => output.push_str(", val state: ReducedMotion"),
+            EventPayloadType::Zoom => {
+                output.push_str(", val k: kotlin.Float, val os: kotlin.Float, val level: Int");
+            }
         }
         output.push_str(") : HostEvent\n");
     }
@@ -671,6 +681,18 @@ object Protocol {
                         if (resizable > 1) {
                             throw ProtocolException("invalid resizable flag $resizable", offset + 16)
                         }
+                        // A byte saying whether there is a zoom level, then the level as a
+                        // signed byte.
+                        val zoom = readU16(batch, base, available, offset + 18)
+                        val zoomLevel = when (zoom and 0xFF) {
+                            0 -> null
+                            1 -> (zoom shr 8).toByte().toInt().also { level ->
+                                if (level < -8 || level > 8) {
+                                    throw ProtocolException("invalid zoom level $level", offset + 19)
+                                }
+                            }
+                            else -> throw ProtocolException("invalid zoom flag $zoom", offset + 18)
+                        }
                         Mutation.SetWindow(
                             Window(
                                 chrome(readU16(batch, base, available, offset + 4), offset + 4),
@@ -682,6 +704,7 @@ object Protocol {
                                 readU16(batch, base, available, offset + 12),
                                 readU16(batch, base, available, offset + 14),
                                 resizable == 1,
+                                zoomLevel,
                             ),
                         )
                     }
@@ -879,7 +902,8 @@ object Protocol {
             | EventPayloadType::CodeSave
             | EventPayloadType::Decoration
             | EventPayloadType::Animation
-            | EventPayloadType::ReducedMotion => {
+            | EventPayloadType::ReducedMotion
+            | EventPayloadType::Zoom => {
                 writeln!(
                     output,
                     "                is HostEvent.{} -> null",
@@ -916,6 +940,8 @@ object Protocol {
             EventPayloadType::Decoration => 24,
             EventPayloadType::Animation => 40,
             EventPayloadType::ReducedMotion => 20,
+            // Two floats and a level, three words after the header.
+            EventPayloadType::Zoom => 28,
         };
         writeln!(
             output,
@@ -1103,6 +1129,13 @@ object Protocol {
                     event.name
                 )
                 .unwrap();
+            }
+            EventPayloadType::Zoom => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putFloat(event.k)\n");
+                output.push_str("                    out.putFloat(event.os)\n");
+                output.push_str("                    out.putInt(event.level)\n");
+                output.push_str("                }\n");
             }
             EventPayloadType::WindowSize => {
                 writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
