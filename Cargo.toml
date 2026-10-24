@@ -17,7 +17,6 @@ members = [
     "samples/store",
     "samples/todo",
     "scripts/packager-windows",
-    "tools/msix",
 ]
 resolver = "2"
 
