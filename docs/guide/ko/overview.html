@@ -79,7 +79,8 @@
         <span class="pill works">구현</span></li>
       <li><strong>웹뷰 없음, 동봉된 JVM 없음.</strong> 데스크톱에서 애플리케이션은 시스템
         라이브러리만 링크하는 실행 파일 하나입니다. macOS와 Linux는 0.0.2부터 그렇게
-        빌드되고, Windows는 Kotlin/Native 렌더러와 함께 뒤따릅니다.
+        빌드됩니다. Windows는 체크아웃에서 그렇게 빌드되고, 내려받는 것은 Kotlin/Native 아카이브가
+        게시되면 뒤따릅니다.
         <a href="#platforms">플랫폼</a>을 보십시오. <span class="pill partial">부분</span></li>
     </ul>
 
@@ -103,7 +104,7 @@
         </thead>
         <tbody>
           <tr><td>웹뷰 없음</td><td>WKWebView, WebView2, WebKitGTK를 쓰지 않고, Tauri나 wry도 쓰지 않습니다.</td></tr>
-          <tr><td>동봉된 JVM 없음</td><td>렌더러는 Kotlin/Native로 미리 컴파일해 애플리케이션의 실행 파일 하나에 링크합니다. Windows는 Kotlin/Native 렌더러가 들어올 때까지 GraalVM 네이티브 이미지를 씁니다. JVM은 렌더러 자체를 개발하는 셸에만 나타납니다.</td></tr>
+          <tr><td>동봉된 JVM 없음</td><td>렌더러는 Kotlin/Native로 미리 컴파일해 애플리케이션의 실행 파일 하나에 링크합니다. Windows는 Kotlin/Native 아카이브가 게시될 때까지 GraalVM 네이티브 이미지를 내려받습니다. 체크아웃에서 빌드하면 이미 Kotlin/Native 렌더러를 실행 파일 하나에 링크합니다. JVM은 렌더러 자체를 개발하는 셸에만 나타납니다.</td></tr>
           <tr><td>손으로 쓴 JNI나 cinterop 없음</td><td>경계 심은 모두 Rust 스키마에서 생성하므로 두 쪽이 모르게 어긋날 수 없습니다.</td></tr>
           <tr><td>UI 코드는 Rust에</td><td>Kotlin은 렌더러의 구현이지, 기능을 작성하는 곳이 아닙니다.</td></tr>
           <tr><td>Compose 수준의 텍스트와 IME</td><td>Compose의 플랫폼 텍스트 입력을 우회하는 코드 경로가 없습니다.</td></tr>
@@ -194,7 +195,7 @@
           <tr>
             <td>Windows</td>
             <td><span class="pill partial">빌드되고 시작됨</span></td>
-            <td>GraalVM 네이티브 이미지이고, 렌더러가 바뀔 때마다 스모크 테스트를 합니다. Kotlin/Native 렌더러가 Windows도 실행 파일 하나로 만들 때까지 그렇습니다(<a href="https://github.com/DarkPyonix/compose-rust/issues/24">#24</a>, 진행 중).</td>
+            <td>내려받는 것은 GraalVM 네이티브 이미지이고, 렌더러가 바뀔 때마다 스모크 테스트를 합니다. 체크아웃에서는 Kotlin/Native 렌더러를 MSVC가 실행 파일 하나로 링크하며, CI가 확인합니다. 정적 아카이브가 게시되면 그것을 내려받습니다(<a href="https://github.com/DarkPyonix/compose-rust/issues/24">#24</a>).</td>
           </tr>
           <tr>
             <td>iOS</td>

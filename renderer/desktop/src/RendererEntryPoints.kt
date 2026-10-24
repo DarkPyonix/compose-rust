@@ -38,11 +38,11 @@ private external fun setWindowMaterial(asked: Int)
 fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
     try {
         configureRuntimeLayout(CTypeConversion.toJavaString(libraryDir))
-        // Which window this platform opens. macOS and Linux open one of their own, made from
-        // AppKit and Metal, or X11 and GLX, with no toolkit between; Windows still opens the
-        // toolkit's. The C files behind each answer for the same symbols, so the one
-        // compiled into an image is the one that can be reached: which platform this is
-        // decides, and nothing is read from the environment.
+        // Which window this platform opens. Each desktop opens one of its own, made from the
+        // platform's windowing and graphics APIs with no toolkit between: AppKit and Metal,
+        // Win32 and Direct3D 12, X11 and GLX. The C files behind each answer for the same
+        // symbols, so the one compiled into an image is the one that can be reached: which
+        // platform this is decides, and nothing is read from the environment.
         val platform = System.getProperty("os.name", "")
         val autoExitMillis =
             (System.getenv("COMPOSE_RUST_AUTOEXIT_MS") ?: System.getenv("DIOXUS_COMPOSE_AUTOEXIT_MS"))
@@ -74,8 +74,13 @@ fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
             runAppKitWindow(autoExitMillis)
             return@rendererRun 0
         }
-        if (System.getenv("DXC_WIN32_WINDOW") != null && platform.startsWith("Windows")) {
-            runWin32Window()
+        if (platform.startsWith("Windows")) {
+            // As on macOS and Linux, there is no display for the toolkit to open, and saying so
+            // keeps it from being woken.
+            System.setProperty("java.awt.headless", "true")
+            // Compose's main-thread work runs in this window's frame loop, not on Swing's queue.
+            FrameMainDispatcher.install()
+            runWin32Window(autoExitMillis)
             return@rendererRun 0
         }
         if (platform.startsWith("Linux")) {
@@ -95,7 +100,7 @@ fun rendererRun(thread: IsolateThread?, libraryDir: CCharPointer?): Int =
         // system draws for an opaque window rather than for a desktop that never shows
         // through.
         dev.darkpyonix.composerust.runtime.platformBacksWindowWithMaterial = { false }
-        // The toolkit's window: Windows for now, and development runs on a JVM. An image built
+        // The toolkit's window: development runs on a JVM only. An image built
         // without it (see ToolkitWindow) has no way to get here and says so.
         if (!ToolkitWindow.available) {
             error("this renderer was built without the Java toolkit's window, and $platform has no other")

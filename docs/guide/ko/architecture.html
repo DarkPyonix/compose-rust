@@ -241,7 +241,7 @@
         <tbody>
           <tr><td>macOS</td><td>실행 파일 안에 링크되는 Kotlin/Native 정적 아카이브</td><td>0.0.2부터 배포됨</td></tr>
           <tr><td>Linux (x64, arm64)</td><td>실행 파일 안에 링크되는 Kotlin/Native 정적 아카이브</td><td>0.0.2부터 배포됨</td></tr>
-          <tr><td>Windows</td><td>MSVC 실행 파일 안에 링크되는 Kotlin/Native(<code>mingwX64</code>)</td><td>진행 중(<a href="https://github.com/DarkPyonix/compose-rust/issues/24">#24</a>). 들어올 때까지 Windows는 GraalVM 네이티브 이미지를 받습니다.</td></tr>
+          <tr><td>Windows</td><td>MSVC 실행 파일 안에 링크되는 Kotlin/Native(<code>mingwX64</code>)</td><td>체크아웃에서 MSVC가 링크한 실행 파일 하나로 빌드되고, CI가 확인합니다. 정적 아카이브가 게시될 때까지 내려받는 것은 GraalVM 네이티브 이미지입니다(<a href="https://github.com/DarkPyonix/compose-rust/issues/24">#24</a>).</td></tr>
           <tr><td>iOS</td><td>Kotlin/Native 정적 아카이브</td><td>XCFramework로 릴리스</td></tr>
           <tr><td>Android</td><td>크레이트가 싣고 있는 Kotlin 소스로 빌드하는 Android 라이브러리</td><td>배포됨</td></tr>
           <tr><td>Web</td><td>Kotlin/Wasm</td><td>배포됨</td></tr>

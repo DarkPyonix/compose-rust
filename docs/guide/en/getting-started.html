@@ -98,8 +98,8 @@ compose-rust = <span class="s">"0.0.2"</span></code></pre>
       On macOS (arm64) and Linux (x64 and arm64) the renderer is a Kotlin/Native static archive, so
       the program <code>cargo build</code> produces is <strong>one executable</strong>. The
       renderer, Compose, Skia and ICU are inside it, nothing sits beside it, and it loads only the
-      system's own libraries. Windows gets the same once its Kotlin/Native renderer lands
-      (<a href="https://github.com/DarkPyonix/compose-rust/issues/24">#24</a>). Until then Windows
+      system's own libraries. Windows gets the same once its Kotlin/Native static archive is
+      published (<a href="https://github.com/DarkPyonix/compose-rust/issues/24">#24</a>). Until then Windows
       downloads a GraalVM native image, a DLL with its companions beside it. 0.0.2 is the first
       release that ships the static archives.
     </p>
@@ -293,10 +293,13 @@ compose-rust = { path = <span class="s">"../compose-rust/compose-rust"</span> }<
       directory directly, ahead of everything else.
     </p>
     <p>
-      Windows builds the GraalVM native image with
-      <code>renderer/desktop/scripts/build-native-windows.ps1</code> until its Kotlin/Native
-      renderer lands (<a href="https://github.com/DarkPyonix/compose-rust/issues/24">#24</a>). The
-      script runs the bash parts under Git Bash. <a href="troubleshooting.html#git-bash">Troubleshooting</a>
+      On Windows, <code>renderer/desktop/scripts/build-windows.sh</code> builds the Kotlin/Native
+      renderer, and <code>DXC_WINDOWS_NATIVE_LIB</code> pointing at its output
+      (<code>renderer/build/windows</code>) makes the build link it: one executable, linked by MSVC,
+      with nothing beside it. Without that variable Windows uses the GraalVM native image, built
+      with <code>renderer/desktop/scripts/build-native-windows.ps1</code>, until the Kotlin/Native
+      archive is published (<a href="https://github.com/DarkPyonix/compose-rust/issues/24">#24</a>). Both
+      scripts run their bash parts under Git Bash. <a href="troubleshooting.html#git-bash">Troubleshooting</a>
       covers what Git Bash's <code>PATH</code> does to them.
     </p>
     <p>

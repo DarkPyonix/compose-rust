@@ -41,6 +41,22 @@ else
         fail "this machine has the X11 header and the gate leaves linuxX64 out"
 fi
 
+# mingwX64 needs Compose and skiko built for it and published locally first, which is an
+# hour of someone else's build. Where that has not been done the gate leaves it out, and
+# where it has the gate builds it; its tests run only on Windows.
+echo "$declared" | grep -qx mingwX64 || fail "no module declares mingwX64 any more"
+if [[ -d "$HOME/.m2/repository/org/jetbrains/compose/ui/ui-mingwx64" ]]; then
+    echo "$listed" | grep -qx mingwX64 ||
+        fail "Compose for mingwX64 is published here and the gate leaves mingwX64 out"
+else
+    echo "$listed" | grep -qx mingwX64 &&
+        fail "Compose for mingwX64 is not published here and the gate still names mingwX64"
+fi
+case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) ;;
+    *) echo "$testable" | grep -qx mingwX64 &&
+        fail "this is not Windows and the gate still runs the mingwX64 tests" ;;
+esac
 # linuxArm64 is cross compiled and linked against arm64 libraries, so it is built only on
 # an x86-64 Linux machine that has them, and never tested.
 if echo "$declared" | grep -qx linuxArm64; then
@@ -75,7 +91,7 @@ fi
 
 # Everything else a module declares has to be built.
 while read -r platform; do
-    [[ "$platform" == "linuxX64" || "$platform" == "linuxArm64" ]] && continue
+    [[ "$platform" == "linuxX64" || "$platform" == "linuxArm64" || "$platform" == "mingwX64" ]] && continue
     echo "$listed" | grep -qx "$platform" ||
         fail "$platform is declared by a module and the gate does not name it"
 done <<< "$declared"
