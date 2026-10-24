@@ -27,8 +27,10 @@ import org.jetbrains.skia.Surface
 import org.jetbrains.skia.SurfaceColorFormat
 import org.jetbrains.skia.SurfaceOrigin
 import org.jetbrains.skia.SurfaceProps
+import org.thisisthepy.compose.window.FrameClock
 import org.thisisthepy.compose.window.WindowEvent
 import org.thisisthepy.compose.window.WindowMeasurement
+import org.thisisthepy.compose.window.monotonicNanos
 import org.thisisthepy.compose.window.windows.Win32Cursor
 import org.thisisthepy.compose.window.windows.Win32Loop
 import org.thisisthepy.compose.window.windows.Win32NativeWindow
@@ -115,6 +117,10 @@ internal class Win32Window private constructor(
         platformContext = platformContext,
     )
 
+    // The time of the frame being drawn, from the monotonic clock and never from a count of
+    // frames: a count runs at the wrong speed on any display that is not 60 Hz and whenever a
+    // frame is late.
+    private val frameClock = FrameClock(::monotonicNanos)
     private var nanos = 0L
     private var drawing = false
     private var painted = false
@@ -190,7 +196,7 @@ internal class Win32Window private constructor(
             // The scene's own work first: during a drag of the window's edge this is the only
             // place that runs at all.
             work.runPending()
-            nanos += FRAME_NANOS
+            nanos = frameClock.frameNanos()
             ResizeMetrics.frameBegin()
             // While the window is changing size the C side asks for the frame in CPU
             // pixels, which it copies into the window before the resize returns.
@@ -332,4 +338,3 @@ private var resizing: Win32Window? = null
 private const val SWAPCHAIN_FORMAT = 87
 
 private const val FRAME_SECONDS = 0.016
-private const val FRAME_NANOS = 16_000_000L

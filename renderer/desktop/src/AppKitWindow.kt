@@ -53,6 +53,7 @@ import org.thisisthepy.compose.window.graalvm.macos.configureNativeWindowChrome
 import org.thisisthepy.compose.window.graalvm.macos.showContextMenu
 import org.thisisthepy.compose.window.graalvm.macos.openNativeWindow
 import org.thisisthepy.compose.window.graalvm.macos.pumpWindowEvents
+import org.thisisthepy.compose.window.graalvm.windows.Win32Frames
 import org.thisisthepy.compose.window.graalvm.macos.readDroppedPaths
 import org.thisisthepy.compose.window.graalvm.macos.registerFrameCallback
 import org.thisisthepy.compose.window.graalvm.macos.setApplicationIcon

@@ -27,8 +27,8 @@ import java.util.function.BooleanSupplier;
  * Java rather than Kotlin. The Compose compiler plugin adds a `$stable` field to the
  * Kotlin classes it sees, and a substitution class may only hold members that say what
  * they do to the original, so a generated field it has never heard of stops the build.
- * `Win32DrawCallback` is the other Java file here, written that way for a reason of its
- * own.
+ * The Windows window's draw upcall is Java for a reason of its own, and lives in the Compose
+ * fork's `graalvm-windows` module.
  */
 final class StaticSkikoLoader {
 
