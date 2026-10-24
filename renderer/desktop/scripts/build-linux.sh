@@ -34,6 +34,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+bash "$PROJECT_DIR/scripts/require-symlinks.sh"
 LIBRARY_NAME="libcompose_rust_renderer"
 
 die() {

@@ -23,6 +23,13 @@ param()
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+# The renderer modules share sources through symlinks. With core.symlinks=false git checks
+# them out as one-line text files and the build fails far from the cause, so stop here.
+$SymlinkProbe = Join-Path $PSScriptRoot "..\ios\src\shared\WindowSize.kt"
+if ((Test-Path $SymlinkProbe) -and -not ((Get-Item $SymlinkProbe -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+    throw "renderer/ios/src/shared/WindowSize.kt is a regular file but must be a symlink: git checked symlinks out as text because core.symlinks is false. Run 'git config core.symlinks true' and 'git checkout -f', with Developer Mode on or an administrator shell so git can create symlinks."
+}
+
 # Runs a native command without letting its progress output count as a failure.
 #
 # With $ErrorActionPreference set to Stop, PowerShell turns anything a native command
