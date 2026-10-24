@@ -3014,6 +3014,53 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 
 새 레코드도 태그도 없습니다. 스키마 해시가 움직이지 않습니다. 작성 API에 `release_asset(id)` 하나. Renderer는 글꼴 바이트의 형식 판별과 가변 글꼴 축 지정이 필요합니다.
 
+### FR-49 `Mask` 수정자: CSS `mask-image` (`Draft`, dioxus-compose 소유자 결정 D8, 이슈 #116)
+
+요청한 쪽: dioxus-compose FR-34.5. CSS `mask-image`는 이미지나 그라데이션의 알파로 상자와 자식을 가리는 동작입니다. 자식까지 한 묶음으로 합성한 뒤에 적용해야 하므로 `Alpha`(FR-42)와 같은 종류의 수정자입니다.
+
+번호: 수정자 `Mask` 29. 26은 `Transform`(FR-41.1)이고 27은 FR-41.3, 28은 다른 항목이 가졌으므로 그 뒤를 씁니다. 속성도 명령도 이벤트도 늘지 않습니다.
+
+#### 49.1 값
+
+가변 길이 `SetModifier` 규칙(FR-41.1, `28 + 8k`바이트)에서 값 24바이트이므로 `k = 1`입니다(`Shadow`와 같음).
+
+| 오프셋(값 기준) | 칸 | 뜻 |
+|---|---|---|
+| 0 | `brush: u32` | 브러시 에셋 id(FR-23.1). 그라데이션 또는 이미지 브러시. 등록되지 않은 id는 `ProtocolError`이고 마스크가 없는 것처럼 그립니다 |
+| 4 | `repeat: u8` | `Repeat=0, RepeatX=1, RepeatY=2, NoRepeat=3, Space=4, Round=5` (CSS `mask-repeat`) |
+| 5 | `size_mode: u8` | `Auto=0, Cover=1, Contain=2, Explicit=3` |
+| 6 | 예약 `u16` | 0 |
+| 8 | `size_w: f32`, `size_h: f32` | `Explicit`일 때만 쓰는 크기(dp). 0보다 작으면 그 축은 `Auto` |
+| 16 | `pos_x: f32`, `pos_y: f32` | 위치(dp), 노드의 왼쪽 위 기준. `mask-position`의 백분율은 Host가 dp로 풀어 보냅니다 |
+
+- 이 24바이트는 CSS `mask-image`, `mask-size`, `mask-position`, `mask-repeat`의 최소 집합입니다. `mask-mode`는 `alpha`로 고정합니다. 밝기(`luminance`) 모드는 이 수정자에 들어 있지 않습니다. 필요하면 `mask-mode` 칸을 예약 `u16`에서 열어야 하고, 그것은 소유자와 정할 일입니다. `mask-clip`, `mask-origin`, `mask-composite`와 여러 겹의 마스크도 이 수정자에 없습니다. 겹이 여럿이면 노드를 감싸는 `AbsoluteBox`로 겹쳐 표현합니다.
+- 마스크의 기준 상자는 노드의 크기입니다. `RequiredSize`가 있으면 그 크기입니다.
+
+#### 49.2 그리기
+
+- 노드와 자식을 `graphicsLayer`로 오프스크린에 합성(`CompositingStrategy.Offscreen`)하고, 그 위에 브러시를 `BlendMode.DstIn`으로 그립니다. 브러시의 알파가 0인 곳이 지워집니다. 같은 노드의 `Alpha`, `Clip`, `Transform`과의 순서는 FR-41.1과 FR-42의 수정자 순서를 따릅니다(마스크는 자식과 같은 층 안에서 가장 마지막에 적용됩니다).
+- `Cover`, `Contain`, `Repeat` 계열은 이미지 브러시의 크기와 타일 방식으로 풉니다. 그라데이션은 기준 상자 크기에 늘어납니다.
+- 오프스크린 층은 마스크가 있는 노드에만 생깁니다. 마스크가 없는 화면은 비용이 없습니다. 마스크가 바뀔 때(브러시 id, 크기, 위치)는 수정자 한 건만 나가고 자식은 다시 구성되지 않습니다(FR-42.5).
+- 적중 판정은 마스크를 따르지 않습니다. CSS의 `mask`도 포인터 이벤트를 막지 않기 때문입니다. 알파가 0인 곳도 눌립니다.
+
+#### 49.3 수용 기준
+
+1. 선형 그라데이션(왼쪽 불투명, 오른쪽 투명) 마스크를 건 자식 포함 상자가 오른쪽으로 갈수록 투명해지고, 자식의 그림도 같이 가려집니다. 스크린숏 테스트(fr49_gradient_mask_fades_node_and_children).
+2. 이미지 브러시 마스크가 알파 모양대로 상자를 오려 냅니다. `NoRepeat`에서는 이미지 밖이 완전히 투명하고, `Repeat`에서는 타일이 깔립니다(fr49_image_mask_respects_repeat).
+3. `Cover`와 `Contain`, `Explicit`이 각각 CSS와 같은 크기로 그려지고, `pos_x`, `pos_y`가 그 자리를 옮깁니다(fr49_mask_size_and_position).
+4. 같은 노드의 `Alpha`와 `Clip`(둥근 모서리)과 함께 쓰면 층이 하나로 합성되고, 모서리 밖이 가려집니다(fr49_mask_composes_with_alpha_and_clip).
+5. 등록되지 않은 브러시 id는 `ProtocolError`이고 마스크 없이 그려집니다(nfr7_unregistered_mask_brush_is_a_protocol_error).
+6. 마스크 값만 바뀐 갱신에서 `Mask` 수정자 한 건만 나가고 자식 노드 갱신은 없습니다(fr49_mask_change_sends_one_modifier).
+7. 마스크가 있는 노드의 알파 0 영역이 포인터 이벤트(FR-46)를 받습니다(fr49_mask_does_not_affect_hit_testing).
+8. 마스크가 없는 정상 프레임의 할당과 그리기 비용이 마스크 도입 전과 같습니다(NFR-9, 벤치마크 수치를 이 항목에 기록합니다).
+9. 인코딩 후 디코딩한 값이 같습니다(fr10_mask_modifier_round_trips, FR-10 기준과 같은 방식).
+
+#### 49.4 비용
+
+수정자 태그 하나(29), 값 24바이트. 렌더러에 오프스크린 층 한 겹(마스크가 있을 때만). 디자인 시스템 규칙은 늘지 않습니다(FR-42와 같이 CSS가 모양을 정합니다).
+
+열린 질문: `mask-mode: luminance`와 `mask-composite`가 필요한 화면이 dioxus-compose 쪽에서 나오면 FR-49를 넓힙니다.
+
 ## 4. 경계 프로토콜
 
 ### PR-1 호출 모델: 동기·동일 스레드 직접 호출 (`Done`)
