@@ -243,10 +243,7 @@ mod tests {
             !release(sent, AssetKind::Brush),
             "second release is a no-op"
         );
-        assert!(
-            !release(kept, AssetKind::Png),
-            "wrong kind is not released"
-        );
+        assert!(!release(kept, AssetKind::Png), "wrong kind is not released");
 
         let mut released = Vec::new();
         drain_releases(|id| released.push(id));
