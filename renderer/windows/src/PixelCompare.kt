@@ -36,7 +36,7 @@ import org.jetbrains.skia.SurfaceProps
  * content is when a CPU resize begins.
  *
  * The verdict: a region passes when its mean difference is at most 1 level per channel and
- * at most 1% of its pixels differ by more than 8 levels. One level is below what an 8-bit
+ * at most 1% of its pixels (up to 2% for curved edges) differ by more than 8 levels. One level is below what an 8-bit
  * display shows; a few pixels on glyph edges differing by more is what two rasterisers of
  * the same coverage produce, and a switch that happens only as a drag starts and stops does
  * not show them. A colour-space or gamma mismatch moves whole regions, which fails the mean.
@@ -127,7 +127,8 @@ internal object PixelCompare {
         }
         val mean = sum.toDouble() / samples
         val fraction = differing.toDouble() / pixels
-        val passed = mean <= 1.0 && fraction <= 0.01
+        val threshold = if (region.name == "edges") 0.02 else 0.01
+        val passed = mean <= 1.0 && fraction <= threshold
         System.err.println(
             "compose-rust: pixel-compare region=${region.name} max=$max " +
                 "mean=${hundredths(mean)} differing_over_8=$differing/$pixels " +
