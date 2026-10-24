@@ -125,7 +125,7 @@ sudo apt-get install -y build-essential zlib1g-dev unzip pkg-config fontconfig \
 export GRAALVM_HOME=/absolute/path/to/graalvm-jdk-25
 cd /absolute/path/to/renderer
 xvfb-run -a ./desktop/scripts/build-native-linux.sh
-bash ./desktop/scripts/tests/linux-build.test.sh
+bash ../scripts/tests/renderer/linux-build.test.sh
 find build/native-image-linux/dist/lib -maxdepth 1 -type f -print | sort
 ldd build/native-image-linux/dist/lib/*.so
 readelf -d build/native-image-linux/dist/lib/libcompose_rust_renderer.so
@@ -181,7 +181,7 @@ been run against this renderer.
 
 ## CI shape
 
-The disabled Linux experiment in `.github/workflows/native-renderer.yml` uses
+The disabled Linux experiment in `.github/workflows/test-native-renderer.yml` uses
 `ubuntu-24.04`, upstream GraalVM Community for JDK 25, the packages listed above, and Xvfb.
 Its 90 minute timeout matches the macOS native job. A reasonable initial estimate is 20 to
 40 minutes on an uncached hosted runner, but no Linux timing exists yet. Record the action's

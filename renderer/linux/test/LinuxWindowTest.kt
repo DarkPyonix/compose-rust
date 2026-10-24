@@ -7,6 +7,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlinx.cinterop.toKString
 import platform.posix.getenv
+import platform.posix.setenv
 import platform.posix.unsetenv
 
 /**
@@ -53,12 +54,18 @@ class LinuxWindowTest {
         // Taken away rather than pointed somewhere wrong. An empty DISPLAY and a DISPLAY naming a
         // server that is not there are different failures inside Xlib, and the one a machine with
         // no X server actually has is this one.
+        // Put back afterwards, because the tests that need a display run in this process too.
+        val display = getenv("DISPLAY")?.toKString()
         unsetenv("DISPLAY")
-        assertNull(
-            LinuxWindow.open(title = "no display", width = 520, height = 360),
-            "a window with no display server to open on answers null rather than throwing, " +
-                "because what called in is a C entry point and a Kotlin exception must not " +
-                "cross back over it",
-        )
+        try {
+            assertNull(
+                LinuxWindow.open(title = "no display", width = 520, height = 360),
+                "a window with no display server to open on answers null rather than throwing, " +
+                    "because what called in is a C entry point and a Kotlin exception must not " +
+                    "cross back over it",
+            )
+        } finally {
+            if (display != null) setenv("DISPLAY", display, 1)
+        }
     }
 }

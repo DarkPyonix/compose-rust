@@ -19,9 +19,6 @@ import kotlinx.cinterop.usePinned
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.Protocol
-import platform.posix.RTLD_NOW
-import platform.posix.dlopen
-import platform.posix.dlsym
 import dev.darkpyonix.composerust.runtime.HostConnection
 
 /**
@@ -31,12 +28,15 @@ import dev.darkpyonix.composerust.runtime.HostConnection
  * batch is decoded and released inside the call that produced it. Two things differ from the
  * desktop renderer, both consequences of Kotlin/Native rather than GraalVM:
  *
- * - The Host's symbols are found with `dlsym` on the running image instead of GraalVM's
+ * - The Host's symbols are found by name on the running image instead of GraalVM's
  *   `@CFunction`. Kotlin/Native can only declare a C function through cinterop, which needs a
  *   `.def` file and a header at build time; the renderer is a static library linked into a
  *   Host executable that does not exist yet when this compiles. `dlsym(RTLD_NOW image, name)`
  *   resolves against whatever finally links it, which is the same late binding the macOS
  *   build gets from `-undefined dynamic_lookup`. The lookup happens once, not per call.
+ *   Linux is the exception: an ELF executable exports nothing it was not asked to, so the
+ *   static archive there refers to the Host's functions at link time instead, through a
+ *   cinterop definition generated from the boundary schema.
  * - Foreign memory is read through `CPointer`, not `Pointer`.
  */
 class IosHostConnection : HostConnection {
@@ -141,8 +141,6 @@ private typealias VoidCall = CFunction<() -> Unit>
  * rather than at the first event.
  */
 private object HostSymbols {
-    private val image = dlopen(null, RTLD_NOW)
-
     private val initFn = lookup<BufferCall>("compose_rust_host_init")
     private val dispatchEventFn = lookup<BufferCall>("compose_rust_host_dispatch_event")
     private val renderFrameFn = lookup<FrameCall>("compose_rust_host_render_frame")
@@ -162,14 +160,19 @@ private object HostSymbols {
 
     fun shutdown() = shutdownFn()
 
+    // The link's answer first, where there is one: on Linux the Host is in the same
+    // executable and the static archive refers to it by name (see LinkedHostFunctions.kt).
+    // The lookup is the answer everywhere else, and the fallback where no Host was linked.
     private fun <T : CFunction<*>> lookup(name: String): CPointer<T> =
-        dlsym(image, name)?.reinterpret()
+        (linkedHostFunction(name) ?: hostSymbol(name))?.reinterpret()
             ?: throw HostCallException(
-                "$name is not in this image. The renderer resolves the Host's functions by " +
-                    "name at startup, so the Host executable has to export all five of " +
+                "$name is not in this image. The renderer reaches the Host's functions " +
+                    "by name, so the Host executable has to define all five of " +
                     "compose_rust_host_init, _dispatch_event, _render_frame, " +
-                    "_release_batch and _shutdown. If they are present but not found, they " +
-                    "are probably missing from the dynamic symbol table: build the Host " +
-                    "with -Wl,-export_dynamic.",
+                    "_release_batch and _shutdown. On Linux the link resolves them, so a " +
+                    "missing one means the Host was not linked into this executable. On " +
+                    "Apple platforms they are looked up at startup, and if they are present " +
+                    "but not found they are missing from the exported symbols: build the " +
+                    "Host with -Wl,-export_dynamic.",
             )
 }

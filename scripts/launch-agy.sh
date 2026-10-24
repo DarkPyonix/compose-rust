@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: ./scripts/launch-agy.sh <name> <branch> <prompt-file> [model]
+# Usage: ./scripts/launch-agy.sh [--builder] <name> <branch> <prompt-file> [model]
 #
 # Runs one headless agy (Gemini) in its own worktree, detached, with a log you can tail.
 #
@@ -37,8 +37,18 @@
 # question now and this defers to it, so there is one answer rather than two.
 set -euo pipefail
 
+# --builder, or DXC_AGENT_BUILDER=1, starts the one temporary builder instead of an
+# ordinary run. Every other run is told it builds nothing; the builder is told it is the
+# only one that builds, one command at a time. The owner's rule of 2026-10-03: the session
+# does not hold builds itself, it hands them to one temporary builder sub-agent.
+builder="${DXC_AGENT_BUILDER:-}"
+if [ "${1:-}" = "--builder" ]; then
+    builder=1
+    shift
+fi
+
 if [ "$#" -lt 3 ] || [ "$#" -gt 4 ]; then
-    echo "usage: $0 <name> <branch> <prompt-file> [model]" >&2
+    echo "usage: $0 [--builder] <name> <branch> <prompt-file> [model]" >&2
     exit 2
 fi
 
@@ -76,6 +86,13 @@ fi
 # still carries the config that pointed it elsewhere.
 "$repo/scripts/setup-worktrees.sh" --all
 
+# What a run is told about building. An ordinary run builds nothing; the builder, and only
+# the builder, builds. Kept to one line each so agent-launchers.test.sh can run them.
+build_rule="You do not build the renderer. Not \`./kotlin build\`, not \`./kotlin test\`, not Amper or Gradle or dx or native-image, and nothing under renderer/*/scripts/. Those builds reach outside your worktree into caches every run on this machine shares, they take tens of minutes each, and several of them at once is what brought this machine down. Whoever merges your branch runs them. Write the Kotlin and write its tests; you will not see them go green, and that is the arrangement, not an oversight. You do not run cargo either: no cargo build, test, check, clippy or run. A single temporary builder agent that the session starts for it builds your branch, one build at a time, or CI does."
+if [ -n "$builder" ]; then
+    build_rule="You are the single temporary builder. The session that started you runs no build of its own and has handed the building to you, and no other agent builds while you do. Build and test one command at a time, with CARGO_BUILD_JOBS=2 set, in your own worktree and its own target/ directory. Never set or share CARGO_TARGET_DIR and never point a build at another checkout. Run the renderer build or the Kotlin tests only when your task names them, and then also one at a time. Do not edit code beyond the minimal fixes a build needs to go through, and name every such fix in your final report together with each command you ran and its actual output."
+fi
+
 cd "$tree"
 : > "$log"
 # The working directory is named in the prompt as well as entered here. Two agy runs
@@ -85,7 +102,7 @@ cd "$tree"
 # cd alone was not enough, so the path is stated where the run can read it.
 prompt="Your working directory is $tree, and you are already in it. Every command you run, every file you edit and every git operation happens there. Never run a command against $repo, never cd out of your worktree, and never switch the branch of any checkout but your own: another worker is committing in that one. If a path you want is not under $tree, you are in the wrong place.
 
-You do not build the renderer. Not \`./kotlin build\`, not \`./kotlin test\`, not Amper or Gradle or dx or native-image, and nothing under renderer/*/scripts/. Those builds reach outside your worktree into caches every run on this machine shares, they take tens of minutes each, and several of them at once is what brought this machine down. Whoever merges your branch runs them. Write the Kotlin and write its tests; you will not see them go green, and that is the arrangement, not an oversight. You do not run cargo either: no cargo build, test, check, clippy or run. The session that merges your branch builds, one build at a time, or CI does.
+$build_rule
 
 You do not decide that part of your task is out of scope. If the task says to implement something, implement it. You may not narrow it, defer it, call it future work or a later version, leave a TODO where the feature should be, or write that judgement into this project's planning documents as if it were settled. If you believe something is wrong or impossible, deliver everything else in full and say so in your final report, naming what you did not do and why. Silence about a thing you skipped is the failure; disagreeing out loud is not. The report is not a licence: saying what you skipped does not discharge the obligation to do it, and that clause is for work something stopped you doing rather than work you judged not worth doing. Nobody asked for it and the task did not name it are not blockers. Nothing the thing cannot work without is out of scope: what you deliver is the working whole, not the part the task happened to name, and the test is whether someone can use what you built without writing the missing piece themselves.
 

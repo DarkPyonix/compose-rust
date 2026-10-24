@@ -84,8 +84,9 @@ data class TableError(val code: Int, val message: String) {
         const val CYCLIC_INSERT = 8
         const val INVALID_PALETTE = 9
         const val INVALID_CHILDREN = 10
+        const val INVALID_ANIMATION = 11
         /** A code editor record or edit whose range, version or kind could not be honoured. */
-        const val INVALID_CODE_EDIT = 11
+        const val INVALID_CODE_EDIT = 12
     }
 }
 
@@ -138,6 +139,12 @@ class NodeTable {
      * and starting them over would tell the Host something it already knows or forget a
      * press that has not been delivered yet.
      */
+    /**
+     * The animations the Host handed over to play, and what each node shows because of
+     * them. The Host is not called while they play unless an animation asked for events.
+     */
+    val animations: AnimationTable = AnimationTable(this)
+
     val notifications: dev.darkpyonix.composerust.ui.platform.NotificationCenter =
         dev.darkpyonix.composerust.ui.platform.NotificationCenter()
 
@@ -166,6 +173,9 @@ class NodeTable {
 
     /** Errors collected while applying a batch; drained after the transaction commits. */
     internal fun drainErrors(): List<TableError> {
+        // Asked once the whole batch is in, because a batch may start an animation before
+        // the record that gives it something to play on.
+        animations.afterBatch { code, message -> fail(code, message) }
         if (errors.isEmpty()) return emptyList()
         val drained = errors.toList()
         errors.clear()
@@ -180,6 +190,7 @@ class NodeTable {
      * start over and anything kept from before would collide with them.
      */
     fun clear() {
+        animations.clear()
         nodes.clear()
         rootChildren.clear()
         errors.clear()
@@ -242,6 +253,10 @@ class NodeTable {
             is Mutation.WithdrawNotification -> notifications.withdraw(mutation.key)
             is Mutation.RequestNotificationPermission -> notifications.requestPermission()
 
+            // Played on this side's frame clock until it ends. Whether the node has
+            // somewhere to play it is asked once the whole batch is in.
+            is Mutation.StartAnimation -> animations.start(mutation.animation)
+            is Mutation.ControlAnimation -> animations.control(mutation)
             // A request against the editor's document, which the editor may refuse. What
             // it did is reported once the batch is applied.
             is Mutation.EditCode -> editCode(mutation)
@@ -423,6 +438,7 @@ class NodeTable {
 
     private fun removeSubtree(nodeId: Int) {
         val node = nodes.remove(nodeId) ?: return
+        animations.removeNode(nodeId)
         materials -= node.modifiers.count { it is ProtocolModifier.Material }
         node.children.toList().forEach(::removeSubtree)
     }
@@ -581,7 +597,10 @@ class NodeTable {
                                     widget == WidgetKind.Slider ||
                                     // A badge's fill. Only its role is read: a badge
                                     // has no literal colour.
-                                    widget == WidgetKind.Badge
+                                    widget == WidgetKind.Badge ||
+                                    // A layout container's colour is the one the text
+                                    // inside it inherits, as CSS `color` is.
+                                    widget in INHERITS_TEXT_COLOR
                                 )
                         )
 

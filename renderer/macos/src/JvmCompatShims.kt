@@ -32,6 +32,14 @@ object System {
 
     fun getenv(name: String): String? = platform.posix.getenv(name)?.toKString()
 
+    private val origin = kotlin.time.TimeSource.Monotonic.markNow()
+
+    /**
+     * The monotonic clock in nanoseconds from when this was first asked, which is all the JVM's
+     * call of this name promises: only the difference between two answers means anything.
+     */
+    fun nanoTime(): Long = origin.elapsedNow().inWholeNanoseconds
+
     class ErrorStream internal constructor() {
         fun println(line: String) = NSLog("%s", line)
     }

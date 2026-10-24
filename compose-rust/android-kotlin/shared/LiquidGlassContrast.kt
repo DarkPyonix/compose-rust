@@ -1,8 +1,9 @@
 package dev.darkpyonix.composerust.design
 
-// A copy of Contrast.kt from the liquid-glass module of the design-systems
-// project, with the package changed and SurfaceMaterial taken from this module rather
-// than from that project's core. That project is published on its own and must never
+// A copy of Contrast.kt from the liquid-glass module of the design systems project, which
+// lives in thisisthepy/compose-multiplatform-core-extended under extended/design-systems,
+// with the package changed and SurfaceMaterial taken from this module rather than from
+// that project's core. That project is published on its own and must never
 // depend on the renderer, so the material exists twice deliberately. Copies run in one
 // direction: change the design systems file first, then bring the change here.
 

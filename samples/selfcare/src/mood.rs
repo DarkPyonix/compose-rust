@@ -1,7 +1,6 @@
 //! How the day felt, what is worrying you, and the faces that stand for both.
 
-use dioxus_compose_adapter::prelude::*;
-use dioxus_compose_adapter::{DrawList, DrawListBuilder};
+use compose_rust::ui::{Color, ColorRole, DrawList, DrawListBuilder, Paint, TypeRole};
 
 /// The four answers to "how do you feel today".
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -209,7 +208,7 @@ pub fn week_line(width: f32, height: f32, ink: ColorRole, mark: ColorRole) -> Dr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dioxus_compose_adapter::DrawCommand;
+    use compose_rust::ui::DrawCommand;
 
     /// Four feelings, four faces. Two moods sharing a drawing is a picker where two
     /// answers look like the same answer, which is what the disc with two dots on it was.

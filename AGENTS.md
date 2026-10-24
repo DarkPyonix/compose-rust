@@ -10,8 +10,11 @@ compose-rust lets Rust code author declarative UI with **Dioxus** (`dioxus-core`
 - `renderer/`: Kotlin side (Renderer). Amper project. The schema interpreter
   lives in `desktop/src/renderer/`; `ios/src/shared/` symlinks the same files so there is one
   copy. `shared/` is the JVM development shell only, not the renderer.
-- `design-systems/`: a separate Amper project holding the six design systems and the
-  Liquid Glass material. It must never depend on the renderer, so it can be published alone.
+- The design systems and the Liquid Glass material live in the Compose fork,
+  `thisisthepy/compose-multiplatform-core-extended`, under `extended/design-systems/`. They
+  must never depend on the renderer, so they can be published alone. The token test reads
+  them at the commit `renderer/scripts/build-compose.sh` pins, fetched into `.scratch/` by
+  `scripts/fetch-design-systems.sh`.
 - `docs/INTENT.md`: why the project exists, decisions (D1–D9), rejected alternatives.
 - `docs/SPEC.md`: requirements (`FR-*`, `NFR-*`, `PR-*`) with acceptance criteria.
 - `PROJECT.md`: scope, milestones (M0–M7), open questions.
@@ -43,8 +46,9 @@ compose-rust lets Rust code author declarative UI with **Dioxus** (`dioxus-core`
 ## Branches
 
 `develop` is where work happens. `release` and `main` are produced from it by
-`scripts/publish-main.sh`, which strips `PROJECT.md`, `AGENTS.md`, `CLAUDE.md` and everything directly
-under `docs/`.
+`.github/scripts/release/sync-release.sh`, which strips `PROJECT.md`, `AGENTS.md`, `CLAUDE.md`, everything directly
+under `docs/`, and the whole `experiments/` folder. A file on `main` must therefore never depend on
+something under `experiments/`; a comment may name it only as being on `develop`.
 
 1. **Publishing is one way: develop to release to main.** Never merge `release` or `main`
    back into `develop`. Their history contains the deletion of the planning documents, and
@@ -75,6 +79,66 @@ under `docs/`.
    branches changes every file under that checkout, so a `git checkout` while an agent is
    working pulls the files out from under it. Work has been lost that way. Give a
    background agent its own worktree and leave that checkout alone until it finishes.
+8. **Work branches are named `feat/<topic>`.**
+9. **Merge with `gh pr merge --delete-branch`**, then remove the local branch and its
+   worktree.
+10. **Only `main`, `develop` and `release` stay on the remote.** A branch merged into
+    `develop` is deleted; its commits are in `develop`, so nothing is kept for it, no
+    `archive/` tag either. In the forks, `extended` and the upstream branch (`jb-main`) stay, and a branch merged
+    into `extended` is deleted the same way.
+
+### Releasing
+
+A new version is what reaches `main`, so a release goes through `main` and nowhere else.
+
+1. **Bump the version on `develop`.** A pull request sets the crate version in
+   `compose-rust/Cargo.toml` and `Cargo.lock` and turns `## Unreleased` in `CHANGELOG.md`
+   into the version's heading. It merges like any other pull request.
+2. **Release sync carries it to `main`.** The push to `develop` runs
+   `.github/workflows/release-sync.yml`, which rebuilds `release` and opens or updates the
+   pull request from `release` into `main`. Every check on that pull request has to pass.
+3. **The merge into `main` is the owner's.** An agent never merges `release` into `main`;
+   it reports that the pull request is green and stops.
+4. **The tag goes on `main`'s merge commit, never on `develop`.** Once the owner has merged,
+   tag that merge commit `v<version>` and push the tag. The tag runs the Native renderer
+   test, which attaches the renderers to the GitHub release, and its success starts
+   Publish to crates.io. The tag is the release: a tag on `develop` would publish a commit
+   that never reached `main`.
+5. Never delete or move a published tag or release. A crates.io version can be yanked but
+   never replaced, so a broken release is fixed by the next version.
+
+## CI naming
+
+Workflow files and names, in `.github/workflows/`:
+
+- `test.yml`, "Test": the basic checks.
+- `release-sync.yml`, "Release sync": develop to main sync; its script is `.github/scripts/release/sync-release.sh`.
+- `publish-crates.yml`, "Publish to crates.io": the tag release, started by `workflow_run` once the renderer workflow has succeeded.
+- `pages.yml`, "Pages": docs.
+- `test-<target>.yml`, "<Target> test": a special check for one target.
+- `test-graalvm-renderer.yml`, "GraalVM renderer test": builds and smoke tests the GraalVM native-image renderer on macOS and Linux. It exists until the window code moves to the fork, then moves to the fork's CI and is deleted here.
+- `heavy-checks.yml`, "Heavy checks", job "Heavy checks passed on this head": the merge gate for the heavy workflows below.
+
+Heavy workflows run on request, not on every push. They take half an hour to two hours a
+run, and starting all of them on every push to every pull request queued them for hours.
+They are `test-compose-from-fork.yml`, `test-kn-desktop-renderer.yml`,
+`test-native-renderer.yml` and the Windows resize workflows (`KNOWN_HEAVY` in
+`.github/scripts/heavy-checks.py`). Each has a job "Heavy checks requested" that every other
+job needs, and it only runs for the `run-heavy-ci` label or a manual dispatch. "Heavy checks"
+fails until each heavy workflow whose path filter the pull request matches has passed on
+the pull request's current head, so they still pass before every merge. Run them once the
+pull request is ready:
+
+```sh
+gh pr edit <number> --add-label run-heavy-ci
+```
+
+While the label is on, every push runs them again for the new head. Fast gates ("Test",
+"GraalVM renderer test", "Windows C compile") run on every pull request.
+`scripts/tests/ci-on-demand.test.sh` fails if a heavy workflow can run unasked or a workflow
+has no concurrency group. A new workflow of the same cost goes into `KNOWN_HEAVY`.
+
+Job names are English sentence case and say briefly what the job does. Matrix jobs read "<what> (<os>, <version>)". The same role keeps the same name across repos.
 
 ## Where files go
 
@@ -86,13 +150,20 @@ under `docs/`.
 2. Where inside:
    - worktrees: `.claude/worktrees/<name>/` (ignored by git);
    - throwaway work, probes and downloads: `.scratch/<name>/` (ignored by git);
-   - experiments worth keeping: `experiments/<name>/`, committed;
+   - experiments worth keeping: `experiments/<name>/`, committed (on `develop` only; it is not published to `main`);
    - build outputs: `target/` and `build/`, where the tools already put them.
 3. A change to Compose or skiko goes to `thisisthepy/compose-multiplatform-core-extended`
    (branch `extended`) as a commit. This repository uses a pinned commit of that fork
    (`renderer/scripts/build-compose.sh`,
    `renderer/scripts/compose-fork.changes`) and builds it inside `.scratch/`.
    No Compose or skiko change lives in this repository.
+   **Every change to desktop window code goes to the fork as well** (owner, 2026-10-17;
+   INTENT D19): window, input, IME, menus, chrome, resize, accessibility and the window's
+   C/Obj-C layer, for both the GraalVM and the Kotlin/Native path, on every OS. Fix it in
+   `extended`, then move the pin here. This repository keeps only the renderer's glue to a
+   window (the calls it makes and the symbols it links). A window fix made here first, even
+   as a stopgap, is not allowed: it is how Windows and GraalVM window code ended up living
+   only in this repository's branches.
 4. Caches a toolchain keeps for itself (`~/.cargo`, `~/.rustup`, `~/.gradle`, `~/.m2`,
    `~/.konan`, cargo-xwin's cache) belong to the tool and stay where it puts them.
    Downloading or installing a tool this project does not already use is not a cache: ask
@@ -103,6 +174,33 @@ under `docs/`.
 This is written down because it happened. Probes and their builds went to `/tmp`, a Wine
 download went to `/tmp`, and worktrees went to `../agent-runs`, and the owner had agreed to
 none of it.
+
+## Repository root
+
+1. **Nothing new goes in the root without the owner's approval.** Not a folder, not a
+   file. Propose it first: what it is, why it is needed, and why no existing directory
+   can hold it. Then wait for the answer.
+2. The approved root entries are:
+   - folders: `.github/`, `compose-rust/`, `docs/`, `experiments/`,
+     `renderer/`, `samples/`, `scripts/`;
+   - files: `.gitignore`, `Cargo.toml`, `Cargo.lock`, `CHANGELOG.md`, `LICENSE`,
+     `README.md`, `AGENTS.md`, `CLAUDE.md`, `PROJECT.md`;
+   - temporary, each with the date it leaves:
+   `adapters/` and `bench/dioxus-baseline/` moved to dioxus-compose on 2026-10-04 (#37
+   step 4); `design-systems/` moved to compose-multiplatform-core-extended (#39).
+   `scripts/bench/` holds the pin of the Dioxus baseline FR-39 compares against
+   (`scripts/bench/fr39-baseline.env`).
+
+   Ignored local directories (`.claude/`, `.scratch/`, `target/`, `build/`) are not part
+   of the tree and are covered by "Where files go" above.
+3. A crate, benchmark or tool that needs a home goes inside the folder it belongs to
+   (`compose-rust/macros/`, `compose-rust/benches/<name>/`, `renderer/desktop/<name>/`), not beside it.
+4. Scripts that only CI runs live in `.github/scripts/`. `scripts/tests/` is the one test
+   folder outside the crates.
+
+This is written down because it happened. One-off scripts, a stray build directory and
+a container definition each became a root folder, and the root stopped telling a reader
+what the project is made of.
 
 ## Background agents
 
@@ -127,8 +225,20 @@ the launchers inject them ahead of whatever the prompt says.
    real cost and it is the deal: the Kotlin side is verified at the merge, not in the
    worktree. **Cargo is a build too: an agent runs no `cargo build`, `test`, `check`,
    `clippy` or `run`.** Rust builds alone have overloaded this machine (load 120 to 160)
-   with several agents compiling at once. The session that merges the branch builds, one
-   build at a time with `CARGO_BUILD_JOBS=2`, or pushes and lets CI build.
+   with several agents compiling at once. The owner's words: "서브 에이전트 알바들한테는
+   러스트 빌드 시키지 마라고. 규정에도 추가시켜".
+
+   **The one exception is a single temporary builder sub-agent, and the session does not
+   build either.** The owner, 2026-10-03: "빌드 작업 니가 직접 하지 말고 서브 에이전트 하나
+   임시로 만들어서 개한테 시켜야지", "니가 작업 붙잡고 있으면 다른 일들도 진행이 안되잖아".
+   A session that holds a build holds up every other piece of work it is running, so it
+   does not run builds or tests itself. It starts one builder for them with `--builder`
+   (or `DXC_AGENT_BUILDER=1`) on any of the three launchers, and only one at a time. The
+   builder builds and tests one command at a time with `CARGO_BUILD_JOBS=2`, in its own
+   worktree and its own `target/`, never with a shared `CARGO_TARGET_DIR`, and edits no
+   code beyond the minimal fixes a build needs, which it reports with the commands it ran
+   and their output. Coding, research and documentation agents still build nothing. When
+   no builder is needed, push and let CI build.
 
 2. **A background agent never decides that part of its task is out of scope.** If the
    task says implement it, it gets implemented. No narrowing, no deferring, no "future
@@ -167,6 +277,25 @@ the launchers inject them ahead of whatever the prompt says.
 
 ## Writing
 
+The house style is `docs/style/writing.md` in `thisisthepy/pythonx-compose`, on its
+`develop` branch
+([source](https://github.com/thisisthepy/pythonx-compose/blob/develop/docs/style/writing.md)).
+It is the standard for every document here, and it applies whenever a doc is edited:
+README files, the guide, the planning documents, doc comments. The owner set one style for
+the thisisthepy and darkpyonix projects, so a reader moving between them meets the same
+voice. In short:
+
+- Present tense for what is true now. What is not done carries its status and the issue
+  that tracks it, so a plan never reads as shipped.
+- Short, plain sentences, one idea each. A rule or a limitation comes with its reason.
+- English and Korean say the same things in the same order, written naturally in each
+  language rather than translated word for word.
+- Korean user docs (README, the guide) use 합니다체; internal docs use 한다체.
+- Code, commands, file names and identifiers keep their original spelling, in code format.
+
+Apply it to the lines you write or change. A whole-document rewrite is its own task, not a
+side effect of an unrelated edit. The rules below come on top of it.
+
 1. **Never use em dashes.** Not in docs, code comments, commit messages, pull request text or UI copy. Use a comma, a colon, parentheses, or start a new sentence. Hyphens in compound words and en dashes in numeric ranges are fine.
 2. Language: `README.md` and the guide site (`docs/guide/`) are English, with translations under `docs/locales/` and `docs/guide/ko/`. The internal planning documents (`PROJECT.md`, `docs/INTENT.md`, `docs/SPEC.md`) are Korean. Code, code comments, scripts and this file are English.
 3. **Never cite SPEC or INTENT from code.** No `(SPEC PR-4)`, no `NFR-8 needs this`, no
@@ -186,6 +315,12 @@ the launchers inject them ahead of whatever the prompt says.
    **test names** (`fr4_set_prop_does_not_recompose_siblings`) keep theirs, because the
    traceability from a failing test to its requirement is the point of the TDD rules below.
    Anything a test *prints* follows the rule above.
+4. **Python-side tooling in examples is uv, ppp (pypackpack) and tcl (toolchain-lite) only.**
+   Never `pip install`, `python -m pip` or a bare `python3 script.py`: run a script with
+   `uv run`, add a package with `uv add`, `ppp` or `tcl`. Rust examples stay `cargo`. The
+   reason is one toolchain story across the thisisthepy and darkpyonix projects: a reader
+   who set up uv for one of them can run every example in all of them, and a single pip
+   line sends them down a second setup. `scripts/tests/no-pip-examples.test.sh` checks it.
 
 ## Test Driven Development
 
@@ -194,7 +329,7 @@ SDD says what to build; TDD is how it gets built. Tests come from SPEC acceptanc
 1. **Red, green, refactor.** Write the failing test first, make it pass with the simplest change, then clean up with the test still green.
 2. **Name tests after the requirement**: `fr4_set_prop_does_not_recompose_siblings`, `pr2_batch_applies_atomically`. A reader should be able to go from a failing test to the SPEC line it defends.
 3. **No production change without a test that would have caught its absence.** A bug fix starts with a test that reproduces the bug.
-4. **Commit order**: the test and the code that makes it pass go in the same commit (the tree must build green at every commit). Say in the commit body which SPEC criterion it covers.
+4. **Commit order**: the test and the code that makes it pass go in the same commit. What merges into `develop` (the pull request head) must pass CI; intermediate commits inside a pull request do not need to build on their own. Say in the commit body which SPEC criterion it covers.
 5. **Test through the public surface**: the Rust crate's API and C exports; the Renderer's interpreter and `HostConnection`. Do not assert on internals that the SPEC does not describe.
 6. **Fakes, not mocks of our own protocol.** Use `FakeHostConnection` and the mock renderer; assert against the checked-in protocol vectors so both sides stay in lockstep.
 7. **Performance is a test too.** §5.1 budgets are benchmarks with recorded numbers, and the allocation ceiling is an assertion, not a note.
