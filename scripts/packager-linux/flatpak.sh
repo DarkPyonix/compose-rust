@@ -20,9 +20,11 @@
 #                         them (an app ID whose domain is not verified yet) are only
 #                         settled by Flathub
 #
-# The build uses flatpak-builder from the host (FLATPAK_BUILDER overrides it). The linter
-# is Flathub's own, from org.flatpak.Builder, installed for the user when missing. flatpak
-# itself must be installed.
+# The build and the linter both come from Flathub's own org.flatpak.Builder, installed for
+# the user when missing, because a distribution's flatpak-builder is often too old for the
+# options Flathub requires (--compose-url-policy, screenshot mirroring). FLATPAK_BUILDER
+# and FLATPAK_BUILDER_LINT replace the commands, each a command line that takes the
+# builder's or the linter's arguments. flatpak itself must be installed.
 #
 # Downloads (the generator) go to PACKAGER_LINUX_CACHE, default .scratch/packager-linux/tools
 # in this repository. packager-linux is run through `cargo run` unless PACKAGER_LINUX
@@ -102,18 +104,12 @@ fi
 manifest="$out/$(basename "$(packager flatpak "${passthrough[@]}")")"
 echo "== $manifest"
 
-# The build runs with the host's flatpak-builder when there is one. Flathub's own builder,
-# org.flatpak.Builder, runs in a sandbox whose user installation is its own, so the
-# runtimes installed on the host are invisible to it and it cannot install them either.
-# It is still what lints, because the linter only reads files.
+# Flathub's recommended way to run both tools (docs.flathub.org/docs/for-app-authors).
 builder() {
-    if [[ -n "${FLATPAK_BUILDER:-}" ]]; then
-        $FLATPAK_BUILDER "$@"
-    elif command -v flatpak-builder >/dev/null; then
-        flatpak-builder "$@"
-    else
-        flatpak run --command=flatpak-builder org.flatpak.Builder "$@"
-    fi
+    ${FLATPAK_BUILDER:-flatpak run --command=flatpak-builder org.flatpak.Builder} "$@"
+}
+linter() {
+    ${FLATPAK_BUILDER_LINT:-flatpak run --command=flatpak-builder-lint org.flatpak.Builder} "$@"
 }
 
 if [[ -n "$build_repo" || $lint -eq 1 ]]; then
@@ -142,7 +138,7 @@ if [[ $lint -eq 1 ]]; then
         local name="$1"
         shift
         echo "== flatpak-builder-lint $*"
-        if flatpak run --command=flatpak-builder-lint org.flatpak.Builder "$@" \
+        if linter "$@" \
             >"$out/lint-$name.json"; then
             echo "   clean"
         else

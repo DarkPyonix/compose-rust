@@ -53,6 +53,7 @@ GATE_JOB_NAME = "Heavy checks passed on this head"
 KNOWN_HEAVY = [
     "test-compose-from-fork.yml",
     "test-kn-desktop-renderer.yml",
+    "packager-linux.yml",
     "test-native-renderer.yml",
     "test-samples.yml",
     "test-windows-resize-metrics.yml",
