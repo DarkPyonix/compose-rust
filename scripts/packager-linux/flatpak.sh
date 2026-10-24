@@ -128,8 +128,10 @@ if [[ -n "$build_repo" ]]; then
     echo "== building into $build_repo"
     (
         cd "$out"
+        # Flathub's linter requires both flags: they mirror screenshots and remote icons
+        # into the media repository and the screenshots ref (docs.flathub.org/linter).
         builder --user --force-clean --install-deps-from=flathub \
-            --mirror-screenshots-url=https://dl.flathub.org/media \
+            --compose-url-policy=full --mirror-screenshots-url=https://dl.flathub.org/media \
             --repo="$build_repo" --install --state-dir="$out/.flatpak-builder" \
             "$out/build" "$manifest"
     )

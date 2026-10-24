@@ -294,7 +294,7 @@ jobs:
             --screenshot "$SCREENSHOT_URL" --screenshot-caption "The demo" \
             --out work/flatpak-src
           (cd work/flatpak-src && flatpak-builder \
-            --mirror-screenshots-url=https://dl.flathub.org/media --user --force-clean --state-dir="$PWD/.flatpak-builder" --repo="$PWD/../repo" build "$id.json")
+            --compose-url-policy=full --mirror-screenshots-url=https://dl.flathub.org/media --user --force-clean --state-dir="$PWD/.flatpak-builder" --repo="$PWD/../repo" build "$id.json")
           flatpak --user update --noninteractive "$id"
           flatpak run "$id" --version | tee /dev/stderr | grep -qx "update-demo 1.0.1"
           flatpak --user info "$id"
