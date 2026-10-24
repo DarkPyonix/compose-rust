@@ -31,6 +31,27 @@ mod palette {
     pub const ORANGE: Color = Color::rgb(0xF58220);
     pub const GREY: Color = Color::rgb(0x999999);
     pub const LIGHT_GREY: Color = Color::rgb(0xEEEEEE);
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// The statistics screen's colours are the picture's, not the running design
+        /// system's. `Color` cannot hold a role, so that each is a literal is settled by
+        /// the type, and the values are pinned here so an edit that drifts from the
+        /// picture says so first.
+        #[test]
+        fn fr22_the_palette_is_the_reference_colours_rather_than_the_theme() {
+            assert_eq!(PAGE.to_argb(), 0xfff2_f2f0);
+            assert_eq!(CARD.to_argb(), 0xffff_ffff);
+            assert_eq!(INK.to_argb(), 0xff00_0000);
+            assert_eq!(SAGE.to_argb(), 0xffb0_c1ae);
+            assert_eq!(POWDER.to_argb(), 0xffaf_c3dc);
+            assert_eq!(ORANGE.to_argb(), 0xfff5_8220);
+            assert_eq!(GREY.to_argb(), 0xff99_9999);
+            assert_eq!(LIGHT_GREY.to_argb(), 0xffee_eeee);
+        }
+    }
 }
 
 /// A phone design in a desktop window is still a phone design.
@@ -455,7 +476,9 @@ mod tests {
 
     use compose_rust::ComposeHost as Host;
     use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
-    use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind};
+    use compose_rust::schema::{
+        EventPayload, Modifier as WireModifier, PropertyKind, WidgetKind,
+    };
 
     /// Named for what it defends: the reference is a light design, and a machine set
     /// the other way drew this sample dark with nothing to compare against.
@@ -500,6 +523,40 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    /// Nothing on the screen is painted or inked by the design system.
+    ///
+    /// A unified sample whose colours came from roles was drawn in the running system's
+    /// blue and pale accent containers, none of which is in the picture. Every fill, edge
+    /// and ink on the first screen is a literal.
+    #[test]
+    fn fr22_nothing_on_the_screen_is_painted_by_a_role() {
+        let batch = first_frame();
+        for mutation in decode_batch(&batch).expect("the batch did not decode") {
+            match mutation {
+                Mutation::SetModifier {
+                    modifier: WireModifier::Background(paint) | WireModifier::Border { paint, .. },
+                    node_id,
+                    ..
+                } => assert!(
+                    !matches!(paint, Paint::Role(_)),
+                    "node {node_id} is filled with {paint:?}, which the design system picks"
+                ),
+                Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::Color,
+                    value: PropertyValue::Integer(bits),
+                } => {
+                    let paint = Paint::from_bits(bits as u64);
+                    assert!(
+                        !matches!(paint, Some(Paint::Role(_))),
+                        "node {node_id} is inked with {paint:?}, which the design system picks"
+                    );
+                }
+                _ => {}
+            }
+        }
     }
 
     #[test]
