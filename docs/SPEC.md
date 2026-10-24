@@ -2864,7 +2864,7 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 1. 포커스를 받은 `TextField`가 `OnFocusGained`를 한 번 보내고, 포커스를 잃으면 `OnFocusLost`를 보냅니다(fr45_focus_gained_and_lost_pair).
 2. 키 하나를 눌렀다 떼면 `OnKeyDown` 다음에 같은 키의 `OnKeyUp`이 옵니다(fr45_key_up_follows_key_down).
 
-### FR-46 노드 단위 포인터 이벤트 (`Draft`, dioxus-compose 소유자 결정 D8, 이슈 #116)
+### FR-46 노드 단위 포인터 이벤트 (`Agreed`, dioxus-compose 소유자 결정 D8, 이슈 #116)
 
 요청한 쪽: dioxus-compose FR-34.5 수용 기준 1(포인터 이동, hover, `:hover`/`:active`)과 2(`mousedown`/`mouseup`, `dblclick`, `contextmenu`, `wheel`, 드래그, 포인터 캡처). dioxus-compose의 고정 rev에는 포인터 이벤트가 없고, FR-18.1이 8-15를 제스처용으로 예약만 해 두었습니다. HTML 경로는 `blitz-dom`이 만든 표시 목록을 Host가 직접 적중 판정하므로(FR-42), Renderer에 필요한 것은 "어느 HTML 상자인가"가 아니라 "구독한 노드 안에서 포인터가 어떻게 움직였는가"입니다. 그래서 위젯마다 제스처를 나누는 대신 **이벤트 하나에 종류 칸을 둡니다.**
 
@@ -2943,7 +2943,7 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 
 이벤트 태그 하나(8), 속성 둘(67 재사용, 140), 이벤트 페이로드 모양 하나. 구독하지 않은 화면에는 비용이 없습니다. `pointer_id`는 터치와 펜에서 플랫폼이 준 포인터 번호이고, 접촉이 끝나면 다른 접촉이 다시 쓸 수 있습니다. 다중 터치에서는 접촉마다 따로 `Enter`, `Down`, `Up`, `Leave`가 옵니다.
 
-### FR-47 커서 모양과 글자 선택 가능 여부 (`Draft`, dioxus-compose 소유자 결정 D8, 이슈 #116)
+### FR-47 커서 모양과 글자 선택 가능 여부 (`Agreed`, dioxus-compose 소유자 결정 D8, 이슈 #116)
 
 요청한 쪽: dioxus-compose FR-34.5. CSS `cursor`와 `user-select`는 Host가 상속까지 풀어 계산한 값을 노드마다 보내면 됩니다. 속성 둘이고 새 위젯도 새 경계 진입점도 없습니다.
 
@@ -2983,7 +2983,7 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 
 속성 둘(141, 142). 열거형 두 개. 렌더러 쪽에서는 포인터 아래 노드의 `Cursor` 조회와 영역 뿌리의 선택 영역 하나. 노드마다 붙는 비용은 속성이 있을 때만이고, 없는 화면에는 없습니다.
 
-### FR-48 `@font-face`: Host가 글꼴 바이트를 등록하고 글꼴 목록에서 씁니다 (`Draft`, dioxus-compose 소유자 결정 D8, 이슈 #116)
+### FR-48 `@font-face`: Host가 글꼴 바이트를 등록하고 글꼴 목록에서 씁니다 (`Agreed`, dioxus-compose 소유자 결정 D8, 이슈 #116)
 
 요청한 쪽: dioxus-compose FR-34.5. 아이콘 글꼴(codicon 등)과 `@font-face`로 받은 글꼴을 Host가 한 번 등록하고, 돌려받은 id를 FR-40의 글꼴 목록에 넣고 싶습니다.
 
@@ -3014,7 +3014,7 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 
 새 레코드도 태그도 없습니다. 스키마 해시가 움직이지 않습니다. 작성 API에 `release_asset(id)` 하나. Renderer는 글꼴 바이트의 형식 판별과 가변 글꼴 축 지정이 필요합니다.
 
-### FR-49 `Mask` 수정자: CSS `mask-image` (`Draft`, dioxus-compose 소유자 결정 D8, 이슈 #116)
+### FR-49 `Mask` 수정자: CSS `mask-image` (`Agreed`, dioxus-compose 소유자 결정 D8, 이슈 #116)
 
 요청한 쪽: dioxus-compose FR-34.5. CSS `mask-image`는 이미지나 그라데이션의 알파로 상자와 자식을 가리는 동작입니다. 자식까지 한 묶음으로 합성한 뒤에 적용해야 하므로 `Alpha`(FR-42)와 같은 종류의 수정자입니다.
 
@@ -3033,7 +3033,7 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 | 8 | `size_w: f32`, `size_h: f32` | `Explicit`일 때만 쓰는 크기(dp). 0보다 작으면 그 축은 `Auto` |
 | 16 | `pos_x: f32`, `pos_y: f32` | 위치(dp), 노드의 왼쪽 위 기준. `mask-position`의 백분율은 Host가 dp로 풀어 보냅니다 |
 
-- 이 24바이트는 CSS `mask-image`, `mask-size`, `mask-position`, `mask-repeat`의 최소 집합입니다. `mask-mode`는 `alpha`로 고정합니다. 밝기(`luminance`) 모드는 이 수정자에 들어 있지 않습니다. 필요하면 `mask-mode` 칸을 예약 `u16`에서 열어야 하고, 그것은 소유자와 정할 일입니다. `mask-clip`, `mask-origin`, `mask-composite`와 여러 겹의 마스크도 이 수정자에 없습니다. 겹이 여럿이면 노드를 감싸는 `AbsoluteBox`로 겹쳐 표현합니다.
+- 이 24바이트는 CSS `mask-image`, `mask-size`, `mask-position`, `mask-repeat`를 싣습니다. Code-OSS의 `-webkit-mask: url(...) no-repeat 50% 50%`와 `-webkit-mask-size`(cover, contain, 길이)가 이것으로 그려집니다. 백분율 위치는 Host가 상자 크기에서 dp로 풀어 보냅니다. `mask-mode`는 지금 `alpha`입니다. 밝기(`luminance`) 모드, `mask-clip`, `mask-origin`, `mask-composite`, 여러 겹의 마스크는 FR-49.5에서 추적합니다.
 - 마스크의 기준 상자는 노드의 크기입니다. `RequiredSize`가 있으면 그 크기입니다.
 
 #### 49.2 그리기
@@ -3059,7 +3059,16 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 
 수정자 태그 하나(29), 값 24바이트. 렌더러에 오프스크린 층 한 겹(마스크가 있을 때만). 디자인 시스템 규칙은 늘지 않습니다(FR-42와 같이 CSS가 모양을 정합니다).
 
-열린 질문: `mask-mode: luminance`와 `mask-composite`가 필요한 화면이 dioxus-compose 쪽에서 나오면 FR-49를 넓힙니다.
+#### 49.5 남은 마스크 속성 (`Draft`, 이슈 #116)
+
+FR-49의 24바이트 값에 아직 없는 CSS 마스크 속성입니다. 버리지 않고 여기서 추적합니다. 지금 dioxus-compose가 그리는 Code-OSS 화면은 이것들을 쓰지 않습니다.
+
+- `mask-mode: luminance`: 마스크 이미지의 밝기로 오려 냅니다. 값의 예약 `u16`에서 `mode` 칸을 엽니다.
+- `mask-clip`, `mask-origin`: 마스크를 놓는 상자(border, padding, content)를 고릅니다.
+- `mask-composite`: 여러 겹을 합치는 방법(add, subtract, intersect, exclude)입니다.
+- 여러 겹의 마스크: 한 노드에 마스크 여러 장을 겹칩니다. 그때까지는 노드를 감싸는 `AbsoluteBox`로 겹쳐 표현합니다.
+
+수용 기준과 값 배치는 이 항목을 `Agreed`로 올릴 때 정합니다.
 
 ## 4. 경계 프로토콜
 
