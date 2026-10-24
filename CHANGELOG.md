@@ -16,6 +16,27 @@ a coroutine resumed on `Dispatchers.Main`, now ends the window's wait at once ra
 to a frame later. Both Linux windows and the Kotlin/Native macOS window report the same
 latency and resize numbers to the parity checks, which CI runs on both paths.
 
+### Windows opens its own window on the native image too
+
+The Win32 window, which the Kotlin/Native renderer already ships, is now what every Windows
+run of the native image opens, with no environment variable asking for it. Both renderers
+compile the same window code and draw resize frames the same way: on the CPU, copied into
+the window before the resize returns (`DXC_RASTER_RESIZE=0` keeps them on the GPU). Control
+with a letter or a digit now reaches a text field as that key, so select all, copy, cut,
+paste and undo work in the window of our own.
+
+The Windows native image carries no Java toolkit any more, as the macOS and Linux ones do
+not: no `awt.dll` beside it, no preserved `java.desktop` module, no toolkit metadata, and
+Compose's main-thread work on the window's own dispatcher (`FrameMainDispatcher`) instead of
+Swing's. The clipboard is the window's own. skiko's library still imports `JAWT_GetAWT`, so a
+stub `jawt.dll` that answers "no toolkit" goes beside it. The toolkit's window remains only in
+the development shell on a JVM.
+
+The Windows window, its C and its Kotlin/Native layer, now comes from the Compose fork's
+`extended/window/windows-shared` module at the pinned commit, as the macOS and Linux windows
+do. Korean is checked on Windows too: the renderer's text self-check now also draws two Hangul
+syllables and fails if they do not ink or come out as the same missing-glyph box.
+
 ### compose-rust has an authoring API of its own
 
 Composables, with Compose's shape and Compose's names, on a recomposition runtime that

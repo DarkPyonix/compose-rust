@@ -47,8 +47,15 @@ if [[ "$mode" == "idle" ]]; then
 fi
 
 DXC_METRICS=1 DXC_METRICS_BREAKDOWN=1 DXC_REPORT_LATENCY=1 "$app" > "$log" 2>&1 &
-# The scripted drag, its settled reading, then the drag made of mouse events and its own.
-stop $! "metrics done" 360
+# The scripted drag, its settled reading, then the drag made of mouse events and its own
+# ("metrics done"). The Windows renderer has no "metrics done": it ends at its last phase, or
+# with DXC_REAL_DRAG at its real drag.
+case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) done_line="metrics phase after-100-resizes" ;;
+    *) done_line="metrics done" ;;
+esac
+[[ -n "${DXC_REAL_DRAG:-}" ]] && done_line="real drag$"
+stop $! "$done_line" 360
 
 summary="$out/$label.md"
 {

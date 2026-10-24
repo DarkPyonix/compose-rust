@@ -3,8 +3,8 @@
 # offsets and sizes that the Kotlin readers use.
 #
 # The X11 and AppKit windows, their C and their Kotlin readers are the Compose fork's
-# graalvm-linux and graalvm-macos modules, read here at the commit the renderer pins; the
-# Windows window is still this repository's.
+# graalvm-linux and graalvm-macos modules, and the Windows window is its windows-shared
+# module, all read here at the commit the renderer pins.
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -12,7 +12,7 @@ source "$repo_root/scripts/tests/fork-window.sh"
 fork_window_or_skip "$repo_root"
 source_file="$fork_window/graalvm/graalvm-linux/c/x11_window.c"
 appkit_source="$fork_window/graalvm/graalvm-macos/native/appkit_window.m"
-win32_source="$repo_root/renderer/desktop/c/win32_window.c"
+win32_source="$fork_window/windows-shared/c/win32_window.c"
 kotlin_file="$fork_window/graalvm/graalvm-linux/src/org/thisisthepy/compose/window/graalvm/linux/X11Window.kt"
 layout_file="$fork_window/graalvm/graalvm-linux/src/org/thisisthepy/compose/window/graalvm/linux/X11Natives.kt"
 event_reader="$kotlin_file"

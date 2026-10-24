@@ -603,6 +603,43 @@ void compose_rust_renderer_request_frame(void) {
     compose_rust_renderer_request_frame_impl(thread);
 }
 
+#ifndef _WIN32
+/*
+ * Resize frames on the CPU are the Win32 window's (win32_window.c): while its size changes it
+ * hands the renderer a bitmap to draw into and copies it in before the resize returns. The
+ * renderer's Kotlin is one body for every desktop and names those calls, so the AppKit and X11
+ * images have to answer them too. Their windows draw resize frames their own way, so here the
+ * answer is that there are no CPU frames: the mode is never on and there are no pixels.
+ */
+void dxc_native_set_raster_resize(int32_t enabled) {
+    (void)enabled;
+}
+
+int32_t dxc_native_frame_mode(void) {
+    return 0;
+}
+
+int32_t dxc_native_raster_begin(void **pixels, int32_t *row_bytes, int32_t *width, int32_t *height) {
+    (void)pixels;
+    (void)row_bytes;
+    (void)width;
+    (void)height;
+    return 1;
+}
+
+void dxc_native_raster_end(void) {
+}
+#else
+/*
+ * Answered here and says no soak is running. The resize soak (DXC_RESIZE_SOAK) is the macOS
+ * window's, but the Kotlin that asks for it names it on every desktop, and a name nothing
+ * defines is a link that fails.
+ */
+int32_t dxc_native_soak_state(void) {
+    return 0;
+}
+#endif
+
 #ifndef __APPLE__
 int32_t dxc_appkit_window_focused(void *window_pointer) {
     (void)window_pointer;

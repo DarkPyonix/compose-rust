@@ -41,6 +41,20 @@ check_window_start() {
         echo "error: the smoke run exited with status $status" >&2
         echo "  A run that came up and was closed (by COMPOSE_RUST_AUTOEXIT_MS, or by the" >&2
         echo "  application's self-check once its frames were in) exits 0." >&2
+        # What it said last, and on macOS what the system recorded about the crash: an abort
+        # (134) or a crash (139) otherwise leaves nothing in the log to say where.
+        echo "-- the last lines it printed:" >&2
+        tail -40 <<< "$out" >&2
+        if [[ "$status" -gt 128 && "$(uname -s)" == Darwin ]]; then
+            local report
+            report="$(ls -t "$HOME"/Library/Logs/DiagnosticReports/*.ips 2>/dev/null | head -1 || true)"
+            if [[ -n "$report" ]]; then
+                echo "-- crash report $report (first 120 lines):" >&2
+                head -120 "$report" >&2
+            else
+                echo "-- no crash report in ~/Library/Logs/DiagnosticReports" >&2
+            fi
+        fi
         return 1
     fi
     for needed in \
@@ -71,3 +85,18 @@ check_smoke_startup() {
         fi
     done
 }
+
+# Run rather than sourced, by a smoke run that is not bash (smoke-test-windows.ps1):
+#   smoke-startup.sh check-log <log file> <exit status>
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    case "${1:-}" in
+        check-log)
+            check_smoke_startup "$(cat "$2")" "$3"
+            exit $?
+            ;;
+        *)
+            echo "usage: smoke-startup.sh check-log <log file> <exit status>" >&2
+            exit 2
+            ;;
+    esac
+fi
