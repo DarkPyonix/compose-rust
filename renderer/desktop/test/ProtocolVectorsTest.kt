@@ -389,14 +389,14 @@ class ProtocolVectorsTest {
             out,
         )
         assertEquals(40, length)
-        assertEquals(bytes.copyOfRange(282, 322).toList(), out.array().copyOf(length).toList())
+        assertEquals(bytes.copyOfRange(458, 498).toList(), out.array().copyOf(length).toList())
         val motion = ByteBuffer.allocate(32)
         val motionLength = Protocol.encodeEvent(
             HostEvent.ReducedMotionChanged(0, 0, dev.darkpyonix.composerust.protocol.ReducedMotion.On),
             motion,
         )
         assertEquals(20, motionLength)
-        assertEquals(bytes.copyOfRange(322, 342).toList(), motion.array().copyOf(motionLength).toList())
+        assertEquals(bytes.copyOfRange(498, 518).toList(), motion.array().copyOf(motionLength).toList())
     }
 
     /** The theme record carries the palette behind it, and both sides read the same entries. */
@@ -526,7 +526,7 @@ class ProtocolVectorsTest {
                 "$event at $offset",
             )
         }
-        assertEquals(458, bytes.size)
+        assertEquals(518, bytes.size)
     }
 
     private fun decodeVector(name: String): List<Mutation> {

@@ -242,12 +242,17 @@ class CodeEditorTest {
         waitForIdle()
         val field = onNodeWithTag(CODE_EDITOR_FIELD_TAG, useUnmergedTree = true)
         field.performMouseInput { moveTo(Offset(12f, 6f)) }
+        // The delay finishes on the test clock, and the report is a side effect of the
+        // recomposition after it, which needs a frame of its own.
         mainClock.advanceTimeBy(2_000)
+        mainClock.advanceTimeByFrame()
         waitForIdle()
         field.performMouseInput { moveTo(Offset(12f, 6f)) }
         mainClock.advanceTimeBy(2_000)
+        mainClock.advanceTimeByFrame()
         field.performMouseInput { exit() }
         mainClock.advanceTimeBy(100)
+        mainClock.advanceTimeByFrame()
         waitForIdle()
         val hovers = connection.nodeEvents.filterIsInstance<HostEvent.CodeHovered>()
         assertEquals(listOf(HoverPhase.Rest, HoverPhase.Leave), hovers.map { it.phase })
