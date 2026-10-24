@@ -1716,16 +1716,18 @@ tag 12, 32바이트: handler_id: u64, text: (offset, len), action: (offset, len)
 
 1. 네 데스크톱 릴리스 행은 각 샘플에 해당 플랫폼 형식의 아티팩트를 만들고 체크섬을 기록합니다.
 2. 각 번들의 실행 파일은 빌드 머신의 렌더러 절대 경로를 참조하지 않으며, 번들 안에 렌더러와 동반 파일이 있습니다.
-3. 번들의 이름, 식별자, 설명은 샘플 설정과 일치하고 아이콘이 포함됩니다.
+3. 번들의 이름, 식별자, 설명은 샘플 설정과 일치하고 아이콘이 포함됩니다. 잘못된 입력은 어떤 파일도 쓰기 전에 거부하고, 빠진 스토어 사실(`[linux.store] license`, `homepage`, `[bundle] identifier`, `--exec`, `--version` 등)은 설정해야 할 키 이름을 알려 줍니다(fr22_6_3_bad_values_are_refused_before_any_file_is_written, fr22_6_3_missing_store_facts_name_the_key_to_set).
 4. MSIX는 서명되지 않은 패키지로 생성됩니다. 설치에는 개발자 모드 또는 신뢰된 인증서로 다시 서명하는 절차가 필요함을 릴리스에 알립니다. 실제 설치 확인은 Windows 환경에서 수동으로 합니다.
 5. 위 표의 형식마다 아티팩트를 만들고 체크섬을 기록합니다. 형식이 `.dmg`, `.pkg`, `.deb`, `.rpm`, `Setup.exe`, `.msi`, Flatpak 중 무엇이든 번들은 실행 파일 하나와 아이콘, 메타데이터만 담습니다. CI가 아티팩트의 존재와 내용물 목록, 체크섬 기록을 검사합니다.
 6. `.deb`와 `.rpm`은 각각 `dpkg-deb --info`와 `rpm -qp --info`로 이름, 버전, 설명이 샘플 설정과 일치하는지 CI에서 확인합니다. 실제 설치와 실행은 해당 배포판에서 수동으로 확인합니다.
 7. 세 OS의 직접 배포 패키지는 Velopack으로 만들고, 이전 버전에서 새 버전으로 가는 델타 패키지와 갱신 피드(nupkg 전체와 델타, `releases.{channel}.json`)를 함께 만듭니다. 패키지와 피드의 존재와 메타데이터는 CI에서 확인하고, 설치된 빌드가 델타로 갱신되어 다시 뜨는 것은 각 OS 환경에서 수동으로 확인합니다. Windows `.msi`는 `PerUser` 기본과 `PerMachine` 선택 설치가 각각 되는지도 Windows에서 수동으로 확인합니다. Linux `.AppImage`에는 zsync 갱신 정보가 없습니다.
 8. macOS `.pkg`는 Mac App Store 제출 형식으로 만들며, 구조와 메타데이터는 `pkgutil --check-signature`와 `pkgutil --payload-files`로 CI에서 확인합니다. 스토어 제출과 승인은 Apple 계정이 있는 환경에서 수동으로만 확인할 수 있습니다.
-9. Flatpak은 Flathub용 매니페스트로 만들고 `flatpak-builder`로 빌드되는 것을 CI에서 확인합니다. 설치와 실행은 수동으로 확인합니다.
+9. Flatpak은 Flathub용 매니페스트로 만들고 `flatpak-builder`로 빌드되는 것을 CI에서 확인합니다. 설치와 실행은 수동으로 확인합니다. 패키지 메타데이터는 같은 입력에서 같은 출력을 만듭니다. 릴리스 날짜는 현재 시각이 아니라 `SOURCE_DATE_EPOCH` 같은 주어진 값(없으면 빌드 사실의 시각)에서 정해지고, 해석할 수 없는 값은 안전한 기본으로 떨어집니다(Flathub 제출 요건, fr22_6_3_release_dates_are_reproducible). Linux 애플리케이션 식별자는 Flatpak과 D-Bus 이름 규칙(점으로 나뉜 세 요소 이상, 요소는 숫자로 시작하지 않음, 앞쪽 요소에는 `-` 금지, 특수문자 금지)을 따르며 어긋나면 만들지 않습니다(fr22_6_3_application_ids_follow_flatpak_and_dbus_rules).
 10. `.msi`는 `vpk pack --msi`로 만들며, 5번과 7번의 검사 대상입니다.
 11. 템플릿과 메타데이터가 core-extended의 `extended/packaging/`에서 오고 그 커밋이 고정되어 있음을 CI가 확인합니다.
 12. **실험 중:** ad-hoc 서명한 `.app`을 `.dmg`에서 설치한 Apple Silicon 기기가 Velopack 갱신을 받고, 갱신 뒤에도 실행됩니다(quarantine 속성 포함). Velopack 문서는 서명과 공증이 없는 macOS 앱은 실행되지 않는다고 하므로 확인이 필요하며, 프로브를 돌리는 중입니다. 결과가 나오기 전에는 이 항목을 통과로 보지 않습니다.
+13. Windows 실행 파일은 DPI 매니페스트(PerMonitorV2 `dpiAwareness`, 구형을 위한 `dpiAware` `true/pm`, `asInvoker`)를 리소스 1번(`RT_MANIFEST`, 언어 0x0409)으로 품습니다. 리소스 파일은 링커가 알아보는 32바이트 빈 항목으로 시작합니다. WACK의 `DPIAwarenessValidation`이 통과해야 합니다. Windows SDK 버전은 문자열이 아니라 숫자 순서로 비교해 가장 새 것을 고릅니다(fr22_6_the_manifest_declares_per_monitor_v2_awareness, fr22_6_the_resource_file_starts_with_the_empty_entry, fr22_6_the_resource_file_holds_the_manifest_as_resource_one, fr22_6_sdk_versions_order_numerically). WACK 통과는 Windows에서 수동으로 확인합니다.
+14. macOS `.app`의 모든 실행 코드(실행 파일, dylib, 프레임워크)는 ad hoc으로 서명되고, 서명된 앱이 실제로 실행됩니다. 서명이 깨진 코드는 이름과 함께 보고합니다. 서명의 배포 가능성은 12번이 따로 확인합니다(fr22_6_2_every_piece_of_code_is_signed_ad_hoc, fr22_6_2_the_signed_application_runs).
 
 **2026-09-22: 샘플이 일곱 플랫폼 전부에서 돕니다.** 데스크톱 넷(macOS arm64, Linux x64, Linux arm64, Windows x64)과 Android, iOS 시뮬레이터, 브라우저입니다. statistics 샘플을 iOS 시뮬레이터와 Android 에뮬레이터와 Chromium에서 각각 띄워 같은 세이지와 주황과 파우더 블루가 나오는 것을 확인했습니다. 통합 샘플이 플랫폼과 무관하게 같은 디자인을 그린다는 것이 이것으로 처음 실증됐습니다.
 
