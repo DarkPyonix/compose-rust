@@ -170,6 +170,11 @@ for _ in $(seq 1 120); do
     grep -q "compose_rust_host_init" "$log" 2>/dev/null && break
     sleep 1
 done
+# And for the first frame after it, which is where the host makes its measure round trip.
+for _ in $(seq 1 15); do
+    grep -q "compose_rust_renderer_measure:" "$log" 2>/dev/null && break
+    sleep 1
+done
 sleep 3
 
 if (( await_click )); then
@@ -202,6 +207,11 @@ if ! grep -q "compose_rust_host_init" "$log"; then
         --predicate "process CONTAINS[c] 'smoke' OR subsystem CONTAINS[c] 'compose'" 2>/dev/null | tail -60
     die "the renderer never called compose_rust_host_init" "Console log: $log"
 fi
+# The host measures its own label twice from inside a frame, once as text and once as the
+# node the renderer drew, and the two answers have to be the same numbers.
+grep -q "compose_rust_renderer_measure: agree" "$log" || die \
+    "the measure round trip did not agree, or never ran" \
+    "Console log: $log"
 if (( await_click )); then
     grep -q "dispatch_event" "$log" || die \
         "no tap reached the host within ${await_seconds}s" \

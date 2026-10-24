@@ -176,6 +176,7 @@ fun RenderNode(
                     modifier,
                     dispatcher,
                     theme,
+                    table.assets,
                     remember(holder, inherited) { TextColor(node, holder, inherited) },
                 )
             }
