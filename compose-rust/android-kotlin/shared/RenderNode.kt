@@ -78,6 +78,7 @@ import dev.darkpyonix.composerust.foundation.SelectableRegion
 import dev.darkpyonix.composerust.foundation.Unselectable
 import dev.darkpyonix.composerust.foundation.hostKeyEvents
 import dev.darkpyonix.composerust.runtime.EventDispatcher
+import dev.darkpyonix.composerust.ui.floatProp
 import dev.darkpyonix.composerust.ui.boxAlignment
 import dev.darkpyonix.composerust.ui.horizontalAlignment
 import dev.darkpyonix.composerust.ui.horizontalArrangement
