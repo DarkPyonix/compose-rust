@@ -9,8 +9,7 @@
 use std::path::{Path, PathBuf};
 
 use packager_linux::appimage::{
-    AppDirInputs, appimage_arch, appimage_file_name, apprun,
-    assemble_appdir, file_safe,
+    AppDirInputs, appimage_arch, appimage_file_name, apprun, assemble_appdir, file_safe,
 };
 use packager_linux::appstream::{appdata_file_name, metainfo, metainfo_file_name};
 use packager_linux::desktop::{desktop_entry, desktop_file_name};
@@ -456,7 +455,9 @@ fn fr22_6_3_appdir_holds_entry_icon_metainfo_and_payload() {
     ] {
         assert!(out.join(path).is_file(), "missing {path}");
     }
-    assert!(written.contains(&PathBuf::from("usr/lib/sample-calculator/sample-calculator")));
+    assert!(written.contains(&PathBuf::from(
+        "usr/lib/sample-calculator/sample-calculator"
+    )));
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

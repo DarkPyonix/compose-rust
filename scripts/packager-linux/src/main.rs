@@ -6,9 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use packager_linux::appimage::{
-    AppDirInputs, appimage_arch, appimage_file_name, assemble_appdir,
-};
+use packager_linux::appimage::{AppDirInputs, appimage_arch, appimage_file_name, assemble_appdir};
 use packager_linux::appstream::{metainfo, metainfo_file_name};
 use packager_linux::desktop::{desktop_entry, desktop_file_name};
 use packager_linux::flatpak::{FlatpakOptions, Payload, SourceRef, icon_source_path, manifest};
