@@ -25,6 +25,7 @@ import dev.darkpyonix.composerust.protocol.SpaceRole
 import dev.darkpyonix.composerust.protocol.TypeRole
 import dev.darkpyonix.composerust.protocol.WindowSizeClass
 import dev.darkpyonix.composerust.protocol.TitleBar
+import dev.darkpyonix.composerust.foundation.code.UnderlineShape
 
 /**
  * Material 3 Expressive rules: elevation, button variants and motion.
@@ -500,6 +501,18 @@ internal object Material3Rules : ComponentRules {
             ),
             grabWidth = 24.dp,
             sideBackground = theme.color(ColorRole.SurfaceContainer),
+        )
+
+    /**
+     * Material has no code editor of its own, so this one is its surfaces put to the job:
+     * the gutter a container tone below the text, the current line in the surface variant,
+     * a squiggle for a problem, and a suggestion at the 38 percent Material gives content
+     * that is there but not yet the reader's.
+     */
+    override fun codeEditor(theme: ResolvedTheme): CodeEditorStyle =
+        defaultCodeEditorStyle(theme).copy(
+            gutter = theme.color(ColorRole.SurfaceContainer),
+            ghostTextAlpha = 0.38f,
         )
 
     override fun message(theme: ResolvedTheme): MessageStyle = MessageStyle(
@@ -981,15 +994,6 @@ internal object CupertinoRules : ComponentRules {
         spacing = 8.dp,
         edgePadding = 20.dp,
         titleAlignment = CaptionTitleAlignment.Center,
-        // A window on this platform in its ordinary mode has the system's buttons a step in
-        // from the corner and a larger radius than a plain window does. Simple is the plain
-        // window, so the system keeps both where it put them.
-        platformButtonInset = if (titleBar == TitleBar.Normal) APPLE_BUTTON_INSET else 0.dp,
-        windowCornerRadius = if (titleBar == TitleBar.Normal) {
-            APPLE_WINDOW_RADIUS
-        } else {
-            APPLE_PLAIN_WINDOW_RADIUS
-        },
     )
 
     /** A card sheet pulled up over a dimmed screen, with the grabber along its top edge. */
@@ -1054,6 +1058,23 @@ internal object CupertinoRules : ComponentRules {
             grabWidth = 9.dp,
             sideBackground = theme.color(ColorRole.Background),
             edgeSwipeBack = true,
+        )
+
+    /**
+     * Xcode's editor: the numbers in the secondary label colour on the page itself with no
+     * rule beside them, the current line a faint wash of the accent, a straight line under
+     * a problem rather than a squiggle, and a suggestion in grey.
+     */
+    override fun codeEditor(theme: ResolvedTheme): CodeEditorStyle =
+        defaultCodeEditorStyle(theme).copy(
+            container = theme.color(ColorRole.Background),
+            gutter = theme.color(ColorRole.Background),
+            currentLine = theme.color(ColorRole.Primary).copy(alpha = 0.08f),
+            underline = UnderlineShape.Straight,
+            hintUnderline = UnderlineShape.Dotted,
+            underlineWidth = 1.5.dp,
+            ghostTextAlpha = 0.45f,
+            textInset = 10.dp,
         )
 
     override fun message(theme: ResolvedTheme): MessageStyle = MessageStyle(
@@ -1555,6 +1576,20 @@ internal object FluentRules : ComponentRules {
             maxWidth = 480.dp,
             lineColor = theme.color(ColorRole.OutlineVariant),
             sideBackground = theme.color(ColorRole.Background),
+        )
+
+    /**
+     * The editor VS Code draws: no fill behind the current line but a thin frame round it,
+     * the gutter the same surface as the text, a squiggle for every severity but a hint,
+     * which is three dots, and a suggestion at half strength.
+     */
+    override fun codeEditor(theme: ResolvedTheme): CodeEditorStyle =
+        defaultCodeEditorStyle(theme).copy(
+            currentLine = Color.Transparent,
+            currentLineBorder = theme.color(ColorRole.OutlineVariant),
+            lineNumber = theme.color(ColorRole.OnSurfaceVariant).copy(alpha = 0.8f),
+            gutterPadding = 16.dp,
+            textInset = 12.dp,
         )
 
     override fun message(theme: ResolvedTheme): MessageStyle = MessageStyle(
@@ -2083,6 +2118,19 @@ internal object GnomeRules : ComponentRules {
             lineColor = theme.color(ColorRole.OutlineVariant),
             grabWidth = 6.dp,
             sideBackground = theme.color(ColorRole.SurfaceContainer),
+        )
+
+    /**
+     * GtkSourceView under Adwaita: quiet numbers on the view's own surface, the current line
+     * a light wash of the ink, the wavy line the platform uses for spelling, and the eight
+     * column tab GtkSourceView sets when nobody chooses one.
+     */
+    override fun codeEditor(theme: ResolvedTheme): CodeEditorStyle =
+        defaultCodeEditorStyle(theme).copy(
+            currentLine = theme.color(ColorRole.OnSurface).copy(alpha = 0.05f),
+            lineNumber = theme.color(ColorRole.OnSurface).copy(alpha = 0.45f),
+            tabWidth = 8,
+            textInset = 6.dp,
         )
 
     override fun message(theme: ResolvedTheme): MessageStyle = MessageStyle(
@@ -2628,6 +2676,20 @@ internal object BreezeRules : ComponentRules {
             sideBackground = theme.color(ColorRole.Background),
         )
 
+    /**
+     * Kate under Breeze: a gutter a shade off the text with a rule along its edge, the
+     * current line filled, and the red squiggle KTextEditor uses.
+     */
+    override fun codeEditor(theme: ResolvedTheme): CodeEditorStyle =
+        defaultCodeEditorStyle(theme).copy(
+            gutter = theme.color(ColorRole.SurfaceContainer),
+            gutterDivider = theme.color(ColorRole.OutlineVariant),
+            gutterDividerWidth = 1.dp,
+            currentLine = theme.color(ColorRole.Primary).copy(alpha = 0.1f),
+            gutterPadding = 8.dp,
+            textInset = 4.dp,
+        )
+
     override fun message(theme: ResolvedTheme): MessageStyle = MessageStyle(
         container = theme.color(ColorRole.SurfaceContainer),
         content = theme.color(ColorRole.OnSurface),
@@ -3163,6 +3225,18 @@ internal object DeepinRules : ComponentRules {
             keyStep = 10.dp,
             lineColor = theme.color(ColorRole.OutlineVariant),
             sideBackground = theme.color(ColorRole.SurfaceContainer),
+        )
+
+    /**
+     * The deepin editor: a gutter on the same surface separated by a faint rule, the current
+     * line a wash of the accent, and a squiggle for a problem.
+     */
+    override fun codeEditor(theme: ResolvedTheme): CodeEditorStyle =
+        defaultCodeEditorStyle(theme).copy(
+            gutterDivider = theme.color(ColorRole.OutlineVariant).copy(alpha = 0.6f),
+            gutterDividerWidth = 1.dp,
+            currentLine = theme.color(ColorRole.Primary).copy(alpha = 0.08f),
+            textInset = 8.dp,
         )
 
     override fun message(theme: ResolvedTheme): MessageStyle = MessageStyle(
@@ -3939,6 +4013,7 @@ internal object LiquidGlassRules : ComponentRules {
                     exponent = SIDEBAR_CORNER_EXPONENT,
                 )
             },
+            stripCornerExponent = if (bar) null else SIDEBAR_CORNER_EXPONENT,
             floatingInset = inset,
             carriesCaption = !bar,
             pageBehindStrip = !onWindow,
@@ -4023,6 +4098,14 @@ internal object LiquidGlassRules : ComponentRules {
             edgeSwipeBack = true,
         )
 
+    /**
+     * Xcode as macOS 26 draws it: the same quiet numbers, wash and straight underline as
+     * Cupertino, on the page rather than a panel, because the text a reader works in is
+     * content and the glass is for what floats over it.
+     */
+    override fun codeEditor(theme: ResolvedTheme): CodeEditorStyle =
+        CupertinoRules.codeEditor(theme)
+
     override fun message(theme: ResolvedTheme): MessageStyle = MessageStyle(
         container = theme.color(ColorRole.SurfaceContainer),
         content = theme.color(ColorRole.OnSurface),
@@ -4069,10 +4152,11 @@ internal object LiquidGlassRules : ComponentRules {
     private const val NAVIGATION_ALPHA = 0.72f
 
     /**
-     * The corner of a macOS 26 window, which a sidebar held inside it is cut concentric
-     * with.
+     * The corner a sidebar is cut concentric with where the window reports none of its
+     * own, which is any window but a macOS one. Where the window does report its radius,
+     * the sidebar takes that instead.
      */
-    private val WINDOW_CORNER = APPLE_WINDOW_RADIUS
+    private val WINDOW_CORNER = 34.dp
 
     /**
      * How far a rail or a sidebar stands off the window's leading edge, top and bottom.
@@ -4216,15 +4300,6 @@ internal object LiquidGlassRules : ComponentRules {
         // is inset from the window edge rather than flush with it.
         edgePadding = 22.dp,
         titleAlignment = CaptionTitleAlignment.Center,
-        // A window on this platform in its ordinary mode has the system's buttons a step in
-        // from the corner and a larger radius than a plain window does. Simple is the plain
-        // window, so the system keeps both where it put them.
-        platformButtonInset = if (titleBar == TitleBar.Normal) APPLE_BUTTON_INSET else 0.dp,
-        windowCornerRadius = if (titleBar == TitleBar.Normal) {
-            APPLE_WINDOW_RADIUS
-        } else {
-            APPLE_PLAIN_WINDOW_RADIUS
-        },
     )
 
     private const val SCRIM_ALPHA = 0.4f
@@ -4277,34 +4352,6 @@ internal object LiquidGlassRules : ComponentRules {
             pressedAlpha = 0.7f,
         )
 }
-
-/**
- * How far in from the window's corner an Apple window in its ordinary mode puts the
- * system's buttons.
- *
- * Read off the applications this project is drawn from rather than chosen: a window there
- * has its three buttons a step down and in from where a plain window has them, which is
- * what leaves room for the sidebar's own rounded corner to pass behind them.
- */
-private val APPLE_BUTTON_INSET = 10.dp
-
-/**
- * How round that window is, and how round a plain one is.
- *
- * This did nothing for a long time and the reason is worth keeping. The window was opaque,
- * so the system painted its own rounded background at its own radius and the number here
- * only rounded the layer drawn on top: raising it from fourteen to twenty six and again to
- * thirty four left the corner pixel for pixel identical, and what showed at the corner was
- * the system's square shoulder behind the drawing. The window is neither opaque nor painted
- * now, so the corner on the screen is the one asked for here.
- *
- * The ordinary mode is cut a good deal deeper than the plain one, which keeps the system's
- * own. That is the visible difference between a window that belongs to this language and
- * one that does not, and it is the same difference the buttons a step in from the corner
- * make.
- */
-private val APPLE_WINDOW_RADIUS = 34.dp
-private val APPLE_PLAIN_WINDOW_RADIUS = 10.dp
 
 /**
  * The two caption heights the other five systems choose between.

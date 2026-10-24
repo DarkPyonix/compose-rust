@@ -1,7 +1,10 @@
 package dev.darkpyonix.composerust.design
 
+import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.platform.Typeface
+import androidx.compose.ui.text.font.FontStyle as ComposeFontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.platform.SystemFont
 import org.jetbrains.skia.FontMgr
 import org.jetbrains.skia.FontStyle
 
@@ -68,7 +71,29 @@ private fun resolvePlatformUiFamily(): FontFamily {
             continue
         }
         platformUiFamilyName = face.familyName
-        return FontFamily(Typeface(face))
+        return systemFontFamily(name)
     }
     return FontFamily.Default
 }
+
+private val platformFontWeights = listOf(
+    FontWeight.W100,
+    FontWeight.W200,
+    FontWeight.W300,
+    FontWeight.W400,
+    FontWeight.W500,
+    FontWeight.W600,
+    FontWeight.W700,
+    FontWeight.W800,
+    FontWeight.W900,
+)
+
+@OptIn(ExperimentalTextApi::class)
+private fun systemFontFamily(identity: String): FontFamily = FontFamily(
+    platformFontWeights.flatMap { weight ->
+        listOf(
+            SystemFont(identity, weight, ComposeFontStyle.Normal),
+            SystemFont(identity, weight, ComposeFontStyle.Italic),
+        )
+    },
+)

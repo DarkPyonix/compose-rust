@@ -181,7 +181,7 @@ been run against this renderer.
 
 ## CI shape
 
-The disabled Linux experiment in `.github/workflows/native-renderer.yml` uses
+The disabled Linux experiment in `.github/workflows/test-native-renderer.yml` uses
 `ubuntu-24.04`, upstream GraalVM Community for JDK 25, the packages listed above, and Xvfb.
 Its 90 minute timeout matches the macOS native job. A reasonable initial estimate is 20 to
 40 minutes on an uncached hosted runner, but no Linux timing exists yet. Record the action's

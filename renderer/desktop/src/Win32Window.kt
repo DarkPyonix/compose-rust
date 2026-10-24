@@ -12,14 +12,15 @@ import org.graalvm.nativeimage.c.type.CCharPointer
 import org.graalvm.nativeimage.c.type.CIntPointer
 import org.graalvm.nativeimage.c.type.CFloatPointer
 import org.graalvm.nativeimage.c.type.CTypeConversion
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.asComposeCanvas
-import dev.darkpyonix.composerust.runtime.LocalZoom
-import dev.darkpyonix.composerust.runtime.Zoom
 import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.scene.ComposeScene
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import org.graalvm.word.Pointer
+import org.thisisthepy.compose.window.WindowEvent
+import org.thisisthepy.compose.window.WindowMeasurement
+import org.thisisthepy.compose.window.AccessibleElement
 import org.graalvm.word.WordFactory
 
 // A window that is ours on Windows, drawn into with Skia and with no toolkit in between.
@@ -28,16 +29,16 @@ import org.graalvm.word.WordFactory
 // `NativeHostConnection`: these are the only places that name GraalVM types, so a
 // development run on a JVM never loads them.
 //
-// The C side is `c/win32_window.c`. It owns the window, the Direct3D device, the queue,
+// The C side is the Compose fork's `extended/window/windows-shared/c/win32_window.c`, compiled
+// into the image by build-native-windows.ps1 from the pinned fork commit. It owns the window, the Direct3D device, the queue,
 // the adapter and the swapchain, and answers with the pointers. Nothing there draws.
 //
-// The same C symbols the macOS file calls, because the two C files are alternatives:
+// The same C symbols the macOS and Linux windows call, because the C files are alternatives:
 // exactly one of them is compiled into an image, and each answers for the window its own
 // platform knows how to open. What the five pointers mean differs, which is why each
-// platform reads them here rather than sharing a struct. What an event looks like does
-// not differ, so `WindowEvent` and `drainWindowEvents` are the macOS file's and used as
-// they are, and so are the shell's own turns: `pumpWindowEvents` and `isWindowClosed`
-// name what every window does and are declared once, there.
+// platform reads them here rather than sharing a struct. This window's events, pump and
+// close flag are declared below, beside the rest of what only this file uses, until the
+// Windows window moves to the Compose fork's shared module and these go with it.
 
 @CFunction("dxc_native_window_open")
 private external fun openWindow(
@@ -61,8 +62,32 @@ private external fun beginFrame(swapchain: Pointer?, resourceOut: Pointer?): Int
 @CFunction("dxc_native_frame_end")
 private external fun endFrame(queue: Pointer?)
 
+@CFunction("dxc_native_set_raster_resize")
+private external fun setRasterResize(enabled: Int)
+
+@CFunction("dxc_native_frame_mode")
+private external fun frameMode(): Int
+
+@CFunction("dxc_native_raster_begin")
+private external fun nativeRasterBegin(pixels: Pointer?, rowBytes: CIntPointer?, width: CIntPointer?, height: CIntPointer?): Int
+
+@CFunction("dxc_native_raster_end")
+private external fun nativeRasterEnd()
+
 @CFunction("dxc_native_set_draw_callback")
 private external fun setDrawCallback(callback: CFunctionPointer?, isolateThread: IsolateThread?)
+
+@CFunction("dxc_native_poll_event")
+private external fun pollEvent(out: Pointer?): Int
+
+@CFunction("dxc_native_pump")
+private external fun pumpEvents(seconds: Double)
+
+@CFunction("dxc_native_window_closed")
+private external fun windowClosed(): Int
+
+@CFunction("dxc_native_set_cursor")
+private external fun setCursorShape(shape: Int)
 
 @CFunction("dxc_native_set_accessibility")
 private external fun setAccessibility(elements: Pointer?, count: Int, window: Pointer?)
@@ -111,6 +136,22 @@ class Win32NativeWindow internal constructor(
 
     /** Puts the painted frame on the screen. */
     fun endFrame() = endFrame(WordFactory.pointer(queue))
+
+    /** True while the window wants its resize frames as CPU pixels. */
+    fun rasterFrame(): Boolean = frameMode() != 0
+
+    /** The CPU frame's pixels: address, row bytes, width, height; null where there are none. */
+    fun rasterBegin(): RasterTarget? {
+        val pixels = StackValue.get<Pointer>(8)
+        val rowBytes = StackValue.get<CIntPointer>(4)
+        val width = StackValue.get<CIntPointer>(4)
+        val height = StackValue.get<CIntPointer>(4)
+        if (nativeRasterBegin(pixels, rowBytes, width, height) != 0) return null
+        return RasterTarget(pixels.readWord<Pointer>(0).rawValue(), rowBytes.read(), width.read(), height.read())
+    }
+
+    /** Copies the CPU frame into the window, before the message that asked for it returns. */
+    fun rasterEnd() = nativeRasterEnd()
 
 }
 
@@ -169,6 +210,44 @@ fun Win32NativeWindow.describeTo(elements: List<AccessibleElement>) {
 }
 
 /**
+ * Takes everything the window has heard since the last frame.
+ *
+ * Drained rather than delivered: Win32 answers on the thread that pumps, and the Host keeps
+ * its state on the one that draws. The text is copied out byte by byte because a word value
+ * may not leave the method it was made in.
+ */
+private fun drainWindowEvents(): List<WindowEvent> {
+    val record = StackValue.get<Pointer>(EVENT_STRUCT_BYTES)
+    val events = ArrayList<WindowEvent>()
+    val bytes = ByteArray(TEXT_BYTES)
+    while (pollEvent(record) != 0) {
+        var length = 0
+        while (length < TEXT_BYTES) {
+            val byte = record.readByte(EVENT_TEXT_OFFSET + length)
+            if (byte == ZERO) break
+            bytes[length] = byte
+            length++
+        }
+        events.add(
+            WindowEvent(
+                kind = record.readInt(0),
+                x = record.readFloat(4),
+                y = record.readFloat(8),
+                buttons = record.readInt(12),
+                modifiers = record.readInt(16),
+                keyCode = record.readInt(20),
+                codePoint = record.readInt(24),
+                text = if (length == 0) "" else String(bytes, 0, length, Charsets.UTF_8),
+            ),
+        )
+    }
+    return events
+}
+
+private const val EVENT_TEXT_OFFSET = 28
+private const val EVENT_STRUCT_BYTES = 124
+
+/**
  * How many things a screen may say it has.
  *
  * Enough for a screen and not for a document. A list of ten thousand rows is windowed
@@ -222,22 +301,12 @@ object Win32Frames {
     private var drawing = false
 
     /**
-     * What drawing a frame is, as the loop that owns the scene defines it, given the time
-     * the frame is drawn at in nanoseconds.
+     * What drawing a frame is, as the loop that owns the scene defines it.
      *
      * Null before a window has been opened and again once it has gone, and both of those
      * are messages arriving with nothing left to draw into rather than mistakes.
      */
-    var paint: ((Long) -> Unit)? = null
-
-    /**
-     * Where a frame's time comes from.
-     *
-     * Read here, at the one door every frame goes through, so that a frame drawn by the
-     * loop and one drawn from inside a drag of the window's edge are timed by the same
-     * clock. Replaceable so that a test can drive it.
-     */
-    var clock: FrameClock = FrameClock()
+    var paint: (() -> Unit)? = null
 
     /**
      * Draws one frame unless one is already being drawn.
@@ -251,7 +320,7 @@ object Win32Frames {
         }
         drawing = true
         try {
-            paint(clock.frameTimeNanos())
+            paint()
         } finally {
             drawing = false
         }
@@ -284,9 +353,10 @@ private fun forgetFrameCallback() = setDrawCallback(
  * composed, painted by Skia into a swapchain buffer Direct3D gave us, reaching the screen
  * with no toolkit anywhere between.
  *
- * Reached by setting `DXC_WIN32_WINDOW`, so the ordinary path is untouched.
+ * The window every Windows run of the native image opens. [autoExitMillis], when given, closes
+ * it after that long, for the smoke runs.
  */
-internal fun runWin32Window() {
+internal fun runWin32Window(autoExitMillis: Long? = null) {
     // The Host is started before there is a window, because what the window should look
     // like is in its first batch and a window cannot be told afterwards. Started on this
     // thread, which is the one every later call to it is made from: the boundary is a
@@ -300,26 +370,32 @@ internal fun runWin32Window() {
         if (asked != null && asked.height > 0) asked.height else 360,
     )
     if (window == null) {
-        System.err.println("compose-rust: this machine has no Direct3D 12 adapter")
+        System.err.println(
+            "compose-rust: this machine has no Direct3D 12 adapter. Where there is no graphics " +
+                "card at all, set DXC_D3D12_WARP=1 to draw with the software one.",
+        )
         host.shutdown()
         return
     }
+    // Resize frames on the CPU, copied into the window before the resize returns, unless
+    // asked not to (DXC_RASTER_RESIZE=0). The same choice, in the same C, as the
+    // Kotlin/Native renderer makes.
+    setRasterResize(if (System.getenv("DXC_RASTER_RESIZE") == "0") 0 else 1)
     val context = org.jetbrains.skia.DirectContext.makeDirect3D(
         window.adapter,
         window.device,
         window.queue,
     )
     val measured = window.measure()
-    System.err.println(
-        "compose-rust: a window of our own, ${measured.width}x${measured.height} " +
-            "at ${measured.scale}x, with no toolkit in it",
-    )
+    WindowStartReport.windowOpened(measured.width, measured.height, measured.scale)
 
     val report = System.getenv("DXC_REPORT_INPUT") != null
     // Held rather than measured once. The window is resizable, and what the scene is told
     // about the window it sits in is read from here.
     var size = IntSize(measured.width, measured.height)
     val textInput = NativeTextInput()
+    // Made-up input for measuring without a hand (DXC_SYNTH); unset, nothing here runs.
+    val synthetic = System.getenv("DXC_SYNTH")?.let { SyntheticInput(it) }
     // What the window would tell a reader who cannot see it, read after each frame that
     // painted and handed on when it has changed. Where it goes is UI Automation, which
     // the window answers for rather than this file.
@@ -327,6 +403,7 @@ internal fun runWin32Window() {
         if (report) {
             System.err.println("compose-rust: the window has ${elements.size} things to say")
         }
+        synthetic?.noteElements(elements)
         window.describeTo(elements)
     }
     // Kept rather than left to the scene. What a scene picks for itself is the toolkit's
@@ -334,52 +411,65 @@ internal fun runWin32Window() {
     // there: a list asking for the rows it is about to show asked from a thread with no
     // Host and was told nothing had been initialised.
     val work = FrameDispatcher()
-    // The zoom the window is drawn at: the reader's text size from Windows' accessibility
-    // settings, asked again once a turn, and the application's zoom level, stepped with
-    // Control and plus, minus or zero and kept in the application's configuration
-    // directory. What the scene is given is the display's scale and these together, so
-    // none of them is ever drawn stale beside the others.
-    val zoom = Zoom(::windowsTextScale, fileZoomLevelStore(ConfigLayout.Windows))
     val scene = CanvasLayersComposeScene(
-        density = zoom.density(measured.scale),
+        density = Density(measured.scale),
         size = size,
         coroutineContext = work,
-        platformContext = NativePlatformContext({ size }, textInput, semantics),
+        platformContext = NativePlatformContext({ size }, textInput, semantics, ::setCursorShape),
     )
     // The application's own tree, drawn by the same interpreter the toolkit path uses.
     // Nothing in it knows which of the two it is running on, which is the point.
+    // The window's own clipboard (dxc_native_clipboard_read and _write), as the AppKit and X11
+    // windows have through NativeWindowContent: Compose's desktop default is the toolkit's, and
+    // this image carries no toolkit.
+    @Suppress("DEPRECATION")
     scene.setContent {
-        CompositionLocalProvider(LocalZoom provides zoom) {
+        androidx.compose.runtime.CompositionLocalProvider(
+            androidx.compose.ui.platform.LocalClipboard provides WindowClipboard,
+            androidx.compose.ui.platform.LocalClipboardManager provides WindowClipboardManagerInstance,
+        ) {
             dev.darkpyonix.composerust.runtime.ComposeRustContent(host)
         }
     }
+    WindowStartReport.sceneCreated(size.width, size.height, measured.scale)
 
     // What a frame is, wherever the ask comes from. The loop below is one caller and the
     // window's own resize handling is the other, and they draw the same frame.
+    var nanos = 0L
     var painted = false
     var drew = false
-    // Timed from when the window opened, by a clock rather than a count of frames.
-    Win32Frames.clock = FrameClock()
-    Win32Frames.paint = { nanos ->
+    Win32Frames.paint = {
         // The scene's own work first. A list that asked for rows on the last frame wants
         // them in hand before this one is measured, and during a drag of the window's
-        // edge this is the only place that runs at all.
+        // edge this is the only place that runs at all. Compose's main-thread work first,
+        // as the AppKit and X11 windows do: it runs here, once a frame, not on Swing's queue.
+        FrameMainDispatcher.runPending()
         work.runPending()
-        val at = drawFrame(window, context, scene, zoom, nanos)
+        nanos += FRAME_NANOS
+        val begun = System.nanoTime()
+        LatencyTrace.mark("draw begin (invalidated=${scene.hasInvalidations()})")
+        val at = if (window.rasterFrame()) drawRasterFrame(window, scene, nanos) else drawFrame(window, context, scene, nanos)
         if (at != null) {
             size = at
             painted = true
             drew = true
+            WindowStartReport.frameDrawn(at.width, at.height)
+            LatencyTrace.mark("draw end ${at.width}x${at.height}")
         }
+        LatencyTrace.frameDrawn(System.nanoTime() - begun)
     }
     registerFrameCallback()
+    val started = System.nanoTime()
 
     try {
         // Rests only when the last turn found nothing to do. A frame that drew has
         // already waited for the screen inside `Present`, and waiting again on top of
         // that would halve the rate of anything that animates.
         var busy = true
-        while (!isWindowClosed()) {
+        while (windowClosed() == 0) {
+            if (autoExitMillis != null && (System.nanoTime() - started) / 1_000_000 >= autoExitMillis) {
+                break
+            }
             // Cleared before the window is given its turn rather than after. A drag of an
             // edge draws its frames from inside that turn, and a turn that forgot them
             // would be a window that said nothing about itself for the length of a drag,
@@ -388,30 +478,34 @@ internal fun runWin32Window() {
             // The window's own turn, before anything is read from it. This thread is the
             // one Windows delivers to, so the messages of this frame arrive here or not
             // at all.
-            pumpWindowEvents(if (busy) 0.0 else FRAME_SECONDS)
+            pumpEvents(if (busy) 0.0 else FRAME_SECONDS)
+            LatencyTrace.mark("loop turn")
+            FrameMainDispatcher.runPending()
             work.runPending()
             var heard = false
+            // DXC_SYNTH's type and click modes, as window events. Its resize and keys modes
+            // are not wired here: the probe drives real drags from outside the process.
+            for (event in synthetic?.due(System.nanoTime(), size) ?: emptyList()) {
+                scene.receive(event, win32 = true)
+                textInput.receive(event)
+                LatencyTrace.mark("synthetic ${event.kind} sent")
+            }
             for (event in drainWindowEvents()) {
                 if (report && event.kind != WindowEvent.POINTER_MOVE) {
                     System.err.println("compose-rust: window heard $event")
                 }
+                if (LatencyTrace.enabled && event.kind != WindowEvent.POINTER_MOVE) {
+                    LatencyTrace.mark("window heard ${event.kind}")
+                }
                 // Told which desktop it is, because the key numbers differ: the shared
                 // table is macOS's, and without this Home arrives as Enter.
-                val consumed = scene.receive(event, win32 = true)
-                // Control with plus, minus or zero, where the scene left the key alone.
-                if (event.kind == WindowEvent.KEY_DOWN) {
-                    zoom.takeShortcut(win32ZoomShortcut(event.codePoint, event.modifiers), consumed)
-                }
+                scene.receive(event, win32 = true)
                 textInput.receive(event)
                 heard = true
             }
-            // The reader moved the text size slider, or the zoom level changed. Nothing in
-            // the scene has invalidated, but all of it is about to be laid out again at
-            // another size, so it is drawn.
-            val rescaled = zoom.refresh()
             // Only when there is something to draw. A window that is being looked at
             // rather than used should cost a comparison a frame.
-            if (!painted || heard || rescaled || scene.hasInvalidations()) {
+            if (!painted || heard || scene.hasInvalidations()) {
                 Win32Frames.draw()
             }
             // Every frame, and after the drawing. After, because that is when what is in
@@ -421,6 +515,7 @@ internal fun runWin32Window() {
             semantics.pushIfChanged(afterDrawing = drew)
             busy = heard || drew
         }
+        LatencyTrace.summary()
     } finally {
         // In this order. A message dispatched after the scene has closed would otherwise
         // be a frame drawn into it.
@@ -446,7 +541,6 @@ private fun drawFrame(
     window: Win32NativeWindow,
     context: org.jetbrains.skia.DirectContext,
     scene: ComposeScene,
-    zoom: Zoom,
     nanos: Long,
 ): IntSize? {
     val resource = window.beginFrame()
@@ -455,10 +549,10 @@ private fun drawFrame(
     // refitted is refitted, and what is measured here is the buffer that came back.
     val measured = window.measure()
     val fitted = IntSize(measured.width, measured.height)
-    val density = zoom.density(measured.scale)
-    // The window was resized, moved onto a screen of another density, or the reader changed
-    // the text size. Told to the scene here, because a buffer that fits and a scene that
-    // does not is a window drawing its old size into a corner of its new one.
+    val density = Density(measured.scale)
+    // The window was resized, or moved onto a screen of another density. Told to the
+    // scene here, because a buffer that fits and a scene that does not is a window drawing
+    // its old size into a corner of its new one.
     if (scene.size != fitted || scene.density != density) {
         scene.density = density
         scene.size = fitted
@@ -501,4 +595,41 @@ private fun drawFrame(
     return fitted
 }
 
+/** Where a CPU frame is drawn: the C side's bitmap, [width] x [height] of it. */
+class RasterTarget(val address: Long, val rowBytes: Int, val width: Int, val height: Int)
+
+/**
+ * One resize frame on the CPU: the same scene, drawn by Skia's raster backend into the
+ * pixels the C side hands over (its DIB: BGRA, top-down), with the GPU frame's colour
+ * space and pixel geometry so the switch between the two is not visible, then copied into
+ * the window before the resize returns. Null where the C side had no pixels to give.
+ */
+private fun drawRasterFrame(window: Win32NativeWindow, scene: ComposeScene, nanos: Long): IntSize? {
+    val target = window.rasterBegin() ?: return null
+    val measured = window.measure()
+    val fitted = IntSize(target.width, target.height)
+    val density = Density(measured.scale)
+    if (scene.size != fitted || scene.density != density) {
+        scene.density = density
+        scene.size = fitted
+    }
+    val surface = org.jetbrains.skia.Surface.makeRasterDirect(
+        org.jetbrains.skia.ImageInfo(
+            target.width,
+            target.height,
+            org.jetbrains.skia.ColorType.BGRA_8888,
+            org.jetbrains.skia.ColorAlphaType.PREMUL,
+            org.jetbrains.skia.ColorSpace.sRGB,
+        ),
+        target.address,
+        target.rowBytes,
+        org.jetbrains.skia.SurfaceProps(org.jetbrains.skia.PixelGeometry.RGB_H),
+    )
+    scene.render(surface.canvas.asComposeCanvas(), nanos)
+    surface.close()
+    window.rasterEnd()
+    return fitted
+}
+
 private const val FRAME_SECONDS = 0.016
+private const val FRAME_NANOS = 16_000_000L

@@ -31,10 +31,8 @@ cc -c -O2 -D__linux__ -o "${TMPDIR:-/tmp}/compose-rust-smoke-linux-test.o" \
     "$native_dir/c/smoke_host.c"
 
 build="$scripts_dir/build-native-linux.sh"
-grep -q 'libawt_xawt\.so' "$build"
-grep -q 'libawt_headless\.so' "$build"
-grep -q 'libfontmanager\.so' "$build"
-grep -q 'libjawt\.so' "$build"
+absent 'libjawt' "$build" "No libjawt is staged: skiko does not link it and the renderer asks for no AWT canvas"
+[[ ! -e "$native_dir/c/jawt_absent.c" ]]
 grep -q 'libskiko-linux-' "$build"
 
 # pr2_linux_entry_points_are_exported: the two public C entry points come from the shim, not
@@ -50,7 +48,7 @@ absent 'NativeLinkerOption=$obj/renderer_entry.o' "$build" \
     "The C shim is linked in a second step now, because native-image's generated version script marks anything it did not produce as local and then strips it."
 absent 'export-dynamic-symbol' "$build" \
     "That flag chooses among symbols the version script left global, so it cannot rescue a symbol the script made local"
-for entry_point in compose_rust_renderer_run compose_rust_renderer_request_frame; do
+for entry_point in compose_rust_renderer_run compose_rust_renderer_request_frame compose_rust_renderer_measure; do
     grep -q "$entry_point" "$build"
     grep -q "$entry_point" "$native_dir/c/renderer_entry.c"
 done

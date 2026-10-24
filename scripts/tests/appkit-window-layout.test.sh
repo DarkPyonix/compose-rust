@@ -10,8 +10,11 @@
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-source_file="$repo_root/renderer/desktop/c/appkit_window.m"
-kotlin_file="$repo_root/renderer/desktop/src/AppKitWindow.kt"
+# The window, its C and its Kotlin reader, are the Compose fork's graalvm-macos module.
+source "$repo_root/scripts/tests/fork-window.sh"
+fork_window_or_skip "$repo_root"
+source_file="$fork_window/graalvm/graalvm-macos/native/appkit_window.m"
+kotlin_file="$fork_window/graalvm/graalvm-macos/src/org/thisisthepy/compose/window/graalvm/macos/AppKitWindow.kt"
 red=0
 
 [[ -f "$source_file" ]] || { echo "missing $source_file"; exit 1; }
@@ -67,7 +70,7 @@ check_field() {
     local offset
     offset="$(awk -v f="$field" '$1 == f { print $2 }' <<< "$layout")"
     if ! grep -q "$field = out.readWord<Pointer>($offset)" "$kotlin_file"; then
-        echo "fail: C puts $field at $offset, which is not where AppKitWindow.kt reads it"
+        echo "fail: C puts $field at $offset, which is not where the fork's AppKitWindow.kt reads it"
         red=1
     fi
 }
@@ -81,7 +84,7 @@ check_event_field() {
     local offset
     offset="$(awk -v f="$field" '$1 == f { print $2 }' <<< "$layout")"
     if ! grep -q "$name = record.$reader($offset)" "$kotlin_file"; then
-        echo "fail: C puts $field at $offset, which is not where AppKitWindow.kt reads it"
+        echo "fail: C puts $field at $offset, which is not where the fork's AppKitWindow.kt reads it"
         red=1
     fi
 }
@@ -96,7 +99,7 @@ check_event_field code_point readInt codePoint
 
 text_offset="$(awk '$1 == "text" { print $2 }' <<< "$layout")"
 if ! grep -q "TEXT_OFFSET = $text_offset" "$kotlin_file"; then
-    echo "fail: C puts the text at $text_offset, which is not where AppKitWindow.kt reads it"
+    echo "fail: C puts the text at $text_offset, which is not where the fork's AppKitWindow.kt reads it"
     red=1
 fi
 

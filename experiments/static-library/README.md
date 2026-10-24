@@ -31,7 +31,7 @@ Three things had to be right and each failed first:
   everywhere and compiles only one platform's. That is invisible while the library is
   loaded by name, and fatal once it is linked in, because macOS binds every symbol at load
   and the first Direct3D declaration kills the process before anything is drawn.
-  `generate-foreign-stubs.sh` writes the 62 of them.
+  `renderer/desktop/scripts/generate-foreign-stubs.sh` writes the 62 of them.
 
 - **The loader no longer looks for the file.** Skiko's desktop loader does not use
   `System.loadLibrary`: it reads `skiko.library.path` or unpacks the library out of the jar,

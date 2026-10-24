@@ -11,6 +11,12 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import dev.darkpyonix.composerust.protocol.HostEvent
+import dev.darkpyonix.composerust.protocol.SyntaxSpanRecord
+import dev.darkpyonix.composerust.protocol.Severity
+import dev.darkpyonix.composerust.protocol.HoverPhase
+import dev.darkpyonix.composerust.protocol.DecorationRecord
+import dev.darkpyonix.composerust.protocol.DecorationKind
+import dev.darkpyonix.composerust.protocol.CodeEditorRecords
 import dev.darkpyonix.composerust.protocol.MessageDuration
 import dev.darkpyonix.composerust.protocol.NotificationImportance
 import dev.darkpyonix.composerust.protocol.NotificationPermission
@@ -99,6 +105,12 @@ class ProtocolVectorsTest {
                 is Mutation.PostNotification -> false
                 is Mutation.WithdrawNotification -> false
                 is Mutation.RequestNotificationPermission -> false
+                is Mutation.EditCode -> mutation.nodeId !in created
+                // An animation is played on a node, so one that names a node the vector
+                // never created is reported once the batch is in.
+                is Mutation.StartAnimation -> mutation.animation.nodeId !in created
+                // A control for a key nothing plays under is left alone, not reported.
+                is Mutation.ControlAnimation -> false
             }
         }
         assertEquals(
@@ -208,9 +220,183 @@ class ProtocolVectorsTest {
                 ProtocolModifier.ShapeRole(ShapeRole.Large),
                 ProtocolModifier.Border(2f, Paint.Role(ColorRole.Outline)),
                 ProtocolModifier.Elevation(6f),
+                ProtocolModifier.Offset(12.5f, -4f),
+                ProtocolModifier.RequiredSize(320f, 180f),
+                ProtocolModifier.BorderEach(
+                    1f, 2f, 3f, 4f,
+                    Paint.Literal(0xFF112233.toInt()),
+                    Paint.Role(ColorRole.Outline),
+                    Paint.Literal(0x80445566.toInt()),
+                    Paint.Role(ColorRole.Primary),
+                ),
+                ProtocolModifier.CornerEach(4f, 8f, 12f, 16f),
+                ProtocolModifier.Shadow(0f, 2f, 6f, -1f, Paint.Literal(0x40000000)),
+                ProtocolModifier.Clip(true),
+                ProtocolModifier.Alpha(0.5f),
+                ProtocolModifier.Transform(0.75f, 0.5f, -0.25f, 1.25f, 12f, -6f, 0.5f, 0.25f),
             ),
             modifiers,
         )
+    }
+
+    /**
+     * The HTML elements in the vector: the box that places its children where the Host put
+     * them, and its seven modifiers, two of which are longer than the 28 bytes every older
+     * modifier record has. Both decoders have to agree on the length each tag fixes.
+     */
+    @Test
+    fun fr42_the_html_element_records_in_the_vector_decode_to_the_same_values() {
+        val mutations = decodeVector("mutations.bin")
+        assertEquals(
+            Mutation.Create(8, WidgetKind.AbsoluteBox),
+            mutations.filterIsInstance<Mutation.Create>().single { it.nodeId == 8 },
+        )
+        val onBox = mutations.filterIsInstance<Mutation.SetModifier>().filter { it.nodeId == 8 }
+        assertEquals((0..7).toList(), onBox.map { it.index })
+
+        // The record lengths, read from the bytes rather than from the decoder: 28 for a
+        // value of two words, 36 for the shadow's three and 60 for the border's six.
+        val bytes = ByteBuffer.wrap(vectorFile("mutations.bin").readBytes()).order(ByteOrder.LITTLE_ENDIAN)
+        val recordsLength = bytes.getInt(4)
+        val lengths = mutableMapOf<Int, Int>()
+        var offset = 12
+        while (offset < recordsLength) {
+            val tag = bytes.getShort(offset).toInt()
+            val length = bytes.getShort(offset + 2).toInt()
+            if (tag == 3 && bytes.getInt(offset + 4) == 8) {
+                lengths[bytes.getShort(offset + 10).toInt()] = length
+            }
+            offset += length
+        }
+        assertEquals(
+            mapOf(19 to 28, 20 to 28, 21 to 60, 22 to 28, 23 to 36, 24 to 28, 25 to 28, 26 to 44),
+            lengths,
+        )
+    }
+
+    /**
+     * A modifier record whose length is not the one its tag fixes is refused, whichever way
+     * it is wrong: a border cut down to 28 bytes, and a padding grown to 36.
+     */
+    @Test
+    fun fr42_a_modifier_record_of_the_wrong_length_is_a_protocol_error() {
+        for ((modifierTag, length) in listOf(21 to 28, 23 to 28, 1 to 36)) {
+            val batch = ByteBuffer.allocate(12 + length).order(ByteOrder.LITTLE_ENDIAN)
+            batch.putShort(0).putShort(12).putInt(12 + length).putInt(1)
+            batch.putShort(3).putShort(length.toShort()).putInt(1).putShort(0).putShort(modifierTag.toShort())
+            batch.position(0)
+            val failure = runCatching { Protocol.decode(batch) { } }.exceptionOrNull()
+            assertTrue(
+                failure is dev.darkpyonix.composerust.protocol.ProtocolException,
+                "a $length byte record for modifier $modifierTag decoded instead of being refused: $failure",
+            )
+        }
+    }
+
+    /**
+     * The animations in the vector: one per property, a transform for each function kind
+     * and one of three functions, and a control record, read from the bytes the Host wrote.
+     */
+    @Test
+    fun fr41_the_animation_records_in_the_vector_decode_to_the_same_values() {
+        val mutations = decodeVector("mutations.bin")
+        val animations = mutations.filterIsInstance<Mutation.StartAnimation>().map { it.animation }
+        assertEquals(10, animations.size)
+        // The border colour came after every record that was there before it.
+        assertEquals(dev.darkpyonix.composerust.protocol.AnimatedProperty.BorderColor, animations.last().property)
+        assertEquals(
+            dev.darkpyonix.composerust.protocol.KeyframeValue.PaintValue(
+                dev.darkpyonix.composerust.protocol.Paint.Literal(0xFF336699.toInt()),
+            ),
+            animations.last().keyframes.last().value,
+        )
+        val alpha = animations.first()
+        assertEquals(dev.darkpyonix.composerust.protocol.AnimatedProperty.Alpha, alpha.property)
+        assertEquals(dev.darkpyonix.composerust.protocol.PlaybackDirection.Alternate, alpha.direction)
+        assertEquals(dev.darkpyonix.composerust.protocol.FillMode.Both, alpha.fill)
+        assertEquals(-250f, alpha.delayMs)
+        assertEquals(2.5f, alpha.iterations)
+        assertEquals(2 or 8, alpha.events)
+        assertEquals(
+            listOf(
+                dev.darkpyonix.composerust.protocol.Keyframe(
+                    0f,
+                    dev.darkpyonix.composerust.protocol.Timing.CubicBezier(0.25f, 0.1f, 0.25f, 1f),
+                    true,
+                    dev.darkpyonix.composerust.protocol.KeyframeValue.Alpha(0f),
+                ),
+                dev.darkpyonix.composerust.protocol.Keyframe(
+                    0.6f,
+                    dev.darkpyonix.composerust.protocol.Timing.Steps(4, dev.darkpyonix.composerust.protocol.StepPosition.JumpBoth),
+                    false,
+                    dev.darkpyonix.composerust.protocol.KeyframeValue.Alpha(1f),
+                ),
+                dev.darkpyonix.composerust.protocol.Keyframe(
+                    1f,
+                    dev.darkpyonix.composerust.protocol.Timing.Linear,
+                    false,
+                    dev.darkpyonix.composerust.protocol.KeyframeValue.Alpha(1f),
+                ),
+            ),
+            alpha.keyframes,
+        )
+        val kinds = animations.drop(3).take(6).map { animation ->
+            (animation.keyframes.last().value as dev.darkpyonix.composerust.protocol.KeyframeValue.Transform)
+                .functions.map { it.kind }
+        }
+        assertEquals(
+            listOf(
+                listOf(dev.darkpyonix.composerust.protocol.TransformFunctionKind.Translate),
+                listOf(dev.darkpyonix.composerust.protocol.TransformFunctionKind.Rotate),
+                listOf(dev.darkpyonix.composerust.protocol.TransformFunctionKind.Scale),
+                listOf(dev.darkpyonix.composerust.protocol.TransformFunctionKind.Skew),
+                listOf(dev.darkpyonix.composerust.protocol.TransformFunctionKind.Matrix),
+                listOf(
+                    dev.darkpyonix.composerust.protocol.TransformFunctionKind.Rotate,
+                    dev.darkpyonix.composerust.protocol.TransformFunctionKind.Translate,
+                    dev.darkpyonix.composerust.protocol.TransformFunctionKind.Scale,
+                ),
+            ),
+            kinds,
+        )
+        assertEquals(
+            Mutation.ControlAnimation(
+                8, 1,
+                dev.darkpyonix.composerust.protocol.AnimatedProperty.Alpha, 0,
+                dev.darkpyonix.composerust.protocol.AnimationControl.Pause, 1_500_000_000L,
+            ),
+            mutations.filterIsInstance<Mutation.ControlAnimation>().single(),
+        )
+    }
+
+    /** The animation event and the motion setting encode to the bytes the Host decodes. */
+    @Test
+    fun fr41_the_animation_events_encode_to_the_vector_bytes() {
+        val bytes = vectorFile("events.bin").readBytes()
+        val out = ByteBuffer.allocate(64)
+        val length = Protocol.encodeEvent(
+            HostEvent.AnimationEvent(
+                nodeId = 8,
+                handlerId = 0,
+                animationId = 7,
+                kind = dev.darkpyonix.composerust.protocol.AnimationEventKind.End,
+                property = dev.darkpyonix.composerust.protocol.AnimatedProperty.Transform,
+                slot = 2,
+                iteration = 3,
+                elapsedMs = 3000f,
+                timeNanos = 123_456_789_012L,
+            ),
+            out,
+        )
+        assertEquals(40, length)
+        assertEquals(bytes.copyOfRange(458, 498).toList(), out.array().copyOf(length).toList())
+        val motion = ByteBuffer.allocate(32)
+        val motionLength = Protocol.encodeEvent(
+            HostEvent.ReducedMotionChanged(0, 0, dev.darkpyonix.composerust.protocol.ReducedMotion.On),
+            motion,
+        )
+        assertEquals(20, motionLength)
+        assertEquals(bytes.copyOfRange(498, 518).toList(), motion.array().copyOf(motionLength).toList())
     }
 
     /** The theme record carries the palette behind it, and both sides read the same entries. */
@@ -274,6 +460,73 @@ class ProtocolVectorsTest {
             .filterIsInstance<Mutation.SetProp>()
             .single { it.property == PropertyKind.Collapsible }
         assertEquals(Mutation.SetProp(2, PropertyKind.Collapsible, PropertyValue.Bool(true)), collapsible)
+    }
+
+    /**
+     * The code editor in the vector: the edit record, and the decoration and colour run
+     * records inside its two blobs, read at the offsets the Rust schema gives them.
+     */
+    @Test
+    fun fr38_the_code_editor_records_in_the_vector_decode_to_the_same_values() {
+        val mutations = decodeVector("mutations.bin")
+        assertEquals(
+            listOf(Mutation.EditCode(12, 7, 0, 1, 8, 1, 8, "mut ")),
+            mutations.filterIsInstance<Mutation.EditCode>(),
+        )
+        val props = mutations.filterIsInstance<Mutation.SetProp>().filter { it.nodeId == 12 }
+        assertEquals(WidgetKind.CodeEditor, mutations.filterIsInstance<Mutation.Create>().single { it.nodeId == 12 }.widget)
+        val errors = mutableListOf<String>()
+        val decorations = CodeEditorRecords.decodeDecorations(
+            (props.single { it.property == PropertyKind.Decorations }.value as PropertyValue.Bytes).value,
+            errors::add,
+        )
+        assertEquals(
+            listOf(
+                DecorationRecord(0, DecorationKind.Underline, Severity.Warning, ColorRole.Error, 1, 8, 1, 9, 0L, ""),
+                DecorationRecord(0, DecorationKind.CodeLens, null, null, 0, 0, 0, 0, 41L, "Run"),
+                DecorationRecord(0, DecorationKind.HoverAnchor, null, null, 0, 3, 0, 7, 42L, ""),
+                DecorationRecord(0, DecorationKind.GhostText, null, null, 2, 1, 2, 1, 43L, " // end"),
+            ),
+            decorations,
+        )
+        val spans = CodeEditorRecords.decodeSyntaxSpans(
+            (props.single { it.property == PropertyKind.SyntaxSpans }.value as PropertyValue.Bytes).value,
+            errors::add,
+        )
+        assertEquals(
+            listOf(
+                SyntaxSpanRecord(0, 0, 0, 0, 2, Paint.Role(ColorRole.Primary)),
+                SyntaxSpanRecord(0, 1, 12, 1, 16, Paint.Role(ColorRole.Tertiary)),
+            ),
+            spans,
+        )
+        assertEquals(emptyList<String>(), errors)
+    }
+
+    /** The five code editor events encode here to the bytes the Rust Host decodes. */
+    @Test
+    fun fr38_the_code_editor_events_encode_to_the_vector_bytes() {
+        val bytes = vectorFile("events.bin").readBytes()
+        fun encoded(event: HostEvent): ByteArray {
+            val buffer = ByteBuffer.allocate(256).order(ByteOrder.LITTLE_ENDIAN)
+            val length = Protocol.encodeEvent(event, buffer)
+            return buffer.array().copyOf(length)
+        }
+        val expected = listOf(
+            282 to HostEvent.CodeChanged(12, 18L, 1, 1, 8, 1, 8, "mut "),
+            330 to HostEvent.CodeEditRejected(12, 19L, 7, 0, 2, 1, 8, 1, 9),
+            374 to HostEvent.CodeHovered(12, 20L, 42L, 0, 4, HoverPhase.Rest),
+            410 to HostEvent.CodeSaveRequested(12, 21L, 2),
+            434 to HostEvent.DecorationActivated(12, 22L, 41L),
+        )
+        for ((offset, event) in expected) {
+            val wire = encoded(event)
+            assertTrue(
+                wire.contentEquals(bytes.copyOfRange(offset, offset + wire.size)),
+                "$event at $offset",
+            )
+        }
+        assertEquals(518, bytes.size)
     }
 
     private fun decodeVector(name: String): List<Mutation> {

@@ -1,9 +1,10 @@
 //! Fixed-layout little-endian boundary protocol.
 
 use crate::schema::{
-    AssetKind, ColorScheme, DesignSystem, Key, MaterialRole, MessageDuration, Modifier, MotionRole,
-    NotificationImportance, NotificationPermission, NotificationPresentation, Paint, PropertyKind,
-    Selection, ShapeRole, SpaceRole, TYPE_ROLE_COUNT, Theme, WidgetKind,
+    AssetKind, ColorScheme, DesignSystem, Key, MAX_MODIFIER_WORDS, MaterialRole, MessageDuration,
+    Modifier, MotionRole, NotificationImportance, NotificationPermission, NotificationPresentation,
+    Paint, PropertyKind, Selection, ShapeRole, SpaceRole, TYPE_ROLE_COUNT, Theme, WidgetKind,
+    modifier_extra_words,
 };
 use core::fmt;
 
@@ -24,9 +25,16 @@ const TAG_SET_WINDOW: u16 = 13;
 const TAG_POST_NOTIFICATION: u16 = 14;
 const TAG_WITHDRAW_NOTIFICATION: u16 = 15;
 const TAG_REQUEST_NOTIFICATION_PERMISSION: u16 = 16;
-/// The last mutation tag this decoder knows. A known tag with the wrong length is a length
-/// error rather than an unknown tag.
-const TAG_LAST: u16 = TAG_REQUEST_NOTIFICATION_PERMISSION;
+const TAG_EDIT_CODE: u16 = 17;
+const TAG_START_ANIMATION: u16 = 18;
+const TAG_CONTROL_ANIMATION: u16 = 19;
+/// The head of a `StartAnimation` record, before its keyframes.
+const ANIMATION_HEADER_LEN: usize = 52;
+/// A keyframe before its value: offset, timing, step position, flags and four numbers.
+const KEYFRAME_HEAD_LEN: usize = 24;
+/// One transform function: its kind and six numbers.
+const TRANSFORM_FUNCTION_LEN: usize = 28;
+const KEYFRAME_FROM_PRESENTED: u16 = 1;
 const ENVELOPE_LEN: usize = 12;
 /// `SetTheme` after its header: four `u16` fields, one font slot per type role, and the
 /// palette's `(offset, len)` reference. 52 bytes, so the record is 56.
@@ -152,6 +160,39 @@ pub enum Mutation<'a> {
     /// Asks the platform for permission to show notifications. It carries nothing: the
     /// answer comes back as a permission event.
     RequestNotificationPermission,
+    /// Replaces a range of a code editor's document, as it stood at `base_version`, with
+    /// `text`.
+    ///
+    /// The Renderer owns the document, so this is a request and not an assignment: where
+    /// the reader has typed since that version the range is moved along with what they
+    /// typed, and where they typed in the same place the edit is refused and
+    /// `CodeEditRejected` names `request_id`. An edit that is applied comes back as an
+    /// ordinary `CodeChanged`, so the version stays one sequence whoever made the edit.
+    EditCode {
+        node_id: u32,
+        request_id: u32,
+        base_version: u32,
+        start_line: u32,
+        start_column: u32,
+        end_line: u32,
+        end_column: u32,
+        text: &'a str,
+    },
+    /// Hands the Renderer one animation to play on its own frame clock until it ends.
+    /// Nothing crosses the boundary while it plays unless it asked for events.
+    StartAnimation(crate::schema::Animation<'a>),
+    /// Pauses, resumes or cancels one animation the Renderer is playing. A key the Renderer
+    /// does not hold, or an id that is not the one it holds, is left alone: an animation
+    /// that ended on its own is not an error to stop.
+    ControlAnimation {
+        node_id: u32,
+        animation_id: u32,
+        property: crate::schema::AnimatedProperty,
+        slot: u8,
+        op: crate::schema::AnimationControl,
+        /// On the Renderer's frame clock. Zero means the first frame that draws it.
+        at_time_nanos: u64,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -172,6 +213,14 @@ pub enum ProtocolError {
     InvalidStringRange,
     InvalidUtf8,
     LengthOverflow,
+    /// The Renderer refused a whole measure call with this status: its buffer could not be
+    /// read, it came from the wrong thread, or there was nothing to measure with yet.
+    MeasureRefused(i32),
+    /// An animation record that is well formed bytes but not an animation: an unknown
+    /// value, fewer than two keyframes, offsets that do not run from 0 to 1, a negative or
+    /// non-numeric duration or iteration count, keyframes whose values or transform lists
+    /// do not match, or a length that does not hold its keyframes.
+    InvalidAnimation,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -200,8 +249,13 @@ const EVENT_FILES_ENTERED: u16 = 22;
 const EVENT_FILES_DROPPED: u16 = 23;
 const EVENT_NOTIFICATION_ACTIVATED: u16 = 24;
 const EVENT_NOTIFICATION_PERMISSION_CHANGED: u16 = 25;
-// Tags 26 to 32 belong to events other requirements have numbered.
-const EVENT_ZOOM_CHANGED: u16 = 33;
+const EVENT_CODE_CHANGED: u16 = 26;
+const EVENT_CODE_EDIT_REJECTED: u16 = 27;
+const EVENT_CODE_HOVERED: u16 = 28;
+const EVENT_CODE_SAVE_REQUESTED: u16 = 29;
+const EVENT_DECORATION_ACTIVATED: u16 = 30;
+const EVENT_ANIMATION: u16 = 31;
+const EVENT_REDUCED_MOTION_CHANGED: u16 = 32;
 
 const MODIFIER_SHIFT: u8 = 1 << 0;
 const MODIFIER_CTRL: u8 = 1 << 1;
@@ -306,25 +360,83 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
                 ))?;
             crate::schema::EventPayload::NotificationPermissionChanged(state)
         }
-        EVENT_ZOOM_CHANGED if record_len == 28 => {
-            let level = read_u32(bytes, 24)? as i32;
-            if !(i32::from(crate::zoom::MIN_ZOOM_LEVEL)..=i32::from(crate::zoom::MAX_ZOOM_LEVEL))
-                .contains(&level)
-            {
-                return Err(ProtocolError::InvalidValueKind(level as u16));
+        EVENT_ANIMATION if record_len == 40 => {
+            let raw_kind = u16::from(read_u8(bytes, 20)?);
+            let raw_property = u16::from(read_u8(bytes, 21)?);
+            crate::schema::EventPayload::AnimationEvent {
+                animation_id: read_u32(bytes, 16)?,
+                kind: crate::schema::AnimationEventKind::try_from(raw_kind)
+                    .map_err(|()| ProtocolError::InvalidValueKind(raw_kind))?,
+                property: crate::schema::AnimatedProperty::try_from(raw_property)
+                    .map_err(|()| ProtocolError::InvalidValueKind(raw_property))?,
+                slot: read_u8(bytes, 22)?,
+                iteration: read_u32(bytes, 24)?,
+                elapsed_ms: f32::from_bits(read_u32(bytes, 28)?),
+                time_nanos: read_u64(bytes, 32)?,
             }
-            crate::schema::EventPayload::ZoomChanged {
-                k: f32::from_bits(read_u32(bytes, 16)?),
-                os: f32::from_bits(read_u32(bytes, 20)?),
-                level,
+        }
+        EVENT_REDUCED_MOTION_CHANGED if record_len == 20 => {
+            let raw = read_u32(bytes, 16)?;
+            let state = u16::try_from(raw)
+                .ok()
+                .and_then(|tag| crate::schema::ReducedMotion::try_from(tag).ok())
+                .ok_or(ProtocolError::InvalidValueKind(
+                    raw.min(u32::from(u16::MAX)) as u16,
+                ))?;
+            crate::schema::EventPayload::ReducedMotionChanged(state)
+        }
+        EVENT_CODE_CHANGED if record_len == 44 => crate::schema::EventPayload::CodeChanged {
+            version: read_u32(bytes, 16)?,
+            start_line: read_u32(bytes, 20)?,
+            start_column: read_u32(bytes, 24)?,
+            end_line: read_u32(bytes, 28)?,
+            end_column: read_u32(bytes, 32)?,
+            text: read_string(bytes, 36, record_len)?,
+        },
+        EVENT_CODE_EDIT_REJECTED if record_len == 44 => {
+            crate::schema::EventPayload::CodeEditRejected {
+                request_id: read_u32(bytes, 16)?,
+                base_version: read_u32(bytes, 20)?,
+                current_version: read_u32(bytes, 24)?,
+                start_line: read_u32(bytes, 28)?,
+                start_column: read_u32(bytes, 32)?,
+                end_line: read_u32(bytes, 36)?,
+                end_column: read_u32(bytes, 40)?,
             }
+        }
+        EVENT_CODE_HOVERED if record_len == 36 => {
+            let raw_phase = read_u32(bytes, 32)?;
+            let phase = u16::try_from(raw_phase)
+                .ok()
+                .and_then(|tag| crate::schema::HoverPhase::try_from(tag).ok())
+                .ok_or(ProtocolError::InvalidValueKind(raw_phase as u16))?;
+            crate::schema::EventPayload::CodeHovered {
+                decoration: read_u64(bytes, 16)?,
+                line: read_u32(bytes, 24)?,
+                column: read_u32(bytes, 28)?,
+                phase,
+            }
+        }
+        EVENT_CODE_SAVE_REQUESTED if record_len == 24 => {
+            crate::schema::EventPayload::CodeSaveRequested {
+                version: read_u32(bytes, 16)?,
+            }
+        }
+        EVENT_DECORATION_ACTIVATED if record_len == 24 => {
+            crate::schema::EventPayload::DecorationActivated {
+                decoration: read_u64(bytes, 16)?,
+            }
+        }
+        EVENT_CODE_CHANGED..=EVENT_DECORATION_ACTIVATED => {
+            return Err(ProtocolError::InvalidRecordLength);
         }
         EVENT_RESYNC if record_len == 16 => crate::schema::EventPayload::Resync,
         EVENT_LIFECYCLE_START if record_len == 16 => crate::schema::EventPayload::LifecycleStart,
         EVENT_LIFECYCLE_STOP if record_len == 16 => crate::schema::EventPayload::LifecycleStop,
         EVENT_CLICK..=EVENT_RANGE_REQUESTED
         | EVENT_VALUE_CHANGED..=EVENT_NOTIFICATION_PERMISSION_CHANGED
-        | EVENT_ZOOM_CHANGED => {
+        | EVENT_ANIMATION
+        | EVENT_REDUCED_MOTION_CHANGED => {
             return Err(ProtocolError::InvalidRecordLength);
         }
         other => return Err(ProtocolError::InvalidTag(other)),
@@ -403,15 +515,106 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.extend_from_slice(&u32::from(u16::from(state)).to_le_bytes());
         return Ok(());
     }
-    if let crate::schema::EventPayload::ZoomChanged { k, os, level } = event.payload {
-        output.extend_from_slice(&EVENT_ZOOM_CHANGED.to_le_bytes());
-        output.extend_from_slice(&28_u16.to_le_bytes());
+    if let crate::schema::EventPayload::AnimationEvent {
+        animation_id,
+        kind,
+        property,
+        slot,
+        iteration,
+        elapsed_ms,
+        time_nanos,
+    } = event.payload
+    {
+        output.extend_from_slice(&EVENT_ANIMATION.to_le_bytes());
+        output.extend_from_slice(&40_u16.to_le_bytes());
         output.extend_from_slice(&event.node_id.to_le_bytes());
         output.extend_from_slice(&event.handler_id.to_le_bytes());
-        output.extend_from_slice(&k.to_bits().to_le_bytes());
-        output.extend_from_slice(&os.to_bits().to_le_bytes());
-        output.extend_from_slice(&level.to_le_bytes());
+        output.extend_from_slice(&animation_id.to_le_bytes());
+        output.push(kind as u8);
+        output.push(property as u8);
+        output.push(slot);
+        output.push(0);
+        output.extend_from_slice(&iteration.to_le_bytes());
+        output.extend_from_slice(&elapsed_ms.to_bits().to_le_bytes());
+        output.extend_from_slice(&time_nanos.to_le_bytes());
         return Ok(());
+    }
+    if let crate::schema::EventPayload::ReducedMotionChanged(state) = event.payload {
+        output.extend_from_slice(&EVENT_REDUCED_MOTION_CHANGED.to_le_bytes());
+        output.extend_from_slice(&20_u16.to_le_bytes());
+        output.extend_from_slice(&event.node_id.to_le_bytes());
+        output.extend_from_slice(&event.handler_id.to_le_bytes());
+        output.extend_from_slice(&u32::from(u16::from(state)).to_le_bytes());
+        return Ok(());
+    }
+    match event.payload {
+        crate::schema::EventPayload::CodeChanged {
+            version,
+            start_line,
+            start_column,
+            end_line,
+            end_column,
+            text,
+        } => {
+            put_event_header(output, EVENT_CODE_CHANGED, 44, event);
+            for value in [version, start_line, start_column, end_line, end_column] {
+                output.extend_from_slice(&value.to_le_bytes());
+            }
+            let len = u32::try_from(text.len()).map_err(|_| ProtocolError::LengthOverflow)?;
+            output.extend_from_slice(&44_u32.to_le_bytes());
+            output.extend_from_slice(&len.to_le_bytes());
+            output.extend_from_slice(text.as_bytes());
+            return Ok(());
+        }
+        crate::schema::EventPayload::CodeEditRejected {
+            request_id,
+            base_version,
+            current_version,
+            start_line,
+            start_column,
+            end_line,
+            end_column,
+        } => {
+            put_event_header(output, EVENT_CODE_EDIT_REJECTED, 44, event);
+            for value in [
+                request_id,
+                base_version,
+                current_version,
+                start_line,
+                start_column,
+                end_line,
+                end_column,
+            ] {
+                output.extend_from_slice(&value.to_le_bytes());
+            }
+            return Ok(());
+        }
+        crate::schema::EventPayload::CodeHovered {
+            decoration,
+            line,
+            column,
+            phase,
+        } => {
+            put_event_header(output, EVENT_CODE_HOVERED, 36, event);
+            output.extend_from_slice(&decoration.to_le_bytes());
+            output.extend_from_slice(&line.to_le_bytes());
+            output.extend_from_slice(&column.to_le_bytes());
+            output.extend_from_slice(&u32::from(u16::from(phase)).to_le_bytes());
+            return Ok(());
+        }
+        crate::schema::EventPayload::CodeSaveRequested { version } => {
+            put_event_header(output, EVENT_CODE_SAVE_REQUESTED, 24, event);
+            output.extend_from_slice(&version.to_le_bytes());
+            // The padding that keeps the record a multiple of four bytes.
+            output.extend_from_slice(&0_u32.to_le_bytes());
+            return Ok(());
+        }
+        crate::schema::EventPayload::DecorationActivated { decoration } => {
+            put_event_header(output, EVENT_DECORATION_ACTIVATED, 24, event);
+            output.extend_from_slice(&decoration.to_le_bytes());
+            return Ok(());
+        }
+        _ => {}
     }
     if let crate::schema::EventPayload::RangeRequested { start, count } = event.payload {
         output.extend_from_slice(&EVENT_RANGE_REQUESTED.to_le_bytes());
@@ -451,7 +654,13 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::WindowSizeChanged { .. }
         | crate::schema::EventPayload::DesignSystemResolved(_)
         | crate::schema::EventPayload::NotificationPermissionChanged(_)
-        | crate::schema::EventPayload::ZoomChanged { .. } => unreachable!(),
+        | crate::schema::EventPayload::CodeChanged { .. }
+        | crate::schema::EventPayload::CodeEditRejected { .. }
+        | crate::schema::EventPayload::CodeHovered { .. }
+        | crate::schema::EventPayload::CodeSaveRequested { .. }
+        | crate::schema::EventPayload::DecorationActivated { .. } => unreachable!(),
+        crate::schema::EventPayload::AnimationEvent { .. }
+        | crate::schema::EventPayload::ReducedMotionChanged(_) => unreachable!(),
     };
     output.extend_from_slice(&tag.to_le_bytes());
     output.extend_from_slice(&record_len.to_le_bytes());
@@ -468,6 +677,15 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.extend_from_slice(text.as_bytes());
     }
     Ok(())
+}
+
+/// The sixteen bytes every event starts with: the tag, the record's length, the node and
+/// the handler.
+fn put_event_header(output: &mut Vec<u8>, tag: u16, record_len: u16, event: &HostEvent<'_>) {
+    output.extend_from_slice(&tag.to_le_bytes());
+    output.extend_from_slice(&record_len.to_le_bytes());
+    output.extend_from_slice(&event.node_id.to_le_bytes());
+    output.extend_from_slice(&event.handler_id.to_le_bytes());
 }
 
 impl fmt::Display for ProtocolError {
@@ -571,13 +789,18 @@ impl BatchEncoder {
                 index,
                 modifier,
             } => {
-                self.begin_record(TAG_SET_MODIFIER, 24);
+                let (tag, words) = modifier_fields(modifier);
+                // The tag fixes how long the value is, so the record is as long as the
+                // schema says that tag's records are and every other modifier keeps the
+                // 28 bytes it always had.
+                let extra = modifier_extra_words(tag).ok_or(ProtocolError::InvalidModifier(tag))?;
+                self.begin_record(TAG_SET_MODIFIER, 24 + 8 * u16::from(extra));
                 self.put_u32(*node_id);
                 self.put_u16(*index);
-                let (tag, first, second) = modifier_fields(modifier);
                 self.put_u16(tag);
-                self.put_u64(first);
-                self.put_u64(second);
+                for word in &words[..2 + usize::from(extra)] {
+                    self.put_u64(*word);
+                }
             }
             Mutation::Insert {
                 parent_id,
@@ -649,6 +872,26 @@ impl BatchEncoder {
                 self.put_u16(*duration as u16);
                 self.put_u16(0);
             }
+            Mutation::EditCode {
+                node_id,
+                request_id,
+                base_version,
+                start_line,
+                start_column,
+                end_line,
+                end_column,
+                text,
+            } => {
+                self.begin_record(TAG_EDIT_CODE, 36);
+                self.put_u32(*node_id);
+                self.put_u32(*request_id);
+                self.put_u32(*base_version);
+                self.put_u32(*start_line);
+                self.put_u32(*start_column);
+                self.put_u32(*end_line);
+                self.put_u32(*end_column);
+                self.put_string_ref(text)?;
+            }
             Mutation::SetTheme(theme) => {
                 self.begin_record(TAG_SET_THEME, THEME_PAYLOAD_LEN as u16);
                 self.put_u16(theme.design_system as u16);
@@ -676,14 +919,9 @@ impl BatchEncoder {
                 self.put_u16(window.min_width);
                 self.put_u16(window.min_height);
                 self.put_u16(u16::from(window.resizable));
-                // The application's zoom level, in what used to be the padding that keeps
-                // the record a multiple of four: a byte saying whether there is one, then
-                // the level as a signed byte. Zero is "none", so a window that asks for
-                // nothing reads exactly as it did before the level existed.
-                self.put_u16(match window.zoom_level {
-                    None => 0,
-                    Some(level) => 1 | (u16::from(crate::zoom::clamp_level(level) as u8) << 8),
-                });
+                // The padding that keeps the record a multiple of four, which the envelope
+                // requires. Seven of these words is an odd number of them.
+                self.put_u16(0);
                 self.put_string_ref(window.title)?;
                 self.put_u32(window.icon);
             }
@@ -713,6 +951,24 @@ impl BatchEncoder {
             }
             Mutation::RequestNotificationPermission => {
                 self.begin_record(TAG_REQUEST_NOTIFICATION_PERMISSION, 0);
+            }
+            Mutation::StartAnimation(animation) => self.put_animation(animation)?,
+            Mutation::ControlAnimation {
+                node_id,
+                animation_id,
+                property,
+                slot,
+                op,
+                at_time_nanos,
+            } => {
+                self.begin_record(TAG_CONTROL_ANIMATION, 20);
+                self.put_u32(*node_id);
+                self.put_u32(*animation_id);
+                self.records.push(*property as u8);
+                self.records.push(*slot);
+                self.records.push(*op as u8);
+                self.records.push(0);
+                self.put_u64(*at_time_nanos);
             }
         }
         self.record_count = self
@@ -760,6 +1016,96 @@ impl BatchEncoder {
 
     pub fn capacity(&self) -> usize {
         self.records.capacity() + self.strings.capacity() + self.arena.capacity()
+    }
+
+    /// Writes a `StartAnimation`: the 52 byte head, then each keyframe with its value.
+    ///
+    /// The bytes are written as they are given; whether they make an animation is the
+    /// decoder's question, asked on both sides, so a Host that sends a bad one hears about
+    /// it as a protocol error rather than not at all.
+    fn put_animation(
+        &mut self,
+        animation: &crate::schema::Animation<'_>,
+    ) -> Result<(), ProtocolError> {
+        use crate::schema::{KeyframeValue, Timing};
+        let keyframes_len: usize = animation
+            .keyframes
+            .iter()
+            .map(|keyframe| {
+                KEYFRAME_HEAD_LEN
+                    + match &keyframe.value {
+                        KeyframeValue::Alpha(_) => 4,
+                        KeyframeValue::Paint(_) => 8,
+                        KeyframeValue::Transform(functions) => {
+                            4 + TRANSFORM_FUNCTION_LEN * functions.len()
+                        }
+                    }
+            })
+            .sum();
+        let payload = u16::try_from(ANIMATION_HEADER_LEN - 4 + keyframes_len)
+            .ok()
+            .filter(|payload| *payload <= u16::MAX - 4)
+            .ok_or(ProtocolError::LengthOverflow)?;
+        let keyframe_count =
+            u16::try_from(animation.keyframes.len()).map_err(|_| ProtocolError::LengthOverflow)?;
+        self.begin_record(TAG_START_ANIMATION, payload);
+        self.put_u32(animation.node_id);
+        self.put_u32(animation.animation_id);
+        self.records.push(animation.property as u8);
+        self.records.push(animation.slot);
+        self.records.push(animation.direction as u8);
+        self.records.push(animation.fill as u8);
+        self.records.push(animation.play_state as u8);
+        self.records
+            .push(animation.interpolation.map_or(0, |value| value as u8));
+        self.put_u16(keyframe_count);
+        self.put_u64(animation.start_time_nanos);
+        self.put_u32(animation.delay_ms.to_bits());
+        self.put_u32(animation.duration_ms.to_bits());
+        self.put_u32(animation.iterations.to_bits());
+        self.put_u32(animation.origin_x.to_bits());
+        self.put_u32(animation.origin_y.to_bits());
+        self.records.push(animation.events.0);
+        self.records.extend_from_slice(&[0, 0, 0]);
+        for keyframe in animation.keyframes.iter() {
+            self.put_u32(keyframe.offset.to_bits());
+            let (kind, position, numbers) = match keyframe.timing {
+                Timing::Linear => (1_u8, 0_u8, [0_u32; 4]),
+                Timing::CubicBezier { x1, y1, x2, y2 } => (
+                    2,
+                    0,
+                    [x1.to_bits(), y1.to_bits(), x2.to_bits(), y2.to_bits()],
+                ),
+                Timing::Steps { count, position } => (3, position as u8, [count, 0, 0, 0]),
+            };
+            self.records.push(kind);
+            self.records.push(position);
+            self.put_u16(if keyframe.from_presented {
+                KEYFRAME_FROM_PRESENTED
+            } else {
+                0
+            });
+            for number in numbers {
+                self.put_u32(number);
+            }
+            match &keyframe.value {
+                KeyframeValue::Alpha(value) => self.put_u32(value.to_bits()),
+                KeyframeValue::Paint(paint) => self.put_u64(paint.to_bits()),
+                KeyframeValue::Transform(functions) => {
+                    let count = u16::try_from(functions.len())
+                        .map_err(|_| ProtocolError::LengthOverflow)?;
+                    self.put_u16(count);
+                    self.put_u16(0);
+                    for function in functions.iter() {
+                        self.put_u32(u32::from(u16::from(function.kind)));
+                        for value in function.values {
+                            self.put_u32(value.to_bits());
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     fn begin_record(&mut self, tag: u16, payload_len: u16) {
@@ -875,15 +1221,28 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                     value,
                 }
             }
-            TAG_SET_MODIFIER if len == 28 => Mutation::SetModifier {
-                node_id: read_u32(bytes, payload)?,
-                index: read_u16(bytes, payload + 4)?,
-                modifier: decode_modifier(
-                    read_u16(bytes, payload + 6)?,
-                    read_u64(bytes, payload + 8)?,
-                    read_u64(bytes, payload + 16)?,
-                )?,
-            },
+            TAG_SET_MODIFIER if len >= 28 => {
+                // The modifier's tag says how long its record is: 28 bytes and eight more
+                // for each word the schema gives it beyond the first two. A record of any
+                // other length is refused before its value is read.
+                let modifier_tag = read_u16(bytes, payload + 6)?;
+                let extra = usize::from(
+                    modifier_extra_words(modifier_tag)
+                        .ok_or(ProtocolError::InvalidModifier(modifier_tag))?,
+                );
+                if len != 28 + 8 * extra {
+                    return Err(ProtocolError::InvalidRecordLength);
+                }
+                let mut words = [0_u64; MAX_MODIFIER_WORDS];
+                for (word_index, word) in words.iter_mut().take(2 + extra).enumerate() {
+                    *word = read_u64(bytes, payload + 8 + 8 * word_index)?;
+                }
+                Mutation::SetModifier {
+                    node_id: read_u32(bytes, payload)?,
+                    index: read_u16(bytes, payload + 4)?,
+                    modifier: decode_modifier(modifier_tag, &words)?,
+                }
+            }
             TAG_INSERT if len == 16 => Mutation::Insert {
                 parent_id: read_u32(bytes, payload)?,
                 node_id: read_u32(bytes, payload + 4)?,
@@ -954,20 +1313,6 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                 if resizable > 1 {
                     return Err(ProtocolError::InvalidValueKind(resizable));
                 }
-                let zoom = read_u16(bytes, payload + 14)?;
-                let zoom_level = match zoom & 0xFF {
-                    0 => None,
-                    1 => {
-                        let level = (zoom >> 8) as u8 as i8;
-                        if !(crate::zoom::MIN_ZOOM_LEVEL..=crate::zoom::MAX_ZOOM_LEVEL)
-                            .contains(&level)
-                        {
-                            return Err(ProtocolError::InvalidValueKind(zoom));
-                        }
-                        Some(level)
-                    }
-                    _ => return Err(ProtocolError::InvalidValueKind(zoom)),
-                };
                 Mutation::SetWindow(crate::schema::Window {
                     chrome: crate::schema::Chrome::try_from(chrome)
                         .map_err(|()| ProtocolError::InvalidValueKind(chrome))?,
@@ -978,7 +1323,6 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                     min_width: read_u16(bytes, payload + 8)?,
                     min_height: read_u16(bytes, payload + 10)?,
                     resizable: resizable == 1,
-                    zoom_level,
                     // Leaked on purpose, once per window. The record's owner is the
                     // window, the window outlives the batch it arrived in, and there is
                     // one of these per process.
@@ -1012,6 +1356,16 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                         .map_err(|()| ProtocolError::InvalidMessageDuration(raw_duration))?,
                 }
             }
+            TAG_EDIT_CODE if len == 40 => Mutation::EditCode {
+                node_id: read_u32(bytes, payload)?,
+                request_id: read_u32(bytes, payload + 4)?,
+                base_version: read_u32(bytes, payload + 8)?,
+                start_line: read_u32(bytes, payload + 12)?,
+                start_column: read_u32(bytes, payload + 16)?,
+                end_line: read_u32(bytes, payload + 20)?,
+                end_column: read_u32(bytes, payload + 24)?,
+                text: read_string(bytes, payload + 28, records_len)?,
+            },
             TAG_POST_NOTIFICATION if len == 56 => {
                 let raw_importance = read_u16(bytes, payload + 48)?;
                 let raw_presentation = read_u16(bytes, payload + 50)?;
@@ -1034,7 +1388,34 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
             TAG_REQUEST_NOTIFICATION_PERMISSION if len == 4 => {
                 Mutation::RequestNotificationPermission
             }
-            TAG_CREATE..=TAG_LAST => {
+            TAG_START_ANIMATION if len >= ANIMATION_HEADER_LEN => {
+                // A keyframe that runs past the end of its record is a count that does not
+                // match the length, which is the record being wrong rather than the batch.
+                Mutation::StartAnimation(
+                    decode_animation(&bytes[position..position + len]).map_err(|error| {
+                        if error == ProtocolError::Truncated {
+                            ProtocolError::InvalidAnimation
+                        } else {
+                            error
+                        }
+                    })?,
+                )
+            }
+            TAG_CONTROL_ANIMATION if len == 24 => {
+                let raw_property = u16::from(read_u8(bytes, payload + 8)?);
+                let raw_op = u16::from(read_u8(bytes, payload + 10)?);
+                Mutation::ControlAnimation {
+                    node_id: read_u32(bytes, payload)?,
+                    animation_id: read_u32(bytes, payload + 4)?,
+                    property: crate::schema::AnimatedProperty::try_from(raw_property)
+                        .map_err(|()| ProtocolError::InvalidAnimation)?,
+                    slot: read_u8(bytes, payload + 9)?,
+                    op: crate::schema::AnimationControl::try_from(raw_op)
+                        .map_err(|()| ProtocolError::InvalidAnimation)?,
+                    at_time_nanos: read_u64(bytes, payload + 12)?,
+                }
+            }
+            TAG_CREATE..=TAG_EDIT_CODE | TAG_START_ANIMATION | TAG_CONTROL_ANIMATION => {
                 return Err(ProtocolError::InvalidRecordLength);
             }
             other => return Err(ProtocolError::InvalidTag(other)),
@@ -1046,6 +1427,203 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
         return Err(ProtocolError::InvalidEnvelope);
     }
     Ok(output)
+}
+
+/// Reads one `StartAnimation` record, given whole, and refuses anything that is not an
+/// animation the Renderer could play. The Renderer asks the same questions of the same
+/// bytes, so a record one side refuses is refused on the other as well.
+fn decode_animation(record: &[u8]) -> Result<crate::schema::Animation<'static>, ProtocolError> {
+    use crate::schema::{
+        AnimatedProperty, Animation, AnimationEvents, ColorInterpolation, FillMode, Keyframe,
+        KeyframeValue, PlayState, PlaybackDirection, StepPosition, Timing, TransformFunction,
+        TransformFunctionKind,
+    };
+    let bad = ProtocolError::InvalidAnimation;
+    fn byte_enum<T: TryFrom<u16, Error = ()>>(
+        record: &[u8],
+        at: usize,
+    ) -> Result<T, ProtocolError> {
+        T::try_from(u16::from(read_u8(record, at)?)).map_err(|()| ProtocolError::InvalidAnimation)
+    }
+    let float = |at: usize| read_u32(record, at).map(f32::from_bits);
+    let property: AnimatedProperty = byte_enum(record, 12)?;
+    let direction: PlaybackDirection = byte_enum(record, 14)?;
+    let fill: FillMode = byte_enum(record, 15)?;
+    let play_state: PlayState = byte_enum(record, 16)?;
+    let colour = matches!(
+        property,
+        AnimatedProperty::Color | AnimatedProperty::Background | AnimatedProperty::BorderColor
+    );
+    let interpolation = match (colour, read_u8(record, 17)?) {
+        (false, 0) => None,
+        (true, raw) => Some(
+            ColorInterpolation::try_from(u16::from(raw))
+                .map_err(|()| ProtocolError::InvalidAnimation)?,
+        ),
+        (false, _) => return Err(bad),
+    };
+    let keyframe_count = usize::from(read_u16(record, 18)?);
+    let delay_ms = float(28)?;
+    let duration_ms = float(32)?;
+    let iterations = float(36)?;
+    let origin_x = float(40)?;
+    let origin_y = float(44)?;
+    let events = read_u8(record, 48)?;
+    if keyframe_count < 2
+        || !delay_ms.is_finite()
+        || !(duration_ms.is_finite() && duration_ms >= 0.0)
+        || iterations.is_nan()
+        || iterations < 0.0
+        || !(origin_x.is_finite() && origin_y.is_finite())
+        || events & !AnimationEvents::ALL.0 != 0
+    {
+        return Err(bad);
+    }
+    let mut keyframes = Vec::with_capacity(keyframe_count);
+    let mut at = ANIMATION_HEADER_LEN;
+    for index in 0..keyframe_count {
+        let offset = float(at)?;
+        let raw_timing = read_u8(record, at + 4)?;
+        let raw_position = read_u8(record, at + 5)?;
+        let flags = read_u16(record, at + 6)?;
+        let timing = match raw_timing {
+            1 => Timing::Linear,
+            2 => {
+                let (x1, y1, x2, y2) = (
+                    float(at + 8)?,
+                    float(at + 12)?,
+                    float(at + 16)?,
+                    float(at + 20)?,
+                );
+                if ![x1, y1, x2, y2].iter().all(|value| value.is_finite())
+                    || !(0.0..=1.0).contains(&x1)
+                    || !(0.0..=1.0).contains(&x2)
+                {
+                    return Err(bad);
+                }
+                Timing::CubicBezier { x1, y1, x2, y2 }
+            }
+            3 => {
+                let count = read_u32(record, at + 8)?;
+                let position =
+                    StepPosition::try_from(u16::from(raw_position)).map_err(|()| bad.clone())?;
+                let least = if position == StepPosition::JumpNone {
+                    2
+                } else {
+                    1
+                };
+                if count < least {
+                    return Err(bad);
+                }
+                Timing::Steps { count, position }
+            }
+            _ => return Err(bad),
+        };
+        if flags & !KEYFRAME_FROM_PRESENTED != 0
+            || (index > 0 && flags & KEYFRAME_FROM_PRESENTED != 0)
+            || !(0.0..=1.0).contains(&offset)
+        {
+            return Err(bad);
+        }
+        let value_at = at + KEYFRAME_HEAD_LEN;
+        let (value, value_len) = match property {
+            AnimatedProperty::Alpha => {
+                let value = float(value_at)?;
+                if !value.is_finite() {
+                    return Err(bad);
+                }
+                (KeyframeValue::Alpha(value), 4)
+            }
+            AnimatedProperty::Color
+            | AnimatedProperty::Background
+            | AnimatedProperty::BorderColor => {
+                // A colour can be mixed with another colour; a brush cannot.
+                let paint = Paint::from_bits(read_u64(record, value_at)?)
+                    .filter(|paint| !matches!(paint, Paint::Asset(_)))
+                    .ok_or(bad.clone())?;
+                (KeyframeValue::Paint(paint), 8)
+            }
+            AnimatedProperty::Transform => {
+                let count = usize::from(read_u16(record, value_at)?);
+                let mut functions = Vec::with_capacity(count);
+                for function in 0..count {
+                    let function_at = value_at + 4 + TRANSFORM_FUNCTION_LEN * function;
+                    let raw_kind = read_u32(record, function_at)?;
+                    let kind = u16::try_from(raw_kind)
+                        .ok()
+                        .and_then(|kind| TransformFunctionKind::try_from(kind).ok())
+                        .ok_or(bad.clone())?;
+                    let mut values = [0.0_f32; 6];
+                    for (slot, value) in values.iter_mut().enumerate() {
+                        *value = float(function_at + 4 + 4 * slot)?;
+                    }
+                    if !values.iter().all(|value| value.is_finite()) {
+                        return Err(bad);
+                    }
+                    functions.push(TransformFunction { kind, values });
+                }
+                (
+                    KeyframeValue::Transform(std::borrow::Cow::Owned(functions)),
+                    4 + TRANSFORM_FUNCTION_LEN * count,
+                )
+            }
+        };
+        keyframes.push(Keyframe {
+            offset,
+            timing,
+            from_presented: flags & KEYFRAME_FROM_PRESENTED != 0,
+            value,
+        });
+        at = value_at + value_len;
+    }
+    if at != record.len() {
+        return Err(bad);
+    }
+    // Offsets start at 0, end at 1 and never go back, and every transform list has the
+    // same kinds in the same order. A list the Host did not line up cannot be interpolated
+    // one function to the next, which is the only way the Renderer interpolates them.
+    let first = keyframes.first().map(|keyframe| keyframe.offset);
+    let last = keyframes.last().map(|keyframe| keyframe.offset);
+    if first != Some(0.0)
+        || last != Some(1.0)
+        || keyframes
+            .windows(2)
+            .any(|pair| pair[1].offset < pair[0].offset)
+    {
+        return Err(bad);
+    }
+    if let Some(KeyframeValue::Transform(shape)) = keyframes.first().map(|keyframe| &keyframe.value)
+    {
+        let kinds: Vec<_> = shape.iter().map(|function| function.kind).collect();
+        let lined_up = keyframes.iter().all(|keyframe| match &keyframe.value {
+            KeyframeValue::Transform(functions) => functions
+                .iter()
+                .map(|function| function.kind)
+                .eq(kinds.iter().copied()),
+            _ => false,
+        });
+        if !lined_up {
+            return Err(bad);
+        }
+    }
+    Ok(Animation {
+        node_id: read_u32(record, 4)?,
+        animation_id: read_u32(record, 8)?,
+        property,
+        slot: read_u8(record, 13)?,
+        direction,
+        fill,
+        play_state,
+        interpolation,
+        start_time_nanos: read_u64(record, 20)?,
+        delay_ms,
+        duration_ms,
+        iterations,
+        origin_x,
+        origin_y,
+        events: AnimationEvents(events),
+        keyframes: std::borrow::Cow::Owned(keyframes),
+    })
 }
 
 /// Two `f32` share one `u64`, with the first value in the low 32 bits.
@@ -1061,27 +1639,40 @@ const fn unpack_high(word: u64) -> f32 {
     f32::from_bits((word >> 32) as u32)
 }
 
-fn modifier_fields(modifier: &Modifier) -> (u16, u64, u64) {
+/// The value's words with nothing past the first two, which is every modifier but the few
+/// whose schema entry gives them more.
+const fn two_words(first: u64, second: u64) -> [u64; MAX_MODIFIER_WORDS] {
+    [first, second, 0, 0, 0, 0]
+}
+
+fn float_word(value: f32) -> u64 {
+    u64::from(value.to_bits())
+}
+
+/// A modifier's tag and the words of its value. Only as many words as the schema gives
+/// that tag are written; the rest are zero and never leave this function.
+fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
     match modifier {
-        Modifier::Empty => (0, 0, 0),
-        Modifier::Padding(value) => (1, u64::from(value.to_bits()), 0),
-        Modifier::FillMaxWidth => (2, 0, 0),
-        Modifier::FillMaxHeight => (3, 0, 0),
-        Modifier::Width(value) => (4, u64::from(value.to_bits()), 0),
-        Modifier::Height(value) => (5, u64::from(value.to_bits()), 0),
-        Modifier::Size { width, height } => {
-            (6, u64::from(width.to_bits()), u64::from(height.to_bits()))
-        }
-        Modifier::Background(paint) => (7, paint.to_bits(), 0),
-        Modifier::Clickable { handler_id } => (8, *handler_id, 0),
-        Modifier::PaddingRole(role) => (9, *role as u64, 0),
+        Modifier::Empty => (0, two_words(0, 0)),
+        Modifier::Padding(value) => (1, two_words(float_word(*value), 0)),
+        Modifier::FillMaxWidth => (2, two_words(0, 0)),
+        Modifier::FillMaxHeight => (3, two_words(0, 0)),
+        Modifier::Width(value) => (4, two_words(float_word(*value), 0)),
+        Modifier::Height(value) => (5, two_words(float_word(*value), 0)),
+        Modifier::Size { width, height } => (6, two_words(float_word(*width), float_word(*height))),
+        Modifier::Background(paint) => (7, two_words(paint.to_bits(), 0)),
+        Modifier::Clickable { handler_id } => (8, two_words(*handler_id, 0)),
+        Modifier::PaddingRole(role) => (9, two_words(*role as u64, 0)),
         Modifier::PaddingEach {
             start,
             top,
             end,
             bottom,
-        } => (10, pack_floats(*start, *top), pack_floats(*end, *bottom)),
-        Modifier::Weight(value) => (11, u64::from(value.to_bits()), 0),
+        } => (
+            10,
+            two_words(pack_floats(*start, *top), pack_floats(*end, *bottom)),
+        ),
+        Modifier::Weight(value) => (11, two_words(float_word(*value), 0)),
         Modifier::Shape {
             top_start,
             top_end,
@@ -1089,15 +1680,92 @@ fn modifier_fields(modifier: &Modifier) -> (u16, u64, u64) {
             bottom_start,
         } => (
             12,
-            pack_floats(*top_start, *top_end),
-            pack_floats(*bottom_end, *bottom_start),
+            two_words(
+                pack_floats(*top_start, *top_end),
+                pack_floats(*bottom_end, *bottom_start),
+            ),
         ),
-        Modifier::ShapeRole(role) => (13, *role as u64, 0),
-        Modifier::Border { width, paint } => (14, u64::from(width.to_bits()), paint.to_bits()),
-        Modifier::Elevation(dp) => (15, u64::from(dp.to_bits()), 0),
-        Modifier::ObserveSize { token } => (16, u64::from(*token), 0),
-        Modifier::Motion(role) => (17, *role as u64, 0),
-        Modifier::Material(role) => (18, *role as u64, 0),
+        Modifier::ShapeRole(role) => (13, two_words(*role as u64, 0)),
+        Modifier::Border { width, paint } => (14, two_words(float_word(*width), paint.to_bits())),
+        Modifier::Elevation(dp) => (15, two_words(float_word(*dp), 0)),
+        Modifier::ObserveSize { token } => (16, two_words(u64::from(*token), 0)),
+        Modifier::Motion(role) => (17, two_words(*role as u64, 0)),
+        Modifier::Material(role) => (18, two_words(*role as u64, 0)),
+        Modifier::Offset { x, y } => (19, two_words(float_word(*x), float_word(*y))),
+        Modifier::RequiredSize { width, height } => {
+            (20, two_words(float_word(*width), float_word(*height)))
+        }
+        Modifier::BorderEach {
+            top,
+            right,
+            bottom,
+            left,
+            top_paint,
+            right_paint,
+            bottom_paint,
+            left_paint,
+        } => (
+            21,
+            [
+                pack_floats(*top, *right),
+                pack_floats(*bottom, *left),
+                top_paint.to_bits(),
+                right_paint.to_bits(),
+                bottom_paint.to_bits(),
+                left_paint.to_bits(),
+            ],
+        ),
+        Modifier::CornerEach {
+            top_left,
+            top_right,
+            bottom_right,
+            bottom_left,
+        } => (
+            22,
+            two_words(
+                pack_floats(*top_left, *top_right),
+                pack_floats(*bottom_right, *bottom_left),
+            ),
+        ),
+        Modifier::Shadow {
+            x,
+            y,
+            blur,
+            spread,
+            paint,
+        } => (
+            23,
+            [
+                pack_floats(*x, *y),
+                pack_floats(*blur, *spread),
+                paint.to_bits(),
+                0,
+                0,
+                0,
+            ],
+        ),
+        Modifier::Clip(enabled) => (24, two_words(u64::from(*enabled), 0)),
+        Modifier::Alpha(value) => (25, two_words(float_word(*value), 0)),
+        Modifier::Transform {
+            a,
+            b,
+            c,
+            d,
+            e,
+            f,
+            origin_x,
+            origin_y,
+        } => (
+            26,
+            [
+                pack_floats(*a, *b),
+                pack_floats(*c, *d),
+                pack_floats(*e, *f),
+                pack_floats(*origin_x, *origin_y),
+                0,
+                0,
+            ],
+        ),
     }
 }
 
@@ -1110,7 +1778,8 @@ fn decode_paint(bits: u64) -> Result<Paint, ProtocolError> {
     Paint::from_bits(bits).ok_or(ProtocolError::InvalidModifier(0))
 }
 
-fn decode_modifier(tag: u16, first: u64, second: u64) -> Result<Modifier, ProtocolError> {
+fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifier, ProtocolError> {
+    let [first, second, third, fourth, fifth, sixth] = *words;
     match tag {
         0 => Ok(Modifier::Empty),
         1 => Ok(Modifier::Padding(f32::from_bits(first as u32))),
@@ -1149,6 +1818,74 @@ fn decode_modifier(tag: u16, first: u64, second: u64) -> Result<Modifier, Protoc
         }),
         17 => Ok(Modifier::Motion(decode_role::<MotionRole>(first)?)),
         18 => Ok(Modifier::Material(decode_role::<MaterialRole>(first)?)),
+        19 => Ok(Modifier::Offset {
+            x: f32::from_bits(first as u32),
+            y: f32::from_bits(second as u32),
+        }),
+        20 => Ok(Modifier::RequiredSize {
+            width: f32::from_bits(first as u32),
+            height: f32::from_bits(second as u32),
+        }),
+        21 => Ok(Modifier::BorderEach {
+            top: unpack_low(first),
+            right: unpack_high(first),
+            bottom: unpack_low(second),
+            left: unpack_high(second),
+            top_paint: decode_paint(third)?,
+            right_paint: decode_paint(fourth)?,
+            bottom_paint: decode_paint(fifth)?,
+            left_paint: decode_paint(sixth)?,
+        }),
+        22 => Ok(Modifier::CornerEach {
+            top_left: unpack_low(first),
+            top_right: unpack_high(first),
+            bottom_right: unpack_low(second),
+            bottom_left: unpack_high(second),
+        }),
+        23 => Ok(Modifier::Shadow {
+            x: unpack_low(first),
+            y: unpack_high(first),
+            blur: unpack_low(second),
+            spread: unpack_high(second),
+            paint: decode_paint(third)?,
+        }),
+        // A flag is 0 or 1. Anything else is a record the two sides disagree about, and
+        // reading it as "on" would hide that.
+        24 => match first {
+            0 => Ok(Modifier::Clip(false)),
+            1 => Ok(Modifier::Clip(true)),
+            _ => Err(ProtocolError::InvalidModifier(24)),
+        },
+        25 => Ok(Modifier::Alpha(f32::from_bits(first as u32))),
+        26 => {
+            let values = [
+                unpack_low(first),
+                unpack_high(first),
+                unpack_low(second),
+                unpack_high(second),
+                unpack_low(third),
+                unpack_high(third),
+                unpack_low(fourth),
+                unpack_high(fourth),
+            ];
+            // A NaN or an infinity in a matrix makes everything under it undrawable, and
+            // the two sides would not even agree on how. Refused here, as the Renderer
+            // refuses it.
+            if values.iter().any(|value| !value.is_finite()) {
+                return Err(ProtocolError::InvalidModifier(26));
+            }
+            let [a, b, c, d, e, f, origin_x, origin_y] = values;
+            Ok(Modifier::Transform {
+                a,
+                b,
+                c,
+                d,
+                e,
+                f,
+                origin_x,
+                origin_y,
+            })
+        }
         other => Err(ProtocolError::InvalidModifier(other)),
     }
 }
@@ -1179,6 +1916,10 @@ fn read_bytes(bytes: &[u8], position: usize, arena_start: usize) -> Result<&[u8]
     bytes
         .get(offset..end)
         .ok_or(ProtocolError::InvalidStringRange)
+}
+
+fn read_u8(bytes: &[u8], position: usize) -> Result<u8, ProtocolError> {
+    bytes.get(position).copied().ok_or(ProtocolError::Truncated)
 }
 
 fn read_u16(bytes: &[u8], position: usize) -> Result<u16, ProtocolError> {
@@ -1707,85 +2448,6 @@ mod tests {
         assert_eq!(
             decode_event(&bytes),
             Err(ProtocolError::InvalidValueKind(3))
-        );
-    }
-
-    /// How large the Renderer is drawing: two floats and a signed level after the head.
-    #[test]
-    fn fr43_zoom_changed_round_trips_fixed_layout() {
-        let event = HostEvent {
-            node_id: 0,
-            handler_id: 0,
-            payload: crate::EventPayload::ZoomChanged {
-                k: 1.25 * 1.44,
-                os: 1.25,
-                level: 2,
-            },
-        };
-        let mut bytes = Vec::new();
-        encode_event(&event, &mut bytes).unwrap();
-        assert_eq!(read_u16(&bytes, 0).unwrap(), 33);
-        assert_eq!(read_u16(&bytes, 2).unwrap(), 28);
-        assert_eq!(bytes.len(), 28);
-        assert_eq!(decode_event(&bytes).unwrap(), event);
-
-        let smaller = HostEvent {
-            node_id: 0,
-            handler_id: 0,
-            payload: crate::EventPayload::ZoomChanged {
-                k: 0.5,
-                os: 1.0,
-                level: -4,
-            },
-        };
-        encode_event(&smaller, &mut bytes).unwrap();
-        assert_eq!(decode_event(&bytes).unwrap(), smaller);
-    }
-
-    /// A level outside the range the Renderer can be at is a protocol error.
-    #[test]
-    fn fr43_a_zoom_level_out_of_range_is_rejected() {
-        let event = HostEvent {
-            node_id: 0,
-            handler_id: 0,
-            payload: crate::EventPayload::ZoomChanged {
-                k: 1.0,
-                os: 1.0,
-                level: 9,
-            },
-        };
-        let mut bytes = Vec::new();
-        encode_event(&event, &mut bytes).unwrap();
-        assert_eq!(
-            decode_event(&bytes),
-            Err(ProtocolError::InvalidValueKind(9))
-        );
-        bytes[2..4].copy_from_slice(&24_u16.to_le_bytes());
-        assert_eq!(
-            decode_event(&bytes),
-            Err(ProtocolError::InvalidRecordLength)
-        );
-    }
-
-    /// The window record carries the application's zoom level where it asked for one, and
-    /// a window that asked for nothing is byte for byte what it was before the level.
-    #[test]
-    fn fr43_the_window_record_carries_a_zoom_level() {
-        for level in [None, Some(-8), Some(0), Some(2), Some(8)] {
-            let mut window = crate::schema::Window::new().with_title("zoom");
-            window.zoom_level = level;
-            let mut encoder = BatchEncoder::default();
-            encoder.encode(&Mutation::SetWindow(window)).unwrap();
-            let bytes = encoder.finish().unwrap().to_vec();
-            if level.is_none() {
-                assert_eq!(read_u16(&bytes, ENVELOPE_LEN + 18).unwrap(), 0);
-            }
-            let decoded = decode_batch(&bytes).unwrap();
-            assert_eq!(decoded, vec![Mutation::SetWindow(window)]);
-        }
-        assert_eq!(
-            crate::schema::Window::new().with_zoom_level(20).zoom_level,
-            Some(8)
         );
     }
 }

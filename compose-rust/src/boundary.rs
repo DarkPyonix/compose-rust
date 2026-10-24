@@ -1,4 +1,5 @@
 use crate::Selection;
+use crate::measure::MeasureResult;
 use crate::protocol::{HostEvent, ProtocolError, decode_event};
 use crate::runtime::Runtime;
 use crate::schema::{
@@ -44,10 +45,14 @@ impl Default for MutationBatch {
     }
 }
 
+/// The Renderer's half of the boundary, as the Host calls it.
 #[derive(Clone, Copy)]
 pub struct RendererApi {
     pub run: extern "C" fn() -> c_int,
     pub request_frame: extern "C" fn(),
+    /// Reads `count` request records from the buffer and writes `count` results. Only on
+    /// the UI thread, and normally from inside a Host call the Renderer made.
+    pub measure: unsafe extern "C" fn(*const u8, u32, u32, *mut MeasureResult) -> i32,
 }
 
 static RENDERER_API: OnceLock<RendererApi> = OnceLock::new();
@@ -70,29 +75,21 @@ pub fn install_renderer_api(api: RendererApi) -> Result<(), RendererApi> {
 unsafe extern "C" {
     fn compose_rust_renderer_run() -> c_int;
     fn compose_rust_renderer_request_frame();
-}
-
-// Defined by the small library the Linux static renderer ships beside its archive. The
-// renderer finds the Host's functions with dlsym, so the application has to export them,
-// and that library is what makes the linker do it: it needs them, and a linker exports
-// from an executable what a library it links needs. Rust links with --as-needed, which
-// drops a library nothing refers to, so this byte is the reference that keeps it.
-#[cfg(all(
-    renderer_host_exports,
-    renderer_linked,
-    not(any(test, feature = "mock-renderer"))
-))]
-unsafe extern "C" {
-    static compose_rust_renderer_host_exports: u8;
+    fn compose_rust_renderer_measure(
+        requests: *const u8,
+        length: u32,
+        count: u32,
+        results: *mut MeasureResult,
+    ) -> i32;
 }
 
 #[cfg(all(renderer_linked, not(any(test, feature = "mock-renderer"))))]
 extern "C" fn native_run() -> c_int {
-    // A volatile read so that the reference survives optimisation. The value means
-    // nothing; being linked is the point.
-    #[cfg(renderer_host_exports)]
-    // SAFETY: a byte the library defines as a constant.
-    let _ = unsafe { std::ptr::read_volatile(&raw const compose_rust_renderer_host_exports) };
+    // The Linux static renderer refers to the five Host functions weakly, so that its own
+    // test executable links without a Host, and a weak reference does not make a linker
+    // pull in the code it names. This one does: running the renderer keeps them linked,
+    // whichever object file of this crate the compiler happened to put them in.
+    std::hint::black_box(&BOUNDARY_EXPORTS);
     // SAFETY: The application links the Renderer implementation of this declared C ABI.
     unsafe { compose_rust_renderer_run() }
 }
@@ -101,6 +98,20 @@ extern "C" fn native_run() -> c_int {
 extern "C" fn native_request_frame() {
     // SAFETY: The Renderer contract makes request_frame thread-safe.
     unsafe { compose_rust_renderer_request_frame() }
+}
+
+/// # Safety
+/// As `compose_rust_renderer_measure`: readable requests, writable results.
+#[cfg(all(renderer_linked, not(any(test, feature = "mock-renderer"))))]
+unsafe extern "C" fn native_measure(
+    requests: *const u8,
+    length: u32,
+    count: u32,
+    results: *mut MeasureResult,
+) -> i32 {
+    // SAFETY: The caller's promise is passed on unchanged, and the Renderer refuses a call
+    // from the wrong thread rather than measuring on it.
+    unsafe { compose_rust_renderer_measure(requests, length, count, results) }
 }
 
 // The mock renderer and the crate's own tests drive the boundary directly and never want
@@ -113,6 +124,10 @@ extern "C" fn native_run() -> c_int {
 #[cfg(any(test, feature = "mock-renderer"))]
 extern "C" fn native_request_frame() {}
 
+// The mock renderer answers by fixed rules, so a test of the Host can predict every size.
+#[cfg(any(test, feature = "mock-renderer"))]
+use crate::measure::fake_measure as native_measure;
+
 // A real build with no renderer. This used to return success, so an application built
 // this way opened no window, drew nothing, printed nothing and exited 0, and there was
 // no way to tell that from a program that had simply finished.
@@ -124,6 +139,18 @@ extern "C" fn native_run() -> c_int {
 
 #[cfg(all(not(renderer_linked), not(any(test, feature = "mock-renderer"))))]
 extern "C" fn native_request_frame() {}
+
+/// There is nothing to measure with, which the caller hears as a refusal and carries on
+/// past with every size at zero.
+#[cfg(all(not(renderer_linked), not(any(test, feature = "mock-renderer"))))]
+unsafe extern "C" fn native_measure(
+    _requests: *const u8,
+    _length: u32,
+    _count: u32,
+    _results: *mut MeasureResult,
+) -> i32 {
+    crate::measure::MEASURE_UNAVAILABLE
+}
 
 /// What a build with no renderer says on its way out.
 ///
@@ -151,7 +178,23 @@ fn renderer_api() -> RendererApi {
     RENDERER_API.get().copied().unwrap_or(RendererApi {
         run: native_run,
         request_frame: native_request_frame,
+        measure: native_measure,
     })
+}
+
+/// Asks the Renderer to measure, through whichever Renderer is installed.
+///
+/// Crate-internal: the safe way in is `measure::measurer`, which only hands out the right
+/// to call this inside a Host call. The pointers come from slices that outlive the call.
+pub(crate) fn renderer_measure(
+    requests: *const u8,
+    length: u32,
+    count: u32,
+    results: *mut MeasureResult,
+) -> i32 {
+    // SAFETY: the caller passes a readable buffer of `length` bytes and room for `count`
+    // results, both borrowed for the length of this call.
+    unsafe { (renderer_api().measure)(requests, length, count, results) }
 }
 
 /// Coalesced wake used internally by the runtime's scheduler waker.
@@ -304,9 +347,6 @@ impl Host {
         // the one replacing it, out of any context that made them make sense.
         //
         crate::message::reset_messages();
-        // The Renderer reports its zoom again at start, and a level the last Host asked for
-        // and never sent is that Host's business.
-        crate::zoom::reset_zoom();
         // The assets do not go with them. The Renderer this Host is about to talk to has
         // an empty cache, so every registration has to be made again, which is what this
         // does: the ids stay as they were and the bytes are queued for the first batch.
@@ -393,7 +433,7 @@ impl Host {
     /// closes the batch. The tail every call that renders shares.
     fn render_and_finish(&mut self, result: i64) -> Result<(&[u8], i64), ProtocolError> {
         self.batch().begin();
-        self.runtime.render();
+        self.runtime.render(None);
         self.flush_messages();
         self.arm_scheduler_wake();
         Ok((self.runtime.batch_mut().finish()?, result))
@@ -423,7 +463,7 @@ impl Host {
         };
         self.batch().begin();
         if woke {
-            self.runtime.render();
+            self.runtime.render(None);
         }
         self.flush_messages();
         self.arm_scheduler_wake();
@@ -440,7 +480,7 @@ impl Host {
     ) -> Result<(&[u8], i64), ProtocolError> {
         self.batch().begin();
         if crate::notification::publish_permission(state) {
-            self.runtime.render();
+            self.runtime.render(None);
         }
         self.flush_messages();
         self.arm_scheduler_wake();
@@ -457,22 +497,6 @@ impl Host {
         system: crate::schema::DesignSystem,
     ) -> Result<(&[u8], i64), ProtocolError> {
         if crate::design::publish(system) {
-            return self.render_and_finish(0);
-        }
-        self.empty_batch()
-    }
-
-    /// Records how large the Renderer is drawing, and wakes the components that read it.
-    ///
-    /// The level the Renderer reports is also kept as the window's own, so a resync
-    /// rebuilds the window at the level the reader is looking at rather than at one the
-    /// application asked for before the reader changed it.
-    fn publish_zoom(&mut self, k: f32, os: f32, level: i32) -> Result<(&[u8], i64), ProtocolError> {
-        let level = i8::try_from(level).map_err(|_| ProtocolError::InvalidValueKind(0))?;
-        if self.window.zoom_level.is_some() {
-            self.window.zoom_level = Some(level);
-        }
-        if crate::zoom::publish(crate::zoom::Zoom { k, os, level }) {
             return self.render_and_finish(0);
         }
         self.empty_batch()
@@ -501,11 +525,54 @@ impl Host {
                 }
                 return self.publish_notification_permission(state);
             }
-            EventPayload::ZoomChanged { k, os, level } => {
+            // About the platform, like the permission above: no node and no handler, and
+            // a repeat of the same answer wakes nobody.
+            EventPayload::ReducedMotionChanged(state) => {
                 if event.node_id != 0 || event.handler_id != 0 {
                     return Err(ProtocolError::InvalidValueKind(0));
                 }
-                return self.publish_zoom(k, os, level);
+                self.batch().begin();
+                if crate::animation::publish_reduced_motion(state) {
+                    self.runtime.render(None);
+                }
+                self.flush_messages();
+                self.arm_scheduler_wake();
+                return Ok((self.runtime.batch_mut().finish()?, 0));
+            }
+            // A moment in an animation the Renderer is playing. It names the node the
+            // animation plays on but no handler: whoever registered for animation events
+            // hears about it, and what they change is rendered in the same call, so a
+            // handler that starts the next animation does not leave a frame between them.
+            EventPayload::AnimationEvent {
+                animation_id,
+                kind,
+                property,
+                slot,
+                iteration,
+                elapsed_ms,
+                time_nanos,
+            } => {
+                if event.handler_id != 0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                let moment = crate::animation::AnimationMoment {
+                    node_id: event.node_id,
+                    animation_id,
+                    kind,
+                    property,
+                    slot,
+                    iteration,
+                    elapsed_ms,
+                    time_nanos,
+                };
+                let _dispatch_guard = EventDispatchGuard::enter();
+                let mut delivered = false;
+                self.runtime
+                    .run_in_context(&mut || delivered = crate::animation::deliver(moment));
+                if !delivered {
+                    return self.empty_batch();
+                }
+                return self.render_and_finish(0);
             }
             _ => {}
         }
@@ -560,7 +627,7 @@ impl Host {
         self.render_and_finish(result)
     }
 
-    pub fn render_frame(&mut self, _frame_time_nanos: u64) -> Result<&[u8], ProtocolError> {
+    pub fn render_frame(&mut self, frame_time_nanos: u64) -> Result<&[u8], ProtocolError> {
         let _call = HostCallGuard::enter();
         if LIFECYCLE_SUPPRESSED.load(Ordering::Acquire) {
             // The platform has the UI off screen and the Renderer called anyway, which it
@@ -576,7 +643,7 @@ impl Host {
         EVENT_DISPATCH_ACTIVE.store(false, Ordering::Release);
         DEFERRED_FRAME_REQUEST.store(false, Ordering::Release);
         self.batch().begin();
-        self.runtime.render();
+        self.runtime.render(Some(frame_time_nanos));
         self.flush_pending_appends();
         self.flush_messages();
         self.arm_scheduler_wake();
@@ -616,12 +683,6 @@ impl Host {
             self.theme = theme;
             self.batch().set_theme(theme);
         }
-        // A zoom level the application asked for, on the window record that carries it.
-        if let Some(level) = crate::zoom::take_pending_level() {
-            self.window.zoom_level = Some(level);
-            let window = self.window;
-            self.batch().set_window(window);
-        }
         let batch = self.runtime.batch_mut();
         // Registrations first. Not because the Renderer needs them first, it applies the
         // whole batch before drawing any of it, but because a batch read by a person
@@ -629,6 +690,7 @@ impl Host {
         crate::asset::drain(|pending| {
             batch.register_asset(pending.asset_id, pending.kind, pending.bytes);
         });
+        crate::asset::drain_releases(|asset_id| batch.release_asset(asset_id));
         crate::message::drain(|message| {
             batch.show_message(
                 message.handler_id,
@@ -638,6 +700,9 @@ impl Host {
             );
         });
         self.flush_notifications();
+        // Animations an application started from a handler, a component or a worker.
+        let batch = self.runtime.batch_mut();
+        crate::animation::drain(|mutation| batch.write(mutation));
     }
 
     /// Writes the notification commands waiting in the Host into this batch.
@@ -1371,45 +1436,73 @@ static BOUNDARY_EXPORTS: BoundaryExports = BoundaryExports([
     compose_rust_host_shutdown as *const (),
 ]);
 
-/// The same five names, as a linker directive the object file carries.
-///
-/// The Renderer finds these with GetProcAddress against the running executable, which
-/// reads the PE export table, and an executable has no export table unless the link is
-/// told to make one. The build script asks for that with `/EXPORT:` arguments, and those
-/// reach the binaries of this package and no further: Cargo does not pass a dependency's
-/// link arguments on to whatever depends on it.
-///
-/// So every application built on this crate linked without an export table, the Renderer
-/// could not reach back into it, and the window came up empty. It looked like it worked
-/// because the only Windows binaries anyone had run were this package's own examples.
-///
-/// `.drectve` is how an object file carries linker arguments of its own. The MSVC linker
-/// reads that section out of every object it links, so the directive travels inside the
-/// rlib and applies wherever the rlib ends up.
+// The same five names, as a linker directive the object file carries.
+//
+// The Renderer finds these with GetProcAddress against the running executable, which
+// reads the PE export table, and an executable has no export table unless the link is
+// told to make one. The build script asks for that with `/EXPORT:` arguments, and those
+// reach the binaries of this package and no further: Cargo does not pass a dependency's
+// link arguments on to whatever depends on it.
+//
+// So every application built on this crate linked without an export table, the Renderer
+// could not reach back into it, and the window came up empty. It looked like it worked
+// because the only Windows binaries anyone had run were this package's own examples.
+//
+// `.drectve` is how an object file carries linker arguments of its own. The MSVC linker
+// reads that section out of every object it links, so the directive travels inside the
+// rlib and applies wherever the rlib ends up.
 #[cfg(all(target_os = "windows", target_env = "msvc"))]
-const EXPORT_DIRECTIVES: &str = concat!(
-    " /EXPORT:compose_rust_host_init",
-    " /EXPORT:compose_rust_host_dispatch_event",
-    " /EXPORT:compose_rust_host_render_frame",
-    " /EXPORT:compose_rust_host_release_batch",
-    " /EXPORT:compose_rust_host_shutdown",
+core::arch::global_asm!(
+    // A section of directives and nothing else, in the COFF flags the MSVC linker reads
+    // them from: information only ("i") and dropped from the image ("n").
+    //
+    // Assembled rather than written as a `static` placed in the section. A static is a
+    // symbol, and a crate's own DLL asks for every symbol it keeps by name; the LLVM linker
+    // takes the section's bytes as directives, keeps no symbol for them, and the DLL then
+    // fails to link on a symbol nobody can define.
+    ".section .drectve,\"yni\"",
+    ".ascii \" /EXPORT:compose_rust_host_init\"",
+    ".ascii \" /EXPORT:compose_rust_host_dispatch_event\"",
+    ".ascii \" /EXPORT:compose_rust_host_render_frame\"",
+    ".ascii \" /EXPORT:compose_rust_host_release_batch\"",
+    ".ascii \" /EXPORT:compose_rust_host_shutdown\"",
+    ".text",
 );
 
-#[cfg(all(target_os = "windows", target_env = "msvc"))]
-#[used]
-#[unsafe(link_section = ".drectve")]
-static EXPORT_DIRECTIVE_BYTES: [u8; EXPORT_DIRECTIVES.len()] = {
-    let source = EXPORT_DIRECTIVES.as_bytes();
-    let mut bytes = [0u8; EXPORT_DIRECTIVES.len()];
-    let mut index = 0;
-    while index < source.len() {
-        bytes[index] = source[index];
-        index += 1;
-    }
-    bytes
-};
+// Which C runtime an application linking the Kotlin/Native Windows renderer gets, said
+// where the linker reads it from every object: the build script cannot say it, for the
+// same reason it cannot ask for the exports above.
+//
+// Set by the build script when it links that renderer and the application asked for
+// nothing (`build/windows_crt.rs` says why each of these is here). The Universal C Runtime
+// stays the DLL that is part of Windows; vcruntime and the C++ standard library are linked
+// in, so the executable needs no Visual C++ runtime DLL beside it. An application that asked
+// for `+crt-static` links all of it statically and needs none of these.
+#[cfg(all(target_os = "windows", target_env = "msvc", windows_crt_linked_in))]
+core::arch::global_asm!(
+    ".section .drectve,\"yni\"",
+    ".ascii \" /NODEFAULTLIB:vcruntime.lib\"",
+    ".ascii \" /DEFAULTLIB:libvcruntime.lib\"",
+    ".ascii \" /NODEFAULTLIB:msvcprt.lib\"",
+    ".ascii \" /NODEFAULTLIB:libcpmt.lib\"",
+    ".ascii \" /NODEFAULTLIB:libcmt.lib\"",
+    ".ascii \" /INCLUDE:longjmp\"",
+    ".text",
+);
 
-/// Never read. Being referenced is the entire contract.
+// The same for an application that asked for vcruntime from its DLL
+// (`DXC_WINDOWS_CRT=dynamic`): the stock static C++ library and C runtime that a prebuilt
+// object may still name as defaults would define, a second time, what the build script's
+// blanked copy and the DLLs' import libraries already do.
+#[cfg(all(target_os = "windows", target_env = "msvc", windows_crt_dynamic))]
+core::arch::global_asm!(
+    ".section .drectve,\"yni\"",
+    ".ascii \" /NODEFAULTLIB:libcpmt.lib\"",
+    ".ascii \" /NODEFAULTLIB:libcmt.lib\"",
+    ".text",
+);
+
+// Never read. Being referenced is the entire contract.
 struct BoundaryExports(#[allow(dead_code)] [*const (); 5]);
 
 // SAFETY: The addresses are written once, at compile time, and never read. A static has

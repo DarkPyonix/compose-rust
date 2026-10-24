@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Serves dist/ and collects the harness results.
 
-    python3 serve.py [port]
+    uv run serve.py [port]
 
 The harness POSTs its JSON results to /results; they are written to
 `results.json` next to this script and the server then exits.

@@ -94,6 +94,29 @@ class FontAssetTest {
             assertEquals(null, plain.font(role))
         }
     }
+
+    @Test
+    fun fr14_platform_ui_family_carries_every_standard_weight() {
+        dev.darkpyonix.composerust.design.installPlatformUiFamily()
+        val family = platformUiFamily
+        if (family is androidx.compose.ui.text.font.FontListFontFamily) {
+            val weights = family.fonts.map { it.weight }.toSet()
+            assertEquals(
+                setOf(
+                    androidx.compose.ui.text.font.FontWeight.W100,
+                    androidx.compose.ui.text.font.FontWeight.W200,
+                    androidx.compose.ui.text.font.FontWeight.W300,
+                    androidx.compose.ui.text.font.FontWeight.W400,
+                    androidx.compose.ui.text.font.FontWeight.W500,
+                    androidx.compose.ui.text.font.FontWeight.W600,
+                    androidx.compose.ui.text.font.FontWeight.W700,
+                    androidx.compose.ui.text.font.FontWeight.W800,
+                    androidx.compose.ui.text.font.FontWeight.W900,
+                ),
+                weights,
+            )
+        }
+    }
 }
 
 /** The Kotlin side reads the slots; this is the same assignment said from a test. */
