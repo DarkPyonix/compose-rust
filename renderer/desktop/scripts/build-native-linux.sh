@@ -139,7 +139,8 @@ rm -f "$lib"/libawt.so "$lib"/libawt_xawt.so "$lib"/libawt_headless.so \
 # reported as itself rather than as an undefined reference in the middle of a cc command.
 for required_symbol in graal_create_isolate graal_attach_thread graal_get_current_thread \
                        compose_rust_renderer_run_impl \
-                       compose_rust_renderer_request_frame_impl; do
+                       compose_rust_renderer_request_frame_impl \
+                       compose_rust_renderer_measure_impl; do
     nm -D "$lib/$image_name.so" | grep -Eq " [TW] ${required_symbol}$" && continue
     echo "-- dynamic symbol table of $image_name.so (graal_*, dioxus_*)" >&2
     nm -D "$lib/$image_name.so" | grep -E "graal_|dioxus_" >&2 || echo "   (none)" >&2
@@ -172,7 +173,8 @@ host_missing="$(comm -23 <(echo "$host_needed") <(echo "$host_referenced"))"
     "executable links makes the linker export it. Add it to c/linux_host_references.c."
 echo "host functions an application will export: $(echo $host_referenced)"
 
-for exported_symbol in compose_rust_renderer_run compose_rust_renderer_request_frame; do
+for exported_symbol in compose_rust_renderer_run compose_rust_renderer_request_frame \
+                       compose_rust_renderer_measure; do
     nm -D "$lib/$LIBRARY_NAME.so" | grep -Eq " [TW] ${exported_symbol}$" && continue
     # Say which of the two failure modes this is. The symbol can be missing entirely, which
     # means the C shim was not linked in, or it can be present but local, which means the

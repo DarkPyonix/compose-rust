@@ -72,3 +72,8 @@ private fun intlUses24HourClock(): Boolean =
             " return options.hourCycle === 'h23' || options.hourCycle === 'h24' ||" +
             " options.hour12 === false; })()",
     )
+
+/**
+ * Which thread this is. A browser tab has one, so every call is on it.
+ */
+internal fun currentThreadToken(): Any = Unit

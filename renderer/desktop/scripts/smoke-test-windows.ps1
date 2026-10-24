@@ -121,6 +121,11 @@ Invoke-Native { & $Bash $Checker check-log $CheckedLog "$ExitCode" }
 if ($LASTEXITCODE -ne 0) {
     Fail "the renderer did not come up; see $SmokeLog"
 }
+# The host measures its own label twice from inside a frame, once as text and once as the
+# node the renderer drew, and the two answers have to be the same numbers.
+if ($Output -notmatch "compose_rust_renderer_measure: agree") {
+    Fail "the measure round trip did not agree, or never ran; see $SmokeLog"
+}
 if ($RequireClick -and $Output -notmatch "compose_rust_host_dispatch_event: click") {
     Fail "no click reached the Host; click the button before the 30 second timeout and rerun"
 }

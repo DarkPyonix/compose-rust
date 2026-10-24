@@ -151,7 +151,7 @@ pub struct EventSchema {
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
     "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts;",
     "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform;",
     "keys=Enter;",
     "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged;",
@@ -183,6 +183,7 @@ const fn hash_enum_schema(mut hash: u64, schema: &[EnumVariantSchema]) -> u64 {
 const fn schema_hash() -> u64 {
     let mut hash = hash_bytes(0xcbf2_9ce4_8422_2325_u64, SCHEMA_DESCRIPTOR.as_bytes());
     hash = hash_bytes(hash, crate::extensions::SCHEMA_DESCRIPTOR.as_bytes());
+    hash = hash_bytes(hash, crate::measure::SCHEMA_DESCRIPTOR.as_bytes());
     hash = hash_enum_schema(hash, WIDGET_SCHEMA);
     hash = hash_enum_schema(hash, PROPERTY_SCHEMA);
     hash = hash_enum_schema(hash, KEY_SCHEMA);
@@ -319,9 +320,22 @@ fn wire_name_eq(input: &str, schema_name: &str) -> bool {
 
 macro_rules! define_wire_enum {
     ($schema:ident, $name:ident { $($variant:ident = $tag:literal),+ $(,)? }) => {
+        define_wire_enum!($schema, $name { $($variant = $tag),+ } unlisted {});
+    };
+    // `unlisted` variants exist in Rust and travel as their tag, but are not in the schema
+    // table, so codegen mirrors no Kotlin enum entry for them and `TryFrom` does not
+    // produce them. The one there is, `TypeRole::None`, is tag 0, which every role
+    // decoder already reads as "no role", and an entry for it in the Kotlin enum would
+    // shift every ordinal the Renderer indexes its token tables by.
+    (
+        $schema:ident,
+        $name:ident { $($variant:ident = $tag:literal),+ $(,)? }
+        unlisted { $($extra:ident = $extra_tag:literal),* $(,)? }
+    ) => {
         #[derive(Clone, Copy, Debug, Eq, PartialEq)]
         #[repr(u16)]
         pub enum $name {
+            $($extra = $extra_tag,)*
             $($variant = $tag),+
         }
 
@@ -349,7 +363,9 @@ macro_rules! define_wire_enum {
         }
 
         impl $name {
-            #[allow(dead_code)]
+            // The unit error is the wire's own convention: a name either is a variant or is
+            // not, and the caller reports which name it was.
+            #[allow(dead_code, clippy::result_unit_err)]
             #[doc(hidden)]
             #[allow(clippy::result_unit_err)]
             pub fn from_name(value: &str) -> Result<Self, ()> {
@@ -675,6 +691,11 @@ define_wire_enum!(COLOR_ROLE_SCHEMA, ColorRole {
 pub const COLOR_ROLE_COUNT: usize = 45;
 
 // The nine-rung type ladder every supported design system maps onto.
+//
+// `None` is text with no rung at all, which is what a page laid out by CSS draws: its size,
+// weight, line height, letter spacing and font come from the text's own values and nothing
+// from the design system. It is the only text that may name a font of its own. It is not
+// in the schema table, because it is not a rung: see `define_wire_enum!`.
 define_wire_enum!(TYPE_ROLE_SCHEMA, TypeRole {
     Display = 1,
     Headline = 2,
@@ -685,6 +706,36 @@ define_wire_enum!(TYPE_ROLE_SCHEMA, TypeRole {
     Label = 7,
     Caption = 8,
     Mono = 9,
+} unlisted {
+    None = 0,
+});
+
+// Where a line of text may break, as CSS `word-break` says it. `Normal` breaks where the
+// language does: between words, and between syllables in Korean. `KeepAll` breaks only at
+// spaces, which is how Korean prose is usually set. `BreakAll` breaks between any two
+// characters.
+define_wire_enum!(WORD_BREAK_SCHEMA, WordBreak {
+    Normal = 1,
+    KeepAll = 2,
+    BreakAll = 3,
+});
+
+// Whether a word too long for its line may be broken inside, as CSS `overflow-wrap` says
+// it. `Anywhere` also lets that break count when the narrowest width the text can take is
+// worked out; `BreakWord` does not.
+define_wire_enum!(OVERFLOW_WRAP_SCHEMA, OverflowWrap {
+    Normal = 1,
+    Anywhere = 2,
+    BreakWord = 3,
+});
+
+// The families CSS names without naming a font. Which installed font each one is, is the
+// platform's answer.
+define_wire_enum!(GENERIC_FAMILY_SCHEMA, GenericFamily {
+    SystemUi = 1,
+    SansSerif = 2,
+    Serif = 3,
+    Monospace = 4,
 });
 
 // Corner roles. The radius is the design system's decision.
@@ -1125,6 +1176,18 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
         variants: NOTIFICATION_PERMISSION_SCHEMA,
     },
     RoleEnumSchema {
+        name: "WordBreak",
+        variants: WORD_BREAK_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "OverflowWrap",
+        variants: OVERFLOW_WRAP_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "GenericFamily",
+        variants: GENERIC_FAMILY_SCHEMA,
+    },
+    RoleEnumSchema {
         name: "AnimatedProperty",
         variants: ANIMATED_PROPERTY_SCHEMA,
     },
@@ -1418,7 +1481,13 @@ impl Theme {
     /// Renderer, the same way a picture does. An id that names nothing is reported and
     /// the role falls back to the system font, because a screen in the wrong typeface is
     /// better than no screen.
+    ///
+    /// `TypeRole::None` has no font slot: text with no role names its own font, so asking
+    /// the theme to give it one changes nothing.
     pub const fn with_font(mut self, role: TypeRole, asset: u32) -> Self {
+        if let TypeRole::None = role {
+            return self;
+        }
         self.fonts[role as usize - 1] = asset;
         self
     }
@@ -1436,6 +1505,9 @@ impl Theme {
 
     /// The font this role resolves to, or `None` for the system font.
     pub const fn font(&self, role: TypeRole) -> Option<u32> {
+        if let TypeRole::None = role {
+            return None;
+        }
         match self.fonts[role as usize - 1] {
             0 => None,
             asset => Some(asset),
@@ -2365,17 +2437,40 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // fixed-length records sent whole. Every record carries the document version its
     // range was written against, so a list computed while the reader kept typing still
     // lands where it was meant to.
-    Decorations = 100,
-    SyntaxSpans = 101,
+    Decorations = 110,
+    SyntaxSpans = 111,
     // How many columns a tab advances. Absent leaves it to the design system.
-    TabWidth = 102,
-    OnEditRejected = 103,
-    OnHover = 104,
-    OnSave = 105,
+    TabWidth = 112,
+    OnEditRejected = 113,
+    OnHover = 114,
+    OnSave = 115,
     // One listener for every decoration that can be pressed or accepted. The ids inside
     // the decoration blob are the application's own names for them, not handlers, so the
     // event carries the id and the application tells them apart.
-    OnDecorationClick = 106,
+    OnDecorationClick = 116,
+    // The text a page laid out by CSS draws, which takes its letters from its own values
+    // rather than from a rung of the type ladder. 100 opens the block for it.
+    //
+    // The fonts to try, in order, for text whose role is `TypeRole::None`: a list of up to
+    // eight registered font assets, installed families by name and generic families, as a
+    // blob. Text with a role ignores it, because its font is the theme's.
+    Font = 100,
+    // Where a line may break, and whether a word too long for its line may be broken
+    // inside. The `WordBreak` and `OverflowWrap` roles.
+    WordBreak = 101,
+    OverflowWrap = 102,
+    // How many spaces' width apart the tab stops are. Absent is eight. A tab advances to
+    // the next stop, which only the side that measures the letters can work out.
+    TabSize = 103,
+    // Whether the sizes are CSS pixels, which the system's font scale does not enlarge.
+    AbsoluteSize = 104,
+    // Whether lines wrap at the width they are given. Absent is yes; `false` is CSS
+    // `nowrap` and `pre`, whose lines run as long as their text.
+    SoftWrap = 105,
+    // The font each run of a `Text` with no role is set in, as a blob beside `Spans`
+    // rather than inside its records: a run record keeps the 36 bytes it has always had,
+    // and only text that names fonts carries this at all.
+    SpanFonts = 106,
 });
 
 #[derive(Clone, Debug, PartialEq)]

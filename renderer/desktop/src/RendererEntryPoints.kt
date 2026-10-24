@@ -12,6 +12,8 @@ import dev.darkpyonix.composerust.ui.platform.runAppKitWindow
 import dev.darkpyonix.composerust.ui.platform.runWin32Window
 import dev.darkpyonix.composerust.ui.platform.runX11Window
 import org.graalvm.nativeimage.c.function.CFunction
+import dev.darkpyonix.composerust.protocol.MeasureRecords
+import dev.darkpyonix.composerust.runtime.RendererMeasure
 
 // C entry points of the renderer shared library.
 //
@@ -123,3 +125,34 @@ fun rendererRequestFrame(thread: IsolateThread?) {
     dev.darkpyonix.composerust.ui.platform.LatencyTrace.mark("request_frame")
     FrameRequests.request()
 }
+
+/**
+ * Measures for the Host, which calls in from inside a call this side made into it.
+ *
+ * The C shim has already refused a thread the isolate has never seen and a null buffer, so
+ * what reaches here is two readable regions of the Host's memory. Both are wrapped where
+ * they lie, and the thread is checked against the composition's before anything is read.
+ */
+@CEntryPoint(name = "compose_rust_renderer_measure_impl")
+fun rendererMeasure(
+    thread: IsolateThread?,
+    requests: CCharPointer?,
+    length: Int,
+    count: Int,
+    results: CCharPointer?,
+): Int =
+    try {
+        if (count < 0 || count > Int.MAX_VALUE / MeasureRecords.RESULT_LENGTH) {
+            MeasureRecords.CALL_UNREADABLE
+        } else {
+            RendererMeasure.measure(
+                CTypeConversion.asByteBuffer(requests, length),
+                count,
+                CTypeConversion.asByteBuffer(results, count * MeasureRecords.RESULT_LENGTH),
+            )
+        }
+    } catch (t: Throwable) {
+        // Nothing may unwind into C. A measure call that failed as a whole is a refused
+        // call, which the Host carries on past.
+        MeasureRecords.CALL_UNREADABLE
+    }
