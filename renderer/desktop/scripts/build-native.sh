@@ -218,7 +218,7 @@ link_image() {
 stub_args=()
 if [[ ! -f "$foreign_stubs" ]]; then
     link_image
-    "$NATIVE_DIR/../../experiments/static-library/generate-foreign-stubs.sh" \
+    "$SCRIPT_DIR_NATIVE/generate-foreign-stubs.sh" \
         "$lib/$LIBRARY_NAME.dylib" "$DXC_STATIC_SKIKO" "$BUILD_DIR/foreign-stubs.c"
     cc -c -O2 -arch "$arch" -o "$foreign_stubs" "$BUILD_DIR/foreign-stubs.c"
 fi
