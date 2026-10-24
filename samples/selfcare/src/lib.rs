@@ -575,13 +575,8 @@ fn profile_page(chosen: Mood) {
                             Text("This week")
                                 .type_role(TypeRole::Label)
                                 .color(Paint::Literal(palette::MUTED));
-                            Canvas(week_line(
-                                CHART.0,
-                                CHART.1,
-                                palette::MUTED,
-                                palette::ACCENT,
-                            ))
-                            .modifier(Modifier.size(CHART.0, CHART.1));
+                            Canvas(week_line(CHART.0, CHART.1, palette::MUTED, palette::ACCENT))
+                                .modifier(Modifier.size(CHART.0, CHART.1));
                         });
                 });
 

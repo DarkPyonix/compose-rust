@@ -1691,10 +1691,16 @@ mod tests {
     fn fr22_the_composer_menu_opens_alone() {
         let mut screen = Screen::new();
         screen.press_icon(IconRole::Add);
-        assert_eq!(screen.opened, 1, "the add key should open only the composer's menu");
+        assert_eq!(
+            screen.opened, 1,
+            "the add key should open only the composer's menu"
+        );
         let mut screen = Screen::new();
         screen.press_icon(IconRole::More);
-        assert_eq!(screen.opened, 1, "the more key should open only the top bar's menu");
+        assert_eq!(
+            screen.opened, 1,
+            "the more key should open only the top bar's menu"
+        );
     }
 
     /// Images, videos and the library answer when pressed.

@@ -111,9 +111,7 @@ fn memory_row(memory_set: bool, press: Press) {
                         .color(Paint::Role(ColorRole::OnSurfaceVariant))
                         // Recalling, clearing and listing act on what is stored, so they
                         // are dead keys until something is.
-                        .enabled(
-                            memory_set || !matches!(label, "MC" | "MR" | engine::MEMORY_LIST),
-                        )
+                        .enabled(memory_set || !matches!(label, "MC" | "MR" | engine::MEMORY_LIST))
                         .on_click(move || press(label));
                 });
             }
@@ -459,11 +457,7 @@ pub fn app() {
                 .modifier(Modifier.fill_max_width())
                 .content(|| {
                     if memory_open.get() {
-                        memory_sheet(
-                            memory,
-                            Rc::clone(&recall_memory),
-                            Rc::clone(&clear_memory),
-                        );
+                        memory_sheet(memory, Rc::clone(&recall_memory), Rc::clone(&clear_memory));
                     }
                 });
         });

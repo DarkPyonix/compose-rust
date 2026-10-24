@@ -595,9 +595,7 @@ mod tests {
 
     use compose_rust::ComposeHost;
     use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
-    use compose_rust::schema::{
-        EventPayload, Modifier as WireModifier, PropertyKind, WidgetKind,
-    };
+    use compose_rust::schema::{EventPayload, Modifier as WireModifier, PropertyKind, WidgetKind};
 
     /// Named for what it defends: the reference is a dark design, and a machine set
     /// the other way drew this sample light with nothing to compare against.
