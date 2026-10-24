@@ -904,6 +904,7 @@ sealed interface Modifier {
     data class Clip(val enabled: Boolean) : Modifier
     data class Alpha(val value: kotlin.Float) : Modifier
     data class Transform(val a: kotlin.Float, val b: kotlin.Float, val c: kotlin.Float, val d: kotlin.Float, val e: kotlin.Float, val f: kotlin.Float, val originX: kotlin.Float, val originY: kotlin.Float) : Modifier
+    data class Transform3D(val m0: kotlin.Float, val m1: kotlin.Float, val m2: kotlin.Float, val m3: kotlin.Float, val m4: kotlin.Float, val m5: kotlin.Float, val m6: kotlin.Float, val m7: kotlin.Float, val m8: kotlin.Float, val m9: kotlin.Float, val m10: kotlin.Float, val m11: kotlin.Float, val m12: kotlin.Float, val m13: kotlin.Float, val m14: kotlin.Float, val m15: kotlin.Float, val originX: kotlin.Float, val originY: kotlin.Float, val backfaceHidden: Boolean) : Modifier
 }
 
 /** How the segment from one keyframe to the next is timed. */
@@ -1122,7 +1123,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 2379870722881034395L
+    const val SCHEMA_HASH: Long = 2872876509146935595L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -2329,6 +2330,7 @@ object Protocol {
         24 -> 0
         25 -> 0
         26 -> 2
+        27 -> 8
         else -> throw ProtocolException("unknown modifier tag $tag", offset)
     }
 
@@ -2363,6 +2365,7 @@ object Protocol {
             24 -> Modifier.Clip(flag(first, offset))
             25 -> Modifier.Alpha(kotlin.Float.fromBits(first.toInt()))
             26 -> Modifier.Transform(finite(kotlin.Float.fromBits(first.toInt()), offset), finite(kotlin.Float.fromBits((first ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(second.toInt()), offset), finite(kotlin.Float.fromBits((second ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(readU64(batch, base, available, at + 16).toInt()), offset), finite(kotlin.Float.fromBits((readU64(batch, base, available, at + 16) ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(readU64(batch, base, available, at + 24).toInt()), offset), finite(kotlin.Float.fromBits((readU64(batch, base, available, at + 24) ushr 32).toInt()), offset))
+            27 -> Modifier.Transform3D(finite(kotlin.Float.fromBits(first.toInt()), offset), finite(kotlin.Float.fromBits((first ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(second.toInt()), offset), finite(kotlin.Float.fromBits((second ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(readU64(batch, base, available, at + 16).toInt()), offset), finite(kotlin.Float.fromBits((readU64(batch, base, available, at + 16) ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(readU64(batch, base, available, at + 24).toInt()), offset), finite(kotlin.Float.fromBits((readU64(batch, base, available, at + 24) ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(readU64(batch, base, available, at + 32).toInt()), offset), finite(kotlin.Float.fromBits((readU64(batch, base, available, at + 32) ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(readU64(batch, base, available, at + 40).toInt()), offset), finite(kotlin.Float.fromBits((readU64(batch, base, available, at + 40) ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(readU64(batch, base, available, at + 48).toInt()), offset), finite(kotlin.Float.fromBits((readU64(batch, base, available, at + 48) ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(readU64(batch, base, available, at + 56).toInt()), offset), finite(kotlin.Float.fromBits((readU64(batch, base, available, at + 56) ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(readU64(batch, base, available, at + 64).toInt()), offset), finite(kotlin.Float.fromBits((readU64(batch, base, available, at + 64) ushr 32).toInt()), offset), flag(readU64(batch, base, available, at + 72), offset))
             else -> throw ProtocolException("unknown modifier tag $tag", offset)
         }
     }

@@ -1642,7 +1642,7 @@ const fn unpack_high(word: u64) -> f32 {
 /// The value's words with nothing past the first two, which is every modifier but the few
 /// whose schema entry gives them more.
 const fn two_words(first: u64, second: u64) -> [u64; MAX_MODIFIER_WORDS] {
-    [first, second, 0, 0, 0, 0]
+    [first, second, 0, 0, 0, 0, 0, 0, 0, 0]
 }
 
 fn float_word(value: f32) -> u64 {
@@ -1713,6 +1713,10 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
                 right_paint.to_bits(),
                 bottom_paint.to_bits(),
                 left_paint.to_bits(),
+                0,
+                0,
+                0,
+                0,
             ],
         ),
         Modifier::CornerEach {
@@ -1742,6 +1746,10 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
                 0,
                 0,
                 0,
+                0,
+                0,
+                0,
+                0,
             ],
         ),
         Modifier::Clip(enabled) => (24, two_words(u64::from(*enabled), 0)),
@@ -1764,6 +1772,30 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
                 pack_floats(*origin_x, *origin_y),
                 0,
                 0,
+                0,
+                0,
+                0,
+                0,
+            ],
+        ),
+        Modifier::Transform3D {
+            m,
+            origin_x,
+            origin_y,
+            backface_hidden,
+        } => (
+            27,
+            [
+                pack_floats(m[0], m[1]),
+                pack_floats(m[2], m[3]),
+                pack_floats(m[4], m[5]),
+                pack_floats(m[6], m[7]),
+                pack_floats(m[8], m[9]),
+                pack_floats(m[10], m[11]),
+                pack_floats(m[12], m[13]),
+                pack_floats(m[14], m[15]),
+                pack_floats(*origin_x, *origin_y),
+                u64::from(*backface_hidden),
             ],
         ),
     }
@@ -1779,7 +1811,18 @@ fn decode_paint(bits: u64) -> Result<Paint, ProtocolError> {
 }
 
 fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifier, ProtocolError> {
-    let [first, second, third, fourth, fifth, sixth] = *words;
+    let [
+        first,
+        second,
+        third,
+        fourth,
+        fifth,
+        sixth,
+        seventh,
+        eighth,
+        ninth,
+        tenth,
+    ] = *words;
     match tag {
         0 => Ok(Modifier::Empty),
         1 => Ok(Modifier::Padding(f32::from_bits(first as u32))),
@@ -1884,6 +1927,46 @@ fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifi
                 f,
                 origin_x,
                 origin_y,
+            })
+        }
+        27 => {
+            let values = [
+                unpack_low(first),
+                unpack_high(first),
+                unpack_low(second),
+                unpack_high(second),
+                unpack_low(third),
+                unpack_high(third),
+                unpack_low(fourth),
+                unpack_high(fourth),
+                unpack_low(fifth),
+                unpack_high(fifth),
+                unpack_low(sixth),
+                unpack_high(sixth),
+                unpack_low(seventh),
+                unpack_high(seventh),
+                unpack_low(eighth),
+                unpack_high(eighth),
+                unpack_low(ninth),
+                unpack_high(ninth),
+            ];
+            // The same refusal as the 2D matrix: a NaN or an infinity would draw nothing
+            // on one side and something on the other.
+            if values.iter().any(|value| !value.is_finite()) {
+                return Err(ProtocolError::InvalidModifier(27));
+            }
+            let backface_hidden = match tenth {
+                0 => false,
+                1 => true,
+                _ => return Err(ProtocolError::InvalidModifier(27)),
+            };
+            let mut m = [0.0; 16];
+            m.copy_from_slice(&values[..16]);
+            Ok(Modifier::Transform3D {
+                m,
+                origin_x: values[16],
+                origin_y: values[17],
+                backface_hidden,
             })
         }
         other => Err(ProtocolError::InvalidModifier(other)),
