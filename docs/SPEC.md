@@ -307,11 +307,13 @@ Modifier는 값 리스트로 직렬화합니다. 예: `[Padding(16), FillMaxWidt
 | `TypeRole` | `Display=1, Headline=2, Title=3, Subtitle=4, Body=5, BodyStrong=6, Label=7, Caption=8, Mono=9` |
 | `ShapeRole` | `None=1, ExtraSmall=2, Small=3, Medium=4, Large=5, Full=6` |
 | `SpaceRole` | `None=1, Xs=2, Sm=3, Md=4, Lg=5, Xl=6, Xxl=7` |
-| `TextAlign` | `Start=1, Center=2, End=3, Justify=4` |
+| `TextAlign` | `Start=1, Center=2, End=3, Justify=4, Left=5, Right=6` |
 | `TextOverflow` | `Clip=1, Ellipsis=2, Visible=3` |
 | `Arrangement` | `Start=1, Center=2, End=3, SpaceBetween=4, SpaceAround=5, SpaceEvenly=6` |
 | `Alignment` | `TopStart=1, TopCenter=2, TopEnd=3, CenterStart=4, Center=5, CenterEnd=6, BottomStart=7, BottomCenter=8, BottomEnd=9` |
 | `ButtonVariant` | `Filled=1, Tonal=2, Outlined=3, Text=4` |
+
+`TextAlign`의 `Left=5`와 `Right=6`은 물리 방향입니다(소유자 승인 2026-10-25, 이슈 #92). `Start`와 `End`는 글쓰기 방향을 따라 오른쪽에서 왼쪽 글에서 뒤집히지만, `Left`와 `Right`는 뒤집히지 않습니다. CSS `text-align: left|right`가 물리 방향이라 필요하고, Compose의 `TextAlign.Left`와 `TextAlign.Right`에 대응합니다. 모르는 값은 `ProtocolError`입니다. 수용 기준: RTL 문단에서 `Left`는 왼쪽, `Right`는 오른쪽에 붙고 `Start`는 오른쪽에 붙습니다(fr13_physical_text_align_is_not_flipped_in_rtl).
 
 `Paint`는 `u64` 하나입니다. 상위 32비트가 종류(`Role=1`, `Literal=2`)이고 하위 32비트가 값(`ColorRole` 태그 또는 ARGB)입니다.
 
