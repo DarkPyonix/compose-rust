@@ -2848,7 +2848,9 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 | `Shadow` | x, y, blur, spread (dp), `Paint` | 그림자 그리기 수정자 | `box-shadow` 하나. 여럿이면 수정자를 여러 개 |
 | `Clip` | 켜짐/꺼짐 | `Modifier.clip(shape)` | `overflow: hidden`. 같은 노드에 `CornerEach`가 있으면 그 둥근 모양으로 자르고, 없으면 사각형으로 자릅니다. CSS도 `border-radius`가 있는 상자의 `overflow: hidden`은 둥근 모양으로 자릅니다 |
 | `Alpha` | 0..1 | `Modifier.alpha`(`graphicsLayer`) | `opacity`. 자식까지 한 묶음으로 합성한 뒤 한 번 적용합니다. 자식마다 따로 적용하지 않습니다. CSS `opacity`도 같은 방식입니다 |
+| `BackgroundBrush` | 사각형(x, y, w, h, dp, 노드 기준), `Paint`, 타일 방식(`NoRepeat=1`, `Repeat=2`, `RepeatX=3`, `RepeatY=4`), 타일 크기(w, h, dp) | 위치와 크기를 가진 브러시를 그리는 그리기 수정자 | `background-position`, `background-size`, `background-repeat`. 수정자 태그 28 |
 
+- `BackgroundBrush`(소유자 승인 2026-10-25, 이슈 #95)는 수정자 태그 28입니다. 27은 FR-41.3의 `Transform3D`가 가집니다. 지금은 겹마다 잘린 상자를 두고 타일마다 `Box`를 하나씩 만들어(겹당 1024개까지) 노드가 늘어납니다. 이 수정자는 노드 하나에서 브러시를 노드 안의 사각형에 놓고, 타일 방식대로 되풀이합니다. 겹이 여럿이면 Host가 CSS의 겹 순서를 풀어 수정자를 여러 개 보냅니다. 값은 `Shadow`처럼 16바이트 칸에 들어가지 않으므로 FR-41.1의 가변 길이 `SetModifier` 규칙을 따르고, `k`는 스키마가 정합니다. 타일 방식과 타일 크기가 어긋난 값(w나 h가 0 이하, 모르는 방식)은 `ProtocolError`입니다.
 - 기존 `Border`, `Shape`, `Elevation`은 그대로 둡니다. 네 변이 같으면 Host가 기존 `Border`를 씁니다.
 - **와이어 길이.** `Shadow`(값 24바이트)와 `BorderEach`(48바이트)는 지금의 16바이트 수정자 칸에 들어가지 않습니다. FR-41.1이 정한 가변 길이 `SetModifier` 규칙(`28 + 8k`바이트, `k`는 수정자 태그마다 스키마에 고정)을 따라 `Shadow`는 `k = 1`, `BorderEach`는 `k = 4`입니다. 나머지 다섯은 `k = 0`이라 지금 레코드와 같습니다.
 - 색은 `Paint`입니다. CSS 색은 리터럴이므로 `Paint::Literal`이 쓰입니다. 테마 변수(`--vscode-*`)를 색 역할로 옮기는 것은 dioxus-compose의 변환기 몫이고, 옮길 수 있는 것만 `Paint::Role`이 됩니다.
@@ -2871,7 +2873,8 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 2. 새 수정자 일곱 가지가 각자 Compose 대응대로 그려지고, 데스크톱 렌더러에서 스크린숏 테스트로 확인됩니다.
 3. 네 변이 같은 테두리와 하나의 반지름은 기존 수정자로 나가고, 새 수정자는 값이 서로 다를 때만 나갑니다.
 4. 수정자 하나만 바뀐 갱신에서 그 노드의 그 수정자 말고는 아무것도 나가지 않습니다.
-5. 이 원소들로 dioxus-compose FR-34 수용 기준 1의 세 구역 중 상자(텍스트 제외)가 그 상자 허용치를 지킵니다.
+5. `BackgroundBrush`가 지정한 사각형에 브러시를 놓고 `NoRepeat`, `Repeat`, `RepeatX`, `RepeatY`대로 되풀이합니다. 타일이 수천 개여도 노드는 늘지 않습니다(fr42_background_brush_tiles_without_extra_nodes).
+6. 이 원소들로 dioxus-compose FR-34 수용 기준 1의 세 구역 중 상자(텍스트 제외)가 그 상자 허용치를 지킵니다.
 
 #### 비용
 
