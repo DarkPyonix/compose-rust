@@ -8,15 +8,29 @@ mod renderer_dir {
     include!("build/renderer_dir.rs");
 }
 
-use renderer_dir::{
-    CACHE_DIR_ENV, FetchError, RENDERER_DIR_ENV, RendererLinkage, RendererSource, Request,
-    acquire_renderer, artifact_target, default_cache_root, renderer_linkage,
+// Which C runtime a Windows application links with the Kotlin/Native renderer, and the
+// rewriting of prebuilt libraries that lets the build choose it. Kept apart, like the
+// resolution rules, so tests/windows_crt.rs can exercise it.
+#[allow(dead_code)]
+mod windows_crt {
+    include!("build/windows_crt.rs");
+}
+
+use windows_crt::{
+    WINDOWS_CRT_ENV, WindowsCrt, blank_runtime_directives, find_msvc_library,
+    unreconcilable_message, windows_crt,
 };
 
-/// What the Linux static renderer ships beside its archive so that an application exports
-/// the Host's functions. Linked through `-l`, so the `lib` prefix and suffix are dropped
-/// there.
-const HOST_EXPORTS_LIBRARY: &str = "libcompose_rust_host_exports.so";
+use renderer_dir::{
+    CACHE_DIR_ENV, FetchError, RENDERER_DIR_ENV, RendererKind, RendererLinkage, RendererSource,
+    Request, acquire_renderer, artifact_target, default_cache_root, renderer_linkage,
+};
+
+/// Point at a directory holding a static renderer built in a checkout of this repository
+/// (`build-macos.sh` and `build-linux.sh` write one). They predate
+/// `COMPOSE_RUST_RENDERER_DIR` accepting an archive and keep working, ahead of it.
+const MACOS_STATIC_ENV: &str = "DXC_MACOS_NATIVE_LIB";
+const LINUX_STATIC_ENV: &str = "DXC_LINUX_NATIVE_LIB";
 
 /// docs.rs builds with the network switched off. Linking a renderer is not what building
 /// the documentation needs, so that build skips the whole thing and produces a library
@@ -47,10 +61,13 @@ fn main() {
     // Set when a renderer is actually linked into this build, which is not the same thing
     // as the feature being on: docs.rs turns the feature on and links nothing.
     println!("cargo:rustc-check-cfg=cfg(renderer_linked)");
-    // Set when the Linux static renderer is linked, which comes with a library the Host has
-    // to refer to so that the linker keeps it. See the DXC_LINUX_NATIVE_LIB branch below.
-    println!("cargo:rustc-check-cfg=cfg(renderer_host_exports)");
+    // Set when the Windows static renderer is linked and the application asked for no C
+    // runtime of its own. See the DXC_WINDOWS_NATIVE_LIB branch below.
+    println!("cargo:rustc-check-cfg=cfg(windows_crt_linked_in)");
+    println!("cargo:rustc-check-cfg=cfg(windows_crt_dynamic)");
     println!("cargo:rerun-if-env-changed={RENDERER_DIR_ENV}");
+    println!("cargo:rerun-if-env-changed={MACOS_STATIC_ENV}");
+    println!("cargo:rerun-if-env-changed={LINUX_STATIC_ENV}");
     println!("cargo:rerun-if-env-changed={CACHE_DIR_ENV}");
     println!("cargo:rerun-if-env-changed=DIOXUS_COMPOSE_RENDERER_DIR");
     println!("cargo:rerun-if-env-changed=DIOXUS_COMPOSE_CACHE_DIR");
@@ -58,6 +75,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build/renderer_dir.rs");
     println!("cargo:rerun-if-changed=build/sha256.rs");
     println!("cargo:rerun-if-changed=build/elf.rs");
+    println!("cargo:rerun-if-changed=build/windows_crt.rs");
 
     if std::env::var_os("CARGO_FEATURE_NATIVE_RENDERER").is_none() {
         return;
@@ -117,127 +135,13 @@ fn main() {
         return;
     }
 
-    // The renderer built for this platform directly, with no virtual machine in it.
-    //
-    // Off unless DXC_MACOS_NATIVE_LIB names the directory holding
-    // `libcompose_rust_renderer.a`, because it is not what the published crate ships:
-    // `renderer/desktop/scripts/build-macos.sh` makes one in a checkout.
-    //
-    // A static archive rather than a library beside the binary, because Kotlin/Native
-    // produces one and because what is inside it is most of Compose and all of Skia: what
-    // the application does not reach, the linker drops.
-    if target_os == "macos" {
-        if let Some(dir) = std::env::var_os("DXC_MACOS_NATIVE_LIB") {
-            let dir = PathBuf::from(dir);
-            println!("cargo:rerun-if-env-changed=DXC_MACOS_NATIVE_LIB");
-            // The archive itself, not only the variable naming it. Rebuilding the
-            // renderer and not saying so left Cargo linking yesterday's one and
-            // reporting a build that finished in no time at all.
-            println!(
-                "cargo:rerun-if-changed={}",
-                dir.join("libcompose_rust_renderer.a").display()
-            );
-            println!("cargo:rustc-link-search=native={}", dir.display());
-            println!("cargo:rustc-link-lib=static=compose_rust_renderer");
-            // What the archive itself calls in. Kotlin/Native names none of these: they
-            // are the frameworks Compose and Skia reach through, and the compression the
-            // Kotlin runtime uses for its own resources.
-            for framework in [
-                "AppKit",
-                "Foundation",
-                "Metal",
-                "QuartzCore",
-                "CoreGraphics",
-                "CoreText",
-                "CoreServices",
-                "IOKit",
-                "Carbon",
-                "OpenGL",
-            ] {
-                println!("cargo:rustc-link-lib=framework={framework}");
-            }
-            println!("cargo:rustc-link-lib=dylib=c++");
-            println!("cargo:rustc-link-lib=dylib=z");
-            println!("cargo:rustc-cfg=renderer_linked");
-            return;
-        }
-    }
-
-    // The same thing on Linux, from `build-linux.sh`, and the same reasons.
-    if target_os == "linux" {
-        if let Some(dir) = std::env::var_os("DXC_LINUX_NATIVE_LIB") {
-            let dir = PathBuf::from(dir);
-            println!("cargo:rerun-if-env-changed=DXC_LINUX_NATIVE_LIB");
-            println!(
-                "cargo:rerun-if-changed={}",
-                dir.join("libcompose_rust_renderer.a").display()
-            );
-            println!("cargo:rustc-link-search=native={}", dir.display());
-            println!("cargo:rustc-link-lib=static=compose_rust_renderer");
-            // What the archive itself calls in and Kotlin/Native names none of: the
-            // window's own libraries, the font configuration Skia asks for a font
-            // through, and the compression the Kotlin runtime uses for its resources.
-            // `stdc++` where macOS says `c++`: Skia is C++ and names its standard
-            // library's symbols, and the archive says nothing about which one. Without it
-            // the link fails on eight hundred references to std::string from Skia's text
-            // shaping alone.
-            for library in ["X11", "Xext", "GL", "fontconfig", "freetype", "stdc++", "z"] {
-                println!("cargo:rustc-link-lib=dylib={library}");
-            }
-            // A desktop keeps these where its own convention puts them and the
-            // conventions differ, so both are searched. One that is not there costs
-            // nothing.
-            for path in ["/usr/lib/x86_64-linux-gnu", "/usr/lib64"] {
-                println!("cargo:rustc-link-search=native={path}");
-            }
-            // The Host's own five functions, put where the renderer can find them.
-            //
-            // It resolves them by name at startup with `dlsym`, which reads the dynamic
-            // symbol table, and an executable's table holds only what its link put there.
-            // Without them the window opens, stays black and reports that
-            // `compose_rust_host_init is not in this image`.
-            //
-            // `-rdynamic` used to be emitted here, and it reached this package's own
-            // binaries and no application: Cargo does not pass a dependency's link
-            // arguments on. A library it names does reach every application, so the
-            // renderer build ships a small one that leaves the five undefined, and a
-            // linker exports from an executable what a library it links needs. The Host
-            // refers to one byte in it (see `native_run`) so that `--as-needed` keeps it.
-            // It is named after its absolute path, the way the desktop renderer is, so an
-            // application with no rpath can load it.
-            let exports = renderer_dir::absolute(&dir).join(HOST_EXPORTS_LIBRARY);
-            println!("cargo:rerun-if-changed={}", exports.display());
-            if !exports.is_file() {
-                panic!(
-                    "\n\ncompose-rust: {} has the static renderer but not {HOST_EXPORTS_LIBRARY}.\n\n\
-                     The renderer finds the Host's functions in the application's dynamic \
-                     symbol table, and that library is what puts them there. Without it the \
-                     application would build, open a black window and report that \
-                     compose_rust_host_init is not in the image.\n\n\
-                     renderer/desktop/scripts/build-linux.sh writes both \
-                     files; build the renderer again, or point DXC_LINUX_NATIVE_LIB at the \
-                     directory it wrote them to.\n\n",
-                    dir.display()
-                );
-            }
-            let crate_version =
-                std::env::var("CARGO_PKG_VERSION").expect("Cargo sets CARGO_PKG_VERSION");
-            let target = artifact_target(
-                &target_os,
-                &std::env::var("CARGO_CFG_TARGET_ARCH").expect("Cargo sets CARGO_CFG_TARGET_ARCH"),
-            );
-            if let Err(message) = renderer_dir::name_after_its_location(
-                &exports,
-                &exports,
-                &target_os,
-                &crate_version,
-                &target,
-            ) {
-                panic!("\n\n{message}\n\n");
-            }
-            println!("cargo:rustc-link-lib=dylib=compose_rust_host_exports");
-            println!("cargo:rustc-cfg=renderer_host_exports");
-            println!("cargo:rustc-cfg=renderer_linked");
+    // The same thing on Windows, from `build-windows.sh`: no virtual machine, and one
+    // executable. The renderer object is MinGW, because that is Kotlin/Native's only Windows
+    // target; everything else is MSVC, and the two halves meet in C calls only. What the
+    // script leaves in the directory is the whole kit an MSVC link needs.
+    if target_os == "windows" {
+        if let Some(dir) = std::env::var_os("DXC_WINDOWS_NATIVE_LIB") {
+            link_windows_native(&PathBuf::from(dir));
             return;
         }
     }
@@ -245,22 +149,63 @@ fn main() {
     let manifest_dir = PathBuf::from(
         std::env::var_os("CARGO_MANIFEST_DIR").expect("Cargo sets CARGO_MANIFEST_DIR"),
     );
+    let crate_version = std::env::var("CARGO_PKG_VERSION").expect("Cargo sets CARGO_PKG_VERSION");
+    let target_arch =
+        std::env::var("CARGO_CFG_TARGET_ARCH").expect("Cargo sets CARGO_CFG_TARGET_ARCH");
+    let target = artifact_target(&target_os, &target_arch);
+
+    // A static renderer built in a checkout, named by the variable that has always named it.
+    let static_override = match target_os.as_str() {
+        "macos" => std::env::var_os(MACOS_STATIC_ENV),
+        "linux" => std::env::var_os(LINUX_STATIC_ENV),
+        _ => None,
+    };
+    if let Some(dir) = static_override {
+        let dir = renderer_dir::absolute(&PathBuf::from(dir));
+        if !dir
+            .join(renderer_dir::renderer_static_file(&target_os))
+            .is_file()
+        {
+            panic!(
+                "\n\ncompose-rust: {} does not hold {}.\n\nThe variable names the \
+                 directory a static renderer build wrote: \
+                 renderer/desktop/scripts/build-macos.sh writes \
+                 renderer/build/macos, and build-linux.sh writes \
+                 renderer/build/linux. Unset it and this build finds or \
+                 downloads a renderer by itself.\n\n",
+                dir.display(),
+                renderer_dir::renderer_static_file(&target_os)
+            );
+        }
+        check_schema_agreement(&dir);
+        link_static(&target_os, &target, &dir);
+        return;
+    }
+
     // Only present in a checkout of this repository, and only once its renderer has been
     // built. A consumer of the published crate has neither, which is why everything below
-    // it exists.
-    let workspace_lib_dir = manifest_dir.join("../renderer/build/native-image/dist/lib");
-    let crate_version = std::env::var("CARGO_PKG_VERSION").expect("Cargo sets CARGO_PKG_VERSION");
-    let target = artifact_target(
-        &target_os,
-        &std::env::var("CARGO_CFG_TARGET_ARCH").expect("Cargo sets CARGO_CFG_TARGET_ARCH"),
-    );
+    // it exists. The static archive comes first, because it is what the release ships for
+    // macOS and Linux; the native image is what a checkout built before that.
+    let renderer_build = manifest_dir.join("../renderer/build");
+    let static_dir = match (target_os.as_str(), target_arch.as_str()) {
+        ("macos", _) => Some(renderer_build.join("macos")),
+        ("linux", "x86_64") => Some(renderer_build.join("linux")),
+        ("linux", "aarch64") => Some(renderer_build.join("linux-arm64")),
+        _ => None,
+    };
+    let shared_dir = renderer_build.join("native-image/dist/lib");
+    let workspace_dirs: Vec<&Path> = static_dir
+        .as_deref()
+        .into_iter()
+        .chain(std::iter::once(shared_dir.as_path()))
+        .collect();
     let cache_root = cache_root();
 
     let renderer = match acquire_renderer(&Request {
         env_dir: renamed_var(RENDERER_DIR_ENV, "DIOXUS_COMPOSE_RENDERER_DIR")
             .map(PathBuf::from)
             .as_deref(),
-        workspace_lib_dir: &workspace_lib_dir,
+        workspace_dirs: &workspace_dirs,
         cache_root: cache_root.as_deref(),
         crate_version: &crate_version,
         target: &target,
@@ -289,6 +234,117 @@ fn main() {
 
     let lib_dir = renderer.lib_dir;
     check_schema_agreement(&lib_dir);
+    match renderer.kind {
+        RendererKind::Static => link_static(&target_os, &target, &lib_dir),
+        RendererKind::Shared => link_shared(&target_os, &lib_dir),
+    }
+}
+
+/// What a static renderer calls into on each platform, beyond what Rust links anyway.
+///
+/// Kotlin/Native names none of these: they are what Compose and Skia reach through, and
+/// the compression the Kotlin runtime uses for its own resources. Every one is part of the
+/// system, which is what lets the application be one file.
+///
+/// A platform missing here has no static renderer yet. Windows is the next one: its
+/// archive slots in by adding its system libraries as a row of this table.
+struct StaticLink {
+    frameworks: &'static [&'static str],
+    libraries: &'static [&'static str],
+    /// On arm64 only. Skia's arm64 Linux build reaches GL through EGL, where the x86-64
+    /// one reaches it through GLX alone.
+    arm64_libraries: &'static [&'static str],
+    search_paths: &'static [&'static str],
+}
+
+fn static_link(target_os: &str) -> Option<StaticLink> {
+    match target_os {
+        "macos" => Some(StaticLink {
+            frameworks: &[
+                "AppKit",
+                "Foundation",
+                "Metal",
+                "QuartzCore",
+                "CoreGraphics",
+                "CoreText",
+                "CoreServices",
+                "IOKit",
+                "Carbon",
+                "OpenGL",
+                // The notifications an application posts go through the system's own
+                // notification centre.
+                "UserNotifications",
+            ],
+            libraries: &["c++", "z"],
+            arm64_libraries: &[],
+            search_paths: &[],
+        }),
+        // The window's own libraries, the font configuration Skia asks for a font through,
+        // and the compression the Kotlin runtime uses for its resources. `stdc++` where
+        // macOS says `c++`: Skia is C++ and names its standard library's symbols, and the
+        // archive says nothing about which one. Without it the link fails on eight hundred
+        // references to std::string from Skia's text shaping alone.
+        //
+        // A desktop keeps these where its own convention puts them and the conventions
+        // differ, so all of them are searched. One that is not there costs nothing.
+        "linux" => Some(StaticLink {
+            frameworks: &[],
+            libraries: &["X11", "Xext", "GL", "fontconfig", "freetype", "stdc++", "z"],
+            arm64_libraries: &["EGL"],
+            search_paths: &[
+                "/usr/lib/x86_64-linux-gnu",
+                "/usr/lib/aarch64-linux-gnu",
+                "/usr/lib64",
+            ],
+        }),
+        _ => None,
+    }
+}
+
+/// Links the static renderer into whatever this crate ends up in.
+///
+/// A static archive rather than a library beside the binary, because it is what makes an
+/// application one executable, and because what is inside it is most of Compose and all
+/// of Skia: what the application does not reach, the linker drops.
+///
+/// The archive needs nothing from the application's link that a dependency cannot ask
+/// for. It reaches the Host's functions by name at link time, so no symbol has to be
+/// exported for it and no library has to travel beside the executable.
+fn link_static(target_os: &str, target: &str, lib_dir: &Path) {
+    let Some(link) = static_link(target_os) else {
+        panic!(
+            "\n\n{}\n\n",
+            renderer_dir::no_static_link_message(target, lib_dir)
+        );
+    };
+    // The archive itself, not only the directory naming it. Rebuilding the renderer and
+    // not saying so left Cargo linking yesterday's one and reporting a build that finished
+    // in no time at all.
+    println!(
+        "cargo:rerun-if-changed={}",
+        lib_dir
+            .join(renderer_dir::renderer_static_file(target_os))
+            .display()
+    );
+    println!("cargo:rustc-link-search=native={}", lib_dir.display());
+    println!("cargo:rustc-link-lib=static=compose_rust_renderer");
+    for framework in link.frameworks {
+        println!("cargo:rustc-link-lib=framework={framework}");
+    }
+    for path in link.search_paths {
+        println!("cargo:rustc-link-search=native={path}");
+    }
+    let arm64 = target.ends_with("arm64") || target.ends_with("aarch64");
+    let extra: &[&str] = if arm64 { link.arm64_libraries } else { &[] };
+    for library in link.libraries.iter().chain(extra) {
+        println!("cargo:rustc-link-lib=dylib={library}");
+    }
+    println!("cargo:rustc-cfg=renderer_linked");
+}
+
+/// Links a shared renderer: the GraalVM native image, which Windows ships and a checkout
+/// can still build for macOS and Linux.
+fn link_shared(target_os: &str, lib_dir: &Path) {
     println!("cargo:rerun-if-changed={}", lib_dir.display());
     println!("cargo:rustc-link-search=native={}", lib_dir.display());
     println!("cargo:rustc-cfg=renderer_linked");
@@ -307,7 +363,7 @@ fn main() {
         // run were this package's own examples.
         //
         // The directive travels inside the rlib now, in the `.drectve` section that the
-        // MSVC linker reads out of every object it links. See `EXPORT_DIRECTIVES` in
+        // MSVC linker reads out of every object it links. See the `global_asm!` block in
         // src/boundary.rs.
         // The subsystem is not set here, and the reason is the same one the export
         // directive ran into: a build script's link arguments reach this package's own
@@ -339,7 +395,7 @@ fn main() {
         // `<target>/<profile>/build/<crate>-<hash>/out`, so three levels up is the
         // profile directory where binaries land, and `examples/` and `deps/` beside it
         // are where examples and tests land.
-        copy_renderer_beside_executables(&lib_dir);
+        copy_renderer_beside_executables(lib_dir);
         return;
     }
 
@@ -367,6 +423,292 @@ fn main() {
         "-Wl,--export-dynamic"
     };
     println!("cargo:rustc-link-arg={export_dynamic}");
+}
+
+/// Links the Windows renderer that Kotlin/Native built, and everything beside it.
+///
+/// Every library here is named with `rustc-link-lib` and none with a link argument, because
+/// a library a build script names travels in the rlib to every application built on this
+/// crate, and a link argument stops at this package's own targets.
+///
+/// The Host's functions need nothing here. The renderer finds them with GetProcAddress on
+/// the executable, which reads its export table, and the `.drectve` directives in
+/// src/boundary.rs put them there in every application's link.
+fn link_windows_native(dir: &Path) {
+    println!("cargo:rerun-if-env-changed=DXC_WINDOWS_NATIVE_LIB");
+    println!("cargo:rerun-if-env-changed={WINDOWS_CRT_ENV}");
+    println!("cargo:rerun-if-env-changed=LIB");
+    // The archive itself, not only the variable naming it: a rebuilt renderer that Cargo was
+    // not told about is yesterday's renderer, linked in no time at all.
+    println!(
+        "cargo:rerun-if-changed={}",
+        dir.join("libcompose_rust_renderer.a").display()
+    );
+    for (piece, what) in [
+        ("libcompose_rust_renderer.a", "the renderer"),
+        (
+            "native/dxc-windows-native.lib",
+            "the window and the MSVC bridge",
+        ),
+        (
+            "native/dxc-windows-static-ucrt.lib",
+            "the bridge for a statically linked UCRT",
+        ),
+        ("gcc/libstdc++.a", "the GCC runtime the renderer carries"),
+        ("skiko/skiko-bridges.lib", "skiko's C++ half"),
+        ("skiko/skia.lib", "Skia"),
+    ] {
+        if !dir.join(piece).is_file() {
+            panic!(
+                "\n\ncompose-rust: DXC_WINDOWS_NATIVE_LIB is {}, which has no {piece} ({what}).\n\n\
+                 renderer/desktop/scripts/build-windows.sh writes the whole \
+                 directory; build the renderer again, or point DXC_WINDOWS_NATIVE_LIB at the \
+                 directory it wrote.\n\n",
+                dir.display()
+            );
+        }
+    }
+
+    // Which C runtime. Nothing the application has to say: it gets the one that needs no
+    // DLL beside the executable, and build/windows_crt.rs says how that is put together.
+    let features = std::env::var("CARGO_CFG_TARGET_FEATURE").unwrap_or_default();
+    let requested = std::env::var(WINDOWS_CRT_ENV).ok();
+    let crt = match windows_crt(&features, requested.as_deref()) {
+        Ok(crt) => crt,
+        Err(message) => panic!("\n\ncompose-rust: {message}\n\n"),
+    };
+    let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").expect("Cargo sets OUT_DIR"));
+    let rewritten = out_dir.join("windows-crt");
+    if let Err(error) = std::fs::create_dir_all(&rewritten) {
+        panic!(
+            "\n\ncompose-rust: could not make {}: {error}\n\n",
+            rewritten.display()
+        );
+    }
+
+    for sub in ["", "gcc", "native"] {
+        println!("cargo:rustc-link-search=native={}", dir.join(sub).display());
+    }
+    // Skia and skiko's C++ half come from the copies made below, so the kit's own directory
+    // is not searched: two libraries of one name would leave the choice to the linker.
+    println!("cargo:rustc-link-search=native={}", rewritten.display());
+
+    // The renderer, MinGW, rewritten by the build so an MSVC link keeps its constructors and
+    // its unwind data. Named exactly, because MSVC would look for `.lib`.
+    println!("cargo:rustc-link-lib=static:+verbatim=libcompose_rust_renderer.a");
+    // The Win32 window, its toasts, the bridge to MSVC's runtime and the embedded ICU loader,
+    // linked whole: nothing calls the ICU loader or the initialiser the bridge registers by
+    // name, and a member nothing calls is one the linker leaves out.
+    println!("cargo:rustc-link-lib=static:+whole-archive,+verbatim=dxc-windows-native.lib");
+    // The GCC runtime the renderer object carries, as Kotlin/Native links it into a MinGW
+    // executable of its own: statically.
+    for library in ["libstdc++.a", "libgcc.a", "libgcc_eh.a", "libwinpthread.a"] {
+        println!("cargo:rustc-link-lib=static:+verbatim={library}");
+    }
+    // skiko's C++ half and Skia, MSVC, from copies whose runtime directives are blanked so
+    // that this build and not the order the linker reads them in decides the C runtime.
+    // Every library the Skia distribution carries is named, because which of them a given
+    // application reaches is the linker's business.
+    for library in [
+        "skiko-bridges",
+        "skresources",
+        "skparagraph",
+        "skia",
+        "icu",
+        "jsonreader",
+        "skottie",
+        "svg",
+        "sksg",
+        "skshaper",
+        "skunicode_core",
+        "skunicode_icu",
+        "harfbuzz",
+        "skcms",
+        "libpng",
+        "zlib",
+        "libjpeg",
+        "libwebp",
+        "libwebp_sse41",
+        "wuffs",
+        "expat",
+        "d3d12allocator",
+        "spirv_cross",
+        "bentleyottmann",
+    ] {
+        let file = format!("{library}.lib");
+        let source = dir.join("skiko").join(&file);
+        rewrite_runtime_directives(&source, &rewritten.join(&file));
+        println!("cargo:rustc-link-lib=static={library}");
+    }
+
+    // The C++ standard library, linked in from this machine's own MSVC installation, with its
+    // guard blanked like Skia's. Skia names it as a default library, which the copies above no
+    // longer do, so it is named here. Every runtime choice links it, the dynamic one included:
+    // Skia is built for the static runtime, so its objects name the library's data (the
+    // locale ids, std::_Raise_handler) the way static code does, and msvcprt.lib, the import
+    // library for MSVCP140.dll, defines those only under the __imp_ spelling a DLL caller uses
+    // (LNK2001, 160 times, for a link that named msvcprt.lib instead).
+    let source = msvc_library("libcpmt.lib");
+    println!("cargo:rerun-if-changed={}", source.display());
+    rewrite_runtime_directives(&source, &rewritten.join("dxc-libcpmt.lib"));
+    println!("cargo:rustc-link-lib=static:+verbatim=dxc-libcpmt.lib");
+    match crt {
+        WindowsCrt::LinkedIn | WindowsCrt::FullyStatic => {
+            if crt == WindowsCrt::LinkedIn {
+                // The rest is said by the directives in src/boundary.rs: vcruntime from its
+                // static library, and none of the default libraries that would bring a second
+                // copy of anything.
+                println!("cargo:rustc-cfg=windows_crt_linked_in");
+            } else {
+                // winpthread, in the renderer's GCC runtime, starts its threads through the
+                // UCRT's import pointers, which a statically linked UCRT does not have.
+                println!(
+                    "cargo:rustc-link-lib=static:+whole-archive,+verbatim=dxc-windows-static-ucrt.lib"
+                );
+            }
+        }
+        WindowsCrt::Dynamic => {
+            // vcruntime from VCRUNTIME140.dll, and no stock static runtime beside it: see the
+            // directives in src/boundary.rs.
+            println!("cargo:rustc-cfg=windows_crt_dynamic");
+        }
+    }
+
+    // What Skia, the window, the toasts and the Kotlin runtime call into. All of them are
+    // part of Windows; nothing here is a DLL an application would have to carry.
+    for library in [
+        "user32",
+        "gdi32",
+        "ole32",
+        "oleaut32",
+        "imm32",
+        "uiautomationcore",
+        "d3d12",
+        "dxgi",
+        "d3dcompiler",
+        "dxguid",
+        "dwrite",
+        "usp10",
+        "fontsub",
+        "windowscodecs",
+        "opengl32",
+        "advapi32",
+        "shell32",
+        "bcrypt",
+        "runtimeobject",
+    ] {
+        println!("cargo:rustc-link-lib=dylib={library}");
+    }
+    // The MSVC runtime's spellings of what MinGW code asks for: POSIX names such as `write`,
+    // and the printf family, which the UCRT defines only inline in its headers.
+    println!("cargo:rustc-link-lib=oldnames");
+    println!("cargo:rustc-link-lib=legacy_stdio_definitions");
+    println!("cargo:rustc-cfg=renderer_linked");
+}
+
+/// Copies a prebuilt MSVC library with its runtime directives blanked
+/// (`build/windows_crt.rs`), or stops the build naming it when it was built against a
+/// runtime that cannot share an executable with the others.
+fn rewrite_runtime_directives(source: &Path, destination: &Path) {
+    let mut bytes = match std::fs::read(source) {
+        Ok(bytes) => bytes,
+        Err(error) => panic!(
+            "\n\ncompose-rust: could not read {}: {error}\n\n\
+             renderer/desktop/scripts/build-windows.sh writes every library the \
+             Windows renderer links; build the renderer again.\n\n",
+            source.display()
+        ),
+    };
+    let found = blank_runtime_directives(&mut bytes);
+    if !found.unreconcilable.is_empty() {
+        panic!(
+            "\n\n{}\n\n",
+            unreconcilable_message(source, &found.unreconcilable)
+        );
+    }
+    if let Err(error) = std::fs::write(destination, &bytes) {
+        panic!(
+            "\n\ncompose-rust: could not write {}: {error}\n\n",
+            destination.display()
+        );
+    }
+}
+
+/// A library from the MSVC installation the application is being built with.
+fn msvc_library(name: &str) -> PathBuf {
+    let mut tools = Vec::new();
+    if let Some(dir) = std::env::var_os("VCToolsInstallDir") {
+        tools.push(PathBuf::from(dir));
+    }
+    tools.extend(visual_studio_tools());
+    let mut xwin = Vec::new();
+    if let Some(dir) = std::env::var_os("XWIN_DIR") {
+        xwin.push(PathBuf::from(dir));
+    }
+    if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
+        let home = PathBuf::from(home);
+        xwin.push(home.join(".cache/cargo-xwin/xwin"));
+        xwin.push(home.join("Library/Caches/cargo-xwin/xwin"));
+    }
+    let lib = std::env::var("LIB").ok();
+    find_msvc_library(name, lib.as_deref(), &tools, &xwin).unwrap_or_else(|| {
+        panic!(
+            "\n\ncompose-rust: could not find {name}, the MSVC library the Windows renderer \
+             links the C++ standard library from.\n\n\
+             It is part of Visual Studio's C++ build tools (\"Desktop development with C++\"), \
+             which linking any Rust program for Windows already needs. It was looked for on \
+             LIB, under VCToolsInstallDir, in the newest Visual Studio vswhere reports, and \
+             where cargo-xwin keeps the MSVC libraries.\n\n"
+        )
+    })
+}
+
+/// The MSVC tool directory of the newest Visual Studio with the C++ tools, as vswhere finds
+/// it. Empty where there is no vswhere, which is every machine but a Windows one.
+fn visual_studio_tools() -> Vec<PathBuf> {
+    let vswhere = PathBuf::from(
+        std::env::var_os("ProgramFiles(x86)").unwrap_or_else(|| "C:\\Program Files (x86)".into()),
+    )
+    .join("Microsoft Visual Studio")
+    .join("Installer")
+    .join("vswhere.exe");
+    if !vswhere.is_file() {
+        return Vec::new();
+    }
+    let Ok(output) = Command::new(&vswhere)
+        .args([
+            "-latest",
+            "-products",
+            "*",
+            "-requires",
+            "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+            "-property",
+            "installationPath",
+        ])
+        .output()
+    else {
+        return Vec::new();
+    };
+    let installation = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if installation.is_empty() {
+        return Vec::new();
+    }
+    let installation = PathBuf::from(installation);
+    let version_file = installation
+        .join("VC")
+        .join("Auxiliary")
+        .join("Build")
+        .join("Microsoft.VCToolsVersion.default.txt");
+    match std::fs::read_to_string(version_file) {
+        Ok(version) => vec![
+            installation
+                .join("VC")
+                .join("Tools")
+                .join("MSVC")
+                .join(version.trim()),
+        ],
+        Err(_) => Vec::new(),
+    }
 }
 
 /// A variable under its current name, or under the name it had before the project was

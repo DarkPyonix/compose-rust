@@ -4,11 +4,11 @@ package dev.darkpyonix.composerust.design
 
 import kotlinx.cinterop.convert
 import kotlinx.cinterop.toKString
-import langinfo.dxc_langinfo
-import langinfo.dxc_langinfo_abbreviated_day
-import langinfo.dxc_langinfo_first_weekday
-import langinfo.dxc_langinfo_month
-import langinfo.dxc_langinfo_time_format
+import renderer_langinfo.dxc_langinfo
+import renderer_langinfo.dxc_langinfo_abbreviated_day
+import renderer_langinfo.dxc_langinfo_first_weekday
+import renderer_langinfo.dxc_langinfo_month
+import renderer_langinfo.dxc_langinfo_time_format
 import platform.posix.LC_ALL
 import platform.posix.setlocale
 

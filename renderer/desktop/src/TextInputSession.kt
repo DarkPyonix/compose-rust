@@ -59,6 +59,16 @@ class NativeTextInput {
      * without committing anything, which is what an input method asks for when the reader
      * backs out of it.
      */
+    /**
+     * Where the caret is, in the scene's pixels from its top left, or null where no field
+     * has the keyboard or has not been laid out yet. The input method opens its candidate
+     * window there.
+     */
+    fun caretSpot(): androidx.compose.ui.geometry.Offset? {
+        val rect = session?.focusedRectInRoot?.invoke() ?: return null
+        return androidx.compose.ui.geometry.Offset(rect.left, rect.bottom)
+    }
+
     fun compose(text: String) {
         val request = session ?: return
         request.onEditCommand(listOf(SetComposingTextCommand(AnnotatedString(text), 1)))

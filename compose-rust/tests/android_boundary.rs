@@ -1,6 +1,6 @@
 //! The Android boundary: the generated shims, and the frame request a Renderer that is not
 //! yet listening would otherwise swallow. The lifecycle events the Host answers for itself
-//! are driven through an application, so they are in the Dioxus adapter's tests.
+//! are driven through an application, so they are in dioxus-compose's adapter tests.
 //!
 //! Each `tests/*.rs` file is its own binary, so the process-global frame state these tests
 //! read belongs to this file alone. They still take `FRAME_STATE` in turn, because that

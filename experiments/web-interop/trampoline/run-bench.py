@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Runs the harness in a browser several times over WebDriver and records every run.
 
-    python3 run-bench.py safari [--runs 5]            # `open -a Safari`, no WebDriver
-    python3 run-bench.py safari-webdriver [--runs 5]   # needs Allow Remote Automation
-    python3 run-bench.py chrome --chrome <Chrome or chrome-headless-shell binary> [--headless]
+    uv run run-bench.py safari [--runs 5]            # `open -a Safari`, no WebDriver
+    uv run run-bench.py safari-webdriver [--runs 5]   # needs Allow Remote Automation
+    uv run run-bench.py chrome --chrome <Chrome or chrome-headless-shell binary> [--headless]
 
 Each run is a fresh page load, so each run instantiates all four modules from
 scratch. The page POSTs its results here; they are collected into

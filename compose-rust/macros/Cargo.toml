@@ -1,0 +1,21 @@
+[package]
+name = "compose-rust-macros"
+version = "0.0.2"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "The #[composable] attribute for compose-rust's slot table runtime."
+repository = "https://github.com/DarkPyonix/compose-rust"
+keywords = ["ui", "compose", "macro"]
+categories = ["gui"]
+
+[lib]
+proc-macro = true
+# No benchmarks here, and the default bench harness rejects Criterion's flags (--quick),
+# which the workspace's `cargo bench --benches` passes to every target it runs.
+bench = false
+
+[dependencies]
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full", "visit", "visit-mut"] }

@@ -116,6 +116,8 @@ internal fun HostRichText(
     dispatcher: EventDispatcher,
     theme: ResolvedTheme,
     assets: AssetCache,
+    /** The colour an animation shows in the draw phase, or the style's own where none does. */
+    color: androidx.compose.ui.graphics.ColorProducer? = null,
 ) {
     val input = node.textInput()
     val density = textDensity(input, LocalDensity.current)
@@ -155,6 +157,7 @@ internal fun HostRichText(
             softWrap = resolved.softWrap,
             maxLines = resolved.maxLines,
             inlineContent = resolved.inlineContent,
+            color = color,
         )
     }
 }

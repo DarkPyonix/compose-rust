@@ -1,14 +1,8 @@
 # Sample apps
 
-> **These `rsx!` versions are the Dioxus baseline, not the public samples.** compose-rust
-> is getting an authoring API of its own, and the samples will be rewritten on it; that
-> version becomes the public set. What is here stays as written, built against the Dioxus
-> adapter (`adapters/dioxus`, the workspace's `dioxus-compose-adapter` dependency), so the
-> rewrite has the same screens to be compared with. `bench/dioxus-baseline` gathers them
-> under one name for that comparison. Change them only to keep them building.
-
 Each of these is a real application written the way someone using this project would
-write one: Rust only, `rsx!` and hooks, no Kotlin.
+write one: Rust only, on compose-rust's authoring API (`#[composable]` functions, widgets as
+statements, `remember` and `MutableState`), no Kotlin and no Dioxus.
 
 They exist to be used rather than admired. The widget vocabulary was chosen by reasoning
 about what applications need, and reasoning is not evidence. Every place a sample has to
@@ -83,7 +77,7 @@ An application registers a picture by drawing it:
 ```rust
 static HERO: &[u8] = include_bytes!("../assets/hero.svg");
 
-rsx! { Image { asset_id: asset(AssetKind::Svg, HERO), height: 240.0 } }
+Image(asset(AssetKind::Svg, HERO)).modifier(Modifier.fill_max_width().height(240.0));
 ```
 
 The bytes cross the boundary once. Everything after that is the id, so drawing the same
@@ -91,16 +85,11 @@ picture on every frame costs a lookup. A drawing has to say its `viewBox`, or it
 size to be scaled from and is drawn at one user unit to the pixel in the corner of whatever
 box it was given.
 
-Each one is an ordinary dx project: a `Dioxus.toml`, an `assets/` directory and
-`src/main.rs`, the layout `dx new` produces. That is deliberate, because a sample exists to
-be copied, and an arrangement that only works inside this repository teaches nothing.
-
-```
-cd samples/calculator
-dx serve
-```
-
-Building with cargo directly works too:
+Each one is an ordinary Cargo package: `src/lib.rs` with the application, a one line
+`src/main.rs`, an `assets/` directory, and a `Dioxus.toml` that holds the bundle id and the
+names dx packages an APK with. That is deliberate, because a sample exists to be copied, and
+an arrangement that only works inside this repository teaches nothing. dx is only the
+packager here: no sample depends on Dioxus.
 
 ```
 cargo run -p sample-calculator

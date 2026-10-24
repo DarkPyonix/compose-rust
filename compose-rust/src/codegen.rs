@@ -14,6 +14,10 @@ use crate::schema::{
     WEB_RUST_REGION_BASE, WEB_START_SYMBOL, WIDGET_SCHEMA, WINDOW_HEIGHT_CLASS_SCHEMA,
     WINDOW_SIZE_CLASS_SCHEMA, WidgetKind,
 };
+use crate::schema::{
+    AnimatedProperty, Animation, AnimationControl, AnimationEvents, ColorInterpolation, FillMode,
+    Keyframe, KeyframeValue, PlayState, PlaybackDirection, StepPosition, Timing, TransformFunction,
+};
 use crate::tokens::DESIGN_TOKENS;
 use crate::{EventPayload, Modifier};
 use std::fmt::Write as _;
@@ -223,7 +227,78 @@ data class Window(
     output.push_str("}\n\n");
 
     output.push_str(
-        r#"sealed interface Mutation {
+        r#"/** How the segment from one keyframe to the next is timed. */
+sealed interface Timing {
+    data object Linear : Timing
+
+    /** CSS `cubic-bezier(x1, y1, x2, y2)`, with both `x` between 0 and 1. */
+    data class CubicBezier(val x1: kotlin.Float, val y1: kotlin.Float, val x2: kotlin.Float, val y2: kotlin.Float) : Timing
+
+    /** CSS `steps(count, position)`. */
+    data class Steps(val count: Int, val position: StepPosition) : Timing
+}
+
+/**
+ * One CSS transform function and its values, the unused ones zero: a translation in dp, a
+ * rotation in degrees (not folded into one turn), a scale, a skew in degrees, or the six
+ * values of `matrix()`.
+ */
+data class TransformFunction(
+    val kind: TransformFunctionKind,
+    val v0: kotlin.Float,
+    val v1: kotlin.Float,
+    val v2: kotlin.Float,
+    val v3: kotlin.Float,
+    val v4: kotlin.Float,
+    val v5: kotlin.Float,
+)
+
+/** What one keyframe holds, which is what its animation's property takes. */
+sealed interface KeyframeValue {
+    data class Alpha(val value: kotlin.Float) : KeyframeValue
+
+    /** For `Color`, `Background` and `BorderColor`. A role is resolved against the theme every frame. */
+    data class PaintValue(val paint: Paint) : KeyframeValue
+
+    /** The same kinds in the same order in every keyframe of one animation. */
+    data class Transform(val functions: List<TransformFunction>) : KeyframeValue
+}
+
+data class Keyframe(
+    val offset: kotlin.Float,
+    val timing: Timing,
+    /** Start from what the node shows the frame the animation begins. First keyframe only. */
+    val fromPresented: Boolean,
+    val value: KeyframeValue,
+)
+
+/**
+ * One animation for the Renderer to play on its own frame clock until it ends.
+ *
+ * Keyed by `(nodeId, property, slot)`: a second one under the same key replaces the first,
+ * and of the ones in effect on one property the highest slot shows. Timing follows Web
+ * Animations Level 1. `events` is a set of bits: 1 ready, 2 active, 4 iteration, 8 end.
+ */
+data class Animation(
+    val nodeId: Int,
+    val animationId: Int,
+    val property: AnimatedProperty,
+    val slot: Int,
+    val direction: PlaybackDirection,
+    val fill: FillMode,
+    val playState: PlayState,
+    val interpolation: ColorInterpolation?,
+    val startTimeNanos: Long,
+    val delayMs: kotlin.Float,
+    val durationMs: kotlin.Float,
+    val iterations: kotlin.Float,
+    val originX: kotlin.Float,
+    val originY: kotlin.Float,
+    val events: Int,
+    val keyframes: List<Keyframe>,
+)
+
+sealed interface Mutation {
     data class Create(val nodeId: Int, val widget: WidgetKind) : Mutation
     data class SetProp(val nodeId: Int, val property: PropertyKind, val value: PropertyValue) : Mutation
     data class SetModifier(val nodeId: Int, val index: Int, val modifier: Modifier) : Mutation
@@ -295,6 +370,23 @@ data class Window(
 
     /** Asks the platform for permission. The answer comes back as an event. */
     data object RequestNotificationPermission : Mutation
+
+    /** One animation to play on the Renderer's own frame clock until it ends. */
+    data class StartAnimation(val animation: Animation) : Mutation
+
+    /**
+     * Pauses, resumes or cancels the animation under a key, if it is still the one with
+     * this id. Anything else is left alone: an animation that already ended is not an
+     * error to stop.
+     */
+    data class ControlAnimation(
+        val nodeId: Int,
+        val animationId: Int,
+        val property: AnimatedProperty,
+        val slot: Int,
+        val op: AnimationControl,
+        val atTimeNanos: Long,
+    ) : Mutation
 }
 
 "#,
@@ -333,6 +425,10 @@ data class Window(
             EventPayloadType::NotificationPermission => {
                 output.push_str(", val state: NotificationPermission");
             }
+            EventPayloadType::Animation => output.push_str(
+                ", val animationId: Int, val kind: AnimationEventKind, val property: AnimatedProperty, val slot: Int, val iteration: Int, val elapsedMs: kotlin.Float, val timeNanos: Long",
+            ),
+            EventPayloadType::ReducedMotion => output.push_str(", val state: ReducedMotion"),
         }
         output.push_str(") : HostEvent\n");
     }
@@ -375,7 +471,12 @@ object Protocol {
     private const val TAG_POST_NOTIFICATION = 14
     private const val TAG_WITHDRAW_NOTIFICATION = 15
     private const val TAG_REQUEST_NOTIFICATION_PERMISSION = 16
+    private const val TAG_START_ANIMATION = 18
+    private const val TAG_CONTROL_ANIMATION = 19
     private const val ENVELOPE_LENGTH = 12
+    private const val ANIMATION_HEADER_LENGTH = 52
+    private const val KEYFRAME_HEAD_LENGTH = 24
+    private const val TRANSFORM_FUNCTION_LENGTH = 28
     /** Four role tags, one font asset id per type role, then the palette's reference. */
     private val THEME_RECORD_LENGTH = 20 + 4 * TypeRole.entries.size
 
@@ -459,16 +560,15 @@ object Protocol {
                         )
                     }
                     TAG_SET_MODIFIER -> {
-                        requireRecordLength(length, 28, offset)
+                        // The modifier's tag fixes the record's length: 28 bytes, and eight
+                        // more for each word its value takes beyond the first two.
+                        if (length < 28) requireRecordLength(length, 28, offset)
+                        val modifierTag = readU16(batch, base, available, offset + 10)
+                        requireRecordLength(length, 28 + 8 * modifierExtraWords(modifierTag, offset + 10), offset)
                         Mutation.SetModifier(
                             readU32(batch, base, available, offset + 4).toInt(),
                             readU16(batch, base, available, offset + 8),
-                            modifier(
-                                readU16(batch, base, available, offset + 10),
-                                readU64(batch, base, available, offset + 12),
-                                readU64(batch, base, available, offset + 20),
-                                offset + 10,
-                            ),
+                            modifier(modifierTag, batch, base, available, offset + 12, offset + 10),
                         )
                     }
                     TAG_INSERT -> {
@@ -594,6 +694,23 @@ object Protocol {
                         requireRecordLength(length, 4, offset)
                         Mutation.RequestNotificationPermission
                     }
+                    TAG_START_ANIMATION -> {
+                        if (length < ANIMATION_HEADER_LENGTH) {
+                            requireRecordLength(length, ANIMATION_HEADER_LENGTH, offset)
+                        }
+                        Mutation.StartAnimation(animation(batch, base, available, offset, length))
+                    }
+                    TAG_CONTROL_ANIMATION -> {
+                        requireRecordLength(length, 24, offset)
+                        Mutation.ControlAnimation(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            readU32(batch, base, available, offset + 8).toInt(),
+                            animatedProperty(readU8(batch, base, available, offset + 12), offset + 12),
+                            readU8(batch, base, available, offset + 13),
+                            animationControl(readU8(batch, base, available, offset + 14), offset + 14),
+                            readU64(batch, base, available, offset + 16),
+                        )
+                    }
                     else -> throw ProtocolException("unknown mutation tag $tag", offset)
                 }
                 onMutation(mutation)
@@ -702,7 +819,9 @@ object Protocol {
             | EventPayloadType::Double
             | EventPayloadType::WindowSize
             | EventPayloadType::DesignSystem
-            | EventPayloadType::NotificationPermission => {
+            | EventPayloadType::NotificationPermission
+            | EventPayloadType::Animation
+            | EventPayloadType::ReducedMotion => {
                 writeln!(
                     output,
                     "                is HostEvent.{} -> null",
@@ -731,6 +850,8 @@ object Protocol {
             // A word and a string reference, the protocol error's shape.
             EventPayloadType::NotificationActivation => 28,
             EventPayloadType::NotificationPermission => 20,
+            EventPayloadType::Animation => 40,
+            EventPayloadType::ReducedMotion => 20,
         };
         writeln!(
             output,
@@ -835,6 +956,27 @@ object Protocol {
                 output.push_str(
                     "                    out.putInt(notificationPermissionTag(event.state))\n",
                 );
+                output.push_str("                }\n");
+            }
+            EventPayloadType::Animation => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(event.animationId)\n");
+                output.push_str(
+                    "                    out.put(animationEventKindTag(event.kind).toByte())\n",
+                );
+                output.push_str(
+                    "                    out.put(animatedPropertyTag(event.property).toByte())\n",
+                );
+                output.push_str("                    out.put(event.slot.toByte())\n");
+                output.push_str("                    out.put(0.toByte())\n");
+                output.push_str("                    out.putInt(event.iteration)\n");
+                output.push_str("                    out.putFloat(event.elapsedMs)\n");
+                output.push_str("                    out.putLong(event.timeNanos)\n");
+                output.push_str("                }\n");
+            }
+            EventPayloadType::ReducedMotion => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(reducedMotionTag(event.state))\n");
                 output.push_str("                }\n");
             }
             EventPayloadType::Double => {
@@ -985,6 +1127,34 @@ object Protocol {
         .unwrap();
     }
     output.push_str("    }\n\n");
+    // The enums the Renderer writes into animation events and the motion setting.
+    for (function, name, variants) in [
+        (
+            "animationEventKindTag",
+            "AnimationEventKind",
+            crate::schema::ANIMATION_EVENT_KIND_SCHEMA,
+        ),
+        (
+            "animatedPropertyTag",
+            "AnimatedProperty",
+            crate::schema::ANIMATED_PROPERTY_SCHEMA,
+        ),
+        (
+            "reducedMotionTag",
+            "ReducedMotion",
+            crate::schema::REDUCED_MOTION_SCHEMA,
+        ),
+    ] {
+        writeln!(
+            output,
+            "    private fun {function}(value: {name}): Int = when (value) {{"
+        )
+        .unwrap();
+        for variant in variants {
+            writeln!(output, "        {name}.{} -> {}", variant.name, variant.tag).unwrap();
+        }
+        output.push_str("    }\n\n");
+    }
     // The palette's own role lookup answers null rather than throwing, because an entry
     // naming a role this side does not know is reported and skipped, not the end of the
     // batch.
@@ -1033,13 +1203,41 @@ object Protocol {
         }
     }
 
-    private fun modifier(tag: Int, first: Long, second: Long, offset: Int): Modifier = when (tag) {
+    /** A word that says yes or no. Any value but 0 and 1 is a record the sides disagree on. */
+    private fun flag(word: Long, offset: Int): Boolean = when (word) {
+        0L -> false
+        1L -> true
+        else -> throw ProtocolException("invalid flag $word", offset)
+    }
+
+    /** A value that has to be a number. NaN or an infinity is a record the sides disagree on. */
+    private fun finite(value: kotlin.Float, offset: Int): kotlin.Float =
+        if (value.isFinite()) value else throw ProtocolException("$value is not a finite number", offset)
+
+    /**
+     * How many eight byte words a modifier's value takes beyond the two every record has.
+     * The tag fixes it, so a record of any other length is refused before it is read.
+     */
+    private fun modifierExtraWords(tag: Int, offset: Int): Int = when (tag) {
+"#,
+    );
+    for variant in MODIFIER_SCHEMA {
+        writeln!(output, "        {} -> {}", variant.tag, variant.extra_words).unwrap();
+    }
+    output.push_str(
+        r#"        else -> throw ProtocolException("unknown modifier tag $tag", offset)
+    }
+
+    private fun modifier(tag: Int, batch: ByteBuffer, base: Int, available: Int, at: Int, offset: Int): Modifier {
+        val first = readU64(batch, base, available, at)
+        val second = readU64(batch, base, available, at + 8)
+        return when (tag) {
 "#,
     );
     for variant in MODIFIER_SCHEMA {
         write!(
             output,
-            "        {} -> Modifier.{}",
+            "            {} -> Modifier.{}",
             variant.tag, variant.name
         )
         .unwrap();
@@ -1057,7 +1255,8 @@ object Protocol {
         }
     }
     output.push_str(
-        r#"        else -> throw ProtocolException("unknown modifier tag $tag", offset)
+        r#"            else -> throw ProtocolException("unknown modifier tag $tag", offset)
+        }
     }
 
     /**
@@ -1224,6 +1423,140 @@ object Protocol {
         val grown = ByteArray(size)
         stringScratch = grown
         return grown
+    }
+
+    /**
+     * Reads one `StartAnimation` record and refuses anything that is not an animation this
+     * Renderer could play, asking the same questions the Host's decoder asks of the same
+     * bytes: known values, at least two keyframes, offsets from 0 to 1 that never go back,
+     * a duration and an iteration count that are numbers and not negative, values of the
+     * property's own kind, transform lists lined up across keyframes, and a length that
+     * holds exactly its keyframes.
+     */
+    private fun animation(batch: ByteBuffer, base: Int, available: Int, start: Int, length: Int): Animation {
+        val end = start + length
+        fun float(at: Int): kotlin.Float = kotlin.Float.fromBits(readU32(batch, base, available, at).toInt())
+        fun bad(message: String, at: Int): Nothing = throw ProtocolException("invalid animation: $message", at)
+        val property = animatedProperty(readU8(batch, base, available, start + 12), start + 12)
+        val colour = property == AnimatedProperty.Color || property == AnimatedProperty.Background ||
+            property == AnimatedProperty.BorderColor
+        val rawInterpolation = readU8(batch, base, available, start + 17)
+        val interpolation = when {
+            colour -> colorInterpolation(rawInterpolation, start + 17)
+            rawInterpolation == 0 -> null
+            else -> bad("only a colour has an interpolation", start + 17)
+        }
+        val keyframeCount = readU16(batch, base, available, start + 18)
+        val delayMs = float(start + 28)
+        val durationMs = float(start + 32)
+        val iterations = float(start + 36)
+        val originX = float(start + 40)
+        val originY = float(start + 44)
+        val events = readU8(batch, base, available, start + 48)
+        if (keyframeCount < 2) bad("$keyframeCount keyframes", start + 18)
+        if (!delayMs.isFinite()) bad("delay $delayMs", start + 28)
+        if (!durationMs.isFinite() || durationMs < 0f) bad("duration $durationMs", start + 32)
+        if (iterations.isNaN() || iterations < 0f) bad("iteration count $iterations", start + 36)
+        if (!originX.isFinite() || !originY.isFinite()) bad("origin", start + 40)
+        if (events and 0xf.inv() != 0) bad("event bits $events", start + 48)
+        val keyframes = ArrayList<Keyframe>(keyframeCount)
+        var at = start + ANIMATION_HEADER_LENGTH
+        for (index in 0 until keyframeCount) {
+            if (at + KEYFRAME_HEAD_LENGTH > end) bad("keyframe $index runs past the record", at)
+            val keyframeOffset = float(at)
+            val flags = readU16(batch, base, available, at + 6)
+            val timing = when (timingKind(readU8(batch, base, available, at + 4), at + 4)) {
+                TimingKind.Linear -> Timing.Linear
+                TimingKind.CubicBezier -> {
+                    val x1 = float(at + 8)
+                    val y1 = float(at + 12)
+                    val x2 = float(at + 16)
+                    val y2 = float(at + 20)
+                    if (!(x1.isFinite() && y1.isFinite() && x2.isFinite() && y2.isFinite()) ||
+                        x1 < 0f || x1 > 1f || x2 < 0f || x2 > 1f
+                    ) {
+                        bad("cubic-bezier($x1, $y1, $x2, $y2)", at + 8)
+                    }
+                    Timing.CubicBezier(x1, y1, x2, y2)
+                }
+                TimingKind.Steps -> {
+                    val position = stepPosition(readU8(batch, base, available, at + 5), at + 5)
+                    val count = readU32(batch, base, available, at + 8)
+                    val least = if (position == StepPosition.JumpNone) 2L else 1L
+                    if (count < least || count > Int.MAX_VALUE) bad("steps($count, $position)", at + 8)
+                    Timing.Steps(count.toInt(), position)
+                }
+            }
+            if (flags and 1.inv() != 0 || (index > 0 && flags != 0)) bad("keyframe flags $flags", at + 6)
+            if (!(keyframeOffset >= 0f && keyframeOffset <= 1f)) bad("keyframe offset $keyframeOffset", at)
+            val valueAt = at + KEYFRAME_HEAD_LENGTH
+            val value: KeyframeValue
+            when (property) {
+                AnimatedProperty.Alpha -> {
+                    val alpha = float(valueAt)
+                    if (!alpha.isFinite()) bad("alpha $alpha", valueAt)
+                    value = KeyframeValue.Alpha(alpha)
+                    at = valueAt + 4
+                }
+                AnimatedProperty.Color, AnimatedProperty.Background, AnimatedProperty.BorderColor -> {
+                    val paint = paint(readU64(batch, base, available, valueAt), valueAt)
+                    if (paint is Paint.Asset) bad("a brush cannot be mixed with another colour", valueAt)
+                    value = KeyframeValue.PaintValue(paint)
+                    at = valueAt + 8
+                }
+                AnimatedProperty.Transform -> {
+                    val count = readU16(batch, base, available, valueAt)
+                    val functions = ArrayList<TransformFunction>(count)
+                    for (function in 0 until count) {
+                        val functionAt = valueAt + 4 + TRANSFORM_FUNCTION_LENGTH * function
+                        if (functionAt + TRANSFORM_FUNCTION_LENGTH > end) bad("transform function runs past the record", functionAt)
+                        val rawKind = readU32(batch, base, available, functionAt)
+                        if (rawKind > Int.MAX_VALUE) bad("transform function kind $rawKind", functionAt)
+                        val kind = transformFunctionKind(rawKind.toInt(), functionAt)
+                        val values = FloatArray(6) { float(functionAt + 4 + 4 * it) }
+                        if (!values.all { it.isFinite() }) bad("transform values", functionAt + 4)
+                        functions += TransformFunction(kind, values[0], values[1], values[2], values[3], values[4], values[5])
+                    }
+                    value = KeyframeValue.Transform(functions)
+                    at = valueAt + 4 + TRANSFORM_FUNCTION_LENGTH * count
+                }
+            }
+            keyframes += Keyframe(keyframeOffset, timing, flags != 0, value)
+        }
+        if (at != end) bad("the record is $length bytes and its keyframes end at ${at - start}", start + 2)
+        if (keyframes.first().offset != 0f || keyframes.last().offset != 1f) bad("offsets do not run from 0 to 1", start)
+        for (index in 1 until keyframes.size) {
+            if (keyframes[index].offset < keyframes[index - 1].offset) bad("offsets go back", start)
+        }
+        val shape = (keyframes.first().value as? KeyframeValue.Transform)?.functions?.map { it.kind }
+        if (shape != null &&
+            keyframes.any { (it.value as KeyframeValue.Transform).functions.map { function -> function.kind } != shape }
+        ) {
+            bad("transform lists differ between keyframes", start)
+        }
+        return Animation(
+            nodeId = readU32(batch, base, available, start + 4).toInt(),
+            animationId = readU32(batch, base, available, start + 8).toInt(),
+            property = property,
+            slot = readU8(batch, base, available, start + 13),
+            direction = playbackDirection(readU8(batch, base, available, start + 14), start + 14),
+            fill = fillMode(readU8(batch, base, available, start + 15), start + 15),
+            playState = playState(readU8(batch, base, available, start + 16), start + 16),
+            interpolation = interpolation,
+            startTimeNanos = readU64(batch, base, available, start + 20),
+            delayMs = delayMs,
+            durationMs = durationMs,
+            iterations = iterations,
+            originX = originX,
+            originY = originY,
+            events = events,
+            keyframes = keyframes,
+        )
+    }
+
+    private fun readU8(batch: ByteBuffer, base: Int, available: Int, offset: Int): Int {
+        requireRange(available, offset, 1, offset)
+        return batch.get(base + offset).toInt() and 0xff
     }
 
     private fun readU16(batch: ByteBuffer, base: Int, available: Int, offset: Int): Int {
@@ -1450,6 +1783,126 @@ pub fn spans_vector() -> crate::spans::TextSpans {
             .with_background(Paint::Role(ColorRole::DiffAddedEmphasis)),
         TextSpan::new(5, 2).with_background(Paint::Literal(Color::argb(0xff44_5566))),
     ])
+}
+
+/// Two keyframes each, the first eased and starting from what is presented, the second
+/// linear; every other field set to something other than its default, so a field read
+/// from the wrong offset cannot pass.
+fn vector_animation(
+    node_id: u32,
+    animation_id: u32,
+    property: AnimatedProperty,
+    slot: u8,
+    values: [KeyframeValue; 2],
+) -> Animation<'static> {
+    let colour = matches!(
+        property,
+        AnimatedProperty::Color | AnimatedProperty::Background | AnimatedProperty::BorderColor
+    );
+    let [first, last] = values;
+    Animation {
+        node_id,
+        animation_id,
+        property,
+        slot,
+        direction: PlaybackDirection::Alternate,
+        fill: FillMode::Both,
+        play_state: PlayState::Running,
+        interpolation: colour.then_some(ColorInterpolation::SrgbPremultiplied),
+        start_time_nanos: 0,
+        delay_ms: -250.0,
+        duration_ms: 1000.0,
+        iterations: 2.5,
+        origin_x: if property == AnimatedProperty::Transform {
+            0.5
+        } else {
+            0.0
+        },
+        origin_y: if property == AnimatedProperty::Transform {
+            0.25
+        } else {
+            0.0
+        },
+        events: AnimationEvents::ACTIVE.union(AnimationEvents::END),
+        keyframes: std::borrow::Cow::Owned(vec![
+            Keyframe {
+                offset: 0.0,
+                timing: Timing::CubicBezier {
+                    x1: 0.25,
+                    y1: 0.1,
+                    x2: 0.25,
+                    y2: 1.0,
+                },
+                from_presented: true,
+                value: first,
+            },
+            Keyframe {
+                offset: 0.6,
+                timing: Timing::Steps {
+                    count: 4,
+                    position: StepPosition::JumpBoth,
+                },
+                from_presented: false,
+                value: last.clone(),
+            },
+            Keyframe {
+                offset: 1.0,
+                timing: Timing::Linear,
+                from_presented: false,
+                value: last,
+            },
+        ]),
+    }
+}
+
+const VECTOR_TRANSLATE: [TransformFunction; 2] = [
+    TransformFunction::translate(0.0, 0.0),
+    TransformFunction::translate(24.0, -8.0),
+];
+const VECTOR_ROTATE: [TransformFunction; 2] = [
+    TransformFunction::rotate(0.0),
+    TransformFunction::rotate(720.0),
+];
+const VECTOR_SCALE: [TransformFunction; 2] = [
+    TransformFunction::scale(1.0, 1.0),
+    TransformFunction::scale(1.5, 0.5),
+];
+const VECTOR_SKEW: [TransformFunction; 2] = [
+    TransformFunction::skew(0.0, 0.0),
+    TransformFunction::skew(10.0, -5.0),
+];
+const VECTOR_MATRIX: [TransformFunction; 2] = [
+    TransformFunction::matrix(1.0, 0.0, 0.0, 1.0, 0.0, 0.0),
+    TransformFunction::matrix(0.75, 0.5, -0.25, 1.25, 12.0, -6.0),
+];
+/// `rotate(0) translateX(0) scale(1)` to `rotate(360deg) translateX(100px) scale(2)`.
+const VECTOR_THREE: [TransformFunction; 6] = [
+    TransformFunction::rotate(0.0),
+    TransformFunction::translate(0.0, 0.0),
+    TransformFunction::scale(1.0, 1.0),
+    TransformFunction::rotate(360.0),
+    TransformFunction::translate(100.0, 0.0),
+    TransformFunction::scale(2.0, 2.0),
+];
+
+/// A transform animation on the vector's box from the first half of `functions` to the
+/// second.
+fn vector_transform(
+    animation_id: u32,
+    slot: u8,
+    functions: &'static [TransformFunction],
+) -> Animation<'static> {
+    let (from, to) = functions.split_at(functions.len() / 2);
+    vector_animation(
+        8,
+        animation_id,
+        AnimatedProperty::Transform,
+        slot,
+        [
+            KeyframeValue::Transform(std::borrow::Cow::Borrowed(from)),
+            KeyframeValue::Transform(std::borrow::Cow::Borrowed(to)),
+        ],
+    )
 }
 
 pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
@@ -1703,6 +2156,145 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             property: PropertyKind::Collapsible,
             value: PropertyValue::Bool(true),
         },
+        // A box whose children sit where the Host put them, and the seven modifiers an HTML
+        // and CSS screen is drawn with. Two of them are longer than 28 bytes, which is the
+        // rule both decoders have to read the same way. They come after every older record,
+        // so the bytes of those are where they always were.
+        Mutation::Create {
+            node_id: 8,
+            widget: WidgetKind::AbsoluteBox,
+        },
+        Mutation::SetModifier {
+            node_id: 8,
+            index: 0,
+            modifier: Modifier::Offset { x: 12.5, y: -4.0 },
+        },
+        Mutation::SetModifier {
+            node_id: 8,
+            index: 1,
+            modifier: Modifier::RequiredSize {
+                width: 320.0,
+                height: 180.0,
+            },
+        },
+        Mutation::SetModifier {
+            node_id: 8,
+            index: 2,
+            modifier: Modifier::BorderEach {
+                top: 1.0,
+                right: 2.0,
+                bottom: 3.0,
+                left: 4.0,
+                top_paint: Paint::Literal(Color::argb(0xff11_2233)),
+                right_paint: Paint::Role(ColorRole::Outline),
+                bottom_paint: Paint::Literal(Color::argb(0x8044_5566)),
+                left_paint: Paint::Role(ColorRole::Primary),
+            },
+        },
+        Mutation::SetModifier {
+            node_id: 8,
+            index: 3,
+            modifier: Modifier::CornerEach {
+                top_left: 4.0,
+                top_right: 8.0,
+                bottom_right: 12.0,
+                bottom_left: 16.0,
+            },
+        },
+        Mutation::SetModifier {
+            node_id: 8,
+            index: 4,
+            modifier: Modifier::Shadow {
+                x: 0.0,
+                y: 2.0,
+                blur: 6.0,
+                spread: -1.0,
+                paint: Paint::Literal(Color::argb(0x4000_0000)),
+            },
+        },
+        Mutation::SetModifier {
+            node_id: 8,
+            index: 5,
+            modifier: Modifier::Clip(true),
+        },
+        Mutation::SetModifier {
+            node_id: 8,
+            index: 6,
+            modifier: Modifier::Alpha(0.5),
+        },
+        // A transform whose eight values are all different, so a value read from the
+        // wrong half of the wrong word cannot pass.
+        Mutation::SetModifier {
+            node_id: 8,
+            index: 7,
+            modifier: Modifier::Transform {
+                a: 0.75,
+                b: 0.5,
+                c: -0.25,
+                d: 1.25,
+                e: 12.0,
+                f: -6.0,
+                origin_x: 0.5,
+                origin_y: 0.25,
+            },
+        },
+        // Animations the Renderer plays itself: one for each property, a transform for
+        // each function kind and one of three functions, and a control record. Opacity and
+        // transform play on the box above, which has both; colour and background name node
+        // 2, which the vector never creates.
+        Mutation::StartAnimation(vector_animation(
+            8,
+            1,
+            AnimatedProperty::Alpha,
+            0,
+            [KeyframeValue::Alpha(0.0), KeyframeValue::Alpha(1.0)],
+        )),
+        Mutation::StartAnimation(vector_animation(
+            2,
+            2,
+            AnimatedProperty::Color,
+            0,
+            [
+                KeyframeValue::Paint(Paint::Role(ColorRole::Primary)),
+                KeyframeValue::Paint(Paint::Literal(Color::argb(0x8011_2233))),
+            ],
+        )),
+        Mutation::StartAnimation(vector_animation(
+            2,
+            3,
+            AnimatedProperty::Background,
+            1,
+            [
+                KeyframeValue::Paint(Paint::Literal(Color::argb(0xff00_0000))),
+                KeyframeValue::Paint(Paint::Role(ColorRole::Surface)),
+            ],
+        )),
+        Mutation::StartAnimation(vector_transform(4, 0, &VECTOR_TRANSLATE)),
+        Mutation::StartAnimation(vector_transform(5, 1, &VECTOR_ROTATE)),
+        Mutation::StartAnimation(vector_transform(6, 2, &VECTOR_SCALE)),
+        Mutation::StartAnimation(vector_transform(7, 3, &VECTOR_SKEW)),
+        Mutation::StartAnimation(vector_transform(8, 4, &VECTOR_MATRIX)),
+        Mutation::StartAnimation(vector_transform(9, 5, &VECTOR_THREE)),
+        Mutation::ControlAnimation {
+            node_id: 8,
+            animation_id: 1,
+            property: AnimatedProperty::Alpha,
+            slot: 0,
+            op: AnimationControl::Pause,
+            at_time_nanos: 1_500_000_000,
+        },
+        // The border colour, after every record that was here before it so their bytes
+        // stay where they were. Node 2 again, which the vector never creates.
+        Mutation::StartAnimation(vector_animation(
+            2,
+            10,
+            AnimatedProperty::BorderColor,
+            0,
+            [
+                KeyframeValue::Paint(Paint::Role(ColorRole::Outline)),
+                KeyframeValue::Paint(Paint::Literal(Color::argb(0xff33_6699))),
+            ],
+        )),
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {
@@ -1788,6 +2380,24 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
             handler_id: 0,
             payload: EventPayload::NotificationPermissionChanged(NotificationPermission::Denied),
         },
+        HostEvent {
+            node_id: 8,
+            handler_id: 0,
+            payload: EventPayload::AnimationEvent {
+                animation_id: 7,
+                kind: crate::schema::AnimationEventKind::End,
+                property: AnimatedProperty::Transform,
+                slot: 2,
+                iteration: 3,
+                elapsed_ms: 3000.0,
+                time_nanos: 123_456_789_012,
+            },
+        },
+        HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: EventPayload::ReducedMotionChanged(crate::schema::ReducedMotion::On),
+        },
     ];
     let mut output = Vec::new();
     let mut encoded = Vec::new();
@@ -1806,8 +2416,8 @@ pub fn generate_vector_description() -> String {
   "byteOrder": "little-endian",
   "mutations": {{
     "file": "mutations.bin",
-    "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run and split pane property",
-    "recordCount": 46,
+    "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements and the animations the Renderer plays",
+    "recordCount": 66,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
@@ -1819,7 +2429,7 @@ pub fn generate_vector_description() -> String {
   }},
   "events": {{
     "file": "events.bin",
-    "description": "Eleven independently decodable event records concatenated in schema order",
+    "description": "Thirteen independently decodable event records concatenated in schema order",
     "records": [
       {{ "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 }},
       {{ "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" }},
@@ -1831,7 +2441,9 @@ pub fn generate_vector_description() -> String {
       {{ "type": "ValueChanged", "offset": 169, "length": 24, "nodeId": 11, "handlerId": 17, "value": -19723.5 }},
       {{ "type": "WindowSizeChanged", "offset": 193, "length": 32, "nodeId": 0, "handlerId": 0, "widthDp": 840.0, "heightDp": 600.0, "sizeClass": "Expanded", "heightClass": "Medium" }},
       {{ "type": "NotificationActivated", "offset": 225, "length": 37, "nodeId": 0, "handlerId": 0, "action": 1, "key": "session/7" }},
-      {{ "type": "NotificationPermissionChanged", "offset": 262, "length": 20, "nodeId": 0, "handlerId": 0, "state": "Denied" }}
+      {{ "type": "NotificationPermissionChanged", "offset": 262, "length": 20, "nodeId": 0, "handlerId": 0, "state": "Denied" }},
+      {{ "type": "AnimationEvent", "offset": 282, "length": 40, "nodeId": 8, "handlerId": 0, "animationId": 7, "kind": "End", "property": "Transform", "slot": 2, "iteration": 3, "elapsedMs": 3000.0, "timeNanos": 123456789012 }},
+      {{ "type": "ReducedMotionChanged", "offset": 322, "length": 20, "nodeId": 0, "handlerId": 0, "state": "On" }}
     ]
   }}
 }}
@@ -1859,17 +2471,22 @@ fn kotlin_type(ty: FieldType) -> String {
         FieldType::U64 => "Long".to_owned(),
         FieldType::Paint => "Paint".to_owned(),
         FieldType::Role(name) => format!("{KOTLIN_PACKAGE}.{name}"),
+        FieldType::Bool => "Boolean".to_owned(),
+        FieldType::FiniteFloat => "kotlin.Float".to_owned(),
     }
 }
 
-/// The `u64` word a field lives in, and whether it occupies the high 32 bits.
-fn slot_word(slot: FieldSlot) -> (&'static str, bool) {
-    match slot {
-        FieldSlot::FirstLow | FieldSlot::First => ("first", false),
-        FieldSlot::FirstHigh => ("first", true),
-        FieldSlot::SecondLow | FieldSlot::Second => ("second", false),
-        FieldSlot::SecondHigh => ("second", true),
-    }
+/// The Kotlin expression for the `u64` word a field lives in, and whether it occupies the
+/// high 32 bits. The first two words are read for every modifier; a word past them is read
+/// only by the modifier that has it.
+fn slot_word(slot: FieldSlot) -> (String, bool) {
+    let (index, high) = slot.word();
+    let word = match index {
+        0 => "first".to_owned(),
+        1 => "second".to_owned(),
+        _ => format!("readU64(batch, base, available, at + {})", 8 * index),
+    };
+    (word, high)
 }
 
 fn modifier_decode_expression(field: &FieldSchema) -> String {
@@ -1882,9 +2499,11 @@ fn modifier_decode_expression(field: &FieldSchema) -> String {
     match field.ty {
         FieldType::Float => format!("kotlin.Float.fromBits({narrow})"),
         FieldType::U32 => narrow,
-        FieldType::U64 => word.to_owned(),
+        FieldType::U64 => word,
         FieldType::Paint => format!("paint({word}, offset)"),
         FieldType::Role(name) => format!("{}({narrow}, offset)", lower_camel(name)),
+        FieldType::Bool => format!("flag({word}, offset)"),
+        FieldType::FiniteFloat => format!("finite(kotlin.Float.fromBits({narrow}), offset)"),
     }
 }
 
@@ -3550,7 +4169,7 @@ fn lent(address: u32) -> bool {
 /// all in that case.
 ///
 /// The application exports this as `{WEB_START_SYMBOL}` through its authoring layer's
-/// entry macro (`web_main!` in the Dioxus adapter), and the export lives there rather than
+/// entry point (`web_main!` in dioxus-compose), and the export lives there rather than
 /// here because a wasm module cannot be linked with an undefined symbol the way an ELF
 /// shared library can: an import nobody satisfies stops the module from being
 /// instantiated, so this crate's own module must not name a function only an application
@@ -3657,5 +4276,86 @@ fn wasm_shim(op: &BoundaryOp) -> String {
         output.push_str("    STATUS_OK\n");
     }
     output.push_str("}\n\n");
+    output
+}
+
+// ---------------------------------------------------------------------------------------
+// The Linux static renderer's reach into the Host.
+//
+// That renderer is a Kotlin/Native archive linked into the application, so the Host's
+// functions are in the same executable as the code that calls them. They are reached the
+// way any two halves of one program reach each other, by name at link time, rather than
+// looked up at run time: a lookup reads the executable's dynamic symbol table, and nothing
+// a dependency can ask of an application's link puts them there without a shared library
+// beside the executable, which is exactly what one executable cannot have.
+//
+// The references are weak. A Kotlin/Native test executable for the renderer's own module
+// links with no Host in it, and a strong reference would fail that link; a weak one
+// resolves to nothing there, and the renderer falls back to the lookup it uses everywhere
+// else. In an application the Host is linked, the references resolve to it, and nothing
+// is looked up.
+// ---------------------------------------------------------------------------------------
+
+/// The cinterop definition the Linux module's `cinterop/` directory holds. The Kotlin
+/// Toolchain picks up every definition there by convention.
+pub const LINUX_HOST_DEF_RELATIVE_PATH: &str = "../renderer/linux/cinterop/host.def";
+
+/// The C function the Linux renderer calls to find one Host function by name.
+pub const LINKED_HOST_FUNCTION: &str = "dxc_linked_host_function";
+
+/// Emits the cinterop definition that gives the Linux renderer the Host's addresses.
+pub fn generate_linux_host_def() -> String {
+    let mut output = String::new();
+    output.push_str("# Generated by `cargo run -p compose-rust --bin codegen`. DO NOT EDIT.\n");
+    output.push_str(
+        r#"#
+# Where the Linux renderer finds the Host's functions when it is linked into the
+# application as a static archive.
+#
+# The renderer and the Host are one executable then, so the Host's functions are referred
+# to by name and the link resolves them, the way any two halves of one program refer to each
+# other. Looking them up at run time instead reads the executable's dynamic symbol table,
+# and a Rust executable puts nothing there unless a shared library beside it asks for it.
+#
+# The references are weak. The renderer module's own test executable links with no Host in
+# it, and a weak reference that nothing defines is a null address rather than a failed
+# link. The renderer then falls back to looking the name up, which is also what it does on
+# every other platform.
+package = dxc_host
+
+# The declarations below exist to be referred to, not called from Kotlin: the renderer
+# calls through the addresses with the signatures its own boundary code declares.
+"#,
+    );
+    output.push_str("excludedFunctions =");
+    for op in BOUNDARY_SCHEMA {
+        write!(output, " {}", op.symbol).unwrap();
+    }
+    output.push_str("\n\n---\n\n");
+    // The prototypes are deliberately not the real ones. Only addresses are taken here, so
+    // a signature that later changes cannot make this file disagree with the Host.
+    for op in BOUNDARY_SCHEMA {
+        writeln!(
+            output,
+            "extern void {}(void) __attribute__((weak));",
+            op.symbol
+        )
+        .unwrap();
+    }
+    output.push('\n');
+    writeln!(
+        output,
+        "static inline void* {LINKED_HOST_FUNCTION}(const char* name) {{"
+    )
+    .unwrap();
+    for op in BOUNDARY_SCHEMA {
+        writeln!(
+            output,
+            "    if (__builtin_strcmp(name, \"{0}\") == 0) return (void*)&{0};",
+            op.symbol
+        )
+        .unwrap();
+    }
+    output.push_str("    return 0;\n}\n");
     output
 }

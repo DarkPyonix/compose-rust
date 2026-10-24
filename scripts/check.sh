@@ -48,8 +48,6 @@ cargo test -p compose-rust --no-default-features
 # because adding it is a download and this gate is meant to run anywhere.
 if rustup target list --installed | grep -qx aarch64-linux-android; then
     cargo clippy -p compose-rust --target aarch64-linux-android -- -D warnings
-    # Every Android application is built on the Dioxus adapter, so it has to build there too.
-    cargo clippy -p dioxus-compose-adapter --target aarch64-linux-android -- -D warnings
 else
     echo "skipping the Android target (rustup target add aarch64-linux-android)"
 fi
@@ -59,8 +57,9 @@ fi
 if rustup target list --installed | grep -qx wasm32-unknown-unknown; then
     cargo clippy -p compose-rust --no-default-features \
         --target wasm32-unknown-unknown -- -D warnings
-    # The browser's start that takes a root component is the Dioxus adapter's.
-    cargo clippy -p dioxus-compose-adapter --no-default-features \
+    # The page's entry point is exported by the application, and web_host is the one this
+    # repository builds, so it has to build for the browser too.
+    cargo clippy -p compose-rust --no-default-features --example web_host \
         --target wasm32-unknown-unknown -- -D warnings
 else
     echo "skipping the wasm target (rustup target add wasm32-unknown-unknown)"
@@ -70,6 +69,9 @@ fi
 DOCS_RS=1 cargo check -p compose-rust --all-features
 # --benches restricts the run to Criterion bench targets. Without it cargo also runs the
 # lib's default test harness in bench mode, and that harness rejects Criterion's flags.
+# The workspace has no bench target right now: the Host budget benchmarks drove the Dioxus
+# adapter and moved to dioxus-compose with it. compose-rust's own come with its authoring
+# API (#64), and this line runs them when they land.
 cargo bench --workspace --benches -- "${bench_args[@]}"
 
 if [[ "$skip_kotlin" != "0" ]]; then
@@ -78,6 +80,20 @@ if [[ "$skip_kotlin" != "0" ]]; then
 fi
 
 renderer_gate="$repo_root/renderer/scripts/gate-platforms.sh"
+
+# The modules built below ask for the Compose fork's artifacts by versions only the fork
+# publishes, to ~/.m2. Resolved before they are there, the toolchain records the failed
+# download in its own cache and keeps failing after they are published, so they are checked
+# before anything runs it: desktop always, macOS and Linux when this machine builds them.
+fork_modules=(desktop)
+gate_builds="$("$renderer_gate" build "$repo_root/renderer")"
+grep -qx macosArm64 <<< "$gate_builds" && fork_modules+=(macos)
+grep -qE '^linux(X64|Arm64)$' <<< "$gate_builds" && fork_modules+=(linux)
+"$repo_root/renderer/scripts/require-fork-artifacts.sh" "${fork_modules[@]}"
+
+# The renderer depends on the Compose fork's window modules as Maven artifacts. Published first,
+# from the commit renderer/scripts/build-compose.sh pins.
+"$repo_root/renderer/scripts/publish-window.sh"
 
 cd "$repo_root/renderer"
 # Which platforms this machine can build, and which it can run tests for. Named rather than

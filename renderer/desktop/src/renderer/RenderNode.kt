@@ -15,9 +15,20 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorProducer
 import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.Measurable
+import androidx.compose.ui.layout.MeasurePolicy
+import androidx.compose.ui.layout.MeasureResult
+import androidx.compose.ui.layout.MeasureScope
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.Constraints
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.TypeRole
 import dev.darkpyonix.composerust.protocol.WidgetKind
@@ -68,6 +79,7 @@ import dev.darkpyonix.composerust.ui.horizontalAlignment
 import dev.darkpyonix.composerust.ui.horizontalArrangement
 import dev.darkpyonix.composerust.ui.maxLines
 import dev.darkpyonix.composerust.ui.overflow
+import dev.darkpyonix.composerust.ui.paintProp
 import dev.darkpyonix.composerust.ui.textStyle
 import dev.darkpyonix.composerust.ui.toComposeModifier
 import dev.darkpyonix.composerust.ui.verticalAlignment
@@ -80,6 +92,13 @@ import dev.darkpyonix.composerust.ui.weightOf
  */
 internal object RenderNodeObserver {
     var onCompose: ((Int) -> Unit)? = null
+
+    /**
+     * Counts measurements of a box that places its children where the Host put them, so a
+     * test can assert that redrawing a node, moving it through a layer or animating it does
+     * not measure it again. Set only by tests.
+     */
+    var onMeasure: ((Int) -> Unit)? = null
 }
 
 /** Test tag every interpreted node carries, so tests can address nodes by Host node id. */
@@ -106,8 +125,9 @@ fun RenderNode(
     // Observation point for the recomposition test; null in production.
     RenderNodeObserver.onCompose?.let { observer -> SideEffect { observer(nodeId) } }
     val theme = LocalDesignTheme.current
-    val chain = parentModifier
-        .then(node.modifiers.toComposeModifier(nodeId, dispatcher, theme))
+    val profiled = if (LayoutProfile.enabled) parentModifier.then(LayoutProfile.modifier(node.widget.name)) else parentModifier
+    val chain = profiled
+        .then(node.modifiers.toComposeModifier(nodeId, dispatcher, theme) { table.animations.animated(nodeId) })
         .testTag(nodeTestTag(nodeId))
     // The TextField wires its own key handling, because it has an editor to intercept and a
     // composition to protect; everything else routes keys here.
@@ -124,170 +144,311 @@ fun RenderNode(
     // the bar in the systems that draw glass, and it can only take that shape if it knows
     // what it is sitting on.
     val glass = node.isMadeOfGlass(theme)
-    when (node.widget) {
-        WidgetKind.Column -> Column(
-            modifier = modifier,
-            verticalArrangement = node.verticalArrangement(theme),
-            horizontalAlignment = node.horizontalAlignment(),
-        ) { OnGlass(glass) { Children(node, table, dispatcher) } }
+    ProvideInheritedColor(nodeId, node, table, theme) {
+        when (node.widget) {
+            WidgetKind.Column -> Column(
+                modifier = modifier,
+                verticalArrangement = node.verticalArrangement(theme),
+                horizontalAlignment = node.horizontalAlignment(),
+            ) { OnGlass(glass) { Children(node, table, dispatcher) } }
 
-        WidgetKind.Row -> Row(
-            modifier = modifier,
-            horizontalArrangement = node.horizontalArrangement(theme),
-            verticalAlignment = node.verticalAlignment(),
-        ) { OnGlass(glass) { Children(node, table, dispatcher) } }
+            WidgetKind.Row -> Row(
+                modifier = modifier,
+                horizontalArrangement = node.horizontalArrangement(theme),
+                verticalAlignment = node.verticalAlignment(),
+            ) { OnGlass(glass) { Children(node, table, dispatcher) } }
 
-        // A place files may be dropped is laid out as a plain box. Being this widget is
-        // the whole of the difference: the drop target is set up for it and for nothing
-        // else in the tree.
-        WidgetKind.Box, WidgetKind.FileDropTarget ->
-            Box(modifier, contentAlignment = node.boxAlignment()) {
-            OnGlass(glass) { Children(node, table, dispatcher) }
-        }
-
-        // One widget whether or not it carries runs. A paragraph with a bold phrase in
-        // it is one piece of text, and three widgets would wrap at the seams.
-        WidgetKind.Text -> HostRichText(node, modifier, dispatcher, theme, table.assets)
-
-        WidgetKind.Spacer -> Spacer(modifier)
-        // The controls are drawn through `Unselectable`, which leaves them out of a
-        // selectable region around them: a label is pressed, not copied. Outside a region
-        // it adds nothing.
-        WidgetKind.Button -> Unselectable { HostButton(node, modifier, dispatcher, theme) }
-        WidgetKind.TextField -> Unselectable { HostTextField(node, modifier, dispatcher) }
-        WidgetKind.LazyColumn -> HostLazyColumn(node, modifier, table, dispatcher)
-
-        // The same window as a list, rounded to whole rows because a row is what a grid
-        // lays out. How many items a row holds is the grid's own answer where the screen
-        // gave a minimum width instead of a count.
-        WidgetKind.LazyGrid -> HostLazyGrid(node, modifier, table, dispatcher)
-        // Drawing commands rather than children: the size comes from the modifier chain
-        // and the commands are read from the node's one property.
-        WidgetKind.Canvas -> HostCanvas(node, modifier, theme)
-        // ScrollColumn is a column that scrolls without the Host windowing it, so every
-        // child is materialised. Use LazyColumn when the list is long.
-        //
-        // LinearProgressIndicator is declared by an extension package rather than the core
-        // schema, and is drawn like any built-in widget.
-        WidgetKind.LinearProgressIndicator -> {
-            val progress = node.number(PropertyKind.Progress)
-            if (progress == null) {
-                LinearProgressIndicator(modifier = modifier)
-            } else {
-                LinearProgressIndicator(progress = { progress }, modifier = modifier)
+            // A place files may be dropped is laid out as a plain box. Being this widget is
+            // the whole of the difference: the drop target is set up for it and for nothing
+            // else in the tree.
+            WidgetKind.Box, WidgetKind.FileDropTarget ->
+                Box(modifier, contentAlignment = node.boxAlignment()) {
+                OnGlass(glass) { Children(node, table, dispatcher) }
             }
+
+            // One widget whether or not it carries runs. A paragraph with a bold phrase in
+            // it is one piece of text, and three widgets would wrap at the seams.
+            WidgetKind.Text -> {
+                val inherited = LocalInheritedTextColor.current
+                val holder = table.animations.animated(nodeId)
+                HostRichText(
+                    node,
+                    modifier,
+                    dispatcher,
+                    theme,
+                    table.assets,
+                    remember(holder, inherited) { TextColor(node, holder, inherited) },
+                )
+            }
+
+            WidgetKind.Spacer -> Spacer(modifier)
+            // The controls are drawn through `Unselectable`, which leaves them out of a
+            // selectable region around them: a label is pressed, not copied. Outside a region
+            // it adds nothing.
+            WidgetKind.Button -> Unselectable { HostButton(node, modifier, dispatcher, theme) }
+            WidgetKind.TextField -> Unselectable { HostTextField(node, modifier, dispatcher) }
+            WidgetKind.LazyColumn -> HostLazyColumn(node, modifier, table, dispatcher)
+
+            // The same window as a list, rounded to whole rows because a row is what a grid
+            // lays out. How many items a row holds is the grid's own answer where the screen
+            // gave a minimum width instead of a count.
+            WidgetKind.LazyGrid -> HostLazyGrid(node, modifier, table, dispatcher)
+            // Drawing commands rather than children: the size comes from the modifier chain
+            // and the commands are read from the node's one property.
+            WidgetKind.Canvas -> HostCanvas(node, modifier, theme)
+            // ScrollColumn is a column that scrolls without the Host windowing it, so every
+            // child is materialised. Use LazyColumn when the list is long.
+            //
+            // LinearProgressIndicator is declared by an extension package rather than the core
+            // schema, and is drawn like any built-in widget.
+            WidgetKind.LinearProgressIndicator -> {
+                val progress = node.number(PropertyKind.Progress)
+                if (progress == null) {
+                    LinearProgressIndicator(modifier = modifier)
+                } else {
+                    LinearProgressIndicator(progress = { progress }, modifier = modifier)
+                }
+            }
+            WidgetKind.ScrollColumn -> Column(
+                modifier = modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = node.verticalArrangement(theme),
+                horizontalAlignment = node.horizontalAlignment(),
+            ) { Children(node, table, dispatcher) }
+
+            // The same thing on its side: a row that scrolls without the Host windowing it,
+            // so every child is materialised. Use LazyRow when the strip is long. The scroll
+            // state is remembered here, under the node's own key, so a recomposition of the
+            // row or of any child leaves the position where the user put it.
+            WidgetKind.ScrollRow -> Row(
+                modifier = modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = node.horizontalArrangement(theme),
+                verticalAlignment = node.verticalAlignment(),
+            ) { Children(node, table, dispatcher) }
+
+            // The containers, the overlays and the tab strip carry no appearance of their own:
+            // each one names the kind of container it is and the design system decides what
+            // that looks like.
+            WidgetKind.Card ->
+                HostContainerColumn(ContainerRole.Card, node, modifier, table, dispatcher, theme)
+
+            WidgetKind.Surface ->
+                HostContainerColumn(ContainerRole.Surface, node, modifier, table, dispatcher, theme)
+
+            WidgetKind.TopAppBar -> HostTopAppBar(node, modifier, table, dispatcher, theme)
+            WidgetKind.Dialog -> HostDialog(node, modifier, table, dispatcher, theme)
+            WidgetKind.Menu -> HostMenu(node, modifier, table, dispatcher, theme)
+            WidgetKind.Tabs -> Unselectable { HostTabs(node, modifier, table, dispatcher, theme) }
+            WidgetKind.Tooltip -> HostTooltip(node, modifier, table, dispatcher, theme)
+            WidgetKind.LazyRow -> HostLazyRow(node, modifier, table, dispatcher)
+
+            // The selection controls and the indicators. Each one is drawn from the state it
+            // was sent: the tick, the track, the thumb, the sweep and the weight of a rule are
+            // the design system's, so the same declaration is a Material control here and a
+            // Cupertino one there.
+            WidgetKind.Checkbox -> Unselectable {
+                HostToggle(ToggleRole.Checkbox, node, modifier, dispatcher, theme)
+            }
+
+            WidgetKind.RadioButton -> Unselectable {
+                HostToggle(ToggleRole.RadioButton, node, modifier, dispatcher, theme)
+            }
+
+            WidgetKind.Switch -> Unselectable {
+                HostToggle(ToggleRole.Switch, node, modifier, dispatcher, theme)
+            }
+
+            WidgetKind.Slider -> Unselectable { HostSlider(node, modifier, dispatcher, theme) }
+            WidgetKind.ProgressIndicator -> HostProgressIndicator(node, modifier, theme)
+            WidgetKind.Divider -> HostDivider(node, modifier, theme)
+
+            // A picture is one registered id. The bytes were read when the Host registered
+            // them, so what a frame carries is the id and a lookup.
+            WidgetKind.Image -> HostImage(node, modifier, table.assets, dispatcher)
+            WidgetKind.Icon -> HostIcon(node, modifier, table.assets, dispatcher, theme)
+
+            // The pickers carry a value, a range and a change handler. Which way of picking the
+            // user gets, a calendar grid, a wheel, a dial or a flyout, is the design system's
+            // decision, and there is no property that could ask for one of them.
+            WidgetKind.DatePicker -> Unselectable { HostDatePicker(node, modifier, dispatcher, theme) }
+            WidgetKind.TimePicker -> Unselectable { HostTimePicker(node, modifier, dispatcher, theme) }
+            WidgetKind.Dropdown ->
+                Unselectable { HostDropdown(node, modifier, table, dispatcher, theme) }
+
+            // One declaration, three presentations. Which one this is comes from the design
+            // system, asked about the size class this window is in, so the Host that declared
+            // it never learned how wide the window was.
+            WidgetKind.Navigation -> HostNavigation(node, modifier, table, dispatcher, theme)
+
+            // Normally drawn by the Navigation it belongs to, which knows whether it is the
+            // selected one. On its own it is a destination nobody has chosen.
+            WidgetKind.NavigationItem -> Unselectable { HostNavigationItem(node, modifier, theme) }
+
+            // A temporary surface from an edge of the window. Which edge is this side's
+            // decision, and so is everything about the drag that closes it.
+            WidgetKind.Sheet -> HostSheet(node, modifier, table, dispatcher, theme)
+
+            // The screen's frame. The application filled slots; what each one becomes here
+            // comes from the design system and the width this window was measured at.
+            WidgetKind.Scaffold -> HostScaffold(node, modifier, table, dispatcher, theme)
+
+            // Drawn by the frame it belongs to, which is the only thing that knows which slot
+            // this is. On its own it is a tree with a label nobody read.
+            WidgetKind.ScaffoldSlot -> Column(modifier = modifier) {
+                Children(node, table, dispatcher)
+            }
+
+            // A label, perhaps a glyph, and the chosen state exactly as the Host sent it. The
+            // shape of the token is the design system's.
+            WidgetKind.Chip -> HostChip(node, modifier, dispatcher, theme)
+
+            // The one action a screen is about, in the form its design system gives it. Where
+            // it goes is decided by the frame it is in, which asks the same rule.
+            WidgetKind.FloatingAction -> HostFloatingAction(node, modifier, dispatcher, theme)
+
+            // A count, a word or a dot, on its child or on its own. Where it sits and how a
+            // large count is written are the design system's.
+            WidgetKind.Badge -> HostBadge(node, modifier, table, dispatcher, theme)
+
+            // Every Text inside, however deep, is one selection. The modifier goes on the
+            // region rather than the column inside it, so a weight the parent gave it still
+            // reaches the parent's scope.
+            WidgetKind.SelectionContainer -> SelectableRegion(modifier) {
+                Column { Children(node, table, dispatcher) }
+            }
+
+            // A side pane and a body. Whether they are side by side, laid over one another or
+            // shown one at a time is the design system's answer for the split pane's own width,
+            // and the drag on the divider never leaves this side until it is let go.
+            WidgetKind.SplitPane -> HostSplitPane(node, modifier, table, dispatcher, theme)
+
+            // Children laid where the Host already put them, each at its own `Offset`. Nothing
+            // here arranges, aligns or sizes one child by another: the Host's layout engine
+            // has decided all of it, and a second layout pass could only disagree with it.
+            WidgetKind.AbsoluteBox -> Layout(
+                content = {
+                    node.children.forEach { childId ->
+                        key(childId) { RenderNode(childId, table, dispatcher) }
+                    }
+                },
+                modifier = modifier,
+                measurePolicy = remember(nodeId) { AbsoluteBoxMeasurePolicy(nodeId) },
+            )
         }
-        WidgetKind.ScrollColumn -> Column(
-            modifier = modifier.verticalScroll(rememberScrollState()),
-            verticalArrangement = node.verticalArrangement(theme),
-            horizontalAlignment = node.horizontalAlignment(),
-        ) { Children(node, table, dispatcher) }
+    }
+}
 
-        // The same thing on its side: a row that scrolls without the Host windowing it,
-        // so every child is materialised. Use LazyRow when the strip is long. The scroll
-        // state is remembered here, under the node's own key, so a recomposition of the
-        // row or of any child leaves the position where the user put it.
-        WidgetKind.ScrollRow -> Row(
-            modifier = modifier.horizontalScroll(rememberScrollState()),
-            horizontalArrangement = node.horizontalArrangement(theme),
-            verticalAlignment = node.verticalAlignment(),
-        ) { Children(node, table, dispatcher) }
+/**
+ * The colour text inside a container inherits, the way CSS `color` reaches every piece of
+ * text below the element that set it. Null outside any container that names one, where a
+ * Text draws in its own style's colour.
+ *
+ * A colour producer rather than a colour, read in the draw phase: an animation the Renderer
+ * plays on the container's colour repaints every Text that inherits it, and none of them is
+ * recomposed or sent a record of its own.
+ */
+val LocalInheritedTextColor = compositionLocalOf<ColorProducer?> { null }
 
-        // The containers, the overlays and the tab strip carry no appearance of their own:
-        // each one names the kind of container it is and the design system decides what
-        // that looks like.
-        WidgetKind.Card ->
-            HostContainerColumn(ContainerRole.Card, node, modifier, table, dispatcher, theme)
+/** The layout containers whose `color` is what the text inside them inherits. */
+internal val INHERITS_TEXT_COLOR: Set<WidgetKind> = setOf(
+    WidgetKind.Column,
+    WidgetKind.Row,
+    WidgetKind.Box,
+    WidgetKind.FileDropTarget,
+    WidgetKind.AbsoluteBox,
+    WidgetKind.ScrollColumn,
+    WidgetKind.ScrollRow,
+    WidgetKind.LazyColumn,
+    WidgetKind.LazyRow,
+    WidgetKind.LazyGrid,
+)
 
-        WidgetKind.Surface ->
-            HostContainerColumn(ContainerRole.Surface, node, modifier, table, dispatcher, theme)
+/**
+ * Hands a container's colour down to the text inside it. Every container provides one,
+ * whether or not it names a colour now, so an animation or a `color` that arrives later
+ * reaches its text in the draw phase without the container being composed again.
+ */
+@Composable
+private fun ProvideInheritedColor(
+    nodeId: Int,
+    node: Node,
+    table: NodeTable,
+    theme: ResolvedTheme,
+    content: @Composable () -> Unit,
+) {
+    if (node.widget !in INHERITS_TEXT_COLOR) {
+        content()
+        return
+    }
+    val parent = LocalInheritedTextColor.current
+    val holder = table.animations.animated(nodeId)
+    val inherited = remember(holder, theme, parent) { InheritedColor(node, holder, theme, parent) }
+    CompositionLocalProvider(LocalInheritedTextColor provides inherited, content = content)
+}
 
-        WidgetKind.TopAppBar -> HostTopAppBar(node, modifier, table, dispatcher, theme)
-        WidgetKind.Dialog -> HostDialog(node, modifier, table, dispatcher, theme)
-        WidgetKind.Menu -> HostMenu(node, modifier, table, dispatcher, theme)
-        WidgetKind.Tabs -> Unselectable { HostTabs(node, modifier, table, dispatcher, theme) }
-        WidgetKind.Tooltip -> HostTooltip(node, modifier, table, dispatcher, theme)
-        WidgetKind.LazyRow -> HostLazyRow(node, modifier, table, dispatcher)
+/** What a container shows its text: an animation's colour, its own `color`, or its parent's. */
+private class InheritedColor(
+    private val node: Node,
+    private val holder: AnimatedNode,
+    private val theme: ResolvedTheme,
+    private val parent: ColorProducer?,
+) : ColorProducer {
+    override fun invoke(): Color {
+        val bits = holder.textColor.longValue
+        if (bits != AnimatedNode.NO_COLOR) return Color(bits.toULong())
+        node.paintProp(PropertyKind.Color)?.let { return theme.color(it) }
+        return parent?.invoke() ?: Color.Unspecified
+    }
+}
 
-        // The selection controls and the indicators. Each one is drawn from the state it
-        // was sent: the tick, the track, the thumb, the sweep and the weight of a rule are
-        // the design system's, so the same declaration is a Material control here and a
-        // Cupertino one there.
-        WidgetKind.Checkbox -> Unselectable {
-            HostToggle(ToggleRole.Checkbox, node, modifier, dispatcher, theme)
+/**
+ * The colour a Text draws with: its own animation's while one plays, its own style where it
+ * names a `color`, and otherwise the colour of the container it is in.
+ */
+private class TextColor(
+    private val node: Node,
+    private val holder: AnimatedNode,
+    private val inherited: ColorProducer?,
+) : ColorProducer {
+    override fun invoke(): Color {
+        val bits = holder.textColor.longValue
+        if (bits != AnimatedNode.NO_COLOR) return Color(bits.toULong())
+        if (node.paintProp(PropertyKind.Color) != null) return Color.Unspecified
+        return inherited?.invoke() ?: Color.Unspecified
+    }
+}
+
+/**
+ * How an `AbsoluteBox` lays out: every child at the box's own origin, moved from there by
+ * its `Offset`, with later children drawn over earlier ones.
+ *
+ * Each child is measured with no limit at all, so it is exactly the size its own modifiers
+ * say. Under a limit, a child bigger than the box would be squeezed, or, with a required
+ * size, centred on the room it was given, and either would move it away from where the
+ * Host put it. CSS lets a box overflow its parent, and so does this.
+ *
+ * The box itself is as big as its largest child, within what its parent allows, the way a
+ * `Box` is. An HTML screen gives every box a `RequiredSize`, so this is rarely what decides.
+ */
+private class AbsoluteBoxMeasurePolicy(private val nodeId: Int) : MeasurePolicy {
+    override fun MeasureScope.measure(
+        measurables: List<Measurable>,
+        constraints: Constraints,
+    ): MeasureResult {
+        RenderNodeObserver.onMeasure?.invoke(nodeId)
+        val placeables = measurables.map { it.measure(Constraints()) }
+        var width = constraints.minWidth
+        var height = constraints.minHeight
+        for (placeable in placeables) {
+            width = maxOf(width, placeable.width)
+            height = maxOf(height, placeable.height)
         }
-
-        WidgetKind.RadioButton -> Unselectable {
-            HostToggle(ToggleRole.RadioButton, node, modifier, dispatcher, theme)
+        width = width.coerceAtMost(constraints.maxWidth)
+        height = height.coerceAtMost(constraints.maxHeight)
+        // `place` rather than `placeRelative`: the Host's coordinates are the screen's, so a
+        // right-to-left layout direction must not mirror them a second time.
+        return layout(width, height) {
+            for (placeable in placeables) placeable.place(0, 0)
         }
-
-        WidgetKind.Switch -> Unselectable {
-            HostToggle(ToggleRole.Switch, node, modifier, dispatcher, theme)
-        }
-
-        WidgetKind.Slider -> Unselectable { HostSlider(node, modifier, dispatcher, theme) }
-        WidgetKind.ProgressIndicator -> HostProgressIndicator(node, modifier, theme)
-        WidgetKind.Divider -> HostDivider(node, modifier, theme)
-
-        // A picture is one registered id. The bytes were read when the Host registered
-        // them, so what a frame carries is the id and a lookup.
-        WidgetKind.Image -> HostImage(node, modifier, table.assets, dispatcher)
-        WidgetKind.Icon -> HostIcon(node, modifier, table.assets, dispatcher, theme)
-
-        // The pickers carry a value, a range and a change handler. Which way of picking the
-        // user gets, a calendar grid, a wheel, a dial or a flyout, is the design system's
-        // decision, and there is no property that could ask for one of them.
-        WidgetKind.DatePicker -> Unselectable { HostDatePicker(node, modifier, dispatcher, theme) }
-        WidgetKind.TimePicker -> Unselectable { HostTimePicker(node, modifier, dispatcher, theme) }
-        WidgetKind.Dropdown ->
-            Unselectable { HostDropdown(node, modifier, table, dispatcher, theme) }
-
-        // One declaration, three presentations. Which one this is comes from the design
-        // system, asked about the size class this window is in, so the Host that declared
-        // it never learned how wide the window was.
-        WidgetKind.Navigation -> HostNavigation(node, modifier, table, dispatcher, theme)
-
-        // Normally drawn by the Navigation it belongs to, which knows whether it is the
-        // selected one. On its own it is a destination nobody has chosen.
-        WidgetKind.NavigationItem -> Unselectable { HostNavigationItem(node, modifier, theme) }
-
-        // A temporary surface from an edge of the window. Which edge is this side's
-        // decision, and so is everything about the drag that closes it.
-        WidgetKind.Sheet -> HostSheet(node, modifier, table, dispatcher, theme)
-
-        // The screen's frame. The application filled slots; what each one becomes here
-        // comes from the design system and the width this window was measured at.
-        WidgetKind.Scaffold -> HostScaffold(node, modifier, table, dispatcher, theme)
-
-        // Drawn by the frame it belongs to, which is the only thing that knows which slot
-        // this is. On its own it is a tree with a label nobody read.
-        WidgetKind.ScaffoldSlot -> Column(modifier = modifier) {
-            Children(node, table, dispatcher)
-        }
-
-        // A label, perhaps a glyph, and the chosen state exactly as the Host sent it. The
-        // shape of the token is the design system's.
-        WidgetKind.Chip -> HostChip(node, modifier, dispatcher, theme)
-
-        // The one action a screen is about, in the form its design system gives it. Where
-        // it goes is decided by the frame it is in, which asks the same rule.
-        WidgetKind.FloatingAction -> HostFloatingAction(node, modifier, dispatcher, theme)
-
-        // A count, a word or a dot, on its child or on its own. Where it sits and how a
-        // large count is written are the design system's.
-        WidgetKind.Badge -> HostBadge(node, modifier, table, dispatcher, theme)
-
-        // Every Text inside, however deep, is one selection. The modifier goes on the
-        // region rather than the column inside it, so a weight the parent gave it still
-        // reaches the parent's scope.
-        WidgetKind.SelectionContainer -> SelectableRegion(modifier) {
-            Column { Children(node, table, dispatcher) }
-        }
-
-        // A side pane and a body. Whether they are side by side, laid over one another or
-        // shown one at a time is the design system's answer for the split pane's own width,
-        // and the drag on the divider never leaves this side until it is let go.
-        WidgetKind.SplitPane -> HostSplitPane(node, modifier, table, dispatcher, theme)
     }
 }
 
@@ -316,6 +477,16 @@ var platformFileDrop: @Composable (Modifier, Node, EventDispatcher) -> Modifier 
  * asks the question.
  */
 var platformReducedMotion: () -> Boolean = { false }
+
+/**
+ * What the platform says about reducing motion, including that it cannot say.
+ *
+ * The answer the Host is told, so a screen written with CSS can answer
+ * `prefers-reduced-motion` the way a browser would. Asked when the Renderer starts and again
+ * when its window comes back into use. A platform that installs nothing answers unknown.
+ */
+var platformReducedMotionSetting: () -> dev.darkpyonix.composerust.protocol.ReducedMotion =
+    { dev.darkpyonix.composerust.protocol.ReducedMotion.Unknown }
 
 /**
  * Whether the person at this machine has asked the platform for high contrast colours:
@@ -454,3 +625,41 @@ private fun BoxScope.Children(node: Node, table: NodeTable, dispatcher: EventDis
 
 /** The label of a Button follows the design system's button type role unless overridden. */
 internal fun Node.buttonTextStyle(theme: ResolvedTheme, role: TypeRole) = textStyle(theme, role)
+
+/**
+ * Where a frame's measuring goes, by kind of node, for a profile of a resize. Off unless a
+ * measurement switches it on before the content is composed; when off it adds nothing to any
+ * node. Each node's time is its own: what its children took is taken out of it, so a kind's
+ * total is what measuring nodes of that kind cost in themselves.
+ */
+object LayoutProfile {
+    var enabled = false
+
+    private class Entry(var nanos: Long = 0, var count: Int = 0)
+
+    private val totals = HashMap<String, Entry>()
+    private val childNanos = ArrayList<Long>()
+
+    fun modifier(kind: String): Modifier = Modifier.layout { measurable, constraints ->
+        childNanos.add(0L)
+        val started = kotlin.time.TimeSource.Monotonic.markNow()
+        val placeable = measurable.measure(constraints)
+        val inclusive = started.elapsedNow().inWholeNanoseconds
+        val children = childNanos.removeAt(childNanos.size - 1)
+        if (childNanos.isNotEmpty()) childNanos[childNanos.size - 1] = childNanos[childNanos.size - 1] + inclusive
+        val entry = totals.getOrPut(kind) { Entry() }
+        entry.nanos += inclusive - children
+        entry.count++
+        layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+    }
+
+    /** Clears what was gathered. */
+    fun reset() {
+        totals.clear()
+        childNanos.clear()
+    }
+
+    /** Kinds by their own measuring time, most first: kind, milliseconds, nodes measured. */
+    fun snapshot(): List<Triple<String, Double, Int>> =
+        totals.entries.map { Triple(it.key, it.value.nanos / 1e6, it.value.count) }.sortedByDescending { it.second }
+}

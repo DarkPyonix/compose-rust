@@ -25,7 +25,7 @@ pattern='\b(SPEC|INTENT)\b|\b(N?FR|PR)-[0-9]'
 # which files. The guide's text test keeps those names out of the published guide, and
 # cannot do that without naming them either. A citation is a claim about where a reason
 # came from, and none of these is that.
-exempt='^(scripts/publish-main\.sh|scripts/launch-agent\.sh|scripts/launch-agy\.sh|scripts/launch-codex\.sh|scripts/tests/publish-main\.test\.sh|scripts/tests/no-spec-citations\.test\.sh|scripts/tests/planning-docs\.test\.sh|scripts/tests/spec-cites-real-tests\.test\.sh|scripts/tests/agent-launchers\.test\.sh|scripts/tests/guide-text\.test\.sh)$'
+exempt='^(.github/scripts/release/sync-release\.sh|scripts/launch-agent\.sh|scripts/launch-agy\.sh|scripts/launch-codex\.sh|scripts/tests/sync-release\.test\.sh|scripts/tests/no-spec-citations\.test\.sh|scripts/tests/planning-docs\.test\.sh|scripts/tests/spec-cites-real-tests\.test\.sh|scripts/tests/agent-launchers\.test\.sh|scripts/tests/guide-text\.test\.sh)$'
 
 files=()
 while IFS= read -r file; do

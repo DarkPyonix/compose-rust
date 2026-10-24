@@ -21,9 +21,14 @@ esac
 host="$BUILD_DIR/smoke_host"
 cc -O2 -Wl,--export-dynamic -o "$host" "$NATIVE_DIR/c/smoke_host.c" \
     -L"$lib" -lcompose_rust_renderer -Wl,-rpath,"$lib" -lm
-log="$BUILD_DIR/smoke_host.log"
-"$host" | tee "$log"
+# Everything the run prints, the renderer's own lines on stderr included, because those are
+# the ones that say a scene was made and a frame was drawn. smoke-startup.sh says which.
+source "$(dirname "$0")/smoke-startup.sh"
+status=0
+out="$("$host" 2>&1)" || status=$?
+echo "$out"
+check_smoke_startup "$out" "$status" || exit 1
 # The host measures its own label twice from inside a frame, once as text and once as the
 # node the renderer drew, and the two answers have to be the same numbers.
-grep -q "compose_rust_renderer_measure: agree" "$log" || die \
-    "the measure round trip did not agree, or never ran; see $log"
+grep -q "compose_rust_renderer_measure: agree" <<<"$out" || die \
+    "the measure round trip did not agree, or never ran"

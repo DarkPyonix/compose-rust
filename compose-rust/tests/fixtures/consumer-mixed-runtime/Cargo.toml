@@ -1,0 +1,19 @@
+# A consumer of this crate that also links a C++ library built for the C runtime DLL (/MD),
+# the way a crate built with the `cc` crate's defaults is.
+#
+# scripts/check-windows-consumer.sh builds the library with cl.exe and points
+# MIXED_RUNTIME_LIB_DIR at it. Linking it beside the Windows renderer, whose Skia was built
+# for the static runtime (/MT), is where an MSVC link stops with LNK2038 unless the runtime is
+# decided once for the whole executable, which is what the Host's build script does.
+#
+# `[workspace]` makes this its own workspace root, as the plain consumer fixture explains.
+[workspace]
+
+[package]
+name = "consumer-mixed-runtime"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+compose-rust = { path = "../../.." }
