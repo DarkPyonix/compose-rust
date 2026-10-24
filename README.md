@@ -215,7 +215,7 @@ default, and `org.thisisthepy.compose.designsystem` for the contract both layers
 ### Using the crate
 
 ```bash
-cargo add compose-rust@0.0.2
+cargo add compose-rust@0.0.3
 ```
 
 `cargo build` works out which renderer the target needs, downloads the release artifact for the
