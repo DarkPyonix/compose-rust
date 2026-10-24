@@ -19,6 +19,7 @@ mod boundary_jni;
 #[path = "boundary_wasm.gen.rs"]
 mod boundary_wasm;
 pub mod brush;
+pub mod code;
 /// The rule the code colours of the two systems without a code editor scheme are derived
 /// by. Only the tests run it: the values themselves are literals in the token tables.
 #[cfg(test)]
@@ -60,6 +61,10 @@ pub use boundary::{
     install_renderer_api, launch_runtime, request_frame_from_worker,
 };
 pub use brush::{Brush, Stop, brush, release_brush};
+pub use code::{
+    CodeChange, CodeHover, CodeRange, Decoration, Decorations, EditRejected, Position, SaveRequest,
+    SyntaxSpan, SyntaxSpans,
+};
 pub use design::design_system;
 pub use drawing::{DrawCommand, DrawList, DrawListBuilder};
 pub use fonts::{FontRef, FontRefs};
@@ -73,11 +78,11 @@ pub use palette::{Palette, PaletteViolation};
 pub use runtime::{Batch, ComposeHost, Recomposer, Runtime, application, composable, launch};
 pub use schema::{
     Alignment, Arrangement, AssetKind, ButtonVariant, Chrome, Color, ColorRole, ColorScheme,
-    DesignSystem, EventPayload, GenericFamily, IconRole, Key, LoopMode, MaterialRole,
-    MessageDuration, Modifier, MotionRole, NotificationImportance, NotificationPermission,
-    NotificationPresentation, OverflowWrap, Paint, PropertyKind, SCHEMA_HASH, Selection, ShapeRole,
-    SpaceRole, TextAlign, TextOverflow, Theme, TileMode, TypeRole, WidgetKind, WindowHeightClass,
-    WindowSizeClass, WordBreak,
+    DecorationKind, DesignSystem, EventPayload, GenericFamily, HoverPhase, IconRole, Key, LoopMode,
+    MaterialRole, MessageDuration, Modifier, MotionRole, NotificationImportance,
+    NotificationPermission, NotificationPresentation, OverflowWrap, Paint, PropertyKind,
+    SCHEMA_HASH, Selection, Severity, ShapeRole, SpaceRole, TextAlign, TextOverflow, Theme,
+    TileMode, TypeRole, WidgetKind, WindowHeightClass, WindowSizeClass, WordBreak,
 };
 pub use schema::{
     AnimatedProperty, Animation, AnimationControl, AnimationEventKind, AnimationEvents,
