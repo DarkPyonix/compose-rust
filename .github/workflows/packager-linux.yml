@@ -35,8 +35,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: packager-linux-${{ github.ref }}
-  cancel-in-progress: true
+  group: packager-linux-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -337,6 +337,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
       - name: Install flatpak and Flathub's builder
         run: |
           set -euo pipefail
@@ -344,8 +347,7 @@ jobs:
           # bubblewrap, which builds and runs every sandbox, needs them.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder elfutils dbus-daemon patchelf xvfb xauth imagemagick python3-pip
-          pip install --user 'aiohttp>=3.9.5,<4' 'tomlkit>=0.13.3,<1'
+          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder elfutils dbus-daemon patchelf xvfb xauth imagemagick
           flatpak --user remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
           flatpak --user remote-ls flathub --runtime --columns=ref | grep -E '^runtime/org\.freedesktop\.Platform/x86_64/[0-9.]+$' || true
           flatpak --user install --noninteractive flathub org.flatpak.Builder \

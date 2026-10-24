@@ -89,11 +89,12 @@ if [[ -n "$cargo_lock" ]]; then
             "flatpak-cargo-generator has digest $got, pinned is $GENERATOR_SHA256"
         mv "$generator.part" "$generator"
     fi
-    python3 -c 'import aiohttp, tomlkit' 2>/dev/null || fail \
-        "flatpak-cargo-generator needs the Python modules aiohttp and tomlkit" \
-        "pip install 'aiohttp>=3.9.5,<4' 'tomlkit>=0.13.3,<1'"
+    command -v uv >/dev/null || fail \
+        "flatpak-cargo-generator needs uv to run it with the Python modules aiohttp and tomlkit" \
+        "install uv: https://docs.astral.sh/uv/"
     echo "== vendoring the crates in $cargo_lock"
-    python3 "$generator" "$cargo_lock" -o "$out/cargo-sources.json"
+    uv run --no-project --with 'aiohttp>=3.9.5,<4' --with 'tomlkit>=0.13.3,<1' \
+        "$generator" "$cargo_lock" -o "$out/cargo-sources.json"
     passthrough+=(--cargo-sources cargo-sources.json)
 fi
 
