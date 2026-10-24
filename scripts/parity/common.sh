@@ -50,6 +50,23 @@ print_table() {
             echo
         } >> "$GITHUB_STEP_SUMMARY"
     fi
+    # PARITY_GATE names rows that fail the run whatever PARITY_STRICT says: a resize that
+    # presented a frame at a size other than the window's, or left a size without a frame of
+    # its own, breaks the resize rule (every frame drawn at the current size), so on the paths
+    # that meet it the two resize rows are a gate rather than a warning.
+    local gated=""
+    for name in ${PARITY_GATE:-}; do
+        local result
+        result="$(awk -F'\t' -v n="$name" '$1 == n { print $2 }' "$table")"
+        case "$name" in
+            resize_stretched) [[ "$result" == "0" ]] || gated="$gated $name=${result:-missing}" ;;
+            *) [[ -n "$result" && "$result" != FAIL* ]] || gated="$gated $name=${result:-missing}" ;;
+        esac
+    done
+    if [[ -n "$gated" ]]; then
+        echo "::error::parity $label fails its gate:$gated"
+        exit 1
+    fi
     if grep -q $'\tFAIL' "$table"; then
         echo "::warning::parity $label has failing rows"
         [[ "${PARITY_STRICT:-}" == "1" ]] && exit 1

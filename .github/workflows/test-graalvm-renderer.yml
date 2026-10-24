@@ -370,10 +370,13 @@ jobs:
         timeout-minutes: 12
         # The checklist static-renderer.yml runs on the Kotlin/Native window, with the same
         # application: the consumer fixture the input check above built against this
-        # renderer. The table is in the job summary; a row that fails is a warning, not a stop.
+        # renderer. The table is in the job summary; a row that fails is a warning, except the
+        # resize rows, which are a gate: no frame at a size other than the window's, no size
+        # without a frame.
         run: |
           sudo apt-get install -y xclip
-          xvfb-run -a -s '-screen 0 1280x1024x24' ./scripts/parity/linux.sh graalvm "$RUNNER_TEMP/parity" -- \
+          PARITY_GATE="resize_stale_ratio resize_stretched" \
+            xvfb-run -a -s '-screen 0 1280x1024x24' ./scripts/parity/linux.sh graalvm "$RUNNER_TEMP/parity" -- \
             "$PWD/target/linux-input-check-shared/debug/consumer" --parity
 
       - name: Keep the Linux parity run's logs
