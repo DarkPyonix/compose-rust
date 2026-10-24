@@ -227,7 +227,7 @@ pub(crate) fn requeue_all() {
 mod tests {
     use super::*;
 
-    /// FR-16.2 item 4 for a brush: a release reaches the Renderer once, a registration
+    /// Releasing a brush: a release reaches the Renderer once, a registration
     /// that never left is dropped silently, and ids are never reused.
     #[test]
     fn fr23_released_brush_ids_are_sent_once_and_never_reused() {
