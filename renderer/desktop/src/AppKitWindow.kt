@@ -48,6 +48,7 @@ import org.thisisthepy.compose.window.graalvm.macos.frameTimeNanos
 import org.thisisthepy.compose.window.graalvm.macos.installApplicationMenu
 import org.thisisthepy.compose.window.graalvm.macos.isWindowClosed
 import org.thisisthepy.compose.window.graalvm.macos.measureTitleBar
+import org.graalvm.nativeimage.c.function.CFunction
 import org.thisisthepy.compose.window.graalvm.macos.configureNativeWindowChrome
 import org.thisisthepy.compose.window.graalvm.macos.showContextMenu
 import org.thisisthepy.compose.window.graalvm.macos.openNativeWindow
@@ -69,6 +70,9 @@ import org.thisisthepy.compose.window.graalvm.macos.AccessibleElement as AppKitE
 // toolkit window, and a toolkit window is the thing being removed. Kept to the window
 // files and pinned to the version in the module file, which is what the rule about
 // unstable APIs asks for. A Compose upgrade changes these files or it changes nothing.
+
+@CFunction("dxc_native_window_focused")
+private external fun nativeWindowFocused(): Int
 
 /**
  * The strip of the window the title bar occupies and the room its three buttons take, in the
@@ -170,11 +174,12 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
     // there: a list asking for the rows it is about to show asked from a thread with no
     // Host and was told nothing had been initialised.
     val work = FrameDispatcher()
+    val windowFocused = androidx.compose.runtime.mutableStateOf(true)
     val scene = CanvasLayersComposeScene(
         density = androidx.compose.ui.unit.Density(measured.scale),
         size = size,
         coroutineContext = work,
-        platformContext = NativePlatformContext({ size }, textInput, semantics, ::setPointerShape),
+        platformContext = NativePlatformContext({ size }, textInput, semantics, ::setPointerShape, { windowFocused.value }),
     )
     WindowStartReport.sceneCreated(size.width, size.height, measured.scale)
     // The application's own tree, drawn by the same interpreter every window uses.
@@ -233,6 +238,11 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
         // until it is there and then not at all, by the same rule the other macOS window uses.
         if (!dockIcon.applied && asked != null) dockIcon.tryApply(asked.icon)
         var heard = false
+        val nowFocused = nativeWindowFocused() != 0
+        if (windowFocused.value != nowFocused) {
+            windowFocused.value = nowFocused
+            heard = true
+        }
         val events = drainWindowEvents()
         for (event in synthetic?.due(System.nanoTime(), size) ?: emptyList()) {
             scene.receive(event)

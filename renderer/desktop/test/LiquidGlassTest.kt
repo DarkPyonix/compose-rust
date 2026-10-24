@@ -1,11 +1,21 @@
 package dev.darkpyonix.composerust.test
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import org.thisisthepy.compose.window.WindowEvent
+import dev.darkpyonix.composerust.ui.platform.receive
 import dev.darkpyonix.composerust.design.ContainerRole
 import dev.darkpyonix.composerust.design.ContinuousCornerShape
 import dev.darkpyonix.composerust.design.GlassProminence
@@ -133,6 +143,51 @@ class LiquidGlassTest {
             drawsAsGlass(reduceTransparency = false, blurAvailable = true, windowActive = true),
             "the active window stopped drawing glass",
         )
+    }
+
+    @Test
+    fun fr14_1_5_native_window_info_reports_live_focus_state() {
+        var focused = true
+        val info = dev.darkpyonix.composerust.ui.platform.NativeWindowInfo(
+            size = { IntSize(800, 600) },
+            focused = { focused },
+        )
+        assertTrue(info.isWindowFocused)
+        focused = false
+        assertFalse(info.isWindowFocused)
+    }
+
+    @OptIn(androidx.compose.ui.InternalComposeUiApi::class)
+    @Test
+    fun fr19_scroll_event_is_delivered_at_the_last_pointer_position() {
+        var scrollPosition: Offset? = null
+        val scene = CanvasLayersComposeScene(
+            density = Density(1f),
+            size = IntSize(400, 400),
+        )
+        try {
+            scene.setContent {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val ev = awaitPointerEvent()
+                                    if (ev.type == PointerEventType.Scroll) {
+                                        scrollPosition = ev.changes.first().position
+                                    }
+                                }
+                            }
+                        },
+                )
+            }
+            scene.receive(WindowEvent(WindowEvent.POINTER_MOVE, 120f, 240f, 0, 0, 0, 0, ""))
+            scene.receive(WindowEvent(WindowEvent.SCROLL, 0f, -3f, 0, 0, 0, 0, ""))
+            assertEquals(Offset(120f, 240f), scrollPosition)
+        } finally {
+            scene.close()
+        }
     }
 
     /** And the blur pass goes with it, which is the cost rather than the look. */
