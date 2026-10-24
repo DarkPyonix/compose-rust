@@ -27,6 +27,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -1038,25 +1039,23 @@ internal data class HoverTarget(val decoration: Long, val position: CodePosition
 @Composable
 internal fun HoverReport(tracker: HoverTracker, delayMillis: Long, callbacks: CodeEditorCallbacks) {
     val target = tracker.target
-    var settled by remember { mutableStateOf<HoverTarget?>(null) }
+    val currentCallbacks by rememberUpdatedState(callbacks)
+    // Reported from the effect itself. A value parked in state for a side effect to pick up
+    // is read by no composition, so writing it recomposes nothing and the report waits for
+    // some later, unrelated recomposition. A new target cancels the wait for the old one.
     LaunchedEffect(target) {
         if (target == null) return@LaunchedEffect
         if (target.position != null) delay(delayMillis)
-        settled = target
-    }
-    SideEffect {
-        val rest = settled ?: return@SideEffect
-        settled = null
         val previous = tracker.reported
         if (previous != null && previous.position != null &&
-            (rest.position == null || previous.anchor == null || previous.anchor !== rest.anchor)
+            (target.position == null || previous.anchor == null || previous.anchor !== target.anchor)
         ) {
-            callbacks.onHover(previous.decoration, previous.position, false)
+            currentCallbacks.onHover(previous.decoration, previous.position, false)
             tracker.reported = null
         }
-        if (rest.position != null && tracker.reported == null) {
-            callbacks.onHover(rest.decoration, rest.position, true)
-            tracker.reported = rest
+        if (target.position != null && tracker.reported == null) {
+            currentCallbacks.onHover(target.decoration, target.position, true)
+            tracker.reported = target
         }
     }
 }
