@@ -43,6 +43,7 @@ import dev.darkpyonix.composerust.foundation.FloatingActionArea
 import dev.darkpyonix.composerust.foundation.HostBadge
 import dev.darkpyonix.composerust.foundation.HostButton
 import dev.darkpyonix.composerust.foundation.HostChip
+import dev.darkpyonix.composerust.foundation.HostCodeEditor
 import dev.darkpyonix.composerust.foundation.HostFloatingAction
 import dev.darkpyonix.composerust.foundation.HostLazyGrid
 import dev.darkpyonix.composerust.foundation.HostRichText
@@ -320,6 +321,11 @@ fun RenderNode(
             // shown one at a time is the design system's answer for the split pane's own width,
             // and the drag on the divider never leaves this side until it is let go.
             WidgetKind.SplitPane -> HostSplitPane(node, modifier, table, dispatcher, theme)
+
+            // The document is the editor's own: its text, caret, selection and history live in
+            // the node's model, and the Host hears each committed change. Drawn outside a
+            // selectable region around it, because selecting inside an editor is the editor's.
+            WidgetKind.CodeEditor -> Unselectable { HostCodeEditor(node, modifier, dispatcher, theme) }
 
             // Children laid where the Host already put them, each at its own `Offset`. Nothing
             // here arranges, aligns or sizes one child by another: the Host's layout engine

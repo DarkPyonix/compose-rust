@@ -665,6 +665,16 @@ interface ComponentRules {
         edgeSwipeBack = false,
         focusRing = theme.color(ColorRole.Primary),
     )
+
+    /**
+     * How a code editor is drawn: its gutter and line numbers, how the current line is shown,
+     * how a diagnostic is marked and in which roles, how faint a suggestion is, and how far a
+     * tab advances.
+     *
+     * The default is read from this system's own table, so a system that says nothing still
+     * draws an editor in its own colours.
+     */
+    fun codeEditor(theme: ResolvedTheme): CodeEditorStyle = defaultCodeEditorStyle(theme)
 }
 
 /**

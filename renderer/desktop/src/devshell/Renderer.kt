@@ -67,6 +67,8 @@ internal fun runRenderer(
     dev.darkpyonix.composerust.ui.installReducedMotion()
     dev.darkpyonix.composerust.ui.installHighContrast()
     dev.darkpyonix.composerust.ui.installResizeCursor()
+    // Available behind CodeEditorPath.Drawn; the default path is not changed by this.
+    dev.darkpyonix.composerust.foundation.code.installDrawnCodeEditor()
     val host = ComposeRustHost(connection())
     // Started on the thread the window will be driven from, which is not the thread this
     // function was called on.
