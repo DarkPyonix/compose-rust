@@ -4,6 +4,7 @@
 # Verify it with the exact commands in linux-build-evidence.md.
 set -euo pipefail
 source "$(dirname "$0")/env-linux.sh"
+bash "$(dirname "$0")/../../scripts/require-symlinks.sh"
 
 [[ -f "$NATIVE_DIR/c/renderer_entry.c" ]] || die "missing $NATIVE_DIR/c/renderer_entry.c"
 

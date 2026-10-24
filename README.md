@@ -313,6 +313,7 @@ interpreter inside it, the same archive the release ships, with `schema-hash.txt
 checkout the build links that workspace build before anything it could download, then a native
 image in `renderer/build/native-image/dist/lib`; `DXC_MACOS_NATIVE_LIB` and
 `DXC_LINUX_NATIVE_LIB` still name a static renderer directory directly, ahead of everything.
+On Windows, git must create symlinks: the renderer modules share sources through them. Turn on Developer Mode (or use an administrator shell), set `git config core.symlinks true` and run `git checkout -f`. The build scripts stop with this message when the links came out as text files.
 On Windows, `renderer/desktop/scripts/build-windows.sh` builds the Kotlin/Native renderer, and
 `DXC_WINDOWS_NATIVE_LIB` pointing at its output (`renderer/build/windows`) makes the build link it:
 one executable, linked by MSVC, with nothing beside it. Without that variable Windows uses the
