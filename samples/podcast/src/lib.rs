@@ -18,9 +18,11 @@
 mod library;
 mod palette;
 
-use dioxus_compose_adapter::DrawList;
-use dioxus_compose_adapter::prelude::*;
+use compose_rust::AssetKind;
+use compose_rust::runtime::*;
+use compose_rust::ui::*;
 use library::{EPISODES, Episode, SHOWS, Show, clock, episode, short_count, show_of, waveform};
+use std::rc::Rc;
 
 /// A phone design in a desktop window is still a phone design.
 const PAGE_MEASURE: f32 = 420.0;
@@ -53,6 +55,9 @@ const START_SECONDS: u32 = 326;
 /// everything to its right is grey, which is what the reference draws.
 const CARD_PLAYED: f32 = 1.0;
 
+/// What a press hands on. Shared, because one handler reaches several controls.
+type Handler<T> = Rc<dyn Fn(T)>;
+
 /// The icons this hub draws, as the bytes each registration carries: the meaning's wire
 /// tag, little endian, and nothing else.
 ///
@@ -61,7 +66,7 @@ const CARD_PLAYED: f32 = 1.0;
 /// a house looks like. The three marks under an episode are not in that set, so they are
 /// drawings instead; they live in `library` beside the waveform.
 mod icon {
-    use dioxus_compose_adapter::prelude::IconRole;
+    use compose_rust::ui::IconRole;
 
     pub static NEW: [u8; 2] = (IconRole::Home as u16).to_le_bytes();
     pub static SHOWS: [u8; 2] = (IconRole::Search as u16).to_le_bytes();
@@ -101,41 +106,32 @@ impl Destination {
 ///
 /// The button carries no text and sits over the drawing, so the press lands on it
 /// whatever was drawn underneath.
-fn round_button(size: f32, fill: Paint, face: Element, on_click: EventHandler<()>) -> Element {
-    rsx! {
-        dioxus_compose_adapter::Box {
-            width: size,
-            height: size,
-            background: fill,
-            shape_role: ShapeRole::Full,
-            alignment: Alignment::Center,
-            {face}
-            Button {
-                text: "",
-                variant: ButtonVariant::Text,
-                fill_max_width: true,
-                fill_max_height: true,
-                on_click: move |_| on_click.call(()),
-            }
-        }
-    }
+fn round_button(size: f32, fill: Paint, face: impl FnOnce(), on_click: Rc<dyn Fn()>) {
+    Box()
+        .modifier(
+            Modifier
+                .size(size, size)
+                .background(fill)
+                .shape_role(ShapeRole::Full),
+        )
+        .alignment(Alignment::Center)
+        .content(|| {
+            face();
+            Button("")
+                .variant(ButtonVariant::Text)
+                .modifier(Modifier.fill_max_size())
+                .on_click(move || on_click());
+        });
 }
 
 /// One registered meaning, tinted.
-fn icon_face(picture: &'static [u8], tint: Paint) -> Element {
-    rsx! {
-        Icon {
-            asset_id: asset(AssetKind::VectorIcon, picture),
-            color: tint,
-        }
-    }
+fn icon_face(picture: &'static [u8], tint: Paint) {
+    Icon(asset(AssetKind::VectorIcon, picture)).color(tint);
 }
 
 /// One drawn mark, at the size the row of actions uses.
-fn mark_face(mark: DrawList) -> Element {
-    rsx! {
-        Canvas { width: MARK, height: MARK, commands: mark }
-    }
+fn mark_face(mark: DrawList) {
+    Canvas(mark).modifier(Modifier.size(MARK, MARK));
 }
 
 /// A show's cover at some size.
@@ -143,81 +139,77 @@ fn mark_face(mark: DrawList) -> Element {
 /// The picture is registered here rather than up front. `asset` returns the same id for
 /// the same bytes and queues nothing the second time, so a cover that appears in the strip,
 /// on the episode card and again in the player is one registration and three nodes.
-fn cover(size: f32, show: &Show) -> Element {
-    rsx! {
-        Image {
-            width: size,
-            height: size,
-            shape_role: ShapeRole::Large,
-            asset_id: asset(AssetKind::Svg, show.cover),
-        }
-    }
+fn cover(size: f32, show: &Show) {
+    Image(asset(AssetKind::Svg, show.cover))
+        .modifier(Modifier.size(size, size).shape_role(ShapeRole::Large));
 }
 
 /// One of the three things that can be done to an episode: the mark in its outlined
 /// circle, and how many people have done it.
-fn action(mark: DrawList, count: u32, on_press: EventHandler<()>) -> Element {
-    rsx! {
-        Row {
-            space_role: SpaceRole::Xs,
-            alignment: Alignment::Center,
-            dioxus_compose_adapter::Box {
-                width: ACTION,
-                height: ACTION,
-                shape_role: ShapeRole::Full,
-                border_width: 1.0,
-                border_color: palette::OUTLINE,
-                alignment: Alignment::Center,
-                {mark_face(mark)}
-                Button {
-                    text: "",
-                    variant: ButtonVariant::Text,
-                    fill_max_width: true,
-                    fill_max_height: true,
-                    on_click: move |_| on_press.call(()),
-                }
-            }
-            Text {
-                text: short_count(count),
-                type_role: TypeRole::Label,
-                color: palette::MUTED,
-            }
-        }
-    }
+fn action(mark: DrawList, count: u32, on_press: Rc<dyn Fn()>) {
+    Row()
+        .space_role(SpaceRole::Xs)
+        .alignment(Alignment::Center)
+        .content(|| {
+            Box()
+                .modifier(
+                    Modifier
+                        .size(ACTION, ACTION)
+                        .shape_role(ShapeRole::Full)
+                        .border(1.0, palette::OUTLINE),
+                )
+                .alignment(Alignment::Center)
+                .content(|| {
+                    mark_face(mark);
+                    Button("")
+                        .variant(ButtonVariant::Text)
+                        .modifier(Modifier.fill_max_size())
+                        .on_click(move || on_press());
+                });
+            Text(short_count(count))
+                .type_role(TypeRole::Label)
+                .color(palette::MUTED);
+        });
+}
+
+/// Says that something on the screen is not part of this sample.
+fn not_here(what: &'static str) -> Rc<dyn Fn()> {
+    Rc::new(move || Message::new(format!("{what} is not part of this sample")).show())
 }
 
 /// One episode as a card: the title over the artwork, a waveform either side of it, and
 /// what can be done to it.
-fn episode_card(found: &Episode, on_play: EventHandler<u32>) -> Element {
+fn episode_card(found: &Episode, on_play: &Handler<u32>) {
     let show = show_of(found);
     let id = found.id;
-    rsx! {
-        Column {
-            fill_max_width: true,
-            background: palette::PAGE,
-            shape_role: ShapeRole::Large,
-            border_width: 1.0,
-            border_color: palette::OUTLINE,
-            padding_role: SpaceRole::Md,
-            space_role: SpaceRole::Sm,
-            Text {
-                text: "S{found.season}E{found.number}: {found.title}",
-                type_role: TypeRole::Subtitle,
-                color: palette::INK,
-                text_align: TextAlign::Center,
-                fill_max_width: true,
-            }
-            Row {
-                fill_max_width: true,
-                space_role: SpaceRole::Sm,
-                alignment: Alignment::Center,
-                // The part that has been played is in the accent and the rest is grey, so
-                // the two halves either side of the cover are one waveform with the
-                // playhead behind the artwork.
-                Canvas {
-                    weight: 1.0,
-                    height: WAVE_SMALL.1,
-                    commands: waveform(
+    Column()
+        .modifier(
+            Modifier
+                .fill_max_width()
+                .background(palette::PAGE)
+                .shape_role(ShapeRole::Large)
+                .border(1.0, palette::OUTLINE)
+                .padding_role(SpaceRole::Md),
+        )
+        .space_role(SpaceRole::Sm)
+        .content(|| {
+            Text(format!(
+                "S{}E{}: {}",
+                found.season, found.number, found.title
+            ))
+            .type_role(TypeRole::Subtitle)
+            .color(palette::INK)
+            .text_align(TextAlign::Center)
+            .modifier(Modifier.fill_max_width());
+            Row()
+                .modifier(Modifier.fill_max_width())
+                .space_role(SpaceRole::Sm)
+                .alignment(Alignment::Center)
+                .content(|| {
+                    // The part that has been played is in the accent and the rest is grey,
+                    // so the two halves either side of the cover are one waveform with the
+                    // playhead behind the artwork.
+                    Canvas(waveform(
                         WAVE_SMALL.0 / 2.0,
                         WAVE_SMALL.1,
                         WAVE_COLUMNS / 2,
@@ -225,13 +217,10 @@ fn episode_card(found: &Episode, on_play: EventHandler<u32>) -> Element {
                         CARD_PLAYED,
                         palette::ACCENT,
                         palette::WAVE,
-                    ),
-                }
-                {cover(COVER_SMALL, show)}
-                Canvas {
-                    weight: 1.0,
-                    height: WAVE_SMALL.1,
-                    commands: waveform(
+                    ))
+                    .modifier(Modifier.weight(1.0).height(WAVE_SMALL.1));
+                    cover(COVER_SMALL, show);
+                    Canvas(waveform(
                         WAVE_SMALL.0 / 2.0,
                         WAVE_SMALL.1,
                         WAVE_COLUMNS / 2,
@@ -239,44 +228,50 @@ fn episode_card(found: &Episode, on_play: EventHandler<u32>) -> Element {
                         0.0,
                         palette::ACCENT,
                         palette::WAVE,
-                    ),
-                }
-            }
-            Text {
-                text: found.blurb,
-                type_role: TypeRole::Body,
-                color: palette::MUTED,
-                max_lines: 3,
-                overflow: TextOverflow::Ellipsis,
-            }
-            Row {
-                fill_max_width: true,
-                space_role: SpaceRole::Sm,
-                alignment: Alignment::Center,
-                {action(library::heart(MARK, palette::INK), found.hearts, EventHandler::new(move |()| {
-                    Message::new("Liking is not part of this sample").show();
-                }))}
-                {action(library::comment(MARK, palette::INK), found.comments, EventHandler::new(move |()| {
-                    Message::new("Replies are not part of this sample").show();
-                }))}
-                {action(library::share(MARK, palette::INK), found.shares, EventHandler::new(move |()| {
-                    Message::new("Sharing is not part of this sample").show();
-                }))}
-                Spacer { weight: 1.0 }
-                // The one filled control on the card, and the only orange circle on the
-                // page that is not a destination.
-                Button {
-                    text: "\u{25b6}",
-                    height: ROUND,
-                    variant: ButtonVariant::Text,
-                    color: palette::PAGE,
-                    background: palette::ACCENT,
-                    shape_role: ShapeRole::Full,
-                    on_click: move |_| on_play.call(id),
-                }
-            }
-        }
-    }
+                    ))
+                    .modifier(Modifier.weight(1.0).height(WAVE_SMALL.1));
+                });
+            Text(found.blurb)
+                .type_role(TypeRole::Body)
+                .color(palette::MUTED)
+                .max_lines(3)
+                .overflow(TextOverflow::Ellipsis);
+            Row()
+                .modifier(Modifier.fill_max_width())
+                .space_role(SpaceRole::Sm)
+                .alignment(Alignment::Center)
+                .content(|| {
+                    action(
+                        library::heart(MARK, palette::INK),
+                        found.hearts,
+                        not_here("Liking"),
+                    );
+                    action(
+                        library::comment(MARK, palette::INK),
+                        found.comments,
+                        not_here("Replies"),
+                    );
+                    action(
+                        library::share(MARK, palette::INK),
+                        found.shares,
+                        not_here("Sharing"),
+                    );
+                    Spacer().modifier(Modifier.weight(1.0));
+                    // The one filled control on the card, and the only orange circle on
+                    // the page that is not a destination.
+                    let play = Rc::clone(on_play);
+                    Button("\u{25b6}")
+                        .variant(ButtonVariant::Text)
+                        .color(palette::PAGE)
+                        .modifier(
+                            Modifier
+                                .height(ROUND)
+                                .background(palette::ACCENT)
+                                .shape_role(ShapeRole::Full),
+                        )
+                        .on_click(move || play(id));
+                });
+        });
 }
 
 /// A show as a row, with a follow button.
@@ -285,12 +280,8 @@ fn episode_card(found: &Episode, on_play: EventHandler<u32>) -> Element {
 /// it and an outlined white button, and the rest are the same shape on the page with a
 /// hairline round them and the orange on the button instead. That is the reference: one
 /// row picked out, the others quiet.
-fn show_row(
-    show: &Show,
-    followed: bool,
-    recommended: bool,
-    on_toggle: EventHandler<()>,
-) -> Element {
+#[composable]
+fn show_row(show: &Show, followed: bool, recommended: bool, on_toggle: Rc<dyn Fn()>) {
     let ink = if recommended {
         palette::PAGE
     } else {
@@ -301,415 +292,406 @@ fn show_row(
     } else {
         palette::MUTED
     };
-    rsx! {
-        Row {
-            fill_max_width: true,
-            background: if recommended { palette::ACCENT } else { palette::PAGE },
-            border_width: if recommended { 0.0 } else { 1.0 },
-            border_color: palette::OUTLINE,
-            shape_role: ShapeRole::Full,
-            padding_role: SpaceRole::Sm,
-            space_role: SpaceRole::Sm,
-            alignment: Alignment::CenterStart,
-            {cover(48.0, show)}
-            Column {
-                weight: 1.0,
-                Text {
-                    text: show.name,
-                    type_role: TypeRole::BodyStrong,
-                    color: ink,
-                    max_lines: 1,
-                    overflow: TextOverflow::Ellipsis,
-                }
-                Text {
-                    text: "{short_count(show.followers)} followers",
-                    type_role: TypeRole::Caption,
-                    color: quiet,
-                }
-            }
-            // Orange either way. On the recommended row that is the row's own colour,
-            // so what is left of the button is the white outline round it, and on the
-            // others it is the one filled thing on a white row.
-            Button {
-                text: if followed { "Following" } else { "Follow" },
-                variant: ButtonVariant::Text,
-                shape_role: ShapeRole::Full,
-                color: palette::PAGE,
-                background: palette::ACCENT,
-                border_width: if recommended { 1.0 } else { 0.0 },
-                border_color: palette::PAGE,
-                on_click: move |_| on_toggle.call(()),
-            }
-        }
-    }
+    let fill = if recommended {
+        palette::ACCENT
+    } else {
+        palette::PAGE
+    };
+    let edge = if recommended { 0.0 } else { 1.0 };
+    Row()
+        .modifier(
+            Modifier
+                .fill_max_width()
+                .background(fill)
+                .border(edge, palette::OUTLINE)
+                .shape_role(ShapeRole::Full)
+                .padding_role(SpaceRole::Sm),
+        )
+        .space_role(SpaceRole::Sm)
+        .alignment(Alignment::CenterStart)
+        .content(|| {
+            cover(48.0, show);
+            Column().modifier(Modifier.weight(1.0)).content(|| {
+                Text(show.name)
+                    .type_role(TypeRole::BodyStrong)
+                    .color(ink)
+                    .max_lines(1)
+                    .overflow(TextOverflow::Ellipsis);
+                Text(format!("{} followers", short_count(show.followers)))
+                    .type_role(TypeRole::Caption)
+                    .color(quiet);
+            });
+            // Orange either way. On the recommended row that is the row's own colour, so
+            // what is left of the button is the white outline round it, and on the others
+            // it is the one filled thing on a white row.
+            let outline = if recommended { 1.0 } else { 0.0 };
+            Button(if followed { "Following" } else { "Follow" })
+                .variant(ButtonVariant::Text)
+                .color(palette::PAGE)
+                .modifier(
+                    Modifier
+                        .shape_role(ShapeRole::Full)
+                        .background(palette::ACCENT)
+                        .border(outline, palette::PAGE),
+                )
+                .on_click(move || on_toggle());
+        });
 }
 
 /// The shelf: the search button and a row of covers, then the newest episode in full,
 /// then who to follow.
-fn new_page(
-    followed: Signal<Vec<usize>>,
-    on_play: EventHandler<u32>,
-    on_open: EventHandler<u32>,
-) -> Element {
-    let mut followed = followed;
-    let following = followed();
-    rsx! {
-        Column {
-            fill_max_width: true,
-            padding_role: SpaceRole::Md,
-            space_role: SpaceRole::Md,
+#[composable]
+fn new_page(followed: MutableState<Vec<usize>>, on_play: Handler<u32>, on_open: Handler<u32>) {
+    let following = followed.get();
+    Column()
+        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
+        .space_role(SpaceRole::Md)
+        .content(|| {
+            Text("New Episodes")
+                .type_role(TypeRole::Headline)
+                .color(palette::INK);
 
-            Text {
-                text: "New Episodes",
-                type_role: TypeRole::Headline,
-                color: palette::INK,
-            }
+            Row()
+                .modifier(Modifier.fill_max_width())
+                .space_role(SpaceRole::Sm)
+                .alignment(Alignment::Center)
+                .content(|| {
+                    // The shelf begins with the one round thing on it, which is how the
+                    // reference separates "look for something" from "here is what is new".
+                    round_button(
+                        ROUND,
+                        palette::ACCENT,
+                        || icon_face(&icon::SHOWS, palette::PAGE),
+                        not_here("Search"),
+                    );
+                    // The shelf across, windowed. A cover that is not on screen is a
+                    // picture nobody has asked the Renderer to draw.
+                    let on_open = Rc::clone(&on_open);
+                    LazyRow()
+                        .modifier(Modifier.weight(1.0).height(COVER_SMALL + 16.0))
+                        .content(move |list| {
+                            list.items_keyed(
+                                EPISODES.len(),
+                                |position| EPISODES[position].id.to_string(),
+                                move |position| {
+                                    let found = EPISODES[position];
+                                    let open = Rc::clone(&on_open);
+                                    Box()
+                                        .modifier(Modifier.padding_role(SpaceRole::Xs))
+                                        .content(|| {
+                                            // The inner box is measured, not wrapped. A
+                                            // child that fills its parent inside a box
+                                            // with no size of its own takes the whole
+                                            // width the shelf was offered, and the strip
+                                            // becomes one cover per screen.
+                                            Box()
+                                                .modifier(Modifier.size(COVER_SMALL, COVER_SMALL))
+                                                .alignment(Alignment::Center)
+                                                .content(|| {
+                                                    cover(COVER_SMALL, &SHOWS[found.show]);
+                                                    Button("")
+                                                        .variant(ButtonVariant::Text)
+                                                        .modifier(Modifier.fill_max_size())
+                                                        .on_click(move || open(found.id));
+                                                });
+                                        });
+                                },
+                            );
+                        });
+                });
 
-            Row {
-                fill_max_width: true,
-                space_role: SpaceRole::Sm,
-                alignment: Alignment::Center,
-                // The shelf begins with the one round thing on it, which is how the
-                // reference separates "look for something" from "here is what is new".
-                {round_button(
-                    ROUND,
-                    palette::ACCENT,
-                    icon_face(&icon::SHOWS, palette::PAGE),
-                    EventHandler::new(move |()| {
-                        Message::new("Search is not part of this sample").show();
-                    }),
-                )}
-                // The shelf across, windowed. A cover that is not on screen is a picture
-                // nobody has asked the Renderer to draw.
-                LazyRow {
-                    weight: 1.0,
-                    height: COVER_SMALL + 16.0,
-                    item_count: EPISODES.len(),
-                    key_of: move |position: usize| EPISODES[position].id.to_string(),
-                    item: move |position: usize| {
-                        let found = EPISODES[position];
-                        rsx! {
-                            dioxus_compose_adapter::Box {
-                                padding_role: SpaceRole::Xs,
-                                // The inner box is measured, not wrapped. A child that
-                                // fills its parent inside a box with no size of its own
-                                // takes the whole width the shelf was offered, and the
-                                // strip becomes one cover per screen.
-                                dioxus_compose_adapter::Box {
-                                    width: COVER_SMALL,
-                                    height: COVER_SMALL,
-                                    alignment: Alignment::Center,
-                                    {cover(COVER_SMALL, &SHOWS[found.show])}
-                                    Button {
-                                        text: "",
-                                        variant: ButtonVariant::Text,
-                                        fill_max_width: true,
-                                        fill_max_height: true,
-                                        on_click: move |_| on_open.call(found.id),
-                                    }
-                                }
-                            }
-                        }
-                    },
-                }
-            }
+            episode_card(&EPISODES[0], &on_play);
 
-            {episode_card(&EPISODES[0], on_play)}
-
-            Text {
-                text: "Podcasts You May Like",
-                type_role: TypeRole::Subtitle,
-                color: palette::INK,
-            }
-            Column {
-                fill_max_width: true,
-                space_role: SpaceRole::Sm,
-                for (index, show) in SHOWS.iter().enumerate() {
-                    {
+            Text("Podcasts You May Like")
+                .type_role(TypeRole::Subtitle)
+                .color(palette::INK);
+            Column()
+                .modifier(Modifier.fill_max_width())
+                .space_role(SpaceRole::Sm)
+                .content(|| {
+                    for (index, show) in SHOWS.iter().enumerate() {
                         let is_followed = following.contains(&index);
-                        rsx! {
-                            dioxus_compose_adapter::Box { key: "{show.name}", fill_max_width: true,
-                                {show_row(show, is_followed, index == 0, EventHandler::new(move |()| {
-                                    let mut list = followed.write();
-                                    match list.iter().position(|found| *found == index) {
-                                        Some(at) => {
-                                            list.remove(at);
+                        let list = followed.clone();
+                        key(show.name, || {
+                            show_row(
+                                show,
+                                is_followed,
+                                index == 0,
+                                Rc::new(move || {
+                                    list.update(|list| {
+                                        match list.iter().position(|found| *found == index) {
+                                            Some(at) => {
+                                                list.remove(at);
+                                            }
+                                            None => list.push(index),
                                         }
-                                        None => list.push(index),
-                                    }
-                                }))}
-                            }
-                        }
+                                    })
+                                }),
+                            );
+                        });
                     }
-                }
-            }
-        }
-    }
+                });
+        });
 }
 
 /// Every episode, shortest first, as a plain list.
-fn shows_page(on_play: EventHandler<u32>) -> Element {
+#[composable]
+fn shows_page(on_play: Handler<u32>) {
     let mut ordered: Vec<&'static Episode> = EPISODES.iter().collect();
     ordered.sort_by_key(|found| found.seconds);
-    rsx! {
-        Column {
-            fill_max_width: true,
-            padding_role: SpaceRole::Md,
-            space_role: SpaceRole::Md,
-            Text { text: "Shows", type_role: TypeRole::Headline, color: palette::INK }
-            Column {
-                fill_max_width: true,
-                background: palette::PAGE,
-                border_width: 1.0,
-                border_color: palette::OUTLINE,
-                shape_role: ShapeRole::Large,
-                for (index, found) in ordered.iter().enumerate() {
-                    {
-                        let found: &'static Episode = found;
+    Column()
+        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
+        .space_role(SpaceRole::Md)
+        .content(|| {
+            Text("Shows")
+                .type_role(TypeRole::Headline)
+                .color(palette::INK);
+            Column()
+                .modifier(
+                    Modifier
+                        .fill_max_width()
+                        .background(palette::PAGE)
+                        .border(1.0, palette::OUTLINE)
+                        .shape_role(ShapeRole::Large),
+                )
+                .content(|| {
+                    for (index, found) in ordered.iter().copied().enumerate() {
                         let last = index + 1 == EPISODES.len();
-                        rsx! {
-                            Column { key: "{found.id}", fill_max_width: true,
-                                Row {
-                                    fill_max_width: true,
-                                    padding_role: SpaceRole::Md,
-                                    space_role: SpaceRole::Sm,
-                                    alignment: Alignment::CenterStart,
-                                    {cover(44.0, &SHOWS[found.show])}
-                                    Column {
-                                        weight: 1.0,
-                                        Text {
-                                            text: found.title,
-                                            type_role: TypeRole::Body,
-                                            color: palette::INK,
-                                            max_lines: 1,
-                                            overflow: TextOverflow::Ellipsis,
-                                        }
-                                        Text {
-                                            text: "{SHOWS[found.show].name} \u{00b7} {clock(found.seconds)}",
-                                            type_role: TypeRole::Caption,
-                                            color: palette::MUTED,
-                                        }
-                                    }
-                                    Button {
-                                        text: "\u{25b6}",
-                                        height: ACTION + 8.0,
-                                        variant: ButtonVariant::Text,
-                                        color: palette::PAGE,
-                                        background: palette::ACCENT,
-                                        shape_role: ShapeRole::Full,
-                                        on_click: move |_| on_play.call(found.id),
-                                    }
-                                }
-                                if !last {
-                                    Separator { color: palette::OUTLINE }
-                                }
-                            }
-                        }
+                        let play = Rc::clone(&on_play);
+                        key(found.id, || {
+                            shows_row(found, last, play);
+                        });
                     }
-                }
-            }
+                });
+        });
+}
+
+/// One row of the plain list, with the hairline under every row but the last.
+#[composable]
+fn shows_row(found: &'static Episode, last: bool, on_play: Handler<u32>) {
+    Column().modifier(Modifier.fill_max_width()).content(|| {
+        Row()
+            .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
+            .space_role(SpaceRole::Sm)
+            .alignment(Alignment::CenterStart)
+            .content(|| {
+                cover(44.0, &SHOWS[found.show]);
+                Column().modifier(Modifier.weight(1.0)).content(|| {
+                    Text(found.title)
+                        .type_role(TypeRole::Body)
+                        .color(palette::INK)
+                        .max_lines(1)
+                        .overflow(TextOverflow::Ellipsis);
+                    Text(format!(
+                        "{} \u{00b7} {}",
+                        SHOWS[found.show].name,
+                        clock(found.seconds)
+                    ))
+                    .type_role(TypeRole::Caption)
+                    .color(palette::MUTED);
+                });
+                let id = found.id;
+                Button("\u{25b6}")
+                    .variant(ButtonVariant::Text)
+                    .color(palette::PAGE)
+                    .modifier(
+                        Modifier
+                            .height(ACTION + 8.0)
+                            .background(palette::ACCENT)
+                            .shape_role(ShapeRole::Full),
+                    )
+                    .on_click(move || on_play(id));
+            });
+        if !last {
+            Separator(Some(palette::OUTLINE));
         }
-    }
+    });
 }
 
 /// What you follow and what you have listened to.
-fn you_page(followed: Vec<usize>) -> Element {
+#[composable]
+fn you_page(followed: usize) {
     let listened: u32 = EPISODES.iter().map(|found| found.seconds).sum();
-    rsx! {
-        Column {
-            fill_max_width: true,
-            padding_role: SpaceRole::Md,
-            space_role: SpaceRole::Md,
-            Text { text: "You", type_role: TypeRole::Headline, color: palette::INK }
-            Row {
-                fill_max_width: true,
-                space_role: SpaceRole::Md,
-                Column {
-                    weight: 1.0,
-                    background: palette::ACCENT,
-                    shape_role: ShapeRole::Large,
-                    padding_role: SpaceRole::Md,
-                    Text {
-                        text: "{followed.len()}",
-                        type_role: TypeRole::Display,
-                        color: palette::PAGE,
-                    }
-                    Text {
-                        text: "shows followed",
-                        type_role: TypeRole::Label,
-                        color: palette::PAGE,
-                    }
-                }
-                Column {
-                    weight: 1.0,
-                    background: palette::TILE,
-                    shape_role: ShapeRole::Large,
-                    padding_role: SpaceRole::Md,
-                    Text {
-                        text: clock(listened),
-                        type_role: TypeRole::Display,
-                        color: palette::INK,
-                    }
-                    Text {
-                        text: "in the queue",
-                        type_role: TypeRole::Label,
-                        color: palette::MUTED,
-                    }
-                }
-            }
-        }
-    }
+    Column()
+        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
+        .space_role(SpaceRole::Md)
+        .content(|| {
+            Text("You")
+                .type_role(TypeRole::Headline)
+                .color(palette::INK);
+            Row()
+                .modifier(Modifier.fill_max_width())
+                .space_role(SpaceRole::Md)
+                .content(|| {
+                    Column()
+                        .modifier(
+                            Modifier
+                                .weight(1.0)
+                                .background(palette::ACCENT)
+                                .shape_role(ShapeRole::Large)
+                                .padding_role(SpaceRole::Md),
+                        )
+                        .content(|| {
+                            Text(format!("{followed}"))
+                                .type_role(TypeRole::Display)
+                                .color(palette::PAGE);
+                            Text("shows followed")
+                                .type_role(TypeRole::Label)
+                                .color(palette::PAGE);
+                        });
+                    Column()
+                        .modifier(
+                            Modifier
+                                .weight(1.0)
+                                .background(palette::TILE)
+                                .shape_role(ShapeRole::Large)
+                                .padding_role(SpaceRole::Md),
+                        )
+                        .content(|| {
+                            Text(clock(listened))
+                                .type_role(TypeRole::Display)
+                                .color(palette::INK);
+                            Text("in the queue")
+                                .type_role(TypeRole::Label)
+                                .color(palette::MUTED);
+                        });
+                });
+        });
 }
 
 /// The player: the cover full bleed at the top of a white page, with the transport under
 /// it.
-fn player_page(found: &Episode, position: Signal<u32>, on_back: EventHandler<()>) -> Element {
-    let mut position = position;
+#[composable]
+fn player_page(found: &'static Episode, position: MutableState<u32>, on_back: Rc<dyn Fn()>) {
     let show = show_of(found);
-    let played = position() as f32 / found.seconds.max(1) as f32;
-    let id_seed = found.seed;
+    let at = position.get();
+    let played = at as f32 / found.seconds.max(1) as f32;
     let length = found.seconds;
 
-    rsx! {
-        Column {
-            fill_max_width: true,
-            fill_max_height: true,
-            background: palette::PAGE,
-            padding_role: SpaceRole::Md,
-            space_role: SpaceRole::Md,
-
-            Row {
-                fill_max_width: true,
-                alignment: Alignment::CenterStart,
-                Button {
-                    text: "\u{2190}",
-                    variant: ButtonVariant::Text,
-                    color: palette::INK,
-                    on_click: move |_| on_back.call(()),
-                }
-                Spacer { weight: 1.0 }
-                Text {
-                    text: show.name,
-                    type_role: TypeRole::BodyStrong,
-                    color: palette::INK,
-                }
-                Spacer { weight: 1.0 }
-                Button {
-                    text: "Share",
-                    variant: ButtonVariant::Text,
-                    color: palette::ACCENT,
-                    on_click: move |_| {
-                        Message::new("Sharing is not part of this sample").show();
-                    },
-                }
-            }
+    Column()
+        .modifier(
+            Modifier
+                .fill_max_size()
+                .background(palette::PAGE)
+                .padding_role(SpaceRole::Md),
+        )
+        .space_role(SpaceRole::Md)
+        .content(|| {
+            Row()
+                .modifier(Modifier.fill_max_width())
+                .alignment(Alignment::CenterStart)
+                .content(|| {
+                    let back = Rc::clone(&on_back);
+                    Button("\u{2190}")
+                        .variant(ButtonVariant::Text)
+                        .color(palette::INK)
+                        .on_click(move || back());
+                    Spacer().modifier(Modifier.weight(1.0));
+                    Text(show.name)
+                        .type_role(TypeRole::BodyStrong)
+                        .color(palette::INK);
+                    Spacer().modifier(Modifier.weight(1.0));
+                    let share = not_here("Sharing");
+                    Button("Share")
+                        .variant(ButtonVariant::Text)
+                        .color(palette::ACCENT)
+                        .on_click(move || share());
+                });
 
             // The artwork, on the accent, which is the reference's player: a cover that
             // runs to the edges of the page rather than a dark screen behind it.
-            dioxus_compose_adapter::Box {
-                fill_max_width: true,
-                background: palette::ACCENT,
-                shape_role: ShapeRole::Large,
-                padding_role: SpaceRole::Md,
-                alignment: Alignment::Center,
-                {cover(COVER_LARGE, show)}
-            }
+            Box()
+                .modifier(
+                    Modifier
+                        .fill_max_width()
+                        .background(palette::ACCENT)
+                        .shape_role(ShapeRole::Large)
+                        .padding_role(SpaceRole::Md),
+                )
+                .alignment(Alignment::Center)
+                .content(|| cover(COVER_LARGE, show));
 
-            Column {
-                fill_max_width: true,
-                space_role: SpaceRole::Xs,
-                Row {
-                    fill_max_width: true,
-                    space_role: SpaceRole::Sm,
-                    alignment: Alignment::CenterStart,
-                    Text {
-                        text: show.host,
-                        type_role: TypeRole::Label,
-                        color: palette::MUTED,
-                        weight: 1.0,
-                    }
-                    Text {
-                        text: "\u{2605} 4.7",
-                        type_role: TypeRole::Label,
-                        color: palette::ACCENT,
-                    }
-                }
-                Text {
-                    text: found.title,
-                    type_role: TypeRole::Title,
-                    color: palette::INK,
-                }
-                Text {
-                    text: found.blurb,
-                    type_role: TypeRole::Body,
-                    color: palette::MUTED,
-                    max_lines: 3,
-                    overflow: TextOverflow::Ellipsis,
-                }
-            }
+            Column()
+                .modifier(Modifier.fill_max_width())
+                .space_role(SpaceRole::Xs)
+                .content(|| {
+                    Row()
+                        .modifier(Modifier.fill_max_width())
+                        .space_role(SpaceRole::Sm)
+                        .alignment(Alignment::CenterStart)
+                        .content(|| {
+                            Text(show.host)
+                                .type_role(TypeRole::Label)
+                                .color(palette::MUTED)
+                                .modifier(Modifier.weight(1.0));
+                            Text("\u{2605} 4.7")
+                                .type_role(TypeRole::Label)
+                                .color(palette::ACCENT);
+                        });
+                    Text(found.title)
+                        .type_role(TypeRole::Title)
+                        .color(palette::INK);
+                    Text(found.blurb)
+                        .type_role(TypeRole::Body)
+                        .color(palette::MUTED)
+                        .max_lines(3)
+                        .overflow(TextOverflow::Ellipsis);
+                });
 
-            Canvas {
-                width: WAVE.0,
-                height: WAVE.1,
-                commands: waveform(
-                    WAVE.0,
-                    WAVE.1,
-                    WAVE_COLUMNS,
-                    id_seed,
-                    played,
-                    palette::ACCENT,
-                    palette::WAVE,
-                ),
-            }
-            Row {
-                fill_max_width: true,
-                alignment: Alignment::CenterStart,
-                Text {
-                    text: clock(position()),
-                    type_role: TypeRole::Caption,
-                    color: palette::MUTED,
-                    weight: 1.0,
-                }
-                Text {
-                    text: clock(length),
-                    type_role: TypeRole::Caption,
-                    color: palette::MUTED,
-                }
-            }
+            Canvas(waveform(
+                WAVE.0,
+                WAVE.1,
+                WAVE_COLUMNS,
+                found.seed,
+                played,
+                palette::ACCENT,
+                palette::WAVE,
+            ))
+            .modifier(Modifier.size(WAVE.0, WAVE.1));
+            Row()
+                .modifier(Modifier.fill_max_width())
+                .alignment(Alignment::CenterStart)
+                .content(|| {
+                    Text(clock(at))
+                        .type_role(TypeRole::Caption)
+                        .color(palette::MUTED)
+                        .modifier(Modifier.weight(1.0));
+                    Text(clock(length))
+                        .type_role(TypeRole::Caption)
+                        .color(palette::MUTED);
+                });
 
-            Spacer { weight: 1.0 }
+            Spacer().modifier(Modifier.weight(1.0));
 
-            Row {
-                fill_max_width: true,
-                space_role: SpaceRole::Sm,
-                alignment: Alignment::Center,
-                arrangement: Arrangement::Center,
-                Button {
-                    text: "\u{21ba} 15",
-                    variant: ButtonVariant::Text,
-                    color: palette::INK,
-                    on_click: move |_| position.set(position().saturating_sub(15)),
-                }
-                Button {
-                    text: "\u{25b6}",
-                    height: ROUND + 8.0,
-                    variant: ButtonVariant::Text,
-                    color: palette::PAGE,
-                    background: palette::ACCENT,
-                    shape_role: ShapeRole::Full,
-                    on_click: move |_| {
-                        Message::new("Playback is not part of this sample").show();
-                    },
-                }
-                Button {
-                    text: "15 \u{21bb}",
-                    variant: ButtonVariant::Text,
-                    color: palette::INK,
-                    on_click: move |_| position.set((position() + 15).min(length)),
-                }
-            }
-        }
-    }
+            Row()
+                .modifier(Modifier.fill_max_width())
+                .space_role(SpaceRole::Sm)
+                .alignment(Alignment::Center)
+                .arrangement(Arrangement::Center)
+                .content(|| {
+                    let back = position.clone();
+                    Button("\u{21ba} 15")
+                        .variant(ButtonVariant::Text)
+                        .color(palette::INK)
+                        .on_click(move || back.set(back.get_untracked().saturating_sub(15)));
+                    let play = not_here("Playback");
+                    Button("\u{25b6}")
+                        .variant(ButtonVariant::Text)
+                        .color(palette::PAGE)
+                        .modifier(
+                            Modifier
+                                .height(ROUND + 8.0)
+                                .background(palette::ACCENT)
+                                .shape_role(ShapeRole::Full),
+                        )
+                        .on_click(move || play());
+                    let ahead = position.clone();
+                    Button("15 \u{21bb}")
+                        .variant(ButtonVariant::Text)
+                        .color(palette::INK)
+                        .on_click(move || ahead.set((ahead.get_untracked() + 15).min(length)));
+                });
+        });
 }
 
 /// The destinations: three round buttons floating on the page.
@@ -719,118 +701,121 @@ fn player_page(found: &Episode, position: Signal<u32>, on_back: EventHandler<()>
 /// labelled bar with a selection pill under a hairline. The reference is three circles
 /// sitting on the page, the one you are on filled with the accent, and that is a shape no
 /// design system would be right to give a set of destinations.
-fn bottom_bar(destination: Destination, on_go: EventHandler<Destination>) -> Element {
-    rsx! {
-        Row {
-            fill_max_width: true,
-            padding_role: SpaceRole::Sm,
-            space_role: SpaceRole::Sm,
-            arrangement: Arrangement::Center,
-            alignment: Alignment::Center,
+#[composable]
+fn bottom_bar(destination: Destination, on_go: Handler<Destination>) {
+    Row()
+        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Sm))
+        .space_role(SpaceRole::Sm)
+        .arrangement(Arrangement::Center)
+        .alignment(Alignment::Center)
+        .content(|| {
             for choice in Destination::STRIP {
-                {
-                    let selected = choice == destination;
-                    let fill = if selected {
-                        palette::ACCENT
-                    } else {
-                        palette::TILE
-                    };
-                    let tint = if selected {
-                        palette::PAGE
-                    } else {
-                        palette::INK
-                    };
-                    rsx! {
-                        dioxus_compose_adapter::Box { key: "{choice.label()}",
-                            {round_button(
-                                ROUND,
-                                fill,
-                                icon_face(choice.icon(), tint),
-                                EventHandler::new(move |()| on_go.call(choice)),
-                            )}
-                        }
-                    }
-                }
+                let selected = choice == destination;
+                let fill = if selected {
+                    palette::ACCENT
+                } else {
+                    palette::TILE
+                };
+                let tint = if selected {
+                    palette::PAGE
+                } else {
+                    palette::INK
+                };
+                let go = Rc::clone(&on_go);
+                key(choice.label(), || {
+                    round_button(
+                        ROUND,
+                        fill,
+                        || icon_face(choice.icon(), tint),
+                        Rc::new(move || go(choice)),
+                    );
+                });
             }
-        }
-    }
+        });
 }
 
-pub fn app() -> Element {
-    let window = use_window_size();
+#[composable]
+pub fn app() {
+    let window = current_window_size();
     let measure = if window.is_compact() {
         None
     } else {
         Some(PAGE_MEASURE)
     };
 
-    let mut destination = use_signal(|| Destination::New);
-    let mut playing = use_signal(|| Option::<u32>::None);
-    let position = use_signal(|| START_SECONDS);
-    let followed = use_signal(|| vec![0_usize]);
+    let destination = remember(|| mutable_state_of(Destination::New));
+    let playing = remember(|| mutable_state_of(Option::<u32>::None));
+    let position = remember(|| mutable_state_of(START_SECONDS));
+    let followed = remember(|| mutable_state_of(vec![0_usize]));
 
-    let on_play = EventHandler::new(move |id: u32| playing.set(Some(id)));
+    let on_play: Handler<u32> = {
+        let playing = playing.clone();
+        Rc::new(move |id: u32| playing.set(Some(id)))
+    };
 
     // The player covers everything, including the bar along the bottom, because a full
     // screen player is what the reference draws and a bar under it would be a way out of
     // a screen whose only way out is its own back button.
-    if let Some(found) = playing().and_then(episode) {
-        return rsx! {
-            dioxus_compose_adapter::Box {
-                fill_max_width: true,
-                fill_max_height: true,
-                background: palette::PAGE,
-                alignment: Alignment::TopCenter,
-                Column {
-                    width: measure,
-                    fill_max_width: measure.is_none(),
-                    fill_max_height: true,
-                    {player_page(
-                        found,
-                        position,
-                        EventHandler::new(move |()| playing.set(None)),
-                    )}
-                }
-            }
-        };
+    if let Some(found) = playing.get().and_then(episode) {
+        Box()
+            .modifier(Modifier.fill_max_size().background(palette::PAGE))
+            .alignment(Alignment::TopCenter)
+            .content(|| {
+                Column()
+                    .modifier(
+                        Modifier
+                            .width_if(measure)
+                            .fill_max_width_if(measure.is_none())
+                            .fill_max_height(),
+                    )
+                    .content(|| {
+                        let close = playing.clone();
+                        player_page(found, position.clone(), Rc::new(move || close.set(None)));
+                    });
+            });
+        return;
     }
 
-    let body = match destination() {
-        Destination::New => new_page(followed, on_play, on_play),
-        Destination::Shows => shows_page(on_play),
-        Destination::You => you_page(followed()),
-    };
+    let current = destination.get();
 
-    rsx! {
-        // The frame is named rather than built. Whether the bar runs across the bottom,
-        // stands down the leading edge or opens as a drawer is the frame's answer from
-        // the width it was given, and the page is laid out clear of whatever it took.
-        Scaffold {
-            background: palette::PAGE,
-            bottom_bar: rsx! {
-                dioxus_compose_adapter::Box {
-                    fill_max_width: true,
-                    alignment: Alignment::Center,
-                    Column {
-                        width: measure,
-                        fill_max_width: measure.is_none(),
-                        {bottom_bar(destination(), EventHandler::new(move |choice: Destination| {
-                            destination.set(choice);
-                        }))}
-                    }
-                }
-            },
-
-            dioxus_compose_adapter::Box {
-                weight: 1.0,
-                alignment: Alignment::TopCenter,
-                ScrollColumn {
-                    width: measure,
-                    {body}
-                }
-            }
-        }
-    }
+    // The frame is named rather than built. Whether the bar runs across the bottom, stands
+    // down the leading edge or opens as a drawer is the frame's answer from the width it
+    // was given, and the page is laid out clear of whatever it took.
+    Scaffold()
+        .modifier(Modifier.background(palette::PAGE))
+        .bottom_bar(|| {
+            Box()
+                .modifier(Modifier.fill_max_width())
+                .alignment(Alignment::Center)
+                .content(|| {
+                    Column()
+                        .modifier(
+                            Modifier
+                                .width_if(measure)
+                                .fill_max_width_if(measure.is_none()),
+                        )
+                        .content(|| {
+                            let go = destination.clone();
+                            bottom_bar(current, Rc::new(move |choice| go.set(choice)));
+                        });
+                });
+        })
+        .content(|| {
+            Box()
+                .modifier(Modifier.weight(1.0))
+                .alignment(Alignment::TopCenter)
+                .content(|| {
+                    ScrollColumn()
+                        .modifier(Modifier.width_if(measure))
+                        .content(|| match current {
+                            Destination::New => {
+                                new_page(followed.clone(), Rc::clone(&on_play), Rc::clone(&on_play))
+                            }
+                            Destination::Shows => shows_page(Rc::clone(&on_play)),
+                            Destination::You => you_page(followed.with(Vec::len)),
+                        });
+                });
+        });
 }
 
 /// The design this sample draws, named once.
@@ -845,13 +830,9 @@ pub fn app() -> Element {
 /// whose system is set the other way sees a screen the design was never drawn for.
 const THEME: Theme = Theme::unified(DesignSystem::Cupertino).with_color_scheme(ColorScheme::Light);
 
-/// `demo_theme_for` rather than `THEME` alone: a sample is something to look at, and one
-/// machine can only show the design system and the scheme it is set to. `DXC_DESIGN` and
-/// `DXC_SCHEME` each override the half they name, so the line above stays the answer to
-/// everything nobody asked about.
 /// Runs the sample as a program of its own. The desktop binary is one line of this.
 pub fn launch() {
-    launch_builder().launch(app);
+    launch_builder().application(app);
 }
 
 /// How this sample is configured, in one place because three entry points need it.
@@ -859,23 +840,24 @@ pub fn launch() {
 /// The theme above all: a sample that names one and then reaches a platform through an
 /// entry point that makes its own builder is a sample that draws the same screens in a
 /// different design system depending on where it runs.
-fn launch_builder() -> dioxus_compose_adapter::LaunchBuilder {
+///
+/// `demo_theme_for` rather than `THEME` alone: a sample is something to look at, and one
+/// machine can only show the design system and the scheme it is set to. `DXC_DESIGN` and
+/// `DXC_SCHEME` each override the half they name, so `THEME` stays the answer to
+/// everything nobody asked about.
+fn launch_builder() -> LaunchBuilder {
     // The name the window carries. A desktop lists windows by it, so a window that said
-    // nothing was listed under whatever the renderer happened to be called, and every
-    // sample here was listed under the toolkit's default name until this line existed.
-    dioxus_compose_adapter::LaunchBuilder::new()
-        .with_theme(dioxus_compose_adapter::demo_theme_for(THEME))
+    // nothing was listed under whatever the renderer happened to be called.
+    LaunchBuilder::new()
+        .with_theme(compose_rust::demo_theme_for(THEME))
         .with_window(
-            dioxus_compose_adapter::schema::Window::new()
+            compose_rust::schema::Window::new()
                 .with_title("Podcast")
-                // Without one the window wears the toolkit's picture, which on
-                // Windows is the Java coffee cup, wherever the system lists
-                // windows. The bytes travel as an asset and the renderer refers
-                // to them by id: a path would be a fact about the machine this
-                // was built on, and a name would ask the toolkit to find
-                // something it may not have.
-                .with_icon(dioxus_compose_adapter::asset::asset(
-                    dioxus_compose_adapter::schema::AssetKind::Png,
+                // Without one the window wears the toolkit's picture wherever the system
+                // lists windows. The bytes travel as an asset and the renderer refers to
+                // them by id: a path would be a fact about the machine this was built on.
+                .with_icon(compose_rust::asset::asset(
+                    AssetKind::Png,
                     include_bytes!("../assets/icon.png"),
                 )),
         )
@@ -883,24 +865,22 @@ fn launch_builder() -> dioxus_compose_adapter::LaunchBuilder {
 
 // The platforms where the sample is not a program. Android's Activity and the browser's
 // page both own the loop, so neither has a `main` to call: each names an entry point that
-// registers the root component, and these macros define it.
+// registers the root composable, and these macros define it.
 //
-// Both are declared unconditionally. Each macro compiles into nothing that runs off its
-// own platform, and gating them here instead would mean a desktop build never checks that
-// this sample can still be built for the other two.
-dioxus_compose_adapter::android_main!({ launch_builder() }, app);
-dioxus_compose_adapter::web_main!({ launch_builder() }, app);
-dioxus_compose_adapter::ios_main!(launch);
+// All three are declared unconditionally. Each compiles into nothing that runs off its own
+// platform, and gating them here instead would mean a desktop build never checks that this
+// sample can still be built for the others.
+compose_rust::android_application!({ launch_builder() }, app);
+compose_rust::web_application!({ launch_builder() }, app);
+compose_rust::ios_main!(launch);
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use dioxus_compose_adapter::Host;
-    use dioxus_compose_adapter::protocol::{
-        HostEvent, Mutation, PropertyValue, decode_batch, encode_event,
-    };
-    use dioxus_compose_adapter::schema::{EventPayload, PropertyKind, WidgetKind};
+    use compose_rust::ComposeHost;
+    use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
+    use compose_rust::schema::{EventPayload, Modifier as WireModifier, PropertyKind, WidgetKind};
 
     /// Named for what it defends: the reference is a light design, and a machine set
     /// the other way drew this sample dark with nothing to compare against.
@@ -909,8 +889,7 @@ mod tests {
         // Through the wire rather than off the constant: what settles the question is the
         // record the Renderer reads, and a scheme that never leaves the Host is a scheme
         // nobody is drawn in.
-        dioxus_compose_adapter::window::reset_window_size();
-        let mut host = Host::with_theme(app, THEME);
+        let mut host = ComposeHost::with_theme(app, THEME);
         let batch = host.rebuild().expect("the first frame failed").to_vec();
         let first = decode_batch(&batch)
             .expect("the first batch did not decode")
@@ -927,14 +906,13 @@ mod tests {
     /// The screen, driven the way a Renderer drives it. Every batch is kept, because a
     /// batch is the change since the frame before it rather than what is on screen.
     struct Screen {
-        host: Host,
+        host: ComposeHost,
         frames: Vec<Vec<u8>>,
     }
 
     impl Screen {
         fn new() -> Self {
-            dioxus_compose_adapter::window::reset_window_size();
-            let mut host = Host::new(app);
+            let mut host = ComposeHost::new(app);
             let first = host.rebuild().expect("the first frame failed").to_vec();
             Self {
                 host,
@@ -1117,7 +1095,7 @@ mod tests {
 
     #[test]
     fn the_first_frame_encodes_without_a_protocol_error() {
-        assert!(Host::new(app).rebuild().is_ok());
+        assert!(ComposeHost::new(app).rebuild().is_ok());
     }
 
     /// Every destination has to encode, not just the one the app opens on.
@@ -1134,7 +1112,6 @@ mod tests {
                 choice.label()
             );
         }
-        dioxus_compose_adapter::window::reset_window_size();
     }
 
     /// Opening the player replaces the whole screen and its back button returns.
@@ -1157,7 +1134,6 @@ mod tests {
                 .any(|text| text == "New Episodes"),
             "closing the player did not bring the shelf back"
         );
-        dioxus_compose_adapter::window::reset_window_size();
     }
 
     /// Skipping back moves the readout.
@@ -1183,7 +1159,6 @@ mod tests {
             screen.latest_texts().contains(&clock(START_SECONDS - 15)),
             "skipping back left the readout where it was"
         );
-        dioxus_compose_adapter::window::reset_window_size();
     }
 
     /// Every show's cover reaches the Renderer as a picture, and each one crosses once.
@@ -1215,8 +1190,7 @@ mod tests {
     /// with none is a blank square, and on this screen most of the artwork is canvases.
     #[test]
     fn fr16_every_canvas_on_the_shelf_carries_a_draw_list() {
-        dioxus_compose_adapter::window::reset_window_size();
-        let batch = Host::new(app)
+        let batch = ComposeHost::new(app)
             .rebuild()
             .expect("the first frame failed")
             .to_vec();
@@ -1245,7 +1219,6 @@ mod tests {
                 "a canvas reached the Renderer with no draw list"
             );
         }
-        dioxus_compose_adapter::window::reset_window_size();
     }
 
     /// Nothing on the screen is painted by the design system.
@@ -1259,7 +1232,7 @@ mod tests {
         let screen = Screen::new();
         for mutation in screen.mutations() {
             if let Mutation::SetModifier {
-                modifier: Modifier::Background(paint) | Modifier::Border { paint, .. },
+                modifier: WireModifier::Background(paint) | WireModifier::Border { paint, .. },
                 node_id,
                 ..
             } = mutation
@@ -1282,7 +1255,7 @@ mod tests {
             .iter()
             .filter_map(|mutation| match mutation {
                 Mutation::SetModifier {
-                    modifier: Modifier::Background(paint),
+                    modifier: WireModifier::Background(paint),
                     ..
                 } => Some(*paint),
                 _ => None,

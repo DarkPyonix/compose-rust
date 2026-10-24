@@ -7,14 +7,16 @@
 #
 # Distribution layout:
 #   build\native-image\dist\
-#     bin\libcompose_rust_renderer.dll  renderer and GraalVM AWT DLLs
+#     bin\libcompose_rust_renderer.dll  the renderer, and the JDK libraries Native Image stages
 #     bin\skiko-windows-x64.dll           Skia loaded by Skiko by path
+#     bin\jawt.dll                        a stub skiko's library can load (win32_jawt_stub.c)
 #     bin\icudtl.dat                      Skia ICU data
-#     lib\fontconfig.bfc                  AWT font configuration
 #
-# Windows uses upstream GraalVM's supported AWT path. It does not need Liberica NIK, a
-# placeholder toolkit DLL, a JAWT forwarder, JNI_OnLoad_osxui, force-loaded AWT archives,
-# or an AppKit main-thread pump. AWT creates and owns the Win32 event-dispatch thread.
+# The window is the Win32 one this renderer makes itself (win32_window.c), so the image
+# carries no Java toolkit, as the macOS and Linux images do not: no awt.dll beside it, no
+# input method or accessibility registration, no preserved java.desktop module, and Compose's
+# main-thread work on the window's own dispatcher rather than Swing's. Text input, the
+# clipboard and UI Automation are the window's own C.
 [CmdletBinding()]
 param()
 
@@ -65,8 +67,27 @@ $ObjDir = Join-Path $BuildDir "obj-windows"
 $MetadataDir = Join-Path $ScriptsDir "windows-metadata"
 $LibraryName = "libcompose_rust_renderer"
 $RendererSource = Join-Path $NativeDir "c\renderer_entry.c"
-$WindowSource = Join-Path $NativeDir "c\win32_window.c"
-$NotificationsSource = Join-Path $NativeDir "c\win32_notifications.c"
+# The window and the toasts are the Compose fork's extended/window/windows-shared, fetched at the
+# commit build-compose.sh pins (WINDOW_REVISION): the same C the Kotlin/Native renderer compiles.
+# fetch-fork-window.sh puts that commit in .scratch\fork-window\<revision>; the path is built
+# here rather than read from its output, which is a Git Bash path cl.exe cannot open.
+$RepoDir = Split-Path -Parent $ProjectDir
+$ComposeScript = Join-Path $ProjectDir "scripts\build-compose.sh"
+$WindowRevision = Select-String -LiteralPath $ComposeScript -Pattern '^WINDOW_REVISION="([0-9a-f]{40})"$' |
+    ForEach-Object { $_.Matches[0].Groups[1].Value } | Select-Object -First 1
+if (-not $WindowRevision) {
+    Fail "$ComposeScript names no 40 character WINDOW_REVISION"
+}
+& bash ((Join-Path $RepoDir "scripts\fetch-fork-window.sh") -replace '\\', '/') | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    Fail "could not fetch the window modules from the Compose fork" @(
+        "scripts/fetch-fork-window.sh fetches extended/window at the pinned WINDOW_REVISION; it needs git and the network."
+    )
+}
+$ForkWindowDir = Join-Path $RepoDir ".scratch\fork-window\$WindowRevision"
+$WindowCDir = Join-Path $ForkWindowDir "extended\window\windows-shared\c"
+$WindowSource = Join-Path $WindowCDir "win32_window.c"
+$NotificationsSource = Join-Path $WindowCDir "win32_notifications.c"
 $KotlinWrapper = Join-Path $ProjectDir "kotlin.bat"
 $ClasspathFile = Join-Path $BuildDir "classpath-windows.txt"
 $JvmLog = Join-Path $BuildDir "jvm-run-windows.log"
@@ -81,6 +102,25 @@ if (-not (Test-Path -LiteralPath $KotlinWrapper -PathType Leaf)) {
     Fail "missing $KotlinWrapper" @(
         "The checked-in Kotlin Toolchain wrapper is required; no separate Gradle install is used."
     )
+}
+# The desktop module depends on the Compose fork's window modules, published to the local Maven
+# repository from the commit build-compose.sh pins. The Windows window's C is compiled from the
+# fetched checkout above, so only the shared logic and the other desktops' wrappers are needed.
+# The Compose fork's desktop modules and its skiko-awt are asked for by versions only the fork
+# publishes, to the local Maven repository. Resolved before they are there, the toolchain records
+# the failed download in its own cache and keeps failing after they are published, so this checks
+# first, before anything runs the toolchain, and stops with the command that publishes them.
+$RequireForkArtifacts = Join-Path $ProjectDir "scripts\require-fork-artifacts.sh"
+& bash $RequireForkArtifacts desktop
+if ($LASTEXITCODE -ne 0) {
+    Fail "the Compose fork's desktop modules are not in the local Maven repository" @(
+        "require-fork-artifacts.sh printed what is missing and the command that publishes it."
+    )
+}
+$PublishWindow = Join-Path $ProjectDir "scripts\publish-window.sh"
+& bash $PublishWindow
+if ($LASTEXITCODE -ne 0) {
+    Fail "could not publish the window modules from the Compose fork"
 }
 # This carries the whole verified Compose desktop AWT stack, not just the sun.awt.windows
 # classes. An earlier Windows-only selection kept the entries whose names mention Windows and
@@ -236,6 +276,19 @@ foreach ($line in Get-Content -LiteralPath $JvmLog) {
         break
     }
 }
+# skiko's native half for every desktop system is on the JVM class path (desktop\module.yaml
+# names them all, because the toolchain can pick the system only for JetBrains' own desktop
+# module). The image takes this system's alone, as it did when the toolchain picked it.
+$ClasspathEntries = [System.Collections.Generic.List[string]]@($ClasspathEntries | Where-Object {
+    $leaf = Split-Path -Leaf $_
+    -not ($leaf -like "skiko-awt-runtime-*.jar") -or ($leaf -like "skiko-awt-runtime-windows-x64-*.jar")
+})
+# Swing's coroutine provider is left out of the image. It is a main dispatcher that wakes the
+# Java toolkit, and the window here answers `Dispatchers.Main` itself (FrameMainDispatcher).
+# With the provider on the class path it is still found, and everything it reaches comes with it.
+$ClasspathEntries = [System.Collections.Generic.List[string]]@(
+    $ClasspathEntries | Where-Object { (Split-Path -Leaf $_) -notlike "kotlinx-coroutines-swing*" }
+)
 $Classpath = $ClasspathEntries -join [IO.Path]::PathSeparator
 if ([string]::IsNullOrWhiteSpace($Classpath)) {
     # Show what was actually captured. Reading this from a log the build then deletes, on
@@ -285,7 +338,6 @@ $NativeImageArgs = @(
     "-cp", $Classpath,
     "-o", $LibraryName,
     "--no-fallback",
-    "--features=dev.darkpyonix.composerust.ui.platform.ImeReachabilityFeature",
     # The address the window calls to have a frame drawn while its edge is being dragged.
     # It is an entry point of this image taken as a C function pointer, and that address is
     # written in while the image is built: the object holding it has to be in the image for
@@ -293,19 +345,32 @@ $NativeImageArgs = @(
     # CEntryPointLiteral after the build is over, and what it then hands the window is a
     # null address, which is a drag that draws nothing and says nothing about why.
     "--initialize-at-build-time=dev.darkpyonix.composerust.ui.platform.Win32DrawCallback",
+    # The toolkit switched off where the fork's desktop code and this renderer would name it:
+    # no toolkit window (ToolkitWindow), no java.awt in Compose's desktop code (the fork's
+    # ExtendedAwt and skiko's AwtSwitch), and the window's own clipboard.
+    "-Ddxc.toolkit.window=false",
+    "-Dcompose.awt=false",
+    "-Ddxc.awt.clipboard=false",
     "-Djava.awt.headless=false",
     "-H:IncludeLocales=en,ko",
     "-Os",
+    # The call tree, which scripts/tests/renderer/linux-image-toolkit-boundary.test.sh reads
+    # for any frame of application code that calls into the toolkit. Written to bin\reports.
+    "-H:+PrintAnalysisCallTree",
+    "-H:PrintAnalysisCallTreeType=TXT",
+    # The heap the macOS image has (build-native.sh), for the same reason: without a cap
+    # Substrate VM sizes the heap from the machine's physical memory, and the process grew
+    # to hundreds of MB on Windows against tens on macOS. A run can still raise it with
+    # -Xmx (see DXC_SVM_OPTIONS in renderer_entry.c).
+    "-R:MaxHeapSize=64m",
+    "-R:MaxHeapFree=4m",
+    "-R:MaximumYoungGenerationSizePercent=25",
     "-H:+UnlockExperimentalVMOptions",
-    "-H:ConfigurationFileDirectories=$MetadataDir,$ResourceMetadataDir",
-    # The JDK half of the desktop stack, registered wholesale for reflection and JNI.
-    # Curated metadata got the image past Toolkit.getDefaultToolkit and straight into the
-    # next reflective lookup: Swing asks UIManager for a ComponentUI by class name, and a
-    # look and feel class nobody references is not in the image, so a window cannot build
-    # its own root pane. Chasing that one class at a time costs a CI run each. This is the
-    # recipe Native Image uses for its own non-headless desktop image, and it registers
-    # for JNI as well as reflection, so it covers both failures at once.
-    "-H:Preserve=module=java.desktop",
+    "-H:ReportAnalysisForbiddenType=java.awt.Toolkit",
+    "-H:ReportAnalysisForbiddenType=java.awt.Component",
+    # Only the resources: the toolkit's reachability registrations (windows-metadata's
+    # reachability-metadata.json and toolkit-metadata) are for the development shell on a JVM.
+    "-H:ConfigurationFileDirectories=$ResourceMetadataDir",
     "-H:NativeLinkerOption=$RendererObject",
     "-H:NativeLinkerOption=$WindowObject",
     "-H:NativeLinkerOption=$NotificationsObject",
@@ -379,31 +444,38 @@ try {
     $Archive.Dispose()
 }
 
-# AWT reads font configuration from <java.home>\lib. RuntimeLayout.kt sets java.home to
-# dist because the renderer lives in dist\bin, so stage the JDK 25 files in dist\lib.
-$FontFiles = @("fontconfig.bfc", "fontconfig.properties.src", "psfont.properties.ja", "psfontj2d.properties")
-foreach ($Name in $FontFiles) {
-    $Source = Join-Path $GraalHome "lib\$Name"
-    if (-not (Test-Path -LiteralPath $Source -PathType Leaf)) {
-        Fail "required AWT font configuration is missing: $Source"
-    }
-    Copy-Item -LiteralPath $Source -Destination (Join-Path $LibDir $Name)
+# Native Image writes the JDK's desktop libraries beside an image whenever a java.awt class is
+# reachable, and Compose's and Skiko's desktop classes name a few that nothing runs here. They
+# are removed, so that an image that does reach the toolkit at run time fails at once with a
+# missing library instead of quietly loading it. The smoke test is what proves nothing does.
+foreach ($Name in @("awt.dll", "fontmanager.dll", "javaaccessbridge.dll", "javajpeg.dll", "lcms.dll", "jawt.dll")) {
+    Remove-Item -LiteralPath (Join-Path $BinDir $Name) -Force -ErrorAction SilentlyContinue
 }
 
-# Upstream GraalVM emits these beside the shared library on its supported Windows AWT path.
-# Their presence replaces every Darwin-only placeholder, forwarder, and force-load workaround.
-$RuntimeFiles = @(
-    "$LibraryName.dll", "$LibraryName.lib", "awt.dll", "fontmanager.dll", "freetype.dll",
-    "java.dll", "javaaccessbridge.dll", "javajpeg.dll", "jawt.dll", "jvm.dll", "lcms.dll",
-    "skiko-windows-x64.dll", "icudtl.dat"
-)
+# skiko's library imports JAWT_GetAWT. Windows refuses to load a library whose imports it
+# cannot find, so when it does, a stub jawt.dll that answers "no toolkit" goes beside it.
+$SkikoDependents = (Invoke-Native { & dumpbin.exe /nologo /dependents (Join-Path $BinDir "skiko-windows-x64.dll") }) -join "`n"
+Write-Host "skiko-windows-x64.dll imports:"
+Write-Host $SkikoDependents
+if ($SkikoDependents -match "(?im)^\s*jawt\.dll\s*$") {
+    $StubSource = Join-Path $NativeDir "c\win32_jawt_stub.c"
+    Invoke-Native { & cl.exe /nologo /O2 /LD "/Fo$ObjDir\" "/Fe$(Join-Path $BinDir 'jawt.dll')" $StubSource }
+    if ($LASTEXITCODE -ne 0) {
+        Fail "MSVC could not build the jawt.dll stub from $StubSource"
+    }
+    Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $BinDir "jawt.lib"), (Join-Path $BinDir "jawt.exp")
+}
+
+$RuntimeFiles = @("$LibraryName.dll", "$LibraryName.lib", "skiko-windows-x64.dll", "icudtl.dat")
 foreach ($Name in $RuntimeFiles) {
     if (-not (Test-Path -LiteralPath (Join-Path $BinDir $Name) -PathType Leaf)) {
-        Fail "native-image did not stage $Name in $BinDir" @(
+        Fail "the build did not stage $Name in $BinDir" @(
             "This is unverified output naming. Record the directory listing before changing the script."
         )
     }
 }
+Write-Host "staged in ${BinDir}:"
+Get-ChildItem -LiteralPath $BinDir -File | ForEach-Object { Write-Host ("  {0,12:N0}  {1}" -f $_.Length, $_.Name) }
 
 # The schema this renderer was generated from, written beside it, so a build script that
 # pairs a program with this distribution can see the two disagree before the program runs.

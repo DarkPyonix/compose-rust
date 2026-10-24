@@ -43,54 +43,35 @@ done
 
 bash -n "$linux_build"
 
-# awt_graphics_environment_is_registered_for_jni: either the module is preserved or the class
-# is named in the shared metadata. One of the two has to be true or the image cannot start.
-if ! grep -q -- '-H:Preserve=module=java.desktop' "$linux_build"; then
-    python3 - "$shared_metadata" <<'PY'
-import json
-import sys
-
-types = {entry["type"] for entry in json.load(open(sys.argv[1], encoding="utf-8"))["reflection"]}
-if "java.awt.GraphicsEnvironment" not in types:
-    raise SystemExit(
-        "the Linux build neither preserves java.desktop nor registers "
-        "java.awt.GraphicsEnvironment, so libawt's JNI_OnLoad cannot resolve it"
-    )
-PY
-fi
-
-# -H:Preserve is an experimental option and is documented as needing -Os to keep the image
-# from growing without bound, so a build that loses either flag loses the preserve too.
-grep -q -- '-H:+UnlockExperimentalVMOptions' "$linux_build"
-grep -q -- '-Os' "$linux_build"
+# The Linux image has no Java toolkit, so libawt's JNI_OnLoad is never reached and neither the
+# preserved java.desktop module nor the input method and accessibility features are wanted.
+# The check that none of them comes back is scripts/tests/no-awt-on-linux-path.test.sh.
+absent '-H:Preserve=module=java.desktop' "$linux_build" \
+    "Preserving the module keeps the whole Java toolkit in the image"
+absent 'ReachabilityFeature' "$linux_build" \
+    "Those features register the toolkit's input method and accessibility classes"
 
 # The Windows overlay is a list of sun.awt.windows and sun.java2d.windows classes. Pointing
 # the Linux build at it would register nothing that exists on Linux.
 absent 'windows-metadata' "$linux_build" \
     "That overlay is a list of sun.awt.windows classes, none of which exist on Linux"
 
-# Windows keeps its two configuration directories. It used to preserve java.desktop as
-# well, which is what got that image past Toolkit.getDefaultToolkit and into the next
-# reflective lookup, where Swing asks UIManager for a ComponentUI by name and finds no look
-# and feel class in the image.
-#
-# It does not preserve the module any more, because it builds with NIK now and links the
-# JDK's desktop libraries in rather than shipping them beside it, which is what lets the
-# same accessibility feature macOS uses register what is actually reached. Preserving a
-# whole JDK module was the reason the Windows image was 101.6MB against macOS's 70.5MB.
-#
-# So what is required here is that ONE of the two answers is present, the way the Linux
-# check above is written: either the module is preserved, or the feature that registers
-# the reached classes is on. Neither would be an image that cannot start.
-grep -q 'ConfigurationFileDirectories=$MetadataDir,$ResourceMetadataDir' "$windows_build"
-if ! grep -q -- '-H:Preserve=module=java.desktop' "$windows_build" &&
-    ! grep -q 'AccessibilityReachabilityFeature' "$windows_build"; then
-    echo "fail  the Windows build neither preserves java.desktop nor registers the" >&2
-    echo "      classes AWT reaches. One of the two has to be true or the image cannot" >&2
-    echo "      start: Swing looks a look and feel up by class name, and a class nobody" >&2
-    echo "      references is not in the image." >&2
+# The Windows image has no Java toolkit either: it opens its own Win32 window, so it hands
+# Native Image only its resource registrations, preserves no java.desktop module, asks for
+# neither toolkit feature, and forbids the toolkit's types. The toolkit's metadata stays in
+# the tree for the development shell on a JVM.
+grep -q 'ConfigurationFileDirectories=$ResourceMetadataDir"' "$windows_build" || {
+    echo "fail  the Windows build hands Native Image more than its resource registrations" >&2
     exit 1
-fi
+}
+absent '-H:Preserve=module=java.desktop' "$windows_build" \
+    "Preserving the module keeps the whole Java toolkit in the Windows image"
+absent 'ReachabilityFeature' "$windows_build" \
+    "Those features register the toolkit's input method and accessibility classes"
+grep -q 'ReportAnalysisForbiddenType=java.awt.Toolkit' "$windows_build" || {
+    echo "fail  the Windows build does not forbid java.awt.Toolkit" >&2
+    exit 1
+}
 
 python3 - "$shared_metadata" <<'PY'
 import json
@@ -102,10 +83,16 @@ entries = {entry["type"]: entry for entry in metadata["reflection"]}
 # Skiko and Skia are not part of java.desktop, so preserving that module does not reach them.
 # These come from the classpath metadata on every platform, and Skia's native code resolves
 # them through JNI on the first frame.
-required = {"org.jetbrains.skia.impl.Native", "org.jetbrains.skia.Rect", "java.awt.Toolkit"}
+required = {"org.jetbrains.skia.impl.Native", "org.jetbrains.skia.Rect"}
 missing = sorted(required - entries.keys())
 if missing:
     raise SystemExit("shared classpath metadata is missing: " + ", ".join(missing))
+# Registering a toolkit type for reflection or JNI makes it reachable, and with it the native
+# library its static initialiser loads. The registrations live in toolkit-metadata, which only
+# the Windows build reads.
+toolkit = sorted(n for n in entries if n.startswith(("java.awt", "sun.awt", "sun.java2d", "sun.lwawt", "javax.swing", "androidx.compose.ui.awt", "org.jetbrains.skiko.redrawer.", "org.jetbrains.skiko.SkiaLayer", "org.jetbrains.skiko.HardwareLayer", "androidx.compose.ui.scene.ComposeSceneMediator$Invisible", "androidx.compose.ui.scene.skia.")))
+if toolkit:
+    raise SystemExit("the shared classpath metadata registers toolkit types: " + ", ".join(toolkit))
 if not entries["org.jetbrains.skia.impl.Native"].get("jniAccessible"):
     raise SystemExit("org.jetbrains.skia.impl.Native must be registered as JNI accessible")
 

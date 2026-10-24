@@ -150,6 +150,14 @@ fun Modifier.glassSurface(
         // is what every glass surface here was before the recording existed.
         val backdrop = LocalGlassBackdrop.current
         val radius = glassBlurRadius(material, reduce, available, active)
+        DisposableEffect(backdrop, radius > 0.dp) {
+            if (backdrop != null && radius > 0.dp) {
+                backdrop.readers++
+                onDispose { backdrop.readers-- }
+            } else {
+                onDispose {}
+            }
+        }
         var here by remember { mutableStateOf(Offset.Zero) }
         this
             .onGloballyPositioned { here = it.positionInWindow() }
@@ -189,6 +197,9 @@ class GlassBackdropState {
      * right answer for all of it is no backdrop at all.
      */
     internal var recording: Boolean = false
+
+    /** How many active glass surfaces over this backdrop need its recorded layer. */
+    internal var readers: Int = 0
 }
 
 /** The page under the glass, or null where nothing has offered one. */
@@ -217,7 +228,9 @@ fun GlassBackdrop(
 ) {
     CompositionLocalProvider(LocalGlassBackdrop provides state) {
         Box(modifier) {
-            Box(Modifier.recordsGlassBackdrop(state), content = page)
+            CompositionLocalProvider(LocalGlassBackdrop provides null) {
+                Box(Modifier.recordsGlassBackdrop(state), content = page)
+            }
             over()
         }
     }
@@ -255,7 +268,7 @@ fun Modifier.recordsGlassBackdrop(state: GlassBackdropState): Modifier = this
     .onGloballyPositioned { state.origin = it.positionInWindow() }
     .drawWithContent {
         val layer = state.layer
-        if (layer == null) {
+        if (layer == null || state.readers <= 0) {
             drawContent()
         } else {
             // Cleared before recording: the effect a surface set to blur its own copy

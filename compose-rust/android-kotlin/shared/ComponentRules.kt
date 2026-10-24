@@ -981,15 +981,6 @@ internal object CupertinoRules : ComponentRules {
         spacing = 8.dp,
         edgePadding = 20.dp,
         titleAlignment = CaptionTitleAlignment.Center,
-        // A window on this platform in its ordinary mode has the system's buttons a step in
-        // from the corner and a larger radius than a plain window does. Simple is the plain
-        // window, so the system keeps both where it put them.
-        platformButtonInset = if (titleBar == TitleBar.Normal) APPLE_BUTTON_INSET else 0.dp,
-        windowCornerRadius = if (titleBar == TitleBar.Normal) {
-            APPLE_WINDOW_RADIUS
-        } else {
-            APPLE_PLAIN_WINDOW_RADIUS
-        },
     )
 
     /** A card sheet pulled up over a dimmed screen, with the grabber along its top edge. */
@@ -3939,6 +3930,7 @@ internal object LiquidGlassRules : ComponentRules {
                     exponent = SIDEBAR_CORNER_EXPONENT,
                 )
             },
+            stripCornerExponent = if (bar) null else SIDEBAR_CORNER_EXPONENT,
             floatingInset = inset,
             carriesCaption = !bar,
             pageBehindStrip = !onWindow,
@@ -4069,10 +4061,11 @@ internal object LiquidGlassRules : ComponentRules {
     private const val NAVIGATION_ALPHA = 0.72f
 
     /**
-     * The corner of a macOS 26 window, which a sidebar held inside it is cut concentric
-     * with.
+     * The corner a sidebar is cut concentric with where the window reports none of its
+     * own, which is any window but a macOS one. Where the window does report its radius,
+     * the sidebar takes that instead.
      */
-    private val WINDOW_CORNER = APPLE_WINDOW_RADIUS
+    private val WINDOW_CORNER = 34.dp
 
     /**
      * How far a rail or a sidebar stands off the window's leading edge, top and bottom.
@@ -4216,15 +4209,6 @@ internal object LiquidGlassRules : ComponentRules {
         // is inset from the window edge rather than flush with it.
         edgePadding = 22.dp,
         titleAlignment = CaptionTitleAlignment.Center,
-        // A window on this platform in its ordinary mode has the system's buttons a step in
-        // from the corner and a larger radius than a plain window does. Simple is the plain
-        // window, so the system keeps both where it put them.
-        platformButtonInset = if (titleBar == TitleBar.Normal) APPLE_BUTTON_INSET else 0.dp,
-        windowCornerRadius = if (titleBar == TitleBar.Normal) {
-            APPLE_WINDOW_RADIUS
-        } else {
-            APPLE_PLAIN_WINDOW_RADIUS
-        },
     )
 
     private const val SCRIM_ALPHA = 0.4f
@@ -4277,34 +4261,6 @@ internal object LiquidGlassRules : ComponentRules {
             pressedAlpha = 0.7f,
         )
 }
-
-/**
- * How far in from the window's corner an Apple window in its ordinary mode puts the
- * system's buttons.
- *
- * Read off the applications this project is drawn from rather than chosen: a window there
- * has its three buttons a step down and in from where a plain window has them, which is
- * what leaves room for the sidebar's own rounded corner to pass behind them.
- */
-private val APPLE_BUTTON_INSET = 10.dp
-
-/**
- * How round that window is, and how round a plain one is.
- *
- * This did nothing for a long time and the reason is worth keeping. The window was opaque,
- * so the system painted its own rounded background at its own radius and the number here
- * only rounded the layer drawn on top: raising it from fourteen to twenty six and again to
- * thirty four left the corner pixel for pixel identical, and what showed at the corner was
- * the system's square shoulder behind the drawing. The window is neither opaque nor painted
- * now, so the corner on the screen is the one asked for here.
- *
- * The ordinary mode is cut a good deal deeper than the plain one, which keeps the system's
- * own. That is the visible difference between a window that belongs to this language and
- * one that does not, and it is the same difference the buttons a step in from the corner
- * make.
- */
-private val APPLE_WINDOW_RADIUS = 34.dp
-private val APPLE_PLAIN_WINDOW_RADIUS = 10.dp
 
 /**
  * The two caption heights the other five systems choose between.

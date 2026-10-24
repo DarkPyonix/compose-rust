@@ -14,8 +14,17 @@
 #      repository, in the same work directory the fork build used, so that no absolute path
 #      differs between the two;
 #   3. the two repositories are compared file by file, and every archive entry by entry with
-#      zip timestamps left out (.github/scripts/compare-maven-repos.py). Any difference fails
-#      the job and is printed with its path, but only at the end, so the renderer still builds;
+#      zip timestamps left out (.github/scripts/compare-maven-repos.py). The fork publishes
+#      under its own coordinates (org.thisisthepy.compose at 1.11.1-ext.1) where the old build
+#      used JetBrains' (org.jetbrains.compose at 1.11.1), so the fork's side is read under the
+#      old names: its paths, its metadata and the module names inside its klibs. It also
+#      publishes every sibling its modules name, which the old build took from JetBrains, so
+#      a file only the fork has is reported and not counted. It names those siblings in another
+#      order and builds no web targets locally, so dependencies compare as a set and what the
+#      metadata says about js and wasm is left out on both sides. Nothing here consumes a web
+#      build of the fork: the wasmJs renderer (renderer/web) takes JetBrains' Compose through
+#      Amper's `compose: enabled`, not the fork's. Any other difference fails the
+#      job and is printed with its path, but only at the end, so the renderer still builds;
 #   4. the fork's publication is put back, and the renderer's platform module and its static
 #      library are built against it, the way desktop/scripts/build-linux.sh and build-macos.sh
 #      build them, and the static library is kept as an artifact.
@@ -26,13 +35,18 @@
 #
 # Nothing else in CI builds Compose: the renderer's Kotlin/Native modules are otherwise built
 # on a developer's machine. Building Compose twice per platform is slow, so this runs on
-# demand and when the pin or the build script changes, not on every push.
+# demand, not on every push: by hand, or on a pull request that changes the pin or the build
+# script once it carries the run-heavy-ci label. heavy-checks.yml holds such a pull request's
+# merge until this has passed on its head.
 
 name: Compose from fork test
 
 on:
   workflow_dispatch:
   pull_request:
+    # Only when asked: the run-heavy-ci label going on, or a push or reopen while it is on.
+    # The request job below decides; heavy-checks.yml holds the merge until it has passed.
+    types: [synchronize, reopened, labeled]
     paths:
       - renderer/scripts/build-compose.sh
       - renderer/scripts/compose-fork.changes
@@ -40,8 +54,11 @@ on:
       - .github/scripts/compare-maven-repos.py
 
 concurrency:
-  group: test-compose-from-fork-${{ github.ref }}
-  cancel-in-progress: true
+  # One run per pull request: a new commit cancels the older run. Pushes to develop and main,
+  # dispatches and tag runs are never cancelled, so a release is never cut short. A run started
+  # by some other label going on gets a group of its own, so it cannot cancel a heavy run.
+  group: test-compose-from-fork-${{ github.event.pull_request.number || github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'run-heavy-ci' && format('-other-label-{0}', github.run_id) || '' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -51,9 +68,28 @@ env:
   # them. Pinned rather than read from develop, because develop stops having them once the
   # fork replaces them, and the old build has to stay reproducible after that.
   LEGACY_REF: ba5cf56c9aa488b7a9dc4b0e8c4af4f09cbe83ae
+  # The fork commit shown to build the same as the patches above. The pin has moved past it
+  # to take later fork changes on purpose. A module whose sources changed between this and the
+  # pin may differ, and the list is read from the fork's diff, never written by hand. Every
+  # other module must still be identical, so a change nobody meant still fails.
+  EQUIVALENT_REVISION: 02ff96c42a412d8eded411d48c56da131f570af6
 
 jobs:
+  # Heavy: runs only when asked for (the run-heavy-ci label on a pull request, or any other
+  # event). Every job below needs this one, so a run nobody asked for is skipped whole, and
+  # heavy-checks.yml does not count it.
+  requested:
+    name: Heavy checks requested
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.action == 'labeled' && github.event.label.name == 'run-heavy-ci') ||
+      (github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'run-heavy-ci'))
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Heavy checks requested by ${{ github.event_name }} ${{ github.event.action }}"
+
   build:
+    needs: requested
     name: Build Compose from the fork (${{ matrix.name }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
@@ -169,6 +205,7 @@ jobs:
           cat ~/.gradle/gradle.properties
 
       - name: Build Compose from the fork
+        # Under the fork's own coordinates. The comparison reads them under the old build's.
         run: |
           rm -rf ~/.m2/repository
           DXC_COMPOSE_BUILD="$COMPOSE_WORK" \
@@ -213,8 +250,30 @@ jobs:
         id: compare
         continue-on-error: true
         run: |
+          set -euo pipefail
+          fork="$(sed -n 's/^FORK="\(.*\)"$/\1/p' renderer/scripts/build-compose.sh)"
+          revision="$(sed -n 's/^REVISION="\([0-9a-f]\{40\}\)"$/\1/p' renderer/scripts/build-compose.sh)"
+          history="$RUNNER_TEMP/fork-history"
+          rm -rf "$history"
+          git init -q --bare "$history"
+          git -C "$history" fetch -q --filter=blob:none "$fork" "$EQUIVALENT_REVISION" "$revision"
+          # compose/<group>/<module>/src/... publishes as org/jetbrains/compose/<group>/<module>.
+          sources="$(git -C "$history" diff --name-only "$EQUIVALENT_REVISION" "$revision" -- 'compose/*/*/src/*')"
+          changed=()
+          for prefix in $(awk -F/ '{ print "org/jetbrains/compose/" $2 "/" $3 }' <<< "$sources" | sort -u); do
+            module="${prefix#org/jetbrains/compose/}"
+            echo "allowed to differ: $prefix, because these sources changed since $EQUIVALENT_REVISION:"
+            grep "^compose/$module/src/" <<< "$sources" | sed 's/^/  /'
+            changed+=(--changed "$prefix")
+          done
+          compose_as="$(sed -n 's/^COMPOSE_AS="\([^"]*\)"$/\1/p' renderer/scripts/build-compose.sh)"
+          material3_as="$(sed -n 's/^MATERIAL3_AS="\([^"]*\)"$/\1/p' renderer/scripts/build-compose.sh)"
           python3 .github/scripts/compare-maven-repos.py "$LEGACY_REPO" "$FORK_REPO" \
-            --report "$RUNNER_TEMP/compose-equivalence-${{ matrix.target }}.txt"
+            --rename "org.thisisthepy.compose.=org.jetbrains.compose." \
+            --rename "$compose_as=${compose_as%-ext.*}" \
+            --rename "$material3_as=${material3_as%-ext.*}" \
+            --extra-allowed --unordered-dependencies --without-platforms js,wasm \
+            --report "$RUNNER_TEMP/compose-equivalence-${{ matrix.target }}.txt" ${changed[@]+"${changed[@]}"}
 
       - name: Keep the comparison report
         if: always()
@@ -224,6 +283,18 @@ jobs:
           path: ${{ runner.temp }}/compose-equivalence-${{ matrix.target }}.txt
           if-no-files-found: ignore
           retention-days: 14
+
+      - name: Publish both Linux architectures for the renderer
+        # The comparison above is x64 only, because the old build only knew x64. The renderer's
+        # Linux modules declare linuxArm64 as well, so resolving them needs the arm64 variants
+        # and the root metadata that lists both. Publishing the fork's full Linux set over the
+        # restored x64 one supplies them.
+        if: runner.os == 'Linux'
+        run: |
+          rm -rf "$COMPOSE_WORK"
+          DXC_COMPOSE_BUILD="$COMPOSE_WORK" \
+            ./renderer/scripts/build-compose.sh --target linux --clean
+
 
       - name: Build the renderer and its static library against it
         run: ./renderer/desktop/scripts/${{ matrix.renderer_script }}

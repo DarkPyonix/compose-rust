@@ -15,8 +15,11 @@ set -uo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
 
-entry="renderer/desktop/c/renderer_entry.c"
-chrome="renderer/desktop/src/WindowChrome.kt"
+# The window's C is the Compose fork's windows-shared module, at the pinned commit.
+source "$repo_root/scripts/tests/fork-window.sh"
+fork_window_or_skip "$repo_root"
+entry="$fork_window/windows-shared/c/win32_window.c"
+chrome="renderer/desktop/src/devshell/WindowChrome.kt"
 rules="renderer/desktop/src/renderer/ComponentRules.kt"
 status=0
 

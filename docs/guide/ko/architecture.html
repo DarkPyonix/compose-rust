@@ -62,7 +62,7 @@
       <figcaption>the stack</figcaption>
 <pre><code><span class="c">┌──────────────────────── Host (Rust) ────────────────────────┐</span>
 <span class="c">│</span>  your code                                                  <span class="c">│</span>
-<span class="c">│</span>  the layer that builds the tree (Runtime)                   <span class="c">│</span>
+<span class="c">│</span>  composables: slot table, recomposer (Runtime)              <span class="c">│</span>
 <span class="c">│</span>  compose-rust: schema, fixed-layout records, one batch      <span class="c">│</span>
 <span class="c">└──────────────────────────────┬──────────────────────────────┘</span>
                                <span class="c">│</span>
@@ -72,7 +72,7 @@
 <span class="c">┌──────────────────────────────┴──────────────────────────────┐</span>
 <span class="c">│</span>  generated shims (C exports, JNI, wasm)                     <span class="c">│</span>
 <span class="c">│</span>  protocol decoder ──► node table                            <span class="c">│</span>
-<span class="c">│</span>  schema interpreter ──► Compose                             <span class="c">│</span>
+<span class="c">│</span>  schema interpreter ──► Compose ──► the fork's window       <span class="c">│</span>
 <span class="c">└──────────────────── Renderer (Kotlin, AOT) ─────────────────┘</span></code></pre>
     </figure>
 
@@ -80,9 +80,9 @@
       <dt>Host</dt>
       <dd>Rust 쪽입니다. 사용자의 코드, 도메인 로직, 트리를 만드는 런타임을 갖습니다.</dd>
       <dt>Runtime</dt>
-      <dd>트리를 만들고 바꾸는 것으로, <code>Runtime</code> 트레이트 뒤에 있습니다. 1.0.0에서는 compose-rust 자신의 recomposition 런타임입니다.</dd>
+      <dd>트리를 만들고 바꾸는 것으로, <code>Runtime</code> 트레이트 뒤에 있습니다. <code>#[composable]</code> 로 쓴 애플리케이션에서는 compose-rust 자신의 recomposition 런타임인 <code>Recomposer</code> 입니다.</dd>
       <dt>Renderer</dt>
-      <dd>미리 컴파일된 Kotlin과 Compose 라이브러리이며, 스키마 인터프리터를 포함합니다.</dd>
+      <dd>미리 컴파일된 Kotlin과 Compose 라이브러리이며, 스키마 인터프리터를 포함합니다. 데스크톱에서는 Compose 포크가 내주는 창에 그립니다.</dd>
       <dt>스키마</dt>
       <dd>렌더러가 이해하는 위젯, 속성, Modifier, 역할, 이벤트의 닫힌 집합입니다.</dd>
       <dt>Mutation</dt>
@@ -232,33 +232,46 @@
 
     <h2 id="runtimes">어디서 무엇이 도나</h2>
     <p>
-      렌더러는 두 방식으로 빌드합니다. Compose를 그 플랫폼용으로 직접 컴파일할 수 있으면 결과에 가상
-      머신이 없습니다. 아직 그럴 수 없으면 렌더러는 Java 런타임이 컴파일되어 들어간 GraalVM 네이티브
-      이미지입니다. 어느 쪽도 사용자의 기계에 Java가 설치되어 있을 필요가 없습니다.
+      compose-rust는 Kotlin/Native 렌더러를 배포합니다. Compose를 그 플랫폼용으로 직접 컴파일하므로
+      결과에 가상 머신이 없고, 사용자의 기계에 설치할 것도 없습니다.
     </p>
     <div class="tablewrap">
       <table>
-        <thead><tr><th scope="col">플랫폼</th><th scope="col">0.0.1이 배포하는 것</th><th scope="col">다음</th></tr></thead>
+        <thead><tr><th scope="col">플랫폼</th><th scope="col">렌더러</th><th scope="col">상태</th></tr></thead>
         <tbody>
-          <tr><td>macOS</td><td>네이티브 이미지</td><td>실행 파일 안에 링크되는 Kotlin/Native. CI에서 돎(<a href="https://github.com/DarkPyonix/compose-rust/issues/22">#22</a>)</td></tr>
-          <tr><td>Linux</td><td>네이티브 이미지</td><td>실행 파일 안에 링크되는 Kotlin/Native. CI에서 시작 테스트 통과(<a href="https://github.com/DarkPyonix/compose-rust/issues/22">#22</a>)</td></tr>
-          <tr><td>Windows</td><td>네이티브 이미지</td><td>Kotlin/Native(<a href="https://github.com/DarkPyonix/compose-rust/issues/24">#24</a>)</td></tr>
-          <tr><td>iOS</td><td>Kotlin/Native 정적 아카이브</td><td>그대로</td></tr>
-          <tr><td>Android</td><td>Android 라이브러리</td><td>그대로</td></tr>
-          <tr><td>Web</td><td>Kotlin/Wasm</td><td>그대로</td></tr>
+          <tr><td>macOS</td><td>실행 파일 안에 링크되는 Kotlin/Native 정적 아카이브</td><td>0.0.2부터 배포됨</td></tr>
+          <tr><td>Linux (x64, arm64)</td><td>실행 파일 안에 링크되는 Kotlin/Native 정적 아카이브</td><td>0.0.2부터 배포됨</td></tr>
+          <tr><td>Windows</td><td>MSVC 실행 파일 안에 링크되는 Kotlin/Native(<code>mingwX64</code>)</td><td>체크아웃에서 MSVC가 링크한 실행 파일 하나로 빌드되고, CI가 확인합니다. 정적 아카이브가 게시될 때까지 내려받는 것은 GraalVM 네이티브 이미지입니다(<a href="https://github.com/DarkPyonix/compose-rust/issues/24">#24</a>).</td></tr>
+          <tr><td>iOS</td><td>Kotlin/Native 정적 아카이브</td><td>XCFramework로 릴리스</td></tr>
+          <tr><td>Android</td><td>크레이트가 싣고 있는 Kotlin 소스로 빌드하는 Android 라이브러리</td><td>배포됨</td></tr>
+          <tr><td>Web</td><td>Kotlin/Wasm</td><td>배포됨</td></tr>
         </tbody>
       </table>
     </div>
     <p>
-      무게 차이는 대부분 여기서 납니다. Kotlin/Native 렌더러를 쓴 macOS의 notepad 샘플은 옆에 아무것도
-      없는 28.76&nbsp;MB 파일 하나입니다. 같은 샘플을 네이티브 이미지로 빌드하면 파일 넷, 93.1&nbsp;MB였습니다.
-      늘어난 몫은 Compose도 compose-rust 자신의 코드도 아니고, Java 런타임과 닫힌 세계가 요구하는
-      메타데이터입니다.
+      <strong>애플리케이션 하나는 실행 파일 하나입니다.</strong> macOS, Linux, Windows에서
+      <code>cargo build</code> 가 내는 실행 파일이 애플리케이션 전체입니다. 렌더러, Compose, Skia,
+      ICU 데이터가 그 안에 링크되고, 옆에 놓이는 것이 없으며, 시스템 자신의 라이브러리만 불러옵니다.
+      <code>.app</code>, AppImage, msix 같은 번들은 이 실행 파일을 감싸는 것이지 대신하는 것이
+      아닙니다.
     </p>
     <p>
-      Linux에도 Kotlin/Native용으로 게시된 Compose UI는 없지만 빌드를 막는 것도 없으므로, 고정된
-      Compose 포크가 Linux 타깃을 더합니다. Windows는 더 어렵습니다. Kotlin/Native의 Windows 타깃은
-      MinGW이고 Skia는 MSVC로 빌드되므로, 둘을 그냥 링크할 수 없습니다.
+      무게 차이는 대부분 여기서 납니다. Kotlin/Native 렌더러를 쓴 macOS의 notepad 샘플은 옆에 아무것도
+      없는 28.76&nbsp;MB 파일 하나입니다. 같은 샘플을 GraalVM 네이티브 이미지로 빌드하면 파일 넷,
+      93.1&nbsp;MB였습니다. 늘어난 몫은 Compose도 compose-rust 자신의 코드도 아니고, Java 런타임과
+      닫힌 세계가 요구하는 메타데이터입니다.
+    </p>
+    <p>
+      0.0.2 전의 릴리스는 모든 데스크톱에 GraalVM 네이티브 이미지를 배포했고, 0.0.2도 Windows에는
+      아직 그것을 배포합니다. GraalVM 경로에서
+      Compose 데스크톱 애플리케이션을 실행 파일 하나로 빌드하는 일은 이 저장소가 아니라 Compose
+      포크의 일입니다.
+    </p>
+    <p>
+      Compose는 Linux와 Windows용 Kotlin/Native 데스크톱 타깃을 게시하지 않으므로, 고정된 Compose
+      포크가 그것을 더합니다. 더 어려운 쪽은 Windows입니다. Kotlin/Native의 Windows 타깃은 MinGW이고
+      Skia는 MSVC로 빌드되므로, 렌더러 빌드가 Kotlin 오브젝트를 MSVC 링커에 맞게 고쳐 쓰고, MinGW는
+      애플리케이션의 툴체인에 나타나지 않습니다.
     </p>
     <div class="note">
       <span class="label">애플리케이션은 어느 쪽인지 모릅니다</span>
@@ -268,9 +281,25 @@
       </p>
     </div>
 
-    <h2 id="macos">macOS의 Kotlin/Native 렌더러</h2>
+    <h2 id="fork">창은 Compose 포크에 있습니다</h2>
     <p>
-      창은 Compose가 이 플랫폼에서 여는 창이 아니라 렌더러 자신의 <code>NSWindow</code> 입니다.
+      데스크톱 창에 관한 것은 모두 Rust가 아니라 Compose의 일이므로,
+      <a href="https://github.com/thisisthepy/compose-multiplatform-core-extended"><code>thisisthepy/compose-multiplatform-core-extended</code></a>
+      의 <code>extended/window</code> 아래에 있습니다. 창 자체, 입력, IME, 메뉴, 크롬, 크기 조절,
+      접근성, 그리고 그 C와 Objective-C 계층이 모든 OS에 대해 거기에 있습니다. 그곳에 있으므로
+      compose-rust만이 아니라 어느 Compose 애플리케이션이든 쓸 수 있습니다.
+    </p>
+    <p>
+      이 저장소는 포크의 커밋 하나를 고정하고(<code>renderer/scripts/build-compose.sh</code>), 그
+      커밋에서 창 모듈을 게시합니다(<code>renderer/scripts/publish-window.sh</code>). 렌더러에는 창과
+      이어지는 접착 코드만 남습니다. 장면 호스트, 텍스트 입력 세션, 시맨틱 순회, 키 매핑, 프레임
+      클록입니다. 창을 고치는 일은 포크에서 먼저 하고, 그다음 이 저장소의 고정 커밋을 옮깁니다.
+      Windows 창은 포크의 공용 Windows 모듈이 들어올 때까지 이 저장소에 사본이 남아 있습니다.
+    </p>
+
+    <h2 id="macos">macOS의 렌더러</h2>
+    <p>
+      창은 Compose가 이 플랫폼에서 여는 창이 아니라 포크 자신의 <code>NSWindow</code> 입니다.
       Compose의 창도 바르게 그리지만, 그 안의 것에 이름이 없습니다. 스크린 리더는 제목과 제목 막대의
       버튼 셋만 보고, 앱이 그린 것은 보지 못합니다. 창을 직접 가지면 내용을 읽을 수 있게 됩니다.
     </p>
@@ -287,7 +316,8 @@
     <p>
       AppKit은 메인 스레드를 요구합니다. 렌더러는 자신이 불린 스레드에서 <code>NSApplication</code>
       을 돌리고, 그 호출은 창이 닫힐 때 돌아옵니다. 그래서 <code>compose_rust_renderer_run</code> 은
-      프로세스의 메인 스레드에서 불러야 합니다.
+      프로세스의 메인 스레드에서 불러야 합니다. <code>launch</code> 는 <code>main</code> 의 마지막
+      문장이므로 이것을 대신 지켜 줍니다.
     </p>
 
     <nav class="pagenav" aria-label="페이지 이동">
