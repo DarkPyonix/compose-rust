@@ -21,6 +21,11 @@ fi
 module=renderer/web/resources/compose_rust_host.wasm
 renderer/web/scripts/build-host.sh >/dev/null
 
+# The shadow stack must sit above the Renderer's half of the memory. A linker default
+# that moves it below the region base passes the imports check and still draws a wrong
+# screen, so the placement is checked on the same linked module.
+"$repo_root/scripts/tests/web-stack-placement.test.sh" "$module"
+
 # The namespaces the instantiation supplies, read out of the generated file rather than
 # listed here, so the two cannot disagree about what "supplied" means. It is in the Kotlin
 # because only the Renderer's own module can name the memory and the export the Host binds
