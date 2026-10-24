@@ -290,6 +290,14 @@ struct PendingRecord {
 /// Reused across frames: clearing keeps every buffer's capacity, so once warm, asking the
 /// same number of questions allocates nothing.
 #[derive(Debug, Default)]
+/// Where an entry of a side table keeps the list it points at.
+#[derive(Clone, Copy)]
+struct SideTable {
+    entry_len: usize,
+    list_offset_at: usize,
+    list_count_at: usize,
+}
+
 pub struct MeasureRequests {
     records: Vec<PendingRecord>,
     /// The strings and lists the records point at, counted from the start of this area
@@ -447,6 +455,22 @@ impl MeasureRequests {
     /// Copies a `SpanFonts` table without its count, moving every offset inside it, and
     /// answers where the entries start and how many there are.
     fn copy_span_font_table(&mut self, table: &[u8]) -> (u32, u32) {
+        self.copy_side_table(
+            table,
+            SideTable {
+                entry_len: SPAN_FONT_ENTRY_LEN,
+                list_offset_at: SPAN_FONT_OFFSET_AT,
+                list_count_at: 8,
+            },
+        )
+    }
+
+    /// Copies a side table of fixed-size entries without its count. Each entry points at a
+    /// list of font records elsewhere in the table: the entry's list offset is moved to
+    /// where the list now sits, the names the list points at move with it, and every moved
+    /// field is marked to be counted from the start of the buffer. Answers where the
+    /// entries start and how many there are.
+    fn copy_side_table(&mut self, table: &[u8], layout: SideTable) -> (u32, u32) {
         let at = self.payload.len();
         if table.len() < 4 {
             return (at as u32, 0);
@@ -455,14 +479,15 @@ impl MeasureRequests {
         self.payload.extend_from_slice(&table[4..]);
         let moved = (at as u32).wrapping_sub(4);
         for entry in 0..entries as usize {
-            let field = at + entry * SPAN_FONT_ENTRY_LEN + SPAN_FONT_OFFSET_AT;
+            let start = at + entry * layout.entry_len;
+            let field = start + layout.list_offset_at;
             if field + 4 > self.payload.len() {
                 break;
             }
             let list = read_u32(&self.payload, field).wrapping_add(moved);
             self.payload[field..field + 4].copy_from_slice(&list.to_le_bytes());
             self.payload_patches.push(field as u32);
-            let count = read_u32(&self.payload, at + entry * SPAN_FONT_ENTRY_LEN + 8);
+            let count = read_u32(&self.payload, start + layout.list_count_at);
             self.move_font_records(list as usize, count, moved);
         }
         (at as u32, entries)
@@ -785,4 +810,49 @@ fn fake_lines(text: &str, width: f32, advance: f32) -> Vec<f32> {
         lines.push(line as f32 * advance);
     }
     lines
+}
+
+#[cfg(test)]
+mod side_table_tests {
+    use super::*;
+
+    /// One entry (index, list offset, list count) followed by one system font record
+    /// and its name, laid out as the table is on the wire.
+    fn table() -> Vec<u8> {
+        let mut t = Vec::new();
+        t.extend_from_slice(&1u32.to_le_bytes());
+        t.extend_from_slice(&7u32.to_le_bytes());
+        t.extend_from_slice(&(4 + SPAN_FONT_ENTRY_LEN as u32).to_le_bytes());
+        t.extend_from_slice(&1u32.to_le_bytes());
+        let name_at = 4 + SPAN_FONT_ENTRY_LEN as u32 + FONT_REF_LEN as u32;
+        t.extend_from_slice(&FONT_REF_SYSTEM.to_le_bytes());
+        t.extend_from_slice(&name_at.to_le_bytes());
+        t.resize(4 + SPAN_FONT_ENTRY_LEN + FONT_REF_LEN, 0);
+        t.extend_from_slice(b"name");
+        t
+    }
+
+    #[test]
+    fn pr2_side_table_copy_moves_offsets_and_keeps_the_bytes() {
+        let mut requests = MeasureRequests::new();
+        requests.payload.extend_from_slice(&[0xAA; 10]);
+        let table = table();
+        let (at, entries) = requests.copy_span_font_table(&table);
+        assert_eq!((at, entries), (10, 1));
+        let moved = 10u32 - 4;
+        let copied = &requests.payload[10..];
+        assert_eq!(copied.len(), table.len() - 4);
+        assert_eq!(read_u32(copied, 0), 7, "fields that are not offsets are untouched");
+        assert_eq!(read_u32(copied, SPAN_FONT_OFFSET_AT), table_u32(&table, 4 + SPAN_FONT_OFFSET_AT) + moved);
+        assert_eq!(read_u32(copied, 8), 1);
+        let record = SPAN_FONT_ENTRY_LEN;
+        assert_eq!(read_u32(copied, record + 4), table_u32(&table, 4 + record + 4) + moved);
+        assert_eq!(&copied[copied.len() - 4..], b"name");
+        assert_eq!(requests.payload_patches.len(), 2);
+        assert_eq!(requests.copy_span_font_table(&[]), (requests.payload.len() as u32, 0));
+    }
+
+    fn table_u32(table: &[u8], at: usize) -> u32 {
+        read_u32(table, at)
+    }
 }
