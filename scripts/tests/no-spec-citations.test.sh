@@ -14,15 +14,18 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 
-pattern='SPEC|FR-[0-9]|NFR-[0-9]|PR-[0-9]|INTENT'
+# Whole words only. A name that merely contains the letters, such as the Windows Runtime's
+# IInspectable written as DXC_INSPECTABLE_SLOTS, cites nothing.
+pattern='\b(SPEC|INTENT)\b|\b(N?FR|PR)-[0-9]'
 
 # Paths where the documents are the subject rather than a citation. The publishing script
 # decides which files to strip and its test asserts on those names; one test reads the
 # requirements document to check that every test it names is real; and the agent launchers
 # tell a run those three files are not its to edit, which cannot be said without saying
-# which files. A citation is a claim about where a reason came from, and none of these is
-# that.
-exempt='^(scripts/publish-main\.sh|scripts/launch-agent\.sh|scripts/launch-agy\.sh|scripts/launch-codex\.sh|scripts/tests/publish-main\.test\.sh|scripts/tests/no-spec-citations\.test\.sh|scripts/tests/planning-docs\.test\.sh|scripts/tests/spec-cites-real-tests\.test\.sh|scripts/tests/agent-launchers\.test\.sh)$'
+# which files. The guide's text test keeps those names out of the published guide, and
+# cannot do that without naming them either. A citation is a claim about where a reason
+# came from, and none of these is that.
+exempt='^(.github/scripts/release/sync-release\.sh|scripts/launch-agent\.sh|scripts/launch-agy\.sh|scripts/launch-codex\.sh|scripts/tests/sync-release\.test\.sh|scripts/tests/no-spec-citations\.test\.sh|scripts/tests/planning-docs\.test\.sh|scripts/tests/spec-cites-real-tests\.test\.sh|scripts/tests/agent-launchers\.test\.sh|scripts/tests/guide-text\.test\.sh)$'
 
 files=()
 while IFS= read -r file; do

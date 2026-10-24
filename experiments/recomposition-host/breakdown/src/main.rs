@@ -13,11 +13,11 @@
 //! comparison and keeps everything else, so the comparison is the whole of what such a
 //! change could buy. This says how many nanoseconds that is.
 
-use dioxus_compose::prelude::*;
-use dioxus_compose::protocol::{HostEvent, Mutation, PropertyValue, decode_batch};
-use dioxus_compose::renderer::ComposeRenderer;
-use dioxus_compose::schema::{EventPayload, PropertyKind};
-use dioxus_compose::{Host, VirtualDom};
+use compose_rust::prelude::*;
+use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch};
+use compose_rust::renderer::ComposeRenderer;
+use compose_rust::schema::{EventPayload, PropertyKind};
+use compose_rust::{Host, VirtualDom};
 use dioxus_core::{
     AttributeValue, ElementId, Event, Template, WriteMutations,
 };

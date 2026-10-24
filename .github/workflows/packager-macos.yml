@@ -4,7 +4,7 @@
 # Everything is signed ad hoc, which is what the project ships without an Apple developer
 # account, and Sparkle trusts an update by its EdDSA signature alone. The rehearsal is the
 # only place the two halves meet a real renderer: it builds the demo against the published
-# dioxus-compose and the renderer released for it, so nothing here builds the renderer.
+# dioxus-compose 0.0.0 and the renderer released for it, so nothing here builds the renderer.
 #
 # Its evidence (logs, Info.plists, signatures, the appcast, screenshots) is uploaded as the
 # self-update-evidence artifact whether or not it passed, and the bundles and served site
@@ -17,15 +17,15 @@ on:
   push:
     branches: [develop, main, 'feature/packager-*']
     paths:
-      - 'tools/packager/**'
-      - 'dioxus-compose-update/**'
+      - 'scripts/packager-macos/**'
+      - 'compose-rust/update/**'
       - 'experiments/self-update/**'
       - 'scripts/bundle-renderer.sh'
       - '.github/workflows/packager-macos.yml'
   pull_request:
     paths:
-      - 'tools/packager/**'
-      - 'dioxus-compose-update/**'
+      - 'scripts/packager-macos/**'
+      - 'compose-rust/update/**'
       - 'experiments/self-update/**'
       - 'scripts/bundle-renderer.sh'
       - '.github/workflows/packager-macos.yml'
@@ -73,7 +73,7 @@ jobs:
           echo "SPARKLE_DIR=$dir" >> "$GITHUB_ENV"
 
       - name: Run the packager's tests
-        run: python -m unittest discover -s tools/packager/tests -v
+        run: python -m unittest discover -s scripts/packager-macos/tests -v
 
   updater:
     name: Updater crate (${{ matrix.os }})
@@ -91,10 +91,10 @@ jobs:
           rustup default stable
 
       - name: Test
-        run: cargo test -p dioxus-compose-update
+        run: cargo test -p compose-rust-update
 
       - name: Lint
-        run: cargo clippy -p dioxus-compose-update --all-targets -- -D warnings
+        run: cargo clippy -p compose-rust-update --all-targets -- -D warnings
 
   rehearsal:
     name: Self-update rehearsal (macOS)

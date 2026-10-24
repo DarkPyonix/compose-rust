@@ -49,6 +49,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "compose-rust"
+version = "0.0.0"
+dependencies = [
+ "dioxus-core",
+ "dioxus-core-macro",
+ "dioxus-hooks",
+ "dioxus-signals",
+ "jni",
+]
+
+[[package]]
 name = "const_format"
 version = "0.2.36"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -76,17 +87,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baaaa0ecca5b51987b9423ccdc971514dd8b0bb7b4060b983d3664dad3f1f89f"
 dependencies = [
  "unicode-segmentation",
-]
-
-[[package]]
-name = "dioxus-compose"
-version = "0.0.0"
-dependencies = [
- "dioxus-core",
- "dioxus-core-macro",
- "dioxus-hooks",
- "dioxus-signals",
- "jni",
 ]
 
 [[package]]
@@ -453,7 +453,7 @@ dependencies = [
 name = "recomposition-breakdown"
 version = "0.0.0"
 dependencies = [
- "dioxus-compose",
+ "compose-rust",
  "dioxus-core",
 ]
 

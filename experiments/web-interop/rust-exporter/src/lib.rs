@@ -1,6 +1,6 @@
 //! Web-interop experiment: the Rust (Host) side of a two-module WebAssembly link.
 //!
-//! This crate plays the role the `dioxus-compose` Host would play on the Web
+//! This crate plays the role the `compose-rust` Host would play on the Web
 //! target. It owns a fixed-layout arena in linear memory, read in place with no
 //! serialisation or copying, and exports the
 //! boundary functions the Renderer module is supposed to import directly,

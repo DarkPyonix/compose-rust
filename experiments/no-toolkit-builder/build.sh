@@ -9,7 +9,7 @@ set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 out="${1:-$here/out}"
-source "$here/../../dioxus-compose-renderer/desktop/scripts/env.sh" 2>/dev/null || true
+source "$here/../../renderer/desktop/scripts/env.sh" 2>/dev/null || true
 : "${GRAALVM_HOME:?set GRAALVM_HOME, or run desktop/scripts/env.sh first}"
 
 rm -rf "$out"

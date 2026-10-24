@@ -21,7 +21,7 @@ publish = false
 default = ["sparkle"]
 # The updater. Without it (default features off) the application does not update itself,
 # and the packager makes it a bundle with no Sparkle in it.
-sparkle = ["dep:dioxus-compose-update", "dep:objc2"]
+sparkle = ["dep:compose-rust-update", "dep:objc2"]
 
 [dependencies]
 dioxus-compose = { version = "=0.0.0", features = ["native-renderer"] }
@@ -29,7 +29,7 @@ dioxus-compose = { version = "=0.0.0", features = ["native-renderer"] }
 # that version names them itself. Later versions re-export what the macro needs.
 dioxus-core = "0.7.10"
 dioxus-signals = "0.7"
-dioxus-compose-update = { path = "../../../dioxus-compose-update", optional = true }
+compose-rust-update = { path = "../../../compose-rust/update", optional = true }
 
 # Only for the rehearsal's "quit after N seconds", which stands in for the person choosing
 # Quit so that installing on quit can be watched without anyone at the keyboard.

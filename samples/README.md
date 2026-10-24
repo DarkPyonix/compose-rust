@@ -1,7 +1,8 @@
 # Sample apps
 
 Each of these is a real application written the way someone using this project would
-write one: Rust only, `rsx!` and hooks, no Kotlin.
+write one: Rust only, on compose-rust's authoring API (`#[composable]` functions, widgets as
+statements, `remember` and `MutableState`), no Kotlin and no Dioxus.
 
 They exist to be used rather than admired. The widget vocabulary was chosen by reasoning
 about what applications need, and reasoning is not evidence. Every place a sample has to
@@ -76,7 +77,7 @@ An application registers a picture by drawing it:
 ```rust
 static HERO: &[u8] = include_bytes!("../assets/hero.svg");
 
-rsx! { Image { asset_id: asset(AssetKind::Svg, HERO), height: 240.0 } }
+Image(asset(AssetKind::Svg, HERO)).modifier(Modifier.fill_max_width().height(240.0));
 ```
 
 The bytes cross the boundary once. Everything after that is the id, so drawing the same
@@ -84,16 +85,11 @@ picture on every frame costs a lookup. A drawing has to say its `viewBox`, or it
 size to be scaled from and is drawn at one user unit to the pixel in the corner of whatever
 box it was given.
 
-Each one is an ordinary dx project: a `Dioxus.toml`, an `assets/` directory and
-`src/main.rs`, the layout `dx new` produces. That is deliberate, because a sample exists to
-be copied, and an arrangement that only works inside this repository teaches nothing.
-
-```
-cd samples/calculator
-dx serve
-```
-
-Building with cargo directly works too:
+Each one is an ordinary Cargo package: `src/lib.rs` with the application, a one line
+`src/main.rs`, an `assets/` directory, and a `Dioxus.toml` that holds the bundle id and the
+names dx packages an APK with. That is deliberate, because a sample exists to be copied, and
+an arrangement that only works inside this repository teaches nothing. dx is only the
+packager here: no sample depends on Dioxus.
 
 ```
 cargo run -p sample-calculator
@@ -104,7 +100,7 @@ renderer you have just built instead, name it. The path must be absolute: a buil
 with the package directory as its working directory, not the workspace root.
 
 ```
-DIOXUS_COMPOSE_RENDERER_DIR=$PWD/dioxus-compose-renderer/build/native-image/dist/lib \
+COMPOSE_RUST_RENDERER_DIR=$PWD/renderer/build/native-image/dist/lib \
   cargo run -p sample-calculator
 ```
 
@@ -119,7 +115,7 @@ library.
 ```
 ./scripts/build-sample-apks.sh                  # an APK per sample
 ./scripts/build-sample-pages.sh                 # a browser page per sample, plus an index
-./dioxus-compose-renderer/desktop/scripts/build-sample-ios.sh calculator
+./renderer/desktop/scripts/build-sample-ios.sh calculator
 ```
 
 Everything a sample settles before it launches is in one `launch_builder()` that all

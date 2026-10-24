@@ -44,7 +44,7 @@ fn app() -> Element {
 
 fn check_for_updates() {
     #[cfg(feature = "sparkle")]
-    dioxus_compose_update::check_for_updates();
+    compose_rust_update::check_for_updates();
 }
 
 #[cfg(feature = "sparkle")]
@@ -76,7 +76,7 @@ fn record_launch() {
 
 #[cfg(feature = "sparkle")]
 fn start_updates() {
-    use dioxus_compose_update::{Install, UpdaterOptions, check_in_background, start};
+    use compose_rust_update::{Install, UpdaterOptions, check_in_background, start};
 
     let install = match std::env::var("DEMO_INSTALL").as_deref() {
         Ok("on-quit") => Install::OnQuit,

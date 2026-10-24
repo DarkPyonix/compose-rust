@@ -1,7 +1,7 @@
 //! The widget layer writes the same records the Dioxus path writes for the same change.
 
-use dioxus_compose::protocol::{BatchEncoder, Mutation, PropertyValue, decode_batch};
-use dioxus_compose::schema::{PropertyKind, WidgetKind};
+use compose_rust::protocol::{BatchEncoder, Mutation, PropertyValue, decode_batch};
+use compose_rust::schema::{PropertyKind, WidgetKind};
 use positional::widgets::{TextProps, column, compose_frame, reset_frame, text};
 use positional::{composable, reset};
 use std::cell::RefCell;

@@ -1,0 +1,103 @@
+package dev.darkpyonix.composerust.test
+
+import dev.darkpyonix.composerust.design.ComponentRules
+import dev.darkpyonix.composerust.design.rulesFor
+import dev.darkpyonix.composerust.protocol.DesignSystem
+import dev.darkpyonix.composerust.protocol.MotionRole
+import dev.darkpyonix.composerust.ui.node.platformReducedMotion
+import dev.darkpyonix.composerust.protocol.ReducedMotion
+import dev.darkpyonix.composerust.ui.motionAnswerIsInverted
+import dev.darkpyonix.composerust.ui.readAnswer
+import dev.darkpyonix.composerust.ui.readMotionAnswer
+import kotlin.test.AfterTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
+/**
+ * How importance becomes a length.
+ *
+ * A screen says how much a change matters. Every design system answers with its own
+ * number, and the acceptance this defends is that those numbers differ: one table copied
+ * seven times would be the same failure as drawing one date picker three times.
+ */
+class MotionTest {
+
+    @AfterTest
+    fun putTheSettingBack() {
+        platformReducedMotion = { false }
+    }
+
+    private fun allSystems(): List<ComponentRules> = DesignSystem.entries.map { rulesFor(it) }
+
+    @Test
+    fun fr24_each_design_system_answers_standard_with_its_own_length() {
+        val lengths = allSystems().map { it.motion.millis(MotionRole.Standard) }
+        assertEquals(lengths.size, lengths.toSet().size, "two systems gave the same length")
+    }
+
+    @Test
+    fun fr24_importance_orders_the_lengths_within_a_system() {
+        for (rules in allSystems()) {
+            val motion = rules.motion
+            assertTrue(motion.millis(MotionRole.Instant) == 0)
+            assertTrue(motion.millis(MotionRole.Quick) < motion.millis(MotionRole.Standard))
+            assertTrue(motion.millis(MotionRole.Standard) < motion.millis(MotionRole.Slow))
+            assertTrue(motion.millis(MotionRole.Emphasized) > motion.millis(MotionRole.Quick))
+        }
+    }
+
+    @Test
+    fun fr24_a_system_asked_to_hold_still_answers_every_role_with_no_run() {
+        platformReducedMotion = { true }
+        for (rules in allSystems()) {
+            for (role in MotionRole.entries) {
+                assertEquals(
+                    0,
+                    rules.motion.millis(
+                        if (platformReducedMotion()) MotionRole.Instant else role,
+                    ),
+                )
+            }
+        }
+    }
+
+    @Test
+    fun fr24_a_platform_answer_is_read_the_way_that_platform_phrases_it() {
+        // macOS says whether motion is reduced; Windows and GNOME say whether animations
+        // are on, which is the same question the other way round.
+        assertTrue(readAnswer("1", inverted = false))
+        assertTrue(!readAnswer("0", inverted = false))
+        assertTrue(readAnswer("    MinAnimate    REG_SZ    0", inverted = true))
+        assertTrue(!readAnswer("true", inverted = true))
+        assertTrue(readAnswer("false", inverted = true))
+        // A machine that cannot be asked has not asked for anything.
+        assertTrue(!readAnswer("command not found", inverted = false))
+        assertTrue(!readAnswer("", inverted = true))
+    }
+
+    @Test
+    fun fr41_windows_with_animations_switched_off_reads_as_reduced_motion() {
+        // `reg query` prints the value at the end of its line. MinAnimate is 1 while
+        // Windows plays its animations and 0 once they are switched off.
+        val windows = motionAnswerIsInverted("Windows 11")
+        assertEquals(
+            ReducedMotion.On,
+            readMotionAnswer("    MinAnimate    REG_SZ    0", inverted = windows),
+        )
+        assertEquals(
+            ReducedMotion.Off,
+            readMotionAnswer("    MinAnimate    REG_SZ    1", inverted = windows),
+        )
+        // macOS is asked whether motion is reduced, so its yes stays a yes.
+        assertEquals(
+            ReducedMotion.On,
+            readMotionAnswer("1", inverted = motionAnswerIsInverted("Mac OS X")),
+        )
+        // GNOME is asked whether animations are on.
+        assertEquals(
+            ReducedMotion.On,
+            readMotionAnswer("false", inverted = motionAnswerIsInverted("Linux")),
+        )
+    }
+}
