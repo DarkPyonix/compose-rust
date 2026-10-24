@@ -62,12 +62,6 @@ enum class NotificationPresentation { Always, WhenInactive }
 
 enum class NotificationPermission { NotDetermined, Granted, Denied, Unsupported }
 
-enum class DecorationKind { Underline, CodeLens, HoverAnchor, GhostText }
-
-enum class Severity { Error, Warning, Information, Hint }
-
-enum class HoverPhase { Rest, Leave }
-
 enum class AnimatedProperty { Alpha, Color, Background, Transform, BorderColor }
 
 enum class PlaybackDirection { Normal, Reverse, Alternate, AlternateReverse }
@@ -89,6 +83,12 @@ enum class AnimationControl { Pause, Resume, Cancel }
 enum class AnimationEventKind { Ready, Active, Iteration, End }
 
 enum class ReducedMotion { Off, On, Unknown }
+
+enum class DecorationKind { Underline, CodeLens, HoverAnchor, GhostText }
+
+enum class Severity { Error, Warning, Information, Hint }
+
+enum class HoverPhase { Rest, Leave }
 
 enum class LoopMode(val wire: Byte) {
     /** The Renderer runs the loop and the Host blocks inside it. Desktop. */
@@ -903,7 +903,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 2900904971925903247L
+    const val SCHEMA_HASH: Long = -583650425019148022L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1923,28 +1923,6 @@ object Protocol {
         else -> throw ProtocolException("unknown NotificationPermission tag $tag", offset)
     }
 
-    private fun decorationKind(tag: Int, offset: Int): DecorationKind = when (tag) {
-        1 -> DecorationKind.Underline
-        2 -> DecorationKind.CodeLens
-        3 -> DecorationKind.HoverAnchor
-        4 -> DecorationKind.GhostText
-        else -> throw ProtocolException("unknown DecorationKind tag $tag", offset)
-    }
-
-    private fun severity(tag: Int, offset: Int): Severity = when (tag) {
-        1 -> Severity.Error
-        2 -> Severity.Warning
-        3 -> Severity.Information
-        4 -> Severity.Hint
-        else -> throw ProtocolException("unknown Severity tag $tag", offset)
-    }
-
-    private fun hoverPhase(tag: Int, offset: Int): HoverPhase = when (tag) {
-        1 -> HoverPhase.Rest
-        2 -> HoverPhase.Leave
-        else -> throw ProtocolException("unknown HoverPhase tag $tag", offset)
-    }
-
     private fun animatedProperty(tag: Int, offset: Int): AnimatedProperty = when (tag) {
         1 -> AnimatedProperty.Alpha
         2 -> AnimatedProperty.Color
@@ -2026,6 +2004,28 @@ object Protocol {
         2 -> ReducedMotion.On
         3 -> ReducedMotion.Unknown
         else -> throw ProtocolException("unknown ReducedMotion tag $tag", offset)
+    }
+
+    private fun decorationKind(tag: Int, offset: Int): DecorationKind = when (tag) {
+        1 -> DecorationKind.Underline
+        2 -> DecorationKind.CodeLens
+        3 -> DecorationKind.HoverAnchor
+        4 -> DecorationKind.GhostText
+        else -> throw ProtocolException("unknown DecorationKind tag $tag", offset)
+    }
+
+    private fun severity(tag: Int, offset: Int): Severity = when (tag) {
+        1 -> Severity.Error
+        2 -> Severity.Warning
+        3 -> Severity.Information
+        4 -> Severity.Hint
+        else -> throw ProtocolException("unknown Severity tag $tag", offset)
+    }
+
+    private fun hoverPhase(tag: Int, offset: Int): HoverPhase = when (tag) {
+        1 -> HoverPhase.Rest
+        2 -> HoverPhase.Leave
+        else -> throw ProtocolException("unknown HoverPhase tag $tag", offset)
     }
 
     private fun paint(bits: Long, offset: Int): Paint {
