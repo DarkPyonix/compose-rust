@@ -1,6 +1,7 @@
 //! What the playground is made of: the three groups and the marks drawn on the hero.
 
-use compose_rust::ui::{ColorRole, DrawList, DrawListBuilder, Paint, TypeRole};
+use crate::palette;
+use compose_rust::ui::{DrawList, DrawListBuilder, Paint, TypeRole};
 
 /// The three groups of the playground, which is what the tab strip selects.
 ///
@@ -64,55 +65,26 @@ pub fn hero_marks(size: f32) -> DrawList {
     let radius = size * 0.32;
     let middle = size / 2.0;
     DrawListBuilder::with_capacity(2, 0)
-        .circle(
-            Paint::Role(ColorRole::OutlineVariant),
-            middle + radius * 0.55,
-            middle,
-            radius,
-            0.0,
-        )
-        .circle(
-            Paint::Role(ColorRole::OnBackground),
-            middle - radius * 0.55,
-            middle,
-            radius,
-            0.0,
-        )
+        .circle(palette::PALE, middle + radius * 0.55, middle, radius, 0.0)
+        .circle(palette::INK, middle - radius * 0.55, middle, radius, 0.0)
         .build()
 }
 
-/// The nine fills the colour group shows, each with the ink that is promised to read on
-/// it.
+/// The nine fills the colour group shows, each with the ink that reads on it.
 ///
-/// Ordered as three accents, three accent containers, then the three neutral layers, so
-/// reading down the column is reading the table in the order a screen is built: what marks
-/// a thing, what a panel of it is filled with, and what the page under both is.
-pub const SWATCHES: [(&str, ColorRole, ColorRole); 9] = [
-    ("Primary", ColorRole::Primary, ColorRole::OnPrimary),
-    ("Secondary", ColorRole::Secondary, ColorRole::OnSecondary),
-    ("Tertiary", ColorRole::Tertiary, ColorRole::OnTertiary),
-    (
-        "Primary container",
-        ColorRole::PrimaryContainer,
-        ColorRole::OnPrimaryContainer,
-    ),
-    (
-        "Secondary container",
-        ColorRole::SecondaryContainer,
-        ColorRole::OnSecondaryContainer,
-    ),
-    (
-        "Tertiary container",
-        ColorRole::TertiaryContainer,
-        ColorRole::OnTertiaryContainer,
-    ),
-    ("Surface", ColorRole::Surface, ColorRole::OnSurface),
-    (
-        "Surface variant",
-        ColorRole::SurfaceVariant,
-        ColorRole::OnSurfaceVariant,
-    ),
-    ("Error", ColorRole::Error, ColorRole::OnError),
+/// These are the reference sheet's own colours and not a table of the running design
+/// system's roles: the sheet has no accent and no container in it. What it does have is
+/// paper, three greys, ink, and the two colours a delete and a switch carry.
+pub const SWATCHES: [(&str, Paint, Paint); 9] = [
+    ("Page", palette::PAGE, palette::INK),
+    ("Panel", palette::PANEL, palette::INK),
+    ("Recess", palette::RECESS, palette::INK),
+    ("Grey card", palette::GREY, palette::ON_DARK),
+    ("Dark card", palette::DARK, palette::ON_DARK),
+    ("Ink", palette::INK, palette::ON_DARK),
+    ("Muted", palette::MUTED, palette::ON_DARK),
+    ("Delete", palette::ALERT, palette::ON_DARK),
+    ("Switched on", palette::ON, palette::INK),
 ];
 
 /// The nine rungs of the type ladder, in the order they descend.

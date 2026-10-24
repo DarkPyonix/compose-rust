@@ -6,10 +6,13 @@
 //! an application does when the design is the product rather than the platform's
 //! convention.
 //!
-//! Appearance comes from roles. A fill is a `ColorRole`, a size is a `TypeRole`, a corner is
-//! a `ShapeRole` and a gap is a `SpaceRole`, which is what lets the colour group be a
-//! picture of the design system rather than a picture of this file.
+//! Its colours are the reference sheet's own, named in `palette`: white paper, three
+//! greys, black ink, a red delete and a green switch. A colour role would hand each of
+//! those to whichever design system is running, and it answers with an accent this sheet
+//! does not have. Sizes, corners and gaps stay roles: a size is a `TypeRole`, a corner a
+//! `ShapeRole` and a gap a `SpaceRole`.
 
+mod palette;
 mod playground;
 
 use compose_rust::runtime::*;
@@ -29,20 +32,18 @@ fn block(title: &str, children: impl FnOnce()) {
         .modifier(Modifier.fill_max_width())
         .space_role(SpaceRole::Sm)
         .content(|| {
-            Text(title)
-                .type_role(TypeRole::Label)
-                .color(Paint::Role(ColorRole::OnSurfaceVariant));
+            Text(title).type_role(TypeRole::Label).color(palette::MUTED);
             children();
         });
 }
 
 /// One stepper: the amount, and a minus and a plus in the panel's own inverted ink.
-fn counter(fill: ColorRole, ink: ColorRole, amount: i32, step: &Rc<dyn Fn(i32)>) {
+fn counter(fill: Paint, ink: Paint, amount: i32, step: &Rc<dyn Fn(i32)>) {
     Surface()
         .modifier(
             Modifier
                 .weight(1.0)
-                .background(Paint::Role(fill))
+                .background(fill)
                 .shape_role(ShapeRole::Large)
                 .padding_role(SpaceRole::Md),
         )
@@ -52,12 +53,10 @@ fn counter(fill: ColorRole, ink: ColorRole, amount: i32, step: &Rc<dyn Fn(i32)>)
                 .space_role(SpaceRole::Sm)
                 .alignment(Alignment::Center)
                 .content(|| {
-                    Text("Amount")
-                        .type_role(TypeRole::Label)
-                        .color(Paint::Role(ink));
+                    Text("Amount").type_role(TypeRole::Label).color(ink);
                     Text(format!("{amount}"))
                         .type_role(TypeRole::Display)
-                        .color(Paint::Role(ink));
+                        .color(ink);
                     Row()
                         .space_role(SpaceRole::Sm)
                         .alignment(Alignment::Center)
@@ -66,12 +65,8 @@ fn counter(fill: ColorRole, ink: ColorRole, amount: i32, step: &Rc<dyn Fn(i32)>)
                                 let step = Rc::clone(step);
                                 Button(label)
                                     .variant(ButtonVariant::Filled)
-                                    .modifier(
-                                        Modifier
-                                            .shape_role(ShapeRole::Full)
-                                            .background(Paint::Role(ink)),
-                                    )
-                                    .color(Paint::Role(fill))
+                                    .modifier(Modifier.shape_role(ShapeRole::Full).background(ink))
+                                    .color(fill)
                                     .on_click(move || step(by));
                             }
                         });
@@ -128,13 +123,8 @@ fn controls_group(controls: &Controls) {
                     .modifier(Modifier.fill_max_width())
                     .space_role(SpaceRole::Sm)
                     .content(|| {
-                        counter(
-                            ColorRole::SurfaceContainer,
-                            ColorRole::OnSurface,
-                            shown,
-                            &step,
-                        );
-                        counter(ColorRole::OnSurface, ColorRole::Surface, shown, &step);
+                        counter(palette::PANEL, palette::INK, shown, &step);
+                        counter(palette::DARK, palette::ON_DARK, shown, &step);
                     });
             });
 
@@ -149,6 +139,7 @@ fn controls_group(controls: &Controls) {
                     .modifier(
                         Modifier
                             .fill_max_width()
+                            .background(palette::GREY)
                             .shape_role(ShapeRole::Large)
                             .padding_role(SpaceRole::Md),
                     )
@@ -162,18 +153,22 @@ fn controls_group(controls: &Controls) {
                                     .space_role(SpaceRole::Sm)
                                     .alignment(Alignment::CenterStart)
                                     .content(|| {
-                                        Text("A").type_role(TypeRole::Caption);
+                                        Text("A")
+                                            .type_role(TypeRole::Caption)
+                                            .color(palette::ON_DARK);
                                         let set = controls.reading.clone();
                                         Slider(reading)
                                             .modifier(Modifier.weight(1.0))
-                                            // Ink on paper: the filled track is ink too.
-                                            .color(Paint::Role(ColorRole::OnSurface))
+                                            // The filled track is as white as the letters either side of it.
+                                            .color(palette::ON_DARK)
                                             .on_change(move |value| set.set(value));
-                                        Text("A").type_role(TypeRole::Title);
+                                        Text("A")
+                                            .type_role(TypeRole::Title)
+                                            .color(palette::ON_DARK);
                                     });
                                 Text(format!("Reading size {percent}%"))
                                     .type_role(TypeRole::Label)
-                                    .color(Paint::Role(ColorRole::OnSurfaceVariant));
+                                    .color(palette::ON_DARK);
                             });
                     });
             });
@@ -183,6 +178,7 @@ fn controls_group(controls: &Controls) {
                     .modifier(
                         Modifier
                             .fill_max_width()
+                            .background(palette::PANEL)
                             .shape_role(ShapeRole::Large)
                             .padding_role(SpaceRole::Md),
                     )
@@ -247,8 +243,7 @@ fn controls_group(controls: &Controls) {
                             .space_role(SpaceRole::Sm)
                             .content(|| {
                                 idle("Disabled", ButtonVariant::Filled).enabled(false);
-                                idle("Delete", ButtonVariant::Text)
-                                    .color(Paint::Role(ColorRole::Error));
+                                idle("Delete", ButtonVariant::Text).color(palette::ALERT);
                             });
                     });
             });
@@ -266,7 +261,7 @@ fn surfaces_group() {
                     .modifier(
                         Modifier
                             .fill_max_width()
-                            .background(Paint::Role(ColorRole::OnSurface))
+                            .background(palette::INK)
                             .shape_role(ShapeRole::Large)
                             .padding_role(SpaceRole::Md),
                     )
@@ -281,11 +276,11 @@ fn surfaces_group() {
                                     .content(|| {
                                         Button("\u{2190}")
                                             .variant(ButtonVariant::Text)
-                                            .color(Paint::Role(ColorRole::Surface))
+                                            .color(palette::ON_DARK)
                                             .on_click(|| {});
                                         Text("Title")
                                             .type_role(TypeRole::Title)
-                                            .color(Paint::Role(ColorRole::Surface))
+                                            .color(palette::ON_DARK)
                                             .modifier(Modifier.weight(1.0))
                                             .text_align(TextAlign::End);
                                     });
@@ -306,6 +301,7 @@ fn surfaces_group() {
                             .modifier(
                                 Modifier
                                     .weight(1.0)
+                                    .background(palette::PANEL)
                                     .shape_role(ShapeRole::Large)
                                     .padding_role(SpaceRole::Md),
                             )
@@ -314,21 +310,23 @@ fn surfaces_group() {
                                     .modifier(Modifier.fill_max_width())
                                     .space_role(SpaceRole::Xs)
                                     .content(|| {
-                                        Text("Title").type_role(TypeRole::Subtitle);
+                                        Text("Title")
+                                            .type_role(TypeRole::Subtitle)
+                                            .color(palette::INK);
                                         Text("Subtitle")
                                             .type_role(TypeRole::Body)
-                                            .color(Paint::Role(ColorRole::OnSurfaceVariant));
+                                            .color(palette::MUTED);
                                         Text(
                                             "A paragraph sitting on a panel, which is the \
                                              reason the panel has a colour of its own.",
                                         )
                                         .type_role(TypeRole::Caption)
-                                        .color(Paint::Role(ColorRole::OnSurfaceVariant));
+                                        .color(palette::MUTED);
                                     });
                             });
                         Button("Delete")
                             .variant(ButtonVariant::Text)
-                            .color(Paint::Role(ColorRole::Error))
+                            .color(palette::ALERT)
                             .on_click(|| {});
                     });
             });
@@ -339,13 +337,9 @@ fn surfaces_group() {
                     .space_role(SpaceRole::Sm)
                     .content(|| {
                         for (label, role, ink) in [
-                            ("Page", ColorRole::Background, ColorRole::OnBackground),
-                            ("Panel", ColorRole::SurfaceContainer, ColorRole::OnSurface),
-                            (
-                                "Recess",
-                                ColorRole::SurfaceVariant,
-                                ColorRole::OnSurfaceVariant,
-                            ),
+                            ("Page", palette::PAGE, palette::INK),
+                            ("Panel", palette::PANEL, palette::INK),
+                            ("Recess", palette::RECESS, palette::INK),
                         ] {
                             key(label, || {
                                 Box()
@@ -353,15 +347,13 @@ fn surfaces_group() {
                                         Modifier
                                             .weight(1.0)
                                             .height(72.0)
-                                            .background(Paint::Role(role))
+                                            .background(role)
                                             .shape_role(ShapeRole::Medium)
-                                            .border(1.0, Paint::Role(ColorRole::OutlineVariant)),
+                                            .border(1.0, palette::OUTLINE),
                                     )
                                     .alignment(Alignment::Center)
                                     .content(|| {
-                                        Text(label)
-                                            .type_role(TypeRole::Label)
-                                            .color(Paint::Role(ink));
+                                        Text(label).type_role(TypeRole::Label).color(ink);
                                     });
                             });
                         }
@@ -386,14 +378,14 @@ fn surfaces_group() {
                                         Modifier
                                             .weight(1.0)
                                             .height(56.0)
-                                            .background(Paint::Role(ColorRole::SurfaceVariant))
+                                            .background(palette::RECESS)
                                             .shape_role(shape),
                                     )
                                     .alignment(Alignment::Center)
                                     .content(|| {
                                         Text(label)
                                             .type_role(TypeRole::Caption)
-                                            .color(Paint::Role(ColorRole::OnSurfaceVariant));
+                                            .color(palette::INK);
                                     });
                             });
                         }
@@ -422,9 +414,7 @@ fn surfaces_group() {
                                             .content(|| {
                                                 Text(format!("{step} dp"))
                                                     .type_role(TypeRole::Caption)
-                                                    .color(Paint::Role(
-                                                        ColorRole::OnSurfaceVariant,
-                                                    ));
+                                                    .color(palette::MUTED);
                                             });
                                     });
                             });
@@ -451,18 +441,16 @@ fn colour_group() {
                                     .modifier(
                                         Modifier
                                             .fill_max_width()
-                                            .background(Paint::Role(fill))
+                                            .background(fill)
                                             .shape_role(ShapeRole::Medium)
                                             .padding_role(SpaceRole::Md),
                                     )
                                     .space_role(SpaceRole::Xs)
                                     .content(|| {
-                                        Text(name)
-                                            .type_role(TypeRole::BodyStrong)
-                                            .color(Paint::Role(ink));
+                                        Text(name).type_role(TypeRole::BodyStrong).color(ink);
                                         Text("The ink this fill promises to carry.")
                                             .type_role(TypeRole::Caption)
-                                            .color(Paint::Role(ink));
+                                            .color(ink);
                                     });
                             });
                         }
@@ -474,6 +462,7 @@ fn colour_group() {
                     .modifier(
                         Modifier
                             .fill_max_width()
+                            .background(palette::PANEL)
                             .shape_role(ShapeRole::Large)
                             .padding_role(SpaceRole::Md),
                     )
@@ -517,7 +506,7 @@ pub fn app() {
     let selected = group.get();
 
     Scaffold()
-        .modifier(Modifier.background(Paint::Role(ColorRole::Background)))
+        .modifier(Modifier.background(palette::PAGE))
         .top_bar(|| {
             TopAppBar().modifier(Modifier.fill_max_width()).content(|| {
                 Text("Minimal")
@@ -525,7 +514,7 @@ pub fn app() {
                     .modifier(Modifier.weight(1.0));
                 Text("one design, every platform")
                     .type_role(TypeRole::Label)
-                    .color(Paint::Role(ColorRole::OnSurfaceVariant));
+                    .color(palette::MUTED);
             });
         })
         .content(|| {
@@ -557,7 +546,7 @@ pub fn app() {
                                                 .text_align(TextAlign::Center);
                                             Text("Including dark theme")
                                                 .type_role(TypeRole::Body)
-                                                .color(Paint::Role(ColorRole::OnSurfaceVariant))
+                                                .color(palette::MUTED)
                                                 .text_align(TextAlign::Center);
                                         });
 
@@ -575,20 +564,18 @@ pub fn app() {
                                                         key(choice.label(), || {
                                                             Button(choice.label())
                                                                 .variant(ButtonVariant::Text)
-                                                                .color(Paint::Role(
-                                                                    if choice == selected {
-                                                                        ColorRole::OnSurface
-                                                                    } else {
-                                                                        ColorRole::OnSurfaceVariant
-                                                                    },
-                                                                ))
+                                                                .color(if choice == selected {
+                                                                    palette::INK
+                                                                } else {
+                                                                    palette::MUTED
+                                                                })
                                                                 .on_click(move || pick.set(choice));
                                                         });
                                                     }
                                                 });
                                             Text(selected.caption())
                                                 .type_role(TypeRole::Caption)
-                                                .color(Paint::Role(ColorRole::OnSurfaceVariant));
+                                                .color(palette::MUTED);
                                         });
 
                                     match selected {
@@ -764,6 +751,70 @@ mod tests {
                 showing.iter().any(|text| text == name),
                 "the colour group does not show {name}, so that role is never looked at"
             );
+        }
+    }
+
+    /// Nothing in any group is filled or outlined by the design system.
+    ///
+    /// Named for what it defends: the sheet used to be drawn with roles, so its cards came
+    /// out of the accent containers as pale lilac and powder blue, none of which is in the
+    /// reference. Every fill and edge on the wire is a literal now.
+    #[test]
+    fn fr22_nothing_on_the_screen_is_painted_by_a_role() {
+        fn assert_literal(batch: &[u8], group: &str) {
+            for mutation in decode_batch(batch).expect("the batch did not decode") {
+                if let Mutation::SetModifier {
+                    node_id,
+                    modifier:
+                        compose_rust::schema::Modifier::Background(paint)
+                        | compose_rust::schema::Modifier::Border { paint, .. },
+                    ..
+                } = mutation
+                {
+                    assert!(
+                        matches!(paint, Paint::Literal(_)),
+                        "in {group}, node {node_id} is painted {paint:?}, which the design \
+                         system picks"
+                    );
+                }
+            }
+        }
+
+        let mut host = ComposeHost::new(app);
+        let first = host.rebuild().expect("the first frame failed").to_vec();
+        assert_literal(&first, Group::Controls.label());
+        for group in [Group::Surfaces, Group::Colour] {
+            let (node_id, handler_id) = click_handler(&first, group.label())
+                .unwrap_or_else(|| panic!("the strip has no segment called {}", group.label()));
+            let mut bytes = Vec::new();
+            compose_rust::protocol::encode_event(
+                &compose_rust::protocol::HostEvent {
+                    node_id,
+                    handler_id,
+                    payload: compose_rust::schema::EventPayload::Clicked,
+                },
+                &mut bytes,
+            )
+            .expect("the click did not encode");
+            let (batch, _) = host
+                .dispatch_event(&bytes)
+                .unwrap_or_else(|error| panic!("{} failed to encode: {error:?}", group.label()));
+            assert_literal(batch, group.label());
+            // Back to the first group so the next one is reached from the same screen.
+            let (node_id, handler_id) = click_handler(&first, Group::Controls.label())
+                .expect("the strip has no controls segment");
+            let mut bytes = Vec::new();
+            compose_rust::protocol::encode_event(
+                &compose_rust::protocol::HostEvent {
+                    node_id,
+                    handler_id,
+                    payload: compose_rust::schema::EventPayload::Clicked,
+                },
+                &mut bytes,
+            )
+            .expect("the click did not encode");
+            host.dispatch_event(&bytes)
+                .expect("returning to the controls group failed");
         }
     }
 
