@@ -195,6 +195,9 @@ pub enum ProtocolError {
     InvalidStringRange,
     InvalidUtf8,
     LengthOverflow,
+    /// The Renderer refused a whole measure call with this status: its buffer could not be
+    /// read, it came from the wrong thread, or there was nothing to measure with yet.
+    MeasureRefused(i32),
     /// An animation record that is well formed bytes but not an animation: an unknown
     /// value, fewer than two keyframes, offsets that do not run from 0 to 1, a negative or
     /// non-numeric duration or iteration count, keyframes whose values or transform lists

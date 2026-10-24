@@ -214,7 +214,7 @@ for generated in "$OUT_DIR"/*.h; do
 done
 
 # A static library that is missing an entry point links fine and fails at run time, so the
-# two boundary symbols are checked here rather than in the app that links it.
+# three boundary symbols are checked here rather than in the app that links it.
 # nm reports a non-zero status for archive members that hold no symbols, which under
 # pipefail would look like a failed check, so its output is read from a file.
 symbols_file="$LOG_DIR/$amper_platform-symbols.txt"
@@ -230,7 +230,7 @@ if [[ "$arch" == arm64 ]]; then
         "Debian and Ubuntu: apt-get install binutils-aarch64-linux-gnu"
 fi
 "$nm_tool" -g "$archive" >"$symbols_file" 2>/dev/null || true
-for symbol in compose_rust_renderer_run compose_rust_renderer_request_frame; do
+for symbol in compose_rust_renderer_run compose_rust_renderer_request_frame compose_rust_renderer_measure; do
     grep -q " T $symbol\$" "$symbols_file" ||
         die "$archive does not export $symbol" \
             "Check the @CName annotations in staticlib-linux/src/LinuxEntryPoints.kt."

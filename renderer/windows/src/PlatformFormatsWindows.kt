@@ -68,3 +68,6 @@ private const val LOCALE_STIMEFORMAT = 0x1003
 
 /** Long enough for any month name and any time pattern, its terminator included. */
 private const val ITEM_CHARACTERS = 80
+
+/** Identifies the calling thread, so a measure call off the UI thread can be refused. */
+internal fun currentThreadToken(): Any = platform.windows.GetCurrentThreadId()

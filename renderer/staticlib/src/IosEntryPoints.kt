@@ -1,7 +1,11 @@
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+
 package dev.darkpyonix.composerust.ui.platform
 
 import kotlin.experimental.ExperimentalNativeApi
 import kotlin.native.CName
+import kotlinx.cinterop.ByteVar
+import kotlinx.cinterop.CPointer
 
 /**
  * C entry points of the renderer static library on iOS.
@@ -46,3 +50,18 @@ fun rendererRun(): Int = RendererApi.run()
 @OptIn(ExperimentalNativeApi::class)
 @CName("compose_rust_renderer_request_frame")
 fun rendererRequestFrame() = RendererApi.requestFrame()
+
+/**
+ * Measures for the Host, which calls in from inside a call this side made into it. The two
+ * pointers are the Host's request buffer and its room for the results, read and written
+ * where they lie. The length and the count are the C side's `uint32_t`, taken as `Int`
+ * because the two have the same layout and a count past `Int.MAX_VALUE` is refused anyway.
+ */
+@OptIn(ExperimentalNativeApi::class)
+@CName("compose_rust_renderer_measure")
+fun rendererMeasure(
+    requests: CPointer<ByteVar>?,
+    length: Int,
+    count: Int,
+    results: CPointer<ByteVar>?,
+): Int = RendererApi.measure(requests, length, count, results)
