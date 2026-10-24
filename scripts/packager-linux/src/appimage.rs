@@ -1,10 +1,4 @@
-//! The AppImage channel: an AppDir laid out for `appimagetool`, and the update
-//! information line that lets the finished file update itself.
-//!
-//! The line is written into the AppImage by `appimagetool -u`, which also asks
-//! `zsyncmake` for the `.zsync` file that is published beside it. An installed AppImage
-//! reads the line back, finds the newest `.zsync`, and downloads only the blocks that
-//! changed.
+//! The AppImage channel: an AppDir laid out for `appimagetool`.
 
 use std::fmt;
 use std::fs;
@@ -15,10 +9,6 @@ use crate::appstream::{appdata_file_name, metainfo};
 use crate::desktop::{desktop_entry, desktop_file_name};
 use crate::icons::{Icon, best};
 use crate::metadata::AppMetadata;
-
-/// Where the packager puts an extracted `appimageupdatetool`, relative to the AppDir. The
-/// application looks for it at the same place under the mount point.
-pub const UPDATER_DIR: &str = "usr/lib/appimageupdatetool";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppImageError(pub String);
@@ -56,86 +46,9 @@ pub fn file_safe(name: &str) -> String {
         .collect()
 }
 
-/// `<Name>-<version>-<arch>.AppImage`, the shape the AppImage tools expect and the one
-/// the update information's pattern matches.
+/// `<Name>-<version>-<arch>.AppImage`, the shape the AppImage tools expect.
 pub fn appimage_file_name(meta: &AppMetadata, arch: &str) -> String {
     format!("{}-{}-{arch}.AppImage", file_safe(&meta.name), meta.version)
-}
-
-/// Where newer versions are published.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum UpdateChannel {
-    /// A GitHub release of `owner/repository` whose assets include a `.zsync` for this
-    /// application and architecture. `release` is a tag, or one of the words
-    /// `appimageupdatetool` reads as a search: `latest` (the newest release that is not a
-    /// pre-release), `latest-pre` or `latest-all`. A fixed tag keeps working when the
-    /// repository also publishes other releases that would otherwise win `latest`.
-    GitHubReleases {
-        owner: String,
-        repository: String,
-        release: String,
-    },
-    /// One fixed URL of a `.zsync` file, replaced by every release.
-    Zsync { url: String },
-}
-
-impl UpdateChannel {
-    /// Parses `owner/repository` and the release to look in.
-    pub fn github(slug: &str, release: &str) -> Result<Self, AppImageError> {
-        if !valid_field(release) {
-            return Err(AppImageError(format!(
-                "`{release}` is not a release tag; use letters, digits, `.`, `_` and `-`"
-            )));
-        }
-        let parts: Vec<&str> = slug.split('/').collect();
-        match parts.as_slice() {
-            [owner, repository] if valid_field(owner) && valid_field(repository) => {
-                Ok(UpdateChannel::GitHubReleases {
-                    owner: (*owner).to_owned(),
-                    repository: (*repository).to_owned(),
-                    release: release.to_owned(),
-                })
-            }
-            _ => Err(AppImageError(format!("`{slug}` is not owner/repository"))),
-        }
-    }
-
-    pub fn zsync(url: &str) -> Result<Self, AppImageError> {
-        if !(url.starts_with("https://") || url.starts_with("http://"))
-            || url.contains('|')
-            || url.contains(' ')
-            || !url.ends_with(".zsync")
-        {
-            return Err(AppImageError(format!(
-                "`{url}` is not an http(s) URL of a .zsync file"
-            )));
-        }
-        Ok(UpdateChannel::Zsync {
-            url: url.to_owned(),
-        })
-    }
-
-    /// The update information line for this application on this architecture.
-    pub fn update_information(&self, meta: &AppMetadata, arch: &str) -> String {
-        match self {
-            UpdateChannel::GitHubReleases {
-                owner,
-                repository,
-                release,
-            } => format!(
-                "gh-releases-zsync|{owner}|{repository}|{release}|{}-*-{arch}.AppImage.zsync",
-                file_safe(&meta.name)
-            ),
-            UpdateChannel::Zsync { url } => format!("zsync|{url}"),
-        }
-    }
-}
-
-fn valid_field(field: &str) -> bool {
-    !field.is_empty()
-        && field
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
 }
 
 /// The script the runtime starts. It runs the application from the directory it was
@@ -167,8 +80,6 @@ pub struct AppDirInputs<'a> {
     /// and its companions), or the executable alone.
     pub payload: &'a Path,
     pub icons: &'a [Icon],
-    /// An extracted `appimageupdatetool` (the `squashfs-root` of its AppImage).
-    pub updater: Option<&'a Path>,
 }
 
 /// Lays out an AppDir at `out`, which must not exist yet. Returns the files it wrote,
@@ -245,17 +156,6 @@ pub fn assemble_appdir(inputs: &AppDirInputs, out: &Path) -> Result<Vec<PathBuf>
     set_executable(&executable).map_err(|e| io_error(&executable.display().to_string(), e))?;
     written.push(PathBuf::from(format!("usr/lib/{0}/{0}", meta.exec)));
 
-    if let Some(updater) = inputs.updater {
-        if !updater.join("AppRun").exists() {
-            return Err(AppImageError(format!(
-                "{} has no AppRun; pass the directory `appimageupdatetool --appimage-extract` made",
-                updater.display()
-            )));
-        }
-        let target = out.join(UPDATER_DIR);
-        copy_tree(updater, &target).map_err(|e| io_error(&updater.display().to_string(), e))?;
-        written.push(PathBuf::from(format!("{UPDATER_DIR}/AppRun")));
-    }
     Ok(written)
 }
 

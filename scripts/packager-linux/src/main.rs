@@ -7,7 +7,7 @@ use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use packager_linux::appimage::{
-    AppDirInputs, UpdateChannel, appimage_arch, appimage_file_name, assemble_appdir,
+    AppDirInputs, appimage_arch, appimage_file_name, assemble_appdir,
 };
 use packager_linux::appstream::{metainfo, metainfo_file_name};
 use packager_linux::desktop::{desktop_entry, desktop_file_name};
@@ -23,7 +23,6 @@ usage: packager-linux <command> --dioxus-toml <file> [common options] [command o
 commands:
   metadata            write <id>.desktop, <id>.metainfo.xml and the icons into --out
   appdir              lay out an AppDir for appimagetool at --out
-  update-information  print the AppImage update information line
   file-name           print the AppImage file name, <Name>-<version>-<arch>.AppImage
   flatpak             write a flatpak-builder manifest and its packaging files into --out
 
@@ -43,14 +42,7 @@ common options:
 
 appdir:
   --payload <dir|file>   the executable, or a directory holding it and its renderer
-  --updater <dir>        an extracted appimageupdatetool to carry inside
   --out <dir>
-
-update-information:
-  --github <owner/repo> --release <tag>
-                         gh-releases-zsync, the release with that tag (or `latest`,
-                         `latest-pre`, `latest-all` to search)
-  --zsync-url <url>      zsync, one fixed URL
 
 flatpak:
   --out <dir>
@@ -157,8 +149,7 @@ fn run(args: &[String]) -> Result<(), String> {
     let options = Options::parse(rest)?;
     let extra: &[&str] = match command.as_str() {
         "metadata" => &["out"],
-        "appdir" => &["payload", "updater", "out"],
-        "update-information" => &["github", "release", "zsync-url"],
+        "appdir" => &["payload", "out"],
         "file-name" => &[],
         "flatpak" => &[
             "out",
@@ -214,13 +205,11 @@ fn run(args: &[String]) -> Result<(), String> {
         "appdir" => {
             let out = PathBuf::from(options.required("out")?);
             let payload = PathBuf::from(options.required("payload")?);
-            let updater = options.one("updater")?.map(PathBuf::from);
             let written = assemble_appdir(
                 &AppDirInputs {
                     meta: &meta,
                     payload: &payload,
                     icons: &icons,
-                    updater: updater.as_deref(),
                 },
                 &out,
             )
@@ -228,28 +217,6 @@ fn run(args: &[String]) -> Result<(), String> {
             for path in written {
                 println!("{}", path.display());
             }
-        }
-        "update-information" => {
-            let release = options.one("release")?;
-            let channel = match (options.one("github")?, options.one("zsync-url")?) {
-                (Some(slug), None) => {
-                    let release = release.ok_or(
-                        "--github needs --release <tag>: the release the AppImage looks in \
-                         for its updates, or `latest` for the newest one that is not a \
-                         pre-release",
-                    )?;
-                    UpdateChannel::github(&slug, &release)
-                }
-                (None, Some(url)) => {
-                    if release.is_some() {
-                        return Err("--release goes with --github, not --zsync-url".into());
-                    }
-                    UpdateChannel::zsync(&url)
-                }
-                _ => return Err("pass exactly one of --github and --zsync-url".into()),
-            }
-            .map_err(|e| e.to_string())?;
-            println!("{}", channel.update_information(&meta, &arch));
         }
         "file-name" => println!("{}", appimage_file_name(&meta, &arch)),
         "flatpak" => {

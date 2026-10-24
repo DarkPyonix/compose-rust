@@ -8,9 +8,9 @@
 # the ones a sample build reads beyond the crate itself; a change to compose-rust alone is
 # tested by the workspace's own tests, which include every sample's.
 #
-# A release also puts the same files in the `samples-latest` release, the fixed place every
-# sample AppImage looks for its updates. Both releases are in this repository and are
-# written with the workflow's own token.
+# A release also puts the same files in the `samples-latest` release, a fixed place that
+# always holds the newest samples. Both releases are in this repository and are written
+# with the workflow's own token.
 #
 # A sample that does not build on a platform is skipped and the release goes ahead with
 # the rest. Eleven samples across three platforms is thirty-three builds, and holding all
@@ -168,7 +168,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential pkg-config \
             libx11-dev libxext-dev libgl1-mesa-dev libegl-dev libfontconfig1-dev libfreetype-dev \
-            zsync desktop-file-utils appstream gnupg
+            desktop-file-utils appstream gnupg
 
       - name: Cache the Kotlin toolchain and Maven dependencies
         if: runner.os == 'Windows'
@@ -295,17 +295,11 @@ jobs:
             tar -czf "artifacts/$app-${{ matrix.target }}.tar.gz" -C staging "$app"
           done < built.txt
 
-      - name: Wrap each Linux sample as an AppImage that updates itself
-        # The same staged directory, as one file that carries the address of its newer
-        # versions: the `samples-latest` release of this repository, whose assets the
-        # release job below replaces with every sample release. A fixed tag rather than
-        # `latest`, because `latest` here is the newest library release, which carries no
-        # sample at all. A sample that fails here keeps its archive and loses only the
-        # AppImage.
+      - name: Wrap each Linux sample as an AppImage
+        # The same staged directory, as one file. A sample that fails here keeps its
+        # archive and loses only the AppImage.
         #
-        # Signed when the repository has a signing key. An installed AppImage that was
-        # signed refuses an update signed by any other key, so the first public AppImage
-        # decides whether every later one has to be signed.
+        # Signed when the repository has a signing key.
         if: runner.os == 'Linux'
         shell: bash
         env:
@@ -335,7 +329,7 @@ jobs:
                 --overlay scripts/packager-linux/samples.toml \
                 --exec "sample-$app" "${icons[@]}" \
                 --payload "staging/$app" --version "$version" \
-                --github DarkPyonix/compose-rust --release samples-latest ${sign[@]+"${sign[@]}"} \
+                ${sign[@]+"${sign[@]}"} \
                 --out-dir artifacts; then
               echo "::warning title=No AppImage::sample-$app was not wrapped as an AppImage for ${{ matrix.target }}"
             fi
@@ -347,8 +341,8 @@ jobs:
           set -euo pipefail
           cd artifacts
           shopt -s nullglob
-          if command -v sha256sum >/dev/null; then sha256sum *.tar.gz *.AppImage *.zsync > "SHA256SUMS-${{ matrix.target }}"
-          else shasum -a 256 *.tar.gz *.AppImage *.zsync > "SHA256SUMS-${{ matrix.target }}"; fi
+          if command -v sha256sum >/dev/null; then sha256sum *.tar.gz *.AppImage > "SHA256SUMS-${{ matrix.target }}"
+          else shasum -a 256 *.tar.gz *.AppImage > "SHA256SUMS-${{ matrix.target }}"; fi
           cat "SHA256SUMS-${{ matrix.target }}"
 
       - uses: actions/upload-artifact@v4
@@ -563,9 +557,7 @@ jobs:
             echo
             echo 'Verify with `shasum -a 256 -c SHA256SUMS-<platform>`.'
             echo
-            echo "Linux also ships each sample as an AppImage. Make it executable and run it;"
-            echo "it checks the samples-latest release of this repository for a newer version"
-            echo "of itself."
+            echo "Linux also ships each sample as an AppImage. Make it executable and run it."
             echo
             echo "Built from $GITHUB_REPOSITORY at $(git rev-parse --short HEAD) ($TAG)."
             echo
@@ -604,12 +596,11 @@ jobs:
           fi
 
       - name: Replace the files of the samples-latest release
-        # Every sample AppImage looks in the release tagged samples-latest for a .zsync
-        # matching its name, so that release always holds the newest samples. It is a
-        # pre-release and never latest, so it does not compete with the library's v*
-        # releases. It is updated in place: the new files are uploaded over the old ones
-        # first, and only then are the files the new set lacks removed, so an AppImage
-        # checking in the middle still finds a .zsync. Rebuilding an older tag leaves it
+        # The release tagged samples-latest always holds the newest samples at one fixed
+        # address. It is a pre-release and never latest, so it does not compete with the
+        # library's v* releases. It is updated in place: the new files are uploaded over
+        # the old ones first, and only then are the files the new set lacks removed, so a
+        # download in the middle still finds a file. Rebuilding an older tag leaves it
         # alone, so samples-latest never goes backwards.
         env:
           GH_TOKEN: ${{ github.token }}

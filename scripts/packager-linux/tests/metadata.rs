@@ -1,5 +1,5 @@
 //! Metadata generation for the Linux packages: from `Dioxus.toml` to a desktop entry, an
-//! AppStream file, icons, an AppDir, AppImage update information and a Flatpak manifest.
+//! AppStream file, icons, an AppDir and a Flatpak manifest.
 //!
 //! Whether the generated files are accepted by the tools that consume them
 //! (`desktop-file-validate`, `appstreamcli validate`, `appimagetool`, `flatpak-builder`
@@ -9,7 +9,7 @@
 use std::path::{Path, PathBuf};
 
 use packager_linux::appimage::{
-    AppDirInputs, UPDATER_DIR, UpdateChannel, appimage_arch, appimage_file_name, apprun,
+    AppDirInputs, appimage_arch, appimage_file_name, apprun,
     assemble_appdir, file_safe,
 };
 use packager_linux::appstream::{appdata_file_name, metainfo, metainfo_file_name};
@@ -75,7 +75,7 @@ fn resolve_error(text: &str, overlays: &[&str]) -> String {
 }
 
 #[test]
-fn fr35_metadata_comes_from_dioxus_toml() {
+fn fr22_6_3_metadata_comes_from_dioxus_toml() {
     let meta = meta();
     assert_eq!(meta.id, "dev.example.Calculator");
     assert_eq!(meta.name, "Calculator");
@@ -99,7 +99,7 @@ fn fr35_metadata_comes_from_dioxus_toml() {
 }
 
 #[test]
-fn fr35_dx_linux_keys_override_the_shared_bundle_table() {
+fn fr22_6_3_dx_linux_keys_override_the_shared_bundle_table() {
     let overlay = r#"
 [linux]
 identifier = "dev.example.CalculatorLinux"
@@ -113,7 +113,7 @@ publisher = "Linux Desk"
 }
 
 #[test]
-fn fr35_an_overlay_adds_what_the_application_file_lacks() {
+fn fr22_6_3_an_overlay_adds_what_the_application_file_lacks() {
     // The shape of a sample's own file: nothing Linux-specific at all.
     let bare = r#"
 [application]
@@ -140,7 +140,7 @@ release_notes = ["Now updates itself."]
 }
 
 #[test]
-fn fr35_every_sample_resolves_with_an_overlay() {
+fn fr22_6_3_every_sample_resolves_with_an_overlay() {
     let samples = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples");
     let overlay = r#"
 [linux]
@@ -165,7 +165,7 @@ homepage = "https://github.com/darkpyonix/compose-rust"
 }
 
 #[test]
-fn fr35_missing_store_facts_name_the_key_to_set() {
+fn fr22_6_3_missing_store_facts_name_the_key_to_set() {
     let without = |key: &str| {
         DIOXUS_TOML
             .lines()
@@ -192,7 +192,7 @@ fn fr35_missing_store_facts_name_the_key_to_set() {
 }
 
 #[test]
-fn fr35_bad_values_are_refused_before_any_file_is_written() {
+fn fr22_6_3_bad_values_are_refused_before_any_file_is_written() {
     for (overlay, expected) in [
         ("[linux.store]\nhomepage = \"example.dev\"", "http(s) URL"),
         ("[linux.store]\nbrand_light = \"blue\"", "#rrggbb"),
@@ -221,7 +221,7 @@ fn fr35_bad_values_are_refused_before_any_file_is_written() {
 }
 
 #[test]
-fn fr35_application_ids_follow_flatpak_and_dbus_rules() {
+fn fr22_6_3_application_ids_follow_flatpak_and_dbus_rules() {
     for good in [
         "dev.darkpyonix.composerust.samples.calculator",
         "org.example.My_App",
@@ -242,7 +242,7 @@ fn fr35_application_ids_follow_flatpak_and_dbus_rules() {
 }
 
 #[test]
-fn fr35_desktop_entry_names_the_icon_and_executable() {
+fn fr22_6_3_desktop_entry_names_the_icon_and_executable() {
     let meta = meta();
     assert_eq!(desktop_file_name(&meta), "dev.example.Calculator.desktop");
     assert_eq!(
@@ -261,7 +261,7 @@ fn fr35_desktop_entry_names_the_icon_and_executable() {
 }
 
 #[test]
-fn fr35_desktop_entry_escapes_what_the_format_reserves() {
+fn fr22_6_3_desktop_entry_escapes_what_the_format_reserves() {
     let mut meta = meta();
     meta.name = "Back\\slash\nNew".into();
     meta.keywords = vec!["semi;colon".into()];
@@ -276,7 +276,7 @@ fn fr35_desktop_entry_escapes_what_the_format_reserves() {
 }
 
 #[test]
-fn fr35_metainfo_carries_what_flathub_requires() {
+fn fr22_6_3_metainfo_carries_what_flathub_requires() {
     let meta = meta();
     assert_eq!(
         metainfo_file_name(&meta),
@@ -315,7 +315,7 @@ fn fr35_metainfo_carries_what_flathub_requires() {
 }
 
 #[test]
-fn fr35_metainfo_writes_release_notes_and_content_rating() {
+fn fr22_6_3_metainfo_writes_release_notes_and_content_rating() {
     let overlay = r#"
 [linux.store]
 release_notes = ["Updates itself & more."]
@@ -344,7 +344,7 @@ fn png(size: u32) -> Vec<u8> {
 }
 
 #[test]
-fn fr35_icons_go_where_their_real_size_says() {
+fn fr22_6_3_icons_go_where_their_real_size_says() {
     assert_eq!(png_size(&png(256)), Some((256, 256)));
     let icon = Icon::classify(Path::new("whatever.png"), &png(256)).unwrap();
     assert_eq!(icon.kind, IconKind::Png(256));
@@ -372,7 +372,7 @@ fn fr35_icons_go_where_their_real_size_says() {
 }
 
 #[test]
-fn fr35_flathub_needs_a_large_enough_icon() {
+fn fr22_6_3_flathub_needs_a_large_enough_icon() {
     let small = Icon::classify(Path::new("64.png"), &png(64)).unwrap();
     let large = Icon::classify(Path::new("128.png"), &png(128)).unwrap();
     assert!(
@@ -387,7 +387,7 @@ fn fr35_flathub_needs_a_large_enough_icon() {
 }
 
 #[test]
-fn fr35_appimage_update_information_points_at_zsync_files() {
+fn fr22_6_3_appimage_names_follow_the_tools() {
     let meta = meta();
     assert_eq!(appimage_arch("x86_64"), Some("x86_64"));
     assert_eq!(appimage_arch("aarch64"), Some("aarch64"));
@@ -397,51 +397,10 @@ fn fr35_appimage_update_information_points_at_zsync_files() {
         "Calculator-1.2.3-x86_64.AppImage"
     );
     assert_eq!(file_safe("My App: 2"), "My_App__2");
-
-    let github = UpdateChannel::github("darkpyonix/compose-rust", "samples-latest").unwrap();
-    assert_eq!(
-        github.update_information(&meta, "x86_64"),
-        "gh-releases-zsync|darkpyonix|compose-rust|samples-latest|Calculator-*-x86_64.AppImage.zsync"
-    );
-    // `latest` is still available, as a choice someone makes rather than a default.
-    assert_eq!(
-        UpdateChannel::github("darkpyonix/darkpyonix-ember", "latest")
-            .unwrap()
-            .update_information(&meta, "x86_64"),
-        "gh-releases-zsync|darkpyonix|darkpyonix-ember|latest|Calculator-*-x86_64.AppImage.zsync"
-    );
-    // The pattern matches the file name of every later version.
-    let pattern = "Calculator-*-aarch64.AppImage.zsync";
-    assert!(
-        github
-            .update_information(&meta, "aarch64")
-            .ends_with(pattern)
-    );
-
-    let local =
-        UpdateChannel::zsync("http://127.0.0.1:8080/Calculator-x86_64.AppImage.zsync").unwrap();
-    assert_eq!(
-        local.update_information(&meta, "x86_64"),
-        "zsync|http://127.0.0.1:8080/Calculator-x86_64.AppImage.zsync"
-    );
-
-    for bad in ["darkpyonix", "a/b/c", "a|b/c", "/repo"] {
-        assert!(UpdateChannel::github(bad, "latest").is_err(), "{bad}");
-    }
-    for bad in ["", "a|b", "a b", "tags/x"] {
-        assert!(UpdateChannel::github("a/b", bad).is_err(), "{bad:?}");
-    }
-    for bad in [
-        "ftp://x/y.zsync",
-        "https://x/y.AppImage",
-        "https://x/a|b.zsync",
-    ] {
-        assert!(UpdateChannel::zsync(bad).is_err(), "{bad}");
-    }
 }
 
 #[test]
-fn fr35_apprun_starts_the_payload_from_the_mount_point() {
+fn fr22_6_3_apprun_starts_the_payload_from_the_mount_point() {
     let script = apprun(&meta());
     assert!(script.starts_with("#!/bin/sh\n"));
     assert!(script.contains("APPDIR=\"${APPDIR:-$(dirname \"$(readlink -f \"$0\")\")}\"\n"));
@@ -463,7 +422,7 @@ fn scratch(test: &str) -> PathBuf {
 }
 
 #[test]
-fn fr35_appdir_holds_entry_icon_metainfo_payload_and_updater() {
+fn fr22_6_3_appdir_holds_entry_icon_metainfo_and_payload() {
     let dir = scratch("appdir");
     let meta = meta();
     let payload = dir.join("payload");
@@ -471,13 +430,6 @@ fn fr35_appdir_holds_entry_icon_metainfo_payload_and_updater() {
     std::fs::write(payload.join("sample-calculator"), b"#!/bin/sh\necho hi\n").unwrap();
     std::fs::create_dir_all(payload.join("lib")).unwrap();
     std::fs::write(payload.join("lib/libcompose_rust_renderer.so"), b"\x7fELF").unwrap();
-    let updater = dir.join("squashfs-root");
-    std::fs::create_dir_all(updater.join("usr/bin")).unwrap();
-    std::fs::write(updater.join("usr/bin/appimageupdatetool"), b"tool").unwrap();
-    #[cfg(unix)]
-    std::os::unix::fs::symlink("usr/bin/appimageupdatetool", updater.join("AppRun")).unwrap();
-    #[cfg(not(unix))]
-    std::fs::write(updater.join("AppRun"), b"tool").unwrap();
     let icon_path = dir.join("icon.png");
     std::fs::write(&icon_path, png(256)).unwrap();
     let icons = vec![Icon::classify(&icon_path, &png(256)).unwrap()];
@@ -488,7 +440,6 @@ fn fr35_appdir_holds_entry_icon_metainfo_payload_and_updater() {
             meta: &meta,
             payload: &payload,
             icons: &icons,
-            updater: Some(&updater),
         },
         &out,
     )
@@ -505,12 +456,10 @@ fn fr35_appdir_holds_entry_icon_metainfo_payload_and_updater() {
     ] {
         assert!(out.join(path).is_file(), "missing {path}");
     }
-    assert!(written.contains(&PathBuf::from(format!("{UPDATER_DIR}/AppRun"))));
+    assert!(written.contains(&PathBuf::from("usr/lib/sample-calculator/sample-calculator")));
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let link = std::fs::read_link(out.join(UPDATER_DIR).join("AppRun")).unwrap();
-        assert_eq!(link, Path::new("usr/bin/appimageupdatetool"));
         for executable in ["AppRun", "usr/lib/sample-calculator/sample-calculator"] {
             let mode = std::fs::metadata(out.join(executable))
                 .unwrap()
@@ -530,7 +479,6 @@ fn fr35_appdir_holds_entry_icon_metainfo_payload_and_updater() {
             meta: &meta,
             payload: &payload,
             icons: &icons,
-            updater: None,
         },
         &out,
     );
@@ -538,7 +486,7 @@ fn fr35_appdir_holds_entry_icon_metainfo_payload_and_updater() {
 }
 
 #[test]
-fn fr35_appdir_refuses_a_payload_without_the_executable() {
+fn fr22_6_3_appdir_refuses_a_payload_without_the_executable() {
     let dir = scratch("appdir_missing");
     let payload = dir.join("payload");
     std::fs::create_dir_all(&payload).unwrap();
@@ -551,7 +499,6 @@ fn fr35_appdir_refuses_a_payload_without_the_executable() {
             meta: &meta(),
             payload: &payload,
             icons: &icons,
-            updater: None,
         },
         &dir.join("out"),
     )
@@ -560,7 +507,7 @@ fn fr35_appdir_refuses_a_payload_without_the_executable() {
 }
 
 #[test]
-fn fr35_flatpak_sandbox_gets_x11_ipc_and_the_gpu() {
+fn fr22_6_3_flatpak_sandbox_gets_x11_ipc_and_the_gpu() {
     let meta = meta();
     assert_eq!(
         finish_args(&meta, false),
@@ -594,7 +541,7 @@ fn icons_256() -> Vec<Icon> {
 }
 
 #[test]
-fn fr35_flatpak_manifest_for_a_prebuilt_archive() {
+fn fr22_6_3_flatpak_manifest_for_a_prebuilt_archive() {
     let meta = meta();
     let icons = icons_256();
     let text = manifest(
@@ -652,7 +599,7 @@ fn fr35_flatpak_manifest_for_a_prebuilt_archive() {
 }
 
 #[test]
-fn fr35_flatpak_manifest_builds_from_source_offline() {
+fn fr22_6_3_flatpak_manifest_builds_from_source_offline() {
     let mut meta = meta();
     meta.runtime_version = Some("24.08".into());
     let icons = icons_256();
@@ -710,7 +657,7 @@ fn fr35_flatpak_manifest_builds_from_source_offline() {
 }
 
 #[test]
-fn fr35_json_and_shell_quoting_survive_awkward_text() {
+fn fr22_6_3_json_and_shell_quoting_survive_awkward_text() {
     assert_eq!(
         Json::Object(vec![(
             "k\"ey".into(),
@@ -725,7 +672,7 @@ fn fr35_json_and_shell_quoting_survive_awkward_text() {
 }
 
 #[test]
-fn fr35_release_dates_are_reproducible() {
+fn fr22_6_3_release_dates_are_reproducible() {
     assert_eq!(release_date(None, 0), "1970-01-01");
     assert_eq!(release_date(None, 1_790_985_600), "2026-10-03");
     assert_eq!(release_date(Some("951782400"), 1_790_985_600), "2000-02-29");
@@ -734,7 +681,7 @@ fn fr35_release_dates_are_reproducible() {
 }
 
 #[test]
-fn fr35_screenshots_are_pinned_to_a_tag_or_commit() {
+fn fr22_6_3_screenshots_are_pinned_to_a_tag_or_commit() {
     for good in [
         "https://raw.githubusercontent.com/DarkPyonix/darkpyonix-ember/v1.0.0/docs/shot.png",
         "https://raw.githubusercontent.com/DarkPyonix/darkpyonix-ember/refs/tags/v1.0.0/shot.png",

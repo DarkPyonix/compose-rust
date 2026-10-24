@@ -1,5 +1,5 @@
-//! Packages a built compose-rust application for Linux: an AppImage that updates itself
-//! and a Flatpak manifest for Flathub, both described from the application's
+//! Packages a built compose-rust application for Linux: an AppImage and a Flatpak
+//! manifest for Flathub, both described from the application's
 //! `Dioxus.toml`.
 //!
 //! The pieces are plain functions from metadata to file contents, so they are tested

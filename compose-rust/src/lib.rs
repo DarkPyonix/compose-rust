@@ -47,7 +47,6 @@ pub mod spans;
 pub mod theme;
 pub mod tokens;
 pub mod ui;
-pub mod update;
 pub mod window;
 mod writer;
 
