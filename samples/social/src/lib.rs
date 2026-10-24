@@ -2,8 +2,9 @@
 //!
 //! Every card in the reference carries a drawn illustration, and now so does every card
 //! here: three original drawings in `assets/`, one per accent family, registered once and
-//! drawn by id. The card behind an illustration, the title on it and the row it sits in
-//! are still roles, so only the artwork carries colours of its own.
+//! drawn by id. Everything around the artwork is drawn in `palette`, the reference's own
+//! cream, navy and coral, because a role would hand those back to the running design
+//! system.
 //!
 //! Unified, naming Cupertino and light: the reference is a cream page carrying
 //! illustrated cards. `THEME` says both.
@@ -13,6 +14,8 @@ mod palette;
 
 use compose_rust::runtime::*;
 use compose_rust::ui::*;
+use std::rc::Rc;
+
 use courses::{Course, Shelf, course, on, sessions_label};
 
 /// A phone design in a desktop window is still a phone design.
@@ -61,12 +64,36 @@ impl Destination {
         }
     }
 
-    fn index(self) -> usize {
-        Self::STRIP
-            .iter()
-            .position(|found| *found == self)
-            .unwrap_or(0)
+    /// The page this destination stands on, and the inks that read on it.
+    fn ground(self) -> Ground {
+        match self {
+            Destination::Sleep => Ground {
+                page: palette::NIGHT,
+                ink: palette::ON_ART,
+                muted: palette::ON_ART_MUTED,
+                meta: palette::ON_ART_MUTED,
+            },
+            Destination::Today | Destination::Meditate => Ground {
+                page: palette::PAGE,
+                ink: palette::INK,
+                muted: palette::MUTED,
+                meta: palette::META,
+            },
+        }
     }
+}
+
+/// A page's colour and the inks written on it.
+///
+/// Two of them, because the reference has two: the cream every light screen sits on, and
+/// the navy of the sleep stories. One app with one destination drawn dark, rather than a
+/// dark scheme.
+#[derive(Clone, Copy)]
+struct Ground {
+    page: Color,
+    ink: Color,
+    muted: Color,
+    meta: Color,
 }
 
 /// The drawing a course's cards carry, registered once however many cards draw it.
@@ -142,7 +169,7 @@ fn hero_card(found: &'static Course, size: (f32, f32), opened: MutableState<Opti
 
 /// A small card: the picture, then the title under it.
 #[composable]
-fn tile_card(found: &'static Course, opened: MutableState<Option<u32>>) {
+fn tile_card(found: &'static Course, ground: Ground, opened: MutableState<Option<u32>>) {
     Column()
         .modifier(Modifier.fill_max_width())
         .space_role(SpaceRole::Xs)
@@ -167,10 +194,10 @@ fn tile_card(found: &'static Course, opened: MutableState<Option<u32>>) {
             // it, it is the label the card is filed under, which is what it is.
             Text(sessions_label(found).to_uppercase())
                 .type_role(TypeRole::Caption)
-                .color(Paint::Literal(palette::META));
+                .color(Paint::Literal(ground.meta));
             Text(found.title)
                 .type_role(TypeRole::Body)
-                .color(Paint::Literal(palette::INK))
+                .color(Paint::Literal(ground.ink))
                 .max_lines(2)
                 .overflow(TextOverflow::Ellipsis);
         });
@@ -181,7 +208,7 @@ fn tile_card(found: &'static Course, opened: MutableState<Option<u32>>) {
 /// Two, because there is no wrapping row in the vocabulary: a grid is rows of a fixed
 /// count and the code says how many rather than the layout working it out from the width.
 #[composable]
-fn grid(items: Vec<&'static Course>, opened: MutableState<Option<u32>>) {
+fn grid(items: Vec<&'static Course>, ground: Ground, opened: MutableState<Option<u32>>) {
     Column()
         .modifier(Modifier.fill_max_width())
         .space_role(SpaceRole::Md)
@@ -197,7 +224,7 @@ fn grid(items: Vec<&'static Course>, opened: MutableState<Option<u32>>) {
                                 key(found.id, || {
                                     Box()
                                         .modifier(Modifier.weight(1.0))
-                                        .content(|| tile_card(found, opened.clone()));
+                                        .content(|| tile_card(found, ground, opened.clone()));
                                 });
                             }
                             // An odd shelf leaves a gap rather than letting the last card
@@ -220,6 +247,7 @@ fn shelf_page(
     strapline: &'static str,
     opened: MutableState<Option<u32>>,
 ) {
+    let ground = destination.ground();
     let items = on(destination.shelf());
     let (hero, rest) = items.split_first().expect("every shelf has a course on it");
     let (hero, rest, last) = (*hero, rest.to_vec(), items[items.len() - 1]);
@@ -231,24 +259,26 @@ fn shelf_page(
                 .modifier(Modifier.fill_max_width())
                 .space_role(SpaceRole::Xs)
                 .content(|| {
-                    Text(heading).type_role(TypeRole::Headline);
+                    Text(heading)
+                        .type_role(TypeRole::Headline)
+                        .color(Paint::Literal(ground.ink));
                     Text(strapline)
                         .type_role(TypeRole::Body)
-                        .color(Paint::Literal(palette::MUTED));
+                        .color(Paint::Literal(ground.muted));
                 });
 
             hero_card(hero, HERO, opened.clone());
 
             Text("Recommended for you")
                 .type_role(TypeRole::Label)
-                .color(Paint::Literal(palette::MUTED));
-            grid(rest, opened.clone());
+                .color(Paint::Literal(ground.muted));
+            grid(rest, ground, opened.clone());
 
             // The wide card the reference ends each shelf with: one course, given the
             // whole width, because a shelf that is all the same size has no shape.
             Text("Recommended category")
                 .type_role(TypeRole::Label)
-                .color(Paint::Literal(palette::MUTED));
+                .color(Paint::Literal(ground.muted));
             hero_card(last, WIDE, opened.clone());
         });
 }
@@ -329,6 +359,44 @@ fn course_page(found: &'static Course, opened: MutableState<Option<u32>>) {
         });
 }
 
+/// The bar along the bottom: three icons and nothing else.
+///
+/// Drawn here rather than declared as a `Navigation`, which is the widget for "the
+/// destinations, in whatever shape this design system and this window call for": a
+/// labelled bar with a selection pill. This design's bar is bare icons on the page, the one
+/// you are on in the accent, and no design system would be right to give a set of
+/// destinations that shape.
+#[composable]
+fn bottom_bar(destination: Destination, on_go: Rc<dyn Fn(Destination)>) {
+    let ground = destination.ground();
+    Row()
+        .modifier(
+            Modifier
+                .fill_max_width()
+                .background(Paint::Literal(ground.page))
+                .padding_role(SpaceRole::Sm),
+        )
+        .arrangement(Arrangement::SpaceAround)
+        .alignment(Alignment::Center)
+        .content(|| {
+            for choice in Destination::STRIP {
+                let tint = if choice == destination {
+                    palette::ACCENT
+                } else {
+                    ground.ink
+                };
+                let go = Rc::clone(&on_go);
+                key(choice.label(), || {
+                    Button("")
+                        .icon(choice.icon())
+                        .variant(ButtonVariant::Text)
+                        .color(Paint::Literal(tint))
+                        .on_click(move || go(choice));
+                });
+            }
+        });
+}
+
 /// The app.
 #[composable]
 pub fn app() {
@@ -368,26 +436,15 @@ pub fn app() {
     // never has to know.
     Scaffold()
         .bottom_bar(|| {
-            Navigation(chosen.index()).content(|| {
-                for choice in Destination::STRIP {
-                    let pick = destination.clone();
-                    key(choice.label(), || {
-                        NavigationItem(choice.label())
-                            // The reference's bar is the page's own ink rather than an
-                            // accent.
-                            .color(Paint::Literal(palette::INK))
-                            .icon(choice.icon())
-                            .on_click(move || pick.set(choice));
-                    });
-                }
-            });
+            let go = destination.clone();
+            bottom_bar(chosen, Rc::new(move |choice| go.set(choice)));
         })
         .content(|| {
             Column()
                 .modifier(
                     Modifier
                         .fill_max_size()
-                        .background(Paint::Literal(palette::PAGE)),
+                        .background(Paint::Literal(chosen.ground().page)),
                 )
                 .content(|| {
                     Box()
@@ -481,8 +538,8 @@ compose_rust::ios_main!(launch);
 mod tests {
     use super::*;
     use compose_rust::ComposeHost;
-    use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch};
-    use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind};
+    use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
+    use compose_rust::schema::{EventPayload, Modifier as WireModifier, PropertyKind, WidgetKind};
     use courses::COURSES;
 
     /// The mark on the badge that opens a course. Named because two tests press it and a
@@ -576,6 +633,64 @@ mod tests {
             true
         }
 
+        /// Presses a destination along the bottom, which is an icon with no words.
+        fn press_icon(&mut self, icon: IconRole) -> bool {
+            let found = {
+                let mutations = self.mutations();
+                let node = mutations.iter().rev().find_map(|mutation| match mutation {
+                    Mutation::SetProp {
+                        node_id,
+                        property: PropertyKind::Icon,
+                        value: PropertyValue::Integer(value),
+                    } if *value == icon as i64 => Some(*node_id),
+                    _ => None,
+                });
+                node.and_then(|node| {
+                    mutations.iter().rev().find_map(|mutation| match mutation {
+                        Mutation::SetProp {
+                            node_id,
+                            property: PropertyKind::OnClick,
+                            value: PropertyValue::Integer(handler),
+                        } if *node_id == node => Some((node, *handler as u64)),
+                        _ => None,
+                    })
+                })
+            };
+            let Some((node_id, handler_id)) = found else {
+                return false;
+            };
+            let mut bytes = Vec::new();
+            encode_event(
+                &HostEvent {
+                    node_id,
+                    handler_id,
+                    payload: EventPayload::Clicked,
+                },
+                &mut bytes,
+            )
+            .expect("the click did not encode");
+            let (batch, _) = self.host.dispatch_event(&bytes).expect("the click failed");
+            if !batch.is_empty() {
+                self.frames.push(batch.to_vec());
+            }
+            true
+        }
+
+        /// Every colour the screen set as a property, as the paint it decodes to.
+        fn tints(&self) -> Vec<Paint> {
+            self.mutations()
+                .iter()
+                .filter_map(|mutation| match mutation {
+                    Mutation::SetProp {
+                        property: PropertyKind::Color,
+                        value: PropertyValue::Integer(bits),
+                        ..
+                    } => Paint::from_bits(*bits as u64),
+                    _ => None,
+                })
+                .collect()
+        }
+
         fn latest_texts(&self) -> Vec<String> {
             let Some(frame) = self.frames.last() else {
                 return Vec::new();
@@ -607,8 +722,8 @@ mod tests {
         let mut screen = Screen::new();
         for choice in Destination::STRIP {
             assert!(
-                screen.press(choice.label()),
-                "the bar has no destination called {}",
+                screen.press_icon(choice.icon()),
+                "the bar has no way to {}",
                 choice.label()
             );
         }
@@ -700,6 +815,86 @@ mod tests {
         compose_rust::window::reset_window_size();
     }
 
+    /// The bar is the reference's: icons alone, drawn by the sample, with the one you are
+    /// on in the accent and nothing else on the screen in it.
+    #[test]
+    fn fr22_the_bar_is_icons_with_the_accent_on_the_destination() {
+        let screen = Screen::new();
+        let mutations = screen.mutations();
+        assert!(
+            !mutations.iter().any(|mutation| matches!(
+                mutation,
+                Mutation::Create {
+                    widget: WidgetKind::Navigation | WidgetKind::NavigationItem,
+                    ..
+                }
+            )),
+            "a Navigation draws the design system's labelled bar, not the reference's"
+        );
+        drop(mutations);
+        let accented = screen
+            .tints()
+            .iter()
+            .filter(|paint| **paint == Paint::Literal(palette::ACCENT))
+            .count();
+        assert_eq!(
+            accented, 1,
+            "the accent marks the destination you are on and nothing else"
+        );
+        compose_rust::window::reset_window_size();
+    }
+
+    /// The sleep stories are the one dark page in a light app, as the reference draws them.
+    #[test]
+    fn fr22_the_sleep_stories_stand_on_the_night_page() {
+        let mut screen = Screen::new();
+        assert!(screen.press_icon(Destination::Sleep.icon()));
+        let night = screen.mutations().iter().any(|mutation| {
+            matches!(
+                mutation,
+                Mutation::SetModifier {
+                    modifier: WireModifier::Background(Paint::Literal(color)),
+                    ..
+                } if *color == palette::NIGHT
+            )
+        });
+        assert!(night, "the sleep stories are drawn on the cream page");
+        compose_rust::window::reset_window_size();
+    }
+
+    /// Nothing on the shelves is painted or inked by the design system.
+    ///
+    /// Named for what it defends: a unified sample whose colours came from roles was drawn
+    /// in the running system's blue and pale accent containers, none of which is in the
+    /// picture.
+    #[test]
+    fn fr22_nothing_on_the_screen_is_painted_by_a_role() {
+        let mut screen = Screen::new();
+        for choice in Destination::STRIP {
+            screen.press_icon(choice.icon());
+        }
+        for mutation in screen.mutations() {
+            if let Mutation::SetModifier {
+                modifier: WireModifier::Background(paint) | WireModifier::Border { paint, .. },
+                node_id,
+                ..
+            } = mutation
+            {
+                assert!(
+                    matches!(paint, Paint::Literal(_)),
+                    "node {node_id} is filled with {paint:?}, which the design system picks"
+                );
+            }
+        }
+        for paint in screen.tints() {
+            assert!(
+                matches!(paint, Paint::Literal(_)),
+                "something is inked with {paint:?}, which the design system picks"
+            );
+        }
+        compose_rust::window::reset_window_size();
+    }
+
     /// A course lists as many sessions as it says it has. A count in a label and a list
     /// of a different length is the screen contradicting itself.
     #[test]
@@ -731,7 +926,7 @@ mod tests {
             app,
             |screen| {
                 assert!(
-                    screen.press(Destination::Sleep.label()),
+                    screen.press_icon(Destination::Sleep.icon()),
                     "the bar has no way to the sleep stories"
                 );
             },
