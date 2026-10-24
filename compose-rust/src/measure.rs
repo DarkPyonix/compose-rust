@@ -285,11 +285,6 @@ struct PendingRecord {
     bytes: [u8; MEASURE_RECORD_LEN],
 }
 
-/// A set of questions for one call, built up and then asked at once.
-///
-/// Reused across frames: clearing keeps every buffer's capacity, so once warm, asking the
-/// same number of questions allocates nothing.
-#[derive(Debug, Default)]
 /// Where an entry of a side table keeps the list it points at.
 #[derive(Clone, Copy)]
 struct SideTable {
@@ -298,6 +293,11 @@ struct SideTable {
     list_count_at: usize,
 }
 
+/// A set of questions for one call, built up and then asked at once.
+///
+/// Reused across frames: clearing keeps every buffer's capacity, so once warm, asking the
+/// same number of questions allocates nothing.
+#[derive(Debug, Default)]
 pub struct MeasureRequests {
     records: Vec<PendingRecord>,
     /// The strings and lists the records point at, counted from the start of this area
