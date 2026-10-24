@@ -1,5 +1,40 @@
 # Changelog
 
+## v0.0.3
+
+### The host can measure text, and text carries CSS properties
+
+A new call across the boundary lets the Host ask the Renderer how big a piece of text is
+laid out, before the frame is drawn. It measures at the region's zoom, so CSS pixel text is
+set at font scale one and the answer matches what is drawn. Min-content and max-content
+widths come from the intrinsics they are named for, and a tab stop lands where its
+characters sit in a laid out line. The text properties HTML text needs are in the schema,
+with tags 110 to 116, and a run can be a link. The Windows renderer answers the measure call
+too. The protocol and the schema hash are regenerated, so a renderer built before this
+release does not match this crate's schema.
+
+### CodeEditor
+
+`CodeEditor` is a widget the Renderer owns: it counts lines the way a language server does
+(`a\r\nb\rc\n\r\nd` is five lines), draws them one at a time, and takes input through the
+platform input session, under all seven design systems, each with a code editor style of its
+own. The drawn path (`CodeEditorPath.Drawn`) uses Compose's clipboard and key events rather
+than the Java toolkit, ignores a clipboard that fails to read, and is linked into the
+Windows renderer. Frame times at 100,000 lines are measured along each path. The widget is declared in the
+schema, the protocol and the Rust API.
+
+### Brushes can be released
+
+`release_brush` releases a brush the application registered. A brush that never left the
+Host is dropped without a release. Ids are counted rather than derived from how many brushes
+are registered, so a released id is never handed out again.
+
+### Linux CI installs the renderer's link libraries
+
+Since 0.0.2, `build.rs` links the prebuilt Linux renderer, which needs X11, Xext, GL,
+fontconfig and FreeType. The Ubuntu jobs of the Test workflow that link it now install their
+development packages (#261).
+
 ## v0.0.2
 
 ### The GraalVM X11 window reads like the Kotlin/Native one
