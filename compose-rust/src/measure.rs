@@ -842,14 +842,27 @@ mod side_table_tests {
         let moved = 10u32 - 4;
         let copied = &requests.payload[10..];
         assert_eq!(copied.len(), table.len() - 4);
-        assert_eq!(read_u32(copied, 0), 7, "fields that are not offsets are untouched");
-        assert_eq!(read_u32(copied, SPAN_FONT_OFFSET_AT), table_u32(&table, 4 + SPAN_FONT_OFFSET_AT) + moved);
+        assert_eq!(
+            read_u32(copied, 0),
+            7,
+            "fields that are not offsets are untouched"
+        );
+        assert_eq!(
+            read_u32(copied, SPAN_FONT_OFFSET_AT),
+            table_u32(&table, 4 + SPAN_FONT_OFFSET_AT) + moved
+        );
         assert_eq!(read_u32(copied, 8), 1);
         let record = SPAN_FONT_ENTRY_LEN;
-        assert_eq!(read_u32(copied, record + 4), table_u32(&table, 4 + record + 4) + moved);
+        assert_eq!(
+            read_u32(copied, record + 4),
+            table_u32(&table, 4 + record + 4) + moved
+        );
         assert_eq!(&copied[copied.len() - 4..], b"name");
         assert_eq!(requests.payload_patches.len(), 2);
-        assert_eq!(requests.copy_span_font_table(&[]), (requests.payload.len() as u32, 0));
+        assert_eq!(
+            requests.copy_span_font_table(&[]),
+            (requests.payload.len() as u32, 0)
+        );
     }
 
     fn table_u32(table: &[u8], at: usize) -> u32 {
