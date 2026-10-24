@@ -62,6 +62,8 @@ MATERIAL3_AS="1.11.0-alpha07-ext.1"
 # scripts/publish-skiko-awt.sh). skiko keeps JetBrains' group, so it has a version of its own,
 # which sorts above JetBrains' 0.144.6 in every resolver.
 SKIKO_AWT_AS="0.144.6.1"
+PUBLISHED_AS="1.11.1"
+MATERIAL3_PUBLISHED_AS="1.11.0-alpha07"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RENDERER_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -96,6 +98,8 @@ case "$target" in
     mingwX64)
         publish_targets=(mingwX64)
         revision="$MINGW_REVISION"
+        publications=(MingwX64)
+        published_as="$PUBLISHED_AS"
         modules=(
             compose:animation:animation
             compose:animation:animation-core
@@ -145,6 +149,41 @@ git -C "$WORK" clean -qfd -e build -e '.gradle' -e 'out'
 [[ -n "${JAVA_HOME:-}" ]] || die "JAVA_HOME is not set" \
     "The Compose build needs a JDK 17 or 21; the toolchain wrapper's does not apply here."
 
+# skiko before Compose on Windows, from the same commit, so the two cannot disagree about
+# which skiko the Compose modules were built against.
+if [[ "$target" == mingwX64 ]]; then
+    skiko_script="$WORK/extended/skiko/build-skiko-mingw.sh"
+    [[ -f "$skiko_script" ]] || die "$revision has no extended/skiko/build-skiko-mingw.sh" \
+        "The Windows pin has to be a commit of the fork that carries the skiko build."
+    echo "==> building skiko for mingwX64 into $SKIKO_WORK"
+    bash "$skiko_script" "$SKIKO_WORK"
+    # Skia's ICU loader with the data compiled in, which the Windows link needs so that no
+    # icudtl.dat has to sit beside the executable. Put with the rest of skiko's Windows half,
+    # where desktop/scripts/build-windows.sh compiles it against the icudtl.dat already there.
+    cp "$WORK/extended/skiko/embedded_icu.cpp" "$SKIKO_WORK/out/windows-x64/"
+
+    echo "==> publishing ${#modules[@]} compose module(s) for $target as $published_as"
+    tasks=()
+    for module in "${modules[@]}"; do
+        for publication in "${publications[@]}"; do
+            tasks+=(":$module:publish${publication}PublicationToMavenLocal")
+        done
+        tasks+=(":$module:publishKotlinMultiplatformPublicationToMavenLocal")
+    done
+    (
+        cd "$WORK"
+        ./gradlew --no-daemon --no-configuration-cache \
+            "-Pjetbrains.publication.version.COMPOSE=$published_as" \
+            "-Pjetbrains.publication.version.COMPOSE_MATERIAL3=$MATERIAL3_PUBLISHED_AS" \
+            "${tasks[@]}"
+    )
+
+    echo
+    echo "published to $HOME/.m2/repository/org/jetbrains/compose as $published_as"
+    echo "the renderer's macos, linux and windows modules read mavenLocal first, so the next build links these"
+    exit 0
+fi
+
 publish="$WORK/extended/compose/publish-local.sh"
 check="$WORK/extended/compose/check-local.py"
 [[ -x "$publish" && -f "$check" ]] || die "$revision has no extended/compose/publish-local.sh" \
@@ -158,20 +197,6 @@ for line in "COMPOSE=$COMPOSE_AS" "COMPOSE_MATERIAL3=$MATERIAL3_AS"; do
             "Its gradle.properties holds: $(grep '^jetbrains.publication.version.COMPOSE' "$WORK/gradle.properties" | paste -sd' ' -)" \
             "Set COMPOSE_AS and MATERIAL3_AS here to what it publishes, and the renderer modules with them."
 done
-
-# skiko before Compose on Windows, from the same commit, so the two cannot disagree about
-# which skiko the Compose modules were built against.
-if [[ "$target" == mingwX64 ]]; then
-    skiko_script="$WORK/extended/skiko/build-skiko-mingw.sh"
-    [[ -f "$skiko_script" ]] || die "$revision has no extended/skiko/build-skiko-mingw.sh" \
-        "The Windows pin has to be a commit of the fork that carries the skiko build."
-    echo "==> building skiko for mingwX64 into $SKIKO_WORK"
-    bash "$skiko_script" "$SKIKO_WORK"
-    # Skia's ICU loader with the data compiled in, which the Windows link needs so that no
-    # icudtl.dat has to sit beside the executable. Put with the rest of skiko's Windows half,
-    # where desktop/scripts/build-windows.sh compiles it against the icudtl.dat already there.
-    cp "$WORK/extended/skiko/embedded_icu.cpp" "$SKIKO_WORK/out/windows-x64/"
-fi
 
 echo "==> publishing the fork's Compose for ${publish_targets[*]} as $COMPOSE_AS"
 "$publish" "${publish_targets[@]}"
