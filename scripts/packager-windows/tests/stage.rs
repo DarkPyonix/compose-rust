@@ -2,9 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use compose_rust_msix::{
-    AppMetadata, Arch, Channel, PackageVersion, Payload, Plan, assets, stage,
-};
+use compose_rust_msix::{AppMetadata, Arch, Channel, PackageVersion, Payload, Plan, assets, stage};
 
 fn scratch(name: &str) -> PathBuf {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))

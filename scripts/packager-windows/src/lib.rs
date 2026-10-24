@@ -223,11 +223,7 @@ pub struct Outputs {
 }
 
 /// Turns a staged directory into `.msix` and `.msixbundle` with MakeAppx, Windows only, because MakeAppx is.
-pub fn pack(
-    plan: &Plan,
-    layout: &Path,
-    out_dir: &Path,
-) -> Result<Outputs, Error> {
+pub fn pack(plan: &Plan, layout: &Path, out_dir: &Path) -> Result<Outputs, Error> {
     let makeappx = sdk::find_tool("makeappx.exe")?;
     std::fs::create_dir_all(out_dir)
         .map_err(|e| Error::new(format!("cannot create {}: {e}", out_dir.display())))?;
@@ -272,10 +268,7 @@ pub fn pack(
     )?;
     std::fs::remove_dir_all(&bundle_src).ok();
 
-    Ok(Outputs {
-        package,
-        bundle,
-    })
+    Ok(Outputs { package, bundle })
 }
 
 #[cfg(test)]
