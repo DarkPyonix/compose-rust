@@ -3,12 +3,10 @@
 //! The marks on the tiles are pictures: the reference puts a rendered object on each, and
 //! three concentric circles in four colours is four subjects nobody can tell apart.
 //!
-//! The screen this sample exists for is the grid of subjects, and it is the one place in
-//! the seven references where the role vocabulary ran out. Four subjects want four fills
-//! that are peers of each other. There are three accent families and nothing else that is
-//! a peer of them, so the fourth tile is the neutral fill and reads quieter than its
-//! neighbours. That is written down in `school.rs` rather than papered over with a
-//! literal.
+//! The screen this sample exists for is the grid of subjects: four fills that are peers of
+//! each other. The role vocabulary has three accent families and nothing else that is a
+//! peer of them, which is the reason this sample, like every unified one, names its
+//! picture's colours in `palette` instead.
 //!
 //! Unified, naming Cupertino and dark: the reference is drawn on black, both screens,
 //! and a drum school that comes up white on a machine set to light is not that design.
@@ -16,14 +14,32 @@
 
 mod school;
 
+/// The colours the reference picture is drawn in, named once.
+///
+/// `Color` rather than `Paint`, so a role cannot be written here at all: what the type
+/// holds is a literal, and every use wraps it as `Paint::Literal`.
 mod palette {
     use compose_rust::Color;
+    /// The page, black throughout.
     pub const PAGE: Color = Color::rgb(0x000000);
+    /// Everything written on the page and on the four tiles.
     pub const TEXT: Color = Color::rgb(0xFFFFFF);
+    /// The four subjects.
     pub const PURPLE: Color = Color::rgb(0x3B2C63);
     pub const RED: Color = Color::rgb(0xFF5A5F);
     pub const TEAL: Color = Color::rgb(0x2DD4BF);
+    /// The fourth subject, and the one accent: the chosen stage, the destination you are
+    /// on, and the key that starts a lesson.
     pub const AMBER: Color = Color::rgb(0xFBBF24);
+    /// The one white card: the lesson you can open. Its ink is the page's black.
+    pub const OPEN_CARD: Color = Color::rgb(0xFFFFFF);
+    /// What supports rather than says, on the white card and on the page: a lesson's
+    /// number and summary, and a stage that is not the one chosen.
+    pub const MUTED: Color = Color::rgb(0x8A8A8E);
+    /// A locked lesson and the progress panel: dark cards one step up from the page.
+    pub const LOCKED_CARD: Color = Color::rgb(0x24252D);
+    /// What is written on a locked lesson, quiet because it cannot be opened yet.
+    pub const LOCKED_INK: Color = Color::rgb(0x9A9AA5);
 }
 
 use compose_rust::AssetKind;
@@ -77,27 +93,19 @@ impl Destination {
             Destination::Profile => IconRole::Settings,
         }
     }
-
-    fn index(self) -> usize {
-        Self::STRIP
-            .iter()
-            .position(|found| *found == self)
-            .unwrap_or(0)
-    }
 }
 
 /// What opening a subject does, handed down to every tile.
 type OpenSubject = Rc<dyn Fn(&'static str)>;
 
+/// What choosing a destination does, handed to the bar.
+type GoTo = Rc<dyn Fn(Destination)>;
+
 /// One subject as a tile: the mark, the name, and how far through it you are.
 fn subject_tile(subject: &'static Subject, on_open: &OpenSubject) {
     let name = subject.name;
-    let fill = match name {
-        "Technique" => Paint::Literal(palette::PURPLE),
-        "Arsenal" => Paint::Literal(palette::RED),
-        "Coordination" => Paint::Literal(palette::TEAL),
-        _ => Paint::Literal(palette::AMBER),
-    };
+    let (fill, ink) = subject.tile.colors();
+    let fill = Paint::Literal(fill);
     Box()
         .modifier(
             Modifier
@@ -119,7 +127,7 @@ fn subject_tile(subject: &'static Subject, on_open: &OpenSubject) {
                 let open = Rc::clone(on_open);
                 Button(name)
                     .variant(ButtonVariant::Text)
-                    .color(Paint::Literal(palette::TEXT))
+                    .color(Paint::Literal(ink))
                     .modifier(Modifier.padding_role(SpaceRole::None))
                     .on_click(move || open(name));
             });
@@ -176,34 +184,42 @@ fn skills_page(on_open: &OpenSubject) {
 
 /// One lesson as a card. What is locked is quiet and says so in a word, because a padlock
 /// is an icon and an icon cannot be placed from application code.
+///
+/// An open lesson is the reference's one white card with black ink; a locked one is a
+/// dark card one step up from the page with its writing quietened.
 #[composable]
 fn lesson_card(lesson: &'static Lesson) {
-    let (fill, ink) = if lesson.open {
-        (ColorRole::SurfaceContainer, ColorRole::OnSurface)
+    let (fill, ink, quiet) = if lesson.open {
+        (palette::OPEN_CARD, palette::PAGE, palette::MUTED)
     } else {
-        (ColorRole::SurfaceVariant, ColorRole::OnSurfaceVariant)
+        (
+            palette::LOCKED_CARD,
+            palette::LOCKED_INK,
+            palette::LOCKED_INK,
+        )
     };
     Column()
         .modifier(
             Modifier
                 .fill_max_width()
-                .background(Paint::Role(fill))
+                .background(Paint::Literal(fill))
                 .shape_role(ShapeRole::Large)
                 .padding_role(SpaceRole::Md),
         )
         .space_role(SpaceRole::Xs)
         .content(|| {
             if lesson.recent {
+                // The reference marks it with a red word.
                 Text("Recent")
                     .type_role(TypeRole::Label)
-                    .color(Paint::Role(ColorRole::Primary));
+                    .color(Paint::Literal(palette::RED));
             }
             Text(lesson.title)
                 .type_role(TypeRole::Title)
-                .color(Paint::Role(ink));
+                .color(Paint::Literal(ink));
             Text(lesson.summary)
                 .type_role(TypeRole::Body)
-                .color(Paint::Role(ColorRole::OnSurfaceVariant));
+                .color(Paint::Literal(quiet));
             Row()
                 .modifier(Modifier.fill_max_width())
                 .space_role(SpaceRole::Sm)
@@ -211,16 +227,30 @@ fn lesson_card(lesson: &'static Lesson) {
                 .content(|| {
                     Text(format!("{} lesson", ordinal(lesson.number)))
                         .type_role(TypeRole::Caption)
-                        .color(Paint::Role(ColorRole::OnSurfaceVariant))
+                        .color(Paint::Literal(quiet))
                         .modifier(Modifier.weight(1.0));
                     if lesson.open {
-                        Button("Start").variant(ButtonVariant::Filled).on_click(|| {
-                            Message::new("Lessons are not part of this sample").show()
-                        });
+                        // The key is an amber capsule with the page's black on it. The
+                        // button sits over the fill, so the press lands on it.
+                        Box()
+                            .modifier(
+                                Modifier
+                                    .background(Paint::Literal(palette::AMBER))
+                                    .shape_role(ShapeRole::Full),
+                            )
+                            .alignment(Alignment::Center)
+                            .content(|| {
+                                Button("Start")
+                                    .variant(ButtonVariant::Text)
+                                    .color(Paint::Literal(palette::PAGE))
+                                    .on_click(|| {
+                                        Message::new("Lessons are not part of this sample").show()
+                                    });
+                            });
                     } else {
                         Text("Locked")
                             .type_role(TypeRole::Label)
-                            .color(Paint::Role(ColorRole::OnSurfaceVariant));
+                            .color(Paint::Literal(quiet));
                     }
                 });
         });
@@ -233,7 +263,9 @@ fn plan_page(chosen: &MutableState<u32>) {
         .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
         .space_role(SpaceRole::Md)
         .content(|| {
-            Text("Lesson plan").type_role(TypeRole::Headline);
+            Text("Lesson plan")
+                .type_role(TypeRole::Headline)
+                .color(Paint::Literal(palette::TEXT));
 
             // A strip rather than a segmented control. `Tabs` divides its width equally
             // and does not scroll, so four stages on a phone is four segments of seventy
@@ -249,17 +281,30 @@ fn plan_page(chosen: &MutableState<u32>) {
                             let number = STAGES[position];
                             let current = strip.get();
                             let pick = strip.clone();
+                            // The chosen stage is an amber capsule with white on it, and the
+                            // rest are words on the page, as the reference draws its strip.
                             Box()
                                 .modifier(Modifier.padding_role(SpaceRole::Xs))
                                 .alignment(Alignment::Center)
                                 .content(|| {
-                                    Button(format!("Stage {number}"))
-                                        .variant(if number == current {
-                                            ButtonVariant::Filled
-                                        } else {
-                                            ButtonVariant::Text
-                                        })
-                                        .on_click(move || pick.set(number));
+                                    let (capsule, ink) = if number == current {
+                                        (Some(Paint::Literal(palette::AMBER)), palette::TEXT)
+                                    } else {
+                                        (None, palette::MUTED)
+                                    };
+                                    Box()
+                                        .modifier(
+                                            Modifier
+                                                .background_if(capsule)
+                                                .shape_role(ShapeRole::Full),
+                                        )
+                                        .alignment(Alignment::Center)
+                                        .content(|| {
+                                            Button(format!("Stage {number}"))
+                                                .variant(ButtonVariant::Text)
+                                                .color(Paint::Literal(ink))
+                                                .on_click(move || pick.set(number));
+                                        });
                                 });
                         },
                     );
@@ -288,12 +333,15 @@ fn progress_page() {
         .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
         .space_role(SpaceRole::Md)
         .content(|| {
-            Text("Your progress").type_role(TypeRole::Headline);
+            Text("Your progress")
+                .type_role(TypeRole::Headline)
+                .color(Paint::Literal(palette::TEXT));
 
-            Surface()
+            Column()
                 .modifier(
                     Modifier
                         .fill_max_width()
+                        .background(Paint::Literal(palette::LOCKED_CARD))
                         .shape_role(ShapeRole::Large)
                         .padding_role(SpaceRole::Md),
                 )
@@ -303,7 +351,8 @@ fn progress_page() {
                         .space_role(SpaceRole::Sm)
                         .content(|| {
                             Text(format!("{done} of {} lessons open", LESSONS.len()))
-                                .type_role(TypeRole::Body);
+                                .type_role(TypeRole::Body)
+                                .color(Paint::Literal(palette::TEXT));
                             ProgressIndicator(overall).modifier(Modifier.fill_max_width());
                         });
                 });
@@ -313,13 +362,13 @@ fn progress_page() {
                 .space_role(SpaceRole::Sm)
                 .content(|| {
                     for subject in &SUBJECTS {
-                        let (fill, ink, _) = subject.tile.roles();
+                        let (fill, ink) = subject.tile.colors();
                         key(subject.name, || {
                             Column()
                                 .modifier(
                                     Modifier
                                         .fill_max_width()
-                                        .background(Paint::Role(fill))
+                                        .background(Paint::Literal(fill))
                                         .shape_role(ShapeRole::Large)
                                         .padding_role(SpaceRole::Md),
                                 )
@@ -331,21 +380,21 @@ fn progress_page() {
                                         .content(|| {
                                             Text(subject.name)
                                                 .type_role(TypeRole::BodyStrong)
-                                                .color(Paint::Role(ink))
+                                                .color(Paint::Literal(ink))
                                                 .modifier(Modifier.weight(1.0));
                                             Text(format!(
                                                 "{}%",
                                                 (subject.progress * 100.0).round() as i32
                                             ))
                                             .type_role(TypeRole::Label)
-                                            .color(Paint::Role(ink));
+                                            .color(Paint::Literal(ink));
                                         });
-                                    // A whole sentence on the tint, which is the promise the
-                                    // container roles make and the reason they are a colour
-                                    // of their own.
+                                    // The subject's own colour, the same one its tile on the
+                                    // grid has, so a subject is recognisable from one page to
+                                    // the other.
                                     Text(subject.blurb)
                                         .type_role(TypeRole::Caption)
-                                        .color(Paint::Role(ink));
+                                        .color(Paint::Literal(ink));
                                     ProgressIndicator(subject.progress)
                                         .modifier(Modifier.fill_max_width());
                                 });
@@ -364,6 +413,43 @@ fn profile_page() {
             Text("Profile")
                 .type_role(TypeRole::Body)
                 .color(Paint::Literal(palette::TEXT));
+        });
+}
+
+/// The bar along the bottom: four icons and nothing else.
+///
+/// Drawn here rather than declared as a `Navigation`, which is the widget for "the
+/// destinations, in whatever shape this design system and this window call for": a
+/// labelled bar with a selection pill in the running system's accent. The reference's bar
+/// is four white icons on the black page, and the destination you are on is marked in the
+/// design's own amber.
+#[composable]
+fn bottom_bar(destination: Destination, on_go: GoTo) {
+    Row()
+        .modifier(
+            Modifier
+                .fill_max_width()
+                .background(Paint::Literal(palette::PAGE))
+                .padding_role(SpaceRole::Sm),
+        )
+        .arrangement(Arrangement::SpaceAround)
+        .alignment(Alignment::Center)
+        .content(|| {
+            for choice in Destination::STRIP {
+                let tint = if choice == destination {
+                    palette::AMBER
+                } else {
+                    palette::TEXT
+                };
+                let go = Rc::clone(&on_go);
+                key(choice.label(), || {
+                    Button("")
+                        .icon(choice.icon())
+                        .variant(ButtonVariant::Text)
+                        .color(Paint::Literal(tint))
+                        .on_click(move || go(choice));
+                });
+            }
         });
 }
 
@@ -396,22 +482,8 @@ pub fn app() {
     Scaffold()
         .modifier(Modifier.background(Paint::Literal(palette::PAGE)))
         .bottom_bar(|| {
-            Navigation(current.index())
-                .modifier(Modifier.background(Paint::Literal(palette::PAGE)))
-                .content(|| {
-                    for choice in Destination::STRIP {
-                        let pick = destination.clone();
-                        key(choice.label(), || {
-                            // The reference's bar has no accent in it: every icon is white
-                            // and the selected one is marked by nothing but being the one
-                            // you are on.
-                            NavigationItem("")
-                                .color(Paint::Literal(palette::TEXT))
-                                .icon(choice.icon())
-                                .on_click(move || pick.set(choice));
-                        });
-                    }
-                });
+            let go = destination.clone();
+            bottom_bar(current, Rc::new(move |choice| go.set(choice)));
         })
         .content(|| {
             Column()
@@ -523,7 +595,9 @@ mod tests {
 
     use compose_rust::ComposeHost;
     use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
-    use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind};
+    use compose_rust::schema::{
+        EventPayload, Modifier as WireModifier, PropertyKind, WidgetKind,
+    };
 
     /// Named for what it defends: the reference is a dark design, and a machine set
     /// the other way drew this sample light with nothing to compare against.
@@ -725,14 +799,96 @@ mod tests {
         }
     }
 
+    /// The drum school's colours are the picture's, not the running design system's, and
+    /// each is the value read off the reference.
     #[test]
-    fn fr14_the_palette_is_pinned() {
+    fn fr22_the_palette_is_the_reference_colours_rather_than_the_theme() {
         assert_eq!(palette::PAGE.to_argb(), 0xFF000000);
         assert_eq!(palette::TEXT.to_argb(), 0xFFFFFFFF);
         assert_eq!(palette::PURPLE.to_argb(), 0xFF3B2C63);
         assert_eq!(palette::RED.to_argb(), 0xFFFF5A5F);
         assert_eq!(palette::TEAL.to_argb(), 0xFF2DD4BF);
         assert_eq!(palette::AMBER.to_argb(), 0xFFFBBF24);
+        assert_eq!(palette::OPEN_CARD.to_argb(), 0xFFFFFFFF);
+        assert_eq!(palette::MUTED.to_argb(), 0xFF8A8A8E);
+        assert_eq!(palette::LOCKED_CARD.to_argb(), 0xFF24252D);
+        assert_eq!(palette::LOCKED_INK.to_argb(), 0xFF9A9AA5);
+    }
+
+    /// Every colour the screen set as a property, as the paint it decodes to.
+    fn tints(screen: &Screen) -> Vec<Paint> {
+        screen
+            .mutations()
+            .iter()
+            .filter_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    property: PropertyKind::Color,
+                    value: PropertyValue::Integer(bits),
+                    ..
+                } => Paint::from_bits(*bits as u64),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Nothing on any page is painted or inked by the design system.
+    ///
+    /// Named for what it defends: the lesson cards were surface roles and the progress
+    /// page painted the four subjects in the running system's three accent containers and
+    /// its neutral one, so the same subject was amber on one page and pale grey on the
+    /// next.
+    #[test]
+    fn fr22_nothing_on_the_screen_is_painted_by_a_role() {
+        let mut screen = Screen::new();
+        for choice in Destination::STRIP {
+            screen.press_icon(choice.icon());
+            if choice == Destination::Plan {
+                screen.fill_lists(STAGES.len() as u32);
+            }
+        }
+        for mutation in screen.mutations() {
+            if let Mutation::SetModifier {
+                modifier: WireModifier::Background(paint) | WireModifier::Border { paint, .. },
+                node_id,
+                ..
+            } = mutation
+            {
+                assert!(
+                    matches!(paint, Paint::Literal(_)),
+                    "node {node_id} is filled with {paint:?}, which the design system picks"
+                );
+            }
+        }
+        for paint in tints(&screen) {
+            assert!(
+                matches!(paint, Paint::Literal(_)),
+                "something is inked with {paint:?}, which the design system picks"
+            );
+        }
+        compose_rust::window::reset_window_size();
+    }
+
+    /// The bar is icons alone, drawn by the sample, and the destination you are on is the
+    /// only thing on the grid inked in amber.
+    #[test]
+    fn fr22_the_bar_is_icons_with_the_accent_on_the_destination() {
+        let screen = Screen::new();
+        assert!(
+            !screen.mutations().iter().any(|mutation| matches!(
+                mutation,
+                Mutation::Create {
+                    widget: WidgetKind::Navigation | WidgetKind::NavigationItem,
+                    ..
+                }
+            )),
+            "a Navigation draws the design system's labelled bar, not the reference's"
+        );
+        let amber = tints(&screen)
+            .iter()
+            .filter(|paint| **paint == Paint::Literal(palette::AMBER))
+            .count();
+        assert_eq!(amber, 1, "the accent marks the destination you are on");
+        compose_rust::window::reset_window_size();
     }
 
     #[test]
