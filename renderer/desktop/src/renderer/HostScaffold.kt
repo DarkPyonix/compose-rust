@@ -192,7 +192,9 @@ internal fun HostScaffold(
                                     slot(floatingAction)
                                 }
                             }
-                            page(Modifier.weight(1f).fillMaxHeight().recordsGlassBackdrop(backdropState))
+                            CompositionLocalProvider(LocalGlassBackdrop provides null) {
+                                page(Modifier.weight(1f).fillMaxHeight().recordsGlassBackdrop(backdropState))
+                            }
                         }
                     }
                 }
@@ -231,7 +233,9 @@ internal fun HostScaffold(
                     slot(floatingAction)
                 }
             }
-            page(Modifier.weight(1f).fillMaxSize().recordsGlassBackdrop(backdropState))
+            CompositionLocalProvider(LocalGlassBackdrop provides null) {
+                page(Modifier.weight(1f).fillMaxSize().recordsGlassBackdrop(backdropState))
+            }
             if (action != null && actionAtEnd) {
                 Box(Modifier.align(Alignment.Top).padding(action.inset)) {
                     slot(floatingAction)

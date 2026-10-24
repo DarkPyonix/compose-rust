@@ -30,6 +30,7 @@ on:
       - '.github/scripts/resize-metrics-run.sh'
       - '.github/scripts/resize-memory-check.sh'
       - '.github/scripts/resize-soak-check.sh'
+      - '.github/scripts/idle-soak-check.sh'
       - 'scripts/parity/**'
       - '.github/scripts/check-linux-input-access.sh'
       - '.github/scripts/atspi-walk.py'
@@ -55,6 +56,7 @@ on:
       - '.github/scripts/resize-metrics-run.sh'
       - '.github/scripts/resize-memory-check.sh'
       - '.github/scripts/resize-soak-check.sh'
+      - '.github/scripts/idle-soak-check.sh'
       - 'scripts/parity/**'
       - '.github/scripts/check-linux-input-access.sh'
       - '.github/scripts/atspi-walk.py'
@@ -144,6 +146,17 @@ jobs:
           chmod +x "$RUNNER_TEMP/smoke-launch"
           ./.github/scripts/resize-metrics-run.sh "$RUNNER_TEMP/smoke-launch" "$out" soak-macos-graalvm soak
           { echo "### GraalVM soak"; ./.github/scripts/resize-memory-check.sh --soak "$out/soak-macos-graalvm.log" "$SOAK_BOUND_MB"; } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Memory and frame count stay flat at rest after typing
+        env:
+          DXC_IDLE_SOAK_SECONDS: '60'
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/resize-metrics"
+          printf '#!/bin/sh\nCOMPOSE_RUST_SMOKE_IME=1 COMPOSE_RUST_SMOKE_NAVIGATION=1 COMPOSE_RUST_AUTOEXIT_MS=3600000 exec "%s"\n' "$PWD/renderer/build/native-image/smoke_host" > "$RUNNER_TEMP/smoke-idle-launch"
+          chmod +x "$RUNNER_TEMP/smoke-idle-launch"
+          ./.github/scripts/resize-metrics-run.sh "$RUNNER_TEMP/smoke-idle-launch" "$out" idle-macos-graalvm idle
+          { echo "### GraalVM idle after typing"; ./.github/scripts/idle-soak-check.sh "$out/idle-macos-graalvm.log" 4 4; } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Keep the resize logs
         if: always()

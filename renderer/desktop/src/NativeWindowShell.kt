@@ -18,6 +18,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalCursorBlinkEnabled
 import dev.darkpyonix.composerust.protocol.Chrome
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
@@ -98,7 +99,10 @@ internal fun NativeWindowContent(
     drag: @Composable BoxScope.() -> Unit = {},
     overlay: @Composable BoxScope.() -> Unit = {},
 ) {
+    val cursorBlink = System.getenv("DXC_CURSOR_BLINK")?.let { it != "0" }
+        ?: (System.getenv("DXC_IDLE_SOAK_SECONDS") == null)
     CompositionLocalProvider(
+        LocalCursorBlinkEnabled provides cursorBlink,
         LocalSystemDarkObserver provides { rememberSystemDark().value },
         LocalClipboard provides WindowClipboard,
         LocalClipboardManager provides WindowClipboardManagerInstance,
