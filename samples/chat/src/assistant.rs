@@ -6,10 +6,10 @@
 //! typing while it lands.
 //!
 //! The worker appends to the shared message list and nothing else. It never calls a
-//! boundary function: writing the signal marks the reading scope dirty, and the Host asks
-//! the Renderer for the next frame on its own.
+//! boundary function: writing the state queues it for the scopes that read it, and the
+//! Host asks the Renderer for the next frame on its own.
 
-use dioxus_compose::prelude::*;
+use compose_rust::runtime::MutableState;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -169,7 +169,7 @@ pub fn stream_reply(
     token: u64,
     turns: Turns,
     settings: Settings,
-    mut messages: SyncSignal<Vec<Message>>,
+    messages: MutableState<Vec<Message>>,
 ) {
     std::thread::Builder::new()
         .name("sample-chat-assistant".to_owned())
@@ -183,13 +183,14 @@ pub fn stream_reply(
                 if !turns.is_current(token) {
                     return;
                 }
-                let mut list = messages.write();
-                if let Some(message) = list.last_mut() {
-                    if message.token == token {
-                        message.text.push_str(&reply);
-                        message.streaming = false;
+                messages.update(|list| {
+                    if let Some(message) = list.last_mut() {
+                        if message.token == token {
+                            message.text.push_str(&reply);
+                            message.streaming = false;
+                        }
                     }
-                }
+                });
                 return;
             }
             // Chunk on character boundaries, never on bytes: a reply cut through the middle
@@ -202,22 +203,27 @@ pub fn stream_reply(
                     return;
                 }
                 let tail: String = chunk.iter().collect();
-                {
-                    let mut list = messages.write();
-                    match list.last_mut() {
-                        // The append is the point. Replacing the message instead would make
-                        // the whole reply new text on every chunk.
-                        Some(message) if message.token == token => message.text.push_str(&tail),
-                        _ => return,
+                let mut appended = false;
+                messages.update(|list| match list.last_mut() {
+                    // The append is the point. Replacing the message instead would make
+                    // the whole reply new text on every chunk.
+                    Some(message) if message.token == token => {
+                        message.text.push_str(&tail);
+                        appended = true;
                     }
+                    _ => {}
+                });
+                if !appended {
+                    return;
                 }
                 std::thread::sleep(gap);
             }
             if turns.is_current(token) {
-                let mut list = messages.write();
-                if let Some(message) = list.last_mut() {
-                    message.streaming = false;
-                }
+                messages.update(|list| {
+                    if let Some(message) = list.last_mut() {
+                        message.streaming = false;
+                    }
+                });
             }
         })
         .expect("the assistant thread could not be started");

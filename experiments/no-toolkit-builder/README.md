@@ -48,7 +48,7 @@ patches it into the builder module. The JDK is not modified: the flag is read by
 the builder runs in, and an ordinary build without it is unchanged.
 
     DXC_EXTRA_NI_FLAGS="$(experiments/no-toolkit-builder/build.sh)" \
-        ./dioxus-compose-renderer/desktop/scripts/build-native.sh
+        ./renderer/desktop/scripts/build-native.sh
 
 62.77MB becomes 42.75MB, and java.desktop 9.63MB becomes 1.59MB.
 

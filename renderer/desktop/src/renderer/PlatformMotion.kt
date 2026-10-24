@@ -1,0 +1,181 @@
+package dev.darkpyonix.composerust.ui
+
+import dev.darkpyonix.composerust.ui.node.platformHighContrast
+import dev.darkpyonix.composerust.protocol.ReducedMotion
+import dev.darkpyonix.composerust.ui.node.platformReducedMotion
+import dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting
+import java.util.concurrent.TimeUnit
+
+// Desktop only, and each desktop keeps the setting somewhere else. None of the three can
+// be read through a Java API, so each is asked with the query its own platform documents.
+// Reading it is worth a few tens of milliseconds once, and it is worth nothing at all to a
+// screen that declares no motion, so the answer is taken on the first question and kept.
+
+private const val QUERY_TIMEOUT_SECONDS = 2L
+
+/**
+ * What the running desktop says about reducing motion.
+ *
+ * Unknown counts as no: a machine that cannot be asked is a machine whose user has not
+ * asked for anything, and holding every animation still on that guess would be the larger
+ * mistake.
+ */
+private fun askThePlatform(): Boolean = askForMotion() == ReducedMotion.On
+
+/**
+ * What the running desktop says about reducing motion, with unknown kept apart from no.
+ *
+ * KDE keeps it as a speed factor for every animation, where zero is none at all; it is
+ * asked when the session says it is KDE, and GNOME's setting otherwise.
+ */
+private fun askForMotion(): ReducedMotion {
+    val name = System.getProperty("os.name").orEmpty().lowercase()
+    val kde = System.getenv("XDG_CURRENT_DESKTOP").orEmpty().contains("KDE", ignoreCase = true)
+    if (kde && !name.contains("mac") && !name.contains("win")) {
+        val factor = ask(listOf("kreadconfig5", "--group", "KDE", "--key", "AnimationDurationFactor"))
+            ?.trim()?.toDoubleOrNull()
+        if (factor != null) return if (factor == 0.0) ReducedMotion.On else ReducedMotion.Off
+    }
+    val query = when {
+        name.contains("mac") ->
+            listOf("defaults", "read", "com.apple.Accessibility", "ReduceMotionEnabled")
+
+        name.contains("win") -> listOf(
+            "reg",
+            "query",
+            "HKCU\\Control Panel\\Desktop\\WindowMetrics",
+            "/v",
+            "MinAnimate",
+        )
+
+        // GNOME keeps it as animations being on, which is the same question inverted.
+        else -> listOf("gsettings", "get", "org.gnome.desktop.interface", "enable-animations")
+    }
+    val answer = ask(query) ?: return ReducedMotion.Unknown
+    return readMotionAnswer(answer, inverted = motionAnswerIsInverted(name))
+}
+
+/**
+ * Whether the motion setting of the desktop called [osName] is phrased as animations being
+ * on, so that a yes means motion is not reduced.
+ *
+ * Only macOS asks the question directly (`ReduceMotionEnabled`). Windows keeps `MinAnimate`,
+ * which is 1 while window animations play and 0 once "Show animations in Windows" is
+ * switched off, and GNOME keeps `enable-animations`: both answer the other way round.
+ */
+internal fun motionAnswerIsInverted(osName: String): Boolean =
+    !osName.lowercase().contains("mac")
+
+private fun ask(query: List<String>): String? = runCatching {
+    val process = ProcessBuilder(query).redirectErrorStream(true).start()
+    val text = process.inputStream.bufferedReader().readText().trim()
+    process.waitFor(QUERY_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+    text
+}.getOrNull()
+
+/**
+ * The same reading as [readAnswer], keeping an answer that says neither yes nor no as
+ * unknown rather than as no: the Host is told what is known, and guesses for itself.
+ */
+internal fun readMotionAnswer(answer: String, inverted: Boolean): ReducedMotion {
+    val text = answer.trim().substringAfterLast(' ').lowercase()
+    val on = when (text) {
+        "1", "true", "0x1", "yes" -> true
+        "0", "false", "0x0", "no" -> false
+        else -> return ReducedMotion.Unknown
+    }
+    return if (on != inverted) ReducedMotion.On else ReducedMotion.Off
+}
+
+/**
+ * Whether [answer] means motion should be reduced.
+ *
+ * The three answers look nothing alike: "1", "0x0" at the end of a registry line, and
+ * "false". [inverted] is for the setting that is phrased the other way round, where
+ * animations being off is motion being reduced.
+ */
+internal fun readAnswer(answer: String, inverted: Boolean): Boolean {
+    val text = answer.trim().substringAfterLast(' ').lowercase()
+    val on = when (text) {
+        "1", "true", "0x1", "yes" -> true
+        "0", "false", "0x0", "no" -> false
+        else -> return false
+    }
+    return if (inverted) !on else on
+}
+
+/**
+ * Hands the desktop's answer to the shared tree walk. Called once, before the first frame.
+ *
+ * Lazily, so that a screen with no motion role never starts a process to ask.
+ */
+internal fun installReducedMotion() {
+    val answer = lazy { askThePlatform() }
+    platformReducedMotion = { answer.value }
+    // Asked afresh each time, because it is asked only at start and when the window comes
+    // back into use, which is when the setting may have been changed.
+    platformReducedMotionSetting = { askForMotion() }
+}
+
+/**
+ * What the running desktop says about high contrast.
+ *
+ * Windows keeps it as a bit in the contrast theme's flags (`HCF_HIGHCONTRASTON`, the low
+ * bit), macOS as the increased contrast setting, and GNOME as its own boolean. Unknown
+ * counts as no, for the same reason it does for motion: a machine that cannot be asked
+ * has not been asked for anything.
+ */
+private fun askForHighContrast(): Boolean {
+    val name = System.getProperty("os.name").orEmpty().lowercase()
+    val query = when {
+        name.contains("mac") ->
+            listOf("defaults", "read", "com.apple.universalaccess", "increaseContrast")
+
+        name.contains("win") -> listOf(
+            "reg",
+            "query",
+            "HKCU\\Control Panel\\Accessibility\\HighContrast",
+            "/v",
+            "Flags",
+        )
+
+        else -> listOf("gsettings", "get", "org.gnome.desktop.a11y.interface", "high-contrast")
+    }
+    val answer = runCatching {
+        val process = ProcessBuilder(query).redirectErrorStream(true).start()
+        val text = process.inputStream.bufferedReader().readText().trim()
+        process.waitFor(QUERY_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        text
+    }.getOrNull() ?: return false
+    return readContrastAnswer(answer, windows = name.contains("win"))
+}
+
+/**
+ * Whether [answer] means high contrast is on.
+ *
+ * Windows answers with a whole flags word, such as `REG_SZ 126` or `REG_SZ 127`, and only
+ * its low bit says the contrast theme is on. The others answer a plain yes or no.
+ */
+internal fun readContrastAnswer(answer: String, windows: Boolean): Boolean {
+    val text = answer.trim().substringAfterLast(' ').lowercase()
+    if (windows) {
+        val flags = if (text.startsWith("0x")) {
+            text.removePrefix("0x").toLongOrNull(16)
+        } else {
+            text.toLongOrNull()
+        } ?: return false
+        return flags and 1L == 1L
+    }
+    return readAnswer(text, inverted = false)
+}
+
+/**
+ * Hands the desktop's answer to the theme resolution. Called once, before the first frame.
+ *
+ * Lazily, so that an application with no palette never starts a process to ask: nothing
+ * reads the answer unless there is a palette to set aside.
+ */
+internal fun installHighContrast() {
+    val answer = lazy { askForHighContrast() }
+    platformHighContrast = { answer.value }
+}

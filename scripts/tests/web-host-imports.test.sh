@@ -18,14 +18,14 @@ if ! command -v rustup >/dev/null 2>&1 ||
     exit 0
 fi
 
-module=dioxus-compose-renderer/web/resources/dioxus_compose_host.wasm
-dioxus-compose-renderer/web/scripts/build-host.sh >/dev/null
+module=renderer/web/resources/compose_rust_host.wasm
+renderer/web/scripts/build-host.sh >/dev/null
 
 # The namespaces the instantiation supplies, read out of the generated file rather than
 # listed here, so the two cannot disagree about what "supplied" means. It is in the Kotlin
 # because only the Renderer's own module can name the memory and the export the Host binds
 # to; the page's loader only compiles.
-loader=dioxus-compose-renderer/web/src/bridge/HostBridge.gen.kt
+loader=renderer/web/src/bridge/HostBridge.gen.kt
 supplied="$(python3 - "$loader" <<'PYLOADER'
 import re
 import sys
@@ -132,7 +132,7 @@ if [[ -n "$missing" ]]; then
     echo "$missing" | sed 's/^/  /' >&2
     echo "The page would not instantiate it. Either the dependency that added the" >&2
     echo "namespace should not be reachable from a wasm build, or the generated loader" >&2
-    echo "has to answer it: see generate_web_loader_js in dioxus-compose/src/codegen.rs." >&2
+    echo "has to answer it: see generate_web_loader_js in compose-rust/src/codegen.rs." >&2
     exit 1
 fi
 echo "ok    the web Host imports only what the page supplies ($(echo "$declared" | tr '\n' ' '))"

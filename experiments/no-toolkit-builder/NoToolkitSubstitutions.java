@@ -1,4 +1,4 @@
-package dioxus.compose.ui.platform;
+package dev.darkpyonix.composerust.ui.platform;
 
 import com.oracle.svm.core.annotate.Substitute;
 import com.oracle.svm.core.annotate.TargetClass;

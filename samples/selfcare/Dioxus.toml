@@ -9,7 +9,7 @@ name = "Self-care"
 asset_dir = "assets"
 
 [bundle]
-identifier = "dev.darkpyonix.dioxus.compose.samples.selfcare"
+identifier = "dev.darkpyonix.composerust.samples.selfcare"
 publisher = "DarkPyonix"
 short_description = "A daily check-in and a shelf of guided sessions."
 long_description = "Say how the day felt, say what is behind it, and pick something to listen to."

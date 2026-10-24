@@ -16,7 +16,7 @@
 #             application manifest) is in the package the kit inspects. This one has
 #             to pass the kit's DPI awareness check outright.
 #   sample    a real build: the program with the renderer and its companion files
-#             beside it, the shape a dioxus-compose application ships in. By default the
+#             beside it, the shape a compose-rust application ships in. By default the
 #             notepad archive from a published sample release; dispatched with a run id,
 #             an artifact from that run instead (a samples-windows-x64 artifact, or any
 #             build packed the same way).
@@ -29,17 +29,17 @@ name: Windows package
 on:
   push:
     paths:
-      - 'tools/msix/**'
-      - 'dioxus-compose/build.rs'
-      - 'dioxus-compose/build/**'
-      - 'dioxus-compose/tests/windows_manifest.rs'
+      - 'scripts/packager-windows/**'
+      - 'compose-rust/build.rs'
+      - 'compose-rust/build/**'
+      - 'compose-rust/tests/windows_manifest.rs'
       - '.github/workflows/package-windows.yml'
   pull_request:
     paths:
-      - 'tools/msix/**'
-      - 'dioxus-compose/build.rs'
-      - 'dioxus-compose/build/**'
-      - 'dioxus-compose/tests/windows_manifest.rs'
+      - 'scripts/packager-windows/**'
+      - 'compose-rust/build.rs'
+      - 'compose-rust/build/**'
+      - 'compose-rust/tests/windows_manifest.rs'
       - '.github/workflows/package-windows.yml'
   workflow_dispatch:
     inputs:
@@ -105,19 +105,19 @@ jobs:
           rustup default stable
 
       - name: Format
-        run: cargo fmt -p dioxus-compose-msix -- --check
+        run: cargo fmt -p compose-rust-msix -- --check
 
       - name: Clippy
-        run: cargo clippy --locked -p dioxus-compose-msix --all-targets -- -D warnings
+        run: cargo clippy --locked -p compose-rust-msix --all-targets -- -D warnings
 
       - name: Tests
-        run: cargo test --locked -p dioxus-compose-msix
+        run: cargo test --locked -p compose-rust-msix
 
       - name: Application manifest resource
         # The resource the crate's build script writes into every Windows program. The
         # renderer is not needed to check its bytes, so the crate is built without it.
         if: runner.os == 'Linux'
-        run: cargo test --locked -p dioxus-compose --no-default-features --test windows_manifest
+        run: cargo test --locked -p compose-rust --no-default-features --test windows_manifest
 
   package:
     name: Package, sign and certify (${{ matrix.payload }})
@@ -137,7 +137,7 @@ jobs:
           rustup default stable
 
       - name: Build the packager and the stand-in program
-        run: cargo build --locked --release -p dioxus-compose-msix --bin dioxus-compose-msix --example fixture-app
+        run: cargo build --locked --release -p compose-rust-msix --bin compose-rust-msix --example fixture-app
 
       - name: Fetch the build from a run
         if: matrix.payload == 'sample' && inputs.payload_run_id != ''
@@ -159,7 +159,7 @@ jobs:
         id: pack
         run: |
           $ErrorActionPreference = 'Stop'
-          $tool = 'target\release\dioxus-compose-msix.exe'
+          $tool = 'target\release\compose-rust-msix.exe'
           $out = Join-Path $env:RUNNER_TEMP 'msix'
           $summary = Join-Path $env:RUNNER_TEMP 'msix-summary.txt'
           if ('${{ matrix.payload }}' -eq 'sample') {
@@ -181,13 +181,13 @@ jobs:
       - name: Create and trust a test certificate
         id: cert
         run: >
-          ./tools/msix/scripts/new-test-certificate.ps1
+          ./scripts/packager-windows/scripts/new-test-certificate.ps1
           -Publisher '${{ steps.pack.outputs.publisher }}'
           -OutDir "$env:RUNNER_TEMP\cert" -Trust
 
       - name: Sign
         run: >
-          ./tools/msix/scripts/sign.ps1
+          ./scripts/packager-windows/scripts/sign.ps1
           -Path '${{ steps.pack.outputs.package }}','${{ steps.pack.outputs.bundle }}'
           -Pfx '${{ steps.cert.outputs.pfx }}' -Password '${{ steps.cert.outputs.password }}'
 
@@ -203,13 +203,13 @@ jobs:
 
       - name: Windows App Certification Kit (package)
         run: >
-          ./tools/msix/scripts/run-wack.ps1
+          ./scripts/packager-windows/scripts/run-wack.ps1
           -Package '${{ steps.pack.outputs.package }}'
           -Report "$env:RUNNER_TEMP\wack\package-report.xml"
 
       - name: Windows App Certification Kit (bundle)
         run: >
-          ./tools/msix/scripts/run-wack.ps1
+          ./scripts/packager-windows/scripts/run-wack.ps1
           -Package '${{ steps.pack.outputs.bundle }}'
           -Report "$env:RUNNER_TEMP\wack\bundle-report.xml"
 
@@ -259,11 +259,11 @@ jobs:
           New-Item -ItemType Directory -Force -Path $unpacked | Out-Null
           tar -xzf "payload-artifact\$env:PAYLOAD_ARCHIVE" -C $unpacked
           if ($LASTEXITCODE -ne 0) { throw "could not unpack $env:PAYLOAD_ARCHIVE" }
-          Add-Content -Path $env:GITHUB_ENV -Value "DIOXUS_COMPOSE_RENDERER_DIR=$(Join-Path $unpacked $env:PAYLOAD_ROOT)" -Encoding utf8
+          Add-Content -Path $env:GITHUB_ENV -Value "COMPOSE_RUST_RENDERER_DIR=$(Join-Path $unpacked $env:PAYLOAD_ROOT)" -Encoding utf8
 
       - name: Build the packager and the notepad sample
         run: |
-          cargo build --locked --release -p dioxus-compose-msix --bin dioxus-compose-msix
+          cargo build --locked --release -p compose-rust-msix --bin compose-rust-msix
           if ($LASTEXITCODE -ne 0) { throw "the packager did not build" }
           cargo build --locked --release -p sample-notepad --bin sample-notepad
           if ($LASTEXITCODE -ne 0) { throw "the sample did not build" }
@@ -271,7 +271,7 @@ jobs:
       - name: Show the manifest embedded in the sample
         run: |
           $ErrorActionPreference = 'Stop'
-          . ./tools/msix/scripts/common.ps1
+          . ./scripts/packager-windows/scripts/common.ps1
           $mt = Find-SdkTool 'mt.exe'
           $exe = 'target\release\sample-notepad.exe'
           & $mt -nologo "-inputresource:$exe;#1" "-out:$env:RUNNER_TEMP\embedded.manifest"
@@ -287,12 +287,12 @@ jobs:
           $payload = Join-Path $env:RUNNER_TEMP 'host-payload'
           New-Item -ItemType Directory -Force -Path $payload | Out-Null
           foreach ($child in 'bin', 'lib') {
-            Copy-Item -Recurse -Path (Join-Path $env:DIOXUS_COMPOSE_RENDERER_DIR $child) -Destination $payload
+            Copy-Item -Recurse -Path (Join-Path $env:COMPOSE_RUST_RENDERER_DIR $child) -Destination $payload
           }
           Copy-Item -Force 'target\release\sample-notepad.exe' (Join-Path $payload 'bin\sample-notepad.exe')
           $out = Join-Path $env:RUNNER_TEMP 'msix'
           $summary = Join-Path $env:RUNNER_TEMP 'msix-summary.txt'
-          & 'target\release\dioxus-compose-msix.exe' --project $env:PROJECT --out $out --summary $summary `
+          & 'target\release\compose-rust-msix.exe' --project $env:PROJECT --out $out --summary $summary `
             --test-identity --payload-dir $payload --exe 'bin\sample-notepad.exe'
           if ($LASTEXITCODE -ne 0) { throw "packaging failed" }
           Get-Content $summary | Add-Content -Path $env:GITHUB_OUTPUT -Encoding utf8
@@ -300,19 +300,19 @@ jobs:
       - name: Create and trust a test certificate
         id: cert
         run: >
-          ./tools/msix/scripts/new-test-certificate.ps1
+          ./scripts/packager-windows/scripts/new-test-certificate.ps1
           -Publisher '${{ steps.pack.outputs.publisher }}'
           -OutDir "$env:RUNNER_TEMP\cert" -Trust
 
       - name: Sign
         run: >
-          ./tools/msix/scripts/sign.ps1
+          ./scripts/packager-windows/scripts/sign.ps1
           -Path '${{ steps.pack.outputs.package }}','${{ steps.pack.outputs.bundle }}'
           -Pfx '${{ steps.cert.outputs.pfx }}' -Password '${{ steps.cert.outputs.password }}'
 
       - name: Windows App Certification Kit (DPI awareness must pass)
         run: >
-          ./tools/msix/scripts/run-wack.ps1
+          ./scripts/packager-windows/scripts/run-wack.ps1
           -Package '${{ steps.pack.outputs.bundle }}'
           -Report "$env:RUNNER_TEMP\wack\host-bundle-report.xml"
           -RequirePass DPIAwarenessValidation
@@ -339,13 +339,13 @@ jobs:
           rustup default stable
 
       - name: Build the packager and the stand-in program
-        run: cargo build --locked --release -p dioxus-compose-msix --bin dioxus-compose-msix --example fixture-app
+        run: cargo build --locked --release -p compose-rust-msix --bin compose-rust-msix --example fixture-app
 
       - name: Package two builds of one release for the sideload channel
         id: pack
         run: |
           $ErrorActionPreference = 'Stop'
-          $tool = 'target\release\dioxus-compose-msix.exe'
+          $tool = 'target\release\compose-rust-msix.exe'
           foreach ($revision in 1, 2) {
             $out = Join-Path $env:RUNNER_TEMP "sideload-$revision"
             $summary = Join-Path $env:RUNNER_TEMP "sideload-$revision.txt"
@@ -365,20 +365,20 @@ jobs:
       - name: Create and trust a test certificate
         id: cert
         run: >
-          ./tools/msix/scripts/new-test-certificate.ps1
+          ./scripts/packager-windows/scripts/new-test-certificate.ps1
           -Publisher '${{ steps.pack.outputs.publisher }}'
           -OutDir "$env:RUNNER_TEMP\cert" -Trust
 
       - name: Sign both bundles
         run: >
-          ./tools/msix/scripts/sign.ps1
+          ./scripts/packager-windows/scripts/sign.ps1
           -Path '${{ steps.pack.outputs.bundle }}','${{ steps.pack.outputs.bundle2 }}'
           -Pfx '${{ steps.cert.outputs.pfx }}' -Password '${{ steps.cert.outputs.password }}'
 
       - name: Install from the feed, publish a newer build, update
         shell: powershell
         run: >
-          ./tools/msix/scripts/test-update.ps1
+          ./scripts/packager-windows/scripts/test-update.ps1
           -Older "$env:RUNNER_TEMP\sideload-1"
           -Newer "$env:RUNNER_TEMP\sideload-2"
           -Serve "$env:RUNNER_TEMP\feed"

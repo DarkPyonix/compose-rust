@@ -19,8 +19,10 @@
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-header="$repo_root/dioxus-compose-renderer/desktop/c/win32_resize.h"
-source_file="$repo_root/dioxus-compose-renderer/desktop/c/win32_window.c"
+source "$repo_root/scripts/tests/fork-window.sh"
+fork_window_or_skip "$repo_root"
+header="$fork_window/windows-shared/c/win32_resize.h"
+source_file="$fork_window/windows-shared/c/win32_window.c"
 red=0
 
 for file in "$header" "$source_file"; do
@@ -28,12 +30,16 @@ for file in "$header" "$source_file"; do
 done
 
 # Everything between a case label and the answer it gives, so that what a message does can
-# be asked about without depending on how it is laid out.
+# be asked about without depending on how it is laid out. The last case for the label, which
+# is the window procedure's own: the resize trace (DXC_RESIZE_TRACE) has a switch of its own
+# ahead of it that only records each message and breaks.
 handling() {
-    awk -v label="$1" '
-        $0 ~ "case " label ":" { inside = 1 }
-        inside { print }
-        inside && /^        return/ { exit }
+    local from
+    from="$(grep -n "case $1:" "$source_file" | tail -1 | cut -d: -f1)"
+    [[ -n "$from" ]] || return 0
+    awk -v from="$from" '
+        NR >= from { print }
+        NR >= from && /^        return/ { exit }
     ' "$source_file"
 }
 
@@ -59,9 +65,16 @@ expect_in dxc_resize_begin_drag "the message that starts a drag" "$enter" \
 expect_in dxc_resize_end_drag "the message that ends a drag" "$exit_drag" \
     "record that it has ended"
 expect_in dxc_resize_note "the size message" "$sized" "write the new size down"
-expect_in dxc_resize_draw_here "the size message" "$sized" "ask whether a drag is on"
-expect_in dxc_draw_one_frame "the size message" "$sized" \
+expect_in dxc_draw_resize "the size message" "$sized" \
     "draw a frame where the size arrived"
+resize_step="$(awk '
+    /^static void dxc_draw_resize/ { inside = 1 }
+    inside { print }
+    inside && /^}/ { exit }
+' "$source_file")"
+expect_in dxc_draw_one_frame "the resize step" "$resize_step" "draw the frame"
+expect_in dxc_dwm_flush "the resize step" "$resize_step" \
+    "wait for DWM to take the frame before the next step"
 
 # The refit itself is not free to move. A swapchain refuses while anything holds one of its
 # buffers, so the wait and the release come first; the size the frame is drawn at is
@@ -172,12 +185,12 @@ int main(void) {
 PROBE
 
 if [[ "$compiler" == "cl" ]]; then
-    ( cd "$work" && cl.exe /nologo "/I$repo_root/dioxus-compose-renderer/desktop/c" \
+    ( cd "$work" && cl.exe /nologo "/I$(dirname "$header")" \
         /Fe:resize.exe win32-live-resize.c >/dev/null ) \
         || { echo "fail: the resize arithmetic did not compile"; exit 1; }
     binary="$work/resize.exe"
 else
-    cc -I"$repo_root/dioxus-compose-renderer/desktop/c" -o "$work/resize" "$probe" \
+    cc -I"$(dirname "$header")" -o "$work/resize" "$probe" \
         || { echo "fail: the resize arithmetic did not compile"; exit 1; }
     binary="$work/resize"
 fi

@@ -8,7 +8,7 @@
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-renderer_dir="$repo_root/dioxus-compose-renderer"
+renderer_dir="$repo_root/renderer"
 
 quiet=0
 case "${1:-}" in
@@ -100,7 +100,7 @@ esac
 # smoke-test.sh links against, so an installation that cannot produce one is worth a line.
 graalvm_home="${GRAALVM_HOME:-}"
 if [[ -z "$graalvm_home" && "$uname_s" == "Darwin" ]]; then
-    # Same discovery order as dioxus-compose-renderer/desktop/scripts/env.sh.
+    # Same discovery order as renderer/desktop/scripts/env.sh.
     for candidate in "$HOME"/Library/Java/JavaVirtualMachines/bellsoft-liberica-vm-full-openjdk25*/Contents/Home; do
         [[ -x "$candidate/bin/native-image" ]] && graalvm_home="$candidate"
     done
@@ -168,13 +168,13 @@ fi
 # it so that there is one place to change it.
 if [[ "$uname_s" == "Darwin" ]]; then
     compose_build_script="$renderer_dir/scripts/build-compose.sh"
-    patched_version="$(sed -n 's/^PUBLISHED_AS="\([^"]*\)"$/\1/p' "$compose_build_script" 2>/dev/null)"
+    patched_version="$(sed -n 's/^COMPOSE_AS="\([^"]*\)"$/\1/p' "$compose_build_script" 2>/dev/null | head -1)"
     if [[ -z "$patched_version" ]]; then
         fail "cannot tell which Compose version $compose_build_script publishes" \
-             "It is read from the PUBLISHED_AS assignment there. Either the script is" \
+             "It is read from the COMPOSE_AS assignment there. Either the script is" \
              "missing or that line was renamed, and this check has nothing to look for."
     else
-        patched_compose="$HOME/.m2/repository/org/jetbrains/compose/ui/ui-macosarm64/$patched_version"
+        patched_compose="$HOME/.m2/repository/org/thisisthepy/compose/ui/ui-macosarm64/$patched_version"
         if [[ -d "$patched_compose" ]]; then
             ok "patched Compose: $patched_compose"
         else

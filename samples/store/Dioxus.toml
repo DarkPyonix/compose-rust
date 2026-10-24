@@ -9,9 +9,9 @@ name = "Store"
 asset_dir = "assets"
 
 [bundle]
-identifier = "dev.darkpyonix.dioxus.compose.samples.store"
+identifier = "dev.darkpyonix.composerust.samples.store"
 publisher = "DarkPyonix"
-short_description = "A clothing shop built with dioxus-compose."
+short_description = "A clothing shop built with compose-rust."
 long_description = "A catalogue you can browse by category, a product you can size and count, and a bag that adds up."
 
 [macos]

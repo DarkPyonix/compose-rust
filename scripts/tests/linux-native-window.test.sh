@@ -16,20 +16,26 @@
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-renderer="$repo_root/dioxus-compose-renderer"
+# The window is the Compose fork's native/linux module and the logic it shares is the fork's
+# common module, both read here at the commit the renderer pins. The renderer's own part is the
+# Compose half in LinuxWindow.kt.
+source "$repo_root/scripts/tests/fork-window.sh"
+fork_window_or_skip "$repo_root"
+renderer="$repo_root/renderer"
 project="$renderer/project.yaml"
 module="$renderer/linux/module.yaml"
-window="$renderer/linux/src/LinuxWindow.kt"
-surface="$renderer/linux/src/GlSurface.kt"
+host_window="$renderer/linux/src/LinuxWindow.kt"
+window="$fork_window/native/linux/src/X11Window.kt"
+surface="$fork_window/native/linux/src/GlSurface.kt"
 entry="$renderer/linux/src/LinuxRenderer.kt"
-definition="$renderer/linux/cinterop/x11.def"
-sync_source="$renderer/desktop/src/ResizeSync.kt"
-log_source="$renderer/desktop/src/WindowEventLog.kt"
-frames_source="$renderer/desktop/src/WindowFrames.kt"
+definition="$fork_window/native/linux/cinterop/x11.def"
+sync_source="$fork_window/common/src/org/thisisthepy/compose/window/ResizeSync.kt"
+log_source="$fork_window/common/src/org/thisisthepy/compose/window/WindowEventLog.kt"
+frames_source="$fork_window/common/src/org/thisisthepy/compose/window/WindowFrames.kt"
 model="$renderer/desktop/src/X11Window.kt"
 staticlib="$renderer/staticlib-linux/module.yaml"
 compose_script="$renderer/scripts/build-compose.sh"
-compose_patch="$renderer/patches/0001-linux-native-targets.patch"
+compose_changes="$renderer/scripts/compose-fork.changes"
 
 red=0
 
@@ -38,9 +44,9 @@ fail() {
     red=1
 }
 
-for file in "$project" "$module" "$window" "$surface" "$entry" "$definition" \
+for file in "$project" "$module" "$host_window" "$window" "$surface" "$entry" "$definition" \
             "$sync_source" "$log_source" "$frames_source" "$model" "$staticlib" \
-            "$compose_script" "$compose_patch"; do
+            "$compose_script" "$compose_changes"; do
     [[ -f "$file" ]] || fail "missing $file"
 done
 (( red == 0 )) || exit 1
@@ -62,14 +68,20 @@ grep -Eq '^ +- linux$' "$project" ||
     fail "project.yaml does not list the linux module, so nothing builds it"
 grep -Eq '^ +- staticlib-linux$' "$project" ||
     fail "project.yaml does not list staticlib-linux, so the Host has no symbols to link"
-grep -Fq 'platforms: [ linuxX64 ]' "$module" ||
+grep -Eq '^  platforms: \[ linuxX64(, linuxArm64)? \]' "$module" ||
     fail "the linux module does not declare linuxX64"
+# Each architecture names the same Compose modules, by its own coordinate.
+x64_modules="$(sed -n '/^dependencies@linuxX64:/,/^$/p' "$module" | grep -c 'linuxx64:')"
+arm64_modules="$(sed -n '/^dependencies@linuxArm64:/,/^$/p' "$module" | grep -c 'linuxarm64:')"
+if grep -q 'linuxArm64' "$module" && [[ "$x64_modules" != "$arm64_modules" ]]; then
+    fail "the linux module names $x64_modules Compose modules for x64 and $arm64_modules for arm64"
+fi
 grep -Fq 'mavenLocal' "$module" ||
     fail "the linux module does not read the local Maven repository, which is the only place the patched Compose for this target is"
 
 # Nothing of GraalVM may reach a Kotlin/Native module: the annotations are not on its classpath and
 # there is no isolate for them to describe.
-for source in "$renderer"/linux/src/*.kt; do
+for source in "$renderer"/linux/src/*.kt "$fork_window"/native/linux/src/*.kt; do
     absent 'org\.graalvm' "$source" "Kotlin/Native has no native-image annotations"
 done
 
@@ -117,31 +129,101 @@ grep -Eq '^compilerOpts = .*-idirafter' "$definition" ||
     fail "the cinterop definition searches for the X11 headers with -I rather than -idirafter, which puts the host's libc headers in front of the target's sysroot"
 
 # ---------------------------------------------------------------------------
-# Every Compose module this target has to be given is one the build script publishes.
+# Every Compose module this target has to be given is one the fork's publish-local.sh publishes.
 # ---------------------------------------------------------------------------
 #
 # Compose Multiplatform publishes `runtime` for linuxX64 and nothing else, so every module the
-# patch teaches the target has to be built and published here. One left off the list is not a
+# Compose fork teaches the target has to be built and published here. One left off the list is not a
 # failure of that script: it is an unresolvable dependency tens of minutes into the renderer's own
-# build, naming a coordinate nobody recognises. `ui-test` is the one exception and is deliberate,
-# because nothing the renderer links reaches it.
-linux_publications="$(sed -n '/linuxX64)/,/;;/p' "$compose_script")"
+# build, naming a coordinate nobody recognises.
+#
+# The exceptions are deliberate, and each is named so that a new one has to be argued for here.
+# The fork gives these the target so that the Compose build configures with it, but the
+# renderer draws with runtime, ui, foundation and material3, and none of these is in that
+# closure. Several cannot be built for Linux at all: Material 2's navigation, the adaptive
+# family and the navigation suite each ask for a published artifact with no Linux variant.
+# Building in the container settled the list: the published modules are the closure, and the
+# renderer compiles against them. `ui-test` is left off because nothing the renderer links
+# reaches it.
+not_published_for_linux=(
+    compose:animation:animation-graphics
+    compose:material:material
+    compose:material:material-navigation
+    compose:material3:adaptive:adaptive
+    compose:material3:adaptive:adaptive-layout
+    compose:material3:adaptive:adaptive-navigation
+    compose:material3:adaptive:adaptive-navigation3
+    compose:material3:material3-adaptive-navigation-suite
+    compose:material3:material3-window-size-class
+    compose:ui:ui-test
+    navigation:navigation-compose
+    # Its build file changes in the fork only so that it depends on the fork's own Compose
+    # coordinates; it gains no Linux target and the renderer does not reach it.
+    navigation3:navigation3-ui
+)
+# build-compose.sh runs the fork's extended/compose/publish-local.sh at the pinned commit, so the
+# list is that script's. Only that directory is fetched, once per revision.
+compose_revision="$(sed -n 's/^REVISION="\([0-9a-f]\{40\}\)"$/\1/p' "$compose_script")"
+compose_fork="$(sed -n 's/^FORK="\(.*\)"$/\1/p' "$compose_script")"
+fork_compose="$repo_root/.scratch/fork-compose/$compose_revision"
+if [[ ! -f "$fork_compose/.complete" ]]; then
+    rm -rf "$fork_compose"
+    mkdir -p "$fork_compose"
+    git -C "$fork_compose" init -q
+    git -C "$fork_compose" remote add origin "$compose_fork"
+    printf '%s\n' '/extended/compose/' | git -C "$fork_compose" sparse-checkout set --no-cone --stdin
+    if git -C "$fork_compose" fetch -q --depth 1 --filter=blob:none origin "$compose_revision" &&
+        git -C "$fork_compose" -c advice.detachedHead=false checkout -q "$compose_revision"; then
+        touch "$fork_compose/.complete"
+    fi
+fi
+publish_local="$fork_compose/extended/compose/publish-local.sh"
+if [[ ! -x "$publish_local" ]]; then
+    if [[ -n "${CI:-}" ]]; then
+        fail "could not fetch extended/compose/publish-local.sh at $compose_revision of $compose_fork"
+    else
+        echo "skip: the fork's publish-local.sh at $compose_revision could not be fetched (no network?)"
+    fi
+fi
+# One module per line, so a name is matched whole: compose:material:material must not pass
+# because compose:material:material-ripple is on the list.
+linux_publications=""
+[[ -x "$publish_local" ]] && linux_publications="$("$publish_local" --list linuxX64 |
+    sed -n 's/^:\(.*\):publishLinuxX64PublicationToMavenLocal$/\1/p')"
 while IFS= read -r gradle_path; do
-    [[ "$gradle_path" == "compose:ui:ui-test" ]] && continue
-    grep -Fq "$gradle_path" <<< "$linux_publications" ||
-        fail "the patch adds a linuxX64 target to $gradle_path and build-compose.sh does not publish it"
-done < <(grep -E '^\+\+\+ b/.*/build\.gradle$' "$compose_patch" |
-    sed -E 's#^\+\+\+ b/##; s#/build\.gradle$##; s#/#:#g' | sort -u)
+    skip=0
+    for excepted in "${not_published_for_linux[@]}"; do
+        [[ "$gradle_path" == "$excepted" ]] && skip=1
+    done
+    [[ $skip -eq 1 ]] && continue
+    grep -Fxq "$gradle_path" <<< "$linux_publications" ||
+        [[ ! -x "$publish_local" ]] ||
+        fail "the Compose fork adds a linuxX64 target to $gradle_path and its publish-local.sh does not publish it"
+done < <(grep -E '^[0-9a-f]{40} .*/build\.gradle$' "$compose_changes" |
+    sed -E 's#^[0-9a-f]{40} ##; s#/build\.gradle$##; s#/#:#g' | sort -u)
+
+# And the other way: an exception the build script does publish is not an exception, and
+# leaving it here would let it be dropped from the build without anything noticing.
+for excepted in "${not_published_for_linux[@]}"; do
+    if grep -Fxq "$excepted" <<< "$linux_publications"; then
+        fail "$excepted is listed as not published for Linux, and the fork's publish-local.sh publishes it"
+    fi
+done
 
 # ---------------------------------------------------------------------------
 # The frame that belongs to a resize is drawn where the resize is handled.
 # ---------------------------------------------------------------------------
 
 configure="$(sed -n '/ConfigureNotify -> {/,/^            Expose ->/p' "$window")"
-grep -Fq 'frames.draw()' <<< "$configure" ||
-    fail "the window records a new size without drawing the frame for it, so the edge moves before the content does"
-grep -Fq 'measured = IntSize(width, height)' <<< "$configure" ||
+# The platform hands the listener a resize event from inside the handling of the configure
+# event and expects the frame drawn before the call returns; the renderer's window draws it.
+grep -Fq 'resized()' <<< "$configure" ||
+    fail "the window records a new size without asking for the frame for it, so the edge moves before the content does"
+grep -Fq 'measured = WindowMeasurement(width, height, DENSITY)' <<< "$configure" ||
     fail "the window no longer takes the new size from the configure event"
+resize_branch="$(sed -n '/override fun onEvent(event: WindowEvent) {/,/^    }/p' "$host_window")"
+grep -Fq 'WindowEvent.RESIZE' <<< "$resize_branch" && grep -Fq 'frames.draw()' <<< "$resize_branch" ||
+    fail "the renderer's window does not draw the frame for a new size inside the resize event"
 
 # An uncovered window is redrawn. The loop draws when the scene changed, and being uncovered
 # changes nothing in the scene.
@@ -164,6 +246,8 @@ grep -Fq 'XSyncSetCounter' "$window" ||
     fail "the window never tells the manager the drawing for a new size is done"
 grep -Fq 'sync.frameDrawn()' "$window" ||
     fail "the window does not end a frame through ResizeSync, which is what keeps swap-then-tell in that order"
+grep -Fq 'x11.present(' "$host_window" ||
+    fail "the renderer's window presents no frame it drew"
 grep -Fq 'sync.noFrame()' "$window" ||
     fail "a request that produced no frame leaves the manager waiting for a counter nobody will set"
 
@@ -180,16 +264,18 @@ fi
 for call in 'work.runPending()' 'scene.hasInvalidations()' 'semantics.pushIfChanged(afterDrawing'; do
     grep -Fq "$call" "$model" ||
         fail "X11Window.kt no longer does '$call', so this test is comparing against nothing"
-    grep -Fq "$call" "$window" || fail "the Linux window does not do '$call' per frame"
+    grep -Fq "$call" "$host_window" || fail "the Linux window does not do '$call' per frame"
 done
-grep -Fq 'while (!closed)' "$window" ||
+grep -Fq 'while (!x11.isClosed)' "$host_window" ||
     fail "the Linux window does not run until it is closed"
+absent 'usleep|sleep\(' "$host_window" \
+    "the waiting belongs in the window's own turn, where an event that arrives ends it"
 absent 'usleep|sleep\(' "$window" \
     "the waiting belongs in the window's own turn, where an event that arrives ends it"
 
 # The window answers null rather than throwing, because a Kotlin exception crossing back into the
 # C entry point that called in is undefined.
-grep -Fq 'fun open(title: String, width: Int, height: Int): LinuxWindow?' "$window" ||
+grep -Fq 'fun open(title: String, width: Int, height: Int): LinuxWindow?' "$host_window" ||
     fail "the window does not answer null where there is no display server to open one on"
 grep -Fq 'RUN_FAILED' "$entry" ||
     fail "the entry point does not turn a window that would not open into a status code"
