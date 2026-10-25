@@ -11,8 +11,10 @@ import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -179,6 +181,14 @@ private class DrawnState(
 
     fun moved() {
         moves += 1
+        // The selection moved, which the Host listens to.
+        callbacks.onOutput()
+    }
+
+    /** Tells the model whether an input method is composing, after anything it committed. */
+    fun composingChanged() {
+        model.compositionChanged(composing.isNotEmpty())
+        callbacks.onOutput()
     }
 
     // The input session's half.
@@ -199,19 +209,21 @@ private class DrawnState(
 
     override fun commit(text: String) {
         composing = ""
-        if (text.isEmpty()) return
-        replaceSelection(text, EditOrigin.Typing)
+        if (text.isNotEmpty()) replaceSelection(text, EditOrigin.Typing)
+        composingChanged()
     }
 
     override fun compose(text: String) {
         if (!model.selection.collapsed) replaceSelection("", EditOrigin.Reader)
         composing = text
+        composingChanged()
     }
 
     override fun finishComposing() {
         val text = composing
         composing = ""
         if (text.isNotEmpty()) replaceSelection(text, EditOrigin.Typing)
+        composingChanged()
     }
 
     override fun deleteAround(before: Int, after: Int) {
@@ -293,13 +305,39 @@ private fun DrawnSurface(
     val extent = rows.totalRows * rowPx - viewportHeight
     SideEffect { vertical.max = extent }
     val digitWidth = remember(look.textStyle) { measurer.measure("0", look.textStyle).size.width }
+    val markColumn = if (model.gutterMarks.isNotEmpty()) rowPx else 0
+    val foldColumn = if (model.folds.isNotEmpty()) rowPx else 0
     val gutterWidth = with(density) {
         rows.lineCount.toString().length * digitWidth + (look.gutterPadding * 2).toPx() + look.gutterDividerWidth.toPx()
-    }
+    } + markColumn + foldColumn
     state.textLeft = gutterWidth + with(density) { look.textInset.toPx() }
 
     // What the reader's edits queued is sent from here as well, on the composition thread.
     SideEffect { callbacks.onOutput() }
+    // Scrolling redraws without recomposing, so the lines on screen are read from a flow.
+    LaunchedEffect(rows, viewportHeight, rowPx) {
+        snapshotFlow { vertical.offset }.collect { scroll ->
+            if (viewportHeight > 0) {
+                reportVisible(model, rows, scroll, viewportHeight, rowPx)
+                callbacks.onOutput()
+            }
+        }
+    }
+
+    // The Host moved the selection or asked for a range to be brought into view.
+    val hostSelection = model.hostSelection
+    LaunchedEffect(hostSelection) {
+        if (hostSelection == 0) return@LaunchedEffect
+        state.composing = ""
+        state.moved()
+    }
+    val reveal = model.reveal
+    LaunchedEffect(reveal) {
+        if (reveal == null) return@LaunchedEffect
+        scrollToReveal(RowMap.of(model), vertical, reveal, rowPx, viewportHeight)
+        model.revealDone(reveal)
+        callbacks.onOutput()
+    }
 
     Box(
         modifier
@@ -317,7 +355,11 @@ private fun DrawnSurface(
                 .onGloballyPositioned { state.coordinates = it }
                 .drawnTextInput(state)
                 .focusRequester(focus)
-                .onFocusChanged { focused = it.isFocused }
+                .onFocusChanged {
+                    focused = it.isFocused
+                    model.focusChanged(it.isFocused)
+                    callbacks.onOutput()
+                }
                 .focusable()
                 .onKeyEvent { event -> drawnKey(event, state) }
                 .pointerInput(state) {
@@ -330,7 +372,19 @@ private fun DrawnSurface(
                                 PointerEventType.Press -> {
                                     focus.requestFocus()
                                     val (position, onLens) = state.positionAt(change.position)
-                                    if (onLens) {
+                                    if (change.position.x < gutterWidth) {
+                                        pressGutter(
+                                            model,
+                                            rows,
+                                            change.position,
+                                            vertical.offset,
+                                            rowPx,
+                                            gutterWidth.toInt(),
+                                            markColumn,
+                                            foldColumn,
+                                        )
+                                        callbacks.onOutput()
+                                    } else if (onLens) {
                                         val lens = model.lensesByLine().firstOrNull { it.first == position.line }?.second?.firstOrNull()
                                         if (lens != null) {
                                             model.activate(lens)
@@ -367,7 +421,7 @@ private fun DrawnSurface(
                     state.composing
                     val scroll = vertical.offset
                     translate(top = -scroll.toFloat()) {
-                        drawLines(state, rows, scroll, viewportHeight, gutterWidth, focused)
+                        drawLines(state, rows, scroll, viewportHeight, gutterWidth, markColumn, foldColumn, focused)
                     }
                 },
         )
@@ -381,6 +435,8 @@ private fun DrawScope.drawLines(
     scroll: Int,
     viewportHeight: Int,
     gutterWidth: Float,
+    markColumn: Int,
+    foldColumn: Int,
     focused: Boolean,
 ) {
     val model = state.model
@@ -396,6 +452,7 @@ private fun DrawScope.drawLines(
     }
     val lenses = model.lensesByLine().toMap()
     for (line in first..last) {
+        if (rows.isHidden(line)) continue
         val view = state.view(line)
         val top = rows.textRow(line) * rowPx
         if (line == selection.caret.line && selection.collapsed && look.currentLine.alpha > 0f) {
@@ -431,8 +488,20 @@ private fun DrawScope.drawLines(
             (line + 1).toString(),
             state.style.copy(color = if (line == selection.caret.line) look.currentLineNumber else look.lineNumber),
         )
-        val padding = look.gutterPadding.toPx() + look.gutterDividerWidth.toPx()
+        val padding = look.gutterPadding.toPx() + look.gutterDividerWidth.toPx() + foldColumn
         drawText(number, topLeft = Offset(gutterWidth - padding - number.size.width, top + (rowPx - number.size.height) / 2))
+        drawGutterAdornments(
+            model,
+            line,
+            top,
+            state.rowPx,
+            markColumn,
+            gutterWidth - look.gutterDividerWidth.toPx() - foldColumn,
+            foldColumn,
+            state.measurer!!,
+            state.style,
+            look,
+        )
     }
 }
 
@@ -520,7 +589,7 @@ private fun drawnKey(event: KeyEvent, state: DrawnState): Boolean {
                 Key.PageUp -> -PAGE_LINES
                 else -> PAGE_LINES
             }
-            val line = (caret.line + step).coerceIn(0, document.lineCount - 1)
+            val line = model.nearestVisible((caret.line + step).coerceIn(0, document.lineCount - 1), step > 0)
             val x = state.view(caret.line).caretX(caret.column)
             var target = CodePosition(line, state.view(line).column(x))
             if (!document.isValid(target)) target = CodePosition(line, target.column - 1)

@@ -1,11 +1,11 @@
 {
   "format": "compose-rust protocol vectors v1",
-  "schemaHashUnsigned": "7113898913101360301",
+  "schemaHashUnsigned": "12271306118763632527",
   "byteOrder": "little-endian",
   "mutations": {
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 71,
+    "recordCount": 76,
     "palette": [
       { "role": "Primary", "scheme": "Light", "argb": "ffe8590c" },
       { "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" },
@@ -17,7 +17,7 @@
   },
   "events": {
     "file": "events.bin",
-    "description": "Nineteen independently decodable event records concatenated in schema order",
+    "description": "Twenty-four independently decodable event records concatenated in schema order",
     "records": [
       { "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 },
       { "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" },
@@ -37,7 +37,12 @@
       { "type": "DecorationActivated", "offset": 434, "length": 24, "nodeId": 12, "handlerId": 22, "decoration": 41 },
       { "type": "AnimationEvent", "offset": 458, "length": 40, "nodeId": 8, "handlerId": 0, "animationId": 7, "kind": "End", "property": "Transform", "slot": 2, "iteration": 3, "elapsedMs": 3000.0, "timeNanos": 123456789012 },
       { "type": "ReducedMotionChanged", "offset": 498, "length": 20, "nodeId": 0, "handlerId": 0, "state": "On" },
-      { "type": "Pointer", "offset": 518, "length": 72, "nodeId": 13, "handlerId": 23, "kind": "Down", "pointerId": 1, "pointerType": "Mouse", "x": 12.5, "y": -3.0, "buttons": 9, "button": 8, "modifiers": 5, "clickCount": 2, "deltaX": 0.0, "deltaY": 0.0, "deltaMode": "Pixel", "timestampNanos": 987654321000 }
+      { "type": "Pointer", "offset": 518, "length": 72, "nodeId": 13, "handlerId": 23, "kind": "Down", "pointerId": 1, "pointerType": "Mouse", "x": 12.5, "y": -3.0, "buttons": 9, "button": 8, "modifiers": 5, "clickCount": 2, "deltaX": 0.0, "deltaY": 0.0, "deltaMode": "Pixel", "timestampNanos": 987654321000 },
+      { "type": "SelectionChanged", "offset": 590, "length": 36, "nodeId": 12, "handlerId": 23, "version": 2, "anchorLine": 1, "anchorColumn": 12, "activeLine": 0, "activeColumn": 3 },
+      { "type": "VisibleRangeChanged", "offset": 626, "length": 28, "nodeId": 12, "handlerId": 24, "version": 2, "firstLine": 0, "lastLine": 3 },
+      { "type": "EditorFocusChanged", "offset": 654, "length": 24, "nodeId": 12, "handlerId": 25, "focused": true },
+      { "type": "FoldChanged", "offset": 678, "length": 24, "nodeId": 12, "handlerId": 26, "startLine": 0, "collapsed": true },
+      { "type": "CompositionChanged", "offset": 702, "length": 24, "nodeId": 12, "handlerId": 27, "composing": true }
     ]
   }
 }

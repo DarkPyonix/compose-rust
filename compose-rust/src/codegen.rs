@@ -415,6 +415,37 @@ sealed interface Mutation {
         val op: AnimationControl,
         val atTimeNanos: Long,
     ) : Mutation
+
+    /**
+     * Puts a code editor's selection between two places in the document as it stood at
+     * `baseVersion`. Both ends are moved along with whatever was typed since. An end outside
+     * the document, or between the two halves of a pair, drops the command and is reported.
+     */
+    data class SetSelection(
+        val nodeId: Int,
+        val baseVersion: Int,
+        val anchorLine: Int,
+        val anchorColumn: Int,
+        val activeLine: Int,
+        val activeColumn: Int,
+    ) : Mutation
+
+    /**
+     * Scrolls a code editor until a range of the document, as it stood at `baseVersion`, is
+     * on screen. A range inside a folded stretch unfolds it first.
+     */
+    data class RevealRange(
+        val nodeId: Int,
+        val baseVersion: Int,
+        val startLine: Int,
+        val startColumn: Int,
+        val endLine: Int,
+        val endColumn: Int,
+        val align: RevealAlign,
+    ) : Mutation
+
+    /** Folds or unfolds the stretch of a code editor that starts on `startLine`. */
+    data class SetFolded(val nodeId: Int, val startLine: Int, val collapsed: Boolean) : Mutation
 }
 
 "#,
@@ -474,6 +505,17 @@ sealed interface Mutation {
             EventPayloadType::Zoom => {
                 output.push_str(", val k: kotlin.Float, val os: kotlin.Float, val level: Int");
             }
+            EventPayloadType::CodeSelection => output.push_str(
+                ", val version: Int, val anchorLine: Int, val anchorColumn: Int, val activeLine: Int, val activeColumn: Int",
+            ),
+            EventPayloadType::CodeVisibleRange => {
+                output.push_str(", val version: Int, val firstLine: Int, val lastLine: Int");
+            }
+            EventPayloadType::CodeFocus => output.push_str(", val focused: Boolean"),
+            EventPayloadType::CodeFold => {
+                output.push_str(", val startLine: Int, val collapsed: Boolean");
+            }
+            EventPayloadType::CodeComposition => output.push_str(", val composing: Boolean"),
         }
         output.push_str(") : HostEvent\n");
     }
@@ -519,6 +561,9 @@ object Protocol {
     private const val TAG_EDIT_CODE = 17
     private const val TAG_START_ANIMATION = 18
     private const val TAG_CONTROL_ANIMATION = 19
+    private const val TAG_SET_SELECTION = 20
+    private const val TAG_REVEAL_RANGE = 21
+    private const val TAG_SET_FOLDED = 22
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -783,6 +828,37 @@ object Protocol {
                             readU64(batch, base, available, offset + 16),
                         )
                     }
+                    TAG_SET_SELECTION -> {
+                        requireRecordLength(length, 28, offset)
+                        Mutation.SetSelection(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            readU32(batch, base, available, offset + 8).toInt(),
+                            readU32(batch, base, available, offset + 12).toInt(),
+                            readU32(batch, base, available, offset + 16).toInt(),
+                            readU32(batch, base, available, offset + 20).toInt(),
+                            readU32(batch, base, available, offset + 24).toInt(),
+                        )
+                    }
+                    TAG_REVEAL_RANGE -> {
+                        requireRecordLength(length, 32, offset)
+                        Mutation.RevealRange(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            readU32(batch, base, available, offset + 8).toInt(),
+                            readU32(batch, base, available, offset + 12).toInt(),
+                            readU32(batch, base, available, offset + 16).toInt(),
+                            readU32(batch, base, available, offset + 20).toInt(),
+                            readU32(batch, base, available, offset + 24).toInt(),
+                            revealAlign(readU32(batch, base, available, offset + 28).toInt(), offset + 28),
+                        )
+                    }
+                    TAG_SET_FOLDED -> {
+                        requireRecordLength(length, 16, offset)
+                        Mutation.SetFolded(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            readU32(batch, base, available, offset + 8).toInt(),
+                            flag(readU32(batch, base, available, offset + 12), offset + 12),
+                        )
+                    }
                     else -> throw ProtocolException("unknown mutation tag $tag", offset)
                 }
                 onMutation(mutation)
@@ -907,6 +983,11 @@ object Protocol {
             | EventPayloadType::Animation
             | EventPayloadType::ReducedMotion
             | EventPayloadType::Pointer
+            | EventPayloadType::CodeSelection
+            | EventPayloadType::CodeVisibleRange
+            | EventPayloadType::CodeFocus
+            | EventPayloadType::CodeFold
+            | EventPayloadType::CodeComposition
             | EventPayloadType::Zoom => {
                 writeln!(
                     output,
@@ -945,6 +1026,11 @@ object Protocol {
             EventPayloadType::Animation => 40,
             EventPayloadType::ReducedMotion => 20,
             EventPayloadType::Pointer => 72,
+            EventPayloadType::CodeSelection => 36,
+            EventPayloadType::CodeVisibleRange => 28,
+            // A flag and the padding that keeps the record a multiple of four.
+            EventPayloadType::CodeFocus | EventPayloadType::CodeComposition => 24,
+            EventPayloadType::CodeFold => 24,
             // Two floats and a level, three words after the header.
             EventPayloadType::Zoom => 28,
         };
@@ -1146,6 +1232,44 @@ object Protocol {
                     "                    out.putInt(wheelDeltaModeTag(event.deltaMode))\n",
                 );
                 output.push_str("                    out.putLong(event.timestampNanos)\n");
+                output.push_str("                }\n");
+            }
+            EventPayloadType::CodeSelection => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                for field in [
+                    "version",
+                    "anchorLine",
+                    "anchorColumn",
+                    "activeLine",
+                    "activeColumn",
+                ] {
+                    writeln!(output, "                    out.putInt(event.{field})").unwrap();
+                }
+                output.push_str("                }\n");
+            }
+            EventPayloadType::CodeVisibleRange => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                for field in ["version", "firstLine", "lastLine"] {
+                    writeln!(output, "                    out.putInt(event.{field})").unwrap();
+                }
+                output.push_str("                }\n");
+            }
+            EventPayloadType::CodeFocus => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(if (event.focused) 1 else 0)\n");
+                output.push_str("                    out.putInt(0)\n");
+                output.push_str("                }\n");
+            }
+            EventPayloadType::CodeFold => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(event.startLine)\n");
+                output.push_str("                    out.putInt(if (event.collapsed) 1 else 0)\n");
+                output.push_str("                }\n");
+            }
+            EventPayloadType::CodeComposition => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(if (event.composing) 1 else 0)\n");
+                output.push_str("                    out.putInt(0)\n");
                 output.push_str("                }\n");
             }
             EventPayloadType::Double => {
@@ -2014,6 +2138,22 @@ fn code_span_vector() -> crate::code::SyntaxSpans {
     ])
 }
 
+/// Two folds, one folded, the second inside the first, and three gutter marks of the three
+/// kinds, one with a colour role and one carrying an emoji.
+fn code_fold_vector() -> crate::code::Folds {
+    use crate::code::Fold;
+    crate::code::Folds::new([Fold::new(0, 0, 2), Fold::new(0, 1, 3).collapsed()])
+}
+
+fn code_gutter_vector() -> crate::code::GutterDecorations {
+    use crate::code::GutterDecoration;
+    crate::code::GutterDecorations::new([
+        GutterDecoration::dot(0, 0, 51),
+        GutterDecoration::bar(0, 1, 0).with_color(ColorRole::Tertiary),
+        GutterDecoration::glyph(0, 2, '\u{1F41B}', 52),
+    ])
+}
+
 /// Two keyframes each, the first eased and starting from what is presented, the second
 /// linear; every other field set to something other than its default, so a field read
 /// from the wrong offset cannot pass.
@@ -2139,6 +2279,8 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
     let spans_vector_bytes = spans_vector();
     let decorations = code_decoration_vector();
     let syntax_spans = code_span_vector();
+    let folds = code_fold_vector();
+    let gutter = code_gutter_vector();
     let mutations = [
         Mutation::SetTheme(
             Theme::adaptive(DesignSystem::Cupertino)
@@ -2565,6 +2707,41 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             end_column: 8,
             text: "mut ",
         },
+        // The code editor's later additions, after every record that was here before them
+        // so their bytes stay where they were: the two lists, a selection made backwards,
+        // a range to reveal and a fold.
+        Mutation::SetProp {
+            node_id: 12,
+            property: PropertyKind::Folds,
+            value: PropertyValue::Bytes(folds.as_bytes()),
+        },
+        Mutation::SetProp {
+            node_id: 12,
+            property: PropertyKind::GutterDecorations,
+            value: PropertyValue::Bytes(gutter.as_bytes()),
+        },
+        Mutation::SetSelection {
+            node_id: 12,
+            base_version: 0,
+            anchor_line: 1,
+            anchor_column: 12,
+            active_line: 0,
+            active_column: 3,
+        },
+        Mutation::RevealRange {
+            node_id: 12,
+            base_version: 1,
+            start_line: 1,
+            start_column: 12,
+            end_line: 1,
+            end_column: 16,
+            align: crate::schema::RevealAlign::Center,
+        },
+        Mutation::SetFolded {
+            node_id: 12,
+            start_line: 0,
+            collapsed: true,
+        },
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {
@@ -2732,6 +2909,44 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
                 timestamp_nanos: 987_654_321_000,
             },
         },
+        HostEvent {
+            node_id: 12,
+            handler_id: 23,
+            payload: EventPayload::SelectionChanged {
+                version: 2,
+                anchor_line: 1,
+                anchor_column: 12,
+                active_line: 0,
+                active_column: 3,
+            },
+        },
+        HostEvent {
+            node_id: 12,
+            handler_id: 24,
+            payload: EventPayload::VisibleRangeChanged {
+                version: 2,
+                first_line: 0,
+                last_line: 3,
+            },
+        },
+        HostEvent {
+            node_id: 12,
+            handler_id: 25,
+            payload: EventPayload::EditorFocusChanged { focused: true },
+        },
+        HostEvent {
+            node_id: 12,
+            handler_id: 26,
+            payload: EventPayload::FoldChanged {
+                start_line: 0,
+                collapsed: true,
+            },
+        },
+        HostEvent {
+            node_id: 12,
+            handler_id: 27,
+            payload: EventPayload::CompositionChanged { composing: true },
+        },
     ];
     let mut output = Vec::new();
     let mut encoded = Vec::new();
@@ -2751,7 +2966,7 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 71,
+    "recordCount": 76,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
@@ -2763,7 +2978,7 @@ pub fn generate_vector_description() -> String {
   }},
   "events": {{
     "file": "events.bin",
-    "description": "Nineteen independently decodable event records concatenated in schema order",
+    "description": "Twenty-four independently decodable event records concatenated in schema order",
     "records": [
       {{ "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 }},
       {{ "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" }},
@@ -2783,7 +2998,12 @@ pub fn generate_vector_description() -> String {
       {{ "type": "DecorationActivated", "offset": 434, "length": 24, "nodeId": 12, "handlerId": 22, "decoration": 41 }},
       {{ "type": "AnimationEvent", "offset": 458, "length": 40, "nodeId": 8, "handlerId": 0, "animationId": 7, "kind": "End", "property": "Transform", "slot": 2, "iteration": 3, "elapsedMs": 3000.0, "timeNanos": 123456789012 }},
       {{ "type": "ReducedMotionChanged", "offset": 498, "length": 20, "nodeId": 0, "handlerId": 0, "state": "On" }},
-      {{ "type": "Pointer", "offset": 518, "length": 72, "nodeId": 13, "handlerId": 23, "kind": "Down", "pointerId": 1, "pointerType": "Mouse", "x": 12.5, "y": -3.0, "buttons": 9, "button": 8, "modifiers": 5, "clickCount": 2, "deltaX": 0.0, "deltaY": 0.0, "deltaMode": "Pixel", "timestampNanos": 987654321000 }}
+      {{ "type": "Pointer", "offset": 518, "length": 72, "nodeId": 13, "handlerId": 23, "kind": "Down", "pointerId": 1, "pointerType": "Mouse", "x": 12.5, "y": -3.0, "buttons": 9, "button": 8, "modifiers": 5, "clickCount": 2, "deltaX": 0.0, "deltaY": 0.0, "deltaMode": "Pixel", "timestampNanos": 987654321000 }},
+      {{ "type": "SelectionChanged", "offset": 590, "length": 36, "nodeId": 12, "handlerId": 23, "version": 2, "anchorLine": 1, "anchorColumn": 12, "activeLine": 0, "activeColumn": 3 }},
+      {{ "type": "VisibleRangeChanged", "offset": 626, "length": 28, "nodeId": 12, "handlerId": 24, "version": 2, "firstLine": 0, "lastLine": 3 }},
+      {{ "type": "EditorFocusChanged", "offset": 654, "length": 24, "nodeId": 12, "handlerId": 25, "focused": true }},
+      {{ "type": "FoldChanged", "offset": 678, "length": 24, "nodeId": 12, "handlerId": 26, "startLine": 0, "collapsed": true }},
+      {{ "type": "CompositionChanged", "offset": 702, "length": 24, "nodeId": 12, "handlerId": 27, "composing": true }}
     ]
   }}
 }}
@@ -3131,9 +3351,12 @@ object SpanRecords {
 /// the list is still read: a list is data inside a property value, and one bad record is
 /// that record's problem rather than the batch's.
 fn write_code_editor_records(output: &mut String) {
-    use crate::code::{DECORATION_RECORD, RecordFieldType, RecordSchema, SYNTAX_SPAN_RECORD};
+    use crate::code::{
+        DECORATION_RECORD, FOLD_RECORD, GUTTER_DECORATION_RECORD, RecordFieldType, RecordSchema,
+        SYNTAX_SPAN_RECORD,
+    };
 
-    let records: [(RecordSchema, &str, &str); 2] = [
+    let records: [(RecordSchema, &str, &str); 4] = [
         (
             DECORATION_RECORD,
             "decodeDecorations",
@@ -3148,6 +3371,20 @@ fn write_code_editor_records(output: &mut String) {
             "One colour run of a code editor's syntax. The range is in the document at \
              `version`; columns are UTF-16 units.",
         ),
+        (
+            FOLD_RECORD,
+            "decodeFolds",
+            "One stretch of a code editor's lines that can be folded. Folding keeps \
+             `startLine` and hides the lines after it up to `endLine`; both are in the \
+             document at `version`.",
+        ),
+        (
+            GUTTER_DECORATION_RECORD,
+            "decodeGutterDecorations",
+            "One mark beside a line number of a code editor. The line is in the document at \
+             `version`; `glyph` is a Unicode scalar value, used when the kind is a glyph. \
+             `id` is the application's own name for it, zero where it cannot be pressed.",
+        ),
     ];
     let kotlin_field_type = |ty: RecordFieldType| -> String {
         match ty {
@@ -3157,6 +3394,7 @@ fn write_code_editor_records(output: &mut String) {
                 format!("{name}{}", if optional { "?" } else { "" })
             }
             RecordFieldType::Paint => "Paint".to_owned(),
+            RecordFieldType::Flag => "Boolean".to_owned(),
             RecordFieldType::Text => "String".to_owned(),
         }
     };
@@ -3189,6 +3427,8 @@ object CodeEditorRecords {
     for (schema, function, _) in records {
         let constant = match schema.name {
             "DecorationRecord" => "DECORATION_LENGTH",
+            "FoldRecord" => "FOLD_LENGTH",
+            "GutterDecorationRecord" => "GUTTER_DECORATION_LENGTH",
             _ => "SYNTAX_SPAN_LENGTH",
         };
         writeln!(output, "    const val {constant} = {}\n", schema.length).unwrap();
@@ -3310,6 +3550,14 @@ object CodeEditorRecords {
                     )
                     .unwrap();
                 }
+                RecordFieldType::Flag => {
+                    writeln!(
+                        output,
+                        "        val {} = when (buffer.getInt(offset + {at})) {{ 0 -> false; 1 -> true; else -> run {{ onError(\"record $index has a {} that is neither 0 nor 1\"); return null }} }}",
+                        field.name, field.name
+                    )
+                    .unwrap();
+                }
                 RecordFieldType::Text => {
                     writeln!(
                         output,
@@ -3354,14 +3602,19 @@ object CodeEditorRecords {
 
 "#,
     );
-    let mut roles: Vec<&str> = [DECORATION_RECORD, SYNTAX_SPAN_RECORD]
-        .iter()
-        .flat_map(|schema| schema.fields.iter())
-        .filter_map(|field| match field.ty {
-            RecordFieldType::Role { name, .. } => Some(name),
-            _ => None,
-        })
-        .collect();
+    let mut roles: Vec<&str> = [
+        DECORATION_RECORD,
+        SYNTAX_SPAN_RECORD,
+        FOLD_RECORD,
+        GUTTER_DECORATION_RECORD,
+    ]
+    .iter()
+    .flat_map(|schema| schema.fields.iter())
+    .filter_map(|field| match field.ty {
+        RecordFieldType::Role { name, .. } => Some(name),
+        _ => None,
+    })
+    .collect();
     roles.push("ColorRole");
     roles.sort_unstable();
     roles.dedup();

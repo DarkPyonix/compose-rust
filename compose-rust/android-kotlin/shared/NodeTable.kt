@@ -15,6 +15,7 @@ import dev.darkpyonix.composerust.protocol.Window
 import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.foundation.code.CodeEditorModel
+import dev.darkpyonix.composerust.foundation.code.CodePosition
 import dev.darkpyonix.composerust.foundation.codeEvents
 import dev.darkpyonix.composerust.protocol.CodeEditorRecords
 import dev.darkpyonix.composerust.protocol.HostEvent
@@ -98,6 +99,9 @@ data class TableError(val code: Int, val message: String) {
  */
 class NodeTable {
     private val nodes = mutableStateMapOf<Int, Node>()
+
+    /** The code editors among them, so that what they report is collected without a walk of the tree. */
+    private val codeNodes = LinkedHashMap<Int, Node>()
     private val rootChildren = mutableStateListOf<Int>()
     private val errors = mutableListOf<TableError>()
 
@@ -165,6 +169,9 @@ class NodeTable {
 
     /** Events code editors queued while a batch was applied; drained after it commits. */
     internal fun drainEvents(): List<HostEvent> {
+        // What is reported as where it ended up, the selection and the lines on screen, is
+        // said once for the whole batch: several moves in it are one report.
+        if (codeNodes.isNotEmpty()) for (node in codeNodes.values.toList()) collectCode(node, includeReports = true)
         if (outbox.isEmpty()) return emptyList()
         val drained = outbox.toList()
         outbox.clear()
@@ -192,6 +199,7 @@ class NodeTable {
     fun clear() {
         animations.clear()
         nodes.clear()
+        codeNodes.clear()
         rootChildren.clear()
         errors.clear()
         outbox.clear()
@@ -260,7 +268,47 @@ class NodeTable {
             // A request against the editor's document, which the editor may refuse. What
             // it did is reported once the batch is applied.
             is Mutation.EditCode -> editCode(mutation)
+
+            // The editor's selection and scroll are this side's, so these are requests
+            // too: each is checked against the document and refused, with a protocol
+            // error, where it names a place that is not in it.
+            is Mutation.SetSelection -> codeNode(mutation.nodeId, "SetSelection")?.let { (node, code) ->
+                code.hostSetSelection(
+                    mutation.baseVersion,
+                    mutation.anchorLine,
+                    mutation.anchorColumn,
+                    mutation.activeLine,
+                    mutation.activeColumn,
+                )
+                collectCode(node)
+            }
+            is Mutation.RevealRange -> codeNode(mutation.nodeId, "RevealRange")?.let { (node, code) ->
+                code.hostReveal(
+                    mutation.baseVersion,
+                    CodePosition(mutation.startLine, mutation.startColumn),
+                    CodePosition(mutation.endLine, mutation.endColumn),
+                    mutation.align,
+                )
+                collectCode(node)
+            }
+            is Mutation.SetFolded -> codeNode(mutation.nodeId, "SetFolded")?.let { (node, code) ->
+                code.hostSetFolded(mutation.startLine, mutation.collapsed)
+                collectCode(node)
+            }
         }
+    }
+
+    /** The code editor a command names, or null after reporting that it names none. */
+    private fun codeNode(nodeId: Int, command: String): Pair<Node, CodeEditorModel>? {
+        val node = nodes[nodeId] ?: run {
+            fail(TableError.UNKNOWN_NODE, "$command for unknown node $nodeId")
+            return null
+        }
+        val code = node.code ?: run {
+            fail(TableError.UNSUPPORTED_PROPERTY, "$command on ${node.widget}")
+            return null
+        }
+        return node to code
     }
 
     private fun editCode(mutation: Mutation.EditCode) {
@@ -307,14 +355,28 @@ class NodeTable {
                     }
                 } ?: emptyList(),
             )
+            PropertyKind.Folds -> code.setFolds(
+                (value as? PropertyValue.Bytes)?.value?.let { bytes ->
+                    CodeEditorRecords.decodeFolds(bytes) { message ->
+                        fail(TableError.INVALID_CODE_EDIT, "folds on node ${node.id}: $message")
+                    }
+                } ?: emptyList(),
+            )
+            PropertyKind.GutterDecorations -> code.setGutterDecorations(
+                (value as? PropertyValue.Bytes)?.value?.let { bytes ->
+                    CodeEditorRecords.decodeGutterDecorations(bytes) { message ->
+                        fail(TableError.INVALID_CODE_EDIT, "gutter decorations on node ${node.id}: $message")
+                    }
+                } ?: emptyList(),
+            )
             else -> return
         }
         collectCode(node)
     }
 
-    private fun collectCode(node: Node) {
+    private fun collectCode(node: Node, includeReports: Boolean = false) {
         val code = node.code ?: return
-        outbox += node.codeEvents(code.drainOutput()) { message ->
+        outbox += node.codeEvents(code.drainOutput(includeReports)) { message ->
             fail(TableError.INVALID_CODE_EDIT, "code editor ${node.id}: $message")
         }
     }
@@ -324,7 +386,9 @@ class NodeTable {
             fail(TableError.DUPLICATE_NODE, "node ${mutation.nodeId} already exists")
             return
         }
-        nodes[mutation.nodeId] = Node(mutation.nodeId, mutation.widget)
+        val created = Node(mutation.nodeId, mutation.widget)
+        nodes[mutation.nodeId] = created
+        if (created.code != null) codeNodes[mutation.nodeId] = created
         // A node the Host never inserts stays a root. The Host has no mutation that attaches
         // the application root, so the first created node is what the Renderer draws.
         // There is no mutation that attaches a root, so roots are inferred here.
@@ -438,6 +502,7 @@ class NodeTable {
 
     private fun removeSubtree(nodeId: Int) {
         val node = nodes.remove(nodeId) ?: return
+        codeNodes.remove(nodeId)
         animations.removeNode(nodeId)
         materials -= node.modifiers.count { it is ProtocolModifier.Material }
         node.children.toList().forEach(::removeSubtree)
@@ -763,6 +828,13 @@ class NodeTable {
                 PropertyKind.OnHover,
                 PropertyKind.OnSave,
                 PropertyKind.OnDecorationClick,
+                PropertyKind.Folds,
+                PropertyKind.GutterDecorations,
+                PropertyKind.OnSelectionChange,
+                PropertyKind.OnVisibleRangeChange,
+                PropertyKind.OnEditorFocusChange,
+                PropertyKind.OnFoldChange,
+                PropertyKind.OnCompositionChange,
                 -> widget == WidgetKind.CodeEditor
 
                 // Files over a node and files let go on it. Only the widget that exists
