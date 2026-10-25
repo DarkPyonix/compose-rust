@@ -379,9 +379,12 @@ jobs:
         run: |
           set -euo pipefail
           cd artifacts
-          shopt -s nullglob
-          if command -v sha256sum >/dev/null; then sha256sum *.tar.gz *.AppImage *.zip *.msix *.dmg > "SHA256SUMS-${{ matrix.target }}"
-          else shasum -a 256 *.tar.gz *.AppImage *.zip *.msix *.dmg > "SHA256SUMS-${{ matrix.target }}"; fi
+          # find, not a glob list: no platform makes every file type, and a pattern that
+          # matches nothing must not end the step under pipefail.
+          files="$(find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.AppImage' -o -name '*.zip' -o -name '*.msix' -o -name '*.dmg' \) | sed 's#^\./##' | sort -u)"
+          if command -v sha256sum >/dev/null; then sum=(sha256sum); else sum=(shasum -a 256); fi
+          # shellcheck disable=SC2086
+          "${sum[@]}" $files > "SHA256SUMS-${{ matrix.target }}"
           cat "SHA256SUMS-${{ matrix.target }}"
 
       - uses: actions/upload-artifact@v4
