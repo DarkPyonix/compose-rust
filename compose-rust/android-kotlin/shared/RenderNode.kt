@@ -1,5 +1,6 @@
 package dev.darkpyonix.composerust.ui.node
 
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
@@ -131,17 +132,27 @@ fun RenderNode(
     RenderNodeObserver.onCompose?.let { observer -> SideEffect { observer(nodeId) } }
     val theme = LocalDesignTheme.current
     val profiled = if (LayoutProfile.enabled) parentModifier.then(LayoutProfile.modifier(node.widget.name)) else parentModifier
-    val chain = profiled
-        .then(node.modifiers.toComposeModifier(nodeId, dispatcher, theme) { table.animations.animated(nodeId) })
-        .testTag(nodeTestTag(nodeId))
+    // The key handler goes ahead of the node's own modifiers. A modifier that makes the node
+    // focusable (a click, say) is a focus target, and a key event reaches only the handlers
+    // outside it on the way down. Placed after it, the handler would see keys from focused
+    // descendants only and never the keys pressed while the node itself has focus.
     // The TextField wires its own key handling, because it has an editor to intercept and a
     // composition to protect; everything else routes keys here.
     val keyDownHandler = node.handler(PropertyKind.OnKeyDown)
-    val withKeys = if (keyDownHandler == null || node.widget == WidgetKind.TextField) {
-        chain
+    val keyed = if (keyDownHandler == null || node.widget == WidgetKind.TextField) {
+        profiled
     } else {
-        chain.hostKeyEvents(nodeId, keyDownHandler, dispatcher)
+        // Plain containers and text are not focus targets on their own, so a node that
+        // listens for keys is made one, ahead of its modifiers like the handler. Without it
+        // Tab never reaches the node and a DOM element with tabindex and onkeydown is dead.
+        // Widgets that are controls bring their own focus handling and are left alone.
+        val focusTarget = node.widget in KeyFocusTargets
+        profiled.hostKeyEvents(nodeId, keyDownHandler, dispatcher)
+            .let { if (focusTarget) it.focusable() else it }
     }
+    val withKeys = keyed
+        .then(node.modifiers.toComposeModifier(nodeId, dispatcher, theme) { table.animations.animated(nodeId) })
+        .testTag(nodeTestTag(nodeId))
     // Only where the node said it is a place files may be dropped. Everywhere else this
     // adds nothing to the chain and the platform shows no drop cursor.
     val modifier = platformFileDrop(withKeys, node, dispatcher)
@@ -684,3 +695,6 @@ object LayoutProfile {
     fun snapshot(): List<Triple<String, Double, Int>> =
         totals.entries.map { Triple(it.key, it.value.nanos / 1e6, it.value.count) }.sortedByDescending { it.second }
 }
+
+/** The containers that become focus targets when they listen for keys. */
+private val KeyFocusTargets = setOf(WidgetKind.Box, WidgetKind.Column, WidgetKind.Row, WidgetKind.FileDropTarget)
