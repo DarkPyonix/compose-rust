@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets
 
 enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnPointer, PointerKinds, Cursor, UserSelect, Progress }
 
 enum class Key { Enter }
 
@@ -97,6 +97,16 @@ enum class DecorationKind { Underline, CodeLens, HoverAnchor, GhostText }
 enum class Severity { Error, Warning, Information, Hint }
 
 enum class HoverPhase { Rest, Leave }
+
+enum class PointerKind { Move, Enter, Leave, Down, Up, Cancel, Wheel, ContextMenu }
+
+enum class PointerType { Mouse, Touch, Pen }
+
+enum class WheelDeltaMode { Pixel, Line, Page }
+
+enum class Cursor { Auto, Default, Pointer, Text, VerticalText, Crosshair, Move, Grab, Grabbing, NotAllowed, NoDrop, Wait, Progress, Help, ContextMenu, Cell, Copy, Alias, AllScroll, ZoomIn, ZoomOut, ColResize, RowResize, EResize, NResize, NeResize, NwResize, SResize, SeResize, SwResize, WResize, EwResize, NsResize, NeswResize, NwseResize, None }
+
+enum class UserSelect { Auto, None, Text, All }
 
 /**
  * The `TypeRole` property of text with no rung of the ladder at all: CSS text, whose
@@ -1118,13 +1128,14 @@ sealed interface HostEvent {
     data class DecorationActivated(override val nodeId: Int, override val handlerId: Long, val decoration: Long) : HostEvent
     data class AnimationEvent(override val nodeId: Int, override val handlerId: Long, val animationId: Int, val kind: AnimationEventKind, val property: AnimatedProperty, val slot: Int, val iteration: Int, val elapsedMs: kotlin.Float, val timeNanos: Long) : HostEvent
     data class ReducedMotionChanged(override val nodeId: Int, override val handlerId: Long, val state: ReducedMotion) : HostEvent
+    data class Pointer(override val nodeId: Int, override val handlerId: Long, val kind: PointerKind, val pointerId: Int, val pointerType: PointerType, val x: kotlin.Float, val y: kotlin.Float, val buttons: Int, val button: Int, val modifiers: Int, val clickCount: Int, val deltaX: kotlin.Float, val deltaY: kotlin.Float, val deltaMode: WheelDeltaMode, val timestampNanos: Long) : HostEvent
 }
 
 class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 1390284793613795356L
+    const val SCHEMA_HASH: Long = 2453622509897317369L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1489,6 +1500,7 @@ object Protocol {
                 is HostEvent.DecorationActivated -> null
                 is HostEvent.AnimationEvent -> null
                 is HostEvent.ReducedMotionChanged -> null
+                is HostEvent.Pointer -> null
             }
             val recordLength = when (event) {
                 is HostEvent.Clicked -> 16
@@ -1515,6 +1527,7 @@ object Protocol {
                 is HostEvent.DecorationActivated -> 24
                 is HostEvent.AnimationEvent -> 40
                 is HostEvent.ReducedMotionChanged -> 20
+                is HostEvent.Pointer -> 72
             }
             val totalLength = recordLength.toLong() + (text?.size ?: 0)
             if (totalLength > Int.MAX_VALUE || totalLength > out.remaining().toLong()) {
@@ -1545,6 +1558,7 @@ object Protocol {
                 is HostEvent.DecorationActivated -> 30
                 is HostEvent.AnimationEvent -> 31
                 is HostEvent.ReducedMotionChanged -> 32
+                is HostEvent.Pointer -> 8
             }
             out.putShort(tag.toShort())
             out.putShort(recordLength.toShort())
@@ -1635,6 +1649,21 @@ object Protocol {
                 }
                 is HostEvent.ReducedMotionChanged -> {
                     out.putInt(reducedMotionTag(event.state))
+                }
+                is HostEvent.Pointer -> {
+                    out.putInt(pointerKindTag(event.kind))
+                    out.putInt(event.pointerId)
+                    out.putInt(pointerTypeTag(event.pointerType))
+                    out.putFloat(event.x)
+                    out.putFloat(event.y)
+                    out.putInt(event.buttons)
+                    out.putInt(event.button)
+                    out.putInt(event.modifiers)
+                    out.putInt(event.clickCount)
+                    out.putFloat(event.deltaX)
+                    out.putFloat(event.deltaY)
+                    out.putInt(wheelDeltaModeTag(event.deltaMode))
+                    out.putLong(event.timestampNanos)
                 }
             }
             if (text != null) out.put(text)
@@ -1787,6 +1816,10 @@ object Protocol {
         114 -> PropertyKind.AbsoluteSize
         115 -> PropertyKind.SoftWrap
         116 -> PropertyKind.SpanFonts
+        67 -> PropertyKind.OnPointer
+        140 -> PropertyKind.PointerKinds
+        141 -> PropertyKind.Cursor
+        142 -> PropertyKind.UserSelect
         27 -> PropertyKind.Progress
         else -> throw ProtocolException("unknown property tag $tag", offset)
     }
@@ -1848,6 +1881,29 @@ object Protocol {
         ReducedMotion.Off -> 1
         ReducedMotion.On -> 2
         ReducedMotion.Unknown -> 3
+    }
+
+    private fun pointerKindTag(value: PointerKind): Int = when (value) {
+        PointerKind.Move -> 1
+        PointerKind.Enter -> 2
+        PointerKind.Leave -> 3
+        PointerKind.Down -> 4
+        PointerKind.Up -> 5
+        PointerKind.Cancel -> 6
+        PointerKind.Wheel -> 7
+        PointerKind.ContextMenu -> 8
+    }
+
+    private fun pointerTypeTag(value: PointerType): Int = when (value) {
+        PointerType.Mouse -> 1
+        PointerType.Touch -> 2
+        PointerType.Pen -> 3
+    }
+
+    private fun wheelDeltaModeTag(value: WheelDeltaMode): Int = when (value) {
+        WheelDeltaMode.Pixel -> 0
+        WheelDeltaMode.Line -> 1
+        WheelDeltaMode.Page -> 2
     }
 
     private fun paletteRole(tag: Int): ColorRole? = when (tag) {
@@ -2283,6 +2339,80 @@ object Protocol {
         1 -> HoverPhase.Rest
         2 -> HoverPhase.Leave
         else -> throw ProtocolException("unknown HoverPhase tag $tag", offset)
+    }
+
+    private fun pointerKind(tag: Int, offset: Int): PointerKind = when (tag) {
+        1 -> PointerKind.Move
+        2 -> PointerKind.Enter
+        3 -> PointerKind.Leave
+        4 -> PointerKind.Down
+        5 -> PointerKind.Up
+        6 -> PointerKind.Cancel
+        7 -> PointerKind.Wheel
+        8 -> PointerKind.ContextMenu
+        else -> throw ProtocolException("unknown PointerKind tag $tag", offset)
+    }
+
+    private fun pointerType(tag: Int, offset: Int): PointerType = when (tag) {
+        1 -> PointerType.Mouse
+        2 -> PointerType.Touch
+        3 -> PointerType.Pen
+        else -> throw ProtocolException("unknown PointerType tag $tag", offset)
+    }
+
+    private fun wheelDeltaMode(tag: Int, offset: Int): WheelDeltaMode = when (tag) {
+        0 -> WheelDeltaMode.Pixel
+        1 -> WheelDeltaMode.Line
+        2 -> WheelDeltaMode.Page
+        else -> throw ProtocolException("unknown WheelDeltaMode tag $tag", offset)
+    }
+
+    private fun cursor(tag: Int, offset: Int): Cursor = when (tag) {
+        0 -> Cursor.Auto
+        1 -> Cursor.Default
+        2 -> Cursor.Pointer
+        3 -> Cursor.Text
+        4 -> Cursor.VerticalText
+        5 -> Cursor.Crosshair
+        6 -> Cursor.Move
+        7 -> Cursor.Grab
+        8 -> Cursor.Grabbing
+        9 -> Cursor.NotAllowed
+        10 -> Cursor.NoDrop
+        11 -> Cursor.Wait
+        12 -> Cursor.Progress
+        13 -> Cursor.Help
+        14 -> Cursor.ContextMenu
+        15 -> Cursor.Cell
+        16 -> Cursor.Copy
+        17 -> Cursor.Alias
+        18 -> Cursor.AllScroll
+        19 -> Cursor.ZoomIn
+        20 -> Cursor.ZoomOut
+        21 -> Cursor.ColResize
+        22 -> Cursor.RowResize
+        23 -> Cursor.EResize
+        24 -> Cursor.NResize
+        25 -> Cursor.NeResize
+        26 -> Cursor.NwResize
+        27 -> Cursor.SResize
+        28 -> Cursor.SeResize
+        29 -> Cursor.SwResize
+        30 -> Cursor.WResize
+        31 -> Cursor.EwResize
+        32 -> Cursor.NsResize
+        33 -> Cursor.NeswResize
+        34 -> Cursor.NwseResize
+        35 -> Cursor.None
+        else -> throw ProtocolException("unknown Cursor tag $tag", offset)
+    }
+
+    private fun userSelect(tag: Int, offset: Int): UserSelect = when (tag) {
+        0 -> UserSelect.Auto
+        1 -> UserSelect.None
+        2 -> UserSelect.Text
+        3 -> UserSelect.All
+        else -> throw ProtocolException("unknown UserSelect tag $tag", offset)
     }
 
     private fun paint(bits: Long, offset: Int): Paint {

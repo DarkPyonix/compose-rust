@@ -52,13 +52,17 @@ fn Screen() {
                     event.consume();
                 }
             })
-            .content(|| Text("subscribed"));
+            .content(|| {
+                Text("subscribed");
+            });
         // Never subscribed.
-        Box().content(|| Text("plain"));
+        Box().content(|| {
+            Text("plain");
+        });
         // A subscription of no kinds is not one.
-        Box()
-            .on_pointer(PointerKinds::NONE, |_| {})
-            .content(|| Text("empty mask"));
+        Box().on_pointer(PointerKinds::NONE, |_| {}).content(|| {
+            Text("empty mask");
+        });
     });
 }
 
@@ -231,7 +235,7 @@ fn fr46_unsubscribed_node_gets_no_pointer_modifier() {
             .lines()
             .find(|line| line.contains("PointerKinds="))
             .unwrap();
-        assert!(subscribed.starts_with("  Box"), "{dump}");
+        assert!(subscribed.starts_with("    Box"), "{dump}");
     });
 }
 

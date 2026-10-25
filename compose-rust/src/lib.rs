@@ -84,12 +84,12 @@ pub use schema::{
     SCHEMA_HASH, Selection, Severity, ShapeRole, SpaceRole, TextAlign, TextOverflow, Theme,
     TileMode, TypeRole, WidgetKind, WindowHeightClass, WindowSizeClass, WordBreak,
 };
-pub use schema::{Cursor, PointerKind, PointerType, UserSelect, WheelDeltaMode};
 pub use schema::{
     AnimatedProperty, Animation, AnimationControl, AnimationEventKind, AnimationEvents,
     ColorInterpolation, FillMode, Keyframe, KeyframeValue, PlayState, PlaybackDirection,
     ReducedMotion, StepPosition, Timing, TransformFunction, TransformFunctionKind,
 };
+pub use schema::{Cursor, PointerKind, PointerType, UserSelect, WheelDeltaMode};
 pub use theme::ThemeHandle;
 pub use window::{NodeSize, WindowSize, node_size, window_size};
 

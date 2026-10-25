@@ -555,7 +555,7 @@ class ProtocolVectorsTest {
                 "$event at $offset",
             )
         }
-        assertEquals(518, bytes.size)
+        assertEquals(590, bytes.size)
     }
 
     private fun decodeVector(name: String): List<Mutation> {
