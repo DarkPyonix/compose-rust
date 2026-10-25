@@ -303,7 +303,9 @@ jobs:
           cd artifacts
           # *.zip covers the .app.zip too. Spelled without arrays, because the bash a
           # macOS runner starts may be the 3.2 Apple ships.
-          files="$(ls *.dmg *.zip *.msix *.AppImage 2>/dev/null | sort -u)"
+          # ls exits 1 or 2 when one of the patterns matches nothing (no .msix on macOS),
+          # and pipefail would end the step there, so the list comes from find.
+          files="$(find . -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.msix' -o -name '*.AppImage' \) | sed 's|^\./||' | sort -u)"
           [[ -n "$files" ]] || { echo "::error::nothing was packaged"; exit 1; }
           if command -v sha256sum >/dev/null; then sha256sum $files > "SHA256SUMS-${{ matrix.target }}"
           else shasum -a 256 $files > "SHA256SUMS-${{ matrix.target }}"; fi
