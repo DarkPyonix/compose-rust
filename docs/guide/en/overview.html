@@ -128,7 +128,7 @@
           <tr><td>The <code>Runtime</code> trait</td><td><span class="pill works">Works</span></td><td>The interface that whatever builds the tree implements, plus the types around it: assets, custom drawing, input events, notifications, messages, palettes and window size classes.</td></tr>
           <tr><td>Drawing, transforms and animations</td><td><span class="pill works">Works</span></td><td>New in 0.0.2. HTML/CSS drawing elements: <code>AbsoluteBox</code> and the modifiers <code>RequiredSize</code>, <code>BorderEach</code>, <code>CornerEach</code>, <code>Shadow</code>, <code>Clip</code> and <code>Alpha</code>. A <code>Transform</code> modifier for 2D CSS transforms. Animations the renderer plays itself, through <code>StartAnimation</code>, <code>ControlAnimation</code>, <code>AnimationEvent</code> and <code>ReducedMotionChanged</code>. A layout container's text colour is inherited by the text inside it, and a border's colour can animate.</td></tr>
           <tr><td>The renderer download</td><td><span class="pill works">Works</span></td><td>The build script fetches the prebuilt renderer for your target, checks it and links it. See <a href="getting-started.html">Getting started</a>.</td></tr>
-          <tr><td>The authoring API</td><td><span class="pill partial">Partial</span></td><td><code>#[composable]</code>, <code>remember</code>, the states and effects, the <code>Recomposer</code>, <code>launch</code> and one function per widget. New in 0.0.2. It is a pre-1.0 API that may still change, and it is stable from <strong>1.0.0, planned for 2026-11-14</strong> (<a href="https://github.com/DarkPyonix/compose-rust/issues/23">#23</a>, <a href="https://github.com/DarkPyonix/compose-rust/issues/64">#64</a>). Animation is in it: <code>Modifier.graphics_layer</code>, <code>Modifier.alpha</code> and the <code>animate_*_as_state</code> functions, which the renderer plays with nothing composed again. 3D transforms are not built yet (<a href="https://github.com/DarkPyonix/compose-rust/issues/105">#105</a>).</td></tr>
+          <tr><td>The authoring API</td><td><span class="pill partial">Partial</span></td><td><code>#[Composable]</code>, <code>remember</code>, the states and effects, the <code>Recomposer</code>, <code>launch</code> and one function per widget. New in 0.0.2. It is a pre-1.0 API that may still change, and it is stable from <strong>1.0.0, planned for 2026-11-14</strong> (<a href="https://github.com/DarkPyonix/compose-rust/issues/23">#23</a>, <a href="https://github.com/DarkPyonix/compose-rust/issues/64">#64</a>). Animation is in it: <code>Modifier.graphics_layer</code>, <code>Modifier.alpha</code> and the <code>animate_*_as_state</code> functions, which the renderer plays with nothing composed again. 3D transforms are not built yet (<a href="https://github.com/DarkPyonix/compose-rust/issues/105">#105</a>).</td></tr>
         </tbody>
       </table>
     </div>
@@ -143,7 +143,7 @@
 <pre><code><span class="k">use</span> compose_rust::runtime::*;
 <span class="k">use</span> compose_rust::ui::*;
 
-<span class="at">#[composable]</span>
+<span class="at">#[Composable]</span>
 <span class="k">fn</span> <span class="f">counter</span>() {
     <span class="k">let</span> count = <span class="f">remember</span>(|| <span class="f">mutable_state_of</span>(<span class="n">0</span>));
     <span class="f">Column</span>().<span class="f">modifier</span>(<span class="ty">Modifier</span>.<span class="f">padding</span>(<span class="n">16.0</span>).<span class="f">fill_max_width</span>()).<span class="f">content</span>(|| {
@@ -159,7 +159,7 @@
     </figure>
 
     <p>
-      <code>#[composable]</code> inserts the groups, so you never write them by hand, and they close
+      <code>#[Composable]</code> inserts the groups, so you never write them by hand, and they close
       correctly through branches, early <code>return</code>, <code>?</code> and unwinding. Names
       follow Compose. The widget vocabulary is the one in the schema, so nothing is defined twice.
       <a href="writing-ui.html">Writing UI</a> describes the rest of the API, and eleven

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### The composable attribute is spelled `#[Composable]`
+
+The attribute that turns a function into a composable now has Compose's spelling,
+`#[Composable]`, and is exported as `compose_rust::Composable`. Rust attribute names are
+snake_case by convention only, and the widgets already use Compose's PascalCase names. The
+lowercase `#[composable]` is gone, with no alias: the crate is before 1.0, so one release
+moves every use. Rename each `#[composable]` in your code to `#[Composable]`.
+
 ## v0.0.3
 
 ### The host can measure text, and text carries CSS properties

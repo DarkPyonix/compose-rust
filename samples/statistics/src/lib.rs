@@ -77,7 +77,7 @@ fn week_bars() -> Vec<Bar> {
 /// is placed at a point and takes a rung of the ladder, which is enough for a day label
 /// under a column; a reading this size is the loudest thing on the screen and wants the
 /// ladder's own metrics and the ellipsis behaviour that goes with a widget.
-#[composable]
+#[Composable]
 fn dial_card() {
     Box()
         .modifier(
@@ -116,7 +116,7 @@ fn dial_card() {
 /// The panel is the reference's sage and the chart's ink is the palette's, held to it by
 /// the chart tests, so the chart is readable on the panel whichever design system draws
 /// the rest.
-#[composable]
+#[Composable]
 fn costs_panel(title_role: TypeRole, chart: (f32, f32)) {
     let (width, height) = chart;
     let bars = week_bars();
@@ -142,7 +142,7 @@ fn costs_panel(title_role: TypeRole, chart: (f32, f32)) {
 /// On both pages, because a page that says how much was spent this week and never says
 /// what it went on is the top half of the reference with the bottom half missing, and that
 /// missing half is the empty third at the foot of the window.
-#[composable]
+#[Composable]
 fn sources_strip() {
     LazyRow()
         .modifier(Modifier.fill_max_width().height(SOURCE_TILE))
@@ -196,7 +196,7 @@ fn sources_strip() {
 
 /// The overview: the dial, the costs panel, a second reading beside it, and what the
 /// money went on.
-#[composable]
+#[Composable]
 fn today_page() {
     Column()
         .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
@@ -292,7 +292,7 @@ fn today_page() {
 }
 
 /// The costs in full: the whole page is the panel, and the sources run off the edge.
-#[composable]
+#[Composable]
 fn costs_page() {
     Column()
         .modifier(
@@ -331,7 +331,7 @@ fn costs_page() {
         });
 }
 
-#[composable]
+#[Composable]
 pub fn app() {
     let window = current_window_size();
     let measure = if window.is_compact() {

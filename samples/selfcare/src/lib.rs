@@ -90,7 +90,7 @@ enum Step {
 type Action = Rc<dyn Fn()>;
 
 /// The mood picker: the face, the strip under it, and the question.
-#[composable]
+#[Composable]
 fn feeling_step(chosen: MutableState<Mood>, on_skip: Action, on_next: Action) {
     let current = chosen.get();
     let (fill, _ink) = current.pair();
@@ -200,7 +200,7 @@ fn feeling_step(chosen: MutableState<Mood>, on_skip: Action, on_next: Action) {
 }
 
 /// The worry picker: ten chips, any number of them chosen.
-#[composable]
+#[Composable]
 fn worry_step(picked: MutableState<Vec<&'static str>>, on_skip: Action, on_next: Action) {
     let chosen = picked.get();
     // Two to a row. There is no wrapping row in the vocabulary, so a grid is rows of a
@@ -277,7 +277,7 @@ fn worry_step(picked: MutableState<Vec<&'static str>>, on_skip: Action, on_next:
 }
 
 /// What the check-in leaves behind: the day, in one line, and a way back into it.
-#[composable]
+#[Composable]
 fn checked_in(chosen: Mood, worries: Vec<&'static str>, again: Action) {
     let (fill, ink) = chosen.pair();
     let summary = if worries.is_empty() {
@@ -360,7 +360,7 @@ fn session_card(session: &Session) {
 }
 
 /// The listening screen: a greeting, a search field and the sessions.
-#[composable]
+#[Composable]
 fn listen_page() {
     Column()
         .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
@@ -411,7 +411,7 @@ fn listen_page() {
 }
 
 /// One row of "Special for you", with the hairline under every row but the last.
-#[composable]
+#[Composable]
 fn special_row(session: &'static Session, separated: bool) {
     Column().modifier(Modifier.fill_max_width()).content(|| {
         Row()
@@ -442,7 +442,7 @@ fn special_row(session: &'static Session, separated: bool) {
 }
 
 /// Everything there is, as a plain list.
-#[composable]
+#[Composable]
 fn library_page() {
     Column()
         .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
@@ -486,7 +486,7 @@ fn library_page() {
 }
 
 /// The profile: who this is, how the week went, and the settings under it.
-#[composable]
+#[Composable]
 fn profile_page(chosen: Mood) {
     let (fill, ink) = chosen.pair();
     Column()
@@ -572,7 +572,7 @@ fn profile_page(chosen: Mood) {
 }
 
 /// One entry under the profile, with the hairline under every entry but the last.
-#[composable]
+#[Composable]
 fn settings_row(entry: &'static str, separated: bool) {
     Column().modifier(Modifier.fill_max_width()).content(|| {
         Row()
@@ -593,7 +593,7 @@ fn settings_row(entry: &'static str, separated: bool) {
 }
 
 /// The page for one destination, and for the check-in the step it is on.
-#[composable]
+#[Composable]
 fn page(
     destination: Destination,
     step: MutableState<Step>,
@@ -616,7 +616,7 @@ fn page(
     }
 }
 
-#[composable]
+#[Composable]
 pub fn app() {
     let window = current_window_size();
     let measure = if window.is_compact() {

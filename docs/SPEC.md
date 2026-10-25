@@ -2399,7 +2399,7 @@ Notification::new("세션이 끝났습니다")
 #### 39.1 모양
 
 ```rust
-#[composable]
+#[Composable]
 fn counter() {
     let count = remember(|| mutable_state_of(0));
     Column(Modifier::new().fill_max_width(), || {
@@ -2417,9 +2417,9 @@ fn main() {
 
 - **공통 컨테이너는 위치 인자로 부릅니다.** `Column`, `Row`, `Box`, `LazyColumn`, `LazyRow`는 `Column(modifier, || { .. })`처럼 `modifier`와 자식 클로저를 위치 인자로 받습니다. 자식 클로저는 항상 마지막 인자입니다. Compose의 `Column(modifier) { .. }`와 같은 순서입니다.
 - **속성이 많은 위젯은 빌더 체인을 유지합니다.** 어느 형태를 받는지는 다음 규칙이 정합니다. 위젯이 `modifier`와 자식 클로저 말고는 호출마다 값이 정해지는 속성이 없으면 위치 인자 형태를 받습니다. 그 밖의 속성이 하나라도 있으면 필수 값만 함수 인자로 받고 나머지는 체인으로 씁니다(`Text(..)`, `Button(label).modifier(..).on_click(..)`). Rust에 이름 있는 인자와 기본 인자가 없어서, 속성이 많은 위젯을 위치 인자로 받으면 쓰는 쪽이 매번 전부 적어야 하기 때문입니다. 위치 인자 컨테이너가 `space_role` 같은 속성을 더 필요로 하면 같은 위젯의 체인 형태(`Column().modifier(..).space_role(..).content(..)`)를 씁니다. 두 형태는 같은 Mutation을 내보냅니다.
-- **속성 이름은 `#[composable]`입니다.** 소유자가 `#[Composable]`이 아니라 이 이름을 그대로 두기로 했습니다. 이유는 Rust의 속성 매크로가 snake_case라는 관례(`#[component]`, `#[tokio::main]`)를 따르는 것입니다. 위젯 이름은 FR-15의 Compose 이름(PascalCase)을 그대로 씁니다.
+- **속성 이름은 `#[Composable]`입니다.** 소유자가 2026-10-25에 정했습니다. Compose의 `@Composable` 철자와 같아서, Compose를 아는 사람이 이름을 다시 배우지 않습니다. 속성 매크로 이름이 snake_case인 것은 관례이지 규칙이 아니며(`#[component]`, `#[tokio::main]`), 위젯 이름이 이미 Compose의 PascalCase를 쓰므로(FR-15) 속성도 같은 철자로 맞춥니다. 매크로 함수에는 `#[allow(non_snake_case)]`를 붙입니다. 소문자 별칭은 두지 않습니다(아래 이슈 #278의 이전 규칙과 같습니다).
 
-- **composable은 함수입니다.** `#[composable]` 속성이 본문에 그룹을 넣고, 사용자는 그룹도 키도 손으로 쓰지 않습니다. 분기, `match`, 반복문, 조기 `return`, `continue`, `break`, `?`, 되감기를 지나도 그룹이 맞게 닫힙니다(INTENT D2가 기록한 클로저 방식의 실패를 되풀이하지 않습니다).
+- **composable은 함수입니다.** `#[Composable]` 속성이 본문에 그룹을 넣고, 사용자는 그룹도 키도 손으로 쓰지 않습니다. 분기, `match`, 반복문, 조기 `return`, `continue`, `break`, `?`, 되감기를 지나도 그룹이 맞게 닫힙니다(INTENT D2가 기록한 클로저 방식의 실패를 되풀이하지 않습니다).
 - **이름은 Compose를 따릅니다.** Compose에 같은 개념이 있으면 그 이름을 Rust 관례(함수와 메서드는 snake_case, 위젯은 FR-15의 Compose 이름)로 옮깁니다. PR-7의 "Rust 공개 API는 Dioxus 관례" 행은 dioxus-compose 층에 대한 것이 됩니다.
 - **위젯 어휘는 하나입니다.** FR-15의 위젯과 FR-13의 프리미티브, FR-10의 Modifier가 같은 스키마(FR-7)에서 나옵니다. compose-rust API를 위해 위젯이나 속성을 따로 정의하지 않습니다.
 
@@ -2486,7 +2486,7 @@ fn main() {
 
 #### 39.6 이행
 
-이 변경은 공개 API를 바꾸므로 compose-rust 1.0.0(2026-11-14) 전에, 한 릴리스 안에서 함께 끝냅니다(이슈 #278). 샘플 12개, 크레이트의 테스트, 가이드(`docs/guide/`의 영어와 한국어)와 README 예시가 같은 릴리스에서 새 모양으로 옮겨 갑니다. 1.0.0 전이므로 옛 호출 모양의 별칭을 두지 않습니다. dioxus-compose 어댑터는 `#[composable]`과 이 호출 모양을 쓰지 않으므로 영향이 없을 것으로 봅니다. 이것은 확인이 필요한 항목이고, 상태 핸들 구현(`Copy` 핸들)의 PR에서 확인합니다.
+이 변경은 공개 API를 바꾸므로 compose-rust 1.0.0(2026-11-14) 전에, 한 릴리스 안에서 함께 끝냅니다(이슈 #278). 샘플 12개, 크레이트의 테스트, 가이드(`docs/guide/`의 영어와 한국어)와 README 예시가 같은 릴리스에서 새 모양으로 옮겨 갑니다. 1.0.0 전이므로 옛 호출 모양의 별칭을 두지 않습니다. dioxus-compose 어댑터는 `#[Composable]`과 이 호출 모양을 쓰지 않으므로 영향이 없을 것으로 봅니다. 이것은 확인이 필요한 항목이고, 상태 핸들 구현(`Copy` 핸들)의 PR에서 확인합니다.
 
 ### FR-40 HTML 텍스트 속성 (`Agreed`, 진행 중, 이슈 #106)
 

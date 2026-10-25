@@ -1,7 +1,7 @@
 # Sample apps
 
 Each of these is a real application written the way someone using this project would
-write one: Rust only, on compose-rust's authoring API (`#[composable]` functions, widgets as
+write one: Rust only, on compose-rust's authoring API (`#[Composable]` functions, widgets as
 statements, `remember` and `MutableState`), no Kotlin and no Dioxus.
 
 They exist to be used rather than admired. The widget vocabulary was chosen by reasoning
