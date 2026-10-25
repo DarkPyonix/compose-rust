@@ -12,16 +12,22 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.asComposeCanvas
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.pressKey
+import androidx.compose.ui.test.withKeyDown
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Density
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.darkpyonix.composerust.protocol.Chrome
@@ -37,9 +43,7 @@ import dev.darkpyonix.composerust.runtime.ZoomShortcut
 import dev.darkpyonix.composerust.runtime.islandDensity
 import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
 import dev.darkpyonix.composerust.tooling.FakeHostConnection
-import dev.darkpyonix.composerust.ui.platform.WindowEvent
 import dev.darkpyonix.composerust.ui.platform.macZoomShortcut
-import dev.darkpyonix.composerust.ui.platform.receive
 import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -177,95 +181,83 @@ class ZoomTest {
     }
 
     /**
-     * The same, through a real scene: a window offers the key to the scene first, and only a
-     * key nothing in it consumed zooms.
+     * The same, through a real composition: the window offers the key to the content first
+     * (here a focused node whose handler consumes or not), and only a key nothing consumed
+     * zooms. The window side that turns its own key record into the offer is the fork's.
      */
     @Test
     fun fr43_consumed_zoom_key_does_not_zoom_through_the_scene() {
         for (consumes in listOf(true, false)) {
-            val zoom = Zoom(store = MemoryStore())
-            val scene = CanvasLayersComposeScene(density = zoom.density(1f), size = IntSize(200, 100))
-            scene.setContent {
-                val focus = remember { FocusRequester() }
-                Box(
-                    Modifier.size(50.dp)
-                        .focusRequester(focus)
-                        .onKeyEvent { consumes }
-                        .focusable(),
-                )
-                LaunchedEffect(Unit) { focus.requestFocus() }
-            }
-            try {
-                render(scene)
-                render(scene)
+            runComposeUiTest {
+                val zoom = Zoom(store = MemoryStore())
+                var offered = false
+                setContent {
+                    val focus = remember { FocusRequester() }
+                    Box(
+                        Modifier.size(50.dp)
+                            .testTag("target")
+                            .focusRequester(focus)
+                            .onKeyEvent {
+                                offered = true
+                                consumes
+                            }
+                            .focusable(),
+                    )
+                    LaunchedEffect(Unit) { focus.requestFocus() }
+                }
+                waitForIdle()
+                onNodeWithTag("target").performKeyInput {
+                    withKeyDown(Key.MetaLeft) { pressKey(Key.Equals) }
+                }
+                assertTrue(offered, "the content was offered the key")
                 // Command and the equals key, as the AppKit window records it.
-                val press = WindowEvent(
-                    kind = WindowEvent.KEY_DOWN,
-                    x = 0f,
-                    y = 0f,
-                    buttons = 0,
-                    modifiers = 1 shl 20,
-                    keyCode = 0x18,
-                    codePoint = '='.code,
-                    text = "",
-                )
-                val consumed = scene.receive(press)
-                assertEquals(consumes, consumed, "the scene's answer")
-                zoom.takeShortcut(
-                    macZoomShortcut(press.codePoint, press.keyCode, press.modifiers.toLong()),
-                    consumed,
-                )
+                val shortcut = macZoomShortcut('='.code, 0x18, (1 shl 20).toLong())
+                assertEquals(ZoomShortcut.In, shortcut)
+                zoom.takeShortcut(shortcut, consumes)
                 assertEquals(if (consumes) 0 else 1, zoom.level, "consumed = $consumes")
-            } finally {
-                scene.close()
             }
         }
     }
 
     /**
      * Native text is laid out at the system's size, and again when the size changes with the
-     * window open. Through a real scene of the kind every window draws, given its Density the
-     * way a window's frame gives it.
+     * window open. The composition is given the zoom's Density the way a window's frame gives
+     * it to its scene.
      */
     @Test
-    fun fr43_os_text_size_reaches_native_text_while_the_window_is_open() {
+    fun fr43_os_text_size_reaches_native_text_while_the_window_is_open() = runComposeUiTest {
+        system = 1f
         val zoom = Zoom({ system })
-        val scene = CanvasLayersComposeScene(density = zoom.density(1f), size = IntSize(400, 300))
+        var density by mutableStateOf(zoom.density(1f))
         var seen = Density(0f)
         var lineHeight = 0
-        scene.setContent {
-            seen = LocalDensity.current
-            BasicText(
-                "Aa",
-                style = TextStyle(fontSize = 20.sp),
-                modifier = Modifier.onSizeChanged { lineHeight = it.height },
-            )
+        setContent {
+            CompositionLocalProvider(LocalDensity provides density) {
+                seen = LocalDensity.current
+                BasicText(
+                    "Aa",
+                    style = TextStyle(fontSize = 20.sp),
+                    modifier = Modifier.onSizeChanged { lineHeight = it.height },
+                )
+            }
         }
-        // What a window's frame does: give the scene the zoom's Density, then draw.
-        val draw = {
-            scene.density = zoom.density(1f)
-            render(scene)
-        }
-        try {
-            draw()
-            assertEquals(1f, seen.fontScale)
-            val defaultHeight = lineHeight
-            assertTrue(defaultHeight > 0, "the text was laid out")
+        waitForIdle()
+        assertEquals(1f, seen.fontScale)
+        val defaultHeight = lineHeight
+        assertTrue(defaultHeight > 0, "the text was laid out")
 
-            // The reader asks the system for text twice the size, with the window open.
-            system = 2f
-            assertTrue(zoom.refresh())
-            draw()
+        // The reader asks the system for text twice the size, with the window open.
+        system = 2f
+        assertTrue(zoom.refresh())
+        density = zoom.density(1f)
+        waitForIdle()
 
-            assertEquals(2f, seen.fontScale, "the composition sees the system's text size")
-            assertEquals(1f, seen.density, "the display's scale is unchanged by it")
-            assertTrue(
-                lineHeight >= defaultHeight * 3 / 2,
-                "a line of text at twice the size is taller: $defaultHeight then $lineHeight",
-            )
-        } finally {
-            scene.close()
-        }
+        assertEquals(2f, seen.fontScale, "the composition sees the system's text size")
+        assertEquals(1f, seen.density, "the display's scale is unchanged by it")
+        assertTrue(
+            lineHeight >= defaultHeight * 3 / 2,
+            "a line of text at twice the size is taller: $defaultHeight then $lineHeight",
+        )
     }
 
     /**
@@ -361,12 +353,5 @@ class ZoomTest {
         assertEquals(2, report.level)
         assertEquals(1.3f, report.os)
         close(1.3f * 1.44f, report.k, "k")
-    }
-
-    private fun render(scene: CanvasLayersComposeScene) {
-        val size = scene.size ?: IntSize(1, 1)
-        org.jetbrains.skia.Surface.makeRasterN32Premul(size.width, size.height).use { surface ->
-            scene.render(surface.canvas.asComposeCanvas(), 0L)
-        }
     }
 }
