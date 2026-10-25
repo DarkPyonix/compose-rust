@@ -17,6 +17,10 @@ import dev.darkpyonix.composerust.protocol.HoverPhase
 import dev.darkpyonix.composerust.protocol.DecorationRecord
 import dev.darkpyonix.composerust.protocol.DecorationKind
 import dev.darkpyonix.composerust.protocol.CodeEditorRecords
+import dev.darkpyonix.composerust.protocol.FoldRecord
+import dev.darkpyonix.composerust.protocol.GutterDecorationKind
+import dev.darkpyonix.composerust.protocol.GutterDecorationRecord
+import dev.darkpyonix.composerust.protocol.RevealAlign
 import dev.darkpyonix.composerust.protocol.MessageDuration
 import dev.darkpyonix.composerust.protocol.NotificationImportance
 import dev.darkpyonix.composerust.protocol.NotificationPermission
@@ -518,6 +522,11 @@ class ProtocolVectorsTest {
             374 to HostEvent.CodeHovered(12, 20L, 42L, 0, 4, HoverPhase.Rest),
             410 to HostEvent.CodeSaveRequested(12, 21L, 2),
             434 to HostEvent.DecorationActivated(12, 22L, 41L),
+            518 to HostEvent.SelectionChanged(12, 23L, 2, 1, 12, 0, 3),
+            554 to HostEvent.VisibleRangeChanged(12, 24L, 2, 0, 3),
+            582 to HostEvent.EditorFocusChanged(12, 25L, true),
+            606 to HostEvent.FoldChanged(12, 26L, 0, true),
+            630 to HostEvent.CompositionChanged(12, 27L, true),
         )
         for ((offset, event) in expected) {
             val wire = encoded(event)
@@ -526,7 +535,49 @@ class ProtocolVectorsTest {
                 "$event at $offset",
             )
         }
-        assertEquals(518, bytes.size)
+        assertEquals(654, bytes.size)
+    }
+
+    /**
+     * The code editor's later additions in the vector: the three commands, and the fold and
+     * gutter records inside their blobs, read at the offsets the Rust schema gives them.
+     */
+    @Test
+    fun fr38_the_editor_selection_fold_and_gutter_records_decode_to_the_same_values() {
+        val mutations = decodeVector("mutations.bin")
+        assertEquals(
+            listOf(Mutation.SetSelection(12, 0, 1, 12, 0, 3)),
+            mutations.filterIsInstance<Mutation.SetSelection>(),
+        )
+        assertEquals(
+            listOf(Mutation.RevealRange(12, 1, 1, 12, 1, 16, RevealAlign.Center)),
+            mutations.filterIsInstance<Mutation.RevealRange>(),
+        )
+        assertEquals(
+            listOf(Mutation.SetFolded(12, 0, true)),
+            mutations.filterIsInstance<Mutation.SetFolded>(),
+        )
+        val props = mutations.filterIsInstance<Mutation.SetProp>().filter { it.nodeId == 12 }
+        val errors = mutableListOf<String>()
+        assertEquals(
+            listOf(FoldRecord(0, 0, 2, false), FoldRecord(0, 1, 1, true)),
+            CodeEditorRecords.decodeFolds(
+                (props.single { it.property == PropertyKind.Folds }.value as PropertyValue.Bytes).value,
+                errors::add,
+            ),
+        )
+        assertEquals(
+            listOf(
+                GutterDecorationRecord(0, 0, GutterDecorationKind.Dot, null, 51L, 0),
+                GutterDecorationRecord(0, 1, GutterDecorationKind.Bar, ColorRole.Tertiary, 0L, 0),
+                GutterDecorationRecord(0, 2, GutterDecorationKind.Glyph, null, 52L, 0x1F41B),
+            ),
+            CodeEditorRecords.decodeGutterDecorations(
+                (props.single { it.property == PropertyKind.GutterDecorations }.value as PropertyValue.Bytes).value,
+                errors::add,
+            ),
+        )
+        assertEquals(emptyList<String>(), errors)
     }
 
     private fun decodeVector(name: String): List<Mutation> {

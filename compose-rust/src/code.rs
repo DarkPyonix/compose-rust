@@ -18,7 +18,9 @@
 //! would make every application recount every range on the way through. A line ends at
 //! `\n`, `\r\n` or a lone `\r`, which is also the language server's rule.
 
-use crate::schema::{ColorRole, DecorationKind, HoverPhase, Paint, Severity};
+use crate::schema::{
+    ColorRole, DecorationKind, GutterDecorationKind, HoverPhase, Paint, Severity,
+};
 use std::rc::Rc;
 
 /// Bytes of one decoration record.
@@ -40,6 +42,8 @@ pub enum RecordFieldType {
     },
     /// A `Paint` in a `u64`.
     Paint,
+    /// A `u32` that is 0 or 1. Any other value makes the record unreadable.
+    Flag,
     /// An `(offset, length)` pair of `u32` naming UTF-8 bytes behind the records, measured
     /// from the start of the blob, the way a `Canvas` names the text it draws.
     Text,
@@ -124,6 +128,56 @@ pub const SYNTAX_SPAN_RECORD: RecordSchema = RecordSchema {
     ],
 };
 
+/// Bytes of one fold record.
+pub const FOLD_LEN: usize = 16;
+
+/// Bytes of one gutter decoration record.
+pub const GUTTER_DECORATION_LEN: usize = 28;
+
+/// One stretch of lines that can be folded: a version, the line it starts on, the last line
+/// it covers and whether it is folded now. Folding keeps `start_line` and hides the lines
+/// after it up to `end_line`.
+pub const FOLD_RECORD: RecordSchema = RecordSchema {
+    name: "FoldRecord",
+    length: FOLD_LEN as u16,
+    fields: &[
+        field("version", 0, RecordFieldType::U32),
+        field("startLine", 4, RecordFieldType::U32),
+        field("endLine", 8, RecordFieldType::U32),
+        field("collapsed", 12, RecordFieldType::Flag),
+    ],
+};
+
+/// One mark beside the line numbers: a version, the line, what it looks like, an optional
+/// colour role, the id the application gave it and the character a glyph shows. Bytes 24
+/// to 27 are reserved and written as zero.
+pub const GUTTER_DECORATION_RECORD: RecordSchema = RecordSchema {
+    name: "GutterDecorationRecord",
+    length: GUTTER_DECORATION_LEN as u16,
+    fields: &[
+        field("version", 0, RecordFieldType::U32),
+        field("line", 4, RecordFieldType::U32),
+        field(
+            "kind",
+            8,
+            RecordFieldType::Role {
+                name: "GutterDecorationKind",
+                optional: false,
+            },
+        ),
+        field(
+            "color",
+            10,
+            RecordFieldType::Role {
+                name: "ColorRole",
+                optional: true,
+            },
+        ),
+        field("id", 12, RecordFieldType::U64),
+        field("glyph", 20, RecordFieldType::U32),
+    ],
+};
+
 const fn hash_bytes(mut hash: u64, bytes: &[u8]) -> u64 {
     let mut index = 0;
     while index < bytes.len() {
@@ -153,6 +207,7 @@ pub(crate) const fn hash_record_schema(mut hash: u64, schema: RecordSchema) -> u
             }
             RecordFieldType::Paint => hash_bytes(hash, &[4]),
             RecordFieldType::Text => hash_bytes(hash, &[5]),
+            RecordFieldType::Flag => hash_bytes(hash, &[6]),
         };
         index += 1;
     }
@@ -646,4 +701,277 @@ pub struct CodeHover {
 pub struct SaveRequest {
     /// The version of the document the reader saw when they pressed it.
     pub version: u32,
+}
+
+/// One stretch of lines the reader can fold.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Fold {
+    /// The document version the lines were written against.
+    pub version: u32,
+    /// The line that stays when the stretch is folded.
+    pub start_line: u32,
+    /// The last line the fold hides. Folding hides the lines after `start_line` up to and
+    /// including this one.
+    pub end_line: u32,
+    pub collapsed: bool,
+}
+
+impl Fold {
+    /// A stretch from `start_line` to `end_line`, unfolded.
+    pub const fn new(version: u32, start_line: u32, end_line: u32) -> Self {
+        Self {
+            version,
+            start_line,
+            end_line,
+            collapsed: false,
+        }
+    }
+
+    /// The same stretch, folded.
+    pub const fn collapsed(mut self) -> Self {
+        self.collapsed = true;
+        self
+    }
+}
+
+/// The stretches of one editor that can be folded, encoded and ready to travel.
+#[derive(Clone, Default, PartialEq)]
+pub struct Folds {
+    bytes: Option<Rc<[u8]>>,
+}
+
+impl std::fmt::Debug for Folds {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Folds")
+            .field("folds", &(self.as_bytes().len() / FOLD_LEN))
+            .finish()
+    }
+}
+
+impl Folds {
+    pub fn new(folds: impl IntoIterator<Item = Fold>) -> Self {
+        let mut bytes = Vec::new();
+        for fold in folds {
+            put_u32(&mut bytes, fold.version);
+            put_u32(&mut bytes, fold.start_line);
+            put_u32(&mut bytes, fold.end_line);
+            put_u32(&mut bytes, u32::from(fold.collapsed));
+        }
+        Self::from_bytes(bytes)
+    }
+
+    pub fn from_bytes(bytes: impl Into<Rc<[u8]>>) -> Self {
+        let bytes = bytes.into();
+        Self {
+            bytes: (!bytes.is_empty()).then_some(bytes),
+        }
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        self.bytes.as_deref().unwrap_or(&[])
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.bytes.is_none()
+    }
+
+    /// The folds this list holds, read back. A record whose collapsed word is neither 0
+    /// nor 1 is skipped, which is what the Renderer does with it too.
+    pub fn folds(&self) -> Vec<Fold> {
+        self.as_bytes()
+            .chunks_exact(FOLD_LEN)
+            .filter_map(|record| {
+                Some(Fold {
+                    version: word(record, 0),
+                    start_line: word(record, 4),
+                    end_line: word(record, 8),
+                    collapsed: match word(record, 12) {
+                        0 => false,
+                        1 => true,
+                        _ => return None,
+                    },
+                })
+            })
+            .collect()
+    }
+}
+
+/// One mark beside a line number, said as a line and never as a picture.
+///
+/// The colour is a role, never a literal, and is left to the design system where it is not
+/// given. How big a dot is, how wide a bar and where each sits are always the design
+/// system's.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct GutterDecoration {
+    /// The document version the line was written against.
+    pub version: u32,
+    pub line: u32,
+    pub kind: GutterDecorationKind,
+    pub color: Option<ColorRole>,
+    /// The application's own name for it, reported when it is pressed. Zero means it
+    /// cannot be pressed.
+    pub id: u64,
+    /// The character a glyph shows, as a Unicode scalar value. Zero for the other kinds.
+    pub glyph: u32,
+}
+
+impl GutterDecoration {
+    /// A dot beside `line`.
+    pub const fn dot(version: u32, line: u32, id: u64) -> Self {
+        Self {
+            version,
+            line,
+            kind: GutterDecorationKind::Dot,
+            color: None,
+            id,
+            glyph: 0,
+        }
+    }
+
+    /// A bar the height of `line`.
+    pub const fn bar(version: u32, line: u32, id: u64) -> Self {
+        Self {
+            version,
+            line,
+            kind: GutterDecorationKind::Bar,
+            color: None,
+            id,
+            glyph: 0,
+        }
+    }
+
+    /// One character beside `line`.
+    pub const fn glyph(version: u32, line: u32, glyph: char, id: u64) -> Self {
+        Self {
+            version,
+            line,
+            kind: GutterDecorationKind::Glyph,
+            color: None,
+            id,
+            glyph: glyph as u32,
+        }
+    }
+
+    /// Draws the mark in this role rather than the one the design system would pick.
+    pub const fn with_color(mut self, role: ColorRole) -> Self {
+        self.color = Some(role);
+        self
+    }
+
+    pub const fn with_id(mut self, id: u64) -> Self {
+        self.id = id;
+        self
+    }
+}
+
+/// The marks beside the line numbers of one editor, encoded and ready to travel.
+#[derive(Clone, Default, PartialEq)]
+pub struct GutterDecorations {
+    bytes: Option<Rc<[u8]>>,
+}
+
+impl std::fmt::Debug for GutterDecorations {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("GutterDecorations")
+            .field("decorations", &(self.as_bytes().len() / GUTTER_DECORATION_LEN))
+            .finish()
+    }
+}
+
+impl GutterDecorations {
+    pub fn new(decorations: impl IntoIterator<Item = GutterDecoration>) -> Self {
+        let mut bytes = Vec::new();
+        for decoration in decorations {
+            put_u32(&mut bytes, decoration.version);
+            put_u32(&mut bytes, decoration.line);
+            put_u16(&mut bytes, decoration.kind as u16);
+            put_u16(&mut bytes, decoration.color.map_or(0, |value| value as u16));
+            put_u64(&mut bytes, decoration.id);
+            put_u32(&mut bytes, decoration.glyph);
+            put_u32(&mut bytes, 0);
+        }
+        Self::from_bytes(bytes)
+    }
+
+    pub fn from_bytes(bytes: impl Into<Rc<[u8]>>) -> Self {
+        let bytes = bytes.into();
+        Self {
+            bytes: (!bytes.is_empty()).then_some(bytes),
+        }
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        self.bytes.as_deref().unwrap_or(&[])
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.bytes.is_none()
+    }
+
+    /// The marks this list holds, read back. A record whose kind or colour this side does
+    /// not know is skipped, which is what the Renderer does with it too.
+    pub fn decorations(&self) -> Vec<GutterDecoration> {
+        self.as_bytes()
+            .chunks_exact(GUTTER_DECORATION_LEN)
+            .filter_map(|record| {
+                let kind = GutterDecorationKind::try_from(half(record, 8)).ok()?;
+                let color = match half(record, 10) {
+                    0 => None,
+                    tag => Some(ColorRole::try_from(tag).ok()?),
+                };
+                Some(GutterDecoration {
+                    version: word(record, 0),
+                    line: word(record, 4),
+                    kind,
+                    color,
+                    id: long(record, 12),
+                    glyph: word(record, 20),
+                })
+            })
+            .collect()
+    }
+}
+
+/// The selection of a code editor, as the Renderer reported it.
+///
+/// `anchor` is where the selection started and `active` where the caret is, so a selection
+/// made backwards has the anchor after the active end. Both are read against `version`,
+/// the same series [`CodeChange`] counts.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SelectionChange {
+    pub version: u32,
+    pub anchor: Position,
+    pub active: Position,
+}
+
+impl SelectionChange {
+    /// Whether nothing is selected and the caret is a single place.
+    pub fn is_caret(&self) -> bool {
+        self.anchor == self.active
+    }
+
+    /// The selected stretch, with the earlier end first whichever way it was made.
+    pub fn range(&self) -> CodeRange {
+        CodeRange::new(self.anchor.min(self.active), self.anchor.max(self.active))
+    }
+}
+
+/// The lines of a code editor that are on screen.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct VisibleRange {
+    pub version: u32,
+    /// The first line the reader can see.
+    pub first_line: u32,
+    /// The last line the reader can see. Lines a fold hides are not counted.
+    pub last_line: u32,
+}
+
+/// The reader folded or unfolded a stretch of a code editor.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FoldChange {
+    /// The line the stretch starts on.
+    pub start_line: u32,
+    pub collapsed: bool,
 }

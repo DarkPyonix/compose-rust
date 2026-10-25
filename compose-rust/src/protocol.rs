@@ -28,6 +28,10 @@ const TAG_REQUEST_NOTIFICATION_PERMISSION: u16 = 16;
 const TAG_EDIT_CODE: u16 = 17;
 const TAG_START_ANIMATION: u16 = 18;
 const TAG_CONTROL_ANIMATION: u16 = 19;
+// 20 to 22 are the code editor's: the selection, a range to bring into view, a fold.
+const TAG_SET_SELECTION: u16 = 20;
+const TAG_REVEAL_RANGE: u16 = 21;
+const TAG_SET_FOLDED: u16 = 22;
 /// The head of a `StartAnimation` record, before its keyframes.
 const ANIMATION_HEADER_LEN: usize = 52;
 /// A keyframe before its value: offset, timing, step position, flags and four numbers.
@@ -193,6 +197,35 @@ pub enum Mutation<'a> {
         /// On the Renderer's frame clock. Zero means the first frame that draws it.
         at_time_nanos: u64,
     },
+    /// Puts a code editor's selection between two places in the document as it stood at
+    /// `base_version`. Both ends are moved along with whatever was typed since, and an end
+    /// that is outside the document, or between the two halves of a pair, drops the
+    /// command and comes back as a protocol error.
+    SetSelection {
+        node_id: u32,
+        base_version: u32,
+        anchor_line: u32,
+        anchor_column: u32,
+        active_line: u32,
+        active_column: u32,
+    },
+    /// Scrolls a code editor until a range of the document, as it stood at `base_version`,
+    /// is on screen. A range inside a folded stretch unfolds it first.
+    RevealRange {
+        node_id: u32,
+        base_version: u32,
+        start_line: u32,
+        start_column: u32,
+        end_line: u32,
+        end_column: u32,
+        align: crate::schema::RevealAlign,
+    },
+    /// Folds or unfolds the stretch of a code editor that starts on `start_line`.
+    SetFolded {
+        node_id: u32,
+        start_line: u32,
+        collapsed: bool,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -256,6 +289,12 @@ const EVENT_CODE_SAVE_REQUESTED: u16 = 29;
 const EVENT_DECORATION_ACTIVATED: u16 = 30;
 const EVENT_ANIMATION: u16 = 31;
 const EVENT_REDUCED_MOTION_CHANGED: u16 = 32;
+// 33 is the zoom event's. 34 to 38 are the code editor's.
+const EVENT_SELECTION_CHANGED: u16 = 34;
+const EVENT_VISIBLE_RANGE_CHANGED: u16 = 35;
+const EVENT_EDITOR_FOCUS_CHANGED: u16 = 36;
+const EVENT_FOLD_CHANGED: u16 = 37;
+const EVENT_COMPOSITION_CHANGED: u16 = 38;
 
 const MODIFIER_SHIFT: u8 = 1 << 0;
 const MODIFIER_CTRL: u8 = 1 << 1;
@@ -428,6 +467,39 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
             }
         }
         EVENT_CODE_CHANGED..=EVENT_DECORATION_ACTIVATED => {
+            return Err(ProtocolError::InvalidRecordLength);
+        }
+        EVENT_SELECTION_CHANGED if record_len == 36 => {
+            crate::schema::EventPayload::SelectionChanged {
+                version: read_u32(bytes, 16)?,
+                anchor_line: read_u32(bytes, 20)?,
+                anchor_column: read_u32(bytes, 24)?,
+                active_line: read_u32(bytes, 28)?,
+                active_column: read_u32(bytes, 32)?,
+            }
+        }
+        EVENT_VISIBLE_RANGE_CHANGED if record_len == 28 => {
+            crate::schema::EventPayload::VisibleRangeChanged {
+                version: read_u32(bytes, 16)?,
+                first_line: read_u32(bytes, 20)?,
+                last_line: read_u32(bytes, 24)?,
+            }
+        }
+        EVENT_EDITOR_FOCUS_CHANGED if record_len == 24 => {
+            crate::schema::EventPayload::EditorFocusChanged {
+                focused: read_flag(bytes, 16)?,
+            }
+        }
+        EVENT_FOLD_CHANGED if record_len == 24 => crate::schema::EventPayload::FoldChanged {
+            start_line: read_u32(bytes, 16)?,
+            collapsed: read_flag(bytes, 20)?,
+        },
+        EVENT_COMPOSITION_CHANGED if record_len == 24 => {
+            crate::schema::EventPayload::CompositionChanged {
+                composing: read_flag(bytes, 16)?,
+            }
+        }
+        EVENT_SELECTION_CHANGED..=EVENT_COMPOSITION_CHANGED => {
             return Err(ProtocolError::InvalidRecordLength);
         }
         EVENT_RESYNC if record_len == 16 => crate::schema::EventPayload::Resync,
@@ -614,6 +686,51 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
             output.extend_from_slice(&decoration.to_le_bytes());
             return Ok(());
         }
+        crate::schema::EventPayload::SelectionChanged {
+            version,
+            anchor_line,
+            anchor_column,
+            active_line,
+            active_column,
+        } => {
+            put_event_header(output, EVENT_SELECTION_CHANGED, 36, event);
+            for value in [version, anchor_line, anchor_column, active_line, active_column] {
+                output.extend_from_slice(&value.to_le_bytes());
+            }
+            return Ok(());
+        }
+        crate::schema::EventPayload::VisibleRangeChanged {
+            version,
+            first_line,
+            last_line,
+        } => {
+            put_event_header(output, EVENT_VISIBLE_RANGE_CHANGED, 28, event);
+            for value in [version, first_line, last_line] {
+                output.extend_from_slice(&value.to_le_bytes());
+            }
+            return Ok(());
+        }
+        crate::schema::EventPayload::EditorFocusChanged { focused } => {
+            put_event_header(output, EVENT_EDITOR_FOCUS_CHANGED, 24, event);
+            output.extend_from_slice(&u32::from(focused).to_le_bytes());
+            output.extend_from_slice(&0_u32.to_le_bytes());
+            return Ok(());
+        }
+        crate::schema::EventPayload::FoldChanged {
+            start_line,
+            collapsed,
+        } => {
+            put_event_header(output, EVENT_FOLD_CHANGED, 24, event);
+            output.extend_from_slice(&start_line.to_le_bytes());
+            output.extend_from_slice(&u32::from(collapsed).to_le_bytes());
+            return Ok(());
+        }
+        crate::schema::EventPayload::CompositionChanged { composing } => {
+            put_event_header(output, EVENT_COMPOSITION_CHANGED, 24, event);
+            output.extend_from_slice(&u32::from(composing).to_le_bytes());
+            output.extend_from_slice(&0_u32.to_le_bytes());
+            return Ok(());
+        }
         _ => {}
     }
     if let crate::schema::EventPayload::RangeRequested { start, count } = event.payload {
@@ -658,7 +775,12 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::CodeEditRejected { .. }
         | crate::schema::EventPayload::CodeHovered { .. }
         | crate::schema::EventPayload::CodeSaveRequested { .. }
-        | crate::schema::EventPayload::DecorationActivated { .. } => unreachable!(),
+        | crate::schema::EventPayload::DecorationActivated { .. }
+        | crate::schema::EventPayload::SelectionChanged { .. }
+        | crate::schema::EventPayload::VisibleRangeChanged { .. }
+        | crate::schema::EventPayload::EditorFocusChanged { .. }
+        | crate::schema::EventPayload::FoldChanged { .. }
+        | crate::schema::EventPayload::CompositionChanged { .. } => unreachable!(),
         crate::schema::EventPayload::AnimationEvent { .. }
         | crate::schema::EventPayload::ReducedMotionChanged(_) => unreachable!(),
     };
@@ -891,6 +1013,50 @@ impl BatchEncoder {
                 self.put_u32(*end_line);
                 self.put_u32(*end_column);
                 self.put_string_ref(text)?;
+            }
+            Mutation::SetSelection {
+                node_id,
+                base_version,
+                anchor_line,
+                anchor_column,
+                active_line,
+                active_column,
+            } => {
+                self.begin_record(TAG_SET_SELECTION, 24);
+                self.put_u32(*node_id);
+                self.put_u32(*base_version);
+                self.put_u32(*anchor_line);
+                self.put_u32(*anchor_column);
+                self.put_u32(*active_line);
+                self.put_u32(*active_column);
+            }
+            Mutation::RevealRange {
+                node_id,
+                base_version,
+                start_line,
+                start_column,
+                end_line,
+                end_column,
+                align,
+            } => {
+                self.begin_record(TAG_REVEAL_RANGE, 28);
+                self.put_u32(*node_id);
+                self.put_u32(*base_version);
+                self.put_u32(*start_line);
+                self.put_u32(*start_column);
+                self.put_u32(*end_line);
+                self.put_u32(*end_column);
+                self.put_u32(u32::from(*align as u16));
+            }
+            Mutation::SetFolded {
+                node_id,
+                start_line,
+                collapsed,
+            } => {
+                self.begin_record(TAG_SET_FOLDED, 12);
+                self.put_u32(*node_id);
+                self.put_u32(*start_line);
+                self.put_u32(u32::from(*collapsed));
             }
             Mutation::SetTheme(theme) => {
                 self.begin_record(TAG_SET_THEME, THEME_PAYLOAD_LEN as u16);
@@ -1415,7 +1581,40 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                     at_time_nanos: read_u64(bytes, payload + 12)?,
                 }
             }
-            TAG_CREATE..=TAG_EDIT_CODE | TAG_START_ANIMATION | TAG_CONTROL_ANIMATION => {
+            TAG_SET_SELECTION if len == 28 => Mutation::SetSelection {
+                node_id: read_u32(bytes, payload)?,
+                base_version: read_u32(bytes, payload + 4)?,
+                anchor_line: read_u32(bytes, payload + 8)?,
+                anchor_column: read_u32(bytes, payload + 12)?,
+                active_line: read_u32(bytes, payload + 16)?,
+                active_column: read_u32(bytes, payload + 20)?,
+            },
+            TAG_REVEAL_RANGE if len == 32 => {
+                let raw_align = read_u32(bytes, payload + 24)?;
+                Mutation::RevealRange {
+                    node_id: read_u32(bytes, payload)?,
+                    base_version: read_u32(bytes, payload + 4)?,
+                    start_line: read_u32(bytes, payload + 8)?,
+                    start_column: read_u32(bytes, payload + 12)?,
+                    end_line: read_u32(bytes, payload + 16)?,
+                    end_column: read_u32(bytes, payload + 20)?,
+                    align: u16::try_from(raw_align)
+                        .ok()
+                        .and_then(|tag| crate::schema::RevealAlign::try_from(tag).ok())
+                        .ok_or(ProtocolError::InvalidValueKind(
+                            raw_align.min(u32::from(u16::MAX)) as u16,
+                        ))?,
+                }
+            }
+            TAG_SET_FOLDED if len == 16 => Mutation::SetFolded {
+                node_id: read_u32(bytes, payload)?,
+                start_line: read_u32(bytes, payload + 4)?,
+                collapsed: read_flag(bytes, payload + 8)?,
+            },
+            TAG_CREATE..=TAG_EDIT_CODE
+            | TAG_START_ANIMATION
+            | TAG_CONTROL_ANIMATION
+            | TAG_SET_SELECTION..=TAG_SET_FOLDED => {
                 return Err(ProtocolError::InvalidRecordLength);
             }
             other => return Err(ProtocolError::InvalidTag(other)),
@@ -1934,6 +2133,17 @@ fn read_u32(bytes: &[u8], position: usize) -> Result<u32, ProtocolError> {
         .get(position..position + 4)
         .ok_or(ProtocolError::Truncated)?;
     Ok(u32::from_le_bytes([value[0], value[1], value[2], value[3]]))
+}
+
+/// A word that is 0 or 1. Any other value is a protocol error, not a third state.
+fn read_flag(bytes: &[u8], position: usize) -> Result<bool, ProtocolError> {
+    match read_u32(bytes, position)? {
+        0 => Ok(false),
+        1 => Ok(true),
+        other => Err(ProtocolError::InvalidValueKind(
+            other.min(u32::from(u16::MAX)) as u16,
+        )),
+    }
 }
 
 fn read_u64(bytes: &[u8], position: usize) -> Result<u64, ProtocolError> {
