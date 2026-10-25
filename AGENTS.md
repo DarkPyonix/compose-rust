@@ -116,7 +116,7 @@ Workflow files and names, in `.github/workflows/`:
 
 - `test.yml`, "Test": the basic checks.
 - `release-sync.yml`, "Release sync": develop to main sync; its script is `.github/scripts/release/sync-release.sh`.
-- `publish-crates.yml`, "Publish to crates.io": the tag release, started by `workflow_run` once the renderer workflow has succeeded.
+- `publish-crates.yml`, "Publish to crates.io": the tag release, started by `workflow_run` once the renderer workflow has succeeded, or by hand with `workflow_dispatch` and an existing `v*` tag to re-run a failed publish.
 - `pages.yml`, "Pages": docs.
 - `test-<target>.yml`, "<Target> test": a special check for one target.
 - `test-graalvm-renderer.yml`, "GraalVM renderer test": builds and smoke tests the GraalVM native-image renderer on macOS and Linux. It exists until the window code moves to the fork, then moves to the fork's CI and is deleted here.
