@@ -249,8 +249,8 @@ fn fr46_text_with_on_pointer_writes_on_pointer_and_pointer_kinds() {
             .lines()
             .find(|line| line.contains("Text") && line.contains("PointerKinds="))
             .unwrap_or_else(|| panic!("no subscribed Text: {dump}"));
-        let (node, handler) = tree.find("Text", None, 0, PropertyKind::OnPointer);
-        assert_ne!((node, handler), (0, 0), "Text writes OnPointer");
+        let handled = tree.handled("Text", PropertyKind::OnPointer);
+        assert_eq!(handled.len(), 1, "one Text writes OnPointer: {dump}");
         assert!(
             text.contains("PointerKinds=Integer(2)"),
             "Enter is 2: {text}"
