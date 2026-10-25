@@ -316,6 +316,17 @@ for symbol in compose_rust_renderer_run compose_rust_renderer_request_frame; do
             "Check the @CName annotations in staticlib/src/IosEntryPoints.kt."
 done
 
+# The schema this renderer was generated from, written beside it, so the Host's build script
+# can see the two disagree, and so the release can package the kit as it does the others.
+schema_hash_decimal="$(
+    grep -o 'const val SCHEMA_HASH: Long = -\?[0-9]*' \
+        "$PROJECT_DIR/desktop/src/protocol/Protocol.gen.kt" |
+        grep -o -- '-\?[0-9]*$'
+)"
+[[ -n "$schema_hash_decimal" ]] || die "could not read SCHEMA_HASH from desktop/src/protocol/Protocol.gen.kt"
+# printf rather than awk: the hash fills all 64 bits and awk works in doubles.
+printf '0x%016x\n' "$schema_hash_decimal" > "$OUT_DIR/schema-hash.txt"
+
 echo
 echo "$OUT_DIR"
 du -sh "$OUT_DIR"/* | sed 's|'"$OUT_DIR"'/||'

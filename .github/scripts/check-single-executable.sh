@@ -21,6 +21,13 @@
 #
 # Needs a display. On Linux run it under `xvfb-run -a`; a macOS runner has one.
 #
+# On Windows (Git Bash, with the Visual Studio C++ tools installed) the tarball is the static
+# kit build-windows.sh writes, packaged by package-static-renderer.sh. The build script has no
+# download route for it yet, so the kit is unpacked into the scratch directory and handed to
+# the build as DXC_WINDOWS_NATIVE_LIB, which links exactly what a consumer's build would.
+# dumpbin (or llvm-readobj, or objdump) must then show Windows' own DLLs only; a hosted
+# runner has no graphics card, so the window draws with Windows' software adapter.
+#
 # What it prints is the evidence: the executable's size, before and after stripping, and
 # every library it names.
 set -euo pipefail
@@ -35,6 +42,9 @@ fixture="$repo_root/compose-rust/tests/fixtures/consumer"
 # check_window_start: what a run that came up prints, the same check every smoke run uses.
 # shellcheck source=../../renderer/desktop/scripts/smoke-startup.sh
 source "$repo_root/renderer/desktop/scripts/smoke-startup.sh"
+# windows_dll_verdict, parse_dll_dependents: the rules for a Windows executable's imports.
+# shellcheck source=windows-dlls.sh
+source "$repo_root/.github/scripts/windows-dlls.sh"
 
 fail() {
     echo "fail  $1" >&2
@@ -44,9 +54,11 @@ fail() {
 }
 
 os="$(uname -s)"
+exe=""
 case "$os" in
     Darwin|Linux) ;;
-    *) fail "this checks macOS and Linux executables; $os is not one" ;;
+    MINGW*|MSYS*|CYGWIN*) os=Windows exe=.exe ;;
+    *) fail "this checks macOS, Linux and Windows executables; $os is not one" ;;
 esac
 if [[ "$os" == Linux && -z "${DISPLAY:-}" ]]; then
     fail "DISPLAY is not set" "Run it under xvfb-run -a."
@@ -75,7 +87,7 @@ grep -qE '^(\./)?lib/libcompose_rust_renderer\.a$' <<< "$contents" ||
 
 # A workspace build in this checkout would be found before the cache, and then this would
 # test that instead of the artifact.
-for built in renderer/build/macos renderer/build/linux \
+for built in renderer/build/macos renderer/build/linux renderer/build/windows \
              renderer/build/linux-arm64 renderer/build/native-image/dist/lib; do
     [[ ! -e "$repo_root/$built" ]] || fail "$built exists in this checkout" \
         "The build script would link that instead of the artifact. Run this in a clean checkout."
@@ -93,6 +105,7 @@ cp "$artifact" "$artifact.sha256" "$scratch/cache/downloads/"
 
 # Nothing may point the build anywhere else.
 unset COMPOSE_RUST_RENDERER_DIR DIOXUS_COMPOSE_RENDERER_DIR DXC_MACOS_NATIVE_LIB DXC_LINUX_NATIVE_LIB
+unset DXC_WINDOWS_NATIVE_LIB DXC_WINDOWS_CRT RUSTFLAGS CARGO_ENCODED_RUSTFLAGS CARGO_BUILD_RUSTFLAGS
 # The Kotlin/Native renderer cannot close its own window, so the self-check ends the
 # process once the frames are in.
 unset COMPOSE_RUST_AUTOEXIT_MS
@@ -106,9 +119,42 @@ export COMPOSE_RUST_TEXT_SELF_CHECK=1
 # No ICU data file anywhere an application could be pointed at one. The executable must find
 # words and line breaks with what is linked into it. A runner that ships one (a browser
 # carries icudtl.dat) has to have it removed before this runs.
-icu_files="$(find /usr /opt /Library /Applications /home /Users -name 'icudtl.dat' 2>/dev/null || true)"
+if [[ "$os" == Windows ]]; then
+    # Git Bash sees the drives as /c, /d. The system and program directories are where a
+    # browser or a runtime keeps one; the checkout and the scratch directory are not searched,
+    # because the kit's own skia/icudtl.dat is not in the tarball and must not be.
+    icu_roots=()
+    for root in "/c/Program Files" "/c/Program Files (x86)" "/c/ProgramData" "/c/Users" \
+                "/c/Windows" "/c/hostedtoolcache" "/c/msys64" "/d/a/_tool" "/d/a/_temp"; do
+        [[ ! -d "$root" ]] || icu_roots+=("$root")
+    done
+    icu_files="$(find "${icu_roots[@]}" -name 'icudtl.dat' 2>/dev/null || true)"
+else
+    icu_files="$(find /usr /opt /Library /Applications /home /Users -name 'icudtl.dat' 2>/dev/null || true)"
+fi
 [[ -z "$icu_files" ]] || fail "an ICU data file is on this machine, so the text check would not prove anything" \
-    $icu_files
+    "$icu_files"
+
+if [[ "$os" == Windows ]]; then
+    # The kit as the build script reads it: the archive at its root, the rest beside it. The
+    # tarball keeps the archive under lib/ like the others, so it is copied up.
+    kit="$scratch/kit"
+    mkdir -p "$kit"
+    tar -xzf "$artifact" -C "$kit"
+    [[ -f "$kit/lib/libcompose_rust_renderer.a" ]] || fail "the unpacked kit has no lib/libcompose_rust_renderer.a"
+    for piece in gcc/libstdc++.a native/dxc-windows-native.lib native/dxc-windows-static-ucrt.lib \
+                 skiko/skiko-bridges.lib skiko/skia.lib; do
+        [[ -f "$kit/$piece" ]] || fail "the kit has no $piece" \
+            "package-static-renderer.sh packs the whole kit build-windows.sh writes for windows-x64."
+    done
+    find "$kit" -name 'icudtl.dat' | grep . && fail "the kit carries an icudtl.dat" \
+        "The ICU data is to be inside the renderer's object, not beside it."
+    cp "$kit/lib/libcompose_rust_renderer.a" "$kit/libcompose_rust_renderer.a"
+    DXC_WINDOWS_NATIVE_LIB="$(cygpath -w "$kit")"
+    export DXC_WINDOWS_NATIVE_LIB
+    # A hosted runner has no card: Windows' software adapter draws instead.
+    export DXC_D3D12_WARP="${DXC_D3D12_WARP:-1}"
+fi
 
 # What every system the application may name lives under. Anything else is a file that
 # would have to travel with it.
@@ -119,9 +165,80 @@ system_library() {
     esac
 }
 
+# Visual Studio's tools, on PATH inside a developer prompt and found through vswhere otherwise.
+# Prints nothing when there is none.
+vs_tool() {
+    local name="$1" found vswhere
+    found="$(command -v "$name" || true)"
+    if [[ -z "$found" ]]; then
+        vswhere="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
+        [[ -f "$vswhere" ]] || return 0
+        found="$("$vswhere" -latest -products '*' -find "VC/Tools/MSVC/**/bin/Hostx64/x64/$name" | tr -d '\r' | head -1)"
+        [[ -z "$found" ]] || found="$(cygpath -u "$found")"
+    fi
+    echo "$found"
+}
+
+# What a Windows executable asks the loader for: dumpbin, else LLVM's readobj, else objdump.
+windows_imports() {
+    local binary="$1" tool windows_path
+    windows_path="$(cygpath -w "$binary")"
+    tool="$(vs_tool dumpbin.exe)"
+    if [[ -n "$tool" ]]; then
+        echo "-- dumpbin /dependents $(basename "$binary")" >&2
+        "$tool" -nologo -dependents "$windows_path" | tr -d '\r' | tee /dev/stderr | parse_dll_dependents
+        return
+    fi
+    tool="$(command -v llvm-readobj || true)"
+    if [[ -n "$tool" ]]; then
+        echo "-- llvm-readobj --coff-imports $(basename "$binary")" >&2
+        "$tool" --coff-imports "$binary" | tee /dev/stderr | parse_dll_dependents
+        return
+    fi
+    tool="$(command -v objdump || true)"
+    [[ -n "$tool" ]] || fail "no dumpbin, llvm-readobj or objdump to list the executable's DLLs with"
+    echo "-- objdump -p $(basename "$binary")" >&2
+    "$tool" -p "$binary" | grep -a 'DLL Name' | tee /dev/stderr | parse_dll_dependents
+}
+
+check_windows_libraries() {
+    local binary="$1" failures=0 dlls dll system
+    dlls="$(windows_imports "$binary")"
+    [[ -n "$dlls" ]] || fail "no DLL was listed for $(basename "$binary"), which is not a Windows executable that opens a window"
+    system="$(cygpath -u "${SystemRoot:-C:\\Windows}")/System32"
+    for dll in $dlls; do
+        case "$(windows_dll_verdict "$dll")" in
+            allowed) ;;
+            forbidden)
+                echo "      $dll is not Windows': a runtime, the renderer or a Java library that is to be inside the executable" >&2
+                failures=$((failures + 1)) ;;
+            *)
+                # Not on the allowlist, but if Windows itself ships it the executable still
+                # needs nothing beside it. Said out loud so a new one is noticed.
+                if [[ -f "$system/$dll" || -f "$system/$(tr '[:upper:]' '[:lower:]' <<< "$dll")" ]]; then
+                    echo "note  $dll is part of Windows but not on the allowlist"
+                else
+                    echo "      $dll is neither on the allowlist nor in System32" >&2
+                    failures=$((failures + 1))
+                fi ;;
+        esac
+    done
+    # A statically linked JNI library announces itself with JNI_OnLoad_<name>.
+    if grep -aq 'JNI_OnLoad' "$binary"; then
+        echo "      the executable carries a JNI library, so a Java runtime is linked into it" >&2
+        failures=$((failures + 1))
+    fi
+    [[ "$failures" -eq 0 ]] || fail "$(basename "$binary") needs $failures thing(s) that are not Windows'"
+    echo "-- $(wc -w <<< "$dlls" | tr -d ' ') DLLs, every one part of Windows: $(echo $dlls)"
+}
+
 # Prints what the executable names and fails on anything that is not the system's.
 check_libraries() {
     local binary="$1" failures=0 library resolved
+    if [[ "$os" == Windows ]]; then
+        check_windows_libraries "$binary"
+        return
+    fi
     if [[ "$os" == Darwin ]]; then
         echo "-- otool -L $(basename "$binary")"
         otool -L "$binary" | tail -n +2
@@ -185,7 +302,7 @@ check_libraries() {
 }
 
 size_of() {
-    if [[ "$os" == Darwin ]]; then stat -f %z "$1"; else stat -c %s "$1"; fi
+    if [[ "$os" == Darwin ]]; then stat -f %z "$1"; else wc -c < "$1" | tr -d ' '; fi
 }
 
 megabytes() {
@@ -207,7 +324,7 @@ build() {
     grep -q "unpacked the renderer for v$crate_version" "$log" ||
         grep -q "$scratch/cache/renderer" "$log" ||
         echo "note  the build log does not say it unpacked the artifact (a cached build replays nothing)" >&2
-    echo "$repo_root/target/single-executable/$name/release/consumer"
+    echo "$repo_root/target/single-executable/$name/release/consumer$exe"
 }
 
 run_alone() {
@@ -215,13 +332,13 @@ run_alone() {
     local directory="$scratch/run/$name"
     rm -rf "$directory"
     mkdir -p "$directory"
-    cp "$binary" "$directory/consumer"
+    cp "$binary" "$directory/consumer$exe"
     echo "-- ls -la $directory"
     ls -la "$directory"
-    [[ "$(ls -A "$directory")" == "consumer" ]] || fail "something other than the executable is in $directory"
+    [[ "$(ls -A "$directory")" == "consumer$exe" ]] || fail "something other than the executable is in $directory"
     echo "== running it alone in $directory"
     local log="$scratch/run-$name.log" status=0
-    ( cd "$directory" && ./consumer --self-check ) > "$log" 2>&1 || status=$?
+    ( cd "$directory" && "./consumer$exe" --self-check ) > "$log" 2>&1 || status=$?
     cat "$log"
     grep -q "compose-rust text self-check: ok" "$log" ||
         fail "the renderer did not lay Korean text out correctly with no ICU data file" \
@@ -229,6 +346,12 @@ run_alone() {
     [[ "$status" -eq 0 ]] || fail "the executable did not draw on its own (exit $status)"
     # And the renderer said so itself: its window opened, its scene was made on the main
     # dispatcher this platform has, and a frame reached the window.
+    if [[ "$os" == Windows ]]; then
+        # The Windows renderer's start lines are not the ones the other two print (it has no
+        # main dispatcher of the platform's), so what proves it drew is the exit status of the
+        # self-check, which the executable returns only once frames went through.
+        return 0
+    fi
     local dispatcher="$smoke_main_dispatcher_kn_linux"
     [[ "$os" != Darwin ]] || dispatcher="$smoke_main_dispatcher_kn_macos"
     check_window_start "$(cat "$log")" "$status" "$dispatcher" ||
@@ -237,6 +360,12 @@ run_alone() {
 
 report() {
     local binary="$1" stripped="$scratch/consumer.stripped"
+    if [[ "$os" == Windows ]]; then
+        # A release MSVC executable keeps its symbols in a .pdb beside it, so it is as small
+        # as it gets.
+        echo "-- size: $(megabytes "$(size_of "$binary")")"
+        return
+    fi
     cp "$binary" "$stripped"
     if [[ "$os" == Darwin ]]; then strip -x "$stripped"; else strip "$stripped"; fi
     echo "-- size: $(megabytes "$(size_of "$binary")"), stripped $(megabytes "$(size_of "$stripped")")"
@@ -245,7 +374,7 @@ report() {
 
 binary="$(build default "")"
 [[ -x "$binary" ]] || fail "the build produced no $binary"
-ls "$scratch/cache/renderer"/v"$crate_version"/* >/dev/null 2>&1 ||
+[[ "$os" == Windows ]] || ls "$scratch/cache/renderer"/v"$crate_version"/* >/dev/null 2>&1 ||
     fail "the build did not unpack the artifact into $scratch/cache/renderer" \
         "It found a renderer somewhere else, so this did not test the artifact."
 check_libraries "$binary"

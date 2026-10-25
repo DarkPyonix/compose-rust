@@ -58,11 +58,13 @@ on:
       - scripts/install-nik.sh
       - .github/scripts/check-single-executable.sh
       - .github/scripts/package-static-renderer.sh
+      - .github/scripts/windows-dlls.sh
       - .github/scripts/check-linux-input-access.sh
       - .github/scripts/atspi-walk.py
       - scripts/parity/**
       - .github/workflows/test-native-renderer.yml
       - .github/workflows/static-renderer.yml
+      - .github/workflows/windows-static.yml
       - .github/workflows/fork-desktop-modules.yml
   # Pushes to main as well: the release branch is rebuilt from develop, so its head is a
   # different commit from any that was checked as a pull request. The release workflow
@@ -138,7 +140,7 @@ jobs:
             exit 0
           fi
           if git diff --name-only HEAD^ HEAD |
-              grep -qE '^(renderer/|compose-rust/build(\.rs|/)|scripts/install-nik\.sh|\.github/scripts/(check-single-executable|package-static-renderer|check-linux-input-access)\.sh|\.github/scripts/atspi-walk\.py|scripts/parity/|\.github/workflows/(test-native|static)-renderer\.yml)'; then
+              grep -qE '^(renderer/|compose-rust/build(\.rs|/)|scripts/install-nik\.sh|\.github/scripts/(check-single-executable|package-static-renderer|windows-dlls|check-linux-input-access)\.sh|\.github/scripts/atspi-walk\.py|scripts/parity/|\.github/workflows/(test-native|static)-renderer\.yml)'; then
             echo "the renderer changed"
             echo "renderer=true" >> "$GITHUB_OUTPUT"
           else
@@ -309,21 +311,17 @@ jobs:
   single-executable:
     # Each platform's check needs only its own artifact, so one platform failing to build
     # does not hide whether the others are one executable.
-    needs: [changed, macos-static, linux-static, linux-arm64-static]
+    needs: [changed, macos-static, linux-static, linux-arm64-static, windows-static]
     if: ${{ !cancelled() && needs.changed.outputs.renderer == 'true' }}
     name: One executable on ${{ matrix.target }}
     runs-on: ${{ matrix.runs-on }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - target: macos-aarch64
-            runs-on: macos-latest
-          - target: linux-x64
-            runs-on: ubuntu-24.04
-          - target: linux-arm64
-            runs-on: ubuntu-24.04-arm
+      # Windows is left out of a tag's run for now: the tag's windows-x64 artifact is still the
+      # GraalVM one (the `windows` job names it the same way), and windows-static does not
+      # upload its own on a tag until the release takes the static kit instead.
+      matrix: ${{ fromJSON(startsWith(github.ref, 'refs/tags/v') && '{"include":[{"target":"macos-aarch64","runs-on":"macos-latest"},{"target":"linux-x64","runs-on":"ubuntu-24.04"},{"target":"linux-arm64","runs-on":"ubuntu-24.04-arm"}]}' || '{"include":[{"target":"macos-aarch64","runs-on":"macos-latest"},{"target":"linux-x64","runs-on":"ubuntu-24.04"},{"target":"linux-arm64","runs-on":"ubuntu-24.04-arm"},{"target":"windows-x64","runs-on":"windows-latest"}]}') }}
     env:
       # Mesa draws with the processor; a hosted runner has no card.
       LIBGL_ALWAYS_SOFTWARE: '1'
@@ -332,6 +330,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install the Rust toolchain
+        shell: bash
         run: rustup toolchain install stable --profile minimal && rustup default stable
 
       - name: Install the libraries an application links on Linux, and a virtual display
@@ -359,8 +358,16 @@ jobs:
         run: |
           # find reports the directories it may not read and exits non-zero for them,
           # which is not a failure to find anything; what is left is checked afterwards.
-          { find /usr /opt /Library /Applications /home /Users -name 'icudtl.dat' 2>/dev/null || true; } |
-            while IFS= read -r file; do echo "removing $file"; sudo rm -f "$file"; done
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            # Git Bash's view of the drives; no sudo, the runner is an administrator.
+            { find "/c/Program Files" "/c/Program Files (x86)" "/c/ProgramData" "/c/Users" \
+                "/c/Windows" "/c/hostedtoolcache" "/c/msys64" "/d/a/_tool" "/d/a/_temp" \
+                -name 'icudtl.dat' 2>/dev/null || true; } |
+              while IFS= read -r file; do echo "removing $file"; rm -f "$file"; done
+          else
+            { find /usr /opt /Library /Applications /home /Users -name 'icudtl.dat' 2>/dev/null || true; } |
+              while IFS= read -r file; do echo "removing $file"; sudo rm -f "$file"; done
+          fi
 
       - name: Build it, check what it needs, and run it alone
         shell: bash
