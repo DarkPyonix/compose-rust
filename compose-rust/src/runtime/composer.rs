@@ -40,6 +40,9 @@ pub(crate) struct Group {
     pub(crate) generation: u32,
     pub(crate) alive: bool,
     pub(crate) slots: Vec<Box<dyn Any>>,
+    /// The states made by the remember call in each slot, by slot index. They are freed
+    /// when the slot is replaced or the group leaves the composition.
+    pub(crate) owned: Vec<(usize, super::state::StateKey)>,
     pub(crate) children: Vec<GroupId>,
     /// The Renderer node this group created, if it is a widget's group.
     pub(crate) node: Option<u32>,
@@ -248,6 +251,7 @@ impl Composer {
             generation: 0,
             alive: true,
             slots: Vec::new(),
+            owned: Vec::new(),
             children: Vec::new(),
             node: None,
             scope: Some(Box::new(Scope::new())),
@@ -315,6 +319,7 @@ impl Composer {
             generation: 0,
             alive: true,
             slots: Vec::new(),
+            owned: Vec::new(),
             children: Vec::new(),
             node: None,
             scope: None,
@@ -545,6 +550,15 @@ impl Composer {
     /// Stores a fresh value in the current call site's slot, discarding whatever a call
     /// site of another type left there.
     pub(crate) fn remember_new<T: 'static>(&mut self, value: T) {
+        self.remember_new_owning(value, Vec::new());
+    }
+
+    /// Like `remember_new`, and the states in `owned` are freed with the slot.
+    pub(crate) fn remember_new_owning<T: 'static>(
+        &mut self,
+        value: T,
+        owned: Vec<super::state::StateKey>,
+    ) {
         let Some(frame) = self.frames.last_mut() else {
             return;
         };
@@ -555,8 +569,27 @@ impl Composer {
         if index < slots.len() {
             let old = std::mem::replace(&mut slots[index], Box::new(value));
             self.forget_slot(old);
+            self.release_owned(group, Some(index));
         } else {
             slots.push(Box::new(value));
+        }
+        self.groups[group as usize]
+            .owned
+            .extend(owned.into_iter().map(|key| (index, key)));
+    }
+
+    /// Frees the states a group's slots own, all of them or those of one slot. The values
+    /// go to the graveyard, so they are dropped with the composer free.
+    fn release_owned(&mut self, group: GroupId, slot: Option<usize>) {
+        let owned = std::mem::take(&mut self.groups[group as usize].owned);
+        let (gone, kept): (Vec<_>, Vec<_>) = owned
+            .into_iter()
+            .partition(|(index, _)| slot.is_none_or(|slot| slot == *index));
+        self.groups[group as usize].owned = kept;
+        for (_, key) in gone {
+            if let Some(value) = super::state::release_state(key) {
+                self.graveyard.push(value);
+            }
         }
     }
 
@@ -623,6 +656,7 @@ impl Composer {
         for slot in slots.into_iter().rev() {
             self.forget_slot(slot);
         }
+        self.release_owned(group, None);
         if let Some(scope) = self.groups[group as usize].scope.take() {
             let generation = self.groups[group as usize].generation;
             for read in scope.reads.iter().chain(scope.previous_reads.iter()) {
@@ -1131,4 +1165,19 @@ pub const fn call_site(path: &str, ordinal: u32) -> u64 {
     }
     hash ^= ordinal as u64;
     hash.wrapping_mul(0x100_0000_01b3)
+}
+
+impl Drop for Composer {
+    fn drop(&mut self) {
+        // A composition that ends while groups are still in it frees their states too.
+        // The values are dropped last, with no lock held, because a destructor may use
+        // another state.
+        let mut values = Vec::new();
+        for group in &mut self.groups {
+            for (_, key) in group.owned.drain(..) {
+                values.extend(super::state::release_state(key));
+            }
+        }
+        drop(values);
+    }
 }

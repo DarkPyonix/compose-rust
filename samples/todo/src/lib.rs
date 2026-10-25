@@ -105,13 +105,13 @@ fn composer(add: Rc<dyn Fn(String)>, draft: MutableState<String>) {
             .space_role(SpaceRole::Sm)
             .alignment(Alignment::CenterStart)
             .content(|| {
-                let (typed, submit) = (draft.clone(), Rc::clone(&add));
+                let (typed, submit) = (draft, Rc::clone(&add));
                 TextField()
                     .modifier(Modifier.weight(1.0))
                     .placeholder("Add a task, then press Enter")
                     .on_value_change(move |value| typed.set(value))
                     .on_submit(move |value: String| submit(value));
-                let (pressed, current) = (Rc::clone(&add), draft.clone());
+                let (pressed, current) = (Rc::clone(&add), draft);
                 Button("Add")
                     .variant(ButtonVariant::Filled)
                     .on_click(move || pressed(current.get_untracked()));
@@ -164,7 +164,7 @@ pub fn app() {
     let total = tasks.with(Vec::len);
 
     let add: Rc<dyn Fn(String)> = {
-        let (tasks, next_id, draft) = (tasks.clone(), next_id.clone(), draft.clone());
+        let (tasks, next_id, draft) = (tasks, next_id, draft);
         Rc::new(move |title: String| {
             let title = title.trim().to_owned();
             if title.is_empty() {
@@ -185,7 +185,7 @@ pub fn app() {
     };
 
     let commit_edit: Rc<dyn Fn(String)> = {
-        let (tasks, editing, edit_draft) = (tasks.clone(), editing.clone(), edit_draft.clone());
+        let (tasks, editing, edit_draft) = (tasks, editing, edit_draft);
         Rc::new(move |text: String| {
             let Some(id) = editing.get_untracked() else {
                 return;
@@ -207,7 +207,6 @@ pub fn app() {
     // Reordering is expressed in what the user can see; each row works out its two
     // neighbours and this only performs the swap.
     let swap_tasks: Rc<dyn Fn(usize, usize)> = {
-        let tasks = tasks.clone();
         Rc::new(move |from: usize, to: usize| {
             tasks.update(|tasks| tasks.swap(from, to));
             store::save(&tasks.get_untracked());
@@ -216,7 +215,7 @@ pub fn app() {
 
     // One way in for a new task, whether the field is on the list or in the sheet.
     let compose: Rc<dyn Fn(String)> = {
-        let (add, compose_open) = (Rc::clone(&add), compose_open.clone());
+        let (add, compose_open) = (Rc::clone(&add), compose_open);
         Rc::new(move |title: String| {
             add(title);
             compose_open.set(false);
@@ -253,12 +252,8 @@ pub fn app() {
                 .content(|| {
                     let rows = rows.clone();
                     let keys = keys.clone();
-                    let (tasks, editing, edit_draft, menu_open) = (
-                        tasks.clone(),
-                        editing.clone(),
-                        edit_draft.clone(),
-                        menu_open.clone(),
-                    );
+                    let (tasks, editing, edit_draft, menu_open) =
+                        (tasks, editing, edit_draft, menu_open);
                     let (commit_edit, swap_tasks) =
                         (Rc::clone(&commit_edit), Rc::clone(&swap_tasks));
                     LazyColumn()
@@ -292,7 +287,7 @@ pub fn app() {
         .bottom_bar(|| {
             Navigation(current_filter.index()).content(|| {
                 for choice in Filter::STRIP {
-                    let pick = filter.clone();
+                    let pick = filter;
                     key(choice.label(), || {
                         NavigationItem(choice.label())
                             .icon(choice.icon())
@@ -320,13 +315,13 @@ pub fn app() {
                 });
                 // Where the composer is not on the list, the bar is how a task is added.
                 if stacked {
-                    let open = compose_open.clone();
+                    let open = compose_open;
                     Button("Add")
                         .variant(ButtonVariant::Filled)
                         .on_click(move || open.set(true));
                 }
                 // Clearing throws work away, so it says so and offers the way back.
-                let clearing = tasks.clone();
+                let clearing = tasks;
                 Button(if stacked { "Clear" } else { "Clear completed" })
                     .variant(ButtonVariant::Text)
                     .color(Paint::Role(ColorRole::Error))
@@ -337,7 +332,7 @@ pub fn app() {
                         clearing.update(|tasks| tasks.retain(|task| !task.done));
                         store::save(&clearing.get_untracked());
                         let plural = if cleared == 1 { "task" } else { "tasks" };
-                        let restore = clearing.clone();
+                        let restore = clearing;
                         Message::new(format!("Cleared {cleared} completed {plural}"))
                             .with_action("Undo", move |()| {
                                 restore.set(before.clone());
@@ -346,7 +341,7 @@ pub fn app() {
                             .with_duration(MessageDuration::Long)
                             .show();
                     });
-                let open = about_open.clone();
+                let open = about_open;
                 Button(ABOUT_LABEL)
                     .variant(ButtonVariant::Text)
                     .on_click(move || open.set(true));
@@ -371,7 +366,7 @@ pub fn app() {
                                 .space_role(SpaceRole::Md)
                                 .content(|| {
                                     if !stacked {
-                                        composer(Rc::clone(&compose), draft.clone());
+                                        composer(Rc::clone(&compose), draft);
                                     }
                                     list();
                                 });
@@ -379,7 +374,7 @@ pub fn app() {
 
                     // The same composer, arriving from an edge, where there is no room for
                     // it at the head of the list.
-                    let close = compose_open.clone();
+                    let close = compose_open;
                     Sheet(compose_open.get() && stacked)
                         .on_dismiss(move || close.set(false))
                         .modifier(Modifier.fill_max_width())
@@ -395,27 +390,26 @@ pub fn app() {
                                             Text("Add Task")
                                                 .type_role(TypeRole::Subtitle)
                                                 .modifier(Modifier.weight(1.0));
-                                            let close = compose_open.clone();
+                                            let close = compose_open;
                                             Button("Close")
                                                 .variant(ButtonVariant::Filled)
                                                 .on_click(move || close.set(false));
                                         });
                                     Separator(None);
                                     if stacked {
-                                        composer(Rc::clone(&compose), draft.clone());
+                                        composer(Rc::clone(&compose), draft);
                                     }
                                 });
                         });
 
                     // What this sample is, and the one control that belongs to the sample.
-                    let dismiss = about_open.clone();
+                    let dismiss = about_open;
                     Sheet(about_open.get())
                         .on_dismiss(move || dismiss.set(false))
                         .modifier(Modifier.fill_max_width())
                         .content(|| {
                             let fill: Rc<dyn Fn()> = {
-                                let (tasks, next_id, about_open) =
-                                    (tasks.clone(), next_id.clone(), about_open.clone());
+                                let (tasks, next_id, about_open) = (tasks, next_id, about_open);
                                 Rc::new(move || {
                                     let start = next_id.get_untracked();
                                     tasks.update(|list| {
@@ -434,10 +428,7 @@ pub fn app() {
                                     about_open.set(false);
                                 })
                             };
-                            let close: Rc<dyn Fn()> = {
-                                let about_open = about_open.clone();
-                                Rc::new(move || about_open.set(false))
-                            };
+                            let close: Rc<dyn Fn()> = { Rc::new(move || about_open.set(false)) };
                             about_panel(total, fill, close);
                         });
                 });
@@ -470,7 +461,7 @@ fn task_row(
             .space_role(SpaceRole::Sm)
             .alignment(Alignment::CenterStart)
             .content(|| {
-                let toggle = tasks.clone();
+                let toggle = *tasks;
                 let done = task.done;
                 Checkbox(task.done).on_change(move |_| {
                     toggle.update(|tasks| tasks[index].done = !done);
@@ -479,12 +470,12 @@ fn task_row(
                 // The title takes the weight, so the actions line up down the list.
                 if editing_this {
                     let (typed, submit, lost, saved) = (
-                        edit_draft.clone(),
+                        *edit_draft,
                         Rc::clone(commit_edit),
                         Rc::clone(commit_edit),
                         Rc::clone(commit_edit),
                     );
-                    let (lost_draft, saved_draft) = (edit_draft.clone(), edit_draft.clone());
+                    let (lost_draft, saved_draft) = (*edit_draft, *edit_draft);
                     TextField()
                         .modifier(Modifier.weight(1.0))
                         .text(task.title.clone())
@@ -507,7 +498,7 @@ fn task_row(
                         .overflow(TextOverflow::Ellipsis);
                     // What a row can have done to it lives behind one control. The
                     // entries exist only while the menu is open.
-                    let (dismiss, opener) = (menu_open.clone(), menu_open.clone());
+                    let (dismiss, opener) = (*menu_open, *menu_open);
                     let id = task.id;
                     Menu(open)
                         .on_dismiss(move || dismiss.set(None))
@@ -548,7 +539,7 @@ fn menu_entries(
     swap_tasks: &Rc<dyn Fn(usize, usize)>,
 ) {
     let id = task.id;
-    let (close, draft, edit) = (menu_open.clone(), edit_draft.clone(), editing.clone());
+    let (close, draft, edit) = (*menu_open, *edit_draft, *editing);
     Button("Edit")
         .variant(ButtonVariant::Text)
         .modifier(Modifier.fill_max_width())
@@ -557,7 +548,7 @@ fn menu_entries(
             draft.set(String::new());
             edit.set(Some(id));
         });
-    let (close, swap) = (menu_open.clone(), Rc::clone(swap_tasks));
+    let (close, swap) = (*menu_open, Rc::clone(swap_tasks));
     Button("Move up")
         .variant(ButtonVariant::Text)
         .modifier(Modifier.fill_max_width())
@@ -568,7 +559,7 @@ fn menu_entries(
                 swap(index, above);
             }
         });
-    let (close, swap) = (menu_open.clone(), Rc::clone(swap_tasks));
+    let (close, swap) = (*menu_open, Rc::clone(swap_tasks));
     Button("Move down")
         .variant(ButtonVariant::Text)
         .modifier(Modifier.fill_max_width())
@@ -581,7 +572,7 @@ fn menu_entries(
         });
     // Deleting throws work away without asking, so it says what it did and offers the
     // task back.
-    let (close, tasks) = (menu_open.clone(), tasks.clone());
+    let (close, tasks) = (*menu_open, *tasks);
     Button("Delete")
         .variant(ButtonVariant::Text)
         .modifier(Modifier.fill_max_width())
@@ -593,7 +584,7 @@ fn menu_entries(
             store::save(&tasks.get_untracked());
             let Some(removed) = removed else { return };
             let title = removed.title.clone();
-            let restore = tasks.clone();
+            let restore = tasks;
             Message::new(format!("Deleted \u{201c}{title}\u{201d}"))
                 .with_action("Undo", move |()| {
                     let at = index.min(restore.with(Vec::len));

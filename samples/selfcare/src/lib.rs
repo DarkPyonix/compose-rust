@@ -144,7 +144,7 @@ fn feeling_step(chosen: MutableState<Mood>, on_skip: Action, on_next: Action) {
                             } else {
                                 (palette::CHIP, palette::INK)
                             };
-                            let choose = chosen.clone();
+                            let choose = chosen;
                             key(option.label(), || {
                                 Button(option.label())
                                     .variant(ButtonVariant::Filled)
@@ -231,7 +231,7 @@ fn worry_step(picked: MutableState<Vec<&'static str>>, on_skip: Action, on_next:
                                         } else {
                                             ButtonVariant::Tonal
                                         };
-                                        let list = picked.clone();
+                                        let list = picked;
                                         key(worry, || {
                                             Button(worry)
                                                 .variant(variant)
@@ -600,14 +600,11 @@ fn page(
     chosen: MutableState<Mood>,
     picked: MutableState<Vec<&'static str>>,
 ) {
-    let to = |next: Step| -> Action {
-        let step = step.clone();
-        Rc::new(move || step.set(next))
-    };
+    let to = |next: Step| -> Action { Rc::new(move || step.set(next)) };
     match destination {
         Destination::Today => match step.get() {
-            Step::Feeling => feeling_step(chosen.clone(), to(Step::Done), to(Step::Worry)),
-            Step::Worry => worry_step(picked.clone(), to(Step::Done), to(Step::Done)),
+            Step::Feeling => feeling_step(chosen, to(Step::Done), to(Step::Worry)),
+            Step::Worry => worry_step(picked, to(Step::Done), to(Step::Done)),
             Step::Done => checked_in(chosen.get(), picked.get(), to(Step::Feeling)),
         },
         Destination::Listen => listen_page(),
@@ -649,7 +646,7 @@ pub fn app() {
                 .modifier(Modifier.background(Paint::Literal(palette::PAGE)))
                 .content(|| {
                     for choice in Destination::STRIP {
-                        let go = destination.clone();
+                        let go = destination;
                         key(choice.label(), || {
                             NavigationItem(choice.label())
                                 .icon(choice.icon())
@@ -670,8 +667,7 @@ pub fn app() {
                         .modifier(Modifier.fill_max_size())
                         .alignment(Alignment::TopCenter)
                         .content(|| {
-                            let body =
-                                || page(current, step.clone(), chosen.clone(), picked.clone());
+                            let body = || page(current, step, chosen, picked);
                             if scrolls {
                                 ScrollColumn().modifier(frame).content(body);
                             } else {

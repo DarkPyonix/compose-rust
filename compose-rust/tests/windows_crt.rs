@@ -158,13 +158,23 @@ fn nfr15_the_static_cxx_library_is_found_where_the_linker_looks() {
 
     std::fs::write(xwin.join("crt/lib/x86_64/libcpmt.lib"), b"!<arch>\n").unwrap();
     assert_eq!(
-        find_msvc_library("libcpmt.lib", None, &[tools.clone()], &[xwin.clone()]),
+        find_msvc_library(
+            "libcpmt.lib",
+            None,
+            std::slice::from_ref(&tools),
+            std::slice::from_ref(&xwin)
+        ),
         Some(xwin.join("crt/lib/x86_64/libcpmt.lib"))
     );
 
     std::fs::write(tools.join("lib/x64/libcpmt.lib"), b"!<arch>\n").unwrap();
     assert_eq!(
-        find_msvc_library("libcpmt.lib", None, &[tools.clone()], &[xwin.clone()]),
+        find_msvc_library(
+            "libcpmt.lib",
+            None,
+            std::slice::from_ref(&tools),
+            std::slice::from_ref(&xwin)
+        ),
         Some(tools.join("lib/x64/libcpmt.lib"))
     );
 
