@@ -49,6 +49,7 @@ pub mod tokens;
 pub mod ui;
 pub mod window;
 mod writer;
+pub mod zoom;
 
 pub use animation::{
     Animated, AnimationMoment, AnimationSpec, GraphicsLayer, animate_color_as_state,
@@ -94,6 +95,7 @@ pub use schema::{
 pub use schema::{Cursor, PointerKind, PointerType, UserSelect, WheelDeltaMode};
 pub use theme::ThemeHandle;
 pub use window::{NodeSize, WindowSize, node_size, window_size};
+pub use zoom::{Zoom, ZoomHandle, zoom};
 
 /// Declares the entry point an iOS application starts at.
 ///

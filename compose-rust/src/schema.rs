@@ -141,6 +141,9 @@ pub enum EventPayloadType {
     /// One pointer happening inside a subscribed node: its kind, which pointer, where,
     /// which buttons and modifiers, the wheel deltas and when. A fixed 72-byte record.
     Pointer,
+    /// Two `f32` and an `i32`: the whole zoom factor, the system's text size, and the
+    /// application's zoom level.
+    Zoom,
     /// Where a code editor's selection is: the document version and the two ends.
     CodeSelection,
     /// Which lines of a code editor are on screen, folded lines left out.
@@ -165,10 +168,10 @@ pub struct EventSchema {
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
     "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom;",
     "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform;",
     "keys=Enter;",
-    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged;",
+    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged;",
     "windowsizeclasses=Compact,Medium,Expanded;",
     "windowheightclasses=Compact,Medium,Expanded;",
     "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded"
@@ -312,11 +315,12 @@ const fn schema_hash() -> u64 {
                 EventPayloadType::CodeSave => 15,
                 EventPayloadType::Decoration => 16,
                 EventPayloadType::Pointer => 17,
-                EventPayloadType::CodeSelection => 18,
-                EventPayloadType::CodeVisibleRange => 19,
-                EventPayloadType::CodeFocus => 20,
-                EventPayloadType::CodeFold => 21,
-                EventPayloadType::CodeComposition => 22,
+                EventPayloadType::Zoom => 18,
+                EventPayloadType::CodeSelection => 19,
+                EventPayloadType::CodeVisibleRange => 20,
+                EventPayloadType::CodeFocus => 21,
+                EventPayloadType::CodeFold => 22,
+                EventPayloadType::CodeComposition => 23,
             }],
         );
         index += 1;
@@ -1496,6 +1500,12 @@ pub struct Window {
     pub min_width: u16,
     pub min_height: u16,
     pub resizable: bool,
+    /// The application's zoom level, where it asked for one.
+    ///
+    /// `None` leaves the level to the Renderer, which starts from what the reader chose
+    /// last time. A level set here is applied, remembered and reported back the way one
+    /// chosen with the keys is. Kept inside `-8..=8`.
+    pub zoom_level: Option<i8>,
 }
 
 impl Window {
@@ -1510,6 +1520,7 @@ impl Window {
             min_width: 0,
             min_height: 0,
             resizable: true,
+            zoom_level: None,
         }
     }
 
@@ -1555,6 +1566,18 @@ impl Window {
 
     pub const fn resizable(mut self, resizable: bool) -> Self {
         self.resizable = resizable;
+        self
+    }
+
+    /// Starts the window at an application zoom level, kept inside `-8..=8`.
+    pub const fn with_zoom_level(mut self, level: i8) -> Self {
+        self.zoom_level = Some(if level < -8 {
+            -8
+        } else if level > 8 {
+            8
+        } else {
+            level
+        });
         self
     }
 }
@@ -2652,6 +2675,9 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // The Host resolves CSS inheritance and sends the value for each node.
     Cursor = 141,
     UserSelect = 142,
+    // How large an HTML island is drawn, as the f32 factor `k` (see `ZoomChanged`), on the
+    // island's root `AbsoluteBox`. 120 opens the block for zoom. Absent is 1.
+    IslandZoom = 120,
 });
 
 #[derive(Clone, Debug, PartialEq)]
@@ -2799,6 +2825,14 @@ pub enum EventPayload<'a> {
         delta_y: f32,
         delta_mode: WheelDeltaMode,
         timestamp_nanos: u64,
+    },
+    /// How large the Renderer is drawing: `k = os × 1.2^level`. Sent once at start and
+    /// again whenever any of the three changes. A move to a screen of another density
+    /// changes none of them and is not reported.
+    ZoomChanged {
+        k: f32,
+        os: f32,
+        level: i32,
     },
     /// The selection of a code editor moved, or an edit moved it. `version` is the document
     /// version it is read against, the same series `CodeChanged` counts, and an edit's
@@ -2972,7 +3006,12 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
         tag: 8,
         payload: EventPayloadType::Pointer,
     },
-    // 33 is the zoom event's. The code editor's additions follow it.
+    // Tags 26 to 32 are taken by events other requirements have numbered.
+    EventSchema {
+        name: "ZoomChanged",
+        tag: 33,
+        payload: EventPayloadType::Zoom,
+    },
     EventSchema {
         name: "SelectionChanged",
         tag: 34,

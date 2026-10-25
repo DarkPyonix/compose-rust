@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets
 
 enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, Progress }
 
 enum class Key { Enter }
 
@@ -225,6 +225,13 @@ data class Window(
     val minWidth: Int,
     val minHeight: Int,
     val resizable: Boolean,
+    /**
+     * The application's zoom level, or null where it left the level to the renderer.
+     *
+     * A level here is applied, remembered and reported back the way one chosen with the
+     * keys is. Always inside -8..8.
+     */
+    val zoomLevel: Int? = null,
 )
 
 sealed interface PropertyValue {
@@ -1247,6 +1254,7 @@ sealed interface HostEvent {
     data class AnimationEvent(override val nodeId: Int, override val handlerId: Long, val animationId: Int, val kind: AnimationEventKind, val property: AnimatedProperty, val slot: Int, val iteration: Int, val elapsedMs: kotlin.Float, val timeNanos: Long) : HostEvent
     data class ReducedMotionChanged(override val nodeId: Int, override val handlerId: Long, val state: ReducedMotion) : HostEvent
     data class Pointer(override val nodeId: Int, override val handlerId: Long, val kind: PointerKind, val pointerId: Int, val pointerType: PointerType, val x: kotlin.Float, val y: kotlin.Float, val buttons: Int, val button: Int, val modifiers: Int, val clickCount: Int, val deltaX: kotlin.Float, val deltaY: kotlin.Float, val deltaMode: WheelDeltaMode, val timestampNanos: Long) : HostEvent
+    data class ZoomChanged(override val nodeId: Int, override val handlerId: Long, val k: kotlin.Float, val os: kotlin.Float, val level: Int) : HostEvent
     data class SelectionChanged(override val nodeId: Int, override val handlerId: Long, val version: Int, val anchorLine: Int, val anchorColumn: Int, val activeLine: Int, val activeColumn: Int) : HostEvent
     data class VisibleRangeChanged(override val nodeId: Int, override val handlerId: Long, val version: Int, val firstLine: Int, val lastLine: Int) : HostEvent
     data class EditorFocusChanged(override val nodeId: Int, override val handlerId: Long, val focused: Boolean) : HostEvent
@@ -1258,7 +1266,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 5133983562059878052L
+    const val SCHEMA_HASH: Long = -6175437954945919089L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1449,6 +1457,18 @@ object Protocol {
                         if (resizable > 1) {
                             throw ProtocolException("invalid resizable flag $resizable", offset + 16)
                         }
+                        // A byte saying whether there is a zoom level, then the level as a
+                        // signed byte.
+                        val zoom = readU16(batch, base, available, offset + 18)
+                        val zoomLevel = when (zoom and 0xFF) {
+                            0 -> null
+                            1 -> (zoom shr 8).toByte().toInt().also { level ->
+                                if (level < -8 || level > 8) {
+                                    throw ProtocolException("invalid zoom level $level", offset + 19)
+                                }
+                            }
+                            else -> throw ProtocolException("invalid zoom flag $zoom", offset + 18)
+                        }
                         Mutation.SetWindow(
                             Window(
                                 chrome(readU16(batch, base, available, offset + 4), offset + 4),
@@ -1460,6 +1480,7 @@ object Protocol {
                                 readU16(batch, base, available, offset + 12),
                                 readU16(batch, base, available, offset + 14),
                                 resizable == 1,
+                                zoomLevel,
                             ),
                         )
                     }
@@ -1658,6 +1679,7 @@ object Protocol {
                 is HostEvent.AnimationEvent -> null
                 is HostEvent.ReducedMotionChanged -> null
                 is HostEvent.Pointer -> null
+                is HostEvent.ZoomChanged -> null
                 is HostEvent.SelectionChanged -> null
                 is HostEvent.VisibleRangeChanged -> null
                 is HostEvent.EditorFocusChanged -> null
@@ -1690,6 +1712,7 @@ object Protocol {
                 is HostEvent.AnimationEvent -> 40
                 is HostEvent.ReducedMotionChanged -> 20
                 is HostEvent.Pointer -> 72
+                is HostEvent.ZoomChanged -> 28
                 is HostEvent.SelectionChanged -> 36
                 is HostEvent.VisibleRangeChanged -> 28
                 is HostEvent.EditorFocusChanged -> 24
@@ -1726,6 +1749,7 @@ object Protocol {
                 is HostEvent.AnimationEvent -> 31
                 is HostEvent.ReducedMotionChanged -> 32
                 is HostEvent.Pointer -> 8
+                is HostEvent.ZoomChanged -> 33
                 is HostEvent.SelectionChanged -> 34
                 is HostEvent.VisibleRangeChanged -> 35
                 is HostEvent.EditorFocusChanged -> 36
@@ -1836,6 +1860,11 @@ object Protocol {
                     out.putFloat(event.deltaY)
                     out.putInt(wheelDeltaModeTag(event.deltaMode))
                     out.putLong(event.timestampNanos)
+                }
+                is HostEvent.ZoomChanged -> {
+                    out.putFloat(event.k)
+                    out.putFloat(event.os)
+                    out.putInt(event.level)
                 }
                 is HostEvent.SelectionChanged -> {
                     out.putInt(event.version)
@@ -2023,6 +2052,7 @@ object Protocol {
         140 -> PropertyKind.PointerKinds
         141 -> PropertyKind.Cursor
         142 -> PropertyKind.UserSelect
+        120 -> PropertyKind.IslandZoom
         27 -> PropertyKind.Progress
         else -> throw ProtocolException("unknown property tag $tag", offset)
     }

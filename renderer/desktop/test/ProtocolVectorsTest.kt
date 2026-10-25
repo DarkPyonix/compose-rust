@@ -110,6 +110,9 @@ class ProtocolVectorsTest {
                 is Mutation.WithdrawNotification -> false
                 is Mutation.RequestNotificationPermission -> false
                 is Mutation.EditCode -> mutation.nodeId !in created
+                is Mutation.SetSelection -> mutation.nodeId !in created
+                is Mutation.RevealRange -> mutation.nodeId !in created
+                is Mutation.SetFolded -> mutation.nodeId !in created
                 // An animation is played on a node, so one that names a node the vector
                 // never created is reported once the batch is in.
                 is Mutation.StartAnimation -> mutation.animation.nodeId !in created
