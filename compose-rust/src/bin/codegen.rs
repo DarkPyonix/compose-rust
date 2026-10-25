@@ -2,12 +2,12 @@ use compose_rust::codegen::{
     ANDROID_BRIDGE_RELATIVE_PATH, ANDROID_FAST_NATIVE_RELATIVE_PATH, EVENT_VECTOR_RELATIVE_PATH,
     GENERATED_RELATIVE_PATH, JNI_RUST_RELATIVE_PATH, LINUX_HOST_DEF_RELATIVE_PATH,
     MUTATION_VECTOR_RELATIVE_PATH, SCHEMA_HASH_RELATIVE_PATH, TRANSFORM_3D_VECTOR_RELATIVE_PATH,
-    VECTOR_DESCRIPTION_RELATIVE_PATH,
-    WASM_RUST_RELATIVE_PATH, WEB_BRIDGE_RELATIVE_PATH, WEB_LOADER_RELATIVE_PATH,
-    generate_android_bridge_kotlin, generate_event_vector, generate_fast_native_kotlin,
-    generate_jni_rust, generate_kotlin, generate_linux_host_def, generate_mutation_vector,
-    generate_schema_hash, generate_transform_3d_vector, generate_vector_description, generate_wasm_rust,
-    generate_web_bridge_kotlin, generate_web_loader_js,
+    VECTOR_DESCRIPTION_RELATIVE_PATH, WASM_RUST_RELATIVE_PATH, WEB_BRIDGE_RELATIVE_PATH,
+    WEB_LOADER_RELATIVE_PATH, generate_android_bridge_kotlin, generate_event_vector,
+    generate_fast_native_kotlin, generate_jni_rust, generate_kotlin, generate_linux_host_def,
+    generate_mutation_vector, generate_schema_hash, generate_transform_3d_vector,
+    generate_vector_description, generate_wasm_rust, generate_web_bridge_kotlin,
+    generate_web_loader_js,
 };
 use std::path::{Path, PathBuf};
 
