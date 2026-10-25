@@ -531,6 +531,12 @@ class NodeTable {
                 PropertyKind.OnKeyDown,
                 PropertyKind.OnRangeRequested,
                 PropertyKind.OnDismiss,
+                // Pointer subscription, cursor and selectability are valid on any widget.
+                // The interpreter does not act on them yet.
+                PropertyKind.OnPointer,
+                PropertyKind.PointerKinds,
+                PropertyKind.Cursor,
+                PropertyKind.UserSelect,
                 -> true
 
                 // A Tooltip's text is the explanation it shows, and its description in the
