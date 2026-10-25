@@ -354,32 +354,49 @@ private fun annotate(
         runs.forEachIndexed { index, run ->
             val from = broken.position(utf8.decodeToString(0, run.start).length)
             val to = broken.position(utf8.decodeToString(0, run.start + run.length).length)
-            // A run of text with no role may name its own font. Where the text has a
-            // role, or the run does, the font is the theme's.
-            val family = input.runFonts[index]
-                ?.takeIf { input.noRole && run.role == null }
-                ?.let { resolveFontFamily(it, assets, problems) }
-            val style = SpanStyle(
-                color = run.color?.let(theme::color) ?: androidx.compose.ui.graphics.Color.Unspecified,
-                // Behind this run's letters only, line by line where it wraps. The line's
-                // own background is the node's, and this is the part of it that changed.
-                background = runBackground(run, theme),
-                fontWeight = if (run.bold) FontWeight.Bold else null,
-                fontStyle = if (run.italic) FontStyle.Italic else null,
-                fontSize = run.role?.let { sized(theme.type(it).size) } ?: TextUnit.Unspecified,
-                fontFamily = family,
-                textDecoration = when {
-                    run.underline && run.strikethrough ->
-                        TextDecoration.combine(listOf(TextDecoration.Underline, TextDecoration.LineThrough))
-                    run.underline -> TextDecoration.Underline
-                    run.strikethrough -> TextDecoration.LineThrough
-                    else -> null
-                },
-            )
+            val style = spanStyle(run, input.runFonts[index], input.noRole, theme, assets, sized, problems)
             addStyle(style, from, to)
             if (link != null && run.handlerId != 0L) addLink(link(run), from, to)
         }
     }
+}
+
+/**
+ * The Compose style of one span record. Measuring and drawing both build their spans here,
+ * so what a span changes about its letters is decided in one place and the two cannot
+ * drift apart.
+ */
+private fun spanStyle(
+    run: TextRun,
+    fonts: List<FontRef>?,
+    noRole: Boolean,
+    theme: ResolvedTheme,
+    assets: AssetCache,
+    sized: (Float) -> TextUnit,
+    problems: MutableList<String>,
+): SpanStyle {
+    // A run of text with no role may name its own font. Where the text has a
+    // role, or the run does, the font is the theme's.
+    val family = fonts
+        ?.takeIf { noRole && run.role == null }
+        ?.let { resolveFontFamily(it, assets, problems) }
+    return SpanStyle(
+        color = run.color?.let(theme::color) ?: androidx.compose.ui.graphics.Color.Unspecified,
+        // Behind this run's letters only, line by line where it wraps. The line's
+        // own background is the node's, and this is the part of it that changed.
+        background = runBackground(run, theme),
+        fontWeight = if (run.bold) FontWeight.Bold else null,
+        fontStyle = if (run.italic) FontStyle.Italic else null,
+        fontSize = run.role?.let { sized(theme.type(it).size) } ?: TextUnit.Unspecified,
+        fontFamily = family,
+        textDecoration = when {
+            run.underline && run.strikethrough ->
+                TextDecoration.combine(listOf(TextDecoration.Underline, TextDecoration.LineThrough))
+            run.underline -> TextDecoration.Underline
+            run.strikethrough -> TextDecoration.LineThrough
+            else -> null
+        },
+    )
 }
 
 private fun tabId(index: Int): String = "compose-rust-tab-$index"
