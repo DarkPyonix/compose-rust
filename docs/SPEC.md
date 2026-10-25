@@ -1252,6 +1252,7 @@ Renderer가 AOT 컴파일된 바이너리이므로 Host가 그리기 코드를 �
 - 구독하지 않은 제스처는 **인식기를 붙이지 않습니다.** `on_drag_move`를 선언한 노드에만 드래그 인식이 걸립니다. 모든 노드에 거는 것은 NFR-9 위반입니다.
 - `DragMove`는 프레임당 최대 1건으로 합칩니다. 포인터 이벤트는 프레임보다 자주 오므로 합치지 않으면 프레임당 여러 번 VirtualDom을 돌게 됩니다.
 - FR-12의 `consume`이 그대로 적용됩니다. 부모로 전파할지는 핸들러가 정합니다.
+- HTML 경로의 노드 단위 포인터 입력(호버, 누름, 휠, 끌기, 캡처)은 FR-46이 `Pointer` 이벤트 하나로 다룹니다. 8번은 `Pointer`가 되고 9번은 쓰지 않는 예약입니다. 아래 표의 `PointerEnter`, `PointerExit`, `ContextMenu`, `Scroll` 행은 구독한 노드에 대해서는 FR-46이 대체합니다.
 - 플랫폼 차이는 Renderer가 흡수합니다. 터치에는 호버가 없으므로 iOS와 Android에서 `PointerEnter`는 발생하지 않습니다. Host 코드는 그대로 두고, 호버로만 보이는 UI를 두지 않는 것은 애플리케이션의 책임입니다.
 
 #### 18.1.1 핸들러 속성 태그
@@ -2971,6 +2972,212 @@ Host는 디스플레이 배율(밀도)을 모르고 바뀐 것도 모릅니다. 
 1. 포커스를 받은 `TextField`가 `OnFocusGained`를 한 번 보내고, 포커스를 잃으면 `OnFocusLost`를 보냅니다(fr45_focus_gained_and_lost_pair).
 2. 키 하나를 눌렀다 떼면 `OnKeyDown` 다음에 같은 `code`의 `OnKeyUp`이 옵니다(fr45_key_up_follows_key_down).
 3. 핸들러가 없는 노드에는 두 이벤트 모두 경계를 건너지 않습니다(fr45_unregistered_nodes_get_no_events).
+
+### FR-46 노드 단위 포인터 이벤트 (`Agreed`, dioxus-compose 소유자 결정 D8, 이슈 #116)
+
+요청한 쪽: dioxus-compose FR-34.5 수용 기준 1(포인터 이동, hover, `:hover`/`:active`)과 2(`mousedown`/`mouseup`, `dblclick`, `contextmenu`, `wheel`, 드래그, 포인터 캡처). dioxus-compose의 고정 rev에는 포인터 이벤트가 없고, FR-18.1이 8-15를 제스처용으로 예약만 해 두었습니다. HTML 경로는 `blitz-dom`이 만든 표시 목록을 Host가 직접 적중 판정하므로(FR-42), Renderer에 필요한 것은 "어느 HTML 상자인가"가 아니라 "구독한 노드 안에서 포인터가 어떻게 움직였는가"입니다. 그래서 위젯마다 제스처를 나누는 대신 **이벤트 하나에 종류 칸을 둡니다.**
+
+#### 46.1 구독
+
+- 이벤트를 받는 노드는 구독한 노드뿐입니다. 구독은 노드마다의 선택 사항이고 속성 둘로 합니다. 핸들러 `OnPointer`(속성 태그 67, 값은 핸들러 id)와 받을 종류의 비트마스크 `PointerKinds`(속성 태그 140, `u32`, 종류 `k`의 비트는 `1 << (k - 1)`)입니다.
+- 둘 중 하나라도 없거나 마스크가 0이면 구독이 아닙니다. **구독하지 않은 노드에는 포인터 입력 수정자를 붙이지 않습니다**(FR-18.1과 같은 규칙, NFR-9). 마스크에 `Move`가 없으면 이동을 위한 호버 추적도 켜지 않습니다.
+- Renderer는 포인터 아래에서 해당 종류를 구독한 가장 깊은 노드에 먼저 보냅니다. 핸들러가 소비하지 않으면(46.5) 같은 종류를 구독한 가장 가까운 조상으로 올라갑니다. `Enter`와 `Leave`는 올라가지 않고 노드마다 따로 옵니다(DOM의 `pointerenter`, `pointerleave`와 같습니다).
+- 18.1.1이 예약한 67번(`OnPointerEnter`)을 `OnPointer`가 씁니다. 아직 전송된 적이 없어 움직이는 바이트가 없습니다. 68번(`OnPointerExit`)은 예약으로 남기고 쓰지 않습니다. 140은 15.2.2의 규칙대로 FR-40(110-116), FR-45(117, 118), FR-38.9(130-133) 뒤의 새 블록(140-149)을 엽니다.
+
+#### 46.2 이벤트 레코드
+
+18.1의 표에서 **8번을 `Pointer`로 정하고 9번은 쓰지 않는 예약으로 둡니다.** 호버 들어옴과 나감, 우클릭, 휠은 `Pointer`의 종류이므로 18.1의 `PointerEnter`(8), `PointerExit`(9) 행은 이 이벤트로 대체되고, `ContextMenu`(11)와 `Scroll`(15)은 구독 노드에 대해서는 이 이벤트가 맡습니다. 위젯에 붙는 제스처인 `LongPress`(10)와 드래그(12-14)는 18.1 그대로입니다. 끌기는 `Down`, `Move`, `Up`과 캡처(46.4)로 HTML 경로가 직접 만듭니다.
+
+공통 머리 16바이트(`node_id`, `handler_id`) 뒤에 페이로드가 옵니다. 오프셋은 레코드 시작 기준이고 레코드는 72바이트 고정입니다. 가변 부분도, 문자열 참조도 없습니다(PR-4).
+
+| 오프셋 | 칸 | 뜻 |
+|---|---|---|
+| 16 | `kind: u32` | `Move=1, Enter=2, Leave=3, Down=4, Up=5, Cancel=6, Wheel=7, ContextMenu=8`. 모르는 값은 `ProtocolError` |
+| 20 | `pointer_id: u32` | 같은 손가락, 펜, 마우스 하나를 이어서 가리키는 값. 마우스는 1 |
+| 24 | `pointer_type: u32` | `Mouse=1, Touch=2, Pen=3` |
+| 28 | `x: f32` | 받는 노드의 왼쪽 위 모서리 기준, 단위 dp |
+| 32 | `y: f32` | 위와 같음 |
+| 36 | `buttons: u32` | 지금 눌려 있는 버튼의 비트마스크 |
+| 40 | `button: u32` | 이 이벤트를 일으킨 버튼의 비트(`Down`, `Up`만). 그 밖의 종류는 0 |
+| 44 | `modifiers: u32` | `Shift=1, Ctrl=2, Alt=4, Meta=8`. FR-12.1 `KeyDown`의 네 수정자와 같은 뜻 |
+| 48 | `click_count: u32` | `Down`과 `Up`에서 연속 누름 횟수(1, 2, ...). 그 밖의 종류는 0 |
+| 52 | `delta_x: f32` | `Wheel`만. 양수가 오른쪽 |
+| 56 | `delta_y: f32` | `Wheel`만. 양수가 아래쪽 |
+| 60 | `delta_mode: u32` | `Wheel`만. `Pixel=0`(dp), `Line=1`, `Page=2`(DOM과 같은 숫자) |
+| 64 | `timestamp_nanos: u64` | 입력이 OS에서 발생한 시각. 단조 시계이고 `render_frame`의 `frame_time_nanos`와 같은 시계 |
+
+- **버튼 비트.** `Primary=1, Secondary=2, Tertiary=4(가운데), Back=8, Forward=16`. Compose의 `PointerButtons`와 이름과 순서가 같고, DOM의 `buttons`와 숫자도 같습니다. Renderer는 `Back`과 `Forward`를 보조 버튼 하나로 합치거나 `Tertiary`로 바꾸지 않습니다. 포크 쪽 입력 수정(포크 PR #165, 진행 중)이 들어가기 전에는 플랫폼에 따라 뒤의 둘이 오지 않을 수 있고, 그 경우에도 오는 버튼의 비트는 위 표대로입니다.
+- **`dblclick`은 Host가 만듭니다.** `Down`/`Up`의 `click_count`가 2가 되면 Host가 DOM `dblclick`을 일으킵니다. 간격과 거리의 기준은 OS 설정이므로 Renderer가 셉니다.
+- **`ContextMenu`는 Renderer가 정합니다.** 플랫폼 관례대로 오른쪽 버튼 누름, macOS의 Control 누르고 클릭, 터치 길게 누르기, 메뉴 키를 이 종류로 보냅니다. 이때는 `Down`을 따로 보내지 않습니다. 소비되지 않으면 FR-33.1의 기본 메뉴 동작이 이어지고, 소비되면 메뉴를 띄우지 않습니다.
+- **`Enter`와 `Leave`.** 마우스와 펜은 호버로, 터치는 접촉 전후로 옵니다(DOM의 `pointerenter`, `pointerleave`와 같습니다). 좌표는 들어오고 나간 순간의 포인터 자리이고 `Leave`의 좌표는 노드 밖일 수 있습니다. `:hover`는 Host가 `Enter`, `Leave`, `Move`로 계산하며 Renderer에는 호버 상태가 따로 없습니다.
+- **`Cancel`.** OS가 입력을 가져갈 때(창 비활성, 시스템 제스처, 터치 취소) 한 번 옵니다. `Cancel`은 눌린 버튼을 해제한 것으로 치며, 캡처도 끝납니다.
+
+#### 46.3 좌표
+
+- 단위는 dp이고 Host는 dp를 CSS px로 씁니다. 원점은 받는 노드의 왼쪽 위입니다. 화면이나 창 좌표는 보내지 않습니다(18.1과 같은 이유로, Host는 창 위치를 모릅니다).
+- 노드나 조상에 `Transform`(FR-41.1) 또는 3D 변환(FR-41.3)이 있으면 좌표는 **변환 전 노드 공간으로 되돌려** 보냅니다. 적중 판정이 그리는 모양을 따르는 것(FR-41.1 기준 5)과 같은 행렬의 역을 씁니다. 역행렬이 없는 변환(축소가 0)에서는 이벤트를 보내지 않습니다.
+- **확대 배율(FR-43)은 걷어 냅니다.** `IslandZoom` `k`가 있는 HTML 영역 안에서는 좌표와 `Wheel`의 `Pixel` 델타를 `k`로 나눈 값, 곧 영역 기준 CSS px로 보냅니다. FR-43이 "포인터 좌표는 영역 기준 CSS px로 옵니다"라고 정한 것과 같은 값입니다. 영역 밖의 구독 노드는 `k = 1`로 칩니다. 이렇게 해야 Host가 배율을 모른 채 적중 판정을 그대로 할 수 있습니다.
+
+#### 46.4 캡처와 합치기
+
+- **캡처는 암묵적입니다.** `Down`을 받은 노드(`Down`을 구독한 노드)는 그 포인터의 `Up`이나 `Cancel`까지 모든 `Move`와 `Up`을 받습니다. 포인터가 노드 밖으로 나가도 마찬가지이고 좌표는 노드 밖(음수 포함)일 수 있습니다. 경계선 끌기처럼 빠르게 벗어나는 동작이 이것으로 됩니다. 캡처 중에는 다른 노드가 `Enter`, `Leave`, `Move`를 받지 않습니다. 캡처한 노드가 지워지면 이벤트는 조용히 버려지고 `Cancel`은 가지 않습니다. 받을 노드가 없기 때문입니다.
+- 명시적 해제 명령은 두지 않습니다. 끝은 `Up`과 `Cancel`뿐이고, 경계 진입점도 명령도 늘지 않습니다(PR-2).
+- **`Move`는 프레임당 노드마다 최대 한 건입니다.** 포인터 이벤트는 프레임보다 자주 오므로 합치지 않으면 한 프레임에 VirtualDom이 여러 번 돕니다(18.1의 `DragMove`와 같은 이유). Renderer가 가장 최근 위치, `buttons`, `modifiers`를 쥐고 있다가 프레임 시작에 한 건으로 보냅니다. `Wheel`은 델타를 더해 프레임당 한 건으로 합칩니다(`delta_mode`가 다르면 합치지 않고 따로). `Enter`, `Leave`, `Down`, `Up`, `Cancel`, `ContextMenu`는 합치지 않으며, 보내기 전에 쥐고 있던 `Move`를 먼저 내보내 순서가 바뀌지 않게 합니다. 합치는 상태는 노드마다 고정 크기라 정상 상태에서 할당하지 않습니다(NFR-9).
+- 호출은 PR-1대로 같은 스레드의 `dispatch_event` 직접 호출이고, 큐나 스레드가 늘지 않습니다.
+
+#### 46.5 소비
+
+핸들러의 동기 반환값을 `Clicked`와 같이 읽습니다(FR-12). 0이 아니면 소비로 보아 그 이벤트는 위로 올라가지 않고, Compose의 클릭, 스크롤, 선택 같은 기본 동작도 하지 않습니다. 0이면 가장 가까운 구독한 조상으로, 그다음에는 평소 처리로 넘어갑니다. `Wheel`을 소비하지 않으면 감싸는 `ScrollColumn`이 스크롤합니다. IME 조합 중에도 포인터 이벤트는 막지 않습니다(키 이벤트와 다릅니다). 조합 자체를 바꾸지 않기 때문입니다.
+
+#### 46.6 수용 기준
+
+1. 구독한 노드만 이벤트를 받습니다. 구독하지 않은 노드에는 포인터 입력 수정자가 붙지 않습니다(인터프리터 단위 테스트, fr46_unsubscribed_node_gets_no_pointer_modifier).
+2. 마스크에 든 종류만 옵니다. `Down|Up`만 구독한 노드는 `Move`를 받지 않고 호버 추적도 켜지 않습니다(fr46_only_masked_kinds_are_sent).
+3. 마우스가 노드에 들어오면 `Enter`, 안에서 움직이면 `Move`, 나가면 `Leave`가 순서대로 한 번씩 옵니다. `x`, `y`는 노드 기준 dp입니다(fr46_hover_enter_move_leave_in_order).
+4. 한 프레임 안의 `Move` 수십 건이 한 건으로 오고, 위치는 마지막 값입니다. 그 사이에 `Down`이 끼면 `Down` 앞에 `Move`가 먼저 갑니다(fr46_moves_coalesce_to_one_per_frame, fr46_pending_move_flushes_before_down).
+5. `Primary`, `Secondary`, `Tertiary`, `Back`, `Forward`를 각각 누르면 `button`과 `buttons`가 위 비트대로 옵니다. `Back`이 `Secondary`나 `Tertiary`로 합쳐지지 않습니다(fr46_button_bits_match_compose_pointer_buttons).
+6. 같은 자리를 빠르게 두 번 누르면 두 번째 `Down`과 `Up`의 `click_count`가 2입니다(fr46_double_press_reports_click_count_two).
+7. Control 누르고 클릭(macOS)과 오른쪽 버튼 누름이 각각 `ContextMenu` 한 건이고 `Down`은 나가지 않습니다. 핸들러가 소비하면 기본 메뉴가 뜨지 않습니다(fr46_context_menu_kind_and_consume).
+8. `Wheel`은 `delta_x`, `delta_y`, `delta_mode`를 싣고, 한 프레임의 여러 휠이 더해져 한 건으로 옵니다. 소비하지 않으면 감싸는 `ScrollColumn`이 스크롤합니다(fr46_wheel_deltas_sum_per_frame_and_pass_through).
+9. `Down`을 받은 노드는 포인터가 밖으로 나가도 `Up`까지 `Move`를 받고, 그동안 다른 노드는 `Enter`, `Move`를 받지 않습니다(fr46_capture_keeps_moves_after_leaving_bounds).
+10. `Cancel`이 오면 눌림과 캡처가 끝납니다. 캡처한 노드가 지워지면 에러 없이 버려집니다(fr46_cancel_ends_capture, fr46_removed_capture_node_drops_silently).
+11. `rotate(30deg)`한 노드에서 좌표가 변환 전 공간으로 옵니다. 역행렬이 없는 변환에서는 이벤트가 가지 않습니다(fr46_coordinates_are_mapped_back_through_transform).
+12. `k = 1.5`인 HTML 영역 안의 좌표와 `Pixel` 휠 델타가 `k`로 나눠진 CSS px입니다(fr46_island_pointer_coordinates_exclude_zoom).
+13. 소비한 이벤트는 조상에게 올라가지 않고, 소비하지 않은 것은 가장 가까운 구독한 조상에게 갑니다. `Enter`, `Leave`는 올라가지 않습니다(fr46_unconsumed_bubbles_to_subscribed_ancestor).
+14. 모르는 `kind`는 `ProtocolError`이고 프로세스는 계속 돕니다(nfr7_unknown_pointer_kind_is_a_protocol_error).
+15. 터치에서 `Enter`는 `Down` 앞, `Leave`는 `Up` 뒤에 옵니다. 실제 마우스, 펜, 터치의 입력 확인과 `Back`/`Forward` 버튼은 기기에서 손으로 확인하고 §6과 같은 방식으로 기록합니다.
+16. 구독한 노드 천 개가 있는 장면에서 포인터를 움직이는 프레임의 시간이 NFR-9 예산 안이고, 정상 상태 할당이 0입니다. 수치를 이 항목에 기록합니다.
+
+#### 46.7 비용
+
+이벤트 태그 하나(8), 속성 둘(67 재사용, 140), 이벤트 페이로드 모양 하나. 구독하지 않은 화면에는 비용이 없습니다. `pointer_id`는 터치와 펜에서 플랫폼이 준 포인터 번호이고, 접촉이 끝나면 다른 접촉이 다시 쓸 수 있습니다. 다중 터치에서는 접촉마다 따로 `Enter`, `Down`, `Up`, `Leave`가 옵니다.
+
+### FR-47 커서 모양과 글자 선택 가능 여부 (`Agreed`, dioxus-compose 소유자 결정 D8, 이슈 #116)
+
+요청한 쪽: dioxus-compose FR-34.5. CSS `cursor`와 `user-select`는 Host가 상속까지 풀어 계산한 값을 노드마다 보내면 됩니다. 속성 둘이고 새 위젯도 새 경계 진입점도 없습니다.
+
+번호: 속성 `Cursor` 141, `UserSelect` 142(FR-46의 140 뒤, 15.2.2의 140-149 블록).
+
+#### 47.1 `Cursor`
+
+- 값은 `u32` 열거형이고 CSS `cursor` 키워드와 이름이 같습니다. `Auto=0, Default=1, Pointer=2, Text=3, VerticalText=4, Crosshair=5, Move=6, Grab=7, Grabbing=8, NotAllowed=9, NoDrop=10, Wait=11, Progress=12, Help=13, ContextMenu=14, Cell=15, Copy=16, Alias=17, AllScroll=18, ZoomIn=19, ZoomOut=20, ColResize=21, RowResize=22, EResize=23, NResize=24, NeResize=25, NwResize=26, SResize=27, SeResize=28, SwResize=29, WResize=30, EwResize=31, NsResize=32, NeswResize=33, NwseResize=34, None=35`. 모르는 값은 `ProtocolError`이고 그 속성만 버립니다.
+- 상속은 Host의 일입니다. CSS의 `cursor`는 상속되는 속성이므로 Host가 계산해 노드마다 보냅니다. Renderer는 상속을 따로 풀지 않습니다. `url(...)` 형태의 그림 커서는 이 속성에 없고, 그 경우 Host는 목록의 마지막 키워드를 보냅니다.
+- 포인터 아래의 노드 중 가장 깊은, `Auto`가 아닌 `Cursor`를 가진 노드의 값이 보입니다. 모두 `Auto`이면 그 자리의 위젯이 정합니다(`TextField`는 `Text`, 그 밖은 `Default`). 포인터 캡처 중(FR-46.4)에는 캡처한 노드의 값이 보입니다. 끌기 중에 커서가 깜빡이며 바뀌지 않게 하려는 것입니다.
+- 플랫폼에 같은 모양이 없으면 가장 가까운 모양으로 바꿉니다. 짝은 플랫폼 계층의 표로 두며 모든 값에 대해 정해져 있어야 합니다. 예: Windows의 `ZoomIn`은 돋보기가 없으므로 `Crosshair`, `Grab`/`Grabbing`은 손 모양 `Pointer`. 이 표를 빠뜨린 값은 `Default`로 그려지고 시험이 실패해야 합니다. 터치만 있는 기기(iOS, Android)에서는 속성이 받아들여지고 아무것도 하지 않습니다. 마우스를 연결한 iPad와 Android는 그 플랫폼의 포인터 아이콘 API를 씁니다.
+- 창에 커서를 적용하는 코드는 창 코드이므로 포크에 둡니다(INTENT D19). 이 저장소는 값을 포크의 호출로 넘기는 접합부만 가집니다.
+
+#### 47.2 `UserSelect`
+
+- 값은 `Auto=0, None=1, Text=2, All=3`입니다. Host가 CSS 상속을 풀어 보냅니다(`Auto`는 CSS의 `auto`).
+- FR-33과 합치는 규칙입니다. 앱 화면의 기본은 "고를 수 없음"이고 HTML 영역의 기본은 CSS의 `auto`, 곧 "고를 수 있음"입니다. 그래서 `AbsoluteBox` 영역 뿌리(`IslandZoom`을 가진 노드, FR-43)는 `UserSelect`가 `None`이 아니면 스스로 `SelectionContainer`처럼 선택 영역 하나를 엽니다. 그 밖의 노드는 `UserSelect`로 이 영역을 좁히거나 넓힙니다.
+  - `Text`: 그 노드 아래의 글자를 `SelectionContainer` 안에 둡니다. 이미 위에 영역이 있으면 변화가 없습니다.
+  - `None`: Compose의 `DisableSelection`에 해당합니다. 그 노드 아래의 글자는 위의 영역이 있어도 골라지지 않고, 끌기 시작점도 되지 않습니다. 그 안의 버튼과 컨트롤은 평소처럼 눌립니다(FR-33 기준 5와 같습니다).
+  - `All`: 그 노드 아래를 한 번 누르면 노드의 글자 전체가 선택됩니다. 선택을 일부만 할 수 없습니다. 안정 API로 되지 않으면 어댑터 파일 하나에 가두고 버전을 고정합니다(NFR-6).
+  - `Auto`: 부모를 따릅니다.
+- 선택 상태는 Renderer의 것입니다(D5, FR-33). 속성은 "고를 수 있는가"만 정하고 선택 범위는 Host로 가지 않습니다. 복사도 FR-33과 같이 Renderer가 플랫폼 클립보드에 직접 합니다.
+- `TextField`의 입력란 선택에는 영향이 없습니다. CSS에서 `user-select: none`이어도 입력란 안의 글자는 고를 수 있는 것과 같습니다.
+
+#### 47.3 수용 기준
+
+1. 열한 개의 대표 키워드(`Pointer`, `Text`, `Crosshair`, `Move`, `Grab`, `Grabbing`, `NotAllowed`, `Wait`, `ColResize`, `NwseResize`, `None`)가 설정된 노드 위에서 플랫폼 커서가 바뀌고, 노드를 벗어나면 되돌아옵니다. 데스크톱 셋은 창을 띄워 커서 이름을 읽는 시험으로, 그리기는 수동으로 확인합니다(fr47_cursor_keyword_reaches_the_window_cursor).
+2. 모든 `Cursor` 값에 대해 세 데스크톱 플랫폼의 짝이 정해져 있습니다(fr47_every_cursor_value_has_a_platform_mapping).
+3. 겹친 두 노드에서 가장 깊은 `Auto`가 아닌 값이 보이고, 캡처 중에는 캡처한 노드의 값이 포인터가 밖에 있어도 유지됩니다(fr47_deepest_cursor_wins_and_capture_pins_it).
+4. 모르는 `Cursor` 값은 `ProtocolError`이고 프로세스는 계속 돕니다(nfr7_unknown_cursor_value_is_a_protocol_error).
+5. HTML 영역의 글자는 기본으로 끌어서 골라지고 복사됩니다. `UserSelect::None`인 노드 아래의 글자는 골라지지 않고, 그 안의 버튼은 눌립니다(fr47_island_text_selectable_by_default, fr47_user_select_none_blocks_selection_but_not_controls).
+6. `UserSelect::All`인 노드를 누르면 그 노드의 글자 전체가 선택되고, 복사하면 전체가 클립보드에 들어갑니다(fr47_user_select_all_selects_the_whole_node).
+7. 선택 중과 복사에서 Host로 가는 이벤트가 없습니다(FR-33 기준 3과 같음, fr47_selection_sends_nothing_to_the_host).
+8. 터치 기기에서 `Cursor`는 에러 없이 무시됩니다.
+
+#### 47.4 비용
+
+속성 둘(141, 142). 열거형 두 개. 렌더러 쪽에서는 포인터 아래 노드의 `Cursor` 조회와 영역 뿌리의 선택 영역 하나. 노드마다 붙는 비용은 속성이 있을 때만이고, 없는 화면에는 없습니다.
+
+### FR-48 `@font-face`: Host가 글꼴 바이트를 등록하고 글꼴 목록에서 씁니다 (`Agreed`, dioxus-compose 소유자 결정 D8, 이슈 #116)
+
+요청한 쪽: dioxus-compose FR-34.5. 아이콘 글꼴(codicon 등)과 `@font-face`로 받은 글꼴을 Host가 한 번 등록하고, 돌려받은 id를 FR-40의 글꼴 목록에 넣고 싶습니다.
+
+**새 경계 진입점도 새 명령도 필요 없습니다.** 길은 이미 있습니다. FR-16.2의 `RegisterAsset`과 `ReleaseAsset`, FR-16.4의 `asset(kind, bytes)`, FR-23.2의 `AssetKind::Font`, FR-40의 `FontRef::Asset(id)`입니다. 이 항목이 하는 일은 그 길이 `@font-face`가 요구하는 모든 경우에 맞는다는 것을 규칙과 수용 기준으로 못 박는 것입니다(PR-2 그대로).
+
+#### 48.1 규칙
+
+1. **등록은 `asset(AssetKind::Font, bytes)`입니다.** 돌려받는 id는 FR-40의 `font` 목록의 `Asset(id)`에 그대로 넣습니다. 같은 바이트는 같은 id입니다(FR-16.4 3). 글꼴 파일이 TrueType, OpenType(`.ttf`, `.otf`), 그리고 그 모음(`.ttc`)인지는 Renderer가 바이트로 알아보며, 그 종류를 `kind`에 따로 싣지 않습니다. WOFF와 WOFF2는 Host가 풀어서 보냅니다(풀기는 CSS 쪽 도구가 하는 일이고 Renderer는 압축을 모릅니다). 알아볼 수 없는 바이트는 `ProtocolError`이고 그 id는 등록되지 않습니다.
+2. **굵기와 기울임은 파일에서 읽습니다.** 한 글꼴 패밀리의 굵기마다 파일이 따로이면 Host가 `@font-face`마다 등록하고, FR-40의 목록에 CSS가 고른 face의 id를 넣습니다. 레코드에 굵기와 기울임 칸을 새로 만들지 않습니다. 가변 글꼴은 `wght` 축을 `font_weight`가 정하는 값으로 씁니다.
+3. **목록의 해석은 FR-40 그대로입니다.** 앞에서부터 처음 해석되는 것을 쓰고, 없는 id는 `ProtocolError`와 함께 다음 항목으로 넘어갑니다. 글꼴에 없는 글자(글리프)는 목록의 다음 글꼴로 넘어가는 것이 CSS의 규칙입니다. 아이콘 글꼴은 사설 영역 글자만 갖고 있어서 이 규칙이 그대로 필요합니다.
+4. **사설 영역(U+E000 이후)도 그 글꼴로 그립니다.** 기본 글꼴 쪽이 먼저 글리프를 낚아채지 않도록, 목록 앞의 글꼴이 글자를 가지고 있으면 그것을 씁니다.
+5. **수명.** 등록한 글꼴은 `ReleaseAsset(id)`까지 살고 Host가 소유합니다(FR-16.2 4). `'static` 바이트를 쓰는 `asset()`(FR-16.4)은 Host가 끝날 때까지 두는 것이 기본이고, 쓰다가 내리고 싶은 경우를 위해 `release_asset(id)`를 작성 API에 둡니다. 새 경계 진입점이 아니라 배치에 `ReleaseAsset`을 싣는 길입니다. 내린 글꼴의 id를 목록에 둔 텍스트는 다음 갱신에서 규칙 3대로 다음 글꼴로 넘어가고 `ProtocolError`가 한 번 옵니다. 글꼴을 내려도 이미 지난 프레임의 그림이 깨지지 않고, 다음 프레임부터 바뀝니다.
+6. **측정과 그리기가 같은 글꼴을 풉니다**(FR-40). 등록한 글꼴이 아직 디코딩 전이어도 측정 호출(PR-2.1)이 그리기와 같은 값을 돌려줍니다. Renderer는 등록 호출 안에서 바이트를 복사하고 글꼴 얼굴을 한 번 만듭니다(FR-16.2 2).
+7. 글꼴 패밀리 이름으로 찾는 길을 만들지 않습니다. 이름 해석은 Host의 `@font-face` 표(CSS)가 하고 Renderer에는 id만 옵니다. `System(name)`은 시스템에 설치된 패밀리용이고 등록한 글꼴과 섞이지 않습니다.
+
+#### 48.2 수용 기준
+
+1. codicon 같은 아이콘 글꼴 바이트를 `asset(AssetKind::Font, ...)`로 등록하고 `font`의 목록 `[Asset(id), Generic(SansSerif)]`을 쓴 텍스트의 사설 영역 한 글자가 그 글꼴로 그려지고 크기가 0이 아닙니다(fr48_registered_icon_font_draws_private_use_glyph, FR-40 기준 2와 같은 확인).
+2. 같은 바이트를 두 번 등록하면 같은 id가 나오고 두 번째 등록은 큐에 들어가지 않습니다(fr48_same_font_bytes_register_once).
+3. 굵기가 다른 두 파일을 등록하고 두 텍스트가 각자의 id를 쓰면 다른 굵기로 그려집니다. 가변 글꼴에 `font_weight` 300과 700을 주면 다른 굵기로 그려집니다(fr48_weight_comes_from_the_font_file).
+4. 글리프가 없는 글자는 목록의 다음 글꼴로 넘어갑니다(fr48_missing_glyph_falls_to_next_font).
+5. `ReleaseAsset` 뒤 그 id를 쓰는 텍스트는 `ProtocolError`와 함께 다음 글꼴로 그려지고 프로세스는 계속 돕니다(fr48_released_font_falls_back_with_protocol_error).
+6. 알아볼 수 없는 바이트는 `ProtocolError`이고 등록되지 않습니다(nfr7_garbage_font_bytes_are_a_protocol_error).
+7. 등록된 글꼴을 쓰는 텍스트의 측정값과 그린 값이 같습니다(FR-40 기준 1을 글꼴 에셋으로 반복, fr48_measure_and_draw_agree_for_registered_font).
+8. 정상 프레임(등록도 해제도 없는)에서 Host 쪽 할당이 0입니다(NFR-9).
+
+#### 48.3 비용
+
+새 레코드도 태그도 없습니다. 스키마 해시가 움직이지 않습니다. 작성 API에 `release_asset(id)` 하나. Renderer는 글꼴 바이트의 형식 판별과 가변 글꼴 축 지정이 필요합니다.
+
+### FR-49 `Mask` 수정자: CSS `mask-image` (`Agreed`, dioxus-compose 소유자 결정 D8, 이슈 #116)
+
+요청한 쪽: dioxus-compose FR-34.5. CSS `mask-image`는 이미지나 그라데이션의 알파로 상자와 자식을 가리는 동작입니다. 자식까지 한 묶음으로 합성한 뒤에 적용해야 하므로 `Alpha`(FR-42)와 같은 종류의 수정자입니다.
+
+번호: 수정자 `Mask` 29. 26은 `Transform`(FR-41.1)이고 27은 FR-41.3, 28은 다른 항목이 가졌으므로 그 뒤를 씁니다. 속성도 명령도 이벤트도 늘지 않습니다.
+
+#### 49.1 값
+
+가변 길이 `SetModifier` 규칙(FR-41.1, `28 + 8k`바이트)에서 값 24바이트이므로 `k = 1`입니다(`Shadow`와 같음).
+
+| 오프셋(값 기준) | 칸 | 뜻 |
+|---|---|---|
+| 0 | `brush: u32` | 브러시 에셋 id(FR-23.1). 그라데이션 또는 이미지 브러시. 등록되지 않은 id는 `ProtocolError`이고 마스크가 없는 것처럼 그립니다 |
+| 4 | `repeat: u8` | `Repeat=0, RepeatX=1, RepeatY=2, NoRepeat=3, Space=4, Round=5` (CSS `mask-repeat`) |
+| 5 | `size_mode: u8` | `Auto=0, Cover=1, Contain=2, Explicit=3` |
+| 6 | 예약 `u16` | 0 |
+| 8 | `size_w: f32`, `size_h: f32` | `Explicit`일 때만 쓰는 크기(dp). 0보다 작으면 그 축은 `Auto` |
+| 16 | `pos_x: f32`, `pos_y: f32` | 위치(dp), 노드의 왼쪽 위 기준. `mask-position`의 백분율은 Host가 dp로 풀어 보냅니다 |
+
+- 이 24바이트는 CSS `mask-image`, `mask-size`, `mask-position`, `mask-repeat`를 싣습니다. Code-OSS의 `-webkit-mask: url(...) no-repeat 50% 50%`와 `-webkit-mask-size`(cover, contain, 길이)가 이것으로 그려집니다. 백분율 위치는 Host가 상자 크기에서 dp로 풀어 보냅니다. `mask-mode`는 지금 `alpha`입니다. 밝기(`luminance`) 모드, `mask-clip`, `mask-origin`, `mask-composite`, 여러 겹의 마스크는 FR-49.5에서 추적합니다.
+- 마스크의 기준 상자는 노드의 크기입니다. `RequiredSize`가 있으면 그 크기입니다.
+
+#### 49.2 그리기
+
+- 노드와 자식을 `graphicsLayer`로 오프스크린에 합성(`CompositingStrategy.Offscreen`)하고, 그 위에 브러시를 `BlendMode.DstIn`으로 그립니다. 브러시의 알파가 0인 곳이 지워집니다. 같은 노드의 `Alpha`, `Clip`, `Transform`과의 순서는 FR-41.1과 FR-42의 수정자 순서를 따릅니다(마스크는 자식과 같은 층 안에서 가장 마지막에 적용됩니다).
+- `Cover`, `Contain`, `Repeat` 계열은 이미지 브러시의 크기와 타일 방식으로 풉니다. 그라데이션은 기준 상자 크기에 늘어납니다.
+- 오프스크린 층은 마스크가 있는 노드에만 생깁니다. 마스크가 없는 화면은 비용이 없습니다. 마스크가 바뀔 때(브러시 id, 크기, 위치)는 수정자 한 건만 나가고 자식은 다시 구성되지 않습니다(FR-42.5).
+- 적중 판정은 마스크를 따르지 않습니다. CSS의 `mask`도 포인터 이벤트를 막지 않기 때문입니다. 알파가 0인 곳도 눌립니다.
+
+#### 49.3 수용 기준
+
+1. 선형 그라데이션(왼쪽 불투명, 오른쪽 투명) 마스크를 건 자식 포함 상자가 오른쪽으로 갈수록 투명해지고, 자식의 그림도 같이 가려집니다. 스크린숏 테스트(fr49_gradient_mask_fades_node_and_children).
+2. 이미지 브러시 마스크가 알파 모양대로 상자를 오려 냅니다. `NoRepeat`에서는 이미지 밖이 완전히 투명하고, `Repeat`에서는 타일이 깔립니다(fr49_image_mask_respects_repeat).
+3. `Cover`와 `Contain`, `Explicit`이 각각 CSS와 같은 크기로 그려지고, `pos_x`, `pos_y`가 그 자리를 옮깁니다(fr49_mask_size_and_position).
+4. 같은 노드의 `Alpha`와 `Clip`(둥근 모서리)과 함께 쓰면 층이 하나로 합성되고, 모서리 밖이 가려집니다(fr49_mask_composes_with_alpha_and_clip).
+5. 등록되지 않은 브러시 id는 `ProtocolError`이고 마스크 없이 그려집니다(nfr7_unregistered_mask_brush_is_a_protocol_error).
+6. 마스크 값만 바뀐 갱신에서 `Mask` 수정자 한 건만 나가고 자식 노드 갱신은 없습니다(fr49_mask_change_sends_one_modifier).
+7. 마스크가 있는 노드의 알파 0 영역이 포인터 이벤트(FR-46)를 받습니다(fr49_mask_does_not_affect_hit_testing).
+8. 마스크가 없는 정상 프레임의 할당과 그리기 비용이 마스크 도입 전과 같습니다(NFR-9, 벤치마크 수치를 이 항목에 기록합니다).
+9. 인코딩 후 디코딩한 값이 같습니다(fr10_mask_modifier_round_trips, FR-10 기준과 같은 방식).
+
+#### 49.4 비용
+
+수정자 태그 하나(29), 값 24바이트. 렌더러에 오프스크린 층 한 겹(마스크가 있을 때만). 디자인 시스템 규칙은 늘지 않습니다(FR-42와 같이 CSS가 모양을 정합니다).
+
+#### 49.5 남은 마스크 속성 (`Draft`, 이슈 #116)
+
+FR-49의 24바이트 값에 아직 없는 CSS 마스크 속성입니다. 버리지 않고 여기서 추적합니다. 지금 dioxus-compose가 그리는 Code-OSS 화면은 이것들을 쓰지 않습니다.
+
+- `mask-mode: luminance`: 마스크 이미지의 밝기로 오려 냅니다. 값의 예약 `u16`에서 `mode` 칸을 엽니다.
+- `mask-clip`, `mask-origin`: 마스크를 놓는 상자(border, padding, content)를 고릅니다.
+- `mask-composite`: 여러 겹을 합치는 방법(add, subtract, intersect, exclude)입니다.
+- 여러 겹의 마스크: 한 노드에 마스크 여러 장을 겹칩니다. 그때까지는 노드를 감싸는 `AbsoluteBox`로 겹쳐 표현합니다.
+
+수용 기준과 값 배치는 이 항목을 `Agreed`로 올릴 때 정합니다.
 
 ## 4. 경계 프로토콜
 
