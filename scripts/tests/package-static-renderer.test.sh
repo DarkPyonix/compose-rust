@@ -38,12 +38,13 @@ if out="$("$packager" "$work/win" windows-x64 1.2.3 "$work/out" 2>&1)"; then
     tarball="$work/out/compose-rust-renderer-v1.2.3-windows-x64.tar.gz"
     list="$(tar -tzf "$tarball")"
     [[ -f "$tarball.sha256" ]] && pass "windows-x64 writes the checksum" || fail "no checksum"
-    for entry in lib/libcompose_rust_renderer.a include/libcompose_rust_renderer_api.h \
+    for entry in libcompose_rust_renderer.a libcompose_rust_renderer_api.h \
                  schema-hash.txt renderer.version gcc/libstdc++.a gcc/libwinpthread.a \
                  native/dxc-windows-native.lib native/dxc-windows-static-ucrt.lib \
                  skiko/skiko-bridges.lib skiko/skia.lib skiko/skparagraph.lib; do
         grep -qxF -e "$entry" -e "./$entry" <<< "$list" && pass "windows-x64 carries $entry" || fail "windows-x64 lacks $entry"
     done
+    ! grep -qE '(^|/)(lib|include)/' <<< "$list" && pass "windows-x64 keeps the kit root layout" || fail "windows-x64 uses lib/ or include/"
     ! grep -q '\.obj$' <<< "$list" && pass "windows-x64 carries no loose objects" || fail "windows-x64 carries an .obj"
 else
     fail "windows-x64 packaging failed: $out"

@@ -14,9 +14,11 @@
 #   schema-hash.txt                         the schema the renderer was generated from
 #   renderer.version         the crate version it is for
 #
-# windows-x64 is the same plus the rest of the kit an MSVC link needs, which
-# build-windows.sh writes beside the archive and the Host's build script links:
+# windows-x64 is the kit root as build-windows.sh writes renderer/build/windows, which the
+# Host's build script reads (compose-rust/build.rs), so nothing is under lib/ or include/:
 #
+#   libcompose_rust_renderer.a, libcompose_rust_renderer_api.h, schema-hash.txt,
+#   renderer.version, and
 #   gcc/*.a                                 the GCC runtime the renderer object carries
 #   native/*.lib                            the Win32 window, the MinGW bridge, the embedded
 #                                           ICU loader, and the bridge for a static UCRT
@@ -81,9 +83,13 @@ mkdir -p "$out"
 out="$(cd "$out" && pwd)"
 staging="$out/$name.staging"
 rm -rf "$staging"
-mkdir -p "$staging/lib" "$staging/include"
-cp "$archive" "$staging/lib/"
-cp "$header" "$staging/include/"
+if [[ "$target" == windows-x64 ]]; then
+    cp "$archive" "$header" "$staging/"
+else
+    mkdir -p "$staging/lib" "$staging/include"
+    cp "$archive" "$staging/lib/"
+    cp "$header" "$staging/include/"
+fi
 cp "$hash" "$staging/schema-hash.txt"
 echo "$version" > "$staging/renderer.version"
 if [[ "$target" == windows-x64 ]]; then

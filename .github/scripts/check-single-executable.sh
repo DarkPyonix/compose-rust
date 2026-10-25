@@ -81,8 +81,10 @@ esac
 # Listed into a variable first: grep -q stops reading early, and under pipefail the tar it
 # cut off would fail the check.
 contents="$(tar -tzf "$artifact")"
-grep -qE '^(\./)?lib/libcompose_rust_renderer\.a$' <<< "$contents" ||
-    fail "$(basename "$artifact") does not carry lib/libcompose_rust_renderer.a" \
+archive_pattern='^(\./)?lib/libcompose_rust_renderer\.a$'
+[[ "$os" != Windows ]] || archive_pattern='^(\./)?libcompose_rust_renderer\.a$'
+grep -qE "$archive_pattern" <<< "$contents" ||
+    fail "$(basename "$artifact") does not carry the static renderer archive" \
         "Only the static renderer makes an application one executable."
 
 # A workspace build in this checkout would be found before the cache, and then this would
@@ -136,12 +138,11 @@ fi
     "$icu_files"
 
 if [[ "$os" == Windows ]]; then
-    # The kit as the build script reads it: the archive at its root, the rest beside it. The
-    # tarball keeps the archive under lib/ like the others, so it is copied up.
+    # The tarball root is the kit root, as build-windows.sh writes it and build.rs reads it.
     kit="$scratch/kit"
     mkdir -p "$kit"
     tar -xzf "$artifact" -C "$kit"
-    [[ -f "$kit/lib/libcompose_rust_renderer.a" ]] || fail "the unpacked kit has no lib/libcompose_rust_renderer.a"
+    [[ -f "$kit/libcompose_rust_renderer.a" ]] || fail "the unpacked kit has no libcompose_rust_renderer.a at its root"
     for piece in gcc/libstdc++.a native/dxc-windows-native.lib native/dxc-windows-static-ucrt.lib \
                  skiko/skiko-bridges.lib skiko/skia.lib; do
         [[ -f "$kit/$piece" ]] || fail "the kit has no $piece" \
@@ -149,7 +150,6 @@ if [[ "$os" == Windows ]]; then
     done
     find "$kit" -name 'icudtl.dat' | grep . && fail "the kit carries an icudtl.dat" \
         "The ICU data is to be inside the renderer's object, not beside it."
-    cp "$kit/lib/libcompose_rust_renderer.a" "$kit/libcompose_rust_renderer.a"
     DXC_WINDOWS_NATIVE_LIB="$(cygpath -w "$kit")"
     export DXC_WINDOWS_NATIVE_LIB
     # A hosted runner has no card: Windows' software adapter draws instead.
