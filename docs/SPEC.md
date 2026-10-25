@@ -3730,10 +3730,10 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 | NFR-10 | 렌더러 탐색 경로 | `COMPOSE_RUST_RENDERER_DIR` → 워크스페이스 빌드 결과물 → 버전·타깃별 캐시 → 릴리스 다운로드 순서로 찾음. 규격과 수용 기준은 §5.3. **2026-09-21 충족** | Done |
 | NFR-11 | 배포 | 크레이트는 crates.io, 렌더러는 플랫폼별 체크섬 릴리스 아티팩트. 설치는 `Cargo.toml` 한 줄이 전부이고 빌드 스크립트가 아티팩트를 가져옵니다. 규격과 수용 기준은 §5.3 (INTENT D10). **2026-09-21 macOS에서 충족**, Linux는 "Native renderer test" 실행 38823417678의 "One executable on linux-x64"와 "One executable on linux-arm64" 잡이 릴리스 모양의 타르볼로 소비자 크레이트를 빌드해 실행하는 것까지 확인했습니다. Windows는 실행 확인 미완료 | Agreed |
 | NFR-12 | 워크트리 빌드 격리 | 워크트리마다 자기 `target/`에 빌드하고, 다른 워크트리의 빌드 디렉터리를 가리키는 설정이 없음. 한 트리에서 컴파일된 codegen 바이너리가 다른 트리에 쓸 수 없음. 규격과 수용 기준은 §5.4 (INTENT D16). **2026-09-22 충족** | Done |
-| NFR-13 | Windows 단일 실행 파일 | Windows 렌더러를 Kotlin/Native로 빌드해 앱 실행 파일 하나에 링크함. JVM이 없고, 앱을 빌드하는 사람에게 MinGW를 요구하지 않음. 규격과 수용 기준은 §5.6 (INTENT D18, 2026-10-03 소유자 결정) | Agreed, 진행 중: 초안 PR #119(`feature/windows-kotlin-native`)와 그 위의 초안 PR #174, 이슈 #24. 둘 다 develop에 병합되지 않았습니다 |
-| NFR-14 | AWT 없는 데스크톱 렌더러가 기본 | 배포되는 데스크톱 렌더러가 AWT도 JVM도 쓰지 않음. macOS와 Linux는 Kotlin/Native 정적 라이브러리, Windows는 NFR-13. 앱이 아무것도 고르지 않아도 이 경로가 나옴. 규격과 수용 기준은 §5.5 (INTENT D4, 2026-10-03 소유자 결정) | Agreed, 진행 중: macOS와 Linux의 기본값은 PR #113(3be2ec74, 2026-10-04 병합)으로 Kotlin/Native 정적 렌더러이고 이슈 #22는 닫혔습니다. Windows는 PR #119, #174가 병합되기 전까지 GraalVM native-image AWT 경로로 남습니다. compose-rust가 내는 길은 Kotlin/Native뿐이라는 것이 소유자의 말입니다(2026-10-17) |
+| NFR-13 | Windows 단일 실행 파일 | Windows 렌더러를 Kotlin/Native로 빌드해 앱 실행 파일 하나에 링크함. JVM이 없고, 앱을 빌드하는 사람에게 MinGW를 요구하지 않음. 규격과 수용 기준은 §5.6 (INTENT D18, 2026-10-03 소유자 결정) | Agreed, 진행 중: PR #119(`feature/windows-kotlin-native`)와 그 위의 PR #174가 2026-10-24에 develop에 병합됐습니다. 이슈 #24는 열려 있습니다. Windows는 이 정적 렌더러 하나만 배포합니다(§5.6) |
+| NFR-14 | AWT 없는 데스크톱 렌더러가 기본 | 배포되는 데스크톱 렌더러가 AWT도 JVM도 쓰지 않음. macOS와 Linux는 Kotlin/Native 정적 라이브러리, Windows는 NFR-13. 앱이 아무것도 고르지 않아도 이 경로가 나옴. 규격과 수용 기준은 §5.5 (INTENT D4, 2026-10-03 소유자 결정) | Agreed, 진행 중: macOS와 Linux의 기본값은 PR #113(3be2ec74, 2026-10-04 병합)으로 Kotlin/Native 정적 렌더러이고 이슈 #22는 닫혔습니다. Windows의 PR #119, #174는 2026-10-24에 병합됐고, Windows 배포는 Kotlin/Native 정적 렌더러뿐입니다(§5.6). compose-rust가 내는 길은 Kotlin/Native뿐이라는 것이 소유자의 말입니다(2026-10-17) |
 | NFR-15 | 데스크톱 애플리케이션은 실행 파일 하나 | compose-rust 애플리케이션이 macOS, Windows, Linux에서 실행 파일 하나이고, 시스템 라이브러리 외에 아무것도 불러오지 않음. 렌더러, Skia, ICU 데이터가 안에 있음. 1.0.0 요구사항. 규격과 수용 기준은 §5.7 (INTENT D17, 2026-10-03 소유자 결정) | Agreed |
-| NFR-16 | 렌더러를 스키마 해시로 찾음 | 같은 크레이트 버전에서 스키마가 다른 git 리비전도 빌드됨. 버전 릴리스의 스키마 해시가 크레이트와 다르면 스키마 해시로 게시된 렌더러에서 찾고, 캐시 키는 스키마 해시임. 규격과 수용 기준은 §5.3.8 | Draft |
+| NFR-16 | 렌더러를 스키마 해시로 찾음 | 같은 크레이트 버전에서 스키마가 다른 git 리비전도 빌드됨. 버전 릴리스의 스키마 해시가 크레이트와 다르면 스키마 해시로 게시된 렌더러에서 찾고, 캐시 키는 스키마 해시임. 규격과 수용 기준은 §5.3.8 (소유자 결정, 2026-10-26) | Agreed |
 
 ### 5.1 프레임 예산 (NFR-9)
 
@@ -3933,7 +3933,7 @@ Windows와 Linux는 이 저장소에 실행할 기계가 없어 자동 테스트
 
 **배경.** 크레이트 버전은 릴리스 사이에서 같은 채로 스키마가 바뀝니다. 릴리스 뒤의 git 리비전을 고정한 소비자(예: dioxus-compose의 `d820585`, 크레이트 0.0.2, 스키마 `0x2106ffd038ad189b`)가 버전만으로 렌더러를 고르면 v0.0.2 렌더러(스키마 `0x284215b3caced78f`)를 받아 `check_schema_agreement`에서 죽습니다. 맞는 렌더러가 어디에도 없으므로 소비자가 빌드할 방법이 없습니다(#293).
 
-**정한 것 (초안).**
+**정한 것 (Agreed, 소유자 결정 2026-10-26).**
 
 1. **해시 표기.** `{hash}`는 `compose-rust/schema-hash.txt`의 값에서 `0x`를 떼고 소문자 16진수 16자리로 씁니다(예: `62b9a55ed371acad`). 접두사 없는 쪽이 파일 이름에 안전하기 때문입니다(소유자 결정). 로그와 오류 메시지에는 `0x`를 붙여 `schema-hash.txt`와 같은 모양으로 찍습니다.
 2. **스키마 아티팩트.** 파일 이름은 `compose-rust-renderer-schema-{hash}-{target}.tar.gz`와 `.sha256`입니다. 내용과 체크섬 형식은 5.3.1의 버전 아티팩트와 같고, `schema-hash.txt`가 들어 있습니다. 모든 렌더러 아티팩트가 `schema-hash.txt`를 싣는 것은 이미 사실입니다.
@@ -3941,6 +3941,7 @@ Windows와 Linux는 이 저장소에 실행할 기계가 없어 자동 테스트
 4. **게시 자동화와 릴리스의 존재.** GitHub 릴리스는 태그가 있어야 하므로 `renderer-dev` 태그 하나가 있습니다. 이 태그는 소유자가 한 번 만들었고(2026-10-25) 옮기거나 지우지 않습니다. 워크플로는 태그도 릴리스도 만들지 않습니다. 소유자가 이 릴리스를 만들기 전에는 올리기 단계가 알림을 남기고 건너뛰며 실패하지 않습니다. `develop`에 합쳐진 변경이 `schema-hash.txt`를 바꾸면 네 타깃의 렌더러를 빌드해 `gh release upload renderer-dev --clobber`로 자산을 올리거나 바꿉니다. 올릴 때 정리도 합니다. 가장 최근 해시 20개와 릴리스된 버전 태그(`v*`) 각각의 해시는 남기고 나머지 자산을 지웁니다. 파일은 `.github/workflows/publish-schema-renderer.yml`, 이름은 "Publish schema renderer"이며 무거운 워크플로이므로 `KNOWN_HEAVY`에 넣습니다. 같은 해시의 자산이 이미 있으면 다시 만들지 않습니다. 이 태그는 "태그는 `main`의 병합 커밋에만 붙인다"는 규칙의 유일한 예외이며, AGENTS.md의 Releasing에 그 예외가 적혀 있습니다.
 5. **빌드 스크립트의 탐색.** 5.3.2의 순서를 따릅니다. 1(`COMPOSE_RUST_RENDERER_DIR`)과 2(워크스페이스 결과물)는 그대로입니다. 3의 캐시는 `.../renderer/schema-{hash}/{target}`입니다. 4의 다운로드는 먼저 버전 릴리스를 받고, 받은 아티팩트의 `schema-hash.txt`가 크레이트의 해시와 같으면 그것을 씁니다. 다르면 스키마 렌더러를 시도합니다. 둘 다 맞지 않으면 5.3.6의 불일치 실패입니다. 버전 릴리스가 맞는 흔한 경우에는 요청이 늘지 않습니다.
 6. **`COMPOSE_RUST_RENDERER_URL`(선택).** 설정하면 `https://github.com/DarkPyonix/compose-rust/releases`를 대신하는 기준 주소로 쓰며, 그 아래에서 `download/v{version}/...`과 스키마 렌더러를 같은 규칙으로 찾습니다. 미러와 오프라인 CI를 위한 것이고 설치에 필요하지 않습니다. NFR-10은 그대로이며 설정하지 않은 빌드가 기본입니다.
+7. **승격: develop CI가 빌드하고 릴리스는 승격합니다.** [user] "그래 그렇게 해" (2026-10-26), "develop CI가 렌더러를 빌드하고 릴리스가 그것을 승격한다"는 안에 대한 승인입니다. develop CI는 스키마 해시마다 렌더러 자산 다섯 개를 `renderer-dev` 프리릴리스에 `--clobber`로 올립니다. 가장 최근 해시 20개와 `v*` 태그가 쓰는 해시는 남깁니다. 릴리스가 없으면 건너뜁니다. 파일 이름의 해시는 `0x` 없는 소문자 16진수입니다. `v*` 태그 릴리스 워크플로는 태그 커밋의 렌더러를 `renderer-dev`에서 찾아 sha256을 검증하고, 빌드하지 않고 `v0.0.x` 릴리스로 승격합니다. 없으면 지금처럼 빌드합니다. 목적은 릴리스를 약 1.5시간에서 몇 분으로 줄이는 것입니다(v0.0.3의 Windows 정적 빌드 하나가 51분이었습니다).
 
 **검토한 대안.**
 
@@ -3963,8 +3964,9 @@ Windows와 Linux는 이 저장소에 실행할 기계가 없어 자동 테스트
 7. nfr16_publish_skips_without_release: `renderer-dev` 릴리스가 없으면 올리기 단계는 알림을 내고 0으로 끝나며 아무것도 만들지 않습니다.
 8. nfr16_hash_spelling: 파일 이름에는 `0x` 없는 소문자 16진수가, 로그와 오류 메시지에는 `0x` 붙은 해시가 나옵니다.
 9. nfr16_no_env_var_needed: 위 변수가 하나도 없는 환경에서 NFR-10의 수용 기준 1에서 6이 그대로 통과합니다.
+10. nfr16_promote_without_build: `renderer-dev`에 태그 커밋의 해시 자산 다섯 개가 있고 sha256이 맞으면 릴리스 워크플로가 빌드 없이 `v0.0.x` 릴리스로 올립니다. sha256이 다르거나 자산이 없으면 빌드로 돌아갑니다.
 
-**상태: Draft.** 코드는 이 항목이 Agreed가 된 뒤에 따라옵니다.
+**상태: Agreed (2026-10-26).** 승격(7)과 기준 10의 코드는 아직 없습니다.
 
 ### 5.4 워크트리 빌드 격리 (NFR-12)
 
@@ -4025,9 +4027,11 @@ Cargo는 path 패키지의 유닛 해시에 패키지 경로를 넣지 않습니
 
 ### 5.6 Windows 단일 실행 파일 (NFR-13)
 
-> **현황(2026-10-17).** develop의 Windows 렌더러는 아직 GraalVM native-image입니다. Kotlin/Native `mingwX64` 렌더러는 초안 PR #119(`feature/windows-kotlin-native`)와 그 위의 초안 PR #174에 있고 병합되지 않았습니다(#24).
+> **현황(2026-10-26).** Kotlin/Native `mingwX64` 렌더러는 PR #119(`feature/windows-kotlin-native`)와 그 위의 PR #174로 2026-10-24에 develop에 병합됐습니다(이슈 #24는 열려 있음).
 
 **2026-10-03 소유자 결정(INTENT D18). 실험이 아니라 정식 통합입니다.** Windows 렌더러는 Kotlin/Native(`mingwX64`)로 빌드한 정적 라이브러리(`renderer/windows/`, `staticlib-windows/`)이고, Rust 앱의 MSVC 실행 파일에 링크됩니다. Skia와 skiko의 C++ 부분은 MSVC로 빌드해 같은 실행 파일에 들어갑니다. Compose와 skiko의 `mingwX64` 타깃은 Compose 포크의 커밋입니다(INTENT D19). 경계와 그 이유는 INTENT D18에 있습니다.
+
+**2026-10-26 소유자 결정: Windows 배포는 Kotlin/Native 정적 렌더러뿐입니다.** compose-rust가 Windows에 내는 렌더러는 `mingwX64` 정적 라이브러리(MSVC로 링크) 하나이고, Windows 앱은 macOS처럼 실행 파일 하나입니다. DLL, `icudtl.dat`, `include`가 없습니다. 자산 이름 `compose-rust-renderer-v<ver>-windows-x64.tar.gz`는 그대로 두고, 다음 버전부터 macOS, Linux와 같은 정적 키트를 뜻합니다. 대상은 Windows 10 이상이며 `D3DCOMPILER_47`을 불러오는 것은 허용합니다. GraalVM은 compose-rust의 배포에서 빠집니다. GraalVM 단일 바이너리는 확장 플러그인 포크(`thisisthepy/compose-multiplatform-extended`, 그쪽 #48 게이트)의 몫입니다. 실제 하드웨어 확인은 소유자의 Windows PC에서 하고, CI는 WARP를 씁니다. [user] "아니지 compose-rust는 kn만 사용하는거잖아" (2026-10-17), "그리고 Graal도 애초에 단일 바이너리로 나와야 하는데 그게 아니던데? dll, dat 그대로 있잖아. 분명 하나로 합치는걸 하자고 한지가 언젠데." (2026-10-26). `win32_window.c`는 그대로 둡니다(소유자의 C 하나 결정, 2026-10-04). 옮기는 일은 #26입니다.
 
 **MinGW는 렌더러 아티팩트를 만드는 빌드 안에만 있습니다.** 앱을 빌드하는 사람의 툴체인은 Rust의 기본 Windows 타깃(`x86_64-pc-windows-msvc`)과 MSVC 링커이고, MinGW 툴체인, MinGW DLL, `windows-gnu` 타깃 어느 것도 요구하지 않습니다. 렌더러 아티팩트에 들어가는 MinGW 오브젝트는 MSVC 링커가 뜻을 바꾸지 않고 읽도록 고쳐진 것입니다(생성자 섹션, 되감기 정보).
 
