@@ -741,6 +741,9 @@ class NodeTable {
                 PropertyKind.SoftWrap,
                 -> widget == WidgetKind.Text
 
+                // How large an HTML island is drawn. Only the island's root has one.
+                PropertyKind.IslandZoom -> widget == WidgetKind.AbsoluteBox
+
                 // How many a badge counts. Nothing else counts anything.
                 PropertyKind.Count -> widget == WidgetKind.Badge
 

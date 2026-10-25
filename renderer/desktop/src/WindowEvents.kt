@@ -37,7 +37,12 @@ import org.thisisthepy.compose.window.WindowEvent
  */
 private var lastPointerPosition: Offset = Offset.Zero
 
-internal fun ComposeScene.receive(event: WindowEvent, win32: Boolean = false) {
+/**
+ * Hands one window event to the scene. Answers whether a key was consumed by something in
+ * the scene, which is how a window knows a zoom shortcut was the application's to keep.
+ */
+internal fun ComposeScene.receive(event: WindowEvent, win32: Boolean = false): Boolean {
+    var keyConsumed = false
     when (event.kind) {
         // Built from parts rather than from a platform event. The toolkit's own key
         // event is what the supported path converts, and there is none here to convert.
@@ -63,6 +68,7 @@ internal fun ComposeScene.receive(event: WindowEvent, win32: Boolean = false) {
                 macKeyEvent(event.keyCode, event.modifiers.toLong() and 0xFFFFFFFFL, type, event.codePoint)
             }
             val consumed = sendKeyEvent(key)
+            if (event.kind == WindowEvent.KEY_DOWN) keyConsumed = consumed
             if (!win32) KeyLog.compose(key, consumed)
         }
 
@@ -112,6 +118,7 @@ internal fun ComposeScene.receive(event: WindowEvent, win32: Boolean = false) {
             scrollDelta = Offset(event.x, event.y),
         )
     }
+    return keyConsumed
 }
 
 

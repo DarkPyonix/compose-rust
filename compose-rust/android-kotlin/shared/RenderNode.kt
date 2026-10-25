@@ -27,9 +27,12 @@ import androidx.compose.ui.layout.Measurable
 import androidx.compose.ui.layout.MeasurePolicy
 import androidx.compose.ui.layout.MeasureResult
 import androidx.compose.ui.layout.MeasureScope
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Constraints
 import dev.darkpyonix.composerust.protocol.PropertyKind
+import dev.darkpyonix.composerust.runtime.LocalZoom
+import dev.darkpyonix.composerust.runtime.islandDensity
 import dev.darkpyonix.composerust.protocol.TypeRole
 import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.design.ContainerRole
@@ -75,6 +78,7 @@ import dev.darkpyonix.composerust.foundation.SelectableRegion
 import dev.darkpyonix.composerust.foundation.Unselectable
 import dev.darkpyonix.composerust.foundation.hostKeyEvents
 import dev.darkpyonix.composerust.runtime.EventDispatcher
+import dev.darkpyonix.composerust.ui.floatProp
 import dev.darkpyonix.composerust.ui.boxAlignment
 import dev.darkpyonix.composerust.ui.horizontalAlignment
 import dev.darkpyonix.composerust.ui.horizontalArrangement
@@ -332,8 +336,19 @@ fun RenderNode(
             // has decided all of it, and a second layout pass could only disagree with it.
             WidgetKind.AbsoluteBox -> Layout(
                 content = {
-                    node.children.forEach { childId ->
-                        key(childId) { RenderNode(childId, table, dispatcher) }
+                    // The root of an HTML island names the factor it is drawn at. Only the
+                    // children are given that Density: the box itself sits among native
+                    // widgets and is sized in theirs.
+                    val islandZoom = node.floatProp(PropertyKind.IslandZoom)
+                    val outer = LocalDensity.current
+                    val zoom = LocalZoom.current
+                    val density = remember(islandZoom, outer, zoom?.level) {
+                        islandZoom?.let { islandDensity(outer, zoom, it) } ?: outer
+                    }
+                    CompositionLocalProvider(LocalDensity provides density) {
+                        node.children.forEach { childId ->
+                            key(childId) { RenderNode(childId, table, dispatcher) }
+                        }
                     }
                 },
                 modifier = modifier,
