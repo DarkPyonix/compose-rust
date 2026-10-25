@@ -1,0 +1,137 @@
+# Windows package, host sample -- builds the notepad sample from this checkout against the
+# Kotlin/Native renderer built from this same tree, packages it, signs it with a throwaway
+# certificate, and runs the Windows App Certification Kit, which must pass the DPI awareness
+# check outright. That proves what the crate puts into every executable (its application
+# manifest) reaches the package the kit inspects.
+#
+# Heavy: the renderer is built here (windows-static.yml, two to three hours, cached), so it
+# runs on request like the other heavy workflows. package-windows.yml keeps the fast checks.
+
+name: Windows package host
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+    paths:
+      - 'scripts/packager-windows/**'
+      - 'compose-rust/build.rs'
+      - 'compose-rust/build/**'
+      - '.github/workflows/package-windows-host.yml'
+  workflow_dispatch:
+    inputs:
+      project:
+        description: 'Application directory holding Dioxus.toml and Cargo.toml'
+        default: 'samples/notepad'
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: package-windows-host-${{ github.event.pull_request.number || github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'run-heavy-ci' && format('-other-label-{0}', github.run_id) || '' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  PROJECT: ${{ inputs.project || 'samples/notepad' }}
+
+jobs:
+  requested:
+    name: Heavy checks requested
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.action == 'labeled' && github.event.label.name == 'run-heavy-ci') ||
+      (github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'run-heavy-ci'))
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Heavy checks requested by ${{ github.event_name }} ${{ github.event.action }}"
+
+  windows-static:
+    name: renderer
+    needs: requested
+    uses: ./.github/workflows/windows-static.yml
+
+  host:
+    name: Build a sample here, package and certify it
+    needs: [requested, windows-static]
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Take the renderer built from this tree
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-static-renderer-kit
+          path: ${{ runner.temp }}/renderer-kit
+
+      - name: Build the packager and the notepad sample
+        # The Kotlin/Native static renderer from windows-static.yml, linked into the
+        # executable, so the sample is one file and its schema is this tree's.
+        env:
+          DXC_WINDOWS_NATIVE_LIB: ${{ runner.temp }}/renderer-kit
+        run: |
+          cargo build --locked --release -p compose-rust-msix --bin compose-rust-msix
+          if ($LASTEXITCODE -ne 0) { throw "the packager did not build" }
+          cargo build --locked --release -p sample-notepad --bin sample-notepad
+          if ($LASTEXITCODE -ne 0) { throw "the sample did not build" }
+
+      - name: Show the manifest embedded in the sample
+        run: |
+          $ErrorActionPreference = 'Stop'
+          . ./scripts/packager-windows/scripts/common.ps1
+          $mt = Find-SdkTool 'mt.exe'
+          $exe = 'target\release\sample-notepad.exe'
+          & $mt -nologo "-inputresource:$exe;#1" "-out:$env:RUNNER_TEMP\embedded.manifest"
+          if ($LASTEXITCODE -ne 0) { throw "sample-notepad.exe has no embedded manifest" }
+          $text = Get-Content -Raw "$env:RUNNER_TEMP\embedded.manifest"
+          Write-Host $text
+          if ($text -notmatch 'PerMonitorV2') { throw "the embedded manifest does not declare PerMonitorV2" }
+
+      - name: Lay the sample out beside the renderer and package it
+        id: pack
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $payload = Join-Path $env:RUNNER_TEMP 'host-payload'
+          New-Item -ItemType Directory -Force -Path (Join-Path $payload 'bin') | Out-Null
+          Copy-Item -Force 'target\release\sample-notepad.exe' (Join-Path $payload 'bin\sample-notepad.exe')
+          $out = Join-Path $env:RUNNER_TEMP 'msix'
+          $summary = Join-Path $env:RUNNER_TEMP 'msix-summary.txt'
+          & 'target\release\compose-rust-msix.exe' --project $env:PROJECT --out $out --summary $summary `
+            --test-identity --payload-dir $payload --exe 'bin\sample-notepad.exe'
+          if ($LASTEXITCODE -ne 0) { throw "packaging failed" }
+          Get-Content $summary | Add-Content -Path $env:GITHUB_OUTPUT -Encoding utf8
+
+      - name: Create and trust a test certificate
+        id: cert
+        run: >
+          ./scripts/packager-windows/scripts/new-test-certificate.ps1
+          -Publisher '${{ steps.pack.outputs.publisher }}'
+          -OutDir "$env:RUNNER_TEMP\cert" -Trust
+
+      - name: Sign
+        run: >
+          ./scripts/packager-windows/scripts/sign.ps1
+          -Path '${{ steps.pack.outputs.package }}','${{ steps.pack.outputs.bundle }}'
+          -Pfx '${{ steps.cert.outputs.pfx }}' -Password '${{ steps.cert.outputs.password }}'
+
+      - name: Windows App Certification Kit (DPI awareness must pass)
+        run: >
+          ./scripts/packager-windows/scripts/run-wack.ps1
+          -Package '${{ steps.pack.outputs.bundle }}'
+          -Report "$env:RUNNER_TEMP\wack\host-bundle-report.xml"
+          -RequirePass DPIAwarenessValidation
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wack-reports-host
+          path: ${{ runner.temp }}/wack/
+          if-no-files-found: warn
