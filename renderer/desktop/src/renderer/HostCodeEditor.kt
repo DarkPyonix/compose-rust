@@ -27,8 +27,10 @@ import dev.darkpyonix.composerust.ui.textStyle
  * The document, the selection, the undo history and the decorations live in the node's
  * [CodeEditorModel], which the batches the Host sends feed and the surface edits. This only
  * resolves how the editor looks from the design system and carries what the model and the
- * surface have to say to the Host: each committed change, an edit refused, a lens pressed or
- * a suggestion accepted, a pointer at rest, and the save shortcut.
+ * surface have to say to the Host: each committed change, an edit refused, a lens or a gutter
+ * mark pressed or a suggestion accepted, a pointer at rest, the save shortcut, and what the
+ * Host listens to about the editor itself: the selection, the lines on screen, focus, folds
+ * and whether an input method is composing.
  */
 @Composable
 internal fun HostCodeEditor(
@@ -45,7 +47,7 @@ internal fun HostCodeEditor(
     val currentDispatcher by rememberUpdatedState(dispatcher)
     val callbacks = remember(node, model) {
         CodeEditorCallbacks(
-            onOutput = { node.sendCodeOutput(model.drainOutput(), currentDispatcher) },
+            onOutput = { node.sendCodeOutput(model.drainOutput(includeReports = true), currentDispatcher) },
             onSave = {
                 val handler = node.handler(PropertyKind.OnSave)
                 if (handler != null) {
@@ -102,6 +104,9 @@ internal fun codeEditorLook(node: Node, theme: ResolvedTheme, tabWidth: Int?): C
         tabWidth = tabWidth ?: style.tabWidth,
         hoverDelayMillis = style.hoverDelayMillis,
         commandIsMeta = theme.platform == HostPlatform.MacOs || theme.platform == HostPlatform.Ios,
+        // A mark takes the role the Host named, and otherwise the lens's quiet ink.
+        gutterMark = { role -> if (role == null) style.lens else theme.color(role) },
+        foldMarker = style.lineNumber,
     )
 }
 
@@ -148,6 +153,35 @@ internal fun Node.codeEvents(outputs: List<EditorOutput>, onError: (String) -> U
             is EditorOutput.Activated -> {
                 val handler = handler(PropertyKind.OnDecorationClick) ?: continue
                 events += HostEvent.DecorationActivated(id, handler, output.id)
+            }
+            is EditorOutput.SelectionMoved -> {
+                val handler = handler(PropertyKind.OnSelectionChange) ?: continue
+                val selection = output.selection
+                events += HostEvent.SelectionChanged(
+                    id,
+                    handler,
+                    output.version,
+                    selection.anchor.line,
+                    selection.anchor.column,
+                    selection.caret.line,
+                    selection.caret.column,
+                )
+            }
+            is EditorOutput.VisibleRange -> {
+                val handler = handler(PropertyKind.OnVisibleRangeChange) ?: continue
+                events += HostEvent.VisibleRangeChanged(id, handler, output.version, output.first, output.last)
+            }
+            is EditorOutput.Focus -> {
+                val handler = handler(PropertyKind.OnEditorFocusChange) ?: continue
+                events += HostEvent.EditorFocusChanged(id, handler, output.focused)
+            }
+            is EditorOutput.FoldToggled -> {
+                val handler = handler(PropertyKind.OnFoldChange) ?: continue
+                events += HostEvent.FoldChanged(id, handler, output.startLine, output.collapsed)
+            }
+            is EditorOutput.Composing -> {
+                val handler = handler(PropertyKind.OnCompositionChange) ?: continue
+                events += HostEvent.CompositionChanged(id, handler, output.composing)
             }
             is EditorOutput.Error -> onError(output.message)
         }
