@@ -2358,7 +2358,12 @@ fn main() {
 `mutable_state_of`가 돌려주는 `MutableState<T>`는 `Copy`입니다(2026-10-25 소유자 결정, 이슈 #278). 클로저로 옮길 때 `.clone()`을 쓰지 않습니다. 핸들은 값이 아니라 아레나 안의 자리를 가리키는 작은 값이고, 값은 composition이 소유합니다.
 
 1. **소유와 해제.** 값은 composition의 아레나가 소유하고, 값을 만든 `remember` 호출의 슬롯 그룹이 가진 칸에 놓입니다. 핸들은 아레나 번호와 세대를 담습니다. 그 그룹이 composition에서 사라지면(분기가 닫힘, 키 있는 항목이 빠짐, 부모가 떠남) 값은 그 recomposition이 적용될 때 해제되고, 칸의 세대가 올라갑니다. 값의 `Drop`은 한 번 실행됩니다. 그룹이 같은 recomposition 안에서 다시 나타나면 같은 값을 유지합니다(Compose의 `remember`와 같음). 키 있는 항목의 재배치는 해제가 아니라 이동이라 값과 핸들이 그대로입니다.
-2. **해제된 뒤의 사용.** 세대가 맞지 않는 핸들은 해제된 것으로 처리합니다. `try_get`, `try_set`, `try_update`는 `Err(StateError::Released)`를 돌려줍니다. `set`과 `update`는 아무 일도 하지 않고(no-op) 로그 한 줄을 남깁니다. `get`은 값을 돌려줄 수 없으므로 `Released`를 이름에 담은 메시지로 패닉합니다. 값을 읽을 수 없는 자리를 기본값으로 메우지 않기 위해서이고, 해제될 수 있는 쪽(워커 스레드 등)은 `try_get`을 씁니다. 어느 경우에도 해제된 칸을 읽거나 쓰지 않고, 재사용된 칸을 다른 값으로 착각하지 않으며(세대 검사), 미정의 동작은 없습니다. 해제된 핸들을 읽어도 구독은 만들어지지 않습니다.
+2. **해제된 뒤의 사용.** 세대가 맞지 않는 핸들은 해제된 것으로 처리합니다. 화면이 사라진 뒤에 늦게 도착하는 콜백(네트워크 응답, 타이머)이 상태를 바꾸는 것은 정상적인 상황이고 Compose에서도 해가 없습니다. 그래서 쓰기는 조용히 버리고, 읽기는 프로그래머 오류로 봅니다.
+   - `set`과 `update`는 아무 일도 하지 않습니다. 디버그 빌드에서는 핸들마다 한 번 경고 로그를 남기고, 릴리스 빌드에서는 남기지 않습니다.
+   - `get`은 값을 돌려줄 수 없으므로 패닉합니다. 메시지에는 `Released`와 그 핸들을 만든 `remember`의 소스 위치(파일과 줄)가 들어갑니다. 값을 읽을 수 없는 자리를 기본값으로 메우지 않기 위해서입니다.
+   - `try_get`, `try_set`, `try_update`는 `Err(StateError::Released)`를 돌려줍니다. 해제될 수 있는 쪽(워커 스레드 등)은 이것을 씁니다.
+   - 이 패닉은 경계 입력이 잘못된 경우의 규칙(NFR-7, `ProtocolError`)과 다릅니다. NFR-7은 와이어로 들어온 잘못된 입력에 관한 것이고 프로그래머 오류에는 해당하지 않습니다.
+   - 어느 경우에도 해제된 칸을 읽거나 쓰지 않고, 재사용된 칸을 다른 값으로 착각하지 않으며(세대 검사), 미정의 동작은 없습니다. 해제된 핸들을 읽어도 구독은 만들어지지 않습니다.
 3. **워커 스레드.** `MutableState<T>`는 `T: Send`일 때 `Send + Sync`입니다. 워커 스레드는 핸들을 `move`로 가져가 `set`과 `update`를 부를 수 있고, 별도의 보내기용 핸들이 없습니다. 아레나는 쓰기를 잠금 안에서 적용하고, 쓰기는 값을 바꾼 뒤 그 상태를 읽은 스코프를 무효로 표시하고 Host가 내부적으로 프레임을 요청합니다. 워커의 쓰기는 UI 스레드가 다음 프레임 시작에 반영하고, 한 프레임 안의 여러 쓰기는 한 번의 recomposition이 됩니다. 워커에서 `get`은 잠금 안에서 현재 값을 복제해 돌려주며 구독을 만들지 않습니다(구독은 UI 스레드의 composition 안에서 읽을 때만 생깁니다). 워커는 경계 함수를 부르지 않습니다(PR-3). composition이 떠난 뒤의 워커 쓰기는 1번과 2번이 정한 대로 no-op입니다.
 4. **같음.** 두 핸들은 같은 아레나 칸과 세대를 가리킬 때만 같습니다(`PartialEq`, `Eq`, `Hash`). 값이 같다는 뜻이 아닙니다. 핸들이 `Copy`이므로 소유 매개변수와 건너뛰기 비교(39.2)는 핸들을 값처럼 비교하며, 같은 핸들을 넘긴 composable 호출은 건너뜁니다.
 5. **`.clone()`이 필요 없습니다.** 핸들을 `move` 클로저 여러 개와 자식 클로저에서 복제 없이 씁니다. `remember`는 `T: Clone`을 요구하는 현재 시그니처를 유지하고, `Copy`는 `Clone`이므로 그대로 동작합니다.
@@ -2395,7 +2400,7 @@ fn main() {
 2. **체인 위젯.** 위치 인자 규칙에 해당하지 않는 위젯(`Text`, `Button` 등)의 체인 호출이 그대로 동작합니다. 이름 패턴 `fr39_chain_widget_*`.
 3. **`Copy` 핸들.** `MutableState<T>`가 `Copy`입니다(컴파일 시점 확인). 한 핸들을 `.clone()` 없이 `move` 클로저 둘에 넘기는 코드가 컴파일되고, 둘 다 같은 값을 바꿉니다. 이름 패턴 `fr39_state_handle_is_copy_*`.
 4. **해제.** 그룹이 사라진 recomposition이 적용된 뒤 값의 `Drop`이 한 번 실행됩니다. 같은 recomposition 안에서 다시 나타난 그룹과 키 있는 항목의 이동은 값을 유지합니다. 이름 패턴 `fr39_state_released_*`.
-5. **해제된 뒤의 사용.** 해제된 핸들의 `try_get`, `try_set`, `try_update`는 `StateError::Released`를 돌려주고, `set`과 `update`는 no-op이고, `get`은 `Released` 패닉입니다. 칸이 다른 값에 재사용된 뒤에도 옛 핸들이 새 값을 읽거나 쓰지 못합니다(세대 검사). 이름 패턴 `fr39_state_use_after_release_*`.
+5. **해제된 뒤의 사용.** 해제된 핸들의 `set`과 `update`는 아무 일도 하지 않고 다른 상태와 화면을 바꾸지 않습니다(fr39_state_use_after_release_set_is_a_no_op). 디버그 빌드에서 경고 로그가 핸들마다 정확히 한 번 나옵니다(fr39_state_use_after_release_warns_once_in_debug). `get`은 패닉하고 메시지에 `Released`와 `remember`의 파일과 줄이 들어 있습니다(fr39_state_use_after_release_get_panics_with_the_creation_site). `try_get`, `try_set`, `try_update`는 `StateError::Released`를 돌려줍니다(fr39_state_use_after_release_try_returns_released). 칸이 다른 값에 재사용된 뒤에도 옛 핸들이 새 값을 읽거나 쓰지 못합니다(fr39_state_use_after_release_does_not_reach_a_reused_slot).
 6. **워커 스레드.** `MutableState<i32>`가 `Send + Sync`입니다(컴파일 시점 확인). 워커 스레드의 쓰기가 다음 프레임에 반영되고, 한 프레임 안의 UI 쓰기와 워커 쓰기가 recomposition 한 번이 되며, composition이 떠난 뒤의 워커 쓰기가 오류 없이 무시됩니다. 이름 패턴 `fr39_state_worker_*`.
 7. **같음.** 같은 칸의 핸들 복사본은 같고, 값이 같은 서로 다른 상태의 핸들은 같지 않습니다. 이름 패턴 `fr39_state_handle_identity_*`.
 
