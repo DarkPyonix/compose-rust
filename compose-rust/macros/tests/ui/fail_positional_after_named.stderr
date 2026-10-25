@@ -1,0 +1,10 @@
+error: a positional argument of Field! follows a named one; name it too, the parameters are: `value`, `single_line`
+ --> tests/ui/fail_positional_after_named.rs:3:1
+  |
+3 | #[Composable]
+  | ^^^^^^^^^^^^^
+...
+9 |     Field!(single_line = true, String::new());
+  |     ----------------------------------------- in this macro invocation
+  |
+  = note: this error originates in the macro `Field` (in Nightly builds, run with -Z macro-backtrace for more info)

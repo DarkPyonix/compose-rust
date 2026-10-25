@@ -162,7 +162,11 @@ fn mentions_self(ty: &Type) -> bool {
     struct Find(bool);
     impl<'ast> Visit<'ast> for Find {
         fn visit_path(&mut self, path: &'ast syn::Path) {
-            if path.segments.first().is_some_and(|first| first.ident == "Self") {
+            if path
+                .segments
+                .first()
+                .is_some_and(|first| first.ident == "Self")
+            {
                 self.0 = true;
             }
             visit::visit_path(self, path);

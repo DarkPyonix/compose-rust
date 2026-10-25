@@ -70,6 +70,7 @@ pub(crate) fn normalise_default(tokens: TokenStream) -> TokenStream {
 /// Token text with the spaces `TokenStream::to_string` puts around punctuation taken out.
 fn tidy(mut text: String) -> String {
     for (from, to) in [
+        ("{ }", "{}"),
         (" :: ", "::"),
         (":: ", "::"),
         (" < ", "<"),
@@ -412,7 +413,9 @@ mod tests {
         let items = expand(function, params);
         let docs = docs_of(&items[0]).join("\n");
         let value = docs.find("`value: String`, required").expect("value");
-        let label = docs.find("`label: impl Fn()`, default `|| {}`").expect("label");
+        let label = docs
+            .find("`label: impl Fn()`, default `|| {}`")
+            .expect("label");
         let line = docs
             .find("`single_line: bool`, default `false`")
             .expect("single_line");
@@ -439,20 +442,27 @@ mod tests {
             ty,
         }];
         let docs = docs_of(&expand(function, params)[0]).join("\n");
-        assert!(docs.contains("default `::compose_rust::ui::Modifier::new()`"), "{docs}");
+        assert!(
+            docs.contains("default `::compose_rust::ui::Modifier::new()`"),
+            "{docs}"
+        );
     }
 
     #[test]
     fn fr39_call_macro_is_hidden_exported_and_reexported_at_the_function_visibility() {
         let (function, params) = sample();
         let items = expand(function, params);
-        let Item::Macro(item) = &items[0] else { panic!() };
+        let Item::Macro(item) = &items[0] else {
+            panic!()
+        };
         assert_eq!(item.mac.path.segments.last().unwrap().ident, "macro_rules");
         assert_eq!(item.ident.as_ref().unwrap(), "__compose_call_Field");
         let text = quote!(#(#items)*).to_string();
         assert!(text.contains("macro_export"));
         assert!(text.contains("doc (hidden)"));
-        let Item::Use(reexport) = &items[1] else { panic!() };
+        let Item::Use(reexport) = &items[1] else {
+            panic!()
+        };
         assert!(matches!(reexport.vis, Visibility::Public(_)));
     }
 

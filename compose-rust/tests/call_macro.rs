@@ -73,7 +73,10 @@ fn fr39_function_form_takes_every_argument_and_no_defaults() {
     });
     assert_eq!(
         take_log(),
-        vec!["Labelled text=a hint=h bold=true plain_modifier=true", "content"]
+        vec![
+            "Labelled text=a hint=h bold=true plain_modifier=true",
+            "content"
+        ]
     );
 }
 
@@ -124,7 +127,9 @@ fn fr39_call_macro_trailing_block_is_the_content_closure() {
     take_log();
     compose(|| {
         Labelled!("a".into(), |_| {}, { note("block") });
-        Labelled!("b".into(), |_| {}, bold = true, { note("block after names") });
+        Labelled!("b".into(), |_| {}, bold = true, {
+            note("block after names")
+        });
         Labelled!("c".into(), |_| {}, content = || note("named content"));
     });
     let log = take_log();
@@ -158,7 +163,11 @@ fn fr39_default_modifier_is_modifier_new_and_other_defaults_apply_in_macro_form(
 fn fr39_default_modifier_can_be_given_and_then_differs() {
     take_log();
     compose(|| {
-        Labelled!("a".into(), |_| {}, modifier = Modifier::new().fill_max_width());
+        Labelled!(
+            "a".into(),
+            |_| {},
+            modifier = Modifier::new().fill_max_width()
+        );
     });
     assert_eq!(
         take_log(),
@@ -212,7 +221,11 @@ fn fr39_call_macro_limits_generics_are_inferred_like_the_function_form() {
     });
     assert_eq!(
         take_log(),
-        vec!["Generic [1] [2]", "Generic [1] []", "Generic [\"a\"] [\"b\"]"]
+        vec![
+            "Generic [1] [2]",
+            "Generic [1] []",
+            "Generic [\"a\"] [\"b\"]"
+        ]
     );
 }
 

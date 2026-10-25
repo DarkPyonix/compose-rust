@@ -1,0 +1,10 @@
+error: missing required argument `value` for Field!
+ --> tests/ui/fail_missing_required.rs:3:1
+  |
+3 | #[Composable]
+  | ^^^^^^^^^^^^^
+...
+9 |     Field!(single_line = true);
+  |     -------------------------- in this macro invocation
+  |
+  = note: this error originates in the macro `Field` (in Nightly builds, run with -Z macro-backtrace for more info)
