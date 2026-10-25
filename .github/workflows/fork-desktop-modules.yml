@@ -74,7 +74,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: compose-fork-desktop
-          path: |
+          # One path that holds skiko-awt too. With two nested paths the artifact is rooted at their
+          # common parent, and the download into ~/.m2/repository/org then lands without the
+          # org/thisisthepy/compose prefix.
+          path: ~/.m2/repository/org/thisisthepy/compose
+|
             ~/.m2/repository/org/thisisthepy/compose
             ~/.m2/repository/org/thisisthepy/compose/skiko/skiko-awt
           retention-days: 7
