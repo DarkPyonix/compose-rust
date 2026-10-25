@@ -3,7 +3,7 @@
 //! caller reads, so a change to one is a change to what the macro tells its users.
 
 #[test]
-fn fr39_call_macro_errors_name_the_parameter() {
+fn fr39_call_macro_compile_fail_points_at_the_offending_argument() {
     let cases = trybuild::TestCases::new();
     cases.pass("tests/ui/pass_*.rs");
     cases.compile_fail("tests/ui/fail_*.rs");

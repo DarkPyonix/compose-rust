@@ -4,31 +4,26 @@
 //! gets a macro of the same name that takes the arguments positionally first and by name
 //! after that, fills in `#[default(..)]` values, and expands to one call of the function.
 //!
-//! The macro is a small state machine written as `macro_rules!` rules, generated per
-//! function. Its state is the argument list so far, one bracketed slot per parameter, and
-//! the arguments not read yet:
+//! The generated `macro_rules!` has one rule. It forwards the function's name, one entry per
+//! parameter (its name and, when it has one, its default expression) and the caller's
+//! argument tokens, untouched, to the hidden proc macro [`check`]. The proc macro reads the
+//! arguments, so an error is reported with `syn::Error::new_spanned` on the caller's own
+//! tokens and points at the offending argument. A `compile_error!` written in a
+//! `macro_rules!` body would point at the `#[Composable]` attribute instead.
 //!
-//! * `@p<K>`: reading the positional prefix; `K` parameters are filled. A positional
-//!   argument fills slot `K`. A `name = value` argument or a trailing `{ .. }` block moves
-//!   to the named phase.
-//! * `@n`: reading `name = value` arguments in any order. Each parameter has a rule for the
-//!   empty slot (fill it) and one for a filled slot (duplicate).
-//! * `@call`: every argument has been read. Empty slots of parameters with a default take
-//!   it, an empty slot of a required parameter is an error naming it, and when none is
-//!   left the rule emits `Name(slot0, slot1, ..)`.
+//! On success the proc macro emits `Name(arg0, arg1, ..)`. Nothing is bound to a local, so
+//! the arguments stay inside the function call where closures take their parameter types
+//! from the function's bounds, and they are evaluated in parameter order.
 //!
-//! Nothing is bound to a local, so the arguments stay inside the function call where
-//! closures take their parameter types from the function's bounds, and they are evaluated in
-//! parameter order.
-//!
-//! The rules call the macro again by the name the caller used for it. A rule cannot name the
-//! macro by an absolute path: inside the crate that defines it, the compiler refuses
-//! `crate::__compose_call_Name` for a macro that another macro expanded. The function is
-//! called by its own name for the same reason.
+//! The rule names the proc macro as `::compose_rust::__compose_call_check!`, which works
+//! from any crate (and inside compose-rust through `extern crate self`). The function is
+//! called by its own name, so the caller's scope decides what it means.
 
 use proc_macro2::{Group, Punct, Spacing, TokenStream, TokenTree};
 use quote::{format_ident, quote};
-use syn::{Attribute, Ident, ItemFn, Type, Visibility};
+use quote::ToTokens;
+use syn::parse::{Parse, ParseStream};
+use syn::{Attribute, Expr, Ident, ItemFn, Token, Type, Visibility};
 
 /// One parameter, as the call macro sees it.
 pub(crate) struct CallParam {
@@ -147,182 +142,18 @@ fn documentation(function: &ItemFn, params: &[CallParam]) -> Vec<String> {
 pub(crate) fn generate(function: &ItemFn, params: &[CallParam]) -> TokenStream {
     let name = &function.sig.ident;
     let hidden = format_ident!("__compose_call_{}", name);
-    let count = params.len();
-    let slot = |index: usize| format_ident!("s{}", index);
-    let has_content = params.last().is_some_and(|param| param.ident == "content");
-
-    // `[ $($s0:tt)* ] [ $($s1:tt)* ] ..`, with slot `which` matched as empty.
-    let capture = |empty: Option<usize>| -> TokenStream {
-        let slots = (0..count).map(|index| {
-            let var = slot(index);
-            if Some(index) == empty {
-                quote!([])
-            } else {
-                quote!([ $($#var:tt)* ])
-            }
-        });
-        quote!(#(#slots)*)
-    };
-    // The same slots, spliced back. `fill` replaces one slot's content.
-    let forward = |fill: Option<(usize, TokenStream)>| -> TokenStream {
-        let slots = (0..count).map(|index| match &fill {
-            Some((target, tokens)) if *target == index => quote!([ #tokens ]),
-            _ => {
-                let var = slot(index);
-                quote!([ $($#var)* ])
-            }
-        });
-        quote!(#(#slots)*)
-    };
-    let names_list = params
-        .iter()
-        .map(|param| format!("`{}`", param.ident))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let again = quote!(#name!);
-
-    let mut rules: Vec<TokenStream> = Vec::new();
-
-    // Read the positional prefix. State `@p<K>` has filled the first K parameters.
-    for filled in 0..=count {
-        let state = format_ident!("p{}", filled);
-        let next = format_ident!("p{}", filled + 1);
-        let all = capture(None);
-        let kept = forward(None);
-        rules.push(quote! {
-            (@#state #all ; ) => { #again(@call #kept) };
-        });
-        if has_content {
-            rules.push(quote! {
-                (@#state #all ; { $($body:tt)* } $(,)?) => {
-                    #again(@n #kept ; content = || { $($body)* })
-                };
-            });
-        } else {
-            let message = format!(
-                "{name}! has no `content` parameter, so it takes no trailing block; the parameters are: {names_list}"
-            );
-            rules.push(quote! {
-                (@#state #all ; { $($body:tt)* } $(,)?) => { ::core::compile_error!(#message) };
-            });
+    let entries = params.iter().map(|param| {
+        let ident = &param.ident;
+        match &param.default {
+            Some(default) => quote!((#ident [ #default ])),
+            None => quote!((#ident)),
         }
-        rules.push(quote! {
-            (@#state #all ; $given:ident = $($rest:tt)+) => {
-                #again(@n #kept ; $given = $($rest)+)
-            };
-        });
-        if filled < count {
-            let filled_in = forward(Some((filled, quote!($value))));
-            rules.push(quote! {
-                (@#state #all ; $value:expr $(, $($rest:tt)*)?) => {
-                    #again(@#next #filled_in ; $($($rest)*)?)
-                };
-            });
-        } else {
-            let message = format!(
-                "{name}! takes {count} argument(s) and was given more; the parameters are: {names_list}"
-            );
-            rules.push(quote! {
-                (@#state #all ; $($rest:tt)+) => { ::core::compile_error!(#message) };
-            });
-        }
-    }
-
-    // Read `name = value` arguments.
-    {
-        let all = capture(None);
-        let kept = forward(None);
-        rules.push(quote! {
-            (@n #all ; ) => { #again(@call #kept) };
-        });
-        if has_content {
-            rules.push(quote! {
-                (@n #all ; { $($body:tt)* } $(,)?) => {
-                    #again(@n #kept ; content = || { $($body)* })
-                };
-            });
-        } else {
-            let message = format!(
-                "{name}! has no `content` parameter, so it takes no trailing block; the parameters are: {names_list}"
-            );
-            rules.push(quote! {
-                (@n #all ; { $($body:tt)* } $(,)?) => { ::core::compile_error!(#message) };
-            });
-        }
-        for (index, param) in params.iter().enumerate() {
-            let ident = &param.ident;
-            let dup_message = format!("argument `{ident}` of {name}! is given twice");
-            let dup_slots = (0..count).map(|other| {
-                let other_var = slot(other);
-                if other == index {
-                    quote!([ $($#other_var:tt)+ ])
-                } else {
-                    quote!([ $($#other_var:tt)* ])
-                }
-            });
-            rules.push(quote! {
-                (@n #(#dup_slots)* ; #ident = $value:expr $(, $($rest:tt)*)?) => {
-                    ::core::compile_error!(#dup_message)
-                };
-            });
-            let empty = capture(Some(index));
-            let filled_in = forward(Some((index, quote!($value))));
-            rules.push(quote! {
-                (@n #empty ; #ident = $value:expr $(, $($rest:tt)*)?) => {
-                    #again(@n #filled_in ; $($($rest)*)?)
-                };
-            });
-        }
-        let unknown = format!("{name}! has no parameter `");
-        let unknown_tail = format!("`; the parameters are: {names_list}");
-        rules.push(quote! {
-            (@n #all ; $given:ident = $($rest:tt)*) => {
-                ::core::compile_error!(::core::concat!(#unknown, ::core::stringify!($given), #unknown_tail))
-            };
-        });
-        let positional = format!(
-            "a positional argument of {name}! follows a named one; name it too, the parameters are: {names_list}"
-        );
-        rules.push(quote! {
-            (@n #all ; $($rest:tt)+) => { ::core::compile_error!(#positional) };
-        });
-    }
-
-    // Every argument is read: defaults first, then the required ones that are missing.
-    for (index, param) in params.iter().enumerate() {
-        if let Some(default) = &param.default {
-            let empty = capture(Some(index));
-            let filled_in = forward(Some((index, default.clone())));
-            rules.push(quote! {
-                (@call #empty) => { #again(@call #filled_in) };
-            });
-        }
-    }
-    for (index, param) in params.iter().enumerate() {
-        if param.default.is_none() {
-            let ident = &param.ident;
-            let message = format!("missing required argument `{ident}` for {name}!");
-            let empty = capture(Some(index));
-            rules.push(quote! {
-                (@call #empty) => { ::core::compile_error!(#message) };
-            });
-        }
-    }
-    {
-        let all = capture(None);
-        let arguments = (0..count).map(|index| {
-            let var = slot(index);
-            quote!($($#var)*)
-        });
-        rules.push(quote! {
-            (@call #all) => { #name(#(#arguments),*) };
-        });
-    }
-    // The entry rule comes last, so that a caller's arguments never meet the state rules.
-    let empty_slots = (0..count).map(|_| quote!([]));
-    rules.push(quote! {
-        ($($arguments:tt)*) => { #again(@p0 #(#empty_slots)* ; $($arguments)*) };
     });
+    let rule = quote! {
+        ($($arguments:tt)*) => {
+            ::compose_rust::__compose_call_check! { #name [ #(#entries)* ] $($arguments)* }
+        };
+    };
 
     let docs = documentation(function, params);
     let docs = docs.iter().map(|line| quote!(#[doc = #line]));
@@ -341,12 +172,187 @@ pub(crate) fn generate(function: &ItemFn, params: &[CallParam]) -> TokenStream {
         #[macro_export]
         #[doc(hidden)]
         macro_rules! #hidden {
-            #(#rules)*
+            #rule
         }
         #(#cfgs)*
         #[allow(unused_imports)]
         #visibility use #hidden as #name;
     }
+}
+
+/// The input of [`check`]: `Name [ (param) (param [default]) .. ] arguments..`.
+struct CheckInput {
+    name: Ident,
+    params: Vec<(Ident, Option<TokenStream>)>,
+    arguments: TokenStream,
+}
+
+impl Parse for CheckInput {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let name: Ident = input.parse()?;
+        let list;
+        syn::bracketed!(list in input);
+        let mut params = Vec::new();
+        while !list.is_empty() {
+            let entry;
+            syn::parenthesized!(entry in list);
+            let ident: Ident = entry.parse()?;
+            let default = if entry.is_empty() {
+                None
+            } else {
+                let tokens;
+                syn::bracketed!(tokens in entry);
+                Some(tokens.parse::<TokenStream>()?)
+            };
+            params.push((ident, default));
+        }
+        Ok(CheckInput {
+            name,
+            params,
+            arguments: input.parse()?,
+        })
+    }
+}
+
+/// One argument as the caller wrote it.
+enum Argument {
+    Positional(Expr),
+    Named(Ident, Expr),
+    Block(proc_macro2::Group),
+}
+
+fn parse_arguments(input: ParseStream) -> syn::Result<Vec<Argument>> {
+    let mut arguments = Vec::new();
+    while !input.is_empty() {
+        if input.peek(syn::token::Brace) {
+            let group: proc_macro2::Group = input.parse()?;
+            arguments.push(Argument::Block(group));
+            // A block ends the list, with an optional comma after it.
+            let _: Option<Token![,]> = input.parse()?;
+            if !input.is_empty() {
+                return Err(input.error("nothing can follow the trailing block"));
+            }
+            break;
+        }
+        if input.peek(Ident) && input.peek2(Token![=]) && !input.peek2(Token![==]) {
+            let ident: Ident = input.parse()?;
+            let _: Token![=] = input.parse()?;
+            arguments.push(Argument::Named(ident, input.parse()?));
+        } else {
+            arguments.push(Argument::Positional(input.parse()?));
+        }
+        if input.is_empty() {
+            break;
+        }
+        let _: Token![,] = input.parse()?;
+    }
+    Ok(arguments)
+}
+
+/// Reads the caller's arguments against the parameter list and emits the call, or the
+/// error on the offending argument's own tokens.
+pub(crate) fn check(input: TokenStream) -> syn::Result<TokenStream> {
+    let CheckInput {
+        name,
+        params,
+        arguments,
+    } = syn::parse2(input)?;
+    let names_list = params
+        .iter()
+        .map(|(ident, _)| format!("`{ident}`"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let count = params.len();
+    let has_content = params.last().is_some_and(|(ident, _)| ident == "content");
+    // Where a missing argument is reported: the arguments the caller did write, or the
+    // call itself when there are none.
+    let whole = arguments.clone();
+    let arguments = syn::parse::Parser::parse2(parse_arguments, arguments)?;
+
+    let mut slots: Vec<Option<TokenStream>> = vec![None; count];
+    let mut positional = 0;
+    let mut named_seen = false;
+    for argument in arguments {
+        match argument {
+            Argument::Positional(expr) => {
+                if named_seen {
+                    return Err(syn::Error::new_spanned(
+                        &expr,
+                        format!(
+                            "a positional argument of {name}! follows a named one; name it too, the parameters are: {names_list}"
+                        ),
+                    ));
+                }
+                if positional >= count {
+                    return Err(syn::Error::new_spanned(
+                        &expr,
+                        format!(
+                            "{name}! takes {count} argument(s) and was given more; the parameters are: {names_list}"
+                        ),
+                    ));
+                }
+                slots[positional] = Some(expr.into_token_stream());
+                positional += 1;
+            }
+            Argument::Named(ident, expr) => {
+                named_seen = true;
+                let Some(index) = params.iter().position(|(param, _)| *param == ident) else {
+                    return Err(syn::Error::new_spanned(
+                        &ident,
+                        format!(
+                            "{name}! has no parameter `{ident}`; the parameters are: {names_list}"
+                        ),
+                    ));
+                };
+                if slots[index].is_some() {
+                    return Err(syn::Error::new_spanned(
+                        &ident,
+                        format!("argument `{ident}` of {name}! is given twice"),
+                    ));
+                }
+                slots[index] = Some(expr.into_token_stream());
+            }
+            Argument::Block(group) => {
+                named_seen = true;
+                if !has_content {
+                    return Err(syn::Error::new_spanned(
+                        &group,
+                        format!(
+                            "{name}! has no `content` parameter, so it takes no trailing block; the parameters are: {names_list}"
+                        ),
+                    ));
+                }
+                let last = count - 1;
+                if slots[last].is_some() {
+                    return Err(syn::Error::new_spanned(
+                        &group,
+                        format!("argument `content` of {name}! is given twice"),
+                    ));
+                }
+                slots[last] = Some(quote!(|| #group));
+            }
+        }
+    }
+
+    let mut values = Vec::with_capacity(count);
+    for ((ident, default), slot) in params.iter().zip(slots) {
+        match (slot, default) {
+            (Some(tokens), _) => values.push(tokens),
+            (None, Some(default)) => values.push(default.clone()),
+            (None, None) => {
+                let span = if whole.is_empty() {
+                    proc_macro2::Span::call_site()
+                } else {
+                    whole.clone().into_iter().last().map_or_else(proc_macro2::Span::call_site, |tree| tree.span())
+                };
+                return Err(syn::Error::new(
+                    span,
+                    format!("missing required argument `{ident}` for {name}!"),
+                ));
+            }
+        }
+    }
+    Ok(quote!(#name(#(#values),*)))
 }
 
 #[cfg(test)]
@@ -470,5 +476,27 @@ mod tests {
     fn fr39_call_macro_default_paths_keep_meaning_the_defining_crate() {
         let normalised = normalise_default(quote!(crate::theme::DEFAULT)).to_string();
         assert_eq!(normalised, "$ crate :: theme :: DEFAULT");
+    }
+
+    fn run(arguments: TokenStream) -> Result<String, String> {
+        let input = quote!(Field [ (value) (label [ || {} ]) (single_line [ false ]) ] #arguments);
+        check(input)
+            .map(|tokens| tokens.to_string())
+            .map_err(|error| error.to_string())
+    }
+
+    #[test]
+    fn fr39_call_macro_check_emits_the_call_in_parameter_order_with_defaults() {
+        let text = run(quote!(single_line = true, value = a)).unwrap().replace(' ', "");
+        assert_eq!(text, "Field(a,||{},true)");
+    }
+
+    #[test]
+    fn fr39_call_macro_check_names_the_offending_argument() {
+        assert!(run(quote!(a, nope = 1)).unwrap_err().contains("no parameter `nope`"));
+        assert!(run(quote!(a, value = 1)).unwrap_err().contains("given twice"));
+        assert!(run(quote!(single_line = true, a)).unwrap_err().contains("follows a named one"));
+        assert!(run(quote!(a, b, c, d)).unwrap_err().contains("was given more"));
+        assert!(run(quote!(single_line = true)).unwrap_err().contains("missing required argument `value`"));
     }
 }
