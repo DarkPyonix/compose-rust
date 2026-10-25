@@ -4,7 +4,7 @@ version = "0.0.3"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "The #[composable] attribute for compose-rust's slot table runtime."
+description = "The #[Composable] attribute for compose-rust's slot table runtime."
 repository = "https://github.com/DarkPyonix/compose-rust"
 keywords = ["ui", "compose", "macro"]
 categories = ["gui"]
@@ -19,3 +19,9 @@ bench = false
 proc-macro2 = "1"
 quote = "1"
 syn = { version = "2", features = ["full", "visit", "visit-mut"] }
+
+[dev-dependencies]
+# The compile-fail fixtures in tests/ui expand `#[Composable]` the way an application does,
+# so they need the crate the expansion names. A dev-dependency cycle is allowed.
+compose-rust = { path = ".." }
+trybuild = "1"

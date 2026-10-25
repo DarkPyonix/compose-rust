@@ -5,7 +5,7 @@
 //! use compose_rust::runtime::*;
 //! use compose_rust::ui::*;
 //!
-//! #[composable]
+//! #[Composable]
 //! fn Greeting(name: String) {
 //!     Column().modifier(Modifier.padding(16.0).fill_max_width()).content(|| {
 //!         Text(format!("Hello, {name}")).type_role(TypeRole::Title);

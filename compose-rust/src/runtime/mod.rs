@@ -5,7 +5,7 @@
 //! use compose_rust::runtime::*;
 //! use compose_rust::ui::*;
 //!
-//! #[composable]
+//! #[Composable]
 //! fn Counter() {
 //!     let count = remember(|| mutable_state_of(0));
 //!     Column().content(|| {
@@ -28,7 +28,7 @@
 //! changed becomes a record.
 //!
 //! **Positional memoisation.** [`remember`] belongs to its call site: the group path the
-//! `#[composable]` macro builds around every function and every branch, and the order of
+//! `#[Composable]` macro builds around every function and every branch, and the order of
 //! calls inside each group. A branch that stops being taken takes what it remembered with
 //! it; a loop that gets shorter drops the iterations it lost. Where order is not identity,
 //! because items move, [`key`] says which item is which.
@@ -43,7 +43,7 @@ pub(crate) mod host;
 mod seam;
 pub(crate) mod state;
 
-pub use compose_rust_macros::composable;
+pub use compose_rust_macros::Composable;
 pub use effects::{
     CoroutineScope, DisposableEffectResult, delay, disposable_effect, launched_effect, on_dispose,
     remember_coroutine_scope, side_effect, with_frame_nanos, with_worker,
@@ -300,7 +300,7 @@ pub fn current_recompose_scope() -> Option<RecomposeScope> {
     .flatten()
 }
 
-/// What `#[composable]` expands into. Not for calling by hand: the macro's guarantees are
+/// What `#[Composable]` expands into. Not for calling by hand: the macro's guarantees are
 /// what make these safe to use.
 #[doc(hidden)]
 pub mod __private {

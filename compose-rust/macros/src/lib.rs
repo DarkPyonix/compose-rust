@@ -1,4 +1,4 @@
-//! `#[composable]`: what the Compose compiler plugin does to a function, done from outside
+//! `#[Composable]`: what the Compose compiler plugin does to a function, done from outside
 //! the compiler.
 //!
 //! The plugin does three things to a `@Composable` function, and this does the same three
@@ -39,6 +39,9 @@
 //! `Clone + PartialEq` is found out at compile time by method resolution and treated the
 //! same way. Nothing here needs the function's author to say which is which.
 
+mod call_macro;
+
+use call_macro::{CallParam, implicit_default, normalise_default};
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::{format_ident, quote};
@@ -52,7 +55,7 @@ use syn::{
 /// Turns a function into a composable.
 ///
 /// ```ignore
-/// #[composable]
+/// #[Composable]
 /// fn Greeting(name: String) {
 ///     let clicks = remember(|| mutable_state_of(0));
 ///     Text(format!("Hello, {name}: {}", clicks.get()));
@@ -60,21 +63,129 @@ use syn::{
 /// }
 /// ```
 ///
-/// `#[composable(nonrestartable)]` keeps the groups and the skipping but never re-runs the
+/// `#[Composable(nonrestartable)]` keeps the groups and the skipping but never re-runs the
 /// function on its own: a state it reads re-runs its caller instead. That is what an
 /// associated function needs, because the runtime re-runs a function by calling it by its
 /// bare name.
 #[proc_macro_attribute]
-pub fn composable(attribute: TokenStream, item: TokenStream) -> TokenStream {
+#[allow(non_snake_case)]
+pub fn Composable(attribute: TokenStream, item: TokenStream) -> TokenStream {
     let options = match parse_options(attribute.into()) {
         Ok(options) => options,
         Err(error) => return error.to_compile_error().into(),
     };
     let mut function = parse_macro_input!(item as ItemFn);
+    let defaults = match take_defaults(&mut function) {
+        Ok(defaults) => defaults,
+        Err(error) => return error.to_compile_error().into(),
+    };
+    // A function that re-runs itself by bare name is an associated function, and a method
+    // has no name of its own to share with a macro, so only the restartable form gets one.
+    let call_params = options
+        .restartable
+        .then(|| call_params(&function, defaults))
+        .flatten();
     match expand(&mut function, &options) {
-        Ok(()) => quote!(#function).into(),
+        Ok(()) => {
+            let call_macro = call_params.map(|params| call_macro::generate(&function, &params));
+            quote!(#function #call_macro).into()
+        }
         Err(error) => error.to_compile_error().into(),
     }
+}
+
+/// The expansion of every generated call macro. Hidden: it is the generated
+/// `macro_rules!`'s way of reading its arguments with the caller's spans, not an API.
+#[doc(hidden)]
+#[proc_macro]
+pub fn __compose_call_check(input: TokenStream) -> TokenStream {
+    match call_macro::check(input.into()) {
+        Ok(tokens) => tokens.into(),
+        Err(error) => error.to_compile_error().into(),
+    }
+}
+
+/// Removes the `#[default(expr)]` attributes from the parameters and returns the
+/// expressions, one entry per parameter.
+fn take_defaults(function: &mut ItemFn) -> syn::Result<Vec<Option<Expr>>> {
+    let mut defaults = Vec::new();
+    for input in &mut function.sig.inputs {
+        let attrs = match input {
+            FnArg::Receiver(receiver) => &mut receiver.attrs,
+            FnArg::Typed(typed) => &mut typed.attrs,
+        };
+        let mut default = None;
+        let mut kept = Vec::new();
+        for attribute in attrs.drain(..) {
+            if !attribute.path().is_ident("default") {
+                kept.push(attribute);
+                continue;
+            }
+            if default.is_some() {
+                return Err(syn::Error::new_spanned(
+                    attribute,
+                    "a parameter takes one #[default(..)]",
+                ));
+            }
+            default = Some(attribute.parse_args::<Expr>().map_err(|error| {
+                syn::Error::new(
+                    error.span(),
+                    "#[default(..)] takes the default value as an expression, \
+                     like #[default(false)]",
+                )
+            })?);
+        }
+        *attrs = kept;
+        if default.is_some() && matches!(input, FnArg::Receiver(_)) {
+            return Err(syn::Error::new_spanned(input, "self has no default"));
+        }
+        defaults.push(default);
+    }
+    Ok(defaults)
+}
+
+/// The parameters as the call macro needs them, or `None` for a function the macro cannot
+/// name: one with a receiver, a pattern instead of a name, or `Self` in a type.
+fn call_params(function: &ItemFn, defaults: Vec<Option<Expr>>) -> Option<Vec<CallParam>> {
+    let mut params = Vec::new();
+    for (input, default) in function.sig.inputs.iter().zip(defaults) {
+        let FnArg::Typed(typed) = input else {
+            return None;
+        };
+        let Pat::Ident(pattern) = &*typed.pat else {
+            return None;
+        };
+        if pattern.by_ref.is_some() || pattern.subpat.is_some() || mentions_self(&typed.ty) {
+            return None;
+        }
+        let ident = pattern.ident.clone();
+        let ty = (*typed.ty).clone();
+        let default = match default {
+            Some(expr) => Some(normalise_default(quote!(#expr))),
+            None => implicit_default(&ident, &ty),
+        };
+        params.push(CallParam { ident, ty, default });
+    }
+    Some(params)
+}
+
+fn mentions_self(ty: &Type) -> bool {
+    struct Find(bool);
+    impl<'ast> Visit<'ast> for Find {
+        fn visit_path(&mut self, path: &'ast syn::Path) {
+            if path
+                .segments
+                .first()
+                .is_some_and(|first| first.ident == "Self")
+            {
+                self.0 = true;
+            }
+            visit::visit_path(self, path);
+        }
+    }
+    let mut find = Find(false);
+    find.visit_type(ty);
+    find.0
 }
 
 struct Options {
@@ -93,7 +204,7 @@ fn parse_options(attribute: proc_macro2::TokenStream) -> syn::Result<Options> {
     } else {
         Err(syn::Error::new(
             ident.span(),
-            "#[composable] takes no argument except `nonrestartable`",
+            "#[Composable] takes no argument except `nonrestartable`",
         ))
     }
 }

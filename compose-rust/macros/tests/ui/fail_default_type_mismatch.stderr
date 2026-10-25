@@ -1,0 +1,17 @@
+error[E0308]: mismatched types
+ --> tests/ui/fail_default_type_mismatch.rs:4:20
+  |
+4 | fn Field(#[default("not a bool")] single_line: bool) {
+  |    -----           ^^^^^^^^^^^^ expected `bool`, found `&str`
+  |    |
+  |    arguments to this function are incorrect
+...
+9 |     Field!();
+  |     -------- in this macro invocation
+  |
+note: function defined here
+ --> tests/ui/fail_default_type_mismatch.rs:4:4
+  |
+4 | fn Field(#[default("not a bool")] single_line: bool) {
+  |    ^^^^^                          -----------------
+  = note: this error originates in the macro `Field` (in Nightly builds, run with -Z macro-backtrace for more info)

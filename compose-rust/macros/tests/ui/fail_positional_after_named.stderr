@@ -1,0 +1,5 @@
+error: a positional argument of Field! follows a named one; name it too, the parameters are: `value`, `single_line`
+ --> tests/ui/fail_positional_after_named.rs:9:32
+  |
+9 |     Field!(single_line = true, String::new());
+  |                                ^^^^^^^^^^^^^

@@ -1,0 +1,5 @@
+error: cannot find macro `show` in this scope
+  --> tests/ui/fail_method_has_no_macro.rs:14:5
+   |
+14 |     show!(String::new());
+   |     ^^^^

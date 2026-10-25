@@ -1,0 +1,5 @@
+error: argument `value` of Field! is given twice
+ --> tests/ui/fail_duplicate_of_positional.rs:9:27
+  |
+9 |     Field!(String::new(), value = String::new());
+  |                           ^^^^^

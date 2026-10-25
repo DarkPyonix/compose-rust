@@ -144,7 +144,7 @@ compose-rust = <span class="s">"0.0.3"</span></code></pre>
 <span class="k">use</span> compose_rust::runtime::*;
 <span class="k">use</span> compose_rust::ui::*;
 
-<span class="at">#[composable]</span>
+<span class="at">#[Composable]</span>
 <span class="k">fn</span> <span class="f">app</span>() {
     <span class="k">let</span> name = <span class="f">remember</span>(|| <span class="f">mutable_state_of</span>(<span class="ty">String</span>::<span class="f">new</span>()));
     <span class="k">let</span> typed = name.<span class="f">clone</span>();

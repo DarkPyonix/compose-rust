@@ -35,7 +35,7 @@ type Work = std::boxed::Box<dyn FnOnce() -> Outcome + Send + 'static>;
 /// field is keyed by `stamp`, which changes only then. A new key is a new field, and the
 /// field takes the contents it was built with. Ordinary typing leaves `stamp` alone, so the
 /// caret and the IME composition are never disturbed and nothing is written back.
-#[composable]
+#[Composable]
 fn editor(stamp: u64, contents: String, type_role: TypeRole, on_edit: Rc<dyn Fn(String)>) {
     key(stamp, || {
         // What the field was built with, kept for as long as this key lives. Later writes
@@ -56,7 +56,7 @@ fn editor(stamp: u64, contents: String, type_role: TypeRole, on_edit: Rc<dyn Fn(
 ///
 /// It takes the weight it is given, so the path grows with the sheet instead of being
 /// sized by whatever happens to be typed in it.
-#[composable]
+#[Composable]
 fn path_field(stamp: u64, contents: String, on_edit: Rc<dyn Fn(String)>) {
     key(stamp, || {
         let initial = remember(|| contents.clone());
@@ -81,7 +81,7 @@ fn path_field(stamp: u64, contents: String, on_edit: Rc<dyn Fn(String)>) {
 ///
 /// `measure` is `None` on a window with nothing to spare, where the row fills the bar and
 /// the bar's own inset is already the page's.
-#[composable]
+#[Composable]
 fn document_bar(measure: Option<f32>, working: bool, children: impl FnOnce()) {
     Column().modifier(Modifier.fill_max_width()).content(|| {
         TopAppBar().modifier(Modifier.fill_max_width()).content(|| {
@@ -138,7 +138,7 @@ const DOCUMENT_SHARE: f32 = 3.0;
 /// The same element stands beside the document on a desktop window and arrives in a sheet
 /// on anything narrower. It is written once because it is one list: a list that had to be
 /// authored twice would drift the first time either copy changed.
-#[composable]
+#[Composable]
 fn document_list(
     entries: Vec<(u64, String)>,
     current: u64,
@@ -187,7 +187,7 @@ fn document_list(
 }
 
 /// One of the three document styles in the format sheet.
-#[composable]
+#[Composable]
 fn style_choice(
     label: &'static str,
     role: TypeRole,
@@ -205,7 +205,7 @@ fn style_choice(
 }
 
 /// The editor.
-#[composable]
+#[Composable]
 pub fn app() {
     let window = current_window_size();
     // A document is read across its lines, so past a certain width a page that keeps
