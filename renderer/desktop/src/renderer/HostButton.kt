@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -24,19 +23,26 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import dev.darkpyonix.composerust.protocol.ButtonKind
+import dev.darkpyonix.composerust.protocol.ButtonVariant
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.IconRole
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.SpaceRole
+import dev.darkpyonix.composerust.design.ButtonStyle
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.paintProp
 import dev.darkpyonix.composerust.ui.role
 import dev.darkpyonix.composerust.ui.textStyle
+import dev.darkpyonix.composerust.ui.buttonKind
 import dev.darkpyonix.composerust.ui.variant
 
 /**
@@ -54,7 +60,7 @@ internal fun HostButton(
 ) {
     val enabled = node.flag(PropertyKind.Enabled, default = true)
     val handlerId = node.handler(PropertyKind.OnClick)
-    val style = theme.rules.button(node.variant(), theme).let {
+    val style = buttonStyle(node.variant(), node.buttonKind(), theme).let {
         if (LocalInAMenu.current) theme.rules.menuEntry(it, theme) else it
     }
     val interactions = remember { MutableInteractionSource() }
@@ -130,7 +136,7 @@ internal fun HostButton(
         // with no word has nothing to keep off them: using it anyway makes every icon
         // control half as wide again as it needs to be, which two of them in a floating
         // group and one at the head of a composer both showed.
-        .padding(
+        .labelPadding(
             horizontal = if (wordless) style.verticalPadding else style.horizontalPadding,
             vertical = style.verticalPadding,
         )
@@ -168,6 +174,23 @@ internal fun HostButton(
     }
 }
 
+/**
+ * How a button of this variant and kind looks under this design system.
+ *
+ * The variant chooses the fill and the emphasis, whatever the kind. An action key, one key
+ * of a dense grid such as a calculator's pad, takes its silhouette from the system's own
+ * answer for that grid instead of from the variant: a circle on the Apple systems, a small
+ * radius on Windows 11, a rounder one on Deepin. A standard button is exactly what it was
+ * before kinds existed.
+ */
+internal fun buttonStyle(variant: ButtonVariant, kind: ButtonKind, theme: ResolvedTheme): ButtonStyle {
+    val base = theme.rules.button(variant, theme)
+    return when (kind) {
+        ButtonKind.Standard -> base
+        ButtonKind.ActionKey -> base.copy(shape = theme.rules.actionKeyShape(theme))
+    }
+}
+
 /** Fluent's lighter top edge. Other systems pass null and pay nothing. */
 private fun Modifier.topHighlight(color: Color?): Modifier {
     if (color == null) return this
@@ -184,3 +207,35 @@ private fun Modifier.topHighlight(color: Color?): Modifier {
 }
 
 private fun Int.dpPx(density: Float): Float = this * density
+
+/**
+ * Padding that gives way before the label does.
+ *
+ * The horizontal padding is fixed. The vertical padding is the design system's, but only as
+ * far as the height the button was given leaves room for: when that height is smaller than
+ * the padding plus the content's own height, the padding shrinks equally top and bottom,
+ * down to nothing, so the content keeps its whole height and sits centred. Only when even
+ * no padding fits does the content overflow and get clipped by the button's shape.
+ */
+internal fun Modifier.labelPadding(horizontal: Dp, vertical: Dp): Modifier = layout { measurable, constraints ->
+    val sides = horizontal.roundToPx()
+    val wanted = vertical.roundToPx()
+    val inner = Constraints(
+        minWidth = (constraints.minWidth - 2 * sides).coerceAtLeast(0),
+        maxWidth = if (constraints.hasBoundedWidth) (constraints.maxWidth - 2 * sides).coerceAtLeast(0) else Constraints.Infinity,
+        minHeight = 0,
+        maxHeight = constraints.maxHeight,
+    )
+    val placeable = measurable.measure(inner)
+    val room = if (constraints.hasBoundedHeight) {
+        ((constraints.maxHeight - placeable.height) / 2).coerceAtLeast(0)
+    } else {
+        wanted
+    }
+    val padding = minOf(wanted, room)
+    val width = (placeable.width + 2 * sides).coerceIn(constraints.minWidth, constraints.maxWidth)
+    val height = (placeable.height + 2 * padding).coerceIn(constraints.minHeight, constraints.maxHeight)
+    layout(width, height) {
+        placeable.place((width - placeable.width) / 2, (height - placeable.height) / 2)
+    }
+}

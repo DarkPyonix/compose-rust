@@ -1,4 +1,5 @@
 use crate::Selection;
+use crate::measure::MeasureResult;
 use crate::protocol::{HostEvent, ProtocolError, decode_event};
 use crate::runtime::Runtime;
 use crate::schema::{
@@ -44,10 +45,14 @@ impl Default for MutationBatch {
     }
 }
 
+/// The Renderer's half of the boundary, as the Host calls it.
 #[derive(Clone, Copy)]
 pub struct RendererApi {
     pub run: extern "C" fn() -> c_int,
     pub request_frame: extern "C" fn(),
+    /// Reads `count` request records from the buffer and writes `count` results. Only on
+    /// the UI thread, and normally from inside a Host call the Renderer made.
+    pub measure: unsafe extern "C" fn(*const u8, u32, u32, *mut MeasureResult) -> i32,
 }
 
 static RENDERER_API: OnceLock<RendererApi> = OnceLock::new();
@@ -70,6 +75,12 @@ pub fn install_renderer_api(api: RendererApi) -> Result<(), RendererApi> {
 unsafe extern "C" {
     fn compose_rust_renderer_run() -> c_int;
     fn compose_rust_renderer_request_frame();
+    fn compose_rust_renderer_measure(
+        requests: *const u8,
+        length: u32,
+        count: u32,
+        results: *mut MeasureResult,
+    ) -> i32;
 }
 
 #[cfg(all(renderer_linked, not(any(test, feature = "mock-renderer"))))]
@@ -89,6 +100,20 @@ extern "C" fn native_request_frame() {
     unsafe { compose_rust_renderer_request_frame() }
 }
 
+/// # Safety
+/// As `compose_rust_renderer_measure`: readable requests, writable results.
+#[cfg(all(renderer_linked, not(any(test, feature = "mock-renderer"))))]
+unsafe extern "C" fn native_measure(
+    requests: *const u8,
+    length: u32,
+    count: u32,
+    results: *mut MeasureResult,
+) -> i32 {
+    // SAFETY: The caller's promise is passed on unchanged, and the Renderer refuses a call
+    // from the wrong thread rather than measuring on it.
+    unsafe { compose_rust_renderer_measure(requests, length, count, results) }
+}
+
 // The mock renderer and the crate's own tests drive the boundary directly and never want
 // a window, so doing nothing is the correct answer for them and always has been.
 #[cfg(any(test, feature = "mock-renderer"))]
@@ -98,6 +123,10 @@ extern "C" fn native_run() -> c_int {
 
 #[cfg(any(test, feature = "mock-renderer"))]
 extern "C" fn native_request_frame() {}
+
+// The mock renderer answers by fixed rules, so a test of the Host can predict every size.
+#[cfg(any(test, feature = "mock-renderer"))]
+use crate::measure::fake_measure as native_measure;
 
 // A real build with no renderer. This used to return success, so an application built
 // this way opened no window, drew nothing, printed nothing and exited 0, and there was
@@ -110,6 +139,18 @@ extern "C" fn native_run() -> c_int {
 
 #[cfg(all(not(renderer_linked), not(any(test, feature = "mock-renderer"))))]
 extern "C" fn native_request_frame() {}
+
+/// There is nothing to measure with, which the caller hears as a refusal and carries on
+/// past with every size at zero.
+#[cfg(all(not(renderer_linked), not(any(test, feature = "mock-renderer"))))]
+unsafe extern "C" fn native_measure(
+    _requests: *const u8,
+    _length: u32,
+    _count: u32,
+    _results: *mut MeasureResult,
+) -> i32 {
+    crate::measure::MEASURE_UNAVAILABLE
+}
 
 /// What a build with no renderer says on its way out.
 ///
@@ -137,7 +178,23 @@ fn renderer_api() -> RendererApi {
     RENDERER_API.get().copied().unwrap_or(RendererApi {
         run: native_run,
         request_frame: native_request_frame,
+        measure: native_measure,
     })
+}
+
+/// Asks the Renderer to measure, through whichever Renderer is installed.
+///
+/// Crate-internal: the safe way in is `measure::measurer`, which only hands out the right
+/// to call this inside a Host call. The pointers come from slices that outlive the call.
+pub(crate) fn renderer_measure(
+    requests: *const u8,
+    length: u32,
+    count: u32,
+    results: *mut MeasureResult,
+) -> i32 {
+    // SAFETY: the caller passes a readable buffer of `length` bytes and room for `count`
+    // results, both borrowed for the length of this call.
+    unsafe { (renderer_api().measure)(requests, length, count, results) }
 }
 
 /// Coalesced wake used internally by the runtime's scheduler waker.
@@ -290,6 +347,9 @@ impl Host {
         // the one replacing it, out of any context that made them make sense.
         //
         crate::message::reset_messages();
+        // The Renderer reports its zoom again at start, and a level the last Host asked for
+        // and never sent is that Host's business.
+        crate::zoom::reset_zoom();
         // The assets do not go with them. The Renderer this Host is about to talk to has
         // an empty cache, so every registration has to be made again, which is what this
         // does: the ids stay as they were and the bytes are queued for the first batch.
@@ -445,6 +505,22 @@ impl Host {
         self.empty_batch()
     }
 
+    /// Records how large the Renderer is drawing, and wakes the components that read it.
+    ///
+    /// The level the Renderer reports is also kept as the window's own, so a resync
+    /// rebuilds the window at the level the reader is looking at rather than at one the
+    /// application asked for before the reader changed it.
+    fn publish_zoom(&mut self, k: f32, os: f32, level: i32) -> Result<(&[u8], i64), ProtocolError> {
+        let level = i8::try_from(level).map_err(|_| ProtocolError::InvalidValueKind(0))?;
+        if self.window.zoom_level.is_some() {
+            self.window.zoom_level = Some(level);
+        }
+        if crate::zoom::publish(crate::zoom::Zoom { k, os, level }) {
+            return self.render_and_finish(0);
+        }
+        self.empty_batch()
+    }
+
     pub fn dispatch(&mut self, event: HostEvent<'_>) -> Result<(&[u8], i64), ProtocolError> {
         let _call = HostCallGuard::enter();
         // These address the Host itself: no node, no handler, and an answer before
@@ -516,6 +592,12 @@ impl Host {
                     return self.empty_batch();
                 }
                 return self.render_and_finish(0);
+            }
+            EventPayload::ZoomChanged { k, os, level } => {
+                if event.node_id != 0 || event.handler_id != 0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                return self.publish_zoom(k, os, level);
             }
             _ => {}
         }
@@ -626,6 +708,12 @@ impl Host {
             self.theme = theme;
             self.batch().set_theme(theme);
         }
+        // A zoom level the application asked for, on the window record that carries it.
+        if let Some(level) = crate::zoom::take_pending_level() {
+            self.window.zoom_level = Some(level);
+            let window = self.window;
+            self.batch().set_window(window);
+        }
         let batch = self.runtime.batch_mut();
         // Registrations first. Not because the Renderer needs them first, it applies the
         // whole batch before drawing any of it, but because a batch read by a person
@@ -633,6 +721,7 @@ impl Host {
         crate::asset::drain(|pending| {
             batch.register_asset(pending.asset_id, pending.kind, pending.bytes);
         });
+        crate::asset::drain_releases(|asset_id| batch.release_asset(asset_id));
         crate::message::drain(|message| {
             batch.show_message(
                 message.handler_id,

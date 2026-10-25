@@ -19,6 +19,7 @@ mod boundary_jni;
 #[path = "boundary_wasm.gen.rs"]
 mod boundary_wasm;
 pub mod brush;
+pub mod code;
 /// The rule the code colours of the two systems without a code editor scheme are derived
 /// by. Only the tests run it: the values themselves are literals in the token tables.
 #[cfg(test)]
@@ -32,8 +33,10 @@ pub mod codegen;
 pub mod design;
 pub mod drawing;
 mod extensions;
+pub mod fonts;
 pub mod highlight;
 pub mod input;
+pub mod measure;
 pub mod message;
 pub mod notification;
 pub mod palette;
@@ -46,6 +49,7 @@ pub mod tokens;
 pub mod ui;
 pub mod window;
 mod writer;
+pub mod zoom;
 
 pub use animation::{
     Animated, AnimationMoment, AnimationSpec, GraphicsLayer, animate_color_as_state,
@@ -57,10 +61,16 @@ pub use boundary::{
     Host, LaunchBuilder, MutationBatch, RendererApi, RuntimeFactory, demo_theme, demo_theme_for,
     install_renderer_api, launch_runtime, request_frame_from_worker,
 };
-pub use brush::{Brush, Stop, brush};
+pub use brush::{Brush, Stop, brush, release_brush};
+pub use code::{
+    CodeChange, CodeHover, CodeRange, Decoration, Decorations, EditRejected, Fold, FoldChange,
+    Folds, GutterDecoration, GutterDecorations, Position, SaveRequest, SelectionChange, SyntaxSpan,
+    SyntaxSpans, VisibleRange,
+};
 pub use design::design_system;
 pub use drawing::{DrawCommand, DrawList, DrawListBuilder};
-pub use input::{FileDrop, KeyEvent, RangeRequest};
+pub use fonts::{FontRef, FontRefs};
+pub use input::{FileDrop, KeyEvent, PointerEvent, PointerKinds, RangeRequest, pointer_button};
 pub use message::{Message, show_message};
 pub use notification::{
     Notification, NotificationActivation, NotificationSender, notification_permission,
@@ -69,19 +79,23 @@ pub use notification::{
 pub use palette::{Palette, PaletteViolation};
 pub use runtime::{Batch, ComposeHost, Recomposer, Runtime, application, composable, launch};
 pub use schema::{
-    Alignment, Arrangement, AssetKind, ButtonVariant, Chrome, Color, ColorRole, ColorScheme,
-    DesignSystem, EventPayload, IconRole, Key, LoopMode, MaterialRole, MessageDuration, Modifier,
-    MotionRole, NotificationImportance, NotificationPermission, NotificationPresentation, Paint,
-    PropertyKind, SCHEMA_HASH, Selection, ShapeRole, SpaceRole, TextAlign, TextOverflow, Theme,
-    TileMode, TypeRole, WidgetKind, WindowHeightClass, WindowSizeClass,
+    Alignment, Arrangement, AssetKind, ButtonKind, ButtonVariant, Chrome, Color, ColorRole,
+    ColorScheme, DecorationKind, DesignSystem, EventPayload, GenericFamily, GutterDecorationKind,
+    HoverPhase, IconRole, Key, LoopMode, MaterialRole, MessageDuration, Modifier, MotionRole,
+    NotificationImportance, NotificationPermission, NotificationPresentation, OverflowWrap, Paint,
+    PropertyKind, RevealAlign, SCHEMA_HASH, Selection, Severity, ShapeRole, SpaceRole, TextAlign,
+    TextOverflow, Theme, TileMode, TypeRole, WidgetKind, WindowHeightClass, WindowSizeClass,
+    WordBreak,
 };
 pub use schema::{
     AnimatedProperty, Animation, AnimationControl, AnimationEventKind, AnimationEvents,
     ColorInterpolation, FillMode, Keyframe, KeyframeValue, PlayState, PlaybackDirection,
     ReducedMotion, StepPosition, Timing, TransformFunction, TransformFunctionKind,
 };
+pub use schema::{Cursor, PointerKind, PointerType, UserSelect, WheelDeltaMode};
 pub use theme::ThemeHandle;
 pub use window::{NodeSize, WindowSize, node_size, window_size};
+pub use zoom::{Zoom, ZoomHandle, zoom};
 
 /// Declares the entry point an iOS application starts at.
 ///

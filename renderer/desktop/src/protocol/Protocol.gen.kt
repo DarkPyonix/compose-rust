@@ -6,9 +6,9 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.charset.StandardCharsets
 
-enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, AbsoluteBox, LinearProgressIndicator }
+enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, Progress }
 
 enum class Key { Enter }
 
@@ -40,6 +40,8 @@ enum class Alignment { TopStart, TopCenter, TopEnd, CenterStart, Center, CenterE
 
 enum class ButtonVariant { Filled, Tonal, Outlined, Text, Operator }
 
+enum class ButtonKind { Standard, ActionKey }
+
 enum class DesignSystem { Material3, Cupertino, Fluent, Gnome, Breeze, Deepin, LiquidGlass }
 
 enum class ColorScheme { Light, Dark, FollowSystem }
@@ -62,6 +64,12 @@ enum class NotificationPresentation { Always, WhenInactive }
 
 enum class NotificationPermission { NotDetermined, Granted, Denied, Unsupported }
 
+enum class WordBreak { Normal, KeepAll, BreakAll }
+
+enum class OverflowWrap { Normal, Anywhere, BreakWord }
+
+enum class GenericFamily { SystemUi, SansSerif, Serif, Monospace }
+
 enum class AnimatedProperty { Alpha, Color, Background, Transform, BorderColor }
 
 enum class PlaybackDirection { Normal, Reverse, Alternate, AlternateReverse }
@@ -83,6 +91,33 @@ enum class AnimationControl { Pause, Resume, Cancel }
 enum class AnimationEventKind { Ready, Active, Iteration, End }
 
 enum class ReducedMotion { Off, On, Unknown }
+
+enum class DecorationKind { Underline, CodeLens, HoverAnchor, GhostText }
+
+enum class Severity { Error, Warning, Information, Hint }
+
+enum class HoverPhase { Rest, Leave }
+
+enum class GutterDecorationKind { Dot, Bar, Glyph }
+
+enum class RevealAlign { Nearest, Center, Top }
+
+enum class PointerKind { Move, Enter, Leave, Down, Up, Cancel, Wheel, ContextMenu }
+
+enum class PointerType { Mouse, Touch, Pen }
+
+enum class WheelDeltaMode { Pixel, Line, Page }
+
+enum class Cursor { Auto, Default, Pointer, Text, VerticalText, Crosshair, Move, Grab, Grabbing, NotAllowed, NoDrop, Wait, Progress, Help, ContextMenu, Cell, Copy, Alias, AllScroll, ZoomIn, ZoomOut, ColResize, RowResize, EResize, NResize, NeResize, NwResize, SResize, SeResize, SwResize, WResize, EwResize, NsResize, NeswResize, NwseResize, None }
+
+enum class UserSelect { Auto, None, Text, All }
+
+/**
+ * The `TypeRole` property of text with no rung of the ladder at all: CSS text, whose
+ * size, weight and font are its own. Present and zero; an absent property is the
+ * widget's default rung.
+ */
+const val TYPE_ROLE_NONE: Int = 0
 
 enum class LoopMode(val wire: Byte) {
     /** The Renderer runs the loop and the Host blocks inside it. Desktop. */
@@ -190,6 +225,13 @@ data class Window(
     val minWidth: Int,
     val minHeight: Int,
     val resizable: Boolean,
+    /**
+     * The application's zoom level, or null where it left the level to the renderer.
+     *
+     * A level here is applied, remembered and reported back the way one chosen with the
+     * keys is. Always inside -8..8.
+     */
+    val zoomLevel: Int? = null,
 )
 
 sealed interface PropertyValue {
@@ -372,21 +414,38 @@ object SpanRecords {
     fun decode(bytes: ByteArray): List<TextSpanRecord>? {
         if (bytes.size % SPAN_LENGTH != 0) return null
         val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
-        return List(bytes.size / SPAN_LENGTH) { index ->
-            val at = index * SPAN_LENGTH
-            val flags = buffer.getShort(at + FLAGS_AT).toInt() and 0xffff
-            TextSpanRecord(
-                start = buffer.getInt(at + START_AT),
-                length = buffer.getInt(at + LENGTH_AT),
-                typeRole = typeRoleOrNull(buffer.getShort(at + ROLE_AT).toInt() and 0xffff),
-                color = paintOrNull(buffer.getLong(at + COLOR_AT)),
-                background = paintOrNull(buffer.getLong(at + BACKGROUND_AT)),
-                bold = flags and FLAG_BOLD != 0,
-                italic = flags and FLAG_ITALIC != 0,
-                underline = flags and FLAG_UNDERLINE != 0,
-                strikethrough = flags and FLAG_STRIKETHROUGH != 0,
-                handlerId = buffer.getLong(at + HANDLER_AT),
-            )
+        return decodeAt(buffer, bytes.size, 0, bytes.size / SPAN_LENGTH)
+    }
+
+    /**
+     * The [count] runs whose records start at [at] in [buffer], or null where they reach
+     * past [limit]. What a measure request carries, in place.
+     */
+    fun decodeAt(buffer: ByteBuffer, limit: Int, at: Int, count: Int): List<TextSpanRecord>? {
+        if (count < 0 || at < 0 || at.toLong() + count.toLong() * SPAN_LENGTH > limit.toLong()) {
+            return null
+        }
+        val previous = buffer.order()
+        buffer.order(ByteOrder.LITTLE_ENDIAN)
+        try {
+            return List(count) { index ->
+                val record = at + index * SPAN_LENGTH
+                val flags = buffer.getShort(record + FLAGS_AT).toInt() and 0xffff
+                TextSpanRecord(
+                    start = buffer.getInt(record + START_AT),
+                    length = buffer.getInt(record + LENGTH_AT),
+                    typeRole = typeRoleOrNull(buffer.getShort(record + ROLE_AT).toInt() and 0xffff),
+                    color = paintOrNull(buffer.getLong(record + COLOR_AT)),
+                    background = paintOrNull(buffer.getLong(record + BACKGROUND_AT)),
+                    bold = flags and FLAG_BOLD != 0,
+                    italic = flags and FLAG_ITALIC != 0,
+                    underline = flags and FLAG_UNDERLINE != 0,
+                    strikethrough = flags and FLAG_STRIKETHROUGH != 0,
+                    handlerId = buffer.getLong(record + HANDLER_AT),
+                )
+            }
+        } finally {
+            buffer.order(previous)
         }
     }
 
@@ -463,6 +522,464 @@ object SpanRecords {
         else -> null
     }
 
+}
+
+/** One decoration over a code editor's document: an underline, a lens above a line, a hover anchor or an inline suggestion. The range is in the document at `version`; columns are UTF-16 units. `id` is the application's own name for it, zero where it cannot be pressed. */
+data class DecorationRecord(
+    val version: Int,
+    val kind: DecorationKind,
+    val severity: Severity?,
+    val color: ColorRole?,
+    val startLine: Int,
+    val startColumn: Int,
+    val endLine: Int,
+    val endColumn: Int,
+    val id: Long,
+    val text: String,
+)
+
+/** One colour run of a code editor's syntax. The range is in the document at `version`; columns are UTF-16 units. */
+data class SyntaxSpanRecord(
+    val version: Int,
+    val startLine: Int,
+    val startColumn: Int,
+    val endLine: Int,
+    val endColumn: Int,
+    val paint: Paint,
+)
+
+/** One stretch of a code editor's lines that can be folded. Folding keeps `startLine` and hides the lines after it up to `endLine`; both are in the document at `version`. */
+data class FoldRecord(
+    val version: Int,
+    val startLine: Int,
+    val endLine: Int,
+    val collapsed: Boolean,
+)
+
+/** One mark beside a line number of a code editor. The line is in the document at `version`; `glyph` is a Unicode scalar value, used when the kind is a glyph. `id` is the application's own name for it, zero where it cannot be pressed. */
+data class GutterDecorationRecord(
+    val version: Int,
+    val line: Int,
+    val kind: GutterDecorationKind,
+    val color: ColorRole?,
+    val id: Long,
+    val glyph: Int,
+)
+
+/**
+ * Reads the blobs a code editor carries.
+ *
+ * A record that cannot be read, a kind or a role this side does not know or a text that
+ * points outside the blob, is reported through `onError` and left out. The rest of the list
+ * is read regardless.
+ */
+object CodeEditorRecords {
+    const val DECORATION_LENGTH = 44
+
+    fun decodeDecorations(bytes: ByteArray, onError: (String) -> Unit): List<DecorationRecord> {
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val records = ArrayList<DecorationRecord>(bytes.size / DECORATION_LENGTH)
+        var end = bytes.size
+        var offset = 0
+        var index = 0
+        while (offset + DECORATION_LENGTH <= end) {
+            val textOffset = buffer.getInt(offset + 36)
+            val textLength = buffer.getInt(offset + 40)
+            if (textLength != 0 && textOffset >= 0 && textOffset < end) end = textOffset
+            readDecorationRecord(buffer, bytes, offset, index, onError)?.let(records::add)
+            offset += DECORATION_LENGTH
+            index += 1
+        }
+        return records
+    }
+
+    private fun readDecorationRecord(buffer: ByteBuffer, bytes: ByteArray, offset: Int, index: Int, onError: (String) -> Unit): DecorationRecord? {
+        val version = buffer.getInt(offset + 0)
+        val kindTag = buffer.getShort(offset + 4).toInt() and 0xffff
+        val kind = decorationKindOrNull(kindTag) ?: run { onError("record $index has an unknown kind ${kindTag}"); return null }
+        val severityTag = buffer.getShort(offset + 6).toInt() and 0xffff
+        val severity = if (severityTag == 0) null else severityOrNull(severityTag) ?: run { onError("record $index has an unknown severity ${severityTag}"); return null }
+        val colorTag = buffer.getShort(offset + 8).toInt() and 0xffff
+        val color = if (colorTag == 0) null else colorRoleOrNull(colorTag) ?: run { onError("record $index has an unknown color ${colorTag}"); return null }
+        val startLine = buffer.getInt(offset + 12)
+        val startColumn = buffer.getInt(offset + 16)
+        val endLine = buffer.getInt(offset + 20)
+        val endColumn = buffer.getInt(offset + 24)
+        val id = buffer.getLong(offset + 28)
+        val text = textOf(bytes, buffer.getInt(offset + 36), buffer.getInt(offset + 40)) ?: run { onError("record $index names text outside the list"); return null }
+        return DecorationRecord(version, kind, severity, color, startLine, startColumn, endLine, endColumn, id, text)
+    }
+
+    const val SYNTAX_SPAN_LENGTH = 28
+
+    fun decodeSyntaxSpans(bytes: ByteArray, onError: (String) -> Unit): List<SyntaxSpanRecord> {
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val records = ArrayList<SyntaxSpanRecord>(bytes.size / SYNTAX_SPAN_LENGTH)
+        var end = bytes.size
+        var offset = 0
+        var index = 0
+        while (offset + SYNTAX_SPAN_LENGTH <= end) {
+            readSyntaxSpanRecord(buffer, bytes, offset, index, onError)?.let(records::add)
+            offset += SYNTAX_SPAN_LENGTH
+            index += 1
+        }
+        if (offset != bytes.size) {
+            onError("${bytes.size - offset} bytes after the last whole record")
+        }
+        return records
+    }
+
+    private fun readSyntaxSpanRecord(buffer: ByteBuffer, bytes: ByteArray, offset: Int, index: Int, onError: (String) -> Unit): SyntaxSpanRecord? {
+        val version = buffer.getInt(offset + 0)
+        val startLine = buffer.getInt(offset + 4)
+        val startColumn = buffer.getInt(offset + 8)
+        val endLine = buffer.getInt(offset + 12)
+        val endColumn = buffer.getInt(offset + 16)
+        val paint = paintOrNull(buffer.getLong(offset + 20)) ?: run { onError("record $index has an unreadable paint"); return null }
+        return SyntaxSpanRecord(version, startLine, startColumn, endLine, endColumn, paint)
+    }
+
+    const val FOLD_LENGTH = 16
+
+    fun decodeFolds(bytes: ByteArray, onError: (String) -> Unit): List<FoldRecord> {
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val records = ArrayList<FoldRecord>(bytes.size / FOLD_LENGTH)
+        var end = bytes.size
+        var offset = 0
+        var index = 0
+        while (offset + FOLD_LENGTH <= end) {
+            readFoldRecord(buffer, bytes, offset, index, onError)?.let(records::add)
+            offset += FOLD_LENGTH
+            index += 1
+        }
+        if (offset != bytes.size) {
+            onError("${bytes.size - offset} bytes after the last whole record")
+        }
+        return records
+    }
+
+    private fun readFoldRecord(buffer: ByteBuffer, bytes: ByteArray, offset: Int, index: Int, onError: (String) -> Unit): FoldRecord? {
+        val version = buffer.getInt(offset + 0)
+        val startLine = buffer.getInt(offset + 4)
+        val endLine = buffer.getInt(offset + 8)
+        val collapsed = when (buffer.getInt(offset + 12)) { 0 -> false; 1 -> true; else -> run { onError("record $index has a collapsed that is neither 0 nor 1"); return null } }
+        return FoldRecord(version, startLine, endLine, collapsed)
+    }
+
+    const val GUTTER_DECORATION_LENGTH = 28
+
+    fun decodeGutterDecorations(bytes: ByteArray, onError: (String) -> Unit): List<GutterDecorationRecord> {
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val records = ArrayList<GutterDecorationRecord>(bytes.size / GUTTER_DECORATION_LENGTH)
+        var end = bytes.size
+        var offset = 0
+        var index = 0
+        while (offset + GUTTER_DECORATION_LENGTH <= end) {
+            readGutterDecorationRecord(buffer, bytes, offset, index, onError)?.let(records::add)
+            offset += GUTTER_DECORATION_LENGTH
+            index += 1
+        }
+        if (offset != bytes.size) {
+            onError("${bytes.size - offset} bytes after the last whole record")
+        }
+        return records
+    }
+
+    private fun readGutterDecorationRecord(buffer: ByteBuffer, bytes: ByteArray, offset: Int, index: Int, onError: (String) -> Unit): GutterDecorationRecord? {
+        val version = buffer.getInt(offset + 0)
+        val line = buffer.getInt(offset + 4)
+        val kindTag = buffer.getShort(offset + 8).toInt() and 0xffff
+        val kind = gutterDecorationKindOrNull(kindTag) ?: run { onError("record $index has an unknown kind ${kindTag}"); return null }
+        val colorTag = buffer.getShort(offset + 10).toInt() and 0xffff
+        val color = if (colorTag == 0) null else colorRoleOrNull(colorTag) ?: run { onError("record $index has an unknown color ${colorTag}"); return null }
+        val id = buffer.getLong(offset + 12)
+        val glyph = buffer.getInt(offset + 20)
+        return GutterDecorationRecord(version, line, kind, color, id, glyph)
+    }
+
+    /** UTF-8 text behind the records, or null where the range leaves the blob or is not text. */
+    private fun textOf(bytes: ByteArray, offset: Int, length: Int): String? {
+        if (length == 0) return ""
+        if (offset < 0 || length < 0 || offset.toLong() + length.toLong() > bytes.size.toLong()) return null
+        return try {
+            bytes.decodeToString(offset, offset + length, throwOnInvalidSequence = true)
+        } catch (error: CharacterCodingException) {
+            null
+        }
+    }
+
+    private fun paintOrNull(bits: Long): Paint? {
+        val value = bits.toInt()
+        return when ((bits ushr 32).toInt()) {
+            1 -> colorRoleOrNull(value)?.let { Paint.Role(it) }
+            2 -> Paint.Literal(value)
+            3 -> Paint.Asset(value)
+            else -> null
+        }
+    }
+
+    private fun colorRoleOrNull(tag: Int): ColorRole? = when (tag) {
+        1 -> ColorRole.Primary
+        2 -> ColorRole.OnPrimary
+        3 -> ColorRole.Secondary
+        4 -> ColorRole.OnSecondary
+        5 -> ColorRole.Surface
+        6 -> ColorRole.OnSurface
+        7 -> ColorRole.SurfaceVariant
+        8 -> ColorRole.OnSurfaceVariant
+        9 -> ColorRole.Background
+        10 -> ColorRole.OnBackground
+        11 -> ColorRole.Outline
+        12 -> ColorRole.OutlineVariant
+        13 -> ColorRole.Error
+        14 -> ColorRole.OnError
+        15 -> ColorRole.SurfaceContainer
+        16 -> ColorRole.Tertiary
+        17 -> ColorRole.OnTertiary
+        18 -> ColorRole.PrimaryContainer
+        19 -> ColorRole.OnPrimaryContainer
+        20 -> ColorRole.SecondaryContainer
+        21 -> ColorRole.OnSecondaryContainer
+        22 -> ColorRole.TertiaryContainer
+        23 -> ColorRole.OnTertiaryContainer
+        24 -> ColorRole.SyntaxKeyword
+        25 -> ColorRole.SyntaxString
+        26 -> ColorRole.SyntaxComment
+        27 -> ColorRole.SyntaxNumber
+        28 -> ColorRole.SyntaxConstant
+        29 -> ColorRole.SyntaxType
+        30 -> ColorRole.SyntaxFunction
+        31 -> ColorRole.SyntaxVariable
+        32 -> ColorRole.SyntaxProperty
+        33 -> ColorRole.SyntaxOperator
+        34 -> ColorRole.SyntaxPunctuation
+        35 -> ColorRole.SyntaxTag
+        36 -> ColorRole.SyntaxAttribute
+        37 -> ColorRole.SyntaxEscape
+        38 -> ColorRole.SyntaxMacro
+        39 -> ColorRole.DiffAdded
+        40 -> ColorRole.DiffRemoved
+        41 -> ColorRole.DiffModified
+        42 -> ColorRole.DiffAddedContainer
+        43 -> ColorRole.DiffRemovedContainer
+        44 -> ColorRole.DiffAddedEmphasis
+        45 -> ColorRole.DiffRemovedEmphasis
+        else -> null
+    }
+
+    private fun decorationKindOrNull(tag: Int): DecorationKind? = when (tag) {
+        1 -> DecorationKind.Underline
+        2 -> DecorationKind.CodeLens
+        3 -> DecorationKind.HoverAnchor
+        4 -> DecorationKind.GhostText
+        else -> null
+    }
+
+    private fun gutterDecorationKindOrNull(tag: Int): GutterDecorationKind? = when (tag) {
+        1 -> GutterDecorationKind.Dot
+        2 -> GutterDecorationKind.Bar
+        3 -> GutterDecorationKind.Glyph
+        else -> null
+    }
+
+    private fun severityOrNull(tag: Int): Severity? = when (tag) {
+        1 -> Severity.Error
+        2 -> Severity.Warning
+        3 -> Severity.Information
+        4 -> Severity.Hint
+        else -> null
+    }
+
+}
+
+/**
+ * One font to try for text with no role, in the order a CSS font list gives them. The first
+ * one the Renderer can resolve is the one the text is set in.
+ */
+sealed interface FontRef {
+    /** A font the application registered as an asset. */
+    data class Asset(val assetId: Int) : FontRef
+
+    /** A family installed on the machine, by name. */
+    data class System(val name: String) : FontRef
+
+    /** A family CSS names without naming a font. */
+    data class Generic(val family: GenericFamily) : FontRef
+}
+
+/** Decodes font candidate lists, wherever they sit: a property, a run or a measure request. */
+object FontRefRecords {
+    const val RECORD_LENGTH = 12
+    const val MAX_REFS = 8
+    private const val KIND_AT = 0
+    private const val VALUE_AT = 4
+    private const val LENGTH_AT = 8
+    private const val ASSET = 1
+    private const val SYSTEM = 2
+    private const val GENERIC = 3
+
+    /**
+     * The [count] candidates whose records start at [at] in [buffer], each name read from
+     * the same buffer, or null where anything reaches past [limit] or names a kind this
+     * decoder does not know.
+     */
+    fun decode(buffer: ByteBuffer, limit: Int, at: Int, count: Int): List<FontRef>? {
+        if (count < 0 || count > MAX_REFS) return null
+        if (at < 0 || at.toLong() + count.toLong() * RECORD_LENGTH > limit.toLong()) return null
+        val previous = buffer.order()
+        buffer.order(ByteOrder.LITTLE_ENDIAN)
+        try {
+            val refs = ArrayList<FontRef>(count)
+            for (index in 0 until count) {
+                val record = at + index * RECORD_LENGTH
+                val value = buffer.getInt(record + VALUE_AT)
+                refs += when (buffer.getInt(record + KIND_AT)) {
+                    ASSET -> FontRef.Asset(value)
+                    SYSTEM -> {
+                        val length = buffer.getInt(record + LENGTH_AT)
+                        if (value < 0 || length < 0 || value.toLong() + length > limit.toLong()) {
+                            return null
+                        }
+                        // Relative rather than absolute: the absolute bulk read is not on
+                        // every Android runtime this has to compile against.
+                        val name = ByteArray(length)
+                        val mark = buffer.position()
+                        buffer.position(value)
+                        buffer.get(name, 0, length)
+                        buffer.position(mark)
+                        FontRef.System(name.decodeToString())
+                    }
+                    GENERIC -> FontRef.Generic(genericFamilyOrNull(value) ?: return null)
+                    else -> return null
+                }
+            }
+            return refs
+        } finally {
+            buffer.order(previous)
+        }
+    }
+
+    /** The list a `Font` property carries: a count, then the records and their names. */
+    fun decodeBlob(bytes: ByteArray): List<FontRef>? {
+        if (bytes.isEmpty()) return emptyList()
+        if (bytes.size < 4) return null
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        return decode(buffer, bytes.size, 4, buffer.getInt(0))
+    }
+
+    private fun genericFamilyOrNull(tag: Int): GenericFamily? = when (tag) {
+        1 -> GenericFamily.SystemUi
+        2 -> GenericFamily.SansSerif
+        3 -> GenericFamily.Serif
+        4 -> GenericFamily.Monospace
+        else -> null
+    }
+}
+
+/**
+ * Which runs of a Text name fonts of their own, and which: the `SpanFonts` property, or
+ * the same table inside a measure request. Keyed by the run's index in its run list.
+ */
+object SpanFontRecords {
+    const val ENTRY_LENGTH = 12
+    private const val SPAN_AT = 0
+    private const val OFFSET_AT = 4
+    private const val COUNT_AT = 8
+
+    /** The [count] entries starting at [at] in [buffer], or null where any is malformed. */
+    fun decode(buffer: ByteBuffer, limit: Int, at: Int, count: Int): Map<Int, List<FontRef>>? {
+        if (count < 0 || at < 0 || at.toLong() + count.toLong() * ENTRY_LENGTH > limit.toLong()) {
+            return null
+        }
+        val previous = buffer.order()
+        buffer.order(ByteOrder.LITTLE_ENDIAN)
+        val entries = try {
+            List(count) { index ->
+                val entry = at + index * ENTRY_LENGTH
+                Triple(
+                    buffer.getInt(entry + SPAN_AT),
+                    buffer.getInt(entry + OFFSET_AT),
+                    buffer.getInt(entry + COUNT_AT),
+                )
+            }
+        } finally {
+            buffer.order(previous)
+        }
+        val fonts = HashMap<Int, List<FontRef>>(count)
+        for ((span, offset, refs) in entries) {
+            fonts[span] = FontRefRecords.decode(buffer, limit, offset, refs) ?: return null
+        }
+        return fonts
+    }
+
+    /** The table a `SpanFonts` property carries: a count, then the entries and their lists. */
+    fun decodeBlob(bytes: ByteArray): Map<Int, List<FontRef>>? {
+        if (bytes.isEmpty()) return emptyMap()
+        if (bytes.size < 4) return null
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        return decode(buffer, bytes.size, 4, buffer.getInt(0))
+    }
+}
+
+/**
+ * The layout of a measure call: the request records the Host writes, the result records
+ * the Renderer writes back, and what each status means. The records and their offsets are
+ * the Host's, generated from its schema, so nobody counts bytes by hand on this side.
+ */
+object MeasureRecords {
+    const val RECORD_LENGTH = 72
+    const val RESULT_LENGTH = 32
+    const val KIND_TEXT = 1
+    const val KIND_NODE = 2
+    const val KIND_AT = 0
+    const val TEXT_TYPE_ROLE_AT = 2
+    const val TEXT_TEXT_OFFSET_AT = 4
+    const val TEXT_TEXT_LENGTH_AT = 8
+    const val TEXT_SPANS_OFFSET_AT = 12
+    const val TEXT_SPANS_COUNT_AT = 16
+    const val TEXT_SPAN_FONTS_OFFSET_AT = 20
+    const val TEXT_SPAN_FONTS_COUNT_AT = 24
+    const val TEXT_FONT_OFFSET_AT = 28
+    const val TEXT_FONT_COUNT_AT = 32
+    const val TEXT_FONT_SIZE_AT = 36
+    const val TEXT_FONT_WEIGHT_AT = 40
+    const val TEXT_ITALIC_AT = 42
+    const val TEXT_WRAP_AT = 43
+    const val TEXT_LETTER_SPACING_AT = 44
+    const val TEXT_LINE_HEIGHT_AT = 48
+    const val TEXT_MAX_LINES_AT = 52
+    const val TEXT_TAB_SIZE_AT = 56
+    const val TEXT_WORD_BREAK_AT = 57
+    const val TEXT_OVERFLOW_WRAP_AT = 58
+    const val TEXT_ABSOLUTE_SIZE_AT = 59
+    const val TEXT_CONSTRAINT_AT = 60
+    const val TEXT_WIDTH_AT = 64
+    const val TEXT_ZOOM_AT = 68
+    const val NODE_ID_AT = 4
+    const val NODE_MIN_WIDTH_AT = 8
+    const val NODE_MAX_WIDTH_AT = 12
+    const val NODE_MIN_HEIGHT_AT = 16
+    const val NODE_MAX_HEIGHT_AT = 20
+    const val NODE_ZOOM_AT = 24
+    const val CONSTRAINT_MIN_CONTENT = 1
+    const val CONSTRAINT_MAX_CONTENT = 2
+    const val CONSTRAINT_AT_MOST = 3
+    const val RESULT_WIDTH_AT = 0
+    const val RESULT_HEIGHT_AT = 4
+    const val RESULT_FIRST_BASELINE_AT = 8
+    const val RESULT_LAST_BASELINE_AT = 12
+    const val RESULT_LAST_LINE_WIDTH_AT = 16
+    const val RESULT_LINE_COUNT_AT = 20
+    const val RESULT_FLAGS_AT = 24
+    const val RESULT_STATUS_AT = 28
+    const val FLAG_TRUNCATED = 1
+    const val STATUS_OK = 0
+    const val STATUS_UNKNOWN_NODE = 1
+    const val STATUS_MALFORMED = 2
+    const val CALL_OK = 0
+    const val CALL_UNREADABLE = -1
+    const val CALL_OFF_UI_THREAD = -4
+    const val CALL_UNAVAILABLE = -5
 }
 
 sealed interface Modifier {
@@ -639,6 +1156,26 @@ sealed interface Mutation {
     /** Asks the platform for permission. The answer comes back as an event. */
     data object RequestNotificationPermission : Mutation
 
+    /**
+     * An edit the application asks of a code editor: replace a range of the document as it
+     * stood at `baseVersion` with `text`.
+     *
+     * The document is this side's, so this is a request. Where the reader has typed since
+     * `baseVersion` the range is moved along with what they typed; where they typed in the
+     * same place the edit is refused and `CodeEditRejected` returns `requestId`. Lines and
+     * columns count from zero and columns are UTF-16 units.
+     */
+    data class EditCode(
+        val nodeId: Int,
+        val requestId: Int,
+        val baseVersion: Int,
+        val startLine: Int,
+        val startColumn: Int,
+        val endLine: Int,
+        val endColumn: Int,
+        val text: String,
+    ) : Mutation
+
     /** One animation to play on the Renderer's own frame clock until it ends. */
     data class StartAnimation(val animation: Animation) : Mutation
 
@@ -655,6 +1192,37 @@ sealed interface Mutation {
         val op: AnimationControl,
         val atTimeNanos: Long,
     ) : Mutation
+
+    /**
+     * Puts a code editor's selection between two places in the document as it stood at
+     * `baseVersion`. Both ends are moved along with whatever was typed since. An end outside
+     * the document, or between the two halves of a pair, drops the command and is reported.
+     */
+    data class SetSelection(
+        val nodeId: Int,
+        val baseVersion: Int,
+        val anchorLine: Int,
+        val anchorColumn: Int,
+        val activeLine: Int,
+        val activeColumn: Int,
+    ) : Mutation
+
+    /**
+     * Scrolls a code editor until a range of the document, as it stood at `baseVersion`, is
+     * on screen. A range inside a folded stretch unfolds it first.
+     */
+    data class RevealRange(
+        val nodeId: Int,
+        val baseVersion: Int,
+        val startLine: Int,
+        val startColumn: Int,
+        val endLine: Int,
+        val endColumn: Int,
+        val align: RevealAlign,
+    ) : Mutation
+
+    /** Folds or unfolds the stretch of a code editor that starts on `startLine`. */
+    data class SetFolded(val nodeId: Int, val startLine: Int, val collapsed: Boolean) : Mutation
 }
 
 sealed interface HostEvent {
@@ -678,15 +1246,27 @@ sealed interface HostEvent {
     data class FilesDropped(override val nodeId: Int, override val handlerId: Long, val text: String) : HostEvent
     data class NotificationActivated(override val nodeId: Int, override val handlerId: Long, val action: Int, val key: String) : HostEvent
     data class NotificationPermissionChanged(override val nodeId: Int, override val handlerId: Long, val state: NotificationPermission) : HostEvent
+    data class CodeChanged(override val nodeId: Int, override val handlerId: Long, val version: Int, val startLine: Int, val startColumn: Int, val endLine: Int, val endColumn: Int, val text: String) : HostEvent
+    data class CodeEditRejected(override val nodeId: Int, override val handlerId: Long, val requestId: Int, val baseVersion: Int, val currentVersion: Int, val startLine: Int, val startColumn: Int, val endLine: Int, val endColumn: Int) : HostEvent
+    data class CodeHovered(override val nodeId: Int, override val handlerId: Long, val decoration: Long, val line: Int, val column: Int, val phase: HoverPhase) : HostEvent
+    data class CodeSaveRequested(override val nodeId: Int, override val handlerId: Long, val version: Int) : HostEvent
+    data class DecorationActivated(override val nodeId: Int, override val handlerId: Long, val decoration: Long) : HostEvent
     data class AnimationEvent(override val nodeId: Int, override val handlerId: Long, val animationId: Int, val kind: AnimationEventKind, val property: AnimatedProperty, val slot: Int, val iteration: Int, val elapsedMs: kotlin.Float, val timeNanos: Long) : HostEvent
     data class ReducedMotionChanged(override val nodeId: Int, override val handlerId: Long, val state: ReducedMotion) : HostEvent
+    data class Pointer(override val nodeId: Int, override val handlerId: Long, val kind: PointerKind, val pointerId: Int, val pointerType: PointerType, val x: kotlin.Float, val y: kotlin.Float, val buttons: Int, val button: Int, val modifiers: Int, val clickCount: Int, val deltaX: kotlin.Float, val deltaY: kotlin.Float, val deltaMode: WheelDeltaMode, val timestampNanos: Long) : HostEvent
+    data class ZoomChanged(override val nodeId: Int, override val handlerId: Long, val k: kotlin.Float, val os: kotlin.Float, val level: Int) : HostEvent
+    data class SelectionChanged(override val nodeId: Int, override val handlerId: Long, val version: Int, val anchorLine: Int, val anchorColumn: Int, val activeLine: Int, val activeColumn: Int) : HostEvent
+    data class VisibleRangeChanged(override val nodeId: Int, override val handlerId: Long, val version: Int, val firstLine: Int, val lastLine: Int) : HostEvent
+    data class EditorFocusChanged(override val nodeId: Int, override val handlerId: Long, val focused: Boolean) : HostEvent
+    data class FoldChanged(override val nodeId: Int, override val handlerId: Long, val startLine: Int, val collapsed: Boolean) : HostEvent
+    data class CompositionChanged(override val nodeId: Int, override val handlerId: Long, val composing: Boolean) : HostEvent
 }
 
 class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 2900904971925903247L
+    const val SCHEMA_HASH: Long = -6175437954945919089L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -706,8 +1286,12 @@ object Protocol {
     private const val TAG_POST_NOTIFICATION = 14
     private const val TAG_WITHDRAW_NOTIFICATION = 15
     private const val TAG_REQUEST_NOTIFICATION_PERMISSION = 16
+    private const val TAG_EDIT_CODE = 17
     private const val TAG_START_ANIMATION = 18
     private const val TAG_CONTROL_ANIMATION = 19
+    private const val TAG_SET_SELECTION = 20
+    private const val TAG_REVEAL_RANGE = 21
+    private const val TAG_SET_FOLDED = 22
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -873,6 +1457,18 @@ object Protocol {
                         if (resizable > 1) {
                             throw ProtocolException("invalid resizable flag $resizable", offset + 16)
                         }
+                        // A byte saying whether there is a zoom level, then the level as a
+                        // signed byte.
+                        val zoom = readU16(batch, base, available, offset + 18)
+                        val zoomLevel = when (zoom and 0xFF) {
+                            0 -> null
+                            1 -> (zoom shr 8).toByte().toInt().also { level ->
+                                if (level < -8 || level > 8) {
+                                    throw ProtocolException("invalid zoom level $level", offset + 19)
+                                }
+                            }
+                            else -> throw ProtocolException("invalid zoom flag $zoom", offset + 18)
+                        }
                         Mutation.SetWindow(
                             Window(
                                 chrome(readU16(batch, base, available, offset + 4), offset + 4),
@@ -884,6 +1480,7 @@ object Protocol {
                                 readU16(batch, base, available, offset + 12),
                                 readU16(batch, base, available, offset + 14),
                                 resizable == 1,
+                                zoomLevel,
                             ),
                         )
                     }
@@ -929,6 +1526,19 @@ object Protocol {
                         requireRecordLength(length, 4, offset)
                         Mutation.RequestNotificationPermission
                     }
+                    TAG_EDIT_CODE -> {
+                        requireRecordLength(length, 40, offset)
+                        Mutation.EditCode(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            readU32(batch, base, available, offset + 8).toInt(),
+                            readU32(batch, base, available, offset + 12).toInt(),
+                            readU32(batch, base, available, offset + 16).toInt(),
+                            readU32(batch, base, available, offset + 20).toInt(),
+                            readU32(batch, base, available, offset + 24).toInt(),
+                            readU32(batch, base, available, offset + 28).toInt(),
+                            readString(batch, base, available, offset + 32),
+                        )
+                    }
                     TAG_START_ANIMATION -> {
                         if (length < ANIMATION_HEADER_LENGTH) {
                             requireRecordLength(length, ANIMATION_HEADER_LENGTH, offset)
@@ -944,6 +1554,37 @@ object Protocol {
                             readU8(batch, base, available, offset + 13),
                             animationControl(readU8(batch, base, available, offset + 14), offset + 14),
                             readU64(batch, base, available, offset + 16),
+                        )
+                    }
+                    TAG_SET_SELECTION -> {
+                        requireRecordLength(length, 28, offset)
+                        Mutation.SetSelection(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            readU32(batch, base, available, offset + 8).toInt(),
+                            readU32(batch, base, available, offset + 12).toInt(),
+                            readU32(batch, base, available, offset + 16).toInt(),
+                            readU32(batch, base, available, offset + 20).toInt(),
+                            readU32(batch, base, available, offset + 24).toInt(),
+                        )
+                    }
+                    TAG_REVEAL_RANGE -> {
+                        requireRecordLength(length, 32, offset)
+                        Mutation.RevealRange(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            readU32(batch, base, available, offset + 8).toInt(),
+                            readU32(batch, base, available, offset + 12).toInt(),
+                            readU32(batch, base, available, offset + 16).toInt(),
+                            readU32(batch, base, available, offset + 20).toInt(),
+                            readU32(batch, base, available, offset + 24).toInt(),
+                            revealAlign(readU32(batch, base, available, offset + 28).toInt(), offset + 28),
+                        )
+                    }
+                    TAG_SET_FOLDED -> {
+                        requireRecordLength(length, 16, offset)
+                        Mutation.SetFolded(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            readU32(batch, base, available, offset + 8).toInt(),
+                            flag(readU32(batch, base, available, offset + 12), offset + 12),
                         )
                     }
                     else -> throw ProtocolException("unknown mutation tag $tag", offset)
@@ -1030,8 +1671,20 @@ object Protocol {
                 is HostEvent.FilesDropped -> event.text.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.NotificationActivated -> event.key.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.NotificationPermissionChanged -> null
+                is HostEvent.CodeChanged -> event.text.toByteArray(StandardCharsets.UTF_8)
+                is HostEvent.CodeEditRejected -> null
+                is HostEvent.CodeHovered -> null
+                is HostEvent.CodeSaveRequested -> null
+                is HostEvent.DecorationActivated -> null
                 is HostEvent.AnimationEvent -> null
                 is HostEvent.ReducedMotionChanged -> null
+                is HostEvent.Pointer -> null
+                is HostEvent.ZoomChanged -> null
+                is HostEvent.SelectionChanged -> null
+                is HostEvent.VisibleRangeChanged -> null
+                is HostEvent.EditorFocusChanged -> null
+                is HostEvent.FoldChanged -> null
+                is HostEvent.CompositionChanged -> null
             }
             val recordLength = when (event) {
                 is HostEvent.Clicked -> 16
@@ -1051,8 +1704,20 @@ object Protocol {
                 is HostEvent.FilesDropped -> 24
                 is HostEvent.NotificationActivated -> 28
                 is HostEvent.NotificationPermissionChanged -> 20
+                is HostEvent.CodeChanged -> 44
+                is HostEvent.CodeEditRejected -> 44
+                is HostEvent.CodeHovered -> 36
+                is HostEvent.CodeSaveRequested -> 24
+                is HostEvent.DecorationActivated -> 24
                 is HostEvent.AnimationEvent -> 40
                 is HostEvent.ReducedMotionChanged -> 20
+                is HostEvent.Pointer -> 72
+                is HostEvent.ZoomChanged -> 28
+                is HostEvent.SelectionChanged -> 36
+                is HostEvent.VisibleRangeChanged -> 28
+                is HostEvent.EditorFocusChanged -> 24
+                is HostEvent.FoldChanged -> 24
+                is HostEvent.CompositionChanged -> 24
             }
             val totalLength = recordLength.toLong() + (text?.size ?: 0)
             if (totalLength > Int.MAX_VALUE || totalLength > out.remaining().toLong()) {
@@ -1076,8 +1741,20 @@ object Protocol {
                 is HostEvent.FilesDropped -> 23
                 is HostEvent.NotificationActivated -> 24
                 is HostEvent.NotificationPermissionChanged -> 25
+                is HostEvent.CodeChanged -> 26
+                is HostEvent.CodeEditRejected -> 27
+                is HostEvent.CodeHovered -> 28
+                is HostEvent.CodeSaveRequested -> 29
+                is HostEvent.DecorationActivated -> 30
                 is HostEvent.AnimationEvent -> 31
                 is HostEvent.ReducedMotionChanged -> 32
+                is HostEvent.Pointer -> 8
+                is HostEvent.ZoomChanged -> 33
+                is HostEvent.SelectionChanged -> 34
+                is HostEvent.VisibleRangeChanged -> 35
+                is HostEvent.EditorFocusChanged -> 36
+                is HostEvent.FoldChanged -> 37
+                is HostEvent.CompositionChanged -> 38
             }
             out.putShort(tag.toShort())
             out.putShort(recordLength.toShort())
@@ -1128,6 +1805,34 @@ object Protocol {
                 is HostEvent.NotificationPermissionChanged -> {
                     out.putInt(notificationPermissionTag(event.state))
                 }
+                is HostEvent.CodeChanged -> {
+                    out.putInt(event.version)
+                    out.putInt(event.startLine)
+                    out.putInt(event.startColumn)
+                    out.putInt(event.endLine)
+                    out.putInt(event.endColumn)
+                    writeStringReference(out, recordLength, text!!)
+                }
+                is HostEvent.CodeEditRejected -> {
+                    out.putInt(event.requestId)
+                    out.putInt(event.baseVersion)
+                    out.putInt(event.currentVersion)
+                    out.putInt(event.startLine)
+                    out.putInt(event.startColumn)
+                    out.putInt(event.endLine)
+                    out.putInt(event.endColumn)
+                }
+                is HostEvent.CodeHovered -> {
+                    out.putLong(event.decoration)
+                    out.putInt(event.line)
+                    out.putInt(event.column)
+                    out.putInt(hoverPhaseTag(event.phase))
+                }
+                is HostEvent.CodeSaveRequested -> {
+                    out.putInt(event.version)
+                    out.putInt(0)
+                }
+                is HostEvent.DecorationActivated -> out.putLong(event.decoration)
                 is HostEvent.AnimationEvent -> {
                     out.putInt(event.animationId)
                     out.put(animationEventKindTag(event.kind).toByte())
@@ -1140,6 +1845,50 @@ object Protocol {
                 }
                 is HostEvent.ReducedMotionChanged -> {
                     out.putInt(reducedMotionTag(event.state))
+                }
+                is HostEvent.Pointer -> {
+                    out.putInt(pointerKindTag(event.kind))
+                    out.putInt(event.pointerId)
+                    out.putInt(pointerTypeTag(event.pointerType))
+                    out.putFloat(event.x)
+                    out.putFloat(event.y)
+                    out.putInt(event.buttons)
+                    out.putInt(event.button)
+                    out.putInt(event.modifiers)
+                    out.putInt(event.clickCount)
+                    out.putFloat(event.deltaX)
+                    out.putFloat(event.deltaY)
+                    out.putInt(wheelDeltaModeTag(event.deltaMode))
+                    out.putLong(event.timestampNanos)
+                }
+                is HostEvent.ZoomChanged -> {
+                    out.putFloat(event.k)
+                    out.putFloat(event.os)
+                    out.putInt(event.level)
+                }
+                is HostEvent.SelectionChanged -> {
+                    out.putInt(event.version)
+                    out.putInt(event.anchorLine)
+                    out.putInt(event.anchorColumn)
+                    out.putInt(event.activeLine)
+                    out.putInt(event.activeColumn)
+                }
+                is HostEvent.VisibleRangeChanged -> {
+                    out.putInt(event.version)
+                    out.putInt(event.firstLine)
+                    out.putInt(event.lastLine)
+                }
+                is HostEvent.EditorFocusChanged -> {
+                    out.putInt(if (event.focused) 1 else 0)
+                    out.putInt(0)
+                }
+                is HostEvent.FoldChanged -> {
+                    out.putInt(event.startLine)
+                    out.putInt(if (event.collapsed) 1 else 0)
+                }
+                is HostEvent.CompositionChanged -> {
+                    out.putInt(if (event.composing) 1 else 0)
+                    out.putInt(0)
                 }
             }
             if (text != null) out.put(text)
@@ -1221,6 +1970,7 @@ object Protocol {
         40 -> WidgetKind.Badge
         41 -> WidgetKind.SelectionContainer
         42 -> WidgetKind.SplitPane
+        43 -> WidgetKind.CodeEditor
         44 -> WidgetKind.AbsoluteBox
         100 -> WidgetKind.LinearProgressIndicator
         else -> throw ProtocolException("unknown widget tag $tag", offset)
@@ -1276,6 +2026,33 @@ object Protocol {
         76 -> PropertyKind.Section
         80 -> PropertyKind.Count
         90 -> PropertyKind.Collapsible
+        75 -> PropertyKind.ButtonKind
+        100 -> PropertyKind.Decorations
+        101 -> PropertyKind.SyntaxSpans
+        102 -> PropertyKind.TabWidth
+        103 -> PropertyKind.OnEditRejected
+        104 -> PropertyKind.OnHover
+        105 -> PropertyKind.OnSave
+        106 -> PropertyKind.OnDecorationClick
+        107 -> PropertyKind.Folds
+        108 -> PropertyKind.GutterDecorations
+        109 -> PropertyKind.OnSelectionChange
+        110 -> PropertyKind.Font
+        111 -> PropertyKind.WordBreak
+        112 -> PropertyKind.OverflowWrap
+        113 -> PropertyKind.TabSize
+        114 -> PropertyKind.AbsoluteSize
+        115 -> PropertyKind.SoftWrap
+        116 -> PropertyKind.SpanFonts
+        130 -> PropertyKind.OnVisibleRangeChange
+        131 -> PropertyKind.OnEditorFocusChange
+        132 -> PropertyKind.OnFoldChange
+        133 -> PropertyKind.OnCompositionChange
+        67 -> PropertyKind.OnPointer
+        140 -> PropertyKind.PointerKinds
+        141 -> PropertyKind.Cursor
+        142 -> PropertyKind.UserSelect
+        120 -> PropertyKind.IslandZoom
         27 -> PropertyKind.Progress
         else -> throw ProtocolException("unknown property tag $tag", offset)
     }
@@ -1306,6 +2083,11 @@ object Protocol {
         DesignSystem.LiquidGlass -> 7
     }
 
+    private fun hoverPhaseTag(phase: HoverPhase): Int = when (phase) {
+        HoverPhase.Rest -> 1
+        HoverPhase.Leave -> 2
+    }
+
     private fun notificationPermissionTag(state: NotificationPermission): Int = when (state) {
         NotificationPermission.NotDetermined -> 1
         NotificationPermission.Granted -> 2
@@ -1332,6 +2114,29 @@ object Protocol {
         ReducedMotion.Off -> 1
         ReducedMotion.On -> 2
         ReducedMotion.Unknown -> 3
+    }
+
+    private fun pointerKindTag(value: PointerKind): Int = when (value) {
+        PointerKind.Move -> 1
+        PointerKind.Enter -> 2
+        PointerKind.Leave -> 3
+        PointerKind.Down -> 4
+        PointerKind.Up -> 5
+        PointerKind.Cancel -> 6
+        PointerKind.Wheel -> 7
+        PointerKind.ContextMenu -> 8
+    }
+
+    private fun pointerTypeTag(value: PointerType): Int = when (value) {
+        PointerType.Mouse -> 1
+        PointerType.Touch -> 2
+        PointerType.Pen -> 3
+    }
+
+    private fun wheelDeltaModeTag(value: WheelDeltaMode): Int = when (value) {
+        WheelDeltaMode.Pixel -> 0
+        WheelDeltaMode.Line -> 1
+        WheelDeltaMode.Page -> 2
     }
 
     private fun paletteRole(tag: Int): ColorRole? = when (tag) {
@@ -1537,6 +2342,12 @@ object Protocol {
         else -> throw ProtocolException("unknown ButtonVariant tag $tag", offset)
     }
 
+    private fun buttonKind(tag: Int, offset: Int): ButtonKind = when (tag) {
+        1 -> ButtonKind.Standard
+        2 -> ButtonKind.ActionKey
+        else -> throw ProtocolException("unknown ButtonKind tag $tag", offset)
+    }
+
     private fun designSystem(tag: Int, offset: Int): DesignSystem = when (tag) {
         1 -> DesignSystem.Material3
         2 -> DesignSystem.Cupertino
@@ -1636,6 +2447,28 @@ object Protocol {
         else -> throw ProtocolException("unknown NotificationPermission tag $tag", offset)
     }
 
+    private fun wordBreak(tag: Int, offset: Int): WordBreak = when (tag) {
+        1 -> WordBreak.Normal
+        2 -> WordBreak.KeepAll
+        3 -> WordBreak.BreakAll
+        else -> throw ProtocolException("unknown WordBreak tag $tag", offset)
+    }
+
+    private fun overflowWrap(tag: Int, offset: Int): OverflowWrap = when (tag) {
+        1 -> OverflowWrap.Normal
+        2 -> OverflowWrap.Anywhere
+        3 -> OverflowWrap.BreakWord
+        else -> throw ProtocolException("unknown OverflowWrap tag $tag", offset)
+    }
+
+    private fun genericFamily(tag: Int, offset: Int): GenericFamily = when (tag) {
+        1 -> GenericFamily.SystemUi
+        2 -> GenericFamily.SansSerif
+        3 -> GenericFamily.Serif
+        4 -> GenericFamily.Monospace
+        else -> throw ProtocolException("unknown GenericFamily tag $tag", offset)
+    }
+
     private fun animatedProperty(tag: Int, offset: Int): AnimatedProperty = when (tag) {
         1 -> AnimatedProperty.Alpha
         2 -> AnimatedProperty.Color
@@ -1717,6 +2550,116 @@ object Protocol {
         2 -> ReducedMotion.On
         3 -> ReducedMotion.Unknown
         else -> throw ProtocolException("unknown ReducedMotion tag $tag", offset)
+    }
+
+    private fun decorationKind(tag: Int, offset: Int): DecorationKind = when (tag) {
+        1 -> DecorationKind.Underline
+        2 -> DecorationKind.CodeLens
+        3 -> DecorationKind.HoverAnchor
+        4 -> DecorationKind.GhostText
+        else -> throw ProtocolException("unknown DecorationKind tag $tag", offset)
+    }
+
+    private fun severity(tag: Int, offset: Int): Severity = when (tag) {
+        1 -> Severity.Error
+        2 -> Severity.Warning
+        3 -> Severity.Information
+        4 -> Severity.Hint
+        else -> throw ProtocolException("unknown Severity tag $tag", offset)
+    }
+
+    private fun hoverPhase(tag: Int, offset: Int): HoverPhase = when (tag) {
+        1 -> HoverPhase.Rest
+        2 -> HoverPhase.Leave
+        else -> throw ProtocolException("unknown HoverPhase tag $tag", offset)
+    }
+
+    private fun gutterDecorationKind(tag: Int, offset: Int): GutterDecorationKind = when (tag) {
+        1 -> GutterDecorationKind.Dot
+        2 -> GutterDecorationKind.Bar
+        3 -> GutterDecorationKind.Glyph
+        else -> throw ProtocolException("unknown GutterDecorationKind tag $tag", offset)
+    }
+
+    private fun revealAlign(tag: Int, offset: Int): RevealAlign = when (tag) {
+        1 -> RevealAlign.Nearest
+        2 -> RevealAlign.Center
+        3 -> RevealAlign.Top
+        else -> throw ProtocolException("unknown RevealAlign tag $tag", offset)
+    }
+
+    private fun pointerKind(tag: Int, offset: Int): PointerKind = when (tag) {
+        1 -> PointerKind.Move
+        2 -> PointerKind.Enter
+        3 -> PointerKind.Leave
+        4 -> PointerKind.Down
+        5 -> PointerKind.Up
+        6 -> PointerKind.Cancel
+        7 -> PointerKind.Wheel
+        8 -> PointerKind.ContextMenu
+        else -> throw ProtocolException("unknown PointerKind tag $tag", offset)
+    }
+
+    private fun pointerType(tag: Int, offset: Int): PointerType = when (tag) {
+        1 -> PointerType.Mouse
+        2 -> PointerType.Touch
+        3 -> PointerType.Pen
+        else -> throw ProtocolException("unknown PointerType tag $tag", offset)
+    }
+
+    private fun wheelDeltaMode(tag: Int, offset: Int): WheelDeltaMode = when (tag) {
+        0 -> WheelDeltaMode.Pixel
+        1 -> WheelDeltaMode.Line
+        2 -> WheelDeltaMode.Page
+        else -> throw ProtocolException("unknown WheelDeltaMode tag $tag", offset)
+    }
+
+    private fun cursor(tag: Int, offset: Int): Cursor = when (tag) {
+        0 -> Cursor.Auto
+        1 -> Cursor.Default
+        2 -> Cursor.Pointer
+        3 -> Cursor.Text
+        4 -> Cursor.VerticalText
+        5 -> Cursor.Crosshair
+        6 -> Cursor.Move
+        7 -> Cursor.Grab
+        8 -> Cursor.Grabbing
+        9 -> Cursor.NotAllowed
+        10 -> Cursor.NoDrop
+        11 -> Cursor.Wait
+        12 -> Cursor.Progress
+        13 -> Cursor.Help
+        14 -> Cursor.ContextMenu
+        15 -> Cursor.Cell
+        16 -> Cursor.Copy
+        17 -> Cursor.Alias
+        18 -> Cursor.AllScroll
+        19 -> Cursor.ZoomIn
+        20 -> Cursor.ZoomOut
+        21 -> Cursor.ColResize
+        22 -> Cursor.RowResize
+        23 -> Cursor.EResize
+        24 -> Cursor.NResize
+        25 -> Cursor.NeResize
+        26 -> Cursor.NwResize
+        27 -> Cursor.SResize
+        28 -> Cursor.SeResize
+        29 -> Cursor.SwResize
+        30 -> Cursor.WResize
+        31 -> Cursor.EwResize
+        32 -> Cursor.NsResize
+        33 -> Cursor.NeswResize
+        34 -> Cursor.NwseResize
+        35 -> Cursor.None
+        else -> throw ProtocolException("unknown Cursor tag $tag", offset)
+    }
+
+    private fun userSelect(tag: Int, offset: Int): UserSelect = when (tag) {
+        0 -> UserSelect.Auto
+        1 -> UserSelect.None
+        2 -> UserSelect.Text
+        3 -> UserSelect.All
+        else -> throw ProtocolException("unknown UserSelect tag $tag", offset)
     }
 
     private fun paint(bits: Long, offset: Int): Paint {

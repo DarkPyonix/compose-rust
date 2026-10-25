@@ -98,11 +98,18 @@ command -v "$compiler" >/dev/null || {
 rm -rf "$out"
 mkdir -p "$out/lib"
 
-# The two functions the Host declares and calls. Nothing else is asked of a renderer at
+# The three functions the Host declares and calls. Nothing else is asked of a renderer at
 # link time.
+#
+# Its measure answers by the mock renderer's fixed rules (`compose_rust::measure`), so a
+# binary linked against it gets the same deterministic sizes a test of the Host gets: every
+# character half the font size wide, a line one and a quarter font sizes tall, lines broken
+# at spaces, and no node known. It has no UI thread to check against and never runs one.
 cat > "$out/stand-in.c" <<'C'
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 int32_t compose_rust_renderer_run(void) {
     fputs("compose-rust: this is a stand-in renderer, built only so that a binary has a "
@@ -113,6 +120,126 @@ int32_t compose_rust_renderer_run(void) {
 }
 
 void compose_rust_renderer_request_frame(void) {}
+
+typedef struct {
+    float width, height, first_baseline, last_baseline, last_line_width;
+    uint32_t line_count, flags, status;
+} MeasureResult;
+
+enum { RECORD = 72, KIND_TEXT = 1, KIND_NODE = 2 };
+enum { OK = 0, UNKNOWN_NODE = 1, MALFORMED = 2, TRUNCATED = 1 };
+
+static uint32_t word(const uint8_t *at) {
+    uint32_t value;
+    memcpy(&value, at, 4);
+    return value;
+}
+
+static float real(const uint8_t *at) {
+    float value;
+    memcpy(&value, at, 4);
+    return value;
+}
+
+/* Characters, not bytes: a UTF-8 continuation byte starts nothing. */
+static uint32_t characters(const uint8_t *text, uint32_t length) {
+    uint32_t count = 0;
+    for (uint32_t i = 0; i < length; i++) {
+        if ((text[i] & 0xC0) != 0x80) count++;
+    }
+    return count;
+}
+
+/* The mock's line breaking: at spaces and newlines, greedily, into lines of `width`. */
+static void lay_out(
+    const uint8_t *text, uint32_t length, float width, float advance, MeasureResult *out,
+    uint32_t max_lines
+) {
+    float widest = 0, last = 0;
+    uint32_t lines = 0, shown = 0;
+    uint32_t start = 0;
+    while (start <= length) {
+        uint32_t end = start;
+        while (end < length && text[end] != '\n') end++;
+        uint32_t line = 0;
+        uint32_t at = start;
+        while (at <= end) {
+            uint32_t word_end = at;
+            while (word_end < end && text[word_end] != ' ') word_end++;
+            uint32_t word_length = characters(text + at, word_end - at);
+            uint32_t joined = line == 0 ? word_length : line + 1 + word_length;
+            if (line != 0 && (float)joined * advance > width) {
+                lines++;
+                if (max_lines == 0 || lines <= max_lines) {
+                    shown = lines;
+                    last = (float)line * advance;
+                    if (last > widest) widest = last;
+                }
+                line = word_length;
+            } else {
+                line = joined;
+            }
+            at = word_end + 1;
+        }
+        lines++;
+        if (max_lines == 0 || lines <= max_lines) {
+            shown = lines;
+            last = (float)line * advance;
+            if (last > widest) widest = last;
+        }
+        start = end + 1;
+    }
+    out->width = widest;
+    out->line_count = shown;
+    out->last_line_width = last;
+    out->flags = shown < lines ? TRUNCATED : 0;
+}
+
+int32_t compose_rust_renderer_measure(
+    const uint8_t *requests, uint32_t length, uint32_t count, MeasureResult *results
+) {
+    if (requests == NULL || results == NULL) return -1;
+    if ((uint64_t)count * RECORD > length) return -1;
+    for (uint32_t index = 0; index < count; index++) {
+        const uint8_t *record = requests + (uint64_t)index * RECORD;
+        MeasureResult *out = &results[index];
+        MeasureResult failed = {0, 0, NAN, NAN, NAN, 0, 0, MALFORMED};
+        uint16_t kind = (uint16_t)(record[0] | (record[1] << 8));
+        if (kind == KIND_NODE) {
+            failed.status = UNKNOWN_NODE;
+            *out = failed;
+            continue;
+        }
+        uint32_t at = word(record + 4), text_length = word(record + 8);
+        if (kind != KIND_TEXT || (uint64_t)at + text_length > length) {
+            *out = failed;
+            continue;
+        }
+        float size = real(record + 36);
+        if (!(size > 0)) size = 14;
+        float line_height = real(record + 48);
+        if (isnan(line_height) || line_height <= 0) line_height = size * 1.25f;
+        uint32_t max_lines = word(record + 52);
+        int wrap = record[43] != 0;
+        float width = real(record + 64);
+        float limit;
+        switch (word(record + 60)) {
+            case 1: limit = wrap ? 0 : INFINITY; break;
+            case 2: limit = INFINITY; break;
+            case 3:
+                if (!(width >= 0)) { *out = failed; continue; }
+                limit = wrap ? width : INFINITY;
+                break;
+            default: *out = failed; continue;
+        }
+        lay_out(requests + at, text_length, limit, size * 0.5f, out, max_lines);
+        out->height = (float)out->line_count * line_height;
+        out->first_baseline = size;
+        out->last_baseline = (float)(out->line_count > 0 ? out->line_count - 1 : 0) * line_height + size;
+        out->status = OK;
+    }
+    return 0;
+}
 C
 
 if [[ "$(uname -s)" == "Darwin" ]]; then

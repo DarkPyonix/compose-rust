@@ -14,6 +14,11 @@ import dev.darkpyonix.composerust.protocol.Theme
 import dev.darkpyonix.composerust.protocol.Window
 import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
+import dev.darkpyonix.composerust.foundation.code.CodeEditorModel
+import dev.darkpyonix.composerust.foundation.code.CodePosition
+import dev.darkpyonix.composerust.foundation.codeEvents
+import dev.darkpyonix.composerust.protocol.CodeEditorRecords
+import dev.darkpyonix.composerust.protocol.HostEvent
 
 /**
  * Text the Host pushed into a TextField with `SetText`.
@@ -41,6 +46,14 @@ class Node internal constructor(val id: Int, val widget: WidgetKind) {
     internal val children = mutableStateListOf<Int>()
     internal var parentId: Int = NodeTable.ROOT_ID
     internal var hostText by mutableStateOf<HostText?>(null)
+
+    /**
+     * A code editor's document and everything over it. Created with the node and kept for
+     * its life, because the document is the Renderer's from the moment it opens: the Host
+     * feeds it through the node's properties and its edit records, and never replaces it.
+     */
+    internal val code: CodeEditorModel? =
+        if (widget == WidgetKind.CodeEditor) CodeEditorModel() else null
 
     fun property(kind: PropertyKind): PropertyValue? = props[kind]
 
@@ -73,6 +86,8 @@ data class TableError(val code: Int, val message: String) {
         const val INVALID_PALETTE = 9
         const val INVALID_CHILDREN = 10
         const val INVALID_ANIMATION = 11
+        /** A code editor record or edit whose range, version or kind could not be honoured. */
+        const val INVALID_CODE_EDIT = 12
     }
 }
 
@@ -84,8 +99,18 @@ data class TableError(val code: Int, val message: String) {
  */
 class NodeTable {
     private val nodes = mutableStateMapOf<Int, Node>()
+
+    /** The code editors among them, so that what they report is collected without a walk of the tree. */
+    private val codeNodes = LinkedHashMap<Int, Node>()
     private val rootChildren = mutableStateListOf<Int>()
     private val errors = mutableListOf<TableError>()
+
+    /**
+     * What applying a batch gave a code editor to say: the change an edit from the Host
+     * made, or the edit it refused. Sent after the batch is applied, never in the middle of
+     * it, so the Host is not entered while it is still writing.
+     */
+    private val outbox = mutableListOf<HostEvent>()
 
     /**
      * The registered assets. Pictures outlive the batch that carried them, so they are not
@@ -142,6 +167,17 @@ class NodeTable {
 
     fun node(id: Int): Node? = nodes[id]
 
+    /** Events code editors queued while a batch was applied; drained after it commits. */
+    internal fun drainEvents(): List<HostEvent> {
+        // What is reported as where it ended up, the selection and the lines on screen, is
+        // said once for the whole batch: several moves in it are one report.
+        if (codeNodes.isNotEmpty()) for (node in codeNodes.values.toList()) collectCode(node, includeReports = true)
+        if (outbox.isEmpty()) return emptyList()
+        val drained = outbox.toList()
+        outbox.clear()
+        return drained
+    }
+
     /** Errors collected while applying a batch; drained after the transaction commits. */
     internal fun drainErrors(): List<TableError> {
         // Asked once the whole batch is in, because a batch may start an animation before
@@ -163,8 +199,10 @@ class NodeTable {
     fun clear() {
         animations.clear()
         nodes.clear()
+        codeNodes.clear()
         rootChildren.clear()
         errors.clear()
+        outbox.clear()
         assets.clear()
         messages.clear()
         theme = null
@@ -227,6 +265,119 @@ class NodeTable {
             // somewhere to play it is asked once the whole batch is in.
             is Mutation.StartAnimation -> animations.start(mutation.animation)
             is Mutation.ControlAnimation -> animations.control(mutation)
+            // A request against the editor's document, which the editor may refuse. What
+            // it did is reported once the batch is applied.
+            is Mutation.EditCode -> editCode(mutation)
+
+            // The editor's selection and scroll are this side's, so these are requests
+            // too: each is checked against the document and refused, with a protocol
+            // error, where it names a place that is not in it.
+            is Mutation.SetSelection -> codeNode(mutation.nodeId, "SetSelection")?.let { (node, code) ->
+                code.hostSetSelection(
+                    mutation.baseVersion,
+                    mutation.anchorLine,
+                    mutation.anchorColumn,
+                    mutation.activeLine,
+                    mutation.activeColumn,
+                )
+                collectCode(node)
+            }
+            is Mutation.RevealRange -> codeNode(mutation.nodeId, "RevealRange")?.let { (node, code) ->
+                code.hostReveal(
+                    mutation.baseVersion,
+                    CodePosition(mutation.startLine, mutation.startColumn),
+                    CodePosition(mutation.endLine, mutation.endColumn),
+                    mutation.align,
+                )
+                collectCode(node)
+            }
+            is Mutation.SetFolded -> codeNode(mutation.nodeId, "SetFolded")?.let { (node, code) ->
+                code.hostSetFolded(mutation.startLine, mutation.collapsed)
+                collectCode(node)
+            }
+        }
+    }
+
+    /** The code editor a command names, or null after reporting that it names none. */
+    private fun codeNode(nodeId: Int, command: String): Pair<Node, CodeEditorModel>? {
+        val node = nodes[nodeId] ?: run {
+            fail(TableError.UNKNOWN_NODE, "$command for unknown node $nodeId")
+            return null
+        }
+        val code = node.code ?: run {
+            fail(TableError.UNSUPPORTED_PROPERTY, "$command on ${node.widget}")
+            return null
+        }
+        return node to code
+    }
+
+    private fun editCode(mutation: Mutation.EditCode) {
+        val node = nodes[mutation.nodeId] ?: return fail(
+            TableError.UNKNOWN_NODE,
+            "EditCode for unknown node ${mutation.nodeId}",
+        )
+        val code = node.code ?: return fail(
+            TableError.UNSUPPORTED_PROPERTY,
+            "EditCode on ${node.widget}",
+        )
+        code.hostEdit(
+            mutation.requestId,
+            mutation.baseVersion,
+            mutation.startLine,
+            mutation.startColumn,
+            mutation.endLine,
+            mutation.endColumn,
+            mutation.text,
+        )
+        collectCode(node)
+    }
+
+    /**
+     * Hands a code editor what the Host just set on it. The text is compared with the
+     * document rather than applied, and the two lists are read record by record, so a bad
+     * record costs that record and nothing else.
+     */
+    private fun feedCode(node: Node, kind: PropertyKind, value: PropertyValue) {
+        val code = node.code ?: return
+        when (kind) {
+            PropertyKind.Text -> code.setHostText((value as? PropertyValue.Text)?.value ?: "")
+            PropertyKind.Decorations -> code.setDecorations(
+                (value as? PropertyValue.Bytes)?.value?.let { bytes ->
+                    CodeEditorRecords.decodeDecorations(bytes) { message ->
+                        fail(TableError.INVALID_CODE_EDIT, "decorations on node ${node.id}: $message")
+                    }
+                } ?: emptyList(),
+            )
+            PropertyKind.SyntaxSpans -> code.setSyntaxSpans(
+                (value as? PropertyValue.Bytes)?.value?.let { bytes ->
+                    CodeEditorRecords.decodeSyntaxSpans(bytes) { message ->
+                        fail(TableError.INVALID_CODE_EDIT, "syntax spans on node ${node.id}: $message")
+                    }
+                } ?: emptyList(),
+            )
+            PropertyKind.Folds -> code.setFolds(
+                (value as? PropertyValue.Bytes)?.value?.let { bytes ->
+                    CodeEditorRecords.decodeFolds(bytes) { message ->
+                        fail(TableError.INVALID_CODE_EDIT, "folds on node ${node.id}: $message")
+                    }
+                } ?: emptyList(),
+            )
+            PropertyKind.GutterDecorations -> code.setGutterDecorations(
+                (value as? PropertyValue.Bytes)?.value?.let { bytes ->
+                    CodeEditorRecords.decodeGutterDecorations(bytes) { message ->
+                        fail(TableError.INVALID_CODE_EDIT, "gutter decorations on node ${node.id}: $message")
+                    }
+                } ?: emptyList(),
+            )
+            else -> return
+        }
+        collectCode(node)
+    }
+
+    private fun collectCode(node: Node, includeReports: Boolean = false) {
+        val code = node.code ?: return
+        outbox += node.codeEvents(code.drainOutput(includeReports)) { message ->
+            fail(TableError.INVALID_CODE_EDIT, "code editor ${node.id}: $message")
         }
     }
 
@@ -235,7 +386,9 @@ class NodeTable {
             fail(TableError.DUPLICATE_NODE, "node ${mutation.nodeId} already exists")
             return
         }
-        nodes[mutation.nodeId] = Node(mutation.nodeId, mutation.widget)
+        val created = Node(mutation.nodeId, mutation.widget)
+        nodes[mutation.nodeId] = created
+        if (created.code != null) codeNodes[mutation.nodeId] = created
         // A node the Host never inserts stays a root. The Host has no mutation that attaches
         // the application root, so the first created node is what the Renderer draws.
         // There is no mutation that attaches a root, so roots are inferred here.
@@ -260,6 +413,7 @@ class NodeTable {
         } else {
             node.props[mutation.property] = mutation.value
         }
+        if (node.code != null) feedCode(node, mutation.property, mutation.value)
     }
 
     private fun setModifier(mutation: Mutation.SetModifier) {
@@ -348,6 +502,7 @@ class NodeTable {
 
     private fun removeSubtree(nodeId: Int) {
         val node = nodes.remove(nodeId) ?: return
+        codeNodes.remove(nodeId)
         animations.removeNode(nodeId)
         materials -= node.modifiers.count { it is ProtocolModifier.Material }
         node.children.toList().forEach(::removeSubtree)
@@ -419,6 +574,13 @@ class NodeTable {
         errors += TableError(code, message)
     }
 
+    /**
+     * Records a protocol error found outside the batch itself, such as a measure request
+     * naming a font that was never registered. It is reported with the batch's own errors,
+     * after the call it was found in has returned, so the Host is never re-entered.
+     */
+    internal fun report(code: Int, message: String) = fail(code, message)
+
     companion object {
         /** Node id 0 is the Host's "no node" sentinel, so it names the virtual root. */
         const val ROOT_ID: Int = 0
@@ -435,6 +597,26 @@ class NodeTable {
                 PropertyKind.OnRangeRequested,
                 PropertyKind.OnDismiss,
                 -> true
+
+                // Pointer subscription, cursor and selectability belong to the nodes a
+                // pointer can sit over as a region: the containers, text and the HTML
+                // region root. A picker takes only its value, range and events. The interpreter
+                // does not act on them yet.
+                PropertyKind.OnPointer,
+                PropertyKind.PointerKinds,
+                PropertyKind.Cursor,
+                PropertyKind.UserSelect,
+                -> widget == WidgetKind.Text ||
+                    widget == WidgetKind.Column ||
+                    widget == WidgetKind.Row ||
+                    widget == WidgetKind.Box ||
+                    widget == WidgetKind.Card ||
+                    widget == WidgetKind.Surface ||
+                    widget == WidgetKind.ScrollColumn ||
+                    widget == WidgetKind.ScrollRow ||
+                    widget == WidgetKind.SelectionContainer ||
+                    widget == WidgetKind.Spacer ||
+                    widget == WidgetKind.AbsoluteBox
 
                 // A Tooltip's text is the explanation it shows, and its description in the
                 // accessibility tree. A destination's is its label.
@@ -457,7 +639,11 @@ class NodeTable {
                         // A badge's short word, shown where a count would be.
                         widget == WidgetKind.Badge ||
                         // A split pane's is its divider's name for a screen reader.
-                        widget == WidgetKind.SplitPane
+                        widget == WidgetKind.SplitPane ||
+                        // A code editor's document as the Host opened it. A text equal to
+                        // what the editor holds changes nothing; a different one opens a
+                        // new document.
+                        widget == WidgetKind.CodeEditor
 
                 // Note: SpacerProps has width and height in the Rust schema, but there are
                 // no matching PropertyKind variants, so a Spacer can only be sized with
@@ -607,11 +793,49 @@ class NodeTable {
                 // Runs of different treatment inside one string.
                 PropertyKind.Spans -> widget == WidgetKind.Text
 
+                // What text laid out by CSS needs: its own fonts, where its lines may
+                // break, its tab stops, sizes the system's font scale leaves alone, and
+                // whether it wraps at all. Only a Text: a control's label is set by the
+                // design system.
+                PropertyKind.Font,
+                PropertyKind.SpanFonts,
+                PropertyKind.WordBreak,
+                PropertyKind.OverflowWrap,
+                PropertyKind.TabSize,
+                PropertyKind.AbsoluteSize,
+                PropertyKind.SoftWrap,
+                -> widget == WidgetKind.Text
+
+                // How large an HTML island is drawn. Only the island's root has one.
+                PropertyKind.IslandZoom -> widget == WidgetKind.AbsoluteBox
+
                 // How many a badge counts. Nothing else counts anything.
                 PropertyKind.Count -> widget == WidgetKind.Badge
 
                 // Whether a split pane's side pane may be folded away.
                 PropertyKind.Collapsible -> widget == WidgetKind.SplitPane
+
+                // What a button is apart from its emphasis: a plain one, or a key of a
+                // dense grid. Only a button has a kind; a chip or a floating action is
+                // already its own component.
+                PropertyKind.ButtonKind -> widget == WidgetKind.Button
+
+                // A code editor's lists, its tab width and the handlers only it reports to.
+                PropertyKind.Decorations,
+                PropertyKind.SyntaxSpans,
+                PropertyKind.TabWidth,
+                PropertyKind.OnEditRejected,
+                PropertyKind.OnHover,
+                PropertyKind.OnSave,
+                PropertyKind.OnDecorationClick,
+                PropertyKind.Folds,
+                PropertyKind.GutterDecorations,
+                PropertyKind.OnSelectionChange,
+                PropertyKind.OnVisibleRangeChange,
+                PropertyKind.OnEditorFocusChange,
+                PropertyKind.OnFoldChange,
+                PropertyKind.OnCompositionChange,
+                -> widget == WidgetKind.CodeEditor
 
                 // Files over a node and files let go on it. Only the widget that exists
                 // to receive them, because a handler is attached whether or not a screen

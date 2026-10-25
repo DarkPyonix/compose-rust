@@ -11,6 +11,16 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import dev.darkpyonix.composerust.protocol.HostEvent
+import dev.darkpyonix.composerust.protocol.SyntaxSpanRecord
+import dev.darkpyonix.composerust.protocol.Severity
+import dev.darkpyonix.composerust.protocol.HoverPhase
+import dev.darkpyonix.composerust.protocol.DecorationRecord
+import dev.darkpyonix.composerust.protocol.DecorationKind
+import dev.darkpyonix.composerust.protocol.CodeEditorRecords
+import dev.darkpyonix.composerust.protocol.FoldRecord
+import dev.darkpyonix.composerust.protocol.GutterDecorationKind
+import dev.darkpyonix.composerust.protocol.GutterDecorationRecord
+import dev.darkpyonix.composerust.protocol.RevealAlign
 import dev.darkpyonix.composerust.protocol.MessageDuration
 import dev.darkpyonix.composerust.protocol.NotificationImportance
 import dev.darkpyonix.composerust.protocol.NotificationPermission
@@ -99,6 +109,10 @@ class ProtocolVectorsTest {
                 is Mutation.PostNotification -> false
                 is Mutation.WithdrawNotification -> false
                 is Mutation.RequestNotificationPermission -> false
+                is Mutation.EditCode -> mutation.nodeId !in created
+                is Mutation.SetSelection -> mutation.nodeId !in created
+                is Mutation.RevealRange -> mutation.nodeId !in created
+                is Mutation.SetFolded -> mutation.nodeId !in created
                 // An animation is played on a node, so one that names a node the vector
                 // never created is reported once the batch is in.
                 is Mutation.StartAnimation -> mutation.animation.nodeId !in created
@@ -382,14 +396,43 @@ class ProtocolVectorsTest {
             out,
         )
         assertEquals(40, length)
-        assertEquals(bytes.copyOfRange(282, 322).toList(), out.array().copyOf(length).toList())
+        assertEquals(bytes.copyOfRange(458, 498).toList(), out.array().copyOf(length).toList())
         val motion = ByteBuffer.allocate(32)
         val motionLength = Protocol.encodeEvent(
             HostEvent.ReducedMotionChanged(0, 0, dev.darkpyonix.composerust.protocol.ReducedMotion.On),
             motion,
         )
         assertEquals(20, motionLength)
-        assertEquals(bytes.copyOfRange(322, 342).toList(), motion.array().copyOf(motionLength).toList())
+        assertEquals(bytes.copyOfRange(498, 518).toList(), motion.array().copyOf(motionLength).toList())
+    }
+
+    /** The pointer event encodes to the 72 bytes the Host decodes. */
+    @Test
+    fun fr46_the_pointer_event_encodes_to_the_vector_bytes() {
+        val bytes = vectorFile("events.bin").readBytes()
+        val out = ByteBuffer.allocate(96)
+        val length = Protocol.encodeEvent(
+            HostEvent.Pointer(
+                nodeId = 13,
+                handlerId = 23,
+                kind = dev.darkpyonix.composerust.protocol.PointerKind.Down,
+                pointerId = 1,
+                pointerType = dev.darkpyonix.composerust.protocol.PointerType.Mouse,
+                x = 12.5f,
+                y = -3f,
+                buttons = 9,
+                button = 8,
+                modifiers = 5,
+                clickCount = 2,
+                deltaX = 0f,
+                deltaY = 0f,
+                deltaMode = dev.darkpyonix.composerust.protocol.WheelDeltaMode.Pixel,
+                timestampNanos = 987_654_321_000L,
+            ),
+            out,
+        )
+        assertEquals(72, length)
+        assertEquals(bytes.copyOfRange(518, 590).toList(), out.array().copyOf(length).toList())
     }
 
     /** The theme record carries the palette behind it, and both sides read the same entries. */
@@ -453,6 +496,120 @@ class ProtocolVectorsTest {
             .filterIsInstance<Mutation.SetProp>()
             .single { it.property == PropertyKind.Collapsible }
         assertEquals(Mutation.SetProp(2, PropertyKind.Collapsible, PropertyValue.Bool(true)), collapsible)
+    }
+
+    /**
+     * The code editor in the vector: the edit record, and the decoration and colour run
+     * records inside its two blobs, read at the offsets the Rust schema gives them.
+     */
+    @Test
+    fun fr38_the_code_editor_records_in_the_vector_decode_to_the_same_values() {
+        val mutations = decodeVector("mutations.bin")
+        assertEquals(
+            listOf(Mutation.EditCode(12, 7, 0, 1, 8, 1, 8, "mut ")),
+            mutations.filterIsInstance<Mutation.EditCode>(),
+        )
+        val props = mutations.filterIsInstance<Mutation.SetProp>().filter { it.nodeId == 12 }
+        assertEquals(WidgetKind.CodeEditor, mutations.filterIsInstance<Mutation.Create>().single { it.nodeId == 12 }.widget)
+        val errors = mutableListOf<String>()
+        val decorations = CodeEditorRecords.decodeDecorations(
+            (props.single { it.property == PropertyKind.Decorations }.value as PropertyValue.Bytes).value,
+            errors::add,
+        )
+        assertEquals(
+            listOf(
+                DecorationRecord(0, DecorationKind.Underline, Severity.Warning, ColorRole.Error, 1, 8, 1, 9, 0L, ""),
+                DecorationRecord(0, DecorationKind.CodeLens, null, null, 0, 0, 0, 0, 41L, "Run"),
+                DecorationRecord(0, DecorationKind.HoverAnchor, null, null, 0, 3, 0, 7, 42L, ""),
+                DecorationRecord(0, DecorationKind.GhostText, null, null, 2, 1, 2, 1, 43L, " // end"),
+            ),
+            decorations,
+        )
+        val spans = CodeEditorRecords.decodeSyntaxSpans(
+            (props.single { it.property == PropertyKind.SyntaxSpans }.value as PropertyValue.Bytes).value,
+            errors::add,
+        )
+        assertEquals(
+            listOf(
+                SyntaxSpanRecord(0, 0, 0, 0, 2, Paint.Role(ColorRole.Primary)),
+                SyntaxSpanRecord(0, 1, 12, 1, 16, Paint.Role(ColorRole.Tertiary)),
+            ),
+            spans,
+        )
+        assertEquals(emptyList<String>(), errors)
+    }
+
+    /** The five code editor events encode here to the bytes the Rust Host decodes. */
+    @Test
+    fun fr38_the_code_editor_events_encode_to_the_vector_bytes() {
+        val bytes = vectorFile("events.bin").readBytes()
+        fun encoded(event: HostEvent): ByteArray {
+            val buffer = ByteBuffer.allocate(256).order(ByteOrder.LITTLE_ENDIAN)
+            val length = Protocol.encodeEvent(event, buffer)
+            return buffer.array().copyOf(length)
+        }
+        val expected = listOf(
+            282 to HostEvent.CodeChanged(12, 18L, 1, 1, 8, 1, 8, "mut "),
+            330 to HostEvent.CodeEditRejected(12, 19L, 7, 0, 2, 1, 8, 1, 9),
+            374 to HostEvent.CodeHovered(12, 20L, 42L, 0, 4, HoverPhase.Rest),
+            410 to HostEvent.CodeSaveRequested(12, 21L, 2),
+            434 to HostEvent.DecorationActivated(12, 22L, 41L),
+            590 to HostEvent.SelectionChanged(12, 23L, 2, 1, 12, 0, 3),
+            626 to HostEvent.VisibleRangeChanged(12, 24L, 2, 0, 3),
+            654 to HostEvent.EditorFocusChanged(12, 25L, true),
+            678 to HostEvent.FoldChanged(12, 26L, 0, true),
+            702 to HostEvent.CompositionChanged(12, 27L, true),
+        )
+        for ((offset, event) in expected) {
+            val wire = encoded(event)
+            assertTrue(
+                wire.contentEquals(bytes.copyOfRange(offset, offset + wire.size)),
+                "$event at $offset",
+            )
+        }
+        assertEquals(726, bytes.size)
+    }
+
+    /**
+     * The code editor's later additions in the vector: the three commands, and the fold and
+     * gutter records inside their blobs, read at the offsets the Rust schema gives them.
+     */
+    @Test
+    fun fr38_the_editor_selection_fold_and_gutter_records_decode_to_the_same_values() {
+        val mutations = decodeVector("mutations.bin")
+        assertEquals(
+            listOf(Mutation.SetSelection(12, 0, 1, 12, 0, 3)),
+            mutations.filterIsInstance<Mutation.SetSelection>(),
+        )
+        assertEquals(
+            listOf(Mutation.RevealRange(12, 1, 1, 12, 1, 16, RevealAlign.Center)),
+            mutations.filterIsInstance<Mutation.RevealRange>(),
+        )
+        assertEquals(
+            listOf(Mutation.SetFolded(12, 0, true)),
+            mutations.filterIsInstance<Mutation.SetFolded>(),
+        )
+        val props = mutations.filterIsInstance<Mutation.SetProp>().filter { it.nodeId == 12 }
+        val errors = mutableListOf<String>()
+        assertEquals(
+            listOf(FoldRecord(0, 0, 2, false), FoldRecord(0, 1, 3, true)),
+            CodeEditorRecords.decodeFolds(
+                (props.single { it.property == PropertyKind.Folds }.value as PropertyValue.Bytes).value,
+                errors::add,
+            ),
+        )
+        assertEquals(
+            listOf(
+                GutterDecorationRecord(0, 0, GutterDecorationKind.Dot, null, 51L, 0),
+                GutterDecorationRecord(0, 1, GutterDecorationKind.Bar, ColorRole.Tertiary, 0L, 0),
+                GutterDecorationRecord(0, 2, GutterDecorationKind.Glyph, null, 52L, 0x1F41B),
+            ),
+            CodeEditorRecords.decodeGutterDecorations(
+                (props.single { it.property == PropertyKind.GutterDecorations }.value as PropertyValue.Bytes).value,
+                errors::add,
+            ),
+        )
+        assertEquals(emptyList<String>(), errors)
     }
 
     private fun decodeVector(name: String): List<Mutation> {

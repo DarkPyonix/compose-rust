@@ -6,6 +6,7 @@
 set -euo pipefail
 source "$(dirname "$0")/env.sh"
 SCRIPT_DIR_NATIVE="$(cd "$(dirname "$0")" && pwd)"
+bash "$SCRIPT_DIR_NATIVE/../../scripts/require-symlinks.sh"
 
 # env.sh validates the platform, the architecture, the Xcode tools and the NIK install.
 arch="$HOST_ARCH"
@@ -70,7 +71,7 @@ cc -c -O2 -fobjc-arc -arch "$arch" -o "$obj/appkit_window.o" "$appkit_source"
 # Notifications through UNUserNotificationCenter. With ARC for the same reason as the window.
 cc -c -O2 -fobjc-arc -arch "$arch" -o "$obj/macos_notifications.o" "$NATIVE_DIR/c/macos_notifications.m"
 
-exported=(compose_rust_renderer_run compose_rust_renderer_request_frame)
+exported=(compose_rust_renderer_run compose_rust_renderer_request_frame compose_rust_renderer_measure)
 # The renderer calls the Host's compose_rust_host_* functions, which live in the Rust
 # executable that loads this library. They are resolved at load time, so the link must
 # tolerate them being undefined here.

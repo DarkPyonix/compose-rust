@@ -23,6 +23,13 @@ param()
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+# The renderer modules share sources through symlinks. With core.symlinks=false git checks
+# them out as one-line text files and the build fails far from the cause, so stop here.
+$SymlinkProbe = Join-Path $PSScriptRoot "..\ios\src\shared\WindowSize.kt"
+if ((Test-Path $SymlinkProbe) -and -not ((Get-Item $SymlinkProbe -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+    throw "renderer/ios/src/shared/WindowSize.kt is a regular file but must be a symlink: git checked symlinks out as text because core.symlinks is false. Run 'git config core.symlinks true' and 'git checkout -f', with Developer Mode on or an administrator shell so git can create symlinks."
+}
+
 # Runs a native command without letting its progress output count as a failure.
 #
 # With $ErrorActionPreference set to Stop, PowerShell turns anything a native command
@@ -395,7 +402,8 @@ $NativeImageArgs = @(
     "-H:NativeLinkerOption=ole32.lib",
     "-H:NativeLinkerOption=shell32.lib",
     "-H:NativeLinkerOption=/EXPORT:compose_rust_renderer_run",
-    "-H:NativeLinkerOption=/EXPORT:compose_rust_renderer_request_frame"
+    "-H:NativeLinkerOption=/EXPORT:compose_rust_renderer_request_frame",
+    "-H:NativeLinkerOption=/EXPORT:compose_rust_renderer_measure"
 )
 # Through an argument file, not the command line. The runtime classpath alone is tens of
 # kilobytes of Maven cache paths and Windows caps a command line at 32767 characters, so

@@ -25,9 +25,13 @@ const TAG_SET_WINDOW: u16 = 13;
 const TAG_POST_NOTIFICATION: u16 = 14;
 const TAG_WITHDRAW_NOTIFICATION: u16 = 15;
 const TAG_REQUEST_NOTIFICATION_PERMISSION: u16 = 16;
-// Tag 17 is reserved for the code editor.
+const TAG_EDIT_CODE: u16 = 17;
 const TAG_START_ANIMATION: u16 = 18;
 const TAG_CONTROL_ANIMATION: u16 = 19;
+// 20 to 22 are the code editor's: the selection, a range to bring into view, a fold.
+const TAG_SET_SELECTION: u16 = 20;
+const TAG_REVEAL_RANGE: u16 = 21;
+const TAG_SET_FOLDED: u16 = 22;
 /// The head of a `StartAnimation` record, before its keyframes.
 const ANIMATION_HEADER_LEN: usize = 52;
 /// A keyframe before its value: offset, timing, step position, flags and four numbers.
@@ -160,6 +164,24 @@ pub enum Mutation<'a> {
     /// Asks the platform for permission to show notifications. It carries nothing: the
     /// answer comes back as a permission event.
     RequestNotificationPermission,
+    /// Replaces a range of a code editor's document, as it stood at `base_version`, with
+    /// `text`.
+    ///
+    /// The Renderer owns the document, so this is a request and not an assignment: where
+    /// the reader has typed since that version the range is moved along with what they
+    /// typed, and where they typed in the same place the edit is refused and
+    /// `CodeEditRejected` names `request_id`. An edit that is applied comes back as an
+    /// ordinary `CodeChanged`, so the version stays one sequence whoever made the edit.
+    EditCode {
+        node_id: u32,
+        request_id: u32,
+        base_version: u32,
+        start_line: u32,
+        start_column: u32,
+        end_line: u32,
+        end_column: u32,
+        text: &'a str,
+    },
     /// Hands the Renderer one animation to play on its own frame clock until it ends.
     /// Nothing crosses the boundary while it plays unless it asked for events.
     StartAnimation(crate::schema::Animation<'a>),
@@ -174,6 +196,35 @@ pub enum Mutation<'a> {
         op: crate::schema::AnimationControl,
         /// On the Renderer's frame clock. Zero means the first frame that draws it.
         at_time_nanos: u64,
+    },
+    /// Puts a code editor's selection between two places in the document as it stood at
+    /// `base_version`. Both ends are moved along with whatever was typed since, and an end
+    /// that is outside the document, or between the two halves of a pair, drops the
+    /// command and comes back as a protocol error.
+    SetSelection {
+        node_id: u32,
+        base_version: u32,
+        anchor_line: u32,
+        anchor_column: u32,
+        active_line: u32,
+        active_column: u32,
+    },
+    /// Scrolls a code editor until a range of the document, as it stood at `base_version`,
+    /// is on screen. A range inside a folded stretch unfolds it first.
+    RevealRange {
+        node_id: u32,
+        base_version: u32,
+        start_line: u32,
+        start_column: u32,
+        end_line: u32,
+        end_column: u32,
+        align: crate::schema::RevealAlign,
+    },
+    /// Folds or unfolds the stretch of a code editor that starts on `start_line`.
+    SetFolded {
+        node_id: u32,
+        start_line: u32,
+        collapsed: bool,
     },
 }
 
@@ -195,6 +246,9 @@ pub enum ProtocolError {
     InvalidStringRange,
     InvalidUtf8,
     LengthOverflow,
+    /// The Renderer refused a whole measure call with this status: its buffer could not be
+    /// read, it came from the wrong thread, or there was nothing to measure with yet.
+    MeasureRefused(i32),
     /// An animation record that is well formed bytes but not an animation: an unknown
     /// value, fewer than two keyframes, offsets that do not run from 0 to 1, a negative or
     /// non-numeric duration or iteration count, keyframes whose values or transform lists
@@ -216,8 +270,10 @@ const EVENT_FOCUS_LOST: u16 = 4;
 const EVENT_PROTOCOL_ERROR: u16 = 5;
 const EVENT_KEY_DOWN: u16 = 6;
 const EVENT_RANGE_REQUESTED: u16 = 7;
-// Tags 8 to 15 are reserved for the pointer gesture events, so this one starts at 16
-// and the window size report continues from 17.
+// Tag 8 is the pointer event and 9 to 15 are reserved for the gesture events, so this one
+// starts at 16 and the window size report continues from 17.
+const EVENT_POINTER: u16 = 8;
+const POINTER_RECORD_LEN: usize = 72;
 const EVENT_VALUE_CHANGED: u16 = 16;
 const EVENT_WINDOW_SIZE_CHANGED: u16 = 17;
 const EVENT_RESYNC: u16 = 18;
@@ -228,14 +284,60 @@ const EVENT_FILES_ENTERED: u16 = 22;
 const EVENT_FILES_DROPPED: u16 = 23;
 const EVENT_NOTIFICATION_ACTIVATED: u16 = 24;
 const EVENT_NOTIFICATION_PERMISSION_CHANGED: u16 = 25;
-// Tags 26 to 30 are reserved for the code editor.
+const EVENT_CODE_CHANGED: u16 = 26;
+const EVENT_CODE_EDIT_REJECTED: u16 = 27;
+const EVENT_CODE_HOVERED: u16 = 28;
+const EVENT_CODE_SAVE_REQUESTED: u16 = 29;
+const EVENT_DECORATION_ACTIVATED: u16 = 30;
 const EVENT_ANIMATION: u16 = 31;
 const EVENT_REDUCED_MOTION_CHANGED: u16 = 32;
+// Tags 26 to 32 belong to events other requirements have numbered.
+const EVENT_ZOOM_CHANGED: u16 = 33;
+// 33 is the zoom event's. 34 to 38 are the code editor's.
+const EVENT_SELECTION_CHANGED: u16 = 34;
+const EVENT_VISIBLE_RANGE_CHANGED: u16 = 35;
+const EVENT_EDITOR_FOCUS_CHANGED: u16 = 36;
+const EVENT_FOLD_CHANGED: u16 = 37;
+const EVENT_COMPOSITION_CHANGED: u16 = 38;
 
 const MODIFIER_SHIFT: u8 = 1 << 0;
 const MODIFIER_CTRL: u8 = 1 << 1;
 const MODIFIER_ALT: u8 = 1 << 2;
 const MODIFIER_META: u8 = 1 << 3;
+
+/// Reads a pointer enum's tag out of a `u32` word. A word that does not fit a tag, or names
+/// none, is a value the sides disagree on.
+fn pointer_tag<T: TryFrom<u16, Error = ()>>(
+    bytes: &[u8],
+    offset: usize,
+) -> Result<T, ProtocolError> {
+    let raw = read_u32(bytes, offset)?;
+    u16::try_from(raw)
+        .ok()
+        .and_then(|tag| T::try_from(tag).ok())
+        .ok_or(ProtocolError::InvalidValueKind(
+            raw.min(u32::from(u16::MAX)) as u16,
+        ))
+}
+
+/// The 72-byte pointer record: see the field table of the pointer event.
+fn decode_pointer(bytes: &[u8]) -> Result<crate::schema::EventPayload<'_>, ProtocolError> {
+    Ok(crate::schema::EventPayload::Pointer {
+        kind: pointer_tag(bytes, 16)?,
+        pointer_id: read_u32(bytes, 20)?,
+        pointer_type: pointer_tag(bytes, 24)?,
+        x: f32::from_bits(read_u32(bytes, 28)?),
+        y: f32::from_bits(read_u32(bytes, 32)?),
+        buttons: read_u32(bytes, 36)?,
+        button: read_u32(bytes, 40)?,
+        modifiers: read_u32(bytes, 44)?,
+        click_count: read_u32(bytes, 48)?,
+        delta_x: f32::from_bits(read_u32(bytes, 52)?),
+        delta_y: f32::from_bits(read_u32(bytes, 56)?),
+        delta_mode: pointer_tag(bytes, 60)?,
+        timestamp_nanos: read_u64(bytes, 64)?,
+    })
+}
 
 /// Decode one Renderer-to-Host event record.
 pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
@@ -350,6 +452,7 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
                 time_nanos: read_u64(bytes, 32)?,
             }
         }
+        EVENT_POINTER if record_len == POINTER_RECORD_LEN => decode_pointer(bytes)?,
         EVENT_REDUCED_MOTION_CHANGED if record_len == 20 => {
             let raw = read_u32(bytes, 16)?;
             let state = u16::try_from(raw)
@@ -360,13 +463,106 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
                 ))?;
             crate::schema::EventPayload::ReducedMotionChanged(state)
         }
+        EVENT_CODE_CHANGED if record_len == 44 => crate::schema::EventPayload::CodeChanged {
+            version: read_u32(bytes, 16)?,
+            start_line: read_u32(bytes, 20)?,
+            start_column: read_u32(bytes, 24)?,
+            end_line: read_u32(bytes, 28)?,
+            end_column: read_u32(bytes, 32)?,
+            text: read_string(bytes, 36, record_len)?,
+        },
+        EVENT_CODE_EDIT_REJECTED if record_len == 44 => {
+            crate::schema::EventPayload::CodeEditRejected {
+                request_id: read_u32(bytes, 16)?,
+                base_version: read_u32(bytes, 20)?,
+                current_version: read_u32(bytes, 24)?,
+                start_line: read_u32(bytes, 28)?,
+                start_column: read_u32(bytes, 32)?,
+                end_line: read_u32(bytes, 36)?,
+                end_column: read_u32(bytes, 40)?,
+            }
+        }
+        EVENT_CODE_HOVERED if record_len == 36 => {
+            let raw_phase = read_u32(bytes, 32)?;
+            let phase = u16::try_from(raw_phase)
+                .ok()
+                .and_then(|tag| crate::schema::HoverPhase::try_from(tag).ok())
+                .ok_or(ProtocolError::InvalidValueKind(raw_phase as u16))?;
+            crate::schema::EventPayload::CodeHovered {
+                decoration: read_u64(bytes, 16)?,
+                line: read_u32(bytes, 24)?,
+                column: read_u32(bytes, 28)?,
+                phase,
+            }
+        }
+        EVENT_CODE_SAVE_REQUESTED if record_len == 24 => {
+            crate::schema::EventPayload::CodeSaveRequested {
+                version: read_u32(bytes, 16)?,
+            }
+        }
+        EVENT_DECORATION_ACTIVATED if record_len == 24 => {
+            crate::schema::EventPayload::DecorationActivated {
+                decoration: read_u64(bytes, 16)?,
+            }
+        }
+        EVENT_CODE_CHANGED..=EVENT_DECORATION_ACTIVATED => {
+            return Err(ProtocolError::InvalidRecordLength);
+        }
+        EVENT_SELECTION_CHANGED if record_len == 36 => {
+            crate::schema::EventPayload::SelectionChanged {
+                version: read_u32(bytes, 16)?,
+                anchor_line: read_u32(bytes, 20)?,
+                anchor_column: read_u32(bytes, 24)?,
+                active_line: read_u32(bytes, 28)?,
+                active_column: read_u32(bytes, 32)?,
+            }
+        }
+        EVENT_VISIBLE_RANGE_CHANGED if record_len == 28 => {
+            crate::schema::EventPayload::VisibleRangeChanged {
+                version: read_u32(bytes, 16)?,
+                first_line: read_u32(bytes, 20)?,
+                last_line: read_u32(bytes, 24)?,
+            }
+        }
+        EVENT_EDITOR_FOCUS_CHANGED if record_len == 24 => {
+            crate::schema::EventPayload::EditorFocusChanged {
+                focused: read_flag(bytes, 16)?,
+            }
+        }
+        EVENT_FOLD_CHANGED if record_len == 24 => crate::schema::EventPayload::FoldChanged {
+            start_line: read_u32(bytes, 16)?,
+            collapsed: read_flag(bytes, 20)?,
+        },
+        EVENT_COMPOSITION_CHANGED if record_len == 24 => {
+            crate::schema::EventPayload::CompositionChanged {
+                composing: read_flag(bytes, 16)?,
+            }
+        }
+        EVENT_SELECTION_CHANGED..=EVENT_COMPOSITION_CHANGED => {
+            return Err(ProtocolError::InvalidRecordLength);
+        }
+        EVENT_ZOOM_CHANGED if record_len == 28 => {
+            let level = read_u32(bytes, 24)? as i32;
+            if !(i32::from(crate::zoom::MIN_ZOOM_LEVEL)..=i32::from(crate::zoom::MAX_ZOOM_LEVEL))
+                .contains(&level)
+            {
+                return Err(ProtocolError::InvalidValueKind(level as u16));
+            }
+            crate::schema::EventPayload::ZoomChanged {
+                k: f32::from_bits(read_u32(bytes, 16)?),
+                os: f32::from_bits(read_u32(bytes, 20)?),
+                level,
+            }
+        }
         EVENT_RESYNC if record_len == 16 => crate::schema::EventPayload::Resync,
         EVENT_LIFECYCLE_START if record_len == 16 => crate::schema::EventPayload::LifecycleStart,
         EVENT_LIFECYCLE_STOP if record_len == 16 => crate::schema::EventPayload::LifecycleStop,
         EVENT_CLICK..=EVENT_RANGE_REQUESTED
         | EVENT_VALUE_CHANGED..=EVENT_NOTIFICATION_PERMISSION_CHANGED
         | EVENT_ANIMATION
-        | EVENT_REDUCED_MOTION_CHANGED => {
+        | EVENT_POINTER
+        | EVENT_REDUCED_MOTION_CHANGED
+        | EVENT_ZOOM_CHANGED => {
             return Err(ProtocolError::InvalidRecordLength);
         }
         other => return Err(ProtocolError::InvalidTag(other)),
@@ -469,12 +665,177 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.extend_from_slice(&time_nanos.to_le_bytes());
         return Ok(());
     }
+    if let crate::schema::EventPayload::Pointer {
+        kind,
+        pointer_id,
+        pointer_type,
+        x,
+        y,
+        buttons,
+        button,
+        modifiers,
+        click_count,
+        delta_x,
+        delta_y,
+        delta_mode,
+        timestamp_nanos,
+    } = event.payload
+    {
+        output.extend_from_slice(&EVENT_POINTER.to_le_bytes());
+        output.extend_from_slice(&(POINTER_RECORD_LEN as u16).to_le_bytes());
+        output.extend_from_slice(&event.node_id.to_le_bytes());
+        output.extend_from_slice(&event.handler_id.to_le_bytes());
+        output.extend_from_slice(&u32::from(u16::from(kind)).to_le_bytes());
+        output.extend_from_slice(&pointer_id.to_le_bytes());
+        output.extend_from_slice(&u32::from(u16::from(pointer_type)).to_le_bytes());
+        output.extend_from_slice(&x.to_bits().to_le_bytes());
+        output.extend_from_slice(&y.to_bits().to_le_bytes());
+        output.extend_from_slice(&buttons.to_le_bytes());
+        output.extend_from_slice(&button.to_le_bytes());
+        output.extend_from_slice(&modifiers.to_le_bytes());
+        output.extend_from_slice(&click_count.to_le_bytes());
+        output.extend_from_slice(&delta_x.to_bits().to_le_bytes());
+        output.extend_from_slice(&delta_y.to_bits().to_le_bytes());
+        output.extend_from_slice(&u32::from(u16::from(delta_mode)).to_le_bytes());
+        output.extend_from_slice(&timestamp_nanos.to_le_bytes());
+        return Ok(());
+    }
     if let crate::schema::EventPayload::ReducedMotionChanged(state) = event.payload {
         output.extend_from_slice(&EVENT_REDUCED_MOTION_CHANGED.to_le_bytes());
         output.extend_from_slice(&20_u16.to_le_bytes());
         output.extend_from_slice(&event.node_id.to_le_bytes());
         output.extend_from_slice(&event.handler_id.to_le_bytes());
         output.extend_from_slice(&u32::from(u16::from(state)).to_le_bytes());
+        return Ok(());
+    }
+    match event.payload {
+        crate::schema::EventPayload::CodeChanged {
+            version,
+            start_line,
+            start_column,
+            end_line,
+            end_column,
+            text,
+        } => {
+            put_event_header(output, EVENT_CODE_CHANGED, 44, event);
+            for value in [version, start_line, start_column, end_line, end_column] {
+                output.extend_from_slice(&value.to_le_bytes());
+            }
+            let len = u32::try_from(text.len()).map_err(|_| ProtocolError::LengthOverflow)?;
+            output.extend_from_slice(&44_u32.to_le_bytes());
+            output.extend_from_slice(&len.to_le_bytes());
+            output.extend_from_slice(text.as_bytes());
+            return Ok(());
+        }
+        crate::schema::EventPayload::CodeEditRejected {
+            request_id,
+            base_version,
+            current_version,
+            start_line,
+            start_column,
+            end_line,
+            end_column,
+        } => {
+            put_event_header(output, EVENT_CODE_EDIT_REJECTED, 44, event);
+            for value in [
+                request_id,
+                base_version,
+                current_version,
+                start_line,
+                start_column,
+                end_line,
+                end_column,
+            ] {
+                output.extend_from_slice(&value.to_le_bytes());
+            }
+            return Ok(());
+        }
+        crate::schema::EventPayload::CodeHovered {
+            decoration,
+            line,
+            column,
+            phase,
+        } => {
+            put_event_header(output, EVENT_CODE_HOVERED, 36, event);
+            output.extend_from_slice(&decoration.to_le_bytes());
+            output.extend_from_slice(&line.to_le_bytes());
+            output.extend_from_slice(&column.to_le_bytes());
+            output.extend_from_slice(&u32::from(u16::from(phase)).to_le_bytes());
+            return Ok(());
+        }
+        crate::schema::EventPayload::CodeSaveRequested { version } => {
+            put_event_header(output, EVENT_CODE_SAVE_REQUESTED, 24, event);
+            output.extend_from_slice(&version.to_le_bytes());
+            // The padding that keeps the record a multiple of four bytes.
+            output.extend_from_slice(&0_u32.to_le_bytes());
+            return Ok(());
+        }
+        crate::schema::EventPayload::DecorationActivated { decoration } => {
+            put_event_header(output, EVENT_DECORATION_ACTIVATED, 24, event);
+            output.extend_from_slice(&decoration.to_le_bytes());
+            return Ok(());
+        }
+        crate::schema::EventPayload::SelectionChanged {
+            version,
+            anchor_line,
+            anchor_column,
+            active_line,
+            active_column,
+        } => {
+            put_event_header(output, EVENT_SELECTION_CHANGED, 36, event);
+            for value in [
+                version,
+                anchor_line,
+                anchor_column,
+                active_line,
+                active_column,
+            ] {
+                output.extend_from_slice(&value.to_le_bytes());
+            }
+            return Ok(());
+        }
+        crate::schema::EventPayload::VisibleRangeChanged {
+            version,
+            first_line,
+            last_line,
+        } => {
+            put_event_header(output, EVENT_VISIBLE_RANGE_CHANGED, 28, event);
+            for value in [version, first_line, last_line] {
+                output.extend_from_slice(&value.to_le_bytes());
+            }
+            return Ok(());
+        }
+        crate::schema::EventPayload::EditorFocusChanged { focused } => {
+            put_event_header(output, EVENT_EDITOR_FOCUS_CHANGED, 24, event);
+            output.extend_from_slice(&u32::from(focused).to_le_bytes());
+            output.extend_from_slice(&0_u32.to_le_bytes());
+            return Ok(());
+        }
+        crate::schema::EventPayload::FoldChanged {
+            start_line,
+            collapsed,
+        } => {
+            put_event_header(output, EVENT_FOLD_CHANGED, 24, event);
+            output.extend_from_slice(&start_line.to_le_bytes());
+            output.extend_from_slice(&u32::from(collapsed).to_le_bytes());
+            return Ok(());
+        }
+        crate::schema::EventPayload::CompositionChanged { composing } => {
+            put_event_header(output, EVENT_COMPOSITION_CHANGED, 24, event);
+            output.extend_from_slice(&u32::from(composing).to_le_bytes());
+            output.extend_from_slice(&0_u32.to_le_bytes());
+            return Ok(());
+        }
+        _ => {}
+    }
+    if let crate::schema::EventPayload::ZoomChanged { k, os, level } = event.payload {
+        output.extend_from_slice(&EVENT_ZOOM_CHANGED.to_le_bytes());
+        output.extend_from_slice(&28_u16.to_le_bytes());
+        output.extend_from_slice(&event.node_id.to_le_bytes());
+        output.extend_from_slice(&event.handler_id.to_le_bytes());
+        output.extend_from_slice(&k.to_bits().to_le_bytes());
+        output.extend_from_slice(&os.to_bits().to_le_bytes());
+        output.extend_from_slice(&level.to_le_bytes());
         return Ok(());
     }
     if let crate::schema::EventPayload::RangeRequested { start, count } = event.payload {
@@ -515,8 +876,20 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::WindowSizeChanged { .. }
         | crate::schema::EventPayload::DesignSystemResolved(_)
         | crate::schema::EventPayload::NotificationPermissionChanged(_)
-        | crate::schema::EventPayload::AnimationEvent { .. }
-        | crate::schema::EventPayload::ReducedMotionChanged(_) => unreachable!(),
+        | crate::schema::EventPayload::CodeChanged { .. }
+        | crate::schema::EventPayload::CodeEditRejected { .. }
+        | crate::schema::EventPayload::CodeHovered { .. }
+        | crate::schema::EventPayload::CodeSaveRequested { .. }
+        | crate::schema::EventPayload::DecorationActivated { .. }
+        | crate::schema::EventPayload::SelectionChanged { .. }
+        | crate::schema::EventPayload::VisibleRangeChanged { .. }
+        | crate::schema::EventPayload::EditorFocusChanged { .. }
+        | crate::schema::EventPayload::FoldChanged { .. }
+        | crate::schema::EventPayload::CompositionChanged { .. } => unreachable!(),
+        crate::schema::EventPayload::AnimationEvent { .. }
+        | crate::schema::EventPayload::Pointer { .. }
+        | crate::schema::EventPayload::ReducedMotionChanged(_)
+        | crate::schema::EventPayload::ZoomChanged { .. } => unreachable!(),
     };
     output.extend_from_slice(&tag.to_le_bytes());
     output.extend_from_slice(&record_len.to_le_bytes());
@@ -533,6 +906,15 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.extend_from_slice(text.as_bytes());
     }
     Ok(())
+}
+
+/// The sixteen bytes every event starts with: the tag, the record's length, the node and
+/// the handler.
+fn put_event_header(output: &mut Vec<u8>, tag: u16, record_len: u16, event: &HostEvent<'_>) {
+    output.extend_from_slice(&tag.to_le_bytes());
+    output.extend_from_slice(&record_len.to_le_bytes());
+    output.extend_from_slice(&event.node_id.to_le_bytes());
+    output.extend_from_slice(&event.handler_id.to_le_bytes());
 }
 
 impl fmt::Display for ProtocolError {
@@ -719,6 +1101,70 @@ impl BatchEncoder {
                 self.put_u16(*duration as u16);
                 self.put_u16(0);
             }
+            Mutation::EditCode {
+                node_id,
+                request_id,
+                base_version,
+                start_line,
+                start_column,
+                end_line,
+                end_column,
+                text,
+            } => {
+                self.begin_record(TAG_EDIT_CODE, 36);
+                self.put_u32(*node_id);
+                self.put_u32(*request_id);
+                self.put_u32(*base_version);
+                self.put_u32(*start_line);
+                self.put_u32(*start_column);
+                self.put_u32(*end_line);
+                self.put_u32(*end_column);
+                self.put_string_ref(text)?;
+            }
+            Mutation::SetSelection {
+                node_id,
+                base_version,
+                anchor_line,
+                anchor_column,
+                active_line,
+                active_column,
+            } => {
+                self.begin_record(TAG_SET_SELECTION, 24);
+                self.put_u32(*node_id);
+                self.put_u32(*base_version);
+                self.put_u32(*anchor_line);
+                self.put_u32(*anchor_column);
+                self.put_u32(*active_line);
+                self.put_u32(*active_column);
+            }
+            Mutation::RevealRange {
+                node_id,
+                base_version,
+                start_line,
+                start_column,
+                end_line,
+                end_column,
+                align,
+            } => {
+                self.begin_record(TAG_REVEAL_RANGE, 28);
+                self.put_u32(*node_id);
+                self.put_u32(*base_version);
+                self.put_u32(*start_line);
+                self.put_u32(*start_column);
+                self.put_u32(*end_line);
+                self.put_u32(*end_column);
+                self.put_u32(u32::from(*align as u16));
+            }
+            Mutation::SetFolded {
+                node_id,
+                start_line,
+                collapsed,
+            } => {
+                self.begin_record(TAG_SET_FOLDED, 12);
+                self.put_u32(*node_id);
+                self.put_u32(*start_line);
+                self.put_u32(u32::from(*collapsed));
+            }
             Mutation::SetTheme(theme) => {
                 self.begin_record(TAG_SET_THEME, THEME_PAYLOAD_LEN as u16);
                 self.put_u16(theme.design_system as u16);
@@ -746,9 +1192,14 @@ impl BatchEncoder {
                 self.put_u16(window.min_width);
                 self.put_u16(window.min_height);
                 self.put_u16(u16::from(window.resizable));
-                // The padding that keeps the record a multiple of four, which the envelope
-                // requires. Seven of these words is an odd number of them.
-                self.put_u16(0);
+                // The application's zoom level, in what used to be the padding that keeps
+                // the record a multiple of four: a byte saying whether there is one, then
+                // the level as a signed byte. Zero is "none", so a window that asks for
+                // nothing reads exactly as it did before the level existed.
+                self.put_u16(match window.zoom_level {
+                    None => 0,
+                    Some(level) => 1 | (u16::from(crate::zoom::clamp_level(level) as u8) << 8),
+                });
                 self.put_string_ref(window.title)?;
                 self.put_u32(window.icon);
             }
@@ -1140,6 +1591,20 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                 if resizable > 1 {
                     return Err(ProtocolError::InvalidValueKind(resizable));
                 }
+                let zoom = read_u16(bytes, payload + 14)?;
+                let zoom_level = match zoom & 0xFF {
+                    0 => None,
+                    1 => {
+                        let level = (zoom >> 8) as u8 as i8;
+                        if !(crate::zoom::MIN_ZOOM_LEVEL..=crate::zoom::MAX_ZOOM_LEVEL)
+                            .contains(&level)
+                        {
+                            return Err(ProtocolError::InvalidValueKind(zoom));
+                        }
+                        Some(level)
+                    }
+                    _ => return Err(ProtocolError::InvalidValueKind(zoom)),
+                };
                 Mutation::SetWindow(crate::schema::Window {
                     chrome: crate::schema::Chrome::try_from(chrome)
                         .map_err(|()| ProtocolError::InvalidValueKind(chrome))?,
@@ -1150,6 +1615,7 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                     min_width: read_u16(bytes, payload + 8)?,
                     min_height: read_u16(bytes, payload + 10)?,
                     resizable: resizable == 1,
+                    zoom_level,
                     // Leaked on purpose, once per window. The record's owner is the
                     // window, the window outlives the batch it arrived in, and there is
                     // one of these per process.
@@ -1183,6 +1649,16 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                         .map_err(|()| ProtocolError::InvalidMessageDuration(raw_duration))?,
                 }
             }
+            TAG_EDIT_CODE if len == 40 => Mutation::EditCode {
+                node_id: read_u32(bytes, payload)?,
+                request_id: read_u32(bytes, payload + 4)?,
+                base_version: read_u32(bytes, payload + 8)?,
+                start_line: read_u32(bytes, payload + 12)?,
+                start_column: read_u32(bytes, payload + 16)?,
+                end_line: read_u32(bytes, payload + 20)?,
+                end_column: read_u32(bytes, payload + 24)?,
+                text: read_string(bytes, payload + 28, records_len)?,
+            },
             TAG_POST_NOTIFICATION if len == 56 => {
                 let raw_importance = read_u16(bytes, payload + 48)?;
                 let raw_presentation = read_u16(bytes, payload + 50)?;
@@ -1232,9 +1708,40 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                     at_time_nanos: read_u64(bytes, payload + 12)?,
                 }
             }
-            TAG_CREATE..=TAG_REQUEST_NOTIFICATION_PERMISSION
+            TAG_SET_SELECTION if len == 28 => Mutation::SetSelection {
+                node_id: read_u32(bytes, payload)?,
+                base_version: read_u32(bytes, payload + 4)?,
+                anchor_line: read_u32(bytes, payload + 8)?,
+                anchor_column: read_u32(bytes, payload + 12)?,
+                active_line: read_u32(bytes, payload + 16)?,
+                active_column: read_u32(bytes, payload + 20)?,
+            },
+            TAG_REVEAL_RANGE if len == 32 => {
+                let raw_align = read_u32(bytes, payload + 24)?;
+                Mutation::RevealRange {
+                    node_id: read_u32(bytes, payload)?,
+                    base_version: read_u32(bytes, payload + 4)?,
+                    start_line: read_u32(bytes, payload + 8)?,
+                    start_column: read_u32(bytes, payload + 12)?,
+                    end_line: read_u32(bytes, payload + 16)?,
+                    end_column: read_u32(bytes, payload + 20)?,
+                    align: u16::try_from(raw_align)
+                        .ok()
+                        .and_then(|tag| crate::schema::RevealAlign::try_from(tag).ok())
+                        .ok_or(ProtocolError::InvalidValueKind(
+                            raw_align.min(u32::from(u16::MAX)) as u16,
+                        ))?,
+                }
+            }
+            TAG_SET_FOLDED if len == 16 => Mutation::SetFolded {
+                node_id: read_u32(bytes, payload)?,
+                start_line: read_u32(bytes, payload + 4)?,
+                collapsed: read_flag(bytes, payload + 8)?,
+            },
+            TAG_CREATE..=TAG_EDIT_CODE
             | TAG_START_ANIMATION
-            | TAG_CONTROL_ANIMATION => {
+            | TAG_CONTROL_ANIMATION
+            | TAG_SET_SELECTION..=TAG_SET_FOLDED => {
                 return Err(ProtocolError::InvalidRecordLength);
             }
             other => return Err(ProtocolError::InvalidTag(other)),
@@ -1755,6 +2262,17 @@ fn read_u32(bytes: &[u8], position: usize) -> Result<u32, ProtocolError> {
     Ok(u32::from_le_bytes([value[0], value[1], value[2], value[3]]))
 }
 
+/// A word that is 0 or 1. Any other value is a protocol error, not a third state.
+fn read_flag(bytes: &[u8], position: usize) -> Result<bool, ProtocolError> {
+    match read_u32(bytes, position)? {
+        0 => Ok(false),
+        1 => Ok(true),
+        other => Err(ProtocolError::InvalidValueKind(
+            other.min(u32::from(u16::MAX)) as u16,
+        )),
+    }
+}
+
 fn read_u64(bytes: &[u8], position: usize) -> Result<u64, ProtocolError> {
     let value = bytes
         .get(position..position + 8)
@@ -2267,6 +2785,85 @@ mod tests {
         assert_eq!(
             decode_event(&bytes),
             Err(ProtocolError::InvalidValueKind(3))
+        );
+    }
+
+    /// How large the Renderer is drawing: two floats and a signed level after the head.
+    #[test]
+    fn fr43_zoom_changed_round_trips_fixed_layout() {
+        let event = HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: crate::EventPayload::ZoomChanged {
+                k: 1.25 * 1.44,
+                os: 1.25,
+                level: 2,
+            },
+        };
+        let mut bytes = Vec::new();
+        encode_event(&event, &mut bytes).unwrap();
+        assert_eq!(read_u16(&bytes, 0).unwrap(), 33);
+        assert_eq!(read_u16(&bytes, 2).unwrap(), 28);
+        assert_eq!(bytes.len(), 28);
+        assert_eq!(decode_event(&bytes).unwrap(), event);
+
+        let smaller = HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: crate::EventPayload::ZoomChanged {
+                k: 0.5,
+                os: 1.0,
+                level: -4,
+            },
+        };
+        encode_event(&smaller, &mut bytes).unwrap();
+        assert_eq!(decode_event(&bytes).unwrap(), smaller);
+    }
+
+    /// A level outside the range the Renderer can be at is a protocol error.
+    #[test]
+    fn fr43_a_zoom_level_out_of_range_is_rejected() {
+        let event = HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: crate::EventPayload::ZoomChanged {
+                k: 1.0,
+                os: 1.0,
+                level: 9,
+            },
+        };
+        let mut bytes = Vec::new();
+        encode_event(&event, &mut bytes).unwrap();
+        assert_eq!(
+            decode_event(&bytes),
+            Err(ProtocolError::InvalidValueKind(9))
+        );
+        bytes[2..4].copy_from_slice(&24_u16.to_le_bytes());
+        assert_eq!(
+            decode_event(&bytes),
+            Err(ProtocolError::InvalidRecordLength)
+        );
+    }
+
+    /// The window record carries the application's zoom level where it asked for one, and
+    /// a window that asked for nothing is byte for byte what it was before the level.
+    #[test]
+    fn fr43_the_window_record_carries_a_zoom_level() {
+        for level in [None, Some(-8), Some(0), Some(2), Some(8)] {
+            let mut window = crate::schema::Window::new().with_title("zoom");
+            window.zoom_level = level;
+            let mut encoder = BatchEncoder::default();
+            encoder.encode(&Mutation::SetWindow(window)).unwrap();
+            let bytes = encoder.finish().unwrap().to_vec();
+            if level.is_none() {
+                assert_eq!(read_u16(&bytes, ENVELOPE_LEN + 18).unwrap(), 0);
+            }
+            let decoded = decode_batch(&bytes).unwrap();
+            assert_eq!(decoded, vec![Mutation::SetWindow(window)]);
+        }
+        assert_eq!(
+            crate::schema::Window::new().with_zoom_level(20).zoom_level,
+            Some(8)
         );
     }
 }

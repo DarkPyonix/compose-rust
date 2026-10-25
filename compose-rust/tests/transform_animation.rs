@@ -291,14 +291,14 @@ fn fr41_start_animation_round_trips() {
     );
     let events = include_bytes!("vectors/events.bin");
     assert!(matches!(
-        decode_event(&events[282..322]).unwrap().payload,
+        decode_event(&events[458..498]).unwrap().payload,
         EventPayload::AnimationEvent {
             kind: AnimationEventKind::End,
             ..
         }
     ));
     assert_eq!(
-        decode_event(&events[322..342]).unwrap().payload,
+        decode_event(&events[498..518]).unwrap().payload,
         EventPayload::ReducedMotionChanged(ReducedMotion::On)
     );
 }

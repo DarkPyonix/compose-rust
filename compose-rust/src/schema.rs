@@ -125,6 +125,36 @@ pub enum EventPayloadType {
     Animation,
     /// One `u32`: whether the platform asks for reduced motion.
     ReducedMotion,
+    /// One committed edit to a code editor's document: the version it produced, the range
+    /// it replaced in the document as it stood before, and the text that replaced it.
+    CodeChange,
+    /// A Host edit the Renderer would not apply: the request it answers, the version it
+    /// was written against, the version the document had reached, and the range as sent.
+    CodeEditRejected,
+    /// A pointer resting on, or leaving, a place in a code editor: the decoration under it,
+    /// where it is, and which of the two it was.
+    CodeHover,
+    /// The save shortcut, with the version of the document it was pressed on.
+    CodeSave,
+    /// The id the application gave one decoration, which was pressed or accepted.
+    Decoration,
+    /// One pointer happening inside a subscribed node: its kind, which pointer, where,
+    /// which buttons and modifiers, the wheel deltas and when. A fixed 72-byte record.
+    Pointer,
+    /// Two `f32` and an `i32`: the whole zoom factor, the system's text size, and the
+    /// application's zoom level.
+    Zoom,
+    /// Where a code editor's selection is: the document version and the two ends.
+    CodeSelection,
+    /// Which lines of a code editor are on screen, folded lines left out.
+    CodeVisibleRange,
+    /// One word, 0 or 1: whether a code editor holds the keyboard focus.
+    CodeFocus,
+    /// The line a fold starts on and whether it is now collapsed.
+    CodeFold,
+    /// One word, 0 or 1: whether an input method is composing in a code editor. The
+    /// composed text is never part of it.
+    CodeComposition,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -137,14 +167,14 @@ pub struct EventSchema {
 /// Canonical schema text. Variant order is wire-significant and must only be appended to.
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
-    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,AbsoluteBox;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible;",
+    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom;",
     "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform;",
     "keys=Enter;",
-    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,AnimationEvent,ReducedMotionChanged;",
+    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged;",
     "windowsizeclasses=Compact,Medium,Expanded;",
     "windowheightclasses=Compact,Medium,Expanded;",
-    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,StartAnimation,ControlAnimation"
+    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded"
 );
 
 const fn hash_bytes(mut hash: u64, bytes: &[u8]) -> u64 {
@@ -170,6 +200,7 @@ const fn hash_enum_schema(mut hash: u64, schema: &[EnumVariantSchema]) -> u64 {
 const fn schema_hash() -> u64 {
     let mut hash = hash_bytes(0xcbf2_9ce4_8422_2325_u64, SCHEMA_DESCRIPTOR.as_bytes());
     hash = hash_bytes(hash, crate::extensions::SCHEMA_DESCRIPTOR.as_bytes());
+    hash = hash_bytes(hash, crate::measure::SCHEMA_DESCRIPTOR.as_bytes());
     hash = hash_enum_schema(hash, WIDGET_SCHEMA);
     hash = hash_enum_schema(hash, PROPERTY_SCHEMA);
     hash = hash_enum_schema(hash, KEY_SCHEMA);
@@ -278,10 +309,26 @@ const fn schema_hash() -> u64 {
                 EventPayloadType::NotificationPermission => 9,
                 EventPayloadType::Animation => 10,
                 EventPayloadType::ReducedMotion => 11,
+                EventPayloadType::CodeChange => 12,
+                EventPayloadType::CodeEditRejected => 13,
+                EventPayloadType::CodeHover => 14,
+                EventPayloadType::CodeSave => 15,
+                EventPayloadType::Decoration => 16,
+                EventPayloadType::Pointer => 17,
+                EventPayloadType::Zoom => 18,
+                EventPayloadType::CodeSelection => 19,
+                EventPayloadType::CodeVisibleRange => 20,
+                EventPayloadType::CodeFocus => 21,
+                EventPayloadType::CodeFold => 22,
+                EventPayloadType::CodeComposition => 23,
             }],
         );
         index += 1;
     }
+    hash = crate::code::hash_record_schema(hash, crate::code::DECORATION_RECORD);
+    hash = crate::code::hash_record_schema(hash, crate::code::SYNTAX_SPAN_RECORD);
+    hash = crate::code::hash_record_schema(hash, crate::code::FOLD_RECORD);
+    hash = crate::code::hash_record_schema(hash, crate::code::GUTTER_DECORATION_RECORD);
     hash
 }
 
@@ -299,9 +346,22 @@ fn wire_name_eq(input: &str, schema_name: &str) -> bool {
 
 macro_rules! define_wire_enum {
     ($schema:ident, $name:ident { $($variant:ident = $tag:literal),+ $(,)? }) => {
+        define_wire_enum!($schema, $name { $($variant = $tag),+ } unlisted {});
+    };
+    // `unlisted` variants exist in Rust and travel as their tag, but are not in the schema
+    // table, so codegen mirrors no Kotlin enum entry for them and `TryFrom` does not
+    // produce them. The one there is, `TypeRole::None`, is tag 0, which every role
+    // decoder already reads as "no role", and an entry for it in the Kotlin enum would
+    // shift every ordinal the Renderer indexes its token tables by.
+    (
+        $schema:ident,
+        $name:ident { $($variant:ident = $tag:literal),+ $(,)? }
+        unlisted { $($extra:ident = $extra_tag:literal),* $(,)? }
+    ) => {
         #[derive(Clone, Copy, Debug, Eq, PartialEq)]
         #[repr(u16)]
         pub enum $name {
+            $($extra = $extra_tag,)*
             $($variant = $tag),+
         }
 
@@ -329,7 +389,9 @@ macro_rules! define_wire_enum {
         }
 
         impl $name {
-            #[allow(dead_code)]
+            // The unit error is the wire's own convention: a name either is a variant or is
+            // not, and the caller reports which name it was.
+            #[allow(dead_code, clippy::result_unit_err)]
             #[doc(hidden)]
             #[allow(clippy::result_unit_err)]
             pub fn from_name(value: &str) -> Result<Self, ()> {
@@ -437,6 +499,14 @@ crate::extensions::define_widget_schema_with_extensions!(define_wire_enum; WIDGE
     // side, with the side pane laid over the body, or one at a time, are the design
     // system's answers.
     SplitPane = 42,
+    // Several lines of code that the reader edits. The text, the caret, the selection,
+    // the scroll position and the undo history are the Renderer's, the way a text field's
+    // are, and the Host is told about each committed edit with the version it produced.
+    // What the Host adds on top is said as ranges: colour runs for the syntax, and
+    // decorations for diagnostics, lenses, hover anchors and inline suggestions. How any
+    // of it is drawn, from the gutter to the weight of an underline, is the design
+    // system's.
+    CodeEditor = 43,
     // Children laid where the Host already put them. Each child is placed at its own
     // `Offset`, relative to this box, and no child moves or sizes another: the layout was
     // computed on the Host (an HTML engine, for instance) and laying it out a second time
@@ -647,6 +717,11 @@ define_wire_enum!(COLOR_ROLE_SCHEMA, ColorRole {
 pub const COLOR_ROLE_COUNT: usize = 45;
 
 // The nine-rung type ladder every supported design system maps onto.
+//
+// `None` is text with no rung at all, which is what a page laid out by CSS draws: its size,
+// weight, line height, letter spacing and font come from the text's own values and nothing
+// from the design system. It is the only text that may name a font of its own. It is not
+// in the schema table, because it is not a rung: see `define_wire_enum!`.
 define_wire_enum!(TYPE_ROLE_SCHEMA, TypeRole {
     Display = 1,
     Headline = 2,
@@ -657,6 +732,36 @@ define_wire_enum!(TYPE_ROLE_SCHEMA, TypeRole {
     Label = 7,
     Caption = 8,
     Mono = 9,
+} unlisted {
+    None = 0,
+});
+
+// Where a line of text may break, as CSS `word-break` says it. `Normal` breaks where the
+// language does: between words, and between syllables in Korean. `KeepAll` breaks only at
+// spaces, which is how Korean prose is usually set. `BreakAll` breaks between any two
+// characters.
+define_wire_enum!(WORD_BREAK_SCHEMA, WordBreak {
+    Normal = 1,
+    KeepAll = 2,
+    BreakAll = 3,
+});
+
+// Whether a word too long for its line may be broken inside, as CSS `overflow-wrap` says
+// it. `Anywhere` also lets that break count when the narrowest width the text can take is
+// worked out; `BreakWord` does not.
+define_wire_enum!(OVERFLOW_WRAP_SCHEMA, OverflowWrap {
+    Normal = 1,
+    Anywhere = 2,
+    BreakWord = 3,
+});
+
+// The families CSS names without naming a font. Which installed font each one is, is the
+// platform's answer.
+define_wire_enum!(GENERIC_FAMILY_SCHEMA, GenericFamily {
+    SystemUi = 1,
+    SansSerif = 2,
+    Serif = 3,
+    Monospace = 4,
 });
 
 // Corner roles. The radius is the design system's decision.
@@ -744,6 +849,12 @@ define_wire_enum!(BUTTON_VARIANT_SCHEMA, ButtonVariant {
     Outlined = 3,
     Text = 4,
     Operator = 5,
+});
+
+// What a button is, independently from the visual emphasis its variant carries.
+define_wire_enum!(BUTTON_KIND_SCHEMA, ButtonKind {
+    Standard = 1,
+    ActionKey = 2,
 });
 
 // What the bytes behind an asset id are. A kind the Renderer cannot read is a reported
@@ -891,6 +1002,52 @@ define_wire_enum!(SLOT_ROLE_SCHEMA, SlotRole {
     Content = 4,
 });
 
+// What a code editor decoration is. Four kinds and no more: a mark under a range, a line of
+// text above a line, a range that answers a resting pointer, and a suggestion shown in
+// place. Each is what a language server or an extension host already speaks in, so an
+// application can pass its answers through without inventing a fifth.
+define_wire_enum!(DECORATION_KIND_SCHEMA, DecorationKind {
+    Underline = 1,
+    CodeLens = 2,
+    HoverAnchor = 3,
+    GhostText = 4,
+});
+
+// How serious an underlined diagnostic is. The four a language server reports, in its
+// order. The colour each one gets is the design system's unless the application names a
+// role, and how the mark is drawn, a squiggle or a straight line, is always the system's.
+define_wire_enum!(SEVERITY_SCHEMA, Severity {
+    Error = 1,
+    Warning = 2,
+    Information = 3,
+    Hint = 4,
+});
+
+// Whether a pointer has come to rest over a place in a code editor or has left it. Two
+// values, because the Host is told once on arriving and once on leaving and never while
+// the pointer stays.
+define_wire_enum!(HOVER_PHASE_SCHEMA, HoverPhase {
+    Rest = 1,
+    Leave = 2,
+});
+
+// What a mark beside the line numbers of a code editor looks like: a dot, a bar the height
+// of the line, or one character the application names. The colour is a role or the design
+// system's; the size and the placement of all three are always the system's.
+define_wire_enum!(GUTTER_DECORATION_KIND_SCHEMA, GutterDecorationKind {
+    Dot = 1,
+    Bar = 2,
+    Glyph = 3,
+});
+
+// Where `RevealRange` puts the range it brings into view: the least scroll that shows it,
+// the middle of the view, or the top.
+define_wire_enum!(REVEAL_ALIGN_SCHEMA, RevealAlign {
+    Nearest = 1,
+    Center = 2,
+    Top = 3,
+});
+
 // The vocabulary of animations the Renderer plays on its own frame clock. Every one is a
 // byte on the wire and every one starts at 1, so a zero is always a record the two sides
 // disagree about.
@@ -973,6 +1130,78 @@ define_wire_enum!(REDUCED_MOTION_SCHEMA, ReducedMotion {
     Unknown = 3,
 });
 
+define_wire_enum!(POINTER_KIND_SCHEMA, PointerKind {
+    Move = 1,
+    Enter = 2,
+    Leave = 3,
+    Down = 4,
+    Up = 5,
+    Cancel = 6,
+    Wheel = 7,
+    ContextMenu = 8,
+});
+
+define_wire_enum!(POINTER_TYPE_SCHEMA, PointerType {
+    Mouse = 1,
+    Touch = 2,
+    Pen = 3,
+});
+
+define_wire_enum!(WHEEL_DELTA_MODE_SCHEMA, WheelDeltaMode {
+    Pixel = 0,
+    Line = 1,
+    Page = 2,
+});
+
+// CSS `cursor` keywords, by name and in the order CSS lists them. `Auto` is "let the widget
+// under the pointer decide".
+define_wire_enum!(CURSOR_SCHEMA, Cursor {
+    Auto = 0,
+    Default = 1,
+    Pointer = 2,
+    Text = 3,
+    VerticalText = 4,
+    Crosshair = 5,
+    Move = 6,
+    Grab = 7,
+    Grabbing = 8,
+    NotAllowed = 9,
+    NoDrop = 10,
+    Wait = 11,
+    Progress = 12,
+    Help = 13,
+    ContextMenu = 14,
+    Cell = 15,
+    Copy = 16,
+    Alias = 17,
+    AllScroll = 18,
+    ZoomIn = 19,
+    ZoomOut = 20,
+    ColResize = 21,
+    RowResize = 22,
+    EResize = 23,
+    NResize = 24,
+    NeResize = 25,
+    NwResize = 26,
+    SResize = 27,
+    SeResize = 28,
+    SwResize = 29,
+    WResize = 30,
+    EwResize = 31,
+    NsResize = 32,
+    NeswResize = 33,
+    NwseResize = 34,
+    None = 35,
+});
+
+// CSS `user-select`, resolved by the Host. `Auto` follows the parent.
+define_wire_enum!(USER_SELECT_SCHEMA, UserSelect {
+    Auto = 0,
+    None = 1,
+    Text = 2,
+    All = 3,
+});
+
 /// Every role enum codegen mirrors, in wire order. Appending is the only allowed edit.
 pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
     RoleEnumSchema {
@@ -1024,6 +1253,10 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
         variants: BUTTON_VARIANT_SCHEMA,
     },
     RoleEnumSchema {
+        name: "ButtonKind",
+        variants: BUTTON_KIND_SCHEMA,
+    },
+    RoleEnumSchema {
         name: "DesignSystem",
         variants: DESIGN_SYSTEM_SCHEMA,
     },
@@ -1068,6 +1301,18 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
         variants: NOTIFICATION_PERMISSION_SCHEMA,
     },
     RoleEnumSchema {
+        name: "WordBreak",
+        variants: WORD_BREAK_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "OverflowWrap",
+        variants: OVERFLOW_WRAP_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "GenericFamily",
+        variants: GENERIC_FAMILY_SCHEMA,
+    },
+    RoleEnumSchema {
         name: "AnimatedProperty",
         variants: ANIMATED_PROPERTY_SCHEMA,
     },
@@ -1110,6 +1355,46 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
     RoleEnumSchema {
         name: "ReducedMotion",
         variants: REDUCED_MOTION_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "DecorationKind",
+        variants: DECORATION_KIND_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "Severity",
+        variants: SEVERITY_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "HoverPhase",
+        variants: HOVER_PHASE_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "GutterDecorationKind",
+        variants: GUTTER_DECORATION_KIND_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "RevealAlign",
+        variants: REVEAL_ALIGN_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "PointerKind",
+        variants: POINTER_KIND_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "PointerType",
+        variants: POINTER_TYPE_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "WheelDeltaMode",
+        variants: WHEEL_DELTA_MODE_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "Cursor",
+        variants: CURSOR_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "UserSelect",
+        variants: USER_SELECT_SCHEMA,
     },
 ];
 
@@ -1215,6 +1500,12 @@ pub struct Window {
     pub min_width: u16,
     pub min_height: u16,
     pub resizable: bool,
+    /// The application's zoom level, where it asked for one.
+    ///
+    /// `None` leaves the level to the Renderer, which starts from what the reader chose
+    /// last time. A level set here is applied, remembered and reported back the way one
+    /// chosen with the keys is. Kept inside `-8..=8`.
+    pub zoom_level: Option<i8>,
 }
 
 impl Window {
@@ -1229,6 +1520,7 @@ impl Window {
             min_width: 0,
             min_height: 0,
             resizable: true,
+            zoom_level: None,
         }
     }
 
@@ -1274,6 +1566,18 @@ impl Window {
 
     pub const fn resizable(mut self, resizable: bool) -> Self {
         self.resizable = resizable;
+        self
+    }
+
+    /// Starts the window at an application zoom level, kept inside `-8..=8`.
+    pub const fn with_zoom_level(mut self, level: i8) -> Self {
+        self.zoom_level = Some(if level < -8 {
+            -8
+        } else if level > 8 {
+            8
+        } else {
+            level
+        });
         self
     }
 }
@@ -1349,7 +1653,13 @@ impl Theme {
     /// Renderer, the same way a picture does. An id that names nothing is reported and
     /// the role falls back to the system font, because a screen in the wrong typeface is
     /// better than no screen.
+    ///
+    /// `TypeRole::None` has no font slot: text with no role names its own font, so asking
+    /// the theme to give it one changes nothing.
     pub const fn with_font(mut self, role: TypeRole, asset: u32) -> Self {
+        if let TypeRole::None = role {
+            return self;
+        }
         self.fonts[role as usize - 1] = asset;
         self
     }
@@ -1367,6 +1677,9 @@ impl Theme {
 
     /// The font this role resolves to, or `None` for the system font.
     pub const fn font(&self, role: TypeRole) -> Option<u32> {
+        if let TypeRole::None = role {
+            return None;
+        }
         match self.fonts[role as usize - 1] {
             0 => None,
             asset => Some(asset),
@@ -2290,6 +2603,81 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     //
     // 90 opens the split pane's block of ten, after the badge's.
     Collapsible = 90,
+    // What a button is, as opposed to how loud it is: a plain button, or one key of a
+    // dense grid of them. The variant still chooses the fill and the emphasis; this lets
+    // the design system give the key its own calculator's silhouette, so the Host never
+    // sends a radius or a shape role to get one.
+    //
+    // 75 was reserved for this when the gestures took 67 through 74, and stays here
+    // rather than with its neighbours by number because this list is append only.
+    ButtonKind = 75,
+    // A code editor's own block, after the split pane's.
+    //
+    // The decorations over the document and the colour runs of its syntax, each a blob of
+    // fixed-length records sent whole. Every record carries the document version its
+    // range was written against, so a list computed while the reader kept typing still
+    // lands where it was meant to.
+    Decorations = 100,
+    SyntaxSpans = 101,
+    // How many columns a tab advances. Absent leaves it to the design system.
+    TabWidth = 102,
+    OnEditRejected = 103,
+    OnHover = 104,
+    OnSave = 105,
+    // One listener for every decoration that can be pressed or accepted. The ids inside
+    // the decoration blob are the application's own names for them, not handlers, so the
+    // event carries the id and the application tells them apart.
+    OnDecorationClick = 106,
+    // The editor's additions: the stretches that can be folded and the marks beside the
+    // line numbers, each a blob of fixed-length records sent whole, and the listener for
+    // the selection moving. The other four listeners are in the block at 130.
+    Folds = 107,
+    GutterDecorations = 108,
+    OnSelectionChange = 109,
+    // The text a page laid out by CSS draws, which takes its letters from its own values
+    // rather than from a rung of the type ladder. 110 opens the block for it.
+    //
+    // The fonts to try, in order, for text whose role is `TypeRole::None`: a list of up to
+    // eight registered font assets, installed families by name and generic families, as a
+    // blob. Text with a role ignores it, because its font is the theme's.
+    Font = 110,
+    // Where a line may break, and whether a word too long for its line may be broken
+    // inside. The `WordBreak` and `OverflowWrap` roles.
+    WordBreak = 111,
+    OverflowWrap = 112,
+    // How many spaces' width apart the tab stops are. Absent is eight. A tab advances to
+    // the next stop, which only the side that measures the letters can work out.
+    TabSize = 113,
+    // Whether the sizes are CSS pixels, which the system's font scale does not enlarge.
+    AbsoluteSize = 114,
+    // Whether lines wrap at the width they are given. Absent is yes; `false` is CSS
+    // `nowrap` and `pre`, whose lines run as long as their text.
+    SoftWrap = 115,
+    // The font each run of a `Text` with no role is set in, as a blob beside `Spans`
+    // rather than inside its records: a run record keeps the 36 bytes it has always had,
+    // and only text that names fonts carries this at all.
+    SpanFonts = 116,
+    // The rest of the code editor's listeners, in the first block free after the text and
+    // pointer blocks. The visible lines changing, the editor gaining or losing focus, a
+    // stretch folded or unfolded, and an input method starting or ending a composition.
+    OnVisibleRangeChange = 130,
+    OnEditorFocusChange = 131,
+    OnFoldChange = 132,
+    OnCompositionChange = 133,
+    // The node's pointer subscription: the handler, and the kinds it wants as a bit mask
+    // (`1 << (kind - 1)`). 67 was reserved for a gesture handler that was never sent, so
+    // it is free to carry this one. It is listed here, after the newer blocks, because
+    // this list is append only.
+    OnPointer = 67,
+    // 140 opens the block after the animation and HTML-text properties.
+    PointerKinds = 140,
+    // The cursor the platform shows over the node and whether its text can be selected.
+    // The Host resolves CSS inheritance and sends the value for each node.
+    Cursor = 141,
+    UserSelect = 142,
+    // How large an HTML island is drawn, as the f32 factor `k` (see `ZoomChanged`), on the
+    // island's root `AbsoluteBox`. 120 opens the block for zoom. Absent is 1.
+    IslandZoom = 120,
 });
 
 #[derive(Clone, Debug, PartialEq)]
@@ -2361,6 +2749,48 @@ pub enum EventPayload<'a> {
     /// Whether notifications may be shown, sent once after start and then only when the
     /// answer changes.
     NotificationPermissionChanged(NotificationPermission),
+    /// One committed edit to a code editor's document.
+    ///
+    /// The range is in the document as it stood before the edit, and `version` is the
+    /// version the edit produced. Lines and columns count from zero and columns are UTF-16
+    /// code units, which is what a language server counts in, so the event can be handed
+    /// to one unchanged. Text still being composed by an input method never arrives here:
+    /// only what the reader committed does.
+    CodeChanged {
+        version: u32,
+        start_line: u32,
+        start_column: u32,
+        end_line: u32,
+        end_column: u32,
+        text: &'a str,
+    },
+    /// An edit the Host asked for and the Renderer did not apply, because the reader had
+    /// changed the same place since the version the edit was written against.
+    CodeEditRejected {
+        request_id: u32,
+        base_version: u32,
+        current_version: u32,
+        start_line: u32,
+        start_column: u32,
+        end_line: u32,
+        end_column: u32,
+    },
+    /// A pointer came to rest over a place in a code editor, or left it. `decoration` is
+    /// the id of the hover anchor under it, or zero where there is none.
+    CodeHovered {
+        decoration: u64,
+        line: u32,
+        column: u32,
+        phase: HoverPhase,
+    },
+    /// The reader pressed the platform's save shortcut on a code editor.
+    CodeSaveRequested {
+        version: u32,
+    },
+    /// A decoration was pressed or accepted, named by the id the application gave it.
+    DecorationActivated {
+        decoration: u64,
+    },
     /// Something happened to an animation the Renderer is playing, sent only for the kinds
     /// the animation asked for. It names the node the animation plays on and no handler.
     AnimationEvent {
@@ -2378,6 +2808,64 @@ pub enum EventPayload<'a> {
     /// Whether the platform asks for reduced motion, sent once after start and then only
     /// when the answer changes.
     ReducedMotionChanged(ReducedMotion),
+    /// A pointer did something inside a node that subscribed to it. Coordinates are in dp
+    /// from the node's top left corner, `buttons` is what is held now and `button` is the
+    /// one that caused a `Down` or an `Up`. `timestamp_nanos` is on the frame time's clock.
+    Pointer {
+        kind: PointerKind,
+        pointer_id: u32,
+        pointer_type: PointerType,
+        x: f32,
+        y: f32,
+        buttons: u32,
+        button: u32,
+        modifiers: u32,
+        click_count: u32,
+        delta_x: f32,
+        delta_y: f32,
+        delta_mode: WheelDeltaMode,
+        timestamp_nanos: u64,
+    },
+    /// How large the Renderer is drawing: `k = os × 1.2^level`. Sent once at start and
+    /// again whenever any of the three changes. A move to a screen of another density
+    /// changes none of them and is not reported.
+    ZoomChanged {
+        k: f32,
+        os: f32,
+        level: i32,
+    },
+    /// The selection of a code editor moved, or an edit moved it. `version` is the document
+    /// version it is read against, the same series `CodeChanged` counts, and an edit's
+    /// change always arrives first. Columns are UTF-16 units and never fall between the
+    /// two halves of a pair.
+    SelectionChanged {
+        version: u32,
+        anchor_line: u32,
+        anchor_column: u32,
+        active_line: u32,
+        active_column: u32,
+    },
+    /// The lines of a code editor that are on screen changed. Folded lines are skipped, so
+    /// `first_line` and `last_line` are the first and last lines the reader can see.
+    VisibleRangeChanged {
+        version: u32,
+        first_line: u32,
+        last_line: u32,
+    },
+    /// A code editor gained or lost the keyboard focus.
+    EditorFocusChanged {
+        focused: bool,
+    },
+    /// The reader folded or unfolded the stretch that starts on `start_line`.
+    FoldChanged {
+        start_line: u32,
+        collapsed: bool,
+    },
+    /// An input method started or ended a composition in a code editor. What is being
+    /// composed stays in the Renderer: only the fact crosses.
+    CompositionChanged {
+        composing: bool,
+    },
 }
 
 pub const EVENT_SCHEMA: &[EventSchema] = &[
@@ -2418,7 +2906,7 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
     },
     EventSchema {
         name: "ValueChanged",
-        // Tags 8 to 15 are reserved for the pointer gesture events.
+        // Tag 8 is the pointer event and 9 to 15 are reserved for the gesture events.
         tag: 16,
         payload: EventPayloadType::Double,
     },
@@ -2475,7 +2963,31 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
         tag: 25,
         payload: EventPayloadType::NotificationPermission,
     },
-    // Tags 26 to 30 are reserved for the code editor's events.
+    EventSchema {
+        name: "CodeChanged",
+        tag: 26,
+        payload: EventPayloadType::CodeChange,
+    },
+    EventSchema {
+        name: "CodeEditRejected",
+        tag: 27,
+        payload: EventPayloadType::CodeEditRejected,
+    },
+    EventSchema {
+        name: "CodeHovered",
+        tag: 28,
+        payload: EventPayloadType::CodeHover,
+    },
+    EventSchema {
+        name: "CodeSaveRequested",
+        tag: 29,
+        payload: EventPayloadType::CodeSave,
+    },
+    EventSchema {
+        name: "DecorationActivated",
+        tag: 30,
+        payload: EventPayloadType::Decoration,
+    },
     EventSchema {
         name: "AnimationEvent",
         tag: 31,
@@ -2486,6 +2998,44 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
         name: "ReducedMotionChanged",
         tag: 32,
         payload: EventPayloadType::ReducedMotion,
+    },
+    // Tag 8 is the pointer event and 9 stays reserved. It is listed last because this table
+    // is append only, not because its tag is the highest.
+    EventSchema {
+        name: "Pointer",
+        tag: 8,
+        payload: EventPayloadType::Pointer,
+    },
+    // Tags 26 to 32 are taken by events other requirements have numbered.
+    EventSchema {
+        name: "ZoomChanged",
+        tag: 33,
+        payload: EventPayloadType::Zoom,
+    },
+    EventSchema {
+        name: "SelectionChanged",
+        tag: 34,
+        payload: EventPayloadType::CodeSelection,
+    },
+    EventSchema {
+        name: "VisibleRangeChanged",
+        tag: 35,
+        payload: EventPayloadType::CodeVisibleRange,
+    },
+    EventSchema {
+        name: "EditorFocusChanged",
+        tag: 36,
+        payload: EventPayloadType::CodeFocus,
+    },
+    EventSchema {
+        name: "FoldChanged",
+        tag: 37,
+        payload: EventPayloadType::CodeFold,
+    },
+    EventSchema {
+        name: "CompositionChanged",
+        tag: 38,
+        payload: EventPayloadType::CodeComposition,
     },
 ];
 

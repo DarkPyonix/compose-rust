@@ -6,13 +6,13 @@ use crate::protocol::{
 use crate::schema::{
     ANDROID_BRIDGE_CLASS, BOUNDARY_SCHEMA, BoundaryOp, BoundaryParam, Color, ColorRole,
     ColorScheme, DESIGN_SYSTEM_SCHEMA, DesignSystem, EVENT_SCHEMA, EventPayloadType, FieldSchema,
-    FieldSlot, FieldType, KEY_SCHEMA, Key, MODIFIER_SCHEMA, NOTIFICATION_PERMISSION_SCHEMA,
-    NotificationImportance, NotificationPermission, NotificationPresentation, PROPERTY_SCHEMA,
-    PROTOCOL_VERSION, Paint, PropertyKind, ROLE_ENUM_SCHEMA, SCHEMA_HASH, Selection, ShapeRole,
-    SpaceRole, Theme, WEB_BATCH_BYTES, WEB_BATCH_FIELDS, WEB_EVENT_BUFFER_BYTES,
-    WEB_EVENT_BUFFER_OFFSET, WEB_HOST_GLOBAL, WEB_MODULE_GLOBAL, WEB_RENDERER_IMPORT_MODULE,
-    WEB_RUST_REGION_BASE, WEB_START_SYMBOL, WIDGET_SCHEMA, WINDOW_HEIGHT_CLASS_SCHEMA,
-    WINDOW_SIZE_CLASS_SCHEMA, WidgetKind,
+    FieldSlot, FieldType, HOVER_PHASE_SCHEMA, KEY_SCHEMA, Key, MODIFIER_SCHEMA,
+    NOTIFICATION_PERMISSION_SCHEMA, NotificationImportance, NotificationPermission,
+    NotificationPresentation, PROPERTY_SCHEMA, PROTOCOL_VERSION, Paint, PropertyKind,
+    ROLE_ENUM_SCHEMA, SCHEMA_HASH, Selection, ShapeRole, SpaceRole, Theme, WEB_BATCH_BYTES,
+    WEB_BATCH_FIELDS, WEB_EVENT_BUFFER_BYTES, WEB_EVENT_BUFFER_OFFSET, WEB_HOST_GLOBAL,
+    WEB_MODULE_GLOBAL, WEB_RENDERER_IMPORT_MODULE, WEB_RUST_REGION_BASE, WEB_START_SYMBOL,
+    WIDGET_SCHEMA, WINDOW_HEIGHT_CLASS_SCHEMA, WINDOW_SIZE_CLASS_SCHEMA, WidgetKind,
 };
 use crate::schema::{
     AnimatedProperty, Animation, AnimationControl, AnimationEvents, ColorInterpolation, FillMode,
@@ -60,6 +60,17 @@ pub fn generate_kotlin() -> String {
     for role in ROLE_ENUM_SCHEMA {
         write_enum(&mut output, role.name, role.variants);
     }
+    writeln!(
+        output,
+        "/**\n \
+         * The `TypeRole` property of text with no rung of the ladder at all: CSS text, whose\n \
+         * size, weight and font are its own. Present and zero; an absent property is the\n \
+         * widget's default rung.\n \
+         */\n\
+         const val TYPE_ROLE_NONE: Int = {}\n",
+        crate::schema::TypeRole::None as u16
+    )
+    .unwrap();
 
     // Who owns the frame loop. The value is one byte of the handshake, so the two sides
     // have to agree on it before anything else is said.
@@ -176,6 +187,13 @@ data class Window(
     val minWidth: Int,
     val minHeight: Int,
     val resizable: Boolean,
+    /**
+     * The application's zoom level, or null where it left the level to the renderer.
+     *
+     * A level here is applied, remembered and reported back the way one chosen with the
+     * keys is. Always inside -8..8.
+     */
+    val zoomLevel: Int? = null,
 )
 
 "#,
@@ -195,6 +213,9 @@ data class Window(
 
     write_draw_commands(&mut output);
     write_text_spans(&mut output);
+    write_code_editor_records(&mut output);
+    write_font_refs(&mut output);
+    write_measure_records(&mut output);
 
     output.push_str("sealed interface Modifier {\n");
     for variant in MODIFIER_SCHEMA {
@@ -358,6 +379,26 @@ sealed interface Mutation {
     /** Asks the platform for permission. The answer comes back as an event. */
     data object RequestNotificationPermission : Mutation
 
+    /**
+     * An edit the application asks of a code editor: replace a range of the document as it
+     * stood at `baseVersion` with `text`.
+     *
+     * The document is this side's, so this is a request. Where the reader has typed since
+     * `baseVersion` the range is moved along with what they typed; where they typed in the
+     * same place the edit is refused and `CodeEditRejected` returns `requestId`. Lines and
+     * columns count from zero and columns are UTF-16 units.
+     */
+    data class EditCode(
+        val nodeId: Int,
+        val requestId: Int,
+        val baseVersion: Int,
+        val startLine: Int,
+        val startColumn: Int,
+        val endLine: Int,
+        val endColumn: Int,
+        val text: String,
+    ) : Mutation
+
     /** One animation to play on the Renderer's own frame clock until it ends. */
     data class StartAnimation(val animation: Animation) : Mutation
 
@@ -374,6 +415,37 @@ sealed interface Mutation {
         val op: AnimationControl,
         val atTimeNanos: Long,
     ) : Mutation
+
+    /**
+     * Puts a code editor's selection between two places in the document as it stood at
+     * `baseVersion`. Both ends are moved along with whatever was typed since. An end outside
+     * the document, or between the two halves of a pair, drops the command and is reported.
+     */
+    data class SetSelection(
+        val nodeId: Int,
+        val baseVersion: Int,
+        val anchorLine: Int,
+        val anchorColumn: Int,
+        val activeLine: Int,
+        val activeColumn: Int,
+    ) : Mutation
+
+    /**
+     * Scrolls a code editor until a range of the document, as it stood at `baseVersion`, is
+     * on screen. A range inside a folded stretch unfolds it first.
+     */
+    data class RevealRange(
+        val nodeId: Int,
+        val baseVersion: Int,
+        val startLine: Int,
+        val startColumn: Int,
+        val endLine: Int,
+        val endColumn: Int,
+        val align: RevealAlign,
+    ) : Mutation
+
+    /** Folds or unfolds the stretch of a code editor that starts on `startLine`. */
+    data class SetFolded(val nodeId: Int, val startLine: Int, val collapsed: Boolean) : Mutation
 }
 
 "#,
@@ -412,10 +484,38 @@ sealed interface Mutation {
             EventPayloadType::NotificationPermission => {
                 output.push_str(", val state: NotificationPermission");
             }
+            EventPayloadType::CodeChange => output.push_str(
+                ", val version: Int, val startLine: Int, val startColumn: Int, val endLine: Int, val endColumn: Int, val text: String",
+            ),
+            EventPayloadType::CodeEditRejected => output.push_str(
+                ", val requestId: Int, val baseVersion: Int, val currentVersion: Int, val startLine: Int, val startColumn: Int, val endLine: Int, val endColumn: Int",
+            ),
+            EventPayloadType::CodeHover => output.push_str(
+                ", val decoration: Long, val line: Int, val column: Int, val phase: HoverPhase",
+            ),
+            EventPayloadType::CodeSave => output.push_str(", val version: Int"),
+            EventPayloadType::Decoration => output.push_str(", val decoration: Long"),
             EventPayloadType::Animation => output.push_str(
                 ", val animationId: Int, val kind: AnimationEventKind, val property: AnimatedProperty, val slot: Int, val iteration: Int, val elapsedMs: kotlin.Float, val timeNanos: Long",
             ),
             EventPayloadType::ReducedMotion => output.push_str(", val state: ReducedMotion"),
+            EventPayloadType::Pointer => output.push_str(
+                ", val kind: PointerKind, val pointerId: Int, val pointerType: PointerType, val x: kotlin.Float, val y: kotlin.Float, val buttons: Int, val button: Int, val modifiers: Int, val clickCount: Int, val deltaX: kotlin.Float, val deltaY: kotlin.Float, val deltaMode: WheelDeltaMode, val timestampNanos: Long",
+            ),
+            EventPayloadType::Zoom => {
+                output.push_str(", val k: kotlin.Float, val os: kotlin.Float, val level: Int");
+            }
+            EventPayloadType::CodeSelection => output.push_str(
+                ", val version: Int, val anchorLine: Int, val anchorColumn: Int, val activeLine: Int, val activeColumn: Int",
+            ),
+            EventPayloadType::CodeVisibleRange => {
+                output.push_str(", val version: Int, val firstLine: Int, val lastLine: Int");
+            }
+            EventPayloadType::CodeFocus => output.push_str(", val focused: Boolean"),
+            EventPayloadType::CodeFold => {
+                output.push_str(", val startLine: Int, val collapsed: Boolean");
+            }
+            EventPayloadType::CodeComposition => output.push_str(", val composing: Boolean"),
         }
         output.push_str(") : HostEvent\n");
     }
@@ -458,8 +558,12 @@ object Protocol {
     private const val TAG_POST_NOTIFICATION = 14
     private const val TAG_WITHDRAW_NOTIFICATION = 15
     private const val TAG_REQUEST_NOTIFICATION_PERMISSION = 16
+    private const val TAG_EDIT_CODE = 17
     private const val TAG_START_ANIMATION = 18
     private const val TAG_CONTROL_ANIMATION = 19
+    private const val TAG_SET_SELECTION = 20
+    private const val TAG_REVEAL_RANGE = 21
+    private const val TAG_SET_FOLDED = 22
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -625,6 +729,18 @@ object Protocol {
                         if (resizable > 1) {
                             throw ProtocolException("invalid resizable flag $resizable", offset + 16)
                         }
+                        // A byte saying whether there is a zoom level, then the level as a
+                        // signed byte.
+                        val zoom = readU16(batch, base, available, offset + 18)
+                        val zoomLevel = when (zoom and 0xFF) {
+                            0 -> null
+                            1 -> (zoom shr 8).toByte().toInt().also { level ->
+                                if (level < -8 || level > 8) {
+                                    throw ProtocolException("invalid zoom level $level", offset + 19)
+                                }
+                            }
+                            else -> throw ProtocolException("invalid zoom flag $zoom", offset + 18)
+                        }
                         Mutation.SetWindow(
                             Window(
                                 chrome(readU16(batch, base, available, offset + 4), offset + 4),
@@ -636,6 +752,7 @@ object Protocol {
                                 readU16(batch, base, available, offset + 12),
                                 readU16(batch, base, available, offset + 14),
                                 resizable == 1,
+                                zoomLevel,
                             ),
                         )
                     }
@@ -681,6 +798,19 @@ object Protocol {
                         requireRecordLength(length, 4, offset)
                         Mutation.RequestNotificationPermission
                     }
+                    TAG_EDIT_CODE -> {
+                        requireRecordLength(length, 40, offset)
+                        Mutation.EditCode(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            readU32(batch, base, available, offset + 8).toInt(),
+                            readU32(batch, base, available, offset + 12).toInt(),
+                            readU32(batch, base, available, offset + 16).toInt(),
+                            readU32(batch, base, available, offset + 20).toInt(),
+                            readU32(batch, base, available, offset + 24).toInt(),
+                            readU32(batch, base, available, offset + 28).toInt(),
+                            readString(batch, base, available, offset + 32),
+                        )
+                    }
                     TAG_START_ANIMATION -> {
                         if (length < ANIMATION_HEADER_LENGTH) {
                             requireRecordLength(length, ANIMATION_HEADER_LENGTH, offset)
@@ -696,6 +826,37 @@ object Protocol {
                             readU8(batch, base, available, offset + 13),
                             animationControl(readU8(batch, base, available, offset + 14), offset + 14),
                             readU64(batch, base, available, offset + 16),
+                        )
+                    }
+                    TAG_SET_SELECTION -> {
+                        requireRecordLength(length, 28, offset)
+                        Mutation.SetSelection(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            readU32(batch, base, available, offset + 8).toInt(),
+                            readU32(batch, base, available, offset + 12).toInt(),
+                            readU32(batch, base, available, offset + 16).toInt(),
+                            readU32(batch, base, available, offset + 20).toInt(),
+                            readU32(batch, base, available, offset + 24).toInt(),
+                        )
+                    }
+                    TAG_REVEAL_RANGE -> {
+                        requireRecordLength(length, 32, offset)
+                        Mutation.RevealRange(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            readU32(batch, base, available, offset + 8).toInt(),
+                            readU32(batch, base, available, offset + 12).toInt(),
+                            readU32(batch, base, available, offset + 16).toInt(),
+                            readU32(batch, base, available, offset + 20).toInt(),
+                            readU32(batch, base, available, offset + 24).toInt(),
+                            revealAlign(readU32(batch, base, available, offset + 28).toInt(), offset + 28),
+                        )
+                    }
+                    TAG_SET_FOLDED -> {
+                        requireRecordLength(length, 16, offset)
+                        Mutation.SetFolded(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            readU32(batch, base, available, offset + 8).toInt(),
+                            flag(readU32(batch, base, available, offset + 12), offset + 12),
                         )
                     }
                     else -> throw ProtocolException("unknown mutation tag $tag", offset)
@@ -801,14 +962,33 @@ object Protocol {
                 )
                 .unwrap();
             }
+            EventPayloadType::CodeChange => {
+                writeln!(
+                    output,
+                    "                is HostEvent.{} -> event.text.toByteArray(StandardCharsets.UTF_8)",
+                    event.name
+                )
+                .unwrap();
+            }
             EventPayloadType::KeyDown
             | EventPayloadType::Range
             | EventPayloadType::Double
             | EventPayloadType::WindowSize
             | EventPayloadType::DesignSystem
             | EventPayloadType::NotificationPermission
+            | EventPayloadType::CodeEditRejected
+            | EventPayloadType::CodeHover
+            | EventPayloadType::CodeSave
+            | EventPayloadType::Decoration
             | EventPayloadType::Animation
-            | EventPayloadType::ReducedMotion => {
+            | EventPayloadType::ReducedMotion
+            | EventPayloadType::Pointer
+            | EventPayloadType::CodeSelection
+            | EventPayloadType::CodeVisibleRange
+            | EventPayloadType::CodeFocus
+            | EventPayloadType::CodeFold
+            | EventPayloadType::CodeComposition
+            | EventPayloadType::Zoom => {
                 writeln!(
                     output,
                     "                is HostEvent.{} -> null",
@@ -837,8 +1017,22 @@ object Protocol {
             // A word and a string reference, the protocol error's shape.
             EventPayloadType::NotificationActivation => 28,
             EventPayloadType::NotificationPermission => 20,
+            EventPayloadType::CodeChange => 44,
+            EventPayloadType::CodeEditRejected => 44,
+            EventPayloadType::CodeHover => 36,
+            // A version and the padding that keeps the record a multiple of four.
+            EventPayloadType::CodeSave => 24,
+            EventPayloadType::Decoration => 24,
             EventPayloadType::Animation => 40,
             EventPayloadType::ReducedMotion => 20,
+            EventPayloadType::Pointer => 72,
+            EventPayloadType::CodeSelection => 36,
+            EventPayloadType::CodeVisibleRange => 28,
+            // A flag and the padding that keeps the record a multiple of four.
+            EventPayloadType::CodeFocus | EventPayloadType::CodeComposition => 24,
+            EventPayloadType::CodeFold => 24,
+            // Two floats and a level, three words after the header.
+            EventPayloadType::Zoom => 28,
         };
         writeln!(
             output,
@@ -938,6 +1132,59 @@ object Protocol {
                 );
                 output.push_str("                }\n");
             }
+            EventPayloadType::CodeChange => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                for field in [
+                    "version",
+                    "startLine",
+                    "startColumn",
+                    "endLine",
+                    "endColumn",
+                ] {
+                    writeln!(output, "                    out.putInt(event.{field})").unwrap();
+                }
+                output.push_str(
+                    "                    writeStringReference(out, recordLength, text!!)\n",
+                );
+                output.push_str("                }\n");
+            }
+            EventPayloadType::CodeEditRejected => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                for field in [
+                    "requestId",
+                    "baseVersion",
+                    "currentVersion",
+                    "startLine",
+                    "startColumn",
+                    "endLine",
+                    "endColumn",
+                ] {
+                    writeln!(output, "                    out.putInt(event.{field})").unwrap();
+                }
+                output.push_str("                }\n");
+            }
+            EventPayloadType::CodeHover => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putLong(event.decoration)\n");
+                output.push_str("                    out.putInt(event.line)\n");
+                output.push_str("                    out.putInt(event.column)\n");
+                output.push_str("                    out.putInt(hoverPhaseTag(event.phase))\n");
+                output.push_str("                }\n");
+            }
+            EventPayloadType::CodeSave => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(event.version)\n");
+                output.push_str("                    out.putInt(0)\n");
+                output.push_str("                }\n");
+            }
+            EventPayloadType::Decoration => {
+                writeln!(
+                    output,
+                    "                is HostEvent.{} -> out.putLong(event.decoration)",
+                    event.name
+                )
+                .unwrap();
+            }
             EventPayloadType::NotificationPermission => {
                 writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
                 output.push_str(
@@ -966,6 +1213,65 @@ object Protocol {
                 output.push_str("                    out.putInt(reducedMotionTag(event.state))\n");
                 output.push_str("                }\n");
             }
+            EventPayloadType::Pointer => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(pointerKindTag(event.kind))\n");
+                output.push_str("                    out.putInt(event.pointerId)\n");
+                output.push_str(
+                    "                    out.putInt(pointerTypeTag(event.pointerType))\n",
+                );
+                output.push_str("                    out.putFloat(event.x)\n");
+                output.push_str("                    out.putFloat(event.y)\n");
+                output.push_str("                    out.putInt(event.buttons)\n");
+                output.push_str("                    out.putInt(event.button)\n");
+                output.push_str("                    out.putInt(event.modifiers)\n");
+                output.push_str("                    out.putInt(event.clickCount)\n");
+                output.push_str("                    out.putFloat(event.deltaX)\n");
+                output.push_str("                    out.putFloat(event.deltaY)\n");
+                output.push_str(
+                    "                    out.putInt(wheelDeltaModeTag(event.deltaMode))\n",
+                );
+                output.push_str("                    out.putLong(event.timestampNanos)\n");
+                output.push_str("                }\n");
+            }
+            EventPayloadType::CodeSelection => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                for field in [
+                    "version",
+                    "anchorLine",
+                    "anchorColumn",
+                    "activeLine",
+                    "activeColumn",
+                ] {
+                    writeln!(output, "                    out.putInt(event.{field})").unwrap();
+                }
+                output.push_str("                }\n");
+            }
+            EventPayloadType::CodeVisibleRange => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                for field in ["version", "firstLine", "lastLine"] {
+                    writeln!(output, "                    out.putInt(event.{field})").unwrap();
+                }
+                output.push_str("                }\n");
+            }
+            EventPayloadType::CodeFocus => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(if (event.focused) 1 else 0)\n");
+                output.push_str("                    out.putInt(0)\n");
+                output.push_str("                }\n");
+            }
+            EventPayloadType::CodeFold => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(event.startLine)\n");
+                output.push_str("                    out.putInt(if (event.collapsed) 1 else 0)\n");
+                output.push_str("                }\n");
+            }
+            EventPayloadType::CodeComposition => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(if (event.composing) 1 else 0)\n");
+                output.push_str("                    out.putInt(0)\n");
+                output.push_str("                }\n");
+            }
             EventPayloadType::Double => {
                 writeln!(
                     output,
@@ -973,6 +1279,13 @@ object Protocol {
                     event.name
                 )
                 .unwrap();
+            }
+            EventPayloadType::Zoom => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putFloat(event.k)\n");
+                output.push_str("                    out.putFloat(event.os)\n");
+                output.push_str("                    out.putInt(event.level)\n");
+                output.push_str("                }\n");
             }
             EventPayloadType::WindowSize => {
                 writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
@@ -1101,6 +1414,17 @@ object Protocol {
         .unwrap();
     }
     output.push_str("    }\n\n");
+    // A code editor reports whether a pointer arrived or left, so this one travels out.
+    output.push_str("    private fun hoverPhaseTag(phase: HoverPhase): Int = when (phase) {\n");
+    for variant in HOVER_PHASE_SCHEMA {
+        writeln!(
+            output,
+            "        HoverPhase.{} -> {}",
+            variant.name, variant.tag
+        )
+        .unwrap();
+    }
+    output.push_str("    }\n\n");
     // The permission travels this way too: the Renderer is the side that learns it.
     output.push_str(
         "    private fun notificationPermissionTag(state: NotificationPermission): Int = when (state) {\n",
@@ -1130,6 +1454,21 @@ object Protocol {
             "reducedMotionTag",
             "ReducedMotion",
             crate::schema::REDUCED_MOTION_SCHEMA,
+        ),
+        (
+            "pointerKindTag",
+            "PointerKind",
+            crate::schema::POINTER_KIND_SCHEMA,
+        ),
+        (
+            "pointerTypeTag",
+            "PointerType",
+            crate::schema::POINTER_TYPE_SCHEMA,
+        ),
+        (
+            "wheelDeltaModeTag",
+            "WheelDeltaMode",
+            crate::schema::WHEEL_DELTA_MODE_SCHEMA,
         ),
     ] {
         writeln!(
@@ -1772,6 +2111,49 @@ pub fn spans_vector() -> crate::spans::TextSpans {
     ])
 }
 
+/// The document the code editor in the mutation vector opens with. Its second line holds a
+/// Hangul syllable, one UTF-16 unit, and an emoji, two of them, so every column after it
+/// is one a byte count or a character count would get wrong.
+pub const CODE_VECTOR_TEXT: &str = "fn main() {\n    let 한 = \"😀\";\n}\n";
+
+/// One decoration of each kind, with a colour role on one of them and text on two.
+fn code_decoration_vector() -> crate::code::Decorations {
+    use crate::code::{CodeRange, Decoration, Position};
+    use crate::schema::Severity;
+    crate::code::Decorations::new([
+        Decoration::underline(0, CodeRange::of(1, 8, 1, 9), Severity::Warning)
+            .with_color(ColorRole::Error),
+        Decoration::code_lens(0, 0, "Run", 41),
+        Decoration::hover_anchor(0, CodeRange::of(0, 3, 0, 7), 42),
+        Decoration::ghost_text(0, Position::new(2, 1), " // end", 43),
+    ])
+}
+
+/// Two syntax colour runs, the second across the emoji.
+fn code_span_vector() -> crate::code::SyntaxSpans {
+    use crate::code::{CodeRange, SyntaxSpan};
+    crate::code::SyntaxSpans::new([
+        SyntaxSpan::role(0, CodeRange::of(0, 0, 0, 2), ColorRole::Primary),
+        SyntaxSpan::role(0, CodeRange::of(1, 12, 1, 16), ColorRole::Tertiary),
+    ])
+}
+
+/// Two folds, one folded, the second inside the first, and three gutter marks of the three
+/// kinds, one with a colour role and one carrying an emoji.
+fn code_fold_vector() -> crate::code::Folds {
+    use crate::code::Fold;
+    crate::code::Folds::new([Fold::new(0, 0, 2), Fold::new(0, 1, 3).collapsed()])
+}
+
+fn code_gutter_vector() -> crate::code::GutterDecorations {
+    use crate::code::GutterDecoration;
+    crate::code::GutterDecorations::new([
+        GutterDecoration::dot(0, 0, 51),
+        GutterDecoration::bar(0, 1, 0).with_color(ColorRole::Tertiary),
+        GutterDecoration::glyph(0, 2, '\u{1F41B}', 52),
+    ])
+}
+
 /// Two keyframes each, the first eased and starting from what is presented, the second
 /// linear; every other field set to something other than its default, so a field read
 /// from the wrong offset cannot pass.
@@ -1895,6 +2277,10 @@ fn vector_transform(
 pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
     let canvas_vector_bytes = canvas_vector();
     let spans_vector_bytes = spans_vector();
+    let decorations = code_decoration_vector();
+    let syntax_spans = code_span_vector();
+    let folds = code_fold_vector();
+    let gutter = code_gutter_vector();
     let mutations = [
         Mutation::SetTheme(
             Theme::adaptive(DesignSystem::Cupertino)
@@ -2143,6 +2529,13 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             property: PropertyKind::Collapsible,
             value: PropertyValue::Bool(true),
         },
+        // A button's kind: a role tag in the fixed record, like the variant, so both sides
+        // agree on the property tag and on the value it carries.
+        Mutation::SetProp {
+            node_id: 2,
+            property: PropertyKind::ButtonKind,
+            value: PropertyValue::Integer(crate::schema::ButtonKind::ActionKey as i64),
+        },
         // A box whose children sit where the Host put them, and the seven modifiers an HTML
         // and CSS screen is drawn with. Two of them are longer than 28 bytes, which is the
         // rule both decoders have to read the same way. They come after every older record,
@@ -2282,6 +2675,73 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
                 KeyframeValue::Paint(Paint::Literal(Color::argb(0xff33_6699))),
             ],
         )),
+        // A code editor with both of its lists and one edit asked of it, so both sides
+        // read the decoration and colour run records, and the edit record, at the same
+        // offsets.
+        Mutation::Create {
+            node_id: 12,
+            widget: WidgetKind::CodeEditor,
+        },
+        Mutation::SetProp {
+            node_id: 12,
+            property: PropertyKind::Text,
+            value: PropertyValue::String(CODE_VECTOR_TEXT),
+        },
+        Mutation::SetProp {
+            node_id: 12,
+            property: PropertyKind::Decorations,
+            value: PropertyValue::Bytes(decorations.as_bytes()),
+        },
+        Mutation::SetProp {
+            node_id: 12,
+            property: PropertyKind::SyntaxSpans,
+            value: PropertyValue::Bytes(syntax_spans.as_bytes()),
+        },
+        Mutation::EditCode {
+            node_id: 12,
+            request_id: 7,
+            base_version: 0,
+            start_line: 1,
+            start_column: 8,
+            end_line: 1,
+            end_column: 8,
+            text: "mut ",
+        },
+        // The code editor's later additions, after every record that was here before them
+        // so their bytes stay where they were: the two lists, a selection made backwards,
+        // a range to reveal and a fold.
+        Mutation::SetProp {
+            node_id: 12,
+            property: PropertyKind::Folds,
+            value: PropertyValue::Bytes(folds.as_bytes()),
+        },
+        Mutation::SetProp {
+            node_id: 12,
+            property: PropertyKind::GutterDecorations,
+            value: PropertyValue::Bytes(gutter.as_bytes()),
+        },
+        Mutation::SetSelection {
+            node_id: 12,
+            base_version: 0,
+            anchor_line: 1,
+            anchor_column: 12,
+            active_line: 0,
+            active_column: 3,
+        },
+        Mutation::RevealRange {
+            node_id: 12,
+            base_version: 1,
+            start_line: 1,
+            start_column: 12,
+            end_line: 1,
+            end_column: 16,
+            align: crate::schema::RevealAlign::Center,
+        },
+        Mutation::SetFolded {
+            node_id: 12,
+            start_line: 0,
+            collapsed: true,
+        },
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {
@@ -2368,6 +2828,51 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
             payload: EventPayload::NotificationPermissionChanged(NotificationPermission::Denied),
         },
         HostEvent {
+            node_id: 12,
+            handler_id: 18,
+            payload: EventPayload::CodeChanged {
+                version: 1,
+                start_line: 1,
+                start_column: 8,
+                end_line: 1,
+                end_column: 8,
+                text: "mut ",
+            },
+        },
+        HostEvent {
+            node_id: 12,
+            handler_id: 19,
+            payload: EventPayload::CodeEditRejected {
+                request_id: 7,
+                base_version: 0,
+                current_version: 2,
+                start_line: 1,
+                start_column: 8,
+                end_line: 1,
+                end_column: 9,
+            },
+        },
+        HostEvent {
+            node_id: 12,
+            handler_id: 20,
+            payload: EventPayload::CodeHovered {
+                decoration: 42,
+                line: 0,
+                column: 4,
+                phase: crate::schema::HoverPhase::Rest,
+            },
+        },
+        HostEvent {
+            node_id: 12,
+            handler_id: 21,
+            payload: EventPayload::CodeSaveRequested { version: 2 },
+        },
+        HostEvent {
+            node_id: 12,
+            handler_id: 22,
+            payload: EventPayload::DecorationActivated { decoration: 41 },
+        },
+        HostEvent {
             node_id: 8,
             handler_id: 0,
             payload: EventPayload::AnimationEvent {
@@ -2384,6 +2889,63 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
             node_id: 0,
             handler_id: 0,
             payload: EventPayload::ReducedMotionChanged(crate::schema::ReducedMotion::On),
+        },
+        HostEvent {
+            node_id: 13,
+            handler_id: 23,
+            payload: EventPayload::Pointer {
+                kind: crate::schema::PointerKind::Down,
+                pointer_id: 1,
+                pointer_type: crate::schema::PointerType::Mouse,
+                x: 12.5,
+                y: -3.0,
+                buttons: 9,
+                button: 8,
+                modifiers: 5,
+                click_count: 2,
+                delta_x: 0.0,
+                delta_y: 0.0,
+                delta_mode: crate::schema::WheelDeltaMode::Pixel,
+                timestamp_nanos: 987_654_321_000,
+            },
+        },
+        HostEvent {
+            node_id: 12,
+            handler_id: 23,
+            payload: EventPayload::SelectionChanged {
+                version: 2,
+                anchor_line: 1,
+                anchor_column: 12,
+                active_line: 0,
+                active_column: 3,
+            },
+        },
+        HostEvent {
+            node_id: 12,
+            handler_id: 24,
+            payload: EventPayload::VisibleRangeChanged {
+                version: 2,
+                first_line: 0,
+                last_line: 3,
+            },
+        },
+        HostEvent {
+            node_id: 12,
+            handler_id: 25,
+            payload: EventPayload::EditorFocusChanged { focused: true },
+        },
+        HostEvent {
+            node_id: 12,
+            handler_id: 26,
+            payload: EventPayload::FoldChanged {
+                start_line: 0,
+                collapsed: true,
+            },
+        },
+        HostEvent {
+            node_id: 12,
+            handler_id: 27,
+            payload: EventPayload::CompositionChanged { composing: true },
         },
     ];
     let mut output = Vec::new();
@@ -2403,20 +2965,20 @@ pub fn generate_vector_description() -> String {
   "byteOrder": "little-endian",
   "mutations": {{
     "file": "mutations.bin",
-    "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements and the animations the Renderer plays",
-    "recordCount": 66,
+    "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
+    "recordCount": 76,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
       {{ "role": "SyntaxKeyword", "scheme": "Light", "argb": "80112233" }}
     ],
     "spanRecordLength": 36,
-    "strings": ["안녕", "compose", " token", "필터", "New", "삭제했습니다", "Undo", "session/7", "세션이 끝났습니다", "테스트 214개 통과", "세션", "열기", "", "session/7"],
+    "strings": ["안녕", "compose", " token", "필터", "New", "삭제했습니다", "Undo", "session/7", "세션이 끝났습니다", "테스트 214개 통과", "세션", "열기", "", "session/7", "fn main() {{\n    let 한 = \"😀\";\n}}\n", "mut "],
     "assets": [{{ "assetId": 5, "kind": "Png", "bytes": "89504e47" }}]
   }},
   "events": {{
     "file": "events.bin",
-    "description": "Thirteen independently decodable event records concatenated in schema order",
+    "description": "Twenty-four independently decodable event records concatenated in schema order",
     "records": [
       {{ "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 }},
       {{ "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" }},
@@ -2429,8 +2991,19 @@ pub fn generate_vector_description() -> String {
       {{ "type": "WindowSizeChanged", "offset": 193, "length": 32, "nodeId": 0, "handlerId": 0, "widthDp": 840.0, "heightDp": 600.0, "sizeClass": "Expanded", "heightClass": "Medium" }},
       {{ "type": "NotificationActivated", "offset": 225, "length": 37, "nodeId": 0, "handlerId": 0, "action": 1, "key": "session/7" }},
       {{ "type": "NotificationPermissionChanged", "offset": 262, "length": 20, "nodeId": 0, "handlerId": 0, "state": "Denied" }},
-      {{ "type": "AnimationEvent", "offset": 282, "length": 40, "nodeId": 8, "handlerId": 0, "animationId": 7, "kind": "End", "property": "Transform", "slot": 2, "iteration": 3, "elapsedMs": 3000.0, "timeNanos": 123456789012 }},
-      {{ "type": "ReducedMotionChanged", "offset": 322, "length": 20, "nodeId": 0, "handlerId": 0, "state": "On" }}
+      {{ "type": "CodeChanged", "offset": 282, "length": 48, "nodeId": 12, "handlerId": 18, "version": 1, "startLine": 1, "startColumn": 8, "endLine": 1, "endColumn": 8, "text": "mut " }},
+      {{ "type": "CodeEditRejected", "offset": 330, "length": 44, "nodeId": 12, "handlerId": 19, "requestId": 7, "baseVersion": 0, "currentVersion": 2, "startLine": 1, "startColumn": 8, "endLine": 1, "endColumn": 9 }},
+      {{ "type": "CodeHovered", "offset": 374, "length": 36, "nodeId": 12, "handlerId": 20, "decoration": 42, "line": 0, "column": 4, "phase": "Rest" }},
+      {{ "type": "CodeSaveRequested", "offset": 410, "length": 24, "nodeId": 12, "handlerId": 21, "version": 2 }},
+      {{ "type": "DecorationActivated", "offset": 434, "length": 24, "nodeId": 12, "handlerId": 22, "decoration": 41 }},
+      {{ "type": "AnimationEvent", "offset": 458, "length": 40, "nodeId": 8, "handlerId": 0, "animationId": 7, "kind": "End", "property": "Transform", "slot": 2, "iteration": 3, "elapsedMs": 3000.0, "timeNanos": 123456789012 }},
+      {{ "type": "ReducedMotionChanged", "offset": 498, "length": 20, "nodeId": 0, "handlerId": 0, "state": "On" }},
+      {{ "type": "Pointer", "offset": 518, "length": 72, "nodeId": 13, "handlerId": 23, "kind": "Down", "pointerId": 1, "pointerType": "Mouse", "x": 12.5, "y": -3.0, "buttons": 9, "button": 8, "modifiers": 5, "clickCount": 2, "deltaX": 0.0, "deltaY": 0.0, "deltaMode": "Pixel", "timestampNanos": 987654321000 }},
+      {{ "type": "SelectionChanged", "offset": 590, "length": 36, "nodeId": 12, "handlerId": 23, "version": 2, "anchorLine": 1, "anchorColumn": 12, "activeLine": 0, "activeColumn": 3 }},
+      {{ "type": "VisibleRangeChanged", "offset": 626, "length": 28, "nodeId": 12, "handlerId": 24, "version": 2, "firstLine": 0, "lastLine": 3 }},
+      {{ "type": "EditorFocusChanged", "offset": 654, "length": 24, "nodeId": 12, "handlerId": 25, "focused": true }},
+      {{ "type": "FoldChanged", "offset": 678, "length": 24, "nodeId": 12, "handlerId": 26, "startLine": 0, "collapsed": true }},
+      {{ "type": "CompositionChanged", "offset": 702, "length": 24, "nodeId": 12, "handlerId": 27, "composing": true }}
     ]
   }}
 }}
@@ -2702,21 +3275,38 @@ object SpanRecords {
     fun decode(bytes: ByteArray): List<TextSpanRecord>? {
         if (bytes.size % SPAN_LENGTH != 0) return null
         val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
-        return List(bytes.size / SPAN_LENGTH) { index ->
-            val at = index * SPAN_LENGTH
-            val flags = buffer.getShort(at + FLAGS_AT).toInt() and 0xffff
-            TextSpanRecord(
-                start = buffer.getInt(at + START_AT),
-                length = buffer.getInt(at + LENGTH_AT),
-                typeRole = typeRoleOrNull(buffer.getShort(at + ROLE_AT).toInt() and 0xffff),
-                color = paintOrNull(buffer.getLong(at + COLOR_AT)),
-                background = paintOrNull(buffer.getLong(at + BACKGROUND_AT)),
-                bold = flags and FLAG_BOLD != 0,
-                italic = flags and FLAG_ITALIC != 0,
-                underline = flags and FLAG_UNDERLINE != 0,
-                strikethrough = flags and FLAG_STRIKETHROUGH != 0,
-                handlerId = buffer.getLong(at + HANDLER_AT),
-            )
+        return decodeAt(buffer, bytes.size, 0, bytes.size / SPAN_LENGTH)
+    }
+
+    /**
+     * The [count] runs whose records start at [at] in [buffer], or null where they reach
+     * past [limit]. What a measure request carries, in place.
+     */
+    fun decodeAt(buffer: ByteBuffer, limit: Int, at: Int, count: Int): List<TextSpanRecord>? {
+        if (count < 0 || at < 0 || at.toLong() + count.toLong() * SPAN_LENGTH > limit.toLong()) {
+            return null
+        }
+        val previous = buffer.order()
+        buffer.order(ByteOrder.LITTLE_ENDIAN)
+        try {
+            return List(count) { index ->
+                val record = at + index * SPAN_LENGTH
+                val flags = buffer.getShort(record + FLAGS_AT).toInt() and 0xffff
+                TextSpanRecord(
+                    start = buffer.getInt(record + START_AT),
+                    length = buffer.getInt(record + LENGTH_AT),
+                    typeRole = typeRoleOrNull(buffer.getShort(record + ROLE_AT).toInt() and 0xffff),
+                    color = paintOrNull(buffer.getLong(record + COLOR_AT)),
+                    background = paintOrNull(buffer.getLong(record + BACKGROUND_AT)),
+                    bold = flags and FLAG_BOLD != 0,
+                    italic = flags and FLAG_ITALIC != 0,
+                    underline = flags and FLAG_UNDERLINE != 0,
+                    strikethrough = flags and FLAG_STRIKETHROUGH != 0,
+                    handlerId = buffer.getLong(record + HANDLER_AT),
+                )
+            }
+        } finally {
+            buffer.order(previous)
         }
     }
 
@@ -2752,6 +3342,575 @@ object SpanRecords {
         output.push_str("        else -> null\n    }\n\n");
     }
     output.push_str("}\n\n");
+}
+
+/// The records a code editor's decorations and syntax colour runs travel in, mirrored into
+/// Kotlin with a decoder for each blob.
+///
+/// A record that cannot be read is reported through `onError` and left out, and the rest of
+/// the list is still read: a list is data inside a property value, and one bad record is
+/// that record's problem rather than the batch's.
+fn write_code_editor_records(output: &mut String) {
+    use crate::code::{
+        DECORATION_RECORD, FOLD_RECORD, GUTTER_DECORATION_RECORD, RecordFieldType, RecordSchema,
+        SYNTAX_SPAN_RECORD,
+    };
+
+    let records: [(RecordSchema, &str, &str); 4] = [
+        (
+            DECORATION_RECORD,
+            "decodeDecorations",
+            "One decoration over a code editor's document: an underline, a lens above a line, a \
+             hover anchor or an inline suggestion. The range is in the document at `version`; \
+             columns are UTF-16 units. `id` is the application's own name for it, zero where \
+             it cannot be pressed.",
+        ),
+        (
+            SYNTAX_SPAN_RECORD,
+            "decodeSyntaxSpans",
+            "One colour run of a code editor's syntax. The range is in the document at \
+             `version`; columns are UTF-16 units.",
+        ),
+        (
+            FOLD_RECORD,
+            "decodeFolds",
+            "One stretch of a code editor's lines that can be folded. Folding keeps \
+             `startLine` and hides the lines after it up to `endLine`; both are in the \
+             document at `version`.",
+        ),
+        (
+            GUTTER_DECORATION_RECORD,
+            "decodeGutterDecorations",
+            "One mark beside a line number of a code editor. The line is in the document at \
+             `version`; `glyph` is a Unicode scalar value, used when the kind is a glyph. \
+             `id` is the application's own name for it, zero where it cannot be pressed.",
+        ),
+    ];
+    let kotlin_field_type = |ty: RecordFieldType| -> String {
+        match ty {
+            RecordFieldType::U32 => "Int".to_owned(),
+            RecordFieldType::U64 => "Long".to_owned(),
+            RecordFieldType::Role { name, optional } => {
+                format!("{name}{}", if optional { "?" } else { "" })
+            }
+            RecordFieldType::Paint => "Paint".to_owned(),
+            RecordFieldType::Flag => "Boolean".to_owned(),
+            RecordFieldType::Text => "String".to_owned(),
+        }
+    };
+    for (schema, _, doc) in records {
+        writeln!(output, "/** {doc} */").unwrap();
+        writeln!(output, "data class {}(", schema.name).unwrap();
+        for field in schema.fields {
+            writeln!(
+                output,
+                "    val {}: {},",
+                field.name,
+                kotlin_field_type(field.ty)
+            )
+            .unwrap();
+        }
+        output.push_str(")\n\n");
+    }
+
+    output.push_str(
+        r#"/**
+ * Reads the blobs a code editor carries.
+ *
+ * A record that cannot be read, a kind or a role this side does not know or a text that
+ * points outside the blob, is reported through `onError` and left out. The rest of the list
+ * is read regardless.
+ */
+object CodeEditorRecords {
+"#,
+    );
+    for (schema, function, _) in records {
+        let constant = match schema.name {
+            "DecorationRecord" => "DECORATION_LENGTH",
+            "FoldRecord" => "FOLD_LENGTH",
+            "GutterDecorationRecord" => "GUTTER_DECORATION_LENGTH",
+            _ => "SYNTAX_SPAN_LENGTH",
+        };
+        writeln!(output, "    const val {constant} = {}\n", schema.length).unwrap();
+        let text_field = schema
+            .fields
+            .iter()
+            .find(|field| field.ty == RecordFieldType::Text);
+        writeln!(
+            output,
+            "    fun {function}(bytes: ByteArray, onError: (String) -> Unit): List<{}> {{",
+            schema.name
+        )
+        .unwrap();
+        output.push_str(
+            "        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)\n",
+        );
+        writeln!(
+            output,
+            "        val records = ArrayList<{}>(bytes.size / {constant})",
+            schema.name
+        )
+        .unwrap();
+        output.push_str("        var end = bytes.size\n");
+        output.push_str("        var offset = 0\n");
+        output.push_str("        var index = 0\n");
+        writeln!(output, "        while (offset + {constant} <= end) {{").unwrap();
+        if let Some(text) = text_field {
+            // The records end where the text region begins: the first offset any record
+            // names for its text.
+            writeln!(
+                output,
+                "            val textOffset = buffer.getInt(offset + {})",
+                text.offset
+            )
+            .unwrap();
+            writeln!(
+                output,
+                "            val textLength = buffer.getInt(offset + {})",
+                text.offset + 4
+            )
+            .unwrap();
+            output.push_str(
+                "            if (textLength != 0 && textOffset >= 0 && textOffset < end) end = textOffset\n",
+            );
+        }
+        writeln!(
+            output,
+            "            read{}(buffer, bytes, offset, index, onError)?.let(records::add)",
+            schema.name
+        )
+        .unwrap();
+        writeln!(output, "            offset += {constant}").unwrap();
+        output.push_str("            index += 1\n");
+        output.push_str("        }\n");
+        if text_field.is_none() {
+            output.push_str("        if (offset != bytes.size) {\n");
+            output.push_str(
+                "            onError(\"${bytes.size - offset} bytes after the last whole record\")\n",
+            );
+            output.push_str("        }\n");
+        }
+        output.push_str("        return records\n");
+        output.push_str("    }\n\n");
+
+        writeln!(
+            output,
+            "    private fun read{}(buffer: ByteBuffer, bytes: ByteArray, offset: Int, index: Int, onError: (String) -> Unit): {}? {{",
+            schema.name, schema.name
+        )
+        .unwrap();
+        for field in schema.fields {
+            let at = field.offset;
+            match field.ty {
+                RecordFieldType::U32 => {
+                    writeln!(
+                        output,
+                        "        val {} = buffer.getInt(offset + {at})",
+                        field.name
+                    )
+                    .unwrap();
+                }
+                RecordFieldType::U64 => {
+                    writeln!(
+                        output,
+                        "        val {} = buffer.getLong(offset + {at})",
+                        field.name
+                    )
+                    .unwrap();
+                }
+                RecordFieldType::Role { name, optional } => {
+                    writeln!(
+                        output,
+                        "        val {}Tag = buffer.getShort(offset + {at}).toInt() and 0xffff",
+                        field.name
+                    )
+                    .unwrap();
+                    let lookup = format!("{}OrNull({}Tag)", lower_first(name), field.name);
+                    let refuse = format!(
+                        "run {{ onError(\"record $index has an unknown {} ${{{}Tag}}\"); return null }}",
+                        field.name, field.name
+                    );
+                    if optional {
+                        writeln!(
+                            output,
+                            "        val {} = if ({}Tag == 0) null else {lookup} ?: {refuse}",
+                            field.name, field.name
+                        )
+                        .unwrap();
+                    } else {
+                        writeln!(output, "        val {} = {lookup} ?: {refuse}", field.name)
+                            .unwrap();
+                    }
+                }
+                RecordFieldType::Paint => {
+                    writeln!(
+                        output,
+                        "        val {} = paintOrNull(buffer.getLong(offset + {at})) ?: run {{ onError(\"record $index has an unreadable {}\"); return null }}",
+                        field.name, field.name
+                    )
+                    .unwrap();
+                }
+                RecordFieldType::Flag => {
+                    writeln!(
+                        output,
+                        "        val {} = when (buffer.getInt(offset + {at})) {{ 0 -> false; 1 -> true; else -> run {{ onError(\"record $index has a {} that is neither 0 nor 1\"); return null }} }}",
+                        field.name, field.name
+                    )
+                    .unwrap();
+                }
+                RecordFieldType::Text => {
+                    writeln!(
+                        output,
+                        "        val {} = textOf(bytes, buffer.getInt(offset + {at}), buffer.getInt(offset + {})) ?: run {{ onError(\"record $index names text outside the list\"); return null }}",
+                        field.name,
+                        at + 4
+                    )
+                    .unwrap();
+                }
+            }
+        }
+        write!(output, "        return {}(", schema.name).unwrap();
+        for (index, field) in schema.fields.iter().enumerate() {
+            if index != 0 {
+                output.push_str(", ");
+            }
+            output.push_str(field.name);
+        }
+        output.push_str(")\n    }\n\n");
+    }
+    output.push_str(
+        r#"    /** UTF-8 text behind the records, or null where the range leaves the blob or is not text. */
+    private fun textOf(bytes: ByteArray, offset: Int, length: Int): String? {
+        if (length == 0) return ""
+        if (offset < 0 || length < 0 || offset.toLong() + length.toLong() > bytes.size.toLong()) return null
+        return try {
+            bytes.decodeToString(offset, offset + length, throwOnInvalidSequence = true)
+        } catch (error: CharacterCodingException) {
+            null
+        }
+    }
+
+    private fun paintOrNull(bits: Long): Paint? {
+        val value = bits.toInt()
+        return when ((bits ushr 32).toInt()) {
+            1 -> colorRoleOrNull(value)?.let { Paint.Role(it) }
+            2 -> Paint.Literal(value)
+            3 -> Paint.Asset(value)
+            else -> null
+        }
+    }
+
+"#,
+    );
+    let mut roles: Vec<&str> = [
+        DECORATION_RECORD,
+        SYNTAX_SPAN_RECORD,
+        FOLD_RECORD,
+        GUTTER_DECORATION_RECORD,
+    ]
+    .iter()
+    .flat_map(|schema| schema.fields.iter())
+    .filter_map(|field| match field.ty {
+        RecordFieldType::Role { name, .. } => Some(name),
+        _ => None,
+    })
+    .collect();
+    roles.push("ColorRole");
+    roles.sort_unstable();
+    roles.dedup();
+    for role in roles {
+        let variants = ROLE_ENUM_SCHEMA
+            .iter()
+            .find(|entry| entry.name == role)
+            .expect("a code editor record names a role the schema declares")
+            .variants;
+        writeln!(
+            output,
+            "    private fun {}OrNull(tag: Int): {role}? = when (tag) {{",
+            lower_first(role)
+        )
+        .unwrap();
+        for variant in variants {
+            writeln!(output, "        {} -> {role}.{}", variant.tag, variant.name).unwrap();
+        }
+        output.push_str("        else -> null\n    }\n\n");
+    }
+    output.push_str("}\n\n");
+}
+
+/// The font candidates of text with no role, and the table that gives a run its own.
+fn write_font_refs(output: &mut String) {
+    use crate::fonts::{
+        FONT_REF_ASSET, FONT_REF_GENERIC, FONT_REF_KIND_AT, FONT_REF_LEN, FONT_REF_LENGTH_AT,
+        FONT_REF_SYSTEM, FONT_REF_VALUE_AT, MAX_FONT_REFS,
+    };
+    use crate::spans::{
+        SPAN_FONT_COUNT_AT, SPAN_FONT_ENTRY_LEN, SPAN_FONT_OFFSET_AT, SPAN_FONT_SPAN_AT,
+    };
+    output.push_str(
+        r#"/**
+ * One font to try for text with no role, in the order a CSS font list gives them. The first
+ * one the Renderer can resolve is the one the text is set in.
+ */
+sealed interface FontRef {
+    /** A font the application registered as an asset. */
+    data class Asset(val assetId: Int) : FontRef
+
+    /** A family installed on the machine, by name. */
+    data class System(val name: String) : FontRef
+
+    /** A family CSS names without naming a font. */
+    data class Generic(val family: GenericFamily) : FontRef
+}
+
+/** Decodes font candidate lists, wherever they sit: a property, a run or a measure request. */
+object FontRefRecords {
+"#,
+    );
+    writeln!(output, "    const val RECORD_LENGTH = {FONT_REF_LEN}").unwrap();
+    writeln!(output, "    const val MAX_REFS = {MAX_FONT_REFS}").unwrap();
+    for (name, value) in [
+        ("KIND_AT", FONT_REF_KIND_AT),
+        ("VALUE_AT", FONT_REF_VALUE_AT),
+        ("LENGTH_AT", FONT_REF_LENGTH_AT),
+    ] {
+        writeln!(output, "    private const val {name} = {value}").unwrap();
+    }
+    for (name, value) in [
+        ("ASSET", FONT_REF_ASSET),
+        ("SYSTEM", FONT_REF_SYSTEM),
+        ("GENERIC", FONT_REF_GENERIC),
+    ] {
+        writeln!(output, "    private const val {name} = {value}").unwrap();
+    }
+    output.push_str(
+        r#"
+    /**
+     * The [count] candidates whose records start at [at] in [buffer], each name read from
+     * the same buffer, or null where anything reaches past [limit] or names a kind this
+     * decoder does not know.
+     */
+    fun decode(buffer: ByteBuffer, limit: Int, at: Int, count: Int): List<FontRef>? {
+        if (count < 0 || count > MAX_REFS) return null
+        if (at < 0 || at.toLong() + count.toLong() * RECORD_LENGTH > limit.toLong()) return null
+        val previous = buffer.order()
+        buffer.order(ByteOrder.LITTLE_ENDIAN)
+        try {
+            val refs = ArrayList<FontRef>(count)
+            for (index in 0 until count) {
+                val record = at + index * RECORD_LENGTH
+                val value = buffer.getInt(record + VALUE_AT)
+                refs += when (buffer.getInt(record + KIND_AT)) {
+                    ASSET -> FontRef.Asset(value)
+                    SYSTEM -> {
+                        val length = buffer.getInt(record + LENGTH_AT)
+                        if (value < 0 || length < 0 || value.toLong() + length > limit.toLong()) {
+                            return null
+                        }
+                        // Relative rather than absolute: the absolute bulk read is not on
+                        // every Android runtime this has to compile against.
+                        val name = ByteArray(length)
+                        val mark = buffer.position()
+                        buffer.position(value)
+                        buffer.get(name, 0, length)
+                        buffer.position(mark)
+                        FontRef.System(name.decodeToString())
+                    }
+                    GENERIC -> FontRef.Generic(genericFamilyOrNull(value) ?: return null)
+                    else -> return null
+                }
+            }
+            return refs
+        } finally {
+            buffer.order(previous)
+        }
+    }
+
+    /** The list a `Font` property carries: a count, then the records and their names. */
+    fun decodeBlob(bytes: ByteArray): List<FontRef>? {
+        if (bytes.isEmpty()) return emptyList()
+        if (bytes.size < 4) return null
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        return decode(buffer, bytes.size, 4, buffer.getInt(0))
+    }
+
+"#,
+    );
+    let generic = ROLE_ENUM_SCHEMA
+        .iter()
+        .find(|entry| entry.name == "GenericFamily")
+        .expect("the font records name a generic family the schema declares")
+        .variants;
+    output.push_str(
+        "    private fun genericFamilyOrNull(tag: Int): GenericFamily? = when (tag) {
+",
+    );
+    for variant in generic {
+        writeln!(
+            output,
+            "        {} -> GenericFamily.{}",
+            variant.tag, variant.name
+        )
+        .unwrap();
+    }
+    output.push_str(
+        "        else -> null
+    }
+}
+
+",
+    );
+
+    output.push_str(
+        r#"/**
+ * Which runs of a Text name fonts of their own, and which: the `SpanFonts` property, or
+ * the same table inside a measure request. Keyed by the run's index in its run list.
+ */
+object SpanFontRecords {
+"#,
+    );
+    writeln!(output, "    const val ENTRY_LENGTH = {SPAN_FONT_ENTRY_LEN}").unwrap();
+    for (name, value) in [
+        ("SPAN_AT", SPAN_FONT_SPAN_AT),
+        ("OFFSET_AT", SPAN_FONT_OFFSET_AT),
+        ("COUNT_AT", SPAN_FONT_COUNT_AT),
+    ] {
+        writeln!(output, "    private const val {name} = {value}").unwrap();
+    }
+    output.push_str(
+        r#"
+    /** The [count] entries starting at [at] in [buffer], or null where any is malformed. */
+    fun decode(buffer: ByteBuffer, limit: Int, at: Int, count: Int): Map<Int, List<FontRef>>? {
+        if (count < 0 || at < 0 || at.toLong() + count.toLong() * ENTRY_LENGTH > limit.toLong()) {
+            return null
+        }
+        val previous = buffer.order()
+        buffer.order(ByteOrder.LITTLE_ENDIAN)
+        val entries = try {
+            List(count) { index ->
+                val entry = at + index * ENTRY_LENGTH
+                Triple(
+                    buffer.getInt(entry + SPAN_AT),
+                    buffer.getInt(entry + OFFSET_AT),
+                    buffer.getInt(entry + COUNT_AT),
+                )
+            }
+        } finally {
+            buffer.order(previous)
+        }
+        val fonts = HashMap<Int, List<FontRef>>(count)
+        for ((span, offset, refs) in entries) {
+            fonts[span] = FontRefRecords.decode(buffer, limit, offset, refs) ?: return null
+        }
+        return fonts
+    }
+
+    /** The table a `SpanFonts` property carries: a count, then the entries and their lists. */
+    fun decodeBlob(bytes: ByteArray): Map<Int, List<FontRef>>? {
+        if (bytes.isEmpty()) return emptyMap()
+        if (bytes.size < 4) return null
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        return decode(buffer, bytes.size, 4, buffer.getInt(0))
+    }
+}
+
+"#,
+    );
+}
+
+/// The record layout of a measure call, as constants both sides read the same bytes by.
+fn write_measure_records(output: &mut String) {
+    use crate::measure as m;
+    output.push_str(
+        r#"/**
+ * The layout of a measure call: the request records the Host writes, the result records
+ * the Renderer writes back, and what each status means. The records and their offsets are
+ * the Host's, generated from its schema, so nobody counts bytes by hand on this side.
+ */
+object MeasureRecords {
+"#,
+    );
+    let ints: &[(&str, i64)] = &[
+        ("RECORD_LENGTH", m::MEASURE_RECORD_LEN as i64),
+        ("RESULT_LENGTH", m::MEASURE_RESULT_LEN as i64),
+        ("KIND_TEXT", i64::from(m::MEASURE_TEXT)),
+        ("KIND_NODE", i64::from(m::MEASURE_NODE)),
+        ("KIND_AT", m::MEASURE_KIND_AT as i64),
+        ("TEXT_TYPE_ROLE_AT", m::TEXT_TYPE_ROLE_AT as i64),
+        ("TEXT_TEXT_OFFSET_AT", m::TEXT_TEXT_OFFSET_AT as i64),
+        ("TEXT_TEXT_LENGTH_AT", m::TEXT_TEXT_LENGTH_AT as i64),
+        ("TEXT_SPANS_OFFSET_AT", m::TEXT_SPANS_OFFSET_AT as i64),
+        ("TEXT_SPANS_COUNT_AT", m::TEXT_SPANS_COUNT_AT as i64),
+        (
+            "TEXT_SPAN_FONTS_OFFSET_AT",
+            m::TEXT_SPAN_FONTS_OFFSET_AT as i64,
+        ),
+        (
+            "TEXT_SPAN_FONTS_COUNT_AT",
+            m::TEXT_SPAN_FONTS_COUNT_AT as i64,
+        ),
+        ("TEXT_FONT_OFFSET_AT", m::TEXT_FONT_OFFSET_AT as i64),
+        ("TEXT_FONT_COUNT_AT", m::TEXT_FONT_COUNT_AT as i64),
+        ("TEXT_FONT_SIZE_AT", m::TEXT_FONT_SIZE_AT as i64),
+        ("TEXT_FONT_WEIGHT_AT", m::TEXT_FONT_WEIGHT_AT as i64),
+        ("TEXT_ITALIC_AT", m::TEXT_ITALIC_AT as i64),
+        ("TEXT_WRAP_AT", m::TEXT_WRAP_AT as i64),
+        ("TEXT_LETTER_SPACING_AT", m::TEXT_LETTER_SPACING_AT as i64),
+        ("TEXT_LINE_HEIGHT_AT", m::TEXT_LINE_HEIGHT_AT as i64),
+        ("TEXT_MAX_LINES_AT", m::TEXT_MAX_LINES_AT as i64),
+        ("TEXT_TAB_SIZE_AT", m::TEXT_TAB_SIZE_AT as i64),
+        ("TEXT_WORD_BREAK_AT", m::TEXT_WORD_BREAK_AT as i64),
+        ("TEXT_OVERFLOW_WRAP_AT", m::TEXT_OVERFLOW_WRAP_AT as i64),
+        ("TEXT_ABSOLUTE_SIZE_AT", m::TEXT_ABSOLUTE_SIZE_AT as i64),
+        ("TEXT_CONSTRAINT_AT", m::TEXT_CONSTRAINT_AT as i64),
+        ("TEXT_WIDTH_AT", m::TEXT_WIDTH_AT as i64),
+        ("TEXT_ZOOM_AT", m::TEXT_ZOOM_AT as i64),
+        ("NODE_ID_AT", m::NODE_ID_AT as i64),
+        ("NODE_MIN_WIDTH_AT", m::NODE_MIN_WIDTH_AT as i64),
+        ("NODE_MAX_WIDTH_AT", m::NODE_MAX_WIDTH_AT as i64),
+        ("NODE_MIN_HEIGHT_AT", m::NODE_MIN_HEIGHT_AT as i64),
+        ("NODE_MAX_HEIGHT_AT", m::NODE_MAX_HEIGHT_AT as i64),
+        ("NODE_ZOOM_AT", m::NODE_ZOOM_AT as i64),
+        (
+            "CONSTRAINT_MIN_CONTENT",
+            i64::from(m::CONSTRAINT_MIN_CONTENT),
+        ),
+        (
+            "CONSTRAINT_MAX_CONTENT",
+            i64::from(m::CONSTRAINT_MAX_CONTENT),
+        ),
+        ("CONSTRAINT_AT_MOST", i64::from(m::CONSTRAINT_AT_MOST)),
+        ("RESULT_WIDTH_AT", m::RESULT_WIDTH_AT as i64),
+        ("RESULT_HEIGHT_AT", m::RESULT_HEIGHT_AT as i64),
+        (
+            "RESULT_FIRST_BASELINE_AT",
+            m::RESULT_FIRST_BASELINE_AT as i64,
+        ),
+        ("RESULT_LAST_BASELINE_AT", m::RESULT_LAST_BASELINE_AT as i64),
+        (
+            "RESULT_LAST_LINE_WIDTH_AT",
+            m::RESULT_LAST_LINE_WIDTH_AT as i64,
+        ),
+        ("RESULT_LINE_COUNT_AT", m::RESULT_LINE_COUNT_AT as i64),
+        ("RESULT_FLAGS_AT", m::RESULT_FLAGS_AT as i64),
+        ("RESULT_STATUS_AT", m::RESULT_STATUS_AT as i64),
+        ("FLAG_TRUNCATED", i64::from(m::FLAG_TRUNCATED)),
+        ("STATUS_OK", i64::from(m::RESULT_OK)),
+        ("STATUS_UNKNOWN_NODE", i64::from(m::RESULT_UNKNOWN_NODE)),
+        ("STATUS_MALFORMED", i64::from(m::RESULT_MALFORMED)),
+        ("CALL_OK", 0),
+        ("CALL_UNREADABLE", i64::from(m::MEASURE_UNREADABLE)),
+        ("CALL_OFF_UI_THREAD", i64::from(m::MEASURE_OFF_UI_THREAD)),
+        ("CALL_UNAVAILABLE", i64::from(m::MEASURE_UNAVAILABLE)),
+    ];
+    for (name, value) in ints {
+        writeln!(output, "    const val {name} = {value}").unwrap();
+    }
+    output.push_str(
+        "}
+
+",
+    );
 }
 
 fn lower_first(name: &str) -> String {
@@ -2825,12 +3984,16 @@ use crate::boundary::{
     MutationBatch, RendererApi, STATUS_OK, STATUS_PROTOCOL_ERROR, current_arena,
     install_renderer_api,
 };
+use crate::measure::{
+    MEASURE_OFF_UI_THREAD, MEASURE_RESULT_LEN, MEASURE_UNAVAILABLE, MEASURE_UNREADABLE,
+    MeasureResult,
+};
 use jni::JNIEnv;
 use jni::JavaVM;
-use jni::objects::{GlobalRef, JByteBuffer, JClass, JLongArray, JStaticMethodID};
+use jni::objects::{GlobalRef, JByteBuffer, JClass, JLongArray, JStaticMethodID, JValue};
 use jni::signature::{Primitive, ReturnType};
 use jni::sys::jobject;
-use jni::sys::{JNI_ERR, JNI_VERSION_1_6, jint, jlong};
+use jni::sys::{JNI_ERR, JNI_VERSION_1_6, jint, jlong, jvalue};
 use std::ffi::c_int;
 use std::os::raw::c_void;
 use std::sync::OnceLock;
@@ -2860,6 +4023,8 @@ unsafe extern "C" {
         r#"struct FrameRequestUpcall {
     class: GlobalRef,
     method: JStaticMethodID,
+    /// `onMeasure`, on the same class.
+    measure: JStaticMethodID,
 }
 
 static VM: OnceLock<JavaVM> = OnceLock::new();
@@ -2897,6 +4062,70 @@ extern "C" fn request_frame() {
         // exception leaves the VM usable.
         let _ = env.exception_clear();
     }
+}
+
+/// Called by the Host, inside a call the Renderer made, to measure.
+///
+/// The thread is the UI thread the call came in on, which the VM already knows, so its
+/// environment is taken rather than attached: a thread the VM does not know cannot be the
+/// UI thread, and attaching it would only hide that. Both buffers are wrapped where they
+/// lie, for this call only, and nothing is copied either way.
+unsafe extern "C" fn measure(
+    requests: *const u8,
+    length: u32,
+    count: u32,
+    results: *mut MeasureResult,
+) -> i32 {
+    let (Some(vm), Some(upcall)) = (VM.get(), UPCALL.get()) else {
+        return MEASURE_UNAVAILABLE;
+    };
+    let Ok(mut env) = vm.get_env() else {
+        return MEASURE_OFF_UI_THREAD;
+    };
+    if requests.is_null() || results.is_null() {
+        return MEASURE_UNREADABLE;
+    }
+    let Some(result_bytes) = (count as usize).checked_mul(MEASURE_RESULT_LEN) else {
+        return MEASURE_UNREADABLE;
+    };
+    // SAFETY: the Host lends `length` bytes of requests and room for `count` results for
+    // the length of this call, and the views made here do not outlive it.
+    let Ok(request_view) =
+        (unsafe { env.new_direct_byte_buffer(requests.cast_mut(), length as usize) })
+    else {
+        return MEASURE_UNREADABLE;
+    };
+    // SAFETY: as above.
+    let Ok(result_view) = (unsafe { env.new_direct_byte_buffer(results.cast(), result_bytes) })
+    else {
+        return MEASURE_UNREADABLE;
+    };
+    let class = <&JClass>::from(upcall.class.as_obj());
+    let arguments = [
+        JValue::Object(&request_view).as_jni(),
+        jvalue { i: count as jint },
+        JValue::Object(&result_view).as_jni(),
+    ];
+    // SAFETY: the method id was resolved on this class for the signature
+    // `(Ljava/nio/ByteBuffer;ILjava/nio/ByteBuffer;)I`, and the arguments match it.
+    let answer = unsafe {
+        env.call_static_method_unchecked(
+            class,
+            upcall.measure,
+            ReturnType::Primitive(Primitive::Int),
+            &arguments,
+        )
+    };
+    let status = match answer.and_then(|value| value.i()) {
+        Ok(status) => status,
+        Err(_) => {
+            let _ = env.exception_clear();
+            MEASURE_UNAVAILABLE
+        }
+    };
+    let _ = env.delete_local_ref(request_view);
+    let _ = env.delete_local_ref(result_view);
+    status
 }
 
 /// Resolves a direct byte buffer to the address the Host may read `length` bytes from.
@@ -2980,17 +4209,26 @@ pub unsafe extern "system" fn JNI_OnLoad(vm: *mut jni::sys::JavaVM, _reserved: *
     let Ok(method) = env.get_static_method_id(&class, "onFrameRequested", "()V") else {
         return JNI_ERR;
     };
+    let Ok(measure_method) = env.get_static_method_id(
+        &class,
+        "onMeasure",
+        "(Ljava/nio/ByteBuffer;ILjava/nio/ByteBuffer;)I",
+    ) else {
+        return JNI_ERR;
+    };
     let Ok(global) = env.new_global_ref(&class) else {
         return JNI_ERR;
     };
     let _ = UPCALL.set(FrameRequestUpcall {
         class: global,
         method,
+        measure: measure_method,
     });
     let _ = VM.set(vm);
     let _ = install_renderer_api(RendererApi {
         run: platform_run,
         request_frame,
+        measure,
     });
     // SAFETY: the application's cdylib defines this symbol.
     unsafe { compose_rust_android_main() };
@@ -3228,6 +4466,16 @@ fun onFrameRequested() {
     FrameRequests.request()
 }
 
+/**
+ * Called by the Host through JNI to measure, on the UI thread and inside a call this side
+ * made.
+ *
+ * Both buffers are views of the Host's own memory, made for this call and dropped after
+ * it: the requests it wrote and the room for the results it reads back. Nothing is copied.
+ */
+fun onMeasure(requests: ByteBuffer, count: Int, results: ByteBuffer): Int =
+    dev.darkpyonix.composerust.runtime.RendererMeasure.measure(requests, count, results)
+
 private const val FRAME_TAG = "dxc-frame"
 "#,
     );
@@ -3392,6 +4640,8 @@ const INSTALL_HOST_KOTLIN: &str = r##"/**
       // engine builds no JavaScript frame for the call.
       compose_rust_renderer_request_frame:
         wasmExports.compose_rust_renderer_request_frame,
+      compose_rust_renderer_measure:
+        wasmExports.compose_rust_renderer_measure,
     },
     __wbindgen_placeholder__: unbound('__wbindgen_placeholder__'),
     __wbindgen_externref_xform__: unbound('__wbindgen_externref_xform__'),
@@ -3550,7 +4800,16 @@ pub fn generate_web_bridge_kotlin() -> String {
          @WasmExport(\"compose_rust_renderer_request_frame\")\n\
          fun onFrameRequested() {{\n    \
          FrameRequests.request()\n\
-         }}"
+         }}\n\n\
+         /**\n \
+         * Called by the Host to measure, inside a call this side made. A browser tab is one\n \
+         * thread, so this is always the thread that answers. Both addresses are in the Host's\n \
+         * region of the shared memory, and the requests and results are read and written\n \
+         * where they lie.\n \
+         */\n\
+         @WasmExport(\"compose_rust_renderer_measure\")\n\
+         fun onMeasure(requests: Int, length: Int, count: Int, results: Int): Int =\n    \
+         measureInSharedMemory(requests, length, count, results)"
     )
     .unwrap();
     output
@@ -3625,6 +4884,7 @@ pub fn generate_wasm_rust() -> String {
 use crate::boundary::{
     MutationBatch, RendererApi, STATUS_OK, STATUS_PROTOCOL_ERROR, install_renderer_api,
 };
+use crate::measure::MeasureResult;
 use crate::schema::{
     WEB_BATCH_BYTES, WEB_EVENT_BUFFER_BYTES, WEB_EVENT_BUFFER_OFFSET, WEB_RUST_REGION_BASE,
 };
@@ -3645,6 +4905,16 @@ use std::mem::{offset_of, size_of};
     /// hands the exported function object straight to this module's instantiation, which it
     /// can because this module is instantiated second.
     fn compose_rust_renderer_request_frame();
+
+    /// Bound the same way, to the Renderer's measure export. The two buffers are addresses
+    /// in the shared memory, in this module's region, and the Renderer reads and writes
+    /// them where they lie.
+    fn compose_rust_renderer_measure(
+        requests: *const u8,
+        length: u32,
+        count: u32,
+        results: *mut MeasureResult,
+    ) -> i32;
 }
 
 /// The record layout the generated Kotlin reads a reply out of.
@@ -3714,6 +4984,19 @@ extern "C" fn request_frame() {
     unsafe { compose_rust_renderer_request_frame() };
 }
 
+/// # Safety
+/// `requests` must address `length` readable bytes and `results` room for `count` results.
+unsafe extern "C" fn measure(
+    requests: *const u8,
+    length: u32,
+    count: u32,
+    results: *mut MeasureResult,
+) -> i32 {
+    // SAFETY: supplied by the page from the Renderer's exports, like the frame request,
+    // and the caller's promise about the buffers is passed on unchanged.
+    unsafe { compose_rust_renderer_measure(requests, length, count, results) }
+}
+
 /// Whether an address the Renderer passed is one this side lent it.
 ///
 /// Every buffer a call names is in this module's region. An address below the region is
@@ -3757,6 +5040,7 @@ pub fn web_start(
     let _ = install_renderer_api(RendererApi {{
         run: platform_run,
         request_frame,
+        measure,
     }});
     let status = builder
         .with_mode(LoopMode::Platform)
