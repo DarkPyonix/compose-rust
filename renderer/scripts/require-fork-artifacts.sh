@@ -88,17 +88,13 @@ for module in "$@"; do
         case "$group:$version" in
             org.thisisthepy.compose.window*) continue ;;
             org.thisisthepy.compose.*:"$compose_as"|org.thisisthepy.compose.*:"$material3_as") ;;
-            org.jetbrains.skiko:"$skiko_as") ;;
             *) continue ;;
         esac
-        case "$version" in
-            "$skiko_as") ;;
-            *) add_check "$version" "$variant" "$compose_fix" ;;
-        esac
+        [[ "$group" == org.thisisthepy.compose.skiko ]] || add_check "$version" "$variant" "$compose_fix"
         names=("$artifact")
         # The desktop module publishes one jar per system (desktop-jvm-<os>-<arch>), not one per
         # target, so its root is all there is to look for.
-        if [[ -n "$variant" && "$group" == org.thisisthepy.compose.* && "$group" != org.thisisthepy.compose.desktop ]]; then
+        if [[ -n "$variant" && "$group" == org.thisisthepy.compose.* && "$group" != org.thisisthepy.compose.desktop && "$group" != org.thisisthepy.compose.skiko ]]; then
             names+=("$artifact-$variant")
         fi
         for name in "${names[@]}"; do
@@ -106,7 +102,7 @@ for module in "$@"; do
             for extension in pom module; do
                 if [[ ! -s "$directory/$name-$version.$extension" ]]; then
                     missing+=("${directory#"$repository"/}/$name-$version.$extension")
-                    if [[ "$group" == org.jetbrains.skiko ]]; then
+                    if [[ "$group" == org.thisisthepy.compose.skiko ]]; then
                         add_fix "scripts/publish-skiko-awt.sh <work-dir>"
                     else
                         add_fix "$compose_fix"
@@ -114,7 +110,7 @@ for module in "$@"; do
                 fi
             done
         done
-    done < <(sed -En 's/^[[:space:]]*-[[:space:]]*(org\.thisisthepy\.compose[A-Za-z0-9.]*|org\.jetbrains\.skiko):([A-Za-z0-9._-]+):([A-Za-z0-9._-]+)[[:space:]]*$/\1 \2 \3/p' "$module_file")
+    done < <(sed -En 's/^[[:space:]]*-[[:space:]]*(org\.thisisthepy\.compose[A-Za-z0-9.]*):([A-Za-z0-9._-]+):([A-Za-z0-9._-]+)[[:space:]]*$/\1 \2 \3/p' "$module_file")
 done
 
 # The files being there is half of it. A .pom or .module the fork published names its siblings

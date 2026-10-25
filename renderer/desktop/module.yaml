@@ -6,7 +6,7 @@ product: jvm/app
 # publishes, and its skiko-awt, which `scripts/publish-skiko-awt.sh` publishes. They carry what
 # the toolkit-free windows need and upstream does not have. The fork publishes under its own
 # group, org.thisisthepy.compose, so nothing JetBrains publishes can stand in for them, and
-# skiko-awt under a version of its own above JetBrains' 0.144.6.
+# skiko-awt under org.thisisthepy.compose.skiko, on the same version line.
 repositories:
   - mavenLocal
 
@@ -25,7 +25,7 @@ dependencies:
   - org.thisisthepy.compose.ui:ui:1.11.1-ext.2
   - org.thisisthepy.compose.ui:ui-text:1.11.1-ext.2
   - org.thisisthepy.compose.foundation:foundation:1.11.1-ext.2
-  - org.jetbrains.skiko:skiko-awt:0.144.6.1
+  - org.thisisthepy.compose.skiko:skiko-awt:1.11.1-ext.2
   - org.jetbrains.skiko:skiko-awt-runtime-macos-arm64:0.144.6
   - org.jetbrains.skiko:skiko-awt-runtime-macos-x64:0.144.6
   - org.jetbrains.skiko:skiko-awt-runtime-linux-x64:0.144.6

@@ -45,7 +45,7 @@ compose_as="$(sed -n 's/^COMPOSE_AS="\([^"]*\)"$/\1/p' "$compose_script")"
 skiko_as="$(sed -n 's/^SKIKO_AWT_AS="\([^"]*\)"$/\1/p' "$compose_script")"
 [[ -n "$compose_as" && -n "$skiko_as" ]] || die "$compose_script names no COMPOSE_AS or SKIKO_AWT_AS"
 for fork_jar in "repository/org/thisisthepy/compose/ui/ui-desktop/$compose_as/" \
-                "repository/org/jetbrains/skiko/skiko-awt/$skiko_as/"; do
+                "repository/org/thisisthepy/compose/skiko/skiko-awt/$skiko_as/"; do
     grep -q "$fork_jar" <<< "$(tr ':' '\n' <<< "$classpath")" || die \
         "the class path holds no $fork_jar" \
         "These are the Compose fork's desktop modules and its skiko-awt, published to the local" \

@@ -289,7 +289,7 @@ jobs:
           name: compose-fork-desktop
           path: |
             ~/.m2/repository/org/thisisthepy/compose
-            ~/.m2/repository/org/jetbrains/skiko/skiko-awt
+            ~/.m2/repository/org/thisisthepy/compose/skiko/skiko-awt
           retention-days: 7
 
   linux-x64:

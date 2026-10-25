@@ -59,9 +59,9 @@ MINGW_REVISION="c7caf51523e8aa5f81563fcc7311398455ecacef"
 COMPOSE_AS="1.11.1-ext.2"
 MATERIAL3_AS="1.11.1-ext.2"
 # The fork's patched skiko-awt, published by its extended/skiko/build-skiko-awt.sh (through
-# scripts/publish-skiko-awt.sh). skiko keeps JetBrains' group, so it has a version of its own,
-# which sorts above JetBrains' 0.144.6 in every resolver.
-SKIKO_AWT_AS="0.144.6.1"
+# scripts/publish-skiko-awt.sh). It goes out as org.thisisthepy.compose.skiko:skiko-awt on the
+# fork's version line; its module metadata declares JetBrains' skiko-awt as a capability.
+SKIKO_AWT_AS="1.11.1-ext.2"
 PUBLISHED_AS="1.11.1"
 MATERIAL3_PUBLISHED_AS="1.11.0-alpha07"
 

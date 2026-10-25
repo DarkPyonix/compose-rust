@@ -5,7 +5,7 @@
 # Usage: ./scripts/publish-skiko-awt.sh <work-dir>
 #
 # The fork's extended/skiko/build-skiko-awt.sh, at the pinned commit, builds skiko-awt with the
-# AWT switch and publishes it under a version of its own (0.144.6.1), with its natives still
+# AWT switch and publishes it as org.thisisthepy.compose.skiko:skiko-awt on the fork's version, with its natives still
 # named at JetBrains' 0.144.6. Under JetBrains' own 0.144.6, a resolver that already holds
 # JetBrains' jar (Amper's cache does) would never look at the local repository, and the image
 # would carry an unpatched skiko-awt and keep the Java toolkit. This checks that what the fork
@@ -27,6 +27,6 @@ published="$(sed -n 's/^PUBLISHED_AS="\([^"]*\)"$/\1/p' "$fork/extended/skiko/bu
 }
 "$fork/extended/skiko/build-skiko-awt.sh" "$1"
 
-jar="$HOME/.m2/repository/org/jetbrains/skiko/skiko-awt/$version/skiko-awt-$version.jar"
+jar="$HOME/.m2/repository/org/thisisthepy/compose/skiko/skiko-awt/$version/skiko-awt-$version.jar"
 [[ -f "$jar" ]] || { echo "error: no $jar after the build" >&2; exit 1; }
 echo "published $jar"
