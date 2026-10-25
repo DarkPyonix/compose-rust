@@ -138,6 +138,9 @@ pub enum EventPayloadType {
     CodeSave,
     /// The id the application gave one decoration, which was pressed or accepted.
     Decoration,
+    /// One pointer happening inside a subscribed node: its kind, which pointer, where,
+    /// which buttons and modifiers, the wheel deltas and when. A fixed 72-byte record.
+    Pointer,
     /// Where a code editor's selection is: the document version and the two ends.
     CodeSelection,
     /// Which lines of a code editor are on screen, folded lines left out.
@@ -162,10 +165,10 @@ pub struct EventSchema {
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
     "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select;",
     "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform;",
     "keys=Enter;",
-    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged;",
+    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged;",
     "windowsizeclasses=Compact,Medium,Expanded;",
     "windowheightclasses=Compact,Medium,Expanded;",
     "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded"
@@ -308,11 +311,12 @@ const fn schema_hash() -> u64 {
                 EventPayloadType::CodeHover => 14,
                 EventPayloadType::CodeSave => 15,
                 EventPayloadType::Decoration => 16,
-                EventPayloadType::CodeSelection => 17,
-                EventPayloadType::CodeVisibleRange => 18,
-                EventPayloadType::CodeFocus => 19,
-                EventPayloadType::CodeFold => 20,
-                EventPayloadType::CodeComposition => 21,
+                EventPayloadType::Pointer => 17,
+                EventPayloadType::CodeSelection => 18,
+                EventPayloadType::CodeVisibleRange => 19,
+                EventPayloadType::CodeFocus => 20,
+                EventPayloadType::CodeFold => 21,
+                EventPayloadType::CodeComposition => 22,
             }],
         );
         index += 1;
@@ -1122,6 +1126,78 @@ define_wire_enum!(REDUCED_MOTION_SCHEMA, ReducedMotion {
     Unknown = 3,
 });
 
+define_wire_enum!(POINTER_KIND_SCHEMA, PointerKind {
+    Move = 1,
+    Enter = 2,
+    Leave = 3,
+    Down = 4,
+    Up = 5,
+    Cancel = 6,
+    Wheel = 7,
+    ContextMenu = 8,
+});
+
+define_wire_enum!(POINTER_TYPE_SCHEMA, PointerType {
+    Mouse = 1,
+    Touch = 2,
+    Pen = 3,
+});
+
+define_wire_enum!(WHEEL_DELTA_MODE_SCHEMA, WheelDeltaMode {
+    Pixel = 0,
+    Line = 1,
+    Page = 2,
+});
+
+// CSS `cursor` keywords, by name and in the order CSS lists them. `Auto` is "let the widget
+// under the pointer decide".
+define_wire_enum!(CURSOR_SCHEMA, Cursor {
+    Auto = 0,
+    Default = 1,
+    Pointer = 2,
+    Text = 3,
+    VerticalText = 4,
+    Crosshair = 5,
+    Move = 6,
+    Grab = 7,
+    Grabbing = 8,
+    NotAllowed = 9,
+    NoDrop = 10,
+    Wait = 11,
+    Progress = 12,
+    Help = 13,
+    ContextMenu = 14,
+    Cell = 15,
+    Copy = 16,
+    Alias = 17,
+    AllScroll = 18,
+    ZoomIn = 19,
+    ZoomOut = 20,
+    ColResize = 21,
+    RowResize = 22,
+    EResize = 23,
+    NResize = 24,
+    NeResize = 25,
+    NwResize = 26,
+    SResize = 27,
+    SeResize = 28,
+    SwResize = 29,
+    WResize = 30,
+    EwResize = 31,
+    NsResize = 32,
+    NeswResize = 33,
+    NwseResize = 34,
+    None = 35,
+});
+
+// CSS `user-select`, resolved by the Host. `Auto` follows the parent.
+define_wire_enum!(USER_SELECT_SCHEMA, UserSelect {
+    Auto = 0,
+    None = 1,
+    Text = 2,
+    All = 3,
+});
+
 /// Every role enum codegen mirrors, in wire order. Appending is the only allowed edit.
 pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
     RoleEnumSchema {
@@ -1295,6 +1371,26 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
     RoleEnumSchema {
         name: "RevealAlign",
         variants: REVEAL_ALIGN_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "PointerKind",
+        variants: POINTER_KIND_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "PointerType",
+        variants: POINTER_TYPE_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "WheelDeltaMode",
+        variants: WHEEL_DELTA_MODE_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "Cursor",
+        variants: CURSOR_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "UserSelect",
+        variants: USER_SELECT_SCHEMA,
     },
 ];
 
@@ -2545,6 +2641,17 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     OnEditorFocusChange = 131,
     OnFoldChange = 132,
     OnCompositionChange = 133,
+    // The node's pointer subscription: the handler, and the kinds it wants as a bit mask
+    // (`1 << (kind - 1)`). 67 was reserved for a gesture handler that was never sent, so
+    // it is free to carry this one. It is listed here, after the newer blocks, because
+    // this list is append only.
+    OnPointer = 67,
+    // 140 opens the block after the animation and HTML-text properties.
+    PointerKinds = 140,
+    // The cursor the platform shows over the node and whether its text can be selected.
+    // The Host resolves CSS inheritance and sends the value for each node.
+    Cursor = 141,
+    UserSelect = 142,
 });
 
 #[derive(Clone, Debug, PartialEq)]
@@ -2675,6 +2782,24 @@ pub enum EventPayload<'a> {
     /// Whether the platform asks for reduced motion, sent once after start and then only
     /// when the answer changes.
     ReducedMotionChanged(ReducedMotion),
+    /// A pointer did something inside a node that subscribed to it. Coordinates are in dp
+    /// from the node's top left corner, `buttons` is what is held now and `button` is the
+    /// one that caused a `Down` or an `Up`. `timestamp_nanos` is on the frame time's clock.
+    Pointer {
+        kind: PointerKind,
+        pointer_id: u32,
+        pointer_type: PointerType,
+        x: f32,
+        y: f32,
+        buttons: u32,
+        button: u32,
+        modifiers: u32,
+        click_count: u32,
+        delta_x: f32,
+        delta_y: f32,
+        delta_mode: WheelDeltaMode,
+        timestamp_nanos: u64,
+    },
     /// The selection of a code editor moved, or an edit moved it. `version` is the document
     /// version it is read against, the same series `CodeChanged` counts, and an edit's
     /// change always arrives first. Columns are UTF-16 units and never fall between the
@@ -2747,7 +2872,7 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
     },
     EventSchema {
         name: "ValueChanged",
-        // Tags 8 to 15 are reserved for the pointer gesture events.
+        // Tag 8 is the pointer event and 9 to 15 are reserved for the gesture events.
         tag: 16,
         payload: EventPayloadType::Double,
     },
@@ -2839,6 +2964,13 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
         name: "ReducedMotionChanged",
         tag: 32,
         payload: EventPayloadType::ReducedMotion,
+    },
+    // Tag 8 is the pointer event and 9 stays reserved. It is listed last because this table
+    // is append only, not because its tag is the highest.
+    EventSchema {
+        name: "Pointer",
+        tag: 8,
+        payload: EventPayloadType::Pointer,
     },
     // 33 is the zoom event's. The code editor's additions follow it.
     EventSchema {

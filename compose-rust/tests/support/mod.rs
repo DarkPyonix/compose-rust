@@ -211,6 +211,24 @@ impl Tree {
         order
     }
 
+    /// The nodes of this widget that have a handler for `event`, in tree order, with it.
+    pub fn handled(&self, widget: &str, event: PropertyKind) -> Vec<(u32, u64)> {
+        let event = format!("{event:?}");
+        self.preorder()
+            .into_iter()
+            .filter(|node| {
+                self.nodes
+                    .get(node)
+                    .is_some_and(|entry| entry.widget == widget)
+            })
+            .filter_map(|node| {
+                self.handlers
+                    .get(&(node, event.clone()))
+                    .map(|handler| (node, *handler))
+            })
+            .collect()
+    }
+
     /// The `nth` node of this widget whose text is `label`, and the handler of `event` on
     /// it.
     pub fn find(

@@ -163,6 +163,7 @@ pub(crate) enum EventCallback {
     Value(Rc<RefCell<dyn FnMut(f64)>>),
     Range(Rc<RefCell<dyn FnMut(crate::RangeRequest)>>),
     Files(Rc<RefCell<dyn FnMut(crate::FileDrop)>>),
+    Pointer(Rc<RefCell<dyn FnMut(crate::PointerEvent)>>),
 }
 
 pub(crate) struct HandlerEntry {

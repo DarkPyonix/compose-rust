@@ -492,6 +492,9 @@ sealed interface Mutation {
                 ", val animationId: Int, val kind: AnimationEventKind, val property: AnimatedProperty, val slot: Int, val iteration: Int, val elapsedMs: kotlin.Float, val timeNanos: Long",
             ),
             EventPayloadType::ReducedMotion => output.push_str(", val state: ReducedMotion"),
+            EventPayloadType::Pointer => output.push_str(
+                ", val kind: PointerKind, val pointerId: Int, val pointerType: PointerType, val x: kotlin.Float, val y: kotlin.Float, val buttons: Int, val button: Int, val modifiers: Int, val clickCount: Int, val deltaX: kotlin.Float, val deltaY: kotlin.Float, val deltaMode: WheelDeltaMode, val timestampNanos: Long",
+            ),
             EventPayloadType::CodeSelection => output.push_str(
                 ", val version: Int, val anchorLine: Int, val anchorColumn: Int, val activeLine: Int, val activeColumn: Int",
             ),
@@ -956,6 +959,7 @@ object Protocol {
             | EventPayloadType::Decoration
             | EventPayloadType::Animation
             | EventPayloadType::ReducedMotion
+            | EventPayloadType::Pointer
             | EventPayloadType::CodeSelection
             | EventPayloadType::CodeVisibleRange
             | EventPayloadType::CodeFocus
@@ -997,6 +1001,7 @@ object Protocol {
             EventPayloadType::Decoration => 24,
             EventPayloadType::Animation => 40,
             EventPayloadType::ReducedMotion => 20,
+            EventPayloadType::Pointer => 72,
             EventPayloadType::CodeSelection => 36,
             EventPayloadType::CodeVisibleRange => 28,
             // A flag and the padding that keeps the record a multiple of four.
@@ -1180,6 +1185,27 @@ object Protocol {
             EventPayloadType::ReducedMotion => {
                 writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
                 output.push_str("                    out.putInt(reducedMotionTag(event.state))\n");
+                output.push_str("                }\n");
+            }
+            EventPayloadType::Pointer => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(pointerKindTag(event.kind))\n");
+                output.push_str("                    out.putInt(event.pointerId)\n");
+                output.push_str(
+                    "                    out.putInt(pointerTypeTag(event.pointerType))\n",
+                );
+                output.push_str("                    out.putFloat(event.x)\n");
+                output.push_str("                    out.putFloat(event.y)\n");
+                output.push_str("                    out.putInt(event.buttons)\n");
+                output.push_str("                    out.putInt(event.button)\n");
+                output.push_str("                    out.putInt(event.modifiers)\n");
+                output.push_str("                    out.putInt(event.clickCount)\n");
+                output.push_str("                    out.putFloat(event.deltaX)\n");
+                output.push_str("                    out.putFloat(event.deltaY)\n");
+                output.push_str(
+                    "                    out.putInt(wheelDeltaModeTag(event.deltaMode))\n",
+                );
+                output.push_str("                    out.putLong(event.timestampNanos)\n");
                 output.push_str("                }\n");
             }
             EventPayloadType::CodeSelection => {
@@ -1395,6 +1421,21 @@ object Protocol {
             "reducedMotionTag",
             "ReducedMotion",
             crate::schema::REDUCED_MOTION_SCHEMA,
+        ),
+        (
+            "pointerKindTag",
+            "PointerKind",
+            crate::schema::POINTER_KIND_SCHEMA,
+        ),
+        (
+            "pointerTypeTag",
+            "PointerType",
+            crate::schema::POINTER_TYPE_SCHEMA,
+        ),
+        (
+            "wheelDeltaModeTag",
+            "WheelDeltaMode",
+            crate::schema::WHEEL_DELTA_MODE_SCHEMA,
         ),
     ] {
         writeln!(
@@ -2817,6 +2858,25 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
             payload: EventPayload::ReducedMotionChanged(crate::schema::ReducedMotion::On),
         },
         HostEvent {
+            node_id: 13,
+            handler_id: 23,
+            payload: EventPayload::Pointer {
+                kind: crate::schema::PointerKind::Down,
+                pointer_id: 1,
+                pointer_type: crate::schema::PointerType::Mouse,
+                x: 12.5,
+                y: -3.0,
+                buttons: 9,
+                button: 8,
+                modifiers: 5,
+                click_count: 2,
+                delta_x: 0.0,
+                delta_y: 0.0,
+                delta_mode: crate::schema::WheelDeltaMode::Pixel,
+                timestamp_nanos: 987_654_321_000,
+            },
+        },
+        HostEvent {
             node_id: 12,
             handler_id: 23,
             payload: EventPayload::SelectionChanged {
@@ -2885,7 +2945,7 @@ pub fn generate_vector_description() -> String {
   }},
   "events": {{
     "file": "events.bin",
-    "description": "Twenty-three independently decodable event records concatenated in schema order",
+    "description": "Twenty-four independently decodable event records concatenated in schema order",
     "records": [
       {{ "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 }},
       {{ "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" }},
@@ -2905,11 +2965,12 @@ pub fn generate_vector_description() -> String {
       {{ "type": "DecorationActivated", "offset": 434, "length": 24, "nodeId": 12, "handlerId": 22, "decoration": 41 }},
       {{ "type": "AnimationEvent", "offset": 458, "length": 40, "nodeId": 8, "handlerId": 0, "animationId": 7, "kind": "End", "property": "Transform", "slot": 2, "iteration": 3, "elapsedMs": 3000.0, "timeNanos": 123456789012 }},
       {{ "type": "ReducedMotionChanged", "offset": 498, "length": 20, "nodeId": 0, "handlerId": 0, "state": "On" }},
-      {{ "type": "SelectionChanged", "offset": 518, "length": 36, "nodeId": 12, "handlerId": 23, "version": 2, "anchorLine": 1, "anchorColumn": 12, "activeLine": 0, "activeColumn": 3 }},
-      {{ "type": "VisibleRangeChanged", "offset": 554, "length": 28, "nodeId": 12, "handlerId": 24, "version": 2, "firstLine": 0, "lastLine": 3 }},
-      {{ "type": "EditorFocusChanged", "offset": 582, "length": 24, "nodeId": 12, "handlerId": 25, "focused": true }},
-      {{ "type": "FoldChanged", "offset": 606, "length": 24, "nodeId": 12, "handlerId": 26, "startLine": 0, "collapsed": true }},
-      {{ "type": "CompositionChanged", "offset": 630, "length": 24, "nodeId": 12, "handlerId": 27, "composing": true }}
+      {{ "type": "Pointer", "offset": 518, "length": 72, "nodeId": 13, "handlerId": 23, "kind": "Down", "pointerId": 1, "pointerType": "Mouse", "x": 12.5, "y": -3.0, "buttons": 9, "button": 8, "modifiers": 5, "clickCount": 2, "deltaX": 0.0, "deltaY": 0.0, "deltaMode": "Pixel", "timestampNanos": 987654321000 }},
+      {{ "type": "SelectionChanged", "offset": 590, "length": 36, "nodeId": 12, "handlerId": 23, "version": 2, "anchorLine": 1, "anchorColumn": 12, "activeLine": 0, "activeColumn": 3 }},
+      {{ "type": "VisibleRangeChanged", "offset": 626, "length": 28, "nodeId": 12, "handlerId": 24, "version": 2, "firstLine": 0, "lastLine": 3 }},
+      {{ "type": "EditorFocusChanged", "offset": 654, "length": 24, "nodeId": 12, "handlerId": 25, "focused": true }},
+      {{ "type": "FoldChanged", "offset": 678, "length": 24, "nodeId": 12, "handlerId": 26, "startLine": 0, "collapsed": true }},
+      {{ "type": "CompositionChanged", "offset": 702, "length": 24, "nodeId": 12, "handlerId": 27, "composing": true }}
     ]
   }}
 }}

@@ -69,7 +69,7 @@ pub use code::{
 pub use design::design_system;
 pub use drawing::{DrawCommand, DrawList, DrawListBuilder};
 pub use fonts::{FontRef, FontRefs};
-pub use input::{FileDrop, KeyEvent, RangeRequest};
+pub use input::{FileDrop, KeyEvent, PointerEvent, PointerKinds, RangeRequest, pointer_button};
 pub use message::{Message, show_message};
 pub use notification::{
     Notification, NotificationActivation, NotificationSender, notification_permission,
@@ -91,6 +91,7 @@ pub use schema::{
     ColorInterpolation, FillMode, Keyframe, KeyframeValue, PlayState, PlaybackDirection,
     ReducedMotion, StepPosition, Timing, TransformFunction, TransformFunctionKind,
 };
+pub use schema::{Cursor, PointerKind, PointerType, UserSelect, WheelDeltaMode};
 pub use theme::ThemeHandle;
 pub use window::{NodeSize, WindowSize, node_size, window_size};
 

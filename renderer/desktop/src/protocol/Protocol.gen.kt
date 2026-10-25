@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets
 
 enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, Progress }
 
 enum class Key { Enter }
 
@@ -97,6 +97,20 @@ enum class DecorationKind { Underline, CodeLens, HoverAnchor, GhostText }
 enum class Severity { Error, Warning, Information, Hint }
 
 enum class HoverPhase { Rest, Leave }
+
+enum class GutterDecorationKind { Dot, Bar, Glyph }
+
+enum class RevealAlign { Nearest, Center, Top }
+
+enum class PointerKind { Move, Enter, Leave, Down, Up, Cancel, Wheel, ContextMenu }
+
+enum class PointerType { Mouse, Touch, Pen }
+
+enum class WheelDeltaMode { Pixel, Line, Page }
+
+enum class Cursor { Auto, Default, Pointer, Text, VerticalText, Crosshair, Move, Grab, Grabbing, NotAllowed, NoDrop, Wait, Progress, Help, ContextMenu, Cell, Copy, Alias, AllScroll, ZoomIn, ZoomOut, ColResize, RowResize, EResize, NResize, NeResize, NwResize, SResize, SeResize, SwResize, WResize, EwResize, NsResize, NeswResize, NwseResize, None }
+
+enum class UserSelect { Auto, None, Text, All }
 
 /**
  * The `TypeRole` property of text with no rung of the ladder at all: CSS text, whose
@@ -527,6 +541,24 @@ data class SyntaxSpanRecord(
     val paint: Paint,
 )
 
+/** One stretch of a code editor's lines that can be folded. Folding keeps `startLine` and hides the lines after it up to `endLine`; both are in the document at `version`. */
+data class FoldRecord(
+    val version: Int,
+    val startLine: Int,
+    val endLine: Int,
+    val collapsed: Boolean,
+)
+
+/** One mark beside a line number of a code editor. The line is in the document at `version`; `glyph` is a Unicode scalar value, used when the kind is a glyph. `id` is the application's own name for it, zero where it cannot be pressed. */
+data class GutterDecorationRecord(
+    val version: Int,
+    val line: Int,
+    val kind: GutterDecorationKind,
+    val color: ColorRole?,
+    val id: Long,
+    val glyph: Int,
+)
+
 /**
  * Reads the blobs a code editor carries.
  *
@@ -598,6 +630,64 @@ object CodeEditorRecords {
         val endColumn = buffer.getInt(offset + 16)
         val paint = paintOrNull(buffer.getLong(offset + 20)) ?: run { onError("record $index has an unreadable paint"); return null }
         return SyntaxSpanRecord(version, startLine, startColumn, endLine, endColumn, paint)
+    }
+
+    const val FOLD_LENGTH = 16
+
+    fun decodeFolds(bytes: ByteArray, onError: (String) -> Unit): List<FoldRecord> {
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val records = ArrayList<FoldRecord>(bytes.size / FOLD_LENGTH)
+        var end = bytes.size
+        var offset = 0
+        var index = 0
+        while (offset + FOLD_LENGTH <= end) {
+            readFoldRecord(buffer, bytes, offset, index, onError)?.let(records::add)
+            offset += FOLD_LENGTH
+            index += 1
+        }
+        if (offset != bytes.size) {
+            onError("${bytes.size - offset} bytes after the last whole record")
+        }
+        return records
+    }
+
+    private fun readFoldRecord(buffer: ByteBuffer, bytes: ByteArray, offset: Int, index: Int, onError: (String) -> Unit): FoldRecord? {
+        val version = buffer.getInt(offset + 0)
+        val startLine = buffer.getInt(offset + 4)
+        val endLine = buffer.getInt(offset + 8)
+        val collapsed = when (buffer.getInt(offset + 12)) { 0 -> false; 1 -> true; else -> run { onError("record $index has a collapsed that is neither 0 nor 1"); return null } }
+        return FoldRecord(version, startLine, endLine, collapsed)
+    }
+
+    const val GUTTER_DECORATION_LENGTH = 28
+
+    fun decodeGutterDecorations(bytes: ByteArray, onError: (String) -> Unit): List<GutterDecorationRecord> {
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val records = ArrayList<GutterDecorationRecord>(bytes.size / GUTTER_DECORATION_LENGTH)
+        var end = bytes.size
+        var offset = 0
+        var index = 0
+        while (offset + GUTTER_DECORATION_LENGTH <= end) {
+            readGutterDecorationRecord(buffer, bytes, offset, index, onError)?.let(records::add)
+            offset += GUTTER_DECORATION_LENGTH
+            index += 1
+        }
+        if (offset != bytes.size) {
+            onError("${bytes.size - offset} bytes after the last whole record")
+        }
+        return records
+    }
+
+    private fun readGutterDecorationRecord(buffer: ByteBuffer, bytes: ByteArray, offset: Int, index: Int, onError: (String) -> Unit): GutterDecorationRecord? {
+        val version = buffer.getInt(offset + 0)
+        val line = buffer.getInt(offset + 4)
+        val kindTag = buffer.getShort(offset + 8).toInt() and 0xffff
+        val kind = gutterDecorationKindOrNull(kindTag) ?: run { onError("record $index has an unknown kind ${kindTag}"); return null }
+        val colorTag = buffer.getShort(offset + 10).toInt() and 0xffff
+        val color = if (colorTag == 0) null else colorRoleOrNull(colorTag) ?: run { onError("record $index has an unknown color ${colorTag}"); return null }
+        val id = buffer.getLong(offset + 12)
+        val glyph = buffer.getInt(offset + 20)
+        return GutterDecorationRecord(version, line, kind, color, id, glyph)
     }
 
     /** UTF-8 text behind the records, or null where the range leaves the blob or is not text. */
@@ -675,6 +765,13 @@ object CodeEditorRecords {
         2 -> DecorationKind.CodeLens
         3 -> DecorationKind.HoverAnchor
         4 -> DecorationKind.GhostText
+        else -> null
+    }
+
+    private fun gutterDecorationKindOrNull(tag: Int): GutterDecorationKind? = when (tag) {
+        1 -> GutterDecorationKind.Dot
+        2 -> GutterDecorationKind.Bar
+        3 -> GutterDecorationKind.Glyph
         else -> null
     }
 
@@ -1088,6 +1185,37 @@ sealed interface Mutation {
         val op: AnimationControl,
         val atTimeNanos: Long,
     ) : Mutation
+
+    /**
+     * Puts a code editor's selection between two places in the document as it stood at
+     * `baseVersion`. Both ends are moved along with whatever was typed since. An end outside
+     * the document, or between the two halves of a pair, drops the command and is reported.
+     */
+    data class SetSelection(
+        val nodeId: Int,
+        val baseVersion: Int,
+        val anchorLine: Int,
+        val anchorColumn: Int,
+        val activeLine: Int,
+        val activeColumn: Int,
+    ) : Mutation
+
+    /**
+     * Scrolls a code editor until a range of the document, as it stood at `baseVersion`, is
+     * on screen. A range inside a folded stretch unfolds it first.
+     */
+    data class RevealRange(
+        val nodeId: Int,
+        val baseVersion: Int,
+        val startLine: Int,
+        val startColumn: Int,
+        val endLine: Int,
+        val endColumn: Int,
+        val align: RevealAlign,
+    ) : Mutation
+
+    /** Folds or unfolds the stretch of a code editor that starts on `startLine`. */
+    data class SetFolded(val nodeId: Int, val startLine: Int, val collapsed: Boolean) : Mutation
 }
 
 sealed interface HostEvent {
@@ -1118,13 +1246,19 @@ sealed interface HostEvent {
     data class DecorationActivated(override val nodeId: Int, override val handlerId: Long, val decoration: Long) : HostEvent
     data class AnimationEvent(override val nodeId: Int, override val handlerId: Long, val animationId: Int, val kind: AnimationEventKind, val property: AnimatedProperty, val slot: Int, val iteration: Int, val elapsedMs: kotlin.Float, val timeNanos: Long) : HostEvent
     data class ReducedMotionChanged(override val nodeId: Int, override val handlerId: Long, val state: ReducedMotion) : HostEvent
+    data class Pointer(override val nodeId: Int, override val handlerId: Long, val kind: PointerKind, val pointerId: Int, val pointerType: PointerType, val x: kotlin.Float, val y: kotlin.Float, val buttons: Int, val button: Int, val modifiers: Int, val clickCount: Int, val deltaX: kotlin.Float, val deltaY: kotlin.Float, val deltaMode: WheelDeltaMode, val timestampNanos: Long) : HostEvent
+    data class SelectionChanged(override val nodeId: Int, override val handlerId: Long, val version: Int, val anchorLine: Int, val anchorColumn: Int, val activeLine: Int, val activeColumn: Int) : HostEvent
+    data class VisibleRangeChanged(override val nodeId: Int, override val handlerId: Long, val version: Int, val firstLine: Int, val lastLine: Int) : HostEvent
+    data class EditorFocusChanged(override val nodeId: Int, override val handlerId: Long, val focused: Boolean) : HostEvent
+    data class FoldChanged(override val nodeId: Int, override val handlerId: Long, val startLine: Int, val collapsed: Boolean) : HostEvent
+    data class CompositionChanged(override val nodeId: Int, override val handlerId: Long, val composing: Boolean) : HostEvent
 }
 
 class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 1390284793613795356L
+    const val SCHEMA_HASH: Long = 5133983562059878052L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1147,6 +1281,9 @@ object Protocol {
     private const val TAG_EDIT_CODE = 17
     private const val TAG_START_ANIMATION = 18
     private const val TAG_CONTROL_ANIMATION = 19
+    private const val TAG_SET_SELECTION = 20
+    private const val TAG_REVEAL_RANGE = 21
+    private const val TAG_SET_FOLDED = 22
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -1398,6 +1535,37 @@ object Protocol {
                             readU64(batch, base, available, offset + 16),
                         )
                     }
+                    TAG_SET_SELECTION -> {
+                        requireRecordLength(length, 28, offset)
+                        Mutation.SetSelection(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            readU32(batch, base, available, offset + 8).toInt(),
+                            readU32(batch, base, available, offset + 12).toInt(),
+                            readU32(batch, base, available, offset + 16).toInt(),
+                            readU32(batch, base, available, offset + 20).toInt(),
+                            readU32(batch, base, available, offset + 24).toInt(),
+                        )
+                    }
+                    TAG_REVEAL_RANGE -> {
+                        requireRecordLength(length, 32, offset)
+                        Mutation.RevealRange(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            readU32(batch, base, available, offset + 8).toInt(),
+                            readU32(batch, base, available, offset + 12).toInt(),
+                            readU32(batch, base, available, offset + 16).toInt(),
+                            readU32(batch, base, available, offset + 20).toInt(),
+                            readU32(batch, base, available, offset + 24).toInt(),
+                            revealAlign(readU32(batch, base, available, offset + 28).toInt(), offset + 28),
+                        )
+                    }
+                    TAG_SET_FOLDED -> {
+                        requireRecordLength(length, 16, offset)
+                        Mutation.SetFolded(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            readU32(batch, base, available, offset + 8).toInt(),
+                            flag(readU32(batch, base, available, offset + 12), offset + 12),
+                        )
+                    }
                     else -> throw ProtocolException("unknown mutation tag $tag", offset)
                 }
                 onMutation(mutation)
@@ -1489,6 +1657,12 @@ object Protocol {
                 is HostEvent.DecorationActivated -> null
                 is HostEvent.AnimationEvent -> null
                 is HostEvent.ReducedMotionChanged -> null
+                is HostEvent.Pointer -> null
+                is HostEvent.SelectionChanged -> null
+                is HostEvent.VisibleRangeChanged -> null
+                is HostEvent.EditorFocusChanged -> null
+                is HostEvent.FoldChanged -> null
+                is HostEvent.CompositionChanged -> null
             }
             val recordLength = when (event) {
                 is HostEvent.Clicked -> 16
@@ -1515,6 +1689,12 @@ object Protocol {
                 is HostEvent.DecorationActivated -> 24
                 is HostEvent.AnimationEvent -> 40
                 is HostEvent.ReducedMotionChanged -> 20
+                is HostEvent.Pointer -> 72
+                is HostEvent.SelectionChanged -> 36
+                is HostEvent.VisibleRangeChanged -> 28
+                is HostEvent.EditorFocusChanged -> 24
+                is HostEvent.FoldChanged -> 24
+                is HostEvent.CompositionChanged -> 24
             }
             val totalLength = recordLength.toLong() + (text?.size ?: 0)
             if (totalLength > Int.MAX_VALUE || totalLength > out.remaining().toLong()) {
@@ -1545,6 +1725,12 @@ object Protocol {
                 is HostEvent.DecorationActivated -> 30
                 is HostEvent.AnimationEvent -> 31
                 is HostEvent.ReducedMotionChanged -> 32
+                is HostEvent.Pointer -> 8
+                is HostEvent.SelectionChanged -> 34
+                is HostEvent.VisibleRangeChanged -> 35
+                is HostEvent.EditorFocusChanged -> 36
+                is HostEvent.FoldChanged -> 37
+                is HostEvent.CompositionChanged -> 38
             }
             out.putShort(tag.toShort())
             out.putShort(recordLength.toShort())
@@ -1635,6 +1821,45 @@ object Protocol {
                 }
                 is HostEvent.ReducedMotionChanged -> {
                     out.putInt(reducedMotionTag(event.state))
+                }
+                is HostEvent.Pointer -> {
+                    out.putInt(pointerKindTag(event.kind))
+                    out.putInt(event.pointerId)
+                    out.putInt(pointerTypeTag(event.pointerType))
+                    out.putFloat(event.x)
+                    out.putFloat(event.y)
+                    out.putInt(event.buttons)
+                    out.putInt(event.button)
+                    out.putInt(event.modifiers)
+                    out.putInt(event.clickCount)
+                    out.putFloat(event.deltaX)
+                    out.putFloat(event.deltaY)
+                    out.putInt(wheelDeltaModeTag(event.deltaMode))
+                    out.putLong(event.timestampNanos)
+                }
+                is HostEvent.SelectionChanged -> {
+                    out.putInt(event.version)
+                    out.putInt(event.anchorLine)
+                    out.putInt(event.anchorColumn)
+                    out.putInt(event.activeLine)
+                    out.putInt(event.activeColumn)
+                }
+                is HostEvent.VisibleRangeChanged -> {
+                    out.putInt(event.version)
+                    out.putInt(event.firstLine)
+                    out.putInt(event.lastLine)
+                }
+                is HostEvent.EditorFocusChanged -> {
+                    out.putInt(if (event.focused) 1 else 0)
+                    out.putInt(0)
+                }
+                is HostEvent.FoldChanged -> {
+                    out.putInt(event.startLine)
+                    out.putInt(if (event.collapsed) 1 else 0)
+                }
+                is HostEvent.CompositionChanged -> {
+                    out.putInt(if (event.composing) 1 else 0)
+                    out.putInt(0)
                 }
             }
             if (text != null) out.put(text)
@@ -1780,6 +2005,9 @@ object Protocol {
         104 -> PropertyKind.OnHover
         105 -> PropertyKind.OnSave
         106 -> PropertyKind.OnDecorationClick
+        107 -> PropertyKind.Folds
+        108 -> PropertyKind.GutterDecorations
+        109 -> PropertyKind.OnSelectionChange
         110 -> PropertyKind.Font
         111 -> PropertyKind.WordBreak
         112 -> PropertyKind.OverflowWrap
@@ -1787,6 +2015,14 @@ object Protocol {
         114 -> PropertyKind.AbsoluteSize
         115 -> PropertyKind.SoftWrap
         116 -> PropertyKind.SpanFonts
+        130 -> PropertyKind.OnVisibleRangeChange
+        131 -> PropertyKind.OnEditorFocusChange
+        132 -> PropertyKind.OnFoldChange
+        133 -> PropertyKind.OnCompositionChange
+        67 -> PropertyKind.OnPointer
+        140 -> PropertyKind.PointerKinds
+        141 -> PropertyKind.Cursor
+        142 -> PropertyKind.UserSelect
         27 -> PropertyKind.Progress
         else -> throw ProtocolException("unknown property tag $tag", offset)
     }
@@ -1848,6 +2084,29 @@ object Protocol {
         ReducedMotion.Off -> 1
         ReducedMotion.On -> 2
         ReducedMotion.Unknown -> 3
+    }
+
+    private fun pointerKindTag(value: PointerKind): Int = when (value) {
+        PointerKind.Move -> 1
+        PointerKind.Enter -> 2
+        PointerKind.Leave -> 3
+        PointerKind.Down -> 4
+        PointerKind.Up -> 5
+        PointerKind.Cancel -> 6
+        PointerKind.Wheel -> 7
+        PointerKind.ContextMenu -> 8
+    }
+
+    private fun pointerTypeTag(value: PointerType): Int = when (value) {
+        PointerType.Mouse -> 1
+        PointerType.Touch -> 2
+        PointerType.Pen -> 3
+    }
+
+    private fun wheelDeltaModeTag(value: WheelDeltaMode): Int = when (value) {
+        WheelDeltaMode.Pixel -> 0
+        WheelDeltaMode.Line -> 1
+        WheelDeltaMode.Page -> 2
     }
 
     private fun paletteRole(tag: Int): ColorRole? = when (tag) {
@@ -2283,6 +2542,94 @@ object Protocol {
         1 -> HoverPhase.Rest
         2 -> HoverPhase.Leave
         else -> throw ProtocolException("unknown HoverPhase tag $tag", offset)
+    }
+
+    private fun gutterDecorationKind(tag: Int, offset: Int): GutterDecorationKind = when (tag) {
+        1 -> GutterDecorationKind.Dot
+        2 -> GutterDecorationKind.Bar
+        3 -> GutterDecorationKind.Glyph
+        else -> throw ProtocolException("unknown GutterDecorationKind tag $tag", offset)
+    }
+
+    private fun revealAlign(tag: Int, offset: Int): RevealAlign = when (tag) {
+        1 -> RevealAlign.Nearest
+        2 -> RevealAlign.Center
+        3 -> RevealAlign.Top
+        else -> throw ProtocolException("unknown RevealAlign tag $tag", offset)
+    }
+
+    private fun pointerKind(tag: Int, offset: Int): PointerKind = when (tag) {
+        1 -> PointerKind.Move
+        2 -> PointerKind.Enter
+        3 -> PointerKind.Leave
+        4 -> PointerKind.Down
+        5 -> PointerKind.Up
+        6 -> PointerKind.Cancel
+        7 -> PointerKind.Wheel
+        8 -> PointerKind.ContextMenu
+        else -> throw ProtocolException("unknown PointerKind tag $tag", offset)
+    }
+
+    private fun pointerType(tag: Int, offset: Int): PointerType = when (tag) {
+        1 -> PointerType.Mouse
+        2 -> PointerType.Touch
+        3 -> PointerType.Pen
+        else -> throw ProtocolException("unknown PointerType tag $tag", offset)
+    }
+
+    private fun wheelDeltaMode(tag: Int, offset: Int): WheelDeltaMode = when (tag) {
+        0 -> WheelDeltaMode.Pixel
+        1 -> WheelDeltaMode.Line
+        2 -> WheelDeltaMode.Page
+        else -> throw ProtocolException("unknown WheelDeltaMode tag $tag", offset)
+    }
+
+    private fun cursor(tag: Int, offset: Int): Cursor = when (tag) {
+        0 -> Cursor.Auto
+        1 -> Cursor.Default
+        2 -> Cursor.Pointer
+        3 -> Cursor.Text
+        4 -> Cursor.VerticalText
+        5 -> Cursor.Crosshair
+        6 -> Cursor.Move
+        7 -> Cursor.Grab
+        8 -> Cursor.Grabbing
+        9 -> Cursor.NotAllowed
+        10 -> Cursor.NoDrop
+        11 -> Cursor.Wait
+        12 -> Cursor.Progress
+        13 -> Cursor.Help
+        14 -> Cursor.ContextMenu
+        15 -> Cursor.Cell
+        16 -> Cursor.Copy
+        17 -> Cursor.Alias
+        18 -> Cursor.AllScroll
+        19 -> Cursor.ZoomIn
+        20 -> Cursor.ZoomOut
+        21 -> Cursor.ColResize
+        22 -> Cursor.RowResize
+        23 -> Cursor.EResize
+        24 -> Cursor.NResize
+        25 -> Cursor.NeResize
+        26 -> Cursor.NwResize
+        27 -> Cursor.SResize
+        28 -> Cursor.SeResize
+        29 -> Cursor.SwResize
+        30 -> Cursor.WResize
+        31 -> Cursor.EwResize
+        32 -> Cursor.NsResize
+        33 -> Cursor.NeswResize
+        34 -> Cursor.NwseResize
+        35 -> Cursor.None
+        else -> throw ProtocolException("unknown Cursor tag $tag", offset)
+    }
+
+    private fun userSelect(tag: Int, offset: Int): UserSelect = when (tag) {
+        0 -> UserSelect.Auto
+        1 -> UserSelect.None
+        2 -> UserSelect.Text
+        3 -> UserSelect.All
+        else -> throw ProtocolException("unknown UserSelect tag $tag", offset)
     }
 
     private fun paint(bits: Long, offset: Int): Paint {
