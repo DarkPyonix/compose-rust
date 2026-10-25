@@ -39,7 +39,9 @@ REVISION="c7caf51523e8aa5f81563fcc7311398455ecacef"
 # resize soak (#109), which draws each GraalVM frame in an autorelease pool of its own; it
 # carries the merge of the coordinates (#119), so the window modules compile against the fork's
 # Compose coordinates, which the Compose pin introduced, and the window changes before it.
-WINDOW_REVISION="c7caf51523e8aa5f81563fcc7311398455ecacef"
+# It is one commit past the Compose pin: the Win32 wheel fix (fork #169), which negates the
+# vertical wheel delta so the wheel no longer scrolls in reverse on Windows.
+WINDOW_REVISION="d5c5408670569c25185ae9ce10033492f12ecee7"
 # The commit the Windows build takes, which is its own on purpose. Windows needs the
 # commits the Compose pin (REVISION) leaves out: 296beb3 adds mingwX64 to every Compose UI module and
 # reads skiko from the local Maven repository first, and f17cb30 adds the skiko build for
