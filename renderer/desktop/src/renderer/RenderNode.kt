@@ -142,10 +142,7 @@ fun RenderNode(
         // listens for keys is made one, ahead of its modifiers like the handler. Without it
         // Tab never reaches the node and a DOM element with tabindex and onkeydown is dead.
         // Widgets that are controls bring their own focus handling and are left alone.
-        val focusTarget = when (node.widget) {
-            WidgetKind.Box, WidgetKind.Column, WidgetKind.Row, WidgetKind.FileDropTarget -> true
-            else -> false
-        }
+        val focusTarget = node.widget in KeyFocusTargets
         profiled.hostKeyEvents(nodeId, keyDownHandler, dispatcher)
             .let { if (focusTarget) it.focusable() else it }
     }
@@ -683,3 +680,6 @@ object LayoutProfile {
     fun snapshot(): List<Triple<String, Double, Int>> =
         totals.entries.map { Triple(it.key, it.value.nanos / 1e6, it.value.count) }.sortedByDescending { it.second }
 }
+
+/** The containers that become focus targets when they listen for keys. */
+private val KeyFocusTargets = setOf(WidgetKind.Box, WidgetKind.Column, WidgetKind.Row, WidgetKind.FileDropTarget)
