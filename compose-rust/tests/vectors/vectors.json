@@ -1,6 +1,6 @@
 {
   "format": "compose-rust protocol vectors v1",
-  "schemaHashUnsigned": "8876404768291780385",
+  "schemaHashUnsigned": "7113898913101360301",
   "byteOrder": "little-endian",
   "mutations": {
     "file": "mutations.bin",
@@ -17,7 +17,7 @@
   },
   "events": {
     "file": "events.bin",
-    "description": "Eighteen independently decodable event records concatenated in schema order",
+    "description": "Nineteen independently decodable event records concatenated in schema order",
     "records": [
       { "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 },
       { "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" },
@@ -36,7 +36,8 @@
       { "type": "CodeSaveRequested", "offset": 410, "length": 24, "nodeId": 12, "handlerId": 21, "version": 2 },
       { "type": "DecorationActivated", "offset": 434, "length": 24, "nodeId": 12, "handlerId": 22, "decoration": 41 },
       { "type": "AnimationEvent", "offset": 458, "length": 40, "nodeId": 8, "handlerId": 0, "animationId": 7, "kind": "End", "property": "Transform", "slot": 2, "iteration": 3, "elapsedMs": 3000.0, "timeNanos": 123456789012 },
-      { "type": "ReducedMotionChanged", "offset": 498, "length": 20, "nodeId": 0, "handlerId": 0, "state": "On" }
+      { "type": "ReducedMotionChanged", "offset": 498, "length": 20, "nodeId": 0, "handlerId": 0, "state": "On" },
+      { "type": "Pointer", "offset": 518, "length": 72, "nodeId": 13, "handlerId": 23, "kind": "Down", "pointerId": 1, "pointerType": "Mouse", "x": 12.5, "y": -3.0, "buttons": 9, "button": 8, "modifiers": 5, "clickCount": 2, "deltaX": 0.0, "deltaY": 0.0, "deltaMode": "Pixel", "timestampNanos": 987654321000 }
     ]
   }
 }

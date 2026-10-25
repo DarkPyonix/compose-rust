@@ -21,9 +21,12 @@
 #   --initial-memory  Declares how large the imported memory has to be. The Renderer's
 #                     memory starts at zero pages, so the page grows it to this before the
 #                     two module types match.
-#
-# `--stack-first` must not be added. It would put the shadow stack below --global-base,
-# which is the half of the memory the Renderer is using.
+#   --no-stack-first  rustc's wasm32-unknown-unknown target passes --stack-first to wasm-ld
+#                     itself, which puts the shadow stack at the bottom of memory, below
+#                     --global-base and inside the Renderer's half. This flag is appended
+#                     after rustc's own argument, and the last one wins, so the stack sits
+#                     above the region base. scripts/tests/web-stack-placement.test.sh
+#                     checks the linked module.
 
 set -euo pipefail
 
@@ -80,7 +83,8 @@ fi
 
 RUSTFLAGS="-Clink-arg=--import-memory \
 -Clink-arg=--global-base=$region_base \
--Clink-arg=--initial-memory=$initial_memory" \
+-Clink-arg=--initial-memory=$initial_memory \
+-Clink-arg=--no-stack-first" \
     cargo build --manifest-path "$repo_root/Cargo.toml" \
     --profile "$profile" "${selector[@]}" --target "$target"
 

@@ -133,6 +133,25 @@ Host 측 규칙:
 - 핸들러 실행 중에 Renderer를 동기로 호출하지 않습니다(재진입 금지). 상태만 바꾸고 프레임 요청으로 넘깁니다.
 - 수용 기준: 멀티라인 TextField에서 Enter는 제출되고 줄바꿈이 생기지 않으며, Shift+Enter는 줄바꿈만 생기고 제출되지 않습니다. 한글 조합 중 Enter는 조합만 확정합니다.
 
+#### 12.1 모든 키를 Host로 보냅니다 (소유자 승인 2026-10-25, 이슈 #100)
+
+지금 Host가 받는 키는 Enter 하나입니다. DOM의 `onkeydown`을 HTML 경로에서 쓰려면 눌린 모든 키가 필요합니다. 새 이벤트 태그 없이 기존 `KeyDown`(이벤트 태그 6)의 페이로드를 넓힙니다.
+
+- 고정 20바이트 레코드를 머리와 길이 붙은 문자열 꼬리로 바꿉니다. 문자열 꼬리는 `TextChanged`와 같은 규약입니다(PR-4).
+- 새 칸:
+  - `code: u32`. 물리 키이고 USB HID usage 값입니다. 배열이 달라도 같은 자리의 키는 같은 값입니다.
+  - `text`. DOM `key` 문자열입니다(`"ArrowDown"`, `"a"`). 길이 붙은 문자열이고 꼬리에 놓입니다.
+  - `repeat: bool`. 누르고 있어서 반복된 이벤트면 참입니다.
+- 수정자 네 개(`shift`, `ctrl`, `alt`, `meta`)는 그대로입니다. 기존 `key: Key` 열거형도 유지합니다.
+- 스키마 해시가 바뀝니다. `KeyDown` 페이로드가 고정 길이가 아니게 되므로 프로토콜 벡터와 생성 코덱이 다시 만들어집니다.
+
+수용 기준:
+1. 방향키, Escape, Tab, 문자 키를 누르면 각각 올바른 `code`와 `text`로 `KeyDown`이 옵니다(fr12_every_key_reaches_the_host_with_code_and_text).
+2. 키를 누르고 있으면 첫 이벤트만 `repeat = false`이고 나머지는 `true`입니다(fr12_held_key_marks_repeat).
+3. IME 조합 중에는 어떤 키도 Host로 가지 않습니다. 기존 규칙 그대로입니다(fr12_no_key_reaches_the_host_during_composition).
+4. 핸들러가 소비한 키는 이전처럼 Renderer가 처리하지 않습니다(fr12_consumed_key_is_not_handled_by_the_renderer).
+5. `KeyDown`의 `text`가 레코드 밖을 가리키면 `ProtocolError`이고 프로세스는 계속 돕니다(nfr7_malformed_key_down_text_is_a_protocol_error).
+
 ### FR-10 Modifier 값 모델 (`Done`)
 Modifier는 값 리스트로 직렬화합니다. 예: `[Padding(16), FillMaxWidth, Background(argb), Clickable(handler_id)]`. Renderer는 이를 `Modifier` 체인으로 재구성합니다.
 - 수용 기준: 스키마의 모든 Modifier 변형이 인코딩 후 디코딩해도 같습니다(`fr10_every_modifier_variant_in_the_vector_round_trips`). **(통과)**
@@ -288,11 +307,13 @@ Modifier는 값 리스트로 직렬화합니다. 예: `[Padding(16), FillMaxWidt
 | `TypeRole` | `Display=1, Headline=2, Title=3, Subtitle=4, Body=5, BodyStrong=6, Label=7, Caption=8, Mono=9` |
 | `ShapeRole` | `None=1, ExtraSmall=2, Small=3, Medium=4, Large=5, Full=6` |
 | `SpaceRole` | `None=1, Xs=2, Sm=3, Md=4, Lg=5, Xl=6, Xxl=7` |
-| `TextAlign` | `Start=1, Center=2, End=3, Justify=4` |
+| `TextAlign` | `Start=1, Center=2, End=3, Justify=4, Left=5, Right=6` |
 | `TextOverflow` | `Clip=1, Ellipsis=2, Visible=3` |
 | `Arrangement` | `Start=1, Center=2, End=3, SpaceBetween=4, SpaceAround=5, SpaceEvenly=6` |
 | `Alignment` | `TopStart=1, TopCenter=2, TopEnd=3, CenterStart=4, Center=5, CenterEnd=6, BottomStart=7, BottomCenter=8, BottomEnd=9` |
 | `ButtonVariant` | `Filled=1, Tonal=2, Outlined=3, Text=4` |
+
+`TextAlign`의 `Left=5`와 `Right=6`은 물리 방향입니다(소유자 승인 2026-10-25, 이슈 #92). `Start`와 `End`는 글쓰기 방향을 따라 오른쪽에서 왼쪽 글에서 뒤집히지만, `Left`와 `Right`는 뒤집히지 않습니다. CSS `text-align: left|right`가 물리 방향이라 필요하고, Compose의 `TextAlign.Left`와 `TextAlign.Right`에 대응합니다. 모르는 값은 `ProtocolError`입니다. 수용 기준: RTL 문단에서 `Left`는 왼쪽, `Right`는 오른쪽에 붙고 `Start`는 오른쪽에 붙습니다(fr13_physical_text_align_is_not_flipped_in_rtl).
 
 `Paint`는 `u64` 하나입니다. 상위 32비트가 종류(`Role=1`, `Literal=2`)이고 하위 32비트가 값(`ColorRole` 태그 또는 ARGB)입니다.
 
@@ -854,6 +875,8 @@ M0의 위젯 9개는 데모를 굴리는 데 필요했던 만큼이지 설계된
 
 #### 15.2.12 분할 창 (`Draft`)
 
+> **현황(2026-10-25).** develop에 있고 Kotlin 테스트 `fr15_2_12_*`가 19개 있습니다. 상태는 `Draft`로 남습니다. 기준 9의 화면 낭독기 수동 확인이 남았기 때문입니다.
+
 옆 칸과 본문 둘을 나란히 놓고, 그 사이의 경계선을 사용자가 끌어 옆 칸의 폭을 바꾸는 것입니다. 요청한 앱(Ember, AI IDE 클라이언트)은 데스크톱에서 세션 목록과 대화를 두 열로 놓고, 폰에서는 목록을 먼저 보이고 하나를 고르면 대화로 넘어가는 한 열 쌓기로 씁니다.
 
 일곱 시스템 모두에 대응물이 있습니다. Apple은 `NSSplitView`/`NSSplitViewController`(사이드바는 끌어서 폭을 바꾸고 끝까지 밀면 접힙니다)와 iPad의 `UISplitViewController`, Fluent는 `SplitView`와 `TwoPaneView`, GNOME은 `AdwNavigationSplitView`와 `AdwOverlaySplitView`(좁아지면 쌓기나 덮기로 바뀝니다), KDE는 Kirigami의 열 보기와 `QSplitter`, Material 3는 adaptive의 list-detail 창 배치(`ListDetailPaneScaffold`)와 그 끌기 손잡이(`PaneExpansionDragHandle`)입니다. 이름은 Compose에 안정 API로 같은 이름이 없으므로 개념 이름 `SplitPane`을 씁니다.
@@ -1054,6 +1077,10 @@ PR-4의 고정 레이아웃 레코드에는 이미지 바이트가 들어가지 
 - 등록은 프레임당 0회인 정상 경로에서 스틸 프레임 할당이 0입니다(NFR-9).
 - 같은 `VectorIcon` 역할이 세 디자인 시스템에서 각 시스템의 아이콘으로 그려집니다.
 
+#### 16.3-2 `Image`의 `content_scale` (소유자 승인 2026-10-25, 이슈 #96)
+
+`Image`는 상자 안에 그림을 놓는 방식을 속성으로 받습니다. 속성 `ContentScale`, 태그 37(15.2.2의 28-39 블록에서 `Divider`의 `Vertical`=36 다음)이고 값은 `u32`입니다: `Fit=1`, `Crop=2`, `FillBounds=3`. 보내지 않거나 0이면 `Fit`입니다(지금의 동작). 각각 Compose의 `ContentScale.Fit`, `Crop`, `FillBounds`에 대응합니다. `FillBounds`는 가로세로 비율을 무시하고 상자를 채우며, CSS `object-fit: fill`에 필요합니다. 모르는 값은 `ProtocolError`이고 `Fit`으로 그립니다. 수용 기준: 가로세로 비가 다른 상자에서 `FillBounds`의 그림이 상자를 빈틈없이 채우고, 보내지 않은 `Image`는 이전과 픽셀이 같습니다(fr16_image_content_scale_fill_bounds_stretches).
+
 #### 16.4 애플리케이션이 등록하는 경로
 
 16.2는 배치에 무엇이 실리는지를 정하지만, 그 레코드를 만들 수 있는 것은 `Host`뿐이었습니다. `Host`는 경계 객체이고 사용자 코드는 경계 함수를 부르지 않으므로(PR-3), `Image`는 와이어에도 위젯 목록에도 있는데 애플리케이션이 쓸 방법이 없었습니다. 통합 샘플 일곱 개의 그림이 전부 단색 사각형인 이유가 이것이고, 그 사실이 샘플 주석에 "그릴 수 없다"고 여러 번 적혀 있었습니다. 위젯이 있는데 부를 수 없으면 요구사항이 절반만 구현된 것입니다.
@@ -1225,6 +1252,7 @@ Renderer가 AOT 컴파일된 바이너리이므로 Host가 그리기 코드를 �
 - 구독하지 않은 제스처는 **인식기를 붙이지 않습니다.** `on_drag_move`를 선언한 노드에만 드래그 인식이 걸립니다. 모든 노드에 거는 것은 NFR-9 위반입니다.
 - `DragMove`는 프레임당 최대 1건으로 합칩니다. 포인터 이벤트는 프레임보다 자주 오므로 합치지 않으면 프레임당 여러 번 VirtualDom을 돌게 됩니다.
 - FR-12의 `consume`이 그대로 적용됩니다. 부모로 전파할지는 핸들러가 정합니다.
+- HTML 경로의 노드 단위 포인터 입력(호버, 누름, 휠, 끌기, 캡처)은 FR-46이 `Pointer` 이벤트 하나로 다룹니다. 8번은 `Pointer`가 되고 9번은 쓰지 않는 예약입니다. 아래 표의 `PointerEnter`, `PointerExit`, `ContextMenu`, `Scroll` 행은 구독한 노드에 대해서는 FR-46이 대체합니다.
 - 플랫폼 차이는 Renderer가 흡수합니다. 터치에는 호버가 없으므로 iOS와 Android에서 `PointerEnter`는 발생하지 않습니다. Host 코드는 그대로 두고, 호버로만 보이는 UI를 두지 않는 것은 애플리케이션의 책임입니다.
 
 #### 18.1.1 핸들러 속성 태그
@@ -1689,16 +1717,18 @@ tag 12, 32바이트: handler_id: u64, text: (offset, len), action: (offset, len)
 
 1. 네 데스크톱 릴리스 행은 각 샘플에 해당 플랫폼 형식의 아티팩트를 만들고 체크섬을 기록합니다.
 2. 각 번들의 실행 파일은 빌드 머신의 렌더러 절대 경로를 참조하지 않으며, 번들 안에 렌더러와 동반 파일이 있습니다.
-3. 번들의 이름, 식별자, 설명은 샘플 설정과 일치하고 아이콘이 포함됩니다.
+3. 번들의 이름, 식별자, 설명은 샘플 설정과 일치하고 아이콘이 포함됩니다. 잘못된 입력은 어떤 파일도 쓰기 전에 거부하고, 빠진 스토어 사실(`[linux.store] license`, `homepage`, `[bundle] identifier`, `--exec`, `--version` 등)은 설정해야 할 키 이름을 알려 줍니다(fr22_6_3_bad_values_are_refused_before_any_file_is_written, fr22_6_3_missing_store_facts_name_the_key_to_set).
 4. MSIX는 서명되지 않은 패키지로 생성됩니다. 설치에는 개발자 모드 또는 신뢰된 인증서로 다시 서명하는 절차가 필요함을 릴리스에 알립니다. 실제 설치 확인은 Windows 환경에서 수동으로 합니다.
 5. 위 표의 형식마다 아티팩트를 만들고 체크섬을 기록합니다. 형식이 `.dmg`, `.pkg`, `.deb`, `.rpm`, `Setup.exe`, `.msi`, Flatpak 중 무엇이든 번들은 실행 파일 하나와 아이콘, 메타데이터만 담습니다. CI가 아티팩트의 존재와 내용물 목록, 체크섬 기록을 검사합니다.
 6. `.deb`와 `.rpm`은 각각 `dpkg-deb --info`와 `rpm -qp --info`로 이름, 버전, 설명이 샘플 설정과 일치하는지 CI에서 확인합니다. 실제 설치와 실행은 해당 배포판에서 수동으로 확인합니다.
 7. 세 OS의 직접 배포 패키지는 Velopack으로 만들고, 이전 버전에서 새 버전으로 가는 델타 패키지와 갱신 피드(nupkg 전체와 델타, `releases.{channel}.json`)를 함께 만듭니다. 패키지와 피드의 존재와 메타데이터는 CI에서 확인하고, 설치된 빌드가 델타로 갱신되어 다시 뜨는 것은 각 OS 환경에서 수동으로 확인합니다. Windows `.msi`는 `PerUser` 기본과 `PerMachine` 선택 설치가 각각 되는지도 Windows에서 수동으로 확인합니다. Linux `.AppImage`에는 zsync 갱신 정보가 없습니다.
 8. macOS `.pkg`는 Mac App Store 제출 형식으로 만들며, 구조와 메타데이터는 `pkgutil --check-signature`와 `pkgutil --payload-files`로 CI에서 확인합니다. 스토어 제출과 승인은 Apple 계정이 있는 환경에서 수동으로만 확인할 수 있습니다.
-9. Flatpak은 Flathub용 매니페스트로 만들고 `flatpak-builder`로 빌드되는 것을 CI에서 확인합니다. 설치와 실행은 수동으로 확인합니다.
+9. Flatpak은 Flathub용 매니페스트로 만들고 `flatpak-builder`로 빌드되는 것을 CI에서 확인합니다. 설치와 실행은 수동으로 확인합니다. 패키지 메타데이터는 같은 입력에서 같은 출력을 만듭니다. 릴리스 날짜는 현재 시각이 아니라 `SOURCE_DATE_EPOCH` 같은 주어진 값(없으면 빌드 사실의 시각)에서 정해지고, 해석할 수 없는 값은 안전한 기본으로 떨어집니다(Flathub 제출 요건, fr22_6_3_release_dates_are_reproducible). Linux 애플리케이션 식별자는 Flatpak과 D-Bus 이름 규칙(점으로 나뉜 세 요소 이상, 요소는 숫자로 시작하지 않음, 앞쪽 요소에는 `-` 금지, 특수문자 금지)을 따르며 어긋나면 만들지 않습니다(fr22_6_3_application_ids_follow_flatpak_and_dbus_rules).
 10. `.msi`는 `vpk pack --msi`로 만들며, 5번과 7번의 검사 대상입니다.
 11. 템플릿과 메타데이터가 core-extended의 `extended/packaging/`에서 오고 그 커밋이 고정되어 있음을 CI가 확인합니다.
 12. **실험 중:** ad-hoc 서명한 `.app`을 `.dmg`에서 설치한 Apple Silicon 기기가 Velopack 갱신을 받고, 갱신 뒤에도 실행됩니다(quarantine 속성 포함). Velopack 문서는 서명과 공증이 없는 macOS 앱은 실행되지 않는다고 하므로 확인이 필요하며, 프로브를 돌리는 중입니다. 결과가 나오기 전에는 이 항목을 통과로 보지 않습니다.
+13. Windows 실행 파일은 DPI 매니페스트(PerMonitorV2 `dpiAwareness`, 구형을 위한 `dpiAware` `true/pm`, `asInvoker`)를 리소스 1번(`RT_MANIFEST`, 언어 0x0409)으로 품습니다. 리소스 파일은 링커가 알아보는 32바이트 빈 항목으로 시작합니다. WACK의 `DPIAwarenessValidation`이 통과해야 합니다. Windows SDK 버전은 문자열이 아니라 숫자 순서로 비교해 가장 새 것을 고릅니다(fr22_6_the_manifest_declares_per_monitor_v2_awareness, fr22_6_the_resource_file_starts_with_the_empty_entry, fr22_6_the_resource_file_holds_the_manifest_as_resource_one, fr22_6_sdk_versions_order_numerically). WACK 통과는 Windows에서 수동으로 확인합니다.
+14. macOS `.app`의 모든 실행 코드(실행 파일, dylib, 프레임워크)는 ad hoc으로 서명되고, 서명된 앱이 실제로 실행됩니다. 서명이 깨진 코드는 이름과 함께 보고합니다. 서명의 배포 가능성은 12번이 따로 확인합니다(fr22_6_2_every_piece_of_code_is_signed_ad_hoc, fr22_6_2_the_signed_application_runs).
 
 **2026-09-22: 샘플이 일곱 플랫폼 전부에서 돕니다.** 데스크톱 넷(macOS arm64, Linux x64, Linux arm64, Windows x64)과 Android, iOS 시뮬레이터, 브라우저입니다. statistics 샘플을 iOS 시뮬레이터와 Android 에뮬레이터와 Chromium에서 각각 띄워 같은 세이지와 주황과 파우더 블루가 나오는 것을 확인했습니다. 통합 샘플이 플랫폼과 무관하게 같은 디자인을 그린다는 것이 이것으로 처음 실증됐습니다.
 
@@ -1842,6 +1872,7 @@ E2를 기본 경로로 삼으면 KSP가 Rust 열거형, Dioxus element, 컴포�
 - `Paint`에 세 번째 종류를 더합니다. 지금은 `Role`과 `Literal` 둘이고, `Asset(id)`가 셋째입니다. 위 워드가 종류를 말하는 구조는 그대로입니다.
 - 브러시는 FR-16의 에셋으로 등록합니다. 선형·방사형 그라데이션은 정지점 목록이고, 이미지 브러시는 이미 등록된 그림의 id와 타일 방식입니다.
 - 쓰이는 자리는 `Paint`가 쓰이는 모든 자리입니다. `background`, `border_color`, `color`, 그리고 FR-17의 드로잉 명령입니다.
+- 타원 방사형(소유자 승인 2026-10-25, 이슈 #93). 방사형 브러시 머리의 남는 네 번째 칸을 `radius_y`로 씁니다. 0이면 원이고(`radius`만 씁니다), 0보다 크면 가로 반지름이 `radius`, 세로 반지름이 `radius_y`인 타원입니다. 새 레코드도 새 에셋 종류도 없고, 기존에 0으로 보내던 칸의 뜻을 정하는 것이라 기존 브러시는 그대로 원입니다. CSS `radial-gradient(ellipse ...)`가 기본 모양이라 필요합니다. 음수나 NaN은 `ProtocolError`이고 그 브러시는 원으로 그립니다. 수용 기준: `radius_y`가 `radius`와 다른 브러시가 타원으로 그려지고 `radius_y = 0`은 원과 픽셀이 같습니다(fr23_elliptical_radial_gradient_uses_radius_y).
 - 수용 기준: 정지점 세 개짜리 선형 그라데이션을 배경으로 받은 `Surface`가 여섯 디자인 시스템 모두에서 그라데이션으로 그려집니다. 등록되지 않은 id를 받으면 프로세스를 중단하지 않고 `ProtocolError`를 보냅니다. 브러시를 쓰는 프레임이 정상 상태에서 Host 쪽 할당을 하지 않습니다.
 
 #### 23.2 폰트
@@ -2293,6 +2324,53 @@ Notification::new("세션이 끝났습니다")
 6. 저장 단축키가 현재 버전을 담은 저장 이벤트를 보냅니다.
 7. 십만 줄 파일에서 스크롤과 입력의 프레임 시간이 NFR-9 예산 안이고, 수치를 이 항목에 기록합니다.
 8. 일곱 디자인 시스템에서 그려지고 `DesignShowcase`에 나옵니다.
+9. 선택이나 커서가 움직이면 `SelectionChanged`가 Host로 갑니다. 한 프레임 안의 여러 움직임은 마지막 하나로 합칩니다. 좌표는 UTF-16 코드 단위이고 서로게이트 쌍 한가운데를 가리키지 않습니다(fr38_selection_change_reaches_the_host).
+10. `SetSelection`이 선택을 정하고 `RevealRange`가 그 범위를 보이게 스크롤합니다. 문서 밖이거나 시작이 끝보다 뒤인 범위는 그 명령만 버리고 `ProtocolError`를 보냅니다. `base_version`이 오래되었으면 `EditCode`처럼 범위를 옮긴 뒤 적용합니다(fr38_set_selection_and_reveal_range_apply).
+11. 스크롤이나 크기 변화로 보이는 줄 범위가 바뀌면 `VisibleRangeChanged`가 가고, 같은 범위가 연달아 가지 않습니다. 십만 줄 파일의 스크롤 중에도 프레임마다 한 번을 넘지 않습니다(fr38_visible_range_is_reported_once_per_change).
+12. 편집기가 포커스를 얻고 잃을 때 `EditorFocusChanged`가 한 번씩 갑니다(fr38_editor_focus_changes_reach_the_host).
+13. `Folds`로 접을 수 있는 구간을 보내면 그 줄들이 접히고 접힌 줄은 그려지지 않습니다. 사용자가 접거나 펴면 `FoldChanged`가 가고, `SetFolded`로 Host도 접고 폅니다. 접힌 구간 안의 편집, 선택, 장식은 접힌 줄에 가려져도 문서 좌표를 잃지 않습니다(fr38_folded_ranges_hide_lines_and_report_toggles).
+14. `GutterDecorations`가 줄 번호 옆에 그려지고 편집을 따라 움직입니다(기준 4와 같은 규칙). 누르면 `DecorationActivated`가 그 id를 싣고 갑니다(fr38_gutter_decorations_follow_edits_and_activate).
+15. IME 조합이 시작되고 끝날 때 `CompositionChanged`가 한 번씩 갑니다. 조합 중인 글자는 이벤트에 실리지 않고 Renderer에만 있습니다(D5). 조합 중에는 `CodeChanged`가 나가지 않는다는 기준 1은 그대로입니다(fr38_composition_signal_carries_no_text, native-image 수동 확인은 기준 1과 함께 §6 방식으로 기록).
+
+#### 38.9 추가 기능의 와이어 (소유자 승인 2026-10-25, 이슈 #30)
+
+선택과 커서 이벤트, `SetSelection`과 `RevealRange`, 보이는 범위 이벤트, 포커스 이벤트, 접기, 거터 장식, IME 조합 신호를 한 번에 정합니다. 번호를 한꺼번에 잡아 다시 매기지 않게 하는 것이 이유입니다. 경계 진입점은 늘지 않고(PR-2), 레코드는 Rust 스키마에 정의하며 Kotlin 쪽 코덱은 codegen이 만듭니다(FR-7). 스키마 해시가 움직입니다. 38.1의 원칙은 그대로입니다. 커서, 선택, 스크롤, 접힘 상태는 Renderer의 것이고 Host는 알림을 받을 뿐입니다.
+
+- 속성. 38.6의 100-109 블록에 3개가 남아 있어 그 뒤를 채우고, 모자라는 나머지는 15.2.2의 규칙대로 그다음 빈 블록(130-139)을 엽니다. 120-129는 FR-43과 FR-40이 쓰고 있습니다.
+
+| 태그 | 속성 | 값 |
+|---|---|---|
+| 107 | `Folds` | 접을 수 있는 구간 레코드의 블롭 |
+| 108 | `GutterDecorations` | 거터 장식 레코드의 블롭 |
+| 109 | `OnSelectionChange` | 핸들러 id |
+| 130 | `OnVisibleRangeChange` | 핸들러 id |
+| 131 | `OnEditorFocusChange` | 핸들러 id |
+| 132 | `OnFoldChange` | 핸들러 id |
+| 133 | `OnCompositionChange` | 핸들러 id |
+
+- 접을 수 있는 구간 레코드, 16바이트: `version: u32`, `start_line: u32`, `end_line: u32`, `collapsed: u32`(0 또는 1). 접히면 `start_line`만 남고 `start_line + 1`부터 `end_line`까지가 가려집니다.
+- 거터 장식 레코드, 28바이트: `version: u32`, `line: u32`, `kind: u16`(`Dot=1`, `Bar=2`, `Glyph=3`), `color: u16`(`ColorRole`, 0이면 디자인 시스템이 고름), `id: u64`(0이면 누를 수 없음), `glyph: u32`(`Glyph`일 때의 유니코드 스칼라 값), 예약 `u32`.
+- 명령(Mutation), 19 뒤에 덧붙입니다. 18과 19는 FR-41.2가 씁니다.
+
+| 태그 | 명령 | 레코드 |
+|---|---|---|
+| 20 | `SetSelection` | 28바이트: 머리 4, `node_id: u32`, `base_version: u32`, `anchor_line`, `anchor_column`, `active_line`, `active_column`(각 `u32`) |
+| 21 | `RevealRange` | 32바이트: 머리 4, `node_id: u32`, `base_version: u32`, `start_line`, `start_column`, `end_line`, `end_column`(각 `u32`), `align: u32`(`Nearest=1`, `Center=2`, `Top=3`) |
+| 22 | `SetFolded` | 16바이트: 머리 4, `node_id: u32`, `start_line: u32`, `collapsed: u32` |
+
+- 이벤트, FR-43이 가진 33 뒤에 덧붙입니다. 공통 머리 16바이트 뒤에 페이로드가 옵니다.
+
+| 태그 | 이벤트 | 페이로드 |
+|---|---|---|
+| 34 | `SelectionChanged` | 36바이트: `version: u32`, `anchor_line`, `anchor_column`, `active_line`, `active_column`(각 `u32`, UTF-16 열) |
+| 35 | `VisibleRangeChanged` | 28바이트: `version: u32`, `first_line: u32`, `last_line: u32`(보이는 줄, 접힌 줄은 건너뜀) |
+| 36 | `EditorFocusChanged` | 24바이트: `focused: u32`(0 또는 1), 예약 `u32` |
+| 37 | `FoldChanged` | 24바이트: `start_line: u32`, `collapsed: u32` |
+| 38 | `CompositionChanged` | 24바이트: `composing: u32`(0 또는 1), 예약 `u32`. 조합 중인 글자는 싣지 않습니다 |
+
+- `SelectionChanged`는 `CodeChanged`와 같은 버전 계열을 씁니다. 편집이 만든 커서 이동은 변경 이벤트 뒤에 오므로 Host는 선택을 항상 맞는 버전에 대해 읽습니다.
+- `EditorFocusChanged`와 `CompositionChanged`의 값은 닫힌 두 값이고, 모르는 값은 `ProtocolError`입니다.
+- `EventPayloadType`이 다섯 늘고, 나머지 모양은 기존 것을 씁니다.
 
 #### 38.8 일정과 측정 약속 (2026-10-03)
 
@@ -2321,21 +2399,86 @@ Notification::new("세션이 끝났습니다")
 #### 39.1 모양
 
 ```rust
-#[composable]
-fn counter() {
+#[Composable]
+fn Counter() {
     let count = remember(|| mutable_state_of(0));
     Column(Modifier::new().fill_max_width(), || {
         Text(format!("{}", count.get()));
-        Button(|| count.set(count.get() + 1), || Text("+1"));
+        Button("+1", move || count.set(count.get() + 1));
     });
 }
 
 fn main() {
-    compose_rust::launch(counter);
+    compose_rust::launch(Counter);
 }
 ```
 
-위 코드는 모양을 보이기 위한 것이고 이름을 확정하지 않습니다. 확정되는 것은 다음입니다.
+2026-10-25 소유자 결정(이슈 #278)으로 호출 모양이 확정되었습니다. 예시의 `count`는 `Copy`라서 클로저에 `.clone()` 없이 들어갑니다(39.2.1의 상태 핸들). 소유자의 말은 다음과 같습니다.
+
+> "빌더 체인은 별로라서 일반 함수로 만드는거도 지원을 하면서 매크로 방식도 지원했으면 좋겠는데 매크로로 하게 되면 모든 컴포저블에 대해서 매크로로 자동으로 되게 하는게 가능해?"
+
+이 결정은 같은 날 앞서 이 절에 적었던 "속성이 많은 위젯은 빌더 체인을 유지한다"는 규칙을 대체합니다. 그 규칙은 틀린 기록이었습니다. 빌더 체인은 어떤 위젯에도 없습니다. 확정되는 것은 다음입니다.
+
+1. **모든 composable은 일반 함수입니다.** 위젯(FR-15)도 사용자가 만든 composable도 인자를 전부 위치 인자로 받습니다. `Column(modifier, || { .. })`, `Button(label, on_click)`, `TextField(value, on_change, modifier, label, ..)`. 빌더 체인(`Button(..).on_click(..)`, `Column().modifier(..).content(..)`)은 없습니다. 속성이 많은 위젯도 마찬가지입니다. 함수 형태는 기본값을 받지 않으므로 모든 인자를 적습니다(39.1.3).
+2. **매개변수 순서는 하나의 규칙을 따릅니다.** 필수 데이터, 이벤트 핸들러, `modifier`, 선택 매개변수(선언된 순서), 내용 클로저 순서이고, 내용 클로저는 항상 마지막입니다. Compose가 `modifier`를 필수 데이터 뒤의 첫 선택 매개변수로 두고 후행 람다를 마지막에 두는 관례와 같고, Rust에서도 클로저를 마지막 인자로 두면 읽기 좋습니다. 해당하는 종류가 없으면 그 칸은 건너뜁니다. 예: `Column(modifier, content)`, `TextField(value, on_change, modifier, label, single_line, ..)`.
+3. **`#[Composable]`이 같은 이름의 호출 매크로도 만듭니다.** 함수와 매크로는 이름 공간이 달라서 `TextField(..)`와 `TextField!(..)`가 함께 있습니다. 사용자 composable에도 똑같이 적용되며, 위젯만의 특별 대우가 없습니다. 매크로 형태는 이름 있는 인자와 기본값을 받습니다(39.1.1, 39.1.2).
+4. **기본값은 `#[default(expr)]`로 선언합니다.** 이 속성이 없는 매개변수는 필수입니다. 기본값은 매크로 형태에서만 적용됩니다.
+5. **속성 이름은 `#[Composable]`입니다.** 함수 이름과 같은 PascalCase이고, 이름이 같은 호출 매크로와 한 덩어리로 읽힙니다. 2026-10-25에 소유자가 앞서 정한 `#[composable]`을 이 이름으로 바꿨습니다. 위젯 이름은 FR-15의 Compose 이름(PascalCase)을 그대로 씁니다.
+
+#### 39.1.1 호출 매크로
+
+`#[Composable] fn Name(..)`은 함수를 그대로 두고, 같은 이름의 호출 매크로를 함께 내보냅니다. 예:
+
+```rust
+#[Composable]
+fn TextField(
+    value: String,
+    on_change: impl Fn(String),
+    modifier: Modifier,                       // 이름이 modifier이고 타입이 Modifier면 기본값 Modifier::new()
+    #[default(|| {})] label: impl Fn(),
+    #[default(false)] single_line: bool,
+    #[default(|| {})] content: impl Fn(),
+) { .. }
+
+TextField(value, on_change, Modifier::new(), || Text("이름"), true, || {});      // 함수 형태
+TextField!(value, on_change, label = || Text("이름"), single_line = true);       // 매크로 형태
+```
+
+**이름 붙이기.** 정의는 `#[macro_export]`가 붙은 숨은 이름(`#[doc(hidden)]`, `__compose_call_<Name>`)으로 크레이트 루트에 놓이고, 그 composable이 있는 모듈에서 `pub use`로 원래 이름(`Name`)으로 다시 내보냅니다. 속성 매크로가 만든 `macro_export`는 이름이 겹치지 않도록 숨은 이름이어야 하고, 사용자는 숨은 이름을 쓰지 않습니다. 가시성은 함수와 같습니다. 함수가 `pub`이면 매크로도 `pub use`이고, 크레이트 안에서만 보이면 `pub(crate) use`입니다. 그래서 `use ui::TextField;` 한 줄이 함수와 매크로를 함께 가져옵니다.
+
+**인자 문법.** 매크로는 위치 인자를 앞에 두고, 그 뒤에 `이름 = 값`을 둡니다.
+
+- **위치 접두사가 먼저, 이름 있는 인자가 뒤입니다.** 위치 인자는 39.1의 매개변수 순서대로 앞에서부터 채우고, 이름 있는 인자는 남은 매개변수를 순서와 상관없이 채웁니다. 이름 있는 인자 뒤에 위치 인자가 오면 컴파일 오류입니다.
+- **필수 매개변수는 위치로든 이름으로든 반드시 줘야 합니다.** 빠지면 컴파일 오류이고, 메시지에 매개변수 이름이 들어갑니다(예: missing required argument value for TextField!).
+- **모르는 이름은 컴파일 오류**이며 메시지에 그 이름과 쓸 수 있는 이름 목록이 들어갑니다.
+- **같은 매개변수를 두 번 주면 컴파일 오류**입니다. 위치 인자로 채운 매개변수를 이름으로 또 주는 경우도 포함합니다.
+- **클로저는 보통의 식입니다.** `on_change = |s| state.set(s)`, `label = || Text("이름")`처럼 인자 자리에 그대로 씁니다. 매크로는 인자 식을 그대로 함수 호출로 넘기므로 클로저의 매개변수 타입은 함수 호출과 똑같이 매개변수의 `Fn` 바운드에서 추론됩니다. 매크로가 클로저를 감싸거나 복제하지 않습니다.
+- **내용 클로저는 이름으로 주거나(`content = || { .. }`), 마지막에 중괄호 블록으로 줍니다.** `Column!(modifier = m, { Text("a"); })`처럼, 인자 목록의 맨 끝에 쉼표로 구분된 `{ .. }` 블록이 있으면 `|| { .. }`로 읽어 내용 클로저(마지막 매개변수)에 넣습니다. 내용 클로저가 이미 주어졌거나 함수에 내용 클로저가 없으면 컴파일 오류입니다.
+- **평가 순서.** 인자 식은 쓴 순서가 아니라 매개변수 순서로 평가되고, 기본값 식은 그 매개변수 자리에서 평가됩니다. 매크로는 임시 변수를 만들지 않으므로 인자의 임시값 수명은 함수 호출의 것과 같습니다. 쓴 순서대로 평가하려면 인자를 먼저 `let`에 묶어야 하는데, 그러면 클로저가 함수 매개변수의 타입을 보지 못해 `|v| ..`의 `v` 같은 클로저 매개변수 타입을 추론하지 못합니다. 그래서 인자 식을 함수 호출 자리에 그대로 둡니다. Kotlin은 이름 있는 인자를 쓴 순서대로 평가하므로 이 점이 Compose와 다르고, 가이드에 그렇게 적습니다(소유자 승인 2026-10-25).
+
+**위생.** 매크로는 호출자의 식을 호출자의 이름 공간에서 평가합니다. 매크로가 만드는 이름은 없으며(지역 변수 선언이 없음), `macro_rules!`의 위생에 기대어 호출자의 변수와 겹치지 않습니다. 기본값 식(`#[default(expr)]`)은 정의된 곳이 아니라 호출 위치에 펼쳐지므로 그 식이 쓰는 이름은 호출 위치에서 보여야 합니다. 그래서 기본값 식은 경로를 전부 적거나(`::compose_rust::Modifier::new()`) `$crate`로 해석되는 형태를 쓰도록 속성이 식을 정규화합니다.
+
+**함수를 찾는 법.** 매크로는 `$crate`를 앞에 둔 절대 경로로 함수를 부르지 못합니다. 속성 매크로는 자신이 놓인 모듈 경로를 알 수 없기 때문입니다. 대신 매크로는 함수를 **자기 이름 그대로 호출 위치의 이름 공간에서** 부릅니다. 함수와 매크로가 한 `use`로 함께 들어오므로 정상적인 사용에서는 같은 함수를 가리킵니다. 이 방식의 한계는 `use ui::TextField as Field;`처럼 이름을 바꿔 가져오면 `Field!`가 `TextField`를 찾지 못한다는 것이고, 그때는 함수 형태(`Field(..)`)를 씁니다. 정의한 크레이트 안에서와 다른 크레이트에서 규칙이 같습니다. 정의한 크레이트 안에서는 `macro_expanded_macro_exports_accessed_by_absolute_paths` 린트가 절대 경로(`crate::__compose_call_Name`)를 막으므로 `pub use`는 모듈 상대 경로로 씁니다. 다른 크레이트에서는 `pub use`된 이름을 `use`로 가져옵니다. 구현이 이 린트와 충돌해서 이 방식이 동작하지 않으면 구현 PR이 멈추고 소유자에게 되묻습니다.
+
+**매크로의 문서.** 생성된 매크로는 `#[doc]`을 달고 나옵니다. 내용은 함수 자신의 문서 텍스트에 이어, 매개변수마다 한 줄씩 선언 순서대로 이름, 타입, 기본값(`#[default]`의 식, `modifier`의 암묵 기본값 포함) 또는 `required`를 적은 목록입니다. rust-analyzer는 매크로를 가리켰을 때 매개변수를 펼쳐 보이지 않으므로, IDE의 호버가 서명을 보이게 하는 것은 이 문서뿐입니다. `pub use`로 다시 내보낸 이름에도 이 문서가 따라갑니다.
+
+**함수 형태와 같은 호출입니다.** 매크로는 인자를 정리한 뒤 함수 한 번의 호출로 펼쳐지고, 중간 함수, 클로저 감싸기, 동적 디스패치, 할당을 더하지 않습니다. 그래서 실행 비용이 같습니다. 슬롯 그룹 키는 호출 위치에서 정해지고(`#[track_caller]`의 `Location::caller()`, 39.2의 위치 기반 기억), 매크로 형태에서 그 위치는 매크로 호출 자리입니다. 매크로가 한 번의 호출로만 펼쳐지고 중간 함수가 없으므로 rustc가 보고하는 위치가 곧 `Name!(..)`을 쓴 자리입니다. 같은 자리에서 함수 형태로 부르든 매크로 형태로 부르든 같은 그룹 키를 얻고, `macro_rules!` 안에서 부르면 두 형태 모두 바깥 매크로의 호출 자리가 위치가 됩니다.
+
+#### 39.1.2 기본값
+
+- `#[default(expr)]`는 매개변수 하나에 붙고, 매크로 형태에서 그 매개변수가 빠졌을 때 `expr`이 인자가 됩니다. 속성이 없는 매개변수는 필수입니다.
+- 이름이 `modifier`이고 타입이 `Modifier`인 매개변수는 `#[default]` 없이도 `Modifier::new()`가 기본값입니다. 다른 기본값을 주려면 `#[default(expr)]`를 씁니다.
+- 기본값은 매크로 형태에만 있습니다. 함수 형태는 모든 인자를 받으며, 기본값을 쓰는 함수 호출은 없습니다.
+- `expr`의 타입이 매개변수 타입에 맞지 않으면 일반 타입 오류입니다. 필수 매개변수가 기본값이 있는 매개변수 뒤에 올 수 있습니다. 위치 인자는 39.1의 순서로 채우므로 그 경우 기본값이 있는 매개변수는 이름으로 건너뜁니다.
+
+#### 39.1.3 한계
+
+- **`impl` 블록과 트레이트의 메서드에는 매크로가 없습니다.** `#[Composable]`을 메서드에 붙여도 함수 형태만 만들고, 호출 매크로를 만들지 않습니다. 메서드는 이름 공간에 독립된 이름이 없어 같은 이름의 매크로를 둘 수 없기 때문입니다.
+- **이름을 바꿔 가져온 composable.** `use ui::TextField as Field;`처럼 다른 이름으로 가져오면 매크로 형태(`Field!`)는 쓸 수 없고 함수 형태(`Field(..)`)만 씁니다. 이유는 위의 "함수를 찾는 법"과 같습니다. 가이드에도 적습니다(소유자 승인 2026-10-25).
+- **제네릭 composable.** 타입 매개변수와 const 제네릭은 인자에서 추론되는 한 매크로 형태에서도 함수 형태와 똑같이 동작합니다(`List!(items, row = |x| ..)`). 매크로는 인자를 그대로 넘기므로 추론 결과가 같습니다. 명시적 타입 인자(turbofish)는 매크로 형태에 쓸 수 없고, 필요하면 함수 형태(`List::<T>(..)`)를 씁니다. `#[default]`가 붙은 매개변수의 타입이 제네릭이면 기본값 식의 타입으로 추론됩니다. `None`처럼 타입을 정하지 못하는 기본값은 rustc의 추론 오류로 드러나며, 그런 매개변수는 구체 타입으로 선언하거나 필수로 둡니다.
+- **`impl Trait` 인자.** 인자 위치의 `impl Fn(..)`, `impl Into<_>` 등은 함수 형태와 매크로 형태 모두 받습니다. `#[default(|| {})]`처럼 구체 타입을 만드는 기본값도 됩니다.
+- **클로저의 소유권.** 매크로는 인자를 값으로 넘기며 복제하지 않습니다. `MutableState<T>`가 `Copy`이므로(39.2.1) `move` 클로저 여러 개와 내용 클로저가 같은 핸들을 `.clone()` 없이 씁니다. 두 형태가 같은 규칙을 따릅니다.
+- **`dyn` 함수 포인터나 변수로 받은 composable 호출**은 매크로 대상이 아닙니다. 매크로는 이름으로 함수를 부릅니다.
 
 - **composable은 함수입니다.** `#[composable]` 속성이 본문에 그룹을 넣고, 사용자는 그룹도 키도 손으로 쓰지 않습니다. 분기, `match`, 반복문, 조기 `return`, `continue`, `break`, `?`, 되감기를 지나도 그룹이 맞게 닫힙니다(INTENT D2가 기록한 클로저 방식의 실패를 되풀이하지 않습니다).
 - **이름은 Compose를 따릅니다.** Compose에 같은 개념이 있으면 그 이름을 Rust 관례(함수와 메서드는 snake_case, 위젯은 FR-15의 Compose 이름)로 옮깁니다. PR-7의 "Rust 공개 API는 Dioxus 관례" 행은 dioxus-compose 층에 대한 것이 됩니다.
@@ -2348,6 +2491,21 @@ fn main() {
 - **상태.** 상태 객체를 읽은 스코프가 기록되고, 쓰면 그 스코프들이 무효가 됩니다. 한 프레임 안의 여러 쓰기는 한 번의 recomposition이 됩니다. 워커 스레드의 쓰기도 같은 상태 객체로 하며, Host가 내부적으로 프레임을 요청합니다. 사용자 코드는 경계 함수를 부르지 않습니다(PR-3).
 - **effect.** composition이 적용된 뒤 실행되는 효과(Compose의 `SideEffect`), 키가 바뀌면 다시 시작하고 composition을 떠나면 취소되는 효과(`LaunchedEffect`), 떠날 때 정리하는 효과(`DisposableEffect`)를 둡니다. 이벤트 핸들러 안의 상태 쓰기는 recomposition을 부르고, recomposition 도중의 상태 쓰기는 다음 프레임으로 미뤄집니다.
 - **UI 로컬 상태는 여전히 Kotlin에 있습니다(D5).** `TextField`는 비제어이고(FR-5), 스크롤, 포커스, 애니메이션 진행 상태는 Renderer가 가집니다. recomposition 런타임이 생겼다고 그것들이 Rust로 옮겨 오지 않습니다.
+
+#### 39.2.1 상태 핸들
+
+`mutable_state_of`가 돌려주는 `MutableState<T>`는 `Copy`입니다(2026-10-25 소유자 결정, 이슈 #278). 클로저로 옮길 때 `.clone()`을 쓰지 않습니다. 핸들은 값이 아니라 아레나 안의 자리를 가리키는 작은 값이고, 값은 composition이 소유합니다.
+
+1. **소유와 해제.** 값은 composition의 아레나가 소유하고, 값을 만든 `remember` 호출의 슬롯 그룹이 가진 칸에 놓입니다. 핸들은 아레나 번호와 세대를 담습니다. 그 그룹이 composition에서 사라지면(분기가 닫힘, 키 있는 항목이 빠짐, 부모가 떠남) 값은 그 recomposition이 적용될 때 해제되고, 칸의 세대가 올라갑니다. 값의 `Drop`은 한 번 실행됩니다. 그룹이 같은 recomposition 안에서 다시 나타나면 같은 값을 유지합니다(Compose의 `remember`와 같음). 키 있는 항목의 재배치는 해제가 아니라 이동이라 값과 핸들이 그대로입니다.
+2. **해제된 뒤의 사용.** 세대가 맞지 않는 핸들은 해제된 것으로 처리합니다. 화면이 사라진 뒤에 늦게 도착하는 콜백(네트워크 응답, 타이머)이 상태를 바꾸는 것은 정상적인 상황이고 Compose에서도 해가 없습니다. 그래서 쓰기는 조용히 버리고, 읽기는 프로그래머 오류로 봅니다.
+   - `set`과 `update`는 아무 일도 하지 않습니다. 디버그 빌드에서는 핸들마다 한 번 경고 로그를 남기고, 릴리스 빌드에서는 남기지 않습니다.
+   - `get`은 값을 돌려줄 수 없으므로 패닉합니다. 메시지에는 `Released`와 그 핸들을 만든 `remember`의 소스 위치(파일과 줄)가 들어갑니다. 값을 읽을 수 없는 자리를 기본값으로 메우지 않기 위해서입니다.
+   - `try_get`, `try_set`, `try_update`는 `Err(StateError::Released)`를 돌려줍니다. 해제될 수 있는 쪽(워커 스레드 등)은 이것을 씁니다.
+   - 이 패닉은 경계 입력이 잘못된 경우의 규칙(NFR-7, `ProtocolError`)과 다릅니다. NFR-7은 와이어로 들어온 잘못된 입력에 관한 것이고 프로그래머 오류에는 해당하지 않습니다.
+   - 어느 경우에도 해제된 칸을 읽거나 쓰지 않고, 재사용된 칸을 다른 값으로 착각하지 않으며(세대 검사), 미정의 동작은 없습니다. 해제된 핸들을 읽어도 구독은 만들어지지 않습니다.
+3. **워커 스레드.** `MutableState<T>`는 `T: Send`일 때 `Send + Sync`입니다. 워커 스레드는 핸들을 `move`로 가져가 `set`과 `update`를 부를 수 있고, 별도의 보내기용 핸들이 없습니다. 아레나는 쓰기를 잠금 안에서 적용하고, 쓰기는 값을 바꾼 뒤 그 상태를 읽은 스코프를 무효로 표시하고 Host가 내부적으로 프레임을 요청합니다. 워커의 쓰기는 UI 스레드가 다음 프레임 시작에 반영하고, 한 프레임 안의 여러 쓰기는 한 번의 recomposition이 됩니다. 워커에서 `get`은 잠금 안에서 현재 값을 복제해 돌려주며 구독을 만들지 않습니다(구독은 UI 스레드의 composition 안에서 읽을 때만 생깁니다). 워커는 경계 함수를 부르지 않습니다(PR-3). composition이 떠난 뒤의 워커 쓰기는 1번과 2번이 정한 대로 no-op입니다.
+4. **같음.** 두 핸들은 같은 아레나 칸과 세대를 가리킬 때만 같습니다(`PartialEq`, `Eq`, `Hash`). 값이 같다는 뜻이 아닙니다. 핸들이 `Copy`이므로 소유 매개변수와 건너뛰기 비교(39.2)는 핸들을 값처럼 비교하며, 같은 핸들을 넘긴 composable 호출은 건너뜁니다.
+5. **`.clone()`이 필요 없습니다.** 핸들을 `move` 클로저 여러 개와 자식 클로저에서 복제 없이 씁니다. `remember`는 `T: Clone`을 요구하는 현재 시그니처를 유지하고, `Copy`는 `Clone`이므로 그대로 동작합니다.
 
 #### 39.3 경계
 
@@ -2375,9 +2533,33 @@ fn main() {
    7. **실행 조건을 기록합니다.** 기계, 부하 평균, 반복 횟수, 워밍업 횟수, 시나리오마다 p50, p99, 최대값과 원시 데이터의 경로를 `benches/baseline.json`에 남깁니다. 부하 평균이 높을 때 잰 값은 그 사실과 함께 기록하고, 판정에는 한가한 기계에서 잰 값을 씁니다.
    8. **결과는 그대로 보고합니다.** 10배에 못 미치면 실측 배수를 그대로 보고합니다. 목표를 맞추려고 시나리오, 지표, 판정 방법을 바꾸는 것은 금지입니다. 이 기준을 `Done`으로 표시하는 것은 측정한 쪽이 아니라, 다른 세션이 같은 벤치를 다시 돌려 같은 결과를 확인한 뒤입니다.
 
+#### 39.5 호출 모양과 상태 핸들의 수용 기준
+
+1. **함수 형태.** 모든 위젯이 위치 인자 함수로 불리고, 빌더 체인 메서드(`.on_click(..)`, `.modifier(..)`, `.content(..)`)가 공개 API에 없습니다. 위치 인자 순서가 39.1의 규칙(필수 데이터, 핸들러, `modifier`, 선택, 내용)을 따르고, `Column`, `Row`, `Box`, `LazyColumn`, `LazyRow`는 `(modifier, content)`, `Button`은 `(label, on_click)` 순서입니다. 이름 패턴 `fr39_function_form_*`.
+2. **호출 매크로와 함수의 동치.** 모든 `#[Composable]`(위젯과 사용자 composable)에 같은 이름의 호출 매크로가 있고, 매크로 형태와 함수 형태가 같은 Mutation과 같은 슬롯 그룹 키를 만듭니다. 같은 호출 자리에서 두 형태가 같은 그룹 키를 얻는 것을 확인합니다. 이름 패턴 `fr39_call_macro_*`.
+3. **`Copy` 핸들.** `MutableState<T>`가 `Copy`입니다(컴파일 시점 확인). 한 핸들을 `.clone()` 없이 `move` 클로저 둘에 넘기는 코드가 컴파일되고, 둘 다 같은 값을 바꿉니다. 이름 패턴 `fr39_state_handle_is_copy_*`.
+4. **해제.** 그룹이 사라진 recomposition이 적용된 뒤 값의 `Drop`이 한 번 실행됩니다. 같은 recomposition 안에서 다시 나타난 그룹과 키 있는 항목의 이동은 값을 유지합니다. 이름 패턴 `fr39_state_released_*`.
+5. **해제된 뒤의 사용.** 해제된 핸들의 `set`과 `update`는 아무 일도 하지 않고 다른 상태와 화면을 바꾸지 않습니다(fr39_state_use_after_release_set_is_a_no_op). 디버그 빌드에서 경고 로그가 핸들마다 정확히 한 번 나옵니다(fr39_state_use_after_release_warns_once_in_debug). `get`은 패닉하고 메시지에 `Released`와 `remember`의 파일과 줄이 들어 있습니다(fr39_state_use_after_release_get_panics_with_the_creation_site). `try_get`, `try_set`, `try_update`는 `StateError::Released`를 돌려줍니다(fr39_state_use_after_release_try_returns_released). 칸이 다른 값에 재사용된 뒤에도 옛 핸들이 새 값을 읽거나 쓰지 못합니다(fr39_state_use_after_release_does_not_reach_a_reused_slot).
+6. **워커 스레드.** `MutableState<i32>`가 `Send + Sync`입니다(컴파일 시점 확인). 워커 스레드의 쓰기가 다음 프레임에 반영되고, 한 프레임 안의 UI 쓰기와 워커 쓰기가 recomposition 한 번이 되며, composition이 떠난 뒤의 워커 쓰기가 오류 없이 무시됩니다. 이름 패턴 `fr39_state_worker_*`.
+7. **같음.** 같은 칸의 핸들 복사본은 같고, 값이 같은 서로 다른 상태의 핸들은 같지 않습니다. 이름 패턴 `fr39_state_handle_identity_*`.
+
+8. **호출 매크로의 인자 규칙.** 위치 접두사 뒤에 이름 있는 인자가 순서와 무관하게 들어갑니다. 기본값이 있는 인자를 생략할 수 있고, 후행 `{ .. }` 블록과 `content = || { .. }`가 같은 호출입니다. 인자 식은 매개변수 순서로 평가됩니다. 이름 패턴 `fr39_call_macro_args_*`.
+9. **호출 매크로의 컴파일 오류.** `trybuild`로 다음 각각이 컴파일에 실패하고 메시지가 해당 매개변수 이름을 포함합니다. 모르는 이름, 필수 인자 빠짐, 같은 인자를 두 번(위치와 이름의 중복 포함), 이름 있는 인자 뒤의 위치 인자, 내용 클로저를 두 번 줌, 내용 클로저가 없는 함수에 후행 블록. 매크로 크레이트(`compose-rust/macros`)에 `trybuild`를 dev-dependency로 더하고, 실패 사례와 기대 출력은 `compose-rust/macros/tests/ui/`에 두며, 기대 출력은 CI의 stable 도구 체인으로 고정합니다. 이름 패턴 `fr39_call_macro_compile_fail_*`.
+10. **기본값.** `#[default(expr)]`가 없는 매개변수가 필수이고, `modifier`의 기본값이 `Modifier::new()`이며, 기본값이 매크로 형태에서만 적용되고 함수 형태는 모든 인자를 받습니다. 기본값 식이 호출 위치에서 평가됩니다. 이름 패턴 `fr39_default_*`.
+11. **한계의 확인.** 제네릭(타입 인자 추론, const 제네릭)과 `impl Trait` 인자의 composable을 매크로 형태로 부를 수 있고, 메서드에 붙은 `#[Composable]`은 함수 형태만 만듭니다. 이름을 바꿔 가져온 경우 매크로가 컴파일 오류를 내는 것을 `trybuild`로 확인합니다. 이름 패턴 `fr39_call_macro_limits_*`.
+12. **생성 비용 없음.** 같은 호출의 함수 형태와 매크로 형태가 같은 함수 호출로 펼쳐지는 것(`cargo expand` 출력 비교 또는 호출 수 확인)을 보입니다. 이름 패턴 `fr39_call_macro_expands_*`.
+
+13. **매크로 문서.** 생성된 매크로의 `#[doc]`에 함수의 문서 텍스트가 들어 있고, 모든 매개변수가 선언 순서대로 이름, 타입, 기본값 또는 `required`와 함께 나옵니다. 매크로 확장 테스트나 rustdoc JSON으로 확인합니다. 이름 패턴 `fr39_call_macro_doc_*`.
+
+위 이름 패턴은 구현과 함께 실제 테스트 이름으로 바뀝니다. 이 기준은 구현이 들어올 때까지 `Agreed`입니다.
+
+#### 39.6 이행
+
+이 변경은 공개 API를 바꾸므로 compose-rust 1.0.0(2026-11-14) 전에, 한 릴리스 안에서 함께 끝냅니다(이슈 #278). 샘플 12개, 크레이트의 테스트, 가이드(`docs/guide/`의 영어와 한국어)와 README 예시가 같은 릴리스에서 새 모양으로 옮겨 갑니다. 속성 이름이 `#[composable]`에서 `#[Composable]`로 바뀌는 것도 같은 이행에 들어갑니다. 1.0.0 전이므로 옛 호출 모양(빌더 체인)과 옛 속성 이름의 별칭을 두지 않습니다. dioxus-compose 어댑터는 `#[Composable]`과 이 호출 모양을 쓰지 않으므로 영향이 없을 것으로 봅니다. 이것은 확인이 필요한 항목이고, 상태 핸들 구현(`Copy` 핸들)의 PR에서 확인합니다.
+
 ### FR-40 HTML 텍스트 속성 (`Agreed`, 진행 중, 이슈 #106)
 
-> **현황(2026-10-04).** develop에는 없습니다. 구현은 초안 PR #110(`feat/measure-call`)에 PR-2.1과 함께 있고 병합되지 않았습니다. 그 경로에서 나온 후속 문제는 #90, #91입니다.
+> **현황(2026-10-25).** develop에 있습니다. PR-2.1과 함께 PR #110(`feat/measure-call`)으로 병합되었습니다. 그 경로에서 나온 후속 문제는 #90, #91입니다. 속성 태그는 FR-40의 텍스트 속성이 110-116(`Font`=110, `WordBreak`=111, `OverflowWrap`=112, `TabSize`=113, `AbsoluteSize`=114, `SoftWrap`=115, `SpanFonts`=116)을 쓰고, 100-109는 `CodeEditor`(FR-38)가 가집니다.
 
 CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 데 필요한 속성입니다. 측정 호출(PR-2.1)의 값이 그려진 값과 같으려면, 그리기도 같은 칸을 같은 뜻으로 받아야 합니다. 노드 단위 글꼴은 역할이 없는 텍스트에만 엽니다(INTENT D20, 2026-10-03 소유자 결정).
 
@@ -2395,6 +2577,14 @@ CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 
 4. `tab_size: u8`(기본 8). 탭은 다음 탭 위치까지 차지합니다. 비례 글꼴에서는 Host가 탭을 공백으로 펼칠 수 없습니다.
 5. `absolute_size: bool`. 참이면 시스템 글꼴 배율을 적용하지 않습니다(CSS px). 측정과 그리기에 똑같이 적용됩니다. **구현은 `fontScale = 1`인 `Density`입니다.** 글자 크기를 글꼴 배율로 나누는 방식은 쓰지 않습니다. Android 14부터 글꼴 배율이 비선형이라 나눗셈으로 되돌릴 수 없기 때문입니다. HTML 텍스트의 접근성 배율은 FR-43의 확대 배율 `k`가 맡습니다.
 6. 공백 규칙: Renderer는 받은 문자열의 공백을 자르거나 접지 않습니다. 접기는 Host의 일입니다.
+7. 그릴 때의 `letter_spacing`(소유자 승인 2026-10-25, 이슈 #90). 지정하지 않은 값은 NaN이고, 그러면 역할의 값을 씁니다. 명시한 0은 진짜 0이라 자간을 더하지 않습니다. 측정 요청의 `letter_spacing`(PR-2.1)과 같은 규칙이며, CSS `letter-spacing: 0`과 `normal`이 역할의 자간으로 바뀌지 않게 하려는 것입니다. 와이어의 칸은 그대로이고 값의 뜻만 정합니다.
+8. 구간마다 크기와 자간이 다른 텍스트(소유자 승인 2026-10-25). `<p>본문 <span style="font-size:2em">큰 글자</span></p>`처럼 한 덩이 안에서 구간마다 크기가 다른 경우를 재고 그립니다. 지금은 크기와 자간이 노드 전체에 하나뿐이고, 구간이 크기를 가질 수 있는 길은 `type_role`뿐입니다. 크기가 다른 덩어리를 별도 `Text`로 쪼개면 줄바꿈이 이음매에서 끊겨 FR-26이 막으려던 문제(문단이 한 줄을 공유하지 못함)가 그대로 생기므로 쓰지 않습니다.
+  - 곁 표 속성 `SpanMetrics`, 속성 태그 121입니다(120은 FR-43의 `IslandZoom`이 가집니다). `SpanFonts`(116)와 같은 모양이고, 스팬 레코드는 36바이트로 그대로 둡니다. 쓰는 텍스트만 비용을 냅니다.
+  - blob은 `count: u32`와 항목들이고, 항목은 16바이트입니다: `span: u32`(몇 번째 구간), `font_size: f32`(NaN이면 지정 없음, 단위 dp), `letter_spacing: f32`(NaN이면 지정 없음), `reserved: u32`(0). `absolute_size`와 `zoom`은 노드 쪽 규칙을 그대로 따릅니다. 숫자 굵기는 `bold` 플래그로 이미 되므로 이 표에 넣지 않고, 필요해지면 `reserved`를 씁니다.
+  - 이 표는 `TypeRole::None`인 텍스트에서만 읽습니다. 구간에 `type_role`이 있으면 역할이 이깁니다(`SpanFonts`와 같은 규칙).
+  - 구간 번호가 범위 밖이거나, 한 구간 안에서 항목이 중복되거나, 표가 버퍼 밖을 가리키면 `ProtocolError`(NFR-7)이고, 측정은 그 레코드를 `Malformed`로 돌립니다.
+  - 측정과 그리기는 구간 스타일을 만드는 같은 함수(`fontSize = metrics?.fontSize ?: role...`, `letterSpacing = metrics?.letterSpacing`)를 씁니다. 그러므로 `absolute_size`, `zoom`, 글꼴 배율 규칙이 노드 크기와 똑같이 구간에도 적용됩니다.
+  - 덧붙이기만 합니다. 새 속성 종류이고 스키마 해시가 바뀝니다.
 
 수용 기준:
 1. 같은 HTML 텍스트를 측정한 값과 그린 값이 비트 단위로 같습니다(PR-2.1 기준 1). 아래 각 경우를 모두 확인합니다.
@@ -2406,11 +2596,14 @@ CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 
 3. 시스템 글꼴 배율을 200%로 바꿨을 때, `absolute_size` 텍스트의 측정값과 그린 크기는 그대로이고, 역할을 가진 텍스트는 커집니다.
 4. 역할을 가진 텍스트에 `font`를 보내면 무시되고 테마 글꼴로 그려집니다. 역할 원칙이 HTML 경로 밖으로 새지 않는다는 확인입니다.
 5. 다섯 플랫폼과 Web에서 기준 1의 라틴 경우가 통과합니다.
+6. 명시한 `letter_spacing = 0`은 역할의 자간 없이 그려지고, NaN은 역할의 값으로 그려집니다. 측정값과 그린 값이 두 경우 모두 같습니다(fr40_explicit_zero_letter_spacing_is_not_unset).
+7. `SpanMetrics`가 오고 가고(곁 표 인코딩과 디코딩, 프로토콜 벡터), 범위 밖 구간 번호는 `ProtocolError`입니다(fr40_span_metrics_round_trip, fr40_span_metrics_out_of_range_is_protocol_error).
+8. 본문 14와 구간 28, 구간 자간 2dp가 섞인 문단, 한국어 줄바꿈, `absolute_size`, `zoom` 1.5에서 측정한 너비, 높이, 첫 기준선, 줄 수, 마지막 줄 폭이 그린 값과 비트 단위로 같습니다(pr2_measured_text_matches_the_drawn_text의 확장). 구간의 크기는 더 크게 그려지고 구간의 자간은 구간을 넓히며, 역할을 가진 텍스트에서는 무시됩니다(fr40_span_font_size_draws_larger, fr40_span_letter_spacing_widens_the_run, fr40_span_metrics_ignored_when_text_has_a_role).
 
 - HTML 화면의 접근성 배율(시스템 글꼴 배율을 `absolute_size` 텍스트에 어떻게 반영할지)은 아직 정하지 않았습니다. 검토 문서를 만들어 소유자가 정합니다. `absolute_size` 칸 자체는 어느 결정에서도 필요합니다.
 ### FR-41 Transform과 렌더러가 재생하는 애니메이션 (`Agreed`, 진행 중, 이슈 #105, PR #83)
 
-> **현황(2026-10-04).** develop에는 없습니다. FR-41.1, 41.2, 41.4는 PR #83(`feat/html-primitives`)에 있고, 그 PR은 PR #74(FR-42)를 포함합니다. 41.4는 FR-39 런타임이 develop에 없어 Dioxus 어댑터에 대고 구현되어 있습니다. 41.3은 `Draft`입니다.
+> **현황(2026-10-25).** FR-41.1, 41.2, 41.4는 develop에 있습니다. PR #83(eeca879a)이 들어왔고, 그 PR은 PR #74(FR-42)를 포함합니다. 41.4는 FR-39 런타임이 develop에 없어 Dioxus 어댑터에 대고 구현되어 있습니다. 41.3은 `Draft`입니다.
 
 요청한 쪽: dioxus-compose FR-34.1(CSS transform 전부, M14 10-18)과 FR-34.2(CSS transition과 animation, 혼합안). 소유자 결정(2026-10-03): `opacity`, `color`, `background-color`, `transform`은 렌더러가 Compose 애니메이션으로 재생하고, 레이아웃 속성은 나중에(M15) Host가 매 프레임 시각을 넘겨 계산합니다. 이 초안은 그중 렌더러 쪽 둘을 compose-rust 스키마에 적습니다.
 
@@ -2749,7 +2942,7 @@ FR-39의 compose-rust API가 같은 레코드를 씁니다. Compose의 이름을
 
 ### FR-42 HTML/CSS 화면을 그리는 원소 (`Agreed`, 진행 중, 이슈 #104, PR #74)
 
-> **현황(2026-10-04).** develop에는 없습니다. 스키마, 코덱, 프로토콜 벡터, 인터프리터 분기는 PR #74(`feat/html-primitives-schema`)에 있고, 그리기 테스트는 후속 PR로 남아 있습니다.
+> **현황(2026-10-25).** develop에 있습니다. 스키마, 코덱, 프로토콜 벡터, 인터프리터 분기는 PR #74(5ffe1144)로, 그리기와 후속 작업은 PR #83(eeca879a)으로 들어왔습니다. 수용 기준이 모두 증명된 것은 아니므로 상태는 그대로 둡니다.
 
 요청한 쪽: dioxus-compose FR-34(M12, 10-15). Host(`blitz-dom`)가 계산한 상자와 텍스트를 Compose로 그리려면, 계산된 결과를 그대로 놓을 수 있는 원소가 필요합니다. M10 측정(dioxus-compose PR #28)에서 상자 배치는 Chromium과 정확히 같았고 텍스트 폭은 허용치를 넘었습니다. 그래서 **상자는 Host가 계산한 자리에 놓고, 텍스트의 크기는 Compose가 잽니다**(PR-2.1). 소유자 승인 2026-10-03.
 
@@ -2777,7 +2970,9 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 | `Shadow` | x, y, blur, spread (dp), `Paint` | 그림자 그리기 수정자 | `box-shadow` 하나. 여럿이면 수정자를 여러 개 |
 | `Clip` | 켜짐/꺼짐 | `Modifier.clip(shape)` | `overflow: hidden`. 같은 노드에 `CornerEach`가 있으면 그 둥근 모양으로 자르고, 없으면 사각형으로 자릅니다. CSS도 `border-radius`가 있는 상자의 `overflow: hidden`은 둥근 모양으로 자릅니다 |
 | `Alpha` | 0..1 | `Modifier.alpha`(`graphicsLayer`) | `opacity`. 자식까지 한 묶음으로 합성한 뒤 한 번 적용합니다. 자식마다 따로 적용하지 않습니다. CSS `opacity`도 같은 방식입니다 |
+| `BackgroundBrush` | 사각형(x, y, w, h, dp, 노드 기준), `Paint`, 타일 방식(`NoRepeat=1`, `Repeat=2`, `RepeatX=3`, `RepeatY=4`), 타일 크기(w, h, dp) | 위치와 크기를 가진 브러시를 그리는 그리기 수정자 | `background-position`, `background-size`, `background-repeat`. 수정자 태그 28 |
 
+- `BackgroundBrush`(소유자 승인 2026-10-25, 이슈 #95)는 수정자 태그 28입니다. 27은 FR-41.3의 `Transform3D`가 가집니다. 지금은 겹마다 잘린 상자를 두고 타일마다 `Box`를 하나씩 만들어(겹당 1024개까지) 노드가 늘어납니다. 이 수정자는 노드 하나에서 브러시를 노드 안의 사각형에 놓고, 타일 방식대로 되풀이합니다. 겹이 여럿이면 Host가 CSS의 겹 순서를 풀어 수정자를 여러 개 보냅니다. 값은 `Shadow`처럼 16바이트 칸에 들어가지 않으므로 FR-41.1의 가변 길이 `SetModifier` 규칙을 따르고, `k`는 스키마가 정합니다. 타일 방식과 타일 크기가 어긋난 값(w나 h가 0 이하, 모르는 방식)은 `ProtocolError`입니다.
 - 기존 `Border`, `Shape`, `Elevation`은 그대로 둡니다. 네 변이 같으면 Host가 기존 `Border`를 씁니다.
 - **와이어 길이.** `Shadow`(값 24바이트)와 `BorderEach`(48바이트)는 지금의 16바이트 수정자 칸에 들어가지 않습니다. FR-41.1이 정한 가변 길이 `SetModifier` 규칙(`28 + 8k`바이트, `k`는 수정자 태그마다 스키마에 고정)을 따라 `Shadow`는 `k = 1`, `BorderEach`는 `k = 4`입니다. 나머지 다섯은 `k = 0`이라 지금 레코드와 같습니다.
 - 색은 `Paint`입니다. CSS 색은 리터럴이므로 `Paint::Literal`이 쓰입니다. 테마 변수(`--vscode-*`)를 색 역할로 옮기는 것은 dioxus-compose의 변환기 몫이고, 옮길 수 있는 것만 `Paint::Role`이 됩니다.
@@ -2800,7 +2995,8 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 2. 새 수정자 일곱 가지가 각자 Compose 대응대로 그려지고, 데스크톱 렌더러에서 스크린숏 테스트로 확인됩니다.
 3. 네 변이 같은 테두리와 하나의 반지름은 기존 수정자로 나가고, 새 수정자는 값이 서로 다를 때만 나갑니다.
 4. 수정자 하나만 바뀐 갱신에서 그 노드의 그 수정자 말고는 아무것도 나가지 않습니다.
-5. 이 원소들로 dioxus-compose FR-34 수용 기준 1의 세 구역 중 상자(텍스트 제외)가 그 상자 허용치를 지킵니다.
+5. `BackgroundBrush`가 지정한 사각형에 브러시를 놓고 `NoRepeat`, `Repeat`, `RepeatX`, `RepeatY`대로 되풀이합니다. 타일이 수천 개여도 노드는 늘지 않습니다(fr42_background_brush_tiles_without_extra_nodes).
+6. 이 원소들로 dioxus-compose FR-34 수용 기준 1의 세 구역 중 상자(텍스트 제외)가 그 상자 허용치를 지킵니다.
 
 #### 비용
 
@@ -2810,7 +3006,7 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 
 ### FR-43 확대 배율: OS 글자 크기와 앱 확대 (`Agreed`, 진행 중, 이슈 #68, PR #77)
 
-> **현황(2026-10-04).** develop의 데스크톱 렌더러는 `fontScale`을 1로 고정하고 OS 글자 크기를 읽지 않습니다(#68). PR #77(`feat/desktop-text-scale`)이 데스크톱의 OS 글자 크기를 읽습니다. 앱 확대 수준, `ZoomChanged`, `IslandZoom`은 어느 브랜치에도 없습니다.
+> **현황(2026-10-25).** develop의 데스크톱 렌더러는 `fontScale`을 1로 고정하고 OS 글자 크기를 읽지 않습니다(#68). 창 코드는 포크가 가지므로(FR-19.8) OS 글자 크기 읽기는 포크의 PR #156에 있고, 앱 확대 수준, `ZoomChanged`, `IslandZoom`은 이 저장소의 PR #267에 있습니다. 둘 다 병합되지 않았습니다. 이전 판이 적은 "PR #77이 OS 글자 크기를 읽는다"는 맞지 않습니다.
 
 소유자 결정(2026-10-03): "vscode 기준". VS Code의 `window.zoomLevel`처럼 화면 전체를 확대하고, 시작값은 OS 글자 크기입니다. 검토 문서(HTML 화면의 접근성 배율)의 (e)안입니다.
 
@@ -2833,35 +3029,259 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 5. `k`가 바뀌어도 `absolute_size` 텍스트의 `fontScale`은 1이고, 크기는 `k`로만 바뀝니다(fr43_absolute_size_ignores_font_scale).
 6. 다섯 플랫폼과 Web에서 기준 1과 2가 통과합니다. macOS는 기준 2만 해당합니다.
 
-### FR-44 시스템 색 구성표가 바뀌었다는 이벤트 (`Draft`, 제안, 소유자 승인 대기, 이슈 #97)
+#### 43.1 창 밀도가 바뀌었다는 이벤트 `DensityChanged` (소유자 승인 2026-10-25)
 
-> **제안입니다.** 소유자가 승인하기 전까지 구현하지 않습니다. 이벤트 태그 번호는 승인할 때 정합니다.
+Host는 디스플레이 배율(밀도)을 모르고 바뀐 것도 모릅니다. 위의 `ZoomChanged`는 밀도만 바뀌는 이동에는 오지 않습니다. 측정 호출은 Renderer가 `Density(density × k)`로 재므로 측정값은 밀도를 이미 따르지만, HTML 레이아웃은 CSS의 `window.devicePixelRatio`와 `@media (resolution)`, `image-set()`과 `srcset`으로 고를 이미지의 해상도, 1 CSS px 헤어라인 테두리를 장치 픽셀에 맞추는 일에 밀도 값이 필요합니다. CSS px에서 dp로의 배치 자체는 1 CSS px = 1 dp에 `k`를 곱하는 것이라 밀도가 필요 없습니다.
+
+- 새 이벤트 `DensityChanged`, 이벤트 태그 42. 노드가 아니라 Host에게 오며 `node_id = 0`, `handler_id = 0`입니다(`ColorSchemeChanged`, `ReducedMotionChanged`와 같은 종류).
+- 페이로드는 `scale: f32`(장치 픽셀 ÷ dp, 예: 2.0)이고, 레코드는 20바이트(머리 16, `scale@16`)입니다. 0 이하나 NaN은 `ProtocolError`입니다.
+- 시작할 때 첫 프레임 전에 한 번, 그 뒤 값이 바뀔 때(모니터 이동, OS 배율 변경)마다 옵니다. 같은 값이 연달아 오지 않습니다. 오기 전에 Host가 읽는 값은 1.0입니다.
+- `ZoomChanged`와 독립입니다. `WindowSizeChanged`나 `ZoomChanged`에 칸을 더하지 않습니다. 속성 블록도 쓰지 않습니다(Host에서 Renderer로 가는 값이 아닙니다).
+- 번호는 FR-38.9(34-38), FR-45(39, 40), FR-44(41) 다음입니다. `EventPayloadType`이 하나 늘고 스키마 해시가 바뀌며 `events.bin` 프로토콜 벡터에 항목이 하나 더해집니다. 창 코드는 포크 소관이므로(FR-19.8) 이 저장소는 값을 읽어 내보내는 호출만 가집니다.
+
+수용 기준:
+1. 레코드가 20바이트이고 프로토콜 벡터와 일치합니다(fr43_density_event_round_trips).
+2. 첫 이벤트가 오기 전 읽는 값은 1.0입니다(fr43_density_defaults_to_one_before_the_first_event).
+3. 값이 바뀌면 읽는 쪽이 깨어나고, 같은 값은 깨우지 않습니다. 가짜 렌더러가 `DensityChanged(2.0)`를 보내면 측정 캐시가 비워집니다(fr43_density_change_reaches_readers).
+4. 시작할 때 현재 밀도가 한 번 보고됩니다(fr43_density_reported_at_start).
+5. 창을 다른 배율의 모니터로 옮기면 새 밀도가 한 번 보고됩니다(fr43_density_reported_when_window_changes_screen). 모니터를 옮기는 확인이라 수동입니다.
+6. 다섯 플랫폼과 Web에서 기준 4가 통과합니다.
+
+### FR-44 시스템 색 구성표가 바뀌었다는 이벤트 (`Agreed`, 소유자 승인 2026-10-25, 이슈 #97)
 
 `Theme`의 `color_scheme`이 `FollowSystem`이어도 Host는 시스템의 밝음과 어두움이 바뀐 것을 알 수 없습니다. HTML 경로는 `prefers-color-scheme` 미디어 쿼리를 다시 풀고 다시 배치해야 하므로 이 사실이 필요합니다. dioxus-compose의 HTML 다리(`feat/html-compose-bridge`)를 쓰다가 드러났습니다.
 
-제안하는 모양:
-- 새 이벤트 `ColorSchemeChanged`. `ReducedMotionChanged`(FR-41.2)와 `DesignSystemResolved`(FR-32)처럼 노드가 아니라 Host에게 오며, `node_id = 0`, `handler_id = 0`입니다.
-- 페이로드는 `scheme: u32`(0 밝음, 1 어두움)입니다.
-- 시작할 때 한 번, 그 뒤 시스템 값이 바뀔 때마다 옵니다. 같은 값이 연달아 오지 않습니다.
+- 새 이벤트 `ColorSchemeChanged`, 이벤트 태그 41. `ReducedMotionChanged`(FR-41.2)와 `DesignSystemResolved`(FR-32)처럼 노드가 아니라 Host에게 오며, `node_id = 0`, `handler_id = 0`입니다.
+- 페이로드는 `scheme: u32`(0 밝음, 1 어두움)이고, 레코드는 20바이트(머리 16, `scheme@16`)입니다. 모르는 값은 `ProtocolError`입니다.
+- 시작할 때 첫 프레임 전에 한 번, 그 뒤 시스템 값이 바뀔 때마다 옵니다. 같은 값이 연달아 오지 않습니다.
+- 스키마 해시가 바뀌고 `EventPayloadType`이 하나 늘며 프로토콜 벡터에 항목이 하나 더해집니다.
 
-제안하는 수용 기준:
+수용 기준:
 1. OS의 밝음/어두움을 바꾸면 재시작 없이 `ColorSchemeChanged`가 한 번 옵니다(fr44_system_scheme_change_reaches_the_host).
-2. 다섯 플랫폼과 Web에서 기준 1이 통과합니다.
+2. 시작할 때 현재 값이 한 번 오고, 같은 값은 다시 오지 않습니다(fr44_scheme_is_reported_at_start_and_never_repeated).
+3. 레코드가 20바이트이고 프로토콜 벡터와 일치합니다(fr44_color_scheme_event_round_trips).
+4. 다섯 플랫폼과 Web에서 기준 1이 통과합니다. OS 설정을 바꾸는 확인이라 수동입니다.
 
-### FR-45 노드마다 포커스를 얻은 사건과 키를 뗀 사건 (`Draft`, 제안, 소유자 승인 대기, 이슈 #98)
-
-> **제안입니다.** 소유자가 승인하기 전까지 구현하지 않습니다. 이벤트 태그 번호는 승인할 때 정합니다.
+### FR-45 노드마다 포커스를 얻은 사건과 키를 뗀 사건 (`Agreed`, 소유자 승인 2026-10-25, 이슈 #98)
 
 지금 노드 이벤트에는 `OnFocusLost`(8)와 `OnKeyDown`(9)만 있습니다. DOM의 `onfocus`, `onfocusin`, `onkeyup`은 대응하는 원천 사건이 없어 HTML 경로에서 결코 일어나지 않습니다. dioxus-compose의 HTML 다리를 쓰다가 드러났습니다.
 
-제안하는 모양:
 - 새 노드 이벤트 `OnFocusGained`. 그 노드나 그 하위가 포커스를 얻을 때 옵니다. 페이로드는 없습니다.
-- 새 노드 이벤트 `OnKeyUp`. `OnKeyDown`과 같은 페이로드(키, 수정자)를 싣고, 키를 뗄 때 옵니다.
+- 새 노드 이벤트 `OnKeyUp`. FR-12.1의 `KeyDown`과 같은 페이로드(`code`, `text`, 수정자, `repeat`)를 싣고, 키를 뗄 때 옵니다.
 - 둘 다 핸들러가 등록된 노드에만 보냅니다. 등록이 없으면 경계를 건너지 않습니다.
+- 번호. 핸들러 속성은 `OnFocusGained` 117, `OnKeyUp` 118입니다(15.2.2의 규칙대로 FR-40의 110-116 뒤입니다). 이벤트 태그는 FocusGained 39, KeyUp 40입니다. 33은 FR-43의 `ZoomChanged`가, 34-38은 FR-38.9가 가집니다.
+- 스키마 해시가 바뀝니다.
 
-제안하는 수용 기준:
+수용 기준:
 1. 포커스를 받은 `TextField`가 `OnFocusGained`를 한 번 보내고, 포커스를 잃으면 `OnFocusLost`를 보냅니다(fr45_focus_gained_and_lost_pair).
-2. 키 하나를 눌렀다 떼면 `OnKeyDown` 다음에 같은 키의 `OnKeyUp`이 옵니다(fr45_key_up_follows_key_down).
+2. 키 하나를 눌렀다 떼면 `OnKeyDown` 다음에 같은 `code`의 `OnKeyUp`이 옵니다(fr45_key_up_follows_key_down).
+3. 핸들러가 없는 노드에는 두 이벤트 모두 경계를 건너지 않습니다(fr45_unregistered_nodes_get_no_events).
+
+### FR-46 노드 단위 포인터 이벤트 (`Agreed`, dioxus-compose 소유자 결정 D8, 이슈 #116)
+
+요청한 쪽: dioxus-compose FR-34.5 수용 기준 1(포인터 이동, hover, `:hover`/`:active`)과 2(`mousedown`/`mouseup`, `dblclick`, `contextmenu`, `wheel`, 드래그, 포인터 캡처). dioxus-compose의 고정 rev에는 포인터 이벤트가 없고, FR-18.1이 8-15를 제스처용으로 예약만 해 두었습니다. HTML 경로는 `blitz-dom`이 만든 표시 목록을 Host가 직접 적중 판정하므로(FR-42), Renderer에 필요한 것은 "어느 HTML 상자인가"가 아니라 "구독한 노드 안에서 포인터가 어떻게 움직였는가"입니다. 그래서 위젯마다 제스처를 나누는 대신 **이벤트 하나에 종류 칸을 둡니다.**
+
+#### 46.1 구독
+
+- 이벤트를 받는 노드는 구독한 노드뿐입니다. 구독은 노드마다의 선택 사항이고 속성 둘로 합니다. 핸들러 `OnPointer`(속성 태그 67, 값은 핸들러 id)와 받을 종류의 비트마스크 `PointerKinds`(속성 태그 140, `u32`, 종류 `k`의 비트는 `1 << (k - 1)`)입니다.
+- 둘 중 하나라도 없거나 마스크가 0이면 구독이 아닙니다. **구독하지 않은 노드에는 포인터 입력 수정자를 붙이지 않습니다**(FR-18.1과 같은 규칙, NFR-9). 마스크에 `Move`가 없으면 이동을 위한 호버 추적도 켜지 않습니다.
+- Renderer는 포인터 아래에서 해당 종류를 구독한 가장 깊은 노드에 먼저 보냅니다. 핸들러가 소비하지 않으면(46.5) 같은 종류를 구독한 가장 가까운 조상으로 올라갑니다. `Enter`와 `Leave`는 올라가지 않고 노드마다 따로 옵니다(DOM의 `pointerenter`, `pointerleave`와 같습니다).
+- 18.1.1이 예약한 67번(`OnPointerEnter`)을 `OnPointer`가 씁니다. 아직 전송된 적이 없어 움직이는 바이트가 없습니다. 68번(`OnPointerExit`)은 예약으로 남기고 쓰지 않습니다. 140은 15.2.2의 규칙대로 FR-40(110-116), FR-45(117, 118), FR-38.9(130-133) 뒤의 새 블록(140-149)을 엽니다.
+
+#### 46.2 이벤트 레코드
+
+18.1의 표에서 **8번을 `Pointer`로 정하고 9번은 쓰지 않는 예약으로 둡니다.** 호버 들어옴과 나감, 우클릭, 휠은 `Pointer`의 종류이므로 18.1의 `PointerEnter`(8), `PointerExit`(9) 행은 이 이벤트로 대체되고, `ContextMenu`(11)와 `Scroll`(15)은 구독 노드에 대해서는 이 이벤트가 맡습니다. 위젯에 붙는 제스처인 `LongPress`(10)와 드래그(12-14)는 18.1 그대로입니다. 끌기는 `Down`, `Move`, `Up`과 캡처(46.4)로 HTML 경로가 직접 만듭니다.
+
+공통 머리 16바이트(`node_id`, `handler_id`) 뒤에 페이로드가 옵니다. 오프셋은 레코드 시작 기준이고 레코드는 72바이트 고정입니다. 가변 부분도, 문자열 참조도 없습니다(PR-4).
+
+| 오프셋 | 칸 | 뜻 |
+|---|---|---|
+| 16 | `kind: u32` | `Move=1, Enter=2, Leave=3, Down=4, Up=5, Cancel=6, Wheel=7, ContextMenu=8`. 모르는 값은 `ProtocolError` |
+| 20 | `pointer_id: u32` | 같은 손가락, 펜, 마우스 하나를 이어서 가리키는 값. 마우스는 1 |
+| 24 | `pointer_type: u32` | `Mouse=1, Touch=2, Pen=3` |
+| 28 | `x: f32` | 받는 노드의 왼쪽 위 모서리 기준, 단위 dp |
+| 32 | `y: f32` | 위와 같음 |
+| 36 | `buttons: u32` | 지금 눌려 있는 버튼의 비트마스크 |
+| 40 | `button: u32` | 이 이벤트를 일으킨 버튼의 비트(`Down`, `Up`만). 그 밖의 종류는 0 |
+| 44 | `modifiers: u32` | `Shift=1, Ctrl=2, Alt=4, Meta=8`. FR-12.1 `KeyDown`의 네 수정자와 같은 뜻 |
+| 48 | `click_count: u32` | `Down`과 `Up`에서 연속 누름 횟수(1, 2, ...). 그 밖의 종류는 0 |
+| 52 | `delta_x: f32` | `Wheel`만. 양수가 오른쪽 |
+| 56 | `delta_y: f32` | `Wheel`만. 양수가 아래쪽 |
+| 60 | `delta_mode: u32` | `Wheel`만. `Pixel=0`(dp), `Line=1`, `Page=2`(DOM과 같은 숫자) |
+| 64 | `timestamp_nanos: u64` | 입력이 OS에서 발생한 시각. 단조 시계이고 `render_frame`의 `frame_time_nanos`와 같은 시계 |
+
+- **버튼 비트.** `Primary=1, Secondary=2, Tertiary=4(가운데), Back=8, Forward=16`. Compose의 `PointerButtons`와 이름과 순서가 같고, DOM의 `buttons`와 숫자도 같습니다. Renderer는 `Back`과 `Forward`를 보조 버튼 하나로 합치거나 `Tertiary`로 바꾸지 않습니다. 포크 쪽 입력 수정(포크 PR #165, 진행 중)이 들어가기 전에는 플랫폼에 따라 뒤의 둘이 오지 않을 수 있고, 그 경우에도 오는 버튼의 비트는 위 표대로입니다.
+- **`dblclick`은 Host가 만듭니다.** `Down`/`Up`의 `click_count`가 2가 되면 Host가 DOM `dblclick`을 일으킵니다. 간격과 거리의 기준은 OS 설정이므로 Renderer가 셉니다.
+- **`ContextMenu`는 Renderer가 정합니다.** 플랫폼 관례대로 오른쪽 버튼 누름, macOS의 Control 누르고 클릭, 터치 길게 누르기, 메뉴 키를 이 종류로 보냅니다. 이때는 `Down`을 따로 보내지 않습니다. 소비되지 않으면 FR-33.1의 기본 메뉴 동작이 이어지고, 소비되면 메뉴를 띄우지 않습니다.
+- **`Enter`와 `Leave`.** 마우스와 펜은 호버로, 터치는 접촉 전후로 옵니다(DOM의 `pointerenter`, `pointerleave`와 같습니다). 좌표는 들어오고 나간 순간의 포인터 자리이고 `Leave`의 좌표는 노드 밖일 수 있습니다. `:hover`는 Host가 `Enter`, `Leave`, `Move`로 계산하며 Renderer에는 호버 상태가 따로 없습니다.
+- **`Cancel`.** OS가 입력을 가져갈 때(창 비활성, 시스템 제스처, 터치 취소) 한 번 옵니다. `Cancel`은 눌린 버튼을 해제한 것으로 치며, 캡처도 끝납니다.
+
+#### 46.3 좌표
+
+- 단위는 dp이고 Host는 dp를 CSS px로 씁니다. 원점은 받는 노드의 왼쪽 위입니다. 화면이나 창 좌표는 보내지 않습니다(18.1과 같은 이유로, Host는 창 위치를 모릅니다).
+- 노드나 조상에 `Transform`(FR-41.1) 또는 3D 변환(FR-41.3)이 있으면 좌표는 **변환 전 노드 공간으로 되돌려** 보냅니다. 적중 판정이 그리는 모양을 따르는 것(FR-41.1 기준 5)과 같은 행렬의 역을 씁니다. 역행렬이 없는 변환(축소가 0)에서는 이벤트를 보내지 않습니다.
+- **확대 배율(FR-43)은 걷어 냅니다.** `IslandZoom` `k`가 있는 HTML 영역 안에서는 좌표와 `Wheel`의 `Pixel` 델타를 `k`로 나눈 값, 곧 영역 기준 CSS px로 보냅니다. FR-43이 "포인터 좌표는 영역 기준 CSS px로 옵니다"라고 정한 것과 같은 값입니다. 영역 밖의 구독 노드는 `k = 1`로 칩니다. 이렇게 해야 Host가 배율을 모른 채 적중 판정을 그대로 할 수 있습니다.
+
+#### 46.4 캡처와 합치기
+
+- **캡처는 암묵적입니다.** `Down`을 받은 노드(`Down`을 구독한 노드)는 그 포인터의 `Up`이나 `Cancel`까지 모든 `Move`와 `Up`을 받습니다. 포인터가 노드 밖으로 나가도 마찬가지이고 좌표는 노드 밖(음수 포함)일 수 있습니다. 경계선 끌기처럼 빠르게 벗어나는 동작이 이것으로 됩니다. 캡처 중에는 다른 노드가 `Enter`, `Leave`, `Move`를 받지 않습니다. 캡처한 노드가 지워지면 이벤트는 조용히 버려지고 `Cancel`은 가지 않습니다. 받을 노드가 없기 때문입니다.
+- 명시적 해제 명령은 두지 않습니다. 끝은 `Up`과 `Cancel`뿐이고, 경계 진입점도 명령도 늘지 않습니다(PR-2).
+- **`Move`는 프레임당 노드마다 최대 한 건입니다.** 포인터 이벤트는 프레임보다 자주 오므로 합치지 않으면 한 프레임에 VirtualDom이 여러 번 돕니다(18.1의 `DragMove`와 같은 이유). Renderer가 가장 최근 위치, `buttons`, `modifiers`를 쥐고 있다가 프레임 시작에 한 건으로 보냅니다. `Wheel`은 델타를 더해 프레임당 한 건으로 합칩니다(`delta_mode`가 다르면 합치지 않고 따로). `Enter`, `Leave`, `Down`, `Up`, `Cancel`, `ContextMenu`는 합치지 않으며, 보내기 전에 쥐고 있던 `Move`를 먼저 내보내 순서가 바뀌지 않게 합니다. 합치는 상태는 노드마다 고정 크기라 정상 상태에서 할당하지 않습니다(NFR-9).
+- 호출은 PR-1대로 같은 스레드의 `dispatch_event` 직접 호출이고, 큐나 스레드가 늘지 않습니다.
+
+#### 46.5 소비
+
+핸들러의 동기 반환값을 `Clicked`와 같이 읽습니다(FR-12). 0이 아니면 소비로 보아 그 이벤트는 위로 올라가지 않고, Compose의 클릭, 스크롤, 선택 같은 기본 동작도 하지 않습니다. 0이면 가장 가까운 구독한 조상으로, 그다음에는 평소 처리로 넘어갑니다. `Wheel`을 소비하지 않으면 감싸는 `ScrollColumn`이 스크롤합니다. IME 조합 중에도 포인터 이벤트는 막지 않습니다(키 이벤트와 다릅니다). 조합 자체를 바꾸지 않기 때문입니다.
+
+#### 46.6 수용 기준
+
+1. 구독한 노드만 이벤트를 받습니다. 구독하지 않은 노드에는 포인터 입력 수정자가 붙지 않습니다(인터프리터 단위 테스트, fr46_unsubscribed_node_gets_no_pointer_modifier).
+2. 마스크에 든 종류만 옵니다. `Down|Up`만 구독한 노드는 `Move`를 받지 않고 호버 추적도 켜지 않습니다(fr46_only_masked_kinds_are_sent).
+3. 마우스가 노드에 들어오면 `Enter`, 안에서 움직이면 `Move`, 나가면 `Leave`가 순서대로 한 번씩 옵니다. `x`, `y`는 노드 기준 dp입니다(fr46_hover_enter_move_leave_in_order).
+4. 한 프레임 안의 `Move` 수십 건이 한 건으로 오고, 위치는 마지막 값입니다. 그 사이에 `Down`이 끼면 `Down` 앞에 `Move`가 먼저 갑니다(fr46_moves_coalesce_to_one_per_frame, fr46_pending_move_flushes_before_down).
+5. `Primary`, `Secondary`, `Tertiary`, `Back`, `Forward`를 각각 누르면 `button`과 `buttons`가 위 비트대로 옵니다. `Back`이 `Secondary`나 `Tertiary`로 합쳐지지 않습니다(fr46_button_bits_match_compose_pointer_buttons).
+6. 같은 자리를 빠르게 두 번 누르면 두 번째 `Down`과 `Up`의 `click_count`가 2입니다(fr46_double_press_reports_click_count_two).
+7. Control 누르고 클릭(macOS)과 오른쪽 버튼 누름이 각각 `ContextMenu` 한 건이고 `Down`은 나가지 않습니다. 핸들러가 소비하면 기본 메뉴가 뜨지 않습니다(fr46_context_menu_kind_and_consume).
+8. `Wheel`은 `delta_x`, `delta_y`, `delta_mode`를 싣고, 한 프레임의 여러 휠이 더해져 한 건으로 옵니다. 소비하지 않으면 감싸는 `ScrollColumn`이 스크롤합니다(fr46_wheel_deltas_sum_per_frame_and_pass_through).
+9. `Down`을 받은 노드는 포인터가 밖으로 나가도 `Up`까지 `Move`를 받고, 그동안 다른 노드는 `Enter`, `Move`를 받지 않습니다(fr46_capture_keeps_moves_after_leaving_bounds).
+10. `Cancel`이 오면 눌림과 캡처가 끝납니다. 캡처한 노드가 지워지면 에러 없이 버려집니다(fr46_cancel_ends_capture, fr46_removed_capture_node_drops_silently).
+11. `rotate(30deg)`한 노드에서 좌표가 변환 전 공간으로 옵니다. 역행렬이 없는 변환에서는 이벤트가 가지 않습니다(fr46_coordinates_are_mapped_back_through_transform).
+12. `k = 1.5`인 HTML 영역 안의 좌표와 `Pixel` 휠 델타가 `k`로 나눠진 CSS px입니다(fr46_island_pointer_coordinates_exclude_zoom).
+13. 소비한 이벤트는 조상에게 올라가지 않고, 소비하지 않은 것은 가장 가까운 구독한 조상에게 갑니다. `Enter`, `Leave`는 올라가지 않습니다(fr46_unconsumed_bubbles_to_subscribed_ancestor).
+14. 모르는 `kind`는 `ProtocolError`이고 프로세스는 계속 돕니다(nfr7_unknown_pointer_kind_is_a_protocol_error).
+15. 터치에서 `Enter`는 `Down` 앞, `Leave`는 `Up` 뒤에 옵니다. 실제 마우스, 펜, 터치의 입력 확인과 `Back`/`Forward` 버튼은 기기에서 손으로 확인하고 §6과 같은 방식으로 기록합니다.
+16. 구독한 노드 천 개가 있는 장면에서 포인터를 움직이는 프레임의 시간이 NFR-9 예산 안이고, 정상 상태 할당이 0입니다. 수치를 이 항목에 기록합니다.
+
+#### 46.7 비용
+
+이벤트 태그 하나(8), 속성 둘(67 재사용, 140), 이벤트 페이로드 모양 하나. 구독하지 않은 화면에는 비용이 없습니다. `pointer_id`는 터치와 펜에서 플랫폼이 준 포인터 번호이고, 접촉이 끝나면 다른 접촉이 다시 쓸 수 있습니다. 다중 터치에서는 접촉마다 따로 `Enter`, `Down`, `Up`, `Leave`가 옵니다.
+
+### FR-47 커서 모양과 글자 선택 가능 여부 (`Agreed`, dioxus-compose 소유자 결정 D8, 이슈 #116)
+
+요청한 쪽: dioxus-compose FR-34.5. CSS `cursor`와 `user-select`는 Host가 상속까지 풀어 계산한 값을 노드마다 보내면 됩니다. 속성 둘이고 새 위젯도 새 경계 진입점도 없습니다.
+
+번호: 속성 `Cursor` 141, `UserSelect` 142(FR-46의 140 뒤, 15.2.2의 140-149 블록).
+
+#### 47.1 `Cursor`
+
+- 값은 `u32` 열거형이고 CSS `cursor` 키워드와 이름이 같습니다. `Auto=0, Default=1, Pointer=2, Text=3, VerticalText=4, Crosshair=5, Move=6, Grab=7, Grabbing=8, NotAllowed=9, NoDrop=10, Wait=11, Progress=12, Help=13, ContextMenu=14, Cell=15, Copy=16, Alias=17, AllScroll=18, ZoomIn=19, ZoomOut=20, ColResize=21, RowResize=22, EResize=23, NResize=24, NeResize=25, NwResize=26, SResize=27, SeResize=28, SwResize=29, WResize=30, EwResize=31, NsResize=32, NeswResize=33, NwseResize=34, None=35`. 모르는 값은 `ProtocolError`이고 그 속성만 버립니다.
+- 상속은 Host의 일입니다. CSS의 `cursor`는 상속되는 속성이므로 Host가 계산해 노드마다 보냅니다. Renderer는 상속을 따로 풀지 않습니다. `url(...)` 형태의 그림 커서는 이 속성에 없고, 그 경우 Host는 목록의 마지막 키워드를 보냅니다.
+- 포인터 아래의 노드 중 가장 깊은, `Auto`가 아닌 `Cursor`를 가진 노드의 값이 보입니다. 모두 `Auto`이면 그 자리의 위젯이 정합니다(`TextField`는 `Text`, 그 밖은 `Default`). 포인터 캡처 중(FR-46.4)에는 캡처한 노드의 값이 보입니다. 끌기 중에 커서가 깜빡이며 바뀌지 않게 하려는 것입니다.
+- 플랫폼에 같은 모양이 없으면 가장 가까운 모양으로 바꿉니다. 짝은 플랫폼 계층의 표로 두며 모든 값에 대해 정해져 있어야 합니다. 예: Windows의 `ZoomIn`은 돋보기가 없으므로 `Crosshair`, `Grab`/`Grabbing`은 손 모양 `Pointer`. 이 표를 빠뜨린 값은 `Default`로 그려지고 시험이 실패해야 합니다. 터치만 있는 기기(iOS, Android)에서는 속성이 받아들여지고 아무것도 하지 않습니다. 마우스를 연결한 iPad와 Android는 그 플랫폼의 포인터 아이콘 API를 씁니다.
+- 창에 커서를 적용하는 코드는 창 코드이므로 포크에 둡니다(INTENT D19). 이 저장소는 값을 포크의 호출로 넘기는 접합부만 가집니다.
+
+#### 47.2 `UserSelect`
+
+- 값은 `Auto=0, None=1, Text=2, All=3`입니다. Host가 CSS 상속을 풀어 보냅니다(`Auto`는 CSS의 `auto`).
+- FR-33과 합치는 규칙입니다. 앱 화면의 기본은 "고를 수 없음"이고 HTML 영역의 기본은 CSS의 `auto`, 곧 "고를 수 있음"입니다. 그래서 `AbsoluteBox` 영역 뿌리(`IslandZoom`을 가진 노드, FR-43)는 `UserSelect`가 `None`이 아니면 스스로 `SelectionContainer`처럼 선택 영역 하나를 엽니다. 그 밖의 노드는 `UserSelect`로 이 영역을 좁히거나 넓힙니다.
+  - `Text`: 그 노드 아래의 글자를 `SelectionContainer` 안에 둡니다. 이미 위에 영역이 있으면 변화가 없습니다.
+  - `None`: Compose의 `DisableSelection`에 해당합니다. 그 노드 아래의 글자는 위의 영역이 있어도 골라지지 않고, 끌기 시작점도 되지 않습니다. 그 안의 버튼과 컨트롤은 평소처럼 눌립니다(FR-33 기준 5와 같습니다).
+  - `All`: 그 노드 아래를 한 번 누르면 노드의 글자 전체가 선택됩니다. 선택을 일부만 할 수 없습니다. 안정 API로 되지 않으면 어댑터 파일 하나에 가두고 버전을 고정합니다(NFR-6).
+  - `Auto`: 부모를 따릅니다.
+- 선택 상태는 Renderer의 것입니다(D5, FR-33). 속성은 "고를 수 있는가"만 정하고 선택 범위는 Host로 가지 않습니다. 복사도 FR-33과 같이 Renderer가 플랫폼 클립보드에 직접 합니다.
+- `TextField`의 입력란 선택에는 영향이 없습니다. CSS에서 `user-select: none`이어도 입력란 안의 글자는 고를 수 있는 것과 같습니다.
+
+#### 47.3 수용 기준
+
+1. 열한 개의 대표 키워드(`Pointer`, `Text`, `Crosshair`, `Move`, `Grab`, `Grabbing`, `NotAllowed`, `Wait`, `ColResize`, `NwseResize`, `None`)가 설정된 노드 위에서 플랫폼 커서가 바뀌고, 노드를 벗어나면 되돌아옵니다. 데스크톱 셋은 창을 띄워 커서 이름을 읽는 시험으로, 그리기는 수동으로 확인합니다(fr47_cursor_keyword_reaches_the_window_cursor).
+2. 모든 `Cursor` 값에 대해 세 데스크톱 플랫폼의 짝이 정해져 있습니다(fr47_every_cursor_value_has_a_platform_mapping).
+3. 겹친 두 노드에서 가장 깊은 `Auto`가 아닌 값이 보이고, 캡처 중에는 캡처한 노드의 값이 포인터가 밖에 있어도 유지됩니다(fr47_deepest_cursor_wins_and_capture_pins_it).
+4. 모르는 `Cursor` 값은 `ProtocolError`이고 프로세스는 계속 돕니다(nfr7_unknown_cursor_value_is_a_protocol_error).
+5. HTML 영역의 글자는 기본으로 끌어서 골라지고 복사됩니다. `UserSelect::None`인 노드 아래의 글자는 골라지지 않고, 그 안의 버튼은 눌립니다(fr47_island_text_selectable_by_default, fr47_user_select_none_blocks_selection_but_not_controls).
+6. `UserSelect::All`인 노드를 누르면 그 노드의 글자 전체가 선택되고, 복사하면 전체가 클립보드에 들어갑니다(fr47_user_select_all_selects_the_whole_node).
+7. 선택 중과 복사에서 Host로 가는 이벤트가 없습니다(FR-33 기준 3과 같음, fr47_selection_sends_nothing_to_the_host).
+8. 터치 기기에서 `Cursor`는 에러 없이 무시됩니다.
+
+#### 47.4 비용
+
+속성 둘(141, 142). 열거형 두 개. 렌더러 쪽에서는 포인터 아래 노드의 `Cursor` 조회와 영역 뿌리의 선택 영역 하나. 노드마다 붙는 비용은 속성이 있을 때만이고, 없는 화면에는 없습니다.
+
+### FR-48 `@font-face`: Host가 글꼴 바이트를 등록하고 글꼴 목록에서 씁니다 (`Agreed`, dioxus-compose 소유자 결정 D8, 이슈 #116)
+
+요청한 쪽: dioxus-compose FR-34.5. 아이콘 글꼴(codicon 등)과 `@font-face`로 받은 글꼴을 Host가 한 번 등록하고, 돌려받은 id를 FR-40의 글꼴 목록에 넣고 싶습니다.
+
+**새 경계 진입점도 새 명령도 필요 없습니다.** 길은 이미 있습니다. FR-16.2의 `RegisterAsset`과 `ReleaseAsset`, FR-16.4의 `asset(kind, bytes)`, FR-23.2의 `AssetKind::Font`, FR-40의 `FontRef::Asset(id)`입니다. 이 항목이 하는 일은 그 길이 `@font-face`가 요구하는 모든 경우에 맞는다는 것을 규칙과 수용 기준으로 못 박는 것입니다(PR-2 그대로).
+
+#### 48.1 규칙
+
+1. **등록은 `asset(AssetKind::Font, bytes)`입니다.** 돌려받는 id는 FR-40의 `font` 목록의 `Asset(id)`에 그대로 넣습니다. 같은 바이트는 같은 id입니다(FR-16.4 3). 글꼴 파일이 TrueType, OpenType(`.ttf`, `.otf`), 그리고 그 모음(`.ttc`)인지는 Renderer가 바이트로 알아보며, 그 종류를 `kind`에 따로 싣지 않습니다. WOFF와 WOFF2는 Host가 풀어서 보냅니다(풀기는 CSS 쪽 도구가 하는 일이고 Renderer는 압축을 모릅니다). 알아볼 수 없는 바이트는 `ProtocolError`이고 그 id는 등록되지 않습니다.
+2. **굵기와 기울임은 파일에서 읽습니다.** 한 글꼴 패밀리의 굵기마다 파일이 따로이면 Host가 `@font-face`마다 등록하고, FR-40의 목록에 CSS가 고른 face의 id를 넣습니다. 레코드에 굵기와 기울임 칸을 새로 만들지 않습니다. 가변 글꼴은 `wght` 축을 `font_weight`가 정하는 값으로 씁니다.
+3. **목록의 해석은 FR-40 그대로입니다.** 앞에서부터 처음 해석되는 것을 쓰고, 없는 id는 `ProtocolError`와 함께 다음 항목으로 넘어갑니다. 글꼴에 없는 글자(글리프)는 목록의 다음 글꼴로 넘어가는 것이 CSS의 규칙입니다. 아이콘 글꼴은 사설 영역 글자만 갖고 있어서 이 규칙이 그대로 필요합니다.
+4. **사설 영역(U+E000 이후)도 그 글꼴로 그립니다.** 기본 글꼴 쪽이 먼저 글리프를 낚아채지 않도록, 목록 앞의 글꼴이 글자를 가지고 있으면 그것을 씁니다.
+5. **수명.** 등록한 글꼴은 `ReleaseAsset(id)`까지 살고 Host가 소유합니다(FR-16.2 4). `'static` 바이트를 쓰는 `asset()`(FR-16.4)은 Host가 끝날 때까지 두는 것이 기본이고, 쓰다가 내리고 싶은 경우를 위해 `release_asset(id)`를 작성 API에 둡니다. 새 경계 진입점이 아니라 배치에 `ReleaseAsset`을 싣는 길입니다. 내린 글꼴의 id를 목록에 둔 텍스트는 다음 갱신에서 규칙 3대로 다음 글꼴로 넘어가고 `ProtocolError`가 한 번 옵니다. 글꼴을 내려도 이미 지난 프레임의 그림이 깨지지 않고, 다음 프레임부터 바뀝니다.
+6. **측정과 그리기가 같은 글꼴을 풉니다**(FR-40). 등록한 글꼴이 아직 디코딩 전이어도 측정 호출(PR-2.1)이 그리기와 같은 값을 돌려줍니다. Renderer는 등록 호출 안에서 바이트를 복사하고 글꼴 얼굴을 한 번 만듭니다(FR-16.2 2).
+7. 글꼴 패밀리 이름으로 찾는 길을 만들지 않습니다. 이름 해석은 Host의 `@font-face` 표(CSS)가 하고 Renderer에는 id만 옵니다. `System(name)`은 시스템에 설치된 패밀리용이고 등록한 글꼴과 섞이지 않습니다.
+
+#### 48.2 수용 기준
+
+1. codicon 같은 아이콘 글꼴 바이트를 `asset(AssetKind::Font, ...)`로 등록하고 `font`의 목록 `[Asset(id), Generic(SansSerif)]`을 쓴 텍스트의 사설 영역 한 글자가 그 글꼴로 그려지고 크기가 0이 아닙니다(fr48_registered_icon_font_draws_private_use_glyph, FR-40 기준 2와 같은 확인).
+2. 같은 바이트를 두 번 등록하면 같은 id가 나오고 두 번째 등록은 큐에 들어가지 않습니다(fr48_same_font_bytes_register_once).
+3. 굵기가 다른 두 파일을 등록하고 두 텍스트가 각자의 id를 쓰면 다른 굵기로 그려집니다. 가변 글꼴에 `font_weight` 300과 700을 주면 다른 굵기로 그려집니다(fr48_weight_comes_from_the_font_file).
+4. 글리프가 없는 글자는 목록의 다음 글꼴로 넘어갑니다(fr48_missing_glyph_falls_to_next_font).
+5. `ReleaseAsset` 뒤 그 id를 쓰는 텍스트는 `ProtocolError`와 함께 다음 글꼴로 그려지고 프로세스는 계속 돕니다(fr48_released_font_falls_back_with_protocol_error).
+6. 알아볼 수 없는 바이트는 `ProtocolError`이고 등록되지 않습니다(nfr7_garbage_font_bytes_are_a_protocol_error).
+7. 등록된 글꼴을 쓰는 텍스트의 측정값과 그린 값이 같습니다(FR-40 기준 1을 글꼴 에셋으로 반복, fr48_measure_and_draw_agree_for_registered_font).
+8. 정상 프레임(등록도 해제도 없는)에서 Host 쪽 할당이 0입니다(NFR-9).
+
+#### 48.3 비용
+
+새 레코드도 태그도 없습니다. 스키마 해시가 움직이지 않습니다. 작성 API에 `release_asset(id)` 하나. Renderer는 글꼴 바이트의 형식 판별과 가변 글꼴 축 지정이 필요합니다.
+
+### FR-49 `Mask` 수정자: CSS `mask-image` (`Agreed`, dioxus-compose 소유자 결정 D8, 이슈 #116)
+
+요청한 쪽: dioxus-compose FR-34.5. CSS `mask-image`는 이미지나 그라데이션의 알파로 상자와 자식을 가리는 동작입니다. 자식까지 한 묶음으로 합성한 뒤에 적용해야 하므로 `Alpha`(FR-42)와 같은 종류의 수정자입니다.
+
+번호: 수정자 `Mask` 29. 26은 `Transform`(FR-41.1)이고 27은 FR-41.3, 28은 다른 항목이 가졌으므로 그 뒤를 씁니다. 속성도 명령도 이벤트도 늘지 않습니다.
+
+#### 49.1 값
+
+가변 길이 `SetModifier` 규칙(FR-41.1, `28 + 8k`바이트)에서 값 24바이트이므로 `k = 1`입니다(`Shadow`와 같음).
+
+| 오프셋(값 기준) | 칸 | 뜻 |
+|---|---|---|
+| 0 | `brush: u32` | 브러시 에셋 id(FR-23.1). 그라데이션 또는 이미지 브러시. 등록되지 않은 id는 `ProtocolError`이고 마스크가 없는 것처럼 그립니다 |
+| 4 | `repeat: u8` | `Repeat=0, RepeatX=1, RepeatY=2, NoRepeat=3, Space=4, Round=5` (CSS `mask-repeat`) |
+| 5 | `size_mode: u8` | `Auto=0, Cover=1, Contain=2, Explicit=3` |
+| 6 | 예약 `u16` | 0 |
+| 8 | `size_w: f32`, `size_h: f32` | `Explicit`일 때만 쓰는 크기(dp). 0보다 작으면 그 축은 `Auto` |
+| 16 | `pos_x: f32`, `pos_y: f32` | 위치(dp), 노드의 왼쪽 위 기준. `mask-position`의 백분율은 Host가 dp로 풀어 보냅니다 |
+
+- 이 24바이트는 CSS `mask-image`, `mask-size`, `mask-position`, `mask-repeat`를 싣습니다. Code-OSS의 `-webkit-mask: url(...) no-repeat 50% 50%`와 `-webkit-mask-size`(cover, contain, 길이)가 이것으로 그려집니다. 백분율 위치는 Host가 상자 크기에서 dp로 풀어 보냅니다. `mask-mode`는 지금 `alpha`입니다. 밝기(`luminance`) 모드, `mask-clip`, `mask-origin`, `mask-composite`, 여러 겹의 마스크는 FR-49.5에서 추적합니다.
+- 마스크의 기준 상자는 노드의 크기입니다. `RequiredSize`가 있으면 그 크기입니다.
+
+#### 49.2 그리기
+
+- 노드와 자식을 `graphicsLayer`로 오프스크린에 합성(`CompositingStrategy.Offscreen`)하고, 그 위에 브러시를 `BlendMode.DstIn`으로 그립니다. 브러시의 알파가 0인 곳이 지워집니다. 같은 노드의 `Alpha`, `Clip`, `Transform`과의 순서는 FR-41.1과 FR-42의 수정자 순서를 따릅니다(마스크는 자식과 같은 층 안에서 가장 마지막에 적용됩니다).
+- `Cover`, `Contain`, `Repeat` 계열은 이미지 브러시의 크기와 타일 방식으로 풉니다. 그라데이션은 기준 상자 크기에 늘어납니다.
+- 오프스크린 층은 마스크가 있는 노드에만 생깁니다. 마스크가 없는 화면은 비용이 없습니다. 마스크가 바뀔 때(브러시 id, 크기, 위치)는 수정자 한 건만 나가고 자식은 다시 구성되지 않습니다(FR-42.5).
+- 적중 판정은 마스크를 따르지 않습니다. CSS의 `mask`도 포인터 이벤트를 막지 않기 때문입니다. 알파가 0인 곳도 눌립니다.
+
+#### 49.3 수용 기준
+
+1. 선형 그라데이션(왼쪽 불투명, 오른쪽 투명) 마스크를 건 자식 포함 상자가 오른쪽으로 갈수록 투명해지고, 자식의 그림도 같이 가려집니다. 스크린숏 테스트(fr49_gradient_mask_fades_node_and_children).
+2. 이미지 브러시 마스크가 알파 모양대로 상자를 오려 냅니다. `NoRepeat`에서는 이미지 밖이 완전히 투명하고, `Repeat`에서는 타일이 깔립니다(fr49_image_mask_respects_repeat).
+3. `Cover`와 `Contain`, `Explicit`이 각각 CSS와 같은 크기로 그려지고, `pos_x`, `pos_y`가 그 자리를 옮깁니다(fr49_mask_size_and_position).
+4. 같은 노드의 `Alpha`와 `Clip`(둥근 모서리)과 함께 쓰면 층이 하나로 합성되고, 모서리 밖이 가려집니다(fr49_mask_composes_with_alpha_and_clip).
+5. 등록되지 않은 브러시 id는 `ProtocolError`이고 마스크 없이 그려집니다(nfr7_unregistered_mask_brush_is_a_protocol_error).
+6. 마스크 값만 바뀐 갱신에서 `Mask` 수정자 한 건만 나가고 자식 노드 갱신은 없습니다(fr49_mask_change_sends_one_modifier).
+7. 마스크가 있는 노드의 알파 0 영역이 포인터 이벤트(FR-46)를 받습니다(fr49_mask_does_not_affect_hit_testing).
+8. 마스크가 없는 정상 프레임의 할당과 그리기 비용이 마스크 도입 전과 같습니다(NFR-9, 벤치마크 수치를 이 항목에 기록합니다).
+9. 인코딩 후 디코딩한 값이 같습니다(fr10_mask_modifier_round_trips, FR-10 기준과 같은 방식).
+
+#### 49.4 비용
+
+수정자 태그 하나(29), 값 24바이트. 렌더러에 오프스크린 층 한 겹(마스크가 있을 때만). 디자인 시스템 규칙은 늘지 않습니다(FR-42와 같이 CSS가 모양을 정합니다).
+
+#### 49.5 남은 마스크 속성 (`Draft`, 이슈 #116)
+
+FR-49의 24바이트 값에 아직 없는 CSS 마스크 속성입니다. 버리지 않고 여기서 추적합니다. 지금 dioxus-compose가 그리는 Code-OSS 화면은 이것들을 쓰지 않습니다.
+
+- `mask-mode: luminance`: 마스크 이미지의 밝기로 오려 냅니다. 값의 예약 `u16`에서 `mode` 칸을 엽니다.
+- `mask-clip`, `mask-origin`: 마스크를 놓는 상자(border, padding, content)를 고릅니다.
+- `mask-composite`: 여러 겹을 합치는 방법(add, subtract, intersect, exclude)입니다.
+- 여러 겹의 마스크: 한 노드에 마스크 여러 장을 겹칩니다. 그때까지는 노드를 감싸는 `AbsoluteBox`로 겹쳐 표현합니다.
+
+수용 기준과 값 배치는 이 항목을 `Agreed`로 올릴 때 정합니다.
 
 ## 4. 경계 프로토콜
 
@@ -2931,7 +3351,7 @@ compose_rust_host_dispatch_event: click 1
 
 ### PR-2.1 측정 호출 (`Agreed`, 진행 중, 이슈 #106)
 
-> **현황(2026-10-04).** develop에는 측정 진입점이 없습니다. 구현은 초안 PR #110(`feat/measure-call`)에 FR-40과 함께 있고 병합되지 않았습니다.
+> **현황(2026-10-25).** 측정 진입점은 develop에 있습니다. FR-40과 함께 PR #110(`feat/measure-call`)으로 병합되었습니다.
 
 **무엇을 하나.** Host가 자기 레이아웃을 계산하는 도중에, 텍스트 한 덩이나 이미 보낸 위젯 하나가 주어진 제약 안에서 차지할 크기를 Renderer에게 묻습니다. Renderer는 **그릴 때와 같은 글꼴 해석, 같은 Density와 글꼴 배율, 같은 디자인 시스템 타입 스케일**로 재서 그 자리에서 돌려줍니다. 측정값과 그려진 크기가 같다는 것이 이 호출의 존재 이유입니다.
 
@@ -2958,6 +3378,7 @@ compose_rust_host_dispatch_event: click 1
     - `word_break: Normal | KeepAll | BreakAll`, `overflow_wrap: Normal | Anywhere | BreakWord`
     - `absolute_size: u8`. 1이면 시스템 글꼴 배율을 적용하지 않습니다(CSS px). 측정과 그리기에 똑같이 적용됩니다.
     - `zoom: f32`. 이 요청이 속한 HTML 영역의 확대 배율 `k`(FR-43). 0이면 1입니다. Renderer는 `Density(density × k, fontScale = 1)`로 잽니다. 배율을 Renderer의 상태로 두지 않고 요청마다 싣는 것은, Host 하나가 서로 다른 배율의 HTML 영역을 여럿 가질 수 있기 때문입니다.
+  - `span_metrics: (offset, count)`(소유자 승인 2026-10-25). FR-40 기준 8의 `SpanMetrics` 곁 표(16바이트 항목)를 가리킵니다. `spans`와 `span_fonts`처럼 요청 버퍼의 페이로드 영역에 놓이고, 복사할 때 offset을 옮기는 함수는 `SpanFonts`와 같은 것을 씁니다. 이로써 `MeasureText` 요청 레코드는 72바이트에서 **80바이트**가 됩니다: `span_metrics_offset@72 u32`, `span_metrics_count@76 u32`. `MeasureNode`는 그대로입니다. 호출은 아직 릴리스 전이라 공개된 레코드를 깨지 않고, 스키마 해시가 다른 렌더러는 핸드셰이크에서 거절됩니다.
   - **Renderer는 받은 문자열의 공백을 자르거나 접지 않습니다.** 공백 접기(`normal`, `pre-line`)는 Host의 일입니다. `pre`는 그대로 보낸 문자열과 `wrap = 0`, `pre-wrap`은 그대로 보낸 문자열과 `wrap = 1`입니다.
   - 제약 `constraint: MinContent = 1 | MaxContent = 2 | AtMost = 3`과 `width: f32`(`AtMost`일 때만 씀). 결과는 다음과 같습니다.
     - `MinContent`: 가장 긴 끊을 수 없는 조각의 폭. Compose `ParagraphIntrinsics.minIntrinsicWidth`.
@@ -3027,6 +3448,7 @@ compose_rust_host_dispatch_event: click 1
    - 그 절대 시간을 플랫폼별로 기록합니다.
    - (`benches/measure_sidebar`, 수치는 이 항목 아래에 기록)
 8. 다섯 플랫폼(macOS, Linux, Windows, iOS, Android)과 Web에서 기준 1의 라틴 경우가 통과합니다. CI 스모크로 확인합니다.
+9. `MeasureText` 요청 레코드가 80바이트이고 `span_metrics`의 offset과 길이가 72와 76에 고정됩니다(pr2_measure_record_carries_span_metrics).
 
 ### PR-3 스레드 규칙 (`Done`)
 - VirtualDom, 사용자 컴포넌트, 모든 `compose_rust_host_*` 호출은 Renderer UI 스레드에서만 실행합니다. 그래서 락이 필요 없습니다.
