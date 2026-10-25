@@ -70,7 +70,7 @@
 
     <h2 id="composables">A composable is a function</h2>
     <p>
-      Mark a function with <code>#[composable]</code> and call widgets inside it. Two glob imports
+      Mark a function with <code>#[Composable]</code> and call widgets inside it. Two glob imports
       bring in everything: <code>compose_rust::runtime</code> for state and effects, and
       <code>compose_rust::ui</code> for the widgets and <code>Modifier</code>.
     </p>
@@ -80,7 +80,7 @@
 <pre><code><span class="k">use</span> compose_rust::runtime::*;
 <span class="k">use</span> compose_rust::ui::*;
 
-<span class="at">#[composable]</span>
+<span class="at">#[Composable]</span>
 <span class="k">fn</span> <span class="f">counter</span>() {
     <span class="k">let</span> count = <span class="f">remember</span>(|| <span class="f">mutable_state_of</span>(<span class="n">0</span>));
     <span class="f">Column</span>().<span class="f">modifier</span>(<span class="ty">Modifier</span>.<span class="f">padding</span>(<span class="n">16.0</span>).<span class="f">fill_max_width</span>()).<span class="f">content</span>(|| {
@@ -96,7 +96,7 @@
     </figure>
 
     <p>
-      <code>#[composable]</code> does what the Compose compiler plugin does to a
+      <code>#[Composable]</code> does what the Compose compiler plugin does to a
       <code>@Composable</code> function. It gives the call a group, gives every branch of an
       <code>if</code> and a <code>match</code> a group of its own, and makes the function skippable
       and restartable. You never write groups by hand. They close correctly through
@@ -147,7 +147,7 @@
 
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
       <figcaption>rust</figcaption>
-<pre><code><span class="at">#[composable]</span>
+<pre><code><span class="at">#[Composable]</span>
 <span class="k">fn</span> <span class="f">task_row</span>(title: <span class="ty">String</span>, done: <span class="ty">bool</span>, on_toggle: <span class="ty">Rc</span>&lt;<span class="k">dyn</span> <span class="ty">Fn</span>(<span class="ty">bool</span>)&gt;) {
     <span class="f">Row</span>()
         .<span class="f">modifier</span>(<span class="ty">Modifier</span>.<span class="f">fill_max_width</span>())
@@ -469,7 +469,7 @@
 <span class="k">use</span> compose_rust::ui::*;
 <span class="k">use</span> compose_rust::{<span class="ty">AnimationSpec</span>, animate_float_as_state};
 
-<span class="at">#[composable]</span>
+<span class="at">#[Composable]</span>
 <span class="k">fn</span> <span class="f">fading</span>(faded: <span class="ty">MutableState</span>&lt;<span class="ty">bool</span>&gt;) {
     <span class="k">let</span> target = <span class="k">if</span> faded.<span class="f">get</span>() { <span class="n">0.0</span> } <span class="k">else</span> { <span class="n">1.0</span> };
     <span class="f">Box</span>()

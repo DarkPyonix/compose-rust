@@ -245,7 +245,7 @@ impl crate::LaunchBuilder {
     /// ends the process with a failing status if the renderer loop could not run at all.
     ///
     /// ```ignore
-    /// #[composable]
+    /// #[Composable]
     /// fn app() {
     ///     Text("Hello");
     /// }
@@ -273,7 +273,7 @@ impl crate::LaunchBuilder {
 /// Runs a composable as the application, with every launch choice left to its default.
 ///
 /// ```ignore
-/// #[composable]
+/// #[Composable]
 /// fn counter() {
 ///     let count = remember(|| mutable_state_of(0));
 ///     let more = count.clone();
