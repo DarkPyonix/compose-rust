@@ -75,7 +75,7 @@ pub use notification::{
     request_notification_permission, withdraw_notification,
 };
 pub use palette::{Palette, PaletteViolation};
-pub use runtime::{Batch, ComposeHost, Recomposer, Runtime, Composable, application, launch};
+pub use runtime::{Batch, Composable, ComposeHost, Recomposer, Runtime, application, launch};
 pub use schema::{
     Alignment, Arrangement, AssetKind, ButtonKind, ButtonVariant, Chrome, Color, ColorRole,
     ColorScheme, DecorationKind, DesignSystem, EventPayload, GenericFamily, HoverPhase, IconRole,
