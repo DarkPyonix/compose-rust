@@ -47,6 +47,7 @@ dependencies:
   - org.thisisthepy.compose.window:common:0.1.0
   - org.thisisthepy.compose.window:graalvm-macos:0.1.0
   - org.thisisthepy.compose.window:graalvm-linux:0.1.0
+  - org.thisisthepy.compose.window:graalvm-windows:0.1.0
 
 test-dependencies:
   - org.thisisthepy.compose.ui:ui-test-junit4:1.11.1-ext.1

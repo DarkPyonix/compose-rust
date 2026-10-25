@@ -19,6 +19,8 @@ window_c="$fork_window/windows-shared/c/win32_window.c"
 graal_build="renderer/desktop/scripts/build-native-windows.ps1"
 kn_build="renderer/desktop/scripts/build-windows.sh"
 graal_kotlin="renderer/desktop/src/Win32Window.kt"
+# The native image's @CFunction declarations are the fork's graalvm-windows module.
+graal_window="$fork_window/graalvm/graalvm-windows/src/org/thisisthepy/compose/window/graalvm/windows/Win32GraalWindow.kt"
 kn_kotlin="renderer/windows/src/Win32Window.kt"
 status=0
 
@@ -27,7 +29,7 @@ fail() {
     status=1
 }
 
-for file in "$window_c" "$graal_build" "$kn_build" "$graal_kotlin" "$kn_kotlin"; do
+for file in "$window_c" "$graal_build" "$kn_build" "$graal_kotlin" "$graal_window" "$kn_kotlin"; do
     [ -f "$file" ] || { echo "FAIL: $file is missing"; exit 1; }
 done
 
@@ -47,14 +49,14 @@ grep -qE '^c_dir=.*fetch-fork-window\.sh.*/extended/window/windows-shared/c"' "$
 # image by @CFunction, Kotlin/Native through the fork's Win32Loop.
 for symbol in dxc_native_set_raster_resize dxc_native_frame_mode dxc_native_raster_begin dxc_native_raster_end; do
     grep -qE "^(int32_t|void) $symbol\(" "$window_c" || fail "$window_c no longer defines $symbol"
-    grep -q "@CFunction(\"$symbol\")" "$graal_kotlin" || fail "the native image renderer does not call $symbol"
+    grep -q "@CFunction(\"$symbol\")" "$graal_window" || fail "the native image renderer does not call $symbol"
 done
 for call in 'Win32Loop.setRasterResize(' 'Win32Loop.rasterFrameWanted' 'Win32Loop.beginRasterFrame()' 'Win32Loop.endRasterFrame()'; do
     grep -qF "$call" "$kn_kotlin" || fail "the Kotlin/Native renderer does not call $call"
 done
 
 # Both opt in the same way: CPU resize frames unless DXC_RASTER_RESIZE=0.
-grep -qF 'setRasterResize(if (System.getenv("DXC_RASTER_RESIZE") == "0") 0 else 1)' "$graal_kotlin" ||
+grep -qF 'window.setRasterResize(System.getenv("DXC_RASTER_RESIZE") != "0")' "$graal_kotlin" ||
     fail "the native image renderer does not opt into CPU resize frames the same way"
 grep -qF 'Win32Loop.setRasterResize(System.getenv("DXC_RASTER_RESIZE") != "0")' "$kn_kotlin" ||
     fail "the Kotlin/Native renderer does not opt into CPU resize frames the same way"

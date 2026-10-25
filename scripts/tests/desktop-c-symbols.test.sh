@@ -14,9 +14,9 @@
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-# The AppKit and X11 windows, their C and the @CFunction declarations that reach it, are the
+# The AppKit, X11 and Win32 windows, their C and the @CFunction declarations that reach it, are the
 # Compose fork's graalvm modules at the pinned commit. The Windows window's C is the fork's
-# windows-shared module; its @CFunction declarations are still this renderer's.
+# windows-shared module, and its @CFunction declarations are the fork's graalvm-windows module.
 source "$repo/scripts/tests/fork-window.sh"
 fork_window_or_skip "$repo"
 src="$repo/renderer/desktop/src"
@@ -41,6 +41,7 @@ fork_names() {
 }
 macos_fork_names="$(fork_names graalvm-macos)"
 linux_fork_names="$(fork_names graalvm-linux)"
+windows_fork_names="$(fork_names graalvm-windows)"
 # The calls the renderer's own loops make through those wrappers, which every desktop's image
 # reaches because the platform switch names all three loops.
 loop_names="dxc_native_window_open dxc_native_window_size dxc_native_frame_begin
@@ -148,7 +149,7 @@ dxc_native_ime_reset dxc_native_resize_serial dxc_native_window_server_size
 dxc_native_debug_resize"
 check macOS __APPLE__ "$macos_fork_names $reached_x11_names" $macos_files
 check Linux __linux__ "$linux_fork_names" $linux_files
-check Windows _WIN32 "$reached_x11_names" $windows_files
+check Windows _WIN32 "$windows_fork_names $reached_x11_names" $windows_files
 
 if [ "$failures" -ne 0 ]; then
     echo "  $failures of 3 desktops would not link" >&2
