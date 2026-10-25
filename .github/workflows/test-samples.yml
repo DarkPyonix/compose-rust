@@ -8,6 +8,10 @@
 # the ones a sample build reads beyond the crate itself; a change to compose-rust alone is
 # tested by the workspace's own tests, which include every sample's.
 #
+# A release also puts the same files in the `samples-latest` release, a fixed place that
+# always holds the newest samples. Both releases are in this repository and are written
+# with the workflow's own token.
+#
 # A sample that does not build on a platform is skipped and the release goes ahead with
 # the rest. Eleven samples across three platforms is thirty-three builds, and holding all
 # of them back because one of them broke on one platform helps nobody. A platform where
@@ -163,7 +167,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential pkg-config \
-            libx11-dev libxext-dev libgl1-mesa-dev libegl-dev libfontconfig1-dev libfreetype-dev
+            libx11-dev libxext-dev libgl1-mesa-dev libegl-dev libfontconfig1-dev libfreetype-dev \
+            desktop-file-utils appstream gnupg
 
       - name: Cache the Kotlin toolchain and Maven dependencies
         if: runner.os == 'Windows'
@@ -289,9 +294,55 @@ jobs:
             fi
             tar -czf "artifacts/$app-${{ matrix.target }}.tar.gz" -C staging "$app"
           done < built.txt
+
+      - name: Wrap each Linux sample as an AppImage
+        # The same staged directory, as one file. A sample that fails here keeps its
+        # archive and loses only the AppImage.
+        #
+        # Signed when the repository has a signing key.
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          SIGNING_KEY: ${{ secrets.APPIMAGE_SIGNING_KEY }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -uo pipefail
+          version="${TAG#sample-v}"
+          sign=()
+          if [[ -n "$SIGNING_KEY" ]]; then
+            export GNUPGHOME="$PWD/.scratch/gnupg" && mkdir -p -m 700 "$GNUPGHOME"
+            gpg --batch --import <<<"$SIGNING_KEY"
+            sign=(--sign-key "$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/ {print $10; exit}')")
+          else
+            echo "::warning title=Unsigned AppImages::APPIMAGE_SIGNING_KEY is not set, so the AppImages are not signed"
+          fi
+          cargo build --release -p packager-linux
+          export PACKAGER_LINUX="$PWD/target/release/packager-linux"
+          while read -r app; do
+            [[ -n "$app" ]] || continue
+            # scripts/make-sample-icons.py draws a 256 pixel icon beside the 64 pixel
+            # one the window wears; a sample that brings its own may have only the one.
+            icons=(--icon "samples/$app/assets/icon.png")
+            [[ -f "samples/$app/assets/icon-256.png" ]] && icons+=(--icon "samples/$app/assets/icon-256.png")
+            if ! scripts/packager-linux/appimage.sh \
+                --dioxus-toml "samples/$app/Dioxus.toml" \
+                --overlay scripts/packager-linux/samples.toml \
+                --exec "sample-$app" "${icons[@]}" \
+                --payload "staging/$app" --version "$version" \
+                ${sign[@]+"${sign[@]}"} \
+                --out-dir artifacts; then
+              echo "::warning title=No AppImage::sample-$app was not wrapped as an AppImage for ${{ matrix.target }}"
+            fi
+          done < built.txt
+
+      - name: Record checksums
+        shell: bash
+        run: |
+          set -euo pipefail
           cd artifacts
-          if command -v sha256sum >/dev/null; then sha256sum *.tar.gz > "SHA256SUMS-${{ matrix.target }}"
-          else shasum -a 256 *.tar.gz > "SHA256SUMS-${{ matrix.target }}"; fi
+          shopt -s nullglob
+          if command -v sha256sum >/dev/null; then sha256sum *.tar.gz *.AppImage > "SHA256SUMS-${{ matrix.target }}"
+          else shasum -a 256 *.tar.gz *.AppImage > "SHA256SUMS-${{ matrix.target }}"; fi
           cat "SHA256SUMS-${{ matrix.target }}"
 
       - uses: actions/upload-artifact@v4
@@ -488,6 +539,8 @@ jobs:
 
       - name: Say which sample and platform pairs are in this release
         id: notes
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
           {
@@ -504,9 +557,13 @@ jobs:
             echo
             echo 'Verify with `shasum -a 256 -c SHA256SUMS-<platform>`.'
             echo
+            echo "Linux also ships each sample as an AppImage. Make it executable and run it."
+            echo
+            echo "Built from $GITHUB_REPOSITORY at $(git rev-parse --short HEAD) ($TAG)."
+            echo
             echo "Built in this release:"
             echo
-            for archive in artifacts/*.tar.gz artifacts/*.apk; do
+            for archive in artifacts/*.tar.gz artifacts/*.AppImage artifacts/*.apk; do
               [ -e "$archive" ] || continue
               echo "- $(basename "$archive")"
             done
@@ -517,10 +574,12 @@ jobs:
           } > notes.md
           cat notes.md
 
-      - name: Create or update the release
+      - name: Create or update the release for this tag
         # Published rather than drafted. A draft is invisible to everyone but the people
         # with write access to this repository, so a release nobody can download is the
-        # same as no release at all.
+        # same as no release at all. Never marked latest: that belongs to the library's
+        # v* releases, and a sample release that took it would make the newest library
+        # release look older than it is.
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag || github.ref_name }}
@@ -528,10 +587,51 @@ jobs:
           set -euo pipefail
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" artifacts/* --clobber
-            gh release edit "$TAG" --draft=false --notes-file notes.md
+            gh release edit "$TAG" --draft=false --latest=false --notes-file notes.md
           else
-            gh release create "$TAG" \
+            gh release create "$TAG" --latest=false \
               --title "Sample apps $TAG" \
               --notes-file notes.md \
               artifacts/*
           fi
+
+      - name: Replace the files of the samples-latest release
+        # The release tagged samples-latest always holds the newest samples at one fixed
+        # address. It is a pre-release and never latest, so it does not compete with the
+        # library's v* releases. It is updated in place: the new files are uploaded over
+        # the old ones first, and only then are the files the new set lacks removed, so a
+        # download in the middle still finds a file. Rebuilding an older tag leaves it
+        # alone, so samples-latest never goes backwards.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+          FEED: samples-latest
+        run: |
+          set -euo pipefail
+          newest="$(git ls-remote --tags --refs origin 'refs/tags/sample-v*' \
+            | sed 's#.*refs/tags/##' | sort -V | tail -n 1)"
+          if [[ -n "$newest" && "$newest" != "$TAG" ]]; then
+            echo "::notice title=samples-latest unchanged::$TAG is older than $newest, which is what samples-latest carries"
+            exit 0
+          fi
+          sha="$(git rev-parse HEAD)"
+          title="Sample apps, newest ($TAG)"
+          if gh release view "$FEED" >/dev/null 2>&1; then
+            # The tag follows the build, so the release names the commit its files came
+            # from.
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$FEED" \
+              -f sha="$sha" -F force=true >/dev/null \
+              || echo "::warning title=samples-latest tag not moved::the files are $TAG's, but the tag still points at the previous build"
+            gh release edit "$FEED" --draft=false --prerelease --latest=false \
+              --title "$title" --notes-file notes.md
+          else
+            gh release create "$FEED" --target "$sha" --prerelease --latest=false \
+              --title "$title" --notes-file notes.md
+          fi
+          gh release upload "$FEED" artifacts/* --clobber
+          keep="$(cd artifacts && ls -1)"
+          gh release view "$FEED" --json assets --jq '.assets[].name' | while read -r asset; do
+            if ! grep -qxF "$asset" <<<"$keep"; then
+              gh release delete-asset "$FEED" "$asset" --yes
+            fi
+          done

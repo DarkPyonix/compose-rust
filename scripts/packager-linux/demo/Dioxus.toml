@@ -1,0 +1,27 @@
+# What the packaging workflow wraps: a small program, described the way an
+# application describes itself to dx, plus the [linux.store] facts a store listing needs.
+
+[application]
+name = "UpdateDemo"
+
+[bundle]
+identifier = "dev.darkpyonix.compose.UpdateDemo"
+publisher = "DarkPyonix"
+icon = ["icon.png"]
+short_description = "A small packaged application"
+long_description = """
+A small program built with compose-rust that prints its version, so a package can be
+checked for the version it was built with."""
+
+[linux]
+categories = ["Development"]
+keywords = ["appimage", "flatpak"]
+
+[linux.store]
+exec = "update-demo"
+license = "Apache-2.0"
+homepage = "https://github.com/darkpyonix/compose-rust"
+bugtracker = "https://github.com/darkpyonix/compose-rust/issues"
+vcs_browser = "https://github.com/darkpyonix/compose-rust"
+brand_light = "#dbe7ff"
+brand_dark = "#1d2b4f"
