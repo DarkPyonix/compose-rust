@@ -11,7 +11,7 @@
 #
 # Why this has to run first rather than letting the build fail: when the toolchain resolves one
 # of those coordinates and the local repository does not have it, it asks the remote
-# repositories, fails with "Unable to download checksums of file foundation-1.11.1-ext.1.pom", and
+# repositories, fails with "Unable to download checksums of file foundation-1.11.1-ext.2.pom", and
 # keeps that result in the renderer's own build directory (build/incremental.state). The entry is
 # keyed on the coordinates and repositories alone, not on what ~/.m2 holds, so every later build
 # replays it as up to date, even once ~/.m2 has the files, and nothing in the message says where

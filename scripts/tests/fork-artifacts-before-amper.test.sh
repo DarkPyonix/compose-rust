@@ -4,7 +4,7 @@
 # scripts/publish-skiko-awt.sh). When a build script runs the Kotlin toolchain before they are
 # there, the toolchain tries to download them, fails, and records the failure in its own cache.
 # From then on the build keeps failing with "Unable to download checksums of file
-# foundation-1.11.1-ext.1.pom" even after ~/.m2 holds the files, until someone finds that cache.
+# foundation-1.11.1-ext.2.pom" even after ~/.m2 holds the files, until someone finds that cache.
 #
 # So every script that resolves those versions checks ~/.m2 first and stops before the
 # toolchain runs. This proves it for each script by running it in a copy of the tree with the

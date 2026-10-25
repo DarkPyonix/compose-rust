@@ -10,7 +10,7 @@
 # edits by hand, and runs the fork's own extended/compose/publish-local.sh, which publishes
 # every module the renderer draws with to the local Maven repository.
 #
-# The fork publishes under its own group and version, org.thisisthepy.compose.*:1.11.1-ext.1
+# The fork publishes under its own group and version, org.thisisthepy.compose.*:1.11.1-ext.2
 # (its extended/COORDINATES.md), and the renderer modules ask for exactly those. Nothing
 # JetBrains publishes sits at those coordinates, so a resolver that already holds JetBrains'
 # Compose (Amper's cache does) cannot take JetBrains' jars in their place, and nothing here
@@ -32,14 +32,14 @@ set -euo pipefail
 # compose-fork.changes lists what this commit must hold at every path it changes, and
 # scripts/tests/compose-fork.test.sh checks it.
 FORK="https://github.com/thisisthepy/compose-multiplatform-core-extended.git"
-REVISION="127311dc737d8badb68953291d248db8a7071cca"
+REVISION="c7caf51523e8aa5f81563fcc7311398455ecacef"
 # The window modules and skiko's builds are not Compose sources: the renderer builds them from
 # this commit (scripts/fetch-fork-window.sh and fetch-fork-skiko.sh) into artifacts of its own,
 # so they can move without moving the Compose build above. This one is the fork's merge of the
 # resize soak (#109), which draws each GraalVM frame in an autorelease pool of its own; it
 # carries the merge of the coordinates (#119), so the window modules compile against the fork's
 # Compose coordinates, which the Compose pin introduced, and the window changes before it.
-WINDOW_REVISION="57b4a0e102d837ba3271699297b69278fcefedef"
+WINDOW_REVISION="c7caf51523e8aa5f81563fcc7311398455ecacef"
 # The commit the Windows build takes, which is its own on purpose. Windows needs the
 # commits the Compose pin (REVISION) leaves out: 296beb3 adds mingwX64 to every Compose UI module and
 # reads skiko from the local Maven repository first, and f17cb30 adds the skiko build for
@@ -51,13 +51,13 @@ WINDOW_REVISION="57b4a0e102d837ba3271699297b69278fcefedef"
 # what they publish (every module's root metadata would name a mingw_x64 variant nobody
 # built there) for nothing they use. compose-fork-mingw.changes lists what this commit must
 # hold, and scripts/tests/compose-fork.test.sh checks both pins.
-MINGW_REVISION="11da941766762c4760df9cf3c11429837d772bdd"
+MINGW_REVISION="c7caf51523e8aa5f81563fcc7311398455ecacef"
 # What the pinned commit publishes as: its gradle.properties gives every library line a version
 # of the form <upstream version>-ext.<N>. The renderer modules ask for these by name, and
 # scripts/tests/fork-versions.test.sh checks that they do; this script checks the pinned
 # commit's gradle.properties says the same before it builds anything.
-COMPOSE_AS="1.11.1-ext.1"
-MATERIAL3_AS="1.11.0-alpha07-ext.1"
+COMPOSE_AS="1.11.1-ext.2"
+MATERIAL3_AS="1.11.1-ext.2"
 # The fork's patched skiko-awt, published by its extended/skiko/build-skiko-awt.sh (through
 # scripts/publish-skiko-awt.sh). skiko keeps JetBrains' group, so it has a version of its own,
 # which sorts above JetBrains' 0.144.6 in every resolver.
