@@ -534,14 +534,15 @@ class NodeTable {
                 -> true
 
                 // Pointer subscription, cursor and selectability belong to the nodes a
-                // pointer can sit over as a region: the containers and the HTML region
-                // root. A picker takes only its value, range and events. The interpreter
+                // pointer can sit over as a region: the containers, text and the HTML
+                // region root. A picker takes only its value, range and events. The interpreter
                 // does not act on them yet.
                 PropertyKind.OnPointer,
                 PropertyKind.PointerKinds,
                 PropertyKind.Cursor,
                 PropertyKind.UserSelect,
-                -> widget == WidgetKind.Column ||
+                -> widget == WidgetKind.Text ||
+                    widget == WidgetKind.Column ||
                     widget == WidgetKind.Row ||
                     widget == WidgetKind.Box ||
                     widget == WidgetKind.Card ||

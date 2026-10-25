@@ -59,6 +59,8 @@ fn Screen() {
         Box().content(|| {
             Text("plain");
         });
+        // Text takes a subscription too.
+        Text("link").on_pointer(PointerKinds::ENTER, |_| {});
         // A subscription of no kinds is not one.
         Box().on_pointer(PointerKinds::NONE, |_| {}).content(|| {
             Text("empty mask");
@@ -225,8 +227,8 @@ fn fr46_button_bits_match_compose_pointer_buttons() {
 fn fr46_unsubscribed_node_gets_no_pointer_modifier() {
     with_screen(|tree| {
         let dump = tree.dump();
-        // Exactly one node of the three subscribes: the other two write neither property.
-        assert_eq!(dump.matches("PointerKinds=").count(), 1, "{dump}");
+        // Exactly two nodes subscribe, the Box and one Text: the others write neither property.
+        assert_eq!(dump.matches("PointerKinds=").count(), 2, "{dump}");
         assert!(
             dump.contains("PointerKinds=Integer(9)"),
             "Down | Move is 8 | 1: {dump}"
@@ -236,6 +238,20 @@ fn fr46_unsubscribed_node_gets_no_pointer_modifier() {
             .find(|line| line.contains("PointerKinds="))
             .unwrap();
         assert!(subscribed.starts_with("    Box"), "{dump}");
+    });
+}
+
+#[test]
+fn fr46_text_with_on_pointer_writes_on_pointer_and_pointer_kinds() {
+    with_screen(|tree| {
+        let dump = tree.dump();
+        let text = dump
+            .lines()
+            .find(|line| line.contains("Text") && line.contains("PointerKinds="))
+            .unwrap_or_else(|| panic!("no subscribed Text: {dump}"));
+        let (node, handler) = tree.find("Text", None, 0, PropertyKind::OnPointer);
+        assert_ne!((node, handler), (0, 0), "Text writes OnPointer");
+        assert!(text.contains("PointerKinds=Integer(2)"), "Enter is 2: {text}");
     });
 }
 

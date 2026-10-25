@@ -387,6 +387,7 @@ pub struct TextScope {
     text_align: Option<TextAlign>,
     max_lines: Option<u32>,
     overflow: Option<TextOverflow>,
+    pointer: Option<PointerSubscription>,
     done: bool,
 }
 
@@ -408,6 +409,7 @@ pub fn Text(text: impl Into<String>) -> TextScope {
         text_align: None,
         max_lines: None,
         overflow: None,
+        pointer: None,
         done: false,
     }
 }
@@ -477,6 +479,10 @@ impl TextScope {
         );
         let (color, text_align, max_lines, overflow) =
             (self.color, self.text_align, self.max_lines, self.overflow);
+        let pointer = self.pointer.take();
+        let mut listeners = Vec::new();
+        let mut subscription = Attrs::new();
+        pointer_input(pointer, &mut subscription, &mut listeners);
         emit(
             widget_key("compose_rust::ui::Text"),
             WidgetKind::Text,
@@ -507,14 +513,16 @@ impl TextScope {
                     OwnedAttr::Int(i64::from(max_lines.unwrap_or(0))),
                 ));
                 attrs.push(("overflow", role_or_zero(overflow)));
+                attrs.append(&mut subscription);
             },
-            Vec::new(),
+            listeners,
             content,
         );
     }
 }
 
 composed_on_drop!(TextScope);
+pointer_subscription!(TextScope);
 
 /// A `TextField` and its builder.
 pub struct TextFieldScope {
