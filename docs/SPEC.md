@@ -2326,7 +2326,7 @@ fn counter() {
     let count = remember(|| mutable_state_of(0));
     Column(Modifier::new().fill_max_width(), || {
         Text(format!("{}", count.get()));
-        Button(|| count.set(count.get() + 1), || Text("+1"));
+        Button("+1").on_click(move || count.set(count.get() + 1));
     });
 }
 
@@ -2335,7 +2335,11 @@ fn main() {
 }
 ```
 
-위 코드는 모양을 보이기 위한 것이고 이름을 확정하지 않습니다. 확정되는 것은 다음입니다.
+2026-10-25 소유자 결정(이슈 #278)으로 호출 모양이 확정되었습니다. 예시의 `count`는 `Copy`라서 클로저에 `.clone()` 없이 들어갑니다(39.2의 상태 핸들). 확정되는 것은 다음입니다.
+
+- **공통 컨테이너는 위치 인자로 부릅니다.** `Column`, `Row`, `Box`, `LazyColumn`, `LazyRow`는 `Column(modifier, || { .. })`처럼 `modifier`와 자식 클로저를 위치 인자로 받습니다. 자식 클로저는 항상 마지막 인자입니다. Compose의 `Column(modifier) { .. }`와 같은 순서입니다.
+- **속성이 많은 위젯은 빌더 체인을 유지합니다.** 어느 형태를 받는지는 다음 규칙이 정합니다. 위젯이 `modifier`와 자식 클로저 말고는 호출마다 값이 정해지는 속성이 없으면 위치 인자 형태를 받습니다. 그 밖의 속성이 하나라도 있으면 필수 값만 함수 인자로 받고 나머지는 체인으로 씁니다(`Text(..)`, `Button(label).modifier(..).on_click(..)`). Rust에 이름 있는 인자와 기본 인자가 없어서, 속성이 많은 위젯을 위치 인자로 받으면 쓰는 쪽이 매번 전부 적어야 하기 때문입니다. 위치 인자 컨테이너가 `space_role` 같은 속성을 더 필요로 하면 같은 위젯의 체인 형태(`Column().modifier(..).space_role(..).content(..)`)를 씁니다. 두 형태는 같은 Mutation을 내보냅니다.
+- **속성 이름은 `#[composable]`입니다.** 소유자가 `#[Composable]`이 아니라 이 이름을 그대로 두기로 했습니다. 이유는 Rust의 속성 매크로가 snake_case라는 관례(`#[component]`, `#[tokio::main]`)를 따르는 것입니다. 위젯 이름은 FR-15의 Compose 이름(PascalCase)을 그대로 씁니다.
 
 - **composable은 함수입니다.** `#[composable]` 속성이 본문에 그룹을 넣고, 사용자는 그룹도 키도 손으로 쓰지 않습니다. 분기, `match`, 반복문, 조기 `return`, `continue`, `break`, `?`, 되감기를 지나도 그룹이 맞게 닫힙니다(INTENT D2가 기록한 클로저 방식의 실패를 되풀이하지 않습니다).
 - **이름은 Compose를 따릅니다.** Compose에 같은 개념이 있으면 그 이름을 Rust 관례(함수와 메서드는 snake_case, 위젯은 FR-15의 Compose 이름)로 옮깁니다. PR-7의 "Rust 공개 API는 Dioxus 관례" 행은 dioxus-compose 층에 대한 것이 됩니다.
