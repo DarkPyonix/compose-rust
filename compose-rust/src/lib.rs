@@ -68,7 +68,7 @@ pub use code::{
 pub use design::design_system;
 pub use drawing::{DrawCommand, DrawList, DrawListBuilder};
 pub use fonts::{FontRef, FontRefs};
-pub use input::{FileDrop, KeyEvent, RangeRequest};
+pub use input::{FileDrop, KeyEvent, PointerEvent, PointerKinds, RangeRequest, pointer_button};
 pub use message::{Message, show_message};
 pub use notification::{
     Notification, NotificationActivation, NotificationSender, notification_permission,
@@ -84,6 +84,7 @@ pub use schema::{
     SCHEMA_HASH, Selection, Severity, ShapeRole, SpaceRole, TextAlign, TextOverflow, Theme,
     TileMode, TypeRole, WidgetKind, WindowHeightClass, WindowSizeClass, WordBreak,
 };
+pub use schema::{Cursor, PointerKind, PointerType, UserSelect, WheelDeltaMode};
 pub use schema::{
     AnimatedProperty, Animation, AnimationControl, AnimationEventKind, AnimationEvents,
     ColorInterpolation, FillMode, Keyframe, KeyframeValue, PlayState, PlaybackDirection,

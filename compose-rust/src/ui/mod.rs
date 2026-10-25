@@ -48,7 +48,10 @@ pub fn theme() -> ThemeHandle {
     ThemeHandle::default()
 }
 pub use crate::window::{NodeSize, WindowSize};
-pub use crate::{FileDrop, KeyEvent, RangeRequest, asset};
+pub use crate::{
+    Cursor, FileDrop, KeyEvent, PointerEvent, PointerKind, PointerKinds, RangeRequest, UserSelect,
+    asset, pointer_button,
+};
 pub use lazy::{LazyColumn, LazyGrid, LazyList, LazyListScope, LazyRow};
 pub use widgets::*;
 
@@ -89,6 +92,8 @@ pub struct Modifier {
     animated_alpha: Option<crate::Animated<f32>>,
     animated_background: Option<crate::Animated<Paint>>,
     animated_offset: Option<crate::Animated<(f32, f32)>>,
+    cursor: Option<crate::Cursor>,
+    user_select: Option<crate::UserSelect>,
     fill_max_width: bool,
     fill_max_height: bool,
 }
@@ -120,6 +125,8 @@ impl Modifier {
             animated_alpha: None,
             animated_background: None,
             animated_offset: None,
+            cursor: None,
+            user_select: None,
             fill_max_width: false,
             fill_max_height: false,
         }
@@ -291,6 +298,21 @@ impl Modifier {
         self.animated_offset = Some(value);
         self
     }
+
+    /// The cursor the platform shows over the node. CSS `cursor`: the deepest node under
+    /// the pointer that names one other than `Cursor::Auto` wins, and while a node holds a
+    /// pointer capture its cursor stays.
+    pub const fn cursor(mut self, cursor: crate::Cursor) -> Self {
+        self.cursor = Some(cursor);
+        self
+    }
+
+    /// Whether the text under the node can be selected. CSS `user-select`; `Auto` follows
+    /// the parent.
+    pub const fn user_select(mut self, user_select: crate::UserSelect) -> Self {
+        self.user_select = Some(user_select);
+        self
+    }
 }
 
 /// Which Modifier attributes a widget's `rsx!` counterpart always writes. The others are
@@ -419,6 +441,23 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
                     .collect(),
             ),
             _ => OwnedAttr::None,
+        },
+    );
+    // Written only when set, and `Auto` is the same as not set.
+    push(
+        false,
+        "cursor",
+        match modifier.cursor {
+            Some(crate::Cursor::Auto) | None => OwnedAttr::None,
+            Some(cursor) => OwnedAttr::Int(i64::from(u16::from(cursor))),
+        },
+    );
+    push(
+        false,
+        "user_select",
+        match modifier.user_select {
+            Some(crate::UserSelect::Auto) | None => OwnedAttr::None,
+            Some(select) => OwnedAttr::Int(i64::from(u16::from(select))),
         },
     );
     push(
