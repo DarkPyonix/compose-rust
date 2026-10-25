@@ -1,10 +1,5 @@
 error: argument `single_line` of Field! is given twice
- --> tests/ui/fail_duplicate.rs:3:1
+ --> tests/ui/fail_duplicate.rs:9:47
   |
-3 | #[Composable]
-  | ^^^^^^^^^^^^^
-...
 9 |     Field!(String::new(), single_line = true, single_line = false);
-  |     -------------------------------------------------------------- in this macro invocation
-  |
-  = note: this error originates in the macro `Field` (in Nightly builds, run with -Z macro-backtrace for more info)
+  |                                               ^^^^^^^^^^^

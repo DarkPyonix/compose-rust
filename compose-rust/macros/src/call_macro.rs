@@ -20,8 +20,8 @@
 //! called by its own name, so the caller's scope decides what it means.
 
 use proc_macro2::{Group, Punct, Spacing, TokenStream, TokenTree};
-use quote::{format_ident, quote};
 use quote::ToTokens;
+use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
 use syn::{Attribute, Expr, Ident, ItemFn, Token, Type, Visibility};
 
@@ -343,7 +343,11 @@ pub(crate) fn check(input: TokenStream) -> syn::Result<TokenStream> {
                 let span = if whole.is_empty() {
                     proc_macro2::Span::call_site()
                 } else {
-                    whole.clone().into_iter().last().map_or_else(proc_macro2::Span::call_site, |tree| tree.span())
+                    whole
+                        .clone()
+                        .into_iter()
+                        .last()
+                        .map_or_else(proc_macro2::Span::call_site, |tree| tree.span())
                 };
                 return Err(syn::Error::new(
                     span,
@@ -487,16 +491,38 @@ mod tests {
 
     #[test]
     fn fr39_call_macro_check_emits_the_call_in_parameter_order_with_defaults() {
-        let text = run(quote!(single_line = true, value = a)).unwrap().replace(' ', "");
+        let text = run(quote!(single_line = true, value = a))
+            .unwrap()
+            .replace(' ', "");
         assert_eq!(text, "Field(a,||{},true)");
     }
 
     #[test]
     fn fr39_call_macro_check_names_the_offending_argument() {
-        assert!(run(quote!(a, nope = 1)).unwrap_err().contains("no parameter `nope`"));
-        assert!(run(quote!(a, value = 1)).unwrap_err().contains("given twice"));
-        assert!(run(quote!(single_line = true, a)).unwrap_err().contains("follows a named one"));
-        assert!(run(quote!(a, b, c, d)).unwrap_err().contains("was given more"));
-        assert!(run(quote!(single_line = true)).unwrap_err().contains("missing required argument `value`"));
+        assert!(
+            run(quote!(a, nope = 1))
+                .unwrap_err()
+                .contains("no parameter `nope`")
+        );
+        assert!(
+            run(quote!(a, value = 1))
+                .unwrap_err()
+                .contains("given twice")
+        );
+        assert!(
+            run(quote!(single_line = true, a))
+                .unwrap_err()
+                .contains("follows a named one")
+        );
+        assert!(
+            run(quote!(a, b, c, d))
+                .unwrap_err()
+                .contains("was given more")
+        );
+        assert!(
+            run(quote!(single_line = true))
+                .unwrap_err()
+                .contains("missing required argument `value`")
+        );
     }
 }

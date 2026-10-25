@@ -65,6 +65,8 @@ pub use code::{
     CodeChange, CodeHover, CodeRange, Decoration, Decorations, EditRejected, Position, SaveRequest,
     SyntaxSpan, SyntaxSpans,
 };
+#[doc(hidden)]
+pub use compose_rust_macros::__compose_call_check;
 pub use design::design_system;
 pub use drawing::{DrawCommand, DrawList, DrawListBuilder};
 pub use fonts::{FontRef, FontRefs};
@@ -75,8 +77,6 @@ pub use notification::{
     request_notification_permission, withdraw_notification,
 };
 pub use palette::{Palette, PaletteViolation};
-#[doc(hidden)]
-pub use compose_rust_macros::__compose_call_check;
 pub use runtime::{Batch, Composable, ComposeHost, Recomposer, Runtime, application, launch};
 pub use schema::{
     Alignment, Arrangement, AssetKind, ButtonKind, ButtonVariant, Chrome, Color, ColorRole,
