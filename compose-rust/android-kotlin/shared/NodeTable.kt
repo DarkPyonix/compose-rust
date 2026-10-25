@@ -727,6 +727,11 @@ class NodeTable {
                 // Whether a split pane's side pane may be folded away.
                 PropertyKind.Collapsible -> widget == WidgetKind.SplitPane
 
+                // What a button is apart from its emphasis: a plain one, or a key of a
+                // dense grid. Only a button has a kind; a chip or a floating action is
+                // already its own component.
+                PropertyKind.ButtonKind -> widget == WidgetKind.Button
+
                 // A code editor's lists, its tab width and the handlers only it reports to.
                 PropertyKind.Decorations,
                 PropertyKind.SyntaxSpans,

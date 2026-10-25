@@ -6,6 +6,7 @@
 set -euo pipefail
 source "$(dirname "$0")/env.sh"
 SCRIPT_DIR_NATIVE="$(cd "$(dirname "$0")" && pwd)"
+bash "$SCRIPT_DIR_NATIVE/../../scripts/require-symlinks.sh"
 
 # env.sh validates the platform, the architecture, the Xcode tools and the NIK install.
 arch="$HOST_ARCH"
