@@ -318,6 +318,42 @@ fn deliver(callback: &EventCallback, payload: &EventPayload<'_>) -> Result<i64, 
             (*handler.borrow_mut())(event.clone());
             return Ok(i64::from(event.consumed()));
         }
+        (
+            EventCallback::Pointer(handler),
+            EventPayload::Pointer {
+                kind,
+                pointer_id,
+                pointer_type,
+                x,
+                y,
+                buttons,
+                button,
+                modifiers,
+                click_count,
+                delta_x,
+                delta_y,
+                delta_mode,
+                timestamp_nanos,
+            },
+        ) => {
+            let event = crate::PointerEvent::new(
+                *kind,
+                *pointer_id,
+                *pointer_type,
+                *x,
+                *y,
+                *buttons,
+                *button,
+                *modifiers,
+                *click_count,
+                *delta_x,
+                *delta_y,
+                *delta_mode,
+                *timestamp_nanos,
+            );
+            (*handler.borrow_mut())(event.clone());
+            return Ok(i64::from(event.consumed()));
+        }
         (EventCallback::Value(handler), EventPayload::ValueChanged(value)) => {
             (*handler.borrow_mut())(*value)
         }
