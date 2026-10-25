@@ -491,6 +491,111 @@ fn nfr14_a_workspace_static_build_comes_before_the_native_image() {
 }
 
 // -------------------------------------------------------------------------------------
+// Windows: the static kit is the renderer
+// -------------------------------------------------------------------------------------
+
+const WINDOWS_TARGET: &str = "windows-x64";
+const WINDOWS_OS: &str = "windows";
+
+/// What `build-windows.sh` writes into `renderer/build/windows`, and what the release
+/// tarball carries at its root: the archive with `native/`, `gcc/` and `skiko/` beside it.
+fn windows_kit(root: &Path) -> PathBuf {
+    std::fs::create_dir_all(root.join("native")).unwrap();
+    std::fs::write(root.join(renderer_static_file(WINDOWS_OS)), ARCHIVE_BYTES).unwrap();
+    std::fs::write(root.join("native/dxc-windows-native.lib"), b"lib").unwrap();
+    root.to_path_buf()
+}
+
+/// Windows ships the Kotlin/Native static kit, so it is a static target, and the
+/// GraalVM DLL is no longer a renderer there.
+#[test]
+fn nfr14_windows_is_a_static_target() {
+    assert!(STATIC_TARGETS.contains(&WINDOWS_TARGET));
+    assert!(PUBLISHED_TARGETS.contains(&WINDOWS_TARGET));
+}
+
+/// The directory `build-windows.sh` writes resolves as a static renderer, kit root and all.
+#[test]
+fn nfr14_a_windows_workspace_kit_is_static() {
+    let temp = TempDir::new("windows-workspace");
+    let kit = windows_kit(&temp.path().join("build/windows"));
+    let renderer = acquire_renderer(&Request {
+        env_dir: None,
+        workspace_dirs: &[kit.as_path()],
+        cache_root: Some(&temp.path().join("cache")),
+        crate_version: SAMPLE_VERSION,
+        target: WINDOWS_TARGET,
+        target_os: WINDOWS_OS,
+        fetch: None,
+    })
+    .expect("the kit is there");
+    assert_eq!(renderer.source, RendererSource::Workspace);
+    assert_eq!(renderer.kind, RendererKind::Static);
+    assert_eq!(renderer.lib_dir, kit);
+}
+
+/// A downloaded `compose-rust-renderer-v<ver>-windows-x64.tar.gz` is unpacked and linked as
+/// the static kit, with its sibling directories intact.
+#[test]
+fn nfr15_a_windows_tarball_is_unpacked_as_the_static_kit() {
+    let temp = TempDir::new("windows-download");
+    let release = temp.path().join("release");
+    windows_kit(&release.join("staging"));
+    let prepared = pack(
+        &release.join("staging"),
+        &release,
+        Checksum::Correct,
+        WINDOWS_TARGET,
+    );
+    let served = prepared.clone();
+    let fetch = move |url: &str, destination: &Path| -> Result<(), FetchError> {
+        let source = if url.ends_with(".sha256") {
+            sibling_checksum(&served)
+        } else {
+            served.clone()
+        };
+        std::fs::copy(source, destination)
+            .map(|_| ())
+            .map_err(|error| FetchError::Failed(error.to_string()))
+    };
+    let cache = temp.path().join("cache");
+    let renderer = acquire_for(
+        WINDOWS_TARGET,
+        WINDOWS_OS,
+        &temp,
+        None,
+        Network::Allowed(&fetch),
+        &cache,
+    )
+    .expect("the release serves this target");
+    assert_eq!(renderer.source, RendererSource::Download);
+    assert_eq!(renderer.kind, RendererKind::Static);
+    assert!(renderer.lib_dir.join("native/dxc-windows-native.lib").is_file());
+    assert!(renderer.lib_dir.join(renderer_static_file(WINDOWS_OS)).is_file());
+}
+
+/// A leftover GraalVM DLL is not a renderer on Windows: the directory holding only it
+/// is refused instead of linked.
+#[test]
+fn nfr14_a_windows_dll_alone_is_not_a_renderer() {
+    let temp = TempDir::new("windows-dll");
+    let bin = temp.path().join("dist/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::write(bin.join("libcompose_rust_renderer.dll"), b"MZ").unwrap();
+    let cache = temp.path().join("cache");
+    let error = acquire_for(
+        WINDOWS_TARGET,
+        WINDOWS_OS,
+        &temp,
+        Some(&temp.path().join("dist")),
+        Network::Forbidden,
+        &cache,
+    )
+    .expect_err("a DLL is not the Windows renderer any more");
+    assert!(error.contains(renderer_static_file(WINDOWS_OS)), "{error}");
+}
+
+// -------------------------------------------------------------------------------------
 // Refusals
 // -------------------------------------------------------------------------------------
 
