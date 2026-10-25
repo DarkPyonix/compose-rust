@@ -366,6 +366,7 @@ private fun ComposeRustTree(
     // not change the class, so a drag across one class costs no boundary calls.
     val reporter = remember(host) { WindowSizeReporter() }
     val density = LocalDensity.current
+    val zoom = LocalZoom.current
     val fontFamilyResolver = LocalFontFamilyResolver.current
     val layoutDirection = LocalLayoutDirection.current
     // Where a node the Host already sent is measured when it asks. It composes nothing
@@ -439,7 +440,7 @@ private fun ComposeRustTree(
     // composition runs on, which is the thread the Host calls back in on.
     SideEffect {
         RendererMeasure.install(
-            MeasureContext(host.table, theme, density, layoutDirection, fontFamilyResolver, station),
+            MeasureContext(host.table, theme, density, layoutDirection, fontFamilyResolver, station, zoom),
         )
     }
     val reported = remember { arrayOfNulls<DesignSystem>(1) }
