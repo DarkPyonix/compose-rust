@@ -14,9 +14,12 @@ use super::composer::Observer;
 use super::{with_composer, with_composer_if_idle};
 use crate::schema::{DesignSystem, NotificationPermission};
 use crate::window::WindowSize;
+use std::any::Any;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::fmt;
+use std::marker::PhantomData;
+use std::panic::Location;
 use std::rc::{Rc, Weak};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -70,145 +73,12 @@ struct StateCell<T> {
     runtimes: Mutex<Vec<std::sync::Weak<RuntimeSignal>>>,
 }
 
-/// A value that composition observes. Compose's `MutableState`.
-///
-/// Cloning gives another handle to the same value. Two handles compare equal when they
-/// are the same state, which is what makes a state a stable parameter: passing the same
-/// state to a composable again does not make it run.
-///
-/// It is `Send` and `Sync` when the value is `Send`, so a worker thread can hold one and
-/// write it. The write is visible at once; the composables that read it run again on the
-/// next frame, which the write asks for.
-///
-/// Reading takes a lock for as long as the read lasts. Reading the same state again inside
-/// [`MutableState::with`] would wait on itself.
-pub struct MutableState<T> {
-    cell: Arc<StateCell<T>>,
-}
-
-impl<T> Clone for MutableState<T> {
-    fn clone(&self) -> Self {
-        Self {
-            cell: Arc::clone(&self.cell),
-        }
-    }
-}
-
-impl<T> PartialEq for MutableState<T> {
-    fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.cell, &other.cell)
-    }
-}
-
-impl<T> Eq for MutableState<T> {}
-
-impl<T: fmt::Debug> fmt::Debug for MutableState<T> {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_tuple("MutableState")
-            .field(&*lock(&self.cell.value))
-            .finish()
-    }
-}
-
-/// A state whose writes of an equal value change nothing. Compose's `mutableStateOf`.
-///
-/// ```ignore
-/// let count = remember(|| mutable_state_of(0));
-/// Text(format!("{}", count.get()));
-/// Button("More").on_click(move || count.update(|count| *count += 1));
-/// ```
-pub fn mutable_state_of<T: PartialEq + 'static>(value: T) -> MutableState<T> {
-    mutable_state_of_with_policy(value, structural_equality_policy())
-}
-
-/// A state with a policy of its own for what counts as a change.
-pub fn mutable_state_of_with_policy<T: 'static>(
-    value: T,
-    policy: SnapshotMutationPolicy<T>,
-) -> MutableState<T> {
-    MutableState {
-        cell: Arc::new(StateCell {
-            id: next_state_id(),
-            value: Mutex::new(value),
-            policy,
-            runtimes: Mutex::new(Vec::new()),
-        }),
-    }
-}
-
-impl<T: 'static> MutableState<T> {
-    /// The value, recorded as read by the scope composing now.
-    pub fn get(&self) -> T
-    where
-        T: Clone,
-    {
-        self.track();
-        lock(&self.cell.value).clone()
-    }
-
-    /// The value, without recording a read. A scope that only peeks is not run again when
-    /// the value changes.
-    pub fn get_untracked(&self) -> T
-    where
-        T: Clone,
-    {
-        lock(&self.cell.value).clone()
-    }
-
-    /// Reads the value in place, recorded as read.
-    pub fn with<R>(&self, read: impl FnOnce(&T) -> R) -> R {
-        self.track();
-        read(&lock(&self.cell.value))
-    }
-
-    /// Replaces the value. Under the default policy an equal value changes nothing.
-    pub fn set(&self, value: T) {
-        {
-            let mut current = lock(&self.cell.value);
-            if (self.cell.policy.equivalent)(&current, &value) {
-                return;
-            }
-            *current = value;
-        }
-        self.notify();
-    }
-
-    /// Changes the value in place. Always a change: there is no old value left to compare
-    /// against without a copy, and a caller who wants the comparison can use `set`.
-    pub fn update(&self, change: impl FnOnce(&mut T)) {
-        change(&mut lock(&self.cell.value));
-        self.notify();
-    }
-
-    /// This state as a read-only [`State`].
-    pub fn as_state(&self) -> MutableState<T> {
-        self.clone()
-    }
-
-    fn track(&self) {
-        let fresh = with_composer_if_idle(|composer| {
-            composer
-                .record_read(self.cell.id)
-                .then(|| Arc::clone(&composer.signal))
-        })
-        .flatten();
-        if let Some(signal) = fresh {
-            let mut runtimes = lock(&self.cell.runtimes);
-            if !runtimes
-                .iter()
-                .any(|known| std::ptr::eq(known.as_ptr(), Arc::as_ptr(&signal)))
-            {
-                runtimes.push(Arc::downgrade(&signal));
-            }
-        }
-    }
-
+impl<T> StateCell<T> {
     fn notify(&self) {
         let mut told = false;
-        lock(&self.cell.runtimes).retain(|runtime| match runtime.upgrade() {
+        lock(&self.runtimes).retain(|runtime| match runtime.upgrade() {
             Some(signal) => {
-                signal.push_dirty(self.cell.id);
+                signal.push_dirty(self.id);
                 told = true;
                 true
             }
@@ -222,13 +92,395 @@ impl<T: 'static> MutableState<T> {
     }
 }
 
+// ----- the arena ---------------------------------------------------------------------
+
+/// A place in the arena: the slot's index, and the generation it had when the state was
+/// put there. A slot that is freed and used again has a higher generation, so a handle
+/// to the old state never reaches the new one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct StateKey {
+    index: u32,
+    generation: u32,
+}
+
+struct Entry {
+    generation: u32,
+    cell: Option<Arc<dyn Any + Send + Sync>>,
+}
+
+struct Arena {
+    entries: Vec<Entry>,
+    free: Vec<u32>,
+}
+
+/// Every state's value lives here, not in the handle. One lock for the table, and a lock
+/// of its own for each value, so a long read of one state does not hold up the others.
+static ARENA: Mutex<Arena> = Mutex::new(Arena {
+    entries: Vec::new(),
+    free: Vec::new(),
+});
+
+/// The handles that have been warned about, for a write after the state was freed.
+static WARNED: Mutex<Vec<StateKey>> = Mutex::new(Vec::new());
+
+fn allocate(cell: Arc<dyn Any + Send + Sync>) -> StateKey {
+    let mut arena = lock(&ARENA);
+    if let Some(index) = arena.free.pop() {
+        let entry = &mut arena.entries[index as usize];
+        entry.cell = Some(cell);
+        return StateKey {
+            index,
+            generation: entry.generation,
+        };
+    }
+    let index = arena.entries.len() as u32;
+    arena.entries.push(Entry {
+        generation: 0,
+        cell: Some(cell),
+    });
+    StateKey {
+        index,
+        generation: 0,
+    }
+}
+
+/// Frees a state and gives its value back to be dropped by the caller, once, with no lock
+/// held. `None` when the key was already freed.
+pub(crate) fn release_state(key: StateKey) -> Option<Box<dyn Any>> {
+    let mut arena = lock(&ARENA);
+    let entry = arena.entries.get_mut(key.index as usize)?;
+    if entry.generation != key.generation {
+        return None;
+    }
+    let cell = entry.cell.take()?;
+    entry.generation = entry.generation.wrapping_add(1);
+    arena.free.push(key.index);
+    Some(Box::new(cell))
+}
+
+// ----- who owns a state --------------------------------------------------------------
+
+thread_local! {
+    /// The states made since each open `remember` began, and where that call is.
+    static PENDING: RefCell<Vec<StateKey>> = const { RefCell::new(Vec::new()) };
+    static SITES: RefCell<Vec<&'static Location<'static>>> = const { RefCell::new(Vec::new()) };
+}
+
+/// The span of a `remember` call's initialiser. States made inside it belong to the
+/// slot the call fills.
+pub(crate) struct Capture {
+    mark: usize,
+}
+
+impl Capture {
+    pub(crate) fn begin(site: &'static Location<'static>) -> Self {
+        let mark = PENDING.with_borrow(Vec::len);
+        SITES.with_borrow_mut(|sites| sites.push(site));
+        Self { mark }
+    }
+
+    /// The states made since `begin`.
+    pub(crate) fn finish(self) -> Vec<StateKey> {
+        PENDING.with_borrow_mut(|pending| pending.split_off(self.mark.min(pending.len())))
+    }
+}
+
+impl Drop for Capture {
+    fn drop(&mut self) {
+        SITES.with_borrow_mut(|sites| {
+            sites.pop();
+        });
+        PENDING.with_borrow_mut(|pending| pending.truncate(self.mark));
+    }
+}
+
+/// Why a state could not be read or written.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StateError {
+    /// The `remember` call that made the state has left the composition, and the state
+    /// went with it.
+    Released,
+}
+
+impl fmt::Display for StateError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Released => formatter.write_str(
+                "Released: the state left the composition with the remember call that made it",
+            ),
+        }
+    }
+}
+
+impl std::error::Error for StateError {}
+
+/// A handle to a value that composition observes. Compose's `MutableState`.
+///
+/// The handle is `Copy`: it names a place in an arena, and the value is owned by the
+/// composition. The value lives as long as the `remember` call that made it stays in the
+/// composition and is dropped, once, when that call's group is removed. A handle used
+/// after that is released: `set` and `update` do nothing, `get` panics, and the `try_`
+/// forms return [`StateError::Released`]. A slot reused for another state has a new
+/// generation, so an old handle never reaches the new value.
+///
+/// Two handles are equal when they name the same state, which is what makes a state a
+/// stable parameter: passing the same state to a composable again does not make it run.
+/// Equal values in two different states are not equal handles.
+///
+/// A handle is `Send` and `Sync`, so a worker thread can take one by `move` and write it.
+/// The write is visible at once; the composables that read it run again on the next
+/// frame, which the write asks for. A read on a worker clones the value and subscribes to
+/// nothing.
+///
+/// Reading takes a lock for as long as the read lasts. Reading the same state again inside
+/// [`MutableState::with`] would wait on itself.
+pub struct MutableState<T> {
+    key: StateKey,
+    /// The `remember` call that made the state, for the message of a read that fails.
+    site: &'static Location<'static>,
+    marker: PhantomData<fn() -> T>,
+}
+
+impl<T> Clone for MutableState<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> Copy for MutableState<T> {}
+
+impl<T> PartialEq for MutableState<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.key == other.key
+    }
+}
+
+impl<T> Eq for MutableState<T> {}
+
+impl<T> std::hash::Hash for MutableState<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.key.hash(state);
+    }
+}
+
+impl<T> fmt::Debug for MutableState<T> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("MutableState")
+            .field("index", &self.key.index)
+            .field("generation", &self.key.generation)
+            .finish()
+    }
+}
+
+/// A state whose writes of an equal value change nothing. Compose's `mutableStateOf`.
+///
+/// ```ignore
+/// let count = remember(|| mutable_state_of(0));
+/// Text(format!("{}", count.get()));
+/// Button("More").on_click(move || count.update(|count| *count += 1));
+/// ```
+///
+/// Made inside `remember`, the state belongs to that call. Made anywhere else, it is not
+/// freed until the program ends.
+#[track_caller]
+pub fn mutable_state_of<T: PartialEq + Send + 'static>(value: T) -> MutableState<T> {
+    mutable_state_of_with_policy(value, structural_equality_policy())
+}
+
+/// A state with a policy of its own for what counts as a change.
+#[track_caller]
+pub fn mutable_state_of_with_policy<T: Send + 'static>(
+    value: T,
+    policy: SnapshotMutationPolicy<T>,
+) -> MutableState<T> {
+    let here = Location::caller();
+    let cell: Arc<dyn Any + Send + Sync> = Arc::new(StateCell {
+        id: next_state_id(),
+        value: Mutex::new(value),
+        policy,
+        runtimes: Mutex::new(Vec::new()),
+    });
+    let key = allocate(cell);
+    let site = SITES.with_borrow(|sites| sites.last().copied());
+    if site.is_some() {
+        PENDING.with_borrow_mut(|pending| pending.push(key));
+    }
+    MutableState {
+        key,
+        site: site.unwrap_or(here),
+        marker: PhantomData,
+    }
+}
+
+impl<T: Send + 'static> MutableState<T> {
+    fn resolve(&self) -> Option<Arc<StateCell<T>>> {
+        let cell = {
+            let arena = lock(&ARENA);
+            let entry = arena.entries.get(self.key.index as usize)?;
+            if entry.generation != self.key.generation {
+                return None;
+            }
+            entry.cell.clone()?
+        };
+        cell.downcast::<StateCell<T>>().ok()
+    }
+
+    fn released(&self) -> ! {
+        panic!(
+            "Released: this MutableState was used after the remember call at {}:{} left the composition",
+            self.site.file(),
+            self.site.line()
+        )
+    }
+
+    fn warn_released(&self) {
+        if !cfg!(debug_assertions) {
+            return;
+        }
+        {
+            let mut warned = lock(&WARNED);
+            if warned.contains(&self.key) {
+                return;
+            }
+            warned.push(self.key);
+        }
+        eprintln!(
+            "compose-rust: a write to a released MutableState was ignored (made by the remember call at {}:{})",
+            self.site.file(),
+            self.site.line()
+        );
+    }
+
+    /// How many warnings this handle has caused: one in a debug build after its first
+    /// write while released, never in a release build.
+    #[doc(hidden)]
+    pub fn released_warning_count(&self) -> usize {
+        lock(&WARNED).iter().filter(|key| **key == self.key).count()
+    }
+
+    /// Whether the state is still in the composition.
+    pub fn is_released(&self) -> bool {
+        self.resolve().is_none()
+    }
+
+    /// The value, recorded as read by the scope composing now. Panics if the state is
+    /// released.
+    pub fn get(&self) -> T
+    where
+        T: Clone,
+    {
+        self.try_get().unwrap_or_else(|_| self.released())
+    }
+
+    /// Like [`MutableState::get`], and `Err(StateError::Released)` if the state is
+    /// released.
+    pub fn try_get(&self) -> Result<T, StateError>
+    where
+        T: Clone,
+    {
+        let cell = self.resolve().ok_or(StateError::Released)?;
+        Self::track(&cell);
+        let value = lock(&cell.value).clone();
+        Ok(value)
+    }
+
+    /// The value, without recording a read. A scope that only peeks is not run again when
+    /// the value changes. Panics if the state is released.
+    pub fn get_untracked(&self) -> T
+    where
+        T: Clone,
+    {
+        match self.resolve() {
+            Some(cell) => lock(&cell.value).clone(),
+            None => self.released(),
+        }
+    }
+
+    /// Reads the value in place, recorded as read. Panics if the state is released.
+    pub fn with<R>(&self, read: impl FnOnce(&T) -> R) -> R {
+        match self.resolve() {
+            Some(cell) => {
+                Self::track(&cell);
+                let value = lock(&cell.value);
+                read(&value)
+            }
+            None => self.released(),
+        }
+    }
+
+    /// Replaces the value. Under the default policy an equal value changes nothing. Does
+    /// nothing if the state is released.
+    pub fn set(&self, value: T) {
+        if self.try_set(value).is_err() {
+            self.warn_released();
+        }
+    }
+
+    /// Like [`MutableState::set`], and `Err(StateError::Released)` if the state is
+    /// released.
+    pub fn try_set(&self, value: T) -> Result<(), StateError> {
+        let cell = self.resolve().ok_or(StateError::Released)?;
+        {
+            let mut current = lock(&cell.value);
+            if (cell.policy.equivalent)(&current, &value) {
+                return Ok(());
+            }
+            *current = value;
+        }
+        cell.notify();
+        Ok(())
+    }
+
+    /// Changes the value in place. Always a change: there is no old value left to compare
+    /// against without a copy, and a caller who wants the comparison can use `set`. Does
+    /// nothing if the state is released.
+    pub fn update(&self, change: impl FnOnce(&mut T)) {
+        if self.try_update(change).is_err() {
+            self.warn_released();
+        }
+    }
+
+    /// Like [`MutableState::update`], and `Err(StateError::Released)` if the state is
+    /// released.
+    pub fn try_update(&self, change: impl FnOnce(&mut T)) -> Result<(), StateError> {
+        let cell = self.resolve().ok_or(StateError::Released)?;
+        change(&mut lock(&cell.value));
+        cell.notify();
+        Ok(())
+    }
+
+    /// This state as a read-only [`State`].
+    pub fn as_state(&self) -> MutableState<T> {
+        *self
+    }
+
+    fn track(cell: &Arc<StateCell<T>>) {
+        let fresh = with_composer_if_idle(|composer| {
+            composer
+                .record_read(cell.id)
+                .then(|| Arc::clone(&composer.signal))
+        })
+        .flatten();
+        if let Some(signal) = fresh {
+            let mut runtimes = lock(&cell.runtimes);
+            if !runtimes
+                .iter()
+                .any(|known| std::ptr::eq(known.as_ptr(), Arc::as_ptr(&signal)))
+            {
+                runtimes.push(Arc::downgrade(&signal));
+            }
+        }
+    }
+}
+
 /// Something composition can read. Compose's `State`.
 pub trait State<T> {
     /// The value, recorded as read by the scope composing now.
     fn value(&self) -> T;
 }
 
-impl<T: Clone + 'static> State<T> for MutableState<T> {
+impl<T: Clone + Send + 'static> State<T> for MutableState<T> {
     fn value(&self) -> T {
         self.get()
     }
@@ -383,6 +635,17 @@ pub(crate) struct Ambient {
     pub(crate) deriveds: HashMap<u64, Weak<dyn DerivedNode>>,
 }
 
+impl Drop for Ambient {
+    fn drop(&mut self) {
+        let values = [
+            release_state(self.window.key),
+            release_state(self.design.key),
+            release_state(self.permission.key),
+        ];
+        drop(values);
+    }
+}
+
 impl Ambient {
     pub(crate) fn new() -> Self {
         Self {
@@ -462,7 +725,7 @@ pub(crate) fn apply_state_changes() {
 /// The window's size, recorded as read: the composable runs again when the Renderer
 /// reports a different size class.
 pub fn current_window_size() -> WindowSize {
-    match with_composer_if_idle(|composer| composer.ambient.window.clone()) {
+    match with_composer_if_idle(|composer| composer.ambient.window) {
         Some(state) => state.get(),
         None => crate::window::window_size(),
     }
@@ -474,7 +737,7 @@ pub fn current_window_size() -> WindowSize {
 /// for the screen that is a different screen under a different system, such as a
 /// calculator whose keys differ.
 pub fn current_design_system() -> DesignSystem {
-    match with_composer_if_idle(|composer| composer.ambient.design.clone()) {
+    match with_composer_if_idle(|composer| composer.ambient.design) {
         Some(state) => state.get(),
         None => crate::design::design_system(),
     }
@@ -482,7 +745,7 @@ pub fn current_design_system() -> DesignSystem {
 
 /// Whether notifications may be shown, recorded as read.
 pub fn current_notification_permission() -> NotificationPermission {
-    match with_composer_if_idle(|composer| composer.ambient.permission.clone()) {
+    match with_composer_if_idle(|composer| composer.ambient.permission) {
         Some(state) => state.get(),
         None => crate::notification::notification_permission(),
     }
@@ -513,20 +776,25 @@ pub fn remember_node_size() -> crate::window::NodeSize {
             return None;
         }
         if let Some(slot) = composer.slot_mut::<NodeSizeSlot>() {
-            return Some((slot.token, slot.state.clone()));
+            return Some((slot.token, slot.state));
         }
         let token = crate::window::next_node_token();
+        let capture = Capture::begin(Location::caller());
         let state = mutable_state_of(crate::window::node_size(token));
-        let follow = state.clone();
+        let owned = capture.finish();
+        let follow = state;
         let subscription = crate::window::subscribe_node(
             token,
             std::sync::Arc::new(move || follow.set(crate::window::node_size(token))),
         );
-        composer.remember_new(NodeSizeSlot {
-            token,
-            state: state.clone(),
-            _subscription: subscription,
-        });
+        composer.remember_new_owning(
+            NodeSizeSlot {
+                token,
+                state,
+                _subscription: subscription,
+            },
+            owned,
+        );
         Some((token, state))
     })
     .flatten();

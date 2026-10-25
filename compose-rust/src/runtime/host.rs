@@ -44,9 +44,9 @@ impl Recomposer {
         let (window, design, permission) = {
             let composer = composition.composer.borrow();
             (
-                composer.ambient.window.clone(),
-                composer.ambient.design.clone(),
-                composer.ambient.permission.clone(),
+                composer.ambient.window,
+                composer.ambient.design,
+                composer.ambient.permission,
             )
         };
         // The values themselves stay in the modules the Host publishes them to. A state
