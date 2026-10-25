@@ -48,6 +48,24 @@ private external fun openWindow(
     out: Pointer?,
 ): Int
 
+/**
+ * Says how the next window is made. Without it the fork's window takes the caption strip
+ * only when told the renderer draws the buttons (compose-rust#339): this path used to skip
+ * the call, and its windows lost the caption with nothing drawn in its place.
+ */
+@CFunction("dxc_native_window_configure")
+private external fun configureWindow(
+    resizable: Int,
+    minWidth: Int,
+    minHeight: Int,
+    systemChrome: Int,
+    backdrop: Int,
+)
+
+/** user32's own answer, on the window the C side opened, for the maximise or restore glyph. */
+@CFunction("IsZoomed")
+private external fun isZoomed(window: Pointer?): Int
+
 @CFunction("dxc_native_window_size")
 private external fun windowSize(
     window: Pointer?,
@@ -182,6 +200,12 @@ fun openWin32Window(title: String, width: Int, height: Int): Win32NativeWindow? 
 }
 
 private const val WINDOW_STRUCT_BYTES = 40
+
+/**
+ * Windows 11's caption height, the number win32_caption.h hit-tests. Not the devshell's
+ * windowsCaptionHeight: that file names AWT, which this image does not carry.
+ */
+private val WIN32_CAPTION_HEIGHT = androidx.compose.ui.unit.Dp(32f)
 
 /**
  * Hands the platform what the window would tell a reader who cannot see it.
@@ -364,6 +388,16 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
     val host = dev.darkpyonix.composerust.runtime.ComposeRustHost(NativeHostConnection())
     host.start()
     val asked = host.table.window
+    // Who draws the caption, as the Kotlin/Native renderer decides it: with Chrome.System the
+    // system's, otherwise the caption strip is the content's and the buttons are drawn below.
+    val systemChrome = asked?.chrome == dev.darkpyonix.composerust.protocol.Chrome.System
+    configureWindow(
+        if (asked?.resizable == false) 0 else 1,
+        asked?.minWidth?.takeIf { it > 0 } ?: 0,
+        asked?.minHeight?.takeIf { it > 0 } ?: 0,
+        if (systemChrome) 1 else 0,
+        0,
+    )
     val window = openWin32Window(
         asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
         if (asked != null && asked.width > 0) asked.width else 520,
@@ -422,13 +456,24 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
     // The window's own clipboard (dxc_native_clipboard_read and _write), as the AppKit and X11
     // windows have through NativeWindowContent: Compose's desktop default is the toolkit's, and
     // this image carries no toolkit.
+    // The caption's three buttons, which the window gave up with the caption strip: drawn
+    // by ComposeRustContent when it is handed a caption and the actions, as on every other
+    // platform where the renderer draws the caption.
+    val maximised = androidx.compose.runtime.mutableStateOf(false)
+    val actions = if (systemChrome) null else nativeWindowActions().copy(maximised = maximised)
+    val caption = if (systemChrome) {
+        dev.darkpyonix.composerust.runtime.WindowCaption.None
+    } else {
+        dev.darkpyonix.composerust.runtime.WindowCaption(height = WIN32_CAPTION_HEIGHT)
+    }
     @Suppress("DEPRECATION")
     scene.setContent {
         androidx.compose.runtime.CompositionLocalProvider(
             androidx.compose.ui.platform.LocalClipboard provides WindowClipboard,
             androidx.compose.ui.platform.LocalClipboardManager provides WindowClipboardManagerInstance,
+            dev.darkpyonix.composerust.runtime.LocalWindowActions provides actions,
         ) {
-            dev.darkpyonix.composerust.runtime.ComposeRustContent(host)
+            dev.darkpyonix.composerust.runtime.ComposeRustContent(host, caption = caption)
         }
     }
     WindowStartReport.sceneCreated(size.width, size.height, measured.scale)
@@ -439,6 +484,12 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
     var painted = false
     var drew = false
     Win32Frames.paint = {
+        // Read every frame and written only on a change, so an idle window draws nothing
+        // extra. Maximising resizes the window, and a resize always draws a frame.
+        if (actions != null) {
+            val zoomed = isZoomed(WordFactory.pointer(window.window)) != 0
+            if (maximised.value != zoomed) maximised.value = zoomed
+        }
         // The scene's own work first. A list that asked for rows on the last frame wants
         // them in hand before this one is measured, and during a drag of the window's
         // edge this is the only place that runs at all. Compose's main-thread work first,
