@@ -18,7 +18,7 @@ cd "$repo_root"
 # The window's C is the Compose fork's windows-shared module, at the pinned commit.
 source "$repo_root/scripts/tests/fork-window.sh"
 fork_window_or_skip "$repo_root"
-entry="$fork_window/windows-shared/c/win32_window.c"
+entry="$fork_window/windows-shared/c/win32_caption.h"
 chrome="renderer/desktop/src/devshell/WindowChrome.kt"
 rules="renderer/desktop/src/renderer/ComponentRules.kt"
 status=0
