@@ -3,8 +3,8 @@
 #
 # Pictures of the samples: both colour schemes, the three window widths each of them
 # changes shape at, and every design system the sample can actually be drawn in. An
-# adaptive sample is all six; a unified one is the one it names, because its other five
-# are screens it will never show.
+# adaptive sample is all seven; a unified one is the Apple pair it names, because the
+# other five are screens it will never show.
 #
 # Two steps, because the two halves of the screen live in two languages. The samples
 # record the bytes their Host would have sent, and the Renderer draws those bytes in a
@@ -13,7 +13,7 @@
 #
 # The name filter is a plain substring matched against the recording's file name, which is
 # `<Sample>-<System>-<Scheme>-<class>-<width>x<height>`. `Cupertino-Light` is a scheme
-# under one system, `Todo-` is one sample everywhere, and no filter is all 144.
+# under one system, `Todo-` is one sample everywhere, and no filter is every recording.
 
 set -euo pipefail
 

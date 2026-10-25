@@ -109,11 +109,47 @@ fn memory_row(memory_set: bool, press: Press) {
                         .modifier(Modifier.weight(1.0))
                         .variant(ButtonVariant::Text)
                         .color(Paint::Role(ColorRole::OnSurfaceVariant))
-                        // Recalling and clearing act on what is stored, so they are dead
-                        // keys until something is.
-                        .enabled(memory_set || !matches!(label, "MC" | "MR"))
+                        // Recalling, clearing and listing act on what is stored, so they
+                        // are dead keys until something is.
+                        .enabled(memory_set || !matches!(label, "MC" | "MR" | engine::MEMORY_LIST))
                         .on_click(move || press(label));
                 });
+            }
+        });
+}
+
+/// What the memory sheet is headed with.
+const MEMORY_LABEL: &str = "Memory";
+
+/// What the memory holds, opened from the last key of the memory row.
+///
+/// The Windows reference opens a list there, one line per stored number, each a way back
+/// into the entry and each with its own clear. This calculator has one register, so the
+/// list has one line.
+#[composable]
+fn memory_sheet(memory: Option<f64>, recall: Rc<dyn Fn(f64)>, clear: Rc<dyn Fn()>) {
+    Column()
+        .modifier(Modifier.fill_max_width())
+        .space_role(SpaceRole::Sm)
+        .content(|| {
+            Text(MEMORY_LABEL).type_role(TypeRole::Subtitle);
+            Separator(None);
+            if let Some(value) = memory {
+                let recall = Rc::clone(&recall);
+                let clear = Rc::clone(&clear);
+                Button(engine::format_number(value))
+                    .modifier(Modifier.fill_max_width())
+                    .variant(ButtonVariant::Text)
+                    .color(Paint::Role(ColorRole::OnSurface))
+                    .on_click(move || recall(value));
+                Button("Clear memory")
+                    .variant(ButtonVariant::Text)
+                    .color(Paint::Role(ColorRole::Error))
+                    .on_click(move || clear());
+            } else {
+                Text("Nothing is saved in memory.")
+                    .type_role(TypeRole::Body)
+                    .color(Paint::Role(ColorRole::OnSurfaceVariant));
             }
         });
 }
@@ -237,18 +273,34 @@ pub fn app() {
     let entries = remember(|| mutable_state_of(Vec::<TapeEntry>::new()));
     let next_entry = remember(|| mutable_state_of(1_u64));
     let tape_open = remember(|| mutable_state_of(false));
+    let memory_open = remember(|| mutable_state_of(false));
 
-    let (display, status, memory_set) =
-        calculator.with(|state| (state.display(), state.status(), state.memory_set()));
+    let (display, status, memory_set, memory) = calculator.with(|state| {
+        (
+            state.display(),
+            state.status(),
+            state.memory_set(),
+            state.memory(),
+        )
+    });
     let tape_beside = window.is_expanded();
     let pad_width = (!window.is_compact()).then_some(WindowSizeClass::MEDIUM_MIN_WIDTH_DP);
 
     // One key press, whichever key it was. The tape is written here rather than in the
     // engine, because a tape is a thing the application keeps.
     let press: Press = {
-        let (calculator, entries, next_entry) =
-            (calculator.clone(), entries.clone(), next_entry.clone());
+        let (calculator, entries, next_entry, memory_open) = (
+            calculator.clone(),
+            entries.clone(),
+            next_entry.clone(),
+            memory_open.clone(),
+        );
         Rc::new(move |label: &'static str| {
+            // Listing the memory opens a sheet and changes nothing in the engine.
+            if label == engine::MEMORY_LIST {
+                memory_open.set(true);
+                return;
+            }
             let mut finished = None;
             calculator.update(|state| {
                 state.press(label);
@@ -279,6 +331,20 @@ pub fn app() {
             tape_open.set(false);
         })
     };
+    let recall_memory: Rc<dyn Fn(f64)> = {
+        let (calculator, memory_open) = (calculator.clone(), memory_open.clone());
+        Rc::new(move |value: f64| {
+            calculator.update(|state| state.recall(value));
+            memory_open.set(false);
+        })
+    };
+    let clear_memory: Rc<dyn Fn()> = {
+        let (calculator, memory_open) = (calculator.clone(), memory_open.clone());
+        Rc::new(move || {
+            calculator.update(|state| state.press("MC"));
+            memory_open.set(false);
+        })
+    };
     let clear_tape: Rc<dyn Fn()> = {
         let entries = entries.clone();
         Rc::new(move || {
@@ -303,7 +369,12 @@ pub fn app() {
                 Button("")
                     .icon(IconRole::Menu)
                     .variant(ButtonVariant::Text)
-                    .on_click(|| {});
+                    // Where the Windows reference lists its other modes. This sample is
+                    // the standard calculator only, and a menu key that does nothing
+                    // reads as a broken one, so it says so.
+                    .on_click(|| {
+                        Message::new("Standard is the only mode in this sample").show();
+                    });
                 if apple {
                     Spacer().modifier(Modifier.weight(1.0));
                 } else {
@@ -375,6 +446,18 @@ pub fn app() {
                 .content(|| {
                     if !tape_beside {
                         tape(entries.get(), Rc::clone(&recall), Rc::clone(&clear_tape));
+                    }
+                });
+
+            // The memory list. Declared only while it is open: unlike the tape it has no
+            // place on the screen to stand otherwise.
+            let close_memory = memory_open.clone();
+            Sheet(memory_open.get())
+                .on_dismiss(move || close_memory.set(false))
+                .modifier(Modifier.fill_max_width())
+                .content(|| {
+                    if memory_open.get() {
+                        memory_sheet(memory, Rc::clone(&recall_memory), Rc::clone(&clear_memory));
                     }
                 });
         });
@@ -775,6 +858,20 @@ mod tests {
                 .any(|node| self.icons.get(node) == Some(&(role as u8)))
         }
 
+        /// Presses the button that carries this icon and no label.
+        fn press_icon(&mut self, role: IconRole) {
+            let node_id = *self
+                .buttons
+                .iter()
+                .find(|node| self.icons.get(*node) == Some(&(role as u8)))
+                .unwrap_or_else(|| panic!("the screen has no {role:?} button"));
+            let handler = *self
+                .clicks
+                .get(&node_id)
+                .unwrap_or_else(|| panic!("the {role:?} button cannot be pressed"));
+            self.dispatch(node_id, handler, EventPayload::Clicked);
+        }
+
         /// Whether anything of this kind carrying this text stands on the screen itself
         /// rather than inside a sheet.
         ///
@@ -909,6 +1006,53 @@ mod tests {
             screen.display(),
             "42",
             "pressing a tape line should put its answer back in the entry"
+        );
+    }
+
+    /// The last memory key lists what is stored, and the line it lists is a way back into
+    /// the entry. It used to be drawn and do nothing.
+    #[test]
+    fn fr22_the_memory_list_key_opens_what_is_stored() {
+        let mut screen = Screen::new();
+        for label in ["4", "2", "MS", "C"] {
+            screen.press(label);
+        }
+        assert_eq!(screen.display(), "0");
+        assert!(
+            screen.labelled(MEMORY_LABEL).is_none(),
+            "the memory list is open before anyone asked for it"
+        );
+
+        screen.press(engine::MEMORY_LIST);
+        let listed = screen
+            .texts
+            .iter()
+            .any(|(node, text)| text == "42" && screen.hangs_from_a_sheet(*node));
+        assert!(listed, "the sheet does not list the stored 42");
+
+        screen.press("42");
+        assert_eq!(
+            screen.display(),
+            "42",
+            "the listed number should go back into the entry"
+        );
+        assert!(
+            screen.labelled(MEMORY_LABEL).is_none(),
+            "recalling should put the list away"
+        );
+    }
+
+    /// The menu key answers rather than doing nothing.
+    #[test]
+    fn fr22_the_menu_key_answers() {
+        let mut screen = Screen::new();
+        screen.press_icon(IconRole::Menu);
+        assert_eq!(
+            screen.messages,
+            vec![(
+                "Standard is the only mode in this sample".to_owned(),
+                String::new()
+            )],
         );
     }
 
