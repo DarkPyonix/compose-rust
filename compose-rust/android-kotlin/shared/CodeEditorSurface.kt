@@ -846,6 +846,9 @@ private fun FieldSurface(
     val reveal = model.reveal
     LaunchedEffect(reveal) {
         if (reveal == null) return@LaunchedEffect
+        // The effect can start before the pass that sets the limit has run, and a scroll
+        // clamped to the old limit of 0 would go nowhere.
+        vertical.max = rows.totalRows * rowPx - viewportHeight
         scrollToReveal(RowMap.of(model), vertical, reveal, rowPx, viewportHeight)
         model.revealDone(reveal)
         callbacks.onOutput()

@@ -2142,7 +2142,7 @@ fn code_span_vector() -> crate::code::SyntaxSpans {
 /// kinds, one with a colour role and one carrying an emoji.
 fn code_fold_vector() -> crate::code::Folds {
     use crate::code::Fold;
-    crate::code::Folds::new([Fold::new(0, 0, 2), Fold::new(0, 1, 1).collapsed()])
+    crate::code::Folds::new([Fold::new(0, 0, 2), Fold::new(0, 1, 3).collapsed()])
 }
 
 fn code_gutter_vector() -> crate::code::GutterDecorations {
