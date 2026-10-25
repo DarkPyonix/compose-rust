@@ -4,13 +4,14 @@
 #
 # - rust:     the packager's tests, lint, and the lock file.
 # - appimage: builds a small program, wraps it as a signed AppImage, checks the contents
-#             and the metadata the desktop tools read. Then a real calculator with its
-#             renderer (built at the v0.0.0 tag against that tag's released renderer,
-#             x86_64) is wrapped and started under a virtual display.
+#             and the metadata the desktop tools read. Then the calculator (built in this
+#             run with the static renderer linked in) is wrapped and started under a
+#             virtual display, on both architectures.
 # - flatpak:  builds the same program from source with flatpak-builder, offline, with
 #             every crate vendored, installs it, then builds 1.0.1 into the same repository
 #             and updates the installation with `flatpak update`. Then a calculator, built in
-#             this run as one executable with the Linux static renderer linked in, is
+#             this run (calculator job) as one executable with the Linux static renderer
+#             linked in, for x86_64 and aarch64, is
 #             packaged as a prebuilt archive and started in the sandbox under a virtual
 #             display, and the Flathub submission for dev.darkpyonix.Ember is generated.
 #             Every manifest goes through Flathub's linter. The builder and the linter are
@@ -30,7 +31,6 @@ on:
     types: [synchronize, reopened, labeled]
     paths:
       - scripts/packager-linux/**
-      - .github/scripts/packager-linux-calculator-v0.sh
       - .github/workflows/packager-linux.yml
   workflow_dispatch:
 
@@ -71,9 +71,64 @@ jobs:
   static-renderer:
     name: renderer
     needs: requested
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [linux-x64, linux-arm64]
     uses: ./.github/workflows/static-renderer.yml
     with:
-      target: linux-x64
+      target: ${{ matrix.target }}
+
+  calculator:
+    name: Calculator (${{ matrix.arch }})
+    needs: [requested, static-renderer]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x86_64
+            target: linux-x64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+            target: linux-arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the libraries a Linux application links
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential pkg-config \
+            libx11-dev libxext-dev libgl1-mesa-dev libegl-dev libfontconfig1-dev libfreetype-dev
+          rustup toolchain install stable --profile minimal && rustup default stable
+
+      - name: Download the static renderer
+        uses: actions/download-artifact@v4
+        with:
+          pattern: compose-rust-renderer-v*-${{ matrix.target }}
+          path: renderer-artifact
+          merge-multiple: true
+
+      - name: Build the calculator against it, as one executable
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/renderer" work/calculator/calculator
+          tar -xzf renderer-artifact/*.tar.gz -C "$RUNNER_TEMP/renderer"
+          COMPOSE_RUST_RENDERER_DIR="$RUNNER_TEMP/renderer" \
+            cargo build --release -p sample-calculator --features compose-rust/native-renderer
+          cp target/release/sample-calculator work/calculator/calculator/
+          exe=work/calculator/calculator/sample-calculator
+          readelf -d "$exe" | grep -E '\((NEEDED|RUNPATH|RPATH)\)' || true
+          # The renderer is linked in: no library of its own is needed beside it.
+          ! readelf -d "$exe" | grep -qi renderer
+          tar -czf "work/calculator-${{ matrix.target }}.tar.gz" -C work/calculator calculator
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: calculator-${{ matrix.target }}
+          path: work/calculator-${{ matrix.target }}.tar.gz
 
   rust:
     needs: requested
@@ -127,7 +182,7 @@ jobs:
 
   appimage:
     name: AppImage (${{ matrix.arch }})
-    needs: requested
+    needs: [requested, calculator]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     strategy:
@@ -136,16 +191,12 @@ jobs:
         include:
           - runner: ubuntu-24.04
             arch: x86_64
-            calculator: calculator-linux-x64.tar.gz
-            calculator_sha256: ebc52967d02bfbd2eb22317cb23d023417ec2029eac811f3ce6b018e1950fded
+            target: linux-x64
           - runner: ubuntu-24.04-arm
             arch: aarch64
-            calculator: calculator-linux-arm64.tar.gz
-            calculator_sha256: b264dbc9efa2d7dc7e1ff9559743840d63c2aeca01f69a0e6d1ea1da9d97306f
+            target: linux-arm64
     env:
       ARCH: ${{ matrix.arch }}
-      CALCULATOR_URL: https://github.com/DarkPyonix/dioxus-compose/releases/download/sample-v0.1.1/${{ matrix.calculator }}
-      CALCULATOR_SHA256: ${{ matrix.calculator_sha256 }}
     steps:
       - uses: actions/checkout@v4
 
@@ -204,26 +255,26 @@ jobs:
           cp "$app" work/UpdateDemo.AppImage
           work/UpdateDemo.AppImage --version | tee /dev/stderr | grep -qx "update-demo 1.0.0"
 
-      - name: Wrap a calculator as an AppImage and start it
-        # A calculator whose executable and renderer belong together: the v0.0.0 tag
-        # built against its own released renderer
-        # (.github/scripts/packager-linux-calculator-v0.sh says why the published sample
-        # archives cannot be used). That renderer exists for x86_64
-        # only, so on aarch64 there is nothing that can start, and the step says so.
+      - name: Download the calculator
+        uses: actions/download-artifact@v4
+        with:
+          name: calculator-${{ matrix.target }}
+          path: work
+
+      - name: Wrap the calculator as an AppImage and start it
+        # Built in this run from this tree as one executable with the static renderer
+        # linked in (the calculator job), so the same step runs on both architectures.
         run: |
           set -euo pipefail
-          if [[ "$ARCH" != x86_64 ]]; then
-            echo "::notice title=No aarch64 calculator::no renderer was published for linux-arm64 at v0.0.0"
-            exit 0
-          fi
-          .github/scripts/packager-linux-calculator-v0.sh work
+          mkdir -p work/calc
+          tar -xzf "work/calculator-${{ matrix.target }}.tar.gz" -C work/calc
           # Unsigned: these are test builds, and the signing key is not created yet.
           scripts/packager-linux/appimage.sh \
             --dioxus-toml samples/calculator/Dioxus.toml \
             --overlay scripts/packager-linux/samples.toml \
             --exec sample-calculator --icon samples/calculator/assets/icon.png \
             --icon samples/calculator/assets/icon-256.png \
-            --payload work/calculator/calculator --version 0.0.0 \
+            --payload work/calc/calculator --version 0.0.0 \
             --out-dir work/dist
           app=work/dist/Calculator-0.0.0-$ARCH.AppImage
           xvfb-run -a -s "-screen 0 1280x800x24" bash -c "
@@ -247,7 +298,7 @@ jobs:
 
   flatpak:
     name: Flatpak builds and updates
-    needs: [requested, static-renderer]
+    needs: [requested, calculator]
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -330,32 +381,18 @@ jobs:
           flatpak --user info "$id"
           echo "### Flatpak 1.0.0 updated to 1.0.1 with flatpak update" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Download the static renderer
+      - name: Download the calculators
         uses: actions/download-artifact@v4
         with:
-          pattern: compose-rust-renderer-v*-linux-x64
-          path: renderer-artifact
+          pattern: calculator-linux-*
+          path: work/calc
           merge-multiple: true
-
-      - name: Build the calculator against it, as one executable
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/renderer" work/calculator/calculator
-          tar -xzf renderer-artifact/*.tar.gz -C "$RUNNER_TEMP/renderer"
-          COMPOSE_RUST_RENDERER_DIR="$RUNNER_TEMP/renderer" \
-            cargo build --release -p sample-calculator --features compose-rust/native-renderer
-          cp target/release/sample-calculator work/calculator/calculator/
-          exe=work/calculator/calculator/sample-calculator
-          readelf -d "$exe" | grep -E '\((NEEDED|RUNPATH|RPATH)\)' || true
-          # The renderer is linked in: no library of its own is needed beside it.
-          ! readelf -d "$exe" | grep -qi renderer
-          tar -czf work/calculator-linux-x64.tar.gz -C work/calculator calculator
 
       - name: Package the calculator as a prebuilt archive and start it in the sandbox
         run: |
           set -euo pipefail
           mkdir -p work/flatpak-calculator
-          cp work/calculator-linux-x64.tar.gz work/flatpak-calculator/
+          cp work/calc/calculator-linux-x64.tar.gz work/flatpak-calculator/
           # flatpak talks to its system helper over the session bus, which a runner has
           # none of until one is started.
           dbus-run-session -- scripts/packager-linux/flatpak.sh \
@@ -381,7 +418,7 @@ jobs:
       - name: Prepare the Flathub submission for dev.darkpyonix.Ember
         # What flathub/dev.darkpyonix.Ember will hold, generated and linted. Ember has no
         # release yet, so two inputs are stand-ins and the listing is not submitted:
-        # the archive is the calculator built above (x86_64 only), and the screenshot is
+        # the archives are the calculators built above (both architectures, as file:// sources), and the screenshot is
         # Ember's large icon, pinned. For a real release,
         # scripts/packager-linux/flathub/ember.sh takes the tag and fills in Ember's own
         # archives, digests and the screenshot pinned to that tag.
@@ -394,15 +431,17 @@ jobs:
           curl -fsSL -o work/ember-icons/128.png "$raw/src-tauri/icons/128x128.png"
           curl -fsSL -o work/ember-icons/256.png "$raw/src-tauri/icons/128x128@2x.png"
           mkdir -p work/flathub-ember
-          cp work/calculator-linux-x64.tar.gz work/flathub-ember/
+          x64="$PWD/work/calc/calculator-linux-x64.tar.gz"
+          arm64="$PWD/work/calc/calculator-linux-arm64.tar.gz"
           dbus-run-session -- scripts/packager-linux/flatpak.sh \
             --dioxus-toml scripts/packager-linux/flathub/dev.darkpyonix.Ember.toml \
             --app-id dev.darkpyonix.Ember --version 0.0.0 \
             --icon work/ember-icons/128.png --icon work/ember-icons/256.png \
             --screenshot "$raw/src-tauri/icons/128x128@2x.png" --screenshot-caption "Ember" \
-            --prebuilt-path calculator-linux-x64.tar.gz \
+            --prebuilt-url "file://$x64" --prebuilt-sha256 "$(sha256sum "$x64" | cut -d' ' -f1)" --prebuilt-arch x86_64 \
+            --prebuilt-url "file://$arm64" --prebuilt-sha256 "$(sha256sum "$arm64" | cut -d' ' -f1)" --prebuilt-arch aarch64 \
             --out work/flathub-ember --lint
-          rm -rf work/flathub-ember/.flatpak-builder work/flathub-ember/build work/flathub-ember/calculator-linux-x64.tar.gz
+          rm -rf work/flathub-ember/.flatpak-builder work/flathub-ember/build
           find work/flathub-ember -type f | sort
           cat work/flathub-ember/dev.darkpyonix.Ember.metainfo.xml
 
