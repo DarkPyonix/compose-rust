@@ -202,10 +202,9 @@ windows_imports() {
 }
 
 check_windows_libraries() {
-    local binary="$1" failures=0 dlls dll system
+    local binary="$1" failures=0 dlls dll
     dlls="$(windows_imports "$binary")"
     [[ -n "$dlls" ]] || fail "no DLL was listed for $(basename "$binary"), which is not a Windows executable that opens a window"
-    system="$(cygpath -u "${SystemRoot:-C:\\Windows}")/System32"
     for dll in $dlls; do
         case "$(windows_dll_verdict "$dll")" in
             allowed) ;;
@@ -213,14 +212,8 @@ check_windows_libraries() {
                 echo "      $dll is not Windows': a runtime, the renderer or a Java library that is to be inside the executable" >&2
                 failures=$((failures + 1)) ;;
             *)
-                # Not on the allowlist, but if Windows itself ships it the executable still
-                # needs nothing beside it. Said out loud so a new one is noticed.
-                if [[ -f "$system/$dll" || -f "$system/$(tr '[:upper:]' '[:lower:]' <<< "$dll")" ]]; then
-                    echo "note  $dll is part of Windows but not on the allowlist"
-                else
-                    echo "      $dll is neither on the allowlist nor in System32" >&2
-                    failures=$((failures + 1))
-                fi ;;
+                echo "      $dll is not on the allowlist of Windows' own DLLs" >&2
+                failures=$((failures + 1)) ;;
         esac
     done
     # A statically linked JNI library announces itself with JNI_OnLoad_<name>.
@@ -228,7 +221,7 @@ check_windows_libraries() {
         echo "      the executable carries a JNI library, so a Java runtime is linked into it" >&2
         failures=$((failures + 1))
     fi
-    [[ "$failures" -eq 0 ]] || fail "$(basename "$binary") needs $failures thing(s) that are not Windows'"
+    [[ "$failures" -eq 0 ]] || fail "$(basename "$binary") needs $failures thing(s) that are not Windows', from these DLLs:" $dlls
     echo "-- $(wc -w <<< "$dlls" | tr -d ' ') DLLs, every one part of Windows: $(echo $dlls)"
 }
 
