@@ -1,6 +1,6 @@
 {
   "format": "compose-rust protocol vectors v1",
-  "schemaHashUnsigned": "1390284793613795356",
+  "schemaHashUnsigned": "10153105577318231506",
   "byteOrder": "little-endian",
   "mutations": {
     "file": "mutations.bin",
@@ -14,6 +14,16 @@
     "spanRecordLength": 36,
     "strings": ["안녕", "compose", " token", "필터", "New", "삭제했습니다", "Undo", "session/7", "세션이 끝났습니다", "테스트 214개 통과", "세션", "열기", "", "session/7", "fn main() {\n    let 한 = \"😀\";\n}\n", "mut "],
     "assets": [{ "assetId": 5, "kind": "Png", "bytes": "89504e47" }]
+  },
+  "transform3d": {
+    "file": "transform3d.bin",
+    "description": "One batch with one 92 byte Transform3D modifier on node 3: the column-major matrix, the origin (0.5, 0.25) and backface-visibility hidden",
+    "recordCount": 1,
+    "length": 104,
+    "matrix": [0.5, -0.25, 1.5, 0.125, -2.0, 3.0, 0.75, -0.5, 4.0, -1.25, 2.5, -0.0625, 12.0, -6.0, 8.0, 1.0],
+    "originX": 0.5,
+    "originY": 0.25,
+    "backfaceHidden": true
   },
   "events": {
     "file": "events.bin",

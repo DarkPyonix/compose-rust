@@ -2711,14 +2711,79 @@ dioxus-compose FR-34.2 수용 기준 5(`prefers-reduced-motion`)는 Host가 미�
 19. 컨테이너 하나의 애니메이션이 그 안의 글자를 모두 다시 칠합니다(렌더러 테스트, 테스트 시계). 빨강에서 파랑으로 가는 `Color` 애니메이션 하나를 컨테이너에 걸고 절반에서 멈추면, 그 안에서 자기 색이 없는 `Text`는 깊이와 상관없이(컨테이너 안의 `Column` 안, 그 안의 `Box` 안) 모두 빨강과 파랑의 중간색으로 그려지고, 자기 색이 있는 `Text`는 그 색을 지킵니다. 배치에는 `StartAnimation`이 하나뿐이고 어느 `Text`도 레코드를 받지 않으며, 재생하는 동안 그 `Text`들은 다시 구성되지 않습니다(`fr41_one_animation_on_a_container_recolours_every_text_inside_it`).
 20. 테두리 색 애니메이션(렌더러 테스트, 테스트 시계). 너비 8의 `BorderEach`(네 변 빨강)와 너비 8의 `Border`(빨강)에 각각 빨강에서 파랑으로 가는 `BorderColor` 하나를 걸고 절반에서 멈추면, 네 변의 테두리 모두 중간색으로 그려지고 테두리 안쪽은 칠해지지 않습니다(`fr41_an_animated_border_colour_is_what_is_drawn`).
 
+#### FR-41.2.1 3D 변환 노드의 `Transform` 애니메이션 (`Draft`)
+
+`Transform3D`(FR-41.3)를 단 노드에는 `Transform` 애니메이션을 걸 수 없습니다. 그 노드에는 `Transform` 수정자가 없으므로 렌더러는 이를 `ProtocolError`로 보고합니다. 3D 변환은 행렬 하나로 접혀 오므로, FR-41.2의 함수 목록 보간은 적용되지 않습니다.
+
+열린 질문은 3D 변환을 어떻게 애니메이션할지입니다. 후보는 CSS Transforms 2의 3D 행렬 보간입니다. 두 행렬을 이동, 확대, 기울임, 원근, 사원수 회전으로 분해하고, 칸마다 보간한 뒤 다시 합칩니다. 보간한 행렬은 FR-41.3의 쌓인 레이어로 매 프레임 그리므로, 적중 판정도 그 순간의 모양을 따릅니다. 이 방법이 맞는지, 키프레임 목록을 맞추는 규칙을 어떻게 적을지, 함수 단위 보간을 따로 둘지는 아직 정하지 않았습니다.
+
+수용 기준은 구현할 때 적습니다.
+
 ---
 
-### FR-41.3 3D 변환 (`Draft`, 다음 단계)
+### FR-41.3 3D 변환 (`Agreed`)
 
-`rotateX`, `rotateY`, `perspective`, `matrix3d`처럼 2D 아핀 레코드로 나타낼 수 없는 변환입니다. 다음 단계에서 구현합니다. 지금 정해 둔 것은 다음과 같습니다.
-- 값은 4x4 행렬 수정자(64바이트, 넓은 `SetModifier` 규칙으로 `k = 6`)입니다.
-- `graphicsLayer`는 `rotationX`/`rotationY`와 `cameraDistance`까지 안정 API로 그립니다. 임의의 4x4 원근 행렬은 안정 API 밖이므로, 그 부분은 어댑터 한 파일에 가두고 버전을 고정합니다(NFR-6).
-- 수용 기준은 이 항목을 구현할 때 적습니다. 그전까지 Host는 3D 변환을 2D로 근사해 보내지 않습니다. dioxus-compose는 그 변환을 적용하지 않고 개발자 경고를 냅니다. 틀린 근사보다 경고가 낫기 때문입니다.
+`rotateX`, `rotateY`, `perspective`, `matrix3d`처럼 2D 아핀 레코드(FR-41.1)로 나타낼 수 없는 변환입니다. 노드와 그 안의 내용 전부를 4x4 행렬로 그립니다. 레이아웃에는 영향을 주지 않고, 적중 판정은 변환된 모양을 따릅니다. 오너가 2026-10-25에 승인했습니다(이슈 #105).
+
+#### 값
+
+- `Modifier::Transform3D { m: [f32; 16], origin_x, origin_y, backface_hidden }`. 수정자 태그 27.
+- `m`은 열 우선(column-major)입니다. CSS `matrix3d(a1, b1, c1, d1, a2, ...)`의 인자 순서와 같고, `m[4 * column + row]`입니다. 열 벡터 기준으로 `p' = M · (x, y, z, 1)`, 화면 좌표는 `(x'/w', y'/w')`입니다. 이동 성분(`m[12]`, `m[13]`, `m[14]`)과 `perspective` 항(`m[11] = -1/d`)은 CSS px와 같은 단위로, Host가 `Offset`과 같은 변환을 합니다.
+- `origin_x`, `origin_y`는 FR-41.1과 같은 뜻입니다. 노드가 측정된 크기(border box)에 대한 비율이고 `(0.5, 0.5)`가 가운데입니다. 원점의 z는 0입니다. 길이로 쓴 원점은 Host가 `T(o)·M·T(-o)`로 행렬에 접어 넣고 원점을 `(0, 0)`으로 보냅니다.
+- **Host는 CSS의 3D 함수를 모두 행렬 하나로 접습니다.** `rotateX`, `rotateY`, `rotateZ`, `rotate3d`, `translateZ`, `translate3d`, `scaleZ`, `scale3d`, `perspective()`, `matrix3d`와 2D 함수들을 `transform` 속성에 적힌 순서대로 곱합니다. `perspective()`는 곱의 그 자리에서 행렬 안에 들어갑니다. 요소의 `perspective` 속성(부모가 자식에게 주는 원근)은 Host가 자식의 행렬 앞에 `perspective(d)`를 `T(po)·P·T(-po)`로 접어 보냅니다. 그래서 렌더러는 원근을 따로 받지 않습니다.
+- `backface_hidden`은 `backface-visibility: hidden`입니다. 레코드 안의 플래그로 보냅니다. 따로 태그를 두지 않는 이유: 이 플래그는 행렬과 함께 바뀌고(회전하는 카드), 별도 수정자로 나누면 같은 노드의 갱신이 레코드 둘이 됩니다(FR-41.1이 두 수정자 안을 버린 이유와 같습니다). 와이어에서는 8바이트 한 칸이고 값은 `0` 또는 `1`입니다. 그 밖의 값은 `ProtocolError`입니다(`Clip`의 플래그와 같습니다).
+- **2D만 있는 변환은 이 수정자로 보내지 않습니다.** 3D 성분이 없는 `transform`은 계속 FR-41.1의 `Transform`입니다. 한 노드에는 `Transform`과 `Transform3D` 가운데 하나만 둡니다. 둘이 한 목록에 있으면 바깥 것부터 차례로 곱해지지만 Host는 하나로 합쳐 보냅니다.
+
+#### 와이어: 넓은 `SetModifier`
+
+`SetModifier`의 길이는 `28 + 8k`이고(FR-41.1), 머리 12바이트 뒤에 `f32`가 열여덟 개(행렬 16, 원점 2, 72바이트)와 플래그 한 칸(8바이트)이 오므로 `12 + 72 + 8 = 92`바이트이고 `k = (92 - 28) / 8 = 8`입니다. 예전에 행렬만으로 적은 `k = 6`은 원점과 플래그를 더하면 모자랍니다.
+
+```
+SetModifier, Transform3D (92바이트)
+offset  0  tag: u16 = 3          offset  2  len: u16 = 92
+offset  4  node_id: u32
+offset  8  index: u16            offset 10  modifier: u16 = 27
+offset 12  m[0..2]   (f32 x 2)   offset 20  m[2..4]
+offset 28  m[4..6]               offset 36  m[6..8]
+offset 44  m[8..10]              offset 52  m[10..12]
+offset 60  m[12..14]             offset 68  m[14..16]
+offset 76  origin_x: f32         offset 80  origin_y: f32
+offset 84  backface_hidden: u64 (0 또는 1)
+```
+
+- 두 `f32`가 `u64` 하나에 들어가는 방식은 `Transform`과 같습니다(첫 값이 하위 32비트). 슬롯은 `First`부터 `Tenth`까지 열 개이고, 행렬이 앞의 여덟 개, 원점이 아홉째, 플래그가 열째입니다.
+- 태그가 요구하는 길이와 레코드의 `len`이 다르면 `ProtocolError`입니다.
+- 태그 27을 더하면 스키마 해시가 바뀝니다. 핸드셰이크가 낡은 쪽을 거절합니다.
+
+#### Compose 대응
+
+- **납작한 노드는 호모그래피 하나입니다.** 내용이 z = 0 평면에 있으므로 그려지는 것은 행렬 열여섯 개 가운데 `x' = (m0 x + m4 y + m12) / w`, `y' = (m1 x + m5 y + m13) / w`, `w = m3 x + m7 y + m15`에 나오는 아홉 개뿐입니다. 렌더러는 이 호모그래피를 `graphicsLayer`로 정확히 그립니다. 안정 API만 쓰고 근사는 없습니다.
+  - 원근이 없으면(`m3 = m7 = 0`) 2D 아핀이고 FR-41.1의 두 겹으로 그립니다.
+  - 원근이 있으면 먼저 `graphicsLayer` 한 겹을 찾습니다. 한 겹의 행렬은 이동, `rotationX/Y/Z`, 확대, 원근(`cameraDistance`)으로 정해지고, 행렬의 위쪽 두 행이 서로 직교한다는 조건에서 확대와 카메라 거리가 풀립니다. `perspective(d) rotateY(a)`처럼 CSS에서 온 행렬은 이 한 겹이 되고 `rotationY = a`, 카메라 거리는 `d`로 돌아옵니다(CSS `perspective(d)`는 `cameraDistance = d`를 dp에서 px로 바꾼 값을 72로 나눈 것).
+  - 한 겹으로 안 되는 행렬(기울임과 원근의 곱, 원근 안쪽의 이동)은 어댑터 경로입니다. 같은 원근 행을 만드는 `rotationX/Y` 한 겹 뒤에 나머지 2x2 변환을 FR-41.1의 아핀 겹으로 쌓습니다. 겹은 정확히 합성되므로 한 겹과 같은 그림이고, 적중 판정도 겹마다 역행렬을 거쳐 같은 모양을 따릅니다. 세 겹까지 쌓입니다.
+  - 이 분해와 Compose 레이어의 속성 적용 순서(`prepareTransformationMatrix`)에 기대는 코드는 어댑터 한 파일에 둡니다(NFR-6). 그 파일은 자신이 읽은 Compose 버전을 상수로 기록하고, 모듈이 의존하는 버전과 다르면 빌드가 아니라 테스트가 실패합니다.
+- **`backface_hidden`.** 변환된 노드의 뒷면이 보이면(위 호모그래피에서 원근 항을 뗀 2x2 부분의 행렬식이 음수, 곧 그림의 방향이 뒤집힘) 그 노드와 내용을 그리지 않고 적중 판정에서도 뺍니다. `scaleX(-1)`처럼 거울상이 되는 변환도 뒷면입니다. CSS와 같습니다.
+- **행렬식이 0이거나 원점에서 `w`(`m15`)가 0 이하인 노드**는 그리지 않고 적중 판정에서도 빠집니다(FR-41.1의 행렬식 0 규칙과 같습니다).
+- 값에 NaN이나 무한대가 있으면 `ProtocolError`입니다(NFR-7).
+- **레이아웃은 바뀌지 않고**, 적중 판정은 Compose가 변환된 모양으로 합니다. 순서 규칙(`Offset`, `RequiredSize`, `Transform3D`, `Alpha`, ...)은 FR-41.1과 같고 `Transform3D`는 `Transform` 자리에 놓입니다.
+- 분해 결과는 레코드 값에서 유도한 캐시로, `remember`의 키가 레코드 값입니다. 값이 바뀌면 레이어 속성만 갱신되고 그 노드와 자식은 다시 측정되지 않습니다.
+
+수용 기준:
+1. `Transform3D` 수정자가 92바이트 `SetModifier`로 Rust와 Kotlin에서 같은 바이트로 인코딩되고 디코딩됩니다(체크인된 프로토콜 벡터). 기존 수정자 0~26의 벡터는 바이트 하나도 바뀌지 않습니다(`fr41_3_transform3d_round_trips`).
+2. 값에 NaN이나 무한대가 든 행렬, 0과 1이 아닌 `backface_hidden`, 길이가 92가 아닌 `Transform3D`는 `ProtocolError` 이벤트가 되고 프로세스가 중단되지 않습니다(`fr41_3_non_finite_is_a_protocol_error`).
+3. `perspective(400px) rotateY(45deg)`를 가운데 원점으로 단 100x40dp 상자의 네 꼭짓점이 CSS 계산(동차 좌표 나눗셈)과 1px 안에서 맞습니다. 같은 검사를 `rotateX(60deg)`와 둘의 조합에도 합니다(`fr41_3_rotate_perspective_corners_match_css`).
+4. `graphicsLayer`로 분해되지 않는 행렬(기울임과 원근의 곱)은 어댑터 경로로 그려져 기준 3과 같은 오차로 맞고, 분해되는 행렬은 어댑터 경로를 타지 않습니다. 어댑터 파일이 묶인 Compose 버전이 빌드에 쓰인 버전과 같은지 검사합니다(`fr41_3_undecomposable_matrix_uses_the_adapter_path`).
+5. 변환된 모양 안의 점을 누르면 `Clicked`가 오고, 원래 사각형 안이지만 변환된 모양 밖인 점을 누르면 오지 않습니다(`fr41_3_hit_test_follows_the_shape`).
+6. `backface_hidden`이 켜진 노드를 `rotateY(180deg)`로 돌리면 그려지지 않고 눌러도 `Clicked`가 오지 않으며, 켜지 않은 같은 노드는 그려집니다. `rotateY(90deg)`보다 작은 각에서는 켜져 있어도 그려집니다(`fr41_3_backface_hidden`).
+7. 변환 값만 바뀐 갱신은 그 노드의 `SetModifier` 하나만 싣고 그 노드와 자식은 다시 측정되지 않습니다(`fr41_3_update_sends_one_record_and_does_not_remeasure`).
+
+### FR-41.5 `transform-style: preserve-3d` (`Draft`)
+
+`transform-style: preserve-3d`는 자식들이 부모와 같은 3D 공간을 공유하게 합니다. 자식의 깊이가 서로 비교되어 앞뒤가 정해지고(교차하는 면도 깊이로 자릅니다), 부모의 변환이 자식에게 합쳐서 적용됩니다.
+
+배경: FR-41.3은 변환마다 노드 하나를 평면으로 합성합니다. 요청한 쪽은 dioxus-compose FR-34.1이고, 카드 뒤집기와 입방체 같은 예가 `preserve-3d`를 씁니다. Host는 `preserve-3d`를 만나면 개발자 경고를 내고 `flat`처럼 그립니다. 틀린 깊이 정렬보다 경고가 낫기 때문입니다.
+
+안정 Compose로 할 수 없는 이유: `graphicsLayer`는 노드마다 자기만의 오프스크린 레이어로 합성하고, 레이어 안의 `cameraDistance`는 그 레이어 하나의 깊이만 다룹니다. 형제 레이어 사이에는 깊이 버퍼가 없고 그리는 순서(체인과 `zIndex`)가 앞뒤를 정합니다. 그래서 두 면이 서로 파고드는 장면이나 자식이 부모의 3D 변환을 이어받는 장면을 안정 API로 그릴 수 없습니다. 정해야 할 것은 (a) 깊이 정렬을 Host가 면 단위로 풀어 `AbsoluteBox` 순서로 보낼지(교차 면은 못 그림), (b) 렌더러가 깊이를 가진 그리기 경로를 가질지(어댑터 파일의 범위를 넘음)입니다. 어느 쪽이든 오너의 결정이 필요하고, 수용 기준은 그때 적습니다.
 
 ### FR-41.4 compose-rust 작성 API (`Agreed`)
 

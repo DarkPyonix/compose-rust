@@ -132,6 +132,15 @@ fn every_modifier() -> Vec<Modifier> {
             origin_x: 0.5,
             origin_y: 0.25,
         },
+        Modifier::Transform3D {
+            m: [
+                0.5, -0.25, 1.5, 0.125, -2.0, 3.0, 0.75, -0.5, 4.0, -1.25, 2.5, -0.0625, 12.0,
+                -6.0, 8.0, 1.0,
+            ],
+            origin_x: 0.5,
+            origin_y: 0.25,
+            backface_hidden: true,
+        },
     ]
 }
 
@@ -141,7 +150,8 @@ fn tag_of(modifier: &Modifier) -> u16 {
 }
 
 /// Each new modifier round-trips, and its record is as long as its tag says: 28 bytes for
-/// a value of two words, 36 for the shadow's three and 60 for the border's six.
+/// a value of two words, 36 for the shadow's three, 60 for the border's six and 92 for the
+/// 3D transform's ten.
 #[test]
 fn fr42_every_modifier_round_trips_at_the_length_its_tag_fixes() {
     let modifiers = every_modifier();
@@ -176,6 +186,8 @@ fn fr42_every_modifier_round_trips_at_the_length_its_tag_fixes() {
         (23, 36),
         (24, 28),
         (25, 28),
+        (26, 44),
+        (27, 92),
     ] {
         assert_eq!(
             28 + 8 * usize::from(modifier_extra_words(tag).unwrap()),

@@ -36,6 +36,7 @@ pub const GENERATED_RELATIVE_PATH: &str = "../renderer/desktop/src/protocol/Prot
 pub const SCHEMA_HASH_RELATIVE_PATH: &str = "schema-hash.txt";
 pub const MUTATION_VECTOR_RELATIVE_PATH: &str = "tests/vectors/mutations.bin";
 pub const EVENT_VECTOR_RELATIVE_PATH: &str = "tests/vectors/events.bin";
+pub const TRANSFORM_3D_VECTOR_RELATIVE_PATH: &str = "tests/vectors/transform3d.bin";
 pub const VECTOR_DESCRIPTION_RELATIVE_PATH: &str = "tests/vectors/vectors.json";
 const KOTLIN_PACKAGE: &str = "dev.darkpyonix.composerust.protocol";
 
@@ -2499,6 +2500,29 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
     Ok(encoder.finish()?.to_vec())
 }
 
+/// The matrix the 3D transform vector carries: sixteen different values, so a value read
+/// from the wrong half of the wrong word cannot pass.
+pub const TRANSFORM_3D_VECTOR_MATRIX: [f32; 16] = [
+    0.5, -0.25, 1.5, 0.125, -2.0, 3.0, 0.75, -0.5, 4.0, -1.25, 2.5, -0.0625, 12.0, -6.0, 8.0, 1.0,
+];
+
+/// One batch holding one `Transform3D` on node 3, the only record 92 bytes long. It is a
+/// file of its own so that every byte of the main mutation vector stays where it was.
+pub fn generate_transform_3d_vector() -> Result<Vec<u8>, ProtocolError> {
+    let mut encoder = BatchEncoder::default();
+    encoder.encode(&Mutation::SetModifier {
+        node_id: 3,
+        index: 0,
+        modifier: Modifier::Transform3D {
+            m: TRANSFORM_3D_VECTOR_MATRIX,
+            origin_x: 0.5,
+            origin_y: 0.25,
+            backface_hidden: true,
+        },
+    })?;
+    Ok(encoder.finish()?.to_vec())
+}
+
 pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
     let events = [
         HostEvent {
@@ -2667,6 +2691,16 @@ pub fn generate_vector_description() -> String {
     "spanRecordLength": 36,
     "strings": ["안녕", "compose", " token", "필터", "New", "삭제했습니다", "Undo", "session/7", "세션이 끝났습니다", "테스트 214개 통과", "세션", "열기", "", "session/7", "fn main() {{\n    let 한 = \"😀\";\n}}\n", "mut "],
     "assets": [{{ "assetId": 5, "kind": "Png", "bytes": "89504e47" }}]
+  }},
+  "transform3d": {{
+    "file": "transform3d.bin",
+    "description": "One batch with one 92 byte Transform3D modifier on node 3: the column-major matrix, the origin (0.5, 0.25) and backface-visibility hidden",
+    "recordCount": 1,
+    "length": 104,
+    "matrix": [0.5, -0.25, 1.5, 0.125, -2.0, 3.0, 0.75, -0.5, 4.0, -1.25, 2.5, -0.0625, 12.0, -6.0, 8.0, 1.0],
+    "originX": 0.5,
+    "originY": 0.25,
+    "backfaceHidden": true
   }},
   "events": {{
     "file": "events.bin",

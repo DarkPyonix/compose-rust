@@ -47,6 +47,18 @@ pub enum FieldSlot {
     SixthLow,
     SixthHigh,
     Sixth,
+    SeventhLow,
+    SeventhHigh,
+    Seventh,
+    EighthLow,
+    EighthHigh,
+    Eighth,
+    NinthLow,
+    NinthHigh,
+    Ninth,
+    TenthLow,
+    TenthHigh,
+    Tenth,
 }
 
 impl FieldSlot {
@@ -65,6 +77,14 @@ impl FieldSlot {
             Self::FifthHigh => (4, true),
             Self::SixthLow | Self::Sixth => (5, false),
             Self::SixthHigh => (5, true),
+            Self::SeventhLow | Self::Seventh => (6, false),
+            Self::SeventhHigh => (6, true),
+            Self::EighthLow | Self::Eighth => (7, false),
+            Self::EighthHigh => (7, true),
+            Self::NinthLow | Self::Ninth => (8, false),
+            Self::NinthHigh => (8, true),
+            Self::TenthLow | Self::Tenth => (9, false),
+            Self::TenthHigh => (9, true),
         }
     }
 }
@@ -88,7 +108,7 @@ pub struct VariantSchema {
 }
 
 /// The most words any modifier's value takes, the two every record has included.
-pub const MAX_MODIFIER_WORDS: usize = 6;
+pub const MAX_MODIFIER_WORDS: usize = 10;
 
 /// The `extra_words` the schema gives a modifier tag, or `None` for a tag it does not list.
 pub const fn modifier_extra_words(tag: u16) -> Option<u8> {
@@ -152,7 +172,7 @@ pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
     "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox;",
     "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts;",
-    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform;",
+    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,Transform3D;",
     "keys=Enter;",
     "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged;",
     "windowsizeclasses=Compact,Medium,Expanded;",
@@ -241,6 +261,18 @@ const fn schema_hash() -> u64 {
                     FieldSlot::SixthLow => 15,
                     FieldSlot::SixthHigh => 16,
                     FieldSlot::Sixth => 17,
+                    FieldSlot::SeventhLow => 18,
+                    FieldSlot::SeventhHigh => 19,
+                    FieldSlot::Seventh => 20,
+                    FieldSlot::EighthLow => 21,
+                    FieldSlot::EighthHigh => 22,
+                    FieldSlot::Eighth => 23,
+                    FieldSlot::NinthLow => 24,
+                    FieldSlot::NinthHigh => 25,
+                    FieldSlot::Ninth => 26,
+                    FieldSlot::TenthLow => 27,
+                    FieldSlot::TenthHigh => 28,
+                    FieldSlot::Tenth => 29,
                 }],
             );
             field_index += 1;
@@ -1672,6 +1704,25 @@ pub enum Modifier {
         origin_x: f32,
         origin_y: f32,
     },
+    /// Draws this node and everything in it through a 4x4 matrix, the way CSS 3D
+    /// `transform` does, without changing its layout. Pointer input follows the drawn
+    /// shape.
+    ///
+    /// `m` is column-major, in the order of CSS `matrix3d(...)`: element `m[4 * column +
+    /// row]`. A point `(x, y, z, 1)` goes to `M * (x, y, z, 1)`, and the screen position is
+    /// the first two results divided by the fourth. Translations are in dp. A perspective
+    /// term is already inside the matrix, so the Renderer is never sent one separately. The
+    /// origin means what it means for [`Modifier::Transform`] and its z is zero.
+    ///
+    /// `backface_hidden` is CSS `backface-visibility: hidden`: a node whose back is turned
+    /// to the viewer is not drawn and takes no input. A matrix with no inverse draws
+    /// nothing. No value may be NaN or infinite.
+    Transform3D {
+        m: [f32; 16],
+        origin_x: f32,
+        origin_y: f32,
+        backface_hidden: bool,
+    },
 }
 
 impl Modifier {
@@ -2130,6 +2181,103 @@ const TRANSFORM_FIELDS: &[FieldSchema] = &[
         slot: FieldSlot::FourthHigh,
     },
 ];
+const TRANSFORM_3D_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "m0",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FirstLow,
+    },
+    FieldSchema {
+        name: "m1",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FirstHigh,
+    },
+    FieldSchema {
+        name: "m2",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::SecondLow,
+    },
+    FieldSchema {
+        name: "m3",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::SecondHigh,
+    },
+    FieldSchema {
+        name: "m4",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::ThirdLow,
+    },
+    FieldSchema {
+        name: "m5",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::ThirdHigh,
+    },
+    FieldSchema {
+        name: "m6",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FourthLow,
+    },
+    FieldSchema {
+        name: "m7",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FourthHigh,
+    },
+    FieldSchema {
+        name: "m8",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FifthLow,
+    },
+    FieldSchema {
+        name: "m9",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FifthHigh,
+    },
+    FieldSchema {
+        name: "m10",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::SixthLow,
+    },
+    FieldSchema {
+        name: "m11",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::SixthHigh,
+    },
+    FieldSchema {
+        name: "m12",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::SeventhLow,
+    },
+    FieldSchema {
+        name: "m13",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::SeventhHigh,
+    },
+    FieldSchema {
+        name: "m14",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::EighthLow,
+    },
+    FieldSchema {
+        name: "m15",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::EighthHigh,
+    },
+    FieldSchema {
+        name: "originX",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::NinthLow,
+    },
+    FieldSchema {
+        name: "originY",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::NinthHigh,
+    },
+    FieldSchema {
+        name: "backfaceHidden",
+        ty: FieldType::Bool,
+        slot: FieldSlot::Tenth,
+    },
+];
 const ENABLED_FIELD: &[FieldSchema] = &[FieldSchema {
     name: "enabled",
     ty: FieldType::Bool,
@@ -2303,6 +2451,14 @@ pub const MODIFIER_SCHEMA: &[VariantSchema] = &[
         tag: 26,
         extra_words: 2,
         fields: TRANSFORM_FIELDS,
+    },
+    // Sixteen matrix values, the origin and a flag are ten words, eight more than the two
+    // every record has: 92 bytes.
+    VariantSchema {
+        name: "Transform3D",
+        tag: 27,
+        extra_words: 8,
+        fields: TRANSFORM_3D_FIELDS,
     },
 ];
 
