@@ -27,23 +27,6 @@ published="$(sed -n 's/^PUBLISHED_AS="\([^"]*\)"$/\1/p' "$fork/extended/skiko/bu
 }
 "$fork/extended/skiko/build-skiko-awt.sh" "$1"
 
-# The fork's metadata lists JetBrains' skiko-awt as a second capability of every variant, so Gradle
-# keeps one of the two. Amper takes a variant only when its capabilities are exactly its own
-# coordinate, so with the second one it finds no variant and stops with "Platform is not supported
-# by the library". The renderer is resolved by Amper alone and filters JetBrains' skiko-awt off
-# its class path itself, so the extra capability is dropped from the published copy.
-module="$HOME/.m2/repository/$(tr . / <<< "org.thisisthepy.compose.skiko")/skiko-awt/$version/skiko-awt-$version.module"
-[[ -f "$module" ]] || { echo "error: no $module after the build" >&2; exit 1; }
-python3 - "$module" <<'PY'
-import json, sys
-path = sys.argv[1]
-metadata = json.load(open(path, encoding="utf-8"))
-for variant in metadata.get("variants", []):
-    if "capabilities" in variant:
-        variant["capabilities"] = variant["capabilities"][:1]
-json.dump(metadata, open(path, "w", encoding="utf-8"), indent=2)
-PY
-
 jar="$HOME/.m2/repository/org/thisisthepy/compose/skiko/skiko-awt/$version/skiko-awt-$version.jar"
 [[ -f "$jar" ]] || { echo "error: no $jar after the build" >&2; exit 1; }
 echo "published $jar"
