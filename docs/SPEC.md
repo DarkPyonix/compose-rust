@@ -3884,7 +3884,7 @@ Windows와 Linux는 이 저장소에 실행할 기계가 없어 자동 테스트
 1. **해시 표기.** `{hash}`는 `compose-rust/schema-hash.txt`의 값에서 `0x`를 떼고 소문자 16진수 16자리로 씁니다(예: `62b9a55ed371acad`). 접두사 없는 쪽이 파일 이름에 안전하기 때문입니다(소유자 결정). 로그와 오류 메시지에는 `0x`를 붙여 `schema-hash.txt`와 같은 모양으로 찍습니다.
 2. **스키마 아티팩트.** 파일 이름은 `compose-rust-renderer-schema-{hash}-{target}.tar.gz`와 `.sha256`입니다. 내용과 체크섬 형식은 5.3.1의 버전 아티팩트와 같고, `schema-hash.txt`가 들어 있습니다. 모든 렌더러 아티팩트가 `schema-hash.txt`를 싣는 것은 이미 사실입니다.
 3. **게시 위치: 고정 이름 릴리스 하나(소유자 결정).** GitHub 릴리스 `renderer-dev` 하나에 자산을 스키마 해시 이름으로 쌓습니다. 주소는 `https://github.com/DarkPyonix/compose-rust/releases/download/renderer-dev/compose-rust-renderer-schema-{hash}-{target}.tar.gz`입니다. 해시마다 태그나 릴리스를 만들지 않습니다. 이 릴리스는 프리릴리스로 표시하며 **crates.io에 올리지 않고 `main`에 닿지 않습니다.** 버전 태그 `v*`와 이름이 겹치지 않아 릴리스 절차(AGENTS.md의 Releasing)를 건드리지 않습니다.
-4. **게시 자동화와 릴리스의 존재.** GitHub 릴리스는 태그가 있어야 하므로 `renderer-dev` 태그 하나가 있습니다. 이 태그는 소유자가 한 번 만들고 옮기거나 지우지 않습니다. 워크플로는 태그도 릴리스도 만들지 않습니다. 소유자가 이 릴리스를 만들기 전에는 올리기 단계가 알림을 남기고 건너뛰며 실패하지 않습니다. `develop`에 합쳐진 변경이 `schema-hash.txt`를 바꾸면 네 타깃의 렌더러를 빌드해 `gh release upload renderer-dev --clobber`로 자산을 올리거나 바꿉니다. 올릴 때 정리도 합니다. 가장 최근 해시 20개와 릴리스된 버전 태그(`v*`) 각각의 해시는 남기고 나머지 자산을 지웁니다. 파일은 `.github/workflows/publish-schema-renderer.yml`, 이름은 "Publish schema renderer"이며 무거운 워크플로이므로 `KNOWN_HEAVY`에 넣습니다. 같은 해시의 자산이 이미 있으면 다시 만들지 않습니다. 이 태그는 "태그는 `main`의 병합 커밋에만 붙인다"는 규칙의 유일한 예외이며, 그 문장은 AGENTS.md에 소유자가 따로 적습니다.
+4. **게시 자동화와 릴리스의 존재.** GitHub 릴리스는 태그가 있어야 하므로 `renderer-dev` 태그 하나가 있습니다. 이 태그는 소유자가 한 번 만들었고(2026-10-25) 옮기거나 지우지 않습니다. 워크플로는 태그도 릴리스도 만들지 않습니다. 소유자가 이 릴리스를 만들기 전에는 올리기 단계가 알림을 남기고 건너뛰며 실패하지 않습니다. `develop`에 합쳐진 변경이 `schema-hash.txt`를 바꾸면 네 타깃의 렌더러를 빌드해 `gh release upload renderer-dev --clobber`로 자산을 올리거나 바꿉니다. 올릴 때 정리도 합니다. 가장 최근 해시 20개와 릴리스된 버전 태그(`v*`) 각각의 해시는 남기고 나머지 자산을 지웁니다. 파일은 `.github/workflows/publish-schema-renderer.yml`, 이름은 "Publish schema renderer"이며 무거운 워크플로이므로 `KNOWN_HEAVY`에 넣습니다. 같은 해시의 자산이 이미 있으면 다시 만들지 않습니다. 이 태그는 "태그는 `main`의 병합 커밋에만 붙인다"는 규칙의 유일한 예외이며, AGENTS.md의 Releasing에 그 예외가 적혀 있습니다.
 5. **빌드 스크립트의 탐색.** 5.3.2의 순서를 따릅니다. 1(`COMPOSE_RUST_RENDERER_DIR`)과 2(워크스페이스 결과물)는 그대로입니다. 3의 캐시는 `.../renderer/schema-{hash}/{target}`입니다. 4의 다운로드는 먼저 버전 릴리스를 받고, 받은 아티팩트의 `schema-hash.txt`가 크레이트의 해시와 같으면 그것을 씁니다. 다르면 스키마 렌더러를 시도합니다. 둘 다 맞지 않으면 5.3.6의 불일치 실패입니다. 버전 릴리스가 맞는 흔한 경우에는 요청이 늘지 않습니다.
 6. **`COMPOSE_RUST_RENDERER_URL`(선택).** 설정하면 `https://github.com/DarkPyonix/compose-rust/releases`를 대신하는 기준 주소로 쓰며, 그 아래에서 `download/v{version}/...`과 스키마 렌더러를 같은 규칙으로 찾습니다. 미러와 오프라인 CI를 위한 것이고 설치에 필요하지 않습니다. NFR-10은 그대로이며 설정하지 않은 빌드가 기본입니다.
 
@@ -3896,9 +3896,7 @@ Windows와 Linux는 이 저장소에 실행할 기계가 없어 자동 테스트
 | B. CI 워크플로 아티팩트 | 태그가 없습니다 | 택하지 않음. 보존 기간이 지나면 사라지고, 내려받으려면 토큰이 필요해 설치에 설정이 필요 없다는 NFR-10과 맞지 않습니다 |
 | C. 별도 호스트 또는 렌더러 전용 미러 저장소 | 이 저장소의 태그 규칙과 무관합니다 | 택하지 않음. 저장소나 호스트가 하나 늘고 쓰기 권한과 비용을 따로 관리해야 합니다. 나중에 필요하면 `COMPOSE_RUST_RENDERER_URL`의 기본값을 바꾸는 것으로 옮길 수 있습니다 |
 
-**소유자가 정할 것.**
-
-- `renderer-dev` 릴리스와 태그를 만드는 일. 만들기 전에는 게시가 건너뛰어집니다.
+**완료된 준비.** 소유자가 `renderer-dev` 프리릴리스와 태그를 만들었습니다(`develop` addb8307, 2026-10-25). Latest 릴리스는 버전 릴리스 그대로입니다.
 
 **수용 기준 (테스트 이름).**
 
