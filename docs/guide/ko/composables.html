@@ -127,7 +127,7 @@
           <tr><td><code>ScrollColumn()</code>, <code>ScrollRow()</code>, <code>Card()</code>, <code>Surface()</code>, <code>SelectionContainer()</code>, <code>Spacer()</code></td><td><code>modifier</code>, <code>content</code></td></tr>
           <tr><td><code>Text(text)</code></td><td><code>type_role</code>, <code>color</code>, <code>text_align</code>, <code>max_lines</code>, <code>overflow</code>, <code>spans</code>, 그리고 타입 축마다 메서드 하나</td></tr>
           <tr><td><code>TextField()</code></td><td><code>text</code>(처음 텍스트), <code>placeholder</code>, <code>multiline</code>, <code>enabled</code>, <code>on_value_change</code>, <code>on_submit</code>, <code>on_focus_lost</code>, <code>on_key_down</code></td></tr>
-          <tr><td><code>Button(label)</code></td><td><code>variant</code>, <code>icon</code>, <code>enabled</code>, <code>color</code>, <code>on_click</code>. 레이블이 비어 있고 아이콘이 있으면 아이콘 버튼입니다.</td></tr>
+          <tr><td><code>Button(label)</code></td><td><code>variant</code>, <code>kind</code>, <code>icon</code>, <code>enabled</code>, <code>color</code>, <code>on_click</code>. 레이블이 비어 있고 아이콘이 있으면 아이콘 버튼입니다.</td></tr>
           <tr><td><code>Checkbox(checked)</code>, <code>RadioButton(selected)</code>, <code>Switch(checked)</code></td><td><code>enabled</code>, <code>on_change</code></td></tr>
           <tr><td><code>Slider(value)</code></td><td><code>range</code>, <code>steps</code>, <code>enabled</code>, <code>on_change</code></td></tr>
           <tr><td><code>Dropdown(selected_index)</code></td><td><code>enabled</code>, <code>on_change</code>. 자식 하나가 선택지 하나입니다</td></tr>
@@ -324,6 +324,7 @@
           <tr><td><code>TextAlign</code></td><td><code>Start</code>, <code>Center</code>, <code>End</code>, <code>Justify</code></td><td><code>Text</code></td></tr>
           <tr><td><code>TextOverflow</code></td><td><code>Clip</code>, <code>Ellipsis</code>, <code>Visible</code></td><td>줄 수 제한이 있는 <code>Text</code></td></tr>
           <tr><td><code>ButtonVariant</code></td><td><code>Filled</code>, <code>Tonal</code>, <code>Outlined</code>, <code>Text</code></td><td><code>Button</code></td></tr>
+          <tr><td><code>ButtonKind</code></td><td><code>Standard</code>, <code>ActionKey</code></td><td><code>Button</code></td></tr>
           <tr><td><code>MessageDuration</code></td><td><code>Short</code>, <code>Long</code></td><td>잠깐 뜨는 메시지</td></tr>
         </tbody>
       </table>

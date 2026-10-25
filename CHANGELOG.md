@@ -1,5 +1,40 @@
 # Changelog
 
+## v0.0.3
+
+### The host can measure text, and text carries CSS properties
+
+A new call across the boundary lets the Host ask the Renderer how big a piece of text is
+laid out, before the frame is drawn. It measures at the region's zoom, so CSS pixel text is
+set at font scale one and the answer matches what is drawn. Min-content and max-content
+widths come from the intrinsics they are named for, and a tab stop lands where its
+characters sit in a laid out line. The text properties HTML text needs are in the schema,
+with tags 110 to 116, and a run can be a link. The Windows renderer answers the measure call
+too. The protocol and the schema hash are regenerated, so a renderer built before this
+release does not match this crate's schema.
+
+### CodeEditor
+
+`CodeEditor` is a widget the Renderer owns: it counts lines the way a language server does
+(`a\r\nb\rc\n\r\nd` is five lines), draws them one at a time, and takes input through the
+platform input session. The drawn path (`CodeEditorPath.Drawn`) uses Compose's clipboard and
+key events rather than the Java toolkit, ignores a clipboard that fails to read, and is linked
+into the Windows renderer. The widget, its records and its events are in the schema and the
+protocol. The Rust component that declares it and the per design system code styles are not in
+this release yet: they move to dioxus-compose and the Compose fork.
+
+### Brushes can be released
+
+`release_brush` releases a brush the application registered. A brush that never left the
+Host is dropped without a release. Ids are counted rather than derived from how many brushes
+are registered, so a released id is never handed out again.
+
+### Linux CI installs the renderer's link libraries
+
+Since 0.0.2, `build.rs` links the prebuilt Linux renderer, which needs X11, Xext, GL,
+fontconfig and FreeType. The Ubuntu jobs of the Test workflow that link it now install their
+development packages (#261).
+
 ## v0.0.2
 
 ### The GraalVM X11 window reads like the Kotlin/Native one
@@ -183,6 +218,15 @@ measured; the six that worked are in the build, and the four that were worth not
 written down, because their failing is what found the cause.
 
 `docs/platforms.md` has the measurements, what each platform can and cannot do, and why.
+
+### A calculator's keys are each platform's own
+
+`Button` takes a `kind`. `ButtonKind::ActionKey` says the button is one key of a dense grid,
+and the design system draws its own calculator's key: a circle on macOS, a rectangle at the
+4 dp control corner on Windows 11, a rounder 10 dp lozenge on Deepin. The application names
+no radius and asks no question about which system is running; the variant still chooses the
+fill. A button that names no kind is unchanged and sends nothing new. The calculator sample
+declares every key of its pad this way.
 
 ### Checked by hand on the macOS native path
 
