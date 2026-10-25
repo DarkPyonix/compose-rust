@@ -49,6 +49,11 @@ on:
         required: false
         type: string
         default: ''
+      skip_android:
+        description: 'Leave Android out of this run and its release (for a tag whose Android build is known to fail)'
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   # One run per pull request: a new commit cancels the older run. A tag push or a dispatch
@@ -368,6 +373,7 @@ jobs:
 
   android:
     needs: requested
+    if: ${{ !inputs.skip_android }}
     name: Build the sample (Android)
     runs-on: ubuntu-24.04
     timeout-minutes: 120
@@ -530,8 +536,8 @@ jobs:
     name: Attach the samples to the GitHub release
     needs: [build, android, ios, web]
     # A tag, or a dispatch that names one. A pull request run and a dispatch without a tag
-    # build everything and stop there.
-    if: github.event_name == 'push' || inputs.tag != ''
+    # build everything and stop there. A dispatch with skip_android releases without Android.
+    if: ${{ !cancelled() && (github.event_name == 'push' || inputs.tag != '') && needs.build.result == 'success' && needs.ios.result == 'success' && needs.web.result == 'success' && (needs.android.result == 'success' || (inputs.skip_android && needs.android.result == 'skipped')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -577,6 +583,10 @@ jobs:
               echo "- $(basename "$archive")"
             done
             echo
+            if [ "${{ inputs.skip_android }}" = "true" ]; then
+              echo "Android is not in this release; it comes in the next version."
+              echo
+            fi
             echo "A sample that does not build on a platform is skipped rather than"
             echo "holding up the rest, so a pair missing from the list above failed to"
             echo "compile there. The workflow log says which."
