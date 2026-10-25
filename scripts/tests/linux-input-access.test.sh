@@ -34,7 +34,9 @@ atspi="$fork_window/common/src/org/thisisthepy/compose/window/atspi"
 bridge="$atspi/AtspiBridge.kt"
 server="$atspi/AtspiServer.kt"
 graalvm_src="$fork_window/graalvm/graalvm-linux/src/org/thisisthepy/compose/window/graalvm/linux"
-graalvm_access="$graalvm_src/X11Accessibility.kt"
+graalvm_access="$graalvm_src/X11Window.kt"
+atspi_window="$atspi/AtspiWindow.kt"
+reader="$repo_root/renderer/desktop/src/ReaderSemantics.kt"
 graalvm_host="$repo_root/renderer/desktop/src/X11Window.kt"
 graalvm_workflow="$repo_root/.github/workflows/test-graalvm-renderer.yml"
 # The Linux static renderer is built, and checked, in the reusable workflow the native
@@ -48,7 +50,7 @@ fail() {
 }
 
 for file in "$host_window" "$window" "$xim" "$ime" "$entry" "$bridge" "$server" \
-            "$fork_src/AtspiSemantics.kt" "$atspi/AtspiModel.kt" "$atspi/AtspiWire.kt" \
+            "$atspi_window" "$reader" "$atspi/AtspiModel.kt" "$atspi/AtspiWire.kt" \
             "$atspi/DBusWire.kt" "$graalvm_access" "$graalvm_src/JvmBusConnection.kt" "$graalvm_host" \
             "$fork_window/native/linux/test/InputMethodTest.kt" \
             "$fork_window/common/test/org/thisisthepy/compose/window/atspi/AtspiTest.kt"; do
@@ -109,25 +111,20 @@ has '"GetAddress"' "$bridge" "the accessibility bus is not looked up through the
 has 'org.a11y.atspi.Accessible' "$server" "the accessible interface is not served"
 has 'org.a11y.atspi.Component' "$server" "the component interface is not served, so no reader can place a control"
 has 'org.a11y.atspi.Action' "$server" "the action interface is not served, so nothing can be pressed"
-has 'startAccessibility\(' "$entry" "the entry point never joins the accessibility bus"
-has 'accessibility\?\.pump\(\)' "$host_window" "calls from a reader are never answered"
-has 'semanticsListeners' "$host_window" "the scene does not report its semantics to the bridge"
-has 'NO_AT_BRIDGE' "$host_window" "the standard switch for turning the bridge off is not honoured"
+has 'accessibility\.join\(\)' "$window" "the window never joins the accessibility bus"
+has 'accessibility\.pump\(' "$window" "calls from a reader are never answered"
+has 'x11\.setAccessibility\(elements\)' "$host_window" "the scene's elements never reach the window's bridge"
+has 'onAccessibilityAction' "$host_window" "a press asked for by a reader never reaches the control"
+has 'ReaderSemantics' "$host_window" "the scene does not report its semantics to the bridge"
+has 'NO_AT_BRIDGE' "$window" "the standard switch for turning the bridge off is not honoured"
 absent 'java\.|JNI|org\.graalvm' "$bridge" "Kotlin/Native has no JVM"
 absent 'java\.|platform\.(posix|linux)|kotlinx\.cinterop' "$server" "the protocol is shared by both windows, so it names neither platform"
-# The semantics reader is one file, held byte for byte in both modules (a link would not survive
-# a Windows checkout, where the GraalVM module is built too).
-cmp -s "$fork_src/AtspiSemantics.kt" \
-    "$fork_window/graalvm/graalvm-linux/src/org/thisisthepy/compose/window/atspi/AtspiSemantics.kt" ||
-    fail "the GraalVM X11 window reads semantics with a reader that differs from the Kotlin/Native one"
-
 # ---- AT-SPI on the GraalVM X11 window -------------------------------------------------------
-has 'AtspiBridge\(' "$graalvm_access" "the GraalVM X11 window never joins the accessibility bus"
+has 'accessibility\.join\(\)' "$graalvm_access" "the GraalVM X11 window never joins the accessibility bus"
 has 'NO_AT_BRIDGE' "$graalvm_access" "the standard switch for turning the bridge off is not honoured"
-has 'bridge\.pump\(\)' "$graalvm_access" "calls from a reader are never answered on the GraalVM X11 window"
-has 'X11Accessibility\.join\(' "$graalvm_host" "the GraalVM renderer never joins the accessibility bus"
-has 'SemanticsFanOut\(semantics, atspiSource\)' "$graalvm_host" "the scene does not report its semantics to the GraalVM bridge"
-has 'afterFrame\(' "$graalvm_host" "the GraalVM bridge is never given the tree or asked to answer"
+has 'accessibility\.pump\(' "$graalvm_access" "calls from a reader are never answered on the GraalVM X11 window"
+has 'window\.setAccessibility\(elements\)' "$graalvm_host" "the GraalVM bridge is never given the tree"
+has 'onAccessibilityAction' "$graalvm_host" "a press asked for by a reader never reaches the control on the GraalVM window"
 has 'check-linux-input-access\.sh renderer/build/native-image-linux' "$graalvm_workflow" \
     "the headless check is not run against the GraalVM X11 window"
 

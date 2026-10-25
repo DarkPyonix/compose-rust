@@ -52,7 +52,8 @@ declared="$(printf '%s\n' $declared $loop_names | sort -u)"
 # Which C files each desktop compiles, read from its own build script rather than listed
 # again here, so that adding a file to a build is not a way of quietly failing this.
 macos_files="$(grep -ho 'c/[a-z0-9_]*\.[mc]' "$scripts/build-native.sh" | sort -u)
-$fork_window/graalvm/graalvm-macos/native/appkit_window.m"
+$fork_window/graalvm/graalvm-macos/native/appkit_window.m
+$fork_window/graalvm/graalvm-macos/native/appkit_accessibility.h"
 linux_files="$(grep -ho 'c/[a-z0-9_]*\.[mc]' "$scripts/build-native-linux.sh" | sort -u)
 $fork_window/graalvm/graalvm-linux/c/x11_window.c"
 windows_files="$(grep -ho 'c[/\\][a-z0-9_]*\.[mc]' "$scripts/build-native-windows.ps1" |

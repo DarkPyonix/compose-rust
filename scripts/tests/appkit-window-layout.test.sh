@@ -14,10 +14,14 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$repo_root/scripts/tests/fork-window.sh"
 fork_window_or_skip "$repo_root"
 source_file="$fork_window/graalvm/graalvm-macos/native/appkit_window.m"
+accessibility_source="$fork_window/graalvm/graalvm-macos/native/appkit_accessibility.h"
+records_file="$fork_window/graalvm/graalvm-macos/src/org/thisisthepy/compose/window/graalvm/macos/AccessibilityRecords.kt"
 kotlin_file="$fork_window/graalvm/graalvm-macos/src/org/thisisthepy/compose/window/graalvm/macos/AppKitWindow.kt"
 red=0
 
 [[ -f "$source_file" ]] || { echo "missing $source_file"; exit 1; }
+[[ -f "$accessibility_source" ]] || { echo "missing $accessibility_source"; exit 1; }
+[[ -f "$records_file" ]] || { echo "missing $records_file"; exit 1; }
 [[ -f "$kotlin_file" ]] || { echo "missing $kotlin_file"; exit 1; }
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
@@ -36,7 +40,9 @@ trap 'rm -f "$probe" "${probe%.m}"' EXIT
     grep '^#define DXC_TEXT_BYTES' "$source_file"
     sed -n '/^struct dxc_native_window {/,/^};/p' "$source_file"
     sed -n '/^struct dxc_event {/,/^};/p' "$source_file"
-    sed -n '/^struct dxc_element {/,/^};/p' "$source_file"
+    # The reader's record lives in the accessibility header the window includes.
+    grep '^#define DXC_AX_' "$accessibility_source"
+    sed -n '/^struct dxc_ax_element {/,/^};/p' "$accessibility_source"
     echo 'int main(void) {'
     echo '    printf("window %zu\nview %zu\ndevice %zu\nqueue %zu\nlayer %zu\nsize %zu\n",'
     echo '        offsetof(struct dxc_native_window, window),'
@@ -56,8 +62,8 @@ trap 'rm -f "$probe" "${probe%.m}"' EXIT
     echo '        offsetof(struct dxc_event, text),'
     echo '        sizeof(struct dxc_event));'
     echo '    printf("element_label %zu\nelement_size %zu\n",'
-    echo '        offsetof(struct dxc_element, label),'
-    echo '        sizeof(struct dxc_element));'
+    echo '        offsetof(struct dxc_ax_element, label),'
+    echo '        sizeof(struct dxc_ax_element));'
     echo '    return 0;'
     echo '}'
 } > "$probe"
@@ -104,14 +110,13 @@ if ! grep -q "TEXT_OFFSET = $text_offset" "$kotlin_file"; then
 fi
 
 element_label="$(awk '$1 == "element_label" { print $2 }' <<< "$layout")"
-if ! grep -q "ELEMENT_LABEL_OFFSET = $element_label" "$kotlin_file"; then
-    echo "fail: C puts an element's label at $element_label, not where AppKitWindow.kt writes it"
+if ! grep -q "AX_LABEL_OFFSET = $element_label" "$records_file"; then
+    echo "fail: C puts an element's label at $element_label, not where AccessibilityRecords.kt writes it"
     red=1
 fi
-
 element_size="$(awk '$1 == "element_size" { print $2 }' <<< "$layout")"
-if ! grep -q "ELEMENT_BYTES = $element_size" "$kotlin_file"; then
-    echo "fail: an element is $element_size bytes, which is not what AppKitWindow.kt writes"
+if ! grep -q "AX_RECORD_BYTES = $element_size" "$records_file"; then
+    echo "fail: C makes an element $element_size bytes, not the size AccessibilityRecords.kt writes"
     red=1
 fi
 

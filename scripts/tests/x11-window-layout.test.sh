@@ -33,13 +33,15 @@ if [[ -z "$x11_event" || "$x11_event" != "$appkit_event" || "$x11_event" != "$wi
     echo "fail: the three windows declare different dxc_event fields or order"
     exit 1
 fi
-# What the window tells a reader who cannot see it. The renderer writes these records once
-# and every platform reads that one layout, so a field that moved in one file only would
-# have one window reading a label where another reads a rectangle.
+# What the X11 and Windows C windows keep for a reader who cannot see the window. The macOS
+# window has a richer record of its own (dxc_ax_element, checked by appkit-window-layout), and
+# the X11 Kotlin side now serves a reader over AT-SPI itself, so this pair is the one left that
+# has to agree: a field that moved in one file only would have one window reading a label where
+# the other reads a rectangle.
 x11_element="$(element_declaration "$source_file")"
-appkit_element="$(element_declaration "$appkit_source")"
-if [[ -z "$x11_element" || "$x11_element" != "$appkit_element" ]]; then
-    echo "fail: the X11 and macOS windows declare different dxc_element fields or order"
+win32_element="$(element_declaration "$win32_source")"
+if [[ -z "$x11_element" || "$x11_element" != "$win32_element" ]]; then
+    echo "fail: the X11 and Windows windows declare different dxc_element fields or order"
     exit 1
 fi
 
@@ -105,16 +107,8 @@ done
 grep -Fq "record.readByte($(offset text) + length)" "$event_reader" || { echo "fail: text offset"; red=1; }
 grep -Fq "EVENT_BYTES = $(offset text) + EVENT_TEXT_BYTES" "$layout_file" || { echo "fail: event size"; red=1; }
 grep -Fq "WINDOW_BYTES = $(offset window_size)" "$layout_file" || { echo "fail: window size"; red=1; }
-# The accessibility records are written by the X11 window's setAccessibility, so the offsets it
-# writes at are checked against the C the X11 window declares.
-grep -Fq "ELEMENT_LABEL_OFFSET = $(offset element_label)" "$layout_file" ||
-    { echo "fail: an element's label is not written where C keeps it"; red=1; }
 text_capacity="$(sed -n 's/^#define DXC_TEXT_BYTES \([0-9]*\)$/\1/p' "$source_file")"
 grep -Fq "EVENT_TEXT_BYTES = $text_capacity" "$layout_file" ||
     { echo "fail: the Kotlin text capacity is not the one C declares"; red=1; }
-grep -Fq "ELEMENT_BYTES = ELEMENT_LABEL_OFFSET + EVENT_TEXT_BYTES" "$layout_file" ||
-    { echo "fail: an element is not label offset plus text in Kotlin"; red=1; }
-[[ "$(( $(offset element_label) + text_capacity ))" == "$(offset element_size)" ]] ||
-    { echo "fail: an element is not the size the Kotlin layout computes"; red=1; }
 (( red == 0 )) || exit 1
 echo "ok: X11 fields and shared events match their Kotlin offsets"
