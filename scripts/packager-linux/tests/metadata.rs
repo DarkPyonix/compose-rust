@@ -220,7 +220,7 @@ fn fr22_6_3_bad_values_are_refused_before_any_file_is_written() {
 }
 
 #[test]
-fn fr22_6_3_application_ids_follow_flatpak_and_dbus_rules() {
+fn fr22_6_9_application_ids_follow_flatpak_and_dbus_rules() {
     for good in [
         "dev.darkpyonix.composerust.samples.calculator",
         "org.example.My_App",
@@ -508,7 +508,7 @@ fn fr22_6_3_appdir_refuses_a_payload_without_the_executable() {
 }
 
 #[test]
-fn fr22_6_3_flatpak_sandbox_gets_x11_ipc_and_the_gpu() {
+fn fr22_6_9_flatpak_sandbox_gets_x11_ipc_and_the_gpu() {
     let meta = meta();
     assert_eq!(
         finish_args(&meta, false),
@@ -542,7 +542,7 @@ fn icons_256() -> Vec<Icon> {
 }
 
 #[test]
-fn fr22_6_3_flatpak_manifest_for_a_prebuilt_archive() {
+fn fr22_6_9_flatpak_manifest_for_a_prebuilt_archive() {
     let meta = meta();
     let icons = icons_256();
     let text = manifest(
@@ -600,7 +600,7 @@ fn fr22_6_3_flatpak_manifest_for_a_prebuilt_archive() {
 }
 
 #[test]
-fn fr22_6_3_flatpak_manifest_builds_from_source_offline() {
+fn fr22_6_9_flatpak_manifest_builds_from_source_offline() {
     let mut meta = meta();
     meta.runtime_version = Some("24.08".into());
     let icons = icons_256();
@@ -658,7 +658,7 @@ fn fr22_6_3_flatpak_manifest_builds_from_source_offline() {
 }
 
 #[test]
-fn fr22_6_3_json_and_shell_quoting_survive_awkward_text() {
+fn json_and_shell_quoting_survive_awkward_text() {
     assert_eq!(
         Json::Object(vec![(
             "k\"ey".into(),
@@ -673,7 +673,7 @@ fn fr22_6_3_json_and_shell_quoting_survive_awkward_text() {
 }
 
 #[test]
-fn fr22_6_3_release_dates_are_reproducible() {
+fn fr22_6_9_release_dates_are_reproducible() {
     assert_eq!(release_date(None, 0), "1970-01-01");
     assert_eq!(release_date(None, 1_790_985_600), "2026-10-03");
     assert_eq!(release_date(Some("951782400"), 1_790_985_600), "2000-02-29");
