@@ -3283,6 +3283,52 @@ FR-49의 24바이트 값에 아직 없는 CSS 마스크 속성입니다. 버리�
 
 수용 기준과 값 배치는 이 항목을 `Agreed`로 올릴 때 정합니다.
 
+### FR-50 `CornerCurve` 수정자: 연속 곡률(스퀴클) 모서리 (`Draft`, 이슈 #294)
+
+요청한 쪽: Ember. 카드, 타일, 입력창, 버튼의 모서리를 연속 곡률(Figma의 모서리 매끄러움 0.6)로 그려야 합니다. 렌더러에는 `ContinuousCornerShape`가 있지만 LiquidGlass와 Cupertino 디자인 시스템만 고르고, 스키마의 `CornerEach`(FR-42.3)는 반지름만 싣습니다. 그래서 앱이 디자인 시스템과 상관없이 모서리의 곡선을 정할 길이 없습니다.
+
+번호: 수정자 `CornerCurve` 30(**제안**). 26은 `Transform`, 27은 `Transform3D`, 28은 `BackgroundBrush`, 29는 `Mask`가 가졌고, 이 글을 쓴 시점(2026-10-25)의 develop과 열린 PR에서 30 이상을 쓰는 곳이 없습니다. 다른 항목이 먼저 가져가면 설계자가 다시 매깁니다. 속성도 명령도 이벤트도 늘지 않습니다.
+
+#### 50.1 값
+
+- 값은 `smoothing: f32` 하나이고 4바이트라 16바이트 칸에 들어갑니다(`k = 0`).
+- 범위는 0..=1입니다. 0은 원호이고 지금과 픽셀이 같습니다(`RoundedCornerShape`). 1은 곡선이 가장 길게 퍼진 모양입니다. Figma의 0.6이 Ember가 쓰는 값입니다.
+- 범위 밖은 `ProtocolError`가 아니라 **가장 가까운 끝으로 맞춥니다**(음수와 `-inf`는 0, 1보다 큰 값과 `+inf`는 1). `NaN`은 0입니다. 모양 하나가 잘못 그려지는 일로 프로세스를 멈추지 않기 위해서입니다(NFR-7).
+- `CornerCurve`가 없는 노드는 0과 같습니다.
+
+#### 50.2 적용 범위
+
+- 디자인 시스템과 상관없습니다. 모든 디자인 시스템에서 같은 노드의 **배경, 테두리, 그림자, 자르기(`Clip`)**가 같은 모양을 씁니다. 네 가지가 서로 다른 모양이면 배경이 테두리 밖으로 삐져나오므로, 렌더러는 노드마다 모양을 한 번 만들어 넷이 함께 씁니다.
+- 반지름은 `CornerEach`(FR-42.3) 또는 `Shape`/`corner_radius`가 정하고, `CornerCurve`는 곡선만 바꿉니다. 반지름이 없는 노드(0)에는 아무 일도 하지 않습니다. 디자인 시스템이 이미 연속 모서리를 고르는 노드(LiquidGlass, Cupertino)에서는 `CornerCurve`가 그 디자인 시스템의 값보다 앞서고, 없으면 디자인 시스템의 값을 씁니다.
+- 앱 작성 API에서는 `Modifier.corner_curve(smoothing)`이 이 수정자로 내려갑니다.
+
+#### 50.3 모양
+
+Figma 모서리 매끄러움의 경로입니다. 모서리 하나는 **세제곱 베지어 3개와 원호 1개**입니다. 반지름 `r`, 매끄러움 `s`일 때 모서리 한쪽 변에서 곡선이 시작하는 거리는 `(1 + s) * r`이고, 그 거리가 짧은 변의 절반을 넘으면 `r`을 줄여 맞춥니다. 곧, **반지름은 짧은 변의 절반이 상한**이고, 줄인 뒤에도 같은 `s`로 같은 경로를 만듭니다. `s = 0`이면 베지어 구간의 길이가 0이 되어 원호 하나만 남습니다. 네 모서리는 각자의 반지름으로 이 규칙을 따로 씁니다. 이웃한 두 모서리가 한 변을 나눠 쓰면 `CornerEach`의 CSS 규칙(합이 변을 넘으면 같은 비율로 줄임)을 먼저 적용합니다.
+
+#### 50.4 모든 렌더러가 구현합니다
+
+지원하지 않는 렌더러라는 경우는 **없습니다**. Android, 데스크톱 JVM과 GraalVM, 데스크톱 Kotlin/Native, iOS, 웹의 렌더러가 모두 구현합니다. 모양은 공통 Kotlin 코드(`ContinuousCornerShape`가 있는 파일)에 한 벌만 두고 렌더러마다 따로 쓰지 않습니다. 구현하지 않은 렌더러는 스키마 해시가 같아도 이 수정자를 받으면 `ProtocolError`가 아니라 빌드가 깨지도록 인터프리터의 수정자 분기에 빠짐 없이 넣습니다.
+
+#### 50.5 수용 기준
+
+1. 인코딩 후 디코딩한 `CornerCurve { smoothing }`이 같고, 프로토콜 벡터가 Rust와 Kotlin에서 같은 바이트입니다(`fr50_corner_curve_round_trips`).
+2. 범위 밖 값이 0..=1로 맞춰지고 `NaN`은 0입니다(`fr50_corner_curve_clamps_out_of_range`).
+3. 반지름 16dp, 매끄러움 0.6, 100x100dp 상자에서 모서리 경로의 점들이 기준값과 허용 오차 안에서 같습니다. 기준값은 Figma 알고리즘에서 계산해 테스트에 적습니다(`fr50_corner_curve_path_matches_reference_points`). Kotlin 단위 테스트입니다.
+4. 매끄러움 0의 윤곽이 `RoundedCornerShape`와 같습니다(`fr50_corner_curve_zero_equals_rounded_corner_shape`).
+5. 반지름이 짧은 변의 절반보다 크면 줄어들어 경로가 뒤집히거나 겹치지 않습니다(`fr50_corner_curve_limits_radius_to_half_the_shorter_side`).
+6. 한 노드의 배경, 테두리, 그림자, 자르기가 같은 윤곽을 씁니다. 자식을 모서리 밖으로 그리면 잘리고, 테두리 바깥에 배경 픽셀이 없습니다(`fr50_corner_curve_shape_is_shared_by_background_border_shadow_clip`). 스크린숏 테스트.
+7. `CornerEach`와 `Shape`가 정한 반지름 위에 `CornerCurve`를 얹으면 반지름은 그대로이고 곡선만 바뀝니다(`fr50_corner_curve_combines_with_corner_each`).
+8. 같은 노드를 LiquidGlass, Cupertino가 아닌 디자인 시스템에서 그려도 연속 모서리입니다(`fr50_corner_curve_applies_in_every_design_system`).
+9. 값만 바뀐 갱신은 `CornerCurve` 수정자 한 건만 보내고 자식은 다시 구성되지 않습니다(`fr50_corner_curve_change_sends_one_modifier`).
+10. 매끄러움 0인 정상 프레임의 할당과 그리기 비용이 도입 전과 같습니다(NFR-9, 벤치마크 수치를 이 항목에 기록합니다).
+11. **사람이 확인해야 합니다.** macOS, Windows, Linux 데스크톱에서 매끄러움 0과 0.6의 카드를 나란히 놓고, 0.6의 모서리가 직선에서 곡선으로 이어지는 곳에 꺾임이 보이지 않는지 눈으로 봅니다. 확인한 날짜와 운영체제를 이 항목에 적습니다.
+12. Android, iOS, 웹 렌더러에서 1~9가 같은 결과입니다.
+
+#### 50.6 비용
+
+수정자 태그 하나(30), 값 4바이트. 렌더러의 모양 생성 한 곳. 디자인 시스템 규칙은 늘지 않습니다.
+
 ## 4. 경계 프로토콜
 
 ### PR-1 호출 모델: 동기·동일 스레드 직접 호출 (`Done`)
