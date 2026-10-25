@@ -84,6 +84,7 @@ out="$(cd "$out" && pwd)"
 staging="$out/$name.staging"
 rm -rf "$staging"
 if [[ "$target" == windows-x64 ]]; then
+    mkdir -p "$staging"
     cp "$archive" "$header" "$staging/"
 else
     mkdir -p "$staging/lib" "$staging/include"
