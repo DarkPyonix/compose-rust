@@ -133,6 +133,25 @@ Host 측 규칙:
 - 핸들러 실행 중에 Renderer를 동기로 호출하지 않습니다(재진입 금지). 상태만 바꾸고 프레임 요청으로 넘깁니다.
 - 수용 기준: 멀티라인 TextField에서 Enter는 제출되고 줄바꿈이 생기지 않으며, Shift+Enter는 줄바꿈만 생기고 제출되지 않습니다. 한글 조합 중 Enter는 조합만 확정합니다.
 
+#### 12.1 모든 키를 Host로 보냅니다 (소유자 승인 2026-10-25, 이슈 #100)
+
+지금 Host가 받는 키는 Enter 하나입니다. DOM의 `onkeydown`을 HTML 경로에서 쓰려면 눌린 모든 키가 필요합니다. 새 이벤트 태그 없이 기존 `KeyDown`(이벤트 태그 6)의 페이로드를 넓힙니다.
+
+- 고정 20바이트 레코드를 머리와 길이 붙은 문자열 꼬리로 바꿉니다. 문자열 꼬리는 `TextChanged`와 같은 규약입니다(PR-4).
+- 새 칸:
+  - `code: u32`. 물리 키이고 USB HID usage 값입니다. 배열이 달라도 같은 자리의 키는 같은 값입니다.
+  - `text`. DOM `key` 문자열입니다(`"ArrowDown"`, `"a"`). 길이 붙은 문자열이고 꼬리에 놓입니다.
+  - `repeat: bool`. 누르고 있어서 반복된 이벤트면 참입니다.
+- 수정자 네 개(`shift`, `ctrl`, `alt`, `meta`)는 그대로입니다. 기존 `key: Key` 열거형도 유지합니다.
+- 스키마 해시가 바뀝니다. `KeyDown` 페이로드가 고정 길이가 아니게 되므로 프로토콜 벡터와 생성 코덱이 다시 만들어집니다.
+
+수용 기준:
+1. 방향키, Escape, Tab, 문자 키를 누르면 각각 올바른 `code`와 `text`로 `KeyDown`이 옵니다(fr12_every_key_reaches_the_host_with_code_and_text).
+2. 키를 누르고 있으면 첫 이벤트만 `repeat = false`이고 나머지는 `true`입니다(fr12_held_key_marks_repeat).
+3. IME 조합 중에는 어떤 키도 Host로 가지 않습니다. 기존 규칙 그대로입니다(fr12_no_key_reaches_the_host_during_composition).
+4. 핸들러가 소비한 키는 이전처럼 Renderer가 처리하지 않습니다(fr12_consumed_key_is_not_handled_by_the_renderer).
+5. `KeyDown`의 `text`가 레코드 밖을 가리키면 `ProtocolError`이고 프로세스는 계속 돕니다(nfr7_malformed_key_down_text_is_a_protocol_error).
+
 ### FR-10 Modifier 값 모델 (`Done`)
 Modifier는 값 리스트로 직렬화합니다. 예: `[Padding(16), FillMaxWidth, Background(argb), Clickable(handler_id)]`. Renderer는 이를 `Modifier` 체인으로 재구성합니다.
 - 수용 기준: 스키마의 모든 Modifier 변형이 인코딩 후 디코딩해도 같습니다(`fr10_every_modifier_variant_in_the_vector_round_trips`). **(통과)**
@@ -288,11 +307,13 @@ Modifier는 값 리스트로 직렬화합니다. 예: `[Padding(16), FillMaxWidt
 | `TypeRole` | `Display=1, Headline=2, Title=3, Subtitle=4, Body=5, BodyStrong=6, Label=7, Caption=8, Mono=9` |
 | `ShapeRole` | `None=1, ExtraSmall=2, Small=3, Medium=4, Large=5, Full=6` |
 | `SpaceRole` | `None=1, Xs=2, Sm=3, Md=4, Lg=5, Xl=6, Xxl=7` |
-| `TextAlign` | `Start=1, Center=2, End=3, Justify=4` |
+| `TextAlign` | `Start=1, Center=2, End=3, Justify=4, Left=5, Right=6` |
 | `TextOverflow` | `Clip=1, Ellipsis=2, Visible=3` |
 | `Arrangement` | `Start=1, Center=2, End=3, SpaceBetween=4, SpaceAround=5, SpaceEvenly=6` |
 | `Alignment` | `TopStart=1, TopCenter=2, TopEnd=3, CenterStart=4, Center=5, CenterEnd=6, BottomStart=7, BottomCenter=8, BottomEnd=9` |
 | `ButtonVariant` | `Filled=1, Tonal=2, Outlined=3, Text=4` |
+
+`TextAlign`의 `Left=5`와 `Right=6`은 물리 방향입니다(소유자 승인 2026-10-25, 이슈 #92). `Start`와 `End`는 글쓰기 방향을 따라 오른쪽에서 왼쪽 글에서 뒤집히지만, `Left`와 `Right`는 뒤집히지 않습니다. CSS `text-align: left|right`가 물리 방향이라 필요하고, Compose의 `TextAlign.Left`와 `TextAlign.Right`에 대응합니다. 모르는 값은 `ProtocolError`입니다. 수용 기준: RTL 문단에서 `Left`는 왼쪽, `Right`는 오른쪽에 붙고 `Start`는 오른쪽에 붙습니다(fr13_physical_text_align_is_not_flipped_in_rtl).
 
 `Paint`는 `u64` 하나입니다. 상위 32비트가 종류(`Role=1`, `Literal=2`)이고 하위 32비트가 값(`ColorRole` 태그 또는 ARGB)입니다.
 
@@ -854,6 +875,8 @@ M0의 위젯 9개는 데모를 굴리는 데 필요했던 만큼이지 설계된
 
 #### 15.2.12 분할 창 (`Draft`)
 
+> **현황(2026-10-25).** develop에 있고 Kotlin 테스트 `fr15_2_12_*`가 19개 있습니다. 상태는 `Draft`로 남습니다. 기준 9의 화면 낭독기 수동 확인이 남았기 때문입니다.
+
 옆 칸과 본문 둘을 나란히 놓고, 그 사이의 경계선을 사용자가 끌어 옆 칸의 폭을 바꾸는 것입니다. 요청한 앱(Ember, AI IDE 클라이언트)은 데스크톱에서 세션 목록과 대화를 두 열로 놓고, 폰에서는 목록을 먼저 보이고 하나를 고르면 대화로 넘어가는 한 열 쌓기로 씁니다.
 
 일곱 시스템 모두에 대응물이 있습니다. Apple은 `NSSplitView`/`NSSplitViewController`(사이드바는 끌어서 폭을 바꾸고 끝까지 밀면 접힙니다)와 iPad의 `UISplitViewController`, Fluent는 `SplitView`와 `TwoPaneView`, GNOME은 `AdwNavigationSplitView`와 `AdwOverlaySplitView`(좁아지면 쌓기나 덮기로 바뀝니다), KDE는 Kirigami의 열 보기와 `QSplitter`, Material 3는 adaptive의 list-detail 창 배치(`ListDetailPaneScaffold`)와 그 끌기 손잡이(`PaneExpansionDragHandle`)입니다. 이름은 Compose에 안정 API로 같은 이름이 없으므로 개념 이름 `SplitPane`을 씁니다.
@@ -1053,6 +1076,10 @@ PR-4의 고정 레이아웃 레코드에는 이미지 바이트가 들어가지 
 - PNG 1장을 등록하고 `Image`로 그린 뒤 해제하면, 해제 후 같은 `asset_id` 사용이 `ProtocolError`가 됩니다.
 - 등록은 프레임당 0회인 정상 경로에서 스틸 프레임 할당이 0입니다(NFR-9).
 - 같은 `VectorIcon` 역할이 세 디자인 시스템에서 각 시스템의 아이콘으로 그려집니다.
+
+#### 16.3-2 `Image`의 `content_scale` (소유자 승인 2026-10-25, 이슈 #96)
+
+`Image`는 상자 안에 그림을 놓는 방식을 속성으로 받습니다. 속성 `ContentScale`, 태그 37(15.2.2의 28-39 블록에서 `Divider`의 `Vertical`=36 다음)이고 값은 `u32`입니다: `Fit=1`, `Crop=2`, `FillBounds=3`. 보내지 않거나 0이면 `Fit`입니다(지금의 동작). 각각 Compose의 `ContentScale.Fit`, `Crop`, `FillBounds`에 대응합니다. `FillBounds`는 가로세로 비율을 무시하고 상자를 채우며, CSS `object-fit: fill`에 필요합니다. 모르는 값은 `ProtocolError`이고 `Fit`으로 그립니다. 수용 기준: 가로세로 비가 다른 상자에서 `FillBounds`의 그림이 상자를 빈틈없이 채우고, 보내지 않은 `Image`는 이전과 픽셀이 같습니다(fr16_image_content_scale_fill_bounds_stretches).
 
 #### 16.4 애플리케이션이 등록하는 경로
 
@@ -1689,16 +1716,18 @@ tag 12, 32바이트: handler_id: u64, text: (offset, len), action: (offset, len)
 
 1. 네 데스크톱 릴리스 행은 각 샘플에 해당 플랫폼 형식의 아티팩트를 만들고 체크섬을 기록합니다.
 2. 각 번들의 실행 파일은 빌드 머신의 렌더러 절대 경로를 참조하지 않으며, 번들 안에 렌더러와 동반 파일이 있습니다.
-3. 번들의 이름, 식별자, 설명은 샘플 설정과 일치하고 아이콘이 포함됩니다.
+3. 번들의 이름, 식별자, 설명은 샘플 설정과 일치하고 아이콘이 포함됩니다. 잘못된 입력은 어떤 파일도 쓰기 전에 거부하고, 빠진 스토어 사실(`[linux.store] license`, `homepage`, `[bundle] identifier`, `--exec`, `--version` 등)은 설정해야 할 키 이름을 알려 줍니다(fr22_6_3_bad_values_are_refused_before_any_file_is_written, fr22_6_3_missing_store_facts_name_the_key_to_set).
 4. MSIX는 서명되지 않은 패키지로 생성됩니다. 설치에는 개발자 모드 또는 신뢰된 인증서로 다시 서명하는 절차가 필요함을 릴리스에 알립니다. 실제 설치 확인은 Windows 환경에서 수동으로 합니다.
 5. 위 표의 형식마다 아티팩트를 만들고 체크섬을 기록합니다. 형식이 `.dmg`, `.pkg`, `.deb`, `.rpm`, `Setup.exe`, `.msi`, Flatpak 중 무엇이든 번들은 실행 파일 하나와 아이콘, 메타데이터만 담습니다. CI가 아티팩트의 존재와 내용물 목록, 체크섬 기록을 검사합니다.
 6. `.deb`와 `.rpm`은 각각 `dpkg-deb --info`와 `rpm -qp --info`로 이름, 버전, 설명이 샘플 설정과 일치하는지 CI에서 확인합니다. 실제 설치와 실행은 해당 배포판에서 수동으로 확인합니다.
 7. 세 OS의 직접 배포 패키지는 Velopack으로 만들고, 이전 버전에서 새 버전으로 가는 델타 패키지와 갱신 피드(nupkg 전체와 델타, `releases.{channel}.json`)를 함께 만듭니다. 패키지와 피드의 존재와 메타데이터는 CI에서 확인하고, 설치된 빌드가 델타로 갱신되어 다시 뜨는 것은 각 OS 환경에서 수동으로 확인합니다. Windows `.msi`는 `PerUser` 기본과 `PerMachine` 선택 설치가 각각 되는지도 Windows에서 수동으로 확인합니다. Linux `.AppImage`에는 zsync 갱신 정보가 없습니다.
 8. macOS `.pkg`는 Mac App Store 제출 형식으로 만들며, 구조와 메타데이터는 `pkgutil --check-signature`와 `pkgutil --payload-files`로 CI에서 확인합니다. 스토어 제출과 승인은 Apple 계정이 있는 환경에서 수동으로만 확인할 수 있습니다.
-9. Flatpak은 Flathub용 매니페스트로 만들고 `flatpak-builder`로 빌드되는 것을 CI에서 확인합니다. 설치와 실행은 수동으로 확인합니다.
+9. Flatpak은 Flathub용 매니페스트로 만들고 `flatpak-builder`로 빌드되는 것을 CI에서 확인합니다. 설치와 실행은 수동으로 확인합니다. 패키지 메타데이터는 같은 입력에서 같은 출력을 만듭니다. 릴리스 날짜는 현재 시각이 아니라 `SOURCE_DATE_EPOCH` 같은 주어진 값(없으면 빌드 사실의 시각)에서 정해지고, 해석할 수 없는 값은 안전한 기본으로 떨어집니다(Flathub 제출 요건, fr22_6_3_release_dates_are_reproducible). Linux 애플리케이션 식별자는 Flatpak과 D-Bus 이름 규칙(점으로 나뉜 세 요소 이상, 요소는 숫자로 시작하지 않음, 앞쪽 요소에는 `-` 금지, 특수문자 금지)을 따르며 어긋나면 만들지 않습니다(fr22_6_3_application_ids_follow_flatpak_and_dbus_rules).
 10. `.msi`는 `vpk pack --msi`로 만들며, 5번과 7번의 검사 대상입니다.
 11. 템플릿과 메타데이터가 core-extended의 `extended/packaging/`에서 오고 그 커밋이 고정되어 있음을 CI가 확인합니다.
 12. **실험 중:** ad-hoc 서명한 `.app`을 `.dmg`에서 설치한 Apple Silicon 기기가 Velopack 갱신을 받고, 갱신 뒤에도 실행됩니다(quarantine 속성 포함). Velopack 문서는 서명과 공증이 없는 macOS 앱은 실행되지 않는다고 하므로 확인이 필요하며, 프로브를 돌리는 중입니다. 결과가 나오기 전에는 이 항목을 통과로 보지 않습니다.
+13. Windows 실행 파일은 DPI 매니페스트(PerMonitorV2 `dpiAwareness`, 구형을 위한 `dpiAware` `true/pm`, `asInvoker`)를 리소스 1번(`RT_MANIFEST`, 언어 0x0409)으로 품습니다. 리소스 파일은 링커가 알아보는 32바이트 빈 항목으로 시작합니다. WACK의 `DPIAwarenessValidation`이 통과해야 합니다. Windows SDK 버전은 문자열이 아니라 숫자 순서로 비교해 가장 새 것을 고릅니다(fr22_6_the_manifest_declares_per_monitor_v2_awareness, fr22_6_the_resource_file_starts_with_the_empty_entry, fr22_6_the_resource_file_holds_the_manifest_as_resource_one, fr22_6_sdk_versions_order_numerically). WACK 통과는 Windows에서 수동으로 확인합니다.
+14. macOS `.app`의 모든 실행 코드(실행 파일, dylib, 프레임워크)는 ad hoc으로 서명되고, 서명된 앱이 실제로 실행됩니다. 서명이 깨진 코드는 이름과 함께 보고합니다. 서명의 배포 가능성은 12번이 따로 확인합니다(fr22_6_2_every_piece_of_code_is_signed_ad_hoc, fr22_6_2_the_signed_application_runs).
 
 **2026-09-22: 샘플이 일곱 플랫폼 전부에서 돕니다.** 데스크톱 넷(macOS arm64, Linux x64, Linux arm64, Windows x64)과 Android, iOS 시뮬레이터, 브라우저입니다. statistics 샘플을 iOS 시뮬레이터와 Android 에뮬레이터와 Chromium에서 각각 띄워 같은 세이지와 주황과 파우더 블루가 나오는 것을 확인했습니다. 통합 샘플이 플랫폼과 무관하게 같은 디자인을 그린다는 것이 이것으로 처음 실증됐습니다.
 
@@ -1842,6 +1871,7 @@ E2를 기본 경로로 삼으면 KSP가 Rust 열거형, Dioxus element, 컴포�
 - `Paint`에 세 번째 종류를 더합니다. 지금은 `Role`과 `Literal` 둘이고, `Asset(id)`가 셋째입니다. 위 워드가 종류를 말하는 구조는 그대로입니다.
 - 브러시는 FR-16의 에셋으로 등록합니다. 선형·방사형 그라데이션은 정지점 목록이고, 이미지 브러시는 이미 등록된 그림의 id와 타일 방식입니다.
 - 쓰이는 자리는 `Paint`가 쓰이는 모든 자리입니다. `background`, `border_color`, `color`, 그리고 FR-17의 드로잉 명령입니다.
+- 타원 방사형(소유자 승인 2026-10-25, 이슈 #93). 방사형 브러시 머리의 남는 네 번째 칸을 `radius_y`로 씁니다. 0이면 원이고(`radius`만 씁니다), 0보다 크면 가로 반지름이 `radius`, 세로 반지름이 `radius_y`인 타원입니다. 새 레코드도 새 에셋 종류도 없고, 기존에 0으로 보내던 칸의 뜻을 정하는 것이라 기존 브러시는 그대로 원입니다. CSS `radial-gradient(ellipse ...)`가 기본 모양이라 필요합니다. 음수나 NaN은 `ProtocolError`이고 그 브러시는 원으로 그립니다. 수용 기준: `radius_y`가 `radius`와 다른 브러시가 타원으로 그려지고 `radius_y = 0`은 원과 픽셀이 같습니다(fr23_elliptical_radial_gradient_uses_radius_y).
 - 수용 기준: 정지점 세 개짜리 선형 그라데이션을 배경으로 받은 `Surface`가 여섯 디자인 시스템 모두에서 그라데이션으로 그려집니다. 등록되지 않은 id를 받으면 프로세스를 중단하지 않고 `ProtocolError`를 보냅니다. 브러시를 쓰는 프레임이 정상 상태에서 Host 쪽 할당을 하지 않습니다.
 
 #### 23.2 폰트
@@ -2293,6 +2323,53 @@ Notification::new("세션이 끝났습니다")
 6. 저장 단축키가 현재 버전을 담은 저장 이벤트를 보냅니다.
 7. 십만 줄 파일에서 스크롤과 입력의 프레임 시간이 NFR-9 예산 안이고, 수치를 이 항목에 기록합니다.
 8. 일곱 디자인 시스템에서 그려지고 `DesignShowcase`에 나옵니다.
+9. 선택이나 커서가 움직이면 `SelectionChanged`가 Host로 갑니다. 한 프레임 안의 여러 움직임은 마지막 하나로 합칩니다. 좌표는 UTF-16 코드 단위이고 서로게이트 쌍 한가운데를 가리키지 않습니다(fr38_selection_change_reaches_the_host).
+10. `SetSelection`이 선택을 정하고 `RevealRange`가 그 범위를 보이게 스크롤합니다. 문서 밖이거나 시작이 끝보다 뒤인 범위는 그 명령만 버리고 `ProtocolError`를 보냅니다. `base_version`이 오래되었으면 `EditCode`처럼 범위를 옮긴 뒤 적용합니다(fr38_set_selection_and_reveal_range_apply).
+11. 스크롤이나 크기 변화로 보이는 줄 범위가 바뀌면 `VisibleRangeChanged`가 가고, 같은 범위가 연달아 가지 않습니다. 십만 줄 파일의 스크롤 중에도 프레임마다 한 번을 넘지 않습니다(fr38_visible_range_is_reported_once_per_change).
+12. 편집기가 포커스를 얻고 잃을 때 `EditorFocusChanged`가 한 번씩 갑니다(fr38_editor_focus_changes_reach_the_host).
+13. `Folds`로 접을 수 있는 구간을 보내면 그 줄들이 접히고 접힌 줄은 그려지지 않습니다. 사용자가 접거나 펴면 `FoldChanged`가 가고, `SetFolded`로 Host도 접고 폅니다. 접힌 구간 안의 편집, 선택, 장식은 접힌 줄에 가려져도 문서 좌표를 잃지 않습니다(fr38_folded_ranges_hide_lines_and_report_toggles).
+14. `GutterDecorations`가 줄 번호 옆에 그려지고 편집을 따라 움직입니다(기준 4와 같은 규칙). 누르면 `DecorationActivated`가 그 id를 싣고 갑니다(fr38_gutter_decorations_follow_edits_and_activate).
+15. IME 조합이 시작되고 끝날 때 `CompositionChanged`가 한 번씩 갑니다. 조합 중인 글자는 이벤트에 실리지 않고 Renderer에만 있습니다(D5). 조합 중에는 `CodeChanged`가 나가지 않는다는 기준 1은 그대로입니다(fr38_composition_signal_carries_no_text, native-image 수동 확인은 기준 1과 함께 §6 방식으로 기록).
+
+#### 38.9 추가 기능의 와이어 (소유자 승인 2026-10-25, 이슈 #30)
+
+선택과 커서 이벤트, `SetSelection`과 `RevealRange`, 보이는 범위 이벤트, 포커스 이벤트, 접기, 거터 장식, IME 조합 신호를 한 번에 정합니다. 번호를 한꺼번에 잡아 다시 매기지 않게 하는 것이 이유입니다. 경계 진입점은 늘지 않고(PR-2), 레코드는 Rust 스키마에 정의하며 Kotlin 쪽 코덱은 codegen이 만듭니다(FR-7). 스키마 해시가 움직입니다. 38.1의 원칙은 그대로입니다. 커서, 선택, 스크롤, 접힘 상태는 Renderer의 것이고 Host는 알림을 받을 뿐입니다.
+
+- 속성. 38.6의 100-109 블록에 3개가 남아 있어 그 뒤를 채우고, 모자라는 나머지는 15.2.2의 규칙대로 그다음 빈 블록(130-139)을 엽니다. 120-129는 FR-43과 FR-40이 쓰고 있습니다.
+
+| 태그 | 속성 | 값 |
+|---|---|---|
+| 107 | `Folds` | 접을 수 있는 구간 레코드의 블롭 |
+| 108 | `GutterDecorations` | 거터 장식 레코드의 블롭 |
+| 109 | `OnSelectionChange` | 핸들러 id |
+| 130 | `OnVisibleRangeChange` | 핸들러 id |
+| 131 | `OnEditorFocusChange` | 핸들러 id |
+| 132 | `OnFoldChange` | 핸들러 id |
+| 133 | `OnCompositionChange` | 핸들러 id |
+
+- 접을 수 있는 구간 레코드, 16바이트: `version: u32`, `start_line: u32`, `end_line: u32`, `collapsed: u32`(0 또는 1). 접히면 `start_line`만 남고 `start_line + 1`부터 `end_line`까지가 가려집니다.
+- 거터 장식 레코드, 28바이트: `version: u32`, `line: u32`, `kind: u16`(`Dot=1`, `Bar=2`, `Glyph=3`), `color: u16`(`ColorRole`, 0이면 디자인 시스템이 고름), `id: u64`(0이면 누를 수 없음), `glyph: u32`(`Glyph`일 때의 유니코드 스칼라 값), 예약 `u32`.
+- 명령(Mutation), 19 뒤에 덧붙입니다. 18과 19는 FR-41.2가 씁니다.
+
+| 태그 | 명령 | 레코드 |
+|---|---|---|
+| 20 | `SetSelection` | 28바이트: 머리 4, `node_id: u32`, `base_version: u32`, `anchor_line`, `anchor_column`, `active_line`, `active_column`(각 `u32`) |
+| 21 | `RevealRange` | 32바이트: 머리 4, `node_id: u32`, `base_version: u32`, `start_line`, `start_column`, `end_line`, `end_column`(각 `u32`), `align: u32`(`Nearest=1`, `Center=2`, `Top=3`) |
+| 22 | `SetFolded` | 16바이트: 머리 4, `node_id: u32`, `start_line: u32`, `collapsed: u32` |
+
+- 이벤트, FR-43이 가진 33 뒤에 덧붙입니다. 공통 머리 16바이트 뒤에 페이로드가 옵니다.
+
+| 태그 | 이벤트 | 페이로드 |
+|---|---|---|
+| 34 | `SelectionChanged` | 36바이트: `version: u32`, `anchor_line`, `anchor_column`, `active_line`, `active_column`(각 `u32`, UTF-16 열) |
+| 35 | `VisibleRangeChanged` | 28바이트: `version: u32`, `first_line: u32`, `last_line: u32`(보이는 줄, 접힌 줄은 건너뜀) |
+| 36 | `EditorFocusChanged` | 24바이트: `focused: u32`(0 또는 1), 예약 `u32` |
+| 37 | `FoldChanged` | 24바이트: `start_line: u32`, `collapsed: u32` |
+| 38 | `CompositionChanged` | 24바이트: `composing: u32`(0 또는 1), 예약 `u32`. 조합 중인 글자는 싣지 않습니다 |
+
+- `SelectionChanged`는 `CodeChanged`와 같은 버전 계열을 씁니다. 편집이 만든 커서 이동은 변경 이벤트 뒤에 오므로 Host는 선택을 항상 맞는 버전에 대해 읽습니다.
+- `EditorFocusChanged`와 `CompositionChanged`의 값은 닫힌 두 값이고, 모르는 값은 `ProtocolError`입니다.
+- `EventPayloadType`이 다섯 늘고, 나머지 모양은 기존 것을 씁니다.
 
 #### 38.8 일정과 측정 약속 (2026-10-03)
 
@@ -2377,7 +2454,7 @@ fn main() {
 
 ### FR-40 HTML 텍스트 속성 (`Agreed`, 진행 중, 이슈 #106)
 
-> **현황(2026-10-04).** develop에는 없습니다. 구현은 초안 PR #110(`feat/measure-call`)에 PR-2.1과 함께 있고 병합되지 않았습니다. 그 경로에서 나온 후속 문제는 #90, #91입니다.
+> **현황(2026-10-25).** develop에 있습니다. PR-2.1과 함께 PR #110(`feat/measure-call`)으로 병합되었습니다. 그 경로에서 나온 후속 문제는 #90, #91입니다. 속성 태그는 FR-40의 텍스트 속성이 110-116(`Font`=110, `WordBreak`=111, `OverflowWrap`=112, `TabSize`=113, `AbsoluteSize`=114, `SoftWrap`=115, `SpanFonts`=116)을 쓰고, 100-109는 `CodeEditor`(FR-38)가 가집니다.
 
 CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 데 필요한 속성입니다. 측정 호출(PR-2.1)의 값이 그려진 값과 같으려면, 그리기도 같은 칸을 같은 뜻으로 받아야 합니다. 노드 단위 글꼴은 역할이 없는 텍스트에만 엽니다(INTENT D20, 2026-10-03 소유자 결정).
 
@@ -2395,6 +2472,14 @@ CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 
 4. `tab_size: u8`(기본 8). 탭은 다음 탭 위치까지 차지합니다. 비례 글꼴에서는 Host가 탭을 공백으로 펼칠 수 없습니다.
 5. `absolute_size: bool`. 참이면 시스템 글꼴 배율을 적용하지 않습니다(CSS px). 측정과 그리기에 똑같이 적용됩니다. **구현은 `fontScale = 1`인 `Density`입니다.** 글자 크기를 글꼴 배율로 나누는 방식은 쓰지 않습니다. Android 14부터 글꼴 배율이 비선형이라 나눗셈으로 되돌릴 수 없기 때문입니다. HTML 텍스트의 접근성 배율은 FR-43의 확대 배율 `k`가 맡습니다.
 6. 공백 규칙: Renderer는 받은 문자열의 공백을 자르거나 접지 않습니다. 접기는 Host의 일입니다.
+7. 그릴 때의 `letter_spacing`(소유자 승인 2026-10-25, 이슈 #90). 지정하지 않은 값은 NaN이고, 그러면 역할의 값을 씁니다. 명시한 0은 진짜 0이라 자간을 더하지 않습니다. 측정 요청의 `letter_spacing`(PR-2.1)과 같은 규칙이며, CSS `letter-spacing: 0`과 `normal`이 역할의 자간으로 바뀌지 않게 하려는 것입니다. 와이어의 칸은 그대로이고 값의 뜻만 정합니다.
+8. 구간마다 크기와 자간이 다른 텍스트(소유자 승인 2026-10-25). `<p>본문 <span style="font-size:2em">큰 글자</span></p>`처럼 한 덩이 안에서 구간마다 크기가 다른 경우를 재고 그립니다. 지금은 크기와 자간이 노드 전체에 하나뿐이고, 구간이 크기를 가질 수 있는 길은 `type_role`뿐입니다. 크기가 다른 덩어리를 별도 `Text`로 쪼개면 줄바꿈이 이음매에서 끊겨 FR-26이 막으려던 문제(문단이 한 줄을 공유하지 못함)가 그대로 생기므로 쓰지 않습니다.
+  - 곁 표 속성 `SpanMetrics`, 속성 태그 121입니다(120은 FR-43의 `IslandZoom`이 가집니다). `SpanFonts`(116)와 같은 모양이고, 스팬 레코드는 36바이트로 그대로 둡니다. 쓰는 텍스트만 비용을 냅니다.
+  - blob은 `count: u32`와 항목들이고, 항목은 16바이트입니다: `span: u32`(몇 번째 구간), `font_size: f32`(NaN이면 지정 없음, 단위 dp), `letter_spacing: f32`(NaN이면 지정 없음), `reserved: u32`(0). `absolute_size`와 `zoom`은 노드 쪽 규칙을 그대로 따릅니다. 숫자 굵기는 `bold` 플래그로 이미 되므로 이 표에 넣지 않고, 필요해지면 `reserved`를 씁니다.
+  - 이 표는 `TypeRole::None`인 텍스트에서만 읽습니다. 구간에 `type_role`이 있으면 역할이 이깁니다(`SpanFonts`와 같은 규칙).
+  - 구간 번호가 범위 밖이거나, 한 구간 안에서 항목이 중복되거나, 표가 버퍼 밖을 가리키면 `ProtocolError`(NFR-7)이고, 측정은 그 레코드를 `Malformed`로 돌립니다.
+  - 측정과 그리기는 구간 스타일을 만드는 같은 함수(`fontSize = metrics?.fontSize ?: role...`, `letterSpacing = metrics?.letterSpacing`)를 씁니다. 그러므로 `absolute_size`, `zoom`, 글꼴 배율 규칙이 노드 크기와 똑같이 구간에도 적용됩니다.
+  - 덧붙이기만 합니다. 새 속성 종류이고 스키마 해시가 바뀝니다.
 
 수용 기준:
 1. 같은 HTML 텍스트를 측정한 값과 그린 값이 비트 단위로 같습니다(PR-2.1 기준 1). 아래 각 경우를 모두 확인합니다.
@@ -2406,11 +2491,14 @@ CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 
 3. 시스템 글꼴 배율을 200%로 바꿨을 때, `absolute_size` 텍스트의 측정값과 그린 크기는 그대로이고, 역할을 가진 텍스트는 커집니다.
 4. 역할을 가진 텍스트에 `font`를 보내면 무시되고 테마 글꼴로 그려집니다. 역할 원칙이 HTML 경로 밖으로 새지 않는다는 확인입니다.
 5. 다섯 플랫폼과 Web에서 기준 1의 라틴 경우가 통과합니다.
+6. 명시한 `letter_spacing = 0`은 역할의 자간 없이 그려지고, NaN은 역할의 값으로 그려집니다. 측정값과 그린 값이 두 경우 모두 같습니다(fr40_explicit_zero_letter_spacing_is_not_unset).
+7. `SpanMetrics`가 오고 가고(곁 표 인코딩과 디코딩, 프로토콜 벡터), 범위 밖 구간 번호는 `ProtocolError`입니다(fr40_span_metrics_round_trip, fr40_span_metrics_out_of_range_is_protocol_error).
+8. 본문 14와 구간 28, 구간 자간 2dp가 섞인 문단, 한국어 줄바꿈, `absolute_size`, `zoom` 1.5에서 측정한 너비, 높이, 첫 기준선, 줄 수, 마지막 줄 폭이 그린 값과 비트 단위로 같습니다(pr2_measured_text_matches_the_drawn_text의 확장). 구간의 크기는 더 크게 그려지고 구간의 자간은 구간을 넓히며, 역할을 가진 텍스트에서는 무시됩니다(fr40_span_font_size_draws_larger, fr40_span_letter_spacing_widens_the_run, fr40_span_metrics_ignored_when_text_has_a_role).
 
 - HTML 화면의 접근성 배율(시스템 글꼴 배율을 `absolute_size` 텍스트에 어떻게 반영할지)은 아직 정하지 않았습니다. 검토 문서를 만들어 소유자가 정합니다. `absolute_size` 칸 자체는 어느 결정에서도 필요합니다.
 ### FR-41 Transform과 렌더러가 재생하는 애니메이션 (`Agreed`, 진행 중, 이슈 #105, PR #83)
 
-> **현황(2026-10-04).** develop에는 없습니다. FR-41.1, 41.2, 41.4는 PR #83(`feat/html-primitives`)에 있고, 그 PR은 PR #74(FR-42)를 포함합니다. 41.4는 FR-39 런타임이 develop에 없어 Dioxus 어댑터에 대고 구현되어 있습니다. 41.3은 `Draft`입니다.
+> **현황(2026-10-25).** FR-41.1, 41.2, 41.4는 develop에 있습니다. PR #83(eeca879a)이 들어왔고, 그 PR은 PR #74(FR-42)를 포함합니다. 41.4는 FR-39 런타임이 develop에 없어 Dioxus 어댑터에 대고 구현되어 있습니다. 41.3은 `Draft`입니다.
 
 요청한 쪽: dioxus-compose FR-34.1(CSS transform 전부, M14 10-18)과 FR-34.2(CSS transition과 animation, 혼합안). 소유자 결정(2026-10-03): `opacity`, `color`, `background-color`, `transform`은 렌더러가 Compose 애니메이션으로 재생하고, 레이아웃 속성은 나중에(M15) Host가 매 프레임 시각을 넘겨 계산합니다. 이 초안은 그중 렌더러 쪽 둘을 compose-rust 스키마에 적습니다.
 
@@ -2749,7 +2837,7 @@ FR-39의 compose-rust API가 같은 레코드를 씁니다. Compose의 이름을
 
 ### FR-42 HTML/CSS 화면을 그리는 원소 (`Agreed`, 진행 중, 이슈 #104, PR #74)
 
-> **현황(2026-10-04).** develop에는 없습니다. 스키마, 코덱, 프로토콜 벡터, 인터프리터 분기는 PR #74(`feat/html-primitives-schema`)에 있고, 그리기 테스트는 후속 PR로 남아 있습니다.
+> **현황(2026-10-25).** develop에 있습니다. 스키마, 코덱, 프로토콜 벡터, 인터프리터 분기는 PR #74(5ffe1144)로, 그리기와 후속 작업은 PR #83(eeca879a)으로 들어왔습니다. 수용 기준이 모두 증명된 것은 아니므로 상태는 그대로 둡니다.
 
 요청한 쪽: dioxus-compose FR-34(M12, 10-15). Host(`blitz-dom`)가 계산한 상자와 텍스트를 Compose로 그리려면, 계산된 결과를 그대로 놓을 수 있는 원소가 필요합니다. M10 측정(dioxus-compose PR #28)에서 상자 배치는 Chromium과 정확히 같았고 텍스트 폭은 허용치를 넘었습니다. 그래서 **상자는 Host가 계산한 자리에 놓고, 텍스트의 크기는 Compose가 잽니다**(PR-2.1). 소유자 승인 2026-10-03.
 
@@ -2777,7 +2865,9 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 | `Shadow` | x, y, blur, spread (dp), `Paint` | 그림자 그리기 수정자 | `box-shadow` 하나. 여럿이면 수정자를 여러 개 |
 | `Clip` | 켜짐/꺼짐 | `Modifier.clip(shape)` | `overflow: hidden`. 같은 노드에 `CornerEach`가 있으면 그 둥근 모양으로 자르고, 없으면 사각형으로 자릅니다. CSS도 `border-radius`가 있는 상자의 `overflow: hidden`은 둥근 모양으로 자릅니다 |
 | `Alpha` | 0..1 | `Modifier.alpha`(`graphicsLayer`) | `opacity`. 자식까지 한 묶음으로 합성한 뒤 한 번 적용합니다. 자식마다 따로 적용하지 않습니다. CSS `opacity`도 같은 방식입니다 |
+| `BackgroundBrush` | 사각형(x, y, w, h, dp, 노드 기준), `Paint`, 타일 방식(`NoRepeat=1`, `Repeat=2`, `RepeatX=3`, `RepeatY=4`), 타일 크기(w, h, dp) | 위치와 크기를 가진 브러시를 그리는 그리기 수정자 | `background-position`, `background-size`, `background-repeat`. 수정자 태그 28 |
 
+- `BackgroundBrush`(소유자 승인 2026-10-25, 이슈 #95)는 수정자 태그 28입니다. 27은 FR-41.3의 `Transform3D`가 가집니다. 지금은 겹마다 잘린 상자를 두고 타일마다 `Box`를 하나씩 만들어(겹당 1024개까지) 노드가 늘어납니다. 이 수정자는 노드 하나에서 브러시를 노드 안의 사각형에 놓고, 타일 방식대로 되풀이합니다. 겹이 여럿이면 Host가 CSS의 겹 순서를 풀어 수정자를 여러 개 보냅니다. 값은 `Shadow`처럼 16바이트 칸에 들어가지 않으므로 FR-41.1의 가변 길이 `SetModifier` 규칙을 따르고, `k`는 스키마가 정합니다. 타일 방식과 타일 크기가 어긋난 값(w나 h가 0 이하, 모르는 방식)은 `ProtocolError`입니다.
 - 기존 `Border`, `Shape`, `Elevation`은 그대로 둡니다. 네 변이 같으면 Host가 기존 `Border`를 씁니다.
 - **와이어 길이.** `Shadow`(값 24바이트)와 `BorderEach`(48바이트)는 지금의 16바이트 수정자 칸에 들어가지 않습니다. FR-41.1이 정한 가변 길이 `SetModifier` 규칙(`28 + 8k`바이트, `k`는 수정자 태그마다 스키마에 고정)을 따라 `Shadow`는 `k = 1`, `BorderEach`는 `k = 4`입니다. 나머지 다섯은 `k = 0`이라 지금 레코드와 같습니다.
 - 색은 `Paint`입니다. CSS 색은 리터럴이므로 `Paint::Literal`이 쓰입니다. 테마 변수(`--vscode-*`)를 색 역할로 옮기는 것은 dioxus-compose의 변환기 몫이고, 옮길 수 있는 것만 `Paint::Role`이 됩니다.
@@ -2800,7 +2890,8 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 2. 새 수정자 일곱 가지가 각자 Compose 대응대로 그려지고, 데스크톱 렌더러에서 스크린숏 테스트로 확인됩니다.
 3. 네 변이 같은 테두리와 하나의 반지름은 기존 수정자로 나가고, 새 수정자는 값이 서로 다를 때만 나갑니다.
 4. 수정자 하나만 바뀐 갱신에서 그 노드의 그 수정자 말고는 아무것도 나가지 않습니다.
-5. 이 원소들로 dioxus-compose FR-34 수용 기준 1의 세 구역 중 상자(텍스트 제외)가 그 상자 허용치를 지킵니다.
+5. `BackgroundBrush`가 지정한 사각형에 브러시를 놓고 `NoRepeat`, `Repeat`, `RepeatX`, `RepeatY`대로 되풀이합니다. 타일이 수천 개여도 노드는 늘지 않습니다(fr42_background_brush_tiles_without_extra_nodes).
+6. 이 원소들로 dioxus-compose FR-34 수용 기준 1의 세 구역 중 상자(텍스트 제외)가 그 상자 허용치를 지킵니다.
 
 #### 비용
 
@@ -2810,7 +2901,7 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 
 ### FR-43 확대 배율: OS 글자 크기와 앱 확대 (`Agreed`, 진행 중, 이슈 #68, PR #77)
 
-> **현황(2026-10-04).** develop의 데스크톱 렌더러는 `fontScale`을 1로 고정하고 OS 글자 크기를 읽지 않습니다(#68). PR #77(`feat/desktop-text-scale`)이 데스크톱의 OS 글자 크기를 읽습니다. 앱 확대 수준, `ZoomChanged`, `IslandZoom`은 어느 브랜치에도 없습니다.
+> **현황(2026-10-25).** develop의 데스크톱 렌더러는 `fontScale`을 1로 고정하고 OS 글자 크기를 읽지 않습니다(#68). 창 코드는 포크가 가지므로(FR-19.8) OS 글자 크기 읽기는 포크의 PR #156에 있고, 앱 확대 수준, `ZoomChanged`, `IslandZoom`은 이 저장소의 PR #267에 있습니다. 둘 다 병합되지 않았습니다. 이전 판이 적은 "PR #77이 OS 글자 크기를 읽는다"는 맞지 않습니다.
 
 소유자 결정(2026-10-03): "vscode 기준". VS Code의 `window.zoomLevel`처럼 화면 전체를 확대하고, 시작값은 OS 글자 크기입니다. 검토 문서(HTML 화면의 접근성 배율)의 (e)안입니다.
 
@@ -2833,35 +2924,53 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 5. `k`가 바뀌어도 `absolute_size` 텍스트의 `fontScale`은 1이고, 크기는 `k`로만 바뀝니다(fr43_absolute_size_ignores_font_scale).
 6. 다섯 플랫폼과 Web에서 기준 1과 2가 통과합니다. macOS는 기준 2만 해당합니다.
 
-### FR-44 시스템 색 구성표가 바뀌었다는 이벤트 (`Draft`, 제안, 소유자 승인 대기, 이슈 #97)
+#### 43.1 창 밀도가 바뀌었다는 이벤트 `DensityChanged` (소유자 승인 2026-10-25)
 
-> **제안입니다.** 소유자가 승인하기 전까지 구현하지 않습니다. 이벤트 태그 번호는 승인할 때 정합니다.
+Host는 디스플레이 배율(밀도)을 모르고 바뀐 것도 모릅니다. 위의 `ZoomChanged`는 밀도만 바뀌는 이동에는 오지 않습니다. 측정 호출은 Renderer가 `Density(density × k)`로 재므로 측정값은 밀도를 이미 따르지만, HTML 레이아웃은 CSS의 `window.devicePixelRatio`와 `@media (resolution)`, `image-set()`과 `srcset`으로 고를 이미지의 해상도, 1 CSS px 헤어라인 테두리를 장치 픽셀에 맞추는 일에 밀도 값이 필요합니다. CSS px에서 dp로의 배치 자체는 1 CSS px = 1 dp에 `k`를 곱하는 것이라 밀도가 필요 없습니다.
+
+- 새 이벤트 `DensityChanged`, 이벤트 태그 42. 노드가 아니라 Host에게 오며 `node_id = 0`, `handler_id = 0`입니다(`ColorSchemeChanged`, `ReducedMotionChanged`와 같은 종류).
+- 페이로드는 `scale: f32`(장치 픽셀 ÷ dp, 예: 2.0)이고, 레코드는 20바이트(머리 16, `scale@16`)입니다. 0 이하나 NaN은 `ProtocolError`입니다.
+- 시작할 때 첫 프레임 전에 한 번, 그 뒤 값이 바뀔 때(모니터 이동, OS 배율 변경)마다 옵니다. 같은 값이 연달아 오지 않습니다. 오기 전에 Host가 읽는 값은 1.0입니다.
+- `ZoomChanged`와 독립입니다. `WindowSizeChanged`나 `ZoomChanged`에 칸을 더하지 않습니다. 속성 블록도 쓰지 않습니다(Host에서 Renderer로 가는 값이 아닙니다).
+- 번호는 FR-38.9(34-38), FR-45(39, 40), FR-44(41) 다음입니다. `EventPayloadType`이 하나 늘고 스키마 해시가 바뀌며 `events.bin` 프로토콜 벡터에 항목이 하나 더해집니다. 창 코드는 포크 소관이므로(FR-19.8) 이 저장소는 값을 읽어 내보내는 호출만 가집니다.
+
+수용 기준:
+1. 레코드가 20바이트이고 프로토콜 벡터와 일치합니다(fr43_density_event_round_trips).
+2. 첫 이벤트가 오기 전 읽는 값은 1.0입니다(fr43_density_defaults_to_one_before_the_first_event).
+3. 값이 바뀌면 읽는 쪽이 깨어나고, 같은 값은 깨우지 않습니다. 가짜 렌더러가 `DensityChanged(2.0)`를 보내면 측정 캐시가 비워집니다(fr43_density_change_reaches_readers).
+4. 시작할 때 현재 밀도가 한 번 보고됩니다(fr43_density_reported_at_start).
+5. 창을 다른 배율의 모니터로 옮기면 새 밀도가 한 번 보고됩니다(fr43_density_reported_when_window_changes_screen). 모니터를 옮기는 확인이라 수동입니다.
+6. 다섯 플랫폼과 Web에서 기준 4가 통과합니다.
+
+### FR-44 시스템 색 구성표가 바뀌었다는 이벤트 (`Agreed`, 소유자 승인 2026-10-25, 이슈 #97)
 
 `Theme`의 `color_scheme`이 `FollowSystem`이어도 Host는 시스템의 밝음과 어두움이 바뀐 것을 알 수 없습니다. HTML 경로는 `prefers-color-scheme` 미디어 쿼리를 다시 풀고 다시 배치해야 하므로 이 사실이 필요합니다. dioxus-compose의 HTML 다리(`feat/html-compose-bridge`)를 쓰다가 드러났습니다.
 
-제안하는 모양:
-- 새 이벤트 `ColorSchemeChanged`. `ReducedMotionChanged`(FR-41.2)와 `DesignSystemResolved`(FR-32)처럼 노드가 아니라 Host에게 오며, `node_id = 0`, `handler_id = 0`입니다.
-- 페이로드는 `scheme: u32`(0 밝음, 1 어두움)입니다.
-- 시작할 때 한 번, 그 뒤 시스템 값이 바뀔 때마다 옵니다. 같은 값이 연달아 오지 않습니다.
+- 새 이벤트 `ColorSchemeChanged`, 이벤트 태그 41. `ReducedMotionChanged`(FR-41.2)와 `DesignSystemResolved`(FR-32)처럼 노드가 아니라 Host에게 오며, `node_id = 0`, `handler_id = 0`입니다.
+- 페이로드는 `scheme: u32`(0 밝음, 1 어두움)이고, 레코드는 20바이트(머리 16, `scheme@16`)입니다. 모르는 값은 `ProtocolError`입니다.
+- 시작할 때 첫 프레임 전에 한 번, 그 뒤 시스템 값이 바뀔 때마다 옵니다. 같은 값이 연달아 오지 않습니다.
+- 스키마 해시가 바뀌고 `EventPayloadType`이 하나 늘며 프로토콜 벡터에 항목이 하나 더해집니다.
 
-제안하는 수용 기준:
+수용 기준:
 1. OS의 밝음/어두움을 바꾸면 재시작 없이 `ColorSchemeChanged`가 한 번 옵니다(fr44_system_scheme_change_reaches_the_host).
-2. 다섯 플랫폼과 Web에서 기준 1이 통과합니다.
+2. 시작할 때 현재 값이 한 번 오고, 같은 값은 다시 오지 않습니다(fr44_scheme_is_reported_at_start_and_never_repeated).
+3. 레코드가 20바이트이고 프로토콜 벡터와 일치합니다(fr44_color_scheme_event_round_trips).
+4. 다섯 플랫폼과 Web에서 기준 1이 통과합니다. OS 설정을 바꾸는 확인이라 수동입니다.
 
-### FR-45 노드마다 포커스를 얻은 사건과 키를 뗀 사건 (`Draft`, 제안, 소유자 승인 대기, 이슈 #98)
-
-> **제안입니다.** 소유자가 승인하기 전까지 구현하지 않습니다. 이벤트 태그 번호는 승인할 때 정합니다.
+### FR-45 노드마다 포커스를 얻은 사건과 키를 뗀 사건 (`Agreed`, 소유자 승인 2026-10-25, 이슈 #98)
 
 지금 노드 이벤트에는 `OnFocusLost`(8)와 `OnKeyDown`(9)만 있습니다. DOM의 `onfocus`, `onfocusin`, `onkeyup`은 대응하는 원천 사건이 없어 HTML 경로에서 결코 일어나지 않습니다. dioxus-compose의 HTML 다리를 쓰다가 드러났습니다.
 
-제안하는 모양:
 - 새 노드 이벤트 `OnFocusGained`. 그 노드나 그 하위가 포커스를 얻을 때 옵니다. 페이로드는 없습니다.
-- 새 노드 이벤트 `OnKeyUp`. `OnKeyDown`과 같은 페이로드(키, 수정자)를 싣고, 키를 뗄 때 옵니다.
+- 새 노드 이벤트 `OnKeyUp`. FR-12.1의 `KeyDown`과 같은 페이로드(`code`, `text`, 수정자, `repeat`)를 싣고, 키를 뗄 때 옵니다.
 - 둘 다 핸들러가 등록된 노드에만 보냅니다. 등록이 없으면 경계를 건너지 않습니다.
+- 번호. 핸들러 속성은 `OnFocusGained` 117, `OnKeyUp` 118입니다(15.2.2의 규칙대로 FR-40의 110-116 뒤입니다). 이벤트 태그는 FocusGained 39, KeyUp 40입니다. 33은 FR-43의 `ZoomChanged`가, 34-38은 FR-38.9가 가집니다.
+- 스키마 해시가 바뀝니다.
 
-제안하는 수용 기준:
+수용 기준:
 1. 포커스를 받은 `TextField`가 `OnFocusGained`를 한 번 보내고, 포커스를 잃으면 `OnFocusLost`를 보냅니다(fr45_focus_gained_and_lost_pair).
-2. 키 하나를 눌렀다 떼면 `OnKeyDown` 다음에 같은 키의 `OnKeyUp`이 옵니다(fr45_key_up_follows_key_down).
+2. 키 하나를 눌렀다 떼면 `OnKeyDown` 다음에 같은 `code`의 `OnKeyUp`이 옵니다(fr45_key_up_follows_key_down).
+3. 핸들러가 없는 노드에는 두 이벤트 모두 경계를 건너지 않습니다(fr45_unregistered_nodes_get_no_events).
 
 ## 4. 경계 프로토콜
 
@@ -2931,7 +3040,7 @@ compose_rust_host_dispatch_event: click 1
 
 ### PR-2.1 측정 호출 (`Agreed`, 진행 중, 이슈 #106)
 
-> **현황(2026-10-04).** develop에는 측정 진입점이 없습니다. 구현은 초안 PR #110(`feat/measure-call`)에 FR-40과 함께 있고 병합되지 않았습니다.
+> **현황(2026-10-25).** 측정 진입점은 develop에 있습니다. FR-40과 함께 PR #110(`feat/measure-call`)으로 병합되었습니다.
 
 **무엇을 하나.** Host가 자기 레이아웃을 계산하는 도중에, 텍스트 한 덩이나 이미 보낸 위젯 하나가 주어진 제약 안에서 차지할 크기를 Renderer에게 묻습니다. Renderer는 **그릴 때와 같은 글꼴 해석, 같은 Density와 글꼴 배율, 같은 디자인 시스템 타입 스케일**로 재서 그 자리에서 돌려줍니다. 측정값과 그려진 크기가 같다는 것이 이 호출의 존재 이유입니다.
 
@@ -2958,6 +3067,7 @@ compose_rust_host_dispatch_event: click 1
     - `word_break: Normal | KeepAll | BreakAll`, `overflow_wrap: Normal | Anywhere | BreakWord`
     - `absolute_size: u8`. 1이면 시스템 글꼴 배율을 적용하지 않습니다(CSS px). 측정과 그리기에 똑같이 적용됩니다.
     - `zoom: f32`. 이 요청이 속한 HTML 영역의 확대 배율 `k`(FR-43). 0이면 1입니다. Renderer는 `Density(density × k, fontScale = 1)`로 잽니다. 배율을 Renderer의 상태로 두지 않고 요청마다 싣는 것은, Host 하나가 서로 다른 배율의 HTML 영역을 여럿 가질 수 있기 때문입니다.
+  - `span_metrics: (offset, count)`(소유자 승인 2026-10-25). FR-40 기준 8의 `SpanMetrics` 곁 표(16바이트 항목)를 가리킵니다. `spans`와 `span_fonts`처럼 요청 버퍼의 페이로드 영역에 놓이고, 복사할 때 offset을 옮기는 함수는 `SpanFonts`와 같은 것을 씁니다. 이로써 `MeasureText` 요청 레코드는 72바이트에서 **80바이트**가 됩니다: `span_metrics_offset@72 u32`, `span_metrics_count@76 u32`. `MeasureNode`는 그대로입니다. 호출은 아직 릴리스 전이라 공개된 레코드를 깨지 않고, 스키마 해시가 다른 렌더러는 핸드셰이크에서 거절됩니다.
   - **Renderer는 받은 문자열의 공백을 자르거나 접지 않습니다.** 공백 접기(`normal`, `pre-line`)는 Host의 일입니다. `pre`는 그대로 보낸 문자열과 `wrap = 0`, `pre-wrap`은 그대로 보낸 문자열과 `wrap = 1`입니다.
   - 제약 `constraint: MinContent = 1 | MaxContent = 2 | AtMost = 3`과 `width: f32`(`AtMost`일 때만 씀). 결과는 다음과 같습니다.
     - `MinContent`: 가장 긴 끊을 수 없는 조각의 폭. Compose `ParagraphIntrinsics.minIntrinsicWidth`.
@@ -3027,6 +3137,7 @@ compose_rust_host_dispatch_event: click 1
    - 그 절대 시간을 플랫폼별로 기록합니다.
    - (`benches/measure_sidebar`, 수치는 이 항목 아래에 기록)
 8. 다섯 플랫폼(macOS, Linux, Windows, iOS, Android)과 Web에서 기준 1의 라틴 경우가 통과합니다. CI 스모크로 확인합니다.
+9. `MeasureText` 요청 레코드가 80바이트이고 `span_metrics`의 offset과 길이가 72와 76에 고정됩니다(pr2_measure_record_carries_span_metrics).
 
 ### PR-3 스레드 규칙 (`Done`)
 - VirtualDom, 사용자 컴포넌트, 모든 `compose_rust_host_*` 호출은 Renderer UI 스레드에서만 실행합니다. 그래서 락이 필요 없습니다.
