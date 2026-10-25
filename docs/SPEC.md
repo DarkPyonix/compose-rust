@@ -3902,15 +3902,15 @@ Windows와 Linux는 이 저장소에 실행할 기계가 없어 자동 테스트
 
 **수용 기준 (테스트 이름).**
 
-1. `nfr16_schema_artifact_name_from_hash`: 해시 `0x62b9a55ed371acad`와 타깃에서 `compose-rust-renderer-schema-62b9a55ed371acad-macos-aarch64.tar.gz`가 나옵니다. 접두사 유무와 대소문자가 다른 입력도 같은 이름이 됩니다.
-2. `nfr16_fallback_order`: 버전 릴리스의 해시가 맞으면 스키마 렌더러를 요청하지 않습니다. 다르면 요청합니다. `COMPOSE_RUST_RENDERER_DIR`이 설정돼 있으면 어느 쪽도 요청하지 않습니다.
-3. `nfr16_cache_key_is_schema_hash`: 같은 버전에 해시가 다른 두 빌드가 서로 다른 캐시 디렉터리를 쓰고, 하나가 다른 하나를 캐시 적중으로 읽지 않습니다.
-4. `nfr16_mismatch_message_names_both_hashes_and_urls`: 어느 아티팩트도 맞지 않을 때 메시지에 크레이트의 해시, 각 렌더러의 해시, 시도한 두 주소가 모두 나옵니다.
-5. `nfr16_renderer_url_override`: `COMPOSE_RUST_RENDERER_URL`이 두 주소의 기준을 바꿉니다. 설정하지 않으면 기본 기준 주소를 씁니다.
-6. `nfr16_prune_keeps_recent_and_released`: 해시 25개와 릴리스 태그 둘이 있을 때 정리는 가장 최근 20개와 두 태그의 해시를 남기고 나머지를 지웁니다. 겹치면 한 번만 셉니다.
-7. `nfr16_publish_skips_without_release`: `renderer-dev` 릴리스가 없으면 올리기 단계는 알림을 내고 0으로 끝나며 아무것도 만들지 않습니다.
-8. `nfr16_hash_spelling`: 파일 이름에는 `0x` 없는 소문자 16진수가, 로그와 오류 메시지에는 `0x` 붙은 해시가 나옵니다.
-9. `nfr16_no_env_var_needed`: 위 변수가 하나도 없는 환경에서 NFR-10의 수용 기준 1에서 6이 그대로 통과합니다.
+1. nfr16_schema_artifact_name_from_hash: 해시 `0x62b9a55ed371acad`와 타깃에서 `compose-rust-renderer-schema-62b9a55ed371acad-macos-aarch64.tar.gz`가 나옵니다. 접두사 유무와 대소문자가 다른 입력도 같은 이름이 됩니다.
+2. nfr16_fallback_order: 버전 릴리스의 해시가 맞으면 스키마 렌더러를 요청하지 않습니다. 다르면 요청합니다. `COMPOSE_RUST_RENDERER_DIR`이 설정돼 있으면 어느 쪽도 요청하지 않습니다.
+3. nfr16_cache_key_is_schema_hash: 같은 버전에 해시가 다른 두 빌드가 서로 다른 캐시 디렉터리를 쓰고, 하나가 다른 하나를 캐시 적중으로 읽지 않습니다.
+4. nfr16_mismatch_message_names_both_hashes_and_urls: 어느 아티팩트도 맞지 않을 때 메시지에 크레이트의 해시, 각 렌더러의 해시, 시도한 두 주소가 모두 나옵니다.
+5. nfr16_renderer_url_override: `COMPOSE_RUST_RENDERER_URL`이 두 주소의 기준을 바꿉니다. 설정하지 않으면 기본 기준 주소를 씁니다.
+6. nfr16_prune_keeps_recent_and_released: 해시 25개와 릴리스 태그 둘이 있을 때 정리는 가장 최근 20개와 두 태그의 해시를 남기고 나머지를 지웁니다. 겹치면 한 번만 셉니다.
+7. nfr16_publish_skips_without_release: `renderer-dev` 릴리스가 없으면 올리기 단계는 알림을 내고 0으로 끝나며 아무것도 만들지 않습니다.
+8. nfr16_hash_spelling: 파일 이름에는 `0x` 없는 소문자 16진수가, 로그와 오류 메시지에는 `0x` 붙은 해시가 나옵니다.
+9. nfr16_no_env_var_needed: 위 변수가 하나도 없는 환경에서 NFR-10의 수용 기준 1에서 6이 그대로 통과합니다.
 
 **상태: Draft.** 코드는 이 항목이 Agreed가 된 뒤에 따라옵니다.
 
