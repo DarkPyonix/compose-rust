@@ -3883,27 +3883,25 @@ Windows와 Linux는 이 저장소에 실행할 기계가 없어 자동 테스트
 
 1. **해시 표기.** `{hash}`는 `compose-rust/schema-hash.txt`의 값에서 `0x`를 떼고 소문자 16진수 16자리로 씁니다(예: `62b9a55ed371acad`). 접두사 없는 쪽이 파일 이름과 태그에 안전하기 때문입니다.
 2. **스키마 아티팩트.** 파일 이름은 `compose-rust-renderer-schema-{hash}-{target}.tar.gz`와 `.sha256`입니다. 내용과 체크섬 형식은 5.3.1의 버전 아티팩트와 같고, `schema-hash.txt`가 들어 있습니다. 모든 렌더러 아티팩트가 `schema-hash.txt`를 싣는 것은 이미 사실입니다.
-3. **게시 위치, 안 A (태그 설계).** GitHub 프리릴리스이며 태그는 `renderer-schema-{hash}`입니다. 주소는 `https://github.com/DarkPyonix/compose-rust/releases/download/renderer-schema-{hash}/{파일 이름}`입니다. **프리릴리스에만 두며 crates.io에 올리지 않고 `main`에 닿지 않습니다.** 다만 AGENTS.md는 태그를 `main`의 병합 커밋에만 붙이라고 하므로, 이 안은 그 규칙의 예외를 요구합니다.
-4. **게시 자동화.** `develop`에 합쳐진 변경이 `schema-hash.txt`를 바꾸면 워크플로가 네 타깃의 렌더러를 빌드해 3의 위치에 올립니다. 파일은 `.github/workflows/publish-schema-renderer.yml`, 이름은 "Publish schema renderer"이며 무거운 워크플로이므로 `KNOWN_HEAVY`에 넣습니다. 같은 해시가 이미 게시돼 있으면 다시 만들지 않습니다.
+3. **게시 위치: 고정 이름 릴리스 하나(소유자 결정).** GitHub 릴리스 `renderer-dev` 하나에 자산을 스키마 해시 이름으로 쌓습니다. 주소는 `https://github.com/DarkPyonix/compose-rust/releases/download/renderer-dev/compose-rust-renderer-schema-{hash}-{target}.tar.gz`입니다. 해시마다 태그나 릴리스를 만들지 않습니다. 이 릴리스는 프리릴리스로 표시하며 **crates.io에 올리지 않고 `main`에 닿지 않습니다.** 버전 태그 `v*`와 이름이 겹치지 않아 릴리스 절차(AGENTS.md의 Releasing)를 건드리지 않습니다.
+4. **게시 자동화와 릴리스의 존재.** GitHub 릴리스는 태그가 있어야 하므로 `renderer-dev` 태그 하나가 있습니다. 이 태그는 소유자가 한 번 만들고 옮기거나 지우지 않습니다. 워크플로는 태그도 릴리스도 만들지 않습니다. `develop`에 합쳐진 변경이 `schema-hash.txt`를 바꾸면 네 타깃의 렌더러를 빌드해 `gh release upload renderer-dev --clobber`로 자산을 올리거나 바꾸고, 릴리스가 없으면 만들지 않고 실패합니다. 파일은 `.github/workflows/publish-schema-renderer.yml`, 이름은 "Publish schema renderer"이며 무거운 워크플로이므로 `KNOWN_HEAVY`에 넣습니다. 같은 해시의 자산이 이미 있으면 다시 만들지 않습니다. 이 태그는 "태그는 `main`의 병합 커밋에만 붙인다"는 규칙의 유일한 예외이며, 그 문장은 AGENTS.md에 소유자가 따로 적습니다.
 5. **빌드 스크립트의 탐색.** 5.3.2의 순서를 따릅니다. 1(`COMPOSE_RUST_RENDERER_DIR`)과 2(워크스페이스 결과물)는 그대로입니다. 3의 캐시는 `.../renderer/schema-{hash}/{target}`입니다. 4의 다운로드는 먼저 버전 릴리스를 받고, 받은 아티팩트의 `schema-hash.txt`가 크레이트의 해시와 같으면 그것을 씁니다. 다르면 스키마 렌더러를 시도합니다. 둘 다 맞지 않으면 5.3.6의 불일치 실패입니다. 버전 릴리스가 맞는 흔한 경우에는 요청이 늘지 않습니다.
 6. **`COMPOSE_RUST_RENDERER_URL`(선택).** 설정하면 `https://github.com/DarkPyonix/compose-rust/releases`를 대신하는 기준 주소로 쓰며, 그 아래에서 `download/v{version}/...`과 스키마 렌더러를 같은 규칙으로 찾습니다. 미러와 오프라인 CI를 위한 것이고 설치에 필요하지 않습니다. NFR-10은 그대로이며 설정하지 않은 빌드가 기본입니다.
 
-**게시 위치의 대안 (태그 없이).** 3은 태그 규칙과 부딪히므로 소유자가 고릅니다. 5의 탐색 순서와 캐시, 이름 규격은 어느 안에서도 같고 주소의 기준만 달라집니다.
+**검토한 대안.**
 
-| 안 | 내용 | 이득 | 비용 |
-|---|---|---|---|
-| A. 태그 설계 | 해시마다 프리릴리스와 태그 `renderer-schema-{hash}` | 인증 없이 받음, 기존 릴리스 주소 규칙 재사용, 해시별로 지우기 쉬움 | 태그 규칙의 예외. CI가 태그를 만듦 |
-| A'. 고정 릴리스 하나 | 이름이 고정된 장수 릴리스 하나(예: 태그 `renderer-schemas`)에 자산을 해시 이름으로 계속 추가 | 태그가 하나라 예외가 작음 | GitHub 릴리스에는 태그가 필요합니다. 옮기지 않는 태그면 여전히 `main` 병합 커밋이 아닌 커밋에 붙은 태그이고, 초안 릴리스는 인증 없이 받을 수 없어 NFR-10에 맞지 않습니다. 즉 규칙 충돌을 없애지 못하고 줄일 뿐입니다. 자산이 한 릴리스에 쌓이고 개수 제한도 있습니다 |
-| B. CI 워크플로 아티팩트 | `actions/upload-artifact` | 태그 없음, 저장소 설정 변경 없음 | 보존 기간이 지나면 사라지고, 내려받으려면 토큰이 필요합니다. 설치에 설정이 필요 없다는 NFR-10과 맞지 않습니다 |
-| C. 별도 호스트 또는 렌더러 전용 미러 저장소 | 이 저장소 밖(전용 저장소의 릴리스, 객체 저장소 등)에 올림 | 이 저장소의 태그 규칙과 무관, 보존 정책을 따로 정할 수 있음 | 저장소나 호스트가 하나 늘고, 쓰기 권한과 비용을 관리해야 합니다. 기준 주소는 `COMPOSE_RUST_RENDERER_URL`의 기본값이 됩니다 |
+| 안 | 내용 | 결과 |
+|---|---|---|
+| A. 해시마다 프리릴리스와 태그 `renderer-schema-{hash}` | 인증 없이 받고 해시별로 지우기 쉽습니다 | **기각.** CI가 `main` 병합 커밋이 아닌 커밋에 태그를 계속 만들게 되어 "태그는 `main`의 병합 커밋에만"이라는 규칙과 부딪힙니다 |
+| B. CI 워크플로 아티팩트 | 태그가 없습니다 | 택하지 않음. 보존 기간이 지나면 사라지고, 내려받으려면 토큰이 필요해 설치에 설정이 필요 없다는 NFR-10과 맞지 않습니다 |
+| C. 별도 호스트 또는 렌더러 전용 미러 저장소 | 이 저장소의 태그 규칙과 무관합니다 | 택하지 않음. 저장소나 호스트가 하나 늘고 쓰기 권한과 비용을 따로 관리해야 합니다. 나중에 필요하면 `COMPOSE_RUST_RENDERER_URL`의 기본값을 바꾸는 것으로 옮길 수 있습니다 |
 
 **소유자가 정할 것.**
 
-- 게시 위치를 위의 A, A', B, C 중 어디로 할 것인가. 이 항목은 정해질 때까지 Draft입니다. A를 고르면 CI가 `renderer-schema-*` 태그와 프리릴리스를 만들어도 되는지, 태그 규칙의 예외를 어떻게 적는지도 함께 정합니다.
-- 오래된 스키마 렌더러를 언제 지우는가. 해시마다 네 타깃(약 30MB씩)이 쌓입니다.
+- 오래된 스키마 자산을 언제 지우는가. 한 릴리스에 해시마다 네 타깃(약 30MB씩)이 쌓이고, GitHub 릴리스의 자산 개수 제한도 있습니다.
 - 해시 표기(위 1)를 파일의 `0x` 접두사 그대로로 할 것인가.
 
-**수용 기준 (테스트 이름).** 게시 위치와 무관한 것만 적습니다.
+**수용 기준 (테스트 이름).**
 
 1. `nfr16_schema_artifact_name_from_hash`: 해시 `0x62b9a55ed371acad`와 타깃에서 `compose-rust-renderer-schema-62b9a55ed371acad-macos-aarch64.tar.gz`가 나옵니다. 접두사 유무와 대소문자가 다른 입력도 같은 이름이 됩니다.
 2. `nfr16_fallback_order`: 버전 릴리스의 해시가 맞으면 스키마 렌더러를 요청하지 않습니다. 다르면 요청합니다. `COMPOSE_RUST_RENDERER_DIR`이 설정돼 있으면 어느 쪽도 요청하지 않습니다.
