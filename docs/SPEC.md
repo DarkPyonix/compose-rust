@@ -2417,6 +2417,7 @@ fn main() {
 
 - **공통 컨테이너는 위치 인자로 부릅니다.** `Column`, `Row`, `Box`, `LazyColumn`, `LazyRow`는 `Column(modifier, || { .. })`처럼 `modifier`와 자식 클로저를 위치 인자로 받습니다. 자식 클로저는 항상 마지막 인자입니다. Compose의 `Column(modifier) { .. }`와 같은 순서입니다.
 - **속성이 많은 위젯은 빌더 체인을 유지합니다.** 어느 형태를 받는지는 다음 규칙이 정합니다. 위젯이 `modifier`와 자식 클로저 말고는 호출마다 값이 정해지는 속성이 없으면 위치 인자 형태를 받습니다. 그 밖의 속성이 하나라도 있으면 필수 값만 함수 인자로 받고 나머지는 체인으로 씁니다(`Text(..)`, `Button(label).modifier(..).on_click(..)`). Rust에 이름 있는 인자와 기본 인자가 없어서, 속성이 많은 위젯을 위치 인자로 받으면 쓰는 쪽이 매번 전부 적어야 하기 때문입니다. 위치 인자 컨테이너가 `space_role` 같은 속성을 더 필요로 하면 같은 위젯의 체인 형태(`Column().modifier(..).space_role(..).content(..)`)를 씁니다. 두 형태는 같은 Mutation을 내보냅니다.
+- **호출 매크로의 오류는 잘못된 인자를 가리킵니다.** `#[Composable]`이 만드는 호출 매크로의 컴파일 오류(없는 이름, 빠진 필수 인자, 중복 인자, 이름 뒤의 위치 인자, 너무 많은 위치 인자, `content`가 없는 함수의 뒤따르는 블록)는 호출하는 쪽의 잘못된 인자 토큰을 가리킵니다. `#[Composable]` 속성 줄을 가리키지 않습니다. 쓰는 사람이 고칠 자리가 호출 자리이기 때문입니다. 빠진 필수 인자는 가리킬 토큰이 없으므로 매크로 호출의 닫는 구분자나 매크로 이름을 가리킵니다. 호출 모양은 바뀌지 않습니다.
 - **속성 이름은 `#[Composable]`입니다.** 소유자가 2026-10-25에 정했습니다. Compose의 `@Composable` 철자와 같아서, Compose를 아는 사람이 이름을 다시 배우지 않습니다. 속성 매크로 이름이 snake_case인 것은 관례이지 규칙이 아니며(`#[component]`, `#[tokio::main]`), 위젯 이름이 이미 Compose의 PascalCase를 쓰므로(FR-15) 속성도 같은 철자로 맞춥니다. 매크로 함수에는 `#[allow(non_snake_case)]`를 붙입니다. 소문자 별칭은 두지 않습니다(아래 이슈 #278의 이전 규칙과 같습니다).
 
 - **composable은 함수입니다.** `#[Composable]` 속성이 본문에 그룹을 넣고, 사용자는 그룹도 키도 손으로 쓰지 않습니다. 분기, `match`, 반복문, 조기 `return`, `continue`, `break`, `?`, 되감기를 지나도 그룹이 맞게 닫힙니다(INTENT D2가 기록한 클로저 방식의 실패를 되풀이하지 않습니다).
@@ -2481,6 +2482,7 @@ fn main() {
 5. **해제된 뒤의 사용.** 해제된 핸들의 `set`과 `update`는 아무 일도 하지 않고 다른 상태와 화면을 바꾸지 않습니다(fr39_state_use_after_release_set_is_a_no_op). 디버그 빌드에서 경고 로그가 핸들마다 정확히 한 번 나옵니다(fr39_state_use_after_release_warns_once_in_debug). `get`은 패닉하고 메시지에 `Released`와 `remember`의 파일과 줄이 들어 있습니다(fr39_state_use_after_release_get_panics_with_the_creation_site). `try_get`, `try_set`, `try_update`는 `StateError::Released`를 돌려줍니다(fr39_state_use_after_release_try_returns_released). 칸이 다른 값에 재사용된 뒤에도 옛 핸들이 새 값을 읽거나 쓰지 못합니다(fr39_state_use_after_release_does_not_reach_a_reused_slot).
 6. **워커 스레드.** `MutableState<i32>`가 `Send + Sync`입니다(컴파일 시점 확인). 워커 스레드의 쓰기가 다음 프레임에 반영되고, 한 프레임 안의 UI 쓰기와 워커 쓰기가 recomposition 한 번이 되며, composition이 떠난 뒤의 워커 쓰기가 오류 없이 무시됩니다. 이름 패턴 `fr39_state_worker_*`.
 7. **같음.** 같은 칸의 핸들 복사본은 같고, 값이 같은 서로 다른 상태의 핸들은 같지 않습니다. 이름 패턴 `fr39_state_handle_identity_*`.
+8. **호출 매크로 오류의 자리.** 위 6가지 컴파일 오류 각각이 호출 자리의 잘못된 인자 토큰(빠진 필수 인자는 매크로 호출의 닫는 구분자나 이름)을 가리키고, `#[Composable]` 줄을 가리키지 않습니다. trybuild의 `.stderr` 스팬으로 확인합니다. 이름 패턴 `fr39_call_macro_compile_fail_*`.
 
 위 이름 패턴은 구현과 함께 실제 테스트 이름으로 바뀝니다. 이 기준은 구현이 들어올 때까지 `Agreed`입니다.
 
