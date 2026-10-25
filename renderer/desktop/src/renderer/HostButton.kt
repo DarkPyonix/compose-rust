@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -24,6 +23,9 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -134,7 +136,7 @@ internal fun HostButton(
         // with no word has nothing to keep off them: using it anyway makes every icon
         // control half as wide again as it needs to be, which two of them in a floating
         // group and one at the head of a composer both showed.
-        .padding(
+        .labelPadding(
             horizontal = if (wordless) style.verticalPadding else style.horizontalPadding,
             vertical = style.verticalPadding,
         )
@@ -205,3 +207,35 @@ private fun Modifier.topHighlight(color: Color?): Modifier {
 }
 
 private fun Int.dpPx(density: Float): Float = this * density
+
+/**
+ * Padding that gives way before the label does.
+ *
+ * The horizontal padding is fixed. The vertical padding is the design system's, but only as
+ * far as the height the button was given leaves room for: when that height is smaller than
+ * the padding plus the content's own height, the padding shrinks equally top and bottom,
+ * down to nothing, so the content keeps its whole height and sits centred. Only when even
+ * no padding fits does the content overflow and get clipped by the button's shape.
+ */
+internal fun Modifier.labelPadding(horizontal: Dp, vertical: Dp): Modifier = layout { measurable, constraints ->
+    val sides = horizontal.roundToPx()
+    val wanted = vertical.roundToPx()
+    val inner = Constraints(
+        minWidth = (constraints.minWidth - 2 * sides).coerceAtLeast(0),
+        maxWidth = if (constraints.hasBoundedWidth) (constraints.maxWidth - 2 * sides).coerceAtLeast(0) else Constraints.Infinity,
+        minHeight = 0,
+        maxHeight = constraints.maxHeight,
+    )
+    val placeable = measurable.measure(inner)
+    val room = if (constraints.hasBoundedHeight) {
+        ((constraints.maxHeight - placeable.height) / 2).coerceAtLeast(0)
+    } else {
+        wanted
+    }
+    val padding = minOf(wanted, room)
+    val width = (placeable.width + 2 * sides).coerceIn(constraints.minWidth, constraints.maxWidth)
+    val height = (placeable.height + 2 * padding).coerceIn(constraints.minHeight, constraints.maxHeight)
+    layout(width, height) {
+        placeable.place((width - placeable.width) / 2, (height - placeable.height) / 2)
+    }
+}
