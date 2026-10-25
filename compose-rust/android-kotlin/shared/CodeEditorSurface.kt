@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.ScrollableState
 import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.layout.fillMaxSize
@@ -36,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -76,8 +78,11 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.DecorationKind
+import dev.darkpyonix.composerust.protocol.GutterDecorationKind
 import dev.darkpyonix.composerust.protocol.Paint
+import dev.darkpyonix.composerust.protocol.RevealAlign
 import kotlinx.coroutines.delay
 import kotlin.math.max
 import kotlin.math.min
@@ -159,6 +164,10 @@ class CodeEditorLook(
     val hoverDelayMillis: Long,
     /** Whether the platform's command key is Command, as on Apple's systems, or Control. */
     val commandIsMeta: Boolean,
+    /** The colour of a mark beside a line number, given the role the Host named, if it named one. */
+    val gutterMark: (ColorRole?) -> Color = { lens },
+    /** The ink of the marker that folds or unfolds a stretch. */
+    val foldMarker: Color = lineNumber,
 )
 
 /** What a surface tells the editor that holds it. All of them are called on the UI thread. */
@@ -210,8 +219,19 @@ internal class RowMap(
     private val lensLines: IntArray,
     private val ghostLine: Int,
     private val ghostRows: Int,
+    /** The lines a fold hides, as pairs of first and last line, in order and not overlapping. */
+    private val hidden: IntArray = IntArray(0),
 ) {
-    val totalRows: Int = lineCount + lensLines.size + ghostRows
+    private val hiddenRanges = hidden.size / 2
+
+    /** How many hidden lines there are in the ranges before range `i`. */
+    private val hiddenPrefix = IntArray(hiddenRanges + 1).also { prefix ->
+        for (index in 0 until hiddenRanges) {
+            prefix[index + 1] = prefix[index] + (hidden[index * 2 + 1] - hidden[index * 2] + 1)
+        }
+    }
+
+    val totalRows: Int = lineCount - hiddenPrefix[hiddenRanges] + lensLines.size + ghostRows
 
     private fun lensesBefore(line: Int): Int {
         var low = 0
@@ -223,19 +243,46 @@ internal class RowMap(
         return low
     }
 
+    /** The range of hidden lines that holds [line], or -1. */
+    private fun hiddenRangeOf(line: Int): Int {
+        var low = 0
+        var high = hiddenRanges
+        while (low < high) {
+            val middle = (low + high) ushr 1
+            if (hidden[middle * 2 + 1] < line) low = middle + 1 else high = middle
+        }
+        return if (low < hiddenRanges && hidden[low * 2] <= line) low else -1
+    }
+
+    /** Whether a fold hides this line. */
+    fun isHidden(line: Int): Boolean = hiddenRangeOf(line) >= 0
+
+    /** How many lines before [line] a fold hides. */
+    private fun hiddenBefore(line: Int): Int {
+        var low = 0
+        var high = hiddenRanges
+        while (low < high) {
+            val middle = (low + high) ushr 1
+            if (hidden[middle * 2] < line) low = middle + 1 else high = middle
+        }
+        if (low == 0) return 0
+        val index = low - 1
+        return hiddenPrefix[index] + (min(hidden[index * 2 + 1], line - 1) - hidden[index * 2] + 1)
+    }
+
     fun hasLens(line: Int): Boolean {
         val index = lensesBefore(line)
         return index < lensLines.size && lensLines[index] == line
     }
 
-    /** The first row that belongs to [line], its lens if it has one. */
+    /** The first row that belongs to [line], its lens if it has one. A hidden line has no row of its own. */
     fun rowTop(line: Int): Int =
-        line + lensesBefore(line) + if (ghostLine in 0 until line) ghostRows else 0
+        line - hiddenBefore(line) + lensesBefore(line) + if (ghostLine in 0 until line) ghostRows else 0
 
     /** The row [line]'s own text starts on. */
     fun textRow(line: Int): Int = rowTop(line) + if (hasLens(line)) 1 else 0
 
-    /** The line a row belongs to. */
+    /** The line a row belongs to, never one a fold hides. */
     fun lineAtRow(row: Int): Int {
         var low = 0
         var high = lineCount - 1
@@ -243,18 +290,23 @@ internal class RowMap(
             val middle = (low + high + 1) ushr 1
             if (rowTop(middle) <= row) low = middle else high = middle - 1
         }
-        return low
+        // Hidden lines share the row of the line after them, so the search can end on one
+        // only when the fold runs to the end of the document: the line that stays is above.
+        val range = hiddenRangeOf(low)
+        return if (range >= 0) max(0, hidden[range * 2] - 1) else low
     }
 
     companion object {
         fun of(model: CodeEditorModel): RowMap {
-            val lenses = model.lensesByLine().map { it.first }.toIntArray()
-            val ghost = model.ghostText
+            val hidden = model.hiddenLines()
+            val lenses = model.lensesByLine().map { it.first }.filter { line -> !model.isHidden(line) }.toIntArray()
+            val ghost = model.ghostText?.takeIf { !model.isHidden(it.start.line) }
             return RowMap(
                 model.document.lineCount,
                 lenses,
                 ghost?.start?.line ?: -1,
                 ghost?.text?.count { it == '\n' } ?: 0,
+                hidden,
             )
         }
     }
@@ -359,6 +411,22 @@ internal class FieldWindow(val model: CodeEditorModel, private val whole: Boolea
         revision += 1
     }
 
+    /**
+     * The Host set the selection. The field keeps its own copy, so it is carried across by
+     * filling the field again: the lines it holds if both ends are among them, and the
+     * lines around the caret if not.
+     */
+    fun applyHostSelection() {
+        if (state.composition != null) return
+        syncUserEdit()
+        val selection = model.selection
+        if (toField(selection.anchor) != null && toField(selection.caret) != null) {
+            load(start, end)
+        } else {
+            loadAroundCaret()
+        }
+    }
+
     /** Fills the field around the caret, wherever the view is. */
     fun loadAroundCaret() {
         val line = model.selection.caret.line
@@ -460,6 +528,11 @@ internal class FieldWindow(val model: CodeEditorModel, private val whole: Boolea
             if (shown < shownEnd) {
                 return insertion.offset to insertion.takeIf { it.covers == 0 || it.lenses != null }
             }
+            // A stretch a fold hides shows as nothing, so the place where it was is one place:
+            // the end of the line that stays.
+            if (insertion.text.isEmpty() && insertion.covers > 0 && shown == shownStart) {
+                return insertion.offset to null
+            }
             delta += insertion.text.length - insertion.covers
         }
         return (shown - delta) to null
@@ -471,6 +544,10 @@ internal class FieldWindow(val model: CodeEditorModel, private val whole: Boolea
         for (insertion in insertions) {
             if (insertion.offset > offset) break
             if (insertion.offset == offset && (asEnd || insertion.covers > 0)) break
+            if (insertion.text.isEmpty() && insertion.covers > 0 && offset < insertion.offset + insertion.covers) {
+                // Inside text a fold hides: nothing of it is shown, so it is where the fold is.
+                return insertion.offset + delta
+            }
             delta += insertion.text.length - insertion.covers
         }
         return offset + delta
@@ -547,13 +624,33 @@ internal class EditorDisplay(
         }
         val insertions = ArrayList<Insertion>()
         val lensStyle = SpanStyle(color = look.lens)
+        fun lineEnd(index: Int) = if (index + 1 < starts.size) starts[index + 1] - 1 else text.length
+        // The lines a fold hides are cut out of what is shown. The text underneath keeps
+        // them, so every position in the document is still where it was.
+        val hidden = model.hiddenLines()
+        var cut = 0
+        while (cut < hidden.size) {
+            val first = max(hidden[cut], start)
+            val last = min(hidden[cut + 1], end - 1)
+            if (first <= last) {
+                if (first > start) {
+                    val from = lineEnd(first - 1 - start)
+                    insertions += Insertion(from, lineEnd(last - start) - from, "", null)
+                } else {
+                    val from = starts[first - start]
+                    val to = if (last + 1 - start < starts.size) starts[last + 1 - start] else text.length
+                    insertions += Insertion(from, to - from, "", null)
+                }
+            }
+            cut += 2
+        }
         for ((line, lenses) in model.lensesByLine()) {
-            if (line < start || line >= end) continue
+            if (line < start || line >= end || model.isHidden(line)) continue
             val label = lenses.joinToString("  |  ") { it.text }
             insertions += Insertion(starts[line - start], 0, "$label\n", lensStyle, lenses)
         }
         val ghost = model.ghostText
-        if (ghost != null && ghost.text.isNotEmpty()) {
+        if (ghost != null && ghost.text.isNotEmpty() && !model.isHidden(ghost.start.line)) {
             val at = fieldOffset(ghost.start)
             if (at != null) {
                 val ink = look.textStyle.color.takeOrElse(look.lens)
@@ -562,10 +659,18 @@ internal class EditorDisplay(
         }
         // Tabs advance to the next stop, counted from the start of their own line.
         var column = 0
+        var lineIndex = 0
+        var hiddenLine = model.isHidden(start)
         for (index in text.indices) {
             when (text[index]) {
-                '\n' -> column = 0
-                '\t' -> {
+                '\n' -> {
+                    column = 0
+                    lineIndex += 1
+                    hiddenLine = model.isHidden(start + lineIndex)
+                }
+                '\t' -> if (hiddenLine) {
+                    // Cut out with the rest of its line; nothing is drawn in its place.
+                } else {
                     val width = look.tabWidth - column % look.tabWidth
                     insertions += Insertion(index, 1, " ".repeat(width), null)
                     column += width
@@ -594,11 +699,11 @@ internal class EditorDisplay(
             val from = fieldOffset(maxOf(span.start, CodePosition(start, 0))) ?: continue
             val to = fieldOffset(minOf(span.end, CodePosition(end - 1, Int.MAX_VALUE / 2))) ?: continue
             if (to <= from) continue
-            addStyle(
-                SpanStyle(color = look.paint(span.paint)),
-                window.toShown(from, asEnd = false),
-                window.toShown(to, asEnd = true),
-            )
+            val shownFrom = window.toShown(from, asEnd = false)
+            val shownTo = window.toShown(to, asEnd = true)
+            // A run that lies wholly in a hidden stretch has nothing left to colour.
+            if (shownTo <= shownFrom) continue
+            addStyle(SpanStyle(color = look.paint(span.paint)), shownFrom, shownTo)
         }
     }
 }
@@ -708,9 +813,13 @@ private fun FieldSurface(
     val rows = remember(contentRevision, overlayRevision) { RowMap.of(model) }
     val lineCount = rows.lineCount
     val digits = lineCount.toString().length
+    val hasMarks = model.gutterMarks.isNotEmpty()
+    val hasFolds = model.folds.isNotEmpty()
+    val markColumnPx = if (hasMarks) rowPx else 0
+    val foldColumnPx = if (hasFolds) rowPx else 0
     val gutterWidthPx = with(density) {
         digits * digitWidth + (look.gutterPadding * 2).roundToPx() + look.gutterDividerWidth.roundToPx()
-    }
+    } + markColumnPx + foldColumnPx
 
     // Refilling the window recomposes this, so the field moves to where the new lines are.
     window.revision
@@ -723,6 +832,26 @@ private fun FieldSurface(
         if (top < vertical.offset || top + rowPx > vertical.offset + viewportHeight) {
             vertical.scrollTo(top - viewportHeight / 2)
         }
+    }
+
+    // The Host moved the selection: the field holds a copy of it that has to follow.
+    val hostSelection = model.hostSelection
+    LaunchedEffect(hostSelection) {
+        if (hostSelection == 0) return@LaunchedEffect
+        window.applyHostSelection()
+        callbacks.onOutput()
+    }
+
+    // The Host asked for a range to be brought into view.
+    val reveal = model.reveal
+    LaunchedEffect(reveal) {
+        if (reveal == null) return@LaunchedEffect
+        // The effect can start before the pass that sets the limit has run, and a scroll
+        // clamped to the old limit of 0 would go nowhere.
+        vertical.max = rows.totalRows * rowPx - viewportHeight
+        scrollToReveal(RowMap.of(model), vertical, reveal, rowPx, viewportHeight)
+        model.revealDone(reveal)
+        callbacks.onOutput()
     }
 
     val hover = remember { HoverTracker() }
@@ -761,10 +890,37 @@ private fun FieldSurface(
                         .width(with(density) { gutterWidthPx.toDp() })
                         .fillMaxHeight()
                         .background(look.gutter)
+                        .pointerInput(model, rows, markColumnPx, foldColumnPx) {
+                            detectTapGestures { point ->
+                                pressGutter(
+                                    model,
+                                    rows,
+                                    point,
+                                    vertical.offset,
+                                    rowPx,
+                                    gutterWidthPx,
+                                    markColumnPx,
+                                    foldColumnPx,
+                                )
+                                callbacks.onOutput()
+                            }
+                        }
                         .drawBehind {
                             val scroll = vertical.offset
                             translate(top = -scroll.toFloat()) {
-                                drawGutter(window, rows, rowPx, scroll, viewportHeight, gutterWidthPx, measurer, style, look)
+                                drawGutter(
+                                    window,
+                                    rows,
+                                    rowPx,
+                                    scroll,
+                                    viewportHeight,
+                                    gutterWidthPx,
+                                    markColumnPx,
+                                    foldColumnPx,
+                                    measurer,
+                                    style,
+                                    look,
+                                )
                             }
                             val divider = look.gutterDividerWidth.toPx()
                             if (divider > 0f && look.gutterDivider.alpha > 0f) {
@@ -793,6 +949,10 @@ private fun FieldSurface(
                                     layout(placeable.width + textInsetPx, height) {
                                         placeable.place(textInsetPx, rows.rowTop(window.start) * rowPx - vertical.offset)
                                     }
+                                }
+                                .onFocusChanged { focusState ->
+                                    model.focusChanged(focusState.hasFocus)
+                                    callbacks.onOutput()
                                 }
                                 .focusRequester(focus)
                                 .testTag(CODE_EDITOR_FIELD_TAG)
@@ -874,10 +1034,68 @@ private fun Sync(
     val scroll = vertical.offset
     val firstVisible = rows.lineAtRow(scroll / rowPx)
     val lastVisible = rows.lineAtRow((scroll + max(viewportHeight, rowPx)) / rowPx)
+    val composing = window.state.composition != null
     SideEffect {
+        // The start of a composition is said before anything else this pass does; its end
+        // after the text it committed, so the Host reads the change and then the signal.
+        if (composing) window.model.compositionChanged(true)
         if (window.end == 0) window.load(firstVisible - FieldWindow.MIN_MARGIN, lastVisible + FieldWindow.MIN_MARGIN)
         window.sync(firstVisible, lastVisible)
+        if (!composing) window.model.compositionChanged(false)
+        if (viewportHeight > 0) reportVisible(window.model, rows, scroll, viewportHeight, rowPx)
         callbacks.onOutput()
+    }
+}
+
+/** Tells the model which lines the view shows, folded lines left out. */
+internal fun reportVisible(model: CodeEditorModel, rows: RowMap, scroll: Int, viewportHeight: Int, rowPx: Int) {
+    val lastRow = min(rows.totalRows - 1, (scroll + viewportHeight - 1) / rowPx)
+    model.reportVisibleRange(rows.lineAtRow(scroll / rowPx), rows.lineAtRow(max(0, lastRow)))
+}
+
+/** Scrolls so that the range the Host named is on screen, the way it asked. */
+internal fun scrollToReveal(
+    rows: RowMap,
+    vertical: EditorScroll,
+    request: RevealRequest,
+    rowPx: Int,
+    viewportHeight: Int,
+) {
+    val top = rows.textRow(request.start.line) * rowPx
+    val bottom = (rows.textRow(request.end.line) + 1) * rowPx
+    when (request.align) {
+        RevealAlign.Nearest -> when {
+            top < vertical.offset || bottom - top > viewportHeight -> vertical.scrollTo(top)
+            bottom > vertical.offset + viewportHeight -> vertical.scrollTo(bottom - viewportHeight)
+        }
+        RevealAlign.Center -> vertical.scrollTo((top + bottom) / 2 - viewportHeight / 2)
+        RevealAlign.Top -> vertical.scrollTo(top)
+    }
+}
+
+/**
+ * A press in the gutter: on the fold marker it folds or unfolds the stretch that starts on
+ * that line, and on a mark it reports the mark's id.
+ */
+internal fun pressGutter(
+    model: CodeEditorModel,
+    rows: RowMap,
+    point: Offset,
+    scroll: Int,
+    rowPx: Int,
+    gutterWidth: Int,
+    markColumn: Int,
+    foldColumn: Int,
+) {
+    val row = ((point.y + scroll) / rowPx).toInt()
+    if (row < 0 || row >= rows.totalRows) return
+    val line = rows.lineAtRow(row)
+    // A lens sits in the row above its line, and the gutter has nothing to say there.
+    if (rows.hasLens(line) && row == rows.rowTop(line)) return
+    if (foldColumn > 0 && point.x >= gutterWidth - foldColumn) {
+        model.toggleFold(line)
+    } else if (markColumn > 0 && point.x < markColumn) {
+        model.gutterMarksAt(line).lastOrNull { it.id != 0L }?.let(model::activateGutter)
     }
 }
 
@@ -1081,7 +1299,12 @@ private fun DrawScope.drawCurrentLine(window: FieldWindow, rows: RowMap, rowPx: 
     }
 }
 
-/** The line numbers on screen, and the rule beside them. */
+/**
+ * The line numbers on screen, the marks and fold markers beside them, and the rule.
+ *
+ * From the left: the column of marks, when there are any, then the numbers, then the column
+ * of fold markers, when anything can be folded, then the rule.
+ */
 private fun DrawScope.drawGutter(
     window: FieldWindow,
     rows: RowMap,
@@ -1089,11 +1312,14 @@ private fun DrawScope.drawGutter(
     scroll: Int,
     viewportHeight: Int,
     width: Int,
+    markColumn: Int,
+    foldColumn: Int,
     measurer: TextMeasurer,
     style: TextStyle,
     look: CodeEditorLook,
 ) {
     window.revision
+    window.model.overlayRevision
     val selection = window.state.selection
     val caretLine = if (window.caretOutside) -1 else window.toDoc(selection.end).line
     val first = rows.lineAtRow(scroll / rowPx)
@@ -1101,13 +1327,60 @@ private fun DrawScope.drawGutter(
     val padding = look.gutterPadding.toPx()
     val divider = look.gutterDividerWidth.toPx()
     for (line in first..last) {
+        if (rows.isHidden(line)) continue
         val label = (line + 1).toString()
         val color = if (line == caretLine) look.currentLineNumber else look.lineNumber
         val measured = measurer.measure(label, style.copy(color = color))
-        val x = width - divider - padding - measured.size.width
-        drawText(measured, topLeft = Offset(x, rows.textRow(line) * rowPx.toFloat()))
+        val x = width - divider - foldColumn - padding - measured.size.width
+        val top = rows.textRow(line) * rowPx.toFloat()
+        drawText(measured, topLeft = Offset(x, top))
+        drawGutterAdornments(window.model, line, top, rowPx, markColumn, width - divider - foldColumn, foldColumn, measurer, style, look)
     }
 }
+
+/** The marks and the fold marker of one line, in the cells the gutter keeps for them. */
+internal fun DrawScope.drawGutterAdornments(
+    model: CodeEditorModel,
+    line: Int,
+    top: Float,
+    rowPx: Int,
+    markColumn: Int,
+    foldLeft: Float,
+    foldColumn: Int,
+    measurer: TextMeasurer,
+    style: TextStyle,
+    look: CodeEditorLook,
+) {
+    val cell = rowPx.toFloat()
+    if (markColumn > 0) {
+        for (mark in model.gutterMarksAt(line)) {
+            val color = look.gutterMark(mark.color)
+            when (mark.kind) {
+                GutterDecorationKind.Dot -> drawCircle(color, cell * 0.2f, Offset(markColumn / 2f, top + cell / 2f))
+                GutterDecorationKind.Bar ->
+                    drawRect(color, Offset(markColumn / 2f - cell * 0.1f, top), Size(cell * 0.2f, cell))
+                GutterDecorationKind.Glyph -> {
+                    val glyph = measurer.measure(codePointString(mark.glyph), style.copy(color = color))
+                    drawText(glyph, topLeft = Offset((markColumn - glyph.size.width) / 2f, top + (cell - glyph.size.height) / 2f))
+                }
+            }
+        }
+    }
+    val fold = if (foldColumn > 0) model.foldAt(line) else null
+    if (fold != null) {
+        val marker = measurer.measure(if (fold.collapsed) "\u25B8" else "\u25BE", style.copy(color = look.foldMarker))
+        drawText(marker, topLeft = Offset(foldLeft + (foldColumn - marker.size.width) / 2f, top + (cell - marker.size.height) / 2f))
+    }
+}
+
+/** A Unicode scalar value as a string, without the platform calls that only some platforms have. */
+internal fun codePointString(codePoint: Int): String =
+    if (codePoint < 0x10000) {
+        codePoint.toChar().toString()
+    } else {
+        val offset = codePoint - 0x10000
+        charArrayOf((0xD800 + (offset shr 10)).toChar(), (0xDC00 + (offset and 0x3FF)).toChar()).concatToString()
+    }
 
 /** Underlines under their ranges, in the field's own coordinates. */
 private fun DrawScope.drawDecorations(window: FieldWindow, layout: TextLayoutResult, look: CodeEditorLook) {

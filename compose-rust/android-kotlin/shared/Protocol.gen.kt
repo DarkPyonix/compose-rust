@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets
 
 enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, Progress }
 
 enum class Key { Enter }
 
@@ -97,6 +97,10 @@ enum class DecorationKind { Underline, CodeLens, HoverAnchor, GhostText }
 enum class Severity { Error, Warning, Information, Hint }
 
 enum class HoverPhase { Rest, Leave }
+
+enum class GutterDecorationKind { Dot, Bar, Glyph }
+
+enum class RevealAlign { Nearest, Center, Top }
 
 enum class PointerKind { Move, Enter, Leave, Down, Up, Cancel, Wheel, ContextMenu }
 
@@ -544,6 +548,24 @@ data class SyntaxSpanRecord(
     val paint: Paint,
 )
 
+/** One stretch of a code editor's lines that can be folded. Folding keeps `startLine` and hides the lines after it up to `endLine`; both are in the document at `version`. */
+data class FoldRecord(
+    val version: Int,
+    val startLine: Int,
+    val endLine: Int,
+    val collapsed: Boolean,
+)
+
+/** One mark beside a line number of a code editor. The line is in the document at `version`; `glyph` is a Unicode scalar value, used when the kind is a glyph. `id` is the application's own name for it, zero where it cannot be pressed. */
+data class GutterDecorationRecord(
+    val version: Int,
+    val line: Int,
+    val kind: GutterDecorationKind,
+    val color: ColorRole?,
+    val id: Long,
+    val glyph: Int,
+)
+
 /**
  * Reads the blobs a code editor carries.
  *
@@ -615,6 +637,64 @@ object CodeEditorRecords {
         val endColumn = buffer.getInt(offset + 16)
         val paint = paintOrNull(buffer.getLong(offset + 20)) ?: run { onError("record $index has an unreadable paint"); return null }
         return SyntaxSpanRecord(version, startLine, startColumn, endLine, endColumn, paint)
+    }
+
+    const val FOLD_LENGTH = 16
+
+    fun decodeFolds(bytes: ByteArray, onError: (String) -> Unit): List<FoldRecord> {
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val records = ArrayList<FoldRecord>(bytes.size / FOLD_LENGTH)
+        var end = bytes.size
+        var offset = 0
+        var index = 0
+        while (offset + FOLD_LENGTH <= end) {
+            readFoldRecord(buffer, bytes, offset, index, onError)?.let(records::add)
+            offset += FOLD_LENGTH
+            index += 1
+        }
+        if (offset != bytes.size) {
+            onError("${bytes.size - offset} bytes after the last whole record")
+        }
+        return records
+    }
+
+    private fun readFoldRecord(buffer: ByteBuffer, bytes: ByteArray, offset: Int, index: Int, onError: (String) -> Unit): FoldRecord? {
+        val version = buffer.getInt(offset + 0)
+        val startLine = buffer.getInt(offset + 4)
+        val endLine = buffer.getInt(offset + 8)
+        val collapsed = when (buffer.getInt(offset + 12)) { 0 -> false; 1 -> true; else -> run { onError("record $index has a collapsed that is neither 0 nor 1"); return null } }
+        return FoldRecord(version, startLine, endLine, collapsed)
+    }
+
+    const val GUTTER_DECORATION_LENGTH = 28
+
+    fun decodeGutterDecorations(bytes: ByteArray, onError: (String) -> Unit): List<GutterDecorationRecord> {
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val records = ArrayList<GutterDecorationRecord>(bytes.size / GUTTER_DECORATION_LENGTH)
+        var end = bytes.size
+        var offset = 0
+        var index = 0
+        while (offset + GUTTER_DECORATION_LENGTH <= end) {
+            readGutterDecorationRecord(buffer, bytes, offset, index, onError)?.let(records::add)
+            offset += GUTTER_DECORATION_LENGTH
+            index += 1
+        }
+        if (offset != bytes.size) {
+            onError("${bytes.size - offset} bytes after the last whole record")
+        }
+        return records
+    }
+
+    private fun readGutterDecorationRecord(buffer: ByteBuffer, bytes: ByteArray, offset: Int, index: Int, onError: (String) -> Unit): GutterDecorationRecord? {
+        val version = buffer.getInt(offset + 0)
+        val line = buffer.getInt(offset + 4)
+        val kindTag = buffer.getShort(offset + 8).toInt() and 0xffff
+        val kind = gutterDecorationKindOrNull(kindTag) ?: run { onError("record $index has an unknown kind ${kindTag}"); return null }
+        val colorTag = buffer.getShort(offset + 10).toInt() and 0xffff
+        val color = if (colorTag == 0) null else colorRoleOrNull(colorTag) ?: run { onError("record $index has an unknown color ${colorTag}"); return null }
+        val id = buffer.getLong(offset + 12)
+        val glyph = buffer.getInt(offset + 20)
+        return GutterDecorationRecord(version, line, kind, color, id, glyph)
     }
 
     /** UTF-8 text behind the records, or null where the range leaves the blob or is not text. */
@@ -692,6 +772,13 @@ object CodeEditorRecords {
         2 -> DecorationKind.CodeLens
         3 -> DecorationKind.HoverAnchor
         4 -> DecorationKind.GhostText
+        else -> null
+    }
+
+    private fun gutterDecorationKindOrNull(tag: Int): GutterDecorationKind? = when (tag) {
+        1 -> GutterDecorationKind.Dot
+        2 -> GutterDecorationKind.Bar
+        3 -> GutterDecorationKind.Glyph
         else -> null
     }
 
@@ -1105,6 +1192,37 @@ sealed interface Mutation {
         val op: AnimationControl,
         val atTimeNanos: Long,
     ) : Mutation
+
+    /**
+     * Puts a code editor's selection between two places in the document as it stood at
+     * `baseVersion`. Both ends are moved along with whatever was typed since. An end outside
+     * the document, or between the two halves of a pair, drops the command and is reported.
+     */
+    data class SetSelection(
+        val nodeId: Int,
+        val baseVersion: Int,
+        val anchorLine: Int,
+        val anchorColumn: Int,
+        val activeLine: Int,
+        val activeColumn: Int,
+    ) : Mutation
+
+    /**
+     * Scrolls a code editor until a range of the document, as it stood at `baseVersion`, is
+     * on screen. A range inside a folded stretch unfolds it first.
+     */
+    data class RevealRange(
+        val nodeId: Int,
+        val baseVersion: Int,
+        val startLine: Int,
+        val startColumn: Int,
+        val endLine: Int,
+        val endColumn: Int,
+        val align: RevealAlign,
+    ) : Mutation
+
+    /** Folds or unfolds the stretch of a code editor that starts on `startLine`. */
+    data class SetFolded(val nodeId: Int, val startLine: Int, val collapsed: Boolean) : Mutation
 }
 
 sealed interface HostEvent {
@@ -1137,13 +1255,18 @@ sealed interface HostEvent {
     data class ReducedMotionChanged(override val nodeId: Int, override val handlerId: Long, val state: ReducedMotion) : HostEvent
     data class Pointer(override val nodeId: Int, override val handlerId: Long, val kind: PointerKind, val pointerId: Int, val pointerType: PointerType, val x: kotlin.Float, val y: kotlin.Float, val buttons: Int, val button: Int, val modifiers: Int, val clickCount: Int, val deltaX: kotlin.Float, val deltaY: kotlin.Float, val deltaMode: WheelDeltaMode, val timestampNanos: Long) : HostEvent
     data class ZoomChanged(override val nodeId: Int, override val handlerId: Long, val k: kotlin.Float, val os: kotlin.Float, val level: Int) : HostEvent
+    data class SelectionChanged(override val nodeId: Int, override val handlerId: Long, val version: Int, val anchorLine: Int, val anchorColumn: Int, val activeLine: Int, val activeColumn: Int) : HostEvent
+    data class VisibleRangeChanged(override val nodeId: Int, override val handlerId: Long, val version: Int, val firstLine: Int, val lastLine: Int) : HostEvent
+    data class EditorFocusChanged(override val nodeId: Int, override val handlerId: Long, val focused: Boolean) : HostEvent
+    data class FoldChanged(override val nodeId: Int, override val handlerId: Long, val startLine: Int, val collapsed: Boolean) : HostEvent
+    data class CompositionChanged(override val nodeId: Int, override val handlerId: Long, val composing: Boolean) : HostEvent
 }
 
 class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 7113898913101360301L
+    const val SCHEMA_HASH: Long = -6175437954945919089L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1166,6 +1289,9 @@ object Protocol {
     private const val TAG_EDIT_CODE = 17
     private const val TAG_START_ANIMATION = 18
     private const val TAG_CONTROL_ANIMATION = 19
+    private const val TAG_SET_SELECTION = 20
+    private const val TAG_REVEAL_RANGE = 21
+    private const val TAG_SET_FOLDED = 22
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -1430,6 +1556,37 @@ object Protocol {
                             readU64(batch, base, available, offset + 16),
                         )
                     }
+                    TAG_SET_SELECTION -> {
+                        requireRecordLength(length, 28, offset)
+                        Mutation.SetSelection(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            readU32(batch, base, available, offset + 8).toInt(),
+                            readU32(batch, base, available, offset + 12).toInt(),
+                            readU32(batch, base, available, offset + 16).toInt(),
+                            readU32(batch, base, available, offset + 20).toInt(),
+                            readU32(batch, base, available, offset + 24).toInt(),
+                        )
+                    }
+                    TAG_REVEAL_RANGE -> {
+                        requireRecordLength(length, 32, offset)
+                        Mutation.RevealRange(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            readU32(batch, base, available, offset + 8).toInt(),
+                            readU32(batch, base, available, offset + 12).toInt(),
+                            readU32(batch, base, available, offset + 16).toInt(),
+                            readU32(batch, base, available, offset + 20).toInt(),
+                            readU32(batch, base, available, offset + 24).toInt(),
+                            revealAlign(readU32(batch, base, available, offset + 28).toInt(), offset + 28),
+                        )
+                    }
+                    TAG_SET_FOLDED -> {
+                        requireRecordLength(length, 16, offset)
+                        Mutation.SetFolded(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            readU32(batch, base, available, offset + 8).toInt(),
+                            flag(readU32(batch, base, available, offset + 12), offset + 12),
+                        )
+                    }
                     else -> throw ProtocolException("unknown mutation tag $tag", offset)
                 }
                 onMutation(mutation)
@@ -1523,6 +1680,11 @@ object Protocol {
                 is HostEvent.ReducedMotionChanged -> null
                 is HostEvent.Pointer -> null
                 is HostEvent.ZoomChanged -> null
+                is HostEvent.SelectionChanged -> null
+                is HostEvent.VisibleRangeChanged -> null
+                is HostEvent.EditorFocusChanged -> null
+                is HostEvent.FoldChanged -> null
+                is HostEvent.CompositionChanged -> null
             }
             val recordLength = when (event) {
                 is HostEvent.Clicked -> 16
@@ -1551,6 +1713,11 @@ object Protocol {
                 is HostEvent.ReducedMotionChanged -> 20
                 is HostEvent.Pointer -> 72
                 is HostEvent.ZoomChanged -> 28
+                is HostEvent.SelectionChanged -> 36
+                is HostEvent.VisibleRangeChanged -> 28
+                is HostEvent.EditorFocusChanged -> 24
+                is HostEvent.FoldChanged -> 24
+                is HostEvent.CompositionChanged -> 24
             }
             val totalLength = recordLength.toLong() + (text?.size ?: 0)
             if (totalLength > Int.MAX_VALUE || totalLength > out.remaining().toLong()) {
@@ -1583,6 +1750,11 @@ object Protocol {
                 is HostEvent.ReducedMotionChanged -> 32
                 is HostEvent.Pointer -> 8
                 is HostEvent.ZoomChanged -> 33
+                is HostEvent.SelectionChanged -> 34
+                is HostEvent.VisibleRangeChanged -> 35
+                is HostEvent.EditorFocusChanged -> 36
+                is HostEvent.FoldChanged -> 37
+                is HostEvent.CompositionChanged -> 38
             }
             out.putShort(tag.toShort())
             out.putShort(recordLength.toShort())
@@ -1693,6 +1865,30 @@ object Protocol {
                     out.putFloat(event.k)
                     out.putFloat(event.os)
                     out.putInt(event.level)
+                }
+                is HostEvent.SelectionChanged -> {
+                    out.putInt(event.version)
+                    out.putInt(event.anchorLine)
+                    out.putInt(event.anchorColumn)
+                    out.putInt(event.activeLine)
+                    out.putInt(event.activeColumn)
+                }
+                is HostEvent.VisibleRangeChanged -> {
+                    out.putInt(event.version)
+                    out.putInt(event.firstLine)
+                    out.putInt(event.lastLine)
+                }
+                is HostEvent.EditorFocusChanged -> {
+                    out.putInt(if (event.focused) 1 else 0)
+                    out.putInt(0)
+                }
+                is HostEvent.FoldChanged -> {
+                    out.putInt(event.startLine)
+                    out.putInt(if (event.collapsed) 1 else 0)
+                }
+                is HostEvent.CompositionChanged -> {
+                    out.putInt(if (event.composing) 1 else 0)
+                    out.putInt(0)
                 }
             }
             if (text != null) out.put(text)
@@ -1838,6 +2034,9 @@ object Protocol {
         104 -> PropertyKind.OnHover
         105 -> PropertyKind.OnSave
         106 -> PropertyKind.OnDecorationClick
+        107 -> PropertyKind.Folds
+        108 -> PropertyKind.GutterDecorations
+        109 -> PropertyKind.OnSelectionChange
         110 -> PropertyKind.Font
         111 -> PropertyKind.WordBreak
         112 -> PropertyKind.OverflowWrap
@@ -1845,6 +2044,10 @@ object Protocol {
         114 -> PropertyKind.AbsoluteSize
         115 -> PropertyKind.SoftWrap
         116 -> PropertyKind.SpanFonts
+        130 -> PropertyKind.OnVisibleRangeChange
+        131 -> PropertyKind.OnEditorFocusChange
+        132 -> PropertyKind.OnFoldChange
+        133 -> PropertyKind.OnCompositionChange
         67 -> PropertyKind.OnPointer
         140 -> PropertyKind.PointerKinds
         141 -> PropertyKind.Cursor
@@ -2369,6 +2572,20 @@ object Protocol {
         1 -> HoverPhase.Rest
         2 -> HoverPhase.Leave
         else -> throw ProtocolException("unknown HoverPhase tag $tag", offset)
+    }
+
+    private fun gutterDecorationKind(tag: Int, offset: Int): GutterDecorationKind = when (tag) {
+        1 -> GutterDecorationKind.Dot
+        2 -> GutterDecorationKind.Bar
+        3 -> GutterDecorationKind.Glyph
+        else -> throw ProtocolException("unknown GutterDecorationKind tag $tag", offset)
+    }
+
+    private fun revealAlign(tag: Int, offset: Int): RevealAlign = when (tag) {
+        1 -> RevealAlign.Nearest
+        2 -> RevealAlign.Center
+        3 -> RevealAlign.Top
+        else -> throw ProtocolException("unknown RevealAlign tag $tag", offset)
     }
 
     private fun pointerKind(tag: Int, offset: Int): PointerKind = when (tag) {

@@ -63,8 +63,9 @@ pub use boundary::{
 };
 pub use brush::{Brush, Stop, brush, release_brush};
 pub use code::{
-    CodeChange, CodeHover, CodeRange, Decoration, Decorations, EditRejected, Position, SaveRequest,
-    SyntaxSpan, SyntaxSpans,
+    CodeChange, CodeHover, CodeRange, Decoration, Decorations, EditRejected, Fold, FoldChange,
+    Folds, GutterDecoration, GutterDecorations, Position, SaveRequest, SelectionChange, SyntaxSpan,
+    SyntaxSpans, VisibleRange,
 };
 pub use design::design_system;
 pub use drawing::{DrawCommand, DrawList, DrawListBuilder};
@@ -79,11 +80,12 @@ pub use palette::{Palette, PaletteViolation};
 pub use runtime::{Batch, ComposeHost, Recomposer, Runtime, application, composable, launch};
 pub use schema::{
     Alignment, Arrangement, AssetKind, ButtonKind, ButtonVariant, Chrome, Color, ColorRole,
-    ColorScheme, DecorationKind, DesignSystem, EventPayload, GenericFamily, HoverPhase, IconRole,
-    Key, LoopMode, MaterialRole, MessageDuration, Modifier, MotionRole, NotificationImportance,
-    NotificationPermission, NotificationPresentation, OverflowWrap, Paint, PropertyKind,
-    SCHEMA_HASH, Selection, Severity, ShapeRole, SpaceRole, TextAlign, TextOverflow, Theme,
-    TileMode, TypeRole, WidgetKind, WindowHeightClass, WindowSizeClass, WordBreak,
+    ColorScheme, DecorationKind, DesignSystem, EventPayload, GenericFamily, GutterDecorationKind,
+    HoverPhase, IconRole, Key, LoopMode, MaterialRole, MessageDuration, Modifier, MotionRole,
+    NotificationImportance, NotificationPermission, NotificationPresentation, OverflowWrap, Paint,
+    PropertyKind, RevealAlign, SCHEMA_HASH, Selection, Severity, ShapeRole, SpaceRole, TextAlign,
+    TextOverflow, Theme, TileMode, TypeRole, WidgetKind, WindowHeightClass, WindowSizeClass,
+    WordBreak,
 };
 pub use schema::{
     AnimatedProperty, Animation, AnimationControl, AnimationEventKind, AnimationEvents,

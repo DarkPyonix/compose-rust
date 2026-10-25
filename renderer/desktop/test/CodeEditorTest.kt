@@ -27,6 +27,7 @@ import dev.darkpyonix.composerust.protocol.HoverPhase
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
+import dev.darkpyonix.composerust.protocol.RevealAlign
 import dev.darkpyonix.composerust.protocol.Theme
 import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
@@ -43,6 +44,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 private const val EDITOR = 1
@@ -51,6 +53,8 @@ private const val ON_REJECTED = 12L
 private const val ON_HOVER = 13L
 private const val ON_SAVE = 14L
 private const val ON_DECORATION = 15L
+private const val ON_SELECTION = 16L
+private const val ON_FOCUS = 18L
 
 /** One decoration record, laid out as the Rust schema lays it out, with its text behind it. */
 private fun decorations(vararg records: DecorationSpec): ByteArray {
@@ -319,5 +323,70 @@ class CodeEditorTest {
         val kinds = CodeEditorRecords.decodeDecorations(bytes.value, errors::add).map { it.kind }.toSet()
         assertEquals(DecorationKind.entries.toSet(), kinds)
         assertEquals(emptyList<String>(), errors)
+    }
+
+    /** Criterion 12, from the field: focusing it sends one event, and the Host hears nothing else about it. */
+    @Test
+    fun fr38_the_field_reports_focus_to_the_host() = runComposeUiTest {
+        val connection = FakeHostConnection(
+            editor(
+                DesignSystem.Material3,
+                "abc",
+                Mutation.SetProp(EDITOR, PropertyKind.OnEditorFocusChange, PropertyValue.Integer(ON_FOCUS)),
+            ),
+        )
+        setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+        val field = onNodeWithTag(CODE_EDITOR_FIELD_TAG, useUnmergedTree = true)
+        field.requestFocus()
+        waitForIdle()
+        assertEquals(
+            listOf(HostEvent.EditorFocusChanged(EDITOR, ON_FOCUS, true)),
+            connection.nodeEvents.filterIsInstance<HostEvent.EditorFocusChanged>(),
+        )
+    }
+
+    /** Criterion 9, from the field: a typed character is a change and then the caret's new place, at its version. */
+    @Test
+    fun fr38_typing_reports_the_change_and_then_the_selection() = runComposeUiTest {
+        val connection = FakeHostConnection(
+            editor(
+                DesignSystem.Material3,
+                "abc",
+                Mutation.SetProp(EDITOR, PropertyKind.OnSelectionChange, PropertyValue.Integer(ON_SELECTION)),
+            ),
+        )
+        setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+        val field = onNodeWithTag(CODE_EDITOR_FIELD_TAG, useUnmergedTree = true)
+        field.requestFocus()
+        field.performTextInput("x")
+        waitForIdle()
+        assertEquals(
+            listOf(
+                HostEvent.CodeChanged(EDITOR, ON_CHANGE, 1, 0, 0, 0, 0, "x"),
+                HostEvent.SelectionChanged(EDITOR, ON_SELECTION, 1, 0, 1, 0, 1),
+            ),
+            connection.nodeEvents.filter { it is HostEvent.CodeChanged || it is HostEvent.SelectionChanged },
+        )
+    }
+
+    /** Criterion 10, drawn: a range the Host asks to see far down a long file is in the field after the scroll. */
+    @Test
+    fun fr38_reveal_range_scrolls_the_field_to_the_range() = runComposeUiTest {
+        val text = buildString { repeat(100_000) { append("let line_").append(it).append(" = ").append(it).append(";\n") } }
+        val connection = FakeHostConnection(
+            editor(
+                DesignSystem.Material3,
+                text,
+                Mutation.RevealRange(EDITOR, 0, 50_000, 0, 50_000, 3, RevealAlign.Top),
+            ),
+        )
+        setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+        waitForIdle()
+        val shown = onNodeWithTag(CODE_EDITOR_FIELD_TAG, useUnmergedTree = true)
+            .fetchSemanticsNode()
+            .config[SemanticsProperties.EditableText]
+            .text
+        assertTrue(shown.contains("let line_50000 = 50000;"), "the field starts at ${shown.take(40)}")
+        assertFalse(shown.startsWith("let line_0 = 0;"))
     }
 }

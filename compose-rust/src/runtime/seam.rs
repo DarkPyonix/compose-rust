@@ -185,6 +185,57 @@ impl Batch {
         });
     }
 
+    /// Writes one request to put a code editor's selection between two places in the
+    /// document as it stood at `base_version`. The Renderer moves both ends past what the
+    /// reader typed since and drops the request, with a protocol error, where an end is not
+    /// a place in the document.
+    pub fn set_selection(
+        &mut self,
+        node_id: u32,
+        base_version: u32,
+        anchor: crate::code::Position,
+        active: crate::code::Position,
+    ) {
+        self.write(Mutation::SetSelection {
+            node_id,
+            base_version,
+            anchor_line: anchor.line,
+            anchor_column: anchor.column,
+            active_line: active.line,
+            active_column: active.column,
+        });
+    }
+
+    /// Writes one request to scroll a code editor until `range`, as the document stood at
+    /// `base_version`, is on screen. A range inside a folded stretch unfolds it.
+    pub fn reveal_range(
+        &mut self,
+        node_id: u32,
+        base_version: u32,
+        range: crate::code::CodeRange,
+        align: crate::schema::RevealAlign,
+    ) {
+        self.write(Mutation::RevealRange {
+            node_id,
+            base_version,
+            start_line: range.start.line,
+            start_column: range.start.column,
+            end_line: range.end.line,
+            end_column: range.end.column,
+            align,
+        });
+    }
+
+    /// Writes one request to fold or unfold the stretch of a code editor that starts on
+    /// `start_line`.
+    pub fn set_folded(&mut self, node_id: u32, start_line: u32, collapsed: bool) {
+        self.write(Mutation::SetFolded {
+            node_id,
+            start_line,
+            collapsed,
+        });
+    }
+
     /// Appends the streamed tail to a Text node without resending its whole value.
     pub fn append_text_node(&mut self, node_id: u32, text: &str) {
         self.write(Mutation::AppendText { node_id, text });

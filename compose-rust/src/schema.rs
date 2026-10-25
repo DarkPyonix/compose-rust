@@ -144,6 +144,17 @@ pub enum EventPayloadType {
     /// Two `f32` and an `i32`: the whole zoom factor, the system's text size, and the
     /// application's zoom level.
     Zoom,
+    /// Where a code editor's selection is: the document version and the two ends.
+    CodeSelection,
+    /// Which lines of a code editor are on screen, folded lines left out.
+    CodeVisibleRange,
+    /// One word, 0 or 1: whether a code editor holds the keyboard focus.
+    CodeFocus,
+    /// The line a fold starts on and whether it is now collapsed.
+    CodeFold,
+    /// One word, 0 or 1: whether an input method is composing in a code editor. The
+    /// composed text is never part of it.
+    CodeComposition,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -157,13 +168,13 @@ pub struct EventSchema {
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
     "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_pointer,pointer_kinds,cursor,user_select,island_zoom;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom;",
     "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform;",
     "keys=Enter;",
-    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged;",
+    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged;",
     "windowsizeclasses=Compact,Medium,Expanded;",
     "windowheightclasses=Compact,Medium,Expanded;",
-    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation"
+    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded"
 );
 
 const fn hash_bytes(mut hash: u64, bytes: &[u8]) -> u64 {
@@ -305,12 +316,19 @@ const fn schema_hash() -> u64 {
                 EventPayloadType::Decoration => 16,
                 EventPayloadType::Pointer => 17,
                 EventPayloadType::Zoom => 18,
+                EventPayloadType::CodeSelection => 19,
+                EventPayloadType::CodeVisibleRange => 20,
+                EventPayloadType::CodeFocus => 21,
+                EventPayloadType::CodeFold => 22,
+                EventPayloadType::CodeComposition => 23,
             }],
         );
         index += 1;
     }
     hash = crate::code::hash_record_schema(hash, crate::code::DECORATION_RECORD);
     hash = crate::code::hash_record_schema(hash, crate::code::SYNTAX_SPAN_RECORD);
+    hash = crate::code::hash_record_schema(hash, crate::code::FOLD_RECORD);
+    hash = crate::code::hash_record_schema(hash, crate::code::GUTTER_DECORATION_RECORD);
     hash
 }
 
@@ -1013,6 +1031,23 @@ define_wire_enum!(HOVER_PHASE_SCHEMA, HoverPhase {
     Leave = 2,
 });
 
+// What a mark beside the line numbers of a code editor looks like: a dot, a bar the height
+// of the line, or one character the application names. The colour is a role or the design
+// system's; the size and the placement of all three are always the system's.
+define_wire_enum!(GUTTER_DECORATION_KIND_SCHEMA, GutterDecorationKind {
+    Dot = 1,
+    Bar = 2,
+    Glyph = 3,
+});
+
+// Where `RevealRange` puts the range it brings into view: the least scroll that shows it,
+// the middle of the view, or the top.
+define_wire_enum!(REVEAL_ALIGN_SCHEMA, RevealAlign {
+    Nearest = 1,
+    Center = 2,
+    Top = 3,
+});
+
 // The vocabulary of animations the Renderer plays on its own frame clock. Every one is a
 // byte on the wire and every one starts at 1, so a zero is always a record the two sides
 // disagree about.
@@ -1332,6 +1367,14 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
     RoleEnumSchema {
         name: "HoverPhase",
         variants: HOVER_PHASE_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "GutterDecorationKind",
+        variants: GUTTER_DECORATION_KIND_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "RevealAlign",
+        variants: REVEAL_ALIGN_SCHEMA,
     },
     RoleEnumSchema {
         name: "PointerKind",
@@ -2585,6 +2628,12 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // the decoration blob are the application's own names for them, not handlers, so the
     // event carries the id and the application tells them apart.
     OnDecorationClick = 106,
+    // The editor's additions: the stretches that can be folded and the marks beside the
+    // line numbers, each a blob of fixed-length records sent whole, and the listener for
+    // the selection moving. The other four listeners are in the block at 130.
+    Folds = 107,
+    GutterDecorations = 108,
+    OnSelectionChange = 109,
     // The text a page laid out by CSS draws, which takes its letters from its own values
     // rather than from a rung of the type ladder. 110 opens the block for it.
     //
@@ -2608,6 +2657,13 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // rather than inside its records: a run record keeps the 36 bytes it has always had,
     // and only text that names fonts carries this at all.
     SpanFonts = 116,
+    // The rest of the code editor's listeners, in the first block free after the text and
+    // pointer blocks. The visible lines changing, the editor gaining or losing focus, a
+    // stretch folded or unfolded, and an input method starting or ending a composition.
+    OnVisibleRangeChange = 130,
+    OnEditorFocusChange = 131,
+    OnFoldChange = 132,
+    OnCompositionChange = 133,
     // The node's pointer subscription: the handler, and the kinds it wants as a bit mask
     // (`1 << (kind - 1)`). 67 was reserved for a gesture handler that was never sent, so
     // it is free to carry this one. It is listed here, after the newer blocks, because
@@ -2778,6 +2834,38 @@ pub enum EventPayload<'a> {
         os: f32,
         level: i32,
     },
+    /// The selection of a code editor moved, or an edit moved it. `version` is the document
+    /// version it is read against, the same series `CodeChanged` counts, and an edit's
+    /// change always arrives first. Columns are UTF-16 units and never fall between the
+    /// two halves of a pair.
+    SelectionChanged {
+        version: u32,
+        anchor_line: u32,
+        anchor_column: u32,
+        active_line: u32,
+        active_column: u32,
+    },
+    /// The lines of a code editor that are on screen changed. Folded lines are skipped, so
+    /// `first_line` and `last_line` are the first and last lines the reader can see.
+    VisibleRangeChanged {
+        version: u32,
+        first_line: u32,
+        last_line: u32,
+    },
+    /// A code editor gained or lost the keyboard focus.
+    EditorFocusChanged {
+        focused: bool,
+    },
+    /// The reader folded or unfolded the stretch that starts on `start_line`.
+    FoldChanged {
+        start_line: u32,
+        collapsed: bool,
+    },
+    /// An input method started or ended a composition in a code editor. What is being
+    /// composed stays in the Renderer: only the fact crosses.
+    CompositionChanged {
+        composing: bool,
+    },
 }
 
 pub const EVENT_SCHEMA: &[EventSchema] = &[
@@ -2923,6 +3011,31 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
         name: "ZoomChanged",
         tag: 33,
         payload: EventPayloadType::Zoom,
+    },
+    EventSchema {
+        name: "SelectionChanged",
+        tag: 34,
+        payload: EventPayloadType::CodeSelection,
+    },
+    EventSchema {
+        name: "VisibleRangeChanged",
+        tag: 35,
+        payload: EventPayloadType::CodeVisibleRange,
+    },
+    EventSchema {
+        name: "EditorFocusChanged",
+        tag: 36,
+        payload: EventPayloadType::CodeFocus,
+    },
+    EventSchema {
+        name: "FoldChanged",
+        tag: 37,
+        payload: EventPayloadType::CodeFold,
+    },
+    EventSchema {
+        name: "CompositionChanged",
+        tag: 38,
+        payload: EventPayloadType::CodeComposition,
     },
 ];
 
