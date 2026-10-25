@@ -191,7 +191,7 @@ fn pr3_measure_off_the_ui_thread_is_refused() {
     let mut host = host();
     let refused = std::thread::spawn(|| {
         let host_side = matches!(measurer(), Err(MeasureError::OutsideHostCall));
-        let mut requests = vec![0u8; MEASURE_RECORD_LEN];
+        let mut requests = [0u8; MEASURE_RECORD_LEN];
         requests[0] = 1;
         let mut results = [MeasureResult::default()];
         // SAFETY: both buffers are live for the call.

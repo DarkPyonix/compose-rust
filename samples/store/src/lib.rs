@@ -263,7 +263,7 @@ fn carousel(slide: MutableState<usize>) {
         .content(|| {
             Image(asset(AssetKind::Svg, catalogue::featured()[showing]))
                 .modifier(Modifier.fill_max_size().padding_role(SpaceRole::Md));
-            let turn = slide.clone();
+            let turn = slide;
             Button("")
                 .variant(ButtonVariant::Text)
                 .modifier(Modifier.fill_max_size())
@@ -325,7 +325,7 @@ fn catalogue_screen(
                 .color(palette::INK)
                 .modifier(Modifier.fill_max_width());
 
-            carousel(slide.clone());
+            carousel(slide);
 
             // A strip that runs off the edge, not a segmented control.
             //
@@ -334,7 +334,7 @@ fn catalogue_screen(
             // and a button inside one carries its own horizontal padding: every label
             // broke into a column of single letters. The reference's own strip runs past
             // the right edge with the last category half shown, which is this.
-            let strip = category.clone();
+            let strip = category;
             LazyRow()
                 .modifier(Modifier.fill_max_width().height(STRIP_HEIGHT))
                 .content(move |list| {
@@ -344,7 +344,7 @@ fn catalogue_screen(
                         move |position| {
                             let choice = Category::STRIP[position];
                             let chosen = strip.get() == choice;
-                            let pick = strip.clone();
+                            let pick = strip;
                             Box().alignment(Alignment::Center).content(|| {
                                 // Every category is a label and one of them is the one you
                                 // are looking at, which is what the reference draws: the
@@ -495,7 +495,7 @@ fn detail_screen(
                                             // page in the accent. The rest are the same
                                             // flat grey as the card the garment is drawn
                                             // on.
-                                            let pick = size.clone();
+                                            let pick = size;
                                             Button(option)
                                                 .modifier(
                                                     Modifier
@@ -521,7 +521,7 @@ fn detail_screen(
                         .space_role(SpaceRole::Sm)
                         .alignment(Alignment::CenterStart)
                         .content(|| {
-                            let fewer = quantity.clone();
+                            let fewer = quantity;
                             Button("\u{2212}")
                                 .modifier(
                                     Modifier
@@ -538,7 +538,7 @@ fn detail_screen(
                             Text(count.to_string())
                                 .type_role(TypeRole::Subtitle)
                                 .color(palette::INK);
-                            let more = quantity.clone();
+                            let more = quantity;
                             Button("+")
                                 .modifier(
                                     Modifier
@@ -609,7 +609,7 @@ fn bag_screen(bag: MutableState<Vec<BagLine>>) {
                     .content(|| {
                         for (index, line) in lines.iter().copied().enumerate() {
                             let last = index + 1 == lines.len();
-                            key(index, || bag_line(bag.clone(), index, line, last));
+                            key(index, || bag_line(bag, index, line, last));
                         }
                     });
                 Spacer().modifier(Modifier.weight(1.0));
@@ -666,7 +666,7 @@ fn bag_line(bag: MutableState<Vec<BagLine>>, index: usize, line: BagLine, last: 
                 Text(price(named.map_or(0, |found| found.cents) * line.quantity))
                     .type_role(TypeRole::BodyStrong)
                     .color(palette::INK);
-                let lines = bag.clone();
+                let lines = bag;
                 Button("Remove")
                     .variant(ButtonVariant::Text)
                     .color(palette::ALERT)
@@ -680,7 +680,7 @@ fn bag_line(bag: MutableState<Vec<BagLine>>, index: usize, line: BagLine, last: 
                         let Some(removed) = removed else { return };
                         let name = catalogue::product(removed.product)
                             .map_or("An item", |found| found.name);
-                        let restore = lines.clone();
+                        let restore = lines;
                         Message::new(format!("Removed {name}"))
                             .with_action("Undo", move |()| {
                                 let at = index.min(restore.with(Vec::len));
@@ -872,14 +872,14 @@ pub fn app() {
     });
 
     let on_open: Rc<dyn Fn(u32)> = {
-        let (destination, open) = (destination.clone(), open.clone());
+        let (destination, open) = (destination, open);
         Rc::new(move |id: u32| {
             destination.set(Destination::Shop);
             open.set(Some(id));
         })
     };
     let on_go: Rc<dyn Fn(Destination)> = {
-        let (destination, open) = (destination.clone(), open.clone());
+        let (destination, open) = (destination, open);
         Rc::new(move |choice: Destination| {
             destination.set(choice);
             if choice != Destination::Shop {
@@ -896,27 +896,20 @@ pub fn app() {
 
     let body = || match (current, showing) {
         (Destination::Shop, Some(product)) => {
-            let back: Rc<dyn Fn()> = {
-                let open = open.clone();
-                Rc::new(move || open.set(None))
-            };
+            let back: Rc<dyn Fn()> = { Rc::new(move || open.set(None)) };
             detail_screen(
                 product,
-                size.clone(),
-                quantity.clone(),
+                size,
+                quantity,
                 back,
-                add_to_bag(bag.clone(), open.clone(), size.clone(), quantity.clone()),
+                add_to_bag(bag, open, size, quantity),
             );
         }
-        (Destination::Shop, None) => catalogue_screen(
-            category.clone(),
-            slide.clone(),
-            bag.clone(),
-            Rc::clone(&on_open),
-            Rc::clone(&on_go),
-        ),
+        (Destination::Shop, None) => {
+            catalogue_screen(category, slide, bag, Rc::clone(&on_open), Rc::clone(&on_go))
+        }
         (Destination::Search, _) => search_screen(Rc::clone(&on_open)),
-        (Destination::Bag, _) => bag_screen(bag.clone()),
+        (Destination::Bag, _) => bag_screen(bag),
         (Destination::Account, _) => account_screen(),
     };
 

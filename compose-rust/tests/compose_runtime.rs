@@ -86,7 +86,7 @@ fn Sibling() {
 fn Parent(count: MutableState<i32>) {
     ran("parent");
     Column().content(|| {
-        Reader(count.clone());
+        Reader(count);
         Sibling();
     });
 }
@@ -95,8 +95,8 @@ fn Parent(count: MutableState<i32>) {
 fn fr39_a_state_change_runs_only_the_scope_that_read_it() {
     reset();
     let count = mutable_state_of(0);
-    let state = count.clone();
-    let (mut host, mut tree) = start(move || Parent(state.clone()));
+    let state = count;
+    let (mut host, mut tree) = start(move || Parent(state));
     assert_eq!(
         (runs_of("parent"), runs_of("reader"), runs_of("sibling")),
         (1, 1, 1)
@@ -138,8 +138,8 @@ fn Screen(count: MutableState<i32>) {
 fn fr39_a_composable_whose_parameters_are_unchanged_is_skipped() {
     reset();
     let count = mutable_state_of(0);
-    let state = count.clone();
-    let (mut host, mut tree) = start(move || Screen(state.clone()));
+    let state = count;
+    let (mut host, mut tree) = start(move || Screen(state));
     count.set(5);
     let records = frame(&mut host, &mut tree);
     assert_eq!(runs_of("screen"), 2, "the scope that read the state ran");
@@ -156,8 +156,8 @@ fn fr39_a_composable_whose_parameters_are_unchanged_is_skipped() {
 fn fr39_an_unchanged_frame_sends_nothing() {
     reset();
     let count = mutable_state_of(0);
-    let state = count.clone();
-    let (mut host, mut tree) = start(move || Parent(state.clone()));
+    let state = count;
+    let (mut host, mut tree) = start(move || Parent(state));
     assert!(frame(&mut host, &mut tree).is_empty());
     count.set(0);
     assert!(
@@ -191,7 +191,7 @@ fn WithBranch(show: bool) {
 fn fr39_a_call_site_keeps_its_own_state_when_a_branch_before_it_disappears() {
     reset();
     let show = mutable_state_of(true);
-    let state = show.clone();
+    let state = show;
     let (mut host, mut tree) = start(move || WithBranch(state.get()));
     show.set(false);
     frame(&mut host, &mut tree);
@@ -224,7 +224,7 @@ fn without_branch_groups(show: bool) {
 fn fr39_without_branch_groups_a_call_site_is_handed_another_ones_state() {
     reset();
     let show = mutable_state_of(true);
-    let state = show.clone();
+    let state = show;
     let (mut host, mut tree) = start(move || without_branch_groups(state.get()));
     show.set(false);
     frame(&mut host, &mut tree);
@@ -246,7 +246,7 @@ fn Counted(rows: usize) {
 fn fr39_a_shorter_loop_drops_the_iterations_it_lost_and_a_longer_one_starts_them_fresh() {
     reset();
     let rows = mutable_state_of(3_usize);
-    let state = rows.clone();
+    let state = rows;
     let (mut host, mut tree) = start(move || Counted(state.get()));
     rows.set(1);
     frame(&mut host, &mut tree);
@@ -280,7 +280,7 @@ fn Mode(mode: u8) {
 fn fr39_a_match_arm_that_changes_takes_its_state_with_it() {
     reset();
     let mode = mutable_state_of(0_u8);
-    let state = mode.clone();
+    let state = mode;
     let (mut host, mut tree) = start(move || Mode(state.get()));
     mode.set(1);
     frame(&mut host, &mut tree);
@@ -353,8 +353,8 @@ fn ControlFlow(chaos: MutableState<bool>) {
 fn fr39_groups_close_on_return_continue_break_question_mark_and_unwind() {
     reset();
     let chaos = mutable_state_of(false);
-    let state = chaos.clone();
-    let (mut host, mut tree) = start(move || ControlFlow(state.clone()));
+    let state = chaos;
+    let (mut host, mut tree) = start(move || ControlFlow(state));
     chaos.set(true);
     frame(&mut host, &mut tree);
     chaos.set(false);
@@ -386,9 +386,9 @@ fn fr39_groups_close_on_return_continue_break_question_mark_and_unwind() {
 fn fr39_a_keyed_item_that_moves_is_moved_and_keeps_what_it_remembered() {
     reset();
     let order = mutable_state_of(vec![1_u32, 2, 3]);
-    let state = order.clone();
+    let state = order;
     let (mut host, mut tree) = start(move || {
-        let state = state.clone();
+        let state = state;
         Column().content(move || {
             for id in state.get() {
                 key(id, || {
@@ -419,9 +419,9 @@ fn fr39_a_keyed_item_that_moves_is_moved_and_keeps_what_it_remembered() {
 fn fr39_writes_from_a_worker_are_one_recomposition_on_the_next_frame() {
     reset();
     let count = mutable_state_of(0);
-    let state = count.clone();
-    let (mut host, mut tree) = start(move || Parent(state.clone()));
-    let worker = count.clone();
+    let state = count;
+    let (mut host, mut tree) = start(move || Parent(state));
+    let worker = count;
     std::thread::spawn(move || {
         worker.set(1);
         worker.set(2);
@@ -445,10 +445,10 @@ fn WritesWhileComposing(target: MutableState<i32>) {
 fn fr39_a_write_during_composition_waits_for_the_next_frame() {
     reset();
     let target = mutable_state_of(0);
-    let state = target.clone();
+    let state = target;
     let (mut host, mut tree) = start(move || {
-        Reader(state.clone());
-        WritesWhileComposing(state.clone());
+        Reader(state);
+        WritesWhileComposing(state);
     });
     assert_eq!(
         tree.texts(),
@@ -469,7 +469,7 @@ fn ClickCounter() {
     let count = remember(|| mutable_state_of(0));
     Column().content(|| {
         Text(format!("{}", count.get()));
-        let more = count.clone();
+        let more = count;
         Button("More").on_click(move || more.update(|count| *count += 1));
     });
 }
@@ -487,7 +487,7 @@ fn fr39_a_write_in_a_handler_is_recomposed_in_the_same_call() {
 
 #[composable]
 fn Parity(count: MutableState<i32>) {
-    let source = count.clone();
+    let source = count;
     let even = remember(move || derived_state_of(move || source.get() % 2 == 0));
     ran("parity");
     Text(if even.get() { "even" } else { "odd" });
@@ -497,8 +497,8 @@ fn Parity(count: MutableState<i32>) {
 fn fr39_a_derived_state_runs_its_reader_only_when_its_value_changes() {
     reset();
     let count = mutable_state_of(0);
-    let state = count.clone();
-    let (mut host, mut tree) = start(move || Parity(state.clone()));
+    let state = count;
+    let (mut host, mut tree) = start(move || Parity(state));
     count.set(2);
     assert!(frame(&mut host, &mut tree).is_empty());
     assert_eq!(
@@ -549,8 +549,8 @@ fn fr39_effects_run_after_composition_restart_on_a_new_key_and_clean_up_when_the
     reset();
     let id = mutable_state_of(1_u32);
     let present = mutable_state_of(true);
-    let (state, shown) = (id.clone(), present.clone());
-    let (mut host, mut tree) = start(move || EffectsRoot(state.clone(), shown.clone()));
+    let (state, shown) = (id, present);
+    let (mut host, mut tree) = start(move || EffectsRoot(state, shown));
     assert_eq!(take_log(), vec!["side", "setup 1", "launched 1"]);
 
     id.set(2);
@@ -573,7 +573,7 @@ fn fr39_effects_run_after_composition_restart_on_a_new_key_and_clean_up_when_the
 #[composable]
 fn FrameClock() {
     let time = remember(|| mutable_state_of(0_u64));
-    let writer = time.clone();
+    let writer = time;
     launched_effect((), move || async move {
         loop {
             let now = with_frame_nanos(|now| now).await;
@@ -597,7 +597,7 @@ fn fr39_a_future_waiting_for_a_frame_gets_that_frames_time() {
 #[composable]
 fn Worked() {
     let answer = remember(|| mutable_state_of(0_u32));
-    let writer = answer.clone();
+    let writer = answer;
     launched_effect((), move || async move {
         delay(std::time::Duration::from_millis(5)).await;
         let value = with_worker(|| 21 * 2).await;
@@ -692,13 +692,13 @@ fn fr39_a_lazy_list_composes_the_window_it_is_asked_for_and_nothing_above_it() {
 #[composable]
 fn Deleter() {
     let deleted = remember(|| mutable_state_of(false));
-    let restore = deleted.clone();
-    let delete = deleted.clone();
+    let restore = deleted;
+    let delete = deleted;
     Column().content(|| {
         Text(if deleted.get() { "gone" } else { "here" });
         Button("Delete").on_click(move || {
             delete.set(true);
-            let restore = restore.clone();
+            let restore = restore;
             Message::new("Deleted")
                 .with_action("Undo", move |()| restore.set(false))
                 .show();
@@ -752,7 +752,7 @@ fn Greeting(name: &'static str) {
 fn fr39_a_static_string_parameter_is_compared_and_skipped() {
     reset();
     let tick = mutable_state_of(0);
-    let state = tick.clone();
+    let state = tick;
     let (mut host, mut tree) = start(move || {
         let _ = state.get();
         Greeting("there");
@@ -793,11 +793,11 @@ fn text_field_texts(batch: &[u8], fields: &[u32]) -> Vec<(u32, String)> {
 fn fr5_a_text_field_starts_with_its_text_and_typing_is_not_sent_back() {
     reset();
     let draft = mutable_state_of(String::new());
-    let shown = draft.clone();
+    let shown = draft;
     let mut host = ComposeHost::with_content(move || {
         // Read, so that typing runs the screen again.
         let _ = shown.get();
-        let typed = shown.clone();
+        let typed = shown;
         TextField()
             .text("Buy milk")
             .placeholder("Title")

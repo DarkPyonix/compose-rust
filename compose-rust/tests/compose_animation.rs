@@ -69,8 +69,8 @@ fn start(
 #[test]
 fn fr41_compose_api_emits_the_same_records() {
     let faded = mutable_state_of(false);
-    let state = faded.clone();
-    let (mut host, mut tree, first) = start(move || Fading(state.clone()));
+    let state = faded;
+    let (mut host, mut tree, first) = start(move || Fading(state));
     assert!(
         !first
             .iter()
@@ -124,8 +124,8 @@ fn fr41_compose_api_emits_the_same_records() {
 #[test]
 fn fr41_compose_api_animation_does_not_recompose() {
     let faded = mutable_state_of(false);
-    let state = faded.clone();
-    let (mut host, mut tree, _) = start(move || Fading(state.clone()));
+    let state = faded;
+    let (mut host, mut tree, _) = start(move || Fading(state));
     faded.set(true);
     let batch = host
         .render_frame(16_666_667)
@@ -222,8 +222,8 @@ fn Moving(moved: MutableState<bool>) {
 #[test]
 fn fr41_compose_api_offset_and_colour_are_one_transition_each() {
     let moved = mutable_state_of(false);
-    let state = moved.clone();
-    let (mut host, _, first) = start(move || Moving(state.clone()));
+    let state = moved;
+    let (mut host, _, first) = start(move || Moving(state));
     let boxed = node_of(&first, WidgetKind::Box);
     moved.set(true);
     let changed = owned(host.render_frame(16_666_667).expect("the frame encodes"));

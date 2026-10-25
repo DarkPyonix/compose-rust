@@ -238,7 +238,7 @@ fn plan_page(chosen: &MutableState<u32>) {
             // A strip rather than a segmented control. `Tabs` divides its width equally
             // and does not scroll, so four stages on a phone is four segments of seventy
             // dp with a button's own padding inside each, and every label breaks.
-            let strip = chosen.clone();
+            let strip = *chosen;
             LazyRow()
                 .modifier(Modifier.fill_max_width().height(STRIP_HEIGHT))
                 .content(move |list| {
@@ -248,7 +248,7 @@ fn plan_page(chosen: &MutableState<u32>) {
                         move |position| {
                             let number = STAGES[position];
                             let current = strip.get();
-                            let pick = strip.clone();
+                            let pick = strip;
                             Box()
                                 .modifier(Modifier.padding_role(SpaceRole::Xs))
                                 .alignment(Alignment::Center)
@@ -381,7 +381,7 @@ pub fn app() {
     let opened = remember(|| mutable_state_of(Option::<&'static str>::None));
 
     let on_open: OpenSubject = {
-        let (opened, destination) = (opened.clone(), destination.clone());
+        let (opened, destination) = (opened, destination);
         Rc::new(move |name: &'static str| {
             opened.set(Some(name));
             destination.set(Destination::Plan);
@@ -400,7 +400,7 @@ pub fn app() {
                 .modifier(Modifier.background(Paint::Literal(palette::PAGE)))
                 .content(|| {
                     for choice in Destination::STRIP {
-                        let pick = destination.clone();
+                        let pick = destination;
                         key(choice.label(), || {
                             // The reference's bar has no accent in it: every icon is white
                             // and the selected one is marked by nothing but being the one

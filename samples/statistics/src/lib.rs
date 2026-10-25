@@ -355,7 +355,7 @@ pub fn app() {
                 // The reference marks this with a chevron in the page's own ink. A text
                 // button left to itself wears the design system's accent, which is the one
                 // colour this design does not have.
-                let turn = page.clone();
+                let turn = page;
                 Button(">")
                     .variant(ButtonVariant::Text)
                     .color(Paint::Literal(palette::INK))

@@ -18,7 +18,7 @@ fn Counter() {
     let count = remember(|| mutable_state_of(0));
     Column().content(|| {
         Text(format!("{}", count.get()));
-        let more = count.clone();
+        let more = count;
         Button("More").on_click(move || more.update(|count| *count += 1));
     });
 }
