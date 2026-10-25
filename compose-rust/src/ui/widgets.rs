@@ -17,8 +17,8 @@ use super::{
 use crate::drawing::DrawList;
 use crate::runtime::composer::{EventCallback, OwnedAttr};
 use crate::schema::{
-    Alignment, Arrangement, ButtonVariant, ColorRole, IconRole, Paint, SlotRole, SpaceRole,
-    TextAlign, TextOverflow, TypeRole, WidgetKind,
+    Alignment, Arrangement, ButtonKind, ButtonVariant, ColorRole, IconRole, Paint, SlotRole,
+    SpaceRole, TextAlign, TextOverflow, TypeRole, WidgetKind,
 };
 use crate::spans::TextSpans;
 use crate::{FileDrop, KeyEvent};
@@ -570,6 +570,7 @@ pub struct ButtonScope {
     icon: Option<IconRole>,
     enabled: bool,
     variant: Option<ButtonVariant>,
+    kind: Option<ButtonKind>,
     color: Option<Paint>,
     on_click: Option<Box<dyn FnMut()>>,
     done: bool,
@@ -587,6 +588,7 @@ pub fn Button(text: impl Into<String>) -> ButtonScope {
         icon: None,
         enabled: true,
         variant: None,
+        kind: None,
         color: None,
         on_click: None,
         done: false,
@@ -610,6 +612,13 @@ impl ButtonScope {
         self
     }
 
+    /// What the button is, apart from how loud it is: `ButtonKind::ActionKey` is one key of
+    /// a dense grid, drawn in the design system's own calculator-key shape.
+    pub fn kind(mut self, kind: ButtonKind) -> Self {
+        self.kind = Some(kind);
+        self
+    }
+
     /// The label's colour, for the rare button whose meaning is not its variant's.
     pub fn color(mut self, paint: Paint) -> Self {
         self.color = Some(paint);
@@ -630,7 +639,8 @@ impl ButtonScope {
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = self.modifier;
         let text = std::mem::take(&mut self.text);
-        let (icon, enabled, variant, color) = (self.icon, self.enabled, self.variant, self.color);
+        let (icon, enabled, variant, kind, color) =
+            (self.icon, self.enabled, self.variant, self.kind, self.color);
         let listeners = vec![("onclick", unit(self.on_click.take()))];
         emit(
             widget_key("compose_rust::ui::Button"),
@@ -641,6 +651,7 @@ impl ButtonScope {
                 attrs.push(("icon", super::role(icon)));
                 attrs.push(("enabled", OwnedAttr::Bool(enabled)));
                 attrs.push(("variant", role_or_zero(variant)));
+                attrs.push(("button_kind", role_or_zero(kind)));
                 attrs.push(("color", super::paint(color)));
             },
             listeners,

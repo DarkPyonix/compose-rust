@@ -154,7 +154,7 @@ pub struct EventSchema {
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
     "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,island_zoom;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,island_zoom;",
     "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform;",
     "keys=Enter;",
     "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,ZoomChanged;",
@@ -829,6 +829,12 @@ define_wire_enum!(BUTTON_VARIANT_SCHEMA, ButtonVariant {
     Operator = 5,
 });
 
+// What a button is, independently from the visual emphasis its variant carries.
+define_wire_enum!(BUTTON_KIND_SCHEMA, ButtonKind {
+    Standard = 1,
+    ActionKey = 2,
+});
+
 // What the bytes behind an asset id are. A kind the Renderer cannot read is a reported
 // protocol error, not a guess.
 define_wire_enum!(ASSET_KIND_SCHEMA, AssetKind {
@@ -1134,6 +1140,10 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
     RoleEnumSchema {
         name: "ButtonVariant",
         variants: BUTTON_VARIANT_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "ButtonKind",
+        variants: BUTTON_KIND_SCHEMA,
     },
     RoleEnumSchema {
         name: "DesignSystem",
@@ -2454,6 +2464,14 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     //
     // 90 opens the split pane's block of ten, after the badge's.
     Collapsible = 90,
+    // What a button is, as opposed to how loud it is: a plain button, or one key of a
+    // dense grid of them. The variant still chooses the fill and the emphasis; this lets
+    // the design system give the key its own calculator's silhouette, so the Host never
+    // sends a radius or a shape role to get one.
+    //
+    // 75 was reserved for this when the gestures took 67 through 74, and stays here
+    // rather than with its neighbours by number because this list is append only.
+    ButtonKind = 75,
     // A code editor's own block, after the split pane's.
     //
     // The decorations over the document and the colour runs of its syntax, each a blob of

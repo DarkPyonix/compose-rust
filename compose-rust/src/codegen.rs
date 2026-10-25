@@ -2346,6 +2346,13 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             property: PropertyKind::Collapsible,
             value: PropertyValue::Bool(true),
         },
+        // A button's kind: a role tag in the fixed record, like the variant, so both sides
+        // agree on the property tag and on the value it carries.
+        Mutation::SetProp {
+            node_id: 2,
+            property: PropertyKind::ButtonKind,
+            value: PropertyValue::Integer(crate::schema::ButtonKind::ActionKey as i64),
+        },
         // A box whose children sit where the Host put them, and the seven modifiers an HTML
         // and CSS screen is drawn with. Two of them are longer than 28 bytes, which is the
         // rule both decoders have to read the same way. They come after every older record,

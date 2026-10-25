@@ -66,6 +66,7 @@ mkdir -p "$tree/renderer/desktop/scripts" "$tree/renderer/desktop/c" "$tree/rend
     "$tree/fork/extended/window/graalvm/graalvm-linux/c"
 cp "$repo"/renderer/desktop/scripts/*.sh "$tree/renderer/desktop/scripts/"
 cp "$repo/renderer/scripts/build-compose.sh" "$tree/renderer/scripts/"
+cp "$repo/renderer/scripts/require-symlinks.sh" "$tree/renderer/scripts/"
 [[ -f "$repo/renderer/scripts/require-fork-artifacts.sh" ]] &&
     cp "$repo/renderer/scripts/require-fork-artifacts.sh" "$tree/renderer/scripts/"
 [[ -f "$repo/renderer/scripts/fork-dependencies.sh" ]] &&

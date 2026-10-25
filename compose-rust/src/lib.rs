@@ -78,9 +78,9 @@ pub use notification::{
 pub use palette::{Palette, PaletteViolation};
 pub use runtime::{Batch, ComposeHost, Recomposer, Runtime, application, composable, launch};
 pub use schema::{
-    Alignment, Arrangement, AssetKind, ButtonVariant, Chrome, Color, ColorRole, ColorScheme,
-    DecorationKind, DesignSystem, EventPayload, GenericFamily, HoverPhase, IconRole, Key, LoopMode,
-    MaterialRole, MessageDuration, Modifier, MotionRole, NotificationImportance,
+    Alignment, Arrangement, AssetKind, ButtonKind, ButtonVariant, Chrome, Color, ColorRole,
+    ColorScheme, DecorationKind, DesignSystem, EventPayload, GenericFamily, HoverPhase, IconRole,
+    Key, LoopMode, MaterialRole, MessageDuration, Modifier, MotionRole, NotificationImportance,
     NotificationPermission, NotificationPresentation, OverflowWrap, Paint, PropertyKind,
     SCHEMA_HASH, Selection, Severity, ShapeRole, SpaceRole, TextAlign, TextOverflow, Theme,
     TileMode, TypeRole, WidgetKind, WindowHeightClass, WindowSizeClass, WordBreak,
