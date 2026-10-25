@@ -3312,15 +3312,15 @@ Figma 모서리 매끄러움의 경로입니다. 모서리 하나는 **세제곱
 
 #### 50.5 수용 기준
 
-1. 인코딩 후 디코딩한 `CornerCurve { smoothing }`이 같고, 프로토콜 벡터가 Rust와 Kotlin에서 같은 바이트입니다(`fr50_corner_curve_round_trips`).
-2. 범위 밖 값이 0..=1로 맞춰지고 `NaN`은 0입니다(`fr50_corner_curve_clamps_out_of_range`).
-3. 반지름 16dp, 매끄러움 0.6, 100x100dp 상자에서 모서리 경로의 점들이 기준값과 허용 오차 안에서 같습니다. 기준값은 Figma 알고리즘에서 계산해 테스트에 적습니다(`fr50_corner_curve_path_matches_reference_points`). Kotlin 단위 테스트입니다.
-4. 매끄러움 0의 윤곽이 `RoundedCornerShape`와 같습니다(`fr50_corner_curve_zero_equals_rounded_corner_shape`).
-5. 반지름이 짧은 변의 절반보다 크면 줄어들어 경로가 뒤집히거나 겹치지 않습니다(`fr50_corner_curve_limits_radius_to_half_the_shorter_side`).
-6. 한 노드의 배경, 테두리, 그림자, 자르기가 같은 윤곽을 씁니다. 자식을 모서리 밖으로 그리면 잘리고, 테두리 바깥에 배경 픽셀이 없습니다(`fr50_corner_curve_shape_is_shared_by_background_border_shadow_clip`). 스크린숏 테스트.
-7. `CornerEach`와 `Shape`가 정한 반지름 위에 `CornerCurve`를 얹으면 반지름은 그대로이고 곡선만 바뀝니다(`fr50_corner_curve_combines_with_corner_each`).
-8. 같은 노드를 LiquidGlass, Cupertino가 아닌 디자인 시스템에서 그려도 연속 모서리입니다(`fr50_corner_curve_applies_in_every_design_system`).
-9. 값만 바뀐 갱신은 `CornerCurve` 수정자 한 건만 보내고 자식은 다시 구성되지 않습니다(`fr50_corner_curve_change_sends_one_modifier`).
+1. 인코딩 후 디코딩한 `CornerCurve { smoothing }`이 같고, 프로토콜 벡터가 Rust와 Kotlin에서 같은 바이트입니다(fr50_corner_curve_round_trips).
+2. 범위 밖 값이 0..=1로 맞춰지고 `NaN`은 0입니다(fr50_corner_curve_clamps_out_of_range).
+3. 반지름 16dp, 매끄러움 0.6, 100x100dp 상자에서 모서리 경로의 점들이 기준값과 허용 오차 안에서 같습니다. 기준값은 Figma 알고리즘에서 계산해 테스트에 적습니다(fr50_corner_curve_path_matches_reference_points). Kotlin 단위 테스트입니다.
+4. 매끄러움 0의 윤곽이 `RoundedCornerShape`와 같습니다(fr50_corner_curve_zero_equals_rounded_corner_shape).
+5. 반지름이 짧은 변의 절반보다 크면 줄어들어 경로가 뒤집히거나 겹치지 않습니다(fr50_corner_curve_limits_radius_to_half_the_shorter_side).
+6. 한 노드의 배경, 테두리, 그림자, 자르기가 같은 윤곽을 씁니다. 자식을 모서리 밖으로 그리면 잘리고, 테두리 바깥에 배경 픽셀이 없습니다(fr50_corner_curve_shape_is_shared_by_background_border_shadow_clip). 스크린숏 테스트.
+7. `CornerEach`와 `Shape`가 정한 반지름 위에 `CornerCurve`를 얹으면 반지름은 그대로이고 곡선만 바뀝니다(fr50_corner_curve_combines_with_corner_each).
+8. 같은 노드를 LiquidGlass, Cupertino가 아닌 디자인 시스템에서 그려도 연속 모서리입니다(fr50_corner_curve_applies_in_every_design_system).
+9. 값만 바뀐 갱신은 `CornerCurve` 수정자 한 건만 보내고 자식은 다시 구성되지 않습니다(fr50_corner_curve_change_sends_one_modifier).
 10. 매끄러움 0인 정상 프레임의 할당과 그리기 비용이 도입 전과 같습니다(NFR-9, 벤치마크 수치를 이 항목에 기록합니다).
 11. **사람이 확인해야 합니다.** macOS, Windows, Linux 데스크톱에서 매끄러움 0과 0.6의 카드를 나란히 놓고, 0.6의 모서리가 직선에서 곡선으로 이어지는 곳에 꺾임이 보이지 않는지 눈으로 봅니다. 확인한 날짜와 운영체제를 이 항목에 적습니다.
 12. Android, iOS, 웹 렌더러에서 1~9가 같은 결과입니다.
