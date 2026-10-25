@@ -83,7 +83,7 @@ class Bundle(unittest.TestCase):
         )
         self.assertEqual(bundle.absolute_references(self.app), [])
 
-    def test_fr22_6_2_every_piece_of_code_is_signed_ad_hoc(self):
+    def test_fr22_6_14_every_piece_of_code_is_signed_ad_hoc(self):
         subprocess.run(["codesign", "--verify", "--strict", "--deep", str(self.app)], check=True)
         self.assertEqual(bundle.unsigned_code(self.app), [])
         for path in (
@@ -101,13 +101,13 @@ class Bundle(unittest.TestCase):
         self.assertIn("Identifier=dev.example.demo", details)
         self.assertEqual(cli._verify(self.app), [])
 
-    def test_fr22_6_2_the_signed_application_runs(self):
+    def test_fr22_6_14_the_signed_application_runs(self):
         # The point of signing at all: Apple silicon kills unsigned arm64 code on sight,
         # and rewriting the load command left the linker's signature invalid.
         result = subprocess.run([str(self.app / "Contents" / "MacOS" / "sample-demo")])
         self.assertEqual(result.returncode, 0)
 
-    def test_fr22_6_2_code_whose_signature_broke_is_reported(self):
+    def test_fr22_6_14_code_whose_signature_broke_is_reported(self):
         library = self.app / "Contents/Frameworks/lib/libskiko-stand-in.dylib"
         with open(library, "ab") as handle:
             handle.write(b"\0changed after signing")
