@@ -592,7 +592,7 @@ class ProtocolVectorsTest {
         val props = mutations.filterIsInstance<Mutation.SetProp>().filter { it.nodeId == 12 }
         val errors = mutableListOf<String>()
         assertEquals(
-            listOf(FoldRecord(0, 0, 2, false), FoldRecord(0, 1, 1, true)),
+            listOf(FoldRecord(0, 0, 2, false), FoldRecord(0, 1, 3, true)),
             CodeEditorRecords.decodeFolds(
                 (props.single { it.property == PropertyKind.Folds }.value as PropertyValue.Bytes).value,
                 errors::add,
