@@ -2404,7 +2404,7 @@ fn counter() {
     let count = remember(|| mutable_state_of(0));
     Column(Modifier::new().fill_max_width(), || {
         Text(format!("{}", count.get()));
-        Button(|| count.set(count.get() + 1), || Text("+1"));
+        Button("+1").on_click(move || count.set(count.get() + 1));
     });
 }
 
@@ -2413,7 +2413,11 @@ fn main() {
 }
 ```
 
-위 코드는 모양을 보이기 위한 것이고 이름을 확정하지 않습니다. 확정되는 것은 다음입니다.
+2026-10-25 소유자 결정(이슈 #278)으로 호출 모양이 확정되었습니다. 예시의 `count`는 `Copy`라서 클로저에 `.clone()` 없이 들어갑니다(39.2의 상태 핸들). 확정되는 것은 다음입니다.
+
+- **공통 컨테이너는 위치 인자로 부릅니다.** `Column`, `Row`, `Box`, `LazyColumn`, `LazyRow`는 `Column(modifier, || { .. })`처럼 `modifier`와 자식 클로저를 위치 인자로 받습니다. 자식 클로저는 항상 마지막 인자입니다. Compose의 `Column(modifier) { .. }`와 같은 순서입니다.
+- **속성이 많은 위젯은 빌더 체인을 유지합니다.** 어느 형태를 받는지는 다음 규칙이 정합니다. 위젯이 `modifier`와 자식 클로저 말고는 호출마다 값이 정해지는 속성이 없으면 위치 인자 형태를 받습니다. 그 밖의 속성이 하나라도 있으면 필수 값만 함수 인자로 받고 나머지는 체인으로 씁니다(`Text(..)`, `Button(label).modifier(..).on_click(..)`). Rust에 이름 있는 인자와 기본 인자가 없어서, 속성이 많은 위젯을 위치 인자로 받으면 쓰는 쪽이 매번 전부 적어야 하기 때문입니다. 위치 인자 컨테이너가 `space_role` 같은 속성을 더 필요로 하면 같은 위젯의 체인 형태(`Column().modifier(..).space_role(..).content(..)`)를 씁니다. 두 형태는 같은 Mutation을 내보냅니다.
+- **속성 이름은 `#[composable]`입니다.** 소유자가 `#[Composable]`이 아니라 이 이름을 그대로 두기로 했습니다. 이유는 Rust의 속성 매크로가 snake_case라는 관례(`#[component]`, `#[tokio::main]`)를 따르는 것입니다. 위젯 이름은 FR-15의 Compose 이름(PascalCase)을 그대로 씁니다.
 
 - **composable은 함수입니다.** `#[composable]` 속성이 본문에 그룹을 넣고, 사용자는 그룹도 키도 손으로 쓰지 않습니다. 분기, `match`, 반복문, 조기 `return`, `continue`, `break`, `?`, 되감기를 지나도 그룹이 맞게 닫힙니다(INTENT D2가 기록한 클로저 방식의 실패를 되풀이하지 않습니다).
 - **이름은 Compose를 따릅니다.** Compose에 같은 개념이 있으면 그 이름을 Rust 관례(함수와 메서드는 snake_case, 위젯은 FR-15의 Compose 이름)로 옮깁니다. PR-7의 "Rust 공개 API는 Dioxus 관례" 행은 dioxus-compose 층에 대한 것이 됩니다.
@@ -2426,6 +2430,21 @@ fn main() {
 - **상태.** 상태 객체를 읽은 스코프가 기록되고, 쓰면 그 스코프들이 무효가 됩니다. 한 프레임 안의 여러 쓰기는 한 번의 recomposition이 됩니다. 워커 스레드의 쓰기도 같은 상태 객체로 하며, Host가 내부적으로 프레임을 요청합니다. 사용자 코드는 경계 함수를 부르지 않습니다(PR-3).
 - **effect.** composition이 적용된 뒤 실행되는 효과(Compose의 `SideEffect`), 키가 바뀌면 다시 시작하고 composition을 떠나면 취소되는 효과(`LaunchedEffect`), 떠날 때 정리하는 효과(`DisposableEffect`)를 둡니다. 이벤트 핸들러 안의 상태 쓰기는 recomposition을 부르고, recomposition 도중의 상태 쓰기는 다음 프레임으로 미뤄집니다.
 - **UI 로컬 상태는 여전히 Kotlin에 있습니다(D5).** `TextField`는 비제어이고(FR-5), 스크롤, 포커스, 애니메이션 진행 상태는 Renderer가 가집니다. recomposition 런타임이 생겼다고 그것들이 Rust로 옮겨 오지 않습니다.
+
+#### 39.2.1 상태 핸들
+
+`mutable_state_of`가 돌려주는 `MutableState<T>`는 `Copy`입니다(2026-10-25 소유자 결정, 이슈 #278). 클로저로 옮길 때 `.clone()`을 쓰지 않습니다. 핸들은 값이 아니라 아레나 안의 자리를 가리키는 작은 값이고, 값은 composition이 소유합니다.
+
+1. **소유와 해제.** 값은 composition의 아레나가 소유하고, 값을 만든 `remember` 호출의 슬롯 그룹이 가진 칸에 놓입니다. 핸들은 아레나 번호와 세대를 담습니다. 그 그룹이 composition에서 사라지면(분기가 닫힘, 키 있는 항목이 빠짐, 부모가 떠남) 값은 그 recomposition이 적용될 때 해제되고, 칸의 세대가 올라갑니다. 값의 `Drop`은 한 번 실행됩니다. 그룹이 같은 recomposition 안에서 다시 나타나면 같은 값을 유지합니다(Compose의 `remember`와 같음). 키 있는 항목의 재배치는 해제가 아니라 이동이라 값과 핸들이 그대로입니다.
+2. **해제된 뒤의 사용.** 세대가 맞지 않는 핸들은 해제된 것으로 처리합니다. 화면이 사라진 뒤에 늦게 도착하는 콜백(네트워크 응답, 타이머)이 상태를 바꾸는 것은 정상적인 상황이고 Compose에서도 해가 없습니다. 그래서 쓰기는 조용히 버리고, 읽기는 프로그래머 오류로 봅니다.
+   - `set`과 `update`는 아무 일도 하지 않습니다. 디버그 빌드에서는 핸들마다 한 번 경고 로그를 남기고, 릴리스 빌드에서는 남기지 않습니다.
+   - `get`은 값을 돌려줄 수 없으므로 패닉합니다. 메시지에는 `Released`와 그 핸들을 만든 `remember`의 소스 위치(파일과 줄)가 들어갑니다. 값을 읽을 수 없는 자리를 기본값으로 메우지 않기 위해서입니다.
+   - `try_get`, `try_set`, `try_update`는 `Err(StateError::Released)`를 돌려줍니다. 해제될 수 있는 쪽(워커 스레드 등)은 이것을 씁니다.
+   - 이 패닉은 경계 입력이 잘못된 경우의 규칙(NFR-7, `ProtocolError`)과 다릅니다. NFR-7은 와이어로 들어온 잘못된 입력에 관한 것이고 프로그래머 오류에는 해당하지 않습니다.
+   - 어느 경우에도 해제된 칸을 읽거나 쓰지 않고, 재사용된 칸을 다른 값으로 착각하지 않으며(세대 검사), 미정의 동작은 없습니다. 해제된 핸들을 읽어도 구독은 만들어지지 않습니다.
+3. **워커 스레드.** `MutableState<T>`는 `T: Send`일 때 `Send + Sync`입니다. 워커 스레드는 핸들을 `move`로 가져가 `set`과 `update`를 부를 수 있고, 별도의 보내기용 핸들이 없습니다. 아레나는 쓰기를 잠금 안에서 적용하고, 쓰기는 값을 바꾼 뒤 그 상태를 읽은 스코프를 무효로 표시하고 Host가 내부적으로 프레임을 요청합니다. 워커의 쓰기는 UI 스레드가 다음 프레임 시작에 반영하고, 한 프레임 안의 여러 쓰기는 한 번의 recomposition이 됩니다. 워커에서 `get`은 잠금 안에서 현재 값을 복제해 돌려주며 구독을 만들지 않습니다(구독은 UI 스레드의 composition 안에서 읽을 때만 생깁니다). 워커는 경계 함수를 부르지 않습니다(PR-3). composition이 떠난 뒤의 워커 쓰기는 1번과 2번이 정한 대로 no-op입니다.
+4. **같음.** 두 핸들은 같은 아레나 칸과 세대를 가리킬 때만 같습니다(`PartialEq`, `Eq`, `Hash`). 값이 같다는 뜻이 아닙니다. 핸들이 `Copy`이므로 소유 매개변수와 건너뛰기 비교(39.2)는 핸들을 값처럼 비교하며, 같은 핸들을 넘긴 composable 호출은 건너뜁니다.
+5. **`.clone()`이 필요 없습니다.** 핸들을 `move` 클로저 여러 개와 자식 클로저에서 복제 없이 씁니다. `remember`는 `T: Clone`을 요구하는 현재 시그니처를 유지하고, `Copy`는 `Clone`이므로 그대로 동작합니다.
 
 #### 39.3 경계
 
@@ -2452,6 +2471,22 @@ fn main() {
    6. **판정.** 목표는 (a)와 (b)의 모든 시나리오에 걸쳐 p50 배수의 기하평균 10배 이상, p99 배수의 기하평균 5배 이상입니다. 최소선으로, 어느 시나리오도 Dioxus 경로보다 느리면 안 됩니다. §5.1의 절대 기준(일반 상호작용 0.5ms, 스트리밍 프레임 1ms, 인코딩 할당 0회, 반복해도 늘지 않는 메모리)은 그대로입니다. 시나리오별 배수를 전부 표로 남기고, 평균만 보고하지 않습니다.
    7. **실행 조건을 기록합니다.** 기계, 부하 평균, 반복 횟수, 워밍업 횟수, 시나리오마다 p50, p99, 최대값과 원시 데이터의 경로를 `benches/baseline.json`에 남깁니다. 부하 평균이 높을 때 잰 값은 그 사실과 함께 기록하고, 판정에는 한가한 기계에서 잰 값을 씁니다.
    8. **결과는 그대로 보고합니다.** 10배에 못 미치면 실측 배수를 그대로 보고합니다. 목표를 맞추려고 시나리오, 지표, 판정 방법을 바꾸는 것은 금지입니다. 이 기준을 `Done`으로 표시하는 것은 측정한 쪽이 아니라, 다른 세션이 같은 벤치를 다시 돌려 같은 결과를 확인한 뒤입니다.
+
+#### 39.5 호출 모양과 상태 핸들의 수용 기준
+
+1. **위치 인자 컨테이너.** `Column`, `Row`, `Box`, `LazyColumn`, `LazyRow`를 `(modifier, content)` 위치 인자로 부른 결과와 같은 위젯을 체인으로 부른 결과가 같은 Mutation을 내보냅니다. 이름 패턴 `fr39_positional_container_*`.
+2. **체인 위젯.** 위치 인자 규칙에 해당하지 않는 위젯(`Text`, `Button` 등)의 체인 호출이 그대로 동작합니다. 이름 패턴 `fr39_chain_widget_*`.
+3. **`Copy` 핸들.** `MutableState<T>`가 `Copy`입니다(컴파일 시점 확인). 한 핸들을 `.clone()` 없이 `move` 클로저 둘에 넘기는 코드가 컴파일되고, 둘 다 같은 값을 바꿉니다. 이름 패턴 `fr39_state_handle_is_copy_*`.
+4. **해제.** 그룹이 사라진 recomposition이 적용된 뒤 값의 `Drop`이 한 번 실행됩니다. 같은 recomposition 안에서 다시 나타난 그룹과 키 있는 항목의 이동은 값을 유지합니다. 이름 패턴 `fr39_state_released_*`.
+5. **해제된 뒤의 사용.** 해제된 핸들의 `set`과 `update`는 아무 일도 하지 않고 다른 상태와 화면을 바꾸지 않습니다(fr39_state_use_after_release_set_is_a_no_op). 디버그 빌드에서 경고 로그가 핸들마다 정확히 한 번 나옵니다(fr39_state_use_after_release_warns_once_in_debug). `get`은 패닉하고 메시지에 `Released`와 `remember`의 파일과 줄이 들어 있습니다(fr39_state_use_after_release_get_panics_with_the_creation_site). `try_get`, `try_set`, `try_update`는 `StateError::Released`를 돌려줍니다(fr39_state_use_after_release_try_returns_released). 칸이 다른 값에 재사용된 뒤에도 옛 핸들이 새 값을 읽거나 쓰지 못합니다(fr39_state_use_after_release_does_not_reach_a_reused_slot).
+6. **워커 스레드.** `MutableState<i32>`가 `Send + Sync`입니다(컴파일 시점 확인). 워커 스레드의 쓰기가 다음 프레임에 반영되고, 한 프레임 안의 UI 쓰기와 워커 쓰기가 recomposition 한 번이 되며, composition이 떠난 뒤의 워커 쓰기가 오류 없이 무시됩니다. 이름 패턴 `fr39_state_worker_*`.
+7. **같음.** 같은 칸의 핸들 복사본은 같고, 값이 같은 서로 다른 상태의 핸들은 같지 않습니다. 이름 패턴 `fr39_state_handle_identity_*`.
+
+위 이름 패턴은 구현과 함께 실제 테스트 이름으로 바뀝니다. 이 기준은 구현이 들어올 때까지 `Agreed`입니다.
+
+#### 39.6 이행
+
+이 변경은 공개 API를 바꾸므로 compose-rust 1.0.0(2026-11-14) 전에, 한 릴리스 안에서 함께 끝냅니다(이슈 #278). 샘플 12개, 크레이트의 테스트, 가이드(`docs/guide/`의 영어와 한국어)와 README 예시가 같은 릴리스에서 새 모양으로 옮겨 갑니다. 1.0.0 전이므로 옛 호출 모양의 별칭을 두지 않습니다. dioxus-compose 어댑터는 `#[composable]`과 이 호출 모양을 쓰지 않으므로 영향이 없을 것으로 봅니다. 이것은 확인이 필요한 항목이고, 상태 핸들 구현(`Copy` 핸들)의 PR에서 확인합니다.
 
 ### FR-40 HTML 텍스트 속성 (`Agreed`, 진행 중, 이슈 #106)
 
