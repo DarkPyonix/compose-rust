@@ -570,8 +570,18 @@ fn nfr15_a_windows_tarball_is_unpacked_as_the_static_kit() {
     .expect("the release serves this target");
     assert_eq!(renderer.source, RendererSource::Download);
     assert_eq!(renderer.kind, RendererKind::Static);
-    assert!(renderer.lib_dir.join("native/dxc-windows-native.lib").is_file());
-    assert!(renderer.lib_dir.join(renderer_static_file(WINDOWS_OS)).is_file());
+    assert!(
+        renderer
+            .lib_dir
+            .join("native/dxc-windows-native.lib")
+            .is_file()
+    );
+    assert!(
+        renderer
+            .lib_dir
+            .join(renderer_static_file(WINDOWS_OS))
+            .is_file()
+    );
 }
 
 /// A leftover GraalVM DLL is not a renderer on Windows: the directory holding only it
