@@ -666,6 +666,7 @@ pub(crate) fn event_property(name: &str) -> Option<PropertyKind> {
         "dismiss" | "ondismiss" => Some(PropertyKind::OnDismiss),
         "filesentered" | "onfilesentered" => Some(PropertyKind::OnFilesEntered),
         "filesdropped" | "onfilesdropped" => Some(PropertyKind::OnFilesDropped),
+        "pointer" | "onpointer" => Some(PropertyKind::OnPointer),
         "change" | "onchange" => Some(PropertyKind::OnValueChange),
         _ => None,
     }

@@ -399,6 +399,35 @@ class ProtocolVectorsTest {
         assertEquals(bytes.copyOfRange(498, 518).toList(), motion.array().copyOf(motionLength).toList())
     }
 
+    /** The pointer event encodes to the 72 bytes the Host decodes. */
+    @Test
+    fun fr46_the_pointer_event_encodes_to_the_vector_bytes() {
+        val bytes = vectorFile("events.bin").readBytes()
+        val out = ByteBuffer.allocate(96)
+        val length = Protocol.encodeEvent(
+            HostEvent.Pointer(
+                nodeId = 13,
+                handlerId = 23,
+                kind = dev.darkpyonix.composerust.protocol.PointerKind.Down,
+                pointerId = 1,
+                pointerType = dev.darkpyonix.composerust.protocol.PointerType.Mouse,
+                x = 12.5f,
+                y = -3f,
+                buttons = 9,
+                button = 8,
+                modifiers = 5,
+                clickCount = 2,
+                deltaX = 0f,
+                deltaY = 0f,
+                deltaMode = dev.darkpyonix.composerust.protocol.WheelDeltaMode.Pixel,
+                timestampNanos = 987_654_321_000L,
+            ),
+            out,
+        )
+        assertEquals(72, length)
+        assertEquals(bytes.copyOfRange(518, 590).toList(), out.array().copyOf(length).toList())
+    }
+
     /** The theme record carries the palette behind it, and both sides read the same entries. */
     @Test
     fun fr14_10_the_theme_in_the_vector_carries_its_palette() {
@@ -526,7 +555,7 @@ class ProtocolVectorsTest {
                 "$event at $offset",
             )
         }
-        assertEquals(518, bytes.size)
+        assertEquals(590, bytes.size)
     }
 
     private fun decodeVector(name: String): List<Mutation> {

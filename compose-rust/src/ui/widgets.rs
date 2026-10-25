@@ -21,7 +21,7 @@ use crate::schema::{
     SpaceRole, TextAlign, TextOverflow, TypeRole, WidgetKind,
 };
 use crate::spans::TextSpans;
-use crate::{FileDrop, KeyEvent};
+use crate::{FileDrop, KeyEvent, PointerEvent, PointerKinds};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -46,6 +46,60 @@ fn value_handler(handler: Option<Box<dyn FnMut(f64)>>) -> EventCallback {
         Some(handler) => EventCallback::Value(Rc::new(RefCell::new(handler))),
         None => EventCallback::Value(Rc::new(RefCell::new(|_: f64| {}))),
     }
+}
+
+/// A node's subscription to pointer input: the kinds it wants and the handler that gets
+/// them. A node without one has no pointer input at all.
+struct PointerSubscription {
+    kinds: PointerKinds,
+    handler: Box<dyn FnMut(PointerEvent)>,
+}
+
+/// Writes a subscription as the two things the wire needs: the handler, and the mask. A
+/// subscription of no kinds writes neither, so it is not a subscription.
+fn pointer_input(
+    subscription: Option<PointerSubscription>,
+    attrs: &mut Attrs,
+    listeners: &mut Vec<(&'static str, EventCallback)>,
+) {
+    let Some(subscription) = subscription else {
+        return;
+    };
+    if subscription.kinds == PointerKinds::NONE {
+        return;
+    }
+    attrs.push((
+        "pointer_kinds",
+        OwnedAttr::Int(i64::from(subscription.kinds.bits())),
+    ));
+    listeners.push((
+        "onpointer",
+        EventCallback::Pointer(Rc::new(RefCell::new(subscription.handler))),
+    ));
+}
+
+/// Adds `on_pointer` to a builder that has a `pointer` field.
+macro_rules! pointer_subscription {
+    ($name:ident) => {
+        impl $name {
+            /// Subscribes the node to the kinds of pointer input in `kinds`. The handler runs
+            /// on the same call as the input; calling `consume` on the event keeps it from
+            /// the nearest subscribed ancestor and from the Renderer's own handling.
+            ///
+            /// A node that never calls this has no pointer input at all, and costs nothing.
+            pub fn on_pointer(
+                mut self,
+                kinds: PointerKinds,
+                handler: impl FnMut(PointerEvent) + 'static,
+            ) -> Self {
+                self.pointer = Some(PointerSubscription {
+                    kinds,
+                    handler: std::boxed::Box::new(handler),
+                });
+                self
+            }
+        }
+    };
 }
 
 /// Composes the description when the statement it was written in ends.
@@ -113,6 +167,7 @@ macro_rules! linear {
         pub struct $name {
             modifier: Modifier,
             linear: Linear,
+            pointer: Option<PointerSubscription>,
             done: bool,
         }
 
@@ -121,6 +176,7 @@ macro_rules! linear {
             $name {
                 modifier: Modifier::new(),
                 linear: Linear::default(),
+                pointer: None,
                 done: false,
             }
         }
@@ -153,20 +209,26 @@ macro_rules! linear {
             fn compose(&mut self, content: impl FnOnce()) {
                 let modifier = self.modifier;
                 let linear = std::mem::take(&mut self.linear);
+                let pointer = self.pointer.take();
+                let mut listeners = Vec::new();
+                let mut subscription = Attrs::new();
+                pointer_input(pointer, &mut subscription, &mut listeners);
                 emit(
                     widget_key($key),
                     WidgetKind::$widget,
                     |attrs| {
                         push_modifiers(&modifier, Mods::Container, attrs);
                         linear.push(attrs);
+                        attrs.append(&mut subscription);
                     },
-                    Vec::new(),
+                    listeners,
                     content,
                 );
             }
         }
 
         container!($name);
+        pointer_subscription!($name);
     };
 }
 
@@ -178,6 +240,7 @@ linear!(RowScope, Row, "compose_rust::ui::Row");
 pub struct ComposeBox {
     modifier: Modifier,
     alignment: Option<Alignment>,
+    pointer: Option<PointerSubscription>,
     done: bool,
 }
 
@@ -186,6 +249,7 @@ pub fn Box() -> ComposeBox {
     ComposeBox {
         modifier: Modifier::new(),
         alignment: None,
+        pointer: None,
         done: false,
     }
 }
@@ -199,20 +263,26 @@ impl ComposeBox {
 
     fn compose(&mut self, content: impl FnOnce()) {
         let (modifier, alignment) = (self.modifier, self.alignment);
+        let pointer = self.pointer.take();
+        let mut listeners = Vec::new();
+        let mut subscription = Attrs::new();
+        pointer_input(pointer, &mut subscription, &mut listeners);
         emit(
             widget_key("compose_rust::ui::Box"),
             WidgetKind::Box,
             |attrs| {
                 push_modifiers(&modifier, Mods::Container, attrs);
                 attrs.push(("alignment", role_or_zero(alignment)));
+                attrs.append(&mut subscription);
             },
-            Vec::new(),
+            listeners,
             content,
         );
     }
 }
 
 container!(ComposeBox);
+pointer_subscription!(ComposeBox);
 
 /// A plain container with the standard Modifiers and nothing of its own.
 macro_rules! plain_container {
@@ -220,6 +290,7 @@ macro_rules! plain_container {
         #[doc = concat!("A `", stringify!($widget), "` and its builder.")]
         pub struct $name {
             modifier: Modifier,
+            pointer: Option<PointerSubscription>,
             done: bool,
         }
 
@@ -227,6 +298,7 @@ macro_rules! plain_container {
         pub fn $widget() -> $name {
             $name {
                 modifier: Modifier::new(),
+                pointer: None,
                 done: false,
             }
         }
@@ -234,17 +306,25 @@ macro_rules! plain_container {
         impl $name {
             fn compose(&mut self, content: impl FnOnce()) {
                 let modifier = self.modifier;
+                let pointer = self.pointer.take();
+                let mut listeners = Vec::new();
+                let mut subscription = Attrs::new();
+                pointer_input(pointer, &mut subscription, &mut listeners);
                 emit(
                     widget_key($key),
                     WidgetKind::$widget,
-                    |attrs| push_modifiers(&modifier, $mods, attrs),
-                    Vec::new(),
+                    |attrs| {
+                        push_modifiers(&modifier, $mods, attrs);
+                        attrs.append(&mut subscription);
+                    },
+                    listeners,
                     content,
                 );
             }
         }
 
         container!($name);
+        pointer_subscription!($name);
     };
 }
 
@@ -307,6 +387,7 @@ pub struct TextScope {
     text_align: Option<TextAlign>,
     max_lines: Option<u32>,
     overflow: Option<TextOverflow>,
+    pointer: Option<PointerSubscription>,
     done: bool,
 }
 
@@ -328,6 +409,7 @@ pub fn Text(text: impl Into<String>) -> TextScope {
         text_align: None,
         max_lines: None,
         overflow: None,
+        pointer: None,
         done: false,
     }
 }
@@ -397,6 +479,10 @@ impl TextScope {
         );
         let (color, text_align, max_lines, overflow) =
             (self.color, self.text_align, self.max_lines, self.overflow);
+        let pointer = self.pointer.take();
+        let mut listeners = Vec::new();
+        let mut subscription = Attrs::new();
+        pointer_input(pointer, &mut subscription, &mut listeners);
         emit(
             widget_key("compose_rust::ui::Text"),
             WidgetKind::Text,
@@ -427,14 +513,16 @@ impl TextScope {
                     OwnedAttr::Int(i64::from(max_lines.unwrap_or(0))),
                 ));
                 attrs.push(("overflow", role_or_zero(overflow)));
+                attrs.append(&mut subscription);
             },
-            Vec::new(),
+            listeners,
             content,
         );
     }
 }
 
 composed_on_drop!(TextScope);
+pointer_subscription!(TextScope);
 
 /// A `TextField` and its builder.
 pub struct TextFieldScope {

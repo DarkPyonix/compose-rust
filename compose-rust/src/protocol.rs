@@ -237,8 +237,10 @@ const EVENT_FOCUS_LOST: u16 = 4;
 const EVENT_PROTOCOL_ERROR: u16 = 5;
 const EVENT_KEY_DOWN: u16 = 6;
 const EVENT_RANGE_REQUESTED: u16 = 7;
-// Tags 8 to 15 are reserved for the pointer gesture events, so this one starts at 16
-// and the window size report continues from 17.
+// Tag 8 is the pointer event and 9 to 15 are reserved for the gesture events, so this one
+// starts at 16 and the window size report continues from 17.
+const EVENT_POINTER: u16 = 8;
+const POINTER_RECORD_LEN: usize = 72;
 const EVENT_VALUE_CHANGED: u16 = 16;
 const EVENT_WINDOW_SIZE_CHANGED: u16 = 17;
 const EVENT_RESYNC: u16 = 18;
@@ -261,6 +263,40 @@ const MODIFIER_SHIFT: u8 = 1 << 0;
 const MODIFIER_CTRL: u8 = 1 << 1;
 const MODIFIER_ALT: u8 = 1 << 2;
 const MODIFIER_META: u8 = 1 << 3;
+
+/// Reads a pointer enum's tag out of a `u32` word. A word that does not fit a tag, or names
+/// none, is a value the sides disagree on.
+fn pointer_tag<T: TryFrom<u16, Error = ()>>(
+    bytes: &[u8],
+    offset: usize,
+) -> Result<T, ProtocolError> {
+    let raw = read_u32(bytes, offset)?;
+    u16::try_from(raw)
+        .ok()
+        .and_then(|tag| T::try_from(tag).ok())
+        .ok_or(ProtocolError::InvalidValueKind(
+            raw.min(u32::from(u16::MAX)) as u16,
+        ))
+}
+
+/// The 72-byte pointer record: see the field table of the pointer event.
+fn decode_pointer(bytes: &[u8]) -> Result<crate::schema::EventPayload<'_>, ProtocolError> {
+    Ok(crate::schema::EventPayload::Pointer {
+        kind: pointer_tag(bytes, 16)?,
+        pointer_id: read_u32(bytes, 20)?,
+        pointer_type: pointer_tag(bytes, 24)?,
+        x: f32::from_bits(read_u32(bytes, 28)?),
+        y: f32::from_bits(read_u32(bytes, 32)?),
+        buttons: read_u32(bytes, 36)?,
+        button: read_u32(bytes, 40)?,
+        modifiers: read_u32(bytes, 44)?,
+        click_count: read_u32(bytes, 48)?,
+        delta_x: f32::from_bits(read_u32(bytes, 52)?),
+        delta_y: f32::from_bits(read_u32(bytes, 56)?),
+        delta_mode: pointer_tag(bytes, 60)?,
+        timestamp_nanos: read_u64(bytes, 64)?,
+    })
+}
 
 /// Decode one Renderer-to-Host event record.
 pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
@@ -375,6 +411,7 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
                 time_nanos: read_u64(bytes, 32)?,
             }
         }
+        EVENT_POINTER if record_len == POINTER_RECORD_LEN => decode_pointer(bytes)?,
         EVENT_REDUCED_MOTION_CHANGED if record_len == 20 => {
             let raw = read_u32(bytes, 16)?;
             let state = u16::try_from(raw)
@@ -436,6 +473,7 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
         EVENT_CLICK..=EVENT_RANGE_REQUESTED
         | EVENT_VALUE_CHANGED..=EVENT_NOTIFICATION_PERMISSION_CHANGED
         | EVENT_ANIMATION
+        | EVENT_POINTER
         | EVENT_REDUCED_MOTION_CHANGED => {
             return Err(ProtocolError::InvalidRecordLength);
         }
@@ -537,6 +575,41 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.extend_from_slice(&iteration.to_le_bytes());
         output.extend_from_slice(&elapsed_ms.to_bits().to_le_bytes());
         output.extend_from_slice(&time_nanos.to_le_bytes());
+        return Ok(());
+    }
+    if let crate::schema::EventPayload::Pointer {
+        kind,
+        pointer_id,
+        pointer_type,
+        x,
+        y,
+        buttons,
+        button,
+        modifiers,
+        click_count,
+        delta_x,
+        delta_y,
+        delta_mode,
+        timestamp_nanos,
+    } = event.payload
+    {
+        output.extend_from_slice(&EVENT_POINTER.to_le_bytes());
+        output.extend_from_slice(&(POINTER_RECORD_LEN as u16).to_le_bytes());
+        output.extend_from_slice(&event.node_id.to_le_bytes());
+        output.extend_from_slice(&event.handler_id.to_le_bytes());
+        output.extend_from_slice(&u32::from(u16::from(kind)).to_le_bytes());
+        output.extend_from_slice(&pointer_id.to_le_bytes());
+        output.extend_from_slice(&u32::from(u16::from(pointer_type)).to_le_bytes());
+        output.extend_from_slice(&x.to_bits().to_le_bytes());
+        output.extend_from_slice(&y.to_bits().to_le_bytes());
+        output.extend_from_slice(&buttons.to_le_bytes());
+        output.extend_from_slice(&button.to_le_bytes());
+        output.extend_from_slice(&modifiers.to_le_bytes());
+        output.extend_from_slice(&click_count.to_le_bytes());
+        output.extend_from_slice(&delta_x.to_bits().to_le_bytes());
+        output.extend_from_slice(&delta_y.to_bits().to_le_bytes());
+        output.extend_from_slice(&u32::from(u16::from(delta_mode)).to_le_bytes());
+        output.extend_from_slice(&timestamp_nanos.to_le_bytes());
         return Ok(());
     }
     if let crate::schema::EventPayload::ReducedMotionChanged(state) = event.payload {
@@ -660,6 +733,7 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::CodeSaveRequested { .. }
         | crate::schema::EventPayload::DecorationActivated { .. } => unreachable!(),
         crate::schema::EventPayload::AnimationEvent { .. }
+        | crate::schema::EventPayload::Pointer { .. }
         | crate::schema::EventPayload::ReducedMotionChanged(_) => unreachable!(),
     };
     output.extend_from_slice(&tag.to_le_bytes());
