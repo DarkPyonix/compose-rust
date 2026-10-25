@@ -1,5 +1,7 @@
 package dev.darkpyonix.composerust.test
 
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.text.TextLayoutResult
@@ -16,6 +18,10 @@ import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.protocol.TYPE_ROLE_NONE
 import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.protocol.WordBreak
+import dev.darkpyonix.composerust.runtime.ComposeRustContent
+import dev.darkpyonix.composerust.runtime.LocalZoom
+import dev.darkpyonix.composerust.runtime.Zoom
+import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
 import dev.darkpyonix.composerust.tooling.FakeHostConnection
 import dev.darkpyonix.composerust.ui.node.systemFontFamily
 import kotlin.math.abs
@@ -258,6 +264,54 @@ class HtmlTextTest {
                 )
                 assertEquals(MeasureRecords.CALL_OK, status)
                 assertSameAsDrawn(results.single(), drawn!!, zoom, "at zoom $zoom")
+            }
+        }
+    }
+
+    /**
+     * Under a window zoom the root density already carries `1.2^level`, and an island is
+     * drawn at the display scale times k. A request must be answered at the island's
+     * density, or the Host lays the page out at a size that is not the one drawn.
+     */
+    @Test
+    fun fr43_measure_matches_the_island_draw_at_a_nonzero_level() {
+        val sans = listOf(FontRef.Generic(GenericFamily.SansSerif))
+        val text = "Zoomed island text that wraps across a few lines here"
+        val display = 1.5f
+        for (level in listOf(2, 0, -2)) {
+            runComposeUiTest {
+                val zoom = Zoom({ 1.25f })
+                zoom.setLevel(level)
+                val island = listOf(
+                    Mutation.Create(COLUMN, WidgetKind.AbsoluteBox),
+                    Mutation.SetProp(COLUMN, PropertyKind.IslandZoom, PropertyValue.Float(zoom.k)),
+                    Mutation.Create(TEXT, WidgetKind.Text),
+                    Mutation.SetModifier(TEXT, 0, ProtocolModifier.Width(120f)),
+                    Mutation.SetProp(TEXT, PropertyKind.Text, PropertyValue.Text(text)),
+                    Mutation.SetProp(TEXT, PropertyKind.TypeRole, PropertyValue.Integer(TYPE_ROLE_NONE.toLong())),
+                    Mutation.SetProp(TEXT, PropertyKind.Font, PropertyValue.Bytes(fontBlob(sans))),
+                    Mutation.SetProp(TEXT, PropertyKind.FontSize, PropertyValue.Float(15f)),
+                    Mutation.SetProp(TEXT, PropertyKind.AbsoluteSize, PropertyValue.Integer(1)),
+                    Mutation.Insert(COLUMN, TEXT, 0),
+                )
+                val connection = FakeHostConnection(island)
+                setContent {
+                    CompositionLocalProvider(
+                        LocalZoom provides zoom,
+                        LocalDensity provides zoom.density(display),
+                    ) {
+                        ComposeRustContent(rememberComposeRustHost(connection))
+                    }
+                }
+                waitForIdle()
+                val (status, results) = measure(
+                    MeasureRequests().text(
+                        text, role = 0, fonts = sans, fontSize = 15f, width = 120f,
+                        absoluteSize = true, zoom = zoom.k,
+                    ),
+                )
+                assertEquals(MeasureRecords.CALL_OK, status)
+                assertSameAsDrawn(results.single(), drawnLayout(TEXT), display * zoom.k, "at level $level")
             }
         }
     }

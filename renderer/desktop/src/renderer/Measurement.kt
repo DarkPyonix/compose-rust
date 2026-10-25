@@ -163,6 +163,7 @@ internal class MeasureContext(
     val layoutDirection: LayoutDirection,
     val fontFamilyResolver: FontFamily.Resolver,
     val station: MeasuringStation,
+    val zoom: Zoom? = null,
 ) {
     /**
      * The same measurer `BasicText` lays out with, in effect: `TextMeasurer` takes the
@@ -183,15 +184,19 @@ internal class MeasureContext(
         }
 
     /**
-     * The density a request is measured at: the composition's, times the zoom of the page
-     * region it belongs to, with no font scale. The operating system's text size reaches
-     * that region through its zoom rather than through a font scale, so it is not applied
-     * twice. A zoom of zero is one; a negative or non-finite one is a malformed request.
+     * The density a request is measured at: the one an island of that zoom is drawn at
+     * ([islandDensity]), with no font scale. The composition's density already carries the
+     * window's share of the zoom, which [islandDensity] divides out, so measuring and
+     * drawing agree at every level. The operating system's text size reaches the region
+     * through its zoom rather than through a font scale, so it is not applied twice. A zoom
+     * of zero is no island zoom, and is drawn at the composition's density. A negative or
+     * non-finite one is a malformed request.
      */
     private fun zoomed(requests: ByteBuffer, at: Int): Density? {
         val zoom = Float.fromBits(requests.getInt(at))
         if (zoom.isNaN() || zoom.isInfinite() || zoom < 0f) return null
-        return Density(density.density * (if (zoom == 0f) 1f else zoom), 1f)
+        if (zoom == 0f) return Density(density.density, 1f)
+        return islandDensity(density, this.zoom, zoom)
     }
 
     private fun measureText(requests: ByteBuffer, limit: Int, at: Int, density: Density): Measured {
