@@ -3,10 +3,10 @@
 //! and back here; what a Dioxus component sends is tested in the adapter.
 
 use compose_rust::code::{
-    CodeChange, CodeRange, DECORATION_LEN, DECORATION_RECORD, Decoration, Decorations,
-    FOLD_LEN, FOLD_RECORD, Fold, Folds, GUTTER_DECORATION_LEN, GUTTER_DECORATION_RECORD,
-    GutterDecoration, GutterDecorations, Position, RecordFieldType, SYNTAX_SPAN_LEN,
-    SYNTAX_SPAN_RECORD, SyntaxSpan, SyntaxSpans, byte_offset,
+    CodeChange, CodeRange, DECORATION_LEN, DECORATION_RECORD, Decoration, Decorations, FOLD_LEN,
+    FOLD_RECORD, Fold, Folds, GUTTER_DECORATION_LEN, GUTTER_DECORATION_RECORD, GutterDecoration,
+    GutterDecorations, Position, RecordFieldType, SYNTAX_SPAN_LEN, SYNTAX_SPAN_RECORD, SyntaxSpan,
+    SyntaxSpans, byte_offset,
 };
 use compose_rust::protocol::{
     BatchEncoder, HostEvent, Mutation, PropertyValue, ProtocolError, decode_batch, decode_event,
@@ -14,8 +14,8 @@ use compose_rust::protocol::{
 };
 use compose_rust::schema::EVENT_SCHEMA;
 use compose_rust::{
-    ColorRole, DecorationKind, EventPayload, GutterDecorationKind, HoverPhase, Paint,
-    PropertyKind, RevealAlign, Severity, WidgetKind,
+    ColorRole, DecorationKind, EventPayload, GutterDecorationKind, HoverPhase, Paint, PropertyKind,
+    RevealAlign, Severity, WidgetKind,
 };
 
 /// One decoded record with its borrowed parts made owned, so the batch can be dropped.
@@ -680,7 +680,10 @@ fn fr38_fold_and_gutter_records_have_their_wire_sizes_and_round_trip() {
     assert_eq!(FOLD_LEN, 16);
     assert_eq!(GUTTER_DECORATION_LEN, 28);
     assert_eq!(usize::from(FOLD_RECORD.length), FOLD_LEN);
-    assert_eq!(usize::from(GUTTER_DECORATION_RECORD.length), GUTTER_DECORATION_LEN);
+    assert_eq!(
+        usize::from(GUTTER_DECORATION_RECORD.length),
+        GUTTER_DECORATION_LEN
+    );
 
     let folds = vec![Fold::new(2, 0, 9), Fold::new(2, 3, 5).collapsed()];
     let encoded = Folds::new(folds.clone());
@@ -716,8 +719,9 @@ fn fr38_the_fold_and_gutter_schemas_are_the_layout_the_encoders_write() {
         assert_eq!(value, expected, "{}", field.name);
     }
 
-    let mark = GutterDecorations::new([GutterDecoration::glyph(9, 3, 'x', 0x0102_0304_0506_0708)
-        .with_color(ColorRole::Error)]);
+    let mark = GutterDecorations::new([
+        GutterDecoration::glyph(9, 3, 'x', 0x0102_0304_0506_0708).with_color(ColorRole::Error)
+    ]);
     let bytes = mark.as_bytes();
     for field in GUTTER_DECORATION_RECORD.fields {
         let at = usize::from(field.offset);
@@ -806,7 +810,11 @@ fn fr38_gutter_decorations_follow_edits_and_activate_on_the_wire() {
                 PropertyKind::GutterDecorations,
                 Value::Bytes(marks.as_bytes().to_vec())
             ),
-            Record::Prop(2, PropertyKind::Folds, Value::Bytes(folds.as_bytes().to_vec())),
+            Record::Prop(
+                2,
+                PropertyKind::Folds,
+                Value::Bytes(folds.as_bytes().to_vec())
+            ),
         ]
     );
     // A press on a mark comes back as the activation of the id the application gave it.

@@ -18,9 +18,7 @@
 //! would make every application recount every range on the way through. A line ends at
 //! `\n`, `\r\n` or a lone `\r`, which is also the language server's rule.
 
-use crate::schema::{
-    ColorRole, DecorationKind, GutterDecorationKind, HoverPhase, Paint, Severity,
-};
+use crate::schema::{ColorRole, DecorationKind, GutterDecorationKind, HoverPhase, Paint, Severity};
 use std::rc::Rc;
 
 /// Bytes of one decoration record.
@@ -875,7 +873,10 @@ impl std::fmt::Debug for GutterDecorations {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("GutterDecorations")
-            .field("decorations", &(self.as_bytes().len() / GUTTER_DECORATION_LEN))
+            .field(
+                "decorations",
+                &(self.as_bytes().len() / GUTTER_DECORATION_LEN),
+            )
             .finish()
     }
 }

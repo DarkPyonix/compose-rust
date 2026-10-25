@@ -3514,13 +3514,13 @@ object CodeEditorRecords {
         FOLD_RECORD,
         GUTTER_DECORATION_RECORD,
     ]
-        .iter()
-        .flat_map(|schema| schema.fields.iter())
-        .filter_map(|field| match field.ty {
-            RecordFieldType::Role { name, .. } => Some(name),
-            _ => None,
-        })
-        .collect();
+    .iter()
+    .flat_map(|schema| schema.fields.iter())
+    .filter_map(|field| match field.ty {
+        RecordFieldType::Role { name, .. } => Some(name),
+        _ => None,
+    })
+    .collect();
     roles.push("ColorRole");
     roles.sort_unstable();
     roles.dedup();

@@ -694,7 +694,13 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
             active_column,
         } => {
             put_event_header(output, EVENT_SELECTION_CHANGED, 36, event);
-            for value in [version, anchor_line, anchor_column, active_line, active_column] {
+            for value in [
+                version,
+                anchor_line,
+                anchor_column,
+                active_line,
+                active_column,
+            ] {
                 output.extend_from_slice(&value.to_le_bytes());
             }
             return Ok(());
