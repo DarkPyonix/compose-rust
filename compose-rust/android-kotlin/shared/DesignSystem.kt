@@ -847,6 +847,13 @@ data class CaptionStyle(
      * modes existed.
      */
     val height: Dp = 0.dp,
+    /**
+     * The fill under a button while it is held. Transparent means the system has no
+     * pressed fill of its own and the hover fill stays.
+     */
+    val pressed: Color = Color.Transparent,
+    /** The fill under close while it is held, where the system reddens close on hover. */
+    val closePressed: Color = Color.Transparent,
 )
 
 /**
