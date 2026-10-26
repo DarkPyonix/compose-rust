@@ -1006,7 +1006,7 @@ impl Composer {
         let mut attrs = attrs;
         let node = if let Some(state) = self.slot_mut::<NodeState>() {
             let node = state.node;
-            let mut previous = std::mem::take(&mut state.attrs);
+            let previous = std::mem::take(&mut state.attrs);
             let mut handlers = std::mem::take(&mut state.handlers);
             // An attribute the widget no longer writes is taken away, the way
             // `dioxus-core` removes one that left a template's attribute list.
