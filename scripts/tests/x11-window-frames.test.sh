@@ -56,7 +56,7 @@ absent 'Thread\.sleep' "$loop_file" \
 # these is a defect that has been found on that one: a window that hears nothing, a list
 # whose rows are fetched on a thread with no Host, a screen redrawn sixty times a second
 # while an input method is trying to reach the process, a tree nobody was told about.
-for call in 'work.runPending()' 'scene.hasInvalidations()' 'semantics.pushIfChanged(afterDrawing'; do
+for call in 'work.runPending()' 'scene.hasInvalidations()' 'semantics.pushIfChanged(scene.density.density, afterDrawing'; do
     grep -Fq "$call" "$model_file" ||
         fail "AppKitWindow.kt no longer does '$call', so this test is comparing against nothing"
     grep -Fq "$call" "$loop_file" || fail "the X11 loop does not do '$call' per frame"

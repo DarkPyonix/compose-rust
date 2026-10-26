@@ -33,12 +33,14 @@ tree="$work/tree"
 fork="$work/fork"
 window="$fork/extended/window"
 mkdir -p "$tree/renderer/scripts" "$tree/scripts" "$window/common" "$window/graalvm/graalvm-macos" \
-    "$window/graalvm/graalvm-linux" "$window/native/macos"
+    "$window/graalvm/graalvm-linux" "$window/native/macos" "$window/scene"
 cp "$repo/renderer/scripts/publish-window.sh" "$tree/renderer/scripts/"
 printf '#!/usr/bin/env bash\necho "%s"\n' "$fork" > "$tree/scripts/fetch-fork-window.sh"
 chmod +x "$tree/scripts/fetch-fork-window.sh"
 printf 'modules:\n  - common\n' > "$window/project.yaml"
 printf 'product:\n  type: lib\n  platforms: [ jvm ]\n' > "$window/common/module.yaml"
+# Off Windows the script also turns scene's platforms to the JVM alone.
+cp "$window/common/module.yaml" "$window/scene/module.yaml"
 record="$work/wrapper.txt"
 # The wrapper stubs: say they ran, and (on Windows) which tar.exe comes first on PATH.
 printf '#!/usr/bin/env bash\necho "ran ./kotlin $*" > "%s"\n' "$record" > "$window/kotlin"
