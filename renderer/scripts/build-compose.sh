@@ -42,7 +42,10 @@ REVISION="127311dc737d8badb68953291d248db8a7071cca"
 # This is a backport branch of the fork, feat/windows-window-backport-57b4a0e: 57b4a0e plus the
 # Windows wheel direction fix (fork #170) and the caption buttons safe default with the
 # HTMAXBUTTON hit test for Snap Layouts (fork #172). Do not delete that branch while this pins it.
-WINDOW_REVISION="aed8307c70d2f6b3c4854ab5ebfeac92b50e962e"
+# On top of it, in the fork's branch feat/windows-resize-sync-backport-aed8307 (do not delete it
+# while this pins it): the opt-in resize synchronization, DXC_RESIZE_SYNC=1 (fork #174, compose-rust
+# #364), which makes a live resize wait for the app's frame as Windows 11's Settings app does.
+WINDOW_REVISION="787c7cbf1a4497f32d5523ef21f1c2254c9e7bdd"
 # The commit the Windows build takes, which is its own on purpose. Windows needs the
 # commits the Compose pin (REVISION) leaves out: 296beb3 adds mingwX64 to every Compose UI module and
 # reads skiko from the local Maven repository first, and f17cb30 adds the skiko build for
