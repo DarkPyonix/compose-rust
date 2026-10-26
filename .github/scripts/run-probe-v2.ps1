@@ -31,8 +31,9 @@ $all = @(
     @{ Name = 'control'; Exe = (Join-Path $here 'resize-control.exe'); Place = $false; Class = 'ResizeControlWindow'; Paths = @('late') },
     # The window that asks Windows to wait for it (the private resize synchronization): late = 50 ms
     # late on purpose, prompt = not late (its lag is the cost of the mechanism), swapchain = 50 ms
-    # late with a composition swapchain instead of a drawing surface.
-    @{ Name = 'sync'; Exe = (Join-Path $here 'resize-sync-control.exe'); Place = $false; Class = 'ResizeSyncControlWindow'; Paths = @('late', 'prompt', 'swapchain') }
+    # late with a composition swapchain instead of a drawing surface, on12 = 50 ms late with the
+    # renderer's arrangement of devices (Direct3D 12 under Direct3D 11, copied into the surface).
+    @{ Name = 'sync'; Exe = (Join-Path $here 'resize-sync-control.exe'); Place = $false; Class = 'ResizeSyncControlWindow'; Paths = @('late', 'prompt', 'swapchain', 'on12') }
 )
 $runs = @()
 foreach ($app in $all) {
@@ -59,10 +60,11 @@ foreach ($app in $all) {
             }
             $env:DXC_METRICS = '1'; $env:DXC_REAL_DRAG = 'external'; $env:DXC_RESIZE_TRACE = '1'
             if ($path -eq 'old') { $env:DXC_RASTER_RESIZE = '0' } else { Remove-Item Env:DXC_RASTER_RESIZE -ErrorAction SilentlyContinue }
-            if ($path -eq 'late' -or $path -eq 'swapchain') { $env:DXC_RESIZE_PRESENT_DELAY_MS = '50' }
+            if ($path -eq 'late' -or $path -eq 'swapchain' -or $path -eq 'on12') { $env:DXC_RESIZE_PRESENT_DELAY_MS = '50' }
             elseif ($path -eq 'prompt') { $env:DXC_RESIZE_PRESENT_DELAY_MS = '0' }
             else { Remove-Item Env:DXC_RESIZE_PRESENT_DELAY_MS -ErrorAction SilentlyContinue }
             if ($path -eq 'swapchain') { $env:RESIZE_SYNC_MODE = 'swapchain' } else { Remove-Item Env:RESIZE_SYNC_MODE -ErrorAction SilentlyContinue }
+            if ($path -eq 'on12') { $env:RESIZE_SYNC_DEVICE = 'on12' } else { Remove-Item Env:RESIZE_SYNC_DEVICE -ErrorAction SilentlyContinue }
             $process = Start-Process -PassThru -FilePath $app.Exe -WorkingDirectory (Split-Path -Parent $app.Exe) `
                 -RedirectStandardOutput $appLog -RedirectStandardError "$appLog.err"
             $probe.WaitForExit(180000) | Out-Null
@@ -85,7 +87,7 @@ foreach ($app in $all) {
         }
     }
 }
-Remove-Item Env:DXC_RASTER_RESIZE, Env:DXC_METRICS, Env:DXC_REAL_DRAG, Env:DXC_RESIZE_TRACE, Env:DXC_RESIZE_PRESENT_DELAY_MS, Env:RESIZE_SYNC_MODE -ErrorAction SilentlyContinue
+Remove-Item Env:DXC_RASTER_RESIZE, Env:DXC_METRICS, Env:DXC_REAL_DRAG, Env:DXC_RESIZE_TRACE, Env:DXC_RESIZE_PRESENT_DELAY_MS, Env:RESIZE_SYNC_MODE, Env:RESIZE_SYNC_DEVICE -ErrorAction SilentlyContinue
 
 # The table: every drag's verdict, what it saw, how far the window lagged the cursor, and what
 # the verdict means here given the control's at the same rate.

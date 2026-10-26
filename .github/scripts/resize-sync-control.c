@@ -35,7 +35,12 @@
  * check. The window opens at the primary monitor's work area's top left, 640x480 pixels, and
  * closes itself after --seconds (default 300).
  *
- *   resize-sync-control.exe [--delay-ms N] [--seconds N] [--mode surface|swapchain]
+ *   resize-sync-control.exe [--delay-ms N] [--seconds N] [--mode surface|swapchain] [--device plain|on12]
+ *
+ * --device on12 (or RESIZE_SYNC_DEVICE=on12) makes the composition graphics device out of a Direct3D 11
+ * device made by D3D11On12 on a Direct3D 12 device and queue, as the renderer's window has it, and
+ * copies each frame into the drawing surface from a wrapped Direct3D 12 texture, the way the
+ * renderer's frame_end copies into its swapchain buffer. Only with --mode surface.
  *
  * --mode overrides RESIZE_SYNC_MODE (surface when not set). DXC_D3D12_WARP=1 draws with WARP.
  * Lines go to standard error. Linked as a GUI program, like resize-control.exe.
@@ -48,7 +53,9 @@
 #define _CRT_SECURE_NO_WARNINGS
 #include <windows.h>
 #include <d3d11_1.h>
-#include <dxgi1_2.h>
+#include <d3d12.h>
+#include <d3d11on12.h>
+#include <dxgi1_4.h>
 #include <roapi.h>
 #include <winstring.h>
 #include <stdio.h>
@@ -59,6 +66,7 @@
 
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "d3d11.lib")
+#pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "dxguid.lib")
 #pragma comment(lib, "runtimeobject.lib")
@@ -129,6 +137,17 @@ static ID3D11DeviceContext1 *context1;
 static IDXGIFactory2 *factory;
 static IDXGISwapChain1 *swapchain;
 static int use_swapchain;
+static int use_on12;
+/* --device on12: the renderer's arrangement, Direct3D 12 under Direct3D 11. */
+static ID3D12Device *device12;
+static ID3D12CommandQueue *queue12;
+static ID3D12Fence *fence12;
+static HANDLE fence_event;
+static UINT64 fence_value;
+static ID3D11On12Device *on12;
+static ID3D11Resource *wrapped;
+static int wrapped_width, wrapped_height;
+static const GUID iid_on12_device = {0x85611e73, 0x70a9, 0x490e, {0x96, 0x14, 0xa9, 0xe3, 0x02, 0x77, 0x79, 0x04}};
 static void *compositor;
 static void *device_partner;
 static void *graphics_device;
@@ -192,6 +211,62 @@ static void paint(ID3D11RenderTargetView *target, int left, int top, int width, 
     if (context1 != NULL) clear_rects(target, band, &edge, 1);
 }
 
+static void wait_for_queue(void) {
+    if (queue12 == NULL || fence12 == NULL) return;
+    UINT64 mark = ++fence_value;
+    if (FAILED(ID3D12CommandQueue_Signal(queue12, fence12, mark))) return;
+    if (ID3D12Fence_GetCompletedValue(fence12) < mark &&
+        SUCCEEDED(ID3D12Fence_SetEventOnCompletion(fence12, mark, fence_event))) {
+        WaitForSingleObject(fence_event, INFINITE);
+    }
+}
+
+/* The Direct3D 12 texture the picture is drawn into first, and its Direct3D 11 wrapper. */
+static int make_wrapped(int width, int height) {
+    if (wrapped != NULL && width <= wrapped_width && height <= wrapped_height) return 1;
+    if (wrapped != NULL) {
+        ID3D11Resource_Release(wrapped);
+        wrapped = NULL;
+    }
+    int room_w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+    int room_h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+    if (room_w < width) room_w = width;
+    if (room_h < height) room_h = height;
+    room_w = (room_w + 255) / 256 * 256;
+    room_h = (room_h + 255) / 256 * 256;
+    D3D12_HEAP_PROPERTIES heap;
+    memset(&heap, 0, sizeof heap);
+    heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+    D3D12_RESOURCE_DESC description;
+    memset(&description, 0, sizeof description);
+    description.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    description.Width = (UINT64)room_w;
+    description.Height = (UINT)room_h;
+    description.DepthOrArraySize = 1;
+    description.MipLevels = 1;
+    description.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    description.SampleDesc.Count = 1;
+    description.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    description.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    ID3D12Resource *texture = NULL;
+    if (step_failed(ID3D12Device_CreateCommittedResource(device12, &heap, D3D12_HEAP_FLAG_NONE, &description,
+                    D3D12_RESOURCE_STATE_PRESENT, NULL, &IID_ID3D12Resource, (void **)&texture), "CreateCommittedResource"))
+        return 0;
+    D3D11_RESOURCE_FLAGS flags;
+    memset(&flags, 0, sizeof flags);
+    flags.BindFlags = D3D11_BIND_RENDER_TARGET;
+    HRESULT made = ID3D11On12Device_CreateWrappedResource(on12, (IUnknown *)texture, &flags, D3D12_RESOURCE_STATE_PRESENT,
+                                                          D3D12_RESOURCE_STATE_PRESENT, &IID_ID3D11Resource, (void **)&wrapped);
+    ID3D12Resource_Release(texture);
+    if (step_failed(made, "CreateWrappedResource")) {
+        wrapped = NULL;
+        return 0;
+    }
+    wrapped_width = room_w;
+    wrapped_height = room_h;
+    return 1;
+}
+
 static void set_visual_size(int width, int height) {
     Vec2 size = {(float)width, (float)height};
     step_failed(SLOT(visual, SLOT_VISUAL_PUT_SIZE, PutVec2Fn)(visual, size), "set the visual's size");
@@ -220,8 +295,32 @@ static int draw(int width, int height) {
             surface_width = width;
             surface_height = height;
         }
+        if (use_on12 && !make_wrapped(width, height)) return 0;
+        if (use_on12) {
+            /* The picture first, into the wrapped Direct3D 12 texture, as Skia would draw it. */
+            ID3D11On12Device_AcquireWrappedResources(on12, &wrapped, 1);
+            ID3D11RenderTargetView *source = NULL;
+            if (!FAILED(ID3D11Device_CreateRenderTargetView(device, wrapped, NULL, &source))) {
+                paint(source, 0, 0, width, height);
+                ID3D11RenderTargetView_Release(source);
+            }
+            ID3D11On12Device_ReleaseWrappedResources(on12, &wrapped, 1);
+            ID3D11DeviceContext_Flush(context);
+        }
         if (step_failed(SLOT(drawing_interop, SLOT_DRAWING_INTEROP_BEGIN_DRAW, BeginDrawFn)(drawing_interop, NULL,
                         &IID_ID3D11Texture2D, (void **)&texture, &offset), "BeginDraw")) return 0;
+    }
+    if (use_on12 && !use_swapchain) {
+        /* Then the copy into the drawing surface, as frame_end copies into its swapchain buffer. */
+        ID3D11On12Device_AcquireWrappedResources(on12, &wrapped, 1);
+        D3D11_BOX box = {0, 0, 0, (UINT)width, (UINT)height, 1};
+        ID3D11DeviceContext_CopySubresourceRegion(context, (ID3D11Resource *)texture, 0, (UINT)offset.x, (UINT)offset.y, 0,
+                                                  wrapped, 0, &box);
+        ID3D11On12Device_ReleaseWrappedResources(on12, &wrapped, 1);
+        ID3D11DeviceContext_Flush(context);
+        wait_for_queue();
+        ID3D11Texture2D_Release(texture);
+        return !step_failed(SLOT(drawing_interop, SLOT_DRAWING_INTEROP_END_DRAW, CallFn)(drawing_interop), "EndDraw");
     }
     ID3D11RenderTargetView *target = NULL;
     HRESULT made = ID3D11Device_CreateRenderTargetView(device, (ID3D11Resource *)texture, NULL, &target);
@@ -477,14 +576,18 @@ int main(int argc, char **argv) {
     const char *mode = getenv("RESIZE_SYNC_MODE");
     mode = argument(argc, argv, "--mode", mode != NULL && mode[0] != 0 ? mode : "surface");
     use_swapchain = strcmp(mode, "swapchain") == 0;
+    const char *kind = getenv("RESIZE_SYNC_DEVICE");
+    kind = argument(argc, argv, "--device", kind != NULL && kind[0] != 0 ? kind : "plain");
+    use_on12 = strcmp(kind, "on12") == 0 && !use_swapchain;
     const char *warp = getenv("DXC_D3D12_WARP");
     int use_warp = warp != NULL && strcmp(warp, "1") == 0;
 
     char os_line[512];
     resize_os_version(os_line, sizeof os_line);
     fprintf(stderr, "resize-sync-control: os %s\n", os_line);
-    fprintf(stderr, "resize-sync-control: start qpc_frequency=%lld present_delay_ms=%d mode=%s adapter=%s\n",
-            (long long)frequency.QuadPart, delay_ms, use_swapchain ? "swapchain" : "surface", use_warp ? "warp" : "hardware");
+    fprintf(stderr, "resize-sync-control: start qpc_frequency=%lld present_delay_ms=%d mode=%s device=%s adapter=%s\n",
+            (long long)frequency.QuadPart, delay_ms, use_swapchain ? "swapchain" : "surface", use_on12 ? "on12" : "plain",
+            use_warp ? "warp" : "hardware");
 
     WNDCLASSEXW description;
     memset(&description, 0, sizeof description);
@@ -514,9 +617,41 @@ int main(int argc, char **argv) {
     GetClientRect(window, &client);
 
     D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0};
-    HRESULT made = D3D11CreateDevice(NULL, use_warp ? D3D_DRIVER_TYPE_WARP : D3D_DRIVER_TYPE_HARDWARE, NULL,
-                                     D3D11_CREATE_DEVICE_BGRA_SUPPORT, levels, 2, D3D11_SDK_VERSION, &device, NULL,
-                                     &context);
+    HRESULT made;
+    if (use_on12) {
+        IDXGIFactory4 *factory4 = NULL;
+        IDXGIAdapter *chosen = NULL;
+        made = CreateDXGIFactory1(&IID_IDXGIFactory4, (void **)&factory4);
+        if (!FAILED(made)) {
+            made = use_warp ? IDXGIFactory4_EnumWarpAdapter(factory4, &IID_IDXGIAdapter, (void **)&chosen)
+                            : IDXGIFactory4_EnumAdapters(factory4, 0, &chosen);
+        }
+        if (!FAILED(made)) made = D3D12CreateDevice((IUnknown *)chosen, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, (void **)&device12);
+        D3D12_COMMAND_QUEUE_DESC queue_description;
+        memset(&queue_description, 0, sizeof queue_description);
+        queue_description.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+        if (!FAILED(made)) made = ID3D12Device_CreateCommandQueue(device12, &queue_description, &IID_ID3D12CommandQueue, (void **)&queue12);
+        if (!FAILED(made)) made = ID3D12Device_CreateFence(device12, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&fence12);
+        fence_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+        IUnknown *queues[1] = {(IUnknown *)queue12};
+        if (!FAILED(made)) {
+            made = D3D11On12CreateDevice((IUnknown *)device12, D3D11_CREATE_DEVICE_BGRA_SUPPORT, levels, 2, queues, 1, 0, &device,
+                                         &context, NULL);
+        }
+        if (!FAILED(made)) made = ID3D11Device_QueryInterface(device, &iid_on12_device, (void **)&on12);
+        fprintf(stderr, "resize-sync-control: Direct3D 12 under Direct3D 11 (D3D11On12) 0x%08lx\n", (unsigned long)made);
+        if (FAILED(made)) {
+            use_on12 = 0;
+            device = NULL;
+            context = NULL;
+        }
+    }
+    if (device == NULL) {
+        made = D3D11CreateDevice(NULL, use_warp ? D3D_DRIVER_TYPE_WARP : D3D_DRIVER_TYPE_HARDWARE, NULL,
+                                 D3D11_CREATE_DEVICE_BGRA_SUPPORT, levels, 2, D3D11_SDK_VERSION, &device, NULL, &context);
+    } else {
+        made = S_OK;
+    }
     if (FAILED(made)) {
         fprintf(stderr, "resize-sync-control: no Direct3D 11 device (0x%08lx)\n", (unsigned long)made);
         return 2;
