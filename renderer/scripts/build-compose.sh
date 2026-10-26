@@ -35,14 +35,12 @@ FORK="https://github.com/thisisthepy/compose-multiplatform-core-extended.git"
 REVISION="127311dc737d8badb68953291d248db8a7071cca"
 # The window modules and skiko's builds are not Compose sources: the renderer builds them from
 # this commit (scripts/fetch-fork-window.sh and fetch-fork-skiko.sh) into artifacts of its own,
-# so they can move without moving the Compose build above. This one is the fork's merge of the
-# resize soak (#109), which draws each GraalVM frame in an autorelease pool of its own; it
-# carries the merge of the coordinates (#119), so the window modules compile against the fork's
-# Compose coordinates, which the Compose pin introduced, and the window changes before it.
-# This is a backport branch of the fork, feat/windows-window-backport-57b4a0e: 57b4a0e plus the
-# Windows wheel direction fix (fork #170) and the caption buttons safe default with the
-# HTMAXBUTTON hit test for Snap Layouts (fork #172). Do not delete that branch while this pins it.
-WINDOW_REVISION="aed8307c70d2f6b3c4854ab5ebfeac92b50e962e"
+# so they can move without moving the Compose build above. This is the tip of the fork's
+# `extended` branch with the Windows caption buttons safe default and HTMAXBUTTON hit test for
+# Snap Layouts (fork #172) and the Windows wheel direction fix (fork #170). It replaces the
+# backport branch feat/windows-window-backport-57b4a0e, which carried those two fixes on an
+# older base; multi-window work builds on `extended` itself.
+WINDOW_REVISION="7dd0d4b0f05a400c424e96b61484b585278e184c"
 # The commit the Windows build takes, which is its own on purpose. Windows needs the
 # commits the Compose pin (REVISION) leaves out: 296beb3 adds mingwX64 to every Compose UI module and
 # reads skiko from the local Maven repository first, and f17cb30 adds the skiko build for
