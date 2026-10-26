@@ -9,6 +9,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.text.LinkAnnotation
+import dev.darkpyonix.composerust.design.LocalDesignTheme
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.AnnotatedString
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.Paint
@@ -183,6 +188,53 @@ private fun ReportRuns(nodeId: Int, problem: String, dispatcher: EventDispatcher
                 code = TableError.UNSUPPORTED_PROPERTY,
                 message = problem,
             ),
+        )
+    }
+}
+
+/**
+ * `BasicText` for a plain string set in the theme's type: a label, a title, a message.
+ *
+ * Where the family the style names is the first family of a font stack, the letters it
+ * has no glyph for are set in the stack's next family that has them, as a `Text` node's
+ * are. Without this a Korean label in a theme set in Inter and Pretendard would take its
+ * Hangul from the machine's own fonts, which is a different face on every platform.
+ * Every other string is drawn exactly as `BasicText` draws it.
+ */
+@Composable
+internal fun ThemedText(
+    text: String,
+    modifier: Modifier = Modifier,
+    style: TextStyle = TextStyle.Default,
+    onTextLayout: ((TextLayoutResult) -> Unit)? = null,
+    overflow: TextOverflow = TextOverflow.Clip,
+    softWrap: Boolean = true,
+    maxLines: Int = Int.MAX_VALUE,
+    minLines: Int = 1,
+) {
+    val chain = LocalDesignTheme.current.chainFor(style.fontFamily)
+    val spans = remember(text, chain) { chain?.spans(text).orEmpty() }
+    if (spans.isEmpty()) {
+        BasicText(
+            text = text,
+            modifier = modifier,
+            style = style,
+            onTextLayout = onTextLayout,
+            overflow = overflow,
+            softWrap = softWrap,
+            maxLines = maxLines,
+            minLines = minLines,
+        )
+    } else {
+        BasicText(
+            text = AnnotatedString(text, spans),
+            modifier = modifier,
+            style = style,
+            onTextLayout = onTextLayout,
+            overflow = overflow,
+            softWrap = softWrap,
+            maxLines = maxLines,
+            minLines = minLines,
         )
     }
 }

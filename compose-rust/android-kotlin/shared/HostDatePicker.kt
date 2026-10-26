@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -148,7 +147,7 @@ private fun CalendarMonth(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             StepButton("<", enabled, theme) { shown = shiftMonth(shown, -1) }
-            BasicText(
+            ThemedText(
                 text = "${formats.monthNames[shown.month - 1]} ${shown.year}",
                 style = theme.pickerTextStyle(TypeRole.Title),
             )
@@ -205,7 +204,7 @@ private fun DayCell(
             .clickable(enabled = enabled) { onPick(value) },
         contentAlignment = Alignment.Center,
     ) {
-        BasicText(
+        ThemedText(
             text = dayOfMonth.toString(),
             style = theme.pickerTextStyle(
                 role = if (selected) TypeRole.BodyStrong else TypeRole.Body,

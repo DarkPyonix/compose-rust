@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -116,7 +115,7 @@ private fun TimeDial(
     val token = theme.type(TypeRole.Label)
 
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        BasicText(readableTime(minutes, formats), style = theme.pickerTextStyle(TypeRole.Title))
+        ThemedText(readableTime(minutes, formats), style = theme.pickerTextStyle(TypeRole.Title))
         Canvas(
             Modifier
                 .fillMaxWidth()
@@ -182,7 +181,7 @@ private fun TimeDial(
                         .clickable(enabled = enabled) { onPick(hour * 60L + mark) }
                         .padding(horizontal = 6.dp, vertical = 2.dp),
                 ) {
-                    BasicText(
+                    ThemedText(
                         text = mark.toString().padStart(2, '0'),
                         style = theme.pickerTextStyle(
                             role = TypeRole.Caption,
@@ -270,7 +269,7 @@ private fun TimeStepper(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(theme.space(SpaceRole.Sm)),
     ) {
-        BasicText(readableTime(minutes, formats), style = theme.pickerTextStyle(TypeRole.BodyStrong))
+        ThemedText(readableTime(minutes, formats), style = theme.pickerTextStyle(TypeRole.BodyStrong))
         Stepper("hour", enabled, theme) { step -> onPick(range.coerce(minutes + step * 60L)) }
         Stepper("minute", enabled, theme) { step -> onPick(range.coerce(minutes + step)) }
     }
@@ -285,7 +284,7 @@ private fun Stepper(
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         StepButton("▲", enabled, theme) { onStep(1) }
-        BasicText(
+        ThemedText(
             text = field,
             style = theme.pickerTextStyle(
                 role = TypeRole.Caption,

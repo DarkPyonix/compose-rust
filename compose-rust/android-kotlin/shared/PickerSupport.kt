@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -154,14 +153,14 @@ internal fun PickerField(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        BasicText(
+        ThemedText(
             text = label,
             style = theme.pickerTextStyle(
                 color = theme.color(if (enabled) ColorRole.OnSurface else ColorRole.OnSurfaceVariant),
             ),
         )
         if (trailing.isNotEmpty()) {
-            BasicText(
+            ThemedText(
                 text = trailing,
                 style = theme.pickerTextStyle(color = theme.color(ColorRole.OnSurfaceVariant)),
             )
@@ -217,7 +216,7 @@ internal fun PickerWheel(
                         .clickable(enabled = enabled) { onSelect(index) },
                     contentAlignment = Alignment.Center,
                 ) {
-                    BasicText(
+                    ThemedText(
                         text = labels[index],
                         style = theme.pickerTextStyle(
                             role = if (selected) TypeRole.BodyStrong else TypeRole.Body,
@@ -250,7 +249,7 @@ internal fun StepButton(
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        BasicText(
+        ThemedText(
             text = label,
             style = theme.pickerTextStyle(
                 role = TypeRole.Caption,
@@ -266,7 +265,7 @@ internal fun WeekdayHeader(initials: List<String>, theme: ResolvedTheme) {
     Row(Modifier.fillMaxWidth()) {
         initials.forEach { initial ->
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                BasicText(
+                ThemedText(
                     text = initial,
                     style = theme.pickerTextStyle(
                         role = TypeRole.Caption,
