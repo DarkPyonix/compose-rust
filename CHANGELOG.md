@@ -6,7 +6,7 @@
 
 A node can carry several `Shadow` modifiers, each its own layer with an offset, a blur, a
 spread and a colour with alpha, drawn in order behind the node ([#299](https://github.com/DarkPyonix/compose-rust/issues/299),
-FR-51). A shadow now takes its outline from the node's `Shape` or `ShapeRole` when the node
+FR-42.3). A shadow now takes its outline from the node's `Shape` or `ShapeRole` when the node
 has no `CornerEach`, so a `Column`, `Row`, `Box` or `Card` with a corner radius casts a
 rounded shadow instead of a rectangular one. The wire format is unchanged. All renderers
 share the one Kotlin file that draws it.

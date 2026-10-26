@@ -301,11 +301,11 @@ class HtmlElementsTest {
     }
 
     /**
-     * FR-51: several shadows on one node are several `Shadow` modifiers, each drawn as its
+     * FR-42.3: several shadows on one node are several `Shadow` modifiers, each drawn as its
      * own layer, a later one over an earlier one, all outside the node.
      */
     @Test
-    fun fr51_every_shadow_of_a_node_is_drawn_as_a_layer_in_order() = runComposeUiTest {
+    fun fr42_shadow_every_shadow_of_a_node_is_drawn_as_a_layer_in_order() = runComposeUiTest {
         show(
             page {
                 node(
@@ -328,11 +328,11 @@ class HtmlElementsTest {
     }
 
     /**
-     * FR-51: a node with a corner radius of its own (a `Shape`, not `CornerEach`) casts a
+     * FR-42.3: a node with a corner radius of its own (a `Shape`, not `CornerEach`) casts a
      * shadow with that radius, grown by the spread, rather than a rectangle.
      */
     @Test
-    fun fr51_a_shadow_follows_the_nodes_corner_radius() = runComposeUiTest {
+    fun fr42_shadow_a_shadow_follows_the_nodes_corner_radius() = runComposeUiTest {
         show(
             page {
                 node(

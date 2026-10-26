@@ -2422,11 +2422,11 @@ mod tests {
         assert_eq!(decode_batch(bytes).unwrap(), expected);
     }
 
-    /// FR-51: a node's shadows are several `Shadow` records at consecutive chain positions,
+    /// FR-42.3: a node's shadows are several `Shadow` records at consecutive chain positions,
     /// each with its own offset, blur, spread and paint (alpha included), and every one
     /// survives a round trip in the order it was written.
     #[test]
-    fn fr51_a_list_of_shadows_round_trips_in_order() {
+    fn fr42_shadow_a_list_of_shadows_round_trips_in_order() {
         let shadows = [
             Modifier::Shadow {
                 x: 0.0,
