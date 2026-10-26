@@ -355,6 +355,8 @@ static void *query(void *object, const GUID *iid, const char *what) {
  * Returns 1 when the window can show a picture. Sets sync_on when the resize synchronization is also in place.
  */
 static int set_up_composition(int width, int height) {
+    HRESULT initialized = RoInitialize(RO_INIT_SINGLETHREADED);
+    fprintf(stderr, "resize-sync-control: RoInitialize 0x%08lx\n", (unsigned long)initialized);
     HMODULE messaging = LoadLibraryW(L"CoreMessaging.dll");
     CreateQueueFn create_queue = messaging != NULL ? (CreateQueueFn)(void *)GetProcAddress(messaging, "CreateDispatcherQueueController") : NULL;
     if (create_queue == NULL) {
