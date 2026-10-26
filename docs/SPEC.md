@@ -3384,6 +3384,139 @@ Figma 모서리 매끄러움의 경로입니다. 모서리 하나는 **세제곱
 
 수정자 태그 하나(30), 값 4바이트. 렌더러의 모양 생성 한 곳. 디자인 시스템 규칙은 늘지 않습니다.
 
+### FR-53 한 프로세스의 여러 창 (`Draft`, 이슈 #355)
+
+소유자 지시(2026-10-26, 원문):
+
+> "여러 창을 띄우는 기능 >> 내가 저번에 electron 처럼 IDE 탭 떼서 새 창 만드는거도 가능해야 한다고 말했잖아. 니가 스펙으로 안만들어놨나보지. 여러 창을 띄우는 기능 추가해."
+
+지금 compose-rust 애플리케이션은 창을 하나만 가집니다. `launch`가 창 설정 하나(FR-19.3의 `SetWindow`)를 들고 렌더러 루프를 한 번 돌리고, Host와 노드 표와 창 크기, 확대 배율이 모두 프로세스에 하나씩입니다. Ember의 FR-B2(IDE 탭을 끌어 새 창으로 떼어 내기)는 Electron처럼 **한 프로세스 안에서 같은 앱의 창 여러 개가 상태를 나눠 가지는 것**을 전제로 하고, 그 바닥이 여기에 없습니다. 이 항목이 그 바닥입니다. 근거와 버린 대안은 INTENT D23에 있습니다.
+
+#### 53.1 창은 노드입니다
+
+- **새 위젯 `Window`를 둡니다.** 루트의 자식으로 `Window` 노드를 넣으면 Renderer가 플랫폼 창 하나를 열고, 그 노드의 자식을 그 창의 내용으로 그립니다. 노드를 지우면 창이 닫힙니다. 창을 여닫는 일은 다른 노드를 넣고 빼는 일과 같은 Mutation이고, 경계 함수는 하나도 늘지 않습니다(PR-2 그대로).
+- Compose Desktop의 `application { Window { } }`와 같은 모양입니다. 창 여러 개가 **하나의 composition, 하나의 Host, 하나의 노드 표**에 있으므로, 한 창의 핸들러가 쓴 상태를 다른 창이 읽으면 그 창도 같은 배치에서 바뀝니다. 창 사이에 메시지를 주고받는 장치가 따로 없습니다.
+- `Window` 노드는 루트의 자식으로만 둘 수 있습니다. 다른 자리에 넣으면 `ProtocolError`입니다(NFR-7). 창 안의 창(소유된 창, 도구 창)은 53.11의 열린 질문입니다.
+- 노드 id는 지금처럼 Host가 발급하고 세션 안에서 고유합니다. 창이 여럿이어도 id 공간은 하나라서, 노드 이벤트는 창 번호 없이도 어느 창의 것인지 정해집니다.
+
+#### 53.2 한 창짜리 애플리케이션은 그대로입니다
+
+- 실행 방식이 둘입니다. **한 창 방식**은 지금의 `launch(app)`이고, 루트의 내용이 `SetWindow` 설정으로 연 창 하나에 그려집니다. **여러 창 방식**은 `LaunchBuilder::windows()`로 켜고, 루트의 자식이 모두 `Window` 노드입니다.
+- 방식은 `SetWindow` 레코드가 나릅니다(53.10). 한 창 방식에서 `SetWindow`의 바이트는 지금과 같고, 그 앱이 보내는 배치도 지금과 바이트 단위로 같습니다. 소스 호환이고 와이어 호환입니다.
+- 한 창 방식의 창이 내는 창 이벤트는 지금처럼 `node_id = 0`입니다. 여러 창 방식에서는 그 자리에 `Window` 노드의 id가 들어갑니다(53.4).
+
+#### 53.3 창마다 정하는 것
+
+`Window` 노드의 속성입니다. FR-19.3이 앱 하나에 대해 정하던 것을 창마다 정합니다.
+
+- `Title`(문자열), `Size`(폭, 높이, dp), `MinSize`, `Resizable`, `Chrome`(FR-19.3, FR-19.9의 `Modern`, `System`, `FullSize`), `TitleBar`(FR-19.7), `Icon`(FR-16의 에셋 id, 0이면 앱의 아이콘).
+- `Position`(x, y, 화면 dp). 없으면 플랫폼이 놓습니다(macOS의 계단식 배치, Windows의 `CW_USEDEFAULT`, X11 창 관리자). 원점은 주 화면의 왼쪽 위이고 아래가 양수입니다. macOS의 아래 왼쪽 원점은 Renderer가 바꿉니다. 값을 바꾸면 창이 그 자리로 옮겨 갑니다(53.8).
+- `ZoomLevel`(FR-43). 확대는 창마다입니다. VS Code와 Electron이 창마다 확대하는 것과 같습니다. 저장은 FR-43대로 앱마다 하나이고, 새 창은 마지막으로 저장된 수준에서 시작합니다.
+- **테마 덮어쓰기.** 앱 전체의 테마는 지금처럼 `SetTheme`이고, 창 하나만 다른 디자인 시스템이나 색 구성표를 쓰려면 그 창에 대한 테마 레코드(53.10의 `SetWindowTheme`)를 보냅니다. 덮어쓰지 않은 창은 앱의 테마를 따릅니다.
+- 창의 내용 안전 영역(FR-19.2, FR-19.9의 `WindowSafeArea`)과 크기 클래스(FR-20)는 창마다 따로 계산됩니다.
+
+#### 53.4 창이 알리는 것
+
+창에 관한 이벤트는 그 창의 `Window` 노드에게 옵니다. 핸들러가 등록된 것만 경계를 건넙니다(FR-45와 같은 규칙).
+
+| 이벤트 | 뜻 | 페이로드 |
+|---|---|---|
+| `WindowCloseRequested` | 사용자가 닫기 버튼, `⌘W`/`Alt+F4`, 창 메뉴로 닫으려 함 | 없음 |
+| `WindowFocusChanged` | 창이 키 창(포커스를 받는 창)이 되거나 그 자리를 잃음 | `focused: u32`(0, 1) |
+| `WindowMoved` | 창의 바깥 틀이 옮겨지거나 크기가 바뀜. 프레임당 한 번으로 합침 | `x, y, width, height: f32`(화면 dp) |
+| `WindowDrag` | 끌어내기 중인 창의 움직임과 끝(53.7) | 53.7 |
+| `WindowDragOver` | 끌리는 창이 다른 창의 구독 노드 위를 지남(53.7) | 53.7 |
+
+- **닫기는 앱이 정합니다.** `WindowCloseRequested`만으로는 창이 닫히지 않고, 앱이 그 `Window` 노드를 지울 때 닫힙니다. Compose Desktop의 `onCloseRequest`와 같습니다. 저장하지 않은 파일을 묻는 대화 상자가 이 자리에서 나옵니다. Rust API는 이 핸들러를 필수 인자로 받으므로, 핸들러가 없는 `Window`는 compose-rust와 dioxus-compose가 만들지 않습니다. 와이어에서 핸들러가 없는 `Window`가 오면 Renderer는 닫기 요청을 무시하고 창을 둡니다.
+- **기존의 창 이벤트는 창을 밝힙니다.** `WindowSizeChanged`(FR-20), `ZoomChanged`(FR-43), `DensityChanged`(FR-43.1)는 지금 `node_id = 0`으로 옵니다. 여러 창 방식에서는 그 이벤트를 낸 창의 `Window` 노드 id가 그 자리에 들어갑니다. 레코드의 모양은 바뀌지 않습니다. `ColorSchemeChanged`(FR-44)와 `ReducedMotionChanged`(FR-41.2)는 시스템의 것이라 창과 무관하게 `node_id = 0`으로 한 번만 옵니다.
+- **Host API는 자기가 있는 창을 읽습니다.** `use_window_size()`(FR-20.6)와 확대 배율을 읽는 훅은 그것을 부른 composable이 들어 있는 창의 값을 돌려줍니다. 한 창 방식에서는 지금과 같습니다. 그 composable이 어느 창에 있는지는 `current_window()`가 `Window` 노드의 핸들로 돌려줍니다.
+- **포커스 요청은 명령입니다.** 창을 앞으로 가져오고 키 창으로 만드는 일은 상태가 아니라 한 번 일어나는 일이므로 속성이 아니라 레코드(53.10의 `FocusWindow`)입니다. 플랫폼이 포커스 가로채기를 막으면(Windows의 전경 잠금, 일부 X11 창 관리자) 창은 작업 표시줄에서 깜박이는 것으로 그치고, 그때 `WindowFocusChanged`는 오지 않습니다.
+
+#### 53.5 상태와 스레드
+
+- 창이 몇 개든 UI 스레드는 하나이고 Host도 하나입니다(PR-1, PR-3). 창마다 스레드나 Host를 두지 않습니다.
+- `request_frame`은 창 수와 무관하게 다음 프레임에 `render_frame` 한 번으로 합쳐집니다(PR-3). Renderer는 창마다 그리기 시점이 달라도(모니터마다 주사율이 다른 경우) Host에게는 프레임당 한 번만 묻고, 돌아온 배치를 모든 창에 한 스냅샷으로 적용합니다(PR-2). 한 창에만 반영되고 다른 창에는 아직 반영되지 않은 중간 상태가 그려지지 않습니다.
+- 가려지거나 최소화된 창이 있어도 다른 창의 프레임 클록이 돌면 그 클록이 요청을 처리합니다. 모든 창의 클록이 멈춰 있을 때만 PR-3의 직접 호출 규칙이 적용됩니다.
+- 창을 닫아도 그 창에서 쓰던 상태는 앱의 것이라 남습니다. 탭 하나를 다른 창으로 옮기는 일은 앱이 탭 모델을 옮기고 노드를 다시 만드는 일이며, 편집기의 커서와 스크롤처럼 Renderer에 있는 UI 로컬 상태(D5)는 앱이 옮길 값으로 다시 넣어야 합니다. 노드를 창 사이로 옮기는 `Move`는 `ProtocolError`입니다. Compose의 composition은 창(장면)마다 따로 있고, 한 장면의 노드를 다른 장면으로 옮기는 공개 API가 없기 때문입니다.
+
+#### 53.6 마지막 창이 닫힐 때
+
+- `LaunchBuilder::on_last_window_closed(LastWindowClosed)`로 정합니다. `Exit`이면 마지막 `Window` 노드가 지워진 배치를 적용한 뒤 렌더러 루프가 끝나고 `launch`는 상태 0으로 프로세스를 끝냅니다. `KeepRunning`이면 창 없이 루프가 계속 돕니다.
+- 기본값은 macOS에서 `KeepRunning`, Windows와 Linux에서 `Exit`입니다. 각 플랫폼의 관례입니다. macOS에서는 Dock 아이콘과 앱 메뉴가 남고, 창이 없을 때 Dock 아이콘을 누르면 루트에 `ApplicationReopen` 이벤트가 옵니다(`applicationShouldHandleReopen`). 앱은 그 자리에서 새 `Window`를 넣습니다.
+- 한 창 방식은 지금처럼 창을 닫으면 끝납니다.
+- `KeepRunning`인데 창이 하나도 없고 Dock도 없는 플랫폼(Windows, Linux)에서는 앱이 다시 창을 열 길을 가지고 있어야 합니다(트레이, 다른 프로세스의 요청). 그런 길이 없는 앱이 이 값을 고르면 다시 열 수 없는 프로세스가 남으므로, 디버그 빌드에서 시작할 때 한 번 경고합니다.
+
+#### 53.7 탭을 끌어 새 창으로 떼어 내기
+
+Electron 앱(VS Code)과 브라우저가 하는 일입니다. 탭을 잡고 창 밖으로 끌면 그 자리에 새 창이 생기고, 버튼을 놓을 때까지 새 창이 포인터를 따라옵니다. 다른 창의 탭 줄에 놓으면 그 창으로 합쳐집니다.
+
+- **떼어 낼지는 Host가 정합니다.** 탭 노드는 FR-46의 `Down`, `Move`를 구독하고 암묵적 캡처(46.4)로 창 밖에서도 `Move`를 받습니다. 끈 거리나 방향으로 떼어 낼 때가 되었다고 판단하면, Host는 같은 배치에서 원래 창의 탭을 지우고 새 `Window` 노드를 넣으면서 그 노드에 `DragFromPointer` 속성을 붙입니다.
+- **`DragFromPointer { pointer_id, anchor_x, anchor_y }`.** "지금 눌려 있는 그 포인터 아래에, 이 창 내용의 (anchor_x, anchor_y) dp 지점이 오도록 창을 놓고, 버튼을 놓을 때까지 포인터를 따라 옮겨라"라는 뜻입니다. Host는 화면 좌표를 몰라도 됩니다(FR-46.3). 화면에서 포인터가 어디 있는지는 Renderer가 압니다. `anchor`는 보통 탭을 누른 자리(`Down`의 노드 기준 좌표)에 새 창 안에서 탭이 놓일 자리를 더한 값입니다.
+- Renderer는 이 속성을 받으면 원래 창의 캡처를 끝내고(캡처한 노드에는 `Cancel`, FR-46.2), 새 창을 열어 포인터 아래에 놓고, 그 포인터가 놓일 때까지 창을 따라 옮깁니다. 따라 옮기는 방법(OS의 창 이동 루프에 넘기기, 매 포인터 이동마다 창 위치 바꾸기)은 Renderer가 플랫폼마다 고릅니다. 요구는 결과입니다. **끄는 동안 매 프레임 창의 anchor 지점이 포인터에서 1dp 안에 있습니다.**
+- 이 속성은 창이 처음 열릴 때만 읽습니다. 이미 열린 창에 나중에 붙이면 무시합니다. 그 포인터가 이미 놓였으면 창은 그 자리에 열리고 끌기는 시작하지 않습니다.
+- **끄는 동안과 끝.** Renderer는 끌리는 창의 `Window` 노드에 `WindowDrag` 이벤트를 보냅니다. `phase: u32`(`Move=1`, `End=2`, `Cancel=3`), 포인터의 화면 좌표 `screen_x, screen_y: f32`(dp), 그 아래에 있는 다른 창의 `Window` 노드 id `over_window: u32`(없으면 0)입니다. `Move`는 프레임당 한 번으로 합칩니다(FR-46.4와 같은 규칙). `End`는 버튼을 놓았을 때, `Cancel`은 OS가 끌기를 가져가거나 `Esc`를 눌렀을 때 한 번 옵니다.
+- **합치기.** 다른 창의 노드가 `OnWindowDragOver` 핸들러를 등록하면, 끌리는 창 아래에 그 노드가 올 때 그 노드에 `WindowDragOver`가 옵니다. `kind: u32`(`Enter=1`, `Move=2`, `Leave=3`, `Drop=4`), 끌리는 창의 `Window` 노드 id `window: u32`, 노드 기준 좌표 `x, y: f32`(dp, FR-46.3과 같은 규칙)입니다. 탭 줄이 이것을 구독하면 놓일 자리를 보여 주고, `Drop`에서 앱이 탭을 그 창으로 옮긴 뒤 끌던 `Window` 노드를 지웁니다. 핸들러를 등록한 노드가 없으면 이 이벤트는 경계를 건너지 않습니다.
+- 끄는 동안 포인터 아래의 판정에서 끌리는 창 자신은 빠집니다.
+- 이 흐름에 새 경계 함수는 없습니다. 속성 하나, 이벤트 둘, 핸들러 속성 하나입니다.
+
+#### 53.8 프로그램으로 옮기기와 크기 바꾸기
+
+- `Position`과 `Size`를 바꾸면 창이 그 값으로 옮겨지고 바뀝니다. 결과는 `WindowMoved`로 돌아옵니다. 창 관리자가 다른 값을 고르면(화면 밖, 작업 표시줄 위) 돌아오는 값이 실제 값입니다.
+- 사용자가 끌어서 옮기거나 크기를 바꾼 것도 `WindowMoved`로 옵니다. Host가 이 값을 `Position`과 `Size`에 다시 넣을 필요는 없습니다. Renderer는 속성 값이 **바뀔 때만** 창에 적용하고, 사용자가 옮긴 자리를 앱이 들고 있는 옛 값으로 되돌리지 않습니다.
+- 창의 바깥 틀 좌표는 화면 dp이고, 화면이 여러 개면 주 화면 기준의 한 좌표계입니다. 화면마다 배율이 다를 때 dp는 그 창이 있는 화면의 배율로 셉니다.
+
+#### 53.9 플랫폼 범위
+
+| 플랫폼 | 범위 | 이유 |
+|---|---|---|
+| macOS | 필수 | `NSWindow` 여러 개. 앱과 창의 수명이 따로인 플랫폼이라 53.6의 `KeepRunning`이 기본 |
+| Windows | 필수 | `HWND` 여러 개, 한 메시지 루프 |
+| Linux (X11) | 필수 | X 창 여러 개, 한 연결 |
+| Linux (Wayland 직접) | 지금 해당 없음 | 데스크톱 렌더러의 Linux 창은 X11이고 Wayland에서는 XWayland로 돕니다. Wayland 프로토콜은 앱이 창의 화면 위치를 정하거나 읽는 길을 주지 않으므로, Wayland 창을 직접 열게 되면 `Position`과 `DragFromPointer`의 따라 옮기기는 `xdg_toplevel.move`로 바꿔야 합니다. 그때 이 항목을 고칩니다 |
+| iPadOS | 나중 | 창은 앱이 아니라 시스템이 여는 장면(`UIScene`)이고, 앱은 `requestSceneSessionActivation`으로 요청만 합니다. 탭 떼어 내기는 끌어 놓기 세션에 `NSUserActivity`를 싣는 다른 모양입니다. Kotlin/Native의 장면 연결(FR-14.9 D15)이 먼저 있어야 합니다 |
+| iOS(폰) | 해당 없음 | 화면에 창이 하나입니다 |
+| Android | 나중 | 창은 Activity이고 프로세스와 루프의 주인이 Kotlin입니다(PR-5). 새 창은 `FLAG_ACTIVITY_LAUNCH_ADJACENT`로 Activity를 하나 더 띄우는 일이고, Activity마다 surface와 Renderer 진입이 따로 생깁니다. PR-5의 수명 주기를 Activity 여러 개로 넓히는 설계가 먼저입니다 |
+| Web | 해당 없음 | 브라우저 탭 하나가 문서 하나입니다. `window.open`은 다른 문서이고 같은 wasm 메모리를 나누지 않습니다(PR-6) |
+| GraalVM native-image 경로 | 해당 없음 | 출시되지 않는 경로입니다(D4). 둘째 `Window` 노드는 아래처럼 `WindowUnavailable`로 답합니다. JVM 개발 셸(D7)은 Compose Desktop의 `Window`를 그대로 써서 여러 창을 엽니다 |
+
+- **해당 없거나 나중인 플랫폼에서도 여러 창 방식의 앱이 돕니다.** 첫 `Window` 노드가 그 플랫폼의 화면 하나에 그려지고, 그 뒤의 `Window` 노드는 열리지 않으며 그 노드에 `WindowUnavailable` 이벤트가 한 번 옵니다. 탭을 떼어 내지 못한 앱은 이것을 보고 탭을 원래 자리에 둡니다. 크래시도 `ProtocolError`도 아닙니다.
+
+#### 53.10 와이어
+
+- 새 위젯 `Window`. 속성은 53.3의 것과 `DragFromPointer`, 핸들러 속성은 53.4의 이벤트마다 하나와 `OnWindowDragOver`(창이 아닌 노드에 붙음)입니다.
+- 새 이벤트 `WindowCloseRequested`, `WindowFocusChanged`, `WindowMoved`, `WindowDrag`, `WindowDragOver`, `WindowUnavailable`, `ApplicationReopen`. 모두 고정 길이이고 문자열이 없습니다(PR-4).
+- 새 명령 레코드 `SetWindowTheme(node_id, theme)`(`SetTheme`의 페이로드 앞에 `node_id`), `FocusWindow(node_id)`.
+- `SetWindow`의 남는 칸에 방식(`Single=0`, `Windows=1`)과 53.6의 `LastWindowClosed`를 싣습니다. 둘 다 0이면 지금의 레코드와 같은 바이트입니다.
+- **경계 함수는 바뀌지 않습니다.** 진입점도 시그니처도 그대로라 PR-2의 변경이 아니라 FR-7의 스키마 변경이고, 스키마 해시가 바뀝니다.
+- 번호는 구현 PR이 병합 시점의 develop에서 쓰이지 않은 다음 자리로 정하고 이 항목에 적습니다. 여러 PR이 같은 블록을 다투고 있어 지금 적으면 겹칩니다.
+
+#### 53.11 수용 기준
+
+Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을 실제로 여는 검사는 포크의 창 모듈 검사와 compose-rust의 데스크톱 렌더러 검사(macOS, Windows, Linux Xvfb)에서 가상 입력으로 돕니다.
+
+1. `launch(app)`으로 띄운 한 창짜리 앱의 초기 배치가 이 변경 전과 바이트 단위로 같습니다(fr53_single_window_app_batches_are_unchanged).
+2. 여러 창 방식에서 루트에 `Window` 노드 둘을 넣으면 플랫폼 창이 둘 열리고, 하나를 지우면 그 창만 닫힙니다(fr53_window_nodes_open_and_close_platform_windows). 인터프리터는 가짜 창 백엔드로, 데스크톱 세 플랫폼은 실제 창으로 확인합니다.
+3. 두 창이 같은 상태를 읽을 때, 한 창의 핸들러가 그 상태를 바꾸면 돌아온 배치 하나에 두 창의 변경이 함께 들어 있고, 한 스냅샷으로 적용됩니다(fr53_windows_share_state_in_one_batch).
+4. 창 셋이 열린 채 워커가 `request_frame`을 여러 번 불러도 프레임당 `render_frame`은 한 번입니다(fr53_one_render_frame_serves_every_window).
+5. 둘째 창의 크기 클래스 전환, 확대, 밀도 변화가 그 창의 `Window` 노드 id로 오고, 그 창 안의 `use_window_size()`만 깨어납니다. 첫째 창의 composable은 다시 실행되지 않습니다(fr53_window_events_name_their_window).
+6. 닫기 버튼은 `WindowCloseRequested`만 보내고, 앱이 노드를 지울 때까지 창은 열려 있습니다(fr53_close_request_leaves_the_window_to_the_app).
+7. `Exit`에서 마지막 창을 지우면 `compose_rust_renderer_run`이 0을 돌려주고, `KeepRunning`에서는 루프가 계속 돌며 새 `Window`를 넣으면 창이 다시 열립니다(fr53_last_window_closed_policy). macOS의 `ApplicationReopen`은 손으로 확인합니다.
+8. 창 사이로 포커스를 옮기면 잃는 창과 얻는 창에 `WindowFocusChanged`가 한 번씩 옵니다. `FocusWindow`로 앞에 가져온 창이 키 창이 됩니다(fr53_focus_moves_between_windows).
+9. `Position`을 바꾸면 창이 옮겨지고 `WindowMoved`가 1dp 안의 값을 돌려줍니다. 사용자가 옮긴 창은 앱이 같은 속성 값을 다시 보내도 되돌아가지 않습니다(fr53_programmatic_move_and_user_move).
+10. 가상 입력으로 탭 노드를 눌러 창 밖으로 200dp 끌면, Host가 넣은 `DragFromPointer` 창이 열리고 놓을 때까지 매 프레임 anchor가 포인터에서 1dp 안에 있으며, 놓으면 `WindowDrag(End)`가 포인터의 화면 좌표와 함께 한 번 옵니다(fr53_torn_off_window_follows_the_pointer). macOS, Windows, Linux에서 돕니다.
+11. 끌리는 창을 다른 창의 구독 노드 위로 옮겨 놓으면 그 노드가 `Enter`, `Move`, `Drop`을 노드 기준 좌표로 받고, 끌리는 창 자신은 판정에서 빠집니다(fr53_drag_over_reaches_the_drop_target).
+12. 새 레코드와 이벤트가 Rust와 Kotlin에서 같은 바이트로 인코딩되고 디코딩됩니다(프로토콜 벡터, fr53_window_records_round_trip). 루트가 아닌 자리의 `Window`와 창 사이의 `Move`는 `ProtocolError`이고 프로세스는 계속 돕니다(nfr7_misplaced_window_is_a_protocol_error).
+13. iOS, Android, Web 렌더러에서 둘째 `Window` 노드는 `WindowUnavailable` 한 건을 받고, 첫째 창은 그대로 그려집니다(fr53_unsupported_platform_reports_unavailable).
+14. 창 셋이 열린 장면에서 정상 상태 프레임의 Host 할당이 0이고 프레임 시간이 NFR-9 예산 안입니다. 둘째 창을 여는 데 드는 메모리를 플랫폼마다 재어 이 항목에 기록합니다.
+15. **사람이 확인합니다.** 둘째 창에서 IME 조합(§6)과 스크린 리더(§7, VoiceOver, 내레이터, Orca)가 첫째 창과 같게 동작합니다. 확인한 날짜와 운영체제를 이 항목에 적습니다.
+
+#### 53.12 열린 질문
+
+- Chrome처럼 끄는 도중에 다른 창의 탭 줄에 닿으면 바로 그 창에 붙고 끌기가 탭 끌기로 이어지는 것. 53.7은 놓을 때 합칩니다(VS Code의 방식). 이어 붙이려면 창 이동이 다른 창의 포인터 캡처로 넘어가야 하고, 그 방법이 플랫폼마다 다릅니다.
+- 소유된 창(부모 창 위에 늘 떠 있는 도구 창, 모달 창)을 `Window`의 자식 `Window`로 둘지.
+- 메뉴(FR-30)의 자리. macOS의 메뉴 막대는 앱에 하나이고 Windows와 Linux의 메뉴는 창마다입니다. 키 창이 바뀔 때 메뉴를 바꾸는 규칙이 필요합니다.
+- 창의 위치와 크기를 다음 실행에 되살리는 일을 Renderer가 할지(FR-43의 확대 수준처럼), 앱이 `WindowMoved`로 들고 있다가 `Position`으로 돌려줄지.
+
 ## 4. 경계 프로토콜
 
 ### PR-1 호출 모델: 동기·동일 스레드 직접 호출 (`Done`)
