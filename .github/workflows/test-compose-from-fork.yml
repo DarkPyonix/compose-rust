@@ -315,6 +315,10 @@ jobs:
         # The comparison runs before the renderer and does not stop it, so that one failing
         # does not hide the other's result. This is where a difference fails the job.
         if: always() && steps.compare.outcome == 'failure'
+        # The comparison proved the fork equals the old patched build while the pin was the
+        # commit that held the same tree. The pin has moved on to the fork's ext.2 line, whose
+        # Compose differs on purpose (new metadata, new sources), so a difference is reported
+        # in the comparison step and no longer fails the job. The renderer built against the
+        # fork's publication below is the proof that matters now.
         run: |
-          echo "the fork and the patched build published different contents; see the comparison step" >&2
-          exit 1
+          echo "the fork and the patched build published different contents, as the moved pin is expected to; see the comparison step" >&2

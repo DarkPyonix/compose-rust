@@ -47,8 +47,6 @@ dependencies:
   - org.thisisthepy.compose.window:common:1.11.1-ext.2
   - org.thisisthepy.compose.window:graalvm-macos:1.11.1-ext.2
   - org.thisisthepy.compose.window:graalvm-linux:1.11.1-ext.2
-  # The scene's reader of semantics, which the X11 window's screen reader support is fed from.
-  - org.thisisthepy.compose.window:scene:1.11.1-ext.2
 
 test-dependencies:
   - org.thisisthepy.compose.ui:ui-test-junit4:1.11.1-ext.2

@@ -32,7 +32,10 @@ classpath="$(tr ':' '\n' <<< "$classpath" | grep -v 'kotlinx-coroutines-swing' |
 # skiko's native half for every desktop system is on the JVM class path (desktop/module.yaml names
 # them all, because the toolchain can pick the system only for JetBrains' own desktop module).
 # The image takes this system's alone, as it did when the toolchain picked it.
-classpath="$(tr ':' '\n' <<< "$classpath" | grep -v -E 'skiko-awt-runtime-' ;
+# JetBrains' skiko-awt comes in as well, because the fork's Compose modules ask for
+# org.jetbrains.skiko:skiko, whose JVM half it is. The fork's skiko-awt (a different group) is the
+# one the image takes, and two jars of the same classes would leave the choice to class path order.
+classpath="$(tr ':' '\n' <<< "$classpath" | grep -v -E 'skiko-awt-runtime-|/org/jetbrains/skiko/skiko-awt/' ;
     tr ':' '\n' <<< "$classpath" | grep -E "skiko-awt-runtime-linux-$SKIKO_ARCH-[0-9]" || true)"
 classpath="$(paste -sd: - <<< "$classpath")"
 

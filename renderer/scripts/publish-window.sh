@@ -39,6 +39,9 @@ fi
 case "$(uname -s)" in
     Darwin)
         if [[ -d "$HOME/.m2/repository/org/thisisthepy/compose/ui/ui-macosarm64" ]]; then
+            # native/macos names ../../scene, so scene is published with it even on a Mac that
+            # has only the macosArm64 Compose and not the desktop one.
+            [[ " ${modules[*]} " == *" scene "* ]] || modules+=(scene)
             modules+=(native/macos)
         fi ;;
     # The Windows window's Kotlin/Native layer, for mingwX64. Its C is compiled by MSVC from
@@ -92,13 +95,15 @@ esac
 # on it. The Linux and Windows layers do not: native/linux-scene is published by
 # publish-native-linux.sh with its own scene, and nothing else asks for scene's native halves.
 if [[ " ${modules[*]} " == *" scene "* ]]; then
-    scene_platforms="jvm"
-    if [[ " ${modules[*]} " == *" native/macos "* ]]; then
-        scene_platforms="jvm, macosArm64"
-    fi
+    scene_platforms=()
+    # The JVM half compiles against the fork's desktop Compose, and the macosArm64 half against
+    # its macosArm64 Compose: each is built only where that Compose is in the local repository.
+    [[ -d "$HOME/.m2/repository/org/thisisthepy/compose/ui/ui-desktop" ]] && scene_platforms+=(jvm)
+    [[ " ${modules[*]} " == *" native/macos "* ]] && scene_platforms+=(macosArm64)
+    scene_platforms_list="$(IFS=,; echo "${scene_platforms[*]}" | sed 's/,/, /g')"
     # A suffix for -i and the copy removed after, because BSD sed on macOS takes the next
     # argument to -i as one.
-    sed -i.orig "s/^  platforms: \\[.*\\]\$/  platforms: [ $scene_platforms ]/" "$window/scene/module.yaml"
+    sed -i.orig "s/^  platforms: \\[.*\\]\$/  platforms: [ $scene_platforms_list ]/" "$window/scene/module.yaml"
     rm -f "$window/scene/module.yaml.orig"
 fi
 # The PATH kotlin.bat runs with on Windows: System32 first, and none of Git's own directories
