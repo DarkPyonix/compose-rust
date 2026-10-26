@@ -33,6 +33,19 @@ Why there is a control window
   and run-probe-v2 writes the same line at the top of each application log, because whether
   Windows hides late frames depends on the build.
 
+A window that asks Windows to wait for it (sync)
+  resize-sync-control.exe uses the private resize synchronization that the Settings app uses,
+  the way a plain Win32 window can (user32 ordinals 2615, 2614 and 2538 and
+  IDCompositionDesktopDevicePartner6::SynchronizedCommit, looked up at run time). Where Windows
+  holds a window's frame until the window has drawn, this window is 50 ms late (sync late) and
+  the probe should still see no black, no hole and no stale frame (PASS), at the price of a
+  larger lag: the frame waits. sync prompt is the same window not late on purpose, so its lag is
+  what the mechanism costs by itself. sync swapchain draws through a composition swapchain
+  instead of a drawing surface. The table says "sync=on" and how many drag steps had a token;
+  "sync=off" means the mechanism was missing on this build of Windows (the log says which part).
+  Compare with control late on the same machine: control FAILs, sync late PASSes, where the
+  mechanism works.
+
 The quick way: every app, every path, all three rates
   Double-click run-probe-v2.cmd (or run run-probe-v2.ps1 in PowerShell) and do not touch the
   mouse until it says "Done". It drags hand-check.exe (the Kotlin/Native renderer), then
