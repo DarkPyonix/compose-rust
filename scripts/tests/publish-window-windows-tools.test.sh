@@ -39,8 +39,9 @@ printf '#!/usr/bin/env bash\necho "%s"\n' "$fork" > "$tree/scripts/fetch-fork-wi
 chmod +x "$tree/scripts/fetch-fork-window.sh"
 printf 'modules:\n  - common\n' > "$window/project.yaml"
 printf 'product:\n  type: lib\n  platforms: [ jvm ]\n' > "$window/common/module.yaml"
-# Off Windows the script also turns scene's platforms to the JVM alone.
-cp "$window/common/module.yaml" "$window/scene/module.yaml"
+# scene is published wherever the fork's desktop Compose is in the local repository, which this
+# machine may have, so the fixture has the module the script edits.
+printf 'product:\n  type: lib\n  platforms: [ jvm, macosArm64, linuxX64, linuxArm64 ]\n' > "$window/scene/module.yaml"
 record="$work/wrapper.txt"
 # The wrapper stubs: say they ran, and (on Windows) which tar.exe comes first on PATH.
 printf '#!/usr/bin/env bash\necho "ran ./kotlin $*" > "%s"\n' "$record" > "$window/kotlin"

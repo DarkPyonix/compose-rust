@@ -15,7 +15,7 @@
 #      differs between the two;
 #   3. the two repositories are compared file by file, and every archive entry by entry with
 #      zip timestamps left out (.github/scripts/compare-maven-repos.py). The fork publishes
-#      under its own coordinates (org.thisisthepy.compose at 1.11.1-ext.1) where the old build
+#      under its own coordinates (org.thisisthepy.compose at 1.11.1-ext.2) where the old build
 #      used JetBrains' (org.jetbrains.compose at 1.11.1), so the fork's side is read under the
 #      old names: its paths, its metadata and the module names inside its klibs. It also
 #      publishes every sibling its modules name, which the old build took from JetBrains, so

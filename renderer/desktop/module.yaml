@@ -6,7 +6,7 @@ product: jvm/app
 # publishes, and its skiko-awt, which `scripts/publish-skiko-awt.sh` publishes. They carry what
 # the toolkit-free windows need and upstream does not have. The fork publishes under its own
 # group, org.thisisthepy.compose, so nothing JetBrains publishes can stand in for them, and
-# skiko-awt under a version of its own above JetBrains' 0.144.6.
+# skiko-awt under org.thisisthepy.compose.skiko, on the same version line.
 repositories:
   - mavenLocal
 
@@ -20,19 +20,19 @@ dependencies:
   # native half for each desktop system a build script here supports. The toolchain can pick
   # the system only for JetBrains' own desktop module, so every one is named; each loads only
   # its own library at run time, and the native image scripts keep only this system's.
-  - org.thisisthepy.compose.runtime:runtime:1.11.1-ext.1
-  - org.thisisthepy.compose.desktop:desktop:1.11.1-ext.1
-  - org.thisisthepy.compose.ui:ui:1.11.1-ext.1
-  - org.thisisthepy.compose.ui:ui-text:1.11.1-ext.1
-  - org.thisisthepy.compose.foundation:foundation:1.11.1-ext.1
-  - org.jetbrains.skiko:skiko-awt:0.144.6.1
+  - org.thisisthepy.compose.runtime:runtime:1.11.1-ext.2
+  - org.thisisthepy.compose.desktop:desktop:1.11.1-ext.2
+  - org.thisisthepy.compose.ui:ui:1.11.1-ext.2
+  - org.thisisthepy.compose.ui:ui-text:1.11.1-ext.2
+  - org.thisisthepy.compose.foundation:foundation:1.11.1-ext.2
+  - org.thisisthepy.compose.skiko:skiko-awt:1.11.1-ext.2
   - org.jetbrains.skiko:skiko-awt-runtime-macos-arm64:0.144.6
   - org.jetbrains.skiko:skiko-awt-runtime-macos-x64:0.144.6
   - org.jetbrains.skiko:skiko-awt-runtime-linux-x64:0.144.6
   - org.jetbrains.skiko:skiko-awt-runtime-linux-arm64:0.144.6
   - org.jetbrains.skiko:skiko-awt-runtime-windows-x64:0.144.6
   # FR-11's example extension draws a Material 3 progress indicator.
-  - org.thisisthepy.compose.material3:material3:1.11.0-alpha07-ext.1
+  - org.thisisthepy.compose.material3:material3:1.11.1-ext.2
   # Swing's Dispatchers.Main, which a run on a JVM with the toolkit's window needs. The native
   # image scripts take it off the image's class path: the windows there answer Dispatchers.Main
   # themselves (FrameMainDispatcher).
@@ -44,12 +44,14 @@ dependencies:
   - org.graalvm.sdk:nativeimage:25.0.1: compile-only
   # What every window decides the same way, and the AppKit and X11 windows of the native
   # image path. The Windows window is still this module's own.
-  - org.thisisthepy.compose.window:common:0.1.0
-  - org.thisisthepy.compose.window:graalvm-macos:0.1.0
-  - org.thisisthepy.compose.window:graalvm-linux:0.1.0
+  - org.thisisthepy.compose.window:common:1.11.1-ext.2
+  - org.thisisthepy.compose.window:graalvm-macos:1.11.1-ext.2
+  - org.thisisthepy.compose.window:graalvm-linux:1.11.1-ext.2
+  # The scene's reader of semantics, which the X11 window's screen reader support is fed from.
+  - org.thisisthepy.compose.window:scene:1.11.1-ext.2
 
 test-dependencies:
-  - org.thisisthepy.compose.ui:ui-test-junit4:1.11.1-ext.1
+  - org.thisisthepy.compose.ui:ui-test-junit4:1.11.1-ext.2
   - $kotlin.test
 
 settings:

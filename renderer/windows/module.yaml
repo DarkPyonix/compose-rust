@@ -53,10 +53,10 @@ dependencies:
   # What every window decides the same way, and the event and accessibility records: the
   # fork's window logic, published for mingwX64 by scripts/publish-window.sh from the pinned
   # fork commit, as the macOS and Linux renderers link it.
-  - org.thisisthepy.compose.window:common:0.1.0
+  - org.thisisthepy.compose.window:common:1.11.1-ext.2
   # The window itself: the Kotlin/Native layer over the fork's Win32 C (Win32NativeWindow,
   # Win32Loop), published for mingwX64 by the same script on Windows.
-  - org.thisisthepy.compose.window:windows-shared:0.1.0
+  - org.thisisthepy.compose.window:windows-shared:1.11.1-ext.2
 
 test-dependencies:
   - $kotlin.test
