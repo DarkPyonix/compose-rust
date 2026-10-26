@@ -217,6 +217,9 @@ impl RuntimeSignal {
 /// on the largest screen it builds, and what is past this is allocated again.
 const ATTR_POOL_LIMIT: usize = 512;
 
+/// The most group lists kept for reuse.
+const VEC_POOL_LIMIT: usize = 1024;
+
 pub(crate) struct Composer {
     pub(crate) groups: Vec<Group>,
     free: Vec<GroupId>,
@@ -291,6 +294,12 @@ impl Composer {
     }
 
     fn give_vec(&mut self, mut vec: Vec<GroupId>) {
+        // The same two rules as `recycle_attrs`: a group made fresh opens with an empty
+        // list and hands that back when it closes, one empty buffer per new group, and
+        // none of them is worth keeping.
+        if vec.capacity() == 0 || self.vec_pool.len() >= VEC_POOL_LIMIT {
+            return;
+        }
         vec.clear();
         self.vec_pool.push(vec);
     }
