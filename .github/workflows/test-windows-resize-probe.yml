@@ -148,7 +148,7 @@ jobs:
           cp "$(cygpath -u "$RUNNER_TEMP")/hand-check/hand-check.exe" "$kit/"
           cp .github/scripts/run-probe-v2.ps1 .github/scripts/run-probe-v2.cmd "$kit/"
           cp .github/scripts/resize-probe-README.txt "$kit/README.txt"
-          cp .github/scripts/resize-probe-README-ko.txt "$kit/안내.txt"
+          cp .github/scripts/resize-probe-README-ko.txt "$kit/README-ko.txt"
           {
             echo
             echo "This kit"
