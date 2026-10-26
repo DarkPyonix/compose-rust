@@ -97,12 +97,12 @@ internal fun Node.textStyle(theme: ResolvedTheme, defaultRole: TypeRole = TypeRo
 
 internal fun Node.maxLines(): Int = intProp(PropertyKind.MaxLines)?.toInt() ?: Int.MAX_VALUE
 
-internal fun Node.overflow(): ComposeOverflow =
+internal fun Node.overflow(default: ComposeOverflow = ComposeOverflow.Clip): ComposeOverflow =
     when (role(PropertyKind.Overflow, TextOverflow.entries.toTypedArray())) {
         TextOverflow.Clip -> ComposeOverflow.Clip
         TextOverflow.Ellipsis -> ComposeOverflow.Ellipsis
         TextOverflow.Visible -> ComposeOverflow.Visible
-        null -> ComposeOverflow.Clip
+        null -> default
     }
 
 /** `spacing` is a literal dp, `space_role` goes through the table; the literal wins. */
