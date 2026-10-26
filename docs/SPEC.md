@@ -4447,3 +4447,25 @@ VoiceOver 수동 절차는 `experiments/accessibility/README.md`에 있습니다
 ## 8. 열린 질문 추적
 
 [PROJECT.md](../PROJECT.md#열린-질문)의 열린 질문 표를 참고하세요. 결정이 나면 해당 SPEC 항목을 `Agreed`로 올리고 INTENT에 결정을 기록합니다.
+
+### FR-52 앱 글꼴: 글꼴 스택과 테마 기본 글꼴 (`Draft`, 이슈 #304)
+
+요청한 쪽: Ember. 번들한 Inter와 Pretendard가 macOS, Windows, Linux의 모든 화면에서 쓰여야 한다. 지금은 역할마다 글꼴 파일 하나만 이름 붙일 수 있고, 그 글꼴에 없는 글자(Inter의 한글)는 기계의 글꼴(Apple SD Gothic Neo, 맑은 고딕)에서 온다. Skia는 등록한 글꼴을 시스템 글꼴보다 뒤에 찾기 때문이다.
+
+#### 52.1 규칙
+
+1. **글꼴 스택은 `AssetKind::Font` 에셋이다.** 바이트는 `CRFS` 매직, 버전 1, 패밀리 수, 패밀리마다 얼굴 수와 얼굴 id(전부 little endian `u32`)다. 어떤 글꼴 형식도 `CRFS`로 시작하지 않으므로 새 에셋 종류도 스키마 해시 변경도 없다. 작성 API는 `FontStack::new().family([...]).register()`다.
+2. 패밀리 하나는 한 서체의 얼굴들이고, 굵기와 기울임은 각 파일에서 읽는다. 텍스트는 첫 패밀리로 쓰고, 첫 패밀리에 글리프가 없는 글자는 그 글자를 가진 다음 패밀리로 쓴다. 어느 패밀리에도 없으면 플랫폼 대체 글꼴이다.
+3. 등록하지 않은 얼굴 id를 담은 스택은 통째로 거절하고 `ProtocolError`를 보낸다.
+4. **`Theme::with_default_font(id)`** 는 `Mono`를 뺀 모든 역할을 그 글꼴로 해석한다. 역할이 없는 텍스트가 글꼴 목록을 주지 않으면 테마의 `Body` 글꼴을 쓴다.
+5. 글자 단위 대체는 `Text`, `Button`, `Chip`, 라벨을 그리는 모든 위젯, `TextField`에 같이 적용되고, 측정 호출과 그리기가 같은 값을 낸다. FR-48.1 규칙 3(글꼴 목록의 글자 단위 대체)도 같은 구현이다.
+6. 역할이 없는 `TextField`는 `Text`처럼 `font` 목록을 받는다.
+7. 같은 패밀리 이름의 두 얼굴은 두 얼굴로 남는다.
+
+#### 52.2 수용 기준
+
+1. 스택 바이트가 왕복하고 글꼴 파일과 섞이지 않는다(fr52_a_font_stack_round_trips_in_order, fr52_font_stack_bytes_are_never_a_font_file).
+2. `with_default_font`가 `Mono`를 뺀 모든 역할을 채운다(fr52_a_default_font_names_every_role_but_mono).
+3. 스택으로 쓴 `Text`, `Button`, `Chip`, `TextField`의 한글이 번들한 한글 얼굴로 그려진다(fr52_text_in_a_stack_takes_hangul_from_the_shipped_korean_face 등). 한글 얼굴이 없으면 그렇지 않다(fr52_without_the_korean_face_hangul_comes_from_the_machine).
+4. 글꼴 목록의 다음 글꼴로 넘어간 글자의 측정값이 그린 값과 같다(fr48_missing_glyph_falls_to_next_font).
+5. 데스크톱 렌더러 셋(macOS, Linux, Windows Kotlin/Native와 GraalVM)은 같은 인터프리터 파일로 빌드되므로 위 테스트가 그 셋을 덮는다. 실제 창에서 본 확인은 Ember 화면으로 따로 한다.
