@@ -703,3 +703,19 @@ void dxc_appkit_footprint_breakdown(int32_t elapsed_s, int32_t is_end) {
     (void)is_end;
 }
 #endif
+
+/*
+ * Whether the GraalVM image's Win32 window is maximised, for the caption's maximise or
+ * restore glyph. The image's Kotlin names this on every platform, so every platform has to
+ * define it; only Windows has a window that can answer.
+ */
+#ifdef _WIN32
+int32_t dxc_win32_window_zoomed(void *window) {
+    return IsZoomed((HWND)window) ? 1 : 0;
+}
+#else
+int32_t dxc_win32_window_zoomed(void *window) {
+    (void)window;
+    return 0;
+}
+#endif

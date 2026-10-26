@@ -62,8 +62,8 @@ private external fun configureWindow(
     backdrop: Int,
 )
 
-/** user32's own answer, on the window the C side opened, for the maximise or restore glyph. */
-@CFunction("IsZoomed")
+/** user32's IsZoomed on the window the C side opened (renderer_entry.c; 0 off Windows). */
+@CFunction("dxc_win32_window_zoomed")
 private external fun isZoomed(window: Pointer?): Int
 
 @CFunction("dxc_native_window_size")
