@@ -201,7 +201,7 @@ Material 3, Apple HIG, Fluent, Liquid Glass를 비롯한 디자인 시스템 일
 ### 크레이트 쓰기
 
 ```bash
-cargo add compose-rust@0.0.3
+cargo add compose-rust@0.0.4
 ```
 
 `cargo build`가 대상에 필요한 렌더러를 알아내고, 크레이트의 정확한 버전에 맞는 릴리스 아티팩트를

@@ -1,5 +1,35 @@
 # Changelog
 
+## v0.0.4
+
+### Windows windows have caption buttons again
+
+The GraalVM Windows renderer, which is what ships, opened its window without configuring the
+native chrome and composed the content without a caption or window actions, so minimise,
+maximise and close were never drawn (#339). It now configures the window from the
+application's `Chrome`, provides a 32 dp caption and the native window actions, and tracks the
+maximised state. The window modules are pinned to a revision whose system chrome is on by
+default and whose maximise button answers `HTMAXBUTTON`, so Snap Layouts open from it.
+
+### The mouse wheel scrolls the right way on Windows
+
+The Win32 window passed the wheel delta through unsigned, so content scrolled against the
+wheel. The pinned window modules negate it into Compose's direction, and a script test checks
+the sign.
+
+### Button and Chip labels stay on one line
+
+A parent that squeezed a Button or Chip measured its label at the width of one Hangul syllable,
+so a label like 보내 broke over two lines. Labels are now one line with an ellipsis. A Button
+still honours `max_lines` and `overflow` when the Host sets them (#328).
+
+### Releases and documentation
+
+The crates.io workflow installs every library the Linux renderer links and can be run by hand
+for an existing tag. The documentation records that Windows ships the Kotlin/Native static
+renderer only, and the SPEC adds centered sheets, full-size content under the title bar and
+lists of shadows.
+
 ## v0.0.3
 
 ### The host can measure text, and text carries CSS properties
