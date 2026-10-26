@@ -3390,8 +3390,8 @@ Figma 모서리 매끄러움의 경로입니다. 모서리 하나는 **세제곱
 
 #### 54.1 미리보기 선언
 
-- `#[preview]`를 붙인 함수 하나가 미리보기 하나입니다. 함수는 `&PreviewContext`를 받아 화면을 돌려줍니다. 함수는 그 화면의 소스 옆에 둡니다.
-- 속성 인자로 이름과 구성 행렬을 줍니다: `#[preview(name = "...", sizes = [Desktop, Phone], schemes = [Light, Dark], systems = [...], scales = [1.0, 2.0], fixture = "...")]`. 비우면 `Desktop`, `Light`, 플랫폼 기본 디자인 시스템, 배율 1, 고정 데이터 없음입니다.
+- `#[Preview]`를 붙인 함수 하나가 미리보기 하나입니다. 속성 이름은 `#[Composable]`처럼 대문자로 시작합니다(INTENT D24, 소유자 2026-10-26). 함수는 `&PreviewContext`를 받아 화면을 돌려줍니다. 함수는 그 화면의 소스 옆에 둡니다.
+- 속성 인자로 이름과 구성 행렬을 줍니다: `#[Preview(name = "...", sizes = [Desktop, Phone], schemes = [Light, Dark], systems = [...], scales = [1.0, 2.0], fixture = "...")]`. 비우면 `Desktop`, `Light`, 플랫폼 기본 디자인 시스템, 배율 1, 고정 데이터 없음입니다.
 - 크기 이름과 논리 크기(dp)입니다. `Desktop` 1440x900, `Laptop` 1024x768, `Tablet` 768x1024, `Phone` 390x844. `WxH`로 임의 크기도 줄 수 있습니다. 창 크기 등급(FR-20)은 이 크기에서 계산됩니다.
 - `PreviewContext`가 주는 것: 논리 크기, 명암(FR-14), 디자인 시스템(FR-14), 배율(FR-43), 고정 데이터 이름, **고정된 현재 시각**, 고정된 난수 씨앗. 화면이 시계나 난수를 직접 읽으면 그림이 실행마다 달라지므로, 미리보기는 이 문맥에서 받아 씁니다. 기본 현재 시각은 `2026-01-01T00:00:00Z`이고 `--now`로 바꿉니다.
 - 식별자는 `<크레이트>::<모듈 경로>::<함수 이름>`이고, 파일 이름은 `<식별자>@<W>x<H>@<배율>x-<명암>-<디자인 시스템>.png`입니다(`::`는 `.`로).
@@ -3400,7 +3400,7 @@ Figma 모서리 매끄러움의 경로입니다. 모서리 하나는 **세제곱
 
 #### 54.2 도구
 
-이름은 `compose-rust-preview`(제안)이고, 개발 머신에 한 번 설치하는 실행 파일입니다. 앱의 `Cargo.toml`에 줄을 더하지 않습니다.
+이름은 `compose-rust-preview`이고, 개발 머신에 `cargo install compose-rust-preview`로 한 번 설치하는 실행 파일입니다(리더 결정, 2026-10-26). 앱의 `Cargo.toml`에 줄을 더하지 않습니다.
 
 - `compose-rust-preview list [-p <크레이트>]`: 미리보기 식별자와 구성 행렬을 출력합니다.
 - `compose-rust-preview watch [-p <크레이트>] [--preview <식별자>] [--size <이름|WxH>] [--scheme light|dark] [--system <이름>] [--scale <n>]`: 대화형 미리보기 창을 엽니다(54.3).
@@ -3437,7 +3437,7 @@ Figma 모서리 매끄러움의 경로입니다. 모서리 하나는 **세제곱
 
 #### 54.7 수용 기준
 
-1. `#[preview]` 함수가 `list`에 식별자와 구성 행렬로 나오고, 미리보기 도구 밖의 평소 빌드 결과물에는 미리보기 등록이 없습니다(fr54_release_build_has_no_preview_registry).
+1. `#[Preview]` 함수가 `list`에 식별자와 구성 행렬로 나오고, 미리보기 도구 밖의 평소 빌드 결과물에는 미리보기 등록이 없습니다(fr54_release_build_has_no_preview_registry).
 2. `export`가 쓴 PNG의 픽셀 크기가 논리 크기 곱하기 배율이고, 크기 이름 네 개가 54.1의 값입니다(fr54_export_size_follows_size_and_scale).
 3. `--scheme`과 `--system`이 Host가 해석한 테마를 바꿉니다. 같은 미리보기의 라이트와 다크 그림이 다르고, 각 그림의 배경 픽셀이 그 디자인 시스템의 배경 역할 색입니다(fr54_export_scheme_and_system_flags).
 4. 같은 기계에서 두 번 내보낸 PNG가 바이트 단위로 같습니다. CI Linux x64의 서로 다른 두 잡에서도 같습니다(fr54_export_is_byte_identical).
@@ -3446,17 +3446,12 @@ Figma 모서리 매끄러움의 경로입니다. 모서리 하나는 **세제곱
 7. 렌더러가 캐시에 있는 상태에서, 네트워크 인터페이스가 없는 이름공간(`unshare -rn`)에서 빌드와 `export`가 성공합니다(fr54_preview_runs_without_network).
 8. `--compare`가 크기가 같으면 나란히 그림과 차이 그림을 쓰고, 크기가 다르면 두 크기를 말하며 실패합니다. `--check`는 한 픽셀이 다른 그림에서 실패하고 차이 그림을 씁니다(fr54_compare_and_check).
 9. **시간.** 소유자의 Mac에서 compose-rust 작성 API(FR-39)로 쓴 샘플 화면 하나의 함수 본문(글 하나와 여백 하나)을 고쳐 저장하면, 파일이 쓰인 때부터 새 그림의 첫 프레임까지 **3초 이하**입니다. 한 번 데워진 빌드 뒤 다섯 번 잰 중앙값이고, 54.3의 단계별 시간과 기계(칩, 메모리, macOS 버전)와 날짜를 이 항목 옆에 적습니다.
-10. 같은 측정을 Ember 화면 하나에서 하고 숫자를 적습니다. 이것이 합격 기준인지는 열린 질문(54.8)입니다.
+10. 같은 측정을 Ember 화면 하나에서 하고 숫자를 적습니다. **Ember에도 3초 이하가 합격 기준입니다**(리더 결정, 2026-10-26). 넘으면 Ember의 화면 코드를 크레이트로 나누고 다시 잽니다.
 11. 컴파일 오류를 넣고 저장하면 창이 다시 뜨지 않고 마지막 그림이 남으며, 오류가 터미널에 나옵니다. 고치고 저장하면 새 그림이 나옵니다(fr54_watch_keeps_the_last_good_picture).
 12. 다시 띄운 뒤 창의 위치, 크기, 고른 미리보기, 크기, 명암, 디자인 시스템, 배율이 전과 같습니다(fr54_watch_restores_its_state).
 13. 실행 중에 미리보기, 크기, 명암을 바꾸면 빌드가 일어나지 않고 500ms 안에 새 그림이 나옵니다.
 14. macOS arm64, Linux x64, Windows x64에서 `watch`가 창을 열고 `export`가 PNG를 씁니다. Windows는 확인한 날짜를 따로 적습니다.
 15. compose-rust의 풀 리퀘스트에서 CI가 샘플 미리보기 PNG를 아티팩트로 올립니다(Linux x64, macOS arm64).
-
-#### 54.8 열린 질문
-
-- Ember 화면에도 3초가 합격 기준인가. Ember는 화면 코드가 큰 라이브러리 크레이트 하나에 있어 증분 빌드가 샘플보다 깁니다. 넘으면 화면을 크레이트로 나눌지, 기준을 Ember에 따로 둘지를 정해야 합니다.
-- 도구의 이름과 설치 방법(`cargo install compose-rust-preview`, 또는 `cargo compose-rust preview` 하위 명령).
 
 ## 4. 경계 프로토콜
 
