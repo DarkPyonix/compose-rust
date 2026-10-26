@@ -2422,6 +2422,51 @@ mod tests {
         assert_eq!(decode_batch(bytes).unwrap(), expected);
     }
 
+    /// FR-51: a node's shadows are several `Shadow` records at consecutive chain positions,
+    /// each with its own offset, blur, spread and paint (alpha included), and every one
+    /// survives a round trip in the order it was written.
+    #[test]
+    fn fr51_a_list_of_shadows_round_trips_in_order() {
+        let shadows = [
+            Modifier::Shadow {
+                x: 0.0,
+                y: 1.0,
+                blur: 2.0,
+                spread: 0.0,
+                paint: Paint::Literal(crate::schema::Color::argb(0x1400_0000)),
+            },
+            Modifier::Shadow {
+                x: 0.0,
+                y: 4.0,
+                blur: 12.0,
+                spread: -2.0,
+                paint: Paint::Literal(crate::schema::Color::argb(0x2900_0000)),
+            },
+            Modifier::Shadow {
+                x: -3.5,
+                y: 24.0,
+                blur: 48.0,
+                spread: 4.0,
+                paint: Paint::Role(crate::schema::ColorRole::Outline),
+            },
+        ];
+        let expected: Vec<_> = shadows
+            .iter()
+            .enumerate()
+            .map(|(index, modifier)| Mutation::SetModifier {
+                node_id: 7,
+                index: 9 + index as u16,
+                modifier: modifier.clone(),
+            })
+            .collect();
+        let mut encoder = BatchEncoder::default();
+        for mutation in &expected {
+            encoder.encode(mutation).unwrap();
+        }
+        let bytes = encoder.finish().unwrap();
+        assert_eq!(decode_batch(bytes).unwrap(), expected);
+    }
+
     /// `SetTheme` is four `u16` fields and one font slot per type role.
     ///
     /// Fixed length whether or not any font is named, because the record is fixed layout
