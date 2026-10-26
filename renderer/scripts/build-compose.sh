@@ -42,17 +42,12 @@ REVISION="ea24655455903b909872fb0e09daf1a5a061327d"
 # backport branch feat/windows-window-backport-57b4a0e, which carried those two fixes on an
 # older base; multi-window work builds on `extended` itself.
 WINDOW_REVISION="ea24655455903b909872fb0e09daf1a5a061327d"
-# The commit the Windows build takes, which is its own on purpose. Windows needs the
-# commits the Compose pin (REVISION) leaves out: 296beb3 adds mingwX64 to every Compose UI module and
-# reads skiko from the local Maven repository first, and f17cb30 adds the skiko build for
-# mingwX64 under extended/. This is the tip of `extended` that merged them and the fixes to
-# that skiko build after it, 8ec7c32. Every commit between 296beb3 and here changes only
-# extended/skiko, so the Compose sources are the ones 296beb3 left, and extended/skiko is
-# where the ICU loader the Windows link compiles (embedded_icu.cpp) comes from as well.
-# Two pins rather than one moved for everybody, because moving macOS and Linux would change
-# what they publish (every module's root metadata would name a mingw_x64 variant nobody
-# built there) for nothing they use. compose-fork-mingw.changes lists what this commit must
-# hold, and scripts/tests/compose-fork.test.sh checks both pins.
+# The commit the Windows build takes. It was its own pin while the Windows Compose lived on a
+# branch apart from the Compose pin; the fork's `extended` now holds mingwX64 for every Compose UI
+# module, the skiko build for mingwX64 (extended/skiko/build-skiko-mingw.sh, which also compiles
+# Skia's ICU data in as embedded_icu.obj) and publish-local.sh mingwX64, so all three pins are one
+# commit. The name stays so the Windows pin can move apart again. compose-fork-mingw.changes lists
+# what this commit must hold, and scripts/tests/compose-fork.test.sh checks both pins.
 MINGW_REVISION="ea24655455903b909872fb0e09daf1a5a061327d"
 # What the pinned commit publishes as: its gradle.properties gives every library line a version
 # of the form <upstream version>-ext.<N>. The renderer modules ask for these by name, and
@@ -139,10 +134,6 @@ if [[ "$target" == mingwX64 ]]; then
         "The Windows pin has to be a commit of the fork that carries the skiko build."
     echo "==> building skiko for mingwX64 into $SKIKO_WORK"
     bash "$skiko_script" "$SKIKO_WORK"
-    # Skia's ICU loader with the data compiled in, which the Windows link needs so that no
-    # icudtl.dat has to sit beside the executable. Put with the rest of skiko's Windows half,
-    # where desktop/scripts/build-windows.sh compiles it against the icudtl.dat already there.
-    cp "$WORK/extended/skiko/embedded_icu.cpp" "$SKIKO_WORK/out/windows-x64/"
 fi
 
 publish="$WORK/extended/compose/publish-local.sh"
