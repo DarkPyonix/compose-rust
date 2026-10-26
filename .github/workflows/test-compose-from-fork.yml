@@ -319,6 +319,7 @@ jobs:
         # commit that held the same tree. The pin has moved on to the fork's ext.2 line, whose
         # Compose differs on purpose (new metadata, new sources), so a difference is reported
         # in the comparison step and no longer fails the job. The renderer built against the
-        # fork's publication below is the proof that matters now.
+        # fork's publication below is the proof that matters now. The guard is to come back as a
+        # comparison with the ext.2 baseline: DarkPyonix/compose-rust#361.
         run: |
           echo "the fork and the patched build published different contents, as the moved pin is expected to; see the comparison step" >&2
