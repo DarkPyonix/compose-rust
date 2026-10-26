@@ -572,8 +572,8 @@ private fun Modifier.borderEach(
  * shadow under the box.
  *
  * Later shadows draw over earlier ones, because a modifier list draws in its order. CSS
- * draws the first shadow in its list on top, so a Host sends a CSS list last to first. Any
- * number of shadows is any number of these (FR-51).
+ * draws the first shadow in its list on top, so a Host sends a CSS list last to first.
+ * number of shadows is any number of these.
  *
  * The outline is the node's own: its `CornerEach` corners, else its `Shape` or `ShapeRole`.
  */
