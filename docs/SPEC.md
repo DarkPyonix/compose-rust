@@ -4448,7 +4448,9 @@ VoiceOver 수동 절차는 `experiments/accessibility/README.md`에 있습니다
 
 [PROJECT.md](../PROJECT.md#열린-질문)의 열린 질문 표를 참고하세요. 결정이 나면 해당 SPEC 항목을 `Agreed`로 올리고 INTENT에 결정을 기록합니다.
 
-### FR-52 앱 글꼴: 글꼴 스택과 테마 기본 글꼴 (`Draft`, 이슈 #304)
+### FR-52 앱 글꼴: 글꼴 스택과 테마 기본 글꼴 (`Agreed`, 이슈 #304)
+
+근거: 리더 판단, 소유자 위임 2026-10-26, 기록 #299.
 
 요청한 쪽: Ember. 번들한 Inter와 Pretendard가 macOS, Windows, Linux의 모든 화면에서 쓰여야 한다. 지금은 역할마다 글꼴 파일 하나만 이름 붙일 수 있고, 그 글꼴에 없는 글자(Inter의 한글)는 기계의 글꼴(Apple SD Gothic Neo, 맑은 고딕)에서 온다. Skia는 등록한 글꼴을 시스템 글꼴보다 뒤에 찾기 때문이다.
 
