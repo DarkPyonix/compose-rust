@@ -10,6 +10,11 @@
 # hand-check's results on that runner are INCONCLUSIVE. The first line of every probe log is
 # the Windows version with its update build revision.
 #
+# It also drags resize-sync-control, a window that asks Windows to wait for it with the private
+# resize synchronization (issue #364), 50 ms late on purpose (late), not late (prompt), and with
+# a composition swapchain instead of a drawing surface (swapchain). Where late PASSes while the
+# control FAILs, Windows holds the frame for a window that asks it to.
+#
 # The Kotlin/Native hand-check.exe is the one the Resize metrics workflow built in run
 # 38807049709, so its two-hour build is not repeated. It runs under the same run-probe-v2.ps1
 # the kit hands to a person.
@@ -33,6 +38,7 @@ on:
       - ".github/workflows/test-windows-resize-probe.yml"
       - ".github/scripts/resize-probe.c"
       - ".github/scripts/resize-control.c"
+      - ".github/scripts/resize-sync-control.c"
       - ".github/scripts/resize-os-version.h"
       - ".github/scripts/resize-probe.manifest"
       - ".github/scripts/resize-probe-README.txt"
@@ -133,6 +139,8 @@ jobs:
           # console opened beside the window and covered the backdrop the probe looks for.
           (cd "$kit" && MSYS_NO_PATHCONV=1 cl /nologo /O2 /W3 "$scripts\\resize-control.c" \
             /link /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup /MANIFEST:EMBED "/MANIFESTINPUT:$scripts\\resize-probe.manifest")
+          (cd "$kit" && MSYS_NO_PATHCONV=1 cl /nologo /O2 /W3 "$scripts\\resize-sync-control.c" \
+            /link /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup /MANIFEST:EMBED "/MANIFESTINPUT:$scripts\\resize-probe.manifest")
           (cd "$tools" && MSYS_NO_PATHCONV=1 cl /nologo /O2 /W3 "$scripts\\set-display-scale.c")
           rm -f "$kit"/*.obj "$tools"/*.obj
           cp "$(cygpath -u "$RUNNER_TEMP")/hand-check/hand-check.exe" "$kit/"
@@ -143,6 +151,7 @@ jobs:
             echo "This kit"
             echo "  resize-probe.exe               the probe, from commit $GITHUB_SHA"
             echo "  resize-control.exe             the control window (50 ms late on purpose), from commit $GITHUB_SHA"
+            echo "  resize-sync-control.exe        the window that asks Windows to wait for it (private resize synchronization), from commit $GITHUB_SHA"
             echo "  hand-check.exe                 the Kotlin/Native renderer, PRE-MERGE: built in run $HAND_CHECK_RUN"
             echo "                                 from commit 2332cd29, before develop was merged into this branch."
             echo "      It lacks, against this commit: the letter and digit keys (Ctrl+A, Ctrl+C,"
@@ -151,7 +160,7 @@ jobs:
             echo "      win32_window.c is the same as this commit's (the merge left those functions unchanged)."
             echo
             echo "sha256"
-            (cd "$kit" && sha256sum hand-check.exe resize-probe.exe resize-control.exe)
+            (cd "$kit" && sha256sum hand-check.exe resize-probe.exe resize-control.exe resize-sync-control.exe)
           } >> "$kit/README.txt"
           ls -la "$kit"
           sha256sum "$kit"/*.exe
@@ -223,14 +232,14 @@ jobs:
             cat "$out/set-display-scale.log" 2>/dev/null || echo "no set-display-scale log"
             echo '```'
             for scale in 1x 2x; do
-              for label in kn-new-16 kn-new-8 kn-new-1 kn-old-16 kn-old-8 kn-old-1 control-late-16 control-late-8 control-late-1; do
+              for label in kn-new-16 kn-new-8 kn-new-1 kn-old-16 kn-old-8 kn-old-1 control-late-16 control-late-8 control-late-1 sync-late-16 sync-late-8 sync-late-1 sync-prompt-16 sync-prompt-8 sync-prompt-1 sync-swapchain-16 sync-swapchain-8 sync-swapchain-1; do
                 dir="$out/$scale"
                 echo "### $scale $label"
                 echo '```'
                 grep -hE "resize-probe: (os|dpi awareness|duplicating|placed|window|  |client|stale reference|move-size|lag|summary|verdict)" \
                   "$dir/$label-probe.log" 2>/dev/null || echo "no probe log"
                 cat "$dir/$label.log" "$dir/$label.log.err" 2>/dev/null |
-                  grep -E "a window of our own|Compose scene created|first frame drawn|resize-mode: (monitor|resize frames)|real drag (ready|done)|resize-control: (os|start|swapchain|ready|drag done)" |
+                  grep -E "a window of our own|Compose scene created|first frame drawn|resize-mode: (monitor|resize frames)|real drag (ready|done)|resize-control: (os|start|swapchain|ready|drag done)|resize-sync-control: (os|start|RoInit|interop|Create|composition|ordinals|Enable|sync=|first frame|ready|drag done|closed)" |
                   sort | uniq -c || true
                 cat "$dir/$label.log" "$dir/$label.log.err" 2>/dev/null > "$dir/$label.all.log"
                 case "$label" in
@@ -302,7 +311,7 @@ jobs:
           status=0
           for scale in 1x 2x; do
             want="$([ $scale = 1x ] && echo "dpi 96 (1.00x)" || echo "dpi 192 (2.00x)")"
-            for label in kn-new-16 kn-new-8 kn-new-1 kn-old-16 kn-old-8 kn-old-1 control-late-16 control-late-8 control-late-1; do
+            for label in kn-new-16 kn-new-8 kn-new-1 kn-old-16 kn-old-8 kn-old-1 control-late-16 control-late-8 control-late-1 sync-late-16 sync-late-8 sync-late-1 sync-prompt-16 sync-prompt-8 sync-prompt-1 sync-swapchain-16 sync-swapchain-8 sync-swapchain-1; do
               dir="$out/$scale"
               probe="$dir/$label-probe.log"
               log="$dir/$label.all.log"
@@ -327,6 +336,21 @@ jobs:
                   grep -qF "resize-mode: resize frames on the GPU" "$log" ||
                     { echo "  hand-check did not take the GPU resize path"; status=1; }
                   ! grep -q "resize-proof step" "$log" || { echo "  hand-check drew CPU steps with DXC_RASTER_RESIZE=0"; status=1; }
+                  ;;
+                sync-*)
+                  # How far the mechanism got is reported, not judged: the run needs the window to have
+                  # drawn its drag steps, and the late ones to have been 45 ms late.
+                  steps="$(grep -c "resize-sync-control: step n=" "$log" || true)"
+                  tokens="$(grep -c "resize-sync-control: step n=.* token=1" "$log" || true)"
+                  echo "  sync steps: $steps, with a token: $tokens; $(grep -h "resize-sync-control: sync=" "$log" | head -1)"
+                  [ "$steps" -gt 0 ] || status=1
+                  case "$label" in
+                    sync-late-*|sync-swapchain-*)
+                      prompt="$(grep "resize-sync-control: step n=" "$log" | awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^late_ms=/) { split($i, v, "="); if (v[2] + 0 < 45) n++ } } END { print n + 0 }')"
+                      echo "  sync steps less than 45 ms late: $prompt"
+                      [ "$prompt" = 0 ] || status=1
+                      ;;
+                  esac
                   ;;
                 control-late-*)
                   steps="$(grep -c "resize-control: step n=" "$log" || true)"
