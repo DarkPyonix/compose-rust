@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow as ComposeOverflow
 import dev.darkpyonix.composerust.protocol.ButtonKind
 import dev.darkpyonix.composerust.protocol.ButtonVariant
 import dev.darkpyonix.composerust.protocol.HostEvent
@@ -149,6 +150,11 @@ internal fun HostButton(
     val label = node.textStyle(theme, style.typeRole).copy(color = tint)
     val text = node.text(PropertyKind.Text)
     val icon = node.role(PropertyKind.Icon, IconRole.entries.toTypedArray())
+    // A label is one line unless the Host asked for more. Left to wrap, a squeezed button
+    // is measured at the narrowest a Hangul label can be, one syllable, and '보내' breaks
+    // into '보' over '내'. With no soft wrap the label's narrowest width is its whole line.
+    val lines = node.intProp(PropertyKind.MaxLines)?.toInt()?.takeIf { it > 0 } ?: 1
+    val ellipsis = node.overflow(ComposeOverflow.Ellipsis)
     // A button with a glyph and no word is still a button with a name. The role is what
     // the glyph means, so it is what the name is made of, and assistive technology never
     // meets an unnamed control.
@@ -159,7 +165,7 @@ internal fun HostButton(
     }
     Box(named, contentAlignment = Alignment.Center) {
         if (icon == null) {
-            BasicText(text = text, style = label)
+            BasicText(text = text, style = label, maxLines = lines, softWrap = lines > 1, overflow = ellipsis)
         } else {
             Row(
                 // The gap between the glyph and the word is the design system's smallest step,
@@ -168,7 +174,7 @@ internal fun HostButton(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 RoleIcon(icon, tint, theme)
-                if (text.isNotEmpty()) BasicText(text = text, style = label)
+                if (text.isNotEmpty()) BasicText(text = text, style = label, maxLines = lines, softWrap = lines > 1, overflow = ellipsis)
             }
         }
     }
