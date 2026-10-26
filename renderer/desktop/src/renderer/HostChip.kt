@@ -20,6 +20,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import dev.darkpyonix.composerust.design.ChipStyle
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.protocol.HostEvent
@@ -98,7 +99,15 @@ internal fun HostChip(
         val leading = if (chosen && style.leadingCheck) IconRole.Check else icon
         if (leading != null) RoleIcon(leading, content, theme)
         if (label.isNotEmpty()) {
-            BasicText(text = label, style = node.textStyle(theme, style.typeRole).copy(color = content))
+            // One line, never wrapped: a wrapped chip label is measured at one syllable of
+            // Hangul and its second line is clipped by the chip's height.
+            BasicText(
+                text = label,
+                style = node.textStyle(theme, style.typeRole).copy(color = content),
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
