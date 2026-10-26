@@ -16,7 +16,7 @@
 param(
     [switch]$NoPause,
     [string]$Out = '',
-    [string[]]$Apps = @('kn', 'graalvm', 'control')
+    [string[]]$Apps = @('kn', 'graalvm', 'control', 'sync')
 )
 $ErrorActionPreference = 'Continue'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -28,7 +28,11 @@ $rates = @(@(16, 8), @(8, 4), @(1, 1))
 $all = @(
     @{ Name = 'kn'; Exe = (Join-Path $here 'hand-check.exe'); Place = $false; Class = 'ComposeRustWindow'; Paths = @('new', 'old') },
     @{ Name = 'graalvm'; Exe = (Join-Path $here 'graalvm\bin\hand-check.exe'); Place = $true; Class = 'ComposeRustWindow'; Paths = @('new', 'old') },
-    @{ Name = 'control'; Exe = (Join-Path $here 'resize-control.exe'); Place = $false; Class = 'ResizeControlWindow'; Paths = @('late') }
+    @{ Name = 'control'; Exe = (Join-Path $here 'resize-control.exe'); Place = $false; Class = 'ResizeControlWindow'; Paths = @('late') },
+    # The window that asks Windows to wait for it (the private resize synchronization): late = 50 ms
+    # late on purpose, prompt = not late (its lag is the cost of the mechanism), swapchain = 50 ms
+    # late with a composition swapchain instead of a drawing surface.
+    @{ Name = 'sync'; Exe = (Join-Path $here 'resize-sync-control.exe'); Place = $false; Class = 'ResizeSyncControlWindow'; Paths = @('late', 'prompt', 'swapchain') }
 )
 $runs = @()
 foreach ($app in $all) {
@@ -55,7 +59,10 @@ foreach ($app in $all) {
             }
             $env:DXC_METRICS = '1'; $env:DXC_REAL_DRAG = 'external'; $env:DXC_RESIZE_TRACE = '1'
             if ($path -eq 'old') { $env:DXC_RASTER_RESIZE = '0' } else { Remove-Item Env:DXC_RASTER_RESIZE -ErrorAction SilentlyContinue }
-            if ($path -eq 'late') { $env:DXC_RESIZE_PRESENT_DELAY_MS = '50' } else { Remove-Item Env:DXC_RESIZE_PRESENT_DELAY_MS -ErrorAction SilentlyContinue }
+            if ($path -eq 'late' -or $path -eq 'swapchain') { $env:DXC_RESIZE_PRESENT_DELAY_MS = '50' }
+            elseif ($path -eq 'prompt') { $env:DXC_RESIZE_PRESENT_DELAY_MS = '0' }
+            else { Remove-Item Env:DXC_RESIZE_PRESENT_DELAY_MS -ErrorAction SilentlyContinue }
+            if ($path -eq 'swapchain') { $env:RESIZE_SYNC_MODE = 'swapchain' } else { Remove-Item Env:RESIZE_SYNC_MODE -ErrorAction SilentlyContinue }
             $process = Start-Process -PassThru -FilePath $app.Exe -WorkingDirectory (Split-Path -Parent $app.Exe) `
                 -RedirectStandardOutput $appLog -RedirectStandardError "$appLog.err"
             $probe.WaitForExit(180000) | Out-Null
@@ -74,11 +81,11 @@ foreach ($app in $all) {
                 }
             }
             Select-String -Path $probeLog -Pattern 'verdict' | ForEach-Object { Write-Host $_.Line }
-            $runs += @{ Label = $label; App = $app.Name; Path = $path; Rate = $r[0]; Probe = $probeLog }
+            $runs += @{ Log = $appLog; Label = $label; App = $app.Name; Path = $path; Rate = $r[0]; Probe = $probeLog }
         }
     }
 }
-Remove-Item Env:DXC_RASTER_RESIZE, Env:DXC_METRICS, Env:DXC_REAL_DRAG, Env:DXC_RESIZE_TRACE, Env:DXC_RESIZE_PRESENT_DELAY_MS -ErrorAction SilentlyContinue
+Remove-Item Env:DXC_RASTER_RESIZE, Env:DXC_METRICS, Env:DXC_REAL_DRAG, Env:DXC_RESIZE_TRACE, Env:DXC_RESIZE_PRESENT_DELAY_MS, Env:RESIZE_SYNC_MODE -ErrorAction SilentlyContinue
 
 # The table: every drag's verdict, what it saw, how far the window lagged the cursor, and what
 # the verdict means here given the control's at the same rate.
@@ -108,7 +115,20 @@ foreach ($run in $runs) {
     if ($m.Success -and $scaleLine -eq 'unknown') { $scaleLine = "dpi $($m.Groups[1].Value) ($($m.Groups[2].Value)x)" }
     $verdict = Read-Verdict $text
     $control = if ($controlVerdict.ContainsKey($run.Rate)) { $controlVerdict[$run.Rate] } else { 'none' }
-    if ($run.App -eq 'control') {
+    if ($run.App -eq 'sync') {
+        # How far the mechanism got is in the window's own log: steps drawn, steps that had a token.
+        $appText = ''
+        foreach ($log in @($run.Log, "$($run.Log).err")) { if (Test-Path $log) { $appText += Get-Content -Raw -Path $log } }
+        $stepCount = ([regex]::Matches($appText, 'resize-sync-control: step n=')).Count
+        $tokenCount = ([regex]::Matches($appText, 'resize-sync-control: step n=.* token=1')).Count
+        $syncLine = [regex]::Match($appText, 'resize-sync-control: sync=(on|off)')
+        $syncState = if ($syncLine.Success) { $syncLine.Groups[1].Value } else { 'unknown' }
+        $meaning = "sync=$syncState, tokens $tokenCount of $stepCount steps; " + $(switch ($verdict) {
+            'PASS' { 'no hole, black or stale frame' }
+            'FAIL' { 'frames were NOT held for the app' }
+            default { 'the drag did not run' }
+        })
+    } elseif ($run.App -eq 'control') {
         $meaning = switch ($verdict) {
             'FAIL' { 'the probe sees 50 ms late frames here' }
             'PASS' { 'NO DISCRIMINATION: 50 ms late frames look prompt here' }

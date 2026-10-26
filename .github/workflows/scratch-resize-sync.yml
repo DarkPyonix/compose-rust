@@ -1,0 +1,105 @@
+# SCRATCH (issue #364): quick loop for resize-sync-control.c, without the hour-long hand-check
+# drags. Deleted before the pull request merges; the real run is test-windows-resize-probe.yml.
+name: Scratch resize sync
+
+on:
+  push:
+    branches: [feat/resize-sync-spike]
+    paths:
+      - ".github/workflows/scratch-resize-sync.yml"
+      - ".github/scripts/resize-sync-control.c"
+      - ".github/scripts/run-probe-v2.ps1"
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    name: sync control (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github
+
+      - name: Enter the Visual Studio developer environment
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $vcvars = Join-Path $vs "VC\Auxiliary\Build\vcvars64.bat"
+          $tools = $null
+          $sdkbin = $null
+          cmd /c "`"$vcvars`" >nul && set" | ForEach-Object {
+            if ($_ -match '^(INCLUDE|LIB|LIBPATH|VCToolsInstallDir|WindowsSdkDir|WindowsSDKVersion)=(.*)$') {
+              "$($matches[1])=$($matches[2])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            }
+            if ($_ -match '^VCToolsInstallDir=(.*)$') { $tools = $matches[1] }
+            if ($_ -match '^WindowsSdkVerBinPath=(.*)$') { $sdkbin = $matches[1] }
+          }
+          (Join-Path $tools "bin\Hostx64\x64") | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          Join-Path $sdkbin "x64" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          kit="$(cygpath -u "$RUNNER_TEMP")/probe-kit"
+          tools="$(cygpath -u "$RUNNER_TEMP")/tools"
+          mkdir -p "$kit" "$tools"
+          scripts="$(cygpath -w "$PWD/.github/scripts")"
+          (cd "$kit" && MSYS_NO_PATHCONV=1 cl /nologo /O2 /W3 "$scripts\\resize-probe.c" \
+            /link /MANIFEST:EMBED "/MANIFESTINPUT:$scripts\\resize-probe.manifest")
+          (cd "$kit" && MSYS_NO_PATHCONV=1 cl /nologo /O2 /W3 "$scripts\\resize-sync-control.c" \
+            /link /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup /MANIFEST:EMBED "/MANIFESTINPUT:$scripts\\resize-probe.manifest")
+          (cd "$tools" && MSYS_NO_PATHCONV=1 cl /nologo /O2 /W3 "$scripts\\set-display-scale.c")
+          cp .github/scripts/run-probe-v2.ps1 "$kit/"
+          ls -la "$kit"
+
+      - name: Drags at 100%
+        env:
+          DXC_D3D12_WARP: '1'
+        run: |
+          kit="$(cygpath -w "$RUNNER_TEMP/probe-kit")"
+          out="$(cygpath -w "$RUNNER_TEMP/probe-logs/1x")"
+          powershell -NoProfile -ExecutionPolicy Bypass -File "$kit\\run-probe-v2.ps1" -NoPause -Apps sync -Out "$out"
+
+      - name: Set the display to 200%
+        run: |
+          tools="$(cygpath -u "$RUNNER_TEMP")/tools"
+          out="$(cygpath -u "$RUNNER_TEMP")/probe-logs"
+          mkdir -p "$out"
+          "$tools/set-display-scale.exe" 200 --fit 2>&1 | tee "$out/set-display-scale.log" || true
+
+      - name: Drags at 200%
+        env:
+          DXC_D3D12_WARP: '1'
+        run: |
+          kit="$(cygpath -w "$RUNNER_TEMP/probe-kit")"
+          out="$(cygpath -w "$RUNNER_TEMP/probe-logs/2x")"
+          powershell -NoProfile -ExecutionPolicy Bypass -File "$kit\\run-probe-v2.ps1" -NoPause -Apps sync -Out "$out"
+
+      - name: Summary
+        if: always()
+        run: |
+          out="$(cygpath -u "$RUNNER_TEMP")/probe-logs"
+          for scale in 1x 2x; do
+            echo "### $scale"; cat "$out/$scale/summary.md" 2>/dev/null | tr -d '\r' || true
+            for f in "$out/$scale"/sync-late-16.log.err "$out/$scale"/sync-swapchain-16.log.err; do
+              echo "--- $f"; head -30 "$f" 2>/dev/null | tr -d '\r'
+            done
+          done | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: scratch-sync-logs-${{ matrix.os }}
+          path: ${{ runner.temp }}/probe-logs/
+          retention-days: 14
