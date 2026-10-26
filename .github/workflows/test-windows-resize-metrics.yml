@@ -19,6 +19,8 @@ on:
       - ".github/scripts/resize-metrics-run.sh"
       - ".github/scripts/resize-real-drag-run.sh"
       - ".github/scripts/resize-probe.c"
+      # It builds the window from the pin, and its hand-check is what the resize probe drags.
+      - "renderer/scripts/build-compose.sh"
 
 concurrency:
   # One run per pull request: a new commit cancels the older run. Pushes to develop,
