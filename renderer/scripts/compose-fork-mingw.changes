@@ -403,13 +403,14 @@ a193dc270735ba945284e5a1bc7e8968019669c9 extended/window/native/macos/src/org/th
 d8a201126444954ed794191d0a91fe75e3bc757d extended/window/native/macos/src/org/thisisthepy/compose/window/macos/AppKitAccessibility.kt
 f8addce58af77063b77701f8ca961a528b62ecae extended/window/native/macos/src/org/thisisthepy/compose/window/macos/AppKitAccessibilityTree.kt
 4da22802744c4dd46e3261e1f737a424c97f99c8 extended/window/native/macos/src/org/thisisthepy/compose/window/macos/AppKitKeys.kt
+6ce5e7dbb7e2ac056d529412baadca9768611f9e extended/window/native/macos/src/org/thisisthepy/compose/window/macos/DragMetrics.kt
 0ea953e6f30ed9849398e731ba123a5381145809 extended/window/native/macos/src/org/thisisthepy/compose/window/macos/HeldButtons.kt
 44fdb5cfa8cb9ec29dba34a585aeae3679f611e4 extended/window/native/macos/src/org/thisisthepy/compose/window/macos/MacKeys.kt
 39cd49a626bf2e33d628bf1c79d1e2e114941e55 extended/window/native/macos/src/org/thisisthepy/compose/window/macos/MacosAppearance.kt
 65397379ce005b54ac43515d2c7d7f1c81425c3c extended/window/native/macos/src/org/thisisthepy/compose/window/macos/MacosClipboard.kt
 13271313f2ffd1bc1491c7267ccd9948026b42c6 extended/window/native/macos/src/org/thisisthepy/compose/window/macos/MacosFileDrop.kt
 11867ff15b233ef62f8b7a6d291c1d3efe7f4b51 extended/window/native/macos/src/org/thisisthepy/compose/window/macos/MacosTextToolbar.kt
-1be6291ed4ab76f46c4abab16bdc4db99657443e extended/window/native/macos/src/org/thisisthepy/compose/window/macos/MacosWindow.kt
+9e8e13e76e376ba072515c64a4913268b62a2363 extended/window/native/macos/src/org/thisisthepy/compose/window/macos/MacosWindow.kt
 077328c0319ce61049a44f88803fca2de256bb58 extended/window/native/macos/src/org/thisisthepy/compose/window/macos/MacosWindowChrome.kt
 15624e45e10e245ac1396b7551ebcd3e8713dcfa extended/window/native/macos/src/org/thisisthepy/compose/window/macos/MacosWindowPlatform.kt
 50e35728e7ad226d3760457ea21c28fcc8ca8446 extended/window/native/macos/src/org/thisisthepy/compose/window/macos/MetalSurface.kt
@@ -425,6 +426,7 @@ d6b869e16576736f30112ef9fb25c78fc160282b extended/window/native/macos/src/org/th
 80862489244245784555f8670d16a19b4721cb7d extended/window/native/macos/test/AppKitAccessibilityTreeTest.kt
 b156938aa1b7af53bac7181f1ebdf94351e21b60 extended/window/native/macos/test/AppKitKeysTest.kt
 3ab7ee0a2c9b8b482e303c00c0e1622a3b8e4427 extended/window/native/macos/test/ContentOffsetTest.kt
+dda876b003e3283bdba3102b03d22600e17f2366 extended/window/native/macos/test/DragMetricsTest.kt
 652423ba8179fc1a70a1b6e0be038671d9d974c1 extended/window/native/macos/test/FrameTimeTest.kt
 6800210ec85ba38665b769ba415bb4782cc22f6d extended/window/native/macos/test/HeldButtonsTest.kt
 5cc68d2e4616517d56ab32fc9ee905f100806d6e extended/window/native/macos/test/MacKeysTest.kt
