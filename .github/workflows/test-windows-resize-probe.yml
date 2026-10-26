@@ -63,7 +63,7 @@ permissions:
 
 env:
   # The run whose Kotlin/Native hand-check.exe (artifact hand-check-windows-kn) this tests.
-  HAND_CHECK_RUN: "38807049709"
+  HAND_CHECK_RUN: "40342052188"
 
 jobs:
   # Heavy: runs only when asked for (the run-heavy-ci label on a pull request, or any other
@@ -155,12 +155,9 @@ jobs:
             echo "  resize-probe.exe               the probe, from commit $GITHUB_SHA"
             echo "  resize-control.exe             the control window (50 ms late on purpose), from commit $GITHUB_SHA"
             echo "  resize-sync-control.exe        the window that asks Windows to wait for it (private resize synchronization), from commit $GITHUB_SHA"
-            echo "  hand-check.exe                 the Kotlin/Native renderer, PRE-MERGE: built in run $HAND_CHECK_RUN"
-            echo "                                 from commit 2332cd29, before develop was merged into this branch."
-            echo "      It lacks, against this commit: the letter and digit keys (Ctrl+A, Ctrl+C,"
-            echo "      Ctrl+V, Ctrl+X and Ctrl+Z reach Compose as unknown keys, so expect those to fail in it),"
-            echo "      the window start lines, and everything develop brought since. Its resize path in"
-            echo "      win32_window.c is the same as this commit's (the merge left those functions unchanged)."
+            echo "  hand-check.exe                 the Kotlin/Native renderer, built in run $HAND_CHECK_RUN from the pull"
+            echo "                                 request that moves the window pin to the opt-in resize synchronization"
+            echo "                                 (DXC_RESIZE_SYNC=1, compose-rust issue #364), on develop of that day."
             echo
             echo "sha256"
             (cd "$kit" && sha256sum hand-check.exe resize-probe.exe resize-control.exe resize-sync-control.exe)
@@ -235,7 +232,7 @@ jobs:
             cat "$out/set-display-scale.log" 2>/dev/null || echo "no set-display-scale log"
             echo '```'
             for scale in 1x 2x; do
-              for label in kn-new-16 kn-new-8 kn-new-1 kn-old-16 kn-old-8 kn-old-1 control-late-16 control-late-8 control-late-1 sync-late-16 sync-late-8 sync-late-1 sync-prompt-16 sync-prompt-8 sync-prompt-1 sync-swapchain-16 sync-swapchain-8 sync-swapchain-1 sync-on12-16 sync-on12-8 sync-on12-1; do
+              for label in kn-new-16 kn-new-8 kn-new-1 kn-old-16 kn-old-8 kn-old-1 kn-sync-16 kn-sync-8 kn-sync-1 control-late-16 control-late-8 control-late-1 sync-late-16 sync-late-8 sync-late-1 sync-prompt-16 sync-prompt-8 sync-prompt-1 sync-swapchain-16 sync-swapchain-8 sync-swapchain-1 sync-on12-16 sync-on12-8 sync-on12-1; do
                 dir="$out/$scale"
                 echo "### $scale $label"
                 echo '```'
@@ -314,7 +311,7 @@ jobs:
           status=0
           for scale in 1x 2x; do
             want="$([ $scale = 1x ] && echo "dpi 96 (1.00x)" || echo "dpi 192 (2.00x)")"
-            for label in kn-new-16 kn-new-8 kn-new-1 kn-old-16 kn-old-8 kn-old-1 control-late-16 control-late-8 control-late-1 sync-late-16 sync-late-8 sync-late-1 sync-prompt-16 sync-prompt-8 sync-prompt-1 sync-swapchain-16 sync-swapchain-8 sync-swapchain-1 sync-on12-16 sync-on12-8 sync-on12-1; do
+            for label in kn-new-16 kn-new-8 kn-new-1 kn-old-16 kn-old-8 kn-old-1 kn-sync-16 kn-sync-8 kn-sync-1 control-late-16 control-late-8 control-late-1 sync-late-16 sync-late-8 sync-late-1 sync-prompt-16 sync-prompt-8 sync-prompt-1 sync-swapchain-16 sync-swapchain-8 sync-swapchain-1 sync-on12-16 sync-on12-8 sync-on12-1; do
               dir="$out/$scale"
               probe="$dir/$label-probe.log"
               log="$dir/$label.all.log"
@@ -334,6 +331,16 @@ jobs:
                   bad="$(grep "resize-proof step" "$log" | grep -vcE "presents=0 child_visible=0 blit=1 validated=1$" || true)"
                   echo "  resize-proof steps: $steps, not blitted and validated: $bad"
                   { [ "$steps" -gt 0 ] && [ "$bad" = 0 ]; } || status=1
+                  ;;
+                kn-sync-*)
+                  # hand-check with DXC_RESIZE_SYNC=force: it must have said it took the path, and
+                  # its drag must have had steps with tokens. Whether the frames were held is the
+                  # probe's verdict, reported, not judged here.
+                  grep -qF "resize-mode: resize-sync on" "$log" ||
+                    { echo "  hand-check did not take the resize sync path: $(grep -h 'resize-sync' "$log" | head -3)"; status=1; }
+                  tokens="$(grep -h "resize-sync: drag done" "$log" | tail -1)"
+                  echo "  $tokens"
+                  case "$tokens" in *"steps=0 "*|"") status=1 ;; esac
                   ;;
                 kn-old-*)
                   grep -qF "resize-mode: resize frames on the GPU" "$log" ||

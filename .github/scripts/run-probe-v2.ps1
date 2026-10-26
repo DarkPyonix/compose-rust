@@ -26,7 +26,7 @@ $rates = @(@(16, 8), @(8, 4), @(1, 1))
 # The GraalVM renderer has no hook that puts its window in place for the drag, so the probe
 # places it (--place). The control places itself.
 $all = @(
-    @{ Name = 'kn'; Exe = (Join-Path $here 'hand-check.exe'); Place = $false; Class = 'ComposeRustWindow'; Paths = @('new', 'old') },
+    @{ Name = 'kn'; Exe = (Join-Path $here 'hand-check.exe'); Place = $false; Class = 'ComposeRustWindow'; Paths = @('new', 'old', 'sync') },
     @{ Name = 'graalvm'; Exe = (Join-Path $here 'graalvm\bin\hand-check.exe'); Place = $true; Class = 'ComposeRustWindow'; Paths = @('new', 'old') },
     @{ Name = 'control'; Exe = (Join-Path $here 'resize-control.exe'); Place = $false; Class = 'ResizeControlWindow'; Paths = @('late') },
     # The window that asks Windows to wait for it (the private resize synchronization): late = 50 ms
@@ -64,6 +64,9 @@ foreach ($app in $all) {
             elseif ($path -eq 'prompt') { $env:DXC_RESIZE_PRESENT_DELAY_MS = '0' }
             else { Remove-Item Env:DXC_RESIZE_PRESENT_DELAY_MS -ErrorAction SilentlyContinue }
             if ($path -eq 'swapchain') { $env:RESIZE_SYNC_MODE = 'swapchain' } else { Remove-Item Env:RESIZE_SYNC_MODE -ErrorAction SilentlyContinue }
+            # sync = the renderer's opt-in path that makes Windows wait for its frame (DXC_RESIZE_SYNC);
+            # force skips the Windows 11 build floor, so that it runs on the Server builds too.
+            if ($path -eq 'sync' -and $app.Name -ne 'control') { $env:DXC_RESIZE_SYNC = 'force' } else { Remove-Item Env:DXC_RESIZE_SYNC -ErrorAction SilentlyContinue }
             if ($path -eq 'on12') { $env:RESIZE_SYNC_DEVICE = 'on12' } else { Remove-Item Env:RESIZE_SYNC_DEVICE -ErrorAction SilentlyContinue }
             $process = Start-Process -PassThru -FilePath $app.Exe -WorkingDirectory (Split-Path -Parent $app.Exe) `
                 -RedirectStandardOutput $appLog -RedirectStandardError "$appLog.err"
@@ -87,7 +90,7 @@ foreach ($app in $all) {
         }
     }
 }
-Remove-Item Env:DXC_RASTER_RESIZE, Env:DXC_METRICS, Env:DXC_REAL_DRAG, Env:DXC_RESIZE_TRACE, Env:DXC_RESIZE_PRESENT_DELAY_MS, Env:RESIZE_SYNC_MODE, Env:RESIZE_SYNC_DEVICE -ErrorAction SilentlyContinue
+Remove-Item Env:DXC_RASTER_RESIZE, Env:DXC_METRICS, Env:DXC_REAL_DRAG, Env:DXC_RESIZE_TRACE, Env:DXC_RESIZE_PRESENT_DELAY_MS, Env:RESIZE_SYNC_MODE, Env:RESIZE_SYNC_DEVICE, Env:DXC_RESIZE_SYNC -ErrorAction SilentlyContinue
 
 # The table: every drag's verdict, what it saw, how far the window lagged the cursor, and what
 # the verdict means here given the control's at the same rate.
@@ -140,6 +143,19 @@ foreach ($run in $runs) {
         $meaning = 'the drag did not run'
     } elseif ($control -eq 'FAIL') {
         $meaning = $verdict
+        if ($run.Path -eq 'sync') {
+            # Whether hand-check took the sync path is in its own log.
+            $appText = ''
+            foreach ($log in @($run.Log, "$($run.Log).err")) { if (Test-Path $log) { $appText += Get-Content -Raw -Path $log } }
+            $on = [regex]::Match($appText, 'resize-mode: resize-sync on')
+            $done = [regex]::Matches($appText, 'resize-sync: drag done steps=([0-9]+) tokens=([0-9]+)')
+            if ($on.Success -and $done.Count -gt 0) {
+                $last = $done[$done.Count - 1]
+                $meaning = "$verdict (sync on, tokens $($last.Groups[2].Value) of $($last.Groups[1].Value) steps)"
+            } else {
+                $meaning = "$verdict (sync NOT taken: this hand-check did not take the path; see its log)"
+            }
+        }
     } elseif ($control -eq 'PASS') {
         $meaning = "INCONCLUSIVE (no discrimination; probe said $verdict)"
     } else {
