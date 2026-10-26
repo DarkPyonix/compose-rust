@@ -191,13 +191,16 @@ fn main() {
         ("macos", _) => Some(renderer_build.join("macos")),
         ("linux", "x86_64") => Some(renderer_build.join("linux")),
         ("linux", "aarch64") => Some(renderer_build.join("linux-arm64")),
+        // What build-windows.sh writes: the Kotlin/Native static kit. Windows has no
+        // GraalVM DLL to fall back to.
+        ("windows", _) => Some(renderer_build.join("windows")),
         _ => None,
     };
     let shared_dir = renderer_build.join("native-image/dist/lib");
     let workspace_dirs: Vec<&Path> = static_dir
         .as_deref()
         .into_iter()
-        .chain(std::iter::once(shared_dir.as_path()))
+        .chain((target_os != "windows").then_some(shared_dir.as_path()))
         .collect();
     let cache_root = cache_root();
 
@@ -235,6 +238,7 @@ fn main() {
     let lib_dir = renderer.lib_dir;
     check_schema_agreement(&lib_dir);
     match renderer.kind {
+        RendererKind::Static if target_os == "windows" => link_windows_native(&lib_dir),
         RendererKind::Static => link_static(&target_os, &target, &lib_dir),
         RendererKind::Shared => link_shared(&target_os, &lib_dir),
     }
@@ -342,62 +346,12 @@ fn link_static(target_os: &str, target: &str, lib_dir: &Path) {
     println!("cargo:rustc-cfg=renderer_linked");
 }
 
-/// Links a shared renderer: the GraalVM native image, which Windows ships and a checkout
-/// can still build for macOS and Linux.
+/// Links a shared renderer: the GraalVM native image, which a checkout can still build for
+/// macOS and Linux. Windows has none; its renderer is the static kit.
 fn link_shared(target_os: &str, lib_dir: &Path) {
     println!("cargo:rerun-if-changed={}", lib_dir.display());
     println!("cargo:rustc-link-search=native={}", lib_dir.display());
     println!("cargo:rustc-cfg=renderer_linked");
-
-    if target_os == "windows" {
-        // MSVC links against the import library the native image produced beside the DLL,
-        // and it carries the same `lib` prefix the image was named with.
-        println!("cargo:rustc-link-lib=dylib=libcompose_rust_renderer");
-        // The exports the Renderer looks up are not asked for here.
-        //
-        // They were, with `/EXPORT:` link arguments, and that reached this package's own
-        // binaries and nothing else: Cargo does not pass a dependency's link arguments on
-        // to whatever depends on it. So every application built on this crate linked with
-        // no export table, the Renderer could not reach back into it, and the window came
-        // up empty. It looked like it worked because the only Windows binaries anyone had
-        // run were this package's own examples.
-        //
-        // The directive travels inside the rlib now, in the `.drectve` section that the
-        // MSVC linker reads out of every object it links. See the `global_asm!` block in
-        // src/boundary.rs.
-        // The subsystem is not set here, and the reason is the same one the export
-        // directive ran into: a build script's link arguments reach this package's own
-        // targets and stop. Setting it here broke the crate's own cdylib, which has no
-        // `main` for `/ENTRY:mainCRTStartup` to point at, and would not have reached a
-        // single application even if it had worked.
-        //
-        // An application says it for itself, with `#![windows_subsystem = "windows"]` at
-        // the top of its `main.rs`. That is one line, it is the ordinary way to do it in
-        // Rust, and the samples here carry it. Without it a window application also opens
-        // a console, and closing that console kills it.
-        //
-        // The renderer attaches to a parent console at startup so that saying it costs no
-        // diagnostics: run from a terminal the messages still appear, run from Explorer
-        // there is no terminal to open.
-        // Windows has no rpath and no name inside the file that the loader consults: a
-        // DLL is found on the loader's search path and nowhere else. The other platforms
-        // name the library after where it sits, which does nothing here.
-        //
-        // Telling the person building to put a directory on PATH was the whole of the fix
-        // and it was not enough. It makes adding this crate to a Cargo.toml two steps
-        // instead of one, and it breaks things that have nothing to do with drawing: the
-        // code generator in this package links the renderer only because it lives in the
-        // same package, and on Windows it died on startup with STATUS_DLL_NOT_FOUND
-        // before it had generated a line.
-        //
-        // The loader searches the directory the executable is in, so the renderer is put
-        // there. Cargo does not tell a build script where that is, but OUT_DIR is
-        // `<target>/<profile>/build/<crate>-<hash>/out`, so three levels up is the
-        // profile directory where binaries land, and `examples/` and `deps/` beside it
-        // are where examples and tests land.
-        copy_renderer_beside_executables(lib_dir);
-        return;
-    }
 
     println!("cargo:rustc-link-lib=dylib=compose_rust_renderer");
     // No rpath. It would not reach an application that merely depends on this crate,
@@ -460,10 +414,10 @@ fn link_windows_native(dir: &Path) {
     ] {
         if !dir.join(piece).is_file() {
             panic!(
-                "\n\ncompose-rust: DXC_WINDOWS_NATIVE_LIB is {}, which has no {piece} ({what}).\n\n\
+                "\n\ncompose-rust: the Windows renderer kit at {} has no {piece} ({what}).\n\n\
                  renderer/desktop/scripts/build-windows.sh writes the whole \
-                 directory; build the renderer again, or point DXC_WINDOWS_NATIVE_LIB at the \
-                 directory it wrote.\n\n",
+                 directory; build the renderer again, or set DXC_WINDOWS_NATIVE_LIB (or \
+                 COMPOSE_RUST_RENDERER_DIR) to the directory it wrote.\n\n",
                 dir.display()
             );
         }
@@ -1139,100 +1093,6 @@ fn read_hash(path: &Path) -> Option<String> {
         .ok()
         .map(|value| value.trim().to_owned())
         .filter(|value| !value.is_empty())
-}
-
-/// Puts the renderer where a Windows loader and AWT will both find it.
-///
-/// Two separate requirements, and satisfying only the first is worse than satisfying
-/// neither, because the program then starts and dies later with a message about a file
-/// nobody asked for.
-///
-/// The loader searches the directory the executable is in, so the libraries are copied
-/// there flat. That alone is what a program needs in order to start, and it is what the
-/// code generator in this package needs, which links the renderer only because it shares a
-/// package with it and died on startup before generating a line.
-///
-/// AWT then wants a distribution around it. The renderer sets `java.home` to the parent of
-/// wherever it was loaded from, and AWT resolves its own libraries against `java.home/bin`.
-/// A flat copy beside an executable in `target/release/examples` therefore sends AWT to
-/// `target/release/bin`, which is a directory nobody made. So the distribution is copied
-/// whole, keeping `bin` and `lib`, into the parent of each place an executable lands.
-///
-/// Cargo does not tell a build script where binaries land. OUT_DIR is
-/// `<target>/<profile>/build/<crate>-<hash>/out`, so three levels up is the profile
-/// directory, `examples/` and `deps/` beside it are where examples and tests land, and the
-/// parents of those two are the profile directory and the target directory.
-fn copy_renderer_beside_executables(lib_dir: &Path) {
-    let Some(out_dir) = std::env::var_os("OUT_DIR") else {
-        return;
-    };
-    let out_dir = PathBuf::from(out_dir);
-    let Some(profile_dir) = out_dir
-        .parent()
-        .and_then(Path::parent)
-        .and_then(Path::parent)
-    else {
-        return;
-    };
-
-    // Flat, for the loader: every executable's own directory.
-    for directory in [
-        profile_dir.to_path_buf(),
-        profile_dir.join("examples"),
-        profile_dir.join("deps"),
-    ] {
-        copy_newer_files(lib_dir, &directory);
-    }
-
-    // Whole, for AWT: the parent of every executable's directory. The distribution root is
-    // the parent of the directory the libraries are in, which is `bin` on Windows and
-    // `lib` everywhere else.
-    let Some(distribution) = lib_dir.parent() else {
-        return;
-    };
-    let mut roots = vec![profile_dir.to_path_buf()];
-    if let Some(target_dir) = profile_dir.parent() {
-        roots.push(target_dir.to_path_buf());
-    }
-    for root in roots {
-        for child in ["bin", "lib"] {
-            let source = distribution.join(child);
-            if source.is_dir() {
-                copy_newer_files(&source, &root.join(child));
-            }
-        }
-    }
-}
-
-/// Copies the files of one directory into another, skipping what is already newer there.
-///
-/// These are tens of megabytes and they are copied into five places, so every build would
-/// otherwise move half a gigabyte to no purpose.
-fn copy_newer_files(from: &Path, to: &Path) {
-    let Ok(entries) = std::fs::read_dir(from) else {
-        return;
-    };
-    if std::fs::create_dir_all(to).is_err() {
-        return;
-    }
-    for entry in entries.flatten() {
-        let source = entry.path();
-        if !source.is_file() {
-            continue;
-        }
-        let destination = to.join(entry.file_name());
-        let newer = match (source.metadata(), destination.metadata()) {
-            (Ok(from), Ok(to)) => match (from.modified(), to.modified()) {
-                (Ok(from), Ok(to)) => from > to,
-                _ => true,
-            },
-            (Ok(_), Err(_)) => true,
-            _ => false,
-        };
-        if newer {
-            let _ = std::fs::copy(&source, &destination);
-        }
-    }
 }
 
 fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {

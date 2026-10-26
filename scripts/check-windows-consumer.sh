@@ -7,8 +7,9 @@
 # with the MSVC tools installed (Visual Studio or its Build Tools, "Desktop development with
 # C++"), and cl.exe and dumpbin.exe reachable on PATH or through vswhere.
 #
-#   <renderer>           the directory desktop/scripts/build-windows.sh writes; the application
-#                        finds it through DXC_WINDOWS_NATIVE_LIB
+#   <renderer>           the directory desktop/scripts/build-windows.sh writes, which has to be
+#                        renderer/build/windows of this checkout: the application is given no
+#                        variable and finds it by the crate's default resolution
 #   <scratch directory>  where the applications are copied to; emptied first, and it should be
 #                        somewhere that has nothing to do with the build
 #
@@ -101,8 +102,13 @@ while :; do
     directory="$parent"
 done
 
-export DXC_WINDOWS_NATIVE_LIB
-DXC_WINDOWS_NATIVE_LIB="$(cygpath -w "$renderer")"
+# No variable names the renderer. A consumer with a path dependency on this crate finds the
+# kit build-windows.sh wrote in renderer/build/windows, which is what this proves; the
+# override has a short check of its own in 1c.
+unset DXC_WINDOWS_NATIVE_LIB
+[[ "$renderer" == "$(cd "$repo_root/renderer/build/windows" 2>/dev/null && pwd)" ]] ||
+    fail "$renderer is not $repo_root/renderer/build/windows" \
+        "The default resolution looks there and nowhere else in a checkout."
 
 # Target directories of its own inside the checkout, as the Linux check does, so this never
 # shares a build with anything else running there. The builds with the same flags share one,
@@ -167,6 +173,23 @@ CARGO_TARGET_DIR="$repo_root/target/windows-consumer-check/release" \
     cargo build --release --manifest-path "$fixture/Cargo.toml" >&2 ||
     fail "the release build did not link" "See fix-mingw-objects.py, point 3, for the LNK1223 case."
 [[ -f "$target/release/release/consumer.exe" ]] || fail "the release build produced no consumer.exe"
+
+# The override still wins over the default: pointed at a directory that holds no kit, the build
+# has to stop naming that directory, and not quietly link the kit it would have found anyway.
+echo "== 1c. DXC_WINDOWS_NATIVE_LIB overrides the default"
+empty_kit="$scratch/empty-kit"
+mkdir -p "$empty_kit"
+override_log="$scratch/override.log"
+if DXC_WINDOWS_NATIVE_LIB="$(cygpath -w "$empty_kit")" \
+    CARGO_TARGET_DIR="$repo_root/target/windows-consumer-check/override" \
+    cargo build --manifest-path "$fixture/Cargo.toml" > "$override_log" 2>&1; then
+    fail "a build with DXC_WINDOWS_NATIVE_LIB at an empty directory succeeded" \
+        "The variable is meant to beat the default resolution."
+fi
+grep -q 'has no libcompose_rust_renderer.a' "$override_log" ||
+    { tail -30 "$override_log" >&2; fail "the override build failed, but not for the empty kit"; }
+grep -q "empty-kit" "$override_log" ||
+    fail "the override failure does not name the directory the variable pointed at"
 
 echo "== 2. what it needs to start"
 only_windows "$binary"

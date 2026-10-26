@@ -45,8 +45,9 @@ pub const PUBLISHED_TARGETS: &[&str] = &["macos-aarch64", "windows-x64", "linux-
 /// The archive is what the release ships for macOS and Linux. It is Kotlin/Native, with
 /// Compose, Skia and ICU inside it, and it is linked into the application, so the
 /// application is one executable that needs nothing but the system's own libraries. The
-/// shared library is the GraalVM native image, which is what Windows still ships and what
-/// a checkout can still build and point the build at.
+/// shared library is the GraalVM native image, which a checkout can still build for macOS
+/// and Linux. Windows has no shared renderer: its distribution is the static kit that
+/// `build-windows.sh` writes (the archive with `native/`, `gcc/` and `skiko/` beside it).
 ///
 /// Which one a distribution is, is read from what is in it rather than from the platform.
 /// That is what lets a crate version whose release still carries shared libraries go on
@@ -63,7 +64,7 @@ pub enum RendererKind {
 /// The release publishes these targets as a static archive. The others are a shared
 /// library for now; the build script says which in its messages, and links whichever
 /// the distribution holds.
-pub const STATIC_TARGETS: &[&str] = &["macos-aarch64", "linux-x64", "linux-arm64"];
+pub const STATIC_TARGETS: &[&str] = &["macos-aarch64", "windows-x64", "linux-x64", "linux-arm64"];
 
 /// The static archive a distribution of the Renderer contains when it is one. Kotlin/Native
 /// names it the same way on every platform it builds one for.
@@ -86,6 +87,16 @@ pub fn renderer_file(target_os: &str, kind: RendererKind) -> &'static str {
 /// at. The archive wins where a directory somehow holds both, because it is what makes the
 /// application one file.
 pub fn find_renderer_in(dir: &Path, target_os: &str) -> Option<(PathBuf, RendererKind)> {
+    // The Windows kit is the directory itself: the archive sits at its root with the MSVC
+    // bridge libraries beside it, and linking needs all of them, so a `lib/` or `bin/`
+    // holding only an archive is not a kit. There is no Windows DLL to find.
+    if target_os == "windows" {
+        let file = renderer_static_file(target_os);
+        return dir
+            .join(file)
+            .is_file()
+            .then(|| (dir.to_path_buf(), RendererKind::Static));
+    }
     for kind in [RendererKind::Static, RendererKind::Shared] {
         let file = renderer_file(target_os, kind);
         for candidate in [dir.join("lib"), dir.join("bin"), dir.to_path_buf()] {
@@ -102,9 +113,6 @@ pub fn find_renderer_in(dir: &Path, target_os: &str) -> Option<(PathBuf, Rendere
 /// what its loader will look for.
 pub fn renderer_lib_file(target_os: &str) -> &'static str {
     match target_os {
-        // The Windows build names the image `libcompose_rust_renderer`, so the DLL keeps
-        // the `lib` prefix that Windows itself would not have added.
-        "windows" => "libcompose_rust_renderer.dll",
         "macos" => "libcompose_rust_renderer.dylib",
         _ => "libcompose_rust_renderer.so",
     }
@@ -112,14 +120,9 @@ pub fn renderer_lib_file(target_os: &str) -> &'static str {
 
 /// Where a platform's build script puts the renderer inside the distribution.
 ///
-/// Windows keeps the DLL beside the AWT and Skia DLLs in `bin`, because the loader
-/// searches the directory of the module that needs them and they have to be found
-/// together. The other platforms put the shared library in `lib`.
-pub fn renderer_lib_subdir(target_os: &str) -> &'static str {
-    match target_os {
-        "windows" => "bin",
-        _ => "lib",
-    }
+/// Every shared library goes in `lib`. Windows has none: its renderer is the static kit.
+pub fn renderer_lib_subdir(_target_os: &str) -> &'static str {
+    "lib"
 }
 
 /// One line holding the crate version the artifact was built for. The release packaging
@@ -1026,7 +1029,7 @@ pub fn every_failure_message(sample_dir: &Path) -> Vec<String> {
             "linux-x64",
         ),
         unexpected_layout_message(&tarball, sample_dir, "macos"),
-        no_static_link_message("windows-x64", sample_dir),
+        no_static_link_message("freebsd-x64", sample_dir),
         version_mismatch_message(sample_dir, "0.1.0", version, target),
         build_it_yourself(version, target),
     ]
