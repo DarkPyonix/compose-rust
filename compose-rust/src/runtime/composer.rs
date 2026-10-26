@@ -213,6 +213,10 @@ impl RuntimeSignal {
     }
 }
 
+/// The most attribute buffers kept for reuse. A frame needs about as many as it has nodes
+/// on the largest screen it builds, and what is past this is allocated again.
+const ATTR_POOL_LIMIT: usize = 512;
+
 pub(crate) struct Composer {
     pub(crate) groups: Vec<Group>,
     free: Vec<GroupId>,
@@ -289,6 +293,21 @@ impl Composer {
     fn give_vec(&mut self, mut vec: Vec<GroupId>) {
         vec.clear();
         self.vec_pool.push(vec);
+    }
+
+    /// Puts an attribute buffer back for the next node to fill.
+    ///
+    /// A buffer with no capacity is not worth keeping, and the pool is bounded: a node
+    /// that is updated hands back the buffer it held and, after the swap, an empty one, and
+    /// taking from a pool whose top is the empty one never reuses the buffer under it. Kept
+    /// unbounded, the pool grew by one filled buffer per node update, about 1.5 KB each,
+    /// which is the growth of a few hundred KB per frame that a chat sample showed.
+    fn recycle_attrs(&mut self, mut attrs: Vec<(&'static str, OwnedAttr)>) {
+        if attrs.capacity() == 0 || self.attr_pool.len() >= ATTR_POOL_LIMIT {
+            return;
+        }
+        attrs.clear();
+        self.attr_pool.push(attrs);
     }
 
     pub(crate) fn take_attrs(&mut self) -> Vec<(&'static str, OwnedAttr)> {
@@ -1045,8 +1064,7 @@ impl Composer {
                     }
                 }
             }
-            previous.clear();
-            self.attr_pool.push(previous);
+            self.recycle_attrs(previous);
             // Put the state back with what was written this time.
             let index = self.frames.last().map_or(0, |frame| frame.slot) - 1;
             if let Some(state) =
@@ -1077,8 +1095,7 @@ impl Composer {
             });
             node
         };
-        attrs.clear();
-        self.attr_pool.push(attrs);
+        self.recycle_attrs(attrs);
         self.groups[group as usize].node = Some(node);
         self.place(node);
         node
