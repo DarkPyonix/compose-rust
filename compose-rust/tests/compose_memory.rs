@@ -129,14 +129,20 @@ fn nfr_17_the_writer_keeps_nothing_for_nodes_that_were_removed() {
     };
     flip(&mut host, 200);
     let warm = live_bytes();
-    // Two thousand rounds of forty nodes made and removed: 80000 node ids that no longer
+    // A thousand rounds of forty nodes made and removed: 40000 node ids that no longer
     // stand. Ids are never reused, so an entry kept for one is kept for good.
-    flip(&mut host, 4000);
-    let grown = live_bytes() - warm;
+    flip(&mut host, 2000);
+    let middle = live_bytes();
+    flip(&mut host, 2000);
+    let end = live_bytes();
     TRACKING.with(|tracking| tracking.set(false));
+    // Judged on the second stretch, so that a buffer that doubles once on the way to its
+    // working size is not mistaken for growth that never stops.
     assert!(
-        grown < 256 * 1024,
-        "live memory grew by {grown} bytes over 2000 add and remove rounds"
+        end - middle < 256 * 1024,
+        "live memory grew by {} bytes over the first 1000 rounds and {} over the next 1000",
+        middle - warm,
+        end - middle
     );
 }
 
