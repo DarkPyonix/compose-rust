@@ -1486,6 +1486,7 @@ fn pr5_a_build_outside_an_android_project_unpacks_nothing() {
 #[test]
 fn pr5_compose_is_added_to_a_generated_gradle_project() {
     let module = "plugins {\n    id(\"com.android.application\")\n}\n\n\
+                  android {\n    compileSdk = 34\n}\n\n\
                   dependencies {\n    implementation(\"androidx.webkit:webkit:1.13.0\")\n}\n";
     let root = "buildscript {\n    dependencies {\n        \
                 classpath(\"com.android.tools.build:gradle:8.7.0\")\n        \
@@ -1503,6 +1504,10 @@ fn pr5_compose_is_added_to_a_generated_gradle_project() {
              compile against:\n{module_text}"
         );
     }
+    assert!(
+        module_text.contains("compileSdk = 35"),
+        "Compose 1.8 refuses a module compiled against SDK 34:\n{module_text}"
+    );
     let root_text = root_text.expect("the plugin's jar has to reach the build's classpath");
     assert!(
         root_text.contains("compose-compiler-gradle-plugin:2.0.20"),

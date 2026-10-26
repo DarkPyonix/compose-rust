@@ -39,7 +39,10 @@ REVISION="127311dc737d8badb68953291d248db8a7071cca"
 # resize soak (#109), which draws each GraalVM frame in an autorelease pool of its own; it
 # carries the merge of the coordinates (#119), so the window modules compile against the fork's
 # Compose coordinates, which the Compose pin introduced, and the window changes before it.
-WINDOW_REVISION="57b4a0e102d837ba3271699297b69278fcefedef"
+# This is a backport branch of the fork, feat/windows-window-backport-57b4a0e: 57b4a0e plus the
+# Windows wheel direction fix (fork #170) and the caption buttons safe default with the
+# HTMAXBUTTON hit test for Snap Layouts (fork #172). Do not delete that branch while this pins it.
+WINDOW_REVISION="aed8307c70d2f6b3c4854ab5ebfeac92b50e962e"
 # The commit the Windows build takes, which is its own on purpose. Windows needs the
 # commits the Compose pin (REVISION) leaves out: 296beb3 adds mingwX64 to every Compose UI module and
 # reads skiko from the local Maven repository first, and f17cb30 adds the skiko build for

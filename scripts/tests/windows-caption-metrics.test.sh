@@ -18,11 +18,7 @@ cd "$repo_root"
 # The window's C is the Compose fork's windows-shared module, at the pinned commit.
 source "$repo_root/scripts/tests/fork-window.sh"
 fork_window_or_skip "$repo_root"
-entry="$fork_window/windows-shared/c/win32_window.c"
-# The metrics moved beside the hit test into win32_caption.h (fork #171); an older pin keeps
-# them in win32_window.c, so both are read.
-metrics=("$entry")
-[ -f "$fork_window/windows-shared/c/win32_caption.h" ] && metrics+=("$fork_window/windows-shared/c/win32_caption.h")
+entry="$fork_window/windows-shared/c/win32_caption.h"
 chrome="renderer/desktop/src/devshell/WindowChrome.kt"
 rules="renderer/desktop/src/renderer/ComponentRules.kt"
 status=0
@@ -36,9 +32,9 @@ for file in "$entry" "$chrome" "$rules"; do
   [ -f "$file" ] || { echo "FAIL: $file is missing"; exit 1; }
 done
 
-c_height="$(grep -hoE '#define DXC_CAPTION_HEIGHT_DIP [0-9]+' "${metrics[@]}" | head -n 1 | grep -oE '[0-9]+$')"
-c_button="$(grep -hoE '#define DXC_CAPTION_BUTTON_WIDTH_DIP [0-9]+' "${metrics[@]}" | head -n 1 | grep -oE '[0-9]+$')"
-c_count="$(grep -hoE '#define DXC_CAPTION_BUTTON_COUNT [0-9]+' "${metrics[@]}" | head -n 1 | grep -oE '[0-9]+$')"
+c_height="$(grep -oE '#define DXC_CAPTION_HEIGHT_DIP [0-9]+' "$entry" | grep -oE '[0-9]+$')"
+c_button="$(grep -oE '#define DXC_CAPTION_BUTTON_WIDTH_DIP [0-9]+' "$entry" | grep -oE '[0-9]+$')"
+c_count="$(grep -oE '#define DXC_CAPTION_BUTTON_COUNT [0-9]+' "$entry" | grep -oE '[0-9]+$')"
 kt_height="$(grep -oE 'internal val windowsCaptionHeight = [0-9]+\.dp' "$chrome" | grep -oE '[0-9]+')"
 
 [ -n "$c_height" ] || fail "the native side no longer defines a caption height"
