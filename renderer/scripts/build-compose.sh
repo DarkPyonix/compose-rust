@@ -64,8 +64,6 @@ MATERIAL3_AS="1.11.1-ext.2"
 # scripts/publish-skiko-awt.sh). It goes out as org.thisisthepy.compose.skiko:skiko-awt on the
 # fork's version line; its module metadata declares JetBrains' skiko-awt as a capability.
 SKIKO_AWT_AS="1.11.1-ext.2"
-PUBLISHED_AS="1.11.1"
-MATERIAL3_PUBLISHED_AS="1.11.0-alpha07"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RENDERER_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -100,24 +98,6 @@ case "$target" in
     mingwX64)
         publish_targets=(mingwX64)
         revision="$MINGW_REVISION"
-        publications=(MingwX64)
-        published_as="$PUBLISHED_AS"
-        modules=(
-            compose:animation:animation
-            compose:animation:animation-core
-            compose:foundation:foundation
-            compose:foundation:foundation-layout
-            compose:material:material-ripple
-            compose:material3:material3
-            compose:ui:ui
-            compose:ui:ui-backhandler
-            compose:ui:ui-geometry
-            compose:ui:ui-graphics
-            compose:ui:ui-text
-            compose:ui:ui-tooling-preview
-            compose:ui:ui-unit
-            compose:ui:ui-util
-        )
         ;;
     *) die "unknown target '$target'" "known: macosArm64, desktop, linux (both of the next two), linuxX64, linuxArm64, mingwX64" ;;
 esac
@@ -163,27 +143,6 @@ if [[ "$target" == mingwX64 ]]; then
     # icudtl.dat has to sit beside the executable. Put with the rest of skiko's Windows half,
     # where desktop/scripts/build-windows.sh compiles it against the icudtl.dat already there.
     cp "$WORK/extended/skiko/embedded_icu.cpp" "$SKIKO_WORK/out/windows-x64/"
-
-    echo "==> publishing ${#modules[@]} compose module(s) for $target as $published_as"
-    tasks=()
-    for module in "${modules[@]}"; do
-        for publication in "${publications[@]}"; do
-            tasks+=(":$module:publish${publication}PublicationToMavenLocal")
-        done
-        tasks+=(":$module:publishKotlinMultiplatformPublicationToMavenLocal")
-    done
-    (
-        cd "$WORK"
-        ./gradlew --no-daemon --no-configuration-cache \
-            "-Pjetbrains.publication.version.COMPOSE=$published_as" \
-            "-Pjetbrains.publication.version.COMPOSE_MATERIAL3=$MATERIAL3_PUBLISHED_AS" \
-            "${tasks[@]}"
-    )
-
-    echo
-    echo "published to $HOME/.m2/repository/org/jetbrains/compose as $published_as"
-    echo "the renderer's macos, linux and windows modules read mavenLocal first, so the next build links these"
-    exit 0
 fi
 
 publish="$WORK/extended/compose/publish-local.sh"

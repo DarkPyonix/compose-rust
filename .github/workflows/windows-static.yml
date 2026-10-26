@@ -189,7 +189,7 @@ jobs:
           rm -rf ~/.m2/repository .scratch/skiko-build/out/windows-x64
           mv "$m2" ~/.m2/repository
           mv "$skiko" .scratch/skiko-build/out/windows-x64
-          ls ~/.m2/repository/org/jetbrains/compose/ui | head
+          ls ~/.m2/repository/org/thisisthepy/compose/ui | head
           ls -la .scratch/skiko-build/out/windows-x64
 
       - name: Restore the Kotlin toolchain
