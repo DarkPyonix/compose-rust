@@ -1506,7 +1506,7 @@ fn pr5_compose_is_added_to_a_generated_gradle_project() {
     }
     assert!(
         module_text.contains("compileSdk = 35"),
-        "Compose 1.8 refuses a module compiled against SDK 34:\n{module_text}"
+        "Compose 1.9 refuses a module compiled against SDK 34:\n{module_text}"
     );
     let root_text = root_text.expect("the plugin's jar has to reach the build's classpath");
     assert!(
