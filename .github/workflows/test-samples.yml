@@ -18,9 +18,13 @@
 # two should be versioned apart so a sample can be rebuilt without implying a library
 # release, and a library release is not held up by a sample that does not build.
 #
-# Each sample links the renderer for its platform. On macOS and Linux that is the static
-# archive, built by static-renderer.yml, so each sample is one executable; on Windows the
-# renderer library still ships beside it.
+# Each sample links the renderer for its platform. The renderer is the one the release for
+# the checked-out crate version carries (compose-rust-renderer-v<version>-<target>.tar.gz,
+# checked against its .sha256), so a sample build does not rebuild it. On macOS and Linux
+# that is the static archive, so each sample is one executable; on Windows the renderer
+# library still ships beside it. When the release has no such asset yet (a version still
+# in a pull request), the resolve job says so and the renderer is built here as before,
+# by static-renderer.yml and the Windows build script.
 
 name: Samples test
 
@@ -45,6 +49,11 @@ on:
         required: false
         type: string
         default: ''
+      skip_android:
+        description: 'Leave Android out of this run and its release (for a tag whose Android build is known to fail)'
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   # One run per pull request: a new commit cancels the older run. A tag push or a dispatch
@@ -68,11 +77,47 @@ jobs:
     steps:
       - run: echo "Heavy checks requested by ${{ github.event_name }} ${{ github.event.action }}"
 
-  # The renderers macOS and Linux ship, from the same reusable workflow the release uses,
-  # so that every sample there is one executable, built the way an application is.
+  # Does the release for this commit's crate version carry the renderer assets? Decides
+  # whether the build downloads them or builds the renderer itself.
+  resolve:
+    name: Find the released renderer
+    needs: requested
+    runs-on: ubuntu-latest
+    outputs:
+      released: ${{ steps.find.outputs.released }}
+      version: ${{ steps.find.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Read the crate version and look for the release asset
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^version = "\(.*\)"$/\1/p' compose-rust/Cargo.toml | head -1)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          # All four desktop assets and their checksums must be there; a release that is
+          # half uploaded is treated as not released.
+          names="$(gh release view "v$version" -R "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' 2>/dev/null || true)"
+          released=true
+          for target in macos-aarch64 linux-x64 linux-arm64 windows-x64; do
+            asset="compose-rust-renderer-v$version-$target.tar.gz"
+            for n in "$asset" "$asset.sha256"; do
+              grep -qxF "$n" <<<"$names" || { echo "missing $n"; released=false; }
+            done
+          done
+          echo "released=$released" >> "$GITHUB_OUTPUT"
+          echo "crate $version, released renderer: $released"
+
+  # The renderers macOS and Linux ship, from the same reusable workflow the release uses.
+  # Only when the release does not carry them yet.
   static-renderer:
     name: renderer
-    needs: requested
+    needs: resolve
+    if: needs.resolve.outputs.released != 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -84,16 +129,18 @@ jobs:
 
   fork-desktop:
     # The Windows renderer's desktop module asks for the fork's Compose and skiko-awt by version.
-    needs: requested
+    # Only building that renderer needs them, so a released one skips this.
+    needs: resolve
+    if: needs.resolve.outputs.released != 'true'
     name: Build the Compose fork's desktop modules
     uses: ./.github/workflows/fork-desktop-modules.yml
 
   build:
     name: Build the sample (${{ matrix.target }})
-    needs: [requested, static-renderer, fork-desktop]
-    # Windows builds its own renderer and does not need the static ones, and one platform's
-    # renderer failing does not stop the others' samples.
-    if: ${{ !cancelled() && needs.requested.result == 'success' }}
+    needs: [requested, resolve, static-renderer, fork-desktop]
+    # Skipped renderer jobs (a released renderer) are fine; one platform's renderer
+    # failing does not stop the others' samples.
+    if: ${{ !cancelled() && needs.requested.result == 'success' && needs.resolve.result == 'success' }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     strategy:
@@ -149,7 +196,7 @@ jobs:
           echo "link.exe now resolves to: $(command -v link || echo 'nothing on PATH')"
 
       - name: Install upstream GraalVM 25
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && needs.resolve.outputs.released != 'true'
         uses: graalvm/setup-graalvm@v1
         with:
           java-version: '25'
@@ -166,7 +213,7 @@ jobs:
             libx11-dev libxext-dev libgl1-mesa-dev libegl-dev libfontconfig1-dev libfreetype-dev
 
       - name: Cache the Kotlin toolchain and Maven dependencies
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && needs.resolve.outputs.released != 'true'
         uses: actions/cache@v4
         with:
           path: ~/.m2/repository
@@ -174,48 +221,72 @@ jobs:
           restore-keys: kotlin-${{ matrix.target }}-
 
       - name: Take the Compose fork's desktop modules
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && needs.resolve.outputs.released != 'true'
         uses: actions/download-artifact@v4
         with:
           name: compose-fork-desktop
           path: ${{ runner.temp }}/compose-fork-desktop
 
       - name: Put them where the renderer's build looks
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && needs.resolve.outputs.released != 'true'
         shell: bash
         run: |
           mkdir -p ~/.m2/repository/org/jetbrains
           cp -R "$RUNNER_TEMP/compose-fork-desktop/." ~/.m2/repository/org/
 
       - name: Build the Windows renderer
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && needs.resolve.outputs.released != 'true'
         run: ${{ matrix.renderer }}
 
       - name: Download the static renderer
-        if: matrix.static
+        if: matrix.static && needs.resolve.outputs.released != 'true'
         uses: actions/download-artifact@v4
         with:
           pattern: compose-rust-renderer-v*-${{ matrix.target }}
           path: renderer-artifact
           merge-multiple: true
 
+      - name: Download the released renderer
+        if: needs.resolve.outputs.released == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p renderer-artifact
+          asset="compose-rust-renderer-v$VERSION-${{ matrix.target }}.tar.gz"
+          gh release download "v$VERSION" -R "$GITHUB_REPOSITORY" \
+            --pattern "$asset" --pattern "$asset.sha256" --dir renderer-artifact
+          cd renderer-artifact
+          # The .sha256 holds "<hash>  <name>"; check it against the file just fetched.
+          if command -v sha256sum >/dev/null; then sha256sum -c "$asset.sha256"
+          else shasum -a 256 -c "$asset.sha256"; fi
+
       - name: Unpack it where the build will be pointed
-        if: matrix.static
+        if: matrix.static || needs.resolve.outputs.released == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/renderer"
-          tar -xzf renderer-artifact/*.tar.gz -C "$RUNNER_TEMP/renderer"
-          ls -la "$RUNNER_TEMP/renderer/lib"
-          echo "RENDERER=$RUNNER_TEMP/renderer" >> "$GITHUB_ENV"
+          # Forward slashes on Windows too: GNU tar reads "D:" as a remote host, and an
+          # absolute path in RENDERER has to survive the build script's working directory.
+          dir="$RUNNER_TEMP/renderer"
+          if command -v cygpath >/dev/null; then dir="$(cygpath -m "$dir")"; fi
+          mkdir -p "$dir"
+          tar -xzf renderer-artifact/*.tar.gz -C "$dir"
+          ls -la "$dir"
+          echo "RENDERER=$dir" >> "$GITHUB_ENV"
+          echo "DIST=$dir" >> "$GITHUB_ENV"
 
       - name: Point the build at the Windows renderer
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && needs.resolve.outputs.released != 'true'
         shell: bash
         # Absolute. A build script runs with its crate directory as the working
         # directory, not the workspace root, so a relative path here points at
         # compose-rust/renderer/... and finds nothing.
-        run: echo "RENDERER=${{ github.workspace }}/${{ matrix.dist }}" >> "$GITHUB_ENV"
+        run: |
+          echo "RENDERER=${{ github.workspace }}/${{ matrix.dist }}" >> "$GITHUB_ENV"
+          echo "DIST=${{ github.workspace }}/${{ matrix.dist }}" >> "$GITHUB_ENV"
 
       - name: Build every sample against it
         # A sample that does not build is skipped rather than allowed to end the run. The
@@ -270,7 +341,7 @@ jobs:
             stage="staging/$app"
             mkdir -p "$stage"
             if [[ "${{ runner.os }}" == "Windows" ]]; then
-              cp -R "${{ matrix.dist }}/." "$stage/"
+              cp -R "$DIST/." "$stage/"
               # The executable goes in beside the DLL rather than above it. Windows
               # searches the directory the executable is in, and the renderer's DLL lives
               # in `bin` because AWT reads its font configuration from the `lib` next to
@@ -302,6 +373,7 @@ jobs:
 
   android:
     needs: requested
+    if: ${{ !inputs.skip_android }}
     name: Build the sample (Android)
     runs-on: ubuntu-24.04
     timeout-minutes: 120
@@ -464,8 +536,8 @@ jobs:
     name: Attach the samples to the GitHub release
     needs: [build, android, ios, web]
     # A tag, or a dispatch that names one. A pull request run and a dispatch without a tag
-    # build everything and stop there.
-    if: github.event_name == 'push' || inputs.tag != ''
+    # build everything and stop there. A dispatch with skip_android releases without Android.
+    if: ${{ !cancelled() && (github.event_name == 'push' || inputs.tag != '') && needs.build.result == 'success' && needs.ios.result == 'success' && needs.web.result == 'success' && (needs.android.result == 'success' || (inputs.skip_android && needs.android.result == 'skipped')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -511,6 +583,10 @@ jobs:
               echo "- $(basename "$archive")"
             done
             echo
+            if [ "${{ inputs.skip_android }}" = "true" ]; then
+              echo "Android is not in this release; it comes in the next version."
+              echo
+            fi
             echo "A sample that does not build on a platform is skipped rather than"
             echo "holding up the rest, so a pair missing from the list above failed to"
             echo "compile there. The workflow log says which."
