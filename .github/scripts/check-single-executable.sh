@@ -181,24 +181,31 @@ vs_tool() {
 
 # What a Windows executable asks the loader for: dumpbin, else LLVM's readobj, else objdump.
 windows_imports() {
-    local binary="$1" tool windows_path
+    local binary="$1" tool windows_path listing
+    listing="$(mktemp)"
     windows_path="$(cygpath -w "$binary")"
     tool="$(vs_tool dumpbin.exe)"
     if [[ -n "$tool" ]]; then
         echo "-- dumpbin /dependents $(basename "$binary")" >&2
-        "$tool" -nologo -dependents "$windows_path" | tr -d '\r' | tee /dev/stderr | parse_dll_dependents
+        "$tool" -nologo -dependents "$windows_path" | tr -d '\r' > "$listing"
+        cat "$listing" >&2
+        parse_dll_dependents < "$listing"
         return
     fi
     tool="$(command -v llvm-readobj || true)"
     if [[ -n "$tool" ]]; then
         echo "-- llvm-readobj --coff-imports $(basename "$binary")" >&2
-        "$tool" --coff-imports "$binary" | tee /dev/stderr | parse_dll_dependents
+        "$tool" --coff-imports "$binary" > "$listing"
+        cat "$listing" >&2
+        parse_dll_dependents < "$listing"
         return
     fi
     tool="$(command -v objdump || true)"
     [[ -n "$tool" ]] || fail "no dumpbin, llvm-readobj or objdump to list the executable's DLLs with"
     echo "-- objdump -p $(basename "$binary")" >&2
-    "$tool" -p "$binary" | grep -a 'DLL Name' | tee /dev/stderr | parse_dll_dependents
+    "$tool" -p "$binary" | grep -a 'DLL Name' > "$listing"
+        cat "$listing" >&2
+        parse_dll_dependents < "$listing"
 }
 
 check_windows_libraries() {
