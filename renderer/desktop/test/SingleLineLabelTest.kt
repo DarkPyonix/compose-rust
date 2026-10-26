@@ -25,8 +25,8 @@ private const val CONTROL = 2
 /**
  * A Button or Chip label is one line. Squeezed into a parent narrower than the label, the
  * control used to be measured at the narrowest a Hangul label can be (one syllable) and
- * '보내' wrapped to '보' over '내' (compose-rust#328). The label now keeps its single-line
- * width and height however little room the parent offers.
+ * '보내' wrapped to '보' over '내' (compose-rust#328). The label is now one line high
+ * however little room the parent offers (cut with an ellipsis, never wrapped).
  */
 @OptIn(ExperimentalTestApi::class)
 class SingleLineLabelTest {
