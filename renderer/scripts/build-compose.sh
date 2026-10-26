@@ -36,11 +36,12 @@ REVISION="127311dc737d8badb68953291d248db8a7071cca"
 # The window modules and skiko's builds are not Compose sources: the renderer builds them from
 # this commit (scripts/fetch-fork-window.sh and fetch-fork-skiko.sh) into artifacts of its own,
 # so they can move without moving the Compose build above. This is the tip of the fork's
-# `extended` branch with the Windows caption buttons safe default and HTMAXBUTTON hit test for
-# Snap Layouts (fork #172) and the Windows wheel direction fix (fork #170). It replaces the
+# `extended` branch, which holds the Windows caption buttons safe default and HTMAXBUTTON hit test
+# for Snap Layouts (fork #172), the Windows wheel direction fix (fork #170) and the windows' own
+# accessibility bridges (the renderer hands them the scene's semantics). It replaces the
 # backport branch feat/windows-window-backport-57b4a0e, which carried those two fixes on an
 # older base; multi-window work builds on `extended` itself.
-WINDOW_REVISION="7dd0d4b0f05a400c424e96b61484b585278e184c"
+WINDOW_REVISION="ea24655455903b909872fb0e09daf1a5a061327d"
 # The commit the Windows build takes, which is its own on purpose. Windows needs the
 # commits the Compose pin (REVISION) leaves out: 296beb3 adds mingwX64 to every Compose UI module and
 # reads skiko from the local Maven repository first, and f17cb30 adds the skiko build for
