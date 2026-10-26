@@ -129,8 +129,10 @@ jobs:
           scripts="$(cygpath -w "$PWD/.github/scripts")"
           (cd "$kit" && MSYS_NO_PATHCONV=1 cl /nologo /O2 /W3 "$scripts\\resize-probe.c" \
             /link /MANIFEST:EMBED "/MANIFESTINPUT:$scripts\\resize-probe.manifest")
+          # A GUI program, so that starting it opens no console window: on Server 2025 the
+          # console opened beside the window and covered the backdrop the probe looks for.
           (cd "$kit" && MSYS_NO_PATHCONV=1 cl /nologo /O2 /W3 "$scripts\\resize-control.c" \
-            /link /MANIFEST:EMBED "/MANIFESTINPUT:$scripts\\resize-probe.manifest")
+            /link /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup /MANIFEST:EMBED "/MANIFESTINPUT:$scripts\\resize-probe.manifest")
           (cd "$tools" && MSYS_NO_PATHCONV=1 cl /nologo /O2 /W3 "$scripts\\set-display-scale.c")
           rm -f "$kit"/*.obj "$tools"/*.obj
           cp "$(cygpath -u "$RUNNER_TEMP")/hand-check/hand-check.exe" "$kit/"

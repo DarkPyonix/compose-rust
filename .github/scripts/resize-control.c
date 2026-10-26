@@ -28,6 +28,9 @@
  *
  * --delay-ms overrides DXC_RESIZE_PRESENT_DELAY_MS. DXC_D3D12_WARP=1 draws with WARP, the
  * software adapter, as the renderer does with that variable. Lines go to standard error.
+ *
+ * Linked as a GUI program (/SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup), so that starting it opens
+ * no console window next to it; standard error still reaches a file it is redirected to.
  */
 #define _WIN32_WINNT 0x0A00
 #define WIN32_LEAN_AND_MEAN
