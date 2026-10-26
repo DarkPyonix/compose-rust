@@ -203,9 +203,9 @@ windows_imports() {
     tool="$(command -v objdump || true)"
     [[ -n "$tool" ]] || fail "no dumpbin, llvm-readobj or objdump to list the executable's DLLs with"
     echo "-- objdump -p $(basename "$binary")" >&2
-    "$tool" -p "$binary" | grep -a 'DLL Name' > "$listing"
-        cat "$listing" >&2
-        parse_dll_dependents < "$listing"
+    "$tool" -p "$binary" | grep -a 'DLL Name' > "$listing" || true
+    cat "$listing" >&2
+    parse_dll_dependents < "$listing"
 }
 
 check_windows_libraries() {
