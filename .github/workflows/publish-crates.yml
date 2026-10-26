@@ -71,9 +71,20 @@ jobs:
           echo "tag $tag matches Cargo.toml $manifest"
 
       - name: Install the libraries the static renderer links
-        # The verification build links the renderer statically, which needs fontconfig and
-        # freetype. The runner image lacks them; v0.0.2 publish failed on it (run 40112527120).
-        run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev libfreetype6-dev
+        # The verification build links the renderer statically. The list is exactly the
+        # Linux `libraries` in compose-rust/build.rs (X11 Xext GL fontconfig freetype stdc++ z,
+        # plus EGL on arm64), as development packages because the link names libX11.so and
+        # friends. Same set as the "libraries an application links on Linux" step of
+        # test-native-renderer.yml and the apt lines of test.yml. The runner image has none of
+        # them; v0.0.2 failed on fontconfig/freetype (run 40112527120) and v0.0.3 on X11, Xext
+        # and GL (run 40246021442).
+        #   X11 -> libx11-dev, Xext -> libxext-dev, GL -> libgl-dev, EGL -> libegl-dev,
+        #   fontconfig -> libfontconfig1-dev, freetype -> libfreetype-dev, z -> zlib1g-dev,
+        #   stdc++ -> build-essential (g++); pthread, dl, m, rt are libc.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config zlib1g-dev \
+            libx11-dev libxext-dev libgl-dev libegl-dev libfontconfig1-dev libfreetype-dev
 
       - name: Publish
         # Default features only, so this is exactly what a consumer gets. The verification
