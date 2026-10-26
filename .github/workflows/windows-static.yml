@@ -51,7 +51,7 @@ jobs:
             ~/.m2/repository
             .scratch/skiko-build/out/windows-x64/skiko-bridges.lib
             .scratch/skiko-build/out/windows-x64/skia
-            .scratch/skiko-build/out/windows-x64/embedded_icu.cpp
+            .scratch/skiko-build/out/windows-x64/embedded_icu.obj
           key: compose-mingwx64-${{ hashFiles('renderer/scripts/build-compose.sh', 'renderer/scripts/compose-fork-mingw.changes') }}
 
       - name: Make room for the Compose build
@@ -110,7 +110,7 @@ jobs:
             ~/.m2/repository
             .scratch/skiko-build/out/windows-x64/skiko-bridges.lib
             .scratch/skiko-build/out/windows-x64/skia
-            .scratch/skiko-build/out/windows-x64/embedded_icu.cpp
+            .scratch/skiko-build/out/windows-x64/embedded_icu.obj
           key: ${{ steps.kit-cache.outputs.cache-primary-key }}
 
       - name: Report what was published
@@ -131,7 +131,7 @@ jobs:
             ~/.m2/repository
             .scratch/skiko-build/out/windows-x64/skiko-bridges.lib
             .scratch/skiko-build/out/windows-x64/skia
-            .scratch/skiko-build/out/windows-x64/embedded_icu.cpp
+            .scratch/skiko-build/out/windows-x64/embedded_icu.obj
           if-no-files-found: error
           retention-days: 3
 
