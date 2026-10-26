@@ -9,27 +9,38 @@
 #
 # workflow_run reports a tag push with the tag name as head_branch, and runs from the
 # default branch, so the job checks out the tagged commit explicitly.
+#
+# A failed publish can be re-run by hand: start this workflow with workflow_dispatch and an
+# existing v* tag. It checks out that tag's commit and runs the same steps. The tag's Native
+# renderer release assets must already exist, since the verification build downloads them.
 name: Publish to crates.io
 
 on:
   workflow_run:
     workflows: ["Native renderer test"]
     types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing v* tag to publish (for example v0.0.3). Its Native renderer release assets must already exist."
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: publish-crates-${{ github.event.workflow_run.head_branch }}
+  group: publish-crates-${{ inputs.tag || github.event.workflow_run.head_branch }}
   cancel-in-progress: false
 
 jobs:
   publish:
     name: Publish the crate
     if: >-
-      github.event.workflow_run.conclusion == 'success' &&
+      (github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' &&
-      startsWith(github.event.workflow_run.head_branch, 'v')
+      startsWith(github.event.workflow_run.head_branch, 'v')) ||
+      (github.event_name == 'workflow_dispatch' && startsWith(inputs.tag, 'v'))
     runs-on: ubuntu-latest
     # Publishing cannot be undone: a version can be yanked but never replaced, and the
     # name is taken forever. Add a required reviewer to this environment in the repository
@@ -39,7 +50,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.workflow_run.head_sha }}
 
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install stable --profile minimal && rustup default stable
@@ -49,7 +60,7 @@ jobs:
         # under a number that then can never be reused.
         run: |
           set -euo pipefail
-          tag="${{ github.event.workflow_run.head_branch }}"
+          tag="${{ inputs.tag || github.event.workflow_run.head_branch }}"
           manifest="$(cargo metadata --no-deps --format-version 1 |
             python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="compose-rust"))')"
           if [[ "$tag" != "v$manifest" ]]; then
@@ -58,6 +69,11 @@ jobs:
             exit 1
           fi
           echo "tag $tag matches Cargo.toml $manifest"
+
+      - name: Install the libraries the static renderer links
+        # The verification build links the renderer statically, which needs fontconfig and
+        # freetype. The runner image lacks them; v0.0.2 publish failed on it (run 40112527120).
+        run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev libfreetype6-dev
 
       - name: Publish
         # Default features only, so this is exactly what a consumer gets. The verification

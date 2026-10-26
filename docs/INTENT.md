@@ -347,7 +347,7 @@ macOS 26과 iOS 26은 같은 재질을 쓰지만 같은 방식으로 쓰지 않�
 
 ### D18. Windows 렌더러는 Kotlin/Native로 만들고, MinGW는 Kotlin 오브젝트 안에 가둔다
 
-> **현황(2026-10-17).** develop의 Windows 렌더러는 아직 GraalVM native-image입니다. Kotlin/Native 렌더러는 초안 PR #119(`feature/windows-kotlin-native`)와 그 위의 초안 PR #174에 있고 병합되지 않았습니다(이슈 #24, SPEC NFR-13).
+> **현황(2026-10-26).** Kotlin/Native 렌더러는 PR #119(`feature/windows-kotlin-native`)와 그 위의 PR #174로 2026-10-24에 develop에 병합됐습니다(이슈 #24, SPEC NFR-13). 2026-10-26 소유자 결정: compose-rust가 Windows에 내는 렌더러는 이 정적 렌더러뿐이고 GraalVM은 배포에서 빠집니다(SPEC §5.6). GraalVM 단일 바이너리는 확장 플러그인 포크의 몫이고, "graal, kn 둘 다 돌아야 한다"는 조건도 그쪽 요구입니다. 기각한 것: compose-rust가 GraalVM 경로도 단일 실행 파일로 내는 안.
 
 **소유자의 결정입니다(2026-10-03). 실험이 아니라 정식 통합입니다.**
 
