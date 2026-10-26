@@ -1116,10 +1116,36 @@ pub fn android_gradle_kotlin(
 /// that had to name them would be guessing at what its dependency needs.
 pub const ANDROID_COMPOSE_DEPENDENCIES: [&str; 4] = [
     "androidx.activity:activity-compose:1.9.3",
-    "androidx.compose.ui:ui:1.7.5",
-    "androidx.compose.foundation:foundation:1.7.5",
-    "androidx.compose.material3:material3:1.3.1",
+    "androidx.compose.ui:ui:1.8.3",
+    "androidx.compose.foundation:foundation:1.8.3",
+    "androidx.compose.material3:material3:1.3.2",
 ];
+
+/// The lowest `compileSdk` the Compose libraries above accept. Compose 1.8 carries AAR
+/// metadata that refuses a module compiled against anything older, and the dx template
+/// pins 34.
+const ANDROID_COMPOSE_MIN_COMPILE_SDK: u32 = 35;
+
+/// The module text with `compileSdk` raised to [`ANDROID_COMPOSE_MIN_COMPILE_SDK`], or
+/// `None` when it is already that high or the module does not set one in a form this reads
+/// (`compileSdk = 34`).
+fn with_compile_sdk(module: &str) -> Option<String> {
+    let key = "compileSdk";
+    let at = module.find(key)?;
+    let rest = &module[at + key.len()..];
+    let digits_at = rest.find(|c: char| c.is_ascii_digit())?;
+    if !rest[..digits_at].trim().starts_with('=') {
+        return None;
+    }
+    let digits: String = rest[digits_at..].chars().take_while(char::is_ascii_digit).collect();
+    if digits.parse::<u32>().ok()? >= ANDROID_COMPOSE_MIN_COMPILE_SDK {
+        return None;
+    }
+    let from = at + key.len() + digits_at;
+    let mut text = module.to_owned();
+    text.replace_range(from..from + digits.len(), &ANDROID_COMPOSE_MIN_COMPILE_SDK.to_string());
+    Some(text)
+}
 
 /// The Gradle plugin that compiles `@Composable`, which Kotlin 2.0 made compulsory.
 const COMPOSE_PLUGIN_ID: &str = "org.jetbrains.kotlin.plugin.compose";
@@ -1162,6 +1188,9 @@ pub fn with_compose(module: &str, root: &str) -> Option<(String, Option<String>)
         let plugins = module.find("plugins {")?;
         let after = module[plugins..].find('\n')? + plugins + 1;
         module_text.insert_str(after, &format!("    id(\"{COMPOSE_PLUGIN_ID}\")\n"));
+    }
+    if let Some(raised) = with_compile_sdk(&module_text) {
+        module_text = raised;
     }
     let missing: Vec<&str> = ANDROID_COMPOSE_DEPENDENCIES
         .iter()
