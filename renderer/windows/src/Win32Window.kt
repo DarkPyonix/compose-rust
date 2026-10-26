@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.IntSize
 import dev.darkpyonix.composerust.ui.node.LayoutProfile
 import java.lang.System
 import kotlinx.cinterop.COpaquePointer
+import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.staticCFunction
 import org.jetbrains.skia.BackendRenderTarget
 import org.jetbrains.skia.ColorSpace
@@ -67,6 +68,9 @@ internal class Win32Window private constructor(
     private var size = IntSize(measured.width, measured.height)
 
     private val textInput = NativeTextInput()
+
+    /** Whether the window is maximised, for the caption's maximise or restore glyph. */
+    val maximised = androidx.compose.runtime.mutableStateOf(false)
 
     /** The right-click menu of text and selections, drawn by the system. */
     private val textToolbar = Win32TextToolbar { native.window }
@@ -216,6 +220,9 @@ internal class Win32Window private constructor(
      */
     private fun drawFrame(): Boolean {
         val resource = native.beginFrame() ?: return false
+        // Read every frame, written only on a change: maximising resizes, and a resize draws.
+        val zoomed = platform.windows.IsZoomed(native.window.reinterpret()) != 0
+        if (maximised.value != zoomed) maximised.value = zoomed
         // After the buffer and not before it: that is where a swapchain waiting to be refitted
         // is refitted, and what is measured here is the buffer that came back.
         val measured = native.measure()
