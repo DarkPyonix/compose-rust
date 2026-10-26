@@ -1649,6 +1649,10 @@ internal object FluentRules : ComponentRules {
         closeHover = WINDOWS_CLOSE_RED,
         glyph = theme.color(ColorRole.OnSurface),
         closeHoverGlyph = Color.White,
+        // Windows 11 darkens a held button a step past its hover, and draws a held close
+        // in the same red at 90%. Taken from the surface colour so dark and light both work.
+        pressed = theme.color(ColorRole.OnSurface).copy(alpha = PRESS_SHADE),
+        closePressed = WINDOWS_CLOSE_RED.copy(alpha = 0.9f),
         glyphStroke = 1.dp,
         glyphAtRest = true,
         spacing = 0.dp,
