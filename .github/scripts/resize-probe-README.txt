@@ -11,14 +11,35 @@ What it does
   Magenta inside the window (the window's frame is there, its picture is not) or black inside
   the window is a failure.
 
+  It also checks that each frame's picture is the one for the window's size at that moment:
+  while the right edge moves, the left part of the content stays where it is, so a frame in
+  which it has moved (a picture drawn for another width and stretched, or the old picture in
+  the new rectangle) is stale, and a failure too. And it measures how far the window's right
+  edge lags the cursor, in pixels and in milliseconds: a window can show no blank area and
+  still trail the mouse.
+
   Do not touch the mouse while it runs: the probe is moving it.
 
-The quick way: both apps, both paths, all three rates
+Why there is a control window
+  Some builds of Windows hold a window's new size back until the window has drawn for it.
+  There, a late frame never reaches the screen and the probe sees nothing wrong, whatever the
+  window does. So a PASS only means something where the probe can be shown to catch a late
+  window. resize-control.exe is that window: built like the renderer's GPU resize path, but
+  every new size is presented 50 ms late (DXC_RESIZE_PRESENT_DELAY_MS, 50 by default). Where
+  the probe FAILs it, the results for hand-check at the same mouse rate stand. Where it PASSes
+  it, hand-check's results are INCONCLUSIVE: Windows is hiding lateness there.
+
+  Every probe log starts with the Windows version (resize-probe: os windows 10.0.BUILD.UBR ...),
+  and run-probe-v2 writes the same line at the top of each application log, because whether
+  Windows hides late frames depends on the build.
+
+The quick way: every app, every path, all three rates
   Double-click run-probe-v2.cmd (or run run-probe-v2.ps1 in PowerShell) and do not touch the
-  mouse until it says "Done". It drags hand-check.exe (the Kotlin/Native renderer) and then
-  graalvm\bin\hand-check.exe (the GraalVM native image renderer), each with resize frames on
-  the CPU (new) and on the GPU (old, DXC_RASTER_RESIZE=0), at 16, 8 and 1 ms per mouse move,
-  and zips the logs into probe-logs.zip. Send that file.
+  mouse until it says "Done". It drags hand-check.exe (the Kotlin/Native renderer), then
+  graalvm\bin\hand-check.exe (the GraalVM native image renderer) when it is there, each with
+  resize frames on the CPU (new) and on the GPU (old, DXC_RASTER_RESIZE=0), and then the
+  control window (late), at 16, 8 and 1 ms per mouse move. It prints a table of the results,
+  writes it to probe-logs\summary.md, and zips the logs into probe-logs.zip. Send that file.
 
   Then check by hand, in each app (hand-check.exe and graalvm\bin\hand-check.exe), in the
   first text field: type a few letters, press Ctrl+A (all of it is selected), Ctrl+C, click
@@ -66,10 +87,18 @@ How to run one drag by hand (PowerShell, in the folder that holds hand-check.exe
   --travel N (how far out, default to the right edge of the work area less 16 px),
   --out FILE (default: the console), --class NAME (window class, default ComposeRustWindow),
   --wait-seconds N (how long to wait for the window, default 180), --place (put the window at
-  the work area's top left at 640x480 from the probe, for an application that does not do it
-  itself: the GraalVM renderer, which has no DXC_REAL_DRAG hook).
+  the primary monitor's work area's top left at 640x480 from the probe as soon as it holds
+  still, for an application that does not do it itself: the GraalVM renderer, which has no
+  DXC_REAL_DRAG hook), --place-after N (without --place, the probe puts the window there itself
+  when it is not there after N seconds, default 20: when it opened on another monitor, say).
+  The drag always happens on the primary monitor, which is the one recorded.
+
+  The control window: resize-control.exe [--delay-ms N] [--seconds N], with --class
+  ResizeControlWindow on the probe. It opens on the primary monitor's top left by itself.
 
 What the output means (probe log)
+  os windows ...            the Windows version: build, update build revision (UBR),
+                            DisplayVersion (24H2, ...), product name, client or server
   duplicating ...           the monitor and graphics adapter being recorded
   background captured ...   the desktop it compares against
   window ... (ready)        the window settled at the top left and the drag can start: its
@@ -78,8 +107,12 @@ What the output means (probe log)
                             window's rectangle, its visible frame and its client area are,
                             in physical pixels and in the window's logical pixels. The window
                             must be on the captured monitor and its client area inside it.
+  placed the window ...      the probe moved the window to the primary monitor itself
   client ... edge_offset    where the rows are, and how far past the picture's right edge the
-                            window's frame and shadow reach
+                            window's frame and shadow reach; rest_offset, how far right of the
+                            cursor the window's edge is at rest
+  stale reference ...       the zone the stale check compares, and how many of its rows have
+                            enough sharp steps in brightness to be judged
   send n=... qpc=...        every mouse event, when it was sent (QPC) and where the cursor was
   move-size loop entered    Windows started its sizing loop; "NOT entered" is a failure of the
                             drag itself, not of the window
@@ -95,11 +128,19 @@ What the output means (probe log)
                             differ by more than 2 px, a frame showing two sizes at once
       strip_hole_rows       rows with backdrop inside the window, and the first such pixel
       strip_black_rows      rows with black inside the window
+      edge_rows/stale_rows  rows judged by the stale check, and those whose content had moved;
+                            stale=1 when 30% of them had, a picture not at the window's size
+      lag_px                how far the window's right edge is from where the cursor was
+                            when the frame was shown (positive: behind it going out)
+      lag_ms                how long ago the cursor was where this frame's edge is (-1: not
+                            in the last two seconds)
       runs0, runs1          each row near the window's right end: W window, D backdrop,
                             S shadow over the backdrop, K black
+  lag ...                   the drag's lag: median, 95th percentile and largest, in pixels
+                            (distance) and milliseconds
   summary / verdict         PASS when the loop was entered, the window changed size, and no
                             frame during the drag had desktop or black inside the window,
-                            on the two rows or anywhere down the strip, or was torn
+                            on the two rows or anywhere down the strip, was torn, or was stale
   Exit code: 0 PASS, 1 FAIL, 2 could not run.
 
 hand-check log (with DXC_RESIZE_TRACE=1)
