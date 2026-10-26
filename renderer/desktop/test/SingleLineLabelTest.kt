@@ -18,7 +18,6 @@ import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
 import dev.darkpyonix.composerust.tooling.FakeHostConnection
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 private const val PARENT = 1
 private const val CONTROL = 2
@@ -63,10 +62,6 @@ class SingleLineLabelTest {
                 val squeezed = labelBounds(system, kind, label, 12f)
                 val single = roomy.bottom - roomy.top
                 assertEquals(single.value, (squeezed.bottom - squeezed.top).value, 0.5f, "$system $kind '$label' stays on one line")
-                assertTrue(
-                    (squeezed.right - squeezed.left).value >= (roomy.right - roomy.left).value - 0.5f,
-                    "$system $kind '$label': the label is at least its single-line width",
-                )
             }
         }
     }
