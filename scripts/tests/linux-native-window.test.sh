@@ -230,10 +230,12 @@ grep -Fq 'WindowEvent.RESIZE' <<< "$resize_branch" && grep -Fq 'frames.draw()' <
 grep -Fq 'Expose ->' "$window" || fail "the window ignores being uncovered"
 
 # Events are read in one place, through the guard, because a frame drawn inside a resize draws from
-# the middle of reading an event.
-grep -Fq 'log.read {' "$window" ||
-    fail "the window reads the display server without the guard that stops a read inside a read"
-if [[ "$(grep -v '^import ' "$window" | grep -c 'XNextEvent')" != "1" ]]; then
+# the middle of reading an event. With several windows the read is the shared connection's, once
+# per turn for every window; the guard is its `reading` flag.
+connection="$(dirname "$window")/X11Connection.kt"
+grep -Fq 'if (!reading) {' "$connection" ||
+    fail "the connection reads the display server without the guard that stops a read inside a read"
+if [[ "$(cat "$connection" "$window" | grep -v '^import ' | grep -c 'XNextEvent')" != "1" ]]; then
     fail "the window takes events off the queue in more than one place, which is how the rest of a drag gets drained mid-frame"
 fi
 
