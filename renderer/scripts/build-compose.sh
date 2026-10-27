@@ -41,7 +41,7 @@ REVISION="2eb80c12e7615ef80c7661ea63e0f20651f20a31"
 # accessibility bridges (the renderer hands them the scene's semantics). It replaces the
 # backport branch feat/windows-window-backport-57b4a0e, which carried those two fixes on an
 # older base; multi-window work builds on `extended` itself.
-WINDOW_REVISION="2eb80c12e7615ef80c7661ea63e0f20651f20a31"
+WINDOW_REVISION="317d380b4c34fc324c47811bd71fa76543510a94"
 # The commit the Windows build takes. It was its own pin while the Windows Compose lived on a
 # branch apart from the Compose pin; the fork's `extended` now holds mingwX64 for every Compose UI
 # module, the skiko build for mingwX64 (extended/skiko/build-skiko-mingw.sh, which also compiles
