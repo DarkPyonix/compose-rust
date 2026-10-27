@@ -164,7 +164,7 @@ pub(crate) enum EventCallback {
     Range(Rc<RefCell<dyn FnMut(crate::RangeRequest)>>),
     Files(Rc<RefCell<dyn FnMut(crate::FileDrop)>>),
     Pointer(Rc<RefCell<dyn FnMut(crate::PointerEvent)>>),
-    /// A window's report, or a dragged window passing over a node (FR-53.4).
+    /// A window's report, or a dragged window passing over a node.
     Window(Rc<RefCell<dyn FnMut(crate::windows::WindowEvent)>>),
 }
 
@@ -1135,7 +1135,7 @@ impl Composer {
     }
 
     /// The `Window` node the group being composed sits in, or 0 in a tree with no windows
-    /// or outside every window (FR-53).
+    /// or outside every window.
     pub(crate) fn enclosing_window(&self) -> u32 {
         if !self.writer.has_windows() {
             return 0;

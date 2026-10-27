@@ -281,7 +281,7 @@ pub trait Runtime {
         None
     }
 
-    /// Whether `node_id` is a `Window` node (FR-53). A window's size and zoom reports name
+    /// Whether `node_id` is a `Window` node. A window's size and zoom reports name
     /// it, and nothing else, so a runtime without windows has none.
     fn is_window(&self, node_id: u32) -> bool {
         let _ = node_id;

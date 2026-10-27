@@ -1,9 +1,9 @@
-//! Several windows in one process (FR-53).
+//! Several windows in one process.
 //!
 //! A window is a node: a `Window` child of the root, whose children are that window's
 //! content. All the windows share one composition, one Host and one node table, so a state
 //! one window's handler writes is read by every window that reads it, and the batch that
-//! results carries every window's change (FR-53.1, FR-53.5).
+//! results carries every window's change.
 //!
 //! This module holds what is not a node. A [`WindowHandle`] names the window the caller is
 //! in and carries the commands that happen once (bring it forward, give it a theme, change
@@ -20,7 +20,7 @@ use std::rc::Rc;
 
 pub use crate::schema::{LastWindowClosed, WindowMode};
 
-/// The phase of a torn-off window being dragged (FR-53.7).
+/// The phase of a torn-off window being dragged.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum WindowDragPhase {
     /// The window moved with the pointer.
@@ -42,7 +42,7 @@ impl WindowDragPhase {
     }
 }
 
-/// What a dragged window is doing over a node that listens for it (FR-53.7).
+/// What a dragged window is doing over a node that listens for it.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum WindowDragOverKind {
     Enter,
@@ -64,7 +64,7 @@ impl WindowDragOverKind {
     }
 }
 
-/// What a window reports to the handler registered for it (FR-53.4).
+/// What a window reports to the handler registered for it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum WindowEvent {
     /// The user asked to close the window. Nothing closes until the application removes
@@ -142,7 +142,7 @@ impl WindowEvent {
     }
 }
 
-/// A window's outer frame, in screen dp (FR-53.8).
+/// A window's outer frame, in screen dp.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WindowFrame {
     pub x: f32,
@@ -151,7 +151,7 @@ pub struct WindowFrame {
     pub height: f32,
 }
 
-/// A torn-off window being dragged (FR-53.7).
+/// A torn-off window being dragged.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WindowDragEvent {
     pub phase: WindowDragPhase,
@@ -162,7 +162,7 @@ pub struct WindowDragEvent {
     pub over_window: u32,
 }
 
-/// A dragged window passing over a node that listens for it (FR-53.7).
+/// A dragged window passing over a node that listens for it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WindowDragOver {
     pub kind: WindowDragOverKind,
@@ -174,7 +174,7 @@ pub struct WindowDragOver {
 }
 
 /// Opens a window under a pointer that is held down and has it follow the pointer until it
-/// is let go (FR-53.7).
+/// is let go.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DragFromPointer {
     pub pointer_id: u32,
@@ -194,7 +194,7 @@ impl DragFromPointer {
     }
 }
 
-/// A window the application has no node for yet (FR-53.4): the system made it, or brought
+/// A window the application has no node for yet: the system made it, or brought
 /// it back after the process was killed, or the user asked for a new one.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WindowRequest {
@@ -289,7 +289,7 @@ impl WindowHandle {
         crate::boundary::request_frame_from_worker();
     }
 
-    /// Gives this window a theme of its own over the application's (FR-53.3).
+    /// Gives this window a theme of its own over the application's.
     pub fn set_theme(&self, theme: Theme) {
         apply_theme(self.node, theme);
     }
@@ -410,7 +410,7 @@ impl Drop for WindowRequestSubscription {
 /// Runs `handler` for each window the system or the user made that the application has no
 /// node for, for as long as the returned registration is kept. The handler puts a `Window`
 /// node with that `RestoreKey` into the tree in the same call, or the Renderer closes the
-/// window (FR-53.4).
+/// window.
 pub fn on_window_request(handler: Rc<dyn Fn(WindowRequest)>) -> WindowRequestSubscription {
     let id = next_id();
     REQUEST_HANDLERS.with_borrow_mut(|handlers| handlers.push((id, handler)));
@@ -445,7 +445,7 @@ impl Drop for ApplicationReopenSubscription {
 }
 
 /// Runs `handler` when the user opens the application again while it has no window, which
-/// is the Dock icon on macOS (FR-53.6).
+/// is the Dock icon on macOS.
 pub fn on_application_reopen_handler(handler: Rc<dyn Fn()>) -> ApplicationReopenSubscription {
     let id = next_id();
     REOPEN_HANDLERS.with_borrow_mut(|handlers| handlers.push((id, handler)));

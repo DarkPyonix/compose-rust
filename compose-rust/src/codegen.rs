@@ -195,7 +195,7 @@ data class Window(
      */
     val zoomLevel: Int? = null,
     /**
-     * One window, or several (FR-53). With [WindowMode.Windows] the root's children are
+     * One window, or several. With [WindowMode.Windows] the root's children are
      * `Window` nodes and the rest of this record describes no window.
      */
     val mode: WindowMode = WindowMode.Single,
@@ -455,12 +455,12 @@ sealed interface Mutation {
     data class SetFolded(val nodeId: Int, val startLine: Int, val collapsed: Boolean) : Mutation
 
     /**
-     * A theme for one `Window` node, over the application's (FR-53.3). A window without
+     * A theme for one `Window` node, over the application's. A window without
      * one follows the application's theme.
      */
     data class SetWindowTheme(val nodeId: Int, val theme: Theme) : Mutation
 
-    /** Brings a window forward and makes it the key window (FR-53.4). Happens once. */
+    /** Brings a window forward and makes it the key window. Happens once. */
     data class FocusWindow(val nodeId: Int) : Mutation
 }
 
@@ -2853,7 +2853,7 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             start_line: 0,
             collapsed: true,
         },
-        // The windows (FR-53), after every record that was here before them so their
+        // The windows, after every record that was here before them so their
         // bytes stay where they were: the window record in its multi-window form, a
         // window with each of its properties and handlers, the two properties a node that
         // is not a window can take, and the two commands.
@@ -3183,7 +3183,7 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
             handler_id: 27,
             payload: EventPayload::CompositionChanged { composing: true },
         },
-        // The windows (FR-53), after every event that was here before them.
+        // The windows, after every event that was here before them.
         HostEvent {
             node_id: 20,
             handler_id: 201,

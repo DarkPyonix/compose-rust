@@ -535,7 +535,7 @@ crate::extensions::define_widget_schema_with_extensions!(define_wire_enum; WIDGE
     // A platform window, a child of the root and only of the root. The children of a
     // `Window` are that window's content. Putting one anywhere else, or moving a node from
     // one window into another, is a protocol error: Compose keeps one composition per
-    // window and has no way to hand a node from one to the next. FR-53.
+    // window and has no way to hand a node from one to the next.
     Window = 45,
 });
 
@@ -1501,7 +1501,7 @@ define_wire_enum!(TITLE_BAR_SCHEMA, TitleBar {
     Simple = 2,
 });
 
-// How the application uses windows (FR-53). `Single` is every application until now: the
+// How the application uses windows. `Single` is every application until now: the
 // root's content fills the one window `SetWindow` describes. `Windows` is the multi-window
 // mode, in which the root's children are `Window` nodes and `SetWindow` describes nothing
 // but the mode.
@@ -1510,7 +1510,7 @@ define_wire_enum!(WINDOW_MODE_SCHEMA, WindowMode {
     Windows = 1,
 });
 
-// What happens when the last `Window` node is removed (FR-53.6). `Exit` ends the renderer
+// What happens when the last `Window` node is removed. `Exit` ends the renderer
 // loop, `KeepRunning` leaves the process up with no window. Ignored by `Single`.
 define_wire_enum!(LAST_WINDOW_CLOSED_SCHEMA, LastWindowClosed {
     Exit = 0,
@@ -1554,7 +1554,7 @@ pub struct Window {
     /// last time. A level set here is applied, remembered and reported back the way one
     /// chosen with the keys is. Kept inside `-8..=8`.
     pub zoom_level: Option<i8>,
-    /// One window (the default) or several (FR-53). In the second the root's children are
+    /// One window (the default) or several. In the second the root's children are
     /// `Window` nodes and the rest of this record describes no window.
     pub mode: WindowMode,
     /// What to do when the last window goes. Only read in `WindowMode::Windows`.
@@ -1579,7 +1579,7 @@ impl Window {
         }
     }
 
-    /// Several windows, one per `Window` node under the root (FR-53). With the default
+    /// Several windows, one per `Window` node under the root. With the default
     /// policy of the platform: a macOS application stays up with no window, the others
     /// exit.
     pub const fn with_windows(mut self) -> Self {
@@ -2753,7 +2753,7 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // How large an HTML island is drawn, as the f32 factor `k` (see `ZoomChanged`), on the
     // island's root `AbsoluteBox`. 120 opens the block for zoom. Absent is 1.
     IslandZoom = 120,
-    // The window block (FR-53), after the cursor block. Every one of them belongs to a
+    // The window block, after the cursor block. Every one of them belongs to a
     // `Window` node except the last two, which can sit on any node.
     //
     // The title. A string.

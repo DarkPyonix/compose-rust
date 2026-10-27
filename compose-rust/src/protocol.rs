@@ -32,7 +32,7 @@ const TAG_CONTROL_ANIMATION: u16 = 19;
 const TAG_SET_SELECTION: u16 = 20;
 const TAG_REVEAL_RANGE: u16 = 21;
 const TAG_SET_FOLDED: u16 = 22;
-// 23 and 24 are the windows' (FR-53): a theme for one window, and bringing one forward.
+// 23 and 24 are the windows': a theme for one window, and bringing one forward.
 const TAG_SET_WINDOW_THEME: u16 = 23;
 const TAG_FOCUS_WINDOW: u16 = 24;
 /// The head of a `StartAnimation` record, before its keyframes.
@@ -229,13 +229,13 @@ pub enum Mutation<'a> {
         start_line: u32,
         collapsed: bool,
     },
-    /// A theme for one `Window` node, over the application's (FR-53.3). The payload is
+    /// A theme for one `Window` node, over the application's. The payload is
     /// `SetTheme`'s, after the node id. A window without one follows the application's.
     SetWindowTheme {
         node_id: u32,
         theme: Theme,
     },
-    /// Brings a window forward and makes it the key window (FR-53.4). A command and not a
+    /// Brings a window forward and makes it the key window. A command and not a
     /// property: it happens once.
     FocusWindow {
         node_id: u32,
@@ -269,7 +269,7 @@ pub enum ProtocolError {
     /// do not match, or a length that does not hold its keyframes.
     InvalidAnimation,
     /// A `Window` node that is not a child of the root, or a node moved from one window
-    /// into another (FR-53.1, FR-53.5). Compose keeps one composition per window and has no
+    /// into another. Compose keeps one composition per window and has no
     /// way to hand a node from one to the next.
     MisplacedWindow,
 }
@@ -317,7 +317,7 @@ const EVENT_VISIBLE_RANGE_CHANGED: u16 = 35;
 const EVENT_EDITOR_FOCUS_CHANGED: u16 = 36;
 const EVENT_FOLD_CHANGED: u16 = 37;
 const EVENT_COMPOSITION_CHANGED: u16 = 38;
-// 39 to 47 are the windows' (FR-53).
+// 39 to 47 are the windows'.
 const EVENT_WINDOW_CLOSE_REQUESTED: u16 = 39;
 const EVENT_WINDOW_FOCUS_CHANGED: u16 = 40;
 const EVENT_WINDOW_MOVED: u16 = 41;
@@ -333,11 +333,11 @@ const EVENT_APPLICATION_REOPEN: u16 = 47;
 const WINDOW_MODE_SHIFT: u32 = 8;
 const WINDOW_POLICY_SHIFT: u32 = 12;
 
-/// The phases of a `WindowDrag` (FR-53.7).
+/// The phases of a `WindowDrag`.
 pub const WINDOW_DRAG_MOVE: u32 = 1;
 pub const WINDOW_DRAG_END: u32 = 2;
 pub const WINDOW_DRAG_CANCEL: u32 = 3;
-/// The kinds of a `WindowDragOver` (FR-53.7).
+/// The kinds of a `WindowDragOver`.
 pub const WINDOW_DRAG_OVER_ENTER: u32 = 1;
 pub const WINDOW_DRAG_OVER_MOVE: u32 = 2;
 pub const WINDOW_DRAG_OVER_LEAVE: u32 = 3;

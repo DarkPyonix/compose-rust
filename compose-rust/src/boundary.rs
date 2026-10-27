@@ -655,7 +655,7 @@ impl Host {
                     return Err(ProtocolError::InvalidValueKind(0));
                 }
                 // In a multi-window application the report names the window it is about
-                // (FR-53.4); a single window's is node 0.
+                //; a single window's is node 0.
                 if event.node_id != 0 {
                     if !self.runtime.is_window(event.node_id) {
                         return Err(ProtocolError::InvalidValueKind(0));
@@ -694,7 +694,7 @@ impl Host {
             // for both, because they are the same fact measured at two scales and a
             // second way of saying it would be a second thing to keep in step.
             let size = crate::window::WindowSize::new(width_dp, height_dp, class, height_class);
-            // A window's report names the window's node (FR-53.4), and that is not an
+            // A window's report names the window's node, and that is not an
             // observed node: it is the same fact for a window of its own.
             if event.node_id != 0 && self.runtime.is_window(event.node_id) {
                 if !crate::window::publish_window(event.node_id, size) {
@@ -802,7 +802,7 @@ impl Host {
             self.batch().set_window(window);
         }
         // What the application asked of a window that happens once: forward, a theme of its
-        // own, a zoom level of its own (FR-53).
+        // own, a zoom level of its own.
         {
             let batch = self.runtime.batch_mut();
             crate::windows::drain_commands(|command| match command {
@@ -1046,7 +1046,7 @@ impl LaunchBuilder {
         self
     }
 
-    /// Runs several windows in one process (FR-53): the root's children are `Window`
+    /// Runs several windows in one process: the root's children are `Window`
     /// nodes, each a platform window, and they share one composition and one set of
     /// states. Without this the root's content fills the one window.
     ///
@@ -1057,7 +1057,7 @@ impl LaunchBuilder {
         self
     }
 
-    /// What happens when the last `Window` node is removed (FR-53.6). Mobile platforms
+    /// What happens when the last `Window` node is removed. Mobile platforms
     /// ignore it: the system decides how long the process lives.
     pub fn on_last_window_closed(mut self, policy: crate::schema::LastWindowClosed) -> Self {
         self.window = self.window.with_last_window_closed(policy);

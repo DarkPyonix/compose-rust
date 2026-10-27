@@ -78,7 +78,7 @@ fn pointer_input(
     ));
 }
 
-/// What a node says about windows that is not a window's own (FR-53.7): the key it is torn
+/// What a node says about windows that is not a window's own: the key it is torn
 /// off under, and the handler for a dragged window passing over it.
 struct TearOff {
     key: Option<String>,
@@ -117,7 +117,7 @@ macro_rules! tear_off {
     ($name:ident) => {
         impl $name {
             /// Lets the user pull this node out into a window of its own, named by `key`:
-            /// the `RestoreKey` of the window that results (FR-53.7.1).
+            /// the `RestoreKey` of the window that results.
             pub fn tear_off_key(mut self, key: impl Into<String>) -> Self {
                 self.tear_off
                     .get_or_insert_with(|| TearOff {
@@ -129,7 +129,7 @@ macro_rules! tear_off {
             }
 
             /// Hears a dragged window pass over this node: where a tab row shows the place
-            /// a dropped tab would go (FR-53.7).
+            /// a dropped tab would go.
             pub fn on_window_drag_over(
                 mut self,
                 handler: impl FnMut(crate::windows::WindowDragOver) + 'static,
@@ -2320,7 +2320,7 @@ impl LinearProgressIndicatorScope {
 
 composed_on_drop!(LinearProgressIndicatorScope);
 
-// ----- windows (FR-53) --------------------------------------------------------------------
+// ----- windows --------------------------------------------------------------------
 
 /// A `Window` and its builder.
 pub struct WindowScope {
@@ -2394,9 +2394,7 @@ impl Drop for WindowScope {
 }
 
 /// A window handler as the callback the runtime delivers events to.
-fn window_callback(
-    mut handler: impl FnMut(crate::windows::WindowEvent) + 'static,
-) -> EventCallback {
+fn window_callback(handler: impl FnMut(crate::windows::WindowEvent) + 'static) -> EventCallback {
     EventCallback::Window(Rc::new(RefCell::new(handler)))
 }
 
@@ -2452,7 +2450,7 @@ impl WindowScope {
     }
 
     /// The application's stable name for the window, which matches a window the system
-    /// brings back to the node that describes it (FR-53.3).
+    /// brings back to the node that describes it.
     pub fn restore_key(mut self, key: impl Into<String>) -> Self {
         self.restore_key = Some(key.into());
         self
@@ -2465,13 +2463,13 @@ impl WindowScope {
     }
 
     /// Opens the window under a pointer that is held down and follows it until it is let
-    /// go (FR-53.7). Read when the window opens and not again.
+    /// go. Read when the window opens and not again.
     pub fn drag_from_pointer(mut self, drag: crate::windows::DragFromPointer) -> Self {
         self.drag_from_pointer = Some(drag);
         self
     }
 
-    /// A theme for this window over the application's (FR-53.3).
+    /// A theme for this window over the application's.
     pub fn theme(mut self, theme: crate::schema::Theme) -> Self {
         self.theme = Some(theme);
         self
@@ -2489,7 +2487,7 @@ impl WindowScope {
         self
     }
 
-    /// The window is being dragged out of a tab, and how that ended (FR-53.7).
+    /// The window is being dragged out of a tab, and how that ended.
     pub fn on_drag(
         mut self,
         handler: impl FnMut(crate::windows::WindowDragEvent) + 'static,

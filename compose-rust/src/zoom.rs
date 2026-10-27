@@ -79,7 +79,7 @@ thread_local! {
     static PENDING_LEVEL: Cell<Option<i8>> = const { Cell::new(None) };
     static SUBSCRIBERS: RefCell<Vec<Subscriber>> = const { RefCell::new(Vec::new()) };
     /// What each window of a multi-window application is drawing at, by the id of its
-    /// `Window` node (FR-53). Zoom is per window, as it is in VS Code and Electron.
+    /// `Window` node. Zoom is per window, as it is in VS Code and Electron.
     static WINDOW_ZOOMS: RefCell<Vec<(u32, Zoom)>> = const { RefCell::new(Vec::new()) };
     static WINDOW_SUBSCRIBERS: RefCell<Vec<(u32, Subscriber)>> = const { RefCell::new(Vec::new()) };
     static NEXT_SUBSCRIBER_ID: Cell<u64> = const { Cell::new(1) };
@@ -87,7 +87,7 @@ thread_local! {
 
 /// What the Renderer last reported. Available outside a component too.
 ///
-/// In a multi-window application (FR-53) it is the zoom of the window the caller is in.
+/// In a multi-window application it is the zoom of the window the caller is in.
 pub fn zoom() -> Zoom {
     match crate::windows::current_window_id() {
         0 => CURRENT.with(Cell::get),

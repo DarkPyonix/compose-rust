@@ -90,7 +90,7 @@ pub struct NodeWriter {
     animated: HashMap<u32, u8>,
     /// The name the next animation this writer starts is given. Never 0.
     next_animation_id: u32,
-    /// The `Window` nodes (FR-53). Empty in a single-window application.
+    /// The `Window` nodes. Empty in a single-window application.
     windows: HashSet<u32>,
 }
 
@@ -648,7 +648,7 @@ impl NodeWriter {
     /// gets one `Move`. A node that is not in the tree yet gets its `Insert`.
     pub(crate) fn place_after(&mut self, parent: u32, node_id: u32, after: Option<u32>) {
         // A window is a child of the root and of nothing else, and a node never leaves its
-        // window for another (FR-53.1, FR-53.5). Both are refused before anything is
+        // window for another. Both are refused before anything is
         // written, the way the Renderer refuses them, so a tree that asks for either fails
         // the batch it is in.
         if self.windows.contains(&node_id) && parent != PLACEHOLDER_NODE {

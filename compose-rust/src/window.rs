@@ -107,7 +107,7 @@ thread_local! {
     }) };
     static SUBSCRIBERS: RefCell<Vec<Subscriber>> = const { RefCell::new(Vec::new()) };
     /// What each window of a multi-window application last measured, by the id of its
-    /// `Window` node (FR-53). Empty in a single-window application, which keeps its one
+    /// `Window` node. Empty in a single-window application, which keeps its one
     /// value in `CURRENT`.
     static WINDOWS: RefCell<Vec<(u32, WindowSize)>> = const { RefCell::new(Vec::new()) };
     static WINDOW_SUBSCRIBERS: RefCell<Vec<(u32, Subscriber)>> = const { RefCell::new(Vec::new()) };
@@ -116,7 +116,7 @@ thread_local! {
 
 /// The size the Renderer last reported. Available outside a component too.
 ///
-/// In a multi-window application (FR-53) it is the size of the window the caller is in:
+/// In a multi-window application it is the size of the window the caller is in:
 /// the window a composable is composed in, or the window whose node a handler was called
 /// for. Outside any window it is the single window's, which a multi-window application
 /// never has, so it reads as the default.

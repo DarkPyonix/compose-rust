@@ -237,7 +237,7 @@ class NodeTable {
             // the batch is applied the window already looks the way it says. Keeping it
             // here as well is what lets a later rebuild change it.
             is Mutation.SetWindow -> window = mutation.window
-            // FR-53: a theme for one window, and bringing one forward. Both name a platform
+            // A theme for one window, and bringing one forward. Both name a platform
             // window, which the platform layer opens and this table does not hold yet, so the
             // records are decoded and nothing is applied.
             is Mutation.SetWindowTheme -> Unit
@@ -611,6 +611,10 @@ class NodeTable {
                 PropertyKind.PointerKinds,
                 PropertyKind.Cursor,
                 PropertyKind.UserSelect,
+                // A dragged window passing over a node, and the key a node is pulled out
+                // into a window under, belong to the same containers a pointer can sit over.
+                PropertyKind.OnWindowDragOver,
+                PropertyKind.TearOffKey,
                 -> widget == WidgetKind.Text ||
                     widget == WidgetKind.Column ||
                     widget == WidgetKind.Row ||
@@ -855,7 +859,7 @@ class NodeTable {
                 PropertyKind.MinColumnWidth,
                 -> widget == WidgetKind.LazyGrid
 
-                // A window's own properties and handlers (FR-53.3, FR-53.4). The platform
+                // A window's own properties and handlers. The platform
                 // layer reads them; the table only keeps them on the node.
                 PropertyKind.WindowTitle,
                 PropertyKind.WindowSize,
@@ -875,12 +879,6 @@ class NodeTable {
                 PropertyKind.OnWindowUnavailable,
                 PropertyKind.OnWindowClosed,
                 -> widget == WidgetKind.Window
-
-                // Any node may be pulled out into a window of its own, and any node may hear
-                // a dragged window pass over it (FR-53.7).
-                PropertyKind.OnWindowDragOver,
-                PropertyKind.TearOffKey,
-                -> true
 
                 // A property declared by an extension package belongs to the widget
                 // that package declared it for.

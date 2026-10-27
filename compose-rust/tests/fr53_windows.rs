@@ -1,4 +1,4 @@
-//! Several windows in one process, from the Host's side (FR-53): what the records and
+//! Several windows in one process, from the Host's side: what the records and
 //! events look like on the wire, and what the composition does with them.
 //!
 //! The Renderer's half, opening and closing platform windows, is not here. What is here is
@@ -700,7 +700,7 @@ fn nfr7_misplaced_window_is_a_protocol_error() {
 
 // ----- the numbers ---------------------------------------------------------------------------
 
-/// The wire numbers FR-53.10 lists are the ones the tables give.
+/// The wire numbers the spec lists are the ones the tables give.
 #[test]
 fn fr53_wire_numbers_are_the_ones_the_spec_lists() {
     use compose_rust::schema::EVENT_SCHEMA;
