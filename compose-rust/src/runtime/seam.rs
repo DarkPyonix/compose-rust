@@ -281,6 +281,13 @@ pub trait Runtime {
         None
     }
 
+    /// Whether `node_id` is a `Window` node (FR-53). A window's size and zoom reports name
+    /// it, and nothing else, so a runtime without windows has none.
+    fn is_window(&self, node_id: u32) -> bool {
+        let _ = node_id;
+        false
+    }
+
     /// Whether the runtime has work waiting that a frame should run. A runtime that is
     /// woken by something outside a boundary call (a timer, a task it spawned) wakes the
     /// context's waker, and the Host turns that into a frame request.

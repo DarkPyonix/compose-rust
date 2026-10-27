@@ -78,12 +78,103 @@ thread_local! {
     /// A level the application asked for since the last batch, not yet written into one.
     static PENDING_LEVEL: Cell<Option<i8>> = const { Cell::new(None) };
     static SUBSCRIBERS: RefCell<Vec<Subscriber>> = const { RefCell::new(Vec::new()) };
+    /// What each window of a multi-window application is drawing at, by the id of its
+    /// `Window` node (FR-53). Zoom is per window, as it is in VS Code and Electron.
+    static WINDOW_ZOOMS: RefCell<Vec<(u32, Zoom)>> = const { RefCell::new(Vec::new()) };
+    static WINDOW_SUBSCRIBERS: RefCell<Vec<(u32, Subscriber)>> = const { RefCell::new(Vec::new()) };
     static NEXT_SUBSCRIBER_ID: Cell<u64> = const { Cell::new(1) };
 }
 
 /// What the Renderer last reported. Available outside a component too.
+///
+/// In a multi-window application (FR-53) it is the zoom of the window the caller is in.
 pub fn zoom() -> Zoom {
-    CURRENT.with(Cell::get)
+    match crate::windows::current_window_id() {
+        0 => CURRENT.with(Cell::get),
+        window => zoom_of(window),
+    }
+}
+
+/// What one window is drawing at, by the id of its `Window` node, or the default for one
+/// that has not reported yet.
+pub fn zoom_of(window: u32) -> Zoom {
+    WINDOW_ZOOMS.with_borrow(|zooms| {
+        zooms
+            .iter()
+            .find(|(id, _)| *id == window)
+            .map_or(Zoom::DEFAULT, |(_, zoom)| *zoom)
+    })
+}
+
+/// Records one window's report and wakes the components in that window that read it.
+/// Returns whether any was woken.
+pub(crate) fn publish_window(window: u32, zoom: Zoom) -> bool {
+    let changed = WINDOW_ZOOMS.with_borrow_mut(|zooms| {
+        match zooms.iter_mut().find(|(id, _)| *id == window) {
+            Some(entry) => {
+                if entry.1 == zoom {
+                    return false;
+                }
+                entry.1 = zoom;
+                true
+            }
+            None => {
+                zooms.push((window, zoom));
+                true
+            }
+        }
+    });
+    if !changed {
+        return false;
+    }
+    WINDOW_SUBSCRIBERS.with_borrow(|subscribers| {
+        let mut woke = false;
+        for (id, subscriber) in subscribers {
+            if *id == window {
+                (subscriber.notify)();
+                woke = true;
+            }
+        }
+        woke
+    })
+}
+
+/// Forgets a window that left the tree, and what it reported.
+pub(crate) fn forget_window(window: u32) {
+    WINDOW_ZOOMS.with_borrow_mut(|zooms| zooms.retain(|(id, _)| *id != window));
+}
+
+/// A registration for one window's zoom. Dropping it ends the registration.
+pub struct WindowZoomSubscription {
+    id: u64,
+}
+
+/// Registers `notify` to be called each time the window `window` reports a different zoom.
+pub fn subscribe_window(
+    window: u32,
+    notify: Arc<dyn Fn() + Send + Sync>,
+) -> WindowZoomSubscription {
+    let id = next_subscriber_id();
+    WINDOW_SUBSCRIBERS.with_borrow_mut(|subscribers| {
+        subscribers.push((window, Subscriber { id, notify }));
+    });
+    WindowZoomSubscription { id }
+}
+
+impl Drop for WindowZoomSubscription {
+    fn drop(&mut self) {
+        WINDOW_SUBSCRIBERS.with_borrow_mut(|subscribers| {
+            subscribers.retain(|(_, subscriber)| subscriber.id != self.id);
+        });
+    }
+}
+
+fn next_subscriber_id() -> u64 {
+    NEXT_SUBSCRIBER_ID.with(|next| {
+        let id = next.get();
+        next.set(id + 1);
+        id
+    })
 }
 
 /// Records the Renderer's report and wakes the components that read it.
@@ -105,8 +196,14 @@ pub(crate) fn publish(zoom: Zoom) -> bool {
 
 /// Asks the Renderer to draw at `level`. It goes out on the window record in the batch the
 /// current call produces, and the Renderer answers with a new report.
+///
+/// In a multi-window application it asks for the window the caller is in.
 pub fn set_zoom_level(level: i8) {
-    PENDING_LEVEL.with(|pending| pending.set(Some(clamp_level(level))));
+    let level = clamp_level(level);
+    match crate::windows::current_window_id() {
+        0 => PENDING_LEVEL.with(|pending| pending.set(Some(level))),
+        window => crate::windows::queue_zoom_level(window, level),
+    }
 }
 
 /// The level asked for since the last batch, if any.
@@ -121,6 +218,8 @@ pub fn reset_zoom() {
     CURRENT.with(|current| current.set(Zoom::DEFAULT));
     PENDING_LEVEL.with(|pending| pending.set(None));
     SUBSCRIBERS.with_borrow_mut(Vec::clear);
+    WINDOW_ZOOMS.with_borrow_mut(Vec::clear);
+    WINDOW_SUBSCRIBERS.with_borrow_mut(Vec::clear);
 }
 
 /// A registration for changes to the report. Dropping it ends the registration.
@@ -130,11 +229,7 @@ pub struct ZoomSubscription {
 
 /// Registers `notify` to be called each time the Renderer reports a different zoom.
 pub fn subscribe(notify: Arc<dyn Fn() + Send + Sync>) -> ZoomSubscription {
-    let id = NEXT_SUBSCRIBER_ID.with(|next| {
-        let id = next.get();
-        next.set(id + 1);
-        id
-    });
+    let id = next_subscriber_id();
     SUBSCRIBERS.with_borrow_mut(|subscribers| subscribers.push(Subscriber { id, notify }));
     ZoomSubscription { id }
 }
@@ -182,9 +277,14 @@ impl ZoomHandle {
     /// The level asked for in this call, or else the one last reported, so two steps in
     /// one handler are two steps.
     fn current_level(&self) -> i8 {
-        PENDING_LEVEL
-            .with(Cell::get)
-            .unwrap_or_else(|| zoom().level)
+        match crate::windows::current_window_id() {
+            0 => PENDING_LEVEL
+                .with(Cell::get)
+                .unwrap_or_else(|| zoom().level),
+            window => {
+                crate::windows::pending_zoom_level(window).unwrap_or_else(|| zoom_of(window).level)
+            }
+        }
     }
 }
 
