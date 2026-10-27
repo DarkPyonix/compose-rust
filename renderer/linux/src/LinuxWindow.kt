@@ -342,7 +342,7 @@ internal class LinuxWindow private constructor(
         x11.setImeSpot(spot.first, spot.second)
     }
 
-    private fun close() {
+    internal fun close() {
         scene.close()
         x11.close()
     }

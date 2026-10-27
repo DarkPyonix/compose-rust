@@ -47,6 +47,9 @@ class LinuxWindowTest {
             "a display server is present and the window did not open: the visual, the colormap, " +
                 "the window or the GL context was refused",
         )
+        // Closed, because the windows of a process share one display connection and the test
+        // below needs there to be none open to see what a machine with no display server does.
+        window.close()
     }
 
     @Test
