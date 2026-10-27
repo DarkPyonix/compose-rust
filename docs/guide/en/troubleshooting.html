@@ -119,7 +119,7 @@
     <p>
       The renderer depends on modules only the Compose fork publishes, and only into
       <code>~/.m2</code>: the patched Compose under its own group and version
-      (<code>org.thisisthepy.compose.*</code>, <code>1.11.1-ext.1</code>), skiko-awt under
+      (<code>org.thisisthepy.compose.*</code>, <code>1.11.1-ext.2</code>), skiko-awt under
       <code>0.144.6.1</code>, the Linux targets, and the window modules. Every
       renderer script checks for them before the Kotlin toolchain runs and stops like this:
     </p>
@@ -128,7 +128,7 @@
 <pre><code>error: the Compose fork's artifacts are not in the local Maven repository
        ...
        missing, under ~/.m2/repository:
-         org/thisisthepy/compose/foundation/foundation/1.11.1-ext.1/foundation-1.11.1-ext.1.pom
+         org/thisisthepy/compose/foundation/foundation/1.11.1-ext.2/foundation-1.11.1-ext.2.pom
        fix, from the repository root, then run this build again:
          renderer/scripts/build-compose.sh --target macosArm64</code></pre>
     </figure>
@@ -140,7 +140,7 @@
     <p>
       The check also reads the metadata the fork published. Every module the fork's metadata names
       under <code>org.thisisthepy.compose</code> has to be published too, for each target the
-      renderer builds, or <code>foundation 1.11.1-ext.1</code> asks for a sibling that exists
+      renderer builds, or <code>foundation 1.11.1-ext.2</code> asks for a sibling that exists
       nowhere. <code>renderer/scripts/fork-dependencies.sh check</code> lists any that are
       missing. If it lists some, run <code>build-compose.sh</code> again, which publishes the
       fork's whole set.
@@ -152,8 +152,8 @@
     </p>
     <figure class="codeblock">
       <figcaption>output</figcaption>
-<pre><code>ERROR: Unable to resolve dependency org.thisisthepy.compose.foundation:foundation:1.11.1-ext.1
-  Unable to download checksums of file foundation-1.11.1-ext.1.pom</code></pre>
+<pre><code>ERROR: Unable to resolve dependency org.thisisthepy.compose.foundation:foundation:1.11.1-ext.2
+  Unable to download checksums of file foundation-1.11.1-ext.2.pom</code></pre>
     </figure>
     <p>
       The cause is the Kotlin toolchain's incremental state. A build that ran before the fork was

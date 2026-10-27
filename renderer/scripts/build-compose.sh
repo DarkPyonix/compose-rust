@@ -10,7 +10,7 @@
 # edits by hand, and runs the fork's own extended/compose/publish-local.sh, which publishes
 # every module the renderer draws with to the local Maven repository.
 #
-# The fork publishes under its own group and version, org.thisisthepy.compose.*:1.11.1-ext.1
+# The fork publishes under its own group and version, org.thisisthepy.compose.*:1.11.1-ext.2
 # (its extended/COORDINATES.md), and the renderer modules ask for exactly those. Nothing
 # JetBrains publishes sits at those coordinates, so a resolver that already holds JetBrains'
 # Compose (Amper's cache does) cannot take JetBrains' jars in their place, and nothing here
@@ -32,41 +32,33 @@ set -euo pipefail
 # compose-fork.changes lists what this commit must hold at every path it changes, and
 # scripts/tests/compose-fork.test.sh checks it.
 FORK="https://github.com/thisisthepy/compose-multiplatform-core-extended.git"
-REVISION="127311dc737d8badb68953291d248db8a7071cca"
+REVISION="2eb80c12e7615ef80c7661ea63e0f20651f20a31"
 # The window modules and skiko's builds are not Compose sources: the renderer builds them from
 # this commit (scripts/fetch-fork-window.sh and fetch-fork-skiko.sh) into artifacts of its own,
-# so they can move without moving the Compose build above. This one is the fork's merge of the
-# resize soak (#109), which draws each GraalVM frame in an autorelease pool of its own; it
-# carries the merge of the coordinates (#119), so the window modules compile against the fork's
-# Compose coordinates, which the Compose pin introduced, and the window changes before it.
-# This is a backport branch of the fork, feat/windows-window-backport-57b4a0e: 57b4a0e plus the
-# Windows wheel direction fix (fork #170) and the caption buttons safe default with the
-# HTMAXBUTTON hit test for Snap Layouts (fork #172). Do not delete that branch while this pins it.
-WINDOW_REVISION="aed8307c70d2f6b3c4854ab5ebfeac92b50e962e"
-# The commit the Windows build takes, which is its own on purpose. Windows needs the
-# commits the Compose pin (REVISION) leaves out: 296beb3 adds mingwX64 to every Compose UI module and
-# reads skiko from the local Maven repository first, and f17cb30 adds the skiko build for
-# mingwX64 under extended/. This is the tip of `extended` that merged them and the fixes to
-# that skiko build after it, 8ec7c32. Every commit between 296beb3 and here changes only
-# extended/skiko, so the Compose sources are the ones 296beb3 left, and extended/skiko is
-# where the ICU loader the Windows link compiles (embedded_icu.cpp) comes from as well.
-# Two pins rather than one moved for everybody, because moving macOS and Linux would change
-# what they publish (every module's root metadata would name a mingw_x64 variant nobody
-# built there) for nothing they use. compose-fork-mingw.changes lists what this commit must
-# hold, and scripts/tests/compose-fork.test.sh checks both pins.
-MINGW_REVISION="11da941766762c4760df9cf3c11429837d772bdd"
+# so they can move without moving the Compose build above. This is the tip of the fork's
+# `extended` branch, which holds the Windows caption buttons safe default and HTMAXBUTTON hit test
+# for Snap Layouts (fork #172), the Windows wheel direction fix (fork #170) and the windows' own
+# accessibility bridges (the renderer hands them the scene's semantics). It replaces the
+# backport branch feat/windows-window-backport-57b4a0e, which carried those two fixes on an
+# older base; multi-window work builds on `extended` itself.
+WINDOW_REVISION="2eb80c12e7615ef80c7661ea63e0f20651f20a31"
+# The commit the Windows build takes. It was its own pin while the Windows Compose lived on a
+# branch apart from the Compose pin; the fork's `extended` now holds mingwX64 for every Compose UI
+# module, the skiko build for mingwX64 (extended/skiko/build-skiko-mingw.sh, which also compiles
+# Skia's ICU data in as embedded_icu.obj) and publish-local.sh mingwX64, so all three pins are one
+# commit. The name stays so the Windows pin can move apart again. compose-fork-mingw.changes lists
+# what this commit must hold, and scripts/tests/compose-fork.test.sh checks both pins.
+MINGW_REVISION="2eb80c12e7615ef80c7661ea63e0f20651f20a31"
 # What the pinned commit publishes as: its gradle.properties gives every library line a version
 # of the form <upstream version>-ext.<N>. The renderer modules ask for these by name, and
 # scripts/tests/fork-versions.test.sh checks that they do; this script checks the pinned
 # commit's gradle.properties says the same before it builds anything.
-COMPOSE_AS="1.11.1-ext.1"
-MATERIAL3_AS="1.11.0-alpha07-ext.1"
+COMPOSE_AS="1.11.1-ext.2"
+MATERIAL3_AS="1.11.1-ext.2"
 # The fork's patched skiko-awt, published by its extended/skiko/build-skiko-awt.sh (through
-# scripts/publish-skiko-awt.sh). skiko keeps JetBrains' group, so it has a version of its own,
-# which sorts above JetBrains' 0.144.6 in every resolver.
-SKIKO_AWT_AS="0.144.6.1"
-PUBLISHED_AS="1.11.1"
-MATERIAL3_PUBLISHED_AS="1.11.0-alpha07"
+# scripts/publish-skiko-awt.sh). It goes out as org.thisisthepy.compose.skiko:skiko-awt on the
+# fork's version line; its module metadata declares JetBrains' skiko-awt as a capability.
+SKIKO_AWT_AS="1.11.1-ext.2"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RENDERER_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -101,24 +93,6 @@ case "$target" in
     mingwX64)
         publish_targets=(mingwX64)
         revision="$MINGW_REVISION"
-        publications=(MingwX64)
-        published_as="$PUBLISHED_AS"
-        modules=(
-            compose:animation:animation
-            compose:animation:animation-core
-            compose:foundation:foundation
-            compose:foundation:foundation-layout
-            compose:material:material-ripple
-            compose:material3:material3
-            compose:ui:ui
-            compose:ui:ui-backhandler
-            compose:ui:ui-geometry
-            compose:ui:ui-graphics
-            compose:ui:ui-text
-            compose:ui:ui-tooling-preview
-            compose:ui:ui-unit
-            compose:ui:ui-util
-        )
         ;;
     *) die "unknown target '$target'" "known: macosArm64, desktop, linux (both of the next two), linuxX64, linuxArm64, mingwX64" ;;
 esac
@@ -160,31 +134,6 @@ if [[ "$target" == mingwX64 ]]; then
         "The Windows pin has to be a commit of the fork that carries the skiko build."
     echo "==> building skiko for mingwX64 into $SKIKO_WORK"
     bash "$skiko_script" "$SKIKO_WORK"
-    # Skia's ICU loader with the data compiled in, which the Windows link needs so that no
-    # icudtl.dat has to sit beside the executable. Put with the rest of skiko's Windows half,
-    # where desktop/scripts/build-windows.sh compiles it against the icudtl.dat already there.
-    cp "$WORK/extended/skiko/embedded_icu.cpp" "$SKIKO_WORK/out/windows-x64/"
-
-    echo "==> publishing ${#modules[@]} compose module(s) for $target as $published_as"
-    tasks=()
-    for module in "${modules[@]}"; do
-        for publication in "${publications[@]}"; do
-            tasks+=(":$module:publish${publication}PublicationToMavenLocal")
-        done
-        tasks+=(":$module:publishKotlinMultiplatformPublicationToMavenLocal")
-    done
-    (
-        cd "$WORK"
-        ./gradlew --no-daemon --no-configuration-cache \
-            "-Pjetbrains.publication.version.COMPOSE=$published_as" \
-            "-Pjetbrains.publication.version.COMPOSE_MATERIAL3=$MATERIAL3_PUBLISHED_AS" \
-            "${tasks[@]}"
-    )
-
-    echo
-    echo "published to $HOME/.m2/repository/org/jetbrains/compose as $published_as"
-    echo "the renderer's macos, linux and windows modules read mavenLocal first, so the next build links these"
-    exit 0
 fi
 
 publish="$WORK/extended/compose/publish-local.sh"
