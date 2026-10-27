@@ -139,6 +139,11 @@ pub(crate) fn publish_window(window: u32, zoom: Zoom) -> bool {
     })
 }
 
+/// How many windows' zooms and subscriptions are held.
+pub(crate) fn window_state_len() -> usize {
+    WINDOW_ZOOMS.with_borrow(Vec::len) + WINDOW_SUBSCRIBERS.with_borrow(Vec::len)
+}
+
 /// Forgets a window that left the tree, and what it reported.
 pub(crate) fn forget_window(window: u32) {
     WINDOW_ZOOMS.with_borrow_mut(|zooms| zooms.retain(|(id, _)| *id != window));

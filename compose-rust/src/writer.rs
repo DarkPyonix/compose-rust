@@ -92,6 +92,9 @@ pub struct NodeWriter {
     next_animation_id: u32,
     /// The `Window` nodes. Empty in a single-window application.
     windows: HashSet<u32>,
+    /// Windows that left the tree since the composition last looked, so what it keeps for
+    /// them can go too.
+    forgotten_windows: Vec<u32>,
 }
 
 impl Default for NodeWriter {
@@ -118,6 +121,7 @@ impl NodeWriter {
             animated: HashMap::new(),
             next_animation_id: 1,
             windows: HashSet::new(),
+            forgotten_windows: Vec::new(),
         }
     }
 
@@ -135,6 +139,11 @@ impl NodeWriter {
     /// Whether `node_id` is a `Window` node.
     pub(crate) fn is_window(&self, node_id: u32) -> bool {
         self.windows.contains(&node_id)
+    }
+
+    /// The windows that left the tree since the last call.
+    pub(crate) fn take_forgotten_windows(&mut self) -> Vec<u32> {
+        std::mem::take(&mut self.forgotten_windows)
     }
 
     /// Whether any `Window` node exists, which is whether this is a multi-window tree.
@@ -609,6 +618,7 @@ impl NodeWriter {
     fn forget(&mut self, node_id: u32) {
         if self.windows.remove(&node_id) {
             crate::windows::forget_window(node_id);
+            self.forgotten_windows.push(node_id);
         }
         self.parents.remove(&node_id);
         self.animated.remove(&node_id);

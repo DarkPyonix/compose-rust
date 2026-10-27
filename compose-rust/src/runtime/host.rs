@@ -176,6 +176,15 @@ impl Recomposer {
     }
 
     fn after_composition(&mut self) {
+        // What the composition kept for a window that closed goes with it. The entries are
+        // buried and dropped below, with the composer free.
+        with_composer(|composer| {
+            for window in composer.writer.take_forgotten_windows() {
+                if let Some(entry) = composer.ambient.windows.remove(&window) {
+                    composer.graveyard.push(Box::new(entry));
+                }
+            }
+        });
         drain_graveyard();
         effects::apply_effects();
         drain_graveyard();

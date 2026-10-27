@@ -173,6 +173,11 @@ pub(crate) fn publish_window(window: u32, size: WindowSize) -> bool {
     })
 }
 
+/// How many windows' sizes and subscriptions are held.
+pub(crate) fn window_state_len() -> usize {
+    WINDOWS.with_borrow(Vec::len) + WINDOW_SUBSCRIBERS.with_borrow(Vec::len)
+}
+
 /// Forgets a window that left the tree, and what it measured.
 pub(crate) fn forget_window(window: u32) {
     WINDOWS.with_borrow_mut(|windows| windows.retain(|(id, _)| *id != window));

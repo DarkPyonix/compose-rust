@@ -377,6 +377,17 @@ pub(crate) fn forget_window(window: u32) {
     });
 }
 
+/// How many entries the per-window registries hold: sizes, zooms, subscriptions, themes and
+/// waiting commands. Zero once every window has closed. For the test that opens and closes
+/// windows to watch it not grow.
+#[doc(hidden)]
+pub fn window_state_len() -> usize {
+    crate::window::window_state_len()
+        + crate::zoom::window_state_len()
+        + APPLIED_THEMES.with_borrow(Vec::len)
+        + COMMANDS.with_borrow(Vec::len)
+}
+
 /// Clears the commands and the registrations. Used when a Host is made and between tests.
 #[doc(hidden)]
 pub fn reset_windows() {

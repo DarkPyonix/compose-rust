@@ -758,3 +758,75 @@ fn fr53_wire_numbers_are_the_ones_the_spec_lists() {
     assert_eq!(u16::from_le_bytes([bytes[72], bytes[73]]), 24);
     assert_eq!(u16::from_le_bytes([bytes[74], bytes[75]]), 8);
 }
+
+// ----- nothing outlives a window --------------------------------------------------------------
+
+#[composable]
+fn Roaming() {
+    Text(format!("{:?}", current_window_size().class));
+}
+
+#[composable]
+fn Opener() {
+    let open = remember(|| mutable_state_of(false));
+    let toggle = open.clone();
+    Button("toggle").on_click(move || toggle.update(|open| *open = !*open));
+    if open.get() {
+        Window(|| {})
+            .theme(Theme::unified(DesignSystem::Cupertino))
+            .content(|| Roaming());
+    }
+}
+
+/// A window that closes takes with it the size, the zoom, the theme and the subscription it
+/// was given: a thousand windows opened and closed leave the registries as empty as the
+/// first one did.
+#[test]
+fn fr53_window_state_is_dropped_when_the_window_closes() {
+    let mut host = ComposeHost::with_theme(Opener, Theme::unified(DesignSystem::Material3))
+        .with_window(several_windows());
+    let mut tree = Tree::default();
+    tree.apply(host.rebuild().unwrap());
+    let (button, click) = tree.find("Button", Some("toggle"), 0, PropertyKind::OnClick);
+    assert_eq!(compose_rust::windows::window_state_len(), 0);
+
+    for cycle in 0..1000 {
+        let (batch, _) = host
+            .dispatch(event(button, click, EventPayload::Clicked))
+            .expect("opening dispatches");
+        let windows = window_ids(batch);
+        assert_eq!(windows.len(), 1, "cycle {cycle}");
+        host.dispatch(event(
+            windows[0],
+            0,
+            EventPayload::WindowSizeChanged {
+                width_dp: 900.0,
+                height_dp: 700.0,
+                class: WindowSizeClass::Expanded,
+                height_class: WindowHeightClass::Medium,
+            },
+        ))
+        .expect("the size dispatches");
+        host.dispatch(event(
+            windows[0],
+            0,
+            EventPayload::ZoomChanged {
+                k: 1.2,
+                os: 1.0,
+                level: 1,
+            },
+        ))
+        .expect("the zoom dispatches");
+        assert!(
+            compose_rust::windows::window_state_len() > 0,
+            "an open window holds state"
+        );
+        host.dispatch(event(button, click, EventPayload::Clicked))
+            .expect("closing dispatches");
+        assert_eq!(
+            compose_rust::windows::window_state_len(),
+            0,
+            "cycle {cycle}: nothing is left of the closed window"
+        );
+    }
+}
