@@ -211,6 +211,9 @@ pub(crate) enum Command {
     ZoomLevel(u32, i8),
 }
 
+type RequestHandler = Rc<dyn Fn(WindowRequest)>;
+type ReopenHandler = Rc<dyn Fn()>;
+
 thread_local! {
     /// The window whose node a handler is being called for, so a call to `window_size()`
     /// or `zoom()` from inside the handler means that window.
@@ -218,9 +221,9 @@ thread_local! {
     static COMMANDS: RefCell<Vec<Command>> = const { RefCell::new(Vec::new()) };
     /// The theme each window was last given, so a theme composed every frame is sent once.
     static APPLIED_THEMES: RefCell<Vec<(u32, Theme)>> = const { RefCell::new(Vec::new()) };
-    static REQUEST_HANDLERS: RefCell<Vec<(u64, Rc<dyn Fn(WindowRequest)>)>> =
+    static REQUEST_HANDLERS: RefCell<Vec<(u64, RequestHandler)>> =
         const { RefCell::new(Vec::new()) };
-    static REOPEN_HANDLERS: RefCell<Vec<(u64, Rc<dyn Fn()>)>> =
+    static REOPEN_HANDLERS: RefCell<Vec<(u64, ReopenHandler)>> =
         const { RefCell::new(Vec::new()) };
     static NEXT_ID: Cell<u64> = const { Cell::new(1) };
 }

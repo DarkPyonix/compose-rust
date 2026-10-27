@@ -2397,7 +2397,7 @@ impl Drop for WindowScope {
 fn window_callback(
     mut handler: impl FnMut(crate::windows::WindowEvent) + 'static,
 ) -> EventCallback {
-    EventCallback::Window(Rc::new(RefCell::new(move |event| handler(event))))
+    EventCallback::Window(Rc::new(RefCell::new(handler)))
 }
 
 impl WindowScope {

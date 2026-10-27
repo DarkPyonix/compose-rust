@@ -634,8 +634,10 @@ const APPLICATION_REOPEN: u64 =
 
 /// The slot a registered handler lives in: the latest handler, and the registration that
 /// lasts as long as the slot does.
+type SharedHandler<A> = Rc<RefCell<Box<dyn FnMut(A)>>>;
+
 struct HandlerSlot<A: 'static> {
-    handler: Rc<RefCell<Box<dyn FnMut(A)>>>,
+    handler: SharedHandler<A>,
     _subscription: Box<dyn std::any::Any>,
 }
 
