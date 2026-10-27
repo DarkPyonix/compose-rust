@@ -173,7 +173,7 @@ internal class Win32Window private constructor(
                 draw()
             }
             // After the drawing, because that is when what is in the window has been placed.
-            semantics.pushIfChanged(afterDrawing = drew)
+            semantics.pushIfChanged(scene.density.density, afterDrawing = drew)
             busy = heard || drew
         }
     }

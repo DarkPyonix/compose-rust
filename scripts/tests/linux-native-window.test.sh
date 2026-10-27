@@ -261,7 +261,7 @@ fi
 # A turn of the loop does what the other desktops' turns do.
 # ---------------------------------------------------------------------------
 
-for call in 'work.runPending()' 'scene.hasInvalidations()' 'semantics.pushIfChanged(afterDrawing'; do
+for call in 'work.runPending()' 'scene.hasInvalidations()' 'semantics.pushIfChanged(scene.density.density, afterDrawing'; do
     grep -Fq "$call" "$model" ||
         fail "X11Window.kt no longer does '$call', so this test is comparing against nothing"
     grep -Fq "$call" "$host_window" || fail "the Linux window does not do '$call' per frame"

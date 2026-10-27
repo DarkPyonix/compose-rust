@@ -12,8 +12,6 @@ import org.thisisthepy.compose.window.WindowConfig
 import org.thisisthepy.compose.window.WindowEvent
 import org.thisisthepy.compose.window.WindowFrames
 import org.thisisthepy.compose.window.WindowListener
-import org.thisisthepy.compose.window.atspi.AtspiSemanticsSource
-import org.thisisthepy.compose.window.graalvm.linux.X11Accessibility
 import org.thisisthepy.compose.window.graalvm.linux.X11Upcalls
 import org.thisisthepy.compose.window.graalvm.linux.X11Window as ForkX11Window
 
@@ -56,7 +54,14 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
     window.backdrop = false
     val heard = ArrayList<WindowEvent>()
     var closed = false
+    // Set once the scene's semantics exist; a reader's request is answered from them.
+    var semanticsRef: NativeSemantics? = null
     val listener = object : WindowListener {
+        // A screen reader on the AT-SPI bus asked a control to do something. The window
+        // keeps the tree and answers its questions; this is the one thing it cannot do.
+        override fun onAccessibilityAction(id: Int, action: Int, argument: String?): Boolean =
+            semanticsRef?.perform(id, action, argument) ?: false
+
         override fun onEvent(event: WindowEvent) {
             heard.add(event)
         }
@@ -101,16 +106,7 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
         synthetic?.noteElements(elements)
         window.setAccessibility(elements)
     }
-    // A screen reader on this desktop is answered over AT-SPI from a tree of its own, so the
-    // scene tells both what changed. Null where there is no accessibility bus to join.
-    val atspiSource = AtspiSemanticsSource()
-    val accessibility = X11Accessibility.join(window, atspiSource)
-    if (report) {
-        System.err.println(
-            accessibility?.let { "compose-rust: joined the accessibility bus as ${it.busName}" }
-                ?: "compose-rust: no accessibility bus to join",
-        )
-    }
+    semanticsRef = semantics
     // Kept rather than left to the scene. What a scene picks for itself is the toolkit's
     // queue, and the Host this renderer talks to is on this thread and invisible from
     // there.
@@ -119,7 +115,7 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
         density = androidx.compose.ui.unit.Density(measured.scale),
         size = size,
         coroutineContext = work,
-        platformContext = NativePlatformContext({ size }, textInput, SemanticsFanOut(semantics, atspiSource), window::setCursor),
+        platformContext = NativePlatformContext({ size }, textInput, semantics, window::setCursor),
     )
     WindowStartReport.sceneCreated(size.width, size.height, measured.scale)
     // The application's own tree, drawn by the same interpreter the toolkit path uses.
@@ -242,10 +238,7 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
             // the window has been placed and can say where it is. Every frame, because a
             // tree that changed on the last one is a tree nobody has been told about, and
             // a window that has gone still is exactly where that would be forgotten.
-            semantics.pushIfChanged(afterDrawing = drew)
-            // After the drawing, for the same reason: what a reader is told is where
-            // everything was placed. Its questions are answered here too, on this thread.
-            accessibility?.afterFrame(options.title)
+            semantics.pushIfChanged(scene.density.density, afterDrawing = drew)
             reportCaret(textInput)
         }
     } finally {
@@ -254,7 +247,6 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
         // Before the scene closes. A resize arriving between the two would otherwise ask a
         // scene that has gone to draw into a context that has gone with it.
         X11Upcalls.clearFramePainter()
-        accessibility?.close()
         LatencyTrace.summary()
         if (System.getenv("DXC_REPORT_RESIZE") != null) System.err.println(window.resizeReport())
         scene.close()

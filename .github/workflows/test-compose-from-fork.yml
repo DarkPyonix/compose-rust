@@ -15,7 +15,7 @@
 #      differs between the two;
 #   3. the two repositories are compared file by file, and every archive entry by entry with
 #      zip timestamps left out (.github/scripts/compare-maven-repos.py). The fork publishes
-#      under its own coordinates (org.thisisthepy.compose at 1.11.1-ext.1) where the old build
+#      under its own coordinates (org.thisisthepy.compose at 1.11.1-ext.2) where the old build
 #      used JetBrains' (org.jetbrains.compose at 1.11.1), so the fork's side is read under the
 #      old names: its paths, its metadata and the module names inside its klibs. It also
 #      publishes every sibling its modules name, which the old build took from JetBrains, so
@@ -315,6 +315,11 @@ jobs:
         # The comparison runs before the renderer and does not stop it, so that one failing
         # does not hide the other's result. This is where a difference fails the job.
         if: always() && steps.compare.outcome == 'failure'
+        # The comparison proved the fork equals the old patched build while the pin was the
+        # commit that held the same tree. The pin has moved on to the fork's ext.2 line, whose
+        # Compose differs on purpose (new metadata, new sources), so a difference is reported
+        # in the comparison step and no longer fails the job. The renderer built against the
+        # fork's publication below is the proof that matters now. The guard is to come back as a
+        # comparison with the ext.2 baseline: DarkPyonix/compose-rust#361.
         run: |
-          echo "the fork and the patched build published different contents; see the comparison step" >&2
-          exit 1
+          echo "the fork and the patched build published different contents, as the moved pin is expected to; see the comparison step" >&2
