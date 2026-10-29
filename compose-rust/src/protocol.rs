@@ -2477,9 +2477,15 @@ mod tests {
         assert_eq!(theme.font(TypeRole::Mono), None);
         assert_eq!(theme.font(TypeRole::None), None);
 
-        let both = theme.with_font(TypeRole::Mono, 9).with_font(TypeRole::Display, 3);
+        let both = theme
+            .with_font(TypeRole::Mono, 9)
+            .with_font(TypeRole::Display, 3);
         assert_eq!(both.font(TypeRole::Mono), Some(9));
-        assert_eq!(both.font(TypeRole::Display), Some(3), "the role named last wins");
+        assert_eq!(
+            both.font(TypeRole::Display),
+            Some(3),
+            "the role named last wins"
+        );
         assert_eq!(both.font(TypeRole::Body), Some(5));
 
         let mut encoder = BatchEncoder::default();

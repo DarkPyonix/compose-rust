@@ -342,7 +342,11 @@ mod tests {
         }
         let mut bytes = FontStack::new().family([1]).to_bytes();
         bytes.push(0);
-        assert_eq!(FontStack::from_bytes(&bytes), None, "trailing bytes are not a stack");
+        assert_eq!(
+            FontStack::from_bytes(&bytes),
+            None,
+            "trailing bytes are not a stack"
+        );
     }
 
     #[test]

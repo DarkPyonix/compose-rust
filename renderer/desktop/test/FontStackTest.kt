@@ -100,7 +100,9 @@ class FontStackTest {
         val size = layout.layoutInput.style.fontSize.value
         val width = layout.getLineRight(0) - layout.getLineLeft(0)
         val expected = letters * size * TinyIconFont.WIDTH_PER_SIZE
-        assertTrue(abs(width - expected) < 0.5f, "$case: $width wide, the shipped face gives $expected")
+        // Each glyph's advance is rounded to the half pixel, so a line may be half a pixel
+        // per letter off. A letter from a fallback face is many pixels off.
+        assertTrue(abs(width - expected) <= letters * 0.5f + 0.01f, "$case: $width wide, the shipped face gives $expected")
     }
 
     private fun assertNotInShippedFace(layout: TextLayoutResult, case: String) {
@@ -213,7 +215,7 @@ class FontStackTest {
         val second = drawnLayout(SECOND)
         val size = second.layoutInput.style.fontSize.value
         val width = second.getLineRight(0) - second.getLineLeft(0)
-        assertTrue(abs(width - size) < 0.5f, "the bold face is one em wide, drew $width at $size")
+        assertTrue(abs(width - size) <= 0.5f + 0.01f, "the bold face is one em wide, drew $width at $size")
     }
 
     @Test
