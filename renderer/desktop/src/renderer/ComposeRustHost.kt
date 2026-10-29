@@ -107,6 +107,14 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
     internal var requestsBeforeStart: Long = 0L
         private set
 
+    /**
+     * Called once a batch has been applied and its errors reported, on the thread the Host
+     * runs on. The window manager of a multi-window application hangs here to open,
+     * close and update platform windows from the nodes the batch changed. Null for every
+     * other application, which is what keeps a single window's path as it was.
+     */
+    internal var afterBatch: (() -> Unit)? = null
+
     fun start() = start(FrameRequests.global)
 
     internal fun start(frames: FrameRequestSource) {
@@ -207,6 +215,7 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
         // the refusal. After the batch for the same reason as the errors above, and each in
         // its own call, because the Host answers each one with a batch of its own.
         editorEvents.forEach { event -> dispatch(event) }
+        afterBatch?.invoke()
     }
 
     private companion object {
@@ -364,7 +373,8 @@ private fun ComposeRustTree(
     // the Host only when it crosses a size class boundary. onSizeChanged already fires
     // only when the measured size differs, and the reporter drops everything that does
     // not change the class, so a drag across one class costs no boundary calls.
-    val reporter = remember(host) { WindowSizeReporter() }
+    val windowNodeId = LocalWindowNodeId.current
+    val reporter = remember(host, windowNodeId) { WindowSizeReporter(windowNodeId) }
     val density = LocalDensity.current
     val zoom = LocalZoom.current
     val fontFamilyResolver = LocalFontFamilyResolver.current
@@ -394,7 +404,7 @@ private fun ComposeRustTree(
     // differently from chrome over the application's own page.
     val asked = host.table.asksForWindowMaterial(host.roots)
     val theme = resolveTheme(
-        host.table.theme,
+        host.table.themeFor(windowNodeId),
         platform,
         systemDark,
         sizeClass,

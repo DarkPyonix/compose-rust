@@ -231,7 +231,8 @@ val LocalZoom = staticCompositionLocalOf<Zoom?> { null }
  */
 @Composable
 internal fun ZoomReporter(host: ComposeRustHost, zoom: Zoom) {
-    val asked = host.table.window?.zoomLevel
+    val windowNodeId = LocalWindowNodeId.current
+    val asked = host.table.zoomLevelFor(windowNodeId)
     val applied = remember(host) { arrayOfNulls<Int>(1) }
     SideEffect {
         if (asked != null && asked != applied[0]) {
@@ -244,7 +245,7 @@ internal fun ZoomReporter(host: ComposeRustHost, zoom: Zoom) {
     val level = zoom.level
     val reported = remember(host) { arrayOfNulls<HostEvent.ZoomChanged>(1) }
     SideEffect {
-        val event = HostEvent.ZoomChanged(nodeId = 0, handlerId = 0, k = k, os = os, level = level)
+        val event = HostEvent.ZoomChanged(nodeId = windowNodeId, handlerId = 0, k = k, os = os, level = level)
         if (reported[0] != event) {
             reported[0] = event
             host.dispatch(event)
