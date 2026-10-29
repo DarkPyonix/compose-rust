@@ -3530,7 +3530,45 @@ Electron 앱(VS Code)과 브라우저가 하는 일입니다. 탭을 잡고 창 
 - 새 명령 레코드 `SetWindowTheme(node_id, theme)`(`SetTheme`의 페이로드 앞에 `node_id`), `FocusWindow(node_id)`.
 - `SetWindow`의 남는 칸에 방식(`Single=0`, `Windows=1`)과 53.6의 `LastWindowClosed`를 싣습니다. 둘 다 0이면 지금의 레코드와 같은 바이트입니다.
 - **경계 함수는 바뀌지 않습니다.** 진입점도 시그니처도 그대로라 PR-2의 변경이 아니라 FR-7의 스키마 변경이고, 스키마 해시가 바뀝니다.
-- 번호는 구현 PR이 병합 시점의 develop에서 쓰이지 않은 다음 자리로 정하고 이 항목에 적습니다. 여러 PR이 같은 블록을 다투고 있어 지금 적으면 겹칩니다.
+- 번호는 구현 PR이 병합 시점의 develop(e6d4e08f)에서 쓰이지 않은 다음 자리로 정했고 아래 표에 적습니다. 값은 이 표가 정본이고, 필드 배치는 `compose-rust/src/schema.rs`와 `protocol.rs`가 정본입니다.
+
+| 종류 | 이름 | 번호 | 값 |
+|---|---|---|---|
+| 위젯 | `Window` | 45 | 코어 위젯의 다음 번호 |
+| 명령 | `SetWindowTheme` | 23 | `node_id`, 그 뒤에 `SetTheme`의 페이로드(레코드 길이 60) |
+| 명령 | `FocusWindow` | 24 | `node_id`(레코드 길이 8) |
+| 이벤트 | `WindowCloseRequested` | 39 | 없음 |
+| 이벤트 | `WindowFocusChanged` | 40 | `focused: u32`(0, 1) |
+| 이벤트 | `WindowMoved` | 41 | `x, y, width, height: f32` |
+| 이벤트 | `WindowDrag` | 42 | `phase: u32`(`Move=1`, `End=2`, `Cancel=3`), `screen_x, screen_y: f32`, `over_window: u32` |
+| 이벤트 | `WindowDragOver` | 43 | `kind: u32`(`Enter=1`, `Move=2`, `Leave=3`, `Drop=4`), `window: u32`, `x, y: f32` |
+| 이벤트 | `WindowUnavailable` | 44 | 없음 |
+| 이벤트 | `WindowClosed` | 45 | 없음 |
+| 이벤트 | `WindowRequested` | 46 | `request: u32`, `RestoreKey` 문자열(레코드 길이 28과 문자열) |
+| 이벤트 | `ApplicationReopen` | 47 | 없음 |
+| 속성 | `WindowTitle` | 150 | 문자열 |
+| 속성 | `WindowSize` | 151 | 바이트 8: `width, height: f32`(dp) |
+| 속성 | `WindowMinSize` | 152 | 바이트 8: `width, height: f32`(dp) |
+| 속성 | `WindowResizable` | 153 | 불리언 |
+| 속성 | `WindowChrome` | 154 | 정수(`Chrome` 번호) |
+| 속성 | `WindowTitleBar` | 155 | 정수(`TitleBar` 번호) |
+| 속성 | `WindowIcon` | 156 | 정수(에셋 id) |
+| 속성 | `WindowPosition` | 157 | 바이트 8: `x, y: f32`(화면 dp). 값을 지우면 플랫폼이 놓음 |
+| 속성 | `WindowRestoreKey` | 158 | 문자열 |
+| 속성 | `WindowZoomLevel` | 159 | 정수(-8에서 8) |
+| 속성 | `DragFromPointer` | 160 | 바이트 12: `pointer_id: u32`, `anchor_x, anchor_y: f32` |
+| 속성 | `OnWindowCloseRequested` | 161 | 정수(핸들러 id) |
+| 속성 | `OnWindowFocusChanged` | 162 | 정수(핸들러 id) |
+| 속성 | `OnWindowMoved` | 163 | 정수(핸들러 id) |
+| 속성 | `OnWindowDrag` | 164 | 정수(핸들러 id) |
+| 속성 | `OnWindowUnavailable` | 165 | 정수(핸들러 id) |
+| 속성 | `OnWindowClosed` | 166 | 정수(핸들러 id) |
+| 속성 | `OnWindowDragOver` | 167 | 정수(핸들러 id). 창이 아닌 노드에 붙음 |
+| 속성 | `TearOffKey` | 168 | 문자열. 창이 아닌 노드에 붙음 |
+
+- `SetWindow`의 방식과 마지막 창 정책은 기존 레코드의 `resizable` 낱말(`u16`)의 남는 비트에 싣습니다. 0비트가 `resizable`, 8에서 11비트가 방식(`Single=0`, `Windows=1`), 12에서 15비트가 `LastWindowClosed`(`Exit=0`, `KeepRunning=1`)입니다. 그 밖의 비트가 서 있으면 `ProtocolError`입니다.
+- `WindowRequested`와 `ApplicationReopen`은 루트의 이벤트라 `node_id`와 `handler_id`가 모두 0입니다. 나머지 창 이벤트는 `Window` 노드의 id를 `node_id`로, 그 노드에 등록된 핸들러 id를 `handler_id`로 싣습니다. `WindowDragOver`는 구독한 노드의 id를 싣고 끌리는 창의 id는 페이로드에 있습니다.
+- 속성 번호는 150에서 시작하는 새 블록입니다. 140에서 142가 마지막 블록의 끝이고, 143에서 149는 그 블록의 몫으로 남깁니다.
 
 #### 53.11 수용 기준
 

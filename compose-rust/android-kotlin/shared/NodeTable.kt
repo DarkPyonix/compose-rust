@@ -237,6 +237,11 @@ class NodeTable {
             // the batch is applied the window already looks the way it says. Keeping it
             // here as well is what lets a later rebuild change it.
             is Mutation.SetWindow -> window = mutation.window
+            // A theme for one window, and bringing one forward. Both name a platform
+            // window, which the platform layer opens and this table does not hold yet, so the
+            // records are decoded and nothing is applied.
+            is Mutation.SetWindowTheme -> Unit
+            is Mutation.FocusWindow -> Unit
             // The bytes are read here, once, and never again: what a frame carries is the
             // id. A kind this Renderer cannot read, or a release of something that was
             // never registered, is reported and the rest of the batch still applies.
@@ -606,6 +611,10 @@ class NodeTable {
                 PropertyKind.PointerKinds,
                 PropertyKind.Cursor,
                 PropertyKind.UserSelect,
+                // A dragged window passing over a node, and the key a node is pulled out
+                // into a window under, belong to the same containers a pointer can sit over.
+                PropertyKind.OnWindowDragOver,
+                PropertyKind.TearOffKey,
                 -> widget == WidgetKind.Text ||
                     widget == WidgetKind.Column ||
                     widget == WidgetKind.Row ||
@@ -850,6 +859,27 @@ class NodeTable {
                 PropertyKind.Columns,
                 PropertyKind.MinColumnWidth,
                 -> widget == WidgetKind.LazyGrid
+
+                // A window's own properties and handlers. The platform
+                // layer reads them; the table only keeps them on the node.
+                PropertyKind.WindowTitle,
+                PropertyKind.WindowSize,
+                PropertyKind.WindowMinSize,
+                PropertyKind.WindowResizable,
+                PropertyKind.WindowChrome,
+                PropertyKind.WindowTitleBar,
+                PropertyKind.WindowIcon,
+                PropertyKind.WindowPosition,
+                PropertyKind.WindowRestoreKey,
+                PropertyKind.WindowZoomLevel,
+                PropertyKind.DragFromPointer,
+                PropertyKind.OnWindowCloseRequested,
+                PropertyKind.OnWindowFocusChanged,
+                PropertyKind.OnWindowMoved,
+                PropertyKind.OnWindowDrag,
+                PropertyKind.OnWindowUnavailable,
+                PropertyKind.OnWindowClosed,
+                -> widget == WidgetKind.Window
 
                 // A property declared by an extension package belongs to the widget
                 // that package declared it for.
