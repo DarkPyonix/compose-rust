@@ -3670,6 +3670,27 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 14. macOS arm64, Linux x64, Windows x64에서 `watch`가 창을 열고 `export`가 PNG를 씁니다. Windows는 확인한 날짜를 따로 적습니다.
 15. compose-rust의 풀 리퀘스트에서 CI가 샘플 미리보기 PNG를 아티팩트로 올립니다(Linux x64, macOS arm64).
 
+### FR-55 누를 수 있는 컨테이너 (`Agreed`, 이슈 #372)
+
+요청한 쪽: darkpyonix-ember#220(Ember UI를 compose-rust 위에 올리는 일). 포인터 구독(FR-46)만으로 만든 `Box`는 키보드 포커스, 키 활성화, 접근성 역할을 잃습니다. 눌리는 면은 컨트롤이어야 합니다.
+
+- `Row`, `Column`, `Box`, `Card`, `Surface`, `ScrollColumn`, `ScrollRow`의 빌더에 `on_click(impl FnMut() + 'static)`이 있습니다. 호출하면 그 노드에 `OnClick` 핸들러가 실립니다. 호출하지 않은 컨테이너에는 `OnClick`이 없고 아무것도 달라지지 않습니다.
+- **`Modifier::clickable`은 만들지 않습니다.** `ui::Modifier`는 `Copy` 값이라 클로저를 담을 수 없습니다. 클로저는 빌더가 갖고, 와이어에는 `OnClick` 속성(핸들러 id)으로 나갑니다. `schema::Modifier::Clickable`은 rsx 경로(dioxus-compose)가 계속 씁니다.
+- Renderer는 `OnClick` 핸들러가 있는 컨테이너와 `Clickable` 수정자가 있는 노드를 같은 방식으로 버튼으로 만듭니다. 한 노드에 둘 다 있으면 `Clickable` 쪽만 적용됩니다(핸들러가 한 번만 돕니다).
+  - 키보드 포커스를 받습니다. Tab 순회에 들어가고, 눌러도 포커스가 옵니다.
+  - 포커스를 가진 채 Enter 또는 Space를 누르면 `Clicked`가 한 번 갑니다.
+  - 접근성 역할은 버튼이고 클릭 동작을 가집니다. 자손의 텍스트는 이름으로 합쳐집니다.
+  - 마우스를 올리면 `OnSurface` 색이 8%, 누르는 동안 12%로 노드 모양 위에 덮입니다. 포커스가 있으면 `Primary` 색 2dp 테두리가 노드 모양을 따라 그려집니다. 지표 값은 디자인 시스템이 바꿀 수 있도록 Renderer 한 곳에 상수로 둡니다.
+  - `Enabled`가 거짓이면 포커스, 클릭, 표시가 모두 꺼집니다.
+- 호버와 눌림은 Host에 이벤트를 보내지 않습니다.
+
+수용 기준.
+1. 다섯 컨테이너 각각에서 마우스로 누르면 `Clicked`가 그 노드 id와 핸들러 id로 정확히 한 번 갑니다.
+2. 포커스를 준 뒤 Enter와 Space는 각각 `Clicked`를 한 번 보냅니다.
+3. 노드의 의미 정보 역할이 `Button`이고 클릭 동작이 있습니다.
+4. `on_click`을 부르지 않은 컨테이너는 클릭 동작이 없고, 눌러도 `Clicked`가 가지 않습니다.
+5. (Rust) 눌린 컨테이너의 클로저가 재조합을 거듭해도 매번 한 번씩 돕니다.
+
 ## 4. 경계 프로토콜
 
 ### PR-1 호출 모델: 동기·동일 스레드 직접 호출 (`Done`)

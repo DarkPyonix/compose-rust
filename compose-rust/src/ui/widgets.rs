@@ -170,6 +170,35 @@ macro_rules! pointer_subscription {
     };
 }
 
+/// Writes a container's click handler as the listener the wire needs. A container that was
+/// given none has no `OnClick` at all, so it is not a control: it takes no focus, no key and
+/// no pointer press, and says nothing to assistive technology.
+fn click_input(
+    on_click: Option<Box<dyn FnMut()>>,
+    listeners: &mut Vec<(&'static str, EventCallback)>,
+) {
+    if let Some(handler) = on_click {
+        listeners.push(("onclick", unit(Some(handler))));
+    }
+}
+
+/// Adds `on_click` to a builder that has an `on_click` field.
+macro_rules! click_handler {
+    ($name:ident) => {
+        impl $name {
+            /// Makes the container a button. The Renderer gives it keyboard focus, runs
+            /// the handler on a click and on Enter or Space, announces it to assistive
+            /// technology as a button, and shows hover, pressed and focus state.
+            ///
+            /// A container that never calls this is not a control and costs nothing.
+            pub fn on_click(mut self, handler: impl FnMut() + 'static) -> Self {
+                self.on_click = Some(std::boxed::Box::new(handler));
+                self
+            }
+        }
+    };
+}
+
 /// Composes the description when the statement it was written in ends.
 macro_rules! composed_on_drop {
     ($name:ident $(<$lifetime:lifetime>)?) => {
@@ -236,6 +265,7 @@ macro_rules! linear {
             modifier: Modifier,
             linear: Linear,
             pointer: Option<PointerSubscription>,
+            on_click: Option<Box<dyn FnMut()>>,
             tear_off: Option<TearOff>,
             done: bool,
         }
@@ -246,6 +276,7 @@ macro_rules! linear {
                 modifier: Modifier::new(),
                 linear: Linear::default(),
                 pointer: None,
+                on_click: None,
                 tear_off: None,
                 done: false,
             }
@@ -284,6 +315,7 @@ macro_rules! linear {
                 let mut listeners = Vec::new();
                 let mut subscription = Attrs::new();
                 pointer_input(pointer, &mut subscription, &mut listeners);
+                click_input(self.on_click.take(), &mut listeners);
                 tear_off_input(tear_off, &mut subscription, &mut listeners);
                 emit(
                     widget_key($key),
@@ -301,6 +333,7 @@ macro_rules! linear {
 
         container!($name);
         pointer_subscription!($name);
+        click_handler!($name);
         tear_off!($name);
     };
 }
@@ -314,6 +347,7 @@ pub struct ComposeBox {
     modifier: Modifier,
     alignment: Option<Alignment>,
     pointer: Option<PointerSubscription>,
+    on_click: Option<Box<dyn FnMut()>>,
     tear_off: Option<TearOff>,
     done: bool,
 }
@@ -324,6 +358,7 @@ pub fn Box() -> ComposeBox {
         modifier: Modifier::new(),
         alignment: None,
         pointer: None,
+        on_click: None,
         tear_off: None,
         done: false,
     }
@@ -343,6 +378,7 @@ impl ComposeBox {
         let mut listeners = Vec::new();
         let mut subscription = Attrs::new();
         pointer_input(pointer, &mut subscription, &mut listeners);
+        click_input(self.on_click.take(), &mut listeners);
         tear_off_input(tear_off, &mut subscription, &mut listeners);
         emit(
             widget_key("compose_rust::ui::Box"),
@@ -360,6 +396,7 @@ impl ComposeBox {
 
 container!(ComposeBox);
 pointer_subscription!(ComposeBox);
+click_handler!(ComposeBox);
 tear_off!(ComposeBox);
 
 /// A plain container with the standard Modifiers and nothing of its own.
@@ -369,6 +406,7 @@ macro_rules! plain_container {
         pub struct $name {
             modifier: Modifier,
             pointer: Option<PointerSubscription>,
+            on_click: Option<Box<dyn FnMut()>>,
             done: bool,
         }
 
@@ -377,6 +415,7 @@ macro_rules! plain_container {
             $name {
                 modifier: Modifier::new(),
                 pointer: None,
+                on_click: None,
                 done: false,
             }
         }
@@ -388,6 +427,7 @@ macro_rules! plain_container {
                 let mut listeners = Vec::new();
                 let mut subscription = Attrs::new();
                 pointer_input(pointer, &mut subscription, &mut listeners);
+                click_input(self.on_click.take(), &mut listeners);
                 emit(
                     widget_key($key),
                     WidgetKind::$widget,
@@ -403,6 +443,7 @@ macro_rules! plain_container {
 
         container!($name);
         pointer_subscription!($name);
+        click_handler!($name);
     };
 }
 

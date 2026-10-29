@@ -3,9 +3,15 @@ package dev.darkpyonix.composerust.ui
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.semantics.Role
+import dev.darkpyonix.composerust.protocol.ColorRole
 import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -53,7 +59,6 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import kotlin.math.ceil
 import kotlin.math.max
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
@@ -126,7 +131,7 @@ internal fun List<ProtocolModifier>.toComposeModifier(
                 backgroundSeen = true
                 if (holder == null) chain.background(brush, shape) else chain.animatedBackground(brush, shape, holder)
             } ?: chain.composed { reportUnknownBrush(nodeId, value.paint, dispatcher) }
-            is ProtocolModifier.Clickable -> chain.hostClickable(nodeId, value.handlerId, dispatcher)
+            is ProtocolModifier.Clickable -> chain.pressable(nodeId, value.handlerId, true, dispatcher, theme, shape)
 
             is ProtocolModifier.PaddingEach ->
                 chain.padding(value.start.dp, value.top.dp, value.end.dp, value.bottom.dp)
@@ -637,26 +642,53 @@ internal fun List<ProtocolModifier>.weightOf(): Float? =
         ?.takeIf { it > 0f }
 
 /**
- * Pointer handling for `Modifier.Clickable`.
+ * Makes a node a button: it takes keyboard focus, a click and Enter or Space run
+ * the Host handler, assistive technology is told it is a button, and hover, press and focus
+ * are drawn over its content in the shape it is drawn in.
  *
- * The Host handler runs synchronously inside the gesture, and its result decides whether the
- * pointer change is consumed. A Host that does not consume leaves the gesture
- * available to whatever is underneath.
+ * A pointer-only handler would lose all but the first of those, which is why `Clickable`
+ * and the `OnClick` property of a container both come through here.
  */
-private fun Modifier.hostClickable(
+internal fun Modifier.pressable(
     nodeId: Int,
     handlerId: Long,
+    enabled: Boolean,
     dispatcher: EventDispatcher,
-): Modifier = pointerInput(nodeId, handlerId, dispatcher) {
-    awaitEachGesture {
-        val down = awaitFirstDown(requireUnconsumed = true)
-        val up = waitForUpOrCancellation() ?: return@awaitEachGesture
-        if (dispatcher.dispatch(HostEvent.Clicked(nodeId, handlerId))) {
-            down.consume()
-            up.consume()
+    theme: ResolvedTheme,
+    shape: Shape,
+): Modifier = composed {
+    val source = remember(nodeId, handlerId) { MutableInteractionSource() }
+    val hovered by source.collectIsHoveredAsState()
+    val pressed by source.collectIsPressedAsState()
+    val focused by source.collectIsFocusedAsState()
+    val ink = theme.color(ColorRole.OnSurface)
+    val ring = theme.color(ColorRole.Primary)
+    this
+        .hoverable(source, enabled)
+        .clickable(
+            interactionSource = source,
+            indication = null,
+            enabled = enabled,
+            role = Role.Button,
+        ) { dispatcher.dispatch(HostEvent.Clicked(nodeId, handlerId)) }
+        .drawWithContent {
+            drawContent()
+            if (!enabled) return@drawWithContent
+            val layer = when {
+                pressed -> PRESSED_LAYER
+                hovered -> HOVER_LAYER
+                else -> 0f
+            }
+            if (layer > 0f || focused) {
+                val outline = shape.createOutline(size, layoutDirection, this)
+                if (layer > 0f) drawOutline(outline, ink.copy(alpha = layer))
+                if (focused) drawOutline(outline, ring, style = Stroke(2.dp.toPx()))
+            }
         }
-    }
 }
+
+private const val HOVER_LAYER = 0.08f
+private const val PRESSED_LAYER = 0.12f
 
 /**
  * Reports this node's width when the class it falls in changes.
