@@ -12,7 +12,7 @@
 use crate::protocol::{Mutation, PropertyValue, ProtocolError};
 use crate::runtime::Batch;
 use crate::schema::{PropertyKind, WidgetKind};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// The inclusive range of design-property tags. Extension properties follow this range.
 const FIRST_OPTIONAL_PROPERTY: u16 = PropertyKind::TypeRole as u16;
@@ -90,6 +90,11 @@ pub struct NodeWriter {
     animated: HashMap<u32, u8>,
     /// The name the next animation this writer starts is given. Never 0.
     next_animation_id: u32,
+    /// The `Window` nodes. Empty in a single-window application.
+    windows: HashSet<u32>,
+    /// Windows that left the tree since the composition last looked, so what it keeps for
+    /// them can go too.
+    forgotten_windows: Vec<u32>,
 }
 
 impl Default for NodeWriter {
@@ -115,6 +120,8 @@ impl NodeWriter {
             // Empty until a screen animates something, for the same reason.
             animated: HashMap::new(),
             next_animation_id: 1,
+            windows: HashSet::new(),
+            forgotten_windows: Vec::new(),
         }
     }
 
@@ -127,6 +134,42 @@ impl NodeWriter {
     /// The application's name for an observed node, if that node is observed.
     pub(crate) fn size_token(&self, node_id: u32) -> Option<u32> {
         self.size_tokens.get(&node_id).copied()
+    }
+
+    /// Whether `node_id` is a `Window` node.
+    pub(crate) fn is_window(&self, node_id: u32) -> bool {
+        self.windows.contains(&node_id)
+    }
+
+    /// The windows that left the tree since the last call.
+    pub(crate) fn take_forgotten_windows(&mut self) -> Vec<u32> {
+        std::mem::take(&mut self.forgotten_windows)
+    }
+
+    /// Whether any `Window` node exists, which is whether this is a multi-window tree.
+    pub(crate) fn has_windows(&self) -> bool {
+        !self.windows.is_empty()
+    }
+
+    /// The `Window` node that `node_id` is, or stands under, or 0 for one that is in no
+    /// window.
+    pub(crate) fn window_of(&self, node_id: u32) -> u32 {
+        if self.windows.is_empty() {
+            return 0;
+        }
+        let mut current = node_id;
+        // The tree is finite and acyclic, so this ends; the bound only guards a table that
+        // is wrong.
+        for _ in 0..=self.parents.len() {
+            if self.windows.contains(&current) {
+                return current;
+            }
+            match self.parents.get(&current) {
+                Some(parent) => current = *parent,
+                None => return 0,
+            }
+        }
+        0
     }
 
     /// The batch, for a Host that writes its own records into it.
@@ -154,6 +197,9 @@ impl NodeWriter {
     pub(crate) fn allocate_node(&mut self, widget: WidgetKind) -> u32 {
         let id = self.next_node_id;
         self.next_node_id = self.next_node_id.checked_add(1).unwrap_or(1);
+        if widget == WidgetKind::Window {
+            self.windows.insert(id);
+        }
         self.write(Mutation::Create {
             node_id: id,
             widget,
@@ -570,6 +616,10 @@ impl NodeWriter {
     /// Forgets a node and everything under it, as the Renderer does when it is removed.
     /// The caller has already taken the node out of its parent's list.
     fn forget(&mut self, node_id: u32) {
+        if self.windows.remove(&node_id) {
+            crate::windows::forget_window(node_id);
+            self.forgotten_windows.push(node_id);
+        }
         self.parents.remove(&node_id);
         self.animated.remove(&node_id);
         // Everything the writer keeps per node, so that a node id that is gone leaves
@@ -607,6 +657,23 @@ impl NodeWriter {
     /// the removal makes unnecessary. A node that stands before it has really moved, and
     /// gets one `Move`. A node that is not in the tree yet gets its `Insert`.
     pub(crate) fn place_after(&mut self, parent: u32, node_id: u32, after: Option<u32>) {
+        // A window is a child of the root and of nothing else, and a node never leaves its
+        // window for another. Both are refused before anything is
+        // written, the way the Renderer refuses them, so a tree that asks for either fails
+        // the batch it is in.
+        if self.windows.contains(&node_id) && parent != PLACEHOLDER_NODE {
+            self.batch.fail(ProtocolError::MisplacedWindow);
+            return;
+        }
+        if let Some(from) = self.parents.get(&node_id).copied() {
+            if from != parent {
+                let (leaving, entering) = (self.window_of(from), self.window_of(parent));
+                if leaving != entering && leaving != 0 && entering != 0 {
+                    self.batch.fail(ProtocolError::MisplacedWindow);
+                    return;
+                }
+            }
+        }
         let mut target = match after.and_then(|previous| self.position_of(parent, previous)) {
             Some(position) => position + 1,
             None => 0,
@@ -674,7 +741,65 @@ pub(crate) fn event_property(name: &str) -> Option<PropertyKind> {
         "filesentered" | "onfilesentered" => Some(PropertyKind::OnFilesEntered),
         "filesdropped" | "onfilesdropped" => Some(PropertyKind::OnFilesDropped),
         "pointer" | "onpointer" => Some(PropertyKind::OnPointer),
+        "windowclose" | "onwindowclose" => Some(PropertyKind::OnWindowCloseRequested),
+        "windowfocus" | "onwindowfocus" => Some(PropertyKind::OnWindowFocusChanged),
+        "windowmoved" | "onwindowmoved" => Some(PropertyKind::OnWindowMoved),
+        "windowdrag" | "onwindowdrag" => Some(PropertyKind::OnWindowDrag),
+        "windowunavailable" | "onwindowunavailable" => Some(PropertyKind::OnWindowUnavailable),
+        "windowclosed" | "onwindowclosed" => Some(PropertyKind::OnWindowClosed),
+        "windowdragover" | "onwindowdragover" => Some(PropertyKind::OnWindowDragOver),
         "change" | "onchange" => Some(PropertyKind::OnValueChange),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Two windows under the root, and a node in the first.
+    fn two_windows() -> (NodeWriter, u32, u32, u32) {
+        let mut writer = NodeWriter::new();
+        let first = writer.allocate_node(WidgetKind::Window);
+        let second = writer.allocate_node(WidgetKind::Window);
+        writer.place_after(PLACEHOLDER_NODE, first, None);
+        writer.place_after(PLACEHOLDER_NODE, second, Some(first));
+        let tab = writer.allocate_node(WidgetKind::Box);
+        writer.place_after(first, tab, None);
+        (writer, first, second, tab)
+    }
+
+    #[test]
+    fn nfr7_moving_a_node_between_windows_is_a_protocol_error() {
+        let (mut writer, _first, second, tab) = two_windows();
+        assert!(writer.batch_mut().finish().is_ok());
+        writer.place_after(second, tab, None);
+        assert_eq!(
+            writer.batch_mut().finish().err(),
+            Some(ProtocolError::MisplacedWindow)
+        );
+    }
+
+    #[test]
+    fn fr53_moving_a_node_inside_its_window_is_a_move() {
+        let (mut writer, first, _second, tab) = two_windows();
+        let inner = writer.allocate_node(WidgetKind::Column);
+        writer.place_after(first, inner, Some(tab));
+        writer.place_after(inner, tab, None);
+        assert!(writer.batch_mut().finish().is_ok());
+        assert_eq!(writer.window_of(tab), first);
+    }
+
+    #[test]
+    fn nfr7_a_window_under_anything_but_the_root_is_a_protocol_error() {
+        let mut writer = NodeWriter::new();
+        let column = writer.allocate_node(WidgetKind::Column);
+        writer.place_after(PLACEHOLDER_NODE, column, None);
+        let window = writer.allocate_node(WidgetKind::Window);
+        writer.place_after(column, window, None);
+        assert_eq!(
+            writer.batch_mut().finish().err(),
+            Some(ProtocolError::MisplacedWindow)
+        );
     }
 }

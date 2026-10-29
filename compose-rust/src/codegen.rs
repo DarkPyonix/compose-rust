@@ -194,6 +194,13 @@ data class Window(
      * keys is. Always inside -8..8.
      */
     val zoomLevel: Int? = null,
+    /**
+     * One window, or several. With [WindowMode.Windows] the root's children are
+     * `Window` nodes and the rest of this record describes no window.
+     */
+    val mode: WindowMode = WindowMode.Single,
+    /** What happens when the last window goes. Only read in [WindowMode.Windows]. */
+    val lastWindowClosed: LastWindowClosed = LastWindowClosed.Exit,
 )
 
 "#,
@@ -446,6 +453,15 @@ sealed interface Mutation {
 
     /** Folds or unfolds the stretch of a code editor that starts on `startLine`. */
     data class SetFolded(val nodeId: Int, val startLine: Int, val collapsed: Boolean) : Mutation
+
+    /**
+     * A theme for one `Window` node, over the application's. A window without
+     * one follows the application's theme.
+     */
+    data class SetWindowTheme(val nodeId: Int, val theme: Theme) : Mutation
+
+    /** Brings a window forward and makes it the key window. Happens once. */
+    data class FocusWindow(val nodeId: Int) : Mutation
 }
 
 "#,
@@ -516,6 +532,17 @@ sealed interface Mutation {
                 output.push_str(", val startLine: Int, val collapsed: Boolean");
             }
             EventPayloadType::CodeComposition => output.push_str(", val composing: Boolean"),
+            EventPayloadType::WindowFocus => output.push_str(", val focused: Boolean"),
+            EventPayloadType::WindowMove => output.push_str(
+                ", val x: kotlin.Float, val y: kotlin.Float, val width: kotlin.Float, val height: kotlin.Float",
+            ),
+            EventPayloadType::WindowDrag => output.push_str(
+                ", val phase: Int, val screenX: kotlin.Float, val screenY: kotlin.Float, val overWindow: Int",
+            ),
+            EventPayloadType::WindowDragOver => output.push_str(
+                ", val kind: Int, val window: Int, val x: kotlin.Float, val y: kotlin.Float",
+            ),
+            EventPayloadType::WindowRequest => output.push_str(", val request: Int, val key: String"),
         }
         output.push_str(") : HostEvent\n");
     }
@@ -564,6 +591,8 @@ object Protocol {
     private const val TAG_SET_SELECTION = 20
     private const val TAG_REVEAL_RANGE = 21
     private const val TAG_SET_FOLDED = 22
+    private const val TAG_SET_WINDOW_THEME = 23
+    private const val TAG_FOCUS_WINDOW = 24
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -700,35 +729,29 @@ object Protocol {
                     }
                     TAG_SET_THEME -> {
                         requireRecordLength(length, THEME_RECORD_LENGTH, offset)
-                        val adaptive = readU16(batch, base, available, offset + 10)
-                        if (adaptive > 1) {
-                            throw ProtocolException("invalid adaptive flag $adaptive", offset + 10)
-                        }
-                        // One slot per type role, in the order the wire fixes them in.
-                        val fonts = List(TypeRole.entries.size) { role ->
-                            readU32(batch, base, available, offset + 12 + 4 * role).toInt()
-                        }
-                        val (entries, problems) = palette(
-                            readBytes(batch, base, available, offset + 12 + 4 * TypeRole.entries.size),
+                        Mutation.SetTheme(theme(batch, base, available, offset + 4))
+                    }
+                    TAG_SET_WINDOW_THEME -> {
+                        requireRecordLength(length, THEME_RECORD_LENGTH + 4, offset)
+                        Mutation.SetWindowTheme(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            theme(batch, base, available, offset + 8),
                         )
-                        Mutation.SetTheme(
-                            Theme(
-                                designSystem(readU16(batch, base, available, offset + 4), offset + 4),
-                                designSystem(readU16(batch, base, available, offset + 6), offset + 6),
-                                colorScheme(readU16(batch, base, available, offset + 8), offset + 8),
-                                adaptive == 1,
-                                fonts,
-                                entries,
-                                problems,
-                            ),
-                        )
+                    }
+                    TAG_FOCUS_WINDOW -> {
+                        requireRecordLength(length, 8, offset)
+                        Mutation.FocusWindow(readU32(batch, base, available, offset + 4).toInt())
                     }
                     TAG_SET_WINDOW -> {
                         requireRecordLength(length, 32, offset)
-                        val resizable = readU16(batch, base, available, offset + 16)
-                        if (resizable > 1) {
-                            throw ProtocolException("invalid resizable flag $resizable", offset + 16)
+                        // Bit 0 is `resizable`; the mode and the last window policy are the
+                        // nibbles above the second byte. Anything else standing is a record
+                        // the sides disagree on.
+                        val flags = readU16(batch, base, available, offset + 16)
+                        if ((flags and 0x00FE) != 0) {
+                            throw ProtocolException("invalid window flags $flags", offset + 16)
                         }
+                        val resizable = flags and 1
                         // A byte saying whether there is a zoom level, then the level as a
                         // signed byte.
                         val zoom = readU16(batch, base, available, offset + 18)
@@ -753,6 +776,8 @@ object Protocol {
                                 readU16(batch, base, available, offset + 14),
                                 resizable == 1,
                                 zoomLevel,
+                                windowMode((flags shr 8) and 0xF, offset + 16),
+                                lastWindowClosed(flags shr 12, offset + 16),
                             ),
                         )
                     }
@@ -873,6 +898,30 @@ object Protocol {
         }
     }
 
+    /** The body of a `SetTheme` that starts at `at`, which `SetWindowTheme` also carries. */
+    private fun theme(batch: ByteBuffer, base: Int, available: Int, at: Int): Theme {
+        val adaptive = readU16(batch, base, available, at + 6)
+        if (adaptive > 1) {
+            throw ProtocolException("invalid adaptive flag $adaptive", at + 6)
+        }
+        // One slot per type role, in the order the wire fixes them in.
+        val fonts = List(TypeRole.entries.size) { role ->
+            readU32(batch, base, available, at + 8 + 4 * role).toInt()
+        }
+        val (entries, problems) = palette(
+            readBytes(batch, base, available, at + 8 + 4 * TypeRole.entries.size),
+        )
+        return Theme(
+            designSystem(readU16(batch, base, available, at), at),
+            designSystem(readU16(batch, base, available, at + 2), at + 2),
+            colorScheme(readU16(batch, base, available, at + 4), at + 4),
+            adaptive == 1,
+            fonts,
+            entries,
+            problems,
+        )
+    }
+
     /**
      * Reads a palette, keeping every sound entry and saying what was wrong with the rest.
      *
@@ -946,7 +995,7 @@ object Protocol {
                 )
                 .unwrap();
             }
-            EventPayloadType::NotificationActivation => {
+            EventPayloadType::NotificationActivation | EventPayloadType::WindowRequest => {
                 writeln!(
                     output,
                     "                is HostEvent.{} -> event.key.toByteArray(StandardCharsets.UTF_8)",
@@ -988,6 +1037,10 @@ object Protocol {
             | EventPayloadType::CodeFocus
             | EventPayloadType::CodeFold
             | EventPayloadType::CodeComposition
+            | EventPayloadType::WindowFocus
+            | EventPayloadType::WindowMove
+            | EventPayloadType::WindowDrag
+            | EventPayloadType::WindowDragOver
             | EventPayloadType::Zoom => {
                 writeln!(
                     output,
@@ -1033,6 +1086,14 @@ object Protocol {
             EventPayloadType::CodeFold => 24,
             // Two floats and a level, three words after the header.
             EventPayloadType::Zoom => 28,
+            // A flag and nothing else, the editor focus event's shape without its padding.
+            EventPayloadType::WindowFocus => 20,
+            // Four floats, or a phase or a kind with the rest of the words.
+            EventPayloadType::WindowMove
+            | EventPayloadType::WindowDrag
+            | EventPayloadType::WindowDragOver => 32,
+            // A word and a string reference, the protocol error's shape.
+            EventPayloadType::WindowRequest => 28,
         };
         writeln!(
             output,
@@ -1285,6 +1346,42 @@ object Protocol {
                 output.push_str("                    out.putFloat(event.k)\n");
                 output.push_str("                    out.putFloat(event.os)\n");
                 output.push_str("                    out.putInt(event.level)\n");
+                output.push_str("                }\n");
+            }
+            EventPayloadType::WindowFocus => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(if (event.focused) 1 else 0)\n");
+                output.push_str("                }\n");
+            }
+            EventPayloadType::WindowMove => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                for field in ["x", "y", "width", "height"] {
+                    writeln!(output, "                    out.putFloat(event.{field})").unwrap();
+                }
+                output.push_str("                }\n");
+            }
+            EventPayloadType::WindowDrag => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(event.phase)\n");
+                output.push_str("                    out.putFloat(event.screenX)\n");
+                output.push_str("                    out.putFloat(event.screenY)\n");
+                output.push_str("                    out.putInt(event.overWindow)\n");
+                output.push_str("                }\n");
+            }
+            EventPayloadType::WindowDragOver => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(event.kind)\n");
+                output.push_str("                    out.putInt(event.window)\n");
+                output.push_str("                    out.putFloat(event.x)\n");
+                output.push_str("                    out.putFloat(event.y)\n");
+                output.push_str("                }\n");
+            }
+            EventPayloadType::WindowRequest => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(event.request)\n");
+                output.push_str(
+                    "                    writeStringReference(out, recordLength, text!!)\n",
+                );
                 output.push_str("                }\n");
             }
             EventPayloadType::WindowSize => {
@@ -2274,6 +2371,15 @@ fn vector_transform(
     )
 }
 
+/// The little-endian bytes of some `f32`, the layout a window's size, position and drag
+/// anchor travel in.
+fn floats_le(values: &[f32]) -> Vec<u8> {
+    values
+        .iter()
+        .flat_map(|value| value.to_bits().to_le_bytes())
+        .collect()
+}
+
 pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
     let canvas_vector_bytes = canvas_vector();
     let spans_vector_bytes = spans_vector();
@@ -2281,6 +2387,11 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
     let syntax_spans = code_span_vector();
     let folds = code_fold_vector();
     let gutter = code_gutter_vector();
+    let window_size = floats_le(&[800.0, 600.0]);
+    let window_min_size = floats_le(&[320.0, 240.0]);
+    let window_position = floats_le(&[100.5, -20.0]);
+    let mut drag_from_pointer = 1_u32.to_le_bytes().to_vec();
+    drag_from_pointer.extend_from_slice(&floats_le(&[12.5, 8.0]));
     let mutations = [
         Mutation::SetTheme(
             Theme::adaptive(DesignSystem::Cupertino)
@@ -2742,6 +2853,131 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             start_line: 0,
             collapsed: true,
         },
+        // The windows, after every record that was here before them so their
+        // bytes stay where they were: the window record in its multi-window form, a
+        // window with each of its properties and handlers, the two properties a node that
+        // is not a window can take, and the two commands.
+        Mutation::SetWindow(
+            crate::schema::Window::new()
+                .with_windows()
+                .with_last_window_closed(crate::schema::LastWindowClosed::KeepRunning)
+                .with_title("문서")
+                .with_icon(5)
+                .with_chrome(crate::schema::Chrome::System)
+                .with_size(800, 600)
+                .with_min_size(320, 240)
+                .resizable(false)
+                .with_zoom_level(-2),
+        ),
+        Mutation::Create {
+            node_id: 20,
+            widget: WidgetKind::Window,
+        },
+        Mutation::SetProp {
+            node_id: 20,
+            property: PropertyKind::WindowTitle,
+            value: PropertyValue::String("보조 창"),
+        },
+        Mutation::SetProp {
+            node_id: 20,
+            property: PropertyKind::WindowSize,
+            value: PropertyValue::Bytes(&window_size),
+        },
+        Mutation::SetProp {
+            node_id: 20,
+            property: PropertyKind::WindowMinSize,
+            value: PropertyValue::Bytes(&window_min_size),
+        },
+        Mutation::SetProp {
+            node_id: 20,
+            property: PropertyKind::WindowResizable,
+            value: PropertyValue::Bool(false),
+        },
+        Mutation::SetProp {
+            node_id: 20,
+            property: PropertyKind::WindowChrome,
+            value: PropertyValue::Integer(i64::from(crate::schema::Chrome::System as u16)),
+        },
+        Mutation::SetProp {
+            node_id: 20,
+            property: PropertyKind::WindowTitleBar,
+            value: PropertyValue::Integer(i64::from(crate::schema::TitleBar::Simple as u16)),
+        },
+        Mutation::SetProp {
+            node_id: 20,
+            property: PropertyKind::WindowIcon,
+            value: PropertyValue::Integer(5),
+        },
+        Mutation::SetProp {
+            node_id: 20,
+            property: PropertyKind::WindowPosition,
+            value: PropertyValue::Bytes(&window_position),
+        },
+        Mutation::SetProp {
+            node_id: 20,
+            property: PropertyKind::WindowRestoreKey,
+            value: PropertyValue::String("ws/1:2"),
+        },
+        Mutation::SetProp {
+            node_id: 20,
+            property: PropertyKind::WindowZoomLevel,
+            value: PropertyValue::Integer(-2),
+        },
+        Mutation::SetProp {
+            node_id: 20,
+            property: PropertyKind::DragFromPointer,
+            value: PropertyValue::Bytes(&drag_from_pointer),
+        },
+        Mutation::SetProp {
+            node_id: 20,
+            property: PropertyKind::OnWindowCloseRequested,
+            value: PropertyValue::Integer(201),
+        },
+        Mutation::SetProp {
+            node_id: 20,
+            property: PropertyKind::OnWindowFocusChanged,
+            value: PropertyValue::Integer(202),
+        },
+        Mutation::SetProp {
+            node_id: 20,
+            property: PropertyKind::OnWindowMoved,
+            value: PropertyValue::Integer(203),
+        },
+        Mutation::SetProp {
+            node_id: 20,
+            property: PropertyKind::OnWindowDrag,
+            value: PropertyValue::Integer(204),
+        },
+        Mutation::SetProp {
+            node_id: 20,
+            property: PropertyKind::OnWindowUnavailable,
+            value: PropertyValue::Integer(205),
+        },
+        Mutation::SetProp {
+            node_id: 20,
+            property: PropertyKind::OnWindowClosed,
+            value: PropertyValue::Integer(206),
+        },
+        Mutation::Insert {
+            parent_id: 0,
+            node_id: 20,
+            index: 1,
+        },
+        Mutation::SetProp {
+            node_id: 1,
+            property: PropertyKind::OnWindowDragOver,
+            value: PropertyValue::Integer(207),
+        },
+        Mutation::SetProp {
+            node_id: 1,
+            property: PropertyKind::TearOffKey,
+            value: PropertyValue::String("tab/3"),
+        },
+        Mutation::SetWindowTheme {
+            node_id: 20,
+            theme: Theme::unified(DesignSystem::Material3).with_color_scheme(ColorScheme::Dark),
+        },
+        Mutation::FocusWindow { node_id: 20 },
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {
@@ -2947,6 +3183,70 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
             handler_id: 27,
             payload: EventPayload::CompositionChanged { composing: true },
         },
+        // The windows, after every event that was here before them.
+        HostEvent {
+            node_id: 20,
+            handler_id: 201,
+            payload: EventPayload::WindowCloseRequested,
+        },
+        HostEvent {
+            node_id: 20,
+            handler_id: 202,
+            payload: EventPayload::WindowFocusChanged { focused: true },
+        },
+        HostEvent {
+            node_id: 20,
+            handler_id: 203,
+            payload: EventPayload::WindowMoved {
+                x: 100.5,
+                y: -20.0,
+                width: 800.0,
+                height: 600.0,
+            },
+        },
+        HostEvent {
+            node_id: 20,
+            handler_id: 204,
+            payload: EventPayload::WindowDrag {
+                phase: 2,
+                screen_x: 640.25,
+                screen_y: 360.5,
+                over_window: 21,
+            },
+        },
+        HostEvent {
+            node_id: 1,
+            handler_id: 207,
+            payload: EventPayload::WindowDragOver {
+                kind: 4,
+                window: 20,
+                x: 12.5,
+                y: 3.0,
+            },
+        },
+        HostEvent {
+            node_id: 20,
+            handler_id: 205,
+            payload: EventPayload::WindowUnavailable,
+        },
+        HostEvent {
+            node_id: 20,
+            handler_id: 206,
+            payload: EventPayload::WindowClosed,
+        },
+        HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: EventPayload::WindowRequested {
+                key: "ws/1:2",
+                request: 3,
+            },
+        },
+        HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: EventPayload::ApplicationReopen,
+        },
     ];
     let mut output = Vec::new();
     let mut encoded = Vec::new();
@@ -2966,19 +3266,19 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 76,
+    "recordCount": 102,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
       {{ "role": "SyntaxKeyword", "scheme": "Light", "argb": "80112233" }}
     ],
     "spanRecordLength": 36,
-    "strings": ["안녕", "compose", " token", "필터", "New", "삭제했습니다", "Undo", "session/7", "세션이 끝났습니다", "테스트 214개 통과", "세션", "열기", "", "session/7", "fn main() {{\n    let 한 = \"😀\";\n}}\n", "mut "],
+    "strings": ["안녕", "compose", " token", "필터", "New", "삭제했습니다", "Undo", "session/7", "세션이 끝났습니다", "테스트 214개 통과", "세션", "열기", "", "session/7", "fn main() {{\n    let 한 = \"😀\";\n}}\n", "mut ", "문서", "보조 창", "ws/1:2", "tab/3"],
     "assets": [{{ "assetId": 5, "kind": "Png", "bytes": "89504e47" }}]
   }},
   "events": {{
     "file": "events.bin",
-    "description": "Twenty-four independently decodable event records concatenated in schema order",
+    "description": "Thirty-three independently decodable event records concatenated in schema order",
     "records": [
       {{ "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 }},
       {{ "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" }},
@@ -3003,7 +3303,16 @@ pub fn generate_vector_description() -> String {
       {{ "type": "VisibleRangeChanged", "offset": 626, "length": 28, "nodeId": 12, "handlerId": 24, "version": 2, "firstLine": 0, "lastLine": 3 }},
       {{ "type": "EditorFocusChanged", "offset": 654, "length": 24, "nodeId": 12, "handlerId": 25, "focused": true }},
       {{ "type": "FoldChanged", "offset": 678, "length": 24, "nodeId": 12, "handlerId": 26, "startLine": 0, "collapsed": true }},
-      {{ "type": "CompositionChanged", "offset": 702, "length": 24, "nodeId": 12, "handlerId": 27, "composing": true }}
+      {{ "type": "CompositionChanged", "offset": 702, "length": 24, "nodeId": 12, "handlerId": 27, "composing": true }},
+      {{ "type": "WindowCloseRequested", "offset": 726, "length": 16, "nodeId": 20, "handlerId": 201 }},
+      {{ "type": "WindowFocusChanged", "offset": 742, "length": 20, "nodeId": 20, "handlerId": 202, "focused": true }},
+      {{ "type": "WindowMoved", "offset": 762, "length": 32, "nodeId": 20, "handlerId": 203, "x": 100.5, "y": -20.0, "width": 800.0, "height": 600.0 }},
+      {{ "type": "WindowDrag", "offset": 794, "length": 32, "nodeId": 20, "handlerId": 204, "phase": 2, "screenX": 640.25, "screenY": 360.5, "overWindow": 21 }},
+      {{ "type": "WindowDragOver", "offset": 826, "length": 32, "nodeId": 1, "handlerId": 207, "kind": 4, "window": 20, "x": 12.5, "y": 3.0 }},
+      {{ "type": "WindowUnavailable", "offset": 858, "length": 16, "nodeId": 20, "handlerId": 205 }},
+      {{ "type": "WindowClosed", "offset": 874, "length": 16, "nodeId": 20, "handlerId": 206 }},
+      {{ "type": "WindowRequested", "offset": 890, "length": 34, "nodeId": 0, "handlerId": 0, "request": 3, "key": "ws/1:2" }},
+      {{ "type": "ApplicationReopen", "offset": 924, "length": 16, "nodeId": 0, "handlerId": 0 }}
     ]
   }}
 }}

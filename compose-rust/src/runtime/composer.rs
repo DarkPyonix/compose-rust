@@ -164,6 +164,8 @@ pub(crate) enum EventCallback {
     Range(Rc<RefCell<dyn FnMut(crate::RangeRequest)>>),
     Files(Rc<RefCell<dyn FnMut(crate::FileDrop)>>),
     Pointer(Rc<RefCell<dyn FnMut(crate::PointerEvent)>>),
+    /// A window's report, or a dragged window passing over a node.
+    Window(Rc<RefCell<dyn FnMut(crate::windows::WindowEvent)>>),
 }
 
 pub(crate) struct HandlerEntry {
@@ -1130,6 +1132,28 @@ impl Composer {
         self.scope_stack.clear();
         self.node_stack.clear();
         self.derived_stack.clear();
+    }
+
+    /// The `Window` node the group being composed sits in, or 0 in a tree with no windows
+    /// or outside every window.
+    pub(crate) fn enclosing_window(&self) -> u32 {
+        if !self.writer.has_windows() {
+            return 0;
+        }
+        let Some(mut group) = self.current_group() else {
+            return 0;
+        };
+        loop {
+            if let Some(node) = self.groups[group as usize].node {
+                if self.writer.is_window(node) {
+                    return node;
+                }
+            }
+            if group == ROOT {
+                return 0;
+            }
+            group = self.groups[group as usize].parent;
+        }
     }
 
     pub(crate) fn current_group(&self) -> Option<GroupId> {
