@@ -155,6 +155,20 @@ pub enum EventPayloadType {
     /// One word, 0 or 1: whether an input method is composing in a code editor. The
     /// composed text is never part of it.
     CodeComposition,
+    /// One word, 0 or 1: whether a window is the key window.
+    WindowFocus,
+    /// Where a window's outer frame is and how large it is: `x`, `y`, `width`, `height`,
+    /// all `f32` in screen dp.
+    WindowMove,
+    /// A torn-off window being dragged: the phase, the pointer's screen position, and the
+    /// window under the pointer.
+    WindowDrag,
+    /// A dragged window passing over a subscribed node: the kind, the dragged window, and
+    /// the position inside the node.
+    WindowDragOver,
+    /// A window the platform or the user asked the application for: a request number, then
+    /// the `RestoreKey` as a string reference. The one window event that carries a string.
+    WindowRequest,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -167,14 +181,14 @@ pub struct EventSchema {
 /// Canonical schema text. Variant order is wire-significant and must only be appended to.
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
-    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom;",
+    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox,Window;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key;",
     "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform;",
     "keys=Enter;",
-    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged;",
+    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen;",
     "windowsizeclasses=Compact,Medium,Expanded;",
     "windowheightclasses=Compact,Medium,Expanded;",
-    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded"
+    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow"
 );
 
 const fn hash_bytes(mut hash: u64, bytes: &[u8]) -> u64 {
@@ -321,6 +335,11 @@ const fn schema_hash() -> u64 {
                 EventPayloadType::CodeFocus => 21,
                 EventPayloadType::CodeFold => 22,
                 EventPayloadType::CodeComposition => 23,
+                EventPayloadType::WindowFocus => 24,
+                EventPayloadType::WindowMove => 25,
+                EventPayloadType::WindowDrag => 26,
+                EventPayloadType::WindowDragOver => 27,
+                EventPayloadType::WindowRequest => 28,
             }],
         );
         index += 1;
@@ -513,6 +532,11 @@ crate::extensions::define_widget_schema_with_extensions!(define_wire_enum; WIDGE
     // here would only be a second answer that can disagree with the first. Later children
     // draw over earlier ones, so a stacking order is the child order.
     AbsoluteBox = 44,
+    // A platform window, a child of the root and only of the root. The children of a
+    // `Window` are that window's content. Putting one anywhere else, or moving a node from
+    // one window into another, is a protocol error: Compose keeps one composition per
+    // window and has no way to hand a node from one to the next.
+    Window = 45,
 });
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -1396,6 +1420,14 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
         name: "UserSelect",
         variants: USER_SELECT_SCHEMA,
     },
+    RoleEnumSchema {
+        name: "WindowMode",
+        variants: WINDOW_MODE_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "LastWindowClosed",
+        variants: LAST_WINDOW_CLOSED_SCHEMA,
+    },
 ];
 
 /// Every place that takes a colour takes a `Paint`, so colour is expressed once.
@@ -1469,6 +1501,22 @@ define_wire_enum!(TITLE_BAR_SCHEMA, TitleBar {
     Simple = 2,
 });
 
+// How the application uses windows. `Single` is every application until now: the
+// root's content fills the one window `SetWindow` describes. `Windows` is the multi-window
+// mode, in which the root's children are `Window` nodes and `SetWindow` describes nothing
+// but the mode.
+define_wire_enum!(WINDOW_MODE_SCHEMA, WindowMode {
+    Single = 0,
+    Windows = 1,
+});
+
+// What happens when the last `Window` node is removed. `Exit` ends the renderer
+// loop, `KeepRunning` leaves the process up with no window. Ignored by `Single`.
+define_wire_enum!(LAST_WINDOW_CLOSED_SCHEMA, LastWindowClosed {
+    Exit = 0,
+    KeepRunning = 1,
+});
+
 /// What an application may decide about its own window.
 ///
 /// The window belongs to the Renderer, so this is short and stays short. What is here is
@@ -1506,6 +1554,11 @@ pub struct Window {
     /// last time. A level set here is applied, remembered and reported back the way one
     /// chosen with the keys is. Kept inside `-8..=8`.
     pub zoom_level: Option<i8>,
+    /// One window (the default) or several. In the second the root's children are
+    /// `Window` nodes and the rest of this record describes no window.
+    pub mode: WindowMode,
+    /// What to do when the last window goes. Only read in `WindowMode::Windows`.
+    pub last_window_closed: LastWindowClosed,
 }
 
 impl Window {
@@ -1521,7 +1574,29 @@ impl Window {
             min_height: 0,
             resizable: true,
             zoom_level: None,
+            mode: WindowMode::Single,
+            last_window_closed: LastWindowClosed::Exit,
         }
+    }
+
+    /// Several windows, one per `Window` node under the root. With the default
+    /// policy of the platform: a macOS application stays up with no window, the others
+    /// exit.
+    pub const fn with_windows(mut self) -> Self {
+        self.mode = WindowMode::Windows;
+        self.last_window_closed = if cfg!(target_os = "macos") {
+            LastWindowClosed::KeepRunning
+        } else {
+            LastWindowClosed::Exit
+        };
+        self
+    }
+
+    /// What happens when the last window is removed. Only meaningful with
+    /// [`Window::with_windows`].
+    pub const fn with_last_window_closed(mut self, policy: LastWindowClosed) -> Self {
+        self.last_window_closed = policy;
+        self
     }
 
     /// Which of the two title bars this window has.
@@ -2678,6 +2753,46 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // How large an HTML island is drawn, as the f32 factor `k` (see `ZoomChanged`), on the
     // island's root `AbsoluteBox`. 120 opens the block for zoom. Absent is 1.
     IslandZoom = 120,
+    // The window block, after the cursor block. Every one of them belongs to a
+    // `Window` node except the last two, which can sit on any node.
+    //
+    // The title. A string.
+    WindowTitle = 150,
+    // The size when the window opens, width then height, two `f32` in dp as 8 bytes. A
+    // later change resizes the window; a size the user chose is not given back.
+    WindowSize = 151,
+    // The smallest size, in the same 8 bytes.
+    WindowMinSize = 152,
+    WindowResizable = 153,
+    // A `Chrome` tag and a `TitleBar` tag, as integers.
+    WindowChrome = 154,
+    WindowTitleBar = 155,
+    // The asset id of the window's icon; zero is the application's own.
+    WindowIcon = 156,
+    // Where the window sits, x then y, two `f32` in screen dp as 8 bytes. Removing it
+    // leaves the placement to the platform.
+    WindowPosition = 157,
+    // The application's stable name for the window, a string, which matches a window the
+    // system brings back to the node that describes it.
+    WindowRestoreKey = 158,
+    // The window's own zoom level, an integer in -8..=8.
+    WindowZoomLevel = 159,
+    // Open the window under a pointer that is held down and follow it until it is let go:
+    // `pointer_id` as a `u32`, then the anchor `x` and `y` as two `f32`, 12 bytes. Read
+    // when the window opens and not again.
+    DragFromPointer = 160,
+    // The handlers of the window events, each the handler id as an integer.
+    OnWindowCloseRequested = 161,
+    OnWindowFocusChanged = 162,
+    OnWindowMoved = 163,
+    OnWindowDrag = 164,
+    OnWindowUnavailable = 165,
+    OnWindowClosed = 166,
+    // Not window properties: any node may take them. A node that has the handler is told
+    // when a dragged window passes over it, and a node that has the key can be pulled out
+    // into a window of its own, named by it.
+    OnWindowDragOver = 167,
+    TearOffKey = 168,
 });
 
 #[derive(Clone, Debug, PartialEq)]
@@ -2866,6 +2981,51 @@ pub enum EventPayload<'a> {
     CompositionChanged {
         composing: bool,
     },
+    /// The user asked to close a window. The window stays until the application removes its
+    /// `Window` node. Delivered to the node.
+    WindowCloseRequested,
+    /// A window became the key window or stopped being it.
+    WindowFocusChanged {
+        focused: bool,
+    },
+    /// A window's outer frame moved or changed size, in screen dp. At most once a frame.
+    WindowMoved {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+    },
+    /// A torn-off window being dragged. `phase` is 1 for a move, 2 for the end and 3 for a
+    /// cancel; `over_window` is the node id of the window under the pointer, or 0.
+    WindowDrag {
+        phase: u32,
+        screen_x: f32,
+        screen_y: f32,
+        over_window: u32,
+    },
+    /// A dragged window passing over a node that has `OnWindowDragOver`. `kind` is 1 for
+    /// enter, 2 for move, 3 for leave and 4 for drop, `window` is the dragged window's node
+    /// id, and the position is inside the node, in dp.
+    WindowDragOver {
+        kind: u32,
+        window: u32,
+        x: f32,
+        y: f32,
+    },
+    /// A window that could not be opened here: the platform has no second window, or it
+    /// refused. Delivered once, to the node.
+    WindowUnavailable,
+    /// The platform closed a window without asking. The window is already gone.
+    WindowClosed,
+    /// A window the application has no node for yet, with the `RestoreKey` it was made
+    /// under (empty for a new one) and a request number. Delivered to the root.
+    WindowRequested {
+        key: &'a str,
+        request: u32,
+    },
+    /// The user opened the application again while it had no window. Delivered to the
+    /// root.
+    ApplicationReopen,
 }
 
 pub const EVENT_SCHEMA: &[EventSchema] = &[
@@ -3036,6 +3196,51 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
         name: "CompositionChanged",
         tag: 38,
         payload: EventPayloadType::CodeComposition,
+    },
+    EventSchema {
+        name: "WindowCloseRequested",
+        tag: 39,
+        payload: EventPayloadType::None,
+    },
+    EventSchema {
+        name: "WindowFocusChanged",
+        tag: 40,
+        payload: EventPayloadType::WindowFocus,
+    },
+    EventSchema {
+        name: "WindowMoved",
+        tag: 41,
+        payload: EventPayloadType::WindowMove,
+    },
+    EventSchema {
+        name: "WindowDrag",
+        tag: 42,
+        payload: EventPayloadType::WindowDrag,
+    },
+    EventSchema {
+        name: "WindowDragOver",
+        tag: 43,
+        payload: EventPayloadType::WindowDragOver,
+    },
+    EventSchema {
+        name: "WindowUnavailable",
+        tag: 44,
+        payload: EventPayloadType::None,
+    },
+    EventSchema {
+        name: "WindowClosed",
+        tag: 45,
+        payload: EventPayloadType::None,
+    },
+    EventSchema {
+        name: "WindowRequested",
+        tag: 46,
+        payload: EventPayloadType::WindowRequest,
+    },
+    EventSchema {
+        name: "ApplicationReopen",
+        tag: 47,
+        payload: EventPayloadType::None,
     },
 ];
 
