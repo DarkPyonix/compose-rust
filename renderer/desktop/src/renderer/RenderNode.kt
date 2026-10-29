@@ -36,6 +36,7 @@ import dev.darkpyonix.composerust.runtime.islandDensity
 import dev.darkpyonix.composerust.protocol.TypeRole
 import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.design.ContainerRole
+import androidx.compose.ui.graphics.Shape
 import dev.darkpyonix.composerust.foundation.containerShape
 import dev.darkpyonix.composerust.ui.pressable
 import dev.darkpyonix.composerust.ui.resolvedShape
@@ -120,6 +121,13 @@ private val CLICKABLE_CONTAINERS = setOf(
     WidgetKind.ScrollRow,
 )
 
+/** The outline a pressable container is drawn in, which hover and focus follow. */
+private fun Node.pressedShape(theme: ResolvedTheme): Shape = when (widget) {
+    WidgetKind.Card -> containerShape(theme.rules.container(ContainerRole.Card, theme), theme)
+    WidgetKind.Surface -> containerShape(theme.rules.container(ContainerRole.Surface, theme), theme)
+    else -> modifiers.resolvedShape(theme)
+}
+
 /** Test tag every interpreted node carries, so tests can address nodes by Host node id. */
 fun nodeTestTag(nodeId: Int): String = "compose-node-$nodeId"
 
@@ -177,11 +185,7 @@ fun RenderNode(
             node.flag(PropertyKind.Enabled, default = true),
             dispatcher,
             theme,
-            when (node.widget) {
-                WidgetKind.Card -> node.containerShape(theme.rules.container(ContainerRole.Card, theme), theme)
-                WidgetKind.Surface -> node.containerShape(theme.rules.container(ContainerRole.Surface, theme), theme)
-                else -> node.modifiers.resolvedShape(theme)
-            },
+            node.pressedShape(theme),
         )
     }
     val modifier = platformFileDrop(pressable, node, dispatcher)
