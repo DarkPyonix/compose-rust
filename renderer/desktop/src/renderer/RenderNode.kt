@@ -109,7 +109,7 @@ internal object RenderNodeObserver {
     var onMeasure: ((Int) -> Unit)? = null
 }
 
-/** The containers whose `OnClick` makes them buttons (FR-55). */
+/** The containers whose `OnClick` makes them buttons. */
 private val CLICKABLE_CONTAINERS = setOf(
     WidgetKind.Column,
     WidgetKind.Row,
@@ -158,7 +158,7 @@ fun RenderNode(
     }
     // Only where the node said it is a place files may be dropped. Everywhere else this
     // adds nothing to the chain and the platform shows no drop cursor.
-    // A container that was given an `OnClick` is a button (FR-55). One that was not is left
+    // A container that was given an `OnClick` is a button. One that was not is left
     // exactly as it was: no focus stop, no semantics, no pointer handling.
     // A node that also carries the `Clickable` modifier is already pressable there, once.
     val clickHandler = if (node.widget in CLICKABLE_CONTAINERS &&

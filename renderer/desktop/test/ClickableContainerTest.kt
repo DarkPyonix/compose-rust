@@ -55,7 +55,7 @@ private val isButton = SemanticsMatcher("has the Button role") {
     it.config.getOrNull(SemanticsProperties.Role) == Role.Button
 }
 
-/** FR-55: a container with an `OnClick` is a control, not a pointer region. */
+/** A container with an `OnClick` is a control, not a pointer region. */
 @OptIn(ExperimentalTestApi::class)
 class ClickableContainerTest {
     @Test

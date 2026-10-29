@@ -642,7 +642,7 @@ internal fun List<ProtocolModifier>.weightOf(): Float? =
         ?.takeIf { it > 0f }
 
 /**
- * Makes a node a button (FR-55): it takes keyboard focus, a click and Enter or Space run
+ * Makes a node a button: it takes keyboard focus, a click and Enter or Space run
  * the Host handler, assistive technology is told it is a button, and hover, press and focus
  * are drawn over its content in the shape it is drawn in.
  *

@@ -1,4 +1,4 @@
-//! FR-55: a container with `on_click` is a control, and a container without one is not.
+//! A container with `on_click` is a control, and a container without one is not.
 
 mod support;
 
