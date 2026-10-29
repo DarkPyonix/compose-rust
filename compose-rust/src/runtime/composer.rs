@@ -213,6 +213,13 @@ impl RuntimeSignal {
     }
 }
 
+/// The most attribute buffers kept for reuse. A frame needs about as many as it has nodes
+/// on the largest screen it builds, and what is past this is allocated again.
+const ATTR_POOL_LIMIT: usize = 512;
+
+/// The most group lists kept for reuse.
+const VEC_POOL_LIMIT: usize = 1024;
+
 pub(crate) struct Composer {
     pub(crate) groups: Vec<Group>,
     free: Vec<GroupId>,
@@ -287,8 +294,29 @@ impl Composer {
     }
 
     fn give_vec(&mut self, mut vec: Vec<GroupId>) {
+        // The same two rules as `recycle_attrs`: a group made fresh opens with an empty
+        // list and hands that back when it closes, one empty buffer per new group, and
+        // none of them is worth keeping.
+        if vec.capacity() == 0 || self.vec_pool.len() >= VEC_POOL_LIMIT {
+            return;
+        }
         vec.clear();
         self.vec_pool.push(vec);
+    }
+
+    /// Puts an attribute buffer back for the next node to fill.
+    ///
+    /// A buffer with no capacity is not worth keeping, and the pool is bounded: a node
+    /// that is updated hands back the buffer it held and, after the swap, an empty one, and
+    /// taking from a pool whose top is the empty one never reuses the buffer under it. Kept
+    /// unbounded, the pool grew by one filled buffer per node update, about 1.5 KB each,
+    /// which is the growth of a few hundred KB per frame that a chat sample showed.
+    fn recycle_attrs(&mut self, mut attrs: Vec<(&'static str, OwnedAttr)>) {
+        if attrs.capacity() == 0 || self.attr_pool.len() >= ATTR_POOL_LIMIT {
+            return;
+        }
+        attrs.clear();
+        self.attr_pool.push(attrs);
     }
 
     pub(crate) fn take_attrs(&mut self) -> Vec<(&'static str, OwnedAttr)> {
@@ -987,7 +1015,7 @@ impl Composer {
         let mut attrs = attrs;
         let node = if let Some(state) = self.slot_mut::<NodeState>() {
             let node = state.node;
-            let mut previous = std::mem::take(&mut state.attrs);
+            let previous = std::mem::take(&mut state.attrs);
             let mut handlers = std::mem::take(&mut state.handlers);
             // An attribute the widget no longer writes is taken away, the way
             // `dioxus-core` removes one that left a template's attribute list.
@@ -1045,8 +1073,7 @@ impl Composer {
                     }
                 }
             }
-            previous.clear();
-            self.attr_pool.push(previous);
+            self.recycle_attrs(previous);
             // Put the state back with what was written this time.
             let index = self.frames.last().map_or(0, |frame| frame.slot) - 1;
             if let Some(state) =
@@ -1077,8 +1104,7 @@ impl Composer {
             });
             node
         };
-        attrs.clear();
-        self.attr_pool.push(attrs);
+        self.recycle_attrs(attrs);
         self.groups[group as usize].node = Some(node);
         self.place(node);
         node

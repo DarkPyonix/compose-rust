@@ -1399,6 +1399,28 @@ Window::new().with_title_bar(TitleBar::Normal)
 7. 콘텐츠의 위쪽 시작점과 캡션 인셋이 고른 스타일을 따릅니다. 두 스타일에서 바의 내용은 각자의 창 버튼과 같은 줄에 놓입니다(19.2).
 8. 스타일마다 GraalVM 경로와 Kotlin/Native 경로가 같은 기하(모서리 반경, 버튼 자리, 콘텐츠 위쪽, 캡션 인셋)를 냅니다. 두 스타일 각각에 대해 테스트(JVM 단위 테스트, 실제 `NSWindow`를 여는 테스트, 셸 검사)가 이것을 확인합니다.
 
+#### 19.9 창 맨 위까지 쓰기 (`Agreed`)
+
+애플리케이션이 자기 상단 바를 직접 그리는데 그 바가 `TopAppBar`가 아니면(사이드바와 본문이 각자 맨 위를 쓰는 화면), 19.2의 규칙은 캡션 띠만큼의 빈 띠를 남깁니다. 그 띠가 콘텐츠를 아래로 밉니다. Ember가 그 경우입니다. 제안할 때의 번호는 FR-19.8이었지만 19.8이 이미 있어 19.9로 둡니다. 소유자의 결정입니다(2026-10-26, 질문과 답은 21.3.1과 같고, 기록 #344, #345). 이름과 기본 드래그 영역은 같은 날 리더의 결정입니다.
+
+```rust
+Window::new().chrome(Chrome::FullSize)
+```
+
+- **`Chrome::FullSize`**: 콘텐츠가 창 맨 위에서 시작하고, Renderer는 바를 찾지 않으며 캡션 띠를 남기지 않습니다. 창 버튼(macOS 신호등, Windows 캡션 버튼)은 그대로 그 자리에 그려집니다. 그 밖은 `Chrome::Modern`과 같습니다(19.5, 19.7).
+- **`WindowSafeArea { top, leading, trailing }`(dp)**: 창 버튼과 겹치지 않으려면 애플리케이션이 비워야 하는 자리입니다. macOS는 `top`이 캡션 높이, `leading`이 신호등 묶음이 차지하는 폭이고 `trailing`은 0입니다. Windows는 `top`이 캡션 높이, `trailing`이 캡션 버튼 셋의 폭(디자인 시스템 값, 지금 46dp x 3)이고 `leading`은 0입니다. Linux는 그 창 관리자 배치를 따릅니다. 값은 DPI와 타이틀바 모드(19.7)를 반영합니다. iOS, Android, 브라우저에서는 전부 0입니다.
+- **전달**: Renderer는 창 크기를 Host에 알릴 때 같은 기록에 이 세 값을 함께 싣고, 값이 바뀔 때(창 모드, DPI, 최대화) 다시 보냅니다. 추가 전용이고 스키마 해시가 움직입니다. Host 쪽 읽는 방법은 dioxus-compose가 둡니다.
+- **기본 드래그 영역**: `FullSize`에서 창 맨 위 `top` 높이의 띠 가운데 상호작용 위젯이 없는 곳은 창을 끄는 영역입니다(19.2의 드래그 규칙과 같습니다). 애플리케이션은 노드에 `WindowDrag(bool)` 모디파이어를 달아 그 노드를 드래그 영역으로 만들거나(true) 빼낼 수 있습니다(false).
+- **macOS**: 창은 이미 콘텐츠를 타이틀바 아래까지 그리고 타이틀바를 투명하게 둡니다(19.1). 이 모드는 Renderer의 배치 규칙만 바꾼다는 판단이며, 포크의 창 코드 변경이 필요 없음을 테스트로 확인합니다. 필요하다고 드러나면 19.8대로 포크가 먼저입니다.
+
+수용 기준:
+
+1. `FullSize`로 연 창에서 루트의 첫 자식이 창 맨 위(y=0)에서 시작하고, 바가 없어도 캡션 띠가 남지 않습니다. macOS, Windows, Linux.
+2. `WindowSafeArea`가 macOS에서 `leading>0, trailing=0`, Windows에서 `trailing>0, leading=0`이고 `top`이 캡션 높이와 같습니다. DPI 100/150/200%에서 dp 값이 같습니다.
+3. 창을 최대화하거나 타이틀바 모드를 바꾸면 새 값이 Host에 도착합니다.
+4. 맨 위 띠의 빈 곳을 끌면 창이 움직이고, 버튼 위에서는 움직이지 않습니다. `WindowDrag(false)`를 단 노드 위에서는 움직이지 않고, `WindowDrag(true)`를 단 노드 위에서는 그 띠 밖이어도 움직입니다.
+5. `FullSize`를 고르지 않은 앱은 지금과 같습니다.
+
 #### 19.5 창 버튼의 모양은 디자인 시스템이 정합니다
 
 19.3이 "창 버튼의 색·위치·모양은 디자인 시스템과 플랫폼의 몫"이라고 정한 것의 구현 자리는 `ComponentRules.caption()`입니다. 답하는 값: 버튼이 붙는 끝, 버튼의 너비와 높이, 모양, 각 버튼의 기본 채움과 호버 채움, 글리프 색과 두께, 쉬는 상태에서 글리프를 그리는지, 간격과 가장자리 여백, 제목 정렬.
@@ -1588,6 +1610,26 @@ Fluent의 `NavigationView`가 결정적입니다. 한 컴포넌트가 폭에 따
 
 - **끌린 거리, 스냅 위치, 애니메이션은 경계를 넘지 않습니다(D5).** 사용자가 시트를 절반쯤 끌어내리는 동안 Rust는 아무것도 듣지 않습니다. 끝까지 내려가서 닫히면 그때 `OnDismiss` 한 번입니다.
 - **어느 가장자리에서 들어오는지는 Renderer가 정합니다.** 좁은 창에서는 아래에서, 넓은 창에서는 옆에서 들어오는 것이 여섯 시스템의 공통 관행입니다. 탐색과 같은 이유로 이 선택도 `ComponentRules`가 크기 클래스를 받아 답합니다. Host에 `bottom: bool` 같은 속성을 두지 않습니다.
+
+#### 21.3.1 가운데 시트 (FR-21.3a) (`Agreed`)
+
+넓은 창에서 설정, 새 항목 만들기, 모니터처럼 **잠깐 다른 일을 하는 표면**은 가장자리에서 들어오는 서랍이 아니라 창 가운데에 뜨고, 그 뒤가 어두워집니다. Ember의 목업이 그렇게 그렸고, 오른쪽 서랍으로 그리면 같은 내용이 좁은 띠에 눌려 보입니다. 소유자의 결정입니다(2026-10-26, 질문 "가운데 모달(FR-21.3a)과 창 맨 위까지 쓰기(FR-19.8, Chrome::FullSize + WindowSafeArea)를 compose-rust SPEC에 넣는 것을 승인하시나요?"에 "둘 다 승인", 기록 #344, #345). 세부(폭은 일반 `max_width`, 전용 크기 등급 없음)는 같은 날 리더의 결정입니다.
+
+- `Sheet`에 속성 두 개를 더합니다. `Presentation`(태그 61, u32): `Edge=0`(기본, 지금까지의 21.3), `Centered=1`. `MaxWidth`(태그 62, u32, dp): 가운데 시트의 최대 폭이고 0은 "디자인 시스템 기본값"입니다. 모니터처럼 넓은 시트도 같은 속성을 씁니다. 크기 등급을 따로 두지 않습니다.
+- **`Centered`의 모양**: 창 가운데에 놓이고, 폭은 `MaxWidth`와 창 폭에서 양쪽 여백을 뺀 값 중 작은 쪽, 높이는 내용 높이와 창 높이에서 위아래 여백을 뺀 값 중 작은 쪽이며 넘치면 시트 안이 스크롤됩니다. 모서리 반경, 여백, 스크림의 색과 불투명도는 디자인 시스템이 정합니다(FR-14). 다크 테마에서도 스크림이 있습니다.
+- **닫기**: 스크림을 누르거나 Esc를 누르면 `OnDismiss`가 한 번 갑니다(21.3과 같은 사건). 닫기 버튼은 내용이므로 애플리케이션이 둡니다.
+- **포커스**: 시트가 열려 있는 동안 키보드 포커스는 시트 안을 돕니다. 닫히면 연 쪽으로 돌아갑니다.
+- **좁은 창**: `Centered`여도 Compact 크기 클래스에서는 Renderer가 21.3의 가장자리 시트로 그립니다. 폰 폭에서 가운데 카드는 양옆이 남지 않습니다.
+- **와이어**: 속성 태그 61, 62는 21.5의 블록(60-69) 안이고, 추가 전용이며 스키마 해시가 움직입니다.
+
+수용 기준:
+
+1. `Presentation=Centered`로 연 시트는 Expanded 창에서 가운데에 놓이고, 폭이 `MaxWidth`(0이면 디자인 시스템 값)를 넘지 않으며, 그 뒤에 스크림이 그려집니다. 라이트와 다크 둘 다.
+2. 스크림 클릭과 Esc가 각각 `OnDismiss`를 정확히 한 번 보냅니다.
+3. 시트가 열린 동안 Tab 이동이 시트 밖으로 나가지 않습니다.
+4. 내용이 창보다 높으면 시트 안이 스크롤되고 시트 자체는 창을 넘지 않습니다.
+5. Compact 창에서는 같은 선언이 가장자리 시트로 그려집니다.
+6. `Presentation`을 말하지 않은 시트는 지금과 같습니다.
 
 #### 21.4 일시 메시지는 노드가 아닙니다
 
@@ -2982,6 +3024,9 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 
 - `BackgroundBrush`(소유자 승인 2026-10-25, 이슈 #95)는 수정자 태그 28입니다. 27은 FR-41.3의 `Transform3D`가 가집니다. 지금은 겹마다 잘린 상자를 두고 타일마다 `Box`를 하나씩 만들어(겹당 1024개까지) 노드가 늘어납니다. 이 수정자는 노드 하나에서 브러시를 노드 안의 사각형에 놓고, 타일 방식대로 되풀이합니다. 겹이 여럿이면 Host가 CSS의 겹 순서를 풀어 수정자를 여러 개 보냅니다. 값은 `Shadow`처럼 16바이트 칸에 들어가지 않으므로 FR-41.1의 가변 길이 `SetModifier` 규칙을 따르고, `k`는 스키마가 정합니다. 타일 방식과 타일 크기가 어긋난 값(w나 h가 0 이하, 모르는 방식)은 `ProtocolError`입니다.
 - 기존 `Border`, `Shape`, `Elevation`은 그대로 둡니다. 네 변이 같으면 Host가 기존 `Border`를 씁니다.
+- **그림자는 노드의 모양을 따릅니다.** `Shadow`의 윤곽은 그 노드의 `CornerEach`, 없으면 `Shape` 또는 `ShapeRole`, 없으면 사각형입니다. 둥근 카드에 사각 그림자가 깔리면 모서리 밖으로 그림자 귀퉁이가 보이고, 그것은 CSS `box-shadow`가 `border-radius`를 따르는 것과 다릅니다.
+- **그림자 목록.** 그림자 여럿은 `Shadow` 수정자 여럿이고(위 표), 나열한 순서대로 아래에서 위로 그립니다. Ember의 목업처럼 가깝고 진한 그림자 하나와 멀고 옅은 그림자 하나를 겹치는 카드, 입력창, 떠 있는 바, 팝오버가 이것을 씁니다. dioxus-compose는 `Column`, `Row`, `Box`, `Card`에 `shadow` 목록 속성을 두어 CSS 순서(첫 항목이 맨 위)대로 받아 이 수정자들로 보냅니다. 와이어는 그대로입니다.
+- 위 두 항목은 소유자 승인입니다(2026-10-26, 질문 "그림자가 요소의 둥근 모서리를 따르는 것과, Column/Row/Box/Card의 그림자 목록 속성을 FR-42.3 개정으로 SPEC에 넣는 것을 승인하시나요?"에 "승인", 기록 #299). 같은 승인으로 목업 맞추기 범위의 디자인 툴킷 SPEC 보강은 리더가 판단합니다.
 - **와이어 길이.** `Shadow`(값 24바이트)와 `BorderEach`(48바이트)는 지금의 16바이트 수정자 칸에 들어가지 않습니다. FR-41.1이 정한 가변 길이 `SetModifier` 규칙(`28 + 8k`바이트, `k`는 수정자 태그마다 스키마에 고정)을 따라 `Shadow`는 `k = 1`, `BorderEach`는 `k = 4`입니다. 나머지 다섯은 `k = 0`이라 지금 레코드와 같습니다.
 - 색은 `Paint`입니다. CSS 색은 리터럴이므로 `Paint::Literal`이 쓰입니다. 테마 변수(`--vscode-*`)를 색 역할로 옮기는 것은 dioxus-compose의 변환기 몫이고, 옮길 수 있는 것만 `Paint::Role`이 됩니다.
 - `overflow: scroll`/`auto`는 새 수정자가 아니라 기존 `ScrollColumn`/`ScrollRow`(둘 다면 둘을 겹침)로 놓습니다. 스크롤 위치는 렌더러가 소유합니다(D5).
@@ -3005,6 +3050,8 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 4. 수정자 하나만 바뀐 갱신에서 그 노드의 그 수정자 말고는 아무것도 나가지 않습니다.
 5. `BackgroundBrush`가 지정한 사각형에 브러시를 놓고 `NoRepeat`, `Repeat`, `RepeatX`, `RepeatY`대로 되풀이합니다. 타일이 수천 개여도 노드는 늘지 않습니다(fr42_background_brush_tiles_without_extra_nodes).
 6. 이 원소들로 dioxus-compose FR-34 수용 기준 1의 세 구역 중 상자(텍스트 제외)가 그 상자 허용치를 지킵니다.
+7. 둥근 노드(`CornerEach`, `Shape`, `ShapeRole`)의 그림자가 같은 모서리 반경으로 그려지고 모서리 밖에 사각 귀퉁이가 없습니다.
+8. `Shadow` 셋을 단 노드가 세 겹을 나열 순서대로 그립니다.
 
 #### 비용
 
@@ -3336,6 +3383,254 @@ Figma 모서리 매끄러움의 경로입니다. 모서리 하나는 **세제곱
 #### 50.6 비용
 
 수정자 태그 하나(30), 값 4바이트. 렌더러의 모양 생성 한 곳. 디자인 시스템 규칙은 늘지 않습니다.
+
+### FR-53 한 프로세스의 여러 창 (`Agreed`, 소유자 승인 2026-10-26, 이슈 #355)
+
+소유자 지시(2026-10-26, 원문):
+
+> "여러 창을 띄우는 기능 >> 내가 저번에 electron 처럼 IDE 탭 떼서 새 창 만드는거도 가능해야 한다고 말했잖아. 니가 스펙으로 안만들어놨나보지. 여러 창을 띄우는 기능 추가해."
+
+같은 날 범위를 모바일까지 넓혔습니다(원문):
+
+> "compose-rust에 여러 창 띄우기 할 때 모바일도 해줘야해. 안드로이드는 액티비티 하나 더 추가하는걸로 생각하면 되겠지?"
+
+지금 compose-rust 애플리케이션은 창을 하나만 가집니다. `launch`가 창 설정 하나(FR-19.3의 `SetWindow`)를 들고 렌더러 루프를 한 번 돌리고, Host와 노드 표와 창 크기, 확대 배율이 모두 프로세스에 하나씩입니다. Ember의 FR-B2(IDE 탭을 끌어 새 창으로 떼어 내기)는 Electron처럼 **한 프로세스 안에서 같은 앱의 창 여러 개가 상태를 나눠 가지는 것**을 전제로 하고, 그 바닥이 여기에 없습니다. 이 항목이 그 바닥이고, 데스크톱 세 플랫폼과 Android, iOS, iPadOS에 같은 Rust API로 적용됩니다. 창 하나가 데스크톱에서는 플랫폼 창, Android에서는 Activity, iOS와 iPadOS에서는 `UIScene`입니다(53.9). 근거와 버린 대안은 INTENT D23에 있습니다.
+
+#### 53.1 창은 노드입니다
+
+- **새 위젯 `Window`를 둡니다.** 루트의 자식으로 `Window` 노드를 넣으면 Renderer가 플랫폼 창 하나를 열고, 그 노드의 자식을 그 창의 내용으로 그립니다. 노드를 지우면 창이 닫힙니다. 창을 여닫는 일은 다른 노드를 넣고 빼는 일과 같은 Mutation이고, 경계 함수는 하나도 늘지 않습니다(PR-2 그대로).
+- Compose Desktop의 `application { Window { } }`와 같은 모양입니다. 창 여러 개가 **하나의 composition, 하나의 Host, 하나의 노드 표**에 있으므로, 한 창의 핸들러가 쓴 상태를 다른 창이 읽으면 그 창도 같은 배치에서 바뀝니다. 창 사이에 메시지를 주고받는 장치가 따로 없습니다.
+- `Window` 노드는 루트의 자식으로만 둘 수 있습니다. 다른 자리에 넣으면 `ProtocolError`입니다(NFR-7). 창 안의 창(소유된 창, 도구 창)은 53.12의 열린 질문입니다.
+- 노드 id는 지금처럼 Host가 발급하고 세션 안에서 고유합니다. 창이 여럿이어도 id 공간은 하나라서, 노드 이벤트는 창 번호 없이도 어느 창의 것인지 정해집니다.
+
+#### 53.2 한 창짜리 애플리케이션은 그대로입니다
+
+- 실행 방식이 둘입니다. **한 창 방식**은 지금의 `launch(app)`이고, 루트의 내용이 `SetWindow` 설정으로 연 창 하나에 그려집니다. **여러 창 방식**은 `LaunchBuilder::windows()`로 켜고, 루트의 자식이 모두 `Window` 노드입니다.
+- 방식은 `SetWindow` 레코드가 나릅니다(53.10). 한 창 방식에서 `SetWindow`의 바이트는 지금과 같고, 그 앱이 보내는 배치도 지금과 바이트 단위로 같습니다. 소스 호환이고 와이어 호환입니다.
+- 한 창 방식의 창이 내는 창 이벤트는 지금처럼 `node_id = 0`입니다. 여러 창 방식에서는 그 자리에 `Window` 노드의 id가 들어갑니다(53.4).
+
+#### 53.3 창마다 정하는 것
+
+`Window` 노드의 속성입니다. FR-19.3이 앱 하나에 대해 정하던 것을 창마다 정합니다.
+
+- `Title`(문자열), `Size`(폭, 높이, dp), `MinSize`, `Resizable`, `Chrome`(FR-19.3, FR-19.9의 `Modern`, `System`, `FullSize`), `TitleBar`(FR-19.7), `Icon`(FR-16의 에셋 id, 0이면 앱의 아이콘).
+- `Position`(x, y, 화면 dp). 없으면 플랫폼이 놓습니다(macOS의 계단식 배치, Windows의 `CW_USEDEFAULT`, X11 창 관리자). 원점은 주 화면의 왼쪽 위이고 아래가 양수입니다. macOS의 아래 왼쪽 원점은 Renderer가 바꿉니다. 값을 바꾸면 창이 그 자리로 옮겨 갑니다(53.8).
+- `RestoreKey`(문자열). 앱이 그 창에 붙이는 안정된 이름입니다(예: 작업 공간 경로와 창 번호). 노드 id는 세션 안에서만 고유하므로, 프로세스가 다시 시작된 뒤 시스템이 되살리는 창(Android의 최근 작업, iOS의 장면 세션)이나 시스템이 새로 만든 창(53.7.1)이 어느 창인지는 이 이름으로 맞춥니다. 데스크톱에서는 쓰지 않아도 됩니다.
+- 모바일에서 `Position`, `Size`, `MinSize`, `Resizable`, `Chrome`, `TitleBar`는 시스템이 정하는 것이라 무시합니다. 예외로 Android의 자유 형태 창과 데스크톱 창 모드에서는 `Position`과 `Size`가 처음 열 때의 크기(`ActivityOptions.setLaunchBounds`)로 쓰이고, 그 뒤의 변경은 무시합니다. `Title`은 Android의 최근 작업 항목(`setTaskDescription`)과 iPadOS의 장면 제목(`UIScene.title`)이 됩니다.
+- `ZoomLevel`(FR-43). 확대는 창마다입니다. VS Code와 Electron이 창마다 확대하는 것과 같습니다. 저장은 FR-43대로 앱마다 하나이고, 새 창은 마지막으로 저장된 수준에서 시작합니다.
+- **테마 덮어쓰기.** 앱 전체의 테마는 지금처럼 `SetTheme`이고, 창 하나만 다른 디자인 시스템이나 색 구성표를 쓰려면 그 창에 대한 테마 레코드(53.10의 `SetWindowTheme`)를 보냅니다. 덮어쓰지 않은 창은 앱의 테마를 따릅니다.
+- 창의 내용 안전 영역(FR-19.2, FR-19.9의 `WindowSafeArea`)과 크기 클래스(FR-20)는 창마다 따로 계산됩니다.
+
+#### 53.4 창이 알리는 것
+
+창에 관한 이벤트는 그 창의 `Window` 노드에게 옵니다. 핸들러가 등록된 것만 경계를 건넙니다(FR-45와 같은 규칙).
+
+| 이벤트 | 뜻 | 페이로드 |
+|---|---|---|
+| `WindowCloseRequested` | 사용자가 닫기 버튼, `⌘W`/`Alt+F4`, 창 메뉴로 닫으려 함 | 없음 |
+| `WindowFocusChanged` | 창이 키 창(포커스를 받는 창)이 되거나 그 자리를 잃음 | `focused: u32`(0, 1) |
+| `WindowMoved` | 창의 바깥 틀이 옮겨지거나 크기가 바뀜. 프레임당 한 번으로 합침 | `x, y, width, height: f32`(화면 dp) |
+| `WindowDrag` | 끌어내기 중인 창의 움직임과 끝(53.7) | 53.7 |
+| `WindowDragOver` | 끌리는 창이 다른 창의 구독 노드 위를 지남(53.7) | 53.7 |
+| `WindowClosed` | 시스템이 앱에게 묻지 않고 창을 없앰(모바일의 최근 작업에서 밀어 닫기, iPadOS 앱 전환기에서 닫기) | 없음 |
+
+루트(`node_id = 0`)에 오는 앱 수준 이벤트가 둘 있습니다. `WindowRequested`는 시스템이나 사용자가 앱의 창을 새로 만들었고 Renderer가 그것을 아직 어떤 `Window` 노드에도 잇지 못했을 때 옵니다(53.7.1, 프로세스가 다시 시작된 뒤 되살아난 창, iPadOS의 "새 창" 메뉴). 페이로드는 `RestoreKey` 문자열(새 창이면 빈 문자열)과 요청 번호 `request: u32`입니다. 앱은 같은 배치에서 그 `RestoreKey`를 가진 `Window` 노드를 넣고, Renderer는 그 노드를 기다리던 창에 잇습니다. 앱이 그 배치에서 넣지 않으면 Renderer는 그 창을 닫습니다. `ApplicationReopen`은 53.6에 있습니다.
+
+- **닫기는 앱이 정합니다.** `WindowCloseRequested`만으로는 창이 닫히지 않고, 앱이 그 `Window` 노드를 지울 때 닫힙니다. Compose Desktop의 `onCloseRequest`와 같습니다. 저장하지 않은 파일을 묻는 대화 상자가 이 자리에서 나옵니다. Rust API는 이 핸들러를 필수 인자로 받으므로, 핸들러가 없는 `Window`는 compose-rust와 dioxus-compose가 만들지 않습니다. 와이어에서 핸들러가 없는 `Window`가 오면 Renderer는 닫기 요청을 무시하고 창을 둡니다.
+- **시스템이 닫은 창.** `WindowClosed`가 오면 창은 이미 없습니다. 앱은 그 `Window` 노드를 지우고, 지우기 전까지 그 하위에 대한 Mutation은 Renderer가 노드 표에만 적용하고 그리지 않습니다. 모바일에서 사용자가 뒤로 가기로 첫 창이 아닌 창을 떠나려 할 때는 `WindowCloseRequested`가 옵니다(Android의 `OnBackPressedCallback`). 일시적으로 그려지지 않는 것은 닫힌 것이 아닙니다. iOS의 장면 연결 끊김(`sceneDidDisconnect`)과 Android의 Activity 재생성(설정 변경)에서는 `Window` 노드와 그 하위의 상태가 그대로 남고, 다시 이어진 장면이나 새 Activity가 같은 노드를 그립니다(53.9).
+- **기존의 창 이벤트는 창을 밝힙니다.** `WindowSizeChanged`(FR-20), `ZoomChanged`(FR-43), `DensityChanged`(FR-43.1)는 지금 `node_id = 0`으로 옵니다. 여러 창 방식에서는 그 이벤트를 낸 창의 `Window` 노드 id가 그 자리에 들어갑니다. 레코드의 모양은 바뀌지 않습니다. `ColorSchemeChanged`(FR-44)와 `ReducedMotionChanged`(FR-41.2)는 시스템의 것이라 창과 무관하게 `node_id = 0`으로 한 번만 옵니다.
+- **Host API는 자기가 있는 창을 읽습니다.** `use_window_size()`(FR-20.6)와 확대 배율을 읽는 훅은 그것을 부른 composable이 들어 있는 창의 값을 돌려줍니다. 한 창 방식에서는 지금과 같습니다. 그 composable이 어느 창에 있는지는 `current_window()`가 `Window` 노드의 핸들로 돌려줍니다.
+- **포커스 요청은 명령입니다.** 창을 앞으로 가져오고 키 창으로 만드는 일은 상태가 아니라 한 번 일어나는 일이므로 속성이 아니라 레코드(53.10의 `FocusWindow`)입니다. 플랫폼이 포커스 가로채기를 막으면(Windows의 전경 잠금, 일부 X11 창 관리자) 창은 작업 표시줄에서 깜박이는 것으로 그치고, 그때 `WindowFocusChanged`는 오지 않습니다.
+
+#### 53.5 상태와 스레드
+
+- 창이 몇 개든 UI 스레드는 하나이고 Host도 하나입니다(PR-1, PR-3). 창마다 스레드나 Host를 두지 않습니다.
+- `request_frame`은 창 수와 무관하게 다음 프레임에 `render_frame` 한 번으로 합쳐집니다(PR-3). Renderer는 창마다 그리기 시점이 달라도(모니터마다 주사율이 다른 경우) Host에게는 프레임당 한 번만 묻고, 돌아온 배치를 모든 창에 한 스냅샷으로 적용합니다(PR-2). 한 창에만 반영되고 다른 창에는 아직 반영되지 않은 중간 상태가 그려지지 않습니다.
+- 가려지거나 최소화된 창이 있어도 다른 창의 프레임 클록이 돌면 그 클록이 요청을 처리합니다. 모든 창의 클록이 멈춰 있을 때만 PR-3의 직접 호출 규칙이 적용됩니다.
+- 창을 닫아도 그 창에서 쓰던 상태는 앱의 것이라 남습니다. 탭 하나를 다른 창으로 옮기는 일은 앱이 탭 모델을 옮기고 노드를 다시 만드는 일이며, 편집기의 커서와 스크롤처럼 Renderer에 있는 UI 로컬 상태(D5)는 앱이 옮길 값으로 다시 넣어야 합니다. 노드를 창 사이로 옮기는 `Move`는 `ProtocolError`입니다. Compose의 composition은 창(장면)마다 따로 있고, 한 장면의 노드를 다른 장면으로 옮기는 공개 API가 없기 때문입니다.
+
+#### 53.6 마지막 창이 닫힐 때
+
+- `LaunchBuilder::on_last_window_closed(LastWindowClosed)`로 정합니다. `Exit`이면 마지막 `Window` 노드가 지워진 배치를 적용한 뒤 렌더러 루프가 끝나고 `launch`는 상태 0으로 프로세스를 끝냅니다. `KeepRunning`이면 창 없이 루프가 계속 돕니다.
+- 기본값은 macOS에서 `KeepRunning`, Windows와 Linux에서 `Exit`입니다. 각 플랫폼의 관례입니다. macOS에서는 Dock 아이콘과 앱 메뉴가 남고, 창이 없을 때 Dock 아이콘을 누르면 루트에 `ApplicationReopen` 이벤트가 옵니다(`applicationShouldHandleReopen`). 앱은 그 자리에서 새 `Window`를 넣습니다.
+- 한 창 방식은 지금처럼 창을 닫으면 끝납니다.
+- 모바일에서는 프로세스의 수명을 시스템이 정하므로 이 설정을 무시합니다. 마지막 창이 닫혀도 Renderer는 프로세스를 끝내지 않습니다.
+- `KeepRunning`인데 창이 하나도 없고 Dock도 없는 플랫폼(Windows, Linux)에서는 앱이 다시 창을 열 길을 가지고 있어야 합니다(트레이, 다른 프로세스의 요청). 그런 길이 없는 앱이 이 값을 고르면 다시 열 수 없는 프로세스가 남으므로, 디버그 빌드에서 시작할 때 한 번 경고합니다.
+
+#### 53.7 탭을 끌어 새 창으로 떼어 내기
+
+Electron 앱(VS Code)과 브라우저가 하는 일입니다. 탭을 잡고 창 밖으로 끌면 그 자리에 새 창이 생기고, 버튼을 놓을 때까지 새 창이 포인터를 따라옵니다. 다른 창의 탭 줄에 놓으면 그 창으로 합쳐집니다.
+
+- **떼어 낼지는 Host가 정합니다.** 탭 노드는 FR-46의 `Down`, `Move`를 구독하고 암묵적 캡처(46.4)로 창 밖에서도 `Move`를 받습니다. 끈 거리나 방향으로 떼어 낼 때가 되었다고 판단하면, Host는 같은 배치에서 원래 창의 탭을 지우고 새 `Window` 노드를 넣으면서 그 노드에 `DragFromPointer` 속성을 붙입니다.
+- **`DragFromPointer { pointer_id, anchor_x, anchor_y }`.** "지금 눌려 있는 그 포인터 아래에, 이 창 내용의 (anchor_x, anchor_y) dp 지점이 오도록 창을 놓고, 버튼을 놓을 때까지 포인터를 따라 옮겨라"라는 뜻입니다. Host는 화면 좌표를 몰라도 됩니다(FR-46.3). 화면에서 포인터가 어디 있는지는 Renderer가 압니다. `anchor`는 보통 탭을 누른 자리(`Down`의 노드 기준 좌표)에 새 창 안에서 탭이 놓일 자리를 더한 값입니다.
+- Renderer는 이 속성을 받으면 원래 창의 캡처를 끝내고(캡처한 노드에는 `Cancel`, FR-46.2), 새 창을 열어 포인터 아래에 놓고, 그 포인터가 놓일 때까지 창을 따라 옮깁니다. 따라 옮기는 방법(OS의 창 이동 루프에 넘기기, 매 포인터 이동마다 창 위치 바꾸기)은 Renderer가 플랫폼마다 고릅니다. 요구는 결과입니다. **끄는 동안 매 프레임 창의 anchor 지점이 포인터에서 1dp 안에 있습니다.**
+- 이 속성은 창이 처음 열릴 때만 읽습니다. 이미 열린 창에 나중에 붙이면 무시합니다. 그 포인터가 이미 놓였으면 창은 그 자리에 열리고 끌기는 시작하지 않습니다.
+- **끄는 동안과 끝.** Renderer는 끌리는 창의 `Window` 노드에 `WindowDrag` 이벤트를 보냅니다. `phase: u32`(`Move=1`, `End=2`, `Cancel=3`), 포인터의 화면 좌표 `screen_x, screen_y: f32`(dp), 그 아래에 있는 다른 창의 `Window` 노드 id `over_window: u32`(없으면 0)입니다. `Move`는 프레임당 한 번으로 합칩니다(FR-46.4와 같은 규칙). `End`는 버튼을 놓았을 때, `Cancel`은 OS가 끌기를 가져가거나 `Esc`를 눌렀을 때 한 번 옵니다.
+- **합치기.** 다른 창의 노드가 `OnWindowDragOver` 핸들러를 등록하면, 끌리는 창 아래에 그 노드가 올 때 그 노드에 `WindowDragOver`가 옵니다. `kind: u32`(`Enter=1`, `Move=2`, `Leave=3`, `Drop=4`), 끌리는 창의 `Window` 노드 id `window: u32`, 노드 기준 좌표 `x, y: f32`(dp, FR-46.3과 같은 규칙)입니다. 탭 줄이 이것을 구독하면 놓일 자리를 보여 주고, `Drop`에서 앱이 탭을 그 창으로 옮긴 뒤 끌던 `Window` 노드를 지웁니다. 핸들러를 등록한 노드가 없으면 이 이벤트는 경계를 건너지 않습니다.
+- 끄는 동안 포인터 아래의 판정에서 끌리는 창 자신은 빠집니다.
+- 이 흐름에 새 경계 함수는 없습니다. 속성 하나, 이벤트 둘, 핸들러 속성 하나입니다.
+
+#### 53.7.1 모바일과 시스템이 만드는 창
+
+모바일에서 끌어 낸 탭으로 창을 만드는 주체는 앱이 아니라 시스템입니다. 탭을 화면 가장자리나 분할 자리에 놓으면 시스템이 새 장면이나 Activity를 만들고, 앱은 그 뒤에 그것이 무엇인지 듣습니다. 그래서 순서가 데스크톱과 반대이고, 그 순서를 `TearOffKey` 하나로 맞춥니다.
+
+- **`TearOffKey`(문자열) 속성.** 떼어 낼 수 있는 노드(탭)에 붙입니다. 값은 떼어 낸 뒤 생길 창의 `RestoreKey`입니다. 이 속성이 붙은 노드를 사용자가 길게 눌러 끌면 Renderer가 플랫폼의 끌어 놓기를 시작합니다.
+  - **iPadOS**: `UIDragInteraction`의 `NSItemProvider`에 `NSUserActivity`(활동 종류는 앱의 창 활동, `userInfo`에 키)를 등록합니다. Safari의 탭과 같은 방식이고, 화면 가장자리에 놓으면 시스템이 새 장면을 만듭니다.
+  - **Android 12L 이상**: `View.startDragAndDrop`의 `ClipData`에 창 Activity를 띄우는 `PendingIntent`(`ClipDescription.MIMETYPE_APPLICATION_ACTIVITY`, 키를 실은 인텐트)를 싣습니다. 분할 화면 자리에 놓으면 시스템이 그 Activity를 띄웁니다(drag to split).
+  - **Android 12L 미만, iPhone**: 끌어서 창을 만드는 길이 시스템에 없습니다. Renderer는 끌기를 시작하지 않고, 앱은 같은 일을 메뉴 동작("새 창에서 열기")으로 내어 줍니다. 메뉴 동작은 `Window` 노드를 그냥 넣는 것이고 53.9의 플랫폼별 열기가 그대로 적용됩니다.
+  - **데스크톱**: 같은 속성이 같은 일을 합니다. 그 노드를 누른 포인터가 창 밖으로 나가면 Renderer가 `WindowRequested`(키, 요청 번호)를 보내고, 앱이 그 배치에서 넣은 `Window` 노드에 Renderer가 `DragFromPointer`를 대신 붙여 53.7대로 따라 옮깁니다. anchor는 누른 자리입니다. 그래서 탭을 떼어 내는 앱의 코드는 플랫폼마다 다르지 않습니다. 53.7의 Host가 정하는 길은 그대로 남습니다.
+- 시스템이 새 창을 만들면 Renderer가 루트에 `WindowRequested`(키)를 보내고, 앱은 그 키의 `Window` 노드를 넣고 원래 창의 탭을 지웁니다. 놓은 자리가 창을 만들지 않았으면(끌기 취소, 같은 창 안에 놓음) `WindowRequested`가 오지 않고 탭은 제자리에 있습니다.
+- 끌어 놓기 세션 자체는 플랫폼의 것이고, 놓이는 쪽이 같은 앱의 다른 창이면 53.7의 `WindowDragOver`가 그 창의 구독 노드에 옵니다(iPadOS의 `UIDropInteraction`, Android의 `OnDragListener`). 합치기는 데스크톱과 같습니다.
+
+#### 53.8 프로그램으로 옮기기와 크기 바꾸기
+
+- `Position`과 `Size`를 바꾸면 창이 그 값으로 옮겨지고 바뀝니다. 결과는 `WindowMoved`로 돌아옵니다. 창 관리자가 다른 값을 고르면(화면 밖, 작업 표시줄 위) 돌아오는 값이 실제 값입니다.
+- 사용자가 끌어서 옮기거나 크기를 바꾼 것도 `WindowMoved`로 옵니다. Host가 이 값을 `Position`과 `Size`에 다시 넣을 필요는 없습니다. Renderer는 속성 값이 **바뀔 때만** 창에 적용하고, 사용자가 옮긴 자리를 앱이 들고 있는 옛 값으로 되돌리지 않습니다.
+- 창의 바깥 틀 좌표는 화면 dp이고, 화면이 여러 개면 주 화면 기준의 한 좌표계입니다. 화면마다 배율이 다를 때 dp는 그 창이 있는 화면의 배율로 셉니다.
+
+#### 53.9 플랫폼 범위
+
+같은 Rust API(`Window` 노드, 닫기 요청, 이벤트의 창 id, `TearOffKey`)가 모든 플랫폼에서 돕니다. 플랫폼이 다르게 하는 것은 "창이 무엇인가"와 아래의 한계뿐입니다.
+
+| 플랫폼 | 창 하나 | 범위 |
+|---|---|---|
+| macOS | `NSWindow` | 필수. 앱과 창의 수명이 따로인 플랫폼이라 53.6의 `KeepRunning`이 기본 |
+| Windows | `HWND`, 메시지 루프 하나 | 필수 |
+| Linux (X11) | X 창, 연결 하나 | 필수 |
+| Android | Activity 하나 | 필수 |
+| iPadOS | `UIWindowScene` 하나 | 필수 |
+| iOS(iPhone) | `UIWindowScene` 하나, 한 번에 하나만 보임 | 필수 |
+| Linux (Wayland 직접) | 해당 없음 | 데스크톱 렌더러의 Linux 창은 X11이고 Wayland에서는 XWayland로 돕니다. Wayland 프로토콜은 앱이 창의 화면 위치를 정하거나 읽는 길을 주지 않으므로, Wayland 창을 직접 열게 되면 `Position`과 `DragFromPointer`의 따라 옮기기는 `xdg_toplevel.move`로 바꿔야 합니다. 그때 이 항목을 고칩니다 |
+| Web | 해당 없음 | 브라우저 탭 하나가 문서 하나입니다. `window.open`은 다른 문서이고 같은 wasm 메모리를 나누지 않습니다(PR-6) |
+| GraalVM native-image 경로 | 해당 없음 | 출시되지 않는 경로입니다(D4). JVM 개발 셸(D7)은 Compose Desktop의 `Window`를 그대로 써서 여러 창을 엽니다 |
+
+**Android.**
+
+- 창 하나가 Activity 하나이고, 모든 Activity가 같은 프로세스에서 Host 하나와 노드 표 하나를 나눠 씁니다. Host의 수명은 Activity가 아니라 프로세스의 것입니다. 첫 Activity가 Host를 초기화하고, 뒤의 Activity는 이미 있는 Host에 자기 `Window` 노드의 하위를 그리는 `ComposeView`를 붙입니다. PR-5의 "Activity가 프로세스와 루프를 소유한다"는 첫 Activity가 그 일을 시작한다는 뜻으로 읽고, Activity 하나가 끝나도 Host를 닫지 않습니다.
+- 첫 `Window` 노드는 앱을 연 Activity가 그립니다. 그 뒤의 `Window` 노드마다 Renderer는 창 Activity를 `FLAG_ACTIVITY_NEW_DOCUMENT | FLAG_ACTIVITY_MULTIPLE_TASK`로 띄우고, 분할 화면을 지원하는 기기에서는 `FLAG_ACTIVITY_LAUNCH_ADJACENT`를 더합니다. 그래서 창마다 최근 작업에 따로 나타나고, 분할 화면, 자유 형태 창, 큰 화면의 데스크톱 창 모드(Android 16)에서 따로 놓입니다. 인텐트는 `Window` 노드 id와 `RestoreKey`를 싣습니다.
+- 창 Activity는 앱 빌드가 매니페스트에 선언합니다(PR-5.1의 생성된 `MainActivity`와 같은 경로, `documentLaunchMode`와 `resizeableActivity`). 앱 개발자가 손으로 적지 않습니다.
+- **설정 변경으로 Activity가 다시 만들어져도 창은 같은 창입니다.** 노드 표와 Host가 프로세스에 남으므로(PR-5), 새 Activity는 `savedInstanceState`의 노드 id로 같은 `Window` 노드를 다시 그립니다. `WindowClosed`도 `WindowRequested`도 가지 않습니다.
+- 프로세스가 죽은 뒤 시스템이 최근 작업에서 창 Activity를 되살리면, Host는 처음부터 다시 만들어지고 Renderer는 인텐트의 `RestoreKey`로 `WindowRequested`를 보냅니다. 상태를 되살리는 것은 PR-5대로 앱의 `SaveState` 몫입니다.
+- 첫 창이 아닌 Activity에서 뒤로 가기는 `WindowCloseRequested`이고, 최근 작업에서 밀어 닫으면 `WindowClosed`입니다. 앱이 `Window` 노드를 지우면 Renderer가 그 Activity를 `finishAndRemoveTask`로 닫습니다.
+
+**iOS와 iPadOS.**
+
+- 앱은 `UIApplicationSupportsMultipleScenes`를 켭니다(앱 빌드가 `Info.plist`에 넣습니다). 창 하나가 `UIWindowScene` 하나이고, 장면마다 `ComposeUIViewController`가 그 `Window` 노드의 하위를 그립니다. 모든 장면이 Host 하나와 메인 스레드 하나를 씁니다.
+- 첫 `Window` 노드는 앱을 연 장면이 그립니다. 그 뒤의 `Window` 노드마다 Renderer는 `requestSceneSessionActivation`으로 새 장면을 요청하고, 요청에 노드 id와 `RestoreKey`를 실은 `NSUserActivity`를 붙입니다.
+- **iPadOS**는 Split View, Slide Over, Stage Manager에서 장면들을 나란히 보여 줍니다.
+- **iPhone**도 장면 여럿을 가질 수 있지만 한 번에 하나만 보입니다. 거기서 "새 창 열기"는 **새 장면으로 넘어가는 것**입니다. 새 장면이 앞에 오고 전에 보이던 장면은 배경으로 갑니다. 그 창은 `WindowFocusChanged(0)`을 받고 닫히지 않으며, 앱 전환기에서 다시 고를 수 있습니다. 끌어서 떼어 내기는 없습니다(53.7.1).
+- **장면의 연결이 끊겨도 창은 남습니다.** 시스템은 배경의 장면을 메모리 때문에 끊었다가(`sceneDidDisconnect`) 나중에 다시 잇습니다. 끊길 때 Renderer는 그 장면의 Compose 화면만 버리고 `Window` 노드와 그 하위의 상태는 그대로 둡니다. 같은 장면 세션이 다시 이어지면(`scene(_:willConnectTo:)`의 세션 `userInfo`에 노드 id) 같은 노드를 다시 그립니다. 프로세스가 죽은 뒤에 이어지면 `RestoreKey`로 `WindowRequested`가 옵니다. 사용자가 앱 전환기에서 장면을 닫으면(`didDiscardSceneSessions`) `WindowClosed`입니다. 앱이 `Window` 노드를 지우면 Renderer가 `requestSceneSessionDestruction`으로 장면을 닫습니다.
+
+- **해당 없는 곳에서도 여러 창 방식의 앱이 돕니다.** Web과 GraalVM 경로에서는 첫 `Window` 노드가 그 화면 하나에 그려지고, 그 뒤의 `Window` 노드는 열리지 않으며 그 노드에 `WindowUnavailable` 이벤트가 한 번 옵니다. 앱은 이것을 보고 탭을 원래 자리에 둡니다. 크래시도 `ProtocolError`도 아닙니다. 필수 플랫폼에서도 시스템이 창을 거절하면(Android의 다중 창을 끈 기기, 장면 요청의 실패) 같은 이벤트가 옵니다.
+
+#### 53.10 와이어
+
+- 새 위젯 `Window`. 속성은 53.3의 것(`RestoreKey` 포함)과 `DragFromPointer`, 핸들러 속성은 53.4의 이벤트마다 하나입니다. 창이 아닌 노드에 붙는 속성은 `OnWindowDragOver`와 `TearOffKey`입니다.
+- 새 이벤트 `WindowCloseRequested`, `WindowFocusChanged`, `WindowMoved`, `WindowDrag`, `WindowDragOver`, `WindowUnavailable`, `WindowClosed`, `WindowRequested`, `ApplicationReopen`. `WindowRequested`만 문자열(`RestoreKey`)을 싣고, 나머지는 고정 길이이며 문자열이 없습니다(PR-4).
+- 새 명령 레코드 `SetWindowTheme(node_id, theme)`(`SetTheme`의 페이로드 앞에 `node_id`), `FocusWindow(node_id)`.
+- `SetWindow`의 남는 칸에 방식(`Single=0`, `Windows=1`)과 53.6의 `LastWindowClosed`를 싣습니다. 둘 다 0이면 지금의 레코드와 같은 바이트입니다.
+- **경계 함수는 바뀌지 않습니다.** 진입점도 시그니처도 그대로라 PR-2의 변경이 아니라 FR-7의 스키마 변경이고, 스키마 해시가 바뀝니다.
+- 번호는 구현 PR이 병합 시점의 develop에서 쓰이지 않은 다음 자리로 정하고 이 항목에 적습니다. 여러 PR이 같은 블록을 다투고 있어 지금 적으면 겹칩니다.
+
+#### 53.11 수용 기준
+
+Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을 실제로 여는 검사는 포크의 창 모듈 검사와 compose-rust의 데스크톱 렌더러 검사(macOS, Windows, Linux Xvfb)에서 가상 입력으로 돕니다. 모바일은 Android 에뮬레이터의 계측 테스트와 iOS 시뮬레이터(iPhone, iPad)의 XCUITest에서 돕니다. 플랫폼마다의 한계(53.3의 무시되는 속성, 53.7.1의 끌기가 없는 곳, 53.9의 iPhone)는 기준 안에 적힌 대로이고, 그 밖의 기준은 모든 필수 플랫폼에 같게 적용됩니다.
+
+1. `launch(app)`으로 띄운 한 창짜리 앱의 초기 배치가 이 변경 전과 바이트 단위로 같습니다(fr53_single_window_app_batches_are_unchanged).
+2. 여러 창 방식에서 루트에 `Window` 노드 둘을 넣으면 플랫폼 창이 둘 열리고, 하나를 지우면 그 창만 닫힙니다(fr53_window_nodes_open_and_close_platform_windows). 인터프리터는 가짜 창 백엔드로, 데스크톱 세 플랫폼은 실제 창으로 확인합니다.
+3. 두 창이 같은 상태를 읽을 때, 한 창의 핸들러가 그 상태를 바꾸면 돌아온 배치 하나에 두 창의 변경이 함께 들어 있고, 한 스냅샷으로 적용됩니다(fr53_windows_share_state_in_one_batch).
+4. 창 셋이 열린 채 워커가 `request_frame`을 여러 번 불러도 프레임당 `render_frame`은 한 번입니다(fr53_one_render_frame_serves_every_window).
+5. 둘째 창의 크기 클래스 전환, 확대, 밀도 변화가 그 창의 `Window` 노드 id로 오고, 그 창 안의 `use_window_size()`만 깨어납니다. 첫째 창의 composable은 다시 실행되지 않습니다(fr53_window_events_name_their_window).
+6. 닫기 버튼은 `WindowCloseRequested`만 보내고, 앱이 노드를 지울 때까지 창은 열려 있습니다(fr53_close_request_leaves_the_window_to_the_app).
+7. `Exit`에서 마지막 창을 지우면 `compose_rust_renderer_run`이 0을 돌려주고, `KeepRunning`에서는 루프가 계속 돌며 새 `Window`를 넣으면 창이 다시 열립니다(fr53_last_window_closed_policy). macOS의 `ApplicationReopen`은 손으로 확인합니다.
+8. 창 사이로 포커스를 옮기면 잃는 창과 얻는 창에 `WindowFocusChanged`가 한 번씩 옵니다. `FocusWindow`로 앞에 가져온 창이 키 창이 됩니다(fr53_focus_moves_between_windows).
+9. `Position`을 바꾸면 창이 옮겨지고 `WindowMoved`가 1dp 안의 값을 돌려줍니다. 사용자가 옮긴 창은 앱이 같은 속성 값을 다시 보내도 되돌아가지 않습니다(fr53_programmatic_move_and_user_move).
+10. 가상 입력으로 탭 노드를 눌러 창 밖으로 200dp 끌면, Host가 넣은 `DragFromPointer` 창이 열리고 놓을 때까지 매 프레임 anchor가 포인터에서 1dp 안에 있으며, 놓으면 `WindowDrag(End)`가 포인터의 화면 좌표와 함께 한 번 옵니다(fr53_torn_off_window_follows_the_pointer). macOS, Windows, Linux에서 돕니다.
+11. 끌리는 창을 다른 창의 구독 노드 위로 옮겨 놓으면 그 노드가 `Enter`, `Move`, `Drop`을 노드 기준 좌표로 받고, 끌리는 창 자신은 판정에서 빠집니다(fr53_drag_over_reaches_the_drop_target).
+12. 새 레코드와 이벤트가 Rust와 Kotlin에서 같은 바이트로 인코딩되고 디코딩됩니다(프로토콜 벡터, fr53_window_records_round_trip). 루트가 아닌 자리의 `Window`와 창 사이의 `Move`는 `ProtocolError`이고 프로세스는 계속 돕니다(nfr7_misplaced_window_is_a_protocol_error).
+13. Web 렌더러에서 둘째 `Window` 노드는 `WindowUnavailable` 한 건을 받고, 첫째 창은 그대로 그려집니다(fr53_unsupported_platform_reports_unavailable).
+14. 창 셋이 열린 장면에서 정상 상태 프레임의 Host 할당이 0이고 프레임 시간이 NFR-9 예산 안입니다. 둘째 창을 여는 데 드는 메모리를 플랫폼마다 재어 이 항목에 기록합니다.
+15. **Android(에뮬레이터, 계측 테스트).** 둘째 `Window` 노드를 넣으면 같은 프로세스에 둘째 Activity가 따로의 작업(`ActivityManager.appTasks`가 둘)으로 뜨고, 한 Activity의 핸들러가 쓴 상태가 다른 Activity의 화면에 같은 배치로 반영됩니다(fr53_android_second_window_is_a_second_activity). 둘째 Activity를 회전시켜도 같은 노드 id를 그리고 상태가 남으며 `WindowClosed`, `WindowRequested`가 가지 않습니다(fr53_android_recreation_keeps_the_window). 뒤로 가기는 `WindowCloseRequested`, 노드를 지우면 Activity가 끝나고 작업이 사라집니다(fr53_android_back_and_remove_close_the_activity). 태블릿 에뮬레이터(API 33 이상)에서 `TearOffKey` 노드를 UiAutomator로 끌어 분할 자리에 놓으면 `WindowRequested`가 그 키로 오고, 자유 형태 창을 켠 에뮬레이터에서 `Position`과 `Size`가 처음 크기로 쓰입니다(fr53_android_drag_to_split_requests_a_window, fr53_android_launch_bounds_follow_position_and_size).
+16. **iPadOS(iPad 시뮬레이터, XCUITest).** 둘째 `Window` 노드를 넣으면 `connectedScenes`가 둘이 되고 두 장면이 같은 상태를 그립니다(fr53_ipados_second_window_is_a_second_scene). 장면의 연결 끊김과 다시 이음을 장면 대리자 호출로 재현했을 때 같은 노드 id와 상태를 그립니다(fr53_ios_scene_reconnect_keeps_the_window). `TearOffKey` 노드의 끌기가 키를 실은 `NSUserActivity`를 등록하고(fr53_ipados_tear_off_registers_a_user_activity), 화면 가장자리로 끌어 놓으면 `WindowRequested`가 그 키로 옵니다(fr53_ipados_drop_at_edge_requests_a_window).
+17. **iOS(iPhone 시뮬레이터).** 둘째 `Window` 노드를 넣으면 새 장면이 앞에 오고, 전 장면은 `WindowFocusChanged(0)`을 받고 닫히지 않습니다. `TearOffKey` 노드는 끌기를 시작하지 않습니다(fr53_iphone_new_window_switches_scene).
+18. 프로세스를 죽인 뒤 Android의 최근 작업과 iOS의 장면 세션에서 창을 되살리면 `RestoreKey`로 `WindowRequested`가 오고, 앱이 그 배치에서 넣은 노드가 그 창에 그려집니다. 넣지 않으면 그 창은 닫힙니다(fr53_restored_window_is_matched_by_restore_key).
+19. **사람이 확인합니다.** 둘째 창에서 IME 조합(§6)과 스크린 리더(§7, VoiceOver, 내레이터, Orca, TalkBack)가 첫째 창과 같게 동작합니다. Android의 데스크톱 창 모드와 iPadOS의 Stage Manager에서 창 넷을 나란히 놓고 탭을 떼어 내고 합쳐 봅니다. 확인한 날짜와 운영체제를 이 항목에 적습니다.
+
+#### 53.12 열린 질문
+
+- Chrome처럼 끄는 도중에 다른 창의 탭 줄에 닿으면 바로 그 창에 붙고 끌기가 탭 끌기로 이어지는 것. 53.7은 놓을 때 합칩니다(VS Code의 방식). 이어 붙이려면 창 이동이 다른 창의 포인터 캡처로 넘어가야 하고, 그 방법이 플랫폼마다 다릅니다.
+- 소유된 창(부모 창 위에 늘 떠 있는 도구 창, 모달 창)을 `Window`의 자식 `Window`로 둘지.
+- 메뉴(FR-30)의 자리. macOS의 메뉴 막대는 앱에 하나이고 Windows와 Linux의 메뉴는 창마다입니다. 키 창이 바뀔 때 메뉴를 바꾸는 규칙이 필요합니다.
+- 창의 위치와 크기를 다음 실행에 되살리는 일을 Renderer가 할지(FR-43의 확대 수준처럼), 앱이 `WindowMoved`로 들고 있다가 `Position`으로 돌려줄지.
+
+### FR-54 화면 미리보기와 PNG 내보내기 (`Draft`, 이슈 #357)
+
+요청한 쪽: 소유자(2026-10-26, "미리보기 도구는 필요할거 같아. 구현할 방향 찾아서 스펙에 추가하도록 해."). 결정과 폐기한 대안은 INTENT D24입니다. 화면 하나, 또는 상태를 정한 컴포넌트 하나를 1440, 1024, 768, 390 폭과 라이트, 다크에서 저장 후 몇 초 안에 보고, 같은 그림을 창 없이 PNG로 뽑아 목업과 나란히 놓거나 CI 이미지 시험에 씁니다. dioxus-compose의 rsx 화면에 대한 빠른 길(컴파일 없는 템플릿 반영)은 dioxus-compose SPEC FR-54입니다.
+
+#### 54.1 미리보기 선언
+
+- `#[Preview]`를 붙인 함수 하나가 미리보기 하나입니다. 속성 이름은 `#[Composable]`처럼 대문자로 시작합니다(INTENT D24, 소유자 2026-10-26). 함수는 `&PreviewContext`를 받아 화면을 돌려줍니다. 함수는 그 화면의 소스 옆에 둡니다.
+- 속성 인자로 이름과 구성 행렬을 줍니다: `#[Preview(name = "...", sizes = [Desktop, Phone], schemes = [Light, Dark], systems = [...], scales = [1.0, 2.0], fixture = "...")]`. 비우면 `Desktop`, `Light`, 플랫폼 기본 디자인 시스템, 배율 1, 고정 데이터 없음입니다.
+- 크기 이름과 논리 크기(dp)입니다. `Desktop` 1440x900, `Laptop` 1024x768, `Tablet` 768x1024, `Phone` 390x844. `WxH`로 임의 크기도 줄 수 있습니다. 창 크기 등급(FR-20)은 이 크기에서 계산됩니다.
+- `PreviewContext`가 주는 것: 논리 크기, 명암(FR-14), 디자인 시스템(FR-14), 배율(FR-43), 고정 데이터 이름, **고정된 현재 시각**, 고정된 난수 씨앗. 화면이 시계나 난수를 직접 읽으면 그림이 실행마다 달라지므로, 미리보기는 이 문맥에서 받아 씁니다. 기본 현재 시각은 `2026-01-01T00:00:00Z`이고 `--now`로 바꿉니다.
+- 식별자는 `<크레이트>::<모듈 경로>::<함수 이름>`이고, 파일 이름은 `<식별자>@<W>x<H>@<배율>x-<명암>-<디자인 시스템>.png`입니다(`::`는 `.`로).
+- **배포 빌드에는 미리보기 등록이 남지 않습니다.** 등록은 미리보기 도구가 빌드할 때만 켜집니다.
+- 모으는 방법(소스 훑기, 링커 구역, 등록 매크로)은 구현이 정하되, 조건은 셋입니다. 사용자에게 `build.rs`를 요구하지 않습니다. `main` 이전에 도는 코드에 기대지 않습니다. 데스크톱 세 플랫폼에서 같은 목록이 나옵니다.
+
+#### 54.2 도구
+
+이름은 `compose-rust-preview`이고, 개발 머신에 `cargo install compose-rust-preview`로 한 번 설치하는 실행 파일입니다(리더 결정, 2026-10-26). 앱의 `Cargo.toml`에 줄을 더하지 않습니다.
+
+- `compose-rust-preview list [-p <크레이트>]`: 미리보기 식별자와 구성 행렬을 출력합니다.
+- `compose-rust-preview watch [-p <크레이트>] [--preview <식별자>] [--size <이름|WxH>] [--scheme light|dark] [--system <이름>] [--scale <n>]`: 대화형 미리보기 창을 엽니다(54.3).
+- `compose-rust-preview export [-p <크레이트>] --preview <식별자|glob> [--size ...] [--scheme light|dark|both] [--system ...] [--scale ...] [--at-ms <n>] --out <디렉터리> [--compare <png>] [--check <기준 디렉터리>] [--max-diff <비율>] [--update]`: 창 없이 PNG를 씁니다(54.4, 54.5). 인자를 생략한 축은 미리보기의 구성 행렬 전체를 씁니다.
+- 미리보기 빌드는 자기 빌드 디렉터리(`target/compose-rust-preview/`)를 씁니다. 앱의 평소 빌드 캐시를 무효로 만들지 않기 위해서입니다(NFR-12의 워크트리 격리는 그대로입니다).
+
+#### 54.3 대화형 미리보기 (`watch`)
+
+- 도구가 크레이트와 그 경로 의존성의 소스를 지켜봅니다. 저장되면 미리보기 실행 파일을 증분 빌드하고, 빌드가 성공하면 프로세스를 다시 띄웁니다(INTENT D24).
+- **다시 띄운 창은 전과 같은 자리에 같은 크기로 같은 것을 보입니다.** 창의 위치와 크기, 고른 미리보기, 크기, 명암, 디자인 시스템, 배율을 되살립니다.
+- **빌드가 실패하면 다시 띄우지 않습니다.** 마지막으로 성공한 그림이 창에 남고, 컴파일러 오류는 터미널에 나옵니다.
+- 미리보기, 크기, 명암, 디자인 시스템, 배율을 바꾸는 것은 실행 중의 값이므로 빌드하지 않습니다. 단축키와 터미널 명령 두 가지로 바꿉니다.
+- 저장할 때마다 도구가 시간을 단계별로 출력합니다: 저장 감지, 컴파일, 링크, 실행, 첫 프레임. 수용 기준 9와 되돌리는 조건(D24)이 이 숫자를 씁니다.
+- **실행 플랫폼**: 렌더러가 데스크톱 창을 가진 곳, 곧 macOS, Linux(X11), Windows입니다. 수용의 기준 기계는 소유자의 Mac입니다. iOS, Android, 웹에서는 대화형 미리보기를 하지 않습니다. 휴대폰 폭은 데스크톱에서 그 디자인 시스템으로 그린 근사이고, iOS의 네이티브 유리 셸(14.9)과 Android 시스템 UI는 그림에 없습니다.
+
+#### 54.4 화면 밖 그리기와 PNG (`export`)
+
+- 렌더러에 **화면 밖 그리기 진입점 하나**를 더합니다. 창을 그리는 것과 같은 Compose 장면을 창 없이 만들고, Skia의 CPU 래스터 표면(RGBA 8888, premul, sRGB)에 Host가 준 프레임 시각으로 그려 PNG로 인코딩합니다. 창, GPU, 디스플레이 연결을 쓰지 않습니다. 진입점의 C 서명은 PR-2의 경계 함수 목록에 먼저 적고 나서 구현합니다.
+- 그림의 픽셀 크기는 논리 크기 곱하기 배율입니다(1440x900, 배율 2면 2880x1800).
+- **시계는 가상입니다.** 기본은 프레임 시각을 16ms씩 진행해 실행 중인 애니메이션(FR-41.2)이 없어질 때까지 간 뒤 그립니다. 10초를 넘으면 10초 시점을 그리고 경고합니다. `--at-ms <n>`이면 그 시각을 그립니다. 커서 깜빡임은 그리지 않습니다.
+- **결정적입니다.** 같은 플랫폼과 아키텍처, 같은 렌더러 버전, 같은 미리보기와 인자에서 바이트 단위로 같은 PNG가 나옵니다. PNG의 텍스트 덩어리에 식별자, 크기, 명암, 디자인 시스템, 배율, 렌더러 버전, 플랫폼을 적고 시각은 적지 않습니다.
+- 글꼴은 그 플랫폼에서 앱이 쓸 글꼴과 같습니다. 그래서 OS가 다르면 그림이 다르고, 기준 그림은 플랫폼마다 둡니다.
+
+#### 54.5 목업 비교와 이미지 시험
+
+- `--compare <png>`: 같은 픽셀 크기의 목업 그림을 주면 `<파일>.side.png`(왼쪽 앱, 오른쪽 목업)와 `<파일>.diff.png`(다른 픽셀을 표시)를 쓰고 다른 픽셀의 비율을 출력합니다. 크기가 다르면 늘리거나 줄이지 않고 두 크기를 말하며 0이 아닌 상태로 끝납니다.
+- `--check <기준 디렉터리>`: 같은 이름의 기준 그림과 비교합니다. 기본 허용치는 0이고 `--max-diff`로 비율을 줍니다. 넘으면 차이 그림을 쓰고 0이 아닌 상태로 끝납니다. `--update`는 기준 그림을 새로 씁니다.
+- **CI가 풀 리퀘스트마다 미리보기 PNG를 아티팩트로 올립니다.** Linux x64와 macOS arm64에서 샘플의 미리보기를 뽑고, 기준 그림과 다르면 실패합니다. cargo를 돌리지 않는 서브 에이전트는 이 아티팩트로 화면을 봅니다.
+
+#### 54.6 네트워크
+
+- 미리보기와 내보내기는 실행 중에 네트워크를 쓰지 않습니다. 고정 데이터는 미리보기 함수가 문맥에서 만듭니다.
+- 빌드는 렌더러가 캐시에 있거나 `COMPOSE_RUST_RENDERER_DIR`가 있으면 네트워크 없이 됩니다(D10, NFR-10).
+
+#### 54.7 수용 기준
+
+1. `#[Preview]` 함수가 `list`에 식별자와 구성 행렬로 나오고, 미리보기 도구 밖의 평소 빌드 결과물에는 미리보기 등록이 없습니다(fr54_release_build_has_no_preview_registry).
+2. `export`가 쓴 PNG의 픽셀 크기가 논리 크기 곱하기 배율이고, 크기 이름 네 개가 54.1의 값입니다(fr54_export_size_follows_size_and_scale).
+3. `--scheme`과 `--system`이 Host가 해석한 테마를 바꿉니다. 같은 미리보기의 라이트와 다크 그림이 다르고, 각 그림의 배경 픽셀이 그 디자인 시스템의 배경 역할 색입니다(fr54_export_scheme_and_system_flags).
+4. 같은 기계에서 두 번 내보낸 PNG가 바이트 단위로 같습니다. CI Linux x64의 서로 다른 두 잡에서도 같습니다(fr54_export_is_byte_identical).
+5. 무한히 도는 애니메이션이 있는 미리보기도 실행마다 같은 바이트이고, `--at-ms 250`과 `--at-ms 500`은 서로 다르되 각각 실행마다 같습니다(fr54_export_uses_a_virtual_clock).
+6. Linux CI에서 `DISPLAY`와 `WAYLAND_DISPLAY`가 없고 GPU가 없는 상태로 `export`가 성공합니다(fr54_export_runs_without_a_display).
+7. 렌더러가 캐시에 있는 상태에서, 네트워크 인터페이스가 없는 이름공간(`unshare -rn`)에서 빌드와 `export`가 성공합니다(fr54_preview_runs_without_network).
+8. `--compare`가 크기가 같으면 나란히 그림과 차이 그림을 쓰고, 크기가 다르면 두 크기를 말하며 실패합니다. `--check`는 한 픽셀이 다른 그림에서 실패하고 차이 그림을 씁니다(fr54_compare_and_check).
+9. **시간.** 소유자의 Mac에서 compose-rust 작성 API(FR-39)로 쓴 샘플 화면 하나의 함수 본문(글 하나와 여백 하나)을 고쳐 저장하면, 파일이 쓰인 때부터 새 그림의 첫 프레임까지 **3초 이하**입니다. 한 번 데워진 빌드 뒤 다섯 번 잰 중앙값이고, 54.3의 단계별 시간과 기계(칩, 메모리, macOS 버전)와 날짜를 이 항목 옆에 적습니다.
+10. 같은 측정을 Ember 화면 하나에서 하고 숫자를 적습니다. **Ember에도 3초 이하가 합격 기준입니다**(리더 결정, 2026-10-26). 넘으면 Ember의 화면 코드를 크레이트로 나누고 다시 잽니다.
+11. 컴파일 오류를 넣고 저장하면 창이 다시 뜨지 않고 마지막 그림이 남으며, 오류가 터미널에 나옵니다. 고치고 저장하면 새 그림이 나옵니다(fr54_watch_keeps_the_last_good_picture).
+12. 다시 띄운 뒤 창의 위치, 크기, 고른 미리보기, 크기, 명암, 디자인 시스템, 배율이 전과 같습니다(fr54_watch_restores_its_state).
+13. 실행 중에 미리보기, 크기, 명암을 바꾸면 빌드가 일어나지 않고 500ms 안에 새 그림이 나옵니다.
+14. macOS arm64, Linux x64, Windows x64에서 `watch`가 창을 열고 `export`가 PNG를 씁니다. Windows는 확인한 날짜를 따로 적습니다.
+15. compose-rust의 풀 리퀘스트에서 CI가 샘플 미리보기 PNG를 아티팩트로 올립니다(Linux x64, macOS arm64).
 
 ## 4. 경계 프로토콜
 
@@ -3734,6 +4029,7 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 | NFR-14 | AWT 없는 데스크톱 렌더러가 기본 | 배포되는 데스크톱 렌더러가 AWT도 JVM도 쓰지 않음. macOS와 Linux는 Kotlin/Native 정적 라이브러리, Windows는 NFR-13. 앱이 아무것도 고르지 않아도 이 경로가 나옴. 규격과 수용 기준은 §5.5 (INTENT D4, 2026-10-03 소유자 결정) | Agreed, 진행 중: macOS와 Linux의 기본값은 PR #113(3be2ec74, 2026-10-04 병합)으로 Kotlin/Native 정적 렌더러이고 이슈 #22는 닫혔습니다. Windows의 PR #119, #174는 2026-10-24에 병합됐고, Windows 배포는 Kotlin/Native 정적 렌더러뿐입니다(§5.6). compose-rust가 내는 길은 Kotlin/Native뿐이라는 것이 소유자의 말입니다(2026-10-17) |
 | NFR-15 | 데스크톱 애플리케이션은 실행 파일 하나 | compose-rust 애플리케이션이 macOS, Windows, Linux에서 실행 파일 하나이고, 시스템 라이브러리 외에 아무것도 불러오지 않음. 렌더러, Skia, ICU 데이터가 안에 있음. 1.0.0 요구사항. 규격과 수용 기준은 §5.7 (INTENT D17, 2026-10-03 소유자 결정) | Agreed |
 | NFR-16 | 렌더러를 스키마 해시로 찾음 | 같은 크레이트 버전에서 스키마가 다른 git 리비전도 빌드됨. 버전 릴리스의 스키마 해시가 크레이트와 다르면 스키마 해시로 게시된 렌더러에서 찾고, 캐시 키는 스키마 해시임. 규격과 수용 기준은 §5.3.8 (소유자 결정, 2026-10-26) | Agreed |
+| NFR-17 | 메모리 안정성 | 같은 화면을 몇 천 프레임 그려도 런타임이 붙들고 있는 메모리가 늘지 않음. 규격과 수용 기준은 §5.8 (소유자 보고, 2026-10-26) | Agreed |
 
 ### 5.1 프레임 예산 (NFR-9)
 
@@ -4071,6 +4367,18 @@ Cargo는 path 패키지의 유닛 해시에 패키지 경로를 넣지 않습니
    - 동적 C 런타임으로 미리 빌드된 C/C++ 라이브러리와 섞여 링커가 `RuntimeLibrary` 불일치(LNK2038)를 내면, 빌드 스크립트가 어느 라이브러리가 동적 런타임인지와 무엇을 하면 되는지를 짚는 메시지를 냅니다. 테스트로 확인합니다.
    - 같은 샘플을 동적 런타임과 정적 런타임으로 각각 링크한 실행 파일 크기를 재서 여기에 적습니다(측정 전).
 6. FR-22.6의 번들(FR-22.6 표의 앱, 패키지, 스토어 패키지 형식)은 이 실행 파일 하나와 아이콘, 메타데이터만 담습니다.
+
+### 5.8 메모리 안정성 (NFR-17)
+
+2026-10-26에 소유자가 Mac에 띄워 둔 샘플 앱들(sample-v0.0.3, 채팅, 메모장, 상점, 통계의 Kotlin/Native와 GraalVM 빌드)이 이틀 뒤 모두 4기가를 넘었다고 보고했습니다. 같은 Mac에서 채팅 샘플의 입력창에 글자를 치고 메시지를 보내면 한 메시지에 약 17MB씩 `MALLOC_SMALL`이 늘고, 입력을 멈추면 늘지 않습니다. 그래픽 쪽(IOSurface, IOAccelerator, graphics)은 늘지 않습니다. 늘어난 것은 Rust 쪽 힙이고, 런타임이 노드를 갱신할 때마다 속성 버퍼 하나(약 1.5KB)를 풀에 쌓아 두고 다시 꺼내 쓰지 않는 것이 원인입니다. 런타임은 모든 플랫폼이 공유하므로 이 증상은 플랫폼에 묶이지 않습니다.
+
+**요구사항.** 화면이 프레임마다 바뀌어도 런타임이 보유한 메모리는 프레임 수에 비례해 늘지 않습니다. 풀과 스크래치 버퍼는 크기에 상한이 있습니다.
+
+**수용 기준.**
+
+1. 노드 80개짜리 화면에서 상태를 매 프레임 바꾸며 5000 프레임을 그릴 때, 200프레임 이후의 살아 있는 힙 증가가 256KB 미만입니다. `compose-rust/tests/compose_memory.rs`의 `nfr_17_live_memory_does_not_grow_with_the_frames_drawn`이고, 수정 전에는 500MB를 넘습니다.
+2. macOS CI에서 샘플 앱 하나에 합성 입력으로 수천 프레임을 그린 뒤 physical footprint가 시작 값의 두 배 미만입니다. 수치를 이 항목에 기록합니다. 미완료.
+3. 같은 검사를 Windows와 Linux 렌더러에서도 돌립니다. 미완료.
 
 ## 6. IME 수용 체크리스트 (FR-5, M1)
 

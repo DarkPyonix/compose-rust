@@ -4,7 +4,7 @@
 # scripts/publish-skiko-awt.sh). When a build script runs the Kotlin toolchain before they are
 # there, the toolchain tries to download them, fails, and records the failure in its own cache.
 # From then on the build keeps failing with "Unable to download checksums of file
-# foundation-1.11.1-ext.1.pom" even after ~/.m2 holds the files, until someone finds that cache.
+# foundation-1.11.1-ext.2.pom" even after ~/.m2 holds the files, until someone finds that cache.
 #
 # So every script that resolves those versions checks ~/.m2 first and stops before the
 # toolchain runs. This proves it for each script by running it in a copy of the tree with the
@@ -46,16 +46,15 @@ fork_files() {
         case "$group:$version" in
             org.thisisthepy.compose.window*) continue ;;
             org.thisisthepy.compose.*:"$compose_as"|org.thisisthepy.compose.*:"$material3_as") ;;
-            org.jetbrains.skiko:"$skiko_as") ;;
             *) continue ;;
         esac
         base="$(tr . / <<< "$group")"
         for name in "$artifact" ${variant:+"$artifact-$variant"}; do
-            [[ "$name" == "$artifact" || ( "$group" == org.thisisthepy.compose.* && "$group" != org.thisisthepy.compose.desktop ) ]] || continue
+            [[ "$name" == "$artifact" || ( "$group" == org.thisisthepy.compose.* && "$group" != org.thisisthepy.compose.desktop && "$group" != org.thisisthepy.compose.skiko ) ]] || continue
             echo "$base/$name/$version/$name-$version.pom"
             echo "$base/$name/$version/$name-$version.module"
         done
-    done < <(sed -En 's/^[[:space:]]*-[[:space:]]*(org\.thisisthepy\.compose[A-Za-z0-9.]*|org\.jetbrains\.skiko):([A-Za-z0-9._-]+):([A-Za-z0-9._-]+)[[:space:]]*$/\1 \2 \3/p' \
+    done < <(sed -En 's/^[[:space:]]*-[[:space:]]*(org\.thisisthepy\.compose[A-Za-z0-9.]*):([A-Za-z0-9._-]+):([A-Za-z0-9._-]+)[[:space:]]*$/\1 \2 \3/p' \
         "$repo/renderer/$module/module.yaml")
 }
 
@@ -152,7 +151,7 @@ for case_line in "${cases[@]}"; do
         fi
         # skiko-awt has a publish command of its own.
         expected="$command"
-        [[ "$state" == partial && "${files[${#files[@]}-1]}" == org/jetbrains/skiko/* ]] &&
+        [[ "$state" == partial && "${files[${#files[@]}-1]}" == org/thisisthepy/compose/skiko/* ]] &&
             expected="publish-skiko-awt.sh"
         grep -q -- "$expected" "$work/out" ||
             fail "$script did not name '$expected' with the fork's artifacts missing ($state ~/.m2)"

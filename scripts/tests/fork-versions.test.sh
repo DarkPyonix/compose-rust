@@ -30,7 +30,7 @@ for module in ui:ui ui:ui-text foundation:foundation desktop:desktop; do
     check renderer/desktop/module.yaml "org.thisisthepy.compose.${module%%:*}:${module##*:}:$compose_as"
 done
 check renderer/desktop/module.yaml "org.thisisthepy.compose.material3:material3:$material3_as"
-check renderer/desktop/module.yaml "org.jetbrains.skiko:skiko-awt:$skiko_as"
+check renderer/desktop/module.yaml "org.thisisthepy.compose.skiko:skiko-awt:$skiko_as"
 check renderer/macos/module.yaml "org.thisisthepy.compose.ui:ui:$compose_as"
 check renderer/macos/module.yaml "org.thisisthepy.compose.foundation:foundation:$compose_as"
 check renderer/macos/module.yaml "org.thisisthepy.compose.material3:material3:$material3_as"

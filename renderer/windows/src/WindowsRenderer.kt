@@ -68,6 +68,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
             minimise = { Win32Window.action(0) },
             maximise = { Win32Window.action(1) },
             close = { Win32Window.action(2) },
+            maximised = window.maximised,
         )
         window.setContent {
             androidx.compose.runtime.CompositionLocalProvider(

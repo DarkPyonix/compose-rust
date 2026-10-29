@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # When the Kotlin toolchain resolves a coordinate only the Compose fork publishes before the fork
 # has published it, the resolution fails with "Unable to download checksums of file
-# foundation-1.11.1-ext.1.pom" and the toolchain keeps that result in the renderer's
+# foundation-1.11.1-ext.2.pom" and the toolchain keeps that result in the renderer's
 # build/incremental.state. The entry is keyed on the coordinates and repositories, not on what
 # ~/.m2 holds, so every later build replays the failure, even once ~/.m2 has the files.
 #

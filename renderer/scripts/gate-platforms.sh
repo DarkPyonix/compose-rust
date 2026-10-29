@@ -69,7 +69,7 @@ has_x11() {
 # The Windows Compose this module compiles against, as build-compose.sh publishes it. One
 # module stands for the fourteen: they are published together or not at all.
 has_mingw_compose() {
-    [[ -d "$HOME/.m2/repository/org/jetbrains/compose/ui/ui-mingwx64" ]]
+    [[ -d "$HOME/.m2/repository/org/thisisthepy/compose/ui/ui-mingwx64" ]]
 }
 
 is_windows() {

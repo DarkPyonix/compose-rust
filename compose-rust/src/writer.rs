@@ -572,6 +572,13 @@ impl NodeWriter {
     fn forget(&mut self, node_id: u32) {
         self.parents.remove(&node_id);
         self.animated.remove(&node_id);
+        // Everything the writer keeps per node, so that a node id that is gone leaves
+        // nothing behind. Ids are never reused, so a stale entry is never read again and
+        // only costs memory, for as long as the process runs.
+        self.optional_props.remove(&node_id);
+        self.pending_borders.remove(&node_id);
+        self.modifier_slots.remove(&node_id);
+        self.size_tokens.remove(&node_id);
         for child in self.children.remove(&node_id).unwrap_or_default() {
             self.forget(child);
         }
