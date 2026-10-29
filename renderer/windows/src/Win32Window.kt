@@ -15,11 +15,13 @@ import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.scene.ComposeScene
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
+import dev.darkpyonix.composerust.protocol.Chrome
 import dev.darkpyonix.composerust.ui.node.LayoutProfile
 import java.lang.System
 import kotlinx.cinterop.COpaquePointer
 import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.staticCFunction
+import kotlin.math.roundToInt
 import org.jetbrains.skia.BackendRenderTarget
 import org.jetbrains.skia.ColorSpace
 import org.jetbrains.skia.DirectContext
@@ -60,6 +62,14 @@ internal class Win32Window private constructor(
     private val native: Win32NativeWindow,
     private val context: DirectContext,
     measured: WindowMeasurement,
+    /**
+     * One window of several. The C window keeps a record per window, and the calls that name
+     * none run for the selected one, so a window of several selects itself before each (see
+     * [select]); a window on its own never does, which is what keeps its path as it was.
+     */
+    private val multi: Boolean = false,
+    /** The time of the next frame, shared by every window of a process; null for a window on its own. */
+    private val frameNanos: (() -> Long)? = null,
 ) {
 
     private val reportInput = System.getenv("DXC_REPORT_INPUT") != null
@@ -81,8 +91,30 @@ internal class Win32Window private constructor(
     /** Where the scene's own work runs: here, on the thread that draws, once a frame. */
     private val work = FrameDispatcher()
 
+    /**
+     * Whether the window is the active one. A window on its own is always taken to be, as it
+     * always was; a window of several is told by the activations the C side reports.
+     */
+    val focused = androidx.compose.runtime.mutableStateOf(true)
+
+    /** Called with the frame's time after each frame that reached the swapchain. Windows of several only. */
+    var afterFrame: ((Long) -> Unit)? = null
+
+    /** Whether something asked for a frame that the scene itself does not know of. Windows of several only. */
+    var frameWanted: () -> Boolean = { false }
+
+    /** Set once the window is destroyed; nothing is drawn or read after that. */
+    var gone = false
+        private set
+
+    /** The handle of the window, which names it to the C side. */
+    val handle: COpaquePointer get() = native.window
+
+    /** How many pixels a point is on the monitor the window is on. */
+    fun pixelsPerPoint(): Float = native.measure().scale
+
     private val windowInfo = object : WindowInfo {
-        override val isWindowFocused: Boolean get() = true
+        override val isWindowFocused: Boolean get() = focused.value
         override val containerSize: IntSize get() = size
     }
 
@@ -101,6 +133,7 @@ internal class Win32Window private constructor(
              * side's, the same one every desktop window here answers to.
              */
             override fun setPointerIcon(pointerIcon: PointerIcon) {
+                this@Win32Window.select()
                 Win32Loop.setCursor(
                     when (pointerIcon) {
                         PointerIcon.Hand -> Win32Cursor.HAND
@@ -126,13 +159,13 @@ internal class Win32Window private constructor(
 
     fun setContent(content: @Composable () -> Unit) {
         scene.setContent(content)
-        WindowStartReport.sceneCreated(size.width, size.height, scene.density.density)
+        if (!multi) WindowStartReport.sceneCreated(size.width, size.height, scene.density.density)
     }
 
     /** Holds the window until it closes. */
     fun run() {
         resizing = this
-        Win32Loop.setDrawCallback(staticCFunction { _: COpaquePointer? -> resizing?.draw(); Unit })
+        installResizeCallback()
         // Rests only when the last turn found nothing to do. A frame that drew has already
         // waited for the screen inside Present, and waiting again would halve the rate of
         // anything that animates.
@@ -178,6 +211,69 @@ internal class Win32Window private constructor(
         }
     }
 
+    /**
+     * Makes this the window the C calls that name none are about. Only a window of several
+     * does anything here.
+     */
+    fun select() {
+        if (multi) selectWindow(native.window)
+    }
+
+    /**
+     * One turn of a window of several: its scene's work, what it heard, and a frame when there
+     * is a reason to draw one. The process's message queue was served before this, once for
+     * every window. True when this window heard something or drew, so the loop does not rest.
+     */
+    fun turn(): Boolean {
+        if (gone) return false
+        select()
+        drew = false
+        work.runPending()
+        var heard = false
+        for (event in Win32Loop.drainEvents()) {
+            if (reportInput && event.kind != WindowEvent.POINTER_MOVE) {
+                System.err.println("compose-rust: window heard $event")
+            }
+            scene.receive(event, win32 = true)
+            textInput.receive(event)
+            heard = true
+            // The application may have removed this window while handling the event.
+            if (gone) return true
+        }
+        if (!painted || heard || scene.hasInvalidations() || frameWanted()) {
+            draw()
+        }
+        if (gone) return true
+        semantics.pushIfChanged(scene.density.density, afterDrawing = drew)
+        return heard || drew
+    }
+
+    /** What a caption button of this window asks: 0 minimises, 1 maximises or restores, 2 closes. */
+    fun perform(which: Int) {
+        select()
+        Win32Loop.action(which)
+    }
+
+    /**
+     * Destroys the window now and leaves the scene and the GPU objects for [release], which
+     * the loop calls once nothing is inside the scene any more. Closing a scene from inside
+     * the event that asked for it would take it down in the middle of its own input.
+     */
+    fun destroy() {
+        if (gone) return
+        gone = true
+        live.remove(native.window.rawValue.toLong())
+        if (live.isEmpty()) Win32Loop.setDrawCallback(null)
+        destroyHandle(native.window)
+    }
+
+    /** Takes the scene and everything under it down after [destroy]. */
+    fun release() {
+        scene.close()
+        context.close()
+        releaseHandle(native.window)
+    }
+
     /** In this order: a message dispatched after the scene has closed would draw into it. */
     fun close() {
         Win32Loop.setDrawCallback(null)
@@ -188,13 +284,15 @@ internal class Win32Window private constructor(
 
     /** Draws one frame unless one is already being drawn. */
     fun draw(): Boolean {
-        if (drawing) return false
+        if (drawing || gone) return false
         drawing = true
         try {
+            select()
             // The scene's own work first: during a drag of the window's edge this is the only
             // place that runs at all.
             work.runPending()
-            nanos += FRAME_NANOS
+            val shared = frameNanos
+            if (shared != null) nanos = shared() else nanos += FRAME_NANOS
             ResizeMetrics.frameBegin()
             // While the window is changing size the C side asks for the frame in CPU
             // pixels, which it copies into the window before the resize returns.
@@ -203,7 +301,8 @@ internal class Win32Window private constructor(
             if (drawn) {
                 painted = true
                 drew = true
-                WindowStartReport.frameDrawn(size.width, size.height)
+                if (!multi) WindowStartReport.frameDrawn(size.width, size.height)
+                afterFrame?.invoke(nanos)
             }
         } finally {
             drawing = false
@@ -298,6 +397,44 @@ internal class Win32Window private constructor(
         fun action(which: Int) = Win32Loop.action(which)
 
         /**
+         * Opens one window of several, from what its `Window` node asked for, or null where this
+         * machine has no Direct3D 12 adapter or the window table is full.
+         *
+         * The window asks the system to hold its request to close for the application
+         * (`dxc_native_window_set_close_deferred`): closing is the application removing the
+         * node. Sizes and the position are in points, which are dp at the monitor's scale.
+         */
+        fun openOf(config: PlatformWindowConfig, frameNanos: () -> Long): Win32Window? {
+            if (System.getenv("DXC_LAYOUT_PROFILE") == "1") LayoutProfile.enabled = true
+            Win32NativeWindow.configure(
+                config.resizable,
+                config.minWidth.toInt(),
+                config.minHeight.toInt(),
+                config.chrome == Chrome.System,
+                backdrop = 0,
+            )
+            val x = config.x
+            val y = config.y
+            if (x != null && y != null) {
+                configurePosition(1, x.roundToInt(), y.roundToInt())
+            } else {
+                configurePosition(0, 0, 0)
+            }
+            val width = if (config.width > 0f) config.width.roundToInt() else DEFAULT_OPEN_WIDTH
+            val height = if (config.height > 0f) config.height.roundToInt() else DEFAULT_OPEN_HEIGHT
+            val native = Win32NativeWindow.open(config.title.ifEmpty { "compose-rust" }, width, height)
+                ?: return null
+            selectWindow(native.window)
+            setCloseDeferred(1)
+            Win32Loop.setRasterResize(System.getenv("DXC_RASTER_RESIZE") != "0")
+            val context = DirectContext.makeDirect3D(native.adapter.rawValue, native.device.rawValue, native.queue.rawValue)
+            val window = Win32Window(native, context, native.measure(), multi = true, frameNanos = frameNanos)
+            live[native.window.rawValue.toLong()] = window
+            installResizeCallback()
+            return window
+        }
+
+        /**
          * Opens a window, or null where this machine has no Direct3D 12 adapter.
          *
          * Null rather than an exception: a machine without one is not a mistake in this code.
@@ -330,6 +467,24 @@ internal class Win32Window private constructor(
  * callback the C side holds cannot capture anything, so it finds the window here.
  */
 private var resizing: Win32Window? = null
+
+/** The windows of a process that has several, by handle: a resize finds its window here. */
+private val live = HashMap<Long, Win32Window>()
+
+/**
+ * The window a resize is drawn for. With several windows open the C side says which one is
+ * resizing (`dxc_native_current_window`), because the draw callback is the process's.
+ */
+private fun resizingWindow(): Win32Window? =
+    if (live.isEmpty()) resizing else live[currentWindow()]
+
+private fun installResizeCallback() {
+    Win32Loop.setDrawCallback(staticCFunction { _: COpaquePointer? -> resizingWindow()?.draw(); Unit })
+}
+
+/** What a window that did not give a size is opened at, as a single window's is. */
+private const val DEFAULT_OPEN_WIDTH = 520
+private const val DEFAULT_OPEN_HEIGHT = 360
 
 /**
  * DXGI_FORMAT_B8G8R8A8_UNORM, what the swapchain was made with and Skia has to be told again.
