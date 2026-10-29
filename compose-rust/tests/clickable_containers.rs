@@ -39,17 +39,13 @@ fn Clickables() {
     Column().content(|| {
         Text(format!("{}", count.get()));
         let c = count.clone();
-        Row()
-            .on_click(move || c.update(|n| *n += 1))
-            .content(|| {
-                Text("row");
-            });
+        Row().on_click(move || c.update(|n| *n += 1)).content(|| {
+            Text("row");
+        });
         let c = count.clone();
-        Box()
-            .on_click(move || c.update(|n| *n += 10))
-            .content(|| {
-                Text("box");
-            });
+        Box().on_click(move || c.update(|n| *n += 10)).content(|| {
+            Text("box");
+        });
         let c = count.clone();
         Card()
             .on_click(move || c.update(|n| *n += 100))
@@ -69,8 +65,8 @@ fn Clickables() {
                 Text("column");
             });
         Row().content(|| {
-                Text("plain row");
-            });
+            Text("plain row");
+        });
     });
 }
 
@@ -88,11 +84,7 @@ fn fr_55_a_clicked_container_runs_its_closure_across_recompositions() {
         assert_eq!(tree.texts()[0], round.to_string());
     }
     let mut expected = 3;
-    for (widget, step) in [
-        ("Box", 10),
-        ("Card", 100),
-        ("Surface", 1000),
-    ] {
+    for (widget, step) in [("Box", 10), ("Card", 100), ("Surface", 1000)] {
         let (node, handler) = handled_nth(&tree, widget, 0);
         click(&mut host, &mut tree, node, handler);
         expected += step;
