@@ -4,6 +4,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.protocol.PropertyKind
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.ui.node.Node
 
 /**
@@ -26,5 +29,19 @@ internal fun HostProgressIndicator(node: Node, modifier: Modifier, theme: Resolv
         circular = node.flag(PropertyKind.Circular, default = false),
         modifier = modifier,
         theme = theme,
+        diameter = node.namedDiameter(),
     )
+}
+
+/**
+ * The width of the ring this node was told to be, or null when it named no size. The
+ * smaller side wins when it named both.
+ */
+private fun Node.namedDiameter(): Dp? = modifiers.fold(null as Dp?) { named, value ->
+    when (value) {
+        is ProtocolModifier.Size -> minOf(value.width, value.height).dp
+        is ProtocolModifier.Width -> value.value.dp
+        is ProtocolModifier.Height -> value.value.dp
+        else -> named
+    }
 }
