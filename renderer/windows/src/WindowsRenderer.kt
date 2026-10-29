@@ -3,6 +3,7 @@
 package dev.darkpyonix.composerust.ui.platform
 
 import androidx.compose.ui.unit.dp
+import dev.darkpyonix.composerust.protocol.WindowMode
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
 import dev.darkpyonix.composerust.runtime.HostConnection
@@ -15,7 +16,8 @@ import dev.darkpyonix.composerust.runtime.HostConnection
  * linked into the application's own executable beside this renderer. What differs from the
  * native image is what is not here: no Java runtime and no toolkit underneath.
  *
- * Returns when the window closes.
+ * Returns when the window closes, or for an application of several windows when the last of
+ * them is removed (see [runMultiWindow]).
  */
 internal fun runRenderer(connection: () -> HostConnection): Int {
     // Asked for by a build that proves the executable finds, shapes, wraps and draws Korean
@@ -29,6 +31,10 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // (Win32TextToolbar), as on macOS; the new context menu path would draw Compose's own.
     androidx.compose.foundation.ComposeFoundationFlags.isNewContextMenuEnabled = false
     Notifications.platform = Win32Notifications()
+    // Asked for by the build that proves several windows work here (see
+    // `Fr53WindowsCheck.kt`). Like the text check, it ends the run when it fails and lets the
+    // application start when it passed.
+    if (runFr53WindowsChecksIfAsked() == false) return RendererApi.RUN_FAILED
     // Started before there is a window, because what the window should look like is in the
     // first batch and a window cannot be told afterwards. Started on this thread, which is
     // the one every later call to it is made from and the one the frames are drawn on.
@@ -38,6 +44,10 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // What the application asked for. A window that said nothing is listed under whatever
     // this renderer happens to be called, and a measurement of zero means it did not ask.
     val asked = host.table.window
+    // An application that asked for several windows (SetWindow mode Windows) gets one Win32
+    // window for every `Window` node and a loop of its own; what follows is the window of an
+    // application that has one, and is as it always was.
+    if (asked?.mode == WindowMode.Windows) return runMultiWindow(host)
     // Who draws the caption, as the application asked and as the native image does: with
     // Chrome.System the system's caption, otherwise the window gives the caption strip to
     // the content, which draws the title and the three buttons in it.

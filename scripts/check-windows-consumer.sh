@@ -227,6 +227,24 @@ if [[ "$status" -ne 0 ]] || ! grep -q '^compose-rust text self-check: ok' "$text
     failed+=("the Korean text self-check (status $status; see the lines above)")
 fi
 
+echo "== 3c. several windows in one process"
+# The renderer runs the checks itself when asked (Fr53WindowsCheck.kt): the real window
+# manager and the real Win32 windows under a scripted Host, one `fr53_windows_*` line each.
+# A Kotlin/Native test executable cannot hold them, because the window is C that only an MSVC
+# link has. The names are read from the Kotlin so the two cannot drift.
+fr53_log="$scratch/fr53-windows-check.log"
+status=0
+( cd "$scratch/alone" && COMPOSE_RUST_FR53_WINDOWS_CHECK=1 ./consumer.exe --self-check ) 2> "$fr53_log" || status=$?
+grep 'fr53_windows' "$fr53_log" || true
+fr53_names="$(grep -oE '"fr53_windows_[a-z0-9_]+"' "$repo_root/renderer/windows/src/Fr53WindowsCheck.kt" | tr -d '"' | sort -u)"
+[[ -n "$fr53_names" ]] || failed+=("Fr53WindowsCheck.kt names no fr53_windows check")
+for name in $fr53_names; do
+    grep -q "^compose-rust: $name: ok" "$fr53_log" || failed+=("$name (see the lines above)")
+done
+if [[ "$status" -ne 0 ]]; then
+    failed+=("the several-windows checks ended with status $status")
+fi
+
 echo "== 4. beside a C++ library built for the runtime DLL (/MD)"
 mixed_lib="$scratch/mixed-runtime-lib"
 mkdir -p "$mixed_lib"
