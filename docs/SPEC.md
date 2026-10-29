@@ -3632,6 +3632,22 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 14. macOS arm64, Linux x64, Windows x64에서 `watch`가 창을 열고 `export`가 PNG를 씁니다. Windows는 확인한 날짜를 따로 적습니다.
 15. compose-rust의 풀 리퀘스트에서 CI가 샘플 미리보기 PNG를 아티팩트로 올립니다(Linux x64, macOS arm64).
 
+### FR-56 TextField가 노드의 채움, 테두리, 모양, 안쪽 여백을 따릅니다 (`Agreed`, 이슈 #376)
+
+요청한 쪽: darkpyonix-ember#220. `TextField`는 노드의 `Background`, `Border`, `Shape`, `Padding`을 무시하고 디자인 시스템의 틀(채움, 선, 모서리, 안쪽 여백)을 늘 그렸습니다. 같은 일을 `Card`와 `Surface`는 `setsOwnBackground`로 이미 합니다.
+
+- 노드가 `Background`를 가지면 시스템의 채움을 그리지 않고 그 채움을 씁니다. 시스템의 밑줄도 그리지 않습니다.
+- 노드가 `Border` 또는 `BorderEach`를 가지면 시스템의 선과 밑줄을 그리지 않습니다. 포커스일 때 선이 바뀌는 시스템 규칙도 함께 꺼집니다. 포커스 표시가 필요하면 앱이 `Border`를 바꿔 보냅니다.
+- 노드가 `Shape`, `ShapeRole`, `CornerEach`를 가지면 그 모양으로 자릅니다.
+- 노드가 `Padding`, `PaddingEach`, `PaddingRole`을 가지면 시스템의 안쪽 여백을 더하지 않습니다(이중 여백 방지).
+- 아무것도 말하지 않은 필드는 지금과 똑같이 시스템의 틀을 그립니다. 글자 크기와 글꼴 지정은 #374(`font`, `span_fonts`, `word_break` 빌더)입니다.
+
+수용 기준.
+1. `Background`를 준 필드의 빈 자리 픽셀이 그 색입니다.
+2. `Border`와 `Background`를 준 필드의 가장자리 픽셀이 테두리 색이고 그 안쪽이 채움 색입니다.
+3. 아무것도 주지 않은 필드는 채움이 시스템 색입니다.
+4. `Shape`을 준 필드의 모서리 픽셀이 그 반지름 밖입니다.
+
 ## 4. 경계 프로토콜
 
 ### PR-1 호출 모델: 동기·동일 스레드 직접 호출 (`Done`)

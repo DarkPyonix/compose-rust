@@ -48,6 +48,7 @@ import dev.darkpyonix.composerust.design.LocalDesignTheme
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.textStyle
+import dev.darkpyonix.composerust.ui.resolvedShape
 import dev.darkpyonix.composerust.ui.node.HostText
 import dev.darkpyonix.composerust.design.LocalGlassDepth
 
@@ -198,6 +199,27 @@ internal fun HostTextField(node: Node, modifier: Modifier, dispatcher: EventDisp
             it is dev.darkpyonix.composerust.protocol.Modifier.Size
     }
 
+    // What the node named for itself replaces what the design system would have drawn
+    // (FR-56). The system's frame is the default for a field that said nothing, and a field
+    // that named a fill, a line, a corner or room inside is drawn as it asked: the same rule
+    // a Card already follows.
+    val ownFill = node.setsOwnBackground()
+    val ownLine = node.modifiers.any {
+        it is dev.darkpyonix.composerust.protocol.Modifier.Border ||
+            it is dev.darkpyonix.composerust.protocol.Modifier.BorderEach
+    }
+    val ownShape = node.modifiers.any {
+        it is dev.darkpyonix.composerust.protocol.Modifier.Shape ||
+            it is dev.darkpyonix.composerust.protocol.Modifier.ShapeRole ||
+            it is dev.darkpyonix.composerust.protocol.Modifier.CornerEach
+    }
+    val ownRoom = node.modifiers.any {
+        it is dev.darkpyonix.composerust.protocol.Modifier.Padding ||
+            it is dev.darkpyonix.composerust.protocol.Modifier.PaddingEach ||
+            it is dev.darkpyonix.composerust.protocol.Modifier.PaddingRole
+    }
+    val frameShape = if (ownShape) node.modifiers.resolvedShape(theme) else frame.shape
+
     BasicTextField(
         value = value,
         onValueChange = { value = it },
@@ -216,14 +238,18 @@ internal fun HostTextField(node: Node, modifier: Modifier, dispatcher: EventDisp
                     .fillMaxWidth()
                     .let { if (fillsHeight) it.fillMaxHeight() else it }
                     .defaultMinSize(minHeight = frame.minHeight)
-                    .clip(frame.shape)
-                    .background(if (focused) frame.containerFocused else frame.container)
-                    .fieldBorder(frame, focused)
-                    .fieldUnderline(frame.underline, focused)
-                    .padding(
-                        horizontal = frame.horizontalPadding,
-                        vertical = frame.verticalPadding,
-                    ),
+                    .clip(frameShape)
+                    .let {
+                        if (ownFill) it else it.background(if (focused) frame.containerFocused else frame.container)
+                    }
+                    .let { if (ownLine) it else it.fieldBorder(frame.copy(shape = frameShape), focused) }
+                    .let { if (ownLine || ownFill) it else it.fieldUnderline(frame.underline, focused) }
+                    .let {
+                        if (ownRoom) it else it.padding(
+                            horizontal = frame.horizontalPadding,
+                            vertical = frame.verticalPadding,
+                        )
+                    },
                 contentAlignment = if (multiline) Alignment.TopStart else Alignment.CenterStart,
             ) {
                 if (value.text.isEmpty() && placeholder.isNotEmpty()) {
