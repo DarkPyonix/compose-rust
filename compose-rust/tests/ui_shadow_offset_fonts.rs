@@ -90,8 +90,8 @@ fn remember_layers() -> MutableState<i32> {
 
 #[test]
 fn fr_40_text_and_a_text_field_send_the_fonts_they_were_given() {
-    let fonts = FontRefs::new([FontRef::Asset(7)]);
-    let (_host, tree) = start(move || {
+    let (_host, tree) = start(|| {
+        let fonts = FontRefs::new([FontRef::Asset(7)]);
         Text("가나다")
             .font(fonts.clone())
             .word_break(WordBreak::BreakAll);
