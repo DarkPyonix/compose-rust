@@ -3,9 +3,15 @@ package dev.darkpyonix.composerust.ui
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.semantics.Role
+import dev.darkpyonix.composerust.protocol.ColorRole
 import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -53,7 +59,6 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import kotlin.math.ceil
 import kotlin.math.max
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
@@ -126,7 +131,7 @@ internal fun List<ProtocolModifier>.toComposeModifier(
                 backgroundSeen = true
                 if (holder == null) chain.background(brush, shape) else chain.animatedBackground(brush, shape, holder)
             } ?: chain.composed { reportUnknownBrush(nodeId, value.paint, dispatcher) }
-            is ProtocolModifier.Clickable -> chain.hostClickable(nodeId, value.handlerId, dispatcher)
+            is ProtocolModifier.Clickable -> chain.pressable(nodeId, value.handlerId, true, dispatcher, theme, shape)
 
             is ProtocolModifier.PaddingEach ->
                 chain.padding(value.start.dp, value.top.dp, value.end.dp, value.bottom.dp)
@@ -191,7 +196,7 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             // with no overflow rule rounds the decoration and leaves the content alone.
             is ProtocolModifier.CornerEach -> chain
             is ProtocolModifier.Shadow -> theme.brush(value.paint)?.let { brush ->
-                chain.boxShadow(value, brush, corners)
+                chain.boxShadow(value, brush, corners, shape)
             } ?: chain.composed { reportUnknownBrush(nodeId, value.paint, dispatcher) }
 
             // `overflow: hidden`: the rounded box where the node has corners, its rectangle
@@ -437,6 +442,32 @@ private fun boxOutline(size: Size, density: Density, corners: CornerEachShape?):
     corners?.roundRect(size, density) ?: RoundRect(0f, 0f, size.width, size.height)
 
 /**
+ * The outline a shadow is cast by: [box] for the radii the spread grows, and [exact] when
+ * the shape is a path with no radii to read (a continuous corner), which is used as it is.
+ */
+private class ShadowOutline(val box: RoundRect, val exact: Path?)
+
+/**
+ * The node's outline for its shadows: the corners an HTML box named, else the shape its
+ * `Shape` or `ShapeRole` gave (the same shape its background and clip use), else the
+ * rectangle. A container with a corner radius therefore casts a rounded shadow.
+ */
+private fun shadowOutline(
+    size: Size,
+    density: Density,
+    direction: LayoutDirection,
+    corners: CornerEachShape?,
+    shape: Shape,
+): ShadowOutline {
+    if (corners != null) return ShadowOutline(corners.roundRect(size, density), null)
+    return when (val outline = shape.createOutline(size, direction, density)) {
+        is Outline.Rounded -> ShadowOutline(outline.roundRect, null)
+        is Outline.Rectangle -> ShadowOutline(RoundRect(outline.rect), null)
+        is Outline.Generic -> ShadowOutline(RoundRect(outline.path.getBounds()), outline.path)
+    }
+}
+
+/**
  * A border with its own width and paint on each side, drawn the way CSS draws one.
  *
  * The border is the ring between the node's outline and the same outline brought in by each
@@ -547,18 +578,23 @@ private fun Modifier.borderEach(
  *
  * Later shadows draw over earlier ones, because a modifier list draws in its order. CSS
  * draws the first shadow in its list on top, so a Host sends a CSS list last to first.
+ * number of shadows is any number of these.
+ *
+ * The outline is the node's own: its `CornerEach` corners, else its `Shape` or `ShapeRole`.
  */
 private fun Modifier.boxShadow(
     value: ProtocolModifier.Shadow,
     brush: Brush,
     corners: CornerEachShape?,
+    shape: Shape,
 ): Modifier = drawWithCache {
     val spread = value.spread.dp.toPx()
     val blur = value.blur.dp.toPx().coerceAtLeast(0f)
     val dx = value.x.dp.toPx()
     val dy = value.y.dp.toPx()
-    val box = boxOutline(size, this, corners)
-    val boxPath = Path().apply { addRoundRect(box) }
+    val cast = shadowOutline(size, this, layoutDirection, corners, shape)
+    val box = cast.box
+    val boxPath = cast.exact ?: Path().apply { addRoundRect(box) }
     val shadowWidth = size.width + 2f * spread
     val shadowHeight = size.height + 2f * spread
     if (shadowWidth <= 0f || shadowHeight <= 0f) {
@@ -567,7 +603,7 @@ private fun Modifier.boxShadow(
     // The spread grows each corner's radius with it, by the rule CSS gives so that a small
     // radius does not jump to a large one when the spread is large.
     fun grown(radius: CornerRadius) = CornerRadius(spreadRadius(radius.x, spread), spreadRadius(radius.y, spread))
-    val shape = RoundRect(
+    val grownBox = RoundRect(
         left = 0f,
         top = 0f,
         right = shadowWidth,
@@ -577,7 +613,7 @@ private fun Modifier.boxShadow(
         bottomRightCornerRadius = grown(box.bottomRightCornerRadius),
         bottomLeftCornerRadius = grown(box.bottomLeftCornerRadius),
     )
-    val shapePath = Path().apply { addRoundRect(shape) }
+    val shapePath = if (spread == 0f && cast.exact != null) cast.exact else Path().apply { addRoundRect(grownBox) }
     if (blur == 0f) {
         return@drawWithCache onDrawBehind {
             clipPath(boxPath, ClipOp.Difference) {
@@ -637,26 +673,53 @@ internal fun List<ProtocolModifier>.weightOf(): Float? =
         ?.takeIf { it > 0f }
 
 /**
- * Pointer handling for `Modifier.Clickable`.
+ * Makes a node a button: it takes keyboard focus, a click and Enter or Space run
+ * the Host handler, assistive technology is told it is a button, and hover, press and focus
+ * are drawn over its content in the shape it is drawn in.
  *
- * The Host handler runs synchronously inside the gesture, and its result decides whether the
- * pointer change is consumed. A Host that does not consume leaves the gesture
- * available to whatever is underneath.
+ * A pointer-only handler would lose all but the first of those, which is why `Clickable`
+ * and the `OnClick` property of a container both come through here.
  */
-private fun Modifier.hostClickable(
+internal fun Modifier.pressable(
     nodeId: Int,
     handlerId: Long,
+    enabled: Boolean,
     dispatcher: EventDispatcher,
-): Modifier = pointerInput(nodeId, handlerId, dispatcher) {
-    awaitEachGesture {
-        val down = awaitFirstDown(requireUnconsumed = true)
-        val up = waitForUpOrCancellation() ?: return@awaitEachGesture
-        if (dispatcher.dispatch(HostEvent.Clicked(nodeId, handlerId))) {
-            down.consume()
-            up.consume()
+    theme: ResolvedTheme,
+    shape: Shape,
+): Modifier = composed {
+    val source = remember(nodeId, handlerId) { MutableInteractionSource() }
+    val hovered by source.collectIsHoveredAsState()
+    val pressed by source.collectIsPressedAsState()
+    val focused by source.collectIsFocusedAsState()
+    val ink = theme.color(ColorRole.OnSurface)
+    val ring = theme.color(ColorRole.Primary)
+    this
+        .hoverable(source, enabled)
+        .clickable(
+            interactionSource = source,
+            indication = null,
+            enabled = enabled,
+            role = Role.Button,
+        ) { dispatcher.dispatch(HostEvent.Clicked(nodeId, handlerId)) }
+        .drawWithContent {
+            drawContent()
+            if (!enabled) return@drawWithContent
+            val layer = when {
+                pressed -> PRESSED_LAYER
+                hovered -> HOVER_LAYER
+                else -> 0f
+            }
+            if (layer > 0f || focused) {
+                val outline = shape.createOutline(size, layoutDirection, this)
+                if (layer > 0f) drawOutline(outline, ink.copy(alpha = layer))
+                if (focused) drawOutline(outline, ring, style = Stroke(2.dp.toPx()))
+            }
         }
-    }
 }
+
+private const val HOVER_LAYER = 0.08f
+private const val PRESSED_LAYER = 0.12f
 
 /**
  * Reports this node's width when the class it falls in changes.

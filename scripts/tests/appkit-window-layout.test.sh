@@ -36,7 +36,6 @@ trap 'rm -f "$probe" "${probe%.m}"' EXIT
     grep '^#define DXC_TEXT_BYTES' "$source_file"
     sed -n '/^struct dxc_native_window {/,/^};/p' "$source_file"
     sed -n '/^struct dxc_event {/,/^};/p' "$source_file"
-    sed -n '/^struct dxc_element {/,/^};/p' "$source_file"
     echo 'int main(void) {'
     echo '    printf("window %zu\nview %zu\ndevice %zu\nqueue %zu\nlayer %zu\nsize %zu\n",'
     echo '        offsetof(struct dxc_native_window, window),'
@@ -55,9 +54,6 @@ trap 'rm -f "$probe" "${probe%.m}"' EXIT
     echo '        offsetof(struct dxc_event, code_point),'
     echo '        offsetof(struct dxc_event, text),'
     echo '        sizeof(struct dxc_event));'
-    echo '    printf("element_label %zu\nelement_size %zu\n",'
-    echo '        offsetof(struct dxc_element, label),'
-    echo '        sizeof(struct dxc_element));'
     echo '    return 0;'
     echo '}'
 } > "$probe"
@@ -100,18 +96,6 @@ check_event_field code_point readInt codePoint
 text_offset="$(awk '$1 == "text" { print $2 }' <<< "$layout")"
 if ! grep -q "TEXT_OFFSET = $text_offset" "$kotlin_file"; then
     echo "fail: C puts the text at $text_offset, which is not where the fork's AppKitWindow.kt reads it"
-    red=1
-fi
-
-element_label="$(awk '$1 == "element_label" { print $2 }' <<< "$layout")"
-if ! grep -q "ELEMENT_LABEL_OFFSET = $element_label" "$kotlin_file"; then
-    echo "fail: C puts an element's label at $element_label, not where AppKitWindow.kt writes it"
-    red=1
-fi
-
-element_size="$(awk '$1 == "element_size" { print $2 }' <<< "$layout")"
-if ! grep -q "ELEMENT_BYTES = $element_size" "$kotlin_file"; then
-    echo "fail: an element is $element_size bytes, which is not what AppKitWindow.kt writes"
     red=1
 fi
 

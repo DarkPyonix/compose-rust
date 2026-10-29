@@ -563,7 +563,7 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
             // the window has been placed and can say where it is. Every frame, because a
             // tree that changed on the last one is a tree nobody has been told about, and
             // a window that has gone still is exactly where that would be forgotten.
-            semantics.pushIfChanged(afterDrawing = drew)
+            semantics.pushIfChanged(scene.density.density, afterDrawing = drew)
             busy = heard || drew
         }
         LatencyTrace.summary()

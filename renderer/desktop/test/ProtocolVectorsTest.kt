@@ -100,6 +100,9 @@ class ProtocolVectorsTest {
                 is Mutation.SetTheme -> false
                 // Nor does the window: it is about the frame around the tree.
                 is Mutation.SetWindow -> false
+                // A window's theme and bringing one forward name a node the vector created.
+                is Mutation.SetWindowTheme -> mutation.nodeId !in created
+                is Mutation.FocusWindow -> mutation.nodeId !in created
                 is Mutation.Create -> false
                 is Mutation.RegisterAsset -> true
                 is Mutation.ReleaseAsset -> true
@@ -567,7 +570,7 @@ class ProtocolVectorsTest {
                 "$event at $offset",
             )
         }
-        assertEquals(726, bytes.size)
+        assertEquals(940, bytes.size)
     }
 
     /**

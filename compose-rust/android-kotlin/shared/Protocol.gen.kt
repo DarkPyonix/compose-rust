@@ -6,9 +6,9 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.charset.StandardCharsets
 
-enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, LinearProgressIndicator }
+enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, Progress }
 
 enum class Key { Enter }
 
@@ -111,6 +111,10 @@ enum class WheelDeltaMode { Pixel, Line, Page }
 enum class Cursor { Auto, Default, Pointer, Text, VerticalText, Crosshair, Move, Grab, Grabbing, NotAllowed, NoDrop, Wait, Progress, Help, ContextMenu, Cell, Copy, Alias, AllScroll, ZoomIn, ZoomOut, ColResize, RowResize, EResize, NResize, NeResize, NwResize, SResize, SeResize, SwResize, WResize, EwResize, NsResize, NeswResize, NwseResize, None }
 
 enum class UserSelect { Auto, None, Text, All }
+
+enum class WindowMode { Single, Windows }
+
+enum class LastWindowClosed { Exit, KeepRunning }
 
 /**
  * The `TypeRole` property of text with no rung of the ladder at all: CSS text, whose
@@ -232,6 +236,13 @@ data class Window(
      * keys is. Always inside -8..8.
      */
     val zoomLevel: Int? = null,
+    /**
+     * One window, or several. With [WindowMode.Windows] the root's children are
+     * `Window` nodes and the rest of this record describes no window.
+     */
+    val mode: WindowMode = WindowMode.Single,
+    /** What happens when the last window goes. Only read in [WindowMode.Windows]. */
+    val lastWindowClosed: LastWindowClosed = LastWindowClosed.Exit,
 )
 
 sealed interface PropertyValue {
@@ -1223,6 +1234,15 @@ sealed interface Mutation {
 
     /** Folds or unfolds the stretch of a code editor that starts on `startLine`. */
     data class SetFolded(val nodeId: Int, val startLine: Int, val collapsed: Boolean) : Mutation
+
+    /**
+     * A theme for one `Window` node, over the application's. A window without
+     * one follows the application's theme.
+     */
+    data class SetWindowTheme(val nodeId: Int, val theme: Theme) : Mutation
+
+    /** Brings a window forward and makes it the key window. Happens once. */
+    data class FocusWindow(val nodeId: Int) : Mutation
 }
 
 sealed interface HostEvent {
@@ -1260,13 +1280,22 @@ sealed interface HostEvent {
     data class EditorFocusChanged(override val nodeId: Int, override val handlerId: Long, val focused: Boolean) : HostEvent
     data class FoldChanged(override val nodeId: Int, override val handlerId: Long, val startLine: Int, val collapsed: Boolean) : HostEvent
     data class CompositionChanged(override val nodeId: Int, override val handlerId: Long, val composing: Boolean) : HostEvent
+    data class WindowCloseRequested(override val nodeId: Int, override val handlerId: Long) : HostEvent
+    data class WindowFocusChanged(override val nodeId: Int, override val handlerId: Long, val focused: Boolean) : HostEvent
+    data class WindowMoved(override val nodeId: Int, override val handlerId: Long, val x: kotlin.Float, val y: kotlin.Float, val width: kotlin.Float, val height: kotlin.Float) : HostEvent
+    data class WindowDrag(override val nodeId: Int, override val handlerId: Long, val phase: Int, val screenX: kotlin.Float, val screenY: kotlin.Float, val overWindow: Int) : HostEvent
+    data class WindowDragOver(override val nodeId: Int, override val handlerId: Long, val kind: Int, val window: Int, val x: kotlin.Float, val y: kotlin.Float) : HostEvent
+    data class WindowUnavailable(override val nodeId: Int, override val handlerId: Long) : HostEvent
+    data class WindowClosed(override val nodeId: Int, override val handlerId: Long) : HostEvent
+    data class WindowRequested(override val nodeId: Int, override val handlerId: Long, val request: Int, val key: String) : HostEvent
+    data class ApplicationReopen(override val nodeId: Int, override val handlerId: Long) : HostEvent
 }
 
 class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -6175437954945919089L
+    const val SCHEMA_HASH: Long = 5001727070868787964L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1292,6 +1321,8 @@ object Protocol {
     private const val TAG_SET_SELECTION = 20
     private const val TAG_REVEAL_RANGE = 21
     private const val TAG_SET_FOLDED = 22
+    private const val TAG_SET_WINDOW_THEME = 23
+    private const val TAG_FOCUS_WINDOW = 24
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -1428,35 +1459,29 @@ object Protocol {
                     }
                     TAG_SET_THEME -> {
                         requireRecordLength(length, THEME_RECORD_LENGTH, offset)
-                        val adaptive = readU16(batch, base, available, offset + 10)
-                        if (adaptive > 1) {
-                            throw ProtocolException("invalid adaptive flag $adaptive", offset + 10)
-                        }
-                        // One slot per type role, in the order the wire fixes them in.
-                        val fonts = List(TypeRole.entries.size) { role ->
-                            readU32(batch, base, available, offset + 12 + 4 * role).toInt()
-                        }
-                        val (entries, problems) = palette(
-                            readBytes(batch, base, available, offset + 12 + 4 * TypeRole.entries.size),
+                        Mutation.SetTheme(theme(batch, base, available, offset + 4))
+                    }
+                    TAG_SET_WINDOW_THEME -> {
+                        requireRecordLength(length, THEME_RECORD_LENGTH + 4, offset)
+                        Mutation.SetWindowTheme(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            theme(batch, base, available, offset + 8),
                         )
-                        Mutation.SetTheme(
-                            Theme(
-                                designSystem(readU16(batch, base, available, offset + 4), offset + 4),
-                                designSystem(readU16(batch, base, available, offset + 6), offset + 6),
-                                colorScheme(readU16(batch, base, available, offset + 8), offset + 8),
-                                adaptive == 1,
-                                fonts,
-                                entries,
-                                problems,
-                            ),
-                        )
+                    }
+                    TAG_FOCUS_WINDOW -> {
+                        requireRecordLength(length, 8, offset)
+                        Mutation.FocusWindow(readU32(batch, base, available, offset + 4).toInt())
                     }
                     TAG_SET_WINDOW -> {
                         requireRecordLength(length, 32, offset)
-                        val resizable = readU16(batch, base, available, offset + 16)
-                        if (resizable > 1) {
-                            throw ProtocolException("invalid resizable flag $resizable", offset + 16)
+                        // Bit 0 is `resizable`; the mode and the last window policy are the
+                        // nibbles above the second byte. Anything else standing is a record
+                        // the sides disagree on.
+                        val flags = readU16(batch, base, available, offset + 16)
+                        if ((flags and 0x00FE) != 0) {
+                            throw ProtocolException("invalid window flags $flags", offset + 16)
                         }
+                        val resizable = flags and 1
                         // A byte saying whether there is a zoom level, then the level as a
                         // signed byte.
                         val zoom = readU16(batch, base, available, offset + 18)
@@ -1481,6 +1506,8 @@ object Protocol {
                                 readU16(batch, base, available, offset + 14),
                                 resizable == 1,
                                 zoomLevel,
+                                windowMode((flags shr 8) and 0xF, offset + 16),
+                                lastWindowClosed(flags shr 12, offset + 16),
                             ),
                         )
                     }
@@ -1601,6 +1628,30 @@ object Protocol {
         }
     }
 
+    /** The body of a `SetTheme` that starts at `at`, which `SetWindowTheme` also carries. */
+    private fun theme(batch: ByteBuffer, base: Int, available: Int, at: Int): Theme {
+        val adaptive = readU16(batch, base, available, at + 6)
+        if (adaptive > 1) {
+            throw ProtocolException("invalid adaptive flag $adaptive", at + 6)
+        }
+        // One slot per type role, in the order the wire fixes them in.
+        val fonts = List(TypeRole.entries.size) { role ->
+            readU32(batch, base, available, at + 8 + 4 * role).toInt()
+        }
+        val (entries, problems) = palette(
+            readBytes(batch, base, available, at + 8 + 4 * TypeRole.entries.size),
+        )
+        return Theme(
+            designSystem(readU16(batch, base, available, at), at),
+            designSystem(readU16(batch, base, available, at + 2), at + 2),
+            colorScheme(readU16(batch, base, available, at + 4), at + 4),
+            adaptive == 1,
+            fonts,
+            entries,
+            problems,
+        )
+    }
+
     /**
      * Reads a palette, keeping every sound entry and saying what was wrong with the rest.
      *
@@ -1685,6 +1736,15 @@ object Protocol {
                 is HostEvent.EditorFocusChanged -> null
                 is HostEvent.FoldChanged -> null
                 is HostEvent.CompositionChanged -> null
+                is HostEvent.WindowCloseRequested -> null
+                is HostEvent.WindowFocusChanged -> null
+                is HostEvent.WindowMoved -> null
+                is HostEvent.WindowDrag -> null
+                is HostEvent.WindowDragOver -> null
+                is HostEvent.WindowUnavailable -> null
+                is HostEvent.WindowClosed -> null
+                is HostEvent.WindowRequested -> event.key.toByteArray(StandardCharsets.UTF_8)
+                is HostEvent.ApplicationReopen -> null
             }
             val recordLength = when (event) {
                 is HostEvent.Clicked -> 16
@@ -1718,6 +1778,15 @@ object Protocol {
                 is HostEvent.EditorFocusChanged -> 24
                 is HostEvent.FoldChanged -> 24
                 is HostEvent.CompositionChanged -> 24
+                is HostEvent.WindowCloseRequested -> 16
+                is HostEvent.WindowFocusChanged -> 20
+                is HostEvent.WindowMoved -> 32
+                is HostEvent.WindowDrag -> 32
+                is HostEvent.WindowDragOver -> 32
+                is HostEvent.WindowUnavailable -> 16
+                is HostEvent.WindowClosed -> 16
+                is HostEvent.WindowRequested -> 28
+                is HostEvent.ApplicationReopen -> 16
             }
             val totalLength = recordLength.toLong() + (text?.size ?: 0)
             if (totalLength > Int.MAX_VALUE || totalLength > out.remaining().toLong()) {
@@ -1755,6 +1824,15 @@ object Protocol {
                 is HostEvent.EditorFocusChanged -> 36
                 is HostEvent.FoldChanged -> 37
                 is HostEvent.CompositionChanged -> 38
+                is HostEvent.WindowCloseRequested -> 39
+                is HostEvent.WindowFocusChanged -> 40
+                is HostEvent.WindowMoved -> 41
+                is HostEvent.WindowDrag -> 42
+                is HostEvent.WindowDragOver -> 43
+                is HostEvent.WindowUnavailable -> 44
+                is HostEvent.WindowClosed -> 45
+                is HostEvent.WindowRequested -> 46
+                is HostEvent.ApplicationReopen -> 47
             }
             out.putShort(tag.toShort())
             out.putShort(recordLength.toShort())
@@ -1890,6 +1968,35 @@ object Protocol {
                     out.putInt(if (event.composing) 1 else 0)
                     out.putInt(0)
                 }
+                is HostEvent.WindowCloseRequested -> Unit
+                is HostEvent.WindowFocusChanged -> {
+                    out.putInt(if (event.focused) 1 else 0)
+                }
+                is HostEvent.WindowMoved -> {
+                    out.putFloat(event.x)
+                    out.putFloat(event.y)
+                    out.putFloat(event.width)
+                    out.putFloat(event.height)
+                }
+                is HostEvent.WindowDrag -> {
+                    out.putInt(event.phase)
+                    out.putFloat(event.screenX)
+                    out.putFloat(event.screenY)
+                    out.putInt(event.overWindow)
+                }
+                is HostEvent.WindowDragOver -> {
+                    out.putInt(event.kind)
+                    out.putInt(event.window)
+                    out.putFloat(event.x)
+                    out.putFloat(event.y)
+                }
+                is HostEvent.WindowUnavailable -> Unit
+                is HostEvent.WindowClosed -> Unit
+                is HostEvent.WindowRequested -> {
+                    out.putInt(event.request)
+                    writeStringReference(out, recordLength, text!!)
+                }
+                is HostEvent.ApplicationReopen -> Unit
             }
             if (text != null) out.put(text)
             return out.position() - start
@@ -1972,6 +2079,7 @@ object Protocol {
         42 -> WidgetKind.SplitPane
         43 -> WidgetKind.CodeEditor
         44 -> WidgetKind.AbsoluteBox
+        45 -> WidgetKind.Window
         100 -> WidgetKind.LinearProgressIndicator
         else -> throw ProtocolException("unknown widget tag $tag", offset)
     }
@@ -2053,6 +2161,25 @@ object Protocol {
         141 -> PropertyKind.Cursor
         142 -> PropertyKind.UserSelect
         120 -> PropertyKind.IslandZoom
+        150 -> PropertyKind.WindowTitle
+        151 -> PropertyKind.WindowSize
+        152 -> PropertyKind.WindowMinSize
+        153 -> PropertyKind.WindowResizable
+        154 -> PropertyKind.WindowChrome
+        155 -> PropertyKind.WindowTitleBar
+        156 -> PropertyKind.WindowIcon
+        157 -> PropertyKind.WindowPosition
+        158 -> PropertyKind.WindowRestoreKey
+        159 -> PropertyKind.WindowZoomLevel
+        160 -> PropertyKind.DragFromPointer
+        161 -> PropertyKind.OnWindowCloseRequested
+        162 -> PropertyKind.OnWindowFocusChanged
+        163 -> PropertyKind.OnWindowMoved
+        164 -> PropertyKind.OnWindowDrag
+        165 -> PropertyKind.OnWindowUnavailable
+        166 -> PropertyKind.OnWindowClosed
+        167 -> PropertyKind.OnWindowDragOver
+        168 -> PropertyKind.TearOffKey
         27 -> PropertyKind.Progress
         else -> throw ProtocolException("unknown property tag $tag", offset)
     }
@@ -2660,6 +2787,18 @@ object Protocol {
         2 -> UserSelect.Text
         3 -> UserSelect.All
         else -> throw ProtocolException("unknown UserSelect tag $tag", offset)
+    }
+
+    private fun windowMode(tag: Int, offset: Int): WindowMode = when (tag) {
+        0 -> WindowMode.Single
+        1 -> WindowMode.Windows
+        else -> throw ProtocolException("unknown WindowMode tag $tag", offset)
+    }
+
+    private fun lastWindowClosed(tag: Int, offset: Int): LastWindowClosed = when (tag) {
+        0 -> LastWindowClosed.Exit
+        1 -> LastWindowClosed.KeepRunning
+        else -> throw ProtocolException("unknown LastWindowClosed tag $tag", offset)
     }
 
     private fun paint(bits: Long, offset: Int): Paint {

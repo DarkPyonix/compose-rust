@@ -29,6 +29,10 @@ import org.thisisthepy.compose.window.macos.MacosClipboardManager
 import org.thisisthepy.compose.window.macos.MacosWindow
 import org.thisisthepy.compose.window.macos.observeSystemAppearance
 import org.thisisthepy.compose.window.macos.systemIsDark
+import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 import platform.AppKit.NSApplication
 import platform.AppKit.NSApplicationActivationPolicy
 import platform.AppKit.NSApplicationWillTerminateNotification
@@ -144,6 +148,16 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
         ),
     )
     requestFrame = window::requestFrame
+    // The fork's window runs the scene's coroutines (the frame requests below among them, and
+    // every delay) only inside a frame, and an idle window is not drawn. A request a Host
+    // worker makes would wait for a frame nobody asks for, so each one is turned into a
+    // redraw on the main thread, which is where AppKit wants `needsDisplay` set.
+    @OptIn(DelicateCoroutinesApi::class)
+    GlobalScope.launch(Dispatchers.Default) {
+        FrameRequests.global.counter.collect {
+            NSOperationQueue.mainQueue.addOperationWithBlock { window.requestFrame() }
+        }
+    }
     val dockIcon = DockIcon(
         lookup = { id -> (host.table.assets.asset(id) as? Asset.Raster)?.bitmap },
         apply = { picture -> picture.toNSImage()?.let { application.applicationIconImage = it } },

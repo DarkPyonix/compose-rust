@@ -32,6 +32,9 @@ const TAG_CONTROL_ANIMATION: u16 = 19;
 const TAG_SET_SELECTION: u16 = 20;
 const TAG_REVEAL_RANGE: u16 = 21;
 const TAG_SET_FOLDED: u16 = 22;
+// 23 and 24 are the windows': a theme for one window, and bringing one forward.
+const TAG_SET_WINDOW_THEME: u16 = 23;
+const TAG_FOCUS_WINDOW: u16 = 24;
 /// The head of a `StartAnimation` record, before its keyframes.
 const ANIMATION_HEADER_LEN: usize = 52;
 /// A keyframe before its value: offset, timing, step position, flags and four numbers.
@@ -226,6 +229,17 @@ pub enum Mutation<'a> {
         start_line: u32,
         collapsed: bool,
     },
+    /// A theme for one `Window` node, over the application's. The payload is
+    /// `SetTheme`'s, after the node id. A window without one follows the application's.
+    SetWindowTheme {
+        node_id: u32,
+        theme: Theme,
+    },
+    /// Brings a window forward and makes it the key window. A command and not a
+    /// property: it happens once.
+    FocusWindow {
+        node_id: u32,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -254,6 +268,10 @@ pub enum ProtocolError {
     /// non-numeric duration or iteration count, keyframes whose values or transform lists
     /// do not match, or a length that does not hold its keyframes.
     InvalidAnimation,
+    /// A `Window` node that is not a child of the root, or a node moved from one window
+    /// into another. Compose keeps one composition per window and has no
+    /// way to hand a node from one to the next.
+    MisplacedWindow,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -299,6 +317,31 @@ const EVENT_VISIBLE_RANGE_CHANGED: u16 = 35;
 const EVENT_EDITOR_FOCUS_CHANGED: u16 = 36;
 const EVENT_FOLD_CHANGED: u16 = 37;
 const EVENT_COMPOSITION_CHANGED: u16 = 38;
+// 39 to 47 are the windows'.
+const EVENT_WINDOW_CLOSE_REQUESTED: u16 = 39;
+const EVENT_WINDOW_FOCUS_CHANGED: u16 = 40;
+const EVENT_WINDOW_MOVED: u16 = 41;
+const EVENT_WINDOW_DRAG: u16 = 42;
+const EVENT_WINDOW_DRAG_OVER: u16 = 43;
+const EVENT_WINDOW_UNAVAILABLE: u16 = 44;
+const EVENT_WINDOW_CLOSED: u16 = 45;
+const EVENT_WINDOW_REQUESTED: u16 = 46;
+const EVENT_APPLICATION_REOPEN: u16 = 47;
+
+/// Where `SetWindow` keeps the mode and the last window policy: in the bits of the
+/// `resizable` word above the flag.
+const WINDOW_MODE_SHIFT: u32 = 8;
+const WINDOW_POLICY_SHIFT: u32 = 12;
+
+/// The phases of a `WindowDrag`.
+pub const WINDOW_DRAG_MOVE: u32 = 1;
+pub const WINDOW_DRAG_END: u32 = 2;
+pub const WINDOW_DRAG_CANCEL: u32 = 3;
+/// The kinds of a `WindowDragOver`.
+pub const WINDOW_DRAG_OVER_ENTER: u32 = 1;
+pub const WINDOW_DRAG_OVER_MOVE: u32 = 2;
+pub const WINDOW_DRAG_OVER_LEAVE: u32 = 3;
+pub const WINDOW_DRAG_OVER_DROP: u32 = 4;
 
 const MODIFIER_SHIFT: u8 = 1 << 0;
 const MODIFIER_CTRL: u8 = 1 << 1;
@@ -539,6 +582,64 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
             }
         }
         EVENT_SELECTION_CHANGED..=EVENT_COMPOSITION_CHANGED => {
+            return Err(ProtocolError::InvalidRecordLength);
+        }
+        EVENT_WINDOW_CLOSE_REQUESTED if record_len == 16 => {
+            crate::schema::EventPayload::WindowCloseRequested
+        }
+        EVENT_WINDOW_FOCUS_CHANGED if record_len == 20 => {
+            crate::schema::EventPayload::WindowFocusChanged {
+                focused: read_flag(bytes, 16)?,
+            }
+        }
+        EVENT_WINDOW_MOVED if record_len == 32 => crate::schema::EventPayload::WindowMoved {
+            x: f32::from_bits(read_u32(bytes, 16)?),
+            y: f32::from_bits(read_u32(bytes, 20)?),
+            width: f32::from_bits(read_u32(bytes, 24)?),
+            height: f32::from_bits(read_u32(bytes, 28)?),
+        },
+        EVENT_WINDOW_DRAG if record_len == 32 => {
+            let phase = read_u32(bytes, 16)?;
+            if !(WINDOW_DRAG_MOVE..=WINDOW_DRAG_CANCEL).contains(&phase) {
+                return Err(ProtocolError::InvalidValueKind(
+                    phase.min(u32::from(u16::MAX)) as u16,
+                ));
+            }
+            crate::schema::EventPayload::WindowDrag {
+                phase,
+                screen_x: f32::from_bits(read_u32(bytes, 20)?),
+                screen_y: f32::from_bits(read_u32(bytes, 24)?),
+                over_window: read_u32(bytes, 28)?,
+            }
+        }
+        EVENT_WINDOW_DRAG_OVER if record_len == 32 => {
+            let kind = read_u32(bytes, 16)?;
+            if !(WINDOW_DRAG_OVER_ENTER..=WINDOW_DRAG_OVER_DROP).contains(&kind) {
+                return Err(ProtocolError::InvalidValueKind(
+                    kind.min(u32::from(u16::MAX)) as u16,
+                ));
+            }
+            crate::schema::EventPayload::WindowDragOver {
+                kind,
+                window: read_u32(bytes, 20)?,
+                x: f32::from_bits(read_u32(bytes, 24)?),
+                y: f32::from_bits(read_u32(bytes, 28)?),
+            }
+        }
+        EVENT_WINDOW_UNAVAILABLE if record_len == 16 => {
+            crate::schema::EventPayload::WindowUnavailable
+        }
+        EVENT_WINDOW_CLOSED if record_len == 16 => crate::schema::EventPayload::WindowClosed,
+        EVENT_WINDOW_REQUESTED if record_len == 28 => {
+            crate::schema::EventPayload::WindowRequested {
+                request: read_u32(bytes, 16)?,
+                key: read_string(bytes, 20, record_len)?,
+            }
+        }
+        EVENT_APPLICATION_REOPEN if record_len == 16 => {
+            crate::schema::EventPayload::ApplicationReopen
+        }
+        EVENT_WINDOW_CLOSE_REQUESTED..=EVENT_APPLICATION_REOPEN => {
             return Err(ProtocolError::InvalidRecordLength);
         }
         EVENT_ZOOM_CHANGED if record_len == 28 => {
@@ -828,6 +929,47 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         }
         _ => {}
     }
+    match event.payload {
+        crate::schema::EventPayload::WindowFocusChanged { focused } => {
+            put_event_header(output, EVENT_WINDOW_FOCUS_CHANGED, 20, event);
+            output.extend_from_slice(&u32::from(focused).to_le_bytes());
+            return Ok(());
+        }
+        crate::schema::EventPayload::WindowMoved {
+            x,
+            y,
+            width,
+            height,
+        } => {
+            put_event_header(output, EVENT_WINDOW_MOVED, 32, event);
+            for value in [x, y, width, height] {
+                output.extend_from_slice(&value.to_bits().to_le_bytes());
+            }
+            return Ok(());
+        }
+        crate::schema::EventPayload::WindowDrag {
+            phase,
+            screen_x,
+            screen_y,
+            over_window,
+        } => {
+            put_event_header(output, EVENT_WINDOW_DRAG, 32, event);
+            output.extend_from_slice(&phase.to_le_bytes());
+            output.extend_from_slice(&screen_x.to_bits().to_le_bytes());
+            output.extend_from_slice(&screen_y.to_bits().to_le_bytes());
+            output.extend_from_slice(&over_window.to_le_bytes());
+            return Ok(());
+        }
+        crate::schema::EventPayload::WindowDragOver { kind, window, x, y } => {
+            put_event_header(output, EVENT_WINDOW_DRAG_OVER, 32, event);
+            output.extend_from_slice(&kind.to_le_bytes());
+            output.extend_from_slice(&window.to_le_bytes());
+            output.extend_from_slice(&x.to_bits().to_le_bytes());
+            output.extend_from_slice(&y.to_bits().to_le_bytes());
+            return Ok(());
+        }
+        _ => {}
+    }
     if let crate::schema::EventPayload::ZoomChanged { k, os, level } = event.payload {
         output.extend_from_slice(&EVENT_ZOOM_CHANGED.to_le_bytes());
         output.extend_from_slice(&28_u16.to_le_bytes());
@@ -861,6 +1003,20 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
             (EVENT_FILES_DROPPED, 24, Some(*paths), None)
         }
         crate::schema::EventPayload::Resync => (EVENT_RESYNC, 16, None, None),
+        crate::schema::EventPayload::WindowCloseRequested => {
+            (EVENT_WINDOW_CLOSE_REQUESTED, 16, None, None)
+        }
+        crate::schema::EventPayload::WindowUnavailable => {
+            (EVENT_WINDOW_UNAVAILABLE, 16, None, None)
+        }
+        crate::schema::EventPayload::WindowClosed => (EVENT_WINDOW_CLOSED, 16, None, None),
+        crate::schema::EventPayload::ApplicationReopen => {
+            (EVENT_APPLICATION_REOPEN, 16, None, None)
+        }
+        // The shape of a protocol error: one word, then one string.
+        crate::schema::EventPayload::WindowRequested { key, request } => {
+            (EVENT_WINDOW_REQUESTED, 28, Some(*key), Some(*request))
+        }
         crate::schema::EventPayload::LifecycleStart => (EVENT_LIFECYCLE_START, 16, None, None),
         crate::schema::EventPayload::LifecycleStop => (EVENT_LIFECYCLE_STOP, 16, None, None),
         crate::schema::EventPayload::ProtocolError { code, message } => {
@@ -885,7 +1041,11 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::VisibleRangeChanged { .. }
         | crate::schema::EventPayload::EditorFocusChanged { .. }
         | crate::schema::EventPayload::FoldChanged { .. }
-        | crate::schema::EventPayload::CompositionChanged { .. } => unreachable!(),
+        | crate::schema::EventPayload::CompositionChanged { .. }
+        | crate::schema::EventPayload::WindowFocusChanged { .. }
+        | crate::schema::EventPayload::WindowMoved { .. }
+        | crate::schema::EventPayload::WindowDrag { .. }
+        | crate::schema::EventPayload::WindowDragOver { .. } => unreachable!(),
         crate::schema::EventPayload::AnimationEvent { .. }
         | crate::schema::EventPayload::Pointer { .. }
         | crate::schema::EventPayload::ReducedMotionChanged(_)
@@ -1167,21 +1327,16 @@ impl BatchEncoder {
             }
             Mutation::SetTheme(theme) => {
                 self.begin_record(TAG_SET_THEME, THEME_PAYLOAD_LEN as u16);
-                self.put_u16(theme.design_system as u16);
-                self.put_u16(theme.fallback as u16);
-                self.put_u16(theme.color_scheme as u16);
-                self.put_u16(u16::from(theme.adaptive));
-                // One slot per type role, zero where the role keeps the system font. Sent
-                // whether or not any of them is filled, because the record is fixed
-                // layout and a theme change is one record rather than a per frame cost.
-                for asset in theme.fonts {
-                    self.put_u32(asset);
-                }
-                // The application's colours, as a run of eight byte entries behind the
-                // records the way a string is. Zero long where there is no palette, so a
-                // theme without one costs the eight bytes of the reference and nothing
-                // else.
-                self.put_palette_ref(theme.palette)?;
+                self.put_theme(theme)?;
+            }
+            Mutation::SetWindowTheme { node_id, theme } => {
+                self.begin_record(TAG_SET_WINDOW_THEME, 4 + THEME_PAYLOAD_LEN as u16);
+                self.put_u32(*node_id);
+                self.put_theme(theme)?;
+            }
+            Mutation::FocusWindow { node_id } => {
+                self.begin_record(TAG_FOCUS_WINDOW, 4);
+                self.put_u32(*node_id);
             }
             Mutation::SetWindow(window) => {
                 self.begin_record(TAG_SET_WINDOW, 28);
@@ -1191,7 +1346,14 @@ impl BatchEncoder {
                 self.put_u16(window.height);
                 self.put_u16(window.min_width);
                 self.put_u16(window.min_height);
-                self.put_u16(u16::from(window.resizable));
+                // Bit 0 is `resizable`. The mode and the last window policy ride in the
+                // bits above it that were always zero, so a window that asks for one
+                // window writes the bytes it always wrote.
+                self.put_u16(
+                    u16::from(window.resizable)
+                        | ((window.mode as u16) << WINDOW_MODE_SHIFT)
+                        | ((window.last_window_closed as u16) << WINDOW_POLICY_SHIFT),
+                );
                 // The application's zoom level, in what used to be the padding that keeps
                 // the record a multiple of four: a byte saying whether there is one, then
                 // the level as a signed byte. Zero is "none", so a window that asks for
@@ -1386,6 +1548,25 @@ impl BatchEncoder {
         Ok(())
     }
 
+    /// The body of a `SetTheme`, which `SetWindowTheme` carries after its node id.
+    fn put_theme(&mut self, theme: &Theme) -> Result<(), ProtocolError> {
+        self.put_u16(theme.design_system as u16);
+        self.put_u16(theme.fallback as u16);
+        self.put_u16(theme.color_scheme as u16);
+        self.put_u16(u16::from(theme.adaptive));
+        // One slot per type role, zero where the role keeps the system font. Sent
+        // whether or not any of them is filled, because the record is fixed
+        // layout and a theme change is one record rather than a per frame cost.
+        for asset in theme.fonts {
+            self.put_u32(asset);
+        }
+        // The application's colours, as a run of eight byte entries behind the
+        // records the way a string is. Zero long where there is no palette, so a
+        // theme without one costs the eight bytes of the reference and nothing
+        // else.
+        self.put_palette_ref(theme.palette)
+    }
+
     fn begin_record(&mut self, tag: u16, payload_len: u16) {
         self.put_u16(tag);
         self.put_u16(payload_len + 4);
@@ -1438,6 +1619,44 @@ impl BatchEncoder {
     fn put_u64(&mut self, value: u64) {
         self.records.extend_from_slice(&value.to_le_bytes());
     }
+}
+
+/// Reads the body of a `SetTheme` that starts at `payload`, which `SetWindowTheme` also
+/// carries, after its node id.
+fn decode_theme(bytes: &[u8], payload: usize, records_len: usize) -> Result<Theme, ProtocolError> {
+    let design_system = read_u16(bytes, payload)?;
+    let fallback = read_u16(bytes, payload + 2)?;
+    let color_scheme = read_u16(bytes, payload + 4)?;
+    let adaptive = read_u16(bytes, payload + 6)?;
+    if adaptive > 1 {
+        return Err(ProtocolError::InvalidTheme(adaptive));
+    }
+    let mut fonts = [0u32; TYPE_ROLE_COUNT];
+    for (index, slot) in fonts.iter_mut().enumerate() {
+        *slot = read_u32(bytes, payload + 8 + 4 * index)?;
+    }
+    // Entries that are wrong are left out and the rest stand, which is what
+    // the Renderer does with them as well. Leaked like the window's title: a
+    // theme holds its palette for the life of the program, and this decoder
+    // is what tests and the mock renderer read a batch back with.
+    let palette_bytes = read_bytes(bytes, payload + 8 + 4 * TYPE_ROLE_COUNT, records_len)?;
+    let palette = if palette_bytes.is_empty() {
+        None
+    } else {
+        let (palette, _problems) = crate::palette::decode_palette(palette_bytes);
+        Some(&*Box::leak(Box::new(palette)))
+    };
+    Ok(Theme {
+        design_system: DesignSystem::try_from(design_system)
+            .map_err(|()| ProtocolError::InvalidTheme(design_system))?,
+        fallback: DesignSystem::try_from(fallback)
+            .map_err(|()| ProtocolError::InvalidTheme(fallback))?,
+        color_scheme: ColorScheme::try_from(color_scheme)
+            .map_err(|()| ProtocolError::InvalidTheme(color_scheme))?,
+        adaptive: adaptive == 1,
+        fonts,
+        palette,
+    })
 }
 
 pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
@@ -1549,48 +1768,28 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                 text: read_string(bytes, payload + 4, records_len)?,
             },
             TAG_SET_THEME if len == 4 + THEME_PAYLOAD_LEN => {
-                let design_system = read_u16(bytes, payload)?;
-                let fallback = read_u16(bytes, payload + 2)?;
-                let color_scheme = read_u16(bytes, payload + 4)?;
-                let adaptive = read_u16(bytes, payload + 6)?;
-                if adaptive > 1 {
-                    return Err(ProtocolError::InvalidTheme(adaptive));
-                }
-                let mut fonts = [0u32; TYPE_ROLE_COUNT];
-                for (index, slot) in fonts.iter_mut().enumerate() {
-                    *slot = read_u32(bytes, payload + 8 + 4 * index)?;
-                }
-                // Entries that are wrong are left out and the rest stand, which is what
-                // the Renderer does with them as well. Leaked like the window's title: a
-                // theme holds its palette for the life of the program, and this decoder
-                // is what tests and the mock renderer read a batch back with.
-                let palette_bytes =
-                    read_bytes(bytes, payload + 8 + 4 * TYPE_ROLE_COUNT, records_len)?;
-                let palette = if palette_bytes.is_empty() {
-                    None
-                } else {
-                    let (palette, _problems) = crate::palette::decode_palette(palette_bytes);
-                    Some(&*Box::leak(Box::new(palette)))
-                };
-                Mutation::SetTheme(Theme {
-                    design_system: DesignSystem::try_from(design_system)
-                        .map_err(|()| ProtocolError::InvalidTheme(design_system))?,
-                    fallback: DesignSystem::try_from(fallback)
-                        .map_err(|()| ProtocolError::InvalidTheme(fallback))?,
-                    color_scheme: ColorScheme::try_from(color_scheme)
-                        .map_err(|()| ProtocolError::InvalidTheme(color_scheme))?,
-                    adaptive: adaptive == 1,
-                    fonts,
-                    palette,
-                })
+                Mutation::SetTheme(decode_theme(bytes, payload, records_len)?)
             }
+            TAG_SET_WINDOW_THEME if len == 8 + THEME_PAYLOAD_LEN => Mutation::SetWindowTheme {
+                node_id: read_u32(bytes, payload)?,
+                theme: decode_theme(bytes, payload + 4, records_len)?,
+            },
+            TAG_FOCUS_WINDOW if len == 8 => Mutation::FocusWindow {
+                node_id: read_u32(bytes, payload)?,
+            },
             TAG_SET_WINDOW if len == 32 => {
                 let chrome = read_u16(bytes, payload)?;
                 let title_bar = read_u16(bytes, payload + 2)?;
-                let resizable = read_u16(bytes, payload + 12)?;
-                if resizable > 1 {
-                    return Err(ProtocolError::InvalidValueKind(resizable));
+                // Bit 0 is `resizable`; the mode and the last window policy are the
+                // nibbles above the second byte. Anything else standing is a record the
+                // sides disagree on.
+                let flags = read_u16(bytes, payload + 12)?;
+                if flags & 0x00FE != 0 {
+                    return Err(ProtocolError::InvalidValueKind(flags));
                 }
+                let resizable = flags & 1;
+                let mode_tag = (flags >> WINDOW_MODE_SHIFT) & 0xF;
+                let policy_tag = flags >> WINDOW_POLICY_SHIFT;
                 let zoom = read_u16(bytes, payload + 14)?;
                 let zoom_level = match zoom & 0xFF {
                     0 => None,
@@ -1616,6 +1815,10 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                     min_height: read_u16(bytes, payload + 10)?,
                     resizable: resizable == 1,
                     zoom_level,
+                    mode: crate::schema::WindowMode::try_from(mode_tag)
+                        .map_err(|()| ProtocolError::InvalidValueKind(flags))?,
+                    last_window_closed: crate::schema::LastWindowClosed::try_from(policy_tag)
+                        .map_err(|()| ProtocolError::InvalidValueKind(flags))?,
                     // Leaked on purpose, once per window. The record's owner is the
                     // window, the window outlives the batch it arrived in, and there is
                     // one of these per process.
@@ -1741,7 +1944,8 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
             TAG_CREATE..=TAG_EDIT_CODE
             | TAG_START_ANIMATION
             | TAG_CONTROL_ANIMATION
-            | TAG_SET_SELECTION..=TAG_SET_FOLDED => {
+            | TAG_SET_SELECTION..=TAG_SET_FOLDED
+            | TAG_SET_WINDOW_THEME..=TAG_FOCUS_WINDOW => {
                 return Err(ProtocolError::InvalidRecordLength);
             }
             other => return Err(ProtocolError::InvalidTag(other)),
@@ -2419,6 +2623,51 @@ mod tests {
         let bytes = encoder.finish().unwrap();
         // Every modifier record is the same fixed 28 bytes.
         assert_eq!(bytes.len(), ENVELOPE_LEN + expected.len() * 28);
+        assert_eq!(decode_batch(bytes).unwrap(), expected);
+    }
+
+    /// A node's shadows are several `Shadow` records at consecutive chain positions,
+    /// each with its own offset, blur, spread and paint (alpha included), and every one
+    /// survives a round trip in the order it was written.
+    #[test]
+    fn fr42_shadow_a_list_of_shadows_round_trips_in_order() {
+        let shadows = [
+            Modifier::Shadow {
+                x: 0.0,
+                y: 1.0,
+                blur: 2.0,
+                spread: 0.0,
+                paint: Paint::Literal(crate::schema::Color::argb(0x1400_0000)),
+            },
+            Modifier::Shadow {
+                x: 0.0,
+                y: 4.0,
+                blur: 12.0,
+                spread: -2.0,
+                paint: Paint::Literal(crate::schema::Color::argb(0x2900_0000)),
+            },
+            Modifier::Shadow {
+                x: -3.5,
+                y: 24.0,
+                blur: 48.0,
+                spread: 4.0,
+                paint: Paint::Role(crate::schema::ColorRole::Outline),
+            },
+        ];
+        let expected: Vec<_> = shadows
+            .iter()
+            .enumerate()
+            .map(|(index, modifier)| Mutation::SetModifier {
+                node_id: 7,
+                index: 9 + index as u16,
+                modifier: modifier.clone(),
+            })
+            .collect();
+        let mut encoder = BatchEncoder::default();
+        for mutation in &expected {
+            encoder.encode(mutation).unwrap();
+        }
+        let bytes = encoder.finish().unwrap();
         assert_eq!(decode_batch(bytes).unwrap(), expected);
     }
 

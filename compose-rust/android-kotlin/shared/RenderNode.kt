@@ -36,6 +36,10 @@ import dev.darkpyonix.composerust.runtime.islandDensity
 import dev.darkpyonix.composerust.protocol.TypeRole
 import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.design.ContainerRole
+import androidx.compose.ui.graphics.Shape
+import dev.darkpyonix.composerust.foundation.containerShape
+import dev.darkpyonix.composerust.ui.pressable
+import dev.darkpyonix.composerust.ui.resolvedShape
 import dev.darkpyonix.composerust.design.ToggleRole
 import dev.darkpyonix.composerust.design.LocalDesignTheme
 import dev.darkpyonix.composerust.design.LocalGlassDepth
@@ -106,6 +110,24 @@ internal object RenderNodeObserver {
     var onMeasure: ((Int) -> Unit)? = null
 }
 
+/** The containers whose `OnClick` makes them buttons. */
+private val CLICKABLE_CONTAINERS = setOf(
+    WidgetKind.Column,
+    WidgetKind.Row,
+    WidgetKind.Box,
+    WidgetKind.Card,
+    WidgetKind.Surface,
+    WidgetKind.ScrollColumn,
+    WidgetKind.ScrollRow,
+)
+
+/** The outline a pressable container is drawn in, which hover and focus follow. */
+private fun Node.pressedShape(theme: ResolvedTheme): Shape = when (widget) {
+    WidgetKind.Card -> containerShape(theme.rules.container(ContainerRole.Card, theme), theme)
+    WidgetKind.Surface -> containerShape(theme.rules.container(ContainerRole.Surface, theme), theme)
+    else -> modifiers.resolvedShape(theme)
+}
+
 /** Test tag every interpreted node carries, so tests can address nodes by Host node id. */
 fun nodeTestTag(nodeId: Int): String = "compose-node-$nodeId"
 
@@ -144,7 +166,29 @@ fun RenderNode(
     }
     // Only where the node said it is a place files may be dropped. Everywhere else this
     // adds nothing to the chain and the platform shows no drop cursor.
-    val modifier = platformFileDrop(withKeys, node, dispatcher)
+    // A container that was given an `OnClick` is a button. One that was not is left
+    // exactly as it was: no focus stop, no semantics, no pointer handling.
+    // A node that also carries the `Clickable` modifier is already pressable there, once.
+    val clickHandler = if (node.widget in CLICKABLE_CONTAINERS &&
+        node.modifiers.none { it is dev.darkpyonix.composerust.protocol.Modifier.Clickable }
+    ) {
+        node.handler(PropertyKind.OnClick)
+    } else {
+        null
+    }
+    val pressable = if (clickHandler == null) {
+        withKeys
+    } else {
+        withKeys.pressable(
+            nodeId,
+            clickHandler,
+            node.flag(PropertyKind.Enabled, default = true),
+            dispatcher,
+            theme,
+            node.pressedShape(theme),
+        )
+    }
+    val modifier = platformFileDrop(pressable, node, dispatcher)
     // A layout made of glass tells what is inside it so. A field in a glass bar is part of
     // the bar in the systems that draw glass, and it can only take that shape if it knows
     // what it is sitting on.
@@ -334,6 +378,11 @@ fun RenderNode(
             // Children laid where the Host already put them, each at its own `Offset`. Nothing
             // here arranges, aligns or sizes one child by another: the Host's layout engine
             // has decided all of it, and a second layout pass could only disagree with it.
+            // A platform window. Opening one is the platform layer's job, and until that
+            // layer exists the interpreter draws a window's children where the node stands, so
+            // the tree is whole and a protocol test can walk it.
+            WidgetKind.Window -> Box(modifier) { Children(node, table, dispatcher) }
+
             WidgetKind.AbsoluteBox -> Layout(
                 content = {
                     // The root of an HTML island names the factor it is drawn at. Only the

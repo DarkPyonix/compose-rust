@@ -1,23 +1,23 @@
 {
   "format": "compose-rust protocol vectors v1",
-  "schemaHashUnsigned": "12271306118763632527",
+  "schemaHashUnsigned": "5001727070868787964",
   "byteOrder": "little-endian",
   "mutations": {
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 76,
+    "recordCount": 102,
     "palette": [
       { "role": "Primary", "scheme": "Light", "argb": "ffe8590c" },
       { "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" },
       { "role": "SyntaxKeyword", "scheme": "Light", "argb": "80112233" }
     ],
     "spanRecordLength": 36,
-    "strings": ["안녕", "compose", " token", "필터", "New", "삭제했습니다", "Undo", "session/7", "세션이 끝났습니다", "테스트 214개 통과", "세션", "열기", "", "session/7", "fn main() {\n    let 한 = \"😀\";\n}\n", "mut "],
+    "strings": ["안녕", "compose", " token", "필터", "New", "삭제했습니다", "Undo", "session/7", "세션이 끝났습니다", "테스트 214개 통과", "세션", "열기", "", "session/7", "fn main() {\n    let 한 = \"😀\";\n}\n", "mut ", "문서", "보조 창", "ws/1:2", "tab/3"],
     "assets": [{ "assetId": 5, "kind": "Png", "bytes": "89504e47" }]
   },
   "events": {
     "file": "events.bin",
-    "description": "Twenty-four independently decodable event records concatenated in schema order",
+    "description": "Thirty-three independently decodable event records concatenated in schema order",
     "records": [
       { "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 },
       { "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" },
@@ -42,7 +42,16 @@
       { "type": "VisibleRangeChanged", "offset": 626, "length": 28, "nodeId": 12, "handlerId": 24, "version": 2, "firstLine": 0, "lastLine": 3 },
       { "type": "EditorFocusChanged", "offset": 654, "length": 24, "nodeId": 12, "handlerId": 25, "focused": true },
       { "type": "FoldChanged", "offset": 678, "length": 24, "nodeId": 12, "handlerId": 26, "startLine": 0, "collapsed": true },
-      { "type": "CompositionChanged", "offset": 702, "length": 24, "nodeId": 12, "handlerId": 27, "composing": true }
+      { "type": "CompositionChanged", "offset": 702, "length": 24, "nodeId": 12, "handlerId": 27, "composing": true },
+      { "type": "WindowCloseRequested", "offset": 726, "length": 16, "nodeId": 20, "handlerId": 201 },
+      { "type": "WindowFocusChanged", "offset": 742, "length": 20, "nodeId": 20, "handlerId": 202, "focused": true },
+      { "type": "WindowMoved", "offset": 762, "length": 32, "nodeId": 20, "handlerId": 203, "x": 100.5, "y": -20.0, "width": 800.0, "height": 600.0 },
+      { "type": "WindowDrag", "offset": 794, "length": 32, "nodeId": 20, "handlerId": 204, "phase": 2, "screenX": 640.25, "screenY": 360.5, "overWindow": 21 },
+      { "type": "WindowDragOver", "offset": 826, "length": 32, "nodeId": 1, "handlerId": 207, "kind": 4, "window": 20, "x": 12.5, "y": 3.0 },
+      { "type": "WindowUnavailable", "offset": 858, "length": 16, "nodeId": 20, "handlerId": 205 },
+      { "type": "WindowClosed", "offset": 874, "length": 16, "nodeId": 20, "handlerId": 206 },
+      { "type": "WindowRequested", "offset": 890, "length": 34, "nodeId": 0, "handlerId": 0, "request": 3, "key": "ws/1:2" },
+      { "type": "ApplicationReopen", "offset": 924, "length": 16, "nodeId": 0, "handlerId": 0 }
     ]
   }
 }
