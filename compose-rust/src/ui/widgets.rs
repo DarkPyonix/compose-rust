@@ -15,10 +15,11 @@ use super::{
     role_or_zero, widget_key,
 };
 use crate::drawing::DrawList;
+use crate::fonts::FontRefs;
 use crate::runtime::composer::{EventCallback, OwnedAttr};
 use crate::schema::{
     Alignment, Arrangement, ButtonKind, ButtonVariant, ColorRole, IconRole, Paint, SlotRole,
-    SpaceRole, TextAlign, TextOverflow, TypeRole, WidgetKind,
+    SpaceRole, TextAlign, TextOverflow, TypeRole, WidgetKind, WordBreak,
 };
 use crate::spans::TextSpans;
 use crate::{FileDrop, KeyEvent, PointerEvent, PointerKinds};
@@ -492,6 +493,15 @@ plain_container!(
 
 // ----- text -----------------------------------------------------------------------------
 
+/// A font list as the property blob, or nothing when it is empty.
+fn font_bytes(font: &FontRefs) -> OwnedAttr {
+    if font.is_empty() {
+        OwnedAttr::None
+    } else {
+        OwnedAttr::Bytes(font.as_bytes().to_vec())
+    }
+}
+
 /// A `Text` and its builder.
 pub struct TextScope {
     modifier: Modifier,
@@ -506,6 +516,8 @@ pub struct TextScope {
     text_align: Option<TextAlign>,
     max_lines: Option<u32>,
     overflow: Option<TextOverflow>,
+    font: FontRefs,
+    word_break: Option<WordBreak>,
     pointer: Option<PointerSubscription>,
     done: bool,
 }
@@ -528,6 +540,8 @@ pub fn Text(text: impl Into<String>) -> TextScope {
         text_align: None,
         max_lines: None,
         overflow: None,
+        font: FontRefs::default(),
+        word_break: None,
         pointer: None,
         done: false,
     }
@@ -585,10 +599,25 @@ impl TextScope {
         self
     }
 
+    /// The fonts to try, in order. Only text with `TypeRole::None` takes its own fonts;
+    /// text with a role is set in the theme's font for that role.
+    pub fn font(mut self, font: FontRefs) -> Self {
+        self.font = font;
+        self
+    }
+
+    /// Where a line may break inside a word. CSS `word-break`.
+    pub fn word_break(mut self, word_break: WordBreak) -> Self {
+        self.word_break = Some(word_break);
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = self.modifier;
         let text = std::mem::take(&mut self.text);
         let spans = std::mem::take(&mut self.spans);
+        let font = std::mem::take(&mut self.font);
+        let word_break = self.word_break;
         let (type_role, font_size, font_weight, line_height, letter_spacing) = (
             self.type_role,
             self.font_size,
@@ -608,6 +637,7 @@ impl TextScope {
             |attrs| {
                 push_modifiers(&modifier, Mods::Standard, attrs);
                 // Left out entirely when there are none, as the rsx widget leaves it out.
+                let span_fonts = spans.font_table().to_vec();
                 attrs.push((
                     "spans",
                     if spans.is_empty() {
@@ -616,6 +646,18 @@ impl TextScope {
                         OwnedAttr::Spans(spans)
                     },
                 ));
+                // The fonts each styled run names travel beside the runs, and are left out
+                // when no run names any.
+                attrs.push((
+                    "span_fonts",
+                    if span_fonts.is_empty() {
+                        OwnedAttr::None
+                    } else {
+                        OwnedAttr::Bytes(span_fonts)
+                    },
+                ));
+                attrs.push(("font", font_bytes(&font)));
+                attrs.push(("word_break", role_or_zero(word_break)));
                 attrs.push(("text", OwnedAttr::Text(text)));
                 attrs.push(("type_role", role_or_zero(type_role)));
                 attrs.push(("font_size", dp_or_zero(font_size)));
@@ -651,6 +693,7 @@ pub struct TextFieldScope {
     enabled: bool,
     multiline: bool,
     type_role: Option<TypeRole>,
+    font: FontRefs,
     on_value_change: Option<Box<dyn FnMut(String)>>,
     on_submit: Option<Box<dyn FnMut(String)>>,
     on_focus_lost: Option<Box<dyn FnMut()>>,
@@ -669,6 +712,7 @@ pub fn TextField() -> TextFieldScope {
         enabled: true,
         multiline: false,
         type_role: None,
+        font: FontRefs::default(),
         on_value_change: None,
         on_submit: None,
         on_focus_lost: None,
@@ -708,6 +752,12 @@ impl TextFieldScope {
         self
     }
 
+    /// The fonts to try for the field's text, in order. Taken only with `TypeRole::None`.
+    pub fn font(mut self, font: FontRefs) -> Self {
+        self.font = font;
+        self
+    }
+
     pub fn on_value_change(mut self, handler: impl FnMut(String) + 'static) -> Self {
         self.on_value_change = Some(std::boxed::Box::new(handler));
         self
@@ -735,6 +785,7 @@ impl TextFieldScope {
         let text = std::mem::take(&mut self.text);
         let placeholder = std::mem::take(&mut self.placeholder);
         let (enabled, multiline, type_role) = (self.enabled, self.multiline, self.type_role);
+        let font = std::mem::take(&mut self.font);
         let key_down: EventCallback = match self.on_key_down.take() {
             Some(handler) => EventCallback::Key(Rc::new(RefCell::new(handler))),
             None => EventCallback::Key(Rc::new(RefCell::new(|_: KeyEvent| {}))),
@@ -759,6 +810,7 @@ impl TextFieldScope {
                 attrs.push(("enabled", OwnedAttr::Bool(enabled)));
                 attrs.push(("multiline", OwnedAttr::Bool(multiline)));
                 attrs.push(("type_role", role_or_zero(type_role)));
+                attrs.push(("font", font_bytes(&font)));
             },
             listeners,
             content,
