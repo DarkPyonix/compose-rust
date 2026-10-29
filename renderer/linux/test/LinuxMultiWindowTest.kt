@@ -25,7 +25,8 @@ class LinuxMultiWindowTest {
         var closeRequests = 0
         val moves = ArrayList<ScreenBounds>()
         override fun onCloseRequested() { closeRequests++ }
-        override fun onFocusChanged(focused: Boolean) {}
+        val focusEvents = ArrayList<Boolean>()
+        override fun onFocusChanged(focused: Boolean) { focusEvents += focused }
         override fun onMoved(bounds: ScreenBounds) { moves += bounds }
         override fun onFollowEnded(cancelled: Boolean) {}
     }
@@ -149,21 +150,42 @@ class LinuxMultiWindowTest {
         }
     }
 
+    /**
+     * Focus is A, then B, then A. Each step waits until the window is key and the other is not,
+     * then checks that the window heard focus=true last and the other focus=false last, and that
+     * the application was never told it lost focus while the keyboard moved between its windows.
+     *
+     * The focus is moved by `focus()`, which on an X server with no window manager (Xvfb in CI)
+     * is an explicit `XSetInputFocus` on the window, retried each turn until the window is
+     * mapped. So no window manager is needed for this to move.
+     */
     @Test
     fun fr53_linux_focus_follows_the_key_window() {
         if (!hasDisplay()) return
         val backend = backend()
-        val told = ArrayList<Boolean>()
-        backend.onApplicationFocus = { told += it }
         try {
-            val first = backend.open(config(1), Recorder()) as LinuxPlatformWindow
-            val second = backend.open(config(2), Recorder()) as LinuxPlatformWindow
-            val firstKey = backend.turnsUntil { first.focus(); first.isKey }
-            assertTrue(firstKey, "the first window never became the key window")
-            val secondKey = backend.turnsUntil { second.focus(); second.isKey && !first.isKey }
-            assertTrue(secondKey, "focus did not move to the second window")
-            assertEquals(listOf(second), backend.keyWindows, "exactly the key window is reported as key")
-            assertFalse(told.lastOrNull() == false, "the application lost focus while one of its windows is key")
+            val a = Recorder()
+            val b = Recorder()
+            val first = backend.open(config(1), a) as LinuxPlatformWindow
+            val second = backend.open(config(2), b) as LinuxPlatformWindow
+            assertTrue(backend.turnsUntil { first.focus(); first.isKey && !second.isKey }, "A never became key")
+            // From here the application has the keyboard and must keep it.
+            val told = ArrayList<Boolean>()
+            backend.onApplicationFocus = { told += it }
+
+            fun step(target: LinuxPlatformWindow, other: LinuxPlatformWindow, mine: Recorder, theirs: Recorder, name: String) {
+                assertTrue(
+                    backend.turnsUntil { target.focus(); target.isKey && !other.isKey },
+                    "focus did not move to $name",
+                )
+                backend.turn()
+                assertEquals(listOf(target), backend.keyWindows, "only $name is the key window")
+                assertEquals(true, mine.focusEvents.lastOrNull(), "$name did not hear focus=true last")
+                assertEquals(false, theirs.focusEvents.lastOrNull(), "the other window did not hear focus=false last")
+                assertFalse(told.contains(false), "the application lost focus when the keyboard moved to $name")
+            }
+            step(second, first, b, a, "B")
+            step(first, second, a, b, "A")
         } finally {
             backend.closeAll()
         }
