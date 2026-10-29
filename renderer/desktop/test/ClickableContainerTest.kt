@@ -7,6 +7,10 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertHasClickAction
+import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.graphics.toPixelMap
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
@@ -128,6 +132,40 @@ class ClickableContainerTest {
             onNodeWithTag(nodeTestTag(CONTAINER)).performMouseInput { moveTo(center); press() }
             waitForIdle()
             assertEquals(0, connection.events.filterIsInstance<HostEvent.Clicked>().size)
+        }
+    }
+
+    @Test
+    fun fr_55_a_clickable_container_takes_keyboard_focus() {
+        CONTAINERS.forEach { kind ->
+            runComposeUiTest {
+                val connection = FakeHostConnection(tree(kind, clickable = true))
+                setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+                onNodeWithTag(nodeTestTag(CONTAINER)).requestFocus()
+                onNodeWithTag(nodeTestTag(CONTAINER)).assertIsFocused()
+            }
+        }
+    }
+
+    @Test
+    fun fr_55_hovering_and_pressing_change_what_is_drawn() {
+        runComposeUiTest {
+            val connection = FakeHostConnection(
+                tree(WidgetKind.Box, clickable = true) +
+                    Mutation.SetModifier(CONTAINER, 0, dev.darkpyonix.composerust.protocol.Modifier.Size(80f, 80f)),
+            )
+            setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+            waitForIdle()
+            fun corner() = onNodeWithTag(nodeTestTag(CONTAINER)).captureToImage().toPixelMap()[70, 70].toArgb()
+            val resting = corner()
+            onNodeWithTag(nodeTestTag(CONTAINER)).performMouseInput { moveTo(center) }
+            waitForIdle()
+            val hovered = corner()
+            onNodeWithTag(nodeTestTag(CONTAINER)).performMouseInput { press() }
+            waitForIdle()
+            val pressed = corner()
+            kotlin.test.assertNotEquals(resting, hovered, "hover is drawn")
+            kotlin.test.assertNotEquals(hovered, pressed, "press is drawn apart from hover")
         }
     }
 }
