@@ -380,7 +380,16 @@ pub(crate) struct Ambient {
     pub(crate) window: MutableState<WindowSize>,
     pub(crate) design: MutableState<DesignSystem>,
     pub(crate) permission: MutableState<NotificationPermission>,
+    /// What each window of a multi-window application last measured, as a state per
+    /// window, made when a composable in that window first reads it.
+    pub(crate) windows: HashMap<u32, WindowAmbient>,
     pub(crate) deriveds: HashMap<u64, Weak<dyn DerivedNode>>,
+}
+
+/// One window's size as a state, and the subscription that moves it.
+pub(crate) struct WindowAmbient {
+    state: MutableState<WindowSize>,
+    _subscription: crate::window::WindowSubscription,
 }
 
 impl Ambient {
@@ -389,6 +398,7 @@ impl Ambient {
             window: mutable_state_of(crate::window::window_size()),
             design: mutable_state_of(crate::design::design_system()),
             permission: mutable_state_of(crate::notification::notification_permission()),
+            windows: HashMap::new(),
             deriveds: HashMap::new(),
         }
     }
@@ -461,11 +471,43 @@ pub(crate) fn apply_state_changes() {
 
 /// The window's size, recorded as read: the composable runs again when the Renderer
 /// reports a different size class.
+///
+/// In a multi-window application it is the size of the window the composable is in,
+/// and the composable runs again only when that window's class changes.
 pub fn current_window_size() -> WindowSize {
+    let window = crate::windows::current_window_id();
+    if window != 0 {
+        if let Some(state) = window_state(window) {
+            return state.get();
+        }
+    }
     match with_composer_if_idle(|composer| composer.ambient.window.clone()) {
         Some(state) => state.get(),
         None => crate::window::window_size(),
     }
+}
+
+/// The state that follows one window's size, made on first use.
+fn window_state(window: u32) -> Option<MutableState<WindowSize>> {
+    with_composer_if_idle(|composer| {
+        if let Some(entry) = composer.ambient.windows.get(&window) {
+            return entry.state.clone();
+        }
+        let state = mutable_state_of(crate::window::window_size_of(window));
+        let follow = state.clone();
+        let subscription = crate::window::subscribe_window(
+            window,
+            Arc::new(move || follow.set(crate::window::window_size_of(window))),
+        );
+        composer.ambient.windows.insert(
+            window,
+            WindowAmbient {
+                state: state.clone(),
+                _subscription: subscription,
+            },
+        );
+        state
+    })
 }
 
 /// The design system the Renderer resolved the theme to, recorded as read.
@@ -584,4 +626,81 @@ pub fn on_notification_activated(handler: impl FnMut(crate::NotificationActivati
     .flatten();
     // The handler it replaced is dropped here, with the composer free.
     drop(old);
+}
+
+const WINDOW_REQUESTED: u64 = super::composer::call_site("compose_rust::on_window_requested", 0);
+const APPLICATION_REOPEN: u64 =
+    super::composer::call_site("compose_rust::on_application_reopen", 0);
+
+/// The slot a registered handler lives in: the latest handler, and the registration that
+/// lasts as long as the slot does.
+type SharedHandler<A> = Rc<RefCell<Box<dyn FnMut(A)>>>;
+
+struct HandlerSlot<A: 'static> {
+    handler: SharedHandler<A>,
+    _subscription: Box<dyn std::any::Any>,
+}
+
+/// Registers `subscribe`'s handler once for this call site and replaces the closure it
+/// calls on every composition, so it always sees the states it captured this time. The
+/// registration ends when the call site leaves the composition.
+fn install_handler<A: 'static>(
+    key: u64,
+    handler: Box<dyn FnMut(A)>,
+    subscribe: impl FnOnce(Rc<dyn Fn(A)>) -> Box<dyn std::any::Any>,
+) {
+    let _group = super::group_guard(key);
+    let mut handler = Some(handler);
+    let mut subscribe = Some(subscribe);
+    let old = with_composer_if_idle(|composer| {
+        if !composer.composing() {
+            return None;
+        }
+        if let Some(slot) = composer.slot_mut::<HandlerSlot<A>>() {
+            let new = handler.take().expect("the handler is installed once");
+            return Some(std::mem::replace(&mut *slot.handler.borrow_mut(), new));
+        }
+        let shared = Rc::new(RefCell::new(
+            handler.take().expect("the handler is installed once"),
+        ));
+        let forward = Rc::clone(&shared);
+        let subscription = (subscribe.take().expect("the handler is installed once"))(Rc::new(
+            move |argument: A| (*forward.borrow_mut())(argument),
+        ));
+        composer.remember_new(HandlerSlot {
+            handler: shared,
+            _subscription: subscription,
+        });
+        None
+    })
+    .flatten();
+    // The handler it replaced is dropped here, with the composer free.
+    drop(old);
+}
+
+/// Calls `handler` for each window the system or the user made that this application has
+/// no `Window` node for, for as long as this call site is in the composition.
+/// The handler puts a node with that `RestoreKey` into the tree, or the Renderer closes the
+/// window.
+pub fn on_window_requested(handler: impl FnMut(crate::windows::WindowRequest) + 'static) {
+    install_handler::<crate::windows::WindowRequest>(
+        WINDOW_REQUESTED,
+        Box::new(handler),
+        |forward| Box::new(crate::windows::on_window_request(forward)),
+    );
+}
+
+/// Calls `handler` when the user opens the application again while it has no window, which
+/// is the Dock icon on macOS. The handler puts a `Window` node into the tree.
+pub fn on_application_reopen(handler: impl FnMut() + 'static) {
+    let mut handler = handler;
+    install_handler::<()>(
+        APPLICATION_REOPEN,
+        Box::new(move |(): ()| handler()),
+        |forward| {
+            Box::new(crate::windows::on_application_reopen_handler(Rc::new(
+                move || forward(()),
+            )))
+        },
+    );
 }
