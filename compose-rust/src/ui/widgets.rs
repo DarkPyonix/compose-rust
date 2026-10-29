@@ -78,6 +78,74 @@ fn pointer_input(
     ));
 }
 
+/// What a node says about windows that is not a window's own: the key it is torn
+/// off under, and the handler for a dragged window passing over it.
+struct TearOff {
+    key: Option<String>,
+    drag_over: Option<Box<dyn FnMut(crate::windows::WindowDragOver)>>,
+}
+
+/// Writes a node's tear-off key and drag-over handler as what the wire needs. A node with
+/// neither writes nothing.
+fn tear_off_input(
+    tear_off: Option<TearOff>,
+    attrs: &mut Attrs,
+    listeners: &mut Vec<(&'static str, EventCallback)>,
+) {
+    let Some(tear_off) = tear_off else {
+        return;
+    };
+    if let Some(key) = tear_off.key {
+        attrs.push(("tear_off_key", OwnedAttr::Text(key)));
+    }
+    if let Some(mut handler) = tear_off.drag_over {
+        listeners.push((
+            "onwindowdragover",
+            EventCallback::Window(Rc::new(RefCell::new(
+                move |event: crate::windows::WindowEvent| {
+                    if let crate::windows::WindowEvent::DragOver { kind, window, x, y } = event {
+                        handler(crate::windows::WindowDragOver { kind, window, x, y });
+                    }
+                },
+            ))),
+        ));
+    }
+}
+
+/// Adds `tear_off_key` and `on_window_drag_over` to a builder that has a `tear_off` field.
+macro_rules! tear_off {
+    ($name:ident) => {
+        impl $name {
+            /// Lets the user pull this node out into a window of its own, named by `key`:
+            /// the `RestoreKey` of the window that results.
+            pub fn tear_off_key(mut self, key: impl Into<String>) -> Self {
+                self.tear_off
+                    .get_or_insert_with(|| TearOff {
+                        key: None,
+                        drag_over: None,
+                    })
+                    .key = Some(key.into());
+                self
+            }
+
+            /// Hears a dragged window pass over this node: where a tab row shows the place
+            /// a dropped tab would go.
+            pub fn on_window_drag_over(
+                mut self,
+                handler: impl FnMut(crate::windows::WindowDragOver) + 'static,
+            ) -> Self {
+                self.tear_off
+                    .get_or_insert_with(|| TearOff {
+                        key: None,
+                        drag_over: None,
+                    })
+                    .drag_over = Some(std::boxed::Box::new(handler));
+                self
+            }
+        }
+    };
+}
+
 /// Adds `on_pointer` to a builder that has a `pointer` field.
 macro_rules! pointer_subscription {
     ($name:ident) => {
@@ -168,6 +236,7 @@ macro_rules! linear {
             modifier: Modifier,
             linear: Linear,
             pointer: Option<PointerSubscription>,
+            tear_off: Option<TearOff>,
             done: bool,
         }
 
@@ -177,6 +246,7 @@ macro_rules! linear {
                 modifier: Modifier::new(),
                 linear: Linear::default(),
                 pointer: None,
+                tear_off: None,
                 done: false,
             }
         }
@@ -210,9 +280,11 @@ macro_rules! linear {
                 let modifier = self.modifier;
                 let linear = std::mem::take(&mut self.linear);
                 let pointer = self.pointer.take();
+                let tear_off = self.tear_off.take();
                 let mut listeners = Vec::new();
                 let mut subscription = Attrs::new();
                 pointer_input(pointer, &mut subscription, &mut listeners);
+                tear_off_input(tear_off, &mut subscription, &mut listeners);
                 emit(
                     widget_key($key),
                     WidgetKind::$widget,
@@ -229,6 +301,7 @@ macro_rules! linear {
 
         container!($name);
         pointer_subscription!($name);
+        tear_off!($name);
     };
 }
 
@@ -241,6 +314,7 @@ pub struct ComposeBox {
     modifier: Modifier,
     alignment: Option<Alignment>,
     pointer: Option<PointerSubscription>,
+    tear_off: Option<TearOff>,
     done: bool,
 }
 
@@ -250,6 +324,7 @@ pub fn Box() -> ComposeBox {
         modifier: Modifier::new(),
         alignment: None,
         pointer: None,
+        tear_off: None,
         done: false,
     }
 }
@@ -264,9 +339,11 @@ impl ComposeBox {
     fn compose(&mut self, content: impl FnOnce()) {
         let (modifier, alignment) = (self.modifier, self.alignment);
         let pointer = self.pointer.take();
+        let tear_off = self.tear_off.take();
         let mut listeners = Vec::new();
         let mut subscription = Attrs::new();
         pointer_input(pointer, &mut subscription, &mut listeners);
+        tear_off_input(tear_off, &mut subscription, &mut listeners);
         emit(
             widget_key("compose_rust::ui::Box"),
             WidgetKind::Box,
@@ -283,6 +360,7 @@ impl ComposeBox {
 
 container!(ComposeBox);
 pointer_subscription!(ComposeBox);
+tear_off!(ComposeBox);
 
 /// A plain container with the standard Modifiers and nothing of its own.
 macro_rules! plain_container {
@@ -2241,3 +2319,345 @@ impl LinearProgressIndicatorScope {
 }
 
 composed_on_drop!(LinearProgressIndicatorScope);
+
+// ----- windows --------------------------------------------------------------------
+
+/// A `Window` and its builder.
+pub struct WindowScope {
+    on_close_request: Option<Box<dyn FnMut()>>,
+    title: Option<String>,
+    size: Option<(f32, f32)>,
+    min_size: Option<(f32, f32)>,
+    resizable: Option<bool>,
+    chrome: Option<crate::schema::Chrome>,
+    title_bar: Option<crate::schema::TitleBar>,
+    icon: Option<u32>,
+    position: Option<(f32, f32)>,
+    restore_key: Option<String>,
+    zoom_level: Option<i8>,
+    drag_from_pointer: Option<crate::windows::DragFromPointer>,
+    theme: Option<crate::schema::Theme>,
+    on_focus_changed: Option<Box<dyn FnMut(bool)>>,
+    on_moved: Option<Box<dyn FnMut(crate::windows::WindowFrame)>>,
+    on_drag: Option<Box<dyn FnMut(crate::windows::WindowDragEvent)>>,
+    on_unavailable: Option<Box<dyn FnMut()>>,
+    on_closed: Option<Box<dyn FnMut()>>,
+    done: bool,
+}
+
+/// A platform window, a child of the root, whose children are the window's content. Compose
+/// Desktop's `Window`. The application has to be launched with
+/// [`LaunchBuilder::windows`](crate::LaunchBuilder::windows).
+///
+/// `on_close_request` is called when the user asks to close the window. It does not close
+/// it: the window closes when the application stops composing this `Window`, which is
+/// where a dialog that asks about unsaved work goes.
+///
+/// ```ignore
+/// Window(move || open.set(false)).title("Notes").size(900.0, 600.0).content(|| {
+///     Text("Hello");
+/// });
+/// ```
+pub fn Window(on_close_request: impl FnMut() + 'static) -> WindowScope {
+    WindowScope {
+        on_close_request: Some(std::boxed::Box::new(on_close_request)),
+        title: None,
+        size: None,
+        min_size: None,
+        resizable: None,
+        chrome: None,
+        title_bar: None,
+        icon: None,
+        position: None,
+        restore_key: None,
+        zoom_level: None,
+        drag_from_pointer: None,
+        theme: None,
+        on_focus_changed: None,
+        on_moved: None,
+        on_drag: None,
+        on_unavailable: None,
+        on_closed: None,
+        done: false,
+    }
+}
+
+impl Drop for WindowScope {
+    fn drop(&mut self) {
+        // A panic is already unwinding the composition, and composing on the way out would
+        // only risk a second one.
+        if !self.done && !std::thread::panicking() {
+            self.done = true;
+            self.compose(|| {});
+        }
+    }
+}
+
+/// A window handler as the callback the runtime delivers events to.
+fn window_callback(handler: impl FnMut(crate::windows::WindowEvent) + 'static) -> EventCallback {
+    EventCallback::Window(Rc::new(RefCell::new(handler)))
+}
+
+impl WindowScope {
+    /// What the window calls itself.
+    pub fn title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
+        self
+    }
+
+    /// The size the window opens at, in dp. A later change resizes it.
+    pub fn size(mut self, width: f32, height: f32) -> Self {
+        self.size = Some((width, height));
+        self
+    }
+
+    /// The smallest size the user can make it, in dp.
+    pub fn min_size(mut self, width: f32, height: f32) -> Self {
+        self.min_size = Some((width, height));
+        self
+    }
+
+    pub fn resizable(mut self, resizable: bool) -> Self {
+        self.resizable = Some(resizable);
+        self
+    }
+
+    /// Who draws the caption.
+    pub fn chrome(mut self, chrome: crate::schema::Chrome) -> Self {
+        self.chrome = Some(chrome);
+        self
+    }
+
+    /// Which of the two title bars the window has.
+    pub fn title_bar(mut self, title_bar: crate::schema::TitleBar) -> Self {
+        self.title_bar = Some(title_bar);
+        self
+    }
+
+    /// The window's icon, as the id of a registered asset. Without one it wears the
+    /// application's.
+    pub fn icon(mut self, asset_id: u32) -> Self {
+        self.icon = Some(asset_id);
+        self
+    }
+
+    /// Where the window sits, in screen dp from the top left of the main screen. Changing
+    /// it moves the window; the position the user chose is not given back. Without it the
+    /// platform places the window.
+    pub fn position(mut self, x: f32, y: f32) -> Self {
+        self.position = Some((x, y));
+        self
+    }
+
+    /// The application's stable name for the window, which matches a window the system
+    /// brings back to the node that describes it.
+    pub fn restore_key(mut self, key: impl Into<String>) -> Self {
+        self.restore_key = Some(key.into());
+        self
+    }
+
+    /// The window's own application zoom level, kept inside its range.
+    pub fn zoom_level(mut self, level: i8) -> Self {
+        self.zoom_level = Some(crate::zoom::clamp_level(level));
+        self
+    }
+
+    /// Opens the window under a pointer that is held down and follows it until it is let
+    /// go. Read when the window opens and not again.
+    pub fn drag_from_pointer(mut self, drag: crate::windows::DragFromPointer) -> Self {
+        self.drag_from_pointer = Some(drag);
+        self
+    }
+
+    /// A theme for this window over the application's.
+    pub fn theme(mut self, theme: crate::schema::Theme) -> Self {
+        self.theme = Some(theme);
+        self
+    }
+
+    /// The window became the key window or stopped being it.
+    pub fn on_focus_changed(mut self, handler: impl FnMut(bool) + 'static) -> Self {
+        self.on_focus_changed = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    /// The window's outer frame moved or changed size.
+    pub fn on_moved(mut self, handler: impl FnMut(crate::windows::WindowFrame) + 'static) -> Self {
+        self.on_moved = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    /// The window is being dragged out of a tab, and how that ended.
+    pub fn on_drag(
+        mut self,
+        handler: impl FnMut(crate::windows::WindowDragEvent) + 'static,
+    ) -> Self {
+        self.on_drag = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    /// The platform could not open this window. Tell the user, or put the tab back.
+    pub fn on_unavailable(mut self, handler: impl FnMut() + 'static) -> Self {
+        self.on_unavailable = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    /// The system closed the window without asking. Stop composing it.
+    pub fn on_closed(mut self, handler: impl FnMut() + 'static) -> Self {
+        self.on_closed = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    /// Composes this window with `content` as its children.
+    pub fn content(mut self, content: impl FnOnce()) {
+        self.done = true;
+        self.compose(content);
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        use crate::windows::WindowEvent;
+        let pair = |value: (f32, f32)| {
+            let mut bytes = Vec::with_capacity(8);
+            bytes.extend_from_slice(&value.0.to_bits().to_le_bytes());
+            bytes.extend_from_slice(&value.1.to_bits().to_le_bytes());
+            OwnedAttr::Bytes(bytes)
+        };
+        // Only what was said is written. A property left out is not a property sent as
+        // nothing, and one that was said before and is not now is taken away.
+        let mut properties: Attrs = Vec::new();
+        if let Some(title) = self.title.take() {
+            properties.push(("window_title", OwnedAttr::Text(title)));
+        }
+        if let Some(size) = self.size {
+            properties.push(("window_size", pair(size)));
+        }
+        if let Some(size) = self.min_size {
+            properties.push(("window_min_size", pair(size)));
+        }
+        if let Some(resizable) = self.resizable {
+            properties.push(("window_resizable", OwnedAttr::Bool(resizable)));
+        }
+        if let Some(chrome) = self.chrome {
+            properties.push(("window_chrome", OwnedAttr::Int(i64::from(chrome as u16))));
+        }
+        if let Some(title_bar) = self.title_bar {
+            properties.push((
+                "window_title_bar",
+                OwnedAttr::Int(i64::from(title_bar as u16)),
+            ));
+        }
+        if let Some(icon) = self.icon {
+            properties.push(("window_icon", OwnedAttr::Int(i64::from(icon))));
+        }
+        if let Some(position) = self.position {
+            properties.push(("window_position", pair(position)));
+        }
+        if let Some(key) = self.restore_key.take() {
+            properties.push(("window_restore_key", OwnedAttr::Text(key)));
+        }
+        if let Some(level) = self.zoom_level {
+            properties.push(("window_zoom_level", OwnedAttr::Int(i64::from(level))));
+        }
+        if let Some(drag) = self.drag_from_pointer {
+            properties.push(("drag_from_pointer", OwnedAttr::Bytes(drag.to_bytes())));
+        }
+
+        let mut listeners: Vec<(&'static str, EventCallback)> = Vec::new();
+        let mut close = self.on_close_request.take();
+        listeners.push((
+            "onwindowclose",
+            window_callback(move |event| {
+                if let (WindowEvent::CloseRequested, Some(handler)) = (event, close.as_mut()) {
+                    handler();
+                }
+            }),
+        ));
+        if let Some(mut handler) = self.on_focus_changed.take() {
+            listeners.push((
+                "onwindowfocus",
+                window_callback(move |event| {
+                    if let WindowEvent::FocusChanged { focused } = event {
+                        handler(focused);
+                    }
+                }),
+            ));
+        }
+        if let Some(mut handler) = self.on_moved.take() {
+            listeners.push((
+                "onwindowmoved",
+                window_callback(move |event| {
+                    if let WindowEvent::Moved {
+                        x,
+                        y,
+                        width,
+                        height,
+                    } = event
+                    {
+                        handler(crate::windows::WindowFrame {
+                            x,
+                            y,
+                            width,
+                            height,
+                        });
+                    }
+                }),
+            ));
+        }
+        if let Some(mut handler) = self.on_drag.take() {
+            listeners.push((
+                "onwindowdrag",
+                window_callback(move |event| {
+                    if let WindowEvent::Drag {
+                        phase,
+                        screen_x,
+                        screen_y,
+                        over_window,
+                    } = event
+                    {
+                        handler(crate::windows::WindowDragEvent {
+                            phase,
+                            screen_x,
+                            screen_y,
+                            over_window,
+                        });
+                    }
+                }),
+            ));
+        }
+        if let Some(mut handler) = self.on_unavailable.take() {
+            listeners.push((
+                "onwindowunavailable",
+                window_callback(move |event| {
+                    if event == WindowEvent::Unavailable {
+                        handler();
+                    }
+                }),
+            ));
+        }
+        if let Some(mut handler) = self.on_closed.take() {
+            listeners.push((
+                "onwindowclosed",
+                window_callback(move |event| {
+                    if event == WindowEvent::Closed {
+                        handler();
+                    }
+                }),
+            ));
+        }
+
+        let theme = self.theme.take();
+        emit(
+            widget_key("compose_rust::ui::Window"),
+            WidgetKind::Window,
+            |attrs| attrs.append(&mut properties),
+            listeners,
+            move || {
+                // The group has its node by now, so the window is known.
+                if let (Some(theme), Some(window)) = (theme, crate::windows::current_window()) {
+                    window.set_theme(theme);
+                }
+                content();
+            },
+        );
+    }
+}
