@@ -62,7 +62,7 @@ private class MwWindow(
         if (config.width > 0f) config.width else 800f,
         if (config.height > 0f) config.height else 600f,
     )
-    var title = config.title
+    var shownTitle = config.title
     var key = false
     var closed = false
     var following = false
@@ -80,7 +80,7 @@ private class MwWindow(
 
     override fun setTitle(title: String) {
         calls += "setTitle"
-        this.title = title
+        this.shownTitle = title
     }
 
     override fun setPosition(x: Float, y: Float) {
@@ -595,7 +595,7 @@ class MultiWindowTest {
         h.batch(Mutation.SetProp(1, PropertyKind.WindowSize, PropertyValue.Bytes(floats(500f, 350f))))
         assertEquals(1, fake.calls.count { it == "setContentSize" })
         h.batch(Mutation.SetProp(1, PropertyKind.WindowTitle, text("New")))
-        assertEquals("New", fake.title)
+        assertEquals("New", fake.shownTitle)
     }
 
     @Test
@@ -720,7 +720,7 @@ class MultiWindowTest {
         }
         h.backend.application!!.onWindowRequested("ws:1", system)
         assertFalse(system.closed)
-        assertEquals("Restored", system.title)
+        assertEquals("Restored", system.shownTitle)
         assertEquals(listOf(1, 8), h.manager.openWindows)
 
         // One the app does not answer with a node is closed.
