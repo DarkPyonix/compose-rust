@@ -363,7 +363,7 @@ internal fun List<ProtocolModifier>.resolvedShape(theme: ResolvedTheme): Shape {
     for (index in indices.reversed()) {
         when (val value = this[index]) {
             // A radius the Host wrote as a number is a circular arc of that many dp in every
-            // design system, as CSS `border-radius` is (FR-50.2). Only a corner chosen by
+            // design system, as CSS `border-radius` is. Only a corner chosen by
             // role follows the system's own curve: a continuous corner of 14 dp measures
             // about 8 px with a ruler, so a number would not mean what it says.
             is ProtocolModifier.Shape -> return RoundedCornerShape(

@@ -15,7 +15,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/** FR-50.2 (#378): a radius written as a number is a circular arc of that many pixels at 1x. */
+/** A radius written as a number is a circular arc of that many pixels at 1x. */
 class LiteralCornerRadiusTest {
     @Test
     fun fr_50_2_a_literal_corner_radius_is_circular_in_every_design_system() {
