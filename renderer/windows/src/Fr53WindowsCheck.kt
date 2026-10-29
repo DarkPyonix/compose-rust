@@ -85,7 +85,7 @@ internal fun runFr53WindowsChecksIfAsked(): Boolean? {
 // ---- the checks ------------------------------------------------------------------------
 
 private fun twoWindowNodesOpenTwoHwndsAndCloseOne() {
-    val h = Harness(listOf(setWindow()) + windowNode(1, PropertyKind.WindowTitle to text("One")) + windowNode(2))
+    val h = Fr53Harness(listOf(setWindow()) + windowNode(1, PropertyKind.WindowTitle to text("One")) + windowNode(2))
     try {
         check(h.loop.manager.openWindows == listOf(1, 2)) { "open windows are ${h.loop.manager.openWindows}, not [1, 2]" }
         check(h.backend.openCount == 2) { "${h.backend.openCount} windows are open, not 2" }
@@ -106,7 +106,7 @@ private fun twoWindowNodesOpenTwoHwndsAndCloseOne() {
 }
 
 private fun closingOneWindowDoesNotQuit() {
-    val h = Harness(listOf(setWindow()) + windowNode(1) + windowNode(2))
+    val h = Fr53Harness(listOf(setWindow()) + windowNode(1) + windowNode(2))
     try {
         val second = h.backend.handles[1]
         h.batch(Mutation.Remove(1))
@@ -122,7 +122,7 @@ private fun closingOneWindowDoesNotQuit() {
 }
 
 private fun closeRequestReachesTheAppAndWindowStays() {
-    val h = Harness(
+    val h = Fr53Harness(
         listOf(setWindow()) +
             windowNode(1, PropertyKind.OnWindowCloseRequested to handler(11)) +
             windowNode(2, PropertyKind.OnWindowCloseRequested to handler(12)),
@@ -152,7 +152,7 @@ private fun closeRequestReachesTheAppAndWindowStays() {
 }
 
 private fun positionRoundTrips() {
-    val h = Harness(
+    val h = Fr53Harness(
         listOf(setWindow()) +
             windowNode(
                 1,
@@ -214,7 +214,7 @@ private fun positionRoundTrips() {
 }
 
 private fun oneRenderFrameServesEveryWindow() {
-    val h = Harness(listOf(setWindow()) + windowNode(1) + windowNode(2) + windowNode(3))
+    val h = Fr53Harness(listOf(setWindow()) + windowNode(1) + windowNode(2) + windowNode(3))
     try {
         // Let the windows paint their first frames, then see how often the Host is asked.
         h.forMillis(300)
@@ -230,7 +230,7 @@ private fun oneRenderFrameServesEveryWindow() {
 }
 
 private fun focusFollowsTheRealActivation() {
-    val h = Harness(
+    val h = Fr53Harness(
         listOf(setWindow()) +
             windowNode(1, PropertyKind.OnWindowFocusChanged to handler(1)) +
             windowNode(2, PropertyKind.OnWindowFocusChanged to handler(2)),
@@ -265,7 +265,7 @@ private fun focusFollowsTheRealActivation() {
 }
 
 private fun lastWindowRemovedExitsTheLoop() {
-    val h = Harness(listOf(setWindow(LastWindowClosed.Exit)) + windowNode(1) + windowNode(2))
+    val h = Fr53Harness(listOf(setWindow(LastWindowClosed.Exit)) + windowNode(1) + windowNode(2))
     try {
         h.batch(Mutation.Remove(1))
         h.forMillis(100)
@@ -282,7 +282,7 @@ private fun lastWindowRemovedExitsTheLoop() {
 
 // ---- the harness -----------------------------------------------------------------------
 
-private class Connection(private val initial: List<Mutation>) : HostConnection {
+private class Fr53Connection(private val initial: List<Mutation>) : HostConnection {
     val events = ArrayList<HostEvent>()
     var renderFrames = 0
     private var next: List<Mutation> = emptyList()
@@ -312,9 +312,9 @@ private class Connection(private val initial: List<Mutation>) : HostConnection {
 }
 
 /** A Host that is a script, the real window manager and loop, real windows. */
-private class Harness(initial: List<Mutation>) {
+private class Fr53Harness(initial: List<Mutation>) {
     val requests = FrameRequestSource()
-    val connection = Connection(initial)
+    val connection = Fr53Connection(initial)
     val host = ComposeRustHost(connection)
     var exits = 0
     val loop = MultiWindowLoop(host, requests) {
@@ -332,7 +332,9 @@ private class Harness(initial: List<Mutation>) {
     }
 
     /** The application sends [mutations] as the answer to the next event, which this sends. */
-    fun batch(vararg mutations: Mutation) = batch(mutations.toList())
+    fun batch(vararg mutations: Mutation) {
+        batch(mutations.toList())
+    }
 
     fun batch(mutations: List<Mutation>) {
         connection.queue(mutations)
