@@ -8,6 +8,11 @@ import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.allocArray
 import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.toKString
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import dev.darkpyonix.composerust.protocol.WidgetKind
 import org.thisisthepy.compose.window.WindowConfig
 
 /**
@@ -34,10 +39,11 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // may already post one. A press on a notification's body raises the window, which does
     // not exist yet, so it is found when the press arrives.
     var opened: LinuxWindow? = null
+    var openedMany: LinuxWindowBackend? = null
     dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting = ::askLinuxForMotion
     Notifications.platform = DBusNotifications(
         open = { PosixBusConnection.open() },
-        bringToFront = { opened?.raise() },
+        bringToFront = { opened?.raise() ?: openedMany?.raiseAny() },
         applicationName = PosixBusConnection.applicationName(),
     )
     // Started before there is a window, because what the window should look like is in the first
@@ -56,6 +62,9 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // renderer happens to be called, which is the library's name and not any application's, and a
     // measurement of zero means it did not ask.
     val asked = host.table.window
+    if (asked?.mode == dev.darkpyonix.composerust.protocol.WindowMode.Windows) {
+        return runWindows(host, main) { openedMany = it }
+    }
     val window = LinuxWindow.open(linuxWindowConfig(asked), main)
     if (window == null) {
         java.lang.System.err.println(
@@ -79,6 +88,56 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     try {
         window.run()
     } finally {
+        host.shutdown()
+    }
+    return RendererApi.RUN_OK
+}
+
+/**
+ * Runs an application of several windows (FR-53): one X11 window for each `Window` node, kept
+ * in step with the node table by the window manager, until the last one is gone under the
+ * `Exit` policy, which is the default on this platform (53.6).
+ *
+ * The Host's frame requests are served here, once for the process: the first of all the
+ * windows to draw is the frame clock, one `render_frame` is made, and the batch it returns is
+ * applied to the one node table that every window's scene reads.
+ */
+private fun runWindows(
+    host: ComposeRustHost,
+    main: FrameDispatcher,
+    opened: (LinuxWindowBackend) -> Unit,
+): Int {
+    val backend = LinuxWindowBackend(main) { nodeId -> { ComposeRustContent(host, windowNodeId = nodeId) } }
+    opened(backend)
+    val manager = WindowManager(host, backend, onExit = backend::requestExit)
+    val frames = CoroutineScope(main + Job())
+    try {
+        manager.attach()
+        val nodes = host.table.roots.count { host.table.node(it)?.widget == WidgetKind.Window }
+        if (nodes > 0 && manager.openWindows.isEmpty()) {
+            java.lang.System.err.println(
+                "compose-rust: no X11 display, or no double buffered GLX visual on it. " +
+                    "Check DISPLAY, and that the machine has an X or XWayland server to talk to.",
+            )
+            return RendererApi.RUN_FAILED
+        }
+        backend.onTurn = { host.table.notifications.pump() }
+        frames.launch {
+            serveFrameRequests(
+                FrameRequests.global.counter,
+                awaitFrame = manager::awaitFrame,
+                serve = { nanos ->
+                    host.renderFrame(nanos)
+                    manager.flushFrame()
+                },
+                alreadyServed = host.requestsBeforeStart,
+            )
+        }
+        backend.run()
+    } finally {
+        frames.cancel()
+        manager.shutdown()
+        backend.closeAll()
         host.shutdown()
     }
     return RendererApi.RUN_OK
