@@ -22,7 +22,7 @@ private const val FIELD = 1
 private const val RED = 0xFFD01010.toInt()
 private const val BLUE = 0xFF1010D0.toInt()
 
-/** FR-56 (#376): what a TextField node names for itself replaces the design system's frame. */
+/** What a TextField node names for itself replaces the design system's frame. */
 @OptIn(ExperimentalTestApi::class)
 class TextFieldNodeStyleTest {
     private fun pixelsOf(vararg modifiers: Pair<Int, ProtocolModifier>) = buildList {

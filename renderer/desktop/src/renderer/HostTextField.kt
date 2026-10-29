@@ -200,7 +200,7 @@ internal fun HostTextField(node: Node, modifier: Modifier, dispatcher: EventDisp
     }
 
     // What the node named for itself replaces what the design system would have drawn
-    // (FR-56). The system's frame is the default for a field that said nothing, and a field
+    // The system's frame is the default for a field that said nothing, and a field
     // that named a fill, a line, a corner or room inside is drawn as it asked: the same rule
     // a Card already follows.
     val ownFill = node.setsOwnBackground()
