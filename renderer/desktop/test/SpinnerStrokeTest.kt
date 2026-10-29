@@ -1,7 +1,7 @@
 package dev.darkpyonix.composerust.test
 
 import androidx.compose.ui.unit.dp
-import dev.darkpyonix.composerust.foundation.ringThickness
+import dev.darkpyonix.composerust.design.ringThickness
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
